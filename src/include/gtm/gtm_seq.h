@@ -1,0 +1,75 @@
+/*-------------------------------------------------------------------------
+ *
+ * gtm_seq.h
+ *
+ *
+ * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
+ *
+ * $PostgreSQL$
+ *
+ *-------------------------------------------------------------------------
+ */
+#ifndef GTM_SEQ_H
+#define GTM_SEQ_H
+
+#include "gtm/stringinfo.h"
+
+/* Global sequence  related structures */
+
+typedef struct GTM_SeqInfo
+{
+	GTM_SequenceKey	gs_key;
+	GTM_Sequence	gs_value;
+	GTM_Sequence	gs_init_value;
+	GTM_Sequence	gs_increment_by;
+	GTM_Sequence	gs_min_value;
+	GTM_Sequence	gs_max_value;
+	bool			gs_cycle;
+	bool			gs_called;
+
+	int32			gs_ref_count;
+	int32			gs_state;
+	GTM_RWLock		gs_lock;
+} GTM_SeqInfo;
+
+#define SEQ_STATE_ACTIVE	1
+#define SEQ_STATE_DELETED	2
+
+#define SEQ_IS_ASCENDING(s)		((s)->gs_increment_by > 0)
+#define SEQ_IS_CYCLE(s)		((s)->gs_cycle)
+#define SEQ_IS_CALLED(s)	((s)->gs_called)
+
+#define SEQ_DEF_MAX_SEQVAL_ASCEND			0x7ffffffffffffffeLL
+#define SEQ_DEF_MIN_SEQVAL_ASCEND			0x1
+
+#define SEQ_DEF_MAX_SEQVAL_DESCEND			-0x1
+#define SEQ_DEF_MIN_SEQVAL_DESCEND			-0x7ffffffffffffffeLL
+
+#define SEQ_MAX_REFCOUNT		1024
+
+/* SEQUENCE Management */
+void GTM_InitSeqManager(void);
+int GTM_SeqOpen(GTM_SequenceKey seqkey,
+			GTM_Sequence increment_by,
+			GTM_Sequence minval,
+			GTM_Sequence maxval,
+			GTM_Sequence startval,
+			bool cycle);
+int GTM_SeqClose(GTM_SequenceKey sqkey);
+GTM_Sequence GTM_SeqGetNext(GTM_SequenceKey seqkey);
+GTM_Sequence GTM_SeqGetCurrent(GTM_SequenceKey seqkey);
+int GTM_SeqReset(GTM_SequenceKey seqkey);
+
+
+void ProcessSequenceInitCommand(Port *myport, StringInfo message);
+void ProcessSequenceGetCurrentCommand(Port *myport, StringInfo message);
+void ProcessSequenceGetNextCommand(Port *myport, StringInfo message);
+void ProcessSequenceResetCommand(Port *myport, StringInfo message);
+void ProcessSequenceCloseCommand(Port *myport, StringInfo message);
+
+void GTM_SaveSeqInfo(int ctlfd);
+void GTM_RestoreSeqInfo(int ctlfd);
+
+#endif

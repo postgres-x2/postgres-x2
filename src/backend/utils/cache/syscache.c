@@ -5,6 +5,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  *
  * IDENTIFICATION
@@ -49,6 +50,9 @@
 #include "catalog/pg_ts_template.h"
 #include "catalog/pg_type.h"
 #include "catalog/pg_user_mapping.h"
+#ifdef PGXC
+#include "catalog/pgxc_class.h"
+#endif
 #include "utils/rel.h"
 #include "utils/syscache.h"
 
@@ -524,6 +528,20 @@ static const struct cachedesc cacheinfo[] = {
 		},
 		64
 	},
+#ifdef PGXC
+	{PgxcClassRelationId,	/* PGXCCLASSRELID */
+		PgxcClassPgxcRelIdIndexId,
+		Anum_pgxc_class_pcrelid,
+		1,
+		{
+			ObjectIdAttributeNumber,
+			0,
+			0,
+			0
+		},
+		1024
+	},
+#endif
 	{ProcedureRelationId,		/* PROCNAMEARGSNSP */
 		ProcedureNameArgsNspIndexId,
 		0,

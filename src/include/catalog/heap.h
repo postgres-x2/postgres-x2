@@ -6,6 +6,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  * $PostgreSQL: pgsql/src/include/catalog/heap.h,v 1.91 2009/06/11 14:49:09 momjian Exp $
  *
@@ -106,5 +107,12 @@ extern Form_pg_attribute SystemAttributeByName(const char *attname,
 extern void CheckAttributeNamesTypes(TupleDesc tupdesc, char relkind);
 
 extern void CheckAttributeType(const char *attname, Oid atttypid);
+
+#ifdef PGXC
+extern void AddRelationDistribution (Oid relid, 
+				DistributeBy *distributeby,
+				List 		 *parentOids,
+				TupleDesc	 descriptor);
+#endif
 
 #endif   /* HEAP_H */

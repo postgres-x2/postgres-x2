@@ -10,6 +10,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  *
  * IDENTIFICATION
@@ -57,6 +58,9 @@
 #include "utils/syscache.h"
 #include "utils/tqual.h"
 
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#endif
 
 /*
  * GUC parameters
@@ -899,6 +903,18 @@ vac_update_datfrozenxid(void)
 	if (dirty)
 	{
 		database_file_update_needed();
+		/*
+		 * vac_truncate_clog needs a transaction id to detect wrap-arounds. For
+		 * a autovacuum, this would require the data node to contact the GTM or
+		 * the coordinator and acquire GXID for the vacuum operation.
+		 *
+		 * To avoid this complexity, we disable the CLOG truncation. This is
+		 * perfectly fine for the prototype because we are not handling GXID
+		 * wrap-around in the prototype anyways. In future, this should be
+		 * fixed either by acquiring GXID for the vacuum operation or by
+		 * modifying the wrap-around check logic such that it does not need a
+		 * GXID
+		 */
 		vac_truncate_clog(newFrozenXid);
 	}
 }
@@ -1026,7 +1042,8 @@ vacuum_rel(Oid relid, VacuumStmt *vacstmt, bool do_toast, bool for_wraparound,
 
 	if (scanned_all)
 		*scanned_all = false;
-
+#ifndef PGXC
+	/* In PG-XC, do these after setting vacuum flags */
 	/* Begin a transaction for vacuuming this relation */
 	StartTransactionCommand();
 
@@ -1035,6 +1052,7 @@ vacuum_rel(Oid relid, VacuumStmt *vacstmt, bool do_toast, bool for_wraparound,
 	 * ensures that RecentGlobalXmin is kept truly recent.
 	 */
 	PushActiveSnapshot(GetTransactionSnapshot());
+#endif
 
 	if (!vacstmt->full)
 	{
@@ -1065,6 +1083,19 @@ vacuum_rel(Oid relid, VacuumStmt *vacstmt, bool do_toast, bool for_wraparound,
 		LWLockRelease(ProcArrayLock);
 	}
 
+#ifdef PGXC
+	elog (DEBUG1, "Starting vacuum transaction");
+	/* In PG-XC, do these after setting vacuum flags */
+	/* Begin a transaction for vacuuming this relation */
+	StartTransactionCommand();
+	elog (DEBUG1, "Started vacuum transaction");
+
+	/*
+	 * Functions in indexes may want a snapshot set.  Also, setting
+	 * a snapshot ensures that RecentGlobalXmin is kept truly recent.
+	 */
+	PushActiveSnapshot(GetTransactionSnapshot());
+#endif
 	/*
 	 * Check for user-requested abort.	Note we want this to be inside a
 	 * transaction, so xact.c doesn't issue useless WARNING.

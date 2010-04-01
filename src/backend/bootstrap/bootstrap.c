@@ -6,6 +6,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  * IDENTIFICATION
  *	  $PostgreSQL: pgsql/src/backend/bootstrap/bootstrap.c,v 1.250 2009/02/18 15:58:41 heikki Exp $
@@ -41,6 +42,10 @@
 #include "utils/memutils.h"
 #include "utils/ps_status.h"
 #include "utils/tqual.h"
+
+#ifdef PGXC
+#include "pgxc/poolmgr.h"
+#endif
 
 extern int	optind;
 extern char *optarg;
@@ -329,6 +334,11 @@ AuxiliaryProcessMain(int argc, char *argv[])
 
 		switch (auxType)
 		{
+#ifdef PGXC /* PGXC_COORD */
+			case PoolerProcess:
+				statmsg = "pooler process";
+				break;
+#endif
 			case StartupProcess:
 				statmsg = "startup process";
 				break;
@@ -402,6 +412,13 @@ AuxiliaryProcessMain(int argc, char *argv[])
 
 	switch (auxType)
 	{
+#ifdef PGXC /* PGXC_COORD */
+		case PoolerProcess:
+			/* don't set signals, pool manager has its own agenda */
+			PoolManagerInit();
+			proc_exit(1);		/* should never return */
+#endif
+
 		case CheckerProcess:
 			bootstrap_signals();
 			CheckerModeMain();

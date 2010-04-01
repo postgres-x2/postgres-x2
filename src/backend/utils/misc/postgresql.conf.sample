@@ -106,7 +106,7 @@
 #shared_buffers = 32MB			# min 128kB
 					# (change requires restart)
 #temp_buffers = 8MB			# min 800kB
-#max_prepared_transactions = 0		# zero disables the feature
+#max_prepared_transactions = 10		# zero disables the feature
 					# (change requires restart)
 # Note:  Increasing max_prepared_transactions costs ~600 bytes of shared memory
 # per transaction slot, plus lock space (see max_locks_per_transaction).
@@ -490,9 +490,61 @@
 
 #transform_null_equals = off
 
+#------------------------------------------------------------------------------
+# DATA NODES AND CONNECTION POOLING
+#------------------------------------------------------------------------------
+
+#pooler_port = 6667			# Pool Manager TCP port
+					# (change requires restart)
+#num_data_nodes = 2			# Number of Data Nodes
+					# (change requires restart)
+#preferred_data_nodes = ''		# List of preferred Data Nodes to read from 
+					# replicated tables. If empty use all the data nodes
+					# (change requires restart)
+#min_pool_size = 1			# Initial pool size
+					# (change requires restart)
+#max_pool_size = 100			# Maximum pool size
+					# (change requires restart)
+#persistent_datanode_connections = off	# Set persistent connection mode for pooler
+					# if set at on, connections taken for coordinator
+					# are not put back to pool
+#data_node_hosts = 'localhost'		# Host names or addresses of data nodes
+					# (change requires restart)
+#data_node_ports = '15432,25432'	# Port numbers of data nodes
+					# (change requires restart)
+#data_node_users = 'postgres'		# User names of data nodes
+					# (change requires restart)
+#data_node_passwords = 'postgres'	# Passwords of data nodes
+					# (change requires restart)
+# Note each adata_node_... value should be either a single value if respective 
+# parameter is the same on all nodes or a comma-separated list, with number of 
+# entries not less then number of nodes end each entry is a value for node with 
+# respective number between 1 and num_data_nodes. If list is longer then 
+# num_data_nodes extra values are ignored.  
 
 #------------------------------------------------------------------------------
+# GTM CONNECTION
+#------------------------------------------------------------------------------
+
+#gtm_host = 'localhost'			# Host name or address of GTM
+					# (change requires restart)
+#gtm_port = 6666			# Port of GTM
+					# (change requires restart)
+#gtm_coordinator_id = 1			# Coordinator identifier
+					# (change requires restart)
+
+##------------------------------------------------------------------------------
+# OTHER PG-XC OPTIONS
+#------------------------------------------------------------------------------
+#strict_statement_checking = on		# Forbid PG-XC-unsafe SQL
+					# Enabling is useful for development
+#strict_select_checking = off		# Temporary; be strict about allowing 
+					# multi-node ORDER BY
+
+
+##------------------------------------------------------------------------------
 # CUSTOMIZED OPTIONS
 #------------------------------------------------------------------------------
 
 #custom_variable_classes = ''		# list of custom variable class names
+

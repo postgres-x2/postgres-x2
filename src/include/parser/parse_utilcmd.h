@@ -6,6 +6,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  * $PostgreSQL: pgsql/src/include/parser/parse_utilcmd.h,v 1.4 2009/01/01 17:24:00 momjian Exp $
  *
@@ -24,5 +25,8 @@ extern IndexStmt *transformIndexStmt(IndexStmt *stmt, const char *queryString);
 extern void transformRuleStmt(RuleStmt *stmt, const char *queryString,
 				  List **actions, Node **whereClause);
 extern List *transformCreateSchemaStmt(CreateSchemaStmt *stmt);
+#ifdef PGXC
+extern bool CheckLocalIndexColumn (char loctype, char *partcolname, char *indexcolname);
+#endif
 
 #endif   /* PARSE_UTILCMD_H */

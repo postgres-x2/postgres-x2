@@ -39,7 +39,7 @@ WANTED_DIRS = \
 		tablefunc	\
 		test_parser	\
 		tsearch2	\
-		vacuumlo
+		vacuumlo	
 
 ifeq ($(with_openssl),yes)
 WANTED_DIRS += sslinfo

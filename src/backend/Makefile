@@ -15,8 +15,8 @@ top_builddir = ../..
 include $(top_builddir)/src/Makefile.global
 
 SUBDIRS = access bootstrap catalog parser commands executor foreign lib libpq \
-	main nodes optimizer port postmaster regex rewrite \
-	storage tcop tsearch utils $(top_builddir)/src/timezone
+	pgxc main nodes optimizer port postmaster regex rewrite \
+	storage tcop tsearch utils $(top_builddir)/src/timezone $(top_builddir)/src/interfaces/libpq
 
 include $(srcdir)/common.mk
 
@@ -26,7 +26,19 @@ LOCALOBJS += utils/probes.o
 endif
 endif
 
-OBJS = $(SUBDIROBJS) $(LOCALOBJS) $(top_builddir)/src/port/libpgport_srv.a
+OBJS = $(SUBDIROBJS) $(LOCALOBJS) \
+	$(top_builddir)/src/interfaces/libpq/fe-connect.o \
+	$(top_builddir)/src/interfaces/libpq/fe-secure.o \
+	$(top_builddir)/src/interfaces/libpq/fe-misc.o \
+	$(top_builddir)/src/interfaces/libpq/fe-protocol3.o \
+	$(top_builddir)/src/interfaces/libpq/fe-protocol2.o \
+	$(top_builddir)/src/interfaces/libpq/fe-exec.o \
+	$(top_builddir)/src/interfaces/libpq/fe-auth.o \
+	$(top_builddir)/src/interfaces/libpq/pqexpbuffer.o \
+	$(top_builddir)/src/port/libpgport_srv.a \
+	$(top_builddir)/src/gtm/client/libgtmclient.a \
+	$(top_builddir)/src/gtm/common/libgtm.a \
+	$(top_builddir)/src/gtm/libpq/libpqcomm.a	
 
 # We put libpgport into OBJS, so remove it from LIBS; also add libldap
 LIBS := $(filter-out -lpgport, $(LIBS)) $(LDAP_LIBS_BE)
@@ -34,6 +46,8 @@ LIBS := $(filter-out -lpgport, $(LIBS)) $(LDAP_LIBS_BE)
 # The backend doesn't need everything that's in LIBS, however
 LIBS := $(filter-out -lz -lreadline -ledit -ltermcap -lncurses -lcurses, $(LIBS))
 
+# LIBS := $(LIBS) -lpqcomm
+# LDFLAGS += -L$(top_builddir)/src/gtm/libpg
 ##########################################################################
 
 all: submake-libpgport postgres $(POSTGRES_IMP)
@@ -43,7 +57,7 @@ ifneq ($(PORTNAME), win32)
 ifneq ($(PORTNAME), aix)
 
 postgres: $(OBJS)
-	$(CC) $(CFLAGS) $(LDFLAGS) $(export_dynamic) $(call expand_subsys,$^) $(LIBS) -o $@
+	$(CC) $(CFLAGS) $(LDFLAGS) -L$(top_builddir)/src/gtm/libpg $(export_dynamic) $(call expand_subsys,$^) $(LIBS) -o $@
 
 endif
 endif

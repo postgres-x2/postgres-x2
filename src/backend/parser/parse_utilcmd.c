@@ -18,6 +18,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  *	$PostgreSQL: pgsql/src/backend/parser/parse_utilcmd.c,v 2.21 2009/06/11 14:49:00 momjian Exp $
  *
@@ -48,6 +49,11 @@
 #include "parser/parse_relation.h"
 #include "parser/parse_type.h"
 #include "parser/parse_utilcmd.h"
+#ifdef PGXC
+#include "pgxc/locator.h"
+#include "pgxc/pgxc.h"
+#endif
+
 #include "rewrite/rewriteManip.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
@@ -75,6 +81,10 @@ typedef struct
 	List	   *alist;			/* "after list" of things to do after creating
 								 * the table */
 	IndexStmt  *pkey;			/* PRIMARY KEY index, if any */
+#ifdef PGXC
+	char	  *fallback_dist_col;	/* suggested column to distribute on */
+	DistributeBy *distributeby; /* original distribute by column in create table */
+#endif
 } CreateStmtContext;
 
 /* State shared by transformCreateSchemaStmt and its subroutines */
@@ -114,7 +124,9 @@ static void transformFKConstraints(ParseState *pstate,
 static void transformConstraintAttrs(List *constraintList);
 static void transformColumnType(ParseState *pstate, ColumnDef *column);
 static void setSchemaName(char *context_schema, char **stmt_schema_name);
-
+#ifdef PGXC
+static void checkLocalFKConstraints(CreateStmtContext *cxt);
+#endif
 
 /*
  * transformCreateStmt -
@@ -177,6 +189,10 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString)
 	cxt.alist = NIL;
 	cxt.pkey = NULL;
 	cxt.hasoids = interpretOidsOption(stmt->options);
+#ifdef PGXC
+	cxt.fallback_dist_col = NULL;
+	cxt.distributeby = stmt->distributeby;
+#endif
 
 	/*
 	 * Run through each primary element in the table creation clause. Separate
@@ -244,6 +260,18 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString)
 	result = list_concat(result, cxt.alist);
 	result = list_concat(result, save_alist);
 
+#ifdef PGXC
+	/* 
+	 * If the user did not specify any distribution clause and there is no 
+	 * inherits clause, try and use PK or unique index 
+	 */
+	if (!stmt->distributeby && !stmt->inhRelations && cxt.fallback_dist_col)
+	{
+		stmt->distributeby = (DistributeBy *) palloc0(sizeof(DistributeBy));
+		stmt->distributeby->disttype = DISTTYPE_HASH;
+		stmt->distributeby->colname = cxt.fallback_dist_col;
+	}
+#endif
 	return result;
 }
 
@@ -307,7 +335,7 @@ transformColumnDefinition(ParseState *pstate, CreateStmtContext *cxt,
 		char	   *snamespace;
 		char	   *sname;
 		char	   *qstring;
-		A_Const    *snamenode;
+		A_Const	   *snamenode;
 		TypeCast   *castnode;
 		FuncCall   *funccallnode;
 		CreateSeqStmt *seqstmt;
@@ -1061,6 +1089,7 @@ transformIndexConstraints(ParseState *pstate, CreateStmtContext *cxt)
 	}
 }
 
+
 /*
  * transformIndexConstraint
  *		Transform one UNIQUE or PRIMARY KEY constraint for
@@ -1072,6 +1101,10 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 	IndexStmt  *index;
 	ListCell   *keys;
 	IndexElem  *iparam;
+#ifdef PGXC
+		bool		isLocalSafe = false;
+#endif
+
 
 	index = makeNode(IndexStmt);
 
@@ -1126,6 +1159,22 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 			if (strcmp(column->colname, key) == 0)
 			{
 				found = true;
+
+#ifdef PGXC
+				/*
+			 	 * Only allow locally enforceable constraints.
+				 * See if it is a distribution column
+				 * If not set, set it to first column in index.
+				 * If primary key, we prefer that over a unique constraint.
+				 */
+			   if (IS_PGXC_COORDINATOR && !isLocalSafe)
+			   {
+					if (cxt->distributeby)
+						isLocalSafe = CheckLocalIndexColumn (
+								ConvertToLocatorType(cxt->distributeby->disttype), 
+								cxt->distributeby->colname, key);
+			   }
+#endif
 				break;
 			}
 		}
@@ -1219,6 +1268,27 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 			}
 		}
 
+#ifdef PGXC
+		if (IS_PGXC_COORDINATOR)
+		{
+			/*
+			 * Set fallback distribution column.
+			 * If not set, set it to first column in index. 
+			 * If primary key, we prefer that over a unique constraint.
+			 */
+			if (index->indexParams == NIL
+					&& (index->primary || !cxt->fallback_dist_col))
+			{
+				cxt->fallback_dist_col = pstrdup(key);
+			}
+	
+			/* Existing table, check if it is safe */
+			if (!cxt->distributeby && !isLocalSafe)
+				isLocalSafe = CheckLocalIndexColumn (
+						cxt->rel->rd_locator_info->locatorType, cxt->rel->rd_locator_info->partAttrName, key);
+		}
+#endif
+
 		/* OK, add it to the index definition */
 		iparam = makeNode(IndexElem);
 		iparam->name = pstrdup(key);
@@ -1228,6 +1298,13 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 		iparam->nulls_ordering = SORTBY_NULLS_DEFAULT;
 		index->indexParams = lappend(index->indexParams, iparam);
 	}
+#ifdef PGXC
+		if (IS_PGXC_COORDINATOR && cxt->distributeby 
+				&& cxt->distributeby->disttype == DISTTYPE_HASH && !isLocalSafe)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
+					errmsg("Unique index of partitioned table must contain the hash distribution column.")));
+#endif
 
 	return index;
 }
@@ -1256,8 +1333,33 @@ transformFKConstraints(ParseState *pstate, CreateStmtContext *cxt,
 			FkConstraint *fkconstraint = (FkConstraint *) lfirst(fkclist);
 
 			fkconstraint->skip_validation = true;
+#ifdef PGXC
+			/*
+			 * Set fallback distribution column.
+			 * If not yet set, set it to first column in FK constraint
+			 * if it references a partitioned table
+			 */
+			if (IS_PGXC_COORDINATOR && !cxt->fallback_dist_col)
+			{
+				Oid pk_rel_id = RangeVarGetRelid(fkconstraint->pktable, false);
+
+				/* make sure it is a partitioned column */
+				if (IsHashColumnForRelId(pk_rel_id, strVal(list_nth(fkconstraint->pk_attrs,0))))
+				{
+					/* take first column */
+					char *colstr = strdup(strVal(list_nth(fkconstraint->fk_attrs,0)));
+					cxt->fallback_dist_col = pstrdup(colstr);
+				}
+			}
+#endif
 		}
 	}
+
+#ifdef PGXC
+	/* Only allow constraints that are locally enforceable - no distributed ones */
+	if (IS_PGXC_COORDINATOR)
+		checkLocalFKConstraints(cxt);
+#endif
 
 	/*
 	 * For CREATE TABLE or ALTER TABLE ADD COLUMN, gin up an ALTER TABLE ADD
@@ -1714,6 +1816,10 @@ transformAlterTableStmt(AlterTableStmt *stmt, const char *queryString)
 	cxt.blist = NIL;
 	cxt.alist = NIL;
 	cxt.pkey = NULL;
+#ifdef PGXC
+	cxt.fallback_dist_col = NULL;
+	cxt.distributeby = NULL;
+#endif
 
 	/*
 	 * The only subtypes that currently require parse transformation handling
@@ -2115,3 +2221,118 @@ setSchemaName(char *context_schema, char **stmt_schema_name)
 						"different from the one being created (%s)",
 						*stmt_schema_name, context_schema)));
 }
+
+#ifdef PGXC
+/*
+ * CheckLocalIndexColumn
+ *
+ * Checks whether or not the index can be safely enforced locally
+ */
+bool
+CheckLocalIndexColumn (char loctype, char *partcolname, char *indexcolname)
+{
+
+	if (loctype == LOCATOR_TYPE_REPLICATED)
+		/* always safe */
+		return true;
+	if (loctype == LOCATOR_TYPE_RROBIN)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
+					errmsg("Cannot locally enforce a unique index on round robin distributed table.")));
+	else if (loctype == LOCATOR_TYPE_HASH)
+	{
+		if (partcolname && indexcolname && strcmp(partcolname, indexcolname) == 0)
+			return true;
+	}
+	return false;
+}
+
+
+/*
+ * check to see if the constraint can be enforced locally
+ * if not, an error will be thrown
+ */
+void
+static checkLocalFKConstraints(CreateStmtContext *cxt)
+{
+	ListCell *fkclist;
+
+	foreach(fkclist, cxt->fkconstraints)
+	{
+		FkConstraint *fkconstraint;
+		Oid pk_rel_id;
+		char refloctype;
+		char *checkcolname = NULL;
+
+		fkconstraint = (FkConstraint *) lfirst(fkclist);
+		pk_rel_id = RangeVarGetRelid(fkconstraint->pktable, false);
+
+		refloctype = GetLocatorType(pk_rel_id);
+
+		/* If referenced table is replicated, the constraint is safe */
+		if (refloctype == LOCATOR_TYPE_REPLICATED)
+				continue;
+		else if (refloctype == LOCATOR_TYPE_RROBIN)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					errmsg("Cannot reference a round robin table in a foreign key constraint")));
+		}
+
+		/*
+		 * See if we are hash partitioned and the column appears in the
+		 * constraint, and it corresponds to the position in the referenced table.
+		 */
+		if (cxt->isalter)
+		{
+			if (cxt->rel->rd_locator_info->locatorType == LOCATOR_TYPE_HASH)
+			{
+				checkcolname = cxt->rel->rd_locator_info->partAttrName;
+			}
+		}
+		else
+		{
+			if (cxt->distributeby)
+			{
+				if (cxt->distributeby->disttype == DISTTYPE_HASH)
+					checkcolname = cxt->distributeby->colname;
+			}
+			else
+			{
+				if (cxt->fallback_dist_col)
+					checkcolname = cxt->fallback_dist_col;
+			}
+		}
+
+		if (checkcolname)
+		{
+			int pos = 0;
+
+			ListCell *attritem;
+
+			foreach(attritem, fkconstraint->fk_attrs)
+			{
+				char *attrname = (char *) strVal(lfirst(attritem));
+
+				if (strcmp(cxt->rel->rd_locator_info->partAttrName, attrname) == 0)
+				{
+					/* Found the ordinal position in constraint */
+					break;
+				}
+				pos++;
+			}
+
+			if (pos >= list_length(fkconstraint->fk_attrs))
+				ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								errmsg("Hash distributed table must include distribution column in index")));
+
+			/* Verify that the referenced table is partitioned at the same position in the index */
+			if (!IsHashColumnForRelId(pk_rel_id, strVal(list_nth(fkconstraint->pk_attrs,pos))))
+				ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								errmsg("Hash distribution column does not refer to hash distribution column in referenced table.")));
+		}
+	}
+}
+#endif

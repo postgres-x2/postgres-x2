@@ -16,6 +16,8 @@ include Makefile.global
 all install installdirs uninstall distprep:
 	$(MAKE) -C port $@
 	$(MAKE) -C timezone $@
+	# GTM should be built before backend because of dependancy
+	$(MAKE) -C gtm $@
 	$(MAKE) -C backend $@
 	$(MAKE) -C backend/utils/mb/conversion_procs $@
 	$(MAKE) -C backend/snowball $@
@@ -47,6 +49,7 @@ uninstall-local:
 clean:
 	$(MAKE) -C port $@
 	$(MAKE) -C timezone $@
+	$(MAKE) -C gtm $@
 	$(MAKE) -C backend $@
 	$(MAKE) -C backend/snowball $@
 	$(MAKE) -C include $@
@@ -61,6 +64,7 @@ clean:
 distclean maintainer-clean:
 	$(MAKE) -C port $@
 	$(MAKE) -C timezone $@
+	$(MAKE) -C gtm $@
 	$(MAKE) -C backend $@
 	$(MAKE) -C backend/snowball $@
 	$(MAKE) -C include $@

@@ -1,0 +1,61 @@
+
+Global Transaction Manager (GTM)
+--------------------------------
+
+1. Source code layout:
+----------------------
+
+The server side code is located in the "include", "common" and
+"main" directories. The "include" directory hosts all the header
+files some of which are also shared by the client.
+
+The "common" directory contains the infrastructure pieces for the
+server such as error reporting, memory management, locking etc.
+Most of the server side logic including message processing,
+transaction management, thread and connection management is hosted
+in the "main" directory.
+
+The client side code is put in the "client" directory including all
+client side infrastructure and test programs.
+
+
+2. Building GTM Server and Clients:
+-----------------------------------
+
+Go to the top level directory (where this README is located) and run
+the make command to build the sources.
+
+$ make
+
+This would build the GTM server in the "main" directory and client
+libraries in the "client" directory.
+
+You may want to change the following two defines in main/main.c 
+
+#define GTM_DEFAULT_HOSTNAME    "localhost"
+#define GTM_DEFAULT_PORT        6666
+
+
+3. Running the GTM Server:
+---------------------------
+
+You can run the GTM server by running the following command from the
+top level directory.
+
+$ ./main/gtm
+
+The server will start listening on port 6666 for incoming connections.
+
+
+4. Building test clients:
+-------------------------
+
+Go to the "client/test" directory and run make to build the test clients.
+
+$ cd client/test
+$ make
+
+This would build various test clients, statically linking to the libgtmclient.a
+library in the client directory. You may need to change the connect string
+appropriately connect to the GTM server.
+

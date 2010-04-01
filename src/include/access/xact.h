@@ -6,6 +6,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  * $PostgreSQL: pgsql/src/include/access/xact.h,v 1.98 2009/06/11 14:49:09 momjian Exp $
  *
@@ -18,7 +19,9 @@
 #include "nodes/pg_list.h"
 #include "storage/relfilenode.h"
 #include "utils/timestamp.h"
-
+#ifdef PGXC  /* PGXC_COORD */
+#include "gtm/gtm_c.h"
+#endif
 
 /*
  * Xact isolation levels
@@ -145,6 +148,9 @@ extern TransactionId GetTopTransactionId(void);
 extern TransactionId GetTopTransactionIdIfAny(void);
 extern TransactionId GetCurrentTransactionId(void);
 extern TransactionId GetCurrentTransactionIdIfAny(void);
+#ifdef PGXC  /* PGXC_COORD */
+extern GlobalTransactionId GetCurrentGlobalTransactionId(void);
+#endif
 extern SubTransactionId GetCurrentSubTransactionId(void);
 extern CommandId GetCurrentCommandId(bool used);
 extern TimestampTz GetCurrentTransactionStartTimestamp(void);

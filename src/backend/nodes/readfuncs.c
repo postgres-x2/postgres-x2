@@ -5,6 +5,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  *
  * IDENTIFICATION
@@ -1153,6 +1154,22 @@ _readRangeTblEntry(void)
 
 	READ_DONE();
 }
+
+#ifdef PGXC
+/*
+ * _readDistributeBy
+ */
+static DistributeBy *
+_readDistributeBy(void)
+{
+	READ_LOCALS(DistributeBy);
+
+	READ_ENUM_FIELD(disttype, DistributionType);
+	READ_STRING_FIELD(colname);
+
+	READ_DONE();
+}
+#endif
 
 
 /*

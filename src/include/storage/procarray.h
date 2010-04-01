@@ -6,6 +6,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  * $PostgreSQL: pgsql/src/include/storage/procarray.h,v 1.26 2009/06/11 14:49:12 momjian Exp $
  *
@@ -26,6 +27,10 @@ extern void ProcArrayRemove(PGPROC *proc, TransactionId latestXid);
 extern void ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid);
 extern void ProcArrayClearTransaction(PGPROC *proc);
 
+#ifdef PGXC  /* PGXC_DATANODE */
+extern void SetGlobalSnapshotData(int xmin, int xmax, int xcnt, int *xip);
+extern void UnsetGlobalSnapshotData(void);
+#endif /* PGXC */
 extern Snapshot GetSnapshotData(Snapshot snapshot);
 
 extern bool TransactionIdIsInProgress(TransactionId xid);

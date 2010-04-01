@@ -5,6 +5,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  *
  * IDENTIFICATION
@@ -76,6 +77,10 @@
 #include "utils/syscache.h"
 #include "utils/tqual.h"
 
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#include "access/gtm.h"
+#endif
 
 /*
  * ON COMMIT action list
@@ -523,6 +528,18 @@ DefineRelation(CreateStmt *stmt, char relkind)
 	 */
 	CommandCounterIncrement();
 
+#ifdef PGXC
+	/*
+	 * Add to pgxc_class.
+	 * we need to do this after CommandCounterIncrement 
+	 */
+	if (IS_PGXC_COORDINATOR && relkind == RELKIND_RELATION)
+	{
+		AddRelationDistribution (relationId, stmt->distributeby, inheritOids, descriptor);
+		CommandCounterIncrement();
+	}
+#endif
+
 	/*
 	 * Open the new relation and acquire exclusive lock on it.	This isn't
 	 * really necessary for locking out other backends (since they can't see
@@ -739,6 +756,16 @@ RemoveRelations(DropStmt *drop)
 
 		add_exact_object_address(&obj, objects);
 
+
+#ifdef PGXC  /* PGXC_COORD */
+		/* PGXCTODO: allow the ability to rollback dropping sequences. */
+
+		/* Drop the sequence */
+		if (IS_PGXC_COORDINATOR && classform->relkind == RELKIND_SEQUENCE)
+		{
+			DropSequenceGTM(rel->relname);	
+		}
+#endif
 		ReleaseSysCache(tuple);
 	}
 

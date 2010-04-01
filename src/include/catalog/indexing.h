@@ -7,6 +7,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  * $PostgreSQL: pgsql/src/include/catalog/indexing.h,v 1.108 2009/06/11 14:49:09 momjian Exp $
  *
@@ -266,6 +267,11 @@ DECLARE_UNIQUE_INDEX(pg_user_mapping_oid_index, 174, on pg_user_mapping using bt
 
 DECLARE_UNIQUE_INDEX(pg_user_mapping_user_server_index, 175, on pg_user_mapping using btree(umuser oid_ops, umserver oid_ops));
 #define UserMappingUserServerIndexId	175
+
+#ifdef PGXC
+DECLARE_UNIQUE_INDEX(pgxc_class_pcrelid_index, 9002, on pgxc_class using btree(pcrelid oid_ops));
+#define PgxcClassPgxcRelIdIndexId 	9002
+#endif
 
 /* last step of initialization script: build the indexes declared above */
 BUILD_INDICES

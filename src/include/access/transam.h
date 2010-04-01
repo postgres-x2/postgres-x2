@@ -6,6 +6,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  * $PostgreSQL: pgsql/src/include/access/transam.h,v 1.68 2009/05/08 03:21:35 momjian Exp $
  *
@@ -152,6 +153,11 @@ extern TransactionId TransactionIdLatest(TransactionId mainxid,
 extern XLogRecPtr TransactionIdGetCommitLSN(TransactionId xid);
 
 /* in transam/varsup.c */
+#ifdef PGXC  /* PGXC_DATANODE */
+extern void SetNextTransactionId(TransactionId xid);
+extern void SetForceXidFromGTM(bool value);
+extern bool GetForceXidFromGTM(void);
+#endif /* PGXC */
 extern TransactionId GetNewTransactionId(bool isSubXact);
 extern TransactionId ReadNewTransactionId(void);
 extern void SetTransactionIdLimit(TransactionId oldest_datfrozenxid,

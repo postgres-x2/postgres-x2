@@ -40,6 +40,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  * Portions taken from FreeBSD.
  *
  * $PostgreSQL: pgsql/src/bin/initdb/initdb.c,v 1.172 2009/06/11 14:49:07 momjian Exp $
@@ -62,6 +63,7 @@
 #include "getopt_long.h"
 #include "miscadmin.h"
 
+#include "postgres.h"
 
 /*
  * these values are passed in by makefile defines
@@ -3179,14 +3181,34 @@ main(int argc, char *argv[])
 	strcpy(bin_dir, argv[0]);
 	get_parent_directory(bin_dir);
 
-	printf(_("\nSuccess. You can now start the database server using:\n\n"
-			 "    %s%s%spostgres%s -D %s%s%s\n"
+
+#ifdef PGXC
+	printf(_("\nSuccess.\n You can now start the database server of the Postgres-XC coordinator using:\n\n"
+			 "    %s%s%spostgres%s -C -D %s%s%s\n"
 			 "or\n"
-			 "    %s%s%spg_ctl%s -D %s%s%s -l logfile start\n\n"),
+			 "    %s%s%spg_ctl%s start -D %s%s%s -S coordinator -l logfile\n\n"
+			 " You can now start the database server of the Postgres-XC datanode using:\n\n"
+			 "    %s%s%spostgres%s -X -D %s%s%s\n"
+			 "or \n"
+			 "    %s%s%spg_ctl%s start -D %s%s%s -S datanode -l logfile\n\n"),
+	   QUOTE_PATH, bin_dir, (strlen(bin_dir) > 0) ? DIR_SEP : "", QUOTE_PATH,
+		   QUOTE_PATH, pg_data_native, QUOTE_PATH,
+	   QUOTE_PATH, bin_dir, (strlen(bin_dir) > 0) ? DIR_SEP : "", QUOTE_PATH,
+		   QUOTE_PATH, pg_data_native, QUOTE_PATH,
 	   QUOTE_PATH, bin_dir, (strlen(bin_dir) > 0) ? DIR_SEP : "", QUOTE_PATH,
 		   QUOTE_PATH, pg_data_native, QUOTE_PATH,
 	   QUOTE_PATH, bin_dir, (strlen(bin_dir) > 0) ? DIR_SEP : "", QUOTE_PATH,
 		   QUOTE_PATH, pg_data_native, QUOTE_PATH);
+#else
+	printf(_("\nSuccess. You can now start the database server of datanode using:\n\n"
+             "    %s%s%spostgres%s -D %s%s%s\n"
+             "or\n"
+             "    %s%s%spg_ctl%s -D %s%s%s -l logfile start\n\n"),
+	   QUOTE_PATH, bin_dir, (strlen(bin_dir) > 0) ? DIR_SEP : "", QUOTE_PATH,
+		   QUOTE_PATH, pg_data_native, QUOTE_PATH,
+	   QUOTE_PATH, bin_dir, (strlen(bin_dir) > 0) ? DIR_SEP : "", QUOTE_PATH,
+		   QUOTE_PATH, pg_data_native, QUOTE_PATH);
+#endif
 
 	return 0;
 }

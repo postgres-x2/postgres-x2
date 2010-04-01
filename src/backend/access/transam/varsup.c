@@ -4,6 +4,7 @@
  *	  postgres OID & XID variables support routines
  *
  * Copyright (c) 2000-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  * IDENTIFICATION
  *	  $PostgreSQL: pgsql/src/backend/access/transam/varsup.c,v 1.84 2009/04/23 00:23:45 tgl Exp $
@@ -21,6 +22,10 @@
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
 #include "utils/builtins.h"
+#ifdef PGXC  
+#include "pgxc/pgxc.h"
+#include "access/gtm.h"
+#endif
 
 
 /* Number of OIDs to prefetch (preallocate) per XLOG write */
@@ -29,6 +34,40 @@
 /* pointer to "variable cache" in shared memory (set up by shmem.c) */
 VariableCache ShmemVariableCache = NULL;
 
+#ifdef PGXC  /* PGXC_DATANODE */
+static TransactionId next_xid = InvalidTransactionId;
+static bool force_get_xid_from_gtm = false;
+
+/* 
+ * Set next transaction id to use
+ */
+void
+SetNextTransactionId(TransactionId xid)
+{
+	elog (DEBUG1, "[re]setting xid = %d, old_value = %d", xid, next_xid);
+	next_xid = xid;
+}
+
+/* 
+ * Allow force of getting XID from GTM 
+ * Useful for explicit VACUUM (autovacuum already handled)
+ */
+void 
+SetForceXidFromGTM(bool value)
+{
+	force_get_xid_from_gtm = value;
+}
+
+/*
+ * See if we should force using GTM
+ * Useful for explicit VACUUM (autovacuum already handled)
+ */
+bool 
+GetForceXidFromGTM(void)
+{
+	return force_get_xid_from_gtm;
+}
+#endif /* PGXC */
 
 /*
  * Allocate the next XID for my new transaction or subtransaction.
@@ -39,6 +78,9 @@ TransactionId
 GetNewTransactionId(bool isSubXact)
 {
 	TransactionId xid;
+#ifdef PGXC  
+	bool increment_xid = true;
+#endif
 
 	/*
 	 * During bootstrap initialization, we return the special bootstrap
@@ -51,9 +93,100 @@ GetNewTransactionId(bool isSubXact)
 		return BootstrapTransactionId;
 	}
 
+#ifdef PGXC  
+	if (IS_PGXC_COORDINATOR)
+	{
+		/* Get XID from GTM before acquiring the lock.
+		 * The rest of the code will handle it if after obtaining XIDs,
+		 * the lock is acquired in a different order.
+		 * This will help with GTM connection issues- we will not
+		 * block all other processes.
+		 */
+		xid = (TransactionId) BeginTranGTM();
+	}
+#endif
+
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
 
+#ifdef PGXC  
+	if (IS_PGXC_COORDINATOR)
+	{
+		if (TransactionIdIsValid(xid)) 
+		{
+			if (!TransactionIdFollowsOrEquals(xid, ShmemVariableCache->nextXid))
+			{
+				increment_xid = false;
+				ereport(DEBUG1,
+				   (errmsg("xid (%d) was less than ShmemVariableCache->nextXid (%d)",
+					   xid, ShmemVariableCache->nextXid)));
+			}
+			else
+				ShmemVariableCache->nextXid = xid;
+		}
+		else
+		{			
+			ereport(WARNING,
+			   (errmsg("Xid is invalid.")));
+	
+			/* Problem is already reported, so just remove lock and return */
+			LWLockRelease(XidGenLock);
+			return xid;
+		}	
+	} else if(IS_PGXC_DATANODE) 
+	{
+		if (IsAutoVacuumWorkerProcess())
+		{
+			if (MyProc->vacuumFlags & PROC_IN_VACUUM)
+			{
+				elog (DEBUG1, "Getting XID for autovacuum");
+				/* Try and get gxid directly from GTM. 
+				 * We use a different function so that GTM knows to
+				 * exclude it from other snapshots.
+				 */
+				next_xid = (TransactionId) BeginTranAutovacuumGTM();
+			} else {
+				elog (DEBUG1, "Getting XID for autovacuum worker (analyze)");
+				/* try and get gxid directly from GTM */
+				next_xid = (TransactionId) BeginTranGTM();
+			}
+		} else if (GetForceXidFromGTM())
+		{
+			elog (DEBUG1, "Force get XID from GTM");
+			/* try and get gxid directly from GTM */
+			next_xid = (TransactionId) BeginTranGTM();
+		}
+	
+		if (TransactionIdIsValid(next_xid))
+		{
+			xid = next_xid;
+			elog(DEBUG1, "TransactionId = %d", next_xid);
+			next_xid = InvalidTransactionId; /* reset */
+			if (!TransactionIdFollowsOrEquals(xid, ShmemVariableCache->nextXid))
+			{ 
+				/* This should be ok, due to concurrency from multiple coords
+				 * passing down the xids.
+				 * We later do not want to bother incrementing the value 
+				 * in shared memory though.
+				 */
+				increment_xid = false;
+				elog(DEBUG1, "xid (%d) does not follow ShmemVariableCache->nextXid (%d)", 
+					xid, ShmemVariableCache->nextXid);
+			} else
+				ShmemVariableCache->nextXid = xid;
+		}
+		else
+		{
+			/* Fallback to default */
+			elog(LOG, "Falling back to local Xid. Was = %d, now is = %d", 
+					next_xid, ShmemVariableCache->nextXid);
+			xid = ShmemVariableCache->nextXid;
+	
+		}
+	}
+#else 
 	xid = ShmemVariableCache->nextXid;
+#endif /* PGXC */
+
 
 	/*----------
 	 * Check to see if it's safe to assign another XID.  This protects against
@@ -98,7 +231,6 @@ GetNewTransactionId(bool isSubXact)
 					 "You might also need to commit or roll back old prepared transactions.",
 					 NameStr(ShmemVariableCache->limit_datname))));
 	}
-
 	/*
 	 * If we are allocating the first XID of a new page of the commit log,
 	 * zero out that commit-log page before returning. We must do this while
@@ -117,7 +249,13 @@ GetNewTransactionId(bool isSubXact)
 	 * want the next incoming transaction to try it again.	We cannot assign
 	 * more XIDs until there is CLOG space for them.
 	 */
-	TransactionIdAdvance(ShmemVariableCache->nextXid);
+#ifdef PGXC  /* defined(PGXC_COORD) || defined(PGXC_DATANODE) */
+	/* We may not be at the max, which is ok. Do not bother to increment. 
+	 * We get this externally anyway, so it should not be needed in theory...
+	 */
+	if (increment_xid)
+#endif
+		TransactionIdAdvance(ShmemVariableCache->nextXid);
 
 	/*
 	 * We must store the new XID into the shared ProcArray before releasing
@@ -177,7 +315,6 @@ GetNewTransactionId(bool isSubXact)
 	}
 
 	LWLockRelease(XidGenLock);
-
 	return xid;
 }
 

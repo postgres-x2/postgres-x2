@@ -20,6 +20,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  * IDENTIFICATION
  *	  $PostgreSQL: pgsql/src/backend/nodes/equalfuncs.c,v 1.355 2009/06/18 01:27:02 tgl Exp $
@@ -1078,6 +1079,9 @@ _equalCreateStmt(CreateStmt *a, CreateStmt *b)
 	COMPARE_NODE_FIELD(options);
 	COMPARE_SCALAR_FIELD(oncommit);
 	COMPARE_STRING_FIELD(tablespacename);
+#ifdef PGXC
+	COMPARE_NODE_FIELD(distributeby);
+#endif
 
 	return true;
 }

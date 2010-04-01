@@ -20,6 +20,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  *
  * IDENTIFICATION
@@ -38,6 +39,12 @@
 #include "miscadmin.h"
 #include "storage/procarray.h"
 #include "utils/snapmgr.h"
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#include "access/gtm.h"
+/* PGXC_DATANODE */
+#include "postmaster/autovacuum.h"
+#endif
 
 
 /* Our shared memory area */
@@ -89,6 +96,27 @@ static void DisplayXidCache(void);
 #define xc_no_overflow_inc()		((void) 0)
 #define xc_slow_answer_inc()		((void) 0)
 #endif   /* XIDCACHE_DEBUG */
+
+#ifdef PGXC  /* PGXC_DATANODE */
+typedef enum
+{
+	SNAPSHOT_UNDEFINED,   /* Coordinator has not sent snapshot or not yet connected */
+	SNAPSHOT_LOCAL,       /* Coordinator has instructed data node to build up snapshot from the local procarray */
+	SNAPSHOT_COORDINATOR, /* Coordinator has sent snapshot data */
+	SNAPSHOT_DIRECT       /* Data Node obtained directly from GTM */
+} SnapshotSource;
+
+void SetGlobalSnapshotData(int xmin, int xmax, int xcnt, int *xip);
+void UnsetGlobalSnapshotData(void);
+static bool GetSnapshotDataDataNode(Snapshot snapshot);
+static bool GetSnapshotDataCoordinator(Snapshot snapshot);
+/* Global snapshot data */
+static SnapshotSource snapshot_source = SNAPSHOT_UNDEFINED;
+static int gxmin = InvalidTransactionId;
+static int gxmax = InvalidTransactionId;
+static int gxcnt = 0;
+static int *gxip = NULL;
+#endif
 
 
 /*
@@ -682,6 +710,46 @@ GetSnapshotData(Snapshot snapshot)
 	int			count = 0;
 	int			subcount = 0;
 
+
+#ifdef PGXC  /* PGXC_DATANODE */
+	/*
+ 	 * The typical case is that the coordinator passes down the snapshot to the
+ 	 * data nodes to use, while it itselfs obtains them from GTM.
+ 	 * The data nodes may however connect directly to GTM themselves to obtain
+ 	 * XID and snapshot information for autovacuum worker threads.
+ 	 */
+	if (IS_PGXC_DATANODE)
+	{
+		if (GetSnapshotDataDataNode(snapshot))
+			return snapshot;
+		/* else fallthrough */
+	} else if (IS_PGXC_COORDINATOR)
+	{
+		if (GetSnapshotDataCoordinator(snapshot))
+			return snapshot;
+		/* else fallthrough */
+	}
+
+	/* If we have no snapshot, we will use a local one.
+	 * If we are in normal mode, we output a warning though.
+	 * We currently fallback and use a local one at initdb time,
+	 * as well as when a new connection occurs.
+	 * IsPostmasterEnvironment - checks for initdb
+	 * IsNormalProcessingMode() - checks for new connections
+	 */
+	 if (IS_PGXC_DATANODE && snapshot_source == SNAPSHOT_UNDEFINED 
+	 		&& IsPostmasterEnvironment && IsNormalProcessingMode())
+	 {
+	 	elog(WARNING, "Do not have a GTM snapshot available");
+	 }
+#endif
+      
+	/*
+	 * Fallback to standard routine, calculate snapshot from local proc arrey
+	 * if no master connection
+	 */
+
+
 	Assert(snapshot != NULL);
 
 	/*
@@ -828,6 +896,9 @@ GetSnapshotData(Snapshot snapshot)
 
 	snapshot->curcid = GetCurrentCommandId(false);
 
+#ifdef PGXC
+	elog(DEBUG1, "Local snapshot is built, xmin: %d, xmax: %d, xcnt: %d, RecentGlobalXmin: %d", xmin, xmax, count, globalxmin);
+#endif 
 	/*
 	 * This is a new snapshot, so set both refcounts are zero, and mark it as
 	 * not copied in persistent memory.
@@ -1400,3 +1471,262 @@ DisplayXidCache(void)
 }
 
 #endif   /* XIDCACHE_DEBUG */
+
+
+#ifdef PGXC  
+/*
+ * Store snapshot data received from the coordinator
+ */
+void 
+SetGlobalSnapshotData(int xmin, int xmax, int xcnt, int *xip)
+{
+	snapshot_source = SNAPSHOT_COORDINATOR;
+	gxmin = xmin;
+	gxmax = xmax;
+	gxcnt = xcnt;
+	if (gxip)
+		free(gxip);
+	gxip = xip;
+	elog (DEBUG1, "global snapshot info: gxmin: %d, gxmax: %d, gxcnt: %d", gxmin, gxmax, gxcnt);
+}
+
+/*
+ * Force datanode to use local snapshot data
+ */
+void
+UnsetGlobalSnapshotData(void)
+{
+	snapshot_source = SNAPSHOT_UNDEFINED;
+	gxmin = InvalidTransactionId;
+	gxmax = InvalidTransactionId;
+	gxcnt = 0;
+	if (gxip)
+		free(gxip);
+	gxip = NULL;
+	elog (DEBUG1, "unset snapshot info");
+}
+
+/*
+ * Get snapshot data for data node
+ * This is usually passed down from the coordinator
+ *
+ * returns whether or not to return immediately with snapshot
+ */
+static bool 
+GetSnapshotDataDataNode(Snapshot snapshot)
+{
+	Assert(IS_PGXC_DATANODE);
+
+
+	if (IsAutoVacuumWorkerProcess() || GetForceXidFromGTM())
+	{
+		GTM_Snapshot gtm_snapshot;
+		bool canbe_grouped = (!FirstSnapshotSet) || (!IsXactIsoLevelSerializable);
+		elog(DEBUG1, "Getting snapshot for autovacuum. Current XID = %d", GetCurrentTransactionId());
+		gtm_snapshot = GetSnapshotGTM(GetCurrentTransactionId(), canbe_grouped);
+
+		if (!gtm_snapshot)
+			ereport(ERROR,
+				(errcode(ERRCODE_CONNECTION_FAILURE),
+				errmsg("GTM error, could not obtain snapshot")));
+		else {
+			snapshot_source = SNAPSHOT_DIRECT;
+			gxmin = gtm_snapshot->sn_xmin;
+			gxmax = gtm_snapshot->sn_xmax;
+			gxcnt = gtm_snapshot->sn_xcnt;
+			RecentGlobalXmin = gtm_snapshot->sn_recent_global_xmin;
+			if (gxip)
+				free(gxip);
+			if (gxcnt > 0)
+			{
+				gxip = malloc(gxcnt * 4);
+				if (gxip == NULL)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_OUT_OF_MEMORY),
+							 errmsg("out of memory")));
+				}
+				memcpy(gxip, gtm_snapshot->sn_xip, gxcnt * 4);
+			}
+			else
+				gxip = NULL;
+			elog(DEBUG1, "for autovacuum from GTM: xmin = %d, xmax = %d, xcnt = %d, RecGlobXmin = %d",
+				gxmin, gxmax, gxcnt, RecentGlobalXmin);
+		}
+	}
+
+	if ((snapshot_source == SNAPSHOT_COORDINATOR || snapshot_source == SNAPSHOT_DIRECT)
+				&& TransactionIdIsValid(gxmin))
+	{
+		snapshot->xmin = gxmin;
+		snapshot->xmax = gxmax;
+		snapshot->xcnt = gxcnt;
+		/*
+		 * Allocating space for maxProcs xids is usually overkill; numProcs would
+		 * be sufficient.  But it seems better to do the malloc while not holding
+		 * the lock, so we can't look at numProcs.  Likewise, we allocate much
+		 * more subxip storage than is probably needed.
+		 *
+		 * This does open a possibility for avoiding repeated malloc/free: since
+		 * maxProcs does not change at runtime, we can simply reuse the previous
+		 * xip arrays if any.  (This relies on the fact that all callers pass
+		 * static SnapshotData structs.) */
+		if (snapshot->xip == NULL)
+		{
+			ProcArrayStruct *arrayP = procArray;
+			/*
+			 * First call for this snapshot
+			 */
+			snapshot->xip = (TransactionId *)
+				malloc(arrayP->maxProcs * sizeof(TransactionId));
+			if (snapshot->xip == NULL)
+				ereport(ERROR,
+						(errcode(ERRCODE_OUT_OF_MEMORY),
+						 errmsg("out of memory")));
+
+			Assert(snapshot->subxip == NULL);
+			snapshot->subxip = (TransactionId *)
+				malloc(arrayP->maxProcs * PGPROC_MAX_CACHED_SUBXIDS * sizeof(TransactionId));
+			if (snapshot->subxip == NULL)
+				ereport(ERROR,
+						(errcode(ERRCODE_OUT_OF_MEMORY),
+						 errmsg("out of memory")));
+		}
+
+		memcpy(snapshot->xip, gxip, gxcnt * sizeof(TransactionId)); 
+		snapshot->curcid = GetCurrentCommandId(false);
+
+		if (!TransactionIdIsValid(MyProc->xmin))
+			MyProc->xmin = TransactionXmin = gxmin;
+
+		/*
+		 * We should update RecentXmin here. But we have recently seen some
+		 * issues with that - so skipping it for the time being.
+		 *
+		 * !!TODO
+		 */
+		RecentXmin = gxmin;
+
+		/* PGXCTODO - set this until we handle subtransactions. */
+		snapshot->subxcnt = 0; 
+
+		/*
+		 * This is a new snapshot, so set both refcounts are zero, and mark it
+		 * as not copied in persistent memory.
+		 */
+		snapshot->active_count = 0;
+		snapshot->regd_count = 0;
+		snapshot->copied = false;
+
+		return true;
+	}
+	return false;
+}
+
+/*
+ * Get snapshot data for coordinator
+ * It will later be passed down to data nodes
+ *
+ * returns whether or not to return immediately with snapshot
+ */
+static bool 
+GetSnapshotDataCoordinator(Snapshot snapshot)
+{
+	bool canbe_grouped;
+	GTM_Snapshot gtm_snapshot;
+
+
+ 	Assert (IS_PGXC_COORDINATOR);
+
+	canbe_grouped = (!FirstSnapshotSet) || (!IsXactIsoLevelSerializable);
+	gtm_snapshot = GetSnapshotGTM(GetCurrentGlobalTransactionId(), canbe_grouped);
+
+	if (!gtm_snapshot) 
+			ereport(ERROR,
+				(errcode(ERRCODE_CONNECTION_FAILURE),
+				errmsg("GTM error, could not obtain snapshot")));
+	else {
+		snapshot->xmin = gtm_snapshot->sn_xmin;
+		snapshot->xmax = gtm_snapshot->sn_xmax;
+		snapshot->recent_global_xmin = gtm_snapshot->sn_recent_global_xmin;
+		snapshot->xcnt = gtm_snapshot->sn_xcnt;
+		elog(DEBUG1, "from GTM: xmin = %d, xmax = %d, xcnt = %d, RecGlobXmin = %d",
+			snapshot->xmin, snapshot->xmax, snapshot->xcnt, snapshot->recent_global_xmin);
+		/*
+		 * Allocating space for maxProcs xids is usually overkill; numProcs would
+		 * be sufficient.  But it seems better to do the malloc while not holding
+		 * the lock, so we can't look at numProcs.  Likewise, we allocate much
+		 * more subxip storage than is probably needed.
+		 *
+		 * This does open a possibility for avoiding repeated malloc/free: since
+		 * maxProcs does not change at runtime, we can simply reuse the previous
+		 * xip arrays if any.  (This relies on the fact that all callers pass
+		 * static SnapshotData structs.)
+		 */
+		if (snapshot->xip == NULL)
+		{
+			ProcArrayStruct *arrayP = procArray;
+			/*
+			 * First call for this snapshot
+			 */
+			snapshot->xip = (TransactionId *)
+				malloc(Max(arrayP->maxProcs, gtm_snapshot->sn_xcnt) * sizeof(TransactionId));
+			if (snapshot->xip == NULL)
+				ereport(ERROR,
+						(errcode(ERRCODE_OUT_OF_MEMORY),
+						 errmsg("out of memory")));
+			snapshot->max_xcnt = Max(arrayP->maxProcs, gtm_snapshot->sn_xcnt);
+
+			/*
+			 * FIXME
+			 * 
+			 * We really don't support subtransaction in PGXC right now, but
+			 * when we would, we should fix the allocation below
+			 */
+			Assert(snapshot->subxip == NULL);
+			snapshot->subxip = (TransactionId *)
+				malloc(arrayP->maxProcs * PGPROC_MAX_CACHED_SUBXIDS * sizeof(TransactionId));
+
+			if (snapshot->subxip == NULL)
+				ereport(ERROR,
+						(errcode(ERRCODE_OUT_OF_MEMORY),
+						 errmsg("out of memory")));
+		}
+		else if (snapshot->max_xcnt < gtm_snapshot->sn_xcnt)
+		{
+			snapshot->xip = (TransactionId *)
+				realloc(snapshot->xip, gtm_snapshot->sn_xcnt * sizeof(TransactionId));
+			if (snapshot->xip == NULL)
+				ereport(ERROR,
+						(errcode(ERRCODE_OUT_OF_MEMORY),
+						 errmsg("out of memory")));
+			snapshot->max_xcnt = gtm_snapshot->sn_xcnt;
+		}
+
+		memcpy(snapshot->xip, gtm_snapshot->sn_xip, gtm_snapshot->sn_xcnt * sizeof(TransactionId)); 
+		snapshot->curcid = GetCurrentCommandId(false);
+
+		if (!TransactionIdIsValid(MyProc->xmin))
+			MyProc->xmin = TransactionXmin = snapshot->xmin;
+
+		/*
+		 * We should update RecentXmin here. But we have recently seen some
+		 * issues with that - so skipping it for the time being.
+		 *
+		 * !!TODO
+		 */
+
+		/* PGXCTODO - set this until we handle subtransactions. */
+		snapshot->subxcnt = 0; 
+		/*
+		 * This is a new snapshot, so set both refcounts are zero, and mark it
+		 * as not copied in persistent memory.
+		 */
+		snapshot->active_count = 0;
+		snapshot->regd_count = 0;
+		snapshot->copied = false;
+		return true;
+	}
+	return false;
+}
+#endif /* PGXC */

@@ -7,6 +7,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  *
  * IDENTIFICATION
@@ -20,6 +21,15 @@
 #include <time.h>
 #include <unistd.h>
 
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#include "access/gtm.h"
+/* PGXC_COORD */
+#include "gtm/gtm_c.h"
+#include "pgxc/datanode.h"
+/* PGXC_DATANODE */
+#include "postmaster/autovacuum.h"
+#endif
 #include "access/multixact.h"
 #include "access/subtrans.h"
 #include "access/transam.h"
@@ -50,7 +60,6 @@
 #include "utils/relcache.h"
 #include "utils/snapmgr.h"
 #include "pg_trace.h"
-
 
 /*
  *	User-tweakable parameters
@@ -125,6 +134,9 @@ typedef enum TBlockState
 typedef struct TransactionStateData
 {
 	TransactionId transactionId;	/* my XID, or Invalid if none */
+#ifdef PGXC  /* PGXC_COORD */
+	GlobalTransactionId globalTransactionId; /* my GXID, or Invalid if none */ 
+#endif
 	SubTransactionId subTransactionId;	/* my subxact ID */
 	char	   *name;			/* savepoint name, if any */
 	int			savepointLevel; /* savepoint level */
@@ -152,6 +164,9 @@ typedef TransactionStateData *TransactionState;
  */
 static TransactionStateData TopTransactionStateData = {
 	0,							/* transaction id */
+#ifdef PGXC
+	0,							/* global transaction id */
+#endif
 	0,							/* subtransaction id */
 	NULL,						/* savepoint name */
 	0,							/* savepoint level */
@@ -274,6 +289,43 @@ static void ShowTransactionStateRec(TransactionState state);
 static const char *BlockStateAsString(TBlockState blockState);
 static const char *TransStateAsString(TransState state);
 
+#ifdef PGXC  /* PGXC_COORD */
+static GlobalTransactionId GetGlobalTransactionId(TransactionState s);
+
+/* ----------------------------------------------------------------
+ *	PG-XC Functions
+ * ----------------------------------------------------------------
+ */
+
+/*
+ * GetCurrentGlobalTransactionId
+ *
+ * This will return the GXID of the current transaction,
+ * getting one from the GTM if it's not yet set. Be careful to call this
+ * only inside a valid xact.
+ */
+GlobalTransactionId
+GetCurrentGlobalTransactionId(void)
+{
+	return GetGlobalTransactionId(CurrentTransactionState);
+}
+
+/*
+ * GetGlobalTransactionId
+ *
+ * This will return the GXID of the specified transaction,
+ * getting one from the GTM if it's not yet set. 
+ */
+static GlobalTransactionId
+GetGlobalTransactionId(TransactionState s)
+{
+	if (!GlobalTransactionIdIsValid(s->globalTransactionId))
+		s->globalTransactionId = (GlobalTransactionId) GetNewTransactionId(s->parent != NULL);
+
+	return s->globalTransactionId;
+}
+#endif  /* PGXC */
+
 
 /* ----------------------------------------------------------------
  *	transaction state accessors
@@ -364,6 +416,7 @@ GetCurrentTransactionId(void)
 	return s->transactionId;
 }
 
+
 /*
  *	GetCurrentTransactionIdIfAny
  *
@@ -412,6 +465,15 @@ AssignTransactionId(TransactionState s)
 	 * PG_PROC, the subtrans entry is needed to ensure that other backends see
 	 * the Xid as "running".  See GetNewTransactionId.
 	 */
+#ifdef PGXC  /* PGXC_COORD */
+	if (IS_PGXC_COORDINATOR)
+	{
+		s->transactionId = (TransactionId) GetGlobalTransactionId(s);
+		elog(DEBUG1, "New transaction id assigned = %d, isSubXact = %s", 
+			s->transactionId, isSubXact ? "true" : "false");
+	}
+	else
+#endif
 	s->transactionId = GetNewTransactionId(isSubXact);
 
 	if (isSubXact)
@@ -1458,8 +1520,11 @@ StartTransaction(void)
 	 * start processing
 	 */
 	s->state = TRANS_START;
+#ifdef PGXC  /* PGXC_COORD */
+	if (IS_PGXC_COORDINATOR)
+		s->globalTransactionId = InvalidGlobalTransactionId;	/* until assigned */
+#endif
 	s->transactionId = InvalidTransactionId;	/* until assigned */
-
 	/*
 	 * Make sure we've reset xact state variables
 	 */
@@ -1629,7 +1694,24 @@ CommitTransaction(void)
 	latestXid = RecordTransactionCommit();
 
 	TRACE_POSTGRESQL_TRANSACTION_COMMIT(MyProc->lxid);
-
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR)
+	{
+		/* Make sure this committed on the DataNodes, 
+	         * if so it will just return 
+		 */
+		DataNodeCommit(DestNone);
+		CommitTranGTM(s->globalTransactionId);
+	}
+	else if (IS_PGXC_DATANODE)
+	{
+		/* If we are autovacuum, commit on GTM */
+		if ((IsAutoVacuumWorkerProcess() || GetForceXidFromGTM())
+				&& IsGTMConnected())
+			CommitTranGTM((GlobalTransactionId) latestXid);
+	}
+#endif
+	
 	/*
 	 * Let others know about no transaction in progress by me. Note that this
 	 * must be done _before_ releasing locks we hold and _after_
@@ -1724,6 +1806,13 @@ CommitTransaction(void)
 	s->childXids = NULL;
 	s->nChildXids = 0;
 	s->maxChildXids = 0;
+
+#ifdef PGXC  
+	if (IS_PGXC_COORDINATOR)
+		s->globalTransactionId = InvalidGlobalTransactionId;
+	else if (IS_PGXC_DATANODE)
+		SetNextTransactionId(InvalidTransactionId);
+#endif
 
 	/*
 	 * done with commit processing, set current transaction state back to
@@ -1959,6 +2048,10 @@ PrepareTransaction(void)
 	s->nChildXids = 0;
 	s->maxChildXids = 0;
 
+#ifdef PGXC /* PGXC_DATANODE */
+	if (IS_PGXC_DATANODE)
+		SetNextTransactionId(InvalidTransactionId);
+#endif
 	/*
 	 * done with 1st phase commit processing, set current transaction state
 	 * back to default
@@ -2045,7 +2138,23 @@ AbortTransaction(void)
 	latestXid = RecordTransactionAbort(false);
 
 	TRACE_POSTGRESQL_TRANSACTION_ABORT(MyProc->lxid);
-
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR)
+	{
+		/* Make sure this is rolled back on the DataNodes, 
+	         * if so it will just return 
+		 */
+		DataNodeRollback(DestNone);
+		RollbackTranGTM(s->globalTransactionId);
+	}
+	else if (IS_PGXC_DATANODE)
+	{
+		/* If we are autovacuum, commit on GTM */
+		if ((IsAutoVacuumWorkerProcess() || GetForceXidFromGTM())
+				&& IsGTMConnected())
+			RollbackTranGTM((GlobalTransactionId) latestXid);
+	}
+#endif
 	/*
 	 * Let others know about no transaction in progress by me. Note that this
 	 * must be done _before_ releasing locks we hold and _after_
@@ -2129,6 +2238,13 @@ CleanupTransaction(void)
 	s->childXids = NULL;
 	s->nChildXids = 0;
 	s->maxChildXids = 0;
+
+#ifdef PGXC  /* PGXC_DATANODE */
+	if (IS_PGXC_COORDINATOR)
+		s->globalTransactionId = InvalidGlobalTransactionId;
+	else if (IS_PGXC_DATANODE)
+		SetNextTransactionId(InvalidTransactionId);
+#endif
 
 	/*
 	 * done with abort processing, set current transaction state back to
@@ -4004,6 +4120,10 @@ PushTransaction(void)
 	 * We can now stack a minimally valid subtransaction without fear of
 	 * failure.
 	 */
+#ifdef PGXC  /* PGXC_COORD */
+	if (IS_PGXC_COORDINATOR)
+		s->globalTransactionId = InvalidGlobalTransactionId;
+#endif
 	s->transactionId = InvalidTransactionId;	/* until assigned */
 	s->subTransactionId = currentSubTransactionId;
 	s->parent = p;

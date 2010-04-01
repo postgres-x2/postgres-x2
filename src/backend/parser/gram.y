@@ -8,6 +8,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  *
  * IDENTIFICATION
@@ -58,6 +59,7 @@
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "parser/gramparse.h"
+#include "pgxc/poolmgr.h"
 #include "storage/lmgr.h"
 #include "utils/date.h"
 #include "utils/datetime.h"
@@ -179,6 +181,9 @@ static TypeName *TableFuncTypeName(List *columns);
 
 	InsertStmt			*istmt;
 	VariableSetStmt		*vsetstmt;
+/* PGXC_BEGIN */
+	DistributeBy		*distby;
+/* PGXC_END */
 }
 
 %type <node>	stmt schema_stmt
@@ -197,7 +202,7 @@ static TypeName *TableFuncTypeName(List *columns);
 		DropGroupStmt DropOpClassStmt DropOpFamilyStmt DropPLangStmt DropStmt
 		DropAssertStmt DropTrigStmt DropRuleStmt DropCastStmt DropRoleStmt
 		DropUserStmt DropdbStmt DropTableSpaceStmt DropFdwStmt
-		DropForeignServerStmt DropUserMappingStmt ExplainStmt FetchStmt
+		DropForeignServerStmt DropUserMappingStmt ExplainStmt ExecDirectStmt FetchStmt
 		GrantStmt GrantRoleStmt IndexStmt InsertStmt ListenStmt LoadStmt
 		LockStmt NotifyStmt ExplainableStmt PreparableStmt
 		CreateFunctionStmt AlterFunctionStmt ReindexStmt RemoveAggrStmt
@@ -250,7 +255,7 @@ static TypeName *TableFuncTypeName(List *columns);
 
 %type <str>		relation_name copy_file_name
 				database_name access_method_clause access_method attr_name
-				index_name name file_name cluster_index_specification
+				index_name name file_name cluster_index_specification 
 
 %type <list>	func_name handler_name qual_Op qual_all_Op subquery_Op
 				opt_class opt_validator validator_clause
@@ -322,6 +327,9 @@ static TypeName *TableFuncTypeName(List *columns);
 %type <boolean> index_opt_unique opt_verbose opt_full
 %type <boolean> opt_freeze opt_default opt_recheck
 %type <defelt>	opt_binary opt_oids copy_delimiter
+
+%type <list>	node_list
+%type <str>		DirectStmt
 
 %type <boolean> copy_from
 
@@ -415,6 +423,9 @@ static TypeName *TableFuncTypeName(List *columns);
 %type <windef>	window_definition over_clause window_specification
 %type <str>		opt_existing_window_name
 %type <ival>	opt_frame_clause frame_extent frame_bound
+/* PGXC_BEGIN */
+%type <distby>	OptDistributeBy
+/* PGXC_END */
 
 
 /*
@@ -425,6 +436,7 @@ static TypeName *TableFuncTypeName(List *columns);
  */
 
 /* ordinary key words in alphabetical order */
+/* PGXC - added REPLICATION, DISTRIBUTE, and HASH */
 %token <keyword> ABORT_P ABSOLUTE_P ACCESS ACTION ADD_P ADMIN AFTER
 	AGGREGATE ALL ALSO ALTER ALWAYS ANALYSE ANALYZE AND ANY ARRAY AS ASC
 	ASSERTION ASSIGNMENT ASYMMETRIC AT AUTHORIZATION
@@ -436,14 +448,17 @@ static TypeName *TableFuncTypeName(List *columns);
 	CHARACTER CHARACTERISTICS CHECK CHECKPOINT CLASS CLOSE
 	CLUSTER COALESCE COLLATE COLUMN COMMENT COMMIT
 	COMMITTED CONCURRENTLY CONFIGURATION CONNECTION CONSTRAINT CONSTRAINTS
-	CONTENT_P CONTINUE_P CONVERSION_P COPY COST CREATE CREATEDB
+	CONTENT_P CONTINUE_P CONVERSION_P COORDINATOR COPY COST CREATE CREATEDB
 	CREATEROLE CREATEUSER CROSS CSV CURRENT_P
 	CURRENT_CATALOG CURRENT_DATE CURRENT_ROLE CURRENT_SCHEMA
 	CURRENT_TIME CURRENT_TIMESTAMP CURRENT_USER CURSOR CYCLE
 
 	DATA_P DATABASE DAY_P DEALLOCATE DEC DECIMAL_P DECLARE DEFAULT DEFAULTS
 	DEFERRABLE DEFERRED DEFINER DELETE_P DELIMITER DELIMITERS DESC
-	DICTIONARY DISABLE_P DISCARD DISTINCT DO DOCUMENT_P DOMAIN_P DOUBLE_P DROP
+/* PGXC_BEGIN */
+	DICTIONARY DIRECT DISABLE_P DISCARD DISTINCT DISTRIBUTE DO DOCUMENT_P DOMAIN_P DOUBLE_P 
+/* PGXC_END */
+	DROP
 
 	EACH ELSE ENABLE_P ENCODING ENCRYPTED END_P ENUM_P ESCAPE EXCEPT
 	EXCLUDING EXCLUSIVE EXECUTE EXISTS EXPLAIN EXTERNAL EXTRACT
@@ -453,7 +468,9 @@ static TypeName *TableFuncTypeName(List *columns);
 
 	GLOBAL GRANT GRANTED GREATEST GROUP_P
 
-	HANDLER HAVING HEADER_P HOLD HOUR_P
+/* PGXC_BEGIN */
+	HANDLER HASH HAVING HEADER_P HOLD HOUR_P
+/* PGXC_END */
 
 	IDENTITY_P IF_P ILIKE IMMEDIATE IMMUTABLE IMPLICIT_P IN_P
 	INCLUDING INCREMENT INDEX INDEXES INHERIT INHERITS INITIALLY
@@ -471,7 +488,7 @@ static TypeName *TableFuncTypeName(List *columns);
 	MAPPING MATCH MAXVALUE MINUTE_P MINVALUE MODE MONTH_P MOVE
 
 	NAME_P NAMES NATIONAL NATURAL NCHAR NEW NEXT NO NOCREATEDB
-	NOCREATEROLE NOCREATEUSER NOINHERIT NOLOGIN_P NONE NOSUPERUSER
+	NOCREATEROLE NOCREATEUSER NODE NOINHERIT NOLOGIN_P NONE NOSUPERUSER
 	NOT NOTHING NOTIFY NOTNULL NOWAIT NULL_P NULLIF NULLS_P NUMERIC
 
 	OBJECT_P OF OFF OFFSET OIDS OLD ON ONLY OPERATOR OPTION OPTIONS OR
@@ -484,8 +501,10 @@ static TypeName *TableFuncTypeName(List *columns);
 	QUOTE
 
 	RANGE READ REAL REASSIGN RECHECK RECURSIVE REFERENCES REINDEX
-	RELATIVE_P RELEASE RENAME REPEATABLE REPLACE REPLICA RESET RESTART
-	RESTRICT RETURNING RETURNS REVOKE RIGHT ROLE ROLLBACK ROW ROWS RULE
+/* PGXC_BEGIN */
+	RELATIVE_P RELEASE RENAME REPEATABLE REPLACE REPLICA REPLICATION RESET RESTART
+	RESTRICT RETURNING RETURNS REVOKE RIGHT ROBIN ROLE ROLLBACK ROUND ROW ROWS RULE
+/* PGXC_END */
 
 	SAVEPOINT SCHEMA SCROLL SEARCH SECOND_P SECURITY SELECT SEQUENCE
 	SERIALIZABLE SERVER SESSION SESSION_USER SET SETOF SHARE
@@ -668,6 +687,7 @@ stmt :
 			| DropUserMappingStmt
 			| DropdbStmt
 			| ExecuteStmt
+			| ExecDirectStmt
 			| ExplainStmt
 			| FetchStmt
 			| GrantStmt
@@ -2036,7 +2056,10 @@ opt_using:
  *****************************************************************************/
 
 CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
-			OptInherit OptWith OnCommitOption OptTableSpace
+			OptInherit OptWith OnCommitOption OptTableSpace 
+/* PGXC_BEGIN */
+			OptDistributeBy
+/* PGXC_END */
 				{
 					CreateStmt *n = makeNode(CreateStmt);
 					$4->istemp = $2;
@@ -2047,10 +2070,21 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					n->options = $9;
 					n->oncommit = $10;
 					n->tablespacename = $11;
+					n->distributeby = $12;
+/* PGXC_BEGIN */
+					if (n->inhRelations != NULL && n->distributeby != NULL)
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("CREATE TABLE cannot contains both an INHERITS and a DISTRIBUTE BY clause"),
+								 scanner_errposition(exprLocation((Node *) n->distributeby))));
+/* PGXC_END */
 					$$ = (Node *)n;
 				}
 		| CREATE OptTemp TABLE qualified_name OF qualified_name
-			'(' OptTableElementList ')' OptWith OnCommitOption OptTableSpace
+			'(' OptTableElementList ')' OptWith OnCommitOption OptTableSpace 
+/* PGXC_BEGIN */
+			OptDistributeBy
+/* PGXC_END */
 				{
 					/* SQL99 CREATE TABLE OF <UDT> (cols) seems to be satisfied
 					 * by our inheritance capabilities. Let's try it...
@@ -2064,6 +2098,14 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					n->options = $10;
 					n->oncommit = $11;
 					n->tablespacename = $12;
+					n->distributeby = $13;
+/* PGXC_BEGIN */
+					if (n->inhRelations != NULL && n->distributeby != NULL)
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("CREATE TABLE cannot contains both an INHERITS and a DISTRIBUTE BY clause"),
+								 scanner_errposition(exprLocation((Node *) n->distributeby))));
+/* PGXC_END */
 					$$ = (Node *)n;
 				}
 		;
@@ -2494,6 +2536,36 @@ OnCommitOption:  ON COMMIT DROP				{ $$ = ONCOMMIT_DROP; }
 OptTableSpace:   TABLESPACE name					{ $$ = $2; }
 			| /*EMPTY*/								{ $$ = NULL; }
 		;
+
+/* PGXC_BEGIN */
+DistributeByHash: DISTRIBUTE BY
+			| DISTRIBUTE BY HASH
+		;
+
+OptDistributeBy: DistributeByHash '(' name ')'
+				{
+					DistributeBy *n = makeNode(DistributeBy);
+					n->disttype = DISTTYPE_HASH;
+					n->colname = $3;
+					$$ = n;
+				}
+			| DISTRIBUTE BY REPLICATION
+				{
+					DistributeBy *n = makeNode(DistributeBy);
+					n->disttype = DISTTYPE_REPLICATION;
+					n->colname = NULL;
+					$$ = n;
+				}
+			| DISTRIBUTE BY ROUND ROBIN
+				{
+					DistributeBy *n = makeNode(DistributeBy);
+					n->disttype = DISTTYPE_ROUNDROBIN;
+					n->colname = NULL;
+					$$ = n;
+				}
+			| /*EMPTY*/								{ $$ = NULL; }
+		;
+/* PGXC_END */
 
 OptConsTableSpace:   USING INDEX TABLESPACE name	{ $$ = $4; }
 			| /*EMPTY*/								{ $$ = NULL; }
@@ -6461,6 +6533,47 @@ opt_analyze:
 /*****************************************************************************
  *
  *		QUERY:
+ *				EXECUTE DIRECT ON (COORDINATOR | NODE num, ...) query
+ *
+ *****************************************************************************/
+
+ExecDirectStmt: EXECUTE DIRECT ON COORDINATOR DirectStmt
+				{
+					ExecDirectStmt *n = makeNode(ExecDirectStmt);
+					n->coordinator = TRUE;
+					n->nodes = NIL;
+					n->query = $5;
+					$$ = (Node *)n;
+				}
+				| EXECUTE DIRECT ON NODE node_list DirectStmt
+				{
+					ExecDirectStmt *n = makeNode(ExecDirectStmt);
+					n->coordinator = FALSE;
+					n->nodes = $5;
+					n->query = $6;
+					$$ = (Node *)n;
+				}
+		;
+
+DirectStmt:
+			Sconst					/* by default all are $$=$1 */
+		;
+
+node_list: 
+		 	Iconst					{ $$ = list_make1(makeInteger($1)); }
+			| node_list ',' Iconst	{ $$ = lappend($1, makeInteger($3)); }
+			| '*'
+				{
+					int i;
+					$$ = NIL;
+					for (i=1; i<=NumDataNodes; i++)
+						$$ = lappend($$, makeInteger(i));
+				}
+		;
+
+/*****************************************************************************
+ *
+ *		QUERY:
  *				PREPARE <plan_name> [(args, ...)] AS <query>
  *
  *****************************************************************************/
@@ -10117,6 +10230,7 @@ ColLabel:	IDENT									{ $$ = $1; }
 
 /* "Unreserved" keywords --- available for use as any kind of name.
  */
+/* PGXC - added DISTRIBUTE, HASH, REPLICATION */
 unreserved_keyword:
 			  ABORT_P
 			| ABSOLUTE_P
@@ -10157,6 +10271,7 @@ unreserved_keyword:
 			| CONTENT_P
 			| CONTINUE_P
 			| CONVERSION_P
+			| COORDINATOR
 			| COPY
 			| COST
 			| CREATEDB
@@ -10178,8 +10293,12 @@ unreserved_keyword:
 			| DELIMITER
 			| DELIMITERS
 			| DICTIONARY
+			| DIRECT
 			| DISABLE_P
 			| DISCARD
+/* PGXC_BEGIN */
+			| DISTRIBUTE
+/* PGXC_END */
 			| DOCUMENT_P
 			| DOMAIN_P
 			| DOUBLE_P
@@ -10204,6 +10323,9 @@ unreserved_keyword:
 			| GLOBAL
 			| GRANTED
 			| HANDLER
+/* PGXC_BEGIN */
+			| HASH
+/* PGXC_END */
 			| HEADER_P
 			| HOLD
 			| HOUR_P
@@ -10253,6 +10375,7 @@ unreserved_keyword:
 			| NOCREATEDB
 			| NOCREATEROLE
 			| NOCREATEUSER
+			| NODE
 			| NOINHERIT
 			| NOLOGIN_P
 			| NOSUPERUSER
@@ -10294,13 +10417,22 @@ unreserved_keyword:
 			| REPEATABLE
 			| REPLACE
 			| REPLICA
+/* PGXC_BEGIN */
+			| REPLICATION
+/* PGXC_END */
 			| RESET
 			| RESTART
 			| RESTRICT
 			| RETURNS
 			| REVOKE
+/* PGXC_BEGIN */
+			| ROBIN
+/* PGXC_END */
 			| ROLE
 			| ROLLBACK
+/* PGXC_BEGIN */
+			| ROUND
+/* PGXC_END */
 			| ROWS
 			| RULE
 			| SAVEPOINT

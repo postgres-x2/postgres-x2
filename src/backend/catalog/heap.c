@@ -5,6 +5,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  *
  * IDENTIFICATION
@@ -67,6 +68,11 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #include "utils/tqual.h"
+
+#ifdef PGXC
+#include "catalog/pgxc_class.h"
+#include "pgxc/locator.h"
+#endif
 
 
 static void AddNewRelationTuple(Relation pg_class_desc,
@@ -774,6 +780,141 @@ AddNewRelationTuple(Relation pg_class_desc,
 	/* Now build and insert the tuple */
 	InsertPgClassTuple(pg_class_desc, new_rel_desc, new_rel_oid, reloptions);
 }
+
+#ifdef PGXC
+/* --------------------------------
+ *		AddRelationDistribution 
+ *
+ *		Add to pgxc_class table
+ * --------------------------------
+ */
+void 
+AddRelationDistribution (Oid relid, 
+				DistributeBy *distributeby,
+				List 		 *parentOids,
+				TupleDesc	 descriptor)
+{
+	char locatortype 	= '\0';
+	int hashalgorithm 	= 0;
+	int hashbuckets 	= 0;
+	AttrNumber attnum 	= 0;
+
+
+	if (!distributeby)
+	{
+		/* 
+		 * No distribution specified.
+		 * See if we are a child table, and get distribution information
+		 * from there.
+		 */
+		if (list_length(parentOids) > 1)
+		{
+			ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("Cannot currently distribute a table with more than one parent.")));
+		}
+		else if (list_length(parentOids) == 1)
+		{
+			/* 
+			 * Use parent's distribution
+			 */
+			int parentOid;
+			RelationLocInfo *rel_loc_info;
+
+			parentOid = linitial_oid(parentOids);
+			rel_loc_info = GetRelationLocInfo(parentOid);
+			locatortype = rel_loc_info->locatorType;
+
+			switch (locatortype)
+			{
+				case LOCATOR_TYPE_HASH:
+					attnum = rel_loc_info->partAttrNum;
+					break;
+
+				case LOCATOR_TYPE_REPLICATED:
+				case LOCATOR_TYPE_RROBIN:
+					break;
+
+				default:
+					ereport(ERROR,
+						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+						 errmsg("Invalid parent table distribution type")));
+					break;
+			}
+		} else
+		{
+			/* 
+			 * If no distribution was specified, and we have not chosen
+			 * one based on primary key or foreign key, use first column with
+			 * a supported data type.
+			 */
+			Form_pg_attribute attr;
+			int i;
+
+			locatortype = LOCATOR_TYPE_HASH;
+
+			for (i = 0; i < descriptor->natts; i++)
+			{
+				attr = descriptor->attrs[i];
+				if (IsHashDistributable(attr->atttypid))
+				{
+					/* distribute on this column */
+					attnum = i + 1;
+					break;
+				}
+			}
+
+			/* If we did not find a usable type, fall back to round robin */
+			if (attnum == 0)
+				locatortype = LOCATOR_TYPE_RROBIN;
+		}
+	} else 
+	{
+		/* 
+		 * User specified distribution type
+		 */
+		switch (distributeby->disttype)
+		{
+			case DISTTYPE_HASH:
+				/* User specified hash column, validate */
+				attnum = get_attnum(relid, distributeby->colname);
+				
+				if (!IsHashDistributable(descriptor->attrs[attnum-1]->atttypid)) 
+				{
+					ereport(ERROR,
+						(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+						 errmsg("Column %s is not a hash distributable data type", 
+							distributeby->colname)));
+				}
+				locatortype = LOCATOR_TYPE_HASH;
+				break;
+
+			case DISTTYPE_REPLICATION:
+				locatortype = LOCATOR_TYPE_REPLICATED;
+				break;
+
+			case DISTTYPE_ROUNDROBIN:
+				locatortype = LOCATOR_TYPE_RROBIN;
+				break;
+
+			default:
+				ereport(ERROR,
+					(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+					 errmsg("Invalid distribution type")));
+		}
+	}
+
+	if (locatortype == LOCATOR_TYPE_HASH)
+	{
+		/* PGXCTODO */
+		/* Use these for now until we make allowing different algorithms more flexible */
+		hashalgorithm = 1;
+		hashbuckets = HASH_SIZE;
+	}
+
+	PgxcClassCreate (relid, locatortype, attnum, hashalgorithm, hashbuckets);
+}
+#endif
 
 
 /* --------------------------------

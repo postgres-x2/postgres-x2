@@ -7,6 +7,7 @@
  *
  *
  * Copyright (c) 2000-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  * Written by Peter Eisentraut <peter_e@gmx.net>.
  *
  * IDENTIFICATION
@@ -27,6 +28,9 @@
 #endif
 
 #include "access/gin.h"
+#ifdef PGXC
+#include "access/gtm.h"
+#endif
 #include "access/transam.h"
 #include "access/twophase.h"
 #include "access/xact.h"
@@ -50,6 +54,11 @@
 #include "parser/parse_type.h"
 #include "parser/scansup.h"
 #include "pgstat.h"
+#ifdef PGXC
+#include "pgxc/locator.h"
+#include "pgxc/planner.h"
+#include "pgxc/poolmgr.h"
+#endif
 #include "postmaster/autovacuum.h"
 #include "postmaster/bgwriter.h"
 #include "postmaster/postmaster.h"
@@ -532,6 +541,12 @@ const char *const config_group_names[] =
 	gettext_noop("Customized Options"),
 	/* DEVELOPER_OPTIONS */
 	gettext_noop("Developer Options"),
+#ifdef PGXC
+	/* DATA_NODES */
+	gettext_noop("Data Nodes and Connection Pooling"),
+	/* GTM */
+	gettext_noop("GTM Connection"),
+#endif
 	/* help_config wants this array to be null-terminated */
 	NULL
 };
@@ -1220,7 +1235,38 @@ static struct config_bool ConfigureNamesBool[] =
 		&IgnoreSystemIndexes,
 		false, NULL, NULL
 	},
-
+#ifdef PGXC
+	{
+		{"persistent_datanode_connections", PGC_BACKEND, DEVELOPER_OPTIONS,
+			gettext_noop("Session never releases acquired connections."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&PersistentConnections,
+		false, NULL, NULL
+	},
+	{
+		{"strict_statement_checking", PGC_USERSET, DEVELOPER_OPTIONS,
+			gettext_noop("Forbid statements that are not safe for the cluster"),
+			NULL
+		},
+		&StrictStatementChecking,
+		true, NULL, NULL
+	},
+	{
+		/*
+		 * This is temporary work-around until we allow for a merge-sort of
+		 * ORDER BY.
+		 */
+		{"strict_select_checking", PGC_USERSET, DEVELOPER_OPTIONS,
+			gettext_noop("Forbid if SELECT has ORDER BY"),
+			gettext_noop("and is not safe for the cluster"),
+			GUC_NOT_IN_SAMPLE	
+		},
+		&StrictSelectChecking,
+		false, NULL, NULL
+	},
+#endif
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, false, NULL, NULL
@@ -1255,7 +1301,7 @@ static struct config_int ConfigureNamesInt[] =
 			gettext_noop("This applies to table columns that have not had a "
 				"column-specific target set via ALTER TABLE SET STATISTICS.")
 		},
-		&default_statistics_target,
+		&default_statistics_target, 
 		100, 1, 10000, NULL, NULL
 	},
 	{
@@ -1504,7 +1550,11 @@ static struct config_int ConfigureNamesInt[] =
 			NULL
 		},
 		&max_prepared_xacts,
+#ifdef PGXC
+		10, 0, INT_MAX / 4, NULL, NULL
+#else
 		0, 0, INT_MAX / 4, NULL, NULL
+#endif
 	},
 
 #ifdef LOCK_DEBUG
@@ -1951,7 +2001,63 @@ static struct config_int ConfigureNamesInt[] =
 		&pgstat_track_activity_query_size,
 		1024, 100, 102400, NULL, NULL
 	},
+#ifdef PGXC
+	{
+		{"num_data_nodes", PGC_POSTMASTER, DATA_NODES,
+			gettext_noop("Number of data nodes."),
+			NULL
+		},
+		&NumDataNodes,
+		2, 1, 65535, NULL, NULL	
+	},	
 
+	{
+		{"min_pool_size", PGC_POSTMASTER, DATA_NODES,
+			gettext_noop("Initial pool size."),
+			gettext_noop("If number of active connections decreased below this value, "
+						 "new connections are established")
+		},
+		&MinPoolSize,
+		1, 1, 65535, NULL, NULL	
+	},	
+
+	{
+		{"max_pool_size", PGC_POSTMASTER, DATA_NODES,
+			gettext_noop("Max pool size."),
+			gettext_noop("If number of active connections reaches this value, "
+						 "other connection requests will be refused")
+		},
+		&MaxPoolSize,
+		100, 1, 65535, NULL, NULL	
+	},	
+
+	{
+		{"pooler_port", PGC_POSTMASTER, DATA_NODES,
+			gettext_noop("Port of the Pool Manager."),
+			NULL
+		},
+		&PoolerPort,
+		6667, 1, 65535, NULL, NULL	
+	},	
+
+	{
+		{"gtm_port", PGC_POSTMASTER, GTM,
+			gettext_noop("Port of GTM."),
+			NULL
+		},
+		&GtmPort,
+		6666, 1, 65535, NULL, NULL	
+	},	
+
+	{
+		{"gtm_coordinator_id", PGC_POSTMASTER, GTM,
+			gettext_noop("The Coordinator Identifier."),
+			NULL
+		},
+		&GtmCoordinatorId,
+		1, 1, INT_MAX, NULL, NULL	
+	},	
+#endif
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, 0, 0, 0, NULL, NULL
@@ -2502,6 +2608,65 @@ static struct config_string ConfigureNamesString[] =
 		"pg_catalog.simple", assignTSCurrentConfig, NULL
 	},
 
+#ifdef PGXC
+	{
+		{"preferred_data_nodes", PGC_POSTMASTER, DATA_NODES,
+			gettext_noop("Preferred data nodes."),
+			gettext_noop("A list of data nodes to read from replicated tables")
+		},
+		&PreferredDataNodes,
+		"", NULL, NULL	
+	},	
+
+	{
+		{"data_node_hosts", PGC_POSTMASTER, DATA_NODES,
+			gettext_noop("Host names or addresses of data nodes."),
+			gettext_noop("Comma separated list or single value, "
+						 "if all data nodes on the same host")
+		},
+		&DataNodeHosts,
+		"localhost", NULL, NULL
+	},
+
+	{
+		{"data_node_ports", PGC_POSTMASTER, DATA_NODES,
+			gettext_noop("Port numbers of data nodes."),
+			gettext_noop("Comma separated list or single value, "
+						 "if all data nodes listen on the same port")
+		},
+		&DataNodePorts,
+		"15432,25432", NULL, NULL
+	},
+
+	{
+		{"data_node_users", PGC_POSTMASTER, DATA_NODES,
+			gettext_noop("User names or addresses of data nodes."),
+			gettext_noop("Comma separated list or single value, "
+						 "if user names are the same on all data nodes")
+		},
+		&DataNodeUsers,
+		"postgres", NULL, NULL
+	},
+
+	{
+		{"data_node_passwords", PGC_POSTMASTER, DATA_NODES,
+			gettext_noop("Passwords of data nodes."),
+			gettext_noop("Comma separated list or single value, "
+						 "if passwords are the same on all data nodes")
+		},
+		&DataNodePwds,
+		"postgres", NULL, NULL
+	},
+
+	{
+		{"gtm_host", PGC_POSTMASTER, GTM,
+			gettext_noop("Host name or address of GTM"),
+			NULL
+		},
+		&GtmHost,
+		"localhost", NULL, NULL
+	},
+#endif
 #ifdef USE_SSL
 	{
 		{"ssl_ciphers", PGC_POSTMASTER, CONN_AUTH_SECURITY,

@@ -5,6 +5,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  * $PostgreSQL: pgsql/src/include/utils/snapshot.h,v 1.5 2009/06/11 14:49:13 momjian Exp $
  *
@@ -46,7 +47,11 @@ typedef struct SnapshotData
 	 */
 	TransactionId xmin;			/* all XID < xmin are visible to me */
 	TransactionId xmax;			/* all XID >= xmax are invisible to me */
+	TransactionId recent_global_xmin;
 	uint32		xcnt;			/* # of xact ids in xip[] */
+#ifdef PGXC  /* PGXC_COORD */
+	uint32		max_xcnt;		/* Max # of xact in xip[] */
+#endif
 	TransactionId *xip;			/* array of xact IDs in progress */
 	/* note: all ids in xip[] satisfy xmin <= xip[i] < xmax */
 	int32		subxcnt;		/* # of xact ids in subxip[], -1 if overflow */

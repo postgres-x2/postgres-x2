@@ -9,6 +9,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  * $PostgreSQL: pgsql/src/include/nodes/primnodes.h,v 1.149 2009/06/11 14:49:11 momjian Exp $
  *
@@ -1173,5 +1174,31 @@ typedef struct FromExpr
 	List	   *fromlist;		/* List of join subtrees */
 	Node	   *quals;			/* qualifiers on join, if any */
 } FromExpr;
+
+#ifdef PGXC
+/*----------
+ * DistributionType - how to distribute the data
+ *
+ *----------
+ */
+typedef enum DistributionType
+{
+	DISTTYPE_REPLICATION,			/* Replicated */
+	DISTTYPE_HASH,				/* Hash partitioned */
+	DISTTYPE_ROUNDROBIN			/* Round Robin */
+} DistributionType;
+
+/*----------
+ * DistributeBy - represents a DISTRIBUTE BY clause in a CREATE TABLE statement
+ *
+ *----------
+ */
+typedef struct DistributeBy
+{
+	NodeTag		type;
+	DistributionType disttype;		/* Distribution type */
+	char	   	*colname;		/* Distribution column name */
+} DistributeBy;
+#endif
 
 #endif   /* PRIMNODES_H */

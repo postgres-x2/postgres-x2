@@ -6,6 +6,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  * IDENTIFICATION
  *	  $PostgreSQL: pgsql/src/backend/catalog/dependency.c,v 1.89 2009/06/11 14:48:54 momjian Exp $
@@ -50,6 +51,9 @@
 #include "catalog/pg_ts_template.h"
 #include "catalog/pg_type.h"
 #include "catalog/pg_user_mapping.h"
+#ifdef PGXC
+#include "catalog/pgxc_class.h"
+#endif
 #include "commands/comment.h"
 #include "commands/dbcommands.h"
 #include "commands/defrem.h"
@@ -144,6 +148,9 @@ static const Oid object_classes[MAX_OCLASS] = {
 	AuthIdRelationId,			/* OCLASS_ROLE */
 	DatabaseRelationId,			/* OCLASS_DATABASE */
 	TableSpaceRelationId		/* OCLASS_TBLSPACE */
+#ifdef PGXC
+	,PgxcClassRelationId		/* OCLASS_PGXCCLASS */
+#endif
 };
 
 

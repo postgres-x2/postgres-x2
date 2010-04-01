@@ -5,6 +5,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  *
  * IDENTIFICATION
@@ -71,7 +72,16 @@
 #include "utils/snapmgr.h"
 #include "mb/pg_wchar.h"
 
-
+#ifdef PGXC
+#include "storage/procarray.h"
+#include "pgxc/pgxc.h"
+#include "access/gtm.h"
+/* PGXC_COORD */
+#include "pgxc/planner.h"
+#include "pgxc/datanode.h"
+/* PGXC_DATANODE */
+#include "access/transam.h" 
+#endif 
 extern int	optind;
 extern char *optarg;
 
@@ -184,6 +194,27 @@ static void drop_unnamed_stmt(void);
 static void SigHupHandler(SIGNAL_ARGS);
 static void log_disconnections(int code, Datum arg);
 
+
+#ifdef PGXC /* PGXC_DATANODE */
+static void pgxc_transaction_stmt (Node *parsetree);
+static List * pgxc_execute_direct (Node *parsetree, List *querytree_list, CommandDest dest, bool snapshot_set, bool *exec_on_coord);
+
+/* ----------------------------------------------------------------
+ *		PG-XC routines
+ * ----------------------------------------------------------------
+ */
+
+/*  
+ * Called when the backend is ending. 
+ */
+static void 
+DataNodeShutdown (int code, Datum arg)
+{
+	/* Close connection with GTM, if active */
+	if (IsAutoVacuumWorkerProcess())
+		CloseGTM();
+}
+#endif
 
 /* ----------------------------------------------------------------
  *		routines to obtain user input
@@ -398,6 +429,11 @@ SocketBackend(StringInfo inBuf)
 						(errcode(ERRCODE_PROTOCOL_VIOLATION),
 						 errmsg("invalid frontend message type %d", qtype)));
 			break;
+#ifdef PGXC /* PGXC_DATANODE */
+		case 'g':
+		case 's':
+			break;
+#endif 
 
 		default:
 
@@ -780,7 +816,6 @@ exec_simple_query(const char *query_string)
 	bool		isTopLevel;
 	char		msec_str[32];
 
-
 	/*
 	 * Report query to various monitoring facilities.
 	 */
@@ -863,6 +898,22 @@ exec_simple_query(const char *query_string)
 		Portal		portal;
 		DestReceiver *receiver;
 		int16		format;
+#ifdef PGXC 
+		Query_Plan  *query_plan;
+		Query_Step  *query_step;
+		bool 		exec_on_coord;
+
+
+		/* 
+		 * By default we do not want data nodes to contact GTM directly,
+		 * it should get this information passed down to it.
+		 */
+		if (IS_PGXC_DATANODE)
+			SetForceXidFromGTM(false);
+
+		exec_on_coord = true;
+		query_plan = NULL;
+#endif
 
 		/*
 		 * Get the command name for use in status display (it also becomes the
@@ -917,14 +968,52 @@ exec_simple_query(const char *query_string)
 		querytree_list = pg_analyze_and_rewrite(parsetree, query_string,
 												NULL, 0);
 
-		plantree_list = pg_plan_queries(querytree_list, 0, NULL);
+#ifdef PGXC /* PGXC_COORD */
+		if (IS_PGXC_COORDINATOR)
+		{
+			if (IsA(parsetree, TransactionStmt))
+				pgxc_transaction_stmt(parsetree);
+
+			else if (IsA(parsetree, ExecDirectStmt))
+				querytree_list = pgxc_execute_direct(parsetree, querytree_list, dest, snapshot_set, &exec_on_coord);
+
+			else 
+			{
+				query_plan = GetQueryPlan(parsetree, query_string, querytree_list);
+			
+				exec_on_coord = query_plan->exec_loc_type & EXEC_ON_COORD;
+			}
+
+			/* First execute on the coordinator, if involved (DDL),  then data nodes */
+		}
+
+		if ((IS_PGXC_COORDINATOR && exec_on_coord) || IS_PGXC_DATANODE)
+#endif
+			plantree_list = pg_plan_queries(querytree_list, 0, NULL);
 
 		/* Done with the snapshot used for parsing/planning */
+#ifdef PGXC
+		/* In PG-XC, hold on to it a bit longer */
+#else
 		if (snapshot_set)
 			PopActiveSnapshot();
+#endif
 
 		/* If we got a cancel signal in analysis or planning, quit */
 		CHECK_FOR_INTERRUPTS();
+
+#ifdef PGXC 
+		/* PGXC_DATANODE */
+		/* Force getting Xid from GTM if not autovacuum, but a vacuum */
+		if (IS_PGXC_DATANODE && IsA(parsetree, VacuumStmt) && IsPostmasterEnvironment)
+			SetForceXidFromGTM(true);
+
+		/* PGXC_COORD */
+		/* Force getting Xid from GTM if not autovacuum, but a vacuum */
+		/* Skip the Portal stuff on coordinator if command only executes on data nodes */
+		if ((IS_PGXC_COORDINATOR && exec_on_coord) || IS_PGXC_DATANODE)
+		{
+#endif
 
 		/*
 		 * Create unnamed portal to run the query or queries in. If there
@@ -999,6 +1088,33 @@ exec_simple_query(const char *query_string)
 
 		PortalDrop(portal, false);
 
+#ifdef PGXC 
+		}
+
+		/* PGXC_COORD */
+		/* If the coordinator ran ok, now run on the data nodes if planned */
+		if (IS_PGXC_COORDINATOR)
+		{
+			if (query_plan && (query_plan->exec_loc_type & EXEC_ON_DATA_NODES))
+			{
+				query_step = linitial(query_plan->query_step_list);
+
+				DataNodeExec(query_step->sql_statement, 
+						query_step->nodelist, 
+						dest, 
+						snapshot_set ? GetActiveSnapshot() : GetTransactionSnapshot(),
+						query_plan->force_autocommit,
+						query_step->simple_aggregates,
+						IsA(parsetree, SelectStmt));
+			}
+	
+			FreeQueryPlan(query_plan);
+		}
+
+		if (snapshot_set)
+			PopActiveSnapshot();
+#endif /* PGXC_COORD */
+
 		if (IsA(parsetree, TransactionStmt))
 		{
 			/*
@@ -1029,6 +1145,11 @@ exec_simple_query(const char *query_string)
 			 */
 			CommandCounterIncrement();
 		}
+#ifdef PGXC /* PGXC_COORD */
+		/* In case of PGXC handling client already received a response */
+		if ((IS_PGXC_COORDINATOR && exec_on_coord) || IS_PGXC_DATANODE)
+		{
+#endif
 
 		/*
 		 * Tell client that we're done with this query.  Note we emit exactly
@@ -1037,6 +1158,9 @@ exec_simple_query(const char *query_string)
 		 * aborted by error will not send an EndCommand report at all.)
 		 */
 		EndCommand(completionTag, dest);
+#ifdef PGXC /* PGXC_COORD */
+		}
+#endif
 	}							/* end loop over parsetrees */
 
 	/*
@@ -2868,6 +2992,14 @@ PostgresMain(int argc, char *argv[], const char *username)
 	sigjmp_buf	local_sigjmp_buf;
 	volatile bool send_ready_for_query = true;
 
+#ifdef PGXC /* PGXC_DATANODE */
+	/* Snapshot info */
+	int 			xmin;
+	int 			xmax;
+	int				xcnt;
+	int 			*xip;
+#endif
+
 #define PendingConfigOption(name,val) \
 	(guc_names = lappend(guc_names, pstrdup(name)), \
 	 guc_values = lappend(guc_values, pstrdup(val)))
@@ -2948,7 +3080,11 @@ PostgresMain(int argc, char *argv[], const char *username)
 	 * postmaster/postmaster.c (the option sets should not conflict) and with
 	 * the common help() function in main/main.c.
 	 */
+#ifdef PGXC
+	while ((flag = getopt(argc, argv, "A:B:Cc:D:d:EeFf:h:ijk:lN:nOo:Pp:r:S:sTt:v:W:Xy:-:")) != -1)
+#else
 	while ((flag = getopt(argc, argv, "A:B:c:D:d:EeFf:h:ijk:lN:nOo:Pp:r:S:sTt:v:W:y:-:")) != -1)
+#endif
 	{
 		switch (flag)
 		{
@@ -2959,6 +3095,12 @@ PostgresMain(int argc, char *argv[], const char *username)
 			case 'B':
 				SetConfigOption("shared_buffers", optarg, ctx, gucsource);
 				break;
+
+#ifdef PGXC
+			case 'C':
+				isPGXCCoordinator = true;
+				break;
+#endif 
 
 			case 'D':
 				if (secure)
@@ -3082,7 +3224,11 @@ PostgresMain(int argc, char *argv[], const char *username)
 				SetConfigOption("post_auth_delay", optarg, ctx, gucsource);
 				break;
 
-
+#ifdef PGXC
+			case 'X':
+				isPGXCDataNode = true;
+				break;
+#endif 
 			case 'y':
 
 				/*
@@ -3139,6 +3285,24 @@ PostgresMain(int argc, char *argv[], const char *username)
 				break;
 		}
 	}
+
+#ifdef PGXC
+	/*
+	 * Make sure we specified the mode if Coordinator or Data Node.
+	 * Allow for the exception of initdb by checking config option
+	 */
+	if (!IS_PGXC_COORDINATOR && !IS_PGXC_DATANODE && IsUnderPostmaster)
+	{
+		ereport(FATAL,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+			 errmsg("PG-XC: must start as either a Coordinator (-C) or Data Node (-X)\n")));
+	}
+	if (!IsPostmasterEnvironment)
+	{
+		/* Treat it as a data node for initdb to work properly */
+		isPGXCDataNode = true;
+	}
+#endif
 
 	/*
 	 * Process any additional GUC variable settings passed in startup packet.
@@ -3511,6 +3675,19 @@ PostgresMain(int argc, char *argv[], const char *username)
 	if (!ignore_till_sync)
 		send_ready_for_query = true;	/* initially, or after error */
 
+#ifdef PGXC /* PGXC_COORD */
+	if (IS_PGXC_COORDINATOR)
+	{
+		InitMultinodeExecutor();
+		/* If we exit, first try and clean connections and send to pool */
+		on_proc_exit (DataNodeCleanAndRelease, 0);
+	}
+	if (IS_PGXC_DATANODE)
+	{
+		/* If we exit, first try and clean connection to GTM */
+		on_proc_exit (DataNodeShutdown, 0);
+	}
+#endif
 	/*
 	 * Non-error queries loop here.
 	 */
@@ -3560,6 +3737,15 @@ PostgresMain(int argc, char *argv[], const char *username)
 			}
 
 			ReadyForQuery(whereToSendOutput);
+#ifdef PGXC
+			/* 
+			 * Helps us catch any problems where we did not send down a snapshot 
+			 * when it was expected. 
+			 */
+			if (IS_PGXC_DATANODE)
+				UnsetGlobalSnapshotData();
+#endif
+
 			send_ready_for_query = false;
 		}
 
@@ -3832,6 +4018,42 @@ PostgresMain(int argc, char *argv[], const char *username)
 				 * is still sending data.
 				 */
 				break;
+#ifdef PGXC /* PGXC_DATANODE */
+			case 'g':			/* gxid */
+				{
+					/* Set the GXID we were passed down */
+					TransactionId gxid = (TransactionId) pq_getmsgint(&input_message, 4);
+					elog(DEBUG1, "Received new gxid %u", gxid);
+					SetNextTransactionId(gxid);
+					pq_getmsgend(&input_message);
+				}
+				break;
+
+			case 's':			/* snapshot */
+				/* Set the snapshot we were passed down */
+				xmin = pq_getmsgint(&input_message, 4);
+				xmax = pq_getmsgint(&input_message, 4);
+				RecentGlobalXmin = pq_getmsgint(&input_message, 4);
+				xcnt = pq_getmsgint(&input_message, 4);
+				if (xcnt > 0)
+				{
+					int i;
+					xip = malloc(xcnt * 4);
+					if (xip == NULL)
+					{
+						ereport(ERROR,
+								(errcode(ERRCODE_OUT_OF_MEMORY),
+								 errmsg("out of memory")));
+					}
+					for (i = 0; i < xcnt; i++)
+					       xip[i] = pq_getmsgint(&input_message, 4);
+				}
+				else
+					xip = NULL;
+				pq_getmsgend(&input_message);
+				SetGlobalSnapshotData(xmin, xmax, xcnt, xip);
+				break;
+#endif /* PGXC */
 
 			default:
 				ereport(FATAL,
@@ -4023,3 +4245,117 @@ log_disconnections(int code, Datum arg)
 					port->user_name, port->database_name, port->remote_host,
 				  port->remote_port[0] ? " port=" : "", port->remote_port)));
 }
+
+
+#ifdef PGXC
+/*
+ * Handle transaction statements in PG-XC
+ */
+void
+pgxc_transaction_stmt (Node *parsetree)
+{
+	Assert(IS_PGXC_COORDINATOR);
+
+
+	/* Handle transaction statements specially */
+	if (IsA(parsetree, TransactionStmt))
+	{
+			TransactionStmt *stmt = (TransactionStmt *) parsetree;
+
+			switch (stmt->kind)
+			{
+				case TRANS_STMT_BEGIN:
+					/* 
+					 * This does not yet send down a BEGIN,
+					 * we do that "on demand" as data nodes are added 
+					 */
+					DataNodeBegin();
+				break;
+
+				case TRANS_STMT_COMMIT:
+					DataNodeCommit(DestNone);
+					break;
+
+				case TRANS_STMT_ROLLBACK:
+					DataNodeRollback(DestNone);
+					break;
+
+				default:
+					/* Ignore others for prototype */
+					break;
+			}
+	}
+}
+
+
+/*
+ * Handle EXECUTE DIRECT
+ */
+List *
+pgxc_execute_direct (Node *parsetree, List *querytree_list, CommandDest dest, bool snapshot_set, bool *exec_on_coord)
+{
+	List *node_list = NIL;
+	List *parsetree_list;
+	ListCell *node_cell;
+	ExecDirectStmt *execdirect = (ExecDirectStmt *) parsetree;
+	bool on_coord = execdirect->coordinator;
+
+
+	Assert(IS_PGXC_COORDINATOR);
+	Assert(IsA(parsetree, ExecDirectStmt));
+
+	foreach (node_cell, execdirect->nodes)
+	{
+		int node_int = intVal(lfirst(node_cell));
+		node_list = lappend_int(node_list, node_int);	
+	}
+	if (node_list)
+		if (DataNodeExec(execdirect->query,
+					node_list,
+					dest,
+					snapshot_set ? GetActiveSnapshot() : GetTransactionSnapshot(),
+					FALSE,
+					FALSE,
+					FALSE) != 0)
+			on_coord = false;
+
+	if (on_coord)
+	{
+		/*
+		 * Parse inner statement, like at the begiining of the function
+		 * We do not have to release wrapper trees, the message context 
+		 * will be deleted later
+		 * Also, no need to switch context - current is already 
+		 * 		the MessageContext
+		 */
+		parsetree_list = pg_parse_query(execdirect->query);
+
+		/* We do not want to log or display the inner command */
+
+		/* 
+		 * we do not support complex commands (expanded to multiple 
+		 * parse trees) within EXEC DIRECT
+		 */
+		if (list_length(parsetree_list) != 1)
+		{
+			ereport(ERROR, 
+				   (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				    errmsg("Can not execute %s with EXECUTE DIRECT", 
+						execdirect->query)));
+		}
+
+		/*
+		 * Get parse tree from the list
+		 */
+		parsetree = (Node *) lfirst(list_head(parsetree_list));
+
+		/*
+		 * Build new query tree */
+		querytree_list = pg_analyze_and_rewrite(parsetree,
+				execdirect->query, NULL, 0);
+	}
+	*exec_on_coord = on_coord;
+
+	return querytree_list;
+}
+#endif /* PGXC */

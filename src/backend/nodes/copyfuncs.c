@@ -13,6 +13,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  * IDENTIFICATION
  *	  $PostgreSQL: pgsql/src/backend/nodes/copyfuncs.c,v 1.432 2009/06/18 01:27:02 tgl Exp $
@@ -2402,6 +2403,19 @@ _copyCopyStmt(CopyStmt *from)
 	return newnode;
 }
 
+#ifdef PGXC
+static DistributeBy *
+_copyDistributeBy(DistributeBy *from)
+{
+	DistributeBy *newnode = makeNode(DistributeBy);
+
+	COPY_SCALAR_FIELD(disttype);
+	COPY_STRING_FIELD(colname);
+
+	return newnode;
+}
+#endif
+
 static CreateStmt *
 _copyCreateStmt(CreateStmt *from)
 {
@@ -2414,6 +2428,9 @@ _copyCreateStmt(CreateStmt *from)
 	COPY_NODE_FIELD(options);
 	COPY_SCALAR_FIELD(oncommit);
 	COPY_STRING_FIELD(tablespacename);
+#ifdef PGXC
+	COPY_NODE_FIELD(distributeby);
+#endif
 
 	return newnode;
 }
@@ -4093,7 +4110,11 @@ copyObject(void *from)
 		case T_XmlSerialize:
 			retval = _copyXmlSerialize(from);
 			break;
-
+#ifdef PGXC
+		case T_DistributeBy:
+			retval = _copyDistributeBy(from);
+			break;
+#endif
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(from));
 			retval = from;		/* keep compiler quiet */

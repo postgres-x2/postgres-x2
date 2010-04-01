@@ -5,6 +5,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  *
  * IDENTIFICATION
@@ -35,6 +36,12 @@
 #include "utils/resowner.h"
 #include "utils/syscache.h"
 
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+/* PGXC_COORD */
+#include "gtm/gtm_c.h"
+#include "access/gtm.h"
+#endif
 
 /*
  * We don't want to log each fetching of a value from a sequence,
@@ -117,6 +124,13 @@ DefineSequence(CreateSeqStmt *seq)
 	bool		null[SEQ_COL_LASTCOL];
 	int			i;
 	NameData	name;
+#ifdef PGXC /* PGXC_COORD */
+	GTM_Sequence	start_value = 1;
+	GTM_Sequence	min_value = 1;
+	GTM_Sequence	max_value = InvalidSequenceValue;
+	GTM_Sequence	increment = 1;
+	bool		cycle = false;
+#endif
 
 	/* Check and set all option values */
 	init_params(seq->options, true, &new, &owned_by);
@@ -155,21 +169,33 @@ DefineSequence(CreateSeqStmt *seq)
 				coldef->typename = makeTypeNameFromOid(INT8OID, -1);
 				coldef->colname = "start_value";
 				value[i - 1] = Int64GetDatumFast(new.start_value);
+#ifdef PGXC /* PGXC_COORD */
+				start_value = new.start_value;
+#endif
 				break;
 			case SEQ_COL_INCBY:
 				coldef->typename = makeTypeNameFromOid(INT8OID, -1);
 				coldef->colname = "increment_by";
 				value[i - 1] = Int64GetDatumFast(new.increment_by);
+#ifdef PGXC /* PGXC_COORD */
+				increment = new.increment_by;
+#endif
 				break;
 			case SEQ_COL_MAXVALUE:
 				coldef->typename = makeTypeNameFromOid(INT8OID, -1);
 				coldef->colname = "max_value";
 				value[i - 1] = Int64GetDatumFast(new.max_value);
+#ifdef PGXC /* PGXC_COORD */
+				max_value = new.max_value;
+#endif
 				break;
 			case SEQ_COL_MINVALUE:
 				coldef->typename = makeTypeNameFromOid(INT8OID, -1);
 				coldef->colname = "min_value";
 				value[i - 1] = Int64GetDatumFast(new.min_value);
+#ifdef PGXC /* PGXC_COORD */
+				min_value = new.min_value;
+#endif
 				break;
 			case SEQ_COL_CACHE:
 				coldef->typename = makeTypeNameFromOid(INT8OID, -1);
@@ -185,6 +211,9 @@ DefineSequence(CreateSeqStmt *seq)
 				coldef->typename = makeTypeNameFromOid(BOOLOID, -1);
 				coldef->colname = "is_cycled";
 				value[i - 1] = BoolGetDatum(new.is_cycled);
+#ifdef PGXC  /* PGXC_COORD */
+				cycle = new.is_cycled;
+#endif
 				break;
 			case SEQ_COL_CALLED:
 				coldef->typename = makeTypeNameFromOid(BOOLOID, -1);
@@ -308,6 +337,20 @@ DefineSequence(CreateSeqStmt *seq)
 		process_owned_by(rel, owned_by);
 
 	heap_close(rel, NoLock);
+
+#ifdef PGXC  /* PGXC_COORD */
+	if (IS_PGXC_COORDINATOR)
+	{
+		/* We also need to create it on the GTM */
+		if (CreateSequenceGTM(name.data, increment, min_value, max_value, 
+				start_value, cycle) < 0)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_CONNECTION_FAILURE),
+					 errmsg("GTM error, could not create sequence")));
+		}
+	}
+#endif
 }
 
 /*
@@ -481,6 +524,20 @@ nextval_internal(Oid relid)
 	seq = read_info(elm, seqrel, &buf);
 	page = BufferGetPage(buf);
 
+#ifdef PGXC  /* PGXC_COORD */
+	if (IS_PGXC_COORDINATOR)
+	{
+		/* Above, we still use the page as a locking mechanism to handle
+	   	 * concurrency
+		 */
+		result = (int64) GetNextValGTM(RelationGetRelationName(seqrel));
+		if (result < 0)
+			ereport(ERROR,
+				(errcode(ERRCODE_CONNECTION_FAILURE),
+				 errmsg("GTM error, could not obtain sequence value")));
+	} else
+	{
+#endif
 	last = next = result = seq->last_value;
 	incby = seq->increment_by;
 	maxv = seq->max_value;
@@ -636,7 +693,9 @@ nextval_internal(Oid relid)
 	seq->log_cnt = log;			/* how much is logged */
 
 	END_CRIT_SECTION();
-
+#ifdef PGXC  /* PGXC_COORD */
+	}
+#endif
 	UnlockReleaseBuffer(buf);
 
 	relation_close(seqrel, NoLock);

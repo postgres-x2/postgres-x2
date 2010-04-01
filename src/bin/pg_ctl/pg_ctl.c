@@ -3,6 +3,7 @@
  * pg_ctl --- start/stops/restarts the PostgreSQL server
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  * $PostgreSQL: pgsql/src/bin/pg_ctl/pg_ctl.c,v 1.111 2009/06/11 14:49:07 momjian Exp $
  *
@@ -58,8 +59,8 @@ typedef enum
 {
 	NO_COMMAND = 0,
 	START_COMMAND,
-	STOP_COMMAND,
 	RESTART_COMMAND,
+	STOP_COMMAND,
 	RELOAD_COMMAND,
 	STATUS_COMMAND,
 	KILL_COMMAND,
@@ -88,6 +89,9 @@ static char *register_username = NULL;
 static char *register_password = NULL;
 static char *argv0 = NULL;
 static bool allow_core_files = false;
+#ifdef PGXC
+static char *pgxcCommand = NULL;
+#endif
 
 static void
 write_stderr(const char *fmt,...)
@@ -357,12 +361,23 @@ start_postmaster(void)
 	 * everything to a shell to process them.
 	 */
 	if (log_file != NULL)
+#ifdef PGXC
+		snprintf(cmd, MAXPGPATH, SYSTEMQUOTE "\"%s\" %s %s%s < \"%s\" >> \"%s\" 2>&1 &" SYSTEMQUOTE,
+				postgres_path, pgxcCommand, pgdata_opt, post_opts,
+				DEVNULL, log_file);
+#else
 		snprintf(cmd, MAXPGPATH, SYSTEMQUOTE "\"%s\" %s%s < \"%s\" >> \"%s\" 2>&1 &" SYSTEMQUOTE,
 				 postgres_path, pgdata_opt, post_opts,
 				 DEVNULL, log_file);
+#endif
 	else
+#ifdef PGXC
+		snprintf(cmd, MAXPGPATH, SYSTEMQUOTE "\"%s\" %s %s%s < \"%s\" 2>&1 &" SYSTEMQUOTE,
+				postgres_path, pgxcCommand, pgdata_opt, post_opts, DEVNULL);
+#else
 		snprintf(cmd, MAXPGPATH, SYSTEMQUOTE "\"%s\" %s%s < \"%s\" 2>&1 &" SYSTEMQUOTE,
 				 postgres_path, pgdata_opt, post_opts, DEVNULL);
+#endif
 
 	return system(cmd);
 #else							/* WIN32 */
@@ -1520,16 +1535,22 @@ do_help(void)
 	printf(_("%s is a utility to start, stop, restart, reload configuration files,\n"
 			 "report the status of a PostgreSQL server, or signal a PostgreSQL process.\n\n"), progname);
 	printf(_("Usage:\n"));
+#ifdef PGXC
+	printf(_("  %s start   [-w] [-t SECS] [-S NODE-TYPE] [-D DATADIR] [-s] [-l FILENAME] [-o \"OPTIONS\"]\n"), progname);
+	printf(_("  %s restart [-w] [-t SECS] [-S NODE-TYPE] [-D DATADIR] [-s] [-m SHUTDOWN-MODE]\n"
+		 	 "                 [-o \"OPTIONS\"]\n"), progname);
+#else
 	printf(_("  %s start   [-w] [-t SECS] [-D DATADIR] [-s] [-l FILENAME] [-o \"OPTIONS\"]\n"), progname);
-	printf(_("  %s stop    [-W] [-t SECS] [-D DATADIR] [-s] [-m SHUTDOWN-MODE]\n"), progname);
 	printf(_("  %s restart [-w] [-t SECS] [-D DATADIR] [-s] [-m SHUTDOWN-MODE]\n"
-			 "                 [-o \"OPTIONS\"]\n"), progname);
+		 	 "                 [-o \"OPTIONS\"]\n"), progname);
+#endif
+	printf(_("  %s stop    [-W] [-t SECS] [-D DATADIR] [-s] [-m SHUTDOWN-MODE]\n"), progname);
 	printf(_("  %s reload  [-D DATADIR] [-s]\n"), progname);
 	printf(_("  %s status  [-D DATADIR]\n"), progname);
 	printf(_("  %s kill    SIGNALNAME PID\n"), progname);
 #if defined(WIN32) || defined(__CYGWIN__)
 	printf(_("  %s register   [-N SERVICENAME] [-U USERNAME] [-P PASSWORD] [-D DATADIR]\n"
-		 "                    [-w] [-t SECS] [-o \"OPTIONS\"]\n"), progname);
+		 	 "                    [-w] [-t SECS] [-o \"OPTIONS\"]\n"), progname);
 	printf(_("  %s unregister [-N SERVICENAME]\n"), progname);
 #endif
 
@@ -1537,6 +1558,9 @@ do_help(void)
 	printf(_("  -D, --pgdata DATADIR   location of the database storage area\n"));
 	printf(_("  -s, --silent           only print errors, no informational messages\n"));
 	printf(_("  -t SECS                seconds to wait when using -w option\n"));
+#ifdef PGXC
+	printf(_("  -S NODE-TYPE           can be \"coordinator\" or \"datanode\" (Postgres-XC)\n"));
+#endif
 	printf(_("  -w                     wait until operation completes\n"));
 	printf(_("  -W                     do not wait until operation completes\n"));
 	printf(_("  --help                 show this help, then exit\n"));
@@ -1715,7 +1739,11 @@ main(int argc, char **argv)
 	/* process command-line options */
 	while (optind < argc)
 	{
+#ifdef PGXC
+		while ((c = getopt_long(argc, argv, "cD:l:m:N:o:p:P:S:st:U:wW", long_options, &option_index)) != -1)
+#else
 		while ((c = getopt_long(argc, argv, "cD:l:m:N:o:p:P:st:U:wW", long_options, &option_index)) != -1)
+#endif
 		{
 			switch (c)
 			{
@@ -1759,6 +1787,13 @@ main(int argc, char **argv)
 				case 'P':
 					register_password = xstrdup(optarg);
 					break;
+#ifdef PGXC
+				case 'S':
+					if (strcmp(optarg, "coordinator") == 0)
+						pgxcCommand = strdup("-C");
+					else if (strcmp(optarg, "datanode") == 0)
+						pgxcCommand = strdup("-X");
+#endif
 				case 's':
 					silent_mode = true;
 					break;
@@ -1808,13 +1843,12 @@ main(int argc, char **argv)
 				do_advice();
 				exit(1);
 			}
-
 			if (strcmp(argv[optind], "start") == 0)
 				ctl_command = START_COMMAND;
-			else if (strcmp(argv[optind], "stop") == 0)
-				ctl_command = STOP_COMMAND;
 			else if (strcmp(argv[optind], "restart") == 0)
 				ctl_command = RESTART_COMMAND;
+			else if (strcmp(argv[optind], "stop") == 0)
+				ctl_command = STOP_COMMAND;
 			else if (strcmp(argv[optind], "reload") == 0)
 				ctl_command = RELOAD_COMMAND;
 			else if (strcmp(argv[optind], "status") == 0)
@@ -1855,6 +1889,18 @@ main(int argc, char **argv)
 		do_advice();
 		exit(1);
 	}
+
+#ifdef PGXC
+	/* stop command does not need to have coordinator or datanode options */
+	if ((ctl_command == START_COMMAND || ctl_command == RESTART_COMMAND)
+		&& !pgxcCommand)
+	{
+		write_stderr(_("%s: coordinator or datanode option not specified (-S)\n"),
+					progname);
+		do_advice();
+		exit(1);
+	}
+#endif
 
 	/* Note we put any -D switch into the env var above */
 	pg_data = getenv("PGDATA");
@@ -1912,11 +1958,11 @@ main(int argc, char **argv)
 		case START_COMMAND:
 			do_start();
 			break;
-		case STOP_COMMAND:
-			do_stop();
-			break;
 		case RESTART_COMMAND:
 			do_restart();
+			break;
+		case STOP_COMMAND:
+			do_stop();
 			break;
 		case RELOAD_COMMAND:
 			do_reload();

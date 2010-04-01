@@ -50,7 +50,6 @@ ProcessingMode Mode = InitProcessing;
 /* Note: we rely on this to initialize as zeroes */
 static char socketLockFile[MAXPGPATH];
 
-
 /* ----------------------------------------------------------------
  *		ignoring system indexes support stuff
  *

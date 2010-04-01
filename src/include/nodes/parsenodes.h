@@ -12,6 +12,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  * $PostgreSQL: pgsql/src/include/nodes/parsenodes.h,v 1.395 2009/06/18 01:27:02 tgl Exp $
  *
@@ -1335,6 +1336,9 @@ typedef struct CreateStmt
 	List	   *options;		/* options from WITH clause */
 	OnCommitAction oncommit;	/* what do we do at COMMIT? */
 	char	   *tablespacename; /* table space to use, or NULL */
+#ifdef PGXC
+	DistributeBy *distributeby; 	/* distribution to use, or NULL */
+#endif
 } CreateStmt;
 
 /* ----------
@@ -2388,5 +2392,18 @@ typedef struct AlterTSConfigurationStmt
 	bool		replace;		/* if true - replace dictionary by another */
 	bool		missing_ok;		/* for DROP - skip error if missing? */
 } AlterTSConfigurationStmt;
+
+/* PGXC_BEGIN */
+/*
+ * EXECUTE DIRECT statement
+ */
+typedef struct ExecDirectStmt
+{
+	NodeTag		type;
+	bool		coordinator;
+	List	   *nodes;
+	char	   *query;
+} ExecDirectStmt;
+/* PGXC_END */
 
 #endif   /* PARSENODES_H */

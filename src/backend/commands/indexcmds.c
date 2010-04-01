@@ -5,6 +5,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  *
  * IDENTIFICATION
@@ -37,6 +38,10 @@
 #include "parser/parse_coerce.h"
 #include "parser/parse_func.h"
 #include "parser/parsetree.h"
+#ifdef PGXC
+#include "parser/parse_utilcmd.h"
+#include "pgxc/pgxc.h"
+#endif
 #include "storage/lmgr.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
@@ -404,6 +409,30 @@ DefineIndex(RangeVar *heapRelation,
 
 	(void) index_reloptions(amoptions, reloptions, true);
 
+#ifdef PGXC
+	/* Make sure we can locally enforce the index */
+	if (IS_PGXC_COORDINATOR && (primary || unique))
+	{
+		ListCell *elem;
+		bool isSafe = false;
+
+		foreach(elem, attributeList)
+		{
+			IndexElem  *key = (IndexElem *) lfirst(elem);
+
+			if (CheckLocalIndexColumn(rel->rd_locator_info->locatorType, 
+				rel->rd_locator_info->partAttrName, key->name))
+			{
+				isSafe = true;
+				break;
+			}
+		}
+		if (!isSafe)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
+					errmsg("Unique index of partitioned table must contain the hash distribution column.")));
+	}
+#endif
 	/*
 	 * Prepare arguments for index_create, primarily an IndexInfo structure.
 	 * Note that ii_Predicate must be in implicit-AND format.

@@ -2069,6 +2069,10 @@ CreateCommandTag(Node *parsetree)
 				}
 			}
 			break;
+		
+		case T_ExecDirectStmt:
+			tag = "EXECUTE DIRECT";
+			break;
 
 		default:
 			elog(WARNING, "unrecognized node type: %d",

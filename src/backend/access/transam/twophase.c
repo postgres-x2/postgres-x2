@@ -5,6 +5,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  * IDENTIFICATION
  *		$PostgreSQL: pgsql/src/backend/access/transam/twophase.c,v 1.54 2009/06/25 19:05:52 heikki Exp $
@@ -68,7 +69,11 @@
 #define TWOPHASE_DIR "pg_twophase"
 
 /* GUC variable, can't be changed after startup */
+#ifdef PGXC
+int			max_prepared_xacts = 10;  /* We require 2PC */
+#else
 int			max_prepared_xacts = 0;
+#endif
 
 /*
  * This struct describes one global transaction that is in prepared state

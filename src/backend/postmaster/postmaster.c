@@ -34,6 +34,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  *
  * IDENTIFICATION
@@ -102,6 +103,13 @@
 #include "libpq/libpq.h"
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+/* COORD */
+#include "pgxc/locator.h"
+#include "pgxc/poolmgr.h"
+#include "access/gtm.h"
+#endif
 #include "pgstat.h"
 #include "postmaster/autovacuum.h"
 #include "postmaster/fork_process.h"
@@ -204,6 +212,9 @@ char	   *bonjour_name;
 
 /* PIDs of special child processes; 0 when not running */
 static pid_t StartupPID = 0,
+#ifdef PGXC /* PGXC_COORD */
+			PgPoolerPID = 0,
+#endif /* PGXC_COORD */
 			BgWriterPID = 0,
 			WalWriterPID = 0,
 			AutoVacPID = 0,
@@ -442,6 +453,12 @@ static void ShmemBackendArrayAdd(Backend *bn);
 static void ShmemBackendArrayRemove(Backend *bn);
 #endif   /* EXEC_BACKEND */
 
+#ifdef PGXC /* PGXC_COORD */
+bool isPGXCCoordinator = false;
+bool isPGXCDataNode = false;
+#define StartPoolManager()		StartChildProcess(PoolerProcess)
+#endif
+
 #define StartupDataBase()		StartChildProcess(StartupProcess)
 #define StartBackgroundWriter() StartChildProcess(BgWriterProcess)
 #define StartWalWriter()		StartChildProcess(WalWriterProcess)
@@ -461,6 +478,9 @@ PostmasterMain(int argc, char *argv[])
 	int			status;
 	char	   *userDoption = NULL;
 	int			i;
+#ifdef PGXC /* PGXC_COORD */
+	MemoryContext 		oldcontext;
+#endif
 
 	MyProcPid = PostmasterPid = getpid();
 
@@ -506,7 +526,11 @@ PostmasterMain(int argc, char *argv[])
 	 * tcop/postgres.c (the option sets should not conflict) and with the
 	 * common help() function in main/main.c.
 	 */
+#ifdef PGXC
+	while ((opt = getopt(argc, argv, "A:B:Cc:D:d:EeFf:h:ijk:lN:nOo:Pp:r:S:sTt:W:X-:")) != -1)
+#else
 	while ((opt = getopt(argc, argv, "A:B:c:D:d:EeFf:h:ijk:lN:nOo:Pp:r:S:sTt:W:-:")) != -1)
+#endif
 	{
 		switch (opt)
 		{
@@ -517,6 +541,11 @@ PostmasterMain(int argc, char *argv[])
 			case 'B':
 				SetConfigOption("shared_buffers", optarg, PGC_POSTMASTER, PGC_S_ARGV);
 				break;
+#ifdef PGXC
+			case 'C':
+				isPGXCCoordinator = true;
+				break;
+#endif 
 
 			case 'D':
 				userDoption = optarg;
@@ -638,6 +667,11 @@ PostmasterMain(int argc, char *argv[])
 				SetConfigOption("post_auth_delay", optarg, PGC_POSTMASTER, PGC_S_ARGV);
 				break;
 
+#ifdef PGXC
+			case 'X':
+				isPGXCDataNode = true;
+				break;
+#endif 
 			case 'c':
 			case '-':
 				{
@@ -673,6 +707,14 @@ PostmasterMain(int argc, char *argv[])
 		}
 	}
 
+#ifdef PGXC
+	if (!IS_PGXC_COORDINATOR && !IS_PGXC_DATANODE)
+	{
+		write_stderr("%s: PG-XC: must start as either a Coordinator (-C) or Data Node (-X)\n",
+					 progname);
+		ExitPostmaster(1);
+	}
+#endif
 	/*
 	 * Postmaster accepts no non-option switch arguments.
 	 */
@@ -1037,6 +1079,20 @@ PostmasterMain(int argc, char *argv[])
 	Assert(StartupPID != 0);
 	pmState = PM_STARTUP;
 
+#ifdef PGXC /* PGXC_COORD */
+	if (IS_PGXC_COORDINATOR)
+	{
+		oldcontext = MemoryContextSwitchTo(TopMemoryContext);
+	
+		/*
+		 * Initialize the Data Node connection pool
+		 */
+		PgPoolerPID = StartPoolManager();
+
+		MemoryContextSwitchTo(oldcontext);
+	}
+#endif
+
 	status = ServerLoop();
 
 	/*
@@ -1393,6 +1449,11 @@ ServerLoop(void)
 		if (PgStatPID == 0 && pmState == PM_RUN)
 			PgStatPID = pgstat_start();
 
+#ifdef PGXC /* PGXC_COORD */
+		/* If we have lost the pooler, try to start a new one */
+		if (IS_PGXC_COORDINATOR && PgPoolerPID == 0 && pmState == PM_RUN)
+			PgPoolerPID = StartPoolManager();
+#endif
 		/*
 		 * Touch the socket and lock file every 58 minutes, to ensure that
 		 * they are not removed by overzealous /tmp-cleaning tasks.  We assume
@@ -1990,6 +2051,10 @@ SIGHUP_handler(SIGNAL_ARGS)
 		SignalChildren(SIGHUP);
 		if (StartupPID != 0)
 			signal_child(StartupPID, SIGHUP);
+#ifdef PGXC /* PGXC_COORD */
+		if (IS_PGXC_COORDINATOR && PgPoolerPID != 0)
+			signal_child(PgPoolerPID, SIGHUP);
+#endif
 		if (BgWriterPID != 0)
 			signal_child(BgWriterPID, SIGHUP);
 		if (WalWriterPID != 0)
@@ -2062,6 +2127,11 @@ pmdie(SIGNAL_ARGS)
 				/* and the walwriter too */
 				if (WalWriterPID != 0)
 					signal_child(WalWriterPID, SIGTERM);
+#ifdef PGXC /* PGXC_COORD */
+				/* and the pool manager too */
+				if (IS_PGXC_COORDINATOR && PgPoolerPID != 0)
+					signal_child(PgPoolerPID, SIGTERM);
+#endif
 				pmState = PM_WAIT_BACKUP;
 			}
 
@@ -2108,6 +2178,11 @@ pmdie(SIGNAL_ARGS)
 				/* and the walwriter too */
 				if (WalWriterPID != 0)
 					signal_child(WalWriterPID, SIGTERM);
+#ifdef PGXC /* PGXC_COORD */
+				/* and the pool manager too */
+				if (IS_PGXC_COORDINATOR && PgPoolerPID != 0)
+					signal_child(PgPoolerPID, SIGTERM);
+#endif
 				pmState = PM_WAIT_BACKENDS;
 			}
 
@@ -2131,6 +2206,10 @@ pmdie(SIGNAL_ARGS)
 			SignalChildren(SIGQUIT);
 			if (StartupPID != 0)
 				signal_child(StartupPID, SIGQUIT);
+#ifdef PGXC /* PGXC_COORD */
+			if (IS_PGXC_COORDINATOR && PgPoolerPID != 0)
+				signal_child(PgPoolerPID, SIGQUIT);
+#endif
 			if (BgWriterPID != 0)
 				signal_child(BgWriterPID, SIGQUIT);
 			if (WalWriterPID != 0)
@@ -2266,6 +2345,10 @@ reaper(SIGNAL_ARGS)
 				PgArchPID = pgarch_start();
 			if (PgStatPID == 0)
 				PgStatPID = pgstat_start();
+#ifdef PGXC /* PGXC_COORD */
+			if (IS_PGXC_COORDINATOR && PgPoolerPID == 0)
+				PgPoolerPID = StartPoolManager();
+#endif
 
 			/* at this point we are really open for business */
 			ereport(LOG,
@@ -2402,6 +2485,21 @@ reaper(SIGNAL_ARGS)
 							 pid, exitstatus);
 			continue;
 		}
+
+#ifdef PGXC /* PGXC_COORD */
+		/* 
+		 * Was it the pool manager?  TODO decide how to handle 
+		 * Probably we should restart the system
+		 */
+		if (IS_PGXC_COORDINATOR && pid == PgPoolerPID)
+		{
+			PgPoolerPID = 0;
+			if (!EXIT_STATUS_0(exitstatus))
+				HandleChildCrash(pid, exitstatus,
+								 _("pool manager process"));
+			continue;
+		}
+#endif
 
 		/*
 		 * Else do standard backend child cleanup.
@@ -2594,6 +2692,23 @@ HandleChildCrash(int pid, int exitstatus, const char *procname)
 		signal_child(AutoVacPID, (SendStop ? SIGSTOP : SIGQUIT));
 	}
 
+#ifdef PGXC /* PGXC_COORD */
+	/* Take care of the pool manager too */
+	if (IS_PGXC_COORDINATOR)
+	{
+		if (pid == PgPoolerPID)
+			PgPoolerPID = 0;
+		else if (PgPoolerPID != 0 && !FatalError)
+		{
+			ereport(DEBUG2,
+				(errmsg_internal("sending %s to process %d",
+								 (SendStop ? "SIGSTOP" : "SIGQUIT"),
+								 (int) PgPoolerPID)));
+			signal_child(PgPoolerPID, (SendStop ? SIGSTOP : SIGQUIT));
+		}
+	}
+#endif
+
 	/*
 	 * Force a power-cycle of the pgarch process too.  (This isn't absolutely
 	 * necessary, but it seems like a good idea for robustness, and it
@@ -2724,6 +2839,9 @@ PostmasterStateMachine(void)
 		 */
 		if (CountChildren() == 0 &&
 			StartupPID == 0 &&
+#ifdef PGXC /* PGXC_COORD */
+			PgPoolerPID == 0 &&
+#endif
 			(BgWriterPID == 0 || !FatalError) &&
 			WalWriterPID == 0 &&
 			AutoVacPID == 0)
@@ -2798,6 +2916,9 @@ PostmasterStateMachine(void)
 			PgArchPID == 0 && PgStatPID == 0)
 		{
 			/* These other guys should be dead already */
+#ifdef PGXC /* PGXC_COORD */
+			Assert(PgPoolerPID == 0);
+#endif
 			Assert(StartupPID == 0);
 			Assert(BgWriterPID == 0);
 			Assert(WalWriterPID == 0);
@@ -2942,6 +3063,9 @@ BackendStartup(Port *port)
 {
 	Backend    *bn;				/* for backend cleanup */
 	pid_t		pid;
+#ifdef PGXC /* PGXC_COORD */
+	PoolHandle *pool_handle;
+#endif 
 
 	/*
 	 * Create backend data structure.  Better before the fork() so we can
@@ -2977,12 +3101,31 @@ BackendStartup(Port *port)
 	else
 		bn->child_slot = 0;
 
+#ifdef PGXC /* PGXC_COORD */
+	if (IS_PGXC_COORDINATOR)
+	{
+		pool_handle = GetPoolManagerHandle();
+		if (pool_handle == NULL)
+		{
+			ereport(ERROR,
+				(errcode(ERRCODE_IO_ERROR),
+				 errmsg("Can not connect to pool manager")));
+			return STATUS_ERROR;
+		}
+	}
+#endif 
+
+
 #ifdef EXEC_BACKEND
 	pid = backend_forkexec(port);
 #else							/* !EXEC_BACKEND */
 	pid = fork_process();
 	if (pid == 0)				/* child */
 	{
+		//// FOR DEBUG
+		printf("The session started: %d\n", getpid());
+		//sleep(60);
+		//// FOR DEBUG
 		free(bn);
 
 		/*
@@ -3005,10 +3148,24 @@ BackendStartup(Port *port)
 		/* Perform additional initialization and client authentication */
 		BackendInitialize(port);
 
+#ifdef PGXC /* PGXC_COORD */
+		if (IS_PGXC_COORDINATOR)
+		{
+			/* User is authenticated and dbname is known at this point */
+			PoolManagerConnect(pool_handle, port->database_name, GetAllNodes());
+			InitGTM();
+		}
+#endif 
+
 		/* And run the backend */
 		proc_exit(BackendRun(port));
 	}
 #endif   /* EXEC_BACKEND */
+
+#ifdef PGXC /* PGXC_COORD */
+	if (IS_PGXC_COORDINATOR)
+		PoolManagerCloseHandle(pool_handle);
+#endif 
 
 	if (pid < 0)
 	{
@@ -4236,6 +4393,12 @@ StartChildProcess(AuxProcType type)
 		errno = save_errno;
 		switch (type)
 		{
+#ifdef PGXC /* PGXC_COORD */
+			case PoolerProcess:
+				ereport(LOG,
+						(errmsg("could not fork pool manager process: %m")));
+				break;
+#endif
 			case StartupProcess:
 				ereport(LOG,
 						(errmsg("could not fork startup process: %m")));
