@@ -47,7 +47,6 @@
 #include "gtm/libpq-fe.h"
 #include "gtm/libpq-int.h"
 
-
 static int	gtmpqPutMsgBytes(const void *buf, size_t len, GTM_Conn *conn);
 static int	gtmpqSendSome(GTM_Conn *conn, int len);
 static int gtmpqSocketCheck(GTM_Conn *conn, int forRead, int forWrite,
@@ -648,11 +647,6 @@ retry3:
 	 * detect true EOF.
 	 */
 
-#ifdef USE_SSL
-	if (conn->ssl)
-		return 0;
-#endif
-
 	switch (gtmpqReadReady(conn))
 	{
 		case 0:
@@ -928,15 +922,6 @@ gtmpqSocketCheck(GTM_Conn *conn, int forRead, int forWrite, time_t end_time)
 						  "socket not open\n");
 		return -1;
 	}
-
-#ifdef USE_SSL
-	/* Check for SSL library buffering read bytes */
-	if (forRead && conn->ssl && SSL_pending(conn->ssl) > 0)
-	{
-		/* short-circuit the select */
-		return 1;
-	}
-#endif
 
 	/* We will retry as long as we get EINTR */
 	do
