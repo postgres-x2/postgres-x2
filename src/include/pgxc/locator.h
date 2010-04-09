@@ -42,6 +42,19 @@ typedef struct
 }	RelationLocInfo;
 
 
+/*
+ * Nodes to execute on
+ * primarynodelist is for replicated table writes, where to execute first.
+ * If it succeeds, only then should it be executed on nodelist.
+ * primarynodelist should be set to NULL if not doing replicated write operations
+ */ 
+typedef struct
+{
+	List	   *primarynodelist; 
+	List	   *nodelist;
+}	Exec_Nodes;
+
+
 extern char *PreferredDataNodes;
 
 extern void InitRelationLocInfo();
@@ -51,7 +64,7 @@ extern char ConvertToLocatorType(int disttype);
 extern char *GetRelationHashColumn(RelationLocInfo * rel_loc_info);
 extern RelationLocInfo *GetRelationLocInfo(Oid relid);
 extern RelationLocInfo *CopyRelationLocInfo(RelationLocInfo * src_info);
-extern List *GetRelationNodes(RelationLocInfo * rel_loc_info, long *partValue,
+extern Exec_Nodes *GetRelationNodes(RelationLocInfo * rel_loc_info, long *partValue,
 				 int isRead);
 extern bool IsHashColumn(RelationLocInfo * rel_loc_info, char *part_col_name);
 extern bool IsHashColumnForRelId(Oid relid, char *part_col_name);

@@ -1068,41 +1068,90 @@ data_node_rollback(int conn_count, DataNodeHandle ** connections, ResponseCombin
 /*
  * Execute specified statement on specified Data nodes, combine responses and
  * send results back to the client
+ *
+ * const char *query       - SQL string to execute
+ * List *primarynode       - if a write operation on a replicated table, the primary node
+ * List *nodelist          - the nodes to execute on (excludes primary, if set in primarynode
+ * CommandDest dest        - destination for results
+ * Snapshot snapshot       - snapshot to use
+ * bool force_autocommit   - force autocommit
+ * List *simple_aggregates - list of simple aggregates to execute
+ * bool is_read_only       - if this is a read-only query
  */
 int
-DataNodeExec(const char *query, List *nodelist, CommandDest dest, Snapshot snapshot,
+DataNodeExec(const char *query, Exec_Nodes *exec_nodes, CommandDest dest, Snapshot snapshot,
 		   bool force_autocommit, List *simple_aggregates, bool is_read_only)
 {
 	int			i;
 	int			j;
-	int			conn_count = list_length(nodelist) == 0 ? NumDataNodes : list_length(nodelist);
+	int			regular_conn_count;
+	int			total_conn_count;
 	struct timeval *timeout = NULL;		/* wait forever */
 	ResponseCombiner combiner;
+	ResponseCombiner primary_combiner = NULL;
+	int			primary_row_count = 0;
+	int			row_count = 0;
 	int			res;
-	int			newCount = 0;
+	int			new_count = 0;
 	bool		need_tran;
 	bool		found;
 	GlobalTransactionId gxid = InvalidGlobalTransactionId;
-	DataNodeHandle *newConnections[conn_count];
-	DataNodeHandle **connections;
+	DataNodeHandle *new_connections[NumDataNodes];
+	DataNodeHandle **connections = NULL;
+	DataNodeHandle **primaryconnection = NULL;
+	List *nodelist = NIL;
+	List *primarynode = NIL;
+	/* add up affected row count by default, override for replicated writes */
+	CombineType combine_type = COMBINE_TYPE_SUM; 
 
-	if (conn_count == 0)
-		return EOF;
 
-	connections = get_handles(nodelist);
-	if (!connections)
+	if (exec_nodes)
+	{
+		nodelist = exec_nodes->nodelist;
+		primarynode = exec_nodes->primarynodelist;
+	}
+
+	if (list_length(nodelist) == 0)
+	{
+		if (primarynode)
+			regular_conn_count = NumDataNodes - 1;
+		else
+			regular_conn_count = NumDataNodes;
+	}
+	else
+	{
+		regular_conn_count = list_length(nodelist);
+	}
+
+	total_conn_count = regular_conn_count;
+
+	/* Get connection for primary node, if used */
+	if (primarynode)
+	{
+		primaryconnection = get_handles(primarynode);
+		total_conn_count++;
+	}
+
+	/* Get other connections (non-primary) */
+	if (regular_conn_count == 0)
 		return EOF;
+	else
+	{
+		connections = get_handles(nodelist);
+		if (!connections)
+			return EOF;
+	}
 
 	if (force_autocommit)
 		need_tran = false;
 	else
-		need_tran = !autocommit || conn_count > 1;
+		need_tran = !autocommit || total_conn_count > 1;
 
-	elog(DEBUG1, "autocommit = %s, conn_count = %d, need_tran = %s", autocommit ? "true" : "false", conn_count, need_tran ? "true" : "false");
+	elog(DEBUG1, "autocommit = %s, has primary = %s, regular_conn_count = %d, need_tran = %s", autocommit ? "true" : "false", primarynode ? "true" : "false", regular_conn_count, need_tran ? "true" : "false");
 
 	stat_statement();
 	if (autocommit)
-		stat_transaction(conn_count);
+		stat_transaction(total_conn_count);
 
 	/* We normally clear for transactions, but if autocommit, clear here, too */
 	if (autocommit == true)
@@ -1118,7 +1167,23 @@ DataNodeExec(const char *query, List *nodelist, CommandDest dest, Snapshot snaps
 	 */
 	if (!is_read_only && write_node_count < NumDataNodes)
 	{
-		for (i = 0; i < conn_count; i++)
+		if (primaryconnection)
+		{
+			found = false;
+			for (j = 0; j < write_node_count && !found; j++)
+			{
+				if (write_node_list[j] == primaryconnection[0])
+					found = true;
+			}
+			if (!found)
+			{
+				/* Add to transaction wide-list */
+				write_node_list[write_node_count++] = primaryconnection[0];
+				/* Add to current statement list */
+				new_connections[new_count++] = primaryconnection[0];
+			}
+		}
+		for (i = 0; i < regular_conn_count; i++)
 		{
 			found = false;
 			for (j = 0; j < write_node_count && !found; j++)
@@ -1131,7 +1196,7 @@ DataNodeExec(const char *query, List *nodelist, CommandDest dest, Snapshot snaps
 				/* Add to transaction wide-list */
 				write_node_list[write_node_count++] = connections[i];
 				/* Add to current statement list */
-				newConnections[newCount++] = connections[i];
+				new_connections[new_count++] = connections[i];
 			}
 		}
 		/* Check connection state is DN_CONNECTION_STATE_IDLE */
@@ -1144,12 +1209,12 @@ DataNodeExec(const char *query, List *nodelist, CommandDest dest, Snapshot snaps
 		pfree(connections);
 		return EOF;
 	}
-	if (newCount > 0 && need_tran)
+	if (new_count > 0 && need_tran)
 	{
-		combiner = CreateResponseCombiner(newCount, COMBINE_TYPE_NONE, DestNone);
+		combiner = CreateResponseCombiner(new_count, COMBINE_TYPE_NONE, DestNone);
 
 		/* Start transaction on connections where it is not started */
-		res = data_node_begin(newCount, newConnections, combiner, gxid);
+		res = data_node_begin(new_count, new_connections, combiner, gxid);
 		if (!ValidateAndCloseCombiner(combiner) || res)
 		{
 			pfree(connections);
@@ -1157,8 +1222,70 @@ DataNodeExec(const char *query, List *nodelist, CommandDest dest, Snapshot snaps
 		}
 	}
 
+	/* See if we have a primary nodes, execute on it first before the others */
+	if (primaryconnection)
+	{
+		/* If explicit transaction is needed gxid is already sent */
+		if (!need_tran && data_node_send_gxid(primaryconnection[0], gxid))
+		{
+			add_error_message(primaryconnection[0], "Can not send request");
+   			if (connections) 
+				pfree(connections);
+			if (primaryconnection) 
+				pfree(primaryconnection);
+			return EOF;
+		}
+		if (snapshot && data_node_send_snapshot(primaryconnection[0], snapshot))
+		{
+			add_error_message(primaryconnection[0], "Can not send request");
+   			if (connections) 
+				pfree(connections);
+			pfree(primaryconnection);
+			return EOF;
+		}
+		if (data_node_send_query(primaryconnection[0], query) != 0)
+		{
+			add_error_message(primaryconnection[0], "Can not send request");
+   			if (connections) 
+				pfree(connections);
+			if (primaryconnection) 
+				pfree(primaryconnection);
+			return EOF;
+		}
+
+		/* Use DestNone so that a response will not be sent until run on secondary nodes */
+		/* Use COMBINE_TYPE_SAME so that we get the affected row count */
+		primary_combiner = CreateResponseCombiner(1, COMBINE_TYPE_SAME, DestNone);
+
+		/* Receive responses */
+		res = data_node_receive_responses(1, primaryconnection, timeout, primary_combiner);
+		primary_row_count = primary_combiner->row_count;
+		if (!ValidateAndCloseCombiner(primary_combiner) || res)
+		{
+			if (autocommit)
+			{
+				if (need_tran)
+					DataNodeRollback(DestNone);
+				else if (!PersistentConnections)
+					release_handles();
+			}
+
+			if (primaryconnection) 
+				pfree(primaryconnection);
+   			if (connections) 
+				pfree(connections);
+			return EOF;
+		}
+		/* 
+		 * If we get here, the statement has executed successfully on the primary data node 
+		 * and it is ok to try and execute on the other data nodes.
+		 * Set combine_type for secondary so that we do not sum up row counts.
+		 */
+		combine_type = COMBINE_TYPE_SAME;
+	}
+
 	/* Send query to nodes */
-	for (i = 0; i < conn_count; i++)
+	for (i = 0; i < regular_conn_count; i++)
 	{
 		/* If explicit transaction is needed gxid is already sent */
 		if (!need_tran && data_node_send_gxid(connections[i], gxid))
@@ -1181,12 +1308,16 @@ DataNodeExec(const char *query, List *nodelist, CommandDest dest, Snapshot snaps
 		}
 	}
 
-	combiner = CreateResponseCombiner(conn_count, COMBINE_TYPE_SUM, dest);
+	combiner = CreateResponseCombiner(regular_conn_count, combine_type, dest);
 	AssignCombinerAggregates(combiner, simple_aggregates);
 
 	/* Receive responses */
-	res = data_node_receive_responses(conn_count, connections, timeout, combiner);
-	if (!ValidateAndCloseCombiner(combiner) || res)
+	res = data_node_receive_responses(regular_conn_count, connections, timeout, combiner);
+	row_count = combiner->row_count;
+
+	/* Check for errors and if primary nodeMake sure primary and secondary nodes were updated the same */
+	if (!ValidateAndCloseCombiner(combiner) || res
+			|| (primaryconnection && row_count != primary_row_count))
 	{
 		if (autocommit)
 		{
@@ -1197,6 +1328,13 @@ DataNodeExec(const char *query, List *nodelist, CommandDest dest, Snapshot snaps
 		}
 
 		pfree(connections);
+
+		if (primaryconnection && row_count != primary_row_count)
+			ereport(ERROR,
+				(errcode(ERRCODE_DATA_CORRUPTED),
+				 errmsg("Write to replicated table returned different results between primary and secondary data nodes. Primary: %d, secondary: %d", primary_row_count, row_count
+						)));
+
 		return EOF;
 	}
 

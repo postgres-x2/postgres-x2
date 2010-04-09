@@ -2057,6 +2057,15 @@ static struct config_int ConfigureNamesInt[] =
 		&GtmCoordinatorId,
 		1, 1, INT_MAX, NULL, NULL	
 	},	
+
+	{
+		{"primary_data_node", PGC_POSTMASTER, DATA_NODES,
+			gettext_noop("Primary Data Node For Replicated Handling."),
+			NULL
+		},
+		&primary_data_node,
+		1, 0, INT_MAX, NULL, NULL	
+	},	
 #endif
 	/* End-of-list marker */
 	{

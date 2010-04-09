@@ -516,6 +516,9 @@
 					# (change requires restart)
 #data_node_passwords = 'postgres'	# Passwords of data nodes
 					# (change requires restart)
+
+#primary_data_node = 1			# Which data node to use first for 
+					# replicated writes
 # Note each adata_node_... value should be either a single value if respective 
 # parameter is the same on all nodes or a comma-separated list, with number of 
 # entries not less then number of nodes end each entry is a value for node with 

@@ -285,19 +285,19 @@ get_base_var(Var * var, List *rtables)
 /*
  * get_plan_nodes_insert - determine nodes on which to execute insert.
  */
-static List *
+static Exec_Nodes *
 get_plan_nodes_insert(Query * query)
 {
 	RangeTblEntry *rte;
 	RelationLocInfo *rel_loc_info;
 	Const	   *constant;
-	List	   *nodelist;
+	Exec_Nodes *exec_nodes;
 	ListCell   *lc;
 	long		part_value;
 	long	   *part_value_ptr = NULL;
 
 
-	nodelist = NULL;
+	
 
 	/* Looks complex (correlated?) - best to skip */
 	if (query->jointree != NULL && query->jointree->fromlist != NULL)
@@ -364,9 +364,9 @@ get_plan_nodes_insert(Query * query)
 	}
 
 	/* single call handles both replicated and partitioned types */
-	nodelist = GetRelationNodes(rel_loc_info, part_value_ptr, false);
+	exec_nodes = GetRelationNodes(rel_loc_info, part_value_ptr, false);
 
-	return nodelist;
+	return exec_nodes;
 }
 
 
@@ -697,21 +697,21 @@ examine_conditions_fromlist(Special_Conditions * conditions, List *rtables,
  *
  * returns NULL if it appears to be a mutli-step query.
  */
-static List *
+static Exec_Nodes *
 get_plan_nodes(Query_Plan * query_plan, Query * query, bool isRead)
 {
 	RangeTblEntry *rte;
-	List	   *test_nodelist;
-	List	   *nodelist;
 	ListCell   *lc,
 			   *item;
 	Special_Conditions *special_conditions;
 	OpExpr	   *opexpr;
 	Var		   *colvar;
 	RelationLocInfo *rel_loc_info;
+	Exec_Nodes *exec_nodes;
+	Exec_Nodes *test_exec_nodes;
 
 
-	nodelist = NULL;
+	exec_nodes = NULL;
 	join_list = NULL;
 
 	/* If no tables, just return */
@@ -788,7 +788,7 @@ get_plan_nodes(Query_Plan * query_plan, Query * query, bool isRead)
 			 * This is too complicated for a single step, or there is no FROM
 			 * clause
 			 */
-			nodelist = NULL;
+			exec_nodes = NULL;
 		else
 		{
 			/*
@@ -809,14 +809,13 @@ get_plan_nodes(Query_Plan * query_plan, Query * query, bool isRead)
 					return false;
 			}
 
-			nodelist = GetRelationNodes(rel_loc_info, NULL, isRead);
+			exec_nodes = GetRelationNodes(rel_loc_info, NULL, isRead);
 		}
 	}
 	/* check for partitioned col comparison against a literal */
-	else if (special_conditions->partitioned_literal_comps != NULL
-			 && special_conditions->partitioned_literal_comps->length > 0)
+	else if (list_length(special_conditions->partitioned_literal_comps) > 0)
 	{
-		nodelist = NULL;
+		exec_nodes = NULL;
 
 		/*
 		 * Make sure that if there are multiple such comparisons, that they
@@ -826,21 +825,22 @@ get_plan_nodes(Query_Plan * query_plan, Query * query, bool isRead)
 		{
 			Literal_Comparison *lit_comp = (Literal_Comparison *) lfirst(lc);
 
-			test_nodelist = GetRelationNodes(
+			test_exec_nodes = GetRelationNodes(
 						lit_comp->rel_loc_info, &(lit_comp->constant), true);
 
-			if (nodelist == NULL)
-				nodelist = test_nodelist;
+			if (exec_nodes == NULL)
+				exec_nodes = test_exec_nodes;
 			else
 			{
-				if (nodelist->length > 1 || test_nodelist->length > 1)
+				if ((exec_nodes && list_length(exec_nodes->nodelist) > 1) 
+						|| (test_exec_nodes && list_length(test_exec_nodes->nodelist) > 1))
 					/* there should only be one */
-					nodelist = NULL;
+					exec_nodes = NULL;
 				else
 				{
 					/* Make sure they use the same nodes */
-					if (linitial_int(test_nodelist) != linitial_int(nodelist))
-						nodelist = NULL;
+					if (linitial_int(test_exec_nodes->nodelist) != linitial_int(exec_nodes->nodelist))
+						exec_nodes = NULL;
 				}
 			}
 		}
@@ -863,12 +863,12 @@ get_plan_nodes(Query_Plan * query_plan, Query * query, bool isRead)
 		if (!rel_loc_info)
 			return false;
 
-		nodelist = GetRelationNodes(rel_loc_info, NULL, isRead);
+		exec_nodes = GetRelationNodes(rel_loc_info, NULL, isRead);
 	}
 	free_special_relations(special_conditions);
 	free_join_list();
 
-	return nodelist;
+	return exec_nodes;
 }
 
 
@@ -877,7 +877,7 @@ get_plan_nodes(Query_Plan * query_plan, Query * query, bool isRead)
  *
  * return NULL if it is not safe to be done in a single step.
  */
-static List *
+static Exec_Nodes *
 get_plan_nodes_command(Query_Plan * query_plan, Query * query)
 {
 
@@ -908,12 +908,12 @@ get_plan_nodes_command(Query_Plan * query_plan, Query * query)
  * For now we only allow MAX in the first column, and return a list of one.
  */
 static List *
-get_simple_aggregates(Query * query, List *nodelist)
+get_simple_aggregates(Query * query, Exec_Nodes *exec_nodes)
 {
 	List	   *simple_agg_list = NULL;
 
 	/* Check for simple multi-node aggregate */
-	if (nodelist != NULL && nodelist->length > 1 && query->hasAggs)
+	if (query->hasAggs && exec_nodes != NULL && list_length(exec_nodes->nodelist) > 1)
 	{
 		TargetEntry *tle;
 
@@ -971,7 +971,7 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 
 	query_step->sql_statement = (char *) palloc(strlen(sql_statement) + 1);
 	strcpy(query_step->sql_statement, sql_statement);
-	query_step->nodelist = NULL;
+	query_step->exec_nodes = NULL;
 	query_step->simple_aggregates = NULL;
 
 	query_plan->query_step_list = lappend(NULL, query_step);
@@ -989,17 +989,17 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 		case T_DeleteStmt:
 			/* just use first one in querytree_list */
 			query = (Query *) linitial(querytree_list);
-			query_step->nodelist =
+			query_step->exec_nodes =
 				get_plan_nodes_command(query_plan, query);
 			query_step->simple_aggregates =
-				get_simple_aggregates(query, query_step->nodelist);
+				get_simple_aggregates(query, query_step->exec_nodes);
 
 			/*
 			 * See if it is a SELECT with no relations, like SELECT 1+1 or
 			 * SELECT nextval('fred'), and just use coord.
 			 */
 			query = (Query *) linitial(querytree_list);
-			if (query_step->nodelist == NULL
+			if (query_step->exec_nodes == NULL
 						&& (query->jointree->fromlist == NULL
 						|| query->jointree->fromlist->length == 0))
 				/* Just execute it on Coordinator */
@@ -1008,7 +1008,7 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 			{
 				query_plan->exec_loc_type = EXEC_ON_DATA_NODES;
 
-				if (query_step->nodelist == NULL)
+				if (query_step->exec_nodes == NULL)
 				{
 					bool		is_pg_catalog = false;
 
@@ -1065,7 +1065,8 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
 							 (errmsg("UNION, INTERSECT and EXCEPT are not yet supported"))));
 
-				if (query_step->nodelist && query_step->nodelist->length > 1 && StrictStatementChecking)
+				if (StrictStatementChecking && query_step->exec_nodes 
+						&& list_length(query_step->exec_nodes->nodelist) > 1)
 				{
 					/*
 					 * PGXCTODO - this could be improved to check if the first
@@ -1186,7 +1187,7 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 			 * data node will do
 			 */
 		case T_ExplainStmt:
-			query_step->nodelist = lappend_int(query_step->nodelist, GetAnyDataNode());
+			query_step->exec_nodes->nodelist = lappend_int(query_step->exec_nodes->nodelist, GetAnyDataNode());
 			query_plan->exec_loc_type = EXEC_ON_DATA_NODES;
 			break;
 
@@ -1263,7 +1264,13 @@ free_query_step(Query_Step * query_step)
 		return;
 
 	pfree(query_step->sql_statement);
-	list_free(query_step->nodelist);
+	if (query_step->exec_nodes) 
+	{
+		if (query_step->exec_nodes->nodelist)
+			list_free(query_step->exec_nodes->nodelist);
+		if (query_step->exec_nodes->primarynodelist)
+			list_free(query_step->exec_nodes->primarynodelist);
+	}
 	if (query_step->simple_aggregates != NULL)
 		list_free_deep(query_step->simple_aggregates);
 	pfree(query_step);

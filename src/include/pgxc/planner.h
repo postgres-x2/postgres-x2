@@ -15,6 +15,9 @@
 #ifndef PGXCPLANNER_H
 #define PGXCPLANNER_H
 
+#include "pgxc/locator.h"
+
+
 /* for Query_Plan.exec_loc_type can have these OR'ed*/
 #define EXEC_ON_COORD 0x1
 #define EXEC_ON_DATA_NODES 0x2
@@ -26,7 +29,7 @@
 typedef struct
 {
 	char	   *sql_statement;
-	List	   *nodelist;
+	Exec_Nodes *exec_nodes;
 	List	   *simple_aggregates;		/* simple aggregate to combine on this
 										 * step */
 }	Query_Step;

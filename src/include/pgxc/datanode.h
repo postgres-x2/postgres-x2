@@ -18,6 +18,7 @@
 #define DATANODE_H
 #include "combiner.h"
 #include "nodes/pg_list.h"
+#include "pgxc/locator.h"
 #include "utils/snapshot.h"
 #include <unistd.h>
 
@@ -71,6 +72,7 @@ extern void DataNodeBegin(void);
 extern int	DataNodeCommit(CommandDest dest);
 extern int	DataNodeRollback(CommandDest dest);
 
-extern int	DataNodeExec(const char *query, List *nodelist, CommandDest dest, Snapshot snapshot, bool force_autocommit, List *simple_aggregates, bool is_read_only);
+extern int	DataNodeExec(const char *query, Exec_Nodes *exec_nodes, CommandDest dest, Snapshot snapshot, bool force_autocommit, List *simple_aggregates, bool is_read_only);
 
+extern int primary_data_node;
 #endif

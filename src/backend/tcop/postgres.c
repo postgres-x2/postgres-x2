@@ -1100,7 +1100,7 @@ exec_simple_query(const char *query_string)
 				query_step = linitial(query_plan->query_step_list);
 
 				DataNodeExec(query_step->sql_statement, 
-						query_step->nodelist, 
+						query_step->exec_nodes, 
 						dest, 
 						snapshot_set ? GetActiveSnapshot() : GetTransactionSnapshot(),
 						query_plan->force_autocommit,
@@ -4294,24 +4294,27 @@ pgxc_transaction_stmt (Node *parsetree)
 List *
 pgxc_execute_direct (Node *parsetree, List *querytree_list, CommandDest dest, bool snapshot_set, bool *exec_on_coord)
 {
-	List *node_list = NIL;
 	List *parsetree_list;
 	ListCell *node_cell;
 	ExecDirectStmt *execdirect = (ExecDirectStmt *) parsetree;
 	bool on_coord = execdirect->coordinator;
+	Exec_Nodes *exec_nodes;
 
 
 	Assert(IS_PGXC_COORDINATOR);
 	Assert(IsA(parsetree, ExecDirectStmt));
 
+	
+	exec_nodes = (Exec_Nodes *) palloc0(sizeof(Exec_Nodes));
+
 	foreach (node_cell, execdirect->nodes)
 	{
 		int node_int = intVal(lfirst(node_cell));
-		node_list = lappend_int(node_list, node_int);	
+		exec_nodes->nodelist = lappend_int(exec_nodes->nodelist, node_int);	
 	}
-	if (node_list)
+	if (exec_nodes->nodelist)
 		if (DataNodeExec(execdirect->query,
-					node_list,
+					exec_nodes,
 					dest,
 					snapshot_set ? GetActiveSnapshot() : GetTransactionSnapshot(),
 					FALSE,

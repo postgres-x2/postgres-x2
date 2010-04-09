@@ -166,7 +166,25 @@ CombineResponse(ResponseCombiner combiner, char msg_type, char *msg_body, size_t
 			{
 				digits = parse_row_count(msg_body, len, &rowcount);
 				if (digits > 0)
-					combiner->row_count += rowcount;
+				{
+					/* Replicated write, make sure they are the same */
+					if (combiner->combine_type == COMBINE_TYPE_SAME)
+					{
+						if (combiner->command_complete_count)
+						{
+							if (rowcount != combiner->row_count)
+								/* There is a consistency issue in the database with the replicated table */
+								ereport(ERROR,
+									(errcode(ERRCODE_DATA_CORRUPTED),
+									 errmsg("Write to replicated table returned different results from the data nodes"
+											)));
+						}
+						else
+							/* first result */
+							combiner->row_count  = rowcount;
+					} else 
+						combiner->row_count += rowcount;
+				}
 				else
 					combiner->combine_type = COMBINE_TYPE_NONE;
 			}

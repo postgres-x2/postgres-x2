@@ -54,6 +54,7 @@ bool		locatorInited = false;
 
 /* GUC parameter */
 char	   *PreferredDataNodes = NULL;
+int			primary_data_node = 1;
 
 /* Preferred to use when reading from replicated tables */
 static List *globalPreferredNodes = NIL;
@@ -262,7 +263,7 @@ GetRoundRobinNode(Oid relid)
 /*
  * GetRelationNodes
  *
- * Get list of relation nodes for read operation.
+ * Get list of relation nodes 
  * If the table is replicated and we are reading, we can just pick one.
  * If the table is partitioned, we apply partitioning column value, if possible.
  *
@@ -277,49 +278,60 @@ GetRoundRobinNode(Oid relid)
  *
  * The returned List is a copy, so it should be freed when finished.
  */
-List *
+Exec_Nodes *
 GetRelationNodes(RelationLocInfo * rel_loc_info, long *partValue, int isRead)
 {
 	ListCell   *prefItem;
 	ListCell   *stepItem;
-	List	   *destList = NULL;
+	Exec_Nodes *exec_nodes;
 
 
 	if (rel_loc_info == NULL)
 		return NULL;
 
+	exec_nodes = (Exec_Nodes *) palloc0(sizeof(Exec_Nodes));
+	
 	switch (rel_loc_info->locatorType)
 	{
 		case LOCATOR_TYPE_REPLICATED:
 
 			if (!isRead)
-				/* we need to write to all synchronously */
-				destList = list_copy(rel_loc_info->nodeList);
-			else
 			{
-				destList = NULL;
+				/* we need to write to all synchronously */
+				exec_nodes->nodelist = list_copy(rel_loc_info->nodeList);
 
+				/* 
+				 * Write to primary node first, to reduce chance of a deadlock 
+				 * on replicated tables. If 0, do not use primary copy. 
+				 */
+				if (primary_data_node && exec_nodes->nodelist 
+						&& list_length(exec_nodes->nodelist) > 1) /* make sure more than 1 */
+				{
+					exec_nodes->primarynodelist = lappend_int(NULL, primary_data_node);
+					list_delete_int(exec_nodes->nodelist, primary_data_node);
+				}
+			} else
+			{
 				if (globalPreferredNodes != NULL)
 				{
 					/* try and pick from the preferred list */
 					foreach(prefItem, globalPreferredNodes)
-					/* make sure it is valid for this relation */
-						foreach(stepItem, rel_loc_info->nodeList)
-						if (lfirst_int(stepItem) == lfirst_int(prefItem))
 					{
-						destList = lappend_int(NULL, lfirst_int(prefItem));
-						break;
+						/* make sure it is valid for this relation */
+						foreach(stepItem, rel_loc_info->nodeList)
+						{
+							if (lfirst_int(stepItem) == lfirst_int(prefItem))
+							{
+								exec_nodes->nodelist = lappend_int(NULL, lfirst_int(prefItem));
+								break;
+							}
+						}
 					}
 				}
-			}
 
-			if (destList == NULL)
-			{
-				/*
-				 * read from just one of them
-				 * use round robin mechanism
-				 */
-				destList = lappend_int(NULL, GetRoundRobinNode(rel_loc_info->relid));
+				if (exec_nodes->nodelist == NULL)
+					/* read from just one of them. Use round robin mechanism */
+					exec_nodes->nodelist = lappend_int(NULL, GetRoundRobinNode(rel_loc_info->relid));
 			}
 			break;
 
@@ -328,7 +340,7 @@ GetRelationNodes(RelationLocInfo * rel_loc_info, long *partValue, int isRead)
 			if (partValue != NULL)
 			{
 				/* in prototype, all partitioned tables use same map */
-				destList = lappend_int(NULL, get_node_from_hash(hash_range_int(*partValue)));
+				exec_nodes->nodelist = lappend_int(NULL, get_node_from_hash(hash_range_int(*partValue)));
 			}
 			else
 			{
@@ -336,14 +348,14 @@ GetRelationNodes(RelationLocInfo * rel_loc_info, long *partValue, int isRead)
 				 * No partitioning value passed in
 				 * (no where qualification on part column - use all)
 				 */
-				destList = list_copy(rel_loc_info->nodeList);
+				exec_nodes->nodelist = list_copy(rel_loc_info->nodeList);
 			}
 			break;
 
 		case LOCATOR_TYPE_SINGLE:
 
 			/* just return first (there should only be one) */
-			destList = list_copy(rel_loc_info->nodeList);
+			exec_nodes->nodelist = list_copy(rel_loc_info->nodeList);
 			break;
 
 		case LOCATOR_TYPE_RROBIN:
@@ -352,12 +364,12 @@ GetRelationNodes(RelationLocInfo * rel_loc_info, long *partValue, int isRead)
 			if (isRead)
 			{
 				/* we need to read from all */
-				destList = list_copy(rel_loc_info->nodeList);
+				exec_nodes->nodelist = list_copy(rel_loc_info->nodeList);
 			}
 			else
 			{
 				/* write to just one of them */
-				destList = lappend_int(NULL, GetRoundRobinNode(rel_loc_info->relid));
+				exec_nodes->nodelist = lappend_int(NULL, GetRoundRobinNode(rel_loc_info->relid));
 			}
 
 			break;
@@ -370,7 +382,7 @@ GetRelationNodes(RelationLocInfo * rel_loc_info, long *partValue, int isRead)
 			break;
 	}
 
-	return destList;
+	return exec_nodes;
 }
 
 

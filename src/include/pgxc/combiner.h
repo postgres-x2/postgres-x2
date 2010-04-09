@@ -24,7 +24,7 @@ typedef enum
 {
 	COMBINE_TYPE_NONE,			/* it is known that no row count, do not parse */
 	COMBINE_TYPE_SUM,			/* sum row counts (partitioned, round robin) */
-	COMBINE_TYPE_AVG			/* calculate average (replicated) */
+	COMBINE_TYPE_SAME			/* expect all row counts to be the same (replicated write) */
 }	CombineType;
 
 typedef enum
