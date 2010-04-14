@@ -318,9 +318,12 @@ CombineResponse(ResponseCombiner combiner, char msg_type, char *msg_body, size_t
 		case 'E':				/* ErrorResponse */
 		case 'A':				/* NotificationResponse */
 		case 'N':				/* NoticeResponse */
-			/* Always proxy */
+			/* Proxy error message back if specified, 
+			 * or if doing internal primary copy 
+			 */
 			if (combiner->dest == DestRemote
-				|| combiner->dest == DestRemoteExecute)
+				|| combiner->dest == DestRemoteExecute
+				|| combiner->combine_type == COMBINE_TYPE_SAME)
 				pq_putmessage(msg_type, msg_body, len);
 			break;
 		case 'I':				/* EmptyQuery */

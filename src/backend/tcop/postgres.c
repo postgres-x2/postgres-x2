@@ -902,6 +902,7 @@ exec_simple_query(const char *query_string)
 		Query_Plan  *query_plan;
 		Query_Step  *query_step;
 		bool 		exec_on_coord;
+		int	 		data_node_error = 0;
 
 
 		/* 
@@ -1099,13 +1100,23 @@ exec_simple_query(const char *query_string)
 			{
 				query_step = linitial(query_plan->query_step_list);
 
-				DataNodeExec(query_step->sql_statement, 
+				data_node_error = DataNodeExec(query_step->sql_statement, 
 						query_step->exec_nodes, 
 						dest, 
 						snapshot_set ? GetActiveSnapshot() : GetTransactionSnapshot(),
 						query_plan->force_autocommit,
 						query_step->simple_aggregates,
 						IsA(parsetree, SelectStmt));
+
+				if (data_node_error)
+				{
+					/* Error. If it ran on the coordinator (DDL), too, make sure we abort */
+					if (exec_on_coord)
+					{
+						AbortCurrentTransaction();
+						xact_started = false;
+					}
+				}
 			}
 	
 			FreeQueryPlan(query_plan);
@@ -1147,7 +1158,7 @@ exec_simple_query(const char *query_string)
 		}
 #ifdef PGXC /* PGXC_COORD */
 		/* In case of PGXC handling client already received a response */
-		if ((IS_PGXC_COORDINATOR && exec_on_coord) || IS_PGXC_DATANODE)
+		if ((IS_PGXC_COORDINATOR && exec_on_coord && !data_node_error) || IS_PGXC_DATANODE)
 		{
 #endif
 

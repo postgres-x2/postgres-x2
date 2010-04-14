@@ -31,7 +31,9 @@ typedef enum
 	DN_CONNECTION_STATE_IDLE,
 	DN_CONNECTION_STATE_BUSY,
 	DN_CONNECTION_STATE_COMPLETED,
-	DN_CONNECTION_STATE_ERROR
+	DN_CONNECTION_STATE_ERROR_NOT_READY,	/* error, but need ReadyForQuery message */
+	DN_CONNECTION_STATE_ERROR_READY,		/* error and received ReadyForQuery */
+	DN_CONNECTION_STATE_ERROR_FATAL			/* fatal error */
 
 }	DNConnectionState;
 

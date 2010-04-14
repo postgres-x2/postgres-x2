@@ -362,7 +362,7 @@ data_node_receive_responses(int conn_count, DataNodeHandle ** connections,
 		{
 			/* note if a connection has error */
 			if (!to_receive[i]
-				|| to_receive[i]->state == DN_CONNECTION_STATE_ERROR
+				|| to_receive[i]->state == DN_CONNECTION_STATE_ERROR_FATAL
 				|| to_receive[i]->sock >= 1024)
 			{
 				result = EOF;
@@ -452,7 +452,9 @@ retry:
 
 			if (conn->inStart < conn->inEnd)
 			{
-				if (handle_response(conn, combiner, inErrorState) == 0)
+				if (handle_response(conn, combiner, inErrorState) == 0
+						|| conn->state == DN_CONNECTION_STATE_ERROR_READY
+						|| conn->state == DN_CONNECTION_STATE_ERROR_FATAL)
 				{
 					/* Handling is done, do not track this connection */
 					count--;
@@ -470,7 +472,9 @@ retry:
 				 * handle_response was not 0 above, an error occurred, we
 				 * still need to consume the ReadyForQuery message
 				 */
-				if (conn->state == DN_CONNECTION_STATE_ERROR)
+				if (conn->state == DN_CONNECTION_STATE_ERROR_READY
+						|| conn->state == DN_CONNECTION_STATE_ERROR_NOT_READY
+						|| conn->state == DN_CONNECTION_STATE_ERROR_FATAL)
 				{
 					inErrorState = true;
 					result = EOF;
@@ -568,7 +572,7 @@ retry:
 							  "data node closed the connection unexpectedly\n"
 				"\tThis probably means the data node terminated abnormally\n"
 							  "\tbefore or while processing the request.\n");
-			conn->state = DN_CONNECTION_STATE_ERROR;	/* No more connection to
+			conn->state = DN_CONNECTION_STATE_ERROR_FATAL;	/* No more connection to
 														 * backend */
 			closesocket(conn->sock);
 			conn->sock = NO_SOCKET;
@@ -675,7 +679,6 @@ handle_response(DataNodeHandle * conn, ResponseCombiner combiner, bool inErrorSt
 {
 	char		msg_type;
 	int			msg_len;
-	bool		connError = false;
 
 	for (;;)
 	{
@@ -730,9 +733,8 @@ handle_response(DataNodeHandle * conn, ResponseCombiner combiner, bool inErrorSt
 									conn->inBuffer + conn->inStart + 5,
 									conn->inCursor - conn->inStart - 5);
 				conn->inStart = conn->inCursor;
-				connError = inErrorState = true;
-				/* conn->state = DN_CONNECTION_STATE_ERROR;  */
-
+				inErrorState = true;
+				conn->state = DN_CONNECTION_STATE_ERROR_NOT_READY;
 				/*
 				 * Do not return with an error, we still need to consume Z,
 				 * ready-for-query
@@ -749,19 +751,18 @@ handle_response(DataNodeHandle * conn, ResponseCombiner combiner, bool inErrorSt
 				break;
 			case 'Z':			/* ReadyForQuery */
 				get_char(conn, &conn->transaction_status);
-				conn->state = DN_CONNECTION_STATE_IDLE;
 				conn->inStart = conn->inCursor;
-				/* Now it is ok to flag the connection as having an error */
-				if (connError)
+				if (conn->state == DN_CONNECTION_STATE_ERROR_NOT_READY)
 				{
-					conn->state = DN_CONNECTION_STATE_ERROR;
+					conn->state = DN_CONNECTION_STATE_ERROR_READY;
 					return EOF;
-				}
+				} else 
+					conn->state = DN_CONNECTION_STATE_IDLE;
 				return 0;
 			case 'I':			/* EmptyQuery */
 			default:
 				/* sync lost? */
-				conn->state = DN_CONNECTION_STATE_ERROR;
+				conn->state = DN_CONNECTION_STATE_ERROR_FATAL;
 				inErrorState = true;
 				return EOF;
 		}
@@ -1680,7 +1681,7 @@ static void
 add_error_message(DataNodeHandle * handle, const char *message)
 {
 	handle->transaction_status = 'E';
-	handle->state = DN_CONNECTION_STATE_ERROR;
+	handle->state = DN_CONNECTION_STATE_ERROR_READY;
 	if (handle->error)
 	{
 		/* PGXCTODO append */
