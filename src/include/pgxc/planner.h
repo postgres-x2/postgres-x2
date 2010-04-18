@@ -16,6 +16,7 @@
 #define PGXCPLANNER_H
 
 #include "pgxc/locator.h"
+#include "pgxc/combiner.h"
 
 
 /* for Query_Plan.exec_loc_type can have these OR'ed*/
@@ -30,6 +31,7 @@ typedef struct
 {
 	char	   *sql_statement;
 	Exec_Nodes *exec_nodes;
+	CombineType combine_type;
 	List	   *simple_aggregates;		/* simple aggregate to combine on this
 										 * step */
 }	Query_Step;

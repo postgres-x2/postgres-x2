@@ -52,6 +52,7 @@ typedef struct
 {
 	List	   *primarynodelist; 
 	List	   *nodelist;
+	char	    baselocatortype;
 }	Exec_Nodes;
 
 

@@ -33,6 +33,12 @@
 #include "miscadmin.h"
 #include "optimizer/planner.h"
 #include "parser/parse_relation.h"
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#include "pgxc/datanode.h"
+#include "pgxc/locator.h"
+#include "pgxc/poolmgr.h"
+#endif
 #include "rewrite/rewriteHandler.h"
 #include "storage/fd.h"
 #include "tcop/tcopprot.h"
@@ -160,6 +166,22 @@ typedef struct CopyStateData
 	char	   *raw_buf;
 	int			raw_buf_index;	/* next byte to process */
 	int			raw_buf_len;	/* total # of bytes stored */
+#ifdef PGXC
+	/*
+	 * On coordinator we need to rewrite query.
+	 * While client may submit a copy command dealing with file, data nodes
+	 * always send/receive data to/from the coordinator. So we can not use
+	 * original statement and should rewrite statement, specifing STDIN/STDOUT
+	 * as copy source or destination
+	 */
+	StringInfoData query_buf;
+
+	/* Locator information */
+	RelationLocInfo *rel_loc;	/* the locator key */
+	int			hash_idx;		/* index of the hash column */
+
+	DataNodeHandle **connections; /* Involved data node connections */
+#endif
 } CopyStateData;
 
 typedef CopyStateData *CopyState;
@@ -646,7 +668,6 @@ CopyGetInt16(CopyState cstate, int16 *val)
 	return true;
 }
 
-
 /*
  * CopyLoadRawBuf loads some more data into raw_buf
  *
@@ -682,6 +703,101 @@ CopyLoadRawBuf(CopyState cstate)
 	return (inbytes > 0);
 }
 
+#ifdef PGXC
+/*
+ *  CopyQuoteStr appends quoted value to the query buffer. Value is escaped
+ * if needed
+ *
+ * When rewriting query to be sent down to nodes we should escape special
+ * characters, that may present in the value. The characters are backslash(\)
+ * and single quote ('). These characters are escaped by doubling. We do not
+ * have to escape characters like \t, \v, \b, etc. because datanode interprets
+ * them properly.
+ * We use E'...' syntax for litherals containing backslashes.
+ */
+static void
+CopyQuoteStr(StringInfo query_buf, char *value)
+{
+	char   *start = value;
+	char   *current = value;
+	char	c;
+	bool	has_backslash = (strchr(value, '\\') != NULL);
+
+	if (has_backslash)
+		appendStringInfoChar(query_buf, 'E');
+
+	appendStringInfoChar(query_buf, '\'');
+
+#define APPENDSOFAR \
+	if (current > start) \
+		appendBinaryStringInfo(query_buf, start, current - start)
+
+	while ((c = *current) != '\0')
+	{
+		switch (c)
+		{
+			case '\\':
+			case '\'':
+				APPENDSOFAR;
+				// Double current
+				appendStringInfoChar(query_buf, c);
+				// Second current will be appended next time
+				start = current;
+				// fallthru
+			default:
+				current++;
+		}
+	}
+	APPENDSOFAR;
+	appendStringInfoChar(query_buf, '\'');
+}
+
+/*
+ *  CopyQuoteIdentifier determine if identifier needs to be quoted and surround
+ * it with double quotes
+ */
+static void
+CopyQuoteIdentifier(StringInfo query_buf, char *value)
+{
+	char   *start = value;
+	char   *current = value;
+	char	c;
+	int 	len = strlen(value);
+	bool	need_quote = (strspn(value, "_abcdefghijklmnopqrstuvwxyz0123456789") < len)
+			|| (strchr("_abcdefghijklmnopqrstuvwxyz", value[0]) == NULL);
+
+	if (need_quote)
+	{
+		appendStringInfoChar(query_buf, '"');
+
+#define APPENDSOFAR \
+		if (current > start) \
+			appendBinaryStringInfo(query_buf, start, current - start)
+
+		while ((c = *current) != '\0')
+		{
+			switch (c)
+			{
+				case '"':
+					APPENDSOFAR;
+					// Double current
+					appendStringInfoChar(query_buf, c);
+					// Second current will be appended next time
+					start = current;
+					// fallthru
+				default:
+					current++;
+			}
+		}
+		APPENDSOFAR;
+		appendStringInfoChar(query_buf, '"');
+	}
+	else
+	{
+		appendBinaryStringInfo(query_buf, value, len);
+	}
+}
+#endif
 
 /*
  *	 DoCopy executes the SQL COPY statement
@@ -1012,6 +1128,133 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 					(errcode(ERRCODE_UNDEFINED_COLUMN),
 					 errmsg("table \"%s\" does not have OIDs",
 							RelationGetRelationName(cstate->rel))));
+#ifdef PGXC
+		/* Get locator information */
+		if (IS_PGXC_COORDINATOR)
+		{
+			char *hash_att;
+
+			cstate->rel_loc = GetRelationLocInfo(RelationGetRelid(cstate->rel));
+			hash_att = GetRelationHashColumn(cstate->rel_loc);
+
+			cstate->hash_idx = -1;
+			if (hash_att)
+			{
+				List	   *attnums;
+				ListCell   *cur;
+
+				attnums = CopyGetAttnums(tupDesc, cstate->rel, attnamelist);
+				foreach(cur, attnums)
+				{
+					int 		attnum = lfirst_int(cur);
+					if (namestrcmp(&(tupDesc->attrs[attnum - 1]->attname), hash_att) == 0)
+					{
+						cstate->hash_idx = attnum - 1;
+						break;
+					}
+				}
+			}
+
+			/*
+			 * Build up query string for the data nodes, it should match
+			 * to original string, but should have STDIN/STDOUT instead
+			 * of filename.
+			 */
+			initStringInfo(&cstate->query_buf);
+
+			appendStringInfoString(&cstate->query_buf, "COPY ");
+			appendStringInfo(&cstate->query_buf, "%s", RelationGetRelationName(cstate->rel));
+
+			if (attnamelist)
+			{
+				ListCell *cell;
+				ListCell *prev = NULL;
+				appendStringInfoString(&cstate->query_buf, " (");
+				foreach (cell, attnamelist)
+				{
+					if (prev)
+						appendStringInfoString(&cstate->query_buf, ", ");
+					CopyQuoteIdentifier(&cstate->query_buf, strVal(lfirst(cell)));
+					prev = cell;
+				}
+				appendStringInfoChar(&cstate->query_buf, ')');
+			}
+
+			if (stmt->is_from)
+				appendStringInfoString(&cstate->query_buf, " FROM STDIN");
+			else
+				appendStringInfoString(&cstate->query_buf, " TO STDOUT");
+
+
+			if (cstate->binary)
+				appendStringInfoString(&cstate->query_buf, " BINARY");
+
+			if (cstate->oids)
+				appendStringInfoString(&cstate->query_buf, " OIDS");
+
+			if (cstate->delim)
+				if ((!cstate->csv_mode && cstate->delim[0] != '\t')
+					|| (cstate->csv_mode && cstate->delim[0] != ','))
+				{
+					appendStringInfoString(&cstate->query_buf, " DELIMITER AS ");
+					CopyQuoteStr(&cstate->query_buf, cstate->delim);
+				}
+
+			if (cstate->null_print)
+				if ((!cstate->csv_mode && strcmp(cstate->null_print, "\\N"))
+					|| (cstate->csv_mode && strcmp(cstate->null_print, "")))
+				{
+					appendStringInfoString(&cstate->query_buf, " NULL AS ");
+					CopyQuoteStr(&cstate->query_buf, cstate->null_print);
+				}
+
+			if (cstate->csv_mode)
+				appendStringInfoString(&cstate->query_buf, " CSV");
+
+			if (cstate->header_line)
+				appendStringInfoString(&cstate->query_buf, " HEADER");
+
+			if (cstate->quote && cstate->quote[0] == '"')
+			{
+				appendStringInfoString(&cstate->query_buf, " QUOTE AS ");
+				CopyQuoteStr(&cstate->query_buf, cstate->quote);
+			}
+
+			if (cstate->escape && cstate->quote && cstate->escape[0] == cstate->quote[0])
+			{
+				appendStringInfoString(&cstate->query_buf, " ESCAPE AS ");
+				CopyQuoteStr(&cstate->query_buf, cstate->escape);
+			}
+
+			if (force_quote)
+			{
+				ListCell *cell;
+				ListCell *prev = NULL;
+			  	appendStringInfoString(&cstate->query_buf, " FORCE QUOTE ");
+				foreach (cell, force_quote)
+				{
+					if (prev)
+						appendStringInfoString(&cstate->query_buf, ", ");
+					CopyQuoteIdentifier(&cstate->query_buf, strVal(lfirst(cell)));
+					prev = cell;
+				}
+			}
+
+			if (force_notnull)
+			{
+				ListCell *cell;
+				ListCell *prev = NULL;
+			  	appendStringInfoString(&cstate->query_buf, " FORCE NOT NULL ");
+				foreach (cell, force_notnull)
+				{
+					if (prev)
+						appendStringInfoString(&cstate->query_buf, ", ");
+					CopyQuoteIdentifier(&cstate->query_buf, strVal(lfirst(cell)));
+					prev = cell;
+				}
+			}
+		}
+#endif
 	}
 	else
 	{
@@ -1022,6 +1265,13 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 
 		Assert(!is_from);
 		cstate->rel = NULL;
+
+#ifdef PGXC
+		if (IS_PGXC_COORDINATOR)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("COPY (SELECT) is not supported in PGXC")));
+#endif
 
 		/* Don't allow COPY w/ OIDs from a select */
 		if (cstate->oids)
@@ -1157,10 +1407,63 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 	cstate->copy_dest = COPY_FILE;		/* default */
 	cstate->filename = stmt->filename;
 
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR)
+	{
+		cstate->connections = DataNodeCopyBegin(cstate->query_buf.data,
+				cstate->rel_loc->nodeList,
+				GetActiveSnapshot());
+		if (!cstate->connections)
+			ereport(ERROR,
+					(errcode(ERRCODE_CONNECTION_EXCEPTION),
+					 errmsg("Failed to initialize data nodes for COPY")));
+	}
+	PG_TRY();
+	{
+#endif
+
 	if (is_from)
 		CopyFrom(cstate);		/* copy from file to database */
 	else
 		DoCopyTo(cstate);		/* copy from database to file */
+
+#ifdef PGXC
+	}
+	PG_CATCH();
+	{
+		if (IS_PGXC_COORDINATOR)
+		{
+			DataNodeCopyFinish(
+					cstate->connections,
+					primary_data_node,
+					COMBINE_TYPE_NONE,
+					whereToSendOutput);
+			pfree(cstate->connections);
+			pfree(cstate->query_buf.data);
+			FreeRelationLocInfo(cstate->rel_loc);
+		}
+		PG_RE_THROW();
+	}
+	PG_END_TRY();
+	if (IS_PGXC_COORDINATOR)
+	{
+		if (cstate->rel_loc->locatorType == LOCATOR_TYPE_REPLICATED)
+			cstate->processed = DataNodeCopyFinish(
+					cstate->connections,
+					primary_data_node,
+					COMBINE_TYPE_SAME,
+					whereToSendOutput);
+		else
+			cstate->processed = DataNodeCopyFinish(
+					cstate->connections,
+					0,
+					COMBINE_TYPE_SUM,
+					whereToSendOutput);
+		pfree(cstate->connections);
+		pfree(cstate->query_buf.data);
+		FreeRelationLocInfo(cstate->rel_loc);
+	}
+#endif
 
 	/*
 	 * Close the relation or query.  If reading, we can release the
@@ -1178,9 +1481,8 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 		PopActiveSnapshot();
 	}
 
-	/* Clean up storage (probably not really necessary) */
 	processed = cstate->processed;
-
+	/* Clean up storage (probably not really necessary) */
 	pfree(cstate->attribute_buf.data);
 	pfree(cstate->line_buf.data);
 	pfree(cstate->raw_buf);
@@ -2089,6 +2391,25 @@ CopyFrom(CopyState cstate)
 											 &nulls[defmap[i]], NULL);
 		}
 
+#ifdef PGXC
+		if (IS_PGXC_COORDINATOR)
+		{
+			Datum 	   *hash_value = NULL;
+
+			if (cstate->hash_idx >= 0 && !nulls[cstate->hash_idx])
+				hash_value = &values[cstate->hash_idx];
+
+			if (DataNodeCopyIn(cstate->line_buf.data,
+					       cstate->line_buf.len,
+						   GetRelationNodes(cstate->rel_loc, (long *)hash_value, false),
+						   cstate->connections))
+				ereport(ERROR,
+						(errcode(ERRCODE_CONNECTION_EXCEPTION),
+						 errmsg("Copy failed on a data node")));
+		}
+		else
+		{
+#endif
 		/* And now we can form the input tuple. */
 		tuple = heap_form_tuple(tupDesc, values, nulls);
 
@@ -2142,6 +2463,9 @@ CopyFrom(CopyState cstate)
 			 */
 			cstate->processed++;
 		}
+#ifdef PGXC
+		}
+#endif
 	}
 
 	/* Done, clean up */

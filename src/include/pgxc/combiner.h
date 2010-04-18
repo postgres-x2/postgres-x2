@@ -46,6 +46,9 @@ typedef struct
 	int			row_count;
 	RequestType request_type;
 	int			description_count;
+	uint64		copy_in_count;
+	uint64		copy_out_count;
+	bool		inErrorState;
 	List	   *simple_aggregates;
 }	ResponseCombinerData;
 
@@ -59,5 +62,6 @@ extern int CombineResponse(ResponseCombiner combiner, char msg_type,
 extern bool ValidateAndCloseCombiner(ResponseCombiner combiner);
 extern bool ValidateAndResetCombiner(ResponseCombiner combiner);
 extern void AssignCombinerAggregates(ResponseCombiner combiner, List *simple_aggregates);
+extern void CloseCombiner(ResponseCombiner combiner);
 
 #endif   /* COMBINER_H */

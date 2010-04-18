@@ -33,9 +33,15 @@ typedef enum
 	DN_CONNECTION_STATE_COMPLETED,
 	DN_CONNECTION_STATE_ERROR_NOT_READY,	/* error, but need ReadyForQuery message */
 	DN_CONNECTION_STATE_ERROR_READY,		/* error and received ReadyForQuery */
-	DN_CONNECTION_STATE_ERROR_FATAL			/* fatal error */
-
+	DN_CONNECTION_STATE_ERROR_FATAL,		/* fatal error */
+	DN_CONNECTION_STATE_COPY_IN,
+	DN_CONNECTION_STATE_COPY_OUT
 }	DNConnectionState;
+
+#define DN_CONNECTION_STATE_ERROR(dnconn) \
+	(dnconn)->state == DN_CONNECTION_STATE_ERROR_FATAL \
+	|| (dnconn)->state == DN_CONNECTION_STATE_ERROR_NOT_READY \
+	|| (dnconn)->state == DN_CONNECTION_STATE_ERROR_READY
 
 struct data_node_handle
 {
@@ -74,7 +80,11 @@ extern void DataNodeBegin(void);
 extern int	DataNodeCommit(CommandDest dest);
 extern int	DataNodeRollback(CommandDest dest);
 
-extern int	DataNodeExec(const char *query, Exec_Nodes *exec_nodes, CommandDest dest, Snapshot snapshot, bool force_autocommit, List *simple_aggregates, bool is_read_only);
+extern int	DataNodeExec(const char *query, Exec_Nodes *exec_nodes, CombineType combine_type, CommandDest dest, Snapshot snapshot, bool force_autocommit, List *simple_aggregates, bool is_read_only);
+
+extern DataNodeHandle** DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot);
+extern int DataNodeCopyIn(char *data_row, int len, Exec_Nodes *exec_nodes, DataNodeHandle** copy_connections);
+extern uint64 DataNodeCopyFinish(DataNodeHandle** copy_connections, int primary_data_node, CombineType combine_type, CommandDest dest);
 
 extern int primary_data_node;
 #endif

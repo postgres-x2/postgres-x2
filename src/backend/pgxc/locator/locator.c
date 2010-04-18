@@ -290,6 +290,7 @@ GetRelationNodes(RelationLocInfo * rel_loc_info, long *partValue, int isRead)
 		return NULL;
 
 	exec_nodes = (Exec_Nodes *) palloc0(sizeof(Exec_Nodes));
+	exec_nodes->baselocatortype = rel_loc_info->locatorType;
 	
 	switch (rel_loc_info->locatorType)
 	{

@@ -79,9 +79,10 @@
 /* PGXC_COORD */
 #include "pgxc/planner.h"
 #include "pgxc/datanode.h"
+#include "commands/copy.h"
 /* PGXC_DATANODE */
-#include "access/transam.h" 
-#endif 
+#include "access/transam.h"
+#endif
 extern int	optind;
 extern char *optarg;
 
@@ -204,10 +205,10 @@ static List * pgxc_execute_direct (Node *parsetree, List *querytree_list, Comman
  * ----------------------------------------------------------------
  */
 
-/*  
- * Called when the backend is ending. 
+/*
+ * Called when the backend is ending.
  */
-static void 
+static void
 DataNodeShutdown (int code, Datum arg)
 {
 	/* Close connection with GTM, if active */
@@ -433,7 +434,7 @@ SocketBackend(StringInfo inBuf)
 		case 'g':
 		case 's':
 			break;
-#endif 
+#endif
 
 		default:
 
@@ -898,14 +899,14 @@ exec_simple_query(const char *query_string)
 		Portal		portal;
 		DestReceiver *receiver;
 		int16		format;
-#ifdef PGXC 
+#ifdef PGXC
 		Query_Plan  *query_plan;
 		Query_Step  *query_step;
 		bool 		exec_on_coord;
 		int	 		data_node_error = 0;
 
 
-		/* 
+		/*
 		 * By default we do not want data nodes to contact GTM directly,
 		 * it should get this information passed down to it.
 		 */
@@ -978,10 +979,22 @@ exec_simple_query(const char *query_string)
 			else if (IsA(parsetree, ExecDirectStmt))
 				querytree_list = pgxc_execute_direct(parsetree, querytree_list, dest, snapshot_set, &exec_on_coord);
 
-			else 
+			else if (IsA(parsetree, CopyStmt))
+			{
+				CopyStmt *copy = (CopyStmt *) parsetree;
+				/* Snapshot is needed for the Copy */
+				if (!snapshot_set)
+				{
+					PushActiveSnapshot(GetTransactionSnapshot());
+					snapshot_set = true;
+				}
+				DoCopy(copy, query_string);
+				exec_on_coord = false;
+			}
+			else
 			{
 				query_plan = GetQueryPlan(parsetree, query_string, querytree_list);
-			
+
 				exec_on_coord = query_plan->exec_loc_type & EXEC_ON_COORD;
 			}
 
@@ -1003,7 +1016,7 @@ exec_simple_query(const char *query_string)
 		/* If we got a cancel signal in analysis or planning, quit */
 		CHECK_FOR_INTERRUPTS();
 
-#ifdef PGXC 
+#ifdef PGXC
 		/* PGXC_DATANODE */
 		/* Force getting Xid from GTM if not autovacuum, but a vacuum */
 		if (IS_PGXC_DATANODE && IsA(parsetree, VacuumStmt) && IsPostmasterEnvironment)
@@ -1089,7 +1102,7 @@ exec_simple_query(const char *query_string)
 
 		PortalDrop(portal, false);
 
-#ifdef PGXC 
+#ifdef PGXC
 		}
 
 		/* PGXC_COORD */
@@ -1100,9 +1113,10 @@ exec_simple_query(const char *query_string)
 			{
 				query_step = linitial(query_plan->query_step_list);
 
-				data_node_error = DataNodeExec(query_step->sql_statement, 
-						query_step->exec_nodes, 
-						dest, 
+				data_node_error = DataNodeExec(query_step->sql_statement,
+						query_step->exec_nodes,
+						query_step->combine_type,
+						dest,
 						snapshot_set ? GetActiveSnapshot() : GetTransactionSnapshot(),
 						query_plan->force_autocommit,
 						query_step->simple_aggregates,
@@ -1110,15 +1124,17 @@ exec_simple_query(const char *query_string)
 
 				if (data_node_error)
 				{
-					/* Error. If it ran on the coordinator (DDL), too, make sure we abort */
-					if (exec_on_coord)
-					{
-						AbortCurrentTransaction();
-						xact_started = false;
-					}
+					/* An error occurred, change status on Coordinator, too,
+					 * even if no statements ran on it.  
+					 * We want to only allow COMMIT/ROLLBACK 
+					 */
+					AbortCurrentTransaction();
+					xact_started = false;
+					/* AT() clears active snapshot */
+					snapshot_set = false;
 				}
 			}
-	
+
 			FreeQueryPlan(query_plan);
 		}
 
@@ -3111,7 +3127,7 @@ PostgresMain(int argc, char *argv[], const char *username)
 			case 'C':
 				isPGXCCoordinator = true;
 				break;
-#endif 
+#endif
 
 			case 'D':
 				if (secure)
@@ -3239,7 +3255,7 @@ PostgresMain(int argc, char *argv[], const char *username)
 			case 'X':
 				isPGXCDataNode = true;
 				break;
-#endif 
+#endif
 			case 'y':
 
 				/*
@@ -3749,9 +3765,9 @@ PostgresMain(int argc, char *argv[], const char *username)
 
 			ReadyForQuery(whereToSendOutput);
 #ifdef PGXC
-			/* 
-			 * Helps us catch any problems where we did not send down a snapshot 
-			 * when it was expected. 
+			/*
+			 * Helps us catch any problems where we did not send down a snapshot
+			 * when it was expected.
 			 */
 			if (IS_PGXC_DATANODE)
 				UnsetGlobalSnapshotData();
@@ -4276,9 +4292,9 @@ pgxc_transaction_stmt (Node *parsetree)
 			switch (stmt->kind)
 			{
 				case TRANS_STMT_BEGIN:
-					/* 
+					/*
 					 * This does not yet send down a BEGIN,
-					 * we do that "on demand" as data nodes are added 
+					 * we do that "on demand" as data nodes are added
 					 */
 					DataNodeBegin();
 				break;
@@ -4315,17 +4331,18 @@ pgxc_execute_direct (Node *parsetree, List *querytree_list, CommandDest dest, bo
 	Assert(IS_PGXC_COORDINATOR);
 	Assert(IsA(parsetree, ExecDirectStmt));
 
-	
+
 	exec_nodes = (Exec_Nodes *) palloc0(sizeof(Exec_Nodes));
 
 	foreach (node_cell, execdirect->nodes)
 	{
 		int node_int = intVal(lfirst(node_cell));
-		exec_nodes->nodelist = lappend_int(exec_nodes->nodelist, node_int);	
+		exec_nodes->nodelist = lappend_int(exec_nodes->nodelist, node_int);
 	}
 	if (exec_nodes->nodelist)
 		if (DataNodeExec(execdirect->query,
 					exec_nodes,
+					COMBINE_TYPE_SAME,
 					dest,
 					snapshot_set ? GetActiveSnapshot() : GetTransactionSnapshot(),
 					FALSE,
@@ -4337,24 +4354,24 @@ pgxc_execute_direct (Node *parsetree, List *querytree_list, CommandDest dest, bo
 	{
 		/*
 		 * Parse inner statement, like at the begiining of the function
-		 * We do not have to release wrapper trees, the message context 
+		 * We do not have to release wrapper trees, the message context
 		 * will be deleted later
-		 * Also, no need to switch context - current is already 
+		 * Also, no need to switch context - current is already
 		 * 		the MessageContext
 		 */
 		parsetree_list = pg_parse_query(execdirect->query);
 
 		/* We do not want to log or display the inner command */
 
-		/* 
-		 * we do not support complex commands (expanded to multiple 
+		/*
+		 * we do not support complex commands (expanded to multiple
 		 * parse trees) within EXEC DIRECT
 		 */
 		if (list_length(parsetree_list) != 1)
 		{
-			ereport(ERROR, 
+			ereport(ERROR,
 				   (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				    errmsg("Can not execute %s with EXECUTE DIRECT", 
+				    errmsg("Can not execute %s with EXECUTE DIRECT",
 						execdirect->query)));
 		}
 

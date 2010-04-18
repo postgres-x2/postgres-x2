@@ -28,8 +28,10 @@
 #include "access/xact.h"
 #include "postgres.h"
 #include "utils/snapmgr.h"
+#include "pgxc/pgxc.h"
 #include "gtm/gtm_c.h"
 #include "pgxc/datanode.h"
+#include "pgxc/locator.h"
 #include "../interfaces/libpq/libpq-fe.h"
 #include "utils/elog.h"
 #include "utils/memutils.h"
@@ -50,9 +52,9 @@ static void release_handles(void);
 static void data_node_init(DataNodeHandle * handle, int sock);
 static void data_node_free(DataNodeHandle * handle);
 
-static int	data_node_begin(int conn_count, DataNodeHandle ** connections, ResponseCombiner combiner, GlobalTransactionId gxid);
-static int	data_node_commit(int conn_count, DataNodeHandle ** connections, ResponseCombiner combiner);
-static int	data_node_rollback(int conn_count, DataNodeHandle ** connections, ResponseCombiner combiner);
+static int	data_node_begin(int conn_count, DataNodeHandle ** connections, CommandDest dest, GlobalTransactionId gxid);
+static int	data_node_commit(int conn_count, DataNodeHandle ** connections, CommandDest dest);
+static int	data_node_rollback(int conn_count, DataNodeHandle ** connections, CommandDest dest);
 
 static int	ensure_in_buffer_capacity(size_t bytes_needed, DataNodeHandle * handle);
 static int	ensure_out_buffer_capacity(size_t bytes_needed, DataNodeHandle * handle);
@@ -64,7 +66,7 @@ static int	data_node_send_snapshot(DataNodeHandle * handle, Snapshot snapshot);
 static void add_error_message(DataNodeHandle * handle, const char *message);
 
 static int	data_node_read_data(DataNodeHandle * conn);
-static int	handle_response(DataNodeHandle * conn, ResponseCombiner combiner, bool inErrorState);
+static int	handle_response(DataNodeHandle * conn, ResponseCombiner combiner);
 
 static int	get_int(DataNodeHandle * conn, size_t len, int *out);
 static int	get_char(DataNodeHandle * conn, char *out);
@@ -220,8 +222,8 @@ InitMultinodeExecutor()
 	node_count = 0;
 }
 
-/* 
- * Builds up a connection string 
+/*
+ * Builds up a connection string
  */
 char *
 DataNodeConnStr(char *host, char *port, char *dbname,
@@ -250,8 +252,8 @@ DataNodeConnStr(char *host, char *port, char *dbname,
 }
 
 
-/* 
- * Connect to a Data Node using a connection string  
+/*
+ * Connect to a Data Node using a connection string
  */
 NODE_CONNECTION *
 DataNodeConnect(char *connstr)
@@ -264,8 +266,8 @@ DataNodeConnect(char *connstr)
 }
 
 
-/* 
- * Close specified connection 
+/*
+ * Close specified connection
  */
 void
 DataNodeClose(NODE_CONNECTION * conn)
@@ -275,8 +277,8 @@ DataNodeClose(NODE_CONNECTION * conn)
 }
 
 
-/* 
- * Checks if connection active 
+/*
+ * Checks if connection active
  */
 int
 DataNodeConnected(NODE_CONNECTION * conn)
@@ -327,17 +329,12 @@ data_node_init(DataNodeHandle * handle, int sock)
 
 
 /*
- * Handle responses from the Data node connections 
+ * Handle responses from the Data node connections
  */
-static int
-data_node_receive_responses(int conn_count, DataNodeHandle ** connections,
+static void
+data_node_receive_responses(const int conn_count, DataNodeHandle ** connections,
 						 struct timeval * timeout, ResponseCombiner combiner)
 {
-	int			result = 0;
-	int			retry_count;
-	bool		timed_out = false;
-	bool		inErrorState = false;
-
 	int			count = conn_count;
 	DataNodeHandle *to_receive[conn_count];
 
@@ -362,11 +359,8 @@ data_node_receive_responses(int conn_count, DataNodeHandle ** connections,
 		{
 			/* note if a connection has error */
 			if (!to_receive[i]
-				|| to_receive[i]->state == DN_CONNECTION_STATE_ERROR_FATAL
-				|| to_receive[i]->sock >= 1024)
+				|| to_receive[i]->state == DN_CONNECTION_STATE_ERROR_FATAL)
 			{
-				result = EOF;
-
 				/* Handling is done, do not track this connection */
 				count--;
 
@@ -391,7 +385,6 @@ data_node_receive_responses(int conn_count, DataNodeHandle ** connections,
 		if (count == 0)
 			break;
 
-		retry_count = 0;
 retry:
 		res_select = select(nfds + 1, &readfds, NULL, NULL, timeout);
 		if (res_select < 0)
@@ -409,19 +402,18 @@ retry:
 				ereport(ERROR,
 						(errcode(ERRCODE_CONNECTION_FAILURE),
 						 errmsg("select() bad file descriptor set")));
-				return EOF;
 			}
 			ereport(ERROR,
 					(errcode(ERRCODE_CONNECTION_FAILURE),
 					 errmsg("select() error: %d", errno)));
-			return EOF;
 		}
 
 		if (res_select == 0)
 		{
 			/* Handle timeout */
-			result = EOF;
-			timed_out = true;
+			ereport(ERROR,
+					(errcode(ERRCODE_CONNECTION_FAILURE),
+					 errmsg("timeout while waiting for response")));
 		}
 
 		/* read data */
@@ -435,24 +427,16 @@ retry:
 
 				if (read_status == EOF || read_status < 0)
 				{
-					count--;
-					/* Move last connection in place */
-					if (i < count)
-					{
-						to_receive[i] = to_receive[count];
-						/* stay on the current position */
-						i--;
-					}
-
-					inErrorState = true;
-					result = EOF;
-					continue;
+					/* PGXCTODO - we should notify the pooler to destroy the connections */
+					ereport(ERROR,
+							(errcode(ERRCODE_CONNECTION_FAILURE),
+							 errmsg("unexpected EOF on datanode connection")));
 				}
 			}
 
 			if (conn->inStart < conn->inEnd)
 			{
-				if (handle_response(conn, combiner, inErrorState) == 0
+				if (handle_response(conn, combiner) == 0
 						|| conn->state == DN_CONNECTION_STATE_ERROR_READY
 						|| conn->state == DN_CONNECTION_STATE_ERROR_FATAL)
 				{
@@ -466,24 +450,9 @@ retry:
 						i--;
 					}
 				}
-
-				/*
-				 * See if we flagged an error on connection. Note, if
-				 * handle_response was not 0 above, an error occurred, we
-				 * still need to consume the ReadyForQuery message
-				 */
-				if (conn->state == DN_CONNECTION_STATE_ERROR_READY
-						|| conn->state == DN_CONNECTION_STATE_ERROR_NOT_READY
-						|| conn->state == DN_CONNECTION_STATE_ERROR_FATAL)
-				{
-					inErrorState = true;
-					result = EOF;
-				}
 			}
 		}
 	}
-
-	return result;
 }
 
 /*
@@ -675,7 +644,7 @@ get_int(DataNodeHandle * conn, size_t len, int *out)
  * and closing the connections.
  */
 static int
-handle_response(DataNodeHandle * conn, ResponseCombiner combiner, bool inErrorState)
+handle_response(DataNodeHandle * conn, ResponseCombiner combiner)
 {
 	char		msg_type;
 	int			msg_len;
@@ -708,32 +677,45 @@ handle_response(DataNodeHandle * conn, ResponseCombiner combiner, bool inErrorSt
 				/* no need to parse, just move cursor */
 				conn->inCursor += msg_len;
 				conn->state = DN_CONNECTION_STATE_COMPLETED;
-				if (!inErrorState)
-					CombineResponse(combiner, msg_type,
-									conn->inBuffer + conn->inStart + 5,
-									conn->inCursor - conn->inStart - 5);
+				CombineResponse(combiner, msg_type,
+								conn->inBuffer + conn->inStart + 5,
+								conn->inCursor - conn->inStart - 5);
 
 				break;
 			case 'T':			/* RowDescription */
-			case 'G':			/* CopyInResponse */
-			case 'H':			/* CopyOutResponse */
 			case 'D':			/* DataRow */
 				/* no need to parse, just move cursor */
 				conn->inCursor += msg_len;
-				if (!inErrorState)
-					CombineResponse(combiner, msg_type,
-									conn->inBuffer + conn->inStart + 5,
-									conn->inCursor - conn->inStart - 5);
+				CombineResponse(combiner, msg_type,
+								conn->inBuffer + conn->inStart + 5,
+								conn->inCursor - conn->inStart - 5);
+				break;
+			case 'G': /* CopyInResponse */
+				/* no need to parse, just move cursor */
+				conn->inCursor += msg_len;
+				conn->state = DN_CONNECTION_STATE_COPY_IN;
+				CombineResponse(combiner, msg_type,
+							conn->inBuffer + conn->inStart + 5,
+							conn->inCursor - conn->inStart - 5);
+				/* Done, return to caller to let it know the data can be passed in */
+				conn->inStart = conn->inCursor;
+				conn->state = DN_CONNECTION_STATE_COPY_IN;
+				return 0;
+			case 'H': /* CopyOutResponse */
+				/* no need to parse, just move cursor */
+				conn->inCursor += msg_len;
+				conn->state = DN_CONNECTION_STATE_COPY_OUT;
+				CombineResponse(combiner, msg_type,
+							conn->inBuffer + conn->inStart + 5,
+							conn->inCursor - conn->inStart - 5);
 				break;
 			case 'E':			/* ErrorResponse */
 				/* no need to parse, just move cursor */
 				conn->inCursor += msg_len;
-				if (!inErrorState)
-					CombineResponse(combiner, msg_type,
-									conn->inBuffer + conn->inStart + 5,
-									conn->inCursor - conn->inStart - 5);
+				CombineResponse(combiner, msg_type,
+								conn->inBuffer + conn->inStart + 5,
+								conn->inCursor - conn->inStart - 5);
 				conn->inStart = conn->inCursor;
-				inErrorState = true;
 				conn->state = DN_CONNECTION_STATE_ERROR_NOT_READY;
 				/*
 				 * Do not return with an error, we still need to consume Z,
@@ -756,31 +738,30 @@ handle_response(DataNodeHandle * conn, ResponseCombiner combiner, bool inErrorSt
 				{
 					conn->state = DN_CONNECTION_STATE_ERROR_READY;
 					return EOF;
-				} else 
+				} else
 					conn->state = DN_CONNECTION_STATE_IDLE;
 				return 0;
 			case 'I':			/* EmptyQuery */
 			default:
 				/* sync lost? */
 				conn->state = DN_CONNECTION_STATE_ERROR_FATAL;
-				inErrorState = true;
 				return EOF;
 		}
 		conn->inStart = conn->inCursor;
-
 	}
+	/* Keep compiler quiet */
 	return EOF;
 }
-
 
 /*
  * Send BEGIN command to the Data nodes and receive responses
  */
 static int
-data_node_begin(int conn_count, DataNodeHandle ** connections, ResponseCombiner combiner, GlobalTransactionId gxid)
+data_node_begin(int conn_count, DataNodeHandle ** connections, CommandDest dest, GlobalTransactionId gxid)
 {
 	int			i;
 	struct timeval *timeout = NULL;
+	ResponseCombiner combiner;
 
 	/* Send BEGIN */
 	for (i = 0; i < conn_count; i++)
@@ -792,15 +773,14 @@ data_node_begin(int conn_count, DataNodeHandle ** connections, ResponseCombiner 
 			return EOF;
 	}
 
+	combiner = CreateResponseCombiner(conn_count, COMBINE_TYPE_NONE, dest);
+
 	/* Receive responses */
-	if (data_node_receive_responses(conn_count, connections, timeout, combiner))
-		return EOF;
+	data_node_receive_responses(conn_count, connections, timeout, combiner);
 
-	/* Verify status? */
-
-	return 0;
+	/* Verify status */
+	return ValidateAndCloseCombiner(combiner) ? 0 : EOF;
 }
-
 
 /* Clears the write node list */
 static void
@@ -835,8 +815,6 @@ DataNodeCommit(CommandDest dest)
 	int			res;
 	int			tran_count;
 	DataNodeHandle *connections[node_count];
-	ResponseCombiner combiner;
-
 	/* Quick check to make sure we have connections */
 	if (node_count == 0)
 		goto finish;
@@ -851,11 +829,7 @@ DataNodeCommit(CommandDest dest)
 	if (tran_count == 0)
 		goto finish;
 
-	combiner = CreateResponseCombiner(tran_count,
-									  COMBINE_TYPE_NONE, dest);
-	res = data_node_commit(tran_count, connections, combiner);
-	if (!ValidateAndCloseCombiner(combiner) || res)
-		return EOF;
+	res = data_node_commit(tran_count, connections, dest);
 
 finish:
 	/* In autocommit mode statistics is collected in DataNodeExec */
@@ -865,7 +839,7 @@ finish:
 		release_handles();
 	autocommit = true;
 	clear_write_node_list();
-	return 0;
+	return res;
 }
 
 
@@ -873,13 +847,14 @@ finish:
  * Send COMMIT or PREPARE/COMMIT PREPARED down to the Data nodes and handle responses
  */
 static int
-data_node_commit(int conn_count, DataNodeHandle ** connections, ResponseCombiner combiner)
+data_node_commit(int conn_count, DataNodeHandle ** connections, CommandDest dest)
 {
 	int			i;
 	struct timeval *timeout = NULL;
 	char		buffer[256];
 	GlobalTransactionId gxid = InvalidGlobalTransactionId;
 	int			result = 0;
+	ResponseCombiner combiner = NULL;
 
 
 	/* can set this to false to disable temporarily */
@@ -904,9 +879,7 @@ data_node_commit(int conn_count, DataNodeHandle ** connections, ResponseCombiner
 		 * gxid for it. Hence GetCurrentGlobalTransactionId() just returns
 		 * already allocated gxid
 		 */
-/* #ifdef PGXC_COORD  */
 		gxid = GetCurrentGlobalTransactionId();
-/* #endif */
 
 		sprintf(buffer, "PREPARE TRANSACTION 'T%d'", gxid);
 		/* Send PREPARE */
@@ -916,20 +889,26 @@ data_node_commit(int conn_count, DataNodeHandle ** connections, ResponseCombiner
 				return EOF;
 		}
 
+		combiner = CreateResponseCombiner(conn_count,
+										  COMBINE_TYPE_NONE, dest);
 		/* Receive responses */
-		if (data_node_receive_responses(conn_count, connections, timeout, combiner))
-			return EOF;
+		data_node_receive_responses(conn_count, connections, timeout, combiner);
 
 		/* Reset combiner */
 		if (!ValidateAndResetCombiner(combiner))
-			return EOF;
+		{
+			result = EOF;
+		}
 	}
 
 	if (!do2PC)
 		strcpy(buffer, "COMMIT");
 	else
 	{
-		sprintf(buffer, "COMMIT PREPARED 'T%d'", gxid);
+		if (result)
+			sprintf(buffer, "ROLLBACK PREPARED 'T%d'", gxid);
+		else
+			sprintf(buffer, "COMMIT PREPARED 'T%d'", gxid);
 
 		/* We need to use a new xid, the data nodes have reset */
 		two_phase_xid = BeginTranGTM();
@@ -954,9 +933,12 @@ data_node_commit(int conn_count, DataNodeHandle ** connections, ResponseCombiner
 		}
 	}
 
+	if (!combiner)
+		combiner = CreateResponseCombiner(conn_count,
+										  COMBINE_TYPE_NONE, dest);
 	/* Receive responses */
-	if (data_node_receive_responses(conn_count, connections, timeout, combiner))
-		result = EOF;
+	data_node_receive_responses(conn_count, connections, timeout, combiner);
+	result = ValidateAndCloseCombiner(combiner) ? result : EOF;
 
 finish:
 	if (do2PC)
@@ -975,8 +957,6 @@ DataNodeRollback(CommandDest dest)
 	int			res = 0;
 	int			tran_count;
 	DataNodeHandle *connections[node_count];
-	ResponseCombiner combiner;
-	int			i;
 
 	/* Quick check to make sure we have connections */
 	if (node_count == 0)
@@ -992,19 +972,7 @@ DataNodeRollback(CommandDest dest)
 	if (tran_count == 0)
 		goto finish;
 
-	combiner = CreateResponseCombiner(tran_count,
-									  COMBINE_TYPE_NONE, dest);
-	res = data_node_rollback(tran_count, connections, combiner);
-
-	/* Assume connection got cleaned up. Reset so we can reuse without error. */
-	for (i = 0; i < tran_count; i++)
-	{
-		connections[i]->transaction_status = 'I';
-		connections[i]->state = DN_CONNECTION_STATE_IDLE;
-	}
-
-	if (!ValidateAndCloseCombiner(combiner) || res)
-		res = EOF;
+	res = data_node_rollback(tran_count, connections, dest);
 
 finish:
 	/* In autocommit mode statistics is collected in DataNodeExec */
@@ -1044,11 +1012,12 @@ release_handles(void)
  * Send ROLLBACK command down to the Data nodes and handle responses
  */
 static int
-data_node_rollback(int conn_count, DataNodeHandle ** connections, ResponseCombiner combiner)
+data_node_rollback(int conn_count, DataNodeHandle ** connections, CommandDest dest)
 {
 	int			i;
 	struct timeval *timeout = NULL;
 	int			result = 0;
+	ResponseCombiner combiner;
 
 	/* Send ROLLBACK - */
 	for (i = 0; i < conn_count; i++)
@@ -1057,12 +1026,13 @@ data_node_rollback(int conn_count, DataNodeHandle ** connections, ResponseCombin
 			result = EOF;
 	}
 
+	combiner = CreateResponseCombiner(conn_count,
+									  COMBINE_TYPE_NONE, dest);
 	/* Receive responses */
-	if (data_node_receive_responses(conn_count, connections, timeout, combiner))
-		return EOF;
+	data_node_receive_responses(conn_count, connections, timeout, combiner);
 
-	/* Verify status? */
-	return 0;
+	/* Verify status */
+	return ValidateAndCloseCombiner(combiner) ? 0 : EOF;
 }
 
 
@@ -1080,19 +1050,17 @@ data_node_rollback(int conn_count, DataNodeHandle ** connections, ResponseCombin
  * bool is_read_only       - if this is a read-only query
  */
 int
-DataNodeExec(const char *query, Exec_Nodes *exec_nodes, CommandDest dest, Snapshot snapshot,
-		   bool force_autocommit, List *simple_aggregates, bool is_read_only)
+DataNodeExec(const char *query, Exec_Nodes *exec_nodes, CombineType combine_type,
+		CommandDest dest, Snapshot snapshot, bool force_autocommit,
+		List *simple_aggregates, bool is_read_only)
 {
 	int			i;
 	int			j;
 	int			regular_conn_count;
 	int			total_conn_count;
 	struct timeval *timeout = NULL;		/* wait forever */
-	ResponseCombiner combiner;
-	ResponseCombiner primary_combiner = NULL;
-	int			primary_row_count = 0;
+	ResponseCombiner combiner = NULL;
 	int			row_count = 0;
-	int			res;
 	int			new_count = 0;
 	bool		need_tran;
 	bool		found;
@@ -1103,8 +1071,6 @@ DataNodeExec(const char *query, Exec_Nodes *exec_nodes, CommandDest dest, Snapsh
 	List *nodelist = NIL;
 	List *primarynode = NIL;
 	/* add up affected row count by default, override for replicated writes */
-	CombineType combine_type = COMBINE_TYPE_SUM; 
-
 
 	if (exec_nodes)
 	{
@@ -1212,11 +1178,8 @@ DataNodeExec(const char *query, Exec_Nodes *exec_nodes, CommandDest dest, Snapsh
 	}
 	if (new_count > 0 && need_tran)
 	{
-		combiner = CreateResponseCombiner(new_count, COMBINE_TYPE_NONE, DestNone);
-
 		/* Start transaction on connections where it is not started */
-		res = data_node_begin(new_count, new_connections, combiner, gxid);
-		if (!ValidateAndCloseCombiner(combiner) || res)
+		if (data_node_begin(new_count, new_connections, DestNone, gxid))
 		{
 			pfree(connections);
 			return EOF;
@@ -1230,16 +1193,16 @@ DataNodeExec(const char *query, Exec_Nodes *exec_nodes, CommandDest dest, Snapsh
 		if (!need_tran && data_node_send_gxid(primaryconnection[0], gxid))
 		{
 			add_error_message(primaryconnection[0], "Can not send request");
-   			if (connections) 
+   			if (connections)
 				pfree(connections);
-			if (primaryconnection) 
+			if (primaryconnection)
 				pfree(primaryconnection);
 			return EOF;
 		}
 		if (snapshot && data_node_send_snapshot(primaryconnection[0], snapshot))
 		{
 			add_error_message(primaryconnection[0], "Can not send request");
-   			if (connections) 
+   			if (connections)
 				pfree(connections);
 			pfree(primaryconnection);
 			return EOF;
@@ -1247,22 +1210,31 @@ DataNodeExec(const char *query, Exec_Nodes *exec_nodes, CommandDest dest, Snapsh
 		if (data_node_send_query(primaryconnection[0], query) != 0)
 		{
 			add_error_message(primaryconnection[0], "Can not send request");
-   			if (connections) 
+   			if (connections)
 				pfree(connections);
-			if (primaryconnection) 
+			if (primaryconnection)
 				pfree(primaryconnection);
 			return EOF;
 		}
 
-		/* Use DestNone so that a response will not be sent until run on secondary nodes */
-		/* Use COMBINE_TYPE_SAME so that we get the affected row count */
-		primary_combiner = CreateResponseCombiner(1, COMBINE_TYPE_SAME, DestNone);
+		Assert(combine_type == COMBINE_TYPE_SAME);
+
+		/*
+		 * Create combiner.
+		 * Note that we use the same combiner later with the secondary nodes,
+		 * so that we do not prematurely send a response to the client
+		 * until all nodes have completed execution.
+		 */
+		combiner = CreateResponseCombiner(total_conn_count, combine_type, dest);
+		AssignCombinerAggregates(combiner, simple_aggregates);
 
 		/* Receive responses */
-		res = data_node_receive_responses(1, primaryconnection, timeout, primary_combiner);
-		primary_row_count = primary_combiner->row_count;
-		if (!ValidateAndCloseCombiner(primary_combiner) || res)
+		data_node_receive_responses(1, primaryconnection, timeout, combiner);
+		/* If we got an error response return immediately */
+		if (DN_CONNECTION_STATE_ERROR(primaryconnection[0]))
 		{
+			/* We are going to exit, so release combiner */
+			CloseCombiner(combiner);
 			if (autocommit)
 			{
 				if (need_tran)
@@ -1271,18 +1243,12 @@ DataNodeExec(const char *query, Exec_Nodes *exec_nodes, CommandDest dest, Snapsh
 					release_handles();
 			}
 
-			if (primaryconnection) 
+			if (primaryconnection)
 				pfree(primaryconnection);
-   			if (connections) 
+   			if (connections)
 				pfree(connections);
 			return EOF;
 		}
-		/* 
-		 * If we get here, the statement has executed successfully on the primary data node 
-		 * and it is ok to try and execute on the other data nodes.
-		 * Set combine_type for secondary so that we do not sum up row counts.
-		 */
-		combine_type = COMBINE_TYPE_SAME;
 	}
 
 	/* Send query to nodes */
@@ -1309,16 +1275,19 @@ DataNodeExec(const char *query, Exec_Nodes *exec_nodes, CommandDest dest, Snapsh
 		}
 	}
 
-	combiner = CreateResponseCombiner(regular_conn_count, combine_type, dest);
-	AssignCombinerAggregates(combiner, simple_aggregates);
+	/* We may already have combiner if it is replicated case with primary data node */
+	if (!combiner)
+	{
+		combiner = CreateResponseCombiner(regular_conn_count, combine_type, dest);
+		AssignCombinerAggregates(combiner, simple_aggregates);
+	}
 
 	/* Receive responses */
-	res = data_node_receive_responses(regular_conn_count, connections, timeout, combiner);
+	data_node_receive_responses(regular_conn_count, connections, timeout, combiner);
 	row_count = combiner->row_count;
 
 	/* Check for errors and if primary nodeMake sure primary and secondary nodes were updated the same */
-	if (!ValidateAndCloseCombiner(combiner) || res
-			|| (primaryconnection && row_count != primary_row_count))
+	if (!ValidateAndCloseCombiner(combiner))
 	{
 		if (autocommit)
 		{
@@ -1329,12 +1298,6 @@ DataNodeExec(const char *query, Exec_Nodes *exec_nodes, CommandDest dest, Snapsh
 		}
 
 		pfree(connections);
-
-		if (primaryconnection && row_count != primary_row_count)
-			ereport(ERROR,
-				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg("Write to replicated table returned different results between primary and secondary data nodes. Primary: %d, secondary: %d", primary_row_count, row_count
-						)));
 
 		return EOF;
 	}
@@ -1558,6 +1521,24 @@ send_some(DataNodeHandle * handle, int len)
 
 
 /*
+ * This method won't return until connection buffer is empty or error occurs
+ * To ensure all data are on the wire before waiting for response
+ */
+static int
+data_node_flush(DataNodeHandle *handle)
+{
+	while (handle->outEnd)
+	{
+		if (send_some(handle, handle->outEnd) < 0)
+		{
+			add_error_message(handle, "failed to send data to datanode");
+			return EOF;
+		}
+	}
+	return 0;
+}
+
+/*
  * Send specified statement down to the Data node
  */
 static int
@@ -1582,13 +1563,9 @@ data_node_send_query(DataNodeHandle * handle, const char *query)
 	memcpy(handle->outBuffer + handle->outEnd, query, strLen);
 	handle->outEnd += strLen;
 
-	/* We need response right away, so send immediately */
-	if (send_some(handle, handle->outEnd) < 0)
-		return EOF;
-
 	handle->state = DN_CONNECTION_STATE_BUSY;
 
-	return 0;
+ 	return data_node_flush(handle);
 }
 
 
@@ -1837,4 +1814,440 @@ DataNodeCleanAndRelease(int code, Datum arg)
 
 	/* Dump collected statistics to the log */
 	stat_log();
+}
+
+/*
+ * Begin COPY command
+ * The copy_connections array must have room for NumDataNodes items
+ */
+DataNodeHandle**
+DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot)
+{
+	int i, j;
+	int conn_count = list_length(nodelist) == 0 ? NumDataNodes : list_length(nodelist);
+	struct timeval *timeout = NULL;
+	DataNodeHandle **connections;
+	DataNodeHandle **copy_connections;
+	DataNodeHandle *newConnections[conn_count];
+	int new_count = 0;
+	ListCell *nodeitem;
+	bool need_tran;
+	GlobalTransactionId gxid;
+	ResponseCombiner combiner;
+
+	if (conn_count == 0)
+		return NULL;
+
+	/* Get needed datanode connections */
+	connections = get_handles(nodelist);
+	if (!connections)
+		return NULL;
+
+	need_tran = !autocommit || conn_count > 1;
+
+	elog(DEBUG1, "autocommit = %s, conn_count = %d, need_tran = %s", autocommit ? "true" : "false", conn_count, need_tran ? "true" : "false");
+
+	/*
+	 * We need to be able quickly find a connection handle for specified node number,
+	 * So store connections in an array where index is node-1.
+	 * Unused items in the array should be NULL
+	 */
+	copy_connections = (DataNodeHandle **) palloc0(NumDataNodes * sizeof(DataNodeHandle *));
+	i = 0;
+	foreach(nodeitem, nodelist)
+		copy_connections[lfirst_int(nodeitem) - 1] = connections[i++];
+
+	/* Gather statistics */
+	stat_statement();
+	if (autocommit)
+		stat_transaction(conn_count);
+
+	/* We normally clear for transactions, but if autocommit, clear here, too */
+	if (autocommit)
+	{
+		clear_write_node_list();
+	}
+
+	/* Check status of connections */
+	/* We want to track new "write" nodes, and new nodes in the current transaction
+	 * whether or not they are write nodes. */
+	if (write_node_count < NumDataNodes)
+	{
+		for (i = 0; i < conn_count; i++)
+		{
+			bool found = false;
+			for (j=0; j<write_node_count && !found; j++)
+			{
+				if (write_node_list[j] == connections[i])
+					found = true;
+			}
+			if (!found)
+			{
+				/* Add to transaction wide-list */
+				write_node_list[write_node_count++] = connections[i];
+				/* Add to current statement list */
+				newConnections[new_count++] = connections[i];
+			}
+		}
+		// Check connection state is DN_CONNECTION_STATE_IDLE
+	}
+
+	gxid = GetCurrentGlobalTransactionId();
+
+	/* elog(DEBUG1, "Current gxid = %d", gxid); */
+
+	if (!GlobalTransactionIdIsValid(gxid))
+	{
+		pfree(connections);
+		pfree(copy_connections);
+		return NULL;
+	}
+	if (new_count > 0 && need_tran)
+	{
+		/* Start transaction on connections where it is not started */
+		if (data_node_begin(new_count, newConnections, DestNone, gxid))
+		{
+			pfree(connections);
+			pfree(copy_connections);
+			return NULL;
+		}
+	}
+
+	/* Send query to nodes */
+	for (i = 0; i < conn_count; i++)
+	{
+		/* If explicit transaction is needed gxid is already sent */
+		if (!need_tran && data_node_send_gxid(connections[i], gxid))
+		{
+			add_error_message(connections[i], "Can not send request");
+			pfree(connections);
+			pfree(copy_connections);
+			return NULL;
+		}
+		if (snapshot && data_node_send_snapshot(connections[i], snapshot))
+		{
+			add_error_message(connections[i], "Can not send request");
+			pfree(connections);
+			pfree(copy_connections);
+			return NULL;
+		}
+		if (data_node_send_query(connections[i], query) != 0)
+		{
+			add_error_message(connections[i], "Can not send request");
+			pfree(connections);
+			pfree(copy_connections);
+			return NULL;
+		}
+	}
+
+	/*
+	 * We are expecting CopyIn response, but do not want to send it to client,
+	 * caller should take care about this, because here we do not know if
+	 * client runs console or file copy
+	 */
+	combiner = CreateResponseCombiner(conn_count, COMBINE_TYPE_NONE, DestNone);
+
+	/* Receive responses */
+	data_node_receive_responses(conn_count, connections, timeout, combiner);
+	if (!ValidateAndCloseCombiner(combiner))
+	{
+		if (autocommit)
+		{
+			if (need_tran)
+				DataNodeCopyFinish(connections, 0, COMBINE_TYPE_NONE, DestNone);
+			else
+				if (!PersistentConnections) release_handles();
+		}
+
+		pfree(connections);
+		pfree(copy_connections);
+		return NULL;
+	}
+
+	pfree(connections);
+	return copy_connections;
+}
+
+/*
+ * Buffer size does not affect performance significantly, just do not allow
+ * connection buffer grows infinitely
+ */
+#define COPY_BUFFER_SIZE 8192
+#define PRIMARY_NODE_WRITEAHEAD 1024 * 1024
+
+/*
+ * Send a data row to the specified nodes
+ */
+int
+DataNodeCopyIn(char *data_row, int len, Exec_Nodes *exec_nodes, DataNodeHandle** copy_connections)
+{
+	DataNodeHandle *primary_handle = NULL;
+	ListCell *nodeitem;
+	/* size + data row + \n */
+	int msgLen = 4 + len + 1;
+	int nLen = htonl(msgLen);
+
+	if (exec_nodes->primarynodelist)
+	{
+		primary_handle = copy_connections[lfirst_int(list_head(exec_nodes->primarynodelist)) - 1];
+	}
+
+	if (primary_handle)
+	{
+		if (primary_handle->state == DN_CONNECTION_STATE_COPY_IN)
+		{
+			/* precalculate to speed up access */
+			int bytes_needed = primary_handle->outEnd + 1 + msgLen;
+
+			/* flush buffer if it is almost full */
+			if (bytes_needed > COPY_BUFFER_SIZE)
+			{
+				/* First look if data node has sent a error message */
+				int read_status = data_node_read_data(primary_handle);
+				if (read_status == EOF || read_status < 0)
+				{
+					add_error_message(primary_handle, "failed to read data from data node");
+					return EOF;
+				}
+
+				if (primary_handle->inStart < primary_handle->inEnd)
+				{
+					ResponseCombiner combiner = CreateResponseCombiner(1, COMBINE_TYPE_NONE, DestNone);
+					handle_response(primary_handle, combiner);
+					if (!ValidateAndCloseCombiner(combiner))
+						return EOF;
+				}
+
+				if (DN_CONNECTION_STATE_ERROR(primary_handle))
+					return EOF;
+
+				if (send_some(primary_handle, primary_handle->outEnd) < 0)
+				{
+					add_error_message(primary_handle, "failed to send data to data node");
+					return EOF;
+				}
+			}
+
+			if (ensure_out_buffer_capacity(bytes_needed, primary_handle) != 0)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_OUT_OF_MEMORY),
+						 errmsg("out of memory")));
+			}
+
+			primary_handle->outBuffer[primary_handle->outEnd++] = 'd';
+			memcpy(primary_handle->outBuffer + primary_handle->outEnd, &nLen, 4);
+			primary_handle->outEnd += 4;
+			memcpy(primary_handle->outBuffer + primary_handle->outEnd, data_row, len);
+			primary_handle->outEnd += len;
+			primary_handle->outBuffer[primary_handle->outEnd++] = '\n';
+		}
+		else
+		{
+			add_error_message(primary_handle, "Invalid data node connection");
+			return EOF;
+		}
+	}
+
+	foreach(nodeitem, exec_nodes->nodelist)
+	{
+		DataNodeHandle *handle = copy_connections[lfirst_int(nodeitem) - 1];
+		if (handle && handle->state == DN_CONNECTION_STATE_COPY_IN)
+		{
+			/* precalculate to speed up access */
+			int bytes_needed = handle->outEnd + 1 + msgLen;
+
+			/* flush buffer if it is almost full */
+			if ((primary_handle && bytes_needed > PRIMARY_NODE_WRITEAHEAD)
+					|| (!primary_handle && bytes_needed > COPY_BUFFER_SIZE))
+			{
+				int to_send = handle->outEnd;
+
+				/* First look if data node has sent a error message */
+				int read_status = data_node_read_data(handle);
+				if (read_status == EOF || read_status < 0)
+				{
+					add_error_message(handle, "failed to read data from data node");
+					return EOF;
+				}
+
+				if (handle->inStart < handle->inEnd)
+				{
+					ResponseCombiner combiner = CreateResponseCombiner(1, COMBINE_TYPE_NONE, DestNone);
+					handle_response(handle, combiner);
+					if (!ValidateAndCloseCombiner(combiner))
+						return EOF;
+				}
+
+				if (DN_CONNECTION_STATE_ERROR(handle))
+					return EOF;
+
+				/*
+				 * Allow primary node to write out data before others.
+				 * If primary node was blocked it would not accept copy data.
+				 * So buffer at least PRIMARY_NODE_WRITEAHEAD at the other nodes.
+				 * If primary node is blocked and is buffering, other buffers will
+				 * grow accordingly.
+				 */
+				if (primary_handle)
+				{
+					if (primary_handle->outEnd + PRIMARY_NODE_WRITEAHEAD < handle->outEnd)
+						to_send = handle->outEnd - primary_handle->outEnd - PRIMARY_NODE_WRITEAHEAD;
+					else
+						to_send = 0;
+				}
+
+				/*
+				 * Try to send down buffered data if we have
+				 */
+				if (to_send && send_some(handle, to_send) < 0)
+				{
+					add_error_message(handle, "failed to send data to data node");
+					return EOF;
+				}
+			}
+
+			if (ensure_out_buffer_capacity(bytes_needed, handle) != 0)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_OUT_OF_MEMORY),
+						 errmsg("out of memory")));
+			}
+
+			handle->outBuffer[handle->outEnd++] = 'd';
+			memcpy(handle->outBuffer + handle->outEnd, &nLen, 4);
+			handle->outEnd += 4;
+			memcpy(handle->outBuffer + handle->outEnd, data_row, len);
+			handle->outEnd += len;
+			handle->outBuffer[handle->outEnd++] = '\n';
+		}
+		else
+		{
+			add_error_message(handle, "Invalid data node connection");
+			return EOF;
+		}
+	}
+
+	return 0;
+}
+
+/*
+ * Finish copy process on all connections
+ */
+uint64
+DataNodeCopyFinish(DataNodeHandle** copy_connections, int primary_data_node,
+		CombineType combine_type, CommandDest dest)
+{
+	int i;
+	int nLen = htonl(4);
+	ResponseCombiner combiner = NULL;
+	bool need_tran;
+	bool res = 0;
+	struct timeval *timeout = NULL; /* wait forever */
+	DataNodeHandle *connections[NumDataNodes];
+	DataNodeHandle *primary_handle = NULL;
+	int conn_count = 0;
+
+	for (i = 0; i < NumDataNodes; i++)
+	{
+		DataNodeHandle *handle = copy_connections[i];
+
+		if (!handle)
+			continue;
+
+		if (i == primary_data_node - 1)
+			primary_handle = handle;
+		else
+			connections[conn_count++] = handle;
+	}
+
+	if (primary_handle)
+	{
+		if (primary_handle->state == DN_CONNECTION_STATE_COPY_IN || primary_handle->state == DN_CONNECTION_STATE_COPY_OUT)
+		{
+			/* msgType + msgLen */
+			if (ensure_out_buffer_capacity(primary_handle->outEnd + 1 + 4, primary_handle) != 0)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_OUT_OF_MEMORY),
+						 errmsg("out of memory")));
+			}
+
+			primary_handle->outBuffer[primary_handle->outEnd++] = 'c';
+			memcpy(primary_handle->outBuffer + primary_handle->outEnd, &nLen, 4);
+			primary_handle->outEnd += 4;
+
+			/* We need response right away, so send immediately */
+			if (data_node_flush(primary_handle) < 0)
+			{
+				res = EOF;
+			}
+		}
+		else
+		{
+			res = EOF;
+		}
+
+		combiner = CreateResponseCombiner(conn_count + 1, combine_type, dest);
+		data_node_receive_responses(1, &primary_handle, timeout, combiner);
+	}
+
+	for (i = 0; i < conn_count; i++)
+	{
+		DataNodeHandle *handle = connections[i];
+
+		if (handle->state == DN_CONNECTION_STATE_COPY_IN || handle->state == DN_CONNECTION_STATE_COPY_OUT)
+		{
+			/* msgType + msgLen */
+			if (ensure_out_buffer_capacity(handle->outEnd + 1 + 4, handle) != 0)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_OUT_OF_MEMORY),
+						 errmsg("out of memory")));
+			}
+
+			handle->outBuffer[handle->outEnd++] = 'c';
+			memcpy(handle->outBuffer + handle->outEnd, &nLen, 4);
+			handle->outEnd += 4;
+
+			/* We need response right away, so send immediately */
+			if (data_node_flush(handle) < 0)
+			{
+				res = EOF;
+			}
+		}
+		else
+		{
+			res = EOF;
+		}
+	}
+
+	need_tran = !autocommit || primary_handle || conn_count > 1;
+
+	if (!combiner)
+		combiner = CreateResponseCombiner(conn_count, combine_type, dest);
+	data_node_receive_responses(conn_count, connections, timeout, combiner);
+	if (!ValidateAndCloseCombiner(combiner) || res)
+	{
+		if (autocommit)
+		{
+			if (need_tran)
+				DataNodeRollback(DestNone);
+			else
+				if (!PersistentConnections) release_handles();
+		}
+
+		return 0;
+	}
+
+	if (autocommit)
+	{
+		if (need_tran)
+			DataNodeCommit(DestNone);
+		else
+			if (!PersistentConnections) release_handles();
+	}
+
+	// Verify status?
+	return combiner->row_count;
 }

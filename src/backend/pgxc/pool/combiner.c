@@ -48,6 +48,9 @@ CreateResponseCombiner(int node_count, CombineType combine_type,
 	combiner->row_count = 0;
 	combiner->request_type = REQUEST_TYPE_NOT_DEFINED;
 	combiner->description_count = 0;
+	combiner->copy_in_count = 0;
+	combiner->copy_out_count = 0;
+	combiner->inErrorState = false;
 	combiner->simple_aggregates = NULL;
 
 	return combiner;
@@ -60,14 +63,22 @@ static int
 parse_row_count(const char *message, size_t len, int *rowcount)
 {
 	int			digits = 0;
+	int			pos;
 
 	*rowcount = 0;
 	/* skip \0 string terminator */
-	len--;
-	while (len-- > 0 && message[len] >= '0' && message[len] <= '9')
+	for (pos = 0; pos < len - 1; pos++)
 	{
-		*rowcount = *rowcount * 10 + message[len] - '0';
-		digits++;
+		if (message[pos] >= '0' && message[pos] <= '9')
+		{
+			*rowcount = *rowcount * 10 + message[pos] - '0';
+			digits++;
+		}
+		else
+		{
+			*rowcount = 0;
+			digits = 0;
+		}
 	}
 	return digits;
 }
@@ -149,8 +160,11 @@ process_aggregate_element(List *simple_aggregates, char *msg_body, size_t len)
 int
 CombineResponse(ResponseCombiner combiner, char msg_type, char *msg_body, size_t len)
 {
-	int			rowcount;
-	int			digits = 0;
+	int digits = 0;
+
+	/* Ignore anything if we have encountered error */
+	if (combiner->inErrorState)
+		return EOF;
 
 	switch (msg_type)
 	{
@@ -164,6 +178,7 @@ CombineResponse(ResponseCombiner combiner, char msg_type, char *msg_body, size_t
 			/* Extract rowcount */
 			if (combiner->combine_type != COMBINE_TYPE_NONE)
 			{
+				int	rowcount;
 				digits = parse_row_count(msg_body, len, &rowcount);
 				if (digits > 0)
 				{
@@ -176,13 +191,12 @@ CombineResponse(ResponseCombiner combiner, char msg_type, char *msg_body, size_t
 								/* There is a consistency issue in the database with the replicated table */
 								ereport(ERROR,
 									(errcode(ERRCODE_DATA_CORRUPTED),
-									 errmsg("Write to replicated table returned different results from the data nodes"
-											)));
+									 errmsg("Write to replicated table returned different results from the data nodes")));
 						}
 						else
 							/* first result */
 							combiner->row_count  = rowcount;
-					} else 
+					} else
 						combiner->row_count += rowcount;
 				}
 				else
@@ -202,12 +216,9 @@ CombineResponse(ResponseCombiner combiner, char msg_type, char *msg_body, size_t
 					{
 						char		command_complete_buffer[256];
 
-						rowcount = combiner->combine_type == COMBINE_TYPE_SUM ?
-							combiner->row_count :
-							combiner->row_count / combiner->node_count;
 						/* Truncate msg_body to get base string */
 						msg_body[len - digits - 1] = '\0';
-						len = sprintf(command_complete_buffer, "%s%d", msg_body, rowcount) + 1;
+						len = sprintf(command_complete_buffer, "%s%d", msg_body, combiner->row_count) + 1;
 						pq_putmessage(msg_type, command_complete_buffer, len);
 					}
 				}
@@ -219,7 +230,9 @@ CombineResponse(ResponseCombiner combiner, char msg_type, char *msg_body, size_t
 			if (combiner->request_type != REQUEST_TYPE_QUERY)
 			{
 				/* Inconsistent responses */
-				return EOF;
+				ereport(ERROR,
+					(errcode(ERRCODE_DATA_CORRUPTED),
+					 errmsg("Unexpected response from the data nodes")));
 			}
 			/* Proxy first */
 			if (combiner->description_count++ == 0)
@@ -235,10 +248,12 @@ CombineResponse(ResponseCombiner combiner, char msg_type, char *msg_body, size_t
 			if (combiner->request_type != REQUEST_TYPE_COPY_IN)
 			{
 				/* Inconsistent responses */
-				return EOF;
+				ereport(ERROR,
+					(errcode(ERRCODE_DATA_CORRUPTED),
+					 errmsg("Unexpected response from the data nodes")));
 			}
 			/* Proxy first */
-			if (combiner->description_count++ == 0)
+			if (combiner->copy_in_count++ == 0)
 			{
 				if (combiner->dest == DestRemote
 					|| combiner->dest == DestRemoteExecute)
@@ -251,10 +266,12 @@ CombineResponse(ResponseCombiner combiner, char msg_type, char *msg_body, size_t
 			if (combiner->request_type != REQUEST_TYPE_COPY_OUT)
 			{
 				/* Inconsistent responses */
-				return EOF;
+				ereport(ERROR,
+					(errcode(ERRCODE_DATA_CORRUPTED),
+					 errmsg("Unexpected response from the data nodes")));
 			}
 			/* Proxy first */
-			if (combiner->description_count++ == 0)
+			if (combiner->copy_out_count++ == 0)
 			{
 				if (combiner->dest == DestRemote
 					|| combiner->dest == DestRemoteExecute)
@@ -316,20 +333,23 @@ CombineResponse(ResponseCombiner combiner, char msg_type, char *msg_body, size_t
 			}
 			break;
 		case 'E':				/* ErrorResponse */
+			combiner->inErrorState = true;
+			/* fallthru */
 		case 'A':				/* NotificationResponse */
 		case 'N':				/* NoticeResponse */
-			/* Proxy error message back if specified, 
-			 * or if doing internal primary copy 
+			/* Proxy error message back if specified,
+			 * or if doing internal primary copy
 			 */
 			if (combiner->dest == DestRemote
-				|| combiner->dest == DestRemoteExecute
-				|| combiner->combine_type == COMBINE_TYPE_SAME)
+				|| combiner->dest == DestRemoteExecute)
 				pq_putmessage(msg_type, msg_body, len);
 			break;
 		case 'I':				/* EmptyQuery */
 		default:
 			/* Unexpected message */
-			return EOF;
+			ereport(ERROR,
+				(errcode(ERRCODE_DATA_CORRUPTED),
+				 errmsg("Unexpected response from the data nodes")));
 	}
 	return 0;
 }
@@ -341,13 +361,31 @@ CombineResponse(ResponseCombiner combiner, char msg_type, char *msg_body, size_t
 static bool
 validate_combiner(ResponseCombiner combiner)
 {
+	/* There was error message while combining */
+	if (combiner->inErrorState)
+		return false;
+	/* Check if state is defined */
+	if (combiner->request_type == REQUEST_TYPE_NOT_DEFINED)
+		return false;
 	/* Check all nodes completed */
-	if (combiner->command_complete_count != combiner->node_count)
+	if ((combiner->request_type == REQUEST_TYPE_COMMAND
+				|| combiner->request_type == REQUEST_TYPE_QUERY)
+			&& combiner->command_complete_count != combiner->node_count)
 		return false;
 
 	/* Check count of description responses */
-	if (combiner->request_type != REQUEST_TYPE_COMMAND
-		&& combiner->description_count != combiner->node_count)
+ 	if (combiner->request_type == REQUEST_TYPE_QUERY
+			&& combiner->description_count != combiner->node_count)
+		return false;
+
+	/* Check count of copy-in responses */
+ 	if (combiner->request_type == REQUEST_TYPE_COPY_IN
+			&& combiner->copy_in_count != combiner->node_count)
+		return false;
+
+	/* Check count of copy-out responses */
+ 	if (combiner->request_type == REQUEST_TYPE_COPY_OUT
+			&& combiner->copy_out_count != combiner->node_count)
 		return false;
 
 	/* Add other checks here as needed */
@@ -381,9 +419,22 @@ ValidateAndResetCombiner(ResponseCombiner combiner)
 	combiner->row_count = 0;
 	combiner->request_type = REQUEST_TYPE_NOT_DEFINED;
 	combiner->description_count = 0;
+	combiner->copy_in_count = 0;
+	combiner->copy_out_count = 0;
+	combiner->inErrorState = false;
 	combiner->simple_aggregates = NULL;
 
 	return valid;
+}
+
+/*
+ * Close combiner and free allocated memory, if it is not needed
+ */
+void
+CloseCombiner(ResponseCombiner combiner)
+{
+	if (combiner)
+		pfree(combiner);
 }
 
 /*

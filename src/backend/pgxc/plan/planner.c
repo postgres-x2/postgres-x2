@@ -4,7 +4,7 @@
  *
  *	  Functions for generating a PGXC style plan.
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group 
+ * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  *
@@ -38,7 +38,7 @@ typedef struct
 }	Literal_Comparison;
 
 /*
- * This struct helps us detect special conditions to determine what nodes 
+ * This struct helps us detect special conditions to determine what nodes
  * to execute on.
  */
 typedef struct
@@ -84,8 +84,8 @@ bool		StrictStatementChecking = true;
 /* Forbid multi-node SELECT statements with an ORDER BY clause */
 bool		StrictSelectChecking = false;
 
-/* 
- * Create a new join struct for tracking how relations are joined 
+/*
+ * Create a new join struct for tracking how relations are joined
  */
 static PGXC_Join *
 new_pgxc_join(int relid1, char *aliasname1, int relid2, char *aliasname2)
@@ -113,8 +113,8 @@ new_pgxc_join(int relid1, char *aliasname1, int relid2, char *aliasname2)
 }
 
 
-/* 
- * Look up the join struct for a particular join 
+/*
+ * Look up the join struct for a particular join
  */
 static PGXC_Join *
 find_pgxc_join(int relid1, char *aliasname1, int relid2, char *aliasname2)
@@ -220,7 +220,7 @@ free_join_list()
 /*
  * get_numeric_constant - extract casted constant
  *
- * Searches an expression to see if it is a Constant that is being cast 
+ * Searches an expression to see if it is a Constant that is being cast
  * to numeric.  Return a pointer to the Constant, or NULL.
  * We need this because of casting.
  */
@@ -297,7 +297,7 @@ get_plan_nodes_insert(Query * query)
 	long	   *part_value_ptr = NULL;
 
 
-	
+
 
 	/* Looks complex (correlated?) - best to skip */
 	if (query->jointree != NULL && query->jointree->fromlist != NULL)
@@ -426,8 +426,8 @@ examine_conditions(Special_Conditions * conditions, List *rtables, Node *expr_no
 		else if (boolexpr->boolop == OR_EXPR)
 		{
 			/*
-			 * look at OR's as work-around for reported issue. 
-			 * NOTE: THIS IS NOT CORRECT, BUT JUST DONE FOR THE PROTOTYPE. 
+			 * look at OR's as work-around for reported issue.
+			 * NOTE: THIS IS NOT CORRECT, BUT JUST DONE FOR THE PROTOTYPE.
 			 * More rigorous
 			 * checking needs to be done. PGXCTODO: Add careful checking for
 			 * OR'ed conditions...
@@ -832,7 +832,7 @@ get_plan_nodes(Query_Plan * query_plan, Query * query, bool isRead)
 				exec_nodes = test_exec_nodes;
 			else
 			{
-				if ((exec_nodes && list_length(exec_nodes->nodelist) > 1) 
+				if ((exec_nodes && list_length(exec_nodes->nodelist) > 1)
 						|| (test_exec_nodes && list_length(test_exec_nodes->nodelist) > 1))
 					/* there should only be one */
 					exec_nodes = NULL;
@@ -872,7 +872,7 @@ get_plan_nodes(Query_Plan * query_plan, Query * query, bool isRead)
 }
 
 
-/* 
+/*
  * get_plan_nodes - determine the nodes to execute the plan on
  *
  * return NULL if it is not safe to be done in a single step.
@@ -900,6 +900,35 @@ get_plan_nodes_command(Query_Plan * query_plan, Query * query)
 		default:
 			return NULL;
 	}
+}
+
+
+/*
+ * get_plan_combine_type - determine combine type
+ *
+ * COMBINE_TYPE_SAME - for replicated updates
+ * COMBINE_TYPE_SUM - for hash and round robin updates
+ * COMBINE_TYPE_NONE - for operations where row_count is not applicable
+ *
+ * return NULL if it is not safe to be done in a single step.
+ */
+static CombineType
+get_plan_combine_type(Query *query, char baselocatortype)
+{
+
+	switch (query->commandType)
+	{
+		case CMD_INSERT:
+		case CMD_UPDATE:
+		case CMD_DELETE:
+			return baselocatortype == LOCATOR_TYPE_REPLICATED ?
+					COMBINE_TYPE_SAME : COMBINE_TYPE_SUM;
+
+		default:
+			return COMBINE_TYPE_NONE;
+	}
+	/* quiet compiler warning */
+	return COMBINE_TYPE_NONE;
 }
 
 
@@ -972,6 +1001,7 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 	query_step->sql_statement = (char *) palloc(strlen(sql_statement) + 1);
 	strcpy(query_step->sql_statement, sql_statement);
 	query_step->exec_nodes = NULL;
+	query_step->combine_type = COMBINE_TYPE_NONE;
 	query_step->simple_aggregates = NULL;
 
 	query_plan->query_step_list = lappend(NULL, query_step);
@@ -991,6 +1021,9 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 			query = (Query *) linitial(querytree_list);
 			query_step->exec_nodes =
 				get_plan_nodes_command(query_plan, query);
+			if (query_step->exec_nodes)
+				query_step->combine_type = get_plan_combine_type(
+						query, query_step->exec_nodes->baselocatortype);
 			query_step->simple_aggregates =
 				get_simple_aggregates(query, query_step->exec_nodes);
 
@@ -1065,7 +1098,7 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
 							 (errmsg("UNION, INTERSECT and EXCEPT are not yet supported"))));
 
-				if (StrictStatementChecking && query_step->exec_nodes 
+				if (StrictStatementChecking && query_step->exec_nodes
 						&& list_length(query_step->exec_nodes->nodelist) > 1)
 				{
 					/*
@@ -1264,7 +1297,7 @@ free_query_step(Query_Step * query_step)
 		return;
 
 	pfree(query_step->sql_statement);
-	if (query_step->exec_nodes) 
+	if (query_step->exec_nodes)
 	{
 		if (query_step->exec_nodes->nodelist)
 			list_free(query_step->exec_nodes->nodelist);
