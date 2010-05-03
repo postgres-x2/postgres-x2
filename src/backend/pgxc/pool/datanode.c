@@ -39,6 +39,13 @@
 
 #define NO_SOCKET -1
 
+/*
+ * Buffer size does not affect performance significantly, just do not allow
+ * connection buffer grows infinitely
+ */
+#define COPY_BUFFER_SIZE 8192
+#define PRIMARY_NODE_WRITEAHEAD 1024 * 1024
+
 static int	node_count = 0;
 static DataNodeHandle *handles = NULL;
 static bool autocommit = true;
@@ -653,6 +660,11 @@ handle_response(DataNodeHandle * conn, ResponseCombiner combiner)
 	{
 		/* try to read the message, return if not enough data */
 		conn->inCursor = conn->inStart;
+
+		/*
+		 * Make sure we receive a complete message, otherwise, return EOF, and 
+		 * we will be called again after more data has been read.
+		 */
 		if (conn->inEnd - conn->inCursor < 5)
 			return EOF;
 
@@ -673,6 +685,14 @@ handle_response(DataNodeHandle * conn, ResponseCombiner combiner)
 		/* TODO handle other possible responses */
 		switch (msg_type)
 		{
+			case 'c':			/* CopyToCommandComplete */
+				/* no need to parse, just move cursor */
+				conn->inCursor += msg_len;
+				conn->state = DN_CONNECTION_STATE_COMPLETED;
+				CombineResponse(combiner, msg_type,
+								conn->inBuffer + conn->inStart + 5,
+								conn->inCursor - conn->inStart - 5);
+				break;
 			case 'C':			/* CommandComplete */
 				/* no need to parse, just move cursor */
 				conn->inCursor += msg_len;
@@ -680,7 +700,6 @@ handle_response(DataNodeHandle * conn, ResponseCombiner combiner)
 				CombineResponse(combiner, msg_type,
 								conn->inBuffer + conn->inStart + 5,
 								conn->inCursor - conn->inStart - 5);
-
 				break;
 			case 'T':			/* RowDescription */
 			case 'D':			/* DataRow */
@@ -708,6 +727,16 @@ handle_response(DataNodeHandle * conn, ResponseCombiner combiner)
 				CombineResponse(combiner, msg_type,
 							conn->inBuffer + conn->inStart + 5,
 							conn->inCursor - conn->inStart - 5);
+				conn->inStart = conn->inCursor;
+				conn->state = DN_CONNECTION_STATE_COPY_OUT;
+				return 0;
+			case 'd': /* CopyOutDataRow */
+				/* No need to parse, just send a row back to client */
+				conn->inCursor += msg_len;
+				conn->state = DN_CONNECTION_STATE_COPY_OUT;
+				CombineResponse(combiner, msg_type,
+								conn->inBuffer + conn->inStart + 5,
+								conn->inCursor - conn->inStart - 5);
 				break;
 			case 'E':			/* ErrorResponse */
 				/* no need to parse, just move cursor */
@@ -1821,7 +1850,7 @@ DataNodeCleanAndRelease(int code, Datum arg)
  * The copy_connections array must have room for NumDataNodes items
  */
 DataNodeHandle**
-DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot)
+DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_from)
 {
 	int i, j;
 	int conn_count = list_length(nodelist) == 0 ? NumDataNodes : list_length(nodelist);
@@ -1883,8 +1912,12 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot)
 			}
 			if (!found)
 			{
-				/* Add to transaction wide-list */
-				write_node_list[write_node_count++] = connections[i];
+				/*
+				 * Add to transaction wide-list if COPY FROM
+				 * CopyOut (COPY TO) is not a write operation, no need to update
+				 */
+				if (is_from)
+					write_node_list[write_node_count++] = connections[i];
 				/* Add to current statement list */
 				newConnections[new_count++] = connections[i];
 			}
@@ -1967,13 +2000,6 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot)
 	pfree(connections);
 	return copy_connections;
 }
-
-/*
- * Buffer size does not affect performance significantly, just do not allow
- * connection buffer grows infinitely
- */
-#define COPY_BUFFER_SIZE 8192
-#define PRIMARY_NODE_WRITEAHEAD 1024 * 1024
 
 /*
  * Send a data row to the specified nodes
@@ -2126,6 +2152,58 @@ DataNodeCopyIn(char *data_row, int len, Exec_Nodes *exec_nodes, DataNodeHandle**
 			add_error_message(handle, "Invalid data node connection");
 			return EOF;
 		}
+	}
+
+	return 0;
+}
+
+int
+DataNodeCopyOut(Exec_Nodes *exec_nodes, DataNodeHandle** copy_connections, CommandDest dest, FILE* copy_file)
+{
+	ResponseCombiner combiner;
+	int conn_count = list_length(exec_nodes->nodelist) == 0 ? NumDataNodes : list_length(exec_nodes->nodelist);
+	int count = 0;
+	bool need_tran;
+	List *nodelist;
+	ListCell *nodeitem;
+
+	nodelist = exec_nodes->nodelist;
+	need_tran = !autocommit || conn_count > 1;
+
+	combiner = CreateResponseCombiner(conn_count, COMBINE_TYPE_SUM, dest);
+	/* If there is an existing file where to copy data, pass it to combiner */
+	if (copy_file)
+		combiner->copy_file = copy_file;
+
+	foreach(nodeitem, exec_nodes->nodelist)
+	{
+		DataNodeHandle *handle = copy_connections[count];
+		count++;
+
+		if (handle && handle->state == DN_CONNECTION_STATE_COPY_OUT)
+		{
+			int read_status = 0;
+			/* H message has been consumed, continue to manage data row messages */
+			while (read_status >= 0 && handle->state == DN_CONNECTION_STATE_COPY_OUT) /* continue to read as long as there is data */
+			{
+				if (handle_response(handle,combiner) == EOF)
+				{
+					/* read some extra-data */
+					read_status = data_node_read_data(handle);
+					if (read_status < 0)
+						return EOF;
+				}
+				/* There is no more data that can be read from connection */
+			}
+		}
+	}
+
+	if (!ValidateAndCloseCombiner(combiner))
+	{
+		if (autocommit && !PersistentConnections)
+					release_handles();
+		pfree(copy_connections);
+		return EOF;
 	}
 
 	return 0;

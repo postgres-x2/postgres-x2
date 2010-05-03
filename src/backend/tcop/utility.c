@@ -57,6 +57,10 @@
 #include "utils/guc.h"
 #include "utils/syscache.h"
 
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#endif
+
 
 /*
  * Verify user has ownership of specified relation, else ereport.
@@ -576,8 +580,12 @@ ProcessUtility(Node *parsetree,
 		case T_CopyStmt:
 			{
 				uint64		processed;
-
-				processed = DoCopy((CopyStmt *) parsetree, queryString);
+#ifdef PGXC
+				bool		done;
+				processed = DoCopy((CopyStmt *) parsetree, queryString, true, &done);
+#else
+				processed = DoCopy((CopyStmt *) parsetree, queryString):
+#endif
 				if (completionTag)
 					snprintf(completionTag, COMPLETION_TAG_BUFSIZE,
 							 "COPY " UINT64_FORMAT, processed);

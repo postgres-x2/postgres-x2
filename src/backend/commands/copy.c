@@ -179,6 +179,7 @@ typedef struct CopyStateData
 	/* Locator information */
 	RelationLocInfo *rel_loc;	/* the locator key */
 	int			hash_idx;		/* index of the hash column */
+	bool		on_coord;
 
 	DataNodeHandle **connections; /* Involved data node connections */
 #endif
@@ -830,7 +831,11 @@ CopyQuoteIdentifier(StringInfo query_buf, char *value)
  * the table or the specifically requested columns.
  */
 uint64
+#ifdef PGXC
+DoCopy(const CopyStmt *stmt, const char *queryString, bool exec_on_coord_portal, bool *executed)
+#else
 DoCopy(const CopyStmt *stmt, const char *queryString)
+#endif
 {
 	CopyState	cstate;
 	bool		is_from = stmt->is_from;
@@ -845,9 +850,22 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 	TupleDesc	tupDesc;
 	int			num_phys_attrs;
 	uint64		processed;
+#ifdef PGXC
+	Exec_Nodes *exec_nodes = NULL;
+#endif
 
 	/* Allocate workspace and zero all fields */
 	cstate = (CopyStateData *) palloc0(sizeof(CopyStateData));
+
+#ifdef PGXC
+	/*
+	 * Copy to/from is initialized as being launched on datanodes
+	 * This functionnality is particularly interesting to have a result for
+	 * tables who have no locator informations such as pg_catalog, pg_class,
+	 * and pg_attribute.
+	 */
+	cstate->on_coord = false;
+#endif
 
 	/* Extract options from the statement node tree */
 	foreach(option, stmt->options)
@@ -1134,8 +1152,42 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 		{
 			char *hash_att;
 
+			exec_nodes = (Exec_Nodes *) palloc0(sizeof(Exec_Nodes));
+
 			cstate->rel_loc = GetRelationLocInfo(RelationGetRelid(cstate->rel));
+			/*
+			 * In case there is no locator info available, copy to/from is launched in portal on coordinator.
+			 * This happens for pg_catalog tables (not user defined ones)
+			 * such as pg_catalog, pg_attribute, etc.
+			 * This part is launched before the portal is activated, so check a first time if there
+			 * some locator data for this relid and if no, return and launch the portal.
+			 */
+			if (!cstate->rel_loc && !exec_on_coord_portal)
+			{
+				/* close lock before leaving */
+				if (cstate->rel)
+					heap_close(cstate->rel, (is_from ? NoLock : AccessShareLock));
+				*executed = false;
+				return 0;
+			}
+
+			if (exec_on_coord_portal)
+				cstate->on_coord = true;
+
 			hash_att = GetRelationHashColumn(cstate->rel_loc);
+			if (!cstate->on_coord)
+			{
+				if (is_from || hash_att)
+					exec_nodes->nodelist = list_copy(cstate->rel_loc->nodeList);
+				else
+				{
+					/*
+					 * Pick up one node only
+					 * This case corresponds to a replicated table with COPY TO
+					 */
+					exec_nodes->nodelist = GetAnyDataNode();
+				}
+			}
 
 			cstate->hash_idx = -1;
 			if (hash_att)
@@ -1211,7 +1263,11 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 			if (cstate->csv_mode)
 				appendStringInfoString(&cstate->query_buf, " CSV");
 
-			if (cstate->header_line)
+			/*
+			 * Only rewrite the header part for COPY FROM,
+			 * doing that for COPY TO results in multiple headers in output
+			 */
+			if (cstate->header_line && stmt->is_from)
 				appendStringInfoString(&cstate->query_buf, " HEADER");
 
 			if (cstate->quote && cstate->quote[0] == '"')
@@ -1410,13 +1466,21 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 #ifdef PGXC
 	if (IS_PGXC_COORDINATOR)
 	{
-		cstate->connections = DataNodeCopyBegin(cstate->query_buf.data,
-				cstate->rel_loc->nodeList,
-				GetActiveSnapshot());
-		if (!cstate->connections)
-			ereport(ERROR,
-					(errcode(ERRCODE_CONNECTION_EXCEPTION),
-					 errmsg("Failed to initialize data nodes for COPY")));
+		/*
+		 * In the case of CopyOut, it is just necessary to pick up one node randomly.
+		 * This is done when rel_loc is found.
+		 */
+		if (!cstate->on_coord)
+		{
+			cstate->connections = DataNodeCopyBegin(cstate->query_buf.data,
+					exec_nodes->nodelist,
+					GetActiveSnapshot(),
+					is_from);
+			if (!cstate->connections)
+				ereport(ERROR,
+						(errcode(ERRCODE_CONNECTION_EXCEPTION),
+						 errmsg("Failed to initialize data nodes for COPY")));
+		}
 	}
 	PG_TRY();
 	{
@@ -1431,7 +1495,7 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 	}
 	PG_CATCH();
 	{
-		if (IS_PGXC_COORDINATOR)
+		if (IS_PGXC_COORDINATOR && is_from && !cstate->on_coord)
 		{
 			DataNodeCopyFinish(
 					cstate->connections,
@@ -1445,7 +1509,7 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 		PG_RE_THROW();
 	}
 	PG_END_TRY();
-	if (IS_PGXC_COORDINATOR)
+	if (IS_PGXC_COORDINATOR && is_from && !cstate->on_coord)
 	{
 		if (cstate->rel_loc->locatorType == LOCATOR_TYPE_REPLICATED)
 			cstate->processed = DataNodeCopyFinish(
@@ -1488,6 +1552,9 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 	pfree(cstate->raw_buf);
 	pfree(cstate);
 
+#ifdef PGXC
+	*executed = true;
+#endif
 	return processed;
 }
 
@@ -1697,6 +1764,18 @@ CopyTo(CopyState cstate)
 		}
 	}
 
+#ifdef PGXC
+    if (IS_PGXC_COORDINATOR && !cstate->on_coord)
+	{
+		DataNodeCopyOut(GetRelationNodes(cstate->rel_loc, NULL, true),
+						cstate->connections,
+						whereToSendOutput,
+						cstate->copy_file);
+	}
+    else
+	{
+#endif
+
 	if (cstate->rel)
 	{
 		Datum	   *values;
@@ -1727,6 +1806,10 @@ CopyTo(CopyState cstate)
 		/* run the plan --- the dest receiver will send tuples */
 		ExecutorRun(cstate->queryDesc, ForwardScanDirection, 0L);
 	}
+
+#ifdef PGXC
+	}
+#endif
 
 	if (cstate->binary)
 	{
@@ -2392,7 +2475,7 @@ CopyFrom(CopyState cstate)
 		}
 
 #ifdef PGXC
-		if (IS_PGXC_COORDINATOR)
+		if (IS_PGXC_COORDINATOR && !cstate->on_coord)
 		{
 			Datum 	   *hash_value = NULL;
 

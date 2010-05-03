@@ -73,7 +73,7 @@ extern int	GetRoundRobinNode(Oid relid);
 
 extern bool IsHashDistributable(Oid col_type);
 extern List *GetAllNodes(void);
-extern int	GetAnyDataNode(void);
+extern List *GetAnyDataNode(void);
 extern void RelationBuildLocator(Relation rel);
 extern void FreeRelationLocInfo(RelationLocInfo * relationLocInfo);
 

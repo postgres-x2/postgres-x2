@@ -82,14 +82,16 @@ init_mapping_table(int nodeCount, int mapTable[])
  * Pick any data node, but try a preferred node
  *
  */
-int
+List *
 GetAnyDataNode(void)
 {
+	List		*destList = NULL;
+
 	/* try and pick from the preferred list */
 	if (globalPreferredNodes != NULL)
-		return linitial_int(globalPreferredNodes);
+		return destList = lappend_int(NULL, linitial_int(globalPreferredNodes));
 
-	return 1;
+	return destList = lappend_int(NULL, 1);
 }
 
 
@@ -311,7 +313,8 @@ GetRelationNodes(RelationLocInfo * rel_loc_info, long *partValue, int isRead)
 					exec_nodes->primarynodelist = lappend_int(NULL, primary_data_node);
 					list_delete_int(exec_nodes->nodelist, primary_data_node);
 				}
-			} else
+			}
+			else
 			{
 				if (globalPreferredNodes != NULL)
 				{

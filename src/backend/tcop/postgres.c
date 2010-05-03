@@ -982,14 +982,27 @@ exec_simple_query(const char *query_string)
 			else if (IsA(parsetree, CopyStmt))
 			{
 				CopyStmt *copy = (CopyStmt *) parsetree;
+				bool	done;
 				/* Snapshot is needed for the Copy */
 				if (!snapshot_set)
 				{
 					PushActiveSnapshot(GetTransactionSnapshot());
 					snapshot_set = true;
 				}
-				DoCopy(copy, query_string);
-				exec_on_coord = false;
+				/*
+				 * A check on locator is made in DoCopy to determine if the copy can be launched on
+				 * Datanode or on Coordinator.
+				 * If a table has no locator data, then done is set to false and copy is launched
+				 * on Coordinator instead (e.g., using pg_catalog tables).
+				 * If a table has some locator data (user tables), then copy was launched normally 
+				 * in Datanodes
+				 */
+				DoCopy(copy, query_string, false, &done);
+
+				if (!done)
+					exec_on_coord = true;
+				else
+					exec_on_coord = false;
 			}
 			else
 			{

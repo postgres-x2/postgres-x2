@@ -52,6 +52,7 @@ CreateResponseCombiner(int node_count, CombineType combine_type,
 	combiner->copy_out_count = 0;
 	combiner->inErrorState = false;
 	combiner->simple_aggregates = NULL;
+	combiner->copy_file = NULL;
 
 	return combiner;
 }
@@ -168,6 +169,17 @@ CombineResponse(ResponseCombiner combiner, char msg_type, char *msg_body, size_t
 
 	switch (msg_type)
 	{
+		case 'c':				/* CopyOutCommandComplete */
+			if (combiner->request_type == REQUEST_TYPE_NOT_DEFINED)
+				combiner->request_type = REQUEST_TYPE_COPY_OUT;
+			if (combiner->request_type != REQUEST_TYPE_COPY_OUT)
+				/* Inconsistent responses */
+				ereport(ERROR,
+						(errcode(ERRCODE_DATA_CORRUPTED),
+						 errmsg("Unexpected response from the data nodes")));
+			/* Just do nothing, close message is managed by the coordinator */
+			combiner->copy_out_count++;
+			break;
 		case 'C':				/* CommandComplete */
 			/*
 			 * If we did not receive description we are having rowcount or OK
@@ -270,12 +282,50 @@ CombineResponse(ResponseCombiner combiner, char msg_type, char *msg_body, size_t
 					(errcode(ERRCODE_DATA_CORRUPTED),
 					 errmsg("Unexpected response from the data nodes")));
 			}
-			/* Proxy first */
-			if (combiner->copy_out_count++ == 0)
+			/*
+			 * The normal PG code will output an H message when it runs in the
+			 * coordinator, so do not proxy message here, just count it.
+			 */
+			combiner->copy_out_count++;
+			break;
+		case 'd':			/* CopyOutDataRow */
+			if (combiner->request_type == REQUEST_TYPE_NOT_DEFINED)
+				combiner->request_type = REQUEST_TYPE_COPY_OUT;
+
+			/* Inconsistent responses */
+			if (combiner->request_type != REQUEST_TYPE_COPY_OUT)
+				ereport(ERROR,
+						(errcode(ERRCODE_DATA_CORRUPTED),
+						 errmsg("Unexpected response from the data nodes")));
+
+			/* If there is a copy file, data has to be sent to the local file */
+			if (combiner->copy_file)
 			{
-				if (combiner->dest == DestRemote
-					|| combiner->dest == DestRemoteExecute)
-					pq_putmessage(msg_type, msg_body, len);
+				/* write data to the copy file */
+				char *data_row;
+				data_row = (char *) palloc0(len);
+				memcpy(data_row, msg_body, len);
+
+				fwrite(data_row, 1, len, combiner->copy_file);
+				break;
+			}
+			/*
+			 * In this case data is sent back to the client
+			 */
+			if (combiner->dest == DestRemote
+				|| combiner->dest == DestRemoteExecute)
+			{
+				StringInfo  data_buffer;
+
+				data_buffer = makeStringInfo();
+
+				pq_sendtext(data_buffer, msg_body, len);
+				pq_putmessage(msg_type,
+							  data_buffer->data,
+							  data_buffer->len);
+
+				pfree(data_buffer->data);
+				pfree(data_buffer);
 			}
 			break;
 		case 'D':				/* DataRow */
@@ -423,6 +473,7 @@ ValidateAndResetCombiner(ResponseCombiner combiner)
 	combiner->copy_out_count = 0;
 	combiner->inErrorState = false;
 	combiner->simple_aggregates = NULL;
+	combiner->copy_file = NULL;
 
 	return valid;
 }

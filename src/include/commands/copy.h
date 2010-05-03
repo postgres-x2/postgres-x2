@@ -17,8 +17,11 @@
 #include "nodes/parsenodes.h"
 #include "tcop/dest.h"
 
-
+#ifdef PGXC
+extern uint64 DoCopy(const CopyStmt *stmt, const char *queryString, bool exec_on_coord_portal, bool *executed);
+#else
 extern uint64 DoCopy(const CopyStmt *stmt, const char *queryString);
+#endif
 
 extern DestReceiver *CreateCopyDestReceiver(void);
 

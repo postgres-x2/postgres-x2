@@ -50,6 +50,7 @@ typedef struct
 	uint64		copy_out_count;
 	bool		inErrorState;
 	List	   *simple_aggregates;
+	FILE	   *copy_file;      /* used if copy_dest == COPY_FILE */
 }	ResponseCombinerData;
 
 
