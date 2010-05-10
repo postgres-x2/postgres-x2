@@ -97,6 +97,9 @@ int			fillfactor = 100;
 
 FILE	   *LOGFILE = NULL;
 
+#ifdef PGXC
+bool		use_branch = true;	/* use branch id in DDL and DML */
+#endif
 bool		use_log;			/* log transaction latencies to a file */
 
 int			remains;			/* number of remaining clients */
@@ -189,6 +192,26 @@ static char *tpc_b = {
 	"END;\n"
 };
 
+#ifdef PGXC
+static char *tpc_b_bid = {
+	"\\set nbranches :scale\n"
+	"\\set ntellers 10 * :scale\n"
+	"\\set naccounts 100000 * :scale\n"
+	"\\setrandom aid 1 :naccounts\n"
+	"\\setrandom bid 1 :nbranches\n"
+	"\\setrandom tid 1 :ntellers\n"
+	"\\setrandom delta -5000 5000\n"
+	"BEGIN;\n"
+	"UPDATE pgbench_accounts SET abalance = abalance + :delta WHERE aid = :aid AND bid = :bid;\n"
+	"SELECT abalance FROM pgbench_accounts WHERE aid = :aid AND bid = :bid\n"
+	"UPDATE pgbench_tellers SET tbalance = tbalance + :delta WHERE tid = :tid AND bid = :bid;\n"
+	"UPDATE pgbench_branches SET bbalance = bbalance + :delta WHERE bid = :bid;\n"
+	"INSERT INTO pgbench_history (tid, bid, aid, delta, mtime) VALUES (:tid, :bid, :aid, :delta, CURRENT_TIMESTAMP);\n"
+	"END;\n"
+};
+#endif
+
+
 /* -N case */
 static char *simple_update = {
 	"\\set nbranches :scale\n"
@@ -204,6 +227,23 @@ static char *simple_update = {
 	"INSERT INTO pgbench_history (tid, bid, aid, delta, mtime) VALUES (:tid, :bid, :aid, :delta, CURRENT_TIMESTAMP);\n"
 	"END;\n"
 };
+
+#ifdef PGXC
+static char *simple_update_bid = {
+	"\\set nbranches :scale\n"
+	"\\set ntellers 10 * :scale\n"
+	"\\set naccounts 100000 * :scale\n"
+	"\\setrandom aid 1 :naccounts\n"
+	"\\setrandom bid 1 :nbranches\n"
+	"\\setrandom tid 1 :ntellers\n"
+	"\\setrandom delta -5000 5000\n"
+	"BEGIN;\n"
+	"UPDATE pgbench_accounts SET abalance = abalance + :delta WHERE aid = :aid AND bid = :bid;\n"
+	"SELECT abalance FROM pgbench_accounts WHERE aid = :aid AND bid = :bid;\n"
+	"INSERT INTO pgbench_history (tid, bid, aid, delta, mtime) VALUES (:tid, :bid, :aid, :delta, CURRENT_TIMESTAMP);\n"
+	"END;\n"
+};
+#endif
 
 /* -S case */
 static char *select_only = {
@@ -260,6 +300,9 @@ usage(const char *progname)
 		   "\nInitialization options:\n"
 		   "  -i           invokes initialization mode\n"
 		   "  -F NUM       fill factor\n"
+#ifdef PGXC
+		   "  -k           distribute by primary key (default: branch id - bid)\n"
+#endif
 		   "  -s NUM       scaling factor\n"
 		   "\nBenchmarking options:\n"
 		"  -c NUM       number of concurrent database clients (default: 1)\n"
@@ -267,6 +310,9 @@ usage(const char *progname)
 		   "  -D VARNAME=VALUE\n"
 		   "               define variable for use by custom script\n"
 		   "  -f FILENAME  read transaction script from FILENAME\n"
+#ifdef PGXC
+		   "  -k           query with key only, no branch id (bid)\n"
+#endif
 		   "  -l           write transaction times to log file\n"
 		   "  -M {simple|extended|prepared}\n"
 		   "               protocol for submitting queries to server (default: simple)\n"
@@ -1017,6 +1063,16 @@ init(void)
 	 */
 	static char *DDLs[] = {
 		"drop table if exists pgbench_branches",
+#ifdef PGXC
+		/* use primary key as distribution column */
+		"create table pgbench_branches(bid int not null,bbalance int,filler char(88)) with (fillfactor=%d) distribute by (bid)",
+		"drop table if exists pgbench_tellers",
+		"create table pgbench_tellers(tid int not null,bid int,tbalance int,filler char(84)) with (fillfactor=%d) distribute by (tid)",
+		"drop table if exists pgbench_accounts",
+		"create table pgbench_accounts(aid int not null,bid int,abalance int,filler char(84)) with (fillfactor=%d) distribute by (aid)",
+		"drop table if exists pgbench_history",
+		"create table pgbench_history(tid int,bid int,aid int,delta int,mtime timestamp,filler char(22)) distribute by (bid)"
+#else
 		"create table pgbench_branches(bid int not null,bbalance int,filler char(88)) with (fillfactor=%d)",
 		"drop table if exists pgbench_tellers",
 		"create table pgbench_tellers(tid int not null,bid int,tbalance int,filler char(84)) with (fillfactor=%d)",
@@ -1024,11 +1080,35 @@ init(void)
 		"create table pgbench_accounts(aid int not null,bid int,abalance int,filler char(84)) with (fillfactor=%d)",
 		"drop table if exists pgbench_history",
 		"create table pgbench_history(tid int,bid int,aid int,delta int,mtime timestamp,filler char(22))"
+#endif
 	};
+
+#ifdef PGXC
+	/* a version for using bid as distribution column */
+	static char *DDLs_bid[] = {
+		"drop table if exists pgbench_branches",
+		"create table pgbench_branches(bid int not null,bbalance int,filler char(88)) with (fillfactor=%d) distribute by (bid)",
+		"drop table if exists pgbench_tellers",
+		"create table pgbench_tellers(tid int not null,bid int,tbalance int,filler char(84)) with (fillfactor=%d) distribute by (bid)",
+		"drop table if exists pgbench_accounts",
+		"create table pgbench_accounts(aid int not null,bid int,abalance int,filler char(84)) with (fillfactor=%d) distribute by (bid)",
+		"drop table if exists pgbench_history",
+		"create table pgbench_history(tid int,bid int,aid int,delta int,mtime timestamp,filler char(22)) distribute by (bid)"
+	};
+#endif
+
 	static char *DDLAFTERs[] = {
 		"alter table pgbench_branches add primary key (bid)",
 		"alter table pgbench_tellers add primary key (tid)",
 		"alter table pgbench_accounts add primary key (aid)"
+	};
+
+#ifdef PGXC
+	static char *DDLAFTERs_bid[] = {
+		"alter table pgbench_branches add primary key (bid)",
+		"create index tellers_idx on pgbench_tellers (tid)",
+		"create index accounts_idx on pgbench_accounts (aid)",
+#endif
 	};
 
 	PGconn	   *con;
@@ -1039,6 +1119,31 @@ init(void)
 	if ((con = doConnect()) == NULL)
 		exit(1);
 
+#ifdef PGXC
+	if (use_branch)
+	{
+		for (i = 0; i < lengthof(DDLs_bid); i++)
+		{
+			/*
+			 * set fillfactor for branches, tellers and accounts tables
+			 */
+			if ((strstr(DDLs_bid[i], "create table pgbench_branches") == DDLs_bid[i]) ||
+				(strstr(DDLs_bid[i], "create table pgbench_tellers") == DDLs_bid[i]) ||
+				(strstr(DDLs_bid[i], "create table pgbench_accounts") == DDLs_bid[i]))
+			{
+				char		ddl_stmt[128];
+	
+				snprintf(ddl_stmt, 128, DDLs_bid[i], fillfactor);
+				executeStatement(con, ddl_stmt);
+				continue;
+			}
+			else
+				executeStatement(con, DDLs_bid[i]);
+		}
+	} 
+	else
+	{
+#endif
 	for (i = 0; i < lengthof(DDLs); i++)
 	{
 		/*
@@ -1057,6 +1162,9 @@ init(void)
 		else
 			executeStatement(con, DDLs[i]);
 	}
+#ifdef PGXC
+	}
+#endif
 
 	executeStatement(con, "begin");
 
@@ -1120,9 +1228,23 @@ init(void)
 	/*
 	 * create indexes
 	 */
+#ifdef PGXC
+	if (use_branch)
+	{
+		fprintf(stderr, "set primary keys and indexes...\n");
+		for (i = 0; i < lengthof(DDLAFTERs_bid); i++)
+			executeStatement(con, DDLAFTERs_bid[i]);
+	}
+	else
+	{
+#endif
 	fprintf(stderr, "set primary key...\n");
 	for (i = 0; i < lengthof(DDLAFTERs); i++)
 		executeStatement(con, DDLAFTERs[i]);
+#ifdef PGXC
+	}
+#endif
+	
 
 	/* vacuum */
 	fprintf(stderr, "vacuum...");
@@ -1576,13 +1698,22 @@ main(int argc, char **argv)
 
 	memset(state, 0, sizeof(*state));
 
+#ifdef PGXC
+	while ((c = getopt(argc, argv, "ih:knvp:dSNc:Cs:t:T:U:lf:D:F:M:")) != -1)
+#else
 	while ((c = getopt(argc, argv, "ih:nvp:dSNc:Cs:t:T:U:lf:D:F:M:")) != -1)
+#endif
 	{
 		switch (c)
 		{
 			case 'i':
 				is_init_mode++;
 				break;
+#ifdef PGXC
+			case 'k':
+				use_branch = false;
+				break;
+#endif
 			case 'h':
 				pghost = optarg;
 				break;
@@ -1814,6 +1945,8 @@ main(int argc, char **argv)
 		exit(1);
 	}
 
+#ifndef PGXC
+	/* temporarily use the scale passed in until we support aggregates properly */
 	if (ttype != 3)
 	{
 		/*
@@ -1840,6 +1973,7 @@ main(int argc, char **argv)
 			"Scale option ignored, using pgbench_branches table count = %d\n",
 					scale);
 	}
+#endif
 
 	/*
 	 * :scale variables normally get -s or database scale, but don't override
@@ -1908,6 +2042,11 @@ main(int argc, char **argv)
 	switch (ttype)
 	{
 		case 0:
+#ifdef PGXC
+			if (use_branch)
+				sql_files[0] = process_builtin(tpc_b_bid);
+			else
+#endif
 			sql_files[0] = process_builtin(tpc_b);
 			num_files = 1;
 			break;
@@ -1918,6 +2057,11 @@ main(int argc, char **argv)
 			break;
 
 		case 2:
+#ifdef PGXC
+			if (use_branch)
+				sql_files[0] = process_builtin(simple_update_bid);
+			else
+#endif
 			sql_files[0] = process_builtin(simple_update);
 			num_files = 1;
 			break;
