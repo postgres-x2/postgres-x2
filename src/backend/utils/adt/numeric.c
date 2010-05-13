@@ -2425,7 +2425,6 @@ int8_avg_accum(PG_FUNCTION_ARGS)
 	PG_RETURN_ARRAYTYPE_P(do_numeric_avg_accum(transarray, newval));
 }
 
-
 Datum
 numeric_avg(PG_FUNCTION_ARGS)
 {
@@ -5850,3 +5849,119 @@ strip_var(NumericVar *var)
 	var->digits = digits;
 	var->ndigits = ndigits;
 }
+
+#ifdef PGXC
+Datum
+numeric_collect(PG_FUNCTION_ARGS)
+{
+	ArrayType  *collectarray = PG_GETARG_ARRAYTYPE_P(0);
+	ArrayType  *transarray = PG_GETARG_ARRAYTYPE_P(1);
+	Datum	   *collectdatums;
+	Datum	   *transdatums;
+	int			ndatums;
+	Datum		N,
+				sumX,
+				sumX2;
+
+	/* We assume the input is array of numeric */
+	deconstruct_array(collectarray,
+					  NUMERICOID, -1, false, 'i',
+					  &collectdatums, NULL, &ndatums);
+	if (ndatums != 3)
+		elog(ERROR, "expected 3-element numeric array");
+	N = collectdatums[0];
+	sumX = collectdatums[1];
+	sumX2 = collectdatums[2];
+
+	/* We assume the input is array of numeric */
+	deconstruct_array(transarray,
+					  NUMERICOID, -1, false, 'i',
+					  &transdatums, NULL, &ndatums);
+	if (ndatums != 3)
+		elog(ERROR, "expected 3-element numeric array");
+
+	N = DirectFunctionCall2(numeric_add, N, transdatums[0]);
+	sumX = DirectFunctionCall2(numeric_add, sumX, transdatums[1]);
+	sumX2 = DirectFunctionCall2(numeric_add, sumX2, transdatums[2]);
+
+	collectdatums[0] = N;
+	collectdatums[1] = sumX;
+	collectdatums[2] = sumX2;
+
+	PG_RETURN_ARRAYTYPE_P(construct_array(collectdatums, 3,
+							 NUMERICOID, -1, false, 'i'));
+}
+
+Datum
+numeric_avg_collect(PG_FUNCTION_ARGS)
+{
+	ArrayType  *collectarray = PG_GETARG_ARRAYTYPE_P(0);
+	ArrayType  *transarray = PG_GETARG_ARRAYTYPE_P(1);
+	Datum	   *collectdatums;
+	Datum	   *transdatums;
+	int			ndatums;
+	Datum		N,
+				sumX;
+
+	/* We assume the input is array of numeric */
+	deconstruct_array(collectarray,
+					  NUMERICOID, -1, false, 'i',
+					  &collectdatums, NULL, &ndatums);
+	if (ndatums != 2)
+		elog(ERROR, "expected 2-element numeric array");
+	N = collectdatums[0];
+	sumX = collectdatums[1];
+
+	/* We assume the input is array of numeric */
+	deconstruct_array(transarray,
+					  NUMERICOID, -1, false, 'i',
+					  &transdatums, NULL, &ndatums);
+	if (ndatums != 2)
+		elog(ERROR, "expected 2-element numeric array");
+
+	N = DirectFunctionCall2(numeric_add, N, transdatums[0]);
+	sumX = DirectFunctionCall2(numeric_add, sumX, transdatums[1]);
+
+	collectdatums[0] = N;
+	collectdatums[1] = sumX;
+
+	PG_RETURN_ARRAYTYPE_P(construct_array(collectdatums, 2,
+							 NUMERICOID, -1, false, 'i'));
+}
+
+Datum
+int8_avg_collect(PG_FUNCTION_ARGS)
+{
+	ArrayType  *collectarray;
+	ArrayType  *transarray = PG_GETARG_ARRAYTYPE_P(1);
+	Int8TransTypeData *collectdata;
+	Int8TransTypeData *transdata;
+
+	/*
+	 * If we're invoked by nodeAgg, we can cheat and modify our first
+	 * parameter in-place to reduce palloc overhead. Otherwise we need to make
+	 * a copy of it before scribbling on it.
+	 */
+	if (fcinfo->context &&
+		(IsA(fcinfo->context, AggState) ||
+		 IsA(fcinfo->context, WindowAggState)))
+		collectarray = PG_GETARG_ARRAYTYPE_P(0);
+	else
+		collectarray = PG_GETARG_ARRAYTYPE_P_COPY(0);
+
+	if (ARR_HASNULL(collectarray) ||
+		ARR_SIZE(collectarray) != ARR_OVERHEAD_NONULLS(1) + sizeof(Int8TransTypeData))
+		elog(ERROR, "expected 2-element int8 array");
+	collectdata = (Int8TransTypeData *) ARR_DATA_PTR(collectarray);
+
+	if (ARR_HASNULL(transarray) ||
+		ARR_SIZE(transarray) != ARR_OVERHEAD_NONULLS(1) + sizeof(Int8TransTypeData))
+		elog(ERROR, "expected 2-element int8 array");
+	transdata = (Int8TransTypeData *) ARR_DATA_PTR(transarray);
+
+	collectdata->count += transdata->count;
+	collectdata->sum += transdata->sum;
+
+	PG_RETURN_ARRAYTYPE_P(collectarray);
+}
+#endif

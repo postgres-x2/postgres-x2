@@ -21,6 +21,7 @@
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
 #include "utils/builtins.h"
+#include "utils/datum.h"
 
 
 /*
@@ -29,7 +30,7 @@
  */
 ResponseCombiner
 CreateResponseCombiner(int node_count, CombineType combine_type,
-					   CommandDest dest)
+                       CommandDest dest)
 {
 	ResponseCombiner combiner;
 
@@ -51,6 +52,7 @@ CreateResponseCombiner(int node_count, CombineType combine_type,
 	combiner->copy_in_count = 0;
 	combiner->copy_out_count = 0;
 	combiner->inErrorState = false;
+	combiner->initAggregates = true;
 	combiner->simple_aggregates = NULL;
 	combiner->copy_file = NULL;
 
@@ -85,74 +87,160 @@ parse_row_count(const char *message, size_t len, int *rowcount)
 }
 
 /*
- * Extract the aggregate element result
- * returns a boolean indicating whether or not it was a short message
- */
-static unsigned long
-parse_aggregate_value(SimpleAgg *simple_agg, char *msg_body, size_t len)
-{
-	char	   *valstr;
-
-	Assert(len >= 7);
-
-	/* PGXCTODO - handle pos (position) */
-	/* PGXCTODO - handle other types like TEXT */
-
-	/* skip first 2 bytes */
-	if (simple_agg->data_len == 0)
-		memcpy(&(simple_agg->data_len), &(msg_body[2]), 4);
-
-	valstr = (char *) palloc(simple_agg->data_len + 1);
-	strncpy(valstr, &(msg_body[6]), simple_agg->data_len);
-	valstr[simple_agg->data_len - 1] = '\0';
-
-	return atol(valstr);
-}
-
-
-/*
- * Process a result from a node for the aggregate function
- * returns a boolean indicating whether or not it was a short message
+ * Extract a transition value from data row. Invoke the Input Function
+ * associated with the transition data type to represent value as a Datum.
+ * Output parameters value and val_null, receive extracted value and indicate
+ * whether it is null.
  */
 static void
-process_aggregate_element(List *simple_aggregates, char *msg_body, size_t len)
+parse_aggregate_value(SimpleAgg *simple_agg, char *col_data, size_t datalen, Datum *value, bool *val_null)
 {
-	ListCell   *lc;
-
-	foreach(lc, simple_aggregates)
+	/* Check NULL */
+	if (datalen == -1)
 	{
-		unsigned long col_value;
-		SimpleAgg  *simple_agg = (SimpleAgg *) lfirst(lc);
-
-		/* PGXCTODO may need to support numeric, too. */
-		col_value = parse_aggregate_value(simple_agg, msg_body, len);
-
-		switch (simple_agg->agg_type)
-		{
-			case AGG_TYPE_MAX:
-				/* If it is the first one, take it */
-				if (simple_agg->response_count == 0)
-				{
-					/* PGXCTODO - type checking */
-					simple_agg->ulong_value = col_value;
-				}
-				else
-				{
-					if (col_value > simple_agg->ulong_value)
-						simple_agg->ulong_value = col_value;
-				}
-				break;
-
-			default:
-				ereport(ERROR,
-						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						 errmsg("Unknown aggregate type: %d",
-								simple_agg->agg_type)));
-		}
-
+		*value = (Datum) 0;
+		*val_null = true;
+	}
+	else
+	{
+		resetStringInfo(&simple_agg->valuebuf);
+		appendBinaryStringInfo(&simple_agg->valuebuf, col_data, datalen);
+		*value = InputFunctionCall(&simple_agg->arginputfn, simple_agg->valuebuf.data, simple_agg->argioparam, -1);
+		*val_null = false;
 	}
 }
 
+/*
+ * Initialize the collection value, when agregation is first set up, or for a
+ * new group (grouping support is not implemented yet)
+ */
+static void
+initialize_collect_aggregates(SimpleAgg  *simple_agg)
+{
+	if (simple_agg->initValueIsNull)
+		simple_agg->collectValue = simple_agg->initValue;
+	else
+		simple_agg->collectValue = datumCopy(simple_agg->initValue,
+		                                     simple_agg->transtypeByVal,
+		                                     simple_agg->transtypeLen);
+	simple_agg->noCollectValue = simple_agg->initValueIsNull;
+	simple_agg->collectValueNull = simple_agg->initValueIsNull;
+}
+
+/*
+ * Finalize the aggregate after current group or entire relation is processed
+ * (grouping support is not implemented yet)
+ */
+static void
+finalize_collect_aggregates(SimpleAgg  *simple_agg, Datum *resultVal, bool *resultIsNull)
+{
+	/*
+	 * Apply the agg's finalfn if one is provided, else return collectValue.
+	 */
+	if (OidIsValid(simple_agg->finalfn_oid))
+	{
+		FunctionCallInfoData fcinfo;
+
+		InitFunctionCallInfoData(fcinfo, &(simple_agg->finalfn), 1,
+		                         (void *) simple_agg, NULL);
+		fcinfo.arg[0] = simple_agg->collectValue;
+		fcinfo.argnull[0] = simple_agg->collectValueNull;
+		if (fcinfo.flinfo->fn_strict && simple_agg->collectValueNull)
+		{
+			/* don't call a strict function with NULL inputs */
+			*resultVal = (Datum) 0;
+			*resultIsNull = true;
+		}
+		else
+		{
+			*resultVal = FunctionCallInvoke(&fcinfo);
+			*resultIsNull = fcinfo.isnull;
+		}
+	}
+	else
+	{
+		*resultVal = simple_agg->collectValue;
+		*resultIsNull = simple_agg->collectValueNull;
+	}
+}
+
+/*
+ * Given new input value(s), advance the transition function of an aggregate.
+ *
+ * The new values (and null flags) have been preloaded into argument positions
+ * 1 and up in fcinfo, so that we needn't copy them again to pass to the
+ * collection function.  No other fields of fcinfo are assumed valid.
+ *
+ * It doesn't matter which memory context this is called in.
+ */
+static void
+advance_collect_function(SimpleAgg  *simple_agg, FunctionCallInfoData *fcinfo)
+{
+	Datum		newVal;
+
+	if (simple_agg->transfn.fn_strict)
+	{
+		/*
+		 * For a strict transfn, nothing happens when there's a NULL input; we
+		 * just keep the prior transValue.
+		 */
+		if (fcinfo->argnull[1])
+			return;
+		if (simple_agg->noCollectValue)
+		{
+			/*
+			 * result has not been initialized
+			 * We must copy the datum into result if it is pass-by-ref. We
+			 * do not need to pfree the old result, since it's NULL.
+			 */
+			simple_agg->collectValue = datumCopy(fcinfo->arg[1],
+			                                     simple_agg->transtypeByVal,
+			                                     simple_agg->transtypeLen);
+			simple_agg->collectValueNull = false;
+			simple_agg->noCollectValue = false;
+			return;
+		}
+		if (simple_agg->collectValueNull)
+		{
+			/*
+			 * Don't call a strict function with NULL inputs.  Note it is
+			 * possible to get here despite the above tests, if the transfn is
+			 * strict *and* returned a NULL on a prior cycle. If that happens
+			 * we will propagate the NULL all the way to the end.
+			 */
+			return;
+		}
+	}
+
+	/*
+	 * OK to call the transition function
+	 */
+	InitFunctionCallInfoData(*fcinfo, &(simple_agg->transfn), 2, (void *) simple_agg, NULL);
+	fcinfo->arg[0] = simple_agg->collectValue;
+	fcinfo->argnull[0] = simple_agg->collectValueNull;
+	newVal = FunctionCallInvoke(fcinfo);
+
+	/*
+	 * If pass-by-ref datatype, must copy the new value into aggcontext and
+	 * pfree the prior transValue.	But if transfn returned a pointer to its
+	 * first input, we don't need to do anything.
+	 */
+	if (!simple_agg->transtypeByVal &&
+	        DatumGetPointer(newVal) != DatumGetPointer(simple_agg->collectValue))
+	{
+		if (!fcinfo->isnull)
+		{
+			newVal = datumCopy(newVal,
+			                   simple_agg->transtypeByVal,
+			                   simple_agg->transtypeLen);
+		}
+		if (!simple_agg->collectValueNull)
+			pfree(DatumGetPointer(simple_agg->collectValue));
+	}
+
+	simple_agg->collectValue = newVal;
+	simple_agg->collectValueNull = fcinfo->isnull;
+}
 
 /*
  * Handle response message and update combiner's state.
@@ -202,13 +290,14 @@ CombineResponse(ResponseCombiner combiner, char msg_type, char *msg_body, size_t
 							if (rowcount != combiner->row_count)
 								/* There is a consistency issue in the database with the replicated table */
 								ereport(ERROR,
-									(errcode(ERRCODE_DATA_CORRUPTED),
-									 errmsg("Write to replicated table returned different results from the data nodes")));
+								        (errcode(ERRCODE_DATA_CORRUPTED),
+								         errmsg("Write to replicated table returned different results from the data nodes")));
 						}
 						else
 							/* first result */
 							combiner->row_count  = rowcount;
-					} else
+					}
+					else
 						combiner->row_count += rowcount;
 				}
 				else
@@ -217,8 +306,47 @@ CombineResponse(ResponseCombiner combiner, char msg_type, char *msg_body, size_t
 			if (++combiner->command_complete_count == combiner->node_count)
 			{
 
+				if (combiner->simple_aggregates
+						/*
+						 * Aggregates has not been initialized - that means
+						 * no rows received from data nodes, nothing to send
+						 * It is possible if HAVING clause is present
+						 */
+						&& !combiner->initAggregates)
+				{
+					/* Build up and send a datarow with aggregates */
+					StringInfo	dataRowBuffer = makeStringInfo();
+					ListCell   *lc;
+
+					/* Number of fields */
+					pq_sendint(dataRowBuffer, list_length(combiner->simple_aggregates), 2);
+
+					foreach (lc, combiner->simple_aggregates)
+					{
+						SimpleAgg  *simple_agg = (SimpleAgg *) lfirst(lc);
+						Datum 		resultVal;
+						bool		resultIsNull;
+
+						finalize_collect_aggregates(simple_agg, &resultVal, &resultIsNull);
+						/* Aggregation result */
+						if (resultIsNull)
+						{
+							pq_sendint(dataRowBuffer, -1, 4);
+						}
+						else
+						{
+							char   *text = OutputFunctionCall(&simple_agg->resoutputfn, resultVal);
+							size_t 	len = strlen(text);
+							pq_sendint(dataRowBuffer, len, 4);
+							pq_sendtext(dataRowBuffer, text, len);
+						}
+					}
+					pq_putmessage('D', dataRowBuffer->data, dataRowBuffer->len);
+					pfree(dataRowBuffer->data);
+					pfree(dataRowBuffer);
+				}
 				if (combiner->dest == DestRemote
-					|| combiner->dest == DestRemoteExecute)
+				        || combiner->dest == DestRemoteExecute)
 				{
 					if (combiner->combine_type == COMBINE_TYPE_NONE)
 					{
@@ -243,14 +371,14 @@ CombineResponse(ResponseCombiner combiner, char msg_type, char *msg_body, size_t
 			{
 				/* Inconsistent responses */
 				ereport(ERROR,
-					(errcode(ERRCODE_DATA_CORRUPTED),
-					 errmsg("Unexpected response from the data nodes")));
+				        (errcode(ERRCODE_DATA_CORRUPTED),
+				         errmsg("Unexpected response from the data nodes")));
 			}
 			/* Proxy first */
 			if (combiner->description_count++ == 0)
 			{
 				if (combiner->dest == DestRemote
-					|| combiner->dest == DestRemoteExecute)
+				        || combiner->dest == DestRemoteExecute)
 					pq_putmessage(msg_type, msg_body, len);
 			}
 			break;
@@ -279,14 +407,14 @@ CombineResponse(ResponseCombiner combiner, char msg_type, char *msg_body, size_t
 			{
 				/* Inconsistent responses */
 				ereport(ERROR,
-					(errcode(ERRCODE_DATA_CORRUPTED),
-					 errmsg("Unexpected response from the data nodes")));
+				        (errcode(ERRCODE_DATA_CORRUPTED),
+				         errmsg("Unexpected response from the data nodes")));
 			}
 			/* Proxy first */
 			if (combiner->copy_in_count++ == 0)
 			{
 				if (combiner->dest == DestRemote
-					|| combiner->dest == DestRemoteExecute)
+				        || combiner->dest == DestRemoteExecute)
 					pq_putmessage(msg_type, msg_body, len);
 			}
 			break;
@@ -297,8 +425,8 @@ CombineResponse(ResponseCombiner combiner, char msg_type, char *msg_body, size_t
 			{
 				/* Inconsistent responses */
 				ereport(ERROR,
-					(errcode(ERRCODE_DATA_CORRUPTED),
-					 errmsg("Unexpected response from the data nodes")));
+				        (errcode(ERRCODE_DATA_CORRUPTED),
+				         errmsg("Unexpected response from the data nodes")));
 			}
 			/*
 			 * The normal PG code will output an H message when it runs in the
@@ -347,57 +475,65 @@ CombineResponse(ResponseCombiner combiner, char msg_type, char *msg_body, size_t
 			}
 			break;
 		case 'D':				/* DataRow */
-			if (combiner->simple_aggregates == NULL)
+			if (!combiner->simple_aggregates)
 			{
 				if (combiner->dest == DestRemote
-					|| combiner->dest == DestRemoteExecute)
+				        || combiner->dest == DestRemoteExecute)
 					pq_putmessage(msg_type, msg_body, len);
 			}
 			else
 			{
-				SimpleAgg  *simple_agg = (SimpleAgg *) linitial(combiner->simple_aggregates);
+				ListCell   *lc;
+				char	  **col_values;
+				int		   *col_value_len;
+				uint16		col_count;
+				int			i, cur = 0;
 
-				/* Handle aggregates */
-				/* Process single node result */
-				process_aggregate_element(
-										  combiner->simple_aggregates,
-										  msg_body, len);
+				/* Get values from the data row into array to speed up access */
+				memcpy(&col_count, msg_body, 2);
+				col_count = ntohs(col_count);
+				cur += 2;
 
-				/*
-				 * See if we are done with all nodes. Only then do we send one
-				 * DataRow result.
-				 */
-
-				if (++simple_agg->response_count
-					== combiner->node_count)
+				col_values = (char **) palloc0(col_count * sizeof(char *));
+				col_value_len = (int *) palloc0(col_count * sizeof(int));
+				for (i = 0; i < col_count; i++)
 				{
-					char		longstr[21];
-					int			longlen;
+					int n32;
 
-					StringInfo	data_buffer;
+					memcpy(&n32, msg_body + cur, 4);
+					col_value_len[i] = ntohl(n32);
+					cur += 4;
 
-					data_buffer = makeStringInfo();
-
-					/*
-					 * longlen = sprintf(longstr, "%lu",
-					 * simple_agg->ulong_value);
-					 */
-
-					pg_ltoa(simple_agg->ulong_value, longstr);
-					longlen = strlen(longstr);
-
-					pq_beginmessage(data_buffer, 'D');
-					pq_sendbyte(data_buffer, msg_body[0]);
-					pq_sendbyte(data_buffer, msg_body[1]);
-					pq_sendint(data_buffer, longlen, 4);
-					pq_sendtext(data_buffer, longstr, longlen);
-					pq_putmessage(msg_type,
-								  data_buffer->data,
-								  data_buffer->len);
-
-					pfree(data_buffer->data);
-					pfree(data_buffer);
+					if (col_value_len[i] != -1)
+					{
+						col_values[i] = msg_body + cur;
+						cur += col_value_len[i];
+					}
 				}
+
+				if (combiner->initAggregates)
+				{
+					foreach (lc, combiner->simple_aggregates)
+						initialize_collect_aggregates((SimpleAgg *) lfirst(lc));
+
+					combiner->initAggregates = false;
+				}
+
+				foreach (lc, combiner->simple_aggregates)
+				{
+					SimpleAgg  *simple_agg = (SimpleAgg *) lfirst(lc);
+					FunctionCallInfoData fcinfo;
+
+					parse_aggregate_value(simple_agg,
+					                      col_values[simple_agg->column_pos],
+					                      col_value_len[simple_agg->column_pos],
+					                      fcinfo.arg + 1,
+					                      fcinfo.argnull + 1);
+
+					advance_collect_function(simple_agg, &fcinfo);
+				}
+				pfree(col_values);
+				pfree(col_value_len);
 			}
 			break;
 		case 'E':				/* ErrorResponse */
@@ -409,15 +545,15 @@ CombineResponse(ResponseCombiner combiner, char msg_type, char *msg_body, size_t
 			 * or if doing internal primary copy
 			 */
 			if (combiner->dest == DestRemote
-				|| combiner->dest == DestRemoteExecute)
+			        || combiner->dest == DestRemoteExecute)
 				pq_putmessage(msg_type, msg_body, len);
 			break;
 		case 'I':				/* EmptyQuery */
 		default:
 			/* Unexpected message */
 			ereport(ERROR,
-				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg("Unexpected response from the data nodes")));
+			        (errcode(ERRCODE_DATA_CORRUPTED),
+			         errmsg("Unexpected response from the data nodes")));
 	}
 	return 0;
 }
@@ -437,23 +573,23 @@ validate_combiner(ResponseCombiner combiner)
 		return false;
 	/* Check all nodes completed */
 	if ((combiner->request_type == REQUEST_TYPE_COMMAND
-				|| combiner->request_type == REQUEST_TYPE_QUERY)
-			&& combiner->command_complete_count != combiner->node_count)
+	        || combiner->request_type == REQUEST_TYPE_QUERY)
+	        && combiner->command_complete_count != combiner->node_count)
 		return false;
 
 	/* Check count of description responses */
- 	if (combiner->request_type == REQUEST_TYPE_QUERY
-			&& combiner->description_count != combiner->node_count)
+	if (combiner->request_type == REQUEST_TYPE_QUERY
+	        && combiner->description_count != combiner->node_count)
 		return false;
 
 	/* Check count of copy-in responses */
- 	if (combiner->request_type == REQUEST_TYPE_COPY_IN
-			&& combiner->copy_in_count != combiner->node_count)
+	if (combiner->request_type == REQUEST_TYPE_COPY_IN
+	        && combiner->copy_in_count != combiner->node_count)
 		return false;
 
 	/* Check count of copy-out responses */
- 	if (combiner->request_type == REQUEST_TYPE_COPY_OUT
-			&& combiner->copy_out_count != combiner->node_count)
+	if (combiner->request_type == REQUEST_TYPE_COPY_OUT
+	        && combiner->copy_out_count != combiner->node_count)
 		return false;
 
 	/* Add other checks here as needed */

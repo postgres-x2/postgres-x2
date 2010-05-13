@@ -14,14 +14,24 @@
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "miscadmin.h"
 #include "access/transam.h"
-#include "catalog/pg_type.h"
+#include "catalog/pg_aggregate.h"
 #include "catalog/pg_namespace.h"
+#include "catalog/pg_proc.h"
+#include "catalog/pg_type.h"
+#include "lib/stringinfo.h"
+#include "nodes/nodeFuncs.h"
 #include "nodes/parsenodes.h"
+#include "parser/parse_agg.h"
+#include "parser/parse_coerce.h"
 #include "pgxc/locator.h"
 #include "pgxc/planner.h"
+#include "utils/acl.h"
+#include "utils/builtins.h"
 #include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
+#include "utils/syscache.h"
 
 
 /*
@@ -1042,47 +1052,193 @@ get_plan_combine_type(Query *query, char baselocatortype)
  * For now we only allow MAX in the first column, and return a list of one.
  */
 static List *
-get_simple_aggregates(Query *query, Exec_Nodes *exec_nodes)
+get_simple_aggregates(Query * query)
 {
-	List	   *simple_agg_list = NULL;
-
+	List	   *simple_agg_list = NIL;
+ 
 	/* Check for simple multi-node aggregate */
-	if (query->hasAggs && exec_nodes != NULL && list_length(exec_nodes->nodelist) > 1)
-	{
-		TargetEntry *tle;
-
-		/*
-		 * long term check for group by, but for prototype just allow 1 simple
-		 * expression
-		 */
-		if (query->targetList->length != 1)
-			return NULL;
-
-		tle = (TargetEntry *) linitial(query->targetList);
-
-		if (IsA(tle->expr, Aggref))
+	if (query->hasAggs)
+  	{
+		ListCell   *lc;
+		int			column_pos = 0;
+  
+		foreach (lc, query->targetList)
 		{
-			SimpleAgg  *simple_agg;
-			Aggref	   *aggref = (Aggref *) tle->expr;
-
-			/* Just consider numeric max functions for prototype */
-			if (!(aggref->aggfnoid >= 2115 && aggref->aggfnoid <= 2121))
+			TargetEntry *tle = (TargetEntry *) lfirst(lc);
+  
+			if (IsA(tle->expr, Aggref))
 			{
-				ereport(ERROR,
-						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						 errmsg("Multinode aggregate for this function currently not supported")));
+				/*PGXC borrowed this code from nodeAgg.c, see ExecInitAgg()*/
+				SimpleAgg  *simple_agg;
+				Aggref 	   *aggref = (Aggref *) tle->expr;
+				HeapTuple	aggTuple;
+				Form_pg_aggregate aggform;
+				Oid			aggcollecttype;
+				AclResult	aclresult;
+				Oid			transfn_oid,
+							finalfn_oid;
+				Expr	   *transfnexpr,
+						   *finalfnexpr;
+				Datum		textInitVal;
+
+				simple_agg = (SimpleAgg *) palloc0(sizeof(SimpleAgg));
+				simple_agg->column_pos = column_pos;
+				initStringInfo(&simple_agg->valuebuf);
+				simple_agg->aggref = aggref;
+
+				aggTuple = SearchSysCache(AGGFNOID,
+										  ObjectIdGetDatum(aggref->aggfnoid),
+										  0, 0, 0);
+				if (!HeapTupleIsValid(aggTuple))
+					elog(ERROR, "cache lookup failed for aggregate %u",
+						 aggref->aggfnoid);
+				aggform = (Form_pg_aggregate) GETSTRUCT(aggTuple);
+
+				/* Check permission to call aggregate function */
+				aclresult = pg_proc_aclcheck(aggref->aggfnoid, GetUserId(),
+											 ACL_EXECUTE);
+				if (aclresult != ACLCHECK_OK)
+					aclcheck_error(aclresult, ACL_KIND_PROC,
+								   get_func_name(aggref->aggfnoid));
+
+				simple_agg->transfn_oid = transfn_oid = aggform->aggcollectfn;
+				simple_agg->finalfn_oid = finalfn_oid = aggform->aggfinalfn;
+
+				/* Check that aggregate owner has permission to call component fns */
+				{
+					HeapTuple	procTuple;
+					Oid			aggOwner;
+
+					procTuple = SearchSysCache(PROCOID,
+											   ObjectIdGetDatum(aggref->aggfnoid),
+											   0, 0, 0);
+					if (!HeapTupleIsValid(procTuple))
+						elog(ERROR, "cache lookup failed for function %u",
+							 aggref->aggfnoid);
+					aggOwner = ((Form_pg_proc) GETSTRUCT(procTuple))->proowner;
+					ReleaseSysCache(procTuple);
+
+					aclresult = pg_proc_aclcheck(transfn_oid, aggOwner,
+												 ACL_EXECUTE);
+					if (aclresult != ACLCHECK_OK)
+						aclcheck_error(aclresult, ACL_KIND_PROC,
+									   get_func_name(transfn_oid));
+					if (OidIsValid(finalfn_oid))
+					{
+						aclresult = pg_proc_aclcheck(finalfn_oid, aggOwner,
+													 ACL_EXECUTE);
+						if (aclresult != ACLCHECK_OK)
+							aclcheck_error(aclresult, ACL_KIND_PROC,
+										   get_func_name(finalfn_oid));
+					}
+				}
+  
+				/* resolve actual type of transition state, if polymorphic */
+				aggcollecttype = aggform->aggcollecttype;
+
+				/* build expression trees using actual argument & result types */
+				build_aggregate_fnexprs(&aggform->aggtranstype,
+										1,
+										aggcollecttype,
+										aggref->aggtype,
+										transfn_oid,
+										finalfn_oid,
+										&transfnexpr,
+										&finalfnexpr);
+
+				/* Get InputFunction info for transition result */
+				{
+					Oid			typinput;
+
+					getTypeInputInfo(aggform->aggtranstype, &typinput, &simple_agg->argioparam);
+					fmgr_info(typinput, &simple_agg->arginputfn);
+				}
+
+				/* Get InputFunction info for result */
+				{
+					Oid			typoutput;
+					bool		typvarlena;
+
+					getTypeOutputInfo(simple_agg->aggref->aggtype, &typoutput, &typvarlena);
+					fmgr_info(typoutput, &simple_agg->resoutputfn);
+				}
+
+				fmgr_info(transfn_oid, &simple_agg->transfn);
+				simple_agg->transfn.fn_expr = (Node *) transfnexpr;
+
+				if (OidIsValid(finalfn_oid))
+				{
+					fmgr_info(finalfn_oid, &simple_agg->finalfn);
+					simple_agg->finalfn.fn_expr = (Node *) finalfnexpr;
+				}
+
+				get_typlenbyval(aggref->aggtype,
+								&simple_agg->resulttypeLen,
+								&simple_agg->resulttypeByVal);
+				get_typlenbyval(aggcollecttype,
+								&simple_agg->transtypeLen,
+								&simple_agg->transtypeByVal);
+  
+				/*
+				 * initval is potentially null, so don't try to access it as a struct
+				 * field. Must do it the hard way with SysCacheGetAttr.
+				 */
+				textInitVal = SysCacheGetAttr(AGGFNOID, aggTuple,
+											  Anum_pg_aggregate_agginitcollect,
+											  &simple_agg->initValueIsNull);
+
+				if (simple_agg->initValueIsNull)
+					simple_agg->initValue = (Datum) 0;
+				else
+				{
+					Oid			typinput,
+								typioparam;
+					char	   *strInitVal;
+					Datum		initVal;
+
+					getTypeInputInfo(aggcollecttype, &typinput, &typioparam);
+					strInitVal = TextDatumGetCString(textInitVal);
+					initVal = OidInputFunctionCall(typinput, strInitVal,
+												   typioparam, -1);
+					pfree(strInitVal);
+					simple_agg->initValue = initVal;
+				}
+
+				/*
+				 * If the transfn is strict and the initval is NULL, make sure trans
+				 * type and collect type are the same (or at least binary-compatible),
+				 * so that it's OK to use the first input value as the initial
+				 * transValue.	This should have been checked at agg definition time,
+				 * but just in case...
+				 */
+				if (simple_agg->transfn.fn_strict && simple_agg->initValueIsNull)
+				{
+					if (!IsBinaryCoercible(aggform->aggtranstype, aggcollecttype))
+						ereport(ERROR,
+								(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+								 errmsg("aggregate %u needs to have compatible transition type and collection type",
+										aggref->aggfnoid)));
+				}
+
+				/* PGXCTODO distinct support */
+
+				ReleaseSysCache(aggTuple);
+
+				simple_agg_list = lappend(simple_agg_list, simple_agg);
 			}
-
-			simple_agg = (SimpleAgg *) palloc(sizeof(SimpleAgg));
-			simple_agg->agg_type = AGG_TYPE_MAX;
-			simple_agg->column_pos = 1;
-			simple_agg->agg_data_type = aggref->aggtype;
-			simple_agg->response_count = 0;
-
-			simple_agg_list = lappend(simple_agg_list, simple_agg);
-		}
-	}
-
+			else
+  			{
+				/*
+				 * PGXCTODO relax this limit after adding GROUP BY support
+				 * then support expressions of aggregates
+				 */
+  				ereport(ERROR,
+						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+						 (errmsg("Query is not yet supported"))));
+  			}
+			column_pos++;
+  		}
+  	}
 	return simple_agg_list;
 }
 
@@ -1129,8 +1285,7 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 			if (query_step->exec_nodes)
 				query_step->combine_type = get_plan_combine_type(
 						query, query_step->exec_nodes->baselocatortype);
-			query_step->simple_aggregates =
-				get_simple_aggregates(query, query_step->exec_nodes);
+			query_step->simple_aggregates = get_simple_aggregates(query);
 
 			/*
 			 * See if it is a SELECT with no relations, like SELECT 1+1 or
@@ -1209,10 +1364,6 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 						ereport(ERROR,
 								(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
 						 (errmsg("Multi-node DISTINCT`not yet supported"))));
-					if (query->hasAggs)
-						ereport(ERROR,
-								(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-						(errmsg("Multi-node aggregates not yet supported"))));
 				}
 			}
 			break;
@@ -1280,6 +1431,7 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 		case T_AlterOwnerStmt:
 		case T_DropOwnedStmt:
 		case T_ReassignOwnedStmt:
+		case T_DefineStmt:		/* used for aggregates, some types */
 			query_plan->exec_loc_type = EXEC_ON_COORD | EXEC_ON_DATA_NODES;
 			break;
 
@@ -1338,7 +1490,6 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 		case T_CreateTrigStmt:
 		case T_CreateUserMappingStmt:
 		case T_DeclareCursorStmt:
-		case T_DefineStmt:		/* used for aggregates, some types */
 		case T_DropCastStmt:
 		case T_DropFdwStmt:
 		case T_DropForeignServerStmt:
@@ -1408,7 +1559,7 @@ FreeQueryPlan(Query_Plan *query_plan)
 		return;
 
 	foreach(item, query_plan->query_step_list)
-		free_query_step((Query_Step *) lfirst_int(item));
+		free_query_step((Query_Step *) lfirst(item));
 
 	pfree(query_plan->query_step_list);
 	pfree(query_plan);

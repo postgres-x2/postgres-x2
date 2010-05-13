@@ -15,6 +15,9 @@
 #ifndef PGXCPLANNER_H
 #define PGXCPLANNER_H
 
+#include "fmgr.h"
+#include "lib/stringinfo.h"
+#include "nodes/primnodes.h"
 #include "pgxc/locator.h"
 #include "pgxc/combiner.h"
 
@@ -67,13 +70,52 @@ typedef enum
 /* For now, only support int/long types */
 typedef struct
 {
-	int			agg_type;		/* SimpleAggType enum */
 	int			column_pos;		/* Only use 1 for now */
-	unsigned long ulong_value;
-	/* Datum agg_value;  PGXCTODO - use Datum, support more types */
-	int			data_len;
-	int			agg_data_type;
-	int			response_count;
+	Aggref	   *aggref;
+	Oid			transfn_oid;
+	Oid			finalfn_oid;
+
+	/* Input Functions, to parse arguments coming from the data nodes */
+	FmgrInfo	arginputfn;
+	Oid			argioparam;
+
+	/* Output Function, to encode result to present to client */
+	FmgrInfo	resoutputfn;
+
+	/*
+	 * fmgr lookup data for transfer functions --- only valid when
+	 * corresponding oid is not InvalidOid.  Note in particular that fn_strict
+	 * flags are kept here.
+	 */
+	FmgrInfo	transfn;
+	FmgrInfo	finalfn;
+
+	/*
+	 * initial value from pg_aggregate entry
+	 */
+	Datum		initValue;
+	bool		initValueIsNull;
+
+	/*
+	 * We need the len and byval info for the agg's input, result, and
+	 * transition data types in order to know how to copy/delete values.
+	 */
+	int16		inputtypeLen,
+				resulttypeLen,
+				transtypeLen;
+	bool		inputtypeByVal,
+				resulttypeByVal,
+				transtypeByVal;
+
+	/*
+	 * State of current group
+	 */
+	bool		noCollectValue;
+	Datum		collectValue;
+	bool		collectValueNull;
+
+	/* a value buffer to avoid multiple allocations */
+	StringInfoData valuebuf;
 } SimpleAgg;
 
 /* forbid SQL if unsafe, useful to turn off for development */

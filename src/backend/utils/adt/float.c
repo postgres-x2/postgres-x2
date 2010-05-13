@@ -2745,6 +2745,136 @@ width_bucket_float8(PG_FUNCTION_ARGS)
 	PG_RETURN_INT32(result);
 }
 
+#ifdef PGXC
+Datum
+float8_collect(PG_FUNCTION_ARGS)
+{
+	ArrayType  *collectarray = PG_GETARG_ARRAYTYPE_P(0);
+	ArrayType  *transarray = PG_GETARG_ARRAYTYPE_P(1);
+	float8	   *collectvalues;
+	float8	   *transvalues;
+	float8		N,
+				sumX,
+				sumX2;
+
+	collectvalues = check_float8_array(collectarray, "float8_collect", 3);
+	transvalues = check_float8_array(transarray, "float8_collect", 3);
+	N = collectvalues[0];
+	sumX = collectvalues[1];
+	sumX2 = collectvalues[2];
+
+	N += transvalues[0];
+	sumX += transvalues[1];
+	CHECKFLOATVAL(sumX, isinf(collectvalues[1]) || isinf(transvalues[1]), true);
+	sumX2 += transvalues[2] * transvalues[2];
+	CHECKFLOATVAL(sumX2, isinf(collectvalues[2]) || isinf(transvalues[2]), true);
+
+	/*
+	 * If we're invoked by nodeAgg, we can cheat and modify our first
+	 * parameter in-place to reduce palloc overhead. Otherwise we construct a
+	 * new array with the updated transition data and return it.
+	 */
+	if (fcinfo->context &&
+		(IsA(fcinfo->context, AggState) ||
+		 IsA(fcinfo->context, WindowAggState)))
+	{
+		collectvalues[0] = N;
+		collectvalues[1] = sumX;
+		collectvalues[2] = sumX2;
+
+		PG_RETURN_ARRAYTYPE_P(collectarray);
+	}
+	else
+	{
+		Datum		collectdatums[3];
+		ArrayType  *result;
+
+		collectdatums[0] = Float8GetDatumFast(N);
+		collectdatums[1] = Float8GetDatumFast(sumX);
+		collectdatums[2] = Float8GetDatumFast(sumX2);
+
+		result = construct_array(collectdatums, 3,
+								 FLOAT8OID,
+								 sizeof(float8), FLOAT8PASSBYVAL, 'd');
+
+		PG_RETURN_ARRAYTYPE_P(result);
+	}
+}
+
+Datum
+float8_regr_collect(PG_FUNCTION_ARGS)
+{
+	ArrayType  *collectarray = PG_GETARG_ARRAYTYPE_P(0);
+	ArrayType  *transarray = PG_GETARG_ARRAYTYPE_P(1);
+	float8	   *collectvalues;
+	float8	   *transvalues;
+	float8		N,
+				sumX,
+				sumX2,
+				sumY,
+				sumY2,
+				sumXY;
+
+	collectvalues = check_float8_array(collectarray, "float8_accum", 6);
+	transvalues = check_float8_array(transarray, "float8_accum", 6);
+	N = collectvalues[0];
+	sumX = collectvalues[1];
+	sumX2 = collectvalues[2];
+	sumY = collectvalues[3];
+	sumY2 = collectvalues[4];
+	sumXY = collectvalues[5];
+
+	N += transvalues[0];
+	sumX += transvalues[1];
+	CHECKFLOATVAL(sumX, isinf(collectvalues[1]) || isinf(transvalues[1]), true);
+	sumX2 += transvalues[2];
+	CHECKFLOATVAL(sumX2, isinf(collectvalues[2]) || isinf(transvalues[2]), true);
+	sumY += transvalues[3];
+	CHECKFLOATVAL(sumY, isinf(collectvalues[3]) || isinf(transvalues[3]), true);
+	sumY2 += transvalues[4];
+	CHECKFLOATVAL(sumY2, isinf(collectvalues[4]) || isinf(transvalues[4]), true);
+	sumXY += transvalues[5];
+	CHECKFLOATVAL(sumXY, isinf(collectvalues[5]) || isinf(transvalues[5]), true);
+
+	/*
+	 * If we're invoked by nodeAgg, we can cheat and modify our first
+	 * parameter in-place to reduce palloc overhead. Otherwise we construct a
+	 * new array with the updated transition data and return it.
+	 */
+	if (fcinfo->context &&
+		(IsA(fcinfo->context, AggState) ||
+		 IsA(fcinfo->context, WindowAggState)))
+	{
+		collectvalues[0] = N;
+		collectvalues[1] = sumX;
+		collectvalues[2] = sumX2;
+		collectvalues[3] = sumY;
+		collectvalues[4] = sumY2;
+		collectvalues[5] = sumXY;
+
+		PG_RETURN_ARRAYTYPE_P(collectarray);
+	}
+	else
+	{
+		Datum		collectdatums[6];
+		ArrayType  *result;
+
+		collectdatums[0] = Float8GetDatumFast(N);
+		collectdatums[1] = Float8GetDatumFast(sumX);
+		collectdatums[2] = Float8GetDatumFast(sumX2);
+		collectdatums[3] = Float8GetDatumFast(sumY);
+		collectdatums[4] = Float8GetDatumFast(sumY2);
+		collectdatums[5] = Float8GetDatumFast(sumXY);
+
+		result = construct_array(collectdatums, 6,
+								 FLOAT8OID,
+								 sizeof(float8), FLOAT8PASSBYVAL, 'd');
+
+		PG_RETURN_ARRAYTYPE_P(result);
+	}
+}
+#endif
+
 /* ========== PRIVATE ROUTINES ========== */
 
 #ifndef HAVE_CBRT

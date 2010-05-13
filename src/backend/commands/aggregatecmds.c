@@ -57,6 +57,12 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 	TypeName   *baseType = NULL;
 	TypeName   *transType = NULL;
 	char	   *initval = NULL;
+#ifdef PGXC
+	List	   *collectfuncName = NIL;
+	TypeName   *collectType = NULL;
+	Oid			collectTypeId;
+	char	   *initcollect = NULL;
+#endif
 	Oid		   *aggArgTypes;
 	int			numArgs;
 	Oid			transTypeId;
@@ -97,6 +103,14 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 			initval = defGetString(defel);
 		else if (pg_strcasecmp(defel->defname, "initcond1") == 0)
 			initval = defGetString(defel);
+#ifdef PGXC
+		else if (pg_strcasecmp(defel->defname, "cfunc") == 0)
+			collectfuncName = defGetQualifiedName(defel);
+		else if (pg_strcasecmp(defel->defname, "ctype") == 0)
+			collectType = defGetTypeName(defel);
+		else if (pg_strcasecmp(defel->defname, "initcollect") == 0)
+			initcollect = defGetString(defel);
+#endif
 		else
 			ereport(WARNING,
 					(errcode(ERRCODE_SYNTAX_ERROR),
@@ -116,6 +130,17 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 				 errmsg("aggregate sfunc must be specified")));
 
+#ifdef PGXC
+	if (collectType == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+				 errmsg("aggregate ctype must be specified")));
+	if (collectfuncName == NIL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+				 errmsg("aggregate cfunc must be specified")));
+
+#endif
 	/*
 	 * look up the aggregate's input datatype(s).
 	 */
@@ -192,6 +217,21 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 							format_type_be(transTypeId))));
 	}
 
+#ifdef PGXC
+	collectTypeId = typenameTypeId(NULL, collectType, NULL);
+	if (get_typtype(collectTypeId) == TYPTYPE_PSEUDO &&
+		!IsPolymorphicType(collectTypeId))
+	{
+		if (collectTypeId == INTERNALOID && superuser())
+			 /* okay */ ;
+		else
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+					 errmsg("aggregate transition data type cannot be %s",
+							format_type_be(collectTypeId))));
+	}
+
+#endif
 	/*
 	 * Most of the argument-checking is done inside of AggregateCreate
 	 */
@@ -200,10 +240,19 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 					aggArgTypes,	/* input data type(s) */
 					numArgs,
 					transfuncName,		/* step function name */
+#ifdef PGXC
+					collectfuncName,	/* collect function name */
+#endif
 					finalfuncName,		/* final function name */
 					sortoperatorName,	/* sort operator name */
 					transTypeId,	/* transition data type */
+#ifdef PGXC
+					collectTypeId,	/* collection data type */
+					initval,	/* initial condition */
+					initcollect);	/* initial condition for collection function */
+#else
 					initval);	/* initial condition */
+#endif
 }
 
 

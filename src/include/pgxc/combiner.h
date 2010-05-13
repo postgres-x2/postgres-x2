@@ -49,6 +49,11 @@ typedef struct
 	uint64		copy_in_count;
 	uint64		copy_out_count;
 	bool		inErrorState;
+	/*
+	 * While we are not supporting grouping use this flag to indicate we need
+	 * to initialize collecting of aggregates from the DNs
+	 */
+	bool		initAggregates;
 	List	   *simple_aggregates;
 	FILE	   *copy_file;      /* used if copy_dest == COPY_FILE */
 }	ResponseCombinerData;

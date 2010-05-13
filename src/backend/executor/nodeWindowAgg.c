@@ -1397,7 +1397,8 @@ initialize_peragg(WindowAggState *winstate, WindowFunc *wfunc,
 	 */
 
 	peraggstate->transfn_oid = transfn_oid = aggform->aggtransfn;
-	peraggstate->finalfn_oid = finalfn_oid = aggform->aggfinalfn;
+	/* For PGXC final function is executed when combining, disable it here */
+	peraggstate->finalfn_oid = finalfn_oid = InvalidOid;
 
 	/* Check that aggregate owner has permission to call component fns */
 	{

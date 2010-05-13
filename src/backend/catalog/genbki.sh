@@ -139,9 +139,28 @@ touch ${OUTPUT_PREFIX}.shdescription.$$
 #	Rename datatypes that have different names in .h files than in SQL
 #
 #	Substitute values of configuration constants
+#
+#	Also handle #ifdef PGXC to preprocess header files.
 # ----------------
 #
+#See if PGXC is defined in CFLAGS
+PGXCdefined=0
+echo $CFLAGS | grep "\-DPGXC" >/dev/null
+if [ $? -eq 0 ]
+then
+	PGXCdefined=1
+fi
 cat $INFILES | \
+$AWK '
+BEGIN { state=0; }
+{
+        if ($0 ~ /#ifdef PGXC/) state = 1;
+        else if ($0 ~ /#else/ && state == 1) state = 2;
+        else if ($0 ~ /#endif/ && state > 0) state = 0;
+        else if (state == 0) print $0;
+        else if (state == 1 && PGXCdefined) print $0;
+        else if (state == 2 && !PGXCdefined) print $0;
+}' "PGXCdefined=$PGXCdefined" $1 | \
 sed -e 's;/\*.*\*/;;g' \
     -e 's;/\*;\
 /*\

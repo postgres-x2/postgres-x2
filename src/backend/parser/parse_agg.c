@@ -22,7 +22,12 @@
 #include "parser/parsetree.h"
 #include "rewrite/rewriteManip.h"
 #include "utils/lsyscache.h"
-
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#include "access/htup.h"
+#include "catalog/pg_aggregate.h"
+#include "utils/syscache.h"
+#endif
 
 typedef struct
 {
@@ -93,6 +98,31 @@ transformAggregateCall(ParseState *pstate, Aggref *agg)
 	while (min_varlevel-- > 0)
 		pstate = pstate->parentParseState;
 	pstate->p_hasAggs = true;
+#ifdef PGXC
+	/*
+	 * Return data type of PGXC datanode's aggregate should always return the
+	 * result of transition function, that is expected by collection function
+	 * on the coordinator.
+	 * Look up the aggregate definition and replace agg->aggtype
+	 */
+	if (IS_PGXC_DATANODE)
+	{
+		HeapTuple	aggTuple;
+		Form_pg_aggregate aggform;
+
+		aggTuple = SearchSysCache(AGGFNOID,
+						  ObjectIdGetDatum(agg->aggfnoid),
+						  0, 0, 0);
+		if (!HeapTupleIsValid(aggTuple))
+			elog(ERROR, "cache lookup failed for aggregate %u",
+				 agg->aggfnoid);
+		aggform = (Form_pg_aggregate) GETSTRUCT(aggTuple);
+
+		agg->aggtype = aggform->aggtranstype;
+
+		ReleaseSysCache(aggTuple);
+	}
+#endif
 }
 
 /*
