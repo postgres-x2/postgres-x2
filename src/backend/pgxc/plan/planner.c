@@ -16,6 +16,7 @@
 #include "postgres.h"
 #include "access/transam.h"
 #include "catalog/pg_type.h"
+#include "catalog/pg_namespace.h"
 #include "nodes/parsenodes.h"
 #include "pgxc/locator.h"
 #include "pgxc/planner.h"
@@ -691,6 +692,32 @@ examine_conditions_fromlist(Special_Conditions * conditions, List *rtables,
 
 
 /*
+ * Returns whether or not the rtable (and its subqueries)
+ * only contain pg_catalog entries.
+ */
+static bool
+contains_only_pg_catalog (List *rtable)
+{
+	ListCell *item;
+
+	/* May be complicated. Before giving up, just check for pg_catalog usage */
+	foreach(item, rtable)
+	{
+		RangeTblEntry *rte = (RangeTblEntry *) lfirst(item);
+
+		if (rte->rtekind == RTE_RELATION)
+		{
+			if (get_rel_namespace(rte->relid) != PG_CATALOG_NAMESPACE)
+				return false;
+		} else if (rte->rtekind == RTE_SUBQUERY && 
+				!contains_only_pg_catalog (rte->subquery->rtable))
+			return false;
+	}
+	return true;
+}
+
+
+/*
  * get_plan_nodes - determine the nodes to execute the command on.
  *
  * Examines the "special" query conditions in determining execution node list.
@@ -709,6 +736,8 @@ get_plan_nodes(Query_Plan * query_plan, Query * query, bool isRead)
 	RelationLocInfo *rel_loc_info;
 	Exec_Nodes *exec_nodes;
 	Exec_Nodes *test_exec_nodes;
+	TableUsageType 	table_usage_type = TABLE_USAGE_TYPE_NO_TABLE;
+	TableUsageType 	current_usage_type = TABLE_USAGE_TYPE_NO_TABLE;
 
 
 	exec_nodes = NULL;
@@ -733,13 +762,84 @@ get_plan_nodes(Query_Plan * query_plan, Query * query, bool isRead)
 			if (!examine_conditions_fromlist(special_conditions, query->rtable,
 											 treenode))
 			{
-				/* if too complicated, just return NULL */
+				/* May be complicated. Before giving up, just check for pg_catalog usage */
+				if (contains_only_pg_catalog (query->rtable))
+				{	
+					/* just pg_catalog tables */
+					exec_nodes = (Exec_Nodes *) palloc0(sizeof(Exec_Nodes));
+					exec_nodes->tableusagetype = TABLE_USAGE_TYPE_PGCATALOG;
+					free_special_relations(special_conditions);
+					free_join_list();
+					return exec_nodes;
+				}
+
+				/* complicated */
 				free_special_relations(special_conditions);
 				free_join_list();
 				return NULL;
 			}
 		}
-		else if (!IsA(treenode, RangeTblRef))
+		else if (IsA(treenode, RangeTblRef))
+		{
+			RangeTblRef *rtr = (RangeTblRef *) treenode;
+
+			/* look at the entity */
+			RangeTblEntry *rte = list_nth(query->rtable, rtr->rtindex - 1);
+
+			if (rte->rtekind == RTE_SUBQUERY)
+			{
+				/* 
+				 * Recursively call for subqueries. 
+				 * Note this also works for views, which are rewritten as subqueries.
+				 */
+				Exec_Nodes *sub_nodes = get_plan_nodes(query_plan, rte->subquery, isRead);
+				if (sub_nodes)
+					current_usage_type = sub_nodes->tableusagetype;
+				else 
+				{
+					/* could be complicated */
+					free_special_relations(special_conditions);
+					free_join_list();
+					return NULL;
+				}
+			} 
+			else if (rte->rtekind == RTE_RELATION)
+			{
+					/* Look for pg_catalog tables */
+					if (get_rel_namespace(rte->relid) == PG_CATALOG_NAMESPACE)
+						current_usage_type = TABLE_USAGE_TYPE_PGCATALOG;
+					else
+						current_usage_type = TABLE_USAGE_TYPE_USER_TABLE;
+			} 
+			else if (rte->rtekind == RTE_FUNCTION)
+			{
+				/* See if it is a catalog function */
+				FuncExpr *funcexpr = (FuncExpr *) rte->funcexpr;
+				if (get_func_namespace(funcexpr->funcid) == PG_CATALOG_NAMESPACE)
+					current_usage_type = TABLE_USAGE_TYPE_PGCATALOG;
+				else
+					current_usage_type = TABLE_USAGE_TYPE_USER_TABLE;
+			}
+			else
+			{
+				/* could be complicated */
+				free_special_relations(special_conditions);
+				free_join_list();
+				return NULL;
+			}
+
+			/* See if we have pg_catalog mixed with other tables */
+			if (table_usage_type == TABLE_USAGE_TYPE_NO_TABLE)
+				table_usage_type = current_usage_type;
+			else if (current_usage_type != table_usage_type)
+			{
+				/* mixed- too complicated for us for now */
+				free_special_relations(special_conditions);
+				free_join_list();
+				return NULL;
+			}
+		}
+		else
 		{
 			/* could be complicated */
 			free_special_relations(special_conditions);
@@ -748,6 +848,13 @@ get_plan_nodes(Query_Plan * query_plan, Query * query, bool isRead)
 		}
 	}
 
+	/* If we are just dealing with pg_catalog, just return */
+	if (table_usage_type == TABLE_USAGE_TYPE_PGCATALOG)
+	{
+		exec_nodes = (Exec_Nodes *) palloc0(sizeof(Exec_Nodes));
+		exec_nodes->tableusagetype = TABLE_USAGE_TYPE_PGCATALOG;
+		return exec_nodes;
+	} 
 
 	/* Examine the WHERE clause, too */
 	if (!examine_conditions(special_conditions, query->rtable,
@@ -806,10 +913,11 @@ get_plan_nodes(Query_Plan * query_plan, Query * query, bool isRead)
 				rel_loc_info = GetRelationLocInfo(rte->relid);
 
 				if (!rel_loc_info)
-					return false;
+					return NULL;
 			}
 
 			exec_nodes = GetRelationNodes(rel_loc_info, NULL, isRead);
+			exec_nodes->tableusagetype = table_usage_type;
 		}
 	}
 	/* check for partitioned col comparison against a literal */
@@ -828,6 +936,7 @@ get_plan_nodes(Query_Plan * query_plan, Query * query, bool isRead)
 			test_exec_nodes = GetRelationNodes(
 						lit_comp->rel_loc_info, &(lit_comp->constant), true);
 
+			test_exec_nodes->tableusagetype = table_usage_type;
 			if (exec_nodes == NULL)
 				exec_nodes = test_exec_nodes;
 			else
@@ -864,6 +973,7 @@ get_plan_nodes(Query_Plan * query_plan, Query * query, bool isRead)
 			return false;
 
 		exec_nodes = GetRelationNodes(rel_loc_info, NULL, isRead);
+		exec_nodes->tableusagetype = table_usage_type;
 	}
 	free_special_relations(special_conditions);
 	free_join_list();
@@ -1031,7 +1141,6 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 			 * See if it is a SELECT with no relations, like SELECT 1+1 or
 			 * SELECT nextval('fred'), and just use coord.
 			 */
-			query = (Query *) linitial(querytree_list);
 			if (query_step->exec_nodes == NULL
 						&& (query->jointree->fromlist == NULL
 						|| query->jointree->fromlist->length == 0))
@@ -1039,38 +1148,21 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 				query_plan->exec_loc_type = EXEC_ON_COORD;
 			else
 			{
-				query_plan->exec_loc_type = EXEC_ON_DATA_NODES;
-
-				if (query_step->exec_nodes == NULL)
+				if (query_step->exec_nodes != NULL
+						&& query_step->exec_nodes->tableusagetype == TABLE_USAGE_TYPE_PGCATALOG)
 				{
-					bool		is_pg_catalog = false;
-
-					/* before giving up, see if we are dealing with pg_catalog */
-					if (nodeTag(parsetree) == T_SelectStmt)
-					{
-						ListCell   *lc;
-
-						is_pg_catalog = true;
-						foreach(lc, query->rtable)
-						{
-							RangeTblEntry *rte = (RangeTblEntry *) lfirst(lc);
-
-							/* hack so that pg_catalog queries can run */
-							if (rte->relid >= FirstNormalObjectId)
-							{
-								is_pg_catalog = false;
-								break;
-							}
-						}
-						if (is_pg_catalog)
-							query_plan->exec_loc_type = EXEC_ON_COORD;
-					}
+					/* pg_catalog query, run on coordinator */
+					query_plan->exec_loc_type = EXEC_ON_COORD;
+				}
+				else
+				{
+					query_plan->exec_loc_type = EXEC_ON_DATA_NODES;
 
 					/*
 					 * If the nodelist is NULL, it is not safe for us to
 					 * execute
 					 */
-					if (!is_pg_catalog && StrictStatementChecking)
+					if (!query_step->exec_nodes && StrictStatementChecking)
 						ereport(ERROR,
 								(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
 								 (errmsg("Cannot safely execute statement in a single step."))));
@@ -1220,7 +1312,7 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 			 * data node will do
 			 */
 		case T_ExplainStmt:
-			query_step->exec_nodes->nodelist = lappend_int(query_step->exec_nodes->nodelist, GetAnyDataNode());
+			query_step->exec_nodes->nodelist = GetAnyDataNode();
 			query_plan->exec_loc_type = EXEC_ON_DATA_NODES;
 			break;
 

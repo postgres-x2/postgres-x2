@@ -703,6 +703,7 @@ handle_response(DataNodeHandle * conn, ResponseCombiner combiner)
 				break;
 			case 'T':			/* RowDescription */
 			case 'D':			/* DataRow */
+			case 'S':			/* ParameterStatus */
 				/* no need to parse, just move cursor */
 				conn->inCursor += msg_len;
 				CombineResponse(combiner, msg_type,

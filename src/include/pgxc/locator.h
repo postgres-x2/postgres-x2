@@ -42,6 +42,15 @@ typedef struct
 }	RelationLocInfo;
 
 
+/* track if tables use pg_catalog */
+typedef enum 
+{
+	TABLE_USAGE_TYPE_NO_TABLE,
+	TABLE_USAGE_TYPE_PGCATALOG,
+	TABLE_USAGE_TYPE_USER_TABLE,
+	TABLE_USAGE_TYPE_MIXED
+} TableUsageType;
+
 /*
  * Nodes to execute on
  * primarynodelist is for replicated table writes, where to execute first.
@@ -53,6 +62,7 @@ typedef struct
 	List	   *primarynodelist; 
 	List	   *nodelist;
 	char	    baselocatortype;
+	TableUsageType tableusagetype;  /* track pg_catalog usage */
 }	Exec_Nodes;
 
 

@@ -1298,6 +1298,35 @@ get_func_name(Oid funcid)
 		return NULL;
 }
 
+#ifdef PGXC
+/* A function like this is in 9.0 */
+/*
+ * get_func_namespace
+ *
+ *	  Returns the pg_namespace OID associated with a given function.
+ */
+Oid
+get_func_namespace(Oid funcid)
+{
+	HeapTuple   tp;
+
+	tp = SearchSysCache(PROCOID,
+						ObjectIdGetDatum(funcid),
+						0, 0, 0);
+	if (HeapTupleIsValid(tp))
+	{
+		Form_pg_proc functup = (Form_pg_proc) GETSTRUCT(tp);
+		Oid		 result;
+
+		result = functup->pronamespace;
+		ReleaseSysCache(tp);
+		return result;
+	}
+	else
+		return InvalidOid;
+}
+#endif
+
 /*
  * get_func_rettype
  *		Given procedure id, return the function's result type.

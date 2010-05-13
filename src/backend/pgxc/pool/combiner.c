@@ -254,6 +254,24 @@ CombineResponse(ResponseCombiner combiner, char msg_type, char *msg_body, size_t
 					pq_putmessage(msg_type, msg_body, len);
 			}
 			break;
+		case 'S':				/* ParameterStatus (SET command) */
+			if (combiner->request_type == REQUEST_TYPE_NOT_DEFINED)
+				combiner->request_type = REQUEST_TYPE_QUERY;
+			if (combiner->request_type != REQUEST_TYPE_QUERY)
+			{
+				/* Inconsistent responses */
+				ereport(ERROR,
+					(errcode(ERRCODE_DATA_CORRUPTED),
+					 errmsg("Unexpected response from the data nodes")));
+			}
+			/* Proxy last */
+			if (++combiner->description_count == combiner->node_count)
+			{
+				if (combiner->dest == DestRemote
+					|| combiner->dest == DestRemoteExecute)
+					pq_putmessage(msg_type, msg_body, len);
+			}
+			break;
 		case 'G':				/* CopyInResponse */
 			if (combiner->request_type == REQUEST_TYPE_NOT_DEFINED)
 				combiner->request_type = REQUEST_TYPE_COPY_IN;
