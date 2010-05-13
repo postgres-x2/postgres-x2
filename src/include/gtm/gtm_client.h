@@ -31,9 +31,7 @@ typedef union GTM_ResultData
 	{
 		GTM_TransactionHandle	txnhandle;
 		GlobalTransactionId		gxid;
-	} grd_txn;								/* TXN_GET_GXID
-											 * SNAPSHOT_GET
-											 * SNAPSHOT_GXID_GET */
+	} grd_txn;								/* TXN_GET_GXID */
 
 	GTM_SequenceKeyData		grd_seqkey;		/* SEQUENCE_INIT
 											 * SEQUENCE_RESET
@@ -59,8 +57,10 @@ typedef union GTM_ResultData
 
 	struct
 	{
-		int			txn_count;								/* GET_SNAPSHOT_MULTI */
-		int			status[GTM_MAX_GLOBAL_TRANSACTIONS];
+		GTM_TransactionHandle	txnhandle;				/* SNAPSHOT_GXID_GET */
+		GlobalTransactionId		gxid;					/* SNAPSHOT_GET */
+		int						txn_count;				/* SNAPSHOT_GET_MULTI */
+		int						status[GTM_MAX_GLOBAL_TRANSACTIONS];
 	} grd_txn_snap_multi;
 
 	/*

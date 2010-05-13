@@ -413,7 +413,7 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 			break;
 
 		case SNAPSHOT_GXID_GET_RESULT:
-			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_txn.txnhandle,
+			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_txn_snap_multi.txnhandle,
 						   sizeof (GTM_TransactionHandle), conn))
 			{
 				result->gr_status = -1;
@@ -421,7 +421,7 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 			}
 			/* Fall through */
 		case SNAPSHOT_GET_RESULT:
-			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_txn.gxid,
+			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_txn_snap_multi.gxid,
 						   sizeof (GlobalTransactionId), conn))
 			{
 				result->gr_status = -1;
@@ -465,7 +465,7 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 
 
 			if (gtmpqGetInt(&result->gr_snapshot.sn_xcnt,
-						   sizeof (GlobalTransactionId), conn))
+						   sizeof (int32), conn))
 			{
 				result->gr_status = -1;
 				break;

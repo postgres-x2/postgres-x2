@@ -297,7 +297,7 @@ get_snapshot(GTM_Conn *conn, GlobalTransactionId gxid, bool canbe_grouped)
 	if (res->gr_status == 0)
 	{
 		Assert(res->gr_type == SNAPSHOT_GET_RESULT);
-		Assert(res->gr_resdata.grd_txn.gxid == gxid);
+		Assert(res->gr_resdata.grd_txn_snap_multi.gxid == gxid);
 		return &(res->gr_snapshot);
 	}
 	else
