@@ -36,7 +36,7 @@ typedef struct
 	Oid			attrnum;
 	char	   *col_name;
 	long		constant;		/* assume long PGXCTODO - should be Datum */
-}	Literal_Comparison;
+} Literal_Comparison;
 
 /*
  * This struct helps us detect special conditions to determine what nodes
@@ -55,7 +55,7 @@ typedef struct
 	char	   *base_rel_name;
 	RelationLocInfo *base_rel_loc_info;
 
-}	Special_Conditions;
+} Special_Conditions;
 
 /* If two relations are joined based on special location information */
 typedef enum PGXCJoinType
@@ -63,7 +63,7 @@ typedef enum PGXCJoinType
 	JOIN_REPLICATED,
 	JOIN_COLOCATED_PARTITIONED,
 	JOIN_OTHER
-}	PGXCJoinType;
+} PGXCJoinType;
 
 /* used to track which tables are joined */
 typedef struct
@@ -74,7 +74,7 @@ typedef struct
 	char	   *aliasname2;
 
 	PGXCJoinType join_type;
-}	PGXC_Join;
+} PGXC_Join;
 
 /* A list of List*'s, one for each relation. */
 List	   *join_list = NULL;
@@ -178,7 +178,7 @@ find_or_create_pgxc_join(int relid1, char *aliasname1, int relid2, char *aliasna
  * new_special_conditions - Allocate Special_Conditions struct and initialize
  */
 static Special_Conditions *
-new_special_conditions()
+new_special_conditions(void)
 {
 	Special_Conditions *special_conditions =
 	(Special_Conditions *) palloc0(sizeof(Special_Conditions));
@@ -190,7 +190,7 @@ new_special_conditions()
  * free Special_Conditions struct
  */
 static void
-free_special_relations(Special_Conditions * special_conditions)
+free_special_relations(Special_Conditions *special_conditions)
 {
 	if (special_conditions == NULL)
 		return;
@@ -209,7 +209,7 @@ free_special_relations(Special_Conditions * special_conditions)
  * frees join_list
  */
 static void
-free_join_list()
+free_join_list(void)
 {
 	if (join_list == NULL)
 		return;
@@ -260,7 +260,7 @@ get_numeric_constant(Expr *expr)
  * to determine what the base table and column really is.
  */
 static Var *
-get_base_var(Var * var, List *rtables)
+get_base_var(Var *var, List *rtables)
 {
 	RangeTblEntry *rte;
 
@@ -287,7 +287,7 @@ get_base_var(Var * var, List *rtables)
  * get_plan_nodes_insert - determine nodes on which to execute insert.
  */
 static Exec_Nodes *
-get_plan_nodes_insert(Query * query)
+get_plan_nodes_insert(Query *query)
 {
 	RangeTblEntry *rte;
 	RelationLocInfo *rel_loc_info;
@@ -296,9 +296,6 @@ get_plan_nodes_insert(Query * query)
 	ListCell   *lc;
 	long		part_value;
 	long	   *part_value_ptr = NULL;
-
-
-
 
 	/* Looks complex (correlated?) - best to skip */
 	if (query->jointree != NULL && query->jointree->fromlist != NULL)
@@ -322,8 +319,8 @@ get_plan_nodes_insert(Query * query)
 				(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
 			  (errmsg("Could not find relation for oid = %d", rte->relid))));
 
-	if (rel_loc_info->locatorType == LOCATOR_TYPE_HASH
-		&& rel_loc_info->partAttrName != NULL)
+	if (rel_loc_info->locatorType == LOCATOR_TYPE_HASH &&
+		rel_loc_info->partAttrName != NULL)
 	{
 		/* It is a partitioned table, get value by looking in targetList */
 		foreach(lc, query->targetList)
@@ -347,9 +344,9 @@ get_plan_nodes_insert(Query * query)
 
 				constant = (Const *) checkexpr;
 
-				if (constant->consttype == INT4OID
-					|| constant->consttype == INT2OID
-					|| constant->consttype == INT8OID)
+				if (constant->consttype == INT4OID ||
+					constant->consttype == INT2OID ||
+					constant->consttype == INT8OID)
 				{
 					part_value = (long) constant->constvalue;
 					part_value_ptr = &part_value;
@@ -389,7 +386,7 @@ get_plan_nodes_insert(Query * query)
  *
  */
 static bool
-examine_conditions(Special_Conditions * conditions, List *rtables, Node *expr_node)
+examine_conditions(Special_Conditions *conditions, List *rtables, Node *expr_node)
 {
 	char	   *rel_name,
 			   *rel_name2;
@@ -646,7 +643,7 @@ examine_conditions(Special_Conditions * conditions, List *rtables, Node *expr_no
  * to help us decide which nodes to execute on.
  */
 static bool
-examine_conditions_fromlist(Special_Conditions * conditions, List *rtables,
+examine_conditions_fromlist(Special_Conditions *conditions, List *rtables,
 							Node *treenode)
 {
 
@@ -676,9 +673,7 @@ examine_conditions_fromlist(Special_Conditions * conditions, List *rtables,
 		return true;
 	}
 	else if (IsA(treenode, RangeTblRef))
-	{
 		return true;
-	}
 	else if (IsA(treenode, BoolExpr) ||IsA(treenode, OpExpr))
 	{
 		/* check base condition, if possible */
@@ -725,7 +720,7 @@ contains_only_pg_catalog (List *rtable)
  * returns NULL if it appears to be a mutli-step query.
  */
 static Exec_Nodes *
-get_plan_nodes(Query_Plan * query_plan, Query * query, bool isRead)
+get_plan_nodes(Query_Plan *query_plan, Query *query, bool isRead)
 {
 	RangeTblEntry *rte;
 	ListCell   *lc,
@@ -988,7 +983,7 @@ get_plan_nodes(Query_Plan * query_plan, Query * query, bool isRead)
  * return NULL if it is not safe to be done in a single step.
  */
 static Exec_Nodes *
-get_plan_nodes_command(Query_Plan * query_plan, Query * query)
+get_plan_nodes_command(Query_Plan *query_plan, Query *query)
 {
 
 	switch (query->commandType)
@@ -1047,7 +1042,7 @@ get_plan_combine_type(Query *query, char baselocatortype)
  * For now we only allow MAX in the first column, and return a list of one.
  */
 static List *
-get_simple_aggregates(Query * query, Exec_Nodes *exec_nodes)
+get_simple_aggregates(Query *query, Exec_Nodes *exec_nodes)
 {
 	List	   *simple_agg_list = NULL;
 
@@ -1383,7 +1378,7 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
  * Free Query_Step struct
  */
 static void
-free_query_step(Query_Step * query_step)
+free_query_step(Query_Step *query_step)
 {
 	if (query_step == NULL)
 		return;
@@ -1405,7 +1400,7 @@ free_query_step(Query_Step * query_step)
  * Free Query_Plan struct
  */
 void
-FreeQueryPlan(Query_Plan * query_plan)
+FreeQueryPlan(Query_Plan *query_plan)
 {
 	ListCell   *item;
 
@@ -1413,9 +1408,7 @@ FreeQueryPlan(Query_Plan * query_plan)
 		return;
 
 	foreach(item, query_plan->query_step_list)
-	{
 		free_query_step((Query_Step *) lfirst_int(item));
-	}
 
 	pfree(query_plan->query_step_list);
 	pfree(query_plan);

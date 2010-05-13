@@ -26,8 +26,8 @@
 #include "utils/elog.h"
 #include "miscadmin.h"
 
-static int	pool_recvbuf(PoolPort * port);
-static int	pool_discardbytes(PoolPort * port, size_t len);
+static int	pool_recvbuf(PoolPort *port);
+static int	pool_discardbytes(PoolPort *port, size_t len);
 
 #ifdef HAVE_UNIX_SOCKETS
 
@@ -141,7 +141,7 @@ pool_connect(unsigned short port, const char *unixSocketName)
  * Get one byte from the buffer, read data from the connection if buffer is empty
  */
 int
-pool_getbyte(PoolPort * port)
+pool_getbyte(PoolPort *port)
 {
 	while (port->RecvPointer >= port->RecvLength)
 	{
@@ -156,7 +156,7 @@ pool_getbyte(PoolPort * port)
  * Get one byte from the buffer if it is not empty
  */
 int
-pool_pollbyte(PoolPort * port)
+pool_pollbyte(PoolPort *port)
 {
 	if (port->RecvPointer >= port->RecvLength)
 	{
@@ -170,7 +170,7 @@ pool_pollbyte(PoolPort * port)
  * Read pooler protocol message from the buffer.
  */
 int
-pool_getmessage(PoolPort * port, StringInfo s, int maxlen)
+pool_getmessage(PoolPort *port, StringInfo s, int maxlen)
 {
 	int32		len;
 
@@ -242,7 +242,7 @@ pool_getmessage(PoolPort * port, StringInfo s, int maxlen)
  * --------------------------------
  */
 int
-pool_getbytes(PoolPort * port, char *s, size_t len)
+pool_getbytes(PoolPort *port, char *s, size_t len)
 {
 	size_t		amount;
 
@@ -273,7 +273,7 @@ pool_getbytes(PoolPort * port, char *s, size_t len)
  * --------------------------------
  */
 static int
-pool_discardbytes(PoolPort * port, size_t len)
+pool_discardbytes(PoolPort *port, size_t len)
 {
 	size_t		amount;
 
@@ -302,7 +302,7 @@ pool_discardbytes(PoolPort * port, size_t len)
  * --------------------------------
  */
 static int
-pool_recvbuf(PoolPort * port)
+pool_recvbuf(PoolPort *port)
 {
 	if (port->RecvPointer > 0)
 	{
@@ -358,7 +358,7 @@ pool_recvbuf(PoolPort * port)
  * Put a known number of bytes into the connection buffer
  */
 int
-pool_putbytes(PoolPort * port, const char *s, size_t len)
+pool_putbytes(PoolPort *port, const char *s, size_t len)
 {
 	size_t		amount;
 
@@ -387,7 +387,7 @@ pool_putbytes(PoolPort * port, const char *s, size_t len)
  * --------------------------------
  */
 int
-pool_flush(PoolPort * port)
+pool_flush(PoolPort *port)
 {
 	static int	last_reported_send_errno = 0;
 
@@ -434,7 +434,7 @@ pool_flush(PoolPort * port)
  * Put the pooler protocol message into the connection buffer
  */
 int
-pool_putmessage(PoolPort * port, char msgtype, const char *s, size_t len)
+pool_putmessage(PoolPort *port, char msgtype, const char *s, size_t len)
 {
 	uint		n32;
 
@@ -460,7 +460,7 @@ pool_putmessage(PoolPort * port, char msgtype, const char *s, size_t len)
  * connection
  */
 int
-pool_sendfds(PoolPort * port, int *fds, int count)
+pool_sendfds(PoolPort *port, int *fds, int count)
 {
 	struct iovec iov[1];
 	struct msghdr msg;
@@ -517,7 +517,7 @@ pool_sendfds(PoolPort * port, int *fds, int count)
  * Read a message from the specified connection carrying file descriptors
  */
 int
-pool_recvfds(PoolPort * port, int *fds, int count)
+pool_recvfds(PoolPort *port, int *fds, int count)
 {
 	int			r;
 	uint		n32;

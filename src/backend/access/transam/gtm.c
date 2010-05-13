@@ -30,7 +30,8 @@ static GTM_Conn *conn;
 	if (GTMPQstatus(conn) != CONNECTION_OK) InitGTM()
 
 
-bool IsGTMConnected()
+bool
+IsGTMConnected()
 {
 	return conn != NULL;
 }
@@ -59,14 +60,14 @@ InitGTM()
 }
 
 void
-CloseGTM()
+CloseGTM(void)
 {
 	GTMPQfinish(conn);
 	conn = NULL;
 }
 
 GlobalTransactionId
-BeginTranGTM()
+BeginTranGTM(void)
 {
 	GlobalTransactionId  xid = InvalidGlobalTransactionId;
 
@@ -89,7 +90,7 @@ BeginTranGTM()
 }
 
 GlobalTransactionId
-BeginTranAutovacuumGTM()
+BeginTranAutovacuumGTM(void)
 {
 	GlobalTransactionId  xid = InvalidGlobalTransactionId;
 
@@ -176,8 +177,9 @@ GetSnapshotGTM(GlobalTransactionId gxid, bool canbe_grouped)
  *
  * 
  */
-int CreateSequenceGTM(char *seqname, GTM_Sequence increment, GTM_Sequence minval,
-		GTM_Sequence maxval, GTM_Sequence startval, bool cycle)
+int
+CreateSequenceGTM(char *seqname, GTM_Sequence increment, GTM_Sequence minval,
+				  GTM_Sequence maxval, GTM_Sequence startval, bool cycle)
 {
 	GTM_SequenceKeyData seqkey;
 	CheckConnection();
@@ -222,5 +224,3 @@ DropSequenceGTM(char *seqname)
 
 	return conn ? close_sequence(conn, &seqkey) : -1;
 }
-
-

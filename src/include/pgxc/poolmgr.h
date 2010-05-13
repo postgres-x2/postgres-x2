@@ -30,14 +30,14 @@ typedef struct
 	char	   *port;
 	char	   *uname;
 	char	   *password;
-}	DataNodeConnectionInfo;
+} DataNodeConnectionInfo;
 
 /* Connection pool entry */
 typedef struct
 {
 	struct timeval released;
 	NODE_CONNECTION *conn;
-}	DataNodePoolSlot;
+} DataNodePoolSlot;
 
 /* Pool of connections to specified data nodes */
 typedef struct
@@ -46,7 +46,7 @@ typedef struct
 	int			freeSize;	/* available connections */
 	int			size;  		/* total pool size */
 	DataNodePoolSlot **slot; 
-}	DataNodePool;
+} DataNodePool;
 
 /* All pools for specified database */
 typedef struct databasepool
@@ -55,7 +55,7 @@ typedef struct databasepool
 	char	   *database;
 	DataNodePool **nodePools; /* one for each data node */
 	struct databasepool *next;
-}	DatabasePool;
+} DatabasePool;
 
 /* Agent of client session (Pool Manager side) 
  * Acts as a session manager, grouping connections together
@@ -66,14 +66,14 @@ typedef struct
 	PoolPort	port;
 	DatabasePool *pool;
 	DataNodePoolSlot **connections; /* one for each data node */
-}	PoolAgent;
+} PoolAgent;
 
 /* Handle to the pool manager (Session's side) */
 typedef struct
 {
 	/* communication channel */
 	PoolPort	port;
-}	PoolHandle;
+} PoolHandle;
 
 extern int	NumDataNodes;
 extern int	MinPoolSize;
@@ -107,19 +107,19 @@ extern PoolHandle *GetPoolManagerHandle(void);
  * Called from Postmaster(Coordinator) after fork. Close one end of the pipe and
  * free memory occupied by PoolHandler
  */
-extern void PoolManagerCloseHandle(PoolHandle * handle);
+extern void PoolManagerCloseHandle(PoolHandle *handle);
 
 /*
  * Gracefully close connection to the PoolManager
  */
-extern void PoolManagerDisconnect(PoolHandle * handle);
+extern void PoolManagerDisconnect(PoolHandle *handle);
 
 /*
  * Called from Session process after fork(). Associate handle with session
  * for subsequent calls. Associate session with specified database and
  * initialize respective connection pool
  */
-extern void PoolManagerConnect(PoolHandle * handle, const char *database, List *nodes);
+extern void PoolManagerConnect(PoolHandle *handle, const char *database);
 
 /* Get pooled connections */
 extern int *PoolManagerGetConnections(List *nodelist);

@@ -42,7 +42,8 @@
 #include "catalog/namespace.h"
 
 
-/* PGXCTODO For prototype, relations use the same hash mapping table.
+/* 
+ * PGXCTODO For prototype, relations use the same hash mapping table.
  * Long term, make it a pointer in RelationLocInfo, and have
  * similarly handled tables point to the same mapping table,
  * to check faster for equivalency
@@ -151,9 +152,7 @@ static int
 get_node_from_hash(int hash)
 {
 	if (hash > HASH_SIZE || hash < 0)
-	{
 		ereport(ERROR, (errmsg("Hash value out of range\n")));
-	}
 
 	return mappingTable[hash];
 }
@@ -203,7 +202,7 @@ GetRelationHashColumn(RelationLocInfo * rel_loc_info)
  *
  */
 bool
-IsHashColumn(RelationLocInfo * rel_loc_info, char *part_col_name)
+IsHashColumn(RelationLocInfo *rel_loc_info, char *part_col_name)
 {
 	bool		ret_value = false;
 
@@ -231,7 +230,7 @@ IsHashColumnForRelId(Oid relid, char *part_col_name)
 }
 
 
-/**
+/*
  * Update the round robin node for the relation
  *
  * PGXCTODO - may not want to bother with locking here, we could track
@@ -281,7 +280,7 @@ GetRoundRobinNode(Oid relid)
  * The returned List is a copy, so it should be freed when finished.
  */
 Exec_Nodes *
-GetRelationNodes(RelationLocInfo * rel_loc_info, long *partValue, int isRead)
+GetRelationNodes(RelationLocInfo *rel_loc_info, long *partValue, int isRead)
 {
 	ListCell   *prefItem;
 	ListCell   *stepItem;
@@ -465,7 +464,7 @@ GetAllNodes(void)
 }
 
 
-/**
+/*
  * Build locator information associated with the specified relation.
  *
  */
@@ -580,7 +579,7 @@ GetRelationLocInfo(Oid relid)
 	return ret_loc_info;
 }
 
-/** 
+/* 
  * Copy the RelationLocInfo struct
  */
 RelationLocInfo *
@@ -608,7 +607,7 @@ CopyRelationLocInfo(RelationLocInfo * src_info)
 }
 
 
-/**
+/*
  * Free RelationLocInfo struct
  */
 void

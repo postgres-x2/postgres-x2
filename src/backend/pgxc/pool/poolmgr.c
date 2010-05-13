@@ -82,22 +82,22 @@ static PoolHandle *Handle = NULL;
 
 static int	server_fd = -1;
 
-static void agent_init(PoolAgent * agent, const char *database, List *nodes);
-static void agent_destroy(PoolAgent * agent);
+static void agent_init(PoolAgent *agent, const char *database, List *nodes);
+static void agent_destroy(PoolAgent *agent);
 static void agent_create(void);
-static void agent_handle_input(PoolAgent * agent, StringInfo s);
+static void agent_handle_input(PoolAgent *agent, StringInfo s);
 static DatabasePool *create_database_pool(const char *database, List *nodes);
-static void insert_database_pool(DatabasePool * pool);
+static void insert_database_pool(DatabasePool *pool);
 static int	destroy_database_pool(const char *database);
 static DatabasePool *find_database_pool(const char *database);
 static DatabasePool *remove_database_pool(const char *database);
-static int *agent_acquire_connections(PoolAgent * agent, List *nodelist);
-static DataNodePoolSlot *acquire_connection(DatabasePool * dbPool, int node);
-static void agent_release_connections(PoolAgent * agent, bool clean);
-static void release_connection(DatabasePool * dbPool, DataNodePoolSlot * slot, int index, bool clean);
-static void destroy_slot(DataNodePoolSlot * slot);
-static void grow_pool(DatabasePool * dbPool, int index);
-static void destroy_node_pool(DataNodePool * node_pool);
+static int *agent_acquire_connections(PoolAgent *agent, List *nodelist);
+static DataNodePoolSlot *acquire_connection(DatabasePool *dbPool, int node);
+static void agent_release_connections(PoolAgent *agent, bool clean);
+static void release_connection(DatabasePool *dbPool, DataNodePoolSlot *slot, int index, bool clean);
+static void destroy_slot(DataNodePoolSlot *slot);
+static void grow_pool(DatabasePool *dbPool, int index);
+static void destroy_node_pool(DataNodePool *node_pool);
 static void PoolerLoop(void);
 
 /* Signal handlers */
@@ -105,7 +105,7 @@ static void pooler_die(SIGNAL_ARGS);
 static void pooler_quickdie(SIGNAL_ARGS);
 
 /* Check status of connection */
-extern int	pqReadReady(PGconn * conn);
+extern int	pqReadReady(PGconn *conn);
 
 /*
  * Flags set by interrupt handlers for later service in the main loop.
@@ -505,7 +505,7 @@ GetPoolManagerHandle(void)
  * Close handle
  */
 void
-PoolManagerCloseHandle(PoolHandle * handle)
+PoolManagerCloseHandle(PoolHandle *handle)
 {
 	close(Socket(handle->port));
 	free(handle);
@@ -561,7 +561,7 @@ agent_create(void)
  * Invoked from Session process
  */
 void
-PoolManagerConnect(PoolHandle * handle, const char *database, List *nodes)
+PoolManagerConnect(PoolHandle *handle, const char *database)
 {
 	Assert(Handle);
 	Assert(database);
@@ -579,7 +579,7 @@ PoolManagerConnect(PoolHandle * handle, const char *database, List *nodes)
  * Init PoolAgent 
 */
 static void
-agent_init(PoolAgent * agent, const char *database, List *nodes)
+agent_init(PoolAgent *agent, const char *database, List *nodes)
 {
 	Assert(agent);
 	Assert(database);
@@ -602,7 +602,7 @@ agent_init(PoolAgent * agent, const char *database, List *nodes)
  * Destroy PoolAgent 
  */
 static void
-agent_destroy(PoolAgent * agent)
+agent_destroy(PoolAgent *agent)
 {
 	int			i;
 
@@ -640,7 +640,7 @@ agent_destroy(PoolAgent * agent)
  * Release handle to pool manager 
  */
 void
-PoolManagerDisconnect(PoolHandle * handle)
+PoolManagerDisconnect(PoolHandle *handle)
 {
 	Assert(handle);
 
@@ -672,7 +672,7 @@ PoolManagerGetConnections(List *nodelist)
 	i = 1;
 	foreach(nodelist_item, nodelist)
 	{
-		nodes[i++] = htonl(nodelist_item->data.int_value);
+		nodes[i++] = htonl(lfirst_int(nodelist_item));
 	}
 	pool_putmessage(&Handle->port, 'g', (char *) nodes, sizeof(int) * (list_length(nodelist) + 1));
 	pool_flush(&Handle->port);
@@ -763,7 +763,7 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
  * acquire connection
  */
 static int *
-agent_acquire_connections(PoolAgent * agent, List *nodelist)
+agent_acquire_connections(PoolAgent *agent, List *nodelist)
 {
 	int			i;
 	int		   *result;
@@ -802,7 +802,7 @@ agent_acquire_connections(PoolAgent * agent, List *nodelist)
 	i = 0;
 	foreach(nodelist_item, nodelist)
 	{
-		int			node = nodelist_item->data.int_value;
+		int			node = lfirst_int(nodelist_item);
 
 		/* Acquire from the pool if none */
 		if (agent->connections[node - 1] == NULL)
@@ -831,7 +831,7 @@ agent_acquire_connections(PoolAgent * agent, List *nodelist)
  * Retun connections back to the pool 
  */
 void
-PoolManagerReleaseConnections()
+PoolManagerReleaseConnections(void)
 {
 	Assert(Handle);
 
@@ -844,7 +844,7 @@ PoolManagerReleaseConnections()
  * Release connections
  */
 static void
-agent_release_connections(PoolAgent * agent, bool clean)
+agent_release_connections(PoolAgent *agent, bool clean)
 {
 	int			i;
 
@@ -860,9 +860,7 @@ agent_release_connections(PoolAgent * agent, bool clean)
 
 		/* Release connection */
 		if (slot)
-		{
 			release_connection(agent->pool, slot, i, clean);
-		}
 		agent->connections[i] = NULL;
 	}
 }
@@ -880,7 +878,7 @@ create_database_pool(const char *database, List *nodes)
 	int			i;
 	ListCell   *l;
 
-	Assert(nodes && nodes->length > 0);
+	Assert(nodes && list_length(nodes) > 0);
 
 	/* check if exist */
 	databasePool = find_database_pool(database);
@@ -978,7 +976,7 @@ destroy_database_pool(const char *database)
  * Insert new database pool to the list 
  */
 static void
-insert_database_pool(DatabasePool * databasePool)
+insert_database_pool(DatabasePool *databasePool)
 {
 	Assert(databasePool);
 
@@ -1020,8 +1018,7 @@ find_database_pool(const char *database)
 /* 
  * Remove pool for specified database from the list 
  */
-static DatabasePool
-*
+static DatabasePool *
 remove_database_pool(const char *database)
 {
 	DatabasePool *databasePool,
@@ -1060,7 +1057,7 @@ remove_database_pool(const char *database)
  * Acquire connection
  */
 static DataNodePoolSlot *
-acquire_connection(DatabasePool * dbPool, int node)
+acquire_connection(DatabasePool *dbPool, int node)
 {
 	DataNodePool *nodePool;
 	DataNodePoolSlot *slot;
@@ -1091,10 +1088,7 @@ acquire_connection(DatabasePool * dbPool, int node)
 			poll_result = pqReadReady(slot->conn);
 
 			if (poll_result == 0)
-			{
-				/* ok, no data */
-				break;
-			}
+				break; 		/* ok, no data */
 			else if (poll_result < 0)
 			{
 				if (errno == EAGAIN || errno == EINTR)
@@ -1103,9 +1097,7 @@ acquire_connection(DatabasePool * dbPool, int node)
 				elog(WARNING, "Error in checking connection, errno = %d", errno);
 			}
 			else
-			{
 				elog(WARNING, "Unexpected data on connection, cleaning.");
-			}
 
 			destroy_slot(slot);
 			/* Decrement current max pool size */
@@ -1115,12 +1107,9 @@ acquire_connection(DatabasePool * dbPool, int node)
 		}
 	}
 	else
-	{
-		/* report problem */
 		ereport(LOG,
 				(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
 				 errmsg("connection pool is empty")));
-	}
 	return slot;
 }
 
@@ -1184,11 +1173,9 @@ grow_pool(DatabasePool * dbPool, int index)
 		/* Allocate new DBNode Pool */
 		nodePool = (DataNodePool *) palloc(sizeof(DataNodePool));
 		if (!nodePool)
-		{
 			ereport(ERROR,
 					(errcode(ERRCODE_OUT_OF_MEMORY),
 					 errmsg("out of memory")));
-		}
 
 		/* initialize it */
 		nodePool->connstr = DataNodeConnStr(
@@ -1263,7 +1250,7 @@ grow_pool(DatabasePool * dbPool, int index)
  * Destroy pool slot
  */
 static void
-destroy_slot(DataNodePoolSlot * slot)
+destroy_slot(DataNodePoolSlot *slot)
 {
 	DataNodeClose(slot->conn);
 	pfree(slot);
@@ -1274,7 +1261,7 @@ destroy_slot(DataNodePoolSlot * slot)
  * Destroy node pool
  */
 static void
-destroy_node_pool(DataNodePool * node_pool)
+destroy_node_pool(DataNodePool *node_pool)
 {
 	int			i;
 
@@ -1330,7 +1317,7 @@ PoolerLoop(void)
 
 		/* watch for incoming connections */
 		FD_ZERO(&rfds);
-		FD_SET		(server_fd, &rfds);
+		FD_SET(server_fd, &rfds);
 
 		nfds = server_fd;
 

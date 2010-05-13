@@ -53,30 +53,30 @@ static DataNodeHandle **write_node_list = NULL;
 static int	write_node_count = 0;
 
 static DataNodeHandle **get_handles(List *nodelist);
-static int	get_transaction_nodes(DataNodeHandle ** connections);
+static int	get_transaction_nodes(DataNodeHandle **connections);
 static void release_handles(void);
 
-static void data_node_init(DataNodeHandle * handle, int sock);
-static void data_node_free(DataNodeHandle * handle);
+static void data_node_init(DataNodeHandle *handle, int sock);
+static void data_node_free(DataNodeHandle *handle);
 
-static int	data_node_begin(int conn_count, DataNodeHandle ** connections, CommandDest dest, GlobalTransactionId gxid);
-static int	data_node_commit(int conn_count, DataNodeHandle ** connections, CommandDest dest);
-static int	data_node_rollback(int conn_count, DataNodeHandle ** connections, CommandDest dest);
+static int	data_node_begin(int conn_count, DataNodeHandle **connections, CommandDest dest, GlobalTransactionId gxid);
+static int	data_node_commit(int conn_count, DataNodeHandle **connections, CommandDest dest);
+static int	data_node_rollback(int conn_count, DataNodeHandle **connections, CommandDest dest);
 
-static int	ensure_in_buffer_capacity(size_t bytes_needed, DataNodeHandle * handle);
-static int	ensure_out_buffer_capacity(size_t bytes_needed, DataNodeHandle * handle);
+static int	ensure_in_buffer_capacity(size_t bytes_needed, DataNodeHandle *handle);
+static int	ensure_out_buffer_capacity(size_t bytes_needed, DataNodeHandle *handle);
 
-static int	data_node_send_query(DataNodeHandle * handle, const char *query);
-static int	data_node_send_gxid(DataNodeHandle * handle, GlobalTransactionId gxid);
-static int	data_node_send_snapshot(DataNodeHandle * handle, Snapshot snapshot);
+static int	data_node_send_query(DataNodeHandle *handle, const char *query);
+static int	data_node_send_gxid(DataNodeHandle *handle, GlobalTransactionId gxid);
+static int	data_node_send_snapshot(DataNodeHandle *handle, Snapshot snapshot);
 
-static void add_error_message(DataNodeHandle * handle, const char *message);
+static void add_error_message(DataNodeHandle *handle, const char *message);
 
-static int	data_node_read_data(DataNodeHandle * conn);
-static int	handle_response(DataNodeHandle * conn, ResponseCombiner combiner);
+static int	data_node_read_data(DataNodeHandle *conn);
+static int	handle_response(DataNodeHandle *conn, ResponseCombiner combiner);
 
-static int	get_int(DataNodeHandle * conn, size_t len, int *out);
-static int	get_char(DataNodeHandle * conn, char *out);
+static int	get_int(DataNodeHandle *conn, size_t len, int *out);
+static int	get_char(DataNodeHandle *conn, char *out);
 
 static void clear_write_node_list();
 
@@ -111,15 +111,18 @@ stat_transaction(int node_count)
 	total_transactions++;
 	if (autocommit)
 		total_autocommit++;
+
 	if (!statements_per_transaction)
 	{
 		statements_per_transaction = (int *) malloc((MAX_STATEMENTS_PER_TRAN + 1) * sizeof(int));
 		memset(statements_per_transaction, 0, (MAX_STATEMENTS_PER_TRAN + 1) * sizeof(int));
 	}
+	
 	if (current_tran_statements > MAX_STATEMENTS_PER_TRAN)
 		statements_per_transaction[MAX_STATEMENTS_PER_TRAN]++;
 	else
 		statements_per_transaction[current_tran_statements]++;
+	
 	current_tran_statements = 0;
 	if (node_count > 0 && node_count <= NumDataNodes)
 	{
@@ -137,7 +140,7 @@ stat_transaction(int node_count)
  * To collect statistics: count a two-phase commit on nodes
  */
 static void
-stat_2pc()
+stat_2pc(void)
 {
 	if (autocommit)
 		autocommit_2pc++;
@@ -150,7 +153,7 @@ stat_2pc()
  * Output collected statistics to the log
  */
 static void
-stat_log()
+stat_log(void)
 {
 	elog(DEBUG1, "Total Transactions: %d Total Statements: %d", total_transactions, total_statements);
 	elog(DEBUG1, "Autocommit: %d 2PC for Autocommit: %d 2PC for non-Autocommit: %d",
@@ -182,7 +185,7 @@ stat_log()
  * Allocate and initialize memory to store DataNode handles.
  */
 void
-InitMultinodeExecutor()
+InitMultinodeExecutor(void)
 {
 	int			i;
 
@@ -277,7 +280,7 @@ DataNodeConnect(char *connstr)
  * Close specified connection
  */
 void
-DataNodeClose(NODE_CONNECTION * conn)
+DataNodeClose(NODE_CONNECTION *conn)
 {
 	/* Delegate call to the pglib */
 	PQfinish((PGconn *) conn);
@@ -288,7 +291,7 @@ DataNodeClose(NODE_CONNECTION * conn)
  * Checks if connection active
  */
 int
-DataNodeConnected(NODE_CONNECTION * conn)
+DataNodeConnected(NODE_CONNECTION *conn)
 {
 	/* Delegate call to the pglib */
 	PGconn	   *pgconn = (PGconn *) conn;
@@ -309,7 +312,7 @@ DataNodeConnected(NODE_CONNECTION * conn)
  * is destroyed in xact.c.
  */
 static void
-data_node_free(DataNodeHandle * handle)
+data_node_free(DataNodeHandle *handle)
 {
 	close(handle->sock);
 	handle->sock = NO_SOCKET;
@@ -322,7 +325,7 @@ data_node_free(DataNodeHandle * handle)
  * Structure stores state info and I/O buffers
  */
 static void
-data_node_init(DataNodeHandle * handle, int sock)
+data_node_init(DataNodeHandle *handle, int sock)
 {
 	handle->sock = sock;
 	handle->transaction_status = 'I';
@@ -339,8 +342,8 @@ data_node_init(DataNodeHandle * handle, int sock)
  * Handle responses from the Data node connections
  */
 static void
-data_node_receive_responses(const int conn_count, DataNodeHandle ** connections,
-						 struct timeval * timeout, ResponseCombiner combiner)
+data_node_receive_responses(const int conn_count, DataNodeHandle **connections,
+						 struct timeval *timeout, ResponseCombiner combiner)
 {
 	int			count = conn_count;
 	DataNodeHandle *to_receive[conn_count];
@@ -466,7 +469,7 @@ retry:
  * Read up incoming messages from the Data ndoe connection
  */
 static int
-data_node_read_data(DataNodeHandle * conn)
+data_node_read_data(DataNodeHandle *conn)
 {
 	int			someread = 0;
 	int			nread;
@@ -602,7 +605,7 @@ retry:
  * Get one character from the connection buffer and advance cursor
  */
 static int
-get_char(DataNodeHandle * conn, char *out)
+get_char(DataNodeHandle *conn, char *out)
 {
 	if (conn->inCursor < conn->inEnd)
 	{
@@ -616,7 +619,7 @@ get_char(DataNodeHandle * conn, char *out)
  * Read an integer from the connection buffer and advance cursor
  */
 static int
-get_int(DataNodeHandle * conn, size_t len, int *out)
+get_int(DataNodeHandle *conn, size_t len, int *out)
 {
 	unsigned short tmp2;
 	unsigned int tmp4;
@@ -651,7 +654,7 @@ get_int(DataNodeHandle * conn, size_t len, int *out)
  * and closing the connections.
  */
 static int
-handle_response(DataNodeHandle * conn, ResponseCombiner combiner)
+handle_response(DataNodeHandle *conn, ResponseCombiner combiner)
 {
 	char		msg_type;
 	int			msg_len;
@@ -787,7 +790,7 @@ handle_response(DataNodeHandle * conn, ResponseCombiner combiner)
  * Send BEGIN command to the Data nodes and receive responses
  */
 static int
-data_node_begin(int conn_count, DataNodeHandle ** connections, CommandDest dest, GlobalTransactionId gxid)
+data_node_begin(int conn_count, DataNodeHandle **connections, CommandDest dest, GlobalTransactionId gxid)
 {
 	int			i;
 	struct timeval *timeout = NULL;
@@ -814,13 +817,12 @@ data_node_begin(int conn_count, DataNodeHandle ** connections, CommandDest dest,
 
 /* Clears the write node list */
 static void
-clear_write_node_list()
+clear_write_node_list(void)
 {
 	/* we just malloc once and use counter */
 	if (write_node_list == NULL)
-	{
 		write_node_list = (DataNodeHandle **) malloc(NumDataNodes * sizeof(DataNodeHandle *));
-	}
+
 	write_node_count = 0;
 }
 
@@ -877,7 +879,7 @@ finish:
  * Send COMMIT or PREPARE/COMMIT PREPARED down to the Data nodes and handle responses
  */
 static int
-data_node_commit(int conn_count, DataNodeHandle ** connections, CommandDest dest)
+data_node_commit(int conn_count, DataNodeHandle **connections, CommandDest dest)
 {
 	int			i;
 	struct timeval *timeout = NULL;
@@ -1042,7 +1044,7 @@ release_handles(void)
  * Send ROLLBACK command down to the Data nodes and handle responses
  */
 static int
-data_node_rollback(int conn_count, DataNodeHandle ** connections, CommandDest dest)
+data_node_rollback(int conn_count, DataNodeHandle **connections, CommandDest dest)
 {
 	int			i;
 	struct timeval *timeout = NULL;
@@ -1572,7 +1574,7 @@ data_node_flush(DataNodeHandle *handle)
  * Send specified statement down to the Data node
  */
 static int
-data_node_send_query(DataNodeHandle * handle, const char *query)
+data_node_send_query(DataNodeHandle *handle, const char *query)
 {
 	int			strLen = strlen(query) + 1;
 
@@ -1603,7 +1605,7 @@ data_node_send_query(DataNodeHandle * handle, const char *query)
  * Send the GXID down to the Data node
  */
 static int
-data_node_send_gxid(DataNodeHandle * handle, GlobalTransactionId gxid)
+data_node_send_gxid(DataNodeHandle *handle, GlobalTransactionId gxid)
 {
 	int			msglen = 8;
 	int			i32;
@@ -1631,7 +1633,7 @@ data_node_send_gxid(DataNodeHandle * handle, GlobalTransactionId gxid)
  * Send the snapshot down to the Data node
  */
 static int
-data_node_send_snapshot(DataNodeHandle * handle, Snapshot snapshot)
+data_node_send_snapshot(DataNodeHandle *handle, Snapshot snapshot)
 {
 	int			msglen;
 	int			nval;
@@ -1685,7 +1687,7 @@ data_node_send_snapshot(DataNodeHandle * handle, Snapshot snapshot)
  * at the convenient time
  */
 static void
-add_error_message(DataNodeHandle * handle, const char *message)
+add_error_message(DataNodeHandle *handle, const char *message)
 {
 	handle->transaction_status = 'E';
 	handle->state = DN_CONNECTION_STATE_ERROR_READY;
@@ -1694,9 +1696,7 @@ add_error_message(DataNodeHandle * handle, const char *message)
 		/* PGXCTODO append */
 	}
 	else
-	{
 		handle->error = pstrdup(message);
-	}
 }
 
 /*
@@ -1755,7 +1755,7 @@ get_handles(List *nodelist)
 		i = 0;
 		foreach(node_list_item, nodelist)
 		{
-			int			node = node_list_item->data.int_value;
+			int			node = lfirst_int(node_list_item);
 
 			if (node > NumDataNodes || node <= 0)
 				elog(ERROR, "Node number: %d passed is not a known node", node);
@@ -1778,7 +1778,7 @@ get_handles(List *nodelist)
 		}
 		foreach(node_list_item, allocate)
 		{
-			int			node = node_list_item->data.int_value;
+			int			node = lfirst_int(node_list_item);
 			int			fdsock = fds[j++];
 
 			data_node_init(&handles[node - 1], fdsock);
@@ -1894,9 +1894,7 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_
 
 	/* We normally clear for transactions, but if autocommit, clear here, too */
 	if (autocommit)
-	{
 		clear_write_node_list();
-	}
 
 	/* Check status of connections */
 	/* We want to track new "write" nodes, and new nodes in the current transaction
@@ -1936,6 +1934,7 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_
 		pfree(copy_connections);
 		return NULL;
 	}
+
 	if (new_count > 0 && need_tran)
 	{
 		/* Start transaction on connections where it is not started */
@@ -1989,8 +1988,8 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_
 		{
 			if (need_tran)
 				DataNodeCopyFinish(connections, 0, COMBINE_TYPE_NONE, DestNone);
-			else
-				if (!PersistentConnections) release_handles();
+			else if (!PersistentConnections)
+				release_handles();
 		}
 
 		pfree(connections);
@@ -2015,9 +2014,7 @@ DataNodeCopyIn(char *data_row, int len, Exec_Nodes *exec_nodes, DataNodeHandle**
 	int nLen = htonl(msgLen);
 
 	if (exec_nodes->primarynodelist)
-	{
 		primary_handle = copy_connections[lfirst_int(list_head(exec_nodes->primarynodelist)) - 1];
-	}
 
 	if (primary_handle)
 	{
@@ -2159,7 +2156,7 @@ DataNodeCopyIn(char *data_row, int len, Exec_Nodes *exec_nodes, DataNodeHandle**
 }
 
 int
-DataNodeCopyOut(Exec_Nodes *exec_nodes, DataNodeHandle** copy_connections, CommandDest dest, FILE* copy_file)
+DataNodeCopyOut(Exec_Nodes *exec_nodes, DataNodeHandle **copy_connections, CommandDest dest, FILE *copy_file)
 {
 	ResponseCombiner combiner;
 	int conn_count = list_length(exec_nodes->nodelist) == 0 ? NumDataNodes : list_length(exec_nodes->nodelist);
@@ -2214,7 +2211,7 @@ DataNodeCopyOut(Exec_Nodes *exec_nodes, DataNodeHandle** copy_connections, Comma
  * Finish copy process on all connections
  */
 uint64
-DataNodeCopyFinish(DataNodeHandle** copy_connections, int primary_data_node,
+DataNodeCopyFinish(DataNodeHandle **copy_connections, int primary_data_node,
 		CombineType combine_type, CommandDest dest)
 {
 	int i;
@@ -2258,14 +2255,10 @@ DataNodeCopyFinish(DataNodeHandle** copy_connections, int primary_data_node,
 
 			/* We need response right away, so send immediately */
 			if (data_node_flush(primary_handle) < 0)
-			{
 				res = EOF;
-			}
 		}
 		else
-		{
 			res = EOF;
-		}
 
 		combiner = CreateResponseCombiner(conn_count + 1, combine_type, dest);
 		data_node_receive_responses(1, &primary_handle, timeout, combiner);
@@ -2279,11 +2272,9 @@ DataNodeCopyFinish(DataNodeHandle** copy_connections, int primary_data_node,
 		{
 			/* msgType + msgLen */
 			if (ensure_out_buffer_capacity(handle->outEnd + 1 + 4, handle) != 0)
-			{
 				ereport(ERROR,
 						(errcode(ERRCODE_OUT_OF_MEMORY),
 						 errmsg("out of memory")));
-			}
 
 			handle->outBuffer[handle->outEnd++] = 'c';
 			memcpy(handle->outBuffer + handle->outEnd, &nLen, 4);
@@ -2291,29 +2282,27 @@ DataNodeCopyFinish(DataNodeHandle** copy_connections, int primary_data_node,
 
 			/* We need response right away, so send immediately */
 			if (data_node_flush(handle) < 0)
-			{
 				res = EOF;
-			}
 		}
 		else
-		{
 			res = EOF;
-		}
 	}
 
 	need_tran = !autocommit || primary_handle || conn_count > 1;
 
 	if (!combiner)
 		combiner = CreateResponseCombiner(conn_count, combine_type, dest);
+	
 	data_node_receive_responses(conn_count, connections, timeout, combiner);
+
 	if (!ValidateAndCloseCombiner(combiner) || res)
 	{
 		if (autocommit)
 		{
 			if (need_tran)
 				DataNodeRollback(DestNone);
-			else
-				if (!PersistentConnections) release_handles();
+			else if (!PersistentConnections)
+				release_handles();
 		}
 
 		return 0;
@@ -2323,8 +2312,8 @@ DataNodeCopyFinish(DataNodeHandle** copy_connections, int primary_data_node,
 	{
 		if (need_tran)
 			DataNodeCommit(DestNone);
-		else
-			if (!PersistentConnections) release_handles();
+		else if (!PersistentConnections)
+			release_handles();
 	}
 
 	// Verify status?

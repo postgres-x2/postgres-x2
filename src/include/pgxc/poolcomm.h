@@ -32,18 +32,18 @@ typedef struct
 	/* send buffer */
 	int			SendPointer;
 	char		SendBuffer[POOL_BUFFER_SIZE];
-}	PoolPort;
+} PoolPort;
 
 extern int	pool_listen(unsigned short port, const char *unixSocketName);
 extern int	pool_connect(unsigned short port, const char *unixSocketName);
-extern int	pool_getbyte(PoolPort * port);
-extern int	pool_pollbyte(PoolPort * port);
-extern int	pool_getmessage(PoolPort * port, StringInfo s, int maxlen);
-extern int	pool_getbytes(PoolPort * port, char *s, size_t len);
-extern int	pool_putmessage(PoolPort * port, char msgtype, const char *s, size_t len);
-extern int	pool_putbytes(PoolPort * port, const char *s, size_t len);
-extern int	pool_flush(PoolPort * port);
-extern int	pool_sendfds(PoolPort * port, int *fds, int count);
-extern int	pool_recvfds(PoolPort * port, int *fds, int count);
+extern int	pool_getbyte(PoolPort *port);
+extern int	pool_pollbyte(PoolPort *port);
+extern int	pool_getmessage(PoolPort *port, StringInfo s, int maxlen);
+extern int	pool_getbytes(PoolPort *port, char *s, size_t len);
+extern int	pool_putmessage(PoolPort *port, char msgtype, const char *s, size_t len);
+extern int	pool_putbytes(PoolPort *port, const char *s, size_t len);
+extern int	pool_flush(PoolPort *port);
+extern int	pool_sendfds(PoolPort *port, int *fds, int count);
+extern int	pool_recvfds(PoolPort *port, int *fds, int count);
 
 #endif   /* POOLCOMM_H */

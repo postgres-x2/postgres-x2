@@ -89,7 +89,7 @@ parse_row_count(const char *message, size_t len, int *rowcount)
  * returns a boolean indicating whether or not it was a short message
  */
 static unsigned long
-parse_aggregate_value(SimpleAgg * simple_agg, char *msg_body, size_t len)
+parse_aggregate_value(SimpleAgg *simple_agg, char *msg_body, size_t len)
 {
 	char	   *valstr;
 

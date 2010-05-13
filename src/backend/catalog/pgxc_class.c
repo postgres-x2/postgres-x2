@@ -21,11 +21,12 @@
 #include "utils/syscache.h"
 #include "pgxc/locator.h"
 
-void PgxcClassCreate(Oid pcrelid,
-					char  pclocatortype,
-					int pcattnum,
-					int pchashalgorithm,
-					int pchashbuckets)
+void
+PgxcClassCreate(Oid pcrelid,
+				char  pclocatortype,
+				int pcattnum,
+				int pchashalgorithm,
+				int pchashbuckets)
 {
 	Relation pgxcclassrel;
 	HeapTuple  htup;
@@ -78,7 +79,8 @@ void PgxcClassCreate(Oid pcrelid,
  * arg1: Oid of the relation.
  *
  */
-void RemovePgxcClass(Oid pcrelid)
+void
+RemovePgxcClass(Oid pcrelid)
 {
 	Relation  relation;
 	HeapTuple tup;

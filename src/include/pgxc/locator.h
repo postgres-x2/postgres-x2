@@ -39,7 +39,7 @@ typedef struct
 	int			nodeCount;
 	List	   *nodeList;
 	ListCell   *roundRobinNode; /* points to next one to use */
-}	RelationLocInfo;
+} RelationLocInfo;
 
 
 /* track if tables use pg_catalog */
@@ -63,21 +63,21 @@ typedef struct
 	List	   *nodelist;
 	char	    baselocatortype;
 	TableUsageType tableusagetype;  /* track pg_catalog usage */
-}	Exec_Nodes;
+} Exec_Nodes;
 
 
 extern char *PreferredDataNodes;
 
-extern void InitRelationLocInfo();
+extern void InitRelationLocInfo(void);
 extern char GetLocatorType(Oid relid);
 extern char ConvertToLocatorType(int disttype);
 
-extern char *GetRelationHashColumn(RelationLocInfo * rel_loc_info);
+extern char *GetRelationHashColumn(RelationLocInfo *rel_loc_info);
 extern RelationLocInfo *GetRelationLocInfo(Oid relid);
-extern RelationLocInfo *CopyRelationLocInfo(RelationLocInfo * src_info);
-extern Exec_Nodes *GetRelationNodes(RelationLocInfo * rel_loc_info, long *partValue,
+extern RelationLocInfo *CopyRelationLocInfo(RelationLocInfo *src_info);
+extern Exec_Nodes *GetRelationNodes(RelationLocInfo *rel_loc_info, long *partValue,
 				 int isRead);
-extern bool IsHashColumn(RelationLocInfo * rel_loc_info, char *part_col_name);
+extern bool IsHashColumn(RelationLocInfo *rel_loc_info, char *part_col_name);
 extern bool IsHashColumnForRelId(Oid relid, char *part_col_name);
 extern int	GetRoundRobinNode(Oid relid);
 
@@ -85,6 +85,6 @@ extern bool IsHashDistributable(Oid col_type);
 extern List *GetAllNodes(void);
 extern List *GetAnyDataNode(void);
 extern void RelationBuildLocator(Relation rel);
-extern void FreeRelationLocInfo(RelationLocInfo * relationLocInfo);
+extern void FreeRelationLocInfo(RelationLocInfo *relationLocInfo);
 
 #endif   /* LOCATOR_H */

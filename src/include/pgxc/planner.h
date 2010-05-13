@@ -34,7 +34,7 @@ typedef struct
 	CombineType combine_type;
 	List	   *simple_aggregates;		/* simple aggregate to combine on this
 										 * step */
-}	Query_Step;
+} Query_Step;
 
 
 /*
@@ -47,7 +47,7 @@ typedef struct
 	int			exec_loc_type;
 	bool		force_autocommit;		/* For CREATE DATABASE */
 	List	   *query_step_list;	/* List of QuerySteps */
-}	Query_Plan;
+} Query_Plan;
 
 
 /* For handling simple aggregates (no group by present)
@@ -60,7 +60,7 @@ typedef enum
 	AGG_TYPE_COUNT,
 	AGG_TYPE_SUM,
 	AGG_TYPE_AVG
-}	SimpleAggType;
+} SimpleAggType;
 
 
 /* For handling simple aggregates */
@@ -74,7 +74,7 @@ typedef struct
 	int			data_len;
 	int			agg_data_type;
 	int			response_count;
-}	SimpleAgg;
+} SimpleAgg;
 
 /* forbid SQL if unsafe, useful to turn off for development */
 extern bool StrictStatementChecking;
@@ -82,10 +82,9 @@ extern bool StrictStatementChecking;
 /* forbid SELECT even multi-node ORDER BY */
 extern bool StrictSelectChecking;
 
-extern Query_Plan *
-			GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list);
-extern void
-			FreeQueryPlan(Query_Plan * query_plan);
+extern Query_Plan *GetQueryPlan(Node *parsetree, const char *sql_statement,
+								List *querytree_list);
+extern void FreeQueryPlan(Query_Plan *query_plan);
 extern bool IsHashDistributable(Oid col_type);
 
 #endif   /* PGXCPLANNER_H */
