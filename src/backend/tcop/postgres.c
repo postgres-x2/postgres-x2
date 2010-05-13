@@ -3620,6 +3620,20 @@ PostgresMain(int argc, char *argv[], const char *username)
 	if (!IsUnderPostmaster)
 		PgStartTime = GetCurrentTimestamp();
 
+#ifdef PGXC /* PGXC_COORD */
+	if (IS_PGXC_COORDINATOR)
+	{
+		InitMultinodeExecutor();
+		/* If we exit, first try and clean connections and send to pool */
+		on_proc_exit (DataNodeCleanAndRelease, 0);
+	}
+	if (IS_PGXC_DATANODE)
+	{
+		/* If we exit, first try and clean connection to GTM */
+		on_proc_exit (DataNodeShutdown, 0);
+	}
+#endif
+
 	/*
 	 * POSTGRES main processing loop begins here
 	 *
@@ -3715,19 +3729,6 @@ PostgresMain(int argc, char *argv[], const char *username)
 	if (!ignore_till_sync)
 		send_ready_for_query = true;	/* initially, or after error */
 
-#ifdef PGXC /* PGXC_COORD */
-	if (IS_PGXC_COORDINATOR)
-	{
-		InitMultinodeExecutor();
-		/* If we exit, first try and clean connections and send to pool */
-		on_proc_exit (DataNodeCleanAndRelease, 0);
-	}
-	if (IS_PGXC_DATANODE)
-	{
-		/* If we exit, first try and clean connection to GTM */
-		on_proc_exit (DataNodeShutdown, 0);
-	}
-#endif
 	/*
 	 * Non-error queries loop here.
 	 */
