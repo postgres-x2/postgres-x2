@@ -23,6 +23,7 @@
 : ${AWK='awk'}
 
 CMDNAME=`basename $0`
+DIRNAME=`dirname $0`
 
 INCLUDE_DIRS=
 OUTPUT_PREFIX=
@@ -143,12 +144,13 @@ touch ${OUTPUT_PREFIX}.shdescription.$$
 #	Also handle #ifdef PGXC to preprocess header files.
 # ----------------
 #
-#See if PGXC is defined in CFLAGS
-PGXCdefined=0
-echo $CFLAGS | grep "\-DPGXC" >/dev/null
+#See if PGXC is undefined (assume it is defined by default)
+PGXCdefined=1
+#echo $CFLAGS | grep "\-UPGXC" >/dev/null
+grep "\-UPGXC" $DIRNAME/../../Makefile.global >/dev/null
 if [ $? -eq 0 ]
 then
-	PGXCdefined=1
+	PGXCdefined=0
 fi
 cat $INFILES | \
 $AWK '

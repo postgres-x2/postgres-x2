@@ -30,7 +30,8 @@ esac
 
 fi
 
-
+# For PGXC, set -DPGXC by default. This can be overriden with -UPGXC if the user sets it.
+CFLAGS="$CFLAGS -DPGXC"
 
 
 # PATH needs CR
