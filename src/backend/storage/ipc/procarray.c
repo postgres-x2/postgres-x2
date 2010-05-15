@@ -296,6 +296,13 @@ ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid)
 		 * anyone else's calculation of a snapshot.  We might change their
 		 * estimate of global xmin, but that's OK.
 		 */
+#ifdef PGXC
+		/*
+		 * Removed this assertion check for PGXC on the Coordinator
+		 * We could abort before the Coordinator has obtained a GXID
+		 */
+	if (IS_PGXC_DATANODE)
+#endif
 		Assert(!TransactionIdIsValid(proc->xid));
 
 		proc->lxid = InvalidLocalTransactionId;
@@ -1645,11 +1652,13 @@ GetSnapshotDataCoordinator(Snapshot snapshot)
 			ereport(ERROR,
 				(errcode(ERRCODE_CONNECTION_FAILURE),
 				errmsg("GTM error, could not obtain snapshot")));
-	else {
+	else 
+	{
 		snapshot->xmin = gtm_snapshot->sn_xmin;
 		snapshot->xmax = gtm_snapshot->sn_xmax;
 		snapshot->recent_global_xmin = gtm_snapshot->sn_recent_global_xmin;
 		snapshot->xcnt = gtm_snapshot->sn_xcnt;
+		RecentGlobalXmin = gtm_snapshot->sn_recent_global_xmin;
 		elog(DEBUG1, "from GTM: xmin = %d, xmax = %d, xcnt = %d, RecGlobXmin = %d",
 			snapshot->xmin, snapshot->xmax, snapshot->xcnt, snapshot->recent_global_xmin);
 		/*
@@ -1715,6 +1724,7 @@ GetSnapshotDataCoordinator(Snapshot snapshot)
 		 *
 		 * !!TODO
 		 */
+		RecentXmin = snapshot->xmin;
 
 		/* PGXCTODO - set this until we handle subtransactions. */
 		snapshot->subxcnt = 0; 

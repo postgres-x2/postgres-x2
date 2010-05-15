@@ -1702,6 +1702,7 @@ CommitTransaction(void)
 		 */
 		DataNodeCommit(DestNone);
 		CommitTranGTM(s->globalTransactionId);
+		latestXid = s->globalTransactionId;
 	}
 	else if (IS_PGXC_DATANODE)
 	{
@@ -2146,6 +2147,7 @@ AbortTransaction(void)
 		 */
 		DataNodeRollback(DestNone);
 		RollbackTranGTM(s->globalTransactionId);
+		latestXid = s->globalTransactionId;
 	}
 	else if (IS_PGXC_DATANODE)
 	{

@@ -563,7 +563,7 @@ agent_create(void)
 void
 PoolManagerConnect(PoolHandle *handle, const char *database)
 {
-	Assert(Handle);
+	Assert(handle);
 	Assert(database);
 
 	/* Save the handle */
@@ -1063,7 +1063,7 @@ acquire_connection(DatabasePool *dbPool, int node)
 	DataNodePoolSlot *slot;
 
 	Assert(dbPool);
-	Assert(0 <= node && node < NumDataNodes);
+	Assert(0 < node && node <= NumDataNodes);
 
 	slot = NULL;
 	/* Find referenced node pool */
