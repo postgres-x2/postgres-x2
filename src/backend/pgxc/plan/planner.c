@@ -274,6 +274,10 @@ get_base_var(Var *var, List *rtables)
 {
 	RangeTblEntry *rte;
 
+	/* Skip system attributes */
+	if (!AttrNumberIsForUserDefinedAttr(var->varattno))
+		return NULL;
+
 	/* get the RangeTableEntry */
 	rte = list_nth(rtables, var->varno - 1);
 
