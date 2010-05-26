@@ -800,6 +800,32 @@ CopyQuoteIdentifier(StringInfo query_buf, char *value)
 }
 #endif
 
+#ifdef PGXC
+/*
+ * In case there is no locator info available, copy to/from is launched in portal on coordinator.
+ * This happens for pg_catalog tables (not user defined ones)
+ * such as pg_catalog, pg_attribute, etc.
+ * This part is launched before the portal is activated, so check a first time if there
+ * some locator data for this relid and if no, return and launch the portal.
+ */
+bool
+IsCoordPortalCopy(const CopyStmt *stmt)
+{
+	RelationLocInfo	   *rel_loc;   /* the locator key */
+
+	/* In the case of a COPY SELECT, this is launched on datanodes */
+	if(!stmt->relation)
+		return false;
+
+	rel_loc = GetRelationLocInfo(RangeVarGetRelid(stmt->relation, true));
+
+	if (!rel_loc)
+		return true;
+
+	return false;
+}
+#endif
+
 /*
  *	 DoCopy executes the SQL COPY statement
  *
@@ -832,7 +858,7 @@ CopyQuoteIdentifier(StringInfo query_buf, char *value)
  */
 uint64
 #ifdef PGXC
-DoCopy(const CopyStmt *stmt, const char *queryString, bool exec_on_coord_portal, bool *executed)
+DoCopy(const CopyStmt *stmt, const char *queryString, bool exec_on_coord_portal)
 #else
 DoCopy(const CopyStmt *stmt, const char *queryString)
 #endif
@@ -1155,21 +1181,6 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 			exec_nodes = (Exec_Nodes *) palloc0(sizeof(Exec_Nodes));
 
 			cstate->rel_loc = GetRelationLocInfo(RelationGetRelid(cstate->rel));
-			/*
-			 * In case there is no locator info available, copy to/from is launched in portal on coordinator.
-			 * This happens for pg_catalog tables (not user defined ones)
-			 * such as pg_catalog, pg_attribute, etc.
-			 * This part is launched before the portal is activated, so check a first time if there
-			 * some locator data for this relid and if no, return and launch the portal.
-			 */
-			if (!cstate->rel_loc && !exec_on_coord_portal)
-			{
-				/* close lock before leaving */
-				if (cstate->rel)
-					heap_close(cstate->rel, (is_from ? NoLock : AccessShareLock));
-				*executed = false;
-				return 0;
-			}
 
 			if (exec_on_coord_portal)
 				cstate->on_coord = true;
@@ -1552,9 +1563,6 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 	pfree(cstate->raw_buf);
 	pfree(cstate);
 
-#ifdef PGXC
-	*executed = true;
-#endif
 	return processed;
 }
 

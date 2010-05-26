@@ -992,17 +992,18 @@ exec_simple_query(const char *query_string)
 				/*
 				 * A check on locator is made in DoCopy to determine if the copy can be launched on
 				 * Datanode or on Coordinator.
-				 * If a table has no locator data, then done is set to false and copy is launched
+				 * If a table has no locator data, then IsCoordPortalCopy returns false and copy is launched
 				 * on Coordinator instead (e.g., using pg_catalog tables).
-				 * If a table has some locator data (user tables), then copy was launched normally 
+				 * If a table has some locator data (user tables), then copy is launched normally 
 				 * in Datanodes
 				 */
-				DoCopy(copy, query_string, false, &done);
-
-				if (!done)
-					exec_on_coord = true;
-				else
+				if (!IsCoordPortalCopy(copy))
+				{
+					DoCopy(copy, query_string, false);
 					exec_on_coord = false;
+				}
+				else
+					exec_on_coord = true;
 			}
 			else
 			{
