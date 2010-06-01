@@ -3140,6 +3140,10 @@ getTables(int *numTables)
 	int			i_relfrozenxid;
 	int			i_owning_tab;
 	int			i_owning_col;
+#ifdef PGXC
+	int			i_pgxclocatortype;
+	int			i_pgxcattnum;
+#endif
 	int			i_reltablespace;
 	int			i_reloptions;
 	int			i_toastreloptions;
@@ -3172,6 +3176,8 @@ getTables(int *numTables)
 		/*
 		 * Left join to pick up dependency info linking sequences to their
 		 * owning column, if any (note this dependency is AUTO as of 8.2)
+		 * PGXC is based on PostgreSQL version 8.4, it is not necessary to
+		 * to modify the other SQL queries.
 		 */
 		appendPQExpBuffer(query,
 						  "SELECT c.tableoid, c.oid, c.relname, "
@@ -3183,7 +3189,11 @@ getTables(int *numTables)
 						  "d.refobjid AS owning_tab, "
 						  "d.refobjsubid AS owning_col, "
 						  "(SELECT spcname FROM pg_tablespace t WHERE t.oid = c.reltablespace) AS reltablespace, "
-						"array_to_string(c.reloptions, ', ') AS reloptions, "
+#ifdef PGXC
+						  "(SELECT pclocatortype from pgxc_class v where v.pcrelid = c.oid) AS pgxclocatortype,"
+						  "(SELECT pcattnum from pgxc_class v where v.pcrelid = c.oid) AS pgxcattnum,"
+#endif
+						  "array_to_string(c.reloptions, ', ') AS reloptions, "
 						  "array_to_string(array(SELECT 'toast.' || x FROM unnest(tc.reloptions) x), ', ') AS toast_reloptions "
 						  "FROM pg_class c "
 						  "LEFT JOIN pg_depend d ON "
@@ -3401,6 +3411,10 @@ getTables(int *numTables)
 	i_relfrozenxid = PQfnumber(res, "relfrozenxid");
 	i_owning_tab = PQfnumber(res, "owning_tab");
 	i_owning_col = PQfnumber(res, "owning_col");
+#ifdef PGXC
+	i_pgxclocatortype = PQfnumber(res, "pgxclocatortype");
+	i_pgxcattnum = PQfnumber(res, "pgxcattnum");
+#endif
 	i_reltablespace = PQfnumber(res, "reltablespace");
 	i_reloptions = PQfnumber(res, "reloptions");
 	i_toastreloptions = PQfnumber(res, "toast_reloptions");
@@ -3448,6 +3462,19 @@ getTables(int *numTables)
 			tblinfo[i].owning_tab = atooid(PQgetvalue(res, i, i_owning_tab));
 			tblinfo[i].owning_col = atoi(PQgetvalue(res, i, i_owning_col));
 		}
+#ifdef PGXC
+		/* Not all the tables have pgxc locator Data */
+		if (PQgetisnull(res, i, i_pgxclocatortype))
+		{
+			tblinfo[i].pgxclocatortype = 'E';
+			tblinfo[i].pgxcattnum = 0;
+		}
+		else
+		{
+			tblinfo[i].pgxclocatortype = *(PQgetvalue(res, i, i_pgxclocatortype));
+			tblinfo[i].pgxcattnum = atoi(PQgetvalue(res, i, i_pgxcattnum));
+		}
+#endif
 		tblinfo[i].reltablespace = strdup(PQgetvalue(res, i, i_reltablespace));
 		tblinfo[i].reloptions = strdup(PQgetvalue(res, i, i_reloptions));
 		tblinfo[i].toast_reloptions = strdup(PQgetvalue(res, i, i_toastreloptions));
@@ -9888,6 +9915,30 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 			}
 			appendPQExpBuffer(q, ")");
 		}
+
+#ifdef PGXC
+		/* Add the grammar extension linked to PGXC depending on data got from pgxc_class */
+		if (tbinfo->pgxclocatortype != 'E')
+		{
+			/* N: DISTRIBUTE BY ROUND ROBIN */
+			if (tbinfo->pgxclocatortype == 'N')
+			{
+				appendPQExpBuffer(q, "\nDISTRIBUTE BY ROUND ROBIN");
+			}
+			/* R: DISTRIBUTE BY REPLICATED */
+			else if (tbinfo->pgxclocatortype == 'R')
+			{
+				appendPQExpBuffer(q, "\nDISTRIBUTE BY REPLICATION");
+			}
+			/* H: DISTRIBUTE BY HASH  */
+			else if (tbinfo->pgxclocatortype == 'H')
+			{
+				int hashkey = tbinfo->pgxcattnum;
+				appendPQExpBuffer(q, "\nDISTRIBUTE BY HASH (%s)",
+								  fmtId(tbinfo->attnames[hashkey - 1]));
+			}
+		}
+#endif
 
 		appendPQExpBuffer(q, ";\n");
 

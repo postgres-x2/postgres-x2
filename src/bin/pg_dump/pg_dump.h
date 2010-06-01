@@ -16,6 +16,10 @@
 
 #include "postgres_fe.h"
 
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#endif
+
 /*
  * pg_dump uses two different mechanisms for identifying database objects:
  *
@@ -234,6 +238,11 @@ typedef struct _tableInfo
 
 	bool		interesting;	/* true if need to collect more data */
 
+#ifdef PGXC
+	/* PGXC table locator Data */
+	char		pgxclocatortype;	/* Type of PGXC table locator */
+	int			pgxcattnum;		/* Number of the attribute the table is partitioned with */
+#endif
 	/*
 	 * These fields are computed only if we decide the table is interesting
 	 * (it's either a table to dump, or a direct parent of a dumpable table).
