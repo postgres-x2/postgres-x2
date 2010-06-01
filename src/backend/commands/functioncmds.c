@@ -875,6 +875,17 @@ CreateFunction(CreateFunctionStmt *stmt, const char *queryString)
 	interpret_AS_clause(languageOid, languageName, funcname, as_clause,
 						&prosrc_str, &probin_str);
 
+#ifdef PGXC
+	/*
+	 * For the time being, only immutable functions are allowed to be created
+	 * for a user. A superuser can create volatile and stable functions freely.
+	 */
+	if (volatility != PROVOLATILE_IMMUTABLE && !superuser())
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+				 errmsg("stable and volatile not yet supported, function volatility has to be immutable")));
+#endif
+
 	/*
 	 * Set default values for COST and ROWS depending on other parameters;
 	 * reject ROWS if it's not returnsSet.  NB: pg_dump knows these default

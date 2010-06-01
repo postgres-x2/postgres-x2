@@ -1373,8 +1373,6 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 			break;
 
 			/* Statements that we only want to execute on the Coordinator */
-		case T_AlterSeqStmt:
-		case T_CommentStmt:
 		case T_CreateSeqStmt:
 		case T_VariableShowStmt:
 			query_plan->exec_loc_type = EXEC_ON_COORD;
@@ -1400,26 +1398,104 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 			query_plan->exec_loc_type = EXEC_ON_COORD | EXEC_ON_DATA_NODES;
 			query_plan->force_autocommit = true;
 			break;
+		case T_AlterObjectSchemaStmt:
+			/* Sequences are just defined on coordinator */
+			if (((AlterObjectSchemaStmt *) parsetree)->objectType == OBJECT_SEQUENCE)
+				query_plan->exec_loc_type = EXEC_ON_COORD;
+			else
+				query_plan->exec_loc_type = EXEC_ON_COORD | EXEC_ON_DATA_NODES;
+			break;
+		case T_AlterSeqStmt:
+			/* Alter sequence is not supported yet, it needs complementary interactions with GTM */
+			ereport(ERROR,
+					(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+					 (errmsg("This command is not yet supported"))));
+			break;
+		case T_AlterTableStmt:
+			/*
+			 * ALTER SEQUENCE needs some interactions with GTM,
+			 * this query is not supported yet.
+			 */
+			if (((AlterTableStmt *) parsetree)->relkind == OBJECT_SEQUENCE)
+				ereport(ERROR,
+						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+						 (errmsg("Cannot yet alter a sequence"))));
+			else
+				query_plan->exec_loc_type = EXEC_ON_COORD | EXEC_ON_DATA_NODES;
+			break;
+		case T_CommentStmt:
+			/* Sequences are only defined on coordinator */
+			if (((CommentStmt *) parsetree)->objtype == OBJECT_SEQUENCE)
+				query_plan->exec_loc_type = EXEC_ON_COORD;
+			else
+				query_plan->exec_loc_type = EXEC_ON_COORD | EXEC_ON_DATA_NODES;
+			break;
+		case T_RenameStmt:
+			/* Sequences are only defined on coordinator */
+			if (((RenameStmt *) parsetree)->renameType == OBJECT_SEQUENCE)
+				/*
+				 * Renaming a sequence requires interactions with GTM
+				 * what is not supported yet
+				 */
+				ereport(ERROR,
+						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+						 (errmsg("Sequence renaming not yet supported, you should drop it and created a new one"))));
+			else
+				query_plan->exec_loc_type = EXEC_ON_COORD | EXEC_ON_DATA_NODES;
+			break;
+		case T_DropPropertyStmt:
+			/*
+			 * Triggers are not yet supported by PGXC
+			 * all other queries are executed on both Coordinator and Datanode
+			 * On the same point, assert also is not supported
+			 */
+			if (((DropPropertyStmt *)parsetree)->removeType == OBJECT_TRIGGER)
+				ereport(ERROR,
+						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+						(errmsg("This command is not yet supported."))));
+			else
+				query_plan->exec_loc_type = EXEC_ON_COORD | EXEC_ON_DATA_NODES;
+			break;
 
 			/*
 			 * Statements that we execute on both the Coordinator and Data Nodes
 			 */
-		case T_AlterTableStmt:
 		case T_AlterDatabaseStmt:
 		case T_AlterDatabaseSetStmt:
 		case T_AlterDomainStmt:
-		case T_AlterObjectSchemaStmt:
+		case T_AlterFdwStmt:
+		case T_AlterForeignServerStmt:
+		case T_AlterFunctionStmt:
+		case T_AlterOpFamilyStmt:
+		case T_AlterTSConfigurationStmt:
+		case T_AlterTSDictionaryStmt:
+		case T_ClosePortalStmt:    /* In case CLOSE ALL is issued */
+		case T_CompositeTypeStmt:
 		case T_ConstraintsSetStmt:
+		case T_CreateCastStmt:
+		case T_CreateConversionStmt:
 		case T_CreateDomainStmt:
 		case T_CreateEnumStmt:
+		case T_CreateFdwStmt:
+		case T_CreateForeignServerStmt:
+		case T_CreateFunctionStmt: /* Only global functions are supported */
+		case T_CreateOpClassStmt:
+		case T_CreateOpFamilyStmt:
+		case T_CreatePLangStmt:
 		case T_CreateStmt:
 		case T_CreateSchemaStmt:
 		case T_DeallocateStmt:	/* Allow for DEALLOCATE ALL */
 		case T_DiscardStmt:
+		case T_DropCastStmt:
+		case T_DropFdwStmt:
+		case T_DropForeignServerStmt:
+		case T_DropPLangStmt:
 		case T_IndexStmt:
 		case T_LockStmt:
 		case T_ReindexStmt:
-		case T_RenameStmt:
+		case T_RemoveFuncStmt:
+		case T_RemoveOpClassStmt:
+		case T_RemoveOpFamilyStmt:
 		case T_TruncateStmt:
 		case T_VariableSetStmt:
 
@@ -1431,14 +1507,17 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 		case T_GrantRoleStmt:
 		case T_CreateRoleStmt:
 		case T_AlterRoleStmt:
+		case T_AlterRoleSetStmt:
+		case T_AlterUserMappingStmt:
+		case T_CreateUserMappingStmt:
 		case T_DropRoleStmt:
 		case T_AlterOwnerStmt:
 		case T_DropOwnedStmt:
+		case T_DropUserMappingStmt:
 		case T_ReassignOwnedStmt:
 		case T_DefineStmt:		/* used for aggregates, some types */
 			query_plan->exec_loc_type = EXEC_ON_COORD | EXEC_ON_DATA_NODES;
 			break;
-
 
 		case T_TransactionStmt:
 			switch (((TransactionStmt *) parsetree)->kind)
@@ -1463,52 +1542,43 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 			 * data node will do
 			 */
 		case T_ExplainStmt:
+			if (((ExplainStmt *)	parsetree)->analyze)
+					ereport(ERROR,
+							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+							 (errmsg("ANALYZE with EXPLAIN is currently not supported."))));
+	
+			query_step->exec_nodes = palloc0(sizeof(Exec_Nodes));
 			query_step->exec_nodes->nodelist = GetAnyDataNode();
+			query_step->exec_nodes->baselocatortype = LOCATOR_TYPE_RROBIN;
 			query_plan->exec_loc_type = EXEC_ON_DATA_NODES;
 			break;
 
 			/*
-			 * Statements we do not yet want to handle.
+			 * Trigger queries are not yet supported by PGXC.
+			 * Tablespace queries are also not yet supported.
+			 * Two nodes on the same servers cannot use the same tablespace.
+			 */
+		case T_CreateTableSpaceStmt:
+		case T_CreateTrigStmt:
+		case T_DropTableSpaceStmt:
+			ereport(ERROR,
+					(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+					(errmsg("This command is not yet supported."))));
+			break;
+
+			/*
+			 * Other statements we do not yet want to handle.
 			 * By default they would  be fobidden, but we list these for reference.
 			 * Note that there is not a 1-1 correspndence between
 			 * SQL command and the T_*Stmt structures.
 			 */
-		case T_AlterFdwStmt:
-		case T_AlterForeignServerStmt:
-		case T_AlterFunctionStmt:
-		case T_AlterOpFamilyStmt:
-		case T_AlterTSConfigurationStmt:
-		case T_AlterTSDictionaryStmt:
-		case T_AlterUserMappingStmt:
-		case T_ClosePortalStmt:
-		case T_CompositeTypeStmt:
-		case T_CreateCastStmt:
-		case T_CreateConversionStmt:
-		case T_CreateFdwStmt:
-		case T_CreateFunctionStmt:
-		case T_CreateForeignServerStmt:
-		case T_CreateOpClassStmt:
-		case T_CreateOpFamilyStmt:
-		case T_CreatePLangStmt:
-		case T_CreateTableSpaceStmt:
-		case T_CreateTrigStmt:
-		case T_CreateUserMappingStmt:
 		case T_DeclareCursorStmt:
-		case T_DropCastStmt:
-		case T_DropFdwStmt:
-		case T_DropForeignServerStmt:
-		case T_DropPLangStmt:
-		case T_DropPropertyStmt:
-		case T_DropTableSpaceStmt:
 		case T_ExecuteStmt:
 		case T_FetchStmt:
 		case T_ListenStmt:
 		case T_LoadStmt:
 		case T_NotifyStmt:
 		case T_PrepareStmt:
-		case T_RemoveFuncStmt:
-		case T_RemoveOpClassStmt:
-		case T_RemoveOpFamilyStmt:
 		case T_RuleStmt:
 		case T_UnlistenStmt:
 		case T_ViewStmt:
