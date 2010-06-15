@@ -878,6 +878,12 @@ AddRelationDistribution (Oid relid,
 			case DISTTYPE_HASH:
 				/* User specified hash column, validate */
 				attnum = get_attnum(relid, distributeby->colname);
+				if (!attnum)
+				{
+					ereport(ERROR,
+						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+						 errmsg("Invalid distribution column specified")));
+				}
 				
 				if (!IsHashDistributable(descriptor->attrs[attnum-1]->atttypid)) 
 				{

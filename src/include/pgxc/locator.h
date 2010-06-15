@@ -25,6 +25,7 @@
 #define HASH_SIZE 4096
 #define HASH_MASK 0x00000FFF;
 
+#define IsReplicated(x) (x->locatorType == LOCATOR_TYPE_REPLICATED)
 #include "utils/relcache.h"
 
 
@@ -47,7 +48,8 @@ typedef enum
 {
 	TABLE_USAGE_TYPE_NO_TABLE,
 	TABLE_USAGE_TYPE_PGCATALOG,
-	TABLE_USAGE_TYPE_USER_TABLE,
+	TABLE_USAGE_TYPE_USER,
+	TABLE_USAGE_TYPE_USER_REPLICATED,  /* based on a replicated table */
 	TABLE_USAGE_TYPE_MIXED
 } TableUsageType;
 

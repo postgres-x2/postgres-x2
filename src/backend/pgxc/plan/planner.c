@@ -86,6 +86,15 @@ typedef struct
 	PGXCJoinType join_type;
 } PGXC_Join;
 
+/* used for base column in an expression */
+typedef struct ColumnBase
+{
+	int 	relid;
+	char	*relname;
+	char	*relalias;
+	char	*colname;
+} ColumnBase;
+
 /* A list of List*'s, one for each relation. */
 List	   *join_list = NULL;
 
@@ -94,6 +103,17 @@ bool		StrictStatementChecking = true;
 
 /* Forbid multi-node SELECT statements with an ORDER BY clause */
 bool		StrictSelectChecking = false;
+
+/*
+ * True if both lists contain only one node and are the same
+ */
+static bool
+same_single_node (List *nodelist1, List *nodelist2)
+{
+	return nodelist1 && list_length(nodelist1) == 1
+			&& nodelist2 && list_length(nodelist2) == 1
+			&& linitial_int(nodelist1) != linitial_int(nodelist2);
+}
 
 /*
  * Create a new join struct for tracking how relations are joined
@@ -224,7 +244,6 @@ free_join_list(void)
 	if (join_list == NULL)
 		return;
 
-	/* free all items in list including PGXC_Join struct */
 	list_free_deep(join_list);
 }
 
@@ -269,7 +288,7 @@ get_numeric_constant(Expr *expr)
  * type, like a join, and we need to then look at the joinaliasvars
  * to determine what the base table and column really is.
  */
-static Var *
+static ColumnBase*
 get_base_var(Var *var, List *rtables)
 {
 	RangeTblEntry *rte;
@@ -282,18 +301,45 @@ get_base_var(Var *var, List *rtables)
 	rte = list_nth(rtables, var->varno - 1);
 
 	if (rte->rtekind == RTE_RELATION)
-		return var;
+	{
+		ColumnBase *column_base = (ColumnBase *) palloc0(sizeof(ColumnBase));
+
+		column_base->relid = rte->relid;
+		column_base->relname = get_rel_name(rte->relid);
+		column_base->colname = strVal(list_nth(rte->eref->colnames,
+										   var->varattno - 1));
+		column_base->relalias = rte->eref->aliasname;
+		return column_base;
+	}
 	else if (rte->rtekind == RTE_JOIN)
 	{
 		Var		   *colvar = list_nth(rte->joinaliasvars, var->varattno - 1);
 
 		/* continue resolving recursively */
 		return get_base_var(colvar, rtables);
+		//may need to set this, toocolumn_base->relalias = rte->eref->aliasname;
 	}
-	else
+	else if (rte->rtekind == RTE_SUBQUERY)
 	{
-		return NULL;
+		/* 
+		 * Handle views like select * from v1 where col1 = 1
+		 * where col1 is partition column of base relation
+		 */
+		/* the varattno corresponds with the subquery's target list (projections) */
+		TargetEntry *tle = list_nth(rte->subquery->targetList, var->varattno - 1); /* or varno? */
+		
+		if (!IsA(tle->expr, Var))
+			return NULL;	/* not column based expressoin, return */
+		else
+		{
+			Var *colvar = (Var *) tle->expr;
+
+			/* continue resolving recursively */
+			return get_base_var(colvar, rte->subquery->rtable);
+		}
 	}
+
+	return NULL;
 }
 
 
@@ -316,10 +362,11 @@ get_plan_nodes_insert(Query *query)
 		return NULL;
 
 	/* Make sure there is just one table */
-	if (query->rtable == NULL || query->rtable->length != 1)
+	if (query->rtable == NULL)
 		return NULL;
 
-	rte = (RangeTblEntry *) lfirst(list_head(query->rtable));
+	rte = (RangeTblEntry *) list_nth(query->rtable, query->resultRelation - 1);
+
 
 	if (rte != NULL && rte->rtekind != RTE_RELATION)
 		/* Bad relation type */
@@ -402,10 +449,6 @@ get_plan_nodes_insert(Query *query)
 static bool
 examine_conditions(Special_Conditions *conditions, List *rtables, Node *expr_node)
 {
-	char	   *rel_name,
-			   *rel_name2;
-	char	   *col_name,
-			   *col_name2;
 	RelationLocInfo *rel_loc_info1,
 			   *rel_loc_info2;
 	Const	   *constant;
@@ -472,22 +515,13 @@ examine_conditions(Special_Conditions *conditions, List *rtables, Node *expr_nod
 			/* Look for a table */
 			if (IsA(arg1, Var))
 			{
-				RangeTblEntry *rte1,
-						   *rte2;
-
 				/* get the RangeTableEntry */
 				Var		   *colvar = (Var *) arg1;
 
-				colvar = get_base_var(colvar, rtables);
+				ColumnBase *column_base = get_base_var(colvar, rtables);
 
-				if (!colvar)
+				if (!column_base)
 					return false;
-
-				rte1 = list_nth(rtables, colvar->varno - 1);
-
-				rel_name = get_rel_name(rte1->relid);
-				col_name = strVal(list_nth(rte1->eref->colnames,
-										   colvar->varattno - 1));
 
 				/* Look at other argument */
 
@@ -502,21 +536,21 @@ examine_conditions(Special_Conditions *conditions, List *rtables, Node *expr_nod
 					/* We have column = literal. Check if partitioned case */
 					constant = (Const *) arg2;
 
-					rel_loc_info1 = GetRelationLocInfo(rte1->relid);
+					rel_loc_info1 = GetRelationLocInfo(column_base->relid);
 
 					if (!rel_loc_info1)
 						return false;
 
 					/* If hash partitioned, check if the part column was used */
-					if (IsHashColumn(rel_loc_info1, col_name))
+					if (IsHashColumn(rel_loc_info1, column_base->colname))
 					{
 						/* add to partitioned literal join conditions */
 						Literal_Comparison *lit_comp =
 						palloc(sizeof(Literal_Comparison));
 
-						lit_comp->relid = rte1->relid;
+						lit_comp->relid = column_base->relid;
 						lit_comp->rel_loc_info = rel_loc_info1;
-						lit_comp->col_name = col_name;
+						lit_comp->col_name = column_base->colname;
 						lit_comp->constant = constant->constvalue;
 
 						conditions->partitioned_literal_comps = lappend(
@@ -537,23 +571,22 @@ examine_conditions(Special_Conditions *conditions, List *rtables, Node *expr_nod
 				else if (IsA(arg2, Var))
 				{
 					PGXC_Join   *pgxc_join;
+					ColumnBase *column_base2;
 					Var		   *colvar2 = (Var *) arg2;
 
-					rel_loc_info1 = GetRelationLocInfo(rte1->relid);
+					rel_loc_info1 = GetRelationLocInfo(column_base->relid);
 
 					if (!rel_loc_info1)
 						return false;
 
-					colvar2 = get_base_var(colvar2, rtables);
-					if (!colvar2)
+					column_base2 = get_base_var(colvar2, rtables);
+					if (!column_base2)
 						return false;
-					rte2 = list_nth(rtables, colvar2->varno - 1);
-					rel_name2 = get_rel_name(rte2->relid);
-					rel_loc_info2 = GetRelationLocInfo(rte2->relid);
+					rel_loc_info2 = GetRelationLocInfo(column_base2->relid);
 
 					/* get data struct about these two relations joining */
-					pgxc_join = find_or_create_pgxc_join(rte1->relid, rte1->eref->aliasname,
-										 rte2->relid, rte2->eref->aliasname);
+					pgxc_join = find_or_create_pgxc_join(column_base->relid, column_base->relalias,
+										 column_base2->relid, column_base2->relalias);
 
 					/*
 					 * pgxc_join->condition_list =
@@ -569,7 +602,7 @@ examine_conditions(Special_Conditions *conditions, List *rtables, Node *expr_nod
 						if (rel_loc_info2->locatorType != LOCATOR_TYPE_REPLICATED)
 						{
 							/* Note other relation, saves us work later. */
-							conditions->base_rel_name = rel_name2;
+							conditions->base_rel_name = column_base2->relname;
 							conditions->base_rel_loc_info = rel_loc_info2;
 							if (rel_loc_info1)
 								FreeRelationLocInfo(rel_loc_info1);
@@ -577,7 +610,7 @@ examine_conditions(Special_Conditions *conditions, List *rtables, Node *expr_nod
 
 						if (conditions->base_rel_name == NULL)
 						{
-							conditions->base_rel_name = rel_name;
+							conditions->base_rel_name = column_base->relname;
 							conditions->base_rel_loc_info = rel_loc_info1;
 							if (rel_loc_info2)
 								FreeRelationLocInfo(rel_loc_info2);
@@ -595,7 +628,7 @@ examine_conditions(Special_Conditions *conditions, List *rtables, Node *expr_nod
 							lappend(conditions->replicated_joins, opexpr);
 
 						/* other relation not replicated, note it for later */
-						conditions->base_rel_name = rel_name;
+						conditions->base_rel_name = column_base->relname;
 						conditions->base_rel_loc_info = rel_loc_info1;
 
 						/* note nature of join between the two relations */
@@ -613,11 +646,8 @@ examine_conditions(Special_Conditions *conditions, List *rtables, Node *expr_nod
 					 * PGXCTODO - for the prototype, we assume all partitioned
 					 * tables are on the same nodes.
 					 */
-					col_name2 = strVal(list_nth(rte2->eref->colnames,
-												colvar2->varattno - 1));
-
-					if (IsHashColumn(rel_loc_info1, col_name)
-						&& IsHashColumn(rel_loc_info2, col_name2))
+					if (IsHashColumn(rel_loc_info1, column_base->colname)
+						&& IsHashColumn(rel_loc_info2, column_base2->colname))
 					{
 						/* We found a partitioned join */
 						conditions->partitioned_parent_child =
@@ -740,13 +770,16 @@ get_plan_nodes(Query_Plan *query_plan, Query *query, bool isRead)
 	ListCell   *lc,
 			   *item;
 	Special_Conditions *special_conditions;
-	OpExpr	   *opexpr;
+	OpExpr 	   *opexpr;
 	Var		   *colvar;
 	RelationLocInfo *rel_loc_info;
-	Exec_Nodes *exec_nodes;
-	Exec_Nodes *test_exec_nodes;
+	Exec_Nodes *test_exec_nodes = NULL;
+	Exec_Nodes *exec_nodes = NULL;
+	Exec_Nodes *current_nodes = NULL;
+	Exec_Nodes *from_query_nodes = NULL;
 	TableUsageType 	table_usage_type = TABLE_USAGE_TYPE_NO_TABLE;
 	TableUsageType 	current_usage_type = TABLE_USAGE_TYPE_NO_TABLE;
+	int 		from_subquery_count = 0;
 
 
 	exec_nodes = NULL;
@@ -778,13 +811,11 @@ get_plan_nodes(Query_Plan *query_plan, Query *query, bool isRead)
 					exec_nodes = (Exec_Nodes *) palloc0(sizeof(Exec_Nodes));
 					exec_nodes->tableusagetype = TABLE_USAGE_TYPE_PGCATALOG;
 					free_special_relations(special_conditions);
-					free_join_list();
 					return exec_nodes;
 				}
 
 				/* complicated */
 				free_special_relations(special_conditions);
-				free_join_list();
 				return NULL;
 			}
 		}
@@ -797,19 +828,48 @@ get_plan_nodes(Query_Plan *query_plan, Query *query, bool isRead)
 
 			if (rte->rtekind == RTE_SUBQUERY)
 			{
+				from_subquery_count++;
 				/* 
 				 * Recursively call for subqueries. 
 				 * Note this also works for views, which are rewritten as subqueries.
 				 */
-				Exec_Nodes *sub_nodes = get_plan_nodes(query_plan, rte->subquery, isRead);
-				if (sub_nodes)
-					current_usage_type = sub_nodes->tableusagetype;
+				current_nodes = get_plan_nodes(query_plan, rte->subquery, isRead);
+				if (current_nodes)
+					current_usage_type = current_nodes->tableusagetype;
 				else 
 				{
 					/* could be complicated */
 					free_special_relations(special_conditions);
-					free_join_list();
 					return NULL;
+				}
+
+				/* We compare to make sure that the subquery is safe to execute with previous-
+				 * we may have multiple ones in the FROM clause.
+				 * We handle the simple case of allowing multiple subqueries in the from clause, 
+				 * but only allow one of them to not contain replicated tables
+				 */
+				if (!from_query_nodes)
+					from_query_nodes = current_nodes;
+				else if (current_nodes->tableusagetype == TABLE_USAGE_TYPE_USER_REPLICATED)
+				{
+					/* ok, safe */
+					if (!from_query_nodes)
+						from_query_nodes = current_nodes;
+				} 
+				else
+				{
+					if (from_query_nodes->tableusagetype == TABLE_USAGE_TYPE_USER_REPLICATED)
+						from_query_nodes = current_nodes;
+					else
+					{
+						/* Allow if they are both using one node, and the same one */	
+						if (!same_single_node (from_query_nodes->nodelist, current_nodes->nodelist))
+						{
+							/* Complicated */
+							free_special_relations(special_conditions);
+							return NULL;
+						}
+					}
 				}
 			} 
 			else if (rte->rtekind == RTE_RELATION)
@@ -818,7 +878,7 @@ get_plan_nodes(Query_Plan *query_plan, Query *query, bool isRead)
 					if (get_rel_namespace(rte->relid) == PG_CATALOG_NAMESPACE)
 						current_usage_type = TABLE_USAGE_TYPE_PGCATALOG;
 					else
-						current_usage_type = TABLE_USAGE_TYPE_USER_TABLE;
+						current_usage_type = TABLE_USAGE_TYPE_USER;
 			} 
 			else if (rte->rtekind == RTE_FUNCTION)
 			{
@@ -827,13 +887,17 @@ get_plan_nodes(Query_Plan *query_plan, Query *query, bool isRead)
 				if (get_func_namespace(funcexpr->funcid) == PG_CATALOG_NAMESPACE)
 					current_usage_type = TABLE_USAGE_TYPE_PGCATALOG;
 				else
-					current_usage_type = TABLE_USAGE_TYPE_USER_TABLE;
+				{
+					//current_usage_type = TABLE_USAGE_TYPE_USER;
+					/* Complicated */
+					free_special_relations(special_conditions);
+					return NULL;
+				}
 			}
 			else
 			{
 				/* could be complicated */
 				free_special_relations(special_conditions);
-				free_join_list();
 				return NULL;
 			}
 
@@ -844,7 +908,6 @@ get_plan_nodes(Query_Plan *query_plan, Query *query, bool isRead)
 			{
 				/* mixed- too complicated for us for now */
 				free_special_relations(special_conditions);
-				free_join_list();
 				return NULL;
 			}
 		}
@@ -852,7 +915,6 @@ get_plan_nodes(Query_Plan *query_plan, Query *query, bool isRead)
 		{
 			/* could be complicated */
 			free_special_relations(special_conditions);
-			free_join_list();
 			return NULL;
 		}
 	}
@@ -871,7 +933,6 @@ get_plan_nodes(Query_Plan *query_plan, Query *query, bool isRead)
 	{
 		/* if cross joins may exist, just return NULL */
 		free_special_relations(special_conditions);
-		free_join_list();
 		return NULL;
 	}
 
@@ -886,7 +947,6 @@ get_plan_nodes(Query_Plan *query_plan, Query *query, bool isRead)
 			if (pgxcjoin->join_type == JOIN_OTHER)
 			{
 				free_special_relations(special_conditions);
-				free_join_list();
 				return NULL;
 			}
 		}
@@ -897,36 +957,64 @@ get_plan_nodes(Query_Plan *query_plan, Query *query, bool isRead)
 	if (special_conditions->partitioned_parent_child == NULL &&
 		special_conditions->partitioned_literal_comps == NULL)
 	{
-		if (special_conditions->replicated_joins == NULL
-			&& (query->rtable == NULL || query->rtable->length > 1))
+		/*
+		 * We have either a single table, just replicated tables, or a
+		 * table that just joins with replicated tables, or something
+		 * complicated.
+		 */
 
-			/*
-			 * This is too complicated for a single step, or there is no FROM
-			 * clause
-			 */
-			exec_nodes = NULL;
-		else
+		/* See if we noted a table earlier to use */
+		rel_loc_info = special_conditions->base_rel_loc_info;
+
+		if (rel_loc_info == NULL)
 		{
-			/*
-			 * We have either a single table, just replicated tables, or a
-			 * table that just joins with replicated tables.
-			 */
+			RangeTblEntry *rtesave = NULL;
 
-			/* See if we noted a table earlier to use */
-			rel_loc_info = special_conditions->base_rel_loc_info;
+			foreach(lc, query->rtable)
+			{
+				rte = (RangeTblEntry *) lfirst(lc);
 
-			if (rel_loc_info == NULL)
+				/* 
+				 * If the query is rewritten (which can be due to rules or views), 
+				 * ignore extra stuff. Also ignore subqueries we have processed 
+				 */
+				if (!rte->inFromCl || rte->rtekind != RTE_RELATION)
+					continue;
+
+				/* PGXCTODO - handle RTEs that are functions */
+				if (rtesave)
+					/* 
+					 * Too complicated, we have multiple relations that still 
+					 * cannot be joined safely 
+					 */
+					return NULL;
+
+				rtesave = rte;
+			}
+
+			if (rtesave)
 			{
 				/* a single table, just grab it */
-				rte = (RangeTblEntry *) linitial(query->rtable);
-				rel_loc_info = GetRelationLocInfo(rte->relid);
+				rel_loc_info = GetRelationLocInfo(rtesave->relid);
 
 				if (!rel_loc_info)
 					return NULL;
-			}
 
+				exec_nodes = GetRelationNodes(rel_loc_info, NULL, isRead);
+			}
+		}
+		else
+		{
 			exec_nodes = GetRelationNodes(rel_loc_info, NULL, isRead);
-			exec_nodes->tableusagetype = table_usage_type;
+		}
+
+		/* Note replicated table usage for determining safe queries */
+		if (exec_nodes)
+		{
+			if (table_usage_type == TABLE_USAGE_TYPE_USER && IsReplicated(rel_loc_info))
+				table_usage_type = TABLE_USAGE_TYPE_USER_REPLICATED;
+			else
+				exec_nodes->tableusagetype = table_usage_type;
 		}
 	}
 	/* check for partitioned col comparison against a literal */
@@ -950,15 +1038,10 @@ get_plan_nodes(Query_Plan *query_plan, Query *query, bool isRead)
 				exec_nodes = test_exec_nodes;
 			else
 			{
-				if ((exec_nodes && list_length(exec_nodes->nodelist) > 1)
-						|| (test_exec_nodes && list_length(test_exec_nodes->nodelist) > 1))
-					/* there should only be one */
-					exec_nodes = NULL;
-				else
+				if (!same_single_node(exec_nodes->nodelist, test_exec_nodes->nodelist))
 				{
-					/* Make sure they use the same nodes */
-					if (linitial_int(test_exec_nodes->nodelist) != linitial_int(exec_nodes->nodelist))
-						exec_nodes = NULL;
+					free_special_relations(special_conditions);
+					return NULL;
 				}
 			}
 		}
@@ -970,14 +1053,18 @@ get_plan_nodes(Query_Plan *query_plan, Query *query, bool isRead)
 		 * no partitioned column comparison condition with a literal. We just
 		 * use one of the tables as a basis for node determination.
 		 */
+		ColumnBase *column_base;
+
 		opexpr = (OpExpr *) linitial(special_conditions->partitioned_parent_child);
 
 		colvar = (Var *) linitial(opexpr->args);
 
 		/* get the RangeTableEntry */
-		rte = list_nth(query->rtable, colvar->varno - 1);
-		rel_loc_info = GetRelationLocInfo(rte->relid);
+		column_base = get_base_var(colvar, query->rtable);
+		if (!column_base)
+			return false;
 
+		rel_loc_info = GetRelationLocInfo(column_base->relid);
 		if (!rel_loc_info)
 			return false;
 
@@ -985,7 +1072,29 @@ get_plan_nodes(Query_Plan *query_plan, Query *query, bool isRead)
 		exec_nodes->tableusagetype = table_usage_type;
 	}
 	free_special_relations(special_conditions);
-	free_join_list();
+
+	if (from_query_nodes)
+	{
+		if (!exec_nodes) 
+			return from_query_nodes;
+		/* Just use exec_nodes if the from subqueries are all replicated or using the exact
+		 * same node
+		 */
+		else if (from_query_nodes->tableusagetype == TABLE_USAGE_TYPE_USER_REPLICATED
+					|| (same_single_node(from_query_nodes->nodelist, exec_nodes->nodelist)))
+				return exec_nodes;
+		else 
+		{
+			/* We allow views, where the (rewritten) subquery may be on all nodes, but the parent 
+			 * query applies a condition on the from subquery.
+			 */
+			if (list_length(query->jointree->fromlist) == from_subquery_count
+					&& list_length(exec_nodes->nodelist) == 1)
+				return exec_nodes;
+		}
+		/* Too complicated, give up */
+		return NULL;
+	}
 
 	return exec_nodes;
 }
@@ -999,26 +1108,30 @@ get_plan_nodes(Query_Plan *query_plan, Query *query, bool isRead)
 static Exec_Nodes *
 get_plan_nodes_command(Query_Plan *query_plan, Query *query)
 {
+	Exec_Nodes *exec_nodes = NULL;
 
 	switch (query->commandType)
 	{
 		case CMD_SELECT:
-			return get_plan_nodes(query_plan, query, true);
+			exec_nodes = get_plan_nodes(query_plan, query, true);
+			break;
 
 		case CMD_INSERT:
-			return get_plan_nodes_insert(query);
+			exec_nodes = get_plan_nodes_insert(query);
+			break;
 
 		case CMD_UPDATE:
-			/* treat as a select */
-			return get_plan_nodes(query_plan, query, false);
-
 		case CMD_DELETE:
 			/* treat as a select */
-			return get_plan_nodes(query_plan, query, false);
+			exec_nodes = get_plan_nodes(query_plan, query, false);
+			break;
 
 		default:
 			return NULL;
 	}
+
+	free_join_list();
+	return exec_nodes;
 }
 
 
@@ -1498,6 +1611,7 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 		case T_RemoveOpFamilyStmt:
 		case T_TruncateStmt:
 		case T_VariableSetStmt:
+		case T_ViewStmt:
 
 			/*
 			 * Also support these, should help later with pg_restore, although
@@ -1581,7 +1695,6 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 		case T_PrepareStmt:
 		case T_RuleStmt:
 		case T_UnlistenStmt:
-		case T_ViewStmt:
 			/* fall through */
 		default:
 			/* Allow for override */
