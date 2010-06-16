@@ -1601,6 +1601,15 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 				query_plan->exec_loc_type = EXEC_ON_COORD | EXEC_ON_DATA_NODES;
 			break;
 
+		case T_CreateStmt:
+			if (((CreateStmt *)parsetree)->relation->istemp)
+				ereport(ERROR,
+						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+						(errmsg("Temp tables are not yet supported."))));
+
+			query_plan->exec_loc_type = EXEC_ON_COORD | EXEC_ON_DATA_NODES;
+			break;
+
 			/*
 			 * Statements that we execute on both the Coordinator and Data Nodes
 			 */
@@ -1626,7 +1635,6 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 		case T_CreateOpClassStmt:
 		case T_CreateOpFamilyStmt:
 		case T_CreatePLangStmt:
-		case T_CreateStmt:
 		case T_CreateSchemaStmt:
 		case T_DeallocateStmt:	/* Allow for DEALLOCATE ALL */
 		case T_DiscardStmt:
