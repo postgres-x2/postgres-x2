@@ -403,7 +403,7 @@ get_plan_nodes_insert(Query *query)
 
 				if (!IsA(tle->expr, Const))
 				{
-					eval_expr = eval_const_expressions(NULL, tle->expr);
+					eval_expr = eval_const_expressions(NULL, (Node *) tle->expr);
 					checkexpr = get_numeric_constant(eval_expr);
 				}
 
@@ -540,7 +540,7 @@ examine_conditions(Special_Conditions *conditions, List *rtables, Node *expr_nod
 				if (!IsA(arg2, Const))
 				{
 					/* this gets freed when the memory context gets freed */
-					Expr *eval_expr = eval_const_expressions(NULL, arg2);
+					Expr *eval_expr = eval_const_expressions(NULL, (Node *) arg2);
 					checkexpr = get_numeric_constant(eval_expr);
 				}
 
@@ -1413,6 +1413,31 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 		case T_DeleteStmt:
 			/* just use first one in querytree_list */
 			query = (Query *) linitial(querytree_list);
+
+			/* Perform some checks to make sure we can support the statement */
+			if (nodeTag(parsetree) == T_SelectStmt)
+			{
+				if (query->intoClause)
+					ereport(ERROR,
+							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+							 (errmsg("INTO clause not yet supported"))));
+
+				if (query->setOperations)
+					ereport(ERROR,
+							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+							 (errmsg("UNION, INTERSECT and EXCEPT are not yet supported"))));
+
+				if (query->hasRecursive)
+					ereport(ERROR,
+							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+							 (errmsg("WITH RECURSIVE not yet supported"))));
+
+				if (query->hasWindowFuncs)
+					ereport(ERROR,
+							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+							 (errmsg("Window functions not yet supported"))));
+			}
+
 			query_step->exec_nodes =
 				get_plan_nodes_command(query_plan, query);
 			if (query_step->exec_nodes)
@@ -1463,16 +1488,6 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 			 */
 			if (nodeTag(parsetree) == T_SelectStmt)
 			{
-				if (query->intoClause)
-					ereport(ERROR,
-							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-							 (errmsg("INTO clause not yet supported"))));
-
-				if (query->setOperations)
-					ereport(ERROR,
-							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-							 (errmsg("UNION, INTERSECT and EXCEPT are not yet supported"))));
-
 				if (StrictStatementChecking && query_step->exec_nodes
 						&& list_length(query_step->exec_nodes->nodelist) > 1)
 				{
