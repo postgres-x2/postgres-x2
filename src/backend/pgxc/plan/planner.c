@@ -23,6 +23,7 @@
 #include "lib/stringinfo.h"
 #include "nodes/nodeFuncs.h"
 #include "nodes/parsenodes.h"
+#include "optimizer/clauses.h"
 #include "parser/parse_agg.h"
 #include "parser/parse_coerce.h"
 #include "pgxc/locator.h"
@@ -257,7 +258,6 @@ free_join_list(void)
 static Expr *
 get_numeric_constant(Expr *expr)
 {
-
 	if (expr == NULL)
 		return NULL;
 
@@ -356,6 +356,7 @@ get_plan_nodes_insert(Query *query)
 	ListCell   *lc;
 	long		part_value;
 	long	   *part_value_ptr = NULL;
+	Expr	   *eval_expr = NULL;
 
 	/* Looks complex (correlated?) - best to skip */
 	if (query->jointree != NULL && query->jointree->fromlist != NULL)
@@ -398,7 +399,13 @@ get_plan_nodes_insert(Query *query)
 			if (strcmp(tle->resname, rel_loc_info->partAttrName) == 0)
 			{
 				/* We may have a cast, try and handle it */
-				Expr	   *checkexpr = get_numeric_constant(tle->expr);
+				Expr	   *checkexpr = tle->expr;
+
+				if (!IsA(tle->expr, Const))
+				{
+					eval_expr = eval_const_expressions(NULL, tle->expr);
+					checkexpr = get_numeric_constant(eval_expr);
+				}
 
 				if (checkexpr == NULL)
 					break;		/* no constant */
@@ -424,6 +431,9 @@ get_plan_nodes_insert(Query *query)
 
 	/* single call handles both replicated and partitioned types */
 	exec_nodes = GetRelationNodes(rel_loc_info, part_value_ptr, false);
+
+	if (eval_expr)
+		pfree(eval_expr);
 
 	return exec_nodes;
 }
@@ -524,9 +534,15 @@ examine_conditions(Special_Conditions *conditions, List *rtables, Node *expr_nod
 					return false;
 
 				/* Look at other argument */
+				checkexpr = arg2;
 
-				/* We may have a cast, try and handle it */
-				checkexpr = get_numeric_constant(arg2);
+				/* We may have a cast or expression, try and handle it */
+				if (!IsA(arg2, Const))
+				{
+					/* this gets freed when the memory context gets freed */
+					Expr *eval_expr = eval_const_expressions(NULL, arg2);
+					checkexpr = get_numeric_constant(eval_expr);
+				}
 
 				if (checkexpr != NULL)
 					arg2 = checkexpr;
