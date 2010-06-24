@@ -18,6 +18,9 @@
 #include "access/xlog.h"
 #include "fmgr.h"
 
+#ifdef PGXC
+#include "utils/relcache.h"
+#endif
 
 /*
  * On a machine with no 64-bit-int C datatype, sizeof(int64) will not be 8,
