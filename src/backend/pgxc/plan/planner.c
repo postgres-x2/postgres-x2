@@ -1466,14 +1466,9 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 				{
 					query_plan->exec_loc_type = EXEC_ON_DATA_NODES;
 
-					/*
-					 * If the nodelist is NULL, it is not safe for us to
-					 * execute
-					 */
-					if (!query_step->exec_nodes && StrictStatementChecking)
-						ereport(ERROR,
-								(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-								 (errmsg("Cannot safely execute statement in a single step."))));
+					/* If node list is NULL, execute on coordinator */
+					if (!query_step->exec_nodes)
+						query_plan->exec_loc_type = EXEC_ON_COORD;
 				}
 			}
 
@@ -1517,17 +1512,8 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 			break;
 
 			/* Statements that we only want to execute on the Coordinator */
-		case T_CreateSeqStmt:
 		case T_VariableShowStmt:
 			query_plan->exec_loc_type = EXEC_ON_COORD;
-			break;
-
-			/* DROP */
-		case T_DropStmt:
-			if (((DropStmt *) parsetree)->removeType == OBJECT_SEQUENCE)
-				query_plan->exec_loc_type = EXEC_ON_COORD;
-			else
-				query_plan->exec_loc_type = EXEC_ON_COORD | EXEC_ON_DATA_NODES;
 			break;
 
 			/*
@@ -1542,51 +1528,7 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 			query_plan->exec_loc_type = EXEC_ON_COORD | EXEC_ON_DATA_NODES;
 			query_plan->force_autocommit = true;
 			break;
-		case T_AlterObjectSchemaStmt:
-			/* Sequences are just defined on coordinator */
-			if (((AlterObjectSchemaStmt *) parsetree)->objectType == OBJECT_SEQUENCE)
-				query_plan->exec_loc_type = EXEC_ON_COORD;
-			else
-				query_plan->exec_loc_type = EXEC_ON_COORD | EXEC_ON_DATA_NODES;
-			break;
-		case T_AlterSeqStmt:
-			/* Alter sequence is not supported yet, it needs complementary interactions with GTM */
-			ereport(ERROR,
-					(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-					 (errmsg("This command is not yet supported"))));
-			break;
-		case T_AlterTableStmt:
-			/*
-			 * ALTER SEQUENCE needs some interactions with GTM,
-			 * this query is not supported yet.
-			 */
-			if (((AlterTableStmt *) parsetree)->relkind == OBJECT_SEQUENCE)
-				ereport(ERROR,
-						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-						 (errmsg("Cannot yet alter a sequence"))));
-			else
-				query_plan->exec_loc_type = EXEC_ON_COORD | EXEC_ON_DATA_NODES;
-			break;
-		case T_CommentStmt:
-			/* Sequences are only defined on coordinator */
-			if (((CommentStmt *) parsetree)->objtype == OBJECT_SEQUENCE)
-				query_plan->exec_loc_type = EXEC_ON_COORD;
-			else
-				query_plan->exec_loc_type = EXEC_ON_COORD | EXEC_ON_DATA_NODES;
-			break;
-		case T_RenameStmt:
-			/* Sequences are only defined on coordinator */
-			if (((RenameStmt *) parsetree)->renameType == OBJECT_SEQUENCE)
-				/*
-				 * Renaming a sequence requires interactions with GTM
-				 * what is not supported yet
-				 */
-				ereport(ERROR,
-						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-						 (errmsg("Sequence renaming not yet supported, you should drop it and created a new one"))));
-			else
-				query_plan->exec_loc_type = EXEC_ON_COORD | EXEC_ON_DATA_NODES;
-			break;
+
 		case T_DropPropertyStmt:
 			/*
 			 * Triggers are not yet supported by PGXC
@@ -1619,10 +1561,14 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 		case T_AlterFdwStmt:
 		case T_AlterForeignServerStmt:
 		case T_AlterFunctionStmt:
+		case T_AlterObjectSchemaStmt:
 		case T_AlterOpFamilyStmt:
+		case T_AlterSeqStmt:
+		case T_AlterTableStmt: /* Can also be used to rename a sequence */
 		case T_AlterTSConfigurationStmt:
 		case T_AlterTSDictionaryStmt:
-		case T_ClosePortalStmt:    /* In case CLOSE ALL is issued */
+		case T_ClosePortalStmt:   /* In case CLOSE ALL is issued */
+		case T_CommentStmt:
 		case T_CompositeTypeStmt:
 		case T_ConstraintsSetStmt:
 		case T_CreateCastStmt:
@@ -1635,19 +1581,22 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 		case T_CreateOpClassStmt:
 		case T_CreateOpFamilyStmt:
 		case T_CreatePLangStmt:
+		case T_CreateSeqStmt:
 		case T_CreateSchemaStmt:
-		case T_DeallocateStmt:	/* Allow for DEALLOCATE ALL */
+		case T_DeallocateStmt: /* Allow for DEALLOCATE ALL */
 		case T_DiscardStmt:
 		case T_DropCastStmt:
 		case T_DropFdwStmt:
 		case T_DropForeignServerStmt:
 		case T_DropPLangStmt:
+		case T_DropStmt:
 		case T_IndexStmt:
 		case T_LockStmt:
 		case T_ReindexStmt:
 		case T_RemoveFuncStmt:
 		case T_RemoveOpClassStmt:
 		case T_RemoveOpFamilyStmt:
+		case T_RenameStmt:
 		case T_TruncateStmt:
 		case T_VariableSetStmt:
 		case T_ViewStmt:
@@ -1695,11 +1644,11 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 			 * data node will do
 			 */
 		case T_ExplainStmt:
-			if (((ExplainStmt *)	parsetree)->analyze)
+			if (((ExplainStmt *) parsetree)->analyze)
 					ereport(ERROR,
 							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
 							 (errmsg("ANALYZE with EXPLAIN is currently not supported."))));
-	
+
 			query_step->exec_nodes = palloc0(sizeof(Exec_Nodes));
 			query_step->exec_nodes->nodelist = GetAnyDataNode();
 			query_step->exec_nodes->baselocatortype = LOCATOR_TYPE_RROBIN;

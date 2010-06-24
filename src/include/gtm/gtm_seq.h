@@ -23,6 +23,7 @@ typedef struct GTM_SeqInfo
 	GTM_SequenceKey	gs_key;
 	GTM_Sequence	gs_value;
 	GTM_Sequence	gs_init_value;
+	GTM_Sequence	gs_last_value;
 	GTM_Sequence	gs_increment_by;
 	GTM_Sequence	gs_min_value;
 	GTM_Sequence	gs_max_value;
@@ -57,17 +58,30 @@ int GTM_SeqOpen(GTM_SequenceKey seqkey,
 			GTM_Sequence maxval,
 			GTM_Sequence startval,
 			bool cycle);
-int GTM_SeqClose(GTM_SequenceKey sqkey);
+int GTM_SeqAlter(GTM_SequenceKey seqkey,
+				 GTM_Sequence increment_by,
+				 GTM_Sequence minval,
+				 GTM_Sequence maxval,
+				 GTM_Sequence startval,
+				 GTM_Sequence lastval,
+				 bool cycle,
+				 bool is_restart);
+int GTM_SeqClose(GTM_SequenceKey seqkey);
+int GTM_SeqRename(GTM_SequenceKey seqkey, GTM_SequenceKey newseqkey);
 GTM_Sequence GTM_SeqGetNext(GTM_SequenceKey seqkey);
 GTM_Sequence GTM_SeqGetCurrent(GTM_SequenceKey seqkey);
+int GTM_SeqSetVal(GTM_SequenceKey seqkey, GTM_Sequence nextval, bool iscalled);
 int GTM_SeqReset(GTM_SequenceKey seqkey);
 
 
 void ProcessSequenceInitCommand(Port *myport, StringInfo message);
 void ProcessSequenceGetCurrentCommand(Port *myport, StringInfo message);
 void ProcessSequenceGetNextCommand(Port *myport, StringInfo message);
+void ProcessSequenceSetValCommand(Port *myport, StringInfo message);
 void ProcessSequenceResetCommand(Port *myport, StringInfo message);
 void ProcessSequenceCloseCommand(Port *myport, StringInfo message);
+void ProcessSequenceRenameCommand(Port *myport, StringInfo message);
+void ProcessSequenceAlterCommand(Port *myport, StringInfo message);
 
 void GTM_SaveSeqInfo(int ctlfd);
 void GTM_RestoreSeqInfo(int ctlfd);

@@ -493,12 +493,16 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 		case SEQUENCE_INIT_RESULT:
 		case SEQUENCE_RESET_RESULT:
 		case SEQUENCE_CLOSE_RESULT:
+		case SEQUENCE_RENAME_RESULT:
+		case SEQUENCE_ALTER_RESULT:
+		case SEQUENCE_SET_VAL_RESULT:
 			if (gtmpqReadSeqKey(&result->gr_resdata.grd_seqkey, conn))
 				result->gr_status = -1;
 			break;
 
 		case SEQUENCE_GET_CURRENT_RESULT:
 		case SEQUENCE_GET_NEXT_RESULT:
+		case SEQUENCE_GET_LAST_RESULT:
 			if (gtmpqReadSeqKey(&result->gr_resdata.grd_seq.seqkey, conn))
 			{
 				result->gr_status = -1;
@@ -566,6 +570,9 @@ gtmpqFreeResultData(GTM_Result *result, bool is_proxy)
 		case SEQUENCE_INIT_RESULT:
 		case SEQUENCE_RESET_RESULT:
 		case SEQUENCE_CLOSE_RESULT:
+		case SEQUENCE_RENAME_RESULT:
+		case SEQUENCE_ALTER_RESULT:
+		case SEQUENCE_SET_VAL_RESULT:
 			if (result->gr_resdata.grd_seqkey.gsk_key != NULL)
 				free(result->gr_resdata.grd_seqkey.gsk_key);
 			result->gr_resdata.grd_seqkey.gsk_key = NULL;
@@ -573,6 +580,7 @@ gtmpqFreeResultData(GTM_Result *result, bool is_proxy)
 
 		case SEQUENCE_GET_CURRENT_RESULT:
 		case SEQUENCE_GET_NEXT_RESULT:
+		case SEQUENCE_GET_LAST_RESULT:
 			if (result->gr_resdata.grd_seq.seqkey.gsk_key != NULL)
 				free(result->gr_resdata.grd_seq.seqkey.gsk_key);
 			result->gr_resdata.grd_seqkey.gsk_key = NULL;

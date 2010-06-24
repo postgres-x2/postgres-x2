@@ -172,10 +172,8 @@ GetSnapshotGTM(GlobalTransactionId gxid, bool canbe_grouped)
 }
 
 
-/**
+/*
  * Create a sequence on the GTM.
- *
- * 
  */
 int
 CreateSequenceGTM(char *seqname, GTM_Sequence increment, GTM_Sequence minval,
@@ -189,7 +187,45 @@ CreateSequenceGTM(char *seqname, GTM_Sequence increment, GTM_Sequence minval,
 	return conn ? open_sequence(conn, &seqkey, increment, minval, maxval, startval, cycle) : 0;
 }
 
-/**
+/*
+ * Alter a sequence on the GTM
+ */
+int
+AlterSequenceGTM(char *seqname, GTM_Sequence increment, GTM_Sequence minval,
+				 GTM_Sequence maxval, GTM_Sequence startval, GTM_Sequence lastval, bool cycle, bool is_restart)
+{
+	GTM_SequenceKeyData seqkey;
+	CheckConnection();
+	seqkey.gsk_keylen = strlen(seqname);
+	seqkey.gsk_key = seqname;
+
+	return conn ? alter_sequence(conn, &seqkey, increment, minval, maxval, startval, lastval, cycle, is_restart) : 0;
+}
+
+/*
+ * get the current sequence value
+ */
+
+GTM_Sequence
+GetCurrentValGTM(char *seqname)
+{
+	GTM_Sequence ret = -1;
+	GTM_SequenceKeyData seqkey;
+	CheckConnection();
+	seqkey.gsk_keylen = strlen(seqname);
+	seqkey.gsk_key = seqname;
+
+	if (conn)
+		ret =  get_current(conn, &seqkey);
+	if (ret < 0)
+	{
+		CloseGTM();
+		InitGTM();
+	}
+	return ret;
+}
+
+/*
  * Get the next sequence value
  */
 GTM_Sequence
@@ -211,7 +247,21 @@ GetNextValGTM(char *seqname)
 	return ret;
 }
 
-/**
+/*
+ * Set values for sequence
+ */
+int
+SetValGTM(char *seqname, GTM_Sequence nextval, bool iscalled)
+{
+	GTM_SequenceKeyData seqkey;
+	CheckConnection();
+	seqkey.gsk_keylen = strlen(seqname);
+	seqkey.gsk_key = seqname;
+
+	return conn ? set_val(conn, &seqkey, nextval, iscalled) : -1;
+}
+
+/*
  * Drop the sequence
  */
 int
@@ -223,4 +273,20 @@ DropSequenceGTM(char *seqname)
 	seqkey.gsk_key = seqname;
 
 	return conn ? close_sequence(conn, &seqkey) : -1;
+}
+
+/*
+ * Rename the sequence
+ */
+int
+RenameSequenceGTM(char *seqname, const char *newseqname)
+{
+	GTM_SequenceKeyData seqkey, newseqkey;
+	CheckConnection();
+	seqkey.gsk_keylen = strlen(seqname);
+	seqkey.gsk_key = seqname;
+	newseqkey.gsk_keylen = strlen(newseqname);
+	newseqkey.gsk_key = (char *)newseqname;
+
+	return conn ? rename_sequence(conn, &seqkey, &newseqkey) : -1;
 }

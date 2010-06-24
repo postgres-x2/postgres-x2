@@ -35,6 +35,7 @@
 #include "utils/lsyscache.h"
 #include "utils/resowner.h"
 #include "utils/syscache.h"
+#include "commands/dbcommands.h"
 
 #ifdef PGXC
 #include "pgxc/pgxc.h"
@@ -97,8 +98,13 @@ static int64 nextval_internal(Oid relid);
 static Relation open_share_lock(SeqTable seq);
 static void init_sequence(Oid relid, SeqTable *p_elm, Relation *p_rel);
 static Form_pg_sequence read_info(SeqTable elm, Relation rel, Buffer *buf);
+#ifdef PGXC
 static void init_params(List *options, bool isInit,
-			Form_pg_sequence new, List **owned_by);
+						Form_pg_sequence new, List **owned_by, bool *is_restart);
+#else
+static void init_params(List *options, bool isInit,
+						Form_pg_sequence new, List **owned_by);
+#endif
 static void do_setval(Oid relid, int64 next, bool iscalled);
 static void process_owned_by(Relation seqrel, List *owned_by);
 
@@ -130,10 +136,15 @@ DefineSequence(CreateSeqStmt *seq)
 	GTM_Sequence	max_value = InvalidSequenceValue;
 	GTM_Sequence	increment = 1;
 	bool		cycle = false;
+	bool		is_restart;
 #endif
 
 	/* Check and set all option values */
+#ifdef PGXC
+	init_params(seq->options, true, &new, &owned_by, &is_restart);
+#else
 	init_params(seq->options, true, &new, &owned_by);
+#endif
 
 	/*
 	 * Create relation (and fill value[] and null[] for the tuple)
@@ -341,14 +352,20 @@ DefineSequence(CreateSeqStmt *seq)
 #ifdef PGXC  /* PGXC_COORD */
 	if (IS_PGXC_COORDINATOR)
 	{
+		char *seqname = GetGlobalSeqName(rel, NULL);
+
 		/* We also need to create it on the GTM */
-		if (CreateSequenceGTM(name.data, increment, min_value, max_value, 
+		if (CreateSequenceGTM(seqname,
+							  increment,
+							  min_value,
+							  max_value, 
 				start_value, cycle) < 0)
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_CONNECTION_FAILURE),
 					 errmsg("GTM error, could not create sequence")));
 		}
+		pfree(seqname);
 	}
 #endif
 }
@@ -392,6 +409,15 @@ AlterSequenceInternal(Oid relid, List *options)
 	Form_pg_sequence seq;
 	FormData_pg_sequence new;
 	List	   *owned_by;
+#ifdef PGXC
+	GTM_Sequence	start_value;
+	GTM_Sequence	last_value;
+	GTM_Sequence	min_value;
+	GTM_Sequence	max_value;
+	GTM_Sequence	increment;
+	bool			cycle;
+	bool			is_restart;
+#endif
 
 	/* open and AccessShareLock sequence */
 	init_sequence(relid, &elm, &seqrel);
@@ -404,7 +430,11 @@ AlterSequenceInternal(Oid relid, List *options)
 	memcpy(&new, seq, sizeof(FormData_pg_sequence));
 
 	/* Check and set new values */
+#ifdef PGXC
+	init_params(options, false, &new, &owned_by, &is_restart);
+#else
 	init_params(options, false, &new, &owned_by);
+#endif
 
 	/* Clear local cache so that we don't think we have cached numbers */
 	/* Note that we do not change the currval() state */
@@ -412,6 +442,15 @@ AlterSequenceInternal(Oid relid, List *options)
 
 	/* Now okay to update the on-disk tuple */
 	memcpy(seq, &new, sizeof(FormData_pg_sequence));
+
+#ifdef PGXC
+	increment = new.increment_by;
+	min_value = new.min_value;
+	max_value = new.max_value;
+	start_value = new.start_value;
+	last_value = new.last_value;
+	cycle = new.is_cycled;
+#endif
 
 	START_CRIT_SECTION();
 
@@ -451,6 +490,27 @@ AlterSequenceInternal(Oid relid, List *options)
 		process_owned_by(seqrel, owned_by);
 
 	relation_close(seqrel, NoLock);
+
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR)
+	{
+		char *seqname = GetGlobalSeqName(seqrel, NULL);
+
+		/* We also need to create it on the GTM */
+		if (AlterSequenceGTM(seqname,
+							 increment,
+							 min_value,
+							 max_value,
+							 start_value,
+							 last_value,
+							 cycle,
+							 is_restart) < 0)
+			ereport(ERROR,
+					(errcode(ERRCODE_CONNECTION_FAILURE),
+					 errmsg("GTM error, could not alter sequence")));
+		pfree(seqname);
+	}
+#endif
 }
 
 
@@ -527,14 +587,22 @@ nextval_internal(Oid relid)
 #ifdef PGXC  /* PGXC_COORD */
 	if (IS_PGXC_COORDINATOR)
 	{
-		/* Above, we still use the page as a locking mechanism to handle
-	   	 * concurrency
+		char *seqname = GetGlobalSeqName(seqrel, NULL);
+
+		/*
+		 * Above, we still use the page as a locking mechanism to handle
+		 * concurrency
 		 */
-		result = (int64) GetNextValGTM(RelationGetRelationName(seqrel));
+		result = (int64) GetNextValGTM(seqname);
 		if (result < 0)
 			ereport(ERROR,
-				(errcode(ERRCODE_CONNECTION_FAILURE),
-				 errmsg("GTM error, could not obtain sequence value")));
+					(errcode(ERRCODE_CONNECTION_FAILURE),
+					 errmsg("GTM error, could not obtain sequence value")));
+		pfree(seqname);
+
+		/* Update the on-disk data */
+		seq->last_value = result; /* last fetched number */
+		seq->is_called = true;
 	} else
 	{
 #endif
@@ -714,6 +782,22 @@ currval_oid(PG_FUNCTION_ARGS)
 	/* open and AccessShareLock sequence */
 	init_sequence(relid, &elm, &seqrel);
 
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR)
+	{
+		char *seqname = GetGlobalSeqName(seqrel, NULL);
+
+		result = (int64) GetCurrentValGTM(seqname);
+		if (result < 0)
+			ereport(ERROR,
+					(errcode(ERRCODE_CONNECTION_FAILURE),
+					 errmsg("GTM error, could not obtain sequence value")));
+		pfree(seqname);
+	}
+	else
+	{
+#endif
+
 	if (pg_class_aclcheck(elm->relid, GetUserId(), ACL_SELECT) != ACLCHECK_OK &&
 		pg_class_aclcheck(elm->relid, GetUserId(), ACL_USAGE) != ACLCHECK_OK)
 		ereport(ERROR,
@@ -728,6 +812,10 @@ currval_oid(PG_FUNCTION_ARGS)
 						RelationGetRelationName(seqrel))));
 
 	result = elm->last;
+
+#ifdef PGXC
+	}
+#endif
 
 	relation_close(seqrel, NoLock);
 
@@ -820,6 +908,24 @@ do_setval(Oid relid, int64 next, bool iscalled)
 						bufm, bufx)));
 	}
 
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR)
+	{
+		char *seqname = GetGlobalSeqName(seqrel, NULL);
+
+		if (SetValGTM(seqname, next, iscalled) < 0)
+			ereport(ERROR,
+					(errcode(ERRCODE_CONNECTION_FAILURE),
+					 errmsg("GTM error, could not obtain sequence value")));
+		pfree(seqname);
+		/* Update the on-disk data */
+		seq->last_value = next; /* last fetched number */
+		seq->is_called = iscalled;
+	}
+	else
+	{
+#endif
+
 	/* Set the currval() state only if iscalled = true */
 	if (iscalled)
 	{
@@ -871,6 +977,10 @@ do_setval(Oid relid, int64 next, bool iscalled)
 	seq->log_cnt = (iscalled) ? 0 : 1;
 
 	END_CRIT_SECTION();
+
+#ifdef PGXC
+	}
+#endif
 
 	UnlockReleaseBuffer(buf);
 
@@ -1050,8 +1160,13 @@ read_info(SeqTable elm, Relation rel, Buffer *buf)
  * otherwise, do not change existing options that aren't explicitly overridden.
  */
 static void
+#ifdef PGXC
+init_params(List *options, bool isInit,
+			Form_pg_sequence new, List **owned_by, bool *is_restart)
+#else
 init_params(List *options, bool isInit,
 			Form_pg_sequence new, List **owned_by)
+#endif
 {
 	DefElem    *start_value = NULL;
 	DefElem    *restart_value = NULL;
@@ -1061,6 +1176,10 @@ init_params(List *options, bool isInit,
 	DefElem    *cache_value = NULL;
 	DefElem    *is_cycled = NULL;
 	ListCell   *option;
+
+#ifdef PGXC
+	*is_restart = false;
+#endif
 
 	*owned_by = NIL;
 
@@ -1227,8 +1346,8 @@ init_params(List *options, bool isInit,
 		snprintf(bufm, sizeof(bufm), INT64_FORMAT, new->max_value);
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-			  errmsg("START value (%s) cannot be greater than MAXVALUE (%s)",
-					 bufs, bufm)));
+				 errmsg("START value (%s) cannot be greater than MAXVALUE (%s)",
+						bufs, bufm)));
 	}
 
 	/* RESTART [WITH] */
@@ -1238,6 +1357,9 @@ init_params(List *options, bool isInit,
 			new->last_value = defGetInt64(restart_value);
 		else
 			new->last_value = new->start_value;
+#ifdef PGXC
+		*is_restart = true;
+#endif
 		new->is_called = false;
 		new->log_cnt = 1;
 	}
@@ -1258,8 +1380,8 @@ init_params(List *options, bool isInit,
 		snprintf(bufm, sizeof(bufm), INT64_FORMAT, new->min_value);
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-			   errmsg("RESTART value (%s) cannot be less than MINVALUE (%s)",
-					  bufs, bufm)));
+				 errmsg("RESTART value (%s) cannot be less than MINVALUE (%s)",
+						bufs, bufm)));
 	}
 	if (new->last_value > new->max_value)
 	{
@@ -1270,8 +1392,8 @@ init_params(List *options, bool isInit,
 		snprintf(bufm, sizeof(bufm), INT64_FORMAT, new->max_value);
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-			errmsg("RESTART value (%s) cannot be greater than MAXVALUE (%s)",
-				   bufs, bufm)));
+						 errmsg("RESTART value (%s) cannot be greater than MAXVALUE (%s)",
+								bufs, bufm)));
 	}
 
 	/* CACHE */
@@ -1292,6 +1414,49 @@ init_params(List *options, bool isInit,
 	else if (isInit)
 		new->cache_value = 1;
 }
+
+#ifdef PGXC
+/*
+ * Returns a global sequence name adapted to GTM
+ * Name format is dbname.schemaname.seqname
+ * so as to identify in a unique way in the whole cluster each sequence
+ */
+
+char *
+GetGlobalSeqName(Relation seqrel, const char *new_seqname)
+{
+	char *seqname, *dbname, *schemaname, *relname;
+	int charlen;
+
+	/* Get all the necessary relation names */
+	dbname = get_database_name(seqrel->rd_node.dbNode);
+	schemaname = get_namespace_name(RelationGetNamespace(seqrel));
+	
+	if (new_seqname)
+		relname = new_seqname;
+	else
+		relname = RelationGetRelationName(seqrel);
+
+	/* Calculate the global name size including the dots and \0 */
+	charlen = strlen(dbname) + strlen(schemaname) + strlen(relname) + 3;
+	seqname = (char *) palloc(charlen);
+
+	/* Form a unique sequence name with schema and database name for GTM */
+	snprintf(seqname,
+			 charlen,
+			 "%s.%s.%s",
+			 dbname,
+			 schemaname,
+			 relname);
+
+	if (dbname)
+		pfree(dbname);
+	if (schemaname)
+		pfree(schemaname);
+
+	return seqname;
+}
+#endif
 
 /*
  * Process an OWNED BY option for CREATE/ALTER SEQUENCE

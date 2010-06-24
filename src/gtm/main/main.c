@@ -72,7 +72,7 @@ static void ProcessCommand(Port *myport, StringInfo input_message);
 static void ProcessCoordinatorCommand(Port *myport, GTM_MessageType mtype, StringInfo message);
 static void ProcessTransactionCommand(Port *myport, GTM_MessageType mtype, StringInfo message);
 static void ProcessSnapshotCommand(Port *myport, GTM_MessageType mtype, StringInfo message);
-static void ProcessSeqeunceCommand(Port *myport, GTM_MessageType mtype, StringInfo message);
+static void ProcessSequenceCommand(Port *myport, GTM_MessageType mtype, StringInfo message);
 static void ProcessQueryCommand(Port *myport, GTM_MessageType mtype, StringInfo message);
 
 static void GTM_RegisterCoordinator(Port *myport, GTM_CoordinatorId coordinator_id);
@@ -761,16 +761,16 @@ ProcessCommand(Port *myport, StringInfo input_message)
 
 	switch (mtype)
 	{
-		case MSG_UNREGISTER_COORD:	
+		case MSG_UNREGISTER_COORD:
 			ProcessCoordinatorCommand(myport, mtype, input_message);
 			break;
 
-		case MSG_TXN_BEGIN:	
-		case MSG_TXN_BEGIN_GETGXID:	
-		case MSG_TXN_BEGIN_GETGXID_AUTOVACUUM:	
-		case MSG_TXN_PREPARE:		
-		case MSG_TXN_COMMIT:		
-		case MSG_TXN_ROLLBACK:		
+		case MSG_TXN_BEGIN:
+		case MSG_TXN_BEGIN_GETGXID:
+		case MSG_TXN_BEGIN_GETGXID_AUTOVACUUM:
+		case MSG_TXN_PREPARE:
+		case MSG_TXN_COMMIT:
+		case MSG_TXN_ROLLBACK:
 		case MSG_TXN_GET_GXID:
 		case MSG_TXN_BEGIN_GETGXID_MULTI:
 		case MSG_TXN_COMMIT_MULTI:
@@ -778,18 +778,22 @@ ProcessCommand(Port *myport, StringInfo input_message)
 			ProcessTransactionCommand(myport, mtype, input_message);
 			break;
 
-		case MSG_SNAPSHOT_GET:		
+		case MSG_SNAPSHOT_GET:
 		case MSG_SNAPSHOT_GXID_GET:
 		case MSG_SNAPSHOT_GET_MULTI:
 			ProcessSnapshotCommand(myport, mtype, input_message);
 			break;
 
-		case MSG_SEQUENCE_INIT:	
+		case MSG_SEQUENCE_INIT:
 		case MSG_SEQUENCE_GET_CURRENT:
 		case MSG_SEQUENCE_GET_NEXT:
+		case MSG_SEQUENCE_GET_LAST:
+		case MSG_SEQUENCE_SET_VAL:
 		case MSG_SEQUENCE_RESET:
 		case MSG_SEQUENCE_CLOSE:
-			ProcessSeqeunceCommand(myport, mtype, input_message);
+		case MSG_SEQUENCE_RENAME:
+		case MSG_SEQUENCE_ALTER:
+			ProcessSequenceCommand(myport, mtype, input_message);
 			break;
 		
 		case MSG_TXN_GET_STATUS:
@@ -1003,12 +1007,16 @@ ProcessSnapshotCommand(Port *myport, GTM_MessageType mtype, StringInfo message)
 }
 
 static void
-ProcessSeqeunceCommand(Port *myport, GTM_MessageType mtype, StringInfo message)
+ProcessSequenceCommand(Port *myport, GTM_MessageType mtype, StringInfo message)
 {
 	switch (mtype)
 	{
-		case MSG_SEQUENCE_INIT:	
+		case MSG_SEQUENCE_INIT:
 			ProcessSequenceInitCommand(myport, message);
+			break;
+
+		case MSG_SEQUENCE_ALTER:
+			ProcessSequenceAlterCommand(myport, message);
 			break;
 
 		case MSG_SEQUENCE_GET_CURRENT:
@@ -1019,12 +1027,20 @@ ProcessSeqeunceCommand(Port *myport, GTM_MessageType mtype, StringInfo message)
 			ProcessSequenceGetNextCommand(myport, message);
 			break;
 
+		case MSG_SEQUENCE_SET_VAL:
+			ProcessSequenceSetValCommand(myport, message);
+			break;
+
 		case MSG_SEQUENCE_RESET:
 			ProcessSequenceResetCommand(myport, message);
 			break;
 
 		case MSG_SEQUENCE_CLOSE:
 			ProcessSequenceCloseCommand(myport, message);
+			break;
+
+		case MSG_SEQUENCE_RENAME:
+			ProcessSequenceRenameCommand(myport, message);
 			break;
 
 		default:

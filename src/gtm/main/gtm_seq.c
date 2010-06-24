@@ -326,13 +326,72 @@ GTM_SeqOpen(GTM_SequenceKey seqkey,
 	 */
 	seqinfo->gs_cycle = cycle;
 
+	/* Set the last value in case of a future restart */
+	seqinfo->gs_last_value = seqinfo->gs_init_value;
+
 	if ((errcode = seq_add_seqinfo(seqinfo)))
 	{
-	 	GTM_RWLockDestroy(&seqinfo->gs_lock);
+		GTM_RWLockDestroy(&seqinfo->gs_lock);
 		pfree(seqinfo->gs_key);
 		pfree(seqinfo);
 	}
 	return errcode;
+}
+
+/*
+ * Alter a sequence
+ */
+int GTM_SeqAlter(GTM_SequenceKey seqkey,
+				 GTM_Sequence increment_by,
+				 GTM_Sequence minval,
+				 GTM_Sequence maxval,
+				 GTM_Sequence startval,
+				 GTM_Sequence lastval,
+				 bool cycle,
+				 bool is_restart)
+{
+	GTM_SeqInfo *seqinfo = seq_find_seqinfo(seqkey);
+
+	if (seqinfo == NULL)
+	{
+		ereport(LOG,
+				(EINVAL,
+				 errmsg("The sequence with the given key does not exist")));
+		return EINVAL;
+	}
+
+	GTM_RWLockAcquire(&seqinfo->gs_lock, GTM_LOCKMODE_WRITE);
+
+	/* Modify the data if necessary */
+
+	if (seqinfo->gs_cycle != cycle)
+		seqinfo->gs_cycle = cycle;
+	if (seqinfo->gs_min_value != minval)
+		seqinfo->gs_min_value = minval;
+	if (seqinfo->gs_max_value != maxval)
+		seqinfo->gs_max_value = maxval;
+	if (seqinfo->gs_increment_by != increment_by)
+		seqinfo->gs_increment_by = increment_by;
+
+	/* Here Restart has been used with a value, reinitialize last_value to a new value */
+	if (seqinfo->gs_last_value != lastval)
+		seqinfo->gs_last_value = lastval;
+
+	/* Start has been used, reinitialize init value */
+	if (seqinfo->gs_init_value != startval)
+		seqinfo->gs_last_value = seqinfo->gs_init_value = startval;
+
+	/* Restart command has been used, reset the sequence */
+	if (is_restart)
+	{
+		seqinfo->gs_called = false;
+		seqinfo->gs_init_value = seqinfo->gs_last_value;
+	}
+
+	/* Remove the old key with the old name */
+	GTM_RWLockRelease(&seqinfo->gs_lock);
+	seq_release_seqinfo(seqinfo);
+	return 0;
 }
 
 /*
@@ -367,7 +426,7 @@ GTM_SeqRestore(GTM_SequenceKey seqkey,
 	seqinfo->gs_min_value = minval;
 	seqinfo->gs_max_value = maxval;
 
-	seqinfo->gs_init_value = startval;
+	seqinfo->gs_init_value = seqinfo->gs_last_value = startval;
 	seqinfo->gs_value = curval;
 
 	/*
@@ -399,6 +458,66 @@ GTM_SeqClose(GTM_SequenceKey seqkey)
 	}
 	else
 		return EINVAL;
+}
+
+/*
+ * Rename an existing sequence with a new name
+ */
+int
+GTM_SeqRename(GTM_SequenceKey seqkey, GTM_SequenceKey newseqkey)
+{
+	GTM_SeqInfo *seqinfo = seq_find_seqinfo(seqkey);
+	GTM_SeqInfo *newseqinfo = NULL;
+	int errcode = 0;
+
+	/* replace old key by new key */
+	if (seqinfo == NULL)
+	{
+		ereport(LOG,
+				(EINVAL,
+				 errmsg("The sequence with the given key does not exist")));
+		return EINVAL;
+	}
+
+	/* Now create the new sequence info */
+	newseqinfo = (GTM_SeqInfo *) palloc(sizeof (GTM_SeqInfo));
+
+	GTM_RWLockAcquire(&seqinfo->gs_lock, GTM_LOCKMODE_WRITE);
+	GTM_RWLockInit(&newseqinfo->gs_lock);
+
+	newseqinfo->gs_ref_count = 0;
+	newseqinfo->gs_key = seq_copy_key(newseqkey);
+	newseqinfo->gs_state = seqinfo->gs_state;
+	newseqinfo->gs_called = seqinfo->gs_called;
+
+	newseqinfo->gs_increment_by = seqinfo->gs_increment_by;
+	newseqinfo->gs_min_value = seqinfo->gs_min_value;
+	newseqinfo->gs_max_value = seqinfo->gs_max_value;
+
+	newseqinfo->gs_init_value = seqinfo->gs_init_value;
+	newseqinfo->gs_value = seqinfo->gs_value;
+	newseqinfo->gs_cycle = seqinfo->gs_cycle;
+
+	newseqinfo->gs_state = seqinfo->gs_state;
+	newseqinfo->gs_last_value = seqinfo->gs_last_value;
+
+	/* Add the copy to the list */
+	if ((errcode = seq_add_seqinfo(newseqinfo))) /* a lock is taken here for the new sequence */
+	{
+		GTM_RWLockDestroy(&newseqinfo->gs_lock);
+		pfree(newseqinfo->gs_key);
+		pfree(newseqinfo);
+		return errcode;
+	}
+
+	/* Remove the old key with the old name */
+	GTM_RWLockRelease(&seqinfo->gs_lock);
+	/* Release first the structure as it has been taken previously */
+	seq_release_seqinfo(seqinfo);
+
+	/* Then close properly the old sequence */
+	GTM_SeqClose(seqkey);
+	return errcode;
 }
 
 /*
@@ -436,7 +555,37 @@ GTM_SeqGetCurrent(GTM_SequenceKey seqkey)
 }
 
 /*
- * Get next vlaue for the sequence
+ * Set values for the sequence
+ */
+int
+GTM_SeqSetVal(GTM_SequenceKey seqkey, GTM_Sequence nextval, bool iscalled)
+{
+	GTM_SeqInfo *seqinfo = seq_find_seqinfo(seqkey);
+
+	if (seqinfo == NULL)
+	{
+		ereport(LOG,
+				(EINVAL,
+				 errmsg("The sequence with the given key does not exist")));
+		return EINVAL;
+	}
+
+	GTM_RWLockAcquire(&seqinfo->gs_lock, GTM_LOCKMODE_WRITE);
+
+	if (seqinfo->gs_value != nextval)
+		seqinfo->gs_value = nextval;
+	if (seqinfo->gs_called != iscalled)
+		seqinfo->gs_called = iscalled;
+
+	/* Remove the old key with the old name */
+	GTM_RWLockRelease(&seqinfo->gs_lock);
+	seq_release_seqinfo(seqinfo);
+
+	return 0;
+}
+
+/*
+ * Get next value for the sequence
  */
 GTM_Sequence
 GTM_SeqGetNext(GTM_SequenceKey seqkey)
@@ -625,6 +774,75 @@ ProcessSequenceInitCommand(Port *myport, StringInfo message)
 }
 
 /*
+ * Process MSG_SEQUENCE_ALTER message
+ */
+void
+ProcessSequenceAlterCommand(Port *myport, StringInfo message)
+{
+	GTM_SequenceKeyData seqkey;
+	GTM_Sequence increment, minval, maxval, startval, lastval;
+	bool cycle, is_restart;
+	StringInfoData buf;
+	int errcode;
+	MemoryContext oldContext;
+
+	/*
+	 * Get the sequence key
+	 */
+	seqkey.gsk_keylen = pq_getmsgint(message, sizeof (seqkey.gsk_keylen));
+	seqkey.gsk_key = (char *)pq_getmsgbytes(message, seqkey.gsk_keylen);
+
+	/*
+	 * Read various sequence parameters
+	 */
+	memcpy(&increment, pq_getmsgbytes(message, sizeof (GTM_Sequence)),
+		sizeof (GTM_Sequence));
+	memcpy(&minval, pq_getmsgbytes(message, sizeof (GTM_Sequence)),
+		sizeof (GTM_Sequence));
+	memcpy(&maxval, pq_getmsgbytes(message, sizeof (GTM_Sequence)),
+		sizeof (GTM_Sequence));
+	memcpy(&startval, pq_getmsgbytes(message, sizeof (GTM_Sequence)),
+		sizeof (GTM_Sequence));
+	memcpy(&lastval, pq_getmsgbytes(message, sizeof (GTM_Sequence)),
+		sizeof (GTM_Sequence));
+
+	cycle = pq_getmsgbyte(message);
+	is_restart = pq_getmsgbyte(message);
+
+	/*
+	 * We must use the TopMostMemoryContext because the sequence information is
+	 * not bound to a thread and can outlive any of the thread specific
+	 * contextes.
+	 */
+	oldContext = MemoryContextSwitchTo(TopMostMemoryContext);
+
+	if (GTM_SeqAlter(&seqkey, increment, minval, maxval, startval, lastval, cycle, is_restart))
+		ereport(ERROR,
+				(errcode,
+				 errmsg("Failed to open a new sequence")));
+
+	MemoryContextSwitchTo(oldContext);
+
+	pq_getmsgend(message);
+
+	pq_beginmessage(&buf, 'S');
+	pq_sendint(&buf, SEQUENCE_ALTER_RESULT, 4);
+	if (myport->is_proxy)
+	{
+		GTM_ProxyMsgHeader proxyhdr;
+		proxyhdr.ph_conid = myport->conn_id;
+		pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
+	}
+	pq_sendint(&buf, seqkey.gsk_keylen, 4);
+	pq_sendbytes(&buf, seqkey.gsk_key, seqkey.gsk_keylen);
+	pq_endmessage(myport, &buf);
+
+	if (!myport->is_proxy)
+		pq_flush(myport);
+}
+
+
+/*
  * Process MSG_SEQUENCE_GET_CURRENT message
  */
 void
@@ -697,6 +915,63 @@ ProcessSequenceGetNextCommand(Port *myport, StringInfo message)
 }
 
 /*
+ * Process MSG_SEQUENCE_SET_VAL message
+ */
+void
+ProcessSequenceSetValCommand(Port *myport, StringInfo message)
+{
+	GTM_SequenceKeyData seqkey;
+	GTM_Sequence nextval;
+	MemoryContext oldContext;
+	StringInfoData buf;
+	bool iscalled;
+	int errcode;
+
+	/*
+	 * Get the sequence key
+	 */
+	seqkey.gsk_keylen = pq_getmsgint(message, sizeof (seqkey.gsk_keylen));
+	seqkey.gsk_key = (char *)pq_getmsgbytes(message, seqkey.gsk_keylen);
+
+	/* Read parameters to be set */
+	memcpy(&nextval, pq_getmsgbytes(message, sizeof (GTM_Sequence)),
+		   sizeof (GTM_Sequence));
+
+	iscalled = pq_getmsgbyte(message);
+
+	/*
+	 * We must use the TopMostMemoryContext because the sequence information is
+	 * not bound to a thread and can outlive any of the thread specific
+	 * contextes.
+	 */
+	oldContext = MemoryContextSwitchTo(TopMostMemoryContext);
+
+	if (GTM_SeqSetVal(&seqkey, nextval, iscalled))
+		ereport(ERROR,
+				(errcode,
+				 errmsg("Failed to set values of sequence")));
+
+	MemoryContextSwitchTo(oldContext);
+
+	pq_getmsgend(message);
+
+	pq_beginmessage(&buf, 'S');
+	pq_sendint(&buf, SEQUENCE_SET_VAL_RESULT, 4);
+	if (myport->is_proxy)
+	{
+		GTM_ProxyMsgHeader proxyhdr;
+		proxyhdr.ph_conid = myport->conn_id;
+		pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
+	}
+	pq_sendint(&buf, seqkey.gsk_keylen, 4);
+	pq_sendbytes(&buf, seqkey.gsk_key, seqkey.gsk_keylen);
+	pq_endmessage(myport, &buf);
+
+	if (!myport->is_proxy)
+		pq_flush(myport);
+}
+
+/*
  * Process MSG_SEQUENCE_RESET message
  */
 void
@@ -758,6 +1033,58 @@ ProcessSequenceCloseCommand(Port *myport, StringInfo message)
 	}
 	pq_sendint(&buf, seqkey.gsk_keylen, 4);
 	pq_sendbytes(&buf, seqkey.gsk_key, seqkey.gsk_keylen);
+	pq_endmessage(myport, &buf);
+
+	if (!myport->is_proxy)
+		pq_flush(myport);
+}
+
+/*
+ * Process MSG_SEQUENCE_RENAME message
+ */
+void
+ProcessSequenceRenameCommand(Port *myport, StringInfo message)
+{
+	GTM_SequenceKeyData seqkey, newseqkey;
+	StringInfoData buf;
+	int errcode;
+	MemoryContext oldContext;
+
+	/* get the message from backend */
+	seqkey.gsk_keylen = pq_getmsgint(message, sizeof (seqkey.gsk_keylen));
+	seqkey.gsk_key = (char *)pq_getmsgbytes(message, seqkey.gsk_keylen);
+
+	/* Get the rest of the message, new name length and string with new name */
+	newseqkey.gsk_keylen = pq_getmsgint(message, sizeof (newseqkey.gsk_keylen));
+	newseqkey.gsk_key = (char *)pq_getmsgbytes(message, newseqkey.gsk_keylen);
+
+	/*
+	 * As when creating a sequence, we must use the TopMostMemoryContext
+	 * because the sequence information is not bound to a thread and
+	 * can outlive any of the thread specific contextes.
+	 */
+	oldContext = MemoryContextSwitchTo(TopMostMemoryContext);
+
+	if ((errcode = GTM_SeqRename(&seqkey, &newseqkey)))
+		ereport(ERROR,
+				(errcode,
+				 errmsg("Can not rename the sequence")));
+
+	MemoryContextSwitchTo(oldContext);
+
+	pq_getmsgend(message);
+
+	/* Send a SUCCESS message back to the client */
+	pq_beginmessage(&buf, 'S');
+	pq_sendint(&buf, SEQUENCE_RENAME_RESULT, 4);
+	if (myport->is_proxy)
+	{
+		GTM_ProxyMsgHeader proxyhdr;
+		proxyhdr.ph_conid = myport->conn_id;
+		pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
+	}
+	pq_sendint(&buf, newseqkey.gsk_keylen, 4);
+	pq_sendbytes(&buf, newseqkey.gsk_key, newseqkey.gsk_keylen);
 	pq_endmessage(myport, &buf);
 
 	if (!myport->is_proxy)

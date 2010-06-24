@@ -356,6 +356,51 @@ send_failed:
 }
 
 int
+alter_sequence(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence increment,
+			   GTM_Sequence minval, GTM_Sequence maxval,
+			   GTM_Sequence startval, GTM_Sequence lastval, bool cycle, bool is_restart)
+{
+	GTM_Result *res = NULL;
+	time_t finish_time;
+
+	/* Start the message. */
+	if (gtmpqPutMsgStart('C', true, conn) ||
+		gtmpqPutInt(MSG_SEQUENCE_ALTER, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutInt(key->gsk_keylen, 4, conn) ||
+		gtmpqPutnchar(key->gsk_key, key->gsk_keylen, conn) ||
+		gtmpqPutnchar((char *)&increment, sizeof (GTM_Sequence), conn) ||
+		gtmpqPutnchar((char *)&minval, sizeof (GTM_Sequence), conn) ||
+		gtmpqPutnchar((char *)&maxval, sizeof (GTM_Sequence), conn) ||
+		gtmpqPutnchar((char *)&startval, sizeof (GTM_Sequence), conn) ||
+		gtmpqPutnchar((char *)&lastval, sizeof (GTM_Sequence), conn) ||
+		gtmpqPutc(cycle, conn) ||
+		gtmpqPutc(is_restart, conn))
+		goto send_failed;
+
+	/* Finish the message. */
+	if (gtmpqPutMsgEnd(conn))
+		goto send_failed;
+
+	/* Flush to ensure backend gets it. */
+	if (gtmpqFlush(conn))
+		goto send_failed;
+
+	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
+	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
+		gtmpqReadData(conn) < 0)
+		goto receive_failed;
+
+	if ((res = GTMPQgetResult(conn)) == NULL)
+		goto receive_failed;
+
+	return res->gr_status;
+
+receive_failed:
+send_failed:
+ return -1;
+}
+
+int
 close_sequence(GTM_Conn *conn, GTM_SequenceKey key)
 {
 	GTM_Result *res = NULL;
@@ -388,6 +433,44 @@ close_sequence(GTM_Conn *conn, GTM_SequenceKey key)
 
 receive_failed:
 send_failed:
+	return -1;
+}
+
+int
+rename_sequence(GTM_Conn *conn, GTM_SequenceKey key, GTM_SequenceKey newkey)
+{
+	GTM_Result *res = NULL;
+	time_t finish_time;
+
+	/* Start the message. */
+	if (gtmpqPutMsgStart('C', true, conn) ||
+		gtmpqPutInt(MSG_SEQUENCE_RENAME, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutInt(key->gsk_keylen, 4, conn) ||
+		gtmpqPutnchar(key->gsk_key, key->gsk_keylen, conn)||
+		gtmpqPutInt(newkey->gsk_keylen, 4, conn) ||
+		gtmpqPutnchar(newkey->gsk_key, newkey->gsk_keylen, conn))
+		goto send_failed;
+
+	/* Finish the message. */
+	if (gtmpqPutMsgEnd(conn))
+		goto send_failed;
+
+	/* Flush to ensure backend gets it. */
+	if (gtmpqFlush(conn))
+		goto send_failed;
+
+	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
+	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
+		gtmpqReadData(conn) < 0)
+		goto receive_failed;
+
+	if ((res = GTMPQgetResult(conn)) == NULL)
+		goto receive_failed;
+
+	return res->gr_status;
+
+	receive_failed:
+	send_failed:
 	return -1;
 }
 
@@ -430,13 +513,51 @@ send_failed:
 	return -1;
 }
 
+int
+set_val(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence nextval, bool iscalled)
+{
+	GTM_Result *res = NULL;
+    time_t finish_time;
+
+	/* Start the message. */
+	if (gtmpqPutMsgStart('C', true, conn) ||
+		gtmpqPutInt(MSG_SEQUENCE_SET_VAL, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutInt(key->gsk_keylen, 4, conn) ||
+		gtmpqPutnchar(key->gsk_key, key->gsk_keylen, conn) ||
+		gtmpqPutnchar((char *)&nextval, sizeof (GTM_Sequence), conn) ||
+		gtmpqPutc(iscalled, conn))
+		goto send_failed;
+
+	/* Finish the message. */
+	if (gtmpqPutMsgEnd(conn))
+		goto send_failed;
+
+	/* Flush to ensure backend gets it. */
+	if (gtmpqFlush(conn))
+		goto send_failed;
+
+	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
+	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
+		gtmpqReadData(conn) < 0)
+		goto receive_failed;
+
+	if ((res = GTMPQgetResult(conn)) == NULL)
+		goto receive_failed;
+
+	return res->gr_status;
+
+receive_failed:
+send_failed:
+	return -1;
+}
+
 GTM_Sequence
 get_next(GTM_Conn *conn, GTM_SequenceKey key)
 {
 	GTM_Result *res = NULL;
 	time_t finish_time;
 
-	 /* Start the message. */
+	/* Start the message. */
 	if (gtmpqPutMsgStart('C', true, conn) ||
 		gtmpqPutInt(MSG_SEQUENCE_GET_NEXT, sizeof (GTM_MessageType), conn) ||
 		gtmpqPutInt(key->gsk_keylen, 4, conn) ||

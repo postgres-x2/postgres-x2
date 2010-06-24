@@ -120,9 +120,14 @@ GTM_SnapshotData *get_snapshot(GTM_Conn *conn, GlobalTransactionId gxid,
 int open_sequence(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence increment,
 				  GTM_Sequence minval, GTM_Sequence maxval,
 				  GTM_Sequence startval, bool cycle);
+int alter_sequence(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence increment,
+				   GTM_Sequence minval, GTM_Sequence maxval,
+				   GTM_Sequence startval, GTM_Sequence lastval, bool cycle, bool is_restart);
 int close_sequence(GTM_Conn *conn, GTM_SequenceKey key);
+int rename_sequence(GTM_Conn *conn, GTM_SequenceKey key, GTM_SequenceKey newkey);
 GTM_Sequence get_current(GTM_Conn *conn, GTM_SequenceKey key);
 GTM_Sequence get_next(GTM_Conn *conn, GTM_SequenceKey key);
+int set_val(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence nextval, bool is_called);
 int reset_sequence(GTM_Conn *conn, GTM_SequenceKey key);
 
 

@@ -99,4 +99,8 @@ extern void AlterSequenceInternal(Oid relid, List *options);
 extern void seq_redo(XLogRecPtr lsn, XLogRecord *rptr);
 extern void seq_desc(StringInfo buf, uint8 xl_info, char *rec);
 
+#ifdef PGXC
+extern char *GetGlobalSeqName(Relation rel, const char *new_seqname);
+#endif
+
 #endif   /* SEQUENCE_H */

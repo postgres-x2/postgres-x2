@@ -34,11 +34,15 @@ typedef enum GTM_MessageType
 	MSG_SEQUENCE_INIT,		/* Initialize a new global sequence */
 	MSG_SEQUENCE_GET_CURRENT,/* Get the current value of sequence */
 	MSG_SEQUENCE_GET_NEXT,	/* Get the next sequence value of sequence */
+	MSG_SEQUENCE_GET_LAST,	/* Get the last sequence value of sequence */
+	MSG_SEQUENCE_SET_VAL,	/* Set values for sequence */
 	MSG_SEQUENCE_RESET,		/* Reset the sequence */
 	MSG_SEQUENCE_CLOSE,		/* Close a previously inited sequence */
+	MSG_SEQUENCE_RENAME,	/* Rename a sequence */
+	MSG_SEQUENCE_ALTER,		/* Alter a sequence */
 	MSG_TXN_GET_STATUS,		/* Get status of a given transaction */
 	MSG_TXN_GET_ALL_PREPARED,	/* Get information about all outstanding
-						  		 * prepared transactions */
+								 * prepared transactions */
 	MSG_TXN_BEGIN_GETGXID_AUTOVACUUM,	/* Start a new transaction and get GXID for autovacuum */
 	MSG_DATA_FLUSH,					/* flush pending data */
 	MSG_BACKEND_DISCONNECT,			/* tell GTM that the backend diconnected from the proxy */
@@ -66,8 +70,12 @@ typedef enum GTM_ResultType
 	SEQUENCE_INIT_RESULT,
 	SEQUENCE_GET_CURRENT_RESULT,
 	SEQUENCE_GET_NEXT_RESULT,
+	SEQUENCE_GET_LAST_RESULT,
+	SEQUENCE_SET_VAL_RESULT,
 	SEQUENCE_RESET_RESULT,
 	SEQUENCE_CLOSE_RESULT,
+	SEQUENCE_RENAME_RESULT,
+	SEQUENCE_ALTER_RESULT,
 	TXN_GET_STATUS_RESULT,
 	TXN_GET_ALL_PREPARED_RESULT,
 	TXN_BEGIN_GETGXID_AUTOVACUUM_RESULT,

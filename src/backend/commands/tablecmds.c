@@ -758,14 +758,27 @@ RemoveRelations(DropStmt *drop)
 
 		add_exact_object_address(&obj, objects);
 
-
 #ifdef PGXC  /* PGXC_COORD */
 		/* PGXCTODO: allow the ability to rollback dropping sequences. */
 
 		/* Drop the sequence */
 		if (IS_PGXC_COORDINATOR && classform->relkind == RELKIND_SEQUENCE)
 		{
-			DropSequenceGTM(rel->relname);	
+			Relation relseq;
+			char *seqname;
+
+			/*
+			 * A relation is opened to get the schema and database name as 
+			 * such data is not available before when dropping a function.
+			 */
+			relseq = relation_open(obj.objectId, AccessShareLock);
+			seqname = GetGlobalSeqName(relseq, NULL);
+
+			DropSequenceGTM(seqname);
+			pfree(seqname);
+
+			/* Then close the relation opened previously */
+			relation_close(relseq, AccessShareLock);
 		}
 #endif
 		ReleaseSysCache(tuple);
@@ -2093,6 +2106,20 @@ RenameRelation(Oid myrelid, const char *newrelname, ObjectType reltype)
 
 	/* Do the work */
 	RenameRelationInternal(myrelid, newrelname, namespaceId);
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR &&
+		(reltype == OBJECT_SEQUENCE || relkind == RELKIND_SEQUENCE)) /* It is possible to rename a sequence with ALTER TABLE */
+	{
+		char *seqname = GetGlobalSeqName(targetrelation, NULL);
+		char *newseqname = GetGlobalSeqName(targetrelation, newrelname);
+
+		/* We also need to rename it on the GTM */
+		if (RenameSequenceGTM(seqname, newseqname) < 0)
+			ereport(ERROR,
+					(errcode(ERRCODE_CONNECTION_FAILURE),
+					 errmsg("GTM error, could not rename sequence")));
+	}
+#endif
 
 	/*
 	 * Close rel, but keep exclusive lock!
