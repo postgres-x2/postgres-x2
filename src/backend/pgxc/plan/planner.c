@@ -518,7 +518,7 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 	bool		is_and = false;	
 
 
-	Assert(!context);
+	Assert(context);
 
 	if (expr_node == NULL)
 		return false;
