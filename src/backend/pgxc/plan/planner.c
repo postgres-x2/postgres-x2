@@ -1757,6 +1757,7 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 		case T_RemoveOpClassStmt:
 		case T_RemoveOpFamilyStmt:
 		case T_RenameStmt:
+		case T_RuleStmt:
 		case T_TruncateStmt:
 		case T_VariableSetStmt:
 		case T_ViewStmt:
@@ -1841,7 +1842,6 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 		case T_LoadStmt:
 		case T_NotifyStmt:
 		case T_PrepareStmt:
-		case T_RuleStmt:
 		case T_UnlistenStmt:
 			/* fall through */
 		default:
