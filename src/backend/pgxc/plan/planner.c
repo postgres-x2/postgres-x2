@@ -22,8 +22,10 @@
 #include "catalog/pg_type.h"
 #include "lib/stringinfo.h"
 #include "nodes/nodeFuncs.h"
+#include "nodes/nodes.h"
 #include "nodes/parsenodes.h"
 #include "optimizer/clauses.h"
+#include "optimizer/tlist.h"
 #include "parser/parse_agg.h"
 #include "parser/parse_coerce.h"
 #include "pgxc/locator.h"
@@ -123,11 +125,9 @@ typedef struct XCWalkerContext
 	int					    varno;
 	bool				    within_or;
 	bool				    within_not;
+	List				   *join_list;   /* A list of List*'s, one for each relation. */
 } XCWalkerContext;
 
-
-/* A list of List*'s, one for each relation. */
-List	   *join_list = NULL;
 
 /* Forbid unsafe SQL statements */
 bool		StrictStatementChecking = true;
@@ -185,12 +185,12 @@ new_pgxc_join(int relid1, char *aliasname1, int relid2, char *aliasname2)
  * Look up the join struct for a particular join
  */
 static PGXC_Join *
-find_pgxc_join(int relid1, char *aliasname1, int relid2, char *aliasname2)
+find_pgxc_join(int relid1, char *aliasname1, int relid2, char *aliasname2, XCWalkerContext *context)
 {
 	ListCell   *lc;
 
 	/* return if list is still empty */
-	if (join_list == NULL)
+	if (context->join_list == NULL)
 		return NULL;
 
 	/* in the PGXC_Join struct, we always sort with relid1 < relid2 */
@@ -209,7 +209,7 @@ find_pgxc_join(int relid1, char *aliasname1, int relid2, char *aliasname2)
 	 * there should be a small number, so we just search linearly, although
 	 * long term a hash table would be better.
 	 */
-	foreach(lc, join_list)
+	foreach(lc, context->join_list)
 	{
 		PGXC_Join   *pgxcjoin = (PGXC_Join *) lfirst(lc);
 
@@ -225,16 +225,16 @@ find_pgxc_join(int relid1, char *aliasname1, int relid2, char *aliasname2)
  * Find or create a join between 2 relations
  */
 static PGXC_Join *
-find_or_create_pgxc_join(int relid1, char *aliasname1, int relid2, char *aliasname2)
+find_or_create_pgxc_join(int relid1, char *aliasname1, int relid2, char *aliasname2, XCWalkerContext *context)
 {
 	PGXC_Join   *pgxcjoin;
 
-	pgxcjoin = find_pgxc_join(relid1, aliasname1, relid2, aliasname2);
+	pgxcjoin = find_pgxc_join(relid1, aliasname1, relid2, aliasname2, context);
 
 	if (pgxcjoin == NULL)
 	{
 		pgxcjoin = new_pgxc_join(relid1, aliasname1, relid2, aliasname2);
-		join_list = lappend(join_list, pgxcjoin);
+		context->join_list = lappend(context->join_list, pgxcjoin);
 	}
 
 	return pgxcjoin;
@@ -277,7 +277,7 @@ free_special_relations(Special_Conditions *special_conditions)
  * frees join_list
  */
 static void
-free_join_list(void)
+free_join_list(List *join_list)
 {
 	if (join_list == NULL)
 		return;
@@ -368,13 +368,13 @@ get_base_var(Var *var, XCWalkerContext *context)
 	}
 	else if (rte->rtekind == RTE_SUBQUERY)
 	{
-		/* 
+		/*
 		 * Handle views like select * from v1 where col1 = 1
 		 * where col1 is partition column of base relation
 		 */
 		/* the varattno corresponds with the subquery's target list (projections) */
 		TargetEntry *tle = list_nth(rte->subquery->targetList, var->varattno - 1); /* or varno? */
-		
+
 		if (!IsA(tle->expr, Var))
 			return NULL;	/* not column based expressoin, return */
 		else
@@ -684,7 +684,7 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 
 					/* get data struct about these two relations joining */
 					pgxc_join = find_or_create_pgxc_join(column_base->relid, column_base->relalias,
-										 column_base2->relid, column_base2->relalias);
+										 column_base2->relid, column_base2->relalias, context);
 
 					if (rel_loc_info1->locatorType == LOCATOR_TYPE_REPLICATED)
 					{
@@ -914,7 +914,7 @@ contains_only_pg_catalog (List *rtable)
 		{
 			if (get_rel_namespace(rte->relid) != PG_CATALOG_NAMESPACE)
 				return false;
-		} else if (rte->rtekind == RTE_SUBQUERY && 
+		} else if (rte->rtekind == RTE_SUBQUERY &&
 				!contains_only_pg_catalog (rte->subquery->rtable))
 			return false;
 	}
@@ -967,7 +967,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 			{
 				/* May be complicated. Before giving up, just check for pg_catalog usage */
 				if (contains_only_pg_catalog (query->rtable))
-				{	
+				{
 					/* just pg_catalog tables */
 					context->exec_nodes = (Exec_Nodes *) palloc0(sizeof(Exec_Nodes));
 					context->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_PGCATALOG;
@@ -1018,7 +1018,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 
 				/* We compare to make sure that the subquery is safe to execute with previous-
 				 * we may have multiple ones in the FROM clause.
-				 * We handle the simple case of allowing multiple subqueries in the from clause, 
+				 * We handle the simple case of allowing multiple subqueries in the from clause,
 				 * but only allow one of them to not contain replicated tables
 				 */
 				if (!from_query_nodes)
@@ -1028,20 +1028,20 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 					/* ok, safe */
 					if (!from_query_nodes)
 						from_query_nodes = current_nodes;
-				} 
+				}
 				else
 				{
 					if (from_query_nodes->tableusagetype == TABLE_USAGE_TYPE_USER_REPLICATED)
 						from_query_nodes = current_nodes;
 					else
 					{
-						/* Allow if they are both using one node, and the same one */	
+						/* Allow if they are both using one node, and the same one */
 						if (!same_single_node (from_query_nodes->nodelist, current_nodes->nodelist))
 							/* Complicated */
 							return true;
 					}
 				}
-			} 
+			}
 			else if (rte->rtekind == RTE_RELATION)
 			{
 					/* Look for pg_catalog tables */
@@ -1049,7 +1049,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 						current_usage_type = TABLE_USAGE_TYPE_PGCATALOG;
 					else
 						current_usage_type = TABLE_USAGE_TYPE_USER;
-			} 
+			}
 			else if (rte->rtekind == RTE_FUNCTION)
 			{
 				/* See if it is a catalog function */
@@ -1095,9 +1095,9 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 		return true;
 
 	/* Examine join conditions, see if each join is single-node safe */
-	if (join_list != NULL)
+	if (context->join_list != NULL)
 	{
-		foreach(lc, join_list)
+		foreach(lc, context->join_list)
 		{
 			PGXC_Join   *pgxcjoin = (PGXC_Join *) lfirst(lc);
 
@@ -1254,22 +1254,28 @@ static Exec_Nodes *
 get_plan_nodes(Query *query, bool isRead)
 {
 	Exec_Nodes *result_nodes;
-	XCWalkerContext *context = palloc0(sizeof(XCWalkerContext));
+	XCWalkerContext context;
 
-	context->query = query;
-	context->isRead = isRead;
 
-	context->conditions = (Special_Conditions *) palloc0(sizeof(Special_Conditions));
-	context->rtables = lappend(context->rtables, query->rtable);
+	context.query = query;
+	context.isRead = isRead;
+	context.exec_nodes = NULL;
+	context.conditions = (Special_Conditions *) palloc0(sizeof(Special_Conditions));
+	context.rtables = NIL;
+	context.rtables = lappend(context.rtables, query->rtable);
+	context.multilevel_join = false;
+	context.varno = 0;
+	context.within_or = false;
+	context.within_not = false;
+	context.join_list = NIL;
 
-	join_list = NULL;
-
-	if (get_plan_nodes_walker((Node *) query, context))
+	if (get_plan_nodes_walker((Node *) query, &context))
 		result_nodes = NULL;
 	else
-		result_nodes = context->exec_nodes;
+		result_nodes = context.exec_nodes;
 
-	free_special_relations(context->conditions);
+	free_special_relations(context.conditions);
+	free_join_list(context.join_list);
 	return result_nodes;
 }
 
@@ -1304,7 +1310,6 @@ get_plan_nodes_command(Query *query)
 			return NULL;
 	}
 
-	free_join_list();
 	return exec_nodes;
 }
 
@@ -1345,17 +1350,17 @@ static List *
 get_simple_aggregates(Query * query)
 {
 	List	   *simple_agg_list = NIL;
- 
+
 	/* Check for simple multi-node aggregate */
 	if (query->hasAggs)
   	{
 		ListCell   *lc;
 		int			column_pos = 0;
-  
+
 		foreach (lc, query->targetList)
 		{
 			TargetEntry *tle = (TargetEntry *) lfirst(lc);
-  
+
 			if (IsA(tle->expr, Aggref))
 			{
 				/*PGXC borrowed this code from nodeAgg.c, see ExecInitAgg()*/
@@ -1422,7 +1427,7 @@ get_simple_aggregates(Query * query)
 										   get_func_name(finalfn_oid));
 					}
 				}
-  
+
 				/* resolve actual type of transition state, if polymorphic */
 				aggcollecttype = aggform->aggcollecttype;
 
@@ -1468,7 +1473,7 @@ get_simple_aggregates(Query * query)
 				get_typlenbyval(aggcollecttype,
 								&simple_agg->transtypeLen,
 								&simple_agg->transtypeByVal);
-  
+
 				/*
 				 * initval is potentially null, so don't try to access it as a struct
 				 * field. Must do it the hard way with SysCacheGetAttr.
@@ -1534,6 +1539,427 @@ get_simple_aggregates(Query * query)
 
 
 /*
+ * add_sort_column --- utility subroutine for building sort info arrays
+ *
+ * We need this routine because the same column might be selected more than
+ * once as a sort key column; if so, the extra mentions are redundant.
+ *
+ * Caller is assumed to have allocated the arrays large enough for the
+ * max possible number of columns.	Return value is the new column count.
+ *
+ * PGXC: copied from optimizer/plan/planner.c
+ */
+static int
+add_sort_column(AttrNumber colIdx, Oid sortOp, bool nulls_first,
+				int numCols, AttrNumber *sortColIdx,
+				Oid *sortOperators, bool *nullsFirst)
+{
+	int			i;
+
+	Assert(OidIsValid(sortOp));
+
+	for (i = 0; i < numCols; i++)
+	{
+		/*
+		 * Note: we check sortOp because it's conceivable that "ORDER BY foo
+		 * USING <, foo USING <<<" is not redundant, if <<< distinguishes
+		 * values that < considers equal.  We need not check nulls_first
+		 * however because a lower-order column with the same sortop but
+		 * opposite nulls direction is redundant.
+		 */
+		if (sortColIdx[i] == colIdx && sortOperators[i] == sortOp)
+		{
+			/* Already sorting by this col, so extra sort key is useless */
+			return numCols;
+		}
+	}
+
+	/* Add the column */
+	sortColIdx[numCols] = colIdx;
+	sortOperators[numCols] = sortOp;
+	nullsFirst[numCols] = nulls_first;
+	return numCols + 1;
+}
+
+/*
+ * add_distinct_column - utility subroutine to remove redundant columns, just
+ * like add_sort_column
+ */
+static int
+add_distinct_column(AttrNumber colIdx, Oid eqOp, int numCols,
+					AttrNumber *sortColIdx, Oid *eqOperators)
+{
+	int			i;
+
+	Assert(OidIsValid(eqOp));
+
+	for (i = 0; i < numCols; i++)
+	{
+		if (sortColIdx[i] == colIdx && eqOperators[i] == eqOp)
+		{
+			/* Already sorting by this col, so extra sort key is useless */
+			return numCols;
+		}
+	}
+
+	/* Add the column */
+	sortColIdx[numCols] = colIdx;
+	eqOperators[numCols] = eqOp;
+	return numCols + 1;
+}
+
+
+/*
+ * Reconstruct the step query
+ */
+static void
+reconstruct_step_query(List *rtable, bool has_order_by, List *extra_sort,
+					   RemoteQuery *step)
+{
+	List	   *context;
+	bool		useprefix;
+	List	   *sub_tlist = step->plan.targetlist;
+	ListCell   *l;
+	StringInfo	buf = makeStringInfo();
+	char	   *sql;
+	char	   *cur;
+	char	   *sql_from;
+
+	context = deparse_context_for_plan((Node *) step, NULL, rtable, NIL);
+	useprefix = list_length(rtable) > 1;
+
+	foreach(l, sub_tlist)
+	{
+		TargetEntry *tle = (TargetEntry *) lfirst(l);
+		char *exprstr = deparse_expression((Node *) tle->expr, context,
+										   useprefix, false);
+
+		if (buf->len == 0)
+		{
+			appendStringInfo(buf, "SELECT ");
+			if (step->distinct)
+				appendStringInfo(buf, "DISTINCT ");
+		}
+		else
+			appendStringInfo(buf, ", ");
+
+		appendStringInfoString(buf, exprstr);
+	}
+
+	/*
+	 * A kind of dummy
+	 * Do not reconstruct remaining query, just search original statement
+	 * for " FROM " and append remainder to the target list we just generated.
+	 * Do not handle the case if " FROM " we found is not a "FROM" keyword, but,
+	 * for example, a part of string constant.
+	 */
+	sql = pstrdup(step->sql_statement); /* mutable copy */
+	/* string to upper case, for comparing */
+	cur = sql;
+	while (*cur)
+	{
+		/* replace whitespace with a space */
+		if (isspace((unsigned char) *cur))
+			*cur = ' ';
+		*cur++ = toupper(*cur);
+	}
+
+	/* find the keyword */
+	sql_from = strstr(sql, " FROM ");
+	if (sql_from)
+	{
+		/* the same offset in the original string */
+		int		offset = sql_from - sql;
+		/* remove terminating semicolon */
+		char   *end = strrchr(step->sql_statement, ';');
+		*end = '\0';
+
+		appendStringInfoString(buf, step->sql_statement + offset);
+	}
+
+	if (extra_sort)
+	{
+		foreach(l, extra_sort)
+		{
+			TargetEntry *tle = (TargetEntry *) lfirst(l);
+			char *exprstr = deparse_expression((Node *) tle->expr, context,
+											   useprefix, false);
+
+			if (has_order_by)
+				appendStringInfo(buf, ", ");
+			else
+			{
+				appendStringInfo(buf, " ORDER BY ");
+				has_order_by = true;
+			}
+
+			appendStringInfoString(buf, exprstr);
+		}
+	}
+
+	/* do not need the copy */
+	pfree(sql);
+
+	/* free previous query */
+	pfree(step->sql_statement);
+	/* get a copy of new query */
+	step->sql_statement = pstrdup(buf->data);
+	/* free the query buffer */
+	pfree(buf->data);
+	pfree(buf);
+}
+
+
+/*
+ * Plan to sort step tuples
+ * PGXC: copied and adopted from optimizer/plan/planner.c
+ */
+static void
+make_simple_sort_from_sortclauses(Query *query, RemoteQuery *step)
+{
+	List 	   *sortcls = query->sortClause;
+	List	   *distinctcls = query->distinctClause;
+	List	   *sub_tlist = step->plan.targetlist;
+	SimpleSort *sort;
+	SimpleDistinct *distinct;
+	ListCell   *l;
+	int			numsortkeys;
+	int			numdistkeys;
+	AttrNumber *sortColIdx;
+	AttrNumber *distColIdx;
+	Oid		   *sortOperators;
+	Oid		   *eqOperators;
+	bool	   *nullsFirst;
+	bool		need_reconstruct = false;
+	/*
+	 * List of target list entries from DISTINCT which are not in the ORDER BY.
+	 * The exressions should be appended to the ORDER BY clause of remote query
+	 */
+	List	   *extra_distincts = NIL;
+
+	Assert(step->sort == NULL);
+	Assert(step->distinct == NULL);
+
+	/*
+	 * We will need at most list_length(sortcls) sort columns; possibly less
+	 * Also need room for extra distinct expressions if we need to append them
+	 */
+	numsortkeys = list_length(sortcls) + list_length(distinctcls);
+	sortColIdx = (AttrNumber *) palloc(numsortkeys * sizeof(AttrNumber));
+	sortOperators = (Oid *) palloc(numsortkeys * sizeof(Oid));
+	nullsFirst = (bool *) palloc(numsortkeys * sizeof(bool));
+
+	numsortkeys = 0;
+	sort  = (SimpleSort *) palloc(sizeof(SimpleSort));
+
+	if (sortcls)
+	{
+		foreach(l, sortcls)
+		{
+			SortGroupClause *sortcl = (SortGroupClause *) lfirst(l);
+			TargetEntry *tle = get_sortgroupclause_tle(sortcl, sub_tlist);
+
+			if (tle->resjunk)
+				need_reconstruct = true;
+
+			/*
+			 * Check for the possibility of duplicate order-by clauses --- the
+			 * parser should have removed 'em, but no point in sorting
+			 * redundantly.
+			 */
+			numsortkeys = add_sort_column(tle->resno, sortcl->sortop,
+										  sortcl->nulls_first,
+										  numsortkeys,
+										  sortColIdx, sortOperators, nullsFirst);
+		}
+	}
+
+	if (distinctcls)
+	{
+		/*
+		 * Validate distinct clause
+		 * We have to sort tuples to filter duplicates, and if ORDER BY clause
+		 * is already present the sort order specified here may be incompatible
+		 * with order needed for distinct.
+		 *
+		 * To be compatible, all expressions from DISTINCT must appear at the
+		 * beginning of ORDER BY list. If list of DISTINCT expressions is longer
+		 * then ORDER BY we can make ORDER BY compatible we can append remaining
+		 * expressions from DISTINCT to ORDER BY. Obviously ORDER BY must not
+		 * contain expressions not from the DISTINCT list in this case.
+		 *
+		 * For validation purposes we use column indexes (AttrNumber) to
+		 * identify expressions. May be this is not enough and we should revisit
+		 * the algorithm.
+		 *
+		 * We validate compatibility as follow:
+		 * 1. Make working copy of DISTINCT
+		 * 1a. Remove possible duplicates when copying: do not add expression
+		 * 2. If order by is empty they are already compatible, skip 3
+		 * 3. Iterate over ORDER BY items
+		 * 3a. If the item is in the working copy delete it from the working
+		 * 	   list. If working list is empty after deletion DISTINCT and
+		 * 	   ORDER BY are compatible, so break the loop. If working list is
+		 * 	   not empty continue iterating
+		 * 3b. ORDER BY clause may contain duplicates. So if we can not found
+		 * 	   expression in the remainder of DISTINCT, probably it has already
+		 * 	   been removed because of duplicate ORDER BY entry. Check original
+		 * 	   DISTINCT clause, if expression is there continue iterating.
+		 * 3c. DISTINCT and ORDER BY are not compatible, emit error
+		 * 4. DISTINCT and ORDER BY are compatible, if we have remaining items
+		 *    in the working copy we should append it to the order by list
+		 */
+		/*
+		 * Create the list of unique DISTINCT clause expressions
+		 */
+		foreach(l, distinctcls)
+		{
+			SortGroupClause *distinctcl = (SortGroupClause *) lfirst(l);
+			TargetEntry *tle = get_sortgroupclause_tle(distinctcl, sub_tlist);
+			bool found = false;
+
+			if (extra_distincts)
+			{
+				ListCell   *xl;
+
+				foreach(xl, extra_distincts)
+				{
+					TargetEntry *xtle = (TargetEntry *) lfirst(xl);
+					if (xtle->resno == tle->resno)
+					{
+						found = true;
+						break;
+					}
+				}
+			}
+
+			if (!found)
+				extra_distincts = lappend(extra_distincts, tle);
+		}
+
+		if (sortcls)
+		{
+			foreach(l, sortcls)
+			{
+				SortGroupClause *sortcl = (SortGroupClause *) lfirst(l);
+				TargetEntry *tle = get_sortgroupclause_tle(sortcl, sub_tlist);
+				bool found = false;
+				ListCell   *xl;
+				ListCell   *prev = NULL;
+
+				/* Search for the expression in the DISTINCT clause */
+				foreach(xl, extra_distincts)
+				{
+					TargetEntry *xtle = (TargetEntry *) lfirst(xl);
+					if (xtle->resno == tle->resno)
+					{
+						extra_distincts = list_delete_cell(extra_distincts, xl,
+														   prev);
+						found = true;
+						break;
+					}
+					prev = xl;
+				}
+
+				/* Probably we've done */
+				if (found && list_length(extra_distincts) == 0)
+					break;
+
+				/* Ensure sort expression is not a duplicate */
+				if (!found)
+				{
+					foreach(xl, distinctcls)
+					{
+						SortGroupClause *xcl = (SortGroupClause *) lfirst(xl);
+						TargetEntry *xtle = get_sortgroupclause_tle(xcl, sub_tlist);
+						if (xtle->resno == tle->resno)
+						{
+							/* it is a duplicate then */
+							found = true;
+							break;
+						}
+					}
+				}
+
+				/* Give up, we do not support it */
+				if (!found)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+							 (errmsg("Such combination of ORDER BY and DISTINCT is not yet supported"))));
+				}
+			}
+		}
+		/* need to append to the ORDER BY */
+		if (list_length(extra_distincts) > 0)
+			need_reconstruct = true;
+
+		/*
+		 * End of validation, expression to append to ORDER BY are in the
+		 * extra_distincts list
+		 */
+
+		distinct = (SimpleDistinct *) palloc(sizeof(SimpleDistinct));
+
+		/*
+		 * We will need at most list_length(distinctcls) sort columns
+		 */
+		numdistkeys = list_length(distinctcls);
+		distColIdx = (AttrNumber *) palloc(numdistkeys * sizeof(AttrNumber));
+		eqOperators = (Oid *) palloc(numdistkeys * sizeof(Oid));
+
+		numdistkeys = 0;
+
+		foreach(l, distinctcls)
+		{
+			SortGroupClause *distinctcl = (SortGroupClause *) lfirst(l);
+			TargetEntry *tle = get_sortgroupclause_tle(distinctcl, sub_tlist);
+
+			/*
+			 * Check for the possibility of duplicate order-by clauses --- the
+			 * parser should have removed 'em, but no point in sorting
+			 * redundantly.
+			 */
+			numdistkeys = add_distinct_column(tle->resno,
+											  distinctcl->eqop,
+											  numdistkeys,
+											  distColIdx,
+											  eqOperators);
+			/* append also extra sort operator, if not already there */
+			numsortkeys = add_sort_column(tle->resno,
+										  distinctcl->sortop,
+										  distinctcl->nulls_first,
+										  numsortkeys,
+										  sortColIdx,
+										  sortOperators,
+										  nullsFirst);
+		}
+
+		Assert(numdistkeys > 0);
+
+		distinct->numCols = numdistkeys;
+		distinct->uniqColIdx = distColIdx;
+		distinct->eqOperators = eqOperators;
+
+		step->distinct = distinct;
+	}
+
+
+	Assert(numsortkeys > 0);
+
+	sort->numCols = numsortkeys;
+	sort->sortColIdx = sortColIdx;
+	sort->sortOperators = sortOperators;
+	sort->nullsFirst = nullsFirst;
+
+	step->sort = sort;
+
+	if (need_reconstruct)
+		reconstruct_step_query(query->rtable, sortcls != NULL, extra_distincts,
+							   step);
+}
+
+/*
  * Build up a QueryPlan to execute on.
  *
  * For the prototype, there will only be one step,
@@ -1543,17 +1969,16 @@ Query_Plan *
 GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 {
 	Query_Plan *query_plan = palloc(sizeof(Query_Plan));
-	Query_Step *query_step = palloc(sizeof(Query_Step));
+	RemoteQuery *query_step = makeNode(RemoteQuery);
 	Query	   *query;
-
-
-	query_plan->force_autocommit = false;
 
 	query_step->sql_statement = (char *) palloc(strlen(sql_statement) + 1);
 	strcpy(query_step->sql_statement, sql_statement);
 	query_step->exec_nodes = NULL;
 	query_step->combine_type = COMBINE_TYPE_NONE;
 	query_step->simple_aggregates = NULL;
+	query_step->read_only = false;
+	query_step->force_autocommit = false;
 
 	query_plan->query_step_list = lappend(NULL, query_step);
 
@@ -1565,11 +1990,16 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 	switch (nodeTag(parsetree))
 	{
 		case T_SelectStmt:
+			/* Optimize multi-node handling */
+			query_step->read_only = true;
+			/* fallthru */
 		case T_InsertStmt:
 		case T_UpdateStmt:
 		case T_DeleteStmt:
 			/* just use first one in querytree_list */
 			query = (Query *) linitial(querytree_list);
+			/* should copy instead ? */
+			query_step->plan.targetlist = query->targetList;
 
 			/* Perform some checks to make sure we can support the statement */
 			if (nodeTag(parsetree) == T_SelectStmt)
@@ -1633,6 +2063,12 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 			}
 
 			/*
+			 * Add sortring to the step
+			 */
+			if (query->sortClause || query->distinctClause)
+				make_simple_sort_from_sortclauses(query, query_step);
+
+			/*
 			 * PG-XC cannot yet support some variations of SQL statements.
 			 * We perform some checks to at least catch common cases
 			 */
@@ -1658,15 +2094,6 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 						ereport(ERROR,
 								(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
 							(errmsg("Multi-node LIMIT not yet supported"))));
-					if (query->sortClause && StrictSelectChecking)
-						ereport(ERROR,
-								(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-						 (errmsg("Multi-node ORDER BY not yet supported"))));
-					/* PGXCTODO - check if first column partitioning column */
-					if (query->distinctClause)
-						ereport(ERROR,
-								(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-						 (errmsg("Multi-node DISTINCT`not yet supported"))));
 				}
 			}
 			break;
@@ -1686,7 +2113,7 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 		case T_DropdbStmt:
 		case T_VacuumStmt:
 			query_plan->exec_loc_type = EXEC_ON_COORD | EXEC_ON_DATA_NODES;
-			query_plan->force_autocommit = true;
+			query_step->force_autocommit = true;
 			break;
 
 		case T_DropPropertyStmt:
@@ -1864,7 +2291,7 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
  * Free Query_Step struct
  */
 static void
-free_query_step(Query_Step *query_step)
+free_query_step(RemoteQuery *query_step)
 {
 	if (query_step == NULL)
 		return;
@@ -1894,7 +2321,7 @@ FreeQueryPlan(Query_Plan *query_plan)
 		return;
 
 	foreach(item, query_plan->query_step_list)
-		free_query_step((Query_Step *) lfirst(item));
+		free_query_step((RemoteQuery *) lfirst(item));
 
 	pfree(query_plan->query_step_list);
 	pfree(query_plan);

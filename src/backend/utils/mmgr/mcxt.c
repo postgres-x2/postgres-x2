@@ -507,7 +507,7 @@ MemoryContextAlloc(MemoryContext context, Size size)
 	AssertArg(MemoryContextIsValid(context));
 
 	if (!AllocSizeIsValid(size))
-		elog(ERROR, "invalid memory alloc request size %lu",
+		elog(PANIC, "invalid memory alloc request size %lu",
 			 (unsigned long) size);
 
 	return (*context->methods->alloc) (context, size);
@@ -528,7 +528,7 @@ MemoryContextAllocZero(MemoryContext context, Size size)
 	AssertArg(MemoryContextIsValid(context));
 
 	if (!AllocSizeIsValid(size))
-		elog(ERROR, "invalid memory alloc request size %lu",
+		elog(PANIC, "invalid memory alloc request size %lu",
 			 (unsigned long) size);
 
 	ret = (*context->methods->alloc) (context, size);
@@ -553,7 +553,7 @@ MemoryContextAllocZeroAligned(MemoryContext context, Size size)
 	AssertArg(MemoryContextIsValid(context));
 
 	if (!AllocSizeIsValid(size))
-		elog(ERROR, "invalid memory alloc request size %lu",
+		elog(PANIC, "invalid memory alloc request size %lu",
 			 (unsigned long) size);
 
 	ret = (*context->methods->alloc) (context, size);
@@ -617,7 +617,7 @@ repalloc(void *pointer, Size size)
 	AssertArg(MemoryContextIsValid(header->context));
 
 	if (!AllocSizeIsValid(size))
-		elog(ERROR, "invalid memory alloc request size %lu",
+		elog(PANIC, "invalid memory alloc request size %lu",
 			 (unsigned long) size);
 
 	return (*header->context->methods->realloc) (header->context,

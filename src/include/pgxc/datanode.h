@@ -16,9 +16,9 @@
 
 #ifndef DATANODE_H
 #define DATANODE_H
-#include "combiner.h"
+#include "postgres.h"
+#include "gtm/gtm_c.h"
 #include "nodes/pg_list.h"
-#include "pgxc/locator.h"
 #include "utils/snapshot.h"
 #include <unistd.h>
 
@@ -28,23 +28,23 @@ typedef struct PGconn NODE_CONNECTION;
 /* Helper structure to access data node from Session */
 typedef enum
 {
-	DN_CONNECTION_STATE_IDLE,
-	DN_CONNECTION_STATE_BUSY,
-	DN_CONNECTION_STATE_COMPLETED,
+	DN_CONNECTION_STATE_IDLE,			/* idle, ready for query */
+	DN_CONNECTION_STATE_QUERY,			/* query is sent, response expected */
+	DN_CONNECTION_STATE_HAS_DATA,		/* buffer has data to process */
+	DN_CONNECTION_STATE_COMPLETED,		/* query completed, no ReadyForQury yet */
 	DN_CONNECTION_STATE_ERROR_NOT_READY,	/* error, but need ReadyForQuery message */
-	DN_CONNECTION_STATE_ERROR_READY,		/* error and received ReadyForQuery */
-	DN_CONNECTION_STATE_ERROR_FATAL,		/* fatal error */
+	DN_CONNECTION_STATE_ERROR_FATAL,	/* fatal error */
 	DN_CONNECTION_STATE_COPY_IN,
 	DN_CONNECTION_STATE_COPY_OUT
 }	DNConnectionState;
 
 #define DN_CONNECTION_STATE_ERROR(dnconn) \
 	(dnconn)->state == DN_CONNECTION_STATE_ERROR_FATAL \
-	|| (dnconn)->state == DN_CONNECTION_STATE_ERROR_NOT_READY \
-	|| (dnconn)->state == DN_CONNECTION_STATE_ERROR_READY
+	|| (dnconn)->state == DN_CONNECTION_STATE_ERROR_NOT_READY
 
 struct data_node_handle
 {
+	int 		nodenum; /* node identifier 1..NumDataNodes */
 	/* fd of the connection */
 	int			sock;
 	/* Connection state */
@@ -75,17 +75,25 @@ extern int	DataNodeConnected(NODE_CONNECTION * conn);
 extern int	DataNodeConnClean(NODE_CONNECTION * conn);
 extern void DataNodeCleanAndRelease(int code, Datum arg);
 
-/* Multinode Executor */
-extern void DataNodeBegin(void);
-extern int	DataNodeCommit(CommandDest dest);
-extern int	DataNodeRollback(CommandDest dest);
+extern DataNodeHandle **get_handles(List *nodelist);
+extern void release_handles(void);
+extern int	get_transaction_nodes(DataNodeHandle ** connections);
 
-extern int	DataNodeExec(const char *query, Exec_Nodes *exec_nodes, CombineType combine_type, CommandDest dest, Snapshot snapshot, bool force_autocommit, List *simple_aggregates, bool is_read_only);
+extern int	ensure_in_buffer_capacity(size_t bytes_needed, DataNodeHandle * handle);
+extern int	ensure_out_buffer_capacity(size_t bytes_needed, DataNodeHandle * handle);
 
-extern DataNodeHandle** DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_from);
-extern int DataNodeCopyIn(char *data_row, int len, Exec_Nodes *exec_nodes, DataNodeHandle** copy_connections);
-extern int DataNodeCopyOut(Exec_Nodes *exec_nodes, DataNodeHandle** copy_connections, CommandDest dest, FILE* copy_file);
-extern uint64 DataNodeCopyFinish(DataNodeHandle** copy_connections, int primary_data_node, CombineType combine_type, CommandDest dest);
+extern int	data_node_send_query(DataNodeHandle * handle, const char *query);
+extern int	data_node_send_gxid(DataNodeHandle * handle, GlobalTransactionId gxid);
+extern int	data_node_send_snapshot(DataNodeHandle * handle, Snapshot snapshot);
 
-extern int primary_data_node;
+extern void data_node_receive(const int conn_count,
+				  DataNodeHandle ** connections, struct timeval * timeout);
+extern int	data_node_read_data(DataNodeHandle * conn);
+extern int	send_some(DataNodeHandle * handle, int len);
+extern int	data_node_flush(DataNodeHandle *handle);
+
+extern char get_message(DataNodeHandle *conn, int *len, char **msg);
+
+extern void add_error_message(DataNodeHandle * handle, const char *message);
+
 #endif

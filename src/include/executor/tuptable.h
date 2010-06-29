@@ -118,6 +118,15 @@ typedef struct TupleTableSlot
 	bool		tts_shouldFreeMin;		/* should pfree tts_mintuple? */
 	bool		tts_slow;		/* saved state for slot_deform_tuple */
 	HeapTuple	tts_tuple;		/* physical tuple, or NULL if virtual */
+#ifdef PGXC
+	/*
+	 * PGXC extension to support tuples sent from remote data node.
+	 */
+	char	   *tts_dataRow;	/* Tuple data in DataRow format */
+	int			tts_dataLen;	/* Actual length of the data row */
+	bool		tts_shouldFreeRow;		/* should pfree tts_dataRow? */
+	struct AttInMetadata *tts_attinmeta;		/* store here info to extract values from the DataRow */
+#endif
 	TupleDesc	tts_tupleDescriptor;	/* slot's tuple descriptor */
 	MemoryContext tts_mcxt;		/* slot itself is in this context */
 	Buffer		tts_buffer;		/* tuple's buffer, or InvalidBuffer */
@@ -165,6 +174,12 @@ extern TupleTableSlot *ExecStoreTuple(HeapTuple tuple,
 extern TupleTableSlot *ExecStoreMinimalTuple(MinimalTuple mtup,
 					  TupleTableSlot *slot,
 					  bool shouldFree);
+#ifdef PGXC
+extern TupleTableSlot *ExecStoreDataRowTuple(char *msg,
+					  size_t len,
+					  TupleTableSlot *slot,
+					  bool shouldFree);
+#endif
 extern TupleTableSlot *ExecClearTuple(TupleTableSlot *slot);
 extern TupleTableSlot *ExecStoreVirtualTuple(TupleTableSlot *slot);
 extern TupleTableSlot *ExecStoreAllNullTuple(TupleTableSlot *slot);

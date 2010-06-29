@@ -35,7 +35,7 @@
 #include "parser/parse_relation.h"
 #ifdef PGXC
 #include "pgxc/pgxc.h"
-#include "pgxc/datanode.h"
+#include "pgxc/execRemote.h"
 #include "pgxc/locator.h"
 #include "pgxc/poolmgr.h"
 #endif
@@ -1511,8 +1511,7 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 			DataNodeCopyFinish(
 					cstate->connections,
 					primary_data_node,
-					COMBINE_TYPE_NONE,
-					whereToSendOutput);
+					COMBINE_TYPE_NONE);
 			pfree(cstate->connections);
 			pfree(cstate->query_buf.data);
 			FreeRelationLocInfo(cstate->rel_loc);
@@ -1526,14 +1525,12 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 			cstate->processed = DataNodeCopyFinish(
 					cstate->connections,
 					primary_data_node,
-					COMBINE_TYPE_SAME,
-					whereToSendOutput);
+					COMBINE_TYPE_SAME);
 		else
 			cstate->processed = DataNodeCopyFinish(
 					cstate->connections,
 					0,
-					COMBINE_TYPE_SUM,
-					whereToSendOutput);
+					COMBINE_TYPE_SUM);
 		pfree(cstate->connections);
 		pfree(cstate->query_buf.data);
 		FreeRelationLocInfo(cstate->rel_loc);
@@ -1775,10 +1772,10 @@ CopyTo(CopyState cstate)
 #ifdef PGXC
     if (IS_PGXC_COORDINATOR && !cstate->on_coord)
 	{
-		DataNodeCopyOut(GetRelationNodes(cstate->rel_loc, NULL, true),
-						cstate->connections,
-						whereToSendOutput,
-						cstate->copy_file);
+		cstate->processed = DataNodeCopyOut(
+				GetRelationNodes(cstate->rel_loc, NULL, true),
+				cstate->connections,
+				cstate->copy_file);
 	}
     else
 	{

@@ -292,6 +292,19 @@ printtup(TupleTableSlot *slot, DestReceiver *self)
 	int			natts = typeinfo->natts;
 	int			i;
 
+#ifdef PGXC
+	/*
+	 * If we are having DataRow-based tuple we do not have to encode attribute
+	 * values, just send over the DataRow message as we received it from the
+	 * data node
+	 */
+	if (slot->tts_dataRow)
+	{
+		pq_putmessage('D', slot->tts_dataRow, slot->tts_dataLen);
+		return;
+	}
+#endif
+
 	/* Set or update my derived attribute info, if needed */
 	if (myState->attrinfo != typeinfo || myState->nattrs != natts)
 		printtup_prepare_info(myState, typeinfo, natts);

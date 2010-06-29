@@ -57,6 +57,9 @@
 
 #include "postgres.h"
 
+#ifdef PGXC
+#include "funcapi.h"
+#endif
 #include "access/heapam.h"
 #include "access/sysattr.h"
 #include "access/tuptoaster.h"
@@ -1157,6 +1160,80 @@ slot_deform_tuple(TupleTableSlot *slot, int natts)
 	slot->tts_slow = slow;
 }
 
+#ifdef PGXC
+/*
+ * slot_deform_datarow
+ * 		Extract data from the DataRow message into Datum/isnull arrays.
+ * 		We always extract all atributes, as specified in tts_tupleDescriptor,
+ * 		because there is no easy way to find random attribute in the DataRow.
+ */
+static void
+slot_deform_datarow(TupleTableSlot *slot)
+{
+	int attnum = slot->tts_tupleDescriptor->natts;
+	int i;
+	int 		col_count;
+	char	   *cur = slot->tts_dataRow;
+	StringInfo  buffer;
+	uint16		n16;
+	uint32		n32;
+
+	/* fastpath: exit if values already extracted */
+	if (slot->tts_nvalid == attnum)
+		return;
+
+	Assert(slot->tts_dataRow);
+
+	memcpy(&n16, cur, 2);
+	cur += 2;
+	col_count = ntohs(n16);
+
+	if (col_count != attnum)
+		ereport(ERROR,
+				(errcode(ERRCODE_DATA_CORRUPTED),
+				 errmsg("Tuple does not match the descriptor")));
+
+	if (slot->tts_attinmeta == NULL)
+		slot->tts_attinmeta = TupleDescGetAttInMetadata(slot->tts_tupleDescriptor);
+
+	buffer = makeStringInfo();
+	for (i = 0; i < attnum; i++)
+	{
+		Form_pg_attribute attr = slot->tts_tupleDescriptor->attrs[i];
+		int len;
+
+		/* get size */
+		memcpy(&n32, cur, 4);
+		cur += 4;
+		len = ntohl(n32);
+
+		/* get data */
+		if (len == -1)
+		{
+			slot->tts_values[i] = (Datum) 0;
+			slot->tts_isnull[i] = true;
+		}
+		else
+		{
+			appendBinaryStringInfo(buffer, cur, len);
+			cur += len;
+
+			slot->tts_values[i] = InputFunctionCall(slot->tts_attinmeta->attinfuncs + i,
+													buffer->data,
+													slot->tts_attinmeta->attioparams[i],
+													slot->tts_attinmeta->atttypmods[i]);
+			slot->tts_isnull[i] = false;
+
+			resetStringInfo(buffer);
+		}
+	}
+	pfree(buffer->data);
+	pfree(buffer);
+
+	slot->tts_nvalid = attnum;
+}
+#endif
+
 /*
  * slot_getattr
  *		This function fetches an attribute of the slot's current tuple.
@@ -1250,6 +1327,11 @@ slot_getattr(TupleTableSlot *slot, int attnum, bool *isnull)
 	/*
 	 * Extract the attribute, along with any preceding attributes.
 	 */
+#ifdef PGXC
+	if (slot->tts_dataRow)
+		slot_deform_datarow(slot);
+	else
+#endif
 	slot_deform_tuple(slot, attnum);
 
 	/*
@@ -1275,6 +1357,15 @@ slot_getallattrs(TupleTableSlot *slot)
 	/* Quick out if we have 'em all already */
 	if (slot->tts_nvalid == tdesc_natts)
 		return;
+
+#ifdef PGXC
+	/* Handle the DataRow tuple case */
+	if (slot->tts_dataRow)
+	{
+		slot_deform_datarow(slot);
+		return;
+	}
+#endif
 
 	/*
 	 * otherwise we had better have a physical tuple (tts_nvalid should equal
@@ -1318,6 +1409,15 @@ slot_getsomeattrs(TupleTableSlot *slot, int attnum)
 	/* Quick out if we have 'em all already */
 	if (slot->tts_nvalid >= attnum)
 		return;
+
+#ifdef PGXC
+	/* Handle the DataRow tuple case */
+	if (slot->tts_dataRow)
+	{
+		slot_deform_datarow(slot);
+		return;
+	}
+#endif
 
 	/* Check for caller error */
 	if (attnum <= 0 || attnum > slot->tts_tupleDescriptor->natts)

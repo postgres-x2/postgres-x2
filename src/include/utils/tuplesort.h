@@ -23,6 +23,9 @@
 #include "access/itup.h"
 #include "executor/tuptable.h"
 #include "fmgr.h"
+#ifdef PGXC
+#include "pgxc/execRemote.h"
+#endif
 #include "utils/relcache.h"
 
 
@@ -64,6 +67,13 @@ extern Tuplesortstate *tuplesort_begin_index_hash(Relation indexRel,
 extern Tuplesortstate *tuplesort_begin_datum(Oid datumType,
 					  Oid sortOperator, bool nullsFirstFlag,
 					  int workMem, bool randomAccess);
+#ifdef PGXC
+extern Tuplesortstate *tuplesort_begin_merge(TupleDesc tupDesc,
+					 int nkeys, AttrNumber *attNums,
+					 Oid *sortOperators, bool *nullsFirstFlags,
+					 RemoteQueryState *combiner,
+					 int workMem);
+#endif
 
 extern void tuplesort_set_bound(Tuplesortstate *state, int64 bound);
 

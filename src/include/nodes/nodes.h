@@ -72,6 +72,9 @@ typedef enum NodeTag
 	T_Hash,
 	T_SetOp,
 	T_Limit,
+#ifdef PGXC
+	T_RemoteQuery,
+#endif
 	/* this one isn't a subclass of Plan: */
 	T_PlanInvalItem,
 
@@ -110,6 +113,9 @@ typedef enum NodeTag
 	T_HashState,
 	T_SetOpState,
 	T_LimitState,
+#ifdef PGXC
+	T_RemoteQueryState,
+#endif
 
 	/*
 	 * TAGS FOR PRIMITIVE NODES (primnodes.h)

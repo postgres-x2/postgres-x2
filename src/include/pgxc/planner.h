@@ -17,14 +17,42 @@
 
 #include "fmgr.h"
 #include "lib/stringinfo.h"
+#include "nodes/plannodes.h"
 #include "nodes/primnodes.h"
 #include "pgxc/locator.h"
-#include "pgxc/combiner.h"
+#include "tcop/dest.h"
 
 
 /* for Query_Plan.exec_loc_type can have these OR'ed*/
 #define EXEC_ON_COORD 0x1
 #define EXEC_ON_DATA_NODES 0x2
+
+typedef enum
+{
+	COMBINE_TYPE_NONE,			/* it is known that no row count, do not parse */
+	COMBINE_TYPE_SUM,			/* sum row counts (partitioned, round robin) */
+	COMBINE_TYPE_SAME			/* expect all row counts to be the same (replicated write) */
+}	CombineType;
+
+/* For sorting within RemoteQuery handling */
+/*
+ * It is pretty much like Sort, but without Plan. We may use Sort later.
+ */
+typedef struct
+{
+	int			numCols;		/* number of sort-key columns */
+	AttrNumber *sortColIdx;		/* their indexes in the target list */
+	Oid		   *sortOperators;	/* OIDs of operators to sort them by */
+	bool	   *nullsFirst;		/* NULLS FIRST/LAST directions */
+} SimpleSort;
+
+/* For returning distinct results from the RemoteQuery*/
+typedef struct
+{
+	int			numCols;		/* number of sort-key columns */
+	AttrNumber *uniqColIdx;		/* their indexes in the target list */
+	Oid		   *eqOperators;	/* OIDs of operators to equate them by */
+} SimpleDistinct;
 
 /* Contains instructions on processing a step of a query.
  * In the prototype this will be simple, but it will eventually
@@ -32,12 +60,16 @@
  */
 typedef struct
 {
+	Plan		plan;
 	char	   *sql_statement;
 	Exec_Nodes *exec_nodes;
 	CombineType combine_type;
-	List	   *simple_aggregates;		/* simple aggregate to combine on this
-										 * step */
-} Query_Step;
+	List	   *simple_aggregates;	/* simple aggregate to combine on this step */
+	SimpleSort *sort;
+	SimpleDistinct *distinct;
+	bool		read_only;          /* do not use 2PC when committing read only steps */
+    bool		force_autocommit;	/* some commands like VACUUM require autocommit mode */
+} RemoteQuery;
 
 
 /*
@@ -48,7 +80,6 @@ typedef struct
 typedef struct
 {
 	int			exec_loc_type;
-	bool		force_autocommit;		/* For CREATE DATABASE */
 	List	   *query_step_list;	/* List of QuerySteps */
 } Query_Plan;
 
@@ -67,7 +98,6 @@ typedef enum
 
 
 /* For handling simple aggregates */
-/* For now, only support int/long types */
 typedef struct
 {
 	int			column_pos;		/* Only use 1 for now */
