@@ -1556,7 +1556,11 @@ add_sort_column(AttrNumber colIdx, Oid sortOp, bool nulls_first,
 {
 	int			i;
 
-	Assert(OidIsValid(sortOp));
+	if (!OidIsValid(sortOp))
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_FUNCTION),
+				 errmsg("could not identify an ordering operator")));
+
 
 	for (i = 0; i < numCols; i++)
 	{
