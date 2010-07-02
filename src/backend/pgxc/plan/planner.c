@@ -51,7 +51,7 @@ typedef struct
 	long		constant;		/* assume long PGXCTODO - should be Datum */
 } Literal_Comparison;
 
-/* Parent-Child joins for relations being joined on 
+/* Parent-Child joins for relations being joined on
  * their respective hash distribuion columns
  */
 typedef struct
@@ -114,7 +114,7 @@ typedef struct ColumnBase
  * the rtable for the particular query. This way we can use
  * varlevelsup to resolve Vars in nested queries
  */
-typedef struct XCWalkerContext 
+typedef struct XCWalkerContext
 {
 	Query				    *query;
 	bool					isRead;
@@ -325,7 +325,7 @@ get_numeric_constant(Expr *expr)
  * This is required because a RangeTblEntry may actually be another
  * type, like a join, and we need to then look at the joinaliasvars
  * to determine what the base table and column really is.
- * 
+ *
  * rtables is a List of rtable Lists.
  */
 static ColumnBase*
@@ -338,8 +338,8 @@ get_base_var(Var *var, XCWalkerContext *context)
 	if (!AttrNumberIsForUserDefinedAttr(var->varattno))
 		return NULL;
 
-	/* 
-	 * Get the RangeTableEntry 
+	/*
+	 * Get the RangeTableEntry
 	 * We take nested subqueries into account first,
 	 * we may need to look further up the query tree.
 	 * The most recent rtable is at the end of the list; top most one is first.
@@ -514,8 +514,8 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 			   *rel_loc_info2;
 	Const	   *constant;
 	Expr	   *checkexpr;
-	bool		result = false;	
-	bool		is_and = false;	
+	bool		result = false;
+	bool		is_and = false;
 
 
 	Assert(context);
@@ -534,7 +534,7 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 		/* If we get here, that meant the previous call before recursing down did not
 		 * find the condition safe yet.
 		 * Since we pass down our context, this is the bit of code that will detect
-		 * that we are using more than one relation in a condition which has not 
+		 * that we are using more than one relation in a condition which has not
 		 * already been deemed safe.
 		 */
 		Var *var_node = (Var *) expr_node;
@@ -591,7 +591,7 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 		}
 	}
 
-	/* 
+	/*
 	 * Look for equality conditions on partiioned columns, but only do so
 	 * if we are not in an OR or NOT expression
 	 */
@@ -743,7 +743,7 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 						&& IsHashColumn(rel_loc_info2, column_base2->colname))
 					{
 						/* We found a partitioned join */
-						Parent_Child_Join *parent_child = (Parent_Child_Join *) 
+						Parent_Child_Join *parent_child = (Parent_Child_Join *)
 								palloc0(sizeof(Parent_Child_Join));
 
 						parent_child->rel_loc_info1 = rel_loc_info1;
@@ -762,7 +762,7 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 					/*
 					 * At this point, there is some other type of join that
 					 * can probably not be executed on only a single node.
-					 * Just return, as it may be updated later. 
+					 * Just return, as it may be updated later.
 					 * Important: We preserve previous
 					 * pgxc_join->join_type value, there may be multiple
 					 * columns joining two tables, and we want to make sure at
@@ -787,7 +787,7 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 
 		/* save parent-child count */
 		if (context->exec_nodes)
-			save_parent_child_count = list_length(context->conditions->partitioned_parent_child); 
+			save_parent_child_count = list_length(context->conditions->partitioned_parent_child);
 
 		context->exec_nodes = NULL;
 		context->multilevel_join = false;
@@ -824,14 +824,14 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 						if (same_single_node (context->exec_nodes->nodelist, save_exec_nodes->nodelist))
 							return false;
 					}
-					else 
+					else
 						/* use old value */
 						context->exec_nodes = save_exec_nodes;
 				}
-			} else 
+			} else
 			{
 				if (context->exec_nodes->tableusagetype == TABLE_USAGE_TYPE_USER_REPLICATED)
-					return false; 
+					return false;
 				/* See if subquery safely joins with parent */
 				if (!is_multilevel)
 					return true;
@@ -993,8 +993,8 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 
 				from_subquery_count++;
 
-				/* 
-				 * Recursively call for subqueries. 
+				/*
+				 * Recursively call for subqueries.
 				 * Note this also works for views, which are rewritten as subqueries.
 				 */
 				context->rtables = lappend(context->rtables, current_rtable);
@@ -1012,7 +1012,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 
 				if (current_nodes)
 					current_usage_type = current_nodes->tableusagetype;
-				else 
+				else
 					/* could be complicated */
 					return true;
 
@@ -1088,7 +1088,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 		context->exec_nodes = (Exec_Nodes *) palloc0(sizeof(Exec_Nodes));
 		context->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_PGCATALOG;
 		return false;
-	} 
+	}
 
 	/* Examine the WHERE clause, too */
 	if (examine_conditions_walker(query->jointree->quals, context))
@@ -1129,18 +1129,18 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 			{
 				rte = (RangeTblEntry *) lfirst(lc);
 
-				/* 
-				 * If the query is rewritten (which can be due to rules or views), 
-				 * ignore extra stuff. Also ignore subqueries we have processed 
+				/*
+				 * If the query is rewritten (which can be due to rules or views),
+				 * ignore extra stuff. Also ignore subqueries we have processed
 				 */
 				if ((!rte->inFromCl && query->commandType == CMD_SELECT) || rte->rtekind != RTE_RELATION)
 					continue;
 
 				/* PGXCTODO - handle RTEs that are functions */
 				if (rtesave)
-					/* 
-					 * Too complicated, we have multiple relations that still 
-					 * cannot be joined safely 
+					/*
+					 * Too complicated, we have multiple relations that still
+					 * cannot be joined safely
 					 */
 					return true;
 
@@ -1209,7 +1209,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 		 */
 		Parent_Child_Join *parent_child;
 
-		parent_child = (Parent_Child_Join *) 
+		parent_child = (Parent_Child_Join *)
 				linitial(context->conditions->partitioned_parent_child);
 
 		context->exec_nodes = GetRelationNodes(parent_child->rel_loc_info1, NULL, context->isRead);
@@ -1218,7 +1218,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 
 	if (from_query_nodes)
 	{
-		if (!context->exec_nodes) 
+		if (!context->exec_nodes)
 		{
 			context->exec_nodes = from_query_nodes;
 			return false;
@@ -1229,9 +1229,9 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 		else if (from_query_nodes->tableusagetype == TABLE_USAGE_TYPE_USER_REPLICATED
 					|| (same_single_node(from_query_nodes->nodelist, context->exec_nodes->nodelist)))
 				return false;
-		else 
+		else
 		{
-			/* We allow views, where the (rewritten) subquery may be on all nodes, 
+			/* We allow views, where the (rewritten) subquery may be on all nodes,
 			 * but the parent query applies a condition on the from subquery.
 			 */
 			if (list_length(query->jointree->fromlist) == from_subquery_count
@@ -1674,9 +1674,16 @@ reconstruct_step_query(List *rtable, bool has_order_by, List *extra_sort,
 	{
 		/* the same offset in the original string */
 		int		offset = sql_from - sql;
-		/* remove terminating semicolon */
-		char   *end = strrchr(step->sql_statement, ';');
-		*end = '\0';
+		/*
+		 * Remove terminating semicolon to be able to append extra
+		 * order by entries. If query is submitted from client other than psql
+		 * the terminator may not present.
+		 */
+		char   *end = step->sql_statement + strlen(step->sql_statement);
+		while(isspace((unsigned char) *end) && end > step->sql_statement)
+			end--;
+		if (*end == ';')
+			*end = '\0';
 
 		appendStringInfoString(buf, step->sql_statement + offset);
 	}
@@ -2069,7 +2076,9 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 			/*
 			 * Add sortring to the step
 			 */
-			if (query->sortClause || query->distinctClause)
+			if (query_plan->exec_loc_type == EXEC_ON_DATA_NODES &&
+					list_length(query_step->exec_nodes->nodelist) > 1 &&
+					(query->sortClause || query->distinctClause))
 				make_simple_sort_from_sortclauses(query, query_step);
 
 			/*
