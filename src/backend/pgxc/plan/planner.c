@@ -1675,11 +1675,11 @@ reconstruct_step_query(List *rtable, bool has_order_by, List *extra_sort,
 		/* the same offset in the original string */
 		int		offset = sql_from - sql;
 		/*
-		 * Remove terminating semicolon to be able to append extra
-		 * order by entries. If query is submitted from client other than psql
-		 * the terminator may not present.
+		 * Truncate query at the position of terminating semicolon to be able
+		 * to append extra order by entries. If query is submitted from client
+		 * other than psql the terminator may not present.
 		 */
-		char   *end = step->sql_statement + strlen(step->sql_statement);
+		char   *end = step->sql_statement + strlen(step->sql_statement) - 1;
 		while(isspace((unsigned char) *end) && end > step->sql_statement)
 			end--;
 		if (*end == ';')
