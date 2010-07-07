@@ -2693,6 +2693,20 @@ AbortCurrentTransaction(void)
 	}
 }
 
+#ifdef PGXC
+/*
+ *	AbortCurrentTransactionOnce
+ *
+ * Abort transaction, but only if we have not already.
+ */
+void
+AbortCurrentTransactionOnce(void)
+{
+	if (CurrentTransactionState->state != TRANS_ABORT)
+		AbortCurrentTransaction();
+}
+#endif
+
 /*
  *	PreventTransactionChain
  *

@@ -163,6 +163,9 @@ extern void CommandCounterIncrement(void);
 extern void ForceSyncCommit(void);
 extern void StartTransactionCommand(void);
 extern void CommitTransactionCommand(void);
+#ifdef PGXC
+extern void AbortCurrentTransactionOnce(void);
+#endif
 extern void AbortCurrentTransaction(void);
 extern void BeginTransactionBlock(void);
 extern bool EndTransactionBlock(void);
