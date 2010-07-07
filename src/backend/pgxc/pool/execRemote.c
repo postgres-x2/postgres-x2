@@ -475,7 +475,7 @@ HandleCopyOutComplete(RemoteQueryState *combiner)
 		/* Inconsistent responses */
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg("Unexpected response from the data nodes")));
+				 errmsg("Unexpected response from the data nodes for 'c' message, current request type %d", combiner->request_type)));
 	/* Just do nothing, close message is managed by the coordinator */
 	combiner->copy_out_count++;
 }
@@ -559,7 +559,7 @@ HandleRowDescription(RemoteQueryState *combiner, char *msg_body, size_t len)
 		/* Inconsistent responses */
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg("Unexpected response from the data nodes")));
+				 errmsg("Unexpected response from the data nodes for 'T' message, current request type %d", combiner->request_type)));
 	}
 	/* Increment counter and check if it was first */
 	if (combiner->description_count++ == 0)
@@ -583,7 +583,7 @@ HandleParameterStatus(RemoteQueryState *combiner, char *msg_body, size_t len)
 		/* Inconsistent responses */
 		ereport(ERROR,
 			(errcode(ERRCODE_DATA_CORRUPTED),
-			 errmsg("Unexpected response from the data nodes")));
+				 errmsg("Unexpected response from the data nodes for 'S' message, current request type %d", combiner->request_type)));
 	}
 	/* Proxy last */
 	if (++combiner->description_count == combiner->node_count)
@@ -605,7 +605,7 @@ HandleCopyIn(RemoteQueryState *combiner)
 		/* Inconsistent responses */
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg("Unexpected response from the data nodes")));
+				 errmsg("Unexpected response from the data nodes for 'G' message, current request type %d", combiner->request_type)));
 	}
 	/*
 	 * The normal PG code will output an G message when it runs in the
@@ -627,7 +627,7 @@ HandleCopyOut(RemoteQueryState *combiner)
 		/* Inconsistent responses */
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg("Unexpected response from the data nodes")));
+				 errmsg("Unexpected response from the data nodes for 'H' message, current request type %d", combiner->request_type)));
 	}
 	/*
 	 * The normal PG code will output an H message when it runs in the
@@ -649,7 +649,7 @@ HandleCopyDataRow(RemoteQueryState *combiner, char *msg_body, size_t len)
 	if (combiner->request_type != REQUEST_TYPE_COPY_OUT)
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg("Unexpected response from the data nodes")));
+				 errmsg("Unexpected response from the data nodes for 'd' message, current request type %d", combiner->request_type)));
 
 	/* If there is a copy file, data has to be sent to the local file */
 	if (combiner->copy_file)
@@ -675,7 +675,7 @@ HandleDataRow(RemoteQueryState *combiner, char *msg_body, size_t len)
 		/* Inconsistent responses */
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg("Unexpected response from the data nodes")));
+				 errmsg("Unexpected response from the data nodes for 'D' message, current request type %d", combiner->request_type)));
 	}
 
 	/*
@@ -943,7 +943,8 @@ data_node_receive_responses(const int conn_count, DataNodeHandle ** connections,
 		data_node_receive(count, to_receive, timeout);
 		while (i < count)
 		{
-			switch (handle_response(to_receive[i], combiner))
+			int result =  handle_response(to_receive[i], combiner);
+			switch (result)
 			{
 				case RESPONSE_EOF: /* have something to read, keep receiving */
 					i++;
@@ -960,7 +961,7 @@ data_node_receive_responses(const int conn_count, DataNodeHandle ** connections,
 					/* Inconsistent responses */
 					ereport(ERROR,
 							(errcode(ERRCODE_INTERNAL_ERROR),
-							 errmsg("Unexpected response from the data nodes")));
+							 errmsg("Unexpected response from the data nodes, result = %d, request type %d", result, combiner->request_type)));
 			}
 		}
 	}
@@ -1679,7 +1680,7 @@ DataNodeCopyOut(Exec_Nodes *exec_nodes, DataNodeHandle** copy_connections, FILE*
 		pfree(copy_connections);
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg("Unexpected response from the data nodes")));
+				 errmsg("Unexpected response from the data nodes when combining, request type %d", combiner->request_type)));
 	}
 
 	return processed;
