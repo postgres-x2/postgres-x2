@@ -4,15 +4,15 @@
  *
  *	  Connection pool manager handles connections to DataNodes
  *
- * The pooler runs as a separate process and is forked off from a 
- * coordinator postmaster. If the coordinator needs a connection from a 
+ * The pooler runs as a separate process and is forked off from a
+ * coordinator postmaster. If the coordinator needs a connection from a
  * data node, it asks for one from the pooler, which maintains separate
  * pools for each data node. A group of connections can be requested in
- * a single request, and the pooler returns a list of file descriptors 
+ * a single request, and the pooler returns a list of file descriptors
  * to use for the connections.
  *
  * Note the current implementation does not yet shrink the pool over time
- * as connections are idle.  Also, it does not queue requests; if a 
+ * as connections are idle.  Also, it does not queue requests; if a
  * connection is unavailable, it will simply fail. This should be implemented
  * one day, although there is a chance for deadlocks. For now, limiting
  * connections should be done between the application and coordinator.
@@ -113,8 +113,8 @@ extern int	pqReadReady(PGconn *conn);
 static volatile sig_atomic_t shutdown_requested = false;
 
 
-/* 
- * Initialize internal structures 
+/*
+ * Initialize internal structures
  */
 int
 PoolManagerInit()
@@ -433,8 +433,8 @@ PoolManagerInit()
 }
 
 
-/* 
- * Destroy internal structures 
+/*
+ * Destroy internal structures
  */
 int
 PoolManagerDestroy(void)
@@ -575,8 +575,8 @@ PoolManagerConnect(PoolHandle *handle, const char *database)
 }
 
 
-/* 
- * Init PoolAgent 
+/*
+ * Init PoolAgent
 */
 static void
 agent_init(PoolAgent *agent, const char *database, List *nodes)
@@ -598,8 +598,8 @@ agent_init(PoolAgent *agent, const char *database, List *nodes)
 }
 
 
-/* 
- * Destroy PoolAgent 
+/*
+ * Destroy PoolAgent
  */
 static void
 agent_destroy(PoolAgent *agent)
@@ -636,8 +636,8 @@ agent_destroy(PoolAgent *agent)
 }
 
 
-/* 
- * Release handle to pool manager 
+/*
+ * Release handle to pool manager
  */
 void
 PoolManagerDisconnect(PoolHandle *handle)
@@ -653,8 +653,8 @@ PoolManagerDisconnect(PoolHandle *handle)
 }
 
 
-/* 
- * Get pooled connections 
+/*
+ * Get pooled connections
  */
 int *
 PoolManagerGetConnections(List *nodelist)
@@ -759,7 +759,7 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 }
 
 
-/* 
+/*
  * acquire connection
  */
 static int *
@@ -827,8 +827,8 @@ agent_acquire_connections(PoolAgent *agent, List *nodelist)
 }
 
 
-/* 
- * Retun connections back to the pool 
+/*
+ * Retun connections back to the pool
  */
 void
 PoolManagerReleaseConnections(void)
@@ -972,8 +972,8 @@ destroy_database_pool(const char *database)
 }
 
 
-/* 
- * Insert new database pool to the list 
+/*
+ * Insert new database pool to the list
  */
 static void
 insert_database_pool(DatabasePool *databasePool)
@@ -991,8 +991,8 @@ insert_database_pool(DatabasePool *databasePool)
 }
 
 
-/* 
- * Find pool for specified database in the list 
+/*
+ * Find pool for specified database in the list
  */
 static DatabasePool
 *
@@ -1015,8 +1015,8 @@ find_database_pool(const char *database)
 }
 
 
-/* 
- * Remove pool for specified database from the list 
+/*
+ * Remove pool for specified database from the list
  */
 static DatabasePool *
 remove_database_pool(const char *database)
@@ -1075,41 +1075,40 @@ acquire_connection(DatabasePool *dbPool, int node)
 	}
 
 	/* Check available connections */
-	if (nodePool && nodePool->freeSize > 0)
+	while (nodePool && nodePool->freeSize > 0)
 	{
 		int			poll_result;
 
-		while (nodePool->freeSize > 0)
-		{
-			slot = nodePool->slot[--(nodePool->freeSize)];
+		slot = nodePool->slot[--(nodePool->freeSize)];
 
 	retry:
-			/* Make sure connection is ok */
-			poll_result = pqReadReady(slot->conn);
+		/* Make sure connection is ok */
+		poll_result = pqReadReady(slot->conn);
 
-			if (poll_result == 0)
-				break; 		/* ok, no data */
-			else if (poll_result < 0)
-			{
-				if (errno == EAGAIN || errno == EINTR)
-					goto retry;
+		if (poll_result == 0)
+			break; 		/* ok, no data */
+		else if (poll_result < 0)
+		{
+			if (errno == EAGAIN || errno == EINTR)
+				goto retry;
 
-				elog(WARNING, "Error in checking connection, errno = %d", errno);
-			}
-			else
-				elog(WARNING, "Unexpected data on connection, cleaning.");
-
-			destroy_slot(slot);
-			/* Decrement current max pool size */
-			(nodePool->size)--;
-			/* Ensure we are not below minimum size */
-			grow_pool(dbPool, node - 1);
+			elog(WARNING, "Error in checking connection, errno = %d", errno);
 		}
+		else
+			elog(WARNING, "Unexpected data on connection, cleaning.");
+
+		destroy_slot(slot);
+		slot = NULL;
+
+		/* Decrement current max pool size */
+		(nodePool->size)--;
+		/* Ensure we are not below minimum size */
+		grow_pool(dbPool, node - 1);
 	}
-	else
-		ereport(LOG,
-				(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
-				 errmsg("connection pool is empty")));
+
+	if (slot == NULL)
+		elog(WARNING, "can not connect to data node %d", node);
+
 	return slot;
 }
 
