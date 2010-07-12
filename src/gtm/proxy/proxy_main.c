@@ -86,7 +86,7 @@ static void ProcessTransactionCommand(GTMProxy_ConnectionInfo *conninfo,
 		GTM_Conn *gtm_conn, GTM_MessageType mtype, StringInfo message);
 static void ProcessSnapshotCommand(GTMProxy_ConnectionInfo *conninfo,
 	   	GTM_Conn *gtm_conn, GTM_MessageType mtype, StringInfo message);
-static void ProcessSeqeunceCommand(GTMProxy_ConnectionInfo *conninfo,
+static void ProcessSequenceCommand(GTMProxy_ConnectionInfo *conninfo,
 	   	GTM_Conn *gtm_conn, GTM_MessageType mtype, StringInfo message);
 
 static void GTMProxy_RegisterCoordinator(GTMProxy_ConnectionInfo *conninfo,
@@ -579,7 +579,6 @@ GTMProxy_ThreadMain(void *argp)
 	char gtm_connect_string[1024];
 
 	elog(DEBUG3, "Starting the connection helper thread");
-	
 
 	/*
 	 * Create the memory context we will use in the main loop.
@@ -595,7 +594,7 @@ GTMProxy_ThreadMain(void *argp)
 										   ALLOCSET_DEFAULT_INITSIZE,
 										   ALLOCSET_DEFAULT_MAXSIZE,
 										   false);
-	
+
 	/*
 	 * Set up connection with the GTM server
 	 */
@@ -808,7 +807,7 @@ GTMProxy_ThreadMain(void *argp)
 						ProcessCommand(thrinfo->thr_conn, thrinfo->thr_gtm_conn,
 								&input_message);
 						break;
-					
+
 					case 'X':
 					case EOF:
 						/*
@@ -917,7 +916,7 @@ GTMProxyAddConnection(Port *port)
 	{
 		ereport(ERROR,
 				(ENOMEM,
-				 	errmsg("Out of memory")));
+					errmsg("Out of memory")));
 		return STATUS_ERROR;
 	}
 		
@@ -942,31 +941,35 @@ ProcessCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 
 	switch (mtype)
 	{
-		case MSG_UNREGISTER_COORD:	
+		case MSG_UNREGISTER_COORD:
 			ProcessCoordinatorCommand(conninfo, gtm_conn, mtype, input_message);
 			break;
 
-		case MSG_TXN_BEGIN:	
-		case MSG_TXN_BEGIN_GETGXID:	
+		case MSG_TXN_BEGIN:
+		case MSG_TXN_BEGIN_GETGXID:
 		case MSG_TXN_BEGIN_GETGXID_AUTOVACUUM:
-		case MSG_TXN_PREPARE:		
-		case MSG_TXN_COMMIT:		
-		case MSG_TXN_ROLLBACK:		
+		case MSG_TXN_PREPARE:
+		case MSG_TXN_COMMIT:
+		case MSG_TXN_ROLLBACK:
 		case MSG_TXN_GET_GXID:
 			ProcessTransactionCommand(conninfo, gtm_conn, mtype, input_message);
 			break;
 
-		case MSG_SNAPSHOT_GET:		
+		case MSG_SNAPSHOT_GET:
 		case MSG_SNAPSHOT_GXID_GET:
 			ProcessSnapshotCommand(conninfo, gtm_conn, mtype, input_message);
 			break;
 
-		case MSG_SEQUENCE_INIT:	
+		case MSG_SEQUENCE_INIT:
 		case MSG_SEQUENCE_GET_CURRENT:
 		case MSG_SEQUENCE_GET_NEXT:
+		case MSG_SEQUENCE_GET_LAST:
+		case MSG_SEQUENCE_SET_VAL:
 		case MSG_SEQUENCE_RESET:
 		case MSG_SEQUENCE_CLOSE:
-			ProcessSeqeunceCommand(conninfo, gtm_conn, mtype, input_message);
+		case MSG_SEQUENCE_RENAME:
+		case MSG_SEQUENCE_ALTER:
+			ProcessSequenceCommand(conninfo, gtm_conn, mtype, input_message);
 			break;
 
 		default:
@@ -1104,16 +1107,20 @@ ProcessResponse(GTMProxy_ThreadInfo *thrinfo, GTMProxy_CommandInfo *cmdinfo,
 			cmdinfo->ci_conn->con_pending_msg = MSG_TYPE_INVALID;
 			break;
 
-		case MSG_TXN_BEGIN:	
+		case MSG_TXN_BEGIN:
 		case MSG_TXN_BEGIN_GETGXID_AUTOVACUUM:
-		case MSG_TXN_PREPARE:		
+		case MSG_TXN_PREPARE:
 		case MSG_TXN_GET_GXID:
 		case MSG_SNAPSHOT_GXID_GET:
-		case MSG_SEQUENCE_INIT:	
+		case MSG_SEQUENCE_INIT:
 		case MSG_SEQUENCE_GET_CURRENT:
 		case MSG_SEQUENCE_GET_NEXT:
+		case MSG_SEQUENCE_GET_LAST:
+		case MSG_SEQUENCE_SET_VAL:
 		case MSG_SEQUENCE_RESET:
 		case MSG_SEQUENCE_CLOSE:
+		case MSG_SEQUENCE_RENAME:
+		case MSG_SEQUENCE_ALTER:
 			if ((res->gr_proxyhdr.ph_conid == InvalidGTMProxyConnID) ||
 				(res->gr_proxyhdr.ph_conid >= GTM_PROXY_MAX_CONNECTIONS) ||
 				(thrinfo->thr_all_conns[res->gr_proxyhdr.ph_conid] != cmdinfo->ci_conn))
@@ -1251,13 +1258,13 @@ ProcessTransactionCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 
 	switch (mtype)
 	{
-		case MSG_TXN_BEGIN_GETGXID:	
+		case MSG_TXN_BEGIN_GETGXID:
 			cmd_data.cd_beg.iso_level = pq_getmsgint(message, sizeof (GTM_IsolationLevel));
 			cmd_data.cd_beg.rdonly = pq_getmsgbyte(message);
-			GTMProxy_CommandPending(conninfo, mtype, cmd_data);	
+			GTMProxy_CommandPending(conninfo, mtype, cmd_data);
 			break;
 
-		case MSG_TXN_COMMIT:		
+		case MSG_TXN_COMMIT:
 		case MSG_TXN_ROLLBACK:
 			cmd_data.cd_rc.isgxid = pq_getmsgbyte(message);
 			if (cmd_data.cd_rc.isgxid)
@@ -1281,7 +1288,7 @@ ProcessTransactionCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 				memcpy(&cmd_data.cd_rc.handle, data, sizeof (GTM_TransactionHandle));
 			}
 			pq_getmsgend(message);
-			GTMProxy_CommandPending(conninfo, mtype, cmd_data);	
+			GTMProxy_CommandPending(conninfo, mtype, cmd_data);
 			break;
 
 		case MSG_TXN_BEGIN:	
@@ -1291,7 +1298,7 @@ ProcessTransactionCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 
 		case MSG_TXN_BEGIN_GETGXID_AUTOVACUUM:
 		case MSG_TXN_PREPARE:		
-			GTMProxy_ProxyCommand(conninfo, gtm_conn, mtype, message);	
+			GTMProxy_ProxyCommand(conninfo, gtm_conn, mtype, message);
 			break;
 
 		default:
@@ -1336,7 +1343,7 @@ ProcessSnapshotCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 					memcpy(&cmd_data.cd_snap.handle, data, sizeof (GTM_TransactionHandle));
 				}
 				pq_getmsgend(message);
-				GTMProxy_CommandPending(conninfo, mtype, cmd_data);	
+				GTMProxy_CommandPending(conninfo, mtype, cmd_data);
 			}
 			break;
 
@@ -1351,7 +1358,7 @@ ProcessSnapshotCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 }
 
 static void
-ProcessSeqeunceCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
+ProcessSequenceCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 		GTM_MessageType mtype, StringInfo message)
 {
 	/*
