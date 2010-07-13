@@ -352,7 +352,7 @@ DefineSequence(CreateSeqStmt *seq)
 #ifdef PGXC  /* PGXC_COORD */
 	if (IS_PGXC_COORDINATOR)
 	{
-		char *seqname = GetGlobalSeqName(rel, NULL);
+		char *seqname = GetGlobalSeqName(rel, NULL, NULL);
 
 		/* We also need to create it on the GTM */
 		if (CreateSequenceGTM(seqname,
@@ -494,7 +494,7 @@ AlterSequenceInternal(Oid relid, List *options)
 #ifdef PGXC
 	if (IS_PGXC_COORDINATOR)
 	{
-		char *seqname = GetGlobalSeqName(seqrel, NULL);
+		char *seqname = GetGlobalSeqName(seqrel, NULL, NULL);
 
 		/* We also need to create it on the GTM */
 		if (AlterSequenceGTM(seqname,
@@ -587,7 +587,7 @@ nextval_internal(Oid relid)
 #ifdef PGXC  /* PGXC_COORD */
 	if (IS_PGXC_COORDINATOR)
 	{
-		char *seqname = GetGlobalSeqName(seqrel, NULL);
+		char *seqname = GetGlobalSeqName(seqrel, NULL, NULL);
 
 		/*
 		 * Above, we still use the page as a locking mechanism to handle
@@ -785,7 +785,7 @@ currval_oid(PG_FUNCTION_ARGS)
 #ifdef PGXC
 	if (IS_PGXC_COORDINATOR)
 	{
-		char *seqname = GetGlobalSeqName(seqrel, NULL);
+		char *seqname = GetGlobalSeqName(seqrel, NULL, NULL);
 
 		result = (int64) GetCurrentValGTM(seqname);
 		if (result < 0)
@@ -911,7 +911,7 @@ do_setval(Oid relid, int64 next, bool iscalled)
 #ifdef PGXC
 	if (IS_PGXC_COORDINATOR)
 	{
-		char *seqname = GetGlobalSeqName(seqrel, NULL);
+		char *seqname = GetGlobalSeqName(seqrel, NULL, NULL);
 
 		if (SetValGTM(seqname, next, iscalled) < 0)
 			ereport(ERROR,
@@ -1423,19 +1423,23 @@ init_params(List *options, bool isInit,
  */
 
 char *
-GetGlobalSeqName(Relation seqrel, const char *new_seqname)
+GetGlobalSeqName(Relation seqrel, const char *new_seqname, const char *new_schemaname)
 {
 	char *seqname, *dbname, *schemaname, *relname;
 	int charlen;
 
 	/* Get all the necessary relation names */
 	dbname = get_database_name(seqrel->rd_node.dbNode);
-	schemaname = get_namespace_name(RelationGetNamespace(seqrel));
 	
 	if (new_seqname)
-		relname = new_seqname;
+		relname = (char *) new_seqname;
 	else
 		relname = RelationGetRelationName(seqrel);
+
+	if (new_schemaname)
+		schemaname = (char *) new_schemaname;
+	else
+		schemaname = get_namespace_name(RelationGetNamespace(seqrel));
 
 	/* Calculate the global name size including the dots and \0 */
 	charlen = strlen(dbname) + strlen(schemaname) + strlen(relname) + 3;

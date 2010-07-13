@@ -31,6 +31,9 @@
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
 
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#endif
 
 static void AlterSchemaOwner_internal(HeapTuple tup, Relation rel, Oid newOwnerId);
 
@@ -296,6 +299,26 @@ RenameSchema(const char *oldname, const char *newname)
 	namestrcpy(&(((Form_pg_namespace) GETSTRUCT(tup))->nspname), newname);
 	simple_heap_update(rel, &tup->t_self, tup);
 	CatalogUpdateIndexes(rel, tup);
+
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR)
+	{
+		ObjectAddress		object;
+		Oid					namespaceId;
+
+		/* Check object dependency and see if there is a sequence. If yes rename it */
+		namespaceId = GetSysCacheOid(NAMESPACENAME,
+									 CStringGetDatum(oldname),
+									 0, 0, 0);
+		/* Create the object that will be checked for the dependencies */
+		object.classId = NamespaceRelationId;
+		object.objectId = namespaceId;
+		object.objectSubId = 0;
+
+		/* Rename all the objects depending on this schema */
+		performRename(&object, oldname, newname);
+	}
+#endif
 
 	heap_close(rel, NoLock);
 	heap_freetuple(tup);

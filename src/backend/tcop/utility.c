@@ -581,7 +581,6 @@ ProcessUtility(Node *parsetree,
 			{
 				uint64		processed;
 #ifdef PGXC
-				bool		done;
 				processed = DoCopy((CopyStmt *) parsetree, queryString, true);
 #else
 				processed = DoCopy((CopyStmt *) parsetree, queryString):

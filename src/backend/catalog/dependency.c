@@ -53,6 +53,10 @@
 #include "catalog/pg_user_mapping.h"
 #ifdef PGXC
 #include "catalog/pgxc_class.h"
+#include "pgxc/pgxc.h"
+#include "commands/sequence.h"
+#include "gtm/gtm_c.h"
+#include "access/gtm.h"
 #endif
 #include "commands/comment.h"
 #include "commands/dbcommands.h"
@@ -334,6 +338,89 @@ performMultipleDeletions(const ObjectAddresses *objects,
 
 	heap_close(depRel, RowExclusiveLock);
 }
+
+#ifdef PGXC
+/*
+ * Check type and class of the given object and rename it properly on GTM
+ */
+static void
+doRename(const ObjectAddress *object, const char *oldname, const char *newname)
+{
+	switch (getObjectClass(object))
+	{
+		case OCLASS_CLASS:
+		{
+			char        relKind = get_rel_relkind(object->objectId);
+
+			/*
+			 * If we are here, a schema is being renamed, a sequence depends on it.
+			 * as sequences' global name use the schema name, this sequence
+			 * has also to be renamed on GTM.
+			 */
+			if (relKind == RELKIND_SEQUENCE && IS_PGXC_COORDINATOR)
+			{
+				Relation relseq = relation_open(object->objectId, AccessShareLock);
+				char *seqname = GetGlobalSeqName(relseq, NULL, oldname);
+				char *newseqname = GetGlobalSeqName(relseq, NULL, newname);
+
+				/* We also need to rename this sequence on GTM, it has a global name ! */
+				if (RenameSequenceGTM(seqname, newseqname) < 0)
+					ereport(ERROR,
+							(errcode(ERRCODE_CONNECTION_FAILURE),
+							 errmsg("GTM error, could not rename sequence")));
+
+				pfree(seqname);
+				pfree(newseqname);
+
+				relation_close(relseq, AccessShareLock);
+			}
+		}
+		default:
+			/* Nothing to do, this object has not to be renamed, end of the story... */
+			break;
+	}
+}
+
+/*
+ * performRename: used to rename objects
+ * on GTM depending on another object(s)
+ */
+void
+performRename(const ObjectAddress *object, const char *oldname, const char *newname)
+{
+	Relation    depRel;
+	ObjectAddresses *targetObjects;
+	int i;
+
+	/*
+	 * Check the dependencies on this object
+	 * And rename object dependent if necessary
+	 */
+
+	depRel = heap_open(DependRelationId, RowExclusiveLock);
+
+	targetObjects = new_object_addresses();
+
+	findDependentObjects(object,
+						 DEPFLAG_ORIGINAL,
+						 NULL,      /* empty stack */
+						 targetObjects,
+						 NULL,
+						 depRel);
+
+	/* Check Objects one by one to see if some of them have to be renamed on GTM */
+	for (i = 0; i < targetObjects->numrefs; i++)
+	{
+		ObjectAddress *thisobj = targetObjects->refs + i;
+		doRename(thisobj, oldname, newname);
+	}
+
+	/* And clean up */
+	free_object_addresses(targetObjects);
+
+	heap_close(depRel, RowExclusiveLock);
+}
+#endif
 
 /*
  * deleteWhatDependsOn: attempt to drop everything that depends on the
@@ -1043,6 +1130,33 @@ doDeletion(const ObjectAddress *object)
 					else
 						heap_drop_with_catalog(object->objectId);
 				}
+
+#ifdef PGXC
+				/* Drop the sequence on GTM */
+				if (relKind == RELKIND_SEQUENCE && IS_PGXC_COORDINATOR)
+				{
+					/*
+					 * The sequence has already been removed from coordinator,
+					 * finish the stuff on GTM too
+					 */
+					/* PGXCTODO: allow the ability to rollback or abort dropping sequences. */
+
+					Relation relseq;
+					char *seqname;
+					/*
+					 * A relation is opened to get the schema and database name as
+					 * such data is not available before when dropping a function.
+					 */
+					relseq = relation_open(object->objectId, AccessShareLock);
+					seqname = GetGlobalSeqName(relseq, NULL, NULL);
+
+					DropSequenceGTM(seqname);
+					pfree(seqname);
+
+					/* Then close the relation opened previously */
+					relation_close(relseq, AccessShareLock);
+				}
+#endif /* PGXC */
 				break;
 			}
 
