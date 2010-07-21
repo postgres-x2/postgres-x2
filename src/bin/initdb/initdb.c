@@ -100,6 +100,9 @@ static char *shdesc_file;
 static char *hba_file;
 static char *ident_file;
 static char *conf_file;
+#ifdef PGXC
+static char *pgxc_conf_file;
+#endif
 static char *conversion_file;
 static char *dictionary_file;
 static char *info_schema_file;
@@ -1295,6 +1298,19 @@ setup_config(void)
 	chmod(path, 0600);
 
 	free(conflines);
+
+#ifdef PGXC
+	/* pgxc.conf */
+
+	conflines = readfile(pgxc_conf_file);
+
+	snprintf(path, sizeof(path), "%s/pgxc.conf", pg_data);
+
+	writefile(path, conflines);
+	chmod(path, 0600);
+
+	free(conflines);
+#endif
 
 	check_ok();
 }
@@ -2810,6 +2826,9 @@ main(int argc, char *argv[])
 	set_input(&hba_file, "pg_hba.conf.sample");
 	set_input(&ident_file, "pg_ident.conf.sample");
 	set_input(&conf_file, "postgresql.conf.sample");
+#ifdef PGXC
+	set_input(&pgxc_conf_file, "pgxc.conf.sample");
+#endif
 	set_input(&conversion_file, "conversion_create.sql");
 	set_input(&dictionary_file, "snowball_create.sql");
 	set_input(&info_schema_file, "information_schema.sql");
@@ -2826,12 +2845,18 @@ main(int argc, char *argv[])
 				"POSTGRES_SUPERUSERNAME=%s\nPOSTGRES_BKI=%s\n"
 				"POSTGRES_DESCR=%s\nPOSTGRES_SHDESCR=%s\n"
 				"POSTGRESQL_CONF_SAMPLE=%s\n"
+#ifdef PGXC
+				"PGXC_CONF_SAMPLE=%s\n"
+#endif
 				"PG_HBA_SAMPLE=%s\nPG_IDENT_SAMPLE=%s\n",
 				PG_VERSION,
 				pg_data, share_path, bin_path,
 				username, bki_file,
 				desc_file, shdesc_file,
 				conf_file,
+#ifdef PGXC
+				pgxc_conf_file,
+#endif
 				hba_file, ident_file);
 		if (show_setting)
 			exit(0);
@@ -2842,6 +2867,9 @@ main(int argc, char *argv[])
 	check_input(shdesc_file);
 	check_input(hba_file);
 	check_input(ident_file);
+#ifdef PGXC
+	check_input(pgxc_conf_file);
+#endif
 	check_input(conf_file);
 	check_input(conversion_file);
 	check_input(dictionary_file);

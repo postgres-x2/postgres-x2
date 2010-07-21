@@ -52,6 +52,8 @@ install: all installdirs
 	$(INSTALL_PROGRAM) clusterdb$(X)  '$(DESTDIR)$(bindir)'/clusterdb$(X)
 	$(INSTALL_PROGRAM) vacuumdb$(X)   '$(DESTDIR)$(bindir)'/vacuumdb$(X)
 	$(INSTALL_PROGRAM) reindexdb$(X)  '$(DESTDIR)$(bindir)'/reindexdb$(X)
+	$(INSTALL_PROGRAM) pgxc_ddl$(X) '$(DESTDIR)$(bindir)'/pgxc_ddl$(X)
+	chmod 555 '$(DESTDIR)$(bindir)'/pgxc_ddl$(X)
 
 installdirs:
 	$(mkinstalldirs) '$(DESTDIR)$(bindir)'
