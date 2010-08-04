@@ -125,17 +125,17 @@ fi
 hosts=`cat $PGXC_CONF | grep coordinator_hosts | cut -d "'" -f 2`
 ports=`cat $PGXC_CONF | grep coordinator_ports | cut -d "'" -f 2`
 folders=`cat $PGXC_CONF | grep coordinator_folders | cut -d "'" -f 2`
-if [ "hosts" = "" ]
+if [ "$hosts" = "" ]
 then
 	echo "coordinator_hosts not defined in pgxc.conf"
 	exit 2
 fi
-if [ "ports" = "" ]
+if [ "$ports" = "" ]
 then
 	echo "coordinator_ports not defined in pgxc.conf"
 	exit 2
 fi
-if [ "folders" = "" ]
+if [ "$folders" = "" ]
 then
 	echo "coordinator_folders not defined in pgxc.conf"
 	exit 2
@@ -276,7 +276,7 @@ fi
 #Main process begins
 
 #Check if the database is defined, This could lead to coordinator being stopped uselessly
-if [ $DB_NAME != "" ]
+if [ "$DB_NAME" != "" ]
 then
 	#Simply launch a fake SQL on the Database wanted
 	$PSQL_CLIENT -h ${COORD_HOSTNAMES[$COORD_ORIG_INDEX]} -p ${COORD_PORTS[$COORD_ORIG_INDEX]} -c 'select now()' -d $DB_NAME; err=$?
