@@ -590,6 +590,9 @@ ExtendCLOG(TransactionId newestXact)
 	/* 
 	 * The first condition makes sure we did not wrap around 
 	 * The second checks if we are still using the same page
+	 * Note that this value can change and we are not holding a lock, 
+	 * so we repeat the check below. We do it this way instead of 
+	 * grabbing the lock to avoid lock contention.
 	 */
 	if (ClogCtl->shared->latest_page_number - pageno <= CLOG_WRAP_CHECK_DELTA 
 			&& pageno <= ClogCtl->shared->latest_page_number)
@@ -603,6 +606,20 @@ ExtendCLOG(TransactionId newestXact)
 #endif
 
 	LWLockAcquire(CLogControlLock, LW_EXCLUSIVE);
+
+#ifdef PGXC
+	/*
+	 * We repeat the check.  Another process may have written 
+	 * out the page already and advanced the latest_page_number
+	 * while we were waiting for the lock.
+	 */
+	if (ClogCtl->shared->latest_page_number - pageno <= CLOG_WRAP_CHECK_DELTA 
+			&& pageno <= ClogCtl->shared->latest_page_number)
+	{
+		LWLockRelease(CLogControlLock);
+		return;
+	}
+#endif
 
 	/* Zero the page and make an XLOG entry about it */
 	ZeroCLOGPage(pageno, true);
