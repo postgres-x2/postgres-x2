@@ -45,7 +45,7 @@ typedef struct
 	char	   *connstr;
 	int			freeSize;	/* available connections */
 	int			size;  		/* total pool size */
-	DataNodePoolSlot **slot; 
+	DataNodePoolSlot **slot;
 } DataNodePool;
 
 /* All pools for specified database */
@@ -57,7 +57,7 @@ typedef struct databasepool
 	struct databasepool *next;
 } DatabasePool;
 
-/* Agent of client session (Pool Manager side) 
+/* Agent of client session (Pool Manager side)
  * Acts as a session manager, grouping connections together
  */
 typedef struct
@@ -125,6 +125,6 @@ extern void PoolManagerConnect(PoolHandle *handle, const char *database);
 extern int *PoolManagerGetConnections(List *nodelist);
 
 /* Retun connections back to the pool */
-extern void PoolManagerReleaseConnections(void);
+extern void PoolManagerReleaseConnections(int ndisc, int* discard);
 
 #endif

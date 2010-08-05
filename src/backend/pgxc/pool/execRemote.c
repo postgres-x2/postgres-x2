@@ -24,6 +24,7 @@
 #include "miscadmin.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/poolmgr.h"
+#include "storage/ipc.h"
 #include "utils/datum.h"
 #include "utils/memutils.h"
 #include "utils/tuplesort.h"
@@ -40,9 +41,10 @@ static bool autocommit = true;
 static DataNodeHandle **write_node_list = NULL;
 static int	write_node_count = 0;
 
-static int	data_node_begin(int conn_count, DataNodeHandle ** connections, CommandDest dest, GlobalTransactionId gxid);
-static int	data_node_commit(int conn_count, DataNodeHandle ** connections, CommandDest dest);
-static int	data_node_rollback(int conn_count, DataNodeHandle ** connections, CommandDest dest);
+static int	data_node_begin(int conn_count, DataNodeHandle ** connections,
+				GlobalTransactionId gxid);
+static int	data_node_commit(int conn_count, DataNodeHandle ** connections);
+static int	data_node_rollback(int conn_count, DataNodeHandle ** connections);
 
 static void clear_write_node_list();
 
@@ -920,7 +922,7 @@ FetchTuple(RemoteQueryState *combiner, TupleTableSlot *slot)
 /*
  * Handle responses from the Data node connections
  */
-static void
+static int
 data_node_receive_responses(const int conn_count, DataNodeHandle ** connections,
 						 struct timeval * timeout, RemoteQueryState *combiner)
 {
@@ -940,7 +942,8 @@ data_node_receive_responses(const int conn_count, DataNodeHandle ** connections,
 	{
 		int i = 0;
 
-		data_node_receive(count, to_receive, timeout);
+		if (data_node_receive(count, to_receive, timeout))
+			return EOF;
 		while (i < count)
 		{
 			int result =  handle_response(to_receive[i], combiner);
@@ -959,12 +962,17 @@ data_node_receive_responses(const int conn_count, DataNodeHandle ** connections,
 					break;
 				default:
 					/* Inconsistent responses */
-					ereport(ERROR,
-							(errcode(ERRCODE_INTERNAL_ERROR),
-							 errmsg("Unexpected response from the data nodes, result = %d, request type %d", result, combiner->request_type)));
+					add_error_message(to_receive[i], "Unexpected response from the data nodes");
+					elog(WARNING, "Unexpected response from the data nodes, result = %d, request type %d", result, combiner->request_type);
+					/* Stop tracking and move last connection in place */
+					count--;
+					if (i < count)
+						to_receive[i] = to_receive[count];
 			}
 		}
 	}
+
+	return 0;
 }
 
 /*
@@ -990,6 +998,18 @@ handle_response(DataNodeHandle * conn, RemoteQueryState *combiner)
 		if (conn->state == DN_CONNECTION_STATE_QUERY)
 			return RESPONSE_EOF;
 
+		/* 
+		 * If we are in the process of shutting down, we 
+		 * may be rolling back, and the buffer may contain other messages.
+		 * We want to avoid a procarray exception
+		 * as well as an error stack overflow.
+		 */
+		if (proc_exit_inprogress)
+		{
+			conn->state = DN_CONNECTION_STATE_ERROR_FATAL;
+			return RESPONSE_EOF;
+		}
+
 		/* TODO handle other possible responses */
 		switch (get_message(conn, &msg_len, &msg))
 		{
@@ -1005,10 +1025,17 @@ handle_response(DataNodeHandle * conn, RemoteQueryState *combiner)
 				HandleCommandComplete(combiner, msg, msg_len);
 				break;
 			case 'T':			/* RowDescription */
+#ifdef DN_CONNECTION_DEBUG
+				Assert(!conn->have_row_desc);
+				conn->have_row_desc = true;
+#endif
 				if (HandleRowDescription(combiner, msg, msg_len))
 					return RESPONSE_TUPDESC;
 				break;
 			case 'D':			/* DataRow */
+#ifdef DN_CONNECTION_DEBUG
+				Assert(conn->have_row_desc);
+#endif
 				HandleDataRow(combiner, msg, msg_len);
 				return RESPONSE_DATAROW;
 			case 'G': /* CopyInResponse */
@@ -1042,6 +1069,9 @@ handle_response(DataNodeHandle * conn, RemoteQueryState *combiner)
 			case 'Z':			/* ReadyForQuery */
 				conn->transaction_status = msg[0];
 				conn->state = DN_CONNECTION_STATE_IDLE;
+#ifdef DN_CONNECTION_DEBUG
+				conn->have_row_desc = false;
+#endif
 				return RESPONSE_COMPLETE;
 			case 'I':			/* EmptyQuery */
 			default:
@@ -1058,7 +1088,8 @@ handle_response(DataNodeHandle * conn, RemoteQueryState *combiner)
  * Send BEGIN command to the Data nodes and receive responses
  */
 static int
-data_node_begin(int conn_count, DataNodeHandle ** connections, CommandDest dest, GlobalTransactionId gxid)
+data_node_begin(int conn_count, DataNodeHandle ** connections,
+				GlobalTransactionId gxid)
 {
 	int			i;
 	struct timeval *timeout = NULL;
@@ -1078,7 +1109,8 @@ data_node_begin(int conn_count, DataNodeHandle ** connections, CommandDest dest,
 	combiner->dest = None_Receiver;
 
 	/* Receive responses */
-	data_node_receive_responses(conn_count, connections, timeout, combiner);
+	if (data_node_receive_responses(conn_count, connections, timeout, combiner))
+		return EOF;
 
 	/* Verify status */
 	return ValidateAndCloseCombiner(combiner) ? 0 : EOF;
@@ -1109,12 +1141,12 @@ DataNodeBegin(void)
 
 
 /*
- * Commit current transaction, use two-phase commit if necessary
+ * Commit current transaction on data nodes where it has been started
  */
-int
-DataNodeCommit(CommandDest dest)
+void
+DataNodeCommit(void)
 {
-	int			res;
+	int			res = 0;
 	int			tran_count;
 	DataNodeHandle *connections[NumDataNodes];
 
@@ -1128,7 +1160,7 @@ DataNodeCommit(CommandDest dest)
 	if (tran_count == 0)
 		goto finish;
 
-	res = data_node_commit(tran_count, connections, dest);
+	res = data_node_commit(tran_count, connections);
 
 finish:
 	/* In autocommit mode statistics is collected in DataNodeExec */
@@ -1138,15 +1170,19 @@ finish:
 		release_handles();
 	autocommit = true;
 	clear_write_node_list();
-	return res;
+	if (res != 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Could not commit connection on data nodes")));
 }
 
 
 /*
- * Send COMMIT or PREPARE/COMMIT PREPARED down to the Data nodes and handle responses
+ * Commit transaction on specified data node connections, use two-phase commit
+ * if more then on one node data have been modified during the transactioon.
  */
 static int
-data_node_commit(int conn_count, DataNodeHandle ** connections, CommandDest dest)
+data_node_commit(int conn_count, DataNodeHandle ** connections)
 {
 	int			i;
 	struct timeval *timeout = NULL;
@@ -1191,13 +1227,12 @@ data_node_commit(int conn_count, DataNodeHandle ** connections, CommandDest dest
 		combiner = CreateResponseCombiner(conn_count, COMBINE_TYPE_NONE);
 		combiner->dest = None_Receiver;
 		/* Receive responses */
-		data_node_receive_responses(conn_count, connections, timeout, combiner);
+		if (data_node_receive_responses(conn_count, connections, timeout, combiner))
+			result = EOF;
 
 		/* Reset combiner */
 		if (!ValidateAndResetCombiner(combiner))
-		{
 			result = EOF;
-		}
 	}
 
 	if (!do2PC)
@@ -1238,7 +1273,8 @@ data_node_commit(int conn_count, DataNodeHandle ** connections, CommandDest dest
 		combiner->dest = None_Receiver;
 	}
 	/* Receive responses */
-	data_node_receive_responses(conn_count, connections, timeout, combiner);
+	if (data_node_receive_responses(conn_count, connections, timeout, combiner))
+		result = EOF;
 	result = ValidateAndCloseCombiner(combiner) ? result : EOF;
 
 finish:
@@ -1253,7 +1289,7 @@ finish:
  * Rollback current transaction
  */
 int
-DataNodeRollback(CommandDest dest)
+DataNodeRollback(void)
 {
 	int			res = 0;
 	int			tran_count;
@@ -1269,7 +1305,7 @@ DataNodeRollback(CommandDest dest)
 	if (tran_count == 0)
 		goto finish;
 
-	res = data_node_rollback(tran_count, connections, dest);
+	res = data_node_rollback(tran_count, connections);
 
 finish:
 	/* In autocommit mode statistics is collected in DataNodeExec */
@@ -1287,24 +1323,23 @@ finish:
  * Send ROLLBACK command down to the Data nodes and handle responses
  */
 static int
-data_node_rollback(int conn_count, DataNodeHandle ** connections, CommandDest dest)
+data_node_rollback(int conn_count, DataNodeHandle ** connections)
 {
 	int			i;
 	struct timeval *timeout = NULL;
-	int			result = 0;
 	RemoteQueryState *combiner;
 
 	/* Send ROLLBACK - */
 	for (i = 0; i < conn_count; i++)
 	{
-		if (data_node_send_query(connections[i], "ROLLBACK"))
-			result = EOF;
+		data_node_send_query(connections[i], "ROLLBACK");
 	}
 
 	combiner = CreateResponseCombiner(conn_count, COMBINE_TYPE_NONE);
 	combiner->dest = None_Receiver;
 	/* Receive responses */
-	data_node_receive_responses(conn_count, connections, timeout, combiner);
+	if (data_node_receive_responses(conn_count, connections, timeout, combiner))
+		return EOF;
 
 	/* Verify status */
 	return ValidateAndCloseCombiner(combiner) ? 0 : EOF;
@@ -1404,7 +1439,7 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_
 	if (new_count > 0 && need_tran)
 	{
 		/* Start transaction on connections where it is not started */
-		if (data_node_begin(new_count, newConnections, DestNone, gxid))
+		if (data_node_begin(new_count, newConnections, gxid))
 		{
 			pfree(connections);
 			pfree(copy_connections);
@@ -1448,8 +1483,8 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_
 	combiner->dest = None_Receiver;
 
 	/* Receive responses */
-	data_node_receive_responses(conn_count, connections, timeout, combiner);
-	if (!ValidateAndCloseCombiner(combiner))
+	if (data_node_receive_responses(conn_count, connections, timeout, combiner)
+			|| !ValidateAndCloseCombiner(combiner))
 	{
 		if (autocommit)
 		{
@@ -1665,6 +1700,12 @@ DataNodeCopyOut(Exec_Nodes *exec_nodes, DataNodeHandle** copy_connections, FILE*
 						ereport(ERROR,
 								(errcode(ERRCODE_CONNECTION_FAILURE),
 								 errmsg("unexpected EOF on datanode connection")));
+					else
+						/*
+						 * Set proper connection status - handle_response
+						 * has changed it to DN_CONNECTION_STATE_QUERY
+						 */
+						handle->state = DN_CONNECTION_STATE_COPY_OUT;
 				}
 				/* There is no more data that can be read from connection */
 			}
@@ -1746,7 +1787,7 @@ DataNodeCopyFinish(DataNodeHandle** copy_connections, int primary_data_node,
 
 		combiner = CreateResponseCombiner(conn_count + 1, combine_type);
 		combiner->dest = None_Receiver;
-		data_node_receive_responses(1, &primary_handle, timeout, combiner);
+		error = data_node_receive_responses(1, &primary_handle, timeout, combiner) || error;
 	}
 
 	for (i = 0; i < conn_count; i++)
@@ -1786,30 +1827,14 @@ DataNodeCopyFinish(DataNodeHandle** copy_connections, int primary_data_node,
 		combiner = CreateResponseCombiner(conn_count, combine_type);
 		combiner->dest = None_Receiver;
 	}
-	data_node_receive_responses(conn_count, connections, timeout, combiner);
+	error = (data_node_receive_responses(conn_count, connections, timeout, combiner) != 0) || error;
 
 	processed = combiner->row_count;
 
 	if (!ValidateAndCloseCombiner(combiner) || error)
-	{
-		if (autocommit)
-		{
-			if (need_tran)
-				DataNodeRollback(DestNone);
-			else
-				if (!PersistentConnections) release_handles();
-		}
-
-		return 0;
-	}
-
-	if (autocommit)
-	{
-		if (need_tran)
-			DataNodeCommit(DestNone);
-		else
-			if (!PersistentConnections) release_handles();
-	}
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Error while running COPY")));
 
 	return processed;
 }
@@ -1882,9 +1907,17 @@ copy_slot(RemoteQueryState *node, TupleTableSlot *src, TupleTableSlot *dst)
 	else
 	{
 		int i;
+
+		/*
+		 * Data node may be sending junk columns which are always at the end,
+		 * but it must not be shorter then result slot.
+		 */
+		Assert(dst->tts_tupleDescriptor->natts <= src->tts_tupleDescriptor->natts);
 		ExecClearTuple(dst);
 		slot_getallattrs(src);
-		/* PGXCTODO revisit: probably incorrect */
+		/*
+		 * PGXCTODO revisit: if it is correct to copy Datums using assignment?
+		 */
 		for (i = 0; i < dst->tts_tupleDescriptor->natts; i++)
 		{
 			dst->tts_values[i] = src->tts_values[i];
@@ -1911,6 +1944,8 @@ ExecRemoteQuery(RemoteQueryState *node)
 	EState		   *estate = node->ss.ps.state;
 	TupleTableSlot *resultslot = node->ss.ps.ps_ResultTupleSlot;
 	TupleTableSlot *scanslot = node->ss.ss_ScanTupleSlot;
+	bool have_tuple = false;
+
 
 	if (!node->query_Done)
 	{
@@ -1974,7 +2009,7 @@ ExecRemoteQuery(RemoteQueryState *node)
 		else
 			need_tran = !autocommit || total_conn_count > 1;
 
-		elog(DEBUG1, "autocommit = %s, has primary = %s, regular_conn_count = %d, need_tran = %s", autocommit ? "true" : "false", primarynode ? "true" : "false", regular_conn_count, need_tran ? "true" : "false");
+		elog(DEBUG1, "autocommit = %s, has primary = %s, regular_conn_count = %d, statement_need_tran = %s", autocommit ? "true" : "false", primarynode ? "true" : "false", regular_conn_count, need_tran ? "true" : "false");
 
 		stat_statement();
 		if (autocommit)
@@ -2052,7 +2087,7 @@ ExecRemoteQuery(RemoteQueryState *node)
 					new_connections[new_count++] = connections[i];
 
 			if (new_count)
-				data_node_begin(new_count, new_connections, DestNone, gxid);
+				data_node_begin(new_count, new_connections, gxid);
 		}
 
 		/* See if we have a primary nodes, execute on it first before the others */
@@ -2088,36 +2123,22 @@ ExecRemoteQuery(RemoteQueryState *node)
 
 			while (node->command_complete_count < 1)
 			{
-				PG_TRY();
-				{
-					data_node_receive(1, primaryconnection, NULL);
-					while (handle_response(primaryconnection[0], node) == RESPONSE_EOF)
-						data_node_receive(1, primaryconnection, NULL);
-					if (node->errorMessage)
-					{
-						char *code = node->errorCode;
+				if (data_node_receive(1, primaryconnection, NULL))
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+							 errmsg("Failed to read response from data nodes")));
+				while (handle_response(primaryconnection[0], node) == RESPONSE_EOF)
+					if (data_node_receive(1, primaryconnection, NULL))
 						ereport(ERROR,
-								(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
-								 errmsg("%s", node->errorMessage)));
-					}
-				}
-				/* If we got an error response return immediately */
-				PG_CATCH();
+								(errcode(ERRCODE_INTERNAL_ERROR),
+								 errmsg("Failed to read response from data nodes")));
+				if (node->errorMessage)
 				{
-					/* We are going to exit, so release combiner */
-					if (autocommit)
-					{
-						if (need_tran)
-							DataNodeRollback(DestNone);
-						else if (!PersistentConnections)
-							release_handles();
-					}
-
-					pfree(primaryconnection);
-					pfree(connections);
-					PG_RE_THROW();
+					char *code = node->errorCode;
+					ereport(ERROR,
+							(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
+							 errmsg("%s", node->errorMessage)));
 				}
-				PG_END_TRY();
 			}
 			pfree(primaryconnection);
 		}
@@ -2148,8 +2169,6 @@ ExecRemoteQuery(RemoteQueryState *node)
 			}
 		}
 
-		PG_TRY();
-		{
 			/*
 			 * Stop if all commands are completed or we got a data row and
 			 * initialized state node for subsequent invocations
@@ -2158,7 +2177,10 @@ ExecRemoteQuery(RemoteQueryState *node)
 			{
 				int i = 0;
 
-				data_node_receive(regular_conn_count, connections, NULL);
+				if (data_node_receive(regular_conn_count, connections, NULL))
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+							 errmsg("Failed to read response from data nodes")));
 				/*
 				 * Handle input from the data nodes.
 				 * If we got a RESPONSE_DATAROW we can break handling to wrap
@@ -2234,185 +2256,148 @@ ExecRemoteQuery(RemoteQueryState *node)
 					}
 				}
 			}
-		}
-		/* If we got an error response return immediately */
-		PG_CATCH();
-		{
-			/* We are going to exit, so release combiner */
-			if (autocommit)
-			{
-				if (need_tran)
-					DataNodeRollback(DestNone);
-				else if (!PersistentConnections)
-					release_handles();
-			}
-			PG_RE_THROW();
-		}
-		PG_END_TRY();
+
 		node->query_Done = true;
-		node->need_tran = need_tran;
 	}
 
-	PG_TRY();
+	if (node->tuplesortstate)
 	{
-		bool have_tuple = false;
-
-		if (node->tuplesortstate)
+		while (tuplesort_gettupleslot((Tuplesortstate *) node->tuplesortstate,
+									  true, scanslot))
 		{
-			while (tuplesort_gettupleslot((Tuplesortstate *) node->tuplesortstate,
-										  true, scanslot))
+			have_tuple = true;
+			/*
+			 * If DISTINCT is specified and current tuple matches to
+			 * previous skip it and get next one.
+			 * Othervise return current tuple
+			 */
+			if (step->distinct)
 			{
-				have_tuple = true;
 				/*
-				 * If DISTINCT is specified and current tuple matches to
-				 * previous skip it and get next one.
-				 * Othervise return current tuple
+				 * Always receive very first tuple and
+				 * skip to next if scan slot match to previous (result slot)
 				 */
-				if (step->distinct)
+				if (!TupIsNull(resultslot) &&
+						execTuplesMatch(scanslot,
+										resultslot,
+										step->distinct->numCols,
+										step->distinct->uniqColIdx,
+										node->eqfunctions,
+										node->tmp_ctx))
 				{
-					/*
-					 * Always receive very first tuple and
-					 * skip to next if scan slot match to previous (result slot)
-					 */
-					if (!TupIsNull(resultslot) &&
-							execTuplesMatch(scanslot,
-											resultslot,
-											step->distinct->numCols,
-											step->distinct->uniqColIdx,
-											node->eqfunctions,
-											node->tmp_ctx))
-					{
-						have_tuple = false;
-						continue;
-					}
+					have_tuple = false;
+					continue;
 				}
-				copy_slot(node, scanslot, resultslot);
-				(*node->dest->receiveSlot) (resultslot, node->dest);
-				break;
 			}
-			if (!have_tuple)
-				ExecClearTuple(resultslot);
+			copy_slot(node, scanslot, resultslot);
+			(*node->dest->receiveSlot) (resultslot, node->dest);
+			break;
 		}
-		else
+		if (!have_tuple)
+			ExecClearTuple(resultslot);
+	}
+	else
+	{
+		while (node->conn_count > 0 && !have_tuple)
 		{
-			while (node->conn_count > 0 && !have_tuple)
-			{
-				int i;
-
-				/*
-				 * If combiner already has tuple go ahead and return it
-				 * otherwise tuple will be cleared
-				 */
-				if (FetchTuple(node, scanslot) && !TupIsNull(scanslot))
-				{
-					if (node->simple_aggregates)
-					{
-						/*
-						 * Advance aggregate functions and allow to read up next
-						 * data row message and get tuple in the same slot on
-						 * next iteration
-						 */
-						exec_simple_aggregates(node, scanslot);
-					}
-					else
-					{
-						/*
-						 * Receive current slot and read up next data row
-						 * message before exiting the loop. Next time when this
-						 * function is invoked we will have either data row
-						 * message ready or EOF
-						 */
-						copy_slot(node, scanslot, resultslot);
-						(*node->dest->receiveSlot) (resultslot, node->dest);
-						have_tuple = true;
-					}
-				}
-
-				/*
-				 * Handle input to get next row or ensure command is completed,
-				 * starting from connection next after current. If connection
-				 * does not
-				 */
-				if ((i = node->current_conn + 1) == node->conn_count)
-					i = 0;
-
-				for (;;)
-				{
-					int res = handle_response(node->connections[i], node);
-					if (res == RESPONSE_EOF)
-					{
-						/* go to next connection */
-						if (++i == node->conn_count)
-							i = 0;
-						/* if we cycled over all connections we need to receive more */
-						if (i == node->current_conn)
-							data_node_receive(node->conn_count, node->connections, NULL);
-					}
-					else if (res == RESPONSE_COMPLETE)
-					{
-						if (--node->conn_count == 0)
-							break;
-						if (i == node->conn_count)
-							i = 0;
-						else
-							node->connections[i] = node->connections[node->conn_count];
-						if (node->current_conn == node->conn_count)
-							node->current_conn = i;
-					}
-					else if (res == RESPONSE_DATAROW)
-					{
-						node->current_conn = i;
-						break;
-					}
-				}
-			}
+			int i;
 
 			/*
-			 * We may need to finalize aggregates
+			 * If combiner already has tuple go ahead and return it
+			 * otherwise tuple will be cleared
 			 */
-			if (!have_tuple && node->simple_aggregates)
+			if (FetchTuple(node, scanslot) && !TupIsNull(scanslot))
 			{
-				finish_simple_aggregates(node, resultslot);
-				if (!TupIsNull(resultslot))
+				if (node->simple_aggregates)
 				{
+					/*
+					 * Advance aggregate functions and allow to read up next
+					 * data row message and get tuple in the same slot on
+					 * next iteration
+					 */
+					exec_simple_aggregates(node, scanslot);
+				}
+				else
+				{
+					/*
+					 * Receive current slot and read up next data row
+					 * message before exiting the loop. Next time when this
+					 * function is invoked we will have either data row
+					 * message ready or EOF
+					 */
+					copy_slot(node, scanslot, resultslot);
 					(*node->dest->receiveSlot) (resultslot, node->dest);
 					have_tuple = true;
 				}
 			}
 
-			if (!have_tuple) /* report end of scan */
-				ExecClearTuple(resultslot);
+			/*
+			 * Handle input to get next row or ensure command is completed,
+			 * starting from connection next after current. If connection
+			 * does not
+			 */
+			if ((i = node->current_conn + 1) == node->conn_count)
+				i = 0;
 
-		}
-
-		if (node->errorMessage)
-		{
-			char *code = node->errorCode;
-			ereport(ERROR,
-					(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
-					 errmsg("%s", node->errorMessage)));
+			for (;;)
+			{
+				int res = handle_response(node->connections[i], node);
+				if (res == RESPONSE_EOF)
+				{
+					/* go to next connection */
+					if (++i == node->conn_count)
+						i = 0;
+					/* if we cycled over all connections we need to receive more */
+					if (i == node->current_conn)
+						if (data_node_receive(node->conn_count, node->connections, NULL))
+							ereport(ERROR,
+									(errcode(ERRCODE_INTERNAL_ERROR),
+									 errmsg("Failed to read response from data nodes")));
+				}
+				else if (res == RESPONSE_COMPLETE)
+				{
+					if (--node->conn_count == 0)
+						break;
+					if (i == node->conn_count)
+						i = 0;
+					else
+						node->connections[i] = node->connections[node->conn_count];
+					if (node->current_conn == node->conn_count)
+						node->current_conn = i;
+				}
+				else if (res == RESPONSE_DATAROW)
+				{
+					node->current_conn = i;
+					break;
+				}
+			}
 		}
 
 		/*
-		 * If command is completed we should commit work.
+		 * We may need to finalize aggregates
 		 */
-		if (node->conn_count == 0 && autocommit && node->need_tran)
-			DataNodeCommit(DestNone);
-	}
-	/* If we got an error response return immediately */
-	PG_CATCH();
-	{
-		/* We are going to exit, so release combiner */
-		if (autocommit)
+		if (!have_tuple && node->simple_aggregates)
 		{
-			if (node->need_tran)
-				DataNodeRollback(DestNone);
-			else if (!PersistentConnections)
-				release_handles();
+			finish_simple_aggregates(node, resultslot);
+			if (!TupIsNull(resultslot))
+			{
+				(*node->dest->receiveSlot) (resultslot, node->dest);
+				have_tuple = true;
+			}
 		}
-		PG_RE_THROW();
+
+		if (!have_tuple) /* report end of scan */
+			ExecClearTuple(resultslot);
+
 	}
-	PG_END_TRY();
+
+	if (node->errorMessage)
+	{
+		char *code = node->errorCode;
+		ereport(ERROR,
+				(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
+				 errmsg("%s", node->errorMessage)));
+	}
 
 	return resultslot;
 }
@@ -2436,7 +2421,7 @@ DataNodeCleanAndRelease(int code, Datum arg)
 	/* Rollback on Data Nodes */
 	if (IsTransactionState())
 	{
-		DataNodeRollback(DestNone);
+		DataNodeRollback();
 
 		/* Rollback on GTM if transaction id opened. */
 		RollbackTranGTM((GlobalTransactionId) GetCurrentTransactionIdIfAny());

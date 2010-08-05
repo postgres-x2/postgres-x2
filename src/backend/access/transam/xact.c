@@ -135,7 +135,7 @@ typedef struct TransactionStateData
 {
 	TransactionId transactionId;	/* my XID, or Invalid if none */
 #ifdef PGXC  /* PGXC_COORD */
-	GlobalTransactionId globalTransactionId; /* my GXID, or Invalid if none */ 
+	GlobalTransactionId globalTransactionId; /* my GXID, or Invalid if none */
 #endif
 	SubTransactionId subTransactionId;	/* my subxact ID */
 	char	   *name;			/* savepoint name, if any */
@@ -314,7 +314,7 @@ GetCurrentGlobalTransactionId(void)
  * GetGlobalTransactionId
  *
  * This will return the GXID of the specified transaction,
- * getting one from the GTM if it's not yet set. 
+ * getting one from the GTM if it's not yet set.
  */
 static GlobalTransactionId
 GetGlobalTransactionId(TransactionState s)
@@ -469,7 +469,7 @@ AssignTransactionId(TransactionState s)
 	if (IS_PGXC_COORDINATOR)
 	{
 		s->transactionId = (TransactionId) GetGlobalTransactionId(s);
-		elog(DEBUG1, "New transaction id assigned = %d, isSubXact = %s", 
+		elog(DEBUG1, "New transaction id assigned = %d, isSubXact = %s",
 			s->transactionId, isSubXact ? "true" : "false");
 	}
 	else
@@ -1679,6 +1679,14 @@ CommitTransaction(void)
 	 */
 	AtEOXact_UpdateFlatFiles(true);
 
+#ifdef PGXC
+	/*
+	 * There can be error on the data nodes. So go to data nodes before
+	 * changing transaction state and local clean up
+	 */
+	DataNodeCommit();
+#endif
+
 	/* Prevent cancel/die interrupt while cleaning up */
 	HOLD_INTERRUPTS();
 
@@ -1694,13 +1702,13 @@ CommitTransaction(void)
 	latestXid = RecordTransactionCommit();
 
 	TRACE_POSTGRESQL_TRANSACTION_COMMIT(MyProc->lxid);
+
 #ifdef PGXC
+	/*
+	 * Now we can let GTM know about transaction commit
+	 */
 	if (IS_PGXC_COORDINATOR)
 	{
-		/* Make sure this committed on the DataNodes, 
-	         * if so it will just return 
-		 */
-		DataNodeCommit(DestNone);
 		CommitTranGTM(s->globalTransactionId);
 		latestXid = s->globalTransactionId;
 	}
@@ -1712,7 +1720,7 @@ CommitTransaction(void)
 			CommitTranGTM((GlobalTransactionId) latestXid);
 	}
 #endif
-	
+
 	/*
 	 * Let others know about no transaction in progress by me. Note that this
 	 * must be done _before_ releasing locks we hold and _after_
@@ -1808,7 +1816,7 @@ CommitTransaction(void)
 	s->nChildXids = 0;
 	s->maxChildXids = 0;
 
-#ifdef PGXC  
+#ifdef PGXC
 	if (IS_PGXC_COORDINATOR)
 		s->globalTransactionId = InvalidGlobalTransactionId;
 	else if (IS_PGXC_DATANODE)
@@ -2142,10 +2150,10 @@ AbortTransaction(void)
 #ifdef PGXC
 	if (IS_PGXC_COORDINATOR)
 	{
-		/* Make sure this is rolled back on the DataNodes, 
-	         * if so it will just return 
+		/* Make sure this is rolled back on the DataNodes,
+	         * if so it will just return
 		 */
-		DataNodeRollback(DestNone);
+		DataNodeRollback();
 		RollbackTranGTM(s->globalTransactionId);
 		latestXid = s->globalTransactionId;
 	}

@@ -22,7 +22,9 @@
 #include <errno.h>
 #include <stddef.h>
 #include "c.h"
+#include "postgres.h"
 #include "pgxc/poolcomm.h"
+#include "storage/ipc.h"
 #include "utils/elog.h"
 #include "miscadmin.h"
 
@@ -408,9 +410,16 @@ pool_flush(PoolPort *port)
 			if (errno != last_reported_send_errno)
 			{
 				last_reported_send_errno = errno;
-				ereport(ERROR,
-						(errcode_for_socket_access(),
-						 errmsg("could not send data to client: %m")));
+
+				/* 
+				 * Handle a seg fault that may later occur in proc array 
+				 * when this fails when we are already shutting down
+				 * If shutting down already, do not call.
+				 */
+				if (!proc_exit_inprogress)
+					ereport(ERROR,
+							(errcode_for_socket_access(),
+							 errmsg("could not send data to client: %m")));
 			}
 
 			/*

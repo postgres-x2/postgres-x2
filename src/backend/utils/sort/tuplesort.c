@@ -2875,12 +2875,16 @@ reversedirection_heap(Tuplesortstate *state)
 static unsigned int
 getlen_datanode(Tuplesortstate *state, int tapenum, bool eofOK)
 {
+	DataNodeHandle *conn = state->combiner->connections[tapenum];
 	for (;;)
 	{
-		switch (handle_response(state->combiner->connections[tapenum], state->combiner))
+		switch (handle_response(conn, state->combiner))
 		{
 			case RESPONSE_EOF:
-				data_node_receive(1, state->combiner->connections + tapenum, NULL);
+				if (data_node_receive(1, &conn, NULL))
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+							 errmsg(conn->error)));
 				break;
 			case RESPONSE_COMPLETE:
 				if (eofOK)

@@ -62,7 +62,6 @@ typedef struct RemoteQueryState
 	char		errorCode[5];			/* error code to send back to client */
 	char	   *errorMessage;			/* error message to send back to client */
 	bool		query_Done;				/* query has been sent down to data nodes */
-	bool		need_tran;				/* auto commit on nodes after completion */
 	char	   *completionTag;          /* completion tag to present to caller */
 	char	   *msg;					/* last data row message */
 	int 		msglen;					/* length of the data row message */
@@ -81,8 +80,8 @@ typedef struct RemoteQueryState
 
 /* Multinode Executor */
 extern void DataNodeBegin(void);
-extern int	DataNodeCommit(CommandDest dest);
-extern int	DataNodeRollback(CommandDest dest);
+extern void	DataNodeCommit(void);
+extern int	DataNodeRollback(void);
 
 extern DataNodeHandle** DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_from);
 extern int DataNodeCopyIn(char *data_row, int len, Exec_Nodes *exec_nodes, DataNodeHandle** copy_connections);

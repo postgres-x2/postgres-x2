@@ -93,7 +93,7 @@ static DatabasePool *find_database_pool(const char *database);
 static DatabasePool *remove_database_pool(const char *database);
 static int *agent_acquire_connections(PoolAgent *agent, List *nodelist);
 static DataNodePoolSlot *acquire_connection(DatabasePool *dbPool, int node);
-static void agent_release_connections(PoolAgent *agent, bool clean);
+static void agent_release_connections(PoolAgent *agent, List *discard);
 static void release_connection(DatabasePool *dbPool, DataNodePoolSlot *slot, int index, bool clean);
 static void destroy_slot(DataNodePoolSlot *slot);
 static void grow_pool(DatabasePool *dbPool, int index);
@@ -587,7 +587,7 @@ agent_init(PoolAgent *agent, const char *database, List *nodes)
 
 	/* disconnect if we still connected */
 	if (agent->pool)
-		agent_release_connections(agent, false);
+		agent_release_connections(agent, NULL);
 
 	/* find database */
 	agent->pool = find_database_pool(database);
@@ -612,7 +612,7 @@ agent_destroy(PoolAgent *agent)
 
 	/* Discard connections if any remaining */
 	if (agent->pool)
-		agent_release_connections(agent, false);
+		agent_release_connections(agent, NULL);
 
 	/* find agent in the list */
 	for (i = 0; i < agentCount; i++)
@@ -700,11 +700,6 @@ static void
 agent_handle_input(PoolAgent * agent, StringInfo s)
 {
 	int			qtype;
-	const char *database;
-	int			nodecount;
-	List	   *nodelist = NIL;
-	int		   *fds;
-	int			i;
 
 	qtype = pool_getbyte(&agent->port);
 	/*
@@ -712,6 +707,12 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 	 */
 	for (;;)
 	{
+		const char *database;
+		int			nodecount;
+		List	   *nodelist = NIL;
+		int		   *fds;
+		int			i;
+
 		switch (qtype)
 		{
 			case 'c':			/* CONNECT */
@@ -729,9 +730,7 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 				pool_getmessage(&agent->port, s, 4 * NumDataNodes + 8);
 				nodecount = pq_getmsgint(s, 4);
 				for (i = 0; i < nodecount; i++)
-				{
 					nodelist = lappend_int(nodelist, pq_getmsgint(s, 4));
-				}
 				pq_getmsgend(s);
 				/*
 				 * In case of error agent_acquire_connections will log
@@ -744,9 +743,13 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 					pfree(fds);
 				break;
 			case 'r':			/* RELEASE CONNECTIONS */
-				pool_getmessage(&agent->port, s, 4);
+				pool_getmessage(&agent->port, s, 4 * NumDataNodes + 8);
+				nodecount = pq_getmsgint(s, 4);
+				for (i = 0; i < nodecount; i++)
+					nodelist = lappend_int(nodelist, pq_getmsgint(s, 4));
 				pq_getmsgend(s);
-				agent_release_connections(agent, true);
+				agent_release_connections(agent, nodelist);
+				list_free(nodelist);
 				break;
 			default:			/* EOF or protocol violation */
 				agent_destroy(agent);
@@ -831,11 +834,24 @@ agent_acquire_connections(PoolAgent *agent, List *nodelist)
  * Retun connections back to the pool
  */
 void
-PoolManagerReleaseConnections(void)
+PoolManagerReleaseConnections(int ndisc, int* discard)
 {
+	uint32		n32;
+	uint32 		buf[1 + ndisc];
+	int 		i;
+
 	Assert(Handle);
 
-	pool_putmessage(&Handle->port, 'r', NULL, 0);
+	n32 = htonl((uint32) ndisc);
+	buf[0] = n32;
+
+	for (i = 0; i < ndisc;)
+	{
+		n32 = htonl((uint32) discard[i++]);
+		buf[i] = n32;
+	}
+	pool_putmessage(&Handle->port, 'r', (char *) buf,
+					(1 + ndisc) * sizeof(uint32));
 	pool_flush(&Handle->port);
 }
 
@@ -844,23 +860,40 @@ PoolManagerReleaseConnections(void)
  * Release connections
  */
 static void
-agent_release_connections(PoolAgent *agent, bool clean)
+agent_release_connections(PoolAgent *agent, List *discard)
 {
 	int			i;
+	DataNodePoolSlot *slot;
+
 
 	if (!agent->connections)
 		return;
 
-	/* Enumerate connections */
+	if (discard)
+	{
+		ListCell   *lc;
+
+		foreach(lc, discard)
+		{
+			int node = lfirst_int(lc);
+			Assert(node > 0 && node <= NumDataNodes);
+			slot = agent->connections[node - 1];
+
+			/* Discard connection */
+			if (slot)
+				release_connection(agent->pool, slot, node - 1, false);
+			agent->connections[node - 1] = NULL;
+		}
+	}
+
+	/* Remaining connections are assumed to be clean */
 	for (i = 0; i < NumDataNodes; i++)
 	{
-		DataNodePoolSlot *slot;
-
 		slot = agent->connections[i];
 
 		/* Release connection */
 		if (slot)
-			release_connection(agent->pool, slot, i, clean);
+			release_connection(agent->pool, slot, i, true);
 		agent->connections[i] = NULL;
 	}
 }

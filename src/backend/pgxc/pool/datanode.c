@@ -199,6 +199,9 @@ data_node_init(DataNodeHandle *handle, int sock, int nodenum)
 	handle->sock = sock;
 	handle->transaction_status = 'I';
 	handle->state = DN_CONNECTION_STATE_IDLE;
+#ifdef DN_CONNECTION_DEBUG
+	handle->have_row_desc = false;
+#endif
 	handle->error = NULL;
 	handle->outEnd = 0;
 	handle->inStart = 0;
@@ -211,7 +214,7 @@ data_node_init(DataNodeHandle *handle, int sock, int nodenum)
  * Wait while at least one of specified connections has data available and read
  * the data into the buffer
  */
-void
+int
 data_node_receive(const int conn_count,
 				  DataNodeHandle ** connections, struct timeval * timeout)
 {
@@ -239,7 +242,7 @@ data_node_receive(const int conn_count,
 	 * Return if we do not have connections to receive input
 	 */
 	if (nfds == 0)
-		return;
+		return 0;
 
 retry:
 	res_select = select(nfds + 1, &readfds, NULL, NULL, timeout);
@@ -249,27 +252,19 @@ retry:
 		if (errno == EINTR || errno == EAGAIN)
 			goto retry;
 
-		/*
-		 * PGXCTODO - we may want to close the connections and notify the
-		 * pooler that these are invalid.
-		 */
 		if (errno == EBADF)
 		{
-			ereport(ERROR,
-					(errcode(ERRCODE_CONNECTION_FAILURE),
-					 errmsg("select() bad file descriptor set")));
+			elog(WARNING, "select() bad file descriptor set");
 		}
-		ereport(ERROR,
-				(errcode(ERRCODE_CONNECTION_FAILURE),
-				errmsg("select() error: %d", errno)));
+		elog(WARNING, "select() error: %d", errno);
+		return errno;
 	}
 
 	if (res_select == 0)
 	{
 		/* Handle timeout */
-		ereport(ERROR,
-				(errcode(ERRCODE_CONNECTION_FAILURE),
-				 errmsg("timeout while waiting for response")));
+		elog(WARNING, "timeout while waiting for response");
+		return EOF;
 	}
 
 	/* read data */
@@ -283,10 +278,9 @@ retry:
 
 			if (read_status == EOF || read_status < 0)
 			{
-				/* PGXCTODO - we should notify the pooler to destroy the connections */
-				ereport(ERROR,
-						(errcode(ERRCODE_CONNECTION_FAILURE),
-						 errmsg("unexpected EOF on datanode connection")));
+				add_error_message(conn, "unexpected EOF on datanode connection");
+				elog(WARNING, "unexpected EOF on datanode connection");
+				return EOF;
 			}
 			else
 			{
@@ -294,6 +288,7 @@ retry:
 			}
 		}
 	}
+	return 0;
 }
 
 
@@ -522,7 +517,7 @@ get_message(DataNodeHandle *conn, int *len, char **msg)
 		 * ensure_in_buffer_capacity() will immediately return
 		 */
 		ensure_in_buffer_capacity(5 + (size_t) *len, conn);
-		conn->state == DN_CONNECTION_STATE_QUERY;
+		conn->state = DN_CONNECTION_STATE_QUERY;
 		conn->inCursor = conn->inStart;
 		return '\0';
 	}
@@ -539,19 +534,27 @@ void
 release_handles(void)
 {
 	int			i;
+	int 		discard[NumDataNodes];
+	int			ndisc = 0;
 
 	if (node_count == 0)
 		return;
 
-	PoolManagerReleaseConnections();
 	for (i = 0; i < NumDataNodes; i++)
 	{
 		DataNodeHandle *handle = &handles[i];
 
 		if (handle->sock != NO_SOCKET)
+		{
+			if (handle->state != DN_CONNECTION_STATE_IDLE)
+			{
+				elog(WARNING, "Connection to data node %d has unexpected state %d and will be dropped", handle->nodenum, handle->state);
+				discard[ndisc++] = handle->nodenum;
+			}
 			data_node_free(handle);
+		}
 	}
-
+	PoolManagerReleaseConnections(ndisc, discard);
 	node_count = 0;
 }
 
@@ -897,7 +900,7 @@ void
 add_error_message(DataNodeHandle *handle, const char *message)
 {
 	handle->transaction_status = 'E';
-	handle->state = DN_CONNECTION_STATE_IDLE;
+	handle->state = DN_CONNECTION_STATE_ERROR_NOT_READY;
 	if (handle->error)
 	{
 		/* PGXCTODO append */

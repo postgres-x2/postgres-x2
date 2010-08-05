@@ -50,6 +50,9 @@ struct data_node_handle
 	/* Connection state */
 	char		transaction_status;
 	DNConnectionState state;
+#ifdef DN_CONNECTION_DEBUG
+	bool		have_row_desc;
+#endif
 	char	   *error;
 	/* Output buffer */
 	char	   *outBuffer;
@@ -86,7 +89,7 @@ extern int	data_node_send_query(DataNodeHandle * handle, const char *query);
 extern int	data_node_send_gxid(DataNodeHandle * handle, GlobalTransactionId gxid);
 extern int	data_node_send_snapshot(DataNodeHandle * handle, Snapshot snapshot);
 
-extern void data_node_receive(const int conn_count,
+extern int data_node_receive(const int conn_count,
 				  DataNodeHandle ** connections, struct timeval * timeout);
 extern int	data_node_read_data(DataNodeHandle * conn);
 extern int	send_some(DataNodeHandle * handle, int len);

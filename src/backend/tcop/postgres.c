@@ -4393,11 +4393,11 @@ pgxc_transaction_stmt (Node *parsetree)
 				break;
 
 				case TRANS_STMT_COMMIT:
-					DataNodeCommit(DestNone);
+					DataNodeCommit();
 					break;
 
 				case TRANS_STMT_ROLLBACK:
-					DataNodeRollback(DestNone);
+					DataNodeRollback();
 					break;
 
 				default:
