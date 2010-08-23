@@ -21,8 +21,14 @@
 typedef union GTM_ResultData
 {
 	GTM_TransactionHandle	grd_txnhandle;	/* TXN_BEGIN */
-	GlobalTransactionId		grd_gxid;		/* TXN_BEGIN_GETGXID
-											 * TXN_PREPARE
+
+	struct
+	{
+		GlobalTransactionId		gxid;
+		GTM_Timestamp			timestamp;
+	} grd_gxid_tp;							/* TXN_BEGIN_GETGXID */
+
+	GlobalTransactionId		grd_gxid;		/* TXN_PREPARE
 											 * TXN_COMMIT
 											 * TXN_ROLLBACK
 											 */
@@ -47,6 +53,7 @@ typedef union GTM_ResultData
 	{
 		int						txn_count; /* TXN_BEGIN_GETGXID_MULTI */
 		GlobalTransactionId		start_gxid;
+		GTM_Timestamp			timestamp;
 	} grd_txn_get_multi;
 
 	struct
@@ -101,7 +108,7 @@ void disconnect_gtm(GTM_Conn *conn);
 /*
  * Transaction Management API
  */
-GlobalTransactionId begin_transaction(GTM_Conn *conn, GTM_IsolationLevel isolevel);
+GlobalTransactionId begin_transaction(GTM_Conn *conn, GTM_IsolationLevel isolevel, GTM_Timestamp *timestamp);
 GlobalTransactionId begin_transaction_autovacuum(GTM_Conn *conn, GTM_IsolationLevel isolevel);
 int commit_transaction(GTM_Conn *conn, GlobalTransactionId gxid);
 int abort_transaction(GTM_Conn *conn, GlobalTransactionId gxid);

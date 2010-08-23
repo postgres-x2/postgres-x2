@@ -20,7 +20,7 @@ extern int GtmCoordinatorId;
 extern bool IsGTMConnected(void);
 extern void InitGTM(void);
 extern void CloseGTM(void);
-extern GlobalTransactionId BeginTranGTM(void);
+extern GlobalTransactionId BeginTranGTM(GTM_Timestamp *timestamp);
 extern GlobalTransactionId BeginTranAutovacuumGTM(void);
 extern int CommitTranGTM(GlobalTransactionId gxid);
 extern int RollbackTranGTM(GlobalTransactionId gxid);

@@ -1074,11 +1074,15 @@ data_node_begin(int conn_count, DataNodeHandle ** connections,
 	int			i;
 	struct timeval *timeout = NULL;
 	RemoteQueryState *combiner;
+	TimestampTz timestamp = GetCurrentGTMStartTimestamp();
 
 	/* Send BEGIN */
 	for (i = 0; i < conn_count; i++)
 	{
 		if (GlobalTransactionIdIsValid(gxid) && data_node_send_gxid(connections[i], gxid))
+			return EOF;
+
+		if (GlobalTimestampIsValid(timestamp) && data_node_send_timestamp(connections[i], timestamp))
 			return EOF;
 
 		if (data_node_send_query(connections[i], "BEGIN"))
@@ -1222,8 +1226,13 @@ data_node_commit(int conn_count, DataNodeHandle ** connections)
 		else
 			sprintf(buffer, "COMMIT PREPARED 'T%d'", gxid);
 
-		/* We need to use a new xid, the data nodes have reset */
-		two_phase_xid = BeginTranGTM();
+		/*
+		 * We need to use a new xid, the data nodes have reset
+		 * Timestamp has already been set with BEGIN on remote Datanodes,
+		 * so don't use it here.
+		 */
+		two_phase_xid = BeginTranGTM(NULL);
+
 		for (i = 0; i < conn_count; i++)
 		{
 			if (data_node_send_gxid(connections[i], two_phase_xid))
@@ -1338,6 +1347,7 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_
 	bool need_tran;
 	GlobalTransactionId gxid;
 	RemoteQueryState *combiner;
+	TimestampTz timestamp = GetCurrentGTMStartTimestamp();
 
 	if (conn_count == 0)
 		return NULL;
@@ -1427,6 +1437,19 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_
 		/* If explicit transaction is needed gxid is already sent */
 		if (!need_tran && data_node_send_gxid(connections[i], gxid))
 		{
+			add_error_message(connections[i], "Can not send request");
+			pfree(connections);
+			pfree(copy_connections);
+			return NULL;
+		}
+		if (conn_count == 1 && data_node_send_timestamp(connections[i], timestamp))
+		{
+			/*
+			 * If a transaction involves multiple connections timestamp, is
+			 * always sent down to Datanodes with data_node_begin.
+			 * An autocommit transaction needs the global timestamp also,
+			 * so handle this case here.
+			 */
 			add_error_message(connections[i], "Can not send request");
 			pfree(connections);
 			pfree(copy_connections);
@@ -2027,7 +2050,8 @@ ExecRemoteQuery(RemoteQueryState *node)
 		bool		force_autocommit = step->force_autocommit;
 		bool		is_read_only = step->read_only;
 		GlobalTransactionId gxid = InvalidGlobalTransactionId;
-		Snapshot snapshot = GetActiveSnapshot();
+		Snapshot	snapshot = GetActiveSnapshot();
+		TimestampTz timestamp = GetCurrentGTMStartTimestamp();
 		DataNodeHandle **connections = NULL;
 		DataNodeHandle **primaryconnection = NULL;
 		int			i;
@@ -2133,6 +2157,20 @@ ExecRemoteQuery(RemoteQueryState *node)
 						(errcode(ERRCODE_INTERNAL_ERROR),
 						 errmsg("Failed to send command to data nodes")));
 			}
+			if (total_conn_count == 1 && data_node_send_timestamp(primaryconnection[0], timestamp))
+			{
+				/*
+				 * If a transaction involves multiple connections timestamp is
+				 * always sent down to Datanodes with data_node_begin.
+				 * An autocommit transaction needs the global timestamp also,
+				 * so handle this case here.
+				 */
+				pfree(connections);
+				pfree(primaryconnection);
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("Failed to send command to data nodes")));
+			}
 			if (snapshot && data_node_send_snapshot(primaryconnection[0], snapshot))
 			{
 				pfree(connections);
@@ -2180,6 +2218,20 @@ ExecRemoteQuery(RemoteQueryState *node)
 			if (!need_tran && data_node_send_gxid(connections[i], gxid))
 			{
 				pfree(connections);
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("Failed to send command to data nodes")));
+			}
+			if (total_conn_count == 1 && data_node_send_timestamp(connections[i], timestamp))
+			{
+				/*
+				 * If a transaction involves multiple connections timestamp is
+				 * always sent down to Datanodes with data_node_begin.
+				 * An autocommit transaction needs the global timestamp also,
+				 * so handle this case here.
+				 */
+				pfree(connections);
+				pfree(primaryconnection);
 				ereport(ERROR,
 						(errcode(ERRCODE_INTERNAL_ERROR),
 						 errmsg("Failed to send command to data nodes")));

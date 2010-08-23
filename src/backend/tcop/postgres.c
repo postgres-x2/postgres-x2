@@ -429,8 +429,9 @@ SocketBackend(StringInfo inBuf)
 						 errmsg("invalid frontend message type %d", qtype)));
 			break;
 #ifdef PGXC /* PGXC_DATANODE */
-		case 'g':
-		case 's':
+		case 'g':				/* GXID */
+		case 's':				/* Snapshot */
+		case 't':				/* Timestamp */
 			break;
 #endif
 
@@ -2951,6 +2952,8 @@ PostgresMain(int argc, char *argv[], const char *username)
 	int 			xmax;
 	int				xcnt;
 	int 			*xip;
+	/* Timestamp info */
+	TimestampTz		timestamp;
 #endif
 
 #define PendingConfigOption(name,val) \
@@ -4014,6 +4017,17 @@ PostgresMain(int argc, char *argv[], const char *username)
 					xip = NULL;
 				pq_getmsgend(&input_message);
 				SetGlobalSnapshotData(xmin, xmax, xcnt, xip);
+				break;
+
+			case 't':			/* timestamp */
+				timestamp = (TimestampTz) pq_getmsgint64(&input_message);
+				pq_getmsgend(&input_message);
+
+				/*
+				 * Set in xact.x the static Timestamp difference value with GTM
+				 * and the timestampreceivedvalues for Datanode reference
+				 */
+				SetCurrentGTMDeltaTimestamp(timestamp);
 				break;
 #endif /* PGXC */
 

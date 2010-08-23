@@ -157,6 +157,10 @@ extern TimestampTz GetCurrentTransactionStartTimestamp(void);
 extern TimestampTz GetCurrentStatementStartTimestamp(void);
 extern TimestampTz GetCurrentTransactionStopTimestamp(void);
 extern void SetCurrentStatementStartTimestamp(void);
+#ifdef PGXC
+extern TimestampTz GetCurrentGTMStartTimestamp(void);
+extern void SetCurrentGTMDeltaTimestamp(TimestampTz timestamp);
+#endif
 extern int	GetCurrentTransactionNestLevel(void);
 extern bool TransactionIdIsCurrentTransactionId(TransactionId xid);
 extern void CommandCounterIncrement(void);

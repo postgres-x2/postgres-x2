@@ -18,6 +18,8 @@
 #include "gtm/palloc.h"
 #include "gtm/gtm.h"
 #include "gtm/gtm_txn.h"
+#include "gtm/gtm_c.h"
+#include "gtm/gtm_time.h"
 #include "gtm/assert.h"
 #include "gtm/stringinfo.h"
 #include "gtm/libpq.h"
@@ -840,6 +842,7 @@ ProcessBeginTransactionCommand(Port *myport, StringInfo message)
 	bool txn_read_only;
 	StringInfoData buf;
 	GTM_TransactionHandle txn;
+	GTM_Timestamp timestamp;
 	MemoryContext oldContext;
 
 	txn_isolation_level = pq_getmsgint(message, sizeof (GTM_IsolationLevel));
@@ -860,6 +863,9 @@ ProcessBeginTransactionCommand(Port *myport, StringInfo message)
 
 	MemoryContextSwitchTo(oldContext);
 
+	/* GXID has been received, now it's time to get a GTM timestamp */
+	timestamp = GTM_TimestampGetCurrent();
+
 	pq_beginmessage(&buf, 'S');
 	pq_sendint(&buf, TXN_BEGIN_RESULT, 4);
 	if (myport->is_proxy)
@@ -869,6 +875,7 @@ ProcessBeginTransactionCommand(Port *myport, StringInfo message)
 		pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
 	}
 	pq_sendbytes(&buf, (char *)&txn, sizeof(txn));
+	pq_sendbytes(&buf, (char *)&timestamp, sizeof (GTM_Timestamp));
 	pq_endmessage(myport, &buf);
 
 	if (!myport->is_proxy)
@@ -1003,6 +1010,7 @@ ProcessBeginTransactionGetGXIDCommandMulti(Port *myport, StringInfo message)
 	StringInfoData buf;
 	GTM_TransactionHandle txn[GTM_MAX_GLOBAL_TRANSACTIONS];
 	GlobalTransactionId gxid, end_gxid;
+	GTM_Timestamp timestamp;
 	GTMProxy_ConnID txn_connid[GTM_MAX_GLOBAL_TRANSACTIONS];
 	MemoryContext oldContext;
 	int count;
@@ -1042,6 +1050,9 @@ ProcessBeginTransactionGetGXIDCommandMulti(Port *myport, StringInfo message)
 
 	MemoryContextSwitchTo(oldContext);
 	
+	/* GXID has been received, now it's time to get a GTM timestamp */
+	timestamp = GTM_TimestampGetCurrent();
+
 	end_gxid = gxid + txn_count;
 	if (end_gxid < gxid)
 		end_gxid += FirstNormalGlobalTransactionId;
@@ -1058,6 +1069,7 @@ ProcessBeginTransactionGetGXIDCommandMulti(Port *myport, StringInfo message)
 	}
 	pq_sendbytes(&buf, (char *)&txn_count, sizeof(txn_count));
 	pq_sendbytes(&buf, (char *)&gxid, sizeof(gxid));
+	pq_sendbytes(&buf, (char *)&(timestamp), sizeof (GTM_Timestamp));
 	pq_endmessage(myport, &buf);
 
 	if (!myport->is_proxy)

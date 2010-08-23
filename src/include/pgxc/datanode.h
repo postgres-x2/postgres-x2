@@ -18,6 +18,7 @@
 #define DATANODE_H
 #include "postgres.h"
 #include "gtm/gtm_c.h"
+#include "utils/timestamp.h"
 #include "nodes/pg_list.h"
 #include "utils/snapshot.h"
 #include <unistd.h>
@@ -88,6 +89,7 @@ extern int	ensure_out_buffer_capacity(size_t bytes_needed, DataNodeHandle * hand
 extern int	data_node_send_query(DataNodeHandle * handle, const char *query);
 extern int	data_node_send_gxid(DataNodeHandle * handle, GlobalTransactionId gxid);
 extern int	data_node_send_snapshot(DataNodeHandle * handle, Snapshot snapshot);
+extern int	data_node_send_timestamp(DataNodeHandle * handle, TimestampTz timestamp);
 
 extern int data_node_receive(const int conn_count,
 				  DataNodeHandle ** connections, struct timeval * timeout);

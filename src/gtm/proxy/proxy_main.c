@@ -988,6 +988,7 @@ ProcessResponse(GTMProxy_ThreadInfo *thrinfo, GTMProxy_CommandInfo *cmdinfo,
 {
 	StringInfoData buf;
 	GlobalTransactionId gxid;
+	GTM_Timestamp timestamp;
 
 	switch (cmdinfo->ci_mtype)
 	{
@@ -1011,9 +1012,13 @@ ProcessResponse(GTMProxy_ThreadInfo *thrinfo, GTMProxy_CommandInfo *cmdinfo,
 				if (gxid < res->gr_resdata.grd_txn_get_multi.start_gxid)
 					gxid += FirstNormalGlobalTransactionId;
 
+				/* Send back to each client the same timestamp value asked in this message */
+				timestamp = res->gr_resdata.grd_txn_get_multi.timestamp;
+
 				pq_beginmessage(&buf, 'S');
 				pq_sendint(&buf, TXN_BEGIN_GETGXID_RESULT, 4);
 				pq_sendbytes(&buf, (char *)&gxid, sizeof (GlobalTransactionId));
+				pq_sendbytes(&buf, (char *)&timestamp, sizeof (GTM_Timestamp));
 				pq_endmessage(cmdinfo->ci_conn->con_port, &buf);
 				pq_flush(cmdinfo->ci_conn->con_port);
 			}

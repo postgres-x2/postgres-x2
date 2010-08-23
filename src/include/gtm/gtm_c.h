@@ -55,6 +55,12 @@ typedef int32	GTM_TransactionHandle;
 
 #define InvalidTransactionHandle	-1
 
+/*
+ * As GTM and Postgres-XC packages are separated, GTM and XC's API
+ * use different type names for timestamps and sequences, but they have to be the same!
+ */
+typedef int64	GTM_Timestamp;	/* timestamp data is 64-bit based */
+
 typedef int64	GTM_Sequence;	/* a 64-bit sequence */
 typedef  struct GTM_SequenceKeyData
 {

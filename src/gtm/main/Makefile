@@ -3,7 +3,7 @@
 top_build_dir=../..
 include $(top_build_dir)/gtm/Makefile.global
 
-OBJS=main.o gtm_thread.o gtm_txn.o gtm_seq.o gtm_snap.o ../common/libgtm.a ../libpq/libpqcomm.a ../path/libgtmpath.a
+OBJS=main.o gtm_thread.o gtm_txn.o gtm_seq.o gtm_snap.o gtm_time.o ../common/libgtm.a ../libpq/libpqcomm.a ../path/libgtmpath.a
 LDFLAGS=-L$(top_build_dir)/common -L$(top_build_dir)/libpq
 
 LIBS=-lpthread

@@ -67,14 +67,14 @@ CloseGTM(void)
 }
 
 GlobalTransactionId
-BeginTranGTM(void)
+BeginTranGTM(GTM_Timestamp *timestamp)
 {
 	GlobalTransactionId  xid = InvalidGlobalTransactionId;
 
 	CheckConnection();
 	// TODO Isolation level
 	if (conn)
-		xid =  begin_transaction(conn, GTM_ISOLATION_RC);
+		xid =  begin_transaction(conn, GTM_ISOLATION_RC, timestamp);
 
 	/* If something went wrong (timeout), try and reset GTM connection 
 	 * and retry. This is safe at the beginning of a transaction.
@@ -84,7 +84,7 @@ BeginTranGTM(void)
 		CloseGTM();
 		InitGTM();
 		if (conn)
-			xid =  begin_transaction(conn, GTM_ISOLATION_RC);
+			xid = begin_transaction(conn, GTM_ISOLATION_RC, timestamp);
 	}
 	return xid;
 }

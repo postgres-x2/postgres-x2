@@ -208,6 +208,19 @@ static TimestampTz stmtStartTimestamp;
 static TimestampTz xactStopTimestamp;
 
 /*
+ * PGXC receives from GTM a timestamp value at the same time as a GXID
+ * This one is set as GTMxactStartTimestamp and is a return value of now(), current_transaction().
+ * GTMxactStartTimestamp is also sent to each node with gxid and snapshot and delta is calculated locally.
+ * GTMdeltaTimestamp is used to calculate current_statement as its value can change
+ * during a transaction. Delta can have a different value through the nodes of the cluster
+ * but its uniqueness in the cluster is maintained thanks to the global value GTMxactStartTimestamp.
+ */
+#ifdef PGXC
+static TimestampTz GTMxactStartTimestamp = 0;
+static TimestampTz GTMdeltaTimestamp = 0;
+#endif
+
+/*
  * GID to be used for preparing the current transaction.  This is also
  * global to a whole transaction, so we don't keep it in the state stack.
  */
@@ -315,12 +328,28 @@ GetCurrentGlobalTransactionId(void)
  *
  * This will return the GXID of the specified transaction,
  * getting one from the GTM if it's not yet set.
+ * It also returns a timestamp value if a GXID has been taken from GTM
  */
 static GlobalTransactionId
 GetGlobalTransactionId(TransactionState s)
 {
+	GTM_Timestamp gtm_timestamp;
+	bool		received_tp;
+
+	/*
+	 * Here we receive timestamp at the same time as gxid.
+	 */
 	if (!GlobalTransactionIdIsValid(s->globalTransactionId))
-		s->globalTransactionId = (GlobalTransactionId) GetNewTransactionId(s->parent != NULL);
+		s->globalTransactionId = (GlobalTransactionId) GetNewTransactionId(s->parent != NULL,
+																		   &received_tp,
+																		   &gtm_timestamp);
+
+	/* Set a timestamp value if and only if it has been received from GTM */
+	if (received_tp)
+	{
+		GTMxactStartTimestamp = (TimestampTz) gtm_timestamp;
+		GTMdeltaTimestamp = GTMxactStartTimestamp - stmtStartTimestamp;
+	}
 
 	return s->globalTransactionId;
 }
@@ -473,8 +502,20 @@ AssignTransactionId(TransactionState s)
 			s->transactionId, isSubXact ? "true" : "false");
 	}
 	else
-#endif
+	{
+		GTM_Timestamp	gtm_timestamp;
+		bool			received_tp;
+
+		s->transactionId = GetNewTransactionId(isSubXact, &received_tp, &gtm_timestamp);
+		if (received_tp)
+		{
+			GTMxactStartTimestamp = (TimestampTz) gtm_timestamp;
+			GTMdeltaTimestamp = GTMxactStartTimestamp - stmtStartTimestamp;
+		}
+	}
+#else
 	s->transactionId = GetNewTransactionId(isSubXact);
+#endif
 
 	if (isSubXact)
 		SubTransSetParent(s->transactionId, s->parent->transactionId);
@@ -536,7 +577,15 @@ GetCurrentCommandId(bool used)
 TimestampTz
 GetCurrentTransactionStartTimestamp(void)
 {
+	/*
+	 * In Postgres-XC, Transaction start timestamp is the value received
+	 * from GTM along with GXID.
+	 */
+#ifdef PGXC
+	return GTMxactStartTimestamp;
+#else
 	return xactStartTimestamp;
+#endif
 }
 
 /*
@@ -545,7 +594,17 @@ GetCurrentTransactionStartTimestamp(void)
 TimestampTz
 GetCurrentStatementStartTimestamp(void)
 {
+	/*
+	 * For Postgres-XC, Statement start timestamp is adjusted at each node
+	 * (Coordinator and Datanode) with a difference value that is calculated
+	 * based on the global timestamp value received from GTM and the local
+	 * clock. This permits to follow the GTM timeline in the cluster.
+	 */
+#ifdef PGXC
+	return stmtStartTimestamp + GTMdeltaTimestamp;
+#else
 	return stmtStartTimestamp;
+#endif
 }
 
 /*
@@ -557,10 +616,35 @@ GetCurrentStatementStartTimestamp(void)
 TimestampTz
 GetCurrentTransactionStopTimestamp(void)
 {
+	/*
+	 * As for Statement start timestamp, stop timestamp has to
+	 * be adjusted with the delta value calculated with the
+	 * timestamp received from GTM and the local node clock.
+	 */
+#ifdef PGXC
+	TimestampTz	timestamp;
+
+	if (xactStopTimestamp != 0)
+		return xactStopTimestamp + GTMdeltaTimestamp;
+
+	timestamp = GetCurrentTimestamp() + GTMdeltaTimestamp;
+
+	return timestamp;
+#else
 	if (xactStopTimestamp != 0)
 		return xactStopTimestamp;
+
 	return GetCurrentTimestamp();
+#endif
 }
+
+#ifdef PGXC
+TimestampTz
+GetCurrentGTMStartTimestamp(void)
+{
+	return GTMxactStartTimestamp;
+}
+#endif
 
 /*
  *	SetCurrentStatementStartTimestamp
@@ -579,6 +663,20 @@ SetCurrentTransactionStopTimestamp(void)
 {
 	xactStopTimestamp = GetCurrentTimestamp();
 }
+
+#ifdef PGXC
+/*
+ *  SetCurrentGTMDeltaTimestamp
+ *
+ *  Note: Sets local timestamp delta with the value received from GTM
+ */
+void
+SetCurrentGTMDeltaTimestamp(TimestampTz timestamp)
+{
+	GTMxactStartTimestamp = timestamp;
+	GTMdeltaTimestamp = GTMxactStartTimestamp - xactStartTimestamp;
+}
+#endif
 
 /*
  *	GetCurrentTransactionNestLevel
@@ -950,7 +1048,12 @@ RecordTransactionCommit(void)
 		MyProc->inCommit = true;
 
 		SetCurrentTransactionStopTimestamp();
+#ifdef PGXC
+		/* In Postgres-XC, stop timestamp has to follow the timeline of GTM */
+		xlrec.xact_time = xactStopTimestamp + GTMdeltaTimestamp;
+#else
 		xlrec.xact_time = xactStopTimestamp;
+#endif
 		xlrec.nrels = nrels;
 		xlrec.nsubxacts = nchildren;
 		rdata[0].data = (char *) (&xlrec);
@@ -1275,7 +1378,12 @@ RecordTransactionAbort(bool isSubXact)
 	else
 	{
 		SetCurrentTransactionStopTimestamp();
+#ifdef PGXC
+		/* In Postgres-XC, stop timestamp has to follow the timeline of GTM */
+		xlrec.xact_time = xactStopTimestamp + GTMdeltaTimestamp;
+#else
 		xlrec.xact_time = xactStopTimestamp;
+#endif
 	}
 	xlrec.nrels = nrels;
 	xlrec.nsubxacts = nchildren;
@@ -1576,7 +1684,12 @@ StartTransaction(void)
 	 */
 	xactStartTimestamp = stmtStartTimestamp;
 	xactStopTimestamp = 0;
+#ifdef PGXC
+	/* For Postgres-XC, transaction start timestamp has to follow the GTM timeline */
+	pgstat_report_xact_timestamp(GTMxactStartTimestamp);
+#else
 	pgstat_report_xact_timestamp(xactStartTimestamp);
+#endif
 
 	/*
 	 * initialize current transaction state fields

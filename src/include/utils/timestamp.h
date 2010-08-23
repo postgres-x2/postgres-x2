@@ -23,6 +23,10 @@
 #include "utils/int8.h"
 #endif
 
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#endif
+
 /*
  * Timestamp represents absolute time.
  *
@@ -42,6 +46,11 @@
  */
 
 #ifdef HAVE_INT64_TIMESTAMP
+
+/*
+ * PGXC note: GTM and Postgres-XC packages have to be separated.
+ * Both use use different type names for timestamp, but those types have to be the same!
+ */
 
 typedef int64 Timestamp;
 typedef int64 TimestampTz;
@@ -188,6 +197,10 @@ typedef struct
 #define TimestampTzPlusMilliseconds(tz,ms) ((tz) + ((ms) / 1000.0))
 #endif
 
+#ifdef PGXC
+#define InvalidGlobalTimestamp ((TimestampTz) 0)
+#define GlobalTimestampIsValid(timestamp) ((TimestampTz) (timestamp)) != InvalidGlobalTimestamp
+#endif
 
 /* Set at postmaster start */
 extern TimestampTz PgStartTime;

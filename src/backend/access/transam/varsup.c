@@ -75,11 +75,17 @@ GetForceXidFromGTM(void)
  * The new XID is also stored into MyProc before returning.
  */
 TransactionId
+#ifdef PGXC
+GetNewTransactionId(bool isSubXact, bool *timestamp_received, GTM_Timestamp *timestamp)
+#else
 GetNewTransactionId(bool isSubXact)
+#endif
 {
 	TransactionId xid;
-#ifdef PGXC  
+#ifdef PGXC
 	bool increment_xid = true;
+
+	*timestamp_received = false;
 #endif
 
 	/*
@@ -102,8 +108,10 @@ GetNewTransactionId(bool isSubXact)
 		 * This will help with GTM connection issues- we will not
 		 * block all other processes.
 		 */
-		xid = (TransactionId) BeginTranGTM();
+		xid = (TransactionId) BeginTranGTM(timestamp);
+		*timestamp_received	= true;
 	}
+	
 #endif
 
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
@@ -144,18 +152,20 @@ GetNewTransactionId(bool isSubXact)
 				 * exclude it from other snapshots.
 				 */
 				next_xid = (TransactionId) BeginTranAutovacuumGTM();
-			} else {
+			}
+			else
+			{
 				elog (DEBUG1, "Getting XID for autovacuum worker (analyze)");
 				/* try and get gxid directly from GTM */
-				next_xid = (TransactionId) BeginTranGTM();
+				next_xid = (TransactionId) BeginTranGTM(NULL);
 			}
 		} else if (GetForceXidFromGTM())
 		{
 			elog (DEBUG1, "Force get XID from GTM");
 			/* try and get gxid directly from GTM */
-			next_xid = (TransactionId) BeginTranGTM();
+			next_xid = (TransactionId) BeginTranGTM(NULL);
 		}
-	
+
 		if (TransactionIdIsValid(next_xid))
 		{
 			xid = next_xid;

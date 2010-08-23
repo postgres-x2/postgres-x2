@@ -48,7 +48,7 @@ disconnect_gtm(GTM_Conn *conn)
  * Transaction Management API
  */
 GlobalTransactionId
-begin_transaction(GTM_Conn *conn, GTM_IsolationLevel isolevel)
+begin_transaction(GTM_Conn *conn, GTM_IsolationLevel isolevel, GTM_Timestamp *timestamp)
 {
 	bool txn_read_only = false;
 	GTM_Result *res = NULL;
@@ -78,7 +78,12 @@ begin_transaction(GTM_Conn *conn, GTM_IsolationLevel isolevel)
 		goto receive_failed;
 
 	if (res->gr_status == 0)
-		return res->gr_resdata.grd_gxid;
+	{
+		if (timestamp)
+			*timestamp = res->gr_resdata.grd_gxid_tp.timestamp;
+
+		return res->gr_resdata.grd_gxid_tp.gxid;
+	}
 	else
 		return InvalidGlobalTransactionId;
 
