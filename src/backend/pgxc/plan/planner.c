@@ -25,6 +25,7 @@
 #include "nodes/nodes.h"
 #include "nodes/parsenodes.h"
 #include "optimizer/clauses.h"
+#include "optimizer/planner.h"
 #include "optimizer/tlist.h"
 #include "parser/parse_agg.h"
 #include "parser/parse_coerce.h"
@@ -116,7 +117,7 @@ typedef struct ColumnBase
  */
 typedef struct XCWalkerContext
 {
-	Query				    *query;
+	Query				   *query;
 	bool					isRead;
 	Exec_Nodes 			   *exec_nodes;	/* resulting execution nodes */
 	Special_Conditions 	   *conditions;
@@ -125,6 +126,7 @@ typedef struct XCWalkerContext
 	int					    varno;
 	bool				    within_or;
 	bool				    within_not;
+	bool					exec_on_coord; /* fallback to standard planner to have plan executed on coordinator only */
 	List				   *join_list;   /* A list of List*'s, one for each relation. */
 } XCWalkerContext;
 
@@ -971,6 +973,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 					/* just pg_catalog tables */
 					context->exec_nodes = (Exec_Nodes *) palloc0(sizeof(Exec_Nodes));
 					context->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_PGCATALOG;
+					context->exec_on_coord = true;
 					return false;
 				}
 
@@ -1087,6 +1090,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 	{
 		context->exec_nodes = (Exec_Nodes *) palloc0(sizeof(Exec_Nodes));
 		context->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_PGCATALOG;
+		context->exec_on_coord = true;
 		return false;
 	}
 
@@ -1253,7 +1257,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 static Exec_Nodes *
 get_plan_nodes(Query *query, bool isRead)
 {
-	Exec_Nodes *result_nodes;
+	Exec_Nodes *result_nodes = NULL;
 	XCWalkerContext context;
 
 
@@ -1267,13 +1271,16 @@ get_plan_nodes(Query *query, bool isRead)
 	context.varno = 0;
 	context.within_or = false;
 	context.within_not = false;
+	context.exec_on_coord = false;
 	context.join_list = NIL;
 
-	if (get_plan_nodes_walker((Node *) query, &context))
-		result_nodes = NULL;
-	else
+	if (!get_plan_nodes_walker((Node *) query, &context))
 		result_nodes = context.exec_nodes;
-
+	if (context.exec_on_coord && result_nodes)
+	{
+		pfree(result_nodes);
+		result_nodes = NULL;
+	}
 	free_special_relations(context.conditions);
 	free_join_list(context.join_list);
 	return result_nodes;
@@ -1976,68 +1983,89 @@ make_simple_sort_from_sortclauses(Query *query, RemoteQuery *step)
  * For the prototype, there will only be one step,
  * and the nodelist will be NULL if it is not a PGXC-safe statement.
  */
-Query_Plan *
-GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
+PlannedStmt *
+pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 {
-	Query_Plan *query_plan = palloc(sizeof(Query_Plan));
+	/*
+	 * We waste some time invoking standard planner, but getting good enough
+	 * PlannedStmt, we just need to replace standard plan.
+	 * In future we may want to skip the standard_planner invocation and
+	 * initialize the PlannedStmt here. At the moment not all queries works:
+	 * ex. there was a problem with INSERT into a subset of table columns
+	 */
+	PlannedStmt *result = standard_planner(query, cursorOptions, boundParams);
+	Plan *standardPlan = result->planTree;
 	RemoteQuery *query_step = makeNode(RemoteQuery);
-	Query	   *query;
 
-	query_step->sql_statement = (char *) palloc(strlen(sql_statement) + 1);
-	strcpy(query_step->sql_statement, sql_statement);
+	query_step->sql_statement = pstrdup(query->sql_statement);
 	query_step->exec_nodes = NULL;
 	query_step->combine_type = COMBINE_TYPE_NONE;
 	query_step->simple_aggregates = NULL;
-	query_step->read_only = false;
+	/* Optimize multi-node handling */
+	query_step->read_only = query->nodeTag == T_SelectStmt;
 	query_step->force_autocommit = false;
 
-	query_plan->query_step_list = lappend(NULL, query_step);
+	result->planTree = (Plan *) query_step;
 
 	/*
 	 * Determine where to execute the command, either at the Coordinator
 	 * level, Data Nodes, or both. By default we choose both. We should be
 	 * able to quickly expand this for more commands.
 	 */
-	switch (nodeTag(parsetree))
+	switch (query->nodeTag)
 	{
 		case T_SelectStmt:
-			/* Optimize multi-node handling */
-			query_step->read_only = true;
+			/* Perform some checks to make sure we can support the statement */
+			if (query->intoClause)
+				ereport(ERROR,
+						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+						 (errmsg("INTO clause not yet supported"))));
+
+			if (query->setOperations)
+				ereport(ERROR,
+						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+						 (errmsg("UNION, INTERSECT and EXCEPT are not yet supported"))));
+
+			if (query->hasRecursive)
+				ereport(ERROR,
+						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+						 (errmsg("WITH RECURSIVE not yet supported"))));
+
+			if (query->hasWindowFuncs)
+				ereport(ERROR,
+						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+						 (errmsg("Window functions not yet supported"))));
 			/* fallthru */
 		case T_InsertStmt:
 		case T_UpdateStmt:
 		case T_DeleteStmt:
-			/* just use first one in querytree_list */
-			query = (Query *) linitial(querytree_list);
-			/* should copy instead ? */
-			query_step->plan.targetlist = query->targetList;
+			query_step->exec_nodes = get_plan_nodes_command(query);
 
-			/* Perform some checks to make sure we can support the statement */
-			if (nodeTag(parsetree) == T_SelectStmt)
+			if (query_step->exec_nodes == NULL)
 			{
-				if (query->intoClause)
-					ereport(ERROR,
-							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-							 (errmsg("INTO clause not yet supported"))));
-
-				if (query->setOperations)
-					ereport(ERROR,
-							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-							 (errmsg("UNION, INTERSECT and EXCEPT are not yet supported"))));
-
-				if (query->hasRecursive)
-					ereport(ERROR,
-							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-							 (errmsg("WITH RECURSIVE not yet supported"))));
-
-				if (query->hasWindowFuncs)
-					ereport(ERROR,
-							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-							 (errmsg("Window functions not yet supported"))));
+				/*
+				 * Processing guery against catalog tables, restore
+				 * standard plan
+				 */
+				result->planTree = standardPlan;
+				return result;
 			}
 
-			query_step->exec_nodes =
-				get_plan_nodes_command(query);
+			/*
+			 * PGXCTODO
+			 * When Postgres runs insert into t (a) values (1); against table
+			 * defined as create table t (a int, b int); the plan is looking
+			 * like insert into t (a,b) values (1,null);
+			 * Later executor is verifying plan, to make sure table has not
+			 * been altered since plan has been created and comparing table
+			 * definition with plan target list and output error if they do
+			 * not match.
+			 * I could not find better way to generate targetList for pgxc plan
+			 * then call standard planner and take targetList from the plan
+			 * generated by Postgres.
+			 */
+			query_step->plan.targetlist = standardPlan->targetlist;
+
 			if (query_step->exec_nodes)
 				query_step->combine_type = get_plan_combine_type(
 						query, query_step->exec_nodes->baselocatortype);
@@ -2047,37 +2075,9 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 				query_step->simple_aggregates = get_simple_aggregates(query);
 
 			/*
-			 * See if it is a SELECT with no relations, like SELECT 1+1 or
-			 * SELECT nextval('fred'), and just use coord.
-			 */
-			if (query_step->exec_nodes == NULL
-						&& (query->jointree->fromlist == NULL
-						|| query->jointree->fromlist->length == 0))
-				/* Just execute it on Coordinator */
-				query_plan->exec_loc_type = EXEC_ON_COORD;
-			else
-			{
-				if (query_step->exec_nodes != NULL
-						&& query_step->exec_nodes->tableusagetype == TABLE_USAGE_TYPE_PGCATALOG)
-				{
-					/* pg_catalog query, run on coordinator */
-					query_plan->exec_loc_type = EXEC_ON_COORD;
-				}
-				else
-				{
-					query_plan->exec_loc_type = EXEC_ON_DATA_NODES;
-
-					/* If node list is NULL, execute on coordinator */
-					if (!query_step->exec_nodes)
-						query_plan->exec_loc_type = EXEC_ON_COORD;
-				}
-			}
-
-			/*
 			 * Add sortring to the step
 			 */
-			if (query_plan->exec_loc_type == EXEC_ON_DATA_NODES &&
-					list_length(query_step->exec_nodes->nodelist) > 1 &&
+			if (list_length(query_step->exec_nodes->nodelist) > 1 &&
 					(query->sortClause || query->distinctClause))
 				make_simple_sort_from_sortclauses(query, query_step);
 
@@ -2090,7 +2090,7 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 			 * Check if we have multiple nodes and an unsupported clause. This
 			 * is temporary until we expand supported SQL
 			 */
-			if (nodeTag(parsetree) == T_SelectStmt)
+			if (query->nodeTag == T_SelectStmt)
 			{
 				if (StrictStatementChecking && query_step->exec_nodes
 						&& list_length(query_step->exec_nodes->nodelist) > 1)
@@ -2110,180 +2110,6 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 				}
 			}
 			break;
-
-			/* Statements that we only want to execute on the Coordinator */
-		case T_VariableShowStmt:
-			query_plan->exec_loc_type = EXEC_ON_COORD;
-			break;
-
-			/*
-			 * Statements that need to run in autocommit mode, on Coordinator
-			 * and Data Nodes with suppressed implicit two phase commit.
-			 */
-		case T_CheckPointStmt:
-		case T_ClusterStmt:
-		case T_CreatedbStmt:
-		case T_DropdbStmt:
-		case T_VacuumStmt:
-			query_plan->exec_loc_type = EXEC_ON_COORD | EXEC_ON_DATA_NODES;
-			query_step->force_autocommit = true;
-			break;
-
-		case T_DropPropertyStmt:
-			/*
-			 * Triggers are not yet supported by PGXC
-			 * all other queries are executed on both Coordinator and Datanode
-			 * On the same point, assert also is not supported
-			 */
-			if (((DropPropertyStmt *)parsetree)->removeType == OBJECT_TRIGGER)
-				ereport(ERROR,
-						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-						(errmsg("This command is not yet supported."))));
-			else
-				query_plan->exec_loc_type = EXEC_ON_COORD | EXEC_ON_DATA_NODES;
-			break;
-
-		case T_CreateStmt:
-			if (((CreateStmt *)parsetree)->relation->istemp)
-				ereport(ERROR,
-						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-						(errmsg("Temp tables are not yet supported."))));
-
-			query_plan->exec_loc_type = EXEC_ON_COORD | EXEC_ON_DATA_NODES;
-			break;
-
-			/*
-			 * Statements that we execute on both the Coordinator and Data Nodes
-			 */
-		case T_AlterDatabaseStmt:
-		case T_AlterDatabaseSetStmt:
-		case T_AlterDomainStmt:
-		case T_AlterFdwStmt:
-		case T_AlterForeignServerStmt:
-		case T_AlterFunctionStmt:
-		case T_AlterObjectSchemaStmt:
-		case T_AlterOpFamilyStmt:
-		case T_AlterSeqStmt:
-		case T_AlterTableStmt: /* Can also be used to rename a sequence */
-		case T_AlterTSConfigurationStmt:
-		case T_AlterTSDictionaryStmt:
-		case T_ClosePortalStmt:   /* In case CLOSE ALL is issued */
-		case T_CommentStmt:
-		case T_CompositeTypeStmt:
-		case T_ConstraintsSetStmt:
-		case T_CreateCastStmt:
-		case T_CreateConversionStmt:
-		case T_CreateDomainStmt:
-		case T_CreateEnumStmt:
-		case T_CreateFdwStmt:
-		case T_CreateForeignServerStmt:
-		case T_CreateFunctionStmt: /* Only global functions are supported */
-		case T_CreateOpClassStmt:
-		case T_CreateOpFamilyStmt:
-		case T_CreatePLangStmt:
-		case T_CreateSeqStmt:
-		case T_CreateSchemaStmt:
-		case T_DeallocateStmt: /* Allow for DEALLOCATE ALL */
-		case T_DiscardStmt:
-		case T_DropCastStmt:
-		case T_DropFdwStmt:
-		case T_DropForeignServerStmt:
-		case T_DropPLangStmt:
-		case T_DropStmt:
-		case T_IndexStmt:
-		case T_LockStmt:
-		case T_ReindexStmt:
-		case T_RemoveFuncStmt:
-		case T_RemoveOpClassStmt:
-		case T_RemoveOpFamilyStmt:
-		case T_RenameStmt:
-		case T_RuleStmt:
-		case T_TruncateStmt:
-		case T_VariableSetStmt:
-		case T_ViewStmt:
-
-			/*
-			 * Also support these, should help later with pg_restore, although
-			 * not very useful because of the pooler using the same user
-			 */
-		case T_GrantStmt:
-		case T_GrantRoleStmt:
-		case T_CreateRoleStmt:
-		case T_AlterRoleStmt:
-		case T_AlterRoleSetStmt:
-		case T_AlterUserMappingStmt:
-		case T_CreateUserMappingStmt:
-		case T_DropRoleStmt:
-		case T_AlterOwnerStmt:
-		case T_DropOwnedStmt:
-		case T_DropUserMappingStmt:
-		case T_ReassignOwnedStmt:
-		case T_DefineStmt:		/* used for aggregates, some types */
-			query_plan->exec_loc_type = EXEC_ON_COORD | EXEC_ON_DATA_NODES;
-			break;
-
-		case T_TransactionStmt:
-			switch (((TransactionStmt *) parsetree)->kind)
-			{
-				case TRANS_STMT_SAVEPOINT:
-				case TRANS_STMT_RELEASE:
-				case TRANS_STMT_ROLLBACK_TO:
-					ereport(ERROR,
-							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-							 (errmsg("This type of transaction statement not yet supported"))));
-					break;
-
-				default:
-					break; /* keep compiler quiet */
-			}
-			query_plan->exec_loc_type = EXEC_ON_COORD | EXEC_ON_DATA_NODES;
-			break;
-
-			/*
-			 * For now, pick one of the data nodes until we modify real
-			 * planner It will give an approximate idea of what an isolated
-			 * data node will do
-			 */
-		case T_ExplainStmt:
-			if (((ExplainStmt *) parsetree)->analyze)
-					ereport(ERROR,
-							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-							 (errmsg("ANALYZE with EXPLAIN is currently not supported."))));
-
-			query_step->exec_nodes = palloc0(sizeof(Exec_Nodes));
-			query_step->exec_nodes->nodelist = GetAnyDataNode();
-			query_step->exec_nodes->baselocatortype = LOCATOR_TYPE_RROBIN;
-			query_plan->exec_loc_type = EXEC_ON_DATA_NODES;
-			break;
-
-			/*
-			 * Trigger queries are not yet supported by PGXC.
-			 * Tablespace queries are also not yet supported.
-			 * Two nodes on the same servers cannot use the same tablespace.
-			 */
-		case T_CreateTableSpaceStmt:
-		case T_CreateTrigStmt:
-		case T_DropTableSpaceStmt:
-			ereport(ERROR,
-					(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-					(errmsg("This command is not yet supported."))));
-			break;
-
-			/*
-			 * Other statements we do not yet want to handle.
-			 * By default they would  be fobidden, but we list these for reference.
-			 * Note that there is not a 1-1 correspndence between
-			 * SQL command and the T_*Stmt structures.
-			 */
-		case T_DeclareCursorStmt:
-		case T_ExecuteStmt:
-		case T_FetchStmt:
-		case T_ListenStmt:
-		case T_LoadStmt:
-		case T_NotifyStmt:
-		case T_PrepareStmt:
-		case T_UnlistenStmt:
-			/* fall through */
 		default:
 			/* Allow for override */
 			if (StrictStatementChecking)
@@ -2291,12 +2117,10 @@ GetQueryPlan(Node *parsetree, const char *sql_statement, List *querytree_list)
 						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
 						 (errmsg("This command is not yet supported."))));
 			else
-				query_plan->exec_loc_type = EXEC_ON_COORD | EXEC_ON_DATA_NODES;
-			break;
+				result->planTree = standardPlan;
 	}
 
-
-	return query_plan;
+	return result;
 }
 
 
@@ -2320,22 +2144,4 @@ free_query_step(RemoteQuery *query_step)
 	if (query_step->simple_aggregates != NULL)
 		list_free_deep(query_step->simple_aggregates);
 	pfree(query_step);
-}
-
-/*
- * Free Query_Plan struct
- */
-void
-FreeQueryPlan(Query_Plan *query_plan)
-{
-	ListCell   *item;
-
-	if (query_plan == NULL)
-		return;
-
-	foreach(item, query_plan->query_step_list)
-		free_query_step((RemoteQuery *) lfirst(item));
-
-	pfree(query_plan->query_step_list);
-	pfree(query_plan);
 }

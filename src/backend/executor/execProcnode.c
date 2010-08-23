@@ -108,7 +108,9 @@
 #include "executor/nodeWindowAgg.h"
 #include "executor/nodeWorktablescan.h"
 #include "miscadmin.h"
-
+#ifdef PGXC
+#include "pgxc/execRemote.h"
+#endif
 
 /* ------------------------------------------------------------------------
  *		ExecInitNode
@@ -286,6 +288,13 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 												 estate, eflags);
 			break;
 
+#ifdef PGXC
+		case T_RemoteQuery:
+			result = (PlanState *) ExecInitRemoteQuery((RemoteQuery *) node,
+													    estate, eflags);
+			break;
+#endif
+
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
 			result = NULL;		/* keep compiler quiet */
@@ -450,6 +459,12 @@ ExecProcNode(PlanState *node)
 		case T_LimitState:
 			result = ExecLimit((LimitState *) node);
 			break;
+
+#ifdef PGXC
+		case T_RemoteQueryState:
+			result = ExecRemoteQuery((RemoteQueryState *) node);
+			break;
+#endif
 
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
@@ -627,6 +642,11 @@ ExecCountSlotsNode(Plan *node)
 		case T_Limit:
 			return ExecCountSlotsLimit((Limit *) node);
 
+#ifdef PGXC
+		case T_RemoteQuery:
+			return ExecCountSlotsRemoteQuery((RemoteQuery *) node);
+#endif
+
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
 			break;
@@ -782,6 +802,12 @@ ExecEndNode(PlanState *node)
 		case T_LimitState:
 			ExecEndLimit((LimitState *) node);
 			break;
+
+#ifdef PGXC
+		case T_RemoteQueryState:
+			ExecEndRemoteQuery((RemoteQueryState *) node);
+			break;
+#endif
 
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));

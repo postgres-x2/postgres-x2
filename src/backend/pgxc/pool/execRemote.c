@@ -168,9 +168,7 @@ CreateResponseCombiner(int node_count, CombineType combine_type)
 	combiner->connections = NULL;
 	combiner->conn_count = 0;
 	combiner->combine_type = combine_type;
-	combiner->dest = NULL;
 	combiner->command_complete_count = 0;
-	combiner->row_count = 0;
 	combiner->request_type = REQUEST_TYPE_NOT_DEFINED;
 	combiner->tuple_desc = NULL;
 	combiner->description_count = 0;
@@ -178,7 +176,6 @@ CreateResponseCombiner(int node_count, CombineType combine_type)
 	combiner->copy_out_count = 0;
 	combiner->errorMessage = NULL;
 	combiner->query_Done = false;
-	combiner->completionTag = NULL;
 	combiner->msg = NULL;
 	combiner->msglen = 0;
 	combiner->initAggregates = true;
@@ -488,7 +485,8 @@ HandleCopyOutComplete(RemoteQueryState *combiner)
 static void
 HandleCommandComplete(RemoteQueryState *combiner, char *msg_body, size_t len)
 {
-	int 		digits = 0;
+	int 			digits = 0;
+	EState		   *estate = combiner->ss.ps.state;
 
 	/*
 	 * If we did not receive description we are having rowcount or OK response
@@ -496,7 +494,7 @@ HandleCommandComplete(RemoteQueryState *combiner, char *msg_body, size_t len)
 	if (combiner->request_type == REQUEST_TYPE_NOT_DEFINED)
 		combiner->request_type = REQUEST_TYPE_COMMAND;
 	/* Extract rowcount */
-	if (combiner->combine_type != COMBINE_TYPE_NONE)
+	if (combiner->combine_type != COMBINE_TYPE_NONE && estate)
 	{
 		uint64	rowcount;
 		digits = parse_row_count(msg_body, len, &rowcount);
@@ -507,7 +505,7 @@ HandleCommandComplete(RemoteQueryState *combiner, char *msg_body, size_t len)
 			{
 				if (combiner->command_complete_count)
 				{
-					if (rowcount != combiner->row_count)
+					if (rowcount != estate->es_processed)
 						/* There is a consistency issue in the database with the replicated table */
 						ereport(ERROR,
 								(errcode(ERRCODE_DATA_CORRUPTED),
@@ -515,37 +513,15 @@ HandleCommandComplete(RemoteQueryState *combiner, char *msg_body, size_t len)
 				}
 				else
 					/* first result */
-					combiner->row_count  = rowcount;
+					estate->es_processed = rowcount;
 			}
 			else
-				combiner->row_count += rowcount;
+				estate->es_processed += rowcount;
 		}
 		else
 			combiner->combine_type = COMBINE_TYPE_NONE;
 	}
-	if (++combiner->command_complete_count == combiner->node_count)
-	{
-		if (combiner->completionTag)
-		{
-			if (combiner->combine_type == COMBINE_TYPE_NONE)
-			{
-				/* ensure we do not go beyond buffer bounds */
-				if (len > COMPLETION_TAG_BUFSIZE)
-					len = COMPLETION_TAG_BUFSIZE;
-				memcpy(combiner->completionTag, msg_body, len);
-			}
-			else
-			{
-				/* Truncate msg_body to get base string */
-				msg_body[len - digits - 1] = '\0';
-				snprintf(combiner->completionTag,
-						 COMPLETION_TAG_BUFSIZE,
-						 "%s" UINT64_FORMAT,
-						 msg_body,
-						 combiner->row_count);
-			}
-		}
-	}
+	combiner->command_complete_count++;
 }
 
 /*
@@ -652,6 +628,9 @@ HandleCopyDataRow(RemoteQueryState *combiner, char *msg_body, size_t len)
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
 				 errmsg("Unexpected response from the data nodes for 'd' message, current request type %d", combiner->request_type)));
+
+	/* count the row */
+	combiner->processed++;
 
 	/* If there is a copy file, data has to be sent to the local file */
 	if (combiner->copy_file)
@@ -881,7 +860,6 @@ ValidateAndResetCombiner(RemoteQueryState *combiner)
 	combiner->command_complete_count = 0;
 	combiner->connections = NULL;
 	combiner->conn_count = 0;
-	combiner->row_count = 0;
 	combiner->request_type = REQUEST_TYPE_NOT_DEFINED;
 	combiner->tuple_desc = NULL;
 	combiner->description_count = 0;
@@ -1106,7 +1084,6 @@ data_node_begin(int conn_count, DataNodeHandle ** connections,
 	}
 
 	combiner = CreateResponseCombiner(conn_count, COMBINE_TYPE_NONE);
-	combiner->dest = None_Receiver;
 
 	/* Receive responses */
 	if (data_node_receive_responses(conn_count, connections, timeout, combiner))
@@ -1225,7 +1202,6 @@ data_node_commit(int conn_count, DataNodeHandle ** connections)
 		}
 
 		combiner = CreateResponseCombiner(conn_count, COMBINE_TYPE_NONE);
-		combiner->dest = None_Receiver;
 		/* Receive responses */
 		if (data_node_receive_responses(conn_count, connections, timeout, combiner))
 			result = EOF;
@@ -1268,10 +1244,7 @@ data_node_commit(int conn_count, DataNodeHandle ** connections)
 	}
 
 	if (!combiner)
-	{
 		combiner = CreateResponseCombiner(conn_count, COMBINE_TYPE_NONE);
-		combiner->dest = None_Receiver;
-	}
 	/* Receive responses */
 	if (data_node_receive_responses(conn_count, connections, timeout, combiner))
 		result = EOF;
@@ -1336,7 +1309,6 @@ data_node_rollback(int conn_count, DataNodeHandle ** connections)
 	}
 
 	combiner = CreateResponseCombiner(conn_count, COMBINE_TYPE_NONE);
-	combiner->dest = None_Receiver;
 	/* Receive responses */
 	if (data_node_receive_responses(conn_count, connections, timeout, combiner))
 		return EOF;
@@ -1480,7 +1452,6 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_
 	 * client runs console or file copy
 	 */
 	combiner = CreateResponseCombiner(conn_count, COMBINE_TYPE_NONE);
-	combiner->dest = None_Receiver;
 
 	/* Receive responses */
 	if (data_node_receive_responses(conn_count, connections, timeout, combiner)
@@ -1541,7 +1512,6 @@ DataNodeCopyIn(char *data_row, int len, Exec_Nodes *exec_nodes, DataNodeHandle**
 				if (primary_handle->inStart < primary_handle->inEnd)
 				{
 					RemoteQueryState *combiner = CreateResponseCombiner(1, COMBINE_TYPE_NONE);
-					combiner->dest = None_Receiver;
 					handle_response(primary_handle, combiner);
 					if (!ValidateAndCloseCombiner(combiner))
 						return EOF;
@@ -1603,7 +1573,6 @@ DataNodeCopyIn(char *data_row, int len, Exec_Nodes *exec_nodes, DataNodeHandle**
 				if (handle->inStart < handle->inEnd)
 				{
 					RemoteQueryState *combiner = CreateResponseCombiner(1, COMBINE_TYPE_NONE);
-					combiner->dest = None_Receiver;
 					handle_response(handle, combiner);
 					if (!ValidateAndCloseCombiner(combiner))
 						return EOF;
@@ -1670,13 +1639,13 @@ DataNodeCopyOut(Exec_Nodes *exec_nodes, DataNodeHandle** copy_connections, FILE*
 	bool 		need_tran;
 	List 	   *nodelist;
 	ListCell   *nodeitem;
-	uint64		processed = 0;
+	uint64		processed;
 
 	nodelist = exec_nodes->nodelist;
 	need_tran = !autocommit || conn_count > 1;
 
 	combiner = CreateResponseCombiner(conn_count, COMBINE_TYPE_SUM);
-	combiner->dest = None_Receiver;
+	combiner->processed = 0;
 	/* If there is an existing file where to copy data, pass it to combiner */
 	if (copy_file)
 		combiner->copy_file = copy_file;
@@ -1712,7 +1681,7 @@ DataNodeCopyOut(Exec_Nodes *exec_nodes, DataNodeHandle** copy_connections, FILE*
 		}
 	}
 
-	processed = combiner->row_count;
+	processed = combiner->processed;
 
 	if (!ValidateAndCloseCombiner(combiner))
 	{
@@ -1730,7 +1699,7 @@ DataNodeCopyOut(Exec_Nodes *exec_nodes, DataNodeHandle** copy_connections, FILE*
 /*
  * Finish copy process on all connections
  */
-uint64
+void
 DataNodeCopyFinish(DataNodeHandle** copy_connections, int primary_data_node,
 		CombineType combine_type)
 {
@@ -1743,7 +1712,6 @@ DataNodeCopyFinish(DataNodeHandle** copy_connections, int primary_data_node,
 	DataNodeHandle *connections[NumDataNodes];
 	DataNodeHandle *primary_handle = NULL;
 	int 		conn_count = 0;
-	uint64		processed;
 
 	for (i = 0; i < NumDataNodes; i++)
 	{
@@ -1786,8 +1754,7 @@ DataNodeCopyFinish(DataNodeHandle** copy_connections, int primary_data_node,
 		}
 
 		combiner = CreateResponseCombiner(conn_count + 1, combine_type);
-		combiner->dest = None_Receiver;
-		error = data_node_receive_responses(1, &primary_handle, timeout, combiner) || error;
+		error = (data_node_receive_responses(1, &primary_handle, timeout, combiner) != 0) || error;
 	}
 
 	for (i = 0; i < conn_count; i++)
@@ -1823,21 +1790,24 @@ DataNodeCopyFinish(DataNodeHandle** copy_connections, int primary_data_node,
 	need_tran = !autocommit || primary_handle || conn_count > 1;
 
 	if (!combiner)
-	{
 		combiner = CreateResponseCombiner(conn_count, combine_type);
-		combiner->dest = None_Receiver;
-	}
 	error = (data_node_receive_responses(conn_count, connections, timeout, combiner) != 0) || error;
-
-	processed = combiner->row_count;
 
 	if (!ValidateAndCloseCombiner(combiner) || error)
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("Error while running COPY")));
-
-	return processed;
 }
+
+#define REMOTE_QUERY_NSLOTS 2
+int
+ExecCountSlotsRemoteQuery(RemoteQuery *node)
+{
+	return ExecCountSlotsNode(outerPlan((Plan *) node)) +
+		ExecCountSlotsNode(innerPlan((Plan *) node)) +
+		REMOTE_QUERY_NSLOTS;
+}
+
 
 RemoteQueryState *
 ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
@@ -1876,6 +1846,9 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 								  ALLOCSET_DEFAULT_INITSIZE,
 								  ALLOCSET_DEFAULT_MAXSIZE);
 	}
+	if (outerPlan(node))
+		outerPlanState(remotestate) = ExecInitNode(outerPlan(node), estate, eflags);
+
 	return remotestate;
 }
 
@@ -1927,6 +1900,83 @@ copy_slot(RemoteQueryState *node, TupleTableSlot *src, TupleTableSlot *dst)
 	}
 }
 
+static void
+get_exec_connections(Exec_Nodes *exec_nodes,
+					 int *regular_conn_count,
+					 int *total_conn_count,
+					 DataNodeHandle ***connections,
+					 DataNodeHandle ***primaryconnection)
+{
+	List 	   *nodelist = NIL;
+	List 	   *primarynode = NIL;
+
+	if (exec_nodes)
+	{
+		nodelist = exec_nodes->nodelist;
+		primarynode = exec_nodes->primarynodelist;
+	}
+
+	if (list_length(nodelist) == 0)
+	{
+		if (primarynode)
+			*regular_conn_count = NumDataNodes - 1;
+		else
+			*regular_conn_count = NumDataNodes;
+	}
+	else
+	{
+		*regular_conn_count = list_length(nodelist);
+	}
+
+	*total_conn_count = *regular_conn_count;
+
+	/* Get connection for primary node, if used */
+	if (primarynode)
+	{
+		*primaryconnection = get_handles(primarynode);
+		if (!*primaryconnection)
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Could not obtain connection from pool")));
+		(*total_conn_count)++;
+	}
+
+	/* Get other connections (non-primary) */
+	*connections = get_handles(nodelist);
+	if (!*connections)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Could not obtain connection from pool")));
+
+}
+
+/*
+ * We would want to run 2PC if current transaction modified more then
+ * one node. So optimize little bit and do not look further if we
+ * already have more then one write nodes.
+ */
+static void
+register_write_nodes(int conn_count, DataNodeHandle **connections)
+{
+	int 		i, j;
+
+	for (i = 0; i < conn_count && write_node_count < 2; i++)
+	{
+		bool found = false;
+
+		for (j = 0; j < write_node_count && !found; j++)
+		{
+			if (write_node_list[j] == connections[i])
+				found = true;
+		}
+		if (!found)
+		{
+			/* Add to transaction wide-list */
+			write_node_list[write_node_count++] = connections[i];
+		}
+	}
+}
+
 /*
  * Execute step of PGXC plan.
  * The step specifies a command to be executed on specified nodes.
@@ -1950,66 +2000,51 @@ ExecRemoteQuery(RemoteQueryState *node)
 	if (!node->query_Done)
 	{
 		/* First invocation, initialize */
-		Exec_Nodes *exec_nodes = step->exec_nodes;
 		bool		force_autocommit = step->force_autocommit;
 		bool		is_read_only = step->read_only;
 		GlobalTransactionId gxid = InvalidGlobalTransactionId;
 		Snapshot snapshot = GetActiveSnapshot();
 		DataNodeHandle **connections = NULL;
 		DataNodeHandle **primaryconnection = NULL;
-		List 	   *nodelist = NIL;
-		List 	   *primarynode = NIL;
 		int			i;
-		int			j;
 		int			regular_conn_count;
 		int			total_conn_count;
 		bool		need_tran;
 
-		if (exec_nodes)
+		/*
+		 * If coordinator plan is specified execute it first.
+		 * If the plan is returning we are returning these tuples immediately.
+		 * If it is not returning or returned them all by current invocation
+		 * we will go ahead and execute remote query. Then we will never execute
+		 * the outer plan again because node->query_Done flag will be set and
+		 * execution won't get to that place.
+		 */
+		if (outerPlanState(node))
 		{
-			nodelist = exec_nodes->nodelist;
-			primarynode = exec_nodes->primarynodelist;
+			TupleTableSlot *slot = ExecProcNode(outerPlanState(node));
+			if (!TupIsNull(slot))
+				return slot;
 		}
 
-		if (list_length(nodelist) == 0)
-		{
-			if (primarynode)
-				regular_conn_count = NumDataNodes - 1;
-			else
-				regular_conn_count = NumDataNodes;
-		}
-		else
-		{
-			regular_conn_count = list_length(nodelist);
-		}
+		get_exec_connections(step->exec_nodes,
+							 &regular_conn_count,
+							 &total_conn_count,
+							 &connections,
+							 &primaryconnection);
 
-		total_conn_count = regular_conn_count;
-		node->node_count = total_conn_count;
-
-		/* Get connection for primary node, if used */
-		if (primarynode)
-		{
-			primaryconnection = get_handles(primarynode);
-			if (!primaryconnection)
-				ereport(ERROR,
-						(errcode(ERRCODE_INTERNAL_ERROR),
-						 errmsg("Could not obtain connection from pool")));
-			total_conn_count++;
-		}
-
-		/* Get other connections (non-primary) */
-		connections = get_handles(nodelist);
-		if (!connections)
-			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("Could not obtain connection from pool")));
+		/*
+		 * We save only regular connections, at the time we exit the function
+		 * we finish with the primary connection and deal only with regular
+		 * connections on subsequent invocations
+		 */
+		node->node_count = regular_conn_count;
 
 		if (force_autocommit)
 			need_tran = false;
 		else
 			need_tran = !autocommit || total_conn_count > 1;
 
-		elog(DEBUG1, "autocommit = %s, has primary = %s, regular_conn_count = %d, statement_need_tran = %s", autocommit ? "true" : "false", primarynode ? "true" : "false", regular_conn_count, need_tran ? "true" : "false");
+		elog(DEBUG1, "autocommit = %s, has primary = %s, regular_conn_count = %d, need_tran = %s", autocommit ? "true" : "false", primaryconnection ? "true" : "false", regular_conn_count, need_tran ? "true" : "false");
 
 		stat_statement();
 		if (autocommit)
@@ -2019,44 +2054,11 @@ ExecRemoteQuery(RemoteQueryState *node)
 			clear_write_node_list();
 		}
 
-		/* Check status of connections */
-		/*
-		 * We would want to run 2PC if current transaction modified more then
-		 * one node. So optimize little bit and do not look further if we
-		 * already have two.
-		 */
-		if (!is_read_only && write_node_count < 2)
+		if (!is_read_only)
 		{
-			bool found;
-
 			if (primaryconnection)
-			{
-				found = false;
-				for (j = 0; j < write_node_count && !found; j++)
-				{
-					if (write_node_list[j] == primaryconnection[0])
-						found = true;
-				}
-				if (!found)
-				{
-					/* Add to transaction wide-list */
-					write_node_list[write_node_count++] = primaryconnection[0];
-				}
-			}
-			for (i = 0; i < regular_conn_count && write_node_count < 2; i++)
-			{
-				found = false;
-				for (j = 0; j < write_node_count && !found; j++)
-				{
-					if (write_node_list[j] == connections[i])
-						found = true;
-				}
-				if (!found)
-				{
-					/* Add to transaction wide-list */
-					write_node_list[write_node_count++] = connections[i];
-				}
-			}
+				register_write_nodes(1, primaryconnection);
+			register_write_nodes(regular_conn_count, connections);
 		}
 
 		gxid = GetCurrentGlobalTransactionId();
@@ -2209,12 +2211,10 @@ ExecRemoteQuery(RemoteQueryState *node)
 					{
 						ExecSetSlotDescriptor(scanslot, node->tuple_desc);
 						/*
-						 * we should send to client not the tuple_desc we just
-						 * received, but tuple_desc from the planner.
-						 * Data node may be sending junk columns for sorting
+						 * Now tuple table slot is responcible for freeing the
+						 * descriptor
 						 */
-						(*node->dest->rStartup) (node->dest, CMD_SELECT,
-												 resultslot->tts_tupleDescriptor);
+						node->tuple_desc = NULL;
 						if (step->sort)
 						{
 							SimpleSort *sort = step->sort;
@@ -2228,7 +2228,7 @@ ExecRemoteQuery(RemoteQueryState *node)
 							 * be initialized
 							 */
 							node->tuplesortstate = tuplesort_begin_merge(
-												   node->tuple_desc,
+												   scanslot->tts_tupleDescriptor,
 												   sort->numCols,
 												   sort->sortColIdx,
 												   sort->sortOperators,
@@ -2290,7 +2290,6 @@ ExecRemoteQuery(RemoteQueryState *node)
 				}
 			}
 			copy_slot(node, scanslot, resultslot);
-			(*node->dest->receiveSlot) (resultslot, node->dest);
 			break;
 		}
 		if (!have_tuple)
@@ -2310,12 +2309,26 @@ ExecRemoteQuery(RemoteQueryState *node)
 			{
 				if (node->simple_aggregates)
 				{
-					/*
-					 * Advance aggregate functions and allow to read up next
-					 * data row message and get tuple in the same slot on
-					 * next iteration
-					 */
-					exec_simple_aggregates(node, scanslot);
+					if (node->simple_aggregates)
+					{
+						/*
+						 * Advance aggregate functions and allow to read up next
+						 * data row message and get tuple in the same slot on
+						 * next iteration
+						 */
+						exec_simple_aggregates(node, scanslot);
+					}
+					else
+					{
+						/*
+						 * Receive current slot and read up next data row
+						 * message before exiting the loop. Next time when this
+						 * function is invoked we will have either data row
+						 * message ready or EOF
+						 */
+						copy_slot(node, scanslot, resultslot);
+						have_tuple = true;
+					}
 				}
 				else
 				{
@@ -2326,7 +2339,6 @@ ExecRemoteQuery(RemoteQueryState *node)
 					 * message ready or EOF
 					 */
 					copy_slot(node, scanslot, resultslot);
-					(*node->dest->receiveSlot) (resultslot, node->dest);
 					have_tuple = true;
 				}
 			}
@@ -2380,10 +2392,7 @@ ExecRemoteQuery(RemoteQueryState *node)
 		{
 			finish_simple_aggregates(node, resultslot);
 			if (!TupIsNull(resultslot))
-			{
-				(*node->dest->receiveSlot) (resultslot, node->dest);
 				have_tuple = true;
-			}
 		}
 
 		if (!have_tuple) /* report end of scan */
@@ -2405,10 +2414,232 @@ ExecRemoteQuery(RemoteQueryState *node)
 void
 ExecEndRemoteQuery(RemoteQueryState *node)
 {
-	(*node->dest->rShutdown) (node->dest);
+	/*
+	 * Release tuplesort resources
+	 */
+	if (node->tuplesortstate != NULL)
+		tuplesort_end((Tuplesortstate *) node->tuplesortstate);
+	node->tuplesortstate = NULL;
+
+	/*
+	 * shut down the subplan
+	 */
+	if (outerPlanState(node))
+		ExecEndNode(outerPlanState(node));
+
 	if (node->tmp_ctx)
 		MemoryContextDelete(node->tmp_ctx);
+
 	CloseCombiner(node);
+}
+
+/*
+ * Execute utility statement on multiple data nodes
+ * It does approximately the same as
+ *
+ * RemoteQueryState *state = ExecInitRemoteQuery(plan, estate, flags);
+ * Assert(TupIsNull(ExecRemoteQuery(state));
+ * ExecEndRemoteQuery(state)
+ *
+ * But does not need an Estate instance and does not do some unnecessary work,
+ * like allocating tuple slots.
+ */
+void
+ExecRemoteUtility(RemoteQuery *node)
+{
+	RemoteQueryState *remotestate;
+	bool		force_autocommit = node->force_autocommit;
+	bool		is_read_only = node->read_only;
+	GlobalTransactionId gxid = InvalidGlobalTransactionId;
+	Snapshot snapshot = GetActiveSnapshot();
+	DataNodeHandle **connections = NULL;
+	DataNodeHandle **primaryconnection = NULL;
+	int			regular_conn_count;
+	int			total_conn_count;
+	bool		need_tran;
+	int			i;
+
+	remotestate = CreateResponseCombiner(0, node->combine_type);
+
+	get_exec_connections(node->exec_nodes,
+						 &regular_conn_count,
+						 &total_conn_count,
+						 &connections,
+						 &primaryconnection);
+
+	if (force_autocommit)
+		need_tran = false;
+	else
+		need_tran = !autocommit || total_conn_count > 1;
+
+	if (!is_read_only)
+	{
+		if (primaryconnection)
+			register_write_nodes(1, primaryconnection);
+		register_write_nodes(regular_conn_count, connections);
+	}
+
+	gxid = GetCurrentGlobalTransactionId();
+	if (!GlobalTransactionIdIsValid(gxid))
+	{
+		if (primaryconnection)
+			pfree(primaryconnection);
+		pfree(connections);
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Failed to get next transaction ID")));
+	}
+
+	if (need_tran)
+	{
+		/*
+		 * Check if data node connections are in transaction and start
+		 * transactions on nodes where it is not started
+		 */
+		DataNodeHandle *new_connections[total_conn_count];
+		int 		new_count = 0;
+
+		if (primaryconnection && primaryconnection[0]->transaction_status != 'T')
+			new_connections[new_count++] = primaryconnection[0];
+		for (i = 0; i < regular_conn_count; i++)
+			if (connections[i]->transaction_status != 'T')
+				new_connections[new_count++] = connections[i];
+
+		if (new_count)
+			data_node_begin(new_count, new_connections, gxid);
+	}
+
+	/* See if we have a primary nodes, execute on it first before the others */
+	if (primaryconnection)
+	{
+		/* If explicit transaction is needed gxid is already sent */
+		if (!need_tran && data_node_send_gxid(primaryconnection[0], gxid))
+		{
+			pfree(connections);
+			pfree(primaryconnection);
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Failed to send command to data nodes")));
+		}
+		if (snapshot && data_node_send_snapshot(primaryconnection[0], snapshot))
+		{
+			pfree(connections);
+			pfree(primaryconnection);
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Failed to send command to data nodes")));
+		}
+		if (data_node_send_query(primaryconnection[0], node->sql_statement) != 0)
+		{
+			pfree(connections);
+			pfree(primaryconnection);
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Failed to send command to data nodes")));
+		}
+
+		Assert(remotestate->combine_type == COMBINE_TYPE_SAME);
+
+		while (remotestate->command_complete_count < 1)
+		{
+			PG_TRY();
+			{
+				data_node_receive(1, primaryconnection, NULL);
+				while (handle_response(primaryconnection[0], remotestate) == RESPONSE_EOF)
+					data_node_receive(1, primaryconnection, NULL);
+				if (remotestate->errorMessage)
+				{
+					char *code = remotestate->errorCode;
+					ereport(ERROR,
+							(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
+							 errmsg("%s", remotestate->errorMessage)));
+				}
+			}
+			/* If we got an error response return immediately */
+			PG_CATCH();
+			{
+				pfree(primaryconnection);
+				pfree(connections);
+				PG_RE_THROW();
+			}
+			PG_END_TRY();
+		}
+		pfree(primaryconnection);
+	}
+
+	for (i = 0; i < regular_conn_count; i++)
+	{
+		/* If explicit transaction is needed gxid is already sent */
+		if (!need_tran && data_node_send_gxid(connections[i], gxid))
+		{
+			pfree(connections);
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Failed to send command to data nodes")));
+		}
+		if (snapshot && data_node_send_snapshot(connections[i], snapshot))
+		{
+			pfree(connections);
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Failed to send command to data nodes")));
+		}
+		if (data_node_send_query(connections[i], node->sql_statement) != 0)
+		{
+			pfree(connections);
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Failed to send command to data nodes")));
+		}
+	}
+
+	/*
+	 * Stop if all commands are completed or we got a data row and
+	 * initialized state node for subsequent invocations
+	 */
+	while (regular_conn_count > 0)
+	{
+		int i = 0;
+
+		data_node_receive(regular_conn_count, connections, NULL);
+		/*
+		 * Handle input from the data nodes.
+		 * If we got a RESPONSE_DATAROW we can break handling to wrap
+		 * it into a tuple and return. Handling will be continued upon
+		 * subsequent invocations.
+		 * If we got 0, we exclude connection from the list. We do not
+		 * expect more input from it. In case of non-SELECT query we quit
+		 * the loop when all nodes finish their work and send ReadyForQuery
+		 * with empty connections array.
+		 * If we got EOF, move to the next connection, will receive more
+		 * data on the next iteration.
+		 */
+		while (i < regular_conn_count)
+		{
+			int res = handle_response(connections[i], remotestate);
+			if (res == RESPONSE_EOF)
+			{
+				i++;
+			}
+			else if (res == RESPONSE_COMPLETE)
+			{
+				if (i < --regular_conn_count)
+					connections[i] = connections[regular_conn_count];
+			}
+			else if (res == RESPONSE_TUPDESC)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("Unexpected response from data node")));
+			}
+			else if (res == RESPONSE_DATAROW)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("Unexpected response from data node")));
+			}
+		}
+	}
 }
 
 

@@ -650,6 +650,20 @@ pg_analyze_and_rewrite(Node *parsetree, const char *query_string,
 	 */
 	querytree_list = pg_rewrite_query(query);
 
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR)
+	{
+		ListCell   *lc;
+
+		foreach(lc, querytree_list)
+		{
+			Query *query = (Query *) lfirst(lc);
+			query->sql_statement = pstrdup(query_string);
+			query->nodeTag = nodeTag(parsetree);
+		}
+	}
+#endif
+
 	TRACE_POSTGRESQL_QUERY_REWRITE_DONE(query_string);
 
 	return querytree_list;
@@ -900,9 +914,6 @@ exec_simple_query(const char *query_string)
 		DestReceiver *receiver;
 		int16		format;
 #ifdef PGXC
-		Query_Plan *query_plan;
-		RemoteQuery *query_step;
-		bool 		exec_on_coord;
 
 		/*
 		 * By default we do not want data nodes to contact GTM directly,
@@ -910,9 +921,6 @@ exec_simple_query(const char *query_string)
 		 */
 		if (IS_PGXC_DATANODE)
 			SetForceXidFromGTM(false);
-
-		exec_on_coord = true;
-		query_plan = NULL;
 #endif
 
 		/*
@@ -968,131 +976,11 @@ exec_simple_query(const char *query_string)
 		querytree_list = pg_analyze_and_rewrite(parsetree, query_string,
 												NULL, 0);
 
-#ifdef PGXC /* PGXC_COORD */
-		if (IS_PGXC_COORDINATOR)
-		{
-			if (IsA(parsetree, TransactionStmt))
-				pgxc_transaction_stmt(parsetree);
-
-			else if (IsA(parsetree, ExecDirectStmt))
-			{
-				ExecDirectStmt *execdirect = (ExecDirectStmt *) parsetree;
-				List *inner_parse_tree_list;
-
-				Assert(IS_PGXC_COORDINATOR);
-
-				exec_on_coord = execdirect->coordinator;
-
-				/*
-				 * Switch to appropriate context for constructing parse and
-				 * query trees (these must outlive the execution context).
-				 */
-				oldcontext = MemoryContextSwitchTo(MessageContext);
-
-				inner_parse_tree_list = pg_parse_query(execdirect->query);
-				/*
-				 * we do not support complex commands (expanded to multiple
-				 * parse trees) within EXEC DIRECT
-				 */
-				if (list_length(parsetree_list) != 1)
-				{
-					ereport(ERROR,
-						   (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-							errmsg("Can not execute %s with EXECUTE DIRECT",
-								execdirect->query)));
-				}
-				parsetree = linitial(inner_parse_tree_list);
-
-				/*
-				 * Set up a snapshot if parse analysis/planning will need
-				 * one.
-				 */
-				if (analyze_requires_snapshot(parsetree))
-				{
-					PushActiveSnapshot(GetTransactionSnapshot());
-					snapshot_set = true;
-				}
-
-				querytree_list = pg_analyze_and_rewrite(parsetree,
-														query_string,
-														NULL,
-														0);
-
-				if (execdirect->nodes)
-				{
-					ListCell   *lc;
-					Query	   *query = (Query *) linitial(querytree_list);
-
-					query_plan = (Query_Plan *) palloc0(sizeof(Query_Plan));
-					query_step = makeNode(RemoteQuery);
-					query_step->plan.targetlist = query->targetList;
-					query_step->sql_statement = pstrdup(execdirect->query);
-					query_step->exec_nodes = (Exec_Nodes *) palloc0(sizeof(Exec_Nodes));
-					foreach (lc, execdirect->nodes)
-					{
-						int node = intVal(lfirst(lc));
-						query_step->exec_nodes->nodelist = lappend_int(query_step->exec_nodes->nodelist, node);
-					}
-					query_step->combine_type = COMBINE_TYPE_SAME;
-
-					query_plan->query_step_list = lappend(NULL, query_step);
-					query_plan->exec_loc_type = EXEC_ON_DATA_NODES;
-				}
-
-				/* Restore context */
-				MemoryContextSwitchTo(oldcontext);
-
-			}
-			else if (IsA(parsetree, CopyStmt))
-			{
-				CopyStmt   *copy = (CopyStmt *) parsetree;
-				uint64		processed;
-				/* Snapshot is needed for the Copy */
-				if (!snapshot_set)
-				{
-					PushActiveSnapshot(GetTransactionSnapshot());
-					snapshot_set = true;
-				}
-				/*
-				 * A check on locator is made in DoCopy to determine if the copy can be launched on
-				 * Datanode or on Coordinator.
-				 * If a table has no locator data, then IsCoordPortalCopy returns false and copy is launched
-				 * on Coordinator instead (e.g., using pg_catalog tables).
-				 * If a table has some locator data (user tables), then copy was launched normally
-				 * in Datanodes
-				 */
-				if (!IsCoordPortalCopy(copy))
-				{
-					exec_on_coord = false;
-					processed = DoCopy(copy, query_string, false);
-					snprintf(completionTag, COMPLETION_TAG_BUFSIZE,
-							 "COPY " UINT64_FORMAT, processed);
-				}
-				else
-					exec_on_coord = true;
-			}
-			else
-			{
-				query_plan = GetQueryPlan(parsetree, query_string, querytree_list);
-
-				exec_on_coord = query_plan->exec_loc_type & EXEC_ON_COORD;
-			}
-
-			/* First execute on the coordinator, if involved (DDL),  then data nodes */
-		}
-
-		plantree_list = NIL;
-		if ((IS_PGXC_COORDINATOR && exec_on_coord) || IS_PGXC_DATANODE)
-#endif
-			plantree_list = pg_plan_queries(querytree_list, 0, NULL);
+		plantree_list = pg_plan_queries(querytree_list, 0, NULL);
 
 		/* Done with the snapshot used for parsing/planning */
-#ifdef PGXC
-		/* In PG-XC, hold on to it a bit longer */
-#else
 		if (snapshot_set)
 			PopActiveSnapshot();
-#endif
 
 		/* If we got a cancel signal in analysis or planning, quit */
 		CHECK_FOR_INTERRUPTS();
@@ -1102,13 +990,6 @@ exec_simple_query(const char *query_string)
 		/* Force getting Xid from GTM if not autovacuum, but a vacuum */
 		if (IS_PGXC_DATANODE && IsA(parsetree, VacuumStmt) && IsPostmasterEnvironment)
 			SetForceXidFromGTM(true);
-
-		/*
-		 * Create and run Portal only if it is needed.
-		 * In some special cases we have nothing to run at this point
-		 */
-		if (plantree_list || query_plan)
-		{
 #endif
 
 		/*
@@ -1170,11 +1051,6 @@ exec_simple_query(const char *query_string)
 		 */
 		MemoryContextSwitchTo(oldcontext);
 
-#ifdef PGXC
-		/* Skip the Portal stuff on coordinator if command only executes on data nodes */
-		if ((IS_PGXC_COORDINATOR && exec_on_coord) || IS_PGXC_DATANODE)
-		{
-#endif
 		/*
 		 * Run the portal to completion, and then drop it (and the receiver).
 		 */
@@ -1185,54 +1061,9 @@ exec_simple_query(const char *query_string)
 						 receiver,
 						 completionTag);
 
-#ifdef PGXC
-		}
-
-		/* PGXC_COORD */
-		/* If the coordinator ran ok, now run on the data nodes if planned */
-		if (IS_PGXC_COORDINATOR)
-		{
-			if (query_plan && (query_plan->exec_loc_type & EXEC_ON_DATA_NODES))
-			{
-				RemoteQueryState *state;
-				TupleTableSlot *slot;
-				EState *estate = CreateExecutorState();
-				oldcontext = MemoryContextSwitchTo(estate->es_query_cxt);
-				query_step = linitial(query_plan->query_step_list);
-				estate->es_tupleTable = ExecCreateTupleTable(2);
-				state = ExecInitRemoteQuery(query_step, estate, 0);
-				state->dest = receiver;
-				state->completionTag = completionTag;
-				if (!snapshot_set)
-				{
-					PushActiveSnapshot(GetTransactionSnapshot());
-					snapshot_set = true;
-				}
-				do
-				{
-					slot = ExecRemoteQuery(state);
-				}
-				while (!TupIsNull(slot));
-
-				ExecEndRemoteQuery(state);
-				/* Restore context */
-				MemoryContextSwitchTo(oldcontext);
-			}
-
-			FreeQueryPlan(query_plan);
-		}
-#endif /* PGXC_COORD */
-
 		(*receiver->rDestroy) (receiver);
 
 		PortalDrop(portal, false);
-
-#ifdef PGXC
-		}
-
-		if (snapshot_set)
-			PopActiveSnapshot();
-#endif
 
 		if (IsA(parsetree, TransactionStmt))
 		{
@@ -1479,6 +1310,19 @@ exec_parse_message(const char *query_string,	/* string to execute */
 			ShowUsage("PARSE ANALYSIS STATISTICS");
 
 		querytree_list = pg_rewrite_query(query);
+#ifdef PGXC
+		if (IS_PGXC_COORDINATOR)
+		{
+			ListCell   *lc;
+
+			foreach(lc, querytree_list)
+			{
+				Query *query = (Query *) lfirst(lc);
+				query->sql_statement = pstrdup(query_string);
+				query->nodeTag = nodeTag(raw_parse_tree);
+			}
+		}
+#endif
 
 		/*
 		 * If this is the unnamed statement and it has parameters, defer query
@@ -4365,45 +4209,3 @@ log_disconnections(int code, Datum arg)
 					port->user_name, port->database_name, port->remote_host,
 				  port->remote_port[0] ? " port=" : "", port->remote_port)));
 }
-
-
-#ifdef PGXC
-/*
- * Handle transaction statements in PG-XC
- */
-void
-pgxc_transaction_stmt (Node *parsetree)
-{
-	Assert(IS_PGXC_COORDINATOR);
-
-
-	/* Handle transaction statements specially */
-	if (IsA(parsetree, TransactionStmt))
-	{
-			TransactionStmt *stmt = (TransactionStmt *) parsetree;
-
-			switch (stmt->kind)
-			{
-				case TRANS_STMT_BEGIN:
-					/*
-					 * This does not yet send down a BEGIN,
-					 * we do that "on demand" as data nodes are added
-					 */
-					DataNodeBegin();
-				break;
-
-				case TRANS_STMT_COMMIT:
-					DataNodeCommit();
-					break;
-
-				case TRANS_STMT_ROLLBACK:
-					DataNodeRollback();
-					break;
-
-				default:
-					/* Ignore others for prototype */
-					break;
-			}
-	}
-}
-#endif /* PGXC */

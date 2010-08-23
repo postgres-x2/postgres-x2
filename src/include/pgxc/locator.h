@@ -44,7 +44,7 @@ typedef struct
 
 
 /* track if tables use pg_catalog */
-typedef enum 
+typedef enum
 {
 	TABLE_USAGE_TYPE_NO_TABLE,
 	TABLE_USAGE_TYPE_PGCATALOG,
@@ -58,10 +58,10 @@ typedef enum
  * primarynodelist is for replicated table writes, where to execute first.
  * If it succeeds, only then should it be executed on nodelist.
  * primarynodelist should be set to NULL if not doing replicated write operations
- */ 
+ */
 typedef struct
 {
-	List	   *primarynodelist; 
+	List	   *primarynodelist;
 	List	   *nodelist;
 	char	    baselocatortype;
 	TableUsageType tableusagetype;  /* track pg_catalog usage */

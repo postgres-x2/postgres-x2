@@ -51,9 +51,7 @@ typedef struct RemoteQueryState
 	int			conn_count;				/* count of active connections */
 	int			current_conn;			/* used to balance load when reading from connections */
 	CombineType combine_type;			/* see CombineType enum */
-	DestReceiver *dest;					/* output destination */
 	int			command_complete_count; /* count of received CommandComplete messages */
-	uint64		row_count;				/* how many rows affected by the query */
 	RequestType request_type;			/* see RequestType enum */
 	TupleDesc	tuple_desc;				/* tuple descriptor to be referenced by emitted tuples */
 	int			description_count;		/* count of received RowDescription messages */
@@ -62,7 +60,6 @@ typedef struct RemoteQueryState
 	char		errorCode[5];			/* error code to send back to client */
 	char	   *errorMessage;			/* error message to send back to client */
 	bool		query_Done;				/* query has been sent down to data nodes */
-	char	   *completionTag;          /* completion tag to present to caller */
 	char	   *msg;					/* last data row message */
 	int 		msglen;					/* length of the data row message */
 	/*
@@ -76,6 +73,7 @@ typedef struct RemoteQueryState
 	FmgrInfo   *eqfunctions; 			/* functions to compare tuples */
 	MemoryContext tmp_ctx;				/* separate context is needed to compare tuples */
 	FILE	   *copy_file;      		/* used if copy_dest == COPY_FILE */
+	uint64		processed;				/* count of data rows when running CopyOut */
 }	RemoteQueryState;
 
 /* Multinode Executor */
@@ -86,11 +84,13 @@ extern int	DataNodeRollback(void);
 extern DataNodeHandle** DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_from);
 extern int DataNodeCopyIn(char *data_row, int len, Exec_Nodes *exec_nodes, DataNodeHandle** copy_connections);
 extern uint64 DataNodeCopyOut(Exec_Nodes *exec_nodes, DataNodeHandle** copy_connections, FILE* copy_file);
-extern uint64 DataNodeCopyFinish(DataNodeHandle** copy_connections, int primary_data_node, CombineType combine_type);
+extern void DataNodeCopyFinish(DataNodeHandle** copy_connections, int primary_data_node, CombineType combine_type);
 
+extern int ExecCountSlotsRemoteQuery(RemoteQuery *node);
 extern RemoteQueryState *ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags);
 extern TupleTableSlot* ExecRemoteQuery(RemoteQueryState *step);
 extern void ExecEndRemoteQuery(RemoteQueryState *step);
+extern void ExecRemoteUtility(RemoteQuery *node);
 
 extern int handle_response(DataNodeHandle * conn, RemoteQueryState *combiner);
 extern bool FetchTuple(RemoteQueryState *combiner, TupleTableSlot *slot);

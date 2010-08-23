@@ -286,6 +286,17 @@ ChoosePortalStrategy(List *stmts)
 				}
 			}
 		}
+#ifdef PGXC
+		else if (IsA(stmt, RemoteQuery))
+		{
+			/*
+			 * Let's choose PORTAL_ONE_SELECT for now
+			 * After adding more PGXC functionality we may have more
+			 * sophisticated algorithm of determining portal strategy
+			 */
+			return PORTAL_ONE_SELECT;
+		}
+#endif
 		else if (IsA(stmt, PlannedStmt))
 		{
 			PlannedStmt *pstmt = (PlannedStmt *) stmt;

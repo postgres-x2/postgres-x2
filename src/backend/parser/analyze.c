@@ -39,6 +39,11 @@
 #include "parser/parse_target.h"
 #include "parser/parsetree.h"
 #include "rewrite/rewriteManip.h"
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#include "pgxc/planner.h"
+#include "tcop/tcopprot.h"
+#endif
 #include "utils/rel.h"
 
 
@@ -58,6 +63,10 @@ static Query *transformDeclareCursorStmt(ParseState *pstate,
 						   DeclareCursorStmt *stmt);
 static Query *transformExplainStmt(ParseState *pstate,
 					 ExplainStmt *stmt);
+#ifdef PGXC
+static Query *transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt);
+#endif
+
 static void transformLockingClause(ParseState *pstate,
 					   Query *qry, LockingClause *lc);
 static bool check_parameter_resolution_walker(Node *node, ParseState *pstate);
@@ -199,6 +208,13 @@ transformStmt(ParseState *pstate, Node *parseTree)
 										  (ExplainStmt *) parseTree);
 			break;
 
+#ifdef PGXC
+		case T_ExecDirectStmt:
+			result = transformExecDirectStmt(pstate,
+											 (ExecDirectStmt *) parseTree);
+			break;
+#endif
+
 		default:
 
 			/*
@@ -262,6 +278,17 @@ analyze_requires_snapshot(Node *parseTree)
 			 */
 			result = true;
 			break;
+
+#ifdef PGXC
+		case T_ExecDirectStmt:
+
+			/*
+			 * We will parse/analyze/plan inner query, which probably will
+			 * need a snapshot. Ensure it is set.
+			 */
+			result = true;
+			break;
+#endif
 
 		default:
 			/* utility statements don't have any active parse analysis */
@@ -1925,6 +1952,25 @@ transformExplainStmt(ParseState *pstate, ExplainStmt *stmt)
 	return result;
 }
 
+#ifdef PGXC
+/*
+ * transformExecDirectStmt -
+ *	transform an EXECUTE DIRECT Statement
+ *
+ * Handling is depends if we should execute on nodes or on coordinator.
+ * To execute on nodes we return CMD_UTILITY query having one T_RemoteQuery node
+ * with the inner statement as a sql_command.
+ * If statement is to run on coordinator we should parse inner statement and
+ * analyze resulting query tree.
+ */
+static Query *
+transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
+{
+	ereport(ERROR,
+			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+			 errmsg("Support for EXECUTE DIRECT is temporary broken")));
+}
+#endif
 
 /* exported so planner can check again after rewriting, query pullup, etc */
 void

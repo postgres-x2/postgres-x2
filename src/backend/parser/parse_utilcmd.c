@@ -52,6 +52,7 @@
 #ifdef PGXC
 #include "pgxc/locator.h"
 #include "pgxc/pgxc.h"
+#include "pgxc/planner.h"
 #endif
 
 #include "rewrite/rewriteManip.h"
@@ -261,15 +262,22 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString)
 	result = list_concat(result, save_alist);
 
 #ifdef PGXC
-	/* 
-	 * If the user did not specify any distribution clause and there is no 
-	 * inherits clause, try and use PK or unique index 
+	/*
+	 * If the user did not specify any distribution clause and there is no
+	 * inherits clause, try and use PK or unique index
 	 */
 	if (!stmt->distributeby && !stmt->inhRelations && cxt.fallback_dist_col)
 	{
 		stmt->distributeby = (DistributeBy *) palloc0(sizeof(DistributeBy));
 		stmt->distributeby->disttype = DISTTYPE_HASH;
 		stmt->distributeby->colname = cxt.fallback_dist_col;
+	}
+	if (IS_PGXC_COORDINATOR)
+	{
+		RemoteQuery *step = makeNode(RemoteQuery);
+		step->combine_type = COMBINE_TYPE_SAME;
+		step->sql_statement = queryString;
+		result = lappend(result, step);
 	}
 #endif
 	return result;
@@ -1171,7 +1179,7 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 			   {
 					if (cxt->distributeby)
 						isLocalSafe = CheckLocalIndexColumn (
-								ConvertToLocatorType(cxt->distributeby->disttype), 
+								ConvertToLocatorType(cxt->distributeby->disttype),
 								cxt->distributeby->colname, key);
 			   }
 #endif
@@ -1273,7 +1281,7 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 		{
 			/*
 			 * Set fallback distribution column.
-			 * If not set, set it to first column in index. 
+			 * If not set, set it to first column in index.
 			 * If primary key, we prefer that over a unique constraint.
 			 */
 			if (index->indexParams == NIL
@@ -1281,7 +1289,7 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 			{
 				cxt->fallback_dist_col = pstrdup(key);
 			}
-	
+
 			/* Existing table, check if it is safe */
 			if (!cxt->distributeby && !isLocalSafe)
 				isLocalSafe = CheckLocalIndexColumn (
@@ -1299,7 +1307,7 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 		index->indexParams = lappend(index->indexParams, iparam);
 	}
 #ifdef PGXC
-		if (IS_PGXC_COORDINATOR && cxt->distributeby 
+		if (IS_PGXC_COORDINATOR && cxt->distributeby
 				&& cxt->distributeby->disttype == DISTTYPE_HASH && !isLocalSafe)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
@@ -1618,7 +1626,7 @@ transformRuleStmt(RuleStmt *stmt, const char *queryString,
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
 						 errmsg("Rule may not use NOTIFY, it is not yet supported")));
-				
+
 #endif
 			/*
 			 * Since outer ParseState isn't parent of inner, have to pass down
@@ -1956,7 +1964,15 @@ transformAlterTableStmt(AlterTableStmt *stmt, const char *queryString)
 	result = lappend(cxt.blist, stmt);
 	result = list_concat(result, cxt.alist);
 	result = list_concat(result, save_alist);
-
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR)
+	{
+		RemoteQuery *step = makeNode(RemoteQuery);
+		step->combine_type = COMBINE_TYPE_SAME;
+		step->sql_statement = queryString;
+		result = lappend(result, step);
+	}
+#endif
 	return result;
 }
 

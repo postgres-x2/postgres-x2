@@ -17,15 +17,13 @@
 
 #include "fmgr.h"
 #include "lib/stringinfo.h"
+#include "nodes/params.h"
+#include "nodes/parsenodes.h"
 #include "nodes/plannodes.h"
 #include "nodes/primnodes.h"
 #include "pgxc/locator.h"
 #include "tcop/dest.h"
 
-
-/* for Query_Plan.exec_loc_type can have these OR'ed*/
-#define EXEC_ON_COORD 0x1
-#define EXEC_ON_DATA_NODES 0x2
 
 typedef enum
 {
@@ -70,18 +68,6 @@ typedef struct
 	bool		read_only;          /* do not use 2PC when committing read only steps */
     bool		force_autocommit;	/* some commands like VACUUM require autocommit mode */
 } RemoteQuery;
-
-
-/*
- * The PGXC plan to execute.
- * In the prototype this will be simple, and queryStepList will
- * contain just one step.
- */
-typedef struct
-{
-	int			exec_loc_type;
-	List	   *query_step_list;	/* List of QuerySteps */
-} Query_Plan;
 
 
 /* For handling simple aggregates (no group by present)
@@ -154,9 +140,8 @@ extern bool StrictStatementChecking;
 /* forbid SELECT even multi-node ORDER BY */
 extern bool StrictSelectChecking;
 
-extern Query_Plan *GetQueryPlan(Node *parsetree, const char *sql_statement,
-								List *querytree_list);
-extern void FreeQueryPlan(Query_Plan *query_plan);
+extern PlannedStmt *pgxc_planner(Query *query, int cursorOptions,
+								 ParamListInfo boundParams);
 extern bool IsHashDistributable(Oid col_type);
 
 #endif   /* PGXCPLANNER_H */

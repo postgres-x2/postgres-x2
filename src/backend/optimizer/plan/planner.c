@@ -38,6 +38,10 @@
 #include "parser/parse_expr.h"
 #include "parser/parse_oper.h"
 #include "parser/parsetree.h"
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#include "pgxc/planner.h"
+#endif
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
 
@@ -119,7 +123,12 @@ planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	if (planner_hook)
 		result = (*planner_hook) (parse, cursorOptions, boundParams);
 	else
-		result = standard_planner(parse, cursorOptions, boundParams);
+#ifdef PGXC
+		if (IS_PGXC_COORDINATOR)
+			result = pgxc_planner(parse, cursorOptions, boundParams);
+		else
+#endif
+			result = standard_planner(parse, cursorOptions, boundParams);
 	return result;
 }
 

@@ -146,6 +146,11 @@ typedef struct Query
 
 	Node	   *setOperations;	/* set-operation tree if this is top level of
 								 * a UNION/INTERSECT/EXCEPT query */
+#ifdef PGXC
+	/* need this info for PGXC Planner, may be temporary */
+	char	   *sql_statement;	/* original query */
+	NodeTag		nodeTag;		/* node tag of top node of parse tree */
+#endif
 } Query;
 
 

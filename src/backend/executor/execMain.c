@@ -858,6 +858,14 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 		{
 			case CMD_SELECT:
 			case CMD_INSERT:
+#ifdef PGXC
+			/*
+			 * PGXC RemoteQuery do not require ctid junk field, so follow
+			 * standard procedure for UPDATE and DELETE
+			 */
+			case CMD_UPDATE:
+			case CMD_DELETE:
+#endif
 				foreach(tlist, plan->targetlist)
 				{
 					TargetEntry *tle = (TargetEntry *) lfirst(tlist);
@@ -869,10 +877,12 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 					}
 				}
 				break;
+#ifndef PGXC
 			case CMD_UPDATE:
 			case CMD_DELETE:
 				junk_filter_needed = true;
 				break;
+#endif
 			default:
 				break;
 		}

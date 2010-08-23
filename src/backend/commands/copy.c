@@ -179,7 +179,6 @@ typedef struct CopyStateData
 	/* Locator information */
 	RelationLocInfo *rel_loc;	/* the locator key */
 	int			hash_idx;		/* index of the hash column */
-	bool		on_coord;
 
 	DataNodeHandle **connections; /* Involved data node connections */
 #endif
@@ -800,31 +799,6 @@ CopyQuoteIdentifier(StringInfo query_buf, char *value)
 }
 #endif
 
-#ifdef PGXC
-/*
- * In case there is no locator info available, copy to/from is launched in portal on coordinator.
- * This happens for pg_catalog tables (not user defined ones)
- * such as pg_catalog, pg_attribute, etc.
- * This part is launched before the portal is activated, so check a first time if there
- * some locator data for this relid and if no, return and launch the portal.
- */
-bool
-IsCoordPortalCopy(const CopyStmt *stmt)
-{
-	RelationLocInfo	   *rel_loc;   /* the locator key */
-
-	/* In the case of a COPY SELECT, this is launched on datanodes */
-	if(!stmt->relation)
-		return false;
-
-	rel_loc = GetRelationLocInfo(RangeVarGetRelid(stmt->relation, true));
-
-	if (!rel_loc)
-		return true;
-
-	return false;
-}
-#endif
 
 /*
  *	 DoCopy executes the SQL COPY statement
@@ -857,11 +831,7 @@ IsCoordPortalCopy(const CopyStmt *stmt)
  * the table or the specifically requested columns.
  */
 uint64
-#ifdef PGXC
-DoCopy(const CopyStmt *stmt, const char *queryString, bool exec_on_coord_portal)
-#else
 DoCopy(const CopyStmt *stmt, const char *queryString)
-#endif
 {
 	CopyState	cstate;
 	bool		is_from = stmt->is_from;
@@ -882,16 +852,6 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 
 	/* Allocate workspace and zero all fields */
 	cstate = (CopyStateData *) palloc0(sizeof(CopyStateData));
-
-#ifdef PGXC
-	/*
-	 * Copy to/from is initialized as being launched on datanodes
-	 * This functionnality is particularly interesting to have a result for
-	 * tables who have no locator informations such as pg_catalog, pg_class,
-	 * and pg_attribute.
-	 */
-	cstate->on_coord = false;
-#endif
 
 	/* Extract options from the statement node tree */
 	foreach(option, stmt->options)
@@ -1180,13 +1140,15 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 
 			exec_nodes = (Exec_Nodes *) palloc0(sizeof(Exec_Nodes));
 
+			/*
+			 * If target table does not exists on nodes (e.g. system table)
+			 * the location info returned is NULL. This is the criteria, when
+			 * we need to run Copy on coordinator
+			 */
 			cstate->rel_loc = GetRelationLocInfo(RelationGetRelid(cstate->rel));
 
-			if (exec_on_coord_portal)
-				cstate->on_coord = true;
-
 			hash_att = GetRelationHashColumn(cstate->rel_loc);
-			if (!cstate->on_coord)
+			if (cstate->rel_loc)
 			{
 				if (is_from || hash_att)
 					exec_nodes->nodelist = list_copy(cstate->rel_loc->nodeList);
@@ -1481,7 +1443,7 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 		 * In the case of CopyOut, it is just necessary to pick up one node randomly.
 		 * This is done when rel_loc is found.
 		 */
-		if (!cstate->on_coord)
+		if (cstate->rel_loc)
 		{
 			cstate->connections = DataNodeCopyBegin(cstate->query_buf.data,
 					exec_nodes->nodelist,
@@ -1506,7 +1468,7 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 	}
 	PG_CATCH();
 	{
-		if (IS_PGXC_COORDINATOR && is_from && !cstate->on_coord)
+		if (IS_PGXC_COORDINATOR && is_from && cstate->rel_loc)
 		{
 			DataNodeCopyFinish(
 					cstate->connections,
@@ -1519,18 +1481,13 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 		PG_RE_THROW();
 	}
 	PG_END_TRY();
-	if (IS_PGXC_COORDINATOR && is_from && !cstate->on_coord)
+	if (IS_PGXC_COORDINATOR && is_from && cstate->rel_loc)
 	{
-		if (cstate->rel_loc->locatorType == LOCATOR_TYPE_REPLICATED)
-			cstate->processed = DataNodeCopyFinish(
-					cstate->connections,
-					primary_data_node,
-					COMBINE_TYPE_SAME);
-		else
-			cstate->processed = DataNodeCopyFinish(
-					cstate->connections,
-					0,
-					COMBINE_TYPE_SUM);
+		bool replicated = cstate->rel_loc->locatorType == LOCATOR_TYPE_REPLICATED;
+		DataNodeCopyFinish(
+				cstate->connections,
+				replicated ? primary_data_node : 0,
+				replicated ? COMBINE_TYPE_SAME : COMBINE_TYPE_SUM);
 		pfree(cstate->connections);
 		pfree(cstate->query_buf.data);
 		FreeRelationLocInfo(cstate->rel_loc);
@@ -1770,7 +1727,7 @@ CopyTo(CopyState cstate)
 	}
 
 #ifdef PGXC
-    if (IS_PGXC_COORDINATOR && !cstate->on_coord)
+    if (IS_PGXC_COORDINATOR && cstate->rel_loc)
 	{
 		cstate->processed = DataNodeCopyOut(
 				GetRelationNodes(cstate->rel_loc, NULL, true),
@@ -2480,7 +2437,7 @@ CopyFrom(CopyState cstate)
 		}
 
 #ifdef PGXC
-		if (IS_PGXC_COORDINATOR && !cstate->on_coord)
+		if (IS_PGXC_COORDINATOR && cstate->rel_loc)
 		{
 			Datum 	   *hash_value = NULL;
 
@@ -2494,6 +2451,7 @@ CopyFrom(CopyState cstate)
 				ereport(ERROR,
 						(errcode(ERRCODE_CONNECTION_EXCEPTION),
 						 errmsg("Copy failed on a data node")));
+			cstate->processed++;
 		}
 		else
 		{
