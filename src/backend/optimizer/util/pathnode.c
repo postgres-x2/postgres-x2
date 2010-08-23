@@ -1310,6 +1310,28 @@ create_worktablescan_path(PlannerInfo *root, RelOptInfo *rel)
 	return pathnode;
 }
 
+#ifdef PGXC
+/*
+ * create_remotequery_path
+ *	  Creates a path corresponding to a scan of a remote query,
+ *	  returning the pathnode.
+ */
+Path *
+create_remotequery_path(PlannerInfo *root, RelOptInfo *rel)
+{
+	Path	   *pathnode = makeNode(Path);
+
+	pathnode->pathtype = T_RemoteQuery;
+	pathnode->parent = rel;
+	pathnode->pathkeys = NIL;	/* result is always unordered */
+
+	// PGXCTODO - set cost properly
+	cost_seqscan(pathnode, root, rel);
+
+	return pathnode;
+}
+#endif
+
 /*
  * create_nestloop_path
  *	  Creates a pathnode corresponding to a nestloop join between two

@@ -56,6 +56,9 @@ extern Path *create_functionscan_path(PlannerInfo *root, RelOptInfo *rel);
 extern Path *create_valuesscan_path(PlannerInfo *root, RelOptInfo *rel);
 extern Path *create_ctescan_path(PlannerInfo *root, RelOptInfo *rel);
 extern Path *create_worktablescan_path(PlannerInfo *root, RelOptInfo *rel);
+#ifdef PGXC
+extern Path *create_remotequery_path(PlannerInfo *root, RelOptInfo *rel);
+#endif
 
 extern NestPath *create_nestloop_path(PlannerInfo *root,
 					 RelOptInfo *joinrel,

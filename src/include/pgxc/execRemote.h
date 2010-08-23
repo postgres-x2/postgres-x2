@@ -95,6 +95,7 @@ extern void ExecRemoteUtility(RemoteQuery *node);
 extern int handle_response(DataNodeHandle * conn, RemoteQueryState *combiner);
 extern bool FetchTuple(RemoteQueryState *combiner, TupleTableSlot *slot);
 
-extern int primary_data_node;
+extern void ExecRemoteQueryReScan(RemoteQueryState *node, ExprContext *exprCtxt);
 
+extern int primary_data_node;
 #endif

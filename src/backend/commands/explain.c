@@ -565,6 +565,11 @@ explain_outNode(StringInfo str,
 		case T_WorkTableScan:
 			pname = "WorkTable Scan";
 			break;
+#ifdef PGXC
+		case T_RemoteQuery:
+			pname = "Data Node Scan";
+			break;
+#endif
 		case T_Material:
 			pname = "Materialize";
 			break;
@@ -668,6 +673,9 @@ explain_outNode(StringInfo str,
 		case T_SeqScan:
 		case T_BitmapHeapScan:
 		case T_TidScan:
+#ifdef PGXC
+		case T_RemoteQuery:
+#endif
 			if (((Scan *) plan)->scanrelid > 0)
 			{
 				RangeTblEntry *rte = rt_fetch(((Scan *) plan)->scanrelid,
@@ -686,6 +694,26 @@ explain_outNode(StringInfo str,
 					appendStringInfo(str, " %s",
 									 quote_identifier(rte->eref->aliasname));
 			}
+#ifdef PGXC
+			if (IsA(plan, RemoteQuery))
+			{
+				RemoteQuery *remote_query = (RemoteQuery *) plan;
+
+				/* if it is a single-step plan, print out the sql being used */
+				if (remote_query->sql_statement)
+				{
+					char *realsql = NULL;
+					realsql = strcasestr(remote_query->sql_statement, "explain");
+					if (!realsql)
+						realsql = remote_query->sql_statement;
+					else
+						realsql += 8; /* skip "EXPLAIN" */
+
+					appendStringInfo(str, " %s",
+								 quote_identifier(realsql));
+				}
+			}
+#endif
 			break;
 		case T_BitmapIndexScan:
 			appendStringInfo(str, " on %s",
@@ -854,6 +882,9 @@ explain_outNode(StringInfo str,
 		case T_ValuesScan:
 		case T_CteScan:
 		case T_WorkTableScan:
+#ifdef PGXC
+		case T_RemoteQuery:
+#endif
 			show_scan_qual(plan->qual,
 						   "Filter",
 						   ((Scan *) plan)->scanrelid,

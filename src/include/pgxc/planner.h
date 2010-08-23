@@ -58,7 +58,8 @@ typedef struct
  */
 typedef struct
 {
-	Plan		plan;
+	Scan		scan;
+	bool		is_single_step;		/* special case, skip extra work */
 	char	   *sql_statement;
 	Exec_Nodes *exec_nodes;
 	CombineType combine_type;

@@ -22,6 +22,9 @@
 #include "optimizer/clauses.h"
 #include "optimizer/planmain.h"
 #include "optimizer/tlist.h"
+#ifdef PGXC
+#include "pgxc/planner.h"
+#endif
 #include "parser/parsetree.h"
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
@@ -369,6 +372,19 @@ set_plan_refs(PlannerGlobal *glob, Plan *plan, int rtoffset)
 					fix_scan_list(glob, splan->scan.plan.qual, rtoffset);
 			}
 			break;
+#ifdef PGXC
+		case T_RemoteQuery:
+			{
+				RemoteQuery    *splan = (RemoteQuery *) plan;
+
+				splan->scan.scanrelid += rtoffset;
+				splan->scan.plan.targetlist =
+					fix_scan_list(glob, splan->scan.plan.targetlist, rtoffset);
+				splan->scan.plan.qual =
+					fix_scan_list(glob, splan->scan.plan.qual, rtoffset);
+			}
+			break;
+#endif
 		case T_NestLoop:
 		case T_MergeJoin:
 		case T_HashJoin:

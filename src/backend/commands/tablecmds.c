@@ -2915,6 +2915,20 @@ ATRewriteTables(List **wqueue)
 		}
 	}
 
+#ifdef PGXC
+	/* 
+	 * In PGXC, do not check the FK constraints on the Coordinator, and just return
+	 * That is because a SELECT is generated whose plan will try and use
+	 * the data nodes. We (currently) do not want to do that on the Coordinator,
+	 * when the command is passed down to the data nodes it will
+	 * peform the check locally.
+	 * This issue was introduced when we added multi-step handling,
+	 * it caused foreign key constraints to fail.
+	 * PGXCTODO - issue for pg_catalog or any other cases?
+	 */
+	if (IS_PGXC_COORDINATOR)
+		return;
+#endif
 	/*
 	 * Foreign key constraints are checked in a final pass, since (a) it's
 	 * generally best to examine each one separately, and (b) it's at least

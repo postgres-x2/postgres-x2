@@ -17,6 +17,7 @@
 
 #include <math.h>
 
+#include "catalog/pg_namespace.h"
 #include "nodes/nodeFuncs.h"
 #ifdef OPTIMIZER_DEBUG
 #include "nodes/print.h"
@@ -32,7 +33,11 @@
 #include "optimizer/var.h"
 #include "parser/parse_clause.h"
 #include "parser/parsetree.h"
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#endif
 #include "rewrite/rewriteManip.h"
+#include "utils/lsyscache.h"
 
 
 /* These parameters are set by GUC */
@@ -253,6 +258,18 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 	 * least one dimension of cost or sortedness.
 	 */
 
+#ifdef PGXC
+	/*
+	 * If we are on the coordinator, we always want to use
+	 * the remote query path unless it is a pg_catalog table.
+	 */
+	if (IS_PGXC_COORDINATOR
+				&& get_rel_namespace(rte->relid) != PG_CATALOG_NAMESPACE)
+		add_path(rel, create_remotequery_path(root, rel));
+	else
+	{
+#endif
+
 	/* Consider sequential scan */
 	add_path(rel, create_seqscan_path(root, rel));
 
@@ -261,6 +278,9 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 	/* Consider TID scans */
 	create_tidscan_paths(root, rel);
+#ifdef PGXC
+	}
+#endif
 
 	/* Now find the cheapest of the paths for this rel */
 	set_cheapest(rel);

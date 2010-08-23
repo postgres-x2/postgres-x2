@@ -30,6 +30,8 @@
 #include "utils/tuplesort.h"
 #include "utils/snapmgr.h"
 
+extern char *deparseSql(RemoteQueryState *scanstate);
+
 /*
  * Buffer size does not affect performance significantly, just do not allow
  * connection buffer grows infinitely
@@ -1461,8 +1463,8 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_
 		{
 			if (need_tran)
 				DataNodeCopyFinish(connections, 0, COMBINE_TYPE_NONE);
-			else
-				if (!PersistentConnections) release_handles();
+			else if (!PersistentConnections)
+				release_handles();
 		}
 
 		pfree(connections);
@@ -1812,21 +1814,44 @@ ExecCountSlotsRemoteQuery(RemoteQuery *node)
 RemoteQueryState *
 ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 {
-	RemoteQueryState *remotestate;
+	RemoteQueryState   *remotestate;
+	Relation			currentRelation;
+
 
 	remotestate = CreateResponseCombiner(0, node->combine_type);
 	remotestate->ss.ps.plan = (Plan *) node;
 	remotestate->ss.ps.state = estate;
 	remotestate->simple_aggregates = node->simple_aggregates;
 
+	remotestate->ss.ps.qual = (List *)
+		ExecInitExpr((Expr *) node->scan.plan.qual,
+					 (PlanState *) remotestate);
+
 	ExecInitResultTupleSlot(estate, &remotestate->ss.ps);
-	if (node->plan.targetlist)
+	if (node->scan.plan.targetlist)
 	{
-		TupleDesc typeInfo = ExecCleanTypeFromTL(node->plan.targetlist, false);
+		TupleDesc typeInfo = ExecCleanTypeFromTL(node->scan.plan.targetlist, false);
 		ExecSetSlotDescriptor(remotestate->ss.ps.ps_ResultTupleSlot, typeInfo);
 	}
 
 	ExecInitScanTupleSlot(estate, &remotestate->ss);
+
+	/*
+	 * Initialize scan relation. get the relation object id from the
+	 * relid'th entry in the range table, open that relation and acquire
+	 * appropriate lock on it.
+	 * This is needed for deparseSQL
+	 * We should remove these lines once we plan and deparse earlier.
+	 */
+	if (!node->is_single_step)
+	{
+		currentRelation = ExecOpenScanRelation(estate, node->scan.scanrelid);
+		remotestate->ss.ss_currentRelation = currentRelation;
+		ExecAssignScanType(&remotestate->ss, RelationGetDescr(currentRelation));
+	}
+
+	remotestate->ss.ps.ps_TupFromTlist = false;
+
 	/*
 	 * Tuple description for the scan slot will be set on runtime from
 	 * a RowDescription message
@@ -1991,7 +2016,6 @@ TupleTableSlot *
 ExecRemoteQuery(RemoteQueryState *node)
 {
 	RemoteQuery    *step = (RemoteQuery *) node->ss.ps.plan;
-	EState		   *estate = node->ss.ps.state;
 	TupleTableSlot *resultslot = node->ss.ps.ps_ResultTupleSlot;
 	TupleTableSlot *scanslot = node->ss.ss_ScanTupleSlot;
 	bool have_tuple = false;
@@ -2091,6 +2115,11 @@ ExecRemoteQuery(RemoteQueryState *node)
 			if (new_count)
 				data_node_begin(new_count, new_connections, gxid);
 		}
+
+		/* Get the SQL string */
+		/* only do if not single step */
+		if (!step->is_single_step)
+			step->sql_statement = deparseSql(node);
 
 		/* See if we have a primary nodes, execute on it first before the others */
 		if (primaryconnection)
@@ -2427,11 +2456,34 @@ ExecEndRemoteQuery(RemoteQueryState *node)
 	if (outerPlanState(node))
 		ExecEndNode(outerPlanState(node));
 
+	if (node->ss.ss_currentRelation)
+		ExecCloseScanRelation(node->ss.ss_currentRelation);
+
 	if (node->tmp_ctx)
 		MemoryContextDelete(node->tmp_ctx);
 
 	CloseCombiner(node);
 }
+
+ 
+/* ----------------------------------------------------------------
+ *		ExecRemoteQueryReScan
+ *
+ *		Rescans the relation.
+ * ----------------------------------------------------------------
+ */
+void
+ExecRemoteQueryReScan(RemoteQueryState *node, ExprContext *exprCtxt)
+{
+	/* At the moment we materialize results for multi-step queries,
+	 * so no need to support rescan.
+	// PGXCTODO - rerun Init?
+	//node->routine->ReOpen(node);
+
+	//ExecScanReScan((ScanState *) node);
+	*/
+}
+
 
 /*
  * Execute utility statement on multiple data nodes

@@ -1926,6 +1926,12 @@ finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params)
 				bms_add_member(context.paramids,
 							   ((WorkTableScan *) plan)->wtParam);
 			break;
+#ifdef PGXC
+		case T_RemoteQuery:
+			//PGXCTODO
+			context.paramids = bms_add_members(context.paramids, valid_params);
+			break;
+#endif
 
 		case T_Append:
 			{

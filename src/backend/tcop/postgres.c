@@ -198,8 +198,6 @@ static void log_disconnections(int code, Datum arg);
 
 
 #ifdef PGXC /* PGXC_DATANODE */
-static void pgxc_transaction_stmt (Node *parsetree);
-
 /* ----------------------------------------------------------------
  *		PG-XC routines
  * ----------------------------------------------------------------

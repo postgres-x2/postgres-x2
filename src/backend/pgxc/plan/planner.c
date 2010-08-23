@@ -25,6 +25,7 @@
 #include "nodes/nodes.h"
 #include "nodes/parsenodes.h"
 #include "optimizer/clauses.h"
+#include "optimizer/planmain.h"
 #include "optimizer/planner.h"
 #include "optimizer/tlist.h"
 #include "parser/parse_agg.h"
@@ -141,7 +142,7 @@ bool		StrictSelectChecking = false;
 static Exec_Nodes *get_plan_nodes(Query *query, bool isRead);
 static bool get_plan_nodes_walker(Node *query_node, XCWalkerContext *context);
 static bool examine_conditions_walker(Node *expr_node, XCWalkerContext *context);
-
+static int handle_limit_offset(RemoteQuery *query_step, Query *query, PlannedStmt *plan_stmt);
 
 /*
  * True if both lists contain only one node and are the same
@@ -1528,16 +1529,6 @@ get_simple_aggregates(Query * query)
 
 				simple_agg_list = lappend(simple_agg_list, simple_agg);
 			}
-			else
-  			{
-				/*
-				 * PGXCTODO relax this limit after adding GROUP BY support
-				 * then support expressions of aggregates
-				 */
-  				ereport(ERROR,
-						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-						 (errmsg("Query is not yet supported"))));
-  			}
 			column_pos++;
   		}
   	}
@@ -1629,7 +1620,7 @@ reconstruct_step_query(List *rtable, bool has_order_by, List *extra_sort,
 {
 	List	   *context;
 	bool		useprefix;
-	List	   *sub_tlist = step->plan.targetlist;
+	List	   *sub_tlist = step->scan.plan.targetlist;
 	ListCell   *l;
 	StringInfo	buf = makeStringInfo();
 	char	   *sql;
@@ -1737,7 +1728,7 @@ make_simple_sort_from_sortclauses(Query *query, RemoteQuery *step)
 {
 	List 	   *sortcls = query->sortClause;
 	List	   *distinctcls = query->distinctClause;
-	List	   *sub_tlist = step->plan.targetlist;
+	List	   *sub_tlist = step->scan.plan.targetlist;
 	SimpleSort *sort;
 	SimpleDistinct *distinct;
 	ListCell   *l;
@@ -1978,6 +1969,100 @@ make_simple_sort_from_sortclauses(Query *query, RemoteQuery *step)
 }
 
 /*
+ * Special case optimization.
+ * Handle LIMIT and OFFSET for single-step queries on multiple nodes.
+ *
+ * Return non-zero if we need to fall back to the standard plan.
+ */
+static int
+handle_limit_offset(RemoteQuery *query_step, Query *query, PlannedStmt *plan_stmt)
+{
+
+	/* check if no special handling needed */
+	if (query_step && query_step->exec_nodes &&
+				list_length(query_step->exec_nodes->nodelist) <= 1)
+		return 0;
+
+	/* if order by and limit are present, do not optimize yet */
+	if ((query->limitCount || query->limitOffset) && query->sortClause)
+		return 1;
+
+	/*
+	 * Note that query_step->is_single_step is set to true, but
+	 * it is ok even if we add limit here.
+	 * If OFFSET is set, we strip the final offset value and add
+	 * it to the LIMIT passed down. If there is an OFFSET and no
+	 * LIMIT, we just strip off OFFSET.
+	 */
+	if (query->limitOffset)
+	{
+		int64 newLimit = 0;
+		char *newpos;
+		char *pos;
+		char *limitpos;
+		char *newQuery;
+		char *newchar;
+		char *c;
+
+		pos = NULL;
+		newpos = NULL;
+
+		if (query->limitCount)
+		{
+			for (pos = query_step->sql_statement, newpos = pos; newpos != NULL; )
+			{
+				pos = newpos;
+				newpos = strcasestr(pos+1, "LIMIT");
+			}
+			limitpos = pos;
+
+			if (IsA(query->limitCount, Const))
+				newLimit = DatumGetInt64(((Const *) query->limitCount)->constvalue);
+			else
+				return 1;
+		}
+
+		for (pos = query_step->sql_statement, newpos = pos; newpos != NULL; )
+		{
+			pos = newpos;
+			newpos = strcasestr(pos+1, "OFFSET");
+		}
+
+		if (limitpos && limitpos < pos)
+			pos = limitpos;
+
+		if (IsA(query->limitOffset, Const))
+			newLimit += DatumGetInt64(((Const *) query->limitOffset)->constvalue);
+		else
+			return 1;
+
+		if (!pos || pos == query_step->sql_statement)
+			elog(ERROR, "Could not handle LIMIT/OFFSET");
+
+		newQuery = (char *) palloc(strlen(query_step->sql_statement)+1);
+		newchar = newQuery;
+
+		/* copy up until position where we found clause */
+		for (c = &query_step->sql_statement[0]; c != pos && *c != '\0'; *newchar++ = *c++);
+
+		if (query->limitCount)
+			sprintf(newchar, "LIMIT %I64d", newLimit);
+		else
+			*newchar = '\0';
+
+		pfree(query_step->sql_statement);
+		query_step->sql_statement = newQuery;
+	}
+
+	/* Now add a limit execution node at the top of the plan */
+	plan_stmt->planTree = (Plan *) make_limit(plan_stmt->planTree,
+						query->limitOffset, query->limitCount, 0, 0);
+
+	return 0;
+}
+
+
+/*
  * Build up a QueryPlan to execute on.
  *
  * For the prototype, there will only be one step,
@@ -1997,6 +2082,7 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	Plan *standardPlan = result->planTree;
 	RemoteQuery *query_step = makeNode(RemoteQuery);
 
+	query_step->is_single_step = false;
 	query_step->sql_statement = pstrdup(query->sql_statement);
 	query_step->exec_nodes = NULL;
 	query_step->combine_type = COMBINE_TYPE_NONE;
@@ -2020,21 +2106,6 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 				ereport(ERROR,
 						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
 						 (errmsg("INTO clause not yet supported"))));
-
-			if (query->setOperations)
-				ereport(ERROR,
-						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-						 (errmsg("UNION, INTERSECT and EXCEPT are not yet supported"))));
-
-			if (query->hasRecursive)
-				ereport(ERROR,
-						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-						 (errmsg("WITH RECURSIVE not yet supported"))));
-
-			if (query->hasWindowFuncs)
-				ereport(ERROR,
-						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-						 (errmsg("Window functions not yet supported"))));
 			/* fallthru */
 		case T_InsertStmt:
 		case T_UpdateStmt:
@@ -2043,14 +2114,32 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 
 			if (query_step->exec_nodes == NULL)
 			{
+				/* Do not yet allow multi-node correlated UPDATE or DELETE */
+				if ((query->nodeTag == T_UpdateStmt || query->nodeTag == T_DeleteStmt))
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+							 (errmsg("Complex and correlated UPDATE and DELETE not yet supported"))));
+				}
+
 				/*
-				 * Processing guery against catalog tables, restore
-				 * standard plan
+				 * Processing guery against catalog tables, or multi-step command.
+				 * Restore standard plan
 				 */
 				result->planTree = standardPlan;
 				return result;
 			}
 
+			/* Do not yet allow multi-node correlated UPDATE or DELETE */
+			if ((query->nodeTag == T_UpdateStmt || query->nodeTag == T_DeleteStmt)
+							&& !query_step->exec_nodes
+							&& list_length(query->rtable) > 1)
+			{
+						result->planTree = standardPlan;
+						return result;
+			}
+
+			query_step->is_single_step = true;
 			/*
 			 * PGXCTODO
 			 * When Postgres runs insert into t (a) values (1); against table
@@ -2064,7 +2153,7 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 			 * then call standard planner and take targetList from the plan
 			 * generated by Postgres.
 			 */
-			query_step->plan.targetlist = standardPlan->targetlist;
+			query_step->scan.plan.targetlist = standardPlan->targetlist;
 
 			if (query_step->exec_nodes)
 				query_step->combine_type = get_plan_combine_type(
@@ -2075,39 +2164,36 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 				query_step->simple_aggregates = get_simple_aggregates(query);
 
 			/*
-			 * Add sortring to the step
+			 * Add sorting to the step
 			 */
 			if (list_length(query_step->exec_nodes->nodelist) > 1 &&
 					(query->sortClause || query->distinctClause))
 				make_simple_sort_from_sortclauses(query, query_step);
 
-			/*
-			 * PG-XC cannot yet support some variations of SQL statements.
-			 * We perform some checks to at least catch common cases
-			 */
-
-			/*
-			 * Check if we have multiple nodes and an unsupported clause. This
-			 * is temporary until we expand supported SQL
-			 */
-			if (query->nodeTag == T_SelectStmt)
+			/* Handle LIMIT and OFFSET for single-step queries on multiple nodes*/
+			if (handle_limit_offset(query_step, query, result))
 			{
-				if (StrictStatementChecking && query_step->exec_nodes
-						&& list_length(query_step->exec_nodes->nodelist) > 1)
-				{
-					/*
-					 * PGXCTODO - this could be improved to check if the first
-					 * group by expression is the partitioning column
-					 */
-					if (query->groupClause)
-						ereport(ERROR,
-								(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-						 (errmsg("Multi-node GROUP BY not yet supported"))));
-					if (query->limitCount && StrictSelectChecking)
-						ereport(ERROR,
-								(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-							(errmsg("Multi-node LIMIT not yet supported"))));
-				}
+				/* complicated expressions, just fallback to standard plan */
+				result->planTree = standardPlan;
+				return result;
+			}
+
+			/* 
+			 * Use standard plan if we have more than one data node with either
+			 * group by, hasWindowFuncs, or hasRecursive
+			 */
+			/*
+			 * PGXCTODO - this could be improved to check if the first
+			 * group by expression is the partitioning column, in which
+			 * case it is ok to treat as a single step.
+			 */
+			if (query->nodeTag == T_SelectStmt
+							&& query_step->exec_nodes
+							&& list_length(query_step->exec_nodes->nodelist) > 1
+							&& (query->groupClause || query->hasWindowFuncs || query->hasRecursive))
+			{
+						result->planTree = standardPlan;
+						return result;
 			}
 			break;
 		default:

@@ -44,6 +44,9 @@
 #include "executor/nodeWindowAgg.h"
 #include "executor/nodeWorktablescan.h"
 #include "nodes/nodeFuncs.h"
+#ifdef PGXC
+#include "pgxc/execRemote.h"
+#endif
 #include "utils/syscache.h"
 
 
@@ -183,6 +186,11 @@ ExecReScan(PlanState *node, ExprContext *exprCtxt)
 			ExecWorkTableScanReScan((WorkTableScanState *) node, exprCtxt);
 			break;
 
+#ifdef PGXC
+		case T_RemoteQueryState:
+			ExecRemoteQueryReScan((RemoteQueryState *) node, exprCtxt);
+			break;
+#endif
 		case T_NestLoopState:
 			ExecReScanNestLoop((NestLoopState *) node, exprCtxt);
 			break;
