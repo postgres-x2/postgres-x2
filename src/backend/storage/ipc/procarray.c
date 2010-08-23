@@ -625,6 +625,11 @@ GetOldestXmin(bool allDbs, bool ignoreVacuum)
 	TransactionId result;
 	int			index;
 
+#ifdef PGXC
+	if (TransactionIdIsValid(RecentGlobalXmin))
+		return RecentGlobalXmin;
+#endif
+
 	LWLockAcquire(ProcArrayLock, LW_SHARED);
 
 	/*
