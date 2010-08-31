@@ -2158,10 +2158,14 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 			if (query_step->exec_nodes)
 				query_step->combine_type = get_plan_combine_type(
 						query, query_step->exec_nodes->baselocatortype);
-			/* Only set up if running on more than one node */
-			if (query_step->exec_nodes && query_step->exec_nodes->nodelist &&
-							list_length(query_step->exec_nodes->nodelist) > 1)
-				query_step->simple_aggregates = get_simple_aggregates(query);
+
+			/* Set up simple aggregates */
+			/* PGXCTODO - we should detect what types of aggregates are used. 
+			 * in some cases we can avoid the final step and merely proxy results
+			 * (when there is only one data node involved) instead of using 
+			 * coordinator consolidation. At the moment this is needed for AVG()
+			 */
+			query_step->simple_aggregates = get_simple_aggregates(query);
 
 			/*
 			 * Add sorting to the step
