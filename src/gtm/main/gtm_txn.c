@@ -894,12 +894,16 @@ ProcessBeginTransactionGetGXIDCommand(Port *myport, StringInfo message)
 	StringInfoData buf;
 	GTM_TransactionHandle txn;
 	GlobalTransactionId gxid;
+	GTM_Timestamp timestamp;
 	MemoryContext oldContext;
 
 	txn_isolation_level = pq_getmsgint(message, sizeof (GTM_IsolationLevel));
 	txn_read_only = pq_getmsgbyte(message);
 
 	oldContext = MemoryContextSwitchTo(TopMemoryContext);
+
+	/* GXID has been received, now it's time to get a GTM timestamp */
+	timestamp = GTM_TimestampGetCurrent();
 
 	/*
 	 * Start a new transaction
@@ -931,6 +935,7 @@ ProcessBeginTransactionGetGXIDCommand(Port *myport, StringInfo message)
 		pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
 	}
 	pq_sendbytes(&buf, (char *)&gxid, sizeof(gxid));
+	pq_sendbytes(&buf, (char *)&timestamp, sizeof (GTM_Timestamp));
 	pq_endmessage(myport, &buf);
 
 	if (!myport->is_proxy)
