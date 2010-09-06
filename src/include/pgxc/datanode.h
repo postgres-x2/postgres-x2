@@ -23,6 +23,9 @@
 #include "utils/snapshot.h"
 #include <unistd.h>
 
+#define NO_SOCKET -1
+
+
 /* Connection to data node maintained by Pool Manager */
 typedef struct PGconn NODE_CONNECTION;
 
@@ -80,8 +83,9 @@ extern int	DataNodeConnClean(NODE_CONNECTION * conn);
 extern void DataNodeCleanAndRelease(int code, Datum arg);
 
 extern DataNodeHandle **get_handles(List *nodelist);
-extern void release_handles(void);
+extern void release_handles(bool force_drop);
 extern int	get_transaction_nodes(DataNodeHandle ** connections);
+extern int	get_active_nodes(DataNodeHandle ** connections);
 
 extern int	ensure_in_buffer_capacity(size_t bytes_needed, DataNodeHandle * handle);
 extern int	ensure_out_buffer_capacity(size_t bytes_needed, DataNodeHandle * handle);
@@ -100,5 +104,6 @@ extern int	data_node_flush(DataNodeHandle *handle);
 extern char get_message(DataNodeHandle *conn, int *len, char **msg);
 
 extern void add_error_message(DataNodeHandle * handle, const char *message);
+extern void clear_socket_data (DataNodeHandle *conn);
 
 #endif

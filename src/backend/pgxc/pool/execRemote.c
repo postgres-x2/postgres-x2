@@ -15,6 +15,7 @@
  *-------------------------------------------------------------------------
  */
 
+#include <time.h>
 #include "postgres.h"
 #include "access/gtm.h"
 #include "access/xact.h"
@@ -29,6 +30,10 @@
 #include "utils/memutils.h"
 #include "utils/tuplesort.h"
 #include "utils/snapmgr.h"
+
+#define END_QUERY_TIMEOUT	20
+#define CLEAR_TIMEOUT		5
+
 
 extern char *deparseSql(RemoteQueryState *scanstate);
 
@@ -49,6 +54,9 @@ static int	data_node_commit(int conn_count, DataNodeHandle ** connections);
 static int	data_node_rollback(int conn_count, DataNodeHandle ** connections);
 
 static void clear_write_node_list();
+
+static int handle_response_clear(DataNodeHandle * conn);
+
 
 #define MAX_STATEMENTS_PER_TRAN 10
 
@@ -761,7 +769,8 @@ HandleError(RemoteQueryState *combiner, char *msg_body, size_t len)
 	{
 		combiner->errorMessage = pstrdup(message);
 		/* Error Code is exactly 5 significant bytes */
-		memcpy(combiner->errorCode, code, 5);
+		if (code)
+			memcpy(combiner->errorCode, code, 5);
 	}
 
 	/*
@@ -916,7 +925,7 @@ data_node_receive_responses(const int conn_count, DataNodeHandle ** connections,
 	 * Read results.
 	 * Note we try and read from data node connections even if there is an error on one,
 	 * so as to avoid reading incorrect results on the next statement.
-	 * It might be better to just destroy these connections and tell the pool manager.
+	 * Other safegaurds exist to avoid this, however.
 	 */
 	while (count > 0)
 	{
@@ -971,6 +980,7 @@ handle_response(DataNodeHandle * conn, RemoteQueryState *combiner)
 {
 	char	   *msg;
 	int			msg_len;
+	char		msg_type;
 
 	for (;;)
 	{
@@ -991,7 +1001,8 @@ handle_response(DataNodeHandle * conn, RemoteQueryState *combiner)
 		}
 
 		/* TODO handle other possible responses */
-		switch (get_message(conn, &msg_len, &msg))
+		msg_type = get_message(conn, &msg_len, &msg);
+		switch (msg_type)
 		{
 			case '\0':			/* Not enough data in the buffer */
 				conn->state = DN_CONNECTION_STATE_QUERY;
@@ -1056,13 +1067,83 @@ handle_response(DataNodeHandle * conn, RemoteQueryState *combiner)
 			case 'I':			/* EmptyQuery */
 			default:
 				/* sync lost? */
+				elog(WARNING, "Received unsupported message type: %c", msg_type);
 				conn->state = DN_CONNECTION_STATE_ERROR_FATAL;
 				return RESPONSE_EOF;
 		}
 	}
-	/* Keep compiler quiet */
+
 	return RESPONSE_EOF;
 }
+
+/*
+ * Like handle_response, but for consuming the messages,
+ * in case we of an error to clean the data node connection.
+ * Return values:
+ * RESPONSE_EOF - need to receive more data for the connection
+ * RESPONSE_COMPLETE - done with the connection, or done trying (error)
+ */
+static int
+handle_response_clear(DataNodeHandle * conn)
+{
+	char	   *msg;
+	int			msg_len;
+	char		msg_type;
+
+	for (;;)
+	{
+		/* No data available, exit */
+		if (conn->state == DN_CONNECTION_STATE_QUERY)
+			return RESPONSE_EOF;
+
+		/*
+		 * If we are in the process of shutting down, we
+		 * may be rolling back, and the buffer may contain other messages.
+		 * We want to avoid a procarray exception
+		 * as well as an error stack overflow.
+		 */
+		if (proc_exit_inprogress)
+		{
+			conn->state = DN_CONNECTION_STATE_ERROR_FATAL;
+			return RESPONSE_COMPLETE;
+		}
+
+		msg_type = get_message(conn, &msg_len, &msg);
+		switch (msg_type)
+		{
+			case '\0':			/* Not enough data in the buffer */
+			case 'c':			/* CopyToCommandComplete */
+			case 'C':			/* CommandComplete */
+			case 'T':			/* RowDescription */
+			case 'D':			/* DataRow */
+			case 'H': 			/* CopyOutResponse */
+			case 'd': 			/* CopyOutDataRow */
+			case 'A':			/* NotificationResponse */
+			case 'N':			/* NoticeResponse */
+				break;
+			case 'E':			/* ErrorResponse */
+				conn->state = DN_CONNECTION_STATE_ERROR_NOT_READY;
+				/*
+				 * Do not return with an error, we still need to consume Z,
+				 * ready-for-query
+				 */
+				break;
+			case 'Z':			/* ReadyForQuery */
+				conn->transaction_status = msg[0];
+				conn->state = DN_CONNECTION_STATE_IDLE;
+				return RESPONSE_COMPLETE;
+			case 'I':			/* EmptyQuery */
+			default:
+				/* sync lost? */
+				elog(WARNING, "Received unsupported message type: %c", msg_type);
+				conn->state = DN_CONNECTION_STATE_ERROR_FATAL;
+				return RESPONSE_COMPLETE;
+		}
+	}
+
+	return RESPONSE_EOF;
+}
+
 
 /*
  * Send BEGIN command to the Data nodes and receive responses
@@ -1150,13 +1231,13 @@ finish:
 	if (!autocommit)
 		stat_transaction(tran_count);
 	if (!PersistentConnections)
-		release_handles();
+		release_handles(false);
 	autocommit = true;
 	clear_write_node_list();
 	if (res != 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
-				 errmsg("Could not commit connection on data nodes")));
+				 errmsg("Could not commit (or autocommit) data node connection")));
 }
 
 
@@ -1271,6 +1352,7 @@ finish:
 
 /*
  * Rollback current transaction
+ * This will happen 
  */
 int
 DataNodeRollback(void)
@@ -1278,6 +1360,10 @@ DataNodeRollback(void)
 	int			res = 0;
 	int			tran_count;
 	DataNodeHandle *connections[NumDataNodes];
+
+
+	/* Consume any messages on the data nodes first if necessary */
+	DataNodeConsumeMessages();
 
 	/* gather connections to rollback */
 	tran_count = get_transaction_nodes(connections);
@@ -1296,7 +1382,7 @@ finish:
 	if (!autocommit)
 		stat_transaction(tran_count);
 	if (!PersistentConnections)
-		release_handles();
+		release_handles(true);
 	autocommit = true;
 	clear_write_node_list();
 	return res;
@@ -1313,11 +1399,19 @@ data_node_rollback(int conn_count, DataNodeHandle ** connections)
 	struct timeval *timeout = NULL;
 	RemoteQueryState *combiner;
 
+
+	/*
+	 * Rollback is a special case, being issued because of an error.
+	 * We try to read and throw away any extra data on the connection before
+	 * issuing our rollbacks so that we did not read the results of the
+	 * previous command.
+	 */
+	for (i = 0; i < conn_count; i++)
+		clear_socket_data(connections[i]);
+
 	/* Send ROLLBACK - */
 	for (i = 0; i < conn_count; i++)
-	{
 		data_node_send_query(connections[i], "ROLLBACK");
-	}
 
 	combiner = CreateResponseCombiner(conn_count, COMBINE_TYPE_NONE);
 	/* Receive responses */
@@ -1487,7 +1581,7 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_
 			if (need_tran)
 				DataNodeCopyFinish(connections, 0, COMBINE_TYPE_NONE);
 			else if (!PersistentConnections)
-				release_handles();
+				release_handles(false);
 		}
 
 		pfree(connections);
@@ -1711,7 +1805,7 @@ DataNodeCopyOut(Exec_Nodes *exec_nodes, DataNodeHandle** copy_connections, FILE*
 	if (!ValidateAndCloseCombiner(combiner))
 	{
 		if (autocommit && !PersistentConnections)
-			release_handles();
+			release_handles(false);
 		pfree(copy_connections);
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
@@ -2136,8 +2230,10 @@ ExecRemoteQuery(RemoteQueryState *node)
 				if (connections[i]->transaction_status != 'T')
 					new_connections[new_count++] = connections[i];
 
-			if (new_count)
-				data_node_begin(new_count, new_connections, gxid);
+			if (new_count && data_node_begin(new_count, new_connections, gxid))
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("Could not begin transaction on data nodes.")));
 		}
 
 		/* Get the SQL string */
@@ -2292,7 +2388,7 @@ ExecRemoteQuery(RemoteQueryState *node)
 					{
 						ExecSetSlotDescriptor(scanslot, node->tuple_desc);
 						/*
-						 * Now tuple table slot is responcible for freeing the
+						 * Now tuple table slot is responsible for freeing the
 						 * descriptor
 						 */
 						node->tuple_desc = NULL;
@@ -2492,9 +2588,88 @@ ExecRemoteQuery(RemoteQueryState *node)
 	return resultslot;
 }
 
+/*
+ * End the remote query
+ */
 void
 ExecEndRemoteQuery(RemoteQueryState *node)
 {
+
+	/*
+	 * If processing was interrupted, (ex: client did not consume all the data,
+	 * or a subquery with LIMIT) we may still have data on the nodes. Try and consume.
+	 * We do not simply call DataNodeConsumeMessages, because the same
+	 * connection could be used for multiple RemoteQuery steps.
+	 *
+	 * It seems most stable checking command_complete_count
+	 * and only then working with conn_count
+	 *
+	 * PGXCTODO: Change in the future when we remove materialization nodes.
+	 */
+	if (node->command_complete_count < node->node_count)
+	{
+		elog(WARNING, "Extra data node messages when ending remote query step");
+
+		while (node->conn_count > 0)
+		{
+			int i = 0;
+			int res;
+
+			/*
+			 * Just consume the rest of the messages
+			 */
+			if ((i = node->current_conn + 1) == node->conn_count)
+				i = 0;
+
+			for (;;)
+			{
+				/* throw away message */
+				if (node->msg)
+				{
+					pfree(node->msg);
+					node->msg = NULL;
+				}
+
+				res = handle_response(node->connections[i], node);
+
+				if (res == RESPONSE_COMPLETE ||
+						node->connections[i]->state == DN_CONNECTION_STATE_ERROR_FATAL ||
+						node->connections[i]->state == DN_CONNECTION_STATE_ERROR_NOT_READY)
+				{
+					if (--node->conn_count == 0)
+						break;
+					if (i == node->conn_count)
+						i = 0;
+					else
+						node->connections[i] = node->connections[node->conn_count];
+					if (node->current_conn == node->conn_count)
+						node->current_conn = i;
+				}
+				else if (res == RESPONSE_EOF)
+				{
+					/* go to next connection */
+					if (++i == node->conn_count)
+						i = 0;
+
+					/* if we cycled over all connections we need to receive more */
+					if (i == node->current_conn)
+					{
+						struct timeval timeout;
+						timeout.tv_sec = END_QUERY_TIMEOUT;
+						timeout.tv_usec = 0;
+
+						if (data_node_receive(node->conn_count, node->connections, &timeout))
+							ereport(ERROR,
+									(errcode(ERRCODE_INTERNAL_ERROR),
+									 errmsg("Failed to read response from data nodes when ending query")));
+					}
+				}
+			}
+		}
+		elog(WARNING, "Data node connection buffers cleaned");
+	}
+
+
 	/*
 	 * Release tuplesort resources
 	 */
@@ -2515,6 +2690,64 @@ ExecEndRemoteQuery(RemoteQueryState *node)
 		MemoryContextDelete(node->tmp_ctx);
 
 	CloseCombiner(node);
+}
+
+/*
+ * Consume any remaining messages on the connections.
+ * This is useful for calling after ereport()
+ */
+void
+DataNodeConsumeMessages(void)
+{
+	int i;
+	int active_count = 0;
+	int res;
+	struct timeval timeout;
+	DataNodeHandle *connection = NULL;
+	DataNodeHandle **connections = NULL;
+	DataNodeHandle *active_connections[NumDataNodes];
+
+
+	active_count = get_active_nodes(active_connections);
+
+	/* Iterate through handles in use and try and clean */
+	for (i = 0; i < active_count; i++)
+	{
+		elog(WARNING, "Consuming data node messages after error.");
+
+		connection = active_connections[i];
+
+		res = RESPONSE_EOF;
+
+		while (res != RESPONSE_COMPLETE)
+		{
+			int res = handle_response_clear(connection);
+
+			if (res == RESPONSE_EOF)
+			{
+				if (!connections)
+					connections = (DataNodeHandle **) palloc(sizeof(DataNodeHandle*));
+
+				connections[0] = connection;
+
+				/* Use a timeout so we do not wait forever */
+				timeout.tv_sec = CLEAR_TIMEOUT;
+				timeout.tv_usec = 0;
+				if (data_node_receive(1, connections, &timeout))
+				{
+					/* Mark this as bad, move on to next one */
+					connection->state = DN_CONNECTION_STATE_ERROR_FATAL;
+					break;
+				}
+			}
+			if (connection->state == DN_CONNECTION_STATE_ERROR_FATAL
+					|| connection->state == DN_CONNECTION_STATE_IDLE)
+				break;
+		}
+	}
+
+	if (connections)
+		pfree(connections);
 }
 
  
@@ -2609,8 +2842,11 @@ ExecRemoteUtility(RemoteQuery *node)
 			if (connections[i]->transaction_status != 'T')
 				new_connections[new_count++] = connections[i];
 
-		if (new_count)
-			data_node_begin(new_count, new_connections, gxid);
+		if (new_count && data_node_begin(new_count, new_connections, gxid))
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("Could not begin transaction on data nodes")));
+
 	}
 
 	/* See if we have a primary nodes, execute on it first before the others */
@@ -2760,10 +2996,11 @@ DataNodeCleanAndRelease(int code, Datum arg)
 
 		/* Rollback on GTM if transaction id opened. */
 		RollbackTranGTM((GlobalTransactionId) GetCurrentTransactionIdIfAny());
-	}
 
-	/* Release data node connections */
-	release_handles();
+		release_handles(true);
+	} else
+		/* Release data node connections */
+		release_handles(false);
 
 	/* Close connection with GTM */
 	CloseGTM();

@@ -37,7 +37,6 @@
 #include "utils/snapmgr.h"
 #include "../interfaces/libpq/libpq-fe.h"
 
-#define NO_SOCKET -1
 
 static int	node_count = 0;
 static DataNodeHandle *handles = NULL;
@@ -280,7 +279,8 @@ retry:
 			{
 				add_error_message(conn, "unexpected EOF on datanode connection");
 				elog(WARNING, "unexpected EOF on datanode connection");
-				return EOF;
+				/* Should we read from the other connections before returning? */
+				return EOF; 
 			}
 			else
 			{
@@ -429,6 +429,18 @@ retry:
 }
 
 
+/* 
+ * Clear out socket data and buffer.
+ * Throw away any data.
+ */
+void
+clear_socket_data (DataNodeHandle *conn)
+{
+	do {
+		conn->inStart = conn->inCursor = conn->inEnd = 0;
+	} while (data_node_read_data(conn) > 0);
+}
+
 /*
  * Get one character from the connection buffer and advance cursor
  */
@@ -529,13 +541,19 @@ get_message(DataNodeHandle *conn, int *len, char **msg)
 }
 
 
-/* Release all data node connections back to pool and release occupied memory */
+/*
+ * Release all data node connections back to pool and release occupied memory
+ *
+ * If force_drop is true, we force dropping all of the connections, such as after
+ * a rollback, which was likely issued due to an error.
+ */
 void
-release_handles(void)
+release_handles(bool force_drop)
 {
 	int			i;
 	int 		discard[NumDataNodes];
 	int			ndisc = 0;
+
 
 	if (node_count == 0)
 		return;
@@ -546,7 +564,9 @@ release_handles(void)
 
 		if (handle->sock != NO_SOCKET)
 		{
-			if (handle->state != DN_CONNECTION_STATE_IDLE)
+			if (force_drop)
+				discard[ndisc++] = handle->nodenum;
+			else if (handle->state != DN_CONNECTION_STATE_IDLE)
 			{
 				elog(WARNING, "Connection to data node %d has unexpected state %d and will be dropped", handle->nodenum, handle->state);
 				discard[ndisc++] = handle->nodenum;
@@ -1070,6 +1090,12 @@ get_transaction_nodes(DataNodeHandle **connections)
 	{
 		for (i = 0; i < NumDataNodes; i++)
 		{
+			/*
+			 * We may want to consider also not returning connections with a
+			 * state of DN_CONNECTION_STATE_ERROR_NOT_READY or
+			 * DN_CONNECTION_STATE_ERROR_FATAL.
+			 * ERROR_NOT_READY can happen if the data node abruptly disconnects.
+			 */
 			if (handles[i].sock != NO_SOCKET && handles[i].transaction_status != 'I')
 				connections[tran_count++] = &handles[i];
 		}
@@ -1077,3 +1103,29 @@ get_transaction_nodes(DataNodeHandle **connections)
 
 	return tran_count;
 }
+
+/*
+ * Return those node connections that appear to be active and
+ * have data to consume on them.
+ */
+int
+get_active_nodes (DataNodeHandle **connections)
+{
+	int			active_count = 0;
+	int			i;
+
+	if (node_count)
+	{
+		for (i = 0; i < NumDataNodes; i++)
+		{
+			if (handles[i].sock != NO_SOCKET &&
+						handles[i].state != DN_CONNECTION_STATE_IDLE &&
+						handles[i].state != DN_CONNECTION_STATE_ERROR_NOT_READY &&
+						handles[i].state != DN_CONNECTION_STATE_ERROR_FATAL)
+				connections[active_count++] = &handles[i];
+		}
+	}
+
+	return active_count;
+}
+
