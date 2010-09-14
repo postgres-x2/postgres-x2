@@ -52,6 +52,14 @@ static int	data_node_begin(int conn_count, DataNodeHandle ** connections,
 				GlobalTransactionId gxid);
 static int	data_node_commit(int conn_count, DataNodeHandle ** connections);
 static int	data_node_rollback(int conn_count, DataNodeHandle ** connections);
+static int	data_node_prepare(int conn_count, DataNodeHandle ** connections,
+				char *gid);
+static int	data_node_rollback_prepared(GlobalTransactionId gxid, GlobalTransactionId prepared_gxid,
+				int conn_count, DataNodeHandle ** connections,
+				char *gid);
+static int	data_node_commit_prepared(GlobalTransactionId gxid, GlobalTransactionId prepared_gxid,
+				int conn_count, DataNodeHandle ** connections,
+				char *gid);
 
 static void clear_write_node_list();
 
@@ -531,6 +539,7 @@ HandleCommandComplete(RemoteQueryState *combiner, char *msg_body, size_t len)
 		else
 			combiner->combine_type = COMBINE_TYPE_NONE;
 	}
+
 	combiner->command_complete_count++;
 }
 
@@ -793,6 +802,7 @@ validate_combiner(RemoteQueryState *combiner)
 	/* Check if state is defined */
 	if (combiner->request_type == REQUEST_TYPE_NOT_DEFINED)
 		return false;
+
 	/* Check all nodes completed */
 	if ((combiner->request_type == REQUEST_TYPE_COMMAND
 	        || combiner->request_type == REQUEST_TYPE_QUERY)
@@ -1201,6 +1211,389 @@ DataNodeBegin(void)
 {
 	autocommit = false;
 	clear_write_node_list();
+}
+
+
+/*
+ * Prepare transaction on Datanodes involved in current transaction.
+ * GXID associated to current transaction has to be committed on GTM.
+ */
+int
+DataNodePrepare(char *gid)
+{
+	int         res = 0;
+	int         tran_count;
+	DataNodeHandle *connections[NumDataNodes];
+
+	/* gather connections to prepare */
+	tran_count = get_transaction_nodes(connections);
+
+	/*
+	 * If we do not have open transactions we have nothing to prepare just
+	 * report success
+	 */
+	if (tran_count == 0)
+	{
+		elog(WARNING, "Nothing to PREPARE on Datanodes, gid is not used");
+		goto finish;
+	}
+
+	/* TODO: data_node_prepare */
+	res = data_node_prepare(tran_count, connections, gid);
+
+finish:
+	/*
+	 * The transaction is just prepared, but Datanodes have reset,
+	 * so we'll need a new gxid for commit prepared or rollback prepared
+	 * Application is responsible for delivering the correct gid.
+	 * Release the connections for the moment.
+	 */
+	if (!autocommit)
+		stat_transaction(tran_count);
+	if (!PersistentConnections)
+		release_handles(false);
+	autocommit = true;
+	clear_write_node_list();
+	return res;
+}
+
+
+/*
+ * Prepare transaction on dedicated nodes with gid received from application
+ */
+static int
+data_node_prepare(int conn_count, DataNodeHandle ** connections, char *gid)
+{
+	int		i;
+	int		result = 0;
+	struct timeval *timeout = NULL;
+	char   *buffer = (char *) palloc0(22 + strlen(gid) + 1);
+	RemoteQueryState *combiner = NULL;
+	GlobalTransactionId gxid = InvalidGlobalTransactionId;
+	PGXC_NodeId *datanodes = NULL;
+
+	gxid = GetCurrentGlobalTransactionId();
+
+	/*
+	 * Now that the transaction has been prepared on the nodes,
+	 * Initialize to make the business on GTM
+	 */
+	datanodes = collect_datanode_numbers(conn_count, connections);
+
+	/*
+	 * Send a Prepare in Progress message to GTM.
+	 * At the same time node list is saved on GTM.
+	 */
+	result = BeingPreparedTranGTM(gxid, gid, conn_count, datanodes, 0, NULL);
+
+	if (result < 0)
+		return EOF;
+
+	sprintf(buffer, "PREPARE TRANSACTION '%s'", gid);
+
+	/* Send PREPARE */
+	for (i = 0; i < conn_count; i++)
+		if (data_node_send_query(connections[i], buffer))
+			return EOF;
+
+	combiner = CreateResponseCombiner(conn_count, COMBINE_TYPE_NONE);
+
+	/* Receive responses */
+	if (data_node_receive_responses(conn_count, connections, timeout, combiner))
+		return EOF;
+
+	result = ValidateAndCloseCombiner(combiner) ? result : EOF;
+	if (result)
+		goto finish;
+
+	/*
+	 * Prepare the transaction on GTM after everything is done.
+	 * GXID associated with PREPARE state is considered as used on Nodes,
+	 * but is still present in Snapshot.
+	 * This GXID will be discarded from Snapshot when commit prepared is
+	 * issued from another node.
+	 */
+	result = PrepareTranGTM(gxid);
+
+finish:
+	/*
+	 * An error has happened on a Datanode or GTM,
+	 * It is necessary to rollback the transaction on already prepared nodes.
+	 * But not on nodes where the error occurred.
+	 */
+	if (result)
+	{
+		GlobalTransactionId rollback_xid = InvalidGlobalTransactionId;
+		buffer = (char *) repalloc(buffer, 20 + strlen(gid) + 1);
+
+		sprintf(buffer, "ROLLBACK PREPARED '%s'", gid);
+
+		rollback_xid = BeginTranGTM(NULL);
+		for (i = 0; i < conn_count; i++)
+		{
+			if (data_node_send_gxid(connections[i], rollback_xid))
+			{
+				add_error_message(connections[i], "Can not send request");
+				return EOF;
+			}
+			if (data_node_send_query(connections[i], buffer))
+			{
+				add_error_message(connections[i], "Can not send request");
+				return EOF;
+			}
+		}
+
+		if (!combiner)
+			combiner = CreateResponseCombiner(conn_count, COMBINE_TYPE_NONE);
+
+		if (data_node_receive_responses(conn_count, connections, timeout, combiner))
+			result = EOF;
+		result = ValidateAndCloseCombiner(combiner) ? result : EOF;
+
+		/*
+		 * Don't forget to rollback also on GTM
+		 * Both GXIDs used for PREPARE and COMMIT PREPARED are discarded from GTM snapshot here.
+		 */
+		CommitPreparedTranGTM(gxid, rollback_xid);
+
+		return EOF;
+	}
+
+	return result;
+}
+
+
+/*
+ * Commit prepared transaction on Datanodes where it has been prepared.
+ * Connection to backends has been cut when transaction has been prepared,
+ * So it is necessary to send the COMMIT PREPARE message to all the nodes.
+ * We are not sure if the transaction prepared has involved all the datanodes
+ * or not but send the message to all of them.
+ * This avoid to have any additional interaction with GTM when making a 2PC transaction.
+ */
+void
+DataNodeCommitPrepared(char *gid)
+{
+	int			res = 0;
+	int			res_gtm = 0;
+	DataNodeHandle **connections;
+	List	   *nodelist = NIL;
+	int			i, tran_count;
+	PGXC_NodeId *datanodes = NULL;
+	PGXC_NodeId *coordinators = NULL;
+	int coordcnt = 0;
+	int datanodecnt = 0;
+	GlobalTransactionId gxid, prepared_gxid;
+
+	res_gtm = GetGIDDataGTM(gid, &gxid, &prepared_gxid,
+				 &datanodecnt, &datanodes, &coordcnt, &coordinators);
+
+	tran_count = datanodecnt + coordcnt;
+	if (tran_count == 0 || res_gtm < 0)
+		goto finish;
+
+	autocommit = false;
+
+	/* Build the list of nodes based on data received from GTM */
+	for (i = 0; i < datanodecnt; i++)
+	{
+		nodelist = lappend_int(nodelist,datanodes[i]);
+	}
+
+	/* Get connections */
+	connections = get_handles(nodelist);
+
+	/* Commit here the prepared transaction to all Datanodes */
+	res = data_node_commit_prepared(gxid, prepared_gxid, datanodecnt, connections, gid);
+
+finish:
+	/* In autocommit mode statistics is collected in DataNodeExec */
+	if (!autocommit)
+		stat_transaction(tran_count);
+	if (!PersistentConnections)
+		release_handles(false);
+	autocommit = true;
+	clear_write_node_list();
+
+	/* Free node list taken from GTM */
+	if (datanodes)
+		free(datanodes);
+	if (coordinators)
+		free(coordinators);
+
+	if (res_gtm < 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Could not get GID data from GTM")));
+	if (res != 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Could not commit prepared transaction on data nodes")));
+}
+
+/*
+ * Commit a prepared transaction on all nodes
+ * Prepared transaction with this gid has reset the datanodes,
+ * so we need a new gxid.
+ * An error is returned to the application only if all the Datanodes
+ * and Coordinator do not know about the gxid proposed.
+ * This permits to avoid interactions with GTM.
+ */
+static int
+data_node_commit_prepared(GlobalTransactionId gxid, GlobalTransactionId prepared_gxid, int conn_count, DataNodeHandle ** connections, char *gid)
+{
+	int result = 0;
+	int i;
+	RemoteQueryState *combiner = NULL;
+	struct timeval *timeout = NULL;
+	char        *buffer = (char *) palloc0(18 + strlen(gid) + 1);
+
+	/* GXID has been piggybacked when gid data has been received from GTM */
+	sprintf(buffer, "COMMIT PREPARED '%s'", gid);
+
+	/* Send gxid and COMMIT PREPARED message to all the Datanodes */
+	for (i = 0; i < conn_count; i++)
+	{
+		if (data_node_send_gxid(connections[i], gxid))
+		{
+			add_error_message(connections[i], "Can not send request");
+			result = EOF;
+			goto finish;
+		}
+		if (data_node_send_query(connections[i], buffer))
+		{
+			add_error_message(connections[i], "Can not send request");
+			result = EOF;
+			goto finish;
+		}
+	}
+
+	combiner = CreateResponseCombiner(conn_count, COMBINE_TYPE_NONE);
+
+	/* Receive responses */
+	if (data_node_receive_responses(conn_count, connections, timeout, combiner))
+		result = EOF;
+
+	/* Validate and close combiner */
+	result = ValidateAndCloseCombiner(combiner) ? result : EOF;
+
+finish:
+	/* Both GXIDs used for PREPARE and COMMIT PREPARED are discarded from GTM snapshot here */
+	CommitPreparedTranGTM(gxid, prepared_gxid);
+
+	return result;
+}
+
+/*
+ * Rollback prepared transaction on Datanodes involved in the current transaction
+ */
+void
+DataNodeRollbackPrepared(char *gid)
+{
+	int			res = 0;
+	int			res_gtm = 0;
+	DataNodeHandle **connections;
+	List	   *nodelist = NIL;
+	int			i, tran_count;
+
+	PGXC_NodeId *datanodes = NULL;
+	PGXC_NodeId *coordinators = NULL;
+	int coordcnt = 0;
+	int datanodecnt = 0;
+	GlobalTransactionId gxid, prepared_gxid;
+
+	res_gtm = GetGIDDataGTM(gid, &gxid, &prepared_gxid,
+				  &datanodecnt, &datanodes, &coordcnt, &coordinators);
+
+	tran_count = datanodecnt + coordcnt;
+	if (tran_count == 0 || res_gtm < 0 )
+		goto finish;
+
+	autocommit = false;
+
+	/* Build the node list based on the result got from GTM */
+	for (i = 0; i < datanodecnt; i++)
+	{
+		nodelist = lappend_int(nodelist,datanodes[i]);
+	}
+
+	/* Get connections */
+	connections = get_handles(nodelist);
+
+	/* Here do the real rollback to Datanodes */
+	res = data_node_rollback_prepared(gxid, prepared_gxid, datanodecnt, connections, gid);
+
+finish:
+	/* In autocommit mode statistics is collected in DataNodeExec */
+	if (!autocommit)
+		stat_transaction(tran_count);
+	if (!PersistentConnections)
+		release_handles(true);
+	autocommit = true;
+	clear_write_node_list(true);
+	if (res_gtm < 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Could not get GID data from GTM")));
+	if (res != 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Could not rollback prepared transaction on Datanodes")));
+}
+
+
+/*
+ * Rollback prepared transaction
+ * We first get the prepared informations from GTM and then do the treatment
+ * At the end both prepared GXID and GXID are committed.
+ */
+static int
+data_node_rollback_prepared(GlobalTransactionId gxid, GlobalTransactionId prepared_gxid,
+							int conn_count, DataNodeHandle ** connections, char *gid)
+{
+	int result = 0;
+	int i;
+	RemoteQueryState *combiner = NULL;
+	struct timeval *timeout = NULL;
+	char		*buffer = (char *) palloc0(20 + strlen(gid) + 1);
+
+	/* Datanodes have reset after prepared state, so get a new gxid */
+	gxid = BeginTranGTM(NULL);
+
+	sprintf(buffer, "ROLLBACK PREPARED '%s'", gid);
+
+	/* Send gxid and COMMIT PREPARED message to all the Datanodes */
+	for (i = 0; i < conn_count; i++)
+	{
+		if (data_node_send_gxid(connections[i], gxid))
+		{
+			add_error_message(connections[i], "Can not send request");
+			result = EOF;
+			goto finish;
+		}
+
+		if (data_node_send_query(connections[i], buffer))
+		{
+			add_error_message(connections[i], "Can not send request");
+			result = EOF;
+			goto finish;
+		}
+	}
+
+	combiner = CreateResponseCombiner(conn_count, COMBINE_TYPE_NONE);
+
+	/* Receive responses */
+	if (data_node_receive_responses(conn_count, connections, timeout, combiner))
+		result = EOF;
+
+	/* Validate and close combiner */
+	result = ValidateAndCloseCombiner(combiner) ? result : EOF;
+
+finish:
+	/* Both GXIDs used for PREPARE and COMMIT PREPARED are discarded from GTM snapshot here */
+	CommitPreparedTranGTM(gxid, prepared_gxid);
+
+	return result;
 }
 
 

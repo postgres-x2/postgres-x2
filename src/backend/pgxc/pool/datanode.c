@@ -1105,6 +1105,25 @@ get_transaction_nodes(DataNodeHandle **connections)
 }
 
 /*
+ * Collect node numbers for the given Datanode connections
+ * and return it for prepared transactions
+ */
+PGXC_NodeId*
+collect_datanode_numbers(int conn_count, DataNodeHandle **connections)
+{
+	PGXC_NodeId *datanodes = NULL;
+	int i;
+	datanodes = (PGXC_NodeId *) palloc(conn_count * sizeof(PGXC_NodeId));
+
+	for (i = 0; i < conn_count; i++)
+	{
+		datanodes[i] = connections[i]->nodenum;
+	}
+
+	return datanodes;
+}
+
+/*
  * Return those node connections that appear to be active and
  * have data to consume on them.
  */

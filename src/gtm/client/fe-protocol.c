@@ -362,19 +362,18 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 			break;
 		case TXN_BEGIN_GETGXID_AUTOVACUUM_RESULT:
 		case TXN_PREPARE_RESULT:
+		case TXN_BEING_PREPARED_RESULT:
 			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_gxid,
 						   sizeof (GlobalTransactionId), conn))
 				result->gr_status = -1;
 			break;
 
 		case TXN_COMMIT_RESULT:
+		case TXN_COMMIT_PREPARED_RESULT:
 		case TXN_ROLLBACK_RESULT:
 			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_gxid,
 						   sizeof (GlobalTransactionId), conn))
-			{
 				result->gr_status = -1;
-				break;
-			}
 			break;
 
 		case TXN_GET_GXID_RESULT:
@@ -529,6 +528,60 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 			break;
 
 		case TXN_GET_ALL_PREPARED_RESULT:
+			break;
+
+		case TXN_GET_GID_DATA_RESULT:
+			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_txn_get_gid_data.gxid,
+							  sizeof (GlobalTransactionId), conn))
+			{
+				result->gr_status = -1;
+				break;
+			}
+			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_txn_get_gid_data.prepared_gxid,
+							  sizeof (GlobalTransactionId), conn))
+			{
+				result->gr_status = -1;
+				break;
+			}
+			if (gtmpqGetInt(&result->gr_resdata.grd_txn_get_gid_data.datanodecnt,
+					sizeof (int32), conn))
+			{
+				result->gr_status = -1;
+				break;
+			}
+			if ((result->gr_resdata.grd_txn_get_gid_data.datanodes = (PGXC_NodeId *)
+					malloc(sizeof(PGXC_NodeId) * result->gr_resdata.grd_txn_get_gid_data.datanodecnt)) == NULL)
+			{
+				result->gr_status = -1;
+				break;
+			}
+			if (gtmpqGetnchar((char *)result->gr_resdata.grd_txn_get_gid_data.datanodes,
+					sizeof(PGXC_NodeId) * result->gr_resdata.grd_txn_get_gid_data.datanodecnt, conn))
+			{
+				result->gr_status = -1;
+				break;
+			}
+			if (gtmpqGetInt(&result->gr_resdata.grd_txn_get_gid_data.coordcnt,
+					sizeof (int32), conn))
+			{
+				result->gr_status = -1;
+				break;
+			}
+			if (result->gr_resdata.grd_txn_get_gid_data.coordcnt != 0)
+			{
+				if ((result->gr_resdata.grd_txn_get_gid_data.coordinators = (PGXC_NodeId *)
+					 malloc(sizeof(PGXC_NodeId) * result->gr_resdata.grd_txn_get_gid_data.coordcnt)) == NULL)
+				{
+					result->gr_status = -1;
+					break;
+				}
+				if (gtmpqGetnchar((char *)result->gr_resdata.grd_txn_get_gid_data.coordinators,
+								  sizeof(PGXC_NodeId) * result->gr_resdata.grd_txn_get_gid_data.coordcnt, conn))
+				{
+					result->gr_status = -1;
+					break;
+				}
+			}
 			break;
 
 		default:

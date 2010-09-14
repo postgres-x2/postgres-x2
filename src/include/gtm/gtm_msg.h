@@ -22,11 +22,14 @@ typedef enum GTM_MessageType
 	MSG_TXN_BEGIN,			/* Start a new transaction */
 	MSG_TXN_BEGIN_GETGXID,	/* Start a new transaction and get GXID */
 	MSG_TXN_BEGIN_GETGXID_MULTI,	/* Start multiple new transactions and get GXIDs */
-	MSG_TXN_PREPARE,		/* Prepare a transation for commit */
+	MSG_TXN_BEING_PREPARED,		/* Begins to prepare a transation for commit */
 	MSG_TXN_COMMIT,			/* Commit a running or prepared transaction */
 	MSG_TXN_COMMIT_MULTI,	/* Commit multiple running or prepared transactions */
+	MSG_TXN_COMMIT_PREPARED,	/* Commit a prepared transaction */
+	MSG_TXN_PREPARE,		/* Finish preparing a transaction */
 	MSG_TXN_ROLLBACK,		/* Rollback a transaction */
 	MSG_TXN_ROLLBACK_MULTI,	/* Rollback multiple transactions */
+	MSG_TXN_GET_GID_DATA,	/* Get info associated with a GID, and get a GXID */
 	MSG_TXN_GET_GXID,		/* Get a GXID for a transaction */
 	MSG_SNAPSHOT_GET,		/* Get a global snapshot */
 	MSG_SNAPSHOT_GET_MULTI,	/* Get multiple global snapshots */
@@ -59,10 +62,13 @@ typedef enum GTM_ResultType
 	TXN_BEGIN_GETGXID_RESULT,
 	TXN_BEGIN_GETGXID_MULTI_RESULT,
 	TXN_PREPARE_RESULT,
+	TXN_BEING_PREPARED_RESULT,
+	TXN_COMMIT_PREPARED_RESULT,
 	TXN_COMMIT_RESULT,
 	TXN_COMMIT_MULTI_RESULT,
 	TXN_ROLLBACK_RESULT,
 	TXN_ROLLBACK_MULTI_RESULT,
+	TXN_GET_GID_DATA_RESULT,
 	TXN_GET_GXID_RESULT,
 	SNAPSHOT_GET_RESULT,
 	SNAPSHOT_GET_MULTI_RESULT,

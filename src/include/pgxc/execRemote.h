@@ -80,6 +80,9 @@ typedef struct RemoteQueryState
 extern void DataNodeBegin(void);
 extern void	DataNodeCommit(void);
 extern int	DataNodeRollback(void);
+extern int	DataNodePrepare(char *gid);
+extern void	DataNodeRollbackPrepared(char *gid);
+extern void	DataNodeCommitPrepared(char *gid);
 
 extern DataNodeHandle** DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_from);
 extern int DataNodeCopyIn(char *data_row, int len, Exec_Nodes *exec_nodes, DataNodeHandle** copy_connections);

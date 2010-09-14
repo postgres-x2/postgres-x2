@@ -149,6 +149,35 @@ GTM_GXIDToHandle(GlobalTransactionId gxid)
 }
 
 /*
+ * Given the GID (for a prepared transaction), find the corresponding
+ * transaction handle.
+ */
+GTM_TransactionHandle
+GTM_GIDToHandle(char *gid)
+{
+	ListCell *elem = NULL;
+	GTM_TransactionInfo *gtm_txninfo = NULL;
+
+	GTM_RWLockAcquire(&GTMTransactions.gt_TransArrayLock, GTM_LOCKMODE_READ);
+
+	foreach(elem, GTMTransactions.gt_open_transactions)
+	{
+		gtm_txninfo = (GTM_TransactionInfo *)lfirst(elem);
+		if (gtm_txninfo->gti_gid && strcmp(gid,gtm_txninfo->gti_gid) == 0)
+			break;
+		gtm_txninfo = NULL;
+	}
+
+	GTM_RWLockRelease(&GTMTransactions.gt_TransArrayLock);
+
+	if (gtm_txninfo != NULL)
+		return gtm_txninfo->gti_handle;
+	else
+		return InvalidTransactionHandle;
+}
+
+
+/*
  * Given the transaction handle, find the corresponding transaction info
  * structure
  *
@@ -159,7 +188,7 @@ GTM_GXIDToHandle(GlobalTransactionId gxid)
 GTM_TransactionInfo *
 GTM_HandleToTransactionInfo(GTM_TransactionHandle handle)
 {
-   	GTM_TransactionInfo *gtm_txninfo = NULL;
+	GTM_TransactionInfo *gtm_txninfo = NULL;
 
 	if ((handle < 0) || (handle > GTM_MAX_GLOBAL_TRANSACTIONS))
 	{
@@ -179,6 +208,7 @@ GTM_HandleToTransactionInfo(GTM_TransactionHandle handle)
 
 	return gtm_txninfo;
 }
+
 
 /*
  * Remove the given transaction info structures from the global array. If the
@@ -220,9 +250,27 @@ GTM_RemoveTransInfoMulti(GTM_TransactionInfo *gtm_txninfo[], int txn_count)
 		 * Now mark the transaction as aborted and mark the structure as not-in-use
 		 */
 		gtm_txninfo[ii]->gti_state = GTM_TXN_ABORTED;
-		gtm_txninfo[ii]->gti_nodecount = 0;
+		gtm_txninfo[ii]->gti_datanodecount = 0;
+		gtm_txninfo[ii]->gti_coordcount = 0;
 		gtm_txninfo[ii]->gti_in_use = false;
 		gtm_txninfo[ii]->gti_snapshot_set = false;
+
+		/* Clean-up also structures that were used for prepared transactions */
+		if (gtm_txninfo[ii]->gti_gid)
+		{
+			pfree(gtm_txninfo[ii]->gti_gid);
+			gtm_txninfo[ii]->gti_gid = NULL;
+		}
+		if (gtm_txninfo[ii]->gti_coordinators)
+		{
+			pfree(gtm_txninfo[ii]->gti_coordinators);
+			gtm_txninfo[ii]->gti_coordinators = NULL;
+		}
+		if (gtm_txninfo[ii]->gti_datanodes)
+		{
+			pfree(gtm_txninfo[ii]->gti_datanodes);
+			gtm_txninfo[ii]->gti_datanodes = NULL;
+		}
 	}
 
 	GTM_RWLockRelease(&GTMTransactions.gt_TransArrayLock);
@@ -252,15 +300,21 @@ GTM_RemoveAllTransInfos(int backend_id)
 	while (cell != NULL)
 	{
 		GTM_TransactionInfo *gtm_txninfo = lfirst(cell);
-		/* check if current entry is associated with the thread */
+		/*
+		 * Check if current entry is associated with the thread
+		 * A transaction in prepared state has to be kept alive in the structure.
+		 * It will be committed by another thread than this one.
+		 */
 		if ((gtm_txninfo->gti_in_use) &&
+			(gtm_txninfo->gti_state != GTM_TXN_PREPARED) &&
+			(gtm_txninfo->gti_state != GTM_TXN_PREPARE_IN_PROGRESS) &&
 			(gtm_txninfo->gti_thread_id == thread_id) &&
 			((gtm_txninfo->gti_backend_id == backend_id) || (backend_id == -1)))
 		{
 			/* remove the entry */
 			GTMTransactions.gt_open_transactions = list_delete_cell(GTMTransactions.gt_open_transactions, cell, prev);
 
-			/* update the latestComletedXid */
+			/* update the latestCompletedXid */
 			if (GlobalTransactionIdIsNormal(gtm_txninfo->gti_gxid) &&
 				GlobalTransactionIdFollowsOrEquals(gtm_txninfo->gti_gxid,
 												   GTMTransactions.gt_latestCompletedXid))
@@ -272,10 +326,27 @@ GTM_RemoveAllTransInfos(int backend_id)
 			 * Now mark the transaction as aborted and mark the structure as not-in-use
 			 */
 			gtm_txninfo->gti_state = GTM_TXN_ABORTED;
-			gtm_txninfo->gti_nodecount = 0;
+			gtm_txninfo->gti_datanodecount = 0;
+			gtm_txninfo->gti_coordcount = 0;
 			gtm_txninfo->gti_in_use = false;
 			gtm_txninfo->gti_snapshot_set = false;
-			
+
+			if (gtm_txninfo->gti_gid)
+			{
+				pfree(gtm_txninfo->gti_gid);
+				gtm_txninfo->gti_gid = NULL;
+			}
+			if (gtm_txninfo->gti_coordinators)
+			{
+				pfree(gtm_txninfo->gti_coordinators);
+				gtm_txninfo->gti_coordinators = NULL;
+			}
+			if (gtm_txninfo->gti_datanodes)
+			{
+				pfree(gtm_txninfo->gti_datanodes);
+				gtm_txninfo->gti_datanodes = NULL;
+			}
+
 			/* move to next cell in the list */
 			if (prev)
 				cell = lnext(prev);
@@ -583,7 +654,7 @@ GTM_BeginTransactionMulti(GTM_CoordinatorId coord_id,
 	 * without removing the corresponding references from the global array
 	 */
 	oldContext = MemoryContextSwitchTo(TopMostMemoryContext);
-	
+
 	for (kk = 0; kk < txn_count; kk++)
 	{
 		int ii, jj, startslot;
@@ -627,10 +698,16 @@ GTM_BeginTransactionMulti(GTM_CoordinatorId coord_id,
 		gtm_txninfo[kk]->gti_backend_id = connid[kk];
 		gtm_txninfo[kk]->gti_in_use = true;
 
+		gtm_txninfo[kk]->gti_coordcount = 0;
+		gtm_txninfo[kk]->gti_datanodes = 0;
+		gtm_txninfo[kk]->gti_gid = NULL;
+		gtm_txninfo[kk]->gti_coordinators = NULL;
+		gtm_txninfo[kk]->gti_datanodes = NULL;
+
 		gtm_txninfo[kk]->gti_handle = ii;
 		gtm_txninfo[kk]->gti_vacuum = false;
 		gtm_txninfo[kk]->gti_thread_id = pthread_self();
-		GTMTransactions.gt_lastslot = ii;		
+		GTMTransactions.gt_lastslot = ii;
 
 		txns[kk] = ii;
 
@@ -761,6 +838,29 @@ GTM_CommitTransactionMulti(GTM_TransactionHandle txn[], int txn_count, int statu
 }
 
 /*
+ * Prepare a transaction
+ */
+int
+GTM_PrepareTransaction(GTM_TransactionHandle txn)
+{
+	GTM_TransactionInfo *gtm_txninfo = NULL;
+
+	gtm_txninfo = GTM_HandleToTransactionInfo(txn);
+
+	if (gtm_txninfo == NULL)
+		return STATUS_ERROR;
+
+	/*
+	 * Mark the transaction as prepared
+	 */
+	GTM_RWLockAcquire(&gtm_txninfo->gti_lock, GTM_LOCKMODE_WRITE);
+	gtm_txninfo->gti_state = GTM_TXN_PREPARED;
+	GTM_RWLockRelease(&gtm_txninfo->gti_lock);
+
+	return STATUS_OK;
+}
+
+/*
  * Commit a transaction
  */
 int
@@ -775,9 +875,12 @@ GTM_CommitTransaction(GTM_TransactionHandle txn)
  * Prepare a transaction
  */
 int
-GTM_PrepareTransaction(GTM_TransactionHandle txn,
-					   uint32 nodecnt,
-					   PGXC_NodeId nodes[])
+GTM_BeingPreparedTransaction(GTM_TransactionHandle txn,
+							 char *gid,
+							 uint32 datanodecnt,
+							 PGXC_NodeId datanodes[],
+							 uint32 coordcnt,
+							 PGXC_NodeId coordinators[])
 {
 	GTM_TransactionInfo *gtm_txninfo = GTM_HandleToTransactionInfo(txn);
 
@@ -785,15 +888,27 @@ GTM_PrepareTransaction(GTM_TransactionHandle txn,
 		return STATUS_ERROR;
 
 	/*
-	 * Mark the transaction as being aborted
+	 * Mark the transaction as being prepared
 	 */
 	GTM_RWLockAcquire(&gtm_txninfo->gti_lock, GTM_LOCKMODE_WRITE);
-	
+
 	gtm_txninfo->gti_state = GTM_TXN_PREPARE_IN_PROGRESS;
-	gtm_txninfo->gti_nodecount = nodecnt;
-	if (gtm_txninfo->gti_nodes == NULL)
-		gtm_txninfo->gti_nodes = (PGXC_NodeId *)MemoryContextAlloc(TopMostMemoryContext, sizeof (PGXC_NodeId) * GTM_MAX_2PC_NODES);
-	memcpy(gtm_txninfo->gti_nodes, nodes, sizeof (PGXC_NodeId) * nodecnt);
+	gtm_txninfo->gti_datanodecount = datanodecnt;
+	gtm_txninfo->gti_coordcount = coordcnt;
+
+	if (gtm_txninfo->gti_datanodes == NULL)
+		gtm_txninfo->gti_datanodes = (PGXC_NodeId *)MemoryContextAlloc(TopMostMemoryContext, sizeof (PGXC_NodeId) * GTM_MAX_2PC_NODES);
+	memcpy(gtm_txninfo->gti_datanodes, datanodes, sizeof (PGXC_NodeId) * datanodecnt);
+
+	/* It is possible that no coordinator is involved in a transaction */
+	if (coordcnt != 0 && gtm_txninfo->gti_coordinators == NULL)
+		gtm_txninfo->gti_coordinators = (PGXC_NodeId *)MemoryContextAlloc(TopMostMemoryContext, sizeof (PGXC_NodeId) * GTM_MAX_2PC_NODES);
+	if (coordcnt != 0)
+		memcpy(gtm_txninfo->gti_coordinators, coordinators, sizeof (PGXC_NodeId) * coordcnt);
+
+	if (gtm_txninfo->gti_gid == NULL)
+		gtm_txninfo->gti_gid = (char *)MemoryContextAlloc(TopMostMemoryContext, GTM_MAX_GID_LEN);
+	memcpy(gtm_txninfo->gti_gid, gid, strlen(gid));
 
 	GTM_RWLockRelease(&gtm_txninfo->gti_lock);
 
@@ -804,12 +919,53 @@ GTM_PrepareTransaction(GTM_TransactionHandle txn,
  * Same as GTM_PrepareTransaction but takes GXID as input
  */
 int
-GTM_PrepareTransactionGXID(GlobalTransactionId gxid,
-					   uint32 nodecnt,
-					   PGXC_NodeId nodes[])
+GTM_BeingPreparedTransactionGXID(GlobalTransactionId gxid,
+						   char *gid,
+						   uint32 datanodecnt,
+						   PGXC_NodeId datanodes[],
+						   uint32 coordcnt,
+						   PGXC_NodeId coordinators[])
 {
 	GTM_TransactionHandle txn = GTM_GXIDToHandle(gxid);
-	return GTM_PrepareTransaction(txn, nodecnt, nodes);
+	return GTM_BeingPreparedTransaction(txn, gid, datanodecnt, datanodes, coordcnt, coordinators);
+}
+
+int
+GTM_GetGIDData(GTM_TransactionHandle prepared_txn,
+			   GlobalTransactionId *prepared_gxid,
+			   int *datanodecnt,
+			   PGXC_NodeId **datanodes,
+			   int *coordcnt,
+			   PGXC_NodeId **coordinators)
+{
+	GTM_TransactionInfo *gtm_txninfo = NULL;
+	MemoryContext oldContext;
+
+	oldContext = MemoryContextSwitchTo(TopMostMemoryContext);
+
+	gtm_txninfo = GTM_HandleToTransactionInfo(prepared_txn);
+	if (gtm_txninfo == NULL)
+		return STATUS_ERROR;
+
+	/* then get the necessary Data */
+	*prepared_gxid = gtm_txninfo->gti_gxid;
+	*datanodecnt = gtm_txninfo->gti_datanodecount;
+	*coordcnt = gtm_txninfo->gti_coordcount;
+
+	*datanodes = (PGXC_NodeId *) palloc(sizeof (PGXC_NodeId) * gtm_txninfo->gti_datanodecount);
+	memcpy(*datanodes, gtm_txninfo->gti_datanodes,
+				sizeof (PGXC_NodeId) * gtm_txninfo->gti_datanodecount);
+
+	if (coordcnt != 0)
+	{
+		*coordinators = (PGXC_NodeId *) palloc(sizeof (PGXC_NodeId) * gtm_txninfo->gti_coordcount);
+		memcpy(*coordinators, gtm_txninfo->gti_coordinators,
+					sizeof (PGXC_NodeId) * gtm_txninfo->gti_coordcount);
+	}
+
+	MemoryContextSwitchTo(oldContext);
+
+	return STATUS_OK;
 }
 
 /*
@@ -1146,6 +1302,174 @@ ProcessCommitTransactionCommand(Port *myport, StringInfo message)
 }
 
 /*
+ * Process MSG_TXN_COMMIT_PREPARED_MSG
+ * Commit a prepared transaction
+ * Here the GXID used for PREPARE and COMMIT PREPARED are both committed
+ */
+void
+ProcessCommitPreparedTransactionCommand(Port *myport, StringInfo message)
+{
+	StringInfoData buf;
+	int	txn_count = 2; /* PREPARE and COMMIT PREPARED gxid's */
+	GTM_TransactionHandle txn[txn_count];
+	GlobalTransactionId gxid[txn_count];
+	MemoryContext oldContext;
+	int status[txn_count];
+	int isgxid[txn_count];
+	int ii, count;
+
+	for (ii = 0; ii < txn_count; ii++)
+	{
+		isgxid[ii] = pq_getmsgbyte(message);
+		if (isgxid[ii])
+		{
+			const char *data = pq_getmsgbytes(message, sizeof (gxid[ii]));
+			if (data == NULL)
+				ereport(ERROR,
+						(EPROTO,
+						 errmsg("Message does not contain valid GXID")));
+			memcpy(&gxid[ii], data, sizeof (gxid[ii]));
+			txn[ii] = GTM_GXIDToHandle(gxid[ii]);
+			elog(DEBUG1, "ProcessCommitTransactionCommandMulti: gxid(%u), handle(%u)", gxid[ii], txn[ii]);
+		}
+		else
+		{
+			const char *data = pq_getmsgbytes(message, sizeof (txn[ii]));
+			if (data == NULL)
+				ereport(ERROR,
+						(EPROTO,
+						 errmsg("Message does not contain valid Transaction Handle")));
+			memcpy(&txn[ii], data, sizeof (txn[ii]));
+			elog(DEBUG1, "ProcessCommitTransactionCommandMulti: handle(%u)", txn[ii]);
+		}
+	}
+
+	pq_getmsgend(message);
+
+	oldContext = MemoryContextSwitchTo(TopMemoryContext);
+
+	/*
+	 * Commit the prepared transaction.
+	 */
+	count = GTM_CommitTransactionMulti(txn, txn_count, status);
+
+	MemoryContextSwitchTo(oldContext);
+
+	pq_beginmessage(&buf, 'S');
+	pq_sendint(&buf, TXN_COMMIT_PREPARED_RESULT, 4);
+	if (myport->is_proxy)
+	{
+		GTM_ProxyMsgHeader proxyhdr;
+		proxyhdr.ph_conid = myport->conn_id;
+		pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
+	}
+	pq_sendbytes(&buf, (char *)&gxid[0], sizeof(GlobalTransactionId));
+	pq_sendint(&buf, status[0], 4);
+	pq_endmessage(myport, &buf);
+
+	if (!myport->is_proxy)
+		pq_flush(myport);
+	return;
+}
+
+
+/*
+ * Process MSG_TXN_GET_GID_DATA
+ * This message is used after at the beginning of a COMMIT PREPARED
+ * or a ROLLBACK PREPARED.
+ * For a given GID the following info is returned:
+ * - a fresh GXID,
+ * - GXID of the transaction that made the prepare
+ * - datanode and coordinator node list involved in the prepare
+ */
+void
+ProcessGetGIDDataTransactionCommand(Port *myport, StringInfo message)
+{
+	StringInfoData buf;
+	char *gid;
+	int gidlen;
+	GTM_IsolationLevel txn_isolation_level;
+	bool txn_read_only;
+	MemoryContext oldContext;
+	GTM_TransactionHandle txn, prepared_txn;
+	/* Data to be sent back to client */
+	GlobalTransactionId gxid, prepared_gxid;
+	PGXC_NodeId *coordinators = NULL;
+	PGXC_NodeId *datanodes = NULL;
+	int datanodecnt,coordcnt;
+
+	/* take the isolation level and read_only instructions */
+	txn_isolation_level = pq_getmsgint(message, sizeof (GTM_IsolationLevel));
+	txn_read_only = pq_getmsgbyte(message);
+
+	/* receive GID */
+	gidlen = pq_getmsgint(message, sizeof (GTM_GIDLen));
+	gid = (char *)pq_getmsgbytes(message, gidlen);
+
+	pq_getmsgend(message);
+
+	prepared_txn = GTM_GIDToHandle(gid);
+	if (prepared_txn == InvalidTransactionHandle)
+		ereport(ERROR,
+				(EINVAL,
+				 errmsg("Failed to get GID Data for prepared transaction")));
+
+	oldContext = MemoryContextSwitchTo(TopMemoryContext);
+
+	/* First get the GXID for the new transaction */
+	txn = GTM_BeginTransaction(0, txn_isolation_level, txn_read_only);
+	if (txn == InvalidTransactionHandle)
+		ereport(ERROR,
+			(EINVAL,
+			 errmsg("Failed to start a new transaction")));
+
+	gxid = GTM_GetGlobalTransactionId(txn);
+	if (gxid == InvalidGlobalTransactionId)
+		ereport(ERROR,
+				(EINVAL,
+				 errmsg("Failed to get a new transaction id")));
+
+	/*
+	 * Make the internal process, get the prepared information from GID.
+	 */
+	if (GTM_GetGIDData(prepared_txn, &prepared_gxid, &datanodecnt, &datanodes, &coordcnt, &coordinators) != STATUS_OK)
+	{
+		ereport(ERROR,
+				(EINVAL,
+				 errmsg("Failed to get the information of prepared transaction")));
+	}
+
+	MemoryContextSwitchTo(oldContext);
+
+	/*
+	 * Send a SUCCESS message back to the client
+	 */
+	pq_beginmessage(&buf, 'S');
+	pq_sendint(&buf, TXN_GET_GID_DATA_RESULT, 4);
+	if (myport->is_proxy)
+	{
+		GTM_ProxyMsgHeader proxyhdr;
+		proxyhdr.ph_conid = myport->conn_id;
+		pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
+	}
+	/* Send the two GXIDs */
+	pq_sendbytes(&buf, (char *)&gxid, sizeof(GlobalTransactionId));
+	pq_sendbytes(&buf, (char *)&prepared_gxid, sizeof(GlobalTransactionId));
+	/* Then send the data linked to nodes involved in prepare */
+	pq_sendint(&buf, datanodecnt, 4);
+	pq_sendbytes(&buf, (char *)datanodes, sizeof(PGXC_NodeId) * datanodecnt);
+	pq_sendint(&buf, coordcnt, 4);
+	if (coordcnt != 0)
+		pq_sendbytes(&buf, (char *)coordinators, sizeof(PGXC_NodeId) * coordcnt);
+
+	pq_endmessage(myport, &buf);
+
+	if (!myport->is_proxy)
+		pq_flush(myport);
+	return;
+}
+
+/*
  * Process MSG_TXN_ROLLBACK message
  */
 void
@@ -1352,18 +1676,21 @@ ProcessRollbackTransactionCommandMulti(Port *myport, StringInfo message)
 }
 
 /*
- * Process MSG_TXN_PREPARE message
+ * Process MSG_TXN_BEING_PREPARED message
  */
 void
-ProcessPrepareTransactionCommand(Port *myport, StringInfo message)
+ProcessBeingPreparedTransactionCommand(Port *myport, StringInfo message)
 {
 	StringInfoData buf;
 	GTM_TransactionHandle txn;
 	GlobalTransactionId gxid;
 	int isgxid = 0;
-	int nodecnt;
-	PGXC_NodeId *nodes;
+	int datanodecnt,coordcnt;
+	GTM_GIDLen gidlen;
+	PGXC_NodeId *coordinators = NULL;
+	PGXC_NodeId *datanodes = NULL;
 	MemoryContext oldContext;
+	char *gid;
 
 	isgxid = pq_getmsgbyte(message);
 
@@ -1387,26 +1714,104 @@ ProcessPrepareTransactionCommand(Port *myport, StringInfo message)
 		memcpy(&txn, data, sizeof (txn));
 	}
 
-	nodecnt = pq_getmsgint(message, sizeof (nodecnt));
-	nodes = (PGXC_NodeId *) palloc(sizeof (PGXC_NodeId) * nodecnt);
-	memcpy(nodes, pq_getmsgbytes(message, sizeof (PGXC_NodeId) * nodecnt),
-			sizeof (PGXC_NodeId) * nodecnt);
+	/* get GID */
+	gidlen = pq_getmsgint(message, sizeof (GTM_GIDLen));
+	gid = (char *)pq_getmsgbytes(message, gidlen);
 
+	/* Get Datanode Data */
+	datanodecnt = pq_getmsgint(message, 4);
+	datanodes = (PGXC_NodeId *) palloc(sizeof (PGXC_NodeId) * datanodecnt);
+	memcpy(datanodes, pq_getmsgbytes(message, sizeof (PGXC_NodeId) * datanodecnt),
+			sizeof (PGXC_NodeId) * datanodecnt);
+
+	/* Get Coordinator Data, can be possibly NULL */
+	coordcnt = pq_getmsgint(message, 4);
+	if (coordcnt != 0)
+	{
+		coordinators = (PGXC_NodeId *) palloc(sizeof (PGXC_NodeId) * coordcnt);
+		memcpy(coordinators, pq_getmsgbytes(message, sizeof (PGXC_NodeId) * coordcnt),
+			sizeof (PGXC_NodeId) * coordcnt);
+	}
 	pq_getmsgend(message);
 
-	oldContext = MemoryContextSwitchTo(TopMemoryContext);
+	oldContext = MemoryContextSwitchTo(TopMostMemoryContext);
 
 	/*
 	 * Prepare the transaction
 	 */
-	if (GTM_PrepareTransaction(txn, nodecnt, nodes) != STATUS_OK)
+	if (GTM_BeingPreparedTransaction(txn, gid, datanodecnt, datanodes, coordcnt, coordinators) != STATUS_OK)
 		ereport(ERROR,
 				(EINVAL,
-				 errmsg("Failed to commit the transaction")));
+				 errmsg("Failed to prepare the transaction")));
 
 	MemoryContextSwitchTo(oldContext);
 
-	pfree(nodes);
+	if (datanodes)
+		pfree(datanodes);
+	if (coordinators)
+		pfree(coordinators);
+
+	pq_beginmessage(&buf, 'S');
+	pq_sendint(&buf, TXN_BEING_PREPARED_RESULT, 4);
+	if (myport->is_proxy)
+	{
+		GTM_ProxyMsgHeader proxyhdr;
+		proxyhdr.ph_conid = myport->conn_id;
+		pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
+	}
+	pq_sendbytes(&buf, (char *)&gxid, sizeof(GlobalTransactionId));
+	pq_endmessage(myport, &buf);
+
+	if (!myport->is_proxy)
+		pq_flush(myport);
+	return;
+}
+
+/*
+ * Process MSG_TXN_PREPARE message
+ */
+void
+ProcessPrepareTransactionCommand(Port *myport, StringInfo message)
+{
+	StringInfoData buf;
+	GTM_TransactionHandle txn;
+	GlobalTransactionId gxid;
+	int isgxid = 0;
+	MemoryContext oldContext;
+	int status = STATUS_OK;
+
+	isgxid = pq_getmsgbyte(message);
+
+	if (isgxid)
+	{
+		const char *data = pq_getmsgbytes(message, sizeof (gxid));
+		if (data == NULL)
+			ereport(ERROR,
+					(EPROTO,
+					 errmsg("Message does not contain valid GXID")));
+		memcpy(&gxid, data, sizeof (gxid));
+		txn = GTM_GXIDToHandle(gxid);
+	}
+	else
+	{
+		const char *data = pq_getmsgbytes(message, sizeof (txn));
+		if (data == NULL)
+			ereport(ERROR,
+					(EPROTO,
+					 errmsg("Message does not contain valid Transaction Handle")));
+		memcpy(&txn, data, sizeof (txn));
+	}
+
+	pq_getmsgend(message);
+
+	oldContext = MemoryContextSwitchTo(TopMostMemoryContext);
+
+	/*
+	 * Commit the transaction
+	 */
+	status = GTM_PrepareTransaction(txn);
+
+	MemoryContextSwitchTo(oldContext);
 
 	pq_beginmessage(&buf, 'S');
 	pq_sendint(&buf, TXN_PREPARE_RESULT, 4);
@@ -1423,6 +1828,7 @@ ProcessPrepareTransactionCommand(Port *myport, StringInfo message)
 		pq_flush(myport);
 	return;
 }
+
 
 /*
  * Process MSG_TXN_GET_GXID message

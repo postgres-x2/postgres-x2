@@ -898,6 +898,11 @@ EndPrepare(GlobalTransaction gxact)
 	 * critical section, though, it doesn't matter since any failure causes
 	 * PANIC anyway.
 	 */
+#ifdef PGXC
+	/* Do not write 2PC state file on Coordinator side */
+	if (IS_PGXC_DATANODE)
+	{
+#endif
 	TwoPhaseFilePath(path, xid);
 
 	fd = BasicOpenFile(path,
@@ -970,6 +975,9 @@ EndPrepare(GlobalTransaction gxact)
 	 * We save the PREPARE record's location in the gxact for later use by
 	 * CheckPointTwoPhase.
 	 */
+#ifdef PGXC
+	}
+#endif
 	START_CRIT_SECTION();
 
 	MyProc->inCommit = true;
@@ -979,6 +987,12 @@ EndPrepare(GlobalTransaction gxact)
 	XLogFlush(gxact->prepare_lsn);
 
 	/* If we crash now, we have prepared: WAL replay will fix things */
+
+#ifdef PGXC
+	/* Just write 2PC state file on Datanodes */
+	if (IS_PGXC_DATANODE)
+	{
+#endif
 
 	/* write correct CRC and close file */
 	if ((write(fd, &statefile_crc, sizeof(pg_crc32))) != sizeof(pg_crc32))
@@ -993,6 +1007,9 @@ EndPrepare(GlobalTransaction gxact)
 		ereport(ERROR,
 				(errcode_for_file_access(),
 				 errmsg("could not close two-phase state file: %m")));
+#ifdef PGXC
+	}
+#endif
 
 	/*
 	 * Mark the prepared transaction as valid.	As soon as xact.c marks MyProc
@@ -1844,3 +1861,16 @@ RecordTransactionAbortPrepared(TransactionId xid,
 
 	END_CRIT_SECTION();
 }
+
+#ifdef PGXC
+/*
+ * Remove a gxact on a Coordinator,
+ * this is used to be able to prepare a commit transaction on another coordinator than the one
+ * who prepared the transaction
+ */
+void
+RemoveGXactCoord(GlobalTransaction gxact)
+{
+    RemoveGXact(gxact);
+}
+#endif

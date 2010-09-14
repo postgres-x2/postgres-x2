@@ -122,10 +122,39 @@ CommitTranGTM(GlobalTransactionId gxid)
 	CheckConnection();
 	ret = commit_transaction(conn, gxid);
 
-	/* If something went wrong (timeout), try and reset GTM connection. 
+	/*
+	 * If something went wrong (timeout), try and reset GTM connection. 
 	 * We will close the transaction locally anyway, and closing GTM will force
 	 * it to be closed on GTM.
 	 */
+	if (ret < 0)
+	{
+		CloseGTM();
+		InitGTM();
+	}
+	return ret;
+}
+
+/*
+ * For a prepared transaction, commit the gxid used for PREPARE TRANSACTION
+ * and for COMMIT PREPARED.
+ */
+int
+CommitPreparedTranGTM(GlobalTransactionId gxid, GlobalTransactionId prepared_gxid)
+{
+	int ret = 0;
+
+	if (!GlobalTransactionIdIsValid(gxid) || !GlobalTransactionIdIsValid(prepared_gxid))
+		return ret;
+	CheckConnection();
+	ret = commit_prepared_transaction(conn, gxid, prepared_gxid);
+
+	/*
+	 * If something went wrong (timeout), try and reset GTM connection.
+	 * We will close the transaction locally anyway, and closing GTM will force
+	 * it to be closed on GTM.
+	 */
+
 	if (ret < 0)
 	{
 		CloseGTM();
@@ -144,7 +173,8 @@ RollbackTranGTM(GlobalTransactionId gxid)
 	CheckConnection();
 	ret = abort_transaction(conn, gxid);
 
-	/* If something went wrong (timeout), try and reset GTM connection. 
+	/*
+	 * If something went wrong (timeout), try and reset GTM connection. 
 	 * We will abort the transaction locally anyway, and closing GTM will force
 	 * it to end on GTM.
 	 */
@@ -153,6 +183,90 @@ RollbackTranGTM(GlobalTransactionId gxid)
 		CloseGTM();
 		InitGTM();
 	}
+	return ret;
+}
+
+int
+BeingPreparedTranGTM(GlobalTransactionId gxid,
+					char *gid,
+					int datanodecnt,
+					PGXC_NodeId datanodes[],
+					int coordcnt,
+					PGXC_NodeId coordinators[])
+{
+	int ret = 0;
+
+	if (!GlobalTransactionIdIsValid(gxid))
+		return 0;
+	CheckConnection();
+
+	ret = being_prepared_transaction(conn, gxid, gid, datanodecnt, datanodes, coordcnt, coordinators);
+
+	/*
+	 * If something went wrong (timeout), try and reset GTM connection.
+	 * We will abort the transaction locally anyway, and closing GTM will force
+	 * it to end on GTM.
+	 */
+	if (ret < 0)
+	{
+		CloseGTM();
+		InitGTM();
+	}
+
+	return ret;
+}
+
+int
+PrepareTranGTM(GlobalTransactionId gxid)
+{
+	int ret;
+
+	if (!GlobalTransactionIdIsValid(gxid))
+		return 0;
+	CheckConnection();
+	ret = prepare_transaction(conn, gxid);
+
+	/*
+	 * If something went wrong (timeout), try and reset GTM connection. 
+	 * We will close the transaction locally anyway, and closing GTM will force
+	 * it to be closed on GTM.
+	 */
+	if (ret < 0)
+	{
+		CloseGTM();
+		InitGTM();
+	}
+	return ret;
+}
+
+
+int
+GetGIDDataGTM(char *gid,
+			  GlobalTransactionId *gxid,
+			  GlobalTransactionId *prepared_gxid,
+			  int *datanodecnt,
+			  PGXC_NodeId **datanodes,
+			  int *coordcnt,
+			  PGXC_NodeId **coordinators)
+{
+	int ret = 0;
+
+	CheckConnection();
+	ret = get_gid_data(conn, GTM_ISOLATION_RC, gid, gxid,
+					   prepared_gxid, datanodecnt, datanodes,
+					   coordcnt, coordinators);
+
+	/*
+	 * If something went wrong (timeout), try and reset GTM connection.
+	 * We will abort the transaction locally anyway, and closing GTM will force
+	 * it to end on GTM.
+	 */
+	if (ret < 0)
+	{
+		CloseGTM();
+		InitGTM();
+	}
+
 	return ret;
 }
 

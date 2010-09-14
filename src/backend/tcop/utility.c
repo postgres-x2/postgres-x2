@@ -318,6 +318,15 @@ ProcessUtility(Node *parsetree,
 						break;
 
 					case TRANS_STMT_PREPARE:
+#ifdef PGXC
+						/*
+						 * If 2PC if invoked from application, transaction is first prepared on Datanodes.
+						 * 2PC file is not written for Coordinators to keep the possiblity
+						 * of a COMMIT PREPARED on a separate Coordinator
+						 */
+						if (IS_PGXC_COORDINATOR)
+							DataNodePrepare(stmt->gid);
+#endif
 						if (!PrepareTransactionBlock(stmt->gid))
 						{
 							/* report unsuccessful commit in completionTag */
@@ -327,13 +336,46 @@ ProcessUtility(Node *parsetree,
 						break;
 
 					case TRANS_STMT_COMMIT_PREPARED:
+#ifdef PGXC
+						if (IS_PGXC_COORDINATOR)
+							DataNodeCommitPrepared(stmt->gid);
+#endif
 						PreventTransactionChain(isTopLevel, "COMMIT PREPARED");
+
+#ifdef PGXC
+						if (IS_PGXC_DATANODE)
+						{
+							/*
+							 * 2PC file of Coordinator is not flushed to disk when transaction is prepared
+							 * so just skip this part.
+							 */
+#endif
 						FinishPreparedTransaction(stmt->gid, true);
+#ifdef PGXC
+						}
+#endif
 						break;
 
 					case TRANS_STMT_ROLLBACK_PREPARED:
+#ifdef PGXC
+						if (IS_PGXC_COORDINATOR)
+							DataNodeRollbackPrepared(stmt->gid);
+#endif
+
 						PreventTransactionChain(isTopLevel, "ROLLBACK PREPARED");
+
+#ifdef PGXC
+						if (IS_PGXC_DATANODE)
+						{
+							/*
+							 * 2PC file of Coordinator is not flushed to disk when transaction is prepared
+							 * so just skip this part.
+							 */
+#endif
 						FinishPreparedTransaction(stmt->gid, false);
+#ifdef PGXC
+						}
+#endif
 						break;
 
 					case TRANS_STMT_ROLLBACK:

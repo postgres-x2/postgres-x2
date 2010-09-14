@@ -38,6 +38,7 @@ typedef uint32	GlobalTransactionId;		/* 32-bit global transaction ids */
 typedef uint32	PGXC_NodeId;
 typedef uint32	GTM_CoordinatorId;
 typedef int16	GTMProxy_ConnID;
+typedef uint32	GTM_GIDLen;
 
 #define InvalidGTMProxyConnID	-1
 

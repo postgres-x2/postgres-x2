@@ -769,12 +769,15 @@ ProcessCommand(Port *myport, StringInfo input_message)
 		case MSG_TXN_BEGIN_GETGXID:
 		case MSG_TXN_BEGIN_GETGXID_AUTOVACUUM:
 		case MSG_TXN_PREPARE:
+		case MSG_TXN_BEING_PREPARED:
 		case MSG_TXN_COMMIT:
+		case MSG_TXN_COMMIT_PREPARED:
 		case MSG_TXN_ROLLBACK:
 		case MSG_TXN_GET_GXID:
 		case MSG_TXN_BEGIN_GETGXID_MULTI:
 		case MSG_TXN_COMMIT_MULTI:
 		case MSG_TXN_ROLLBACK_MULTI:
+		case MSG_TXN_GET_GID_DATA:
 			ProcessTransactionCommand(myport, mtype, input_message);
 			break;
 
@@ -795,7 +798,7 @@ ProcessCommand(Port *myport, StringInfo input_message)
 		case MSG_SEQUENCE_ALTER:
 			ProcessSequenceCommand(myport, mtype, input_message);
 			break;
-		
+
 		case MSG_TXN_GET_STATUS:
 		case MSG_TXN_GET_ALL_PREPARED:
 			ProcessQueryCommand(myport, mtype, input_message);
@@ -938,45 +941,56 @@ ProcessTransactionCommand(Port *myport, GTM_MessageType mtype, StringInfo messag
 
 	switch (mtype)
 	{
-		case MSG_TXN_BEGIN:	
+		case MSG_TXN_BEGIN:
 			ProcessBeginTransactionCommand(myport, message);
 			break;
 
-		case MSG_TXN_BEGIN_GETGXID:	
+		case MSG_TXN_BEGIN_GETGXID:
 			ProcessBeginTransactionGetGXIDCommand(myport, message);
 			break;
 
-		case MSG_TXN_BEGIN_GETGXID_AUTOVACUUM:	
+		case MSG_TXN_BEGIN_GETGXID_AUTOVACUUM:
 			ProcessBeginTransactionGetGXIDAutovacuumCommand(myport, message);
 			break;
 
-		case MSG_TXN_BEGIN_GETGXID_MULTI:	
+		case MSG_TXN_BEGIN_GETGXID_MULTI:
 			ProcessBeginTransactionGetGXIDCommandMulti(myport, message);
 			break;
 
-		case MSG_TXN_PREPARE:		
+		case MSG_TXN_BEING_PREPARED:
+			ProcessBeingPreparedTransactionCommand(myport, message);
+			break;
+
+		case MSG_TXN_PREPARE:
 			ProcessPrepareTransactionCommand(myport, message);
 			break;
 
-		case MSG_TXN_COMMIT:		
+		case MSG_TXN_COMMIT:
 			ProcessCommitTransactionCommand(myport, message);
 			break;
 
-		case MSG_TXN_ROLLBACK:		
+		case MSG_TXN_COMMIT_PREPARED:
+			ProcessCommitPreparedTransactionCommand(myport, message);
+			break;
+
+		case MSG_TXN_ROLLBACK:
 			ProcessRollbackTransactionCommand(myport, message);
 			break;
 
-		case MSG_TXN_COMMIT_MULTI:		
+		case MSG_TXN_COMMIT_MULTI:
 			ProcessCommitTransactionCommandMulti(myport, message);
 			break;
 
-		case MSG_TXN_ROLLBACK_MULTI:		
+		case MSG_TXN_ROLLBACK_MULTI:
 			ProcessRollbackTransactionCommandMulti(myport, message);
 			break;
 
 		case MSG_TXN_GET_GXID:
 			ProcessGetGXIDTransactionCommand(myport, message);
 			break;
+
+		case MSG_TXN_GET_GID_DATA:
+			ProcessGetGIDDataTransactionCommand(myport, message);
 
 		default:
 			Assert(0);			/* Shouldn't come here.. keep compiler quite */

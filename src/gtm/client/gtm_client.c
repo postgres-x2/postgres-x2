@@ -135,6 +135,7 @@ receive_failed:
 send_failed:
 	return InvalidGlobalTransactionId;
 }
+
 int
 commit_transaction(GTM_Conn *conn, GlobalTransactionId gxid)
 {
@@ -175,7 +176,48 @@ commit_transaction(GTM_Conn *conn, GlobalTransactionId gxid)
 receive_failed:
 send_failed:
 	return -1;
+}
 
+int
+commit_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, GlobalTransactionId prepared_gxid)
+{
+	GTM_Result *res = NULL;
+	time_t finish_time;
+
+	/* Start the message */
+	if (gtmpqPutMsgStart('C', true, conn) ||
+		gtmpqPutInt(MSG_TXN_COMMIT_PREPARED, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutc(true, conn) ||
+		gtmpqPutnchar((char *)&gxid, sizeof (GlobalTransactionId), conn) ||
+		gtmpqPutc(true, conn) ||
+		gtmpqPutnchar((char *)&prepared_gxid, sizeof (GlobalTransactionId), conn))
+		goto send_failed;
+
+	/* Finish the message */
+	if (gtmpqPutMsgEnd(conn))
+		goto send_failed;
+
+	/* Flush to ensure backends gets it */
+	if (gtmpqFlush(conn))
+		goto send_failed;
+
+	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
+	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
+		gtmpqReadData(conn) < 0)
+		goto receive_failed;
+
+	if ((res = GTMPQgetResult(conn)) == NULL)
+		goto receive_failed;
+
+	if (res->gr_status == 0)
+	{
+		Assert(res->gr_type == TXN_COMMIT_PREPARED_RESULT);
+		Assert(res->gr_resdata.grd_gxid == gxid);
+	}
+
+send_failed:
+receive_failed:
+	return -1;
 }
 
 int 
@@ -222,8 +264,62 @@ send_failed:
 }
 
 int
-prepare_transaction(GTM_Conn *conn, GlobalTransactionId gxid,
-					int nodecnt, PGXC_NodeId nodes[])
+being_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, char *gid,
+					int datanodecnt, PGXC_NodeId datanodes[], int coordcnt,
+					PGXC_NodeId coordinators[])
+{
+	GTM_Result *res = NULL;
+	time_t finish_time;
+
+	 /* Start the message. */
+	if (gtmpqPutMsgStart('C', true, conn) ||
+		gtmpqPutInt(MSG_TXN_BEING_PREPARED, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutc(true, conn) ||
+		gtmpqPutnchar((char *)&gxid, sizeof (GlobalTransactionId), conn) ||
+		/* Send also GID for an explicit prepared transaction */
+		gtmpqPutInt(strlen(gid), sizeof (GTM_GIDLen), conn) ||
+		gtmpqPutnchar((char *) gid, strlen(gid), conn) ||
+		gtmpqPutInt(datanodecnt, sizeof (int), conn) ||
+		gtmpqPutnchar((char *)datanodes, sizeof (PGXC_NodeId) * datanodecnt, conn) ||
+		gtmpqPutInt(coordcnt, sizeof (int), conn))
+		goto send_failed;
+
+	/* Coordinator connections are not always involved in a transaction */
+	if (coordcnt != 0 && gtmpqPutnchar((char *)coordinators, sizeof (PGXC_NodeId) * coordcnt, conn))
+		goto send_failed;
+
+	/* Finish the message. */
+	if (gtmpqPutMsgEnd(conn))
+		goto send_failed;
+
+	/* Flush to ensure backend gets it. */
+	if (gtmpqFlush(conn))
+		goto send_failed;
+
+	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
+	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
+		gtmpqReadData(conn) < 0)
+		goto receive_failed;
+
+	if ((res = GTMPQgetResult(conn)) == NULL)
+		goto receive_failed;
+
+	if (res->gr_status == 0)
+	{
+		Assert(res->gr_type == TXN_BEING_PREPARED_RESULT);
+		Assert(res->gr_resdata.grd_gxid == gxid);
+	}
+
+	return res->gr_status;
+
+receive_failed:
+send_failed:
+	return -1;
+}
+
+
+int
+prepare_transaction(GTM_Conn *conn, GlobalTransactionId gxid)
 {
 	GTM_Result *res = NULL;
 	time_t finish_time;
@@ -232,9 +328,7 @@ prepare_transaction(GTM_Conn *conn, GlobalTransactionId gxid,
 	if (gtmpqPutMsgStart('C', true, conn) ||
 		gtmpqPutInt(MSG_TXN_PREPARE, sizeof (GTM_MessageType), conn) ||
 		gtmpqPutc(true, conn) ||
-		gtmpqPutnchar((char *)&gxid, sizeof (GlobalTransactionId), conn) ||
-		gtmpqPutInt(nodecnt, sizeof (int), conn) ||
-		gtmpqPutnchar((char *)nodes, sizeof (PGXC_NodeId) * nodecnt, conn))
+		gtmpqPutnchar((char *)&gxid, sizeof (GlobalTransactionId), conn))
 		goto send_failed;
 
 	/* Finish the message. */
@@ -257,6 +351,64 @@ prepare_transaction(GTM_Conn *conn, GlobalTransactionId gxid,
 	{
 		Assert(res->gr_type == TXN_PREPARE_RESULT);
 		Assert(res->gr_resdata.grd_gxid == gxid);
+	}
+
+	return res->gr_status;
+
+receive_failed:
+send_failed:
+	return -1;
+}
+
+int
+get_gid_data(GTM_Conn *conn,
+			 GTM_IsolationLevel isolevel,
+			 char *gid,
+			 GlobalTransactionId *gxid,
+			 GlobalTransactionId *prepared_gxid,
+			 int *datanodecnt,
+			 PGXC_NodeId **datanodes,
+			 int *coordcnt,
+			 PGXC_NodeId **coordinators)
+{
+	bool txn_read_only = false;
+	GTM_Result *res = NULL;
+	time_t finish_time;
+
+	/* Start the message */
+	if (gtmpqPutMsgStart('C', true, conn) ||
+		gtmpqPutInt(MSG_TXN_GET_GID_DATA, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutInt(isolevel, sizeof (GTM_IsolationLevel), conn) ||
+		gtmpqPutc(txn_read_only, conn) ||
+		/* Send also GID for an explicit prepared transaction */
+		gtmpqPutInt(strlen(gid), sizeof (GTM_GIDLen), conn) ||
+		gtmpqPutnchar((char *) gid, strlen(gid), conn))
+		goto send_failed;
+
+	/* Finish the message */
+	if (gtmpqPutMsgEnd(conn))
+		goto send_failed;
+
+	/* Flush to ensure backend gets it. */
+	if (gtmpqFlush(conn))
+		goto send_failed;
+
+	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
+	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
+		gtmpqReadData(conn) < 0)
+		goto receive_failed;
+
+	if ((res = GTMPQgetResult(conn)) == NULL)
+		goto receive_failed;
+
+	if (res->gr_status == 0)
+	{
+		*gxid = res->gr_resdata.grd_txn_get_gid_data.gxid;
+		*prepared_gxid = res->gr_resdata.grd_txn_get_gid_data.prepared_gxid;
+		*datanodes = res->gr_resdata.grd_txn_get_gid_data.datanodes;
+		*coordinators = res->gr_resdata.grd_txn_get_gid_data.coordinators;
+		*datanodecnt = res->gr_resdata.grd_txn_get_gid_data.datanodecnt;
+		*coordcnt = res->gr_resdata.grd_txn_get_gid_data.coordcnt;
 	}
 
 	return res->gr_status;

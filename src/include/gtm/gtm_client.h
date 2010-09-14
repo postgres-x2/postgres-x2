@@ -29,7 +29,9 @@ typedef union GTM_ResultData
 	} grd_gxid_tp;							/* TXN_BEGIN_GETGXID */
 
 	GlobalTransactionId		grd_gxid;		/* TXN_PREPARE
+											 * TXN_BEING_PREPARED
 											 * TXN_COMMIT
+											 * TXN_COMMIT_PREPARED
 											 * TXN_ROLLBACK
 											 */
 	
@@ -69,6 +71,16 @@ typedef union GTM_ResultData
 		int						txn_count;				/* SNAPSHOT_GET_MULTI */
 		int						status[GTM_MAX_GLOBAL_TRANSACTIONS];
 	} grd_txn_snap_multi;
+
+	struct
+	{
+		GlobalTransactionId		gxid;
+		GlobalTransactionId		prepared_gxid;
+		int						datanodecnt;
+		int						coordcnt;
+		PGXC_NodeId			   *datanodes;
+		PGXC_NodeId			   *coordinators;
+	} grd_txn_get_gid_data;					/* TXN_GET_GID_DATA_RESULT */
 
 	/*
 	 * TODO
@@ -111,9 +123,16 @@ void disconnect_gtm(GTM_Conn *conn);
 GlobalTransactionId begin_transaction(GTM_Conn *conn, GTM_IsolationLevel isolevel, GTM_Timestamp *timestamp);
 GlobalTransactionId begin_transaction_autovacuum(GTM_Conn *conn, GTM_IsolationLevel isolevel);
 int commit_transaction(GTM_Conn *conn, GlobalTransactionId gxid);
+int commit_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, GlobalTransactionId prepared_gxid);
 int abort_transaction(GTM_Conn *conn, GlobalTransactionId gxid);
-int prepare_transaction(GTM_Conn *conn, GlobalTransactionId gxid,
-						int nodecnt, PGXC_NodeId nodes[]);
+int being_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, char *gid,
+							   int datanodecnt, PGXC_NodeId datanodes[],
+							   int coordcnt, PGXC_NodeId coordinators[]);
+int prepare_transaction(GTM_Conn *conn, GlobalTransactionId gxid);
+int get_gid_data(GTM_Conn *conn, GTM_IsolationLevel isolevel, char *gid,
+				 GlobalTransactionId *gxid, GlobalTransactionId *prepared_gxid,
+				 int *datanodecnt, PGXC_NodeId **datanodes, int *coordcnt,
+				 PGXC_NodeId **coordinators);
 
 /*
  * Snapshot Management API

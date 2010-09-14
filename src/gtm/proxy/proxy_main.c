@@ -949,9 +949,12 @@ ProcessCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 		case MSG_TXN_BEGIN_GETGXID:
 		case MSG_TXN_BEGIN_GETGXID_AUTOVACUUM:
 		case MSG_TXN_PREPARE:
+		case MSG_TXN_BEING_PREPARED:
 		case MSG_TXN_COMMIT:
+		case MSG_TXN_COMMIT_PREPARED:
 		case MSG_TXN_ROLLBACK:
 		case MSG_TXN_GET_GXID:
+		case MSG_TXN_GET_GID_DATA:
 			ProcessTransactionCommand(conninfo, gtm_conn, mtype, input_message);
 			break;
 
@@ -1115,7 +1118,11 @@ ProcessResponse(GTMProxy_ThreadInfo *thrinfo, GTMProxy_CommandInfo *cmdinfo,
 		case MSG_TXN_BEGIN:
 		case MSG_TXN_BEGIN_GETGXID_AUTOVACUUM:
 		case MSG_TXN_PREPARE:
+		case MSG_TXN_BEING_PREPARED:
+		/* There are not so many 2PC from application messages, so just proxy it. */
+		case MSG_TXN_COMMIT_PREPARED:
 		case MSG_TXN_GET_GXID:
+		case MSG_TXN_GET_GID_DATA:
 		case MSG_SNAPSHOT_GXID_GET:
 		case MSG_SEQUENCE_INIT:
 		case MSG_SEQUENCE_GET_CURRENT:
@@ -1165,8 +1172,6 @@ ProcessResponse(GTMProxy_ThreadInfo *thrinfo, GTMProxy_CommandInfo *cmdinfo,
 					 errmsg("invalid frontend message type %d",
 							cmdinfo->ci_mtype)));
 	}
-
-
 }
 
 /* ----------------
@@ -1302,7 +1307,10 @@ ProcessTransactionCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 			break;
 
 		case MSG_TXN_BEGIN_GETGXID_AUTOVACUUM:
-		case MSG_TXN_PREPARE:		
+		case MSG_TXN_PREPARE:
+		case MSG_TXN_BEING_PREPARED:
+		case MSG_TXN_GET_GID_DATA:
+		case MSG_TXN_COMMIT_PREPARED:
 			GTMProxy_ProxyCommand(conninfo, gtm_conn, mtype, message);
 			break;
 

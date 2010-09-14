@@ -116,8 +116,11 @@ typedef struct GTM_TransactionInfo
 	GTM_IsolationLevel			gti_isolevel;
 	bool						gti_readonly;
 	GTMProxy_ConnID				gti_backend_id;
-	uint32						gti_nodecount;
-	PGXC_NodeId					*gti_nodes;
+	uint32						gti_datanodecount;
+	PGXC_NodeId					*gti_datanodes;
+	uint32						gti_coordcount;
+	PGXC_NodeId					*gti_coordinators;
+	char						*gti_gid;
 
 	GTM_SnapshotData			gti_current_snapshot;
 	bool						gti_snapshot_set;
@@ -127,6 +130,8 @@ typedef struct GTM_TransactionInfo
 } GTM_TransactionInfo;
 
 #define GTM_MAX_2PC_NODES				16
+/* By default a GID length is limited to 256 bits in PostgreSQL */
+#define GTM_MAX_GID_LEN					256
 #define GTM_CheckTransactionHandle(x)	((x) >= 0 && (x) < GTM_MAX_GLOBAL_TRANSACTIONS)
 #define GTM_IsTransSerializable(x)		((x)->gti_isolevel == GTM_ISOLATION_SERIALIZABLE)
 
@@ -174,6 +179,7 @@ extern GTM_Transactions	GTMTransactions;
 
 GTM_TransactionInfo *GTM_HandleToTransactionInfo(GTM_TransactionHandle handle);
 GTM_TransactionHandle GTM_GXIDToHandle(GlobalTransactionId gxid);
+GTM_TransactionHandle GTM_GIDToHandle(char *gid);
 
 /* Transaction Control */
 void GTM_InitTxnManager(void);
@@ -192,12 +198,25 @@ int GTM_RollbackTransactionGXID(GlobalTransactionId gxid);
 int GTM_CommitTransaction(GTM_TransactionHandle txn);
 int GTM_CommitTransactionMulti(GTM_TransactionHandle txn[], int txn_count, int status[]);
 int GTM_CommitTransactionGXID(GlobalTransactionId gxid);
-int GTM_PrepareTransaction(GTM_TransactionHandle txn,
-						   uint32 nodecnt,
-						   PGXC_NodeId nodes[]);
-int GTM_PrepareTransactionGXID(GlobalTransactionId gxid,
-						   uint32 nodecnt,
-						   PGXC_NodeId nodes[]);
+int GTM_PrepareTransaction(GTM_TransactionHandle txn);
+int GTM_BeingPreparedTransaction(GTM_TransactionHandle txn,
+								 char *gid,
+								 uint32 datanodecnt,
+								 PGXC_NodeId datanodes[],
+								 uint32 coordcnt,
+								 PGXC_NodeId coordinators[]);
+int GTM_BeingPreparedTransactionGXID(GlobalTransactionId gxid,
+									 char *gid,
+									 uint32 datanodecnt,
+									 PGXC_NodeId datanodes[],
+									 uint32 coordcnt,
+									 PGXC_NodeId coordinators[]);
+int GTM_GetGIDData(GTM_TransactionHandle prepared_txn,
+				   GlobalTransactionId *prepared_gxid,
+				   int *datanodecnt,
+				   PGXC_NodeId **datanodes,
+				   int *coordcnt,
+				   PGXC_NodeId **coordinators);
 uint32 GTM_GetAllPrepared(GlobalTransactionId gxids[], uint32 gxidcnt);
 GTM_TransactionStates GTM_GetStatus(GTM_TransactionHandle txn);
 GTM_TransactionStates GTM_GetStatusGXID(GlobalTransactionId gxid);
@@ -214,8 +233,11 @@ void ProcessBeginTransactionCommand(Port *myport, StringInfo message);
 void ProcessBeginTransactionCommandMulti(Port *myport, StringInfo message);
 void ProcessBeginTransactionGetGXIDCommand(Port *myport, StringInfo message);
 void ProcessCommitTransactionCommand(Port *myport, StringInfo message);
+void ProcessCommitPreparedTransactionCommand(Port *myport, StringInfo message);
 void ProcessRollbackTransactionCommand(Port *myport, StringInfo message);
+void ProcessBeingPreparedTransactionCommand(Port *myport, StringInfo message);
 void ProcessPrepareTransactionCommand(Port *myport, StringInfo message);
+void ProcessGetGIDDataTransactionCommand(Port *myport, StringInfo message);
 void ProcessGetGXIDTransactionCommand(Port *myport, StringInfo message);
 
 void ProcessBeginTransactionGetGXIDAutovacuumCommand(Port *myport, StringInfo message);

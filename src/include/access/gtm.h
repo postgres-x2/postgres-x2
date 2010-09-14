@@ -24,6 +24,23 @@ extern GlobalTransactionId BeginTranGTM(GTM_Timestamp *timestamp);
 extern GlobalTransactionId BeginTranAutovacuumGTM(void);
 extern int CommitTranGTM(GlobalTransactionId gxid);
 extern int RollbackTranGTM(GlobalTransactionId gxid);
+extern int BeingPreparedTranGTM(GlobalTransactionId gxid,
+								char *gid,
+								int datanodecnt,
+								PGXC_NodeId datanodes[],
+								int coordcount,
+								PGXC_NodeId coordinators[]);
+extern int PrepareTranGTM(GlobalTransactionId gxid);
+extern int GetGIDDataGTM(char *gid,
+						 GlobalTransactionId *gxid,
+						 GlobalTransactionId *prepared_gxid,
+						 int *datanodecnt,
+						 PGXC_NodeId **datanodes,
+						 int *coordcnt,
+						 PGXC_NodeId **coordinators);
+extern int CommitPreparedTranGTM(GlobalTransactionId gxid,
+								 GlobalTransactionId prepared_gxid);
+
 extern GTM_Snapshot GetSnapshotGTM(GlobalTransactionId gxid, bool canbe_grouped);
 
 /* Sequence interface APIs with GTM */

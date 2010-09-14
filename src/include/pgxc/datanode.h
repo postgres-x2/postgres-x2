@@ -85,6 +85,7 @@ extern void DataNodeCleanAndRelease(int code, Datum arg);
 extern DataNodeHandle **get_handles(List *nodelist);
 extern void release_handles(bool force_drop);
 extern int	get_transaction_nodes(DataNodeHandle ** connections);
+extern PGXC_NodeId* collect_datanode_numbers(int conn_count, DataNodeHandle ** connections);
 extern int	get_active_nodes(DataNodeHandle ** connections);
 
 extern int	ensure_in_buffer_capacity(size_t bytes_needed, DataNodeHandle * handle);

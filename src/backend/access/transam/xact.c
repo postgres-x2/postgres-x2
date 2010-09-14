@@ -2132,6 +2132,17 @@ PrepareTransaction(void)
 
 	PostPrepare_Locks(xid);
 
+#ifdef PGXC
+	/*
+	 * We want to be able to commit a prepared transaction from another coordinator,
+	 * so clean up the gxact in shared memory also.
+	 */
+	if (IS_PGXC_COORDINATOR)
+	{
+		RemoveGXactCoord(gxact);
+	}
+#endif
+
 	ResourceOwnerRelease(TopTransactionResourceOwner,
 						 RESOURCE_RELEASE_LOCKS,
 						 true, true);
