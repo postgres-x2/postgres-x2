@@ -998,8 +998,8 @@ handle_response(DataNodeHandle * conn, RemoteQueryState *combiner)
 		if (conn->state == DN_CONNECTION_STATE_QUERY)
 			return RESPONSE_EOF;
 
-		/* 
-		 * If we are in the process of shutting down, we 
+		/*
+		 * If we are in the process of shutting down, we
 		 * may be rolling back, and the buffer may contain other messages.
 		 * We want to avoid a procarray exception
 		 * as well as an error stack overflow.
@@ -1745,7 +1745,7 @@ finish:
 
 /*
  * Rollback current transaction
- * This will happen 
+ * This will happen
  */
 int
 DataNodeRollback(void)
@@ -2577,7 +2577,7 @@ ExecRemoteQuery(RemoteQueryState *node)
 		if (force_autocommit)
 			need_tran = false;
 		else
-			need_tran = !autocommit || total_conn_count > 1;
+			need_tran = !autocommit || !is_read_only && total_conn_count > 1;
 
 		elog(DEBUG1, "autocommit = %s, has primary = %s, regular_conn_count = %d, need_tran = %s", autocommit ? "true" : "false", primaryconnection ? "true" : "false", regular_conn_count, need_tran ? "true" : "false");
 
@@ -3143,7 +3143,7 @@ DataNodeConsumeMessages(void)
 		pfree(connections);
 }
 
- 
+
 /* ----------------------------------------------------------------
  *		ExecRemoteQueryReScan
  *

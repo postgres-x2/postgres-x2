@@ -1009,6 +1009,9 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 		}
 		else
 		{
+#ifdef PGXC
+			if (!IS_PGXC_COORDINATOR)
+#endif
 			if (operation == CMD_INSERT)
 				ExecCheckPlanOutput(estate->es_result_relation_info->ri_RelationDesc,
 									planstate->plan->targetlist);
