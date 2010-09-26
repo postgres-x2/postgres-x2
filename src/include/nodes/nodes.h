@@ -73,6 +73,13 @@ typedef enum NodeTag
 	T_SetOp,
 	T_Limit,
 #ifdef PGXC
+	/*
+	 * TAGS FOR PGXC NODES (planner.h, locator.h)
+	 */
+	T_ExecNodes,
+	T_SimpleAgg,
+	T_SimpleSort,
+	T_SimpleDistinct,
 	T_RemoteQuery,
 #endif
 	/* this one isn't a subclass of Plan: */

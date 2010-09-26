@@ -61,11 +61,12 @@ typedef enum
  */
 typedef struct
 {
+	NodeTag		type;
 	List	   *primarynodelist;
 	List	   *nodelist;
 	char	    baselocatortype;
 	TableUsageType tableusagetype;  /* track pg_catalog usage */
-} Exec_Nodes;
+} ExecNodes;
 
 
 extern char *PreferredDataNodes;
@@ -77,7 +78,7 @@ extern char ConvertToLocatorType(int disttype);
 extern char *GetRelationHashColumn(RelationLocInfo *rel_loc_info);
 extern RelationLocInfo *GetRelationLocInfo(Oid relid);
 extern RelationLocInfo *CopyRelationLocInfo(RelationLocInfo *src_info);
-extern Exec_Nodes *GetRelationNodes(RelationLocInfo *rel_loc_info, long *partValue,
+extern ExecNodes *GetRelationNodes(RelationLocInfo *rel_loc_info, long *partValue,
 				 int isRead);
 extern bool IsHashColumn(RelationLocInfo *rel_loc_info, char *part_col_name);
 extern bool IsHashColumnForRelId(Oid relid, char *part_col_name);

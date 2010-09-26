@@ -38,6 +38,7 @@ typedef enum
  */
 typedef struct
 {
+	NodeTag		type;
 	int			numCols;		/* number of sort-key columns */
 	AttrNumber *sortColIdx;		/* their indexes in the target list */
 	Oid		   *sortOperators;	/* OIDs of operators to sort them by */
@@ -47,6 +48,7 @@ typedef struct
 /* For returning distinct results from the RemoteQuery*/
 typedef struct
 {
+	NodeTag		type;
 	int			numCols;		/* number of sort-key columns */
 	AttrNumber *uniqColIdx;		/* their indexes in the target list */
 	Oid		   *eqOperators;	/* OIDs of operators to equate them by */
@@ -61,7 +63,7 @@ typedef struct
 	Scan		scan;
 	bool		is_single_step;		/* special case, skip extra work */
 	char	   *sql_statement;
-	Exec_Nodes *exec_nodes;
+	ExecNodes  *exec_nodes;
 	CombineType combine_type;
 	List	   *simple_aggregates;	/* simple aggregate to combine on this step */
 	SimpleSort *sort;
@@ -87,6 +89,7 @@ typedef enum
 /* For handling simple aggregates */
 typedef struct
 {
+	NodeTag		type;
 	int			column_pos;		/* Only use 1 for now */
 	Aggref	   *aggref;
 	Oid			transfn_oid;

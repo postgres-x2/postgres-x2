@@ -847,7 +847,7 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 	int			num_phys_attrs;
 	uint64		processed;
 #ifdef PGXC
-	Exec_Nodes *exec_nodes = NULL;
+	ExecNodes  *exec_nodes = NULL;
 #endif
 
 	/* Allocate workspace and zero all fields */
@@ -1138,7 +1138,7 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 		{
 			char *hash_att;
 
-			exec_nodes = (Exec_Nodes *) palloc0(sizeof(Exec_Nodes));
+			exec_nodes = makeNode(ExecNodes);
 
 			/*
 			 * If target table does not exists on nodes (e.g. system table)

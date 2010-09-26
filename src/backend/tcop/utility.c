@@ -62,7 +62,7 @@
 #include "pgxc/pgxc.h"
 #include "pgxc/planner.h"
 
-static void ExecUtilityStmtOnNodes(const char *queryString, Exec_Nodes *nodes,
+static void ExecUtilityStmtOnNodes(const char *queryString, ExecNodes *nodes,
 					   bool force_autocommit);
 #endif
 
@@ -1341,7 +1341,7 @@ ProcessUtility(Node *parsetree,
 
 #ifdef PGXC
 static void
-ExecUtilityStmtOnNodes(const char *queryString, Exec_Nodes *nodes,
+ExecUtilityStmtOnNodes(const char *queryString, ExecNodes *nodes,
 					   bool force_autocommit)
 {
 	RemoteQuery *step = makeNode(RemoteQuery);

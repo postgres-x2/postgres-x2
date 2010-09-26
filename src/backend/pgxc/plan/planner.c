@@ -20,6 +20,7 @@
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
+#include "executor/executor.h"
 #include "lib/stringinfo.h"
 #include "nodes/nodeFuncs.h"
 #include "nodes/nodes.h"
@@ -120,7 +121,7 @@ typedef struct XCWalkerContext
 {
 	Query				   *query;
 	bool					isRead;
-	Exec_Nodes 			   *exec_nodes;	/* resulting execution nodes */
+	ExecNodes 			   *exec_nodes;	/* resulting execution nodes */
 	Special_Conditions 	   *conditions;
 	bool					multilevel_join;
 	List 				   *rtables;	/* a pointer to a list of rtables */
@@ -139,7 +140,7 @@ bool		StrictStatementChecking = true;
 bool		StrictSelectChecking = false;
 
 
-static Exec_Nodes *get_plan_nodes(Query *query, bool isRead);
+static ExecNodes *get_plan_nodes(Query *query, bool isRead);
 static bool get_plan_nodes_walker(Node *query_node, XCWalkerContext *context);
 static bool examine_conditions_walker(Node *expr_node, XCWalkerContext *context);
 static int handle_limit_offset(RemoteQuery *query_step, Query *query, PlannedStmt *plan_stmt);
@@ -402,13 +403,13 @@ get_base_var(Var *var, XCWalkerContext *context)
 /*
  * get_plan_nodes_insert - determine nodes on which to execute insert.
  */
-static Exec_Nodes *
+static ExecNodes *
 get_plan_nodes_insert(Query *query)
 {
 	RangeTblEntry *rte;
 	RelationLocInfo *rel_loc_info;
 	Const	   *constant;
-	Exec_Nodes *exec_nodes;
+	ExecNodes  *exec_nodes;
 	ListCell   *lc;
 	long		part_value;
 	long	   *part_value_ptr = NULL;
@@ -786,7 +787,7 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 		bool is_multilevel;
 		int save_parent_child_count = 0;
 		SubLink *sublink = (SubLink *) expr_node;
-		Exec_Nodes *save_exec_nodes = context->exec_nodes; /* Save old exec_nodes */
+		ExecNodes *save_exec_nodes = context->exec_nodes; /* Save old exec_nodes */
 
 		/* save parent-child count */
 		if (context->exec_nodes)
@@ -940,9 +941,9 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 	ListCell   *lc,
 			   *item;
 	RelationLocInfo *rel_loc_info;
-	Exec_Nodes *test_exec_nodes = NULL;
-	Exec_Nodes *current_nodes = NULL;
-	Exec_Nodes *from_query_nodes = NULL;
+	ExecNodes  *test_exec_nodes = NULL;
+	ExecNodes  *current_nodes = NULL;
+	ExecNodes  *from_query_nodes = NULL;
 	TableUsageType 	table_usage_type = TABLE_USAGE_TYPE_NO_TABLE;
 	TableUsageType 	current_usage_type = TABLE_USAGE_TYPE_NO_TABLE;
 	int 		from_subquery_count = 0;
@@ -972,7 +973,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 				if (contains_only_pg_catalog (query->rtable))
 				{
 					/* just pg_catalog tables */
-					context->exec_nodes = (Exec_Nodes *) palloc0(sizeof(Exec_Nodes));
+					context->exec_nodes = makeNode(ExecNodes);
 					context->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_PGCATALOG;
 					context->exec_on_coord = true;
 					return false;
@@ -991,7 +992,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 
 			if (rte->rtekind == RTE_SUBQUERY)
 			{
-				Exec_Nodes *save_exec_nodes = context->exec_nodes;
+				ExecNodes *save_exec_nodes = context->exec_nodes;
 				Special_Conditions *save_conditions = context->conditions; /* Save old conditions */
 				List *current_rtable = rte->subquery->rtable;
 
@@ -1089,7 +1090,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 	/* If we are just dealing with pg_catalog, just return */
 	if (table_usage_type == TABLE_USAGE_TYPE_PGCATALOG)
 	{
-		context->exec_nodes = (Exec_Nodes *) palloc0(sizeof(Exec_Nodes));
+		context->exec_nodes = makeNode(ExecNodes);
 		context->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_PGCATALOG;
 		context->exec_on_coord = true;
 		return false;
@@ -1255,10 +1256,10 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
  * Top level entry point before walking query to determine plan nodes
  *
  */
-static Exec_Nodes *
+static ExecNodes *
 get_plan_nodes(Query *query, bool isRead)
 {
-	Exec_Nodes *result_nodes = NULL;
+	ExecNodes *result_nodes = NULL;
 	XCWalkerContext context;
 
 
@@ -1293,10 +1294,10 @@ get_plan_nodes(Query *query, bool isRead)
  *
  * return NULL if it is not safe to be done in a single step.
  */
-static Exec_Nodes *
+static ExecNodes *
 get_plan_nodes_command(Query *query)
 {
-	Exec_Nodes *exec_nodes = NULL;
+	ExecNodes *exec_nodes = NULL;
 
 	switch (query->commandType)
 	{
@@ -1384,7 +1385,7 @@ get_simple_aggregates(Query * query)
 						   *finalfnexpr;
 				Datum		textInitVal;
 
-				simple_agg = (SimpleAgg *) palloc0(sizeof(SimpleAgg));
+				simple_agg = makeNode(SimpleAgg);
 				simple_agg->column_pos = column_pos;
 				initStringInfo(&simple_agg->valuebuf);
 				simple_agg->aggref = aggref;
@@ -1759,7 +1760,7 @@ make_simple_sort_from_sortclauses(Query *query, RemoteQuery *step)
 	nullsFirst = (bool *) palloc(numsortkeys * sizeof(bool));
 
 	numsortkeys = 0;
-	sort  = (SimpleSort *) palloc(sizeof(SimpleSort));
+	sort  = makeNode(SimpleSort);
 
 	if (sortcls)
 	{
@@ -1908,7 +1909,7 @@ make_simple_sort_from_sortclauses(Query *query, RemoteQuery *step)
 		 * extra_distincts list
 		 */
 
-		distinct = (SimpleDistinct *) palloc(sizeof(SimpleDistinct));
+		distinct = makeNode(SimpleDistinct);
 
 		/*
 		 * We will need at most list_length(distinctcls) sort columns
@@ -2093,12 +2094,50 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	query_step = makeNode(RemoteQuery);
 
 	query_step->is_single_step = false;
-	query_step->sql_statement = pstrdup(query->sql_statement);
+	/*
+	 * Declare Cursor case:
+	 * We should leave as a step query only SELECT statement
+	 * Further if we need refer source statement for planning we should take
+	 * the truncated string
+	 */
+	if (query->utilityStmt &&
+		IsA(query->utilityStmt, DeclareCursorStmt))
+	{
+
+		char	   *src = query->sql_statement;
+		char 		str[strlen(src) + 1]; /* mutable copy */
+		char	   *dst = str;
+
+		cursorOptions |= ((DeclareCursorStmt *) query->utilityStmt)->options;
+
+		/*
+		 * Initialize mutable copy, converting letters to uppercase and
+		 * various witespace characters to spaces
+		 */
+		while (*src)
+		{
+			if (isspace(*src))
+			{
+				src++;
+				*dst++ = ' ';
+			}
+			else
+				*dst++ = toupper(*src++);
+		}
+		*dst = '\0';
+		/* search for SELECT keyword in the normalized string */
+		dst = strstr(str, " SELECT ");
+		/* Take substring of the original string using found offset */
+		query_step->sql_statement = pstrdup(query->sql_statement + (dst - str + 1));
+	}
+	else
+		query_step->sql_statement = pstrdup(query->sql_statement);
+
 	query_step->exec_nodes = NULL;
 	query_step->combine_type = COMBINE_TYPE_NONE;
 	query_step->simple_aggregates = NULL;
 	/* Optimize multi-node handling */
-	query_step->read_only = query->nodeTag == T_SelectStmt;
+	query_step->read_only = query->commandType == CMD_SELECT;
 	query_step->force_autocommit = false;
 
 	result->planTree = (Plan *) query_step;
@@ -2108,20 +2147,20 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	 * level, Data Nodes, or both. By default we choose both. We should be
 	 * able to quickly expand this for more commands.
 	 */
-	switch (query->nodeTag)
+	switch (query->commandType)
 	{
-		case T_SelectStmt:
+		case CMD_SELECT:
 			/* Perform some checks to make sure we can support the statement */
 			if (query->intoClause)
 				ereport(ERROR,
 						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
 						 (errmsg("INTO clause not yet supported"))));
 			/* fallthru */
-		case T_InsertStmt:
-		case T_UpdateStmt:
-		case T_DeleteStmt:
+		case CMD_INSERT:
+		case CMD_UPDATE:
+		case CMD_DELETE:
 			/* Set result relations */
-			if (query->nodeTag != T_SelectStmt)
+			if (query->commandType != CMD_SELECT)
 				result->resultRelations = list_make1_int(query->resultRelation);
 
 			query_step->exec_nodes = get_plan_nodes_command(query);
@@ -2129,7 +2168,7 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 			if (query_step->exec_nodes == NULL)
 			{
 				/* Do not yet allow multi-node correlated UPDATE or DELETE */
-				if ((query->nodeTag == T_UpdateStmt || query->nodeTag == T_DeleteStmt))
+				if (query->commandType == CMD_UPDATE || query->commandType == CMD_DELETE)
 				{
 					ereport(ERROR,
 							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
@@ -2144,15 +2183,16 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 				return result;
 			}
 
-			if ((query->nodeTag == T_UpdateStmt || query->nodeTag == T_DeleteStmt)
+			/* Do not yet allow multi-node correlated UPDATE or DELETE */
+			if ((query->commandType == CMD_UPDATE || query->commandType == CMD_DELETE)
 							&& !query_step->exec_nodes
 							&& list_length(query->rtable) > 1)
 			{
-						result = standard_planner(query, cursorOptions, boundParams);
-						return result;
+				result = standard_planner(query, cursorOptions, boundParams);
+				return result;
 			}
 
-			/* 
+			/*
 			 * Use standard plan if we have more than one data node with either
 			 * group by, hasWindowFuncs, or hasRecursive
 			 */
@@ -2161,13 +2201,13 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 			 * group by expression is the partitioning column, in which
 			 * case it is ok to treat as a single step.
 			 */
-			if (query->nodeTag == T_SelectStmt
+			if (query->commandType == CMD_SELECT
 							&& query_step->exec_nodes
 							&& list_length(query_step->exec_nodes->nodelist) > 1
 							&& (query->groupClause || query->hasWindowFuncs || query->hasRecursive))
 			{
-						result = standard_planner(query, cursorOptions, boundParams);
-						return result;
+				result = standard_planner(query, cursorOptions, boundParams);
+				return result;
 			}
 
 			query_step->is_single_step = true;
@@ -2191,9 +2231,9 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 						query, query_step->exec_nodes->baselocatortype);
 
 			/* Set up simple aggregates */
-			/* PGXCTODO - we should detect what types of aggregates are used. 
+			/* PGXCTODO - we should detect what types of aggregates are used.
 			 * in some cases we can avoid the final step and merely proxy results
-			 * (when there is only one data node involved) instead of using 
+			 * (when there is only one data node involved) instead of using
 			 * coordinator consolidation. At the moment this is needed for AVG()
 			 */
 			query_step->simple_aggregates = get_simple_aggregates(query);
@@ -2222,6 +2262,16 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 						 (errmsg("This command is not yet supported."))));
 			else
 				result->planTree = standardPlan;
+	}
+
+	/*
+	 * If creating a plan for a scrollable cursor, make sure it can run
+	 * backwards on demand.  Add a Material node at the top at need.
+	 */
+	if (cursorOptions & CURSOR_OPT_SCROLL)
+	{
+		if (!ExecSupportsBackwardScan(result->planTree))
+			result->planTree = materialize_finished_plan(result->planTree);
 	}
 
 	return result;

@@ -1990,7 +1990,7 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_
  * Send a data row to the specified nodes
  */
 int
-DataNodeCopyIn(char *data_row, int len, Exec_Nodes *exec_nodes, DataNodeHandle** copy_connections)
+DataNodeCopyIn(char *data_row, int len, ExecNodes *exec_nodes, DataNodeHandle** copy_connections)
 {
 	DataNodeHandle *primary_handle = NULL;
 	ListCell *nodeitem;
@@ -2143,7 +2143,7 @@ DataNodeCopyIn(char *data_row, int len, Exec_Nodes *exec_nodes, DataNodeHandle**
 }
 
 uint64
-DataNodeCopyOut(Exec_Nodes *exec_nodes, DataNodeHandle** copy_connections, FILE* copy_file)
+DataNodeCopyOut(ExecNodes *exec_nodes, DataNodeHandle** copy_connections, FILE* copy_file)
 {
 	RemoteQueryState *combiner;
 	int 		conn_count = list_length(exec_nodes->nodelist) == 0 ? NumDataNodes : list_length(exec_nodes->nodelist);
@@ -2436,7 +2436,7 @@ copy_slot(RemoteQueryState *node, TupleTableSlot *src, TupleTableSlot *dst)
 }
 
 static void
-get_exec_connections(Exec_Nodes *exec_nodes,
+get_exec_connections(ExecNodes *exec_nodes,
 					 int *regular_conn_count,
 					 int *total_conn_count,
 					 DataNodeHandle ***connections,

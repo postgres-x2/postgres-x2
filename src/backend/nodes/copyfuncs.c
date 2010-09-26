@@ -25,6 +25,10 @@
 
 #include "nodes/plannodes.h"
 #include "nodes/relation.h"
+#ifdef PGXC
+#include "pgxc/locator.h"
+#include "pgxc/planner.h"
+#endif
 #include "utils/datum.h"
 
 
@@ -808,6 +812,124 @@ _copyPlanInvalItem(PlanInvalItem *from)
 
 	return newnode;
 }
+
+#ifdef PGXC
+/*
+ * _copyRemoteQuery
+ */
+static RemoteQuery *
+_copyRemoteQuery(RemoteQuery *from)
+{
+	RemoteQuery *newnode = makeNode(RemoteQuery);
+
+	/*
+	 * copy node superclass fields
+	 */
+	CopyScanFields((Scan *) from, (Scan *) newnode);
+
+	/*
+	 * copy remainder of node
+	 */
+	COPY_SCALAR_FIELD(is_single_step);
+	COPY_STRING_FIELD(sql_statement);
+	COPY_NODE_FIELD(exec_nodes);
+	COPY_SCALAR_FIELD(combine_type);
+	COPY_NODE_FIELD(simple_aggregates);
+	COPY_NODE_FIELD(sort);
+	COPY_NODE_FIELD(distinct);
+	COPY_SCALAR_FIELD(read_only);
+	COPY_SCALAR_FIELD(force_autocommit);
+
+	return newnode;
+}
+
+/*
+ * _copyExecNodes
+ */
+static ExecNodes *
+_copyExecNodes(ExecNodes *from)
+{
+	ExecNodes *newnode = makeNode(ExecNodes);
+
+	COPY_NODE_FIELD(primarynodelist);
+	COPY_NODE_FIELD(nodelist);
+	COPY_SCALAR_FIELD(baselocatortype);
+	COPY_SCALAR_FIELD(tableusagetype);
+
+	return newnode;
+}
+
+/*
+ * _copySimpleAgg
+ */
+static SimpleAgg *
+_copySimpleAgg(SimpleAgg *from)
+{
+	SimpleAgg *newnode = makeNode(SimpleAgg);
+
+	COPY_SCALAR_FIELD(column_pos);
+	COPY_NODE_FIELD(aggref);
+	COPY_SCALAR_FIELD(transfn_oid);
+	COPY_SCALAR_FIELD(finalfn_oid);
+	COPY_SCALAR_FIELD(arginputfn);
+	COPY_SCALAR_FIELD(argioparam);
+	COPY_SCALAR_FIELD(resoutputfn);
+	COPY_SCALAR_FIELD(transfn);
+	COPY_SCALAR_FIELD(finalfn);
+	if (!from->initValueIsNull)
+		newnode->initValue = datumCopy(from->initValue, from->transtypeByVal, 
+									   from->transtypeLen);
+	COPY_SCALAR_FIELD(initValueIsNull);
+	COPY_SCALAR_FIELD(inputtypeLen);
+	COPY_SCALAR_FIELD(resulttypeLen);
+	COPY_SCALAR_FIELD(transtypeLen);
+	COPY_SCALAR_FIELD(inputtypeByVal);
+	COPY_SCALAR_FIELD(resulttypeByVal);
+	COPY_SCALAR_FIELD(transtypeByVal);
+	/* No need to copy runtime info, just init */
+	newnode->collectValueNull = true;
+	initStringInfo(&newnode->valuebuf);
+
+	return newnode;
+}
+
+/*
+ * _copySimpleSort
+ */
+static SimpleSort *
+_copySimpleSort(SimpleSort *from)
+{
+	SimpleSort *newnode = makeNode(SimpleSort);
+
+	COPY_SCALAR_FIELD(numCols);
+	if (from->numCols > 0)
+	{
+		COPY_POINTER_FIELD(sortColIdx, from->numCols * sizeof(AttrNumber));
+		COPY_POINTER_FIELD(sortOperators, from->numCols * sizeof(Oid));
+		COPY_POINTER_FIELD(nullsFirst, from->numCols * sizeof(bool));
+	}
+
+	return newnode;
+}
+
+/*
+ * _copySimpleDistinct
+ */
+static SimpleDistinct *
+_copySimpleDistinct(SimpleDistinct *from)
+{
+	SimpleDistinct *newnode = makeNode(SimpleDistinct);
+
+	COPY_SCALAR_FIELD(numCols);
+	if (from->numCols > 0)
+	{
+		COPY_POINTER_FIELD(uniqColIdx, from->numCols * sizeof(AttrNumber));
+		COPY_POINTER_FIELD(eqOperators, from->numCols * sizeof(Oid));
+	}
+
+	return newnode;
+}
+#endif
 
 /* ****************************************************************
  *					   primnodes.h copy functions
@@ -3554,7 +3676,26 @@ copyObject(void *from)
 		case T_PlanInvalItem:
 			retval = _copyPlanInvalItem(from);
 			break;
-
+#ifdef PGXC
+			/*
+			 * PGXC SPECIFIC NODES
+			 */
+		case T_RemoteQuery:
+			retval = _copyRemoteQuery(from);
+			break;
+		case T_ExecNodes:
+			retval = _copyExecNodes(from);
+			break;
+		case T_SimpleAgg:
+			retval = _copySimpleAgg(from);
+			break;
+		case T_SimpleSort:
+			retval = _copySimpleSort(from);
+			break;
+		case T_SimpleDistinct:
+			retval = _copySimpleDistinct(from);
+			break;
+#endif
 			/*
 			 * PRIMITIVE NODES
 			 */

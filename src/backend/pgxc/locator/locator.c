@@ -279,18 +279,18 @@ GetRoundRobinNode(Oid relid)
  *
  * The returned List is a copy, so it should be freed when finished.
  */
-Exec_Nodes *
+ExecNodes *
 GetRelationNodes(RelationLocInfo *rel_loc_info, long *partValue, int isRead)
 {
 	ListCell   *prefItem;
 	ListCell   *stepItem;
-	Exec_Nodes *exec_nodes;
+	ExecNodes *exec_nodes;
 
 
 	if (rel_loc_info == NULL)
 		return NULL;
 
-	exec_nodes = (Exec_Nodes *) palloc0(sizeof(Exec_Nodes));
+	exec_nodes = makeNode(ExecNodes);
 	exec_nodes->baselocatortype = rel_loc_info->locatorType;
 	
 	switch (rel_loc_info->locatorType)

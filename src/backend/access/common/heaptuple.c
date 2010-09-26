@@ -1194,7 +1194,16 @@ slot_deform_datarow(TupleTableSlot *slot)
 				 errmsg("Tuple does not match the descriptor")));
 
 	if (slot->tts_attinmeta == NULL)
+	{
+		/*
+		 * Ensure info about input functions is available as long as slot lives
+		 */
+		MemoryContext oldcontext = MemoryContextSwitchTo(slot->tts_mcxt);
+
 		slot->tts_attinmeta = TupleDescGetAttInMetadata(slot->tts_tupleDescriptor);
+
+		MemoryContextSwitchTo(oldcontext);
+	}
 
 	buffer = makeStringInfo();
 	for (i = 0; i < attnum; i++)

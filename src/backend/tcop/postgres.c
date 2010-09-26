@@ -658,7 +658,6 @@ pg_analyze_and_rewrite(Node *parsetree, const char *query_string,
 		{
 			Query *query = (Query *) lfirst(lc);
 			query->sql_statement = pstrdup(query_string);
-			query->nodeTag = nodeTag(parsetree);
 		}
 	}
 #endif
@@ -1318,7 +1317,6 @@ exec_parse_message(const char *query_string,	/* string to execute */
 			{
 				Query *query = (Query *) lfirst(lc);
 				query->sql_statement = pstrdup(query_string);
-				query->nodeTag = nodeTag(raw_parse_tree);
 			}
 		}
 #endif
