@@ -148,4 +148,5 @@ extern PlannedStmt *pgxc_planner(Query *query, int cursorOptions,
 								 ParamListInfo boundParams);
 extern bool IsHashDistributable(Oid col_type);
 
+extern bool is_immutable_func(Oid funcid);
 #endif   /* PGXCPLANNER_H */

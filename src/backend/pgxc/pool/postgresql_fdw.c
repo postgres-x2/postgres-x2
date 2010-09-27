@@ -44,7 +44,7 @@
 
 
 /* deparse SQL from the request */
-static bool is_immutable_func(Oid funcid);
+bool is_immutable_func(Oid funcid);
 static bool is_foreign_qual(ExprState *state);
 static bool foreign_qual_walker(Node *node, void *context);
 char *deparseSql(RemoteQueryState *scanstate);
@@ -53,7 +53,7 @@ char *deparseSql(RemoteQueryState *scanstate);
 /*
  * Check whether the function is IMMUTABLE.
  */
-static bool
+bool
 is_immutable_func(Oid funcid)
 {
 	HeapTuple		tp;

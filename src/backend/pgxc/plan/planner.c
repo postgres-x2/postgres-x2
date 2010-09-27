@@ -33,6 +33,7 @@
 #include "parser/parse_coerce.h"
 #include "pgxc/locator.h"
 #include "pgxc/planner.h"
+#include "tcop/pquery.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
@@ -138,7 +139,6 @@ bool		StrictStatementChecking = true;
 
 /* Forbid multi-node SELECT statements with an ORDER BY clause */
 bool		StrictSelectChecking = false;
-
 
 static ExecNodes *get_plan_nodes(Query *query, bool isRead);
 static bool get_plan_nodes_walker(Node *query_node, XCWalkerContext *context);
@@ -507,8 +507,9 @@ get_plan_nodes_insert(Query *query)
  * Get list of parent-child joins (partitioned together)
  * Get list of joins with replicated tables
  *
- * If we encounter a cross-node join, we stop processing and return false,
- * otherwise true.
+ * If we encounter an expression such as a cross-node join that cannot 
+ * be easily handled in a single step, we stop processing and return true,
+ * otherwise false.
  *
  */
 static bool
@@ -778,6 +779,13 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 				}
 			}
 		}
+	}
+
+	/* See if the function is immutable, otherwise give up */
+	if (IsA(expr_node, FuncExpr))
+	{
+		if (!is_immutable_func(((FuncExpr*) expr_node)->funcid))
+			return true;
 	}
 
 	/* Handle subquery */
@@ -2088,12 +2096,11 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	result->canSetTag = query->canSetTag;
 	result->utilityStmt = query->utilityStmt;
 	result->intoClause = query->intoClause;
-
 	result->rtable = query->rtable;
 
 	query_step = makeNode(RemoteQuery);
-
 	query_step->is_single_step = false;
+
 	/*
 	 * Declare Cursor case:
 	 * We should leave as a step query only SELECT statement
@@ -2209,6 +2216,13 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 				result = standard_planner(query, cursorOptions, boundParams);
 				return result;
 			}
+
+			/*
+			 * If there already is an active portal, we may be doing planning within a function. 
+			 * Just use the standard plan
+			 */
+			if (ActivePortal)
+				return standard_planner(query, cursorOptions, boundParams);
 
 			query_step->is_single_step = true;
 			/*
