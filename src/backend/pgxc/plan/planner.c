@@ -2218,10 +2218,12 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 			}
 
 			/*
-			 * If there already is an active portal, we may be doing planning within a function. 
-			 * Just use the standard plan
+			 * If there already is an active portal, we may be doing planning 
+			 * within a function.  Just use the standard plan, but check if 
+			 * it is part of an EXPLAIN statement so that we do not show that
+			 * we plan multiple steps when it is a single-step operation.
 			 */
-			if (ActivePortal)
+			if (ActivePortal && strcmp(ActivePortal->commandTag, "EXPLAIN"))
 				return standard_planner(query, cursorOptions, boundParams);
 
 			query_step->is_single_step = true;
