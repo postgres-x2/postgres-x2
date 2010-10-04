@@ -1325,8 +1325,14 @@ create_remotequery_path(PlannerInfo *root, RelOptInfo *rel)
 	pathnode->parent = rel;
 	pathnode->pathkeys = NIL;	/* result is always unordered */
 
-	// PGXCTODO - set cost properly
+	/* PGXCTODO - set cost properly */
 	cost_seqscan(pathnode, root, rel);
+
+	/* 
+	 * Insert a materialization plan above this temporarily
+	 * until we better handle multiple steps using the same connection.
+	 */
+	pathnode = create_material_path(rel, pathnode);
 
 	return pathnode;
 }

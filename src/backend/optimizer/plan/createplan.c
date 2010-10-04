@@ -321,15 +321,6 @@ create_scan_plan(PlannerInfo *root, Path *best_path)
 													  best_path,
 													  tlist,
 													  scan_clauses);
-
-			/* 
-			 * Insert a materialization plan above this temporarily
-			 * until we better handle multiple steps using the same connection.
-			 */
-			matplan = (Plan *) make_material(plan);
-			copy_plan_costsize(matplan, plan);
-			matplan->total_cost += cpu_tuple_cost * matplan->plan_rows;
-			plan = matplan;
 			break;
 #endif
 		default:
