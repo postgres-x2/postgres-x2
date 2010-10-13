@@ -180,7 +180,7 @@ typedef struct CopyStateData
 	RelationLocInfo *rel_loc;	/* the locator key */
 	int			hash_idx;		/* index of the hash column */
 
-	DataNodeHandle **connections; /* Involved data node connections */
+	PGXCNodeHandle **connections; /* Involved data node connections */
 #endif
 } CopyStateData;
 

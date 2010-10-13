@@ -350,7 +350,8 @@ DefineSequence(CreateSeqStmt *seq)
 	heap_close(rel, NoLock);
 
 #ifdef PGXC  /* PGXC_COORD */
-	if (IS_PGXC_COORDINATOR)
+	/* Remote Coordinator is in charge of creating sequence in GTM */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 	{
 		char *seqname = GetGlobalSeqName(rel, NULL, NULL);
 
@@ -492,7 +493,8 @@ AlterSequenceInternal(Oid relid, List *options)
 	relation_close(seqrel, NoLock);
 
 #ifdef PGXC
-	if (IS_PGXC_COORDINATOR)
+	/* Remote Coordinator is in charge of create sequence in GTM */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 	{
 		char *seqname = GetGlobalSeqName(seqrel, NULL, NULL);
 

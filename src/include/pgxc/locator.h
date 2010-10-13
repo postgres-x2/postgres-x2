@@ -85,7 +85,8 @@ extern bool IsHashColumnForRelId(Oid relid, char *part_col_name);
 extern int	GetRoundRobinNode(Oid relid);
 
 extern bool IsHashDistributable(Oid col_type);
-extern List *GetAllNodes(void);
+extern List *GetAllDataNodes(void);
+extern List *GetAllCoordNodes(void);
 extern List *GetAnyDataNode(void);
 extern void RelationBuildLocator(Relation rel);
 extern void FreeRelationLocInfo(RelationLocInfo *relationLocInfo);

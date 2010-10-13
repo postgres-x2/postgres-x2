@@ -30,6 +30,7 @@
 #include "access/gin.h"
 #ifdef PGXC
 #include "access/gtm.h"
+#include "pgxc/pgxc.h"
 #endif
 #include "access/transam.h"
 #include "access/twophase.h"
@@ -339,6 +340,20 @@ static const struct config_enum_entry constraint_exclusion_options[] = {
 	{"0", CONSTRAINT_EXCLUSION_OFF, true},
 	{NULL, 0, false}
 };
+
+#ifdef PGXC
+/*
+ * Define remote connection types for PGXC
+ */
+static const struct config_enum_entry pgxc_conn_types[] = {
+	{"application", REMOTE_CONN_APP, false},
+	{"coordinator", REMOTE_CONN_COORD, false},
+	{"datanode", REMOTE_CONN_DATANODE, false},
+	{"gtm", REMOTE_CONN_GTM, false},
+	{"gtmproxy", REMOTE_CONN_GTM_PROXY, false},
+	{NULL, 0, false}
+};
+#endif
 
 /*
  * Options for enum values stored in other modules
@@ -2013,6 +2028,15 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
+		{"num_coordinators", PGC_POSTMASTER, COORDINATORS,
+			gettext_noop("Number of Coordinators."),
+			NULL
+		},
+		&NumCoords,
+		1, 1, 65535, NULL, NULL
+	},
+
+	{
 		{"min_pool_size", PGC_POSTMASTER, DATA_NODES,
 			gettext_noop("Initial pool size."),
 			gettext_noop("If number of active connections decreased below this value, "
@@ -2051,11 +2075,11 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
-		{"gtm_coordinator_id", PGC_POSTMASTER, GTM,
-			gettext_noop("The Coordinator Identifier."),
+		{"pgxc_node_id", PGC_POSTMASTER, GTM,
+			gettext_noop("The Coordinator or Datanode Identifier."),
 			NULL
 		},
-		&GtmCoordinatorId,
+		&PGXCNodeId,
 		1, 1, INT_MAX, NULL, NULL
 	},
 
@@ -2676,6 +2700,47 @@ static struct config_string ConfigureNamesString[] =
 		&GtmHost,
 		"localhost", NULL, NULL
 	},
+
+	{
+		{"coordinator_hosts", PGC_POSTMASTER, COORDINATORS,
+			gettext_noop("Host names or addresses of Coordinators."),
+			gettext_noop("Comma separated list or single value, "
+						 "if all Coordinators on the same host")
+		},
+		&CoordinatorHosts,
+		"localhost", NULL, NULL
+	},
+
+	{
+		{"coordinator_ports", PGC_POSTMASTER, COORDINATORS,
+			gettext_noop("Port numbers of Coordinators."),
+			gettext_noop("Comma separated list or single value, "
+						 "if all Coordinators listen on the same port")
+		},
+		&CoordinatorPorts,
+		"5432", NULL, NULL
+	},
+
+	{
+		{"coordinator_users", PGC_POSTMASTER, COORDINATORS,
+			gettext_noop("User names or addresses of Coordinators."),
+			gettext_noop("Comma separated list or single value, "
+						 "if user names are the same on all Coordinators")
+		},
+		&CoordinatorUsers,
+		"postgres", NULL, NULL
+	},
+
+	{
+		{"coordinator_passwords", PGC_POSTMASTER, COORDINATORS,
+			gettext_noop("Passwords of Coordinators."),
+			gettext_noop("Comma separated list or single value, "
+						 "if passwords are the same on all Coordinators")
+		},
+		&CoordinatorPwds,
+		"postgres", NULL, NULL
+	},
+
 #endif
 #ifdef USE_SSL
 	{
@@ -2853,6 +2918,16 @@ static struct config_enum ConfigureNamesEnum[] =
 		XMLOPTION_CONTENT, xmloption_options, NULL, NULL
 	},
 
+#ifdef PGXC
+	{
+		{"remotetype", PGC_BACKEND, CONN_AUTH, 
+			gettext_noop("Sets the type of Postgres-XC remote connection"),
+			NULL
+		},
+		&remoteConnType,
+		REMOTE_CONN_APP, pgxc_conn_types, NULL, NULL
+	},
+#endif
 
 	/* End-of-list marker */
 	{

@@ -277,6 +277,8 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString)
 		RemoteQuery *step = makeNode(RemoteQuery);
 		step->combine_type = COMBINE_TYPE_SAME;
 		step->sql_statement = queryString;
+		/* This query is a DDL, Launch it on both Datanodes and Coordinators. */
+		step->exec_type = EXEC_ON_ALL_NODES;
 		result = lappend(result, step);
 	}
 #endif
@@ -1970,6 +1972,8 @@ transformAlterTableStmt(AlterTableStmt *stmt, const char *queryString)
 		RemoteQuery *step = makeNode(RemoteQuery);
 		step->combine_type = COMBINE_TYPE_SAME;
 		step->sql_statement = queryString;
+		/* This query is a DDl, it is launched on both Coordinators and Datanodes. */
+		step->exec_type = EXEC_ON_ALL_NODES;
 		result = lappend(result, step);
 	}
 #endif

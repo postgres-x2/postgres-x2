@@ -29,7 +29,7 @@ typedef union GTM_ResultData
 	} grd_gxid_tp;							/* TXN_BEGIN_GETGXID */
 
 	GlobalTransactionId		grd_gxid;		/* TXN_PREPARE
-											 * TXN_BEING_PREPARED
+											 * TXN_START_PREPARED
 											 * TXN_COMMIT
 											 * TXN_COMMIT_PREPARED
 											 * TXN_ROLLBACK
@@ -125,7 +125,7 @@ GlobalTransactionId begin_transaction_autovacuum(GTM_Conn *conn, GTM_IsolationLe
 int commit_transaction(GTM_Conn *conn, GlobalTransactionId gxid);
 int commit_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, GlobalTransactionId prepared_gxid);
 int abort_transaction(GTM_Conn *conn, GlobalTransactionId gxid);
-int being_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, char *gid,
+int start_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, char *gid,
 							   int datanodecnt, PGXC_NodeId datanodes[],
 							   int coordcnt, PGXC_NodeId coordinators[]);
 int prepare_transaction(GTM_Conn *conn, GlobalTransactionId gxid);

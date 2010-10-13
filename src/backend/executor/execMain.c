@@ -59,7 +59,9 @@
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
 #include "utils/tqual.h"
-
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#endif
 
 /* Hooks for plugins to get control in ExecutorStart/Run/End() */
 ExecutorStart_hook_type ExecutorStart_hook = NULL;

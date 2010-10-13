@@ -735,8 +735,9 @@ GetSnapshotData(Snapshot snapshot)
 		if (GetSnapshotDataDataNode(snapshot))
 			return snapshot;
 		/* else fallthrough */
-	} else if (IS_PGXC_COORDINATOR)
+	} else if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 	{
+		/* Snapshot has ever been received from remote Coordinator */
 		if (GetSnapshotDataCoordinator(snapshot))
 			return snapshot;
 		/* else fallthrough */

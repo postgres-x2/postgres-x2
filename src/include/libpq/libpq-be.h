@@ -69,7 +69,6 @@ typedef struct
 #include "libpq/pqcomm.h"
 #include "utils/timestamp.h"
 
-
 typedef enum CAC_state
 {
 	CAC_OK, CAC_STARTUP, CAC_SHUTDOWN, CAC_RECOVERY, CAC_TOOMANY,

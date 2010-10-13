@@ -22,7 +22,7 @@ typedef enum GTM_MessageType
 	MSG_TXN_BEGIN,			/* Start a new transaction */
 	MSG_TXN_BEGIN_GETGXID,	/* Start a new transaction and get GXID */
 	MSG_TXN_BEGIN_GETGXID_MULTI,	/* Start multiple new transactions and get GXIDs */
-	MSG_TXN_BEING_PREPARED,		/* Begins to prepare a transation for commit */
+	MSG_TXN_START_PREPARED,		/* Begins to prepare a transation for commit */
 	MSG_TXN_COMMIT,			/* Commit a running or prepared transaction */
 	MSG_TXN_COMMIT_MULTI,	/* Commit multiple running or prepared transactions */
 	MSG_TXN_COMMIT_PREPARED,	/* Commit a prepared transaction */
@@ -62,7 +62,7 @@ typedef enum GTM_ResultType
 	TXN_BEGIN_GETGXID_RESULT,
 	TXN_BEGIN_GETGXID_MULTI_RESULT,
 	TXN_PREPARE_RESULT,
-	TXN_BEING_PREPARED_RESULT,
+	TXN_START_PREPARED_RESULT,
 	TXN_COMMIT_PREPARED_RESULT,
 	TXN_COMMIT_RESULT,
 	TXN_COMMIT_MULTI_RESULT,

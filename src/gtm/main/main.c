@@ -769,7 +769,7 @@ ProcessCommand(Port *myport, StringInfo input_message)
 		case MSG_TXN_BEGIN_GETGXID:
 		case MSG_TXN_BEGIN_GETGXID_AUTOVACUUM:
 		case MSG_TXN_PREPARE:
-		case MSG_TXN_BEING_PREPARED:
+		case MSG_TXN_START_PREPARED:
 		case MSG_TXN_COMMIT:
 		case MSG_TXN_COMMIT_PREPARED:
 		case MSG_TXN_ROLLBACK:
@@ -957,8 +957,8 @@ ProcessTransactionCommand(Port *myport, GTM_MessageType mtype, StringInfo messag
 			ProcessBeginTransactionGetGXIDCommandMulti(myport, message);
 			break;
 
-		case MSG_TXN_BEING_PREPARED:
-			ProcessBeingPreparedTransactionCommand(myport, message);
+		case MSG_TXN_START_PREPARED:
+			ProcessStartPreparedTransactionCommand(myport, message);
 			break;
 
 		case MSG_TXN_PREPARE:

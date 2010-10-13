@@ -2084,8 +2084,10 @@ RenameRelation(Oid myrelid, const char *newrelname, ObjectType reltype)
 	/* Do the work */
 	RenameRelationInternal(myrelid, newrelname, namespaceId);
 #ifdef PGXC
-	if (IS_PGXC_COORDINATOR &&
-		(reltype == OBJECT_SEQUENCE || relkind == RELKIND_SEQUENCE)) /* It is possible to rename a sequence with ALTER TABLE */
+	/* Operation with GTM can only be done with a Remote Coordinator */
+	if (IS_PGXC_COORDINATOR
+		&& !IsConnFromCoord()
+		&& (reltype == OBJECT_SEQUENCE || relkind == RELKIND_SEQUENCE)) /* It is possible to rename a sequence with ALTER TABLE */
 	{
 		char *seqname = GetGlobalSeqName(targetrelation, NULL, NULL);
 		char *newseqname = GetGlobalSeqName(targetrelation, newrelname, NULL);

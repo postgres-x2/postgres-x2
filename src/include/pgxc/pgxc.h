@@ -17,7 +17,25 @@
 extern bool isPGXCCoordinator;
 extern bool isPGXCDataNode;
 
+typedef enum
+{
+	REMOTE_CONN_APP,
+	REMOTE_CONN_COORD,
+	REMOTE_CONN_DATANODE,
+	REMOTE_CONN_GTM,
+	REMOTE_CONN_GTM_PROXY
+} RemoteConnTypes;
+
+/* Determine remote connection type for a PGXC backend */
+extern int remoteConnType;
+
 #define IS_PGXC_COORDINATOR isPGXCCoordinator
 #define IS_PGXC_DATANODE isPGXCDataNode
+#define REMOTE_CONN_TYPE remoteConnType
 
+#define IsConnFromApp() (remoteConnType == REMOTE_CONN_APP)
+#define IsConnFromCoord() (remoteConnType == REMOTE_CONN_COORD)
+#define IsConnFromDatanode() (remoteConnType == REMOTE_CONN_DATANODE)
+#define IsConnFromGtm() (remoteConnType == REMOTE_CONN_GTM)
+#define IsConnFromGtmProxy() (remoteConnType == REMOTE_CONN_GTM_PROXY)
 #endif   /* PGXC */

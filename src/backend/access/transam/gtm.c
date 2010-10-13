@@ -20,7 +20,7 @@
 /* Configuration variables */
 char *GtmHost = "localhost";
 int GtmPort = 6666;
-int GtmCoordinatorId = 1;
+int PGXCNodeId = 1;
 
 extern bool FirstSnapshotSet;
 
@@ -42,7 +42,7 @@ InitGTM()
 	/* 256 bytes should be enough */
 	char conn_str[256];
 
-	sprintf(conn_str, "host=%s port=%d coordinator_id=%d", GtmHost, GtmPort, GtmCoordinatorId);
+	sprintf(conn_str, "host=%s port=%d coordinator_id=%d", GtmHost, GtmPort, PGXCNodeId);
 
 	conn = PQconnectGTM(conn_str);
 	if (GTMPQstatus(conn) != CONNECTION_OK)
@@ -187,7 +187,7 @@ RollbackTranGTM(GlobalTransactionId gxid)
 }
 
 int
-BeingPreparedTranGTM(GlobalTransactionId gxid,
+StartPreparedTranGTM(GlobalTransactionId gxid,
 					char *gid,
 					int datanodecnt,
 					PGXC_NodeId datanodes[],
@@ -200,7 +200,7 @@ BeingPreparedTranGTM(GlobalTransactionId gxid,
 		return 0;
 	CheckConnection();
 
-	ret = being_prepared_transaction(conn, gxid, gid, datanodecnt, datanodes, coordcnt, coordinators);
+	ret = start_prepared_transaction(conn, gxid, gid, datanodecnt, datanodes, coordcnt, coordinators);
 
 	/*
 	 * If something went wrong (timeout), try and reset GTM connection.

@@ -79,7 +79,7 @@
 /* PGXC_COORD */
 #include "pgxc/execRemote.h"
 #include "pgxc/planner.h"
-#include "pgxc/datanode.h"
+#include "pgxc/pgxcnode.h"
 #include "commands/copy.h"
 /* PGXC_DATANODE */
 #include "access/transam.h"
@@ -106,8 +106,6 @@ int			max_stack_depth = 100;
 
 /* wait N seconds to allow attach from a debugger */
 int			PostAuthDelay = 0;
-
-
 
 /* ----------------
  *		private variables
@@ -650,7 +648,7 @@ pg_analyze_and_rewrite(Node *parsetree, const char *query_string,
 	querytree_list = pg_rewrite_query(query);
 
 #ifdef PGXC
-	if (IS_PGXC_COORDINATOR)
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 	{
 		ListCell   *lc;
 
@@ -914,10 +912,10 @@ exec_simple_query(const char *query_string)
 #ifdef PGXC
 
 		/*
-		 * By default we do not want data nodes to contact GTM directly,
+		 * By default we do not want Datanodes or client Coordinators to contact GTM directly,
 		 * it should get this information passed down to it.
 		 */
-		if (IS_PGXC_DATANODE)
+		if (IS_PGXC_DATANODE || IsConnFromCoord())
 			SetForceXidFromGTM(false);
 #endif
 
@@ -1309,7 +1307,7 @@ exec_parse_message(const char *query_string,	/* string to execute */
 
 		querytree_list = pg_rewrite_query(query);
 #ifdef PGXC
-		if (IS_PGXC_COORDINATOR)
+		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 		{
 			ListCell   *lc;
 
@@ -2949,9 +2947,12 @@ PostgresMain(int argc, char *argv[], const char *username)
 	int 			xmin;
 	int 			xmax;
 	int				xcnt;
-	int 			*xip;
+	int 		   *xip;
 	/* Timestamp info */
 	TimestampTz		timestamp;
+	char		   *remote_conn_type = NULL;
+
+	remoteConnType = REMOTE_CONN_APP;
 #endif
 
 #define PendingConfigOption(name,val) \
@@ -3035,7 +3036,7 @@ PostgresMain(int argc, char *argv[], const char *username)
 	 * the common help() function in main/main.c.
 	 */
 #ifdef PGXC
-	while ((flag = getopt(argc, argv, "A:B:Cc:D:d:EeFf:h:ijk:lN:nOo:Pp:r:S:sTt:v:W:Xy:-:")) != -1)
+	while ((flag = getopt(argc, argv, "A:B:Cc:D:d:EeFf:h:ijk:lN:nOo:Pp:r:S:sTt:v:W:Xy:z:-:")) != -1)
 #else
 	while ((flag = getopt(argc, argv, "A:B:c:D:d:EeFf:h:ijk:lN:nOo:Pp:r:S:sTt:v:W:y:-:")) != -1)
 #endif
@@ -3535,11 +3536,12 @@ PostgresMain(int argc, char *argv[], const char *username)
 		PgStartTime = GetCurrentTimestamp();
 
 #ifdef PGXC /* PGXC_COORD */
-	if (IS_PGXC_COORDINATOR)
+	/* If this postmaster is launched from another Coord, do not initialize handles. skip it */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 	{
 		InitMultinodeExecutor();
 		/* If we exit, first try and clean connections and send to pool */
-		on_proc_exit (DataNodeCleanAndRelease, 0);
+		on_proc_exit (PGXCNodeCleanAndRelease, 0);
 	}
 	if (IS_PGXC_DATANODE)
 	{
@@ -3705,7 +3707,7 @@ PostgresMain(int argc, char *argv[], const char *username)
 			 * Helps us catch any problems where we did not send down a snapshot
 			 * when it was expected.
 			 */
-			if (IS_PGXC_DATANODE)
+			if (IS_PGXC_DATANODE || IsConnFromCoord())
 				UnsetGlobalSnapshotData();
 #endif
 
@@ -3981,7 +3983,7 @@ PostgresMain(int argc, char *argv[], const char *username)
 				 * is still sending data.
 				 */
 				break;
-#ifdef PGXC /* PGXC_DATANODE */
+#ifdef PGXC
 			case 'g':			/* gxid */
 				{
 					/* Set the GXID we were passed down */

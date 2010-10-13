@@ -526,6 +526,20 @@
 # num_data_nodes extra values are ignored.  
 
 #------------------------------------------------------------------------------
+# COORDINATORS
+#------------------------------------------------------------------------------
+#num_coordinators = 1			# Number of Coordinators
+					# (change require restart)
+#coordinator_hosts = 'localhost'	# Host names or addresses of Coordinators
+					# (change require restart)
+#coordinator_ports = '5432'		# Port numbers of Coordinators
+					# (change require restart)
+#coordinator_users = 'postgres'		# User names of Coordinators
+					# (change requires restart)
+#coordinator_passwords = 'postgres'	# Passwords of Coordinators
+					# (change requires restart)
+
+#------------------------------------------------------------------------------
 # GTM CONNECTION
 #------------------------------------------------------------------------------
 
@@ -533,7 +547,7 @@
 					# (change requires restart)
 #gtm_port = 6666			# Port of GTM
 					# (change requires restart)
-#gtm_coordinator_id = 1			# Coordinator identifier
+#pgxc_node_id = 1			# Coordinator or Datanode identifier
 					# (change requires restart)
 
 ##------------------------------------------------------------------------------

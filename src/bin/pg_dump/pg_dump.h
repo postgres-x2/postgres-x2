@@ -16,10 +16,6 @@
 
 #include "postgres_fe.h"
 
-#ifdef PGXC
-#include "pgxc/pgxc.h"
-#endif
-
 /*
  * pg_dump uses two different mechanisms for identifying database objects:
  *

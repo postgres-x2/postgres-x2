@@ -875,7 +875,7 @@ GTM_CommitTransaction(GTM_TransactionHandle txn)
  * Prepare a transaction
  */
 int
-GTM_BeingPreparedTransaction(GTM_TransactionHandle txn,
+GTM_StartPreparedTransaction(GTM_TransactionHandle txn,
 							 char *gid,
 							 uint32 datanodecnt,
 							 PGXC_NodeId datanodes[],
@@ -896,9 +896,11 @@ GTM_BeingPreparedTransaction(GTM_TransactionHandle txn,
 	gtm_txninfo->gti_datanodecount = datanodecnt;
 	gtm_txninfo->gti_coordcount = coordcnt;
 
-	if (gtm_txninfo->gti_datanodes == NULL)
+	/* It is possible that no datanode is involved in a transaction (Sequence DDL) */
+	if (datanodecnt != 0 && gtm_txninfo->gti_datanodes == NULL)
 		gtm_txninfo->gti_datanodes = (PGXC_NodeId *)MemoryContextAlloc(TopMostMemoryContext, sizeof (PGXC_NodeId) * GTM_MAX_2PC_NODES);
-	memcpy(gtm_txninfo->gti_datanodes, datanodes, sizeof (PGXC_NodeId) * datanodecnt);
+	if (datanodecnt != 0)
+		memcpy(gtm_txninfo->gti_datanodes, datanodes, sizeof (PGXC_NodeId) * datanodecnt);
 
 	/* It is possible that no coordinator is involved in a transaction */
 	if (coordcnt != 0 && gtm_txninfo->gti_coordinators == NULL)
@@ -919,7 +921,7 @@ GTM_BeingPreparedTransaction(GTM_TransactionHandle txn,
  * Same as GTM_PrepareTransaction but takes GXID as input
  */
 int
-GTM_BeingPreparedTransactionGXID(GlobalTransactionId gxid,
+GTM_StartPreparedTransactionGXID(GlobalTransactionId gxid,
 						   char *gid,
 						   uint32 datanodecnt,
 						   PGXC_NodeId datanodes[],
@@ -927,7 +929,7 @@ GTM_BeingPreparedTransactionGXID(GlobalTransactionId gxid,
 						   PGXC_NodeId coordinators[])
 {
 	GTM_TransactionHandle txn = GTM_GXIDToHandle(gxid);
-	return GTM_BeingPreparedTransaction(txn, gid, datanodecnt, datanodes, coordcnt, coordinators);
+	return GTM_StartPreparedTransaction(txn, gid, datanodecnt, datanodes, coordcnt, coordinators);
 }
 
 int
@@ -952,11 +954,14 @@ GTM_GetGIDData(GTM_TransactionHandle prepared_txn,
 	*datanodecnt = gtm_txninfo->gti_datanodecount;
 	*coordcnt = gtm_txninfo->gti_coordcount;
 
-	*datanodes = (PGXC_NodeId *) palloc(sizeof (PGXC_NodeId) * gtm_txninfo->gti_datanodecount);
-	memcpy(*datanodes, gtm_txninfo->gti_datanodes,
-				sizeof (PGXC_NodeId) * gtm_txninfo->gti_datanodecount);
+	if (gtm_txninfo->gti_datanodecount != 0)
+	{
+		*datanodes = (PGXC_NodeId *) palloc(sizeof (PGXC_NodeId) * gtm_txninfo->gti_datanodecount);
+		memcpy(*datanodes, gtm_txninfo->gti_datanodes,
+					sizeof (PGXC_NodeId) * gtm_txninfo->gti_datanodecount);
+	}
 
-	if (coordcnt != 0)
+	if (gtm_txninfo->gti_coordcount != 0)
 	{
 		*coordinators = (PGXC_NodeId *) palloc(sizeof (PGXC_NodeId) * gtm_txninfo->gti_coordcount);
 		memcpy(*coordinators, gtm_txninfo->gti_coordinators,
@@ -1452,12 +1457,16 @@ ProcessGetGIDDataTransactionCommand(Port *myport, StringInfo message)
 		proxyhdr.ph_conid = myport->conn_id;
 		pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
 	}
+
 	/* Send the two GXIDs */
 	pq_sendbytes(&buf, (char *)&gxid, sizeof(GlobalTransactionId));
 	pq_sendbytes(&buf, (char *)&prepared_gxid, sizeof(GlobalTransactionId));
+
 	/* Then send the data linked to nodes involved in prepare */
 	pq_sendint(&buf, datanodecnt, 4);
-	pq_sendbytes(&buf, (char *)datanodes, sizeof(PGXC_NodeId) * datanodecnt);
+	if (datanodecnt != 0)
+		pq_sendbytes(&buf, (char *)datanodes, sizeof(PGXC_NodeId) * datanodecnt);
+
 	pq_sendint(&buf, coordcnt, 4);
 	if (coordcnt != 0)
 		pq_sendbytes(&buf, (char *)coordinators, sizeof(PGXC_NodeId) * coordcnt);
@@ -1676,10 +1685,10 @@ ProcessRollbackTransactionCommandMulti(Port *myport, StringInfo message)
 }
 
 /*
- * Process MSG_TXN_BEING_PREPARED message
+ * Process MSG_TXN_START_PREPARED message
  */
 void
-ProcessBeingPreparedTransactionCommand(Port *myport, StringInfo message)
+ProcessStartPreparedTransactionCommand(Port *myport, StringInfo message)
 {
 	StringInfoData buf;
 	GTM_TransactionHandle txn;
@@ -1718,14 +1727,20 @@ ProcessBeingPreparedTransactionCommand(Port *myport, StringInfo message)
 	gidlen = pq_getmsgint(message, sizeof (GTM_GIDLen));
 	gid = (char *)pq_getmsgbytes(message, gidlen);
 
-	/* Get Datanode Data */
+	/* Get Datanode Count Data */
 	datanodecnt = pq_getmsgint(message, 4);
-	datanodes = (PGXC_NodeId *) palloc(sizeof (PGXC_NodeId) * datanodecnt);
-	memcpy(datanodes, pq_getmsgbytes(message, sizeof (PGXC_NodeId) * datanodecnt),
-			sizeof (PGXC_NodeId) * datanodecnt);
 
-	/* Get Coordinator Data, can be possibly NULL */
+	/* Get Coordinator Count Data */
 	coordcnt = pq_getmsgint(message, 4);
+
+	/* it is possible that Datanodes are not involved in a PREPARE (Sequence DDL) */
+	if (datanodecnt != 0)
+	{
+		datanodes = (PGXC_NodeId *) palloc(sizeof (PGXC_NodeId) * datanodecnt);
+		memcpy(datanodes, pq_getmsgbytes(message, sizeof (PGXC_NodeId) * datanodecnt),
+			sizeof (PGXC_NodeId) * datanodecnt);
+	}
+
 	if (coordcnt != 0)
 	{
 		coordinators = (PGXC_NodeId *) palloc(sizeof (PGXC_NodeId) * coordcnt);
@@ -1739,7 +1754,7 @@ ProcessBeingPreparedTransactionCommand(Port *myport, StringInfo message)
 	/*
 	 * Prepare the transaction
 	 */
-	if (GTM_BeingPreparedTransaction(txn, gid, datanodecnt, datanodes, coordcnt, coordinators) != STATUS_OK)
+	if (GTM_StartPreparedTransaction(txn, gid, datanodecnt, datanodes, coordcnt, coordinators) != STATUS_OK)
 		ereport(ERROR,
 				(EINVAL,
 				 errmsg("Failed to prepare the transaction")));
@@ -1752,7 +1767,7 @@ ProcessBeingPreparedTransactionCommand(Port *myport, StringInfo message)
 		pfree(coordinators);
 
 	pq_beginmessage(&buf, 'S');
-	pq_sendint(&buf, TXN_BEING_PREPARED_RESULT, 4);
+	pq_sendint(&buf, TXN_START_PREPARED_RESULT, 4);
 	if (myport->is_proxy)
 	{
 		GTM_ProxyMsgHeader proxyhdr;

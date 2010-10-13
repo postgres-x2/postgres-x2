@@ -362,7 +362,7 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 			break;
 		case TXN_BEGIN_GETGXID_AUTOVACUUM_RESULT:
 		case TXN_PREPARE_RESULT:
-		case TXN_BEING_PREPARED_RESULT:
+		case TXN_START_PREPARED_RESULT:
 			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_gxid,
 						   sizeof (GlobalTransactionId), conn))
 				result->gr_status = -1;
@@ -549,17 +549,20 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 				result->gr_status = -1;
 				break;
 			}
-			if ((result->gr_resdata.grd_txn_get_gid_data.datanodes = (PGXC_NodeId *)
-					malloc(sizeof(PGXC_NodeId) * result->gr_resdata.grd_txn_get_gid_data.datanodecnt)) == NULL)
+			if (result->gr_resdata.grd_txn_get_gid_data.datanodecnt != 0)
 			{
-				result->gr_status = -1;
-				break;
-			}
-			if (gtmpqGetnchar((char *)result->gr_resdata.grd_txn_get_gid_data.datanodes,
-					sizeof(PGXC_NodeId) * result->gr_resdata.grd_txn_get_gid_data.datanodecnt, conn))
-			{
-				result->gr_status = -1;
-				break;
+				if ((result->gr_resdata.grd_txn_get_gid_data.datanodes = (PGXC_NodeId *)
+						malloc(sizeof(PGXC_NodeId) * result->gr_resdata.grd_txn_get_gid_data.datanodecnt)) == NULL)
+				{
+					result->gr_status = -1;
+					break;
+				}
+				if (gtmpqGetnchar((char *)result->gr_resdata.grd_txn_get_gid_data.datanodes,
+						sizeof(PGXC_NodeId) * result->gr_resdata.grd_txn_get_gid_data.datanodecnt, conn))
+				{
+					result->gr_status = -1;
+					break;
+				}
 			}
 			if (gtmpqGetInt(&result->gr_resdata.grd_txn_get_gid_data.coordcnt,
 					sizeof (int32), conn))

@@ -356,8 +356,11 @@ doRename(const ObjectAddress *object, const char *oldname, const char *newname)
 			 * If we are here, a schema is being renamed, a sequence depends on it.
 			 * as sequences' global name use the schema name, this sequence
 			 * has also to be renamed on GTM.
+			 * An operation with GTM can just be done from a remote Coordinator.
 			 */
-			if (relKind == RELKIND_SEQUENCE && IS_PGXC_COORDINATOR)
+			if (relKind == RELKIND_SEQUENCE
+				&& IS_PGXC_COORDINATOR
+				&& !IsConnFromCoord())
 			{
 				Relation relseq = relation_open(object->objectId, AccessShareLock);
 				char *seqname = GetGlobalSeqName(relseq, NULL, oldname);
@@ -1132,8 +1135,11 @@ doDeletion(const ObjectAddress *object)
 				}
 
 #ifdef PGXC
-				/* Drop the sequence on GTM */
-				if (relKind == RELKIND_SEQUENCE && IS_PGXC_COORDINATOR)
+				/*
+				 * Drop the sequence on GTM.
+				 * Sequence is dropped on GTM by a remote Coordinator only.
+				 */
+				if (relKind == RELKIND_SEQUENCE && IS_PGXC_COORDINATOR && !IsConnFromCoord())
 				{
 					/*
 					 * The sequence has already been removed from coordinator,

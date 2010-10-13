@@ -173,7 +173,11 @@ extern void AbortCurrentTransactionOnce(void);
 extern void AbortCurrentTransaction(void);
 extern void BeginTransactionBlock(void);
 extern bool EndTransactionBlock(void);
+#ifdef PGXC
+extern bool PrepareTransactionBlock(char *gid, bool write_2pc_file);
+#else
 extern bool PrepareTransactionBlock(char *gid);
+#endif
 extern void UserAbortTransactionBlock(void);
 extern void ReleaseSavepoint(List *options);
 extern void DefineSavepoint(char *name);

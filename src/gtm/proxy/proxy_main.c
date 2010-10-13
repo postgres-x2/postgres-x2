@@ -949,7 +949,7 @@ ProcessCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 		case MSG_TXN_BEGIN_GETGXID:
 		case MSG_TXN_BEGIN_GETGXID_AUTOVACUUM:
 		case MSG_TXN_PREPARE:
-		case MSG_TXN_BEING_PREPARED:
+		case MSG_TXN_START_PREPARED:
 		case MSG_TXN_COMMIT:
 		case MSG_TXN_COMMIT_PREPARED:
 		case MSG_TXN_ROLLBACK:
@@ -1118,7 +1118,7 @@ ProcessResponse(GTMProxy_ThreadInfo *thrinfo, GTMProxy_CommandInfo *cmdinfo,
 		case MSG_TXN_BEGIN:
 		case MSG_TXN_BEGIN_GETGXID_AUTOVACUUM:
 		case MSG_TXN_PREPARE:
-		case MSG_TXN_BEING_PREPARED:
+		case MSG_TXN_START_PREPARED:
 		/* There are not so many 2PC from application messages, so just proxy it. */
 		case MSG_TXN_COMMIT_PREPARED:
 		case MSG_TXN_GET_GXID:
@@ -1308,7 +1308,7 @@ ProcessTransactionCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 
 		case MSG_TXN_BEGIN_GETGXID_AUTOVACUUM:
 		case MSG_TXN_PREPARE:
-		case MSG_TXN_BEING_PREPARED:
+		case MSG_TXN_START_PREPARED:
 		case MSG_TXN_GET_GID_DATA:
 		case MSG_TXN_COMMIT_PREPARED:
 			GTMProxy_ProxyCommand(conninfo, gtm_conn, mtype, message);

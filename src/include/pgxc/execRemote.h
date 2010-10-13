@@ -16,7 +16,7 @@
 
 #ifndef EXECREMOTE_H
 #define EXECREMOTE_H
-#include "datanode.h"
+#include "pgxcnode.h"
 #include "locator.h"
 #include "planner.h"
 #include "access/tupdesc.h"
@@ -47,7 +47,7 @@ typedef struct RemoteQueryState
 {
 	ScanState	ss;						/* its first field is NodeTag */
 	int			node_count;				/* total count of participating nodes */
-	DataNodeHandle **connections;		/* data node connections being combined */
+	PGXCNodeHandle **connections;		/* data node connections being combined */
 	int			conn_count;				/* count of active connections */
 	int			current_conn;			/* used to balance load when reading from connections */
 	CombineType combine_type;			/* see CombineType enum */
@@ -77,17 +77,18 @@ typedef struct RemoteQueryState
 }	RemoteQueryState;
 
 /* Multinode Executor */
-extern void DataNodeBegin(void);
-extern void	DataNodeCommit(void);
-extern int	DataNodeRollback(void);
-extern int	DataNodePrepare(char *gid);
-extern void	DataNodeRollbackPrepared(char *gid);
-extern void	DataNodeCommitPrepared(char *gid);
+extern void PGXCNodeBegin(void);
+extern void	PGXCNodeCommit(void);
+extern int	PGXCNodeRollback(void);
+extern bool	PGXCNodePrepare(char *gid);
+extern bool	PGXCNodeRollbackPrepared(char *gid);
+extern bool	PGXCNodeCommitPrepared(char *gid);
 
-extern DataNodeHandle** DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_from);
-extern int DataNodeCopyIn(char *data_row, int len, ExecNodes *exec_nodes, DataNodeHandle** copy_connections);
-extern uint64 DataNodeCopyOut(ExecNodes *exec_nodes, DataNodeHandle** copy_connections, FILE* copy_file);
-extern void DataNodeCopyFinish(DataNodeHandle** copy_connections, int primary_data_node, CombineType combine_type);
+/* Copy command just involves Datanodes */
+extern PGXCNodeHandle** DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_from);
+extern int DataNodeCopyIn(char *data_row, int len, ExecNodes *exec_nodes, PGXCNodeHandle** copy_connections);
+extern uint64 DataNodeCopyOut(ExecNodes *exec_nodes, PGXCNodeHandle** copy_connections, FILE* copy_file);
+extern void DataNodeCopyFinish(PGXCNodeHandle** copy_connections, int primary_data_node, CombineType combine_type);
 
 extern int ExecCountSlotsRemoteQuery(RemoteQuery *node);
 extern RemoteQueryState *ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags);
@@ -95,11 +96,11 @@ extern TupleTableSlot* ExecRemoteQuery(RemoteQueryState *step);
 extern void ExecEndRemoteQuery(RemoteQueryState *step);
 extern void ExecRemoteUtility(RemoteQuery *node);
 
-extern int handle_response(DataNodeHandle * conn, RemoteQueryState *combiner);
+extern int handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner);
 extern bool FetchTuple(RemoteQueryState *combiner, TupleTableSlot *slot);
 
 extern void ExecRemoteQueryReScan(RemoteQueryState *node, ExprContext *exprCtxt);
-extern void DataNodeConsumeMessages(void);
+extern void PGXCNodeConsumeMessages(void);
 
 extern int primary_data_node;
 #endif

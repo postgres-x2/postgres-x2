@@ -23,10 +23,6 @@
 #include "utils/int8.h"
 #endif
 
-#ifdef PGXC
-#include "pgxc/pgxc.h"
-#endif
-
 /*
  * Timestamp represents absolute time.
  *

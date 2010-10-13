@@ -2875,13 +2875,13 @@ reversedirection_heap(Tuplesortstate *state)
 static unsigned int
 getlen_datanode(Tuplesortstate *state, int tapenum, bool eofOK)
 {
-	DataNodeHandle *conn = state->combiner->connections[tapenum];
+	PGXCNodeHandle *conn = state->combiner->connections[tapenum];
 	for (;;)
 	{
 		switch (handle_response(conn, state->combiner))
 		{
 			case RESPONSE_EOF:
-				if (data_node_receive(1, &conn, NULL))
+				if (pgxc_node_receive(1, &conn, NULL))
 					ereport(ERROR,
 							(errcode(ERRCODE_INTERNAL_ERROR),
 							 errmsg(conn->error)));

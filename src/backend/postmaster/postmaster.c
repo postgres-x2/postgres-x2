@@ -453,9 +453,11 @@ static void ShmemBackendArrayAdd(Backend *bn);
 static void ShmemBackendArrayRemove(Backend *bn);
 #endif   /* EXEC_BACKEND */
 
-#ifdef PGXC /* PGXC_COORD */
+#ifdef PGXC
 bool isPGXCCoordinator = false;
 bool isPGXCDataNode = false;
+int remoteConnType = REMOTE_CONN_APP;
+
 #define StartPoolManager()		StartChildProcess(PoolerProcess)
 #endif
 
@@ -3102,6 +3104,7 @@ BackendStartup(Port *port)
 		bn->child_slot = 0;
 
 #ifdef PGXC /* PGXC_COORD */
+	/* Don't get a Pooler Handle if Postmaster is activated from another Coordinator */
 	if (IS_PGXC_COORDINATOR)
 	{
 		pool_handle = GetPoolManagerHandle();

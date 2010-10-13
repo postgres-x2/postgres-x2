@@ -199,13 +199,13 @@ int GTM_CommitTransaction(GTM_TransactionHandle txn);
 int GTM_CommitTransactionMulti(GTM_TransactionHandle txn[], int txn_count, int status[]);
 int GTM_CommitTransactionGXID(GlobalTransactionId gxid);
 int GTM_PrepareTransaction(GTM_TransactionHandle txn);
-int GTM_BeingPreparedTransaction(GTM_TransactionHandle txn,
+int GTM_StartPreparedTransaction(GTM_TransactionHandle txn,
 								 char *gid,
 								 uint32 datanodecnt,
 								 PGXC_NodeId datanodes[],
 								 uint32 coordcnt,
 								 PGXC_NodeId coordinators[]);
-int GTM_BeingPreparedTransactionGXID(GlobalTransactionId gxid,
+int GTM_StartPreparedTransactionGXID(GlobalTransactionId gxid,
 									 char *gid,
 									 uint32 datanodecnt,
 									 PGXC_NodeId datanodes[],
@@ -235,7 +235,7 @@ void ProcessBeginTransactionGetGXIDCommand(Port *myport, StringInfo message);
 void ProcessCommitTransactionCommand(Port *myport, StringInfo message);
 void ProcessCommitPreparedTransactionCommand(Port *myport, StringInfo message);
 void ProcessRollbackTransactionCommand(Port *myport, StringInfo message);
-void ProcessBeingPreparedTransactionCommand(Port *myport, StringInfo message);
+void ProcessStartPreparedTransactionCommand(Port *myport, StringInfo message);
 void ProcessPrepareTransactionCommand(Port *myport, StringInfo message);
 void ProcessGetGIDDataTransactionCommand(Port *myport, StringInfo message);
 void ProcessGetGXIDTransactionCommand(Port *myport, StringInfo message);

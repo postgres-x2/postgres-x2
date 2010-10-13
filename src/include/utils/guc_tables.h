@@ -78,7 +78,8 @@ enum config_group
 	CUSTOM_OPTIONS,
 	DEVELOPER_OPTIONS,
 	DATA_NODES,
-	GTM
+	GTM,
+	COORDINATORS
 };
 
 /*

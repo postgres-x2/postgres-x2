@@ -44,6 +44,7 @@
 #include "lib/stringinfo.h"
 #include "libpq/pqformat.h"
 #include "pgxc/locator.h"
+#include "pgxc/pgxc.h"
 #include "../interfaces/libpq/libpq-fe.h"
 #include "postmaster/postmaster.h"		/* For UnixSocketDir */
 #include <stdlib.h>
@@ -53,6 +54,7 @@
 
 /* Configuration options */
 int			NumDataNodes = 2;
+int			NumCoords = 1;
 int			MinPoolSize = 1;
 int			MaxPoolSize = 100;
 int			PoolerPort = 6667;
@@ -62,14 +64,21 @@ bool		PersistentConnections = false;
 /* The memory context */
 static MemoryContext PoolerMemoryContext = NULL;
 
-/* Connection info */
+/* Connection info of Datanodes */
 char	   *DataNodeHosts = NULL;
 char	   *DataNodePorts = NULL;
 char	   *DataNodeUsers = NULL;
 char	   *DataNodePwds = NULL;
 
-/* Connection info list */
-static DataNodeConnectionInfo *connectionInfos;
+/* Connection info of Coordinators */
+char	   *CoordinatorHosts = NULL;
+char	   *CoordinatorPorts = NULL;
+char	   *CoordinatorUsers = NULL;
+char	   *CoordinatorPwds = NULL;
+
+/* PGXC Nodes info list */
+static PGXCNodeConnectionInfo *datanode_connInfos;
+static PGXCNodeConnectionInfo *coord_connInfos;
 
 /* Pool to all the databases (linked list) */
 static DatabasePool *databasePools = NULL;
@@ -82,22 +91,23 @@ static PoolHandle *Handle = NULL;
 
 static int	server_fd = -1;
 
-static void agent_init(PoolAgent *agent, const char *database, List *nodes);
+static void agent_init(PoolAgent *agent, const char *database);
 static void agent_destroy(PoolAgent *agent);
 static void agent_create(void);
 static void agent_handle_input(PoolAgent *agent, StringInfo s);
-static DatabasePool *create_database_pool(const char *database, List *nodes);
+static DatabasePool *create_database_pool(const char *database);
 static void insert_database_pool(DatabasePool *pool);
 static int	destroy_database_pool(const char *database);
 static DatabasePool *find_database_pool(const char *database);
 static DatabasePool *remove_database_pool(const char *database);
-static int *agent_acquire_connections(PoolAgent *agent, List *nodelist);
-static DataNodePoolSlot *acquire_connection(DatabasePool *dbPool, int node);
-static void agent_release_connections(PoolAgent *agent, List *discard);
-static void release_connection(DatabasePool *dbPool, DataNodePoolSlot *slot, int index, bool clean);
-static void destroy_slot(DataNodePoolSlot *slot);
-static void grow_pool(DatabasePool *dbPool, int index);
-static void destroy_node_pool(DataNodePool *node_pool);
+static int *agent_acquire_connections(PoolAgent *agent, List *datanodelist, List *coordlist);
+static PGXCNodePoolSlot *acquire_connection(DatabasePool *dbPool, int node, char client_conn_type);
+static void agent_release_connections(PoolAgent *agent, List *dn_discard, List *co_discard);
+static void release_connection(DatabasePool *dbPool, PGXCNodePoolSlot *slot, int index, bool clean,
+							   char client_conn_type);
+static void destroy_slot(PGXCNodePoolSlot *slot);
+static void grow_pool(DatabasePool *dbPool, int index, char client_conn_type);
+static void destroy_node_pool(PGXCNodePool *node_pool);
 static void PoolerLoop(void);
 
 /* Signal handlers */
@@ -122,7 +132,7 @@ PoolManagerInit()
 	char	   *rawstring;
 	List	   *elemlist;
 	ListCell   *l;
-	int			i;
+	int			i, count;
 	MemoryContext old_context;
 
 	elog(DEBUG1, "Pooler process is started: %d", getpid());
@@ -178,255 +188,325 @@ PoolManagerInit()
 				 errmsg("out of memory")));
 	}
 
-	connectionInfos = (DataNodeConnectionInfo *) palloc(NumDataNodes * sizeof(DataNodeConnectionInfo));
-	if (connectionInfos == NULL)
+	datanode_connInfos = (PGXCNodeConnectionInfo *)
+						 palloc(NumDataNodes * sizeof(PGXCNodeConnectionInfo));
+	coord_connInfos = (PGXCNodeConnectionInfo *)
+					  palloc(NumCoords * sizeof(PGXCNodeConnectionInfo));
+	if (coord_connInfos == NULL
+		|| datanode_connInfos == NULL)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_OUT_OF_MEMORY),
 				 errmsg("out of memory")));
 	}
 
-	/* Need a modifiable copy */
-	rawstring = pstrdup(DataNodeHosts);
-
-	/* Parse string into list of identifiers */
-	if (!SplitIdentifierString(rawstring, ',', &elemlist))
+	/* Parse Host/Port/Password/User data for Coordinators and Datanodes */
+	for (count = 0; count < 2; count++)
 	{
-		/* syntax error in list */
-		ereport(FATAL,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("invalid list syntax for \"data_node_hosts\"")));
-	}
-
-	i = 0;
-	foreach(l, elemlist)
-	{
-		char	   *curhost = (char *) lfirst(l);
-
-		connectionInfos[i].host = pstrdup(curhost);
-		if (connectionInfos[i].host == NULL)
+		PGXCNodeConnectionInfo *connectionInfos;
+		int num_nodes;
+		if (count == 0)
 		{
-			ereport(ERROR,
-					(errcode(ERRCODE_OUT_OF_MEMORY),
-					 errmsg("out of memory")));
+			/* Need a modifiable copy */
+			rawstring = pstrdup(DataNodeHosts);
+			connectionInfos = datanode_connInfos;
+			num_nodes = NumDataNodes;
 		}
-		/* Ignore extra entries, if any */
-		if (++i == NumDataNodes)
-			break;
-	}
-	list_free(elemlist);
-	pfree(rawstring);
-
-	/* Validate */
-	if (i == 0)
-	{
-		/* syntax error in list */
-		ereport(FATAL,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("invalid list syntax for \"data_node_hosts\"")));
-	}
-	else if (i == 1)
-	{
-		/* Copy all values from first */
-		for (; i < NumDataNodes; i++)
+		else
 		{
-			connectionInfos[i].host = pstrdup(connectionInfos[0].host);
+			/* Need a modifiable copy */
+			rawstring = pstrdup(CoordinatorHosts);
+			connectionInfos = coord_connInfos;
+			num_nodes = NumCoords;
+		}
+
+		/* Do that for Coordinator and Datanode strings */
+		/* Parse string into list of identifiers */
+		if (!SplitIdentifierString(rawstring, ',', &elemlist))
+		{
+			/* syntax error in list */
+			ereport(FATAL,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("invalid list syntax for \"data_node_hosts\"")));
+		}
+
+		i = 0;
+		foreach(l, elemlist)
+		{
+			char	   *curhost = (char *) lfirst(l);
+
+			connectionInfos[i].host = pstrdup(curhost);
 			if (connectionInfos[i].host == NULL)
 			{
 				ereport(ERROR,
-						(errcode(ERRCODE_OUT_OF_MEMORY),
-						 errmsg("out of memory")));
-			}
-		}
-	}
-	else if (i < NumDataNodes)
-	{
-		/* syntax error in list */
-		ereport(FATAL,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("invalid list syntax for \"data_node_hosts\"")));
-	}
-
-	/* Need a modifiable copy */
-	rawstring = pstrdup(DataNodePorts);
-
-	/* Parse string into list of identifiers */
-	if (!SplitIdentifierString(rawstring, ',', &elemlist))
-	{
-		/* syntax error in list */
-		ereport(FATAL,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("invalid list syntax for \"data_node_ports\"")));
-	}
-
-	i = 0;
-	foreach(l, elemlist)
-	{
-		char	   *curport = (char *) lfirst(l);
-
-		connectionInfos[i].port = pstrdup(curport);
-		if (connectionInfos[i].port == NULL)
-		{
-			ereport(ERROR,
 					(errcode(ERRCODE_OUT_OF_MEMORY),
 					 errmsg("out of memory")));
+			}
+			/* Ignore extra entries, if any */
+			if (++i == num_nodes)
+				break;
 		}
-		/* Ignore extra entries, if any */
-		if (++i == NumDataNodes)
-			break;
-	}
-	list_free(elemlist);
-	pfree(rawstring);
+		list_free(elemlist);
+		pfree(rawstring);
 
-	/* Validate */
-	if (i == 0)
-	{
-		/* syntax error in list */
-		ereport(FATAL,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("invalid list syntax for \"data_node_ports\"")));
-	}
-	else if (i == 1)
-	{
-		/* Copy all values from first */
-		for (; i < NumDataNodes; i++)
+		/* Validate */
+		if (i == 0)
 		{
-			connectionInfos[i].port = pstrdup(connectionInfos[0].port);
+			/* syntax error in list */
+			ereport(FATAL,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("invalid list syntax for \"data_node_hosts\"")));
+		}
+		else if (i == 1)
+		{
+			/* Copy all values from first */
+			for (; i < num_nodes; i++)
+			{
+				connectionInfos[i].host = pstrdup(connectionInfos[0].host);
+				if (connectionInfos[i].host == NULL)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_OUT_OF_MEMORY),
+							 errmsg("out of memory")));
+				}
+			}
+		}
+		else if (i < num_nodes)
+		{
+			/* syntax error in list */
+			ereport(FATAL,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("invalid list syntax for \"data_node_hosts\"")));
+		}
+
+		/* Parse port data for Coordinators and Datanodes */
+		/* Need a modifiable copy */
+		if (count == 0)
+			rawstring = pstrdup(DataNodePorts);
+		if (count == 1)
+			rawstring = pstrdup(CoordinatorPorts);
+
+		/* Parse string into list of identifiers */
+		if (!SplitIdentifierString(rawstring, ',', &elemlist))
+		{
+			/* syntax error in list */
+			ereport(FATAL,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("invalid list syntax for \"data_node_ports\"")));
+		}
+
+		i = 0;
+		foreach(l, elemlist)
+		{
+			char	   *curport = (char *) lfirst(l);
+
+			connectionInfos[i].port = pstrdup(curport);
 			if (connectionInfos[i].port == NULL)
 			{
 				ereport(ERROR,
 						(errcode(ERRCODE_OUT_OF_MEMORY),
 						 errmsg("out of memory")));
 			}
+			/* Ignore extra entries, if any */
+			if (++i == num_nodes)
+				break;
 		}
-	}
-	else if (i < NumDataNodes)
-	{
-		/* syntax error in list */
-		ereport(FATAL,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("invalid list syntax for \"data_node_ports\"")));
-	}
+		list_free(elemlist);
+		pfree(rawstring);
 
-	rawstring = pstrdup(DataNodeUsers);
-
-	/* Parse string into list of identifiers */
-	if (!SplitIdentifierString(rawstring, ',', &elemlist))
-	{
-		/* syntax error in list */
-		ereport(FATAL,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("invalid list syntax for \"data_node_users\"")));
-	}
-
-	i = 0;
-	foreach(l, elemlist)
-	{
-		char	   *curuser = (char *) lfirst(l);
-
-		connectionInfos[i].uname = pstrdup(curuser);
-		if (connectionInfos[i].uname == NULL)
+		/* Validate */
+		if (i == 0)
 		{
-			ereport(ERROR,
-					(errcode(ERRCODE_OUT_OF_MEMORY),
-					 errmsg("out of memory")));
+			/* syntax error in list */
+			ereport(FATAL,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("invalid list syntax for \"data_node_ports\"")));
 		}
-		/* Ignore extra entries, if any */
-		if (++i == NumDataNodes)
-			break;
-	}
-	list_free(elemlist);
-	pfree(rawstring);
-
-	/* Validate */
-	if (i == 0)
-	{
-		/* syntax error in list */
-		ereport(FATAL,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("invalid list syntax for \"data_node_users\"")));
-	}
-	else if (i == 1)
-	{
-		/* Copy all values from first */
-		for (; i < NumDataNodes; i++)
+		else if (i == 1)
 		{
-			connectionInfos[i].uname = pstrdup(connectionInfos[0].uname);
+			/* Copy all values from first */
+			for (; i < num_nodes; i++)
+			{
+				connectionInfos[i].port = pstrdup(connectionInfos[0].port);
+				if (connectionInfos[i].port == NULL)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_OUT_OF_MEMORY),
+							 errmsg("out of memory")));
+				}
+			}
+		}
+		else if (i < num_nodes)
+		{
+			if (count == 0)
+			/* syntax error in list */
+				ereport(FATAL,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("invalid list syntax for \"data_node_ports\"")));
+			else
+				ereport(FATAL,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("invalid list syntax for \"coordinator_ports\"")));			
+		}
+
+		if (count == 0)
+			rawstring = pstrdup(DataNodeUsers);
+		if (count == 1)
+			rawstring = pstrdup(CoordinatorUsers);
+
+		/* Parse string into list of identifiers */
+		if (!SplitIdentifierString(rawstring, ',', &elemlist))
+		{
+			if (count == 0)
+			/* syntax error in list */
+				ereport(FATAL,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("invalid list syntax for \"data_node_users\"")));
+			else
+				ereport(FATAL,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("invalid list syntax for \"coordinator_users\"")));			
+		}
+
+		i = 0;
+		foreach(l, elemlist)
+		{
+			char	   *curuser = (char *) lfirst(l);
+
+			connectionInfos[i].uname = pstrdup(curuser);
 			if (connectionInfos[i].uname == NULL)
 			{
 				ereport(ERROR,
 						(errcode(ERRCODE_OUT_OF_MEMORY),
 						 errmsg("out of memory")));
 			}
+			/* Ignore extra entries, if any */
+			if (++i == num_nodes)
+				break;
 		}
-	}
-	else if (i < NumDataNodes)
-	{
-		/* syntax error in list */
-		ereport(FATAL,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("invalid list syntax for \"data_node_users\"")));
-	}
+		list_free(elemlist);
+		pfree(rawstring);
 
-	rawstring = pstrdup(DataNodePwds);
-
-	/* Parse string into list of identifiers */
-	if (!SplitIdentifierString(rawstring, ',', &elemlist))
-	{
-		/* syntax error in list */
-		ereport(FATAL,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("invalid list syntax for \"data_node_passwords\"")));
-	}
-
-	i = 0;
-	foreach(l, elemlist)
-	{
-		char	   *curpassword = (char *) lfirst(l);
-
-		connectionInfos[i].password = pstrdup(curpassword);
-		if (connectionInfos[i].password == NULL)
+		/* Validate */
+		if (i == 0)
 		{
-			ereport(ERROR,
-					(errcode(ERRCODE_OUT_OF_MEMORY),
-					 errmsg("out of memory")));
+			if (count == 0)
+				/* syntax error in list */
+				ereport(FATAL,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("invalid list syntax for \"data_node_users\"")));
+			else
+				/* syntax error in list */
+				ereport(FATAL,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("invalid list syntax for \"coordinator_users\"")));
 		}
-		/* Ignore extra entries, if any */
-		if (++i == NumDataNodes)
-			break;
-	}
-	list_free(elemlist);
-	pfree(rawstring);
-
-	/* Validate */
-	if (i == 0)
-	{
-		/* syntax error in list */
-		ereport(FATAL,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("invalid list syntax for \"data_node_passwords\"")));
-	}
-	else if (i == 1)
-	{
-		/* Copy all values from first */
-		for (; i < NumDataNodes; i++)
+		else if (i == 1)
 		{
-			connectionInfos[i].password = pstrdup(connectionInfos[0].password);
+			/* Copy all values from first */
+			for (; i < num_nodes; i++)
+			{
+				connectionInfos[i].uname = pstrdup(connectionInfos[0].uname);
+				if (connectionInfos[i].uname == NULL)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_OUT_OF_MEMORY),
+							 errmsg("out of memory")));
+				}
+			}
+		}
+		else if (i < num_nodes)
+		{
+			if (count == 0)
+				/* syntax error in list */
+				ereport(FATAL,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("invalid list syntax for \"data_node_users\"")));
+			else
+				ereport(FATAL,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("invalid list syntax for \"coordinator_users\"")));
+		}
+
+		if (count == 0)
+			rawstring = pstrdup(DataNodePwds);
+		if (count == 1)
+			rawstring = pstrdup(CoordinatorPwds);
+
+		/* Parse string into list of identifiers */
+		if (!SplitIdentifierString(rawstring, ',', &elemlist))
+		{
+			if (count == 0)
+				/* syntax error in list */
+				ereport(FATAL,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("invalid list syntax for \"data_node_passwords\"")));
+			else
+				ereport(FATAL,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("invalid list syntax for \"coordinator_passwords\"")));
+		}
+
+		i = 0;
+		foreach(l, elemlist)
+		{
+			char	   *curpassword = (char *) lfirst(l);
+
+			connectionInfos[i].password = pstrdup(curpassword);
 			if (connectionInfos[i].password == NULL)
 			{
 				ereport(ERROR,
 						(errcode(ERRCODE_OUT_OF_MEMORY),
 						 errmsg("out of memory")));
 			}
+			/* Ignore extra entries, if any */
+			if (++i == num_nodes)
+				break;
+		}
+		list_free(elemlist);
+		pfree(rawstring);
+
+		/* Validate */
+		if (i == 0)
+		{
+			if (count == 0)
+				/* syntax error in list */
+				ereport(FATAL,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("invalid list syntax for \"data_node_passwords\"")));
+			else
+				ereport(FATAL,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("invalid list syntax for \"coordinator_passwords\"")));
+		}
+		else if (i == 1)
+		{
+			/* Copy all values from first */
+			for (; i < num_nodes; i++)
+			{
+				connectionInfos[i].password = pstrdup(connectionInfos[0].password);
+				if (connectionInfos[i].password == NULL)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_OUT_OF_MEMORY),
+							 errmsg("out of memory")));
+				}
+			}
+		}
+		else if (i < num_nodes)
+		{
+			if (count == 0)
+				/* syntax error in list */
+				ereport(FATAL,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("invalid list syntax for \"data_node_passwords\"")));
+			else
+				ereport(FATAL,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("invalid list syntax for \"coordinator_passwords\"")));
 		}
 	}
-	else if (i < NumDataNodes)
-	{
-		/* syntax error in list */
-		ereport(FATAL,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("invalid list syntax for \"data_node_passwords\"")));
-	}
+	/* End of Parsing for Datanode and Coordinator Data */
 
 	PoolerLoop();
 	return 0;
@@ -549,7 +629,8 @@ agent_create(void)
 	agent->port.RecvPointer = 0;
 	agent->port.SendPointer = 0;
 	agent->pool = NULL;
-	agent->connections = NULL;
+	agent->dn_connections = NULL;
+	agent->coord_connections = NULL;
 
 	/* Append new agent to the list */
 	poolAgents[agentCount++] = agent;
@@ -579,22 +660,21 @@ PoolManagerConnect(PoolHandle *handle, const char *database)
  * Init PoolAgent
 */
 static void
-agent_init(PoolAgent *agent, const char *database, List *nodes)
+agent_init(PoolAgent *agent, const char *database)
 {
 	Assert(agent);
 	Assert(database);
-	Assert(list_length(nodes) > 0);
 
-	/* disconnect if we still connected */
+	/* disconnect if we are still connected */
 	if (agent->pool)
-		agent_release_connections(agent, NULL);
+		agent_release_connections(agent, NULL, NULL);
 
 	/* find database */
 	agent->pool = find_database_pool(database);
 
 	/* create if not found */
 	if (agent->pool == NULL)
-		agent->pool = create_database_pool(database, nodes);
+		agent->pool = create_database_pool(database);
 }
 
 
@@ -612,7 +692,7 @@ agent_destroy(PoolAgent *agent)
 
 	/* Discard connections if any remaining */
 	if (agent->pool)
-		agent_release_connections(agent, NULL);
+		agent_release_connections(agent, NULL, NULL);
 
 	/* find agent in the list */
 	for (i = 0; i < agentCount; i++)
@@ -620,10 +700,15 @@ agent_destroy(PoolAgent *agent)
 		if (poolAgents[i] == agent)
 		{
 			/* free memory */
-			if (agent->connections)
+			if (agent->dn_connections)
 			{
-				pfree(agent->connections);
-				agent->connections = NULL;
+				pfree(agent->dn_connections);
+				agent->dn_connections = NULL;
+			}
+			if (agent->coord_connections)
+			{
+				pfree(agent->coord_connections);
+				agent->coord_connections = NULL;
 			}
 			pfree(agent);
 			/* shrink the list and move last agent into the freed slot */
@@ -657,34 +742,52 @@ PoolManagerDisconnect(PoolHandle *handle)
  * Get pooled connections
  */
 int *
-PoolManagerGetConnections(List *nodelist)
+PoolManagerGetConnections(List *datanodelist, List *coordlist)
 {
 	int			i;
 	ListCell   *nodelist_item;
 	int		   *fds;
-	int			nodes[list_length(nodelist) + 1];
+	int			totlen = list_length(datanodelist) + list_length(coordlist);
+	int			nodes[totlen + 2];
 
 	Assert(Handle);
-	Assert(list_length(nodelist) > 0);
 
-	/* Prepare end send message to pool manager */
-	nodes[0] = htonl(list_length(nodelist));
+	/*
+	 * Prepare end send message to pool manager.
+	 * First with Datanode list.
+	 * This list can be NULL for a query that does not need
+	 * Datanode Connections (Sequence DDLs)
+	 */
+	nodes[0] = htonl(list_length(datanodelist));
 	i = 1;
-	foreach(nodelist_item, nodelist)
+	if (list_length(datanodelist) != 0)
 	{
-		nodes[i++] = htonl(lfirst_int(nodelist_item));
+		foreach(nodelist_item, datanodelist)
+		{
+			nodes[i++] = htonl(lfirst_int(nodelist_item));
+		}
 	}
-	pool_putmessage(&Handle->port, 'g', (char *) nodes, sizeof(int) * (list_length(nodelist) + 1));
+	/* Then with Coordinator list (can be nul) */
+	nodes[i++] = htonl(list_length(coordlist));
+	if (list_length(coordlist) != 0)
+	{
+		foreach(nodelist_item, coordlist)
+		{
+			nodes[i++] = htonl(lfirst_int(nodelist_item));
+		}
+	}
+
+	pool_putmessage(&Handle->port, 'g', (char *) nodes, sizeof(int) * (totlen + 2));
 	pool_flush(&Handle->port);
 	/* Receive response */
-	fds = (int *) palloc(sizeof(int) * list_length(nodelist));
+	fds = (int *) palloc(sizeof(int) * totlen);
 	if (fds == NULL)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_OUT_OF_MEMORY),
 				 errmsg("out of memory")));
 	}
-	if (pool_recvfds(&Handle->port, fds, list_length(nodelist)))
+	if (pool_recvfds(&Handle->port, fds, totlen))
 	{
 		pfree(fds);
 		return NULL;
@@ -708,8 +811,10 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 	for (;;)
 	{
 		const char *database;
-		int			nodecount;
-		List	   *nodelist = NIL;
+		int			datanodecount;
+		int			coordcount;
+		List	   *datanodelist = NIL;
+		List	   *coordlist = NIL;
 		int		   *fds;
 		int			i;
 
@@ -718,7 +823,11 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 			case 'c':			/* CONNECT */
 				pool_getmessage(&agent->port, s, 0);
 				database = pq_getmsgstring(s);
-				agent_init(agent, database, GetAllNodes());
+				/* 
+				 * Coordinator pool is not initialized.
+				 * With that it would be impossible to create a Database by default.
+				 */
+				agent_init(agent, database);
 				pq_getmsgend(s);
 				break;
 			case 'd':			/* DISCONNECT */
@@ -727,29 +836,52 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 				pq_getmsgend(s);
 				break;
 			case 'g':			/* GET CONNECTIONS */
-				pool_getmessage(&agent->port, s, 4 * NumDataNodes + 8);
-				nodecount = pq_getmsgint(s, 4);
-				for (i = 0; i < nodecount; i++)
-					nodelist = lappend_int(nodelist, pq_getmsgint(s, 4));
+				/*
+				 * Length of message is caused by:
+				 * - Message header = 4bytes
+				 * - List of datanodes = NumDataNodes * 4bytes (max)
+				 * - List of coordinators = NumCoords * 4bytes (max)
+				 * - Number of Datanodes sent = 4bytes
+				 * - Number of Coordinators sent = 4bytes
+				 * It is better to send in a same message the list of Co and Dn at the same
+				 * time, this permits to reduce interactions between postmaster and pooler
+				 */
+				pool_getmessage(&agent->port, s, 4 * NumDataNodes + 4 * NumCoords + 12);
+				datanodecount = pq_getmsgint(s, 4);
+				for (i = 0; i < datanodecount; i++)
+					datanodelist = lappend_int(datanodelist, pq_getmsgint(s, 4));
+				coordcount = pq_getmsgint(s, 4);
+				/* It is possible that no Coordinators are involved in the transaction */
+				if (coordcount != 0)
+					for (i = 0; i < coordcount; i++)
+						coordlist = lappend_int(coordlist, pq_getmsgint(s, 4));
 				pq_getmsgend(s);
 				/*
 				 * In case of error agent_acquire_connections will log
 				 * the error and return NULL
 				 */
-				fds = agent_acquire_connections(agent, nodelist);
-				list_free(nodelist);
-				pool_sendfds(&agent->port, fds, fds ? nodecount : 0);
+				fds = agent_acquire_connections(agent, datanodelist, coordlist);
+				list_free(datanodelist);
+				list_free(coordlist);
+
+				pool_sendfds(&agent->port, fds, fds ? datanodecount + coordcount : 0);
 				if (fds)
 					pfree(fds);
 				break;
 			case 'r':			/* RELEASE CONNECTIONS */
-				pool_getmessage(&agent->port, s, 4 * NumDataNodes + 8);
-				nodecount = pq_getmsgint(s, 4);
-				for (i = 0; i < nodecount; i++)
-					nodelist = lappend_int(nodelist, pq_getmsgint(s, 4));
+				pool_getmessage(&agent->port, s, 4 * NumDataNodes + 4 * NumCoords + 12);
+				datanodecount = pq_getmsgint(s, 4);
+				for (i = 0; i < datanodecount; i++)
+					datanodelist = lappend_int(datanodelist, pq_getmsgint(s, 4));
+				coordcount = pq_getmsgint(s, 4);
+				/* It is possible that no Coordinators are involved in the transaction */
+				if (coordcount != 0)
+					for (i = 0; i < coordcount; i++)
+						coordlist = lappend_int(coordlist, pq_getmsgint(s, 4));
 				pq_getmsgend(s);
-				agent_release_connections(agent, nodelist);
-				list_free(nodelist);
+				agent_release_connections(agent, datanodelist, coordlist);
+				list_free(datanodelist);
+				list_free(coordlist);
 				break;
 			default:			/* EOF or protocol violation */
 				agent_destroy(agent);
@@ -766,17 +898,23 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
  * acquire connection
  */
 static int *
-agent_acquire_connections(PoolAgent *agent, List *nodelist)
+agent_acquire_connections(PoolAgent *agent, List *datanodelist, List *coordlist)
 {
 	int			i;
 	int		   *result;
 	ListCell   *nodelist_item;
 
 	Assert(agent);
-	Assert(nodelist);
 
-	/* Allocate memory */
-	result = (int *) palloc(list_length(nodelist) * sizeof(int));
+	/*
+	 * Allocate memory
+	 * File descriptors of Datanodes and Coordinators are saved in the same array,
+	 * This array will be sent back to the postmaster.
+	 * It has a length equal to the length of the datanode list
+	 * plus the length of the coordinator list.
+	 * Datanode fds are saved first, then Coordinator fds are saved.
+	 */
+	result = (int *) palloc((list_length(datanodelist) + list_length(coordlist)) * sizeof(int));
 	if (result == NULL)
 	{
 		ereport(ERROR,
@@ -784,11 +922,15 @@ agent_acquire_connections(PoolAgent *agent, List *nodelist)
 				 errmsg("out of memory")));
 	}
 
-	/* initialize connection if it is not initialized yet */
-	if (!agent->connections)
+	/*
+	 * Initialize connection if it is not initialized yet
+	 * First for the Datanodes
+	 */
+	if (!agent->dn_connections)
 	{
-		agent->connections = (DataNodePoolSlot **) palloc(NumDataNodes * sizeof(DataNodePoolSlot *));
-		if (!agent->connections)
+		agent->dn_connections = (PGXCNodePoolSlot **)
+								palloc(NumDataNodes * sizeof(PGXCNodePoolSlot *));
+		if (!agent->dn_connections)
 		{
 			pfree(result);
 			ereport(ERROR,
@@ -798,19 +940,39 @@ agent_acquire_connections(PoolAgent *agent, List *nodelist)
 		}
 
 		for (i = 0; i < NumDataNodes; i++)
-			agent->connections[i] = NULL;
+			agent->dn_connections[i] = NULL;
 	}
+
+	/* Then for the Coordinators */
+	if (!agent->coord_connections)
+	{
+		agent->coord_connections = (PGXCNodePoolSlot **)
+								palloc(NumCoords * sizeof(PGXCNodePoolSlot *));
+		if (!agent->coord_connections)
+		{
+			pfree(result);
+			ereport(ERROR,
+					(errcode(ERRCODE_OUT_OF_MEMORY),
+					 errmsg("out of memory")));
+			return NULL;
+		}
+
+		for (i = 0; i < NumCoords; i++)
+			agent->coord_connections[i] = NULL;
+	}	
+
 
 	/* Initialize result */
 	i = 0;
-	foreach(nodelist_item, nodelist)
+	/* Save in array fds of Datanodes first */
+	foreach(nodelist_item, datanodelist)
 	{
 		int			node = lfirst_int(nodelist_item);
 
 		/* Acquire from the pool if none */
-		if (agent->connections[node - 1] == NULL)
+		if (agent->dn_connections[node - 1] == NULL)
 		{
-			DataNodePoolSlot *slot = acquire_connection(agent->pool, node);
+			PGXCNodePoolSlot *slot = acquire_connection(agent->pool, node, REMOTE_CONN_DATANODE);
 
 			/* Handle failure */
 			if (slot == NULL)
@@ -820,10 +982,34 @@ agent_acquire_connections(PoolAgent *agent, List *nodelist)
 			}
 
 			/* Store in the descriptor */
-			agent->connections[node - 1] = slot;
+			agent->dn_connections[node - 1] = slot;
 		}
 
-		result[i++] = PQsocket((PGconn *) agent->connections[node - 1]->conn);
+		result[i++] = PQsocket((PGconn *) agent->dn_connections[node - 1]->conn);
+	}
+
+	/* Save then in the array fds for Coordinators */
+	foreach(nodelist_item, coordlist)
+	{
+		int			node = lfirst_int(nodelist_item);
+
+		/* Acquire from the pool if none */
+		if (agent->coord_connections[node - 1] == NULL)
+		{
+			PGXCNodePoolSlot *slot = acquire_connection(agent->pool, node, REMOTE_CONN_COORD);
+
+			/* Handle failure */
+			if (slot == NULL)
+			{
+				pfree(result);
+				return NULL;
+			}
+
+			/* Store in the descriptor */
+			agent->coord_connections[node - 1] = slot;
+		}
+
+		result[i++] = PQsocket((PGconn *) agent->coord_connections[node - 1]->conn);
 	}
 
 	return result;
@@ -831,87 +1017,137 @@ agent_acquire_connections(PoolAgent *agent, List *nodelist)
 
 
 /*
- * Retun connections back to the pool
+ * Return connections back to the pool
  */
 void
-PoolManagerReleaseConnections(int ndisc, int* discard)
+PoolManagerReleaseConnections(int dn_ndisc, int* dn_discard, int co_ndisc, int* co_discard)
 {
 	uint32		n32;
-	uint32 		buf[1 + ndisc];
+	/*
+	 * Buffer contains the list of both Coordinator and Datanodes, as well
+	 * as the number of connections
+	 */
+	uint32 		buf[2 + dn_ndisc + co_ndisc];
 	int 		i;
 
 	Assert(Handle);
 
-	n32 = htonl((uint32) ndisc);
+	/* Insert the list of Datanodes in buffer */
+	n32 = htonl((uint32) dn_ndisc);
 	buf[0] = n32;
 
-	for (i = 0; i < ndisc;)
+	for (i = 0; i < dn_ndisc;)
 	{
-		n32 = htonl((uint32) discard[i++]);
+		n32 = htonl((uint32) dn_discard[i++]);
 		buf[i] = n32;
 	}
+
+	/* Insert the list of Coordinators in buffer */
+	n32 = htonl((uint32) co_ndisc);
+	buf[dn_ndisc + 1] = n32;
+
+	/* Not necessary to send to pooler a request if there is no Coordinator */
+	if (co_ndisc != 0)
+	{
+		for (i = dn_ndisc + 1; i < (dn_ndisc + co_ndisc + 1);)
+		{
+			n32 = htonl((uint32) co_discard[i - (dn_ndisc + 1)]);
+			buf[++i] = n32;
+		}
+	}
 	pool_putmessage(&Handle->port, 'r', (char *) buf,
-					(1 + ndisc) * sizeof(uint32));
+					(2 + dn_ndisc + co_ndisc) * sizeof(uint32));
 	pool_flush(&Handle->port);
 }
 
 
 /*
- * Release connections
+ * Release connections for Datanodes and Coordinators
  */
 static void
-agent_release_connections(PoolAgent *agent, List *discard)
+agent_release_connections(PoolAgent *agent, List *dn_discard, List *co_discard)
 {
 	int			i;
-	DataNodePoolSlot *slot;
+	PGXCNodePoolSlot *slot;
 
-
-	if (!agent->connections)
+	if (!agent->dn_connections && !agent->coord_connections)
 		return;
 
-	if (discard)
+	/* Discard first for Datanodes */
+	if (dn_discard)
 	{
 		ListCell   *lc;
 
-		foreach(lc, discard)
+		foreach(lc, dn_discard)
 		{
 			int node = lfirst_int(lc);
 			Assert(node > 0 && node <= NumDataNodes);
-			slot = agent->connections[node - 1];
+			slot = agent->dn_connections[node - 1];
 
 			/* Discard connection */
 			if (slot)
-				release_connection(agent->pool, slot, node - 1, false);
-			agent->connections[node - 1] = NULL;
+				release_connection(agent->pool, slot, node - 1, false, REMOTE_CONN_DATANODE);
+			agent->dn_connections[node - 1] = NULL;
 		}
 	}
 
-	/* Remaining connections are assumed to be clean */
+	/* Then discard for Coordinators */
+	if (co_discard)
+	{
+		ListCell   *lc;
+
+		foreach(lc, co_discard)
+		{
+			int node = lfirst_int(lc);
+			Assert(node > 0 && node <= NumCoords);
+			slot = agent->coord_connections[node - 1];
+
+			/* Discard connection */
+			if (slot)
+				release_connection(agent->pool, slot, node - 1, false, REMOTE_CONN_COORD);
+			agent->coord_connections[node - 1] = NULL;
+		}
+	}
+
+	/*
+	 * Remaining connections are assumed to be clean.
+	 * First clean up for Datanodes
+	 */
 	for (i = 0; i < NumDataNodes; i++)
 	{
-		slot = agent->connections[i];
+		slot = agent->dn_connections[i];
 
 		/* Release connection */
 		if (slot)
-			release_connection(agent->pool, slot, i, true);
-		agent->connections[i] = NULL;
+			release_connection(agent->pool, slot, i, true, REMOTE_CONN_DATANODE);
+		agent->dn_connections[i] = NULL;
+	}
+	/* Then clean up for Coordinator connections */
+	for (i = 0; i < NumCoords; i++)
+	{
+		slot = agent->coord_connections[i];
+
+		/* Release connection */
+		if (slot)
+			release_connection(agent->pool, slot, i, true, REMOTE_CONN_COORD);
+		agent->coord_connections[i] = NULL;
 	}
 }
 
 
 /*
- * Create new empty pool for a database and insert into the list
+ * Create new empty pool for a database.
+ * By default Database Pools have a size null so as to avoid interactions
+ * between PGXC nodes in the cluster (Co/Co, Dn/Dn and Co/Dn).
+ * Pool is increased at the first GET_CONNECTION message received.
  * Returns POOL_OK if operation succeed POOL_FAIL in case of OutOfMemory
- * error and POOL_WEXIST if poll for this database already exist
+ * error and POOL_WEXIST if poll for this database already exist.
  */
 static DatabasePool *
-create_database_pool(const char *database, List *nodes)
+create_database_pool(const char *database)
 {
 	DatabasePool *databasePool;
 	int			i;
-	ListCell   *l;
-
-	Assert(nodes && list_length(nodes) > 0);
 
 	/* check if exist */
 	databasePool = find_database_pool(database);
@@ -947,9 +1183,10 @@ create_database_pool(const char *database, List *nodes)
 	/* Init next reference */
 	databasePool->next = NULL;
 
-	/* Init data node pools */
-	databasePool->nodePools = (DataNodePool **) palloc(NumDataNodes * sizeof(DataNodePool **));
-	if (!databasePool->nodePools)
+	/* Init Datanode pools */
+	databasePool->dataNodePools = (PGXCNodePool **)
+								  palloc(NumDataNodes * sizeof(PGXCNodePool **));
+	if (!databasePool->dataNodePools)
 	{
 		/* out of memory */
 		ereport(ERROR,
@@ -959,15 +1196,26 @@ create_database_pool(const char *database, List *nodes)
 		pfree(databasePool);
 		return NULL;
 	}
+
 	for (i = 0; i < NumDataNodes; i++)
-		databasePool->nodePools[i] = NULL;
+		databasePool->dataNodePools[i] = NULL;
 
-	foreach(l, nodes)
+	/* Init Coordinator pools */
+	databasePool->coordNodePools = (PGXCNodePool **)
+								  palloc(NumCoords * sizeof(PGXCNodePool **));
+	if (!databasePool->coordNodePools)
 	{
-		int			nodeid = lfirst_int(l);
-
-		grow_pool(databasePool, nodeid - 1);
+		/* out of memory */
+		ereport(ERROR,
+				(errcode(ERRCODE_OUT_OF_MEMORY),
+				 errmsg("out of memory")));
+		pfree(databasePool->database);
+		pfree(databasePool);
+		return NULL;
 	}
+
+	for (i = 0; i < NumCoords; i++)
+		databasePool->coordNodePools[i] = NULL;
 
 	/* Insert into the list */
 	insert_database_pool(databasePool);
@@ -989,12 +1237,19 @@ destroy_database_pool(const char *database)
 	databasePool = remove_database_pool(database);
 	if (databasePool)
 	{
-		if (databasePool->nodePools)
+		if (databasePool->dataNodePools)
 		{
 			for (i = 0; i < NumDataNodes; i++)
-				if (databasePool->nodePools[i])
-					destroy_node_pool(databasePool->nodePools[i]);
-			pfree(databasePool->nodePools);
+				if (databasePool->dataNodePools[i])
+					destroy_node_pool(databasePool->dataNodePools[i]);
+			pfree(databasePool->dataNodePools);
+		}
+		if (databasePool->coordNodePools)
+		{
+			for (i = 0; i < NumCoords; i++)
+				if (databasePool->coordNodePools[i])
+					destroy_node_pool(databasePool->coordNodePools[i]);
+			pfree(databasePool->coordNodePools);
 		}
 		/* free allocated memory */
 		pfree(databasePool->database);
@@ -1089,22 +1344,41 @@ remove_database_pool(const char *database)
 /*
  * Acquire connection
  */
-static DataNodePoolSlot *
-acquire_connection(DatabasePool *dbPool, int node)
+static PGXCNodePoolSlot *
+acquire_connection(DatabasePool *dbPool, int node, char client_conn_type)
 {
-	DataNodePool *nodePool;
-	DataNodePoolSlot *slot;
+	PGXCNodePool *nodePool;
+	PGXCNodePoolSlot *slot;
 
 	Assert(dbPool);
-	Assert(0 < node && node <= NumDataNodes);
+
+	if (client_conn_type == REMOTE_CONN_DATANODE)
+		Assert(0 < node && node <= NumDataNodes);
+	else if (client_conn_type == REMOTE_CONN_COORD)
+		Assert(0 < node && node <= NumCoords);
 
 	slot = NULL;
-	/* Find referenced node pool */
-	nodePool = dbPool->nodePools[node - 1];
+	/* Find referenced node pool depending on type of client connection */
+	if (client_conn_type == REMOTE_CONN_DATANODE)
+		nodePool = dbPool->dataNodePools[node - 1];
+	else if (client_conn_type == REMOTE_CONN_COORD)
+		nodePool = dbPool->coordNodePools[node - 1];
+
+	/*
+	 * When a Coordinator pool is initialized by a Coordinator Postmaster,
+	 * it has a NULL size and is below minimum size that is 1
+	 * This is to avoid problems of connections between Coordinators
+	 * when creating or dropping Databases.
+	 */
 	if (nodePool == NULL || nodePool->freeSize == 0)
 	{
-		grow_pool(dbPool, node - 1);
-		nodePool = dbPool->nodePools[node - 1];
+		grow_pool(dbPool, node - 1, client_conn_type);
+
+		/* Get back the correct slot that has been grown up*/
+		if (client_conn_type == REMOTE_CONN_DATANODE)
+			nodePool = dbPool->dataNodePools[node - 1];
+		else if (client_conn_type == REMOTE_CONN_COORD)
+			nodePool = dbPool->coordNodePools[node - 1];
 	}
 
 	/* Check available connections */
@@ -1136,12 +1410,16 @@ acquire_connection(DatabasePool *dbPool, int node)
 		/* Decrement current max pool size */
 		(nodePool->size)--;
 		/* Ensure we are not below minimum size */
-		grow_pool(dbPool, node - 1);
+		grow_pool(dbPool, node - 1, client_conn_type);
 	}
 
 	if (slot == NULL)
-		elog(WARNING, "can not connect to data node %d", node);
-
+	{
+		if (client_conn_type == REMOTE_CONN_DATANODE)
+			elog(WARNING, "can not connect to data node %d", node);
+		else if (client_conn_type == REMOTE_CONN_COORD)
+			elog(WARNING, "can not connect to coordinator %d", node);
+	}
 	return slot;
 }
 
@@ -1150,16 +1428,25 @@ acquire_connection(DatabasePool *dbPool, int node)
  * release connection from specified pool and slot
  */
 static void
-release_connection(DatabasePool * dbPool, DataNodePoolSlot * slot, int index, bool clean)
+release_connection(DatabasePool * dbPool, PGXCNodePoolSlot * slot,
+				   int index, bool clean, char client_conn_type)
 {
-	DataNodePool *nodePool;
+	PGXCNodePool *nodePool;
 
 	Assert(dbPool);
 	Assert(slot);
-	Assert(0 <= index && index < NumDataNodes);
 
-	/* Find referenced node pool */
-	nodePool = dbPool->nodePools[index];
+	if (client_conn_type == REMOTE_CONN_DATANODE)
+		Assert(0 <= index && index < NumDataNodes);
+	else if (client_conn_type == REMOTE_CONN_COORD)
+		Assert(0 <= index && index < NumCoords);
+
+	/* Find referenced node pool depending on client connection type */
+	if (client_conn_type == REMOTE_CONN_DATANODE)
+		nodePool = dbPool->dataNodePools[index];
+	else if (client_conn_type == REMOTE_CONN_COORD)
+		nodePool = dbPool->coordNodePools[index];
+
 	if (nodePool == NULL)
 	{
 		/* report problem */
@@ -1182,40 +1469,74 @@ release_connection(DatabasePool * dbPool, DataNodePoolSlot * slot, int index, bo
 		/* Decrement pool size */
 		(nodePool->size)--;
 		/* Ensure we are not below minimum size */
-		grow_pool(dbPool, index);
+		grow_pool(dbPool, index, client_conn_type);
 	}
 }
 
 
 /*
- * Increase database pool size
+ * Increase database pool size depending on connection type:
+ * REMOTE_CONN_COORD or REMOTE_CONN_DATANODE
  */
 static void
-grow_pool(DatabasePool * dbPool, int index)
+grow_pool(DatabasePool * dbPool, int index, char client_conn_type)
 {
-	DataNodePool *nodePool;
+	PGXCNodePool *nodePool;
 
 	Assert(dbPool);
-	Assert(0 <= index && index < NumDataNodes);
+	if (client_conn_type == REMOTE_CONN_DATANODE)
+		Assert(0 <= index && index < NumDataNodes);
+	else if (client_conn_type == REMOTE_CONN_COORD)
+		Assert(0 <= index && index < NumCoords);
 
 	/* Find referenced node pool */
-	nodePool = dbPool->nodePools[index];
+	if (client_conn_type == REMOTE_CONN_DATANODE)
+		nodePool = dbPool->dataNodePools[index];
+	else if (client_conn_type == REMOTE_CONN_COORD)
+		nodePool = dbPool->coordNodePools[index];
+
 	if (!nodePool)
 	{
+		char *remote_type;
+
 		/* Allocate new DBNode Pool */
-		nodePool = (DataNodePool *) palloc(sizeof(DataNodePool));
+		nodePool = (PGXCNodePool *) palloc(sizeof(PGXCNodePool));
 		if (!nodePool)
 			ereport(ERROR,
 					(errcode(ERRCODE_OUT_OF_MEMORY),
 					 errmsg("out of memory")));
 
-		/* initialize it */
-		nodePool->connstr = DataNodeConnStr(
-											connectionInfos[index].host,
-											connectionInfos[index].port,
-											dbPool->database,
-											connectionInfos[index].uname,
-											connectionInfos[index].password);
+		/*
+		 * Don't forget to define the type of remote connection
+		 * Now PGXC just support Co->Co and Co->Dn connections
+		 * but Dn->Dn Connections could be used for other purposes.
+		 */
+		if (IS_PGXC_COORDINATOR)
+		{
+			remote_type = pstrdup("coordinator");
+
+		}
+		else if (IS_PGXC_DATANODE)
+		{
+			remote_type = pstrdup("datanode");
+		}
+
+		if (client_conn_type == REMOTE_CONN_DATANODE)
+			/* initialize it */
+			nodePool->connstr = PGXCNodeConnStr(datanode_connInfos[index].host,
+												datanode_connInfos[index].port,
+												dbPool->database,
+												datanode_connInfos[index].uname,
+												datanode_connInfos[index].password,
+												remote_type);
+		else if (client_conn_type == REMOTE_CONN_COORD)
+			nodePool->connstr = PGXCNodeConnStr(coord_connInfos[index].host,
+												coord_connInfos[index].port,
+												dbPool->database,
+												coord_connInfos[index].uname,
+												coord_connInfos[index].password,
+												remote_type);
+
 
 		if (!nodePool->connstr)
 		{
@@ -1225,7 +1546,7 @@ grow_pool(DatabasePool * dbPool, int index)
 					 errmsg("out of memory")));
 		}
 
-		nodePool->slot = (DataNodePoolSlot **) palloc(MaxPoolSize * sizeof(DataNodePoolSlot *));
+		nodePool->slot = (PGXCNodePoolSlot **) palloc(MaxPoolSize * sizeof(PGXCNodePoolSlot *));
 		if (!nodePool->slot)
 		{
 			pfree(nodePool);
@@ -1234,20 +1555,23 @@ grow_pool(DatabasePool * dbPool, int index)
 					(errcode(ERRCODE_OUT_OF_MEMORY),
 					 errmsg("out of memory")));
 		}
-		memset(nodePool->slot, 0, MaxPoolSize * sizeof(DataNodePoolSlot *));
+		memset(nodePool->slot, 0, MaxPoolSize * sizeof(PGXCNodePoolSlot *));
 		nodePool->freeSize = 0;
 		nodePool->size = 0;
 
 		/* and insert into the array */
-		dbPool->nodePools[index] = nodePool;
+		if (client_conn_type == REMOTE_CONN_DATANODE)
+			dbPool->dataNodePools[index] = nodePool;
+		else if (client_conn_type == REMOTE_CONN_COORD)
+			dbPool->coordNodePools[index] = nodePool;
 	}
 
 	while (nodePool->size < MinPoolSize || (nodePool->freeSize == 0 && nodePool->size < MaxPoolSize))
 	{
-		DataNodePoolSlot *slot;
+		PGXCNodePoolSlot *slot;
 
 		/* Allocate new slot */
-		slot = (DataNodePoolSlot *) palloc(sizeof(DataNodePoolSlot));
+		slot = (PGXCNodePoolSlot *) palloc(sizeof(PGXCNodePoolSlot));
 		if (slot == NULL)
 		{
 			ereport(ERROR,
@@ -1256,8 +1580,8 @@ grow_pool(DatabasePool * dbPool, int index)
 		}
 
 		/* Establish connection */
-		slot->conn = DataNodeConnect(nodePool->connstr);
-		if (!DataNodeConnected(slot->conn))
+		slot->conn = PGXCNodeConnect(nodePool->connstr);
+		if (!PGXCNodeConnected(slot->conn))
 		{
 			destroy_slot(slot);
 			ereport(LOG,
@@ -1282,9 +1606,9 @@ grow_pool(DatabasePool * dbPool, int index)
  * Destroy pool slot
  */
 static void
-destroy_slot(DataNodePoolSlot *slot)
+destroy_slot(PGXCNodePoolSlot *slot)
 {
-	DataNodeClose(slot->conn);
+	PGXCNodeClose(slot->conn);
 	pfree(slot);
 }
 
@@ -1293,7 +1617,7 @@ destroy_slot(DataNodePoolSlot *slot)
  * Destroy node pool
  */
 static void
-destroy_node_pool(DataNodePool *node_pool)
+destroy_node_pool(PGXCNodePool *node_pool)
 {
 	int			i;
 

@@ -24,6 +24,7 @@
 
 #include "postgres.h"
 #include "access/skey.h"
+#include "access/gtm.h"
 #include "access/relscan.h"
 #include "catalog/indexing.h"
 #include "catalog/pg_type.h"
@@ -440,12 +441,12 @@ GetLocatorType(Oid relid)
 
 
 /*
- * Return a list of all nodes.
+ * Return a list of all Datanodes.
  * We assume all tables use all nodes in the prototype, so just return a list
  * from first one.
  */
 List *
-GetAllNodes(void)
+GetAllDataNodes(void)
 {
 	int			i;
 
@@ -463,10 +464,38 @@ GetAllNodes(void)
 	return nodeList;
 }
 
+/*
+ * Return a list of all Coordinators
+ * This is used to send DDL to all nodes
+ * Do not put in the list the local Coordinator where this function is launched
+ */
+List *
+GetAllCoordNodes(void)
+{
+	int			i;
+
+	/*
+	 * PGXCTODO - add support for having nodes on a subset of nodes
+	 * For now, assume on all nodes
+	 */
+	List	   *nodeList = NIL;
+
+	for (i = 1; i < NumCoords + 1; i++)
+	{
+		/*
+		 * Do not put in list the Coordinator we are on,
+		 * it doesn't make sense to connect to the local coordinator.
+		 */
+		if (i != PGXCNodeId)
+			nodeList = lappend_int(nodeList, i);
+	}
+
+	return nodeList;
+}
+
 
 /*
  * Build locator information associated with the specified relation.
- *
  */
 void
 RelationBuildLocator(Relation rel)
@@ -528,7 +557,7 @@ RelationBuildLocator(Relation rel)
 	/** PGXCTODO - add support for having nodes on a subset of nodes
 	 * For now, assume on all nodes
 	 */
-	relationLocInfo->nodeList = GetAllNodes();
+	relationLocInfo->nodeList = GetAllDataNodes();
 	relationLocInfo->nodeCount = relationLocInfo->nodeList->length;
 
 	/*

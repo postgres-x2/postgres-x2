@@ -17,7 +17,7 @@
 #ifndef POOLMGR_H
 #define POOLMGR_H
 #include <sys/time.h>
-#include "datanode.h"
+#include "pgxcnode.h"
 #include "poolcomm.h"
 #include "storage/pmsignal.h"
 
@@ -30,30 +30,31 @@ typedef struct
 	char	   *port;
 	char	   *uname;
 	char	   *password;
-} DataNodeConnectionInfo;
+} PGXCNodeConnectionInfo;
 
 /* Connection pool entry */
 typedef struct
 {
 	struct timeval released;
 	NODE_CONNECTION *conn;
-} DataNodePoolSlot;
+} PGXCNodePoolSlot;
 
-/* Pool of connections to specified data nodes */
+/* Pool of connections to specified pgxc node */
 typedef struct
 {
 	char	   *connstr;
 	int			freeSize;	/* available connections */
 	int			size;  		/* total pool size */
-	DataNodePoolSlot **slot;
-} DataNodePool;
+	PGXCNodePoolSlot **slot;
+} PGXCNodePool;
 
 /* All pools for specified database */
 typedef struct databasepool
 {
 	Oid			databaseId;
 	char	   *database;
-	DataNodePool **nodePools; /* one for each data node */
+	PGXCNodePool **dataNodePools;	/* one for each Datanode */
+	PGXCNodePool **coordNodePools;	/* one for each Coordinator */
 	struct databasepool *next;
 } DatabasePool;
 
@@ -65,7 +66,8 @@ typedef struct
 	/* communication channel */
 	PoolPort	port;
 	DatabasePool *pool;
-	DataNodePoolSlot **connections; /* one for each data node */
+	PGXCNodePoolSlot **dn_connections; /* one for each Datanode */
+	PGXCNodePoolSlot **coord_connections; /* one for each Coordinator */
 } PoolAgent;
 
 /* Handle to the pool manager (Session's side) */
@@ -76,6 +78,7 @@ typedef struct
 } PoolHandle;
 
 extern int	NumDataNodes;
+extern int	NumCoords;
 extern int	MinPoolSize;
 extern int	MaxPoolSize;
 extern int	PoolerPort;
@@ -86,6 +89,11 @@ extern char *DataNodeHosts;
 extern char *DataNodePorts;
 extern char *DataNodeUsers;
 extern char *DataNodePwds;
+
+extern char *CoordinatorHosts;
+extern char *CoordinatorPorts;
+extern char *CoordinatorUsers;
+extern char *CoordinatorPwds;
 
 /* Initialize internal structures */
 extern int	PoolManagerInit(void);
@@ -122,9 +130,9 @@ extern void PoolManagerDisconnect(PoolHandle *handle);
 extern void PoolManagerConnect(PoolHandle *handle, const char *database);
 
 /* Get pooled connections */
-extern int *PoolManagerGetConnections(List *nodelist);
+extern int *PoolManagerGetConnections(List *datanodelist, List *coordlist);
 
-/* Retun connections back to the pool */
-extern void PoolManagerReleaseConnections(int ndisc, int* discard);
+/* Return connections back to the pool, for both Coordinator and Datanode connections */
+extern void PoolManagerReleaseConnections(int dn_ndisc, int* dn_discard, int co_ndisc, int* co_discard);
 
 #endif

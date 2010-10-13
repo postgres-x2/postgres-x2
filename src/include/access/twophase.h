@@ -18,10 +18,6 @@
 #include "storage/proc.h"
 #include "utils/timestamp.h"
 
-#ifdef PGXC
-#include "pgxc/pgxc.h"
-#endif
-
 /*
  * GlobalTransactionData is defined in twophase.c; other places have no
  * business knowing the internal definition.
@@ -42,10 +38,12 @@ extern GlobalTransaction MarkAsPreparing(TransactionId xid, const char *gid,
 
 #ifdef PGXC
 extern void RemoveGXactCoord(GlobalTransaction gxact);
+extern void EndPrepare(GlobalTransaction gxact, bool write_2pc_file);
+#else
+extern void EndPrepare(GlobalTransaction gxact);
 #endif
 
 extern void StartPrepare(GlobalTransaction gxact);
-extern void EndPrepare(GlobalTransaction gxact);
 
 extern TransactionId PrescanPreparedTransactions(void);
 extern void RecoverPreparedTransactions(void);

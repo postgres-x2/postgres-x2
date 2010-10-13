@@ -54,7 +54,21 @@ typedef struct
 	Oid		   *eqOperators;	/* OIDs of operators to equate them by */
 } SimpleDistinct;
 
-/* Contains instructions on processing a step of a query.
+/*
+ * Determines if query has to be launched
+ * on Coordinators only (SEQUENCE DDL),
+ * on Datanodes (normal Remote Queries),
+ * or on all Postgres-XC nodes (Utilities and DDL).
+ */
+typedef enum
+{
+	EXEC_ON_DATANODES,
+	EXEC_ON_COORDS,
+	EXEC_ON_ALL_NODES
+} RemoteQueryExecType;
+
+/*
+ * Contains instructions on processing a step of a query.
  * In the prototype this will be simple, but it will eventually
  * evolve into a GridSQL-style QueryStep.
  */
@@ -63,17 +77,19 @@ typedef struct
 	Scan		scan;
 	bool		is_single_step;		/* special case, skip extra work */
 	char	   *sql_statement;
-	ExecNodes  *exec_nodes;
+	ExecNodes  *exec_nodes;			/* List of Datanodes where to launch query */
 	CombineType combine_type;
 	List	   *simple_aggregates;	/* simple aggregate to combine on this step */
 	SimpleSort *sort;
 	SimpleDistinct *distinct;
 	bool		read_only;          /* do not use 2PC when committing read only steps */
-    bool		force_autocommit;	/* some commands like VACUUM require autocommit mode */
+	bool		force_autocommit;	/* some commands like VACUUM require autocommit mode */
+	RemoteQueryExecType		exec_type;
 } RemoteQuery;
 
 
-/* For handling simple aggregates (no group by present)
+/*
+ * For handling simple aggregates (no group by present)
  * For now, only MAX will be supported.
  */
 typedef enum

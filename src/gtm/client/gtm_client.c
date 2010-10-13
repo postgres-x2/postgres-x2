@@ -264,7 +264,7 @@ send_failed:
 }
 
 int
-being_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, char *gid,
+start_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, char *gid,
 					int datanodecnt, PGXC_NodeId datanodes[], int coordcnt,
 					PGXC_NodeId coordinators[])
 {
@@ -273,15 +273,18 @@ being_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, char *gid,
 
 	 /* Start the message. */
 	if (gtmpqPutMsgStart('C', true, conn) ||
-		gtmpqPutInt(MSG_TXN_BEING_PREPARED, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutInt(MSG_TXN_START_PREPARED, sizeof (GTM_MessageType), conn) ||
 		gtmpqPutc(true, conn) ||
 		gtmpqPutnchar((char *)&gxid, sizeof (GlobalTransactionId), conn) ||
 		/* Send also GID for an explicit prepared transaction */
 		gtmpqPutInt(strlen(gid), sizeof (GTM_GIDLen), conn) ||
 		gtmpqPutnchar((char *) gid, strlen(gid), conn) ||
 		gtmpqPutInt(datanodecnt, sizeof (int), conn) ||
-		gtmpqPutnchar((char *)datanodes, sizeof (PGXC_NodeId) * datanodecnt, conn) ||
 		gtmpqPutInt(coordcnt, sizeof (int), conn))
+		goto send_failed;
+
+	/* Datanode connections are not always involved in a transaction (SEQUENCE DDL) */
+	if (datanodecnt != 0 && gtmpqPutnchar((char *)datanodes, sizeof (PGXC_NodeId) * datanodecnt, conn))
 		goto send_failed;
 
 	/* Coordinator connections are not always involved in a transaction */
@@ -306,7 +309,7 @@ being_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, char *gid,
 
 	if (res->gr_status == 0)
 	{
-		Assert(res->gr_type == TXN_BEING_PREPARED_RESULT);
+		Assert(res->gr_type == TXN_START_PREPARED_RESULT);
 		Assert(res->gr_resdata.grd_gxid == gxid);
 	}
 
@@ -405,10 +408,12 @@ get_gid_data(GTM_Conn *conn,
 	{
 		*gxid = res->gr_resdata.grd_txn_get_gid_data.gxid;
 		*prepared_gxid = res->gr_resdata.grd_txn_get_gid_data.prepared_gxid;
-		*datanodes = res->gr_resdata.grd_txn_get_gid_data.datanodes;
-		*coordinators = res->gr_resdata.grd_txn_get_gid_data.coordinators;
 		*datanodecnt = res->gr_resdata.grd_txn_get_gid_data.datanodecnt;
 		*coordcnt = res->gr_resdata.grd_txn_get_gid_data.coordcnt;
+		if (res->gr_resdata.grd_txn_get_gid_data.datanodecnt != 0)
+			*datanodes = res->gr_resdata.grd_txn_get_gid_data.datanodes;
+		if (res->gr_resdata.grd_txn_get_gid_data.coordcnt != 0)
+			*coordinators = res->gr_resdata.grd_txn_get_gid_data.coordinators;
 	}
 
 	return res->gr_status;

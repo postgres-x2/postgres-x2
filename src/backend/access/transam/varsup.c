@@ -22,7 +22,7 @@
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
 #include "utils/builtins.h"
-#ifdef PGXC  
+#ifdef PGXC
 #include "pgxc/pgxc.h"
 #include "access/gtm.h"
 #endif
@@ -99,25 +99,27 @@ GetNewTransactionId(bool isSubXact)
 		return BootstrapTransactionId;
 	}
 
-#ifdef PGXC  
-	if (IS_PGXC_COORDINATOR)
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 	{
-		/* Get XID from GTM before acquiring the lock.
+		/*
+		 * Get XID from GTM before acquiring the lock.
 		 * The rest of the code will handle it if after obtaining XIDs,
 		 * the lock is acquired in a different order.
 		 * This will help with GTM connection issues- we will not
 		 * block all other processes.
+		 * GXID can just be obtained from a remote Coordinator
 		 */
 		xid = (TransactionId) BeginTranGTM(timestamp);
-		*timestamp_received	= true;
+		*timestamp_received = true;
 	}
-	
 #endif
 
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
 
-#ifdef PGXC  
-	if (IS_PGXC_COORDINATOR)
+#ifdef PGXC
+	/* Only remote Coordinator can go a GXID */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 	{
 		if (TransactionIdIsValid(xid)) 
 		{
@@ -140,7 +142,8 @@ GetNewTransactionId(bool isSubXact)
 			LWLockRelease(XidGenLock);
 			return xid;
 		}	
-	} else if(IS_PGXC_DATANODE) 
+	}
+	else if(IS_PGXC_DATANODE || IsConnFromCoord())
 	{
 		if (IsAutoVacuumWorkerProcess())
 		{
@@ -159,7 +162,8 @@ GetNewTransactionId(bool isSubXact)
 				/* try and get gxid directly from GTM */
 				next_xid = (TransactionId) BeginTranGTM(NULL);
 			}
-		} else if (GetForceXidFromGTM())
+		}
+		else if (GetForceXidFromGTM())
 		{
 			elog (DEBUG1, "Force get XID from GTM");
 			/* try and get gxid directly from GTM */
