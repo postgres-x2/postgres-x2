@@ -5,7 +5,7 @@
  *	  Communication functions between the pool manager and session
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group 
+ * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
  *
  *-------------------------------------------------------------------------
@@ -40,6 +40,8 @@ static int	pool_discardbytes(PoolPort *port, size_t len);
 			(port))
 
 static char sock_path[MAXPGPATH];
+
+static void StreamDoUnlink(int code, Datum arg);
 
 static int	Lock_AF_UNIX(unsigned short port, const char *unixSocketName);
 #endif
@@ -77,6 +79,9 @@ pool_listen(unsigned short port, const char *unixSocketName)
 	if (listen(fd, 5) < 0)
 		return -1;
 
+	/* Arrange to unlink the socket file at exit */
+	on_proc_exit(StreamDoUnlink, 0);
+
 	return fd;
 #else
 	/* TODO support for non-unix platform */
@@ -86,6 +91,19 @@ pool_listen(unsigned short port, const char *unixSocketName)
 	return -1;
 #endif
 }
+
+/* StreamDoUnlink()
+ * Shutdown routine for pooler connection
+ * If a Unix socket is used for communication, explicitly close it.
+ */
+#ifdef HAVE_UNIX_SOCKETS
+static void
+StreamDoUnlink(int code, Datum arg)
+{
+	Assert(sock_path[0]);
+	unlink(sock_path);
+}
+#endif   /* HAVE_UNIX_SOCKETS */
 
 #ifdef HAVE_UNIX_SOCKETS
 static int
@@ -411,8 +429,8 @@ pool_flush(PoolPort *port)
 			{
 				last_reported_send_errno = errno;
 
-				/* 
-				 * Handle a seg fault that may later occur in proc array 
+				/*
+				 * Handle a seg fault that may later occur in proc array
 				 * when this fails when we are already shutting down
 				 * If shutting down already, do not call.
 				 */
