@@ -215,6 +215,8 @@ commit_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, GlobalTran
 		Assert(res->gr_resdata.grd_gxid == gxid);
 	}
 
+	return res->gr_status;
+
 send_failed:
 receive_failed:
 	return -1;
