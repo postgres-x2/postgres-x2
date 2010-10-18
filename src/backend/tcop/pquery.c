@@ -21,6 +21,9 @@
 #include "executor/tstoreReceiver.h"
 #include "miscadmin.h"
 #include "pg_trace.h"
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#endif
 #include "tcop/pquery.h"
 #include "tcop/tcopprot.h"
 #include "tcop/utility.h"
@@ -1192,7 +1195,11 @@ PortalRunUtility(Portal portal, Node *utilityStmt, bool isTopLevel,
 		  IsA(utilityStmt, ListenStmt) ||
 		  IsA(utilityStmt, NotifyStmt) ||
 		  IsA(utilityStmt, UnlistenStmt) ||
+#ifdef PGXC
+		  (IsA(utilityStmt, CheckPointStmt) && IS_PGXC_DATANODE)))
+#else
 		  IsA(utilityStmt, CheckPointStmt)))
+#endif
 	{
 		PushActiveSnapshot(GetTransactionSnapshot());
 		active_snapshot_set = true;
