@@ -272,10 +272,16 @@ pgxc_node_receive(const int conn_count,
 			continue;
 
 		/* prepare select params */
-		if (nfds < connections[i]->sock)
+		if (connections[i]->sock > 0)
+		{
+			FD_SET(connections[i]->sock, &readfds);
 			nfds = connections[i]->sock;
-
-		FD_SET(connections[i]->sock, &readfds);
+		}
+		else
+		{
+			/* flag as bad, it will be removed from the list */
+			connections[i]->state == DN_CONNECTION_STATE_ERROR_NOT_READY;
+		}
 	}
 
 	/*
