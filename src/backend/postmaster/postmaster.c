@@ -3125,10 +3125,6 @@ BackendStartup(Port *port)
 	pid = fork_process();
 	if (pid == 0)				/* child */
 	{
-		//// FOR DEBUG
-		printf("The session started: %d\n", getpid());
-		//sleep(60);
-		//// FOR DEBUG
 		free(bn);
 
 		/*
