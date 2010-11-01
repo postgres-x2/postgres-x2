@@ -17,6 +17,14 @@
  * as are the myProcLocks lists.  They can be distinguished from regular
  * backend PGPROCs at need by checking for pid == 0.
  *
+#ifdef PGXC
+ * For Postgres-XC, there is some special handling for ANALYZE.
+ * An XID for a local ANALYZE command will never involve other nodes.
+ * Also, ANALYZE may run for a long time, affecting snapshot xmin values
+ * on other nodes unnecessarily.  We want to exclude the XID
+ * in global snapshots, but include it in local ones. As a result,
+ * these are tracked in shared memory separately.
+#endif
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
@@ -42,6 +50,7 @@
 #ifdef PGXC
 #include "pgxc/pgxc.h"
 #include "access/gtm.h"
+#include "storage/ipc.h"
 /* PGXC_DATANODE */
 #include "postmaster/autovacuum.h"
 #endif
@@ -61,6 +70,10 @@ typedef struct ProcArrayStruct
 } ProcArrayStruct;
 
 static ProcArrayStruct *procArray;
+
+#ifdef PGXC
+static ProcArrayStruct *analyzeProcArray;
+#endif
 
 
 #ifdef XIDCACHE_DEBUG
@@ -1571,6 +1584,9 @@ GetSnapshotDataDataNode(Snapshot snapshot)
 	if ((snapshot_source == SNAPSHOT_COORDINATOR || snapshot_source == SNAPSHOT_DIRECT)
 				&& TransactionIdIsValid(gxmin))
 	{
+		int index;
+		ProcArrayStruct *arrayP = analyzeProcArray;
+
 		snapshot->xmin = gxmin;
 		snapshot->xmax = gxmax;
 		snapshot->xcnt = gxcnt;
@@ -1605,6 +1621,16 @@ GetSnapshotDataDataNode(Snapshot snapshot)
 						(errcode(ERRCODE_OUT_OF_MEMORY),
 						 errmsg("out of memory")));
 		}
+		else if (snapshot->max_xcnt < gxcnt)
+		{
+			snapshot->xip = (TransactionId *)
+				realloc(snapshot->xip, gxcnt * sizeof(TransactionId));
+			if (snapshot->xip == NULL)
+				ereport(ERROR,
+						(errcode(ERRCODE_OUT_OF_MEMORY),
+						 errmsg("out of memory")));
+			snapshot->max_xcnt = gxcnt;
+		}
 
 		memcpy(snapshot->xip, gxip, gxcnt * sizeof(TransactionId)); 
 		snapshot->curcid = GetCurrentCommandId(false);
@@ -1630,6 +1656,72 @@ GetSnapshotDataDataNode(Snapshot snapshot)
 		snapshot->active_count = 0;
 		snapshot->regd_count = 0;
 		snapshot->copied = false;
+
+		/*
+		 * Start of handling for local ANALYZE
+		 * Make adjustments for any running auto ANALYZE commands
+		 */
+		LWLockAcquire(AnalyzeProcArrayLock, LW_SHARED);
+
+		/*
+		 * Spin over analyzeProcArray and add these local analyze XIDs to the
+		 * local snapshot.
+		 */
+		for (index = 0; index < arrayP->numProcs; index++)
+		{
+			volatile PGPROC *proc = arrayP->procs[index];
+			TransactionId xid;
+
+
+			/* Update globalxmin to be the smallest valid xmin */
+			xid = proc->xmin;		/* fetch just once */
+
+			if (TransactionIdIsNormal(xid) &&
+				TransactionIdPrecedes(xid, RecentGlobalXmin))
+				RecentGlobalXmin = xid;
+
+			/* Fetch xid just once - see GetNewTransactionId */
+			xid = proc->xid;
+
+			/*
+			 * If the transaction has been assigned an xid < xmax we add it to the
+			 * snapshot, and update xmin if necessary.	There's no need to store
+			 * XIDs >= xmax, since we'll treat them as running anyway.  We don't
+			 * bother to examine their subxids either.
+			 *
+			 * We don't include our own XID (if any) in the snapshot, but we must
+			 * include it into xmin.
+			 */
+			if (TransactionIdIsNormal(xid))
+			{
+				if (TransactionIdFollowsOrEquals(xid, snapshot->xmax))
+					continue;
+				if (proc != MyProc)
+				{
+					if (snapshot->xcnt >= snapshot->max_xcnt)
+					{
+						snapshot->max_xcnt += arrayP->numProcs;
+
+						snapshot->xip = (TransactionId *)
+							realloc(snapshot->xip, snapshot->max_xcnt * sizeof(TransactionId));
+						if (snapshot->xip == NULL)
+							ereport(ERROR,
+									(errcode(ERRCODE_OUT_OF_MEMORY),
+									 errmsg("out of memory")));
+					}
+					snapshot->xip[snapshot->xcnt++] = xid;
+					elog(DEBUG1, "Adding Analyze for xid %d to snapshot", proc->xid);
+				}
+				if (TransactionIdPrecedes(xid, snapshot->xmin))
+					snapshot->xmin = xid;
+			}
+		}
+
+		if (!TransactionIdIsValid(MyProc->xmin))
+			MyProc->xmin = snapshot->xmin;
+
+		LWLockRelease(AnalyzeProcArrayLock);
+		/* End handling of local analyze XID in snapshots */
 
 		return true;
 	}
@@ -1744,5 +1836,102 @@ GetSnapshotDataCoordinator(Snapshot snapshot)
 		return true;
 	}
 	return false;
+}
+
+
+/*
+ * Report shared-memory space needed by CreateSharedAnalyzeProcArray.
+ */
+Size
+AnalyzeProcArrayShmemSize(void)
+{
+	Size		size;
+
+	size = offsetof(ProcArrayStruct, procs); 
+	size = add_size(size, mul_size(sizeof(PGPROC *), autovacuum_max_workers));
+
+	return size;
+}
+
+/*
+ * Initialize the shared ANALYZE PGPROC array during postmaster startup.
+ */
+void
+CreateSharedAnalyzeProcArray(void)
+{
+	bool		found;
+
+	/* Create or attach to the ProcArray shared structure */
+	analyzeProcArray = (ProcArrayStruct *)
+		ShmemInitStruct("Analyze Proc Array", AnalyzeProcArrayShmemSize(), &found);
+
+	if (!found)
+	{
+		/*
+		 * We're the first - initialize.
+		 */
+		analyzeProcArray->numProcs = 0;
+		analyzeProcArray->maxProcs = autovacuum_max_workers;
+	}
+}
+
+/*
+ * Add the specified PGPROC to the shared ANALYZE array.
+ *
+ * It assumes that AnalyzeProcArrayLock is already held,
+ * and will be held at exit.
+ */
+void
+AnalyzeProcArrayAdd(PGPROC *proc)
+{
+	ProcArrayStruct *arrayP = analyzeProcArray;
+
+	if (arrayP->numProcs >= arrayP->maxProcs)
+	{
+		/*
+		 * Ooops, no room.	(This really shouldn't happen, since there is a
+		 * fixed supply of PGPROC structs too, and so we should have failed
+		 * earlier.)
+		 */
+		LWLockRelease(AnalyzeProcArrayLock);
+		ereport(FATAL,
+				(errcode(ERRCODE_TOO_MANY_CONNECTIONS),
+				 errmsg("sorry, too many analyze clients already")));
+	}
+
+	arrayP->procs[arrayP->numProcs] = proc;
+	arrayP->numProcs++;
+
+	elog(DEBUG1, "Added analyze proc %p for xid %d in AnalyzeProcArray", proc, proc->xid);
+}
+
+/*
+ * Remove the specified PGPROC from the shared ANALYZE array.
+ * We assume that AnalyzeProcArrayLock is already held,
+ * and it will still be held at exit
+ */
+void
+AnalyzeProcArrayRemove(PGPROC *proc, TransactionId latestXid)
+{
+	ProcArrayStruct *arrayP = analyzeProcArray;
+	int			index;
+
+#ifdef XIDCACHE_DEBUG
+	/* dump stats at backend shutdown, but not prepared-xact end */
+	if (proc->pid != 0)
+		DisplayXidCache();
+#endif
+
+	for (index = 0; index < arrayP->numProcs; index++)
+	{
+		if (arrayP->procs[index] == proc)
+		{
+			arrayP->procs[index] = arrayP->procs[arrayP->numProcs - 1];
+			arrayP->procs[arrayP->numProcs - 1] = NULL; /* for debugging */
+			arrayP->numProcs--;
+			elog(DEBUG1, "Removed analyze proc %p for xid %d in AnalyzeProcArray", proc, proc->xid);
+			return;
+		}
+	}
 }
 #endif /* PGXC */

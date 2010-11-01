@@ -1835,7 +1835,18 @@ CommitTransaction(void)
 		/* If we are autovacuum, commit on GTM */
 		if ((IsAutoVacuumWorkerProcess() || GetForceXidFromGTM())
 				&& IsGTMConnected())
+		{
+			if(IsAutoVacuumAnalyzeWorker())
+				LWLockAcquire(AnalyzeProcArrayLock, LW_EXCLUSIVE);
+
 			CommitTranGTM((GlobalTransactionId) latestXid);
+
+			if(IsAutoVacuumAnalyzeWorker())
+			{
+				AnalyzeProcArrayRemove(MyProc, latestXid);
+				LWLockRelease(AnalyzeProcArrayLock);
+			}
+		}
 	}
 #endif
 
@@ -2299,10 +2310,19 @@ AbortTransaction(void)
 	}
 	else if (IS_PGXC_DATANODE || IsConnFromCoord())
 	{
+		if(IsAutoVacuumAnalyzeWorker())
+			LWLockAcquire(AnalyzeProcArrayLock, LW_EXCLUSIVE);
+
 		/* If we are autovacuum, commit on GTM */
 		if ((IsAutoVacuumWorkerProcess() || GetForceXidFromGTM())
 				&& IsGTMConnected())
 			RollbackTranGTM((GlobalTransactionId) latestXid);
+
+		if(IsAutoVacuumAnalyzeWorker())
+		{
+			AnalyzeProcArrayRemove(MyProc, latestXid);
+			LWLockRelease(AnalyzeProcArrayLock);
+		}
 	}
 #endif
 	/*

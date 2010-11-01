@@ -25,6 +25,7 @@
 #ifdef PGXC
 #include "pgxc/pgxc.h"
 #include "access/gtm.h"
+#include "storage/procarray.h"
 #endif
 
 
@@ -110,7 +111,10 @@ GetNewTransactionId(bool isSubXact)
 		 * block all other processes.
 		 * GXID can just be obtained from a remote Coordinator
 		 */
-		xid = (TransactionId) BeginTranGTM(timestamp);
+		if (IsAutoVacuumWorkerProcess() && (MyProc->vacuumFlags & PROC_IN_VACUUM))
+			xid = (TransactionId) BeginTranAutovacuumGTM();
+		else
+			xid = (TransactionId) BeginTranGTM(timestamp);
 		*timestamp_received = true;
 	}
 #endif
@@ -148,20 +152,22 @@ GetNewTransactionId(bool isSubXact)
 		if (IsAutoVacuumWorkerProcess())
 		{
 			if (MyProc->vacuumFlags & PROC_IN_VACUUM)
-			{
 				elog (DEBUG1, "Getting XID for autovacuum");
-				/* Try and get gxid directly from GTM. 
-				 * We use a different function so that GTM knows to
-				 * exclude it from other snapshots.
-				 */
-				next_xid = (TransactionId) BeginTranAutovacuumGTM();
-			}
 			else
 			{
 				elog (DEBUG1, "Getting XID for autovacuum worker (analyze)");
-				/* try and get gxid directly from GTM */
-				next_xid = (TransactionId) BeginTranGTM(NULL);
+				/*
+				 * Acquire the Analyze array lock.
+				 * We track ANALYZE XIDs separately and add them only to local snapshots.
+				 */
+				LWLockAcquire(AnalyzeProcArrayLock, LW_EXCLUSIVE);
 			}
+			/*
+			 * Get gxid directly from GTM.
+			 * We use a separate function so that GTM knows to exclude it from
+			 * other snapshots.
+			 */
+			next_xid = (TransactionId) BeginTranAutovacuumGTM();
 		}
 		else if (GetForceXidFromGTM())
 		{
@@ -327,6 +333,15 @@ GetNewTransactionId(bool isSubXact)
 				myproc->subxids.overflowed = true;
 		}
 	}
+
+#ifdef PGXC
+	/* If it is auto-analyze, we need to add it to the array and unlock */
+	if(IS_PGXC_DATANODE && IsAutoVacuumAnalyzeWorker())
+	{
+		AnalyzeProcArrayAdd(MyProc);
+		LWLockRelease(AnalyzeProcArrayLock);
+	}
+#endif
 
 	LWLockRelease(XidGenLock);
 	return xid;

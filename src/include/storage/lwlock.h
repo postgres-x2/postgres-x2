@@ -67,6 +67,9 @@ typedef enum LWLockId
 	AutovacuumLock,
 	AutovacuumScheduleLock,
 	SyncScanLock,
+#ifdef PGXC
+	AnalyzeProcArrayLock,
+#endif
 	/* Individual lock IDs end here */
 	FirstBufMappingLock,
 	FirstLockMgrLock = FirstBufMappingLock + NUM_BUFFER_PARTITIONS,

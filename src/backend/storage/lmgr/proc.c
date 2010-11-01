@@ -39,6 +39,9 @@
 #include "access/xact.h"
 #include "miscadmin.h"
 #include "postmaster/autovacuum.h"
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#endif
 #include "storage/ipc.h"
 #include "storage/lmgr.h"
 #include "storage/pmsignal.h"
@@ -580,6 +583,15 @@ RemoveProcFromArray(int code, Datum arg)
 {
 	Assert(MyProc != NULL);
 	ProcArrayRemove(MyProc, InvalidTransactionId);
+#ifdef PGXC
+	/* Remove from the analyze array */
+	if (IS_PGXC_DATANODE && IsAutoVacuumAnalyzeWorker())
+	{
+ 		LWLockAcquire(AnalyzeProcArrayLock, LW_EXCLUSIVE);
+		AnalyzeProcArrayRemove(MyProc, InvalidTransactionId);
+		LWLockRelease(AnalyzeProcArrayLock);
+	}
+#endif
 }
 
 /*
