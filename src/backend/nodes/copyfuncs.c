@@ -840,6 +840,17 @@ _copyRemoteQuery(RemoteQuery *from)
 	COPY_SCALAR_FIELD(read_only);
 	COPY_SCALAR_FIELD(force_autocommit);
 
+	COPY_STRING_FIELD(relname);
+	COPY_SCALAR_FIELD(remotejoin);
+	COPY_SCALAR_FIELD(reduce_level); 
+	COPY_NODE_FIELD(base_tlist); 
+	COPY_STRING_FIELD(outer_alias);
+	COPY_STRING_FIELD(inner_alias);
+	COPY_SCALAR_FIELD(outer_reduce_level);
+	COPY_SCALAR_FIELD(inner_reduce_level);
+	COPY_BITMAPSET_FIELD(outer_relids);
+	COPY_BITMAPSET_FIELD(inner_relids);
+
 	return newnode;
 }
 
@@ -1836,6 +1847,13 @@ _copyRangeTblEntry(RangeTblEntry *from)
 	RangeTblEntry *newnode = makeNode(RangeTblEntry);
 
 	COPY_SCALAR_FIELD(rtekind);
+
+#ifdef PGXC
+	COPY_STRING_FIELD(relname);
+	if (from->reltupdesc)
+		newnode->reltupdesc = CreateTupleDescCopy(from->reltupdesc);
+#endif
+
 	COPY_SCALAR_FIELD(relid);
 	COPY_NODE_FIELD(subquery);
 	COPY_SCALAR_FIELD(jointype);

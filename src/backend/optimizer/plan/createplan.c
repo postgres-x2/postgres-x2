@@ -34,6 +34,11 @@
 #include "parser/parsetree.h"
 #ifdef PGXC
 #include "pgxc/planner.h"
+#include "access/sysattr.h"
+#include "utils/builtins.h"
+#include "utils/syscache.h"
+#include "catalog/pg_proc.h"
+#include "executor/executor.h"
 #endif
 #include "utils/lsyscache.h"
 
@@ -72,6 +77,14 @@ static WorkTableScan *create_worktablescan_plan(PlannerInfo *root, Path *best_pa
 #ifdef PGXC
 static RemoteQuery *create_remotequery_plan(PlannerInfo *root, Path *best_path,
 						  List *tlist, List *scan_clauses);
+static Plan *create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path,
+					Plan *parent, Plan *outer_plan, Plan *inner_plan);
+static void create_remote_target_list(PlannerInfo *root,
+					StringInfo targets, List *out_tlist, List *in_tlist,
+					char *out_alias, int out_index,
+					char *in_alias, int in_index);
+static Alias *generate_remote_rte_alias(RangeTblEntry *rte, int varno,
+					char *aliasname, int reduce_level);
 #endif
 static NestLoop *create_nestloop_plan(PlannerInfo *root, NestPath *best_path,
 					 Plan *outer_plan, Plan *inner_plan);
@@ -141,6 +154,14 @@ static Sort *make_sort(PlannerInfo *root, Plan *lefttree, int numCols,
 		  double limit_tuples);
 static Material *make_material(Plan *lefttree);
 
+#ifdef PGXC
+static void findReferencedVars(List *parent_vars, Plan *plan, List **out_tlist, Relids *out_relids);
+extern bool is_foreign_qual(Node *clause);
+static void create_remote_clause_expr(PlannerInfo *root, Plan *parent, StringInfo clauses,
+	  List *qual, RemoteQuery *scan);
+static void create_remote_expr(PlannerInfo *root, Plan *parent, StringInfo expr,
+	  Node *node, RemoteQuery *scan);
+#endif
 
 /*
  * create_plan
@@ -221,9 +242,6 @@ create_scan_plan(PlannerInfo *root, Path *best_path)
 	List	   *tlist;
 	List	   *scan_clauses;
 	Plan	   *plan;
-#ifdef PGXC
-	Plan       *matplan;
-#endif
 
 	/*
 	 * For table scans, rather than using the relation targetlist (which is
@@ -445,9 +463,6 @@ disuse_physical_tlist(Plan *plan, Path *path)
 		case T_ValuesScan:
 		case T_CteScan:
 		case T_WorkTableScan:
-#ifdef PGXC
-		case T_RemoteQuery:
-#endif
 			plan->targetlist = build_relation_tlist(path->parent);
 			break;
 		default:
@@ -557,8 +572,626 @@ create_join_plan(PlannerInfo *root, JoinPath *best_path)
 					   get_actual_clauses(get_loc_restrictinfo(best_path))));
 #endif
 
+#ifdef PGXC
+	/* check if this join can be reduced to an equiv. remote scan node */
+	plan = create_remotejoin_plan(root, best_path, plan, outer_plan, inner_plan);
+#endif
+
 	return plan;
 }
+
+#ifdef PGXC
+/*
+ * create_remotejoin_plan
+ * 	check if the children plans involve remote entities from the same remote
+ * 	node. If so, this join can be reduced to an equivalent remote scan plan
+ * 	node
+ *
+ * 	RULES:
+ *
+ * * provide unique aliases to both inner and outer nodes to represent their
+ *   corresponding subqueries
+ *
+ * * identify target entries from both inner and outer that appear in the join
+ *   targetlist, only those need to be selected from these aliased subqueries
+ *
+ * * a join node has a joinqual list which represents the join condition. E.g.
+ *   SELECT * from emp e LEFT JOIN emp2 d ON e.x = d.x
+ *   Here the joinqual contains "e.x = d.x". If the joinqual itself has a local
+ *   dependency, e.g "e.x = localfunc(d.x)", then this join cannot be reduced
+ *
+ * * other than the joinqual, the join node can contain additional quals. Even
+ *   if they have any local dependencies, we can reduce the join and just
+ *   append these quals into the reduced remote scan node. We DO do a pass to
+ *   identify remote quals and ship those in the squery though
+ *
+ * * these quals (both joinqual and normal quals with no local dependencies)
+ *   need to be converted into expressions referring to the aliases assigned to
+ *   the nodes. These expressions will eventually become part of the squery of
+ *   the reduced remote scan node
+ *
+ * * the children remote scan nodes themselves can have local dependencies in
+ *   their quals (the remote ones are already part of the squery). We can still
+ *   reduce the join and just append these quals into the reduced remote scan
+ *   node
+ *
+ * * if we reached successfully so far, generate a new remote scan node with
+ *   this new squery generated using the aliased references
+ *
+ * One important point to note here about targetlists is that this function
+ * does not set any DUMMY var references in the Var nodes appearing in it. It
+ * follows the standard mechanism as is followed by other nodes. Similar to the
+ * existing nodes, the references which point to DUMMY vars is done in
+ * set_remote_references() function in set_plan_references phase at the fag
+ * end. Avoiding such DUMMY references manipulations till the end also makes
+ * this code a lot much readable and easier.
+ */
+static Plan *
+create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Plan *outer_plan, Plan *inner_plan)
+{
+	NestLoop   *nest_parent;
+
+	if (!enable_remotejoin)
+		return parent;
+
+	/* meh, what are these for :( */
+	if (root->hasPseudoConstantQuals)
+		return parent;
+
+	/* Works only for SELECT commands right now */
+	if (root->parse->commandType != CMD_SELECT)
+		return parent;
+
+	/* do not optimize CURSOR based select statements */
+	if (root->parse->rowMarks != NIL)
+		return parent;
+
+	/*
+	 * optimize only simple NestLoop joins for now. Other joins like Merge and
+	 * Hash can be reduced too. But they involve additional intermediate nodes
+	 * and we need to understand them a bit more as yet
+	 */
+	if (!IsA(parent, NestLoop))
+		return parent;
+	else
+		nest_parent = (NestLoop *)parent;
+
+	/* check if both the nodes qualify for reduction */
+	if (IsA(outer_plan, Material) &&
+		IsA(((Material *) outer_plan)->plan.lefttree, RemoteQuery) &&
+	    IsA(inner_plan, Material) &&
+		IsA(((Material *) inner_plan)->plan.lefttree, RemoteQuery))
+	{
+		int i;
+		List *rtable_list = NIL;
+		bool partitioned_replicated_join = false;
+
+		Material *outer_mat = (Material *)outer_plan;
+		Material *inner_mat = (Material *)inner_plan;
+
+		RemoteQuery	*outer = (RemoteQuery *)outer_mat->plan.lefttree;
+		RemoteQuery *inner = (RemoteQuery *)inner_mat->plan.lefttree;		
+
+		/*
+		 * Check if both these plans are from the same remote node. If yes,
+		 * replace this JOIN along with it's two children with one equivalent
+		 * remote node
+		 */
+
+		/*
+		 * Build up rtable for XC Walker
+		 * (was not sure I could trust this, but it seems to work in various cases)
+		 */
+		for (i = 0; i < root->simple_rel_array_size; i++)
+		{
+			RangeTblEntry *rte = root->simple_rte_array[i];
+
+			/* Check for NULL first, sometimes it is NULL at position 0 */
+			if (rte)
+				rtable_list = lappend(rtable_list, root->simple_rte_array[i]);
+		}
+
+		/* XXX Check if the join optimization is possible */
+		if (IsJoinReducible(inner, outer, rtable_list, best_path, &partitioned_replicated_join))
+		{
+			RemoteQuery	   *result;
+			Plan		   *result_plan;
+			StringInfoData 	targets, clauses, scan_clauses, fromlist;
+			StringInfoData 	squery;
+			List		   *parent_vars, *out_tlist = NIL, *in_tlist = NIL, *base_tlist;
+			ListCell	   *l;
+			char		    in_alias[15], out_alias[15];
+			Relids			out_relids = NULL, in_relids = NULL;
+			bool			use_where = false;
+			Index			dummy_rtindex;
+			RangeTblEntry  *dummy_rte;
+			List	 	   *local_scan_clauses = NIL, *remote_scan_clauses = NIL;
+			char		   *pname;
+
+
+			/* KISS! As long as distinct aliases are provided for all the objects in
+			 * involved in query, remote server should not crib!  */
+			sprintf(in_alias,  "out_%d", root->rs_alias_index);
+			sprintf(out_alias, "in_%d",  root->rs_alias_index);
+
+			/*
+			 * Walk the left, right trees and identify which vars appear in the
+			 * parent targetlist, only those need to be selected. Note that
+			 * depending on whether the parent targetlist is top-level or
+			 * intermediate, the children vars may or may not be referenced
+			 * multiple times in it.
+			 */
+			parent_vars = pull_var_clause((Node *)parent->targetlist, PVC_REJECT_PLACEHOLDERS);
+
+			findReferencedVars(parent_vars, outer_plan, &out_tlist, &out_relids);
+			findReferencedVars(parent_vars, inner_plan, &in_tlist, &in_relids);
+
+			/*
+			 * If the JOIN ON clause has a local dependency then we cannot ship
+			 * the join to the remote side at all, bail out immediately.
+			 */
+			if (!is_foreign_qual((Node *)nest_parent->join.joinqual))
+			{
+				elog(DEBUG1, "cannot reduce: local dependencies in the joinqual");
+				return parent;
+			}
+
+			/*
+			 * If the normal plan qual has local dependencies, the join can
+			 * still be shipped. Try harder to ship remote clauses out of the
+			 * entire list. These local quals will become part of the quals
+			 * list of the reduced remote scan node down later.
+			 */
+			if (!is_foreign_qual((Node *)nest_parent->join.plan.qual))
+			{
+				elog(DEBUG1, "local dependencies in the join plan qual");
+
+				/*
+				 * trawl through each entry and come up with remote and local
+				 * clauses... sigh
+				 */
+				foreach(l, nest_parent->join.plan.qual)
+				{
+					Node *clause = lfirst(l);
+
+					/*
+					 * if the currentof in the above call to
+					 * clause_is_local_bound is set, somewhere in the list there
+					 * is currentof clause, so keep that information intact and
+					 * pass a dummy argument here.
+					 */
+					if (!is_foreign_qual((Node *)clause))
+						local_scan_clauses	= lappend(local_scan_clauses, clause);
+					else
+						remote_scan_clauses = lappend(remote_scan_clauses, clause);
+				}
+			}
+			else
+			{
+				/* 
+				 * there is no local bound clause, all the clauses are remote
+				 * scan clauses
+				 */
+				remote_scan_clauses = nest_parent->join.plan.qual;
+			}
+			
+			/* generate the tlist for the new RemoteScan node using out_tlist, in_tlist */
+			initStringInfo(&targets);
+			create_remote_target_list(root, &targets, out_tlist, in_tlist,
+						 out_alias, outer->reduce_level, in_alias, inner->reduce_level);
+
+			/*
+			 * generate the fromlist now. The code has to appropriately mention
+			 * the JOIN type in the string being generated.
+			 */
+			initStringInfo(&fromlist);
+			appendStringInfo(&fromlist, " (%s) %s ",
+							 outer->sql_statement, quote_identifier(out_alias));
+
+			use_where = false;
+			switch (nest_parent->join.jointype)
+			{
+				case JOIN_INNER:
+					pname	  = ", ";
+					use_where = true;
+					break;
+				case JOIN_LEFT:
+					pname	  = "LEFT JOIN";
+					break;
+				case JOIN_FULL:
+					pname	  = "FULL JOIN";
+					break;
+				case JOIN_RIGHT:
+					pname	  = "RIGHT JOIN";
+					break;
+				case JOIN_SEMI:
+				case JOIN_ANTI:
+				default:
+					return parent;
+			}
+
+			/*
+			 * splendid! we can actually replace this join hierarchy with a
+			 * single RemoteScan node now. Start off by constructing the
+			 * appropriate new tlist and tupdescriptor
+			 */
+			result = makeNode(RemoteQuery);
+
+			/*
+			 * Save various information about the inner and the outer plans. We
+			 * may need this information later if more entries are added to it
+			 * as part of the remote expression optimization
+			 */
+			result->remotejoin		   = true;
+			result->inner_alias		   = pstrdup(in_alias);
+			result->outer_alias		   = pstrdup(out_alias);
+			result->inner_reduce_level = inner->reduce_level;
+			result->outer_reduce_level = outer->reduce_level;
+			result->inner_relids       = in_relids;
+			result->outer_relids       = out_relids;
+
+			appendStringInfo(&fromlist, " %s (%s) %s",
+							 pname, inner->sql_statement, quote_identifier(in_alias));
+
+			/* generate join.joinqual remote clause string representation  */
+			initStringInfo(&clauses);
+			if (nest_parent->join.joinqual != NIL)
+			{
+				create_remote_clause_expr(root, parent, &clauses,
+						nest_parent->join.joinqual, result);
+			}
+
+			/* generate join.plan.qual remote clause string representation  */
+			initStringInfo(&scan_clauses);
+			if (remote_scan_clauses != NIL)
+			{
+				create_remote_clause_expr(root, parent, &scan_clauses,
+						remote_scan_clauses, result);
+			}
+
+			/*
+			 * set the base tlist of the involved base relations, useful in
+			 * set_plan_refs later. Additionally the tupledescs should be
+			 * generated using this base_tlist and not the parent targetlist.
+			 * This is because we want to take into account any additional
+			 * column references from the scan clauses too
+			 */
+			base_tlist = add_to_flat_tlist(NIL, list_concat(out_tlist, in_tlist));
+
+			/* cook up the reltupdesc using this base_tlist */
+			dummy_rte = makeNode(RangeTblEntry);
+			dummy_rte->reltupdesc = ExecTypeFromTL(base_tlist, false);
+			dummy_rte->rtekind = RTE_RELATION;
+
+			/* use a dummy relname... */
+			dummy_rte->relname	   = "__FOREIGN_QUERY__";
+			dummy_rte->eref		   = makeAlias("__FOREIGN_QUERY__", NIL);
+			/* not sure if we need to set the below explicitly.. */
+			dummy_rte->inh			 = false;
+			dummy_rte->inFromCl		 = false;
+			dummy_rte->requiredPerms = 0;
+			dummy_rte->checkAsUser   = 0;
+			dummy_rte->selectedCols  = NULL;
+			dummy_rte->modifiedCols  = NULL;
+
+			/*
+			 * Append the dummy range table entry to the range table.
+			 * Note that this modifies the master copy the caller passed us, otherwise
+			 * e.g EXPLAIN VERBOSE will fail to find the rte the Vars built below refer
+			 * to.
+			 */
+			root->parse->rtable = lappend(root->parse->rtable, dummy_rte);
+			dummy_rtindex = list_length(root->parse->rtable);
+
+			result_plan = &result->scan.plan;
+
+			/* the join targetlist becomes this node's tlist */
+			result_plan->targetlist = parent->targetlist;
+			result_plan->lefttree 	= NULL;
+			result_plan->righttree 	= NULL;
+			result->scan.scanrelid 	= dummy_rtindex;
+
+			/* generate the squery for this node */
+
+			/* NOTE: it's assumed that the remote_paramNums array is
+			 * filled in the same order as we create the query here. 
+			 *
+			 * TODO: we need some way to ensure that the remote_paramNums 
+			 * is filled in the same order as the order in which the clauses 
+			 * are added in the query below.
+			 */
+			initStringInfo(&squery);
+			appendStringInfo(&squery, "SELECT %s FROM %s", targets.data, fromlist.data);
+
+			if (clauses.data[0] != '\0')
+				appendStringInfo(&squery, " %s %s", use_where? " WHERE " : " ON ", clauses.data);
+
+			if (scan_clauses.data[0] != '\0')
+				appendStringInfo(&squery, " %s %s", use_where? " AND " : " WHERE ", scan_clauses.data);
+
+			result->sql_statement = squery.data;
+			/* don't forget to increment the index for the next time around! */
+			result->reduce_level = root->rs_alias_index++;
+
+
+			/* set_plan_refs needs this later */
+			result->base_tlist		= base_tlist;
+			result->relname			= "__FOREIGN_QUERY__";
+
+			result->partitioned_replicated = partitioned_replicated_join;
+
+			/*
+			 * if there were any local scan clauses stick them up here. They
+			 * can come from the join node or from remote scan node themselves.
+			 * Because of the processing being done earlier in
+			 * create_remotescan_plan, all of the clauses if present will be
+			 * local ones and hence can be stuck without checking for
+			 * remoteness again here into result_plan->qual
+			 */
+			result_plan->qual = list_concat(result_plan->qual, outer_plan->qual);
+			result_plan->qual = list_concat(result_plan->qual, inner_plan->qual);
+			result_plan->qual = list_concat(result_plan->qual, local_scan_clauses);
+
+			/* we actually need not worry about costs since this is the final plan */
+			result_plan->startup_cost = outer_plan->startup_cost;
+			result_plan->total_cost   = outer_plan->total_cost;
+			result_plan->plan_rows 	  = outer_plan->plan_rows;
+			result_plan->plan_width   = outer_plan->plan_width;
+
+			return (Plan *)make_material(result_plan);
+		}
+	}
+
+	return parent;
+}
+
+/*
+ * Generate aliases for columns of remote tables using the
+ * colname_varno_varattno_reduce_level nomenclature
+ */
+static Alias *
+generate_remote_rte_alias(RangeTblEntry *rte, int varno, char *aliasname, int reduce_level)
+{
+	TupleDesc 	tupdesc;
+	int			maxattrs;
+	int			varattno;
+	List	   *colnames = NIL;
+	StringInfo	attr = makeStringInfo();
+
+	if (rte->rtekind != RTE_RELATION)
+		elog(ERROR, "called in improper context");
+
+	if (reduce_level == 0)
+		return makeAlias(aliasname, NIL);
+
+	tupdesc  = rte->reltupdesc;
+	maxattrs = tupdesc->natts;
+
+	for (varattno = 0; varattno < maxattrs; varattno++)
+	{
+		Form_pg_attribute  att = tupdesc->attrs[varattno];
+		Value			  *attrname;
+
+		resetStringInfo(attr);
+		appendStringInfo(attr, "%s_%d_%d_%d",
+						 NameStr(att->attname), varno, varattno + 1, reduce_level);
+
+		attrname = makeString(pstrdup(attr->data));
+
+		colnames = lappend(colnames, attrname);
+	}
+
+	return makeAlias(aliasname, colnames);
+}
+
+/* create_remote_target_list
+ *  generate a targetlist using out_alias and in_alias appropriately. It is
+ *  possible that in case of multiple-hierarchy reduction, both sides can have
+ *  columns with the same name. E.g. consider the following:
+ *
+ *  select * from emp e join emp f on e.x = f.x, emp g;
+ *
+ *  So if we just use new_alias.columnname it can
+ *  very easily clash with other columnname from the same side of an already
+ *  reduced join. To avoid this, we generate unique column aliases using the
+ *  following convention:
+ *  	colname_varno_varattno_reduce_level_index
+ *
+ *  Each RemoteScan node carries it's reduce_level index to indicate the
+ *  convention that should be adopted while referring to it's columns. If the
+ *  level is 0, then normal column names can be used because they will never
+ *  clash at the join level
+ */
+static void
+create_remote_target_list(PlannerInfo *root, StringInfo targets, List *out_tlist, List *in_tlist,
+				  char *out_alias, int out_index, char *in_alias, int in_index)
+{
+	int 	     i = 0;
+	ListCell  	*l;
+	StringInfo 	 attrname = makeStringInfo();
+	bool		 add_null_target = true;
+
+	foreach(l, out_tlist)
+	{
+		Var			  *var = (Var *) lfirst(l);
+		RangeTblEntry *rte = planner_rt_fetch(var->varno, root);
+		char		  *attname;
+
+
+		if (i++ > 0)
+			appendStringInfo(targets, ", ");
+
+		attname = get_rte_attribute_name(rte, var->varattno);
+
+		if (out_index)
+		{
+			resetStringInfo(attrname);
+			/* varattno can be negative for sys attributes, hence the abs! */
+			appendStringInfo(attrname, "%s_%d_%d_%d",
+							 attname, var->varno, abs(var->varattno), out_index);
+			appendStringInfo(targets, "%s.%s",
+							 quote_identifier(out_alias), quote_identifier(attrname->data));
+		}
+		else
+			appendStringInfo(targets, "%s.%s",
+							 quote_identifier(out_alias), quote_identifier(attname));
+
+		/* generate the new alias now using root->rs_alias_index */
+		resetStringInfo(attrname);
+		appendStringInfo(attrname, "%s_%d_%d_%d",
+						 attname, var->varno, abs(var->varattno), root->rs_alias_index);
+		appendStringInfo(targets, " AS %s", quote_identifier(attrname->data));
+		add_null_target = false;
+	}
+
+	foreach(l, in_tlist)
+	{
+		Var			  *var = (Var *) lfirst(l);
+		RangeTblEntry *rte = planner_rt_fetch(var->varno, root);
+		char		  *attname;
+
+		if (i++ > 0)
+			appendStringInfo(targets, ", ");
+
+		attname = get_rte_attribute_name(rte, var->varattno);
+
+		if (in_index)
+		{
+			resetStringInfo(attrname);
+			/* varattno can be negative for sys attributes, hence the abs! */
+			appendStringInfo(attrname, "%s_%d_%d_%d",
+							 attname, var->varno, abs(var->varattno), in_index);
+			appendStringInfo(targets, "%s.%s",
+							 quote_identifier(in_alias), quote_identifier(attrname->data));
+		}
+		else
+			appendStringInfo(targets, "%s.%s",
+							 quote_identifier(in_alias), quote_identifier(attname));
+
+		/* generate the new alias now using root->rs_alias_index */
+		resetStringInfo(attrname);
+		appendStringInfo(attrname, "%s_%d_%d_%d",
+						 attname, var->varno, abs(var->varattno), root->rs_alias_index);
+		appendStringInfo(targets, " AS %s", quote_identifier(attrname->data));
+		add_null_target = false;
+	}
+
+	/*
+	 * It's possible that in some cases, the targetlist might not refer to any
+	 * vars from the joined relations, eg.
+	 * select count(*) from t1, t2; select const from t1, t2; etc
+	 * For such cases just add a NULL selection into this targetlist
+	 */
+	if (add_null_target)
+		appendStringInfo(targets, " NULL ");
+}
+
+/*
+ * create_remote_clause_expr
+ *  generate a string to represent the clause list expression using out_alias
+ *  and in_alias references. This function does a cute hack by temporarily
+ *  modifying the rte->eref entries of the involved relations to point to
+ *  out_alias and in_alias appropriately. The deparse_expression call then
+ *  generates a string using these erefs which is exactly what is desired here.
+ *
+ *  Additionally it creates aliases for the column references based on the
+ *  reduce_level values too. This handles the case when both sides have same
+ *  named columns..
+ *
+ *  Obviously this function restores the eref, alias values to their former selves
+ *  appropriately too, after use
+ */
+static void
+create_remote_clause_expr(PlannerInfo *root, Plan *parent, StringInfo clauses,
+	  List *qual, RemoteQuery *scan)
+{
+	Node *node = (Node *) make_ands_explicit(qual);
+
+	return create_remote_expr(root, parent, clauses, node, scan);
+}
+
+static void
+create_remote_expr(PlannerInfo *root, Plan *parent, StringInfo expr,
+	  Node *node, RemoteQuery *scan)
+{
+	List	 *context;
+	List     *leref = NIL;
+	ListCell *cell;
+	char	 *exprstr;
+	int 	  rtindex;
+	Relids	  tmprelids, relids;
+
+	relids = pull_varnos((Node *)node);
+
+	tmprelids = bms_copy(relids);
+
+	while ((rtindex = bms_first_member(tmprelids)) >= 0)
+	{
+		RangeTblEntry	*rte = planner_rt_fetch(rtindex, root);
+
+		/*
+		 * This rtindex should be a member of either out_relids or
+		 * in_relids and never both
+		 */
+		if (bms_is_member(rtindex, scan->outer_relids) &&
+			bms_is_member(rtindex, scan->inner_relids))
+			elog(ERROR, "improper relid references in the join clause list");
+
+		/*
+		 * save the current rte->eref and rte->alias values and stick in a new
+		 * one in the rte with the proper inner or outer alias
+		 */
+		leref = lappend(leref, rte->eref);
+		leref = lappend(leref, rte->alias);
+
+		if (bms_is_member(rtindex, scan->outer_relids))
+		{
+			rte->eref  = makeAlias(scan->outer_alias, NIL);
+
+			/* attach proper column aliases.. */
+			rte->alias = generate_remote_rte_alias(rte, rtindex,
+							scan->outer_alias, scan->outer_reduce_level);
+		}
+		if (bms_is_member(rtindex, scan->inner_relids))
+		{
+			rte->eref  = makeAlias(scan->inner_alias, NIL);
+
+			/* attach proper column aliases.. */
+			rte->alias = generate_remote_rte_alias(rte, rtindex,
+					scan->inner_alias, scan->inner_reduce_level);
+		}
+	}
+	bms_free(tmprelids);
+
+	/* Set up deparsing context */
+	context = deparse_context_for_plan((Node *) parent,
+			NULL,
+			root->parse->rtable,
+			NULL);
+
+	exprstr = deparse_expression(node, context, true, false);
+
+	/* revert back the saved eref entries in the same order now!  */
+	cell = list_head(leref);
+	tmprelids = bms_copy(relids);
+	while ((rtindex = bms_first_member(tmprelids)) >= 0)
+	{
+		RangeTblEntry	*rte = planner_rt_fetch(rtindex, root);
+
+		Assert(cell != NULL);
+
+		rte->eref  = lfirst(cell);
+		cell = lnext(cell);
+
+		rte->alias = lfirst(cell);
+		cell = lnext(cell);
+	}
+	bms_free(tmprelids);
+
+	appendStringInfo(expr, " %s", exprstr);
+	return;
+}
+#endif
 
 /*
  * create_append_plan
@@ -1583,9 +2216,23 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 						  List *tlist, List *scan_clauses)
 {
 	RemoteQuery *scan_plan;
+	bool			prefix;
 	Index		scan_relid = best_path->parent->relid;
 	RangeTblEntry *rte;
-
+	char	   *wherestr			= NULL;
+	Bitmapset  *varattnos			= NULL;
+	List	   *remote_scan_clauses = NIL;
+	List	   *local_scan_clauses  = NIL;
+	Oid				nspid;
+	char		   *nspname;
+	char		   *relname;
+	const char	   *nspname_q;
+	const char	   *relname_q;
+	const char	   *aliasname_q;
+	int				i;
+	TupleDesc		tupdesc;
+	bool			first;
+	StringInfoData	sql;
 
 	Assert(scan_relid > 0);
 	rte = planner_rt_fetch(scan_relid, root);
@@ -1598,16 +2245,159 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	/* Reduce RestrictInfo list to bare expressions; ignore pseudoconstants */
 	scan_clauses = extract_actual_clauses(scan_clauses, false);
 
+	if (scan_clauses)
+	{
+		ListCell	  *l;
+		
+		foreach(l, (List *)scan_clauses)
+	    {
+			Node *clause = lfirst(l);
+
+			if (is_foreign_qual(clause))
+				remote_scan_clauses = lappend(remote_scan_clauses, clause);
+			else
+				local_scan_clauses = lappend(local_scan_clauses, clause);
+		}
+	}
+
+	/* 
+	 * Incorporate any remote_scan_clauses into the WHERE clause that
+	 * we intend to push to the remote server.
+	 */
+	if (remote_scan_clauses)
+	{
+		char 		   *sep = "";
+		ListCell	   *l;
+		StringInfoData	buf;
+		List 		   *deparse_context;
+
+		initStringInfo(&buf);
+
+		deparse_context = deparse_context_for_remotequery(
+				get_rel_name(rte->relid), rte->relid);
+
+		/*
+		 * remote_scan_clauses is a list of scan clauses (restrictions) that we
+		 * can push to the remote server. We want to deparse each of those
+		 * expressions (that is, each member of the List) and AND them together
+		 * into a WHERE clause.
+		 */
+
+		foreach(l, (List *)remote_scan_clauses)
+	    {
+			Node *clause = lfirst(l);
+
+			appendStringInfo(&buf, "%s", sep );
+			appendStringInfo(&buf, "%s", deparse_expression(clause, deparse_context, false, false));
+			sep = " AND ";
+		}
+			
+		wherestr = buf.data;
+	}
+
+	/*
+	 * Now walk through the target list and the scan clauses to get the
+	 * interesting attributes. Only those attributes will be fetched from the
+	 * remote side.
+	 */
+	varattnos = pull_varattnos_varno((Node *) best_path->parent->reltargetlist, best_path->parent->relid,
+									 varattnos);
+	varattnos = pull_varattnos_varno((Node *) local_scan_clauses,
+									 best_path->parent->relid, varattnos);
+	/*
+	 * Scanning multiple relations in a RemoteQuery node is not supported.
+	 */
+	prefix = false;
+#if 0
+	prefix = list_length(estate->es_range_table) > 1;
+#endif
+
+	/* Get quoted names of schema, table and alias */
+	nspid = get_rel_namespace(rte->relid);
+	nspname = get_namespace_name(nspid);
+	relname = get_rel_name(rte->relid);
+	nspname_q = quote_identifier(nspname);
+	relname_q = quote_identifier(relname);
+	aliasname_q = quote_identifier(rte->eref->aliasname);
+
+	initStringInfo(&sql);
+
+	/* deparse SELECT clause */
+	appendStringInfo(&sql, "SELECT ");
+
+	/*
+	 * TODO: omit (deparse to "NULL") columns which are not used in the
+	 * original SQL.
+	 *
+	 * We must parse nodes parents of this RemoteQuery node to determine unused
+	 * columns because some columns may be used only in parent Sort/Agg/Limit
+	 * nodes.
+	 */
+	tupdesc = best_path->parent->reltupdesc;
+	first = true;
+	for (i = 0; i < tupdesc->natts; i++)
+	{
+		/* skip dropped attributes */
+		if (tupdesc->attrs[i]->attisdropped)
+			continue;
+
+		if (!first)
+			appendStringInfoString(&sql, ", ");
+
+		if (bms_is_member(i + 1 - FirstLowInvalidHeapAttributeNumber, varattnos))
+		{
+			if (prefix)
+				appendStringInfo(&sql, "%s.%s",
+								aliasname_q, tupdesc->attrs[i]->attname.data);
+			else
+				appendStringInfo(&sql, "%s", tupdesc->attrs[i]->attname.data);
+		}
+		else
+			appendStringInfo(&sql, "%s", "NULL");
+		first = false;
+	}
+
+	/* if target list is composed only of system attributes, add dummy column */
+	if (first)
+		appendStringInfo(&sql, "NULL");
+
+	/* deparse FROM clause */
+	appendStringInfo(&sql, " FROM ");
+	/*
+	 * XXX: should use GENERIC OPTIONS like 'foreign_relname' or something for
+	 * the foreign table name instead of the local name ?
+	 */
+	appendStringInfo(&sql, "%s.%s %s", nspname_q, relname_q, aliasname_q);
+	pfree(nspname);
+	pfree(relname);
+	if (nspname_q != nspname_q)
+		pfree((char *) nspname_q);
+	if (relname_q != relname_q)
+		pfree((char *) relname_q);
+	if (aliasname_q != rte->eref->aliasname)
+		pfree((char *) aliasname_q);
+
+	if (wherestr)
+	{
+		appendStringInfo(&sql, " WHERE ");
+		appendStringInfo(&sql, "%s", wherestr);
+		pfree(wherestr);
+	}
+
+	bms_free(varattnos);
+	
 	scan_plan = make_remotequery(tlist,
 							 rte,
-							 scan_clauses,
+							 local_scan_clauses,
 							 scan_relid);
+
+	scan_plan->sql_statement = sql.data;
 
 	copy_path_costsize(&scan_plan->scan.plan, best_path);
 
 	/* PGXCTODO - get better estimates */
  	scan_plan->scan.plan.plan_rows = 1000;
- 
+
 	return scan_plan;
 }
 #endif
@@ -3745,3 +4535,56 @@ is_projection_capable_plan(Plan *plan)
 	}
 	return true;
 }
+
+#ifdef PGXC
+/*
+ * findReferencedVars()
+ *
+ *	Constructs a list of those Vars in targetlist which are found in 
+ *  parent_vars (in other words, the intersection of targetlist and
+ *  parent_vars).  Returns a new list in *out_tlist and a bitmap of 
+ *  those relids found in the result.
+ *
+ *  Additionally do look at the qual references to other vars! They
+ *  also need to be selected..
+ */
+static void
+findReferencedVars(List *parent_vars, Plan *plan, List **out_tlist, Relids *out_relids)
+{
+	List	 *vars;
+	Relids	  relids = NULL;
+	List     *tlist  = NIL;
+	ListCell *l;
+
+	/* Pull vars from both the targetlist and the clauses attached to this plan */
+	vars = pull_var_clause((Node *)plan->targetlist, PVC_REJECT_PLACEHOLDERS);
+
+	foreach(l, vars)
+	{
+		Var	*var = lfirst(l);
+
+		if (search_tlist_for_var(var, parent_vars))
+			tlist = lappend(tlist, var);
+
+		if (!bms_is_member(var->varno, relids))
+			relids = bms_add_member(relids, var->varno);
+	}
+
+	/* now consider the local quals */
+	vars = pull_var_clause((Node *)plan->qual, PVC_REJECT_PLACEHOLDERS);
+
+	foreach(l, vars)
+	{
+		Var	*var = lfirst(l);
+
+		if (search_tlist_for_var(var, tlist) == NULL)
+			tlist = lappend(tlist, var);
+
+		if (!bms_is_member(var->varno, relids))
+			relids = bms_add_member(relids, var->varno);
+	}
+
+	*out_tlist	= tlist;
+	*out_relids = relids;
+}
+#endif

@@ -87,7 +87,8 @@ typedef struct
 /* If two relations are joined based on special location information */
 typedef enum PGXCJoinType
 {
-	JOIN_REPLICATED,
+	JOIN_REPLICATED_ONLY,
+	JOIN_REPLICATED_PARTITIONED,
 	JOIN_COLOCATED_PARTITIONED,
 	JOIN_OTHER
 } PGXCJoinType;
@@ -144,6 +145,7 @@ static ExecNodes *get_plan_nodes(Query *query, bool isRead);
 static bool get_plan_nodes_walker(Node *query_node, XCWalkerContext *context);
 static bool examine_conditions_walker(Node *expr_node, XCWalkerContext *context);
 static int handle_limit_offset(RemoteQuery *query_step, Query *query, PlannedStmt *plan_stmt);
+static void InitXCWalkerContext(XCWalkerContext *context);
 
 /*
  * True if both lists contain only one node and are the same
@@ -693,15 +695,20 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 
 					if (rel_loc_info1->locatorType == LOCATOR_TYPE_REPLICATED)
 					{
+
 						/* add to replicated join conditions */
 						context->conditions->replicated_joins =
-							lappend(context->conditions->replicated_joins, opexpr);
+							lappend(context->conditions->replicated_joins, pgxc_join);
 
 						if (colvar->varlevelsup != colvar2->varlevelsup)
 							context->multilevel_join = true;
 
-						if (rel_loc_info2->locatorType != LOCATOR_TYPE_REPLICATED)
+						if (rel_loc_info2->locatorType == LOCATOR_TYPE_REPLICATED)
+							pgxc_join->join_type = JOIN_REPLICATED_ONLY;
+						else
 						{
+							pgxc_join->join_type = JOIN_REPLICATED_PARTITIONED;
+
 							/* Note other relation, saves us work later. */
 							context->conditions->base_rel_name = column_base2->relname;
 							context->conditions->base_rel_loc_info = rel_loc_info2;
@@ -717,22 +724,20 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 								FreeRelationLocInfo(rel_loc_info2);
 						}
 
-						/* note nature of join between the two relations */
-						pgxc_join->join_type = JOIN_REPLICATED;
 						return false;
 					}
 					else if (rel_loc_info2->locatorType == LOCATOR_TYPE_REPLICATED)
 					{
+						/* note nature of join between the two relations */
+						pgxc_join->join_type = JOIN_REPLICATED_PARTITIONED;
+
 						/* add to replicated join conditions */
 						context->conditions->replicated_joins =
-							lappend(context->conditions->replicated_joins, opexpr);
+							lappend(context->conditions->replicated_joins, pgxc_join);
 
 						/* other relation not replicated, note it for later */
 						context->conditions->base_rel_name = column_base->relname;
 						context->conditions->base_rel_loc_info = rel_loc_info1;
-
-						/* note nature of join between the two relations */
-						pgxc_join->join_type = JOIN_REPLICATED;
 
 						if (rel_loc_info2)
 							FreeRelationLocInfo(rel_loc_info2);
@@ -1259,6 +1264,23 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 	return false;
 }
 
+/*
+ * Set initial values for expression walker
+ */
+static void
+InitXCWalkerContext(XCWalkerContext *context)
+{
+	context->isRead = true;
+	context->exec_nodes = NULL;
+	context->conditions = (Special_Conditions *) palloc0(sizeof(Special_Conditions));
+	context->rtables = NIL;
+	context->multilevel_join = false;
+	context->varno = 0;
+	context->within_or = false;
+	context->within_not = false;
+	context->exec_on_coord = false;
+	context->join_list = NIL;
+}
 
 /*
  * Top level entry point before walking query to determine plan nodes
@@ -1271,18 +1293,9 @@ get_plan_nodes(Query *query, bool isRead)
 	XCWalkerContext context;
 
 
-	context.query = query;
+	InitXCWalkerContext(&context);
 	context.isRead = isRead;
-	context.exec_nodes = NULL;
-	context.conditions = (Special_Conditions *) palloc0(sizeof(Special_Conditions));
-	context.rtables = NIL;
 	context.rtables = lappend(context.rtables, query->rtable);
-	context.multilevel_join = false;
-	context.varno = 0;
-	context.within_or = false;
-	context.within_not = false;
-	context.exec_on_coord = false;
-	context.join_list = NIL;
 
 	if (!get_plan_nodes_walker((Node *) query, &context))
 		result_nodes = context.exec_nodes;
@@ -2315,3 +2328,148 @@ free_query_step(RemoteQuery *query_step)
 		list_free_deep(query_step->simple_aggregates);
 	pfree(query_step);
 }
+
+
+/*
+ * See if we can reduce the passed in RemoteQuery nodes to a single step.
+ *
+ * We need to check when we can further collapse already collapsed nodes.
+ * We cannot always collapse- we do not want to allow a replicated table
+ * to be used twice. That is if we have
+ *
+ *     partitioned_1 -- replicated -- partitioned_2
+ *
+ * partitioned_1 and partitioned_2 cannot (usually) be safely joined only
+ * locally.
+ * We can do this by checking (may need tracking) what type it is,
+ * and looking at context->conditions->replicated_joins
+ *
+ * The following cases are possible, and whether or not it is ok
+ * to reduce.
+ *
+ * If the join between the two RemoteQuery nodes is replicated
+ *
+ *      Node 1            Node 2
+ * rep-part folded   rep-part  folded    ok to reduce?
+ *    0       0         0         1       1
+ *    0       0         1         1       1
+ *    0       1         0         1       1
+ *    0       1         1         1       1
+ *    1       1         1         1       0
+ *
+ *
+ * If the join between the two RemoteQuery nodes is replicated - partitioned
+ *
+ *      Node 1            Node 2
+ * rep-part folded   rep-part  folded    ok to reduce?
+ *    0       0         0         1       1
+ *    0       0         1         1       0
+ *    0       1         0         1       1
+ *    0       1         1         1       0
+ *    1       1         1         1       0
+ *
+ *
+ * If the join between the two RemoteQuery nodes is partitioned - partitioned
+ * it is always reducibile safely,
+ *
+ * RemoteQuery *innernode - the inner node
+ * RemoteQuery *outernode - the outer node
+ * bool *partitioned_replicated  - set to true if we have a partitioned-replicated
+ *                          join. We want to use replicated tables with non-replicated
+ *                          tables ony once. Only use this value if this function
+ *							returns true.
+ */
+bool
+IsJoinReducible(RemoteQuery *innernode, RemoteQuery *outernode,
+			List *rtable_list, JoinPath *join_path, bool *partitioned_replicated)
+{
+	XCWalkerContext context;
+	ListCell *cell;
+	bool maybe_reducible = false;
+	bool result = false;
+
+
+	*partitioned_replicated = false;
+
+	InitXCWalkerContext(&context);
+	context.isRead = true; /* PGXCTODO - determine */
+	context.rtables = NIL;
+	context.rtables = lappend(context.rtables, rtable_list); /* add to list of lists */
+
+
+
+	foreach(cell, join_path->joinrestrictinfo)
+	{
+		RestrictInfo       *node = (RestrictInfo *) lfirst(cell);
+
+		/*
+		* Check if we can fold these safely.
+		*
+		* If examine_conditions_walker() returns true,
+		* then it definitely is not collapsable.
+		* If it returns false, it may or may not be, we have to check
+		* context.conditions at the end.
+		* We keep trying, because another condition may fulfill the criteria.
+		*/
+		maybe_reducible = !examine_conditions_walker((Node *) node->clause, &context);
+
+		if (!maybe_reducible)
+			break;
+
+	}
+
+	/* check to see if we found any partitioned or replicated joins */
+	if (maybe_reducible &&
+				(context.conditions->partitioned_parent_child
+			  || context.conditions->replicated_joins))
+	{
+		/*
+		 * If we get here, we think that we can fold the
+		 * RemoteQuery nodes into a single one.
+		 */
+		result = true;
+
+		/* Check replicated-replicated and replicated-partitioned joins */
+		if (context.conditions->replicated_joins)
+		{
+			ListCell *cell;
+
+			/* if we already reduced with replicated tables already, we
+			 * cannot here.
+			 * PGXCTODO - handle more cases and use outer_relids and inner_relids
+			 * For now we just give up.
+			 */
+			if ((innernode->remotejoin && innernode->partitioned_replicated) &&
+						(outernode->remotejoin && outernode->partitioned_replicated))
+			{
+				/* not reducible after all */
+				return false;
+			}
+
+			foreach(cell, context.conditions->replicated_joins)
+			{
+				PGXC_Join *pgxc_join = (PGXC_Join *) lfirst(cell);
+
+				if (pgxc_join->join_type == JOIN_REPLICATED_PARTITIONED)
+				{
+					*partitioned_replicated = true;
+
+					/*
+					 * If either of these already have such a join, we do not
+					 * want to add it a second time.
+					 */
+					if ((innernode->remotejoin && innernode->partitioned_replicated) ||
+						(outernode->remotejoin && outernode->partitioned_replicated))
+					{
+						/* not reducible after all */
+						return false;
+					}
+				}
+			}
+		}
+	}
+
+	return result;
+}
+
+

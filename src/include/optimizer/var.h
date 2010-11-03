@@ -25,6 +25,9 @@ typedef enum
 
 extern Relids pull_varnos(Node *node);
 extern void pull_varattnos(Node *node, Bitmapset **varattnos);
+#ifdef PGXC
+extern Bitmapset * pull_varattnos_varno(Node *node, Index varno, Bitmapset *varattnos);
+#endif
 extern bool contain_var_clause(Node *node);
 extern bool contain_vars_of_level(Node *node, int levelsup);
 extern int	locate_var_of_level(Node *node, int levelsup);

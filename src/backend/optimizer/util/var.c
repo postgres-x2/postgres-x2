@@ -34,6 +34,14 @@ typedef struct
 	int			sublevels_up;
 } pull_varnos_context;
 
+#ifdef PGXC
+typedef struct
+{
+	Index		varno;
+	Bitmapset  *varattnos;
+} pull_varattnos_context;
+#endif
+
 typedef struct
 {
 	int			var_location;
@@ -68,6 +76,10 @@ typedef struct
 static bool pull_varnos_walker(Node *node,
 				   pull_varnos_context *context);
 static bool pull_varattnos_walker(Node *node, Bitmapset **varattnos);
+#ifdef PGXC
+static bool pull_varattnos_varno_walker(Node *node,
+					pull_varattnos_context *context);
+#endif
 static bool contain_var_clause_walker(Node *node, void *context);
 static bool contain_vars_of_level_walker(Node *node, int *sublevels_up);
 static bool locate_var_of_level_walker(Node *node,
@@ -227,6 +239,54 @@ contain_var_clause(Node *node)
 {
 	return contain_var_clause_walker(node, NULL);
 }
+
+#ifdef PGXC
+/*
+ * pull_varattnos_varno
+ *		Find all the distinct attribute numbers present in an expression tree,
+ *		and add them to the initial contents of *varattnos.
+ *
+ * Attribute numbers are offset by FirstLowInvalidHeapAttributeNumber so that
+ * we can include system attributes (e.g., OID) in the bitmap representation.
+ *
+ * This is same as pull_varattnos except for the fact that it gets attributes
+ * for the given varno
+ */
+Bitmapset *
+pull_varattnos_varno(Node *node, Index varno, Bitmapset *varattnos)
+{
+	pull_varattnos_context context;
+
+	context.varno = varno;
+	context.varattnos = varattnos;
+
+	(void) pull_varattnos_varno_walker(node, &context);
+
+	return context.varattnos;
+}
+
+static bool
+pull_varattnos_varno_walker(Node *node, pull_varattnos_context *context)
+{
+	if (node == NULL)
+		return false;
+
+	Assert(context != NULL);
+
+	if (IsA(node, Var))
+	{
+		Var *var = (Var *) node;
+
+		if (var->varno == context->varno)
+			context->varattnos = bms_add_member(context->varattnos,
+						 var->varattno - FirstLowInvalidHeapAttributeNumber);
+		return false;
+	}
+
+	return expression_tree_walker(node, pull_varattnos_varno_walker,
+								  (void *) context);
+}
+#endif
 
 static bool
 contain_var_clause_walker(Node *node, void *context)

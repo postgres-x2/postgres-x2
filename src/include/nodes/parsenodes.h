@@ -24,6 +24,9 @@
 #include "nodes/bitmapset.h"
 #include "nodes/primnodes.h"
 #include "nodes/value.h"
+#ifdef PGXC
+#include "access/tupdesc.h"
+#endif
 
 /* Possible sources of a Query */
 typedef enum QuerySource
@@ -659,6 +662,11 @@ typedef struct RangeTblEntry
 	 * a union.  I didn't do this yet because the diffs would impact a lot of
 	 * code that is being actively worked on.  FIXME someday.
 	 */
+
+#ifdef PGXC
+	char		*relname;
+	TupleDesc	reltupdesc;
+#endif
 
 	/*
 	 * Fields valid for a plain relation RTE (else zero):

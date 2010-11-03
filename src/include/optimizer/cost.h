@@ -59,6 +59,9 @@ extern bool enable_hashagg;
 extern bool enable_nestloop;
 extern bool enable_mergejoin;
 extern bool enable_hashjoin;
+#ifdef PGXC
+extern bool enable_remotejoin;
+#endif
 extern int	constraint_exclusion;
 
 extern double clamp_row_est(double nrows);

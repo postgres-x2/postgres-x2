@@ -2388,20 +2388,6 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 
 	ExecInitScanTupleSlot(estate, &remotestate->ss);
 
-	/*
-	 * Initialize scan relation. get the relation object id from the
-	 * relid'th entry in the range table, open that relation and acquire
-	 * appropriate lock on it.
-	 * This is needed for deparseSQL
-	 * We should remove these lines once we plan and deparse earlier.
-	 */
-	if (!node->is_single_step)
-	{
-		currentRelation = ExecOpenScanRelation(estate, node->scan.scanrelid);
-		remotestate->ss.ss_currentRelation = currentRelation;
-		ExecAssignScanType(&remotestate->ss, RelationGetDescr(currentRelation));
-	}
-
 	remotestate->ss.ps.ps_TupFromTlist = false;
 
 	/*
@@ -2722,11 +2708,6 @@ ExecRemoteQuery(RemoteQueryState *node)
 						(errcode(ERRCODE_INTERNAL_ERROR),
 						 errmsg("Could not begin transaction on data nodes.")));
 		}
-
-		/* Get the SQL string */
-		/* only do if not single step */
-		if (!step->is_single_step)
-			step->sql_statement = deparseSql(node);
 
 		/* See if we have a primary node, execute on it first before the others */
 		if (primaryconnection)

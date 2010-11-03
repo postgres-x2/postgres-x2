@@ -119,4 +119,7 @@ extern void extract_query_dependencies(List *queries,
 						   List **relationOids,
 						   List **invalItems);
 
+#ifdef PGXC
+extern Var *search_tlist_for_var(Var *var, List *jtlist);
+#endif
 #endif   /* PLANMAIN_H */

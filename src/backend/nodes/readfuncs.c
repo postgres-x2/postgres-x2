@@ -31,7 +31,9 @@
 
 #include "nodes/parsenodes.h"
 #include "nodes/readfuncs.h"
-
+#ifdef PGXC
+#include "access/htup.h"
+#endif
 
 /*
  * Macros to simplify reading of different kinds of fields.  Use these
@@ -1104,16 +1106,71 @@ _readFromExpr(void)
 static RangeTblEntry *
 _readRangeTblEntry(void)
 {
+#ifdef PGXC
+	int natts, i;
+	char    *colname;
+	Oid     typid, typmod;
+#endif
+
 	READ_LOCALS(RangeTblEntry);
 
 	/* put alias + eref first to make dump more legible */
 	READ_NODE_FIELD(alias);
 	READ_NODE_FIELD(eref);
 	READ_ENUM_FIELD(rtekind, RTEKind);
+#ifdef PGXC
+	READ_STRING_FIELD(relname);
+#endif
 
 	switch (local_node->rtekind)
 	{
 		case RTE_RELATION:
+#ifdef PGXC
+			/* read tuple descriptor */
+			token = pg_strtok(&length); 	/* skip :tupdesc_natts */
+			token = pg_strtok(&length);		/* get field value */
+
+			natts = atoi(token);
+
+			if (natts > 0 && natts <= MaxTupleAttributeNumber)
+				local_node->reltupdesc = CreateTemplateTupleDesc(natts, false);
+			else
+				elog(ERROR, "invalid node field to read");
+
+			token = pg_strtok(&length); 	/* skip '(' */
+
+			if (length == 1 && pg_strncasecmp(token, "(", length) == 0)
+			{
+				for (i = 0 ; i < natts ; i++)
+				{
+					token = pg_strtok(&length); 	/* skip :colname */
+					token = pg_strtok(&length); 	/* get colname */
+					colname = nullable_string(token, length);
+
+					if (colname == NULL)
+						elog(ERROR, "invalid node field to read");
+
+					token = pg_strtok(&length); 	/* skip :coltypid */
+					token = pg_strtok(&length); 	/* get typid */
+					typid = atooid(token);
+
+					token = pg_strtok(&length); 	/* skip :coltypmod */
+					token = pg_strtok(&length); 	/* get typmod */
+					typmod = atoi(token);
+
+					TupleDescInitEntry(local_node->reltupdesc,
+							(i + 1), colname, typid, typmod, 0);
+				}
+			}
+			else
+				elog(ERROR, "invalid node field to read");
+
+			token = pg_strtok(&length); 	/* skip '(' */
+
+			if (!(length == 1 && pg_strncasecmp(token, ")", length) == 0))
+				elog(ERROR, "invalid node field to read");
+#endif
+
 		case RTE_SPECIAL:
 			READ_OID_FIELD(relid);
 			break;

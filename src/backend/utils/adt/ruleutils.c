@@ -114,6 +114,8 @@ typedef struct
 	List	   *subplans;		/* List of subplans, in plan-tree case */
 	Plan	   *outer_plan;		/* OUTER subplan, or NULL if none */
 	Plan	   *inner_plan;		/* INNER subplan, or NULL if none */
+
+	bool		remotequery;	/* deparse context for remote query */
 } deparse_namespace;
 
 
@@ -1934,10 +1936,42 @@ deparse_context_for(const char *aliasname, Oid relid)
 	dpns->ctes = NIL;
 	dpns->subplans = NIL;
 	dpns->outer_plan = dpns->inner_plan = NULL;
+#ifdef PGXC
+	dpns->remotequery = false;
+#endif
 
 	/* Return a one-deep namespace stack */
 	return list_make1(dpns);
 }
+
+#ifdef PGXC
+List *
+deparse_context_for_remotequery(const char *aliasname, Oid relid)
+{
+	deparse_namespace *dpns;
+	RangeTblEntry *rte;
+
+	dpns = (deparse_namespace *) palloc(sizeof(deparse_namespace));
+
+	/* Build a minimal RTE for the rel */
+	rte = makeNode(RangeTblEntry);
+	rte->rtekind = RTE_RELATION;
+	rte->relid = relid;
+	rte->eref = makeAlias(aliasname, NIL);
+	rte->inh = false;
+	rte->inFromCl = true;
+
+	/* Build one-element rtable */
+	dpns->rtable = list_make1(rte);
+	dpns->ctes = NIL;
+	dpns->subplans = NIL;
+	dpns->outer_plan = dpns->inner_plan = NULL;
+	dpns->remotequery = true;
+
+	/* Return a one-deep namespace stack */
+	return list_make1(dpns);
+}
+#endif
 
 /*
  * deparse_context_for_plan		- Build deparse context for a plan node
@@ -1972,7 +2006,9 @@ deparse_context_for_plan(Node *plan, Node *outer_plan,
 	dpns->rtable = rtable;
 	dpns->ctes = NIL;
 	dpns->subplans = subplans;
-
+#ifdef PGXC
+	dpns->remotequery = false;
+#endif
 	/*
 	 * Set up outer_plan and inner_plan from the Plan node (this includes
 	 * various special cases for particular Plan types).
@@ -2136,7 +2172,9 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 		dpns.ctes = query->cteList;
 		dpns.subplans = NIL;
 		dpns.outer_plan = dpns.inner_plan = NULL;
-
+#ifdef PGXC
+		dpns.remotequery = false;
+#endif
 		get_rule_expr(qual, &context, false);
 	}
 
@@ -2283,7 +2321,9 @@ get_query_def(Query *query, StringInfo buf, List *parentnamespace,
 	dpns.ctes = query->cteList;
 	dpns.subplans = NIL;
 	dpns.outer_plan = dpns.inner_plan = NULL;
-
+#ifdef PGXC
+	dpns.remotequery = false;
+#endif
 	switch (query->commandType)
 	{
 		case CMD_SELECT:
@@ -3377,6 +3417,14 @@ get_variable(Var *var, int levelsup, bool showstar, deparse_context *context)
 	 * likely that varno is OUTER or INNER, in which case we must dig down
 	 * into the subplans.
 	 */
+#ifdef PGXC
+	if (dpns->remotequery)
+	{
+		rte = rt_fetch(1, dpns->rtable);
+		attnum = var->varattno;
+	}
+	else
+#endif
 	if (var->varno >= 1 && var->varno <= list_length(dpns->rtable))
 	{
 		rte = rt_fetch(var->varno, dpns->rtable);
@@ -3703,6 +3751,9 @@ get_name_for_var_field(Var *var, int fieldno,
 						mydpns.ctes = rte->subquery->cteList;
 						mydpns.subplans = NIL;
 						mydpns.outer_plan = mydpns.inner_plan = NULL;
+#ifdef PGXC
+						mydpns.remotequery = false;
+#endif
 
 						context->namespaces = lcons(&mydpns,
 													context->namespaces);
@@ -3826,7 +3877,9 @@ get_name_for_var_field(Var *var, int fieldno,
 						mydpns.ctes = ctequery->cteList;
 						mydpns.subplans = NIL;
 						mydpns.outer_plan = mydpns.inner_plan = NULL;
-
+#ifdef PGXC
+						mydpns.remotequery = false;
+#endif
 						new_nslist = list_copy_tail(context->namespaces,
 													ctelevelsup);
 						context->namespaces = lcons(&mydpns, new_nslist);

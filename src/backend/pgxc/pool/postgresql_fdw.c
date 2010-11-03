@@ -45,7 +45,7 @@
 
 /* deparse SQL from the request */
 bool is_immutable_func(Oid funcid);
-static bool is_foreign_qual(ExprState *state);
+bool is_foreign_qual(Node *node);
 static bool foreign_qual_walker(Node *node, void *context);
 char *deparseSql(RemoteQueryState *scanstate);
 
@@ -103,10 +103,10 @@ is_immutable_func(Oid funcid)
  *      local server in the foreign server. 
  *  - scalar array operator (ANY/ALL)
  */
-static bool
-is_foreign_qual(ExprState *state)
+bool
+is_foreign_qual(Node *node)
 {
-	return !foreign_qual_walker((Node *) state->expr, NULL);
+	return !foreign_qual_walker(node, NULL);
 }
 
 /*
@@ -120,6 +120,9 @@ foreign_qual_walker(Node *node, void *context)
 
 	switch (nodeTag(node))
 	{
+		case T_ExprState:
+			return foreign_qual_walker((Node *) ((ExprState *) node)->expr, NULL);
+
 		case T_Param:
 			/* TODO: pass internal parameters to the foreign server */
 			if (((Param *) node)->paramkind != PARAM_EXTERN)
@@ -286,7 +289,7 @@ elog(DEBUG2, "%s(%u) called", __FUNCTION__, __LINE__);
 		{
 			ExprState	   *state = lfirst(lc);
 
-			if (is_foreign_qual(state))
+			if (is_foreign_qual((Node *) state))
 			{
 				elog(DEBUG1, "foreign qual: %s", nodeToString(state->expr));
 				foreign_qual = lappend(foreign_qual, state);
@@ -317,7 +320,7 @@ elog(DEBUG2, "%s(%u) called", __FUNCTION__, __LINE__);
 			Node   *node;
 			node = (Node *) make_ands_explicit(foreign_expr);
 			appendStringInfo(&sql, " WHERE ");
-			appendStringInfo(&sql,
+			appendStringInfo(&sql, "%s",
 				deparse_expression(node, context, prefix, false));
 			/*
 			 * The contents of the list MUST NOT be free-ed because they are

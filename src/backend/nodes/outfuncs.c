@@ -1502,6 +1502,9 @@ _outPlannerInfo(StringInfo str, PlannerInfo *node)
 	WRITE_BOOL_FIELD(hasHavingQual);
 	WRITE_BOOL_FIELD(hasPseudoConstantQuals);
 	WRITE_BOOL_FIELD(hasRecursion);
+#ifdef PGXC
+	WRITE_INT_FIELD(rs_alias_index);
+#endif
 	WRITE_INT_FIELD(wt_param_id);
 }
 
@@ -2015,16 +2018,39 @@ _outSetOperationStmt(StringInfo str, SetOperationStmt *node)
 static void
 _outRangeTblEntry(StringInfo str, RangeTblEntry *node)
 {
+#ifdef PGXC
+	int i;
+#endif
+
 	WRITE_NODE_TYPE("RTE");
 
 	/* put alias + eref first to make dump more legible */
 	WRITE_NODE_FIELD(alias);
 	WRITE_NODE_FIELD(eref);
 	WRITE_ENUM_FIELD(rtekind, RTEKind);
+#ifdef PGXC
+	WRITE_STRING_FIELD(relname);
+#endif
 
 	switch (node->rtekind)
 	{
 		case RTE_RELATION:
+#ifdef PGXC
+			/* write tuple descriptor */
+			appendStringInfo(str, " :tupdesc_natts %d (", node->reltupdesc->natts);
+
+			for (i = 0 ; i < node->reltupdesc->natts ; i++)
+			{
+				appendStringInfo(str, ":colname ");
+				_outToken(str, NameStr(node->reltupdesc->attrs[i]->attname));
+				appendStringInfo(str, " :coltypid %u ",
+						node->reltupdesc->attrs[i]->atttypid);
+				appendStringInfo(str, ":coltypmod %d ",
+						node->reltupdesc->attrs[i]->atttypmod);
+			}
+
+			appendStringInfo(str, ") ");
+	#endif
 		case RTE_SPECIAL:
 			WRITE_OID_FIELD(relid);
 			break;

@@ -23,6 +23,7 @@
 #include "nodes/primnodes.h"
 #include "pgxc/locator.h"
 #include "tcop/dest.h"
+#include "nodes/relation.h"
 
 
 typedef enum
@@ -85,6 +86,18 @@ typedef struct
 	bool		read_only;          /* do not use 2PC when committing read only steps */
 	bool		force_autocommit;	/* some commands like VACUUM require autocommit mode */
 	RemoteQueryExecType		exec_type;
+
+	char	  *relname;
+	bool	   remotejoin;			/* True if this is a reduced remote join  */
+	bool	   partitioned_replicated;	/* True if reduced and contains replicated-partitioned join */
+	int		   reduce_level;		/* in case of reduced JOIN, it's level    */
+	List	  *base_tlist;			/* in case of isReduced, the base tlist   */
+	char	  *outer_alias;
+	char	  *inner_alias;
+	int		   outer_reduce_level;
+	int		   inner_reduce_level;
+	Relids	   outer_relids;
+	Relids	   inner_relids;
 } RemoteQuery;
 
 
@@ -165,4 +178,8 @@ extern PlannedStmt *pgxc_planner(Query *query, int cursorOptions,
 extern bool IsHashDistributable(Oid col_type);
 
 extern bool is_immutable_func(Oid funcid);
+
+extern bool IsJoinReducible(RemoteQuery *innernode, RemoteQuery *outernode,
+					List *rtable_list, JoinPath *join_path, bool *partitioned_replicated);
+
 #endif   /* PGXCPLANNER_H */

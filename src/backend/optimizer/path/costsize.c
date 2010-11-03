@@ -109,6 +109,9 @@ bool		enable_hashagg = true;
 bool		enable_nestloop = true;
 bool		enable_mergejoin = true;
 bool		enable_hashjoin = true;
+#ifdef PGXC
+bool		enable_remotejoin = true;
+#endif
 
 typedef struct
 {

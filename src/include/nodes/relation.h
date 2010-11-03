@@ -189,6 +189,11 @@ typedef struct PlannerInfo
 										 * pseudoconstant = true */
 	bool		hasRecursion;	/* true if planning a recursive WITH item */
 
+#ifdef PGXC
+	/* This field is used only when RemoteScan nodes are involved */
+	int         rs_alias_index; /* used to build the alias reference */
+#endif
+
 	/* These fields are used only when hasRecursion is true: */
 	int			wt_param_id;	/* PARAM_EXEC ID for the work table */
 	struct Plan *non_recursive_plan;	/* plan for non-recursive term */
@@ -376,6 +381,10 @@ typedef struct RelOptInfo
 	Relids		index_outer_relids;		/* other relids in indexable join
 										 * clauses */
 	List	   *index_inner_paths;		/* InnerIndexscanInfo nodes */
+
+#ifdef PGXC
+	TupleDesc	reltupdesc;
+#endif
 
 	/*
 	 * Inner indexscans are not in the main pathlist because they are not

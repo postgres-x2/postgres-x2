@@ -686,7 +686,11 @@ explain_outNode(StringInfo str,
 				Assert(rte->rtekind == RTE_RELATION);
 
 				/* We only show the rel name, not schema name */
+#ifdef PGXC
+				relname = rte->relname;
+#else
 				relname = get_rel_name(rte->relid);
+#endif
 
 				appendStringInfo(str, " on %s",
 								 quote_identifier(relname));

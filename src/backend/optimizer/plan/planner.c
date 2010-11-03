@@ -301,6 +301,9 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 	root->eq_classes = NIL;
 	root->append_rel_list = NIL;
 
+#ifdef PGXC
+	root->rs_alias_index = 1;
+#endif
 	root->hasRecursion = hasRecursion;
 	if (hasRecursion)
 		root->wt_param_id = SS_assign_worktable_param(root);
