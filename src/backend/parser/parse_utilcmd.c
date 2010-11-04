@@ -1293,7 +1293,7 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 			}
 
 			/* Existing table, check if it is safe */
-			if (!cxt->distributeby && !isLocalSafe)
+			if (cxt->isalter && !cxt->distributeby && !isLocalSafe)
 				isLocalSafe = CheckLocalIndexColumn (
 						cxt->rel->rd_locator_info->locatorType, cxt->rel->rd_locator_info->partAttrName, key);
 		}

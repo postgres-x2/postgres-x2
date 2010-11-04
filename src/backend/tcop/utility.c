@@ -941,7 +941,7 @@ ProcessUtility(Node *parsetree,
 							false,		/* quiet */
 							stmt->concurrent);	/* concurrent */
 #ifdef PGXC
-				if (IS_PGXC_COORDINATOR)
+				if (IS_PGXC_COORDINATOR && !stmt->isconstraint)
 					ExecUtilityStmtOnNodes(queryString, NULL,
 										   stmt->concurrent, EXEC_ON_ALL_NODES);
 #endif
