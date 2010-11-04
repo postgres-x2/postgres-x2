@@ -2179,6 +2179,10 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 		case CMD_INSERT:
 		case CMD_UPDATE:
 		case CMD_DELETE:
+			if (query->returningList)
+				ereport(ERROR,
+						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+						 (errmsg("RETURNING clause not yet supported"))));
 			/* Set result relations */
 			if (query->commandType != CMD_SELECT)
 				result->resultRelations = list_make1_int(query->resultRelation);
