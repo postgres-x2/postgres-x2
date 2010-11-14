@@ -31,6 +31,7 @@
 #include "optimizer/tlist.h"
 #include "parser/parse_agg.h"
 #include "parser/parse_coerce.h"
+#include "pgxc/execRemote.h"
 #include "pgxc/locator.h"
 #include "pgxc/planner.h"
 #include "tcop/pquery.h"
@@ -38,6 +39,7 @@
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
+#include "utils/portal.h"
 #include "utils/syscache.h"
 
 
@@ -123,7 +125,7 @@ typedef struct XCWalkerContext
 {
 	Query				   *query;
 	bool					isRead;
-	ExecNodes 			   *exec_nodes;	/* resulting execution nodes */
+	RemoteQuery			   *query_step;	/* remote query step being analized */
 	Special_Conditions 	   *conditions;
 	bool					multilevel_join;
 	List 				   *rtables;	/* a pointer to a list of rtables */
@@ -141,11 +143,42 @@ bool		StrictStatementChecking = true;
 /* Forbid multi-node SELECT statements with an ORDER BY clause */
 bool		StrictSelectChecking = false;
 
-static ExecNodes *get_plan_nodes(Query *query, bool isRead);
+static void get_plan_nodes(Query *query, RemoteQuery *step, bool isRead);
 static bool get_plan_nodes_walker(Node *query_node, XCWalkerContext *context);
 static bool examine_conditions_walker(Node *expr_node, XCWalkerContext *context);
 static int handle_limit_offset(RemoteQuery *query_step, Query *query, PlannedStmt *plan_stmt);
 static void InitXCWalkerContext(XCWalkerContext *context);
+
+/*
+ * Find position of specified substring in the string
+ * All non-printable symbols of str treated as spaces, all letters as uppercase
+ * Returns pointer to the beginning of the substring or NULL
+ */
+static char *
+strpos(char *str, char *substr)
+{
+	char		copy[strlen(str) + 1];
+	char	   *src = str;
+	char	   *dst = copy;
+
+	/*
+	 * Initialize mutable copy, converting letters to uppercase and
+	 * various witespace characters to spaces
+	 */
+	while (*src)
+	{
+		if (isspace(*src))
+		{
+			src++;
+			*dst++ = ' ';
+		}
+		else
+			*dst++ = toupper(*src++);
+	}
+	*dst = '\0';
+	dst = strstr(copy, substr);
+	return dst ? str + (dst - copy) : NULL;
+}
 
 /*
  * True if both lists contain only one node and are the same
@@ -509,7 +542,7 @@ get_plan_nodes_insert(Query *query)
  * Get list of parent-child joins (partitioned together)
  * Get list of joins with replicated tables
  *
- * If we encounter an expression such as a cross-node join that cannot 
+ * If we encounter an expression such as a cross-node join that cannot
  * be easily handled in a single step, we stop processing and return true,
  * otherwise false.
  *
@@ -535,6 +568,242 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 
 	if (!context->conditions)
 		context->conditions = new_special_conditions();
+
+	/* Handle UPDATE/DELETE ... WHERE CURRENT OF ... */
+	if (IsA(expr_node, CurrentOfExpr))
+	{
+		/* Find referenced portal and figure out what was the last fetch node */
+		Portal		portal;
+		QueryDesc  *queryDesc;
+		PlanState  *state;
+		CurrentOfExpr *cexpr = (CurrentOfExpr *) expr_node;
+		char	   *cursor_name = cexpr->cursor_name;
+		char	   *node_cursor;
+
+		/* Find the cursor's portal */
+		portal = GetPortalByName(cursor_name);
+		if (!PortalIsValid(portal))
+			ereport(ERROR,
+					(errcode(ERRCODE_UNDEFINED_CURSOR),
+					 errmsg("cursor \"%s\" does not exist", cursor_name)));
+
+		queryDesc = PortalGetQueryDesc(portal);
+		if (queryDesc == NULL || queryDesc->estate == NULL)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_CURSOR_STATE),
+					 errmsg("cursor \"%s\" is held from a previous transaction",
+							cursor_name)));
+
+		/*
+		 * The cursor must have a current result row: per the SQL spec, it's
+		 * an error if not.
+		 */
+		if (portal->atStart || portal->atEnd)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_CURSOR_STATE),
+					 errmsg("cursor \"%s\" is not positioned on a row",
+							cursor_name)));
+
+		state = ExecGetActivePlanTree(queryDesc);
+		if (IsA(state, RemoteQueryState))
+		{
+			RemoteQueryState *node = (RemoteQueryState *) state;
+			RemoteQuery *step = (RemoteQuery *) state->plan;
+
+			/*
+			 *   1. step query: SELECT * FROM <table> WHERE ctid = <cur_ctid>,
+			 *          <cur_ctid> is taken from the scantuple ot the target step
+			 *      step node list: current node of the target step.
+			 *   2. step query: DECLARE <xxx> CURSOR FOR SELECT * FROM <table>
+			 *          WHERE <col1> = <val1> AND <col2> = <val2> ... FOR UPDATE
+			 *          <xxx> is generated from cursor name of the target step,
+			 *          <col> and <val> pairs are taken from the step 1.
+			 *      step node list: all nodes of <table>
+			 *   3. step query: MOVE <xxx>
+			 *      step node list: all nodes of <table>
+			 */
+			RangeTblEntry *table = (RangeTblEntry *) linitial(context->query->rtable);
+			node_cursor = step->cursor;
+			rel_loc_info1 = GetRelationLocInfo(table->relid);
+			context->query_step->exec_nodes = makeNode(ExecNodes);
+			context->query_step->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
+			context->query_step->exec_nodes->baselocatortype = rel_loc_info1->locatorType;
+			if (rel_loc_info1->locatorType == LOCATOR_TYPE_REPLICATED)
+			{
+				RemoteQuery *step1, *step2, *step3;
+				/*
+				 * We do not need first three steps if cursor already exists and
+				 * positioned.
+				 */
+				if (node->update_cursor)
+				{
+					step3 = NULL;
+					node_cursor = node->update_cursor;
+				}
+				else
+				{
+					char *tableName = get_rel_name(table->relid);
+					int natts = get_relnatts(table->relid);
+					char *attnames[natts];
+					TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
+					/*
+					 * ctid is the last attribute, but more correct to iterate over
+					 * attributes and find by name, or store index for table
+					 */
+					Datum ctid = slot->tts_values[slot->tts_tupleDescriptor->natts - 1];
+					char *ctid_str = (char *) DirectFunctionCall1(tidout, ctid);
+					int nodenum = slot->tts_dataNode;
+					AttrNumber att;
+					StringInfoData buf;
+					HeapTuple	tp;
+					int i;
+					MemoryContext context_save;
+
+					initStringInfo(&buf);
+
+					/* Step 1: select tuple values by ctid */
+					step1 = makeNode(RemoteQuery);
+					appendStringInfoString(&buf, "SELECT ");
+					for (att = 1; att <= natts; att++)
+					{
+						TargetEntry *tle;
+						Var *expr;
+
+						tp = SearchSysCache(ATTNUM,
+											ObjectIdGetDatum(table->relid),
+											Int16GetDatum(att),
+											0, 0);
+						if (HeapTupleIsValid(tp))
+						{
+							Form_pg_attribute att_tup = (Form_pg_attribute) GETSTRUCT(tp);
+
+							/* add comma before all except first attributes */
+							if (att > 1)
+								appendStringInfoString(&buf, ", ");
+							attnames[att-1] = pstrdup(NameStr(att_tup->attname));
+							appendStringInfoString(&buf, attnames[att - 1]);
+							expr = makeVar(att, att, att_tup->atttypid,
+										   att_tup->atttypmod, 0);
+							tle = makeTargetEntry((Expr *) expr, att,
+												  attnames[att - 1], false);
+							step1->scan.plan.targetlist = lappend(step1->scan.plan.targetlist, tle);
+							ReleaseSysCache(tp);
+						}
+						else
+							elog(ERROR, "cache lookup failed for attribute %d of relation %u",
+								 att, table->relid);
+					}
+					appendStringInfo(&buf, " FROM %s WHERE ctid = '%s'",
+									 tableName, ctid_str);
+					step1->sql_statement = pstrdup(buf.data);
+					step1->is_single_step = true;
+					step1->exec_nodes = makeNode(ExecNodes);
+					step1->read_only = true;
+					step1->exec_nodes->nodelist = list_make1_int(nodenum);
+
+					/* Step 2: declare cursor for update target table */
+					step2 = makeNode(RemoteQuery);
+					resetStringInfo(&buf);
+
+					appendStringInfoString(&buf, step->cursor);
+					appendStringInfoString(&buf, "upd");
+					/* This need to survive while the target Portal is alive */
+					context_save = MemoryContextSwitchTo(PortalGetHeapMemory(portal));
+					node_cursor = pstrdup(buf.data);
+					node->update_cursor = node_cursor;
+					MemoryContextSwitchTo(context_save);
+					resetStringInfo(&buf);
+
+					appendStringInfo(&buf,
+									 "DECLARE %s CURSOR FOR SELECT * FROM %s WHERE ",
+									 node_cursor, tableName);
+					for (i = 0; i < natts; i++)
+					{
+						/* add comma before all except first attributes */
+						if (i)
+							appendStringInfoString(&buf, "AND ");
+						appendStringInfo(&buf, "%s = $%d ", attnames[i], i+1);
+					}
+					appendStringInfoString(&buf, "FOR UPDATE");
+					step2->sql_statement = pstrdup(buf.data);
+					step2->is_single_step = true;
+					step2->read_only = true;
+					step2->exec_nodes = makeNode(ExecNodes);
+					step2->exec_nodes->nodelist = list_copy(rel_loc_info1->nodeList);
+					innerPlan(step2) = (Plan *) step1;
+					/* Step 3: move cursor to first position */
+					step3 = makeNode(RemoteQuery);
+					resetStringInfo(&buf);
+					appendStringInfo(&buf, "MOVE %s", node_cursor);
+					step3->sql_statement = pstrdup(buf.data);
+					step3->is_single_step = true;
+					step3->read_only = true;
+					step3->exec_nodes = makeNode(ExecNodes);
+					step3->exec_nodes->nodelist = list_copy(rel_loc_info1->nodeList);
+					innerPlan(step3) = (Plan *) step2;
+
+					innerPlan(context->query_step) = (Plan *) step3;
+
+					pfree(buf.data);
+				}
+				context->query_step->exec_nodes->nodelist = list_copy(rel_loc_info1->nodeList);
+			}
+			else
+			{
+				/* Take target node from last scan tuple of referenced step */
+				int curr_node = node->ss.ss_ScanTupleSlot->tts_dataNode;
+				context->query_step->exec_nodes->nodelist = lappend_int(context->query_step->exec_nodes->nodelist, curr_node);
+			}
+			FreeRelationLocInfo(rel_loc_info1);
+
+			context->query_step->is_single_step = true;
+			/*
+			 * replace cursor name in the query if differs
+			 */
+			if (strcmp(cursor_name, node_cursor))
+			{
+				StringInfoData buf;
+				char *str = context->query->sql_statement;
+				/*
+				 * Find last occurence of cursor_name
+				 */
+				for (;;)
+				{
+					char *next = strstr(str + 1, cursor_name);
+					if (next)
+						str = next;
+					else
+						break;
+				}
+
+				/*
+				 * now str points to cursor name truncate string here
+				 * do not care the string is modified - we will pfree it
+				 * soon anyway
+				 */
+				*str = '\0';
+
+				/* and move str at the beginning of the reminder */
+				str += strlen(cursor_name);
+
+				/* build up new statement */
+				initStringInfo(&buf);
+				appendStringInfoString(&buf, context->query->sql_statement);
+				appendStringInfoString(&buf, node_cursor);
+				appendStringInfoString(&buf, str);
+
+				/* take the result */
+				pfree(context->query->sql_statement);
+				context->query->sql_statement = buf.data;
+			}
+			return false;
+		}
+		// ??? current plan node is not a remote query
+		context->query_step->exec_nodes = makeNode(ExecNodes);
+		context->query_step->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_PGCATALOG;
+		context->exec_on_coord = true;
+		return false;
+	}
 
 	if (IsA(expr_node, Var))
 	{
@@ -800,13 +1069,13 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 		bool is_multilevel;
 		int save_parent_child_count = 0;
 		SubLink *sublink = (SubLink *) expr_node;
-		ExecNodes *save_exec_nodes = context->exec_nodes; /* Save old exec_nodes */
+		ExecNodes *save_exec_nodes = context->query_step->exec_nodes; /* Save old exec_nodes */
 
 		/* save parent-child count */
-		if (context->exec_nodes)
+		if (context->query_step->exec_nodes)
 			save_parent_child_count = list_length(context->conditions->partitioned_parent_child);
 
-		context->exec_nodes = NULL;
+		context->query_step->exec_nodes = NULL;
 		context->multilevel_join = false;
 		current_rtable = ((Query *) sublink->subselect)->rtable;
 
@@ -823,31 +1092,31 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 		context->multilevel_join = false;
 
 		/* Allow for replicated tables */
-		if (!context->exec_nodes)
-			context->exec_nodes = save_exec_nodes;
+		if (!context->query_step->exec_nodes)
+			context->query_step->exec_nodes = save_exec_nodes;
 		else
 		{
 			if (save_exec_nodes)
 			{
-				if (context->exec_nodes->tableusagetype == TABLE_USAGE_TYPE_USER_REPLICATED)
+				if (context->query_step->exec_nodes->tableusagetype == TABLE_USAGE_TYPE_USER_REPLICATED)
 				{
-					context->exec_nodes = save_exec_nodes;
+					context->query_step->exec_nodes = save_exec_nodes;
 				}
 				else
 				{
 					if (save_exec_nodes->tableusagetype != TABLE_USAGE_TYPE_USER_REPLICATED)
 					{
 						/* See if they run on the same node */
-						if (same_single_node (context->exec_nodes->nodelist, save_exec_nodes->nodelist))
+						if (same_single_node (context->query_step->exec_nodes->nodelist, save_exec_nodes->nodelist))
 							return false;
 					}
 					else
 						/* use old value */
-						context->exec_nodes = save_exec_nodes;
+						context->query_step->exec_nodes = save_exec_nodes;
 				}
 			} else
 			{
-				if (context->exec_nodes->tableusagetype == TABLE_USAGE_TYPE_USER_REPLICATED)
+				if (context->query_step->exec_nodes->tableusagetype == TABLE_USAGE_TYPE_USER_REPLICATED)
 					return false;
 				/* See if subquery safely joins with parent */
 				if (!is_multilevel)
@@ -986,8 +1255,8 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 				if (contains_only_pg_catalog (query->rtable))
 				{
 					/* just pg_catalog tables */
-					context->exec_nodes = makeNode(ExecNodes);
-					context->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_PGCATALOG;
+					context->query_step->exec_nodes = makeNode(ExecNodes);
+					context->query_step->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_PGCATALOG;
 					context->exec_on_coord = true;
 					return false;
 				}
@@ -1005,7 +1274,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 
 			if (rte->rtekind == RTE_SUBQUERY)
 			{
-				ExecNodes *save_exec_nodes = context->exec_nodes;
+				ExecNodes *save_exec_nodes = context->query_step->exec_nodes;
 				Special_Conditions *save_conditions = context->conditions; /* Save old conditions */
 				List *current_rtable = rte->subquery->rtable;
 
@@ -1025,8 +1294,8 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 				context->rtables = list_delete_ptr(context->rtables, current_rtable);
 				context->conditions = save_conditions;
 
-				current_nodes = context->exec_nodes;
-				context->exec_nodes = save_exec_nodes;
+				current_nodes = context->query_step->exec_nodes;
+				context->query_step->exec_nodes = save_exec_nodes;
 
 				if (current_nodes)
 					current_usage_type = current_nodes->tableusagetype;
@@ -1103,8 +1372,8 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 	/* If we are just dealing with pg_catalog, just return */
 	if (table_usage_type == TABLE_USAGE_TYPE_PGCATALOG)
 	{
-		context->exec_nodes = makeNode(ExecNodes);
-		context->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_PGCATALOG;
+		context->query_step->exec_nodes = makeNode(ExecNodes);
+		context->query_step->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_PGCATALOG;
 		context->exec_on_coord = true;
 		return false;
 	}
@@ -1112,6 +1381,9 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 	/* Examine the WHERE clause, too */
 	if (examine_conditions_walker(query->jointree->quals, context))
 		return true;
+
+	if (context->query_step->exec_nodes)
+		return false;
 
 	/* Examine join conditions, see if each join is single-node safe */
 	if (context->join_list != NULL)
@@ -1174,27 +1446,27 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 				if (!rel_loc_info)
 					return true;
 
-				context->exec_nodes = GetRelationNodes(rel_loc_info, NULL, context->isRead);
+				context->query_step->exec_nodes = GetRelationNodes(rel_loc_info, NULL, context->isRead);
 			}
 		}
 		else
 		{
-			context->exec_nodes = GetRelationNodes(rel_loc_info, NULL, context->isRead);
+			context->query_step->exec_nodes = GetRelationNodes(rel_loc_info, NULL, context->isRead);
 		}
 
 		/* Note replicated table usage for determining safe queries */
-		if (context->exec_nodes)
+		if (context->query_step->exec_nodes)
 		{
 			if (table_usage_type == TABLE_USAGE_TYPE_USER && IsReplicated(rel_loc_info))
 				table_usage_type = TABLE_USAGE_TYPE_USER_REPLICATED;
 
-			context->exec_nodes->tableusagetype = table_usage_type;
+			context->query_step->exec_nodes->tableusagetype = table_usage_type;
 		}
 	}
 	/* check for partitioned col comparison against a literal */
 	else if (list_length(context->conditions->partitioned_literal_comps) > 0)
 	{
-		context->exec_nodes = NULL;
+		context->query_step->exec_nodes = NULL;
 
 		/*
 		 * Make sure that if there are multiple such comparisons, that they
@@ -1208,11 +1480,11 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 						lit_comp->rel_loc_info, &(lit_comp->constant), true);
 
 			test_exec_nodes->tableusagetype = table_usage_type;
-			if (context->exec_nodes == NULL)
-				context->exec_nodes = test_exec_nodes;
+			if (context->query_step->exec_nodes == NULL)
+				context->query_step->exec_nodes = test_exec_nodes;
 			else
 			{
-				if (!same_single_node(context->exec_nodes->nodelist, test_exec_nodes->nodelist))
+				if (!same_single_node(context->query_step->exec_nodes->nodelist, test_exec_nodes->nodelist))
 				{
 					return true;
 				}
@@ -1231,22 +1503,22 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 		parent_child = (Parent_Child_Join *)
 				linitial(context->conditions->partitioned_parent_child);
 
-		context->exec_nodes = GetRelationNodes(parent_child->rel_loc_info1, NULL, context->isRead);
-		context->exec_nodes->tableusagetype = table_usage_type;
+		context->query_step->exec_nodes = GetRelationNodes(parent_child->rel_loc_info1, NULL, context->isRead);
+		context->query_step->exec_nodes->tableusagetype = table_usage_type;
 	}
 
 	if (from_query_nodes)
 	{
-		if (!context->exec_nodes)
+		if (!context->query_step->exec_nodes)
 		{
-			context->exec_nodes = from_query_nodes;
+			context->query_step->exec_nodes = from_query_nodes;
 			return false;
 		}
 		/* Just use exec_nodes if the from subqueries are all replicated or using the exact
 		 * same node
 		 */
 		else if (from_query_nodes->tableusagetype == TABLE_USAGE_TYPE_USER_REPLICATED
-					|| (same_single_node(from_query_nodes->nodelist, context->exec_nodes->nodelist)))
+					|| (same_single_node(from_query_nodes->nodelist, context->query_step->exec_nodes->nodelist)))
 				return false;
 		else
 		{
@@ -1254,7 +1526,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 			 * but the parent query applies a condition on the from subquery.
 			 */
 			if (list_length(query->jointree->fromlist) == from_subquery_count
-					&& list_length(context->exec_nodes->nodelist) == 1)
+					&& list_length(context->query_step->exec_nodes->nodelist) == 1)
 				return false;
 		}
 		/* Too complicated, give up */
@@ -1270,8 +1542,9 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 static void
 InitXCWalkerContext(XCWalkerContext *context)
 {
+	context->query = NULL;
 	context->isRead = true;
-	context->exec_nodes = NULL;
+	context->query_step = NULL;
 	context->conditions = (Special_Conditions *) palloc0(sizeof(Special_Conditions));
 	context->rtables = NIL;
 	context->multilevel_join = false;
@@ -1286,27 +1559,26 @@ InitXCWalkerContext(XCWalkerContext *context)
  * Top level entry point before walking query to determine plan nodes
  *
  */
-static ExecNodes *
-get_plan_nodes(Query *query, bool isRead)
+static void
+get_plan_nodes(Query *query, RemoteQuery *step, bool isRead)
 {
-	ExecNodes *result_nodes = NULL;
 	XCWalkerContext context;
 
 
 	InitXCWalkerContext(&context);
+	context.query = query;
 	context.isRead = isRead;
+	context.query_step = step;
 	context.rtables = lappend(context.rtables, query->rtable);
 
-	if (!get_plan_nodes_walker((Node *) query, &context))
-		result_nodes = context.exec_nodes;
-	if (context.exec_on_coord && result_nodes)
+	if ((get_plan_nodes_walker((Node *) query, &context)
+			|| context.exec_on_coord) && context.query_step->exec_nodes)
 	{
-		pfree(result_nodes);
-		result_nodes = NULL;
+		pfree(context.query_step->exec_nodes);
+		context.query_step->exec_nodes = NULL;
 	}
 	free_special_relations(context.conditions);
 	free_join_list(context.join_list);
-	return result_nodes;
 }
 
 
@@ -1315,32 +1587,25 @@ get_plan_nodes(Query *query, bool isRead)
  *
  * return NULL if it is not safe to be done in a single step.
  */
-static ExecNodes *
-get_plan_nodes_command(Query *query)
+static void
+get_plan_nodes_command(Query *query, RemoteQuery *step)
 {
-	ExecNodes *exec_nodes = NULL;
-
 	switch (query->commandType)
 	{
 		case CMD_SELECT:
-			exec_nodes = get_plan_nodes(query, true);
+			get_plan_nodes(query, step, true);
 			break;
 
 		case CMD_INSERT:
-			exec_nodes = get_plan_nodes_insert(query);
+			step->exec_nodes = get_plan_nodes_insert(query);
 			break;
 
 		case CMD_UPDATE:
 		case CMD_DELETE:
 			/* treat as a select */
-			exec_nodes = get_plan_nodes(query, false);
+			get_plan_nodes(query, step, false);
 			break;
-
-		default:
-			return NULL;
 	}
-
-	return exec_nodes;
 }
 
 
@@ -1645,8 +1910,6 @@ reconstruct_step_query(List *rtable, bool has_order_by, List *extra_sort,
 	List	   *sub_tlist = step->scan.plan.targetlist;
 	ListCell   *l;
 	StringInfo	buf = makeStringInfo();
-	char	   *sql;
-	char	   *cur;
 	char	   *sql_from;
 
 	context = deparse_context_for_plan((Node *) step, NULL, rtable, NIL);
@@ -1677,23 +1940,9 @@ reconstruct_step_query(List *rtable, bool has_order_by, List *extra_sort,
 	 * Do not handle the case if " FROM " we found is not a "FROM" keyword, but,
 	 * for example, a part of string constant.
 	 */
-	sql = pstrdup(step->sql_statement); /* mutable copy */
-	/* string to upper case, for comparing */
-	cur = sql;
-	while (*cur)
-	{
-		/* replace whitespace with a space */
-		if (isspace((unsigned char) *cur))
-			*cur = ' ';
-		*cur++ = toupper(*cur);
-	}
-
-	/* find the keyword */
-	sql_from = strstr(sql, " FROM ");
+	sql_from = strpos(step->sql_statement, " FROM ");
 	if (sql_from)
 	{
-		/* the same offset in the original string */
-		int		offset = sql_from - sql;
 		/*
 		 * Truncate query at the position of terminating semicolon to be able
 		 * to append extra order by entries. If query is submitted from client
@@ -1705,7 +1954,7 @@ reconstruct_step_query(List *rtable, bool has_order_by, List *extra_sort,
 		if (*end == ';')
 			*end = '\0';
 
-		appendStringInfoString(buf, step->sql_statement + offset);
+		appendStringInfoString(buf, sql_from);
 	}
 
 	if (extra_sort)
@@ -1728,9 +1977,6 @@ reconstruct_step_query(List *rtable, bool has_order_by, List *extra_sort,
 		}
 	}
 
-	/* do not need the copy */
-	pfree(sql);
-
 	/* free previous query */
 	pfree(step->sql_statement);
 	/* get a copy of new query */
@@ -1740,6 +1986,81 @@ reconstruct_step_query(List *rtable, bool has_order_by, List *extra_sort,
 	pfree(buf);
 }
 
+
+/*
+ * Traverse the plan subtree and set cursor name for RemoteQuery nodes
+ * Cursor names must be unique, so append step_no parameter to the initial
+ * cursor name. Returns next step_no to be assigned
+ */
+static int
+set_cursor_name(Plan *subtree, char *cursor, int step_no)
+{
+	if (innerPlan(subtree))
+		step_no = set_cursor_name(innerPlan(subtree), cursor, step_no);
+	if (outerPlan(subtree))
+		step_no = set_cursor_name(outerPlan(subtree), cursor, step_no);
+	if (IsA(subtree, RemoteQuery))
+	{
+		RemoteQuery *step = (RemoteQuery *) subtree;
+		/*
+		 * Keep the name for the very first step, hoping it is the only step and
+		 * we do not have to modify WHERE CURRENT OF
+		 */
+		if (step_no)
+		{
+			StringInfoData buf;
+			initStringInfo(&buf);
+			appendStringInfo(&buf, "%s%d", cursor, step_no++);
+			/* make a copy before overwriting */
+			step->cursor = buf.data;
+		}
+		else
+		{
+			step_no++;
+			step->cursor = pstrdup(cursor);
+		}
+	}
+	return step_no;
+}
+
+/*
+ * Append ctid to the field list of step queries to support update
+ * WHERE CURRENT OF. The ctid is not sent down to client but used as a key
+ * to find target tuple
+ */
+static void
+fetch_ctid_of(Plan *subtree, RowMarkClause *rmc)
+{
+	/* recursively process subnodes */
+	if (innerPlan(subtree))
+		fetch_ctid_of(innerPlan(subtree), rmc);
+	if (outerPlan(subtree))
+		fetch_ctid_of(outerPlan(subtree), rmc);
+
+	/* we are only interested in RemoteQueries */
+	if (IsA(subtree, RemoteQuery))
+	{
+		RemoteQuery *step = (RemoteQuery *) subtree;
+		/*
+		 * TODO Find if the table is referenced by the step query
+		 */
+
+		char *from_sql = strpos(step->sql_statement, " FROM ");
+		if (from_sql)
+		{
+			StringInfoData buf;
+
+			initStringInfo(&buf);
+			appendBinaryStringInfo(&buf, step->sql_statement,
+								   (int) (from_sql - step->sql_statement));
+			/* TODO qualify with the table name */
+			appendStringInfoString(&buf, ", ctid");
+			appendStringInfoString(&buf, from_sql);
+			pfree(step->sql_statement);
+			step->sql_statement = buf.data;
+		}
+	}
+}
 
 /*
  * Plan to sort step tuples
@@ -2114,44 +2435,9 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	query_step = makeNode(RemoteQuery);
 	query_step->is_single_step = false;
 
-	/*
-	 * Declare Cursor case:
-	 * We should leave as a step query only SELECT statement
-	 * Further if we need refer source statement for planning we should take
-	 * the truncated string
-	 */
-	if (query->utilityStmt &&
+   	if (query->utilityStmt &&
 		IsA(query->utilityStmt, DeclareCursorStmt))
-	{
-
-		char	   *src = query->sql_statement;
-		char 		str[strlen(src) + 1]; /* mutable copy */
-		char	   *dst = str;
-
-		cursorOptions |= ((DeclareCursorStmt *) query->utilityStmt)->options;
-
-		/*
-		 * Initialize mutable copy, converting letters to uppercase and
-		 * various witespace characters to spaces
-		 */
-		while (*src)
-		{
-			if (isspace(*src))
-			{
-				src++;
-				*dst++ = ' ';
-			}
-			else
-				*dst++ = toupper(*src++);
-		}
-		*dst = '\0';
-		/* search for SELECT keyword in the normalized string */
-		dst = strstr(str, " SELECT ");
-		/* Take substring of the original string using found offset */
-		query_step->sql_statement = pstrdup(query->sql_statement + (dst - str + 1));
-	}
-	else
-		query_step->sql_statement = pstrdup(query->sql_statement);
+			cursorOptions |= ((DeclareCursorStmt *) query->utilityStmt)->options;
 
 	query_step->exec_nodes = NULL;
 	query_step->combine_type = COMBINE_TYPE_NONE;
@@ -2187,7 +2473,7 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 			if (query->commandType != CMD_SELECT)
 				result->resultRelations = list_make1_int(query->resultRelation);
 
-			query_step->exec_nodes = get_plan_nodes_command(query);
+			get_plan_nodes_command(query, query_step);
 
 			if (query_step->exec_nodes == NULL)
 			{
@@ -2217,26 +2503,29 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 			}
 
 			/*
-			 * Use standard plan if we have more than one data node with either
-			 * group by, hasWindowFuncs, or hasRecursive
+			 * get_plan_nodes_command may alter original statement, so do not
+			 * process it before the call
+			 *
+			 * Declare Cursor case:
+			 * We should leave as a step query only SELECT statement
+			 * Further if we need refer source statement for planning we should take
+			 * the truncated string
 			 */
-			/*
-			 * PGXCTODO - this could be improved to check if the first
-			 * group by expression is the partitioning column, in which
-			 * case it is ok to treat as a single step.
-			 */
-			if (query->commandType == CMD_SELECT
-							&& query_step->exec_nodes
-							&& list_length(query_step->exec_nodes->nodelist) > 1
-							&& (query->groupClause || query->hasWindowFuncs || query->hasRecursive))
+			if (query->utilityStmt &&
+				IsA(query->utilityStmt, DeclareCursorStmt))
 			{
-				result = standard_planner(query, cursorOptions, boundParams);
-				return result;
+
+				/* search for SELECT keyword in the normalized string */
+				char *select = strpos(query->sql_statement, " SELECT ");
+				/* Take substring of the original string using found offset */
+				query_step->sql_statement = pstrdup(select + 1);
 			}
+			else
+				query_step->sql_statement = pstrdup(query->sql_statement);
 
 			/*
-			 * If there already is an active portal, we may be doing planning 
-			 * within a function.  Just use the standard plan, but check if 
+			 * If there already is an active portal, we may be doing planning
+			 * within a function.  Just use the standard plan, but check if
 			 * it is part of an EXPLAIN statement so that we do not show that
 			 * we plan multiple steps when it is a single-step operation.
 			 */
@@ -2285,6 +2574,24 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 				result = standard_planner(query, cursorOptions, boundParams);
 				return result;
 			}
+
+			/*
+			 * Use standard plan if we have more than one data node with either
+			 * group by, hasWindowFuncs, or hasRecursive
+			 */
+			/*
+			 * PGXCTODO - this could be improved to check if the first
+			 * group by expression is the partitioning column, in which
+			 * case it is ok to treat as a single step.
+			 */
+			if (query->commandType == CMD_SELECT
+							&& query_step->exec_nodes
+							&& list_length(query_step->exec_nodes->nodelist) > 1
+							&& (query->groupClause || query->hasWindowFuncs || query->hasRecursive))
+			{
+						result->planTree = standardPlan;
+						return result;
+			}
 			break;
 
 		default:
@@ -2307,6 +2614,33 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 			result->planTree = materialize_finished_plan(result->planTree);
 	}
 
+	/*
+	 * Support for multi-step cursor.
+	 * Ensure uniqueness of remote cursor name
+	 */
+	if (query->utilityStmt &&
+		IsA(query->utilityStmt, DeclareCursorStmt))
+	{
+		DeclareCursorStmt *stmt = (DeclareCursorStmt *) query->utilityStmt;
+		set_cursor_name(result->planTree, stmt->portalname, 0);
+	}
+
+	/*
+	 * If query is FOR UPDATE fetch CTIDs from the remote node
+	 * Use CTID as a key to update tuples on remote nodes when handling
+	 * WHERE CURRENT OF
+	 */
+	if (query->rowMarks)
+	{
+		ListCell *lc;
+		foreach(lc, query->rowMarks)
+		{
+			RowMarkClause *rmc = (RowMarkClause *) lfirst(lc);
+
+			fetch_ctid_of(result->planTree, rmc);
+		}
+	}
+
 	return result;
 }
 
@@ -2321,6 +2655,8 @@ free_query_step(RemoteQuery *query_step)
 		return;
 
 	pfree(query_step->sql_statement);
+	if (query_step->cursor)
+		pfree(query_step->cursor);
 	if (query_step->exec_nodes)
 	{
 		if (query_step->exec_nodes->nodelist)

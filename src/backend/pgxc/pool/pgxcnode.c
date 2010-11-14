@@ -78,6 +78,7 @@ init_pgxc_handle(PGXCNodeHandle *pgxc_handle)
 	pgxc_handle->outBuffer = (char *) palloc(pgxc_handle->outSize);
 	pgxc_handle->inSize = 16 * 1024;
 	pgxc_handle->inBuffer = (char *) palloc(pgxc_handle->inSize);
+	pgxc_handle->combiner = NULL;
 
 	if (pgxc_handle->outBuffer == NULL || pgxc_handle->inBuffer == NULL)
 	{
@@ -239,6 +240,7 @@ pgxc_node_init(PGXCNodeHandle *handle, int sock, int nodenum)
 	handle->sock = sock;
 	handle->transaction_status = 'I';
 	handle->state = DN_CONNECTION_STATE_IDLE;
+	handle->combiner = NULL;
 #ifdef DN_CONNECTION_DEBUG
 	handle->have_row_desc = false;
 #endif
@@ -268,7 +270,7 @@ pgxc_node_receive(const int conn_count,
 	{
 		/* If connection finised sending do not wait input from it */
 		if (connections[i]->state == DN_CONNECTION_STATE_IDLE
-				|| connections[i]->state == DN_CONNECTION_STATE_HAS_DATA)
+				|| HAS_MESSAGE_BUFFERED(connections[i]))
 			continue;
 
 		/* prepare select params */
@@ -280,7 +282,7 @@ pgxc_node_receive(const int conn_count,
 		else
 		{
 			/* flag as bad, it will be removed from the list */
-			connections[i]->state == DN_CONNECTION_STATE_ERROR_NOT_READY;
+			connections[i]->state = DN_CONNECTION_STATE_ERROR_FATAL;
 		}
 	}
 
@@ -327,11 +329,7 @@ retry:
 				add_error_message(conn, "unexpected EOF on datanode connection");
 				elog(WARNING, "unexpected EOF on datanode connection");
 				/* Should we read from the other connections before returning? */
-				return EOF; 
-			}
-			else
-			{
-				conn->state = DN_CONNECTION_STATE_HAS_DATA;
+				return EOF;
 			}
 		}
 	}
@@ -476,18 +474,6 @@ retry:
 }
 
 
-/* 
- * Clear out socket data and buffer.
- * Throw away any data.
- */
-void
-clear_socket_data (PGXCNodeHandle *conn)
-{
-	do {
-		conn->inStart = conn->inCursor = conn->inEnd = 0;
-	} while (pgxc_node_read_data(conn) > 0);
-}
-
 /*
  * Get one character from the connection buffer and advance cursor
  */
@@ -576,7 +562,6 @@ get_message(PGXCNodeHandle *conn, int *len, char **msg)
 		 * ensure_in_buffer_capacity() will immediately return
 		 */
 		ensure_in_buffer_capacity(5 + (size_t) *len, conn);
-		conn->state = DN_CONNECTION_STATE_QUERY;
 		conn->inCursor = conn->inStart;
 		return '\0';
 	}
@@ -589,7 +574,7 @@ get_message(PGXCNodeHandle *conn, int *len, char **msg)
 
 
 /*
- * Release all data node connections  and coordinator connections 
+ * Release all data node connections  and coordinator connections
  * back to pool and release occupied memory
  *
  * If force_drop is true, we force dropping all of the connections, such as after
@@ -853,6 +838,327 @@ send_some(PGXCNodeHandle *handle, int len)
 	return result;
 }
 
+/*
+ * Send PARSE message with specified statement down to the Data node
+ */
+int
+pgxc_node_send_parse(PGXCNodeHandle * handle, const char* statement,
+					 const char *query)
+{
+	/* statement name size (allow NULL) */
+	int			stmtLen = statement ? strlen(statement) + 1 : 1;
+	/* size of query string */
+	int			strLen = strlen(query) + 1;
+	/* size of parameter array (always empty for now) */
+	int 		paramLen = 2;
+
+	/* size + stmtLen + strlen + paramLen */
+	int			msgLen = 4 + stmtLen + strLen + paramLen;
+
+	/* msgType + msgLen */
+	if (ensure_out_buffer_capacity(handle->outEnd + 1 + msgLen, handle) != 0)
+	{
+		add_error_message(handle, "out of memory");
+		return EOF;
+	}
+
+	handle->outBuffer[handle->outEnd++] = 'P';
+	/* size */
+	msgLen = htonl(msgLen);
+	memcpy(handle->outBuffer + handle->outEnd, &msgLen, 4);
+	handle->outEnd += 4;
+	/* statement name */
+	if (statement)
+	{
+		memcpy(handle->outBuffer + handle->outEnd, statement, stmtLen);
+		handle->outEnd += stmtLen;
+	}
+	else
+		handle->outBuffer[handle->outEnd++] = '\0';
+	/* query */
+	memcpy(handle->outBuffer + handle->outEnd, query, strLen);
+	handle->outEnd += strLen;
+	/* parameter types (none) */
+	handle->outBuffer[handle->outEnd++] = 0;
+	handle->outBuffer[handle->outEnd++] = 0;
+
+ 	return 0;
+}
+
+
+/*
+ * Send BIND message down to the Data node
+ */
+int
+pgxc_node_send_bind(PGXCNodeHandle * handle, const char *portal,
+					const char *statement, int paramlen, char *params)
+{
+	uint16		n16;
+	/* portal name size (allow NULL) */
+	int			pnameLen = portal ? strlen(portal) + 1 : 1;
+	/* statement name size (allow NULL) */
+	int			stmtLen = statement ? strlen(statement) + 1 : 1;
+	/* size of parameter codes array (always empty for now) */
+	int 		paramCodeLen = 2;
+	/* size of parameter values array, 2 if no params */
+	int 		paramValueLen = paramlen ? paramlen : 2;
+	/* size of output parameter codes array (always empty for now) */
+	int 		paramOutLen = 2;
+
+	/* size + pnameLen + stmtLen + parameters */
+	int			msgLen = 4 + pnameLen + stmtLen + paramCodeLen + paramValueLen + paramOutLen;
+
+	/* msgType + msgLen */
+	if (ensure_out_buffer_capacity(handle->outEnd + 1 + msgLen, handle) != 0)
+	{
+		add_error_message(handle, "out of memory");
+		return EOF;
+	}
+
+	handle->outBuffer[handle->outEnd++] = 'B';
+	/* size */
+	msgLen = htonl(msgLen);
+	memcpy(handle->outBuffer + handle->outEnd, &msgLen, 4);
+	handle->outEnd += 4;
+	/* portal name */
+	if (portal)
+	{
+		memcpy(handle->outBuffer + handle->outEnd, portal, pnameLen);
+		handle->outEnd += pnameLen;
+	}
+	else
+		handle->outBuffer[handle->outEnd++] = '\0';
+	/* statement name */
+	if (statement)
+	{
+		memcpy(handle->outBuffer + handle->outEnd, statement, stmtLen);
+		handle->outEnd += stmtLen;
+	}
+	else
+		handle->outBuffer[handle->outEnd++] = '\0';
+	/* parameter codes (none) */
+	handle->outBuffer[handle->outEnd++] = 0;
+	handle->outBuffer[handle->outEnd++] = 0;
+	/* parameter values */
+	if (paramlen)
+	{
+		memcpy(handle->outBuffer + handle->outEnd, params, paramlen);
+		handle->outEnd += paramlen;
+	}
+	else
+	{
+		handle->outBuffer[handle->outEnd++] = 0;
+		handle->outBuffer[handle->outEnd++] = 0;
+	}
+	/* output parameter codes (none) */
+	handle->outBuffer[handle->outEnd++] = 0;
+	handle->outBuffer[handle->outEnd++] = 0;
+
+ 	return 0;
+}
+
+
+/*
+ * Send DESCRIBE message (portal or statement) down to the Data node
+ */
+int
+pgxc_node_send_describe(PGXCNodeHandle * handle, bool is_statement,
+						const char *name)
+{
+	/* statement or portal name size (allow NULL) */
+	int			nameLen = name ? strlen(name) + 1 : 1;
+
+	/* size + statement/portal + name */
+	int			msgLen = 4 + 1 + nameLen;
+
+	/* msgType + msgLen */
+	if (ensure_out_buffer_capacity(handle->outEnd + 1 + msgLen, handle) != 0)
+	{
+		add_error_message(handle, "out of memory");
+		return EOF;
+	}
+
+	handle->outBuffer[handle->outEnd++] = 'D';
+	/* size */
+	msgLen = htonl(msgLen);
+	memcpy(handle->outBuffer + handle->outEnd, &msgLen, 4);
+	handle->outEnd += 4;
+	/* statement/portal flag */
+	handle->outBuffer[handle->outEnd++] = is_statement ? 'S' : 'P';
+	/* object name */
+	if (name)
+	{
+		memcpy(handle->outBuffer + handle->outEnd, name, nameLen);
+		handle->outEnd += nameLen;
+	}
+	else
+		handle->outBuffer[handle->outEnd++] = '\0';
+
+ 	return 0;
+}
+
+
+/*
+ * Send CLOSE message (portal or statement) down to the Data node
+ */
+int
+pgxc_node_send_close(PGXCNodeHandle * handle, bool is_statement,
+					 const char *name)
+{
+	/* statement or portal name size (allow NULL) */
+	int			nameLen = name ? strlen(name) + 1 : 1;
+
+	/* size + statement/portal + name */
+	int			msgLen = 4 + 1 + nameLen;
+
+	/* msgType + msgLen */
+	if (ensure_out_buffer_capacity(handle->outEnd + 1 + msgLen, handle) != 0)
+	{
+		add_error_message(handle, "out of memory");
+		return EOF;
+	}
+
+	handle->outBuffer[handle->outEnd++] = 'C';
+	/* size */
+	msgLen = htonl(msgLen);
+	memcpy(handle->outBuffer + handle->outEnd, &msgLen, 4);
+	handle->outEnd += 4;
+	/* statement/portal flag */
+	handle->outBuffer[handle->outEnd++] = is_statement ? 'S' : 'P';
+	/* object name */
+	if (name)
+	{
+		memcpy(handle->outBuffer + handle->outEnd, name, nameLen);
+		handle->outEnd += nameLen;
+	}
+	else
+		handle->outBuffer[handle->outEnd++] = '\0';
+
+	handle->state = DN_CONNECTION_STATE_QUERY;
+
+ 	return 0;
+}
+
+/*
+ * Send EXECUTE message down to the Data node
+ */
+int
+pgxc_node_send_execute(PGXCNodeHandle * handle, const char *portal, int fetch)
+{
+	/* portal name size (allow NULL) */
+	int			pnameLen = portal ? strlen(portal) + 1 : 1;
+
+	/* size + pnameLen + fetchLen */
+	int			msgLen = 4 + pnameLen + 4;
+
+	/* msgType + msgLen */
+	if (ensure_out_buffer_capacity(handle->outEnd + 1 + msgLen, handle) != 0)
+	{
+		add_error_message(handle, "out of memory");
+		return EOF;
+	}
+
+	handle->outBuffer[handle->outEnd++] = 'E';
+	/* size */
+	msgLen = htonl(msgLen);
+	memcpy(handle->outBuffer + handle->outEnd, &msgLen, 4);
+	handle->outEnd += 4;
+	/* portal name */
+	if (portal)
+	{
+		memcpy(handle->outBuffer + handle->outEnd, portal, pnameLen);
+		handle->outEnd += pnameLen;
+	}
+	else
+		handle->outBuffer[handle->outEnd++] = '\0';
+
+	/* fetch */
+	fetch = htonl(fetch);
+	memcpy(handle->outBuffer + handle->outEnd, &fetch, 4);
+	handle->outEnd += 4;
+
+	handle->state = DN_CONNECTION_STATE_QUERY;
+
+	return 0;
+}
+
+
+/*
+ * Send FLUSH message down to the Data node
+ */
+int
+pgxc_node_send_flush(PGXCNodeHandle * handle)
+{
+	/* size */
+	int			msgLen = 4;
+
+	/* msgType + msgLen */
+	if (ensure_out_buffer_capacity(handle->outEnd + 1 + msgLen, handle) != 0)
+	{
+		add_error_message(handle, "out of memory");
+		return EOF;
+	}
+
+	handle->outBuffer[handle->outEnd++] = 'H';
+	/* size */
+	msgLen = htonl(msgLen);
+	memcpy(handle->outBuffer + handle->outEnd, &msgLen, 4);
+	handle->outEnd += 4;
+
+	return pgxc_node_flush(handle);
+}
+
+
+/*
+ * Send SYNC message down to the Data node
+ */
+int
+pgxc_node_send_sync(PGXCNodeHandle * handle)
+{
+	/* size */
+	int			msgLen = 4;
+
+	/* msgType + msgLen */
+	if (ensure_out_buffer_capacity(handle->outEnd + 1 + msgLen, handle) != 0)
+	{
+		add_error_message(handle, "out of memory");
+		return EOF;
+	}
+
+	handle->outBuffer[handle->outEnd++] = 'S';
+	/* size */
+	msgLen = htonl(msgLen);
+	memcpy(handle->outBuffer + handle->outEnd, &msgLen, 4);
+	handle->outEnd += 4;
+
+	return pgxc_node_flush(handle);
+}
+
+
+/*
+ * Send the GXID down to the Data node
+ */
+int
+pgxc_node_send_query_extended(PGXCNodeHandle *handle, const char *query,
+							  const char *statement, const char *portal,
+							  int paramlen, char *params,
+							  bool send_describe, int fetch_size)
+{
+	if (pgxc_node_send_parse(handle, statement, query))
+		return EOF;
+	if (pgxc_node_send_bind(handle, portal, statement, paramlen, params))
+		return EOF;
+	if (send_describe)
+		if (pgxc_node_send_describe(handle, false, portal))
+			return EOF;
+	if (fetch_size >= 0)
+		if (pgxc_node_send_execute(handle, portal, fetch_size))
+			return EOF;
+	if (pgxc_node_send_sync(handle))
+		return EOF;
+
+	return 0;
+}
 
 /*
  * This method won't return until connection buffer is empty or error occurs
@@ -1034,7 +1340,6 @@ void
 add_error_message(PGXCNodeHandle *handle, const char *message)
 {
 	handle->transaction_status = 'E';
-	handle->state = DN_CONNECTION_STATE_ERROR_NOT_READY;
 	if (handle->error)
 	{
 		/* PGXCTODO append */
@@ -1072,7 +1377,7 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_OUT_OF_MEMORY),
-				 errmsg("out of memory")));		
+				 errmsg("out of memory")));
 	}
 
 	result->primary_handle = NULL;
@@ -1348,8 +1653,7 @@ is_active_connection(PGXCNodeHandle *handle)
 {
 	return handle->sock != NO_SOCKET &&
 				handle->state != DN_CONNECTION_STATE_IDLE &&
-				handle->state != DN_CONNECTION_STATE_ERROR_NOT_READY &&
-				handle->state != DN_CONNECTION_STATE_ERROR_FATAL;
+				!DN_CONNECTION_STATE_ERROR(handle);
 }
 
 /*
@@ -1378,7 +1682,7 @@ get_active_nodes(PGXCNodeHandle **connections)
 			if (is_active_connection(&co_handles[i]))
 				connections[active_count++] = &co_handles[i];
 		}
-	}	
+	}
 
 	return active_count;
 }
@@ -1442,6 +1746,11 @@ pgxc_all_handles_send_query(PGXCNodeAllHandles *pgxc_handles, const char *buffer
     /* Send to Datanodes */
     for (i = 0; i < dn_conn_count; i++)
 	{
+		/*
+		 * Clean connection if fetch in progress
+		 */
+		if (pgxc_handles->datanode_handles[i]->state == DN_CONNECTION_STATE_QUERY)
+			BufferConnection(pgxc_handles->datanode_handles[i]);
 		if (pgxc_node_send_query(pgxc_handles->datanode_handles[i], buffer))
 		{
 			add_error_message(pgxc_handles->datanode_handles[i], "Can not send request");

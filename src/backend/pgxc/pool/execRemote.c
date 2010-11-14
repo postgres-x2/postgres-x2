@@ -35,6 +35,8 @@
 
 #define END_QUERY_TIMEOUT	20
 #define CLEAR_TIMEOUT		5
+#define DATA_NODE_FETCH_SIZE 1
+
 
 
 extern char *deparseSql(RemoteQueryState *scanstate);
@@ -69,6 +71,8 @@ static void clear_write_node_list(void);
 static void pfree_pgxc_all_handles(PGXCNodeAllHandles *pgxc_handles);
 
 static int handle_response_clear(PGXCNodeHandle * conn);
+
+static void close_node_cursors(PGXCNodeHandle **connections, int conn_count, char *cursor);
 
 static PGXCNodeAllHandles *pgxc_get_all_transaction_nodes(void);
 
@@ -200,8 +204,11 @@ CreateResponseCombiner(int node_count, CombineType combine_type)
 	combiner->copy_out_count = 0;
 	combiner->errorMessage = NULL;
 	combiner->query_Done = false;
-	combiner->msg = NULL;
-	combiner->msglen = 0;
+	combiner->currentRow.msg = NULL;
+	combiner->currentRow.msglen = 0;
+	combiner->currentRow.msgnode = 0;
+	combiner->rowBuffer = NIL;
+	combiner->tapenodes = NULL;
 	combiner->initAggregates = true;
 	combiner->simple_aggregates = NULL;
 	combiner->copy_file = NULL;
@@ -671,10 +678,10 @@ HandleCopyDataRow(RemoteQueryState *combiner, char *msg_body, size_t len)
  * Caller must stop reading if function returns false
  */
 static void
-HandleDataRow(RemoteQueryState *combiner, char *msg_body, size_t len)
+HandleDataRow(RemoteQueryState *combiner, char *msg_body, size_t len, int node)
 {
 	/* We expect previous message is consumed */
-	Assert(combiner->msg == NULL);
+	Assert(combiner->currentRow.msg == NULL);
 
 	if (combiner->request_type != REQUEST_TYPE_QUERY)
 	{
@@ -695,9 +702,10 @@ HandleDataRow(RemoteQueryState *combiner, char *msg_body, size_t len)
 	 * We are copying message because it points into connection buffer, and
 	 * will be overwritten on next socket read
 	 */
-	combiner->msg = (char *) palloc(len);
-	memcpy(combiner->msg, msg_body, len);
-	combiner->msglen = len;
+	combiner->currentRow.msg = (char *) palloc(len);
+	memcpy(combiner->currentRow.msg, msg_body, len);
+	combiner->currentRow.msglen = len;
+	combiner->currentRow.msgnode = node;
 }
 
 /*
@@ -850,6 +858,10 @@ CloseCombiner(RemoteQueryState *combiner)
 			FreeTupleDesc(combiner->tuple_desc);
 		if (combiner->errorMessage)
 			pfree(combiner->errorMessage);
+		if (combiner->cursor_connections)
+			pfree(combiner->cursor_connections);
+		if (combiner->tapenodes)
+			pfree(combiner->tapenodes);
 		pfree(combiner);
 	}
 }
@@ -874,15 +886,24 @@ static bool
 ValidateAndResetCombiner(RemoteQueryState *combiner)
 {
 	bool		valid = validate_combiner(combiner);
+	ListCell   *lc;
 
 	if (combiner->connections)
 		pfree(combiner->connections);
 	if (combiner->tuple_desc)
 		FreeTupleDesc(combiner->tuple_desc);
-	if (combiner->msg)
-		pfree(combiner->msg);
+	if (combiner->currentRow.msg)
+		pfree(combiner->currentRow.msg);
+	foreach(lc, combiner->rowBuffer)
+	{
+		RemoteDataRow dataRow = (RemoteDataRow) lfirst(lc);
+		pfree(dataRow->msg);
+	}
+	list_free_deep(combiner->rowBuffer);
 	if (combiner->errorMessage)
 		pfree(combiner->errorMessage);
+	if (combiner->tapenodes)
+		pfree(combiner->tapenodes);
 
 	combiner->command_complete_count = 0;
 	combiner->connections = NULL;
@@ -894,8 +915,11 @@ ValidateAndResetCombiner(RemoteQueryState *combiner)
 	combiner->copy_out_count = 0;
 	combiner->errorMessage = NULL;
 	combiner->query_Done = false;
-	combiner->msg = NULL;
-	combiner->msglen = 0;
+	combiner->currentRow.msg = NULL;
+	combiner->currentRow.msglen = 0;
+	combiner->currentRow.msgnode = 0;
+	combiner->rowBuffer = NIL;
+	combiner->tapenodes = NULL;
 	combiner->simple_aggregates = NULL;
 	combiner->copy_file = NULL;
 
@@ -903,22 +927,247 @@ ValidateAndResetCombiner(RemoteQueryState *combiner)
 }
 
 /*
+ * It is possible if multiple steps share the same data node connection, when
+ * executor is running multi-step query or client is running multiple queries
+ * using Extended Query Protocol. After returning next tuple ExecRemoteQuery
+ * function passes execution control to the executor and then it can be given
+ * to the same RemoteQuery or to different one. It is possible that before
+ * returning a tuple the function do not read all data node responses. In this
+ * case pending responses should be read in context of original RemoteQueryState
+ * till ReadyForQuery message and data rows should be stored (buffered) to be
+ * available when fetch from that RemoteQueryState is requested again.
+ * BufferConnection function does the job.
+ * If a RemoteQuery is going to use connection it should check connection state.
+ * DN_CONNECTION_STATE_QUERY indicates query has data to read and combiner
+ * points to the original RemoteQueryState. If combiner differs from "this" the
+ * connection should be buffered.
+ */
+void
+BufferConnection(PGXCNodeHandle *conn)
+{
+	RemoteQueryState *combiner = conn->combiner;
+	/*
+	 * When BufferConnection is invoked CurrentContext is related to other
+	 * portal, which is trying to control the connection.
+	 * TODO See if we can find better context to switch to
+	 */
+	MemoryContext oldcontext = MemoryContextSwitchTo(combiner->ss.ss_ScanTupleSlot->tts_mcxt);
+
+	Assert(conn->state == DN_CONNECTION_STATE_QUERY && combiner);
+
+	/* Verify the connection is in use by the combiner */
+	combiner->current_conn = 0;
+	while (combiner->current_conn < combiner->conn_count)
+	{
+		if (combiner->connections[combiner->current_conn] == conn)
+			break;
+		combiner->current_conn++;
+	}
+	Assert(combiner->current_conn < combiner->conn_count);
+
+	/*
+	 * Buffer data rows until data node return number of rows specified by the
+	 * fetch_size parameter of last Execute message (PortalSuspended message)
+	 * or end of result set is reached (CommandComplete message)
+	 */
+	while (conn->state == DN_CONNECTION_STATE_QUERY)
+	{
+		int res;
+
+		/* Move to buffer currentRow (received from the data node) */
+		if (combiner->currentRow.msg)
+		{
+			RemoteDataRow dataRow = (RemoteDataRow) palloc(sizeof(RemoteDataRowData));
+			*dataRow = combiner->currentRow;
+			combiner->currentRow.msg = NULL;
+			combiner->currentRow.msglen = 0;
+			combiner->currentRow.msgnode = 0;
+			combiner->rowBuffer = lappend(combiner->rowBuffer, dataRow);
+		}
+
+		res = handle_response(conn, combiner);
+		/*
+		 * If response message is a DataRow it will be handled on the next
+		 * iteration.
+		 * PortalSuspended will cause connection state change and break the loop
+		 * The same is for CommandComplete, but we need additional handling -
+		 * remove connection from the list of active connections.
+		 * We may need to add handling error response
+		 */
+		if (res == RESPONSE_EOF)
+		{
+			/* incomplete message, read more */
+			if (pgxc_node_receive(1, &conn, NULL))
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("Failed to fetch from data node")));
+			continue;
+		}
+		else if (res == RESPONSE_COMPLETE)
+		{
+			/*
+			 * End of result set is reached, so either set the pointer to the
+			 * connection to NULL (step with sort) or remove it from the list
+			 * (step without sort)
+			 */
+			if (combiner->tuplesortstate)
+			{
+				combiner->connections[combiner->current_conn] = NULL;
+				if (combiner->tapenodes == NULL)
+					combiner->tapenodes = (int*) palloc0(NumDataNodes * sizeof(int));
+				combiner->tapenodes[combiner->current_conn] = conn->nodenum;
+			}
+			else
+				/* Remove current connection, move last in-place, adjust current_conn */
+				if (combiner->current_conn < --combiner->conn_count)
+					combiner->connections[combiner->current_conn] = combiner->connections[combiner->conn_count];
+				else
+					combiner->current_conn = 0;
+		}
+		/*
+		 * Before output RESPONSE_COMPLETE or PORTAL_SUSPENDED handle_response()
+		 * changes connection state to DN_CONNECTION_STATE_IDLE, breaking the
+		 * loop. We do not need to do anything specific in case of
+		 * PORTAL_SUSPENDED so skiping "else if" block for that case
+		 */
+	}
+	MemoryContextSwitchTo(oldcontext);
+	conn->combiner = NULL;
+}
+
+/*
  * Get next data row from the combiner's buffer into provided slot
- * Just clear slot and return false if buffer is empty, that means more data
- * should be read
+ * Just clear slot and return false if buffer is empty, that means end of result
+ * set is reached
  */
 bool
 FetchTuple(RemoteQueryState *combiner, TupleTableSlot *slot)
 {
-	/* have messages in the buffer, consume them */
-	if (combiner->msg)
+	bool have_tuple = false;
+
+	while (combiner->conn_count > 0)
 	{
-		ExecStoreDataRowTuple(combiner->msg, combiner->msglen, slot, true);
-		combiner->msg = NULL;
-		combiner->msglen = 0;
+		PGXCNodeHandle *conn;
+		int res;
+
+		/* If we have message in the buffer, consume it */
+		if (combiner->currentRow.msg)
+		{
+			ExecStoreDataRowTuple(combiner->currentRow.msg,
+								  combiner->currentRow.msglen,
+								  combiner->currentRow.msgnode, slot, true);
+			combiner->currentRow.msg = NULL;
+			combiner->currentRow.msglen = 0;
+			combiner->currentRow.msgnode = 0;
+			have_tuple = true;
+		}
+		/*
+		 * If this is ordered fetch we can not know what is the node
+		 * to handle next, so sorter will choose next itself and set it as
+		 * currentRow to have it consumed on the next call to FetchTuple
+		 */
+		if (((RemoteQuery *)combiner->ss.ps.plan)->sort)
+			return have_tuple;
+
+		/*
+		 * Note: If we are fetching not sorted results we can not have both
+		 * currentRow and buffered rows. When connection is buffered currentRow
+		 * is moved to buffer, and then it is cleaned after buffering is
+		 * completed. Afterwards rows will be taken from the buffer bypassing
+		 * currentRow until buffer is empty, and only after that data are read
+		 * from a connection.
+		 */
+		if (list_length(combiner->rowBuffer) > 0)
+		{
+			RemoteDataRow dataRow = (RemoteDataRow) linitial(combiner->rowBuffer);
+			combiner->rowBuffer = list_delete_first(combiner->rowBuffer);
+			ExecStoreDataRowTuple(dataRow->msg, dataRow->msglen,
+								  dataRow->msgnode, slot, true);
+			pfree(dataRow);
+			return true;
+		}
+
+		conn = combiner->connections[combiner->current_conn];
+
+		/* Going to use a connection, buffer it if needed */
+		if (conn->state == DN_CONNECTION_STATE_QUERY && conn->combiner != NULL
+				&& conn->combiner != combiner)
+			BufferConnection(conn);
+
+		/*
+		 * If current connection is idle it means portal on the data node is
+		 * suspended. If we have a tuple do not hurry to request more rows,
+		 * leave connection clean for other RemoteQueries.
+		 * If we do not have, request more and try to get it
+		 */
+		if (conn->state == DN_CONNECTION_STATE_IDLE)
+		{
+			/*
+			 * If we have tuple to return do not hurry to request more, keep
+			 * connection clean
+			 */
+			if (have_tuple)
+				return have_tuple;
+			else
+			{
+				if (pgxc_node_send_execute(conn, combiner->cursor, 1) != 0)
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+							 errmsg("Failed to fetch from data node")));
+				if (pgxc_node_send_sync(conn) != 0)
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+							 errmsg("Failed to fetch from data node")));
+				if (pgxc_node_receive(1, &conn, NULL))
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+							 errmsg("Failed to fetch from data node")));
+				conn->combiner = combiner;
+			}
+		}
+
+		/* read messages */
+		res = handle_response(conn, combiner);
+		if (res == RESPONSE_EOF)
+		{
+			/* incomplete message, read more */
+			if (pgxc_node_receive(1, &conn, NULL))
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("Failed to fetch from data node")));
+			continue;
+		}
+		else if (res == RESPONSE_SUSPENDED)
+		{
+			/* Make next connection current */
+			if (++combiner->current_conn >= combiner->conn_count)
+				combiner->current_conn = 0;
+		}
+		else if (res == RESPONSE_COMPLETE)
+		{
+			/* Remove current connection, move last in-place, adjust current_conn */
+			if (combiner->current_conn < --combiner->conn_count)
+				combiner->connections[combiner->current_conn] = combiner->connections[combiner->conn_count];
+			else
+				combiner->current_conn = 0;
+		}
+
+		/* If we have a tuple we can leave now. */
+		if (have_tuple)
+			return true;
+	}
+	/* Wrap up last message if exists */
+	if (combiner->currentRow.msg)
+	{
+		ExecStoreDataRowTuple(combiner->currentRow.msg,
+							  combiner->currentRow.msglen,
+							  combiner->currentRow.msgnode, slot, true);
+		combiner->currentRow.msg = NULL;
+		combiner->currentRow.msglen = 0;
+		combiner->currentRow.msgnode = 0;
 		return true;
 	}
-	/* inform caller that buffer is empty */
+	/* otherwise report end of data to the caller */
 	ExecClearTuple(slot);
 	return false;
 }
@@ -986,10 +1235,11 @@ pgxc_node_receive_responses(const int conn_count, PGXCNodeHandle ** connections,
  * Long term, we should look into cancelling executing statements
  * and closing the connections.
  * Return values:
- * EOF - need to receive more data for the connection
- * 0 - done with the connection
- * 1 - got data row
- * 2 - got copy response
+ * RESPONSE_EOF - need to receive more data for the connection
+ * RESPONSE_COMPLETE - done with the connection
+ * RESPONSE_TUPLEDESC - got tuple description
+ * RESPONSE_DATAROW - got data row
+ * RESPONSE_COPY - got copy response
  */
 int
 handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner)
@@ -997,38 +1247,40 @@ handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner)
 	char	   *msg;
 	int			msg_len;
 	char		msg_type;
+	bool		suspended = false;
 
 	for (;;)
 	{
-		/* No data available, exit */
-		if (conn->state == DN_CONNECTION_STATE_QUERY)
-			return RESPONSE_EOF;
+		Assert(conn->state != DN_CONNECTION_STATE_IDLE);
+		Assert(conn->combiner == combiner || conn->combiner == NULL);
 
 		/*
 		 * If we are in the process of shutting down, we
-		 * may be rolling back, and the buffer may contain other messages.
-		 * We want to avoid a procarray exception
-		 * as well as an error stack overflow.
-		 */
+         * may be rolling back, and the buffer may contain other messages.
+         * We want to avoid a procarray exception
+         * as well as an error stack overflow.
+         */
 		if (proc_exit_inprogress)
-		{
 			conn->state = DN_CONNECTION_STATE_ERROR_FATAL;
+
+		/* don't read from from the connection if there is a fatal error */
+		if (conn->state == DN_CONNECTION_STATE_ERROR_FATAL)
+			return RESPONSE_COMPLETE;
+
+		/* No data available, exit */
+		if (!HAS_MESSAGE_BUFFERED(conn))
 			return RESPONSE_EOF;
-		}
 
 		/* TODO handle other possible responses */
 		msg_type = get_message(conn, &msg_len, &msg);
 		switch (msg_type)
 		{
 			case '\0':			/* Not enough data in the buffer */
-				conn->state = DN_CONNECTION_STATE_QUERY;
 				return RESPONSE_EOF;
 			case 'c':			/* CopyToCommandComplete */
-				conn->state = DN_CONNECTION_STATE_COMPLETED;
 				HandleCopyOutComplete(combiner);
 				break;
 			case 'C':			/* CommandComplete */
-				conn->state = DN_CONNECTION_STATE_COMPLETED;
 				HandleCommandComplete(combiner, msg, msg_len);
 				break;
 			case 'T':			/* RowDescription */
@@ -1043,8 +1295,17 @@ handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner)
 #ifdef DN_CONNECTION_DEBUG
 				Assert(conn->have_row_desc);
 #endif
-				HandleDataRow(combiner, msg, msg_len);
+				HandleDataRow(combiner, msg, msg_len, conn->nodenum);
 				return RESPONSE_DATAROW;
+			case 's':			/* PortalSuspended */
+				suspended = true;
+				break;
+			case '1': /* ParseComplete */
+			case '2': /* BindComplete */
+			case '3': /* CloseComplete */
+			case 'n': /* NoData */
+				/* simple notifications, continue reading */
+				break;
 			case 'G': /* CopyInResponse */
 				conn->state = DN_CONNECTION_STATE_COPY_IN;
 				HandleCopyIn(combiner);
@@ -1060,7 +1321,6 @@ handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner)
 				break;
 			case 'E':			/* ErrorResponse */
 				HandleError(combiner, msg, msg_len);
-				conn->state = DN_CONNECTION_STATE_ERROR_NOT_READY;
 				/*
 				 * Do not return with an error, we still need to consume Z,
 				 * ready-for-query
@@ -1074,12 +1334,22 @@ handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner)
 				 */
 				break;
 			case 'Z':			/* ReadyForQuery */
+			{
+				/*
+				 * Return result depends on previous connection state.
+				 * If it was PORTAL_SUSPENDED coordinator want to send down
+				 * another EXECUTE to fetch more rows, otherwise it is done
+				 * with the connection
+				 */
+				int result = suspended ? RESPONSE_SUSPENDED : RESPONSE_COMPLETE;
 				conn->transaction_status = msg[0];
 				conn->state = DN_CONNECTION_STATE_IDLE;
+				conn->combiner = NULL;
 #ifdef DN_CONNECTION_DEBUG
 				conn->have_row_desc = false;
 #endif
-				return RESPONSE_COMPLETE;
+				return result;
+			}
 			case 'I':			/* EmptyQuery */
 			default:
 				/* sync lost? */
@@ -1091,6 +1361,7 @@ handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner)
 
 	return RESPONSE_EOF;
 }
+
 
 /*
  * Like handle_response, but for consuming the messages,
@@ -1138,8 +1409,8 @@ handle_response_clear(PGXCNodeHandle * conn)
 			case 'N':			/* NoticeResponse */
 				break;
 			case 'E':			/* ErrorResponse */
-				conn->state = DN_CONNECTION_STATE_ERROR_NOT_READY;
 				/*
+				 * conn->state = DN_CONNECTION_STATE_ERROR_NOT_READY;
 				 * Do not return with an error, we still need to consume Z,
 				 * ready-for-query
 				 */
@@ -1176,6 +1447,8 @@ pgxc_node_begin(int conn_count, PGXCNodeHandle ** connections,
 	/* Send BEGIN */
 	for (i = 0; i < conn_count; i++)
 	{
+		if (connections[i]->state == DN_CONNECTION_STATE_QUERY)
+			BufferConnection(connections[i]);
 		if (GlobalTransactionIdIsValid(gxid) && pgxc_node_send_gxid(connections[i], gxid))
 			return EOF;
 
@@ -1372,7 +1645,7 @@ finish:
 
 		rollback_xid = BeginTranGTM(NULL);
 
-		/* 
+		/*
 		 * Send xid and rollback prepared down to Datanodes and Coordinators
 		 * Even if we get an error on one, we try and send to the others
 	     */
@@ -1398,7 +1671,7 @@ finish:
 
 
 /*
- * Commit prepared transaction on Datanodes and Coordinators (as necessary) 
+ * Commit prepared transaction on Datanodes and Coordinators (as necessary)
  * where it has been prepared.
  * Connection to backends has been cut when transaction has been prepared,
  * So it is necessary to send the COMMIT PREPARE message to all the nodes.
@@ -1831,18 +2104,6 @@ pgxc_node_rollback(PGXCNodeAllHandles *pgxc_handles)
 	int			co_conn_count = pgxc_handles->co_conn_count;
 	int			dn_conn_count = pgxc_handles->dn_conn_count;
 
-	/*
-	 * Rollback is a special case, being issued because of an error.
-	 * We try to read and throw away any extra data on the connection before
-	 * issuing our rollbacks so that we did not read the results of the
-	 * previous command.
-	 */
-	for (i = 0; i < dn_conn_count; i++)
-		clear_socket_data(pgxc_handles->datanode_handles[i]);
-
-	for (i = 0; i < co_conn_count; i++)
-		clear_socket_data(pgxc_handles->coord_handles[i]);
-
 	/* Send ROLLBACK to all handles */
 	if (pgxc_all_handles_send_query(pgxc_handles, "ROLLBACK", false))
 		result = EOF;
@@ -1963,6 +2224,8 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_
 	/* Send query to nodes */
 	for (i = 0; i < conn_count; i++)
 	{
+		if (connections[i]->state == DN_CONNECTION_STATE_QUERY)
+			BufferConnection(connections[i]);
 		/* If explicit transaction is needed gxid is already sent */
 		if (!need_tran && pgxc_node_send_gxid(connections[i], gxid))
 		{
@@ -2369,7 +2632,6 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 	RemoteQueryState   *remotestate;
 	Relation			currentRelation;
 
-
 	remotestate = CreateResponseCombiner(0, node->combine_type);
 	remotestate->ss.ps.plan = (Plan *) node;
 	remotestate->ss.ps.state = estate;
@@ -2409,6 +2671,10 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 								  ALLOCSET_DEFAULT_INITSIZE,
 								  ALLOCSET_DEFAULT_MAXSIZE);
 	}
+
+	if (innerPlan(node))
+		innerPlanState(remotestate) = ExecInitNode(innerPlan(node), estate, eflags);
+
 	if (outerPlan(node))
 		outerPlanState(remotestate) = ExecInitNode(outerPlan(node), estate, eflags);
 
@@ -2425,7 +2691,9 @@ copy_slot(RemoteQueryState *node, TupleTableSlot *src, TupleTableSlot *dst)
 		if (src->tts_mcxt == dst->tts_mcxt)
 		{
 			/* now dst slot controls the backing message */
-			ExecStoreDataRowTuple(src->tts_dataRow, src->tts_dataLen, dst, src->tts_shouldFreeRow);
+			ExecStoreDataRowTuple(src->tts_dataRow, src->tts_dataLen,
+								  src->tts_dataNode, dst,
+								  src->tts_shouldFreeRow);
 			src->tts_shouldFreeRow = false;
 		}
 		else
@@ -2433,10 +2701,11 @@ copy_slot(RemoteQueryState *node, TupleTableSlot *src, TupleTableSlot *dst)
 			/* have to make a copy */
 			MemoryContext	oldcontext = MemoryContextSwitchTo(dst->tts_mcxt);
 			int 			len = src->tts_dataLen;
+			int 			node = src->tts_dataNode;
 			char		   *msg = (char *) palloc(len);
 
 			memcpy(msg, src->tts_dataRow, len);
-			ExecStoreDataRowTuple(msg, len, dst, true);
+			ExecStoreDataRowTuple(msg, len, node, dst, true);
 			MemoryContextSwitchTo(oldcontext);
 		}
 	}
@@ -2610,20 +2879,21 @@ ExecRemoteQuery(RemoteQueryState *node)
 		int			total_conn_count;
 		bool		need_tran;
 		PGXCNodeAllHandles *pgxc_connections;
+		TupleTableSlot *innerSlot = NULL;
 
 		/*
-		 * If coordinator plan is specified execute it first.
-		 * If the plan is returning we are returning these tuples immediately.
-		 * If it is not returning or returned them all by current invocation
-		 * we will go ahead and execute remote query. Then we will never execute
-		 * the outer plan again because node->query_Done flag will be set and
-		 * execution won't get to that place.
+		 * Inner plan for RemoteQuery supplies parameters.
+		 * We execute inner plan to get a tuple and use values of the tuple as
+		 * parameter values when executing this remote query.
+		 * If returned slot contains NULL tuple break execution.
+		 * TODO there is a problem how to handle the case if both inner and
+		 * outer plans exist. We can decide later, since it is never used now.
 		 */
-		if (outerPlanState(node))
+		if (innerPlanState(node))
 		{
-			TupleTableSlot *slot = ExecProcNode(outerPlanState(node));
-			if (!TupIsNull(slot))
-				return slot;
+			innerSlot = ExecProcNode(innerPlanState(node));
+//			if (TupIsNull(innerSlot))
+//				return innerSlot;
 		}
 
 		/*
@@ -2712,6 +2982,9 @@ ExecRemoteQuery(RemoteQueryState *node)
 		/* See if we have a primary node, execute on it first before the others */
 		if (primaryconnection)
 		{
+			if (primaryconnection->state == DN_CONNECTION_STATE_QUERY)
+				BufferConnection(primaryconnection);
+
 			/* If explicit transaction is needed gxid is already sent */
 			if (!need_tran && pgxc_node_send_gxid(primaryconnection, gxid))
 			{
@@ -2751,7 +3024,6 @@ ExecRemoteQuery(RemoteQueryState *node)
 						(errcode(ERRCODE_INTERNAL_ERROR),
 						 errmsg("Failed to send command to data nodes")));
 			}
-
 			Assert(node->combine_type == COMBINE_TYPE_SAME);
 
 			while (node->command_complete_count < 1)
@@ -2760,11 +3032,7 @@ ExecRemoteQuery(RemoteQueryState *node)
 					ereport(ERROR,
 							(errcode(ERRCODE_INTERNAL_ERROR),
 							 errmsg("Failed to read response from data nodes")));
-				while (handle_response(primaryconnection, node) == RESPONSE_EOF)
-					if (pgxc_node_receive(1, &primaryconnection, NULL))
-						ereport(ERROR,
-								(errcode(ERRCODE_INTERNAL_ERROR),
-								 errmsg("Failed to read response from data nodes")));
+				handle_response(primaryconnection, node);
 				if (node->errorMessage)
 				{
 					char *code = node->errorCode;
@@ -2777,6 +3045,8 @@ ExecRemoteQuery(RemoteQueryState *node)
 
 		for (i = 0; i < regular_conn_count; i++)
 		{
+			if (connections[i]->state == DN_CONNECTION_STATE_QUERY)
+				BufferConnection(connections[i]);
 			/* If explicit transaction is needed gxid is already sent */
 			if (!need_tran && pgxc_node_send_gxid(connections[i], gxid))
 			{
@@ -2811,104 +3081,172 @@ ExecRemoteQuery(RemoteQueryState *node)
 						(errcode(ERRCODE_INTERNAL_ERROR),
 						 errmsg("Failed to send command to data nodes")));
 			}
-			if (pgxc_node_send_query(connections[i], step->sql_statement) != 0)
+			if (step->cursor || innerSlot)
 			{
-				pfree(connections);
-				if (primaryconnection)
-					pfree(primaryconnection);
-				ereport(ERROR,
-						(errcode(ERRCODE_INTERNAL_ERROR),
-						 errmsg("Failed to send command to data nodes")));
-			}
-		}
-
-			/*
-			 * Stop if all commands are completed or we got a data row and
-			 * initialized state node for subsequent invocations
-			 */
-			while (regular_conn_count > 0 && node->connections == NULL)
-			{
-				int i = 0;
-
-				if (pgxc_node_receive(regular_conn_count, connections, NULL))
+				int fetch = 0;
+				/*
+				 * execute and fetch rows only if they will be consumed
+				 * immediately by the sorter
+				 */
+				if (step->cursor)
+					fetch = 1;
+				/*
+				 * Here is ad hoc handling of WHERE CURRENT OF clause.
+				 * Previous step have returned the key values to update
+				 * replicated tuple into innerSlot and the query is a
+				 * DECLARE CURSOR. We do not want to execute this query now
+				 * because of unusual fetch procedure: we just need to
+				 * position cursor on the first row on each node.
+				 * So here we just parse and bind query. As the result cursor
+				 * specified by the statement will be created, and next step
+				 * will issue MOVE command positioning the cursor properly.
+				 * If we want to use parametrized requests for any other
+				 * purpose we should return and rework this code
+				 */
+				if (pgxc_node_send_query_extended(connections[i],
+												  step->sql_statement,
+												  NULL,
+												  step->cursor,
+												  innerSlot ? innerSlot->tts_dataLen : 0,
+												  innerSlot ? innerSlot->tts_dataRow : NULL,
+												  step->cursor != NULL,
+												  fetch) != 0)
+				{
+					pfree(connections);
+					if (primaryconnection)
+						pfree(primaryconnection);
 					ereport(ERROR,
 							(errcode(ERRCODE_INTERNAL_ERROR),
-							 errmsg("Failed to read response from data nodes")));
-				/*
-				 * Handle input from the data nodes.
-				 * If we got a RESPONSE_DATAROW we can break handling to wrap
-				 * it into a tuple and return. Handling will be continued upon
-				 * subsequent invocations.
-				 * If we got 0, we exclude connection from the list. We do not
-				 * expect more input from it. In case of non-SELECT query we quit
-				 * the loop when all nodes finish their work and send ReadyForQuery
-				 * with empty connections array.
-				 * If we got EOF, move to the next connection, will receive more
-				 * data on the next iteration.
-				 */
-				while (i < regular_conn_count)
+							 errmsg("Failed to send command to data nodes")));
+				}
+			}
+			else
+			{
+				if (pgxc_node_send_query(connections[i], step->sql_statement) != 0)
 				{
-					int res = handle_response(connections[i], node);
-					if (res == RESPONSE_EOF)
-					{
-						i++;
-					}
-					else if (res == RESPONSE_COMPLETE)
-					{
-						if (i < --regular_conn_count)
-							connections[i] = connections[regular_conn_count];
-					}
-					else if (res == RESPONSE_TUPDESC)
-					{
-						ExecSetSlotDescriptor(scanslot, node->tuple_desc);
-						/*
-						 * Now tuple table slot is responsible for freeing the
-						 * descriptor
-						 */
-						node->tuple_desc = NULL;
-						if (step->sort)
-						{
-							SimpleSort *sort = step->sort;
+					pfree(connections);
+					if (primaryconnection)
+						pfree(primaryconnection);
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+							 errmsg("Failed to send command to data nodes")));
+				}
+			}
+			connections[i]->combiner = node;
+		}
 
-							node->connections = connections;
-							node->conn_count = regular_conn_count;
-							/*
-							 * First message is already in the buffer
-							 * Further fetch will be under tuplesort control
-							 * If query does not produce rows tuplesort will not
-							 * be initialized
-							 */
-							node->tuplesortstate = tuplesort_begin_merge(
-												   scanslot->tts_tupleDescriptor,
-												   sort->numCols,
-												   sort->sortColIdx,
-												   sort->sortOperators,
-												   sort->nullsFirst,
-												   node,
-												   work_mem);
-							/*
-							 * Break the loop, do not wait for first row.
-							 * Tuplesort module want to control node it is
-							 * fetching rows from, while in this loop first
-							 * row would be got from random node
-							 */
-							break;
-						}
-					}
-					else if (res == RESPONSE_DATAROW)
+		if (step->cursor)
+		{
+			node->cursor = step->cursor;
+			node->cursor_count = regular_conn_count;
+			node->cursor_connections = (PGXCNodeHandle **) palloc(regular_conn_count * sizeof(PGXCNodeHandle *));
+			memcpy(node->cursor_connections, connections, regular_conn_count * sizeof(PGXCNodeHandle *));
+		}
+
+		/*
+		 * Stop if all commands are completed or we got a data row and
+		 * initialized state node for subsequent invocations
+		 */
+		while (regular_conn_count > 0 && node->connections == NULL)
+		{
+			int i = 0;
+
+			if (pgxc_node_receive(regular_conn_count, connections, NULL))
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("Failed to read response from data nodes")));
+			/*
+			 * Handle input from the data nodes.
+			 * If we got a RESPONSE_DATAROW we can break handling to wrap
+			 * it into a tuple and return. Handling will be continued upon
+			 * subsequent invocations.
+			 * If we got 0, we exclude connection from the list. We do not
+			 * expect more input from it. In case of non-SELECT query we quit
+			 * the loop when all nodes finish their work and send ReadyForQuery
+			 * with empty connections array.
+			 * If we got EOF, move to the next connection, will receive more
+			 * data on the next iteration.
+			 */
+			while (i < regular_conn_count)
+			{
+				int res = handle_response(connections[i], node);
+				if (res == RESPONSE_EOF)
+				{
+					i++;
+				}
+				else if (res == RESPONSE_COMPLETE)
+				{
+					if (i < --regular_conn_count)
+						connections[i] = connections[regular_conn_count];
+				}
+				else if (res == RESPONSE_TUPDESC)
+				{
+					ExecSetSlotDescriptor(scanslot, node->tuple_desc);
+					/*
+					 * Now tuple table slot is responsible for freeing the
+					 * descriptor
+					 */
+					node->tuple_desc = NULL;
+					if (step->sort)
 					{
-						/*
-						 * Got first data row, quit the loop
-						 */
+						SimpleSort *sort = step->sort;
+
 						node->connections = connections;
 						node->conn_count = regular_conn_count;
-						node->current_conn = i;
+						/*
+						 * First message is already in the buffer
+						 * Further fetch will be under tuplesort control
+						 * If query does not produce rows tuplesort will not
+						 * be initialized
+						 */
+						node->tuplesortstate = tuplesort_begin_merge(
+											   scanslot->tts_tupleDescriptor,
+											   sort->numCols,
+											   sort->sortColIdx,
+											   sort->sortOperators,
+											   sort->nullsFirst,
+											   node,
+											   work_mem);
+						/*
+						 * Break the loop, do not wait for first row.
+						 * Tuplesort module want to control node it is
+						 * fetching rows from, while in this loop first
+						 * row would be got from random node
+						 */
 						break;
 					}
 				}
+				else if (res == RESPONSE_DATAROW)
+				{
+					/*
+					 * Got first data row, quit the loop
+					 */
+					node->connections = connections;
+					node->conn_count = regular_conn_count;
+					node->current_conn = i;
+					break;
+				}
 			}
+		}
+
+		if (node->cursor_count)
+		{
+			node->conn_count = node->cursor_count;
+			memcpy(connections, node->cursor_connections, node->cursor_count * sizeof(PGXCNodeHandle *));
+			node->connections = connections;
+		}
 
 		node->query_Done = true;
+	}
+
+	if (node->update_cursor)
+	{
+		PGXCNodeAllHandles *all_dn_handles = get_exec_connections(NULL, EXEC_ON_DATANODES);
+		close_node_cursors(all_dn_handles->datanode_handles,
+						  all_dn_handles->dn_conn_count,
+						  node->update_cursor);
+		pfree(node->update_cursor);
+		node->update_cursor = NULL;
 	}
 
 	if (node->tuplesortstate)
@@ -2948,98 +3286,35 @@ ExecRemoteQuery(RemoteQueryState *node)
 	}
 	else
 	{
-		while (node->conn_count > 0 && !have_tuple)
+		while (FetchTuple(node, scanslot) && !TupIsNull(scanslot))
 		{
-			int i;
-
-			/*
-			 * If combiner already has tuple go ahead and return it
-			 * otherwise tuple will be cleared
-			 */
-			if (FetchTuple(node, scanslot) && !TupIsNull(scanslot))
+			if (node->simple_aggregates)
 			{
-				if (node->simple_aggregates)
-				{
-					if (node->simple_aggregates)
-					{
-						/*
-						 * Advance aggregate functions and allow to read up next
-						 * data row message and get tuple in the same slot on
-						 * next iteration
-						 */
-						exec_simple_aggregates(node, scanslot);
-					}
-					else
-					{
-						/*
-						 * Receive current slot and read up next data row
-						 * message before exiting the loop. Next time when this
-						 * function is invoked we will have either data row
-						 * message ready or EOF
-						 */
-						copy_slot(node, scanslot, resultslot);
-						have_tuple = true;
-					}
-				}
-				else
-				{
-					/*
-					 * Receive current slot and read up next data row
-					 * message before exiting the loop. Next time when this
-					 * function is invoked we will have either data row
-					 * message ready or EOF
-					 */
-					copy_slot(node, scanslot, resultslot);
-					have_tuple = true;
-				}
+				/*
+				 * Advance aggregate functions and allow to read up next
+				 * data row message and get tuple in the same slot on
+				 * next iteration
+				 */
+				exec_simple_aggregates(node, scanslot);
 			}
-
-			/*
-			 * Handle input to get next row or ensure command is completed,
-			 * starting from connection next after current. If connection
-			 * does not
-			 */
-			if ((i = node->current_conn + 1) == node->conn_count)
-				i = 0;
-
-			for (;;)
+			else
 			{
-				int res = handle_response(node->connections[i], node);
-				if (res == RESPONSE_EOF)
-				{
-					/* go to next connection */
-					if (++i == node->conn_count)
-						i = 0;
-					/* if we cycled over all connections we need to receive more */
-					if (i == node->current_conn)
-						if (pgxc_node_receive(node->conn_count, node->connections, NULL))
-							ereport(ERROR,
-									(errcode(ERRCODE_INTERNAL_ERROR),
-									 errmsg("Failed to read response from data nodes")));
-				}
-				else if (res == RESPONSE_COMPLETE)
-				{
-					if (--node->conn_count == 0)
-						break;
-					if (i == node->conn_count)
-						i = 0;
-					else
-						node->connections[i] = node->connections[node->conn_count];
-					if (node->current_conn == node->conn_count)
-						node->current_conn = i;
-				}
-				else if (res == RESPONSE_DATAROW)
-				{
-					node->current_conn = i;
-					break;
-				}
+				/*
+				 * Receive current slot and read up next data row
+				 * message before exiting the loop. Next time when this
+				 * function is invoked we will have either data row
+				 * message ready or EOF
+				 */
+				copy_slot(node, scanslot, resultslot);
+				have_tuple = true;
+				break;
 			}
 		}
 
 		/*
 		 * We may need to finalize aggregates
 		 */
-		if (!have_tuple && node->simple_aggregates)
+		if (node->simple_aggregates)
 		{
 			finish_simple_aggregates(node, resultslot);
 			if (!TupIsNull(resultslot))
@@ -3058,7 +3333,31 @@ ExecRemoteQuery(RemoteQueryState *node)
 				 errmsg("%s", node->errorMessage)));
 	}
 
-	return resultslot;
+	/*
+	 * While we are emitting rows we ignore outer plan
+	 */
+	if (!TupIsNull(resultslot))
+		return resultslot;
+
+	/*
+	 * If coordinator plan is specified execute it first.
+	 * If the plan is returning we are returning these tuples immediately.
+	 * If it is not returning or returned them all by current invocation
+	 * we will go ahead and execute remote query. Then we will never execute
+	 * the outer plan again because node->query_Done flag will be set and
+	 * execution won't get to that place.
+	 */
+	if (outerPlanState(node))
+	{
+		TupleTableSlot *slot = ExecProcNode(outerPlanState(node));
+		if (!TupIsNull(slot))
+			return slot;
+	}
+
+	/*
+	 * OK, we have nothing to return, so return NULL
+	 */
+	return NULL;
 }
 
 /*
@@ -3067,88 +3366,86 @@ ExecRemoteQuery(RemoteQueryState *node)
 void
 ExecEndRemoteQuery(RemoteQueryState *node)
 {
+	ListCell *lc;
 
 	/*
-	 * If processing was interrupted, (ex: client did not consume all the data,
-	 * or a subquery with LIMIT) we may still have data on the nodes. Try and consume.
-	 * We do not simply call PGXCNodeConsumeMessages, because the same
-	 * connection could be used for multiple RemoteQuery steps.
-	 *
-	 * It seems most stable checking command_complete_count
-	 * and only then working with conn_count
-	 *
-	 * PGXCTODO: Change in the future when we remove materialization nodes.
+	 * shut down the subplan
 	 */
-	if (node->command_complete_count < node->node_count)
+	if (innerPlanState(node))
+		ExecEndNode(innerPlanState(node));
+
+	/* clean up the buffer */
+	foreach(lc, node->rowBuffer)
 	{
-		elog(WARNING, "Extra data node messages when ending remote query step");
-
-		while (node->conn_count > 0)
-		{
-			int i = 0;
-			int res;
-
-			/*
-			 * Just consume the rest of the messages
-			 */
-			if ((i = node->current_conn + 1) == node->conn_count)
-				i = 0;
-
-			for (;;)
-			{
-				/* throw away message */
-				if (node->msg)
-				{
-					pfree(node->msg);
-					node->msg = NULL;
-				}
-
-				res = handle_response(node->connections[i], node);
-
-				if (res == RESPONSE_COMPLETE ||
-						node->connections[i]->state == DN_CONNECTION_STATE_ERROR_FATAL ||
-						node->connections[i]->state == DN_CONNECTION_STATE_ERROR_NOT_READY)
-				{
-					if (--node->conn_count == 0)
-						break;
-					if (i == node->conn_count)
-						i = 0;
-					else
-						node->connections[i] = node->connections[node->conn_count];
-					if (node->current_conn == node->conn_count)
-						node->current_conn = i;
-				}
-				else if (res == RESPONSE_EOF)
-				{
-					/* go to next connection */
-					if (++i == node->conn_count)
-						i = 0;
-
-					/* if we cycled over all connections we need to receive more */
-					if (i == node->current_conn)
-					{
-						struct timeval timeout;
-						timeout.tv_sec = END_QUERY_TIMEOUT;
-						timeout.tv_usec = 0;
-
-						if (pgxc_node_receive(node->conn_count, node->connections, &timeout))
-							ereport(ERROR,
-									(errcode(ERRCODE_INTERNAL_ERROR),
-									 errmsg("Failed to read response from data nodes when ending query")));
-					}
-				}
-			}
-		}
-		elog(WARNING, "Data node connection buffers cleaned");
+		RemoteDataRow dataRow = (RemoteDataRow) lfirst(lc);
+		pfree(dataRow->msg);
 	}
+	list_free_deep(node->rowBuffer);
 
+	node->current_conn = 0;
+	while (node->conn_count > 0)
+	{
+		int res;
+		PGXCNodeHandle *conn = node->connections[node->current_conn];
+
+		/* throw away message */
+		if (node->currentRow.msg)
+		{
+			pfree(node->currentRow.msg);
+			node->currentRow.msg = NULL;
+		}
+		/* no data is expected */
+		if (conn->state == DN_CONNECTION_STATE_IDLE ||
+				conn->state == DN_CONNECTION_STATE_ERROR_FATAL)
+		{
+			if (node->current_conn < --node->conn_count)
+				node->connections[node->current_conn] = node->connections[node->conn_count];
+			continue;
+		}
+		res = handle_response(conn, node);
+		if (res == RESPONSE_EOF)
+		{
+			struct timeval timeout;
+			timeout.tv_sec = END_QUERY_TIMEOUT;
+			timeout.tv_usec = 0;
+
+			if (pgxc_node_receive(1, &conn, &timeout))
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("Failed to read response from data nodes when ending query")));
+		}
+	}
 
 	/*
 	 * Release tuplesort resources
 	 */
 	if (node->tuplesortstate != NULL)
+	{
+		/*
+		 * tuplesort_end invalidates minimal tuple if it is in the slot because
+		 * deletes the TupleSort memory context, causing seg fault later when
+		 * releasing tuple table
+		 */
+		ExecClearTuple(node->ss.ss_ScanTupleSlot);
 		tuplesort_end((Tuplesortstate *) node->tuplesortstate);
+	}
 	node->tuplesortstate = NULL;
+
+	/*
+	 * If there are active cursors close them
+	 */
+	if (node->cursor)
+		close_node_cursors(node->cursor_connections, node->cursor_count, node->cursor);
+
+	if (node->update_cursor)
+	{
+		PGXCNodeAllHandles *all_dn_handles = get_exec_connections(NULL, EXEC_ON_DATANODES);
+		close_node_cursors(all_dn_handles->datanode_handles,
+						  all_dn_handles->dn_conn_count,
+						  node->update_cursor);
+		pfree(node->update_cursor);
+		node->update_cursor = NULL;
+	}
 
 	/*
 	 * shut down the subplan
@@ -3163,6 +3460,57 @@ ExecEndRemoteQuery(RemoteQueryState *node)
 		MemoryContextDelete(node->tmp_ctx);
 
 	CloseCombiner(node);
+}
+
+static void
+close_node_cursors(PGXCNodeHandle **connections, int conn_count, char *cursor)
+{
+	int i;
+	RemoteQueryState *combiner;
+
+	for (i = 0; i < conn_count; i++)
+	{
+		if (connections[i]->state == DN_CONNECTION_STATE_QUERY)
+			BufferConnection(connections[i]);
+		if (pgxc_node_send_close(connections[i], false, cursor) != 0)
+			ereport(WARNING,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Failed to close data node cursor")));
+		if (pgxc_node_send_sync(connections[i]) != 0)
+			ereport(WARNING,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Failed to close data node cursor")));
+	}
+
+	combiner = CreateResponseCombiner(conn_count, COMBINE_TYPE_NONE);
+
+	while (conn_count > 0)
+	{
+		if (pgxc_node_receive(conn_count, connections, NULL))
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Failed to close data node cursor")));
+		i = 0;
+		while (i < conn_count)
+		{
+			int res = handle_response(connections[i], combiner);
+			if (res == RESPONSE_EOF)
+			{
+				i++;
+			}
+			else if (res == RESPONSE_COMPLETE)
+			{
+				if (--conn_count > i)
+					connections[i] = connections[conn_count];
+			}
+			else
+			{
+				// Unexpected response, ignore?
+			}
+		}
+	}
+
+	ValidateAndCloseCombiner(combiner);
 }
 
 /*
@@ -3367,6 +3715,8 @@ ExecRemoteUtility(RemoteQuery *node)
 	/* See if we have a primary nodes, execute on it first before the others */
 	if (primaryconnection)
 	{
+		if (primaryconnection->state == DN_CONNECTION_STATE_QUERY)
+			BufferConnection(primaryconnection);
 		/* If explicit transaction is needed gxid is already sent */
 		if (!need_tran && pgxc_node_send_gxid(primaryconnection, gxid))
 		{
@@ -3421,20 +3771,24 @@ ExecRemoteUtility(RemoteQuery *node)
 	{
 		for (i = 0; i < regular_conn_count; i++)
 		{
+			PGXCNodeHandle *conn = pgxc_connections->datanode_handles[i];
+
+			if (conn->state == DN_CONNECTION_STATE_QUERY)
+				BufferConnection(conn);
 			/* If explicit transaction is needed gxid is already sent */
-			if (!need_tran && pgxc_node_send_gxid(pgxc_connections->datanode_handles[i], gxid))
+			if (!need_tran && pgxc_node_send_gxid(conn, gxid))
 			{
 				ereport(ERROR,
 						(errcode(ERRCODE_INTERNAL_ERROR),
 						 errmsg("Failed to send command to data nodes")));
 			}
-			if (snapshot && pgxc_node_send_snapshot(pgxc_connections->datanode_handles[i], snapshot))
+			if (snapshot && pgxc_node_send_snapshot(conn, snapshot))
 			{
 				ereport(ERROR,
 						(errcode(ERRCODE_INTERNAL_ERROR),
 						 errmsg("Failed to send command to data nodes")));
 			}
-			if (pgxc_node_send_query(pgxc_connections->datanode_handles[i], node->sql_statement) != 0)
+			if (pgxc_node_send_query(conn, node->sql_statement) != 0)
 			{
 				ereport(ERROR,
 						(errcode(ERRCODE_INTERNAL_ERROR),
@@ -3498,7 +3852,8 @@ ExecRemoteUtility(RemoteQuery *node)
 			 */
 			while (i < regular_conn_count)
 			{
-				int res = handle_response(pgxc_connections->datanode_handles[i], remotestate);
+				PGXCNodeHandle *conn = pgxc_connections->datanode_handles[i];
+				int res = handle_response(conn, remotestate);
 				if (res == RESPONSE_EOF)
 				{
 					i++;

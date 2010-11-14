@@ -34,17 +34,18 @@ typedef enum
 {
 	DN_CONNECTION_STATE_IDLE,			/* idle, ready for query */
 	DN_CONNECTION_STATE_QUERY,			/* query is sent, response expected */
-	DN_CONNECTION_STATE_HAS_DATA,		/* buffer has data to process */
-	DN_CONNECTION_STATE_COMPLETED,		/* query completed, no ReadyForQury yet */
-	DN_CONNECTION_STATE_ERROR_NOT_READY,	/* error, but need ReadyForQuery message */
 	DN_CONNECTION_STATE_ERROR_FATAL,	/* fatal error */
 	DN_CONNECTION_STATE_COPY_IN,
 	DN_CONNECTION_STATE_COPY_OUT
 }	DNConnectionState;
 
 #define DN_CONNECTION_STATE_ERROR(dnconn) \
-	(dnconn)->state == DN_CONNECTION_STATE_ERROR_FATAL \
-	|| (dnconn)->state == DN_CONNECTION_STATE_ERROR_NOT_READY
+		((dnconn)->state == DN_CONNECTION_STATE_ERROR_FATAL \
+			|| (dnconn)->transaction_status == 'E')
+
+#define HAS_MESSAGE_BUFFERED(conn) \
+		((conn)->inCursor + 4 < (conn)->inEnd \
+			&& (conn)->inCursor + ntohl(*((uint32_t *) ((conn)->inBuffer + (conn)->inCursor + 1))) < (conn)->inEnd)
 
 struct pgxc_node_handle
 {
@@ -54,6 +55,7 @@ struct pgxc_node_handle
 	/* Connection state */
 	char		transaction_status;
 	DNConnectionState state;
+	struct RemoteQueryState *combiner;
 #ifdef DN_CONNECTION_DEBUG
 	bool		have_row_desc;
 #endif
@@ -103,6 +105,16 @@ extern int	ensure_in_buffer_capacity(size_t bytes_needed, PGXCNodeHandle * handl
 extern int	ensure_out_buffer_capacity(size_t bytes_needed, PGXCNodeHandle * handle);
 
 extern int	pgxc_node_send_query(PGXCNodeHandle * handle, const char *query);
+extern int	pgxc_node_send_describe(PGXCNodeHandle * handle, bool is_statement,
+						const char *name);
+extern int	pgxc_node_send_execute(PGXCNodeHandle * handle, const char *portal, int fetch);
+extern int	pgxc_node_send_close(PGXCNodeHandle * handle, bool is_statement,
+					 const char *name);
+extern int	pgxc_node_send_sync(PGXCNodeHandle * handle);
+extern int	pgxc_node_send_query_extended(PGXCNodeHandle *handle, const char *query,
+							  const char *statement, const char *portal,
+							  int paramlen, char *params,
+							  bool send_describe, int fetch_size);
 extern int	pgxc_node_send_gxid(PGXCNodeHandle * handle, GlobalTransactionId gxid);
 extern int	pgxc_node_send_snapshot(PGXCNodeHandle * handle, Snapshot snapshot);
 extern int	pgxc_node_send_timestamp(PGXCNodeHandle * handle, TimestampTz timestamp);
@@ -119,6 +131,5 @@ extern int	pgxc_all_handles_send_query(PGXCNodeAllHandles *pgxc_handles, const c
 extern char get_message(PGXCNodeHandle *conn, int *len, char **msg);
 
 extern void add_error_message(PGXCNodeHandle * handle, const char *message);
-extern void clear_socket_data (PGXCNodeHandle *conn);
 
 #endif

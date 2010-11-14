@@ -85,6 +85,7 @@ typedef struct
 	SimpleDistinct *distinct;
 	bool		read_only;          /* do not use 2PC when committing read only steps */
 	bool		force_autocommit;	/* some commands like VACUUM require autocommit mode */
+	char	   *cursor;				/* if specified use it as a Portal name on data nodes */
 	RemoteQueryExecType		exec_type;
 
 	char	  *relname;

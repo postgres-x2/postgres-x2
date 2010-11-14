@@ -1523,7 +1523,7 @@ get_relname_relid(const char *relname, Oid relnamespace)
 						  0, 0);
 }
 
-#ifdef NOT_USED
+#ifdef PGXC
 /*
  * get_relnatts
  *

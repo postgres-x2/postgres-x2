@@ -2280,6 +2280,21 @@ AbortTransaction(void)
 	 */
 	SetUserIdAndContext(s->prevUser, s->prevSecDefCxt);
 
+#ifdef PGXC
+	/*
+	 * We should rollback on the data nodes before cleaning up portals
+	 * to be sure data structures used by connections are not freed yet
+	 */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	{
+		/*
+		 * Make sure this is rolled back on the DataNodes
+		 * if so it will just return
+		 */
+		PGXCNodeRollback();
+	}
+#endif
+
 	/*
 	 * do abort processing
 	 */
@@ -2300,11 +2315,6 @@ AbortTransaction(void)
 	/* This is done by remote Coordinator */
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 	{
-		/*
-		 * Make sure this is rolled back on the DataNodes
-		 * if so it will just return
-		 */
-		PGXCNodeRollback();
 		RollbackTranGTM(s->globalTransactionId);
 		latestXid = s->globalTransactionId;
 	}

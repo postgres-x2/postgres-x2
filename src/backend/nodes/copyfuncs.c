@@ -839,6 +839,7 @@ _copyRemoteQuery(RemoteQuery *from)
 	COPY_NODE_FIELD(distinct);
 	COPY_SCALAR_FIELD(read_only);
 	COPY_SCALAR_FIELD(force_autocommit);
+	COPY_STRING_FIELD(cursor);
 
 	COPY_STRING_FIELD(relname);
 	COPY_SCALAR_FIELD(remotejoin);
@@ -888,7 +889,7 @@ _copySimpleAgg(SimpleAgg *from)
 	COPY_SCALAR_FIELD(transfn);
 	COPY_SCALAR_FIELD(finalfn);
 	if (!from->initValueIsNull)
-		newnode->initValue = datumCopy(from->initValue, from->transtypeByVal, 
+		newnode->initValue = datumCopy(from->initValue, from->transtypeByVal,
 									   from->transtypeLen);
 	COPY_SCALAR_FIELD(initValueIsNull);
 	COPY_SCALAR_FIELD(inputtypeLen);

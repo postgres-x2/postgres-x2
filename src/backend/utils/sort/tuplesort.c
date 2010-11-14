@@ -2875,25 +2875,119 @@ reversedirection_heap(Tuplesortstate *state)
 static unsigned int
 getlen_datanode(Tuplesortstate *state, int tapenum, bool eofOK)
 {
-	PGXCNodeHandle *conn = state->combiner->connections[tapenum];
+	RemoteQueryState *combiner = state->combiner;
+	PGXCNodeHandle *conn = combiner->connections[tapenum];
+	/*
+	 * If connection is active (potentially has data to read) we can get node
+	 * number from the connection. If connection is not active (we have read all
+	 * available data rows) and if we have buffered data from that connection
+	 * the node number is stored in combiner->tapenodes[tapenum].
+	 * If connection is inactive and no buffered data we have EOF condition
+	 */
+	int				nodenum = conn ? conn->nodenum : combiner->tapenodes[tapenum];
+	unsigned int 	len = 0;
+	ListCell	   *lc;
+	ListCell	   *prev = NULL;
+
+	/*
+	 * If there are buffered rows iterate over them and get first from
+	 * the requested tape
+	 */
+	foreach (lc, combiner->rowBuffer)
+	{
+		RemoteDataRow dataRow = (RemoteDataRow) lfirst(lc);
+		if (dataRow->msgnode == nodenum)
+		{
+			combiner->currentRow = *dataRow;
+			combiner->rowBuffer = list_delete_cell(combiner->rowBuffer, lc, prev);
+			return dataRow->msglen;
+		}
+		prev = lc;
+	}
+
+	/* Nothing is found in the buffer, check for EOF */
+	if (conn == NULL)
+	{
+		if (eofOK)
+			return 0;
+		else
+			elog(ERROR, "unexpected end of data");
+	}
+
+	/* Going to get data from connection, buffer if needed */
+	if (conn->state == DN_CONNECTION_STATE_QUERY && conn->combiner != combiner)
+		BufferConnection(conn);
+
+	/* Request more rows if needed */
+	if (conn->state == DN_CONNECTION_STATE_IDLE)
+	{
+		Assert(combiner->cursor);
+		if (pgxc_node_send_execute(conn, combiner->cursor, 1) != 0)
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Failed to fetch from data node cursor")));
+		if (pgxc_node_send_sync(conn) != 0)
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Failed to fetch from data node cursor")));
+		conn->state = DN_CONNECTION_STATE_QUERY;
+		conn->combiner = combiner;
+	}
+	/* Read data from the connection until get a row or EOF */
 	for (;;)
 	{
-		switch (handle_response(conn, state->combiner))
+		switch (handle_response(conn, combiner))
 		{
+			case RESPONSE_SUSPENDED:
+				/* Send Execute to request next row */
+				Assert(combiner->cursor);
+				if (len)
+					return len;
+				if (pgxc_node_send_execute(conn, combiner->cursor, 1) != 0)
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+							 errmsg("Failed to fetch from data node cursor")));
+				if (pgxc_node_send_sync(conn) != 0)
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+							 errmsg("Failed to fetch from data node cursor")));
+				conn->state = DN_CONNECTION_STATE_QUERY;
+				conn->combiner = combiner;
+				/* fallthru */
 			case RESPONSE_EOF:
+				/* receive more data */
 				if (pgxc_node_receive(1, &conn, NULL))
 					ereport(ERROR,
 							(errcode(ERRCODE_INTERNAL_ERROR),
 							 errmsg(conn->error)));
 				break;
 			case RESPONSE_COMPLETE:
+				/* EOF encountered, close the tape and report EOF */
+				if (combiner->cursor)
+				{
+					combiner->connections[tapenum] = NULL;
+					if (len)
+						return len;
+				}
 				if (eofOK)
 					return 0;
 				else
 					elog(ERROR, "unexpected end of data");
 				break;
 			case RESPONSE_DATAROW:
-				return state->combiner->msglen;
+				Assert(len == 0);
+				if (state->combiner->cursor)
+				{
+					/*
+					 * We fetching one row at a time when running EQP
+					 * so read following PortalSuspended or ResponseComplete
+					 * to leave connection clean between the calls
+					 */
+					len = state->combiner->currentRow.msglen;
+					break;
+				}
+				else
+					return state->combiner->currentRow.msglen;
 			default:
 				ereport(ERROR,
 						(errcode(ERRCODE_INTERNAL_ERROR),

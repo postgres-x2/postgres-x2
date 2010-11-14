@@ -16,8 +16,8 @@
 
 #ifndef EXECREMOTE_H
 #define EXECREMOTE_H
-#include "pgxcnode.h"
 #include "locator.h"
+#include "pgxcnode.h"
 #include "planner.h"
 #include "access/tupdesc.h"
 #include "executor/tuptable.h"
@@ -29,9 +29,10 @@
 /* Outputs of handle_response() */
 #define RESPONSE_EOF EOF
 #define RESPONSE_COMPLETE 0
-#define RESPONSE_TUPDESC 1
-#define RESPONSE_DATAROW 2
-#define RESPONSE_COPY 3
+#define RESPONSE_SUSPENDED 1
+#define RESPONSE_TUPDESC 2
+#define RESPONSE_DATAROW 3
+#define RESPONSE_COPY 4
 
 typedef enum
 {
@@ -42,6 +43,18 @@ typedef enum
 	REQUEST_TYPE_COPY_OUT		/* Copy Out response */
 }	RequestType;
 
+/*
+ * Represents a DataRow message received from a remote node.
+ * Contains originating node number and message body in DataRow format without
+ * message code and length. Length is separate field
+ */
+typedef struct RemoteDataRowData
+{
+	char	   *msg;					/* last data row message */
+	int 		msglen;					/* length of the data row message */
+	int 		msgnode;				/* node number of the data row message */
+} 	RemoteDataRowData;
+typedef RemoteDataRowData *RemoteDataRow;
 
 typedef struct RemoteQueryState
 {
@@ -60,8 +73,18 @@ typedef struct RemoteQueryState
 	char		errorCode[5];			/* error code to send back to client */
 	char	   *errorMessage;			/* error message to send back to client */
 	bool		query_Done;				/* query has been sent down to data nodes */
-	char	   *msg;					/* last data row message */
-	int 		msglen;					/* length of the data row message */
+	RemoteDataRowData currentRow;		/* next data ro to be wrapped into a tuple */
+	/* TODO use a tuplestore as a rowbuffer */
+	List 	   *rowBuffer;				/* buffer where rows are stored when connection
+										 * should be cleaned for reuse by other RemoteQuery */
+	/*
+	 * To handle special case - if there is a simple sort and sort connection
+	 * is buffered. If EOF is reached on a connection it should be removed from
+	 * the array, but we need to know node number of the connection to find
+	 * messages in the buffer. So we store nodenum to that array if reach EOF
+	 * when buffering
+	 */
+	int 	   *tapenodes;
 	/*
 	 * While we are not supporting grouping use this flag to indicate we need
 	 * to initialize collecting of aggregates from the DNs
@@ -74,6 +97,11 @@ typedef struct RemoteQueryState
 	MemoryContext tmp_ctx;				/* separate context is needed to compare tuples */
 	FILE	   *copy_file;      		/* used if copy_dest == COPY_FILE */
 	uint64		processed;				/* count of data rows when running CopyOut */
+	/* cursor support */
+	char	   *cursor;					/* cursor name */
+	char	   *update_cursor;			/* throw this cursor current tuple can be updated */
+	int			cursor_count;			/* total count of participating nodes */
+	PGXCNodeHandle **cursor_connections;/* data node connections being combined */
 }	RemoteQueryState;
 
 /* Multinode Executor */
@@ -98,9 +126,9 @@ extern void ExecRemoteUtility(RemoteQuery *node);
 
 extern int handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner);
 extern bool FetchTuple(RemoteQueryState *combiner, TupleTableSlot *slot);
+extern void BufferConnection(PGXCNodeHandle *conn);
 
 extern void ExecRemoteQueryReScan(RemoteQueryState *node, ExprContext *exprCtxt);
-extern void PGXCNodeConsumeMessages(void);
 
 extern int primary_data_node;
 #endif
