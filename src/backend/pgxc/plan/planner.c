@@ -148,6 +148,7 @@ static bool get_plan_nodes_walker(Node *query_node, XCWalkerContext *context);
 static bool examine_conditions_walker(Node *expr_node, XCWalkerContext *context);
 static int handle_limit_offset(RemoteQuery *query_step, Query *query, PlannedStmt *plan_stmt);
 static void InitXCWalkerContext(XCWalkerContext *context);
+static void validate_part_col_updatable(const Query *query);
 
 /*
  * Find position of specified substring in the string
@@ -2465,10 +2466,18 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 		case CMD_INSERT:
 		case CMD_UPDATE:
 		case CMD_DELETE:
+			/* PGXCTODO: This validation will not be removed
+			 * until we support moving tuples from one node to another 
+			 * when the partition column of a table is updated 
+			 */
+			if (query->commandType == CMD_UPDATE)
+				validate_part_col_updatable(query);
+
 			if (query->returningList)
 				ereport(ERROR,
 						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
 						 (errmsg("RETURNING clause not yet supported"))));
+
 			/* Set result relations */
 			if (query->commandType != CMD_SELECT)
 				result->resultRelations = list_make1_int(query->resultRelation);
@@ -2812,4 +2821,56 @@ IsJoinReducible(RemoteQuery *innernode, RemoteQuery *outernode,
 	return result;
 }
 
+/*
+ * validate whether partition column of a table is being updated 
+ */
+static void 
+validate_part_col_updatable(const Query *query)
+{
+	RangeTblEntry *rte;
+	RelationLocInfo *rel_loc_info;
+	ListCell *lc;
 
+	/* Make sure there is one table at least */
+	if (query->rtable == NULL)
+		return;
+
+	rte = (RangeTblEntry *) list_nth(query->rtable, query->resultRelation - 1);
+
+
+	if (rte != NULL && rte->rtekind != RTE_RELATION)
+		/* Bad relation type */
+		return NULL;
+
+	/* See if we have the partitioned case. */
+	rel_loc_info = GetRelationLocInfo(rte->relid);
+
+	if (!rel_loc_info)
+		ereport(ERROR,
+				(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+				(errmsg("Could not find relation for oid = %d", rte->relid))));
+
+	
+	/* Only LOCATOR_TYPE_HASH should be checked */
+	if (rel_loc_info->locatorType == LOCATOR_TYPE_HASH &&
+		rel_loc_info->partAttrName != NULL)
+	{
+		/* It is a partitioned table, check partition column in targetList */
+		foreach(lc, query->targetList)
+		{
+			TargetEntry *tle = (TargetEntry *) lfirst(lc);
+
+			if (tle->resjunk)
+				continue;
+
+			/*
+			 * See if we have a constant expression comparing against the
+			 * designated partitioned column
+			 */
+			if (strcmp(tle->resname, rel_loc_info->partAttrName) == 0)
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
+			  			(errmsg("Partition column can't be updated in current version"))));
+		}
+	}
+}
