@@ -1295,13 +1295,6 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 		Assert(!is_from);
 		cstate->rel = NULL;
 
-#ifdef PGXC
-		if (IS_PGXC_COORDINATOR)
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("COPY (SELECT) is not supported in PGXC")));
-#endif
-
 		/* Don't allow COPY w/ OIDs from a select */
 		if (cstate->oids)
 			ereport(ERROR,
