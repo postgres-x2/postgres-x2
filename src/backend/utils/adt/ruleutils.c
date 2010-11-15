@@ -114,8 +114,9 @@ typedef struct
 	List	   *subplans;		/* List of subplans, in plan-tree case */
 	Plan	   *outer_plan;		/* OUTER subplan, or NULL if none */
 	Plan	   *inner_plan;		/* INNER subplan, or NULL if none */
-
+#ifdef PGXC
 	bool		remotequery;	/* deparse context for remote query */
+#endif
 } deparse_namespace;
 
 
