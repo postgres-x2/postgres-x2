@@ -22,6 +22,7 @@
 #include "catalog/pg_type.h"
 #include "executor/executor.h"
 #include "lib/stringinfo.h"
+#include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "nodes/nodes.h"
 #include "nodes/parsenodes.h"
@@ -1586,7 +1587,6 @@ get_plan_nodes(Query *query, RemoteQuery *step, bool isRead)
 /*
  * get_plan_nodes_command - determine the nodes to execute the plan on
  *
- * return NULL if it is not safe to be done in a single step.
  */
 static void
 get_plan_nodes_command(Query *query, RemoteQuery *step)
@@ -1605,6 +1605,9 @@ get_plan_nodes_command(Query *query, RemoteQuery *step)
 		case CMD_DELETE:
 			/* treat as a select */
 			get_plan_nodes(query, step, false);
+			break;
+
+		default:
 			break;
 	}
 }
@@ -2393,7 +2396,7 @@ handle_limit_offset(RemoteQuery *query_step, Query *query, PlannedStmt *plan_stm
 		for (c = &query_step->sql_statement[0]; c != pos && *c != '\0'; *newchar++ = *c++);
 
 		if (query->limitCount)
-			sprintf(newchar, "LIMIT %I64d", newLimit);
+			sprintf(newchar, "LIMIT " INT64_FORMAT, newLimit);
 		else
 			*newchar = '\0';
 
@@ -2840,7 +2843,7 @@ validate_part_col_updatable(const Query *query)
 
 	if (rte != NULL && rte->rtekind != RTE_RELATION)
 		/* Bad relation type */
-		return NULL;
+		return;
 
 	/* See if we have the partitioned case. */
 	rel_loc_info = GetRelationLocInfo(rte->relid);
