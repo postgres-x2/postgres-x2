@@ -1801,7 +1801,8 @@ CommitTransaction(void)
 	 * There can be error on the data nodes. So go to data nodes before
 	 * changing transaction state and local clean up
 	 */
-	PGXCNodeCommit();
+	if (IS_PGXC_COORDINATOR)
+		PGXCNodeCommit();
 #endif
 
 	/* Prevent cancel/die interrupt while cleaning up */
