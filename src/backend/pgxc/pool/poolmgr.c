@@ -45,6 +45,7 @@
 #include "libpq/pqformat.h"
 #include "pgxc/locator.h"
 #include "pgxc/pgxc.h"
+#include "pgxc/poolutils.h"
 #include "../interfaces/libpq/libpq-fe.h"
 #include "postmaster/postmaster.h"		/* For UnixSocketDir */
 #include <stdlib.h>
@@ -89,6 +90,7 @@ static PoolAgent **poolAgents;
 
 static PoolHandle *Handle = NULL;
 
+static int	is_pool_cleaning = false;
 static int	server_fd = -1;
 
 static void agent_init(PoolAgent *agent, const char *database);
@@ -109,6 +111,8 @@ static void destroy_slot(PGXCNodePoolSlot *slot);
 static void grow_pool(DatabasePool *dbPool, int index, char client_conn_type);
 static void destroy_node_pool(PGXCNodePool *node_pool);
 static void PoolerLoop(void);
+static int clean_connection(List *dn_discard, List *co_discard, const char *database);
+static int *abort_pids(int *count, int pid, const char *database);
 
 /* Signal handlers */
 static void pooler_die(SIGNAL_ARGS);
@@ -631,6 +635,7 @@ agent_create(void)
 	agent->pool = NULL;
 	agent->dn_connections = NULL;
 	agent->coord_connections = NULL;
+	agent->pid = 0;
 
 	/* Append new agent to the list */
 	poolAgents[agentCount++] = agent;
@@ -644,14 +649,32 @@ agent_create(void)
 void
 PoolManagerConnect(PoolHandle *handle, const char *database)
 {
+	int n32;
+	char msgtype = 'c';
+
 	Assert(handle);
 	Assert(database);
 
 	/* Save the handle */
 	Handle = handle;
 
+	/* Message type */
+	pool_putbytes(&handle->port, &msgtype, 1);
+
+	/* Message length */
+	n32 = htonl(strlen(database) + 13);
+	pool_putbytes(&handle->port, (char *) &n32, 4);
+
+	/* PID number */
+	n32 = htonl(MyProcPid);
+	pool_putbytes(&handle->port, (char *) &n32, 4);
+
+	/* Length of Database string */
+	n32 = htonl(strlen(database) + 1);
+	pool_putbytes(&handle->port, (char *) &n32, 4);
+
 	/* Send database name followed by \0 terminator */
-	pool_putmessage(&handle->port, 'c', database, strlen(database) + 1);
+	pool_putbytes(&handle->port, database, strlen(database) + 1);
 	pool_flush(&handle->port);
 }
 
@@ -779,6 +802,7 @@ PoolManagerGetConnections(List *datanodelist, List *coordlist)
 
 	pool_putmessage(&Handle->port, 'g', (char *) nodes, sizeof(int) * (totlen + 2));
 	pool_flush(&Handle->port);
+
 	/* Receive response */
 	fds = (int *) palloc(sizeof(int) * totlen);
 	if (fds == NULL)
@@ -793,6 +817,84 @@ PoolManagerGetConnections(List *datanodelist, List *coordlist)
 		return NULL;
 	}
 	return fds;
+}
+
+/*
+ * Abort active transactions using pooler.
+ * Take a lock forbidding access to Pooler for new transactions.
+ */
+int
+PoolManagerAbortTransactions(char *dbname, int **proc_pids)
+{
+	int num_proc_ids = 0;
+
+	Assert(Handle);
+
+	pool_putmessage(&Handle->port, 'a', dbname, strlen(dbname) + 1);
+
+	pool_flush(&Handle->port);
+
+	/* Then Get back Pids from Pooler */
+	num_proc_ids = pool_recvpids(&Handle->port, proc_pids);
+
+	return num_proc_ids;
+}
+
+
+/*
+ * Clean up Pooled connections
+ */
+void
+PoolManagerCleanConnection(List *datanodelist, List *coordlist, char *dbname)
+{
+	int			totlen = list_length(datanodelist) + list_length(coordlist);
+	int			nodes[totlen + 2];
+	ListCell   *nodelist_item;
+	int			i, n32;
+	char		msgtype = 'f';
+
+	nodes[0] = htonl(list_length(datanodelist));
+	i = 1;
+	if (list_length(datanodelist) != 0)
+	{
+		foreach(nodelist_item, datanodelist)
+		{
+			nodes[i++] = htonl(lfirst_int(nodelist_item));
+		}
+	}
+	/* Then with Coordinator list (can be nul) */
+	nodes[i++] = htonl(list_length(coordlist));
+	if (list_length(coordlist) != 0)
+	{
+		foreach(nodelist_item, coordlist)
+		{
+			nodes[i++] = htonl(lfirst_int(nodelist_item));
+		}
+	}
+
+	/* Message type */
+	pool_putbytes(&Handle->port, &msgtype, 1);
+
+	/* Message length */
+	n32 = htonl(sizeof(int) * (totlen + 2) + strlen(dbname) + 9);
+	pool_putbytes(&Handle->port, (char *) &n32, 4);
+
+	/* Send list of nodes */
+	pool_putbytes(&Handle->port, (char *) nodes, sizeof(int) * (totlen + 2));
+
+	/* Length of Database string */
+	n32 = htonl(strlen(dbname) + 1);
+	pool_putbytes(&Handle->port, (char *) &n32, 4);
+
+	/* Send database name, followed by \0 terminator */
+	pool_putbytes(&Handle->port, dbname, strlen(dbname) + 1);
+	pool_flush(&Handle->port);
+
+	/* Receive result message */
+	if (pool_recvres(&Handle->port) != CLEAN_CONNECTION_COMPLETED)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Clean connections not completed")));
 }
 
 
@@ -816,14 +918,39 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 		List	   *datanodelist = NIL;
 		List	   *coordlist = NIL;
 		int		   *fds;
-		int			i;
+		int		   *pids;
+		int			i, len, res;
+
+		/*
+		 * During a pool cleaning, Abort, Connect and Get Connections messages
+		 * are not allowed on pooler side.
+		 * It avoids to have new backends taking connections
+		 * while remaining transactions are aborted during FORCE and then
+		 * Pools are being shrinked.
+		 */
+		if (is_pool_cleaning && (qtype == 'a' ||
+								 qtype == 'c' ||
+								 qtype == 'g'))
+			elog(WARNING,"Pool operation cannot run during Pool cleaning");
 
 		switch (qtype)
 		{
-			case 'c':			/* CONNECT */
+			case 'a':			/* ABORT */
 				pool_getmessage(&agent->port, s, 0);
 				database = pq_getmsgstring(s);
-				/* 
+				pq_getmsgend(s);
+				pids = abort_pids(&len, agent->pid, database);
+
+				pool_sendpids(&agent->port, pids, len);
+				if (pids)
+					pfree(pids);
+				break;
+			case 'c':			/* CONNECT */
+				pool_getmessage(&agent->port, s, 0);
+				agent->pid = pq_getmsgint(s, 4);
+				len = pq_getmsgint(s, 4);
+				database = pq_getmsgbytes(s, len);
+				/*
 				 * Coordinator pool is not initialized.
 				 * With that it would be impossible to create a Database by default.
 				 */
@@ -834,6 +961,29 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 				pool_getmessage(&agent->port, s, 4);
 				agent_destroy(agent);
 				pq_getmsgend(s);
+				break;
+			case 'f':			/* CLEAN CONNECTION */
+				pool_getmessage(&agent->port, s, 0);
+				datanodecount = pq_getmsgint(s, 4);
+				/* It is possible to clean up only Coordinators connections */
+				for (i = 0; i < datanodecount; i++)
+					datanodelist = lappend_int(datanodelist, pq_getmsgint(s, 4));
+				coordcount = pq_getmsgint(s, 4);
+				/* It is possible to clean up only Datanode connections */
+				for (i = 0; i < coordcount; i++)
+					coordlist = lappend_int(coordlist, pq_getmsgint(s, 4));
+				len = pq_getmsgint(s, 4);
+				database = pq_getmsgbytes(s, len);
+				pq_getmsgend(s);
+
+				/* Clean up connections here */
+				res = clean_connection(datanodelist, coordlist, database);
+
+				list_free(datanodelist);
+				list_free(coordlist);
+
+				/* Send success result */
+				pool_sendres(&agent->port, res);
 				break;
 			case 'g':			/* GET CONNECTIONS */
 				/*
@@ -852,9 +1002,8 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 					datanodelist = lappend_int(datanodelist, pq_getmsgint(s, 4));
 				coordcount = pq_getmsgint(s, 4);
 				/* It is possible that no Coordinators are involved in the transaction */
-				if (coordcount != 0)
-					for (i = 0; i < coordcount; i++)
-						coordlist = lappend_int(coordlist, pq_getmsgint(s, 4));
+				for (i = 0; i < coordcount; i++)
+					coordlist = lappend_int(coordlist, pq_getmsgint(s, 4));
 				pq_getmsgend(s);
 				/*
 				 * In case of error agent_acquire_connections will log
@@ -1282,8 +1431,7 @@ insert_database_pool(DatabasePool *databasePool)
 /*
  * Find pool for specified database in the list
  */
-static DatabasePool
-*
+static DatabasePool *
 find_database_pool(const char *database)
 {
 	DatabasePool *databasePool;
@@ -1292,12 +1440,11 @@ find_database_pool(const char *database)
 	databasePool = databasePools;
 	while (databasePool)
 	{
-
 		/* if match break the loop and return */
 		if (strcmp(database, databasePool->database) == 0)
 			break;
-		databasePool = databasePool->next;
 
+		databasePool = databasePool->next;
 	}
 	return databasePool;
 }
@@ -1724,6 +1871,147 @@ PoolerLoop(void)
 	}
 }
 
+/*
+ * Clean Connection in all Database Pools for given Datanode and Coordinator list
+ */
+#define TIMEOUT_CLEAN_LOOP 10
+
+int
+clean_connection(List *dn_discard, List *co_discard, const char *database)
+{
+	DatabasePool *databasePool;
+	int			dn_len = list_length(dn_discard);
+	int			co_len = list_length(co_discard);
+	int			dn_list[list_length(dn_discard)];
+	int			co_list[list_length(co_discard)];
+	int			count, i;
+	int			res = CLEAN_CONNECTION_COMPLETED;
+	ListCell   *nodelist_item;
+	PGXCNodePool *nodePool;
+
+	/* Save in array the lists of node number */
+	count = 0;
+	foreach(nodelist_item,dn_discard)
+		dn_list[count++] = lfirst_int(nodelist_item);
+
+	count = 0;
+	foreach(nodelist_item, co_discard)
+		co_list[count++] = lfirst_int(nodelist_item);
+
+	/* Find correct Database pool to clean */
+	databasePool = find_database_pool(database);
+
+	/* Database pool has not been found */
+	if (!databasePool)
+		return CLEAN_CONNECTION_NOT_COMPLETED;
+
+	/*
+	 * Clean each Pool Correctly
+	 * First for Datanode Pool
+	 */
+	for (count = 0; count < dn_len; count++)
+	{
+		int node_num = dn_list[count];
+		nodePool = databasePool->dataNodePools[node_num - 1];
+
+		if (nodePool)
+		{
+			/* Check if connections are in use */
+			if (nodePool->freeSize != nodePool->size)
+			{
+				elog(WARNING, "Pool of Database %s is using Datanode %d connections",
+							databasePool->database, node_num);
+				res = CLEAN_CONNECTION_NOT_COMPLETED;
+			}
+
+			/* Destroy connections currently in Node Pool */
+			if (nodePool->slot)
+			{
+				for (i = 0; i < nodePool->freeSize; i++)
+					destroy_slot(nodePool->slot[i]);
+
+				/* Move slots in use at the beginning of Node Pool array */
+				for (i = nodePool->freeSize; i < nodePool->size; i++ )
+					nodePool->slot[i - nodePool->freeSize] = nodePool->slot[i];
+			}
+			nodePool->size -= nodePool->freeSize;
+			nodePool->freeSize = 0;
+		}
+	}
+
+	/* Then for Coordinators */
+	for (count = 0; count < co_len; count++)
+	{
+		int node_num = co_list[count];
+		nodePool = databasePool->coordNodePools[node_num - 1];
+
+		if (nodePool)
+		{
+			/* Check if connections are in use */
+			if (nodePool->freeSize != nodePool->size)
+			{
+				elog(WARNING, "Pool of Database %s is using Coordinator %d connections",
+							databasePool->database, node_num);
+				res = CLEAN_CONNECTION_NOT_COMPLETED;
+			}
+
+			/* Destroy connections currently in Node Pool */
+			if (nodePool->slot)
+			{
+				for (i = 0; i < nodePool->freeSize; i++)
+					destroy_slot(nodePool->slot[i]);
+
+				/* Move slots in use at the beginning of Node Pool array */
+				for (i = nodePool->freeSize; i < nodePool->size; i++ )
+					nodePool->slot[i - nodePool->freeSize] = nodePool->slot[i];
+			}
+			nodePool->size -= nodePool->freeSize;
+			nodePool->freeSize = 0;
+		}
+	}
+
+	/* Release lock on Pooler, to allow transactions to connect again. */
+	is_pool_cleaning = false;
+	return res;
+}
+
+/*
+ * Take a Lock on Pooler.
+ * Abort PIDs registered with the agents for the given database.
+ * Send back to client list of PIDs signaled to watch them.
+ */
+int *
+abort_pids(int *len, int pid, const char *database)
+{
+	int *pids = NULL;
+	int i = 0;
+	int count;
+
+	Assert(!is_pool_cleaning);
+	Assert(agentCount > 0);
+
+	is_pool_cleaning = true;
+
+	pids = (int *) palloc((agentCount - 1) * sizeof(int));
+
+	/* Send a SIGTERM signal to all processes of Pooler agents except this one */
+	for (count = 0; count < agentCount; count++)
+	{
+		if (poolAgents[count]->pid != pid &&
+			strcmp(poolAgents[count]->pool->database, database) == 0)
+		{
+			if (kill(poolAgents[count]->pid, SIGTERM) < 0)
+				elog(ERROR, "kill(%ld,%d) failed: %m",
+							(long) poolAgents[count]->pid, SIGTERM);
+
+			pids[i++] = poolAgents[count]->pid;
+		}
+	}
+
+	*len = i;
+
+	return pids;
+}
 
 /*
  *

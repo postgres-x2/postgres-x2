@@ -45,5 +45,9 @@ extern int	pool_putbytes(PoolPort *port, const char *s, size_t len);
 extern int	pool_flush(PoolPort *port);
 extern int	pool_sendfds(PoolPort *port, int *fds, int count);
 extern int	pool_recvfds(PoolPort *port, int *fds, int count);
+extern int	pool_sendres(PoolPort *port, int res);
+extern int	pool_recvres(PoolPort *port);
+extern int	pool_sendpids(PoolPort *port, int *pids, int count);
+extern int	pool_recvpids(PoolPort *port, int **pids);
 
 #endif   /* POOLCOMM_H */

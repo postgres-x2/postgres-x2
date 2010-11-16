@@ -2416,6 +2416,18 @@ typedef struct ExecDirectStmt
 	List	   *nodes;
 	char	   *query;
 } ExecDirectStmt;
+
+/*
+ * CLEAN CONNECTION statement
+ */
+typedef struct CleanConnStmt
+{
+	NodeTag		type;
+	List	   *nodes;		/* list of nodes dropped */
+	char	   *dbname;		/* name of database to drop connections */
+	bool		is_coord;	/* type of connections dropped */
+	bool		is_force;	/* option force  */
+} CleanConnStmt;
 /* PGXC_END */
 
 #endif   /* PARSENODES_H */

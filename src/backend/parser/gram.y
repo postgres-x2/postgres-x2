@@ -191,7 +191,7 @@ static TypeName *TableFuncTypeName(List *columns);
 		AlterForeignServerStmt AlterGroupStmt
 		AlterObjectSchemaStmt AlterOwnerStmt AlterSeqStmt AlterTableStmt
 		AlterUserStmt AlterUserMappingStmt AlterUserSetStmt AlterRoleStmt AlterRoleSetStmt
-		AnalyzeStmt ClosePortalStmt ClusterStmt CommentStmt
+		AnalyzeStmt CleanConnStmt ClosePortalStmt ClusterStmt CommentStmt
 		ConstraintsSetStmt CopyStmt CreateAsStmt CreateCastStmt
 		CreateDomainStmt CreateGroupStmt CreateOpClassStmt
 		CreateOpFamilyStmt AlterOpFamilyStmt CreatePLangStmt
@@ -328,7 +328,7 @@ static TypeName *TableFuncTypeName(List *columns);
 %type <boolean> opt_freeze opt_default opt_recheck
 %type <defelt>	opt_binary opt_oids copy_delimiter
 
-%type <list>	node_list
+%type <list>	data_node_list coord_list
 %type <str>		DirectStmt
 
 %type <boolean> copy_from
@@ -445,7 +445,7 @@ static TypeName *TableFuncTypeName(List *columns);
 	BOOLEAN_P BOTH BY
 
 	CACHE CALLED CASCADE CASCADED CASE CAST CATALOG_P CHAIN CHAR_P
-	CHARACTER CHARACTERISTICS CHECK CHECKPOINT CLASS CLOSE
+	CHARACTER CHARACTERISTICS CHECK CHECKPOINT CLASS CLEAN CLOSE
 	CLUSTER COALESCE COLLATE COLUMN COMMENT COMMIT
 	COMMITTED CONCURRENTLY CONFIGURATION CONNECTION CONSTRAINT CONSTRAINTS
 	CONTENT_P CONTINUE_P CONVERSION_P COORDINATOR COPY COST CREATE CREATEDB
@@ -637,6 +637,7 @@ stmt :
 			| AlterUserStmt
 			| AnalyzeStmt
 			| CheckPointStmt
+			| CleanConnStmt
 			| ClosePortalStmt
 			| ClusterStmt
 			| CommentStmt
@@ -6545,7 +6546,7 @@ ExecDirectStmt: EXECUTE DIRECT ON COORDINATOR DirectStmt
 					n->query = $5;
 					$$ = (Node *)n;
 				}
-				| EXECUTE DIRECT ON NODE node_list DirectStmt
+				| EXECUTE DIRECT ON NODE data_node_list DirectStmt
 				{
 					ExecDirectStmt *n = makeNode(ExecDirectStmt);
 					n->coordinator = FALSE;
@@ -6559,15 +6560,65 @@ DirectStmt:
 			Sconst					/* by default all are $$=$1 */
 		;
 
-node_list: 
+coord_list:
 		 	Iconst					{ $$ = list_make1(makeInteger($1)); }
-			| node_list ',' Iconst	{ $$ = lappend($1, makeInteger($3)); }
+			| coord_list ',' Iconst	{ $$ = lappend($1, makeInteger($3)); }
+			| '*'
+				{
+					int i;
+					$$ = NIL;
+					for (i=1; i<=NumCoords; i++)
+						$$ = lappend($$, makeInteger(i));
+				}
+		;
+
+data_node_list:
+		 	Iconst					{ $$ = list_make1(makeInteger($1)); }
+			| data_node_list ',' Iconst	{ $$ = lappend($1, makeInteger($3)); }
 			| '*'
 				{
 					int i;
 					$$ = NIL;
 					for (i=1; i<=NumDataNodes; i++)
 						$$ = lappend($$, makeInteger(i));
+				}
+		;
+
+/*****************************************************************************
+ *
+ *		QUERY:
+ *
+ *		CLEAN CONNECTION TO (COORDINATOR num | NODE num | ALL {FORCE})
+ *				FOR DATABASE dbname
+ *
+ *****************************************************************************/
+
+CleanConnStmt: CLEAN CONNECTION TO COORDINATOR coord_list FOR DATABASE database_name
+				{
+					CleanConnStmt *n = makeNode(CleanConnStmt);
+					n->is_coord = true;
+					n->nodes = $5;
+					n->is_force = false;
+					n->dbname = $8;
+					$$ = (Node *)n;
+				}
+				| CLEAN CONNECTION TO NODE data_node_list FOR DATABASE database_name
+				{
+					CleanConnStmt *n = makeNode(CleanConnStmt);
+					n->is_coord = false;
+					n->nodes = $5;
+					n->is_force = false;
+					n->dbname = $8;
+					$$ = (Node *)n;
+				}
+				| CLEAN CONNECTION TO ALL opt_force FOR DATABASE database_name
+				{
+					CleanConnStmt *n = makeNode(CleanConnStmt);
+					n->is_coord = true;
+					n->nodes = NIL;
+					n->is_force = $5;
+					n->dbname = $8;
+					$$ = (Node *)n;
 				}
 		;
 
@@ -10259,6 +10310,7 @@ unreserved_keyword:
 			| CHARACTERISTICS
 			| CHECKPOINT
 			| CLASS
+			| CLEAN
 			| CLOSE
 			| CLUSTER
 			| COMMENT

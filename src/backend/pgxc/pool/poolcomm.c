@@ -480,10 +480,12 @@ pool_putmessage(PoolPort *port, char msgtype, const char *s, size_t len)
 
 /* message code('f'), size(8), node_count */
 #define SEND_MSG_BUFFER_SIZE 9
-
+/* message code('s'), result */
+#define SEND_RES_BUFFER_SIZE 5
+#define SEND_PID_BUFFER_SIZE (5 + (MaxConnections - 1) * 4)
 
 /*
- * Build up a message carrying file deskriptors and send them over specified
+ * Build up a message carrying file descriptors or process numbers and send them over specified
  * connection
  */
 int
@@ -638,4 +640,179 @@ pool_recvfds(PoolPort *port, int *fds, int count)
 failure:
 	free(cmptr);
 	return EOF;
+}
+
+/*
+ * Send result to specified connection
+ */
+int
+pool_sendres(PoolPort *port, int res)
+{
+	char		buf[SEND_RES_BUFFER_SIZE];
+	uint		n32;
+
+	/* Header */
+	buf[0] = 's';
+	/* Result */
+	n32 = htonl(res);
+	memcpy(buf + 1, &n32, 4);
+
+	if (send(Socket(*port), &buf, SEND_RES_BUFFER_SIZE, 0) != SEND_RES_BUFFER_SIZE)
+		return EOF;
+
+	return 0;
+}
+
+/*
+ * Read result from specified connection.
+ * Return 0 at success or EOF at error.
+ */
+int
+pool_recvres(PoolPort *port)
+{
+	int			r;
+	int			res = 0;
+	uint		n32;
+	char		buf[SEND_RES_BUFFER_SIZE];
+
+	r = recv(Socket(*port), &buf, SEND_RES_BUFFER_SIZE, 0);
+	if (r < 0)
+	{
+		/*
+		 * Report broken connection
+		 */
+		ereport(ERROR,
+				(errcode_for_socket_access(),
+				 errmsg("could not receive data from client: %m")));
+		goto failure;
+	}
+	else if (r == 0)
+	{
+		goto failure;
+	}
+	else if (r != SEND_RES_BUFFER_SIZE)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("incomplete message from client")));
+		goto failure;
+	}
+
+	/* Verify response */
+	if (buf[0] != 's')
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("unexpected message code")));
+		goto failure;
+	}
+
+	memcpy(&n32, buf + 1, 4);
+	n32 = ntohl(n32);
+	if (n32 != 0)
+		return EOF;
+
+	return res;
+
+failure:
+	return EOF;
+}
+
+/*
+ * Read a message from the specified connection carrying pid numbers
+ * of transactions interacting with pooler
+ */
+int
+pool_recvpids(PoolPort *port, int **pids)
+{
+	int			r, i;
+	uint		n32;
+	char		buf[SEND_PID_BUFFER_SIZE];
+
+	/*
+	 * Buffer size is upper bounded by the maximum number of connections,
+	 * as in the pooler each connection has one Pooler Agent.
+	 */
+
+	r = recv(Socket(*port), &buf, SEND_PID_BUFFER_SIZE, 0);
+	if (r < 0)
+	{
+		/*
+		 * Report broken connection
+		 */
+		ereport(ERROR,
+				(errcode_for_socket_access(),
+				 errmsg("could not receive data from client: %m")));
+		goto failure;
+	}
+	else if (r == 0)
+	{
+		goto failure;
+	}
+	else if (r != SEND_PID_BUFFER_SIZE)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("incomplete message from client")));
+		goto failure;
+	}
+
+	/* Verify response */
+	if (buf[0] != 'p')
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("unexpected message code")));
+		goto failure;
+	}
+
+	memcpy(&n32, buf + 1, 4);
+	n32 = ntohl(n32);
+	if (n32 == 0)
+	{
+		elog(WARNING, "No transaction to abort");
+		return n32;
+	}
+
+	*pids = (int *) palloc(sizeof(int) * n32);
+
+	for (i = 0; i < n32; i++)
+	{
+		int n;
+		memcpy(&n, buf + 5 + i * sizeof(int), sizeof(int));
+		*pids[i] = ntohl(n);
+	}
+	return n32;
+
+failure:
+	return 0;
+}
+
+/*
+ * Send a message containing pid numbers to the specified connection 
+ */
+int
+pool_sendpids(PoolPort *port, int *pids, int count)
+{
+	int res = 0;
+	int i;
+	char		buf[SEND_PID_BUFFER_SIZE];
+	uint		n32;
+
+	buf[0] = 'p';
+	n32 = htonl((uint32) count);
+	memcpy(buf + 1, &n32, 4);
+	for (i = 0; i < count; i++)
+	{
+		int n;
+		n = htonl((uint32) pids[i]);
+		memcpy(buf + 5 + i * sizeof(int), &n, 4);
+	}
+
+	if (send(Socket(*port), &buf, SEND_PID_BUFFER_SIZE,0) != SEND_PID_BUFFER_SIZE)
+	{
+		res = EOF;
+	}
+
+	return res;
 }

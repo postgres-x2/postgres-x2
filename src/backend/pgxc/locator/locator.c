@@ -466,8 +466,8 @@ GetAllDataNodes(void)
 
 /*
  * Return a list of all Coordinators
- * This is used to send DDL to all nodes
- * Do not put in the list the local Coordinator where this function is launched
+ * This is used to send DDL to all nodes and to clean up pooler connections.
+ * Do not put in the list the local Coordinator where this function is launched.
  */
 List *
 GetAllCoordNodes(void)

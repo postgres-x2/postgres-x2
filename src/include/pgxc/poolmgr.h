@@ -63,6 +63,8 @@ typedef struct databasepool
  */
 typedef struct
 {
+	/* Process ID of postmaster child process associated to pool agent */
+	int			pid;
 	/* communication channel */
 	PoolPort	port;
 	DatabasePool *pool;
@@ -131,6 +133,12 @@ extern void PoolManagerConnect(PoolHandle *handle, const char *database);
 
 /* Get pooled connections */
 extern int *PoolManagerGetConnections(List *datanodelist, List *coordlist);
+
+/* Clean pool connections */
+extern void PoolManagerCleanConnection(List *datanodelist, List *coordlist, char *dbname);
+
+/* Send Abort signal to transactions being run */
+extern int	PoolManagerAbortTransactions(char *dbname, int **proc_pids);
 
 /* Return connections back to the pool, for both Coordinator and Datanode connections */
 extern void PoolManagerReleaseConnections(int dn_ndisc, int* dn_discard, int co_ndisc, int* co_discard);

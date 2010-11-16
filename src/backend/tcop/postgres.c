@@ -2625,6 +2625,7 @@ die(SIGNAL_ARGS)
 	errno = save_errno;
 }
 
+
 /*
  * Timeout or shutdown signal from postmaster during client authentication.
  * Simply exit(1).

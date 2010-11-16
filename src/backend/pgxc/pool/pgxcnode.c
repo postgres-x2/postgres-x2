@@ -268,7 +268,7 @@ pgxc_node_receive(const int conn_count,
 	FD_ZERO(&readfds);
 	for (i = 0; i < conn_count; i++)
 	{
-		/* If connection finised sending do not wait input from it */
+		/* If connection finished sending do not wait input from it */
 		if (connections[i]->state == DN_CONNECTION_STATE_IDLE
 				|| HAS_MESSAGE_BUFFERED(connections[i]))
 			continue;
