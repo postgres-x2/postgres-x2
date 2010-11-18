@@ -1723,7 +1723,7 @@ CopyTo(CopyState cstate)
     if (IS_PGXC_COORDINATOR && cstate->rel_loc)
 	{
 		cstate->processed = DataNodeCopyOut(
-				GetRelationNodes(cstate->rel_loc, NULL, true),
+				GetRelationNodes(cstate->rel_loc, NULL, RELATION_ACCESS_READ),
 				cstate->connections,
 				cstate->copy_file);
 	}
@@ -2439,7 +2439,8 @@ CopyFrom(CopyState cstate)
 
 			if (DataNodeCopyIn(cstate->line_buf.data,
 					       cstate->line_buf.len,
-						   GetRelationNodes(cstate->rel_loc, (long *)hash_value, false),
+						   GetRelationNodes(cstate->rel_loc, (long *)hash_value,
+											RELATION_ACCESS_WRITE),
 						   cstate->connections))
 				ereport(ERROR,
 						(errcode(ERRCODE_CONNECTION_EXCEPTION),

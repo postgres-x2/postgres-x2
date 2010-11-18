@@ -125,7 +125,7 @@ typedef struct ColumnBase
 typedef struct XCWalkerContext
 {
 	Query				   *query;
-	bool					isRead;
+	RelationAccessType		accessType;
 	RemoteQuery			   *query_step;	/* remote query step being analized */
 	Special_Conditions 	   *conditions;
 	bool					multilevel_join;
@@ -144,7 +144,7 @@ bool		StrictStatementChecking = true;
 /* Forbid multi-node SELECT statements with an ORDER BY clause */
 bool		StrictSelectChecking = false;
 
-static void get_plan_nodes(Query *query, RemoteQuery *step, bool isRead);
+static void get_plan_nodes(Query *query, RemoteQuery *step, RelationAccessType accessType);
 static bool get_plan_nodes_walker(Node *query_node, XCWalkerContext *context);
 static bool examine_conditions_walker(Node *expr_node, XCWalkerContext *context);
 static int handle_limit_offset(RemoteQuery *query_step, Query *query, PlannedStmt *plan_stmt);
@@ -524,7 +524,8 @@ get_plan_nodes_insert(Query *query)
 	}
 
 	/* single call handles both replicated and partitioned types */
-	exec_nodes = GetRelationNodes(rel_loc_info, part_value_ptr, false);
+	exec_nodes = GetRelationNodes(rel_loc_info, part_value_ptr,
+								  RELATION_ACCESS_WRITE);
 
 	if (eval_expr)
 		pfree(eval_expr);
@@ -648,18 +649,39 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 					int natts = get_relnatts(table->relid);
 					char *attnames[natts];
 					TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
-					/*
-					 * ctid is the last attribute, but more correct to iterate over
-					 * attributes and find by name, or store index for table
-					 */
-					Datum ctid = slot->tts_values[slot->tts_tupleDescriptor->natts - 1];
-					char *ctid_str = (char *) DirectFunctionCall1(tidout, ctid);
+					TupleDesc slot_meta = slot->tts_tupleDescriptor;
+					Datum ctid = 0;
+					char *ctid_str = NULL;
 					int nodenum = slot->tts_dataNode;
 					AttrNumber att;
 					StringInfoData buf;
 					HeapTuple	tp;
 					int i;
 					MemoryContext context_save;
+
+					/*
+					 * Iterate over attributes and find CTID. This attribute is
+					 * most likely at the end of the list, so iterate in
+					 * reverse order to find it quickly.
+					 * If not found, target table is not updatable through
+					 * the cursor, report problem to client
+					 */
+					for (i = slot_meta->natts - 1; i >= 0; i--)
+					{
+						Form_pg_attribute attr = slot_meta->attrs[i];
+						if (strcmp(attr->attname.data, "ctid") == 0)
+						{
+							ctid = slot->tts_values[i];
+							ctid_str = (char *) DirectFunctionCall1(tidout, ctid);
+							break;
+						}
+					}
+
+					if (ctid_str == NULL)
+						ereport(ERROR,
+								(errcode(ERRCODE_INVALID_CURSOR_STATE),
+								 errmsg("cursor \"%s\" is not a simply updatable scan of table \"%s\"",
+										cexpr->cursor_name, tableName)));
 
 					initStringInfo(&buf);
 
@@ -1448,12 +1470,16 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 				if (!rel_loc_info)
 					return true;
 
-				context->query_step->exec_nodes = GetRelationNodes(rel_loc_info, NULL, context->isRead);
+				context->query_step->exec_nodes = GetRelationNodes(rel_loc_info,
+																   NULL,
+																   context->accessType);
 			}
 		}
 		else
 		{
-			context->query_step->exec_nodes = GetRelationNodes(rel_loc_info, NULL, context->isRead);
+			context->query_step->exec_nodes = GetRelationNodes(rel_loc_info,
+															   NULL,
+															   context->accessType);
 		}
 
 		/* Note replicated table usage for determining safe queries */
@@ -1479,7 +1505,8 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 			Literal_Comparison *lit_comp = (Literal_Comparison *) lfirst(lc);
 
 			test_exec_nodes = GetRelationNodes(
-						lit_comp->rel_loc_info, &(lit_comp->constant), true);
+						lit_comp->rel_loc_info, &(lit_comp->constant),
+						RELATION_ACCESS_READ);
 
 			test_exec_nodes->tableusagetype = table_usage_type;
 			if (context->query_step->exec_nodes == NULL)
@@ -1505,7 +1532,9 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 		parent_child = (Parent_Child_Join *)
 				linitial(context->conditions->partitioned_parent_child);
 
-		context->query_step->exec_nodes = GetRelationNodes(parent_child->rel_loc_info1, NULL, context->isRead);
+		context->query_step->exec_nodes = GetRelationNodes(parent_child->rel_loc_info1,
+														   NULL,
+														   context->accessType);
 		context->query_step->exec_nodes->tableusagetype = table_usage_type;
 	}
 
@@ -1545,7 +1574,7 @@ static void
 InitXCWalkerContext(XCWalkerContext *context)
 {
 	context->query = NULL;
-	context->isRead = true;
+	context->accessType = RELATION_ACCESS_READ;
 	context->query_step = NULL;
 	context->conditions = (Special_Conditions *) palloc0(sizeof(Special_Conditions));
 	context->rtables = NIL;
@@ -1562,14 +1591,14 @@ InitXCWalkerContext(XCWalkerContext *context)
  *
  */
 static void
-get_plan_nodes(Query *query, RemoteQuery *step, bool isRead)
+get_plan_nodes(Query *query, RemoteQuery *step, RelationAccessType accessType)
 {
 	XCWalkerContext context;
 
 
 	InitXCWalkerContext(&context);
 	context.query = query;
-	context.isRead = isRead;
+	context.accessType = accessType;
 	context.query_step = step;
 	context.rtables = lappend(context.rtables, query->rtable);
 
@@ -1594,7 +1623,9 @@ get_plan_nodes_command(Query *query, RemoteQuery *step)
 	switch (query->commandType)
 	{
 		case CMD_SELECT:
-			get_plan_nodes(query, step, true);
+			get_plan_nodes(query, step, query->rowMarks ?
+											RELATION_ACCESS_READ_FOR_UPDATE :
+												RELATION_ACCESS_READ);
 			break;
 
 		case CMD_INSERT:
@@ -1604,7 +1635,7 @@ get_plan_nodes_command(Query *query, RemoteQuery *step)
 		case CMD_UPDATE:
 		case CMD_DELETE:
 			/* treat as a select */
-			get_plan_nodes(query, step, false);
+			get_plan_nodes(query, step, RELATION_ACCESS_WRITE);
 			break;
 
 		default:
@@ -2470,8 +2501,8 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 		case CMD_UPDATE:
 		case CMD_DELETE:
 			/* PGXCTODO: This validation will not be removed
-			 * until we support moving tuples from one node to another 
-			 * when the partition column of a table is updated 
+			 * until we support moving tuples from one node to another
+			 * when the partition column of a table is updated
 			 */
 			if (query->commandType == CMD_UPDATE)
 				validate_part_col_updatable(query);
@@ -2629,9 +2660,12 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	/*
 	 * Support for multi-step cursor.
 	 * Ensure uniqueness of remote cursor name
+	 * Small optimization for SCROLL (read-only) cursors: do not use Extended
+	 * Query protocol
 	 */
 	if (query->utilityStmt &&
-		IsA(query->utilityStmt, DeclareCursorStmt))
+		IsA(query->utilityStmt, DeclareCursorStmt) &&
+		(cursorOptions & CURSOR_OPT_SCROLL) == 0)
 	{
 		DeclareCursorStmt *stmt = (DeclareCursorStmt *) query->utilityStmt;
 		set_cursor_name(result->planTree, stmt->portalname, 0);
@@ -2744,7 +2778,7 @@ IsJoinReducible(RemoteQuery *innernode, RemoteQuery *outernode,
 	*partitioned_replicated = false;
 
 	InitXCWalkerContext(&context);
-	context.isRead = true; /* PGXCTODO - determine */
+	context.accessType = RELATION_ACCESS_READ; /* PGXCTODO - determine */
 	context.rtables = NIL;
 	context.rtables = lappend(context.rtables, rtable_list); /* add to list of lists */
 
@@ -2825,9 +2859,9 @@ IsJoinReducible(RemoteQuery *innernode, RemoteQuery *outernode,
 }
 
 /*
- * validate whether partition column of a table is being updated 
+ * validate whether partition column of a table is being updated
  */
-static void 
+static void
 validate_part_col_updatable(const Query *query)
 {
 	RangeTblEntry *rte;
@@ -2853,7 +2887,7 @@ validate_part_col_updatable(const Query *query)
 				(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
 				(errmsg("Could not find relation for oid = %d", rte->relid))));
 
-	
+
 	/* Only LOCATOR_TYPE_HASH should be checked */
 	if (rel_loc_info->locatorType == LOCATOR_TYPE_HASH &&
 		rel_loc_info->partAttrName != NULL)

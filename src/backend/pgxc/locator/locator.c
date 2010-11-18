@@ -43,7 +43,7 @@
 #include "catalog/namespace.h"
 
 
-/* 
+/*
  * PGXCTODO For prototype, relations use the same hash mapping table.
  * Long term, make it a pointer in RelationLocInfo, and have
  * similarly handled tables point to the same mapping table,
@@ -265,7 +265,7 @@ GetRoundRobinNode(Oid relid)
 /*
  * GetRelationNodes
  *
- * Get list of relation nodes 
+ * Get list of relation nodes
  * If the table is replicated and we are reading, we can just pick one.
  * If the table is partitioned, we apply partitioning column value, if possible.
  *
@@ -281,7 +281,8 @@ GetRoundRobinNode(Oid relid)
  * The returned List is a copy, so it should be freed when finished.
  */
 ExecNodes *
-GetRelationNodes(RelationLocInfo *rel_loc_info, long *partValue, int isRead)
+GetRelationNodes(RelationLocInfo *rel_loc_info, long *partValue,
+				 RelationAccessType accessType)
 {
 	ListCell   *prefItem;
 	ListCell   *stepItem;
@@ -293,21 +294,21 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, long *partValue, int isRead)
 
 	exec_nodes = makeNode(ExecNodes);
 	exec_nodes->baselocatortype = rel_loc_info->locatorType;
-	
+
 	switch (rel_loc_info->locatorType)
 	{
 		case LOCATOR_TYPE_REPLICATED:
 
-			if (!isRead)
+			if (accessType == RELATION_ACCESS_WRITE)
 			{
 				/* we need to write to all synchronously */
 				exec_nodes->nodelist = list_copy(rel_loc_info->nodeList);
 
-				/* 
-				 * Write to primary node first, to reduce chance of a deadlock 
-				 * on replicated tables. If 0, do not use primary copy. 
+				/*
+				 * Write to primary node first, to reduce chance of a deadlock
+				 * on replicated tables. If 0, do not use primary copy.
 				 */
-				if (primary_data_node && exec_nodes->nodelist 
+				if (primary_data_node && exec_nodes->nodelist
 						&& list_length(exec_nodes->nodelist) > 1) /* make sure more than 1 */
 				{
 					exec_nodes->primarynodelist = lappend_int(NULL, primary_data_node);
@@ -316,7 +317,17 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, long *partValue, int isRead)
 			}
 			else
 			{
-				if (globalPreferredNodes != NULL)
+				if (accessType == RELATION_ACCESS_READ_FOR_UPDATE
+						&& primary_data_node)
+				{
+					/*
+					 * We should ensure row is locked on the primary node to
+					 * avoid distributed deadlock if updating the same row
+					 * concurrently
+					 */
+					exec_nodes->nodelist = lappend_int(NULL, primary_data_node);
+				}
+				else if (globalPreferredNodes != NULL)
 				{
 					/* try and pick from the preferred list */
 					foreach(prefItem, globalPreferredNodes)
@@ -365,15 +376,15 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, long *partValue, int isRead)
 		case LOCATOR_TYPE_RROBIN:
 
 			/* round robin, get next one */
-			if (isRead)
-			{
-				/* we need to read from all */
-				exec_nodes->nodelist = list_copy(rel_loc_info->nodeList);
-			}
-			else
+			if (accessType == RELATION_ACCESS_WRITE)
 			{
 				/* write to just one of them */
 				exec_nodes->nodelist = lappend_int(NULL, GetRoundRobinNode(rel_loc_info->relid));
+			}
+			else
+			{
+				/* we need to read from all */
+				exec_nodes->nodelist = list_copy(rel_loc_info->nodeList);
 			}
 
 			break;
@@ -608,7 +619,7 @@ GetRelationLocInfo(Oid relid)
 	return ret_loc_info;
 }
 
-/* 
+/*
  * Copy the RelationLocInfo struct
  */
 RelationLocInfo *
