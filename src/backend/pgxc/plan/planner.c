@@ -1266,6 +1266,35 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 
 	/* Look for special conditions */
 
+	/* Examine projection list, to handle cases like
+	 * SELECT col1, (SELECT col2 FROM non_replicated_table...), ...
+	 * PGXCTODO: Improve this to allow for partitioned tables
+	 * where all subqueries and the main query use the same single node
+	 */
+	if (query->targetList)
+	{
+		foreach(item, query->targetList)
+		{
+			TargetEntry	   *target = (TargetEntry *) lfirst(item);
+
+			if (examine_conditions_walker((Node*)target->expr, context))
+				return true;
+
+			if (context->query_step->exec_nodes)
+			{
+				/*
+				 * if it is not replicated, assume it is something complicated and go
+				 * through standard planner
+				 */
+				if (context->query_step->exec_nodes->tableusagetype != TABLE_USAGE_TYPE_USER_REPLICATED)
+					return true;
+
+				pfree(context->query_step->exec_nodes);
+				context->query_step->exec_nodes = NULL;
+			}
+		}
+	}
+
 	/* Look for JOIN syntax joins */
 	foreach(item, query->jointree->fromlist)
 	{
