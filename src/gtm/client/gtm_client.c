@@ -574,7 +574,8 @@ close_sequence(GTM_Conn *conn, GTM_SequenceKey key)
 	if (gtmpqPutMsgStart('C', true, conn) ||
 		gtmpqPutInt(MSG_SEQUENCE_CLOSE, sizeof (GTM_MessageType), conn) ||
 		gtmpqPutInt(key->gsk_keylen, 4, conn) ||
-		gtmpqPutnchar(key->gsk_key, key->gsk_keylen, conn))
+		gtmpqPutnchar(key->gsk_key, key->gsk_keylen, conn) ||
+		gtmpqPutnchar((char *)&key->gsk_type, sizeof(GTM_SequenceKeyType), conn))
 		goto send_failed;
 
 	/* Finish the message. */

@@ -63,13 +63,23 @@ typedef int32	GTM_TransactionHandle;
 typedef int64	GTM_Timestamp;	/* timestamp data is 64-bit based */
 
 typedef int64	GTM_Sequence;	/* a 64-bit sequence */
-typedef  struct GTM_SequenceKeyData
+
+/* Type of sequence name used when dropping it */
+typedef enum GTM_SequenceKeyType
+{
+	GTM_SEQ_FULL_NAME,	/* Full sequence key */
+	GTM_SEQ_DB_NAME		/* DB name part of sequence key */
+} GTM_SequenceKeyType;
+
+typedef struct GTM_SequenceKeyData
 {
 	uint32		gsk_keylen;
 	char		*gsk_key;
-} GTM_SequenceKeyData; 	/* Counter key, set by the client */
+	GTM_SequenceKeyType	gsk_type; /* see constants below */
+} GTM_SequenceKeyData;	/* Counter key, set by the client */
 
 typedef GTM_SequenceKeyData *GTM_SequenceKey;
+
 #define GTM_MAX_SEQKEY_LENGTH		1024
 
 #define InvalidSequenceValue				0x7fffffffffffffffLL

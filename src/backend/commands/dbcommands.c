@@ -57,7 +57,10 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #include "utils/tqual.h"
-
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#include "access/gtm.h"
+#endif
 
 typedef struct
 {
@@ -875,6 +878,13 @@ dropdb(const char *dbname, bool missing_ok)
 	 * according to pg_database, which is not good.
 	 */
 	database_file_update_needed();
+	
+#ifdef PGXC
+	/* Drop sequences on gtm that are on the database dropped. */
+	if(IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		if(DropSequenceGTM(dbname, GTM_SEQ_DB_NAME))
+			elog(ERROR, "Deletion of sequences on database %s not completed", dbname);
+#endif
 }
 
 

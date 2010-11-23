@@ -37,11 +37,13 @@ static GTM_SeqInfoHashBucket GTMSequences[SEQ_HASH_TABLE_SIZE];
 
 static uint32 seq_gethash(GTM_SequenceKey key);
 static bool seq_keys_equal(GTM_SequenceKey key1, GTM_SequenceKey key2);
+static bool seq_key_dbname_equal(GTM_SequenceKey nsp, GTM_SequenceKey seq);
 static GTM_SeqInfo *seq_find_seqinfo(GTM_SequenceKey seqkey);
 static int seq_release_seqinfo(GTM_SeqInfo *seqinfo);
 static int seq_add_seqinfo(GTM_SeqInfo *seqinfo);
 static int seq_remove_seqinfo(GTM_SeqInfo *seqinfo);
 static GTM_SequenceKey seq_copy_key(GTM_SequenceKey key);
+static int seq_drop_with_dbkey(GTM_SequenceKey nsp);
 
 /*
  * Get the hash value given the sequence key
@@ -442,24 +444,143 @@ GTM_SeqRestore(GTM_SequenceKey seqkey,
 	}
 	return errcode;
 }
+
 /*
- * Destroy the given sequence
+ * Destroy the given sequence depending on type of given key
  */
 int
 GTM_SeqClose(GTM_SequenceKey seqkey)
 {
-	GTM_SeqInfo *seqinfo = seq_find_seqinfo(seqkey);
-	if (seqinfo != NULL)
+	int res;
+
+	switch(seqkey->gsk_type)
 	{
-		seq_remove_seqinfo(seqinfo);
-		pfree(seqinfo->gs_key);
-		pfree(seqinfo);
-		return 0;
+		case GTM_SEQ_FULL_NAME:
+		{
+			GTM_SeqInfo *seqinfo = seq_find_seqinfo(seqkey);
+			if (seqinfo != NULL)
+			{
+				seq_remove_seqinfo(seqinfo);
+				pfree(seqinfo->gs_key);
+				pfree(seqinfo);
+				res = 0;
+			}
+			else
+				res = EINVAL;
+
+			break;
+		}
+		case GTM_SEQ_DB_NAME:
+			res = seq_drop_with_dbkey(seqkey);
+			break;
+
+		default:
+			res = EINVAL;
+			break;
 	}
-	else
-		return EINVAL;
+
+	return res;
 }
 
+/* Check if sequence key contains only Database name */
+static bool
+seq_key_dbname_equal(GTM_SequenceKey nsp, GTM_SequenceKey seq)
+{
+	Assert(nsp);
+	Assert(seq);
+
+	/*
+	 * Sequence key of GTM_SEQ_DB_NAME type has to be shorter
+	 * than given sequence key.
+	 */
+	if(nsp->gsk_keylen >= seq->gsk_keylen)
+		return false;
+
+	/*
+	 * Check also if first part of sequence key name has a dot at the right place.
+	 * This accelerates process instead of making numerous memcmp.
+	 */
+	if (seq->gsk_key[nsp->gsk_keylen] != '.')
+		return false;
+
+	/* Then Check the strings */
+	return (memcmp(nsp->gsk_key, seq->gsk_key, nsp->gsk_keylen) == 0);
+}
+
+/*
+ * Remove all sequences with given key depending on its type.
+ */
+static int
+seq_drop_with_dbkey(GTM_SequenceKey nsp)
+{
+	int ii = 0;
+	GTM_SeqInfoHashBucket *bucket;
+	ListCell *cell, *prev;
+	GTM_SeqInfo *curr_seqinfo = NULL;
+	int res = 0;
+	bool deleted;
+
+	for(ii = 0; ii < SEQ_HASH_TABLE_SIZE; ii++)
+	{
+		bucket = &GTMSequences[ii];
+
+		GTM_RWLockAcquire(&bucket->shb_lock, GTM_LOCKMODE_READ);
+
+		prev = NULL;
+		cell = list_head(bucket->shb_list);
+		while (cell != NULL)
+		{
+			curr_seqinfo = (GTM_SeqInfo *) lfirst(cell);
+			deleted = false;
+
+			if (seq_key_dbname_equal(nsp, curr_seqinfo->gs_key))
+			{
+				GTM_RWLockAcquire(&curr_seqinfo->gs_lock, GTM_LOCKMODE_WRITE);
+
+				if (curr_seqinfo->gs_ref_count > 1)
+				{
+					curr_seqinfo->gs_state = SEQ_STATE_DELETED;
+
+					/* can not happen, be checked before called */
+					elog(LOG,"Sequence %s is in use, mark for deletion only",
+							 curr_seqinfo->gs_key->gsk_key);
+
+					/*
+					 * Continue to delete other sequences linked to this dbname,
+					 * sequences in use are deleted later.
+					 */
+					res = EBUSY;
+				}
+				else
+				{
+					/* Sequence is not is busy state, it can be deleted safely */
+
+					bucket->shb_list = list_delete_cell(bucket->shb_list, cell, prev);
+					elog(LOG, "Sequence %s was deleted from GTM",
+							  curr_seqinfo->gs_key->gsk_key);
+
+					deleted = true;
+				}
+				GTM_RWLockRelease(&curr_seqinfo->gs_lock);
+			}
+			if (deleted)
+			{
+				if (prev)
+					cell = lnext(prev);
+				else
+					cell = list_head(bucket->shb_list);
+			}
+			else
+			{
+				prev = cell;
+				cell = lnext(cell);
+			}
+		}
+		GTM_RWLockRelease(&bucket->shb_lock);
+	}
+
+	return res;
+}
 /*
  * Rename an existing sequence with a new name
  */
@@ -1017,6 +1138,8 @@ ProcessSequenceCloseCommand(Port *myport, StringInfo message)
 
 	seqkey.gsk_keylen = pq_getmsgint(message, sizeof (seqkey.gsk_keylen));
 	seqkey.gsk_key = (char *)pq_getmsgbytes(message, seqkey.gsk_keylen);
+	memcpy(&seqkey.gsk_type, pq_getmsgbytes(message, sizeof (GTM_SequenceKeyType)),
+		   sizeof (GTM_SequenceKeyType));
 
 	if ((errcode = GTM_SeqClose(&seqkey)))
 		ereport(ERROR,

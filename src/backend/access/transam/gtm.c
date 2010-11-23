@@ -166,12 +166,14 @@ CommitPreparedTranGTM(GlobalTransactionId gxid, GlobalTransactionId prepared_gxi
 int
 RollbackTranGTM(GlobalTransactionId gxid)
 {
-	int ret;
+	int ret = -1;
 
 	if (!GlobalTransactionIdIsValid(gxid))
 		return 0;
 	CheckConnection();
-	ret = abort_transaction(conn, gxid);
+
+	if (conn)
+		ret = abort_transaction(conn, gxid);
 
 	/*
 	 * If something went wrong (timeout), try and reset GTM connection. 
@@ -376,15 +378,20 @@ SetValGTM(char *seqname, GTM_Sequence nextval, bool iscalled)
 }
 
 /*
- * Drop the sequence
+ * Drop the sequence depending the key type
+ *
+ * Type of Sequence name use in key;
+ *		GTM_SEQ_FULL_NAME, full name of sequence
+ *		GTM_SEQ_DB_NAME, DB name part of sequence key
  */
 int
-DropSequenceGTM(char *seqname)
+DropSequenceGTM(const char *name, GTM_SequenceKeyType type)
 {
 	GTM_SequenceKeyData seqkey;
 	CheckConnection();
-	seqkey.gsk_keylen = strlen(seqname);
-	seqkey.gsk_key = seqname;
+	seqkey.gsk_keylen = strlen(name);
+	seqkey.gsk_key = name;
+	seqkey.gsk_type = type;
 
 	return conn ? close_sequence(conn, &seqkey) : -1;
 }

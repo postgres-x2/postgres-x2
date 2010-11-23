@@ -1156,7 +1156,7 @@ doDeletion(const ObjectAddress *object)
 					relseq = relation_open(object->objectId, AccessShareLock);
 					seqname = GetGlobalSeqName(relseq, NULL, NULL);
 
-					DropSequenceGTM(seqname);
+					DropSequenceGTM(seqname, GTM_SEQ_FULL_NAME);
 					pfree(seqname);
 
 					/* Then close the relation opened previously */
