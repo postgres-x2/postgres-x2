@@ -246,26 +246,52 @@ static int
 start_gtm(void)
 {
 	char		cmd[MAXPGPATH];
+	char		gtm_app_path[MAXPGPATH];
+	int			len;
+
 	/*
 	 * Since there might be quotes to handle here, it is easier simply to pass
 	 * everything to a shell to process them.
 	 */
 
+	memset(gtm_app_path, 0, MAXPGPATH);
+	memset(cmd, 0, MAXPGPATH);
+
+	/* 
+	 * Construct gtm binary path. We should leave one byte at the end for '\0'
+	 */
+	len = 0;
 	if (gtm_path != NULL)
 	{
-		strcat(gtm_path, "/");
-		strcat(gtm_path, gtm_app);
+		strncpy(gtm_app_path, gtm_path, MAXPGPATH - len - 1);
+	
+		len = strlen(gtm_app_path);
+		strncat(gtm_app_path, "/", MAXPGPATH - len - 1);
+
+		len = strlen(gtm_app_path);
 	}
-	else
-		gtm_path = gtm_app;
+
+	if (strlen(gtm_app) >= (MAXPGPATH - len - 1))
+	{
+		write_stderr("gtm command exceeds max size");
+		exit(1);
+	}
+
+	strncat(gtm_app_path, gtm_app, MAXPGPATH - len - 1);
 
 	if (log_file != NULL)
-		snprintf(cmd, MAXPGPATH, SYSTEMQUOTE "\"%s\" %s%s < \"%s\" >> \"%s\" 2>&1 &" SYSTEMQUOTE,
-				 gtm_path, gtmdata_opt, gtm_opts,
+		len = snprintf(cmd, MAXPGPATH - 1, SYSTEMQUOTE "\"%s\" %s%s < \"%s\" >> \"%s\" 2>&1 &" SYSTEMQUOTE,
+				 gtm_app_path, gtmdata_opt, gtm_opts,
 				 DEVNULL, log_file);
 	else
-		snprintf(cmd, MAXPGPATH, SYSTEMQUOTE "\"%s\" %s%s < \"%s\" 2>&1 &" SYSTEMQUOTE,
-				 gtm_path, gtmdata_opt, gtm_opts, DEVNULL);
+		len = snprintf(cmd, MAXPGPATH - 1, SYSTEMQUOTE "\"%s\" %s%s < \"%s\" 2>&1 &" SYSTEMQUOTE,
+				 gtm_app_path, gtmdata_opt, gtm_opts, DEVNULL);
+		
+	if (len >= MAXPGPATH - 1)
+	{
+		write_stderr("gtm command exceeds max size");
+		exit(1);
+	}
 
 	return system(cmd);
 }
@@ -376,14 +402,13 @@ read_gtm_opts(void)
 			{
 				int			len;
 				char	   *optline;
-				char	   *arg1;
 
 				optline = optlines[0];
 				/* trim off line endings */
 				len = strcspn(optline, "\r\n");
 				optline[len] = '\0';
 
-				gtm_opts = arg1;
+				gtm_opts = optline;
 			}
 		}
 	}

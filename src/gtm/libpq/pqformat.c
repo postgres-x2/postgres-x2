@@ -134,20 +134,9 @@ pq_sendcountedtext(StringInfo buf, const char *str, int slen,
 				   bool countincludesself)
 {
 	int			extra = countincludesself ? 4 : 0;
-	char	   *p;
 
-	if (p != str)				/* actual conversion has been done? */
-	{
-		slen = strlen(p);
-		pq_sendint(buf, slen + extra, 4);
-		appendBinaryStringInfo(buf, p, slen);
-		pfree(p);
-	}
-	else
-	{
-		pq_sendint(buf, slen + extra, 4);
-		appendBinaryStringInfo(buf, str, slen);
-	}
+	pq_sendint(buf, slen + extra, 4);
+	appendBinaryStringInfo(buf, str, slen);
 }
 
 /* --------------------------------
@@ -163,16 +152,7 @@ pq_sendcountedtext(StringInfo buf, const char *str, int slen,
 void
 pq_sendtext(StringInfo buf, const char *str, int slen)
 {
-	char	   *p;
-
-	if (p != str)				/* actual conversion has been done? */
-	{
-		slen = strlen(p);
-		appendBinaryStringInfo(buf, p, slen);
-		pfree(p);
-	}
-	else
-		appendBinaryStringInfo(buf, str, slen);
+	appendBinaryStringInfo(buf, str, slen);
 }
 
 /* --------------------------------
