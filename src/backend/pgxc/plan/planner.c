@@ -150,6 +150,8 @@ static bool examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 static int handle_limit_offset(RemoteQuery *query_step, Query *query, PlannedStmt *plan_stmt);
 static void InitXCWalkerContext(XCWalkerContext *context);
 static void validate_part_col_updatable(const Query *query);
+static bool	is_pgxc_safe_func(Oid funcid);
+
 
 /*
  * Find position of specified substring in the string
@@ -850,7 +852,6 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 			return false;
 		}
 	}
-
 	else if (IsA(expr_node, BoolExpr))
 	{
 		BoolExpr   *boolexpr = (BoolExpr *) expr_node;
@@ -1082,7 +1083,7 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 	/* See if the function is immutable, otherwise give up */
 	if (IsA(expr_node, FuncExpr))
 	{
-		if (!is_immutable_func(((FuncExpr*) expr_node)->funcid))
+		if (!is_pgxc_safe_func(((FuncExpr*) expr_node)->funcid))
 			return true;
 	}
 
@@ -1273,9 +1274,15 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 	 */
 	if (query->targetList)
 	{
+		ExecNodes *save_nodes = context->query_step->exec_nodes;
+		int save_varno = context->varno;
+
 		foreach(item, query->targetList)
 		{
 			TargetEntry	   *target = (TargetEntry *) lfirst(item);
+
+			context->query_step->exec_nodes = NULL;
+			context->varno = 0;
 
 			if (examine_conditions_walker((Node*)target->expr, context))
 				return true;
@@ -1290,11 +1297,11 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 					return true;
 
 				pfree(context->query_step->exec_nodes);
-				context->query_step->exec_nodes = NULL;
 			}
 		}
+		context->query_step->exec_nodes = save_nodes;
+		context->varno = save_varno;
 	}
-
 	/* Look for JOIN syntax joins */
 	foreach(item, query->jointree->fromlist)
 	{
@@ -2554,7 +2561,7 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 				{
 					ereport(ERROR,
 							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-							 (errmsg("Complex and correlated UPDATE and DELETE not yet supported"))));
+							 (errmsg("UPDATE and DELETE that are correlated or use non-immutable functions not yet supported"))));
 				}
 
 				/*
@@ -2939,4 +2946,63 @@ validate_part_col_updatable(const Query *query)
 			  			(errmsg("Partition column can't be updated in current version"))));
 		}
 	}
+}
+
+/*
+ * See if it is safe to use this function in single step.
+ *
+ * Based on is_immutable_func from postgresql_fdw.c
+ * We add an exeption for base postgresql functions, to
+ * allow now() and others to still execute as part of single step 
+ * queries.
+ *
+ * PGXCTODO - we currently make the false assumption that immutable
+ * functions will not write to the database. This could be addressed
+ * by either a more thorough analysis of functions at
+ * creation time or additional tags at creation time (preferably
+ * in standard PostgreSQL). Ideally such functionality could be
+ * committed back to standard PostgreSQL.
+ */
+bool
+is_pgxc_safe_func(Oid funcid)
+{
+	HeapTuple		tp;
+	bool			isnull;
+	Datum			datum;
+	bool			ret_val = false;
+
+	tp = SearchSysCache(PROCOID, ObjectIdGetDatum(funcid), 0, 0, 0);
+	if (!HeapTupleIsValid(tp))
+		elog(ERROR, "cache lookup failed for function %u", funcid);
+
+#ifdef DEBUG_FDW
+	/* print function name and its immutability */
+	{
+		char		   *proname;
+		datum = SysCacheGetAttr(PROCOID, tp, Anum_pg_proc_proname, &isnull);
+		proname = pstrdup(DatumGetName(datum)->data);
+		elog(DEBUG1, "func %s(%u) is%s immutable", proname, funcid,
+			(DatumGetChar(datum) == PROVOLATILE_IMMUTABLE) ? "" : " not");
+		pfree(proname);
+	}
+#endif
+
+	datum = SysCacheGetAttr(PROCOID, tp, Anum_pg_proc_provolatile, &isnull);
+
+	if (DatumGetChar(datum) == PROVOLATILE_IMMUTABLE)
+		ret_val = true;
+	/*
+	 * Also allow stable and volatile ones that are in the PG_CATALOG_NAMESPACE
+	 * this allows now() and others that do not update the database
+	 * PGXCTODO - examine default functions carefully for those that may
+	 * write to the database.
+	 */
+	else
+	{
+		datum = SysCacheGetAttr(PROCOID, tp, Anum_pg_proc_pronamespace, &isnull);
+		if (DatumGetObjectId(datum) == PG_CATALOG_NAMESPACE)
+			ret_val = true;
+	}
+	ReleaseSysCache(tp);
+	return ret_val;
 }
