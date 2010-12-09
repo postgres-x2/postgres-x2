@@ -441,35 +441,37 @@ get_base_var(Var *var, XCWalkerContext *context)
 
 /*
  * get_plan_nodes_insert - determine nodes on which to execute insert.
+ *
+ * We handle INSERT ... VALUES.
+ * If we have INSERT SELECT, we try and see if it is patitioned-based
+ * inserting into a partitioned-based.
+ *
+ * We set step->exec_nodes if we determine the single-step execution
+ * nodes. If it is still NULL after returning from this function,
+ * then the caller should use the regular PG planner
  */
-static ExecNodes *
-get_plan_nodes_insert(Query *query)
+static void
+get_plan_nodes_insert(Query *query, RemoteQuery *step)
 {
 	RangeTblEntry *rte;
 	RelationLocInfo *rel_loc_info;
 	Const	   *constant;
-	ExecNodes  *exec_nodes;
 	ListCell   *lc;
 	long		part_value;
 	long	   *part_value_ptr = NULL;
 	Expr	   *eval_expr = NULL;
 
-	/* Looks complex (correlated?) - best to skip */
-	if (query->jointree != NULL && query->jointree->fromlist != NULL)
-		return NULL;
 
-	/* Make sure there is just one table */
-	if (query->rtable == NULL)
-		return NULL;
+	step->exec_nodes = NULL;
 
 	rte = (RangeTblEntry *) list_nth(query->rtable, query->resultRelation - 1);
 
-
 	if (rte != NULL && rte->rtekind != RTE_RELATION)
 		/* Bad relation type */
-		return NULL;
+		return;
 
-	/* See if we have the partitioned case. */
+
+	/* Get result relation info */
 	rel_loc_info = GetRelationLocInfo(rte->relid);
 
 	if (!rel_loc_info)
@@ -477,13 +479,62 @@ get_plan_nodes_insert(Query *query)
 				(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
 			  (errmsg("Could not find relation for oid = %d", rte->relid))));
 
+	if (query->jointree != NULL && query->jointree->fromlist != NULL)
+	{
+		/* INSERT SELECT suspected */
+
+		/* We only optimize for when the destination is partitioned */
+		if (rel_loc_info->locatorType != LOCATOR_TYPE_HASH)
+			return;
+
+		/*
+		 * See if it is "single-step"
+		 * Optimize for just known common case with 2 RTE entries
+		 */
+		if (query->resultRelation == 1 && query->rtable->length == 2)
+		{
+			RangeTblEntry *sub_rte = list_nth(query->rtable, 1);
+
+			/*
+			 * Get step->exec_nodes for the SELECT part of INSERT-SELECT
+			 * to see if it is single-step
+			 */
+			if (sub_rte->rtekind == RTE_SUBQUERY &&
+						!sub_rte->subquery->limitCount &&
+						!sub_rte->subquery->limitOffset)
+				get_plan_nodes(sub_rte->subquery, step, RELATION_ACCESS_READ);
+		}
+
+		/* Send to general planner if the query is multiple step */
+		if (!step->exec_nodes)
+			return;
+
+		/* If the source is not hash-based (eg, replicated) also send 
+		 * through general planner 
+		 */
+		if (step->exec_nodes->baselocatortype != LOCATOR_TYPE_HASH)
+		{
+			step->exec_nodes = NULL;
+			return;
+		}
+
+		/*
+		 * If step->exec_nodes is not null, it is single step.
+		 * Continue and check for destination table type cases below
+		 */
+	}
+
+
 	if (rel_loc_info->locatorType == LOCATOR_TYPE_HASH &&
 		rel_loc_info->partAttrName != NULL)
 	{
+		Expr	   *checkexpr;
+		TargetEntry *tle = NULL;
+
 		/* It is a partitioned table, get value by looking in targetList */
 		foreach(lc, query->targetList)
 		{
-			TargetEntry *tle = (TargetEntry *) lfirst(lc);
+			tle = (TargetEntry *) lfirst(lc);
 
 			if (tle->resjunk)
 				continue;
@@ -493,46 +544,95 @@ get_plan_nodes_insert(Query *query)
 			 * designated partitioned column
 			 */
 			if (strcmp(tle->resname, rel_loc_info->partAttrName) == 0)
+				break;
+		}
+
+		if (!lc)
+		{
+			/* give up */
+			step->exec_nodes = NULL;
+			return;
+		}
+
+		/* We found the TargetEntry for the partition column */
+		checkexpr = tle->expr;
+
+		/* Handle INSERT SELECT case */
+		if (query->jointree != NULL && query->jointree->fromlist != NULL)
+		{
+			if (IsA(checkexpr,Var))
 			{
-				/* We may have a cast, try and handle it */
-				Expr	   *checkexpr = tle->expr;
+				XCWalkerContext context;
+				ColumnBase *col_base;
+				RelationLocInfo *source_rel_loc_info;
 
-				if (!IsA(tle->expr, Const))
+				/* Look for expression populating partition column */
+				InitXCWalkerContext(&context);
+				context.query = query;
+				context.rtables = lappend(context.rtables, query->rtable);
+				col_base = get_base_var((Var*) checkexpr, &context);
+
+				if (!col_base)
 				{
-					eval_expr = (Expr *) eval_const_expressions(NULL, (Node *) tle->expr);
-					checkexpr = get_numeric_constant(eval_expr);
+					step->exec_nodes = NULL;
+					return;
 				}
 
-				if (checkexpr == NULL)
-					break;		/* no constant */
+				/* See if it is also a partitioned table */
+				source_rel_loc_info = GetRelationLocInfo(col_base->relid);
 
-				constant = (Const *) checkexpr;
+				if (!source_rel_loc_info)
+					ereport(ERROR,
+							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+						  (errmsg("Could not find relation for oid = %d", rte->relid))));
 
-				if (constant->consttype == INT4OID ||
-					constant->consttype == INT2OID ||
-					constant->consttype == INT8OID)
+				if (source_rel_loc_info->locatorType == LOCATOR_TYPE_HASH &&
+					strcmp(col_base->colname, source_rel_loc_info->partAttrName) == 0)
 				{
-					part_value = (long) constant->constvalue;
-					part_value_ptr = &part_value;
-
+					/*
+					 * Partition columns match, we have a "single-step INSERT SELECT".
+					 * It is OK to use step->exec_nodes
+					 */
+					return;
 				}
-				/* PGXCTODO - handle other data types */
-				/*
-				else
-					if (constant->consttype == VARCHAR ...
-				*/
 			}
+			/* Multi-step INSERT SELECT or some other case. Use general planner */
+			step->exec_nodes = NULL;
+			return;
+		}
+		else
+		{
+			/* Check for constant */
+
+			/* We may have a cast, try and handle it */
+			if (!IsA(tle->expr, Const))
+			{
+				eval_expr = (Expr *) eval_const_expressions(NULL, (Node *) tle->expr);
+				checkexpr = get_numeric_constant(eval_expr);
+			}
+
+			if (checkexpr == NULL)
+				return;		/* no constant */
+
+			constant = (Const *) checkexpr;
+
+			if (constant->consttype == INT4OID ||
+				constant->consttype == INT2OID ||
+				constant->consttype == INT8OID)
+			{
+				part_value = (long) constant->constvalue;
+				part_value_ptr = &part_value;
+			}
+			/* PGXCTODO - handle other data types */
 		}
 	}
 
 	/* single call handles both replicated and partitioned types */
-	exec_nodes = GetRelationNodes(rel_loc_info, part_value_ptr,
+	step->exec_nodes = GetRelationNodes(rel_loc_info, part_value_ptr,
 								  RELATION_ACCESS_WRITE);
 
 	if (eval_expr)
 		pfree(eval_expr);
-
-	return exec_nodes;
 }
 
 
@@ -1665,7 +1765,7 @@ get_plan_nodes_command(Query *query, RemoteQuery *step)
 			break;
 
 		case CMD_INSERT:
-			step->exec_nodes = get_plan_nodes_insert(query);
+			get_plan_nodes_insert(query, step);
 			break;
 
 		case CMD_UPDATE:
@@ -2794,30 +2894,33 @@ free_query_step(RemoteQuery *query_step)
  * If the join between the two RemoteQuery nodes is partitioned - partitioned
  * it is always reducibile safely,
  *
- * RemoteQuery *innernode - the inner node
- * RemoteQuery *outernode - the outer node
- * bool *partitioned_replicated  - set to true if we have a partitioned-replicated
+ * RemoteQuery *innernode  - the inner node
+ * RemoteQuery *outernode  - the outer node
+ * List *rtable_list       - rtables
+ * JoinPath *join_path     - used to examine join restrictions
+ * PGXCJoinInfo *join_info - contains info about the join reduction
+ * join_info->partitioned_replicated  is set to true if we have a partitioned-replicated
  *                          join. We want to use replicated tables with non-replicated
  *                          tables ony once. Only use this value if this function
  *							returns true.
  */
 bool
 IsJoinReducible(RemoteQuery *innernode, RemoteQuery *outernode,
-			List *rtable_list, JoinPath *join_path, bool *partitioned_replicated)
+			List *rtable_list, JoinPath *join_path, JoinReduceInfo *join_info)
 {
 	XCWalkerContext context;
 	ListCell *cell;
 	bool maybe_reducible = false;
 	bool result = false;
 
-
-	*partitioned_replicated = false;
+	Assert(join_info);
+	join_info->partitioned_replicated = false;
+	join_info->exec_nodes = NULL;
 
 	InitXCWalkerContext(&context);
 	context.accessType = RELATION_ACCESS_READ; /* PGXCTODO - determine */
 	context.rtables = NIL;
 	context.rtables = lappend(context.rtables, rtable_list); /* add to list of lists */
-
 
 
 	foreach(cell, join_path->joinrestrictinfo)
@@ -2874,7 +2977,7 @@ IsJoinReducible(RemoteQuery *innernode, RemoteQuery *outernode,
 
 				if (pgxc_join->join_type == JOIN_REPLICATED_PARTITIONED)
 				{
-					*partitioned_replicated = true;
+					join_info->partitioned_replicated = true;
 
 					/*
 					 * If either of these already have such a join, we do not
@@ -2889,6 +2992,18 @@ IsJoinReducible(RemoteQuery *innernode, RemoteQuery *outernode,
 				}
 			}
 		}
+	}
+
+	if (result)
+	{
+		/*
+		 * Set exec_nodes from walker if it was set.
+		 * If not, it is replicated and we can use existing
+		 */
+		if (context.query_step)
+			join_info->exec_nodes = copyObject(context.query_step->exec_nodes);
+		else
+			join_info->exec_nodes = copyObject(outernode->exec_nodes);
 	}
 
 	return result;

@@ -61,6 +61,9 @@ typedef enum CopyDest
 	COPY_FILE,					/* to/from file */
 	COPY_OLD_FE,				/* to/from frontend (2.0 protocol) */
 	COPY_NEW_FE					/* to/from frontend (3.0 protocol) */
+#ifdef PGXC
+	,COPY_BUFFER				/* Do not send, just prepare */
+#endif
 } CopyDest;
 
 /*
@@ -181,6 +184,7 @@ typedef struct CopyStateData
 	int			hash_idx;		/* index of the hash column */
 
 	PGXCNodeHandle **connections; /* Involved data node connections */
+	TupleDesc	tupDesc;		/* for INSERT SELECT */
 #endif
 } CopyStateData;
 
@@ -300,6 +304,17 @@ static bool CopyGetInt32(CopyState cstate, int32 *val);
 static void CopySendInt16(CopyState cstate, int16 val);
 static bool CopyGetInt16(CopyState cstate, int16 *val);
 
+
+#ifdef PGXC
+static ExecNodes *build_copy_statement(CopyState cstate, List *attnamelist,
+				TupleDesc tupDesc, bool is_from, List *force_quote, List *force_notnull);
+/*
+ * A kluge here making this static to avoid having to move the
+ * CopyState definition to a header file making it harder to merge
+ * with the vanilla PostgreSQL code
+ */
+static CopyState insertstate;
+#endif
 
 /*
  * Send copy start/stop messages for frontend copies.  These have changed
@@ -487,6 +502,11 @@ CopySendEndOfRow(CopyState cstate)
 			/* Dump the accumulated row as one CopyData message */
 			(void) pq_putmessage('d', fe_msgbuf->data, fe_msgbuf->len);
 			break;
+#ifdef PGXC
+		case COPY_BUFFER:
+			/* Do not send yet anywhere, just return */
+			return;
+#endif
 	}
 
 	resetStringInfo(fe_msgbuf);
@@ -598,6 +618,11 @@ CopyGetData(CopyState cstate, void *databuf, int minread, int maxread)
 				bytesread += avail;
 			}
 			break;
+#ifdef PGXC
+		case COPY_BUFFER:
+			elog(ERROR, "COPY_BUFFER not allowed in this context");
+			break;
+#endif
 	}
 
 	return bytesread;
@@ -1133,155 +1158,10 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 					 errmsg("table \"%s\" does not have OIDs",
 							RelationGetRelationName(cstate->rel))));
 #ifdef PGXC
-		/* Get locator information */
+		/* Get copy statement and execution node information */
 		if (IS_PGXC_COORDINATOR)
 		{
-			char *hash_att;
-
-			exec_nodes = makeNode(ExecNodes);
-
-			/*
-			 * If target table does not exists on nodes (e.g. system table)
-			 * the location info returned is NULL. This is the criteria, when
-			 * we need to run Copy on coordinator
-			 */
-			cstate->rel_loc = GetRelationLocInfo(RelationGetRelid(cstate->rel));
-
-			hash_att = GetRelationHashColumn(cstate->rel_loc);
-			if (cstate->rel_loc)
-			{
-				if (is_from || hash_att)
-					exec_nodes->nodelist = list_copy(cstate->rel_loc->nodeList);
-				else
-				{
-					/*
-					 * Pick up one node only
-					 * This case corresponds to a replicated table with COPY TO
-					 */
-					exec_nodes->nodelist = GetAnyDataNode();
-				}
-			}
-
-			cstate->hash_idx = -1;
-			if (hash_att)
-			{
-				List	   *attnums;
-				ListCell   *cur;
-
-				attnums = CopyGetAttnums(tupDesc, cstate->rel, attnamelist);
-				foreach(cur, attnums)
-				{
-					int 		attnum = lfirst_int(cur);
-					if (namestrcmp(&(tupDesc->attrs[attnum - 1]->attname), hash_att) == 0)
-					{
-						cstate->hash_idx = attnum - 1;
-						break;
-					}
-				}
-			}
-
-			/*
-			 * Build up query string for the data nodes, it should match
-			 * to original string, but should have STDIN/STDOUT instead
-			 * of filename.
-			 */
-			initStringInfo(&cstate->query_buf);
-
-			appendStringInfoString(&cstate->query_buf, "COPY ");
-			appendStringInfo(&cstate->query_buf, "%s", RelationGetRelationName(cstate->rel));
-
-			if (attnamelist)
-			{
-				ListCell *cell;
-				ListCell *prev = NULL;
-				appendStringInfoString(&cstate->query_buf, " (");
-				foreach (cell, attnamelist)
-				{
-					if (prev)
-						appendStringInfoString(&cstate->query_buf, ", ");
-					CopyQuoteIdentifier(&cstate->query_buf, strVal(lfirst(cell)));
-					prev = cell;
-				}
-				appendStringInfoChar(&cstate->query_buf, ')');
-			}
-
-			if (stmt->is_from)
-				appendStringInfoString(&cstate->query_buf, " FROM STDIN");
-			else
-				appendStringInfoString(&cstate->query_buf, " TO STDOUT");
-
-
-			if (cstate->binary)
-				appendStringInfoString(&cstate->query_buf, " BINARY");
-
-			if (cstate->oids)
-				appendStringInfoString(&cstate->query_buf, " OIDS");
-
-			if (cstate->delim)
-				if ((!cstate->csv_mode && cstate->delim[0] != '\t')
-					|| (cstate->csv_mode && cstate->delim[0] != ','))
-				{
-					appendStringInfoString(&cstate->query_buf, " DELIMITER AS ");
-					CopyQuoteStr(&cstate->query_buf, cstate->delim);
-				}
-
-			if (cstate->null_print)
-				if ((!cstate->csv_mode && strcmp(cstate->null_print, "\\N"))
-					|| (cstate->csv_mode && strcmp(cstate->null_print, "")))
-				{
-					appendStringInfoString(&cstate->query_buf, " NULL AS ");
-					CopyQuoteStr(&cstate->query_buf, cstate->null_print);
-				}
-
-			if (cstate->csv_mode)
-				appendStringInfoString(&cstate->query_buf, " CSV");
-
-			/*
-			 * Only rewrite the header part for COPY FROM,
-			 * doing that for COPY TO results in multiple headers in output
-			 */
-			if (cstate->header_line && stmt->is_from)
-				appendStringInfoString(&cstate->query_buf, " HEADER");
-
-			if (cstate->quote && cstate->quote[0] == '"')
-			{
-				appendStringInfoString(&cstate->query_buf, " QUOTE AS ");
-				CopyQuoteStr(&cstate->query_buf, cstate->quote);
-			}
-
-			if (cstate->escape && cstate->quote && cstate->escape[0] == cstate->quote[0])
-			{
-				appendStringInfoString(&cstate->query_buf, " ESCAPE AS ");
-				CopyQuoteStr(&cstate->query_buf, cstate->escape);
-			}
-
-			if (force_quote)
-			{
-				ListCell *cell;
-				ListCell *prev = NULL;
-			  	appendStringInfoString(&cstate->query_buf, " FORCE QUOTE ");
-				foreach (cell, force_quote)
-				{
-					if (prev)
-						appendStringInfoString(&cstate->query_buf, ", ");
-					CopyQuoteIdentifier(&cstate->query_buf, strVal(lfirst(cell)));
-					prev = cell;
-				}
-			}
-
-			if (force_notnull)
-			{
-				ListCell *cell;
-				ListCell *prev = NULL;
-			  	appendStringInfoString(&cstate->query_buf, " FORCE NOT NULL ");
-				foreach (cell, force_notnull)
-				{
-					if (prev)
-						appendStringInfoString(&cstate->query_buf, ", ");
-					CopyQuoteIdentifier(&cstate->query_buf, strVal(lfirst(cell)));
-					prev = cell;
-				}
-			}
+			exec_nodes = build_copy_statement(cstate, attnamelist, tupDesc, is_from, force_quote, force_notnull);
 		}
 #endif
 	}
@@ -3848,3 +3728,324 @@ CreateCopyDestReceiver(void)
 
 	return (DestReceiver *) self;
 }
+
+#ifdef PGXC
+/*
+ * Rebuild a COPY statement in cstate and set ExecNodes
+ */
+static ExecNodes*
+build_copy_statement(CopyState cstate, List *attnamelist,
+				TupleDesc tupDesc, bool is_from, List *force_quote, List *force_notnull)
+{
+	char *hash_att;
+
+
+	ExecNodes *exec_nodes = makeNode(ExecNodes);
+
+	/*
+	 * If target table does not exists on nodes (e.g. system table)
+	 * the location info returned is NULL. This is the criteria, when
+	 * we need to run Copy on coordinator
+	 */
+	cstate->rel_loc = GetRelationLocInfo(RelationGetRelid(cstate->rel));
+
+	hash_att = GetRelationHashColumn(cstate->rel_loc);
+	if (cstate->rel_loc)
+	{
+		if (is_from || hash_att)
+			exec_nodes->nodelist = list_copy(cstate->rel_loc->nodeList);
+		else
+		{
+			/*
+			 * Pick up one node only
+			 * This case corresponds to a replicated table with COPY TO
+			 */
+			exec_nodes->nodelist = GetAnyDataNode();
+		}
+	}
+
+	cstate->hash_idx = -1;
+	if (hash_att)
+	{
+		List	   *attnums;
+		ListCell   *cur;
+
+		attnums = CopyGetAttnums(tupDesc, cstate->rel, attnamelist);
+		foreach(cur, attnums)
+		{
+			int 		attnum = lfirst_int(cur);
+			if (namestrcmp(&(tupDesc->attrs[attnum - 1]->attname), hash_att) == 0)
+			{
+				cstate->hash_idx = attnum - 1;
+				break;
+			}
+		}
+	}
+
+	/*
+	 * Build up query string for the data nodes, it should match
+	 * to original string, but should have STDIN/STDOUT instead
+	 * of filename.
+	 */
+	initStringInfo(&cstate->query_buf);
+
+	appendStringInfoString(&cstate->query_buf, "COPY ");
+	appendStringInfo(&cstate->query_buf, "%s", RelationGetRelationName(cstate->rel));
+
+	if (attnamelist)
+	{
+		ListCell *cell;
+		ListCell *prev = NULL;
+		appendStringInfoString(&cstate->query_buf, " (");
+		foreach (cell, attnamelist)
+		{
+			if (prev)
+				appendStringInfoString(&cstate->query_buf, ", ");
+			CopyQuoteIdentifier(&cstate->query_buf, strVal(lfirst(cell)));
+			prev = cell;
+		}
+		appendStringInfoChar(&cstate->query_buf, ')');
+	}
+
+	if (is_from)
+		appendStringInfoString(&cstate->query_buf, " FROM STDIN");
+	else
+		appendStringInfoString(&cstate->query_buf, " TO STDOUT");
+
+
+	if (cstate->binary)
+		appendStringInfoString(&cstate->query_buf, " BINARY");
+
+	if (cstate->oids)
+		appendStringInfoString(&cstate->query_buf, " OIDS");
+
+	if (cstate->delim)
+		if ((!cstate->csv_mode && cstate->delim[0] != '\t')
+			|| (cstate->csv_mode && cstate->delim[0] != ','))
+		{
+			appendStringInfoString(&cstate->query_buf, " DELIMITER AS ");
+			CopyQuoteStr(&cstate->query_buf, cstate->delim);
+		}
+
+	if (cstate->null_print)
+		if ((!cstate->csv_mode && strcmp(cstate->null_print, "\\N"))
+			|| (cstate->csv_mode && strcmp(cstate->null_print, "")))
+		{
+			appendStringInfoString(&cstate->query_buf, " NULL AS ");
+			CopyQuoteStr(&cstate->query_buf, cstate->null_print);
+		}
+
+	if (cstate->csv_mode)
+		appendStringInfoString(&cstate->query_buf, " CSV");
+
+	/*
+	 * Only rewrite the header part for COPY FROM,
+	 * doing that for COPY TO results in multiple headers in output
+	 */
+	if (cstate->header_line && is_from)
+		appendStringInfoString(&cstate->query_buf, " HEADER");
+
+	if (cstate->quote && cstate->quote[0] == '"')
+	{
+		appendStringInfoString(&cstate->query_buf, " QUOTE AS ");
+		CopyQuoteStr(&cstate->query_buf, cstate->quote);
+	}
+
+	if (cstate->escape && cstate->quote && cstate->escape[0] == cstate->quote[0])
+	{
+		appendStringInfoString(&cstate->query_buf, " ESCAPE AS ");
+		CopyQuoteStr(&cstate->query_buf, cstate->escape);
+	}
+
+	if (force_quote)
+	{
+		ListCell *cell;
+		ListCell *prev = NULL;
+		appendStringInfoString(&cstate->query_buf, " FORCE QUOTE ");
+		foreach (cell, force_quote)
+		{
+			if (prev)
+				appendStringInfoString(&cstate->query_buf, ", ");
+			CopyQuoteIdentifier(&cstate->query_buf, strVal(lfirst(cell)));
+			prev = cell;
+		}
+	}
+
+	if (force_notnull)
+	{
+		ListCell *cell;
+		ListCell *prev = NULL;
+		appendStringInfoString(&cstate->query_buf, " FORCE NOT NULL ");
+		foreach (cell, force_notnull)
+		{
+			if (prev)
+				appendStringInfoString(&cstate->query_buf, ", ");
+			CopyQuoteIdentifier(&cstate->query_buf, strVal(lfirst(cell)));
+			prev = cell;
+		}
+	}
+	return exec_nodes;
+}
+
+/*
+ * Use COPY for handling INSERT SELECT
+ * It may be a bit better to use binary mode here, but
+ * we have not implemented binary support for COPY yet.
+ *
+ * We borrow some code from CopyTo and DoCopy here.
+ * We do not refactor them so that it is later easier to remerge
+ * with vanilla PostgreSQL
+ */
+void
+DoInsertSelectCopy(EState *estate, TupleTableSlot *slot)
+{
+	ExecNodes *exec_nodes;
+	HeapTuple tuple;
+	Datum *values;
+	bool *nulls;
+	Datum *hash_value = NULL;
+	MemoryContext oldcontext;
+	CopyState cstate;
+
+
+	Assert(IS_PGXC_COORDINATOR);
+
+	/* See if we need to initialize COPY (first tuple) */
+	if (estate->es_processed == 0)
+	{
+		ListCell *lc;
+		List *attnamelist = NIL;
+		ResultRelInfo *resultRelInfo = estate->es_result_relation_info;
+		Form_pg_attribute *attr;
+
+		oldcontext = MemoryContextSwitchTo(estate->es_query_cxt);
+		exec_nodes = makeNode(ExecNodes);
+
+		/*
+		 * We use the cstate struct here, though we do not need everything
+		 * We will just use the properties we are interested in here.
+		 */
+		insertstate = (CopyStateData *) palloc0(sizeof(CopyStateData));
+		cstate = insertstate;
+
+		cstate->rowcontext = AllocSetContextCreate(CurrentMemoryContext,
+											   "COPY TO",
+											   ALLOCSET_DEFAULT_MINSIZE,
+											   ALLOCSET_DEFAULT_INITSIZE,
+											   ALLOCSET_DEFAULT_MAXSIZE);
+
+		cstate->rel = resultRelInfo->ri_RelationDesc;
+		cstate->tupDesc = RelationGetDescr(cstate->rel);
+
+		foreach(lc, estate->es_plannedstmt->planTree->targetlist)
+		{
+			TargetEntry *target = (TargetEntry *) lfirst(lc);
+			attnamelist = lappend(attnamelist, makeString(target->resname));
+		}
+		cstate->attnumlist = CopyGetAttnums(cstate->tupDesc, cstate->rel, attnamelist);
+		cstate->null_print_client = cstate->null_print;		/* default */
+
+		/* We use fe_msgbuf as a per-row buffer regardless of copy_dest */
+		cstate->fe_msgbuf = makeStringInfo();
+		attr = cstate->tupDesc->attrs;
+
+		/* Get info about the columns we need to process. */
+		cstate->out_functions = (FmgrInfo *) palloc(cstate->tupDesc->natts * sizeof(FmgrInfo));
+		foreach(lc, cstate->attnumlist)
+		{
+			int			attnum = lfirst_int(lc);
+			Oid			out_func_oid;
+			bool		isvarlena;
+
+			if (cstate->binary)
+				getTypeBinaryOutputInfo(attr[attnum - 1]->atttypid,
+										&out_func_oid,
+										&isvarlena);
+			else
+				getTypeOutputInfo(attr[attnum - 1]->atttypid,
+								  &out_func_oid,
+								  &isvarlena);
+			fmgr_info(out_func_oid, &cstate->out_functions[attnum - 1]);
+		}
+
+		/* Set defaults for omitted options */
+		if (!cstate->delim)
+			cstate->delim = cstate->csv_mode ? "," : "\t";
+
+		if (!cstate->null_print)
+			cstate->null_print = cstate->csv_mode ? "" : "\\N";
+		cstate->null_print_len = strlen(cstate->null_print);
+
+		if (cstate->csv_mode)
+		{
+			if (!cstate->quote)
+				cstate->quote = "\"";
+			if (!cstate->escape)
+				cstate->escape = cstate->quote;
+		}
+
+		exec_nodes = build_copy_statement(cstate, attnamelist,
+				cstate->tupDesc, true,  NULL, NULL);
+
+		cstate->connections = DataNodeCopyBegin(cstate->query_buf.data,
+				exec_nodes->nodelist,
+				GetActiveSnapshot(),
+				true);
+
+		if (!cstate->connections)
+			ereport(ERROR,
+					(errcode(ERRCODE_CONNECTION_EXCEPTION),
+					errmsg("Failed to initialize data nodes for COPY")));
+
+		cstate->copy_dest = COPY_BUFFER;
+
+		MemoryContextSwitchTo(oldcontext);
+	}
+	cstate = insertstate;
+
+	values = (Datum *) palloc(cstate->tupDesc->natts * sizeof(Datum));
+	nulls = (bool *) palloc(cstate->tupDesc->natts * sizeof(bool));
+
+	/* Process Tuple */
+	/* We need to format the line for sending to data nodes */
+	tuple = ExecMaterializeSlot(slot);
+
+	/* Deconstruct the tuple ... faster than repeated heap_getattr */
+	heap_deform_tuple(tuple, cstate->tupDesc, values, nulls);
+
+	/* Format the input tuple for sending */
+	CopyOneRowTo(cstate, 0, values, nulls);
+
+	/* Get hash partition column, if any */
+	if (cstate->hash_idx >= 0 && !nulls[cstate->hash_idx])
+		hash_value = &values[cstate->hash_idx];
+
+	/* Send item to the appropriate data node(s) (buffer) */
+	if (DataNodeCopyIn(cstate->fe_msgbuf->data,
+			       cstate->fe_msgbuf->len,
+				   GetRelationNodes(cstate->rel_loc, (long *)hash_value, RELATION_ACCESS_WRITE),
+				   cstate->connections))
+			ereport(ERROR,
+				(errcode(ERRCODE_CONNECTION_EXCEPTION),
+				 errmsg("Copy failed on a data node")));
+
+	resetStringInfo(cstate->fe_msgbuf);
+	estate->es_processed++;
+}
+
+/*
+ *
+ */
+void
+EndInsertSelectCopy(void)
+{
+	Assert(IS_PGXC_COORDINATOR);
+
+	DataNodeCopyFinish(
+			insertstate->connections,
+			primary_data_node,
+			COMBINE_TYPE_NONE);
+	pfree(insertstate->connections);
+	MemoryContextDelete(insertstate->rowcontext);
+}
+#endif

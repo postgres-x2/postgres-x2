@@ -61,6 +61,7 @@
 #include "utils/tqual.h"
 #ifdef PGXC
 #include "pgxc/pgxc.h"
+#include "commands/copy.h"
 #endif
 
 /* Hooks for plugins to get control in ExecutorStart/Run/End() */
@@ -1685,6 +1686,26 @@ lnext:	;
 				break;
 
 			case CMD_INSERT:
+#ifdef PGXC
+				/*
+				 * If we get here on the Coordinator, we may have INSERT SELECT
+				 * To handle INSERT SELECT, we use COPY to send down the nodes
+				 */
+				if (IS_PGXC_COORDINATOR && IsA(planstate, ResultState))
+				{
+					PG_TRY();
+					{
+						DoInsertSelectCopy(estate, slot);
+					}
+					PG_CATCH();
+					{
+						EndInsertSelectCopy();
+						PG_RE_THROW();
+					}
+					PG_END_TRY();
+				}
+				else
+#endif
 				ExecInsert(slot, tupleid, planSlot, dest, estate);
 				break;
 
@@ -1711,6 +1732,12 @@ lnext:	;
 		if (numberTuples && numberTuples == current_tuple_count)
 			break;
 	}
+
+#ifdef PGXC
+	/* See if we need to close a COPY started for INSERT SELECT */
+	if (IS_PGXC_COORDINATOR && operation == CMD_INSERT && IsA(planstate, ResultState))
+		EndInsertSelectCopy();
+#endif
 
 	/*
 	 * Process AFTER EACH STATEMENT triggers

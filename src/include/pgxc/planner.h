@@ -168,6 +168,12 @@ typedef struct
 	StringInfoData valuebuf;
 } SimpleAgg;
 
+typedef struct
+{
+	bool partitioned_replicated;
+	ExecNodes *exec_nodes;
+} JoinReduceInfo;
+
 /* forbid SQL if unsafe, useful to turn off for development */
 extern bool StrictStatementChecking;
 
@@ -181,6 +187,6 @@ extern bool IsHashDistributable(Oid col_type);
 extern bool is_immutable_func(Oid funcid);
 
 extern bool IsJoinReducible(RemoteQuery *innernode, RemoteQuery *outernode,
-					List *rtable_list, JoinPath *join_path, bool *partitioned_replicated);
+					List *rtable_list, JoinPath *join_path, JoinReduceInfo *join_info);
 
 #endif   /* PGXCPLANNER_H */

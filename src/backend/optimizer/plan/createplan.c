@@ -630,16 +630,13 @@ static Plan *
 create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Plan *outer_plan, Plan *inner_plan)
 {
 	NestLoop   *nest_parent;
+	JoinReduceInfo  join_info;
 
 	if (!enable_remotejoin)
 		return parent;
 
 	/* meh, what are these for :( */
 	if (root->hasPseudoConstantQuals)
-		return parent;
-
-	/* Works only for SELECT commands right now */
-	if (root->parse->commandType != CMD_SELECT)
 		return parent;
 
 	/* do not optimize CURSOR based select statements */
@@ -664,7 +661,6 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 	{
 		int i;
 		List *rtable_list = NIL;
-		bool partitioned_replicated_join = false;
 
 		Material *outer_mat = (Material *)outer_plan;
 		Material *inner_mat = (Material *)inner_plan;
@@ -692,7 +688,7 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 		}
 
 		/* XXX Check if the join optimization is possible */
-		if (IsJoinReducible(inner, outer, rtable_list, best_path, &partitioned_replicated_join))
+		if (IsJoinReducible(inner, outer, rtable_list, best_path, &join_info))
 		{
 			RemoteQuery	   *result;
 			Plan		   *result_plan;
@@ -829,6 +825,7 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 			result->outer_reduce_level = outer->reduce_level;
 			result->inner_relids       = in_relids;
 			result->outer_relids       = out_relids;
+			result->exec_nodes         = copyObject(join_info.exec_nodes);
 
 			appendStringInfo(&fromlist, " %s (%s) %s",
 							 pname, inner->sql_statement, quote_identifier(in_alias));
@@ -917,8 +914,7 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 			/* set_plan_refs needs this later */
 			result->base_tlist		= base_tlist;
 			result->relname			= "__FOREIGN_QUERY__";
-
-			result->partitioned_replicated = partitioned_replicated_join;
+			result->partitioned_replicated = join_info.partitioned_replicated;
 
 			/*
 			 * if there were any local scan clauses stick them up here. They
@@ -2233,6 +2229,8 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	TupleDesc		tupdesc;
 	bool			first;
 	StringInfoData	sql;
+	RelationLocInfo *rel_loc_info;
+
 
 	Assert(scan_relid > 0);
 	rte = planner_rt_fetch(scan_relid, root);
@@ -2393,6 +2391,21 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 
 	scan_plan->sql_statement = sql.data;
 
+	/*
+	 * Populate what nodes we execute on.
+	 * This is still basic, and was done to make sure we do not select
+	 * a replicated table from all nodes.
+	 * It does not take into account conditions on partitioned relations
+	 * that could reduce to one node. To do that, we need to move general
+	 * planning earlier.
+	 */
+	rel_loc_info = GetRelationLocInfo(rte->relid);
+	scan_plan->exec_nodes = makeNode(ExecNodes);
+	scan_plan->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
+	scan_plan->exec_nodes->baselocatortype = rel_loc_info->locatorType;
+	scan_plan->exec_nodes = GetRelationNodes(rel_loc_info,
+														   NULL,
+														   RELATION_ACCESS_READ);
 	copy_path_costsize(&scan_plan->scan.plan, best_path);
 
 	/* PGXCTODO - get better estimates */
