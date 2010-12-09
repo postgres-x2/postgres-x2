@@ -382,10 +382,6 @@ typedef struct RelOptInfo
 										 * clauses */
 	List	   *index_inner_paths;		/* InnerIndexscanInfo nodes */
 
-#ifdef PGXC
-	TupleDesc	reltupdesc;
-#endif
-
 	/*
 	 * Inner indexscans are not in the main pathlist because they are not
 	 * usable except in specific join contexts.  We use the index_inner_paths

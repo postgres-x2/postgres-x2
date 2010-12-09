@@ -2216,7 +2216,6 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	Index		scan_relid = best_path->parent->relid;
 	RangeTblEntry *rte;
 	char	   *wherestr			= NULL;
-	Bitmapset  *varattnos			= NULL;
 	List	   *remote_scan_clauses = NIL;
 	List	   *local_scan_clauses  = NIL;
 	Oid				nspid;
@@ -2225,8 +2224,8 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	const char	   *nspname_q;
 	const char	   *relname_q;
 	const char	   *aliasname_q;
-	int				i;
-	TupleDesc		tupdesc;
+	ListCell	   *lc;
+	List 		   *deparse_context;
 	bool			first;
 	StringInfoData	sql;
 	RelationLocInfo *rel_loc_info;
@@ -2237,6 +2236,9 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	Assert(best_path->parent->rtekind == RTE_RELATION);
 	Assert(rte->rtekind == RTE_RELATION);
 
+	deparse_context = deparse_context_for_remotequery(
+			get_rel_name(rte->relid), rte->relid);
+
 	/* Sort clauses into best execution order */
 	scan_clauses = order_qual_clauses(root, scan_clauses);
 
@@ -2246,7 +2248,7 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	if (scan_clauses)
 	{
 		ListCell	  *l;
-		
+
 		foreach(l, (List *)scan_clauses)
 	    {
 			Node *clause = lfirst(l);
@@ -2258,7 +2260,7 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 		}
 	}
 
-	/* 
+	/*
 	 * Incorporate any remote_scan_clauses into the WHERE clause that
 	 * we intend to push to the remote server.
 	 */
@@ -2267,12 +2269,8 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 		char 		   *sep = "";
 		ListCell	   *l;
 		StringInfoData	buf;
-		List 		   *deparse_context;
 
 		initStringInfo(&buf);
-
-		deparse_context = deparse_context_for_remotequery(
-				get_rel_name(rte->relid), rte->relid);
 
 		/*
 		 * remote_scan_clauses is a list of scan clauses (restrictions) that we
@@ -2289,19 +2287,10 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 			appendStringInfo(&buf, "%s", deparse_expression(clause, deparse_context, false, false));
 			sep = " AND ";
 		}
-			
+
 		wherestr = buf.data;
 	}
 
-	/*
-	 * Now walk through the target list and the scan clauses to get the
-	 * interesting attributes. Only those attributes will be fetched from the
-	 * remote side.
-	 */
-	varattnos = pull_varattnos_varno((Node *) best_path->parent->reltargetlist, best_path->parent->relid,
-									 varattnos);
-	varattnos = pull_varattnos_varno((Node *) local_scan_clauses,
-									 best_path->parent->relid, varattnos);
 	/*
 	 * Scanning multiple relations in a RemoteQuery node is not supported.
 	 */
@@ -2331,27 +2320,18 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	 * columns because some columns may be used only in parent Sort/Agg/Limit
 	 * nodes.
 	 */
-	tupdesc = best_path->parent->reltupdesc;
 	first = true;
-	for (i = 0; i < tupdesc->natts; i++)
+	foreach (lc, tlist)
 	{
-		/* skip dropped attributes */
-		if (tupdesc->attrs[i]->attisdropped)
-			continue;
+		TargetEntry *tle = (TargetEntry *) lfirst(lc);
 
 		if (!first)
 			appendStringInfoString(&sql, ", ");
 
-		if (bms_is_member(i + 1 - FirstLowInvalidHeapAttributeNumber, varattnos))
-		{
-			if (prefix)
-				appendStringInfo(&sql, "%s.%s",
-								aliasname_q, tupdesc->attrs[i]->attname.data);
-			else
-				appendStringInfo(&sql, "%s", tupdesc->attrs[i]->attname.data);
-		}
-		else
-			appendStringInfo(&sql, "%s", "NULL");
+		appendStringInfo(&sql, "%s", deparse_expression((Node *) tle->expr,
+														deparse_context,
+														false,
+														false));
 		first = false;
 	}
 
@@ -2377,13 +2357,10 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 
 	if (wherestr)
 	{
-		appendStringInfo(&sql, " WHERE ");
-		appendStringInfo(&sql, "%s", wherestr);
+		appendStringInfo(&sql, " WHERE %s", wherestr);
 		pfree(wherestr);
 	}
 
-	bms_free(varattnos);
-	
 	scan_plan = make_remotequery(tlist,
 							 rte,
 							 local_scan_clauses,

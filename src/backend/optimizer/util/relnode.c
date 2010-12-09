@@ -92,10 +92,6 @@ build_simple_rel(PlannerInfo *root, int relid, RelOptKind reloptkind)
 	rel->index_outer_relids = NULL;
 	rel->index_inner_paths = NIL;
 
-#ifdef PGXC
-	rel->reltupdesc = rte->reltupdesc;
-#endif
-
 	/* Check type of rtable entry */
 	switch (rte->rtekind)
 	{
