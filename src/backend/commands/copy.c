@@ -3943,7 +3943,6 @@ DoInsertSelectCopy(EState *estate, TupleTableSlot *slot)
 			attnamelist = lappend(attnamelist, makeString(target->resname));
 		}
 		cstate->attnumlist = CopyGetAttnums(cstate->tupDesc, cstate->rel, attnamelist);
-		cstate->null_print_client = cstate->null_print;		/* default */
 
 		/* We use fe_msgbuf as a per-row buffer regardless of copy_dest */
 		cstate->fe_msgbuf = makeStringInfo();
@@ -3975,6 +3974,7 @@ DoInsertSelectCopy(EState *estate, TupleTableSlot *slot)
 		if (!cstate->null_print)
 			cstate->null_print = cstate->csv_mode ? "" : "\\N";
 		cstate->null_print_len = strlen(cstate->null_print);
+		cstate->null_print_client = cstate->null_print;		/* default */
 
 		if (cstate->csv_mode)
 		{
