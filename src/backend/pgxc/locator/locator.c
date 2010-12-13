@@ -359,11 +359,15 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, long *partValue,
 			}
 			else
 			{
-				/*
-				 * No partitioning value passed in
-				 * (no where qualification on part column - use all)
-				 */
-				exec_nodes->nodelist = list_copy(rel_loc_info->nodeList);
+				/* If no info, go to node 1 */
+				if (accessType == RELATION_ACCESS_WRITE)
+					exec_nodes->nodelist = lappend_int(NULL, 1);
+				else
+					/*
+					 * No partitioning value passed in
+					 * (no where qualification on part column - use all)
+					 */
+					exec_nodes->nodelist = list_copy(rel_loc_info->nodeList);
 			}
 			break;
 

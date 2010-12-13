@@ -549,8 +549,8 @@ get_plan_nodes_insert(Query *query, RemoteQuery *step)
 
 		if (!lc)
 		{
-			/* give up */
-			step->exec_nodes = NULL;
+			/* Skip rest, handle NULL */
+			step->exec_nodes = GetRelationNodes(rel_loc_info, NULL, RELATION_ACCESS_WRITE);
 			return;
 		}
 
