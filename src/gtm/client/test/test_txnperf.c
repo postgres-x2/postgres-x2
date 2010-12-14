@@ -56,7 +56,7 @@ main(int argc, char *argv[])
 	int kk;
 	char connect_string[100];
 	int gtmport;
-	int coordinator_id;
+	PGXCNodeId pgxc_node_id;
 	int nclients;
 	int ntxns_per_cli;
 	int nstmts_per_txn;
@@ -119,10 +119,10 @@ main(int argc, char *argv[])
 				break;
 
 			case 'i':
-				coordinator_id = atoi(optarg);
-				sprintf(test_output, "TEST_OUTPUT_%d\0", coordinator_id);
-				sprintf(test_end, "TEST_END_%d\0", coordinator_id);
-				sprintf(test_output_csv, "TEST_OUTPUT_%d.CSV\0", coordinator_id);
+				pgxc_node_id = atoi(optarg);
+				sprintf(test_output, "TEST_OUTPUT_%d\0", pgxc_node_id);
+				sprintf(test_end, "TEST_END_%d\0", pgxc_node_id);
+				sprintf(test_output_csv, "TEST_OUTPUT_%d.CSV\0", pgxc_node_id);
 				break;
 
 			default:
@@ -132,7 +132,7 @@ main(int argc, char *argv[])
 		}
 	}
 		
-	sprintf(connect_string, "host=%s port=%d coordinator_id=%d", gtmhost, gtmport, coordinator_id);
+	sprintf(connect_string, "host=%s port=%d pgxc_node_id=%d remote_type=%d", gtmhost, gtmport, pgxc_node_id, PGXC_NODE_COORDINATOR);
 
 	sprintf(system_cmd, "echo -------------------------------------------------------- >> %s", test_output);
 	system(system_cmd);

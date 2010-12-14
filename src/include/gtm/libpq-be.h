@@ -47,8 +47,9 @@ typedef struct Port
 
 	GTMProxy_ConnID	conn_id;	/* RequestID of this command */
 
-	GTM_CoordinatorId	coordinator_id; /* Coordinator ID */
-	bool				is_proxy;		/* Is this a connection from GTM proxy ? */
+	GTM_PGXCNodeType	remote_type;	/* Type of remote connection */
+	GTM_PGXCNodeId		pgxc_node_id;	/* Coordinator ID */
+	bool		is_postmaster;	/* Is remote a node postmaster? */
 #define PQ_BUFFER_SIZE 8192
 
 	char 	PqSendBuffer[PQ_BUFFER_SIZE];

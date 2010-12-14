@@ -27,7 +27,7 @@
 #include "gtm/gtm_msg.h"
 #include "gtm/assert.h"
 
-void GTM_FreeResult(GTM_Result *result, bool is_proxy);
+void GTM_FreeResult(GTM_Result *result, GTM_PGXCNodeType remote_type);
 
 /*
  * Connection Management API
@@ -279,7 +279,7 @@ start_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, char *gid,
 		gtmpqPutc(true, conn) ||
 		gtmpqPutnchar((char *)&gxid, sizeof (GlobalTransactionId), conn) ||
 		/* Send also GID for an explicit prepared transaction */
-		gtmpqPutInt(strlen(gid), sizeof (GTM_GIDLen), conn) ||
+		gtmpqPutInt(strlen(gid), sizeof (GTM_StrLen), conn) ||
 		gtmpqPutnchar((char *) gid, strlen(gid), conn) ||
 		gtmpqPutInt(datanodecnt, sizeof (int), conn) ||
 		gtmpqPutInt(coordcnt, sizeof (int), conn))
@@ -386,7 +386,7 @@ get_gid_data(GTM_Conn *conn,
 		gtmpqPutInt(isolevel, sizeof (GTM_IsolationLevel), conn) ||
 		gtmpqPutc(txn_read_only, conn) ||
 		/* Send also GID for an explicit prepared transaction */
-		gtmpqPutInt(strlen(gid), sizeof (GTM_GIDLen), conn) ||
+		gtmpqPutInt(strlen(gid), sizeof (GTM_StrLen), conn) ||
 		gtmpqPutnchar((char *) gid, strlen(gid), conn))
 		goto send_failed;
 
@@ -792,10 +792,10 @@ send_failed:
 }
 
 void
-GTM_FreeResult(GTM_Result *result, bool is_proxy)
+GTM_FreeResult(GTM_Result *result, GTM_PGXCNodeType remote_type)
 {
 	if (result == NULL)
 		return;
-	gtmpqFreeResultData(result, is_proxy);
+	gtmpqFreeResultData(result, remote_type);
 	free(result);
 }

@@ -17,11 +17,15 @@ main(int argc, char *argv[])
 	int ii;
 	GlobalTransactionId gxid[4000];
 	GTM_Conn *conn;
+	char connect_string[100];
+	GTM_Timestamp *timestamp;
 
 	for (ii = 0; ii < 3; ii++)
 		fork();
 
-	conn = PQconnectGTM("host=localhost port=6666 coordinator_id=1");
+	sprintf(connect_string, "host=localhost port=6666 pgxc_node_id=1 remote_type=%d", PGXC_NODE_COORDINATOR);
+
+	conn = PQconnectGTM(connect_string);
 	if (conn == NULL)
 	{
 		client_log(("Error in connection\n"));
@@ -30,7 +34,7 @@ main(int argc, char *argv[])
 
 	for (ii = 0; ii < 20; ii++)
 	{
-		gxid[ii] = begin_transaction(conn, GTM_ISOLATION_SERIALIZABLE);
+		gxid[ii] = begin_transaction(conn, GTM_ISOLATION_SERIALIZABLE, timestamp);
 		if (gxid[ii] != InvalidGlobalTransactionId)
 			client_log(("Started a new transaction (GXID:%u)\n", gxid[ii]));
 		else
@@ -43,7 +47,7 @@ main(int argc, char *argv[])
 		nodes[0] = 1;
 		nodes[1] = 1;
 
-		if (!prepare_transaction(conn, gxid[ii], 2, nodes))
+		if (!prepare_transaction(conn, gxid[ii]))
 			client_log(("PREPARE successful (GXID:%u)\n", gxid[ii]));
 		else
 			client_log(("PREPARE failed (GXID:%u)\n", gxid[ii]));

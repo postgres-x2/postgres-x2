@@ -42,9 +42,9 @@ struct gtm_conn
 								 * over above. */
 	char	   *pgport;			/* the server's communication port */
 	char	   *connect_timeout;	/* connection timeout (numeric string) */
-	char	   *coordinator_id;	/* coordinator id */
-	int			is_proxy;		/* is this a connection to/from a proxy ? */
-
+	char	   *pgxc_node_id;	/* PGXC Node id */
+	int			remote_type;	/* is this a connection to/from a proxy ? */
+	int			is_postmaster;	/* is this connection to/from a postmaster instance */
 	/* Optional file to write trace info to */
 	FILE	   *Pfdebug;
 
@@ -121,7 +121,7 @@ extern int	gtmpqWriteReady(GTM_Conn *conn);
  */
 GTM_Result * GTMPQgetResult(GTM_Conn *conn);
 extern int gtmpqGetError(GTM_Conn *conn, GTM_Result *result);
-void gtmpqFreeResultData(GTM_Result *result, bool is_proxy);
+void gtmpqFreeResultData(GTM_Result *result, GTM_PGXCNodeType remote_type);
 
 #define SOCK_ERRNO errno
 #define SOCK_ERRNO_SET(e) (errno = (e))

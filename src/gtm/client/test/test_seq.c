@@ -15,8 +15,12 @@ main(int argc, char *argv[])
 {
 	int ii;
 	pid_t parent_pid;
+	GTM_Conn *conn = NULL;
+	char connect_string[100];
 
-	GTM_Conn *conn = PQconnectGTM("host=localhost port=6666 coordinator_id=1");
+	sprintf(connect_string, "host=%s port=%d pgxc_node_id=1 remote_type=%d", PGXC_NODE_COORDINATOR);
+
+	conn = PQconnectGTM(connect_string);
 	if (conn == NULL)
 	{
 		client_log(("Error in connection"));
@@ -36,7 +40,7 @@ main(int argc, char *argv[])
 		seqkey.gsk_keylen = strlen(buf);
 		seqkey.gsk_key = buf;
 		if (open_sequence(conn, &seqkey, 10, 1, 10000, 100, false))
-		   client_log(("Open seq failed\n"));	
+		   client_log(("Open seq failed\n"));
 		else
 			client_log(("Opened Sequence %s\n", seqkey.gsk_key));
 	}
@@ -55,7 +59,7 @@ main(int argc, char *argv[])
 	/*
 	 * Each process now opens a new connection with the GTM
 	 */
-	conn = PQconnectGTM("host=localhost port=6666 coordinator_id=1");
+	conn = PQconnectGTM(connect_string);
 
 	/*
 	 * Try to read/increment the sequence

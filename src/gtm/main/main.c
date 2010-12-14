@@ -75,8 +75,8 @@ static void ProcessSnapshotCommand(Port *myport, GTM_MessageType mtype, StringIn
 static void ProcessSequenceCommand(Port *myport, GTM_MessageType mtype, StringInfo message);
 static void ProcessQueryCommand(Port *myport, GTM_MessageType mtype, StringInfo message);
 
-static void GTM_RegisterCoordinator(Port *myport, GTM_CoordinatorId coordinator_id);
-static void GTM_UnregisterCoordinator(Port *myport, GTM_CoordinatorId coordinator_id);
+static void GTM_RegisterPGXCNode(Port *myport, GTM_PGXCNodeId pgxc_node_id);
+static void GTM_UnregisterPGXCNode(Port *myport, GTM_PGXCNodeId pgxc_node_id);
 	
 static bool CreateOptsFile(int argc, char *argv[]);
 static void CreateDataDirLockFile(void);
@@ -608,8 +608,9 @@ GTM_ThreadMain(void *argp)
 			   sizeof (GTM_StartupPacket));
 		pq_getmsgend(&inBuf);
 
-		GTM_RegisterCoordinator(thrinfo->thr_conn->con_port, sp.sp_cid);
-		thrinfo->thr_conn->con_port->is_proxy = sp.sp_isproxy;
+		GTM_RegisterPGXCNode(thrinfo->thr_conn->con_port, sp.sp_cid);
+		thrinfo->thr_conn->con_port->remote_type = sp.sp_remotetype;
+		thrinfo->thr_conn->con_port->is_postmaster = sp.sp_ispostmaster;
 	}
 
 	{
@@ -751,7 +752,7 @@ ProcessCommand(Port *myport, StringInfo input_message)
 	GTM_MessageType mtype;
 	GTM_ProxyMsgHeader proxyhdr;
 
-	if (myport->is_proxy)
+	if (myport->remote_type == PGXC_NODE_GTM_PROXY)
 		pq_copymsgbytes(input_message, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
 	else
 		proxyhdr.ph_conid = InvalidGTMProxyConnID;
@@ -918,14 +919,14 @@ ReadCommand(Port *myport, StringInfo inBuf)
 static void
 ProcessCoordinatorCommand(Port *myport, GTM_MessageType mtype, StringInfo message)
 {
-	GTM_CoordinatorId cid;
+	GTM_PGXCNodeId cid;
 
-	cid = pq_getmsgint(message, sizeof (GTM_CoordinatorId));
+	cid = pq_getmsgint(message, sizeof (GTM_PGXCNodeId));
 	
 	switch (mtype)
 	{
 		case MSG_UNREGISTER_COORD:
-			GTM_UnregisterCoordinator(myport, cid);
+			GTM_UnregisterPGXCNode(myport, cid);
 			break;
 
 		default:
@@ -1079,15 +1080,15 @@ ProcessQueryCommand(Port *myport, GTM_MessageType mtype, StringInfo message)
 }
 
 static void
-GTM_RegisterCoordinator(Port *myport, GTM_CoordinatorId cid)
+GTM_RegisterPGXCNode(Port *myport, GTM_PGXCNodeId cid)
 {
 	elog(DEBUG3, "Registering coordinator with cid %d", cid);
-	myport->coordinator_id = cid;
+	myport->pgxc_node_id = cid;
 }
 
 
 static void
-GTM_UnregisterCoordinator(Port *myport, GTM_CoordinatorId cid)
+GTM_UnregisterPGXCNode(Port *myport, GTM_PGXCNodeId cid)
 {
 	/*
 	 * Do a clean shutdown

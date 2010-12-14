@@ -36,13 +36,25 @@
 
 typedef uint32	GlobalTransactionId;		/* 32-bit global transaction ids */
 typedef uint32	PGXC_NodeId;
-typedef uint32	GTM_CoordinatorId;
 typedef int16	GTMProxy_ConnID;
-typedef uint32	GTM_GIDLen;
+typedef uint32	GTM_StrLen;
 
 #define InvalidGTMProxyConnID	-1
 
 typedef pthread_t	GTM_ThreadID;
+
+typedef uint32		GTM_PGXCNodeId;
+typedef uint32		GTM_PGXCNodePort;
+
+/* Possible type of nodes for registration */
+typedef enum GTM_PGXCNodeType
+{
+	PGXC_NODE_GTM_PROXY,
+	PGXC_NODE_GTM_PROXY_POSTMASTER,	/* Used by Proxy to communicate with GTM and not use Proxy headers */
+	PGXC_NODE_COORDINATOR,
+	PGXC_NODE_DATANODE,
+	PGXC_NODE_DEFAULT	/* In case nothing is associated to connection */
+} GTM_PGXCNodeType; 
 
 /*
  * A unique handle to identify transaction at the GTM. It could just be
@@ -105,8 +117,9 @@ typedef struct GTM_SnapshotData
 typedef GTM_SnapshotData *GTM_Snapshot;
 
 typedef struct GTM_StartupPacket {
-	GTM_CoordinatorId	sp_cid;
-	bool				sp_isproxy;
+	GTM_PGXCNodeId			sp_cid;
+	GTM_PGXCNodeType		sp_remotetype;
+	bool					sp_ispostmaster;
 } GTM_StartupPacket;
 
 #define InvalidGlobalTransactionId		((GlobalTransactionId) 0)

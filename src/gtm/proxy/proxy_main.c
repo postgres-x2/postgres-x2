@@ -85,14 +85,16 @@ static void ProcessCoordinatorCommand(GTMProxy_ConnectionInfo *conninfo,
 static void ProcessTransactionCommand(GTMProxy_ConnectionInfo *conninfo,
 		GTM_Conn *gtm_conn, GTM_MessageType mtype, StringInfo message);
 static void ProcessSnapshotCommand(GTMProxy_ConnectionInfo *conninfo,
-	   	GTM_Conn *gtm_conn, GTM_MessageType mtype, StringInfo message);
+		GTM_Conn *gtm_conn, GTM_MessageType mtype, StringInfo message);
 static void ProcessSequenceCommand(GTMProxy_ConnectionInfo *conninfo,
-	   	GTM_Conn *gtm_conn, GTM_MessageType mtype, StringInfo message);
+		GTM_Conn *gtm_conn, GTM_MessageType mtype, StringInfo message);
 
-static void GTMProxy_RegisterCoordinator(GTMProxy_ConnectionInfo *conninfo,
-		GTM_CoordinatorId coordinator_id);
-static void GTMProxy_UnregisterCoordinator(GTMProxy_ConnectionInfo *conninfo,
-		GTM_CoordinatorId coordinator_id);
+static void GTMProxy_RegisterPGXCNode(GTMProxy_ConnectionInfo *conninfo,
+									  GTM_PGXCNodeId cid,
+									  GTM_PGXCNodeType remote_type,
+									  bool is_postmaster); 
+static void GTMProxy_UnregisterPGXCNode(GTMProxy_ConnectionInfo *conninfo,
+		GTM_PGXCNodeId pgxc_node_id);
 
 static void ProcessResponse(GTMProxy_ThreadInfo *thrinfo,
 		GTMProxy_CommandInfo *cmdinfo, GTM_Result *res);
@@ -598,8 +600,8 @@ GTMProxy_ThreadMain(void *argp)
 	/*
 	 * Set up connection with the GTM server
 	 */
-	sprintf(gtm_connect_string, "host=%s port=%d coordinator_id=1 proxy=1",
-			GTMServerHost, GTMServerPortNumber);
+	sprintf(gtm_connect_string, "host=%s port=%d pgxc_node_id=1 remote_type=%d",
+			GTMServerHost, GTMServerPortNumber, PGXC_NODE_GTM_PROXY);
 
 	thrinfo->thr_gtm_conn = PQconnectGTM(gtm_connect_string);
 
@@ -1244,14 +1246,14 @@ static void
 ProcessCoordinatorCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 		GTM_MessageType mtype, StringInfo message)
 {
-	GTM_CoordinatorId cid;
+	GTM_PGXCNodeId cid;
 
-	cid = pq_getmsgint(message, sizeof (GTM_CoordinatorId));
+	cid = pq_getmsgint(message, sizeof (GTM_PGXCNodeId));
 	
 	switch (mtype)
 	{
 		case MSG_UNREGISTER_COORD:
-			GTMProxy_UnregisterCoordinator(conninfo, cid);
+			GTMProxy_UnregisterPGXCNode(conninfo, cid);
 			break;
 
 		default:
@@ -1448,15 +1450,17 @@ GTMProxy_CommandPending(GTMProxy_ConnectionInfo *conninfo, GTM_MessageType mtype
 	return;
 }
 static void
-GTMProxy_RegisterCoordinator(GTMProxy_ConnectionInfo *conninfo, GTM_CoordinatorId cid)
+GTMProxy_RegisterPGXCNode(GTMProxy_ConnectionInfo *conninfo, GTM_PGXCNodeId cid, GTM_PGXCNodeType remote_type, bool is_postmaster)
 {
-	elog(DEBUG3, "Registering coordinator with cid %d", cid);
-	conninfo->con_port->coordinator_id = cid;
+	elog(DEBUG3, "Registering PGXC Node with cid %d", cid);
+	conninfo->con_port->pgxc_node_id = cid;
+	conninfo->con_port->remote_type = remote_type;
+	conninfo->con_port->is_postmaster = is_postmaster;
 }
 
 
 static void
-GTMProxy_UnregisterCoordinator(GTMProxy_ConnectionInfo *conninfo, GTM_CoordinatorId cid)
+GTMProxy_UnregisterPGXCNode(GTMProxy_ConnectionInfo *conninfo, GTM_PGXCNodeId cid)
 {
 	/*
 	 * Do a clean shutdown
@@ -1502,7 +1506,7 @@ GTMProxy_HandshakeConnection(GTMProxy_ConnectionInfo *conninfo)
 		   sizeof (GTM_StartupPacket));
 	pq_getmsgend(&inBuf);
 
-	GTMProxy_RegisterCoordinator(conninfo, sp.sp_cid);
+	GTMProxy_RegisterPGXCNode(conninfo, sp.sp_cid, sp.sp_remotetype, sp.sp_ispostmaster);
 
 	/*
 	 * Send a dummy authentication request message 'R' as the client

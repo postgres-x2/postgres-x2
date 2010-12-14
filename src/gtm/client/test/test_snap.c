@@ -16,11 +16,14 @@ main(int argc, char *argv[])
 	int ii;
 	GlobalTransactionId gxid[4000];
 	GTM_Conn *conn;
+	char connect_string[100];
 
 	for (ii = 0; ii < 3; ii++)
 		fork();
 
-	conn = PQconnectGTM("host=localhost port=6666 coordinator_id=1");
+	sprintf(connect_string, "host=localhost port=6666 pgxc_node_id=1 remote_type=%d", PGXC_NODE_COORDINATOR);
+
+	conn = PQconnectGTM(connect_string);
 	if (conn == NULL)
 	{
 		client_log(("Error in connection\n"));

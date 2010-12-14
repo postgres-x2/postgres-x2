@@ -54,8 +54,9 @@ static const GTMPQconninfoOption GTMPQconninfoOptions[] = {
 	{"host", NULL},
 	{"hostaddr", NULL},
 	{"port", NULL},
-	{"coordinator_id", NULL},
-	{"proxy", NULL},
+	{"pgxc_node_id", NULL},
+	{"remote_type", NULL},
+	{"postmaster", NULL},
 	/* Terminating entry --- MUST BE LAST */
 	{NULL, NULL}
 };
@@ -168,10 +169,12 @@ connectOptions1(GTM_Conn *conn, const char *conninfo)
 	conn->pgport = tmp ? strdup(tmp) : NULL;
 	tmp = conninfo_getval(connOptions, "connect_timeout");
 	conn->connect_timeout = tmp ? strdup(tmp) : NULL;
-	tmp = conninfo_getval(connOptions, "coordinator_id");
-	conn->coordinator_id = tmp ? strdup(tmp) : NULL;
-	tmp = conninfo_getval(connOptions, "proxy");
-	conn->is_proxy = tmp ? atoi(tmp) : 0;
+	tmp = conninfo_getval(connOptions, "pgxc_node_id");
+	conn->pgxc_node_id = tmp ? strdup(tmp) : NULL;
+	tmp = conninfo_getval(connOptions, "postmaster");
+	conn->is_postmaster = tmp ? atoi(tmp) : 0;
+	tmp = conninfo_getval(connOptions, "remote_type");
+	conn->remote_type = tmp ? atoi(tmp) : PGXC_NODE_DEFAULT;
 
 	/*
 	 * Free the option info - all is in conn now
@@ -661,14 +664,15 @@ keep_going:						/* We will come back to here until there is
 
 				/*
 				 * Build a startup packet. We tell the GTM server/proxy our
-				 * coordinator ID and whether we are a proxy or not.
+				 * PGXC Node ID and whether we are a proxy or not.
 				 *
 				 * When the connection is made from the proxy, we let the GTM
 				 * server know about it so that some special headers are
 				 * handled correctly by the server.
 				 */
-				sp.sp_cid = atoi(conn->coordinator_id);
-				sp.sp_isproxy = conn->is_proxy;
+				sp.sp_cid = atoi(conn->pgxc_node_id);
+				sp.sp_remotetype = conn->remote_type;
+				sp.sp_ispostmaster = conn->is_postmaster;
 
 				/*
 				 * Send the startup packet.

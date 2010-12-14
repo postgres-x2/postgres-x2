@@ -16,6 +16,8 @@
 #include "access/gtm.h"
 #include "access/transam.h"
 #include "utils/elog.h"
+#include "miscadmin.h"
+#include "pgxc/pgxc.h"
 
 /* Configuration variables */
 char *GtmHost = "localhost";
@@ -29,7 +31,6 @@ static GTM_Conn *conn;
 #define CheckConnection() \
 	if (GTMPQstatus(conn) != CONNECTION_OK) InitGTM()
 
-
 bool
 IsGTMConnected()
 {
@@ -42,7 +43,21 @@ InitGTM()
 	/* 256 bytes should be enough */
 	char conn_str[256];
 
-	sprintf(conn_str, "host=%s port=%d coordinator_id=%d", GtmHost, GtmPort, PGXCNodeId);
+	/* If this thread is postmaster itself, it contacts gtm identifying itself */
+	if (!IsUnderPostmaster)
+	{
+		GTM_PGXCNodeType remote_type = PGXC_NODE_DEFAULT;
+
+		if (IS_PGXC_COORDINATOR)
+			remote_type = PGXC_NODE_COORDINATOR;
+		else if (IS_PGXC_DATANODE)
+			remote_type = PGXC_NODE_DATANODE;
+
+		sprintf(conn_str, "host=%s port=%d pgxc_node_id=%d remote_type=%d postmaster=1",
+								GtmHost, GtmPort, PGXCNodeId, remote_type);
+	}
+	else
+		sprintf(conn_str, "host=%s port=%d pgxc_node_id=%d", GtmHost, GtmPort, PGXCNodeId);
 
 	conn = PQconnectGTM(conn_str);
 	if (GTMPQstatus(conn) != CONNECTION_OK)
@@ -51,9 +66,9 @@ InitGTM()
 
 		ereport(WARNING,
 				(errcode(ERRCODE_CONNECTION_EXCEPTION),
-				 errmsg("can not connect to GTM: %m")));		
+				 errmsg("can not connect to GTM: %m")));
 
-		errno = save_errno;		
+		errno = save_errno;
 
 		CloseGTM();
 	}
