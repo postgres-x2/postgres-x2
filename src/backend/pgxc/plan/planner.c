@@ -550,7 +550,7 @@ get_plan_nodes_insert(Query *query, RemoteQuery *step)
 		if (!lc)
 		{
 			/* Skip rest, handle NULL */
-			step->exec_nodes = GetRelationNodes(rel_loc_info, NULL, RELATION_ACCESS_WRITE);
+			step->exec_nodes = GetRelationNodes(rel_loc_info, NULL, RELATION_ACCESS_INSERT);
 			return;
 		}
 
@@ -629,7 +629,7 @@ get_plan_nodes_insert(Query *query, RemoteQuery *step)
 
 	/* single call handles both replicated and partitioned types */
 	step->exec_nodes = GetRelationNodes(rel_loc_info, part_value_ptr,
-								  RELATION_ACCESS_WRITE);
+								  RELATION_ACCESS_INSERT);
 
 	if (eval_expr)
 		pfree(eval_expr);
@@ -1771,7 +1771,7 @@ get_plan_nodes_command(Query *query, RemoteQuery *step)
 		case CMD_UPDATE:
 		case CMD_DELETE:
 			/* treat as a select */
-			get_plan_nodes(query, step, RELATION_ACCESS_WRITE);
+			get_plan_nodes(query, step, RELATION_ACCESS_UPDATE);
 			break;
 
 		default:

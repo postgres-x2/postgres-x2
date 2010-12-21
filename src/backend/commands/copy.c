@@ -2320,7 +2320,7 @@ CopyFrom(CopyState cstate)
 			if (DataNodeCopyIn(cstate->line_buf.data,
 					       cstate->line_buf.len,
 						   GetRelationNodes(cstate->rel_loc, (long *)hash_value,
-											RELATION_ACCESS_WRITE),
+											RELATION_ACCESS_INSERT),
 						   cstate->connections))
 				ereport(ERROR,
 						(errcode(ERRCODE_CONNECTION_EXCEPTION),
@@ -4023,7 +4023,7 @@ DoInsertSelectCopy(EState *estate, TupleTableSlot *slot)
 	/* Send item to the appropriate data node(s) (buffer) */
 	if (DataNodeCopyIn(cstate->fe_msgbuf->data,
 			       cstate->fe_msgbuf->len,
-				   GetRelationNodes(cstate->rel_loc, (long *)hash_value, RELATION_ACCESS_WRITE),
+				   GetRelationNodes(cstate->rel_loc, (long *)hash_value, RELATION_ACCESS_INSERT),
 				   cstate->connections))
 			ereport(ERROR,
 				(errcode(ERRCODE_CONNECTION_EXCEPTION),

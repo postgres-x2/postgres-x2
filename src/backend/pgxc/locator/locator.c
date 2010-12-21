@@ -299,7 +299,8 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, long *partValue,
 	{
 		case LOCATOR_TYPE_REPLICATED:
 
-			if (accessType == RELATION_ACCESS_WRITE)
+			if (accessType == RELATION_ACCESS_UPDATE ||
+					accessType == RELATION_ACCESS_INSERT)
 			{
 				/* we need to write to all synchronously */
 				exec_nodes->nodelist = list_copy(rel_loc_info->nodeList);
@@ -360,7 +361,7 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, long *partValue,
 			else
 			{
 				/* If no info, go to node 1 */
-				if (accessType == RELATION_ACCESS_WRITE)
+				if (accessType == RELATION_ACCESS_INSERT)
 					exec_nodes->nodelist = lappend_int(NULL, 1);
 				else
 					/*
@@ -380,7 +381,7 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, long *partValue,
 		case LOCATOR_TYPE_RROBIN:
 
 			/* round robin, get next one */
-			if (accessType == RELATION_ACCESS_WRITE)
+			if (accessType == RELATION_ACCESS_INSERT)
 			{
 				/* write to just one of them */
 				exec_nodes->nodelist = lappend_int(NULL, GetRoundRobinNode(rel_loc_info->relid));

@@ -31,6 +31,27 @@
 
 typedef int PartAttrNumber;
 
+/* track if tables use pg_catalog */
+typedef enum
+{
+	TABLE_USAGE_TYPE_NO_TABLE,
+	TABLE_USAGE_TYPE_PGCATALOG,
+	TABLE_USAGE_TYPE_USER,
+	TABLE_USAGE_TYPE_USER_REPLICATED,  /* based on a replicated table */
+	TABLE_USAGE_TYPE_MIXED
+} TableUsageType;
+
+/*
+ * How relation is accessed in the query
+ */
+typedef enum
+{
+	RELATION_ACCESS_READ,				/* SELECT */
+	RELATION_ACCESS_READ_FOR_UPDATE,	/* SELECT FOR UPDATE */
+	RELATION_ACCESS_UPDATE,				/* UPDATE OR DELETE */
+	RELATION_ACCESS_INSERT				/* INSERT */
+} RelationAccessType;
+
 typedef struct
 {
 	Oid			relid;
@@ -41,17 +62,6 @@ typedef struct
 	List	   *nodeList;
 	ListCell   *roundRobinNode; /* points to next one to use */
 } RelationLocInfo;
-
-
-/* track if tables use pg_catalog */
-typedef enum
-{
-	TABLE_USAGE_TYPE_NO_TABLE,
-	TABLE_USAGE_TYPE_PGCATALOG,
-	TABLE_USAGE_TYPE_USER,
-	TABLE_USAGE_TYPE_USER_REPLICATED,  /* based on a replicated table */
-	TABLE_USAGE_TYPE_MIXED
-} TableUsageType;
 
 /*
  * Nodes to execute on
@@ -68,15 +78,6 @@ typedef struct
 	TableUsageType tableusagetype;  /* track pg_catalog usage */
 } ExecNodes;
 
-/*
- * How relation is accessed in the query
- */
-typedef enum
-{
-	RELATION_ACCESS_READ,
-	RELATION_ACCESS_READ_FOR_UPDATE,
-	RELATION_ACCESS_WRITE
-} RelationAccessType;
 
 extern char *PreferredDataNodes;
 
