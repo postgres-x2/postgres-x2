@@ -1579,9 +1579,19 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
  * to a PGXCNodeHandle structure.
  * The function returns number of pointers written to the connections array.
  * Remaining items in the array, if any, will be kept unchanged
+ *
+ * In an implicit 2PC, status of connections is set back to idle after preparing
+ * the transaction on each backend.
+ * At commit phase, it is necessary to get backends in idle state to be able to
+ * commit properly the backends.
+ *
+ * In the case of an error occuring with an implicit 2PC that has been partially
+ * committed on nodes, return the list of connections that has an error state
+ * to register the list of remaining nodes not commit prepared on GTM.
  */
 int
-get_transaction_nodes(PGXCNodeHandle **connections, char client_conn_type)
+get_transaction_nodes(PGXCNodeHandle **connections, char client_conn_type,
+					  PGXCNode_HandleRequested status_requested)
 {
 	int			tran_count = 0;
 	int			i;
@@ -1596,16 +1606,42 @@ get_transaction_nodes(PGXCNodeHandle **connections, char client_conn_type)
 			 * DN_CONNECTION_STATE_ERROR_FATAL.
 			 * ERROR_NOT_READY can happen if the data node abruptly disconnects.
 			 */
-			if (dn_handles[i].sock != NO_SOCKET && dn_handles[i].transaction_status != 'I')
-				connections[tran_count++] = &dn_handles[i];
+			if (status_requested == HANDLE_IDLE)
+			{
+				if (dn_handles[i].sock != NO_SOCKET && dn_handles[i].transaction_status == 'I')
+					connections[tran_count++] = &dn_handles[i];
+			}
+			else if (status_requested == HANDLE_ERROR)
+			{
+				if (dn_handles[i].transaction_status == 'E')
+					connections[tran_count++] = &dn_handles[i];
+			}
+			else
+			{
+				if (dn_handles[i].sock != NO_SOCKET && dn_handles[i].transaction_status != 'I')
+					connections[tran_count++] = &dn_handles[i];
+			}
 		}
 	}
 	if (coord_count && client_conn_type == REMOTE_CONN_COORD)
 	{
 		for (i = 0; i < NumCoords; i++)
 		{
-			if (co_handles[i].sock != NO_SOCKET && co_handles[i].transaction_status != 'I')
-				connections[tran_count++] = &co_handles[i];
+			if (status_requested == HANDLE_IDLE)
+			{
+				if (co_handles[i].sock != NO_SOCKET && co_handles[i].transaction_status == 'I')
+					connections[tran_count++] = &co_handles[i];
+			}
+			else if (status_requested == HANDLE_ERROR)
+			{
+				if (co_handles[i].transaction_status == 'E')
+					connections[tran_count++] = &co_handles[i];				
+			}
+			else
+			{
+				if (co_handles[i].sock != NO_SOCKET && co_handles[i].transaction_status != 'I')
+					connections[tran_count++] = &co_handles[i];
+			}
 		}
 	}
 

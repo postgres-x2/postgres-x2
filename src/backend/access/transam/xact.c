@@ -26,7 +26,7 @@
 #include "access/gtm.h"
 /* PGXC_COORD */
 #include "gtm/gtm_c.h"
-#include "pgxc/pgxcnode.h"
+#include "pgxc/execRemote.h"
 /* PGXC_DATANODE */
 #include "postmaster/autovacuum.h"
 #endif
@@ -139,6 +139,9 @@ typedef struct TransactionStateData
 	TransactionId transactionId;	/* my XID, or Invalid if none */
 #ifdef PGXC  /* PGXC_COORD */
 	GlobalTransactionId globalTransactionId; /* my GXID, or Invalid if none */
+	GlobalTransactionId globalCommitTransactionId; /* Commit GXID used by implicit 2PC */
+	bool				ArePGXCNodesPrepared; /* Checks if PGXC Nodes are prepared and
+											  * rollbacks then in case of an Abort */
 #endif
 	SubTransactionId subTransactionId;	/* my subxact ID */
 	char	   *name;			/* savepoint name, if any */
@@ -169,6 +172,8 @@ static TransactionStateData TopTransactionStateData = {
 	0,							/* transaction id */
 #ifdef PGXC
 	0,							/* global transaction id */
+	0,							/* global commit transaction id */
+	0,							/* flag if nodes are prepared or not */
 #endif
 	0,							/* subtransaction id */
 	NULL,						/* savepoint name */
@@ -307,6 +312,7 @@ static const char *TransStateAsString(TransState state);
 
 #ifdef PGXC  /* PGXC_COORD */
 static GlobalTransactionId GetGlobalTransactionId(TransactionState s);
+static void PrepareTransaction(bool write_2pc_file, bool is_implicit);
 
 /* ----------------------------------------------------------------
  *	PG-XC Functions
@@ -1631,10 +1637,15 @@ StartTransaction(void)
 	 * start processing
 	 */
 	s->state = TRANS_START;
-#ifdef PGXC  /* PGXC_COORD */
+#ifdef PGXC
 	/* GXID is assigned already by a remote Coordinator */
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	{
 		s->globalTransactionId = InvalidGlobalTransactionId;	/* until assigned */
+		/* Until assigned by implicit 2PC */
+		s->globalCommitTransactionId = InvalidGlobalTransactionId;
+		s->ArePGXCNodesPrepared = false;
+	}
 #endif
 	s->transactionId = InvalidTransactionId;	/* until assigned */
 	/*
@@ -1737,7 +1748,31 @@ CommitTransaction(void)
 {
 	TransactionState s = CurrentTransactionState;
 	TransactionId latestXid;
+#ifdef PGXC
+	bool PrepareLocalCoord = false;
+	bool PreparePGXCNodes = false;
+	char implicitgid[256];
+	TransactionId xid = GetCurrentTransactionId();
 
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		PreparePGXCNodes = PGXCNodeIsImplicit2PC(&PrepareLocalCoord);
+
+	if (PrepareLocalCoord || PreparePGXCNodes)
+		sprintf(implicitgid, "T%d", xid);
+
+	/* Save GID where PrepareTransaction can find it again */
+	if (PrepareLocalCoord)
+	{
+		prepareGID = MemoryContextStrdup(TopTransactionContext, implicitgid);
+		/*
+		 * If current transaction has a DDL, and involves more than 1 Coordinator,
+		 * PREPARE first on local Coordinator.
+		 */
+		PrepareTransaction(true, true);
+	}
+	else
+	{
+#endif
 	ShowTransactionState("CommitTransaction");
 
 	/*
@@ -1747,6 +1782,28 @@ CommitTransaction(void)
 		elog(WARNING, "CommitTransaction while in %s state",
 			 TransStateAsString(s->state));
 	Assert(s->parent == NULL);
+#ifdef PGXC
+	}
+
+	/*
+	 * If Transaction has involved several nodes, prepare them before committing on Coordinator.
+	 */
+	if (PreparePGXCNodes)
+	{
+		/*
+		 * Prepare all the nodes involved in this Implicit 2PC
+		 * If Coordinator COMMIT fails, nodes are also rollbacked during AbortTransaction().
+		 *
+		 * Track if PGXC Nodes are already prepared
+		 */
+		if (PGXCNodeImplicitPrepare(xid, implicitgid) < 0)
+			ereport(ERROR,
+					(errcode(ERRCODE_ACTIVE_SQL_TRANSACTION),
+					 errmsg("cannot COMMIT a transaction whose PREPARE has failed on Nodes")));
+		else
+			s->ArePGXCNodesPrepared = true;
+	}
+#endif
 
 	/*
 	 * Do pre-commit processing (most of this stuff requires database access,
@@ -1756,6 +1813,10 @@ CommitTransaction(void)
 	 * deferred triggers, and it's also possible that triggers create holdable
 	 * cursors.  So we have to loop until there's nothing left to do.
 	 */
+#ifdef PGXC
+	if (!PrepareLocalCoord)
+	{
+#endif
 	for (;;)
 	{
 		/*
@@ -1800,8 +1861,11 @@ CommitTransaction(void)
 	/*
 	 * There can be error on the data nodes. So go to data nodes before
 	 * changing transaction state and local clean up
+	 * Here simply commit on nodes, we know that 2PC is not involved implicitely.
+	 *
+	 * This is called only if it is not necessary to prepare the nodes.
 	 */
-	if (IS_PGXC_COORDINATOR)
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && !PreparePGXCNodes)
 		PGXCNodeCommit();
 #endif
 
@@ -1825,8 +1889,10 @@ CommitTransaction(void)
 	/*
 	 * Now we can let GTM know about transaction commit.
 	 * Only a Remote Coordinator is allowed to do that.
+	 *
+	 * Also do not commit a transaction that has already been prepared on Datanodes
 	 */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && !PreparePGXCNodes)
 	{
 		CommitTranGTM(s->globalTransactionId);
 		latestXid = s->globalTransactionId;
@@ -1908,6 +1974,46 @@ CommitTransaction(void)
 
 	AtEOXact_MultiXact();
 
+#ifdef PGXC
+	}/* End of !PrepareLocalCoord */
+
+	/*
+	 * At this point, if no 2pc has been used, we have a transaction that committed on GTM,
+	 * local coord and nodes, so the remaining stuff is only ressource cleanup.
+	 * If 2pc has been used, Coordinator has been prepared (if 2 Coordinators at least are involved
+	 * in current transaction).
+	 * Datanodes have also been prepared if more than 1 Datanode has been written.
+	 *
+	 * Here we complete Implicit 2PC in the following order
+	 *  - Commit the prepared transaction on local coordinator (if necessary)
+	 *  - Commit on the remaining nodes
+	 */
+
+	if (PreparePGXCNodes)
+	{
+		/*
+		 * Preparing for Commit, transaction has to take a new TransactionID for Commit
+		 * It is considered as in Progress state.
+		 */
+		s->state = TRANS_INPROGRESS;
+		s->globalCommitTransactionId = BeginTranGTM(NULL);
+
+		/* COMMIT local Coordinator */
+		if (PrepareLocalCoord)
+		{
+			FinishPreparedTransaction(implicitgid, true);
+		}
+
+		/*
+		 * Commit all the nodes involved in this implicit 2PC.
+		 * COMMIT on GTM is made here and is made at the same time
+		 * for prepared GXID and commit GXID to limit interactions between GTM and Coord.
+		 * This explains why prepared GXID is also in argument.
+		 */
+		PGXCNodeImplicitCommitPrepared(xid, s->globalCommitTransactionId, implicitgid, true);
+	}
+#endif
+
 	ResourceOwnerRelease(TopTransactionResourceOwner,
 						 RESOURCE_RELEASE_LOCKS,
 						 true, true);
@@ -1948,7 +2054,11 @@ CommitTransaction(void)
 
 #ifdef PGXC
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	{
 		s->globalTransactionId = InvalidGlobalTransactionId;
+		s->globalCommitTransactionId = InvalidGlobalTransactionId;
+		s->ArePGXCNodesPrepared = false;
+	}
 	else if (IS_PGXC_DATANODE || IsConnFromCoord())
 		SetNextTransactionId(InvalidTransactionId);
 #endif
@@ -1972,9 +2082,11 @@ CommitTransaction(void)
 /*
  * Only a Postgres-XC Coordinator that received a PREPARE Command from
  * an application can use this special prepare.
+ * If PrepareTransaction is called during an implicit 2PC, do not release ressources,
+ * this is made by CommitTransaction when transaction has been committed on Nodes.
  */
 static void
-PrepareTransaction(bool write_2pc_file)
+PrepareTransaction(bool write_2pc_file, bool is_implicit)
 #else
 static void
 PrepareTransaction(void)
@@ -2169,6 +2281,14 @@ PrepareTransaction(void)
 	}
 #endif
 
+#ifdef PGXC
+	/*
+	 * In case of an implicit 2PC, ressources are released by CommitTransaction()
+	 */
+	if (!is_implicit)
+	{
+#endif
+
 	ResourceOwnerRelease(TopTransactionResourceOwner,
 						 RESOURCE_RELEASE_LOCKS,
 						 true, true);
@@ -2218,6 +2338,9 @@ PrepareTransaction(void)
 	s->state = TRANS_DEFAULT;
 
 	RESUME_INTERRUPTS();
+#ifdef PGXC
+	} /* is_implicit END */
+#endif
 }
 
 
@@ -2285,8 +2408,13 @@ AbortTransaction(void)
 	/*
 	 * We should rollback on the data nodes before cleaning up portals
 	 * to be sure data structures used by connections are not freed yet
+	 *
+	 * It is also necessary to check that node are not partially committed
+	 * in an implicit 2PC, correct handling is made below.
 	 */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	if (IS_PGXC_COORDINATOR &&
+		!IsConnFromCoord() &&
+		!TransactionIdIsValid(s->globalCommitTransactionId))
 	{
 		/*
 		 * Make sure this is rolled back on the DataNodes
@@ -2309,6 +2437,10 @@ AbortTransaction(void)
 	 * Advertise the fact that we aborted in pg_clog (assuming that we got as
 	 * far as assigning an XID to advertise).
 	 */
+#ifdef PGXC
+	/* Do not abort a transaction that has already been committed in an implicit 2PC */
+	if (!TransactionIdIsValid(s->globalCommitTransactionId))
+#endif
 	latestXid = RecordTransactionAbort(false);
 
 	TRACE_POSTGRESQL_TRANSACTION_ABORT(MyProc->lxid);
@@ -2316,8 +2448,56 @@ AbortTransaction(void)
 	/* This is done by remote Coordinator */
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 	{
-		RollbackTranGTM(s->globalTransactionId);
+		/*
+		 * Rollback the transaction ID only if it is not being used by an implicit 2PC.
+		 */
+		if (!s->ArePGXCNodesPrepared)
+			RollbackTranGTM(s->globalTransactionId);
+
 		latestXid = s->globalTransactionId;
+
+		/* Rollback Prepared Nodes if they are totally prepared but not committed at all */
+		if (s->ArePGXCNodesPrepared && !TransactionIdIsValid(s->globalCommitTransactionId))
+		{
+			char implicitgid[256];
+
+			sprintf(implicitgid, "T%d", s->globalTransactionId);
+			PGXCNodeImplicitCommitPrepared(s->globalTransactionId,
+										   s->globalCommitTransactionId,
+										   implicitgid, false);
+		}
+		else if (s->ArePGXCNodesPrepared && TransactionIdIsValid(s->globalCommitTransactionId))
+		{
+			/*
+			 * In this case transaction is partially committed, pick up the list of nodes
+			 * prepared and not committed and register them on GTM as if it is an explicit 2PC.
+			 * This permits to keep the transaction alive in snapshot and other transaction
+			 * don't have any side effects with partially committed transactions
+			 */
+			char	implicitgid[256];
+			int		co_conn_count, dn_conn_count;
+			PGXC_NodeId *datanodes = NULL;
+			PGXC_NodeId *coordinators = NULL;
+
+			sprintf(implicitgid, "T%d", s->globalTransactionId);
+
+			/* Get the list of nodes in error state */
+			PGXCNodeGetNodeList(&datanodes, &dn_conn_count, &coordinators, &co_conn_count);
+
+			/* Save the node list and gid on GTM. */
+			StartPreparedTranGTM(s->globalTransactionId, implicitgid,
+								 dn_conn_count, datanodes, co_conn_count, coordinators);
+
+			/* Finish to prepare the transaction. */
+			PrepareTranGTM(s->globalTransactionId);
+
+			/*
+			 * Rollback commit GXID as it has been used by an implicit 2PC.
+			 * It is important at this point not to Commit the GXID used for PREPARE
+			 * to keep it visible in snapshot for other transactions.
+			 */
+			RollbackTranGTM(s->globalCommitTransactionId);
+		}
 	}
 	else if (IS_PGXC_DATANODE || IsConnFromCoord())
 	{
@@ -2598,7 +2778,7 @@ CommitTransactionCommand(void)
 			 * return to the idle state.
 			 */
 		case TBLOCK_PREPARE:
-			PrepareTransaction(true);
+			PrepareTransaction(true, false);
 			s->blockState = TBLOCK_DEFAULT;
 			break;
 
@@ -2608,7 +2788,7 @@ CommitTransactionCommand(void)
 			 * that involved DDLs on a Coordinator.
 			 */
 		case TBLOCK_PREPARE_NO_2PC_FILE:
-			PrepareTransaction(false);
+			PrepareTransaction(false, false);
 			s->blockState = TBLOCK_DEFAULT;
 			break;
 #endif
@@ -2643,17 +2823,20 @@ CommitTransactionCommand(void)
 				CommitTransaction();
 				s->blockState = TBLOCK_DEFAULT;
 			}
-#ifdef PGXC
-			else if (s->blockState == TBLOCK_PREPARE ||
-					 s->blockState == TBLOCK_PREPARE_NO_2PC_FILE)
-#else
 			else if (s->blockState == TBLOCK_PREPARE)
-#endif
 			{
 				Assert(s->parent == NULL);
-				PrepareTransaction(true);
+				PrepareTransaction(true, false);
 				s->blockState = TBLOCK_DEFAULT;
 			}
+#ifdef PGXC
+			else if (s->blockState == TBLOCK_PREPARE_NO_2PC_FILE)
+			{
+				Assert(s->parent == NULL);
+				PrepareTransaction(false, false);
+				s->blockState = TBLOCK_DEFAULT;
+			}
+#endif
 			else
 			{
 				Assert(s->blockState == TBLOCK_INPROGRESS ||

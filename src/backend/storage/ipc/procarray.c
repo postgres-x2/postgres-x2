@@ -280,6 +280,14 @@ ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid)
 		 * taking a snapshot.  See discussion in
 		 * src/backend/access/transam/README.
 		 */
+#ifdef PGXC
+		/*
+		 * Remove this assertion check for PGXC on Coordinator
+		 * We could abort even after a Coordinator has committed
+		 * for a 2PC transaction if Datanodes have failed committed the transaction
+		 */
+		if (IS_PGXC_DATANODE)
+#endif
 		Assert(TransactionIdIsValid(proc->xid));
 
 		LWLockAcquire(ProcArrayLock, LW_EXCLUSIVE);

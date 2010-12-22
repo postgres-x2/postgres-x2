@@ -43,6 +43,7 @@ typedef enum
 	REQUEST_TYPE_COPY_OUT		/* Copy Out response */
 }	RequestType;
 
+
 /*
  * Represents a DataRow message received from a remote node.
  * Contains originating node number and message body in DataRow format without
@@ -111,6 +112,19 @@ extern int	PGXCNodeRollback(void);
 extern bool	PGXCNodePrepare(char *gid);
 extern bool	PGXCNodeRollbackPrepared(char *gid);
 extern bool	PGXCNodeCommitPrepared(char *gid);
+extern bool	PGXCNodeIsImplicit2PC(bool *prepare_local_coord);
+extern int	PGXCNodeImplicitPrepare(GlobalTransactionId prepare_xid, char *gid);
+extern void	PGXCNodeImplicitCommitPrepared(GlobalTransactionId prepare_xid,
+										   GlobalTransactionId commit_xid,
+										   char *gid,
+										   bool is_commit);
+extern void PGXCNodeConsumeMessages(void);
+
+/* Get list of nodes */
+extern void PGXCNodeGetNodeList(PGXC_NodeId **datanodes,
+								int *dn_conn_count,
+								PGXC_NodeId **coordinators,
+								int *co_conn_count);
 
 /* Copy command just involves Datanodes */
 extern PGXCNodeHandle** DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_from);

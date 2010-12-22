@@ -39,6 +39,13 @@ typedef enum
 	DN_CONNECTION_STATE_COPY_OUT
 }	DNConnectionState;
 
+typedef enum
+{
+	HANDLE_IDLE,
+	HANDLE_ERROR,
+	HANDLE_DEFAULT
+}	PGXCNode_HandleRequested;
+
 #define DN_CONNECTION_STATE_ERROR(dnconn) \
 		((dnconn)->state == DN_CONNECTION_STATE_ERROR_FATAL \
 			|| (dnconn)->transaction_status == 'E')
@@ -97,7 +104,9 @@ extern void PGXCNodeCleanAndRelease(int code, Datum arg);
 extern PGXCNodeAllHandles *get_handles(List *datanodelist, List *coordlist, bool is_query_coord_only);
 extern void release_handles(bool force_drop);
 
-extern int	get_transaction_nodes(PGXCNodeHandle ** connections, char client_conn_type);
+extern int	get_transaction_nodes(PGXCNodeHandle ** connections,
+								  char client_conn_type,
+								  PGXCNode_HandleRequested type_requested);
 extern PGXC_NodeId* collect_pgxcnode_numbers(int conn_count, PGXCNodeHandle ** connections, char client_conn_type);
 extern int	get_active_nodes(PGXCNodeHandle ** connections);
 

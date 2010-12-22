@@ -49,6 +49,7 @@ extern char *deparseSql(RemoteQueryState *scanstate);
 #define PRIMARY_NODE_WRITEAHEAD 1024 * 1024
 
 static bool autocommit = true;
+static bool implicit_force_autocommit = false;
 static PGXCNodeHandle **write_node_list = NULL;
 static int	write_node_count = 0;
 
@@ -61,6 +62,14 @@ static int	pgxc_node_rollback_prepared(GlobalTransactionId gxid, GlobalTransacti
 				PGXCNodeAllHandles * pgxc_handles, char *gid);
 static int	pgxc_node_commit_prepared(GlobalTransactionId gxid, GlobalTransactionId prepared_gxid,
 				PGXCNodeAllHandles * pgxc_handles, char *gid);
+static int	pgxc_node_implicit_commit_prepared(GlobalTransactionId prepare_xid,
+											   GlobalTransactionId commit_xid,
+											   PGXCNodeAllHandles * pgxc_handles,
+											   char *gid,
+											   bool is_commit);
+static int	pgxc_node_implicit_prepare(GlobalTransactionId prepare_xid,
+				PGXCNodeAllHandles * pgxc_handles, char *gid);
+
 static PGXCNodeAllHandles * get_exec_connections(ExecNodes *exec_nodes,
 												 RemoteQueryExecType exec_type);
 static int	pgxc_node_receive_and_validate(const int conn_count,
@@ -74,7 +83,7 @@ static int handle_response_clear(PGXCNodeHandle * conn);
 
 static void close_node_cursors(PGXCNodeHandle **connections, int conn_count, char *cursor);
 
-static PGXCNodeAllHandles *pgxc_get_all_transaction_nodes(void);
+static PGXCNodeAllHandles *pgxc_get_all_transaction_nodes(PGXCNode_HandleRequested status_requested);
 
 #define MAX_STATEMENTS_PER_TRAN 10
 
@@ -1505,7 +1514,7 @@ PGXCNodePrepare(char *gid)
 	PGXCNodeAllHandles *pgxc_connections;
 	bool local_operation = false;
 
-	pgxc_connections = pgxc_get_all_transaction_nodes();
+	pgxc_connections = pgxc_get_all_transaction_nodes(HANDLE_DEFAULT);
 
 	/* DDL involved in transaction, so make a local prepare too */
 	if (pgxc_connections->co_conn_count != 0)
@@ -1669,6 +1678,176 @@ finish:
 	return result;
 }
 
+/*
+ * Prepare all the nodes involved in this implicit Prepare
+ * Abort transaction if this is not done correctly
+ */
+int
+PGXCNodeImplicitPrepare(GlobalTransactionId prepare_xid, char *gid)
+{
+	int         res = 0;
+	int         tran_count;
+	PGXCNodeAllHandles *pgxc_connections = pgxc_get_all_transaction_nodes(HANDLE_DEFAULT);
+
+	if (!pgxc_connections)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Could not prepare connection implicitely")));
+
+	tran_count = pgxc_connections->dn_conn_count + pgxc_connections->co_conn_count;
+
+	/*
+	 * This should not happen because an implicit 2PC is always using other nodes,
+	 * but it is better to check.
+	 */
+	if (tran_count == 0)
+	{
+		goto finish;
+	}
+
+	res = pgxc_node_implicit_prepare(prepare_xid, pgxc_connections, gid);
+
+finish:
+	if (!autocommit)
+		stat_transaction(pgxc_connections->dn_conn_count);
+
+	return res;
+}
+
+/*
+ * Prepare transaction on dedicated nodes for Implicit 2PC
+ * This is done inside a Transaction commit if multiple nodes are involved in write operations
+ * Implicit prepare in done internally on Coordinator, so this does not interact with GTM.
+ */
+static int
+pgxc_node_implicit_prepare(GlobalTransactionId prepare_xid,
+						   PGXCNodeAllHandles *pgxc_handles,
+						   char *gid)
+{
+	int		result = 0;
+	int		co_conn_count = pgxc_handles->co_conn_count;
+	int		dn_conn_count = pgxc_handles->dn_conn_count;
+	char	buffer[256];
+
+	sprintf(buffer, "PREPARE TRANSACTION '%s'", gid);
+
+	/* Continue even after an error here, to consume the messages */
+	result = pgxc_all_handles_send_query(pgxc_handles, buffer, true);
+
+	/* Receive and Combine results from Datanodes and Coordinators */
+	result |= pgxc_node_receive_and_validate(dn_conn_count, pgxc_handles->datanode_handles, false);
+	result |= pgxc_node_receive_and_validate(co_conn_count, pgxc_handles->coord_handles, false);
+
+	return result;
+}
+
+/*
+ * Commit all the nodes involved in this Implicit Commit.
+ * Prepared XID is committed at the same time as Commit XID on GTM.
+ */
+void
+PGXCNodeImplicitCommitPrepared(GlobalTransactionId prepare_xid,
+							   GlobalTransactionId commit_xid,
+							   char *gid,
+							   bool is_commit)
+{
+	int         res = 0;
+	int         tran_count;
+	PGXCNodeAllHandles *pgxc_connections = pgxc_get_all_transaction_nodes(HANDLE_IDLE);
+
+	if (!pgxc_connections)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Could not commit prepared transaction implicitely")));
+
+	tran_count = pgxc_connections->dn_conn_count + pgxc_connections->co_conn_count;
+
+	/*
+	 * This should not happen because an implicit 2PC is always using other nodes,
+	 * but it is better to check.
+	 */
+	if (tran_count == 0)
+	{
+		elog(WARNING, "Nothing to PREPARE on Datanodes and Coordinators");
+		goto finish;
+	}
+
+	res = pgxc_node_implicit_commit_prepared(prepare_xid, commit_xid,
+								pgxc_connections, gid, is_commit);
+
+finish:
+	/* Clear nodes, signals are clear */
+	if (!autocommit)
+		stat_transaction(pgxc_connections->dn_conn_count);
+
+	/*
+	 * If an error happened, do not release handles yet. This is done when transaction
+	 * is aborted after the list of nodes in error state has been saved to be sent to GTM
+	 */
+	if (!PersistentConnections && res == 0)
+		release_handles(false);
+	autocommit = true;
+	clear_write_node_list();
+
+	if (res != 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Could not commit prepared transaction implicitely")));
+
+	/*
+	 * Commit on GTM is made once we are sure that Nodes are not only partially committed
+	 * If an error happens on a Datanode during implicit COMMIT PREPARED, a special handling
+	 * is made in AbortTransaction().
+	 * The list of datanodes is saved on GTM and the partially committed transaction can be committed
+	 * with a COMMIT PREPARED delivered directly from application.
+	 * This permits to keep the gxid alive in snapshot and avoids other transactions to see only
+	 * partially committed results.
+	 */
+	CommitPreparedTranGTM(prepare_xid, commit_xid);
+}
+
+/*
+ * Commit a transaction implicitely transaction on all nodes
+ * Prepared transaction with this gid has reset the datanodes,
+ * so we need a new gxid.
+ *
+ * GXID used for Prepare and Commit are committed at the same time on GTM.
+ * This saves Network ressource a bit.
+ */
+static int
+pgxc_node_implicit_commit_prepared(GlobalTransactionId prepare_xid,
+								   GlobalTransactionId commit_xid,
+								   PGXCNodeAllHandles *pgxc_handles,
+								   char *gid,
+								   bool is_commit)
+{
+	char	buffer[256];
+	int		result = 0;
+	int		co_conn_count = pgxc_handles->co_conn_count;
+	int		dn_conn_count = pgxc_handles->dn_conn_count;
+
+	if (is_commit)
+		sprintf(buffer, "COMMIT PREPARED '%s'", gid);
+	else
+		sprintf(buffer, "ROLLBACK PREPARED '%s'", gid);
+
+	if (pgxc_all_handles_send_gxid(pgxc_handles, commit_xid, true))
+	{
+		result = EOF;
+		goto finish;
+	}
+
+	/* Send COMMIT to all handles */
+	if (pgxc_all_handles_send_query(pgxc_handles, buffer, false))
+		result = EOF;
+
+	/* Receive and Combine results from Datanodes and Coordinators */
+	result |= pgxc_node_receive_and_validate(dn_conn_count, pgxc_handles->datanode_handles, false);
+	result |= pgxc_node_receive_and_validate(co_conn_count, pgxc_handles->coord_handles, false);
+
+finish:
+	return result;
+}
 
 /*
  * Commit prepared transaction on Datanodes and Coordinators (as necessary)
@@ -1684,7 +1863,7 @@ PGXCNodeCommitPrepared(char *gid)
 {
 	int			res = 0;
 	int			res_gtm = 0;
-	PGXCNodeAllHandles *pgxc_handles;
+	PGXCNodeAllHandles *pgxc_handles = NULL;
 	List	   *datanodelist = NIL;
 	List	   *coordlist = NIL;
 	int			i, tran_count;
@@ -1812,7 +1991,7 @@ PGXCNodeRollbackPrepared(char *gid)
 {
 	int			res = 0;
 	int			res_gtm = 0;
-	PGXCNodeAllHandles *pgxc_handles;
+	PGXCNodeAllHandles *pgxc_handles = NULL;
 	List	   *datanodelist = NIL;
 	List	   *coordlist = NIL;
 	int			i, tran_count;
@@ -1922,6 +2101,8 @@ pgxc_node_rollback_prepared(GlobalTransactionId gxid, GlobalTransactionId prepar
 
 /*
  * Commit current transaction on data nodes where it has been started
+ * This function is called when no 2PC is involved implicitely.
+ * So only send a commit to the involved nodes.
  */
 void
 PGXCNodeCommit(void)
@@ -1930,7 +2111,7 @@ PGXCNodeCommit(void)
 	int			tran_count;
 	PGXCNodeAllHandles *pgxc_connections;
 
-	pgxc_connections = pgxc_get_all_transaction_nodes();
+	pgxc_connections = pgxc_get_all_transaction_nodes(HANDLE_DEFAULT);
 
 	tran_count = pgxc_connections->dn_conn_count + pgxc_connections->co_conn_count;
 
@@ -1952,7 +2133,7 @@ finish:
 	autocommit = true;
 	clear_write_node_list();
 
-	/* Clear up connection */
+	/* Clean up connections */
 	pfree_pgxc_all_handles(pgxc_connections);
 	if (res != 0)
 		ereport(ERROR,
@@ -1969,71 +2150,11 @@ static int
 pgxc_node_commit(PGXCNodeAllHandles *pgxc_handles)
 {
 	char		buffer[256];
-	GlobalTransactionId gxid = InvalidGlobalTransactionId;
 	int			result = 0;
 	int			co_conn_count = pgxc_handles->co_conn_count;
 	int			dn_conn_count = pgxc_handles->dn_conn_count;
 
-	/* can set this to false to disable temporarily */
-	/* bool do2PC = conn_count > 1; */
-
-	/*
-	 * Only use 2PC if more than one node was written to. Otherwise, just send
-	 * COMMIT to all
-	 */
-	bool		do2PC = write_node_count > 1;
-
-	/* Extra XID for Two Phase Commit */
-	GlobalTransactionId two_phase_xid = 0;
-
-	if (do2PC)
-	{
-		stat_2pc();
-
-		/*
-		 * Formally we should be using GetCurrentGlobalTransactionIdIfAny() here,
-		 * but since we need 2pc, we surely have sent down a command and got
-		 * gxid for it. Hence GetCurrentGlobalTransactionId() just returns
-		 * already allocated gxid
-		 */
-		gxid = GetCurrentGlobalTransactionId();
-
-		sprintf(buffer, "PREPARE TRANSACTION 'T%d'", gxid);
-
-		if (pgxc_all_handles_send_query(pgxc_handles, buffer, false))
-			result = EOF;
-
-		/* Receive and Combine results from Datanodes and Coordinators */
-		result |= pgxc_node_receive_and_validate(dn_conn_count, pgxc_handles->datanode_handles, true);
-		result |= pgxc_node_receive_and_validate(co_conn_count, pgxc_handles->coord_handles, true);
-	}
-
-	if (!do2PC)
-		strcpy(buffer, "COMMIT");
-	else
-	{
-		if (result)
-		{
-			sprintf(buffer, "ROLLBACK PREPARED 'T%d'", gxid);
-			/* Consume any messages on the Datanodes and Coordinators first if necessary */
-			PGXCNodeConsumeMessages();
-		}
-		else
-			sprintf(buffer, "COMMIT PREPARED 'T%d'", gxid);
-
-		/*
-		 * We need to use a new xid, the data nodes have reset
-		 * Timestamp has already been set with BEGIN on remote Datanodes,
-		 * so don't use it here.
-		 */
-		two_phase_xid = BeginTranGTM(NULL);
-
-		if (pgxc_all_handles_send_gxid(pgxc_handles, two_phase_xid, true))
-		{
-			result = EOF;
-			goto finish;
-		}
-	}
+	strcpy(buffer, "COMMIT");
 
 	/* Send COMMIT to all handles */
 	if (pgxc_all_handles_send_query(pgxc_handles, buffer, false))
@@ -2042,10 +2163,6 @@ pgxc_node_commit(PGXCNodeAllHandles *pgxc_handles)
 	/* Receive and Combine results from Datanodes and Coordinators */
 	result |= pgxc_node_receive_and_validate(dn_conn_count, pgxc_handles->datanode_handles, false);
 	result |= pgxc_node_receive_and_validate(co_conn_count, pgxc_handles->coord_handles, false);
-
-finish:
-	if (do2PC)
-		CommitTranGTM((GlobalTransactionId) two_phase_xid);
 
 	return result;
 }
@@ -2062,7 +2179,7 @@ PGXCNodeRollback(void)
 	int			tran_count;
 	PGXCNodeAllHandles *pgxc_connections;
 
-	pgxc_connections = pgxc_get_all_transaction_nodes();
+	pgxc_connections = pgxc_get_all_transaction_nodes(HANDLE_DEFAULT);
 
 	tran_count = pgxc_connections->dn_conn_count + pgxc_connections->co_conn_count;
 
@@ -2099,7 +2216,6 @@ finish:
 static int
 pgxc_node_rollback(PGXCNodeAllHandles *pgxc_handles)
 {
-	int			i;
 	int			result = 0;
 	int			co_conn_count = pgxc_handles->co_conn_count;
 	int			dn_conn_count = pgxc_handles->dn_conn_count;
@@ -2881,6 +2997,8 @@ ExecRemoteQuery(RemoteQueryState *node)
 		PGXCNodeAllHandles *pgxc_connections;
 		TupleTableSlot *innerSlot = NULL;
 
+		implicit_force_autocommit = force_autocommit;
+
 		/*
 		 * Inner plan for RemoteQuery supplies parameters.
 		 * We execute inner plan to get a tuple and use values of the tuple as
@@ -3622,6 +3740,8 @@ ExecRemoteUtility(RemoteQuery *node)
 	bool		need_tran;
 	int			i;
 
+	implicit_force_autocommit = force_autocommit;
+
 	remotestate = CreateResponseCombiner(0, node->combine_type);
 
 	pgxc_connections = get_exec_connections(node->exec_nodes,
@@ -3984,7 +4104,7 @@ finish:
  * for both data nodes and coordinators
  */
 static PGXCNodeAllHandles *
-pgxc_get_all_transaction_nodes()
+pgxc_get_all_transaction_nodes(PGXCNode_HandleRequested status_requested)
 {
 	PGXCNodeAllHandles *pgxc_connections;
 
@@ -4009,9 +4129,13 @@ pgxc_get_all_transaction_nodes()
 
 	/* gather needed connections */
 	pgxc_connections->dn_conn_count = get_transaction_nodes(
-							pgxc_connections->datanode_handles, REMOTE_CONN_DATANODE);
+							pgxc_connections->datanode_handles,
+							REMOTE_CONN_DATANODE,
+							status_requested);
 	pgxc_connections->co_conn_count = get_transaction_nodes(
-							pgxc_connections->coord_handles, REMOTE_CONN_COORD);
+							pgxc_connections->coord_handles,
+							REMOTE_CONN_COORD,
+							status_requested);
 
 	return pgxc_connections;
 }
@@ -4031,4 +4155,69 @@ pfree_pgxc_all_handles(PGXCNodeAllHandles *pgxc_handles)
 		pfree(pgxc_handles->coord_handles);
 
 	pfree(pgxc_handles);
+}
+
+/*
+ * Check if an Implicit 2PC is necessary for this transaction.
+ * Check also if it is necessary to prepare transaction locally.
+ */
+bool
+PGXCNodeIsImplicit2PC(bool *prepare_local_coord)
+{
+	PGXCNodeAllHandles *pgxc_handles = pgxc_get_all_transaction_nodes(HANDLE_DEFAULT);
+	int co_conn_count = pgxc_handles->co_conn_count;
+
+	/* Prepare Local Coord only if DDL is involved on multiple nodes */
+	*prepare_local_coord = co_conn_count > 0;
+
+	/*
+	 * In case of an autocommit or forced autocommit transaction, 2PC is not involved
+	 * This case happens for Utilities using force autocommit (CREATE DATABASE, VACUUM...)
+	 */
+	if (implicit_force_autocommit)
+	{
+		implicit_force_autocommit = false;
+		return false;
+	}
+
+	/*
+	 * 2PC is necessary at other Nodes if one Datanode or one Coordinator
+	 * other than the local one has been involved in a write operation.
+	 */
+	return (write_node_count > 1 || co_conn_count > 0);
+}
+
+/*
+ * Return the list of active nodes
+ */
+void
+PGXCNodeGetNodeList(PGXC_NodeId **datanodes,
+					int *dn_conn_count,
+					PGXC_NodeId **coordinators,
+					int *co_conn_count)
+{
+	PGXCNodeAllHandles *pgxc_connections = pgxc_get_all_transaction_nodes(HANDLE_ERROR);
+
+	*dn_conn_count = pgxc_connections->dn_conn_count;
+
+	/* Add in the list local coordinator also if necessary */
+	if (pgxc_connections->co_conn_count == 0)
+		*co_conn_count = pgxc_connections->co_conn_count;
+	else
+		*co_conn_count = pgxc_connections->co_conn_count + 1;
+
+	if (pgxc_connections->dn_conn_count != 0)
+		*datanodes = collect_pgxcnode_numbers(pgxc_connections->dn_conn_count,
+								pgxc_connections->datanode_handles, REMOTE_CONN_DATANODE);
+
+	if (pgxc_connections->co_conn_count != 0)
+		*coordinators = collect_pgxcnode_numbers(pgxc_connections->co_conn_count,
+								pgxc_connections->coord_handles, REMOTE_CONN_COORD);
+
+	/*
+	 * Now release handles properly, the list of handles in error state has been saved
+	 * and will be sent to GTM.
+	 */
+	if (!PersistentConnections)
+		release_handles(false);
 }
