@@ -56,6 +56,13 @@
 #include "utils/resowner.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
+#ifdef PGXC
+#include "commands/prepare.h"
+#include "pgxc/execRemote.h"
+
+
+static void release_datanode_statements(Plan *plannode);
+#endif
 
 
 static List *cached_plans_list = NIL;
@@ -563,6 +570,29 @@ RevalidateCachedPlan(CachedPlanSource *plansource, bool useResOwner)
 }
 
 /*
+ * Find and release all datanode statements referenced by the plan node and subnodes
+ */
+#ifdef PGXC
+static void
+release_datanode_statements(Plan *plannode)
+{
+	if (IsA(plannode, RemoteQuery))
+	{
+		RemoteQuery *step = (RemoteQuery *) plannode;
+
+		if (step->statement)
+			DropDatanodeStatement(step->statement);
+	}
+
+	if (innerPlan(plannode))
+		release_datanode_statements(innerPlan(plannode));
+
+	if (outerPlan(plannode))
+		release_datanode_statements(outerPlan(plannode));
+}
+#endif
+
+/*
  * ReleaseCachedPlan: release active use of a cached plan.
  *
  * This decrements the reference count, and frees the plan if the count
@@ -581,7 +611,22 @@ ReleaseCachedPlan(CachedPlan *plan, bool useResOwner)
 	Assert(plan->refcount > 0);
 	plan->refcount--;
 	if (plan->refcount == 0)
+	{
+#ifdef PGXC
+		if (plan->fully_planned)
+		{
+			ListCell *lc;
+			/* close any active datanode statements */
+			foreach (lc, plan->stmt_list)
+			{
+				PlannedStmt *ps = (PlannedStmt *)lfirst(lc);
+
+				release_datanode_statements(ps->planTree);
+			}
+		}
+#endif
 		MemoryContextDelete(plan->context);
+	}
 }
 
 /*

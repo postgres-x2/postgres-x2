@@ -2287,6 +2287,21 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 }
 
 
+#ifdef PGXC
+/* ----------
+ * deparse_query			- Parse back one query parsetree
+ *
+ * Purpose of this function is to build up statement for a RemoteQuery
+ * It just calls get_query_def without pretty print flags
+ * ----------
+ */
+void
+deparse_query(Query *query, StringInfo buf, List *parentnamespace)
+{
+	get_query_def(query, buf, parentnamespace, NULL, 0, 0);
+}
+#endif
+
 /* ----------
  * get_query_def			- Parse back one query parsetree
  *

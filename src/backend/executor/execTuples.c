@@ -793,6 +793,90 @@ ExecCopySlotMinimalTuple(TupleTableSlot *slot)
 								   slot->tts_isnull);
 }
 
+#ifdef PGXC
+/* --------------------------------
+ *		ExecCopySlotDatarow
+ *			Obtain a copy of a slot's data row.  The copy is
+ *			palloc'd in the current memory context.
+ * 			Pointer to the datarow is returned as a var parameter, function
+ * 			returns the length of the data row
+ *			The slot itself is undisturbed
+ * --------------------------------
+ */
+int
+ExecCopySlotDatarow(TupleTableSlot *slot, char **datarow)
+{
+	Assert(datarow);
+
+	if (slot->tts_dataRow)
+	{
+		/* if we already have datarow make a copy */
+		*datarow = (char *)palloc(slot->tts_dataLen);
+		memcpy(*datarow, slot->tts_dataRow, slot->tts_dataLen);
+		return slot->tts_dataLen;
+	}
+	else
+	{
+		TupleDesc	 	tdesc = slot->tts_tupleDescriptor;
+		StringInfoData	buf;
+		uint16 			n16;
+		int 			i;
+
+		initStringInfo(&buf);
+		/* Number of parameter values */
+		n16 = htons(tdesc->natts);
+		appendBinaryStringInfo(&buf, (char *) &n16, 2);
+
+		/* ensure we have all values */
+		slot_getallattrs(slot);
+		for (i = 0; i < tdesc->natts; i++)
+		{
+			uint32 n32;
+
+			if (slot->tts_isnull[i])
+			{
+				n32 = htonl(-1);
+				appendBinaryStringInfo(&buf, (char *) &n32, 4);
+			}
+			else
+			{
+				Form_pg_attribute attr = tdesc->attrs[i];
+				Oid		typOutput;
+				bool	typIsVarlena;
+				Datum	pval;
+				char   *pstring;
+				int		len;
+
+				/* Get info needed to output the value */
+				getTypeOutputInfo(attr->atttypid, &typOutput, &typIsVarlena);
+				/*
+				 * If we have a toasted datum, forcibly detoast it here to avoid
+				 * memory leakage inside the type's output routine.
+				 */
+				if (typIsVarlena)
+					pval = PointerGetDatum(PG_DETOAST_DATUM(slot->tts_values[i]));
+				else
+					pval = slot->tts_values[i];
+
+				/* Convert Datum to string */
+				pstring = OidOutputFunctionCall(typOutput, pval);
+
+				/* copy data to the buffer */
+				len = strlen(pstring);
+				n32 = htonl(len);
+				appendBinaryStringInfo(&buf, (char *) &n32, 4);
+				appendBinaryStringInfo(&buf, pstring, len);
+			}
+		}
+		/* copy data to the buffer */
+		*datarow = palloc(buf.len);
+		memcpy(*datarow, buf.data, buf.len);
+		pfree(buf.data);
+		return buf.len;
+	}
+}
+#endif
+
 /* --------------------------------
  *		ExecFetchSlotTuple
  *			Fetch the slot's regular physical tuple.

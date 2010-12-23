@@ -354,22 +354,15 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, long *partValue,
 		case LOCATOR_TYPE_HASH:
 
 			if (partValue != NULL)
-			{
 				/* in prototype, all partitioned tables use same map */
 				exec_nodes->nodelist = lappend_int(NULL, get_node_from_hash(hash_range_int(*partValue)));
-			}
 			else
-			{
-				/* If no info, go to node 1 */
 				if (accessType == RELATION_ACCESS_INSERT)
+					/* Insert NULL to node 1 */
 					exec_nodes->nodelist = lappend_int(NULL, 1);
 				else
-					/*
-					 * No partitioning value passed in
-					 * (no where qualification on part column - use all)
-					 */
+					/* Use all nodes for other types of access */
 					exec_nodes->nodelist = list_copy(rel_loc_info->nodeList);
-			}
 			break;
 
 		case LOCATOR_TYPE_SINGLE:

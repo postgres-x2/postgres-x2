@@ -85,8 +85,13 @@ typedef struct
 	SimpleDistinct *distinct;
 	bool		read_only;          /* do not use 2PC when committing read only steps */
 	bool		force_autocommit;	/* some commands like VACUUM require autocommit mode */
+	char	   *statement;			/* if specified use it as a PreparedStatement name on data nodes */
 	char	   *cursor;				/* if specified use it as a Portal name on data nodes */
 	RemoteQueryExecType		exec_type;
+
+	/* Support for parameters */
+	char	   *paramval_data;		/* parameter data, format is like in BIND */
+	int			paramval_len;		/* length of parameter values data */
 
 	char	  *relname;
 	bool	   remotejoin;			/* True if this is a reduced remote join  */

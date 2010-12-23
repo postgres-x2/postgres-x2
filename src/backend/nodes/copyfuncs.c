@@ -839,12 +839,16 @@ _copyRemoteQuery(RemoteQuery *from)
 	COPY_NODE_FIELD(distinct);
 	COPY_SCALAR_FIELD(read_only);
 	COPY_SCALAR_FIELD(force_autocommit);
+	COPY_STRING_FIELD(statement);
 	COPY_STRING_FIELD(cursor);
+	COPY_SCALAR_FIELD(exec_type);
+	COPY_SCALAR_FIELD(paramval_data);
+	COPY_SCALAR_FIELD(paramval_len);
 
 	COPY_STRING_FIELD(relname);
 	COPY_SCALAR_FIELD(remotejoin);
-	COPY_SCALAR_FIELD(reduce_level); 
-	COPY_NODE_FIELD(base_tlist); 
+	COPY_SCALAR_FIELD(reduce_level);
+	COPY_NODE_FIELD(base_tlist);
 	COPY_STRING_FIELD(outer_alias);
 	COPY_STRING_FIELD(inner_alias);
 	COPY_SCALAR_FIELD(outer_reduce_level);
@@ -867,6 +871,9 @@ _copyExecNodes(ExecNodes *from)
 	COPY_NODE_FIELD(nodelist);
 	COPY_SCALAR_FIELD(baselocatortype);
 	COPY_SCALAR_FIELD(tableusagetype);
+	COPY_NODE_FIELD(expr);
+	COPY_SCALAR_FIELD(relid);
+	COPY_SCALAR_FIELD(accesstype);
 
 	return newnode;
 }
@@ -2305,7 +2312,9 @@ _copyQuery(Query *from)
 	COPY_NODE_FIELD(limitCount);
 	COPY_NODE_FIELD(rowMarks);
 	COPY_NODE_FIELD(setOperations);
-
+#ifdef PGXC
+	COPY_STRING_FIELD(sql_statement);
+#endif
 	return newnode;
 }
 

@@ -26,6 +26,8 @@
 #define HASH_MASK 0x00000FFF;
 
 #define IsReplicated(x) (x->locatorType == LOCATOR_TYPE_REPLICATED)
+
+#include "nodes/primnodes.h"
 #include "utils/relcache.h"
 
 
@@ -76,6 +78,10 @@ typedef struct
 	List	   *nodelist;
 	char	    baselocatortype;
 	TableUsageType tableusagetype;  /* track pg_catalog usage */
+	Expr	   *expr; /* expression to evaluate at execution time if planner
+					   * can not determine execution nodes */
+	Oid			relid; /* Relation to determine execution nodes */
+	RelationAccessType accesstype; /* Access type to determine execution nodes */
 } ExecNodes;
 
 

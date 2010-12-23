@@ -58,6 +58,19 @@ typedef struct
 	long		constant;		/* assume long PGXCTODO - should be Datum */
 } Literal_Comparison;
 
+/*
+ * Comparison of partitioned column and expression
+ * Expression can be evaluated at execution time to determine target nodes
+ */
+typedef struct
+{
+	Oid			relid;
+	RelationLocInfo *rel_loc_info;
+	Oid			attrnum;
+	char	   *col_name;
+	Expr	   *expr;		/* assume long PGXCTODO - should be Datum */
+} Expr_Comparison;
+
 /* Parent-Child joins for relations being joined on
  * their respective hash distribuion columns
  */
@@ -75,6 +88,7 @@ typedef struct
 typedef struct
 {
 	List	   *partitioned_literal_comps;		/* List of Literal_Comparison */
+	List	   *partitioned_expressions;		/* List of Expr_Comparison */
 	List	   *partitioned_parent_child;		/* List of Parent_Child_Join */
 	List	   *replicated_joins;
 
@@ -127,6 +141,7 @@ typedef struct XCWalkerContext
 	Query				   *query;
 	RelationAccessType		accessType;
 	RemoteQuery			   *query_step;	/* remote query step being analized */
+	PlannerInfo			   *root;		/* planner data for the subquery */
 	Special_Conditions 	   *conditions;
 	bool					multilevel_join;
 	List 				   *rtables;	/* a pointer to a list of rtables */
@@ -144,11 +159,12 @@ bool		StrictStatementChecking = true;
 /* Forbid multi-node SELECT statements with an ORDER BY clause */
 bool		StrictSelectChecking = false;
 
-static void get_plan_nodes(Query *query, RemoteQuery *step, RelationAccessType accessType);
+static void get_plan_nodes(PlannerInfo *root, RemoteQuery *step, RelationAccessType accessType);
 static bool get_plan_nodes_walker(Node *query_node, XCWalkerContext *context);
 static bool examine_conditions_walker(Node *expr_node, XCWalkerContext *context);
 static int handle_limit_offset(RemoteQuery *query_step, Query *query, PlannedStmt *plan_stmt);
 static void InitXCWalkerContext(XCWalkerContext *context);
+static RemoteQuery *makeRemoteQuery(void);
 static void validate_part_col_updatable(const Query *query);
 static bool	is_pgxc_safe_func(Oid funcid);
 
@@ -307,6 +323,7 @@ free_special_relations(Special_Conditions *special_conditions)
 
 	/* free all items in list, including Literal_Comparison struct */
 	list_free_deep(special_conditions->partitioned_literal_comps);
+	list_free_deep(special_conditions->partitioned_expressions);
 
 	/* free list, but not items pointed to */
 	list_free(special_conditions->partitioned_parent_child);
@@ -451,8 +468,9 @@ get_base_var(Var *var, XCWalkerContext *context)
  * then the caller should use the regular PG planner
  */
 static void
-get_plan_nodes_insert(Query *query, RemoteQuery *step)
+get_plan_nodes_insert(PlannerInfo *root, RemoteQuery *step)
 {
+	Query	   *query = root->parse;
 	RangeTblEntry *rte;
 	RelationLocInfo *rel_loc_info;
 	Const	   *constant;
@@ -502,15 +520,15 @@ get_plan_nodes_insert(Query *query, RemoteQuery *step)
 			if (sub_rte->rtekind == RTE_SUBQUERY &&
 						!sub_rte->subquery->limitCount &&
 						!sub_rte->subquery->limitOffset)
-				get_plan_nodes(sub_rte->subquery, step, RELATION_ACCESS_READ);
+				get_plan_nodes(root, step, RELATION_ACCESS_READ);
 		}
 
 		/* Send to general planner if the query is multiple step */
 		if (!step->exec_nodes)
 			return;
 
-		/* If the source is not hash-based (eg, replicated) also send 
-		 * through general planner 
+		/* If the source is not hash-based (eg, replicated) also send
+		 * through general planner
 		 */
 		if (step->exec_nodes->baselocatortype != LOCATOR_TYPE_HASH)
 		{
@@ -612,7 +630,18 @@ get_plan_nodes_insert(Query *query, RemoteQuery *step)
 			}
 
 			if (checkexpr == NULL)
-				return;		/* no constant */
+			{
+				/* try and determine nodes on execution time */
+				step->exec_nodes = makeNode(ExecNodes);
+				step->exec_nodes->baselocatortype = rel_loc_info->locatorType;
+				step->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
+				step->exec_nodes->primarynodelist = NULL;
+				step->exec_nodes->nodelist = NULL;
+				step->exec_nodes->expr = eval_expr;
+				step->exec_nodes->relid = rel_loc_info->relid;
+				step->exec_nodes->accesstype = RELATION_ACCESS_INSERT;
+				return;
+			}
 
 			constant = (Const *) checkexpr;
 
@@ -788,7 +817,7 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 					initStringInfo(&buf);
 
 					/* Step 1: select tuple values by ctid */
-					step1 = makeNode(RemoteQuery);
+					step1 = makeRemoteQuery();
 					appendStringInfoString(&buf, "SELECT ");
 					for (att = 1; att <= natts; att++)
 					{
@@ -822,13 +851,11 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 					appendStringInfo(&buf, " FROM %s WHERE ctid = '%s'",
 									 tableName, ctid_str);
 					step1->sql_statement = pstrdup(buf.data);
-					step1->is_single_step = true;
 					step1->exec_nodes = makeNode(ExecNodes);
-					step1->read_only = true;
 					step1->exec_nodes->nodelist = list_make1_int(nodenum);
 
 					/* Step 2: declare cursor for update target table */
-					step2 = makeNode(RemoteQuery);
+					step2 = makeRemoteQuery();
 					resetStringInfo(&buf);
 
 					appendStringInfoString(&buf, step->cursor);
@@ -852,18 +879,14 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 					}
 					appendStringInfoString(&buf, "FOR UPDATE");
 					step2->sql_statement = pstrdup(buf.data);
-					step2->is_single_step = true;
-					step2->read_only = true;
 					step2->exec_nodes = makeNode(ExecNodes);
 					step2->exec_nodes->nodelist = list_copy(rel_loc_info1->nodeList);
 					innerPlan(step2) = (Plan *) step1;
 					/* Step 3: move cursor to first position */
-					step3 = makeNode(RemoteQuery);
+					step3 = makeRemoteQuery();
 					resetStringInfo(&buf);
 					appendStringInfo(&buf, "MOVE %s", node_cursor);
 					step3->sql_statement = pstrdup(buf.data);
-					step3->is_single_step = true;
-					step3->read_only = true;
 					step3->exec_nodes = makeNode(ExecNodes);
 					step3->exec_nodes->nodelist = list_copy(rel_loc_info1->nodeList);
 					innerPlan(step3) = (Plan *) step2;
@@ -1024,7 +1047,7 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 				if (!IsA(arg2, Const))
 				{
 					/* this gets freed when the memory context gets freed */
-					Expr *eval_expr = (Expr *) eval_const_expressions(NULL, (Node *) arg2);
+					Expr *eval_expr = (Expr *) eval_const_expressions(context->root, (Node *) arg2);
 					checkexpr = get_numeric_constant(eval_expr);
 				}
 
@@ -1174,6 +1197,32 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 					 * which case it will update it when examining another
 					 * condition.
 					 */
+					return false;
+				}
+				/*
+				 * Check if it is an expression like pcol = expr, where pcol is
+				 * a partitioning column of the rel1 and planner could not
+				 * evaluate expr. We probably can evaluate it at execution time.
+				 * Save the expression, and if we do not have other hint,
+				 * try and evaluate it at execution time
+				 */
+				rel_loc_info1 = GetRelationLocInfo(column_base->relid);
+
+				if (!rel_loc_info1)
+					return true;
+
+				if (IsHashColumn(rel_loc_info1, column_base->colname))
+				{
+					Expr_Comparison *expr_comp =
+						palloc(sizeof(Expr_Comparison));
+
+					expr_comp->relid = column_base->relid;
+					expr_comp->rel_loc_info = rel_loc_info1;
+					expr_comp->col_name = column_base->colname;
+					expr_comp->expr = arg2;
+					context->conditions->partitioned_expressions =
+						lappend(context->conditions->partitioned_expressions,
+								expr_comp);
 					return false;
 				}
 			}
@@ -1599,24 +1648,19 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 			}
 
 			if (rtesave)
-			{
 				/* a single table, just grab it */
 				rel_loc_info = GetRelationLocInfo(rtesave->relid);
-
-				if (!rel_loc_info)
-					return true;
-
-				context->query_step->exec_nodes = GetRelationNodes(rel_loc_info,
-																   NULL,
-																   context->accessType);
-			}
 		}
-		else
-		{
+
+		/* have complex case */
+		if (!rel_loc_info)
+			return true;
+
+		if (rel_loc_info->locatorType != LOCATOR_TYPE_HASH)
+			/* do not need to determine partitioning expression */
 			context->query_step->exec_nodes = GetRelationNodes(rel_loc_info,
 															   NULL,
 															   context->accessType);
-		}
 
 		/* Note replicated table usage for determining safe queries */
 		if (context->query_step->exec_nodes)
@@ -1625,6 +1669,38 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 				table_usage_type = TABLE_USAGE_TYPE_USER_REPLICATED;
 
 			context->query_step->exec_nodes->tableusagetype = table_usage_type;
+		} else if (context->conditions->partitioned_expressions) {
+			/* probably we can determine nodes on execution time */
+			foreach(lc, context->conditions->partitioned_expressions) {
+				Expr_Comparison *expr_comp = (Expr_Comparison *) lfirst(lc);
+				if (rel_loc_info->relid == expr_comp->relid)
+				{
+					context->query_step->exec_nodes = makeNode(ExecNodes);
+					context->query_step->exec_nodes->baselocatortype =
+						rel_loc_info->locatorType;
+					context->query_step->exec_nodes->tableusagetype =
+						TABLE_USAGE_TYPE_USER;
+					context->query_step->exec_nodes->primarynodelist = NULL;
+					context->query_step->exec_nodes->nodelist = NULL;
+					context->query_step->exec_nodes->expr = expr_comp->expr;
+					context->query_step->exec_nodes->relid = expr_comp->relid;
+					context->query_step->exec_nodes->accesstype = context->accessType;
+					break;
+				}
+			}
+		} else {
+			/* run query on all nodes */
+			context->query_step->exec_nodes = makeNode(ExecNodes);
+			context->query_step->exec_nodes->baselocatortype =
+				rel_loc_info->locatorType;
+			context->query_step->exec_nodes->tableusagetype =
+				TABLE_USAGE_TYPE_USER;
+			context->query_step->exec_nodes->primarynodelist = NULL;
+			context->query_step->exec_nodes->nodelist =
+				list_copy(rel_loc_info->nodeList);
+			context->query_step->exec_nodes->expr = NULL;
+			context->query_step->exec_nodes->relid = NULL;
+			context->query_step->exec_nodes->accesstype = context->accessType;
 		}
 	}
 	/* check for partitioned col comparison against a literal */
@@ -1712,6 +1788,7 @@ InitXCWalkerContext(XCWalkerContext *context)
 	context->query = NULL;
 	context->accessType = RELATION_ACCESS_READ;
 	context->query_step = NULL;
+	context->root = NULL;
 	context->conditions = (Special_Conditions *) palloc0(sizeof(Special_Conditions));
 	context->rtables = NIL;
 	context->multilevel_join = false;
@@ -1722,20 +1799,57 @@ InitXCWalkerContext(XCWalkerContext *context)
 	context->join_list = NIL;
 }
 
+
+/*
+ * Create an instance of RemoteQuery and initialize fields
+ */
+static RemoteQuery *
+makeRemoteQuery(void)
+{
+	RemoteQuery *result = makeNode(RemoteQuery);
+	result->is_single_step = true;
+	result->sql_statement = NULL;
+	result->exec_nodes = NULL;
+	result->combine_type = COMBINE_TYPE_NONE;
+	result->simple_aggregates = NIL;
+	result->sort = NULL;
+	result->distinct = NULL;
+	result->read_only = true;
+	result->force_autocommit = false;
+	result->cursor = NULL;
+	result->exec_type = EXEC_ON_DATANODES;
+	result->paramval_data = NULL;
+	result->paramval_len = 0;
+
+	result->relname = NULL;
+	result->remotejoin = false;
+	result->partitioned_replicated = false;
+	result->reduce_level = 0;
+	result->base_tlist = NIL;
+	result->outer_alias = NULL;
+	result->inner_alias = NULL;
+	result->outer_reduce_level = 0;
+	result->inner_reduce_level = 0;
+	result->outer_relids = NULL;
+	result->inner_relids = NULL;
+	return result;
+}
+
 /*
  * Top level entry point before walking query to determine plan nodes
  *
  */
 static void
-get_plan_nodes(Query *query, RemoteQuery *step, RelationAccessType accessType)
+get_plan_nodes(PlannerInfo *root, RemoteQuery *step, RelationAccessType accessType)
 {
+	Query	   *query = root->parse;
 	XCWalkerContext context;
-
 
 	InitXCWalkerContext(&context);
 	context.query = query;
 	context.accessType = accessType;
 	context.query_step = step;
+	context.root = root;
 	context.rtables = lappend(context.rtables, query->rtable);
 
 	if ((get_plan_nodes_walker((Node *) query, &context)
@@ -1754,24 +1868,24 @@ get_plan_nodes(Query *query, RemoteQuery *step, RelationAccessType accessType)
  *
  */
 static void
-get_plan_nodes_command(Query *query, RemoteQuery *step)
+get_plan_nodes_command(RemoteQuery *step, PlannerInfo *root)
 {
-	switch (query->commandType)
+	switch (root->parse->commandType)
 	{
 		case CMD_SELECT:
-			get_plan_nodes(query, step, query->rowMarks ?
+			get_plan_nodes(root, step, root->parse->rowMarks ?
 											RELATION_ACCESS_READ_FOR_UPDATE :
 												RELATION_ACCESS_READ);
 			break;
 
 		case CMD_INSERT:
-			get_plan_nodes_insert(query, step);
+			get_plan_nodes_insert(root, step);
 			break;
 
 		case CMD_UPDATE:
 		case CMD_DELETE:
 			/* treat as a select */
-			get_plan_nodes(query, step, RELATION_ACCESS_UPDATE);
+			get_plan_nodes(root, step, RELATION_ACCESS_UPDATE);
 			break;
 
 		default:
@@ -2589,9 +2703,41 @@ PlannedStmt *
 pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 {
 	PlannedStmt *result;
-	Plan *standardPlan;
+	PlannerGlobal *glob;
+	PlannerInfo *root;
 	RemoteQuery *query_step;
+	StringInfoData buf;
 
+	/*
+	 * Set up global state for this planner invocation.  This data is needed
+	 * across all levels of sub-Query that might exist in the given command,
+	 * so we keep it in a separate struct that's linked to by each per-Query
+	 * PlannerInfo.
+	 */
+	glob = makeNode(PlannerGlobal);
+
+	glob->boundParams = boundParams;
+	glob->paramlist = NIL;
+	glob->subplans = NIL;
+	glob->subrtables = NIL;
+	glob->rewindPlanIDs = NULL;
+	glob->finalrtable = NIL;
+	glob->relationOids = NIL;
+	glob->invalItems = NIL;
+	glob->lastPHId = 0;
+	glob->transientPlan = false;
+
+	/* Create a PlannerInfo data structure, usually it is done for a subquery */
+	root = makeNode(PlannerInfo);
+	root->parse = query;
+	root->glob = glob;
+	root->query_level = 1;
+	root->parent_root = NULL;
+	root->planner_cxt = CurrentMemoryContext;
+	root->init_plans = NIL;
+	root->cte_plan_ids = NIL;
+	root->eq_classes = NIL;
+	root->append_rel_list = NIL;
 
 	/* build the PlannedStmt result */
 	result = makeNode(PlannedStmt);
@@ -2603,184 +2749,151 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	result->intoClause = query->intoClause;
 	result->rtable = query->rtable;
 
-	query_step = makeNode(RemoteQuery);
-	query_step->is_single_step = false;
+	query_step = makeRemoteQuery();
+
+	/* Optimize multi-node handling */
+	query_step->read_only = query->commandType == CMD_SELECT;
 
    	if (query->utilityStmt &&
 		IsA(query->utilityStmt, DeclareCursorStmt))
 			cursorOptions |= ((DeclareCursorStmt *) query->utilityStmt)->options;
 
-	query_step->exec_nodes = NULL;
-	query_step->combine_type = COMBINE_TYPE_NONE;
-	query_step->simple_aggregates = NULL;
-	/* Optimize multi-node handling */
-	query_step->read_only = query->commandType == CMD_SELECT;
-	query_step->force_autocommit = false;
-
 	result->planTree = (Plan *) query_step;
 
-	/*
-	 * Determine where to execute the command, either at the Coordinator
-	 * level, Data Nodes, or both. By default we choose both. We should be
-	 * able to quickly expand this for more commands.
+	/* Perform some checks to make sure we can support the statement */
+	if (query->commandType == CMD_SELECT && query->intoClause)
+		ereport(ERROR,
+				(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+				 (errmsg("INTO clause not yet supported"))));
+
+	/* PGXCTODO: This validation will not be removed
+	 * until we support moving tuples from one node to another
+	 * when the partition column of a table is updated
 	 */
-	switch (query->commandType)
+	if (query->commandType == CMD_UPDATE)
+		validate_part_col_updatable(query);
+
+	if (query->returningList)
+		ereport(ERROR,
+				(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+				 (errmsg("RETURNING clause not yet supported"))));
+
+	/* Set result relations */
+	if (query->commandType != CMD_SELECT)
+		result->resultRelations = list_make1_int(query->resultRelation);
+
+	get_plan_nodes_command(query_step, root);
+
+	if (query_step->exec_nodes == NULL)
 	{
-		case CMD_SELECT:
-			/* Perform some checks to make sure we can support the statement */
-			if (query->intoClause)
-				ereport(ERROR,
-						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-						 (errmsg("INTO clause not yet supported"))));
-			/* fallthru */
-		case CMD_INSERT:
-		case CMD_UPDATE:
-		case CMD_DELETE:
-			/* PGXCTODO: This validation will not be removed
-			 * until we support moving tuples from one node to another
-			 * when the partition column of a table is updated
-			 */
-			if (query->commandType == CMD_UPDATE)
-				validate_part_col_updatable(query);
+		/* Do not yet allow multi-node correlated UPDATE or DELETE */
+		if (query->commandType == CMD_UPDATE || query->commandType == CMD_DELETE)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+					 (errmsg("UPDATE and DELETE that are correlated or use non-immutable functions not yet supported"))));
+		}
 
-			if (query->returningList)
-				ereport(ERROR,
-						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-						 (errmsg("RETURNING clause not yet supported"))));
+		/*
+		 * Processing guery against catalog tables, or multi-step command.
+		 * Run through standard planner
+		 */
+		result = standard_planner(query, cursorOptions, boundParams);
+		return result;
+	}
 
-			/* Set result relations */
-			if (query->commandType != CMD_SELECT)
-				result->resultRelations = list_make1_int(query->resultRelation);
+	/* Do not yet allow multi-node correlated UPDATE or DELETE */
+	if ((query->commandType == CMD_UPDATE || query->commandType == CMD_DELETE)
+					&& !query_step->exec_nodes
+					&& list_length(query->rtable) > 1)
+	{
+		result = standard_planner(query, cursorOptions, boundParams);
+		return result;
+	}
 
-			get_plan_nodes_command(query, query_step);
+	/*
+	 * Deparse query tree to get step query. It may be modified later on
+	 */
+	initStringInfo(&buf);
+	deparse_query(query, &buf, NIL);
+	query_step->sql_statement = pstrdup(buf.data);
+	pfree(buf.data);
 
-			if (query_step->exec_nodes == NULL)
-			{
-				/* Do not yet allow multi-node correlated UPDATE or DELETE */
-				if (query->commandType == CMD_UPDATE || query->commandType == CMD_DELETE)
-				{
-					ereport(ERROR,
-							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-							 (errmsg("UPDATE and DELETE that are correlated or use non-immutable functions not yet supported"))));
-				}
+	query_step->is_single_step = true;
+	/*
+	 * PGXCTODO
+	 * When Postgres runs insert into t (a) values (1); against table
+	 * defined as create table t (a int, b int); the plan is looking
+	 * like insert into t (a,b) values (1,null);
+	 * Later executor is verifying plan, to make sure table has not
+	 * been altered since plan has been created and comparing table
+	 * definition with plan target list and output error if they do
+	 * not match.
+	 * I could not find better way to generate targetList for pgxc plan
+	 * then call standard planner and take targetList from the plan
+	 * generated by Postgres.
+	 */
+	query_step->scan.plan.targetlist = query->targetList;
 
-				/*
-				 * Processing guery against catalog tables, or multi-step command.
-				 * Run through standard planner
-				 */
-				result = standard_planner(query, cursorOptions, boundParams);
-				return result;
-			}
+	if (query_step->exec_nodes)
+		query_step->combine_type = get_plan_combine_type(
+				query, query_step->exec_nodes->baselocatortype);
 
-			/* Do not yet allow multi-node correlated UPDATE or DELETE */
-			if ((query->commandType == CMD_UPDATE || query->commandType == CMD_DELETE)
-							&& !query_step->exec_nodes
-							&& list_length(query->rtable) > 1)
-			{
-				result = standard_planner(query, cursorOptions, boundParams);
-				return result;
-			}
+	/* Set up simple aggregates */
+	/* PGXCTODO - we should detect what types of aggregates are used.
+	 * in some cases we can avoid the final step and merely proxy results
+	 * (when there is only one data node involved) instead of using
+	 * coordinator consolidation. At the moment this is needed for AVG()
+	 */
+	query_step->simple_aggregates = get_simple_aggregates(query);
 
-			/*
-			 * get_plan_nodes_command may alter original statement, so do not
-			 * process it before the call
-			 *
-			 * Declare Cursor case:
-			 * We should leave as a step query only SELECT statement
-			 * Further if we need refer source statement for planning we should take
-			 * the truncated string
-			 */
-			if (query->utilityStmt &&
-				IsA(query->utilityStmt, DeclareCursorStmt))
-			{
+	/*
+	 * Add sorting to the step
+	 */
+	if (list_length(query_step->exec_nodes->nodelist) > 1 &&
+			(query->sortClause || query->distinctClause))
+		make_simple_sort_from_sortclauses(query, query_step);
 
-				/* search for SELECT keyword in the normalized string */
-				char *select = strpos(query->sql_statement, " SELECT ");
-				/* Take substring of the original string using found offset */
-				query_step->sql_statement = pstrdup(select + 1);
-			}
-			else
-				query_step->sql_statement = pstrdup(query->sql_statement);
+	/* Handle LIMIT and OFFSET for single-step queries on multiple nodes */
+	if (handle_limit_offset(query_step, query, result))
+	{
+		/* complicated expressions, just fallback to standard plan */
+		result = standard_planner(query, cursorOptions, boundParams);
+		return result;
+	}
 
-			/*
-			 * If there already is an active portal, we may be doing planning
-			 * within a function.  Just use the standard plan, but check if
-			 * it is part of an EXPLAIN statement so that we do not show that
-			 * we plan multiple steps when it is a single-step operation.
-			 */
-			if (ActivePortal && strcmp(ActivePortal->commandTag, "EXPLAIN"))
-				return standard_planner(query, cursorOptions, boundParams);
+	/*
+	 * Use standard plan if we have more than one data node with either
+	 * group by, hasWindowFuncs, or hasRecursive
+	 */
+	/*
+	 * PGXCTODO - this could be improved to check if the first
+	 * group by expression is the partitioning column, in which
+	 * case it is ok to treat as a single step.
+	 */
+	if (query->commandType == CMD_SELECT
+					&& query_step->exec_nodes
+					&& list_length(query_step->exec_nodes->nodelist) > 1
+					&& (query->groupClause || query->hasWindowFuncs || query->hasRecursive))
+	{
+		result = standard_planner(query, cursorOptions, boundParams);
+		return result;
+	}
 
-			query_step->is_single_step = true;
-			/*
-			 * PGXCTODO
-			 * When Postgres runs insert into t (a) values (1); against table
-			 * defined as create table t (a int, b int); the plan is looking
-			 * like insert into t (a,b) values (1,null);
-			 * Later executor is verifying plan, to make sure table has not
-			 * been altered since plan has been created and comparing table
-			 * definition with plan target list and output error if they do
-			 * not match.
-			 * I could not find better way to generate targetList for pgxc plan
-			 * then call standard planner and take targetList from the plan
-			 * generated by Postgres.
-			 */
-			query_step->scan.plan.targetlist = query->targetList;
-
-			if (query_step->exec_nodes)
-				query_step->combine_type = get_plan_combine_type(
-						query, query_step->exec_nodes->baselocatortype);
-
-			/* Set up simple aggregates */
-			/* PGXCTODO - we should detect what types of aggregates are used.
-			 * in some cases we can avoid the final step and merely proxy results
-			 * (when there is only one data node involved) instead of using
-			 * coordinator consolidation. At the moment this is needed for AVG()
-			 */
-			query_step->simple_aggregates = get_simple_aggregates(query);
-
-			/*
-			 * Add sorting to the step
-			 */
-			if (list_length(query_step->exec_nodes->nodelist) > 1 &&
-					(query->sortClause || query->distinctClause))
-				make_simple_sort_from_sortclauses(query, query_step);
-
-			/* Handle LIMIT and OFFSET for single-step queries on multiple nodes */
-			if (handle_limit_offset(query_step, query, result))
-			{
-				/* complicated expressions, just fallback to standard plan */
-				result = standard_planner(query, cursorOptions, boundParams);
-				return result;
-			}
-
-			/*
-			 * Use standard plan if we have more than one data node with either
-			 * group by, hasWindowFuncs, or hasRecursive
-			 */
-			/*
-			 * PGXCTODO - this could be improved to check if the first
-			 * group by expression is the partitioning column, in which
-			 * case it is ok to treat as a single step.
-			 */
-			if (query->commandType == CMD_SELECT
-							&& query_step->exec_nodes
-							&& list_length(query_step->exec_nodes->nodelist) > 1
-							&& (query->groupClause || query->hasWindowFuncs || query->hasRecursive))
-			{
-						result->planTree = standardPlan;
-						return result;
-			}
-			break;
-
-		default:
-			/* Allow for override */
-			if (StrictStatementChecking)
-				ereport(ERROR,
-						(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-						 (errmsg("This command is not yet supported."))));
-			else
-				result->planTree = standardPlan;
+	/* Allow for override */
+	/* AM: Is this ever possible? */
+	if (query->commandType != CMD_SELECT &&
+			query->commandType != CMD_INSERT &&
+			query->commandType != CMD_UPDATE &&
+			query->commandType != CMD_DELETE)
+	{
+		if (StrictStatementChecking)
+			ereport(ERROR,
+					(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+					 (errmsg("This command is not yet supported."))));
+		else
+			result = standard_planner(query, cursorOptions, boundParams);
+			return result;
 	}
 
 	/*
@@ -2807,6 +2920,13 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 		set_cursor_name(result->planTree, stmt->portalname, 0);
 	}
 
+	/*
+	 * Assume single step. If there are multiple steps we should make up
+	 * parameters for each step where they referenced
+	 */
+	if (boundParams)
+		query_step->paramval_len = ParamListToDataRow(boundParams,
+													  &query_step->paramval_data);
 	/*
 	 * If query is FOR UPDATE fetch CTIDs from the remote node
 	 * Use CTID as a key to update tuples on remote nodes when handling
@@ -3068,7 +3188,7 @@ validate_part_col_updatable(const Query *query)
  *
  * Based on is_immutable_func from postgresql_fdw.c
  * We add an exeption for base postgresql functions, to
- * allow now() and others to still execute as part of single step 
+ * allow now() and others to still execute as part of single step
  * queries.
  *
  * PGXCTODO - we currently make the false assumption that immutable

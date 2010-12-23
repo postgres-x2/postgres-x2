@@ -144,5 +144,9 @@ extern void BufferConnection(PGXCNodeHandle *conn);
 
 extern void ExecRemoteQueryReScan(RemoteQueryState *node, ExprContext *exprCtxt);
 
+extern int ParamListToDataRow(ParamListInfo params, char** result);
+
+extern void ExecCloseRemoteStatement(const char *stmt_name, List *nodelist);
+
 extern int primary_data_node;
 #endif

@@ -27,6 +27,7 @@
 #include "access/gtm.h"
 #include "access/transam.h"
 #include "access/xact.h"
+#include "commands/prepare.h"
 #include "gtm/gtm_c.h"
 #include "pgxc/pgxcnode.h"
 #include "pgxc/locator.h"
@@ -592,6 +593,10 @@ release_handles(bool force_drop)
 	if (datanode_count == 0 && coord_count == 0)
 		return;
 
+	/* Do not release connections if we have prepared statements on nodes */
+	if (HaveActiveDatanodeStatements())
+		return;
+
 	/* Collect Data Nodes handles */
 	for (i = 0; i < NumDataNodes; i++)
 	{
@@ -1144,8 +1149,10 @@ pgxc_node_send_query_extended(PGXCNodeHandle *handle, const char *query,
 							  int paramlen, char *params,
 							  bool send_describe, int fetch_size)
 {
-	if (pgxc_node_send_parse(handle, statement, query))
-		return EOF;
+	/* NULL query indicates already prepared statement */
+	if (query)
+		if (pgxc_node_send_parse(handle, statement, query))
+			return EOF;
 	if (pgxc_node_send_bind(handle, portal, statement, paramlen, params))
 		return EOF;
 	if (send_describe)

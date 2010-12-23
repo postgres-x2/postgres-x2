@@ -187,6 +187,9 @@ extern TupleTableSlot *ExecStoreVirtualTuple(TupleTableSlot *slot);
 extern TupleTableSlot *ExecStoreAllNullTuple(TupleTableSlot *slot);
 extern HeapTuple ExecCopySlotTuple(TupleTableSlot *slot);
 extern MinimalTuple ExecCopySlotMinimalTuple(TupleTableSlot *slot);
+#ifdef PGXC
+extern int ExecCopySlotDatarow(TupleTableSlot *slot, char **datarow);
+#endif
 extern HeapTuple ExecFetchSlotTuple(TupleTableSlot *slot);
 extern MinimalTuple ExecFetchSlotMinimalTuple(TupleTableSlot *slot);
 extern Datum ExecFetchSlotTupleDatum(TupleTableSlot *slot);

@@ -33,6 +33,15 @@ typedef struct
 	TimestampTz prepare_time;	/* the time when the stmt was prepared */
 } PreparedStatement;
 
+#ifdef PGXC
+typedef struct
+{
+	/* dynahash.c requires key to be first field */
+	char		stmt_name[NAMEDATALEN];
+	int			nodenum;		/* number of nodes where statement is active */
+	int 		nodes[0];		/* node ids where statement is active */
+} DatanodeStatement;
+#endif
 
 /* Utility statements PREPARE, EXECUTE, DEALLOCATE, EXPLAIN EXECUTE */
 extern void PrepareQuery(PrepareStmt *stmt, const char *queryString);
@@ -61,5 +70,12 @@ extern TupleDesc FetchPreparedStatementResultDesc(PreparedStatement *stmt);
 extern List *FetchPreparedStatementTargetList(PreparedStatement *stmt);
 
 void		DropAllPreparedStatements(void);
+
+#ifdef PGXC
+extern DatanodeStatement *FetchDatanodeStatement(const char *stmt_name, bool throwError);
+extern bool ActivateDatanodeStatementOnNode(const char *stmt_name, int node);
+extern bool HaveActiveDatanodeStatements(void);
+extern void DropDatanodeStatement(const char *stmt_name);
+#endif
 
 #endif   /* PREPARE_H */

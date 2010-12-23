@@ -350,7 +350,7 @@ PoolManagerInit()
 			else
 				ereport(FATAL,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						 errmsg("invalid list syntax for \"coordinator_ports\"")));			
+						 errmsg("invalid list syntax for \"coordinator_ports\"")));
 		}
 
 		if (count == 0)
@@ -369,7 +369,7 @@ PoolManagerInit()
 			else
 				ereport(FATAL,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						 errmsg("invalid list syntax for \"coordinator_users\"")));			
+						 errmsg("invalid list syntax for \"coordinator_users\"")));
 		}
 
 		i = 0;
@@ -715,14 +715,33 @@ agent_destroy(PoolAgent *agent)
 
 	/* Discard connections if any remaining */
 	if (agent->pool)
-		agent_release_connections(agent, NULL, NULL);
+	{
+		List *dn_conn = NIL;
+		List *co_conn = NIL;
+		int   i;
+
+		/* gather abandoned datanode connections */
+		if (agent->dn_connections)
+			for (i = 0; i < NumDataNodes; i++)
+				if (agent->dn_connections[i])
+					dn_conn = lappend_int(dn_conn, i+1);
+
+		/* gather abandoned coordinator connections */
+		if (agent->coord_connections)
+			for (i = 0; i < NumCoords; i++)
+				if (agent->coord_connections[i])
+					co_conn = lappend_int(co_conn, i+1);
+
+		/* release them all */
+		agent_release_connections(agent, dn_conn, co_conn);
+	}
 
 	/* find agent in the list */
 	for (i = 0; i < agentCount; i++)
 	{
 		if (poolAgents[i] == agent)
 		{
-			/* free memory */
+			/* Free memory. All connection slots are NULL at this point */
 			if (agent->dn_connections)
 			{
 				pfree(agent->dn_connections);
@@ -1108,7 +1127,7 @@ agent_acquire_connections(PoolAgent *agent, List *datanodelist, List *coordlist)
 
 		for (i = 0; i < NumCoords; i++)
 			agent->coord_connections[i] = NULL;
-	}	
+	}
 
 
 	/* Initialize result */

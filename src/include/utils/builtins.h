@@ -15,6 +15,7 @@
 #define BUILTINS_H
 
 #include "fmgr.h"
+#include "lib/stringinfo.h"
 #include "nodes/parsenodes.h"
 
 /*
@@ -598,6 +599,7 @@ extern char *deparse_expression(Node *expr, List *dpcontext,
 #ifdef PGXC
 extern List *deparse_context_for_remotequery(const char *aliasname, Oid relid);
 extern List *deparse_context_for(const char *aliasname, Oid relid);
+extern void deparse_query(Query *query, StringInfo buf, List *parentnamespace);
 #endif
 extern List *deparse_context_for_plan(Node *plan, Node *outer_plan,
 						 List *rtable, List *subplans);

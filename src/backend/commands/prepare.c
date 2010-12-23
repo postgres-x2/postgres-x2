@@ -33,7 +33,11 @@
 #include "utils/builtins.h"
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
-
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#include "pgxc/poolmgr.h"
+#include "pgxc/execRemote.h"
+#endif
 
 /*
  * The hash table in which prepared queries are stored. This is
@@ -42,6 +46,14 @@
  * (statement names); the entries are PreparedStatement structs.
  */
 static HTAB *prepared_queries = NULL;
+#ifdef PGXC
+/*
+ * The hash table where datanode prepared statements are stored.
+ * The keys are statement names referenced from cached RemoteQuery nodes; the
+ * entries are DatanodeStatement structs
+ */
+static HTAB *datanode_queries = NULL;
+#endif
 
 static void InitQueryHashTable(void);
 static ParamListInfo EvaluateParams(PreparedStatement *pstmt, List *params,
@@ -147,6 +159,22 @@ PrepareQuery(PrepareStmt *stmt, const char *queryString)
 	/* Generate plans for queries. */
 	plan_list = pg_plan_queries(query_list, 0, NULL);
 
+#ifdef PGXC
+	/*
+	 * Check if we are dealing with more than one step.
+	 * Multi-step preapred statements are not yet supported.
+	 * PGXCTODO - temporary - Once we add support, this code should be removed.
+	 */
+	if (IS_PGXC_COORDINATOR && plan_list && plan_list->head)
+	{
+		PlannedStmt *stmt = (PlannedStmt *) lfirst(plan_list->head);
+
+		if (stmt->planTree->lefttree || stmt->planTree->righttree)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PSTATEMENT_DEFINITION),
+					 errmsg("Multi-step Prepared Statements not yet supported")));
+	}
+#endif
 	/*
 	 * Save the results.
 	 */
@@ -419,7 +447,76 @@ InitQueryHashTable(void)
 								   32,
 								   &hash_ctl,
 								   HASH_ELEM);
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR)
+	{
+		MemSet(&hash_ctl, 0, sizeof(hash_ctl));
+
+		hash_ctl.keysize = NAMEDATALEN;
+		hash_ctl.entrysize = sizeof(DatanodeStatement) + NumDataNodes * sizeof(int);
+
+		datanode_queries = hash_create("Datanode Queries",
+									   64,
+									   &hash_ctl,
+									   HASH_ELEM);
+	}
+#endif
 }
+
+#ifdef PGXC
+/*
+ * Assign the statement name for all the RemoteQueries in the plan tree, so
+ * they use datanode statements
+ */
+static int
+set_remote_stmtname(Plan *plan, const char *stmt_name, int n)
+{
+	if (IsA(plan, RemoteQuery))
+	{
+		DatanodeStatement *entry;
+		bool exists;
+
+		char name[NAMEDATALEN];
+		do
+		{
+			strcpy(name, stmt_name);
+			/*
+			 * Append modifier. If resulting string is going to be truncated,
+			 * truncate better the base string, otherwise we may enter endless
+			 * loop
+			 */
+			if (n)
+			{
+				char modifier[NAMEDATALEN];
+				sprintf(modifier, "__%d", n);
+				/*
+				 * if position NAMEDATALEN - strlen(modifier) - 1 is beyond the
+				 * base string this is effectively noop, otherwise it truncates
+				 * the base string
+				 */
+				name[NAMEDATALEN - strlen(modifier) - 1] = '\0';
+				strcat(name, modifier);
+			}
+			n++;
+			hash_search(datanode_queries, name, HASH_FIND, &exists);
+		} while (exists);
+		((RemoteQuery *) plan)->statement = pstrdup(name);
+		entry = (DatanodeStatement *) hash_search(datanode_queries,
+												  name,
+												  HASH_ENTER,
+												  NULL);
+		entry->nodenum = 0;
+	}
+
+	if (innerPlan(plan))
+		n = set_remote_stmtname(innerPlan(plan), stmt_name, n);
+
+	if (outerPlan(plan))
+		n = set_remote_stmtname(outerPlan(plan), stmt_name, n);
+
+	return n;
+}
+#endif
 
 /*
  * Store all the data pertaining to a query in the hash table using
@@ -458,6 +555,25 @@ StorePreparedStatement(const char *stmt_name,
 				(errcode(ERRCODE_DUPLICATE_PSTATEMENT),
 				 errmsg("prepared statement \"%s\" already exists",
 						stmt_name)));
+
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR)
+	{
+		ListCell   *lc;
+		int 		n;
+
+		/*
+		 * Scan the plans and set the statement field for all found RemoteQuery
+		 * nodes so they use data node statements
+		 */
+		n = 0;
+		foreach(lc, stmt_list)
+		{
+			PlannedStmt *ps = (PlannedStmt *) lfirst(lc);
+			n = set_remote_stmtname(ps->planTree, stmt_name, n);
+		}
+	}
+#endif
 
 	/* Create a plancache entry */
 	plansource = CreateCachedPlan(raw_parse_tree,
@@ -844,3 +960,114 @@ build_regtype_array(Oid *param_types, int num_params)
 	result = construct_array(tmp_ary, num_params, REGTYPEOID, 4, true, 'i');
 	return PointerGetDatum(result);
 }
+
+
+#ifdef PGXC
+DatanodeStatement *
+FetchDatanodeStatement(const char *stmt_name, bool throwError)
+{
+	DatanodeStatement *entry;
+
+	/*
+	 * If the hash table hasn't been initialized, it can't be storing
+	 * anything, therefore it couldn't possibly store our plan.
+	 */
+	if (datanode_queries)
+		entry = (DatanodeStatement *) hash_search(datanode_queries,
+												  stmt_name,
+												  HASH_FIND,
+												  NULL);
+	else
+		entry = NULL;
+
+	/* Report error if entry is not found */
+	if (!entry && throwError)
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_PSTATEMENT),
+				 errmsg("datanode statement \"%s\" does not exist",
+						stmt_name)));
+
+	return entry;
+}
+
+/*
+ * Drop datanode statement and close it on nodes if active
+ */
+void
+DropDatanodeStatement(const char *stmt_name)
+{
+	DatanodeStatement *entry;
+
+	entry = FetchDatanodeStatement(stmt_name, false);
+	if (entry)
+	{
+		int i;
+		List *nodelist = NIL;
+
+		/* make a List of integers from node numbers */
+		for (i = 0; i < entry->nodenum; i++)
+			nodelist = lappend_int(nodelist, entry->nodes[i]);
+		entry->nodenum = 0;
+
+		ExecCloseRemoteStatement(stmt_name, nodelist);
+
+		hash_search(datanode_queries, entry->stmt_name, HASH_REMOVE, NULL);
+	}
+}
+
+
+/*
+ * Return true if there is at least one active datanode statement, so acquired
+ * datanode connections should not be released
+ */
+bool
+HaveActiveDatanodeStatements(void)
+{
+	HASH_SEQ_STATUS seq;
+	DatanodeStatement *entry;
+
+	/* nothing cached */
+	if (!datanode_queries)
+		return false;
+
+	/* walk over cache */
+	hash_seq_init(&seq, datanode_queries);
+	while ((entry = hash_seq_search(&seq)) != NULL)
+	{
+		/* Stop walking and return true */
+		if (entry->nodenum > 0)
+		{
+			hash_seq_term(&seq);
+			return true;
+		}
+	}
+	/* nothing found */
+	return false;
+}
+
+
+/*
+ * Mark datanode statement as active on specified node
+ * Return true if statement has already been active on the node and can be used
+ * Returns falsee if statement has not been active on the node and should be
+ * prepared on the node
+ */
+bool
+ActivateDatanodeStatementOnNode(const char *stmt_name, int node)
+{
+	DatanodeStatement *entry;
+	int i;
+
+	/* find the statement in cache */
+	entry = FetchDatanodeStatement(stmt_name, true);
+
+	/* see if statement already active on the node */
+	for (i = 0; i < entry->nodenum; i++)
+		if (entry->nodes[i] == node)
+			return true;
+
+	/* statement is not active on the specified node append item to the list */
+	entry->nodes[entry->nodenum++] = node;
+	return false;
+}
+#endif
