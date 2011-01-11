@@ -118,7 +118,6 @@ extern void	PGXCNodeImplicitCommitPrepared(GlobalTransactionId prepare_xid,
 										   GlobalTransactionId commit_xid,
 										   char *gid,
 										   bool is_commit);
-extern void PGXCNodeConsumeMessages(void);
 
 /* Get list of nodes */
 extern void PGXCNodeGetNodeList(PGXC_NodeId **datanodes,

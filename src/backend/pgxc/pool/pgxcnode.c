@@ -327,6 +327,8 @@ retry:
 
 			if (read_status == EOF || read_status < 0)
 			{
+				/* Can not read - no more actions, just discard connection */
+				conn->state = DN_CONNECTION_STATE_ERROR_FATAL;
 				add_error_message(conn, "unexpected EOF on datanode connection");
 				elog(WARNING, "unexpected EOF on datanode connection");
 				/* Should we read from the other connections before returning? */
@@ -577,12 +579,9 @@ get_message(PGXCNodeHandle *conn, int *len, char **msg)
 /*
  * Release all data node connections  and coordinator connections
  * back to pool and release occupied memory
- *
- * If force_drop is true, we force dropping all of the connections, such as after
- * a rollback, which was likely issued due to an error.
  */
 void
-release_handles(bool force_drop)
+release_handles(void)
 {
 	int			i;
 	int 		dn_discard[NumDataNodes];
@@ -604,7 +603,7 @@ release_handles(bool force_drop)
 
 		if (handle->sock != NO_SOCKET)
 		{
-			if (force_drop)
+			if (handle->state == DN_CONNECTION_STATE_ERROR_FATAL)
 				dn_discard[dn_ndisc++] = handle->nodenum;
 			else if (handle->state != DN_CONNECTION_STATE_IDLE)
 			{
@@ -622,7 +621,7 @@ release_handles(bool force_drop)
 
 		if (handle->sock != NO_SOCKET)
 		{
-			if (force_drop)
+			if (handle->state == DN_CONNECTION_STATE_ERROR_FATAL)
 				co_discard[co_ndisc++] = handle->nodenum;
 			else if (handle->state != DN_CONNECTION_STATE_IDLE)
 			{
@@ -899,19 +898,29 @@ pgxc_node_send_bind(PGXCNodeHandle * handle, const char *portal,
 					const char *statement, int paramlen, char *params)
 {
 	uint16		n16;
-	/* portal name size (allow NULL) */
-	int			pnameLen = portal ? strlen(portal) + 1 : 1;
-	/* statement name size (allow NULL) */
-	int			stmtLen = statement ? strlen(statement) + 1 : 1;
-	/* size of parameter codes array (always empty for now) */
-	int 		paramCodeLen = 2;
-	/* size of parameter values array, 2 if no params */
-	int 		paramValueLen = paramlen ? paramlen : 2;
-	/* size of output parameter codes array (always empty for now) */
-	int 		paramOutLen = 2;
+	int			pnameLen;
+	int			stmtLen;
+	int 		paramCodeLen;
+	int 		paramValueLen;
+	int 		paramOutLen;
+	int			msgLen;
 
+	/* Invalid connection state, return error */
+	if (handle->state != DN_CONNECTION_STATE_IDLE)
+		return EOF;
+
+	/* portal name size (allow NULL) */
+	pnameLen = portal ? strlen(portal) + 1 : 1;
+	/* statement name size (allow NULL) */
+	stmtLen = statement ? strlen(statement) + 1 : 1;
+	/* size of parameter codes array (always empty for now) */
+	paramCodeLen = 2;
+	/* size of parameter values array, 2 if no params */
+	paramValueLen = paramlen ? paramlen : 2;
+	/* size of output parameter codes array (always empty for now) */
+	paramOutLen = 2;
 	/* size + pnameLen + stmtLen + parameters */
-	int			msgLen = 4 + pnameLen + stmtLen + paramCodeLen + paramValueLen + paramOutLen;
+	msgLen = 4 + pnameLen + stmtLen + paramCodeLen + paramValueLen + paramOutLen;
 
 	/* msgType + msgLen */
 	if (ensure_out_buffer_capacity(handle->outEnd + 1 + msgLen, handle) != 0)
@@ -970,11 +979,18 @@ int
 pgxc_node_send_describe(PGXCNodeHandle * handle, bool is_statement,
 						const char *name)
 {
+	int			nameLen;
+	int			msgLen;
+
+	/* Invalid connection state, return error */
+	if (handle->state != DN_CONNECTION_STATE_IDLE)
+		return EOF;
+
 	/* statement or portal name size (allow NULL) */
-	int			nameLen = name ? strlen(name) + 1 : 1;
+	nameLen = name ? strlen(name) + 1 : 1;
 
 	/* size + statement/portal + name */
-	int			msgLen = 4 + 1 + nameLen;
+	msgLen = 4 + 1 + nameLen;
 
 	/* msgType + msgLen */
 	if (ensure_out_buffer_capacity(handle->outEnd + 1 + msgLen, handle) != 0)
@@ -1191,10 +1207,16 @@ pgxc_node_flush(PGXCNodeHandle *handle)
 int
 pgxc_node_send_query(PGXCNodeHandle * handle, const char *query)
 {
-	int			strLen = strlen(query) + 1;
+	int			strLen;
+	int			msgLen;
 
+	/* Invalid connection state, return error */
+	if (handle->state != DN_CONNECTION_STATE_IDLE)
+		return EOF;
+
+	strLen = strlen(query) + 1;
 	/* size + strlen */
-	int			msgLen = 4 + strLen;
+	msgLen = 4 + strLen;
 
 	/* msgType + msgLen */
 	if (ensure_out_buffer_capacity(handle->outEnd + 1 + msgLen, handle) != 0)
@@ -1225,6 +1247,10 @@ pgxc_node_send_gxid(PGXCNodeHandle *handle, GlobalTransactionId gxid)
 	int			msglen = 8;
 	int			i32;
 
+	/* Invalid connection state, return error */
+	if (handle->state != DN_CONNECTION_STATE_IDLE)
+		return EOF;
+
 	/* msgType + msgLen */
 	if (ensure_out_buffer_capacity(handle->outEnd + 1 + msglen, handle) != 0)
 	{
@@ -1253,6 +1279,10 @@ pgxc_node_send_snapshot(PGXCNodeHandle *handle, Snapshot snapshot)
 	int			msglen;
 	int			nval;
 	int			i;
+
+	/* Invalid connection state, return error */
+	if (handle->state != DN_CONNECTION_STATE_IDLE)
+		return EOF;
 
 	/* calculate message length */
 	msglen = 20;
@@ -1306,6 +1336,10 @@ pgxc_node_send_timestamp(PGXCNodeHandle *handle, TimestampTz timestamp)
 	int		msglen = 12; /* 4 bytes for msglen and 8 bytes for timestamp (int64) */
 	uint32	n32;
 	int64	i = (int64) timestamp;
+
+	/* Invalid connection state, return error */
+	if (handle->state != DN_CONNECTION_STATE_IDLE)
+		return EOF;
 
 	/* msgType + msgLen */
 	if (ensure_out_buffer_capacity(handle->outEnd + 1 + msglen, handle) != 0)
@@ -1533,7 +1567,9 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 				list_free(dn_allocate);
 			if (co_allocate)
 				list_free(co_allocate);
-			return NULL;
+			ereport(ERROR,
+					(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+					 errmsg("Failed to get pooled connections")));
 		}
 		/* Initialisation for Datanodes */
 		if (dn_allocate)
@@ -1607,46 +1643,29 @@ get_transaction_nodes(PGXCNodeHandle **connections, char client_conn_type,
 	{
 		for (i = 0; i < NumDataNodes; i++)
 		{
-			/*
-			 * We may want to consider also not returning connections with a
-			 * state of DN_CONNECTION_STATE_ERROR_NOT_READY or
-			 * DN_CONNECTION_STATE_ERROR_FATAL.
-			 * ERROR_NOT_READY can happen if the data node abruptly disconnects.
-			 */
-			if (status_requested == HANDLE_IDLE)
+			if (dn_handles[i].sock != NO_SOCKET && dn_handles[i].state != DN_CONNECTION_STATE_ERROR_FATAL)
 			{
-				if (dn_handles[i].sock != NO_SOCKET && dn_handles[i].transaction_status == 'I')
+				if (status_requested == HANDLE_IDLE && dn_handles[i].transaction_status == 'I')
 					connections[tran_count++] = &dn_handles[i];
-			}
-			else if (status_requested == HANDLE_ERROR)
-			{
-				if (dn_handles[i].transaction_status == 'E')
+				else if (status_requested == HANDLE_ERROR && dn_handles[i].transaction_status == 'E')
 					connections[tran_count++] = &dn_handles[i];
-			}
-			else
-			{
-				if (dn_handles[i].sock != NO_SOCKET && dn_handles[i].transaction_status != 'I')
+				else if (dn_handles[i].transaction_status != 'I')
 					connections[tran_count++] = &dn_handles[i];
 			}
 		}
 	}
+
 	if (coord_count && client_conn_type == REMOTE_CONN_COORD)
 	{
 		for (i = 0; i < NumCoords; i++)
 		{
-			if (status_requested == HANDLE_IDLE)
+			if (co_handles[i].sock != NO_SOCKET && co_handles[i].state != DN_CONNECTION_STATE_ERROR_FATAL)
 			{
-				if (co_handles[i].sock != NO_SOCKET && co_handles[i].transaction_status == 'I')
+				if (status_requested == HANDLE_IDLE && co_handles[i].transaction_status == 'I')
 					connections[tran_count++] = &co_handles[i];
-			}
-			else if (status_requested == HANDLE_ERROR)
-			{
-				if (co_handles[i].transaction_status == 'E')
-					connections[tran_count++] = &co_handles[i];				
-			}
-			else
-			{
-				if (co_handles[i].sock != NO_SOCKET && co_handles[i].transaction_status != 'I')
+				else if (status_requested == HANDLE_ERROR && co_handles[i].transaction_status == 'E')
+					connections[tran_count++] = &co_handles[i];
+				else if (co_handles[i].transaction_status != 'I')
 					connections[tran_count++] = &co_handles[i];
 			}
 		}
@@ -1789,11 +1808,11 @@ pgxc_all_handles_send_query(PGXCNodeAllHandles *pgxc_handles, const char *buffer
     /* Send to Datanodes */
     for (i = 0; i < dn_conn_count; i++)
 	{
-		/*
-		 * Clean connection if fetch in progress
-		 */
-		if (pgxc_handles->datanode_handles[i]->state == DN_CONNECTION_STATE_QUERY)
-			BufferConnection(pgxc_handles->datanode_handles[i]);
+		if (pgxc_handles->datanode_handles[i]->state != DN_CONNECTION_STATE_IDLE)
+		{
+			pgxc_handles->datanode_handles[i]->state = DN_CONNECTION_STATE_ERROR_FATAL;
+			continue;
+		}
 		if (pgxc_node_send_query(pgxc_handles->datanode_handles[i], buffer))
 		{
 			add_error_message(pgxc_handles->datanode_handles[i], "Can not send request");

@@ -102,7 +102,7 @@ extern int	PGXCNodeConnClean(NODE_CONNECTION * conn);
 extern void PGXCNodeCleanAndRelease(int code, Datum arg);
 
 extern PGXCNodeAllHandles *get_handles(List *datanodelist, List *coordlist, bool is_query_coord_only);
-extern void release_handles(bool force_drop);
+extern void release_handles(void);
 
 extern int	get_transaction_nodes(PGXCNodeHandle ** connections,
 								  char client_conn_type,

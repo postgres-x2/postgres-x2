@@ -30,6 +30,9 @@
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
 #include "pgstat.h"
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#endif
 #include "postmaster/autovacuum.h"
 #include "postmaster/postmaster.h"
 #include "storage/backendid.h"
@@ -490,6 +493,18 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 	 */
 	on_shmem_exit(ShutdownPostgres, 0);
 
+#ifdef PGXC
+	/*
+	 * The transaction below consumes a xid, and we should let GTM know about
+	 * that. Session being initializing now and value from the coordinator
+	 * is not available, so try and connect to GTM directly
+	 * The check for PostmasterPid is to detect --single mode as it runs
+	 * under initdb. PostmasterPid is not set in this case
+	 */
+	if (!bootstrap && IS_PGXC_DATANODE && PostmasterPid)
+		SetForceXidFromGTM(true);
+#endif
+
 	/*
 	 * Start a new transaction here before first access to db, and get a
 	 * snapshot.  We don't have a use for the snapshot itself, but we're
@@ -653,6 +668,14 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 	/* close the transaction we started above */
 	if (!bootstrap)
 		CommitTransactionCommand();
+
+#ifdef PGXC
+	/*
+	 * We changed the flag, set it back to default
+	 */
+	if (!bootstrap && IS_PGXC_DATANODE && PostmasterPid)
+		SetForceXidFromGTM(false);
+#endif
 
 	return am_superuser;
 }

@@ -36,7 +36,6 @@
 #include "pgxc/pgxc.h"
 
 #define END_QUERY_TIMEOUT	20
-#define CLEAR_TIMEOUT		5
 #define DATA_NODE_FETCH_SIZE 1
 
 
@@ -78,8 +77,6 @@ static int	pgxc_node_receive_and_validate(const int conn_count,
 static void clear_write_node_list(void);
 
 static void pfree_pgxc_all_handles(PGXCNodeAllHandles *pgxc_handles);
-
-static int handle_response_clear(PGXCNodeHandle * conn);
 
 static void close_node_cursors(PGXCNodeHandle **connections, int conn_count, char *cursor);
 
@@ -955,14 +952,16 @@ void
 BufferConnection(PGXCNodeHandle *conn)
 {
 	RemoteQueryState *combiner = conn->combiner;
+	MemoryContext oldcontext;
+
+	Assert(conn->state == DN_CONNECTION_STATE_QUERY && combiner);
+
 	/*
 	 * When BufferConnection is invoked CurrentContext is related to other
 	 * portal, which is trying to control the connection.
 	 * TODO See if we can find better context to switch to
 	 */
-	MemoryContext oldcontext = MemoryContextSwitchTo(combiner->ss.ss_ScanTupleSlot->tts_mcxt);
-
-	Assert(conn->state == DN_CONNECTION_STATE_QUERY && combiner);
+	oldcontext = MemoryContextSwitchTo(combiner->ss.ss_ScanTupleSlot->tts_mcxt);
 
 	/* Verify the connection is in use by the combiner */
 	combiner->current_conn = 0;
@@ -1007,10 +1006,11 @@ BufferConnection(PGXCNodeHandle *conn)
 		{
 			/* incomplete message, read more */
 			if (pgxc_node_receive(1, &conn, NULL))
-				ereport(ERROR,
-						(errcode(ERRCODE_INTERNAL_ERROR),
-						 errmsg("Failed to fetch from data node")));
-			continue;
+			{
+				conn->state = DN_CONNECTION_STATE_ERROR_FATAL;
+				add_error_message(conn, "Failed to fetch from data node");
+			}
+			break;
 		}
 		else if (res == RESPONSE_COMPLETE)
 		{
@@ -1261,7 +1261,6 @@ handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner)
 	for (;;)
 	{
 		Assert(conn->state != DN_CONNECTION_STATE_IDLE);
-		Assert(conn->combiner == combiner || conn->combiner == NULL);
 
 		/*
 		 * If we are in the process of shutting down, we
@@ -1279,6 +1278,8 @@ handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner)
 		/* No data available, exit */
 		if (!HAS_MESSAGE_BUFFERED(conn))
 			return RESPONSE_EOF;
+
+		Assert(conn->combiner == combiner || conn->combiner == NULL);
 
 		/* TODO handle other possible responses */
 		msg_type = get_message(conn, &msg_len, &msg);
@@ -1369,75 +1370,6 @@ handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner)
 		}
 	}
 	/* never happen, but keep compiler quiet */
-	return RESPONSE_EOF;
-}
-
-
-/*
- * Like handle_response, but for consuming the messages,
- * in case we of an error to clean the data node connection.
- * Return values:
- * RESPONSE_EOF - need to receive more data for the connection
- * RESPONSE_COMPLETE - done with the connection, or done trying (error)
- */
-static int
-handle_response_clear(PGXCNodeHandle * conn)
-{
-	char	   *msg;
-	int			msg_len;
-	char		msg_type;
-
-	for (;;)
-	{
-		/* No data available, exit */
-		if (conn->state == DN_CONNECTION_STATE_QUERY)
-			return RESPONSE_EOF;
-
-		/*
-		 * If we are in the process of shutting down, we
-		 * may be rolling back, and the buffer may contain other messages.
-		 * We want to avoid a procarray exception
-		 * as well as an error stack overflow.
-		 */
-		if (proc_exit_inprogress)
-		{
-			conn->state = DN_CONNECTION_STATE_ERROR_FATAL;
-			return RESPONSE_COMPLETE;
-		}
-
-		msg_type = get_message(conn, &msg_len, &msg);
-		switch (msg_type)
-		{
-			case '\0':			/* Not enough data in the buffer */
-			case 'c':			/* CopyToCommandComplete */
-			case 'C':			/* CommandComplete */
-			case 'T':			/* RowDescription */
-			case 'D':			/* DataRow */
-			case 'H': 			/* CopyOutResponse */
-			case 'd': 			/* CopyOutDataRow */
-			case 'A':			/* NotificationResponse */
-			case 'N':			/* NoticeResponse */
-				break;
-			case 'E':			/* ErrorResponse */
-				/*
-				 * conn->state = DN_CONNECTION_STATE_ERROR_NOT_READY;
-				 * Do not return with an error, we still need to consume Z,
-				 * ready-for-query
-				 */
-				break;
-			case 'Z':			/* ReadyForQuery */
-				conn->transaction_status = msg[0];
-				conn->state = DN_CONNECTION_STATE_IDLE;
-				return RESPONSE_COMPLETE;
-			case 'I':			/* EmptyQuery */
-			default:
-				/* sync lost? */
-				elog(WARNING, "Received unsupported message type: %c", msg_type);
-				conn->state = DN_CONNECTION_STATE_ERROR_FATAL;
-				return RESPONSE_COMPLETE;
-		}
-	}
-
 	return RESPONSE_EOF;
 }
 
@@ -1551,7 +1483,7 @@ finish:
 	if (!autocommit)
 		stat_transaction(pgxc_connections->dn_conn_count);
 	if (!PersistentConnections)
-		release_handles(false);
+		release_handles();
 	autocommit = true;
 	clear_write_node_list();
 
@@ -1649,9 +1581,6 @@ finish:
 
 		buffer = (char *) repalloc(buffer, 20 + strlen(gid) + 1);
 		sprintf(buffer, "ROLLBACK PREPARED '%s'", gid);
-
-		/* Consume any messages on the Datanodes and Coordinators first if necessary */
-		PGXCNodeConsumeMessages();
 
 		rollback_xid = BeginTranGTM(NULL);
 
@@ -1786,7 +1715,7 @@ finish:
 	 * is aborted after the list of nodes in error state has been saved to be sent to GTM
 	 */
 	if (!PersistentConnections && res == 0)
-		release_handles(false);
+		release_handles();
 	autocommit = true;
 	clear_write_node_list();
 
@@ -1918,7 +1847,7 @@ finish:
 	if (!autocommit)
 		stat_transaction(tran_count);
 	if (!PersistentConnections)
-		release_handles(false);
+		release_handles();
 	autocommit = true;
 	clear_write_node_list();
 
@@ -2040,7 +1969,7 @@ finish:
 	if (!autocommit)
 		stat_transaction(tran_count);
 	if (!PersistentConnections)
-		release_handles(true);
+		release_handles();
 	autocommit = true;
 	clear_write_node_list();
 
@@ -2130,7 +2059,7 @@ finish:
 	if (!autocommit)
 		stat_transaction(tran_count);
 	if (!PersistentConnections)
-		release_handles(false);
+		release_handles();
 	autocommit = true;
 	clear_write_node_list();
 
@@ -2184,9 +2113,6 @@ PGXCNodeRollback(void)
 
 	tran_count = pgxc_connections->dn_conn_count + pgxc_connections->co_conn_count;
 
-	/* Consume any messages on the Datanodes and Coordinators first if necessary */
-	PGXCNodeConsumeMessages();
-
 	/*
 	 * If we do not have open transactions we have nothing to rollback just
 	 * report success
@@ -2201,7 +2127,7 @@ finish:
 	if (!autocommit)
 		stat_transaction(tran_count);
 	if (!PersistentConnections)
-		release_handles(true);
+		release_handles();
 	autocommit = true;
 	clear_write_node_list();
 
@@ -2396,7 +2322,7 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_
 			if (need_tran)
 				DataNodeCopyFinish(connections, 0, COMBINE_TYPE_NONE);
 			else if (!PersistentConnections)
-				release_handles(false);
+				release_handles();
 		}
 
 		pfree(connections);
@@ -2620,7 +2546,7 @@ DataNodeCopyOut(ExecNodes *exec_nodes, PGXCNodeHandle** copy_connections, FILE* 
 	if (!ValidateAndCloseCombiner(combiner))
 	{
 		if (autocommit && !PersistentConnections)
-			release_handles(false);
+			release_handles();
 		pfree(copy_connections);
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
@@ -3188,20 +3114,27 @@ do_query(RemoteQueryState *node)
 		primaryconnection->combiner = node;
 		Assert(node->combine_type == COMBINE_TYPE_SAME);
 
-		while (node->command_complete_count < 1)
+		/* Make sure the command is completed on the primary node */
+		while (true)
 		{
-			if (pgxc_node_receive(1, &primaryconnection, NULL))
+			int res;
+			pgxc_node_receive(1, &primaryconnection, NULL);
+			res = handle_response(primaryconnection, node);
+			if (res == RESPONSE_COMPLETE)
+				break;
+			else if (res == RESPONSE_EOF)
+				continue;
+			else
 				ereport(ERROR,
 						(errcode(ERRCODE_INTERNAL_ERROR),
-						 errmsg("Failed to read response from data nodes")));
-			handle_response(primaryconnection, node);
-			if (node->errorMessage)
-			{
-				char *code = node->errorCode;
-				ereport(ERROR,
-						(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
-						 errmsg("%s", node->errorMessage)));
-			}
+						 errmsg("Unexpected response from data node")));
+		}
+		if (node->errorMessage)
+		{
+			char *code = node->errorCode;
+			ereport(ERROR,
+					(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
+					 errmsg("%s", node->errorMessage)));
 		}
 	}
 
@@ -3805,65 +3738,6 @@ ParamListToDataRow(ParamListInfo params, char** result)
 }
 
 
-/*
- * Consume any remaining messages on the connections.
- * This is useful for calling after ereport()
- */
-void
-PGXCNodeConsumeMessages(void)
-{
-	int i;
-	int active_count = 0;
-	int res;
-	struct timeval timeout;
-	PGXCNodeHandle *connection = NULL;
-	PGXCNodeHandle **connections = NULL;
-	PGXCNodeHandle *active_connections[NumDataNodes+NumCoords];
-
-	/* Get all active Coordinators and Datanodes */
-	active_count = get_active_nodes(active_connections);
-
-	/* Iterate through handles in use and try and clean */
-	for (i = 0; i < active_count; i++)
-	{
-		elog(WARNING, "Consuming data node messages after error.");
-
-		connection = active_connections[i];
-
-		res = RESPONSE_EOF;
-
-		while (res != RESPONSE_COMPLETE)
-		{
-			int res = handle_response_clear(connection);
-
-			if (res == RESPONSE_EOF)
-			{
-				if (!connections)
-					connections = (PGXCNodeHandle **) palloc(sizeof(PGXCNodeHandle*));
-
-				connections[0] = connection;
-
-				/* Use a timeout so we do not wait forever */
-				timeout.tv_sec = CLEAR_TIMEOUT;
-				timeout.tv_usec = 0;
-				if (pgxc_node_receive(1, connections, &timeout))
-				{
-					/* Mark this as bad, move on to next one */
-					connection->state = DN_CONNECTION_STATE_ERROR_FATAL;
-					break;
-				}
-			}
-			if (connection->state == DN_CONNECTION_STATE_ERROR_FATAL
-					|| connection->state == DN_CONNECTION_STATE_IDLE)
-				break;
-		}
-	}
-
-	if (connections)
-		pfree(connections);
-}
-
-
 /* ----------------------------------------------------------------
  *		ExecRemoteQueryReScan
  *
@@ -3893,9 +3767,6 @@ ExecRemoteQueryReScan(RemoteQueryState *node, ExprContext *exprCtxt)
  *
  * But does not need an Estate instance and does not do some unnecessary work,
  * like allocating tuple slots.
- *
- * Handles are freed when an error occurs during Transaction Abort, it is first necessary
- * to consume all the messages on the connections.
  */
 void
 ExecRemoteUtility(RemoteQuery *node)
@@ -3907,10 +3778,9 @@ ExecRemoteUtility(RemoteQuery *node)
 	GlobalTransactionId gxid = InvalidGlobalTransactionId;
 	Snapshot snapshot = GetActiveSnapshot();
 	PGXCNodeAllHandles *pgxc_connections;
-	PGXCNodeHandle *primaryconnection = NULL;/* For the moment only Datanode has a primary */
-	int			regular_conn_count;
 	int			total_conn_count;
 	int			co_conn_count;
+	int			dn_conn_count;
 	bool		need_tran;
 	int			i;
 
@@ -3920,23 +3790,11 @@ ExecRemoteUtility(RemoteQuery *node)
 
 	pgxc_connections = get_exec_connections(NULL, node->exec_nodes, exec_type);
 
-	primaryconnection = pgxc_connections->primary_handle;
-
-	/* Registering new connections needs the sum of Connections to Datanodes AND to Coordinators */
-	total_conn_count = regular_conn_count = pgxc_connections->dn_conn_count
-												+ pgxc_connections->co_conn_count;
-
-	regular_conn_count = pgxc_connections->dn_conn_count;
+	dn_conn_count = pgxc_connections->dn_conn_count;
 	co_conn_count = pgxc_connections->co_conn_count;
 
-	/*
-	 * Primary connection is counted separately in regular connection count
-	 * but is included in total connection count if used.
-	 */
-	if (primaryconnection)
-	{
-		regular_conn_count--;
-	}
+	/* Registering new connections needs the sum of Connections to Datanodes AND to Coordinators */
+	total_conn_count = dn_conn_count + co_conn_count;
 
 	if (force_autocommit)
 		need_tran = false;
@@ -3949,9 +3807,7 @@ ExecRemoteUtility(RemoteQuery *node)
 
 	if (!is_read_only)
 	{
-		if (primaryconnection)
-			register_write_nodes(1, &primaryconnection);
-		register_write_nodes(regular_conn_count, pgxc_connections->datanode_handles);
+		register_write_nodes(dn_conn_count, pgxc_connections->datanode_handles);
 	}
 
 	gxid = GetCurrentGlobalTransactionId();
@@ -3971,11 +3827,8 @@ ExecRemoteUtility(RemoteQuery *node)
 		PGXCNodeHandle *new_connections[total_conn_count];
 		int 		new_count = 0;
 
-		if (primaryconnection && primaryconnection->transaction_status != 'T')
-			new_connections[new_count++] = primaryconnection;
-
 		/* Check for Datanodes */
-		for (i = 0; i < regular_conn_count; i++)
+		for (i = 0; i < dn_conn_count; i++)
 			if (pgxc_connections->datanode_handles[i]->transaction_status != 'T')
 				new_connections[new_count++] = pgxc_connections->datanode_handles[i];
 
@@ -4005,64 +3858,11 @@ ExecRemoteUtility(RemoteQuery *node)
 		}
 	}
 
-	/* See if we have a primary nodes, execute on it first before the others */
-	if (primaryconnection)
-	{
-		if (primaryconnection->state == DN_CONNECTION_STATE_QUERY)
-			BufferConnection(primaryconnection);
-		/* If explicit transaction is needed gxid is already sent */
-		if (!need_tran && pgxc_node_send_gxid(primaryconnection, gxid))
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("Failed to send command to data nodes")));
-		}
-		if (snapshot && pgxc_node_send_snapshot(primaryconnection, snapshot))
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("Failed to send command to data nodes")));
-		}
-		if (pgxc_node_send_query(primaryconnection, node->sql_statement) != 0)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("Failed to send command to data nodes")));
-		}
-
-		Assert(remotestate->combine_type == COMBINE_TYPE_SAME);
-
-		while (remotestate->command_complete_count < 1)
-		{
-			PG_TRY();
-			{
-				pgxc_node_receive(1, &primaryconnection, NULL);
-				while (handle_response(primaryconnection, remotestate) == RESPONSE_EOF)
-					pgxc_node_receive(1, &primaryconnection, NULL);
-				if (remotestate->errorMessage)
-				{
-					char *code = remotestate->errorCode;
-					ereport(ERROR,
-							(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
-							 errmsg("%s", remotestate->errorMessage)));
-				}
-			}
-			/* If we got an error response return immediately */
-			PG_CATCH();
-			{
-				pfree_pgxc_all_handles(pgxc_connections);
-
-				PG_RE_THROW();
-			}
-			PG_END_TRY();
-		}
-	}
-
 	/* Send query down to Datanodes */
 	if (exec_type == EXEC_ON_ALL_NODES ||
 		exec_type == EXEC_ON_DATANODES)
 	{
-		for (i = 0; i < regular_conn_count; i++)
+		for (i = 0; i < dn_conn_count; i++)
 		{
 			PGXCNodeHandle *conn = pgxc_connections->datanode_handles[i];
 
@@ -4126,24 +3926,19 @@ ExecRemoteUtility(RemoteQuery *node)
 	if (exec_type == EXEC_ON_ALL_NODES ||
 		exec_type == EXEC_ON_DATANODES)
 	{
-		while (regular_conn_count > 0)
+		while (dn_conn_count > 0)
 		{
 			int i = 0;
 
-			pgxc_node_receive(regular_conn_count, pgxc_connections->datanode_handles, NULL);
+			pgxc_node_receive(dn_conn_count, pgxc_connections->datanode_handles, NULL);
 			/*
 			 * Handle input from the data nodes.
-			 * If we got a RESPONSE_DATAROW we can break handling to wrap
-			 * it into a tuple and return. Handling will be continued upon
-			 * subsequent invocations.
-			 * If we got 0, we exclude connection from the list. We do not
-			 * expect more input from it. In case of non-SELECT query we quit
-			 * the loop when all nodes finish their work and send ReadyForQuery
-			 * with empty connections array.
+			 * We do not expect data nodes returning tuples when running utility
+			 * command.
 			 * If we got EOF, move to the next connection, will receive more
 			 * data on the next iteration.
 			 */
-			while (i < regular_conn_count)
+			while (i < dn_conn_count)
 			{
 				PGXCNodeHandle *conn = pgxc_connections->datanode_handles[i];
 				int res = handle_response(conn, remotestate);
@@ -4153,9 +3948,9 @@ ExecRemoteUtility(RemoteQuery *node)
 				}
 				else if (res == RESPONSE_COMPLETE)
 				{
-					if (i < --regular_conn_count)
+					if (i < --dn_conn_count)
 						pgxc_connections->datanode_handles[i] =
-							pgxc_connections->datanode_handles[regular_conn_count];
+							pgxc_connections->datanode_handles[dn_conn_count];
 				}
 				else if (res == RESPONSE_TUPDESC)
 				{
@@ -4170,6 +3965,19 @@ ExecRemoteUtility(RemoteQuery *node)
 							 errmsg("Unexpected response from data node")));
 				}
 			}
+		}
+
+		/*
+		 * We have processed all responses from the data nodes and if we have
+		 * error message pending we can report it. All connections should be in
+		 * consistent state now and can be released to the pool after rollback.
+		 */
+		if (remotestate->errorMessage)
+		{
+			char *code = remotestate->errorCode;
+			ereport(ERROR,
+					(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
+					 errmsg("%s", remotestate->errorMessage)));
 		}
 	}
 
@@ -4211,6 +4019,18 @@ ExecRemoteUtility(RemoteQuery *node)
 				}
 			}
 		}
+		/*
+		 * We have processed all responses from the data nodes and if we have
+		 * error message pending we can report it. All connections should be in
+		 * consistent state now and can be released to the pool after rollback.
+		 */
+		if (remotestate->errorMessage)
+		{
+			char *code = remotestate->errorCode;
+			ereport(ERROR,
+					(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
+					 errmsg("%s", remotestate->errorMessage)));
+		}
 	}
 }
 
@@ -4228,11 +4048,9 @@ PGXCNodeCleanAndRelease(int code, Datum arg)
 
 		/* Rollback on GTM if transaction id opened. */
 		RollbackTranGTM((GlobalTransactionId) GetCurrentTransactionIdIfAny());
-
-		release_handles(true);
-	} else
-		/* Release data node connections */
-		release_handles(false);
+	}
+	/* Release data node connections */
+	release_handles();
 
 	/* Close connection with GTM */
 	CloseGTM();
@@ -4474,5 +4292,5 @@ PGXCNodeGetNodeList(PGXC_NodeId **datanodes,
 	 * and will be sent to GTM.
 	 */
 	if (!PersistentConnections)
-		release_handles(false);
+		release_handles();
 }

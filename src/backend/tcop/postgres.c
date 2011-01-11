@@ -3615,7 +3615,7 @@ PostgresMain(int argc, char *argv[], const char *username)
 		 * Abort the current transaction in order to recover.
 		 */
 #ifdef PGXC
-		/* 
+		/*
 		 * Temporarily do not abort if we are already in an abort state.
 		 * This change tries to handle the case where the error data stack fills up.
 		*/
@@ -3657,7 +3657,6 @@ PostgresMain(int argc, char *argv[], const char *username)
 	/*
 	 * Non-error queries loop here.
 	 */
-
 	for (;;)
 	{
 		/*
