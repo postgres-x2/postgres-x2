@@ -23,6 +23,9 @@
 #include "parser/parsetree.h"
 #include "utils/hsearch.h"
 
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#endif
 
 typedef struct JoinHashEntry
 {
@@ -107,10 +110,16 @@ build_simple_rel(PlannerInfo *root, int relid, RelOptKind reloptkind)
 			 *
 			 * These allow for maximum query shipping to the remote
 			 * side later during the planning phase
+			 *
+			 * This has to be set on a remote Coordinator only
+			 * as it hugely penalizes performance on backend Nodes
 			 */
-			rel->pages   = 1;
-			rel->tuples  = 1;
-			rel->rows    = 1;
+			if (IS_PGXC_COORDINATOR && IsConnFromCoord())
+			{
+				rel->pages   = 1;
+				rel->tuples  = 1;
+				rel->rows    = 1;
+			}
 #endif
 			break;
 		case RTE_SUBQUERY:

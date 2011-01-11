@@ -33,6 +33,7 @@
 #include "parser/parse_clause.h"
 #include "parser/parsetree.h"
 #ifdef PGXC
+#include "pgxc/pgxc.h"
 #include "pgxc/planner.h"
 #include "access/sysattr.h"
 #include "utils/builtins.h"
@@ -573,8 +574,12 @@ create_join_plan(PlannerInfo *root, JoinPath *best_path)
 #endif
 
 #ifdef PGXC
-	/* check if this join can be reduced to an equiv. remote scan node */
-	plan = create_remotejoin_plan(root, best_path, plan, outer_plan, inner_plan);
+	/*
+	 * Check if this join can be reduced to an equiv. remote scan node
+	 * This can only be executed on a remote Coordinator
+	 */
+	if (IS_PGXC_COORDINATOR && IsConnFromCoord())
+		plan = create_remotejoin_plan(root, best_path, plan, outer_plan, inner_plan);
 #endif
 
 	return plan;
