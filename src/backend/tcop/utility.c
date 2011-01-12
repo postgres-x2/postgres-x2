@@ -710,8 +710,23 @@ ProcessUtility(Node *parsetree,
 			 */
 		case T_RenameStmt:
 #ifdef PGXC
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_ALL_NODES);
+			if (IS_PGXC_COORDINATOR && IsConnFromCoord())
+			{
+				RemoteQueryExecType remoteExecType = EXEC_ON_ALL_NODES;
+				RenameStmt *stmt = (RenameStmt *) parsetree;
+
+				if (stmt->renameType == OBJECT_SEQUENCE)
+					remoteExecType = EXEC_ON_COORDS;
+				else if (stmt->renameType == OBJECT_TABLE)
+				{
+					Oid relid = RangeVarGetRelid(stmt->relation, false);
+
+					if (get_rel_relkind(relid) == RELKIND_SEQUENCE)
+						remoteExecType = EXEC_ON_COORDS;
+				}
+
+				ExecUtilityStmtOnNodes(queryString, NULL, false, remoteExecType);
+			}
 #endif
 			ExecRenameStmt((RenameStmt *) parsetree);
 			break;
