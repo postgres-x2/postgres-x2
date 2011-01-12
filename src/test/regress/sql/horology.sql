@@ -99,8 +99,8 @@ SELECT date '1994-01-01' + time '10:00' AS "Jan_01_1994_10am";
 SELECT date '1994-01-01' + timetz '11:00-5' AS "Jan_01_1994_8am";
 SELECT timestamptz(date '1994-01-01', time with time zone '11:00-5') AS "Jan_01_1994_8am";
 
-SELECT '' AS "64", d1 + interval '1 year' AS one_year FROM TIMESTAMP_TBL;
-SELECT '' AS "64", d1 - interval '1 year' AS one_year FROM TIMESTAMP_TBL;
+SELECT '' AS "64", d1 + interval '1 year' AS one_year FROM TIMESTAMP_TBL ORDER BY d1;
+SELECT '' AS "64", d1 - interval '1 year' AS one_year FROM TIMESTAMP_TBL ORDER BY d1;
 
 SELECT timestamp with time zone '1996-03-01' - interval '1 second' AS "Feb 29";
 SELECT timestamp with time zone '1999-03-01' - interval '1 second' AS "Feb 28";
@@ -127,8 +127,8 @@ SELECT timestamptz(date '1994-01-01', time with time zone '11:00-8') AS "Jan_01_
 SELECT timestamptz(date '1994-01-01', time with time zone '10:00-8') AS "Jan_01_1994_10am";
 SELECT timestamptz(date '1994-01-01', time with time zone '11:00-5') AS "Jan_01_1994_8am";
 
-SELECT '' AS "64", d1 + interval '1 year' AS one_year FROM TIMESTAMPTZ_TBL;
-SELECT '' AS "64", d1 - interval '1 year' AS one_year FROM TIMESTAMPTZ_TBL;
+SELECT '' AS "64", d1 + interval '1 year' AS one_year FROM TIMESTAMPTZ_TBL ORDER BY d1;
+SELECT '' AS "64", d1 - interval '1 year' AS one_year FROM TIMESTAMPTZ_TBL ORDER BY d1;
 
 --
 -- time, interval arithmetic
@@ -233,7 +233,7 @@ CREATE TABLE TEMP_TIMESTAMP (f1 timestamp with time zone);
 INSERT INTO TEMP_TIMESTAMP (f1)
   SELECT d1 FROM TIMESTAMP_TBL
   WHERE d1 BETWEEN '13-jun-1957' AND '1-jan-1997'
-   OR d1 BETWEEN '1-jan-1999' AND '1-jan-2010';
+   OR d1 BETWEEN '1-jan-1999' AND '1-jan-2010' ;
 
 SELECT '' AS "16", f1 AS "timestamp"
   FROM TEMP_TIMESTAMP
@@ -273,19 +273,19 @@ SELECT '' AS ten, ABSTIME_TBL.f1 AS abstime, RELTIME_TBL.f1 AS reltime
 
 SELECT '' AS three, * FROM ABSTIME_TBL
   WHERE  (ABSTIME_TBL.f1 + reltime '@ 3 year')         -- +3 years
-    < abstime 'Jan 14 14:00:00 1977';
+    < abstime 'Jan 14 14:00:00 1977' ORDER BY f1;
 
 SELECT '' AS three, * FROM ABSTIME_TBL
    WHERE  (ABSTIME_TBL.f1 + reltime '@ 3 year ago')    -- -3 years
-     < abstime 'Jan 14 14:00:00 1971';
+     < abstime 'Jan 14 14:00:00 1971' ORDER BY f1;
 
 SELECT '' AS three, * FROM ABSTIME_TBL
    WHERE  (ABSTIME_TBL.f1 - reltime '@ 3 year')        -- -(+3) years
-    < abstime 'Jan 14 14:00:00 1971';
+    < abstime 'Jan 14 14:00:00 1971' ORDER BY f1;
 
 SELECT '' AS three, * FROM ABSTIME_TBL
    WHERE  (ABSTIME_TBL.f1 - reltime '@ 3 year ago')    -- -(-3) years
-     < abstime 'Jan 14 14:00:00 1977';
+     < abstime 'Jan 14 14:00:00 1977' ORDER BY f1;
 
 --
 -- Conversions
@@ -306,16 +306,16 @@ SELECT '' AS four, f1 AS abstime, date(f1) AS date
   ORDER BY date, abstime;
 
 SELECT '' AS two, d1 AS "timestamp", abstime(d1) AS abstime
-  FROM TIMESTAMP_TBL WHERE NOT isfinite(d1);
+  FROM TIMESTAMP_TBL WHERE NOT isfinite(d1) ORDER BY d1;
 
 SELECT '' AS three, f1 as abstime, cast(f1 as timestamp) AS "timestamp"
-  FROM ABSTIME_TBL WHERE NOT isfinite(f1);
+  FROM ABSTIME_TBL WHERE NOT isfinite(f1) ORDER BY f1;
 
 SELECT '' AS ten, f1 AS interval, reltime(f1) AS reltime
-  FROM INTERVAL_TBL;
+  FROM INTERVAL_TBL ORDER BY f1;
 
 SELECT '' AS six, f1 as reltime, CAST(f1 AS interval) AS interval
-  FROM RELTIME_TBL;
+  FROM RELTIME_TBL ORDER BY f1;
 
 DROP TABLE TEMP_TIMESTAMP;
 
@@ -327,23 +327,23 @@ SET DateStyle TO 'US,Postgres';
 
 SHOW DateStyle;
 
-SELECT '' AS "64", d1 AS us_postgres FROM TIMESTAMP_TBL;
+SELECT '' AS "64", d1 AS us_postgres FROM TIMESTAMP_TBL ORDER BY d1;
 
-SELECT '' AS seven, f1 AS us_postgres FROM ABSTIME_TBL;
+SELECT '' AS seven, f1 AS us_postgres FROM ABSTIME_TBL ORDER BY f1;
 
 SET DateStyle TO 'US,ISO';
 
-SELECT '' AS "64", d1 AS us_iso FROM TIMESTAMP_TBL;
+SELECT '' AS "64", d1 AS us_iso FROM TIMESTAMP_TBL ORDER BY d1;
 
-SELECT '' AS seven, f1 AS us_iso FROM ABSTIME_TBL;
+SELECT '' AS seven, f1 AS us_iso FROM ABSTIME_TBL ORDER BY f1;
 
 SET DateStyle TO 'US,SQL';
 
 SHOW DateStyle;
 
-SELECT '' AS "64", d1 AS us_sql FROM TIMESTAMP_TBL;
+SELECT '' AS "64", d1 AS us_sql FROM TIMESTAMP_TBL ORDER BY d1;
 
-SELECT '' AS seven, f1 AS us_sql FROM ABSTIME_TBL;
+SELECT '' AS seven, f1 AS us_sql FROM ABSTIME_TBL ORDER BY f1;
 
 SET DateStyle TO 'European,Postgres';
 
@@ -353,25 +353,25 @@ INSERT INTO TIMESTAMP_TBL VALUES('13/06/1957');
 
 SELECT count(*) as one FROM TIMESTAMP_TBL WHERE d1 = 'Jun 13 1957';
 
-SELECT '' AS "65", d1 AS european_postgres FROM TIMESTAMP_TBL;
+SELECT '' AS "65", d1 AS european_postgres FROM TIMESTAMP_TBL ORDER BY d1;
 
-SELECT '' AS seven, f1 AS european_postgres FROM ABSTIME_TBL;
+SELECT '' AS seven, f1 AS european_postgres FROM ABSTIME_TBL ORDER BY f1;
 
 SET DateStyle TO 'European,ISO';
 
 SHOW DateStyle;
 
-SELECT '' AS "65", d1 AS european_iso FROM TIMESTAMP_TBL;
+SELECT '' AS "65", d1 AS european_iso FROM TIMESTAMP_TBL ORDER BY d1;
 
-SELECT '' AS seven, f1 AS european_iso FROM ABSTIME_TBL;
+SELECT '' AS seven, f1 AS european_iso FROM ABSTIME_TBL ORDER BY f1;
 
 SET DateStyle TO 'European,SQL';
 
 SHOW DateStyle;
 
-SELECT '' AS "65", d1 AS european_sql FROM TIMESTAMP_TBL;
+SELECT '' AS "65", d1 AS european_sql FROM TIMESTAMP_TBL ORDER BY d1;
 
-SELECT '' AS seven, f1 AS european_sql FROM ABSTIME_TBL;
+SELECT '' AS seven, f1 AS european_sql FROM ABSTIME_TBL ORDER BY f1;
 
 RESET DateStyle;
 

@@ -1,4 +1,4 @@
-SELECT name, setting FROM pg_settings WHERE name LIKE 'enable%';
+SELECT name, setting FROM pg_settings WHERE name LIKE 'enable%' ORDER BY name;
 
 CREATE TABLE foo2(fooid int, f2 int);
 INSERT INTO foo2 VALUES(1, 11);
@@ -45,9 +45,9 @@ SELECT * FROM vw_getfoo;
 DROP VIEW vw_getfoo;
 DROP FUNCTION getfoo(int);
 CREATE FUNCTION getfoo(int) RETURNS setof text AS 'SELECT fooname FROM foo WHERE fooid = $1;' LANGUAGE SQL;
-SELECT * FROM getfoo(1) AS t1;
+SELECT * FROM getfoo(1) AS t1 ORDER BY 1;
 CREATE VIEW vw_getfoo AS SELECT * FROM getfoo(1);
-SELECT * FROM vw_getfoo;
+SELECT * FROM vw_getfoo ORDER BY 1;
 
 -- sql, proretset = f, prorettype = c
 DROP VIEW vw_getfoo;
@@ -61,9 +61,9 @@ SELECT * FROM vw_getfoo;
 DROP VIEW vw_getfoo;
 DROP FUNCTION getfoo(int);
 CREATE FUNCTION getfoo(int) RETURNS setof foo AS 'SELECT * FROM foo WHERE fooid = $1;' LANGUAGE SQL;
-SELECT * FROM getfoo(1) AS t1;
+SELECT * FROM getfoo(1) AS t1 ORDER BY foosubid;
 CREATE VIEW vw_getfoo AS SELECT * FROM getfoo(1);
-SELECT * FROM vw_getfoo;
+SELECT * FROM vw_getfoo ORDER BY foosubid;
 
 -- sql, proretset = f, prorettype = record
 DROP VIEW vw_getfoo;
@@ -78,10 +78,10 @@ SELECT * FROM vw_getfoo;
 DROP VIEW vw_getfoo;
 DROP FUNCTION getfoo(int);
 CREATE FUNCTION getfoo(int) RETURNS setof record AS 'SELECT * FROM foo WHERE fooid = $1;' LANGUAGE SQL;
-SELECT * FROM getfoo(1) AS t1(fooid int, foosubid int, fooname text);
+SELECT * FROM getfoo(1) AS t1(fooid int, foosubid int, fooname text) ORDER BY foosubid;
 CREATE VIEW vw_getfoo AS SELECT * FROM getfoo(1) AS
 (fooid int, foosubid int, fooname text);
-SELECT * FROM vw_getfoo;
+SELECT * FROM vw_getfoo ORDER BY foosubid;
 
 -- plpgsql, proretset = f, prorettype = b
 DROP VIEW vw_getfoo;
@@ -225,13 +225,13 @@ AS 'select $1+1' LANGUAGE sql;
 
 CREATE OR REPLACE FUNCTION foor(in f1 int, out f2 int, out text)
 AS $$select $1-1, $1::text || 'z'$$ LANGUAGE sql;
-SELECT f1, foor(f1) FROM int4_tbl;
+SELECT f1, foor(f1) FROM int4_tbl ORDER BY 1, 2;
 SELECT * FROM foor(42);
 SELECT * FROM foor(42) AS p(a,b);
 
 CREATE OR REPLACE FUNCTION foob(in f1 int, inout f2 int, out text)
 AS $$select $2-1, $1::text || 'z'$$ LANGUAGE sql;
-SELECT f1, foob(f1, f1/2) FROM int4_tbl;
+SELECT f1, foob(f1, f1/2) FROM int4_tbl ORDER BY 1, 2;
 SELECT * FROM foob(42, 99);
 SELECT * FROM foob(42, 99) AS p(a,b);
 
@@ -269,7 +269,7 @@ AS 'select $1, array[$1,$1]' LANGUAGE sql;
 CREATE OR REPLACE FUNCTION foo()
 RETURNS TABLE(a int)
 AS $$ SELECT a FROM generate_series(1,5) a(a) $$ LANGUAGE sql;
-SELECT * FROM foo();
+SELECT * FROM foo() ORDER BY 1;
 DROP FUNCTION foo();
 
 CREATE OR REPLACE FUNCTION foo(int)
@@ -277,7 +277,7 @@ RETURNS TABLE(a int, b int)
 AS $$ SELECT a, b
          FROM generate_series(1,$1) a(a),
               generate_series(1,$1) b(b) $$ LANGUAGE sql;
-SELECT * FROM foo(3);
+SELECT * FROM foo(3) ORDER BY 1, 2;
 DROP FUNCTION foo(int);
 
 --
@@ -292,7 +292,7 @@ language sql;
 
 select insert_tt('foo');
 select insert_tt('bar');
-select * from tt;
+select * from tt order by 1, 2;
 
 -- insert will execute to completion even if function needs just 1 row
 create or replace function insert_tt(text) returns int as
@@ -300,7 +300,7 @@ $$ insert into tt(data) values($1),($1||$1) returning f1 $$
 language sql;
 
 select insert_tt('fool');
-select * from tt;
+select * from tt order by 1, 2;
 
 -- setof does what's expected
 create or replace function insert_tt2(text,text) returns setof int as
@@ -308,12 +308,12 @@ $$ insert into tt(data) values($1),($2) returning f1 $$
 language sql;
 
 select insert_tt2('foolish','barrish');
-select * from insert_tt2('baz','quux');
-select * from tt;
+select * from insert_tt2('baz','quux') order by 1;
+select * from tt order by 1, 2;
 
 -- limit doesn't prevent execution to completion
 select insert_tt2('foolish','barrish') limit 1;
-select * from tt;
+select * from tt order by 1, 2;
 
 -- triggers will fire, too
 create function noticetrigger() returns trigger as $$
@@ -325,7 +325,7 @@ create trigger tnoticetrigger after insert on tt for each row
 execute procedure noticetrigger();
 
 select insert_tt2('foolme','barme') limit 1;
-select * from tt;
+select * from tt order by 1, 2;
 
 -- and rules work
 create temp table tt_log(f1 int, data text);
@@ -334,10 +334,10 @@ create rule insert_tt_rule as on insert to tt do also
   insert into tt_log values(new.*);
 
 select insert_tt2('foollog','barlog') limit 1;
-select * from tt;
+select * from tt order by 1, 2;
 -- note that nextval() gets executed a second time in the rule expansion,
 -- which is expected.
-select * from tt_log;
+select * from tt_log order by 1, 2;
 
 -- test case for a whole-row-variable bug
 create function foo1(n integer, out a text, out b text)
@@ -361,7 +361,7 @@ create function array_to_set(anyarray) returns setof record as $$
 $$ language sql strict immutable;
 
 select array_to_set(array['one', 'two']);
-select * from array_to_set(array['one', 'two']) as t(f1 int,f2 text);
+select * from array_to_set(array['one', 'two']) as t(f1 int,f2 text) order by 1, 2;
 select * from array_to_set(array['one', 'two']); -- fail
 
 create temp table foo(f1 int8, f2 int8);
@@ -381,7 +381,7 @@ create function testfoo() returns setof record as $$
 $$ language sql;
 
 select testfoo();
-select * from testfoo() as t(f1 int8,f2 int8);
+select * from testfoo() as t(f1 int8,f2 int8) order by 1, 2;
 select * from testfoo(); -- fail
 
 drop function testfoo();

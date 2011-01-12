@@ -63,11 +63,11 @@ SELECT unique1 FROM onek2 WHERE unique1 < 2 ORDER BY unique1;
 COPY BINARY stud_emp TO '@abs_builddir@/results/stud_emp.data';
 DELETE FROM stud_emp;
 COPY BINARY stud_emp FROM '@abs_builddir@/results/stud_emp.data';
-SELECT * FROM stud_emp;
+SELECT * FROM stud_emp ORDER BY 1, 2;
  name  | age |  location  | salary | manager | gpa | percent 
 -------+-----+------------+--------+---------+-----+---------
- jeff  |  23 | (8,7.7)    |    600 | sharon  | 3.5 |        
  cim   |  30 | (10.5,4.7) |    400 |         | 3.4 |        
+ jeff  |  23 | (8,7.7)    |    600 | sharon  | 3.5 |        
  linda |  19 | (0.9,6.1)  |    100 |         | 2.9 |        
 (3 rows)
 
@@ -81,7 +81,7 @@ SELECT * FROM stud_emp;
 --
 -- inheritance stress test
 --
-SELECT * FROM a_star*;
+SELECT * FROM a_star* ORDER BY 1,2;
  class | a  
 -------+----
  a     |  1
@@ -99,14 +99,14 @@ SELECT * FROM a_star*;
  d     |  8
  d     |  9
  d     | 10
- d     |   
  d     | 11
  d     | 12
  d     | 13
- d     |   
- d     |   
- d     |   
  d     | 14
+ d     |   
+ d     |   
+ d     |   
+ d     |   
  d     |   
  d     |   
  d     |   
@@ -114,22 +114,22 @@ SELECT * FROM a_star*;
  e     | 15
  e     | 16
  e     | 17
- e     |   
  e     | 18
+ e     |   
  e     |   
  e     |   
  f     | 19
  f     | 20
  f     | 21
  f     | 22
- f     |   
  f     | 24
  f     | 25
  f     | 26
- f     |   
- f     |   
- f     |   
  f     | 27
+ f     |   
+ f     |   
+ f     |   
+ f     |   
  f     |   
  f     |   
  f     |   
@@ -146,7 +146,7 @@ SELECT *
 
 SELECT class, a 
    FROM c_star* x 
-   WHERE x.c ~ text 'hi';
+   WHERE x.c ~ text 'hi' ORDER BY 1,2;
  class | a  
 -------+----
  c     |  5
@@ -154,8 +154,8 @@ SELECT class, a
  d     |  7
  d     |  8
  d     | 10
- d     |   
  d     | 12
+ d     |   
  d     |   
  d     |   
  d     |   
@@ -166,8 +166,8 @@ SELECT class, a
  f     | 19
  f     | 20
  f     | 21
- f     |   
  f     | 24
+ f     |   
  f     |   
  f     |   
  f     |   
@@ -175,44 +175,44 @@ SELECT class, a
 
 SELECT class, b, c
    FROM d_star* x
-   WHERE x.a < 100;
+   WHERE x.a < 100 ORDER BY 1,2,3;
  class |    b    |     c      
 -------+---------+------------
- d     | grumble | hi sunita
- d     | stumble | hi koko
- d     | rumble  | 
- d     |         | hi kristin
  d     | fumble  | 
+ d     | grumble | hi sunita
+ d     | rumble  | 
+ d     | stumble | hi koko
  d     |         | hi avi
+ d     |         | hi kristin
  d     |         | 
  d     |         | 
 (8 rows)
 
-SELECT class, c FROM e_star* x WHERE x.c NOTNULL;
+SELECT class, c FROM e_star* x WHERE x.c NOTNULL ORDER BY 1,2;
  class |      c      
 -------+-------------
- e     | hi carol
  e     | hi bob
- e     | hi michelle
+ e     | hi carol
  e     | hi elisa
+ e     | hi michelle
+ f     | hi allison
+ f     | hi carl
  f     | hi claire
- f     | hi mike
- f     | hi marcel
+ f     | hi jeff
  f     | hi keith
  f     | hi marc
- f     | hi allison
- f     | hi jeff
- f     | hi carl
+ f     | hi marcel
+ f     | hi mike
 (12 rows)
 
-SELECT * FROM f_star* x WHERE x.c ISNULL;
+SELECT * FROM f_star* x WHERE x.c ISNULL ORDER BY 1,2;
  class | a  | c |  e  |                     f                     
 -------+----+---+-----+-------------------------------------------
  f     | 22 |   |  -7 | ((111,555),(222,666),(333,777),(444,888))
  f     | 25 |   |  -9 | 
  f     | 26 |   |     | ((11111,33333),(22222,44444))
- f     |    |   | -11 | ((1111111,3333333),(2222222,4444444))
  f     | 27 |   |     | 
+ f     |    |   | -11 | ((1111111,3333333),(2222222,4444444))
  f     |    |   | -12 | 
  f     |    |   |     | ((11111111,33333333),(22222222,44444444))
  f     |    |   |     | 
@@ -244,7 +244,7 @@ ALTER TABLE b_star* RENAME COLUMN b TO bb;
 ALTER TABLE a_star* RENAME COLUMN a TO aa;
 SELECT class, aa
    FROM a_star* x
-   WHERE aa ISNULL;
+   WHERE aa ISNULL ORDER BY 1,2;
  class | aa 
 -------+----
  a     |   
@@ -278,7 +278,7 @@ SELECT class, aa
 ALTER TABLE a_star RENAME COLUMN aa TO foo;
 SELECT class, foo
    FROM a_star* x
-   WHERE x.foo >= 2;
+   WHERE x.foo >= 2 ORDER BY 1,2;
  class | foo 
 -------+-----
  a     |   2
@@ -311,7 +311,7 @@ SELECT class, foo
 ALTER TABLE a_star RENAME COLUMN foo TO aa;
 SELECT * 
    from a_star*
-   WHERE aa < 1000;
+   WHERE aa < 1000 ORDER BY 1,2;
  class | aa 
 -------+----
  a     |  1
@@ -346,31 +346,31 @@ ALTER TABLE f_star ADD COLUMN f int4;
 UPDATE f_star SET f = 10;
 ALTER TABLE e_star* ADD COLUMN e int4;
 --UPDATE e_star* SET e = 42;
-SELECT * FROM e_star*;
+SELECT * FROM e_star* ORDER BY 1,2;
  class | aa |     cc      | ee  | e 
 -------+----+-------------+-----+---
  e     | 15 | hi carol    |  -1 |  
  e     | 16 | hi bob      |     |  
  e     | 17 |             |  -2 |  
- e     |    | hi michelle |  -3 |  
  e     | 18 |             |     |  
  e     |    | hi elisa    |     |  
  e     |    |             |  -4 |  
+ e     |    | hi michelle |  -3 |  
  f     | 19 | hi claire   |  -5 |  
  f     | 20 | hi mike     |  -6 |  
  f     | 21 | hi marcel   |     |  
  f     | 22 |             |  -7 |  
- f     |    | hi keith    |  -8 |  
  f     | 24 | hi marc     |     |  
  f     | 25 |             |  -9 |  
  f     | 26 |             |     |  
+ f     | 27 |             |     |  
+ f     |    |             |     |  
+ f     |    | hi keith    |  -8 |  
  f     |    | hi allison  | -10 |  
  f     |    | hi jeff     |     |  
  f     |    |             | -11 |  
- f     | 27 |             |     |  
  f     |    | hi carl     |     |  
  f     |    |             | -12 |  
- f     |    |             |     |  
  f     |    |             |     |  
 (23 rows)
 
@@ -379,7 +379,7 @@ NOTICE:  merging definition of column "a" for child "d_star"
 --UPDATE b_star*
 --   SET a = text 'gazpacho'
 --   WHERE aa > 4;
-SELECT class, aa, a FROM a_star*;
+SELECT class, aa, a FROM a_star* ORDER BY 1,2;
  class | aa | a 
 -------+----+---
  a     |  1 | 
@@ -397,14 +397,14 @@ SELECT class, aa, a FROM a_star*;
  d     |  8 | 
  d     |  9 | 
  d     | 10 | 
- d     |    | 
  d     | 11 | 
  d     | 12 | 
  d     | 13 | 
- d     |    | 
- d     |    | 
- d     |    | 
  d     | 14 | 
+ d     |    | 
+ d     |    | 
+ d     |    | 
+ d     |    | 
  d     |    | 
  d     |    | 
  d     |    | 
@@ -412,22 +412,22 @@ SELECT class, aa, a FROM a_star*;
  e     | 15 | 
  e     | 16 | 
  e     | 17 | 
- e     |    | 
  e     | 18 | 
+ e     |    | 
  e     |    | 
  e     |    | 
  f     | 19 | 
  f     | 20 | 
  f     | 21 | 
  f     | 22 | 
- f     |    | 
  f     | 24 | 
  f     | 25 | 
  f     | 26 | 
- f     |    | 
- f     |    | 
- f     |    | 
  f     | 27 | 
+ f     |    | 
+ f     |    | 
+ f     |    | 
+ f     |    | 
  f     |    | 
  f     |    | 
  f     |    | 
@@ -445,24 +445,24 @@ SELECT class, aa, a FROM a_star*;
 -- joe and sally play basketball, and
 -- everyone else does nothing.
 --
-SELECT p.name, name(p.hobbies) FROM ONLY person p;
+SELECT p.name, name(p.hobbies) FROM ONLY person p ORDER BY 1,2;
  name  |    name     
 -------+-------------
- mike  | posthacking
  joe   | basketball
+ mike  | posthacking
  sally | basketball
 (3 rows)
 
 --
 -- as above, but jeff also does post_hacking.
 --
-SELECT p.name, name(p.hobbies) FROM person* p;
+SELECT p.name, name(p.hobbies) FROM person* p ORDER BY 1,2;
  name  |    name     
 -------+-------------
- mike  | posthacking
- joe   | basketball
- sally | basketball
  jeff  | posthacking
+ joe   | basketball
+ mike  | posthacking
+ sally | basketball
 (4 rows)
 
 --
@@ -479,15 +479,15 @@ SELECT DISTINCT hobbies_r.name, name(hobbies_r.equipment) FROM hobbies_r
  skywalking  | guts
 (4 rows)
 
-SELECT hobbies_r.name, (hobbies_r.equipment).name FROM hobbies_r;
+SELECT hobbies_r.name, (hobbies_r.equipment).name FROM hobbies_r ORDER BY 1,2;
     name     |     name      
 -------------+---------------
- posthacking | advil
- posthacking | peet's coffee
- posthacking | advil
- posthacking | peet's coffee
  basketball  | hightops
  basketball  | hightops
+ posthacking | advil
+ posthacking | advil
+ posthacking | peet's coffee
+ posthacking | peet's coffee
  skywalking  | guts
 (7 rows)
 
@@ -496,71 +496,71 @@ SELECT hobbies_r.name, (hobbies_r.equipment).name FROM hobbies_r;
 -- joe and sally need hightops, and
 -- everyone else is fine.
 --
-SELECT p.name, name(p.hobbies), name(equipment(p.hobbies)) FROM ONLY person p;
+SELECT p.name, name(p.hobbies), name(equipment(p.hobbies)) FROM ONLY person p ORDER BY 1,2,3;
  name  |    name     |     name      
 -------+-------------+---------------
+ joe   | basketball  | hightops
  mike  | posthacking | advil
  mike  | posthacking | peet's coffee
- joe   | basketball  | hightops
  sally | basketball  | hightops
 (4 rows)
 
 --
 -- as above, but jeff needs advil and peet's coffee as well.
 --
-SELECT p.name, name(p.hobbies), name(equipment(p.hobbies)) FROM person* p;
+SELECT p.name, name(p.hobbies), name(equipment(p.hobbies)) FROM person* p ORDER BY 1,2,3;
  name  |    name     |     name      
 -------+-------------+---------------
- mike  | posthacking | advil
- mike  | posthacking | peet's coffee
- joe   | basketball  | hightops
- sally | basketball  | hightops
  jeff  | posthacking | advil
  jeff  | posthacking | peet's coffee
+ joe   | basketball  | hightops
+ mike  | posthacking | advil
+ mike  | posthacking | peet's coffee
+ sally | basketball  | hightops
 (6 rows)
 
 --
 -- just like the last two, but make sure that the target list fixup and
 -- unflattening is being done correctly.
 --
-SELECT name(equipment(p.hobbies)), p.name, name(p.hobbies) FROM ONLY person p;
+SELECT name(equipment(p.hobbies)), p.name, name(p.hobbies) FROM ONLY person p ORDER BY 1,2,3;
      name      | name  |    name     
 ---------------+-------+-------------
  advil         | mike  | posthacking
- peet's coffee | mike  | posthacking
  hightops      | joe   | basketball
  hightops      | sally | basketball
+ peet's coffee | mike  | posthacking
 (4 rows)
 
-SELECT (p.hobbies).equipment.name, p.name, name(p.hobbies) FROM person* p;
+SELECT (p.hobbies).equipment.name, p.name, name(p.hobbies) FROM person* p ORDER BY 1,2,3;
      name      | name  |    name     
 ---------------+-------+-------------
+ advil         | jeff  | posthacking
  advil         | mike  | posthacking
- peet's coffee | mike  | posthacking
  hightops      | joe   | basketball
  hightops      | sally | basketball
- advil         | jeff  | posthacking
  peet's coffee | jeff  | posthacking
+ peet's coffee | mike  | posthacking
 (6 rows)
 
-SELECT (p.hobbies).equipment.name, name(p.hobbies), p.name FROM ONLY person p;
+SELECT (p.hobbies).equipment.name, name(p.hobbies), p.name FROM ONLY person p ORDER BY 1,2,3;
      name      |    name     | name  
 ---------------+-------------+-------
  advil         | posthacking | mike
- peet's coffee | posthacking | mike
  hightops      | basketball  | joe
  hightops      | basketball  | sally
+ peet's coffee | posthacking | mike
 (4 rows)
 
-SELECT name(equipment(p.hobbies)), name(p.hobbies), p.name FROM person* p;
+SELECT name(equipment(p.hobbies)), name(p.hobbies), p.name FROM person* p ORDER BY 1,2,3;
      name      |    name     | name  
 ---------------+-------------+-------
+ advil         | posthacking | jeff
  advil         | posthacking | mike
- peet's coffee | posthacking | mike
  hightops      | basketball  | joe
  hightops      | basketball  | sally
- advil         | posthacking | jeff
  peet's coffee | posthacking | jeff
+ peet's coffee | posthacking | mike
 (6 rows)
 
 SELECT user_relns() AS user_relns
@@ -682,15 +682,15 @@ SELECT hobbies_by_name('basketball');
  joe
 (1 row)
 
-SELECT name, overpaid(emp.*) FROM emp;
+SELECT name, overpaid(emp.*) FROM emp ORDER BY 1,2;
   name  | overpaid 
 --------+----------
- sharon | t
- sam    | t
  bill   | t
- jeff   | f
  cim    | f
+ jeff   | f
  linda  | f
+ sam    | t
+ sharon | t
 (6 rows)
 
 --
@@ -708,27 +708,27 @@ SELECT name(equipment(ROW('skywalking', 'mer')));
  guts
 (1 row)
 
-SELECT *, name(equipment(h.*)) FROM hobbies_r h;
+SELECT *, name(equipment(h.*)) FROM hobbies_r h ORDER BY 1,2,3;
     name     | person |     name      
 -------------+--------+---------------
- posthacking | mike   | advil
- posthacking | mike   | peet's coffee
- posthacking | jeff   | advil
- posthacking | jeff   | peet's coffee
  basketball  | joe    | hightops
  basketball  | sally  | hightops
+ posthacking | jeff   | advil
+ posthacking | jeff   | peet's coffee
+ posthacking | mike   | advil
+ posthacking | mike   | peet's coffee
  skywalking  |        | guts
 (7 rows)
 
-SELECT *, (equipment(CAST((h.*) AS hobbies_r))).name FROM hobbies_r h;
+SELECT *, (equipment(CAST((h.*) AS hobbies_r))).name FROM hobbies_r h ORDER BY 1,2,3;
     name     | person |     name      
 -------------+--------+---------------
- posthacking | mike   | advil
- posthacking | mike   | peet's coffee
- posthacking | jeff   | advil
- posthacking | jeff   | peet's coffee
  basketball  | joe    | hightops
  basketball  | sally  | hightops
+ posthacking | jeff   | advil
+ posthacking | jeff   | peet's coffee
+ posthacking | mike   | advil
+ posthacking | mike   | peet's coffee
  skywalking  |        | guts
 (7 rows)
 
@@ -740,13 +740,13 @@ insert into oldstyle_test values(null,null);
 insert into oldstyle_test values(0,'12');
 insert into oldstyle_test values(1000,'12');
 insert into oldstyle_test values(0, repeat('x', 50000));
-select i, length(t), octet_length(t), oldstyle_length(i,t) from oldstyle_test;
+select i, length(t), octet_length(t), oldstyle_length(i,t) from oldstyle_test ORDER BY 1,2,3;
   i   | length | octet_length | oldstyle_length 
 ------+--------+--------------+-----------------
-      |        |              |                
     0 |      2 |            2 |               2
- 1000 |      2 |            2 |            1002
     0 |  50000 |        50000 |           50000
+ 1000 |      2 |            2 |            1002
+      |        |              |                
 (4 rows)
 
 drop table oldstyle_test;

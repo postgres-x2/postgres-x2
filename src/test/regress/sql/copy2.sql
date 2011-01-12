@@ -96,7 +96,7 @@ COPY x from stdin WITH DELIMITER AS ':' NULL AS E'\\X';
 \.
 
 -- check results of copy in
-SELECT * FROM x;
+SELECT * FROM x ORDER BY a, b;
 
 -- COPY w/ oids on a table w/o oids should fail
 CREATE TABLE no_oids (

@@ -31,7 +31,7 @@ INSERT INTO d(aa) VALUES('ddddd');
 INSERT INTO d(aa) VALUES('dddddd');
 INSERT INTO d(aa) VALUES('ddddddd');
 INSERT INTO d(aa) VALUES('dddddddd');
-SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid;
+SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid ORDER BY relname, a.aa;
  relname |    aa    
 ---------+----------
  a       | aaa
@@ -60,7 +60,7 @@ SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid;
  d       | dddddddd
 (24 rows)
 
-SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid;
+SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
  relname |    aa    | bb 
 ---------+----------+----
  b       | bbb      | 
@@ -77,7 +77,7 @@ SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid;
  d       | dddddddd | 
 (12 rows)
 
-SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid;
+SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
  relname |    aa    | cc 
 ---------+----------+----
  c       | ccc      | 
@@ -94,7 +94,7 @@ SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid;
  d       | dddddddd | 
 (12 rows)
 
-SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid;
+SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
  relname |    aa    | bb | cc | dd 
 ---------+----------+----+----+----
  d       | ddd      |    |    | 
@@ -105,7 +105,7 @@ SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid;
  d       | dddddddd |    |    | 
 (6 rows)
 
-SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid;
+SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid ORDER BY relname, a.aa;
  relname |    aa    
 ---------+----------
  a       | aaa
@@ -116,7 +116,7 @@ SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid;
  a       | aaaaaaaa
 (6 rows)
 
-SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid;
+SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
  relname |    aa    | bb 
 ---------+----------+----
  b       | bbb      | 
@@ -127,7 +127,7 @@ SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid;
  b       | bbbbbbbb | 
 (6 rows)
 
-SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid;
+SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
  relname |    aa    | cc 
 ---------+----------+----
  c       | ccc      | 
@@ -138,7 +138,7 @@ SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid;
  c       | cccccccc | 
 (6 rows)
 
-SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid;
+SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
  relname |    aa    | bb | cc | dd 
 ---------+----------+----+----+----
  d       | ddd      |    |    | 
@@ -154,7 +154,7 @@ UPDATE ONLY a SET aa='zzzzz' WHERE aa='aaaaa';
 UPDATE b SET aa='zzz' WHERE aa='aaa';
 UPDATE ONLY b SET aa='zzz' WHERE aa='aaa';
 UPDATE a SET aa='zzzzzz' WHERE aa LIKE 'aaa%';
-SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid;
+SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid ORDER BY relname, a.aa;
  relname |    aa    
 ---------+----------
  a       | zzzz
@@ -183,7 +183,7 @@ SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid;
  d       | dddddddd
 (24 rows)
 
-SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid;
+SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
  relname |    aa    | bb 
 ---------+----------+----
  b       | bbb      | 
@@ -200,7 +200,7 @@ SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid;
  d       | dddddddd | 
 (12 rows)
 
-SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid;
+SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
  relname |    aa    | cc 
 ---------+----------+----
  c       | ccc      | 
@@ -217,7 +217,7 @@ SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid;
  d       | dddddddd | 
 (12 rows)
 
-SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid;
+SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
  relname |    aa    | bb | cc | dd 
 ---------+----------+----+----+----
  d       | ddd      |    |    | 
@@ -228,7 +228,7 @@ SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid;
  d       | dddddddd |    |    | 
 (6 rows)
 
-SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid;
+SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid ORDER BY relname, a.aa;
  relname |   aa   
 ---------+--------
  a       | zzzz
@@ -239,7 +239,7 @@ SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid;
  a       | zzzzzz
 (6 rows)
 
-SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid;
+SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
  relname |    aa    | bb 
 ---------+----------+----
  b       | bbb      | 
@@ -250,7 +250,7 @@ SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid;
  b       | bbbbbbbb | 
 (6 rows)
 
-SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid;
+SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
  relname |    aa    | cc 
 ---------+----------+----
  c       | ccc      | 
@@ -261,7 +261,7 @@ SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid;
  c       | cccccccc | 
 (6 rows)
 
-SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid;
+SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
  relname |    aa    | bb | cc | dd 
 ---------+----------+----+----+----
  d       | ddd      |    |    | 
@@ -273,7 +273,7 @@ SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid;
 (6 rows)
 
 UPDATE b SET aa='new';
-SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid;
+SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid ORDER BY relname, a.aa;
  relname |    aa    
 ---------+----------
  a       | zzzz
@@ -302,7 +302,7 @@ SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid;
  d       | new
 (24 rows)
 
-SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid;
+SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
  relname | aa  | bb 
 ---------+-----+----
  b       | new | 
@@ -319,7 +319,7 @@ SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid;
  d       | new | 
 (12 rows)
 
-SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid;
+SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
  relname |    aa    | cc 
 ---------+----------+----
  c       | ccc      | 
@@ -336,7 +336,7 @@ SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid;
  d       | new      | 
 (12 rows)
 
-SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid;
+SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
  relname | aa  | bb | cc | dd 
 ---------+-----+----+----+----
  d       | new |    |    | 
@@ -347,7 +347,7 @@ SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid;
  d       | new |    |    | 
 (6 rows)
 
-SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid;
+SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid ORDER BY relname, a.aa;
  relname |   aa   
 ---------+--------
  a       | zzzz
@@ -358,7 +358,7 @@ SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid;
  a       | zzzzzz
 (6 rows)
 
-SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid;
+SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
  relname | aa  | bb 
 ---------+-----+----
  b       | new | 
@@ -369,7 +369,7 @@ SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid;
  b       | new | 
 (6 rows)
 
-SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid;
+SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
  relname |    aa    | cc 
 ---------+----------+----
  c       | ccc      | 
@@ -380,7 +380,7 @@ SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid;
  c       | cccccccc | 
 (6 rows)
 
-SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid;
+SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
  relname | aa  | bb | cc | dd 
 ---------+-----+----+----+----
  d       | new |    |    | 
@@ -393,7 +393,7 @@ SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid;
 
 UPDATE a SET aa='new';
 DELETE FROM ONLY c WHERE aa='new';
-SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid;
+SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid ORDER BY relname, a.aa;
  relname | aa  
 ---------+-----
  a       | new
@@ -416,7 +416,7 @@ SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid;
  d       | new
 (18 rows)
 
-SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid;
+SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
  relname | aa  | bb 
 ---------+-----+----
  b       | new | 
@@ -433,7 +433,7 @@ SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid;
  d       | new | 
 (12 rows)
 
-SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid;
+SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
  relname | aa  | cc 
 ---------+-----+----
  d       | new | 
@@ -444,7 +444,7 @@ SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid;
  d       | new | 
 (6 rows)
 
-SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid;
+SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
  relname | aa  | bb | cc | dd 
 ---------+-----+----+----+----
  d       | new |    |    | 
@@ -455,7 +455,7 @@ SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid;
  d       | new |    |    | 
 (6 rows)
 
-SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid;
+SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid ORDER BY relname, a.aa;
  relname | aa  
 ---------+-----
  a       | new
@@ -466,7 +466,7 @@ SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid;
  a       | new
 (6 rows)
 
-SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid;
+SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
  relname | aa  | bb 
 ---------+-----+----
  b       | new | 
@@ -477,12 +477,12 @@ SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid;
  b       | new | 
 (6 rows)
 
-SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid;
+SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
  relname | aa | cc 
 ---------+----+----
 (0 rows)
 
-SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid;
+SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
  relname | aa  | bb | cc | dd 
 ---------+-----+----+----+----
  d       | new |    |    | 
@@ -494,42 +494,42 @@ SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid;
 (6 rows)
 
 DELETE FROM a;
-SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid;
+SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid ORDER BY relname, a.aa;
  relname | aa 
 ---------+----
 (0 rows)
 
-SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid;
+SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
  relname | aa | bb 
 ---------+----+----
 (0 rows)
 
-SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid;
+SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
  relname | aa | cc 
 ---------+----+----
 (0 rows)
 
-SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid;
+SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
  relname | aa | bb | cc | dd 
 ---------+----+----+----+----
 (0 rows)
 
-SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid;
+SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid ORDER BY relname, a.aa;
  relname | aa 
 ---------+----
 (0 rows)
 
-SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid;
+SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
  relname | aa | bb 
 ---------+----+----
 (0 rows)
 
-SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid;
+SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
  relname | aa | cc 
 ---------+----+----
 (0 rows)
 
-SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid;
+SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
  relname | aa | bb | cc | dd 
 ---------+----+----+----+----
 (0 rows)
@@ -625,7 +625,7 @@ INSERT INTO inhg VALUES ('x', 'text', 'y'); /* Succeeds */
 INSERT INTO inhg VALUES ('x', 'text', 'y'); /* Succeeds -- Unique constraints not copied */
 INSERT INTO inhg VALUES ('x', 'foo',  'y');  /* fails due to constraint */
 ERROR:  new row for relation "inhg" violates check constraint "foo"
-SELECT * FROM inhg; /* Two records with three columns in order x=x, xx=text, y=y */
+SELECT * FROM inhg ORDER BY 1,2,3; /* Two records with three columns in order x=x, xx=text, y=y */
  x |  xx  | y 
 ---+------+---
  x | text | y

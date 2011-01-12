@@ -26,19 +26,19 @@ INSERT INTO FKTABLE VALUES (NULL, 1);
 INSERT INTO FKTABLE VALUES (100, 2);
 
 -- Check FKTABLE
-SELECT * FROM FKTABLE;
+SELECT * FROM FKTABLE ORDER BY 1, 2;
 
 -- Delete a row from PK TABLE
 DELETE FROM PKTABLE WHERE ptest1=1;
 
 -- Check FKTABLE for removal of matched row
-SELECT * FROM FKTABLE;
+SELECT * FROM FKTABLE ORDER BY 1, 2;
 
 -- Update a row from PK TABLE
 UPDATE PKTABLE SET ptest1=1 WHERE ptest1=2;
 
 -- Check FKTABLE for update of matched row
-SELECT * FROM FKTABLE;
+SELECT * FROM FKTABLE ORDER BY 1, 2;
 
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
@@ -77,31 +77,31 @@ INSERT INTO FKTABLE VALUES (NULL, 2, 4);
 INSERT INTO FKTABLE VALUES (1, NULL, 4);
 
 -- Check FKTABLE
-SELECT * FROM FKTABLE;
+SELECT * FROM FKTABLE ORDER BY 1, 2, 3;
 
 -- Delete a row from PK TABLE
 DELETE FROM PKTABLE WHERE ptest1=1 and ptest2=2;
 
 -- Check FKTABLE for removal of matched row
-SELECT * FROM FKTABLE;
+SELECT * FROM FKTABLE ORDER BY 1, 2, 3;
 
 -- Delete another row from PK TABLE
 DELETE FROM PKTABLE WHERE ptest1=5 and ptest2=10;
 
 -- Check FKTABLE (should be no change)
-SELECT * FROM FKTABLE;
+SELECT * FROM FKTABLE ORDER BY 1, 2, 3;
 
 -- Update a row from PK TABLE
 UPDATE PKTABLE SET ptest1=1 WHERE ptest1=2;
 
 -- Check FKTABLE for update of matched row
-SELECT * FROM FKTABLE;
+SELECT * FROM FKTABLE ORDER BY 1, 2, 3;
 
 -- Try altering the column type where foreign keys are involved
 ALTER TABLE PKTABLE ALTER COLUMN ptest1 TYPE bigint;
 ALTER TABLE FKTABLE ALTER COLUMN ftest1 TYPE bigint;
-SELECT * FROM PKTABLE;
-SELECT * FROM FKTABLE;
+SELECT * FROM PKTABLE ORDER BY 1, 2, 3;
+SELECT * FROM FKTABLE ORDER BY 1, 2, 3;
 
 DROP TABLE PKTABLE CASCADE;
 DROP TABLE FKTABLE;
@@ -138,25 +138,25 @@ INSERT INTO FKTABLE VALUES (NULL, 2, 4);
 INSERT INTO FKTABLE VALUES (1, NULL, 4);
 
 -- Check FKTABLE
-SELECT * FROM FKTABLE;
+SELECT * FROM FKTABLE ORDER BY 1, 2, 3;
 
 -- Delete a row from PK TABLE
 DELETE FROM PKTABLE WHERE ptest1=1 and ptest2=2;
 
 -- Check FKTABLE to check for removal
-SELECT * FROM FKTABLE;
+SELECT * FROM FKTABLE ORDER BY 1, 2, 3;
 
 -- Delete another row from PK TABLE
 DELETE FROM PKTABLE WHERE ptest1=5 and ptest2=10;
 
 -- Check FKTABLE (should be no change)
-SELECT * FROM FKTABLE;
+SELECT * FROM FKTABLE ORDER BY 1, 2, 3;
 
 -- Update a row from PK TABLE
 UPDATE PKTABLE SET ptest1=1 WHERE ptest1=2;
 
 -- Check FKTABLE for update of matched row
-SELECT * FROM FKTABLE;
+SELECT * FROM FKTABLE ORDER BY 1, 2, 3;
 
 -- this should fail for lack of CASCADE
 DROP TABLE PKTABLE;
@@ -187,10 +187,10 @@ INSERT INTO FKTABLE VALUES (NULL, 1);
 INSERT INTO FKTABLE VALUES (100, 2);
 
 -- Check FKTABLE
-SELECT * FROM FKTABLE;
+SELECT * FROM FKTABLE ORDER BY 1, 2;
 
 -- Check PKTABLE
-SELECT * FROM PKTABLE;
+SELECT * FROM PKTABLE ORDER BY 1, 2;
 
 -- Delete a row from PK TABLE (should fail)
 DELETE FROM PKTABLE WHERE ptest1=1;
@@ -199,7 +199,7 @@ DELETE FROM PKTABLE WHERE ptest1=1;
 DELETE FROM PKTABLE WHERE ptest1=5;
 
 -- Check PKTABLE for deletes
-SELECT * FROM PKTABLE;
+SELECT * FROM PKTABLE ORDER BY 1, 2;
 
 -- Update a row from PK TABLE (should fail)
 UPDATE PKTABLE SET ptest1=0 WHERE ptest1=2;
@@ -208,7 +208,7 @@ UPDATE PKTABLE SET ptest1=0 WHERE ptest1=2;
 UPDATE PKTABLE SET ptest1=0 WHERE ptest1=4;
 
 -- Check PKTABLE for updates
-SELECT * FROM PKTABLE;
+SELECT * FROM PKTABLE ORDER BY 1, 2;
 
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
@@ -238,7 +238,7 @@ INSERT INTO FKTABLE VALUES (NULL, 3, 4, 5);
 INSERT INTO FKTABLE VALUES (1, 2, 7, 6);
 
 -- Show FKTABLE
-SELECT * from FKTABLE;
+SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
 
 -- Try to update something that should fail
 UPDATE PKTABLE set ptest2=5 where ptest2=2;
@@ -253,9 +253,9 @@ DELETE FROM PKTABLE where ptest1=1 and ptest2=2 and ptest3=3;
 DELETE FROM PKTABLE where ptest1=2;
 
 -- Show PKTABLE and FKTABLE
-SELECT * from PKTABLE;
+SELECT * from PKTABLE ORDER BY 1, 2, 3,4;
 
-SELECT * from FKTABLE;
+SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
 
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
@@ -283,7 +283,7 @@ INSERT INTO FKTABLE VALUES (NULL, 3, 4, 5);
 INSERT INTO FKTABLE VALUES (1, 2, 7, 6);
 
 -- Show FKTABLE
-SELECT * from FKTABLE;
+SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
 
 -- Try to update something that will cascade
 UPDATE PKTABLE set ptest2=5 where ptest2=2;
@@ -292,22 +292,22 @@ UPDATE PKTABLE set ptest2=5 where ptest2=2;
 UPDATE PKTABLE set ptest1=1 WHERE ptest2=3;
 
 -- Show PKTABLE and FKTABLE
-SELECT * from PKTABLE;
-SELECT * from FKTABLE;
+SELECT * from PKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
 
 -- Try to delete something that should cascade
 DELETE FROM PKTABLE where ptest1=1 and ptest2=5 and ptest3=3;
 
 -- Show PKTABLE and FKTABLE
-SELECT * from PKTABLE;
-SELECT * from FKTABLE;
+SELECT * from PKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
 
 -- Try to delete something that should not have a cascade
 DELETE FROM PKTABLE where ptest1=2;
 
 -- Show PKTABLE and FKTABLE
-SELECT * from PKTABLE;
-SELECT * from FKTABLE;
+SELECT * from PKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
 
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
@@ -336,7 +336,7 @@ INSERT INTO FKTABLE VALUES (NULL, 3, 4, 5);
 INSERT INTO FKTABLE VALUES (1, 2, 7, 6);
 
 -- Show FKTABLE
-SELECT * from FKTABLE;
+SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
 
 -- Try to update something that will set null
 UPDATE PKTABLE set ptest2=5 where ptest2=2;
@@ -345,22 +345,22 @@ UPDATE PKTABLE set ptest2=5 where ptest2=2;
 UPDATE PKTABLE set ptest2=2 WHERE ptest2=3 and ptest1=1;
 
 -- Show PKTABLE and FKTABLE
-SELECT * from PKTABLE;
-SELECT * from FKTABLE;
+SELECT * from PKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
 
 -- Try to delete something that should set default
 DELETE FROM PKTABLE where ptest1=2 and ptest2=3 and ptest3=4;
 
 -- Show PKTABLE and FKTABLE
-SELECT * from PKTABLE;
-SELECT * from FKTABLE;
+SELECT * from PKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
 
 -- Try to delete something that should not set default
 DELETE FROM PKTABLE where ptest2=5;
 
 -- Show PKTABLE and FKTABLE
-SELECT * from PKTABLE;
-SELECT * from FKTABLE;
+SELECT * from PKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
 
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
@@ -391,7 +391,7 @@ INSERT INTO FKTABLE VALUES (NULL, 3, 4, 5);
 INSERT INTO FKTABLE VALUES (1, 2, 7, 6);
 
 -- Show FKTABLE
-SELECT * from FKTABLE;
+SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
 
 -- Try to update something that will fail
 UPDATE PKTABLE set ptest2=5 where ptest2=2;
@@ -404,22 +404,22 @@ UPDATE PKTABLE set ptest2=10 where ptest2=4;
 UPDATE PKTABLE set ptest2=2 WHERE ptest2=3 and ptest1=1;
 
 -- Show PKTABLE and FKTABLE
-SELECT * from PKTABLE;
-SELECT * from FKTABLE;
+SELECT * from PKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
 
 -- Try to delete something that should set null
 DELETE FROM PKTABLE where ptest1=2 and ptest2=3 and ptest3=4;
 
 -- Show PKTABLE and FKTABLE
-SELECT * from PKTABLE;
-SELECT * from FKTABLE;
+SELECT * from PKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
 
 -- Try to delete something that should not set null
 DELETE FROM PKTABLE where ptest2=5;
 
 -- Show PKTABLE and FKTABLE
-SELECT * from PKTABLE;
-SELECT * from FKTABLE;
+SELECT * from PKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
 
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
@@ -904,20 +904,20 @@ INSERT INTO tasks VALUES (1,1,NULL,NULL);
 INSERT INTO tasks VALUES (2,2,2,NULL);
 INSERT INTO tasks VALUES (3,3,3,3);
 
-SELECT * FROM tasks;
+SELECT * FROM tasks ORDER BY 1, 2, 3,4;
 
 UPDATE users SET id = 4 WHERE id = 3;
 
-SELECT * FROM tasks;
+SELECT * FROM tasks ORDER BY 1, 2, 3,4;
 
 DELETE FROM users WHERE id = 4;
 
-SELECT * FROM tasks;
+SELECT * FROM tasks ORDER BY 1, 2, 3,4;
 
 -- could fail with only 2 changes to make, if row was already updated
 BEGIN;
 UPDATE tasks set id=id WHERE id=2;
-SELECT * FROM tasks;
+SELECT * FROM tasks ORDER BY 1, 2, 3,4;
 DELETE FROM users WHERE id = 2;
-SELECT * FROM tasks;
+SELECT * FROM tasks ORDER BY 1, 2, 3,4;
 COMMIT;

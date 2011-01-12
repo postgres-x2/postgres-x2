@@ -19,7 +19,7 @@ LINE 1: DELETE FROM delete_test dt WHERE delete_test.a > 25;
                                          ^
 HINT:  Perhaps you meant to reference the table alias "dt".
 ROLLBACK;
-SELECT * FROM delete_test;
+SELECT * FROM delete_test ORDER BY id;
  id | a  
 ----+----
   1 | 10

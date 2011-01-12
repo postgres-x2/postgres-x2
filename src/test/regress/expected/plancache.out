@@ -3,19 +3,19 @@
 --
 CREATE TEMP TABLE pcachetest AS SELECT * FROM int8_tbl;
 -- create and use a cached plan
-PREPARE prepstmt AS SELECT * FROM pcachetest;
+PREPARE prepstmt AS SELECT * FROM pcachetest ORDER BY q1, q2;
 EXECUTE prepstmt;
         q1        |        q2         
 ------------------+-------------------
               123 |               456
               123 |  4567890123456789
+ 4567890123456789 | -4567890123456789
  4567890123456789 |               123
  4567890123456789 |  4567890123456789
- 4567890123456789 | -4567890123456789
 (5 rows)
 
 -- and one with parameters
-PREPARE prepstmt2(bigint) AS SELECT * FROM pcachetest WHERE q1 = $1;
+PREPARE prepstmt2(bigint) AS SELECT * FROM pcachetest WHERE q1 = $1 ORDER BY q1, q2;
 EXECUTE prepstmt2(123);
  q1  |        q2        
 -----+------------------
@@ -31,14 +31,14 @@ EXECUTE prepstmt2(123);
 ERROR:  relation "pcachetest" does not exist
 -- recreate the temp table (this demonstrates that the raw plan is
 -- purely textual and doesn't depend on OIDs, for instance)
-CREATE TEMP TABLE pcachetest AS SELECT * FROM int8_tbl ORDER BY 2;
+CREATE TEMP TABLE pcachetest AS SELECT * FROM int8_tbl ORDER BY q1, q2;
 EXECUTE prepstmt;
         q1        |        q2         
 ------------------+-------------------
- 4567890123456789 | -4567890123456789
- 4567890123456789 |               123
               123 |               456
               123 |  4567890123456789
+ 4567890123456789 | -4567890123456789
+ 4567890123456789 |               123
  4567890123456789 |  4567890123456789
 (5 rows)
 
@@ -61,10 +61,10 @@ ALTER TABLE pcachetest DROP COLUMN q3;
 EXECUTE prepstmt;
         q1        |        q2         
 ------------------+-------------------
- 4567890123456789 | -4567890123456789
- 4567890123456789 |               123
               123 |               456
               123 |  4567890123456789
+ 4567890123456789 | -4567890123456789
+ 4567890123456789 |               123
  4567890123456789 |  4567890123456789
 (5 rows)
 
@@ -79,26 +79,26 @@ EXECUTE prepstmt2(123);
 -- but should trigger invalidation anyway
 CREATE TEMP VIEW pcacheview AS
   SELECT * FROM pcachetest;
-PREPARE vprep AS SELECT * FROM pcacheview;
+PREPARE vprep AS SELECT * FROM pcacheview ORDER BY q1, q2;
 EXECUTE vprep;
         q1        |        q2         
 ------------------+-------------------
- 4567890123456789 | -4567890123456789
- 4567890123456789 |               123
               123 |               456
               123 |  4567890123456789
+ 4567890123456789 | -4567890123456789
+ 4567890123456789 |               123
  4567890123456789 |  4567890123456789
 (5 rows)
 
 CREATE OR REPLACE TEMP VIEW pcacheview AS
-  SELECT q1, q2/2 AS q2 FROM pcachetest;
+  SELECT q1, q2/2 AS q2 FROM pcachetest ORDER BY q1, q2;
 EXECUTE vprep;
         q1        |        q2         
 ------------------+-------------------
- 4567890123456789 | -2283945061728394
- 4567890123456789 |                61
               123 |               228
               123 |  2283945061728394
+ 4567890123456789 | -2283945061728394
+ 4567890123456789 |                61
  4567890123456789 |  2283945061728394
 (5 rows)
 

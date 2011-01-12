@@ -29,28 +29,28 @@ WITH RECURSIVE t(n) AS (
 UNION ALL
     SELECT n+1 FROM t WHERE n < 5
 )
-SELECT * FROM t;
+SELECT * FROM t ORDER BY n;
 
 -- This is an infinite loop with UNION ALL, but not with UNION
 WITH RECURSIVE t(n) AS (
     SELECT 1
 UNION
     SELECT 10-n FROM t)
-SELECT * FROM t;
+SELECT * FROM t ORDER BY n;
 
 -- This'd be an infinite loop, but outside query reads only as much as needed
 WITH RECURSIVE t(n) AS (
     VALUES (1)
 UNION ALL
     SELECT n+1 FROM t)
-SELECT * FROM t LIMIT 10;
+SELECT * FROM t LIMIT 10 ;
 
 -- UNION case should have same property
 WITH RECURSIVE t(n) AS (
     SELECT 1
 UNION
     SELECT n+1 FROM t)
-SELECT * FROM t LIMIT 10;
+SELECT * FROM t  LIMIT 10;
 
 -- Test behavior with an unknown-type literal in the WITH
 WITH q AS (SELECT 'foo' AS x)
@@ -61,7 +61,7 @@ WITH RECURSIVE t(n) AS (
 UNION ALL
     SELECT n || ' bar' FROM t WHERE length(n) < 20
 )
-SELECT n, n IS OF (text) as is_text FROM t;
+SELECT n, n IS OF (text) as is_text FROM t ORDER BY n;
 
 --
 -- Some examples with a tree
@@ -180,7 +180,7 @@ SELECT pg_get_viewdef('vsubdepartment'::regclass, true);
 
 -- corner case in which sub-WITH gets initialized first
 with recursive q as (
-      select * from department
+      (select * from department order by id)
     union all
       (with x as (select * from q)
        select * from x)
@@ -188,7 +188,7 @@ with recursive q as (
 select * from q limit 24;
 
 with recursive q as (
-      select * from department
+      (select * from department order by id)
     union all
       (with recursive x as (
            select * from department
@@ -207,7 +207,7 @@ WITH RECURSIVE t(i,j) AS (
 		(SELECT 2 AS i UNION ALL SELECT 3 AS i) AS t2
 		JOIN t ON (t2.i = t.i+1))
 
-	SELECT * FROM t;
+	SELECT * FROM t order by i;
 
 --
 -- different tree example
@@ -258,7 +258,7 @@ UNION ALL
     FROM tree JOIN t ON (tree.parent_id = t.id)
 )
 SELECT t1.id, t2.path, t2 FROM t AS t1 JOIN t AS t2 ON
-(t1.id=t2.id);
+(t1.id=t2.id) ORDER BY id;
 
 --
 -- test cycle detection
@@ -280,7 +280,7 @@ with recursive search_graph(f, t, label, path, cycle) as (
 	from graph g, search_graph sg
 	where g.f = sg.t and not cycle
 )
-select * from search_graph;
+select * from search_graph order by path;
 
 -- ordering by the path column has same effect as SEARCH DEPTH FIRST
 with recursive search_graph(f, t, label, path, cycle) as (
@@ -298,27 +298,27 @@ select * from search_graph order by path;
 WITH RECURSIVE
   y (id) AS (VALUES (1)),
   x (id) AS (SELECT * FROM y UNION ALL SELECT id+1 FROM x WHERE id < 5)
-SELECT * FROM x;
+SELECT * FROM x ORDER BY id;
 
 -- forward reference OK
 WITH RECURSIVE
     x(id) AS (SELECT * FROM y UNION ALL SELECT id+1 FROM x WHERE id < 5),
     y(id) AS (values (1))
- SELECT * FROM x;
+ SELECT * FROM x ORDER BY id;
 
 WITH RECURSIVE
    x(id) AS
      (VALUES (1) UNION ALL SELECT id+1 FROM x WHERE id < 5),
    y(id) AS
      (VALUES (1) UNION ALL SELECT id+1 FROM y WHERE id < 10)
- SELECT y.*, x.* FROM y LEFT JOIN x USING (id);
+ SELECT y.*, x.* FROM y LEFT JOIN x USING (id) ORDER BY 1;
 
 WITH RECURSIVE
    x(id) AS
      (VALUES (1) UNION ALL SELECT id+1 FROM x WHERE id < 5),
    y(id) AS
      (VALUES (1) UNION ALL SELECT id+1 FROM x WHERE id < 10)
- SELECT y.*, x.* FROM y LEFT JOIN x USING (id);
+ SELECT y.*, x.* FROM y LEFT JOIN x USING (id) ORDER BY 1;
 
 WITH RECURSIVE
    x(id) AS
@@ -327,7 +327,7 @@ WITH RECURSIVE
      (SELECT * FROM x UNION ALL SELECT * FROM x),
    z(id) AS
      (SELECT * FROM x UNION ALL SELECT id+1 FROM z WHERE id < 10)
- SELECT * FROM z;
+ SELECT * FROM z ORDER BY id;
 
 WITH RECURSIVE
    x(id) AS
@@ -336,7 +336,7 @@ WITH RECURSIVE
      (SELECT * FROM x UNION ALL SELECT * FROM x),
    z(id) AS
      (SELECT * FROM y UNION ALL SELECT id+1 FROM z WHERE id < 10)
- SELECT * FROM z;
+ SELECT * FROM z ORDER BY id;
 
 --
 -- error cases

@@ -21,7 +21,7 @@ INSERT INTO macaddr_data VALUES (11, '08:00:2b:01:02:02');
 INSERT INTO macaddr_data VALUES (12, '08:00:2a:01:02:03');
 INSERT INTO macaddr_data VALUES (13, '08:00:2c:01:02:03');
 INSERT INTO macaddr_data VALUES (14, '08:00:2a:01:02:04');
-SELECT * FROM macaddr_data;
+SELECT * FROM macaddr_data ORDER BY a;
  a  |         b         
 ----+-------------------
   1 | 08:00:2b:01:02:03

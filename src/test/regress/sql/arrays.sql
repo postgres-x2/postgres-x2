@@ -35,29 +35,34 @@ INSERT INTO arrtest (a, b[1:2], c, d[1:2])
    VALUES ('{}', '{3,4}', '{foo,bar}', '{bar,foo}');
 
 
-SELECT * FROM arrtest;
+SELECT * FROM arrtest ORDER BY a, b, c;
 
 SELECT arrtest.a[1],
           arrtest.b[1][1][1],
           arrtest.c[1],
           arrtest.d[1][1], 
           arrtest.e[0]
-   FROM arrtest;
+   FROM arrtest 
+   ORDER BY a, b, c;
 
 SELECT a[1], b[1][1][1], c[1], d[1][1], e[0]
-   FROM arrtest;
+   FROM arrtest
+   ORDER BY a, b, c;
 
 SELECT a[1:3],
           b[1:1][1:2][1:2],
           c[1:2], 
           d[1:1][1:2]
-   FROM arrtest;
+   FROM arrtest
+   ORDER BY a, b, c;
 
 SELECT array_ndims(a) AS a,array_ndims(b) AS b,array_ndims(c) AS c
-   FROM arrtest;
+   FROM arrtest 
+   ORDER BY b;
 
 SELECT array_dims(a) AS a,array_dims(b) AS b,array_dims(c) AS c
-   FROM arrtest;
+   FROM arrtest 
+   ORDER BY b;
 
 -- returns nothing 
 SELECT *
@@ -78,20 +83,21 @@ UPDATE arrtest
   SET c[2:2] = '{"new_word"}'
   WHERE array_dims(c) is not null;
 
-SELECT a,b,c FROM arrtest;
+SELECT a,b,c FROM arrtest ORDER BY a, b, c;
 
 SELECT a[1:3],
           b[1:1][1:2][1:2],
           c[1:2], 
           d[1:1][2:2]
-   FROM arrtest;
+   FROM arrtest 
+   ORDER BY a, b, c;
 
 INSERT INTO arrtest(a) VALUES('{1,null,3}');
-SELECT a FROM arrtest;
+SELECT a FROM arrtest ORDER BY 1;
 UPDATE arrtest SET a[4] = NULL WHERE a[2] IS NULL;
-SELECT a FROM arrtest WHERE a[2] IS NULL;
+SELECT a FROM arrtest WHERE a[2] IS NULL ORDER BY 1;
 DELETE FROM arrtest WHERE a[2] IS NULL AND b IS NULL;
-SELECT a,b,c FROM arrtest;
+SELECT a,b,c FROM arrtest ORDER BY a, b, c;
 
 --
 -- test array extension
@@ -256,8 +262,8 @@ insert into arr_tbl values ('{1,2,10}');
 
 set enable_seqscan to off;
 set enable_bitmapscan to off;
-select * from arr_tbl where f1 > '{1,2,3}' and f1 <= '{1,5,3}';
-select * from arr_tbl where f1 >= '{1,2,3}' and f1 < '{1,5,3}';
+select * from arr_tbl where f1 > '{1,2,3}' and f1 <= '{1,5,3}' ORDER BY 1;
+select * from arr_tbl where f1 >= '{1,2,3}' and f1 < '{1,5,3}' ORDER BY 1;
 -- note: if above selects don't produce the expected tuple order,
 -- then you didn't get an indexscan plan, and something is busted.
 reset enable_seqscan;

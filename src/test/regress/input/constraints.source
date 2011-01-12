@@ -20,7 +20,7 @@ INSERT INTO DEFAULT_TBL (i, f) VALUES (2, 987.654);
 INSERT INTO DEFAULT_TBL (x) VALUES ('marc');
 INSERT INTO DEFAULT_TBL VALUES (3, null, 1.0);
 
-SELECT '' AS five, * FROM DEFAULT_TBL;
+SELECT '' AS five, * FROM DEFAULT_TBL ORDER BY i,x,f;
 
 CREATE SEQUENCE DEFAULT_SEQ;
 
@@ -32,7 +32,7 @@ INSERT INTO DEFAULTEXPR_TBL (i1) VALUES (-3);
 INSERT INTO DEFAULTEXPR_TBL (i2) VALUES (-4);
 INSERT INTO DEFAULTEXPR_TBL (i2) VALUES (NULL);
 
-SELECT '' AS four, * FROM DEFAULTEXPR_TBL;
+SELECT '' AS four, * FROM DEFAULTEXPR_TBL ORDER BY i1,i2;
 
 -- syntax errors
 --  test for extraneous comma
@@ -60,7 +60,7 @@ INSERT INTO CHECK_TBL VALUES (2);
 INSERT INTO CHECK_TBL VALUES (6);
 INSERT INTO CHECK_TBL VALUES (1);
 
-SELECT '' AS three, * FROM CHECK_TBL;
+SELECT '' AS three, * FROM CHECK_TBL ORDER BY x;
 
 CREATE SEQUENCE CHECK_SEQ;
 
@@ -75,7 +75,7 @@ INSERT INTO CHECK2_TBL VALUES (0, 'check failed', -2);
 INSERT INTO CHECK2_TBL VALUES (6, 'check failed', 11);
 INSERT INTO CHECK2_TBL VALUES (7, 'check ok', 7);
 
-SELECT '' AS two, * from CHECK2_TBL;
+SELECT '' AS two, * from CHECK2_TBL ORDER BY x,y,z;
 
 --
 -- Check constraints on INSERT
@@ -91,7 +91,7 @@ CREATE TABLE INSERT_TBL (x INT DEFAULT nextval('insert_seq'),
 
 INSERT INTO INSERT_TBL(x,z) VALUES (2, -2);
 
-SELECT '' AS zero, * FROM INSERT_TBL;
+SELECT '' AS zero, * FROM INSERT_TBL order by x,y,z;
 
 SELECT 'one' AS one, nextval('insert_seq');
 
@@ -103,14 +103,14 @@ INSERT INTO INSERT_TBL VALUES (5, 'check failed', -5);
 INSERT INTO INSERT_TBL VALUES (7, '!check failed', -7);
 INSERT INTO INSERT_TBL(y) VALUES ('-!NULL-');
 
-SELECT '' AS four, * FROM INSERT_TBL;
+SELECT '' AS four, * FROM INSERT_TBL order by x,y,z;
 
 INSERT INTO INSERT_TBL(y,z) VALUES ('check failed', 4);
 INSERT INTO INSERT_TBL(x,y) VALUES (5, 'check failed');
 INSERT INTO INSERT_TBL(x,y) VALUES (5, '!check failed');
 INSERT INTO INSERT_TBL(y) VALUES ('-!NULL-');
 
-SELECT '' AS six, * FROM INSERT_TBL;
+SELECT '' AS six, * FROM INSERT_TBL order by x,y,z;
 
 SELECT 'seven' AS one, nextval('insert_seq');
 
@@ -123,7 +123,7 @@ SELECT 'eight' AS one, currval('insert_seq');
 -- was wrong:
 INSERT INTO INSERT_TBL VALUES (null, null, null);
 
-SELECT '' AS nine, * FROM INSERT_TBL;
+SELECT '' AS nine, * FROM INSERT_TBL order by x,y,z;
 
 --
 -- Check inheritance of defaults and constraints
@@ -138,7 +138,7 @@ INSERT INTO INSERT_CHILD(x,z,cy) VALUES (7,-7,6);
 INSERT INTO INSERT_CHILD(x,z,cy) VALUES (6,-7,7);
 INSERT INTO INSERT_CHILD(x,y,z,cy) VALUES (6,'check failed',-6,7);
 
-SELECT * FROM INSERT_CHILD;
+SELECT * FROM INSERT_CHILD order by 1,2,3;
 
 DROP TABLE INSERT_CHILD;
 
@@ -157,13 +157,13 @@ INSERT INTO tmp VALUES (5, '!check failed', null);
 INSERT INTO tmp VALUES (null, 'try again', null);
 INSERT INTO INSERT_TBL(y) select yd from tmp;
 
-SELECT '' AS three, * FROM INSERT_TBL;
+SELECT '' AS three, * FROM INSERT_TBL order by x,y,z;
 
 INSERT INTO INSERT_TBL SELECT * FROM tmp WHERE yd = 'try again';
 INSERT INTO INSERT_TBL(y,z) SELECT yd, -7 FROM tmp WHERE yd = 'try again';
 INSERT INTO INSERT_TBL(y,z) SELECT yd, -8 FROM tmp WHERE yd = 'try again';
 
-SELECT '' AS four, * FROM INSERT_TBL;
+SELECT '' AS four, * FROM INSERT_TBL order by x,y,z;
 
 DROP TABLE tmp;
 
@@ -176,7 +176,7 @@ UPDATE INSERT_TBL SET x = 6 WHERE x = 6;
 UPDATE INSERT_TBL SET x = -z, z = -x;
 UPDATE INSERT_TBL SET x = z, z = x;
 
-SELECT * FROM INSERT_TBL;
+SELECT * FROM INSERT_TBL order by x,y,z;
 
 -- DROP TABLE INSERT_TBL;
 
@@ -190,11 +190,11 @@ CREATE TABLE COPY_TBL (x INT, y TEXT, z INT,
 
 COPY COPY_TBL FROM '@abs_srcdir@/data/constro.data';
 
-SELECT '' AS two, * FROM COPY_TBL;
+SELECT '' AS two, * FROM COPY_TBL order by x,y,z;
 
 COPY COPY_TBL FROM '@abs_srcdir@/data/constrf.data';
 
-SELECT * FROM COPY_TBL;
+SELECT * FROM COPY_TBL order by x,y,z;
 
 --
 -- Primary keys
@@ -209,7 +209,7 @@ INSERT INTO PRIMARY_TBL VALUES (4, 'three');
 INSERT INTO PRIMARY_TBL VALUES (5, 'one');
 INSERT INTO PRIMARY_TBL (t) VALUES ('six');
 
-SELECT '' AS four, * FROM PRIMARY_TBL;
+SELECT '' AS four, * FROM PRIMARY_TBL order by i,t;
 
 DROP TABLE PRIMARY_TBL;
 
@@ -223,7 +223,7 @@ INSERT INTO PRIMARY_TBL VALUES (4, 'three');
 INSERT INTO PRIMARY_TBL VALUES (5, 'one');
 INSERT INTO PRIMARY_TBL (t) VALUES ('six');
 
-SELECT '' AS three, * FROM PRIMARY_TBL;
+SELECT '' AS three, * FROM PRIMARY_TBL order by i,t;
 
 DROP TABLE PRIMARY_TBL;
 
@@ -241,7 +241,7 @@ INSERT INTO UNIQUE_TBL VALUES (5, 'one');
 INSERT INTO UNIQUE_TBL (t) VALUES ('six');
 INSERT INTO UNIQUE_TBL (t) VALUES ('seven');
 
-SELECT '' AS five, * FROM UNIQUE_TBL;
+SELECT '' AS five, * FROM UNIQUE_TBL order by i,t; 
 
 DROP TABLE UNIQUE_TBL;
 
@@ -255,7 +255,7 @@ INSERT INTO UNIQUE_TBL VALUES (1, 'one');
 INSERT INTO UNIQUE_TBL VALUES (5, 'one');
 INSERT INTO UNIQUE_TBL (t) VALUES ('six');
 
-SELECT '' AS five, * FROM UNIQUE_TBL;
+SELECT '' AS five, * FROM UNIQUE_TBL order by i,t;
 
 DROP TABLE UNIQUE_TBL;
 

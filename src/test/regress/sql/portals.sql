@@ -238,7 +238,7 @@ BEGIN;
 
 CREATE FUNCTION declares_cursor(text)
    RETURNS void
-   AS 'DECLARE c CURSOR FOR SELECT stringu1 FROM tenk1 WHERE stringu1 LIKE $1;'
+   AS 'DECLARE c CURSOR FOR SELECT stringu1 FROM tenk1 WHERE stringu1 LIKE $1 ORDER BY stringu1;'
    LANGUAGE SQL;
 
 SELECT declares_cursor('AB%');
@@ -322,15 +322,15 @@ COMMIT;
 
 CREATE TEMP TABLE uctest(f1 int, f2 text);
 INSERT INTO uctest VALUES (1, 'one'), (2, 'two'), (3, 'three');
-SELECT * FROM uctest;
+SELECT * FROM uctest ORDER BY f1;
 
 -- Check DELETE WHERE CURRENT
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT * FROM uctest;
+DECLARE c1 CURSOR FOR SELECT * FROM uctest ORDER BY f1;
 FETCH 2 FROM c1;
 DELETE FROM uctest WHERE CURRENT OF c1;
 -- should show deletion
-SELECT * FROM uctest;
+SELECT * FROM uctest ORDER BY f1;
 -- cursor did not move
 FETCH ALL FROM c1;
 -- cursor is insensitive
@@ -338,16 +338,16 @@ MOVE BACKWARD ALL IN c1;
 FETCH ALL FROM c1;
 COMMIT;
 -- should still see deletion
-SELECT * FROM uctest;
+SELECT * FROM uctest ORDER BY f1;
 
 -- Check UPDATE WHERE CURRENT; this time use FOR UPDATE
 BEGIN;
 DECLARE c1 CURSOR FOR SELECT * FROM uctest FOR UPDATE;
 FETCH c1;
 UPDATE uctest SET f1 = 8 WHERE CURRENT OF c1;
-SELECT * FROM uctest;
+SELECT * FROM uctest ORDER BY f1;
 COMMIT;
-SELECT * FROM uctest;
+SELECT * FROM uctest ORDER BY f1;
 
 -- Check repeated-update and update-then-delete cases
 BEGIN;
@@ -356,41 +356,41 @@ FETCH c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
 SELECT * FROM uctest;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
-SELECT * FROM uctest;
+SELECT * FROM uctest ORDER BY 1;
 -- insensitive cursor should not show effects of updates or deletes
 FETCH RELATIVE 0 FROM c1;
 DELETE FROM uctest WHERE CURRENT OF c1;
-SELECT * FROM uctest;
+SELECT * FROM uctest ORDER BY f1;
 DELETE FROM uctest WHERE CURRENT OF c1; -- no-op
-SELECT * FROM uctest;
+SELECT * FROM uctest ORDER BY f1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1; -- no-op
-SELECT * FROM uctest;
+SELECT * FROM uctest ORDER BY f1;
 FETCH RELATIVE 0 FROM c1;
 ROLLBACK;
-SELECT * FROM uctest;
+SELECT * FROM uctest ORDER BY f1;
 
 BEGIN;
 DECLARE c1 CURSOR FOR SELECT * FROM uctest FOR UPDATE;
 FETCH c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
-SELECT * FROM uctest;
+SELECT * FROM uctest ORDER BY f1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
-SELECT * FROM uctest;
+SELECT * FROM uctest ORDER BY f1;
 DELETE FROM uctest WHERE CURRENT OF c1;
-SELECT * FROM uctest;
+SELECT * FROM uctest ORDER BY f1;
 DELETE FROM uctest WHERE CURRENT OF c1; -- no-op
-SELECT * FROM uctest;
+SELECT * FROM uctest ORDER BY f1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1; -- no-op
-SELECT * FROM uctest;
+SELECT * FROM uctest ORDER BY f1;
 --- sensitive cursors can't currently scroll back, so this is an error:
 FETCH RELATIVE 0 FROM c1;
 ROLLBACK;
-SELECT * FROM uctest;
+SELECT * FROM uctest ORDER BY f1;
 
 -- Check inheritance cases
 CREATE TEMP TABLE ucchild () inherits (uctest);
 INSERT INTO ucchild values(100, 'hundred');
-SELECT * FROM uctest;
+SELECT * FROM uctest ORDER BY f1;
 
 BEGIN;
 DECLARE c1 CURSOR FOR SELECT * FROM uctest FOR UPDATE;
@@ -402,7 +402,7 @@ FETCH 1 FROM c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
 FETCH 1 FROM c1;
 COMMIT;
-SELECT * FROM uctest;
+SELECT * FROM uctest ORDER BY f1;
 
 -- Can update from a self-join, but only if FOR UPDATE says which to use
 BEGIN;
@@ -419,7 +419,7 @@ BEGIN;
 DECLARE c1 CURSOR FOR SELECT * FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 FOR SHARE OF a;
 FETCH 1 FROM c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
-SELECT * FROM uctest;
+SELECT * FROM uctest ORDER BY f1;
 ROLLBACK;
 
 -- Check various error cases

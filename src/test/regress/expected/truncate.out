@@ -3,7 +3,7 @@ CREATE TABLE truncate_a (col1 integer primary key);
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "truncate_a_pkey" for table "truncate_a"
 INSERT INTO truncate_a VALUES (1);
 INSERT INTO truncate_a VALUES (2);
-SELECT * FROM truncate_a;
+SELECT * FROM truncate_a ORDER BY 1;
  col1 
 ------
     1
@@ -14,7 +14,7 @@ SELECT * FROM truncate_a;
 BEGIN;
 TRUNCATE truncate_a;
 ROLLBACK;
-SELECT * FROM truncate_a;
+SELECT * FROM truncate_a ORDER BY 1;
  col1 
 ------
     1
@@ -25,7 +25,7 @@ SELECT * FROM truncate_a;
 BEGIN;
 TRUNCATE truncate_a;
 COMMIT;
-SELECT * FROM truncate_a;
+SELECT * FROM truncate_a ORDER BY 1;
  col1 
 ------
 (0 rows)
@@ -153,7 +153,7 @@ INSERT INTO trunc_fb VALUES (4, 444);
 CREATE TABLE trunc_faa (col3 text) INHERITS (trunc_fa);
 INSERT INTO trunc_faa VALUES (5, 'five', 'FIVE');
 BEGIN;
-SELECT * FROM trunc_f;
+SELECT * FROM trunc_f ORDER BY 1;
  col1 
 ------
     1
@@ -164,14 +164,14 @@ SELECT * FROM trunc_f;
 (5 rows)
 
 TRUNCATE trunc_f;
-SELECT * FROM trunc_f;
+SELECT * FROM trunc_f ORDER BY 1;
  col1 
 ------
 (0 rows)
 
 ROLLBACK;
 BEGIN;
-SELECT * FROM trunc_f;
+SELECT * FROM trunc_f ORDER BY 1;
  col1 
 ------
     1
@@ -182,7 +182,7 @@ SELECT * FROM trunc_f;
 (5 rows)
 
 TRUNCATE ONLY trunc_f;
-SELECT * FROM trunc_f;
+SELECT * FROM trunc_f ORDER BY 1;
  col1 
 ------
     3
@@ -192,7 +192,7 @@ SELECT * FROM trunc_f;
 
 ROLLBACK;
 BEGIN;
-SELECT * FROM trunc_f;
+SELECT * FROM trunc_f ORDER BY 1;
  col1 
 ------
     1
@@ -202,21 +202,21 @@ SELECT * FROM trunc_f;
     5
 (5 rows)
 
-SELECT * FROM trunc_fa;
+SELECT * FROM trunc_fa ORDER BY 1, 2;
  col1 | col2a 
 ------+-------
     3 | three
     5 | five
 (2 rows)
 
-SELECT * FROM trunc_faa;
+SELECT * FROM trunc_faa ORDER BY 1, 2;
  col1 | col2a | col3 
 ------+-------+------
     5 | five  | FIVE
 (1 row)
 
 TRUNCATE ONLY trunc_fb, ONLY trunc_fa;
-SELECT * FROM trunc_f;
+SELECT * FROM trunc_f ORDER BY 1;
  col1 
 ------
     1
@@ -224,13 +224,13 @@ SELECT * FROM trunc_f;
     5
 (3 rows)
 
-SELECT * FROM trunc_fa;
+SELECT * FROM trunc_fa ORDER BY 1, 2;
  col1 | col2a 
 ------+-------
     5 | five
 (1 row)
 
-SELECT * FROM trunc_faa;
+SELECT * FROM trunc_faa ORDER BY 1, 2;
  col1 | col2a | col3 
 ------+-------+------
     5 | five  | FIVE
@@ -238,7 +238,7 @@ SELECT * FROM trunc_faa;
 
 ROLLBACK;
 BEGIN;
-SELECT * FROM trunc_f;
+SELECT * FROM trunc_f ORDER BY 1;
  col1 
 ------
     1
@@ -248,33 +248,33 @@ SELECT * FROM trunc_f;
     5
 (5 rows)
 
-SELECT * FROM trunc_fa;
+SELECT * FROM trunc_fa ORDER BY 1, 2;
  col1 | col2a 
 ------+-------
     3 | three
     5 | five
 (2 rows)
 
-SELECT * FROM trunc_faa;
+SELECT * FROM trunc_faa ORDER BY 1, 2;
  col1 | col2a | col3 
 ------+-------+------
     5 | five  | FIVE
 (1 row)
 
 TRUNCATE ONLY trunc_fb, trunc_fa;
-SELECT * FROM trunc_f;
+SELECT * FROM trunc_f ORDER BY 1;
  col1 
 ------
     1
     2
 (2 rows)
 
-SELECT * FROM trunc_fa;
+SELECT * FROM trunc_fa ORDER BY 1, 2;
  col1 | col2a 
 ------+-------
 (0 rows)
 
-SELECT * FROM trunc_faa;
+SELECT * FROM trunc_faa ORDER BY 1, 2;
  col1 | col2a | col3 
 ------+-------+------
 (0 rows)
@@ -371,7 +371,7 @@ NOTICE:  CREATE TABLE will create implicit sequence "truncate_a_id_seq" for seri
 ALTER SEQUENCE truncate_a_id1 OWNED BY truncate_a.id1;
 INSERT INTO truncate_a DEFAULT VALUES;
 INSERT INTO truncate_a DEFAULT VALUES;
-SELECT * FROM truncate_a;
+SELECT * FROM truncate_a ORDER BY id;
  id | id1 
 ----+-----
   1 |  33
@@ -381,7 +381,7 @@ SELECT * FROM truncate_a;
 TRUNCATE truncate_a;
 INSERT INTO truncate_a DEFAULT VALUES;
 INSERT INTO truncate_a DEFAULT VALUES;
-SELECT * FROM truncate_a;
+SELECT * FROM truncate_a ORDER BY id;
  id | id1 
 ----+-----
   3 |  35
@@ -391,7 +391,7 @@ SELECT * FROM truncate_a;
 TRUNCATE truncate_a RESTART IDENTITY;
 INSERT INTO truncate_a DEFAULT VALUES;
 INSERT INTO truncate_a DEFAULT VALUES;
-SELECT * FROM truncate_a;
+SELECT * FROM truncate_a ORDER BY id;
  id | id1 
 ----+-----
   1 |  33

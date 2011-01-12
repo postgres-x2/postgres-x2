@@ -51,16 +51,14 @@ COPY x (b, c, d, e) from stdin with oids delimiter ',' null 'x';
 COPY x from stdin WITH DELIMITER AS ';' NULL AS '';
 COPY x from stdin WITH DELIMITER AS ':' NULL AS E'\\X';
 -- check results of copy in
-SELECT * FROM x;
+SELECT * FROM x ORDER BY a, b;
    a   | b  |     c      |   d    |          e           
 -------+----+------------+--------+----------------------
-  9999 |    | \N         | NN     | before trigger fired
- 10000 | 21 | 31         | 41     | before trigger fired
- 10001 | 22 | 32         | 42     | before trigger fired
- 10002 | 23 | 33         | 43     | before trigger fired
- 10003 | 24 | 34         | 44     | before trigger fired
- 10004 | 25 | 35         | 45     | before trigger fired
- 10005 | 26 | 36         | 46     | before trigger fired
+     1 |  1 | stuff      | test_1 | after trigger fired
+     2 |  2 | stuff      | test_2 | after trigger fired
+     3 |  3 | stuff      | test_3 | after trigger fired
+     4 |  4 | stuff      | test_4 | after trigger fired
+     5 |  5 | stuff      | test_5 | after trigger fired
      6 |    | 45         | 80     | before trigger fired
      7 |    | x          | \x     | before trigger fired
      8 |    | ,          | \,     | before trigger fired
@@ -74,11 +72,13 @@ SELECT * FROM x;
   4006 |  6 | BackslashN | \N     | before trigger fired
   4007 |  7 | XX         | XX     | before trigger fired
   4008 |  8 | Delimiter  | :      | before trigger fired
-     1 |  1 | stuff      | test_1 | after trigger fired
-     2 |  2 | stuff      | test_2 | after trigger fired
-     3 |  3 | stuff      | test_3 | after trigger fired
-     4 |  4 | stuff      | test_4 | after trigger fired
-     5 |  5 | stuff      | test_5 | after trigger fired
+  9999 |    | \N         | NN     | before trigger fired
+ 10000 | 21 | 31         | 41     | before trigger fired
+ 10001 | 22 | 32         | 42     | before trigger fired
+ 10002 | 23 | 33         | 43     | before trigger fired
+ 10003 | 24 | 34         | 44     | before trigger fired
+ 10004 | 25 | 35         | 45     | before trigger fired
+ 10005 | 26 | 36         | 46     | before trigger fired
 (25 rows)
 
 -- COPY w/ oids on a table w/o oids should fail

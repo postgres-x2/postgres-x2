@@ -1,4 +1,4 @@
-SELECT name, setting FROM pg_settings WHERE name LIKE 'enable%';
+SELECT name, setting FROM pg_settings WHERE name LIKE 'enable%' ORDER BY name;
        name        | setting 
 -------------------+---------
  enable_bitmapscan | on
@@ -98,19 +98,19 @@ SELECT * FROM vw_getfoo;
 DROP VIEW vw_getfoo;
 DROP FUNCTION getfoo(int);
 CREATE FUNCTION getfoo(int) RETURNS setof text AS 'SELECT fooname FROM foo WHERE fooid = $1;' LANGUAGE SQL;
-SELECT * FROM getfoo(1) AS t1;
+SELECT * FROM getfoo(1) AS t1 ORDER BY 1;
  t1  
 -----
- Joe
  Ed
+ Joe
 (2 rows)
 
 CREATE VIEW vw_getfoo AS SELECT * FROM getfoo(1);
-SELECT * FROM vw_getfoo;
+SELECT * FROM vw_getfoo ORDER BY 1;
  getfoo 
 --------
- Joe
  Ed
+ Joe
 (2 rows)
 
 -- sql, proretset = f, prorettype = c
@@ -134,7 +134,7 @@ SELECT * FROM vw_getfoo;
 DROP VIEW vw_getfoo;
 DROP FUNCTION getfoo(int);
 CREATE FUNCTION getfoo(int) RETURNS setof foo AS 'SELECT * FROM foo WHERE fooid = $1;' LANGUAGE SQL;
-SELECT * FROM getfoo(1) AS t1;
+SELECT * FROM getfoo(1) AS t1 ORDER BY foosubid;
  fooid | foosubid | fooname 
 -------+----------+---------
      1 |        1 | Joe
@@ -142,7 +142,7 @@ SELECT * FROM getfoo(1) AS t1;
 (2 rows)
 
 CREATE VIEW vw_getfoo AS SELECT * FROM getfoo(1);
-SELECT * FROM vw_getfoo;
+SELECT * FROM vw_getfoo ORDER BY foosubid;
  fooid | foosubid | fooname 
 -------+----------+---------
      1 |        1 | Joe
@@ -171,7 +171,7 @@ SELECT * FROM vw_getfoo;
 DROP VIEW vw_getfoo;
 DROP FUNCTION getfoo(int);
 CREATE FUNCTION getfoo(int) RETURNS setof record AS 'SELECT * FROM foo WHERE fooid = $1;' LANGUAGE SQL;
-SELECT * FROM getfoo(1) AS t1(fooid int, foosubid int, fooname text);
+SELECT * FROM getfoo(1) AS t1(fooid int, foosubid int, fooname text) ORDER BY foosubid;
  fooid | foosubid | fooname 
 -------+----------+---------
      1 |        1 | Joe
@@ -180,7 +180,7 @@ SELECT * FROM getfoo(1) AS t1(fooid int, foosubid int, fooname text);
 
 CREATE VIEW vw_getfoo AS SELECT * FROM getfoo(1) AS
 (fooid int, foosubid int, fooname text);
-SELECT * FROM vw_getfoo;
+SELECT * FROM vw_getfoo ORDER BY foosubid;
  fooid | foosubid | fooname 
 -------+----------+---------
      1 |        1 | Joe
@@ -440,14 +440,14 @@ ERROR:  cannot change return type of existing function
 HINT:  Use DROP FUNCTION first.
 CREATE OR REPLACE FUNCTION foor(in f1 int, out f2 int, out text)
 AS $$select $1-1, $1::text || 'z'$$ LANGUAGE sql;
-SELECT f1, foor(f1) FROM int4_tbl;
+SELECT f1, foor(f1) FROM int4_tbl ORDER BY 1, 2;
      f1      |            foor            
 -------------+----------------------------
+ -2147483647 | (-2147483648,-2147483647z)
+     -123456 | (-123457,-123456z)
            0 | (-1,0z)
       123456 | (123455,123456z)
-     -123456 | (-123457,-123456z)
   2147483647 | (2147483646,2147483647z)
- -2147483647 | (-2147483648,-2147483647z)
 (5 rows)
 
 SELECT * FROM foor(42);
@@ -464,14 +464,14 @@ SELECT * FROM foor(42) AS p(a,b);
 
 CREATE OR REPLACE FUNCTION foob(in f1 int, inout f2 int, out text)
 AS $$select $2-1, $1::text || 'z'$$ LANGUAGE sql;
-SELECT f1, foob(f1, f1/2) FROM int4_tbl;
+SELECT f1, foob(f1, f1/2) FROM int4_tbl ORDER BY 1, 2;
      f1      |            foob            
 -------------+----------------------------
+ -2147483647 | (-1073741824,-2147483647z)
+     -123456 | (-61729,-123456z)
            0 | (-1,0z)
       123456 | (61727,123456z)
-     -123456 | (-61729,-123456z)
   2147483647 | (1073741822,2147483647z)
- -2147483647 | (-1073741824,-2147483647z)
 (5 rows)
 
 SELECT * FROM foob(42, 99);
@@ -536,7 +536,7 @@ DETAIL:  A function returning a polymorphic type must have at least one polymorp
 CREATE OR REPLACE FUNCTION foo()
 RETURNS TABLE(a int)
 AS $$ SELECT a FROM generate_series(1,5) a(a) $$ LANGUAGE sql;
-SELECT * FROM foo();
+SELECT * FROM foo() ORDER BY 1;
  a 
 ---
  1
@@ -552,7 +552,7 @@ RETURNS TABLE(a int, b int)
 AS $$ SELECT a, b
          FROM generate_series(1,$1) a(a),
               generate_series(1,$1) b(b) $$ LANGUAGE sql;
-SELECT * FROM foo(3);
+SELECT * FROM foo(3) ORDER BY 1, 2;
  a | b 
 ---+---
  1 | 1
@@ -587,7 +587,7 @@ select insert_tt('bar');
          2
 (1 row)
 
-select * from tt;
+select * from tt order by 1, 2;
  f1 | data 
 ----+------
   1 | foo
@@ -604,7 +604,7 @@ select insert_tt('fool');
          3
 (1 row)
 
-select * from tt;
+select * from tt order by 1, 2;
  f1 |   data   
 ----+----------
   1 | foo
@@ -624,14 +624,14 @@ select insert_tt2('foolish','barrish');
           6
 (2 rows)
 
-select * from insert_tt2('baz','quux');
+select * from insert_tt2('baz','quux') order by 1;
  insert_tt2 
 ------------
           7
           8
 (2 rows)
 
-select * from tt;
+select * from tt order by 1, 2;
  f1 |   data   
 ----+----------
   1 | foo
@@ -651,7 +651,7 @@ select insert_tt2('foolish','barrish') limit 1;
           9
 (1 row)
 
-select * from tt;
+select * from tt order by 1, 2;
  f1 |   data   
 ----+----------
   1 | foo
@@ -684,7 +684,7 @@ CONTEXT:  SQL function "insert_tt2" statement 1
          11
 (1 row)
 
-select * from tt;
+select * from tt order by 1, 2;
  f1 |   data   
 ----+----------
   1 | foo
@@ -715,7 +715,7 @@ CONTEXT:  SQL function "insert_tt2" statement 1
          13
 (1 row)
 
-select * from tt;
+select * from tt order by 1, 2;
  f1 |   data   
 ----+----------
   1 | foo
@@ -736,7 +736,7 @@ select * from tt;
 
 -- note that nextval() gets executed a second time in the rule expansion,
 -- which is expected.
-select * from tt_log;
+select * from tt_log order by 1, 2;
  f1 |  data   
 ----+---------
  15 | foollog
@@ -776,7 +776,7 @@ select array_to_set(array['one', 'two']);
  (2,two)
 (2 rows)
 
-select * from array_to_set(array['one', 'two']) as t(f1 int,f2 text);
+select * from array_to_set(array['one', 'two']) as t(f1 int,f2 text) order by 1, 2;
  f1 | f2  
 ----+-----
   1 | one
@@ -818,7 +818,7 @@ select testfoo();
  (3,4)
 (2 rows)
 
-select * from testfoo() as t(f1 int8,f2 int8);
+select * from testfoo() as t(f1 int8,f2 int8) order by 1, 2;
  f1 | f2 
 ----+----
   1 |  2

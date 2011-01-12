@@ -552,7 +552,7 @@ create function sql_if(bool, anyelement, anyelement) returns anyelement as $$
 select case when $1 then $2 else $3 end $$ language sql;
 -- Note this would fail with integer overflow, never mind wrong bleat() output,
 -- if the CASE expression were not successfully inlined
-select f1, sql_if(f1 > 0, bleat(f1), bleat(f1 + 1)) from int4_tbl;
+select f1, sql_if(f1 > 0, bleat(f1), bleat(f1 + 1)) from int4_tbl order by 1, 2;
 NOTICE:  bleat 1
 NOTICE:  bleat 123456
 NOTICE:  bleat -123455
@@ -560,21 +560,21 @@ NOTICE:  bleat 2147483647
 NOTICE:  bleat -2147483646
      f1      |   sql_if    
 -------------+-------------
+ -2147483647 | -2147483646
+     -123456 |     -123455
            0 |           1
       123456 |      123456
-     -123456 |     -123455
   2147483647 |  2147483647
- -2147483647 | -2147483646
 (5 rows)
 
-select q2, sql_if(q2 > 0, q2, q2 + 1) from int8_tbl;
+select q2, sql_if(q2 > 0, q2, q2 + 1) from int8_tbl order by 1, 2;
         q2         |      sql_if       
 -------------------+-------------------
+ -4567890123456789 | -4567890123456788
+               123 |               123
                456 |               456
   4567890123456789 |  4567890123456789
-               123 |               123
   4567890123456789 |  4567890123456789
- -4567890123456789 | -4567890123456788
 (5 rows)
 
 -- another kind of polymorphic aggregate
@@ -837,7 +837,7 @@ select dfunc();
 
 -- verify it lists properly
 \df dfunc
-                                       List of functions
+                                           List of functions
  Schema | Name  | Result data type |                    Argument data types                    |  Type  
 --------+-------+------------------+-----------------------------------------------------------+--------
  public | dfunc | integer          | a integer DEFAULT 1, OUT sum integer, b integer DEFAULT 2 | normal
@@ -1005,7 +1005,7 @@ $$ select array_upper($1, 1) $$ language sql;
 ERROR:  cannot remove parameter defaults from existing function
 HINT:  Use DROP FUNCTION first.
 \df dfunc
-                                  List of functions
+                                      List of functions
  Schema | Name  | Result data type |               Argument data types               |  Type  
 --------+-------+------------------+-------------------------------------------------+--------
  public | dfunc | integer          | VARIADIC a integer[] DEFAULT ARRAY[]::integer[] | normal

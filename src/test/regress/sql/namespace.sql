@@ -21,8 +21,8 @@ INSERT INTO test_schema_1.abc DEFAULT VALUES;
 INSERT INTO test_schema_1.abc DEFAULT VALUES;
 INSERT INTO test_schema_1.abc DEFAULT VALUES;
 
-SELECT * FROM test_schema_1.abc;
-SELECT * FROM test_schema_1.abc_view;
+SELECT * FROM test_schema_1.abc ORDER BY a;
+SELECT * FROM test_schema_1.abc_view ORDER BY a;
 
 DROP SCHEMA test_schema_1 CASCADE;
 

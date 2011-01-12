@@ -29,7 +29,7 @@ INSERT INTO guid1(guid_field) VALUES('{22222222-2222-2222-2222-222222222222}');
 INSERT INTO guid1(guid_field) VALUES('3f3e3c3b3a3039383736353433a2313e');
 
 -- retrieving the inserted data
-SELECT guid_field FROM guid1;
+SELECT guid_field FROM guid1 ORDER BY guid_field;
 
 -- ordering test
 SELECT guid_field FROM guid1 ORDER BY guid_field ASC;

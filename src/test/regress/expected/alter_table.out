@@ -138,7 +138,7 @@ ANALYZE tenk1;
 set enable_seqscan to off;
 set enable_bitmapscan to off;
 -- 5 values, sorted 
-SELECT unique1 FROM tenk1 WHERE unique1 < 5;
+SELECT unique1 FROM tenk1 WHERE unique1 < 5 ORDER BY unique1;
  unique1 
 ---------
        0
@@ -639,13 +639,13 @@ insert into def_test default values;
 alter table def_test alter column c1 set default 10;
 alter table def_test alter column c2 set default 'new_default';
 insert into def_test default values;
-select * from def_test;
+select * from def_test order by 1, 2;
  c1 |       c2        
 ----+-----------------
   5 | initial_default
+ 10 | new_default
     | initial_default
     | 
- 10 | new_default
 (4 rows)
 
 -- set defaults to an incorrect type: this should fail
@@ -667,16 +667,16 @@ alter table def_view_test alter column c1 set default 45;
 insert into def_view_test default values;
 alter table def_view_test alter column c2 set default 'view_default';
 insert into def_view_test default values;
-select * from def_view_test;
+select * from def_view_test order by 1, 2;
  c1 |       c2        
 ----+-----------------
   5 | initial_default
+ 10 | new_default
+ 45 | view_default
+ 45 | 
     | initial_default
     | 
- 10 | new_default
     | 
- 45 | 
- 45 | view_default
 (7 rows)
 
 drop rule def_view_test_ins on def_view_test;
@@ -951,7 +951,7 @@ insert into parent values (1, 2, 3);
 alter table parent drop a;
 create table child (d varchar(255)) inherits (parent);
 insert into child values (12, 13, 'testing');
-select * from parent;
+select * from parent order by b;
  b  | c  
 ----+----
   2 |  3
@@ -965,7 +965,7 @@ select * from child;
 (1 row)
 
 alter table parent drop c;
-select * from parent;
+select * from parent order by b;
  b  
 ----
   2
@@ -993,14 +993,14 @@ ERROR:  column "........pg.dropped.1........" of relation "test" does not exist
 copy test from stdin;
 ERROR:  extra data after last expected column
 CONTEXT:  COPY test, line 1: "10	11	12"
-select * from test;
+select * from test order by b;
  b | c 
 ---+---
  2 | 3
 (1 row)
 
 copy test from stdin;
-select * from test;
+select * from test order by b;
  b  | c  
 ----+----
   2 |  3
@@ -1012,7 +1012,7 @@ ERROR:  column "a" of relation "test" does not exist
 copy test("........pg.dropped.1........") from stdin;
 ERROR:  column "........pg.dropped.1........" of relation "test" does not exist
 copy test(b,c) from stdin;
-select * from test;
+select * from test order by b;
  b  | c  
 ----+----
   2 |  3
@@ -1305,7 +1305,7 @@ insert into p1 values (1,2,'abc');
 insert into c1 values(11,'xyz',33,0); -- should fail
 ERROR:  new row for relation "c1" violates check constraint "p1_a1_check"
 insert into c1 values(11,'xyz',33,22);
-select * from p1;
+select * from p1 order by f1;
  f1 | a1 | f2  
 ----+----+-----
   1 |  2 | abc
@@ -1313,7 +1313,7 @@ select * from p1;
 (2 rows)
 
 update p1 set a1 = a1 + 1, f2 = upper(f2);
-select * from p1;
+select * from p1 order by f1;
  f1 | a1 | f2  
 ----+----+-----
   1 |  3 | ABC
@@ -1327,7 +1327,7 @@ NOTICE:  drop cascades to table c1
 create domain mytype as text;
 create temp table foo (f1 text, f2 mytype, f3 text);
 insert into foo values('bb','cc','dd');
-select * from foo;
+select * from foo order by f1;
  f1 | f2 | f3 
 ----+----+----
  bb | cc | dd
@@ -1335,14 +1335,14 @@ select * from foo;
 
 drop domain mytype cascade;
 NOTICE:  drop cascades to table foo column f2
-select * from foo;
+select * from foo order by f1;
  f1 | f3 
 ----+----
  bb | dd
 (1 row)
 
 insert into foo values('qq','rr');
-select * from foo;
+select * from foo order by f1;
  f1 | f3 
 ----+----
  bb | dd
@@ -1350,7 +1350,7 @@ select * from foo;
 (2 rows)
 
 update foo set f3 = 'zz';
-select * from foo;
+select * from foo order by f1;
  f1 | f3 
 ----+----
  bb | zz
@@ -1372,7 +1372,7 @@ create table anothertab (atcol1 serial8, atcol2 boolean,
 NOTICE:  CREATE TABLE will create implicit sequence "anothertab_atcol1_seq" for serial column "anothertab.atcol1"
 insert into anothertab (atcol1, atcol2) values (default, true);
 insert into anothertab (atcol1, atcol2) values (default, false);
-select * from anothertab;
+select * from anothertab order by atcol1, atcol2;
  atcol1 | atcol2 
 --------+--------
       1 | t
@@ -1382,7 +1382,7 @@ select * from anothertab;
 alter table anothertab alter column atcol1 type boolean; -- fails
 ERROR:  column "atcol1" cannot be cast to type boolean
 alter table anothertab alter column atcol1 type integer;
-select * from anothertab;
+select * from anothertab order by atcol1, atcol2;
  atcol1 | atcol2 
 --------+--------
       1 | t
@@ -1392,7 +1392,7 @@ select * from anothertab;
 insert into anothertab (atcol1, atcol2) values (45, null); -- fails
 ERROR:  new row for relation "anothertab" violates check constraint "anothertab_chk"
 insert into anothertab (atcol1, atcol2) values (default, null);
-select * from anothertab;
+select * from anothertab order by atcol1, atcol2;
  atcol1 | atcol2 
 --------+--------
       1 | t
@@ -1404,7 +1404,7 @@ alter table anothertab alter column atcol2 type text
       using case when atcol2 is true then 'IT WAS TRUE' 
                  when atcol2 is false then 'IT WAS FALSE'
                  else 'IT WAS NULL!' end;
-select * from anothertab;
+select * from anothertab order by atcol1, atcol2;
  atcol1 |    atcol2    
 --------+--------------
       1 | IT WAS TRUE
@@ -1423,12 +1423,12 @@ HINT:  No operator matches the given name and argument type(s). You might need t
 alter table anothertab drop constraint anothertab_chk;
 alter table anothertab alter column atcol1 type boolean
         using case when atcol1 % 2 = 0 then true else false end;
-select * from anothertab;
+select * from anothertab order by atcol1, atcol2;
  atcol1 |    atcol2    
 --------+--------------
+ f      | IT WAS NULL!
  f      | IT WAS TRUE
  t      | IT WAS FALSE
- f      | IT WAS NULL!
 (3 rows)
 
 drop table anothertab;
@@ -1436,7 +1436,7 @@ create table another (f1 int, f2 text);
 insert into another values(1, 'one');
 insert into another values(2, 'two');
 insert into another values(3, 'three');
-select * from another;
+select * from another order by f1, f2;
  f1 |  f2   
 ----+-------
   1 | one
@@ -1447,12 +1447,12 @@ select * from another;
 alter table another
   alter f1 type text using f2 || ' more',
   alter f2 type bigint using f1 * 10;
-select * from another;
+select * from another order by f1, f2;
      f1     | f2 
 ------------+----
  one more   | 10
- two more   | 20
  three more | 30
+ two more   | 20
 (3 rows)
 
 drop table another;
@@ -1514,7 +1514,7 @@ alter type alter1.ctype set schema alter2;
 drop schema alter1;
 insert into alter2.t1(f2) values(13);
 insert into alter2.t1(f2) values(14);
-select * from alter2.t1;
+select * from alter2.t1 order by f1, f2;
  f1 | f2 
 ----+----
   1 | 11
@@ -1523,7 +1523,7 @@ select * from alter2.t1;
   4 | 14
 (4 rows)
 
-select * from alter2.v1;
+select * from alter2.v1 order by f1, f2;
  f1 | f2 
 ----+----
   1 | 11

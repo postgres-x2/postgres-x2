@@ -387,9 +387,9 @@ select case when $1 then $2 else $3 end $$ language sql;
 
 -- Note this would fail with integer overflow, never mind wrong bleat() output,
 -- if the CASE expression were not successfully inlined
-select f1, sql_if(f1 > 0, bleat(f1), bleat(f1 + 1)) from int4_tbl;
+select f1, sql_if(f1 > 0, bleat(f1), bleat(f1 + 1)) from int4_tbl order by 1, 2;
 
-select q2, sql_if(q2 > 0, q2, q2 + 1) from int8_tbl;
+select q2, sql_if(q2 > 0, q2, q2 + 1) from int8_tbl order by 1, 2;
 
 -- another kind of polymorphic aggregate
 

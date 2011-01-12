@@ -30,7 +30,7 @@ LINE 1: SELECT 'mauve'::rainbow;
 CREATE TABLE enumtest (col rainbow);
 INSERT INTO enumtest values ('red'), ('orange'), ('yellow'), ('green');
 COPY enumtest FROM stdin;
-SELECT * FROM enumtest;
+SELECT * FROM enumtest ORDER BY col;
   col   
 --------
  red

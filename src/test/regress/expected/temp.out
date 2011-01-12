@@ -52,7 +52,7 @@ CREATE TEMP TABLE temptest(col int) ON COMMIT DELETE ROWS;
 BEGIN;
 INSERT INTO temptest VALUES (1);
 INSERT INTO temptest VALUES (2);
-SELECT * FROM temptest;
+SELECT * FROM temptest  ORDER BY 1;
  col 
 -----
    1
@@ -86,7 +86,7 @@ BEGIN;
 CREATE TEMP TABLE temptest(col int) ON COMMIT DROP;
 INSERT INTO temptest VALUES (1);
 INSERT INTO temptest VALUES (2);
-SELECT * FROM temptest;
+SELECT * FROM temptest ORDER BY 1;
  col 
 -----
    1

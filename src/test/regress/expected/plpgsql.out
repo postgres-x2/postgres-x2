@@ -1607,15 +1607,15 @@ select test_found();
  t
 (1 row)
 
-select * from found_test_tbl;
+select * from found_test_tbl order by 1;
   a  
 -----
    2
- 100
    3
    4
    5
    6
+ 100
 (6 rows)
 
 --
@@ -1630,15 +1630,15 @@ BEGIN
 	END LOOP;
 	RETURN;
 END;' language plpgsql;
-select * from test_table_func_rec();
+select * from test_table_func_rec() order by 1;
   a  
 -----
    2
- 100
    3
    4
    5
    6
+ 100
 (6 rows)
 
 create function test_table_func_row() returns setof found_test_tbl as '
@@ -1650,15 +1650,15 @@ BEGIN
 	END LOOP;
 	RETURN;
 END;' language plpgsql;
-select * from test_table_func_row();
+select * from test_table_func_row() order by 1;
   a  
 -----
    2
- 100
    3
    4
    5
    6
+ 100
 (6 rows)
 
 create function test_ret_set_scalar(int,int) returns setof int as '
@@ -1670,7 +1670,7 @@ BEGIN
 	END LOOP;
 	RETURN;
 END;' language plpgsql;
-select * from test_ret_set_scalar(1,10);
+select * from test_ret_set_scalar(1,10) order by 1;
  test_ret_set_scalar 
 ---------------------
                    2
@@ -1700,14 +1700,14 @@ BEGIN
 	END IF;
 	RETURN;
 END;' language plpgsql;
-SELECT * FROM test_ret_set_rec_dyn(1500) AS (a int, b int, c int);
+SELECT * FROM test_ret_set_rec_dyn(1500) AS (a int, b int, c int) order by a, b, c;
  a | b  | c  
 ---+----+----
  5 | 10 | 15
  5 | 10 | 15
 (2 rows)
 
-SELECT * FROM test_ret_set_rec_dyn(5) AS (a int, b numeric, c text);
+SELECT * FROM test_ret_set_rec_dyn(5) AS (a int, b numeric, c text) order by a, b, c;
  a  | b |  c  
 ----+---+-----
  50 | 5 | xxx
@@ -1726,13 +1726,13 @@ BEGIN
 		RETURN retval;
 	END IF;
 END;' language plpgsql;
-SELECT * FROM test_ret_rec_dyn(1500) AS (a int, b int, c int);
+SELECT * FROM test_ret_rec_dyn(1500) AS (a int, b int, c int) order by a, b, c;
  a | b  | c  
 ---+----+----
  5 | 10 | 15
 (1 row)
 
-SELECT * FROM test_ret_rec_dyn(5) AS (a int, b numeric, c text);
+SELECT * FROM test_ret_rec_dyn(5) AS (a int, b numeric, c text) order by a, b, c;
  a  | b |  c  
 ----+---+-----
  50 | 5 | xxx
@@ -1792,7 +1792,7 @@ begin
   return next;
   return;
 end$$ language plpgsql;
-select * from f1(42);
+select * from f1(42) order by 1;
  j  
 ----
  43
@@ -1828,7 +1828,7 @@ begin
   k := 'foot';
   return next;
 end$$ language plpgsql;
-select * from f1(42);
+select * from f1(42) order by j, k;;
  j  |  k   
 ----+------
  43 | foo
@@ -1897,7 +1897,7 @@ SELECT perform_test_func();
  
 (1 row)
 
-SELECT * FROM perform_test;
+SELECT * FROM perform_test order by a, b;
   a  |  b  
 -----+-----
    5 |  15
@@ -2041,7 +2041,7 @@ NOTICE:  nyeah nyeah, can't stop me
 (1 row)
 
 reset statement_timeout;
-select * from foo;
+select * from foo order by 1;
  f1 
 ----
   1
@@ -2854,7 +2854,7 @@ NOTICE:  x.f1 = 7, x.f2 = 8
  
 (1 row)
 
-select * from foo;
+select * from foo order by 1, 2;
  f1 | f2 
 ----+----
   1 |  2
@@ -2949,14 +2949,14 @@ begin
   close c;
 end;
 $$ language plpgsql;
-select * from sc_test();
+select * from sc_test() order by 1;
    sc_test   
 -------------
  -2147483647
-  2147483647
      -123456
-      123456
            0
+      123456
+  2147483647
 (5 rows)
 
 create or replace function sc_test() returns setof integer as $$
@@ -2973,7 +2973,7 @@ begin
   close c;
 end;
 $$ language plpgsql;
-select * from sc_test();  -- fails because of NO SCROLL specification
+select * from sc_test() order by 1;  -- fails because of NO SCROLL specification
 ERROR:  cursor can only scan forward
 HINT:  Declare it with SCROLL option to enable backward scan.
 CONTEXT:  PL/pgSQL function "sc_test" line 6 at FETCH
@@ -2991,14 +2991,14 @@ begin
   close c;
 end;
 $$ language plpgsql;
-select * from sc_test();
+select * from sc_test() order by 1;
    sc_test   
 -------------
  -2147483647
-  2147483647
      -123456
-      123456
            0
+      123456
+  2147483647
 (5 rows)
 
 create or replace function sc_test() returns setof integer as $$
@@ -3015,7 +3015,7 @@ begin
   close c;
 end;
 $$ language plpgsql;
-select * from sc_test();
+select * from sc_test() order by 1;
    sc_test   
 -------------
  -2147483647
@@ -3042,7 +3042,7 @@ begin
   close c;
 end;
 $$ language plpgsql;
-select * from sc_test();
+select * from sc_test() order by 1;
  sc_test 
 ---------
        3
@@ -3089,9 +3089,10 @@ begin
     return next;
 end;
 $$ language plpgsql;
-select * from ret_query1();
+select * from ret_query1() order by 1, 2;
  column1 | column2 
 ---------+---------
+      -1 |      -2
       -1 |      -2
        1 |       0
        2 |      10
@@ -3104,7 +3105,6 @@ select * from ret_query1();
        9 |      80
       10 |      90
       11 |     100
-      -1 |      -2
 (13 rows)
 
 create type record_type as (x text, y int, z boolean);
@@ -3114,18 +3114,18 @@ begin
                  from generate_series(-8, lim) s (x) where s.x % 2 = 0;
 end;
 $$ language plpgsql;
-select * from ret_query2(8);
+select * from ret_query2(8) order by 1;
                 x                 | y  | z 
 ----------------------------------+----+---
- a8d2ec85eaf98407310b72eb73dda247 | -8 | f
- 596a3d04481816330f07e4f97510c28f | -6 | f
  0267aaf632e87a63288a08331f22c7c3 | -4 | f
- 5d7b9adcbe1c629ec722529dd12e5129 | -2 | f
- cfcd208495d565ef66e7dff9f98764da |  0 | f
- c81e728d9d4c2f636f067f89cc14862c |  2 | t
- a87ff679a2f3e71d9181a67b7542122c |  4 | t
  1679091c5a880faf6fb5e6087eb1b2dc |  6 | t
+ 596a3d04481816330f07e4f97510c28f | -6 | f
+ 5d7b9adcbe1c629ec722529dd12e5129 | -2 | f
+ a87ff679a2f3e71d9181a67b7542122c |  4 | t
+ a8d2ec85eaf98407310b72eb73dda247 | -8 | f
+ c81e728d9d4c2f636f067f89cc14862c |  2 | t
  c9f0f895fb98ab9159f51fd0297e236d |  8 | t
+ cfcd208495d565ef66e7dff9f98764da |  0 | f
 (9 rows)
 
 -- test EXECUTE USING
@@ -3239,7 +3239,7 @@ NOTICE:  10, 10
  
 (1 row)
 
-select * from forc_test;
+select * from forc_test order by 1, 2;
   i   | j  
 ------+----
   100 |  2
@@ -3275,7 +3275,7 @@ begin
   return query execute 'select * from (values($1),($2)) f' using 40,50;
 end;
 $$ language plpgsql;
-select * from return_dquery();
+select * from return_dquery() order by 1;
  return_dquery 
 ---------------
             10
@@ -3640,7 +3640,7 @@ begin
   return query select $1, $1+i from generate_series(1,5) g(i);
 end;
 $$ language plpgsql immutable strict;
-select * from tftest(10);
+select * from tftest(10) order by 1, 2;
  a  | b  
 ----+----
  10 | 11
@@ -3658,7 +3658,7 @@ begin
   return next;
 end;
 $$ language plpgsql immutable strict;
-select * from tftest(10);
+select * from tftest(10) order by 1, 2;
   a  |  b  
 -----+-----
   10 |  11
@@ -3684,7 +3684,7 @@ begin
   raise notice '% %', found, rc;
 end;
 $$ language plpgsql;
-select * from rttest();
+select * from rttest() order by 1;
 NOTICE:  t 2
 NOTICE:  f 0
 NOTICE:  t 2
@@ -3692,8 +3692,8 @@ NOTICE:  f 0
  rttest 
 --------
      10
-     20
      10
+     20
      20
 (4 rows)
 

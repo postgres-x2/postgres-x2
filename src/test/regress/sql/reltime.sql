@@ -24,25 +24,25 @@ INSERT INTO RELTIME_TBL (f1) VALUES ('@ 30 eons ago');
 
 -- test reltime operators
 
-SELECT '' AS six, * FROM RELTIME_TBL;
+SELECT '' AS six, * FROM RELTIME_TBL ORDER BY f1;
 
 SELECT '' AS five, * FROM RELTIME_TBL
-   WHERE RELTIME_TBL.f1 <> reltime '@ 10 days';
+   WHERE RELTIME_TBL.f1 <> reltime '@ 10 days' ORDER BY f1;
 
 SELECT '' AS three, * FROM RELTIME_TBL
-   WHERE RELTIME_TBL.f1 <= reltime '@ 5 hours';
+   WHERE RELTIME_TBL.f1 <= reltime '@ 5 hours' ORDER BY f1;
 
 SELECT '' AS three, * FROM RELTIME_TBL
-   WHERE RELTIME_TBL.f1 < reltime '@ 1 day';
+   WHERE RELTIME_TBL.f1 < reltime '@ 1 day' ORDER BY f1;
 
 SELECT '' AS one, * FROM RELTIME_TBL
-   WHERE RELTIME_TBL.f1 = reltime '@ 34 years';
+   WHERE RELTIME_TBL.f1 = reltime '@ 34 years' ORDER BY f1;
 
 SELECT '' AS two, * FROM RELTIME_TBL
-   WHERE RELTIME_TBL.f1 >= reltime '@ 1 month';
+   WHERE RELTIME_TBL.f1 >= reltime '@ 1 month' ORDER BY f1;
 
 SELECT '' AS five, * FROM RELTIME_TBL
-   WHERE RELTIME_TBL.f1 > reltime '@ 3 seconds ago';
+   WHERE RELTIME_TBL.f1 > reltime '@ 3 seconds ago' ORDER BY f1;
 
 SELECT '' AS fifteen, r1.*, r2.*
    FROM RELTIME_TBL r1, RELTIME_TBL r2

@@ -11,11 +11,11 @@ INSERT INTO serialTest VALUES ('force', 100);
 INSERT INTO serialTest VALUES ('wrong', NULL);
 ERROR:  null value in column "f2" violates not-null constraint
  
-SELECT * FROM serialTest;
+SELECT * FROM serialTest ORDER BY f1, f2;
   f1   | f2  
 -------+-----
- foo   |   1
  bar   |   2
+ foo   |   1
  force | 100
 (3 rows)
 
@@ -126,11 +126,11 @@ DROP SEQUENCE foo_seq_new;
 -- renaming serial sequences
 ALTER TABLE serialtest_f2_seq RENAME TO serialtest_f2_foo;
 INSERT INTO serialTest VALUES ('more');
-SELECT * FROM serialTest;
+SELECT * FROM serialTest ORDER BY f1, f2;
   f1   | f2  
 -------+-----
- foo   |   1
  bar   |   2
+ foo   |   1
  force | 100
  more  |   3
 (4 rows)

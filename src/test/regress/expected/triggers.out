@@ -153,7 +153,7 @@ create trigger ttserial
 insert into tttest values (1, 1, null);
 insert into tttest values (2, 2, null);
 insert into tttest values (3, 3, 0);
-select * from tttest;
+select * from tttest order by 1,2,3,4;
  price_id | price_val | price_on | price_off 
 ----------+-----------+----------+-----------
         1 |         1 |       10 |    999999
@@ -162,17 +162,17 @@ select * from tttest;
 (3 rows)
 
 delete from tttest where price_id = 2;
-select * from tttest;
+select * from tttest order by 1,2,3,4;
  price_id | price_val | price_on | price_off 
 ----------+-----------+----------+-----------
         1 |         1 |       10 |    999999
-        3 |         3 |       30 |    999999
         2 |         2 |       20 |        40
+        3 |         3 |       30 |    999999
 (3 rows)
 
 -- what do we see ?
 -- get current prices
-select * from tttest where price_off = 999999;
+select * from tttest where price_off = 999999 order by 1,2,3,4;
  price_id | price_val | price_on | price_off 
 ----------+-----------+----------+-----------
         1 |         1 |       10 |    999999
@@ -181,26 +181,26 @@ select * from tttest where price_off = 999999;
 
 -- change price for price_id == 3
 update tttest set price_val = 30 where price_id = 3;
-select * from tttest;
+select * from tttest order by 1,2,3,4;
  price_id | price_val | price_on | price_off 
 ----------+-----------+----------+-----------
         1 |         1 |       10 |    999999
         2 |         2 |       20 |        40
-        3 |        30 |       50 |    999999
         3 |         3 |       30 |        50
+        3 |        30 |       50 |    999999
 (4 rows)
 
 -- now we want to change pric_id in ALL tuples
 -- this gets us not what we need
 update tttest set price_id = 5 where price_id = 3;
-select * from tttest;
+select * from tttest order by 1,2,3,4;
  price_id | price_val | price_on | price_off 
 ----------+-----------+----------+-----------
         1 |         1 |       10 |    999999
         2 |         2 |       20 |        40
         3 |         3 |       30 |        50
-        5 |        30 |       60 |    999999
         3 |        30 |       50 |        60
+        5 |        30 |       60 |    999999
 (5 rows)
 
 -- restore data as before last update:
@@ -212,7 +212,7 @@ select set_ttdummy(0);
 
 delete from tttest where price_id = 5;
 update tttest set price_off = 999999 where price_val = 30;
-select * from tttest;
+select * from tttest order by 1,2,3,4;
  price_id | price_val | price_on | price_off 
 ----------+-----------+----------+-----------
         1 |         1 |       10 |    999999
@@ -223,7 +223,7 @@ select * from tttest;
 
 -- and try change price_id now!
 update tttest set price_id = 5 where price_id = 3;
-select * from tttest;
+select * from tttest order by 1,2,3,4;
  price_id | price_val | price_on | price_off 
 ----------+-----------+----------+-----------
         1 |         1 |       10 |    999999
@@ -251,18 +251,18 @@ select set_ttdummy(0);
 (1 row)
 
 update tttest set price_on = -1 where price_id = 1;
-select * from tttest;
+select * from tttest order by 1,2,3,4;
  price_id | price_val | price_on | price_off 
 ----------+-----------+----------+-----------
+        1 |         1 |       -1 |    999999
         2 |         2 |       20 |        40
         5 |         3 |       30 |        50
         5 |        30 |       50 |    999999
-        1 |         1 |       -1 |    999999
 (4 rows)
 
 -- isn't it what we need ?
 -- get price for price_id == 5 as it was @ "date" 35
-select * from tttest where price_on <= 35 and price_off > 35 and price_id = 5;
+select * from tttest where price_on <= 35 and price_off > 35 and price_id = 5 order by 1,2,3,4;
  price_id | price_val | price_on | price_off 
 ----------+-----------+----------+-----------
         5 |         3 |       30 |        50
@@ -360,7 +360,7 @@ insert into trigtest2 values(1);
 insert into trigtest2 values(2);
 delete from trigtest where i=2;
 NOTICE:  trigtest DELETE AFTER STATEMENT
-select * from trigtest2;
+select * from trigtest2 order by 1;
  i 
 ---
  1
@@ -368,7 +368,7 @@ select * from trigtest2;
 
 alter table trigtest disable trigger all;
 delete from trigtest where i=1;
-select * from trigtest2;
+select * from trigtest2 order by 1;
  i 
 ---
  1
@@ -376,7 +376,7 @@ select * from trigtest2;
 
 -- ensure we still insert, even when all triggers are disabled
 insert into trigtest default values;
-select *  from trigtest;
+select *  from trigtest order by 1;
  i 
 ---
  3
@@ -568,14 +568,14 @@ UPDATE 2
 UPDATE min_updates_test_oids SET f3 = 2 WHERE f3 is null;
 UPDATE 1
 \set QUIET true
-SELECT * FROM min_updates_test;
+SELECT * FROM min_updates_test ORDER BY 1,2,3;
  f1 | f2 | f3 
 ----+----+----
  a  |  2 |  2
  b  |  3 |  2
 (2 rows)
 
-SELECT * FROM min_updates_test_oids;
+SELECT * FROM min_updates_test_oids ORDER BY 1,2,3;
  f1 | f2 | f3 
 ----+----+----
  a  |  2 |  2

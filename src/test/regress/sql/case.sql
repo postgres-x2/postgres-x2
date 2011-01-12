@@ -77,13 +77,15 @@ SELECT '' AS "Five",
   CASE
     WHEN i >= 3 THEN i
   END AS ">= 3 or Null"
-  FROM CASE_TBL;
+  FROM CASE_TBL 
+  ORDER BY 2;
 
 SELECT '' AS "Five",
   CASE WHEN i >= 3 THEN (i + i)
        ELSE i
   END AS "Simplest Math"
-  FROM CASE_TBL;
+  FROM CASE_TBL 
+  ORDER BY 2;
 
 SELECT '' AS "Five", i AS "Value",
   CASE WHEN (i < 0) THEN 'small'
@@ -92,7 +94,8 @@ SELECT '' AS "Five", i AS "Value",
        WHEN (i = 2) THEN 'two'
        ELSE 'big'
   END AS "Category"
-  FROM CASE_TBL;
+  FROM CASE_TBL 
+  ORDER BY 2, 3;
 
 SELECT '' AS "Five",
   CASE WHEN ((i < 0) or (i < 0)) THEN 'small'
@@ -101,7 +104,8 @@ SELECT '' AS "Five",
        WHEN ((i = 2) or (i = 2)) THEN 'two'
        ELSE 'big'
   END AS "Category"
-  FROM CASE_TBL;
+  FROM CASE_TBL
+  ORDER BY 2;
 
 --
 -- Examples of qualifications involving tables
@@ -118,19 +122,23 @@ SELECT * FROM CASE_TBL WHERE COALESCE(f,i) = 4;
 SELECT * FROM CASE_TBL WHERE NULLIF(f,i) = 2;
 
 SELECT COALESCE(a.f, b.i, b.j)
-  FROM CASE_TBL a, CASE2_TBL b;
+  FROM CASE_TBL a, CASE2_TBL b 
+  ORDER BY coalesce;
 
 SELECT *
   FROM CASE_TBL a, CASE2_TBL b
-  WHERE COALESCE(a.f, b.i, b.j) = 2;
+  WHERE COALESCE(a.f, b.i, b.j) = 2 
+  ORDER BY a.i, a.f, b.i, b.j;
 
 SELECT '' AS Five, NULLIF(a.i,b.i) AS "NULLIF(a.i,b.i)",
   NULLIF(b.i, 4) AS "NULLIF(b.i,4)"
-  FROM CASE_TBL a, CASE2_TBL b;
+  FROM CASE_TBL a, CASE2_TBL b 
+  ORDER BY 2, 3;
 
 SELECT '' AS "Two", *
   FROM CASE_TBL a, CASE2_TBL b
-  WHERE COALESCE(f,b.i) = 2;
+  WHERE COALESCE(f,b.i) = 2 
+  ORDER BY a.i, a.f, b.i, b.j;
 
 --
 -- Examples of updates involving tables
@@ -140,13 +148,13 @@ UPDATE CASE_TBL
   SET i = CASE WHEN i >= 3 THEN (- i)
                 ELSE (2 * i) END;
 
-SELECT * FROM CASE_TBL;
+SELECT * FROM CASE_TBL ORDER BY i, f;
 
 UPDATE CASE_TBL
   SET i = CASE WHEN i >= 2 THEN (2 * i)
                 ELSE (3 * i) END;
 
-SELECT * FROM CASE_TBL;
+SELECT * FROM CASE_TBL ORDER BY i, f;
 
 UPDATE CASE_TBL
   SET i = CASE WHEN b.i >= 2 THEN (2 * j)
@@ -154,7 +162,7 @@ UPDATE CASE_TBL
   FROM CASE2_TBL b
   WHERE j = -CASE_TBL.i;
 
-SELECT * FROM CASE_TBL;
+SELECT * FROM CASE_TBL ORDER BY i, f;
 
 --
 -- Clean up

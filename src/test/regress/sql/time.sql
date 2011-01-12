@@ -20,15 +20,15 @@ INSERT INTO TIME_TBL VALUES ('2003-07-07 15:36:39 America/New_York');
 INSERT INTO TIME_TBL VALUES ('15:36:39 America/New_York');
 
 
-SELECT f1 AS "Time" FROM TIME_TBL;
+SELECT f1 AS "Time" FROM TIME_TBL ORDER BY f1;
 
-SELECT f1 AS "Three" FROM TIME_TBL WHERE f1 < '05:06:07';
+SELECT f1 AS "Three" FROM TIME_TBL WHERE f1 < '05:06:07' ORDER BY f1;
 
-SELECT f1 AS "Five" FROM TIME_TBL WHERE f1 > '05:06:07';
+SELECT f1 AS "Five" FROM TIME_TBL WHERE f1 > '05:06:07' ORDER BY f1;
 
-SELECT f1 AS "None" FROM TIME_TBL WHERE f1 < '00:00';
+SELECT f1 AS "None" FROM TIME_TBL WHERE f1 < '00:00' ORDER BY f1;
 
-SELECT f1 AS "Eight" FROM TIME_TBL WHERE f1 >= '00:00';
+SELECT f1 AS "Eight" FROM TIME_TBL WHERE f1 >= '00:00' ORDER BY f1;
 
 --
 -- TIME simple math
@@ -39,4 +39,4 @@ SELECT f1 AS "Eight" FROM TIME_TBL WHERE f1 >= '00:00';
 -- and do the rest of the testing in horology.sql
 -- where we do mixed-type arithmetic. - thomas 2000-12-02
 
-SELECT f1 + time '00:01' AS "Illegal" FROM TIME_TBL;
+SELECT f1 + time '00:01' AS "Illegal" FROM TIME_TBL ORDER BY f1;

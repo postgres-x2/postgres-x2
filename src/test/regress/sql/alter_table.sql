@@ -177,7 +177,7 @@ ANALYZE tenk1;
 set enable_seqscan to off;
 set enable_bitmapscan to off;
 -- 5 values, sorted 
-SELECT unique1 FROM tenk1 WHERE unique1 < 5;
+SELECT unique1 FROM tenk1 WHERE unique1 < 5 ORDER BY unique1;
 reset enable_seqscan;
 reset enable_bitmapscan;
 
@@ -617,7 +617,7 @@ insert into def_test default values;
 alter table def_test alter column c1 set default 10;
 alter table def_test alter column c2 set default 'new_default';
 insert into def_test default values;
-select * from def_test;
+select * from def_test order by 1, 2;
 
 -- set defaults to an incorrect type: this should fail
 alter table def_test alter column c1 set default 'wrong_datatype';
@@ -638,7 +638,7 @@ alter table def_view_test alter column c1 set default 45;
 insert into def_view_test default values;
 alter table def_view_test alter column c2 set default 'view_default';
 insert into def_view_test default values;
-select * from def_view_test;
+select * from def_view_test order by 1, 2;
 
 drop rule def_view_test_ins on def_view_test;
 drop view def_view_test;
@@ -774,10 +774,10 @@ alter table parent drop a;
 create table child (d varchar(255)) inherits (parent);
 insert into child values (12, 13, 'testing');
 
-select * from parent;
+select * from parent order by b;
 select * from child;
 alter table parent drop c;
-select * from parent;
+select * from parent order by b;
 select * from child;
 
 drop table child;
@@ -793,17 +793,17 @@ copy test("........pg.dropped.1........") to stdout;
 copy test from stdin;
 10	11	12
 \.
-select * from test;
+select * from test order by b;
 copy test from stdin;
 21	22
 \.
-select * from test;
+select * from test order by b;
 copy test(a) from stdin;
 copy test("........pg.dropped.1........") from stdin;
 copy test(b,c) from stdin;
 31	32
 \.
-select * from test;
+select * from test order by b;
 drop table test;
 
 -- test inheritance
@@ -1000,9 +1000,9 @@ insert into p1 values (1,2,'abc');
 insert into c1 values(11,'xyz',33,0); -- should fail
 insert into c1 values(11,'xyz',33,22);
 
-select * from p1;
+select * from p1 order by f1;
 update p1 set a1 = a1 + 1, f2 = upper(f2);
-select * from p1;
+select * from p1 order by f1;
 
 drop table p1 cascade;
 
@@ -1013,15 +1013,15 @@ create domain mytype as text;
 create temp table foo (f1 text, f2 mytype, f3 text);
 
 insert into foo values('bb','cc','dd');
-select * from foo;
+select * from foo order by f1;
 
 drop domain mytype cascade;
 
-select * from foo;
+select * from foo order by f1;
 insert into foo values('qq','rr');
-select * from foo;
+select * from foo order by f1;
 update foo set f3 = 'zz';
-select * from foo;
+select * from foo order by f1;
 select f3,max(f1) from foo group by f3;
 
 -- Simple tests for alter table column type
@@ -1033,24 +1033,24 @@ create table anothertab (atcol1 serial8, atcol2 boolean,
 
 insert into anothertab (atcol1, atcol2) values (default, true);
 insert into anothertab (atcol1, atcol2) values (default, false);
-select * from anothertab;
+select * from anothertab order by atcol1, atcol2;
 
 alter table anothertab alter column atcol1 type boolean; -- fails
 alter table anothertab alter column atcol1 type integer;
 
-select * from anothertab;
+select * from anothertab order by atcol1, atcol2;
 
 insert into anothertab (atcol1, atcol2) values (45, null); -- fails
 insert into anothertab (atcol1, atcol2) values (default, null);
 
-select * from anothertab;
+select * from anothertab order by atcol1, atcol2;
 
 alter table anothertab alter column atcol2 type text
       using case when atcol2 is true then 'IT WAS TRUE' 
                  when atcol2 is false then 'IT WAS FALSE'
                  else 'IT WAS NULL!' end;
 
-select * from anothertab;
+select * from anothertab order by atcol1, atcol2;
 alter table anothertab alter column atcol1 type boolean
         using case when atcol1 % 2 = 0 then true else false end; -- fails
 alter table anothertab alter column atcol1 drop default;
@@ -1061,7 +1061,7 @@ alter table anothertab drop constraint anothertab_chk;
 alter table anothertab alter column atcol1 type boolean
         using case when atcol1 % 2 = 0 then true else false end;
 
-select * from anothertab;
+select * from anothertab order by atcol1, atcol2;
 
 drop table anothertab;
 
@@ -1071,13 +1071,13 @@ insert into another values(1, 'one');
 insert into another values(2, 'two');
 insert into another values(3, 'three');
 
-select * from another;
+select * from another order by f1, f2;
 
 alter table another
   alter f1 type text using f2 || ' more',
   alter f2 type bigint using f1 * 10;
 
-select * from another;
+select * from another order by f1, f2;
 
 drop table another;
 
@@ -1130,9 +1130,9 @@ drop schema alter1;
 insert into alter2.t1(f2) values(13);
 insert into alter2.t1(f2) values(14);
 
-select * from alter2.t1;
+select * from alter2.t1 order by f1, f2;
 
-select * from alter2.v1;
+select * from alter2.v1 order by f1, f2;
 
 select alter2.plus1(41);
 

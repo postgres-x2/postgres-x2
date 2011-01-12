@@ -101,7 +101,7 @@ RESET standard_conforming_strings;
 -- test conversions between various string types
 -- E021-10 implicit casting among the character data types
 --
-SELECT CAST(f1 AS text) AS "text(char)" FROM CHAR_TBL;
+SELECT CAST(f1 AS text) AS "text(char)" FROM CHAR_TBL ORDER BY f1;
  text(char) 
 ------------
  a
@@ -110,7 +110,7 @@ SELECT CAST(f1 AS text) AS "text(char)" FROM CHAR_TBL;
  abcd
 (4 rows)
 
-SELECT CAST(f1 AS text) AS "text(varchar)" FROM VARCHAR_TBL;
+SELECT CAST(f1 AS text) AS "text(varchar)" FROM VARCHAR_TBL ORDER BY f1;
  text(varchar) 
 ---------------
  a
@@ -126,7 +126,7 @@ SELECT CAST(name 'namefield' AS text) AS "text(name)";
 (1 row)
 
 -- since this is an explicit cast, it should truncate w/o error:
-SELECT CAST(f1 AS char(10)) AS "char(text)" FROM TEXT_TBL;
+SELECT CAST(f1 AS char(10)) AS "char(text)" FROM TEXT_TBL ORDER BY f1;
  char(text) 
 ------------
  doh!      
@@ -134,14 +134,14 @@ SELECT CAST(f1 AS char(10)) AS "char(text)" FROM TEXT_TBL;
 (2 rows)
 
 -- note: implicit-cast case is tested in char.sql
-SELECT CAST(f1 AS char(20)) AS "char(text)" FROM TEXT_TBL;
+SELECT CAST(f1 AS char(20)) AS "char(text)" FROM TEXT_TBL ORDER BY f1;
       char(text)      
 ----------------------
  doh!                
  hi de ho neighbor   
 (2 rows)
 
-SELECT CAST(f1 AS char(10)) AS "char(varchar)" FROM VARCHAR_TBL;
+SELECT CAST(f1 AS char(10)) AS "char(varchar)" FROM VARCHAR_TBL ORDER BY f1;
  char(varchar) 
 ---------------
  a         
@@ -156,14 +156,14 @@ SELECT CAST(name 'namefield' AS char(10)) AS "char(name)";
  namefield 
 (1 row)
 
-SELECT CAST(f1 AS varchar) AS "varchar(text)" FROM TEXT_TBL;
+SELECT CAST(f1 AS varchar) AS "varchar(text)" FROM TEXT_TBL ORDER BY f1;
    varchar(text)   
 -------------------
  doh!
  hi de ho neighbor
 (2 rows)
 
-SELECT CAST(f1 AS varchar) AS "varchar(char)" FROM CHAR_TBL;
+SELECT CAST(f1 AS varchar) AS "varchar(char)" FROM CHAR_TBL ORDER BY f1;
  varchar(char) 
 ---------------
  a

@@ -39,7 +39,7 @@ WITH RECURSIVE t(n) AS (
 UNION ALL
     SELECT n+1 FROM t WHERE n < 5
 )
-SELECT * FROM t;
+SELECT * FROM t ORDER BY n;
  n 
 ---
  1
@@ -54,7 +54,7 @@ WITH RECURSIVE t(n) AS (
     SELECT 1
 UNION
     SELECT 10-n FROM t)
-SELECT * FROM t;
+SELECT * FROM t ORDER BY n;
  n 
 ---
  1
@@ -66,7 +66,7 @@ WITH RECURSIVE t(n) AS (
     VALUES (1)
 UNION ALL
     SELECT n+1 FROM t)
-SELECT * FROM t LIMIT 10;
+SELECT * FROM t LIMIT 10 ;
  n  
 ----
   1
@@ -86,7 +86,7 @@ WITH RECURSIVE t(n) AS (
     SELECT 1
 UNION
     SELECT n+1 FROM t)
-SELECT * FROM t LIMIT 10;
+SELECT * FROM t  LIMIT 10;
  n  
 ----
   1
@@ -114,7 +114,7 @@ WITH RECURSIVE t(n) AS (
 UNION ALL
     SELECT n || ' bar' FROM t WHERE length(n) < 20
 )
-SELECT n, n IS OF (text) as is_text FROM t;
+SELECT n, n IS OF (text) as is_text FROM t ORDER BY n;
             n            | is_text 
 -------------------------+---------
  foo                     | t
@@ -294,7 +294,7 @@ SELECT pg_get_viewdef('vsubdepartment'::regclass, true);
 
 -- corner case in which sub-WITH gets initialized first
 with recursive q as (
-      select * from department
+      (select * from department order by id)
     union all
       (with x as (select * from q)
        select * from x)
@@ -329,7 +329,7 @@ select * from q limit 24;
 (24 rows)
 
 with recursive q as (
-      select * from department
+      (select * from department order by id)
     union all
       (with recursive x as (
            select * from department
@@ -382,7 +382,7 @@ WITH RECURSIVE t(i,j) AS (
 	SELECT t2.i, t.j+1 FROM
 		(SELECT 2 AS i UNION ALL SELECT 3 AS i) AS t2
 		JOIN t ON (t2.i = t.i+1))
-	SELECT * FROM t;
+	SELECT * FROM t order by i;
  i | j 
 ---+---
  1 | 2
@@ -459,7 +459,7 @@ UNION ALL
     FROM tree JOIN t ON (tree.parent_id = t.id)
 )
 SELECT t1.id, t2.path, t2 FROM t AS t1 JOIN t AS t2 ON
-(t1.id=t2.id);
+(t1.id=t2.id) ORDER BY id;
  id |    path     |         t2         
 ----+-------------+--------------------
   1 | {}          | (1,{})
@@ -498,34 +498,34 @@ with recursive search_graph(f, t, label, path, cycle) as (
 	from graph g, search_graph sg
 	where g.f = sg.t and not cycle
 )
-select * from search_graph;
+select * from search_graph order by path;
  f | t |   label    |                   path                    | cycle 
 ---+---+------------+-------------------------------------------+-------
  1 | 2 | arc 1 -> 2 | {"(1,2)"}                                 | f
- 1 | 3 | arc 1 -> 3 | {"(1,3)"}                                 | f
- 2 | 3 | arc 2 -> 3 | {"(2,3)"}                                 | f
- 1 | 4 | arc 1 -> 4 | {"(1,4)"}                                 | f
- 4 | 5 | arc 4 -> 5 | {"(4,5)"}                                 | f
- 5 | 1 | arc 5 -> 1 | {"(5,1)"}                                 | f
- 1 | 2 | arc 1 -> 2 | {"(5,1)","(1,2)"}                         | f
- 1 | 3 | arc 1 -> 3 | {"(5,1)","(1,3)"}                         | f
- 1 | 4 | arc 1 -> 4 | {"(5,1)","(1,4)"}                         | f
  2 | 3 | arc 2 -> 3 | {"(1,2)","(2,3)"}                         | f
+ 1 | 3 | arc 1 -> 3 | {"(1,3)"}                                 | f
+ 1 | 4 | arc 1 -> 4 | {"(1,4)"}                                 | f
  4 | 5 | arc 4 -> 5 | {"(1,4)","(4,5)"}                         | f
- 5 | 1 | arc 5 -> 1 | {"(4,5)","(5,1)"}                         | f
- 1 | 2 | arc 1 -> 2 | {"(4,5)","(5,1)","(1,2)"}                 | f
- 1 | 3 | arc 1 -> 3 | {"(4,5)","(5,1)","(1,3)"}                 | f
- 1 | 4 | arc 1 -> 4 | {"(4,5)","(5,1)","(1,4)"}                 | f
- 2 | 3 | arc 2 -> 3 | {"(5,1)","(1,2)","(2,3)"}                 | f
- 4 | 5 | arc 4 -> 5 | {"(5,1)","(1,4)","(4,5)"}                 | f
  5 | 1 | arc 5 -> 1 | {"(1,4)","(4,5)","(5,1)"}                 | f
  1 | 2 | arc 1 -> 2 | {"(1,4)","(4,5)","(5,1)","(1,2)"}         | f
+ 2 | 3 | arc 2 -> 3 | {"(1,4)","(4,5)","(5,1)","(1,2)","(2,3)"} | f
  1 | 3 | arc 1 -> 3 | {"(1,4)","(4,5)","(5,1)","(1,3)"}         | f
  1 | 4 | arc 1 -> 4 | {"(1,4)","(4,5)","(5,1)","(1,4)"}         | t
+ 2 | 3 | arc 2 -> 3 | {"(2,3)"}                                 | f
+ 4 | 5 | arc 4 -> 5 | {"(4,5)"}                                 | f
+ 5 | 1 | arc 5 -> 1 | {"(4,5)","(5,1)"}                         | f
+ 1 | 2 | arc 1 -> 2 | {"(4,5)","(5,1)","(1,2)"}                 | f
  2 | 3 | arc 2 -> 3 | {"(4,5)","(5,1)","(1,2)","(2,3)"}         | f
+ 1 | 3 | arc 1 -> 3 | {"(4,5)","(5,1)","(1,3)"}                 | f
+ 1 | 4 | arc 1 -> 4 | {"(4,5)","(5,1)","(1,4)"}                 | f
  4 | 5 | arc 4 -> 5 | {"(4,5)","(5,1)","(1,4)","(4,5)"}         | t
+ 5 | 1 | arc 5 -> 1 | {"(5,1)"}                                 | f
+ 1 | 2 | arc 1 -> 2 | {"(5,1)","(1,2)"}                         | f
+ 2 | 3 | arc 2 -> 3 | {"(5,1)","(1,2)","(2,3)"}                 | f
+ 1 | 3 | arc 1 -> 3 | {"(5,1)","(1,3)"}                         | f
+ 1 | 4 | arc 1 -> 4 | {"(5,1)","(1,4)"}                         | f
+ 4 | 5 | arc 4 -> 5 | {"(5,1)","(1,4)","(4,5)"}                 | f
  5 | 1 | arc 5 -> 1 | {"(5,1)","(1,4)","(4,5)","(5,1)"}         | t
- 2 | 3 | arc 2 -> 3 | {"(1,4)","(4,5)","(5,1)","(1,2)","(2,3)"} | f
 (25 rows)
 
 -- ordering by the path column has same effect as SEARCH DEPTH FIRST
@@ -572,7 +572,7 @@ select * from search_graph order by path;
 WITH RECURSIVE
   y (id) AS (VALUES (1)),
   x (id) AS (SELECT * FROM y UNION ALL SELECT id+1 FROM x WHERE id < 5)
-SELECT * FROM x;
+SELECT * FROM x ORDER BY id;
  id 
 ----
   1
@@ -586,7 +586,7 @@ SELECT * FROM x;
 WITH RECURSIVE
     x(id) AS (SELECT * FROM y UNION ALL SELECT id+1 FROM x WHERE id < 5),
     y(id) AS (values (1))
- SELECT * FROM x;
+ SELECT * FROM x ORDER BY id;
  id 
 ----
   1
@@ -601,7 +601,7 @@ WITH RECURSIVE
      (VALUES (1) UNION ALL SELECT id+1 FROM x WHERE id < 5),
    y(id) AS
      (VALUES (1) UNION ALL SELECT id+1 FROM y WHERE id < 10)
- SELECT y.*, x.* FROM y LEFT JOIN x USING (id);
+ SELECT y.*, x.* FROM y LEFT JOIN x USING (id) ORDER BY 1;
  id | id 
 ----+----
   1 |  1
@@ -621,7 +621,7 @@ WITH RECURSIVE
      (VALUES (1) UNION ALL SELECT id+1 FROM x WHERE id < 5),
    y(id) AS
      (VALUES (1) UNION ALL SELECT id+1 FROM x WHERE id < 10)
- SELECT y.*, x.* FROM y LEFT JOIN x USING (id);
+ SELECT y.*, x.* FROM y LEFT JOIN x USING (id) ORDER BY 1;
  id | id 
 ----+----
   1 |  1
@@ -639,34 +639,34 @@ WITH RECURSIVE
      (SELECT * FROM x UNION ALL SELECT * FROM x),
    z(id) AS
      (SELECT * FROM x UNION ALL SELECT id+1 FROM z WHERE id < 10)
- SELECT * FROM z;
+ SELECT * FROM z ORDER BY id;
  id 
 ----
   1
   2
-  3
   2
   3
-  4
+  3
   3
   4
-  5
+  4
   4
   5
-  6
+  5
   5
   6
-  7
+  6
   6
   7
-  8
+  7
   7
   8
-  9
+  8
   8
   9
- 10
   9
+  9
+ 10
  10
  10
 (27 rows)
@@ -678,60 +678,60 @@ WITH RECURSIVE
      (SELECT * FROM x UNION ALL SELECT * FROM x),
    z(id) AS
      (SELECT * FROM y UNION ALL SELECT id+1 FROM z WHERE id < 10)
- SELECT * FROM z;
+ SELECT * FROM z ORDER BY id;
  id 
 ----
   1
-  2
-  3
   1
   2
-  3
+  2
+  2
   2
   3
-  4
-  2
+  3
+  3
+  3
+  3
   3
   4
-  3
+  4
+  4
+  4
+  4
   4
   5
-  3
-  4
   5
-  4
+  5
+  5
+  5
   5
   6
-  4
-  5
   6
-  5
+  6
+  6
+  6
   6
   7
-  5
-  6
   7
-  6
+  7
+  7
+  7
   7
   8
-  6
-  7
   8
-  7
+  8
+  8
+  8
   8
   9
-  7
-  8
   9
-  8
+  9
+  9
+  9
   9
  10
-  8
-  9
  10
-  9
  10
-  9
  10
  10
  10

@@ -24,7 +24,7 @@ COPY enumtest FROM stdin;
 blue
 purple
 \.
-SELECT * FROM enumtest;
+SELECT * FROM enumtest ORDER BY col;
 
 --
 -- Operators, no index

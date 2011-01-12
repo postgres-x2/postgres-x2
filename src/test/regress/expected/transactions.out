@@ -31,13 +31,13 @@ SELECT oid FROM pg_class WHERE relname = 'disappear';
 (0 rows)
 
 -- should have members again 
-SELECT * FROM aggtest;
+SELECT * FROM aggtest order by a, b;
   a  |    b    
 -----+---------
-  56 |     7.8
- 100 |  99.097
    0 | 0.09561
   42 |  324.78
+  56 |     7.8
+ 100 |  99.097
 (4 rows)
 
 -- Read-only tests
@@ -126,14 +126,14 @@ LINE 1: INSERT into bar VALUES (1);
 	RELEASE SAVEPOINT three;
 	INSERT INTO foo VALUES (3);
 COMMIT;
-SELECT * FROM foo;		-- should have 1 and 3
+SELECT * FROM foo ORDER BY a;		-- should have 1 and 3
  a 
 ---
  1
  3
 (2 rows)
 
-SELECT * FROM barbaz;	-- should have 1
+SELECT * FROM barbaz ORDER BY a;	-- should have 1
  a 
 ---
  1
@@ -160,7 +160,7 @@ LINE 1: SELECT foo;
 COMMIT;
 COMMIT;		-- should not be in a transaction block
 WARNING:  there is no transaction in progress
-SELECT * FROM savepoints;
+SELECT * FROM savepoints ORDER BY 1;
  a 
 ---
  1
@@ -180,7 +180,7 @@ ROLLBACK;
 COMMIT;		-- should not be in a transaction block
 WARNING:  there is no transaction in progress
 		
-SELECT * FROM savepoints;
+SELECT * FROM savepoints ORDER BY 1;
  a 
 ---
  1
@@ -197,7 +197,7 @@ ERROR:  column "foo" does not exist
 LINE 1: SELECT foo;
                ^
 COMMIT;
-SELECT * FROM savepoints;
+SELECT * FROM savepoints ORDER BY a;
  a 
 ---
  1
@@ -232,7 +232,7 @@ BEGIN;
 	ROLLBACK TO SAVEPOINT one;
 		INSERT INTO savepoints VALUES (11);
 COMMIT;
-SELECT a FROM savepoints WHERE a in (9, 10, 11);
+SELECT a FROM savepoints WHERE a in (9, 10, 11) ORDER BY a;
  a  
 ----
   9
@@ -259,7 +259,7 @@ BEGIN;
 			SAVEPOINT three;
 				INSERT INTO savepoints VALUES (17);
 COMMIT;
-SELECT a FROM savepoints WHERE a BETWEEN 12 AND 17;
+SELECT a FROM savepoints WHERE a BETWEEN 12 AND 17 ORDER BY a;
  a  
 ----
  12
@@ -279,7 +279,7 @@ BEGIN;
 	ROLLBACK TO SAVEPOINT one;
 		INSERT INTO savepoints VALUES (22);
 COMMIT;
-SELECT a FROM savepoints WHERE a BETWEEN 18 AND 22;
+SELECT a FROM savepoints WHERE a BETWEEN 18 AND 22 ORDER BY a;
  a  
 ----
  18
@@ -388,13 +388,13 @@ COMMIT;
 -- also check that they don't see commits of concurrent transactions, but
 -- that's a mite hard to do within the limitations of pg_regress.)
 --
-select * from xacttest;
+select * from xacttest order by a, b;
   a  |    b    
 -----+---------
-  56 |     7.8
- 100 |  99.097
    0 | 0.09561
   42 |  324.78
+  56 |     7.8
+ 100 |  99.097
  777 | 777.777
 (5 rows)
 
@@ -402,7 +402,7 @@ create or replace function max_xacttest() returns smallint language sql as
 'select max(a) from xacttest' stable;
 begin;
 update xacttest set a = max_xacttest() + 10 where a > 0;
-select * from xacttest;
+select * from xacttest order by a, b;
   a  |    b    
 -----+---------
    0 | 0.09561
@@ -418,7 +418,7 @@ create or replace function max_xacttest() returns smallint language sql as
 'select max(a) from xacttest' volatile;
 begin;
 update xacttest set a = max_xacttest() + 10 where a > 0;
-select * from xacttest;
+select * from xacttest order by a, b;
   a  |    b    
 -----+---------
    0 | 0.09561
@@ -434,7 +434,7 @@ create or replace function max_xacttest() returns smallint language plpgsql as
 'begin return max(a) from xacttest; end' stable;
 begin;
 update xacttest set a = max_xacttest() + 10 where a > 0;
-select * from xacttest;
+select * from xacttest order by a, b;
   a  |    b    
 -----+---------
    0 | 0.09561
@@ -449,7 +449,7 @@ create or replace function max_xacttest() returns smallint language plpgsql as
 'begin return max(a) from xacttest; end' volatile;
 begin;
 update xacttest set a = max_xacttest() + 10 where a > 0;
-select * from xacttest;
+select * from xacttest order by a, b;
   a  |    b    
 -----+---------
    0 | 0.09561

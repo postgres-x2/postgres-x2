@@ -59,7 +59,7 @@ BEGIN;
 INSERT INTO temptest VALUES (1);
 INSERT INTO temptest VALUES (2);
 
-SELECT * FROM temptest;
+SELECT * FROM temptest  ORDER BY 1;
 COMMIT;
 
 SELECT * FROM temptest;
@@ -85,7 +85,7 @@ CREATE TEMP TABLE temptest(col int) ON COMMIT DROP;
 INSERT INTO temptest VALUES (1);
 INSERT INTO temptest VALUES (2);
 
-SELECT * FROM temptest;
+SELECT * FROM temptest ORDER BY 1;
 COMMIT;
 
 SELECT * FROM temptest;

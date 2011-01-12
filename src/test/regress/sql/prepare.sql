@@ -18,7 +18,7 @@ PREPARE q1 AS SELECT 2;
 EXECUTE q1;
 
 PREPARE q2 AS SELECT 2 AS b;
-SELECT name, statement, parameter_types FROM pg_prepared_statements;
+SELECT name, statement, parameter_types FROM pg_prepared_statements ORDER BY name;
 
 -- sql92 syntax
 DEALLOCATE PREPARE q1;

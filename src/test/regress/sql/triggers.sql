@@ -156,32 +156,32 @@ insert into tttest values (1, 1, null);
 insert into tttest values (2, 2, null);
 insert into tttest values (3, 3, 0);
 
-select * from tttest;
+select * from tttest order by 1,2,3,4;
 delete from tttest where price_id = 2;
-select * from tttest;
+select * from tttest order by 1,2,3,4;
 -- what do we see ?
 
 -- get current prices
-select * from tttest where price_off = 999999;
+select * from tttest where price_off = 999999 order by 1,2,3,4;
 
 -- change price for price_id == 3
 update tttest set price_val = 30 where price_id = 3;
-select * from tttest;
+select * from tttest order by 1,2,3,4;
 
 -- now we want to change pric_id in ALL tuples
 -- this gets us not what we need
 update tttest set price_id = 5 where price_id = 3;
-select * from tttest;
+select * from tttest order by 1,2,3,4;
 
 -- restore data as before last update:
 select set_ttdummy(0);
 delete from tttest where price_id = 5;
 update tttest set price_off = 999999 where price_val = 30;
-select * from tttest;
+select * from tttest order by 1,2,3,4;
 
 -- and try change price_id now!
 update tttest set price_id = 5 where price_id = 3;
-select * from tttest;
+select * from tttest order by 1,2,3,4;
 -- isn't it what we need ?
 
 select set_ttdummy(1);
@@ -193,11 +193,11 @@ update tttest set price_on = -1 where price_id = 1;
 -- try in this way
 select set_ttdummy(0);
 update tttest set price_on = -1 where price_id = 1;
-select * from tttest;
+select * from tttest order by 1,2,3,4;
 -- isn't it what we need ?
 
 -- get price for price_id == 5 as it was @ "date" 35
-select * from tttest where price_on <= 35 and price_off > 35 and price_id = 5;
+select * from tttest where price_on <= 35 and price_off > 35 and price_id = 5 order by 1,2,3,4;
 
 drop table tttest;
 drop sequence ttdummy_seq;
@@ -285,13 +285,13 @@ insert into trigtest default values;
 insert into trigtest2 values(1);
 insert into trigtest2 values(2);
 delete from trigtest where i=2;
-select * from trigtest2;
+select * from trigtest2 order by 1;
 alter table trigtest disable trigger all;
 delete from trigtest where i=1;
-select * from trigtest2;
+select * from trigtest2 order by 1;
 -- ensure we still insert, even when all triggers are disabled
 insert into trigtest default values;
-select *  from trigtest;
+select *  from trigtest order by 1;
 drop table trigtest2;
 drop table trigtest;
 
@@ -457,9 +457,9 @@ UPDATE min_updates_test_oids SET f3 = 2 WHERE f3 is null;
 
 \set QUIET true
 
-SELECT * FROM min_updates_test;
+SELECT * FROM min_updates_test ORDER BY 1,2,3;
 
-SELECT * FROM min_updates_test_oids;
+SELECT * FROM min_updates_test_oids ORDER BY 1,2,3;
 
 DROP TABLE min_updates_test;
 

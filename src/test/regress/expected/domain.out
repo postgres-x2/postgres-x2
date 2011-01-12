@@ -51,7 +51,7 @@ COPY basictest (testvarchar) FROM stdin; -- fail
 ERROR:  value too long for type character varying(5)
 CONTEXT:  COPY basictest, line 1, column testvarchar: "notsoshorttext"
 COPY basictest (testvarchar) FROM stdin;
-select * from basictest;
+select * from basictest order by 1, 2, 3, 4;
  testint4 | testtext | testvarchar | testnumeric 
 ----------+----------+-------------+-------------
        88 | haha     | short       |      123.12
@@ -107,23 +107,23 @@ INSERT INTO domarrtest values ('{2,2}', '{{"a"},{"c"}}');
 INSERT INTO domarrtest values (NULL, '{{"a","b","c"},{"d","e","f"}}');
 INSERT INTO domarrtest values (NULL, '{{"toolong","b","c"},{"d","e","f"}}');
 ERROR:  value too long for type character varying(4)
-select * from domarrtest;
+select * from domarrtest order by 1, 2;
   testint4arr  |    testchar4arr     
 ---------------+---------------------
  {2,2}         | {{a,b},{c,d}}
- {{2,2},{2,2}} | {{a,b}}
  {2,2}         | {{a,b},{c,d},{e,f}}
  {2,2}         | {{a},{c}}
+ {{2,2},{2,2}} | {{a,b}}
                | {{a,b,c},{d,e,f}}
 (5 rows)
 
-select testint4arr[1], testchar4arr[2:2] from domarrtest;
+select testint4arr[1], testchar4arr[2:2] from domarrtest order by 1, 2;
  testint4arr | testchar4arr 
 -------------+--------------
+           2 | {{c}}
+           2 | {{c,d}}
            2 | {{c,d}}
              | {}
-           2 | {{c,d}}
-           2 | {{c}}
              | {{d,e,f}}
 (5 rows)
 
@@ -131,15 +131,15 @@ COPY domarrtest FROM stdin;
 COPY domarrtest FROM stdin;	-- fail
 ERROR:  value too long for type character varying(4)
 CONTEXT:  COPY domarrtest, line 1, column testchar4arr: "{qwerty,w,e}"
-select * from domarrtest;
+select * from domarrtest order by 1, 2;
   testint4arr  |    testchar4arr     
 ---------------+---------------------
  {2,2}         | {{a,b},{c,d}}
- {{2,2},{2,2}} | {{a,b}}
  {2,2}         | {{a,b},{c,d},{e,f}}
  {2,2}         | {{a},{c}}
-               | {{a,b,c},{d,e,f}}
+ {{2,2},{2,2}} | {{a,b}}
  {3,4}         | {q,w,e}
+               | {{a,b,c},{d,e,f}}
                | 
 (7 rows)
 
@@ -181,7 +181,7 @@ CONTEXT:  COPY nulltest, line 1, column col5: null input
 COPY nulltest FROM stdin;
 ERROR:  new row for relation "nulltest" violates check constraint "nulltest_col5_check"
 CONTEXT:  COPY nulltest, line 3: "a	b	c	\N	a"
-select * from nulltest;
+select * from nulltest order by 1, 2, 3, 4, 5;
  col1 | col2 | col3 | col4 | col5 
 ------+------+------+------+------
  a    | b    | c    | d    | c
@@ -237,7 +237,7 @@ insert into defaulttest default values;
 insert into defaulttest default values;
 -- Test defaults with copy
 COPY defaulttest(col5) FROM stdin;
-select * from defaulttest;
+select * from defaulttest order by 1,2,3,4,5,6,7,8;
  col1 | col2 | col3 | col4 | col5 | col6 | col7 | col8  
 ------+------+------+------+------+------+------+-------
     3 |   12 | 5    |    1 |    3 |   88 | 8000 | 12.12
@@ -280,7 +280,7 @@ select * from domdeftest;
 
 alter domain ddef1 set default '42';
 insert into domdeftest default values;
-select * from domdeftest;
+select * from domdeftest order by 1;
  col1 
 ------
     3
@@ -322,33 +322,33 @@ create domain dom as integer;
 create view domview as select cast(col1 as dom) from domtab;
 insert into domtab (col1) values (null);
 insert into domtab (col1) values (5);
-select * from domview;
+select * from domview order by 1;
  col1 
 ------
-     
     5
+     
 (2 rows)
 
 alter domain dom set not null;
 select * from domview; -- fail
 ERROR:  domain dom does not allow null values
 alter domain dom drop not null;
-select * from domview;
+select * from domview order by 1;
  col1 
 ------
-     
     5
+     
 (2 rows)
 
 alter domain dom add constraint domchkgt6 check(value > 6);
 select * from domview; --fail
 ERROR:  value for domain dom violates check constraint "domchkgt6"
 alter domain dom drop constraint domchkgt6 restrict;
-select * from domview;
+select * from domview order by 1;
  col1 
 ------
-     
     5
+     
 (2 rows)
 
 -- cleanup

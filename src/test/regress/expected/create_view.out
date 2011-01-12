@@ -29,7 +29,7 @@ CREATE OR REPLACE VIEW viewtest AS
 	SELECT * FROM viewtest_tbl;
 CREATE OR REPLACE VIEW viewtest AS
 	SELECT * FROM viewtest_tbl WHERE a > 10;
-SELECT * FROM viewtest;
+SELECT * FROM viewtest ORDER BY a;
  a  | b  
 ----+----
  15 | 20
@@ -38,12 +38,12 @@ SELECT * FROM viewtest;
 
 CREATE OR REPLACE VIEW viewtest AS
 	SELECT a, b FROM viewtest_tbl WHERE a > 5 ORDER BY b DESC;
-SELECT * FROM viewtest;
+SELECT * FROM viewtest ORDER BY a;
  a  | b  
 ----+----
- 20 | 25
- 15 | 20
  10 | 15
+ 15 | 20
+ 20 | 25
 (3 rows)
 
 -- should fail

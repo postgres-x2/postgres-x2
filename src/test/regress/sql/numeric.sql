@@ -518,7 +518,7 @@ INSERT INTO num_result SELECT t1.id, t2.id, t1.val + t2.val
 SELECT t1.id1, t1.id2, t1.result, t2.expected
     FROM num_result t1, num_exp_add t2
     WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2
-    AND t1.result != t2.expected;
+    AND t1.result != t2.expected ORDER BY t1.id1, t1.id2, t2.expected;
 
 DELETE FROM num_result;
 INSERT INTO num_result SELECT t1.id, t2.id, round(t1.val + t2.val, 10)
@@ -526,7 +526,7 @@ INSERT INTO num_result SELECT t1.id, t2.id, round(t1.val + t2.val, 10)
 SELECT t1.id1, t1.id2, t1.result, round(t2.expected, 10) as expected
     FROM num_result t1, num_exp_add t2
     WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2
-    AND t1.result != round(t2.expected, 10);
+    AND t1.result != round(t2.expected, 10) ORDER BY t1.id1, t1.id2;
 
 -- ******************************
 -- * Subtraction check
@@ -537,7 +537,7 @@ INSERT INTO num_result SELECT t1.id, t2.id, t1.val - t2.val
 SELECT t1.id1, t1.id2, t1.result, t2.expected
     FROM num_result t1, num_exp_sub t2
     WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2
-    AND t1.result != t2.expected;
+    AND t1.result != t2.expected ORDER BY t1.id1, t1.id2, t2.expected;
 
 DELETE FROM num_result;
 INSERT INTO num_result SELECT t1.id, t2.id, round(t1.val - t2.val, 40)
@@ -652,7 +652,7 @@ INSERT INTO fract_only VALUES (5, '0.99994');
 INSERT INTO fract_only VALUES (6, '0.99995');  -- should fail
 INSERT INTO fract_only VALUES (7, '0.00001');
 INSERT INTO fract_only VALUES (8, '0.00017');
-SELECT * FROM fract_only;
+SELECT * FROM fract_only ORDER BY id;
 DROP TABLE fract_only;
 
 -- Simple check that ceil(), floor(), and round() work correctly
@@ -664,7 +664,7 @@ INSERT INTO ceil_floor_round VALUES ('9.4999999');
 INSERT INTO ceil_floor_round VALUES ('0.0');
 INSERT INTO ceil_floor_round VALUES ('0.0000001');
 INSERT INTO ceil_floor_round VALUES ('-0.000001');
-SELECT a, ceil(a), ceiling(a), floor(a), round(a) FROM ceil_floor_round;
+SELECT a, ceil(a), ceiling(a), floor(a), round(a) FROM ceil_floor_round ORDER BY a;
 DROP TABLE ceil_floor_round;
 
 -- Testing for width_bucket(). For convenience, we test both the
@@ -719,7 +719,7 @@ SELECT
     width_bucket(operand_f8, 5.0, 5.5, 20) AS wb_4f,
     width_bucket(operand_num, -25, 25, 10) AS wb_5,
     width_bucket(operand_f8, -25, 25, 10) AS wb_5f
-    FROM width_bucket_test;
+    FROM width_bucket_test ORDER BY operand_num;
 
 -- for float8 only, check positive and negative infinity: we require
 -- finite bucket bounds, but allow an infinite operand
@@ -733,35 +733,35 @@ DROP TABLE width_bucket_test;
 -- TO_CHAR()
 --
 SELECT '' AS to_char_1, to_char(val, '9G999G999G999G999G999') 
-	FROM num_data;
+	FROM num_data ORDER BY val;
 
 SELECT '' AS to_char_2, to_char(val, '9G999G999G999G999G999D999G999G999G999G999')
-	FROM num_data;
+	FROM num_data ORDER BY val;
 
 SELECT '' AS to_char_3, to_char(val, '9999999999999999.999999999999999PR')
-	FROM num_data;
+	FROM num_data ORDER BY val;
 
 SELECT '' AS to_char_4, to_char(val, '9999999999999999.999999999999999S')
-	FROM num_data;
+	FROM num_data ORDER BY val;
 
-SELECT '' AS to_char_5,  to_char(val, 'MI9999999999999999.999999999999999')     FROM num_data;	
-SELECT '' AS to_char_6,  to_char(val, 'FMS9999999999999999.999999999999999')    FROM num_data;
-SELECT '' AS to_char_7,  to_char(val, 'FM9999999999999999.999999999999999THPR') FROM num_data;
-SELECT '' AS to_char_8,  to_char(val, 'SG9999999999999999.999999999999999th')   FROM num_data;	
-SELECT '' AS to_char_9,  to_char(val, '0999999999999999.999999999999999')       FROM num_data;	
-SELECT '' AS to_char_10, to_char(val, 'S0999999999999999.999999999999999')      FROM num_data;	
-SELECT '' AS to_char_11, to_char(val, 'FM0999999999999999.999999999999999')     FROM num_data;	
-SELECT '' AS to_char_12, to_char(val, 'FM9999999999999999.099999999999999') 	FROM num_data;
-SELECT '' AS to_char_13, to_char(val, 'FM9999999999990999.990999999999999') 	FROM num_data;
-SELECT '' AS to_char_14, to_char(val, 'FM0999999999999999.999909999999999') 	FROM num_data;
-SELECT '' AS to_char_15, to_char(val, 'FM9999999990999999.099999999999999') 	FROM num_data;
-SELECT '' AS to_char_16, to_char(val, 'L9999999999999999.099999999999999')	FROM num_data;	
-SELECT '' AS to_char_17, to_char(val, 'FM9999999999999999.99999999999999')	FROM num_data;
-SELECT '' AS to_char_18, to_char(val, 'S 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 . 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9') FROM num_data;
-SELECT '' AS to_char_19, to_char(val, 'FMS 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 . 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9') FROM num_data;
-SELECT '' AS to_char_20, to_char(val, E'99999 "text" 9999 "9999" 999 "\\"text between quote marks\\"" 9999') FROM num_data;
-SELECT '' AS to_char_21, to_char(val, '999999SG9999999999')			FROM num_data;
-SELECT '' AS to_char_22, to_char(val, 'FM9999999999999999.999999999999999')	FROM num_data;
+SELECT '' AS to_char_5,  to_char(val, 'MI9999999999999999.999999999999999')     FROM num_data ORDER BY val;	
+SELECT '' AS to_char_6,  to_char(val, 'FMS9999999999999999.999999999999999')    FROM num_data ORDER BY val;
+SELECT '' AS to_char_7,  to_char(val, 'FM9999999999999999.999999999999999THPR') FROM num_data ORDER BY val;
+SELECT '' AS to_char_8,  to_char(val, 'SG9999999999999999.999999999999999th')   FROM num_data ORDER BY val;	
+SELECT '' AS to_char_9,  to_char(val, '0999999999999999.999999999999999')       FROM num_data ORDER BY val;	
+SELECT '' AS to_char_10, to_char(val, 'S0999999999999999.999999999999999')      FROM num_data ORDER BY val;	
+SELECT '' AS to_char_11, to_char(val, 'FM0999999999999999.999999999999999')     FROM num_data ORDER BY val;	
+SELECT '' AS to_char_12, to_char(val, 'FM9999999999999999.099999999999999') 	FROM num_data ORDER BY val;
+SELECT '' AS to_char_13, to_char(val, 'FM9999999999990999.990999999999999') 	FROM num_data ORDER BY val;
+SELECT '' AS to_char_14, to_char(val, 'FM0999999999999999.999909999999999') 	FROM num_data ORDER BY val;
+SELECT '' AS to_char_15, to_char(val, 'FM9999999990999999.099999999999999') 	FROM num_data ORDER BY val;
+SELECT '' AS to_char_16, to_char(val, 'L9999999999999999.099999999999999')	FROM num_data ORDER BY val;	
+SELECT '' AS to_char_17, to_char(val, 'FM9999999999999999.99999999999999')	FROM num_data ORDER BY val;
+SELECT '' AS to_char_18, to_char(val, 'S 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 . 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9') FROM num_data ORDER BY val;
+SELECT '' AS to_char_19, to_char(val, 'FMS 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 . 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9') FROM num_data ORDER BY val;
+SELECT '' AS to_char_20, to_char(val, E'99999 "text" 9999 "9999" 999 "\\"text between quote marks\\"" 9999') FROM num_data ORDER BY val;
+SELECT '' AS to_char_21, to_char(val, '999999SG9999999999')			FROM num_data ORDER BY val;
+SELECT '' AS to_char_22, to_char(val, 'FM9999999999999999.999999999999999')	FROM num_data ORDER BY val;
 
 -- TO_NUMBER()
 --
@@ -804,7 +804,7 @@ INSERT INTO num_input_test(n1) VALUES ('5. 0   ');
 INSERT INTO num_input_test(n1) VALUES ('');
 INSERT INTO num_input_test(n1) VALUES (' N aN ');
 
-SELECT * FROM num_input_test;
+SELECT * FROM num_input_test ORDER BY n1;
 
 --
 -- Test some corner cases for division

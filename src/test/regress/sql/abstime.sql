@@ -37,26 +37,26 @@ INSERT INTO ABSTIME_TBL (f1) VALUES ('Jun 10, 1843');
 
 -- test abstime operators
 
-SELECT '' AS eight, * FROM ABSTIME_TBL;
+SELECT '' AS eight, * FROM ABSTIME_TBL ORDER BY f1;
 
 SELECT '' AS six, * FROM ABSTIME_TBL
-   WHERE ABSTIME_TBL.f1 < abstime 'Jun 30, 2001';
+   WHERE ABSTIME_TBL.f1 < abstime 'Jun 30, 2001' ORDER BY f1;
 
 SELECT '' AS six, * FROM ABSTIME_TBL
-   WHERE ABSTIME_TBL.f1 > abstime '-infinity';
+   WHERE ABSTIME_TBL.f1 > abstime '-infinity' ORDER BY f1;
 
 SELECT '' AS six, * FROM ABSTIME_TBL
-   WHERE abstime 'May 10, 1947 23:59:12' <> ABSTIME_TBL.f1;
+   WHERE abstime 'May 10, 1947 23:59:12' <> ABSTIME_TBL.f1 ORDER BY f1;
 
 SELECT '' AS three, * FROM ABSTIME_TBL
-   WHERE abstime 'epoch' >= ABSTIME_TBL.f1;
+   WHERE abstime 'epoch' >= ABSTIME_TBL.f1 ORDER BY f1;
 
 SELECT '' AS four, * FROM ABSTIME_TBL
-   WHERE ABSTIME_TBL.f1 <= abstime 'Jan 14, 1973 03:14:21';
+   WHERE ABSTIME_TBL.f1 <= abstime 'Jan 14, 1973 03:14:21' ORDER BY f1;
 
 SELECT '' AS four, * FROM ABSTIME_TBL
   WHERE ABSTIME_TBL.f1 <?>
-	tinterval '["Apr 1 1950 00:00:00" "Dec 30 1999 23:00:00"]';
+	tinterval '["Apr 1 1950 00:00:00" "Dec 30 1999 23:00:00"]' ORDER BY f1;
 
 SELECT '' AS four, f1 AS abstime,
   date_part('year', f1) AS year, date_part('month', f1) AS month,

@@ -23,11 +23,11 @@ INSERT INTO VARCHAR_TBL (f1) VALUES ('cd');
 INSERT INTO VARCHAR_TBL (f1) VALUES ('c     ');
 
 
-SELECT '' AS seven, * FROM VARCHAR_TBL;
+SELECT '' AS seven, * FROM VARCHAR_TBL ORDER BY f1;
 
 SELECT '' AS six, c.*
    FROM VARCHAR_TBL c
-   WHERE c.f1 <> 'a';
+   WHERE c.f1 <> 'a' ORDER BY f1;
 
 SELECT '' AS one, c.*
    FROM VARCHAR_TBL c
@@ -35,11 +35,11 @@ SELECT '' AS one, c.*
 
 SELECT '' AS five, c.*
    FROM VARCHAR_TBL c
-   WHERE c.f1 < 'a';
+   WHERE c.f1 < 'a' ORDER BY f1;
 
 SELECT '' AS six, c.*
    FROM VARCHAR_TBL c
-   WHERE c.f1 <= 'a';
+   WHERE c.f1 <= 'a' ORDER BY f1;
 
 SELECT '' AS one, c.*
    FROM VARCHAR_TBL c
@@ -47,7 +47,7 @@ SELECT '' AS one, c.*
 
 SELECT '' AS two, c.*
    FROM VARCHAR_TBL c
-   WHERE c.f1 >= 'a';
+   WHERE c.f1 >= 'a' ORDER BY f1;
 
 DROP TABLE VARCHAR_TBL;
 
@@ -63,4 +63,4 @@ INSERT INTO VARCHAR_TBL (f1) VALUES ('abcd');
 INSERT INTO VARCHAR_TBL (f1) VALUES ('abcde');
 INSERT INTO VARCHAR_TBL (f1) VALUES ('abcd    ');
 
-SELECT '' AS four, * FROM VARCHAR_TBL;
+SELECT '' AS four, * FROM VARCHAR_TBL ORDER BY f1;

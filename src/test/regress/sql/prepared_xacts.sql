@@ -16,54 +16,54 @@ INSERT INTO pxtest1 VALUES ('aaa');
 -- Test PREPARE TRANSACTION
 BEGIN;
 UPDATE pxtest1 SET foobar = 'bbb' WHERE foobar = 'aaa';
-SELECT * FROM pxtest1;
+SELECT * FROM pxtest1 ORDER BY foobar;
 PREPARE TRANSACTION 'foo1';
 
-SELECT * FROM pxtest1;
+SELECT * FROM pxtest1 ORDER BY foobar;
 
 -- Test pg_prepared_xacts system view
-SELECT gid FROM pg_prepared_xacts;
+SELECT gid FROM pg_prepared_xacts ORDER BY gid;
 
 -- Test ROLLBACK PREPARED
 ROLLBACK PREPARED 'foo1';
 
-SELECT * FROM pxtest1;
+SELECT * FROM pxtest1  ORDER BY foobar;
 
-SELECT gid FROM pg_prepared_xacts;
+SELECT gid FROM pg_prepared_xacts ORDER BY gid;
 
 
 -- Test COMMIT PREPARED
 BEGIN;
 INSERT INTO pxtest1 VALUES ('ddd');
-SELECT * FROM pxtest1;
+SELECT * FROM pxtest1 ORDER BY foobar;
 PREPARE TRANSACTION 'foo2';
 
-SELECT * FROM pxtest1;
+SELECT * FROM pxtest1  ORDER BY foobar;
 
 COMMIT PREPARED 'foo2';
 
-SELECT * FROM pxtest1;
+SELECT * FROM pxtest1  ORDER BY foobar;
 
 -- Test duplicate gids
 BEGIN;
 UPDATE pxtest1 SET foobar = 'eee' WHERE foobar = 'ddd';
-SELECT * FROM pxtest1;
+SELECT * FROM pxtest1  ORDER BY foobar;
 PREPARE TRANSACTION 'foo3';
 
-SELECT gid FROM pg_prepared_xacts;
+SELECT gid FROM pg_prepared_xacts ORDER BY gid;
 
 BEGIN;
 INSERT INTO pxtest1 VALUES ('fff');
-SELECT * FROM pxtest1;
+SELECT * FROM pxtest1  ORDER BY foobar;
 
 -- This should fail, because the gid foo3 is already in use
 PREPARE TRANSACTION 'foo3';
 
-SELECT * FROM pxtest1;
+SELECT * FROM pxtest1  ORDER BY foobar;
 
 ROLLBACK PREPARED 'foo3';
 
-SELECT * FROM pxtest1;
+SELECT * FROM pxtest1  ORDER BY foobar;
 
 -- Clean up
 DROP TABLE pxtest1;
@@ -99,7 +99,7 @@ FETCH 1 FROM foo;
 SELECT * FROM pxtest2;
 
 -- There should be two prepared transactions
-SELECT gid FROM pg_prepared_xacts;
+SELECT gid FROM pg_prepared_xacts ORDER BY gid;
 
 -- pxtest3 should be locked because of the pending DROP
 set statement_timeout to 2000;
@@ -110,7 +110,7 @@ reset statement_timeout;
 \c -
 
 -- There should still be two prepared transactions
-SELECT gid FROM pg_prepared_xacts;
+SELECT gid FROM pg_prepared_xacts ORDER BY gid;
 
 -- pxtest3 should still be locked because of the pending DROP
 set statement_timeout to 2000;
@@ -130,7 +130,7 @@ COMMIT PREPARED 'regress-two';
 SELECT * FROM pxtest3;
 
 -- There should be no prepared transactions
-SELECT gid FROM pg_prepared_xacts;
+SELECT gid FROM pg_prepared_xacts ORDER BY gid;
 
 -- Clean up
 DROP TABLE pxtest2;

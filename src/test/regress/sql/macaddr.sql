@@ -19,7 +19,7 @@ INSERT INTO macaddr_data VALUES (12, '08:00:2a:01:02:03');
 INSERT INTO macaddr_data VALUES (13, '08:00:2c:01:02:03');
 INSERT INTO macaddr_data VALUES (14, '08:00:2a:01:02:04');
 
-SELECT * FROM macaddr_data;
+SELECT * FROM macaddr_data ORDER BY a;
 
 CREATE INDEX macaddr_data_btree ON macaddr_data USING btree (b);
 CREATE INDEX macaddr_data_hash ON macaddr_data USING hash (b);

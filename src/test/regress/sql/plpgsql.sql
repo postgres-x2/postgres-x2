@@ -1483,7 +1483,7 @@ create function test_found()
   end;' language plpgsql;
 
 select test_found();
-select * from found_test_tbl;
+select * from found_test_tbl order by 1;
 
 --
 -- Test set-returning functions for PL/pgSQL
@@ -1499,7 +1499,7 @@ BEGIN
 	RETURN;
 END;' language plpgsql;
 
-select * from test_table_func_rec();
+select * from test_table_func_rec() order by 1;
 
 create function test_table_func_row() returns setof found_test_tbl as '
 DECLARE
@@ -1511,7 +1511,7 @@ BEGIN
 	RETURN;
 END;' language plpgsql;
 
-select * from test_table_func_row();
+select * from test_table_func_row() order by 1;
 
 create function test_ret_set_scalar(int,int) returns setof int as '
 DECLARE
@@ -1523,7 +1523,7 @@ BEGIN
 	RETURN;
 END;' language plpgsql;
 
-select * from test_ret_set_scalar(1,10);
+select * from test_ret_set_scalar(1,10) order by 1;
 
 create function test_ret_set_rec_dyn(int) returns setof record as '
 DECLARE
@@ -1541,8 +1541,8 @@ BEGIN
 	RETURN;
 END;' language plpgsql;
 
-SELECT * FROM test_ret_set_rec_dyn(1500) AS (a int, b int, c int);
-SELECT * FROM test_ret_set_rec_dyn(5) AS (a int, b numeric, c text);
+SELECT * FROM test_ret_set_rec_dyn(1500) AS (a int, b int, c int) order by a, b, c;
+SELECT * FROM test_ret_set_rec_dyn(5) AS (a int, b numeric, c text) order by a, b, c;
 
 create function test_ret_rec_dyn(int) returns record as '
 DECLARE
@@ -1557,8 +1557,8 @@ BEGIN
 	END IF;
 END;' language plpgsql;
 
-SELECT * FROM test_ret_rec_dyn(1500) AS (a int, b int, c int);
-SELECT * FROM test_ret_rec_dyn(5) AS (a int, b numeric, c text);
+SELECT * FROM test_ret_rec_dyn(1500) AS (a int, b int, c int) order by a, b, c;
+SELECT * FROM test_ret_rec_dyn(5) AS (a int, b numeric, c text) order by a, b, c;
 
 --
 -- Test handling of OUT parameters, including polymorphic cases.
@@ -1599,7 +1599,7 @@ begin
   return;
 end$$ language plpgsql;
 
-select * from f1(42);
+select * from f1(42) order by 1;
 
 drop function f1(int);
 
@@ -1625,7 +1625,7 @@ begin
   return next;
 end$$ language plpgsql;
 
-select * from f1(42);
+select * from f1(42) order by j, k;;
 
 drop function f1(int);
 
@@ -1682,7 +1682,7 @@ BEGIN
 END;' language plpgsql;
 
 SELECT perform_test_func();
-SELECT * FROM perform_test;
+SELECT * FROM perform_test order by a, b;
 
 drop table perform_test;
 
@@ -1775,7 +1775,7 @@ select blockme();
 
 reset statement_timeout;
 
-select * from foo;
+select * from foo order by 1;
 
 drop table foo;
 
@@ -2377,7 +2377,7 @@ end$$ language plpgsql;
 
 select footest();
 
-select * from foo;
+select * from foo order by 1, 2;
 
 create or replace function footest() returns void as $$
 declare x record;
@@ -2458,7 +2458,7 @@ begin
 end;
 $$ language plpgsql;
 
-select * from sc_test();
+select * from sc_test() order by 1;
 
 create or replace function sc_test() returns setof integer as $$
 declare
@@ -2475,7 +2475,7 @@ begin
 end;
 $$ language plpgsql;
 
-select * from sc_test();  -- fails because of NO SCROLL specification
+select * from sc_test() order by 1;  -- fails because of NO SCROLL specification
 
 create or replace function sc_test() returns setof integer as $$
 declare
@@ -2492,7 +2492,7 @@ begin
 end;
 $$ language plpgsql;
 
-select * from sc_test();
+select * from sc_test() order by 1;
 
 create or replace function sc_test() returns setof integer as $$
 declare
@@ -2509,7 +2509,7 @@ begin
 end;
 $$ language plpgsql;
 
-select * from sc_test();
+select * from sc_test() order by 1;
 
 create or replace function sc_test() returns setof integer as $$
 declare
@@ -2531,7 +2531,7 @@ begin
 end;
 $$ language plpgsql;
 
-select * from sc_test();
+select * from sc_test() order by 1;
 
 drop function sc_test();
 
@@ -2569,7 +2569,7 @@ begin
 end;
 $$ language plpgsql;
 
-select * from ret_query1();
+select * from ret_query1() order by 1, 2;
 
 create type record_type as (x text, y int, z boolean);
 
@@ -2580,7 +2580,7 @@ begin
 end;
 $$ language plpgsql;
 
-select * from ret_query2(8);
+select * from ret_query2(8) order by 1;
 
 -- test EXECUTE USING
 create function exc_using(int, text) returns int as $$
@@ -2654,7 +2654,7 @@ $$ language plpgsql;
 
 select forc01();
 
-select * from forc_test;
+select * from forc_test order by 1, 2;
 
 drop function forc01();
 
@@ -2680,7 +2680,7 @@ begin
 end;
 $$ language plpgsql;
 
-select * from return_dquery();
+select * from return_dquery() order by 1;
 
 drop function return_dquery();
 
@@ -2934,7 +2934,7 @@ begin
 end;
 $$ language plpgsql immutable strict;
 
-select * from tftest(10);
+select * from tftest(10) order by 1, 2;
 
 create or replace function tftest(a1 int) returns table(a int, b int) as $$
 begin
@@ -2945,7 +2945,7 @@ begin
 end;
 $$ language plpgsql immutable strict;
 
-select * from tftest(10);
+select * from tftest(10) order by 1, 2;
 
 drop function tftest(int);
 
@@ -2968,7 +2968,7 @@ begin
 end;
 $$ language plpgsql;
 
-select * from rttest();
+select * from rttest() order by 1;
 
 drop function rttest();
 

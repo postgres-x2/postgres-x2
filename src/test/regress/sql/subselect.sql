@@ -25,45 +25,52 @@ INSERT INTO SUBSELECT_TBL VALUES (3, 3, 3);
 INSERT INTO SUBSELECT_TBL VALUES (6, 7, 8);
 INSERT INTO SUBSELECT_TBL VALUES (8, 9, NULL);
 
-SELECT '' AS eight, * FROM SUBSELECT_TBL;
+SELECT '' AS eight, * FROM SUBSELECT_TBL ORDER BY f1, f2, f3;
 
 -- Uncorrelated subselects
 
 SELECT '' AS two, f1 AS "Constant Select" FROM SUBSELECT_TBL
-  WHERE f1 IN (SELECT 1);
+  WHERE f1 IN (SELECT 1) ORDER BY 2;
 
 SELECT '' AS six, f1 AS "Uncorrelated Field" FROM SUBSELECT_TBL
-  WHERE f1 IN (SELECT f2 FROM SUBSELECT_TBL);
+  WHERE f1 IN (SELECT f2 FROM SUBSELECT_TBL) 
+  ORDER BY 2;
 
 SELECT '' AS six, f1 AS "Uncorrelated Field" FROM SUBSELECT_TBL
   WHERE f1 IN (SELECT f2 FROM SUBSELECT_TBL WHERE
-    f2 IN (SELECT f1 FROM SUBSELECT_TBL));
+    f2 IN (SELECT f1 FROM SUBSELECT_TBL)) 
+    ORDER BY 2;
 
 SELECT '' AS three, f1, f2
   FROM SUBSELECT_TBL
   WHERE (f1, f2) NOT IN (SELECT f2, CAST(f3 AS int4) FROM SUBSELECT_TBL
-                         WHERE f3 IS NOT NULL);
+                         WHERE f3 IS NOT NULL) 
+                         ORDER BY f1, f2;
 
 -- Correlated subselects
 
 SELECT '' AS six, f1 AS "Correlated Field", f2 AS "Second Field"
   FROM SUBSELECT_TBL upper
-  WHERE f1 IN (SELECT f2 FROM SUBSELECT_TBL WHERE f1 = upper.f1);
+  WHERE f1 IN (SELECT f2 FROM SUBSELECT_TBL WHERE f1 = upper.f1) 
+  ORDER BY f1, f2;
 
 SELECT '' AS six, f1 AS "Correlated Field", f3 AS "Second Field"
   FROM SUBSELECT_TBL upper
   WHERE f1 IN
-    (SELECT f2 FROM SUBSELECT_TBL WHERE CAST(upper.f2 AS float) = f3);
+    (SELECT f2 FROM SUBSELECT_TBL WHERE CAST(upper.f2 AS float) = f3)
+    ORDER BY 2, 3;
 
 SELECT '' AS six, f1 AS "Correlated Field", f3 AS "Second Field"
   FROM SUBSELECT_TBL upper
   WHERE f3 IN (SELECT upper.f1 + f2 FROM SUBSELECT_TBL
-               WHERE f2 = CAST(f3 AS integer));
+               WHERE f2 = CAST(f3 AS integer)) 
+               ORDER BY 2, 3;
 
 SELECT '' AS five, f1 AS "Correlated Field"
   FROM SUBSELECT_TBL
   WHERE (f1, f2) IN (SELECT f2, CAST(f3 AS int4) FROM SUBSELECT_TBL
-                     WHERE f3 IS NOT NULL);
+                     WHERE f3 IS NOT NULL) 
+                     ORDER BY 2;
 
 --
 -- Use some existing tables in the regression test
@@ -72,7 +79,8 @@ SELECT '' AS five, f1 AS "Correlated Field"
 SELECT '' AS eight, ss.f1 AS "Correlated Field", ss.f3 AS "Second Field"
   FROM SUBSELECT_TBL ss
   WHERE f1 NOT IN (SELECT f1+1 FROM INT4_TBL
-                   WHERE f1 != ss.f1 AND f1 < 2147483647);
+                   WHERE f1 != ss.f1 AND f1 < 2147483647) 
+                   ORDER BY 2, 3;
 
 select q1, float8(count(*)) / (select count(*) from int8_tbl)
 from int8_tbl group by q1 order by q1;
@@ -188,7 +196,8 @@ END) AS "Status",
 END) AS "Status_OK"
 FROM orderstest ord;
 
-SELECT * FROM orders_view;
+SELECT * FROM orders_view 
+ORDER BY approver_ref, po_ref, ordercancelled;
 
 DROP TABLE orderstest cascade;
 
@@ -235,7 +244,8 @@ select * from shipped_view;
 
 select f1, ss1 as relabel from
     (select *, (select sum(f1) from int4_tbl b where f1 >= a.f1) as ss1
-     from int4_tbl a) ss;
+     from int4_tbl a) ss 
+     ORDER BY f1, relabel;
 
 --
 -- Test cases involving PARAM_EXEC parameters and min/max index optimizations.
@@ -268,10 +278,12 @@ create temp table float_table (float_col float8);
 insert into float_table values (1), (2), (3);
 
 select * from float_table
-  where float_col in (select num_col from numeric_table);
+  where float_col in (select num_col from numeric_table) 
+  ORDER BY float_col;
 
 select * from numeric_table
-  where num_col in (select float_col from float_table);
+  where num_col in (select float_col from float_table) 
+  ORDER BY num_col;
 
 --
 -- Test case for bug #4290: bogus calculation of subplan param sets
@@ -297,7 +309,8 @@ insert into tc values(2,2);
 select
   ( select min(tb.id) from tb
     where tb.aval = (select ta.val from ta where ta.id = tc.aid) ) as min_tb_id
-from tc;
+from tc 
+ORDER BY min_tb_id;
 
 --
 -- Test case for 8.3 "failed to locate grouping columns" bug
