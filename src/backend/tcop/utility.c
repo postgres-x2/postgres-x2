@@ -710,7 +710,7 @@ ProcessUtility(Node *parsetree,
 			 */
 		case T_RenameStmt:
 #ifdef PGXC
-			if (IS_PGXC_COORDINATOR && IsConnFromCoord())
+			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 			{
 				RemoteQueryExecType remoteExecType = EXEC_ON_ALL_NODES;
 				RenameStmt *stmt = (RenameStmt *) parsetree;
