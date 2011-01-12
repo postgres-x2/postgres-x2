@@ -1490,6 +1490,13 @@ finish:
 	/* Clean up connections */
 	pfree_pgxc_all_handles(pgxc_connections);
 
+	if (res != 0)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Could not prepare transaction on data nodes")));
+	}
+
 	return local_operation;
 }
 
@@ -1508,6 +1515,7 @@ pgxc_node_prepare(PGXCNodeAllHandles *pgxc_handles, char *gid)
 	GlobalTransactionId gxid = InvalidGlobalTransactionId;
 	PGXC_NodeId *datanodes = NULL;
 	PGXC_NodeId *coordinators = NULL;
+	bool	gtm_error = false;
 
 	gxid = GetCurrentGlobalTransactionId();
 
@@ -1545,7 +1553,10 @@ pgxc_node_prepare(PGXCNodeAllHandles *pgxc_handles, char *gid)
 					datanodes, real_co_conn_count, coordinators);
 
 	if (result < 0)
-		return EOF;
+	{
+		gtm_error = true;
+		goto finish;
+	}
 
 	sprintf(buffer, "PREPARE TRANSACTION '%s'", gid);
 
@@ -1570,7 +1581,7 @@ pgxc_node_prepare(PGXCNodeAllHandles *pgxc_handles, char *gid)
 
 finish:
 	/*
-	 * An error has happened on a Datanode or GTM,
+	 * An error has happened on a Datanode,
 	 * It is necessary to rollback the transaction on already prepared nodes.
 	 * But not on nodes where the error occurred.
 	 */
@@ -1579,17 +1590,28 @@ finish:
 		GlobalTransactionId rollback_xid = InvalidGlobalTransactionId;
 		result = 0;
 
-		buffer = (char *) repalloc(buffer, 20 + strlen(gid) + 1);
-		sprintf(buffer, "ROLLBACK PREPARED '%s'", gid);
+		if (gtm_error)
+		{
+			buffer = (char *) repalloc(buffer, 9);
+			sprintf(buffer, "ROLLBACK");
+		}
+		else
+		{
+			buffer = (char *) repalloc(buffer, 20 + strlen(gid) + 1);
+			sprintf(buffer, "ROLLBACK PREPARED '%s'", gid);
 
-		rollback_xid = BeginTranGTM(NULL);
+			rollback_xid = BeginTranGTM(NULL);
+		}
 
 		/*
 		 * Send xid and rollback prepared down to Datanodes and Coordinators
 		 * Even if we get an error on one, we try and send to the others
-	     */
-		if (pgxc_all_handles_send_gxid(pgxc_handles, rollback_xid, false))
-			result = EOF;
+		 * Only query is sent down to nodes if error occured on GTM.
+		 */
+		if (!gtm_error)
+			if (pgxc_all_handles_send_gxid(pgxc_handles, rollback_xid, false))
+				result = EOF;
+
 		if (pgxc_all_handles_send_query(pgxc_handles, buffer, false))
 			result = EOF;
 
@@ -1597,10 +1619,11 @@ finish:
 		result |= pgxc_node_receive_and_validate(co_conn_count, pgxc_handles->coord_handles, false);
 
 		/*
-		 * Don't forget to rollback also on GTM
+		 * Don't forget to rollback also on GTM if error happened on Datanodes
 		 * Both GXIDs used for PREPARE and COMMIT PREPARED are discarded from GTM snapshot here.
 		 */
-		CommitPreparedTranGTM(gxid, rollback_xid);
+		if (!gtm_error)
+			CommitPreparedTranGTM(gxid, rollback_xid);
 
 		return EOF;
 	}

@@ -888,6 +888,12 @@ GTM_StartPreparedTransaction(GTM_TransactionHandle txn,
 		return STATUS_ERROR;
 
 	/*
+	 * Check if given GID is already in use by another transaction.
+	 */
+	if (GTM_GIDToHandle(gid) != InvalidTransactionHandle)
+		return STATUS_ERROR;
+
+	/*
 	 * Mark the transaction as being prepared
 	 */
 	GTM_RWLockAcquire(&gtm_txninfo->gti_lock, GTM_LOCKMODE_WRITE);
