@@ -114,7 +114,7 @@ build_simple_rel(PlannerInfo *root, int relid, RelOptKind reloptkind)
 			 * This has to be set on a remote Coordinator only
 			 * as it hugely penalizes performance on backend Nodes
 			 */
-			if (IS_PGXC_COORDINATOR && IsConnFromCoord())
+			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 			{
 				rel->pages   = 1;
 				rel->tuples  = 1;

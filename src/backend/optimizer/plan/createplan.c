@@ -578,7 +578,7 @@ create_join_plan(PlannerInfo *root, JoinPath *best_path)
 	 * Check if this join can be reduced to an equiv. remote scan node
 	 * This can only be executed on a remote Coordinator
 	 */
-	if (IS_PGXC_COORDINATOR && IsConnFromCoord())
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 		plan = create_remotejoin_plan(root, best_path, plan, outer_plan, inner_plan);
 #endif
 
