@@ -1643,7 +1643,9 @@ get_transaction_nodes(PGXCNodeHandle **connections, char client_conn_type,
 	{
 		for (i = 0; i < NumDataNodes; i++)
 		{
-			if (dn_handles[i].sock != NO_SOCKET && dn_handles[i].state != DN_CONNECTION_STATE_ERROR_FATAL)
+			if (dn_handles[i].sock != NO_SOCKET &&
+				(dn_handles[i].state != DN_CONNECTION_STATE_ERROR_FATAL ||
+				 status_requested == HANDLE_ERROR))
 			{
 				if (status_requested == HANDLE_IDLE && dn_handles[i].transaction_status == 'I')
 					connections[tran_count++] = &dn_handles[i];
@@ -1659,7 +1661,9 @@ get_transaction_nodes(PGXCNodeHandle **connections, char client_conn_type,
 	{
 		for (i = 0; i < NumCoords; i++)
 		{
-			if (co_handles[i].sock != NO_SOCKET && co_handles[i].state != DN_CONNECTION_STATE_ERROR_FATAL)
+			if (co_handles[i].sock != NO_SOCKET &&
+				(co_handles[i].state != DN_CONNECTION_STATE_ERROR_FATAL ||
+				 status_requested == HANDLE_ERROR))
 			{
 				if (status_requested == HANDLE_IDLE && co_handles[i].transaction_status == 'I')
 					connections[tran_count++] = &co_handles[i];
