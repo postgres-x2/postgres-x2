@@ -426,3 +426,65 @@ RenameSequenceGTM(char *seqname, const char *newseqname)
 
 	return conn ? rename_sequence(conn, &seqkey, &newseqkey) : -1;
 }
+
+/*
+ * Register Given Node
+ * Connection for registering is just used once then closed
+ */
+int
+RegisterGTM(GTM_PGXCNodeType type, GTM_PGXCNodePort port, char *datafolder)
+{
+	int ret;
+
+	CheckConnection();
+
+	if (!conn)
+		return EOF;
+
+	ret = node_register(conn, type, port, PGXCNodeId, datafolder);
+
+	/* If something went wrong, retry once */
+	if (ret < 0)
+	{
+		CloseGTM();
+		InitGTM();
+		if (conn)
+			ret = node_register(conn, type, port, PGXCNodeId, datafolder);
+	}
+
+	return ret;
+}
+
+/*
+ * UnRegister Given Node
+ * Connection for registering is just used once then closed
+ */
+int
+UnregisterGTM(GTM_PGXCNodeType type)
+{
+	int ret;
+
+	CheckConnection();
+
+	if (!conn)
+		return EOF;
+
+	ret = node_unregister(conn, type, PGXCNodeId);
+
+	/* If something went wrong, retry once */
+	if (ret < 0)
+	{
+		CloseGTM();
+		InitGTM();
+		if (conn)
+			ret = node_unregister(conn, type, PGXCNodeId);
+	}
+
+	/*
+	 * If node is unregistered cleanly, cut the connection.
+	 * and Node shuts down smoothly.
+	 */
+	CloseGTM();
+
+	return ret;
+}

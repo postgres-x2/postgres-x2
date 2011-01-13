@@ -183,10 +183,10 @@ GTM_TransactionHandle GTM_GIDToHandle(char *gid);
 
 /* Transaction Control */
 void GTM_InitTxnManager(void);
-GTM_TransactionHandle GTM_BeginTransaction(GTM_PGXCNodeId pgxc_node_id,
+GTM_TransactionHandle GTM_BeginTransaction(GTM_PGXCNodeId coord_id,
 										   GTM_IsolationLevel isolevel,
 										   bool readonly);
-int GTM_BeginTransactionMulti(GTM_PGXCNodeId pgxc_node_id,
+int GTM_BeginTransactionMulti(GTM_PGXCNodeId coord_id,
 										   GTM_IsolationLevel isolevel[],
 										   bool readonly[],
 										   GTMProxy_ConnID connid[],

@@ -82,6 +82,12 @@ typedef union GTM_ResultData
 		PGXC_NodeId			   *coordinators;
 	} grd_txn_get_gid_data;					/* TXN_GET_GID_DATA_RESULT */
 
+	struct
+	{
+		GTM_PGXCNodeType	type;			/* NODE_REGISTER */
+		GTM_PGXCNodeId		nodenum;		/* NODE_UNREGISTER */
+	} grd_node;
+
 	/*
 	 * TODO
 	 * 	TXN_GET_STATUS
@@ -139,6 +145,13 @@ int get_gid_data(GTM_Conn *conn, GTM_IsolationLevel isolevel, char *gid,
  */
 GTM_SnapshotData *get_snapshot(GTM_Conn *conn, GlobalTransactionId gxid,
 		bool canbe_grouped);
+
+/*
+ * Node Registering management API
+ */
+int node_register(GTM_Conn *conn, GTM_PGXCNodeType type, GTM_PGXCNodeId nodenum,
+				  GTM_PGXCNodePort port, char *datafolder);
+int node_unregister(GTM_Conn *conn, GTM_PGXCNodeType type, GTM_PGXCNodeId nodenum);
 
 /*
  * Sequence Management API

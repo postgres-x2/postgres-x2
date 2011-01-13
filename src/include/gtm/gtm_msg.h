@@ -17,8 +17,8 @@
 typedef enum GTM_MessageType
 {
 	MSG_TYPE_INVALID,
-	MSG_REGISTER_COORD,		/* Register a Coordinator with GTM */
-	MSG_UNREGISTER_COORD,	/* Unregister a Coordinator with GTM */
+	MSG_NODE_REGISTER,		/* Register a PGXC Node with GTM */
+	MSG_NODE_UNREGISTER,	/* Unregister a PGXC Node with GTM */
 	MSG_TXN_BEGIN,			/* Start a new transaction */
 	MSG_TXN_BEGIN_GETGXID,	/* Start a new transaction and get GXID */
 	MSG_TXN_BEGIN_GETGXID_MULTI,	/* Start multiple new transactions and get GXIDs */
@@ -58,6 +58,8 @@ typedef enum GTM_MessageType
 
 typedef enum GTM_ResultType
 {
+	NODE_REGISTER_RESULT,
+	NODE_UNREGISTER_RESULT,
 	TXN_BEGIN_RESULT,
 	TXN_BEGIN_GETGXID_RESULT,
 	TXN_BEGIN_GETGXID_MULTI_RESULT,

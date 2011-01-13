@@ -27,6 +27,7 @@
 #include "gtm/pqcomm.h"
 #include "gtm/pqexpbuffer.h"
 #include "gtm/gtm_client.h"
+#include "gtm/gtm_c.h"
 
 /*
  * GTM_Conn stores all the state data associated with a single connection
@@ -43,8 +44,9 @@ struct gtm_conn
 	char	   *pgport;			/* the server's communication port */
 	char	   *connect_timeout;	/* connection timeout (numeric string) */
 	char	   *pgxc_node_id;	/* PGXC Node id */
-	int			remote_type;	/* is this a connection to/from a proxy ? */
+	int			remote_type;		/* is this a connection to/from a proxy ? */
 	int			is_postmaster;	/* is this connection to/from a postmaster instance */
+
 	/* Optional file to write trace info to */
 	FILE	   *Pfdebug;
 

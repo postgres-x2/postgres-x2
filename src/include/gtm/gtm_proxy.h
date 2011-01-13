@@ -141,6 +141,7 @@ extern int GTMProxy_ThreadRemoveConnection(GTMProxy_ThreadInfo *thrinfo,
 
 /*
  * Command data - the only relevant information right now is the XID
+ * and data necessary for registering (modification of Proxy number registered)
  */
 typedef union GTMProxy_CommandData
 {
@@ -163,6 +164,16 @@ typedef union GTMProxy_CommandData
 		GlobalTransactionId		gxid;
 		GTM_TransactionHandle	handle;
 	} cd_snap;
+	
+	struct
+	{
+		GTM_PGXCNodeType	type;
+		GTM_PGXCNodeId		nodenum;
+		GTM_PGXCNodePort	port;
+		GTM_PGXCNodeId		proxynum;
+		char			   *datafolder;
+		char			   *ipaddress;
+	} cd_reg;
 } GTMProxy_CommandData;
 
 /*

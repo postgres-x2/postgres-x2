@@ -791,6 +791,100 @@ send_failed:
 	return -1;
 }
 
+/*
+ * Register a Node on GTM
+ * Seen from a Node viewpoint, we do not know if we are directly connected to GTM
+ * or go through a proxy, so register 0 as proxy number.
+ * This number is modified at proxy level automatically.
+ */
+int node_register(GTM_Conn *conn, GTM_PGXCNodeType type,  GTM_PGXCNodePort port, GTM_PGXCNodeId nodenum,
+				  char *datafolder)
+{
+	GTM_Result *res = NULL;
+	time_t finish_time;
+	GTM_PGXCNodeId proxynum = 0;
+
+	if (gtmpqPutMsgStart('C', true, conn) ||
+		gtmpqPutInt(MSG_NODE_REGISTER, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutnchar((char *)&type, sizeof(GTM_PGXCNodeType), conn) ||
+		gtmpqPutnchar((char *)&nodenum, sizeof(GTM_PGXCNodeId), conn) ||
+		gtmpqPutnchar((char *)&port, sizeof(GTM_PGXCNodePort), conn) ||
+		gtmpqPutnchar((char *)&proxynum, sizeof(GTM_PGXCNodeId), conn) ||
+		gtmpqPutInt(strlen(datafolder), sizeof (GTM_StrLen), conn) ||
+		gtmpqPutnchar(datafolder, strlen(datafolder), conn))
+		goto send_failed;
+
+	/* Finish the message. */
+	if (gtmpqPutMsgEnd(conn))
+		goto send_failed;
+
+	/* Flush to ensure backend gets it. */
+	if (gtmpqFlush(conn))
+		goto send_failed;
+
+	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
+	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
+		gtmpqReadData(conn) < 0)
+		goto receive_failed;
+
+	if ((res = GTMPQgetResult(conn)) == NULL)
+		goto receive_failed;
+
+	/* Check on node type and node number */
+	if (res->gr_status == 0)
+	{
+		Assert(res->gr_resdata.grd_node.type == type);
+		Assert(res->gr_resdata.grd_node.nodenum == nodenum);
+	}
+
+	return res->gr_status;
+
+receive_failed:
+send_failed:
+	return -1;
+}
+
+int node_unregister(GTM_Conn *conn, GTM_PGXCNodeType type, GTM_PGXCNodeId nodenum)
+{
+	GTM_Result *res = NULL;
+	time_t finish_time;
+
+	if (gtmpqPutMsgStart('C', true, conn) ||
+		gtmpqPutInt(MSG_NODE_UNREGISTER, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutnchar((char *)&type, sizeof(GTM_PGXCNodeType), conn) ||
+		gtmpqPutnchar((char *)&nodenum, sizeof(GTM_PGXCNodeId), conn))
+		goto send_failed;
+
+	/* Finish the message. */
+	if (gtmpqPutMsgEnd(conn))
+		goto send_failed;
+
+	/* Flush to ensure backend gets it. */
+	if (gtmpqFlush(conn))
+		goto send_failed;
+
+	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
+	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
+		gtmpqReadData(conn) < 0)
+		goto receive_failed;
+
+	if ((res = GTMPQgetResult(conn)) == NULL)
+		goto receive_failed;
+
+	/* Check on node type and node number */
+	if (res->gr_status == 0)
+	{
+		Assert(res->gr_resdata.grd_node.type == type);
+		Assert(res->gr_resdata.grd_node.nodenum == nodenum);
+	}
+
+	return res->gr_status;
+
+receive_failed:
+send_failed:
+	return -1;
+}
+
 void
 GTM_FreeResult(GTM_Result *result, GTM_PGXCNodeType remote_type)
 {

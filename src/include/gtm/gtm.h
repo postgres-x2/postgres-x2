@@ -131,6 +131,10 @@ extern MemoryContext					TopMostMemoryContext;
 
 #if 0
 
+/* Coordinator registration */
+int GTM_RegisterCoordinator(GTM_CoordInfo *cinfo);
+int GTM_UnregisterCoordinator(GTM_PGXCNodeId cid);
+
 #endif
 
 #endif

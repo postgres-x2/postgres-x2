@@ -25,6 +25,7 @@
 
 #include "gtm/gtm_c.h"
 #include "gtm/gtm_proxy.h"
+#include "gtm/register.h"
 #include "gtm/elog.h"
 #include "gtm/memutils.h"
 #include "gtm/gtm_list.h"
@@ -48,6 +49,7 @@ extern char *optarg;
 #define GTM_PROXY_DEFAULT_WORKERS	2
 #define GTM_PID_FILE			"gtm_proxy.pid"
 #define GTM_LOG_FILE			"gtm_proxy.log"
+#define PROXY_CLIENT_TIMEOUT		20
 
 static char *progname = "gtm_proxy";
 char	   *ListenAddresses;
@@ -58,12 +60,15 @@ char		*GTMProxyDataDir;
 char		*GTMServerHost;
 int			GTMServerPortNumber;
 
+GTM_PGXCNodeId	GTMProxyID = 0;
+
 /* The socket(s) we're listening to. */
 #define MAXLISTEN	64
 static int	ListenSocket[MAXLISTEN];
 
 pthread_key_t	threadinfo_key;
 static bool		GTMProxyAbortPending = false;
+static GTM_Conn *master_conn;
 
 static Port *ConnCreate(int serverFd);
 static void ConnFree(Port *conn);
@@ -77,10 +82,12 @@ static void GTMProxy_HandleDisconnect(GTMProxy_ConnectionInfo *conninfo, GTM_Con
 
 static void GTMProxy_ProxyCommand(GTMProxy_ConnectionInfo *conninfo,
 		GTM_Conn *gtm_conn, GTM_MessageType mtype, StringInfo message);
+static void GTMProxy_ProxyPGXCNodeCommand(GTMProxy_ConnectionInfo *conninfo,
+		GTM_Conn *gtm_conn, GTM_MessageType mtype, GTMProxy_CommandData cmd_data);
 
 static void ProcessCommand(GTMProxy_ConnectionInfo *conninfo,
 		GTM_Conn *gtm_conn, StringInfo input_message);
-static void ProcessCoordinatorCommand(GTMProxy_ConnectionInfo *conninfo,
+static void ProcessPGXCNodeCommand(GTMProxy_ConnectionInfo *conninfo,
 		GTM_Conn *gtm_conn, GTM_MessageType mtype, StringInfo message);
 static void ProcessTransactionCommand(GTMProxy_ConnectionInfo *conninfo,
 		GTM_Conn *gtm_conn, GTM_MessageType mtype, StringInfo message);
@@ -92,9 +99,7 @@ static void ProcessSequenceCommand(GTMProxy_ConnectionInfo *conninfo,
 static void GTMProxy_RegisterPGXCNode(GTMProxy_ConnectionInfo *conninfo,
 									  GTM_PGXCNodeId cid,
 									  GTM_PGXCNodeType remote_type,
-									  bool is_postmaster); 
-static void GTMProxy_UnregisterPGXCNode(GTMProxy_ConnectionInfo *conninfo,
-		GTM_PGXCNodeId pgxc_node_id);
+									  bool is_postmaster);
 
 static void ProcessResponse(GTMProxy_ThreadInfo *thrinfo,
 		GTMProxy_CommandInfo *cmdinfo, GTM_Result *res);
@@ -109,6 +114,9 @@ static void CreateLockFile(const char *filename, const char *refName);
 static void ChangeToDataDir(void);
 static void checkDataDir(void);
 static void DeleteLockFile(const char *filename);
+static void RegisterProxy(void);
+static void UnregisterProxy(void);
+static GTM_Conn *ConnectGTM(void);
 
 /*
  * One-time initialization. It's called immediately after the main process
@@ -170,6 +178,12 @@ BaseInit()
 		sprintf(GTMLogFile, "%s/%s", GTMProxyDataDir, GTM_LOG_FILE);
 	}
 
+	/* Save Node Register File in register.c */
+	Recovery_SaveRegisterFileName(GTMProxyDataDir);
+
+	/* Register Proxy on GTM */
+	RegisterProxy();
+
 	DebugFileOpen();
 
 	/*
@@ -203,6 +217,12 @@ GTMProxy_SigleHandler(int signal)
 			return;
 	}
 
+	/* Unregister Proxy on GTM */
+	UnregisterProxy();
+
+	/* Rewrite Register Information (clean up unregister records) */
+	Recovery_SaveRegisterInfo();
+
 	/*
 	 * XXX We should do a clean shutdown here.
 	 */
@@ -224,10 +244,11 @@ help(const char *progname)
 	printf(_("This is the GTM proxy.\n\n"));
 	printf(_("Usage:\n  %s [OPTION]...\n\n"), progname);
 	printf(_("Options:\n"));
-	printf(_("  -h hostname     GTM proxy hostname/IP\n"));
+	printf(_("  -h hostname		GTM proxy hostname/IP\n"));
 	printf(_("  -p port			GTM proxy port number\n"));
 	printf(_("  -s hostname		GTM server hostname/IP \n"));
 	printf(_("  -t port			GTM server port number\n"));
+	printf(_("  -i ID number	GTM proxy ID number\n"));
 	printf(_("  -n count		Number of worker threads\n"));
 	printf(_("  -D directory	GTM proxy working directory\n"));
 	printf(_("  -l filename		GTM proxy log file name \n"));
@@ -257,17 +278,22 @@ main(int argc, char *argv[])
 	ListenAddresses = GTM_PROXY_DEFAULT_HOSTNAME;
 	GTMProxyPortNumber = GTM_PROXY_DEFAULT_PORT;
 	GTMProxyWorkerThreads = GTM_PROXY_DEFAULT_WORKERS;
-	
+
 	/*
 	 * Parse the command like options and set variables
 	 */
-	while ((opt = getopt(argc, argv, "h:p:n:D:l:s:t:")) != -1)
+	while ((opt = getopt(argc, argv, "h:i:p:n:D:l:s:t:")) != -1)
 	{
 		switch (opt)
 		{
 			case 'h':
 				/* Listen address of the proxy */
 				ListenAddresses = strdup(optarg);
+				break;
+
+			case 'i':
+				/* GTM Proxy identification number */
+				GTMProxyID = (GTM_PGXCNodeId) atoi(optarg);
 				break;
 
 			case 'p':
@@ -313,6 +339,14 @@ main(int argc, char *argv[])
 					 progname);
 		exit(1);
 	}
+	if (GTMProxyID == 0)
+	{
+		write_stderr("GTM Proxy ID must be specified\n");
+		write_stderr("Try \"%s --help\" for more information.\n",
+					 progname);
+		exit(1);
+	}
+
 	/*
 	 * GTM accepts no non-option switch arguments.
 	 */
@@ -332,6 +366,9 @@ main(int argc, char *argv[])
 	BaseInit();
 
 	elog(DEBUG3, "Starting GTM proxy at (%s:%d)", ListenAddresses, GTMProxyPortNumber);
+
+	/* Recover Data of Registered nodes. */
+	Recovery_RestoreRegisterInfo();
 
 	/*
 	 * Establish input sockets.
@@ -600,8 +637,8 @@ GTMProxy_ThreadMain(void *argp)
 	/*
 	 * Set up connection with the GTM server
 	 */
-	sprintf(gtm_connect_string, "host=%s port=%d pgxc_node_id=1 remote_type=%d",
-			GTMServerHost, GTMServerPortNumber, PGXC_NODE_GTM_PROXY);
+	sprintf(gtm_connect_string, "host=%s port=%d pgxc_node_id=%d remote_type=%d",
+			GTMServerHost, GTMServerPortNumber, GTMProxyID, PGXC_NODE_GTM_PROXY);
 
 	thrinfo->thr_gtm_conn = PQconnectGTM(gtm_connect_string);
 
@@ -943,8 +980,9 @@ ProcessCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 
 	switch (mtype)
 	{
-		case MSG_UNREGISTER_COORD:
-			ProcessCoordinatorCommand(conninfo, gtm_conn, mtype, input_message);
+		case MSG_NODE_REGISTER:
+		case MSG_NODE_UNREGISTER:
+			ProcessPGXCNodeCommand(conninfo, gtm_conn, mtype, input_message);
 			break;
 
 		case MSG_TXN_BEGIN:
@@ -1125,6 +1163,8 @@ ProcessResponse(GTMProxy_ThreadInfo *thrinfo, GTMProxy_CommandInfo *cmdinfo,
 		case MSG_TXN_COMMIT_PREPARED:
 		case MSG_TXN_GET_GXID:
 		case MSG_TXN_GET_GID_DATA:
+		case MSG_NODE_REGISTER:
+		case MSG_NODE_UNREGISTER:
 		case MSG_SNAPSHOT_GXID_GET:
 		case MSG_SEQUENCE_INIT:
 		case MSG_SEQUENCE_GET_CURRENT:
@@ -1243,23 +1283,115 @@ ReadCommand(GTMProxy_ConnectionInfo *conninfo, StringInfo inBuf)
 }
 
 static void
-ProcessCoordinatorCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
+ProcessPGXCNodeCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 		GTM_MessageType mtype, StringInfo message)
 {
-	GTM_PGXCNodeId cid;
+	GTMProxy_CommandData	cmd_data;
 
-	cid = pq_getmsgint(message, sizeof (GTM_PGXCNodeId));
-	
-	switch (mtype)
+	/*
+	 * For Node registering, proxy number is also saved and registered on GTM with node.
+	 * So get and modify the register message in consequence.
+	 */
+	switch(mtype)
 	{
-		case MSG_UNREGISTER_COORD:
-			GTMProxy_UnregisterPGXCNode(conninfo, cid);
-			break;
+		case MSG_NODE_REGISTER:
+		{
+			int				len;
+			MemoryContext	oldContext;
+			char			remote_host[NI_MAXHOST];
+			char			remote_port[NI_MAXSERV];
 
+			/* Get Remote IP and port from Conn structure to register */
+			remote_host[0] = '\0';
+			remote_port[0] = '\0';
+
+			if (gtm_getnameinfo_all(&conninfo->con_port->raddr.addr,
+									conninfo->con_port->raddr.salen,
+									remote_host, sizeof(remote_host),
+									remote_port, sizeof(remote_port),
+									NI_NUMERICSERV))
+			{
+				int ret = gtm_getnameinfo_all(&conninfo->con_port->raddr.addr,
+											  conninfo->con_port->raddr.salen,
+											  remote_host, sizeof(remote_host),
+											  remote_port, sizeof(remote_port),
+											  NI_NUMERICHOST | NI_NUMERICSERV);
+
+				if (ret)
+					ereport(WARNING,
+							(errmsg_internal("gtm_getnameinfo_all() failed")));
+			}
+
+			memcpy(&cmd_data.cd_reg.type, pq_getmsgbytes(message, sizeof (GTM_PGXCNodeType)),
+				   sizeof (GTM_PGXCNodeType));
+			memcpy(&cmd_data.cd_reg.nodenum, pq_getmsgbytes(message, sizeof (GTM_PGXCNodeId)),
+				   sizeof (GTM_PGXCNodeId));
+			memcpy(&cmd_data.cd_reg.port, pq_getmsgbytes(message, sizeof (GTM_PGXCNodePort)),
+				   sizeof (GTM_PGXCNodePort));
+			memcpy(&cmd_data.cd_reg.proxynum, pq_getmsgbytes(message, sizeof (GTM_PGXCNodeId)),
+				   sizeof (GTM_PGXCNodeId));
+
+			len = pq_getmsgint(message, sizeof (int));
+			cmd_data.cd_reg.datafolder = (char *)pq_getmsgbytes(message, len);
+			pq_getmsgend(message);
+
+			/* Copy also remote host address in data to be proxied */
+			cmd_data.cd_reg.ipaddress = (char *) palloc(strlen(remote_host));
+			memcpy(cmd_data.cd_reg.ipaddress, remote_host, strlen(remote_host));
+
+			/* Registering has to be saved where it can be seen by all the threads */
+			oldContext = MemoryContextSwitchTo(TopMostMemoryContext);
+
+			/* Register Node also on Proxy */
+			if (Recovery_PGXCNodeRegister(cmd_data.cd_reg.type,
+										  cmd_data.cd_reg.nodenum,
+										  cmd_data.cd_reg.port,
+										  GTMProxyID,
+										  NODE_CONNECTED,
+										  remote_host,
+										  cmd_data.cd_reg.datafolder,
+										  false))
+			{
+				ereport(ERROR,
+						(EINVAL,
+						 errmsg("Failed to Register node")));
+			}
+
+			MemoryContextSwitchTo(oldContext);
+
+			GTMProxy_ProxyPGXCNodeCommand(conninfo, gtm_conn, mtype, cmd_data);
+			break;
+		}
+		case MSG_NODE_UNREGISTER:
+		{
+			MemoryContext	oldContext;
+
+			memcpy(&cmd_data.cd_reg.type, pq_getmsgbytes(message, sizeof (GTM_PGXCNodeType)),
+				   sizeof (GTM_PGXCNodeType));
+			memcpy(&cmd_data.cd_reg.nodenum, pq_getmsgbytes(message, sizeof (GTM_PGXCNodeId)),
+				   sizeof (GTM_PGXCNodeId));
+			pq_getmsgend(message);
+
+			/* Unregistering has to be saved in a place where it can be seen by all the threads */
+			oldContext = MemoryContextSwitchTo(TopMostMemoryContext);
+
+			/* Unregister Node also on Proxy */
+			if (Recovery_PGXCNodeUnregister(cmd_data.cd_reg.type, cmd_data.cd_reg.nodenum, false))
+			{
+				ereport(ERROR,
+						(EINVAL,
+						 errmsg("Failed to Unregister node")));
+			}
+
+			MemoryContextSwitchTo(oldContext);
+
+			GTMProxy_ProxyPGXCNodeCommand(conninfo, gtm_conn, mtype, cmd_data);
+			break;
+		}
 		default:
-			Assert(0);			/* Shouldn't come here.. keep compiler quite */
+			Assert(0);			/* Shouldn't come here.. Keep compiler quiet */
 	}
-	pq_getmsgend(message);
+	return;
 }
 
 static void
@@ -1317,7 +1449,7 @@ ProcessTransactionCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 			break;
 
 		default:
-			Assert(0);			/* Shouldn't come here.. keep compiler quite */
+			Assert(0);			/* Shouldn't come here.. keep compiler quiet */
 	}
 }
 
@@ -1367,7 +1499,7 @@ ProcessSnapshotCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 			break;
 
 		default:
-			Assert(0);			/* Shouldn't come here.. keep compiler quite */
+			Assert(0);			/* Shouldn't come here.. keep compiler quiet */
 	}
 
 }
@@ -1427,6 +1559,66 @@ GTMProxy_ProxyCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 
 
 /*
+ * Proxy the incoming message to the GTM server after adding our own identifier
+ * to it. Add also in the registration message the GTM Proxy number and rebuilt message.
+ */
+static void GTMProxy_ProxyPGXCNodeCommand(GTMProxy_ConnectionInfo *conninfo,GTM_Conn *gtm_conn, GTM_MessageType mtype, GTMProxy_CommandData cmd_data)
+{
+	GTMProxy_CommandInfo *cmdinfo;
+	GTMProxy_ThreadInfo *thrinfo = GetMyThreadInfo;
+	GTM_ProxyMsgHeader proxyhdr;
+
+	proxyhdr.ph_conid = conninfo->con_id;
+
+	switch(mtype)
+	{
+		case MSG_NODE_REGISTER:
+			/* Rebuild the message */
+			if (gtmpqPutMsgStart('C', true, gtm_conn) ||
+				gtmpqPutnchar((char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader), gtm_conn) ||
+				gtmpqPutInt(MSG_NODE_REGISTER, sizeof (GTM_MessageType), gtm_conn) ||
+				gtmpqPutnchar((char *)&cmd_data.cd_reg.type, sizeof(GTM_PGXCNodeType), gtm_conn) ||
+				gtmpqPutnchar((char *)&cmd_data.cd_reg.nodenum, sizeof(GTM_PGXCNodeId), gtm_conn) ||
+				gtmpqPutnchar((char *)&cmd_data.cd_reg.port, sizeof(GTM_PGXCNodePort), gtm_conn) ||
+				gtmpqPutnchar((char *)&GTMProxyID, sizeof(GTM_PGXCNodeId), gtm_conn) ||
+				gtmpqPutInt(strlen(cmd_data.cd_reg.ipaddress), sizeof (GTM_StrLen), gtm_conn) ||
+				gtmpqPutnchar(cmd_data.cd_reg.ipaddress, strlen(cmd_data.cd_reg.ipaddress), gtm_conn) ||
+				gtmpqPutInt(strlen(cmd_data.cd_reg.datafolder), 4, gtm_conn) ||
+				gtmpqPutnchar(cmd_data.cd_reg.datafolder, strlen(cmd_data.cd_reg.datafolder), gtm_conn))
+				elog(ERROR, "Error proxing data");
+			break;
+
+		case MSG_NODE_UNREGISTER:
+			if (gtmpqPutMsgStart('C', true, gtm_conn) ||
+				gtmpqPutnchar((char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader), gtm_conn) ||
+				gtmpqPutInt(MSG_NODE_UNREGISTER, sizeof (GTM_MessageType), gtm_conn) ||
+				gtmpqPutnchar((char *)&cmd_data.cd_reg.type, sizeof(GTM_PGXCNodeType), gtm_conn) ||
+				gtmpqPutnchar((char *)&cmd_data.cd_reg.nodenum, sizeof(GTM_PGXCNodeId), gtm_conn))
+				elog(ERROR, "Error proxing data");
+			break;
+
+		default:
+			Assert(0);			/* Shouldn't come here.. Keep compiler quiet */
+	}
+
+	/*
+	 * Add the message to the pending command list
+	 */
+	cmdinfo = palloc0(sizeof (GTMProxy_CommandInfo));
+	cmdinfo->ci_mtype = mtype;
+	cmdinfo->ci_conn = conninfo;
+	cmdinfo->ci_res_index = 0;
+	thrinfo->thr_processed_commands = lappend(thrinfo->thr_processed_commands, cmdinfo);
+
+	/* Finish the message. */
+	if (gtmpqPutMsgEnd(gtm_conn))
+		elog(ERROR, "Error finishing the message");
+
+	return;
+}
+
+
+/*
  * Record the incoming message as per its type. After all messages of this type
  * are collected, they will be sent in a single message to the GTM server.
  */
@@ -1449,32 +1641,29 @@ GTMProxy_CommandPending(GTMProxy_ConnectionInfo *conninfo, GTM_MessageType mtype
 
 	return;
 }
+
+/*
+ * Register PGXC Node Connection in Proxy
+ * Registery on GTM is made with MSG_NODE_REGISTER message type when node is launched.
+ */
 static void
-GTMProxy_RegisterPGXCNode(GTMProxy_ConnectionInfo *conninfo, GTM_PGXCNodeId cid, GTM_PGXCNodeType remote_type, bool is_postmaster)
+GTMProxy_RegisterPGXCNode(GTMProxy_ConnectionInfo *conninfo,
+						  GTM_PGXCNodeId cid,
+						  GTM_PGXCNodeType remote_type,
+						  bool is_postmaster)
 {
-	elog(DEBUG3, "Registering PGXC Node with cid %d", cid);
+	elog(DEBUG3, "Registering PGXC Node with id %d", cid);
 	conninfo->con_port->pgxc_node_id = cid;
 	conninfo->con_port->remote_type = remote_type;
 	conninfo->con_port->is_postmaster = is_postmaster;
 }
-
-
-static void
-GTMProxy_UnregisterPGXCNode(GTMProxy_ConnectionInfo *conninfo, GTM_PGXCNodeId cid)
-{
-	/*
-	 * Do a clean shutdown
-	 */
-	return;
-}
-
 
 static void
 GTMProxy_HandshakeConnection(GTMProxy_ConnectionInfo *conninfo)
 {
 	/*
 	 * We expect a startup message at the very start. The message type is
-	 * REGISTER_COORD, followed by the 4 byte coordinator ID
+	 * REGISTER_COORD, followed by the 4 byte PGXC node ID
 	 */
 	char startup_type;
 	GTM_StartupPacket sp;
@@ -1499,7 +1688,7 @@ GTMProxy_HandshakeConnection(GTMProxy_ConnectionInfo *conninfo)
 	if (pq_getmessage(conninfo->con_port, &inBuf, 0))
 		ereport(ERROR,
 				(EPROTO,
-				 errmsg("Expecting coordinator ID, but received EOF")));
+				 errmsg("Expecting PGXC Node ID, but received EOF")));
 
 	memcpy(&sp,
 		   pq_getmsgbytes(&inBuf, sizeof (GTM_StartupPacket)),
@@ -1526,6 +1715,34 @@ GTMProxy_HandleDisconnect(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn)
 {
 	GTM_ProxyMsgHeader proxyhdr;
 
+
+	/* Mark node as disconnected if it is a postmaster backend */
+	Recovery_PGXCNodeDisconnect(conninfo->con_port);
+
+	 /* Start the message. */
+	if (gtmpqPutMsgStart('C', true, gtm_conn) ||
+		gtmpqPutnchar((char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader), gtm_conn) ||
+		gtmpqPutInt(MSG_BACKEND_DISCONNECT, sizeof (GTM_MessageType), gtm_conn) ||
+		gtmpqPutc(conninfo->con_port->is_postmaster, gtm_conn))
+		elog(ERROR, "Error proxing data");
+
+	/*
+	 * Then send node type and node number if backend is a postmaster to
+	 * disconnect the correct node.
+	 */
+	if (conninfo->con_port->is_postmaster)
+	{
+		if (gtmpqPutnchar((char *)&conninfo->con_port->remote_type,
+							sizeof(GTM_PGXCNodeType), gtm_conn) ||
+			gtmpqPutnchar((char *)&conninfo->con_port->pgxc_node_id,
+							sizeof(GTM_PGXCNodeId), gtm_conn))
+			elog(ERROR, "Error proxing data");
+	}
+
+	/* Finish the message. */
+	if (gtmpqPutMsgEnd(gtm_conn))
+		elog(ERROR, "Error finishing the message");
+
 	conninfo->con_disconnected = true;
 	if (conninfo->con_port->sock > 0)
 		StreamClose(conninfo->con_port->sock);
@@ -1534,21 +1751,11 @@ GTMProxy_HandleDisconnect(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn)
 
 	proxyhdr.ph_conid = conninfo->con_id;
 
-	 /* Start the message. */
-	if (gtmpqPutMsgStart('C', true, gtm_conn) ||
-		gtmpqPutnchar((char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader), gtm_conn) ||
-		gtmpqPutInt(MSG_BACKEND_DISCONNECT, sizeof (GTM_MessageType), gtm_conn))
-		elog(ERROR, "Error proxing data");
-
-	/* Finish the message. */
-	if (gtmpqPutMsgEnd(gtm_conn))
-		elog(ERROR, "Error finishing the message");
-
 	return;
 }
 
 /*
- * Proces all the pending messages now.
+ * Process all the pending messages now.
  */
 static void
 GTMProxy_ProcessPendingCommands(GTMProxy_ThreadInfo *thrinfo)
@@ -2037,4 +2244,140 @@ DeleteLockFile(const char *filename)
 				 errhint("The file seems accidentally left over, but "
 						 "it could not be removed. Please remove the file "
 						 "by hand and try again.")));
+}
+
+/*
+ * Unregister Proxy on GTM
+ */
+static void
+UnregisterProxy(void)
+{
+	GTM_PGXCNodeType type = PGXC_NODE_GTM_PROXY;
+	GTM_Result *res = NULL;
+	time_t finish_time;
+
+	if (!master_conn || GTMPQstatus(master_conn) != CONNECTION_OK)
+		master_conn = ConnectGTM();
+	if (!master_conn)
+		goto failed;
+
+	if (gtmpqPutMsgStart('C', true, master_conn) ||
+		gtmpqPutInt(MSG_NODE_UNREGISTER, sizeof (GTM_MessageType), master_conn) ||
+		gtmpqPutnchar((char *)&type, sizeof(GTM_PGXCNodeType), master_conn) ||
+		gtmpqPutnchar((char *)&GTMProxyID, sizeof(GTM_PGXCNodeId), master_conn))
+		goto failed;
+
+	/* Finish the message. */
+	if (gtmpqPutMsgEnd(master_conn))
+		goto failed;
+
+	/* Flush to ensure backend gets it. */
+	if (gtmpqFlush(master_conn))
+		goto failed;
+
+	finish_time = time(NULL) + PROXY_CLIENT_TIMEOUT;
+	if (gtmpqWaitTimed(true, false, master_conn, finish_time) ||
+		gtmpqReadData(master_conn) < 0)
+		goto failed;
+
+	if ((res = GTMPQgetResult(master_conn)) == NULL)
+		goto failed;
+
+	/* Check on node type and node number */
+	if (res->gr_status == 0)
+	{
+		Assert(res->gr_resdata.grd_node.type == type);
+		Assert(res->gr_resdata.grd_node.nodenum == GTMProxyID);
+	}
+
+	/* Disconnect cleanly as Proxy is shutting down */
+	GTMPQfinish(master_conn);
+
+	return;
+
+failed:
+	return elog(ERROR, "can not Unregister Proxy on GTM");
+}
+
+/*
+ * Register Proxy on GTM
+ */
+static void
+RegisterProxy(void)
+{
+	GTM_PGXCNodeType type = PGXC_NODE_GTM_PROXY;
+	GTM_PGXCNodePort port = (GTM_PGXCNodePort) GTMProxyPortNumber;
+	GTM_Result *res = NULL;
+	GTM_PGXCNodeId proxynum = 0;
+	time_t finish_time;
+
+	master_conn = ConnectGTM();
+	if (!master_conn)
+		goto failed;
+
+	/*
+	 * As this node is itself a Proxy it registers 0 as Proxy ID on GTM
+	 * as it doesn't go through any other proxy.
+	 */
+	if (gtmpqPutMsgStart('C', true, master_conn) ||
+		gtmpqPutInt(MSG_NODE_REGISTER, sizeof (GTM_MessageType), master_conn) ||
+		gtmpqPutnchar((char *)&type, sizeof(GTM_PGXCNodeType), master_conn) ||
+		gtmpqPutnchar((char *)&GTMProxyID, sizeof(GTM_PGXCNodeId), master_conn) || /* nodenum */
+		gtmpqPutnchar((char *)&port, sizeof(GTM_PGXCNodePort), master_conn) ||
+		gtmpqPutnchar((char *)&proxynum, sizeof(GTM_PGXCNodeId), master_conn) ||
+		gtmpqPutInt(strlen(GTMProxyDataDir), 4, master_conn) ||
+		gtmpqPutnchar(GTMProxyDataDir, strlen(GTMProxyDataDir), master_conn))
+		goto failed;
+
+	/* Finish the message. */
+	if (gtmpqPutMsgEnd(master_conn))
+		goto failed;
+
+	/* Flush to ensure backend gets it. */
+	if (gtmpqFlush(master_conn))
+		goto failed;
+
+	finish_time = time(NULL) + PROXY_CLIENT_TIMEOUT;
+	if (gtmpqWaitTimed(true, false, master_conn, finish_time) ||
+		gtmpqReadData(master_conn) < 0)
+		goto failed;
+
+	if ((res = GTMPQgetResult(master_conn)) == NULL)
+		goto failed;
+
+	if (res->gr_status == 0)
+	{
+		Assert(res->gr_resdata.grd_node.type == type);
+		Assert(res->gr_resdata.grd_node.nodenum == GTMProxyID);
+	}
+
+	return;
+
+failed:
+	elog(ERROR, "can not register Proxy on GTM");
+}
+
+static GTM_Conn*
+ConnectGTM(void)
+{
+	char conn_str[256];
+	GTM_Conn *conn;
+
+	sprintf(conn_str, "host=%s port=%d pgxc_node_id=%d remote_type=%d postmaster=1",
+			GTMServerHost, GTMServerPortNumber, GTMProxyID, PGXC_NODE_GTM_PROXY_POSTMASTER);
+
+	conn = PQconnectGTM(conn_str);
+	if (GTMPQstatus(conn) != CONNECTION_OK)
+	{
+		int save_errno = errno;
+
+		elog(ERROR, "can not connect to GTM");
+
+		errno = save_errno;
+
+		GTMPQfinish(conn);
+		conn = NULL;
+	}
+
+	return conn;
 }

@@ -54,7 +54,7 @@ typedef enum GTM_PGXCNodeType
 	PGXC_NODE_COORDINATOR,
 	PGXC_NODE_DATANODE,
 	PGXC_NODE_DEFAULT	/* In case nothing is associated to connection */
-} GTM_PGXCNodeType; 
+} GTM_PGXCNodeType;
 
 /*
  * A unique handle to identify transaction at the GTM. It could just be

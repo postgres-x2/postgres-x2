@@ -587,6 +587,21 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 			}
 			break;
 
+		case NODE_UNREGISTER_RESULT:
+		case NODE_REGISTER_RESULT:
+			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_node.type,
+						sizeof (GTM_PGXCNodeType), conn))
+			{
+				result->gr_status = -1;
+				break;
+			}
+			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_node.nodenum,
+						sizeof (GTM_PGXCNodeId), conn))
+			{
+				result->gr_status = -1;
+			}
+			break;
+
 		default:
 			printfGTMPQExpBuffer(&conn->errorMessage,
 							  "unexpected result type from server; result typr was \"%d\"\n",

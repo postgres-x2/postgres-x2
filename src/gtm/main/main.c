@@ -34,6 +34,7 @@
 #include "gtm/pqsignal.h"
 #include "gtm/pqformat.h"
 #include "gtm/assert.h"
+#include "gtm/register.h"
 #include "gtm/gtm_txn.h"
 #include "gtm/gtm_seq.h"
 #include "gtm/gtm_msg.h"
@@ -69,7 +70,7 @@ static int GTMAddConnection(Port *port);
 static int ReadCommand(Port *myport, StringInfo inBuf);
 
 static void ProcessCommand(Port *myport, StringInfo input_message);
-static void ProcessCoordinatorCommand(Port *myport, GTM_MessageType mtype, StringInfo message);
+static void ProcessPGXCNodeCommand(Port *myport, GTM_MessageType mtype, StringInfo message);
 static void ProcessTransactionCommand(Port *myport, GTM_MessageType mtype, StringInfo message);
 static void ProcessSnapshotCommand(Port *myport, GTM_MessageType mtype, StringInfo message);
 static void ProcessSequenceCommand(Port *myport, GTM_MessageType mtype, StringInfo message);
@@ -77,7 +78,7 @@ static void ProcessQueryCommand(Port *myport, GTM_MessageType mtype, StringInfo 
 
 static void GTM_RegisterPGXCNode(Port *myport, GTM_PGXCNodeId pgxc_node_id);
 static void GTM_UnregisterPGXCNode(Port *myport, GTM_PGXCNodeId pgxc_node_id);
-	
+
 static bool CreateOptsFile(int argc, char *argv[]);
 static void CreateDataDirLockFile(void);
 static void CreateLockFile(const char *filename, const char *refName);
@@ -146,6 +147,9 @@ BaseInit()
 		sprintf(GTMLogFile, "%s/%s", GTMDataDir, GTM_LOG_FILE);
 	}
 
+	/* Save Node Register File in register.c */
+	Recovery_SaveRegisterFileName(GTMDataDir);
+
 	DebugFileOpen();
 
 	GTM_InitTxnManager();
@@ -185,6 +189,10 @@ GTM_SigleHandler(int signal)
 	/*
 	 * XXX We should do a clean shutdown here.
 	 */
+
+	/* Rewrite Register Information (clean up unregister records) */
+	Recovery_SaveRegisterInfo();
+
 	/* Delete pid file before shutting down */
 	DeleteLockFile(GTM_PID_FILE);
 
@@ -306,6 +314,10 @@ main(int argc, char *argv[])
 	GTM_RestoreSeqInfo(ctlfd);
 
 	close(ctlfd);
+
+	/* Recover Data of Registered nodes. */
+	Recovery_RestoreRegisterInfo();
+
 	/*
 	 * Establish input sockets.
 	 */
@@ -712,6 +724,9 @@ GTM_ThreadMain(void *argp)
 				 * Remove all transactions opened within the thread 
 				 */
 				GTM_RemoveAllTransInfos(-1);
+
+				/* Disconnect node if necessary */
+				Recovery_PGXCNodeDisconnect(thrinfo->thr_conn->con_port);
 				pthread_exit(thrinfo);
 				break;
 			
@@ -730,6 +745,9 @@ GTM_ThreadMain(void *argp)
 				 * Remove all transactions opened within the thread 
 				 */
 				GTM_RemoveAllTransInfos(-1);
+
+				/* Disconnect node if necessary */
+				Recovery_PGXCNodeDisconnect(thrinfo->thr_conn->con_port);
 
 				ereport(FATAL,
 						(EPROTO,
@@ -762,8 +780,9 @@ ProcessCommand(Port *myport, StringInfo input_message)
 
 	switch (mtype)
 	{
-		case MSG_UNREGISTER_COORD:
-			ProcessCoordinatorCommand(myport, mtype, input_message);
+		case MSG_NODE_REGISTER:
+		case MSG_NODE_UNREGISTER:
+			ProcessPGXCNodeCommand(myport, mtype, input_message);
 			break;
 
 		case MSG_TXN_BEGIN:
@@ -807,6 +826,9 @@ ProcessCommand(Port *myport, StringInfo input_message)
 
 		case MSG_BACKEND_DISCONNECT:
 			GTM_RemoveAllTransInfos(proxyhdr.ph_conid);
+
+			/* Mark PGXC Node as disconnected if backend disconnected is postmaster */
+			ProcessPGXCNodeBackendDisconnect(myport, input_message);
 			break;
 
 		default:
@@ -917,22 +939,21 @@ ReadCommand(Port *myport, StringInfo inBuf)
 }
 
 static void
-ProcessCoordinatorCommand(Port *myport, GTM_MessageType mtype, StringInfo message)
+ProcessPGXCNodeCommand(Port *myport, GTM_MessageType mtype, StringInfo message)
 {
-	GTM_PGXCNodeId cid;
-
-	cid = pq_getmsgint(message, sizeof (GTM_PGXCNodeId));
-	
 	switch (mtype)
 	{
-		case MSG_UNREGISTER_COORD:
-			GTM_UnregisterPGXCNode(myport, cid);
+		case MSG_NODE_REGISTER:
+			ProcessPGXCNodeRegister(myport, message);
+			break;
+
+		case MSG_NODE_UNREGISTER:
+			ProcessPGXCNodeUnregister(myport, message);
 			break;
 
 		default:
 			Assert(0);			/* Shouldn't come here.. keep compiler quite */
 	}
-	pq_getmsgend(message);
 }
 
 static void

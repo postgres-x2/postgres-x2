@@ -49,7 +49,7 @@ typedef struct Port
 
 	GTM_PGXCNodeType	remote_type;	/* Type of remote connection */
 	GTM_PGXCNodeId		pgxc_node_id;	/* Coordinator ID */
-	bool		is_postmaster;	/* Is remote a node postmaster? */
+	bool				is_postmaster;	/* Is remote a node postmaster? */
 #define PQ_BUFFER_SIZE 8192
 
 	char 	PqSendBuffer[PQ_BUFFER_SIZE];
