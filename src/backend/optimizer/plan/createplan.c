@@ -39,6 +39,7 @@
 #include "utils/builtins.h"
 #include "utils/syscache.h"
 #include "catalog/pg_proc.h"
+#include "catalog/pg_type.h"
 #include "executor/executor.h"
 #endif
 #include "utils/lsyscache.h"
@@ -636,6 +637,8 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 {
 	NestLoop   *nest_parent;
 	JoinReduceInfo  join_info;
+	RemoteQuery	*outer = NULL;
+	RemoteQuery	*inner = NULL;
 
 	if (!enable_remotejoin)
 		return parent;
@@ -658,20 +661,25 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 	else
 		nest_parent = (NestLoop *)parent;
 
+	/*
+	 * Now RemoteQuery subnode is behind Matherial but this may be changed later
+	 */
+	if (IsA(outer_plan, Material) && IsA(outer_plan->lefttree, RemoteQuery))
+		outer = (RemoteQuery *) outer_plan->lefttree;
+	else if (IsA(outer_plan, RemoteQuery))
+		outer = (RemoteQuery *) outer_plan;
+
+	if (IsA(inner_plan, Material) && IsA(inner_plan->lefttree, RemoteQuery))
+		inner = (RemoteQuery *) inner_plan->lefttree;
+	else if (IsA(inner_plan, RemoteQuery))
+		inner = (RemoteQuery *) inner_plan;
+
+
 	/* check if both the nodes qualify for reduction */
-	if (IsA(outer_plan, Material) &&
-		IsA(((Material *) outer_plan)->plan.lefttree, RemoteQuery) &&
-	    IsA(inner_plan, Material) &&
-		IsA(((Material *) inner_plan)->plan.lefttree, RemoteQuery))
+	if (outer && inner)
 	{
 		int i;
 		List *rtable_list = NIL;
-
-		Material *outer_mat = (Material *)outer_plan;
-		Material *inner_mat = (Material *)inner_plan;
-
-		RemoteQuery	*outer = (RemoteQuery *)outer_mat->plan.lefttree;
-		RemoteQuery *inner = (RemoteQuery *)inner_mat->plan.lefttree;		
 
 		/*
 		 * Check if both these plans are from the same remote node. If yes,
@@ -697,7 +705,7 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 		{
 			RemoteQuery	   *result;
 			Plan		   *result_plan;
-			StringInfoData 	targets, clauses, scan_clauses, fromlist;
+			StringInfoData 	targets, clauses, scan_clauses, fromlist, join_condition;
 			StringInfoData 	squery;
 			List		   *parent_vars, *out_tlist = NIL, *in_tlist = NIL, *base_tlist;
 			ListCell	   *l;
@@ -769,13 +777,13 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 			}
 			else
 			{
-				/* 
+				/*
 				 * there is no local bound clause, all the clauses are remote
 				 * scan clauses
 				 */
 				remote_scan_clauses = nest_parent->join.plan.qual;
 			}
-			
+
 			/* generate the tlist for the new RemoteScan node using out_tlist, in_tlist */
 			initStringInfo(&targets);
 			create_remote_target_list(root, &targets, out_tlist, in_tlist,
@@ -830,6 +838,9 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 			result->outer_reduce_level = outer->reduce_level;
 			result->inner_relids       = in_relids;
 			result->outer_relids       = out_relids;
+			result->inner_statement	   = pstrdup(inner->sql_statement);
+			result->outer_statement	   = pstrdup(outer->sql_statement);
+			result->join_condition	   = NULL;
 			result->exec_nodes         = copyObject(join_info.exec_nodes);
 
 			appendStringInfo(&fromlist, " %s (%s) %s",
@@ -896,22 +907,27 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 			/* generate the squery for this node */
 
 			/* NOTE: it's assumed that the remote_paramNums array is
-			 * filled in the same order as we create the query here. 
+			 * filled in the same order as we create the query here.
 			 *
-			 * TODO: we need some way to ensure that the remote_paramNums 
-			 * is filled in the same order as the order in which the clauses 
+			 * TODO: we need some way to ensure that the remote_paramNums
+			 * is filled in the same order as the order in which the clauses
 			 * are added in the query below.
 			 */
 			initStringInfo(&squery);
 			appendStringInfo(&squery, "SELECT %s FROM %s", targets.data, fromlist.data);
 
+			initStringInfo(&join_condition);
 			if (clauses.data[0] != '\0')
-				appendStringInfo(&squery, " %s %s", use_where? " WHERE " : " ON ", clauses.data);
+				appendStringInfo(&join_condition, " %s %s", use_where? " WHERE " : " ON ", clauses.data);
 
 			if (scan_clauses.data[0] != '\0')
-				appendStringInfo(&squery, " %s %s", use_where? " AND " : " WHERE ", scan_clauses.data);
+				appendStringInfo(&join_condition, " %s %s", use_where? " AND " : " WHERE ", scan_clauses.data);
+
+			if (join_condition.data[0] != '\0')
+				appendStringInfoString(&squery, join_condition.data);
 
 			result->sql_statement = squery.data;
+			result->join_condition = join_condition.data;
 			/* don't forget to increment the index for the next time around! */
 			result->reduce_level = root->rs_alias_index++;
 
@@ -939,7 +955,7 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 			result_plan->plan_rows 	  = outer_plan->plan_rows;
 			result_plan->plan_width   = outer_plan->plan_width;
 
-			return (Plan *)make_material(result_plan);
+			return (Plan *) make_material(result_plan);
 		}
 	}
 
@@ -4581,5 +4597,174 @@ findReferencedVars(List *parent_vars, Plan *plan, List **out_tlist, Relids *out_
 
 	*out_tlist	= tlist;
 	*out_relids = relids;
+}
+
+
+/*
+ * create_remoteinsert_plan()
+ *
+ * Dummy
+ */
+Plan *
+create_remoteinsert_plan(PlannerInfo *root, Plan *topplan)
+{
+	return topplan;
+}
+
+
+/*
+ * create_remoteupdate_plan()
+ *
+ * Dummy
+ */
+Plan *
+create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
+{
+	return topplan;
+}
+
+/*
+ * create_remotedelete_plan()
+ *
+ * Builds up a final node of the plan executing DELETE command.
+ *
+ * If target table is on coordinator (like catalog tables) the plan is left
+ * unchanged and delete will be handled using standard postgres procedure.
+ *
+ * If topmost node of the plan is a RemoteQuery the step query looks like
+ * SELECT ctid FROM target_table WHERE condition, and we should convert it to
+ * DELETE FROM target_table WHERE condition.
+ *
+ * In correlated case the step query looks like
+ * SELECT target_table.ctid FROM target_table, other_tables WHERE condition, and
+ * we should convert it to DELETE FROM target_table USING other_tables WHERE condition.
+ *
+ * XXX Is it ever possible if the topmost node is not a RemoteQuery?
+ */
+Plan *
+create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
+{
+	Query 		   *parse = root->parse;
+	RangeTblEntry  *ttab;
+	RelationLocInfo *rel_loc_info;
+	RemoteQuery	   *fstep;
+	StringInfo		buf;
+	Oid				nspid;
+	char		   *nspname;
+	Var			   *ctid;
+
+	/* Get target table */
+	ttab = (RangeTblEntry *) list_nth(parse->rtable, parse->resultRelation - 1);
+	/* Bad relation ? */
+	if (ttab == NULL || ttab->rtekind != RTE_RELATION)
+		return topplan;
+
+	/* Get location info of the target table */
+	rel_loc_info = GetRelationLocInfo(ttab->relid);
+	if (rel_loc_info == NULL)
+		return topplan;
+
+	buf = makeStringInfo();
+
+	/* Compose DELETE FROM target_table */
+	nspid = get_rel_namespace(ttab->relid);
+	nspname = get_namespace_name(nspid);
+
+	appendStringInfo(buf, "DELETE FROM %s.%s", quote_identifier(nspname),
+					 quote_identifier(ttab->relname));
+
+	/* See if we can push down DELETE */
+	if (IsA(topplan, RemoteQuery))
+	{
+		char *query;
+
+		fstep = (RemoteQuery *) topplan;
+		query = fstep->sql_statement;
+
+		if (strncmp(query, "SELECT ctid", 11) == 0)
+		{
+			/*
+			 * Single table case
+			 * We need to find position of the WHERE keyword in the string and
+			 * append to the buffer part of original string starting from the
+			 * position found. It is possible WHERE clause is absent (DELETE ALL)
+			 * In this case buffer already has new step query
+			 */
+			char *where = strstr(query, " WHERE ");
+			if (where)
+				appendStringInfoString(buf, where);
+		}
+		else
+		{
+			/*
+			 * multi-table case
+			 * Assuming the RemoteQuery is created in create_remotejoin_plan().
+			 * If the final RemoteQuery is for correlated delete outer_statement
+			 * is just a SELECT FROM target_table, outer_statement is correlated
+			 * part and we can put it into USING clause.
+			 * Join type should be plain jon (comma-separated list) and all
+			 * conditions are in WHERE clause.
+			 * No GROUP BY or ORDER BY clauses expected.
+			 * If create_remotejoin_plan is modified the code below should be
+			 * revisited.
+			 */
+			/*
+			 * In expressions target table is referenced as outer_alias, append
+			 * alias name before USING clause
+			 */
+			appendStringInfo(buf, " %s USING ", fstep->outer_alias);
+
+			/* Make up USING clause */
+			appendStringInfo(buf, "(%s) %s ", fstep->inner_statement, fstep->inner_alias);
+
+			/* Append WHERE clause */
+			appendStringInfoString(buf, fstep->join_condition);
+		}
+		/* replace step query */
+		pfree(fstep->sql_statement);
+		fstep->sql_statement = pstrdup(buf->data);
+		/* set combine_type, it is COMBINE_TYPE_NONE for SELECT */
+		fstep->combine_type = rel_loc_info->locatorType == LOCATOR_TYPE_REPLICATED ?
+								  COMBINE_TYPE_SAME : COMBINE_TYPE_SUM;
+		fstep->read_only = false;
+
+		pfree(buf->data);
+		pfree(buf);
+
+		return topplan;
+	}
+
+	/*
+	 * Top plan will return CTIDs and we should delete tuples with these CTIDs
+	 * on the nodes. To determine target node
+	 */
+	fstep = make_remotequery(NIL, ttab, NIL, ttab->relid);
+
+	innerPlan(fstep) = topplan;
+	/*
+	 * TODO replicated handling: add extra step with step query
+	 * SELECT * FROM ttab WHERE ctid = ? and final step with step query
+	 * DELETE FROM ttab WHERE * = ?
+	 */
+	appendStringInfoString(buf, " WHERE ctid = $1");
+	fstep->sql_statement = pstrdup(buf->data);
+	fstep->combine_type = COMBINE_TYPE_SUM;
+	fstep->read_only = false;
+	fstep->exec_nodes = makeNode(ExecNodes);
+	fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
+	fstep->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
+	fstep->exec_nodes->primarynodelist = NULL;
+	fstep->exec_nodes->nodelist = NULL;
+	fstep->exec_nodes->relid = ttab->relid;
+	fstep->exec_nodes->accesstype = RELATION_ACCESS_UPDATE;
+
+	/* first and only target entry of topplan is ctid, reference it */
+	ctid = makeVar(INNER, 1, TIDOID, -1, 0);
+	fstep->exec_nodes->expr = (Var *) ctid;
+
+	pfree(buf->data);
+	pfree(buf);
+
+	return fstep;
 }
 #endif

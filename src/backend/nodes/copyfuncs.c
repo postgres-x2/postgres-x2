@@ -855,6 +855,9 @@ _copyRemoteQuery(RemoteQuery *from)
 	COPY_SCALAR_FIELD(inner_reduce_level);
 	COPY_BITMAPSET_FIELD(outer_relids);
 	COPY_BITMAPSET_FIELD(inner_relids);
+	COPY_STRING_FIELD(inner_statement);
+	COPY_STRING_FIELD(outer_statement);
+	COPY_STRING_FIELD(join_condition);
 
 	return newnode;
 }

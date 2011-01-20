@@ -121,5 +121,8 @@ extern void extract_query_dependencies(List *queries,
 
 #ifdef PGXC
 extern Var *search_tlist_for_var(Var *var, List *jtlist);
+extern Plan *create_remoteinsert_plan(PlannerInfo *root, Plan *topplan);
+extern Plan *create_remoteupdate_plan(PlannerInfo *root, Plan *topplan);
+extern Plan *create_remotedelete_plan(PlannerInfo *root, Plan *topplan);
 #endif
 #endif   /* PLANMAIN_H */

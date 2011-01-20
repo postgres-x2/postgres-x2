@@ -104,6 +104,9 @@ typedef struct
 	int		   inner_reduce_level;
 	Relids	   outer_relids;
 	Relids	   inner_relids;
+	char 	  *inner_statement;
+	char	  *outer_statement;
+	char	  *join_condition;
 } RemoteQuery;
 
 

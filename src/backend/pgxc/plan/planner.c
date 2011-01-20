@@ -1832,6 +1832,9 @@ makeRemoteQuery(void)
 	result->inner_reduce_level = 0;
 	result->outer_relids = NULL;
 	result->inner_relids = NULL;
+	result->inner_statement = NULL;
+	result->outer_statement = NULL;
+	result->join_condition = NULL;
 	return result;
 }
 
@@ -2784,16 +2787,16 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 
 	get_plan_nodes_command(query_step, root);
 
+	/* standard planner handles correlated UPDATE or DELETE */
+	if ((query->commandType == CMD_UPDATE || query->commandType == CMD_DELETE)
+			&& list_length(query->rtable) > 1)
+	{
+		result = standard_planner(query, cursorOptions, boundParams);
+		return result;
+	}
+
 	if (query_step->exec_nodes == NULL)
 	{
-		/* Do not yet allow multi-node correlated UPDATE or DELETE */
-		if (query->commandType == CMD_UPDATE || query->commandType == CMD_DELETE)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-					 (errmsg("UPDATE and DELETE that are correlated or use non-immutable functions not yet supported"))));
-		}
-
 		/*
 		 * Processing guery against catalog tables, or multi-step command.
 		 * Run through standard planner

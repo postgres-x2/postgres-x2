@@ -226,6 +226,27 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 		lfirst(lp) = set_plan_references(glob, subplan, subrtable);
 	}
 
+#ifdef PGXC
+	/*
+	 * PGXC should apply INSERT/UPDATE/DELETE to a datanode. We are overriding
+	 * normal Postgres behavior by modifying final plan or by adding a node on
+	 * top of it.
+	 */
+	if (IS_PGXC_COORDINATOR)
+		switch (parse->commandType)
+		{
+			case CMD_INSERT:
+				top_plan = create_remoteinsert_plan(root, top_plan);
+				break;
+			case CMD_UPDATE:
+				top_plan = create_remoteupdate_plan(root, top_plan);
+				break;
+			case CMD_DELETE:
+				top_plan = create_remotedelete_plan(root, top_plan);
+				break;
+		}
+#endif
+
 	/* build the PlannedStmt result */
 	result = makeNode(PlannedStmt);
 
