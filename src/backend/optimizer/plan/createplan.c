@@ -4651,7 +4651,8 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 	StringInfo		buf;
 	Oid				nspid;
 	char		   *nspname;
-	Var			   *ctid;
+	Var 		   *ctid;
+
 
 	/* Get target table */
 	ttab = (RangeTblEntry *) list_nth(parse->rtable, parse->resultRelation - 1);
@@ -4740,31 +4741,118 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 	 */
 	fstep = make_remotequery(NIL, ttab, NIL, ttab->relid);
 
-	innerPlan(fstep) = topplan;
-	/*
-	 * TODO replicated handling: add extra step with step query
-	 * SELECT * FROM ttab WHERE ctid = ? and final step with step query
-	 * DELETE FROM ttab WHERE * = ?
-	 */
-	appendStringInfoString(buf, " WHERE ctid = $1");
-	fstep->sql_statement = pstrdup(buf->data);
-	fstep->combine_type = COMBINE_TYPE_SUM;
-	fstep->read_only = false;
-	fstep->exec_nodes = makeNode(ExecNodes);
-	fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
-	fstep->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
-	fstep->exec_nodes->primarynodelist = NULL;
-	fstep->exec_nodes->nodelist = NULL;
-	fstep->exec_nodes->relid = ttab->relid;
-	fstep->exec_nodes->accesstype = RELATION_ACCESS_UPDATE;
+	if (rel_loc_info->locatorType == LOCATOR_TYPE_REPLICATED)
+	{
+		/*
+		 * For replicated case we need two extra steps. One is to determine
+		 * all values by CTID on the node from which the tuple has come, next
+		 * is to remove all rows with these values on all nodes
+		 */
+		RemoteQuery	   *xstep;
+		List 		   *xtlist = NIL;
+		StringInfo 		xbuf = makeStringInfo();
+		int 			natts = get_relnatts(ttab->relid);
+		int 			att;
 
-	/* first and only target entry of topplan is ctid, reference it */
-	ctid = makeVar(INNER, 1, TIDOID, -1, 0);
-	fstep->exec_nodes->expr = (Var *) ctid;
+		appendStringInfoString(xbuf, "SELECT ");
+		appendStringInfoString(buf, " WHERE");
+
+		/*
+		 * Populate projections of the extra SELECT step and WHERE clause of
+		 * the final DELETE step
+		 */
+		for (att = 1; att <= natts; att++)
+		{
+			TargetEntry *tle;
+			Var *expr;
+			HeapTuple tp;
+
+			tp = SearchSysCache(ATTNUM,
+								ObjectIdGetDatum(ttab->relid),
+								Int16GetDatum(att),
+								0, 0);
+			if (HeapTupleIsValid(tp))
+			{
+				Form_pg_attribute att_tup = (Form_pg_attribute) GETSTRUCT(tp);
+
+				/* add comma before all except first attributes */
+				if (att > 1)
+				{
+					appendStringInfoString(xbuf, ", ");
+					appendStringInfoString(buf, " AND");
+				}
+				appendStringInfoString(xbuf, NameStr(att_tup->attname));
+				appendStringInfo(buf, " %s = $%d", NameStr(att_tup->attname), att);
+
+				expr = makeVar(att, att, att_tup->atttypid,
+							   att_tup->atttypmod, 0);
+				tle = makeTargetEntry((Expr *) expr, att,
+									  NameStr(att_tup->attname), false);
+				xtlist = lappend(xtlist, tle);
+				ReleaseSysCache(tp);
+			}
+			else
+				elog(ERROR, "cache lookup failed for attribute %d of relation %u",
+					 att, ttab->relid);
+		}
+
+		/* complete SELECT command */
+		appendStringInfo(xbuf, " FROM %s.%s WHERE ctid = $1",
+						 quote_identifier(nspname),
+						 quote_identifier(ttab->relname));
+
+		/* build up the extra select step */
+		xstep = make_remotequery(xtlist, ttab, NIL, ttab->relid);
+		innerPlan(xstep) = topplan;
+		xstep->sql_statement = pstrdup(xbuf->data);
+		xstep->read_only = true;
+		xstep->exec_nodes = makeNode(ExecNodes);
+		xstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
+		xstep->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
+		xstep->exec_nodes->primarynodelist = NULL;
+		xstep->exec_nodes->nodelist = NULL;
+		xstep->exec_nodes->relid = ttab->relid;
+		xstep->exec_nodes->accesstype = RELATION_ACCESS_READ;
+
+		/* first and only target entry of topplan is ctid, reference it */
+		ctid = makeVar(INNER, 1, TIDOID, -1, 0);
+		xstep->exec_nodes->expr = (Expr *) ctid;
+
+		pfree(xbuf->data);
+		pfree(xbuf);
+
+		/* build up the final delete step */
+		innerPlan(fstep) = (Plan *) xstep;
+		fstep->sql_statement = pstrdup(buf->data);
+		fstep->combine_type = COMBINE_TYPE_SAME;
+		fstep->read_only = false;
+		fstep->exec_nodes = GetRelationNodes(rel_loc_info, NULL,
+											 RELATION_ACCESS_UPDATE);
+	}
+	else
+	{
+		/* build up the final delete step */
+		innerPlan(fstep) = topplan;
+		appendStringInfoString(buf, " WHERE ctid = $1");
+		fstep->sql_statement = pstrdup(buf->data);
+		fstep->combine_type = COMBINE_TYPE_SUM;
+		fstep->read_only = false;
+		fstep->exec_nodes = makeNode(ExecNodes);
+		fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
+		fstep->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
+		fstep->exec_nodes->primarynodelist = NULL;
+		fstep->exec_nodes->nodelist = NULL;
+		fstep->exec_nodes->relid = ttab->relid;
+		fstep->exec_nodes->accesstype = RELATION_ACCESS_UPDATE;
+
+		/* first and only target entry of topplan is ctid, reference it */
+		ctid = makeVar(INNER, 1, TIDOID, -1, 0);
+		fstep->exec_nodes->expr = (Expr *) ctid;
+	}
 
 	pfree(buf->data);
 	pfree(buf);
 
-	return fstep;
+	return (Plan *) fstep;
 }
 #endif
