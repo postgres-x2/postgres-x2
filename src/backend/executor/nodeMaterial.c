@@ -24,9 +24,6 @@
 #include "executor/executor.h"
 #include "executor/nodeMaterial.h"
 #include "miscadmin.h"
-#ifdef PGXC
-#include "pgxc/pgxc.h"
-#endif
 
 /* ----------------------------------------------------------------
  *		ExecMaterial
@@ -59,24 +56,9 @@ ExecMaterial(MaterialState *node)
 	/*
 	 * If first time through, and we need a tuplestore, initialize it.
 	 */
-#ifdef PGXC
-	/*
-	 * For PGXC, temporarily always create the storage.
-	 * This allows us to easily use the same connection to
-	 * in multiple steps of the plan.
-	 */
-	if ((IS_PGXC_COORDINATOR && tuplestorestate == NULL)
-		|| (IS_PGXC_DATANODE && tuplestorestate == NULL && node->eflags != 0))
-#else
 	if (tuplestorestate == NULL && node->eflags != 0)
-#endif
 	{
 		tuplestorestate = tuplestore_begin_heap(true, false, work_mem);
-#ifdef PGXC
-		if (IS_PGXC_COORDINATOR)
-			/* Note that we will rescan these results */
-			node->eflags |= EXEC_FLAG_REWIND;
-#endif
 		tuplestore_set_eflags(tuplestorestate, node->eflags);
 		if (node->eflags & EXEC_FLAG_MARK)
 		{
@@ -91,26 +73,6 @@ ExecMaterial(MaterialState *node)
 			Assert(ptrno == 1);
 		}
 		node->tuplestorestate = tuplestorestate;
-
-#ifdef PGXC
-		if (IS_PGXC_COORDINATOR)
-		{
-			TupleTableSlot *outerslot;
-			PlanState  *outerNode = outerPlanState(node);
-
-			/* We want to always materialize first temporarily in PG-XC */
-			while (!node->eof_underlying)
-			{
-				outerslot = ExecProcNode(outerNode);
-				if (TupIsNull(outerslot))
-					node->eof_underlying = true;
-				else
-					/* Append a copy of the returned tuple to tuplestore. */
-					tuplestore_puttupleslot(tuplestorestate, outerslot);
-			}
-			tuplestore_rescan(node->tuplestorestate);
-		}
-#endif
 	}
 
 	/*
