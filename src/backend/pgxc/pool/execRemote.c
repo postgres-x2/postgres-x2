@@ -19,6 +19,7 @@
 #include "postgres.h"
 #include "access/gtm.h"
 #include "access/xact.h"
+#include "catalog/pg_type.h"
 #include "commands/prepare.h"
 #include "executor/executor.h"
 #include "gtm/gtm_c.h"
@@ -135,6 +136,7 @@ stat_transaction(int node_count)
 }
 
 
+#ifdef NOT_USED
 /*
  * To collect statistics: count a two-phase commit on nodes
  */
@@ -146,6 +148,7 @@ stat_2pc()
 	else
 		nonautocommit_2pc++;
 }
+#endif
 
 
 /*
@@ -586,6 +589,8 @@ HandleRowDescription(RemoteQueryState *combiner, char *msg_body, size_t len)
 	return false;
 }
 
+
+#ifdef NOT_USED
 /*
  * Handle ParameterStatus ('S') message from a data node connection (SET command)
  */
@@ -607,6 +612,7 @@ HandleParameterStatus(RemoteQueryState *combiner, char *msg_body, size_t len)
 		pq_putmessage('S', msg_body, len);
 	}
 }
+#endif
 
 /*
  * Handle CopyInResponse ('G') message from a data node connection
@@ -1010,7 +1016,6 @@ BufferConnection(PGXCNodeHandle *conn)
 				conn->state = DN_CONNECTION_STATE_ERROR_FATAL;
 				add_error_message(conn, "Failed to fetch from data node");
 			}
-			break;
 		}
 		else if (res == RESPONSE_COMPLETE)
 		{
@@ -1054,49 +1059,49 @@ FetchTuple(RemoteQueryState *combiner, TupleTableSlot *slot)
 {
 	bool have_tuple = false;
 
+	/* If we have message in the buffer, consume it */
+	if (combiner->currentRow.msg)
+	{
+		ExecStoreDataRowTuple(combiner->currentRow.msg,
+							  combiner->currentRow.msglen,
+							  combiner->currentRow.msgnode, slot, true);
+		combiner->currentRow.msg = NULL;
+		combiner->currentRow.msglen = 0;
+		combiner->currentRow.msgnode = 0;
+		have_tuple = true;
+	}
+
+	/*
+	 * If this is ordered fetch we can not know what is the node
+	 * to handle next, so sorter will choose next itself and set it as
+	 * currentRow to have it consumed on the next call to FetchTuple.
+	 * Otherwise allow to prefetch next tuple
+	 */
+	if (((RemoteQuery *)combiner->ss.ps.plan)->sort)
+		return have_tuple;
+
+	/*
+	 * Note: If we are fetching not sorted results we can not have both
+	 * currentRow and buffered rows. When connection is buffered currentRow
+	 * is moved to buffer, and then it is cleaned after buffering is
+	 * completed. Afterwards rows will be taken from the buffer bypassing
+	 * currentRow until buffer is empty, and only after that data are read
+	 * from a connection.
+	 */
+	if (list_length(combiner->rowBuffer) > 0)
+	{
+		RemoteDataRow dataRow = (RemoteDataRow) linitial(combiner->rowBuffer);
+		combiner->rowBuffer = list_delete_first(combiner->rowBuffer);
+		ExecStoreDataRowTuple(dataRow->msg, dataRow->msglen,
+							  dataRow->msgnode, slot, true);
+		pfree(dataRow);
+		return true;
+	}
+
 	while (combiner->conn_count > 0)
 	{
-		PGXCNodeHandle *conn;
 		int res;
-
-		/* If we have message in the buffer, consume it */
-		if (combiner->currentRow.msg)
-		{
-			ExecStoreDataRowTuple(combiner->currentRow.msg,
-								  combiner->currentRow.msglen,
-								  combiner->currentRow.msgnode, slot, true);
-			combiner->currentRow.msg = NULL;
-			combiner->currentRow.msglen = 0;
-			combiner->currentRow.msgnode = 0;
-			have_tuple = true;
-		}
-		/*
-		 * If this is ordered fetch we can not know what is the node
-		 * to handle next, so sorter will choose next itself and set it as
-		 * currentRow to have it consumed on the next call to FetchTuple
-		 */
-		if (((RemoteQuery *)combiner->ss.ps.plan)->sort)
-			return have_tuple;
-
-		/*
-		 * Note: If we are fetching not sorted results we can not have both
-		 * currentRow and buffered rows. When connection is buffered currentRow
-		 * is moved to buffer, and then it is cleaned after buffering is
-		 * completed. Afterwards rows will be taken from the buffer bypassing
-		 * currentRow until buffer is empty, and only after that data are read
-		 * from a connection.
-		 */
-		if (list_length(combiner->rowBuffer) > 0)
-		{
-			RemoteDataRow dataRow = (RemoteDataRow) linitial(combiner->rowBuffer);
-			combiner->rowBuffer = list_delete_first(combiner->rowBuffer);
-			ExecStoreDataRowTuple(dataRow->msg, dataRow->msglen,
-								  dataRow->msgnode, slot, true);
-			pfree(dataRow);
-			return true;
-		}
-
-		conn = combiner->connections[combiner->current_conn];
+		PGXCNodeHandle *conn = combiner->connections[combiner->current_conn];
 
 		/* Going to use a connection, buffer it if needed */
 		if (conn->state == DN_CONNECTION_STATE_QUERY && conn->combiner != NULL
@@ -1116,7 +1121,7 @@ FetchTuple(RemoteQueryState *combiner, TupleTableSlot *slot)
 			 * connection clean
 			 */
 			if (have_tuple)
-				return have_tuple;
+				return true;
 			else
 			{
 				if (pgxc_node_send_execute(conn, combiner->cursor, 1) != 0)
@@ -1160,25 +1165,42 @@ FetchTuple(RemoteQueryState *combiner, TupleTableSlot *slot)
 			else
 				combiner->current_conn = 0;
 		}
-
-		/* If we have a tuple we can leave now. */
-		if (have_tuple)
+		else if (res = RESPONSE_DATAROW && have_tuple)
+		{
+			/*
+			 * We already have a tuple and received another one, leave it till
+			 * next fetch
+			 */
 			return true;
+		}
+
+		/* If we have message in the buffer, consume it */
+		if (combiner->currentRow.msg)
+		{
+			ExecStoreDataRowTuple(combiner->currentRow.msg,
+								  combiner->currentRow.msglen,
+								  combiner->currentRow.msgnode, slot, true);
+			combiner->currentRow.msg = NULL;
+			combiner->currentRow.msglen = 0;
+			combiner->currentRow.msgnode = 0;
+			have_tuple = true;
+		}
+
+		/*
+		 * If this is ordered fetch we can not know what is the node
+		 * to handle next, so sorter will choose next itself and set it as
+		 * currentRow to have it consumed on the next call to FetchTuple.
+		 * Otherwise allow to prefetch next tuple
+		 */
+		if (((RemoteQuery *)combiner->ss.ps.plan)->sort)
+			return have_tuple;
 	}
-	/* Wrap up last message if exists */
-	if (combiner->currentRow.msg)
-	{
-		ExecStoreDataRowTuple(combiner->currentRow.msg,
-							  combiner->currentRow.msglen,
-							  combiner->currentRow.msgnode, slot, true);
-		combiner->currentRow.msg = NULL;
-		combiner->currentRow.msglen = 0;
-		combiner->currentRow.msgnode = 0;
-		return true;
-	}
-	/* otherwise report end of data to the caller */
-	ExecClearTuple(slot);
-	return false;
+
+	/* report end of data to the caller */
+	if (!have_tuple)
+		ExecClearTuple(slot);
+
+	return have_tuple;
 }
 
 
@@ -2747,8 +2769,31 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 
 	/* We need expression context to evaluate */
 	if (node->exec_nodes && node->exec_nodes->expr)
-		ExecAssignExprContext(estate, &remotestate->ss.ps);
+	{
+		Expr *expr = node->exec_nodes->expr;
 
+		if (IsA(expr, Var) && ((Var *) expr)->vartype == TIDOID)
+		{
+			/* Special case if expression does not need to be evaluated */
+		}
+		else
+		{
+			/*
+			 * Inner plan provides parameter values and may be needed
+			 * to determine target nodes. In this case expression is evaluated
+			 * and we should made values available for evaluator.
+			 * So allocate storage for the values.
+			 */
+			if (innerPlan(node))
+			{
+				int nParams = list_length(node->scan.plan.targetlist);
+				estate->es_param_exec_vals = (ParamExecData *) palloc0(
+						nParams * sizeof(ParamExecData));
+			}
+			/* prepare expression evaluation */
+			ExecAssignExprContext(estate, &remotestate->ss.ps);
+		}
+	}
 
 	if (innerPlan(node))
 		innerPlanState(remotestate) = ExecInitNode(innerPlan(node), estate, eflags);
@@ -2838,27 +2883,70 @@ get_exec_connections(RemoteQueryState *planstate,
 	{
 		if (exec_nodes->expr)
 		{
-			/* execution time determining of target data nodes */
-			bool isnull;
-			ExprState *estate = ExecInitExpr(exec_nodes->expr,
-											 (PlanState *) planstate);
-			Datum partvalue = ExecEvalExpr(estate,
-										   planstate->ss.ps.ps_ExprContext,
-										   &isnull,
-										   NULL);
-			if (!isnull)
+			/*
+			 * Special case (argh, another one): if expression data type is TID
+			 * the ctid value is specific to the node from which it has been
+			 * returned.
+			 * So try and determine originating node and execute command on
+			 * that node only
+			 */
+			if (IsA(exec_nodes->expr, Var) && ((Var *) exec_nodes->expr)->vartype == TIDOID)
 			{
-				RelationLocInfo *rel_loc_info = GetRelationLocInfo(exec_nodes->relid);
-				ExecNodes *nodes = GetRelationNodes(rel_loc_info,
-													(long *) &partvalue,
-													exec_nodes->accesstype);
-				if (nodes)
+				Var 	   *ctid = (Var *) exec_nodes->expr;
+				PlanState  *source = (PlanState *) planstate;
+				TupleTableSlot *slot;
+
+				/* Find originating RemoteQueryState */
+				if (ctid->varno == INNER)
+					source = innerPlanState(source);
+				else if (ctid->varno == OUTER)
+					source = outerPlanState(source);
+
+				while (!IsA(source, RemoteQueryState))
 				{
-					nodelist = nodes->nodelist;
-					primarynode = nodes->primarynodelist;
-					pfree(nodes);
+					TargetEntry *tle = list_nth(source->plan->targetlist,
+												ctid->varattno - 1);
+					Assert(IsA(tle->expr, Var));
+					ctid = (Var *) tle->expr;
+					if (ctid->varno == INNER)
+						source = innerPlanState(source);
+					else if (ctid->varno == OUTER)
+						source = outerPlanState(source);
+					else
+						elog(ERROR, "failed to determine target node");
 				}
-				FreeRelationLocInfo(rel_loc_info);
+
+				slot = source->ps_ResultTupleSlot;
+				/* The slot should be of type DataRow */
+				Assert(!TupIsNull(slot) && slot->tts_dataRow);
+
+				nodelist = list_make1_int(slot->tts_dataNode);
+				primarynode = NIL;
+			}
+			else
+			{
+				/* execution time determining of target data nodes */
+				bool isnull;
+				ExprState *estate = ExecInitExpr(exec_nodes->expr,
+												 (PlanState *) planstate);
+				Datum partvalue = ExecEvalExpr(estate,
+											   planstate->ss.ps.ps_ExprContext,
+											   &isnull,
+											   NULL);
+				if (!isnull)
+				{
+					RelationLocInfo *rel_loc_info = GetRelationLocInfo(exec_nodes->relid);
+					ExecNodes *nodes = GetRelationNodes(rel_loc_info,
+														(long *) &partvalue,
+														exec_nodes->accesstype);
+					if (nodes)
+					{
+						nodelist = nodes->nodelist;
+						primarynode = nodes->primarynodelist;
+						pfree(nodes);
+					}
+					FreeRelationLocInfo(rel_loc_info);
+				}
 			}
 		} else {
 			nodelist = exec_nodes->nodelist;
@@ -3134,7 +3222,6 @@ do_query(RemoteQueryState *node)
 						 errmsg("Failed to send command to data nodes")));
 			}
 		}
-		primaryconnection->combiner = node;
 		Assert(node->combine_type == COMBINE_TYPE_SAME);
 
 		/* Make sure the command is completed on the primary node */
@@ -3365,6 +3452,7 @@ TupleTableSlot *
 ExecRemoteQuery(RemoteQueryState *node)
 {
 	RemoteQuery    *step = (RemoteQuery *) node->ss.ps.plan;
+	EState		   *estate = node->ss.ps.state;
 	TupleTableSlot *resultslot = node->ss.ps.ps_ResultTupleSlot;
 	TupleTableSlot *scanslot = node->ss.ss_ScanTupleSlot;
 	bool have_tuple = false;
@@ -3386,11 +3474,31 @@ ExecRemoteQuery(RemoteQueryState *node)
 			/*
 			 * Use data row returned by the previus step as a parameters for
 			 * the main query.
-			 * Exit if no more slots.
 			 */
 			if (!TupIsNull(innerSlot))
+			{
 				step->paramval_len = ExecCopySlotDatarow(innerSlot,
 														 &step->paramval_data);
+
+				/* Needed for expression evaluation */
+				if (estate->es_param_exec_vals)
+				{
+					int i;
+					int natts = innerSlot->tts_tupleDescriptor->natts;
+
+					slot_getallattrs(innerSlot);
+					for (i = 0; i < natts; i++)
+						estate->es_param_exec_vals[i].value = slot_getattr(
+								innerSlot,
+								i+1,
+								&estate->es_param_exec_vals[i].isnull);
+				}
+			}
+			else
+			{
+				/* no parameters, exit */
+				return NULL;
+			}
 		}
 
 		do_query(node);
@@ -3509,6 +3617,28 @@ handle_results:
 		TupleTableSlot *innerSlot = ExecProcNode(innerPlanState(node));
 		if (!TupIsNull(innerSlot))
 		{
+			/* reset the counter */
+			node->command_complete_count = 0;
+			/*
+			 * Use data row returned by the previus step as a parameters for
+			 * the main query.
+			 */
+			step->paramval_len = ExecCopySlotDatarow(innerSlot,
+													 &step->paramval_data);
+
+			/* Needed for expression evaluation */
+			if (estate->es_param_exec_vals)
+			{
+				int i;
+				int natts = innerSlot->tts_tupleDescriptor->natts;
+
+				slot_getallattrs(innerSlot);
+				for (i = 0; i < natts; i++)
+					estate->es_param_exec_vals[i].value = slot_getattr(
+							innerSlot,
+							i+1,
+							&estate->es_param_exec_vals[i].isnull);
+			}
 			do_query(node);
 			goto handle_results;
 		}

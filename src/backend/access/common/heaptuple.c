@@ -1193,17 +1193,14 @@ slot_deform_datarow(TupleTableSlot *slot)
 				(errcode(ERRCODE_DATA_CORRUPTED),
 				 errmsg("Tuple does not match the descriptor")));
 
+	/*
+	 * Ensure info about input functions is available as long as slot lives
+	 * as well as deformed values
+	 */
+	MemoryContext oldcontext = MemoryContextSwitchTo(slot->tts_mcxt);
+
 	if (slot->tts_attinmeta == NULL)
-	{
-		/*
-		 * Ensure info about input functions is available as long as slot lives
-		 */
-		MemoryContext oldcontext = MemoryContextSwitchTo(slot->tts_mcxt);
-
 		slot->tts_attinmeta = TupleDescGetAttInMetadata(slot->tts_tupleDescriptor);
-
-		MemoryContextSwitchTo(oldcontext);
-	}
 
 	buffer = makeStringInfo();
 	for (i = 0; i < attnum; i++)
@@ -1240,6 +1237,8 @@ slot_deform_datarow(TupleTableSlot *slot)
 	pfree(buffer);
 
 	slot->tts_nvalid = attnum;
+
+	MemoryContextSwitchTo(oldcontext);
 }
 #endif
 
@@ -1292,6 +1291,16 @@ slot_getattr(TupleTableSlot *slot, int attnum, bool *isnull)
 		return (Datum) 0;
 	}
 
+#ifdef PGXC
+	/* If it is a data row tuple extract all and return requested */
+	if (slot->tts_dataRow)
+	{
+		slot_deform_datarow(slot);
+		*isnull = slot->tts_isnull[attnum - 1];
+		return slot->tts_values[attnum - 1];
+	}
+#endif
+
 	/*
 	 * otherwise we had better have a physical tuple (tts_nvalid should equal
 	 * natts in all virtual-tuple cases)
@@ -1336,11 +1345,6 @@ slot_getattr(TupleTableSlot *slot, int attnum, bool *isnull)
 	/*
 	 * Extract the attribute, along with any preceding attributes.
 	 */
-#ifdef PGXC
-	if (slot->tts_dataRow)
-		slot_deform_datarow(slot);
-	else
-#endif
 	slot_deform_tuple(slot, attnum);
 
 	/*
@@ -1494,6 +1498,15 @@ slot_attisnull(TupleTableSlot *slot, int attnum)
 	 */
 	if (attnum > tupleDesc->natts)
 		return true;
+
+#ifdef PGXC
+	/* If it is a data row tuple extract all and return requested */
+	if (slot->tts_dataRow)
+	{
+		slot_deform_datarow(slot);
+		return slot->tts_isnull[attnum - 1];
+	}
+#endif
 
 	/*
 	 * otherwise we had better have a physical tuple (tts_nvalid should equal
