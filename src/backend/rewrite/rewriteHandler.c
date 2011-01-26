@@ -27,6 +27,11 @@
 #include "utils/lsyscache.h"
 #include "commands/trigger.h"
 
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#include "pgxc/poolmgr.h"
+#endif
+
 
 /* We use a list of these to detect recursion in RewriteQuery */
 typedef struct rewrite_event
@@ -56,7 +61,15 @@ static void markQueryForLocking(Query *qry, Node *jtnode,
 static List *matchLocks(CmdType event, RuleLock *rulelocks,
 		   int varno, Query *parsetree);
 static Query *fireRIRrules(Query *parsetree, List *activeRIRs);
-
+#ifdef PGXC
+static int GetRelPartColPos(const Query *query, const char *partColName);
+static void ProcessHashValue(List **valuesList, const List *subList, const int node);
+static void InitValuesList(List **valuesList[], int size);
+static void DestroyValuesList(List **valuesList[]);
+static void ProcessRobinValue(Oid relid, List **valuesList, 
+								int size, const RangeTblEntry *values_rte);
+static List *RewriteInsertStmt(Query *parsetree, RangeTblEntry *values_rte);
+#endif
 
 /*
  * AcquireRewriteLocks -
@@ -1644,6 +1657,12 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 	Query	   *qual_product = NULL;
 	List	   *rewritten = NIL;
 
+#ifdef PGXC
+	List	*parsetree_list = NIL;
+	List *qual_product_list = NIL;
+	ListCell *pt_cell = NULL;
+#endif
+
 	/*
 	 * If the statement is an update, insert or delete - fire rules on it.
 	 *
@@ -1706,6 +1725,11 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 				rewriteTargetList(parsetree, rt_entry_relation, &attrnos);
 				/* ... and the VALUES expression lists */
 				rewriteValuesRTE(values_rte, rt_entry_relation, attrnos);
+#ifdef PGXC
+				if (IS_PGXC_COORDINATOR &&
+							list_length(values_rte->values_lists) > 1)
+					parsetree_list = RewriteInsertStmt(parsetree, values_rte);
+#endif
 			}
 			else
 			{
@@ -1713,7 +1737,11 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 				rewriteTargetList(parsetree, rt_entry_relation, NULL);
 			}
 		}
-
+		
+#ifdef PGXC
+		if (parsetree_list == NIL)
+		{
+#endif
 		/*
 		 * Collect and apply the appropriate rules.
 		 */
@@ -1812,8 +1840,142 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 		}
 
 		heap_close(rt_entry_relation, NoLock);
-	}
+#ifdef PGXC
+		}
+		else
+		{
+			foreach(pt_cell, parsetree_list)
+			{
+				Query  *query;
+				
+				query = (Query *)lfirst(pt_cell);
 
+				locks = matchLocks(event, rt_entry_relation->rd_rules,
+							   result_relation, query);
+
+				/*
+				 * Collect and apply the appropriate rules.
+				 */
+				locks = matchLocks(event, rt_entry_relation->rd_rules,
+								   result_relation, parsetree);
+				if (locks != NIL)
+				{
+					List	   *product_queries;
+
+
+					product_queries = fireRules(query,
+									result_relation,
+									event,
+									locks,
+									&instead,
+									&returning,
+									&qual_product);
+					
+					qual_product_list = lappend(qual_product_list,  qual_product);
+
+					/*
+					 * If we got any product queries, recursively rewrite them --- but
+					 * first check for recursion!
+					 */
+					if (product_queries != NIL)
+					{
+						ListCell   *n;
+						rewrite_event *rev;
+
+						foreach(n, rewrite_events)
+						{
+							rev = (rewrite_event *) lfirst(n);
+							if (rev->relation == RelationGetRelid(rt_entry_relation) &&
+								rev->event == event)
+								ereport(ERROR,
+										(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+										 errmsg("infinite recursion detected in rules for relation \"%s\"",
+									   RelationGetRelationName(rt_entry_relation))));
+						}
+
+						rev = (rewrite_event *) palloc(sizeof(rewrite_event));
+						rev->relation = RelationGetRelid(rt_entry_relation);
+						rev->event = event;
+						rewrite_events = lcons(rev, rewrite_events);
+
+						foreach(n, product_queries)
+						{
+							Query	   *pt = (Query *) lfirst(n);
+							List	   *newstuff;
+
+							newstuff = RewriteQuery(pt, rewrite_events);
+							rewritten = list_concat(rewritten, newstuff);
+						}
+
+						rewrite_events = list_delete_first(rewrite_events);
+					}
+				}
+
+				/*
+				 * If there is an INSTEAD, and the original query has a RETURNING, we
+				 * have to have found a RETURNING in the rule(s), else fail. (Because
+				 * DefineQueryRewrite only allows RETURNING in unconditional INSTEAD
+				 * rules, there's no need to worry whether the substituted RETURNING
+				 * will actually be executed --- it must be.)
+				 */
+				if ((instead || qual_product != NULL) &&
+					query->returningList &&
+					!returning)
+				{
+					switch (event)
+					{
+						case CMD_INSERT:
+							ereport(ERROR,
+									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+									 errmsg("cannot perform INSERT RETURNING on relation \"%s\"",
+										 RelationGetRelationName(rt_entry_relation)),
+									 errhint("You need an unconditional ON INSERT DO INSTEAD rule with a RETURNING clause.")));
+							break;
+						case CMD_UPDATE:
+							ereport(ERROR,
+									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+									 errmsg("cannot perform UPDATE RETURNING on relation \"%s\"",
+										 RelationGetRelationName(rt_entry_relation)),
+									 errhint("You need an unconditional ON UPDATE DO INSTEAD rule with a RETURNING clause.")));
+							break;
+						case CMD_DELETE:
+							ereport(ERROR,
+									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+									 errmsg("cannot perform DELETE RETURNING on relation \"%s\"",
+										 RelationGetRelationName(rt_entry_relation)),
+									 errhint("You need an unconditional ON DELETE DO INSTEAD rule with a RETURNING clause.")));
+							break;
+						default:
+							elog(ERROR, "unrecognized commandType: %d",
+								 (int) event);
+							break;
+					}
+				}
+			}
+
+			heap_close(rt_entry_relation, NoLock);
+		}
+	}
+#endif
+		
+	
+		
+	/*
+	 * For INSERTs, the original query is done first; for UPDATE/DELETE, it is
+	 * done last.  This is needed because update and delete rule actions might
+	 * not do anything if they are invoked after the update or delete is
+	 * performed. The command counter increment between the query executions
+	 * makes the deleted (and maybe the updated) tuples disappear so the scans
+	 * for them in the rule actions cannot find them.
+	 *
+	 * If we found any unqualified INSTEAD, the original query is not done at
+	 * all, in any form.  Otherwise, we add the modified form if qualified
+	 * INSTEADs were found, else the unmodified form.
+	 */
+#ifdef PGXC
+	if (parsetree_list == NIL)
+	{
+#endif
 	/*
 	 * For INSERTs, the original query is done first; for UPDATE/DELETE, it is
 	 * done last.  This is needed because update and delete rule actions might
@@ -1843,11 +2005,52 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 				rewritten = lappend(rewritten, parsetree);
 		}
 	}
+#ifdef PGXC
+	}
+	else
+	{
+		int query_no = -1;
+		
+		foreach(pt_cell, parsetree_list)
+		{
+
+			Query	*query;
+			Query	*qual;
+			query_no ++;
+			
+			query = (Query *)lfirst(pt_cell);
+			if (!instead)
+			{
+				if (query->commandType == CMD_INSERT)
+				{
+					if (qual_product_list != NIL)
+					{
+						qual = (Query *)list_nth(qual_product_list,
+                                                			query_no);	
+						rewritten = lcons(qual, rewritten);
+					}
+					else
+						rewritten = lcons(query, rewritten);
+				}
+
+			}
+			else
+			{
+				if (qual_product_list != NIL)
+				{
+					qual = (Query *)list_nth(qual_product_list,
+								query_no);	
+					rewritten = lcons(qual, rewritten);
+				}
+				else
+					rewritten = lappend(rewritten, query);
+			}
+		}
+	}
+#endif
 
 	return rewritten;
 }
-
-
 /*
  * QueryRewrite -
  *	  Primary entry point to the query rewriter.
@@ -1953,7 +2156,9 @@ QueryRewrite(Query *parsetree)
 		if (query->querySource == QSRC_ORIGINAL)
 		{
 			Assert(query->canSetTag);
+#ifndef PGXC
 			Assert(!foundOriginalQuery);
+#endif
 			foundOriginalQuery = true;
 #ifndef USE_ASSERT_CHECKING
 			break;
@@ -1974,3 +2179,198 @@ QueryRewrite(Query *parsetree)
 
 	return results;
 }
+
+#ifdef PGXC
+static int
+GetRelPartColPos(const Query *query, const char *partColName)
+{
+		ListCell *lc;
+		int rescol = -1;
+		
+		foreach(lc, query->targetList)
+		{
+			TargetEntry *tle = (TargetEntry *) lfirst(lc);
+
+			if (tle->resjunk)
+				continue;
+
+			rescol += 1;
+
+			/*
+			 * See if we have a constant expression comparing against the
+			 * designated partitioned column
+			 */
+			if (strcmp(tle->resname, partColName) == 0)
+				break;
+		}
+
+		if (rescol == -1)
+			ereport(ERROR, 
+					(errcode(ERRCODE_UNDEFINED_COLUMN),
+					 errmsg("Can't find partition column")));
+
+		return rescol;
+}
+
+static void
+ProcessHashValue(List **valuesList, const List *subList, const int node)
+{
+	valuesList[node - 1] = lappend(valuesList[node - 1], subList); 
+}
+
+static void
+InitValuesList(List **valuesList[], int size)
+{
+	*valuesList = palloc0(size * sizeof(List *));
+}
+
+static void
+DestroyValuesList(List **valuesList[])
+{
+	pfree(*valuesList);
+	*valuesList = NIL;
+}
+
+static void
+ProcessRobinValue(Oid relid, List **valuesList, 
+								int size, const RangeTblEntry *values_rte)
+{
+	List *values = values_rte->values_lists;
+	int length = values->length;
+	int dist;
+	int i, j;
+	int processNum = 0;
+	int node;
+
+	/* get average insert value number of each node */
+	if (length > NumDataNodes)
+		dist = length/NumDataNodes;
+	else
+		dist = 1;
+
+	for(i = 0; i < size && processNum < length; i++)
+	{
+		node = GetRoundRobinNode(relid);
+
+		/* assign insert value */
+		for(j = 0; j < dist; j++)
+		{
+			processNum += 1;
+			valuesList[node - 1] = lappend(valuesList[node - 1], 
+									list_nth(values, processNum - 1));
+		}
+	}
+	
+	/* assign remained value */
+	while(processNum < length)
+	{
+		processNum += 1;
+		node = GetRoundRobinNode(relid);
+		valuesList[node - 1] = lappend(valuesList[node - 1],
+                                                                        list_nth(values, processNum - 1));
+	}
+}
+
+static List *
+RewriteInsertStmt(Query *query, RangeTblEntry *values_rte)
+{
+	ListCell *values_lc;
+	List *rwInsertList = NIL;
+	Query *element = NULL;
+	StringInfoData buf;
+	RangeTblRef *rtr = (RangeTblRef *) linitial(query->jointree->fromlist);
+	RangeTblEntry *rte;
+	RelationLocInfo *rte_loc_info;
+	char locatorType; 
+	char *partColName;
+	List **valuesList;
+	int i;
+	
+	rte = (RangeTblEntry *) list_nth(query->rtable, query->resultRelation - 1);
+	rte_loc_info = GetRelationLocInfo(rte->relid);
+	locatorType = rte_loc_info->locatorType;
+	partColName = rte_loc_info->partAttrName;
+
+	/*
+	 * Do this first so that string is alloc'd in outer context not SPI's.
+	 */
+	initStringInfo(&buf);
+
+	switch(locatorType)
+	{
+		case LOCATOR_TYPE_HASH:
+		{
+			bool first = true;
+			int partColno;
+			ExecNodes  *exec_nodes;
+
+			InitValuesList(&valuesList, NumDataNodes);
+
+			foreach(values_lc, values_rte->values_lists)
+			{
+				List *sublist = (List *)lfirst(values_lc);
+				
+				if (first)
+				{
+					partColno = GetRelPartColPos(query, partColName);
+					first = false;
+				}
+
+				/* get the exec node according to partition column value */
+				GetHashExecNodes(rte_loc_info, &exec_nodes,
+						(Expr *)list_nth(sublist, partColno));
+
+				Assert(exec_nodes->nodelist->length == 1);
+
+				/* assign valueList to specified exec node */
+				ProcessHashValue(valuesList, sublist, list_nth_int(exec_nodes->nodelist, 0));
+			}
+		}
+		
+		goto collect;
+
+		case LOCATOR_TYPE_RROBIN:
+			
+			InitValuesList(&valuesList, NumDataNodes);
+			/* assign valueList to specified exec node */
+			ProcessRobinValue(rte->relid, valuesList, NumDataNodes, values_rte);
+
+collect:			
+			/* produce query for relative datanodes */
+			for(i = 0; i < NumDataNodes; i++)
+			{
+				if (valuesList[i] != NIL)
+				{
+					ExecNodes *execNodes = makeNode(ExecNodes);
+					execNodes->baselocatortype = rte_loc_info->locatorType;
+					execNodes->nodelist = lappend_int(execNodes->nodelist, i + 1);
+						
+					element = copyObject(query);
+					
+					rte = (RangeTblEntry *)list_nth(element->rtable, rtr->rtindex - 1);
+					rte->values_lists = valuesList[i];
+
+					get_query_def_from_valuesList(element, &buf);
+					element->sql_statement = pstrdup(buf.data);
+					element->execNodes = execNodes;
+					elog(DEBUG1, "deparsed sql statement is %s\n", element->sql_statement);
+
+					resetStringInfo(&buf);
+
+					rwInsertList = lappend(rwInsertList, element);
+				}
+			}
+			
+			DestroyValuesList(&valuesList);
+			break;
+			
+		default: /* distribute by replication: just do it as usual */
+			rwInsertList = lappend(rwInsertList, query);
+			break;
+	}
+
+
+	return rwInsertList;
+}
+#endif
+

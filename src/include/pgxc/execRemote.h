@@ -25,6 +25,9 @@
 #include "nodes/pg_list.h"
 #include "tcop/dest.h"
 #include "utils/snapshot.h"
+#ifdef PGXC
+#include "tcop/pquery.h"
+#endif
 
 /* Outputs of handle_response() */
 #define RESPONSE_EOF EOF
@@ -138,6 +141,10 @@ extern void ExecEndRemoteQuery(RemoteQueryState *step);
 extern void ExecRemoteUtility(RemoteQuery *node);
 
 extern int handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner);
+#ifdef PGXC
+extern void HandleCmdComplete(CmdType commandType, combineTag *combine, const char *msg_body,
+									size_t len);
+#endif
 extern bool FetchTuple(RemoteQueryState *combiner, TupleTableSlot *slot);
 extern void BufferConnection(PGXCNodeHandle *conn);
 

@@ -2300,8 +2300,160 @@ deparse_query(Query *query, StringInfo buf, List *parentnamespace)
 {
 	get_query_def(query, buf, parentnamespace, NULL, 0, 0);
 }
-#endif
 
+/* code borrowed from get_insert_query_def */
+void
+get_query_def_from_valuesList(Query *query, StringInfo buf)
+{
+	
+	RangeTblEntry *select_rte = NULL;
+	RangeTblEntry *values_rte = NULL;
+	RangeTblEntry *rte;
+	char	   *sep;
+	ListCell   *values_cell;
+	ListCell   *l;
+	List	   *strippedexprs;
+	deparse_context context;
+	deparse_namespace dpns;
+
+	/*
+	 * Before we begin to examine the query, acquire locks on referenced
+	 * relations, and fix up deleted columns in JOIN RTEs.	This ensures
+	 * consistent results.	Note we assume it's OK to scribble on the passed
+	 * querytree!
+	 */
+	AcquireRewriteLocks(query);
+
+	context.buf = buf;
+	context.namespaces = NIL;
+	context.windowClause = NIL;
+	context.windowTList = NIL;
+	context.varprefix = (list_length(query->rtable) != 1);
+	context.prettyFlags = 0;
+	context.indentLevel = 0;
+
+	dpns.rtable = query->rtable;
+	dpns.ctes = query->cteList;
+	dpns.subplans = NIL;
+	dpns.outer_plan = dpns.inner_plan = NULL;
+	dpns.remotequery = false;
+
+	/*
+	 * If it's an INSERT ... SELECT or VALUES (...), (...), ... there will be
+	 * a single RTE for the SELECT or VALUES.
+	 */
+	foreach(l, query->rtable)
+	{
+		rte = (RangeTblEntry *) lfirst(l);
+
+		if (rte->rtekind == RTE_SUBQUERY)
+		{
+			if (select_rte)
+				elog(ERROR, "too many subquery RTEs in INSERT");
+			select_rte = rte;
+		}
+
+		if (rte->rtekind == RTE_VALUES)
+		{
+			if (values_rte)
+				elog(ERROR, "too many values RTEs in INSERT");
+			values_rte = rte;
+		}
+	}
+	if (select_rte && values_rte)
+		elog(ERROR, "both subquery and values RTEs in INSERT");
+
+	/*
+	 * Start the query with INSERT INTO relname
+	 */
+	rte = rt_fetch(query->resultRelation, query->rtable);
+	Assert(rte->rtekind == RTE_RELATION);
+
+	appendStringInfo(buf, "INSERT INTO %s (",
+					 generate_relation_name(rte->relid, NIL));
+
+	/*
+	 * Add the insert-column-names list.  To handle indirection properly, we
+	 * need to look for indirection nodes in the top targetlist (if it's
+	 * INSERT ... SELECT or INSERT ... single VALUES), or in the first
+	 * expression list of the VALUES RTE (if it's INSERT ... multi VALUES). We
+	 * assume that all the expression lists will have similar indirection in
+	 * the latter case.
+	 */
+	if (values_rte)
+		values_cell = list_head((List *) linitial(values_rte->values_lists));
+	else
+		values_cell = NULL;
+	strippedexprs = NIL;
+	sep = "";
+	foreach(l, query->targetList)
+	{
+		TargetEntry *tle = (TargetEntry *) lfirst(l);
+
+		elog(DEBUG1, "targetEntry type is %d\n)", tle->expr->type);
+		if (tle->resjunk || !IsA(tle->expr, Var))
+			continue;			/* ignore junk entries */
+
+		appendStringInfoString(buf, sep);
+		sep = ", ";
+
+		/*
+		 * Put out name of target column; look in the catalogs, not at
+		 * tle->resname, since resname will fail to track RENAME.
+		 */
+		appendStringInfoString(buf,quote_identifier(get_relid_attribute_name(rte->relid, tle->resno)));
+
+		/*
+		 * Print any indirection needed (subfields or subscripts), and strip
+		 * off the top-level nodes representing the indirection assignments.
+		 */
+		if (values_cell)
+		{
+			/* we discard the stripped expression in this case */
+			processIndirection((Node *) lfirst(values_cell), &context, true);
+			values_cell = lnext(values_cell);
+		}
+		else
+		{
+			/* we keep a list of the stripped expressions in this case */
+			strippedexprs = lappend(strippedexprs, processIndirection((Node *) tle->expr, &context, true));
+		}
+	}
+	appendStringInfo(buf, ") ");
+
+	if (select_rte)
+	{
+		/* Add the SELECT */
+		get_query_def(select_rte->subquery, buf, NIL, NULL,
+					  context.prettyFlags, context.indentLevel);
+	}
+	else if (values_rte)
+	{
+		/* A WITH clause is possible here */
+		get_with_clause(query, &context);
+		/* Add the multi-VALUES expression lists */
+		get_values_def(values_rte->values_lists, &context);
+	}
+	else
+	{
+		/* A WITH clause is possible here */
+		get_with_clause(query, &context);
+		/* Add the single-VALUES expression list */
+		appendContextKeyword(&context, "VALUES (",
+							 -PRETTYINDENT_STD, PRETTYINDENT_STD, 2);
+		get_rule_expr((Node *) strippedexprs, &context, false);
+		appendStringInfoChar(buf, ')');
+	}
+
+	/* Add RETURNING if present */
+	if (query->returningList)
+	{
+		appendContextKeyword(&context, " RETURNING",
+							 -PRETTYINDENT_STD, PRETTYINDENT_STD, 1);
+		get_target_list(query->returningList, &context, NULL);
+	}
+}
+#endif
 /* ----------
  * get_query_def			- Parse back one query parsetree
  *

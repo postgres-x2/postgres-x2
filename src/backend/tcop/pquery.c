@@ -23,6 +23,7 @@
 #include "pg_trace.h"
 #ifdef PGXC
 #include "pgxc/pgxc.h"
+#include "pgxc/execRemote.h"
 #endif
 #include "tcop/pquery.h"
 #include "tcop/tcopprot.h"
@@ -1239,6 +1240,12 @@ PortalRunMulti(Portal portal, bool isTopLevel,
 			   char *completionTag)
 {
 	ListCell   *stmtlist_item;
+#ifdef PGXC
+	combineTag	combine;
+
+	combine.cmdType = CMD_UNKNOWN;
+	combine.data[0] = '\0';
+#endif
 
 	/*
 	 * If the destination is DestRemoteExecute, change to DestNone.  The
@@ -1288,6 +1295,13 @@ PortalRunMulti(Portal portal, bool isTopLevel,
 							 portal->sourceText,
 							 portal->portalParams,
 							 dest, completionTag);
+#ifdef PGXC
+				/* it's special for INSERT */
+				if (IS_PGXC_COORDINATOR &&
+					pstmt->commandType == CMD_INSERT)
+					HandleCmdComplete(pstmt->commandType, &combine, 
+							completionTag, strlen(completionTag));
+#endif
 			}
 			else
 			{
@@ -1340,6 +1354,12 @@ PortalRunMulti(Portal portal, bool isTopLevel,
 	 * counts, so fake something up if necessary.  (This could happen if the
 	 * original query was replaced by a DO INSTEAD rule.)
 	 */
+	 
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR && combine.data[0] != '\0')
+		strcpy(completionTag, combine.data);
+#endif
+
 	if (completionTag && completionTag[0] == '\0')
 	{
 		if (portal->commandTag)
@@ -1654,3 +1674,4 @@ DoPortalRewind(Portal portal)
 	portal->portalPos = 0;
 	portal->posOverflow = false;
 }
+

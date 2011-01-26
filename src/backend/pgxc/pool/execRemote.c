@@ -815,6 +815,73 @@ HandleError(RemoteQueryState *combiner, char *msg_body, size_t len)
 	combiner->command_complete_count++;
 }
 
+/* combine deparsed sql statements execution results */
+void
+HandleCmdComplete(CmdType commandType, combineTag *combine, 
+						const char *msg_body, size_t len)
+{
+	int	digits = 0;
+	uint64	originrowcount = 0;
+	uint64	rowcount = 0;
+	uint64	total = 0;
+	
+	if (msg_body == NULL)
+		return;
+	
+	/* if there's nothing in combine, just copy the msg_body */
+	if (strlen(combine->data) == 0)
+	{
+		strcpy(combine->data, msg_body);
+		combine->cmdType = commandType;
+		return;
+	}
+	else
+	{
+		/* commandType is conflict */
+		if (combine->cmdType != commandType)
+			return;
+		
+		/* get the processed row number from msg_body */
+		digits = parse_row_count(msg_body, len + 1, &rowcount);
+		elog(DEBUG1, "digits is %d\n", digits);
+		Assert(digits >= 0);
+
+		/* no need to combine */
+		if (digits == 0)
+			return;
+
+		/* combine the processed row number */
+		parse_row_count(combine->data, strlen(combine->data) + 1, &originrowcount);
+		elog(DEBUG1, "originrowcount is %lu, rowcount is %lu\n", originrowcount, rowcount);
+		total = originrowcount + rowcount;
+
+	}
+
+	/* output command completion tag */
+	switch (commandType)
+	{
+		case CMD_SELECT:
+			strcpy(combine->data, "SELECT");
+			break;
+		case CMD_INSERT:
+			snprintf(combine->data, COMPLETION_TAG_BUFSIZE,
+			   "INSERT %u %lu", 0, total);
+			break;
+		case CMD_UPDATE:
+			snprintf(combine->data, COMPLETION_TAG_BUFSIZE,
+					 "UPDATE %lu", total);
+			break;
+		case CMD_DELETE:
+			snprintf(combine->data, COMPLETION_TAG_BUFSIZE,
+					 "DELETE %lu", total);
+			break;
+		default:
+			strcpy(combine->data, "");
+			break;
+	}
+	
+}
+
 /*
  * Examine the specified combiner state and determine if command was completed
  * successfully

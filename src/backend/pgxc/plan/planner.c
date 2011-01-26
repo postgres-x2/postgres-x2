@@ -2754,6 +2754,7 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 
 	query_step = makeRemoteQuery();
 
+	query_step->exec_nodes = query->execNodes;
 	/* Optimize multi-node handling */
 	query_step->read_only = query->commandType == CMD_SELECT;
 
@@ -2785,7 +2786,8 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	if (query->commandType != CMD_SELECT)
 		result->resultRelations = list_make1_int(query->resultRelation);
 
-	get_plan_nodes_command(query_step, root);
+	if (query_step->exec_nodes == NULL)
+		get_plan_nodes_command(query_step, root);
 
 	/* standard planner handles correlated UPDATE or DELETE */
 	if ((query->commandType == CMD_UPDATE || query->commandType == CMD_DELETE)
@@ -3244,3 +3246,39 @@ is_pgxc_safe_func(Oid funcid)
 	ReleaseSysCache(tp);
 	return ret_val;
 }
+
+/* code is borrowed from get_plan_nodes_insert */
+void
+GetHashExecNodes(RelationLocInfo *rel_loc_info, ExecNodes **exec_nodes, const Expr *expr)
+{
+	/* We may have a cast, try and handle it */
+	Expr	   *checkexpr;
+	Expr	   *eval_expr = NULL;
+	Const *constant;
+	long part_value;
+	long *part_value_ptr = NULL;
+
+	eval_expr = (Expr *) eval_const_expressions(NULL, (Node *)expr);
+	checkexpr = get_numeric_constant(eval_expr);
+
+	if (checkexpr == NULL)
+		return;
+
+	constant = (Const *) checkexpr;
+
+	if (constant->consttype == INT4OID ||
+		constant->consttype == INT2OID ||
+		constant->consttype == INT8OID)
+	{
+		part_value = (long) constant->constvalue;
+		part_value_ptr = &part_value;
+	}
+
+	/* single call handles both replicated and partitioned types */
+	*exec_nodes = GetRelationNodes(rel_loc_info, part_value_ptr,
+								  RELATION_ACCESS_INSERT);
+	if (eval_expr)
+		pfree(eval_expr);
+
+}
+

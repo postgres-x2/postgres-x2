@@ -26,6 +26,7 @@
 #include "nodes/value.h"
 #ifdef PGXC
 #include "access/tupdesc.h"
+#include "pgxc/locator.h"
 #endif
 
 /* Possible sources of a Query */
@@ -152,6 +153,7 @@ typedef struct Query
 #ifdef PGXC
 	/* need this info for PGXC Planner, may be temporary */
 	char	   *sql_statement;	/* original query */
+	ExecNodes  *execNodes;	/* execute nodes */
 #endif
 } Query;
 

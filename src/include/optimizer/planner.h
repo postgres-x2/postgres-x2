@@ -36,5 +36,9 @@ extern Plan *subquery_planner(PlannerGlobal *glob, Query *parse,
 				 PlannerInfo **subroot);
 
 extern Expr *expression_planner(Expr *expr);
+#ifdef PGXC
+extern void GetHashExecNodes(RelationLocInfo *rel_loc_info, 
+							ExecNodes **exec_nodes, const Expr *expr);
+#endif
 
 #endif   /* PLANNER_H */

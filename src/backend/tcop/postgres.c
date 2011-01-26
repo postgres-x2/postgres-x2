@@ -648,16 +648,18 @@ pg_analyze_and_rewrite(Node *parsetree, const char *query_string,
 	querytree_list = pg_rewrite_query(query);
 
 #ifdef PGXC
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-	{
-		ListCell   *lc;
+        if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+        {
+                ListCell   *lc;
 
-		foreach(lc, querytree_list)
-		{
-			Query *query = (Query *) lfirst(lc);
-			query->sql_statement = pstrdup(query_string);
-		}
-	}
+                foreach(lc, querytree_list)
+                {
+                        Query *query = (Query *) lfirst(lc);
+
+                        if (query->sql_statement == NULL)
+                                query->sql_statement = pstrdup(query_string);
+                }
+        }
 #endif
 
 	TRACE_POSTGRESQL_QUERY_REWRITE_DONE(query_string);
