@@ -55,7 +55,9 @@
 #include "utils/syscache.h"
 #include "utils/typcache.h"
 #include "utils/xml.h"
-
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#endif
 
 /* ----------
  * Pretty formatting constants
@@ -3220,6 +3222,18 @@ get_insert_query_def(Query *query, deparse_context *context)
 	ListCell   *values_cell;
 	ListCell   *l;
 	List	   *strippedexprs;
+
+#ifdef PGXC
+	/*
+	 * In the case of "INSERT ... DEFAULT VALUES" analyzed in pgxc planner,
+	 * return the sql statement directly if the table has no default values.
+	 */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && !query->targetList)
+	{
+		appendStringInfo(buf, "%s", query->sql_statement);
+		return;
+	}
+#endif
 
 	/*
 	 * If it's an INSERT ... SELECT or VALUES (...), (...), ... there will be
