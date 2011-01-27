@@ -18,11 +18,11 @@ all install installdirs uninstall distprep:
 	$(MAKE) -C timezone $@
 	# GTM should be built before backend because of dependancy
 	$(MAKE) -C gtm $@
+	$(MAKE) -C interfaces $@
 	$(MAKE) -C backend $@
 	$(MAKE) -C backend/utils/mb/conversion_procs $@
 	$(MAKE) -C backend/snowball $@
 	$(MAKE) -C include $@
-	$(MAKE) -C interfaces $@
 	$(MAKE) -C bin $@
 	$(MAKE) -C pl $@
 	$(MAKE) -C makefiles $@
