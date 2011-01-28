@@ -815,9 +815,18 @@ HandleError(RemoteQueryState *combiner, char *msg_body, size_t len)
 	combiner->command_complete_count++;
 }
 
-/* combine deparsed sql statements execution results */
+/*
+ * HandleCmdComplete -
+ *	combine deparsed sql statements execution results
+ *
+ * Input parameters: 
+ *	commandType is dml command type
+ *	combineTag is used to combine the completion result
+ *	msg_body is execution result needed to combine
+ *	len is msg_body size
+ */
 void
-HandleCmdComplete(CmdType commandType, combineTag *combine, 
+HandleCmdComplete(CmdType commandType, CombineTag *combine, 
 						const char *msg_body, size_t len)
 {
 	int	digits = 0;

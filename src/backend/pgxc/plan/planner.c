@@ -488,23 +488,19 @@ get_plan_nodes_insert(PlannerInfo *root, RemoteQuery *step)
 		/* Bad relation type */
 		return;
 
-
 	/* Get result relation info */
 	rel_loc_info = GetRelationLocInfo(rte->relid);
 
 	if (!rel_loc_info)
 		ereport(ERROR,
 				(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-			  (errmsg("Could not find relation for oid = %d", rte->relid))));
+				(errmsg("Could not find relation for oid = %d", rte->relid))));
 
-	if (query->jointree != NULL && query->jointree->fromlist != NULL)
+	/* Optimization is only done for distributed tables */
+	if (query->jointree != NULL
+		&& query->jointree->fromlist != NULL
+		&& rel_loc_info->locatorType == LOCATOR_TYPE_HASH)
 	{
-		/* INSERT SELECT suspected */
-
-		/* We only optimize for when the destination is partitioned */
-		if (rel_loc_info->locatorType != LOCATOR_TYPE_HASH)
-			return;
-
 		/*
 		 * See if it is "single-step"
 		 * Optimize for just known common case with 2 RTE entries
@@ -546,7 +542,7 @@ get_plan_nodes_insert(PlannerInfo *root, RemoteQuery *step)
 	if (rel_loc_info->locatorType == LOCATOR_TYPE_HASH &&
 		rel_loc_info->partAttrName != NULL)
 	{
-		Expr	   *checkexpr;
+		Expr		*checkexpr;
 		TargetEntry *tle = NULL;
 
 		/* It is a partitioned table, get value by looking in targetList */
@@ -602,7 +598,7 @@ get_plan_nodes_insert(PlannerInfo *root, RemoteQuery *step)
 				if (!source_rel_loc_info)
 					ereport(ERROR,
 							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-						  (errmsg("Could not find relation for oid = %d", rte->relid))));
+							(errmsg("Could not find relation for oid = %d", rte->relid))));
 
 				if (source_rel_loc_info->locatorType == LOCATOR_TYPE_HASH &&
 					strcmp(col_base->colname, source_rel_loc_info->partAttrName) == 0)
@@ -3247,16 +3243,26 @@ is_pgxc_safe_func(Oid funcid)
 	return ret_val;
 }
 
-/* code is borrowed from get_plan_nodes_insert */
+/*
+ * GetHashExecNodes -
+ *	Get hash key of execution nodes according to the expression value
+ *
+ * Input parameters: 
+ *	rel_loc_info is a locator function. It contains distribution information.
+ *	exec_nodes is the list of nodes to be executed
+ *	expr is the partition column value
+ *
+ * code is borrowed from get_plan_nodes_insert
+ */
 void
 GetHashExecNodes(RelationLocInfo *rel_loc_info, ExecNodes **exec_nodes, const Expr *expr)
 {
 	/* We may have a cast, try and handle it */
 	Expr	   *checkexpr;
 	Expr	   *eval_expr = NULL;
-	Const *constant;
-	long part_value;
-	long *part_value_ptr = NULL;
+	Const	   *constant;
+	long		part_value;
+	long	   *part_value_ptr = NULL;
 
 	eval_expr = (Expr *) eval_const_expressions(NULL, (Node *)expr);
 	checkexpr = get_numeric_constant(eval_expr);
@@ -3276,7 +3282,7 @@ GetHashExecNodes(RelationLocInfo *rel_loc_info, ExecNodes **exec_nodes, const Ex
 
 	/* single call handles both replicated and partitioned types */
 	*exec_nodes = GetRelationNodes(rel_loc_info, part_value_ptr,
-								  RELATION_ACCESS_INSERT);
+								   RELATION_ACCESS_INSERT);
 	if (eval_expr)
 		pfree(eval_expr);
 

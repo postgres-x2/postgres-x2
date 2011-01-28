@@ -17,13 +17,6 @@
 #include "nodes/parsenodes.h"
 #include "utils/portal.h"
 
-#ifdef PGXC
-typedef struct combineTag
-{
-	CmdType cmdType;
-	char data[COMPLETION_TAG_BUFSIZE];
-} combineTag;
-#endif
 
 extern PGDLLIMPORT Portal ActivePortal;
 

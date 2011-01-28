@@ -1241,7 +1241,7 @@ PortalRunMulti(Portal portal, bool isTopLevel,
 {
 	ListCell   *stmtlist_item;
 #ifdef PGXC
-	combineTag	combine;
+	CombineTag	combine;
 
 	combine.cmdType = CMD_UNKNOWN;
 	combine.data[0] = '\0';

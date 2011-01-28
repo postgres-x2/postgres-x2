@@ -2181,12 +2181,18 @@ QueryRewrite(Query *parsetree)
 }
 
 #ifdef PGXC
+/*
+ * Part of handling INSERT queries with multiple values
+ *
+ * GetRelPartColPos -
+ *	Get the partition column position in targetList
+ */
 static int
 GetRelPartColPos(const Query *query, const char *partColName)
 {
 		ListCell *lc;
 		int rescol = -1;
-		
+
 		foreach(lc, query->targetList)
 		{
 			TargetEntry *tle = (TargetEntry *) lfirst(lc);
@@ -2212,18 +2218,40 @@ GetRelPartColPos(const Query *query, const char *partColName)
 		return rescol;
 }
 
+/*
+ * Part of handling INSERT queries with multiple values
+ *
+ * ProcessHashValue -
+ *	associates the inserted row to the specified datanode 
+ *
+ * Input parameters: 
+ *	subList is the inserted row
+ *	node is the node number
+ */
 static void
 ProcessHashValue(List **valuesList, const List *subList, const int node)
 {
 	valuesList[node - 1] = lappend(valuesList[node - 1], subList); 
 }
 
+/*
+ * Part of handling INSERT queries with multiple values
+ *
+ * InitValuesList -
+ *	Allocate and initialize the list of values
+ */
 static void
 InitValuesList(List **valuesList[], int size)
 {
 	*valuesList = palloc0(size * sizeof(List *));
 }
 
+/*
+ * Part of handling INSERT queries with multiple values
+ *
+ * InitValuesList -
+ *	free all the list of values
+ */
 static void
 DestroyValuesList(List **valuesList[])
 {
@@ -2231,9 +2259,20 @@ DestroyValuesList(List **valuesList[])
 	*valuesList = NIL;
 }
 
+/*
+ * Part of handling INSERT queries with multiple values
+ *
+ * ProcessRobinValue -
+ *	assign insert values list to each node averagely
+ *
+ * Input parameters: 
+ *	valuesList is an array of lists used to assign value list to specified nodes
+ *	size is number of assigned nodes
+ *	values_rte is the values list
+ */
 static void
 ProcessRobinValue(Oid relid, List **valuesList, 
-								int size, const RangeTblEntry *values_rte)
+				  int size, const RangeTblEntry *values_rte)
 {
 	List *values = values_rte->values_lists;
 	int length = values->length;
@@ -2242,9 +2281,9 @@ ProcessRobinValue(Oid relid, List **valuesList,
 	int processNum = 0;
 	int node;
 
-	/* get average insert value number of each node */
-	if (length > NumDataNodes)
-		dist = length/NumDataNodes;
+	/* Get average insert value number of each node */
+	if (length > size)
+		dist = length/size;
 	else
 		dist = 1;
 
@@ -2252,7 +2291,7 @@ ProcessRobinValue(Oid relid, List **valuesList,
 	{
 		node = GetRoundRobinNode(relid);
 
-		/* assign insert value */
+		/* Assign insert value */
 		for(j = 0; j < dist; j++)
 		{
 			processNum += 1;
@@ -2260,17 +2299,30 @@ ProcessRobinValue(Oid relid, List **valuesList,
 									list_nth(values, processNum - 1));
 		}
 	}
-	
-	/* assign remained value */
+
+	/* Assign remained value */
 	while(processNum < length)
 	{
 		processNum += 1;
 		node = GetRoundRobinNode(relid);
 		valuesList[node - 1] = lappend(valuesList[node - 1],
-                                                                        list_nth(values, processNum - 1));
+									   list_nth(values, processNum - 1));
 	}
 }
 
+/*
+ * Part of handling INSERT queries with multiple values
+ *
+ * RewriteInsertStmt -
+ *	Rewrite INSERT statement.
+ *	Split the INSERT statement with mutiple values into mutiple insert statements
+ *	according to its distribution key. Distribution rule is as follows:
+ *		1.LOCATOR_TYPE_HASH: associates correct node with its distribution key
+ *		2.LOCATOR_TYPE_RROBIN: assign value lists to each datanodes averagely
+ *		3.DEFAULT: no need to process (replicate case)
+ *
+ *	values_rte is the values list range table.
+ */
 static List *
 RewriteInsertStmt(Query *query, RangeTblEntry *values_rte)
 {
@@ -2285,7 +2337,7 @@ RewriteInsertStmt(Query *query, RangeTblEntry *values_rte)
 	char *partColName;
 	List **valuesList;
 	int i;
-	
+
 	rte = (RangeTblEntry *) list_nth(query->rtable, query->resultRelation - 1);
 	rte_loc_info = GetRelationLocInfo(rte->relid);
 	locatorType = rte_loc_info->locatorType;
@@ -2309,44 +2361,45 @@ RewriteInsertStmt(Query *query, RangeTblEntry *values_rte)
 			foreach(values_lc, values_rte->values_lists)
 			{
 				List *sublist = (List *)lfirst(values_lc);
-				
+
 				if (first)
 				{
+					/* Get the partition column number in the targetList */
 					partColno = GetRelPartColPos(query, partColName);
 					first = false;
 				}
 
-				/* get the exec node according to partition column value */
+				/* Get the exec node according to partition column value */
 				GetHashExecNodes(rte_loc_info, &exec_nodes,
 						(Expr *)list_nth(sublist, partColno));
 
 				Assert(exec_nodes->nodelist->length == 1);
 
-				/* assign valueList to specified exec node */
+				/* Assign valueList to specified execution node */
 				ProcessHashValue(valuesList, sublist, list_nth_int(exec_nodes->nodelist, 0));
 			}
 		}
-		
+
 		goto collect;
 
 		case LOCATOR_TYPE_RROBIN:
-			
+
 			InitValuesList(&valuesList, NumDataNodes);
-			/* assign valueList to specified exec node */
+			/* Assign valueList to specified execution node */
 			ProcessRobinValue(rte->relid, valuesList, NumDataNodes, values_rte);
 
-collect:			
-			/* produce query for relative datanodes */
-			for(i = 0; i < NumDataNodes; i++)
+collect:
+			/* Produce query for relative Datanodes */
+			for (i = 0; i < NumDataNodes; i++)
 			{
 				if (valuesList[i] != NIL)
 				{
 					ExecNodes *execNodes = makeNode(ExecNodes);
 					execNodes->baselocatortype = rte_loc_info->locatorType;
 					execNodes->nodelist = lappend_int(execNodes->nodelist, i + 1);
-						
+
 					element = copyObject(query);
-					
+
 					rte = (RangeTblEntry *)list_nth(element->rtable, rtr->rtindex - 1);
 					rte->values_lists = valuesList[i];
 
@@ -2360,15 +2413,14 @@ collect:
 					rwInsertList = lappend(rwInsertList, element);
 				}
 			}
-			
+
 			DestroyValuesList(&valuesList);
 			break;
-			
+
 		default: /* distribute by replication: just do it as usual */
 			rwInsertList = lappend(rwInsertList, query);
 			break;
 	}
-
 
 	return rwInsertList;
 }

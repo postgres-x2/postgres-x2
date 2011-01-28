@@ -46,6 +46,12 @@ typedef enum
 	REQUEST_TYPE_COPY_OUT		/* Copy Out response */
 }	RequestType;
 
+/* Combines results of INSERT statements using multiple values */
+typedef struct CombineTag
+{
+	CmdType cmdType;						/* DML command type */
+	char	data[COMPLETION_TAG_BUFSIZE];	/* execution result combination data */
+} CombineTag;
 
 /*
  * Represents a DataRow message received from a remote node.
@@ -142,7 +148,7 @@ extern void ExecRemoteUtility(RemoteQuery *node);
 
 extern int handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner);
 #ifdef PGXC
-extern void HandleCmdComplete(CmdType commandType, combineTag *combine, const char *msg_body,
+extern void HandleCmdComplete(CmdType commandType, CombineTag *combine, const char *msg_body,
 									size_t len);
 #endif
 extern bool FetchTuple(RemoteQueryState *combiner, TupleTableSlot *slot);
