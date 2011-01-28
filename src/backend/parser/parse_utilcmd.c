@@ -18,7 +18,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
- * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
+ * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
  *
  *	$PostgreSQL: pgsql/src/backend/parser/parse_utilcmd.c,v 2.21 2009/06/11 14:49:00 momjian Exp $
  *

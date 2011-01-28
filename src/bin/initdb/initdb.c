@@ -40,7 +40,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
- * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
+ * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
  * Portions taken from FreeBSD.
  *
  * $PostgreSQL: pgsql/src/bin/initdb/initdb.c,v 1.172 2009/06/11 14:49:07 momjian Exp $

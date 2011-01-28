@@ -4,7 +4,7 @@
 #    Common rules for building shared libraries
 #
 # Copyright (c) 1998, Regents of the University of California
-# Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
+# Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
 #
 # IDENTIFICATION
 #    $PostgreSQL: pgsql/src/Makefile.shlib,v 1.119 2008/12/11 07:34:07 petere Exp $

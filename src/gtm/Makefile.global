@@ -2,7 +2,7 @@
 ##########################################################################
 #
 # Meta configuration
-# Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
+# Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
 
 .PHONY: all install install-strip installdirs uninstall clean distclean check installcheck
 .SILENT: installdirs

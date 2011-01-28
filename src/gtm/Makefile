@@ -3,7 +3,7 @@
 # Makefile for src/gtm
 # GTM and GTM proxy
 #
-# Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
+# Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
 #-------------------------------------------------------------------------
 
 PGFILEDESC = "gtm - Global Transaction Manager for Postgres-XC"

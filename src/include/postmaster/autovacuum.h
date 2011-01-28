@@ -6,7 +6,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
- * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
+ * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
  *
  * $PostgreSQL: pgsql/src/include/postmaster/autovacuum.h,v 1.15 2009/01/01 17:24:01 momjian Exp $
  *

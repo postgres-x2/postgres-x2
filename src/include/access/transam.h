@@ -6,7 +6,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
- * Portions Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
+ * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
  *
  * $PostgreSQL: pgsql/src/include/access/transam.h,v 1.68 2009/05/08 03:21:35 momjian Exp $
  *

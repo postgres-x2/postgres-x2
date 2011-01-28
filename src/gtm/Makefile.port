@@ -1,4 +1,4 @@
-# Copyright (c) 2010 Nippon Telegraph and Telephone Corporation
+# Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
 
 AROPT = crs
 export_dynamic = -Wl,-E
