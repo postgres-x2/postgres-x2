@@ -158,6 +158,46 @@ get_node_from_hash(int hash)
 	return mappingTable[hash];
 }
 
+/*
+ * compute_modulo
+ */
+static int
+compute_modulo(int valueOfPartCol)
+{
+	return ((abs(valueOfPartCol)) % NumDataNodes)+1;
+}
+
+/*
+ * get_node_from_modulo - determine node based on modulo
+ *
+ */
+static int
+get_node_from_modulo(int modulo)
+{
+	if (modulo > NumDataNodes || modulo <= 0)
+		ereport(ERROR, (errmsg("Modulo value out of range\n")));
+
+	return modulo;
+}
+
+/*
+ * GetRelationDistColumn - Returns the name of the hash or modulo distribution column
+ * First hash distribution is checked
+ * Retuens NULL if the table is neither hash nor modulo distributed
+ */
+char *
+GetRelationDistColumn(RelationLocInfo * rel_loc_info)
+{
+char *pColName;
+
+	pColName = NULL;
+
+	pColName = GetRelationHashColumn(rel_loc_info);
+	if (pColName == NULL)
+		pColName = GetRelationModuloColumn(rel_loc_info);
+
+	return pColName;
+}
 
 /*
  * Returns whether or not the data type is hash distributable with PG-XC
@@ -172,9 +212,8 @@ IsHashDistributable(Oid col_type)
 	return false;
 }
 
-
 /*
- * get_hash_column - return hash column for relation.
+ * GetRelationHashColumn - return hash column for relation.
  *
  * Returns NULL if the relation is not hash partitioned.
  */
@@ -230,6 +269,95 @@ IsHashColumnForRelId(Oid relid, char *part_col_name)
 	return IsHashColumn(rel_loc_info, part_col_name);
 }
 
+/*
+ * IsDistColumnForRelId - return whether or not column for relation is used for hash or modulo distribution
+ *
+ */
+bool
+IsDistColumnForRelId(Oid relid, char *part_col_name)
+{
+bool bRet;
+RelationLocInfo *rel_loc_info;
+
+	rel_loc_info = GetRelationLocInfo(relid);
+	bRet = false;
+
+	bRet = IsHashColumn(rel_loc_info, part_col_name);
+	if (bRet == false)
+		IsModuloColumn(rel_loc_info, part_col_name);
+	return bRet;
+}
+
+
+/*
+ * Returns whether or not the data type is modulo distributable with PG-XC
+ * PGXCTODO - expand support for other data types!
+ */
+bool
+IsModuloDistributable(Oid col_type)
+{
+	if (col_type == INT4OID || col_type == INT2OID)
+		return true;
+
+	return false;
+}
+
+/*
+ * GetRelationModuloColumn - return modulo column for relation.
+ *
+ * Returns NULL if the relation is not modulo partitioned.
+ */
+char *
+GetRelationModuloColumn(RelationLocInfo * rel_loc_info)
+{
+	char	   *column_str = NULL;
+
+	if (rel_loc_info == NULL)
+		column_str = NULL;
+	else if (rel_loc_info->locatorType != LOCATOR_TYPE_MODULO)
+		column_str = NULL;
+	else
+	{
+		int	len = strlen(rel_loc_info->partAttrName);
+
+		column_str = (char *) palloc(len + 1);
+		strncpy(column_str, rel_loc_info->partAttrName, len + 1);
+	}
+
+	return column_str;
+}
+
+/*
+ * IsModuloColumn - return whether or not column for relation is used for modulo distribution.
+ *
+ */
+bool
+IsModuloColumn(RelationLocInfo *rel_loc_info, char *part_col_name)
+{
+	bool		ret_value = false;
+
+	if (!rel_loc_info || !part_col_name)
+		ret_value = false;
+	else if (rel_loc_info->locatorType != LOCATOR_TYPE_MODULO)
+		ret_value = false;
+	else
+		ret_value = !strcmp(part_col_name, rel_loc_info->partAttrName);
+
+	return ret_value;
+}
+
+
+/*
+ * IsModuloColumnForRelId - return whether or not column for relation is used for modulo distribution.
+ *
+ */
+bool
+IsModuloColumnForRelId(Oid relid, char *part_col_name)
+{
+	RelationLocInfo *rel_loc_info = GetRelationLocInfo(relid);
+
+	return IsModuloColumn(rel_loc_info, part_col_name);
+}
 
 /*
  * Update the round robin node for the relation
@@ -365,6 +493,19 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, long *partValue,
 					exec_nodes->nodelist = list_copy(rel_loc_info->nodeList);
 			break;
 
+		case LOCATOR_TYPE_MODULO:
+			if (partValue != NULL)
+				/* in prototype, all partitioned tables use same map */
+				exec_nodes->nodelist = lappend_int(NULL, get_node_from_modulo(compute_modulo(*partValue)));
+			else
+				if (accessType == RELATION_ACCESS_INSERT)
+					/* Insert NULL to node 1 */
+					exec_nodes->nodelist = lappend_int(NULL, 1);
+				else
+					/* Use all nodes for other types of access */
+					exec_nodes->nodelist = list_copy(rel_loc_info->nodeList);
+			break;
+
 		case LOCATOR_TYPE_SINGLE:
 
 			/* just return first (there should only be one) */
@@ -419,6 +560,9 @@ ConvertToLocatorType(int disttype)
 			break;
 		case DISTTYPE_REPLICATION:
 			loctype = LOCATOR_TYPE_REPLICATED;
+			break;
+		case DISTTYPE_MODULO:
+			loctype = LOCATOR_TYPE_MODULO;
 			break;
 		default:
 			ereport(ERROR,

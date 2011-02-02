@@ -21,6 +21,7 @@
 #define LOCATOR_TYPE_SINGLE 'S'
 #define LOCATOR_TYPE_RROBIN 'N'
 #define LOCATOR_TYPE_CUSTOM 'C'
+#define LOCATOR_TYPE_MODULO 'M'
 
 #define HASH_SIZE 4096
 #define HASH_MASK 0x00000FFF;
@@ -106,5 +107,12 @@ extern List *GetAllCoordNodes(void);
 extern List *GetAnyDataNode(void);
 extern void RelationBuildLocator(Relation rel);
 extern void FreeRelationLocInfo(RelationLocInfo *relationLocInfo);
+
+extern bool IsModuloDistributable(Oid col_type);
+extern char *GetRelationModuloColumn(RelationLocInfo * rel_loc_info);
+extern bool IsModuloColumn(RelationLocInfo *rel_loc_info, char *part_col_name);
+extern bool IsModuloColumnForRelId(Oid relid, char *part_col_name);
+extern char *GetRelationDistColumn(RelationLocInfo * rel_loc_info);
+extern bool IsDistColumnForRelId(Oid relid, char *part_col_name);
 
 #endif   /* LOCATOR_H */

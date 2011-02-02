@@ -436,7 +436,7 @@ static TypeName *TableFuncTypeName(List *columns);
  */
 
 /* ordinary key words in alphabetical order */
-/* PGXC - added REPLICATION, DISTRIBUTE, and HASH */
+/* PGXC - added REPLICATION, DISTRIBUTE, MODULO and HASH */
 %token <keyword> ABORT_P ABSOLUTE_P ACCESS ACTION ADD_P ADMIN AFTER
 	AGGREGATE ALL ALSO ALTER ALWAYS ANALYSE ANALYZE AND ANY ARRAY AS ASC
 	ASSERTION ASSIGNMENT ASYMMETRIC AT AUTHORIZATION
@@ -484,9 +484,9 @@ static TypeName *TableFuncTypeName(List *columns);
 	LANCOMPILER LANGUAGE LARGE_P LAST_P LC_COLLATE_P LC_CTYPE_P LEADING
 	LEAST LEFT LEVEL LIKE LIMIT LISTEN LOAD LOCAL LOCALTIME LOCALTIMESTAMP
 	LOCATION LOCK_P LOGIN_P
-
-	MAPPING MATCH MAXVALUE MINUTE_P MINVALUE MODE MONTH_P MOVE
-
+/* PGXC_BEGIN */
+	MAPPING MATCH MAXVALUE MINUTE_P MINVALUE MODE MODULO MONTH_P MOVE
+/* PGXC_END */
 	NAME_P NAMES NATIONAL NATURAL NCHAR NEW NEXT NO NOCREATEDB
 	NOCREATEROLE NOCREATEUSER NODE NOINHERIT NOLOGIN_P NONE NOSUPERUSER
 	NOT NOTHING NOTIFY NOTNULL NOWAIT NULL_P NULLIF NULLS_P NUMERIC
@@ -2548,6 +2548,13 @@ OptDistributeBy: DistributeByHash '(' name ')'
 					DistributeBy *n = makeNode(DistributeBy);
 					n->disttype = DISTTYPE_HASH;
 					n->colname = $3;
+					$$ = n;
+				}
+			| DISTRIBUTE BY MODULO '(' name ')'
+				{
+					DistributeBy *n = makeNode(DistributeBy);
+					n->disttype = DISTTYPE_MODULO;
+					n->colname = $5;
 					$$ = n;
 				}
 			| DISTRIBUTE BY REPLICATION
@@ -10282,7 +10289,7 @@ ColLabel:	IDENT									{ $$ = $1; }
 
 /* "Unreserved" keywords --- available for use as any kind of name.
  */
-/* PGXC - added DISTRIBUTE, HASH, REPLICATION */
+/* PGXC - added DISTRIBUTE, HASH, REPLICATION, MODULO */
 unreserved_keyword:
 			  ABORT_P
 			| ABSOLUTE_P
@@ -10419,6 +10426,9 @@ unreserved_keyword:
 			| MINUTE_P
 			| MINVALUE
 			| MODE
+/* PGXC_BEGIN */
+			| MODULO
+/* PGXC_END */
 			| MONTH_P
 			| MOVE
 			| NAME_P

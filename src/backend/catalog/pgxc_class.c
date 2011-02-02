@@ -51,7 +51,7 @@ PgxcClassCreate(Oid pcrelid,
 	values[Anum_pgxc_class_pcrelid - 1]   = ObjectIdGetDatum(pcrelid);	
 	values[Anum_pgxc_class_pclocatortype - 1] = ObjectIdGetDatum(pclocatortype);
 
-	if (pclocatortype == LOCATOR_TYPE_HASH)
+	if (pclocatortype == LOCATOR_TYPE_HASH || pclocatortype == LOCATOR_TYPE_MODULO)
 	{
 		values[Anum_pgxc_class_pcattnum - 1] = ObjectIdGetDatum(pcattnum);
 		values[Anum_pgxc_class_pchashalgorithm - 1] = ObjectIdGetDatum(pchashalgorithm);

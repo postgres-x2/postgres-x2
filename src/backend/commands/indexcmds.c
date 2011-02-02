@@ -430,7 +430,7 @@ DefineIndex(RangeVar *heapRelation,
 		if (!isSafe)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
-					errmsg("Unique index of partitioned table must contain the hash distribution column.")));
+					errmsg("Unique index of partitioned table must contain the hash/modulo distribution column.")));
 	}
 #endif
 	/*

@@ -828,6 +828,7 @@ AddRelationDistribution (Oid relid,
 			switch (locatortype)
 			{
 				case LOCATOR_TYPE_HASH:
+				case LOCATOR_TYPE_MODULO:
 					attnum = rel_loc_info->partAttrNum;
 					break;
 
@@ -895,6 +896,26 @@ AddRelationDistribution (Oid relid,
 				locatortype = LOCATOR_TYPE_HASH;
 				break;
 
+			case DISTTYPE_MODULO:
+				/* User specified modulo column, validate */
+				attnum = get_attnum(relid, distributeby->colname);
+				if (!attnum)
+				{
+					ereport(ERROR,
+						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+						 errmsg("Invalid distribution column specified")));
+				}
+
+				if (!IsModuloDistributable(descriptor->attrs[attnum-1]->atttypid))
+				{
+					ereport(ERROR,
+						(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+						 errmsg("Column %s is not modulo distributable data type",
+							distributeby->colname)));
+				}
+				locatortype = LOCATOR_TYPE_MODULO;
+				break;
+
 			case DISTTYPE_REPLICATION:
 				locatortype = LOCATOR_TYPE_REPLICATED;
 				break;
@@ -910,12 +931,17 @@ AddRelationDistribution (Oid relid,
 		}
 	}
 
-	if (locatortype == LOCATOR_TYPE_HASH)
+	switch (locatortype)
 	{
-		/* PGXCTODO */
-		/* Use these for now until we make allowing different algorithms more flexible */
-		hashalgorithm = 1;
-		hashbuckets = HASH_SIZE;
+		case LOCATOR_TYPE_HASH:
+			/* PGXCTODO */
+			/* Use these for now until we make allowing different algorithms more flexible */
+			hashalgorithm = 1;
+			hashbuckets = HASH_SIZE;
+			break;
+
+		case LOCATOR_TYPE_MODULO:
+			break;
 	}
 
 	PgxcClassCreate (relid, locatortype, attnum, hashalgorithm, hashbuckets);

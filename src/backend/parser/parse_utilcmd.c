@@ -2266,7 +2266,7 @@ CheckLocalIndexColumn (char loctype, char *partcolname, char *indexcolname)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
 					errmsg("Cannot locally enforce a unique index on round robin distributed table.")));
-	else if (loctype == LOCATOR_TYPE_HASH)
+	else if (loctype == LOCATOR_TYPE_HASH || loctype == LOCATOR_TYPE_MODULO)
 	{
 		if (partcolname && indexcolname && strcmp(partcolname, indexcolname) == 0)
 			return true;
@@ -2307,12 +2307,13 @@ static checkLocalFKConstraints(CreateStmtContext *cxt)
 		}
 
 		/*
-		 * See if we are hash partitioned and the column appears in the
+		 * See if we are hash or modulo partitioned and the column appears in the
 		 * constraint, and it corresponds to the position in the referenced table.
 		 */
 		if (cxt->isalter)
 		{
-			if (cxt->rel->rd_locator_info->locatorType == LOCATOR_TYPE_HASH)
+			if (cxt->rel->rd_locator_info->locatorType == LOCATOR_TYPE_HASH ||
+				cxt->rel->rd_locator_info->locatorType == LOCATOR_TYPE_MODULO)
 			{
 				checkcolname = cxt->rel->rd_locator_info->partAttrName;
 			}
@@ -2352,13 +2353,13 @@ static checkLocalFKConstraints(CreateStmtContext *cxt)
 			if (pos >= list_length(fkconstraint->fk_attrs))
 				ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
-								errmsg("Hash distributed table must include distribution column in index")));
+								errmsg("Hash/Modulo distributed table must include distribution column in index")));
 
 			/* Verify that the referenced table is partitioned at the same position in the index */
-			if (!IsHashColumnForRelId(pk_rel_id, strVal(list_nth(fkconstraint->pk_attrs,pos))))
+			if (!IsDistColumnForRelId(pk_rel_id, strVal(list_nth(fkconstraint->pk_attrs,pos))))
 				ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
-								errmsg("Hash distribution column does not refer to hash distribution column in referenced table.")));
+								errmsg("Hash/Modulo distribution column does not refer to hash/modulo distribution column in referenced table.")));
 		}
 	}
 }

@@ -499,7 +499,8 @@ get_plan_nodes_insert(PlannerInfo *root, RemoteQuery *step)
 	/* Optimization is only done for distributed tables */
 	if (query->jointree != NULL
 		&& query->jointree->fromlist != NULL
-		&& rel_loc_info->locatorType == LOCATOR_TYPE_HASH)
+		&& (rel_loc_info->locatorType == LOCATOR_TYPE_HASH ||
+		    rel_loc_info->locatorType == LOCATOR_TYPE_MODULO))
 	{
 		/*
 		 * See if it is "single-step"
@@ -526,7 +527,8 @@ get_plan_nodes_insert(PlannerInfo *root, RemoteQuery *step)
 		/* If the source is not hash-based (eg, replicated) also send
 		 * through general planner
 		 */
-		if (step->exec_nodes->baselocatortype != LOCATOR_TYPE_HASH)
+		if (step->exec_nodes->baselocatortype != LOCATOR_TYPE_HASH &&
+			step->exec_nodes->baselocatortype != LOCATOR_TYPE_MODULO)
 		{
 			step->exec_nodes = NULL;
 			return;
@@ -539,8 +541,9 @@ get_plan_nodes_insert(PlannerInfo *root, RemoteQuery *step)
 	}
 
 
-	if (rel_loc_info->locatorType == LOCATOR_TYPE_HASH &&
-		rel_loc_info->partAttrName != NULL)
+	if ( (rel_loc_info->partAttrName != NULL) &&
+		( (rel_loc_info->locatorType == LOCATOR_TYPE_HASH) ||
+		  (rel_loc_info->locatorType == LOCATOR_TYPE_MODULO) ))
 	{
 		Expr		*checkexpr;
 		TargetEntry *tle = NULL;
@@ -600,8 +603,9 @@ get_plan_nodes_insert(PlannerInfo *root, RemoteQuery *step)
 							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
 							(errmsg("Could not find relation for oid = %d", rte->relid))));
 
-				if (source_rel_loc_info->locatorType == LOCATOR_TYPE_HASH &&
-					strcmp(col_base->colname, source_rel_loc_info->partAttrName) == 0)
+				if ((strcmp(col_base->colname, source_rel_loc_info->partAttrName) == 0) &&
+					( (source_rel_loc_info->locatorType == LOCATOR_TYPE_HASH) ||
+					  (source_rel_loc_info->locatorType == LOCATOR_TYPE_MODULO) ))
 				{
 					/*
 					 * Partition columns match, we have a "single-step INSERT SELECT".
@@ -1072,8 +1076,9 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 					if (!rel_loc_info1)
 						return true;
 
-					/* If hash partitioned, check if the part column was used */
-					if (IsHashColumn(rel_loc_info1, column_base->colname))
+					/* If hash or modulo partitioned, check if the part column was used */
+					if (IsHashColumn(rel_loc_info1, column_base->colname) ||
+						IsModuloColumn(rel_loc_info1, column_base->colname))
 					{
 						/* add to partitioned literal join conditions */
 						Literal_Comparison *lit_comp =
@@ -1174,8 +1179,10 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 					 * PGXCTODO - for the prototype, we assume all partitioned
 					 * tables are on the same nodes.
 					 */
-					if (IsHashColumn(rel_loc_info1, column_base->colname)
-						&& IsHashColumn(rel_loc_info2, column_base2->colname))
+					if ( ( (IsHashColumn(rel_loc_info1, column_base->colname)) &&
+						(IsHashColumn(rel_loc_info2, column_base2->colname))) ||
+					     ( (IsModuloColumn(rel_loc_info1, column_base->colname)) &&
+						(IsModuloColumn(rel_loc_info2, column_base2->colname))))
 					{
 						/* We found a partitioned join */
 						Parent_Child_Join *parent_child = (Parent_Child_Join *)
@@ -1219,7 +1226,8 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 				if (!rel_loc_info1)
 					return true;
 
-				if (IsHashColumn(rel_loc_info1, column_base->colname))
+				if (IsHashColumn(rel_loc_info1, column_base->colname) ||
+				    IsModuloColumn(rel_loc_info1, column_base->colname))
 				{
 					Expr_Comparison *expr_comp =
 						palloc(sizeof(Expr_Comparison));
@@ -1668,7 +1676,8 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 		if (!rel_loc_info)
 			return true;
 
-		if (rel_loc_info->locatorType != LOCATOR_TYPE_HASH)
+		if (rel_loc_info->locatorType != LOCATOR_TYPE_HASH &&
+			rel_loc_info->locatorType != LOCATOR_TYPE_MODULO)
 			/* do not need to determine partitioning expression */
 			context->query_step->exec_nodes = GetRelationNodes(rel_loc_info,
 															   NULL,
@@ -3197,9 +3206,9 @@ validate_part_col_updatable(const Query *query)
 				(errmsg("Could not find relation for oid = %d", rte->relid))));
 
 
-	/* Only LOCATOR_TYPE_HASH should be checked */
-	if (rel_loc_info->locatorType == LOCATOR_TYPE_HASH &&
-		rel_loc_info->partAttrName != NULL)
+	/* Only LOCATOR_TYPE_HASH & LOCATOR_TYPE_MODULO should be checked */
+	if ( (rel_loc_info->partAttrName != NULL) &&
+		( (rel_loc_info->locatorType == LOCATOR_TYPE_HASH) || (rel_loc_info->locatorType == LOCATOR_TYPE_MODULO) ) )
 	{
 		/* It is a partitioned table, check partition column in targetList */
 		foreach(lc, query->targetList)

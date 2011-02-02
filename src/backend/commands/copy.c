@@ -181,7 +181,7 @@ typedef struct CopyStateData
 
 	/* Locator information */
 	RelationLocInfo *rel_loc;	/* the locator key */
-	int			hash_idx;		/* index of the hash column */
+	int			idx_dist_by_col;		/* index of the distributed by column */
 
 	PGXCNodeHandle **connections; /* Involved data node connections */
 	TupleDesc	tupDesc;		/* for INSERT SELECT */
@@ -2312,14 +2312,14 @@ CopyFrom(CopyState cstate)
 #ifdef PGXC
 		if (IS_PGXC_COORDINATOR && cstate->rel_loc)
 		{
-			Datum 	   *hash_value = NULL;
+			Datum 	   *dist_col_value = NULL;
 
-			if (cstate->hash_idx >= 0 && !nulls[cstate->hash_idx])
-				hash_value = &values[cstate->hash_idx];
+			if (cstate->idx_dist_by_col >= 0 && !nulls[cstate->idx_dist_by_col])
+				dist_col_value = &values[cstate->idx_dist_by_col];
 
 			if (DataNodeCopyIn(cstate->line_buf.data,
 					       cstate->line_buf.len,
-						   GetRelationNodes(cstate->rel_loc, (long *)hash_value,
+						   GetRelationNodes(cstate->rel_loc, (long *)dist_col_value,
 											RELATION_ACCESS_INSERT),
 						   cstate->connections))
 				ereport(ERROR,
@@ -3737,7 +3737,7 @@ static ExecNodes*
 build_copy_statement(CopyState cstate, List *attnamelist,
 				TupleDesc tupDesc, bool is_from, List *force_quote, List *force_notnull)
 {
-	char *hash_att;
+	char *pPartByCol;
 
 
 	ExecNodes *exec_nodes = makeNode(ExecNodes);
@@ -3749,10 +3749,10 @@ build_copy_statement(CopyState cstate, List *attnamelist,
 	 */
 	cstate->rel_loc = GetRelationLocInfo(RelationGetRelid(cstate->rel));
 
-	hash_att = GetRelationHashColumn(cstate->rel_loc);
+	pPartByCol = GetRelationDistColumn(cstate->rel_loc);
 	if (cstate->rel_loc)
 	{
-		if (is_from || hash_att)
+		if (is_from || pPartByCol)
 			exec_nodes->nodelist = list_copy(cstate->rel_loc->nodeList);
 		else
 		{
@@ -3764,8 +3764,8 @@ build_copy_statement(CopyState cstate, List *attnamelist,
 		}
 	}
 
-	cstate->hash_idx = -1;
-	if (hash_att)
+	cstate->idx_dist_by_col = -1;
+	if (pPartByCol)
 	{
 		List	   *attnums;
 		ListCell   *cur;
@@ -3774,9 +3774,9 @@ build_copy_statement(CopyState cstate, List *attnamelist,
 		foreach(cur, attnums)
 		{
 			int 		attnum = lfirst_int(cur);
-			if (namestrcmp(&(tupDesc->attrs[attnum - 1]->attname), hash_att) == 0)
+			if (namestrcmp(&(tupDesc->attrs[attnum - 1]->attname), pPartByCol) == 0)
 			{
-				cstate->hash_idx = attnum - 1;
+				cstate->idx_dist_by_col = attnum - 1;
 				break;
 			}
 		}
@@ -3903,7 +3903,7 @@ DoInsertSelectCopy(EState *estate, TupleTableSlot *slot)
 	HeapTuple tuple;
 	Datum *values;
 	bool *nulls;
-	Datum *hash_value = NULL;
+	Datum *dist_col_value = NULL;
 	MemoryContext oldcontext;
 	CopyState cstate;
 
@@ -4016,14 +4016,14 @@ DoInsertSelectCopy(EState *estate, TupleTableSlot *slot)
 	/* Format the input tuple for sending */
 	CopyOneRowTo(cstate, 0, values, nulls);
 
-	/* Get hash partition column, if any */
-	if (cstate->hash_idx >= 0 && !nulls[cstate->hash_idx])
-		hash_value = &values[cstate->hash_idx];
+	/* Get dist column, if any */
+	if (cstate->idx_dist_by_col >= 0 && !nulls[cstate->idx_dist_by_col])
+		dist_col_value = &values[cstate->idx_dist_by_col];
 
 	/* Send item to the appropriate data node(s) (buffer) */
 	if (DataNodeCopyIn(cstate->fe_msgbuf->data,
 			       cstate->fe_msgbuf->len,
-				   GetRelationNodes(cstate->rel_loc, (long *)hash_value, RELATION_ACCESS_INSERT),
+				   GetRelationNodes(cstate->rel_loc, (long *)dist_col_value, RELATION_ACCESS_INSERT),
 				   cstate->connections))
 			ereport(ERROR,
 				(errcode(ERRCODE_CONNECTION_EXCEPTION),
