@@ -263,8 +263,9 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 	 * If we are on the coordinator, we always want to use
 	 * the remote query path unless it is a pg_catalog table.
 	 */
-	if (IS_PGXC_COORDINATOR
-				&& get_rel_namespace(rte->relid) != PG_CATALOG_NAMESPACE)
+	if (IS_PGXC_COORDINATOR &&
+		!IsConnFromCoord() &&
+		get_rel_namespace(rte->relid) != PG_CATALOG_NAMESPACE)
 		add_path(rel, create_remotequery_path(root, rel));
 	else
 	{

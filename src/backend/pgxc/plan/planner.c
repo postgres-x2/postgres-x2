@@ -943,10 +943,22 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 			}
 			return false;
 		}
-		// ??? current plan node is not a remote query
-		context->query_step->exec_nodes = makeNode(ExecNodes);
-		context->query_step->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_PGCATALOG;
-		context->exec_on_coord = true;
+
+		/* Even with a catalog table EXECUTE direct in launched on dedicated nodes */
+		if (context->query_step->exec_direct_type == EXEC_DIRECT_LOCAL
+			|| context->query_step->exec_direct_type == EXEC_DIRECT_NONE
+			|| context->query_step->exec_direct_type == EXEC_DIRECT_LOCAL_UTILITY)
+		{
+			context->query_step->exec_nodes = makeNode(ExecNodes);
+			context->query_step->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_PGCATALOG;
+			context->exec_on_coord = true;
+		}
+		else
+		{
+			context->query_step->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
+			context->exec_on_coord = false;
+		}
+
 		return false;
 	}
 
@@ -1404,6 +1416,10 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 	if (!query_node && !IsA(query_node,Query))
 		return true;
 
+	/* if EXECUTE DIRECT, just return */
+	if (context->query_step->exec_direct_type != EXEC_DIRECT_NONE)
+		return false;
+
 	query = (Query *) query_node;
 
 	/* If no tables, just return */
@@ -1574,7 +1590,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 		}
 	}
 
-	/* If we are just dealing with pg_catalog, just return */
+	/* If we are just dealing with pg_catalog, just return. */
 	if (table_usage_type == TABLE_USAGE_TYPE_PGCATALOG)
 	{
 		context->query_step->exec_nodes = makeNode(ExecNodes);
@@ -1816,6 +1832,7 @@ makeRemoteQuery(void)
 	result->exec_type = EXEC_ON_DATANODES;
 	result->paramval_data = NULL;
 	result->paramval_len = 0;
+	result->exec_direct_type = EXEC_DIRECT_NONE;
 
 	result->relname = NULL;
 	result->remotejoin = false;
@@ -1852,7 +1869,7 @@ get_plan_nodes(PlannerInfo *root, RemoteQuery *step, RelationAccessType accessTy
 	context.rtables = lappend(context.rtables, query->rtable);
 
 	if ((get_plan_nodes_walker((Node *) query, &context)
-			|| context.exec_on_coord) && context.query_step->exec_nodes)
+		 || context.exec_on_coord) && context.query_step->exec_nodes)
 	{
 		pfree(context.query_step->exec_nodes);
 		context.query_step->exec_nodes = NULL;
@@ -2748,13 +2765,33 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	result->intoClause = query->intoClause;
 	result->rtable = query->rtable;
 
-	query_step = makeRemoteQuery();
+	/* EXECUTE DIRECT statements have their RemoteQuery node already built when analyzing */
+	if (query->utilityStmt
+		&& IsA(query->utilityStmt, RemoteQuery))
+	{
+		RemoteQuery *stmt = (RemoteQuery *) query->utilityStmt;
+		if (stmt->exec_direct_type != EXEC_DIRECT_NONE)
+		{
+			query_step = stmt;
+			query->utilityStmt = NULL;
+			result->utilityStmt = NULL;
+		}
+		else
+		{
+			query_step = makeRemoteQuery();
+			query_step->exec_nodes = query->execNodes;
+		}
+	}
+	else
+	{
+		query_step = makeRemoteQuery();
+		query_step->exec_nodes = query->execNodes;
+	}
 
-	query_step->exec_nodes = query->execNodes;
 	/* Optimize multi-node handling */
 	query_step->read_only = query->commandType == CMD_SELECT;
 
-   	if (query->utilityStmt &&
+	if (query->utilityStmt &&
 		IsA(query->utilityStmt, DeclareCursorStmt))
 			cursorOptions |= ((DeclareCursorStmt *) query->utilityStmt)->options;
 

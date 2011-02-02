@@ -68,6 +68,18 @@ typedef enum
 	EXEC_ON_ALL_NODES
 } RemoteQueryExecType;
 
+typedef enum
+{
+	EXEC_DIRECT_NONE,
+	EXEC_DIRECT_LOCAL,
+	EXEC_DIRECT_LOCAL_UTILITY,
+	EXEC_DIRECT_UTILITY,
+	EXEC_DIRECT_SELECT,
+	EXEC_DIRECT_INSERT,
+	EXEC_DIRECT_UPDATE,
+	EXEC_DIRECT_DELETE
+} ExecDirectType;
+
 /*
  * Contains instructions on processing a step of a query.
  * In the prototype this will be simple, but it will eventually
@@ -77,6 +89,7 @@ typedef struct
 {
 	Scan		scan;
 	bool		is_single_step;		/* special case, skip extra work */
+	ExecDirectType	exec_direct_type;	/* track if remote query is execute direct and what type it is */
 	char	   *sql_statement;
 	ExecNodes  *exec_nodes;			/* List of Datanodes where to launch query */
 	CombineType combine_type;

@@ -41,8 +41,10 @@
 #include "rewrite/rewriteManip.h"
 #ifdef PGXC
 #include "pgxc/pgxc.h"
+#include "access/gtm.h"
 #include "pgxc/planner.h"
 #include "tcop/tcopprot.h"
+#include "pgxc/poolmgr.h"
 #endif
 #include "utils/rel.h"
 
@@ -1966,9 +1968,160 @@ transformExplainStmt(ParseState *pstate, ExplainStmt *stmt)
 static Query *
 transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 {
-	ereport(ERROR,
-			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-			 errmsg("Support for EXECUTE DIRECT is temporary broken")));
+	Query	   *result = makeNode(Query);
+	bool		is_coordinator = stmt->coordinator;
+	char	   *query = stmt->query;
+	List	   *nodelist = stmt->nodes;
+	ListCell   *nodeitem;
+	RemoteQuery *step = makeNode(RemoteQuery);
+	bool		is_local = false;
+	List	   *raw_parsetree_list;
+	ListCell   *raw_parsetree_item;
+
+	if (list_length(nodelist) > 1)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("Support for EXECUTE DIRECT on multiple nodes is not available yet")));
+
+	if (!superuser())
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 errmsg("must be superuser to use EXECUTE DIRECT")));
+
+	/* Check if execute direct is local and if node number is correct*/
+	foreach(nodeitem, nodelist)
+	{
+		int nodenum = intVal(lfirst(nodeitem));
+
+		if (nodenum < 1 ||
+			(!is_coordinator && nodenum > NumDataNodes) ||
+			(is_coordinator && nodenum > NumCoords))
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Node Number %d is incorrect", nodenum)));
+
+		if (nodenum == PGXCNodeId && is_coordinator)
+			is_local = true;
+	}
+
+	/* Transform the query into a raw parse list */
+	raw_parsetree_list = pg_parse_query(query);
+
+	/* EXECUTE DIRECT can just be executed with a single query */
+	if (list_length(raw_parsetree_list) > 1)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("EXECUTE DIRECT cannot execute multiple queries")));
+
+	/*
+	 * Analyze the Raw parse tree
+	 * EXECUTE DIRECT is restricted to one-step usage
+	 */
+	foreach(raw_parsetree_item, raw_parsetree_list)
+	{
+		Node   *parsetree = (Node *) lfirst(raw_parsetree_item);
+		result = parse_analyze(parsetree, query, NULL, 0);
+	}
+
+	/* Needed by planner */
+	result->sql_statement = pstrdup(query);
+
+	/* Default list of parameters to set */
+	step->is_single_step = true;
+	step->sql_statement = NULL;
+	step->exec_nodes = NULL;
+	step->combine_type = COMBINE_TYPE_NONE;
+	step->simple_aggregates = NIL;
+	step->sort = NULL;
+	step->distinct = NULL;
+	step->read_only = true;
+	step->force_autocommit = false;
+	step->cursor = NULL;
+	step->exec_type = EXEC_ON_DATANODES;
+	step->paramval_data = NULL;
+	step->paramval_len = 0;
+
+	step->relname = NULL;
+	step->remotejoin = false;
+	step->partitioned_replicated = false;
+	step->reduce_level = 0;
+	step->base_tlist = NIL;
+	step->outer_alias = NULL;
+	step->inner_alias = NULL;
+	step->outer_reduce_level = 0;
+	step->inner_reduce_level = 0;
+	step->outer_relids = NULL;
+	step->inner_relids = NULL;
+	step->inner_statement = NULL;
+	step->outer_statement = NULL;
+	step->join_condition = NULL;
+
+	/* Change the list of nodes that will be executed for the query and others */
+	step->exec_nodes = (ExecNodes *) palloc(sizeof(ExecNodes));
+	step->exec_nodes->primarynodelist = NIL;
+	step->exec_nodes->nodelist = NIL;
+	step->exec_nodes->expr = NIL;
+	step->force_autocommit = false;
+	step->combine_type = COMBINE_TYPE_SAME;
+	step->read_only = true;
+	step->exec_direct_type = EXEC_DIRECT_NONE;
+
+	/* Set up EXECUTE DIRECT flag */
+	if (is_local)
+	{
+		if (result->commandType == CMD_UTILITY)
+			step->exec_direct_type = EXEC_DIRECT_LOCAL_UTILITY;
+		else
+			step->exec_direct_type = EXEC_DIRECT_LOCAL;
+	}
+	else
+	{
+		if (result->commandType == CMD_UTILITY)
+			step->exec_direct_type = EXEC_DIRECT_UTILITY;
+		else if (result->commandType == CMD_SELECT)
+			step->exec_direct_type = EXEC_DIRECT_SELECT;
+		else if (result->commandType == CMD_INSERT)
+			step->exec_direct_type = EXEC_DIRECT_INSERT;
+		else if (result->commandType == CMD_UPDATE)
+			step->exec_direct_type = EXEC_DIRECT_UPDATE;
+		else if (result->commandType == CMD_DELETE)
+			step->exec_direct_type = EXEC_DIRECT_DELETE;
+	}
+
+	/*
+	 * Features not yet supported
+	 * DML can be launched without errors but this could compromise data
+	 * consistency, so block it.
+	 */
+	if (step->exec_direct_type == EXEC_DIRECT_DELETE
+		|| step->exec_direct_type == EXEC_DIRECT_UPDATE
+		|| step->exec_direct_type == EXEC_DIRECT_INSERT)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("EXECUTE DIRECT cannot execute DML queries")));
+	if (step->exec_direct_type == EXEC_DIRECT_LOCAL_UTILITY)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("EXECUTE DIRECT cannot execute locally utility queries")));
+
+	/* Build Execute Node list */
+	foreach(nodeitem, nodelist)
+	{
+		int nodenum = intVal(lfirst(nodeitem));
+		step->exec_nodes->nodelist = lappend_int(step->exec_nodes->nodelist, nodenum);
+	}
+
+	step->sql_statement = pstrdup(query);
+
+	if (is_coordinator)
+		step->exec_type = EXEC_ON_COORDS;
+	else
+		step->exec_type = EXEC_ON_DATANODES;
+
+	/* Associate newly-created RemoteQuery node to the returned Query result */
+	result->utilityStmt = (Node *) step;
+
+	return result;
 }
 #endif
 

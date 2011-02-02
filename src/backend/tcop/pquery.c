@@ -23,6 +23,7 @@
 #include "pg_trace.h"
 #ifdef PGXC
 #include "pgxc/pgxc.h"
+#include "pgxc/planner.h"
 #include "pgxc/execRemote.h"
 #endif
 #include "tcop/pquery.h"
@@ -293,12 +294,26 @@ ChoosePortalStrategy(List *stmts)
 #ifdef PGXC
 		else if (IsA(stmt, RemoteQuery))
 		{
+			RemoteQuery *step = (RemoteQuery *) stmt;
 			/*
 			 * Let's choose PORTAL_ONE_SELECT for now
 			 * After adding more PGXC functionality we may have more
 			 * sophisticated algorithm of determining portal strategy
+			 *
+			 * EXECUTE DIRECT is a utility but depending on its inner query
+			 * it can return tuples or not depending on the query used.
 			 */
-			return PORTAL_ONE_SELECT;
+			if (step->exec_direct_type == EXEC_DIRECT_SELECT
+				|| step->exec_direct_type == EXEC_DIRECT_UPDATE
+				|| step->exec_direct_type == EXEC_DIRECT_DELETE
+				|| step->exec_direct_type == EXEC_DIRECT_INSERT
+				|| step->exec_direct_type == EXEC_DIRECT_LOCAL)
+				return PORTAL_ONE_SELECT;
+			else if (step->exec_direct_type == EXEC_DIRECT_UTILITY
+					 || step->exec_direct_type == EXEC_DIRECT_LOCAL_UTILITY)
+				return PORTAL_MULTI_QUERY;
+			else
+				return PORTAL_ONE_SELECT;
 		}
 #endif
 		else if (IsA(stmt, PlannedStmt))

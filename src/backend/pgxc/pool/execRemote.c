@@ -3024,12 +3024,19 @@ get_exec_connections(RemoteQueryState *planstate,
 					FreeRelationLocInfo(rel_loc_info);
 				}
 			}
-		} else {
-			nodelist = exec_nodes->nodelist;
+		}
+		else
+		{
+			if (exec_type == EXEC_ON_DATANODES || exec_type == EXEC_ON_ALL_NODES)
+				nodelist = exec_nodes->nodelist;
+			else if (exec_type == EXEC_ON_COORDS)
+				coordlist = exec_nodes->nodelist;
+
 			primarynode = exec_nodes->primarynodelist;
 		}
 	}
 
+	/* Set node list and DN number */
 	if (list_length(nodelist) == 0 &&
 		(exec_type == EXEC_ON_ALL_NODES ||
 		 exec_type == EXEC_ON_DATANODES))
@@ -3039,20 +3046,31 @@ get_exec_connections(RemoteQueryState *planstate,
 	}
 	else
 	{
-		if (primarynode)
-			dn_conn_count = list_length(nodelist) + 1;
+		if (exec_type == EXEC_ON_DATANODES || exec_type == EXEC_ON_ALL_NODES)
+		{
+			if (primarynode)
+				dn_conn_count = list_length(nodelist) + 1;
+			else
+				dn_conn_count = list_length(nodelist);
+		}
 		else
-			dn_conn_count = list_length(nodelist);
+			dn_conn_count = 0;
 	}
 
-	if (exec_type == EXEC_ON_ALL_NODES ||
-		exec_type == EXEC_ON_COORDS)
+	/* Set Coordinator list and coordinator number */
+	if ((list_length(nodelist) == 0 && exec_type == EXEC_ON_ALL_NODES) ||
+		(list_length(coordlist) == 0 && exec_type == EXEC_ON_COORDS))
 	{
 		co_conn_count = NumCoords;
 		coordlist = GetAllCoordNodes();
 	}
 	else
-		co_conn_count = 0;
+	{
+		if (exec_type == EXEC_ON_COORDS)
+			co_conn_count = list_length(coordlist);
+		else
+			co_conn_count = 0;
+	}
 
 	/* Get other connections (non-primary) */
 	pgxc_handles = get_handles(nodelist, coordlist, is_query_coord_only);
@@ -3138,11 +3156,20 @@ do_query(RemoteQueryState *node)
 	 * are launched in ExecRemoteUtility
 	 */
 	pgxc_connections = get_exec_connections(node, step->exec_nodes,
-											EXEC_ON_DATANODES);
+											step->exec_type);
 
-	connections = pgxc_connections->datanode_handles;
+	if (step->exec_type == EXEC_ON_DATANODES)
+	{
+		connections = pgxc_connections->datanode_handles;
+		total_conn_count = regular_conn_count = pgxc_connections->dn_conn_count;
+	}
+	else if (step->exec_type == EXEC_ON_COORDS)
+	{
+		connections = pgxc_connections->coord_handles;
+		total_conn_count = regular_conn_count = pgxc_connections->co_conn_count;
+	}
+
 	primaryconnection = pgxc_connections->primary_handle;
-	total_conn_count = regular_conn_count = pgxc_connections->dn_conn_count;
 
 	/*
 	 * Primary connection is counted separately but is included in total_conn_count if used.
@@ -4011,6 +4038,7 @@ ExecRemoteUtility(RemoteQuery *node)
 	int			co_conn_count;
 	int			dn_conn_count;
 	bool		need_tran;
+	ExecDirectType		exec_direct_type = node->exec_direct_type;
 	int			i;
 
 	implicit_force_autocommit = force_autocommit;
@@ -4020,7 +4048,15 @@ ExecRemoteUtility(RemoteQuery *node)
 	pgxc_connections = get_exec_connections(NULL, node->exec_nodes, exec_type);
 
 	dn_conn_count = pgxc_connections->dn_conn_count;
-	co_conn_count = pgxc_connections->co_conn_count;
+
+	/*
+	 * EXECUTE DIRECT can only be launched on a single node
+	 * but we have to count local node also here.
+	 */
+	if (exec_direct_type != EXEC_DIRECT_NONE && exec_type == EXEC_ON_COORDS)
+		co_conn_count = 2;
+	else
+		co_conn_count = pgxc_connections->co_conn_count;
 
 	/* Registering new connections needs the sum of Connections to Datanodes AND to Coordinators */
 	total_conn_count = dn_conn_count + co_conn_count;
@@ -4033,6 +4069,17 @@ ExecRemoteUtility(RemoteQuery *node)
 	else
 		need_tran = !autocommit || total_conn_count > 1;
 
+	/* Commands launched through EXECUTE DIRECT do not need start a transaction */
+	if (exec_direct_type == EXEC_DIRECT_UTILITY)
+	{
+		need_tran = false;
+
+		/* This check is not done when analyzing to limit dependencies */
+		if (IsTransactionBlock())
+			ereport(ERROR,
+					(errcode(ERRCODE_ACTIVE_SQL_TRANSACTION),
+					 errmsg("cannot run EXECUTE DIRECT with utility inside a transaction block")));
+	}
 
 	if (!is_read_only)
 	{

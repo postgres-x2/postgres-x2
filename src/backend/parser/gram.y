@@ -6534,16 +6534,17 @@ opt_analyze:
 /*****************************************************************************
  *
  *		QUERY:
- *				EXECUTE DIRECT ON (COORDINATOR | NODE num, ...) query
+ *				EXECUTE DIRECT ON (COORDINATOR num, ... | NODE num, ...) query
  *
  *****************************************************************************/
 
-ExecDirectStmt: EXECUTE DIRECT ON COORDINATOR DirectStmt
+ExecDirectStmt: EXECUTE DIRECT ON COORDINATOR coord_list DirectStmt
 				{
 					ExecDirectStmt *n = makeNode(ExecDirectStmt);
 					n->coordinator = TRUE;
 					n->nodes = NIL;
-					n->query = $5;
+					n->nodes = $5;
+					n->query = $6;
 					$$ = (Node *)n;
 				}
 				| EXECUTE DIRECT ON NODE data_node_list DirectStmt
