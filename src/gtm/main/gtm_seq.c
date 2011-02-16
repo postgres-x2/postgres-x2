@@ -695,8 +695,12 @@ GTM_SeqSetVal(GTM_SequenceKey seqkey, GTM_Sequence nextval, bool iscalled)
 
 	if (seqinfo->gs_value != nextval)
 		seqinfo->gs_value = nextval;
-	if (seqinfo->gs_called != iscalled)
-		seqinfo->gs_called = iscalled;
+
+	seqinfo->gs_called = iscalled;
+
+	/* If sequence is not called, reset the init value to the value set */
+	if (!iscalled)
+		seqinfo->gs_init_value = nextval;
 
 	/* Remove the old key with the old name */
 	GTM_RWLockRelease(&seqinfo->gs_lock);
