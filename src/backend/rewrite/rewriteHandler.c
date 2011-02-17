@@ -2350,6 +2350,7 @@ RewriteInsertStmt(Query *query, RangeTblEntry *values_rte)
 
 	switch(locatorType)
 	{
+		case LOCATOR_TYPE_MODULO:
 		case LOCATOR_TYPE_HASH:
 		{
 			bool first = true;
