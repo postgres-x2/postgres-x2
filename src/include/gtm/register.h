@@ -40,14 +40,15 @@ typedef enum GTM_PGXCNodeStatus
 
 typedef struct GTM_PGXCNodeInfo
 {
-	GTM_PGXCNodeType	type;
-	GTM_PGXCNodeId		nodenum;
-	GTM_PGXCNodeId		proxynum;
-	GTM_PGXCNodePort	port;
-	char			   *ipaddress;
-	char			   *datafolder;
-	GTM_PGXCNodeStatus	status;
-	GTM_RWLock			node_lock;
+	GTM_PGXCNodeType	type;		/* Type of node */
+	GTM_PGXCNodeId		nodenum;	/* Node number */
+	GTM_PGXCNodeId		proxynum;	/* Proxy number the node goes through */
+	GTM_PGXCNodePort	port;		/* Port number of the node */
+	char			   *ipaddress;	/* IP address of the nodes */
+	char			   *datafolder;	/* Data folder of the node */
+	GTM_PGXCNodeStatus	status;		/* Node status */
+	GTM_RWLock			node_lock;	/* Lock on this structure */
+	int					socket;		/* socket number used for registration */
 } GTM_PGXCNodeInfo;
 
 int Recovery_PGXCNodeRegister(GTM_PGXCNodeType	type,
@@ -57,9 +58,13 @@ int Recovery_PGXCNodeRegister(GTM_PGXCNodeType	type,
 							  GTM_PGXCNodeStatus status,
 							  char			   *ipaddress,
 							  char			   *datafolder,
-							  bool				in_recovery);
-int Recovery_PGXCNodeUnregister(GTM_PGXCNodeType type, GTM_PGXCNodeId nodenum, bool in_recovery);
-int Recovery_PGXCNodeBackendDisconnect(GTM_PGXCNodeType type, GTM_PGXCNodeId nodenum);
+							  bool				in_recovery,
+							  int				socket);
+int Recovery_PGXCNodeUnregister(GTM_PGXCNodeType type,
+								GTM_PGXCNodeId nodenum,
+								bool in_recovery,
+								int socket);
+int Recovery_PGXCNodeBackendDisconnect(GTM_PGXCNodeType type, GTM_PGXCNodeId nodenum, int socket);
 
 void Recovery_RecordRegisterInfo(GTM_PGXCNodeInfo *nodeinfo, bool is_register);
 void Recovery_RestoreRegisterInfo(void);

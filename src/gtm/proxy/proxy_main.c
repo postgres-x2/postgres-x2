@@ -1350,7 +1350,8 @@ ProcessPGXCNodeCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 										  NODE_CONNECTED,
 										  remote_host,
 										  cmd_data.cd_reg.datafolder,
-										  false))
+										  false,
+										  conninfo->con_port->sock))
 			{
 				ereport(ERROR,
 						(EINVAL,
@@ -1376,7 +1377,10 @@ ProcessPGXCNodeCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 			oldContext = MemoryContextSwitchTo(TopMostMemoryContext);
 
 			/* Unregister Node also on Proxy */
-			if (Recovery_PGXCNodeUnregister(cmd_data.cd_reg.type, cmd_data.cd_reg.nodenum, false))
+			if (Recovery_PGXCNodeUnregister(cmd_data.cd_reg.type,
+											cmd_data.cd_reg.nodenum,
+											false,
+											conninfo->con_port->sock))
 			{
 				ereport(ERROR,
 						(EINVAL,

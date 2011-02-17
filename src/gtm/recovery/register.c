@@ -163,8 +163,11 @@ pgxcnode_add_info(GTM_PGXCNodeInfo *nodeinfo)
 			else
 			{
 				/*
-				 * Check if its data (port, datafolder and remote IP) has changed
-				 * and modify it
+				 * Node has been disconnected abruptly.
+				 * And we are sure that disconnections are not done by other node
+				 * trying to use the same ID.
+				 * So check if its data (port, datafolder and remote IP) has changed
+				 * and modify it.
 				 */
 				if (!pgxcnode_port_equal(curr_nodeinfo->port, nodeinfo->port))
 					curr_nodeinfo->port = nodeinfo->port;
@@ -193,6 +196,9 @@ pgxcnode_add_info(GTM_PGXCNodeInfo *nodeinfo)
 
 				/* Reconnect a disconnected node */
 				curr_nodeinfo->status = NODE_CONNECTED;
+
+				/* Set socket number with the new one */
+				curr_nodeinfo->socket = nodeinfo->socket;
 				GTM_RWLockRelease(&bucket->nhb_lock);
 				return 0;
 			}
@@ -236,12 +242,19 @@ pgxcnode_copy_char(const char *str)
  * Unregister the given node
  */
 int
-Recovery_PGXCNodeUnregister(GTM_PGXCNodeType type, GTM_PGXCNodeId nodenum, bool in_recovery)
+Recovery_PGXCNodeUnregister(GTM_PGXCNodeType type, GTM_PGXCNodeId nodenum, bool in_recovery, int socket)
 {
 	GTM_PGXCNodeInfo *nodeinfo = pgxcnode_find_info(type, nodenum);
 
 	if (nodeinfo != NULL)
 	{
+		/*
+		 * Unregistration has to be made by the same connection as the one used for registration
+		 * or the one that reconnected the node.
+		 */
+		if (!in_recovery && socket != nodeinfo->socket)
+			return EINVAL;
+
 		pgxcnode_remove_info(nodeinfo);
 
 		/* Add a record to file on disk saying that this node has been unregistered correctly */
@@ -266,7 +279,8 @@ Recovery_PGXCNodeRegister(GTM_PGXCNodeType	type,
 						  GTM_PGXCNodeStatus status,
 						  char			   *ipaddress,
 						  char			   *datafolder,
-						  bool				in_recovery)
+						  bool				in_recovery,
+						  int				socket)
 {
 	GTM_PGXCNodeInfo *nodeinfo = NULL;
 	int errcode = 0;
@@ -286,6 +300,7 @@ Recovery_PGXCNodeRegister(GTM_PGXCNodeType	type,
 	nodeinfo->datafolder = pgxcnode_copy_char(datafolder);
 	nodeinfo->ipaddress = pgxcnode_copy_char(ipaddress);
 	nodeinfo->status = status;
+	nodeinfo->socket = socket;
 
 	/* Add PGXC Node Info to the global hash table */
 	errcode = pgxcnode_add_info(nodeinfo);
@@ -384,7 +399,7 @@ ProcessPGXCNodeRegister(Port *myport, StringInfo message)
 
 	if (Recovery_PGXCNodeRegister(type, nodenum, port,
 								  proxynum, NODE_CONNECTED,
-								  ipaddress, datafolder, false))
+								  ipaddress, datafolder, false, myport->sock))
 	{
 		ereport(ERROR,
 				(EINVAL,
@@ -438,7 +453,7 @@ ProcessPGXCNodeUnregister(Port *myport, StringInfo message)
 	 */
 	oldContext = MemoryContextSwitchTo(TopMostMemoryContext);
 
-	if (Recovery_PGXCNodeUnregister(type, nodenum, false))
+	if (Recovery_PGXCNodeUnregister(type, nodenum, false, myport->sock))
 	{
 		ereport(ERROR,
 				(EINVAL,
@@ -652,9 +667,9 @@ Recovery_RestoreRegisterInfo(void)
 		/* Rebuild based on the records */
 		if (magic == NodeRegisterMagic)
 			Recovery_PGXCNodeRegister(type, nodenum, port, proxynum, status,
-									  ipaddress, datafolder, true);
+									  ipaddress, datafolder, true, 0);
 		else
-			Recovery_PGXCNodeUnregister(type, nodenum, true);
+			Recovery_PGXCNodeUnregister(type, nodenum, true, 0);
 
 		read(ctlfd, &magic, sizeof(NodeEndMagic));
 
@@ -703,9 +718,14 @@ Recovery_PGXCNodeDisconnect(Port *myport)
 
 	if (nodeinfo != NULL)
 	{
+		/* Disconnection cannot be made with another socket than the one used for registration */
+		if (myport->sock != nodeinfo->socket)
+			return;
+
 		GTM_RWLockAcquire(&nodeinfo->node_lock, GTM_LOCKMODE_WRITE);
 
 		nodeinfo->status = NODE_DISCONNECTED;
+		nodeinfo->socket = 0;
 
 		GTM_RWLockRelease(&nodeinfo->node_lock);
 	}
@@ -714,16 +734,25 @@ Recovery_PGXCNodeDisconnect(Port *myport)
 }
 
 int
-Recovery_PGXCNodeBackendDisconnect(GTM_PGXCNodeType type, GTM_PGXCNodeId nodenum)
+Recovery_PGXCNodeBackendDisconnect(GTM_PGXCNodeType type, GTM_PGXCNodeId nodenum, int socket)
 {
 	GTM_PGXCNodeInfo *nodeinfo = pgxcnode_find_info(type, nodenum);
 	int errcode = 0;
 
+
 	if (nodeinfo != NULL)
 	{
+		/*
+		 * A node can be only disconnected by the same connection as the one used for registration
+		 * or reconnection.
+		 */
+		if (socket != nodeinfo->socket)
+			return -1;
+
 		GTM_RWLockAcquire(&nodeinfo->node_lock, GTM_LOCKMODE_WRITE);
 
 		nodeinfo->status = NODE_DISCONNECTED;
+		nodeinfo->socket = 0;
 
 		GTM_RWLockRelease(&nodeinfo->node_lock);
 	}
@@ -770,7 +799,7 @@ ProcessPGXCNodeBackendDisconnect(Port *myport, StringInfo message)
 	 */
 	oldContext = MemoryContextSwitchTo(TopMostMemoryContext);
 
-	if (Recovery_PGXCNodeBackendDisconnect(type, nodenum) < 0)
+	if (Recovery_PGXCNodeBackendDisconnect(type, nodenum, myport->sock) < 0)
 	{
 		elog(LOG, "Cannot disconnect Unregistered node");
 	}
