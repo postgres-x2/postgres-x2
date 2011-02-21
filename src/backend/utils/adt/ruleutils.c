@@ -3260,6 +3260,18 @@ get_insert_query_def(Query *query, deparse_context *context)
 	if (select_rte && values_rte)
 		elog(ERROR, "both subquery and values RTEs in INSERT");
 
+#ifdef PGXC
+	/*
+	 * If it's an INSERT ... SELECT or VALUES (...), (...), ... 
+	 * sql_statement is rewritten and assigned in RewriteQuery.
+	 * Just return it here.
+	 */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && values_rte != NULL)
+	{
+		appendStringInfo(buf, "%s", query->sql_statement);
+		return;
+	}
+#endif
 	/*
 	 * Start the query with INSERT INTO relname
 	 */
