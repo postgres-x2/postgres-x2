@@ -27,4 +27,5 @@
 #define	CLEAN_CONNECTION_EOF				-1
 
 void CleanConnection(CleanConnStmt *stmt);
+void DropDBCleanConnection(char *dbname);
 #endif

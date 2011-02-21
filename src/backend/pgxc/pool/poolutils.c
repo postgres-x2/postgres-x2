@@ -23,6 +23,7 @@
 #include "pgxc/poolutils.h"
 #include "access/gtm.h"
 #include "commands/dbcommands.h"
+#include "utils/acl.h"
 
 #include "nodes/parsenodes.h"
 
@@ -178,6 +179,32 @@ CleanConnection(CleanConnStmt *stmt)
 
 	/* Finish by contacting Pooler Manager */
 	PoolManagerCleanConnection(dn_list, co_list, dbname);
+
+	/* Clean up memory */
+	if (co_list)
+		list_free(co_list);
+	if (dn_list)
+		list_free(dn_list);
+}
+
+/*
+ * DropDBCleanConnection
+ *
+ * Clean Connection for given database before dropping it
+ * FORCE is not used here
+ */
+void
+DropDBCleanConnection(char *dbname)
+{
+	List	*co_list = GetAllCoordNodes();
+	List	*dn_list = GetAllDataNodes();
+
+	/* Check permissions for this database */
+	if (!pg_database_ownercheck(get_database_oid(dbname), GetUserId()))
+		aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_DATABASE,
+					   dbname);
+
+	PoolManagerCleanConnection(dn_list, co_list, dbname);	
 
 	/* Clean up memory */
 	if (co_list)

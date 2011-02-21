@@ -1044,6 +1044,12 @@ ProcessUtility(Node *parsetree,
 			{
 				DropdbStmt *stmt = (DropdbStmt *) parsetree;
 
+#ifdef PGXC
+				/* Clean connections before dropping a database */
+				if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+					DropDBCleanConnection(stmt->dbname);
+#endif
+
 				PreventTransactionChain(isTopLevel, "DROP DATABASE");
 				dropdb(stmt->dbname, stmt->missing_ok);
 			}
