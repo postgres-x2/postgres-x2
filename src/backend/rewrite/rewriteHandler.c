@@ -1750,8 +1750,13 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 
 		if (locks != NIL)
 		{
-			List	   *product_queries;
+#ifdef PGXC
+			List	   *product_queries = NIL;
 
+			if (IS_PGXC_COORDINATOR)
+#else
+			List	   *product_queries;
+#endif
 			product_queries = fireRules(parsetree,
 										result_relation,
 										event,
@@ -1860,16 +1865,16 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 								   result_relation, parsetree);
 				if (locks != NIL)
 				{
-					List	   *product_queries;
+					List	   *product_queries = NIL;
 
-
-					product_queries = fireRules(query,
-									result_relation,
-									event,
-									locks,
-									&instead,
-									&returning,
-									&qual_product);
+					if (IS_PGXC_COORDINATOR)
+						product_queries = fireRules(query,
+										result_relation,
+										event,
+										locks,
+										&instead,
+										&returning,
+										&qual_product);
 					
 					qual_product_list = lappend(qual_product_list,  qual_product);
 
@@ -1956,23 +1961,7 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 			heap_close(rt_entry_relation, NoLock);
 		}
 	}
-#endif
-		
-	
-		
-	/*
-	 * For INSERTs, the original query is done first; for UPDATE/DELETE, it is
-	 * done last.  This is needed because update and delete rule actions might
-	 * not do anything if they are invoked after the update or delete is
-	 * performed. The command counter increment between the query executions
-	 * makes the deleted (and maybe the updated) tuples disappear so the scans
-	 * for them in the rule actions cannot find them.
-	 *
-	 * If we found any unqualified INSTEAD, the original query is not done at
-	 * all, in any form.  Otherwise, we add the modified form if qualified
-	 * INSTEADs were found, else the unmodified form.
-	 */
-#ifdef PGXC
+
 	if (parsetree_list == NIL)
 	{
 #endif
