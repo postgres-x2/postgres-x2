@@ -916,7 +916,7 @@ GTM_StartPreparedTransaction(GTM_TransactionHandle txn,
 
 	if (gtm_txninfo->gti_gid == NULL)
 		gtm_txninfo->gti_gid = (char *)MemoryContextAlloc(TopMostMemoryContext, GTM_MAX_GID_LEN);
-	memcpy(gtm_txninfo->gti_gid, gid, strlen(gid));
+	memcpy(gtm_txninfo->gti_gid, gid, strlen(gid) + 1);
 
 	GTM_RWLockRelease(&gtm_txninfo->gti_lock);
 
@@ -1419,13 +1419,12 @@ ProcessGetGIDDataTransactionCommand(Port *myport, StringInfo message)
 
 	pq_getmsgend(message);
 
+	/* Get the prepared Transaction for given GID */
 	prepared_txn = GTM_GIDToHandle(gid);
 	if (prepared_txn == InvalidTransactionHandle)
 		ereport(ERROR,
 				(EINVAL,
 				 errmsg("Failed to get GID Data for prepared transaction")));
-
-	oldContext = MemoryContextSwitchTo(TopMemoryContext);
 
 	/* First get the GXID for the new transaction */
 	txn = GTM_BeginTransaction(0, txn_isolation_level, txn_read_only);
@@ -1444,13 +1443,9 @@ ProcessGetGIDDataTransactionCommand(Port *myport, StringInfo message)
 	 * Make the internal process, get the prepared information from GID.
 	 */
 	if (GTM_GetGIDData(prepared_txn, &prepared_gxid, &datanodecnt, &datanodes, &coordcnt, &coordinators) != STATUS_OK)
-	{
 		ereport(ERROR,
 				(EINVAL,
 				 errmsg("Failed to get the information of prepared transaction")));
-	}
-
-	MemoryContextSwitchTo(oldContext);
 
 	/*
 	 * Send a SUCCESS message back to the client
