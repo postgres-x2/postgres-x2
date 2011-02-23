@@ -1051,8 +1051,8 @@ ProcessUtility(Node *parsetree,
 				DropdbStmt *stmt = (DropdbStmt *) parsetree;
 
 #ifdef PGXC
-				/* Clean connections before dropping a database */
-				if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+				/* Clean connections before dropping a database on local node */
+				if (IS_PGXC_COORDINATOR)
 					DropDBCleanConnection(stmt->dbname);
 #endif
 

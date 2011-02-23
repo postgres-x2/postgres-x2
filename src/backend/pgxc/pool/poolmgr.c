@@ -1920,9 +1920,9 @@ clean_connection(List *dn_discard, List *co_discard, const char *database)
 	/* Find correct Database pool to clean */
 	databasePool = find_database_pool(database);
 
-	/* Database pool has not been found */
+	/* Database pool has not been found, it is already clean */
 	if (!databasePool)
-		return CLEAN_CONNECTION_NOT_COMPLETED;
+		return CLEAN_CONNECTION_COMPLETED;
 
 	/*
 	 * Clean each Pool Correctly
