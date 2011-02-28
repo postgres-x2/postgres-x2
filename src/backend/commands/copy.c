@@ -609,6 +609,13 @@ CopyGetData(CopyState cstate, void *databuf, int minread, int maxread)
 							break;
 					}
 				}
+#ifdef PGXC
+				/* A PGXC Datanode does not need to read the header data received from Coordinator */
+				if (IS_PGXC_DATANODE &&
+					cstate->binary &&
+					cstate->fe_msgbuf->data[cstate->fe_msgbuf->len-1] == '\n')
+					cstate->fe_msgbuf->len--;
+#endif
 				avail = cstate->fe_msgbuf->len - cstate->fe_msgbuf->cursor;
 				if (avail > maxread)
 					avail = maxread;
@@ -1551,6 +1558,10 @@ CopyTo(CopyState cstate)
 
 	if (cstate->binary)
 	{
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR)
+	{
+#endif
 		/* Generate header for a binary copy */
 		int32		tmp;
 
@@ -1564,6 +1575,12 @@ CopyTo(CopyState cstate)
 		/* No header extension */
 		tmp = 0;
 		CopySendInt32(cstate, tmp);
+
+#ifdef PGXC
+		/* Need to flush out the trailer */
+		CopySendEndOfRow(cstate);
+	}
+#endif
 	}
 	else
 	{
@@ -1646,7 +1663,15 @@ CopyTo(CopyState cstate)
 	}
 #endif
 
+#ifdef PGXC
+	/*
+	 * In PGXC, it is not necessary for a datanode to generate
+	 * the trailer as Coordinator is in charge of it
+	 */
+	if (cstate->binary && IS_PGXC_COORDINATOR)
+#else
 	if (cstate->binary)
+#endif
 	{
 		/* Generate trailer for a binary copy */
 		CopySendInt16(cstate, -1);
@@ -2099,6 +2124,31 @@ CopyFrom(CopyState cstate)
 						(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
 						 errmsg("invalid COPY file header (wrong length)")));
 		}
+#ifdef PGXC
+		if (IS_PGXC_COORDINATOR)
+		{
+			/* Empty buffer info and send header to all the backends involved in COPY */
+			resetStringInfo(&cstate->line_buf);
+
+			enlargeStringInfo(&cstate->line_buf, 19);
+			appendBinaryStringInfo(&cstate->line_buf, BinarySignature, 11);
+			tmp = 0;
+
+			if (cstate->oids)
+				tmp |= (1 << 16);
+			tmp = htonl(tmp);
+
+			appendBinaryStringInfo(&cstate->line_buf, &tmp, 4);
+			tmp = 0;
+			tmp = htonl(tmp);
+			appendBinaryStringInfo(&cstate->line_buf, &tmp, 4);
+
+			if(DataNodeCopyInBinaryForAll(cstate->line_buf.data, 19, cstate->connections))
+					ereport(ERROR,
+							(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
+							 errmsg("invalid COPY file header (COPY SEND)")));
+		}
+#endif
 	}
 
 	if (file_has_oids && cstate->binary)
@@ -2254,6 +2304,18 @@ CopyFrom(CopyState cstate)
 				fld_count == -1)
 			{
 				done = true;
+#ifdef PGXC
+				if (IS_PGXC_COORDINATOR)
+				{
+					/* Empty buffer */
+					resetStringInfo(&cstate->line_buf);
+
+					enlargeStringInfo(&cstate->line_buf, sizeof(uint16));
+					/* Receive field count directly from datanodes */
+					fld_count = htons(fld_count);
+					appendBinaryStringInfo(&cstate->line_buf, &fld_count, sizeof(uint16));
+				}
+#endif
 				break;
 			}
 
@@ -2262,7 +2324,17 @@ CopyFrom(CopyState cstate)
 						(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
 						 errmsg("row field count is %d, expected %d",
 								(int) fld_count, attr_count)));
+#ifdef PGXC
+			if (IS_PGXC_COORDINATOR)
+			{
+				/* Empty buffer */
+				resetStringInfo(&cstate->line_buf);
 
+				enlargeStringInfo(&cstate->line_buf, sizeof(uint16));
+				fld_count = htons(fld_count);
+				appendBinaryStringInfo(&cstate->line_buf, &fld_count, sizeof(uint16));
+			}
+#endif
 			if (file_has_oids)
 			{
 				cstate->cur_attname = "oid";
@@ -3302,6 +3374,7 @@ CopyReadBinaryAttribute(CopyState cstate,
 						bool *isnull)
 {
 	int32		fld_size;
+	int32 		nSize;
 	Datum		result;
 
 	if (!CopyGetInt32(cstate, &fld_size))
@@ -3317,6 +3390,15 @@ CopyReadBinaryAttribute(CopyState cstate,
 		ereport(ERROR,
 				(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
 				 errmsg("invalid field size")));
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR)
+	{
+		/* Get the field size from Datanode */
+		enlargeStringInfo(&cstate->line_buf, sizeof(int32));
+		nSize = htonl(fld_size);
+		appendBinaryStringInfo(&cstate->line_buf, &nSize, sizeof(int32));
+	}
+#endif
 
 	/* reset attribute_buf to empty, and load raw data in it */
 	resetStringInfo(&cstate->attribute_buf);
@@ -3330,6 +3412,14 @@ CopyReadBinaryAttribute(CopyState cstate,
 
 	cstate->attribute_buf.len = fld_size;
 	cstate->attribute_buf.data[fld_size] = '\0';
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR)
+	{
+		/* Get binary message from Datanode */
+		enlargeStringInfo(&cstate->line_buf, fld_size);
+		appendBinaryStringInfo(&cstate->line_buf, cstate->attribute_buf.data, fld_size);
+	}
+#endif
 
 	/* Call the column type's binary input converter */
 	result = ReceiveFunctionCall(flinfo, &cstate->attribute_buf,

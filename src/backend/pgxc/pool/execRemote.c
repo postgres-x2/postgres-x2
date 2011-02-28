@@ -4570,3 +4570,56 @@ PGXCNodeGetNodeList(PGXC_NodeId **datanodes,
 	if (!PersistentConnections)
 		release_handles();
 }
+
+/*
+ * DataNodeCopyInBinaryForAll
+ *
+ * In a COPY TO, send to all datanodes PG_HEADER for a COPY TO in binary mode.
+ */
+int DataNodeCopyInBinaryForAll(char *msg_buf, int len, PGXCNodeHandle** copy_connections)
+{
+	int 		i;
+	int 		conn_count = 0;
+	PGXCNodeHandle *connections[NumDataNodes];
+	int msgLen = 4 + len + 1;
+	int nLen = htonl(msgLen);
+
+	for (i = 0; i < NumDataNodes; i++)
+	{
+		PGXCNodeHandle *handle = copy_connections[i];
+
+		if (!handle)
+			continue;
+
+		connections[conn_count++] = handle;
+	}
+
+	for (i = 0; i < conn_count; i++)
+	{
+		PGXCNodeHandle *handle = connections[i];
+		if (handle->state == DN_CONNECTION_STATE_COPY_IN)
+		{
+			/* msgType + msgLen */
+			if (ensure_out_buffer_capacity(handle->outEnd + 1 + msgLen, handle) != 0)
+			{
+				ereport(ERROR,
+					(errcode(ERRCODE_OUT_OF_MEMORY),
+					errmsg("out of memory")));
+			}
+
+			handle->outBuffer[handle->outEnd++] = 'd';
+			memcpy(handle->outBuffer + handle->outEnd, &nLen, 4);
+			handle->outEnd += 4;
+			memcpy(handle->outBuffer + handle->outEnd, msg_buf, len);
+			handle->outEnd += len;
+			handle->outBuffer[handle->outEnd++] = '\n';
+		}
+		else
+		{
+			add_error_message(handle, "Invalid data node connection");
+			return EOF;
+		}
+	}
+
+	return 0;
+}
