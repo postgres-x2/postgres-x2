@@ -36,13 +36,7 @@ extern GlobalTransaction MarkAsPreparing(TransactionId xid, const char *gid,
 				TimestampTz prepared_at,
 				Oid owner, Oid databaseid);
 
-#ifdef PGXC
-extern void RemoveGXactCoord(GlobalTransaction gxact);
-extern void EndPrepare(GlobalTransaction gxact, bool write_2pc_file);
-#else
 extern void EndPrepare(GlobalTransaction gxact);
-#endif
-
 extern void StartPrepare(GlobalTransaction gxact);
 
 extern TransactionId PrescanPreparedTransactions(void);

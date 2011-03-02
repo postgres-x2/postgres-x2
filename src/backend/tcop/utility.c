@@ -316,7 +316,11 @@ ProcessUtility(Node *parsetree,
 						break;
 
 					case TRANS_STMT_COMMIT:
+#ifdef PGXC
+						if (!EndTransactionBlock(true))
+#else
 						if (!EndTransactionBlock())
+#endif
 						{
 							/* report unsuccessful commit in completionTag */
 							if (completionTag)
@@ -342,16 +346,31 @@ ProcessUtility(Node *parsetree,
 						if (IsConnFromCoord())
 							operation_local = true;
 
-						if (!PrepareTransactionBlock(stmt->gid, operation_local))
-						{
-#else
-						if (!PrepareTransactionBlock(stmt->gid))
+						if (operation_local)
 						{
 #endif
+						if (!PrepareTransactionBlock(stmt->gid))
+						{
 							/* report unsuccessful commit in completionTag */
 							if (completionTag)
 								strcpy(completionTag, "ROLLBACK");
 						}
+#ifdef PGXC
+						}
+						else
+						{
+							/*
+							 * In this case commit locally to erase the transaction traces
+							 * but do not contact GTM
+							 */
+							if (!EndTransactionBlock(false))
+							{
+								/* report unsuccessful commit in completionTag */
+								if (completionTag)
+									strcpy(completionTag, "ROLLBACK");
+							}
+						}
+#endif
 						break;
 
 					case TRANS_STMT_COMMIT_PREPARED:
