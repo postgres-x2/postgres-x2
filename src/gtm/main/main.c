@@ -55,6 +55,8 @@ int			GTMPortNumber;
 char		GTMControlFile[GTM_MAX_PATH];
 char		*GTMDataDir;
 
+GTM_ThreadID	TopMostThreadID;
+
 /* The socket(s) we're listening to. */
 #define MAXLISTEN	64
 static int	ListenSocket[MAXLISTEN];
@@ -113,6 +115,7 @@ MainThreadInit()
 		fprintf(stderr, "malloc failed: %d", errno);
 		fflush(stdout);
 		fflush(stderr);
+		exit(1);
 	}
 
 	if (SetMyThreadInfo(thrinfo))
@@ -120,7 +123,10 @@ MainThreadInit()
 		fprintf(stderr, "SetMyThreadInfo failed: %d", errno);
 		fflush(stdout);
 		fflush(stderr);
+		exit(1);
 	}
+
+	TopMostThreadID = pthread_self();
 
 	return thrinfo;
 }

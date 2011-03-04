@@ -200,6 +200,7 @@ typedef struct GTMProxy_CommandInfo
 extern pthread_key_t					threadinfo_key;
 extern MemoryContext					TopMostMemoryContext;
 extern char								*GTMLogFile;
+extern GTM_ThreadID						TopMostThreadID;
 
 #define SetMyThreadInfo(thrinfo)		pthread_setspecific(threadinfo_key, (thrinfo))
 #define GetMyThreadInfo					((GTMProxy_ThreadInfo *)pthread_getspecific(threadinfo_key))

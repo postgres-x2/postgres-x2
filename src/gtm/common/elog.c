@@ -355,7 +355,10 @@ errfinish(int dummy,...)
 		 * FATAL termination.  The postmaster may or may not consider this
 		 * worthy of panic, depending on which subprocess returns it.
 		 */
-		pthread_exit(NULL);
+		if (IsMainThread())
+			exit(1);
+		else
+			pthread_exit(NULL);
 	}
 
 	if (elevel >= PANIC)

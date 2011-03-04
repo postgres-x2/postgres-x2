@@ -93,6 +93,7 @@ GTM_ThreadInfo * GTM_GetThreadInfo(GTM_ThreadID thrid);
  */
 extern pthread_key_t					threadinfo_key;
 extern MemoryContext					TopMostMemoryContext;
+extern GTM_ThreadID						TopMostThreadID;
 
 #define SetMyThreadInfo(thrinfo)		pthread_setspecific(threadinfo_key, (thrinfo))
 #define GetMyThreadInfo					((GTM_ThreadInfo *)pthread_getspecific(threadinfo_key))
@@ -113,6 +114,7 @@ extern MemoryContext					TopMostMemoryContext;
 									GetMyThreadInfo->thr_conn->con_port :	\
 									NULL)
 #define MyThreadID				(GetMyThreadInfo->thr_id)
+#define IsMainThread()			(GetMyThreadInfo->thr_id == TopMostThreadID)
 
 #define GTM_CachedTransInfo				(GetMyThreadInfo->thr_cached_txninfo)
 #define GTM_HaveFreeCachedTransInfo()	(list_length(GTM_CachedTransInfo))
