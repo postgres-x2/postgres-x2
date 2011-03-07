@@ -34,7 +34,9 @@
 #include "utils/resowner.h"
 #include "utils/snapmgr.h"
 #include "utils/tqual.h"
-
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#endif
 
 /*
  * CurrentSnapshot points to the only snapshot taken in a serializable
@@ -344,6 +346,14 @@ PopActiveSnapshot(void)
 Snapshot
 GetActiveSnapshot(void)
 {
+#ifdef PGXC
+	/*
+	 * Check if topmost snapshot is null or not,
+	 * if it is, a new one will be taken from GTM.
+	 */
+	if (!ActiveSnapshot && IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		return NULL;
+#endif
 	Assert(ActiveSnapshot != NULL);
 
 	return ActiveSnapshot->as_snap;
