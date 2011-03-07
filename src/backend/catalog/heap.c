@@ -875,34 +875,17 @@ AddRelationDistribution (Oid relid,
 						 errmsg("Invalid parent table distribution type")));
 					break;
 			}
-		} else
+		}
+		else
 		{
 			/* 
 			 * If no distribution was specified, and we have not chosen
-			 * one based on primary key or foreign key, use first column with
-			 * a supported data type.
+			 * distribute table by replication.
 			 */
-			Form_pg_attribute attr;
-			int i;
-
-			locatortype = LOCATOR_TYPE_HASH;
-
-			for (i = 0; i < descriptor->natts; i++)
-			{
-				attr = descriptor->attrs[i];
-				if (IsHashDistributable(attr->atttypid))
-				{
-					/* distribute on this column */
-					attnum = i + 1;
-					break;
-				}
-			}
-
-			/* If we did not find a usable type, fall back to round robin */
-			if (attnum == 0)
-				locatortype = LOCATOR_TYPE_RROBIN;
+			locatortype = LOCATOR_TYPE_REPLICATED;
 		}
-	} else 
+	}
+	else 
 	{
 		/* 
 		 * User specified distribution type
