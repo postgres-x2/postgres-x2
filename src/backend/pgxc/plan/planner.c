@@ -603,9 +603,14 @@ get_plan_nodes_insert(PlannerInfo *root, RemoteQuery *step)
 							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
 							(errmsg("Could not find relation for oid = %d", rte->relid))));
 
-				if ((strcmp(col_base->colname, source_rel_loc_info->partAttrName) == 0) &&
-					( (source_rel_loc_info->locatorType == LOCATOR_TYPE_HASH) ||
-					  (source_rel_loc_info->locatorType == LOCATOR_TYPE_MODULO) ))
+				if (	col_base->colname != NULL &&
+					source_rel_loc_info->partAttrName != NULL &&
+					strcmp(col_base->colname, source_rel_loc_info->partAttrName) == 0 &&
+					(
+					  source_rel_loc_info->locatorType == LOCATOR_TYPE_HASH ||
+					  source_rel_loc_info->locatorType == LOCATOR_TYPE_MODULO
+					)
+				   )
 				{
 					/*
 					 * Partition columns match, we have a "single-step INSERT SELECT".
