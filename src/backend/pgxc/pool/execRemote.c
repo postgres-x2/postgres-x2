@@ -4232,19 +4232,6 @@ ExecRemoteUtility(RemoteQuery *node)
 				}
 			}
 		}
-
-		/*
-		 * We have processed all responses from the data nodes and if we have
-		 * error message pending we can report it. All connections should be in
-		 * consistent state now and can be released to the pool after rollback.
-		 */
-		if (remotestate->errorMessage)
-		{
-			char *code = remotestate->errorCode;
-			ereport(ERROR,
-					(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
-					 errmsg("%s", remotestate->errorMessage)));
-		}
 	}
 
 	/* Make the same for Coordinators */
@@ -4285,18 +4272,18 @@ ExecRemoteUtility(RemoteQuery *node)
 				}
 			}
 		}
-		/*
-		 * We have processed all responses from the data nodes and if we have
-		 * error message pending we can report it. All connections should be in
-		 * consistent state now and can be released to the pool after rollback.
-		 */
-		if (remotestate->errorMessage)
-		{
-			char *code = remotestate->errorCode;
-			ereport(ERROR,
-					(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
-					 errmsg("%s", remotestate->errorMessage)));
-		}
+	}
+	/*
+	 * We have processed all responses from nodes and if we have
+	 * error message pending we can report it. All connections should be in
+	 * consistent state now and so they can be released to the pool after ROLLBACK.
+	 */
+	if (remotestate->errorMessage)
+	{
+		char *code = remotestate->errorCode;
+		ereport(ERROR,
+				(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
+				 errmsg("%s", remotestate->errorMessage)));
 	}
 }
 
