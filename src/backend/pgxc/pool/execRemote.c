@@ -3550,7 +3550,6 @@ ExecRemoteQuery(RemoteQueryState *node)
 	TupleTableSlot *scanslot = node->ss.ss_ScanTupleSlot;
 	bool have_tuple = false;
 
-
 	if (!node->query_Done)
 	{
 		/*
@@ -3677,7 +3676,22 @@ handle_results:
 		 */
 		if (node->simple_aggregates)
 		{
+			int i, natts;
+
 			finish_simple_aggregates(node, resultslot);
+
+			/*
+			 * PGXCTODO :In fact exec_simple_aggregates & finish_simple_aggregates
+			 * should not be resulting in a TupleTableSlot with NULL pointer in 
+			 * per attribute value, but for now to fix the crash this check would do
+			 */
+			natts = resultslot->tts_tupleDescriptor->natts;
+			for (i = 0; i < natts; ++i)
+			{
+				if (resultslot->tts_values[i] == NULL)
+					return NULL;
+			}
+
 			if (!TupIsNull(resultslot))
 				have_tuple = true;
 		}
