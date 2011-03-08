@@ -1304,6 +1304,11 @@ standard_ProcessUtility(Node *parsetree,
 			(void) CreateTrigger((CreateTrigStmt *) parsetree, queryString,
 								 InvalidOid, InvalidOid, false);
 #ifdef PGXC
+			/* Postgres-XC does not support yet triggers */
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("TRIGGER is not supported")));
+
 			if (IS_PGXC_COORDINATOR)
 				ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_ALL_NODES);
 #endif
