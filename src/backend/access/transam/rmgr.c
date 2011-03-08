@@ -20,10 +20,12 @@
 #include "commands/dbcommands.h"
 #include "commands/sequence.h"
 #include "commands/tablespace.h"
+#ifdef PGXC
+#include "pgxc/barrier.h"
+#endif
 #include "storage/freespace.h"
 #include "storage/standby.h"
 #include "utils/relmapper.h"
-
 
 const RmgrData RmgrTable[RM_MAX_ID + 1] = {
 	{"XLOG", xlog_redo, xlog_desc, NULL, NULL, NULL},
@@ -42,4 +44,8 @@ const RmgrData RmgrTable[RM_MAX_ID + 1] = {
 	{"Gin", gin_redo, gin_desc, gin_xlog_startup, gin_xlog_cleanup, gin_safe_restartpoint},
 	{"Gist", gist_redo, gist_desc, gist_xlog_startup, gist_xlog_cleanup, gist_safe_restartpoint},
 	{"Sequence", seq_redo, seq_desc, NULL, NULL, NULL}
+#ifdef PGXC	
+	,
+	{"Barrier", barrier_redo, barrier_desc, NULL, NULL, NULL}
+#endif
 };

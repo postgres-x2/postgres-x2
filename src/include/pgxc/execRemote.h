@@ -36,6 +36,7 @@
 #define RESPONSE_TUPDESC 2
 #define RESPONSE_DATAROW 3
 #define RESPONSE_COPY 4
+#define RESPONSE_BARRIER_OK 5
 
 typedef enum
 {

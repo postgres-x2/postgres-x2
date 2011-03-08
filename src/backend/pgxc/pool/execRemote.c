@@ -1389,6 +1389,7 @@ pgxc_node_receive_responses(const int conn_count, PGXCNodeHandle ** connections,
  * RESPONSE_TUPLEDESC - got tuple description
  * RESPONSE_DATAROW - got data row
  * RESPONSE_COPY - got copy response
+ * RESPONSE_BARRIER_OK - barrier command completed successfully
  */
 int
 handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner)
@@ -1500,6 +1501,16 @@ handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner)
 #endif
 				return result;
 			}
+
+#ifdef PGXC
+			case 'b':
+				{
+					Assert((strncmp(msg, conn->barrier_id, msg_len) == 0));
+					conn->state = DN_CONNECTION_STATE_IDLE;
+					return RESPONSE_BARRIER_OK;
+				}
+#endif
+
 			case 'I':			/* EmptyQuery */
 			default:
 				/* sync lost? */

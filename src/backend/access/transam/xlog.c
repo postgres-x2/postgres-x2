@@ -39,6 +39,7 @@
 #include "funcapi.h"
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
+#include "pgxc/barrier.h"
 #include "pgstat.h"
 #include "postmaster/bgwriter.h"
 #include "replication/walreceiver.h"
@@ -184,6 +185,7 @@ static RecoveryTargetType recoveryTarget = RECOVERY_TARGET_UNSET;
 static bool recoveryTargetInclusive = true;
 static TransactionId recoveryTargetXid;
 static TimestampTz recoveryTargetTime;
+static char *recoveryTargetBarrierId;
 
 /* options taken from recovery.conf for XLOG streaming */
 static bool StandbyMode = false;
@@ -5258,6 +5260,13 @@ readRecoveryCommandFile(void)
 					(errmsg("trigger_file = '%s'",
 							TriggerFile)));
 		}
+#ifdef PGXC
+		else if (strcmp(tok1, "recovery_barrier_id") == 0)
+		{
+			recoveryTarget = true;
+			recoveryTargetBarrierId = pstrdup(tok2);
+		}
+#endif
 		else
 			ereport(FATAL,
 					(errmsg("unrecognized recovery parameter \"%s\"",
@@ -5451,11 +5460,20 @@ static bool
 recoveryStopsHere(XLogRecord *record, bool *includeThis)
 {
 	bool		stopsHere;
+#ifdef PGXC
+	bool		stopsAtThisBarrier;
+	char		*recordBarrierId;
+#endif
 	uint8		record_info;
 	TimestampTz recordXtime;
 
+#ifdef PGXC
+	/* We only consider stoppping at COMMIT, ABORT or BARRIER records */
+	if ((record->xl_rmid != RM_XACT_ID) && (record->xl_rmid != RM_BARRIER_ID))
+#else
 	/* We only consider stopping at COMMIT or ABORT records */
 	if (record->xl_rmid != RM_XACT_ID)
+#endif
 		return false;
 	record_info = record->xl_info & ~XLR_INFO_MASK;
 	if (record_info == XLOG_XACT_COMMIT)
@@ -5472,6 +5490,12 @@ recoveryStopsHere(XLogRecord *record, bool *includeThis)
 		recordXactAbortData = (xl_xact_abort *) XLogRecGetData(record);
 		recordXtime = recordXactAbortData->xact_time;
 	}
+#ifdef PGXC
+	else if (record_info == XLOG_BARRIER_CREATE)
+	{
+		recordBarrierId = (char *) XLogRecGetData(record);
+	}
+#endif	
 	else
 		return false;
 
@@ -5497,6 +5521,13 @@ recoveryStopsHere(XLogRecord *record, bool *includeThis)
 		if (stopsHere)
 			*includeThis = recoveryTargetInclusive;
 	}
+#ifdef PGXC
+	else if (recoveryTargetBarrierId)
+	{
+		if (strcmp(recoveryTargetBarrierId, recordBarrierId) == 0)
+			stopsAtThisBarrier = true;
+	}
+#endif
 	else
 	{
 		/*
@@ -5548,6 +5579,17 @@ recoveryStopsHere(XLogRecord *record, bool *includeThis)
 		if (recoveryStopAfter)
 			SetLatestXTime(recordXtime);
 	}
+#ifdef PGXC
+	else if (stopsAtThisBarrier)
+	{
+		recoveryStopTime = recordXtime;
+		ereport(LOG,
+				(errmsg("recovery stopping at barrier %s, time %s",
+						recoveryTargetBarrierId,
+						timestamptz_to_str(recoveryStopTime))));
+		return true;
+	}
+#endif
 	else
 		SetLatestXTime(recordXtime);
 

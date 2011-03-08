@@ -80,6 +80,7 @@
 #include "access/gtm.h"
 /* PGXC_COORD */
 #include "pgxc/execRemote.h"
+#include "pgxc/barrier.h"
 #include "pgxc/planner.h"
 #include "pgxc/pgxcnode.h"
 #include "commands/copy.h"
@@ -447,6 +448,7 @@ SocketBackend(StringInfo inBuf)
 		case 'g':				/* GXID */
 		case 's':				/* Snapshot */
 		case 't':				/* Timestamp */
+		case 'b':				/* Barrier */
 			break;
 #endif
 
@@ -4289,6 +4291,37 @@ PostgresMain(int argc, char *argv[], const char *username)
 				 * and the timestampreceivedvalues for Datanode reference
 				 */
 				SetCurrentGTMDeltaTimestamp(timestamp);
+				break;
+
+			case 'b':			/* barrier */
+				{
+					int command;
+					char *id;
+
+					command = pq_getmsgbyte(&input_message);
+					id = pq_getmsgstring(&input_message);
+					pq_getmsgend(&input_message);
+
+					switch (command)
+					{
+						case CREATE_BARRIER_PREPARE:
+							ProcessCreateBarrierPrepare(id);
+							break;
+
+						case CREATE_BARRIER_END:
+							ProcessCreateBarrierEnd(id);
+							break;
+
+						case CREATE_BARRIER_EXECUTE:
+							ProcessCreateBarrierExecute(id);
+							break;
+
+						default:
+							ereport(ERROR,
+									(errcode(ERRCODE_INTERNAL_ERROR),
+									 errmsg("Invalid command received")));
+					}
+				}
 				break;
 #endif /* PGXC */
 

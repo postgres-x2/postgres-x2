@@ -58,6 +58,7 @@
 #include "utils/syscache.h"
 
 #ifdef PGXC
+#include "pgxc/barrier.h"
 #include "pgxc/locator.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/planner.h"
@@ -1702,6 +1703,12 @@ standard_ProcessUtility(Node *parsetree,
 #endif
 			break;
 
+#ifdef PGXC
+		case T_BarrierStmt:
+			RequestBarrier(((BarrierStmt *) parsetree)->id, completionTag);
+			break;
+#endif
+
 		case T_ReindexStmt:
 			{
 				ReindexStmt *stmt = (ReindexStmt *) parsetree;
@@ -2691,6 +2698,12 @@ CreateCommandTag(Node *parsetree)
 		case T_CheckPointStmt:
 			tag = "CHECKPOINT";
 			break;
+
+#ifdef PGXC
+		case T_BarrierStmt:
+			tag = "BARRIER";
+			break;
+#endif
 
 		case T_ReindexStmt:
 			tag = "REINDEX";
