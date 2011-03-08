@@ -880,9 +880,28 @@ AddRelationDistribution (Oid relid,
 		{
 			/* 
 			 * If no distribution was specified, and we have not chosen
-			 * distribute table by replication.
+			 * one based on primary key or foreign key, use first column with
+			 * a supported data type.
 			 */
-			locatortype = LOCATOR_TYPE_REPLICATED;
+			Form_pg_attribute attr;
+			int i;
+
+			locatortype = LOCATOR_TYPE_HASH;
+
+			for (i = 0; i < descriptor->natts; i++)
+			{
+				attr = descriptor->attrs[i];
+				if (IsHashDistributable(attr->atttypid))
+				{
+					/* distribute on this column */
+					attnum = i + 1;
+					break;
+				}
+			}
+
+			/* If we did not find a usable type, fall back to round robin */
+			if (attnum == 0)
+				locatortype = LOCATOR_TYPE_RROBIN;
 		}
 	}
 	else 
