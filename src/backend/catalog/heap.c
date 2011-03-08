@@ -856,7 +856,10 @@ AddRelationDistribution (Oid relid,
 
 			parentOid = linitial_oid(parentOids);
 			rel_loc_info = GetRelationLocInfo(parentOid);
-			locatortype = rel_loc_info->locatorType;
+			if (rel_loc_info)
+				locatortype = rel_loc_info->locatorType;
+			else
+				locatortype = LOCATOR_TYPE_REPLICATED;
 
 			switch (locatortype)
 			{

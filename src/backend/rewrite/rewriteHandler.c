@@ -2318,6 +2318,9 @@ RewriteInsertStmt(Query *query, RangeTblEntry *values_rte)
 
 	rte = (RangeTblEntry *) list_nth(query->rtable, query->resultRelation - 1);
 	rte_loc_info = GetRelationLocInfo(rte->relid);
+	if (!rte_loc_info)
+		return NULL;
+
 	locatorType = rte_loc_info->locatorType;
 	partColName = rte_loc_info->partAttrName;
 

@@ -2415,7 +2415,10 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	rel_loc_info = GetRelationLocInfo(rte->relid);
 	scan_plan->exec_nodes = makeNode(ExecNodes);
 	scan_plan->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
-	scan_plan->exec_nodes->baselocatortype = rel_loc_info->locatorType;
+	if (rel_loc_info)
+		scan_plan->exec_nodes->baselocatortype = rel_loc_info->locatorType;
+	else
+		scan_plan->exec_nodes->baselocatortype = '\0';
 	scan_plan->exec_nodes = GetRelationNodes(rel_loc_info,
 														   NULL,
 														   RELATION_ACCESS_READ);

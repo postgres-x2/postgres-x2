@@ -763,6 +763,9 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 			RangeTblEntry *table = (RangeTblEntry *) linitial(context->query->rtable);
 			node_cursor = step->cursor;
 			rel_loc_info1 = GetRelationLocInfo(table->relid);
+			if (!rel_loc_info1)
+				return true;
+
 			context->query_step->exec_nodes = makeNode(ExecNodes);
 			context->query_step->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
 			context->query_step->exec_nodes->baselocatortype = rel_loc_info1->locatorType;
@@ -1122,6 +1125,9 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 					if (!column_base2)
 						return true;
 					rel_loc_info2 = GetRelationLocInfo(column_base2->relid);
+					if (!rel_loc_info2)
+						return true;
+
 
 					/* get data struct about these two relations joining */
 					pgxc_join = find_or_create_pgxc_join(column_base->relid, column_base->relalias,
