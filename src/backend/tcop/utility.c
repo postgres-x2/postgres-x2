@@ -803,7 +803,8 @@ standard_ProcessUtility(Node *parsetree,
 #ifdef PGXC
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("PREPARE is not supported")));
+					 errmsg("Postgres-XC does not support PREPARE yet"),
+					 errdetail("The feature is not currently supported")));
 #endif
 			CheckRestrictedOperation("PREPARE");
 			PrepareQuery((PrepareStmt *) parsetree, queryString);
@@ -813,7 +814,8 @@ standard_ProcessUtility(Node *parsetree,
 #ifdef PGXC
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("EXECUTE is not supported")));
+					 errmsg("Postgres-XC does not support EXECUTE yet"),
+					 errdetail("The feature is not currently supported")));
 #endif
 			ExecuteQuery((ExecuteStmt *) parsetree, queryString, params,
 						 dest, completionTag);
@@ -1058,8 +1060,8 @@ standard_ProcessUtility(Node *parsetree,
 				{
 					ereport(ERROR,
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						errmsg("PGXC does not support concurrent indexes"),
-						errdetail("The feature is not currently supported")));
+						 errmsg("PGXC does not support concurrent INDEX yet"),
+						 errdetail("The feature is not currently supported")));
 				}
 #endif
 
@@ -1307,7 +1309,8 @@ standard_ProcessUtility(Node *parsetree,
 			/* Postgres-XC does not support yet triggers */
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("TRIGGER is not supported")));
+					 errmsg("Postgres-XC does not support TRIGGER yet"),
+					 errdetail("The feature is not currently supported")));
 
 			if (IS_PGXC_COORDINATOR)
 				ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_ALL_NODES);

@@ -1576,6 +1576,12 @@ transformFKConstraints(ParseState *pstate, CreateStmtContext *cxt,
 
 			constraint->skip_validation = true;
 #ifdef PGXC
+			if (constraint->contype == CONSTR_FOREIGN)
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("Postgres-XC does not support FOREIGN constraints yet"),
+						 errdetail("The feature is not currently supported")));
+
 			/*
 			 * Set fallback distribution column.
 			 * If not yet set, set it to first column in FK constraint
