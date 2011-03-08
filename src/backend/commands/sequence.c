@@ -147,6 +147,14 @@ DefineSequence(CreateSeqStmt *seq)
 	init_params(seq->options, true, &new, &owned_by);
 #endif
 
+#ifdef PGXC
+	if (seq->sequence->istemp)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("Postgres-XC does not support TEMPORARY SEQUENCE yet"),
+				 errdetail("The feature is not currently supported")));
+#endif
+
 	/*
 	 * Create relation (and fill value[] and null[] for the tuple)
 	 */
