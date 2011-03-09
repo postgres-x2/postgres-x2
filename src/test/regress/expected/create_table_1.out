@@ -81,15 +81,15 @@ CREATE TABLE student (
 CREATE TABLE stud_emp (
 	percent 	int4
 ) INHERITS (emp, student);
+NOTICE:  merging multiple inherited definitions of column "name"
+NOTICE:  merging multiple inherited definitions of column "age"
+NOTICE:  merging multiple inherited definitions of column "location"
 ERROR:  Cannot currently distribute a table with more than one parent.
 CREATE TABLE city (
 	name		name,
 	location 	box,
 	budget 		city_budget
 );
-ERROR:  type "city_budget" does not exist
-LINE 4:  budget   city_budget
-                  ^
 CREATE TABLE dept (
 	dname		name,
 	mgrname 	text
@@ -136,6 +136,8 @@ CREATE TABLE c_star (
 CREATE TABLE d_star (
 	d 			float8
 ) INHERITS (b_star, c_star);
+NOTICE:  merging multiple inherited definitions of column "class"
+NOTICE:  merging multiple inherited definitions of column "a"
 ERROR:  Cannot currently distribute a table with more than one parent.
 CREATE TABLE e_star (
 	e 			int2
