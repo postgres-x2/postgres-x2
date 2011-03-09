@@ -1543,7 +1543,9 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 	}
 #ifdef PGXC
 		if (IS_PGXC_COORDINATOR && cxt->distributeby
-				&& cxt->distributeby->disttype == DISTTYPE_HASH && !isLocalSafe)
+				&& ( cxt->distributeby->disttype == DISTTYPE_HASH || 
+					cxt->distributeby->disttype == DISTTYPE_MODULO)
+				&& !isLocalSafe)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
 					errmsg("Unique index of partitioned table must contain the hash distribution column.")));
@@ -2127,7 +2129,15 @@ transformAlterTableStmt(AlterTableStmt *stmt, const char *queryString)
 					transformTableConstraint(pstate, &cxt,
 											 (Constraint *) cmd->def);
 					if (((Constraint *) cmd->def)->contype == CONSTR_FOREIGN)
+					{
 						skipValidation = false;
+#ifdef PGXC
+						ereport(ERROR,
+								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+								errmsg("Postgres-XC does not support FOREIGN constraints yet"),
+								errdetail("The feature is not currently supported")));
+#endif
+					}
 				}
 				else
 					elog(ERROR, "unrecognized node type: %d",
@@ -2574,7 +2584,8 @@ static checkLocalFKConstraints(CreateStmtContext *cxt)
 		{
 			if (cxt->distributeby)
 			{
-				if (cxt->distributeby->disttype == DISTTYPE_HASH)
+				if (cxt->distributeby->disttype == DISTTYPE_HASH ||
+					cxt->distributeby->disttype == DISTTYPE_MODULO)
 					checkcolname = cxt->distributeby->colname;
 			}
 			else
