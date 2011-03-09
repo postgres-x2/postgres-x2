@@ -279,7 +279,8 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString)
 		stmt->distributeby->disttype = DISTTYPE_HASH;
 		stmt->distributeby->colname = cxt.fallback_dist_col;
 	}
-	if (IS_PGXC_COORDINATOR)
+	/* Only a remote Coordinator is allowed to send a query to backend nodes */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 	{
 		RemoteQuery *step = makeNode(RemoteQuery);
 		step->combine_type = COMBINE_TYPE_SAME;
