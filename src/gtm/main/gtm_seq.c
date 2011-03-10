@@ -660,16 +660,8 @@ GTM_SeqGetCurrent(GTM_SequenceKey seqkey)
 
 	GTM_RWLockAcquire(&seqinfo->gs_lock, GTM_LOCKMODE_WRITE);
 
-	/*
-	 * If this is the first call to the sequence, set the value to the start
-	 * value and mark the sequence as 'called'
-	 */
-	if (!SEQ_IS_CALLED(seqinfo))
-	{
-		seqinfo->gs_value = seqinfo->gs_init_value;
-		seqinfo->gs_called = true;
-	}
-	value = seqinfo->gs_value;
+	value = seqinfo->gs_last_value;
+
 	GTM_RWLockRelease(&seqinfo->gs_lock);
 	seq_release_seqinfo(seqinfo);
 	return value;
@@ -692,6 +684,8 @@ GTM_SeqSetVal(GTM_SequenceKey seqkey, GTM_Sequence nextval, bool iscalled)
 	}
 
 	GTM_RWLockAcquire(&seqinfo->gs_lock, GTM_LOCKMODE_WRITE);
+
+	seqinfo->gs_last_value = seqinfo->gs_value;
 
 	if (seqinfo->gs_value != nextval)
 		seqinfo->gs_value = nextval;
@@ -734,7 +728,7 @@ GTM_SeqGetNext(GTM_SequenceKey seqkey)
 	 */
 	if (!SEQ_IS_CALLED(seqinfo))
 	{
-		value = seqinfo->gs_value = seqinfo->gs_init_value;
+		value = seqinfo->gs_last_value = seqinfo->gs_value = seqinfo->gs_init_value;
 		seqinfo->gs_called = true;
 		GTM_RWLockRelease(&seqinfo->gs_lock);
 		seq_release_seqinfo(seqinfo);
@@ -749,9 +743,9 @@ GTM_SeqGetNext(GTM_SequenceKey seqkey)
 		 * InvalidSequenceValue
 		 */
 		if (seqinfo->gs_max_value - seqinfo->gs_increment_by >= seqinfo->gs_value)
-			value = seqinfo->gs_value = seqinfo->gs_value + seqinfo->gs_increment_by;
+			value = seqinfo->gs_last_value = seqinfo->gs_value = seqinfo->gs_value + seqinfo->gs_increment_by;
 		else if (SEQ_IS_CYCLE(seqinfo))
-			value = seqinfo->gs_value = seqinfo->gs_min_value;
+			value = seqinfo->gs_last_value = seqinfo->gs_value = seqinfo->gs_min_value;
 		else
 		{
 			GTM_RWLockRelease(&seqinfo->gs_lock);
@@ -774,9 +768,9 @@ GTM_SeqGetNext(GTM_SequenceKey seqkey)
 		 * descending sequences. So we don't need special handling below
 		 */
 		if (seqinfo->gs_min_value - seqinfo->gs_increment_by <= seqinfo->gs_value)
-			value = seqinfo->gs_value = seqinfo->gs_value + seqinfo->gs_increment_by;
+			value = seqinfo->gs_value = seqinfo->gs_last_value = seqinfo->gs_value + seqinfo->gs_increment_by;
 		else if (SEQ_IS_CYCLE(seqinfo))
-			value = seqinfo->gs_value = seqinfo->gs_max_value;
+			value = seqinfo->gs_value = seqinfo->gs_last_value = seqinfo->gs_max_value;
 		else
 		{
 			GTM_RWLockRelease(&seqinfo->gs_lock);
@@ -810,7 +804,7 @@ GTM_SeqReset(GTM_SequenceKey seqkey)
 	}
 
 	GTM_RWLockAcquire(&seqinfo->gs_lock, GTM_LOCKMODE_WRITE);
-	seqinfo->gs_value = seqinfo->gs_init_value;
+	seqinfo->gs_value = seqinfo->gs_last_value = seqinfo->gs_init_value;
 	GTM_RWLockRelease(&seqinfo->gs_lock);
 
 	seq_release_seqinfo(seqinfo);

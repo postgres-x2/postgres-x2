@@ -619,7 +619,13 @@ nextval_internal(Oid relid)
 		/* Update the on-disk data */
 		seq->last_value = result; /* last fetched number */
 		seq->is_called = true;
-	} else
+
+		/* save info in local cache */
+		elm->last = result;			/* last returned number */
+		elm->cached = result;		/* last fetched number */
+		elm->last_valid = true;
+	}
+	else
 	{
 #endif
 	last = next = result = seq->last_value;
@@ -798,21 +804,6 @@ currval_oid(PG_FUNCTION_ARGS)
 	/* open and AccessShareLock sequence */
 	init_sequence(relid, &elm, &seqrel);
 
-#ifdef PGXC
-	if (IS_PGXC_COORDINATOR)
-	{
-		char *seqname = GetGlobalSeqName(seqrel, NULL, NULL);
-
-		result = (int64) GetCurrentValGTM(seqname);
-		if (result < 0)
-			ereport(ERROR,
-					(errcode(ERRCODE_CONNECTION_FAILURE),
-					 errmsg("GTM error, could not obtain sequence value")));
-		pfree(seqname);
-	}
-	else
-	{
-#endif
 
 	if (pg_class_aclcheck(elm->relid, GetUserId(), ACL_SELECT) != ACLCHECK_OK &&
 		pg_class_aclcheck(elm->relid, GetUserId(), ACL_USAGE) != ACLCHECK_OK)
@@ -827,12 +818,21 @@ currval_oid(PG_FUNCTION_ARGS)
 				 errmsg("currval of sequence \"%s\" is not yet defined in this session",
 						RelationGetRelationName(seqrel))));
 
-	result = elm->last;
-
 #ifdef PGXC
-	}
-#endif
+	if (IS_PGXC_COORDINATOR)
+	{
+		char *seqname = GetGlobalSeqName(seqrel, NULL, NULL);
 
+		result = (int64) GetCurrentValGTM(seqname);
+		if (result < 0)
+			ereport(ERROR,
+					(errcode(ERRCODE_CONNECTION_FAILURE),
+					 errmsg("GTM error, could not obtain sequence value")));
+		pfree(seqname);
+	}
+#else
+	result = elm->last;
+#endif
 	relation_close(seqrel, NoLock);
 
 	PG_RETURN_INT64(result);
