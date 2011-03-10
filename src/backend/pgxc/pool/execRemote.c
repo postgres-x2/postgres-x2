@@ -3801,6 +3801,13 @@ ExecEndRemoteQuery(RemoteQueryState *node)
 			pfree(node->currentRow.msg);
 			node->currentRow.msg = NULL;
 		}
+
+		if (conn == NULL)
+		{
+			node->conn_count--;
+			continue;
+		}
+
 		/* no data is expected */
 		if (conn->state == DN_CONNECTION_STATE_IDLE ||
 				conn->state == DN_CONNECTION_STATE_ERROR_FATAL)
