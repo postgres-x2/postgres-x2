@@ -363,6 +363,13 @@ transformColumnDefinition(ParseState *pstate, CreateStmtContext *cxt,
 		AlterSeqStmt *altseqstmt;
 		List	   *attnamelist;
 
+#ifdef PGXC
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("Postgres-XC does not support SERIAL yet"),
+				 errdetail("The feature is not currently supported")));
+#endif
+
 		/*
 		 * Determine namespace and name to use for the sequence.
 		 *
