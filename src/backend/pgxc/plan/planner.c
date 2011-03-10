@@ -1574,7 +1574,13 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 					if (get_rel_namespace(rte->relid) == PG_CATALOG_NAMESPACE)
 						current_usage_type = TABLE_USAGE_TYPE_PGCATALOG;
 					else
-						current_usage_type = TABLE_USAGE_TYPE_USER;
+					{
+						/* Check if this relation is a sequence */
+						if (get_rel_relkind(rte->relid) == RELKIND_SEQUENCE)
+							current_usage_type = TABLE_USAGE_TYPE_SEQUENCE;
+						else
+							current_usage_type = TABLE_USAGE_TYPE_USER;
+					}
 			}
 			else if (rte->rtekind == RTE_FUNCTION)
 			{
@@ -1608,11 +1614,12 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 		}
 	}
 
-	/* If we are just dealing with pg_catalog, just return. */
-	if (table_usage_type == TABLE_USAGE_TYPE_PGCATALOG)
+	/* If we are just dealing with pg_catalog or a sequence, just return. */
+	if (table_usage_type == TABLE_USAGE_TYPE_PGCATALOG ||
+		table_usage_type == TABLE_USAGE_TYPE_SEQUENCE)
 	{
 		context->query_step->exec_nodes = makeNode(ExecNodes);
-		context->query_step->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_PGCATALOG;
+		context->query_step->exec_nodes->tableusagetype = table_usage_type;
 		context->exec_on_coord = true;
 		return false;
 	}
