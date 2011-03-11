@@ -32,7 +32,9 @@
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
-
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#endif
 
 typedef struct convert_testexpr_context
 {
@@ -342,6 +344,11 @@ make_subplan(PlannerInfo *root, Query *orig_subquery, SubLinkType subLinkType,
 	result = build_subplan(root, plan,
 						   subroot->parse->rtable, subroot->rowMarks,
 						   subLinkType, testexpr, true, isTopQual);
+#ifdef PGXC
+	/* This is not necessary for a PGXC Coordinator, we just need one plan */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		return result;
+#endif
 
 	/*
 	 * If it's a correlated EXISTS with an unimportant targetlist, we might be

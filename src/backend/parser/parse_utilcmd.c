@@ -1586,12 +1586,6 @@ transformFKConstraints(ParseState *pstate, CreateStmtContext *cxt,
 
 			constraint->skip_validation = true;
 #ifdef PGXC
-			if (constraint->contype == CONSTR_FOREIGN)
-				ereport(ERROR,
-						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						 errmsg("Postgres-XC does not support FOREIGN constraints yet"),
-						 errdetail("The feature is not currently supported")));
-
 			/*
 			 * Set fallback distribution column.
 			 * If not yet set, set it to first column in FK constraint
@@ -1602,7 +1596,8 @@ transformFKConstraints(ParseState *pstate, CreateStmtContext *cxt,
 				Oid pk_rel_id = RangeVarGetRelid(constraint->pktable, false);
 
 				/* make sure it is a partitioned column */
-				if (IsHashColumnForRelId(pk_rel_id, strVal(list_nth(constraint->pk_attrs,0))))
+				if (list_length(constraint->pk_attrs) != 0
+					&& IsHashColumnForRelId(pk_rel_id, strVal(list_nth(constraint->pk_attrs,0))))
 				{
 					/* take first column */
 					char *colstr = strdup(strVal(list_nth(constraint->fk_attrs,0)));
@@ -2138,12 +2133,6 @@ transformAlterTableStmt(AlterTableStmt *stmt, const char *queryString)
 					if (((Constraint *) cmd->def)->contype == CONSTR_FOREIGN)
 					{
 						skipValidation = false;
-#ifdef PGXC
-						ereport(ERROR,
-								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-								errmsg("Postgres-XC does not support FOREIGN constraints yet"),
-								errdetail("The feature is not currently supported")));
-#endif
 					}
 				}
 				else
@@ -2548,8 +2537,8 @@ CheckLocalIndexColumn (char loctype, char *partcolname, char *indexcolname)
  * check to see if the constraint can be enforced locally
  * if not, an error will be thrown
  */
-void
-static checkLocalFKConstraints(CreateStmtContext *cxt)
+static void
+checkLocalFKConstraints(CreateStmtContext *cxt)
 {
 	ListCell *fkclist;
 
@@ -2612,7 +2601,7 @@ static checkLocalFKConstraints(CreateStmtContext *cxt)
 			{
 				char *attrname = (char *) strVal(lfirst(attritem));
 
-				if (strcmp(cxt->rel->rd_locator_info->partAttrName, attrname) == 0)
+				if (strcmp(checkcolname, attrname) == 0)
 				{
 					/* Found the ordinal position in constraint */
 					break;
@@ -2622,14 +2611,20 @@ static checkLocalFKConstraints(CreateStmtContext *cxt)
 
 			if (pos >= list_length(constraint->fk_attrs))
 				ereport(ERROR,
-								(errcode(ERRCODE_SYNTAX_ERROR),
-								errmsg("Hash/Modulo distributed table must include distribution column in index")));
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("Hash/Modulo distributed table must include distribution column in index")));
+
+			/* Manage the error when the list of new constraints is empty */
+			if (!fkconstraint->pk_attrs)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("Hash/Modulo distribution column list of attributes is empty")));
 
 			/* Verify that the referenced table is partitioned at the same position in the index */
 			if (!IsDistColumnForRelId(pk_rel_id, strVal(list_nth(constraint->pk_attrs,pos))))
 				ereport(ERROR,
-								(errcode(ERRCODE_SYNTAX_ERROR),
-								errmsg("Hash/Modulo distribution column does not refer to hash/modulo distribution column in referenced table.")));
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("Hash/Modulo distribution column does not refer to hash/modulo distribution column in referenced table.")));
 		}
 	}
 }
