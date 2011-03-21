@@ -3966,19 +3966,17 @@ build_copy_statement(CopyState cstate, List *attnamelist,
 		appendStringInfoString(&cstate->query_buf, " CSV");
 
 	/*
-	 * Only rewrite the header part for COPY FROM,
-	 * doing that for COPY TO results in multiple headers in output
+	 * It is not necessary to send the HEADER part to Datanodes.
+	 * Sending data is sufficient.
 	 */
-	if (cstate->header_line && is_from)
-		appendStringInfoString(&cstate->query_buf, " HEADER");
 
-	if (cstate->quote && cstate->quote[0] == '"')
+	if (cstate->quote && cstate->quote[0] != '"')
 	{
 		appendStringInfoString(&cstate->query_buf, " QUOTE AS ");
 		CopyQuoteStr(&cstate->query_buf, cstate->quote);
 	}
 
-	if (cstate->escape && cstate->quote && cstate->escape[0] == cstate->quote[0])
+	if (cstate->escape && cstate->quote && cstate->escape[0] != cstate->quote[0])
 	{
 		appendStringInfoString(&cstate->query_buf, " ESCAPE AS ");
 		CopyQuoteStr(&cstate->query_buf, cstate->escape);
