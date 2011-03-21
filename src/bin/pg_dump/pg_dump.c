@@ -10794,6 +10794,12 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 				appendPQExpBuffer(q, "\nDISTRIBUTE BY HASH (%s)",
 								  fmtId(tbinfo->attnames[hashkey - 1]));
 			}
+			else if (tbinfo->pgxclocatortype == 'M')
+			{
+				int hashkey = tbinfo->pgxcattnum;
+				appendPQExpBuffer(q, "\nDISTRIBUTE BY MODULO (%s)",
+								  fmtId(tbinfo->attnames[hashkey - 1]));
+			}
 		}
 #endif
 
