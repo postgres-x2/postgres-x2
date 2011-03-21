@@ -591,11 +591,12 @@ standard_ProcessUtility(Node *parsetree,
 			 */
 		case T_CreateSchemaStmt:
 #ifdef PGXC
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_ALL_NODES);
-#endif
+			CreateSchemaCommand((CreateSchemaStmt *) parsetree,
+								queryString, isTopLevel);
+#else
 			CreateSchemaCommand((CreateSchemaStmt *) parsetree,
 								queryString);
+#endif
 			break;
 
 		case T_CreateStmt:
@@ -604,10 +605,17 @@ standard_ProcessUtility(Node *parsetree,
 				ListCell   *l;
 				Oid			relOid;
 
-				/* PGXC transformCreateStmt also adds T_RemoteQuery node */
 				/* Run parse analysis ... */
 				stmts = transformCreateStmt((CreateStmt *) parsetree,
 											queryString);
+
+#ifdef PGXC
+				/*
+				 * Add a RemoteQuery node for a query at top level on a remote Coordinator
+				 */
+				if (isTopLevel)
+					stmts = AddRemoteQueryNode(stmts, queryString);
+#endif
 
 				/* ... and do it */
 				foreach(l, stmts)
@@ -875,10 +883,16 @@ standard_ProcessUtility(Node *parsetree,
 				List	   *stmts;
 				ListCell   *l;
 
-				/* PGXC transformCreateStmt also adds T_RemoteQuery node */
 				/* Run parse analysis ... */
 				stmts = transformAlterTableStmt((AlterTableStmt *) parsetree,
 												queryString);
+#ifdef PGXC
+				/*
+				 * Add a RemoteQuery node for a query at top level on a remote Coordinator
+				 */
+				if (isTopLevel)
+					stmts = AddRemoteQueryNode(stmts, queryString);
+#endif
 
 				/* ... and do it */
 				foreach(l, stmts)

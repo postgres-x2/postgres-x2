@@ -279,17 +279,8 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString)
 		stmt->distributeby->disttype = DISTTYPE_HASH;
 		stmt->distributeby->colname = cxt.fallback_dist_col;
 	}
-	/* Only a remote Coordinator is allowed to send a query to backend nodes */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-	{
-		RemoteQuery *step = makeNode(RemoteQuery);
-		step->combine_type = COMBINE_TYPE_SAME;
-		step->sql_statement = queryString;
-		/* This query is a DDL, Launch it on both Datanodes and Coordinators. */
-		step->exec_type = EXEC_ON_ALL_NODES;
-		result = lappend(result, step);
-	}
 #endif
+
 	return result;
 }
 
@@ -2215,17 +2206,7 @@ transformAlterTableStmt(AlterTableStmt *stmt, const char *queryString)
 	result = lappend(cxt.blist, stmt);
 	result = list_concat(result, cxt.alist);
 	result = list_concat(result, save_alist);
-#ifdef PGXC
-	if (IS_PGXC_COORDINATOR)
-	{
-		RemoteQuery *step = makeNode(RemoteQuery);
-		step->combine_type = COMBINE_TYPE_SAME;
-		step->sql_statement = queryString;
-		/* This query is a DDl, it is launched on both Coordinators and Datanodes. */
-		step->exec_type = EXEC_ON_ALL_NODES;
-		result = lappend(result, step);
-	}
-#endif
+
 	return result;
 }
 
@@ -2627,5 +2608,31 @@ checkLocalFKConstraints(CreateStmtContext *cxt)
 						 errmsg("Hash/Modulo distribution column does not refer to hash/modulo distribution column in referenced table.")));
 		}
 	}
+}
+
+/*
+ * AddRemoteQueryNode
+ *
+ * Add a Remote Query node to launch on Datanodes.
+ * This can only be done for a query a Top Level to avoid
+ * duplicated queries on Datanodes.
+ */
+List *
+AddRemoteQueryNode(List *stmts, const char *queryString)
+{
+	List *result = stmts;
+
+	/* Only a remote Coordinator is allowed to send a query to backend nodes */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	{
+		RemoteQuery *step = makeNode(RemoteQuery);
+		step->combine_type = COMBINE_TYPE_SAME;
+		step->sql_statement = queryString;
+		/* This query is a DDL, Launch it on both Datanodes and Coordinators. */
+		step->exec_type = EXEC_ON_ALL_NODES;
+		result = lappend(result, step);
+	}
+
+	return result;
 }
 #endif

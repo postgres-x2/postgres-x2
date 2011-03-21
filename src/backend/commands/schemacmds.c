@@ -41,7 +41,11 @@ static void AlterSchemaOwner_internal(HeapTuple tup, Relation rel, Oid newOwnerI
  * CREATE SCHEMA
  */
 void
+#ifdef PGXC
+CreateSchemaCommand(CreateSchemaStmt *stmt, const char *queryString, bool is_top_level)
+#else
 CreateSchemaCommand(CreateSchemaStmt *stmt, const char *queryString)
+#endif
 {
 	const char *schemaName = stmt->schemaname;
 	const char *authId = stmt->authid;
@@ -121,6 +125,14 @@ CreateSchemaCommand(CreateSchemaStmt *stmt, const char *queryString)
 	 * have actually executed the prior ones.
 	 */
 	parsetree_list = transformCreateSchemaStmt(stmt);
+
+#ifdef PGXC
+	/*
+	 * Add a RemoteQuery node for a query at top level on a remote Coordinator
+	 */
+	if (is_top_level)
+		parsetree_list = AddRemoteQueryNode(parsetree_list, queryString);
+#endif
 
 	/*
 	 * Execute each command contained in the CREATE SCHEMA.  Since the grammar
