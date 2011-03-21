@@ -2800,6 +2800,11 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 		TupleDesc typeInfo = ExecCleanTypeFromTL(node->scan.plan.targetlist, false);
 		ExecSetSlotDescriptor(remotestate->ss.ps.ps_ResultTupleSlot, typeInfo);
 	}
+	else
+	{
+		/* In case there is no target list, force its creation */
+		ExecAssignResultTypeFromTL(&remotestate->ss.ps);
+	}
 
 	ExecInitScanTupleSlot(estate, &remotestate->ss);
 
