@@ -1476,7 +1476,12 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 			{
 				int			node = lfirst_int(node_list_item);
 
-				Assert(node > 0 && node <= NumDataNodes);
+				if (node <= 0 || node > NumDataNodes)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_OUT_OF_MEMORY),
+							errmsg("Invalid data node number")));
+				}
 
 				result->datanode_handles[i++] = &dn_handles[node - 1];
 				if (dn_handles[node - 1].sock == NO_SOCKET)
@@ -1535,7 +1540,12 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 			{
 				int			node = lfirst_int(node_list_item);
 
-				Assert(node > 0 && node <= NumCoords);
+				if (node <= 0 || node > NumCoords)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_OUT_OF_MEMORY),
+							errmsg("Invalid coordinator number")));
+				}
 
 				result->coord_handles[i++] = &co_handles[node - 1];
 				if (co_handles[node - 1].sock == NO_SOCKET)
@@ -1579,6 +1589,13 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 				int			node = lfirst_int(node_list_item);
 				int			fdsock = fds[j++];
 
+				if (node <= 0 || node > NumDataNodes)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_OUT_OF_MEMORY),
+							errmsg("Invalid data node number")));
+				}
+
 				pgxc_node_init(&dn_handles[node - 1], fdsock, node);
 				datanode_count++;
 			}
@@ -1590,6 +1607,13 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 			{
 				int			node = lfirst_int(node_list_item);
 				int			fdsock = fds[j++];
+
+				if (node <= 0 || node > NumCoords)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_OUT_OF_MEMORY),
+							errmsg("Invalid coordinator number")));
+				}
 
 				pgxc_node_init(&co_handles[node - 1], fdsock, node);
 				coord_count++;
@@ -1609,7 +1633,6 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 
 	return result;
 }
-
 
 /*
  * Return handles involved into current transaction, to run commit or rollback
