@@ -1,5 +1,5 @@
 -- create a tablespace we can use
-CREATE TABLESPACE testspace LOCATION '/home/abbas/pgxc/postgres-xc/src/test/regress/testtablespace';
+CREATE TABLESPACE testspace LOCATION '@testtablespace@';
 ERROR:  Postgres-XC does not support TABLESPACE yet
 DETAIL:  The feature is not currently supported
 -- try setting and resetting some properties for the new tablespace
