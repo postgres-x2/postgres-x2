@@ -18,8 +18,9 @@
 
 -- boxes are specified by two points, given by four floats x1,y1,x2,y2
 
-
-CREATE TABLE BOX_TBL (f1 box);
+-- Postgres-XC case: box type cannot use ORDER BY so its table
+-- is replicated for regression tests
+CREATE TABLE BOX_TBL (f1 box) DISTRIBUTE BY REPLICATION;
 
 INSERT INTO BOX_TBL (f1) VALUES ('(2.0,2.0,0.0,0.0)');
 
