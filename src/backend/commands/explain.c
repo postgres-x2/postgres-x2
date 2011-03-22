@@ -1518,6 +1518,12 @@ ExplainScanTarget(Scan *plan, ExplainState *es)
 
 	if (plan->scanrelid <= 0)	/* Is this still possible? */
 		return;
+
+#ifdef PGXC
+	if (es->rtable == NULL || plan->scanrelid >= es->rtable->length || plan->scanrelid < 0)
+		return;
+#endif
+
 	rte = rt_fetch(plan->scanrelid, es->rtable);
 
 	switch (nodeTag(plan))
