@@ -1,0 +1,19 @@
+--
+-- SELECT_INTO
+--
+SELECT *
+   INTO TABLE tmp1
+   FROM onek
+   WHERE onek.unique1 < 2;
+ERROR:  INTO clause not yet supported
+DROP TABLE tmp1;
+ERROR:  table "tmp1" does not exist
+SELECT *
+   INTO TABLE tmp1
+   FROM onek2
+   WHERE onek2.unique1 < 2;
+ERROR:  relation "onek2" does not exist
+LINE 3:    FROM onek2
+                ^
+DROP TABLE tmp1;
+ERROR:  table "tmp1" does not exist
