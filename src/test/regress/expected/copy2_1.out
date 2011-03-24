@@ -1,0 +1,245 @@
+CREATE TEMP TABLE x (
+	a serial,
+	b int,
+	c text not null default 'stuff',
+	d text,
+	e text
+) WITH OIDS;
+ERROR:  Postgres-XC does not support SERIAL yet
+DETAIL:  The feature is not currently supported
+CREATE FUNCTION fn_x_before () RETURNS TRIGGER AS '
+  BEGIN
+		NEW.e := ''before trigger fired''::text;
+		return NEW;
+	END;
+' LANGUAGE plpgsql;
+CREATE FUNCTION fn_x_after () RETURNS TRIGGER AS '
+  BEGIN
+		UPDATE x set e=''after trigger fired'' where c=''stuff'';
+		return NULL;
+	END;
+' LANGUAGE plpgsql;
+CREATE TRIGGER trg_x_after AFTER INSERT ON x
+FOR EACH ROW EXECUTE PROCEDURE fn_x_after();
+ERROR:  relation "x" does not exist
+CREATE TRIGGER trg_x_before BEFORE INSERT ON x
+FOR EACH ROW EXECUTE PROCEDURE fn_x_before();
+ERROR:  relation "x" does not exist
+COPY x (a, b, c, d, e) from stdin;
+ERROR:  relation "x" does not exist
+9999	\N	\\N	\NN	\N
+invalid command \N
+10000	21	31	41	51
+\.
+invalid command \.
+COPY x (b, d) from stdin;
+ERROR:  syntax error at or near "9999"
+LINE 1: 9999 
+        ^
+1	test_1
+\.
+invalid command \.
+COPY x (b, d) from stdin;
+ERROR:  syntax error at or near "1"
+LINE 1: 1 test_1
+        ^
+2	test_2
+3	test_3
+4	test_4
+5	test_5
+\.
+invalid command \.
+COPY x (a, b, c, d, e) from stdin;
+ERROR:  syntax error at or near "2"
+LINE 1: 2 test_2
+        ^
+10001	22	32	42	52
+10002	23	33	43	53
+10003	24	34	44	54
+10004	25	35	45	55
+10005	26	36	46	56
+\.
+invalid command \.
+-- non-existent column in column list: should fail
+COPY x (xyz) from stdin;
+ERROR:  syntax error at or near "10001"
+LINE 1: 10001 22 32 42 52
+        ^
+-- too many columns in column list: should fail
+COPY x (a, b, c, d, e, d, c) from stdin;
+ERROR:  relation "x" does not exist
+-- missing data: should fail
+COPY x from stdin;
+ERROR:  relation "x" does not exist
+\.
+invalid command \.
+COPY x from stdin;
+ERROR:  relation "x" does not exist
+2000	230	23	23
+\.
+invalid command \.
+COPY x from stdin;
+ERROR:  syntax error at or near "2000"
+LINE 1: 2000 230 23 23
+        ^
+2001	231	\N	\N
+invalid command \N
+\.
+invalid command \.
+-- extra data: should fail
+COPY x from stdin;
+ERROR:  syntax error at or near "2001"
+LINE 1: 2001 231 
+        ^
+2002	232	40	50	60	70	80
+\.
+invalid command \.
+-- various COPY options: delimiters, oids, NULL string
+COPY x (b, c, d, e) from stdin with oids delimiter ',' null 'x';
+ERROR:  syntax error at or near "2002"
+LINE 1: 2002 232 40 50 60 70 80
+        ^
+500000,x,45,80,90
+500001,x,\x,\\x,\\\x
+invalid command \x,
+500002,x,\,,\\\,,\\
+invalid command \,,
+\.
+invalid command \.
+COPY x from stdin WITH DELIMITER AS ';' NULL AS '';
+ERROR:  syntax error at or near "500000"
+LINE 1: 500000,x,45,80,90
+        ^
+3000;;c;;
+ERROR:  syntax error at or near "3000"
+LINE 1: 3000;
+        ^
+ERROR:  syntax error at or near "c"
+LINE 1: c;
+        ^
+\.
+invalid command \.
+COPY x from stdin WITH DELIMITER AS ':' NULL AS E'\\X';
+ERROR:  relation "x" does not exist
+4000:\X:C:\X:\X
+invalid command \X:C:
+4001:1:empty::
+4002:2:null:\X:\X
+invalid command \X:
+4003:3:Backslash:\\:\\
+invalid command \
+4004:4:BackslashX:\\X:\\X
+invalid command \
+4005:5:N:\N:\N
+invalid command \N:
+4006:6:BackslashN:\\N:\\N
+invalid command \
+4007:7:XX:\XX:\XX
+invalid command \XX:
+4008:8:Delimiter:\::\:
+\.
+invalid command \.
+-- check results of copy in
+SELECT * FROM x ORDER BY a, b;
+ERROR:  syntax error at or near "4000"
+LINE 1: 4000:
+        ^
+-- COPY w/ oids on a table w/o oids should fail
+CREATE TABLE no_oids (
+	a	int,
+	b	int
+) WITHOUT OIDS;
+INSERT INTO no_oids (a, b) VALUES (5, 10);
+INSERT INTO no_oids (a, b) VALUES (20, 30);
+-- should fail
+COPY no_oids FROM stdin WITH OIDS;
+ERROR:  table "no_oids" does not have OIDs
+COPY no_oids TO stdout WITH OIDS;
+ERROR:  table "no_oids" does not have OIDs
+-- check copy out
+COPY x TO stdout;
+ERROR:  relation "x" does not exist
+COPY x (c, e) TO stdout;
+ERROR:  relation "x" does not exist
+COPY x (b, e) TO stdout WITH NULL 'I''m null';
+ERROR:  relation "x" does not exist
+CREATE TEMP TABLE y (
+	col1 text,
+	col2 text
+);
+ERROR:  PG-XC does not yet support temporary tables
+INSERT INTO y VALUES ('Jackson, Sam', E'\\h');
+ERROR:  relation "y" does not exist
+LINE 1: INSERT INTO y VALUES ('Jackson, Sam', E'\\h');
+                    ^
+INSERT INTO y VALUES ('It is "perfect".',E'\t');
+ERROR:  relation "y" does not exist
+LINE 1: INSERT INTO y VALUES ('It is "perfect".',E'\t');
+                    ^
+INSERT INTO y VALUES ('', NULL);
+ERROR:  relation "y" does not exist
+LINE 1: INSERT INTO y VALUES ('', NULL);
+                    ^
+COPY y TO stdout WITH CSV;
+ERROR:  relation "y" does not exist
+COPY y TO stdout WITH CSV QUOTE '''' DELIMITER '|';
+ERROR:  relation "y" does not exist
+COPY y TO stdout WITH CSV FORCE QUOTE col2 ESCAPE E'\\';
+ERROR:  relation "y" does not exist
+COPY y TO stdout WITH CSV FORCE QUOTE *;
+ERROR:  relation "y" does not exist
+-- Repeat above tests with new 9.0 option syntax
+COPY y TO stdout (FORMAT CSV);
+ERROR:  relation "y" does not exist
+COPY y TO stdout (FORMAT CSV, QUOTE '''', DELIMITER '|');
+ERROR:  relation "y" does not exist
+COPY y TO stdout (FORMAT CSV, FORCE_QUOTE (col2), ESCAPE E'\\');
+ERROR:  relation "y" does not exist
+COPY y TO stdout (FORMAT CSV, FORCE_QUOTE *);
+ERROR:  relation "y" does not exist
+\copy y TO stdout (FORMAT CSV)
+ERROR:  relation "y" does not exist
+\copy: ERROR:  relation "y" does not exist
+\copy y TO stdout (FORMAT CSV, QUOTE '''', DELIMITER '|')
+ERROR:  relation "y" does not exist
+\copy: ERROR:  relation "y" does not exist
+\copy y TO stdout (FORMAT CSV, FORCE_QUOTE (col2), ESCAPE E'\\')
+ERROR:  relation "y" does not exist
+\copy: ERROR:  relation "y" does not exist
+\copy y TO stdout (FORMAT CSV, FORCE_QUOTE *)
+ERROR:  relation "y" does not exist
+\copy: ERROR:  relation "y" does not exist
+--test that we read consecutive LFs properly
+CREATE TEMP TABLE testnl (a int, b text, c int);
+ERROR:  PG-XC does not yet support temporary tables
+COPY testnl FROM stdin CSV;
+ERROR:  relation "testnl" does not exist
+1,"a field with two LFs
+
+inside",2
+\.
+invalid command \.
+-- test end of copy marker
+CREATE TEMP TABLE testeoc (a text);
+ERROR:  syntax error at or near "1"
+LINE 1: 1,"a field with two LFs
+        ^
+COPY testeoc FROM stdin CSV;
+ERROR:  relation "testeoc" does not exist
+a\.
+invalid command \.
+\.b
+invalid command \.b
+c\.d
+invalid command \.d
+"\."
+\.
+invalid command \.
+COPY testeoc TO stdout CSV;
+ERROR:  syntax error at or near "a"
+LINE 1: a
+        ^
+DROP TABLE x, y;
+ERROR:  table "x" does not exist
+DROP FUNCTION fn_x_before();
+DROP FUNCTION fn_x_after();
