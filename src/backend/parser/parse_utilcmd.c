@@ -1336,6 +1336,15 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 	index->deferrable = constraint->deferrable;
 	index->initdeferred = constraint->initdeferred;
 
+#ifdef PGXC
+	/* DEFERRABLE INITIALLY DEFERRED constraints are not supported in Postgres-XC */
+	if (constraint->deferrable && constraint->initdeferred)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("Postgres-XC does not support DEFERRED constraints yet"),
+				 errdetail("The feature is not currently supported")));
+#endif
+
 	if (constraint->conname != NULL)
 		index->idxname = pstrdup(constraint->conname);
 	else
@@ -2281,6 +2290,12 @@ transformConstraintAttrs(ParseState *pstate, List *constraintList)
 				break;
 
 			case CONSTR_ATTR_DEFERRED:
+#ifdef PGXC
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("Postgres-XC does not support DEFERRED constraints yet"),
+						 errdetail("The feature is not currently supported")));
+#endif
 				if (!SUPPORTS_ATTRS(lastprimarycon))
 					ereport(ERROR,
 							(errcode(ERRCODE_SYNTAX_ERROR),
