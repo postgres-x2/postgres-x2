@@ -20,7 +20,10 @@
 #include "libpq/pqformat.h"
 #include "tcop/pquery.h"
 #include "utils/lsyscache.h"
-
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#include "parser/parse_type.h"
+#endif
 
 static void printtup_startup(DestReceiver *self, int operation,
 				 TupleDesc typeinfo);
@@ -189,6 +192,20 @@ SendRowDescriptionMessage(TupleDesc typeinfo, List *targetlist, int16 *formats)
 		int32		atttypmod = attrs[i]->atttypmod;
 
 		pq_sendstring(&buf, NameStr(attrs[i]->attname));
+
+#ifdef PGXC
+		/*
+		 * Send the type name from a Postgres-XC Datanode backend.
+		 * This preserves from OID inconsistencies as architecture is shared nothing.
+		 */
+		if (IS_PGXC_DATANODE && IsConnFromCoord())
+		{
+			char	   *typename;
+			typename = typeTypeName(typeidType(atttypid));
+			pq_sendstring(&buf, typename);
+		}
+#endif
+
 		/* column ID info appears in protocol 3.0 and up */
 		if (proto >= 3)
 		{

@@ -35,6 +35,7 @@
 #include "utils/snapmgr.h"
 #include "pgxc/locator.h"
 #include "pgxc/pgxc.h"
+#include "parser/parse_type.h"
 
 #define END_QUERY_TIMEOUT	20
 #define DATA_NODE_FETCH_SIZE 1
@@ -405,10 +406,10 @@ create_tuple_desc(char *msg_body, size_t len)
 	for (i = 1; i <= nattr; i++)
 	{
 		AttrNumber	attnum;
-		char 	   *attname;
+		char		*attname;
+		char		*typname;
 		Oid 		oidtypeid;
 		int32 		typmod;
-
 		uint32		n32;
 
 		attnum = (AttrNumber) i;
@@ -417,27 +418,30 @@ create_tuple_desc(char *msg_body, size_t len)
 		attname = msg_body;
 		msg_body += strlen(attname) + 1;
 
+		/* type name */
+		typname = msg_body;
+		msg_body += strlen(typname) + 1;
+
 		/* table OID, ignored */
 		msg_body += 4;
 
 		/* column no, ignored */
 		msg_body += 2;
 
-		/* data type */
-		memcpy(&n32, msg_body, 4);
-		oidtypeid = ntohl(n32);
+		/* data type OID, ignored */
 		msg_body += 4;
 
 		/* type len, ignored */
 		msg_body += 2;
 
-		/* type mod */
-		memcpy(&n32, msg_body, 4);
-		typmod = ntohl(n32);
+		/* type mod, ignored */
 		msg_body += 4;
 
 		/* PGXCTODO text/binary flag? */
 		msg_body += 2;
+
+		/* Get the OID type and mode type from typename */
+		parseTypeString(typname, &oidtypeid, &typmod);
 
 		TupleDescInitEntry(result, attnum, attname, oidtypeid, typmod, 0);
 	}
