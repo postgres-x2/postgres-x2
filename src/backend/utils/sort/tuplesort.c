@@ -2879,10 +2879,18 @@ getlen_datanode(Tuplesortstate *state, int tapenum, bool eofOK)
 	 * the node number is stored in combiner->tapenodes[tapenum].
 	 * If connection is inactive and no buffered data we have EOF condition
 	 */
-	int				nodenum = conn ? conn->nodenum : combiner->tapenodes[tapenum];
+	int				nodenum;
 	unsigned int 	len = 0;
 	ListCell	   *lc;
 	ListCell	   *prev = NULL;
+
+	/* May it ever happen ?! */
+	if (!conn && !combiner->tapenodes)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Failed to fetch from data node cursor")));
+
+	nodenum = conn ? conn->nodenum : combiner->tapenodes[tapenum];
 
 	/*
 	 * If there are buffered rows iterate over them and get first from
