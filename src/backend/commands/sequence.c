@@ -1448,7 +1448,7 @@ GetGlobalSeqName(Relation seqrel, const char *new_seqname, const char *new_schem
 
 	/* Get all the necessary relation names */
 	dbname = get_database_name(seqrel->rd_node.dbNode);
-	
+
 	if (new_seqname)
 		relname = (char *) new_seqname;
 	else

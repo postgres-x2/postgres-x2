@@ -636,6 +636,8 @@ GTM_SeqRename(GTM_SequenceKey seqkey, GTM_SequenceKey newseqkey)
 	/* Release first the structure as it has been taken previously */
 	seq_release_seqinfo(seqinfo);
 
+	/* Close sequence properly, full name is here */
+	seqkey->gsk_type = GTM_SEQ_FULL_NAME;
 	/* Then close properly the old sequence */
 	GTM_SeqClose(seqkey);
 	return errcode;

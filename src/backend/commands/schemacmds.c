@@ -33,6 +33,7 @@
 
 #ifdef PGXC
 #include "pgxc/pgxc.h"
+#include "pgxc/planner.h"
 #endif
 
 static void AlterSchemaOwner_internal(HeapTuple tup, Relation rel, Oid newOwnerId);
@@ -131,7 +132,7 @@ CreateSchemaCommand(CreateSchemaStmt *stmt, const char *queryString)
 	 * Add a RemoteQuery node for a query at top level on a remote Coordinator
 	 */
 	if (is_top_level)
-		parsetree_list = AddRemoteQueryNode(parsetree_list, queryString);
+		parsetree_list = AddRemoteQueryNode(parsetree_list, queryString, EXEC_ON_ALL_NODES);
 #endif
 
 	/*

@@ -80,6 +80,7 @@
 #ifdef PGXC
 #include "pgxc/pgxc.h"
 #include "access/gtm.h"
+#include "commands/sequence.h"
 #endif
 
 /*
@@ -7875,6 +7876,26 @@ AlterTableNamespace(RangeVar *relation, const char *newschema,
 	}
 
 	heap_close(classRel, RowExclusiveLock);
+
+#ifdef PGXC
+	/* Rename also sequence on GTM for a sequence */
+	if (IS_PGXC_COORDINATOR &&
+		!IsConnFromCoord() &&
+		rel->rd_rel->relkind == RELKIND_SEQUENCE)
+	{
+		char *seqname = GetGlobalSeqName(rel, NULL, NULL);
+		char *newseqname = GetGlobalSeqName(rel, NULL, newschema);
+
+		/* We also need to rename it on the GTM */
+		if (RenameSequenceGTM(seqname, newseqname) < 0)
+			ereport(ERROR,
+					(errcode(ERRCODE_CONNECTION_FAILURE),
+					 errmsg("GTM error, could not rename sequence")));
+
+		pfree(seqname);
+		pfree(newseqname);
+	}
+#endif
 
 	/* close rel, but keep lock until commit */
 	relation_close(rel, NoLock);

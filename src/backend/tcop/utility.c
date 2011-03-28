@@ -614,7 +614,7 @@ standard_ProcessUtility(Node *parsetree,
 				 * Add a RemoteQuery node for a query at top level on a remote Coordinator
 				 */
 				if (isTopLevel)
-					stmts = AddRemoteQueryNode(stmts, queryString);
+					stmts = AddRemoteQueryNode(stmts, queryString, EXEC_ON_ALL_NODES);
 #endif
 
 				/* ... and do it */
@@ -770,14 +770,14 @@ standard_ProcessUtility(Node *parsetree,
 				}
 #ifdef PGXC
 				/*
-				 * PGXCTODO
-				 * We may need to check details of the object being dropped and
+				 * We need to check details of the object being dropped and
 				 * run command on correct nodes
 				 */
-				if (IS_PGXC_COORDINATOR)
+				if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 				{
-					/* Sequence exists only on Coordinators */
-					if (stmt->removeType == OBJECT_SEQUENCE)
+					/* Sequence and views exists only on Coordinators */
+					if (stmt->removeType == OBJECT_SEQUENCE ||
+						stmt->removeType == OBJECT_VIEW)
 						ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_COORDS);
 					else
 						ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_ALL_NODES);
@@ -850,7 +850,8 @@ standard_ProcessUtility(Node *parsetree,
 				RemoteQueryExecType remoteExecType = EXEC_ON_ALL_NODES;
 				RenameStmt *stmt = (RenameStmt *) parsetree;
 
-				if (stmt->renameType == OBJECT_SEQUENCE)
+				if (stmt->renameType == OBJECT_SEQUENCE ||
+					stmt->renameType == OBJECT_VIEW)
 					remoteExecType = EXEC_ON_COORDS;
 				else if (stmt->renameType == OBJECT_TABLE)
 				{
@@ -868,8 +869,23 @@ standard_ProcessUtility(Node *parsetree,
 
 		case T_AlterObjectSchemaStmt:
 #ifdef PGXC
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_ALL_NODES);
+			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+			{
+				RemoteQueryExecType remoteExecType = EXEC_ON_ALL_NODES;
+				AlterObjectSchemaStmt *stmt = (AlterObjectSchemaStmt *) parsetree;
+
+				if (stmt->objectType == OBJECT_SEQUENCE ||
+					stmt->objectType == OBJECT_VIEW)
+					remoteExecType = EXEC_ON_COORDS;
+				else if (stmt->objectType == OBJECT_TABLE)
+				{
+					Oid relid = RangeVarGetRelid(stmt->relation, false);
+
+					if (get_rel_relkind(relid) == RELKIND_SEQUENCE)
+						remoteExecType = EXEC_ON_COORDS;
+				}
+				ExecUtilityStmtOnNodes(queryString, NULL, false, remoteExecType);
+			}
 #endif
 			ExecAlterObjectSchemaStmt((AlterObjectSchemaStmt *) parsetree);
 			break;
@@ -891,7 +907,23 @@ standard_ProcessUtility(Node *parsetree,
 				 * Add a RemoteQuery node for a query at top level on a remote Coordinator
 				 */
 				if (isTopLevel)
-					stmts = AddRemoteQueryNode(stmts, queryString);
+				{
+					RemoteQueryExecType remoteExecType = EXEC_ON_ALL_NODES;
+					AlterTableStmt *stmt = (AlterTableStmt *) parsetree;
+
+					if (stmt->relkind == OBJECT_VIEW ||
+						stmt->relkind == OBJECT_SEQUENCE)
+						remoteExecType = EXEC_ON_COORDS;
+					else if (stmt->relkind == OBJECT_TABLE)
+					{
+						Oid relid = RangeVarGetRelid(stmt->relation, false);
+
+						if (get_rel_relkind(relid) == RELKIND_SEQUENCE)
+							remoteExecType = EXEC_ON_COORDS;
+					}
+
+					stmts = AddRemoteQueryNode(stmts, queryString, remoteExecType);
+				}
 #endif
 
 				/* ... and do it */
@@ -1053,6 +1085,10 @@ standard_ProcessUtility(Node *parsetree,
 
 		case T_ViewStmt:		/* CREATE VIEW */
 			DefineView((ViewStmt *) parsetree, queryString);
+#ifdef PGXC
+			if (IS_PGXC_COORDINATOR)
+				ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_COORDS);
+#endif
 			break;
 
 		case T_CreateFunctionStmt:		/* CREATE FUNCTION */

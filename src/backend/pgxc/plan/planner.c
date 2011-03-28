@@ -33,6 +33,7 @@
 #include "parser/parse_agg.h"
 #include "parser/parse_coerce.h"
 #include "pgxc/execRemote.h"
+#include "pgxc/pgxc.h"
 #include "pgxc/locator.h"
 #include "pgxc/planner.h"
 #include "tcop/pquery.h"
@@ -3354,3 +3355,27 @@ GetHashExecNodes(RelationLocInfo *rel_loc_info, ExecNodes **exec_nodes, const Ex
 
 }
 
+/*
+ * AddRemoteQueryNode
+ *
+ * Add a Remote Query node to launch on Datanodes.
+ * This can only be done for a query a Top Level to avoid
+ * duplicated queries on Datanodes.
+ */
+List *
+AddRemoteQueryNode(List *stmts, const char *queryString, RemoteQueryExecType remoteExecType)
+{
+	List *result = stmts;
+
+	/* Only a remote Coordinator is allowed to send a query to backend nodes */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	{
+		RemoteQuery *step = makeNode(RemoteQuery);
+		step->combine_type = COMBINE_TYPE_SAME;
+		step->sql_statement = queryString;
+		step->exec_type = remoteExecType;
+		result = lappend(result, step);
+	}
+
+	return result;
+}

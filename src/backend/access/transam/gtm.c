@@ -422,7 +422,7 @@ RenameSequenceGTM(char *seqname, const char *newseqname)
 	seqkey.gsk_keylen = strlen(seqname);
 	seqkey.gsk_key = seqname;
 	newseqkey.gsk_keylen = strlen(newseqname);
-	newseqkey.gsk_key = (char *)newseqname;
+	newseqkey.gsk_key = (char *) newseqname;
 
 	return conn ? rename_sequence(conn, &seqkey, &newseqkey) : -1;
 }

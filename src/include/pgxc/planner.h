@@ -210,4 +210,6 @@ extern bool is_immutable_func(Oid funcid);
 extern bool IsJoinReducible(RemoteQuery *innernode, RemoteQuery *outernode,
 					List *rtable_list, JoinPath *join_path, JoinReduceInfo *join_info);
 
+extern List *AddRemoteQueryNode(List *stmts, const char *queryString, RemoteQueryExecType remoteExecType);
+
 #endif   /* PGXCPLANNER_H */

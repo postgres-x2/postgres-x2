@@ -1226,29 +1226,16 @@ ERROR:  function testfunc2(integer) does not exist
 DROP FUNCTION testfunc4(boolean);
 ERROR:  function testfunc4(boolean) does not exist
 DROP VIEW atestv1;
-ERROR:  view "atestv1" does not exist
 DROP VIEW atestv2;
-ERROR:  view "atestv2" does not exist
 -- this should cascade to drop atestv4
 DROP VIEW atestv3 CASCADE;
 NOTICE:  drop cascades to view atestv4
-ERROR:  view "atestv3" does not exist
 -- this should complain "does not exist"
 DROP VIEW atestv4;
 ERROR:  view "atestv4" does not exist
 DROP TABLE atest1;
-ERROR:  cannot drop table atest1 because other objects depend on it
-DETAIL:  view atestv1 depends on table atest1
-HINT:  Use DROP ... CASCADE to drop the dependent objects too.
 DROP TABLE atest2;
-ERROR:  cannot drop table atest2 because other objects depend on it
-DETAIL:  view atestv2 depends on table atest2
-HINT:  Use DROP ... CASCADE to drop the dependent objects too.
 DROP TABLE atest3;
-ERROR:  cannot drop table atest3 because other objects depend on it
-DETAIL:  view atestv3 depends on table atest3
-view atestv4 depends on view atestv3
-HINT:  Use DROP ... CASCADE to drop the dependent objects too.
 DROP TABLE atest4;
 DROP TABLE atest5;
 DROP TABLE atest6;
@@ -1268,43 +1255,13 @@ SELECT lo_unlink(oid) FROM pg_largeobject_metadata;
 
 DROP GROUP regressgroup1;
 DROP GROUP regressgroup2;
-ERROR:  role "regressgroup2" cannot be dropped because some objects depend on it
-DETAIL:  privileges for table atest3
 -- these are needed to clean up permissions
 REVOKE USAGE ON LANGUAGE sql FROM regressuser1;
 DROP OWNED BY regressuser1;
-ERROR:  cannot drop desired object(s) because other objects depend on them
-DETAIL:  view atestv1 depends on table atest1
-view atestv2 depends on table atest2
-HINT:  Use DROP ... CASCADE to drop the dependent objects too.
 DROP USER regressuser1;
-ERROR:  role "regressuser1" cannot be dropped because some objects depend on it
-DETAIL:  owner of default privileges on new functions belonging to role regressuser1
-owner of table atest2
-owner of table atest1
 DROP USER regressuser2;
-ERROR:  role "regressuser2" cannot be dropped because some objects depend on it
-DETAIL:  privileges for view atestv4
-privileges for view atestv2
-privileges for table atest2
-privileges for table atest1
 DROP USER regressuser3;
-ERROR:  role "regressuser3" cannot be dropped because some objects depend on it
-DETAIL:  owner of view atestv3
-owner of view atestv2
-owner of view atestv1
-owner of table atest3
-privileges for table atest2
-privileges for table atest1
 DROP USER regressuser4;
-ERROR:  role "regressuser4" cannot be dropped because some objects depend on it
-DETAIL:  owner of view atestv4
-privileges for view atestv3
-privileges for view atestv1
-privileges for table atest2
-privileges for table atest1
 DROP USER regressuser5;
-ERROR:  role "regressuser5" cannot be dropped because some objects depend on it
-DETAIL:  privileges for table atest2
 DROP USER regressuser6;
 ERROR:  role "regressuser6" does not exist

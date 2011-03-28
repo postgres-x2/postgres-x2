@@ -27,7 +27,6 @@ extern void transformRuleStmt(RuleStmt *stmt, const char *queryString,
 extern List *transformCreateSchemaStmt(CreateSchemaStmt *stmt);
 #ifdef PGXC
 extern bool CheckLocalIndexColumn (char loctype, char *partcolname, char *indexcolname);
-extern List *AddRemoteQueryNode(List *stmts, const char *queryString);
 #endif
 
 #endif   /* PARSE_UTILCMD_H */
