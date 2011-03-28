@@ -213,6 +213,7 @@ CreateResponseCombiner(int node_count, CombineType combine_type)
 	combiner->copy_in_count = 0;
 	combiner->copy_out_count = 0;
 	combiner->errorMessage = NULL;
+	combiner->errorDetail = NULL;
 	combiner->query_Done = false;
 	combiner->currentRow.msg = NULL;
 	combiner->currentRow.msglen = 0;
@@ -812,6 +813,11 @@ HandleError(RemoteQueryState *combiner, char *msg_body, size_t len)
 			memcpy(combiner->errorCode, code, 5);
 	}
 
+	if (!combiner->errorDetail && detail != NULL)
+	{
+		combiner->errorDetail = pstrdup(detail);
+	}
+
 	/*
 	 * If data node have sent ErrorResponse it will never send CommandComplete.
 	 * Increment the counter to prevent endless waiting for it.
@@ -950,6 +956,8 @@ CloseCombiner(RemoteQueryState *combiner)
 			FreeTupleDesc(combiner->tuple_desc);
 		if (combiner->errorMessage)
 			pfree(combiner->errorMessage);
+		if (combiner->errorDetail)
+			pfree(combiner->errorDetail);
 		if (combiner->cursor_connections)
 			pfree(combiner->cursor_connections);
 		if (combiner->tapenodes)
@@ -994,6 +1002,8 @@ ValidateAndResetCombiner(RemoteQueryState *combiner)
 	list_free_deep(combiner->rowBuffer);
 	if (combiner->errorMessage)
 		pfree(combiner->errorMessage);
+	if (combiner->errorDetail)
+		pfree(combiner->errorDetail);
 	if (combiner->tapenodes)
 		pfree(combiner->tapenodes);
 
@@ -1006,6 +1016,7 @@ ValidateAndResetCombiner(RemoteQueryState *combiner)
 	combiner->copy_in_count = 0;
 	combiner->copy_out_count = 0;
 	combiner->errorMessage = NULL;
+	combiner->errorDetail = NULL;
 	combiner->query_Done = false;
 	combiner->currentRow.msg = NULL;
 	combiner->currentRow.msglen = 0;
@@ -3344,9 +3355,14 @@ do_query(RemoteQueryState *node)
 		if (node->errorMessage)
 		{
 			char *code = node->errorCode;
-			ereport(ERROR,
-					(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
-					 errmsg("%s", node->errorMessage)));
+			if (node->errorDetail != NULL)
+				ereport(ERROR,
+						(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
+						errmsg("%s", node->errorMessage), errdetail("%s", node->errorDetail) ));
+			else
+				ereport(ERROR,
+						(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
+						errmsg("%s", node->errorMessage)));
 		}
 	}
 
@@ -3712,9 +3728,14 @@ handle_results:
 	if (node->errorMessage)
 	{
 		char *code = node->errorCode;
-		ereport(ERROR,
-				(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
-				 errmsg("%s", node->errorMessage)));
+		if (node->errorDetail != NULL)
+			ereport(ERROR,
+					(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
+						errmsg("%s", node->errorMessage), errdetail("%s", node->errorDetail) ));
+		else
+			ereport(ERROR,
+					(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
+						errmsg("%s", node->errorMessage)));
 	}
 
 	/*
@@ -4311,9 +4332,14 @@ ExecRemoteUtility(RemoteQuery *node)
 	if (remotestate->errorMessage)
 	{
 		char *code = remotestate->errorCode;
-		ereport(ERROR,
-				(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
-				 errmsg("%s", remotestate->errorMessage)));
+		if (remotestate->errorDetail != NULL)
+			ereport(ERROR,
+					(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
+						errmsg("%s", remotestate->errorMessage), errdetail("%s", remotestate->errorDetail) ));
+		else
+			ereport(ERROR,
+					(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
+						errmsg("%s", remotestate->errorMessage)));
 	}
 }
 

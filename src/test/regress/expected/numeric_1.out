@@ -688,10 +688,12 @@ INSERT INTO fract_only VALUES (1, '0.0');
 INSERT INTO fract_only VALUES (2, '0.1');
 INSERT INTO fract_only VALUES (3, '1.0');	-- should fail
 ERROR:  numeric field overflow
+DETAIL:  A field with precision 4, scale 4 must round to an absolute value less than 1.
 INSERT INTO fract_only VALUES (4, '-0.9999');
 INSERT INTO fract_only VALUES (5, '0.99994');
 INSERT INTO fract_only VALUES (6, '0.99995');  -- should fail
 ERROR:  numeric field overflow
+DETAIL:  A field with precision 4, scale 4 must round to an absolute value less than 1.
 INSERT INTO fract_only VALUES (7, '0.00001');
 INSERT INTO fract_only VALUES (8, '0.00017');
 SELECT * FROM fract_only ORDER BY id;
@@ -1035,16 +1037,16 @@ SELECT '' AS to_char_15, to_char(val, 'FM9999999990999999.099999999999999') 	FRO
 SELECT '' AS to_char_16, to_char(val, 'L9999999999999999.099999999999999')	FROM num_data ORDER BY val;	
  to_char_16 |              to_char               
 ------------+------------------------------------
-            | $        -83028485.000000000000000
+            |          -83028485.000000000000000
             |          -34338492.215397047000000
-            | $        -24926804.045047420000000
-            | $                 .000000000000000
-            | $                 .000000000000000
+            |          -24926804.045047420000000
+            |                   .000000000000000
+            |                   .000000000000000
             |                  4.310000000000000
             |              16397.038491000000000
             |              74881.000000000000000
-            | $            93901.577630260000000
-            | $          7799461.411900000000000
+            |              93901.577630260000000
+            |            7799461.411900000000000
 (10 rows)
 
 SELECT '' AS to_char_17, to_char(val, 'FM9999999999999999.99999999999999')	FROM num_data ORDER BY val;
@@ -1135,6 +1137,21 @@ SELECT '' AS to_char_22, to_char(val, 'FM9999999999999999.999999999999999')	FROM
             | 74881.
             | 93901.57763026
             | 7799461.4119
+(10 rows)
+
+SELECT '' AS to_char_23, to_char(val, '9.999EEEE')				FROM num_data ORDER BY val;
+ to_char_23 |  to_char   
+------------+------------
+            | -8.303e+07
+            | -3.434e+07
+            | -2.493e+07
+            |  0.000e+00
+            |  0.000e+00
+            |  4.310e+00
+            |  1.640e+04
+            |  7.488e+04
+            |  9.390e+04
+            |  7.799e+06
 (10 rows)
 
 -- TO_NUMBER()
