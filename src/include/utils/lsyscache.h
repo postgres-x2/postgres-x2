@@ -127,6 +127,9 @@ extern void getTypeBinaryOutputInfo(Oid type, Oid *typSend, bool *typIsVarlena);
 extern Oid	get_typmodin(Oid typid);
 extern Oid	getBaseType(Oid typid);
 extern Oid	getBaseTypeAndTypmod(Oid typid, int32 *typmod);
+#ifdef PGXC
+extern char *get_typename(Oid typid);
+#endif
 extern int32 get_typavgwidth(Oid typid, int32 typmod);
 extern int32 get_attavgwidth(Oid relid, AttrNumber attnum);
 extern bool get_attstatsslot(HeapTuple statstuple,

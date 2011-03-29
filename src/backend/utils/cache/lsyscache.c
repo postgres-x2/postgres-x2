@@ -2015,6 +2015,30 @@ getBaseTypeAndTypmod(Oid typid, int32 *typmod)
 	return typid;
 }
 
+#ifdef PGXC
+/*
+ * Get type name for given type ID
+ */
+char *
+get_typename(Oid typid)
+{
+	HeapTuple		tuple;
+	Form_pg_type	typeForm;
+	char		   *result;
+
+	tuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(typid));
+
+	if (!HeapTupleIsValid(tuple))
+			elog(ERROR, "cache lookup failed for type %u", typid);
+
+	typeForm = (Form_pg_type) GETSTRUCT(tuple);
+	result = pstrdup(NameStr(typeForm->typname));
+	ReleaseSysCache(tuple);
+
+	return result;
+}
+#endif
+
 /*
  * get_typavgwidth
  *

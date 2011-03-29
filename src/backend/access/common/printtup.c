@@ -22,7 +22,6 @@
 #include "utils/lsyscache.h"
 #ifdef PGXC
 #include "pgxc/pgxc.h"
-#include "parser/parse_type.h"
 #endif
 
 static void printtup_startup(DestReceiver *self, int operation,
@@ -201,7 +200,7 @@ SendRowDescriptionMessage(TupleDesc typeinfo, List *targetlist, int16 *formats)
 		if (IS_PGXC_DATANODE && IsConnFromCoord())
 		{
 			char	   *typename;
-			typename = typeTypeName(typeidType(atttypid));
+			typename = get_typename(atttypid);
 			pq_sendstring(&buf, typename);
 		}
 #endif
