@@ -624,6 +624,8 @@ nextval_internal(Oid relid)
 		elm->last = result;			/* last returned number */
 		elm->cached = result;		/* last fetched number */
 		elm->last_valid = true;
+
+		last_used_seq = elm;
 	}
 	else
 	{
@@ -939,6 +941,15 @@ do_setval(Oid relid, int64 next, bool iscalled)
 		/* Update the on-disk data */
 		seq->last_value = next; /* last fetched number */
 		seq->is_called = iscalled;
+		seq->log_cnt = (iscalled) ? 0 : 1;
+
+		if (iscalled)
+		{
+			elm->last = next;		/* last returned number */
+			elm->last_valid = true;
+		}
+
+		elm->cached = elm->last;
 	}
 	else
 	{
