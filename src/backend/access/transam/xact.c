@@ -1899,13 +1899,16 @@ CommitTransaction(bool contact_gtm)
 	bool PrepareLocalCoord = false;
 	bool PreparePGXCNodes = false;
 	char implicitgid[256];
-	TransactionId xid = GetCurrentTransactionId();
+	TransactionId xid = InvalidTransactionId;
 
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && contact_gtm)
 		PreparePGXCNodes = PGXCNodeIsImplicit2PC(&PrepareLocalCoord);
 
 	if (PrepareLocalCoord || PreparePGXCNodes)
+	{
+		xid = GetCurrentTransactionId();
 		sprintf(implicitgid, "T%d", xid);
+	}
 
 	/* Save GID where PrepareTransaction can find it again */
 	if (PrepareLocalCoord)
