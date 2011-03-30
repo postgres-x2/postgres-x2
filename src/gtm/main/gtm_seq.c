@@ -657,7 +657,7 @@ GTM_SeqGetCurrent(GTM_SequenceKey seqkey)
 		ereport(LOG,
 				(EINVAL,
 				 errmsg("The sequence with the given key does not exist")));
-		return EINVAL;
+		return InvalidSequenceValue;
 	}
 
 	GTM_RWLockAcquire(&seqinfo->gs_lock, GTM_LOCKMODE_WRITE);
@@ -719,7 +719,7 @@ GTM_SeqGetNext(GTM_SequenceKey seqkey)
 		ereport(LOG,
 				(EINVAL,
 				 errmsg("The sequence with the given key does not exist")));
-		return EINVAL;
+		return InvalidSequenceValue;
 	}
 
 	GTM_RWLockAcquire(&seqinfo->gs_lock, GTM_LOCKMODE_WRITE);
