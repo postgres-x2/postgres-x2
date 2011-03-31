@@ -29,7 +29,7 @@ enable_shared   = yes
 # Compilers
 
 CPP = gcc -E
-CPPFLAGS = -g -D_GNU_SOURCE 
+CPPFLAGS = -D_GNU_SOURCE 
 
 override CPPFLAGS := -I$(top_srcdir)/include $(CPPFLAGS)
 
