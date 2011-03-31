@@ -1004,10 +1004,20 @@ standard_ProcessUtility(Node *parsetree,
 
 		case T_GrantStmt:
 			ExecuteGrantStmt((GrantStmt *) parsetree);
+
+#ifdef PGXC
+			if (IS_PGXC_COORDINATOR)
+				ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_ALL_NODES);
+#endif
 			break;
 
 		case T_GrantRoleStmt:
 			GrantRole((GrantRoleStmt *) parsetree);
+
+#ifdef PGXC
+			if (IS_PGXC_COORDINATOR)
+				ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_ALL_NODES);
+#endif
 			break;
 
 		case T_AlterDefaultPrivilegesStmt:
