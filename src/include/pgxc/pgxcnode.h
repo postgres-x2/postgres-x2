@@ -94,7 +94,7 @@ extern void InitMultinodeExecutor(void);
 
 /* Open/close connection routines (invoked from Pool Manager) */
 extern char *PGXCNodeConnStr(char *host, char *port, char *dbname, char *user,
-							 char *password, char *remote_type);
+							 char *remote_type);
 extern NODE_CONNECTION *PGXCNodeConnect(char *connstr);
 extern void PGXCNodeClose(NODE_CONNECTION * conn);
 extern int	PGXCNodeConnected(NODE_CONNECTION * conn);

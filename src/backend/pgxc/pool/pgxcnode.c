@@ -144,7 +144,7 @@ InitMultinodeExecutor(void)
  */
 char *
 PGXCNodeConnStr(char *host, char *port, char *dbname,
-				char *user, char *password, char *remote_type)
+				char *user, char *remote_type)
 {
 	char	   *out,
 				connstr[256];
@@ -155,8 +155,8 @@ PGXCNodeConnStr(char *host, char *port, char *dbname,
 	 * remote type can be coordinator, datanode or application.
 	 */
 	num = snprintf(connstr, sizeof(connstr),
-				   "host=%s port=%s dbname=%s user=%s password=%s options='-c remotetype=%s'",
-				   host, port, dbname, user, password, remote_type);
+				   "host=%s port=%s dbname=%s user=%s options='-c remotetype=%s'",
+				   host, port, dbname, user, remote_type);
 
 	/* Check for overflow */
 	if (num > 0 && num < sizeof(connstr))

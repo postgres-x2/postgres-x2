@@ -68,14 +68,10 @@ static MemoryContext PoolerMemoryContext = NULL;
 /* Connection info of Datanodes */
 char	   *DataNodeHosts = NULL;
 char	   *DataNodePorts = NULL;
-char	   *DataNodeUsers = NULL;
-char	   *DataNodePwds = NULL;
 
 /* Connection info of Coordinators */
 char	   *CoordinatorHosts = NULL;
 char	   *CoordinatorPorts = NULL;
-char	   *CoordinatorUsers = NULL;
-char	   *CoordinatorPwds = NULL;
 
 /* PGXC Nodes info list */
 static PGXCNodeConnectionInfo *datanode_connInfos;
@@ -93,15 +89,16 @@ static PoolHandle *Handle = NULL;
 static int	is_pool_cleaning = false;
 static int	server_fd = -1;
 
-static void agent_init(PoolAgent *agent, const char *database);
+static void agent_init(PoolAgent *agent, const char *database, const char *user_name);
 static void agent_destroy(PoolAgent *agent);
 static void agent_create(void);
 static void agent_handle_input(PoolAgent *agent, StringInfo s);
-static DatabasePool *create_database_pool(const char *database);
+static DatabasePool *create_database_pool(const char *database, const char *user_name);
 static void insert_database_pool(DatabasePool *pool);
-static int	destroy_database_pool(const char *database);
-static DatabasePool *find_database_pool(const char *database);
-static DatabasePool *remove_database_pool(const char *database);
+static int	destroy_database_pool(const char *database, const char *user_name);
+static DatabasePool *find_database_pool(const char *database, const char *user_name);
+static DatabasePool *find_database_pool_to_clean(const char *database, List *dn_list, List *co_list);
+static DatabasePool *remove_database_pool(const char *database, const char *user_name);
 static int *agent_acquire_connections(PoolAgent *agent, List *datanodelist, List *coordlist);
 static PGXCNodePoolSlot *acquire_connection(DatabasePool *dbPool, int node, char client_conn_type);
 static void agent_release_connections(PoolAgent *agent, List *dn_discard, List *co_discard);
@@ -352,164 +349,8 @@ PoolManagerInit()
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						 errmsg("invalid list syntax for \"coordinator_ports\"")));
 		}
-
-		if (count == 0)
-			rawstring = pstrdup(DataNodeUsers);
-		if (count == 1)
-			rawstring = pstrdup(CoordinatorUsers);
-
-		/* Parse string into list of identifiers */
-		if (!SplitIdentifierString(rawstring, ',', &elemlist))
-		{
-			if (count == 0)
-			/* syntax error in list */
-				ereport(FATAL,
-						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						 errmsg("invalid list syntax for \"data_node_users\"")));
-			else
-				ereport(FATAL,
-						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						 errmsg("invalid list syntax for \"coordinator_users\"")));
-		}
-
-		i = 0;
-		foreach(l, elemlist)
-		{
-			char	   *curuser = (char *) lfirst(l);
-
-			connectionInfos[i].uname = pstrdup(curuser);
-			if (connectionInfos[i].uname == NULL)
-			{
-				ereport(ERROR,
-						(errcode(ERRCODE_OUT_OF_MEMORY),
-						 errmsg("out of memory")));
-			}
-			/* Ignore extra entries, if any */
-			if (++i == num_nodes)
-				break;
-		}
-		list_free(elemlist);
-		pfree(rawstring);
-
-		/* Validate */
-		if (i == 0)
-		{
-			if (count == 0)
-				/* syntax error in list */
-				ereport(FATAL,
-						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						 errmsg("invalid list syntax for \"data_node_users\"")));
-			else
-				/* syntax error in list */
-				ereport(FATAL,
-						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						 errmsg("invalid list syntax for \"coordinator_users\"")));
-		}
-		else if (i == 1)
-		{
-			/* Copy all values from first */
-			for (; i < num_nodes; i++)
-			{
-				connectionInfos[i].uname = pstrdup(connectionInfos[0].uname);
-				if (connectionInfos[i].uname == NULL)
-				{
-					ereport(ERROR,
-							(errcode(ERRCODE_OUT_OF_MEMORY),
-							 errmsg("out of memory")));
-				}
-			}
-		}
-		else if (i < num_nodes)
-		{
-			if (count == 0)
-				/* syntax error in list */
-				ereport(FATAL,
-						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						 errmsg("invalid list syntax for \"data_node_users\"")));
-			else
-				ereport(FATAL,
-						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						 errmsg("invalid list syntax for \"coordinator_users\"")));
-		}
-
-		if (count == 0)
-			rawstring = pstrdup(DataNodePwds);
-		if (count == 1)
-			rawstring = pstrdup(CoordinatorPwds);
-
-		/* Parse string into list of identifiers */
-		if (!SplitIdentifierString(rawstring, ',', &elemlist))
-		{
-			if (count == 0)
-				/* syntax error in list */
-				ereport(FATAL,
-						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						 errmsg("invalid list syntax for \"data_node_passwords\"")));
-			else
-				ereport(FATAL,
-						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						 errmsg("invalid list syntax for \"coordinator_passwords\"")));
-		}
-
-		i = 0;
-		foreach(l, elemlist)
-		{
-			char	   *curpassword = (char *) lfirst(l);
-
-			connectionInfos[i].password = pstrdup(curpassword);
-			if (connectionInfos[i].password == NULL)
-			{
-				ereport(ERROR,
-						(errcode(ERRCODE_OUT_OF_MEMORY),
-						 errmsg("out of memory")));
-			}
-			/* Ignore extra entries, if any */
-			if (++i == num_nodes)
-				break;
-		}
-		list_free(elemlist);
-		pfree(rawstring);
-
-		/* Validate */
-		if (i == 0)
-		{
-			if (count == 0)
-				/* syntax error in list */
-				ereport(FATAL,
-						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						 errmsg("invalid list syntax for \"data_node_passwords\"")));
-			else
-				ereport(FATAL,
-						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						 errmsg("invalid list syntax for \"coordinator_passwords\"")));
-		}
-		else if (i == 1)
-		{
-			/* Copy all values from first */
-			for (; i < num_nodes; i++)
-			{
-				connectionInfos[i].password = pstrdup(connectionInfos[0].password);
-				if (connectionInfos[i].password == NULL)
-				{
-					ereport(ERROR,
-							(errcode(ERRCODE_OUT_OF_MEMORY),
-							 errmsg("out of memory")));
-				}
-			}
-		}
-		else if (i < num_nodes)
-		{
-			if (count == 0)
-				/* syntax error in list */
-				ereport(FATAL,
-						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						 errmsg("invalid list syntax for \"data_node_passwords\"")));
-			else
-				ereport(FATAL,
-						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						 errmsg("invalid list syntax for \"coordinator_passwords\"")));
-		}
 	}
+
 	/* End of Parsing for Datanode and Coordinator Data */
 
 	PoolerLoop();
@@ -647,13 +488,14 @@ agent_create(void)
  * Invoked from Session process
  */
 void
-PoolManagerConnect(PoolHandle *handle, const char *database)
+PoolManagerConnect(PoolHandle *handle, const char *database, const char *user_name)
 {
 	int n32;
 	char msgtype = 'c';
 
 	Assert(handle);
 	Assert(database);
+	Assert(user_name);
 
 	/* Save the handle */
 	Handle = handle;
@@ -662,7 +504,7 @@ PoolManagerConnect(PoolHandle *handle, const char *database)
 	pool_putbytes(&handle->port, &msgtype, 1);
 
 	/* Message length */
-	n32 = htonl(strlen(database) + 13);
+	n32 = htonl(strlen(database) + strlen(user_name) + 18);
 	pool_putbytes(&handle->port, (char *) &n32, 4);
 
 	/* PID number */
@@ -676,28 +518,37 @@ PoolManagerConnect(PoolHandle *handle, const char *database)
 	/* Send database name followed by \0 terminator */
 	pool_putbytes(&handle->port, database, strlen(database) + 1);
 	pool_flush(&handle->port);
+
+	/* Length of user name string */
+	n32 = htonl(strlen(user_name) + 1);
+	pool_putbytes(&handle->port, (char *) &n32, 4);
+
+	/* Send user name followed by \0 terminator */
+	pool_putbytes(&handle->port, user_name, strlen(user_name) + 1);
+	pool_flush(&handle->port);
 }
 
 
 /*
  * Init PoolAgent
-*/
+ */
 static void
-agent_init(PoolAgent *agent, const char *database)
+agent_init(PoolAgent *agent, const char *database, const char *user_name)
 {
 	Assert(agent);
 	Assert(database);
+	Assert(user_name);
 
 	/* disconnect if we are still connected */
 	if (agent->pool)
 		agent_release_connections(agent, NULL, NULL);
 
 	/* find database */
-	agent->pool = find_database_pool(database);
+	agent->pool = find_database_pool(database, user_name);
 
 	/* create if not found */
 	if (agent->pool == NULL)
-		agent->pool = create_database_pool(database);
+		agent->pool = create_database_pool(database, user_name);
 }
 
 
@@ -932,6 +783,7 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 	for (;;)
 	{
 		const char *database;
+		const char *user_name;
 		int			datanodecount;
 		int			coordcount;
 		List	   *datanodelist = NIL;
@@ -969,11 +821,13 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 				agent->pid = pq_getmsgint(s, 4);
 				len = pq_getmsgint(s, 4);
 				database = pq_getmsgbytes(s, len);
+				len = pq_getmsgint(s, 4);
+				user_name = pq_getmsgbytes(s, len);
 				/*
 				 * Coordinator pool is not initialized.
 				 * With that it would be impossible to create a Database by default.
 				 */
-				agent_init(agent, database);
+				agent_init(agent, database, user_name);
 				pq_getmsgend(s);
 				break;
 			case 'd':			/* DISCONNECT */
@@ -1312,13 +1166,13 @@ agent_release_connections(PoolAgent *agent, List *dn_discard, List *co_discard)
  * error and POOL_WEXIST if poll for this database already exist.
  */
 static DatabasePool *
-create_database_pool(const char *database)
+create_database_pool(const char *database, const char *user_name)
 {
 	DatabasePool *databasePool;
 	int			i;
 
 	/* check if exist */
-	databasePool = find_database_pool(database);
+	databasePool = find_database_pool(database, user_name);
 	if (databasePool)
 	{
 		/* already exist */
@@ -1336,8 +1190,10 @@ create_database_pool(const char *database)
 		return NULL;
 	}
 
-	 /* Copy the database name */ ;
+	 /* Copy the database name */
 	databasePool->database = pstrdup(database);
+	 /* Copy the user name */
+	databasePool->user_name = pstrdup(user_name);
 	if (!databasePool->database)
 	{
 		/* out of memory */
@@ -1361,6 +1217,7 @@ create_database_pool(const char *database)
 				(errcode(ERRCODE_OUT_OF_MEMORY),
 				 errmsg("out of memory")));
 		pfree(databasePool->database);
+		pfree(databasePool->user_name);
 		pfree(databasePool);
 		return NULL;
 	}
@@ -1378,6 +1235,7 @@ create_database_pool(const char *database)
 				(errcode(ERRCODE_OUT_OF_MEMORY),
 				 errmsg("out of memory")));
 		pfree(databasePool->database);
+		pfree(databasePool->user_name);
 		pfree(databasePool);
 		return NULL;
 	}
@@ -1396,13 +1254,13 @@ create_database_pool(const char *database)
  * Destroy the pool and free memory
  */
 static int
-destroy_database_pool(const char *database)
+destroy_database_pool(const char *database, const char *user_name)
 {
 	DatabasePool *databasePool;
 	int			i;
 
 	/* Delete from the list */
-	databasePool = remove_database_pool(database);
+	databasePool = remove_database_pool(database, user_name);
 	if (databasePool)
 	{
 		if (databasePool->dataNodePools)
@@ -1421,6 +1279,7 @@ destroy_database_pool(const char *database)
 		}
 		/* free allocated memory */
 		pfree(databasePool->database);
+		pfree(databasePool->user_name);
 		pfree(databasePool);
 		return 1;
 	}
@@ -1448,10 +1307,10 @@ insert_database_pool(DatabasePool *databasePool)
 
 
 /*
- * Find pool for specified database in the list
+ * Find pool for specified database and username in the list
  */
 static DatabasePool *
-find_database_pool(const char *database)
+find_database_pool(const char *database, const char *user_name)
 {
 	DatabasePool *databasePool;
 
@@ -1459,8 +1318,8 @@ find_database_pool(const char *database)
 	databasePool = databasePools;
 	while (databasePool)
 	{
-		/* if match break the loop and return */
-		if (strcmp(database, databasePool->database) == 0)
+		if (strcmp(database, databasePool->database) == 0 &&
+			strcmp(user_name, databasePool->user_name) == 0)
 			break;
 
 		databasePool = databasePool->next;
@@ -1468,12 +1327,55 @@ find_database_pool(const char *database)
 	return databasePool;
 }
 
+/*
+ * Find pool to be cleaned for specified database in the list
+ */
+static DatabasePool *
+find_database_pool_to_clean(const char *database, List *dn_list, List *co_list)
+{
+	DatabasePool *databasePool;
+
+	/* Scan the list */
+	databasePool = databasePools;
+	while (databasePool)
+	{
+		/* Check for given database name */
+		if (strcmp(database, databasePool->database) == 0)
+		{
+			ListCell   *nodelist_item;
+
+			/* Check if this database pool is clean for given coordinator list */
+			foreach (nodelist_item, co_list)
+			{
+				int nodenum = lfirst_int(nodelist_item);
+
+				if (databasePool->coordNodePools &&
+					databasePool->coordNodePools[nodenum - 1] &&
+					databasePool->coordNodePools[nodenum - 1]->freeSize != 0)
+					return databasePool;
+			}
+
+			/* Check if this database pool is clean for given datanode list */
+			foreach (nodelist_item, dn_list)
+			{
+				int nodenum = lfirst_int(nodelist_item);
+
+				if (databasePool->dataNodePools &&
+					databasePool->dataNodePools[nodenum - 1] &&
+					databasePool->dataNodePools[nodenum - 1]->freeSize != 0)
+					return databasePool;
+			}
+		}
+		databasePool = databasePool->next;
+	}
+	return databasePool;
+}
 
 /*
  * Remove pool for specified database from the list
  */
 static DatabasePool *
-remove_database_pool(const char *database)
+remove_database_pool(const char *database, const char *user_name)
 {
 	DatabasePool *databasePool,
 			   *prev;
@@ -1485,7 +1387,8 @@ remove_database_pool(const char *database)
 	{
 
 		/* if match break the loop and return */
-		if (strcmp(database, databasePool->database) == 0)
+		if (strcmp(database, databasePool->database) == 0 &&
+			strcmp(user_name, databasePool->user_name) == 0)
 			break;
 		prev = databasePool;
 		databasePool = databasePool->next;
@@ -1680,7 +1583,6 @@ grow_pool(DatabasePool * dbPool, int index, char client_conn_type)
 		if (IS_PGXC_COORDINATOR)
 		{
 			remote_type = pstrdup("coordinator");
-
 		}
 		else if (IS_PGXC_DATANODE)
 		{
@@ -1692,17 +1594,14 @@ grow_pool(DatabasePool * dbPool, int index, char client_conn_type)
 			nodePool->connstr = PGXCNodeConnStr(datanode_connInfos[index].host,
 												datanode_connInfos[index].port,
 												dbPool->database,
-												datanode_connInfos[index].uname,
-												datanode_connInfos[index].password,
+												dbPool->user_name,
 												remote_type);
 		else if (client_conn_type == REMOTE_CONN_COORD)
 			nodePool->connstr = PGXCNodeConnStr(coord_connInfos[index].host,
 												coord_connInfos[index].port,
 												dbPool->database,
-												coord_connInfos[index].uname,
-												coord_connInfos[index].password,
+												dbPool->user_name,
 												remote_type);
-
 
 		if (!nodePool->connstr)
 		{
@@ -1864,7 +1763,8 @@ PoolerLoop(void)
 				agent_destroy(agent);
 			}
 			while (databasePools)
-				if (destroy_database_pool(databasePools->database) == 0)
+				if (destroy_database_pool(databasePools->database,
+										  databasePools->user_name) == 0)
 					break;
 			close(server_fd);
 			exit(0);
@@ -1918,74 +1818,79 @@ clean_connection(List *dn_discard, List *co_discard, const char *database)
 		co_list[count++] = lfirst_int(nodelist_item);
 
 	/* Find correct Database pool to clean */
-	databasePool = find_database_pool(database);
+	databasePool = find_database_pool_to_clean(database, dn_discard, co_discard);
 
-	/* Database pool has not been found, it is already clean */
-	if (!databasePool)
-		return CLEAN_CONNECTION_COMPLETED;
-
-	/*
-	 * Clean each Pool Correctly
-	 * First for Datanode Pool
-	 */
-	for (count = 0; count < dn_len; count++)
+	while (databasePool)
 	{
-		int node_num = dn_list[count];
-		nodePool = databasePool->dataNodePools[node_num - 1];
+		databasePool = find_database_pool_to_clean(database, dn_discard, co_discard);
 
-		if (nodePool)
+		/* Database pool has not been found, cleaning is over */
+		if (!databasePool)
+			break;
+
+		/*
+		 * Clean each Pool Correctly
+		 * First for Datanode Pool
+		 */
+		for (count = 0; count < dn_len; count++)
 		{
-			/* Check if connections are in use */
-			if (nodePool->freeSize != nodePool->size)
-			{
-				elog(WARNING, "Pool of Database %s is using Datanode %d connections",
-							databasePool->database, node_num);
-				res = CLEAN_CONNECTION_NOT_COMPLETED;
-			}
+			int node_num = dn_list[count];
+			nodePool = databasePool->dataNodePools[node_num - 1];
 
-			/* Destroy connections currently in Node Pool */
-			if (nodePool->slot)
+			if (nodePool)
 			{
-				for (i = 0; i < nodePool->freeSize; i++)
-					destroy_slot(nodePool->slot[i]);
+				/* Check if connections are in use */
+				if (nodePool->freeSize != nodePool->size)
+				{
+					elog(WARNING, "Pool of Database %s is using Datanode %d connections",
+								databasePool->database, node_num);
+					res = CLEAN_CONNECTION_NOT_COMPLETED;
+				}
 
-				/* Move slots in use at the beginning of Node Pool array */
-				for (i = nodePool->freeSize; i < nodePool->size; i++ )
-					nodePool->slot[i - nodePool->freeSize] = nodePool->slot[i];
+				/* Destroy connections currently in Node Pool */
+				if (nodePool->slot)
+				{
+					for (i = 0; i < nodePool->freeSize; i++)
+						destroy_slot(nodePool->slot[i]);
+
+					/* Move slots in use at the beginning of Node Pool array */
+					for (i = nodePool->freeSize; i < nodePool->size; i++ )
+						nodePool->slot[i - nodePool->freeSize] = nodePool->slot[i];
+				}
+				nodePool->size -= nodePool->freeSize;
+				nodePool->freeSize = 0;
 			}
-			nodePool->size -= nodePool->freeSize;
-			nodePool->freeSize = 0;
 		}
-	}
 
-	/* Then for Coordinators */
-	for (count = 0; count < co_len; count++)
-	{
-		int node_num = co_list[count];
-		nodePool = databasePool->coordNodePools[node_num - 1];
-
-		if (nodePool)
+		/* Then for Coordinators */
+		for (count = 0; count < co_len; count++)
 		{
-			/* Check if connections are in use */
-			if (nodePool->freeSize != nodePool->size)
-			{
-				elog(WARNING, "Pool of Database %s is using Coordinator %d connections",
-							databasePool->database, node_num);
-				res = CLEAN_CONNECTION_NOT_COMPLETED;
-			}
+			int node_num = co_list[count];
+			nodePool = databasePool->coordNodePools[node_num - 1];
 
-			/* Destroy connections currently in Node Pool */
-			if (nodePool->slot)
+			if (nodePool)
 			{
-				for (i = 0; i < nodePool->freeSize; i++)
-					destroy_slot(nodePool->slot[i]);
+				/* Check if connections are in use */
+				if (nodePool->freeSize != nodePool->size)
+				{
+					elog(WARNING, "Pool of Database %s is using Coordinator %d connections",
+								databasePool->database, node_num);
+					res = CLEAN_CONNECTION_NOT_COMPLETED;
+				}
 
-				/* Move slots in use at the beginning of Node Pool array */
-				for (i = nodePool->freeSize; i < nodePool->size; i++ )
-					nodePool->slot[i - nodePool->freeSize] = nodePool->slot[i];
+				/* Destroy connections currently in Node Pool */
+				if (nodePool->slot)
+				{
+					for (i = 0; i < nodePool->freeSize; i++)
+						destroy_slot(nodePool->slot[i]);
+
+					/* Move slots in use at the beginning of Node Pool array */
+					for (i = nodePool->freeSize; i < nodePool->size; i++ )
+						nodePool->slot[i - nodePool->freeSize] = nodePool->slot[i];
+				}
+				nodePool->size -= nodePool->freeSize;
+				nodePool->freeSize = 0;
 			}
-			nodePool->size -= nodePool->freeSize;
-			nodePool->freeSize = 0;
 		}
 	}
 

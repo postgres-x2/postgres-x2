@@ -538,10 +538,6 @@
 					# (change requires restart)
 #data_node_ports = '15432,25432'	# Port numbers of data nodes
 					# (change requires restart)
-#data_node_users = 'postgres'		# User names of data nodes
-					# (change requires restart)
-#data_node_passwords = 'postgres'	# Passwords of data nodes
-					# (change requires restart)
 
 #primary_data_node = 1			# Which data node to use first for 
 					# replicated writes
@@ -560,10 +556,6 @@
 					# (change require restart)
 #coordinator_ports = '5432'		# Port numbers of Coordinators
 					# (change require restart)
-#coordinator_users = 'postgres'		# User names of Coordinators
-					# (change requires restart)
-#coordinator_passwords = 'postgres'	# Passwords of Coordinators
-					# (change requires restart)
 
 #------------------------------------------------------------------------------
 # GTM CONNECTION

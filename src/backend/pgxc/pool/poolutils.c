@@ -36,6 +36,8 @@
  * Use of CLEAN CONNECTION is limited to a super user.
  * It is advised to clean connections before shutting down a Node or drop a Database.
  *
+ * Pool cleaning is done for all the users of a given database.
+ *
  * SQL query synopsis is as follows:
  * CLEAN CONNECTION TO
  *		(COORDINATOR num | DATANODE num | ALL {FORCE})

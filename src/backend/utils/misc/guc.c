@@ -2818,26 +2818,6 @@ static struct config_string ConfigureNamesString[] =
 	},
 
 	{
-		{"data_node_users", PGC_POSTMASTER, DATA_NODES,
-			gettext_noop("User names or addresses of data nodes."),
-			gettext_noop("Comma separated list or single value, "
-						 "if user names are the same on all data nodes")
-		},
-		&DataNodeUsers,
-		"postgres", NULL, NULL
-	},
-
-	{
-		{"data_node_passwords", PGC_POSTMASTER, DATA_NODES,
-			gettext_noop("Passwords of data nodes."),
-			gettext_noop("Comma separated list or single value, "
-						 "if passwords are the same on all data nodes")
-		},
-		&DataNodePwds,
-		"postgres", NULL, NULL
-	},
-
-	{
 		{"gtm_host", PGC_POSTMASTER, GTM,
 			gettext_noop("Host name or address of GTM"),
 			NULL
@@ -2864,26 +2844,6 @@ static struct config_string ConfigureNamesString[] =
 		},
 		&CoordinatorPorts,
 		"5432", NULL, NULL
-	},
-
-	{
-		{"coordinator_users", PGC_POSTMASTER, COORDINATORS,
-			gettext_noop("User names or addresses of Coordinators."),
-			gettext_noop("Comma separated list or single value, "
-						 "if user names are the same on all Coordinators")
-		},
-		&CoordinatorUsers,
-		"postgres", NULL, NULL
-	},
-
-	{
-		{"coordinator_passwords", PGC_POSTMASTER, COORDINATORS,
-			gettext_noop("Passwords of Coordinators."),
-			gettext_noop("Comma separated list or single value, "
-						 "if passwords are the same on all Coordinators")
-		},
-		&CoordinatorPwds,
-		"postgres", NULL, NULL
 	},
 
 #endif

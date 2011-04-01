@@ -3397,7 +3397,7 @@ BackendStartup(Port *port)
 		if (IS_PGXC_COORDINATOR)
 		{
 			/* User is authenticated and dbname is known at this point */
-			PoolManagerConnect(pool_handle, port->database_name);
+			PoolManagerConnect(pool_handle, port->database_name, port->user_name);
 			InitGTM();
 		}
 #endif 

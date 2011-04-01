@@ -352,6 +352,9 @@ ProcArrayRemove(PGPROC *proc, TransactionId latestXid)
 	}
 	else
 	{
+#ifdef PGXC
+		if (IS_PGXC_DATANODE || !IsConnFromCoord())
+#endif
 		/* Shouldn't be trying to remove a live transaction here */
 		Assert(!TransactionIdIsValid(proc->xid));
 	}

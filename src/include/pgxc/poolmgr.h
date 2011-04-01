@@ -28,8 +28,6 @@ typedef struct
 {
 	char	   *host;
 	char	   *port;
-	char	   *uname;
-	char	   *password;
 } PGXCNodeConnectionInfo;
 
 /* Connection pool entry */
@@ -51,8 +49,8 @@ typedef struct
 /* All pools for specified database */
 typedef struct databasepool
 {
-	Oid			databaseId;
 	char	   *database;
+	char	   *user_name;
 	PGXCNodePool **dataNodePools;	/* one for each Datanode */
 	PGXCNodePool **coordNodePools;	/* one for each Coordinator */
 	struct databasepool *next;
@@ -89,13 +87,9 @@ extern bool PersistentConnections;
 
 extern char *DataNodeHosts;
 extern char *DataNodePorts;
-extern char *DataNodeUsers;
-extern char *DataNodePwds;
 
 extern char *CoordinatorHosts;
 extern char *CoordinatorPorts;
-extern char *CoordinatorUsers;
-extern char *CoordinatorPwds;
 
 /* Initialize internal structures */
 extern int	PoolManagerInit(void);
@@ -129,7 +123,7 @@ extern void PoolManagerDisconnect(PoolHandle *handle);
  * for subsequent calls. Associate session with specified database and
  * initialize respective connection pool
  */
-extern void PoolManagerConnect(PoolHandle *handle, const char *database);
+extern void PoolManagerConnect(PoolHandle *handle, const char *database, const char *user_name);
 
 /* Get pooled connections */
 extern int *PoolManagerGetConnections(List *datanodelist, List *coordlist);
