@@ -1832,13 +1832,12 @@ pgxc_all_handles_send_query(PGXCNodeAllHandles *pgxc_handles, const char *buffer
 	if (pgxc_handles->primary_handle)
 		dn_conn_count--;
 
-    /* Send to Datanodes */
-    for (i = 0; i < dn_conn_count; i++)
+	/* Send to Datanodes */
+	for (i = 0; i < dn_conn_count; i++)
 	{
 		if (pgxc_handles->datanode_handles[i]->state != DN_CONNECTION_STATE_IDLE)
 		{
-			pgxc_handles->datanode_handles[i]->state = DN_CONNECTION_STATE_ERROR_FATAL;
-			continue;
+			BufferConnection(pgxc_handles->datanode_handles[i]);
 		}
 		if (pgxc_node_send_query(pgxc_handles->datanode_handles[i], buffer))
 		{
@@ -1848,8 +1847,8 @@ pgxc_all_handles_send_query(PGXCNodeAllHandles *pgxc_handles, const char *buffer
 				goto finish;
 		}
 	}
-    /* Send to Coordinators */
-    for (i = 0; i < co_conn_count; i++)
+	/* Send to Coordinators */
+	for (i = 0; i < co_conn_count; i++)
 	{
 		if (pgxc_node_send_query(pgxc_handles->coord_handles[i], buffer))
 		{

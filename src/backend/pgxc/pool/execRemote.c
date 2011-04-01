@@ -3470,9 +3470,17 @@ do_query(RemoteQueryState *node)
 		int i = 0;
 
 		if (pgxc_node_receive(regular_conn_count, connections, NULL))
+		{
+			pfree(connections);
+			if (primaryconnection)
+				pfree(primaryconnection);
+			if (node->cursor_connections)
+				pfree(node->cursor_connections);
+
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
 					 errmsg("Failed to read response from data nodes")));
+		}
 		/*
 		 * Handle input from the data nodes.
 		 * If we got a RESPONSE_DATAROW we can break handling to wrap
@@ -3631,6 +3639,7 @@ ExecRemoteQuery(RemoteQueryState *node)
 						  node->update_cursor);
 		pfree(node->update_cursor);
 		node->update_cursor = NULL;
+		pfree_pgxc_all_handles(all_dn_handles);
 	}
 
 handle_results:
@@ -3878,17 +3887,45 @@ ExecEndRemoteQuery(RemoteQueryState *node)
 	/*
 	 * If there are active cursors close them
 	 */
-	if (node->cursor)
-		close_node_cursors(node->cursor_connections, node->cursor_count, node->cursor);
-
-	if (node->update_cursor)
+	if (node->cursor || node->update_cursor)
 	{
-		PGXCNodeAllHandles *all_dn_handles = get_exec_connections(node, NULL, EXEC_ON_DATANODES);
-		close_node_cursors(all_dn_handles->datanode_handles,
-						  all_dn_handles->dn_conn_count,
-						  node->update_cursor);
-		pfree(node->update_cursor);
-		node->update_cursor = NULL;
+		PGXCNodeAllHandles *all_handles = NULL;
+		PGXCNodeHandle    **cur_handles;
+		bool bFree = false;
+		int nCount;
+		int i;
+	
+		cur_handles = node->cursor_connections;
+		nCount = node->cursor_count;
+	
+		for(i=0;i<node->cursor_count;i++)
+		{
+			if (node->cursor_connections == NULL || node->cursor_connections[i]->sock == -1)
+			{
+				bFree = true;
+				all_handles = get_exec_connections(node, NULL, EXEC_ON_DATANODES);
+				cur_handles = all_handles->datanode_handles;
+				nCount = all_handles->dn_conn_count;
+				break;
+			}
+		}
+	
+		if (node->cursor)
+		{
+			close_node_cursors(cur_handles, nCount, node->cursor);
+			pfree(node->cursor);
+			node->cursor = NULL;
+		}
+	
+		if (node->update_cursor)
+		{
+			close_node_cursors(cur_handles, nCount, node->update_cursor);
+			pfree(node->update_cursor);
+			node->update_cursor = NULL;
+		}
+	
+		if (bFree)
+			pfree_pgxc_all_handles(all_handles);
 	}
 
 	/*
