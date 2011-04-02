@@ -801,6 +801,24 @@ standard_ProcessUtility(Node *parsetree,
 
 		case T_CommentStmt:
 			CommentObject((CommentStmt *) parsetree);
+
+#ifdef PGXC
+			/*
+			 * We need to check details of the object being dropped and
+			 * run command on correct nodes
+			 */
+			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+			{
+				CommentStmt *stmt = (CommentStmt *) parsetree;
+
+				/* Sequence and views exists only on Coordinators */
+				if (stmt->objtype == OBJECT_SEQUENCE ||
+					stmt->objtype == OBJECT_VIEW)
+					ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_COORDS);
+				else
+					ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_ALL_NODES);
+			}
+#endif
 			break;
 
 		case T_CopyStmt:
