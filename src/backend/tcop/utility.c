@@ -1003,12 +1003,58 @@ standard_ProcessUtility(Node *parsetree,
 			break;
 
 		case T_GrantStmt:
-			ExecuteGrantStmt((GrantStmt *) parsetree);
-
 #ifdef PGXC
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_ALL_NODES);
+			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+			{
+				RemoteQueryExecType remoteExecType = EXEC_ON_ALL_NODES;
+				GrantStmt *stmt = (GrantStmt *) parsetree;
+
+				/* Launch GRANT on Coordinator if object is a sequence */
+				if (stmt->objtype == ACL_OBJECT_SEQUENCE)
+					remoteExecType = EXEC_ON_COORDS;
+				else if (stmt->objtype == ACL_OBJECT_RELATION &&
+						 stmt->targtype == ACL_TARGET_OBJECT)
+				{
+					/*
+					 * In case object is a relation, differenciate the case
+					 * of a sequence, a view and a table
+					 */
+					ListCell   *cell;
+					/* Check the list of objects */
+					bool		first = true;
+					RemoteQueryExecType type_local = remoteExecType;
+
+					foreach (cell, stmt->objects)
+					{
+						RangeVar   *relvar = (RangeVar *) lfirst(cell);
+						Oid			relid = RangeVarGetRelid(relvar, false);
+
+						if (get_rel_relkind(relid) == RELKIND_SEQUENCE ||
+							get_rel_relkind(relid) == RELKIND_VIEW)
+							remoteExecType = EXEC_ON_COORDS;
+						else
+							remoteExecType = EXEC_ON_ALL_NODES;
+
+						/* Check if objects can be launched at the same place as 1st one */
+						if (first)
+						{
+							type_local = remoteExecType;
+							first = false;
+						}
+						else
+						{
+							if (type_local != remoteExecType)
+								ereport(ERROR,
+										(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+										 errmsg("PGXC does not support GRANT on multiple object types"),
+										 errdetail("Grant VIEW/SEQUENCE and relations on separate queries")));
+						}
+					}
+				}
+				ExecUtilityStmtOnNodes(queryString, NULL, false, remoteExecType);
+			}
 #endif
+			ExecuteGrantStmt((GrantStmt *) parsetree);
 			break;
 
 		case T_GrantRoleStmt:
