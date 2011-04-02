@@ -333,7 +333,16 @@ SELECT c.relname, objsubid, description FROM pg_description, pg_index i, pg_clas
 CREATE TABLE inh_error1 () INHERITS (t1, t4);
 CREATE TABLE inh_error2 (LIKE t4 INCLUDING STORAGE) INHERITS (t1);
 
-DROP TABLE t1, t2, t3, t4, t12_storage, t12_comments, t1_inh, t13_inh, t13_like, t_all;
+DROP TABLE t1;
+DROP TABLE t2;
+DROP TABLE t3;
+DROP TABLE t4;
+DROP TABLE t12_storage;
+DROP TABLE t12_comments;
+DROP TABLE t1_inh;
+DROP TABLE t13_inh;
+DROP TABLE t13_like;
+DROP TABLE t_all;
 
 -- Test for renaming in simple multiple inheritance
 CREATE TABLE t1 (a int, b int);
