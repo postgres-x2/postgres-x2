@@ -869,6 +869,8 @@ freeGTM_Conn(GTM_Conn *conn)
 		free(conn->pgport);
 	if (conn->connect_timeout)
 		free(conn->connect_timeout);
+	if (conn->pgxc_node_id)
+		free(conn->pgxc_node_id);
 	if (conn->inBuffer)
 		free(conn->inBuffer);
 	if (conn->outBuffer)
