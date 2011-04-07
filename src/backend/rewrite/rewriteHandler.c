@@ -1715,8 +1715,7 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 				/* ... and the VALUES expression lists */
 				rewriteValuesRTE(values_rte, rt_entry_relation, attrnos);
 #ifdef PGXC
-				if (IS_PGXC_COORDINATOR &&
-							list_length(values_rte->values_lists) > 1)
+				if (IS_PGXC_COORDINATOR) 
 					parsetree_list = RewriteInsertStmt(parsetree, values_rte);
 #endif
 			}
@@ -1844,14 +1843,12 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 				
 				query = (Query *)lfirst(pt_cell);
 
-				locks = matchLocks(event, rt_entry_relation->rd_rules,
-							   result_relation, query);
-
 				/*
 				 * Collect and apply the appropriate rules.
 				 */
 				locks = matchLocks(event, rt_entry_relation->rd_rules,
-								   result_relation, parsetree);
+							   result_relation, query);
+
 				if (locks != NIL)
 				{
 					List	   *product_queries = NIL;
@@ -1987,42 +1984,37 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 	}
 	else
 	{
-		int query_no = -1;
-		
+		int query_no = 0;	
+
 		foreach(pt_cell, parsetree_list)
 		{
 
-			Query	*query;
-			Query	*qual;
-			query_no ++;
+			Query	*query = NULL;
+			Query	*qual = NULL;
 			
 			query = (Query *)lfirst(pt_cell);
 			if (!instead)
 			{
+ 				if (qual_product_list)
+					qual = (Query *)list_nth(qual_product_list,
+										 query_no);
+
 				if (query->commandType == CMD_INSERT)
 				{
-					if (qual_product_list != NIL)
-					{
-						qual = (Query *)list_nth(qual_product_list,
-                                                			query_no);	
+					if (qual != NULL)
 						rewritten = lcons(qual, rewritten);
-					}
 					else
 						rewritten = lcons(query, rewritten);
 				}
-
-			}
-			else
-			{
-				if (qual_product_list != NIL)
-				{
-					qual = (Query *)list_nth(qual_product_list,
-								query_no);	
-					rewritten = lcons(qual, rewritten);
-				}
 				else
-					rewritten = lappend(rewritten, query);
+				{
+					if (qual != NULL)
+						rewritten = lappend(rewritten, qual);
+					else
+						rewritten = lappend(rewritten, query);
+				}
 			}
+			query_no++;
 		}
 	}
 #endif
@@ -2300,6 +2292,9 @@ ProcessRobinValue(Oid relid, List **valuesList,
  *		3.DEFAULT: no need to process (replicate case)
  *
  *	values_rte is the values list range table.
+ *
+ * note: sql_statement of query with mutiple values must be assigned in this function. 
+ * 	  It will not be assigned in pgxc_planner again.
  */
 static List *
 RewriteInsertStmt(Query *query, RangeTblEntry *values_rte)
@@ -2399,7 +2394,9 @@ collect:
 			DestroyValuesList(&valuesList);
 			break;
 
-		default: /* distribute by replication: just do it as usual */
+		default:
+			get_query_def_from_valuesList(query, &buf);
+			query->sql_statement = pstrdup(buf.data);
 			rwInsertList = lappend(rwInsertList, query);
 			break;
 	}
