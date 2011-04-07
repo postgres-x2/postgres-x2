@@ -4398,6 +4398,9 @@ PGXCNodeCleanAndRelease(int code, Datum arg)
 	/* Release data node connections */
 	release_handles();
 
+	/* Disconnect from Pooler */
+	PoolManagerDisconnect();
+
 	/* Close connection with GTM */
 	CloseGTM();
 

@@ -56,8 +56,10 @@ typedef struct databasepool
 	struct databasepool *next;
 } DatabasePool;
 
-/* Agent of client session (Pool Manager side)
+/*
+ * Agent of client session (Pool Manager side)
  * Acts as a session manager, grouping connections together
+ * and managing session parameters
  */
 typedef struct
 {
@@ -68,6 +70,8 @@ typedef struct
 	DatabasePool *pool;
 	PGXCNodePoolSlot **dn_connections; /* one for each Datanode */
 	PGXCNodePoolSlot **coord_connections; /* one for each Coordinator */
+	char	   *session_params;
+	char	   *local_params;
 } PoolAgent;
 
 /* Handle to the pool manager (Session's side) */
@@ -116,7 +120,7 @@ extern void PoolManagerCloseHandle(PoolHandle *handle);
 /*
  * Gracefully close connection to the PoolManager
  */
-extern void PoolManagerDisconnect(PoolHandle *handle);
+extern void PoolManagerDisconnect(void);
 
 /*
  * Called from Session process after fork(). Associate handle with session
@@ -124,6 +128,14 @@ extern void PoolManagerDisconnect(PoolHandle *handle);
  * initialize respective connection pool
  */
 extern void PoolManagerConnect(PoolHandle *handle, const char *database, const char *user_name);
+
+/*
+ * Save a SET command in Pooler.
+ * This command is run on existent agent connections
+ * and stored in pooler agent to be replayed when new connections
+ * are requested.
+ */
+extern int PoolManagerSetCommand(bool is_local, const char *set_command);
 
 /* Get pooled connections */
 extern int *PoolManagerGetConnections(List *datanodelist, List *coordlist);

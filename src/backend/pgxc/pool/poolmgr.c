@@ -93,6 +93,7 @@ static void agent_init(PoolAgent *agent, const char *database, const char *user_
 static void agent_destroy(PoolAgent *agent);
 static void agent_create(void);
 static void agent_handle_input(PoolAgent *agent, StringInfo s);
+static int agent_set_command(PoolAgent *agent, const char *set_command, bool is_local);
 static DatabasePool *create_database_pool(const char *database, const char *user_name);
 static void insert_database_pool(DatabasePool *pool);
 static int	destroy_database_pool(const char *database, const char *user_name);
@@ -102,6 +103,7 @@ static DatabasePool *remove_database_pool(const char *database, const char *user
 static int *agent_acquire_connections(PoolAgent *agent, List *datanodelist, List *coordlist);
 static PGXCNodePoolSlot *acquire_connection(DatabasePool *dbPool, int node, char client_conn_type);
 static void agent_release_connections(PoolAgent *agent, List *dn_discard, List *co_discard);
+static void agent_reset_params(PoolAgent *agent, List *dn_list, List *co_list);
 static void release_connection(DatabasePool *dbPool, PGXCNodePoolSlot *slot, int index, bool clean,
 							   char client_conn_type);
 static void destroy_slot(PGXCNodePoolSlot *slot);
@@ -476,6 +478,8 @@ agent_create(void)
 	agent->pool = NULL;
 	agent->dn_connections = NULL;
 	agent->coord_connections = NULL;
+	agent->session_params = NULL;
+	agent->local_params = NULL;
 	agent->pid = 0;
 
 	/* Append new agent to the list */
@@ -528,6 +532,36 @@ PoolManagerConnect(PoolHandle *handle, const char *database, const char *user_na
 	pool_flush(&handle->port);
 }
 
+int
+PoolManagerSetCommand(bool is_local, const char *set_command)
+{
+	int n32;
+	char msgtype = 's';
+
+	Assert(set_command);
+	Assert(Handle);
+
+	/* Message type */
+	pool_putbytes(&Handle->port, &msgtype, 1);
+
+	/* Message length */
+	n32 = htonl(strlen(set_command) + 10);
+	pool_putbytes(&Handle->port, (char *) &n32, 4);
+
+	/* LOCAL or SESSION parameter ? */
+	pool_putbytes(&Handle->port, (char *) &is_local, 1);
+	
+	/* Length of SET command string */
+	n32 = htonl(strlen(set_command) + 1);
+	pool_putbytes(&Handle->port, (char *) &n32, 4);
+
+	/* Send command string followed by \0 terminator */
+	pool_putbytes(&Handle->port, set_command, strlen(set_command) + 1);
+	pool_flush(&Handle->port);
+
+	/* Get result */
+	pool_recvres(&Handle->port);
+}
 
 /*
  * Init PoolAgent
@@ -567,9 +601,9 @@ agent_destroy(PoolAgent *agent)
 	/* Discard connections if any remaining */
 	if (agent->pool)
 	{
-		List *dn_conn = NIL;
-		List *co_conn = NIL;
-		int   i;
+		List   *dn_conn = NIL;
+		List   *co_conn = NIL;
+		int		i;
 
 		/* gather abandoned datanode connections */
 		if (agent->dn_connections)
@@ -582,6 +616,12 @@ agent_destroy(PoolAgent *agent)
 			for (i = 0; i < NumCoords; i++)
 				if (agent->coord_connections[i])
 					co_conn = lappend_int(co_conn, i+1);
+
+		/*
+		 * agent is being destroyed, so reset session parameters
+		 * before putting back connections to pool
+		 */
+		agent_reset_params(agent, dn_conn, co_conn);
 
 		/* release them all */
 		agent_release_connections(agent, dn_conn, co_conn);
@@ -603,6 +643,16 @@ agent_destroy(PoolAgent *agent)
 				pfree(agent->coord_connections);
 				agent->coord_connections = NULL;
 			}
+			if (agent->local_params)
+			{
+				pfree(agent->local_params);
+				agent->local_params = NULL;
+			}
+			if (agent->session_params)
+			{
+				pfree(agent->session_params);
+				agent->session_params = NULL;
+			}
 			pfree(agent);
 			/* shrink the list and move last agent into the freed slot */
 			if (i < --agentCount)
@@ -618,16 +668,14 @@ agent_destroy(PoolAgent *agent)
  * Release handle to pool manager
  */
 void
-PoolManagerDisconnect(PoolHandle *handle)
+PoolManagerDisconnect(void)
 {
-	Assert(handle);
+	Assert(Handle);
 
-	pool_putmessage(&handle->port, 'd', NULL, 0);
+	pool_putmessage(&Handle->port, 'd', NULL, 0);
 	pool_flush(&Handle->port);
 
-	close(Socket(handle->port));
-
-	pfree(handle);
+	close(Socket(Handle->port));
 }
 
 
@@ -784,6 +832,8 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 	{
 		const char *database;
 		const char *user_name;
+		const char *set_command;
+		bool		is_local;
 		int			datanodecount;
 		int			coordcount;
 		List	   *datanodelist = NIL;
@@ -905,6 +955,20 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 				list_free(datanodelist);
 				list_free(coordlist);
 				break;
+			case 's':			/* SET COMMAND */
+				pool_getmessage(&agent->port, s, 0);
+				/* Determine if command is local or session */
+				is_local = (bool) pq_getmsgbyte(s);
+				/* Get the SET command */
+				len = pq_getmsgint(s, 4);
+				set_command = pq_getmsgbytes(s, len);
+				pq_getmsgend(s);
+
+				res = agent_set_command(agent, set_command, is_local);
+
+				/* Send success result */
+				pool_sendres(&agent->port, res);
+				break;
 			default:			/* EOF or protocol violation */
 				agent_destroy(agent);
 				return;
@@ -915,6 +979,77 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 	}
 }
 
+/*
+ * Save a SET command and distribute it to the agent connections
+ * already in use.
+ */
+static int
+agent_set_command(PoolAgent *agent, const char *set_command, bool is_local)
+{
+	char   *params_string;
+	int		i;
+	int		res = 0;
+
+	Assert(agent);
+	Assert(set_command);
+
+	if (is_local)
+		params_string = agent->local_params;
+	else
+		params_string = agent->session_params;
+
+	/* First command recorded */
+	if (!params_string)
+	{
+		params_string = pstrdup(set_command);
+		if (!params_string)
+			ereport(ERROR,
+					(errcode(ERRCODE_OUT_OF_MEMORY),
+					 errmsg("out of memory")));
+	}
+	else
+	{
+		/*
+		 * Second command or more recorded.
+		 * Commands are saved with format 'SET param1 TO value1;...;SET paramN TO valueN'
+		 */
+		params_string = (char *) repalloc(params_string,
+										  strlen(params_string) + strlen(set_command) + 2);
+		if (!params_string)
+			ereport(ERROR,
+					(errcode(ERRCODE_OUT_OF_MEMORY),
+					 errmsg("out of memory")));
+
+		sprintf(params_string, "%s;%s", params_string, set_command);
+	}
+
+	/* Launch the new command to all the connections already hold by the agent */
+	if (agent->dn_connections)
+	{
+		for (i = 0; i < NumDataNodes; i++)
+		{
+			if (agent->dn_connections[i])
+				res = PGXCNodeSendSetQuery(agent->dn_connections[i]->conn, set_command);
+		}
+	}
+
+	if (agent->coord_connections)
+	{
+		for (i = 0; i < NumCoords; i++)
+		{
+			if (agent->coord_connections[i])
+				res |= PGXCNodeSendSetQuery(agent->coord_connections[i]->conn, set_command);
+		}
+	}
+
+	/* Save the latest string */
+	if (is_local)
+		agent->local_params = params_string;
+	else
+		agent->session_params = params_string;
+
+	return res;
+}
 
 /*
  * acquire connection
@@ -1005,6 +1140,12 @@ agent_acquire_connections(PoolAgent *agent, List *datanodelist, List *coordlist)
 
 			/* Store in the descriptor */
 			agent->dn_connections[node - 1] = slot;
+
+			/* Update newly-acquired slot with session parameters */
+			if (agent->session_params)
+				PGXCNodeSendSetQuery(slot->conn, agent->session_params);
+			if (agent->local_params)
+				PGXCNodeSendSetQuery(slot->conn, agent->local_params);
 		}
 
 		result[i++] = PQsocket((PGconn *) agent->dn_connections[node - 1]->conn);
@@ -1029,6 +1170,12 @@ agent_acquire_connections(PoolAgent *agent, List *datanodelist, List *coordlist)
 
 			/* Store in the descriptor */
 			agent->coord_connections[node - 1] = slot;
+
+			/* Update newly-acquired slot with session parameters */
+			if (agent->session_params)
+				PGXCNodeSendSetQuery(slot->conn, agent->session_params);
+			if (agent->local_params)
+				PGXCNodeSendSetQuery(slot->conn, agent->local_params);
 		}
 
 		result[i++] = PQsocket((PGconn *) agent->coord_connections[node - 1]->conn);
@@ -1095,6 +1242,20 @@ agent_release_connections(PoolAgent *agent, List *dn_discard, List *co_discard)
 	if (!agent->dn_connections && !agent->coord_connections)
 		return;
 
+	/*
+	 * If there are some session parameters, do not put back connections to pool
+	 * disconnection will be made when session is cut for this user.
+	 * Local parameters are reset when transaction block is finished,
+	 * so don't do anything for them, but just reset their list.
+	 */
+	if (agent->local_params)
+	{
+		pfree(agent->local_params);
+		agent->local_params = NULL;
+	}
+	if (agent->session_params)
+		return;
+
 	/* Discard first for Datanodes */
 	if (dn_discard)
 	{
@@ -1156,6 +1317,65 @@ agent_release_connections(PoolAgent *agent, List *dn_discard, List *co_discard)
 	}
 }
 
+/*
+ * Reset session parameters for given connections in the agent.
+ * This is done before putting back to pool connections that have been
+ * modified by session parameters.
+ */
+static void
+agent_reset_params(PoolAgent *agent, List *dn_list, List *co_list)
+{
+	PGXCNodePoolSlot *slot;
+
+	if (!agent->dn_connections && !agent->coord_connections)
+		return;
+
+	/* Parameters are reset, so free commands */
+	if (agent->session_params)
+	{
+		pfree(agent->session_params);
+		agent->session_params = NULL;
+	}
+	if (agent->local_params)
+	{
+		pfree(agent->local_params);
+		agent->local_params = NULL;
+	}
+
+	/* Reset Datanode connection params */
+	if (dn_list)
+	{
+		ListCell   *lc;
+
+		foreach(lc, dn_list)
+		{
+			int node = lfirst_int(lc);
+			Assert(node > 0 && node <= NumDataNodes);
+			slot = agent->dn_connections[node - 1];
+
+			/* Reset connection params */
+			if (slot)
+				PGXCNodeSendSetQuery(slot->conn, "RESET ALL;");
+		}
+	}
+
+	/* Reset Coordinator connection params */
+	if (co_list)
+	{
+		ListCell   *lc;
+
+		foreach(lc, co_list)
+		{
+			int node = lfirst_int(lc);
+			Assert(node > 0 && node <= NumCoords);
+			slot = agent->coord_connections[node - 1];
+
+			/* Reset connection params */
+			if (slot)
+				PGXCNodeSendSetQuery(slot->conn, "RESET ALL;");
+		}
+	}
+}
 
 /*
  * Create new empty pool for a database.

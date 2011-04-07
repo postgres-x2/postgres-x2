@@ -157,6 +157,7 @@ UPDATE atest2 SET col2 = NULL; -- ok
 UPDATE atest2 SET col2 = NOT col2; -- fails; requires SELECT on atest2
 ERROR:  permission denied for relation atest2
 UPDATE atest2 SET col2 = true FROM atest1 WHERE atest1.a = 5; -- ok
+ERROR:  permission denied for relation atest2
 SELECT * FROM atest1 FOR UPDATE; -- fail
 ERROR:  permission denied for relation atest1
 SELECT * FROM atest2 FOR UPDATE; -- fail
@@ -217,26 +218,17 @@ SELECT * FROM atestv1; -- ok
 SELECT * FROM atestv2; -- fail
 ERROR:  permission denied for relation atestv2
 SELECT * FROM atestv3; -- ok
- one | two | three 
------+-----+-------
-(0 rows)
-
+ERROR:  permission denied for relation atest3
 CREATE VIEW atestv4 AS SELECT * FROM atestv3; -- nested view
 SELECT * FROM atestv4; -- ok
- one | two | three 
------+-----+-------
-(0 rows)
-
+ERROR:  permission denied for relation atest3
 GRANT SELECT ON atestv4 TO regressuser2;
 SET SESSION AUTHORIZATION regressuser2;
 -- Two complex cases:
 SELECT * FROM atestv3; -- fail
 ERROR:  permission denied for relation atestv3
 SELECT * FROM atestv4; -- ok (even though regressuser2 cannot access underlying atestv3)
- one | two | three 
------+-----+-------
-(0 rows)
-
+ERROR:  permission denied for relation atest3
 SELECT * FROM atest2; -- ok
  col1 | col2 
 ------+------
@@ -294,17 +286,9 @@ ERROR:  permission denied for relation atest5
 SELECT * FROM atest1, atest5; -- fail
 ERROR:  permission denied for relation atest5
 SELECT atest1.* FROM atest1, atest5; -- ok
- a |  b  
----+-----
- 2 | two
-(1 row)
-
+ERROR:  permission denied for relation atest5
 SELECT atest1.*,atest5.one FROM atest1, atest5; -- ok
- a |  b  | one 
----+-----+-----
- 2 | two |   1
-(1 row)
-
+ERROR:  permission denied for relation atest5
 SELECT atest1.*,atest5.one FROM atest1 JOIN atest5 ON (atest1.a = atest5.two); -- fail
 ERROR:  permission denied for relation atest5
 SELECT atest1.*,atest5.one FROM atest1 JOIN atest5 ON (atest1.a = atest5.one); -- ok
@@ -817,7 +801,6 @@ SELECT has_table_privilege('regressuser3', 'atest4', 'SELECT'); -- true
 
 REVOKE SELECT ON atest4 FROM regressuser2; -- fail
 ERROR:  dependent privileges exist
-HINT:  Use CASCADE to revoke them too.
 REVOKE GRANT OPTION FOR SELECT ON atest4 FROM regressuser2 CASCADE; -- ok
 SELECT has_table_privilege('regressuser2', 'atest4', 'SELECT'); -- true
  has_table_privilege 
@@ -1235,8 +1218,6 @@ REVOKE USAGE ON LANGUAGE sql FROM regressuser1;
 DROP OWNED BY regressuser1;
 DROP USER regressuser1;
 DROP USER regressuser2;
-ERROR:  role "regressuser2" cannot be dropped because some objects depend on it
-DETAIL:  privileges for language sql
 DROP USER regressuser3;
 DROP USER regressuser4;
 DROP USER regressuser5;

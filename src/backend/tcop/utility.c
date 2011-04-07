@@ -62,6 +62,7 @@
 #include "pgxc/pgxc.h"
 #include "pgxc/planner.h"
 #include "pgxc/poolutils.h"
+#include "pgxc/poolmgr.h"
 
 static void ExecUtilityStmtOnNodes(const char *queryString, ExecNodes *nodes,
 								   bool force_autocommit, RemoteQueryExecType exec_type);
@@ -1410,11 +1411,18 @@ standard_ProcessUtility(Node *parsetree,
 		case T_VariableSetStmt:
 			ExecSetVariableStmt((VariableSetStmt *) parsetree);
 #ifdef PGXC
-/* PGXCTODO - this currently causes an assertion failure.
- We should change when we add SET handling properly
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, false);
-*/
+			/* Let the pooler manage the statement */
+			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+			{
+				VariableSetStmt *stmt = (VariableSetStmt *) parsetree;
+				/*
+				 * If command is local and we are not in a transaction block do NOT
+				 * send this query to backend nodes
+				 */
+				if (!stmt->is_local || !IsTransactionBlock())
+					if (PoolManagerSetCommand(stmt->is_local, queryString) < 0)
+						elog(ERROR, "Postgres-XC: ERROR SET query");
+			}
 #endif
 			break;
 
@@ -1572,6 +1580,14 @@ standard_ProcessUtility(Node *parsetree,
 
 		case T_ConstraintsSetStmt:
 			AfterTriggerSetState((ConstraintsSetStmt *) parsetree);
+
+			/*
+			 * PGXCTODO: SET CONSTRAINT management
+			 * This can just be done inside a transaction block,
+			 * so just launch it on all the Datanodes.
+			 * For the time being only IMMEDIATE constraints are supported
+			 * so this is not really useful...
+			 */
 			break;
 
 		case T_CheckPointStmt:

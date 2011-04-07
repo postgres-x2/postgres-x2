@@ -96,6 +96,7 @@ extern void InitMultinodeExecutor(void);
 extern char *PGXCNodeConnStr(char *host, char *port, char *dbname, char *user,
 							 char *remote_type);
 extern NODE_CONNECTION *PGXCNodeConnect(char *connstr);
+extern int PGXCNodeSendSetQuery(NODE_CONNECTION *conn, const char *sql_command);
 extern void PGXCNodeClose(NODE_CONNECTION * conn);
 extern int	PGXCNodeConnected(NODE_CONNECTION * conn);
 extern int	PGXCNodeConnClean(NODE_CONNECTION * conn);

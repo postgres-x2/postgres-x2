@@ -513,6 +513,7 @@ SELECT current_user = 'temp_reset_user';
 (1 row)
 
 DROP ROLE temp_reset_user;
+ERROR:  permission denied to drop role
 --
 -- Tests for function-local GUC settings
 --
@@ -520,32 +521,35 @@ set work_mem = '3MB';
 create function report_guc(text) returns text as
 $$ select current_setting($1) $$ language sql
 set work_mem = '1MB';
+ERROR:  stable and volatile not yet supported, function volatility has to be immutable
 select report_guc('work_mem'), current_setting('work_mem');
- report_guc | current_setting 
-------------+-----------------
- 1MB        | 3MB
-(1 row)
-
+ERROR:  function report_guc(unknown) does not exist
+LINE 1: select report_guc('work_mem'), current_setting('work_mem');
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
 -- this should draw only a warning
 alter function report_guc(text) set search_path = no_such_schema;
-NOTICE:  schema "no_such_schema" does not exist
+ERROR:  function report_guc(text) does not exist
 -- with error occurring here
 select report_guc('work_mem'), current_setting('work_mem');
-ERROR:  schema "no_such_schema" does not exist
+ERROR:  function report_guc(unknown) does not exist
+LINE 1: select report_guc('work_mem'), current_setting('work_mem');
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
 alter function report_guc(text) reset search_path set work_mem = '2MB';
+ERROR:  function report_guc(text) does not exist
 select report_guc('work_mem'), current_setting('work_mem');
- report_guc | current_setting 
-------------+-----------------
- 2MB        | 3MB
-(1 row)
-
+ERROR:  function report_guc(unknown) does not exist
+LINE 1: select report_guc('work_mem'), current_setting('work_mem');
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
 alter function report_guc(text) reset all;
+ERROR:  function report_guc(text) does not exist
 select report_guc('work_mem'), current_setting('work_mem');
- report_guc | current_setting 
-------------+-----------------
- 3MB        | 3MB
-(1 row)
-
+ERROR:  function report_guc(unknown) does not exist
+LINE 1: select report_guc('work_mem'), current_setting('work_mem');
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
 -- SET LOCAL is restricted by a function SET option
 create or replace function myfunc(int) returns text as $$
 begin
@@ -554,19 +558,19 @@ begin
 end $$
 language plpgsql
 set work_mem = '1MB';
+ERROR:  stable and volatile not yet supported, function volatility has to be immutable
 select myfunc(0), current_setting('work_mem');
- myfunc | current_setting 
---------+-----------------
- 2MB    | 3MB
-(1 row)
-
+ERROR:  function myfunc(integer) does not exist
+LINE 1: select myfunc(0), current_setting('work_mem');
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
 alter function myfunc(int) reset all;
+ERROR:  function myfunc(integer) does not exist
 select myfunc(0), current_setting('work_mem');
- myfunc | current_setting 
---------+-----------------
- 2MB    | 2MB
-(1 row)
-
+ERROR:  function myfunc(integer) does not exist
+LINE 1: select myfunc(0), current_setting('work_mem');
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
 set work_mem = '3MB';
 -- but SET isn't
 create or replace function myfunc(int) returns text as $$
@@ -576,12 +580,12 @@ begin
 end $$
 language plpgsql
 set work_mem = '1MB';
+ERROR:  stable and volatile not yet supported, function volatility has to be immutable
 select myfunc(0), current_setting('work_mem');
- myfunc | current_setting 
---------+-----------------
- 2MB    | 2MB
-(1 row)
-
+ERROR:  function myfunc(integer) does not exist
+LINE 1: select myfunc(0), current_setting('work_mem');
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
 set work_mem = '3MB';
 -- it should roll back on error, though
 create or replace function myfunc(int) returns text as $$
@@ -592,10 +596,12 @@ begin
 end $$
 language plpgsql
 set work_mem = '1MB';
+ERROR:  stable and volatile not yet supported, function volatility has to be immutable
 select myfunc(0);
-ERROR:  division by zero
-CONTEXT:  SQL statement "SELECT 1/$1"
-PL/pgSQL function "myfunc" line 3 at PERFORM
+ERROR:  function myfunc(integer) does not exist
+LINE 1: select myfunc(0);
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
 select current_setting('work_mem');
  current_setting 
 -----------------
@@ -603,8 +609,7 @@ select current_setting('work_mem');
 (1 row)
 
 select myfunc(1), current_setting('work_mem');
- myfunc | current_setting 
---------+-----------------
- 2MB    | 2MB
-(1 row)
-
+ERROR:  function myfunc(integer) does not exist
+LINE 1: select myfunc(1), current_setting('work_mem');
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.

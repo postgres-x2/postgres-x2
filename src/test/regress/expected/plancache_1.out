@@ -150,7 +150,11 @@ ERROR:  Postgres-XC does not support EXECUTE yet
 DETAIL:  The feature is not currently supported
 set search_path = s2;
 select f1 from abc;
-ERROR:  relation "abc" does not exist
+ f1  
+-----
+ 456
+(1 row)
+
 execute p1;
 ERROR:  Postgres-XC does not support EXECUTE yet
 DETAIL:  The feature is not currently supported

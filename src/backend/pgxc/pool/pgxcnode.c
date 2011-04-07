@@ -196,6 +196,28 @@ PGXCNodeClose(NODE_CONNECTION *conn)
 	PQfinish((PGconn *) conn);
 }
 
+/*
+ * Send SET query to given connection.
+ * Query is sent asynchronously and results are consumed
+ */
+int
+PGXCNodeSendSetQuery(NODE_CONNECTION *conn, const char *sql_command)
+{
+	PGresult	*result;
+
+	if (!PQsendQuery((PGconn *) conn, sql_command))
+		return -1;
+
+	/* Consume results from SET commands */
+	while ((result = PQgetResult((PGconn *) conn)) != NULL)
+	{
+		/* TODO: Check that results are of type 'S' */
+		PQclear(result);
+	}
+
+	return 0;
+}
+
 
 /*
  * Checks if connection active
