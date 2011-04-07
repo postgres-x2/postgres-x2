@@ -1356,6 +1356,12 @@ examine_conditions_fromlist(Node *treenode, XCWalkerContext *context)
 	{
 		JoinExpr   *joinexpr = (JoinExpr *) treenode;
 
+		/* Block FULL JOIN expressions until it is supported */
+		if (joinexpr->jointype == JOIN_FULL)
+			ereport(ERROR,
+					(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+					 (errmsg("FULL JOIN clause not yet supported"))));
+
 		/* recursively examine FROM join tree */
 		if (examine_conditions_fromlist(joinexpr->larg, context))
 			return true;
