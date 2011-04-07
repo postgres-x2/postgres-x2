@@ -150,11 +150,12 @@ create function public.whoami() returns text
 create function pg_temp.whoami() returns text
   as $$select 'temp'::text$$ language sql;
 -- default should have pg_temp implicitly first, but only for tables
-select * from whereami;
-  f1  
-------
+select * from whereami order by f1;
+   f1   
+--------
+ public
  temp
-(1 row)
+(2 rows)
 
 select whoami();
  whoami 
@@ -164,11 +165,12 @@ select whoami();
 
 -- can list temp first explicitly, but it still doesn't affect functions
 set search_path = pg_temp, public;
-select * from whereami;
-  f1  
-------
+select * from whereami order by f1;
+   f1   
+--------
+ public
  temp
-(1 row)
+(2 rows)
 
 select whoami();
  whoami 
@@ -178,11 +180,12 @@ select whoami();
 
 -- or put it last for security
 set search_path = public, pg_temp;
-select * from whereami;
+select * from whereami order by f1;
    f1   
 --------
  public
-(1 row)
+ temp
+(2 rows)
 
 select whoami();
  whoami 

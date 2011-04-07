@@ -134,17 +134,17 @@ create function pg_temp.whoami() returns text
   as $$select 'temp'::text$$ language sql;
 
 -- default should have pg_temp implicitly first, but only for tables
-select * from whereami;
+select * from whereami order by f1;
 select whoami();
 
 -- can list temp first explicitly, but it still doesn't affect functions
 set search_path = pg_temp, public;
-select * from whereami;
+select * from whereami order by f1;
 select whoami();
 
 -- or put it last for security
 set search_path = public, pg_temp;
-select * from whereami;
+select * from whereami order by f1;
 select whoami();
 
 -- you can invoke a temp function explicitly, though
