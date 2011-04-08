@@ -19,5 +19,8 @@
 extern bool Transform_null_equals;
 
 extern Node *transformExpr(ParseState *pstate, Node *expr);
+#ifdef PGXC
+extern bool IsFuncImmutable(ParseState *pstate, FuncCall *fn);
+#endif
 
 #endif   /* PARSE_EXPR_H */

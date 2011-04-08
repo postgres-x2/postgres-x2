@@ -1318,6 +1318,30 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 	return result;
 }
 
+#ifdef PGXC
+/*
+ * IsFuncImmutable
+ *
+ * Check if given function is immutable or not
+ * based on the function name and on its arguments
+ */
+bool
+IsFuncImmutable(ParseState *pstate, FuncCall *fn)
+{
+	ListCell   *args;
+	List	   *targs = NIL;
+
+	/* Transform list of arguments */
+	foreach(args, fn->args)
+	{
+		targs = lappend(targs, transformExpr(pstate,
+											 (Node *) lfirst(args)));
+	}
+
+	return IsParseFuncImmutable(pstate, targs, fn->funcname, fn->func_variadic);
+}
+#endif
+
 static Node *
 transformCaseExpr(ParseState *pstate, CaseExpr *c)
 {

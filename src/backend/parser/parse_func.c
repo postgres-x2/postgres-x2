@@ -1580,3 +1580,231 @@ LookupAggNameTypeNames(List *aggname, List *argtypes, bool noError)
 
 	return oid;
 }
+
+/*
+ * pg_get_expr() is a system function that exposes the expression
+ * deparsing functionality in ruleutils.c to users. Very handy, but it was
+ * later realized that the functions in ruleutils.c don't check the input
+ * rigorously, assuming it to come from system catalogs and to therefore
+ * be valid. That makes it easy for a user to crash the backend by passing
+ * a maliciously crafted string representation of an expression to
+ * pg_get_expr().
+ *
+ * There's a lot of code in ruleutils.c, so it's not feasible to add
+ * water-proof input checking after the fact. Even if we did it once, it
+ * would need to be taken into account in any future patches too.
+ *
+ * Instead, we restrict pg_rule_expr() to only allow input from system
+ * catalogs. This is a hack, but it's the most robust and easiest
+ * to backpatch way of plugging the vulnerability.
+ *
+ * This is transparent to the typical usage pattern of
+ * "pg_get_expr(systemcolumn, ...)", but will break "pg_get_expr('foo',
+ * ...)", even if 'foo' is a valid expression fetched earlier from a
+ * system catalog. Hopefully there aren't many clients doing that out there.
+ */
+void
+check_pg_get_expr_args(ParseState *pstate, Oid fnoid, List *args)
+{
+	Node	   *arg;
+
+	/* if not being called for pg_get_expr, do nothing */
+	if (fnoid != F_PG_GET_EXPR && fnoid != F_PG_GET_EXPR_EXT)
+		return;
+
+	/* superusers are allowed to call it anyway (dubious) */
+	if (superuser())
+		return;
+
+	/*
+	 * The first argument must be a Var referencing one of the allowed
+	 * system-catalog columns.  It could be a join alias Var or subquery
+	 * reference Var, though, so we need a recursive subroutine to chase
+	 * through those possibilities.
+	 */
+	Assert(list_length(args) > 1);
+	arg = (Node *) linitial(args);
+
+	if (!check_pg_get_expr_arg(pstate, arg, 0))
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 errmsg("argument to pg_get_expr() must come from system catalogs")));
+}
+
+#ifdef PGXC
+/*
+ * IsParseFuncImmutable
+ *
+ * Check if given function is immutable or not
+ * based on the function name and on its arguments
+ * This functionnality will be extended to support functions in constraints
+ */
+bool
+IsParseFuncImmutable(ParseState *pstate, List *targs, List *funcname, bool func_variadic)
+{
+	ListCell   *l;
+	ListCell   *nextl;
+	FuncDetailCode fdresult;
+	Oid			actual_arg_types[FUNC_MAX_ARGS];
+	List	   *argnames;
+	int			nargs;
+	/* Return results */
+	Oid			funcid, rettype;
+	Oid		   *declared_arg_types;
+	bool		retset;
+	int			nvargs;
+	List	   *argdefaults;
+
+	/* Get detailed argument information */
+	nargs = 0;
+	for (l = list_head(targs); l != NULL; l = nextl)
+	{
+		Node   *arg = lfirst(l);
+		Oid		argtype = exprType(arg);
+
+		nextl = lnext(l);
+
+		if (argtype == VOIDOID && IsA(arg, Param))
+		{
+			targs = list_delete_ptr(targs, arg);
+			continue;
+		}
+		actual_arg_types[nargs++] = argtype;
+	}
+	argnames = NIL;
+
+	foreach(l, targs)
+	{
+		Node   *arg = lfirst(l);
+
+		if (IsA(arg, NamedArgExpr))
+		{
+			NamedArgExpr *na = (NamedArgExpr *) arg;
+			ListCell   *lc;
+
+			/* Reject duplicate arg names */
+			foreach(lc, argnames)
+			{
+				if (strcmp(na->name, (char *) lfirst(lc)) == 0)
+					ereport(ERROR,
+							(errcode(ERRCODE_SYNTAX_ERROR),
+							 errmsg("argument name \"%s\" used more than once",
+									na->name),
+							 parser_errposition(pstate, na->location)));
+			}
+			argnames = lappend(argnames, na->name);
+		}
+		else
+		{
+			if (argnames != NIL)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("positional argument cannot follow named argument"),
+						 parser_errposition(pstate, exprLocation(arg))));
+		}
+	}
+
+	fdresult = func_get_detail(funcname,
+							   targs,
+							   argnames,
+							   nargs,
+							   actual_arg_types,
+							   !func_variadic,
+							   true,
+							   &funcid, &rettype, &retset, &nvargs,
+							   &declared_arg_types, &argdefaults);
+
+	/*
+	 * Now only the function ID is used to check if function is immutable or not,
+	 * but for function support in DEFAULT values, this function can be easily extended
+	 * for other analysis purposes.
+	 */
+	if (func_volatile(funcid) == PROVOLATILE_IMMUTABLE)
+		return true;
+	else
+		return false;
+}
+#endif
+
+static bool
+check_pg_get_expr_arg(ParseState *pstate, Node *arg, int netlevelsup)
+{
+	if (arg && IsA(arg, Var))
+	{
+		Var		   *var = (Var *) arg;
+		RangeTblEntry *rte;
+		AttrNumber	attnum;
+
+		netlevelsup += var->varlevelsup;
+		rte = GetRTEByRangeTablePosn(pstate, var->varno, netlevelsup);
+		attnum = var->varattno;
+
+		if (rte->rtekind == RTE_JOIN)
+		{
+			/* Recursively examine join alias variable */
+			if (attnum > 0 &&
+				attnum <= list_length(rte->joinaliasvars))
+			{
+				arg = (Node *) list_nth(rte->joinaliasvars, attnum - 1);
+				return check_pg_get_expr_arg(pstate, arg, netlevelsup);
+			}
+		}
+		else if (rte->rtekind == RTE_SUBQUERY)
+		{
+			/* Subselect-in-FROM: examine sub-select's output expr */
+			TargetEntry *ste = get_tle_by_resno(rte->subquery->targetList,
+												attnum);
+			ParseState	mypstate;
+
+			if (ste == NULL || ste->resjunk)
+				elog(ERROR, "subquery %s does not have attribute %d",
+					 rte->eref->aliasname, attnum);
+			arg = (Node *) ste->expr;
+
+			/*
+			 * Recurse into the sub-select to see what its expr refers to.
+			 * We have to build an additional level of ParseState to keep in
+			 * step with varlevelsup in the subselect.
+			 */
+			MemSet(&mypstate, 0, sizeof(mypstate));
+			mypstate.parentParseState = pstate;
+			mypstate.p_rtable = rte->subquery->rtable;
+			/* don't bother filling the rest of the fake pstate */
+
+			return check_pg_get_expr_arg(&mypstate, arg, 0);
+		}
+		else if (rte->rtekind == RTE_RELATION)
+		{
+			switch (rte->relid)
+			{
+				case IndexRelationId:
+					if (attnum == Anum_pg_index_indexprs ||
+						attnum == Anum_pg_index_indpred)
+						return true;
+					break;
+
+				case AttrDefaultRelationId:
+					if (attnum == Anum_pg_attrdef_adbin)
+						return true;
+					break;
+
+				case ProcedureRelationId:
+					if (attnum == Anum_pg_proc_proargdefaults)
+						return true;
+					break;
+
+				case ConstraintRelationId:
+					if (attnum == Anum_pg_constraint_conbin)
+						return true;
+					break;
+
+				case TypeRelationId:
+					if (attnum == Anum_pg_type_typdefaultbin)
+						return true;
+					break;
+			}
+		}
+	}
+
+	return false;
+}

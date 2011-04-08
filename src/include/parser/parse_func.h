@@ -82,4 +82,8 @@ extern Oid LookupFuncNameTypeNames(List *funcname, List *argtypes,
 extern Oid LookupAggNameTypeNames(List *aggname, List *argtypes,
 					   bool noError);
 
+extern void check_pg_get_expr_args(ParseState *pstate, Oid fnoid, List *args);
+#ifdef PGXC
+extern bool IsParseFuncImmutable(ParseState *pstate, List *fn_args, List *funcname, bool func_variadic);
+#endif
 #endif   /* PARSE_FUNC_H */
