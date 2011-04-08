@@ -282,7 +282,7 @@ ROLLBACK;
 -- check is done at end of statement, so this should succeed
 UPDATE unique_tbl SET i = i+1;
 
-SELECT * FROM unique_tbl;
+SELECT * FROM unique_tbl ORDER BY 1,t;
 
 -- explicitly defer the constraint
 BEGIN;
@@ -294,7 +294,7 @@ DELETE FROM unique_tbl WHERE t = 'tree'; -- makes constraint valid again
 
 COMMIT; -- should succeed
 
-SELECT * FROM unique_tbl;
+SELECT * FROM unique_tbl ORDER BY 1,t;
 
 -- try adding an initially deferred constraint
 ALTER TABLE unique_tbl DROP CONSTRAINT unique_tbl_i_key;
@@ -312,7 +312,7 @@ DELETE FROM unique_tbl WHERE i = 5 AND t = 'five';
 
 COMMIT;
 
-SELECT * FROM unique_tbl;
+SELECT * FROM unique_tbl ORDER BY 1,t;
 
 -- should fail at commit-time
 BEGIN;
@@ -349,7 +349,7 @@ UPDATE unique_tbl SET t = 'THREE' WHERE i = 3 AND t = 'Three';
 
 COMMIT; -- should fail
 
-SELECT * FROM unique_tbl;
+SELECT * FROM unique_tbl ORDER BY 1,t;
 
 -- test a HOT update that modifies the newly inserted tuple,
 -- but should succeed because we then remove the other conflicting tuple.
@@ -360,11 +360,11 @@ INSERT INTO unique_tbl VALUES(3, 'tree'); -- should succeed for now
 UPDATE unique_tbl SET t = 'threex' WHERE t = 'tree';
 DELETE FROM unique_tbl WHERE t = 'three';
 
-SELECT * FROM unique_tbl;
+SELECT * FROM unique_tbl ORDER BY 1,t;
 
 COMMIT;
 
-SELECT * FROM unique_tbl;
+SELECT * FROM unique_tbl ORDER BY 1,t;
 
 DROP TABLE unique_tbl;
 
