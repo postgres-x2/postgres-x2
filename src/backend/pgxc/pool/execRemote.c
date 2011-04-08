@@ -410,7 +410,7 @@ create_tuple_desc(char *msg_body, size_t len)
 		char		*attname;
 		char		*typname;
 		Oid 		oidtypeid;
-		int32 		typmod;
+		int32 		typemode, typmod;
 		uint32		n32;
 
 		attnum = (AttrNumber) i;
@@ -435,14 +435,16 @@ create_tuple_desc(char *msg_body, size_t len)
 		/* type len, ignored */
 		msg_body += 2;
 
-		/* type mod, ignored */
+		/* type mod */
+		memcpy(&typemode, msg_body, 4);
+		typmod = ntohl(typemode);
 		msg_body += 4;
 
 		/* PGXCTODO text/binary flag? */
 		msg_body += 2;
 
 		/* Get the OID type and mode type from typename */
-		parseTypeString(typname, &oidtypeid, &typmod);
+		parseTypeString(typname, &oidtypeid, NULL);
 
 		TupleDescInitEntry(result, attnum, attname, oidtypeid, typmod, 0);
 	}
