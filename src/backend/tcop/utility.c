@@ -1236,8 +1236,19 @@ standard_ProcessUtility(Node *parsetree,
 		case T_RuleStmt:		/* CREATE RULE */
 			DefineRule((RuleStmt *) parsetree, queryString);
 #ifdef PGXC
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_ALL_NODES);
+			/* If a rule is created on a view, define it only on Coordinator */
+			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+			{
+				RemoteQueryExecType remoteExecType;
+				Oid relid = RangeVarGetRelid(((RuleStmt *) parsetree)->relation, false);
+
+				if (get_rel_relkind(relid) == RELKIND_VIEW)
+					remoteExecType = EXEC_ON_COORDS;
+				else
+					remoteExecType = EXEC_ON_ALL_NODES;
+
+				ExecUtilityStmtOnNodes(queryString, NULL, false, remoteExecType);
+			}
 #endif
 			break;
 
@@ -1468,11 +1479,30 @@ standard_ProcessUtility(Node *parsetree,
 						/* RemoveRewriteRule checks permissions */
 						RemoveRewriteRule(relId, stmt->property,
 										  stmt->behavior, stmt->missing_ok);
+#ifdef PGXC
+						/* If rule is defined on a view, drop it only on Coordinators */
+						if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+						{
+							RemoteQueryExecType remoteExecType;
+							Oid relid = RangeVarGetRelid(stmt->relation, false);
+
+							if (get_rel_relkind(relid) == RELKIND_VIEW)
+								remoteExecType = EXEC_ON_COORDS;
+							else
+								remoteExecType = EXEC_ON_ALL_NODES;
+
+							ExecUtilityStmtOnNodes(queryString, NULL, false, remoteExecType);
+						}
+#endif
 						break;
 					case OBJECT_TRIGGER:
 						/* DropTrigger checks permissions */
 						DropTrigger(relId, stmt->property,
 									stmt->behavior, stmt->missing_ok);
+#ifdef PGXC
+						if (IS_PGXC_COORDINATOR)
+							ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_ALL_NODES);
+#endif
 						break;
 					default:
 						elog(ERROR, "unrecognized object type: %d",
@@ -1480,10 +1510,6 @@ standard_ProcessUtility(Node *parsetree,
 						break;
 				}
 			}
-#ifdef PGXC
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_ALL_NODES);
-#endif
 			break;
 
 		case T_CreatePLangStmt:
