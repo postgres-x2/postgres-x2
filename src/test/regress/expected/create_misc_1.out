@@ -7,6 +7,25 @@
 INSERT INTO tenk2 SELECT * FROM tenk1;
 SELECT * INTO TABLE onek2 FROM onek;
 ERROR:  INTO clause not yet supported
+CREATE TABLE onek2 (
+	unique1		int4,
+	unique2		int4,
+	two			int4,
+	four		int4,
+	ten			int4,
+	twenty		int4,
+	hundred		int4,
+	thousand	int4,
+	twothousand	int4,
+	fivethous	int4,
+	tenthous	int4,
+	odd			int4,
+	even		int4,
+	stringu1	name,
+	stringu2	name,
+	string4		name
+);
+COPY onek2 FROM '/home/abbas/pgxc/postgres-xc/src/test/regress/data/onek.data';
 INSERT INTO fast_emp4000 SELECT * FROM slow_emp4000;
 SELECT *
    INTO TABLE Bprime
@@ -54,79 +73,31 @@ INSERT INTO c_star (class, c) VALUES ('c', 'hi paul'::name);
 INSERT INTO c_star (class) VALUES ('c');
 INSERT INTO d_star (class, a, b, c, d)
    VALUES ('d', 7, 'grumble'::text, 'hi sunita'::name, '0.0'::float8);
-ERROR:  relation "d_star" does not exist
-LINE 1: INSERT INTO d_star (class, a, b, c, d)
-                    ^
 INSERT INTO d_star (class, a, b, c)
    VALUES ('d', 8, 'stumble'::text, 'hi koko'::name);
-ERROR:  relation "d_star" does not exist
-LINE 1: INSERT INTO d_star (class, a, b, c)
-                    ^
 INSERT INTO d_star (class, a, b, d)
    VALUES ('d', 9, 'rumble'::text, '1.1'::float8);
-ERROR:  relation "d_star" does not exist
-LINE 1: INSERT INTO d_star (class, a, b, d)
-                    ^
 INSERT INTO d_star (class, a, c, d)
    VALUES ('d', 10, 'hi kristin'::name, '10.01'::float8);
-ERROR:  relation "d_star" does not exist
-LINE 1: INSERT INTO d_star (class, a, c, d)
-                    ^
 INSERT INTO d_star (class, b, c, d)
    VALUES ('d', 'crumble'::text, 'hi boris'::name, '100.001'::float8);
-ERROR:  relation "d_star" does not exist
-LINE 1: INSERT INTO d_star (class, b, c, d)
-                    ^
 INSERT INTO d_star (class, a, b)
    VALUES ('d', 11, 'fumble'::text);
-ERROR:  relation "d_star" does not exist
-LINE 1: INSERT INTO d_star (class, a, b)
-                    ^
 INSERT INTO d_star (class, a, c)
    VALUES ('d', 12, 'hi avi'::name);
-ERROR:  relation "d_star" does not exist
-LINE 1: INSERT INTO d_star (class, a, c)
-                    ^
 INSERT INTO d_star (class, a, d)
    VALUES ('d', 13, '1000.0001'::float8);
-ERROR:  relation "d_star" does not exist
-LINE 1: INSERT INTO d_star (class, a, d)
-                    ^
 INSERT INTO d_star (class, b, c)
    VALUES ('d', 'tumble'::text, 'hi andrew'::name);
-ERROR:  relation "d_star" does not exist
-LINE 1: INSERT INTO d_star (class, b, c)
-                    ^
 INSERT INTO d_star (class, b, d)
    VALUES ('d', 'humble'::text, '10000.00001'::float8);
-ERROR:  relation "d_star" does not exist
-LINE 1: INSERT INTO d_star (class, b, d)
-                    ^
 INSERT INTO d_star (class, c, d)
    VALUES ('d', 'hi ginger'::name, '100000.000001'::float8);
-ERROR:  relation "d_star" does not exist
-LINE 1: INSERT INTO d_star (class, c, d)
-                    ^
 INSERT INTO d_star (class, a) VALUES ('d', 14);
-ERROR:  relation "d_star" does not exist
-LINE 1: INSERT INTO d_star (class, a) VALUES ('d', 14);
-                    ^
 INSERT INTO d_star (class, b) VALUES ('d', 'jumble'::text);
-ERROR:  relation "d_star" does not exist
-LINE 1: INSERT INTO d_star (class, b) VALUES ('d', 'jumble'::text);
-                    ^
 INSERT INTO d_star (class, c) VALUES ('d', 'hi jolly'::name);
-ERROR:  relation "d_star" does not exist
-LINE 1: INSERT INTO d_star (class, c) VALUES ('d', 'hi jolly'::name)...
-                    ^
 INSERT INTO d_star (class, d) VALUES ('d', '1000000.0000001'::float8);
-ERROR:  relation "d_star" does not exist
-LINE 1: INSERT INTO d_star (class, d) VALUES ('d', '1000000.0000001'...
-                    ^
 INSERT INTO d_star (class) VALUES ('d');
-ERROR:  relation "d_star" does not exist
-LINE 1: INSERT INTO d_star (class) VALUES ('d');
-                    ^
 INSERT INTO e_star (class, a, c, e)
    VALUES ('e', 15, 'hi carol'::name, '-1'::int2);
 INSERT INTO e_star (class, a, c)
