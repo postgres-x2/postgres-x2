@@ -2546,13 +2546,48 @@ checkLocalFKConstraints(CreateStmtContext *cxt)
 		char *checkcolname = NULL;
 
 		constraint = (Constraint *) lfirst(fkclist);
+
+		/*
+		 * If constraint references to the table itself, it is safe
+		 * Check if relation name is the same
+		 */
+		if (constraint->pktable &&
+			strcmp(constraint->pktable->relname,cxt->relation->relname) == 0)
+		{
+			/* Is namespace also the same ? */
+			char *fkcon_schemaname = NULL;
+
+			if (!cxt->relation->schemaname &&
+				!constraint->pktable->schemaname)
+				continue;
+
+			if (!constraint->pktable->schemaname)
+			{
+				/* Schema name is not defined, look for current one */
+				List   *search_path = fetch_search_path(false);
+				fkcon_schemaname = get_namespace_name(linitial_oid(search_path));
+				list_free(search_path);
+			}
+			else
+				fkcon_schemaname = constraint->pktable->schemaname;
+
+			/*
+			 * If schema name and relation name are the same, table
+			 * references to itself, so constraint is safe
+			 */
+			if (fkcon_schemaname &&
+				strcmp(fkcon_schemaname,
+					   cxt->relation->schemaname) == 0)
+				continue;
+		}
+
 		pk_rel_id = RangeVarGetRelid(constraint->pktable, false);
 
 		refloctype = GetLocatorType(pk_rel_id);
 
 		/* If referenced table is replicated, the constraint is safe */
 		if (refloctype == LOCATOR_TYPE_REPLICATED)
-				continue;
+			continue;
 		else if (refloctype == LOCATOR_TYPE_RROBIN)
 		{
 			ereport(ERROR,
@@ -2611,7 +2646,7 @@ checkLocalFKConstraints(CreateStmtContext *cxt)
 						 errmsg("Hash/Modulo distributed table must include distribution column in index")));
 
 			/* Manage the error when the list of new constraints is empty */
-			if (!fkconstraint->pk_attrs)
+			if (!constraint->pk_attrs)
 				ereport(ERROR,
 						(errcode(ERRCODE_SYNTAX_ERROR),
 						 errmsg("Hash/Modulo distribution column list of attributes is empty")));
