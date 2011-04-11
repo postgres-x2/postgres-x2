@@ -29,7 +29,7 @@ CREATE TABLE onek2 (
 	string4		name
 );
 
-COPY onek2 FROM '/home/abbas/pgxc/postgres-xc/src/test/regress/data/onek.data';
+COPY onek2 FROM '@abs_srcdir@/data/onek.data';
 
 INSERT INTO fast_emp4000 SELECT * FROM slow_emp4000;
 

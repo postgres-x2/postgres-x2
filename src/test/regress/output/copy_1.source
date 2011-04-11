@@ -15,7 +15,6 @@ COPY person FROM '@abs_srcdir@/data/person.data';
 COPY emp FROM '@abs_srcdir@/data/emp.data';
 COPY student FROM '@abs_srcdir@/data/student.data';
 COPY stud_emp FROM '@abs_srcdir@/data/stud_emp.data';
-ERROR:  relation "stud_emp" does not exist
 COPY road FROM '@abs_srcdir@/data/streets.data';
 COPY real_city FROM '@abs_srcdir@/data/real_city.data';
 COPY hash_i4_heap FROM '@abs_srcdir@/data/hash.data';
