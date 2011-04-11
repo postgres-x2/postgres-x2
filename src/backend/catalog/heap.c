@@ -831,6 +831,8 @@ AddRelationDistribution (Oid relid,
 	int hashalgorithm 	= 0;
 	int hashbuckets 	= 0;
 	AttrNumber attnum 	= 0;
+	ObjectAddress myself,
+				referenced;
 
 
 	if (!distributeby)
@@ -983,6 +985,17 @@ AddRelationDistribution (Oid relid,
 	}
 
 	PgxcClassCreate (relid, locatortype, attnum, hashalgorithm, hashbuckets);
+
+	/* Make dependency entries */
+	myself.classId = PgxcClassRelationId;
+	myself.objectId = relid;
+	myself.objectSubId = 0;
+
+	/* Dependency on relation */
+	referenced.classId = RelationRelationId;
+	referenced.objectId = relid;
+	referenced.objectSubId = 0;
+	recordDependencyOn(&myself, &referenced, DEPENDENCY_INTERNAL);
 }
 #endif
 

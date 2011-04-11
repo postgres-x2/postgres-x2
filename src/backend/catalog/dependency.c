@@ -1275,6 +1275,11 @@ doDeletion(const ObjectAddress *object)
 		case OCLASS_DEFACL:
 			RemoveDefaultACLById(object->objectId);
 			break;
+#ifdef PGXC
+		case OCLASS_PGXC_CLASS:
+			RemovePgxcClass(object->objectId);
+			break;
+#endif
 
 		default:
 			elog(ERROR, "unrecognized object class: %u",
@@ -2197,6 +2202,11 @@ getObjectClass(const ObjectAddress *object)
 		case DefaultAclRelationId:
 			Assert(object->objectSubId == 0);
 			return OCLASS_DEFACL;
+#ifdef PGXC
+		case PgxcClassRelationId:
+			Assert(object->objectSubId == 0);
+			return OCLASS_PGXC_CLASS;
+#endif
 	}
 
 	/* shouldn't get here */

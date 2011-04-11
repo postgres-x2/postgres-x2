@@ -506,7 +506,7 @@ static const struct cachedesc cacheinfo[] = {
 		PgxcClassPgxcRelIdIndexId,
 		1,
 		{
-			ObjectIdAttributeNumber,
+			Anum_pgxc_class_pcrelid,
 			0,
 			0,
 			0
