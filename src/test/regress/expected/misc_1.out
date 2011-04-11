@@ -435,13 +435,13 @@ SELECT class, aa, a FROM a_star* ORDER BY 1,2;
 -- everyone else does nothing.
 --
 SELECT p.name, name(p.hobbies) FROM ONLY person p ORDER BY 1,2;
-ERROR:  cache lookup failed for type 24546176
+ERROR:  cache lookup failed for type
 CONTEXT:  SQL function "hobbies" statement 1
 --
 -- as above, but jeff also does post_hacking.
 --
 SELECT p.name, name(p.hobbies) FROM person* p ORDER BY 1,2;
-ERROR:  cache lookup failed for type 24546176
+ERROR:  cache lookup failed for type
 CONTEXT:  SQL function "hobbies" statement 1
 --
 -- the next two queries demonstrate how functions generate bogus duplicates.
@@ -449,10 +449,10 @@ CONTEXT:  SQL function "hobbies" statement 1
 --
 SELECT DISTINCT hobbies_r.name, name(hobbies_r.equipment) FROM hobbies_r
   ORDER BY 1,2;
-ERROR:  cache lookup failed for type 1801675112
+ERROR:  cache lookup failed for type
 CONTEXT:  SQL function "equipment" statement 1
 SELECT hobbies_r.name, (hobbies_r.equipment).name FROM hobbies_r ORDER BY 1,2;
-ERROR:  cache lookup failed for type 1801675112
+ERROR:  cache lookup failed for type
 CONTEXT:  SQL function "equipment" statement 1
 --
 -- mike needs advil and peet's coffee,
@@ -460,29 +460,29 @@ CONTEXT:  SQL function "equipment" statement 1
 -- everyone else is fine.
 --
 SELECT p.name, name(p.hobbies), name(equipment(p.hobbies)) FROM ONLY person p ORDER BY 1,2,3;
-ERROR:  cache lookup failed for type 24546176
+ERROR:  cache lookup failed for type
 CONTEXT:  SQL function "hobbies" statement 1
 --
 -- as above, but jeff needs advil and peet's coffee as well.
 --
 SELECT p.name, name(p.hobbies), name(equipment(p.hobbies)) FROM person* p ORDER BY 1,2,3;
-ERROR:  cache lookup failed for type 24546176
+ERROR:  cache lookup failed for type
 CONTEXT:  SQL function "hobbies" statement 1
 --
 -- just like the last two, but make sure that the target list fixup and
 -- unflattening is being done correctly.
 --
 SELECT name(equipment(p.hobbies)), p.name, name(p.hobbies) FROM ONLY person p ORDER BY 1,2,3;
-ERROR:  cache lookup failed for type 24546176
+ERROR:  cache lookup failed for type
 CONTEXT:  SQL function "hobbies" statement 1
 SELECT (p.hobbies).equipment.name, p.name, name(p.hobbies) FROM person* p ORDER BY 1,2,3;
-ERROR:  cache lookup failed for type 24546176
+ERROR:  cache lookup failed for type
 CONTEXT:  SQL function "hobbies" statement 1
 SELECT (p.hobbies).equipment.name, name(p.hobbies), p.name FROM ONLY person p ORDER BY 1,2,3;
-ERROR:  cache lookup failed for type 24546176
+ERROR:  cache lookup failed for type
 CONTEXT:  SQL function "hobbies" statement 1
 SELECT name(equipment(p.hobbies)), name(p.hobbies), p.name FROM person* p ORDER BY 1,2,3;
-ERROR:  cache lookup failed for type 24546176
+ERROR:  cache lookup failed for type
 CONTEXT:  SQL function "hobbies" statement 1
 SELECT user_relns() AS user_relns
    ORDER BY user_relns;
@@ -602,7 +602,7 @@ SELECT hobbies_by_name('basketball');
 (1 row)
 
 SELECT name, overpaid(emp.*) FROM emp ORDER BY 1,2;
-ERROR:  cache lookup failed for type 28271
+ERROR:  cache lookup failed for type
 --
 -- Try a few cases with SQL-spec row constructor expressions
 --
@@ -617,10 +617,10 @@ SELECT name(equipment(ROW('skywalking', 'mer')));
 (0 rows)
 
 SELECT *, name(equipment(h.*)) FROM hobbies_r h ORDER BY 1,2,3;
-ERROR:  cache lookup failed for type 1801675112
+ERROR:  cache lookup failed for type
 CONTEXT:  SQL function "equipment" statement 1
 SELECT *, (equipment(CAST((h.*) AS hobbies_r))).name FROM hobbies_r h ORDER BY 1,2,3;
-ERROR:  cache lookup failed for type 1801675112
+ERROR:  cache lookup failed for type
 CONTEXT:  SQL function "equipment" statement 1
 --
 -- check that old-style C functions work properly with TOASTed values
