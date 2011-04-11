@@ -213,7 +213,6 @@ SELECT onek.unique1, onek.string4 FROM onek
 -- followed by sort, because that could hide index ordering problems.
 --
 ANALYZE onek2;
-ERROR:  relation "onek2" does not exist
 SET enable_seqscan TO off;
 SET enable_bitmapscan TO off;
 SET enable_sort TO off;
@@ -221,27 +220,79 @@ SET enable_sort TO off;
 -- awk '{if($1<10){print $0;}else{next;}}' onek.data | sort +0n -1
 --
 SELECT onek2.* FROM onek2 WHERE onek2.unique1 < 10 ORDER BY unique1;
-ERROR:  relation "onek2" does not exist
-LINE 1: SELECT onek2.* FROM onek2 WHERE onek2.unique1 < 10 ORDER BY ...
-                            ^
+ unique1 | unique2 | two | four | ten | twenty | hundred | thousand | twothousand | fivethous | tenthous | odd | even | stringu1 | stringu2 | string4 
+---------+---------+-----+------+-----+--------+---------+----------+-------------+-----------+----------+-----+------+----------+----------+---------
+       0 |     998 |   0 |    0 |   0 |      0 |       0 |        0 |           0 |         0 |        0 |   0 |    1 | AAAAAA   | KMBAAA   | OOOOxx
+       1 |     214 |   1 |    1 |   1 |      1 |       1 |        1 |           1 |         1 |        1 |   2 |    3 | BAAAAA   | GIAAAA   | OOOOxx
+       2 |     326 |   0 |    2 |   2 |      2 |       2 |        2 |           2 |         2 |        2 |   4 |    5 | CAAAAA   | OMAAAA   | OOOOxx
+       3 |     431 |   1 |    3 |   3 |      3 |       3 |        3 |           3 |         3 |        3 |   6 |    7 | DAAAAA   | PQAAAA   | VVVVxx
+       4 |     833 |   0 |    0 |   4 |      4 |       4 |        4 |           4 |         4 |        4 |   8 |    9 | EAAAAA   | BGBAAA   | HHHHxx
+       5 |     541 |   1 |    1 |   5 |      5 |       5 |        5 |           5 |         5 |        5 |  10 |   11 | FAAAAA   | VUAAAA   | HHHHxx
+       6 |     978 |   0 |    2 |   6 |      6 |       6 |        6 |           6 |         6 |        6 |  12 |   13 | GAAAAA   | QLBAAA   | OOOOxx
+       7 |     647 |   1 |    3 |   7 |      7 |       7 |        7 |           7 |         7 |        7 |  14 |   15 | HAAAAA   | XYAAAA   | VVVVxx
+       8 |     653 |   0 |    0 |   8 |      8 |       8 |        8 |           8 |         8 |        8 |  16 |   17 | IAAAAA   | DZAAAA   | HHHHxx
+       9 |      49 |   1 |    1 |   9 |      9 |       9 |        9 |           9 |         9 |        9 |  18 |   19 | JAAAAA   | XBAAAA   | HHHHxx
+(10 rows)
+
 --
 -- awk '{if($1<20){print $1,$14;}else{next;}}' onek.data | sort +0nr -1
 --
 SELECT onek2.unique1, onek2.stringu1 FROM onek2
     WHERE onek2.unique1 < 20 
     ORDER BY unique1 using >;
-ERROR:  relation "onek2" does not exist
-LINE 1: SELECT onek2.unique1, onek2.stringu1 FROM onek2
-                                                  ^
+ unique1 | stringu1 
+---------+----------
+      19 | TAAAAA
+      18 | SAAAAA
+      17 | RAAAAA
+      16 | QAAAAA
+      15 | PAAAAA
+      14 | OAAAAA
+      13 | NAAAAA
+      12 | MAAAAA
+      11 | LAAAAA
+      10 | KAAAAA
+       9 | JAAAAA
+       8 | IAAAAA
+       7 | HAAAAA
+       6 | GAAAAA
+       5 | FAAAAA
+       4 | EAAAAA
+       3 | DAAAAA
+       2 | CAAAAA
+       1 | BAAAAA
+       0 | AAAAAA
+(20 rows)
+
 --
 -- awk '{if($1>980){print $1,$14;}else{next;}}' onek.data | sort +1d -2
 --
 SELECT onek2.unique1, onek2.stringu1 FROM onek2
    WHERE onek2.unique1 > 980 
    ORDER BY unique1 using <;
-ERROR:  relation "onek2" does not exist
-LINE 1: SELECT onek2.unique1, onek2.stringu1 FROM onek2
-                                                  ^
+ unique1 | stringu1 
+---------+----------
+     981 | TLAAAA
+     982 | ULAAAA
+     983 | VLAAAA
+     984 | WLAAAA
+     985 | XLAAAA
+     986 | YLAAAA
+     987 | ZLAAAA
+     988 | AMAAAA
+     989 | BMAAAA
+     990 | CMAAAA
+     991 | DMAAAA
+     992 | EMAAAA
+     993 | FMAAAA
+     994 | GMAAAA
+     995 | HMAAAA
+     996 | IMAAAA
+     997 | JMAAAA
+     998 | KMAAAA
+     999 | LMAAAA
+(19 rows)
+
 RESET enable_seqscan;
 RESET enable_bitmapscan;
 RESET enable_sort;
@@ -267,6 +318,7 @@ SELECT p.name, p.age FROM person* p
  carina  |  58
  carmen  |  78
  chris   |  78
+ cim     |  30
  denise  |  24
  diane   |  18
  edna    |  18
@@ -276,6 +328,7 @@ SELECT p.name, p.age FROM person* p
  gina    |  18
  jane    |  58
  jean    |  28
+ jeff    |  23
  jenifer |  38
  joan    |  18
  joe     |  20
@@ -285,6 +338,7 @@ SELECT p.name, p.age FROM person* p
  koko    |  88
  larry   |  60
  leah    |  68
+ linda   |  19
  lita    |  25
  liza    |  38
  louise  |  98
@@ -315,7 +369,7 @@ SELECT p.name, p.age FROM person* p
  wendy   |  78
  zena    |  98
  zola    |  58
-(55 rows)
+(58 rows)
 
 --
 -- awk '{print $1,$2;}' person.data |
@@ -364,6 +418,7 @@ SELECT p.name, p.age FROM person* p ORDER BY age using >, name;
  teresa  |  38
  sally   |  34
  alex    |  30
+ cim     |  30
  sam     |  30
  fred    |  28
  jean    |  28
@@ -372,8 +427,10 @@ SELECT p.name, p.age FROM person* p ORDER BY age using >, name;
  lita    |  25
  sharon  |  25
  denise  |  24
+ jeff    |  23
  bill    |  20
  joe     |  20
+ linda   |  19
  sandra  |  19
  diane   |  18
  edna    |  18
@@ -382,7 +439,7 @@ SELECT p.name, p.age FROM person* p ORDER BY age using >, name;
  pat     |  18
  fanny   |   8
  mary    |   8
-(55 rows)
+(58 rows)
 
 --
 -- Test some cases involving whole-row Var referencing a subquery
