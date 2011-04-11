@@ -149,7 +149,7 @@ ALTER TABLE e_star* ADD COLUMN e int4;
 
 --UPDATE e_star* SET e = 42;
 
-SELECT * FROM e_star* ORDER BY 1,2;
+SELECT * FROM e_star* ORDER BY 1,2,3,4;
 
 ALTER TABLE a_star* ADD COLUMN a text;
 
