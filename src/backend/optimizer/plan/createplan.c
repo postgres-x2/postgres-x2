@@ -2272,8 +2272,7 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	Assert(best_path->parent->rtekind == RTE_RELATION);
 	Assert(rte->rtekind == RTE_RELATION);
 
-	deparse_context = deparse_context_for_remotequery(
-			get_rel_name(rte->relid), rte->relid);
+	deparse_context = deparse_context_for_remotequery(rte->eref, rte->relid);
 
 	/* Sort clauses into best execution order */
 	scan_clauses = order_qual_clauses(root, scan_clauses);
@@ -2316,7 +2315,7 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 		 */
 
 		foreach(l, (List *)remote_scan_clauses)
-	    {
+		{
 			Node *clause = lfirst(l);
 
 			appendStringInfo(&buf, "%s", sep );

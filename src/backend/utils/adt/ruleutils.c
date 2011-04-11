@@ -2102,7 +2102,7 @@ deparse_context_for(const char *aliasname, Oid relid)
 
 #ifdef PGXC
 List *
-deparse_context_for_remotequery(const char *aliasname, Oid relid)
+deparse_context_for_remotequery(Alias *aliasname, Oid relid)
 {
 	deparse_namespace *dpns;
 	RangeTblEntry *rte;
@@ -2113,7 +2113,7 @@ deparse_context_for_remotequery(const char *aliasname, Oid relid)
 	rte = makeNode(RangeTblEntry);
 	rte->rtekind = RTE_RELATION;
 	rte->relid = relid;
-	rte->eref = makeAlias(aliasname, NIL);
+	rte->eref = aliasname;
 	rte->inh = false;
 	rte->inFromCl = true;
 

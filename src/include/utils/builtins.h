@@ -618,11 +618,11 @@ extern Datum pg_get_function_result(PG_FUNCTION_ARGS);
 extern char *deparse_expression(Node *expr, List *dpcontext,
 				   bool forceprefix, bool showimplicit);
 #ifdef PGXC
-extern List *deparse_context_for_remotequery(const char *aliasname, Oid relid);
-extern List *deparse_context_for(const char *aliasname, Oid relid);
+extern List *deparse_context_for_remotequery(Alias *aliasname, Oid relid);
 extern void get_query_def_from_valuesList(Query *query, StringInfo buf);
 extern void deparse_query(Query *query, StringInfo buf, List *parentnamespace);
 #endif
+extern List *deparse_context_for(const char *aliasname, Oid relid);
 extern List *deparse_context_for_plan(Node *plan, Node *outer_plan,
 						 List *rtable, List *subplans);
 extern const char *quote_identifier(const char *ident);
