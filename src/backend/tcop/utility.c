@@ -816,6 +816,17 @@ standard_ProcessUtility(Node *parsetree,
 				if (stmt->objtype == OBJECT_SEQUENCE ||
 					stmt->objtype == OBJECT_VIEW)
 					ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_COORDS);
+				else if (stmt->objtype == OBJECT_RULE)
+				{
+					/*
+					 * Sometimes rules are created only on Coordinator (views), sometimes
+					 * on all nodes (other relations), so block it for the moment.
+					 */
+					ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							 errmsg("Postgres-XC does not support COMMENT on RULE yet"),
+							 errdetail("The feature is not currently supported")));
+				}
 				else
 					ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_ALL_NODES);
 			}
