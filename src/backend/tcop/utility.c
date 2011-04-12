@@ -922,6 +922,11 @@ standard_ProcessUtility(Node *parsetree,
 
 		case T_AlterOwnerStmt:
 			ExecAlterOwnerStmt((AlterOwnerStmt *) parsetree);
+
+#ifdef PGXC
+			if (IS_PGXC_COORDINATOR)
+				ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_ALL_NODES);
+#endif
 			break;
 
 		case T_AlterTableStmt:
