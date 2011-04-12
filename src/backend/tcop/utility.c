@@ -1103,6 +1103,11 @@ standard_ProcessUtility(Node *parsetree,
 
 		case T_AlterDefaultPrivilegesStmt:
 			ExecAlterDefaultPrivilegesStmt((AlterDefaultPrivilegesStmt *) parsetree);
+
+#ifdef PGXC
+			if (IS_PGXC_COORDINATOR)
+				ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_ALL_NODES);
+#endif
 			break;
 
 			/*
