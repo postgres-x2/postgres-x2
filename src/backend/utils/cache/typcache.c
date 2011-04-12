@@ -137,11 +137,7 @@ lookup_type_cache(Oid type_id, int flags)
 
 		tp = SearchSysCache1(TYPEOID, ObjectIdGetDatum(type_id));
 		if (!HeapTupleIsValid(tp))
-#ifdef PGXC
-			elog(ERROR, "cache lookup failed for type");
-#else
 			elog(ERROR, "cache lookup failed for type %u", type_id);
-#endif
 		typtup = (Form_pg_type) GETSTRUCT(tp);
 		if (!typtup->typisdefined)
 			ereport(ERROR,
