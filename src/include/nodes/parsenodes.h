@@ -2520,6 +2520,7 @@ typedef struct CleanConnStmt
 	NodeTag		type;
 	List	   *nodes;		/* list of nodes dropped */
 	char	   *dbname;		/* name of database to drop connections */
+	char	   *username;	/* name of user whose connections are dropped */
 	bool		is_coord;	/* type of connections dropped */
 	bool		is_force;	/* option force  */
 } CleanConnStmt;

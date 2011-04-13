@@ -1351,8 +1351,16 @@ standard_ProcessUtility(Node *parsetree,
 
 #ifdef PGXC
 				/* Clean connections before dropping a database on local node */
-				if (IS_PGXC_COORDINATOR)
+				if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+				{
+					char query[256];
 					DropDBCleanConnection(stmt->dbname);
+
+					/* Clean also remote Coordinators */
+					sprintf(query, "CLEAN CONNECTION TO ALL FOR DATABASE %s;", stmt->dbname);
+
+					ExecUtilityStmtOnNodes(query, NULL, true, EXEC_ON_COORDS);
+				}
 #endif
 
 				PreventTransactionChain(isTopLevel, "DROP DATABASE");

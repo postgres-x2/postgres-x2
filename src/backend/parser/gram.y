@@ -337,8 +337,8 @@ static TypeName *TableFuncTypeName(List *columns);
 %type <defelt>	opt_binary opt_oids copy_delimiter
 
 %type <list>	data_node_list coord_list
-%type <str>		DirectStmt
-
+%type <str>		DirectStmt CleanConnDbName CleanConnUserName
+/* PGXC_END */
 %type <boolean> copy_from
 
 %type <ival>	opt_column event cursor_options opt_hold opt_set_data
@@ -7127,38 +7127,53 @@ data_node_list:
  *		QUERY:
  *
  *		CLEAN CONNECTION TO (COORDINATOR num | NODE num | ALL {FORCE})
- *				FOR DATABASE dbname
+ *				[ FOR DATABASE dbname ]
+ *				[ TO USER username ]
  *
  *****************************************************************************/
 
-CleanConnStmt: CLEAN CONNECTION TO COORDINATOR coord_list FOR DATABASE database_name
+CleanConnStmt: CLEAN CONNECTION TO COORDINATOR coord_list CleanConnDbName CleanConnUserName
 				{
 					CleanConnStmt *n = makeNode(CleanConnStmt);
 					n->is_coord = true;
 					n->nodes = $5;
 					n->is_force = false;
-					n->dbname = $8;
+					n->dbname = $6;
+					n->username = $7;
 					$$ = (Node *)n;
 				}
-				| CLEAN CONNECTION TO NODE data_node_list FOR DATABASE database_name
+				| CLEAN CONNECTION TO NODE data_node_list CleanConnDbName CleanConnUserName
 				{
 					CleanConnStmt *n = makeNode(CleanConnStmt);
 					n->is_coord = false;
 					n->nodes = $5;
 					n->is_force = false;
-					n->dbname = $8;
+					n->dbname = $6;
+					n->username = $7;
 					$$ = (Node *)n;
 				}
-				| CLEAN CONNECTION TO ALL opt_force FOR DATABASE database_name
+				| CLEAN CONNECTION TO ALL opt_force CleanConnDbName CleanConnUserName
 				{
 					CleanConnStmt *n = makeNode(CleanConnStmt);
 					n->is_coord = true;
 					n->nodes = NIL;
 					n->is_force = $5;
-					n->dbname = $8;
+					n->dbname = $6;
+					n->username = $7;
 					$$ = (Node *)n;
 				}
 		;
+
+CleanConnDbName: FOR DATABASE database_name		{ $$ = $3; }
+				| FOR database_name				{ $$ = $2; }
+				| /* EMPTY */					{ $$ = NIL; }
+		;
+
+CleanConnUserName: TO USER RoleId				{ $$ = $3; }
+				| TO RoleId						{ $$ = $2; }
+				| /* EMPTY */					{ $$ = NIL; }
+		;
+/* PGXC_END */
 
 /*****************************************************************************
  *

@@ -98,7 +98,10 @@ static DatabasePool *create_database_pool(const char *database, const char *user
 static void insert_database_pool(DatabasePool *pool);
 static int	destroy_database_pool(const char *database, const char *user_name);
 static DatabasePool *find_database_pool(const char *database, const char *user_name);
-static DatabasePool *find_database_pool_to_clean(const char *database, List *dn_list, List *co_list);
+static DatabasePool *find_database_pool_to_clean(const char *database,
+												 const char *user_name,
+												 List *dn_list,
+												 List *co_list);
 static DatabasePool *remove_database_pool(const char *database, const char *user_name);
 static int *agent_acquire_connections(PoolAgent *agent, List *datanodelist, List *coordlist);
 static PGXCNodePoolSlot *acquire_connection(DatabasePool *dbPool, int node, char client_conn_type);
@@ -110,8 +113,14 @@ static void destroy_slot(PGXCNodePoolSlot *slot);
 static void grow_pool(DatabasePool *dbPool, int index, char client_conn_type);
 static void destroy_node_pool(PGXCNodePool *node_pool);
 static void PoolerLoop(void);
-static int clean_connection(List *dn_discard, List *co_discard, const char *database);
-static int *abort_pids(int *count, int pid, const char *database);
+static int clean_connection(List *dn_discard,
+							List *co_discard,
+							const char *database,
+							const char *user_name);
+static int *abort_pids(int *count,
+					   int pid,
+					   const char *database,
+					   const char *user_name);
 
 /* Signal handlers */
 static void pooler_die(SIGNAL_ARGS);
@@ -742,13 +751,39 @@ PoolManagerGetConnections(List *datanodelist, List *coordlist)
  * Take a lock forbidding access to Pooler for new transactions.
  */
 int
-PoolManagerAbortTransactions(char *dbname, int **proc_pids)
+PoolManagerAbortTransactions(char *dbname, char *username, int **proc_pids)
 {
-	int num_proc_ids = 0;
+	int		num_proc_ids = 0;
+	int		n32, msglen;
+	char	msgtype = 'a';
+	int		dblen = dbname ? strlen(dbname) + 1 : 0;
+	int		userlen = username ? strlen(username) + 1 : 0;
 
 	Assert(Handle);
 
-	pool_putmessage(&Handle->port, 'a', dbname, strlen(dbname) + 1);
+	/* Message type */
+	pool_putbytes(&Handle->port, &msgtype, 1);
+
+	/* Message length */
+	msglen = dblen + userlen + 12;
+	n32 = htonl(msglen);
+	pool_putbytes(&Handle->port, (char *) &n32, 4);
+
+	/* Length of Database string */
+	n32 = htonl(dblen);
+	pool_putbytes(&Handle->port, (char *) &n32, 4);
+
+	/* Send database name, followed by \0 terminator if necessary */
+	if (dbname)
+		pool_putbytes(&Handle->port, dbname, dblen);
+
+	/* Length of Username string */
+	n32 = htonl(userlen);
+	pool_putbytes(&Handle->port, (char *) &n32, 4);
+
+	/* Send user name, followed by \0 terminator if necessary */
+	if (username)
+		pool_putbytes(&Handle->port, username, userlen);
 
 	pool_flush(&Handle->port);
 
@@ -763,13 +798,15 @@ PoolManagerAbortTransactions(char *dbname, int **proc_pids)
  * Clean up Pooled connections
  */
 void
-PoolManagerCleanConnection(List *datanodelist, List *coordlist, char *dbname)
+PoolManagerCleanConnection(List *datanodelist, List *coordlist, char *dbname, char *username)
 {
 	int			totlen = list_length(datanodelist) + list_length(coordlist);
 	int			nodes[totlen + 2];
 	ListCell   *nodelist_item;
-	int			i, n32;
+	int			i, n32, msglen;
 	char		msgtype = 'f';
+	int			userlen = username ? strlen(username) + 1 : 0;
+	int			dblen = dbname ? strlen(dbname) + 1 : 0;
 
 	nodes[0] = htonl(list_length(datanodelist));
 	i = 1;
@@ -794,18 +831,29 @@ PoolManagerCleanConnection(List *datanodelist, List *coordlist, char *dbname)
 	pool_putbytes(&Handle->port, &msgtype, 1);
 
 	/* Message length */
-	n32 = htonl(sizeof(int) * (totlen + 2) + strlen(dbname) + 9);
+	msglen = sizeof(int) * (totlen + 2) + dblen + userlen + 12;
+	n32 = htonl(msglen);
 	pool_putbytes(&Handle->port, (char *) &n32, 4);
 
 	/* Send list of nodes */
 	pool_putbytes(&Handle->port, (char *) nodes, sizeof(int) * (totlen + 2));
 
 	/* Length of Database string */
-	n32 = htonl(strlen(dbname) + 1);
+	n32 = htonl(dblen);
 	pool_putbytes(&Handle->port, (char *) &n32, 4);
 
-	/* Send database name, followed by \0 terminator */
-	pool_putbytes(&Handle->port, dbname, strlen(dbname) + 1);
+	/* Send database name, followed by \0 terminator if necessary */
+	if (dbname)
+		pool_putbytes(&Handle->port, dbname, dblen);
+
+	/* Length of Username string */
+	n32 = htonl(userlen);
+	pool_putbytes(&Handle->port, (char *) &n32, 4);
+
+	/* Send user name, followed by \0 terminator if necessary */
+	if (username)
+		pool_putbytes(&Handle->port, username, userlen);
+
 	pool_flush(&Handle->port);
 
 	/* Receive result message */
@@ -830,8 +878,8 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 	 */
 	for (;;)
 	{
-		const char *database;
-		const char *user_name;
+		const char *database = NULL;
+		const char *user_name = NULL;
 		const char *set_command;
 		bool		is_local;
 		int			datanodecount;
@@ -858,9 +906,17 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 		{
 			case 'a':			/* ABORT */
 				pool_getmessage(&agent->port, s, 0);
-				database = pq_getmsgstring(s);
+				len = pq_getmsgint(s, 4);
+				if (len > 0)
+					database = pq_getmsgbytes(s, len);
+
+				len = pq_getmsgint(s, 4);
+				if (len > 0)
+					user_name = pq_getmsgbytes(s, len);
+
 				pq_getmsgend(s);
-				pids = abort_pids(&len, agent->pid, database);
+
+				pids = abort_pids(&len, agent->pid, database, user_name);
 
 				pool_sendpids(&agent->port, pids, len);
 				if (pids)
@@ -896,11 +952,16 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 				for (i = 0; i < coordcount; i++)
 					coordlist = lappend_int(coordlist, pq_getmsgint(s, 4));
 				len = pq_getmsgint(s, 4);
-				database = pq_getmsgbytes(s, len);
+				if (len > 0)
+					database = pq_getmsgbytes(s, len);
+				len = pq_getmsgint(s, 4);
+				if (len > 0)
+					user_name = pq_getmsgbytes(s, len);
+
 				pq_getmsgend(s);
 
 				/* Clean up connections here */
-				res = clean_connection(datanodelist, coordlist, database);
+				res = clean_connection(datanodelist, coordlist, database, user_name);
 
 				list_free(datanodelist);
 				list_free(coordlist);
@@ -1551,7 +1612,10 @@ find_database_pool(const char *database, const char *user_name)
  * Find pool to be cleaned for specified database in the list
  */
 static DatabasePool *
-find_database_pool_to_clean(const char *database, List *dn_list, List *co_list)
+find_database_pool_to_clean(const char *database,
+							const char *user_name,
+							List *dn_list,
+							List *co_list)
 {
 	DatabasePool *databasePool;
 
@@ -1559,33 +1623,44 @@ find_database_pool_to_clean(const char *database, List *dn_list, List *co_list)
 	databasePool = databasePools;
 	while (databasePool)
 	{
-		/* Check for given database name */
-		if (strcmp(database, databasePool->database) == 0)
+		ListCell   *nodelist_item;
+
+		/* If database name does not correspond, move to next one */
+		if (database && strcmp(database, databasePool->database) != 0)
 		{
-			ListCell   *nodelist_item;
-
-			/* Check if this database pool is clean for given coordinator list */
-			foreach (nodelist_item, co_list)
-			{
-				int nodenum = lfirst_int(nodelist_item);
-
-				if (databasePool->coordNodePools &&
-					databasePool->coordNodePools[nodenum - 1] &&
-					databasePool->coordNodePools[nodenum - 1]->freeSize != 0)
-					return databasePool;
-			}
-
-			/* Check if this database pool is clean for given datanode list */
-			foreach (nodelist_item, dn_list)
-			{
-				int nodenum = lfirst_int(nodelist_item);
-
-				if (databasePool->dataNodePools &&
-					databasePool->dataNodePools[nodenum - 1] &&
-					databasePool->dataNodePools[nodenum - 1]->freeSize != 0)
-					return databasePool;
-			}
+			databasePool = databasePool->next;		
+			continue;
 		}
+
+		/* If user name does not correspond, move to next one */
+		if (user_name && strcmp(user_name, databasePool->user_name) != 0)
+		{
+			databasePool = databasePool->next;		
+			continue;
+		}
+
+		/* Check if this database pool is clean for given coordinator list */
+		foreach (nodelist_item, co_list)
+		{
+			int nodenum = lfirst_int(nodelist_item);
+
+			if (databasePool->coordNodePools &&
+				databasePool->coordNodePools[nodenum - 1] &&
+				databasePool->coordNodePools[nodenum - 1]->freeSize != 0)
+				return databasePool;
+		}
+
+		/* Check if this database pool is clean for given datanode list */
+		foreach (nodelist_item, dn_list)
+		{
+			int nodenum = lfirst_int(nodelist_item);
+
+			if (databasePool->dataNodePools &&
+				databasePool->dataNodePools[nodenum - 1] &&
+				databasePool->dataNodePools[nodenum - 1]->freeSize != 0)
+				return databasePool;
+		}
+
 		databasePool = databasePool->next;
 	}
 	return databasePool;
@@ -2016,7 +2091,7 @@ PoolerLoop(void)
 #define TIMEOUT_CLEAN_LOOP 10
 
 int
-clean_connection(List *dn_discard, List *co_discard, const char *database)
+clean_connection(List *dn_discard, List *co_discard, const char *database, const char *user_name)
 {
 	DatabasePool *databasePool;
 	int			dn_len = list_length(dn_discard);
@@ -2038,11 +2113,11 @@ clean_connection(List *dn_discard, List *co_discard, const char *database)
 		co_list[count++] = lfirst_int(nodelist_item);
 
 	/* Find correct Database pool to clean */
-	databasePool = find_database_pool_to_clean(database, dn_discard, co_discard);
+	databasePool = find_database_pool_to_clean(database, user_name, dn_discard, co_discard);
 
 	while (databasePool)
 	{
-		databasePool = find_database_pool_to_clean(database, dn_discard, co_discard);
+		databasePool = find_database_pool_to_clean(database, user_name, dn_discard, co_discard);
 
 		/* Database pool has not been found, cleaning is over */
 		if (!databasePool)
@@ -2125,7 +2200,7 @@ clean_connection(List *dn_discard, List *co_discard, const char *database)
  * Send back to client list of PIDs signaled to watch them.
  */
 int *
-abort_pids(int *len, int pid, const char *database)
+abort_pids(int *len, int pid, const char *database, const char *user_name)
 {
 	int *pids = NULL;
 	int i = 0;
@@ -2141,15 +2216,20 @@ abort_pids(int *len, int pid, const char *database)
 	/* Send a SIGTERM signal to all processes of Pooler agents except this one */
 	for (count = 0; count < agentCount; count++)
 	{
-		if (poolAgents[count]->pid != pid &&
-			strcmp(poolAgents[count]->pool->database, database) == 0)
-		{
-			if (kill(poolAgents[count]->pid, SIGTERM) < 0)
-				elog(ERROR, "kill(%ld,%d) failed: %m",
-							(long) poolAgents[count]->pid, SIGTERM);
+		if (poolAgents[count]->pid == pid)
+			continue;
 
-			pids[i++] = poolAgents[count]->pid;
-		}
+		if (database && strcmp(poolAgents[count]->pool->database, database) != 0)
+			continue;
+
+		if (user_name && strcmp(poolAgents[count]->pool->user_name, user_name) != 0)
+			continue;
+
+		if (kill(poolAgents[count]->pid, SIGTERM) < 0)
+			elog(ERROR, "kill(%ld,%d) failed: %m",
+						(long) poolAgents[count]->pid, SIGTERM);
+
+		pids[i++] = poolAgents[count]->pid;
 	}
 
 	*len = i;

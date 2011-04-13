@@ -23,6 +23,7 @@
 #include "pgxc/poolutils.h"
 #include "access/gtm.h"
 #include "commands/dbcommands.h"
+#include "utils/lsyscache.h"
 #include "utils/acl.h"
 
 #include "nodes/parsenodes.h"
@@ -36,30 +37,40 @@
  * Use of CLEAN CONNECTION is limited to a super user.
  * It is advised to clean connections before shutting down a Node or drop a Database.
  *
- * Pool cleaning is done for all the users of a given database.
- *
  * SQL query synopsis is as follows:
  * CLEAN CONNECTION TO
  *		(COORDINATOR num | DATANODE num | ALL {FORCE})
- *		FOR DATABASE dbname
+ *		[ FOR DATABASE dbname ]
+ *		[ TO USER username ]
  *
- * Connection cleaning has to be made on a chosen database called dbname.
+ * Connection cleaning can be made on a chosen database called dbname
+ * or/and a chosen user.
+ * Cleaning is done for all the users of a given database
+ * if no user name is specified.
+ * Cleaning is done for all the databases for one user
+ * if no database name is specified.
  *
  * It is also possible to clean connections of several Coordinators or Datanodes
  * Ex:	CLEAN CONNECTION TO DATANODE 1,5,7 FOR DATABASE template1
  *		CLEAN CONNECTION TO COORDINATOR 2,4,6 FOR DATABASE template1
+ *		CLEAN CONNECTION TO DATANODE 3,5 TO USER postgres
+ *		CLEAN CONNECTION TO COORDINATOR 6,1 FOR DATABASE template1 TO USER postgres
  *
  * Or even to all Coordinators/Datanodes at the same time
  * Ex:	CLEAN CONNECTION TO DATANODE * FOR DATABASE template1
  *		CLEAN CONNECTION TO COORDINATOR * FOR DATABASE template1
+ *		CLEAN CONNECTION TO COORDINATOR * TO USER postgres
+ *		CLEAN CONNECTION TO COORDINATOR * FOR DATABASE template1 TO USER postgres
  *
  * When FORCE is used, all the transactions using pooler connections are aborted,
  * and pooler connections are cleaned up.
  * Ex:	CLEAN CONNECTION TO ALL FORCE FOR DATABASE template1;
+ *		CLEAN CONNECTION TO ALL FORCE TO USER postgres;
+ *		CLEAN CONNECTION TO ALL FORCE FOR DATABASE template1 TO USER postgres;
  *
  * FORCE can only be used with TO ALL, as it takes a lock on pooler to stop requests
  * asking for connections, aborts all the connections in the cluster, and cleans up
- * pool connections.
+ * pool connections associated to the given user and/or database.
  */
 void
 CleanConnection(CleanConnStmt *stmt)
@@ -69,10 +80,10 @@ CleanConnection(CleanConnStmt *stmt)
 	List	   *dn_list = NIL;
 	List	   *stmt_nodes = NIL;
 	char	   *dbname = stmt->dbname;
+	char	   *username = stmt->username;
 	bool		is_coord = stmt->is_coord;
 	bool		is_force = stmt->is_force;
 	int			max_node_number = 0;
-	Oid			oid;
 
 	/* Only a DB administrator can clean pooler connections */
 	if (!superuser())
@@ -80,13 +91,29 @@ CleanConnection(CleanConnStmt *stmt)
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 errmsg("must be superuser to clean pool connections")));
 
+	/* Database name or user name is mandatory */
+	if (!dbname && !username)
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("must define Database name or user name")));
+
 	/* Check if the Database exists by getting its Oid */
-	oid = get_database_oid(dbname);
-	if (!OidIsValid(oid))
+	if (dbname &&
+		!OidIsValid(get_database_oid(dbname)))
 	{
 		ereport(WARNING,
 				(errcode(ERRCODE_UNDEFINED_DATABASE),
 				 errmsg("database \"%s\" does not exist", dbname)));
+		return;
+	}
+
+	/* Check if role exists */
+	if (username &&
+		!OidIsValid(get_roleid(username)))
+	{
+		ereport(WARNING,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+				 errmsg("role \"%s\" does not exist", username)));
 		return;
 	}
 
@@ -102,7 +129,7 @@ CleanConnection(CleanConnStmt *stmt)
 		int *proc_pids = NULL;
 		int num_proc_pids, count;
 
-		num_proc_pids = PoolManagerAbortTransactions(dbname, &proc_pids);
+		num_proc_pids = PoolManagerAbortTransactions(dbname, username, &proc_pids);
 
 		/*
 		 * Watch the processes that received a SIGTERM.
@@ -180,7 +207,7 @@ CleanConnection(CleanConnStmt *stmt)
 	 */
 
 	/* Finish by contacting Pooler Manager */
-	PoolManagerCleanConnection(dn_list, co_list, dbname);
+	PoolManagerCleanConnection(dn_list, co_list, dbname, username);
 
 	/* Clean up memory */
 	if (co_list)
@@ -200,13 +227,14 @@ DropDBCleanConnection(char *dbname)
 {
 	List	*co_list = GetAllCoordNodes();
 	List	*dn_list = GetAllDataNodes();
+	char	query[256];
 
 	/* Check permissions for this database */
 	if (!pg_database_ownercheck(get_database_oid(dbname), GetUserId()))
 		aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_DATABASE,
 					   dbname);
 
-	PoolManagerCleanConnection(dn_list, co_list, dbname);	
+	PoolManagerCleanConnection(dn_list, co_list, dbname, NULL);
 
 	/* Clean up memory */
 	if (co_list)
