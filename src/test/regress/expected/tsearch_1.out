@@ -224,7 +224,7 @@ SELECT ts_lexize('english_stem', 'identity');
  {ident}
 (1 row)
 
-SELECT * FROM ts_token_type('default');
+SELECT * FROM ts_token_type('default') ORDER BY tokid;
  tokid |      alias      |               description                
 -------+-----------------+------------------------------------------
      1 | asciiword       | Word, all ASCII
@@ -254,144 +254,144 @@ SELECT * FROM ts_token_type('default');
 
 SELECT * FROM ts_parse('default', '345 qwe@efd.r '' http://www.com/ http://aew.werc.ewr/?ad=qwe&dw 1aew.werc.ewr/?ad=qwe&dw 2aew.werc.ewr http://3aew.werc.ewr/?ad=qwe&dw http://4aew.werc.ewr http://5aew.werc.ewr:8100/?  ad=qwe&dw 6aew.werc.ewr:8100/?ad=qwe&dw 7aew.werc.ewr:8100/?ad=qwe&dw=%20%32 +4.0e-10 qwe qwe qwqwe 234.435 455 5.005 teodor@stack.net qwe-wer asdf <fr>qwer jf sdjk<we hjwer <werrwe> ewr1> ewri2 <a href="qwe<qwe>">
 /usr/local/fff /awdf/dwqe/4325 rewt/ewr wefjn /wqe-324/ewr gist.h gist.h.c gist.c. readline 4.2 4.2. 4.2, readline-4.2 readline-4.2. 234
-<i <b> wow  < jqw <> qwerty');
+<i <b> wow  < jqw <> qwerty') ORDER BY tokid,token;
  tokid |                token                 
 -------+--------------------------------------
-    22 | 345
-    12 |  
-     1 | qwe
-    12 | @
-    19 | efd.r
-    12 |  ' 
-    14 | http://
-     6 | www.com
-    12 | / 
-    14 | http://
-     5 | aew.werc.ewr/?ad=qwe&dw
-     6 | aew.werc.ewr
-    18 | /?ad=qwe&dw
-    12 |  
-     5 | 1aew.werc.ewr/?ad=qwe&dw
-     6 | 1aew.werc.ewr
-    18 | /?ad=qwe&dw
-    12 |  
-     6 | 2aew.werc.ewr
-    12 |  
-    14 | http://
-     5 | 3aew.werc.ewr/?ad=qwe&dw
-     6 | 3aew.werc.ewr
-    18 | /?ad=qwe&dw
-    12 |  
-    14 | http://
-     6 | 4aew.werc.ewr
-    12 |  
-    14 | http://
-     5 | 5aew.werc.ewr:8100/?
-     6 | 5aew.werc.ewr:8100
-    18 | /?
-    12 |   
      1 | ad
-    12 | =
-     1 | qwe
-    12 | &
-     1 | dw
-    12 |  
-     5 | 6aew.werc.ewr:8100/?ad=qwe&dw
-     6 | 6aew.werc.ewr:8100
-    18 | /?ad=qwe&dw
-    12 |  
-     5 | 7aew.werc.ewr:8100/?ad=qwe&dw=%20%32
-     6 | 7aew.werc.ewr:8100
-    18 | /?ad=qwe&dw=%20%32
-    12 |  
-     7 | +4.0e-10
-    12 |  
-     1 | qwe
-    12 |  
-     1 | qwe
-    12 |  
-     1 | qwqwe
-    12 |  
-    20 | 234.435
-    12 |  
-    22 | 455
-    12 |  
-    20 | 5.005
-    12 |  
-     4 | teodor@stack.net
-    12 |  
-    16 | qwe-wer
-    11 | qwe
-    12 | -
-    11 | wer
-    12 |  
      1 | asdf
-    12 |  
-    13 | <fr>
-     1 | qwer
-    12 |  
-     1 | jf
-    12 |  
-     1 | sdjk
-    12 | <
-     1 | we
-    12 |  
+     1 | dw
      1 | hjwer
-    12 |  
-    13 | <werrwe>
-    12 |  
-     3 | ewr1
-    12 | > 
-     3 | ewri2
-    12 |  
-    13 | <a href="qwe<qwe>">
-    12 |                                     +
-       | 
-    19 | /usr/local/fff
-    12 |  
-    19 | /awdf/dwqe/4325
-    12 |  
-    19 | rewt/ewr
-    12 |  
-     1 | wefjn
-    12 |  
-    19 | /wqe-324/ewr
-    12 |  
-    19 | gist.h
-    12 |  
-    19 | gist.h.c
-    12 |  
-    19 | gist.c
-    12 | . 
-     1 | readline
-    12 |  
-    20 | 4.2
-    12 |  
-    20 | 4.2
-    12 | . 
-    20 | 4.2
-    12 | , 
-     1 | readline
-    20 | -4.2
-    12 |  
-     1 | readline
-    20 | -4.2
-    12 | . 
-    22 | 234
-    12 |                                     +
-       | 
-    12 | <
      1 | i
-    12 |  
-    13 | <b>
-    12 |  
-     1 | wow
-    12 |   
-    12 | < 
+     1 | jf
      1 | jqw
-    12 |  
-    12 | <> 
+     1 | qwe
+     1 | qwe
+     1 | qwe
+     1 | qwe
+     1 | qwer
      1 | qwerty
+     1 | qwqwe
+     1 | readline
+     1 | readline
+     1 | readline
+     1 | sdjk
+     1 | we
+     1 | wefjn
+     1 | wow
+     3 | ewr1
+     3 | ewri2
+     4 | teodor@stack.net
+     5 | 1aew.werc.ewr/?ad=qwe&dw
+     5 | 3aew.werc.ewr/?ad=qwe&dw
+     5 | 5aew.werc.ewr:8100/?
+     5 | 6aew.werc.ewr:8100/?ad=qwe&dw
+     5 | 7aew.werc.ewr:8100/?ad=qwe&dw=%20%32
+     5 | aew.werc.ewr/?ad=qwe&dw
+     6 | 1aew.werc.ewr
+     6 | 2aew.werc.ewr
+     6 | 3aew.werc.ewr
+     6 | 4aew.werc.ewr
+     6 | 5aew.werc.ewr:8100
+     6 | 6aew.werc.ewr:8100
+     6 | 7aew.werc.ewr:8100
+     6 | aew.werc.ewr
+     6 | www.com
+     7 | +4.0e-10
+    11 | qwe
+    11 | wer
+    12 | <
+    12 | <
+    12 | <> 
+    12 | < 
+    12 | =
+    12 | > 
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |  
+    12 |   
+    12 |   
+    12 |  ' 
+    12 | -
+    12 | , 
+    12 | / 
+    12 | . 
+    12 | . 
+    12 | . 
+    12 | @
+    12 | &
+    12 |                                     +
+       | 
+    12 |                                     +
+       | 
+    13 | <a href="qwe<qwe>">
+    13 | <b>
+    13 | <fr>
+    13 | <werrwe>
+    14 | http://
+    14 | http://
+    14 | http://
+    14 | http://
+    14 | http://
+    16 | qwe-wer
+    18 | /?
+    18 | /?ad=qwe&dw
+    18 | /?ad=qwe&dw
+    18 | /?ad=qwe&dw
+    18 | /?ad=qwe&dw
+    18 | /?ad=qwe&dw=%20%32
+    19 | /awdf/dwqe/4325
+    19 | efd.r
+    19 | gist.c
+    19 | gist.h
+    19 | gist.h.c
+    19 | rewt/ewr
+    19 | /usr/local/fff
+    19 | /wqe-324/ewr
+    20 | 234.435
+    20 | -4.2
+    20 | -4.2
+    20 | 4.2
+    20 | 4.2
+    20 | 4.2
+    20 | 5.005
+    22 | 234
+    22 | 345
+    22 | 455
 (133 rows)
 
 SELECT to_tsvector('english', '345 qwe@efd.r '' http://www.com/ http://aew.werc.ewr/?ad=qwe&dw 1aew.werc.ewr/?ad=qwe&dw 2aew.werc.ewr http://3aew.werc.ewr/?ad=qwe&dw http://4aew.werc.ewr http://5aew.werc.ewr:8100/?  ad=qwe&dw 6aew.werc.ewr:8100/?ad=qwe&dw 7aew.werc.ewr:8100/?ad=qwe&dw=%20%32 +4.0e-10 qwe qwe qwqwe 234.435 455 5.005 teodor@stack.net qwe-wer asdf <fr>qwer jf sdjk<we hjwer <werrwe> ewr1> ewri2 <a href="qwe<qwe>">
@@ -419,8 +419,8 @@ SELECT * from ts_debug('english', '<myns:foo-bar_baz.blurfl>abc&nm1;def&#xa9;ghi
  asciiword | Word, all ASCII | ghi                        | {english_stem} | english_stem | {ghi}
  asciiword | Word, all ASCII | jkl                        | {english_stem} | english_stem | {jkl}
  entity    | XML entity      | &#245;                     | {}             |              | 
- entity    | XML entity      | &#xa9;                     | {}             |              | 
  entity    | XML entity      | &nm1;                      | {}             |              | 
+ entity    | XML entity      | &#xa9;                     | {}             |              | 
  tag       | XML tag         | </myns:foo-bar_baz.blurfl> | {}             |              | 
  tag       | XML tag         | <myns:foo-bar_baz.blurfl>  | {}             |              | 
 (9 rows)
@@ -801,6 +801,7 @@ SELECT COUNT(*) FROM test_tsquery WHERE keyword >  'new & york';
 (1 row)
 
 CREATE UNIQUE INDEX bt_tsq ON test_tsquery (keyword);
+ERROR:  Cannot locally enforce a unique index on round robin distributed table.
 SET enable_seqscan=OFF;
 SELECT COUNT(*) FROM test_tsquery WHERE keyword <  'new & york';
  count 
@@ -1039,35 +1040,33 @@ SELECT to_tsquery('SKIES & My | booKs');
 CREATE TRIGGER tsvectorupdate
 BEFORE UPDATE OR INSERT ON test_tsvector
 FOR EACH ROW EXECUTE PROCEDURE tsvector_update_trigger(a, 'pg_catalog.english', t);
+ERROR:  Postgres-XC does not support TRIGGER yet
+DETAIL:  The feature is not currently supported
 SELECT count(*) FROM test_tsvector WHERE a @@ to_tsquery('345&qwerty');
  count 
 -------
-     0
-(1 row)
+(0 rows)
 
 INSERT INTO test_tsvector (t) VALUES ('345 qwerty');
 SELECT count(*) FROM test_tsvector WHERE a @@ to_tsquery('345&qwerty');
  count 
 -------
-     1
-(1 row)
+(0 rows)
 
 UPDATE test_tsvector SET t = null WHERE t = '345 qwerty';
 SELECT count(*) FROM test_tsvector WHERE a @@ to_tsquery('345&qwerty');
  count 
 -------
-     0
-(1 row)
+(0 rows)
 
 INSERT INTO test_tsvector (t) VALUES ('345 qwerty');
 SELECT count(*) FROM test_tsvector WHERE a @@ to_tsquery('345&qwerty');
  count 
 -------
-     1
-(1 row)
+(0 rows)
 
 -- test finding items in GIN's pending list
-create temp table pendtest (ts tsvector);
+create table pendtest (ts tsvector);
 create index pendtest_idx on pendtest using gin(ts);
 insert into pendtest values (to_tsvector('Lore ipsam'));
 insert into pendtest values (to_tsvector('Lore ipsum'));
@@ -1083,7 +1082,7 @@ select * from pendtest where 'ipsa:*'::tsquery @@ ts;
  'ipsam':2 'lore':1
 (1 row)
 
-select * from pendtest where 'ips:*'::tsquery @@ ts;
+select * from pendtest where 'ips:*'::tsquery @@ ts ORDER BY 1;
          ts         
 --------------------
  'ipsam':2 'lore':1
@@ -1100,3 +1099,4 @@ select * from pendtest where 'ipi:*'::tsquery @@ ts;
 ----
 (0 rows)
 
+drop table pendtest;
