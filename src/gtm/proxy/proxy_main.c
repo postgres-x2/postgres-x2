@@ -24,6 +24,7 @@
 #include <getopt.h>
 
 #include "gtm/gtm_c.h"
+#include "gtm/path.h"
 #include "gtm/gtm_proxy.h"
 #include "gtm/register.h"
 #include "gtm/elog.h"
@@ -112,6 +113,7 @@ static void GTMProxy_CommandPending(GTMProxy_ConnectionInfo *conninfo,
 static bool CreateOptsFile(int argc, char *argv[]);
 static void CreateDataDirLockFile(void);
 static void CreateLockFile(const char *filename, const char *refName);
+static void SetDataDir(void);
 static void ChangeToDataDir(void);
 static void checkDataDir(void);
 static void DeleteLockFile(const char *filename);
@@ -174,6 +176,7 @@ BaseInit()
 	MemoryContextInit();
 
 	checkDataDir();
+	SetDataDir();
 	ChangeToDataDir();
 	CreateDataDirLockFile();
 
@@ -2005,6 +2008,29 @@ retry:
 						GTMProxyDataDir),
 				 errhint("The server must be started by the user that owns the data directory.")));
 #endif
+}
+
+/*
+ * Set data directory, but make sure it's an absolute path.  Use this,
+ * never set DataDir directly.
+ */
+void
+SetDataDir()
+{
+	char   *new;
+
+	/* If presented path is relative, convert to absolute */
+	new = make_absolute_path(GTMProxyDataDir);
+	if (!new)
+		ereport(FATAL,
+			(errno,
+			 errmsg("failed to set the data directory \"%s\"",
+				GTMProxyDataDir)));
+
+	if (GTMProxyDataDir)
+		free(GTMProxyDataDir);
+
+	GTMProxyDataDir = new;
 }
 
 /*

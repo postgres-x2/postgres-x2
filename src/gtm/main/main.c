@@ -26,6 +26,7 @@
 
 #include "gtm/gtm_c.h"
 #include "gtm/gtm.h"
+#include "gtm/path.h"
 #include "gtm/elog.h"
 #include "gtm/memutils.h"
 #include "gtm/gtm_list.h"
@@ -84,6 +85,7 @@ static void GTM_UnregisterPGXCNode(Port *myport, GTM_PGXCNodeId pgxc_node_id);
 static bool CreateOptsFile(int argc, char *argv[]);
 static void CreateDataDirLockFile(void);
 static void CreateLockFile(const char *filename, const char *refName);
+static void SetDataDir(void);
 static void ChangeToDataDir(void);
 static void checkDataDir(void);
 static void DeleteLockFile(const char *filename);
@@ -143,6 +145,7 @@ BaseInit()
 	MemoryContextInit();
 
 	checkDataDir();
+	SetDataDir();
 	ChangeToDataDir();
 	CreateDataDirLockFile();
 
@@ -1178,6 +1181,29 @@ retry:
 						GTMDataDir),
 				 errhint("The server must be started by the user that owns the data directory.")));
 #endif
+}
+
+/*
+ * Set data directory, but make sure it's an absolute path.  Use this,
+ * never set DataDir directly.
+ */
+void
+SetDataDir()
+{
+	char   *new;
+
+	/* If presented path is relative, convert to absolute */
+	new = make_absolute_path(GTMDataDir);
+	if (!new)
+		ereport(FATAL,
+			(errno,
+			 errmsg("failed to set the data directory \"%s\"",
+				GTMDataDir)));
+	
+	if (GTMDataDir)
+		free(GTMDataDir);
+
+	GTMDataDir = new;
 }
 
 /*

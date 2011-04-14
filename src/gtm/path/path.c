@@ -20,6 +20,7 @@
 #include <sys/stat.h>
 #include <string.h>
 #include <stdio.h>
+#include <unistd.h>
 
 #include <gtm/path.h>
 
@@ -174,4 +175,65 @@ trim_trailing_separator(char *path)
 	if (p > path)
 		for (p--; p > path && IS_DIR_SEP(*p); p--)
 			*p = '\0';
+}
+/*
+ * If the given pathname isn't already absolute, make it so, interpreting
+ * it relative to the current working directory.
+ *
+ * Also canonicalize the path. The result is always a malloc'd copy.
+ *
+ */
+char *
+make_absolute_path(const char *path)
+{
+	char	   *new;
+
+	/* Returning null for null input is convenient for some callers */
+	if (path == NULL)
+		return NULL;
+
+	if (!is_absolute_path(path))
+	{
+		char	   *buf;
+		size_t		buflen;
+
+		buflen = MAXPGPATH;
+		for (;;)
+		{
+			buf = malloc(buflen);
+			if (!buf)
+				return NULL;
+
+			if (getcwd(buf, buflen))
+				break;
+			else if (errno == ERANGE)
+			{
+				free(buf);
+				buflen *= 2;
+				continue;
+			}
+			else
+			{
+				free(buf);
+				return NULL;
+			}
+		}
+
+		new = malloc(strlen(buf) + strlen(path) + 2);
+		if (!new)
+		     return NULL;
+		sprintf(new, "%s/%s", buf, path);
+		free(buf);
+	}
+	else
+	{
+		new = strdup(path);
+		if (!new)
+		     return NULL;
+	}
+
+	/* Make sure punctuation is canonical, too */
+	canonicalize_path(new);
+
+	return new;
 }

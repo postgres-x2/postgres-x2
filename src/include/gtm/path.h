@@ -11,6 +11,11 @@
  *
  *-------------------------------------------------------------------------
  */
+#ifndef _PATH_H
+#define _PATH_H
+
 #include "gtm/gtm_c.h"
 
 extern void canonicalize_path(char *path);
+extern char *make_absolute_path(const char *path);
+#endif
