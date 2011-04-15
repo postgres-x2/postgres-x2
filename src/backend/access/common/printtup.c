@@ -194,10 +194,10 @@ SendRowDescriptionMessage(TupleDesc typeinfo, List *targetlist, int16 *formats)
 
 #ifdef PGXC
 		/*
-		 * Send the type name from a Postgres-XC Datanode backend.
+		 * Send the type name from a Postgres-XC backend node.
 		 * This preserves from OID inconsistencies as architecture is shared nothing.
 		 */
-		if (IS_PGXC_DATANODE && IsConnFromCoord())
+		if (IsConnFromCoord())
 		{
 			char	   *typename;
 			typename = get_typename(atttypid);
