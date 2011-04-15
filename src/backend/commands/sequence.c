@@ -634,6 +634,9 @@ nextval_internal(Oid relid)
 	incby = seq->increment_by;
 	maxv = seq->max_value;
 	minv = seq->min_value;
+#ifdef PGXC
+	}
+#endif
 	fetch = cache = seq->cache_value;
 	log = seq->log_cnt;
 
@@ -678,6 +681,8 @@ nextval_internal(Oid relid)
 		 * Check MAXVALUE for ascending sequences and MINVALUE for descending
 		 * sequences
 		 */
+#ifndef PGXC
+		/* Result has been checked and received from GTM */
 		if (incby > 0)
 		{
 			/* ascending sequence */
@@ -724,20 +729,29 @@ nextval_internal(Oid relid)
 			else
 				next += incby;
 		}
+#endif
 		fetch--;
 		if (rescnt < cache)
 		{
 			log--;
 			rescnt++;
+#ifndef PGXC
+			/*
+			 * This part is not taken into account,
+			 * result has been received from GTM
+			 */
 			last = next;
 			if (rescnt == 1)	/* if it's first result - */
 				result = next;	/* it's what to return */
+#endif
 		}
 	}
 
 	log -= fetch;				/* adjust for any unfetched numbers */
 	Assert(log >= 0);
 
+#ifndef PGXC
+	/* Result has been received from GTM */
 	/* save info in local cache */
 	elm->last = result;			/* last returned number */
 	elm->cached = last;			/* last fetched number */
@@ -785,8 +799,8 @@ nextval_internal(Oid relid)
 	seq->log_cnt = log;			/* how much is logged */
 
 	END_CRIT_SECTION();
-#ifdef PGXC  /* PGXC_COORD */
-	}
+#else
+	seq->log_cnt = log;
 #endif
 	UnlockReleaseBuffer(buf);
 
