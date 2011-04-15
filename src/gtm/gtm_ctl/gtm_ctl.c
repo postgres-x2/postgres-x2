@@ -354,9 +354,11 @@ test_gtm_connection()
 	/*
 	 * We need to set a connect timeout otherwise on Windows the SCM will
 	 * probably timeout first
+	 * a PGXC node ID has to be set for GTM connection protocol,
+	 * so its value doesn't really matter here.
 	 */
 	snprintf(connstr, sizeof(connstr),
-			 "host=localhost port=%s connect_timeout=5", portstr);
+			 "host=localhost port=%s connect_timeout=5 pgxc_node_id=1", portstr);
 
 	for (i = 0; i < wait_seconds; i++)
 	{
