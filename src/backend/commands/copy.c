@@ -3879,15 +3879,22 @@ build_copy_statement(CopyState cstate, List *attnamelist,
 	pPartByCol = GetRelationDistColumn(cstate->rel_loc);
 	if (cstate->rel_loc)
 	{
-		if (is_from || pPartByCol)
-			exec_nodes->nodelist = list_copy(cstate->rel_loc->nodeList);
+		/*
+		 * Pick up one node only
+		 * This case corresponds to a replicated table with COPY TO
+		 *
+		 * PGXCTODO: this is true as long as subset of nodes is not
+		 * supported for tables. In this case, we need one node
+		 * in the node list associated to the table.
+		 */
+		if (!is_from && cstate->rel_loc->locatorType == 'R')
+			exec_nodes->nodelist = GetAnyDataNode();
 		else
 		{
 			/*
-			 * Pick up one node only
-			 * This case corresponds to a replicated table with COPY TO
+			 * All nodes necessary
 			 */
-			exec_nodes->nodelist = GetAnyDataNode();
+			exec_nodes->nodelist = list_copy(cstate->rel_loc->nodeList);
 		}
 	}
 
