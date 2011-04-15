@@ -86,6 +86,8 @@ static void read_gtm_opts(void);
 static bool test_gtm_connection();
 static bool gtm_is_alive(pid_t pid);
 
+static void *pg_realloc(void *ptr, size_t size);
+
 static char gtmopts_file[MAXPGPATH];
 static char pid_file[MAXPGPATH];
 
@@ -257,8 +259,8 @@ start_gtm(void)
 	memset(gtm_app_path, 0, MAXPGPATH);
 	memset(cmd, 0, MAXPGPATH);
 
-	/* 
-	 * Construct gtm binary path. We should leave one byte at the end for '\0'
+	/*
+	 * Build gtm binary path. We should leave one byte at the end for '\0'
 	 */
 	len = 0;
 	if (gtm_path != NULL)
@@ -665,8 +667,10 @@ do_help(void)
 
 	printf(_("\nCommon options:\n"));
 	printf(_("  -D DATADIR             location of the database storage area\n"));
+	printf(_("  -i NODE_ID             set gtm_proxy ID registered on GTM\n"));
+	printf(_("                         (option ignored if used with GTM)\n"));
 	printf(_("  -S                     set gtm or gtm_proxy to launch one of them\n"));
-	printf(_("  -s, 				   only print errors, no informational messages\n"));
+	printf(_("  -s,                    only print errors, no informational messages\n"));
 	printf(_("  -t SECS                seconds to wait when using -w option\n"));
 	printf(_("  -w                     wait until operation completes\n"));
 	printf(_("  -W                     do not wait until operation completes\n"));
@@ -719,6 +723,7 @@ int
 main(int argc, char **argv)
 {
 	int			c;
+	int			node_id = 0; /* GTM Proxy ID */
 
 	progname = "gtm_ctl";
 
@@ -765,7 +770,7 @@ main(int argc, char **argv)
 	/* process command-line options */
 	while (optind < argc)
 	{
-		while ((c = getopt(argc, argv, "D:l:m:o:p:S:t:wW")) != -1)
+		while ((c = getopt(argc, argv, "D:i:l:m:o:p:S:t:wW")) != -1)
 		{
 			switch (c)
 			{
@@ -785,12 +790,15 @@ main(int argc, char **argv)
 						 * variable but we do -D too for clearer gtm
 						 * 'ps' display
 						 */
-						gtmdata_opt = pg_malloc(strlen(gtmdata_D) + 8);
+						gtmdata_opt = (char *) pg_malloc(strlen(gtmdata_D) + 8);
 						snprintf(gtmdata_opt, strlen(gtmdata_D) + 8,
 								 "-D \"%s\" ",
 								 gtmdata_D);
 						break;
 					}
+				case 'i':
+					node_id = atoi(optarg);
+					break;
 				case 'l':
 					log_file = xstrdup(optarg);
 					break;
@@ -806,13 +814,6 @@ main(int argc, char **argv)
 					break;
 				case 'S':
 					gtm_app = xstrdup(optarg);
-					if (strcmp(gtm_app,"gtm_proxy") != 0
-						&& strcmp(gtm_app,"gtm") != 0)
-					{
-						write_stderr(_("%s: %s launch name set not correct\n"), progname, gtm_app);
-						do_advice();
-						exit(1);
-					}
 					break;
 				case 't':
 					wait_seconds = atoi(optarg);
@@ -875,7 +876,7 @@ main(int argc, char **argv)
 
 	if (!gtm_data)
 	{
-		write_stderr("%s: no database directory specified \n",
+		write_stderr("%s: no GTM/GTM Proxy directory specified \n",
 					 progname);
 		do_advice();
 		exit(1);
@@ -888,10 +889,38 @@ main(int argc, char **argv)
 	 */
 	if (!gtm_app)
 	{
-		write_stderr("%s: launcher name non specified, see option -S\n",
+		write_stderr("%s: no launch option not specified\n",
 					 progname);
 		do_advice();
 		exit(1);
+	}
+
+	if (strcmp(gtm_app,"gtm_proxy") != 0 &&
+		strcmp(gtm_app,"gtm") != 0)
+	{
+		write_stderr(_("%s: launch option incorrect\n"),
+						progname);
+		do_advice();
+		exit(1);
+	}
+
+	/* Check if GTM Proxy ID is set, this is not necessary when stopping */
+	if (ctl_command == START_COMMAND ||
+		ctl_command == RESTART_COMMAND)
+	{
+		if (node_id == 0 && strcmp(gtm_app, "gtm_proxy") == 0)
+		{
+			write_stderr("%s: GTM Proxy ID not specified\n",
+						 progname);
+			do_advice();
+			exit(1);
+		}
+		/* Rebuild option string to include Proxy ID */
+		if (strcmp(gtm_app, "gtm_proxy") == 0)
+		{
+			gtmdata_opt = (char *) pg_realloc(gtmdata_opt, strlen(gtmdata_opt) + 9);
+			sprintf(gtmdata_opt, "%s -i %d ", gtmdata_opt, node_id);
+		}
 	}
 
 	if (!wait_set)
@@ -910,18 +939,16 @@ main(int argc, char **argv)
 		}
 	}
 
-	if (gtm_data)
+	/* Build strings for pid file and option file */
+	if (strcmp(gtm_app,"gtm_proxy") == 0)
 	{
-		if (strcmp(gtm_app,"gtm_proxy") == 0)
-		{
-			snprintf(pid_file, MAXPGPATH, "%s/gtm_proxy.pid", gtm_data);
-			snprintf(gtmopts_file, MAXPGPATH, "%s/gtm_proxy.opts", gtm_data);
-		}
-		else if (strcmp(gtm_app,"gtm") == 0)
-		{
-			snprintf(pid_file, MAXPGPATH, "%s/gtm.pid", gtm_data);
-			snprintf(gtmopts_file, MAXPGPATH, "%s/gtm.opts", gtm_data);
-		}
+		snprintf(pid_file, MAXPGPATH, "%s/gtm_proxy.pid", gtm_data);
+		snprintf(gtmopts_file, MAXPGPATH, "%s/gtm_proxy.opts", gtm_data);
+	}
+	else if (strcmp(gtm_app,"gtm") == 0)
+	{
+		snprintf(pid_file, MAXPGPATH, "%s/gtm.pid", gtm_data);
+		snprintf(gtmopts_file, MAXPGPATH, "%s/gtm.opts", gtm_data);
 	}
 
 	switch (ctl_command)
@@ -941,3 +968,19 @@ main(int argc, char **argv)
 
 	exit(0);
 }
+
+/*
+ * Safer versions of standard realloc C library function. If an
+ * out-of-memory condition occurs, these functions will bail out
+ * safely; therefore, its return value is guaranteed to be non-NULL.
+ */
+static void *
+pg_realloc(void *ptr, size_t size)
+{
+	void       *tmp;
+
+	tmp = realloc(ptr, size);
+	if (!tmp)
+		write_stderr("out of memory\n");
+	return tmp;
+} 
