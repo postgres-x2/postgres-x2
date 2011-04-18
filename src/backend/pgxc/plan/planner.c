@@ -1084,6 +1084,46 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 					if (!rel_loc_info1)
 						return true;
 
+					/* Check if this constant expression is targetting multiple tables */
+					if (list_length(context->query->rtable) > 1)
+					{
+						ListCell *lc;
+						RangeTblEntry *save_rte = NULL;
+						RelationLocInfo *save_loc_info;
+
+						foreach(lc, context->query->rtable)
+						{
+							RangeTblEntry *rte = lfirst(lc);
+
+							if (!save_rte)
+							{
+								save_rte = rte;
+								save_loc_info = GetRelationLocInfo(save_rte->relid);
+							}
+							else
+							{
+								/*
+								 * If there are two distributed tables at least
+								 * among the multiple tables, push down the query to all nodes.
+								 */
+								if (save_rte->relid != rte->relid)
+								{
+									RelationLocInfo *loc_info = GetRelationLocInfo(rte->relid);
+
+									if (loc_info->locatorType != LOCATOR_TYPE_REPLICATED &&
+										save_loc_info->locatorType != LOCATOR_TYPE_REPLICATED)
+										return true;
+									if (loc_info->locatorType != LOCATOR_TYPE_REPLICATED &&
+										save_loc_info->locatorType == LOCATOR_TYPE_REPLICATED)
+									{
+										save_rte = rte;
+										save_loc_info = loc_info;
+									}
+								}
+							}
+						}
+					}
+
 					/* If hash or modulo partitioned, check if the part column was used */
 					if (IsHashColumn(rel_loc_info1, column_base->colname) ||
 						IsModuloColumn(rel_loc_info1, column_base->colname))
