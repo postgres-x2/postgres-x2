@@ -17,6 +17,7 @@
 
 #include <time.h>
 #include "postgres.h"
+#include "access/twophase.h"
 #include "access/gtm.h"
 #include "access/xact.h"
 #include "catalog/pg_type.h"
@@ -1924,8 +1925,22 @@ PGXCNodeImplicitCommitPrepared(GlobalTransactionId prepare_xid,
 		goto finish;
 	}
 
+	/*
+	 * Barrier:
+	 *
+	 * We should acquire the BarrierLock in SHARE mode here to ensure that
+	 * there are no in-progress barrier at this point. This mechanism would
+	 * work as long as LWLock mechanism does not starve a EXCLUSIVE lock
+	 * requesster
+	 */
+	LWLockAcquire(BarrierLock, LW_SHARED);
 	res = pgxc_node_implicit_commit_prepared(prepare_xid, commit_xid,
 								pgxc_connections, gid, is_commit);
+
+	/*
+	 * Release the BarrierLock.
+	 */
+	LWLockRelease(BarrierLock);
 
 finish:
 	/* Clear nodes, signals are clear */
@@ -2019,8 +2034,8 @@ finish:
  * or not but send the message to all of them.
  * This avoid to have any additional interaction with GTM when making a 2PC transaction.
  */
-bool
-PGXCNodeCommitPrepared(char *gid)
+void
+PGXCNodeCommitPrepared(char *gid, bool isTopLevel)
 {
 	int			res = 0;
 	int			res_gtm = 0;
@@ -2070,7 +2085,15 @@ PGXCNodeCommitPrepared(char *gid)
 	/*
 	 * Commit here the prepared transaction to all Datanodes and Coordinators
 	 * If necessary, local Coordinator Commit is performed after this DataNodeCommitPrepared.
+	 *
+	 * BARRIER:
+	 *
+	 * Take the BarrierLock in SHARE mode to synchronize on in-progress
+	 * barriers. We should hold on to the lock until the local prepared
+	 * transaction is also committed
 	 */
+	LWLockAcquire(BarrierLock, LW_SHARED);
+
 	res = pgxc_node_commit_prepared(gxid, prepared_gxid, pgxc_handles, gid);
 
 finish:
@@ -2096,6 +2119,7 @@ finish:
 		free(coordinators);
 
 	pfree_pgxc_all_handles(pgxc_handles);
+
 	if (res_gtm < 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
@@ -2106,7 +2130,23 @@ finish:
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("Could not commit prepared transaction on data nodes")));
 
-	return operation_local;
+	/*
+	 * A local Coordinator always commits if involved in Prepare.
+	 * 2PC file is created and flushed if a DDL has been involved in the transaction.
+	 * If remote connection is a Coordinator type, the commit prepared has to be done locally
+	 * if and only if the Coordinator number was in the node list received from GTM.
+	 */
+	if (operation_local || IsConnFromCoord())
+	{
+		PreventTransactionChain(isTopLevel, "COMMIT PREPARED");
+		FinishPreparedTransaction(gid, true);
+	}
+
+	/*
+	 * Release the barrier lock now so that pending barriers can get moving
+	 */
+	LWLockRelease(BarrierLock);
+	return; 
 }
 
 /*
@@ -2151,11 +2191,9 @@ finish:
 
 /*
  * Rollback prepared transaction on Datanodes involved in the current transaction
- *
- * Return whether or not a local operation required.
  */
-bool
-PGXCNodeRollbackPrepared(char *gid)
+void
+PGXCNodeRollbackPrepared(char *gid, bool isTopLevel)
 {
 	int			res = 0;
 	int			res_gtm = 0;
@@ -2235,7 +2273,17 @@ finish:
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("Could not rollback prepared transaction on Datanodes")));
 
-	return operation_local;
+	/*
+	 * Local coordinator rollbacks if involved in PREPARE
+	 * If remote connection is a Coordinator type, the commit prepared has to be done locally also.
+	 * This works for both Datanodes and Coordinators.
+	 */
+	if (operation_local || IsConnFromCoord())
+	{
+		PreventTransactionChain(isTopLevel, "ROLLBACK PREPARED");
+		FinishPreparedTransaction(gid, false);
+	}
+	return;
 }
 
 

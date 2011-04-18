@@ -485,23 +485,11 @@ standard_ProcessUtility(Node *parsetree,
 						 * Don't send it down to Datanodes.
 						 */
 						if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-							operation_local = PGXCNodeCommitPrepared(stmt->gid);
-#endif
+							PGXCNodeCommitPrepared(stmt->gid, isTopLevel);
+#else
 						PreventTransactionChain(isTopLevel, "COMMIT PREPARED");
 						PreventCommandDuringRecovery("COMMIT PREPARED");
-#ifdef PGXC
-						/*
-						 * A local Coordinator always commits if involved in Prepare.
-						 * 2PC file is created and flushed if a DDL has been involved in the transaction.
-						 * If remote connection is a Coordinator type, the commit prepared has to be done locally
-						 * if and only if the Coordinator number was in the node list received from GTM.
-						 */
-						if (operation_local || IsConnFromCoord())
-						{
-#endif
 						FinishPreparedTransaction(stmt->gid, true);
-#ifdef PGXC
-						}
 #endif
 						break;
 
@@ -512,22 +500,11 @@ standard_ProcessUtility(Node *parsetree,
 						 * Don't send it down to Datanodes.
 						 */
 						if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-							operation_local = PGXCNodeRollbackPrepared(stmt->gid);
-#endif
+							PGXCNodeRollbackPrepared(stmt->gid, isTopLevel);
+#else
 						PreventTransactionChain(isTopLevel, "ROLLBACK PREPARED");
 						PreventCommandDuringRecovery("ROLLBACK PREPARED");
-#ifdef PGXC
-						/*
-						 * Local coordinator rollbacks if involved in PREPARE
-						 * If remote connection is a Coordinator type, the commit prepared has to be done locally also.
-						 * This works for both Datanodes and Coordinators.
-						 */
-						if (operation_local || IsConnFromCoord())
-						{
-#endif
-						FinishPreparedTransaction(stmt->gid, false);
-#ifdef PGXC
-						}
+						FinishPreparedTransaction(gid, false);
 #endif
 						break;
 
