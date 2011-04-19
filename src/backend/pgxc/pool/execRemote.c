@@ -1258,7 +1258,7 @@ FetchTuple(RemoteQueryState *combiner, TupleTableSlot *slot)
 			else
 				combiner->current_conn = 0;
 		}
-		else if (res = RESPONSE_DATAROW && have_tuple)
+		else if (res == RESPONSE_DATAROW && have_tuple)
 		{
 			/*
 			 * We already have a tuple and received another one, leave it till
