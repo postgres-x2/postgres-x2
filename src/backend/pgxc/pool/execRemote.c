@@ -49,6 +49,7 @@
 #define PRIMARY_NODE_WRITEAHEAD 1024 * 1024
 
 static bool autocommit = true;
+static is_ddl = false;
 static bool implicit_force_autocommit = false;
 static PGXCNodeHandle **write_node_list = NULL;
 static int	write_node_count = 0;
@@ -1565,7 +1566,7 @@ PGXCNodePrepare(char *gid)
 	pgxc_connections = pgxc_get_all_transaction_nodes(HANDLE_DEFAULT);
 
 	/* DDL involved in transaction, so make a local prepare too */
-	if (pgxc_connections->co_conn_count != 0)
+	if (is_ddl)
 		local_operation = true;
 
 	/*
@@ -1580,9 +1581,9 @@ PGXCNodePrepare(char *gid)
 	 * If we do not have open transactions we have nothing to prepare just
 	 * report success
 	 */
-	if (tran_count == 0)
+	if (tran_count == 0 && !is_ddl)
 	{
-		elog(WARNING, "Nothing to PREPARE on Datanodes and Coordinators, gid is not used");
+		elog(DEBUG1, "Nothing to PREPARE on Datanodes and Coordinators, gid is not used");
 		goto finish;
 	}
 
@@ -1600,6 +1601,7 @@ finish:
 	if (!PersistentConnections)
 		release_handles();
 	autocommit = true;
+	is_ddl = false;
 	clear_write_node_list();
 
 	/* Clean up connections */
@@ -1658,11 +1660,26 @@ pgxc_node_prepare(PGXCNodeAllHandles *pgxc_handles, char *gid)
 	 * Don't forget to add in the list of Coordinators the coordinator we are on
 	 * if a DDL is involved in the transaction.
 	 * This one also is being prepared !
+	 *
+	 * Take also into account the case of a cluster with a single Coordinator
+	 * for a transaction that used DDL.
 	 */
 	if (co_conn_count == 0)
 		real_co_conn_count = co_conn_count;
 	else
 		real_co_conn_count = co_conn_count + 1;
+
+	/*
+	 * This is the case of a single Coordinator
+	 * involved in a transaction using DDL.
+	 */
+	if (is_ddl && co_conn_count == 0)
+	{
+		Assert(NumCoords == 1);
+		real_co_conn_count = 1;
+		coordinators = (PGXC_NodeId *) palloc(sizeof(PGXC_NodeId));
+		coordinators[0] = PGXCNodeId;
+	}
 
 	result = StartPreparedTranGTM(gxid, gid, dn_conn_count,
 					datanodes, real_co_conn_count, coordinators);
@@ -1855,6 +1872,7 @@ finish:
 	if (!PersistentConnections && res == 0)
 		release_handles();
 	autocommit = true;
+	is_ddl = false;
 	clear_write_node_list();
 
 	if (res != 0)
@@ -1987,6 +2005,7 @@ finish:
 	if (!PersistentConnections)
 		release_handles();
 	autocommit = true;
+	is_ddl = false;
 	clear_write_node_list();
 
 	/* Free node list taken from GTM */
@@ -2109,6 +2128,7 @@ finish:
 	if (!PersistentConnections)
 		release_handles();
 	autocommit = true;
+	is_ddl = false;
 	clear_write_node_list();
 
 	/* Free node list taken from GTM */
@@ -2199,6 +2219,7 @@ finish:
 	if (!PersistentConnections)
 		release_handles();
 	autocommit = true;
+	is_ddl = false;
 	clear_write_node_list();
 
 	/* Clean up connections */
@@ -2267,6 +2288,7 @@ finish:
 	if (!PersistentConnections)
 		release_handles();
 	autocommit = true;
+	is_ddl = false;
 	clear_write_node_list();
 
 	/* Clean up connections */
@@ -4121,6 +4143,9 @@ ExecRemoteUtility(RemoteQuery *node)
 	ExecDirectType		exec_direct_type = node->exec_direct_type;
 	int			i;
 
+	if (!force_autocommit)
+		is_ddl = true;
+
 	implicit_force_autocommit = force_autocommit;
 
 	remotestate = CreateResponseCombiner(0, node->combine_type);
@@ -4590,9 +4615,13 @@ PGXCNodeIsImplicit2PC(bool *prepare_local_coord)
 {
 	PGXCNodeAllHandles *pgxc_handles = pgxc_get_all_transaction_nodes(HANDLE_DEFAULT);
 	int co_conn_count = pgxc_handles->co_conn_count;
+	int total_count = pgxc_handles->co_conn_count + pgxc_handles->dn_conn_count;
 
-	/* Prepare Local Coord only if DDL is involved on multiple nodes */
-	*prepare_local_coord = co_conn_count > 0;
+	/*
+	 * Prepare Local Coord only if DDL is involved.
+	 * Even 1Co/1Dn cluster needs 2PC as more than 1 node is involved.
+	 */
+	*prepare_local_coord = is_ddl && total_count != 0;
 
 	/*
 	 * In case of an autocommit or forced autocommit transaction, 2PC is not involved
@@ -4600,6 +4629,7 @@ PGXCNodeIsImplicit2PC(bool *prepare_local_coord)
 	 */
 	if (implicit_force_autocommit)
 	{
+		*prepare_local_coord = false;
 		implicit_force_autocommit = false;
 		return false;
 	}
@@ -4608,7 +4638,7 @@ PGXCNodeIsImplicit2PC(bool *prepare_local_coord)
 	 * 2PC is necessary at other Nodes if one Datanode or one Coordinator
 	 * other than the local one has been involved in a write operation.
 	 */
-	return (write_node_count > 1 || co_conn_count > 0);
+	return (write_node_count > 1 || co_conn_count > 0 || total_count > 0);
 }
 
 /*

@@ -1740,16 +1740,12 @@ collect_pgxcnode_numbers(int conn_count, PGXCNodeHandle **connections, char clie
 		pgxcnodes = (PGXC_NodeId *) palloc(conn_count * sizeof(PGXC_NodeId));
 
 	if (!pgxcnodes)
-	{
 		ereport(ERROR,
 				(errcode(ERRCODE_OUT_OF_MEMORY),
 				 errmsg("out of memory")));
-	}
 
 	for (i = 0; i < conn_count; i++)
-	{
 		pgxcnodes[i] = connections[i]->nodenum;
-	}
 
 	/* Save here the Coordinator number where we are */
 	if (client_conn_type == REMOTE_CONN_COORD)
