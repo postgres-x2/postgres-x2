@@ -2019,7 +2019,8 @@ finish:
 	if (res_gtm < 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
-				 errmsg("Could not get GID data from GTM")));
+				 errmsg("prepared transaction with identifier \"%s\" does not exist",
+						gid)));
 	if (res != 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
@@ -2142,7 +2143,8 @@ finish:
 	if (res_gtm < 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
-				 errmsg("Could not get GID data from GTM")));
+				 errmsg("prepared transaction with identifier \"%s\" does not exist",
+						gid)));
 	if (res != 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
