@@ -1898,6 +1898,7 @@ CommitTransaction(bool contact_gtm)
 #ifdef PGXC
 	bool PrepareLocalCoord = false;
 	bool PreparePGXCNodes = false;
+	bool IsHoldableCursor = false;
 	char implicitgid[256];
 	TransactionId xid = InvalidTransactionId;
 
@@ -1981,6 +1982,8 @@ CommitTransaction(bool contact_gtm)
 		 */
 		if (!CommitHoldablePortals())
 			break;
+		else
+			IsHoldableCursor = true;
 	}
 
 	/* Now we can shut down the deferred-trigger manager */
@@ -2013,8 +2016,8 @@ CommitTransaction(bool contact_gtm)
 	 *
 	 * This is called only if it is not necessary to prepare the nodes.
 	 */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && !PreparePGXCNodes && contact_gtm)
-		PGXCNodeCommit();
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && (!PreparePGXCNodes || IsHoldableCursor) && contact_gtm)
+		PGXCNodeCommit(!IsHoldableCursor);
 #endif
 
 	/* Prevent cancel/die interrupt while cleaning up */

@@ -2195,7 +2195,7 @@ pgxc_node_rollback_prepared(GlobalTransactionId gxid, GlobalTransactionId prepar
  * So only send a commit to the involved nodes.
  */
 void
-PGXCNodeCommit(void)
+PGXCNodeCommit(bool bReleaseHandles)
 {
 	int			res = 0;
 	int			tran_count;
@@ -2218,7 +2218,7 @@ finish:
 	/* In autocommit mode statistics is collected in DataNodeExec */
 	if (!autocommit)
 		stat_transaction(tran_count);
-	if (!PersistentConnections)
+	if (!PersistentConnections && bReleaseHandles)
 		release_handles();
 	autocommit = true;
 	is_ddl = false;

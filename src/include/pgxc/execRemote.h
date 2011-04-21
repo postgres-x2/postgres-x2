@@ -117,7 +117,7 @@ typedef struct RemoteQueryState
 
 /* Multinode Executor */
 extern void PGXCNodeBegin(void);
-extern void	PGXCNodeCommit(void);
+extern void	PGXCNodeCommit(bool bReleaseHandles);
 extern int	PGXCNodeRollback(void);
 extern bool	PGXCNodePrepare(char *gid);
 extern bool	PGXCNodeRollbackPrepared(char *gid);
