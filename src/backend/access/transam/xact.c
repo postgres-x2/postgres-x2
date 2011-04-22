@@ -2017,7 +2017,12 @@ CommitTransaction(bool contact_gtm)
 	 * This is called only if it is not necessary to prepare the nodes.
 	 */
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && (!PreparePGXCNodes || IsHoldableCursor) && contact_gtm)
-		PGXCNodeCommit(!IsHoldableCursor);
+	{
+		if (IsHoldableCursor)
+			PGXCNodeCommit(!PreparePGXCNodes);
+		else
+			PGXCNodeCommit(true);
+	}
 #endif
 
 	/* Prevent cancel/die interrupt while cleaning up */

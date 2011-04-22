@@ -1796,6 +1796,9 @@ finish:
 	if (!autocommit)
 		stat_transaction(pgxc_connections->dn_conn_count);
 
+	/* Clean up connections */
+	pfree_pgxc_all_handles(pgxc_connections);
+
 	return res;
 }
 
@@ -1874,6 +1877,9 @@ finish:
 	autocommit = true;
 	is_ddl = false;
 	clear_write_node_list();
+
+	/* Clean up connections */
+	pfree_pgxc_all_handles(pgxc_connections);
 
 	if (res != 0)
 		ereport(ERROR,
@@ -4619,6 +4625,9 @@ PGXCNodeIsImplicit2PC(bool *prepare_local_coord)
 	int co_conn_count = pgxc_handles->co_conn_count;
 	int total_count = pgxc_handles->co_conn_count + pgxc_handles->dn_conn_count;
 
+	/* Clean up connections */
+	pfree_pgxc_all_handles(pgxc_handles);
+
 	/*
 	 * Prepare Local Coord only if DDL is involved.
 	 * Even 1Co/1Dn cluster needs 2PC as more than 1 node is involved.
@@ -4676,6 +4685,9 @@ PGXCNodeGetNodeList(PGXC_NodeId **datanodes,
 	 */
 	if (!PersistentConnections)
 		release_handles();
+
+	/* Clean up connections */
+	pfree_pgxc_all_handles(pgxc_connections);
 }
 
 /*
