@@ -5237,6 +5237,13 @@ readRecoveryCommandFile(void)
 			ereport(DEBUG2,
 					(errmsg("recovery_target_inclusive = %s", tok2)));
 		}
+#ifdef PGXC
+		else if (strcmp(tok1, "recovery_barrier_id") == 0)
+		{
+			recoveryTarget = true;
+			recoveryTargetBarrierId = pstrdup(tok2);
+		}
+#endif
 		else if (strcmp(tok1, "standby_mode") == 0)
 		{
 			if (!parse_bool(tok2, &StandbyMode))

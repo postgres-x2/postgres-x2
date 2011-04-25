@@ -472,7 +472,8 @@ static TypeName *TableFuncTypeName(List *columns);
  */
 
 /* ordinary key words in alphabetical order */
-/* PGXC - added REPLICATION, DISTRIBUTE, MODULO, BARRIER and HASH */
+/* PGXC - added DISTRIBUTE, DIRECT, HASH, REPLICATION, ROUND ROBIN,
+ * COORDINATOR, CLEAN, MODULO, NODE, BARRIER */
 %token <keyword> ABORT_P ABSOLUTE_P ACCESS ACTION ADD_P ADMIN AFTER
 	AGGREGATE ALL ALSO ALTER ALWAYS ANALYSE ANALYZE AND ANY ARRAY AS ASC
 	ASSERTION ASSIGNMENT ASYMMETRIC AT AUTHORIZATION
@@ -11022,7 +11023,8 @@ ColLabel:	IDENT									{ $$ = $1; }
 
 /* "Unreserved" keywords --- available for use as any kind of name.
  */
-/* PGXC - added DISTRIBUTE, HASH, REPLICATION, MODULO, BARRIER */
+/* PGXC - added DISTRIBUTE, DIRECT, HASH, REPLICATION, ROUND ROBIN,
+ * COORDINATOR, CLEAN, MODULO, NODE, BARRIER */
 unreserved_keyword:
 			  ABORT_P
 			| ABSOLUTE_P
