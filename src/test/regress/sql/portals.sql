@@ -355,7 +355,7 @@ BEGIN;
 DECLARE c1 CURSOR FOR SELECT f1,f2 FROM uctest;
 FETCH c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
-SELECT f1,f2 FROM uctest;
+SELECT f1,f2 FROM uctest ORDER BY 1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
 SELECT f1,f2 FROM uctest ORDER BY 1;
 -- insensitive cursor should not show effects of updates or deletes
@@ -371,7 +371,7 @@ ROLLBACK;
 SELECT f1,f2 FROM uctest ORDER BY f1;
 
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT f1,f2 FROM uctest FOR UPDATE;
+DECLARE c1 CURSOR FOR SELECT f1,f2 FROM uctest ORDER BY 1 FOR UPDATE;
 FETCH c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
 SELECT f1,f2 FROM uctest ORDER BY f1;
@@ -395,7 +395,7 @@ INSERT INTO ucchild values(0, 100, 'hundred');
 SELECT f1,f2 FROM uctest ORDER BY f1;
 
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT f1,f2 FROM uctest FOR UPDATE;
+DECLARE c1 CURSOR FOR SELECT f1,f2 FROM uctest ORDER BY 1 FOR UPDATE;
 FETCH 1 FROM c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
 FETCH 1 FROM c1;
@@ -408,17 +408,17 @@ SELECT f1,f2 FROM uctest ORDER BY f1;
 
 -- Can update from a self-join, but only if FOR UPDATE says which to use
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT a.f1,a.f2 FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5;
+DECLARE c1 CURSOR FOR SELECT a.f1,a.f2 FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 ORDER BY 1;
 FETCH 1 FROM c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;  -- fail
 ROLLBACK;
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT a.f1,a.f2 FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 FOR UPDATE;
+DECLARE c1 CURSOR FOR SELECT a.f1,a.f2 FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 ORDER BY 1 FOR UPDATE;
 FETCH 1 FROM c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;  -- fail
 ROLLBACK;
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT a.f1,a.f2 FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 FOR SHARE OF a;
+DECLARE c1 CURSOR FOR SELECT a.f1,a.f2 FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 ORDER BY 1 FOR SHARE OF a;
 FETCH 1 FROM c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
 SELECT f1,f2 FROM uctest ORDER BY f1;
@@ -427,14 +427,14 @@ ROLLBACK;
 -- Check various error cases
 
 DELETE FROM uctest WHERE CURRENT OF c1;  -- fail, no such cursor
-DECLARE cx CURSOR WITH HOLD FOR SELECT f1,f2 FROM uctest;
+DECLARE cx CURSOR WITH HOLD FOR SELECT f1,f2 FROM uctest ORDER BY 1;
 DELETE FROM uctest WHERE CURRENT OF cx;  -- fail, can't use held cursor
 BEGIN;
-DECLARE c CURSOR FOR SELECT * FROM tenk2;
+DECLARE c CURSOR FOR SELECT * FROM tenk2 ORDER BY unique2;
 DELETE FROM uctest WHERE CURRENT OF c;  -- fail, cursor on wrong table
 ROLLBACK;
 BEGIN;
-DECLARE c CURSOR FOR SELECT * FROM tenk2 FOR SHARE;
+DECLARE c CURSOR FOR SELECT * FROM tenk2 ORDER BY unique2 FOR SHARE;
 DELETE FROM uctest WHERE CURRENT OF c;  -- fail, cursor on wrong table
 ROLLBACK;
 BEGIN;
@@ -452,7 +452,7 @@ ROLLBACK;
 
 -- WHERE CURRENT OF may someday work with views, but today is not that day.
 -- For now, just make sure it errors out cleanly.
-CREATE VIEW ucview AS SELECT f1,f2 FROM uctest;
+CREATE VIEW ucview AS SELECT f1,f2 FROM uctest ORDER BY 1;
 CREATE RULE ucrule AS ON DELETE TO ucview DO INSTEAD
   DELETE FROM uctest WHERE f1 = OLD.f1;
 BEGIN;
