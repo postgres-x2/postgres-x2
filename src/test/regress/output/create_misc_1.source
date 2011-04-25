@@ -5,6 +5,7 @@
 --	(any resemblance to real life is purely coincidental)
 --
 INSERT INTO tenk2 SELECT * FROM tenk1;
+COPY tenk1 FROM '@abs_srcdir@/data/tenk.data';
 SELECT * INTO TABLE onek2 FROM onek;
 ERROR:  INTO clause not yet supported
 CREATE TABLE onek2 (
