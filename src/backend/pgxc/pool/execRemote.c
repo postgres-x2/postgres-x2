@@ -2035,7 +2035,7 @@ finish:
  * This avoid to have any additional interaction with GTM when making a 2PC transaction.
  */
 void
-PGXCNodeCommitPrepared(char *gid, bool isTopLevel)
+PGXCNodeCommitPrepared(char *gid)
 {
 	int			res = 0;
 	int			res_gtm = 0;
@@ -2136,17 +2136,11 @@ finish:
 	 * If remote connection is a Coordinator type, the commit prepared has to be done locally
 	 * if and only if the Coordinator number was in the node list received from GTM.
 	 */
-	if (operation_local || IsConnFromCoord())
-	{
-		PreventTransactionChain(isTopLevel, "COMMIT PREPARED");
+	if (operation_local)
 		FinishPreparedTransaction(gid, true);
-	}
 
-	/*
-	 * Release the barrier lock now so that pending barriers can get moving
-	 */
 	LWLockRelease(BarrierLock);
-	return; 
+	return;
 }
 
 /*
@@ -2191,9 +2185,11 @@ finish:
 
 /*
  * Rollback prepared transaction on Datanodes involved in the current transaction
+ *
+ * Return whether or not a local operation required.
  */
-void
-PGXCNodeRollbackPrepared(char *gid, bool isTopLevel)
+bool
+PGXCNodeRollbackPrepared(char *gid)
 {
 	int			res = 0;
 	int			res_gtm = 0;
@@ -2273,17 +2269,7 @@ finish:
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("Could not rollback prepared transaction on Datanodes")));
 
-	/*
-	 * Local coordinator rollbacks if involved in PREPARE
-	 * If remote connection is a Coordinator type, the commit prepared has to be done locally also.
-	 * This works for both Datanodes and Coordinators.
-	 */
-	if (operation_local || IsConnFromCoord())
-	{
-		PreventTransactionChain(isTopLevel, "ROLLBACK PREPARED");
-		FinishPreparedTransaction(gid, false);
-	}
-	return;
+	return operation_local;
 }
 
 

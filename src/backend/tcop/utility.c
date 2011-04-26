@@ -59,6 +59,7 @@
 
 #ifdef PGXC
 #include "pgxc/barrier.h"
+#include "pgxc/execRemote.h"
 #include "pgxc/locator.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/planner.h"
@@ -479,32 +480,58 @@ standard_ProcessUtility(Node *parsetree,
 						break;
 
 					case TRANS_STMT_COMMIT_PREPARED:
+						PreventTransactionChain(isTopLevel, "COMMIT PREPARED");
+						PreventCommandDuringRecovery("COMMIT PREPARED");
 #ifdef PGXC
 						/*
 						 * If a COMMIT PREPARED message is received from another Coordinator,
 						 * Don't send it down to Datanodes.
+						 *
+						 * XXX We call FinishPreparedTransaction inside
+						 * PGXCNodeCommitPrepared if we are doing a local
+						 * operation. This is convinient because we want to
+						 * hold on to the BarrierLock until local transaction
+						 * is committed too.
+						 *  
 						 */
 						if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-							PGXCNodeCommitPrepared(stmt->gid, isTopLevel);
-#else
-						PreventTransactionChain(isTopLevel, "COMMIT PREPARED");
-						PreventCommandDuringRecovery("COMMIT PREPARED");
+							PGXCNodeCommitPrepared(stmt->gid);
+						else if (IsConnFromCoord())
+						{
+							/*
+							 * A local Coordinator always commits if involved in Prepare.
+							 * 2PC file is created and flushed if a DDL has been involved in the transaction.
+							 * If remote connection is a Coordinator type, the commit prepared has to be done locally
+							 * if and only if the Coordinator number was in the node list received from GTM.
+							 */
+#endif
 						FinishPreparedTransaction(stmt->gid, true);
+#ifdef PGXC
+						}
 #endif
 						break;
 
 					case TRANS_STMT_ROLLBACK_PREPARED:
+						PreventTransactionChain(isTopLevel, "ROLLBACK PREPARED");
+						PreventCommandDuringRecovery("ROLLBACK PREPARED");
 #ifdef PGXC
 						/*
 						 * If a ROLLBACK PREPARED message is received from another Coordinator,
 						 * Don't send it down to Datanodes.
 						 */
 						if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-							PGXCNodeRollbackPrepared(stmt->gid, isTopLevel);
-#else
-						PreventTransactionChain(isTopLevel, "ROLLBACK PREPARED");
-						PreventCommandDuringRecovery("ROLLBACK PREPARED");
-						FinishPreparedTransaction(gid, false);
+							operation_local = PGXCNodeRollbackPrepared(stmt->gid);
+						/*
+						 * Local coordinator rollbacks if involved in PREPARE
+						 * If remote connection is a Coordinator type, the commit prepared has to be done locally also.
+						 * This works for both Datanodes and Coordinators.
+						 */
+						if (operation_local || IsConnFromCoord())
+						{
+#endif
+						FinishPreparedTransaction(stmt->gid, false);
+#ifdef PGXC
+						}
 #endif
 						break;
 

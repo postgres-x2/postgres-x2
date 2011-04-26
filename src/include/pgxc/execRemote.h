@@ -128,8 +128,8 @@ extern void PGXCNodeSetBeginQuery(char *query_string);
 extern void	PGXCNodeCommit(bool bReleaseHandles);
 extern int	PGXCNodeRollback(void);
 extern bool	PGXCNodePrepare(char *gid);
-extern void	PGXCNodeRollbackPrepared(char *gid, bool isTopLevel);
-extern void	PGXCNodeCommitPrepared(char *gid, bool isTopLevel);
+extern bool	PGXCNodeRollbackPrepared(char *gid);
+extern void PGXCNodeCommitPrepared(char *gid);
 extern bool	PGXCNodeIsImplicit2PC(bool *prepare_local_coord);
 extern int	PGXCNodeImplicitPrepare(GlobalTransactionId prepare_xid, char *gid);
 extern void	PGXCNodeImplicitCommitPrepared(GlobalTransactionId prepare_xid,
