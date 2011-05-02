@@ -28,6 +28,10 @@
 
 #define IsReplicated(x) (x->locatorType == LOCATOR_TYPE_REPLICATED)
 
+#define PGXC_COORDINATOR_SCHEMA	"__pgxc_coordinator_schema__"
+#define PGXC_DATA_NODE_SCHEMA	"__pgxc_datanode_schema__"
+#define PREPARED_XACTS_TABLE	"pg_prepared_xacts"
+
 #include "nodes/primnodes.h"
 #include "utils/relcache.h"
 

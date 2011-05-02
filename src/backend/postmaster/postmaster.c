@@ -538,6 +538,26 @@ PostmasterMain(int argc, char *argv[])
 	/* Initialize paths to installation files */
 	getInstallationPaths(argv[0]);
 
+#ifdef PGXC
+	/* Decide whether coordinator or data node before setting GUC variables */
+	while ((opt = getopt(argc, argv, "A:B:Cc:D:d:EeFf:h:ijk:lN:nOo:Pp:r:S:sTt:W:X-:")) != -1)
+	{
+		switch (opt)
+		{
+			case 'C':
+				isPGXCCoordinator = true;
+				break;
+			case 'X':
+				isPGXCDataNode = true;
+				break;
+			default:
+				break;
+		}
+	}
+	/* Reset getopt for parsing again */
+	optind = 1;
+#endif 
+
 	/*
 	 * Options setup
 	 */

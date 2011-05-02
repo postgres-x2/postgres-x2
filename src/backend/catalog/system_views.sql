@@ -150,7 +150,12 @@ CREATE VIEW pg_locks AS
 CREATE VIEW pg_cursors AS
     SELECT * FROM pg_cursor() AS C;
 
-CREATE VIEW pg_prepared_xacts AS
+CREATE SCHEMA __pgxc_coordinator_schema__;
+CREATE SCHEMA __pgxc_datanode_schema__;
+
+create table __pgxc_coordinator_schema__.pg_prepared_xacts ( transaction xid, gid text, prepared timestamptz, owner name, database name );
+
+CREATE VIEW __pgxc_datanode_schema__.pg_prepared_xacts AS
     SELECT P.transaction, P.gid, P.prepared,
            U.rolname AS owner, D.datname AS database
     FROM pg_prepared_xact() AS P
