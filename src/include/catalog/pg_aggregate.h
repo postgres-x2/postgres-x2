@@ -130,14 +130,14 @@ DATA(insert ( 2106	interval_accum	interval_avg	0	1187	"{0 second,0 second}" ));
 
 /* sum */
 #ifdef PGXC
-DATA(insert ( 2107	int8_sum		numeric_add		-				0	1700	1700	_null_ _null_ ));
-DATA(insert ( 2108	int4_sum		int8_sum		1779			0	20		1700	_null_ _null_ ));
-DATA(insert ( 2109	int2_sum		int8_sum		1779			0	20		1700	_null_ _null_ ));
-DATA(insert ( 2110	float4pl		float4pl		-				0	700		700		_null_ _null_ ));
-DATA(insert ( 2111	float8pl		float8pl		-				0	701		701		_null_ _null_ ));
+DATA(insert ( 2107	int8_sum		numeric_add		-				0	1700	1700	_null_ "0" ));
+DATA(insert ( 2108	int4_sum		int8_sum_to_int8 -				0	20		20		_null_ _null_ ));
+DATA(insert ( 2109	int2_sum		int8_sum_to_int8 -				0	20		20		_null_ _null_ ));
+DATA(insert ( 2110	float4pl		float4pl		-				0	700		700		_null_ "0" ));
+DATA(insert ( 2111	float8pl		float8pl		-				0	701		701		_null_ "0" ));
 DATA(insert ( 2112	cash_pl			cash_pl			-				0	790		790		_null_ _null_ ));
 DATA(insert ( 2113	interval_pl		interval_pl		-				0	1186	1186	_null_ _null_ ));
-DATA(insert ( 2114	numeric_add		numeric_add		-				0	1700	1700	_null_ _null_ ));
+DATA(insert ( 2114	numeric_add		numeric_add		-				0	1700	1700	_null_ "0" ));
 #else
 DATA(insert ( 2107	int8_sum		-				0	1700	_null_ ));
 DATA(insert ( 2108	int4_sum		-				0	20		_null_ ));
@@ -242,8 +242,8 @@ DATA(insert ( 3527	enum_smaller	-				3518	3500	_null_ ));
 /* count */
 /* Final function is data type conversion function numeric_int8 is refernced by OID because of ambiguous defininition in pg_proc */
 #ifdef PGXC
-DATA(insert ( 2147	int8inc_any		int8_sum		1779			0		20		1700	"0" _null_ ));
-DATA(insert ( 2803	int8inc			int8_sum		1779			0		20		1700	"0" _null_ ));
+DATA(insert ( 2147	int8inc_any		int8_sum_to_int8 -				0		20		20		"0" _null_ ));
+DATA(insert ( 2803	int8inc			int8_sum_to_int8 -				0		20		20		"0" _null_ ));
 #else
 DATA(insert ( 2147	int8inc_any		-				0		20		"0" ));
 DATA(insert ( 2803	int8inc			-				0		20		"0" ));
@@ -353,7 +353,7 @@ DATA(insert ( 2159	numeric_accum	numeric_stddev_samp 0	1231	"{0,0,0}" ));
 
 /* SQL2003 binary regression aggregates */
 #ifdef PGXC
-DATA(insert ( 2818	int8inc_float8_float8	int8_sum	1779		0	20		1700	"0" _null_ ));
+DATA(insert ( 2818	int8inc_float8_float8	int8_sum_to_int8	-					0	20		20		"0" _null_ ));
 DATA(insert ( 2819	float8_regr_accum	float8_regr_collect	float8_regr_sxx			0	1022	1022	"{0,0,0,0,0,0}" "{0,0,0,0,0,0}" ));
 DATA(insert ( 2820	float8_regr_accum	float8_regr_collect	float8_regr_syy			0	1022	1022	"{0,0,0,0,0,0}" "{0,0,0,0,0,0}" ));
 DATA(insert ( 2821	float8_regr_accum	float8_regr_collect	float8_regr_sxy			0	1022	1022	"{0,0,0,0,0,0}" "{0,0,0,0,0,0}" ));

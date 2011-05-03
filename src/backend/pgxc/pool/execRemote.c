@@ -337,6 +337,14 @@ advance_collect_function(SimpleAgg  *simple_agg, FunctionCallInfoData *fcinfo)
 			 * result has not been initialized
 			 * We must copy the datum into result if it is pass-by-ref. We
 			 * do not need to pfree the old result, since it's NULL.
+			 * PGXCTODO: in case the transition result type is different from
+			 * collection result type, this code would not work, since we are
+			 * assigning datum of one type to another. For this code to work the
+			 * input and output of collection function needs to be binary
+			 * compatible which is not. So, either check in AggregateCreate,
+			 * that the input and output of collection function are binary
+			 * coercible or set the initial values something non-null or change
+			 * this code
 			 */
 			simple_agg->collectValue = datumCopy(fcinfo->arg[1],
 			                                     simple_agg->transtypeByVal,

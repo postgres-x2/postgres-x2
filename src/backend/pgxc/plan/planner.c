@@ -2977,17 +2977,16 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	}
 
 	/*
-	 * Use standard plan if we have more than one data node with either
-	 * group by, hasWindowFuncs, or hasRecursive
-	 */
-	/*
 	 * PGXCTODO - this could be improved to check if the first
 	 * group by expression is the partitioning column, in which
 	 * case it is ok to treat as a single step.
+	 * PGXCTODO - whatever number of nodes involved in the query, grouping,
+	 * windowing and recursive queries take place at the coordinator. The
+	 * corresponding planner should be able to optimize the queries such that
+	 * most of the query is pushed to datanode, based on the kind of
+	 * distribution the table has.
 	 */
 	if (query->commandType == CMD_SELECT
-					&& query_step->exec_nodes
-					&& list_length(query_step->exec_nodes->nodelist) > 1
 					&& (query->groupClause || query->hasWindowFuncs || query->hasRecursive))
 	{
 		result = standard_planner(query, cursorOptions, boundParams);

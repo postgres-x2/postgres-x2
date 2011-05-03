@@ -709,14 +709,9 @@ WHERE a.aggfnoid = p.oid AND
      OR NOT binary_coercible(pfn.prorettype, p.prorettype)
      OR pfn.pronargs != 1
      OR NOT binary_coercible(a.aggtranstype, pfn.proargtypes[0]));
- aggfnoid |  proname   | oid  | proname 
-----------+------------+------+---------
-     2108 | sum        | 1779 | int8
-     2109 | sum        | 1779 | int8
-     2147 | count      | 1779 | int8
-     2803 | count      | 1779 | int8
-     2818 | regr_count | 1779 | int8
-(5 rows)
+ aggfnoid | proname | oid | proname 
+----------+---------+-----+---------
+(0 rows)
 
 -- If transfn is strict then either initval should be non-NULL, or
 -- input type should match transtype so that the first non-null input
@@ -1120,7 +1115,10 @@ FROM pg_am am JOIN pg_opclass op ON opcmethod = am.oid
 WHERE am.amname <> 'gin'
 GROUP BY amname, amsupport, opcname, amprocfamily
 HAVING count(*) != amsupport OR amprocfamily IS NULL;
-ERROR:  GROUP BY clause is not yet supported
+ amname | opcname | count 
+--------+---------+-------
+(0 rows)
+
 SELECT amname, opcname, count(*)
 FROM pg_am am JOIN pg_opclass op ON opcmethod = am.oid
      LEFT JOIN pg_amproc p ON amprocfamily = opcfamily AND
@@ -1128,7 +1126,10 @@ FROM pg_am am JOIN pg_opclass op ON opcmethod = am.oid
 WHERE am.amname = 'gin'
 GROUP BY amname, amsupport, opcname, amprocfamily
 HAVING count(*) < amsupport - 1 OR amprocfamily IS NULL;
-ERROR:  GROUP BY clause is not yet supported
+ amname | opcname | count 
+--------+---------+-------
+(0 rows)
+
 -- Unfortunately, we can't check the amproc link very well because the
 -- signature of the function may be different for different support routines
 -- or different base data types.

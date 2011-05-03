@@ -89,6 +89,7 @@
 #include "optimizer/tlist.h"
 #include "parser/parse_agg.h"
 #include "parser/parse_coerce.h"
+#include "pgxc/pgxc.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
@@ -121,6 +122,9 @@ typedef struct AggStatePerAggData
 	/* Oids of transfer functions */
 	Oid			transfn_oid;
 	Oid			finalfn_oid;	/* may be InvalidOid */
+#ifdef PGXC
+	Oid			collectfn_oid;	/* may be InvalidOid */
+#endif /* PGXC */
 
 	/*
 	 * fmgr lookup data for transfer functions --- only valid when
@@ -129,6 +133,9 @@ typedef struct AggStatePerAggData
 	 */
 	FmgrInfo	transfn;
 	FmgrInfo	finalfn;
+#ifdef PGXC
+	FmgrInfo	collectfn;
+#endif /* PGXC */
 
 	/* number of sorting columns */
 	int			numSortCols;
@@ -154,6 +161,10 @@ typedef struct AggStatePerAggData
 	 */
 	Datum		initValue;
 	bool		initValueIsNull;
+#ifdef PGXC
+	Datum		initCollectValue;
+	bool		initCollectValueIsNull;
+#endif /* PGXC */
 
 	/*
 	 * We need the len and byval info for the agg's input, result, and
@@ -165,9 +176,15 @@ typedef struct AggStatePerAggData
 	int16		inputtypeLen,
 				resulttypeLen,
 				transtypeLen;
+#ifdef PGXC
+	int16		collecttypeLen;
+#endif /* PGXC */
 	bool		inputtypeByVal,
 				resulttypeByVal,
 				transtypeByVal;
+#ifdef PGXC
+	bool		collecttypeByVal;
+#endif /* PGXC */
 
 	/*
 	 * Stuff for evaluation of inputs.	We used to just use ExecEvalExpr, but
@@ -725,6 +742,55 @@ finalize_aggregate(AggState *aggstate,
 	MemoryContext oldContext;
 
 	oldContext = MemoryContextSwitchTo(aggstate->ss.ps.ps_ExprContext->ecxt_per_tuple_memory);
+#ifdef PGXC
+	/*
+	 * PGXCTODO: see PGXCTODO item in advance_collect_function 
+	 * this step is needed in case the transition function does not produce
+	 * result consumable by final function and need collection function to be
+	 * applied on transition function results. Usually results by both functions
+	 * should be consumable by final function.
+	 * As such this step is meant only to convert transition results into form
+	 * consumable by final function, the step does not actually do any
+	 * collection.
+	 */
+	if (OidIsValid(peraggstate->collectfn_oid))
+	{
+		FunctionCallInfoData fcinfo;
+		InitFunctionCallInfoData(fcinfo, &(peraggstate->collectfn), 2,
+									(void *) aggstate, NULL);
+		/*
+		 * copy the initial datum since it might get changed inside the
+		 * collection function
+		 */
+		if (peraggstate->initCollectValueIsNull)
+			fcinfo.arg[0] = peraggstate->initCollectValue;
+		else
+			fcinfo.arg[0] = datumCopy(peraggstate->initCollectValue,
+			                                     peraggstate->collecttypeByVal,
+			                                     peraggstate->collecttypeLen);
+		fcinfo.argnull[0] = peraggstate->initCollectValueIsNull;
+		fcinfo.arg[1] = pergroupstate->transValue;
+		fcinfo.argnull[1] = pergroupstate->transValueIsNull;
+		if (fcinfo.flinfo->fn_strict &&
+			(pergroupstate->transValueIsNull || peraggstate->initCollectValueIsNull))
+		{
+			pergroupstate->transValue = (Datum)0;
+			pergroupstate->transValueIsNull = true;
+		}
+		else
+		{
+			Datum newVal = FunctionCallInvoke(&fcinfo);
+
+			/*
+			 * set the result of collection function to the transValue so that code
+			 * below invoking final function does not change
+			 */
+			/* PGXCTODO: worry about the memory management here? */
+			pergroupstate->transValue = newVal;
+			pergroupstate->transValueIsNull = fcinfo.isnull;
+		}
+	}
+#endif /* PGXC */
 
 	/*
 	 * Apply the agg's finalfn if one is provided, else return transValue.
@@ -1546,6 +1612,10 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		AclResult	aclresult;
 		Oid			transfn_oid,
 					finalfn_oid;
+#ifdef PGXC
+		Oid			collectfn_oid;
+		Expr	   *collectfnexpr;
+#endif /* PGXC */
 		Expr	   *transfnexpr,
 				   *finalfnexpr;
 		Datum		textInitVal;
@@ -1612,13 +1682,19 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 						   get_func_name(aggref->aggfnoid));
 
 		peraggstate->transfn_oid = transfn_oid = aggform->aggtransfn;
-#ifdef PGXC
-		/* For PGXC final function is executed when combining, disable it here */
-		peraggstate->finalfn_oid = finalfn_oid = InvalidOid;
-#else
 		peraggstate->finalfn_oid = finalfn_oid = aggform->aggfinalfn;
-#endif
-
+#ifdef PGXC
+		peraggstate->collectfn_oid = collectfn_oid = aggform->aggcollectfn;
+		/*
+		 * For PGXC final and collection functions are used to combine results at coordinator,
+		 * disable those for data node
+		 */
+		if (IS_PGXC_DATANODE)
+		{
+			peraggstate->finalfn_oid = finalfn_oid = InvalidOid;
+			peraggstate->collectfn_oid = collectfn_oid = InvalidOid;
+		}
+#endif /* PGXC */
 		/* Check that aggregate owner has permission to call component fns */
 		{
 			HeapTuple	procTuple;
@@ -1645,6 +1721,17 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 					aclcheck_error(aclresult, ACL_KIND_PROC,
 								   get_func_name(finalfn_oid));
 			}
+
+#ifdef PGXC
+			if (OidIsValid(collectfn_oid))
+			{
+				aclresult = pg_proc_aclcheck(collectfn_oid, aggOwner,
+												ACL_EXECUTE);
+				if (aclresult != ACLCHECK_OK)
+					aclcheck_error(aclresult, ACL_KIND_PROC,
+								   get_func_name(collectfn_oid));
+			}
+#endif /* PGXC */
 		}
 
 		/* resolve actual type of transition state, if polymorphic */
@@ -1675,6 +1762,32 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 								finalfn_oid,
 								&transfnexpr,
 								&finalfnexpr);
+#ifdef PGXC
+		if (OidIsValid(collectfn_oid))
+		{
+			/* we expect final function expression to be NULL in call to
+			 * build_aggregate_fnexprs below, since InvalidOid is passed for
+			 * finalfn_oid argument. Use a dummy expression to accept that.
+			 */
+			Expr	*dummyexpr;
+			/*
+			 * for XC, we need to setup the collection function expression as well.
+			 * Use the same function with invalid final function oid, and collection
+			 * function information instead of transition function information.
+			 * PGXCTODO: we should really be adding this step inside
+			 * build_aggregate_fnexprs() but this way it becomes easy to merge.
+			 */
+			build_aggregate_fnexprs(&aggform->aggtranstype,
+									1,
+									aggform->aggcollecttype,
+									aggref->aggtype,
+									collectfn_oid,
+									InvalidOid,
+									&collectfnexpr,
+									&dummyexpr);
+			Assert(!dummyexpr);
+		}
+#endif /* PGXC */
 
 		fmgr_info(transfn_oid, &peraggstate->transfn);
 		peraggstate->transfn.fn_expr = (Node *) transfnexpr;
@@ -1685,12 +1798,25 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			peraggstate->finalfn.fn_expr = (Node *) finalfnexpr;
 		}
 
+#ifdef PGXC
+		if (OidIsValid(collectfn_oid))
+		{
+			fmgr_info(collectfn_oid, &peraggstate->collectfn);
+			peraggstate->collectfn.fn_expr = (Node *)collectfnexpr;
+		}
+#endif /* PGXC */
+
 		get_typlenbyval(aggref->aggtype,
 						&peraggstate->resulttypeLen,
 						&peraggstate->resulttypeByVal);
 		get_typlenbyval(aggtranstype,
 						&peraggstate->transtypeLen,
 						&peraggstate->transtypeByVal);
+#ifdef PGXC
+		get_typlenbyval(aggform->aggcollecttype,
+						&peraggstate->collecttypeLen,
+						&peraggstate->collecttypeByVal);
+#endif /* PGXC */
 
 		/*
 		 * initval is potentially null, so don't try to access it as a struct
@@ -1705,6 +1831,23 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		else
 			peraggstate->initValue = GetAggInitVal(textInitVal,
 												   aggtranstype);
+
+#ifdef PGXC
+		/*
+		 * initval for collection function is potentially null, so don't try to
+		 * access it as a struct field. Must do it the hard way with
+		 * SysCacheGetAttr.
+		 */
+		textInitVal = SysCacheGetAttr(AGGFNOID, aggTuple,
+									  Anum_pg_aggregate_agginitcollect,
+									  &peraggstate->initCollectValueIsNull);
+
+		if (peraggstate->initCollectValueIsNull)
+			peraggstate->initCollectValue = (Datum) 0;
+		else
+			peraggstate->initCollectValue = GetAggInitVal(textInitVal,
+												   aggform->aggcollecttype);
+#endif /* PGXC */
 
 		/*
 		 * If the transfn is strict and the initval is NULL, make sure input

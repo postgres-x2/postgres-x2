@@ -291,12 +291,6 @@ query_planner(PlannerInfo *root, List *tlist,
 	{
 		List	   *groupExprs;
 
-#ifdef PGXC
-		ereport(ERROR,
-				(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-					(errmsg("GROUP BY clause is not yet supported"))));
-#endif
-
 		groupExprs = get_sortgrouplist_exprs(parse->groupClause,
 											 parse->targetList);
 		*num_groups = estimate_num_groups(root,
