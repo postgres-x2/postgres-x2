@@ -2895,6 +2895,12 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	if (query->commandType != CMD_SELECT)
 		result->resultRelations = list_make1_int(query->resultRelation);
 
+	if (contains_only_pg_catalog (query->rtable))
+	{
+		result = standard_planner(query, cursorOptions, boundParams);
+		return result;
+	}
+
 	if (query_step->exec_nodes == NULL)
 		get_plan_nodes_command(query_step, root);
 

@@ -889,7 +889,7 @@ RelationBuildDesc(Oid targetRelId, bool insertIt)
 		relation->trigdesc = NULL;
 
 #ifdef PGXC
-	if (IS_PGXC_COORDINATOR && relation->rd_id >= FirstNormalObjectId)
+	if (IS_PGXC_COORDINATOR && relation->rd_id >= FirstBootstrapObjectId)
 		RelationBuildLocator(relation);
 #endif
 	/*

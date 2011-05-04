@@ -754,37 +754,6 @@ GetRelationLocInfo(Oid relid)
 
 	Relation	rel = relation_open(relid, AccessShareLock);
 
-	/* This check has been added as a temp fix for CREATE TABLE not adding entry in pgxc_class
-	 * when run from system_views.sql
-	 */
-	if (	rel != NULL && 
-		rel->rd_rel != NULL && 
-		rel->rd_rel->relkind == RELKIND_RELATION &&
-		rel->rd_rel->relname.data != NULL &&
-		(strcmp(rel->rd_rel->relname.data, PREPARED_XACTS_TABLE) == 0) )
-	{
-		namespace = get_namespace_name(rel->rd_rel->relnamespace);
-
-		if (namespace != NULL && (strcmp(namespace, PGXC_COORDINATOR_SCHEMA) == 0))
-		{
-			RelationLocInfo *dest_info;
-		
-			dest_info = (RelationLocInfo *) palloc0(sizeof(RelationLocInfo));
-		
-			dest_info->relid = relid;
-			dest_info->locatorType = 'N';
-			dest_info->nodeCount = NumDataNodes;
-			dest_info->nodeList = GetAllDataNodes();
-
-			relation_close(rel, AccessShareLock);
-			pfree(namespace);
-
-			return dest_info;
-		}
-
-		if (namespace != NULL) pfree(namespace);
-	}
-
 	if (rel && rel->rd_locator_info)
 		ret_loc_info = CopyRelationLocInfo(rel->rd_locator_info);
 
