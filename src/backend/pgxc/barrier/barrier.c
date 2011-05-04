@@ -414,6 +414,18 @@ ExecuteBarrier(const char *id)
 	/*
 	 * Also WAL log the BARRIER locally and flush the WAL buffers to disk
 	 */
+	{
+		XLogRecData rdata[1];
+		XLogRecPtr recptr;
+
+		rdata[0].data = (char *) id;
+		rdata[0].len = strlen(id) + 1;
+		rdata[0].buffer = InvalidBuffer;
+		rdata[0].next = NULL;
+
+		recptr = XLogInsert(RM_BARRIER_ID, XLOG_BARRIER_CREATE, rdata);
+		XLogFlush(recptr);
+	}
 }
 
 /*

@@ -4371,6 +4371,14 @@ writeTimeLineHistory(TimeLineID newTLI, TimeLineID parentTLI,
 				 xlogfname,
 				 recoveryStopAfter ? "after" : "before",
 				 timestamptz_to_str(recoveryStopTime));
+	else if (recoveryTarget == RECOVERY_TARGET_BARRIER)
+		snprintf(buffer, sizeof(buffer),
+				 "%s%u\t%s\t%s %s\n",
+				 (srcfd < 0) ? "" : "\n",
+				 parentTLI,
+				 xlogfname,
+				 recoveryStopAfter ? "after" : "before",
+				 recoveryTargetBarrierId);
 	else
 		snprintf(buffer, sizeof(buffer),
 				 "%s%u\t%s\tno recovery target specified\n",
@@ -5240,7 +5248,7 @@ readRecoveryCommandFile(void)
 #ifdef PGXC
 		else if (strcmp(tok1, "recovery_barrier_id") == 0)
 		{
-			recoveryTarget = true;
+			recoveryTarget = RECOVERY_TARGET_BARRIER;
 			recoveryTargetBarrierId = pstrdup(tok2);
 		}
 #endif
@@ -5468,7 +5476,7 @@ recoveryStopsHere(XLogRecord *record, bool *includeThis)
 {
 	bool		stopsHere;
 #ifdef PGXC
-	bool		stopsAtThisBarrier;
+	bool		stopsAtThisBarrier = false;
 	char		*recordBarrierId;
 #endif
 	uint8		record_info;
@@ -5482,25 +5490,34 @@ recoveryStopsHere(XLogRecord *record, bool *includeThis)
 	if (record->xl_rmid != RM_XACT_ID)
 #endif
 		return false;
+
 	record_info = record->xl_info & ~XLR_INFO_MASK;
-	if (record_info == XLOG_XACT_COMMIT)
+	if (record->xl_rmid == RM_XACT_ID)
 	{
-		xl_xact_commit *recordXactCommitData;
+		if (record_info == XLOG_XACT_COMMIT)
+		{
+			xl_xact_commit *recordXactCommitData;
 
-		recordXactCommitData = (xl_xact_commit *) XLogRecGetData(record);
-		recordXtime = recordXactCommitData->xact_time;
-	}
-	else if (record_info == XLOG_XACT_ABORT)
-	{
-		xl_xact_abort *recordXactAbortData;
+			recordXactCommitData = (xl_xact_commit *) XLogRecGetData(record);
+			recordXtime = recordXactCommitData->xact_time;
+		}
+		else if (record_info == XLOG_XACT_ABORT)
+		{
+			xl_xact_abort *recordXactAbortData;
 
-		recordXactAbortData = (xl_xact_abort *) XLogRecGetData(record);
-		recordXtime = recordXactAbortData->xact_time;
+			recordXactAbortData = (xl_xact_abort *) XLogRecGetData(record);
+			recordXtime = recordXactAbortData->xact_time;
+		}
 	}
 #ifdef PGXC
-	else if (record_info == XLOG_BARRIER_CREATE)
+	else if (record->xl_rmid == RM_BARRIER_ID)
 	{
-		recordBarrierId = (char *) XLogRecGetData(record);
+		if (record_info == XLOG_BARRIER_CREATE)
+		{
+			recordBarrierId = (char *) XLogRecGetData(record);
+			ereport(DEBUG2,
+					(errmsg("processing barrier xlog record for %s", recordBarrierId)));
+		}
 	}
 #endif	
 	else
@@ -5529,8 +5546,14 @@ recoveryStopsHere(XLogRecord *record, bool *includeThis)
 			*includeThis = recoveryTargetInclusive;
 	}
 #ifdef PGXC
-	else if (recoveryTargetBarrierId)
+	else if (recoveryTarget == RECOVERY_TARGET_BARRIER)
 	{
+		if ((record->xl_rmid != RM_BARRIER_ID) ||
+			(record_info != XLOG_BARRIER_CREATE))
+			return false;
+
+		ereport(DEBUG2,
+				(errmsg("checking if barrier record matches the target barrier")));
 		if (strcmp(recoveryTargetBarrierId, recordBarrierId) == 0)
 			stopsAtThisBarrier = true;
 	}
@@ -5858,6 +5881,10 @@ StartupXLOG(void)
 			ereport(LOG,
 					(errmsg("starting point-in-time recovery to %s",
 							timestamptz_to_str(recoveryTargetTime))));
+		else if (recoveryTarget == RECOVERY_TARGET_BARRIER)
+			ereport(LOG,
+					(errmsg("starting point-in-time recovery to barrier %s",
+							(recoveryTargetBarrierId))));
 		else
 			ereport(LOG,
 					(errmsg("starting archive recovery")));
