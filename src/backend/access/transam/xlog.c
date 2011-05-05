@@ -5548,14 +5548,16 @@ recoveryStopsHere(XLogRecord *record, bool *includeThis)
 #ifdef PGXC
 	else if (recoveryTarget == RECOVERY_TARGET_BARRIER)
 	{
-		if ((record->xl_rmid != RM_BARRIER_ID) ||
-			(record_info != XLOG_BARRIER_CREATE))
-			return false;
-
-		ereport(DEBUG2,
-				(errmsg("checking if barrier record matches the target barrier")));
-		if (strcmp(recoveryTargetBarrierId, recordBarrierId) == 0)
-			stopsAtThisBarrier = true;
+		stopsHere = false;
+		if ((record->xl_rmid == RM_BARRIER_ID) &&
+			(record_info == XLOG_BARRIER_CREATE))
+		{
+			ereport(DEBUG2,
+					(errmsg("checking if barrier record matches the target "
+							"barrier")));
+			if (strcmp(recoveryTargetBarrierId, recordBarrierId) == 0)
+				stopsAtThisBarrier = true;
+		}
 	}
 #endif
 	else
