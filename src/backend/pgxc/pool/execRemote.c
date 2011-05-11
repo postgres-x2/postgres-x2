@@ -4057,17 +4057,45 @@ ParamListToDataRow(ParamListInfo params, char** result)
 	StringInfoData buf;
 	uint16 n16;
 	int i;
+	int real_num_params = params->numParams;
+
+	/*
+	 * It is necessary to fetch parameters
+	 * before looking at the output value.
+	 */
+	for (i = 0; i < params->numParams; i++)
+	{
+		ParamExternData *param;
+
+		param = &params->params[i];
+
+		if (!OidIsValid(param->ptype) && params->paramFetch != NULL)
+			(*params->paramFetch) (params, i + 1);
+
+		/*
+		 * In case parameter type is not defined, it is not necessary to include
+		 * it in message sent to backend nodes.
+		 */
+		if (!OidIsValid(param->ptype))
+			real_num_params--;
+	}
 
 	initStringInfo(&buf);
+
 	/* Number of parameter values */
-	n16 = htons(params->numParams);
+	n16 = htons(real_num_params);
 	appendBinaryStringInfo(&buf, (char *) &n16, 2);
 
 	/* Parameter values */
 	for (i = 0; i < params->numParams; i++)
 	{
-		ParamExternData *param = params->params + i;
+		ParamExternData *param = &params->params[i];
 		uint32 n32;
+
+		/* If parameter has no type defined it is not necessary to include it in message */
+		if (!OidIsValid(param->ptype))
+			continue;
+
 		if (param->isnull)
 		{
 			n32 = htonl(-1);
