@@ -49,7 +49,7 @@
 #define PRIMARY_NODE_WRITEAHEAD 1024 * 1024
 
 static bool autocommit = true;
-static is_ddl = false;
+static bool is_ddl = false;
 static bool implicit_force_autocommit = false;
 static PGXCNodeHandle **write_node_list = NULL;
 static int	write_node_count = 0;
@@ -420,7 +420,6 @@ create_tuple_desc(char *msg_body, size_t len)
 		char		*typname;
 		Oid 		oidtypeid;
 		int32 		typemode, typmod;
-		uint32		n32;
 
 		attnum = (AttrNumber) i;
 
@@ -1152,6 +1151,27 @@ BufferConnection(PGXCNodeHandle *conn)
 }
 
 /*
+ * copy the datarow from combiner to the given slot, in the slot's memory
+ * context
+ */
+static void
+CopyDataRowTupleToSlot(RemoteQueryState *combiner, TupleTableSlot *slot)
+{
+	char 			*msg;
+	MemoryContext	oldcontext;
+	oldcontext = MemoryContextSwitchTo(slot->tts_mcxt);
+	msg = (char *)palloc(combiner->currentRow.msglen);
+	memcpy(msg, combiner->currentRow.msg, combiner->currentRow.msglen);
+	ExecStoreDataRowTuple(msg, combiner->currentRow.msglen,
+						  combiner->currentRow.msgnode, slot, true);
+	pfree(combiner->currentRow.msg);
+	combiner->currentRow.msg = NULL;
+	combiner->currentRow.msglen = 0;
+	combiner->currentRow.msgnode = 0;
+	MemoryContextSwitchTo(oldcontext);
+}
+
+/*
  * Get next data row from the combiner's buffer into provided slot
  * Just clear slot and return false if buffer is empty, that means end of result
  * set is reached
@@ -1164,12 +1184,7 @@ FetchTuple(RemoteQueryState *combiner, TupleTableSlot *slot)
 	/* If we have message in the buffer, consume it */
 	if (combiner->currentRow.msg)
 	{
-		ExecStoreDataRowTuple(combiner->currentRow.msg,
-							  combiner->currentRow.msglen,
-							  combiner->currentRow.msgnode, slot, true);
-		combiner->currentRow.msg = NULL;
-		combiner->currentRow.msglen = 0;
-		combiner->currentRow.msgnode = 0;
+		CopyDataRowTupleToSlot(combiner, slot);
 		have_tuple = true;
 	}
 
@@ -1189,6 +1204,10 @@ FetchTuple(RemoteQueryState *combiner, TupleTableSlot *slot)
 	 * completed. Afterwards rows will be taken from the buffer bypassing
 	 * currentRow until buffer is empty, and only after that data are read
 	 * from a connection.
+	 * PGXCTODO: the message should be allocated in the same memory context as
+	 * that of the slot. Are we sure of that in the call to
+	 * ExecStoreDataRowTuple below? If one fixes this memory issue, please
+	 * consider using CopyDataRowTupleToSlot() for the same.
 	 */
 	if (list_length(combiner->rowBuffer) > 0)
 	{
@@ -1279,12 +1298,7 @@ FetchTuple(RemoteQueryState *combiner, TupleTableSlot *slot)
 		/* If we have message in the buffer, consume it */
 		if (combiner->currentRow.msg)
 		{
-			ExecStoreDataRowTuple(combiner->currentRow.msg,
-								  combiner->currentRow.msglen,
-								  combiner->currentRow.msgnode, slot, true);
-			combiner->currentRow.msg = NULL;
-			combiner->currentRow.msglen = 0;
-			combiner->currentRow.msgnode = 0;
+			CopyDataRowTupleToSlot(combiner, slot);
 			have_tuple = true;
 		}
 
@@ -3762,7 +3776,7 @@ handle_results:
 			natts = resultslot->tts_tupleDescriptor->natts;
 			for (i = 0; i < natts; ++i)
 			{
-				if (resultslot->tts_values[i] == NULL)
+				if (resultslot->tts_values[i] == (Datum) NULL)
 					return NULL;
 			}
 

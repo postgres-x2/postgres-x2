@@ -466,64 +466,6 @@ ExecStoreMinimalTuple(MinimalTuple mtup,
 	return slot;
 }
 
-#ifdef PGXC
-/* --------------------------------
- *		ExecStoreDataRowTuple
- *
- *		Store a buffer in DataRow message format into the slot.
- *
- * --------------------------------
- */
-TupleTableSlot *
-ExecStoreDataRowTuple(char *msg, size_t len, int node, TupleTableSlot *slot,
-					  bool shouldFree)
-{
-	/*
-	 * sanity checks
-	 */
-	Assert(msg != NULL);
-	Assert(len > 0);
-	Assert(slot != NULL);
-	Assert(slot->tts_tupleDescriptor != NULL);
-
-	/*
-	 * Free any old physical tuple belonging to the slot.
-	 */
-	if (slot->tts_shouldFree)
-		heap_freetuple(slot->tts_tuple);
-	if (slot->tts_shouldFreeMin)
-		heap_free_minimal_tuple(slot->tts_mintuple);
-	if (slot->tts_shouldFreeRow)
-		pfree(slot->tts_dataRow);
-
-	/*
-	 * Drop the pin on the referenced buffer, if there is one.
-	 */
-	if (BufferIsValid(slot->tts_buffer))
-		ReleaseBuffer(slot->tts_buffer);
-
-	slot->tts_buffer = InvalidBuffer;
-
-	/*
-	 * Store the new tuple into the specified slot.
-	 */
-	slot->tts_isempty = false;
-	slot->tts_shouldFree = false;
-	slot->tts_shouldFreeMin = false;
-	slot->tts_shouldFreeRow = shouldFree;
-	slot->tts_tuple = NULL;
-	slot->tts_mintuple = NULL;
-	slot->tts_dataRow = msg;
-	slot->tts_dataLen = len;
-	slot->tts_dataNode = node;
-
-	/* Mark extracted state invalid */
-	slot->tts_nvalid = 0;
-
-	return slot;
-}
-#endif
-
 /* --------------------------------
  *		ExecClearTuple
  *
@@ -1416,3 +1358,68 @@ end_tup_output(TupOutputState *tstate)
 	ExecDropSingleTupleTableSlot(tstate->slot);
 	pfree(tstate);
 }
+
+#ifdef PGXC
+/* --------------------------------
+ *		ExecStoreDataRowTuple
+ *
+ *		Store a buffer in DataRow message format into the slot.
+ *
+ * --------------------------------
+ */
+TupleTableSlot *
+ExecStoreDataRowTuple(char *msg, size_t len, int node, TupleTableSlot *slot,
+					  bool shouldFree)
+{
+	/*
+	 * sanity checks
+	 */
+	Assert(msg != NULL);
+	Assert(len > 0);
+	Assert(slot != NULL);
+	Assert(slot->tts_tupleDescriptor != NULL);
+
+	/*
+	 * Free any old physical tuple belonging to the slot.
+	 */
+	if (slot->tts_shouldFree)
+		heap_freetuple(slot->tts_tuple);
+	if (slot->tts_shouldFreeMin)
+		heap_free_minimal_tuple(slot->tts_mintuple);
+	/*
+	 * if msg == slot->tts_dataRow then we would
+	 * free the dataRow in the slot loosing the contents in msg. It is safe
+	 * to reset shouldFreeRow, since it will be overwritten just below.
+	 */
+	if (msg == slot->tts_dataRow)
+		slot->tts_shouldFreeRow = false;
+	if (slot->tts_shouldFreeRow)
+		pfree(slot->tts_dataRow);
+
+	/*
+	 * Drop the pin on the referenced buffer, if there is one.
+	 */
+	if (BufferIsValid(slot->tts_buffer))
+		ReleaseBuffer(slot->tts_buffer);
+
+	slot->tts_buffer = InvalidBuffer;
+
+	/*
+	 * Store the new tuple into the specified slot.
+	 */
+	slot->tts_isempty = false;
+	slot->tts_shouldFree = false;
+	slot->tts_shouldFreeMin = false;
+	slot->tts_shouldFreeRow = shouldFree;
+	slot->tts_tuple = NULL;
+	slot->tts_mintuple = NULL;
+	slot->tts_dataRow = msg;
+	slot->tts_dataLen = len;
+	slot->tts_dataNode = node;
+
+	/* Mark extracted state invalid */
+	slot->tts_nvalid = 0;
+
+	return slot;
+}
+#endif
