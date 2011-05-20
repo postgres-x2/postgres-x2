@@ -3,12 +3,12 @@
  * initsplan.c
  *	  Target list, qualification, joininfo initialization routines
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/optimizer/plan/initsplan.c,v 1.154 2009/06/11 14:48:59 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/optimizer/plan/initsplan.c,v 1.158 2010/02/26 02:00:45 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -559,6 +559,9 @@ make_outerjoininfo(PlannerInfo *root,
 	 * parser.	It's because the parser hasn't got enough info --- consider
 	 * FOR UPDATE applied to a view.  Only after rewriting and flattening do
 	 * we know whether the view contains an outer join.
+	 *
+	 * We use the original RowMarkClause list here; the PlanRowMark list would
+	 * list everything.
 	 */
 	foreach(l, root->parse->rowMarks)
 	{
@@ -630,8 +633,8 @@ make_outerjoininfo(PlannerInfo *root,
 		 * min_lefthand + min_righthand.  This is because there might be other
 		 * OJs below this one that this one can commute with, but we cannot
 		 * commute with them if we don't with this one.)  Also, if the current
-		 * join is an antijoin, we must preserve ordering regardless of
-		 * strictness.
+		 * join is a semijoin or antijoin, we must preserve ordering
+		 * regardless of strictness.
 		 *
 		 * Note: I believe we have to insist on being strict for at least one
 		 * rel in the lower OJ's min_righthand, not its whole syn_righthand.
@@ -639,7 +642,7 @@ make_outerjoininfo(PlannerInfo *root,
 		if (bms_overlap(left_rels, otherinfo->syn_righthand))
 		{
 			if (bms_overlap(clause_relids, otherinfo->syn_righthand) &&
-				(jointype == JOIN_ANTI ||
+				(jointype == JOIN_SEMI || jointype == JOIN_ANTI ||
 				 !bms_overlap(strict_relids, otherinfo->min_righthand)))
 			{
 				min_lefthand = bms_add_members(min_lefthand,
@@ -655,7 +658,7 @@ make_outerjoininfo(PlannerInfo *root,
 		 * can interchange the ordering of the two OJs; otherwise we must add
 		 * lower OJ's full syntactic relset to min_righthand.  Here, we must
 		 * preserve ordering anyway if either the current join is a semijoin,
-		 * or the lower OJ is an antijoin.
+		 * or the lower OJ is either a semijoin or an antijoin.
 		 *
 		 * Here, we have to consider that "our join condition" includes any
 		 * clauses that syntactically appeared above the lower OJ and below
@@ -672,6 +675,7 @@ make_outerjoininfo(PlannerInfo *root,
 		{
 			if (bms_overlap(clause_relids, otherinfo->syn_righthand) ||
 				jointype == JOIN_SEMI ||
+				otherinfo->jointype == JOIN_SEMI ||
 				otherinfo->jointype == JOIN_ANTI ||
 				!otherinfo->lhs_strict || otherinfo->delay_upper_joins)
 			{

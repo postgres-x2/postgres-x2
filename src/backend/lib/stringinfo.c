@@ -6,10 +6,10 @@
  * It can be used to buffer either ordinary C strings (null-terminated text)
  * or arbitrary binary data.  All storage is allocated with palloc().
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- *	  $PostgreSQL: pgsql/src/backend/lib/stringinfo.c,v 1.50 2009/01/01 17:23:42 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/lib/stringinfo.c,v 1.54 2010/07/06 19:18:56 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -187,6 +187,26 @@ appendStringInfoChar(StringInfo str, char ch)
 }
 
 /*
+ * appendStringInfoSpaces
+ *
+ * Append the specified number of spaces to a buffer.
+ */
+void
+appendStringInfoSpaces(StringInfo str, int count)
+{
+	if (count > 0)
+	{
+		/* Make more room if needed */
+		enlargeStringInfo(str, count);
+
+		/* OK, append the spaces */
+		while (--count >= 0)
+			str->data[str->len++] = ' ';
+		str->data[str->len] = '\0';
+	}
+}
+
+/*
  * appendBinaryStringInfo
  *
  * Append arbitrary binary data to a StringInfo, allocating more space
@@ -206,7 +226,8 @@ appendBinaryStringInfo(StringInfo str, const char *data, int datalen)
 
 	/*
 	 * Keep a trailing null in place, even though it's probably useless for
-	 * binary data...
+	 * binary data.  (Some callers are dealing with text but call this because
+	 * their input isn't null-terminated.)
 	 */
 	str->data[str->len] = '\0';
 }

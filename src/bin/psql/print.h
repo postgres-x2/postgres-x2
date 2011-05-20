@@ -1,9 +1,9 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2009, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2010, PostgreSQL Global Development Group
  *
- * $PostgreSQL: pgsql/src/bin/psql/print.h,v 1.40 2009/06/11 14:49:08 momjian Exp $
+ * $PostgreSQL: pgsql/src/bin/psql/print.h,v 1.46 2010/07/06 19:19:00 momjian Exp $
  */
 #ifndef PRINT_H
 #define PRINT_H
@@ -23,10 +23,53 @@ enum printFormat
 	/* add your favourite output format here ... */
 };
 
+typedef struct printTextLineFormat
+{
+	/* Line drawing characters to be used in various contexts */
+	const char *hrule;			/* horizontal line character */
+	const char *leftvrule;		/* left vertical line (+horizontal) */
+	const char *midvrule;		/* intra-column vertical line (+horizontal) */
+	const char *rightvrule;		/* right vertical line (+horizontal) */
+} printTextLineFormat;
+
+typedef enum printTextRule
+{
+	/* Additional context for selecting line drawing characters */
+	PRINT_RULE_TOP,				/* top horizontal line */
+	PRINT_RULE_MIDDLE,			/* intra-data horizontal line */
+	PRINT_RULE_BOTTOM,			/* bottom horizontal line */
+	PRINT_RULE_DATA				/* data line (hrule is unused here) */
+} printTextRule;
+
+typedef enum printTextLineWrap
+{
+	/* Line wrapping conditions */
+	PRINT_LINE_WRAP_NONE,		/* No wrapping */
+	PRINT_LINE_WRAP_WRAP,		/* Wraparound due to overlength line */
+	PRINT_LINE_WRAP_NEWLINE		/* Newline in data */
+} printTextLineWrap;
+
+typedef struct printTextFormat
+{
+	/* A complete line style */
+	const char *name;			/* for display purposes */
+	printTextLineFormat lrule[4];		/* indexed by enum printTextRule */
+	const char *midvrule_nl;	/* vertical line for continue after newline */
+	const char *midvrule_wrap;	/* vertical line for wrapped data */
+	const char *midvrule_blank; /* vertical line for blank data */
+	const char *header_nl_left; /* left mark after newline */
+	const char *header_nl_right;	/* right mark for newline */
+	const char *nl_left;		/* left mark after newline */
+	const char *nl_right;		/* right mark for newline */
+	const char *wrap_left;		/* left mark after wrapped data */
+	const char *wrap_right;		/* right mark for wrapped data */
+	bool		wrap_right_border;		/* use right-hand border for wrap
+										 * marks when border=0? */
+} printTextFormat;
 
 typedef struct printTableOpt
 {
-	enum printFormat format;	/* one of the above */
+	enum printFormat format;	/* see enum above */
 	bool		expanded;		/* expanded/vertical output (if supported by
 								 * output format) */
 	unsigned short int border;	/* Print a border around the table. 0=none,
@@ -37,6 +80,7 @@ typedef struct printTableOpt
 	bool		start_table;	/* print start decoration, eg <table> */
 	bool		stop_table;		/* print stop decoration, eg </table> */
 	unsigned long prior_records;	/* start offset for record counters */
+	const printTextFormat *line_style;	/* line style (NULL for default) */
 	char	   *fieldSep;		/* field separator for unaligned text mode */
 	char	   *recordSep;		/* record separator for unaligned text mode */
 	bool		numericLocale;	/* locale-aware numeric units separator and
@@ -75,6 +119,8 @@ typedef struct printTableContent
 	const char **cells;			/* NULL-terminated array of cell content
 								 * strings */
 	const char **cell;			/* Pointer to the last added cell */
+	long		cellsadded;		/* Number of cells added this far */
+	bool	   *cellmustfree;	/* true for cells that need to be free()d */
 	printTableFooter *footers;	/* Pointer to the first footer */
 	printTableFooter *footer;	/* Pointer to the last added footer */
 	char	   *aligns;			/* Array of alignment specifiers; 'l' or 'r',
@@ -96,6 +142,11 @@ typedef struct printQueryOpt
 } printQueryOpt;
 
 
+extern const printTextFormat pg_asciiformat;
+extern const printTextFormat pg_asciiformat_old;
+extern const printTextFormat pg_utf8format;
+
+
 extern FILE *PageOutput(int lines, unsigned short int pager);
 extern void ClosePager(FILE *pagerpipe);
 
@@ -107,7 +158,7 @@ extern void printTableInit(printTableContent *const content,
 extern void printTableAddHeader(printTableContent *const content,
 				 const char *header, const bool translate, const char align);
 extern void printTableAddCell(printTableContent *const content,
-				  const char *cell, const bool translate);
+				const char *cell, const bool translate, const bool mustfree);
 extern void printTableAddFooter(printTableContent *const content,
 					const char *footer);
 extern void printTableSetFooter(printTableContent *const content,
@@ -118,6 +169,7 @@ extern void printQuery(const PGresult *result, const printQueryOpt *opt,
 		   FILE *fout, FILE *flog);
 
 extern void setDecimalLocale(void);
+extern const printTextFormat *get_line_style(const printTableOpt *opt);
 
 #ifndef __CYGWIN__
 #define DEFAULT_PAGER "more"

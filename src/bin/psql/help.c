@@ -1,9 +1,9 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2009, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2010, PostgreSQL Global Development Group
  *
- * $PostgreSQL: pgsql/src/bin/psql/help.c,v 1.150 2009/06/11 14:49:08 momjian Exp $
+ * $PostgreSQL: pgsql/src/bin/psql/help.c,v 1.159 2010/05/26 19:29:22 rhaas Exp $
  */
 #include "postgres_fe.h"
 
@@ -196,11 +196,12 @@ slashUsage(unsigned short int pager)
 	fprintf(output, _("  (options: S = show system objects, + = additional detail)\n"));
 	fprintf(output, _("  \\d[S+]                 list tables, views, and sequences\n"));
 	fprintf(output, _("  \\d[S+]  NAME           describe table, view, sequence, or index\n"));
-	fprintf(output, _("  \\da[+]  [PATTERN]      list aggregates\n"));
+	fprintf(output, _("  \\da[S]  [PATTERN]      list aggregates\n"));
 	fprintf(output, _("  \\db[+]  [PATTERN]      list tablespaces\n"));
 	fprintf(output, _("  \\dc[S]  [PATTERN]      list conversions\n"));
 	fprintf(output, _("  \\dC     [PATTERN]      list casts\n"));
 	fprintf(output, _("  \\dd[S]  [PATTERN]      show comments on objects\n"));
+	fprintf(output, _("  \\ddp    [PATTERN]      list default privileges\n"));
 	fprintf(output, _("  \\dD[S]  [PATTERN]      list domains\n"));
 	fprintf(output, _("  \\des[+] [PATTERN]      list foreign servers\n"));
 	fprintf(output, _("  \\deu[+] [PATTERN]      list user mappings\n"));
@@ -210,16 +211,17 @@ slashUsage(unsigned short int pager)
 	fprintf(output, _("  \\dFd[+] [PATTERN]      list text search dictionaries\n"));
 	fprintf(output, _("  \\dFp[+] [PATTERN]      list text search parsers\n"));
 	fprintf(output, _("  \\dFt[+] [PATTERN]      list text search templates\n"));
-	fprintf(output, _("  \\dg     [PATTERN]      list roles (groups)\n"));
+	fprintf(output, _("  \\dg[+]  [PATTERN]      list roles (groups)\n"));
 	fprintf(output, _("  \\di[S+] [PATTERN]      list indexes\n"));
 	fprintf(output, _("  \\dl                    list large objects, same as \\lo_list\n"));
 	fprintf(output, _("  \\dn[+]  [PATTERN]      list schemas\n"));
 	fprintf(output, _("  \\do[S]  [PATTERN]      list operators\n"));
 	fprintf(output, _("  \\dp     [PATTERN]      list table, view, and sequence access privileges\n"));
+	fprintf(output, _("  \\drds [PATRN1 [PATRN2]] list per-database role settings\n"));
 	fprintf(output, _("  \\ds[S+] [PATTERN]      list sequences\n"));
 	fprintf(output, _("  \\dt[S+] [PATTERN]      list tables\n"));
 	fprintf(output, _("  \\dT[S+] [PATTERN]      list data types\n"));
-	fprintf(output, _("  \\du     [PATTERN]      list roles (users)\n"));
+	fprintf(output, _("  \\du[+]  [PATTERN]      list roles (users)\n"));
 	fprintf(output, _("  \\dv[S+] [PATTERN]      list views\n"));
 	fprintf(output, _("  \\l[+]                  list all databases\n"));
 	fprintf(output, _("  \\z      [PATTERN]      same as \\dp\n"));
@@ -282,6 +284,7 @@ slashUsage(unsigned short int pager)
 /*
  * helpSQL -- help with SQL commands
  *
+ * Note: we assume caller removed any trailing spaces in "topic".
  */
 void
 helpSQL(const char *topic, unsigned short int pager)
@@ -349,19 +352,17 @@ helpSQL(const char *topic, unsigned short int pager)
 		size_t		len,
 					wordlen;
 		int			nl_count = 0;
-		const char *ch;
 
-		/* User gets two chances: exact match, then the first word */
-
-		/* First pass : strip trailing spaces and semicolons */
+		/*
+		 * We first try exact match, then first + second words, then first
+		 * word only.
+		 */
 		len = strlen(topic);
-		while (topic[len - 1] == ' ' || topic[len - 1] == ';')
-			len--;
 
-		for (x = 1; x <= 3; x++)	/* Three chances to guess that word... */
+		for (x = 1; x <= 3; x++)
 		{
 			if (x > 1)			/* Nothing on first pass - try the opening
-								 * words */
+								 * word(s) */
 			{
 				wordlen = j = 1;
 				while (topic[j] != ' ' && j++ < len)
@@ -386,10 +387,8 @@ helpSQL(const char *topic, unsigned short int pager)
 				if (pg_strncasecmp(topic, QL_HELP[i].cmd, len) == 0 ||
 					strcmp(topic, "*") == 0)
 				{
-					nl_count += 5;
-					for (ch = QL_HELP[i].syntax; *ch != '\0'; ch++)
-						if (*ch == '\n')
-							nl_count++;
+					nl_count += 5 + QL_HELP[i].nl_count;
+
 					/* If we have an exact match, exit.  Fixes \h SELECT */
 					if (pg_strcasecmp(topic, QL_HELP[i].cmd) == 0)
 						break;
@@ -403,13 +402,17 @@ helpSQL(const char *topic, unsigned short int pager)
 				if (pg_strncasecmp(topic, QL_HELP[i].cmd, len) == 0 ||
 					strcmp(topic, "*") == 0)
 				{
+					PQExpBufferData buffer;
+
+					initPQExpBuffer(&buffer);
+					QL_HELP[i].syntaxfunc(&buffer);
 					help_found = true;
 					fprintf(output, _("Command:     %s\n"
 									  "Description: %s\n"
 									  "Syntax:\n%s\n\n"),
 							QL_HELP[i].cmd,
 							_(QL_HELP[i].help),
-							_(QL_HELP[i].syntax));
+							buffer.data);
 					/* If we have an exact match, exit.  Fixes \h SELECT */
 					if (pg_strcasecmp(topic, QL_HELP[i].cmd) == 0)
 						break;
@@ -420,7 +423,7 @@ helpSQL(const char *topic, unsigned short int pager)
 		}
 
 		if (!help_found)
-			fprintf(output, _("No help available for \"%-.*s\".\nTry \\h with no arguments to see available help.\n"), (int) len, topic);
+			fprintf(output, _("No help available for \"%s\".\nTry \\h with no arguments to see available help.\n"), topic);
 
 		/* Only close if we used the pager */
 		if (output != stdout)
@@ -440,7 +443,7 @@ print_copyright(void)
 {
 	puts(
 		 "PostgreSQL Data Base Management System\n\n"
-		 "Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group\n\n"
+		 "Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group\n\n"
 		 "This software is based on Postgres95, formerly known as Postgres, which\n"
 		 "contains the following notice:\n\n"
 	"Portions Copyright(c) 1994, Regents of the University of California\n\n"

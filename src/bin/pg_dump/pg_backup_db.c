@@ -5,7 +5,7 @@
  *	Implements the basic DB functions used by the archiver.
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/bin/pg_dump/pg_backup_db.c,v 1.84 2009/06/11 14:49:07 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/bin/pg_dump/pg_backup_db.c,v 1.90 2010/02/26 02:01:16 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -64,6 +64,8 @@ _check_database_version(ArchiveHandle *AH)
 
 	AH->public.remoteVersionStr = strdup(remoteversion_str);
 	AH->public.remoteVersion = remoteversion;
+	if (!AH->archiveRemoteVersion)
+		AH->archiveRemoteVersion = AH->public.remoteVersionStr;
 
 	if (myversion != remoteversion
 		&& (remoteversion < AH->public.minRemoteVersion ||
@@ -154,10 +156,34 @@ _connectDB(ArchiveHandle *AH, const char *reqdb, const char *requser)
 
 	do
 	{
+#define PARAMS_ARRAY_SIZE	7
+		const char **keywords = malloc(PARAMS_ARRAY_SIZE * sizeof(*keywords));
+		const char **values = malloc(PARAMS_ARRAY_SIZE * sizeof(*values));
+
+		if (!keywords || !values)
+			die_horribly(AH, modulename, "out of memory\n");
+
+		keywords[0] = "host";
+		values[0] = PQhost(AH->connection);
+		keywords[1] = "port";
+		values[1] = PQport(AH->connection);
+		keywords[2] = "user";
+		values[2] = newuser;
+		keywords[3] = "password";
+		values[3] = password;
+		keywords[4] = "dbname";
+		values[4] = newdb;
+		keywords[5] = "fallback_application_name";
+		values[5] = progname;
+		keywords[6] = NULL;
+		values[6] = NULL;
+
 		new_pass = false;
-		newConn = PQsetdbLogin(PQhost(AH->connection), PQport(AH->connection),
-							   NULL, NULL, newdb,
-							   newuser, password);
+		newConn = PQconnectdbParams(keywords, values, true);
+
+		free(keywords);
+		free(values);
+
 		if (!newConn)
 			die_horribly(AH, modulename, "failed to reconnect to database\n");
 
@@ -237,9 +263,33 @@ ConnectDatabase(Archive *AHX,
 	 */
 	do
 	{
+#define PARAMS_ARRAY_SIZE	7
+		const char **keywords = malloc(PARAMS_ARRAY_SIZE * sizeof(*keywords));
+		const char **values = malloc(PARAMS_ARRAY_SIZE * sizeof(*values));
+
+		if (!keywords || !values)
+			die_horribly(AH, modulename, "out of memory\n");
+
+		keywords[0] = "host";
+		values[0] = pghost;
+		keywords[1] = "port";
+		values[1] = pgport;
+		keywords[2] = "user";
+		values[2] = username;
+		keywords[3] = "password";
+		values[3] = password;
+		keywords[4] = "dbname";
+		values[4] = dbname;
+		keywords[5] = "fallback_application_name";
+		values[5] = progname;
+		keywords[6] = NULL;
+		values[6] = NULL;
+
 		new_pass = false;
-		AH->connection = PQsetdbLogin(pghost, pgport, NULL, NULL,
-									  dbname, username, password);
+		AH->connection = PQconnectdbParams(keywords, values, true);
+
+		free(keywords);
+		free(values);
 
 		if (!AH->connection)
 			die_horribly(AH, modulename, "failed to connect to database\n");
@@ -650,6 +700,33 @@ void
 CommitTransaction(ArchiveHandle *AH)
 {
 	ExecuteSqlCommand(AH, "COMMIT", "could not commit database transaction");
+}
+
+void
+DropBlobIfExists(ArchiveHandle *AH, Oid oid)
+{
+	/*
+	 * If we are not restoring to a direct database connection, we have to
+	 * guess about how to detect whether the blob exists.  Assume new-style.
+	 */
+	if (AH->connection == NULL ||
+		PQserverVersion(AH->connection) >= 90000)
+	{
+		ahprintf(AH,
+				 "SELECT pg_catalog.lo_unlink(oid) "
+				 "FROM pg_catalog.pg_largeobject_metadata "
+				 "WHERE oid = '%u';\n",
+				 oid);
+	}
+	else
+	{
+		/* Restoring to pre-9.0 server, so do it the old way */
+		ahprintf(AH,
+				 "SELECT CASE WHEN EXISTS("
+				 "SELECT 1 FROM pg_catalog.pg_largeobject WHERE loid = '%u'"
+				 ") THEN pg_catalog.lo_unlink('%u') END;\n",
+				 oid, oid);
+	}
 }
 
 static bool

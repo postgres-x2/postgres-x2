@@ -322,3 +322,29 @@ select * from
   (select distinct f1, f2, (select f2 from t1 x where x.f1 = up.f1) as fs
    from t1 up) ss
 group by f1,f2,fs;
+
+--
+-- Test case for bug #5514 (mishandling of whole-row Vars in subselects)
+--
+
+create temp table table_a(id integer);
+insert into table_a values (42);
+
+create temp view view_a as select * from table_a;
+
+select view_a from view_a;
+select (select view_a) from view_a;
+select (select (select view_a)) from view_a;
+select (select (a.*)::text) from view_a a;
+
+--
+-- Test case for sublinks pushed down into subselects via join alias expansion
+--
+
+select
+  (select sq1) as qq1
+from
+  (select exists(select 1 from int4_tbl where f1 = q2) as sq1, 42 as dummy
+   from int8_tbl) sq0
+  join
+  int4_tbl i4 on dummy = i4.f1;

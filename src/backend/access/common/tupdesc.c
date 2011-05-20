@@ -3,12 +3,12 @@
  * tupdesc.c
  *	  POSTGRES tuple descriptor support code
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/access/common/tupdesc.c,v 1.126 2009/06/11 14:48:53 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/access/common/tupdesc.c,v 1.133 2010/02/14 18:42:12 rhaas Exp $
  *
  * NOTES
  *	  some of the executor utility code such as "ExecTypeFromTL" should be
@@ -360,7 +360,7 @@ equalTupleDescs(TupleDesc tupdesc1, TupleDesc tupdesc2)
 			return false;
 		if (attr1->attinhcount != attr2->attinhcount)
 			return false;
-		/* attacl is ignored, since it's not even present... */
+		/* attacl and attoptions are not even present... */
 	}
 
 	if (tupdesc1->constr != NULL)
@@ -476,11 +476,9 @@ TupleDescInitEntry(TupleDesc desc,
 	att->attisdropped = false;
 	att->attislocal = true;
 	att->attinhcount = 0;
-	/* attacl is not set because it's not present in tupledescs */
+	/* attacl and attoptions are not present in tupledescs */
 
-	tuple = SearchSysCache(TYPEOID,
-						   ObjectIdGetDatum(oidtypeid),
-						   0, 0, 0);
+	tuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(oidtypeid));
 	if (!HeapTupleIsValid(tuple))
 		elog(ERROR, "cache lookup failed for type %u", oidtypeid);
 	typeForm = (Form_pg_type) GETSTRUCT(tuple);
@@ -538,10 +536,10 @@ BuildDescForRelation(List *schema)
 		attnum++;
 
 		attname = entry->colname;
-		atttypid = typenameTypeId(NULL, entry->typename, &atttypmod);
-		attdim = list_length(entry->typename->arrayBounds);
+		atttypid = typenameTypeId(NULL, entry->typeName, &atttypmod);
+		attdim = list_length(entry->typeName->arrayBounds);
 
-		if (entry->typename->setof)
+		if (entry->typeName->setof)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
 					 errmsg("column \"%s\" cannot be declared SETOF",
@@ -549,6 +547,10 @@ BuildDescForRelation(List *schema)
 
 		TupleDescInitEntry(desc, attnum, attname,
 						   atttypid, atttypmod, attdim);
+
+		/* Override TupleDescInitEntry's settings as requested */
+		if (entry->storage)
+			desc->attrs[attnum - 1]->attstorage = entry->storage;
 
 		/* Fill in additional stuff not handled by TupleDescInitEntry */
 		desc->attrs[attnum - 1]->attnotnull = entry->is_not_null;

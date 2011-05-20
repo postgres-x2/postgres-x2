@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/acronyms.sgml,v 1.6 2008/09/30 10:52:09 heikki Exp $ -->
+<!-- $PostgreSQL: pgsql/doc/src/sgml/acronyms.sgml,v 1.8 2010/03/17 17:12:31 petere Exp $ -->
 
 <appendix id="acronyms">
  <title>Acronyms</title>
@@ -334,8 +334,8 @@
     <term><acronym>ISO</acronym></term>
     <listitem>
      <para>
-      <ulink url="http://www.iso.org/iso/home.htm">International Standards
-      Organization</ulink>
+      <ulink url="http://www.iso.org/iso/home.htm">International Organization for
+      Standardization</ulink>
      </para>
     </listitem>
    </varlistentry>
@@ -602,7 +602,7 @@
     <term><acronym>SSPI</acronym></term>
     <listitem>
      <para>
-      <ulink url="http://msdn2.microsoft.com/en-us/library/aa380493.aspx">Security
+      <ulink url="http://msdn.microsoft.com/en-us/library/aa380493%28VS.85%29.aspx">Security
       Support Provider Interface</ulink>
      </para>
     </listitem>

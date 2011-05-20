@@ -3,10 +3,10 @@
  * pg_dump.h
  *	  Common header file for the pg_dump utility
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/bin/pg_dump/pg_dump.h,v 1.154 2009/06/11 14:49:07 momjian Exp $
+ * $PostgreSQL: pgsql/src/bin/pg_dump/pg_dump.h,v 1.164 2010/02/26 02:01:17 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -114,8 +114,9 @@ typedef enum
 	DO_TSCONFIG,
 	DO_FDW,
 	DO_FOREIGN_SERVER,
-	DO_BLOBS,
-	DO_BLOB_COMMENTS
+	DO_DEFAULT_ACL,
+	DO_BLOB,
+	DO_BLOB_DATA
 } DumpableObjectType;
 
 typedef struct _dumpableObject
@@ -228,6 +229,7 @@ typedef struct _tableInfo
 	bool		hasoids;		/* does it have OIDs? */
 	uint32		frozenxid;		/* for restore frozen xid */
 	int			ncheck;			/* # of CHECK expressions */
+	char	   *reloftype;		/* underlying type for typed table */
 	/* these two are set only if table is a sequence owned by a column: */
 	Oid			owning_tab;		/* OID of table owning sequence */
 	int			owning_col;		/* attr # of column owning sequence */
@@ -254,6 +256,7 @@ typedef struct _tableInfo
 	int		   *attlen;			/* attribute length, used by binary_upgrade */
 	char	   *attalign;		/* attribute align, used by binary_upgrade */
 	bool	   *attislocal;		/* true if attr has local definition */
+	char	  **attoptions;		/* per-attribute options */
 
 	/*
 	 * Note: we need to store per-attribute notnull, default, and constraint
@@ -331,12 +334,16 @@ typedef struct _triggerInfo
 	char		tgenabled;
 	bool		tgdeferrable;
 	bool		tginitdeferred;
+	char	   *tgdef;
 } TriggerInfo;
 
 /*
  * struct ConstraintInfo is used for all constraint types.	However we
  * use a different objType for foreign key constraints, to make it easier
  * to sort them the way we want.
+ *
+ * Note: condeferrable and condeferred are currently only valid for
+ * unique/primary-key constraints.	Otherwise that info is in condef.
  */
 typedef struct _constraintInfo
 {
@@ -347,6 +354,8 @@ typedef struct _constraintInfo
 	char	   *condef;			/* definition, if CHECK or FOREIGN KEY */
 	Oid			confrelid;		/* referenced table, if FOREIGN KEY */
 	DumpId		conindex;		/* identifies associated index if any */
+	bool		condeferrable;	/* TRUE if constraint is DEFERRABLE */
+	bool		condeferred;	/* TRUE if constraint is INITIALLY DEFERRED */
 	bool		conislocal;		/* TRUE if constraint has local definition */
 	bool		separate;		/* TRUE if must dump as separate item */
 } ConstraintInfo;
@@ -356,6 +365,7 @@ typedef struct _procLangInfo
 	DumpableObject dobj;
 	bool		lanpltrusted;
 	Oid			lanplcallfoid;
+	Oid			laninline;
 	Oid			lanvalidator;
 	char	   *lanacl;
 	char	   *lanowner;		/* name of owner, or empty string */
@@ -429,6 +439,21 @@ typedef struct _foreignServerInfo
 	char	   *srvacl;
 	char	   *srvoptions;
 } ForeignServerInfo;
+
+typedef struct _defaultACLInfo
+{
+	DumpableObject dobj;
+	char	   *defaclrole;
+	char		defaclobjtype;
+	char	   *defaclacl;
+} DefaultACLInfo;
+
+typedef struct _blobInfo
+{
+	DumpableObject dobj;
+	char	   *rolname;
+	char	   *blobacl;
+} BlobInfo;
 
 /* global decls */
 extern bool force_quotes;		/* double-quotes for identifiers flag */
@@ -514,5 +539,6 @@ extern TSTemplateInfo *getTSTemplates(int *numTSTemplates);
 extern TSConfigInfo *getTSConfigurations(int *numTSConfigs);
 extern FdwInfo *getForeignDataWrappers(int *numForeignDataWrappers);
 extern ForeignServerInfo *getForeignServers(int *numForeignServers);
+extern DefaultACLInfo *getDefaultACLs(int *numDefaultACLs);
 
 #endif   /* PG_DUMP_H */

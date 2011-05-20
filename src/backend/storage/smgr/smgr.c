@@ -6,12 +6,12 @@
  *	  All file system operations in POSTGRES dispatch through these
  *	  routines.
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/storage/smgr/smgr.c,v 1.117 2009/06/11 14:49:02 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/storage/smgr/smgr.c,v 1.121 2010/02/26 02:01:01 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -24,6 +24,7 @@
 #include "storage/ipc.h"
 #include "storage/smgr.h"
 #include "utils/hsearch.h"
+#include "utils/inval.h"
 
 
 /*
@@ -160,6 +161,9 @@ smgropen(RelFileNode rnode)
 
 		/* hash_search already filled in the lookup key */
 		reln->smgr_owner = NULL;
+		reln->smgr_targblock = InvalidBlockNumber;
+		reln->smgr_fsm_nblocks = InvalidBlockNumber;
+		reln->smgr_vm_nblocks = InvalidBlockNumber;
 		reln->smgr_which = 0;	/* we only have md.c at present */
 
 		/* mark it not open */
@@ -351,7 +355,17 @@ smgr_internal_unlink(RelFileNode rnode, ForkNumber forknum,
 	 */
 
 	/*
-	 * And delete the physical files.
+	 * Send a shared-inval message to force other backends to close any
+	 * dangling smgr references they may have for this rel.  We should do this
+	 * before starting the actual unlinking, in case we fail partway through
+	 * that step.  Note that the sinval message will eventually come back to
+	 * this backend, too, and thereby provide a backstop that we closed our
+	 * own smgr rel.
+	 */
+	CacheInvalidateSmgr(rnode);
+
+	/*
+	 * Delete the physical file(s).
 	 *
 	 * Note: smgr_unlink must treat deletion failure as a WARNING, not an
 	 * ERROR, because we've already decided to commit or abort the current
@@ -437,6 +451,8 @@ smgrnblocks(SMgrRelation reln, ForkNumber forknum)
 /*
  *	smgrtruncate() -- Truncate supplied relation to the specified number
  *					  of blocks
+ *
+ * The truncation is done immediately, so this can't be rolled back.
  */
 void
 smgrtruncate(SMgrRelation reln, ForkNumber forknum, BlockNumber nblocks,
@@ -448,7 +464,21 @@ smgrtruncate(SMgrRelation reln, ForkNumber forknum, BlockNumber nblocks,
 	 */
 	DropRelFileNodeBuffers(reln->smgr_rnode, forknum, isTemp, nblocks);
 
-	/* Do the truncation */
+	/*
+	 * Send a shared-inval message to force other backends to close any smgr
+	 * references they may have for this rel.  This is useful because they
+	 * might have open file pointers to segments that got removed, and/or
+	 * smgr_targblock variables pointing past the new rel end.	(The inval
+	 * message will come back to our backend, too, causing a
+	 * probably-unnecessary local smgr flush.  But we don't expect that this
+	 * is a performance-critical path.)  As in the unlink code, we want to be
+	 * sure the message is sent before we start changing things on-disk.
+	 */
+	CacheInvalidateSmgr(reln->smgr_rnode);
+
+	/*
+	 * Do the truncation.
+	 */
 	(*(smgrsw[reln->smgr_which].smgr_truncate)) (reln, forknum, nblocks,
 												 isTemp);
 }

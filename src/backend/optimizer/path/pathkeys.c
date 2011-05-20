@@ -7,11 +7,11 @@
  * the nature and use of path keys.
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/optimizer/path/pathkeys.c,v 1.97 2009/02/28 03:51:05 tgl Exp $
+ *	  $PostgreSQL: pgsql/src/backend/optimizer/path/pathkeys.c,v 1.101 2010/02/26 02:00:45 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -635,6 +635,15 @@ convert_subquery_pathkeys(PlannerInfo *root, RelOptInfo *rel,
 							exprType((Node *) tle->expr),
 							exprTypmod((Node *) tle->expr),
 							0);
+
+				/*
+				 * Note: it might look funny to be setting sortref = 0 for a
+				 * reference to a volatile sub_eclass.	However, the
+				 * expression is *not* volatile in the outer query: it's just
+				 * a Var referencing whatever the subquery emitted. (IOW, the
+				 * outer query isn't going to re-execute the volatile
+				 * expression itself.)	So this is okay.
+				 */
 				outer_ec =
 					get_eclass_for_sort_expr(root,
 											 outer_expr,
@@ -988,12 +997,21 @@ find_mergeclauses_for_pathkeys(PlannerInfo *root,
 		 * no two members have the same EC, so it's not possible for this
 		 * code to enter the same mergeclause into the result list twice.
 		 *
-		 * XXX it's possible that multiple matching clauses might have
-		 * different ECs on the other side, in which case the order we put
-		 * them into our result makes a difference in the pathkeys required
-		 * for the other input path.  However this routine hasn't got any info
-		 * about which order would be best, so for now we disregard that case
-		 * (which is probably a corner case anyway).
+		 * It's possible that multiple matching clauses might have different
+		 * ECs on the other side, in which case the order we put them into our
+		 * result makes a difference in the pathkeys required for the other
+		 * input path.	However this routine hasn't got any info about which
+		 * order would be best, so we don't worry about that.
+		 *
+		 * It's also possible that the selected mergejoin clauses produce
+		 * a noncanonical ordering of pathkeys for the other side, ie, we
+		 * might select clauses that reference b.v1, b.v2, b.v1 in that
+		 * order.  This is not harmful in itself, though it suggests that
+		 * the clauses are partially redundant.  Since it happens only with
+		 * redundant query conditions, we don't bother to eliminate it.
+		 * make_inner_pathkeys_for_merge() has to delete duplicates when
+		 * it constructs the canonical pathkeys list, and we also have to
+		 * deal with the case in create_mergejoin_plan().
 		 *----------
 		 */
 		foreach(j, restrictinfos)

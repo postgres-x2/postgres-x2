@@ -45,9 +45,9 @@ CREATE TABLE writetest (a int);
 CREATE TEMPORARY TABLE temptest (a int);
 SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY;
 DROP TABLE writetest; -- fail
-ERROR:  transaction is read-only
+ERROR:  cannot execute DROP TABLE in a read-only transaction
 INSERT INTO writetest VALUES (1); -- fail
-ERROR:  transaction is read-only
+ERROR:  cannot execute INSERT in a read-only transaction
 SELECT * FROM writetest; -- ok
  a 
 ---
@@ -57,14 +57,14 @@ DELETE FROM temptest; -- ok
 UPDATE temptest SET a = 0 FROM writetest WHERE temptest.a = 1 AND writetest.a = temptest.a; -- ok
 PREPARE test AS UPDATE writetest SET a = 0; -- ok
 EXECUTE test; -- fail
-ERROR:  transaction is read-only
+ERROR:  cannot execute UPDATE in a read-only transaction
 SELECT * FROM writetest, temptest; -- ok
  a | a 
 ---+---
 (0 rows)
 
 CREATE TABLE test AS SELECT * FROM writetest; -- fail
-ERROR:  transaction is read-only
+ERROR:  cannot execute SELECT INTO in a read-only transaction
 START TRANSACTION READ WRITE;
 DROP TABLE writetest; -- ok
 COMMIT;
@@ -468,12 +468,14 @@ NOTICE:  CREATE TABLE / UNIQUE will create implicit index "koju_a_key" for table
 		INSERT INTO koju VALUES (1);
 		INSERT INTO koju VALUES (1);
 ERROR:  duplicate key value violates unique constraint "koju_a_key"
+DETAIL:  Key (a)=(1) already exists.
 	rollback to x;
 	CREATE TABLE koju (a INT UNIQUE);
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "koju_a_key" for table "koju"
 	INSERT INTO koju VALUES (1);
 	INSERT INTO koju VALUES (1);
 ERROR:  duplicate key value violates unique constraint "koju_a_key"
+DETAIL:  Key (a)=(1) already exists.
 ROLLBACK;
 DROP TABLE foo;
 DROP TABLE baz;

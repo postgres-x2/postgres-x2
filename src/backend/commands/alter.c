@@ -3,18 +3,19 @@
  * alter.c
  *	  Drivers for generic alter commands
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/commands/alter.c,v 1.31 2009/01/01 17:23:37 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/commands/alter.c,v 1.36 2010/06/13 17:43:12 rhaas Exp $
  *
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
 
 #include "catalog/namespace.h"
+#include "catalog/pg_largeobject.h"
 #include "commands/alter.h"
 #include "commands/conversioncmds.h"
 #include "commands/dbcommands.h"
@@ -30,6 +31,7 @@
 #include "parser/parse_clause.h"
 #include "tcop/utility.h"
 #include "utils/acl.h"
+#include "utils/builtins.h"
 #include "utils/lsyscache.h"
 
 
@@ -125,7 +127,7 @@ ExecRenameStmt(RenameStmt *stmt)
 								  stmt->subname,		/* old att name */
 								  stmt->newname,		/* new att name */
 								  interpretInhOption(stmt->relation->inhOpt),	/* recursive? */
-								  false);		/* recursing already? */
+								  0);	/* expected inhcount */
 						break;
 					case OBJECT_TRIGGER:
 						renametrig(relid,
@@ -231,6 +233,10 @@ ExecAlterOwnerStmt(AlterOwnerStmt *stmt)
 
 		case OBJECT_LANGUAGE:
 			AlterLanguageOwner(strVal(linitial(stmt->object)), newowner);
+			break;
+
+		case OBJECT_LARGEOBJECT:
+			LargeObjectAlterOwner(oidparse(linitial(stmt->object)), newowner);
 			break;
 
 		case OBJECT_OPERATOR:

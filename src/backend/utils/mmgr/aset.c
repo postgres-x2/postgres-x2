@@ -7,11 +7,11 @@
  * type.
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/utils/mmgr/aset.c,v 1.79 2009/06/11 14:49:06 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/utils/mmgr/aset.c,v 1.83 2010/02/26 02:01:14 momjian Exp $
  *
  * NOTE:
  *	This is a new (Feb. 05, 1999) implementation of the allocation set
@@ -238,6 +238,17 @@ static MemoryContextMethods AllocSetMethods = {
 #endif
 };
 
+/*
+ * Table for AllocSetFreeIndex
+ */
+#define LT16(n) n, n, n, n, n, n, n, n, n, n, n, n, n, n, n, n
+
+static const unsigned char LogTable256[256] =
+{
+	0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4,
+	LT16(5), LT16(6), LT16(6), LT16(7), LT16(7), LT16(7), LT16(7),
+	LT16(8), LT16(8), LT16(8), LT16(8), LT16(8), LT16(8), LT16(8), LT16(8)
+};
 
 /* ----------
  * Debug macros
@@ -266,18 +277,30 @@ static MemoryContextMethods AllocSetMethods = {
 static inline int
 AllocSetFreeIndex(Size size)
 {
-	int			idx = 0;
+	int			idx;
+	unsigned int t,
+				tsize;
 
-	if (size > 0)
+	if (size > (1 << ALLOC_MINBITS))
 	{
-		size = (size - 1) >> ALLOC_MINBITS;
-		while (size != 0)
-		{
-			idx++;
-			size >>= 1;
-		}
+		tsize = (size - 1) >> ALLOC_MINBITS;
+
+		/*
+		 * At this point we need to obtain log2(tsize)+1, ie, the number of
+		 * not-all-zero bits at the right.	We used to do this with a
+		 * shift-and-count loop, but this function is enough of a hotspot to
+		 * justify micro-optimization effort.  The best approach seems to be
+		 * to use a lookup table.  Note that this code assumes that
+		 * ALLOCSET_NUM_FREELISTS <= 17, since we only cope with two bytes of
+		 * the tsize value.
+		 */
+		t = tsize >> 8;
+		idx = t ? LogTable256[t] + 8 : LogTable256[tsize];
+
 		Assert(idx < ALLOCSET_NUM_FREELISTS);
 	}
+	else
+		idx = 0;
 
 	return idx;
 }
@@ -675,11 +698,11 @@ AllocSetAlloc(MemoryContext context, Size size)
 				 * freelist than the one we need to put this chunk on.	The
 				 * exception is when availchunk is exactly a power of 2.
 				 */
-				if (availchunk != (1 << (a_fidx + ALLOC_MINBITS)))
+				if (availchunk != ((Size) 1 << (a_fidx + ALLOC_MINBITS)))
 				{
 					a_fidx--;
 					Assert(a_fidx >= 0);
-					availchunk = (1 << (a_fidx + ALLOC_MINBITS));
+					availchunk = ((Size) 1 << (a_fidx + ALLOC_MINBITS));
 				}
 
 				chunk = (AllocChunk) (block->freeptr);

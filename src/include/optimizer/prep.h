@@ -4,10 +4,10 @@
  *	  prototypes for files in optimizer/prep/
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/optimizer/prep.h,v 1.66 2009/05/12 00:56:05 tgl Exp $
+ * $PostgreSQL: pgsql/src/include/optimizer/prep.h,v 1.68 2010/01/02 16:58:07 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -39,6 +39,8 @@ extern Expr *canonicalize_qual(Expr *qual);
  * prototypes for preptlist.c
  */
 extern List *preprocess_targetlist(PlannerInfo *root, List *tlist);
+
+extern PlanRowMark *get_plan_rowmark(List *rowmarks, Index rtindex);
 
 /*
  * prototypes for prepunion.c

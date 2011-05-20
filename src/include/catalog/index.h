@@ -4,10 +4,10 @@
  *	  prototypes for catalog/index.c.
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/catalog/index.h,v 1.77 2009/01/01 17:23:56 momjian Exp $
+ * $PostgreSQL: pgsql/src/include/catalog/index.h,v 1.83 2010/02/07 22:40:33 tgl Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -32,6 +32,7 @@ extern Oid index_create(Oid heapRelationId,
 			 const char *indexRelationName,
 			 Oid indexRelationId,
 			 IndexInfo *indexInfo,
+			 List *indexColNames,
 			 Oid accessMethodObjectId,
 			 Oid tableSpaceId,
 			 Oid *classObjectId,
@@ -39,6 +40,8 @@ extern Oid index_create(Oid heapRelationId,
 			 Datum reloptions,
 			 bool isprimary,
 			 bool isconstraint,
+			 bool deferrable,
+			 bool initdeferred,
 			 bool allow_system_table_mods,
 			 bool skip_build,
 			 bool concurrent);
@@ -52,8 +55,6 @@ extern void FormIndexDatum(IndexInfo *indexInfo,
 			   EState *estate,
 			   Datum *values,
 			   bool *isnull);
-
-extern void setNewRelfilenode(Relation relation, TransactionId freezeXid);
 
 extern void index_build(Relation heapRelation,
 			Relation indexRelation,
@@ -69,7 +70,10 @@ extern double IndexBuildHeapScan(Relation heapRelation,
 
 extern void validate_index(Oid heapId, Oid indexId, Snapshot snapshot);
 
-extern void reindex_index(Oid indexId);
-extern bool reindex_relation(Oid relid, bool toast_too);
+extern void reindex_index(Oid indexId, bool skip_constraint_checks);
+extern bool reindex_relation(Oid relid, bool toast_too, bool heap_rebuilt);
+
+extern bool ReindexIsProcessingHeap(Oid heapOid);
+extern bool ReindexIsProcessingIndex(Oid indexOid);
 
 #endif   /* INDEX_H */

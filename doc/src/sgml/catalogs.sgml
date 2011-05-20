@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/catalogs.sgml,v 2.200 2009/03/31 17:59:55 tgl Exp $ -->
+<!-- $PostgreSQL: pgsql/doc/src/sgml/catalogs.sgml,v 2.225 2010/04/03 07:22:52 petere Exp $ -->
 <!--
  Documentation of the system catalogs, directed toward PostgreSQL developers
  -->
@@ -114,6 +114,11 @@
      </row>
 
      <row>
+      <entry><link linkend="catalog-pg-default-acl"><structname>pg_default_acl</structname></link></entry>
+      <entry>default privileges for object types</entry>
+     </row>
+
+     <row>
       <entry><link linkend="catalog-pg-depend"><structname>pg_depend</structname></link></entry>
       <entry>dependencies between database objects</entry>
      </row>
@@ -155,12 +160,12 @@
 
      <row>
       <entry><link linkend="catalog-pg-largeobject"><structname>pg_largeobject</structname></link></entry>
-      <entry>large objects</entry>
+      <entry>data pages for large objects</entry>
      </row>
 
      <row>
-      <entry><link linkend="catalog-pg-listener"><structname>pg_listener</structname></link></entry>
-      <entry>asynchronous notification support</entry>
+      <entry><link linkend="catalog-pg-largeobject-metadata"><structname>pg_largeobject_metadata</structname></link></entry>
+      <entry>metadata for large objects</entry>
      </row>
 
      <row>
@@ -196,6 +201,11 @@
      <row>
       <entry><link linkend="catalog-pg-rewrite"><structname>pg_rewrite</structname></link></entry>
       <entry>query rewrite rules</entry>
+     </row>
+
+     <row>
+      <entry><link linkend="catalog-pg-db-role-setting"><structname>pg_db_role_setting</structname></link></entry>
+      <entry>per-role and per-database settings</entry>
      </row>
 
      <row>
@@ -344,7 +354,7 @@
 
   <para>
    New aggregate functions are registered with the <xref
-   linkend="sql-createaggregate" endterm="sql-createaggregate-title">
+   linkend="sql-createaggregate">
    command.  See <xref linkend="xaggr"> for more information about
    writing aggregate functions and the meaning of the transition
    functions, etc.
@@ -451,7 +461,7 @@
       <entry><structfield>amsearchnulls</structfield></entry>
       <entry><type>bool</type></entry>
       <entry></entry>
-      <entry>Does the access method support IS NULL searches?</entry>
+      <entry>Does the access method support IS NULL/NOT NULL searches?</entry>
      </row>
 
      <row>
@@ -876,7 +886,7 @@
       <entry>
        <structfield>attstattarget</structfield> controls the level of detail
        of statistics accumulated for this column by
-       <xref linkend="sql-analyze" endterm="sql-analyze-title">.
+       <xref linkend="sql-analyze">.
        A zero value indicates that no statistics should be collected.
        A negative value says to use the system default statistics target.
        The exact meaning of positive values is data type-dependent.
@@ -1033,6 +1043,15 @@
       </entry>
      </row>
 
+     <row>
+      <entry><structfield>attoptions</structfield></entry>
+      <entry><type>text[]</type></entry>
+      <entry></entry>
+      <entry>
+       Attribute-level options, as <quote>keyword=value</> strings
+      </entry>
+     </row>
+
     </tbody>
    </tgroup>
   </table>
@@ -1169,12 +1188,6 @@
       <entry>Password expiry time (only used for password authentication);
        NULL if no expiration</entry>
      </row>
-
-     <row>
-      <entry><structfield>rolconfig</structfield></entry>
-      <entry><type>text[]</type></entry>
-      <entry>Session defaults for run-time configuration variables</entry>
-     </row>
     </tbody>
    </tgroup>
   </table>
@@ -1261,7 +1274,7 @@
   <para>
    The catalog <structname>pg_cast</structname> stores data type conversion
    paths, both built-in paths and those defined with
-   <xref linkend="sql-createcast" endterm="sql-createcast-title">.
+   <xref linkend="sql-createcast">.
   </para>
 
   <para>
@@ -1449,7 +1462,9 @@
       <entry><structfield>relfilenode</structfield></entry>
       <entry><type>oid</type></entry>
       <entry></entry>
-      <entry>Name of the on-disk file of this relation; 0 if none</entry>
+      <entry>Name of the on-disk file of this relation; zero means this
+       is a <quote>mapped</> relation whose disk file name is determined
+       by low-level state</entry>
      </row>
 
      <row>
@@ -1513,11 +1528,7 @@
       <entry><type>bool</type></entry>
       <entry></entry>
       <entry>
-       True if this is a table and it has (or recently had) any
-       indexes. This is set by <command>CREATE INDEX</command>, but
-       not cleared immediately by <command>DROP INDEX</command>.
-       <command>VACUUM</command> clears <structfield>relhasindex</> if it finds the
-       table has no indexes
+       True if this is a table and it has (or recently had) any indexes
       </entry>
      </row>
 
@@ -1595,6 +1606,17 @@
      </row>
 
      <row>
+      <entry><structfield>relhasexclusion</structfield></entry>
+      <entry><type>bool</type></entry>
+      <entry></entry>
+      <entry>
+       For a table, true if the table has (or once had) any exclusion
+       constraints; for an index, true if the index supports an exclusion
+       constraint
+      </entry>
+     </row>
+
+     <row>
       <entry><structfield>relhasrules</structfield></entry>
       <entry><type>bool</type></entry>
       <entry></entry>
@@ -1640,8 +1662,8 @@
       <entry></entry>
       <entry>
        Access privileges; see
-       <xref linkend="sql-grant" endterm="sql-grant-title"> and
-       <xref linkend="sql-revoke" endterm="sql-revoke-title">
+       <xref linkend="sql-grant"> and
+       <xref linkend="sql-revoke">
        for details
       </entry>
      </row>
@@ -1657,6 +1679,17 @@
     </tbody>
    </tgroup>
   </table>
+
+  <para>
+   Several of the boolean flags in <structname>pg_class</> are maintained
+   lazily: they are guaranteed to be true if that's the correct state, but
+   may not be reset to false immediately when the condition is no longer
+   true.  For example, <structfield>relhasindex</> is set by
+   <command>CREATE INDEX</command>, but it is never cleared by
+   <command>DROP INDEX</command>.  Instead, <command>VACUUM</command> clears
+   <structfield>relhasindex</> if it finds the table has no indexes.  This
+   arrangement avoids race conditions and improves concurrency.
+  </para>
  </sect1>
 
  <sect1 id="catalog-pg-constraint">
@@ -1667,11 +1700,17 @@
   </indexterm>
 
   <para>
-   The catalog <structname>pg_constraint</structname> stores check, primary key, unique, and foreign
-   key constraints on tables.  (Column constraints are not treated
-   specially.  Every column constraint is equivalent to some table
-   constraint.)  Not-null constraints are represented in the
-   <structname>pg_attribute</> catalog.
+   The catalog <structname>pg_constraint</structname> stores check, primary
+   key, unique, foreign key, and exclusion constraints on tables.
+   (Column constraints are not treated specially.  Every column constraint is
+   equivalent to some table constraint.)
+   Not-null constraints are represented in the <structname>pg_attribute</>
+   catalog, not here.
+  </para>
+
+  <para>
+   User-defined constraint triggers (created with <command>CREATE CONSTRAINT
+   TRIGGER</>) also give rise to an entry in this table.
   </para>
 
   <para>
@@ -1716,7 +1755,9 @@
         <literal>c</> = check constraint,
         <literal>f</> = foreign key constraint,
         <literal>p</> = primary key constraint,
-        <literal>u</> = unique constraint
+        <literal>u</> = unique constraint,
+        <literal>t</> = constraint trigger,
+        <literal>x</> = exclusion constraint
       </entry>
      </row>
 
@@ -1746,6 +1787,14 @@
       <entry><type>oid</type></entry>
       <entry><literal><link linkend="catalog-pg-type"><structname>pg_type</structname></link>.oid</literal></entry>
       <entry>The domain this constraint is on; 0 if not a domain constraint</entry>
+     </row>
+
+     <row>
+      <entry><structfield>conindid</structfield></entry>
+      <entry><type>oid</type></entry>
+      <entry><literal><link linkend="catalog-pg-class"><structname>pg_class</structname></link>.oid</literal></entry>
+      <entry>The index supporting this constraint, if it's a unique, primary
+       key, foreign key, or exclusion constraint; else 0</entry>
      </row>
 
      <row>
@@ -1797,7 +1846,7 @@
       <entry><type>bool</type></entry>
       <entry></entry>
       <entry>
-       This constraint is defined locally in the relation.  Note that a
+       This constraint is defined locally for the relation.  Note that a
        constraint can be locally defined and inherited simultaneously
       </entry>
      </row>
@@ -1807,7 +1856,8 @@
       <entry><type>int4</type></entry>
       <entry></entry>
       <entry>
-       The number of direct ancestors this constraint has.  A constraint with
+       The number of direct inheritance ancestors this constraint has.
+       A constraint with
        a nonzero number of ancestors cannot be dropped nor renamed
       </entry>
      </row>
@@ -1816,7 +1866,8 @@
       <entry><structfield>conkey</structfield></entry>
       <entry><type>int2[]</type></entry>
       <entry><literal><link linkend="catalog-pg-attribute"><structname>pg_attribute</structname></link>.attnum</></entry>
-      <entry>If a table constraint (including a foreign key), list of the constrained columns</entry>
+      <entry>If a table constraint (including foreign keys, but not constraint
+       triggers), list of the constrained columns</entry>
      </row>
 
      <row>
@@ -1848,6 +1899,13 @@
      </row>
 
      <row>
+      <entry><structfield>conexclop</structfield></entry>
+      <entry><type>oid[]</type></entry>
+      <entry><literal><link linkend="catalog-pg-operator"><structname>pg_operator</structname></link>.oid</></entry>
+      <entry>If an exclusion constraint, list of the per-column exclusion operators</entry>
+     </row>
+
+     <row>
       <entry><structfield>conbin</structfield></entry>
       <entry><type>text</type></entry>
       <entry></entry>
@@ -1864,6 +1922,16 @@
    </tgroup>
   </table>
 
+  <para>
+   In the case of an exclusion constraint, <structfield>conkey</structfield>
+   is only useful for constraint elements that are simple column references.
+   For other cases, a zero appears in <structfield>conkey</structfield>
+   and the associated index must be consulted to discover the expression
+   that is constrained.  (<structfield>conkey</structfield> thus has the
+   same contents as <structname>pg_index</>.<structfield>indkey</> for the
+   index.)
+  </para>
+
   <note>
    <para>
     <structfield>consrc</structfield> is not updated when referenced objects
@@ -1877,7 +1945,8 @@
    <para>
     <literal>pg_class.relchecks</literal> needs to agree with the
     number of check-constraint entries found in this table for each
-    relation.
+    relation.  Also, <literal>pg_class.relhasexclusion</literal> must
+    be true if there are any exclusion-constraint entries for the relation.
    </para>
   </note>
 
@@ -1893,7 +1962,7 @@
   <para>
    The catalog <structname>pg_conversion</structname> describes the
    available encoding conversion procedures.  See
-   <xref linkend="sql-createconversion" endterm="sql-createconversion-title">
+   <xref linkend="sql-createconversion">
    for more information.
   </para>
 
@@ -1978,7 +2047,7 @@
   <para>
    The catalog <structname>pg_database</structname> stores information about
    the available databases.  Databases are created with the <xref
-   linkend="sql-createdatabase" endterm="sql-createdatabase-title"> command.
+   linkend="sql-createdatabase"> command.
    Consult <xref linkend="managing-databases"> for details about the meaning
    of some of the parameters.
   </para>
@@ -2111,26 +2180,106 @@
      </row>
 
      <row>
-      <entry><structfield>datconfig</structfield></entry>
-      <entry><type>text[]</type></entry>
-      <entry></entry>
-      <entry>Session defaults for run-time configuration variables</entry>
-     </row>
-
-     <row>
       <entry><structfield>datacl</structfield></entry>
       <entry><type>aclitem[]</type></entry>
       <entry></entry>
       <entry>
        Access privileges; see
-       <xref linkend="sql-grant" endterm="sql-grant-title"> and
-       <xref linkend="sql-revoke" endterm="sql-revoke-title">
+       <xref linkend="sql-grant"> and
+       <xref linkend="sql-revoke">
        for details
       </entry>
      </row>
     </tbody>
    </tgroup>
   </table>
+ </sect1>
+
+
+ <sect1 id="catalog-pg-default-acl">
+  <title><structname>pg_default_acl</structname></title>
+
+  <indexterm zone="catalog-pg-default-acl">
+   <primary>pg_default_acl</primary>
+  </indexterm>
+
+  <para>
+   The catalog <structname>pg_default_acl</> stores initial
+   privileges to be assigned to newly created objects.
+  </para>
+
+  <table>
+   <title><structname>pg_default_acl</> Columns</title>
+
+   <tgroup cols="4">
+    <thead>
+     <row>
+      <entry>Name</entry>
+      <entry>Type</entry>
+      <entry>References</entry>
+      <entry>Description</entry>
+     </row>
+    </thead>
+
+    <tbody>
+     <row>
+      <entry><structfield>defaclrole</structfield></entry>
+      <entry><type>oid</type></entry>
+      <entry><literal><link linkend="catalog-pg-authid"><structname>pg_authid</structname></link>.oid</literal></entry>
+      <entry>The OID of the role associated with this entry</entry>
+     </row>
+
+     <row>
+      <entry><structfield>defaclnamespace</structfield></entry>
+      <entry><type>oid</type></entry>
+      <entry><literal><link linkend="catalog-pg-namespace"><structname>pg_namespace</structname></link>.oid</literal></entry>
+      <entry>The OID of the namespace associated with this entry,
+       or 0 if none</entry>
+     </row>
+
+     <row>
+      <entry><structfield>defaclobjtype</structfield></entry>
+      <entry><type>char</type></entry>
+      <entry></entry>
+      <entry>
+       Type of object this entry is for:
+       <literal>r</> = relation (table, view),
+       <literal>S</> = sequence,
+       <literal>f</> = function
+      </entry>
+     </row>
+
+     <row>
+      <entry><structfield>defaclacl</structfield></entry>
+      <entry><type>aclitem[]</type></entry>
+      <entry></entry>
+      <entry>
+       Access privileges that this type of object should have on creation
+      </entry>
+     </row>
+    </tbody>
+   </tgroup>
+  </table>
+
+  <para>
+   A <structname>pg_default_acl</> entry shows the initial privileges to
+   be assigned to an object belonging to the indicated user.  There are
+   currently two types of entry: <quote>global</> entries with
+   <structfield>defaclnamespace</> = 0, and <quote>per-schema</> entries
+   that reference a particular schema.  If a global entry is present then
+   it <emphasis>overrides</> the normal hard-wired default privileges
+   for the object type.  A per-schema entry, if present, represents privileges
+   to be <emphasis>added to</> the global or hard-wired default privileges.
+  </para>
+
+  <para>
+   Note that when an ACL entry in another catalog is NULL, it is taken
+   to represent the hard-wired default privileges for its object,
+   <emphasis>not</> whatever might be in <structname>pg_default_acl</>
+   at the moment.  <structname>pg_default_acl</> is only consulted during
+   object creation.
+  </para>
+
  </sect1>
 
 
@@ -2318,7 +2467,7 @@
   <para>
    The catalog <structname>pg_description</> stores optional descriptions
    (comments) for each database object.  Descriptions can be manipulated
-   with the <xref linkend="sql-comment" endterm="sql-comment-title"> command and viewed with
+   with the <xref linkend="sql-comment"> command and viewed with
    <application>psql</application>'s <literal>\d</literal> commands.
    Descriptions of many built-in system objects are provided in the initial
    contents of <structname>pg_description</structname>.
@@ -2494,8 +2643,8 @@
       <entry></entry>
       <entry>
        Access privileges; see
-       <xref linkend="sql-grant" endterm="sql-grant-title"> and
-       <xref linkend="sql-revoke" endterm="sql-revoke-title">
+       <xref linkend="sql-grant"> and
+       <xref linkend="sql-revoke">
        for details
       </entry>
      </row>
@@ -2583,8 +2732,8 @@
       <entry></entry>
       <entry>
        Access privileges; see
-       <xref linkend="sql-grant" endterm="sql-grant-title"> and
-       <xref linkend="sql-revoke" endterm="sql-revoke-title">
+       <xref linkend="sql-grant"> and
+       <xref linkend="sql-revoke">
        for details
       </entry>
      </row>
@@ -2664,6 +2813,14 @@
       <entry><type>bool</type></entry>
       <entry></entry>
       <entry>If true, this index represents the primary key of the table
+      (<structfield>indisunique</> should always be true when this is true)</entry>
+     </row>
+
+     <row>
+      <entry><structfield>indimmediate</structfield></entry>
+      <entry><type>bool</type></entry>
+      <entry></entry>
+      <entry>If true, the uniqueness check is enforced immediately on insertion
       (<structfield>indisunique</> should always be true when this is true)</entry>
      </row>
 
@@ -2843,7 +3000,7 @@
   <para>
    The catalog <structname>pg_language</structname> registers
    languages in which you can write functions or stored procedures.
-   See <xref linkend="sql-createlanguage" endterm="sql-createlanguage-title">
+   See <xref linkend="sql-createlanguage">
    and <xref linkend="xplang"> for more information about language handlers.
   </para>
 
@@ -2913,6 +3070,18 @@
      </row>
 
      <row>
+      <entry><structfield>laninline</structfield></entry>
+      <entry><type>oid</type></entry>
+      <entry><literal><link linkend="catalog-pg-proc"><structname>pg_proc</structname></link>.oid</literal></entry>
+      <entry>
+       This references a function that is responsible for executing
+       <quote>inline</> anonymous code blocks
+       (<xref linkend="sql-do"> blocks).
+       Zero if inline blocks are not supported
+      </entry>
+     </row>
+
+     <row>
       <entry><structfield>lanvalidator</structfield></entry>
       <entry><type>oid</type></entry>
       <entry><literal><link linkend="catalog-pg-proc"><structname>pg_proc</structname></link>.oid</literal></entry>
@@ -2929,8 +3098,8 @@
       <entry></entry>
       <entry>
        Access privileges; see
-       <xref linkend="sql-grant" endterm="sql-grant-title"> and
-       <xref linkend="sql-revoke" endterm="sql-revoke-title">
+       <xref linkend="sql-grant"> and
+       <xref linkend="sql-revoke">
        for details
       </entry>
      </row>
@@ -2950,22 +3119,33 @@
 
   <para>
    The catalog <structname>pg_largeobject</structname> holds the data making up
-   <quote>large objects</quote>.  A large object is identified by an
-   OID assigned when it is created.  Each large object is broken into
+   <quote>large objects</quote>.  A large object is identified by an OID
+   assigned when it is created.  Each large object is broken into
    segments or <quote>pages</> small enough to be conveniently stored as rows
    in <structname>pg_largeobject</structname>.
    The amount of data per page is defined to be <symbol>LOBLKSIZE</> (which is currently
    <literal>BLCKSZ/4</>, or typically 2 kB).
   </para>
 
+  <para>
+   Prior to <productname>PostgreSQL</> 9.0, there was no permission structure
+   associated with large objects.  As a result,
+   <structname>pg_largeobject</structname> was publicly readable and could be
+   used to obtain the OIDs (and contents) of all large objects in the system.
+   This is no longer the case; use
+   <link linkend="catalog-pg-largeobject-metadata">pg_largeobject_metadata</link>
+   to obtain a list of large object OIDs.
+  </para>
+
   <table>
    <title><structname>pg_largeobject</> Columns</title>
 
-   <tgroup cols="3">
+   <tgroup cols="4">
     <thead>
      <row>
       <entry>Name</entry>
       <entry>Type</entry>
+      <entry>References</entry>
       <entry>Description</entry>
      </row>
     </thead>
@@ -2974,12 +3154,14 @@
      <row>
       <entry><structfield>loid</structfield></entry>
       <entry><type>oid</type></entry>
+      <entry><literal><link linkend="catalog-pg-largeobject-metadata"><structname>pg_largeobject_metadata</structname></link>.oid</literal></entry>
       <entry>Identifier of the large object that includes this page</entry>
      </row>
 
      <row>
       <entry><structfield>pageno</structfield></entry>
       <entry><type>int4</type></entry>
+      <entry></entry>
       <entry>Page number of this page within its large object
       (counting from zero)</entry>
      </row>
@@ -2987,6 +3169,7 @@
      <row>
       <entry><structfield>data</structfield></entry>
       <entry><type>bytea</type></entry>
+      <entry></entry>
       <entry>
        Actual data stored in the large object.
        This will never be more than <symbol>LOBLKSIZE</> bytes and might be less
@@ -3007,28 +3190,22 @@
 
  </sect1>
 
+ <sect1 id="catalog-pg-largeobject-metadata">
+  <title><structname>pg_largeobject_metadata</structname></title>
 
- <sect1 id="catalog-pg-listener">
-  <title><structname>pg_listener</structname></title>
-
-  <indexterm zone="catalog-pg-listener">
-   <primary>pg_listener</primary>
+  <indexterm zone="catalog-pg-largeobject-metadata">
+   <primary>pg_largeobject_metadata</primary>
   </indexterm>
 
   <para>
-   The catalog <structname>pg_listener</structname> supports the
-   <xref linkend="sql-listen" endterm="sql-listen-title"> and
-   <xref linkend="sql-notify" endterm="sql-notify-title">
-   commands.  A listener creates an entry in
-   <structname>pg_listener</structname> for each notification name
-   it is listening for.  A notifier scans <structname>pg_listener</structname>
-   and updates each matching entry to show that a notification has occurred.
-   The notifier also sends a signal (using the PID recorded in the table)
-   to awaken the listener from sleep.
+   The catalog <structname>pg_largeobject_metadata</structname>
+   holds metadata associated with large objects.  The actual large object
+   data is stored in
+   <link linkend="catalog-pg-largeobject">pg_largeobject</link>.
   </para>
 
   <table>
-   <title><structname>pg_listener</> Columns</title>
+   <title><structname>pg_largeobject_metadata</> Columns</title>
 
    <tgroup cols="4">
     <thead>
@@ -3042,34 +3219,28 @@
 
     <tbody>
      <row>
-      <entry><structfield>relname</structfield></entry>
-      <entry><type>name</type></entry>
-      <entry>
-       Notify condition name.  (The name need not match any actual
-       relation in the database; the name <structfield>relname</> is historical.)
-      </entry>
+      <entry><structfield>lomowner</structfield></entry>
+      <entry><type>oid</type></entry>
+      <entry><literal><link linkend="catalog-pg-authid"><structname>pg_authid</structname></link>.oid</literal></entry>
+      <entry>Owner of the largeobject</entry>
      </row>
 
      <row>
-      <entry><structfield>listenerpid</structfield></entry>
-      <entry><type>int4</type></entry>
-      <entry>PID of the server process that created this entry</entry>
-     </row>
-
-     <row>
-      <entry><structfield>notification</structfield></entry>
-      <entry><type>int4</type></entry>
+      <entry><structfield>lomacl</structfield></entry>
+      <entry><type>aclitem[]</type></entry>
+      <entry></entry>
       <entry>
-       Zero if no event is pending for this listener.  If an event is
-       pending, the PID of the server process that sent the notification
+       Access privileges; see
+       <xref linkend="sql-grant"> and
+       <xref linkend="sql-revoke">
+       for details
       </entry>
      </row>
+
     </tbody>
    </tgroup>
   </table>
-
  </sect1>
-
 
  <sect1 id="catalog-pg-namespace">
   <title><structname>pg_namespace</structname></title>
@@ -3119,8 +3290,8 @@
       <entry></entry>
       <entry>
        Access privileges; see
-       <xref linkend="sql-grant" endterm="sql-grant-title"> and
-       <xref linkend="sql-revoke" endterm="sql-revoke-title">
+       <xref linkend="sql-grant"> and
+       <xref linkend="sql-revoke">
        for details
       </entry>
      </row>
@@ -3247,7 +3418,7 @@
 
   <para>
    The catalog <structname>pg_operator</> stores information about operators.
-   See <xref linkend="sql-createoperator" endterm="sql-createoperator-title">
+   See <xref linkend="sql-createoperator">
    and <xref linkend="xoper"> for more information.
   </para>
 
@@ -3520,6 +3691,12 @@
      </row>
 
      <row>
+      <entry><structfield>tmplinline</structfield></entry>
+      <entry><type>text</type></entry>
+      <entry>Name of anonymous-block handler function, or NULL if none</entry>
+     </row>
+
+     <row>
       <entry><structfield>tmplvalidator</structfield></entry>
       <entry><type>text</type></entry>
       <entry>Name of validator function, or NULL if none</entry>
@@ -3568,7 +3745,7 @@
 
   <para>
    The catalog <structname>pg_proc</> stores information about functions (or procedures).
-   See <xref linkend="sql-createfunction" endterm="sql-createfunction-title">
+   See <xref linkend="sql-createfunction">
    and <xref linkend="xfunc"> for more information.
   </para>
 
@@ -3813,7 +3990,7 @@
 
      <row>
       <entry><structfield>probin</structfield></entry>
-      <entry><type>bytea</type></entry>
+      <entry><type>text</type></entry>
       <entry></entry>
       <entry>
        Additional information about how to invoke the function.
@@ -3834,8 +4011,8 @@
       <entry></entry>
       <entry>
        Access privileges; see
-       <xref linkend="sql-grant" endterm="sql-grant-title"> and
-       <xref linkend="sql-revoke" endterm="sql-revoke-title">
+       <xref linkend="sql-grant"> and
+       <xref linkend="sql-revoke">
        for details
       </entry>
      </row>
@@ -3966,6 +4143,65 @@
    </para>
   </note>
 
+ </sect1>
+
+ <sect1 id="catalog-pg-db-role-setting">
+  <title><structname>pg_db_role_setting</structname></title>
+
+  <indexterm zone="catalog-pg-db-role-setting">
+   <primary>pg_db_role_setting</primary>
+  </indexterm>
+
+  <para>
+   The catalog <structname>pg_db_role_setting</structname> records the default
+   values that have been set for run-time configuration variables,
+   for each role and database combination.
+  </para>
+
+  <para>
+   Unlike most system catalogs, <structname>pg_db_role_setting</structname>
+   is shared across all databases of a cluster: there is only one
+   copy of <structname>pg_db_role_setting</structname> per cluster, not
+   one per database.
+  </para>
+
+  <table>
+   <title><structname>pg_db_role_setting</> Columns</title>
+
+   <tgroup cols="4">
+    <thead>
+     <row>
+      <entry>Name</entry>
+      <entry>Type</entry>
+      <entry>References</entry>
+      <entry>Description</entry>
+     </row>
+    </thead>
+
+    <tbody>
+     <row>
+      <entry><structfield>setdatabase</structfield></entry>
+      <entry><type>oid</type></entry>
+      <entry><literal><link linkend="catalog-pg-database"><structname>pg_database</structname></link>.oid</literal></entry>
+      <entry>The OID of the database the setting is applicable to, or zero if not database-specific</entry>
+     </row>
+
+     <row>
+      <entry><structfield>setrole</structfield></entry>
+      <entry><type>oid</type></entry>
+      <entry><literal><link linkend="catalog-pg-authid"><structname>pg_authid</structname></link>.oid</literal></entry>
+      <entry>The OID of the role the setting is applicable to, or zero if not role-specific</entry>
+     </row>
+
+     <row>
+      <entry><structfield>setconfig</structfield></entry>
+      <entry><type>text[]</type></entry>
+      <entry></entry>
+      <entry>Defaults for run-time configuration variables</entry>
+     </row>
+    </tbody>
+   </tgroup>
+  </table>
  </sect1>
 
 
@@ -4132,8 +4368,7 @@
   <para>
    The catalog <structname>pg_shdescription</structname> stores optional
    descriptions (comments) for shared database objects.  Descriptions can be
-   manipulated with the <xref linkend="sql-comment"
-   endterm="sql-comment-title"> command and viewed with
+   manipulated with the <xref linkend="sql-comment"> command and viewed with
    <application>psql</application>'s <literal>\d</literal> commands.
   </para>
 
@@ -4201,11 +4436,23 @@
   <para>
    The catalog <structname>pg_statistic</structname> stores
    statistical data about the contents of the database.  Entries are
-   created by <xref linkend="sql-analyze" endterm="sql-analyze-title">
-   and subsequently used by the query planner.  There is one entry for
-   each table column that has been analyzed.  Note that all the
+   created by <xref linkend="sql-analyze">
+   and subsequently used by the query planner.  Note that all the
    statistical data is inherently approximate, even assuming that it
    is up-to-date.
+  </para>
+
+  <para>
+   Normally there is one entry, with <structfield>stainherit</> =
+   <literal>false</>, for each table column that has been analyzed.
+   If the table has inheritance children, a second entry with
+   <structfield>stainherit</> = <literal>true</> is also created.  This row
+   represents the column's statistics over the inheritance tree, i.e.,
+   statistics for the data you'd see with
+   <literal>SELECT <replaceable>column</> FROM <replaceable>table</>*</literal>,
+   whereas the <structfield>stainherit</> = <literal>false</> row represents
+   the results of
+   <literal>SELECT <replaceable>column</> FROM ONLY <replaceable>table</></literal>.
   </para>
 
   <para>
@@ -4214,7 +4461,8 @@
    actual data columns; in particular, <structfield>starelid</structfield>
    references the index.  No entry is made for an ordinary non-expression
    index column, however, since it would be redundant with the entry
-   for the underlying table column.
+   for the underlying table column.  Currently, entries for index expressions
+   always have <structfield>stainherit</> = <literal>false</>.
   </para>
 
   <para>
@@ -4269,6 +4517,14 @@
      </row>
 
      <row>
+      <entry><structfield>stainherit</structfield></entry>
+      <entry><type>bool</type></entry>
+      <entry></entry>
+      <entry>If true, the stats include inheritance child columns, not just the
+       values in the specified relation</entry>
+     </row>
+
+     <row>
       <entry><structfield>stanullfrac</structfield></entry>
       <entry><type>float4</type></entry>
       <entry></entry>
@@ -4288,9 +4544,10 @@
       <entry></entry>
       <entry>The number of distinct nonnull data values in the column.
       A value greater than zero is the actual number of distinct values.
-      A value less than zero is the negative of a fraction of the number
-      of rows in the table (for example, a column in which values appear about
-      twice on the average could be represented by <structfield>stadistinct</> = -0.5).
+      A value less than zero is the negative of a multiplier for the number
+      of rows in the table; for example, a column in which values appear about
+      twice on the average could be represented by
+      <structfield>stadistinct</> = -0.5.
       A zero value means the number of distinct values is unknown
       </entry>
      </row>
@@ -4410,9 +4667,18 @@
       <entry></entry>
       <entry>
        Access privileges; see
-       <xref linkend="sql-grant" endterm="sql-grant-title"> and
-       <xref linkend="sql-revoke" endterm="sql-revoke-title">
+       <xref linkend="sql-grant"> and
+       <xref linkend="sql-revoke">
        for details
+      </entry>
+     </row>
+
+     <row>
+      <entry><structfield>spcoptions</structfield></entry>
+      <entry><type>text[]</type></entry>
+      <entry></entry>
+      <entry>
+       Tablespace-level options, as <quote>keyword=value</> strings
       </entry>
      </row>
     </tbody>
@@ -4430,7 +4696,7 @@
 
   <para>
    The catalog <structname>pg_trigger</structname> stores triggers on tables.
-   See <xref linkend="sql-createtrigger" endterm="sql-createtrigger-title">
+   See <xref linkend="sql-createtrigger">
    for more information.
   </para>
 
@@ -4491,17 +4757,11 @@
      </row>
 
      <row>
-      <entry><structfield>tgisconstraint</structfield></entry>
+      <entry><structfield>tgisinternal</structfield></entry>
       <entry><type>bool</type></entry>
       <entry></entry>
-      <entry>True if trigger is a <quote>constraint trigger</></entry>
-     </row>
-
-     <row>
-      <entry><structfield>tgconstrname</structfield></entry>
-      <entry><type>name</type></entry>
-      <entry></entry>
-      <entry>Constraint name, if a constraint trigger</entry>
+      <entry>True if trigger is internally generated (usually, to enforce
+       the constraint identified by <structfield>tgconstraint</>)</entry>
      </row>
 
      <row>
@@ -4512,10 +4772,17 @@
      </row>
 
      <row>
+      <entry><structfield>tgconstrindid</structfield></entry>
+      <entry><type>oid</type></entry>
+      <entry><literal><link linkend="catalog-pg-class"><structname>pg_class</structname></link>.oid</literal></entry>
+      <entry>The index supporting a unique, primary key, or referential integrity constraint</entry>
+     </row>
+
+     <row>
       <entry><structfield>tgconstraint</structfield></entry>
       <entry><type>oid</type></entry>
       <entry><literal><link linkend="catalog-pg-constraint"><structname>pg_constraint</structname></link>.oid</literal></entry>
-      <entry>The <structname>pg_constraint</> entry owning the trigger, if any</entry>
+      <entry>The <structname>pg_constraint</> entry associated with the trigger, if any</entry>
      </row>
 
      <row>
@@ -4542,8 +4809,9 @@
      <row>
       <entry><structfield>tgattr</structfield></entry>
       <entry><type>int2vector</type></entry>
-      <entry></entry>
-      <entry>Currently unused</entry>
+      <entry><literal><link linkend="catalog-pg-attribute"><structname>pg_attribute</structname></link>.attnum</literal></entry>
+      <entry>column numbers, if trigger is column-specific; otherwise an
+       empty array</entry>
      </row>
 
      <row>
@@ -4552,19 +4820,36 @@
       <entry></entry>
       <entry>Argument strings to pass to trigger, each NULL-terminated</entry>
      </row>
+
+     <row>
+      <entry><structfield>tgqual</structfield></entry>
+      <entry><type>text</type></entry>
+      <entry></entry>
+      <entry>Expression tree (in <function>nodeToString()</function>
+       representation) for the trigger's <literal>WHEN</> condition, or NULL
+       if none</entry>
+     </row>
     </tbody>
    </tgroup>
   </table>
 
+  <para>
+   Currently, column-specific triggering is supported only for
+   <literal>UPDATE</> events, and so <structfield>tgattr</> is relevant
+   only for that event type.  <structfield>tgtype</structfield> might
+   contain bits for other event types as well, but those are presumed
+   to be table-wide regardless of what is in <structfield>tgattr</>.
+  </para>
+
   <note>
    <para>
     When <structfield>tgconstraint</> is nonzero,
-    <structfield>tgisconstraint</> must be true, and
-    <structfield>tgconstrname</>, <structfield>tgconstrrelid</>,
-    <structfield>tgdeferrable</>, <structfield>tginitdeferred</> are redundant
-    with the referenced <structname>pg_constraint</> entry.  The reason we
-    keep these fields is that we support <quote>stand-alone</> constraint
-    triggers with no corresponding <structname>pg_constraint</> entry.
+    <structfield>tgconstrrelid</>, <structfield>tgconstrindid</>,
+    <structfield>tgdeferrable</>, and <structfield>tginitdeferred</> are
+    largely redundant with the referenced <structname>pg_constraint</> entry.
+    However, it is possible for a non-deferrable trigger to be associated
+    with a deferrable constraint: foreign key constraints can have some
+    deferrable and some non-deferrable triggers.
    </para>
   </note>
 
@@ -4964,9 +5249,9 @@
   <para>
    The catalog <structname>pg_type</structname> stores information about data
    types.  Base types and enum types (scalar types) are created with
-   <xref linkend="sql-createtype" endterm="sql-createtype-title">, and
+   <xref linkend="sql-createtype">, and
    domains with
-   <xref linkend="sql-createdomain" endterm="sql-createdomain-title">.
+   <xref linkend="sql-createdomain">.
    A composite type is automatically created for each table in the database, to
    represent the row structure of the table.  It is also possible to create
    composite types with <command>CREATE TYPE AS</command>.
@@ -5212,7 +5497,9 @@
        inserted before a datum of this type so that it begins on the
        specified boundary.  The alignment reference is the beginning
        of the first datum in the sequence.
-      </para><para>
+      </para>
+
+      <para>
        Possible values are:
        <itemizedlist>
         <listitem>
@@ -5629,7 +5916,7 @@
    <itemizedlist>
     <listitem>
      <para>
-      via the <xref linkend="sql-declare" endterm="sql-declare-title">
+      via the <xref linkend="sql-declare">
       statement in SQL
      </para>
     </listitem>
@@ -6126,8 +6413,7 @@
   <para>
    The <structname>pg_prepared_statements</structname> view displays
    all the prepared statements that are available in the current
-   session. See <xref linkend="sql-prepare"
-   endterm="sql-prepare-title"> for more information about prepared
+   session. See <xref linkend="sql-prepare"> for more information about prepared
    statements.
   </para>
 
@@ -6135,8 +6421,7 @@
    <structname>pg_prepared_statements</structname> contains one row
    for each prepared statement. Rows are added to the view when a new
    prepared statement is created and removed when a prepared statement
-   is released (for example, via the <xref linkend="sql-deallocate"
-   endterm="sql-deallocate-title"> command).
+   is released (for example, via the <xref linkend="sql-deallocate"> command).
   </para>
 
   <table>
@@ -6216,8 +6501,7 @@
   <para>
    The view <structname>pg_prepared_xacts</structname> displays
    information about transactions that are currently prepared for two-phase
-   commit (see <xref linkend="sql-prepare-transaction"
-   endterm="sql-prepare-transaction-title"> for details).
+   commit (see <xref linkend="sql-prepare-transaction"> for details).
   </para>
 
   <para>
@@ -6411,13 +6695,6 @@
      </row>
 
      <row>
-      <entry><structfield>rolconfig</structfield></entry>
-      <entry><type>text[]</type></entry>
-      <entry></entry>
-      <entry>Session defaults for run-time configuration variables</entry>
-     </row>
-
-     <row>
       <entry><structfield>oid</structfield></entry>
       <entry><type>oid</type></entry>
       <entry><literal><link linkend="catalog-pg-authid"><structname>pg_authid</structname></link>.oid</literal></entry>
@@ -6499,8 +6776,8 @@
   <para>
    The view <structname>pg_settings</structname> provides access to
    run-time parameters of the server.  It is essentially an alternative
-   interface to the <xref linkend="sql-show" endterm="sql-show-title">
-   and <xref linkend="sql-set" endterm="sql-set-title"> commands.
+   interface to the <xref linkend="sql-show">
+   and <xref linkend="sql-set"> commands.
    It also provides access to some facts about each parameter that are
    not directly available from <command>SHOW</>, such as minimum and
    maximum values.
@@ -6619,7 +6896,7 @@
    The <structname>pg_settings</structname> view cannot be inserted into or
    deleted from, but it can be updated.  An <command>UPDATE</command> applied
    to a row of <structname>pg_settings</structname> is equivalent to executing
-   the <xref linkend="sql-set" endterm="sql-set-title"> command on that named
+   the <xref linkend="sql-set"> command on that named
    parameter. The change only affects the value used by the current
    session. If an <command>UPDATE</command> is issued within a transaction
    that is later aborted, the effects of the <command>UPDATE</command> command
@@ -6788,6 +7065,14 @@
       <entry><type>name</type></entry>
       <entry><literal><link linkend="catalog-pg-attribute"><structname>pg_attribute</structname></link>.attname</literal></entry>
       <entry>Name of the column described by this row</entry>
+     </row>
+
+     <row>
+      <entry><structfield>inherited</structfield></entry>
+      <entry><type>bool</type></entry>
+      <entry></entry>
+      <entry>If true, this row includes inheritance child columns, not just the
+       values in the specified table</entry>
      </row>
 
      <row>
@@ -7167,7 +7452,7 @@
   <table>
    <title><structname>pg_user_mappings</> Columns</title>
 
-   <tgroup cols="3">
+   <tgroup cols="4">
     <thead>
      <row>
       <entry>Name</entry>

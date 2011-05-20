@@ -3,12 +3,12 @@
  * auth.c
  *	  Routines to handle network authentication
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/libpq/auth.c,v 1.183 2009/06/25 11:30:08 mha Exp $
+ *	  $PostgreSQL: pgsql/src/backend/libpq/auth.c,v 1.203 2010/07/06 19:18:56 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -27,13 +27,18 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <stddef.h>
 
 #include "libpq/auth.h"
 #include "libpq/crypt.h"
 #include "libpq/ip.h"
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
+#include "libpq/md5.h"
+#include "miscadmin.h"
+#include "replication/walsender.h"
 #include "storage/ipc.h"
+
 
 /*----------------------------------------------------------------
  * Global authentication functions
@@ -174,12 +179,36 @@ static int	pg_GSS_recvauth(Port *port);
  *----------------------------------------------------------------
  */
 #ifdef ENABLE_SSPI
-typedef SECURITY_STATUS
+typedef		SECURITY_STATUS
 			(WINAPI * QUERY_SECURITY_CONTEXT_TOKEN_FN) (
 													   PCtxtHandle, void **);
 static int	pg_SSPI_recvauth(Port *port);
 #endif
 
+/*----------------------------------------------------------------
+ * RADIUS Authentication
+ *----------------------------------------------------------------
+ */
+#ifdef USE_SSL
+#include <openssl/rand.h>
+#endif
+static int	CheckRADIUSAuth(Port *port);
+
+
+/*
+ * Maximum accepted size of GSS and SSPI authentication tokens.
+ *
+ * Kerberos tickets are usually quite small, but the TGTs issued by Windows
+ * domain controllers include an authorization field known as the Privilege
+ * Attribute Certificate (PAC), which contains the user's Windows permissions
+ * (group memberships etc.). The PAC is copied into all tickets obtained on
+ * the basis of this TGT (even those issued by Unix realms which the Windows
+ * realm trusts), and can be several kB in size. The maximum token size
+ * accepted by Windows systems is determined by the MaxAuthToken Windows
+ * registry setting. Microsoft recommends that it is not set higher than
+ * 65535 bytes, so that seems like a reasonable limit for us as well.
+ */
+#define PG_MAX_AUTH_TOKEN_LENGTH	65535
 
 
 /*----------------------------------------------------------------
@@ -204,6 +233,7 @@ static void
 auth_failed(Port *port, int status)
 {
 	const char *errstr;
+	int			errcode_return = ERRCODE_INVALID_AUTHORIZATION_SPECIFICATION;
 
 	/*
 	 * If we failed due to EOF from client, just quit; there's no point in
@@ -221,16 +251,11 @@ auth_failed(Port *port, int status)
 	switch (port->hba->auth_method)
 	{
 		case uaReject:
+		case uaImplicitReject:
 			errstr = gettext_noop("authentication failed for user \"%s\": host rejected");
 			break;
 		case uaKrb5:
 			errstr = gettext_noop("Kerberos 5 authentication failed for user \"%s\"");
-			break;
-		case uaGSS:
-			errstr = gettext_noop("GSSAPI authentication failed for user \"%s\"");
-			break;
-		case uaSSPI:
-			errstr = gettext_noop("SSPI authentication failed for user \"%s\"");
 			break;
 		case uaTrust:
 			errstr = gettext_noop("\"trust\" authentication failed for user \"%s\"");
@@ -238,9 +263,17 @@ auth_failed(Port *port, int status)
 		case uaIdent:
 			errstr = gettext_noop("Ident authentication failed for user \"%s\"");
 			break;
-		case uaMD5:
 		case uaPassword:
+		case uaMD5:
 			errstr = gettext_noop("password authentication failed for user \"%s\"");
+			/* We use it to indicate if a .pgpass password failed. */
+			errcode_return = ERRCODE_INVALID_PASSWORD;
+			break;
+		case uaGSS:
+			errstr = gettext_noop("GSSAPI authentication failed for user \"%s\"");
+			break;
+		case uaSSPI:
+			errstr = gettext_noop("SSPI authentication failed for user \"%s\"");
 			break;
 		case uaPAM:
 			errstr = gettext_noop("PAM authentication failed for user \"%s\"");
@@ -248,13 +281,19 @@ auth_failed(Port *port, int status)
 		case uaLDAP:
 			errstr = gettext_noop("LDAP authentication failed for user \"%s\"");
 			break;
+		case uaCert:
+			errstr = gettext_noop("certificate authentication failed for user \"%s\"");
+			break;
+		case uaRADIUS:
+			errstr = gettext_noop("RADIUS authentication failed for user \"%s\"");
+			break;
 		default:
 			errstr = gettext_noop("authentication failed for user \"%s\": invalid authentication method");
 			break;
 	}
 
 	ereport(FATAL,
-			(errcode(ERRCODE_INVALID_AUTHORIZATION_SPECIFICATION),
+			(errcode(errcode_return),
 			 errmsg(errstr, port->user_name)));
 	/* doesn't return */
 }
@@ -280,6 +319,15 @@ ClientAuthentication(Port *port)
 				(errcode(ERRCODE_CONFIG_FILE_ERROR),
 				 errmsg("missing or erroneous pg_hba.conf file"),
 				 errhint("See server log for details.")));
+
+	/*
+	 * Enable immediate response to SIGTERM/SIGINT/timeout interrupts. (We
+	 * don't want this during hba_getauthmethod() because it might have to do
+	 * database access, eg for role membership checks.)
+	 */
+	ImmediateInterruptOK = true;
+	/* And don't forget to detect one that already arrived */
+	CHECK_FOR_INTERRUPTS();
 
 	/*
 	 * This is the first point where we have access to the hba record for the
@@ -320,13 +368,14 @@ ClientAuthentication(Port *port)
 		case uaReject:
 
 			/*
-			 * This could have come from an explicit "reject" entry in
-			 * pg_hba.conf, but more likely it means there was no matching
-			 * entry.  Take pity on the poor user and issue a helpful error
-			 * message.  NOTE: this is not a security breach, because all the
-			 * info reported here is known at the frontend and must be assumed
-			 * known to bad guys. We're merely helping out the less clueful
-			 * good guys.
+			 * An explicit "reject" entry in pg_hba.conf.  This report exposes
+			 * the fact that there's an explicit reject entry, which is
+			 * perhaps not so desirable from a security standpoint; but the
+			 * message for an implicit reject could confuse the DBA a lot when
+			 * the true situation is a match to an explicit reject.  And we
+			 * don't want to change the message for an implicit reject.  As
+			 * noted below, the additional information shown here doesn't
+			 * expose anything not known to an attacker.
 			 */
 			{
 				char		hostinfo[NI_MAXHOST];
@@ -336,18 +385,91 @@ ClientAuthentication(Port *port)
 								   NULL, 0,
 								   NI_NUMERICHOST);
 
+				if (am_walsender)
+				{
 #ifdef USE_SSL
-				ereport(FATAL,
-						(errcode(ERRCODE_INVALID_AUTHORIZATION_SPECIFICATION),
-						 errmsg("no pg_hba.conf entry for host \"%s\", user \"%s\", database \"%s\", %s",
-							  hostinfo, port->user_name, port->database_name,
-								port->ssl ? _("SSL on") : _("SSL off"))));
+					ereport(FATAL,
+					   (errcode(ERRCODE_INVALID_AUTHORIZATION_SPECIFICATION),
+						errmsg("pg_hba.conf rejects replication connection for host \"%s\", user \"%s\", %s",
+							   hostinfo, port->user_name,
+							   port->ssl ? _("SSL on") : _("SSL off"))));
 #else
-				ereport(FATAL,
-						(errcode(ERRCODE_INVALID_AUTHORIZATION_SPECIFICATION),
-						 errmsg("no pg_hba.conf entry for host \"%s\", user \"%s\", database \"%s\"",
-						   hostinfo, port->user_name, port->database_name)));
+					ereport(FATAL,
+					   (errcode(ERRCODE_INVALID_AUTHORIZATION_SPECIFICATION),
+						errmsg("pg_hba.conf rejects replication connection for host \"%s\", user \"%s\"",
+							   hostinfo, port->user_name)));
 #endif
+				}
+				else
+				{
+#ifdef USE_SSL
+					ereport(FATAL,
+					   (errcode(ERRCODE_INVALID_AUTHORIZATION_SPECIFICATION),
+						errmsg("pg_hba.conf rejects connection for host \"%s\", user \"%s\", database \"%s\", %s",
+							   hostinfo, port->user_name,
+							   port->database_name,
+							   port->ssl ? _("SSL on") : _("SSL off"))));
+#else
+					ereport(FATAL,
+					   (errcode(ERRCODE_INVALID_AUTHORIZATION_SPECIFICATION),
+						errmsg("pg_hba.conf rejects connection for host \"%s\", user \"%s\", database \"%s\"",
+							   hostinfo, port->user_name,
+							   port->database_name)));
+#endif
+				}
+				break;
+			}
+
+		case uaImplicitReject:
+
+			/*
+			 * No matching entry, so tell the user we fell through.
+			 *
+			 * NOTE: the extra info reported here is not a security breach,
+			 * because all that info is known at the frontend and must be
+			 * assumed known to bad guys.  We're merely helping out the less
+			 * clueful good guys.
+			 */
+			{
+				char		hostinfo[NI_MAXHOST];
+
+				pg_getnameinfo_all(&port->raddr.addr, port->raddr.salen,
+								   hostinfo, sizeof(hostinfo),
+								   NULL, 0,
+								   NI_NUMERICHOST);
+
+				if (am_walsender)
+				{
+#ifdef USE_SSL
+					ereport(FATAL,
+					   (errcode(ERRCODE_INVALID_AUTHORIZATION_SPECIFICATION),
+						errmsg("no pg_hba.conf entry for replication connection from host \"%s\", user \"%s\", %s",
+							   hostinfo, port->user_name,
+							   port->ssl ? _("SSL on") : _("SSL off"))));
+#else
+					ereport(FATAL,
+					   (errcode(ERRCODE_INVALID_AUTHORIZATION_SPECIFICATION),
+						errmsg("no pg_hba.conf entry for replication connection from host \"%s\", user \"%s\"",
+							   hostinfo, port->user_name)));
+#endif
+				}
+				else
+				{
+#ifdef USE_SSL
+					ereport(FATAL,
+					   (errcode(ERRCODE_INVALID_AUTHORIZATION_SPECIFICATION),
+						errmsg("no pg_hba.conf entry for host \"%s\", user \"%s\", database \"%s\", %s",
+							   hostinfo, port->user_name,
+							   port->database_name,
+							   port->ssl ? _("SSL on") : _("SSL off"))));
+#else
+					ereport(FATAL,
+					   (errcode(ERRCODE_INVALID_AUTHORIZATION_SPECIFICATION),
+						errmsg("no pg_hba.conf entry for host \"%s\", user \"%s\", database \"%s\"",
+							   hostinfo, port->user_name,
+							   port->database_name)));
+#endif
+				}
 				break;
 			}
 
@@ -426,7 +548,6 @@ ClientAuthentication(Port *port)
 
 		case uaPAM:
 #ifdef USE_PAM
-			pam_port_cludge = port;
 			status = CheckPAMAuth(port, port->user_name, "");
 #else
 			Assert(false);
@@ -448,7 +569,9 @@ ClientAuthentication(Port *port)
 			Assert(false);
 #endif
 			break;
-
+		case uaRADIUS:
+			status = CheckRADIUSAuth(port);
+			break;
 		case uaTrust:
 			status = STATUS_OK;
 			break;
@@ -458,6 +581,9 @@ ClientAuthentication(Port *port)
 		sendAuthRequest(port, AUTH_REQ_OK);
 	else
 		auth_failed(port, status);
+
+	/* Done with authentication, so we should turn off immediate interrupts */
+	ImmediateInterruptOK = false;
 }
 
 
@@ -689,9 +815,6 @@ pg_krb5_recvauth(Port *port)
 	krb5_ticket *ticket;
 	char	   *kusername;
 	char	   *cp;
-
-	if (get_role_line(port->user_name) == NULL)
-		return STATUS_ERROR;
 
 	ret = pg_krb5_init(port);
 	if (ret != STATUS_OK)
@@ -937,7 +1060,7 @@ pg_GSS_recvauth(Port *port)
 
 		/* Get the actual GSS token */
 		initStringInfo(&buf);
-		if (pq_getmessage(&buf, 2000))
+		if (pq_getmessage(&buf, PG_MAX_AUTH_TOKEN_LENGTH))
 		{
 			/* EOF - pq_getmessage already logged error */
 			pfree(buf.data);
@@ -1175,7 +1298,7 @@ pg_SSPI_recvauth(Port *port)
 
 		/* Get the actual SSPI token */
 		initStringInfo(&buf);
-		if (pq_getmessage(&buf, 2000))
+		if (pq_getmessage(&buf, PG_MAX_AUTH_TOKEN_LENGTH))
 		{
 			/* EOF - pq_getmessage already logged error */
 			pfree(buf.data);
@@ -1472,7 +1595,7 @@ ident_inet(const SockAddr remote_addr,
 		   const SockAddr local_addr,
 		   char *ident_user)
 {
-	int			sock_fd,		/* File descriptor for socket on which we talk
+	pgsocket	sock_fd,		/* File descriptor for socket on which we talk
 								 * to Ident */
 				rc;				/* Return code from a locally called function */
 	bool		ident_return;
@@ -1823,9 +1946,6 @@ authident(hbaPort *port)
 {
 	char		ident_user[IDENT_USERNAME_MAX + 1];
 
-	if (get_role_line(port->user_name) == NULL)
-		return STATUS_ERROR;
-
 	switch (port->raddr.addr.ss_family)
 	{
 		case AF_INET:
@@ -1865,61 +1985,31 @@ static int
 pam_passwd_conv_proc(int num_msg, const struct pam_message ** msg,
 					 struct pam_response ** resp, void *appdata_ptr)
 {
-	if (num_msg != 1 || msg[0]->msg_style != PAM_PROMPT_ECHO_OFF)
-	{
-		switch (msg[0]->msg_style)
-		{
-			case PAM_ERROR_MSG:
-				ereport(LOG,
-						(errmsg("error from underlying PAM layer: %s",
-								msg[0]->msg)));
-				return PAM_CONV_ERR;
-			default:
-				ereport(LOG,
-						(errmsg("unsupported PAM conversation %d/%s",
-								msg[0]->msg_style, msg[0]->msg)));
-				return PAM_CONV_ERR;
-		}
-	}
+	char	   *passwd;
+	struct pam_response *reply;
+	int			i;
 
-	if (!appdata_ptr)
+	if (appdata_ptr)
+		passwd = (char *) appdata_ptr;
+	else
 	{
 		/*
 		 * Workaround for Solaris 2.6 where the PAM library is broken and does
 		 * not pass appdata_ptr to the conversation routine
 		 */
-		appdata_ptr = pam_passwd;
+		passwd = pam_passwd;
 	}
 
-	/*
-	 * Password wasn't passed to PAM the first time around - let's go ask the
-	 * client to send a password, which we then stuff into PAM.
-	 */
-	if (strlen(appdata_ptr) == 0)
-	{
-		char	   *passwd;
+	*resp = NULL;				/* in case of error exit */
 
-		sendAuthRequest(pam_port_cludge, AUTH_REQ_PASSWORD);
-		passwd = recv_password_packet(pam_port_cludge);
-
-		if (passwd == NULL)
-			return PAM_CONV_ERR;	/* client didn't want to send password */
-
-		if (strlen(passwd) == 0)
-		{
-			ereport(LOG,
-					(errmsg("empty password returned by client")));
-			return PAM_CONV_ERR;
-		}
-		appdata_ptr = passwd;
-	}
+	if (num_msg <= 0 || num_msg > PAM_MAX_NUM_MSG)
+		return PAM_CONV_ERR;
 
 	/*
 	 * Explicitly not using palloc here - PAM will free this memory in
 	 * pam_end()
 	 */
-	*resp = calloc(num_msg, sizeof(struct pam_response));
-	if (!*resp)
+	if ((reply = calloc(num_msg, sizeof(struct pam_response))) == NULL)
 	{
 		ereport(LOG,
 				(errcode(ERRCODE_OUT_OF_MEMORY),
@@ -1927,10 +2017,71 @@ pam_passwd_conv_proc(int num_msg, const struct pam_message ** msg,
 		return PAM_CONV_ERR;
 	}
 
-	(*resp)[0].resp = strdup((char *) appdata_ptr);
-	(*resp)[0].resp_retcode = 0;
+	for (i = 0; i < num_msg; i++)
+	{
+		switch (msg[i]->msg_style)
+		{
+			case PAM_PROMPT_ECHO_OFF:
+				if (strlen(passwd) == 0)
+				{
+					/*
+					 * Password wasn't passed to PAM the first time around -
+					 * let's go ask the client to send a password, which we
+					 * then stuff into PAM.
+					 */
+					sendAuthRequest(pam_port_cludge, AUTH_REQ_PASSWORD);
+					passwd = recv_password_packet(pam_port_cludge);
+					if (passwd == NULL)
+					{
+						/*
+						 * Client didn't want to send password.  We
+						 * intentionally do not log anything about this.
+						 */
+						goto fail;
+					}
+					if (strlen(passwd) == 0)
+					{
+						ereport(LOG,
+							  (errmsg("empty password returned by client")));
+						goto fail;
+					}
+				}
+				if ((reply[i].resp = strdup(passwd)) == NULL)
+					goto fail;
+				reply[i].resp_retcode = PAM_SUCCESS;
+				break;
+			case PAM_ERROR_MSG:
+				ereport(LOG,
+						(errmsg("error from underlying PAM layer: %s",
+								msg[i]->msg)));
+				/* FALL THROUGH */
+			case PAM_TEXT_INFO:
+				/* we don't bother to log TEXT_INFO messages */
+				if ((reply[i].resp = strdup("")) == NULL)
+					goto fail;
+				reply[i].resp_retcode = PAM_SUCCESS;
+				break;
+			default:
+				elog(LOG, "unsupported PAM conversation %d/\"%s\"",
+					 msg[i]->msg_style,
+					 msg[i]->msg ? msg[i]->msg : "(none)");
+				goto fail;
+		}
+	}
 
-	return ((*resp)[0].resp ? PAM_SUCCESS : PAM_CONV_ERR);
+	*resp = reply;
+	return PAM_SUCCESS;
+
+fail:
+	/* free up whatever we allocated */
+	for (i = 0; i < num_msg; i++)
+	{
+		if (reply[i].resp != NULL)
+			free(reply[i].resp);
+	}
+	free(reply);
+
+	return PAM_CONV_ERR;
 }
 
 
@@ -1944,10 +2095,12 @@ CheckPAMAuth(Port *port, char *user, char *password)
 	pam_handle_t *pamh = NULL;
 
 	/*
-	 * Apparently, Solaris 2.6 is broken, and needs ugly static variable
-	 * workaround
+	 * We can't entirely rely on PAM to pass through appdata --- it appears
+	 * not to work on at least Solaris 2.6.  So use these ugly static
+	 * variables instead.
 	 */
 	pam_passwd = password;
+	pam_port_cludge = port;
 
 	/*
 	 * Set the application data portion of the conversation struct This is
@@ -2041,14 +2194,106 @@ CheckPAMAuth(Port *port, char *user, char *password)
  */
 #ifdef USE_LDAP
 
+/*
+ * Initialize a connection to the LDAP server, including setting up
+ * TLS if requested.
+ */
+static int
+InitializeLDAPConnection(Port *port, LDAP **ldap)
+{
+	int			ldapversion = LDAP_VERSION3;
+	int			r;
+
+	*ldap = ldap_init(port->hba->ldapserver, port->hba->ldapport);
+	if (!*ldap)
+	{
+#ifndef WIN32
+		ereport(LOG,
+				(errmsg("could not initialize LDAP: error code %d",
+						errno)));
+#else
+		ereport(LOG,
+				(errmsg("could not initialize LDAP: error code %d",
+						(int) LdapGetLastError())));
+#endif
+		return STATUS_ERROR;
+	}
+
+	if ((r = ldap_set_option(*ldap, LDAP_OPT_PROTOCOL_VERSION, &ldapversion)) != LDAP_SUCCESS)
+	{
+		ldap_unbind(*ldap);
+		ereport(LOG,
+		  (errmsg("could not set LDAP protocol version: error code %d", r)));
+		return STATUS_ERROR;
+	}
+
+	if (port->hba->ldaptls)
+	{
+#ifndef WIN32
+		if ((r = ldap_start_tls_s(*ldap, NULL, NULL)) != LDAP_SUCCESS)
+#else
+		static __ldap_start_tls_sA _ldap_start_tls_sA = NULL;
+
+		if (_ldap_start_tls_sA == NULL)
+		{
+			/*
+			 * Need to load this function dynamically because it does not
+			 * exist on Windows 2000, and causes a load error for the whole
+			 * exe if referenced.
+			 */
+			HANDLE		ldaphandle;
+
+			ldaphandle = LoadLibrary("WLDAP32.DLL");
+			if (ldaphandle == NULL)
+			{
+				/*
+				 * should never happen since we import other files from
+				 * wldap32, but check anyway
+				 */
+				ldap_unbind(*ldap);
+				ereport(LOG,
+						(errmsg("could not load wldap32.dll")));
+				return STATUS_ERROR;
+			}
+			_ldap_start_tls_sA = (__ldap_start_tls_sA) GetProcAddress(ldaphandle, "ldap_start_tls_sA");
+			if (_ldap_start_tls_sA == NULL)
+			{
+				ldap_unbind(*ldap);
+				ereport(LOG,
+						(errmsg("could not load function _ldap_start_tls_sA in wldap32.dll"),
+						 errdetail("LDAP over SSL is not supported on this platform.")));
+				return STATUS_ERROR;
+			}
+
+			/*
+			 * Leak LDAP handle on purpose, because we need the library to
+			 * stay open. This is ok because it will only ever be leaked once
+			 * per process and is automatically cleaned up on process exit.
+			 */
+		}
+		if ((r = _ldap_start_tls_sA(*ldap, NULL, NULL, NULL, NULL)) != LDAP_SUCCESS)
+#endif
+		{
+			ldap_unbind(*ldap);
+			ereport(LOG,
+			 (errmsg("could not start LDAP TLS session: error code %d", r)));
+			return STATUS_ERROR;
+		}
+	}
+
+	return STATUS_OK;
+}
+
+/*
+ * Perform LDAP authentication
+ */
 static int
 CheckLDAPAuth(Port *port)
 {
 	char	   *passwd;
 	LDAP	   *ldap;
 	int			r;
-	int			ldapversion = LDAP_VERSION3;
-	char		fulluser[NAMEDATALEN + 256 + 1];
+	char	   *fulluser;
 
 	if (!port->hba->ldapserver || port->hba->ldapserver[0] == '\0')
 	{
@@ -2073,88 +2318,159 @@ CheckLDAPAuth(Port *port)
 		return STATUS_ERROR;
 	}
 
-	ldap = ldap_init(port->hba->ldapserver, port->hba->ldapport);
-	if (!ldap)
-	{
-#ifndef WIN32
-		ereport(LOG,
-				(errmsg("could not initialize LDAP: error code %d",
-						errno)));
-#else
-		ereport(LOG,
-				(errmsg("could not initialize LDAP: error code %d",
-						(int) LdapGetLastError())));
-#endif
+	if (InitializeLDAPConnection(port, &ldap) == STATUS_ERROR)
+		/* Error message already sent */
 		return STATUS_ERROR;
-	}
 
-	if ((r = ldap_set_option(ldap, LDAP_OPT_PROTOCOL_VERSION, &ldapversion)) != LDAP_SUCCESS)
+	if (port->hba->ldapbasedn)
 	{
-		ldap_unbind(ldap);
-		ereport(LOG,
-		  (errmsg("could not set LDAP protocol version: error code %d", r)));
-		return STATUS_ERROR;
-	}
+		/*
+		 * First perform an LDAP search to find the DN for the user we are
+		 * trying to log in as.
+		 */
+		char	   *filter;
+		LDAPMessage *search_message;
+		LDAPMessage *entry;
+		char	   *attributes[2];
+		char	   *dn;
+		char	   *c;
 
-	if (port->hba->ldaptls)
-	{
-#ifndef WIN32
-		if ((r = ldap_start_tls_s(ldap, NULL, NULL)) != LDAP_SUCCESS)
-#else
-		static __ldap_start_tls_sA _ldap_start_tls_sA = NULL;
-
-		if (_ldap_start_tls_sA == NULL)
+		/*
+		 * Disallow any characters that we would otherwise need to escape,
+		 * since they aren't really reasonable in a username anyway. Allowing
+		 * them would make it possible to inject any kind of custom filters in
+		 * the LDAP filter.
+		 */
+		for (c = port->user_name; *c; c++)
 		{
-			/*
-			 * Need to load this function dynamically because it does not
-			 * exist on Windows 2000, and causes a load error for the whole
-			 * exe if referenced.
-			 */
-			HANDLE		ldaphandle;
-
-			ldaphandle = LoadLibrary("WLDAP32.DLL");
-			if (ldaphandle == NULL)
+			if (*c == '*' ||
+				*c == '(' ||
+				*c == ')' ||
+				*c == '\\' ||
+				*c == '/')
 			{
-				/*
-				 * should never happen since we import other files from
-				 * wldap32, but check anyway
-				 */
-				ldap_unbind(ldap);
 				ereport(LOG,
-						(errmsg("could not load wldap32.dll")));
+						(errmsg("invalid character in user name for LDAP authentication")));
 				return STATUS_ERROR;
 			}
-			_ldap_start_tls_sA = (__ldap_start_tls_sA) GetProcAddress(ldaphandle, "ldap_start_tls_sA");
-			if (_ldap_start_tls_sA == NULL)
-			{
-				ldap_unbind(ldap);
-				ereport(LOG,
-						(errmsg("could not load function _ldap_start_tls_sA in wldap32.dll"),
-						 errdetail("LDAP over SSL is not supported on this platform.")));
-				return STATUS_ERROR;
-			}
-
-			/*
-			 * Leak LDAP handle on purpose, because we need the library to
-			 * stay open. This is ok because it will only ever be leaked once
-			 * per process and is automatically cleaned up on process exit.
-			 */
 		}
-		if ((r = _ldap_start_tls_sA(ldap, NULL, NULL, NULL, NULL)) != LDAP_SUCCESS)
-#endif
+
+		/*
+		 * Bind with a pre-defined username/password (if available) for
+		 * searching. If none is specified, this turns into an anonymous bind.
+		 */
+		r = ldap_simple_bind_s(ldap,
+						  port->hba->ldapbinddn ? port->hba->ldapbinddn : "",
+				 port->hba->ldapbindpasswd ? port->hba->ldapbindpasswd : "");
+		if (r != LDAP_SUCCESS)
 		{
-			ldap_unbind(ldap);
 			ereport(LOG,
-			 (errmsg("could not start LDAP TLS session: error code %d", r)));
+					(errmsg("could not perform initial LDAP bind for ldapbinddn \"%s\" on server \"%s\": error code %d",
+						  port->hba->ldapbinddn, port->hba->ldapserver, r)));
+			return STATUS_ERROR;
+		}
+
+		/* Fetch just one attribute, else *all* attributes are returned */
+		attributes[0] = port->hba->ldapsearchattribute ? port->hba->ldapsearchattribute : "uid";
+		attributes[1] = NULL;
+
+		filter = palloc(strlen(attributes[0]) + strlen(port->user_name) + 4);
+		sprintf(filter, "(%s=%s)",
+				attributes[0],
+				port->user_name);
+
+		r = ldap_search_s(ldap,
+						  port->hba->ldapbasedn,
+						  LDAP_SCOPE_SUBTREE,
+						  filter,
+						  attributes,
+						  0,
+						  &search_message);
+
+		if (r != LDAP_SUCCESS)
+		{
+			ereport(LOG,
+					(errmsg("could not search LDAP for filter \"%s\" on server \"%s\": error code %d",
+							filter, port->hba->ldapserver, r)));
+			pfree(filter);
+			return STATUS_ERROR;
+		}
+
+		if (ldap_count_entries(ldap, search_message) != 1)
+		{
+			if (ldap_count_entries(ldap, search_message) == 0)
+				ereport(LOG,
+						(errmsg("LDAP search failed for filter \"%s\" on server \"%s\": no such user",
+								filter, port->hba->ldapserver)));
+			else
+				ereport(LOG,
+						(errmsg("LDAP search failed for filter \"%s\" on server \"%s\": user is not unique (%ld matches)",
+								filter, port->hba->ldapserver,
+						  (long) ldap_count_entries(ldap, search_message))));
+
+			pfree(filter);
+			ldap_msgfree(search_message);
+			return STATUS_ERROR;
+		}
+
+		entry = ldap_first_entry(ldap, search_message);
+		dn = ldap_get_dn(ldap, entry);
+		if (dn == NULL)
+		{
+			int			error;
+
+			(void) ldap_get_option(ldap, LDAP_OPT_ERROR_NUMBER, &error);
+			ereport(LOG,
+					(errmsg("could not get dn for the first entry matching \"%s\" on server \"%s\": %s",
+					filter, port->hba->ldapserver, ldap_err2string(error))));
+			pfree(filter);
+			ldap_msgfree(search_message);
+			return STATUS_ERROR;
+		}
+		fulluser = pstrdup(dn);
+
+		pfree(filter);
+		ldap_memfree(dn);
+		ldap_msgfree(search_message);
+
+		/* Unbind and disconnect from the LDAP server */
+		r = ldap_unbind_s(ldap);
+		if (r != LDAP_SUCCESS)
+		{
+			int			error;
+
+			(void) ldap_get_option(ldap, LDAP_OPT_ERROR_NUMBER, &error);
+			ereport(LOG,
+					(errmsg("could not unbind after searching for user \"%s\" on server \"%s\": %s",
+				  fulluser, port->hba->ldapserver, ldap_err2string(error))));
+			pfree(fulluser);
+			return STATUS_ERROR;
+		}
+
+		/*
+		 * Need to re-initialize the LDAP connection, so that we can bind to
+		 * it with a different username.
+		 */
+		if (InitializeLDAPConnection(port, &ldap) == STATUS_ERROR)
+		{
+			pfree(fulluser);
+
+			/* Error message already sent */
 			return STATUS_ERROR;
 		}
 	}
+	else
+	{
+		fulluser = palloc((port->hba->ldapprefix ? strlen(port->hba->ldapprefix) : 0) +
+						  strlen(port->user_name) +
+				(port->hba->ldapsuffix ? strlen(port->hba->ldapsuffix) : 0) +
+						  1);
 
-	snprintf(fulluser, sizeof(fulluser), "%s%s%s",
-			 port->hba->ldapprefix ? port->hba->ldapprefix : "",
-			 port->user_name,
-			 port->hba->ldapsuffix ? port->hba->ldapsuffix : "");
-	fulluser[sizeof(fulluser) - 1] = '\0';
+		sprintf(fulluser, "%s%s%s",
+				port->hba->ldapprefix ? port->hba->ldapprefix : "",
+				port->user_name,
+				port->hba->ldapsuffix ? port->hba->ldapsuffix : "");
+	}
 
 	r = ldap_simple_bind_s(ldap, fulluser, passwd);
 	ldap_unbind(ldap);
@@ -2164,8 +2480,11 @@ CheckLDAPAuth(Port *port)
 		ereport(LOG,
 				(errmsg("LDAP login failed for user \"%s\" on server \"%s\": error code %d",
 						fulluser, port->hba->ldapserver, r)));
+		pfree(fulluser);
 		return STATUS_ERROR;
 	}
+
+	pfree(fulluser);
 
 	return STATUS_OK;
 }
@@ -2187,7 +2506,7 @@ CheckCertAuth(Port *port)
 		strlen(port->peer_cn) <= 0)
 	{
 		ereport(LOG,
-				(errmsg("Certificate login failed for user \"%s\": client certificate contains no username",
+				(errmsg("certificate authentication failed for user \"%s\": client certificate contains no user name",
 						port->user_name)));
 		return STATUS_ERROR;
 	}
@@ -2195,5 +2514,398 @@ CheckCertAuth(Port *port)
 	/* Just pass the certificate CN to the usermap check */
 	return check_usermap(port->hba->usermap, port->user_name, port->peer_cn, false);
 }
-
 #endif
+
+
+/*----------------------------------------------------------------
+ * RADIUS authentication
+ *----------------------------------------------------------------
+ */
+
+/*
+ * RADIUS authentication is described in RFC2865 (and several
+ * others).
+ */
+
+#define RADIUS_VECTOR_LENGTH 16
+#define RADIUS_HEADER_LENGTH 20
+
+typedef struct
+{
+	uint8		attribute;
+	uint8		length;
+	uint8		data[1];
+} radius_attribute;
+
+typedef struct
+{
+	uint8		code;
+	uint8		id;
+	uint16		length;
+	uint8		vector[RADIUS_VECTOR_LENGTH];
+} radius_packet;
+
+/* RADIUS packet types */
+#define RADIUS_ACCESS_REQUEST	1
+#define RADIUS_ACCESS_ACCEPT	2
+#define RADIUS_ACCESS_REJECT	3
+
+/* RAIDUS attributes */
+#define RADIUS_USER_NAME		1
+#define RADIUS_PASSWORD			2
+#define RADIUS_SERVICE_TYPE		6
+#define RADIUS_NAS_IDENTIFIER	32
+
+/* RADIUS service types */
+#define RADIUS_AUTHENTICATE_ONLY	8
+
+/* Maximum size of a RADIUS packet we will create or accept */
+#define RADIUS_BUFFER_SIZE 1024
+
+/* Seconds to wait - XXX: should be in a config variable! */
+#define RADIUS_TIMEOUT 3
+
+static void
+radius_add_attribute(radius_packet *packet, uint8 type, const unsigned char *data, int len)
+{
+	radius_attribute *attr;
+
+	if (packet->length + len > RADIUS_BUFFER_SIZE)
+	{
+		/*
+		 * With remotely realistic data, this can never happen. But catch it
+		 * just to make sure we don't overrun a buffer. We'll just skip adding
+		 * the broken attribute, which will in the end cause authentication to
+		 * fail.
+		 */
+		elog(WARNING,
+			 "Adding attribute code %i with length %i to radius packet would create oversize packet, ignoring",
+			 type, len);
+		return;
+
+	}
+
+	attr = (radius_attribute *) ((unsigned char *) packet + packet->length);
+	attr->attribute = type;
+	attr->length = len + 2;		/* total size includes type and length */
+	memcpy(attr->data, data, len);
+	packet->length += attr->length;
+}
+
+static int
+CheckRADIUSAuth(Port *port)
+{
+	char	   *passwd;
+	char	   *identifier = "postgresql";
+	char		radius_buffer[RADIUS_BUFFER_SIZE];
+	char		receive_buffer[RADIUS_BUFFER_SIZE];
+	radius_packet *packet = (radius_packet *) radius_buffer;
+	radius_packet *receivepacket = (radius_packet *) receive_buffer;
+	int32		service = htonl(RADIUS_AUTHENTICATE_ONLY);
+	uint8	   *cryptvector;
+	uint8		encryptedpassword[RADIUS_VECTOR_LENGTH];
+	int			packetlength;
+	pgsocket	sock;
+
+#ifdef HAVE_IPV6
+	struct sockaddr_in6 localaddr;
+	struct sockaddr_in6 remoteaddr;
+#else
+	struct sockaddr_in localaddr;
+	struct sockaddr_in remoteaddr;
+#endif
+	struct addrinfo hint;
+	struct addrinfo *serveraddrs;
+	char		portstr[128];
+	ACCEPT_TYPE_ARG3 addrsize;
+	fd_set		fdset;
+	struct timeval timeout;
+	int			i,
+				r;
+
+	/* Make sure struct alignment is correct */
+	Assert(offsetof(radius_packet, vector) == 4);
+
+	/* Verify parameters */
+	if (!port->hba->radiusserver || port->hba->radiusserver[0] == '\0')
+	{
+		ereport(LOG,
+				(errmsg("RADIUS server not specified")));
+		return STATUS_ERROR;
+	}
+
+	if (!port->hba->radiussecret || port->hba->radiussecret[0] == '\0')
+	{
+		ereport(LOG,
+				(errmsg("RADIUS secret not specified")));
+		return STATUS_ERROR;
+	}
+
+	if (port->hba->radiusport == 0)
+		port->hba->radiusport = 1812;
+
+	MemSet(&hint, 0, sizeof(hint));
+	hint.ai_socktype = SOCK_DGRAM;
+	hint.ai_family = AF_UNSPEC;
+	snprintf(portstr, sizeof(portstr), "%d", port->hba->radiusport);
+
+	r = pg_getaddrinfo_all(port->hba->radiusserver, portstr, &hint, &serveraddrs);
+	if (r || !serveraddrs)
+	{
+		ereport(LOG,
+				(errmsg("could not translate RADIUS server name \"%s\" to address: %s",
+						port->hba->radiusserver, gai_strerror(r))));
+		if (serveraddrs)
+			pg_freeaddrinfo_all(hint.ai_family, serveraddrs);
+		return STATUS_ERROR;
+	}
+	/* XXX: add support for multiple returned addresses? */
+
+	if (port->hba->radiusidentifier && port->hba->radiusidentifier[0])
+		identifier = port->hba->radiusidentifier;
+
+	/* Send regular password request to client, and get the response */
+	sendAuthRequest(port, AUTH_REQ_PASSWORD);
+
+	passwd = recv_password_packet(port);
+	if (passwd == NULL)
+		return STATUS_EOF;		/* client wouldn't send password */
+
+	if (strlen(passwd) == 0)
+	{
+		ereport(LOG,
+				(errmsg("empty password returned by client")));
+		return STATUS_ERROR;
+	}
+
+	if (strlen(passwd) > RADIUS_VECTOR_LENGTH)
+	{
+		ereport(LOG,
+				(errmsg("RADIUS authentication does not support passwords longer than 16 characters")));
+		return STATUS_ERROR;
+	}
+
+	/* Construct RADIUS packet */
+	packet->code = RADIUS_ACCESS_REQUEST;
+	packet->length = RADIUS_HEADER_LENGTH;
+#ifdef USE_SSL
+	if (RAND_bytes(packet->vector, RADIUS_VECTOR_LENGTH) != 1)
+	{
+		ereport(LOG,
+				(errmsg("could not generate random encryption vector")));
+		return STATUS_ERROR;
+	}
+#else
+	for (i = 0; i < RADIUS_VECTOR_LENGTH; i++)
+		/* Use a lower strengh random number of OpenSSL is not available */
+		packet->vector[i] = random() % 255;
+#endif
+	packet->id = packet->vector[0];
+	radius_add_attribute(packet, RADIUS_SERVICE_TYPE, (unsigned char *) &service, sizeof(service));
+	radius_add_attribute(packet, RADIUS_USER_NAME, (unsigned char *) port->user_name, strlen(port->user_name));
+	radius_add_attribute(packet, RADIUS_NAS_IDENTIFIER, (unsigned char *) identifier, strlen(identifier));
+
+	/*
+	 * RADIUS password attributes are calculated as: e[0] = p[0] XOR
+	 * MD5(secret + vector)
+	 */
+	cryptvector = palloc(RADIUS_VECTOR_LENGTH + strlen(port->hba->radiussecret));
+	memcpy(cryptvector, port->hba->radiussecret, strlen(port->hba->radiussecret));
+	memcpy(cryptvector + strlen(port->hba->radiussecret), packet->vector, RADIUS_VECTOR_LENGTH);
+	if (!pg_md5_binary(cryptvector, RADIUS_VECTOR_LENGTH + strlen(port->hba->radiussecret), encryptedpassword))
+	{
+		ereport(LOG,
+				(errmsg("could not perform MD5 encryption of password")));
+		pfree(cryptvector);
+		return STATUS_ERROR;
+	}
+	pfree(cryptvector);
+	for (i = 0; i < RADIUS_VECTOR_LENGTH; i++)
+	{
+		if (i < strlen(passwd))
+			encryptedpassword[i] = passwd[i] ^ encryptedpassword[i];
+		else
+			encryptedpassword[i] = '\0' ^ encryptedpassword[i];
+	}
+	radius_add_attribute(packet, RADIUS_PASSWORD, encryptedpassword, RADIUS_VECTOR_LENGTH);
+
+	/* Length need to be in network order on the wire */
+	packetlength = packet->length;
+	packet->length = htons(packet->length);
+
+	sock = socket(serveraddrs[0].ai_family, SOCK_DGRAM, 0);
+	if (sock < 0)
+	{
+		ereport(LOG,
+				(errmsg("could not create RADIUS socket: %m")));
+		pg_freeaddrinfo_all(hint.ai_family, serveraddrs);
+		return STATUS_ERROR;
+	}
+
+	memset(&localaddr, 0, sizeof(localaddr));
+#ifdef HAVE_IPV6
+	localaddr.sin6_family = serveraddrs[0].ai_family;
+	localaddr.sin6_addr = in6addr_any;
+	if (localaddr.sin6_family == AF_INET6)
+		addrsize = sizeof(struct sockaddr_in6);
+	else
+		addrsize = sizeof(struct sockaddr_in);
+#else
+	localaddr.sin_family = serveraddrs[0].ai_family;
+	localaddr.sin_addr.s_addr = INADDR_ANY;
+	addrsize = sizeof(struct sockaddr_in);
+#endif
+	if (bind(sock, (struct sockaddr *) & localaddr, addrsize))
+	{
+		ereport(LOG,
+				(errmsg("could not bind local RADIUS socket: %m")));
+		closesocket(sock);
+		pg_freeaddrinfo_all(hint.ai_family, serveraddrs);
+		return STATUS_ERROR;
+	}
+
+	if (sendto(sock, radius_buffer, packetlength, 0,
+			   serveraddrs[0].ai_addr, serveraddrs[0].ai_addrlen) < 0)
+	{
+		ereport(LOG,
+				(errmsg("could not send RADIUS packet: %m")));
+		closesocket(sock);
+		pg_freeaddrinfo_all(hint.ai_family, serveraddrs);
+		return STATUS_ERROR;
+	}
+
+	/* Don't need the server address anymore */
+	pg_freeaddrinfo_all(hint.ai_family, serveraddrs);
+
+	/* Wait for a response */
+	timeout.tv_sec = RADIUS_TIMEOUT;
+	timeout.tv_usec = 0;
+	FD_ZERO(&fdset);
+	FD_SET(sock, &fdset);
+
+	while (true)
+	{
+		r = select(sock + 1, &fdset, NULL, NULL, &timeout);
+		if (r < 0)
+		{
+			if (errno == EINTR)
+				continue;
+
+			/* Anything else is an actual error */
+			ereport(LOG,
+					(errmsg("could not check status on RADIUS socket: %m")));
+			closesocket(sock);
+			return STATUS_ERROR;
+		}
+		if (r == 0)
+		{
+			ereport(LOG,
+					(errmsg("timeout waiting for RADIUS response")));
+			closesocket(sock);
+			return STATUS_ERROR;
+		}
+
+		/* else we actually have a packet ready to read */
+		break;
+	}
+
+	/* Read the response packet */
+	addrsize = sizeof(remoteaddr);
+	packetlength = recvfrom(sock, receive_buffer, RADIUS_BUFFER_SIZE, 0,
+							(struct sockaddr *) & remoteaddr, &addrsize);
+	if (packetlength < 0)
+	{
+		ereport(LOG,
+				(errmsg("could not read RADIUS response: %m")));
+		closesocket(sock);
+		return STATUS_ERROR;
+	}
+
+	closesocket(sock);
+
+#ifdef HAVE_IPV6
+	if (remoteaddr.sin6_port != htons(port->hba->radiusport))
+#else
+	if (remoteaddr.sin_port != htons(port->hba->radiusport))
+#endif
+	{
+#ifdef HAVE_IPV6
+		ereport(LOG,
+				(errmsg("RADIUS response was sent from incorrect port: %i",
+						ntohs(remoteaddr.sin6_port))));
+#else
+		ereport(LOG,
+				(errmsg("RADIUS response was sent from incorrect port: %i",
+						ntohs(remoteaddr.sin_port))));
+#endif
+		return STATUS_ERROR;
+	}
+
+	if (packetlength < RADIUS_HEADER_LENGTH)
+	{
+		ereport(LOG,
+				(errmsg("RADIUS response too short: %i", packetlength)));
+		return STATUS_ERROR;
+	}
+
+	if (packetlength != ntohs(receivepacket->length))
+	{
+		ereport(LOG,
+		 (errmsg("RADIUS response has corrupt length: %i (actual length %i)",
+				 ntohs(receivepacket->length), packetlength)));
+		return STATUS_ERROR;
+	}
+
+	if (packet->id != receivepacket->id)
+	{
+		ereport(LOG,
+				(errmsg("RADIUS response is to a different request: %i (should be %i)",
+						receivepacket->id, packet->id)));
+		return STATUS_ERROR;
+	}
+
+	/*
+	 * Verify the response authenticator, which is calculated as
+	 * MD5(Code+ID+Length+RequestAuthenticator+Attributes+Secret)
+	 */
+	cryptvector = palloc(packetlength + strlen(port->hba->radiussecret));
+
+	memcpy(cryptvector, receivepacket, 4);		/* code+id+length */
+	memcpy(cryptvector + 4, packet->vector, RADIUS_VECTOR_LENGTH);		/* request
+																		 * authenticator, from
+																		 * original packet */
+	if (packetlength > RADIUS_HEADER_LENGTH)	/* there may be no attributes
+												 * at all */
+		memcpy(cryptvector + RADIUS_HEADER_LENGTH, receive_buffer + RADIUS_HEADER_LENGTH, packetlength - RADIUS_HEADER_LENGTH);
+	memcpy(cryptvector + packetlength, port->hba->radiussecret, strlen(port->hba->radiussecret));
+
+	if (!pg_md5_binary(cryptvector,
+					   packetlength + strlen(port->hba->radiussecret),
+					   encryptedpassword))
+	{
+		ereport(LOG,
+			(errmsg("could not perform MD5 encryption of received packet")));
+		pfree(cryptvector);
+		return STATUS_ERROR;
+	}
+	pfree(cryptvector);
+
+	if (memcmp(receivepacket->vector, encryptedpassword, RADIUS_VECTOR_LENGTH) != 0)
+	{
+		ereport(LOG,
+				(errmsg("RADIUS response has incorrect MD5 signature")));
+		return STATUS_ERROR;
+	}
+
+	if (receivepacket->code == RADIUS_ACCESS_ACCEPT)
+		return STATUS_OK;
+	else if (receivepacket->code == RADIUS_ACCESS_REJECT)
+		return STATUS_ERROR;
+	else
+	{
+		ereport(LOG,
+			 (errmsg("RADIUS response has invalid code (%i) for user \"%s\"",
+					 receivepacket->code, port->user_name)));
+		return STATUS_ERROR;
+	}
+}

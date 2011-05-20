@@ -3,10 +3,10 @@
  * geqo_selection.c
  *	  linear selection scheme for the genetic query optimizer
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/backend/optimizer/geqo/geqo_selection.c,v 1.24 2009/01/01 17:23:43 momjian Exp $
+ * $PostgreSQL: pgsql/src/backend/optimizer/geqo/geqo_selection.c,v 1.27 2010/01/02 16:57:46 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -42,7 +42,7 @@
 #include "optimizer/geqo_random.h"
 #include "optimizer/geqo_selection.h"
 
-static int	linear(int max, double bias);
+static int	linear_rand(PlannerInfo *root, int max, double bias);
 
 
 /*
@@ -51,35 +51,45 @@ static int	linear(int max, double bias);
  *	 first and second genes are selected from the pool
  */
 void
-geqo_selection(Chromosome *momma, Chromosome *daddy, Pool *pool, double bias)
+geqo_selection(PlannerInfo *root, Chromosome *momma, Chromosome *daddy,
+			   Pool *pool, double bias)
 {
 	int			first,
 				second;
 
-	first = linear(pool->size, bias);
-	second = linear(pool->size, bias);
+	first = linear_rand(root, pool->size, bias);
+	second = linear_rand(root, pool->size, bias);
 
+	/*
+	 * Ensure we have selected different genes, except if pool size is only
+	 * one, when we can't.
+	 *
+	 * This code has been observed to hang up in an infinite loop when the
+	 * platform's implementation of erand48() is broken.  We consider that a
+	 * feature: it lets you know you'd better fix the random-number generator.
+	 */
 	if (pool->size > 1)
 	{
 		while (first == second)
-			second = linear(pool->size, bias);
+			second = linear_rand(root, pool->size, bias);
 	}
 
-	geqo_copy(momma, &pool->data[first], pool->string_length);
-	geqo_copy(daddy, &pool->data[second], pool->string_length);
+	geqo_copy(root, momma, &pool->data[first], pool->string_length);
+	geqo_copy(root, daddy, &pool->data[second], pool->string_length);
 }
 
 /*
- * linear
+ * linear_rand
  *	  generates random integer between 0 and input max number
  *	  using input linear bias
+ *
+ *	  bias is y-intercept of linear distribution
  *
  *	  probability distribution function is: f(x) = bias - 2(bias - 1)x
  *			 bias = (prob of first rule) / (prob of middle rule)
  */
 static int
-linear(int pool_size, double bias)		/* bias is y-intercept of linear
-										 * distribution */
+linear_rand(PlannerInfo *root, int pool_size, double bias)
 {
 	double		index;			/* index between 0 and pop_size */
 	double		max = (double) pool_size;
@@ -95,7 +105,7 @@ linear(int pool_size, double bias)		/* bias is y-intercept of linear
 	{
 		double		sqrtval;
 
-		sqrtval = (bias * bias) - 4.0 * (bias - 1.0) * geqo_rand();
+		sqrtval = (bias * bias) - 4.0 * (bias - 1.0) * geqo_rand(root);
 		if (sqrtval > 0.0)
 			sqrtval = sqrt(sqrtval);
 		index = max * (bias - sqrtval) / 2.0 / (bias - 1.0);

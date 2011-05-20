@@ -1,9 +1,9 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2009, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2010, PostgreSQL Global Development Group
  *
- * $PostgreSQL: pgsql/src/bin/psql/mainloop.c,v 1.95 2009/06/11 14:49:08 momjian Exp $
+ * $PostgreSQL: pgsql/src/bin/psql/mainloop.c,v 1.99 2010/02/26 02:01:19 momjian Exp $
  */
 #include "postgres_fe.h"
 #include "mainloop.h"
@@ -13,6 +13,8 @@
 #include "common.h"
 #include "input.h"
 #include "settings.h"
+
+#include "mb/pg_wchar.h"
 
 
 /*
@@ -166,6 +168,10 @@ MainLoop(FILE *source)
 		count_eof = 0;
 
 		pset.lineno++;
+
+		/* ignore UTF-8 Unicode byte-order mark */
+		if (pset.lineno == 1 && pset.encoding == PG_UTF8 && strncmp(line, "\xef\xbb\xbf", 3) == 0)
+			memmove(line, line + 3, strlen(line + 3) + 1);
 
 		/* nothing left on line? then ignore */
 		if (line[0] == '\0' && !psql_scan_in_quote(scan_state))
@@ -407,3 +413,13 @@ MainLoop(FILE *source)
 
 	return successResult;
 }	/* MainLoop() */
+
+
+/*
+ * psqlscan.c is #include'd here instead of being compiled on its own.
+ * This is because we need postgres_fe.h to be read before any system
+ * include files, else things tend to break on platforms that have
+ * multiple infrastructures for stdio.h and so on.	flex is absolutely
+ * uncooperative about that, so we can't compile psqlscan.c on its own.
+ */
+#include "psqlscan.c"

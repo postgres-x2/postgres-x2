@@ -719,6 +719,7 @@ insert into arr_tbl values ('{1,2}');
 -- failure expected:
 insert into arr_tbl values ('{1,2,3}');
 ERROR:  duplicate key value violates unique constraint "arr_tbl_f1_key"
+DETAIL:  Key (f1)=({1,2,3}) already exists.
 insert into arr_tbl values ('{2,3,4}');
 insert into arr_tbl values ('{1,5,3}');
 insert into arr_tbl values ('{1,2,10}');
@@ -1196,4 +1197,20 @@ select unnest(array[1,2,3,null,4,null,null,5,6]::text[]);
  5
  6
 (9 rows)
+
+-- Insert/update on a column that is array of composite
+create temp table t1 (f1 int8_tbl[]);
+insert into t1 (f1[5].q1) values(42);
+select * from t1;
+       f1        
+-----------------
+ [5:5]={"(42,)"}
+(1 row)
+
+update t1 set f1[5].q2 = 43;
+select * from t1;
+        f1         
+-------------------
+ [5:5]={"(42,43)"}
+(1 row)
 

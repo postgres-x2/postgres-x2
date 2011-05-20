@@ -4,11 +4,11 @@
  *	  Definitions for tagged nodes.
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
  *
- * $PostgreSQL: pgsql/src/include/nodes/nodes.h,v 1.223 2009/06/11 14:49:11 momjian Exp $
+ * $PostgreSQL: pgsql/src/include/nodes/nodes.h,v 1.234 2010/03/28 22:59:33 tgl Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -44,6 +44,7 @@ typedef enum NodeTag
 	 */
 	T_Plan = 100,
 	T_Result,
+	T_ModifyTable,
 	T_Append,
 	T_RecursiveUnion,
 	T_BitmapAnd,
@@ -71,6 +72,7 @@ typedef enum NodeTag
 	T_Unique,
 	T_Hash,
 	T_SetOp,
+	T_LockRows,
 	T_Limit,
 #ifdef PGXC
 	/*
@@ -82,7 +84,8 @@ typedef enum NodeTag
 	T_SimpleDistinct,
 	T_RemoteQuery,
 #endif
-	/* this one isn't a subclass of Plan: */
+	/* these aren't subclasses of Plan: */
+	T_PlanRowMark,
 	T_PlanInvalItem,
 
 	/*
@@ -92,6 +95,7 @@ typedef enum NodeTag
 	 */
 	T_PlanState = 200,
 	T_ResultState,
+	T_ModifyTableState,
 	T_AppendState,
 	T_RecursiveUnionState,
 	T_BitmapAndState,
@@ -119,6 +123,7 @@ typedef enum NodeTag
 	T_UniqueState,
 	T_HashState,
 	T_SetOpState,
+	T_LockRowsState,
 	T_LimitState,
 #ifdef PGXC
 	T_RemoteQueryState,
@@ -137,6 +142,7 @@ typedef enum NodeTag
 	T_WindowFunc,
 	T_ArrayRef,
 	T_FuncExpr,
+	T_NamedArgExpr,
 	T_OpExpr,
 	T_DistinctExpr,
 	T_ScalarArrayOpExpr,
@@ -277,6 +283,7 @@ typedef enum NodeTag
 	T_SetOperationStmt,
 	T_GrantStmt,
 	T_GrantRoleStmt,
+	T_AlterDefaultPrivilegesStmt,
 	T_ClosePortalStmt,
 	T_ClusterStmt,
 	T_CopyStmt,
@@ -290,6 +297,7 @@ typedef enum NodeTag
 	T_CreateFunctionStmt,
 	T_AlterFunctionStmt,
 	T_RemoveFuncStmt,
+	T_DoStmt,
 	T_RenameStmt,
 	T_RuleStmt,
 	T_NotifyStmt,
@@ -356,6 +364,7 @@ typedef enum NodeTag
 	T_DropUserMappingStmt,
 	T_ExecDirectStmt,
 	T_CleanConnStmt,
+	T_AlterTableSpaceOptionsStmt,
 
 	/*
 	 * TAGS FOR PARSE TREE NODES (parsenodes.h)
@@ -383,7 +392,6 @@ typedef enum NodeTag
 	T_RangeTblEntry,
 	T_SortGroupClause,
 	T_WindowClause,
-	T_FkConstraint,
 	T_PrivGrantee,
 	T_FuncWithArgs,
 	T_AccessPriv,
@@ -407,7 +415,8 @@ typedef enum NodeTag
 	T_TriggerData = 950,		/* in commands/trigger.h */
 	T_ReturnSetInfo,			/* in nodes/execnodes.h */
 	T_WindowObjectData,			/* private in nodeWindowAgg.c */
-	T_TIDBitmap					/* in nodes/tidbitmap.h */
+	T_TIDBitmap,				/* in nodes/tidbitmap.h */
+	T_InlineCodeBlock			/* in nodes/parsenodes.h */
 } NodeTag;
 
 /*

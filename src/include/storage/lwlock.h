@@ -4,10 +4,10 @@
  *	  Lightweight lock manager
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/storage/lwlock.h,v 1.42 2009/03/03 08:11:24 heikki Exp $
+ * $PostgreSQL: pgsql/src/include/storage/lwlock.h,v 1.46 2010/02/26 02:01:27 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -70,6 +70,9 @@ typedef enum LWLockId
 #ifdef PGXC
 	AnalyzeProcArrayLock,
 #endif
+	RelationMappingLock,
+	AsyncCtlLock,
+	AsyncQueueLock,
 	/* Individual lock IDs end here */
 	FirstBufMappingLock,
 	FirstLockMgrLock = FirstBufMappingLock + NUM_BUFFER_PARTITIONS,

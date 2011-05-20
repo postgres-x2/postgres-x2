@@ -4,11 +4,11 @@
  *	  insert routines for the postgres inverted index access method.
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *			$PostgreSQL: pgsql/src/backend/access/gin/gininsert.c,v 1.22 2009/06/11 14:48:53 momjian Exp $
+ *			$PostgreSQL: pgsql/src/backend/access/gin/gininsert.c,v 1.26 2010/02/11 14:29:50 teodor Exp $
  *-------------------------------------------------------------------------
  */
 
@@ -102,8 +102,9 @@ addItemPointersToTuple(Relation index, GinState *ginstate, GinBtreeStack *stack,
 {
 	Datum		key = gin_index_getattr(ginstate, old);
 	OffsetNumber attnum = gintuple_get_attrnum(ginstate, old);
-	IndexTuple	res = GinFormTuple(ginstate, attnum, key,
-								   NULL, nitem + GinGetNPosting(old));
+	IndexTuple	res = GinFormTuple(index, ginstate, attnum, key,
+								   NULL, nitem + GinGetNPosting(old),
+								   false);
 
 	if (res)
 	{
@@ -122,7 +123,7 @@ addItemPointersToTuple(Relation index, GinState *ginstate, GinBtreeStack *stack,
 		GinPostingTreeScan *gdi;
 
 		/* posting list becomes big, so we need to make posting's tree */
-		res = GinFormTuple(ginstate, attnum, key, NULL, 0);
+		res = GinFormTuple(index, ginstate, attnum, key, NULL, 0, true);
 		postingRoot = createPostingTree(index, GinGetPosting(old), GinGetNPosting(old));
 		GinSetPostingTree(res, postingRoot);
 
@@ -185,13 +186,12 @@ ginEntryInsert(Relation index, GinState *ginstate,
 	}
 	else
 	{
-		/* We suppose, that tuple can store at list one itempointer */
-		itup = GinFormTuple(ginstate, attnum, value, items, 1);
-		if (itup == NULL || IndexTupleSize(itup) >= GinMaxItemSize)
-			elog(ERROR, "huge tuple");
+		/* We suppose that tuple can store at least one itempointer */
+		itup = GinFormTuple(index, ginstate, attnum, value, items, 1, true);
 
 		if (nitem > 1)
 		{
+			/* Add the rest, making a posting tree if necessary */
 			IndexTuple	previtup = itup;
 
 			itup = addItemPointersToTuple(index, ginstate, stack, previtup, items + 1, nitem - 1, isBuild);
@@ -247,9 +247,7 @@ ginBuildCallback(Relation index, HeapTuple htup, Datum *values,
 															&htup->t_self);
 
 	/* If we've maxed out our available memory, dump everything to the index */
-	/* Also dump if the tree seems to be getting too unbalanced */
-	if (buildstate->accum.allocatedMemory >= maintenance_work_mem * 1024L ||
-		buildstate->accum.maxdepth > GIN_MAX_TREE_DEPTH)
+	if (buildstate->accum.allocatedMemory >= maintenance_work_mem * 1024L)
 	{
 		ItemPointerData *list;
 		Datum		entry;
@@ -415,12 +413,11 @@ gininsert(PG_FUNCTION_ARGS)
 
 #ifdef NOT_USED
 	Relation	heapRel = (Relation) PG_GETARG_POINTER(4);
-	bool		checkUnique = PG_GETARG_BOOL(5);
+	IndexUniqueCheck checkUnique = (IndexUniqueCheck) PG_GETARG_INT32(5);
 #endif
 	GinState	ginstate;
 	MemoryContext oldCtx;
 	MemoryContext insertCtx;
-	uint32		res = 0;
 	int			i;
 
 	insertCtx = AllocSetContextCreate(CurrentMemoryContext,
@@ -440,7 +437,7 @@ gininsert(PG_FUNCTION_ARGS)
 		memset(&collector, 0, sizeof(GinTupleCollector));
 		for (i = 0; i < ginstate.origTupdesc->natts; i++)
 			if (!isnull[i])
-				res += ginHeapTupleFastCollect(index, &ginstate, &collector,
+				ginHeapTupleFastCollect(index, &ginstate, &collector,
 								 (OffsetNumber) (i + 1), values[i], ht_ctid);
 
 		ginHeapTupleFastInsert(index, &ginstate, &collector);
@@ -449,7 +446,7 @@ gininsert(PG_FUNCTION_ARGS)
 	{
 		for (i = 0; i < ginstate.origTupdesc->natts; i++)
 			if (!isnull[i])
-				res += ginHeapTupleInsert(index, &ginstate,
+				ginHeapTupleInsert(index, &ginstate,
 								 (OffsetNumber) (i + 1), values[i], ht_ctid);
 
 	}
@@ -457,5 +454,5 @@ gininsert(PG_FUNCTION_ARGS)
 	MemoryContextSwitchTo(oldCtx);
 	MemoryContextDelete(insertCtx);
 
-	PG_RETURN_BOOL(res > 0);
+	PG_RETURN_BOOL(false);
 }

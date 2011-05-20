@@ -4,10 +4,10 @@
  * External declarations pertaining to backend/utils/misc/guc.c and
  * backend/utils/misc/guc-file.l
  *
- * Copyright (c) 2000-2009, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2010, PostgreSQL Global Development Group
  * Written by Peter Eisentraut <peter_e@gmx.net>.
  *
- * $PostgreSQL: pgsql/src/include/utils/guc.h,v 1.102 2009/06/11 14:49:13 momjian Exp $
+ * $PostgreSQL: pgsql/src/include/utils/guc.h,v 1.113 2010/03/25 14:44:34 alvherre Exp $
  *--------------------------------------------------------------------
  */
 #ifndef GUC_H
@@ -77,6 +77,8 @@ typedef enum
  * as the actual source of any value).	This is an interactive case, but
  * it needs its own source value because some assign hooks need to make
  * different validity checks in this case.
+ *
+ * NB: see GucSource_Names in guc.c if you change this.
  */
 typedef enum
 {
@@ -86,6 +88,7 @@ typedef enum
 	PGC_S_ARGV,					/* postmaster command line */
 	PGC_S_DATABASE,				/* per-database setting */
 	PGC_S_USER,					/* per-user setting */
+	PGC_S_DATABASE_USER,		/* per-user-and-database setting */
 	PGC_S_CLIENT,				/* from client connection request */
 	PGC_S_OVERRIDE,				/* special case to forcibly set default */
 	PGC_S_INTERACTIVE,			/* dividing line for error reporting */
@@ -146,6 +149,8 @@ typedef enum
 #define GUC_UNIT_MIN			0x4000	/* value is in minutes */
 #define GUC_UNIT_TIME			0x7000	/* mask for MS, S, MIN */
 
+#define GUC_NOT_WHILE_SEC_REST	0x8000	/* can't set if security restricted */
+
 /* GUC vars that are actually declared in guc.c, rather than elsewhere */
 extern bool log_duration;
 extern bool Debug_print_plan;
@@ -175,6 +180,8 @@ extern char *ConfigFileName;
 extern char *HbaFileName;
 extern char *IdentFileName;
 extern char *external_pid_file;
+
+extern char *application_name;
 
 extern int	tcp_keepalives_idle;
 extern int	tcp_keepalives_interval;
@@ -245,9 +252,8 @@ extern void DefineCustomEnumVariable(
 
 extern void EmitWarningsOnPlaceholders(const char *className);
 
-extern const char *GetConfigOption(const char *name);
+extern const char *GetConfigOption(const char *name, bool restrict_superuser);
 extern const char *GetConfigOptionResetString(const char *name);
-extern bool IsSuperuserConfigOption(const char *name);
 extern void ProcessConfigFile(GucContext context);
 extern void InitializeGUCOptions(void);
 extern bool SelectConfigFiles(const char *userDoption, const char *progname);
@@ -278,6 +284,7 @@ extern void ProcessGUCArray(ArrayType *array,
 				GucContext context, GucSource source, GucAction action);
 extern ArrayType *GUCArrayAdd(ArrayType *array, const char *name, const char *value);
 extern ArrayType *GUCArrayDelete(ArrayType *array, const char *name);
+extern ArrayType *GUCArrayReset(ArrayType *array);
 
 extern int	GUC_complaint_elevel(GucSource source);
 

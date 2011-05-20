@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/trigger.sgml,v 1.56 2009/05/27 01:18:06 tgl Exp $ -->
+<!-- $PostgreSQL: pgsql/doc/src/sgml/trigger.sgml,v 1.63 2010/04/03 07:22:56 petere Exp $ -->
 
  <chapter id="triggers">
   <title>Triggers</title>
@@ -36,10 +36,13 @@
     performed.  Triggers can be defined to execute either before or after any
     <command>INSERT</command>, <command>UPDATE</command>, or
     <command>DELETE</command> operation, either once per modified row,
-    or once per <acronym>SQL</acronym> statement.  Triggers can also fire
-    for <command>TRUNCATE</command> statements.  If a trigger event occurs,
-    the trigger's function is called at the appropriate time to handle the
-    event.
+    or once per <acronym>SQL</acronym> statement.
+    <command>UPDATE</command> triggers can moreover be set to fire only if
+    certain columns are mentioned in the <literal>SET</literal> clause of the
+    <command>UPDATE</command> statement.
+    Triggers can also fire for <command>TRUNCATE</command> statements.
+    If a trigger event occurs, the trigger's function is called at the
+    appropriate time to handle the event.
    </para>
 
    <para>
@@ -54,7 +57,7 @@
    <para>
     Once a suitable trigger function has been created, the trigger is
     established with
-    <xref linkend="sql-createtrigger" endterm="sql-createtrigger-title">.
+    <xref linkend="sql-createtrigger">.
     The same trigger function can be used for multiple triggers.
    </para>
 
@@ -135,6 +138,25 @@
     to the next trigger.  If any before trigger returns
     <symbol>NULL</>, the operation is abandoned for that row and subsequent
     triggers are not fired.
+   </para>
+
+   <para>
+    A trigger definition can also specify a boolean <literal>WHEN</>
+    condition, which will be tested to see whether the trigger should
+    be fired.  In row-level triggers the <literal>WHEN</> condition can
+    examine the old and/or new values of columns of the row.  (Statement-level
+    triggers can also have <literal>WHEN</> conditions, although the feature
+    is not so useful for them.)  In a before trigger, the <literal>WHEN</>
+    condition is evaluated just before the function is or would be executed,
+    so using <literal>WHEN</> is not materially different from testing the
+    same condition at the beginning of the trigger function.  However, in
+    an after trigger, the <literal>WHEN</> condition is evaluated just after
+    the row update occurs, and it determines whether an event is queued to
+    fire the trigger at the end of statement.  So when an after trigger's
+    <literal>WHEN</> condition does not return true, it is not necessary
+    to queue an event nor to re-fetch the row at end of statement.  This
+    can result in significant speedups in statements that modify many
+    rows, if the trigger only needs to be fired for a few of the rows.
    </para>
 
    <para>
@@ -484,8 +506,9 @@ typedef struct Trigger
     Oid         tgfoid;
     int16       tgtype;
     bool        tgenabled;
-    bool        tgisconstraint;
+    bool        tgisinternal;
     Oid         tgconstrrelid;
+    Oid         tgconstrindid;
     Oid         tgconstraint;
     bool        tgdeferrable;
     bool        tginitdeferred;
@@ -493,11 +516,12 @@ typedef struct Trigger
     int16       tgnattr;
     int16      *tgattr;
     char      **tgargs;
+    char       *tgqual;
 } Trigger;
 </programlisting>
 
        where <structfield>tgname</> is the trigger's name,
-       <structfield>tgnargs</> is number of arguments in
+       <structfield>tgnargs</> is the number of arguments in
        <structfield>tgargs</>, and <structfield>tgargs</> is an array of
        pointers to the arguments specified in the <command>CREATE
        TRIGGER</command> statement. The other members are for internal use
@@ -540,7 +564,7 @@ typedef struct Trigger
   </sect1>
 
   <sect1 id="trigger-example">
-   <title>A Complete Example</title>
+   <title>A Complete Trigger Example</title>
 
    <para>
     Here is a very simple example of a trigger function written in C.
@@ -571,6 +595,10 @@ CREATE TABLE ttest (
 #include "postgres.h"
 #include "executor/spi.h"       /* this is what you need to work with SPI */
 #include "commands/trigger.h"   /* ... and triggers */
+
+#ifdef PG_MODULE_MAGIC
+PG_MODULE_MAGIC;
+#endif
 
 extern Datum trigf(PG_FUNCTION_ARGS);
 

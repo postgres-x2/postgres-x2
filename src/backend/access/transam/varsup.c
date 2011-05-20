@@ -3,11 +3,11 @@
  * varsup.c
  *	  postgres OID & XID variables support routines
  *
- * Copyright (c) 2000-2009, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/access/transam/varsup.c,v 1.84 2009/04/23 00:23:45 tgl Exp $
+ *	  $PostgreSQL: pgsql/src/backend/access/transam/varsup.c,v 1.91 2010/02/26 02:00:34 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -17,6 +17,7 @@
 #include "access/clog.h"
 #include "access/subtrans.h"
 #include "access/transam.h"
+#include "commands/dbcommands.h"
 #include "miscadmin.h"
 #include "postmaster/autovacuum.h"
 #include "storage/pmsignal.h"
@@ -27,6 +28,7 @@
 #include "access/gtm.h"
 #include "storage/procarray.h"
 #endif
+#include "utils/syscache.h"
 
 
 /* Number of OIDs to prefetch (preallocate) per XLOG write */
@@ -71,9 +73,14 @@ GetForceXidFromGTM(void)
 #endif /* PGXC */
 
 /*
- * Allocate the next XID for my new transaction or subtransaction.
+ * Allocate the next XID for a new transaction or subtransaction.
  *
  * The new XID is also stored into MyProc before returning.
+ *
+ * Note: when this is called, we are actually already inside a valid
+ * transaction, since XIDs are now not allocated until the transaction
+ * does something.	So it is safe to do a database lookup if we want to
+ * issue a warning about XID wrap.
  */
 TransactionId
 #ifdef PGXC
@@ -99,6 +106,10 @@ GetNewTransactionId(bool isSubXact)
 		MyProc->xid = BootstrapTransactionId;
 		return BootstrapTransactionId;
 	}
+
+	/* safety check, we should never get this far in a HS slave */
+	if (RecoveryInProgress())
+		elog(ERROR, "cannot assign TransactionIds during recovery");
 
 #ifdef PGXC
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
@@ -217,14 +228,24 @@ GetNewTransactionId(bool isSubXact)
 	 * If we're past xidStopLimit, refuse to execute transactions, unless
 	 * we are running in a standalone backend (which gives an escape hatch
 	 * to the DBA who somehow got past the earlier defenses).
-	 *
-	 * Test is coded to fall out as fast as possible during normal operation,
-	 * ie, when the vac limit is set and we haven't violated it.
 	 *----------
 	 */
-	if (TransactionIdFollowsOrEquals(xid, ShmemVariableCache->xidVacLimit) &&
-		TransactionIdIsValid(ShmemVariableCache->xidVacLimit))
+	if (TransactionIdFollowsOrEquals(xid, ShmemVariableCache->xidVacLimit))
 	{
+		/*
+		 * For safety's sake, we release XidGenLock while sending signals,
+		 * warnings, etc.  This is not so much because we care about
+		 * preserving concurrency in this situation, as to avoid any
+		 * possibility of deadlock while doing get_database_name(). First,
+		 * copy all the shared values we'll need in this path.
+		 */
+		TransactionId xidWarnLimit = ShmemVariableCache->xidWarnLimit;
+		TransactionId xidStopLimit = ShmemVariableCache->xidStopLimit;
+		TransactionId xidWrapLimit = ShmemVariableCache->xidWrapLimit;
+		Oid			oldest_datoid = ShmemVariableCache->oldestXidDB;
+
+		LWLockRelease(XidGenLock);
+
 		/*
 		 * To avoid swamping the postmaster with signals, we issue the autovac
 		 * request only once per 64K transaction starts.  This still gives
@@ -234,22 +255,50 @@ GetNewTransactionId(bool isSubXact)
 			SendPostmasterSignal(PMSIGNAL_START_AUTOVAC_LAUNCHER);
 
 		if (IsUnderPostmaster &&
-		 TransactionIdFollowsOrEquals(xid, ShmemVariableCache->xidStopLimit))
-			ereport(ERROR,
-					(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-					 errmsg("database is not accepting commands to avoid wraparound data loss in database \"%s\"",
-							NameStr(ShmemVariableCache->limit_datname)),
-					 errhint("Stop the postmaster and use a standalone backend to vacuum database \"%s\".\n"
-							 "You might also need to commit or roll back old prepared transactions.",
-							 NameStr(ShmemVariableCache->limit_datname))));
-		else if (TransactionIdFollowsOrEquals(xid, ShmemVariableCache->xidWarnLimit))
-			ereport(WARNING,
-			(errmsg("database \"%s\" must be vacuumed within %u transactions",
-					NameStr(ShmemVariableCache->limit_datname),
-					ShmemVariableCache->xidWrapLimit - xid),
-			 errhint("To avoid a database shutdown, execute a database-wide VACUUM in \"%s\".\n"
-					 "You might also need to commit or roll back old prepared transactions.",
-					 NameStr(ShmemVariableCache->limit_datname))));
+			TransactionIdFollowsOrEquals(xid, xidStopLimit))
+		{
+			char	   *oldest_datname = get_database_name(oldest_datoid);
+
+			/* complain even if that DB has disappeared */
+			if (oldest_datname)
+				ereport(ERROR,
+						(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+						 errmsg("database is not accepting commands to avoid wraparound data loss in database \"%s\"",
+								oldest_datname),
+						 errhint("Stop the postmaster and use a standalone backend to vacuum that database.\n"
+								 "You might also need to commit or roll back old prepared transactions.")));
+			else
+				ereport(ERROR,
+						(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+						 errmsg("database is not accepting commands to avoid wraparound data loss in database with OID %u",
+								oldest_datoid),
+						 errhint("Stop the postmaster and use a standalone backend to vacuum that database.\n"
+								 "You might also need to commit or roll back old prepared transactions.")));
+		}
+		else if (TransactionIdFollowsOrEquals(xid, xidWarnLimit))
+		{
+			char	   *oldest_datname = get_database_name(oldest_datoid);
+
+			/* complain even if that DB has disappeared */
+			if (oldest_datname)
+				ereport(WARNING,
+						(errmsg("database \"%s\" must be vacuumed within %u transactions",
+								oldest_datname,
+								xidWrapLimit - xid),
+						 errhint("To avoid a database shutdown, execute a database-wide VACUUM in that database.\n"
+								 "You might also need to commit or roll back old prepared transactions.")));
+			else
+				ereport(WARNING,
+						(errmsg("database with OID %u must be vacuumed within %u transactions",
+								oldest_datoid,
+								xidWrapLimit - xid),
+						 errhint("To avoid a database shutdown, execute a database-wide VACUUM in that database.\n"
+								 "You might also need to commit or roll back old prepared transactions.")));
+		}
+
+		/* Re-acquire lock and start over */
+		LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
+		xid = ShmemVariableCache->nextXid;
 	}
 	/*
 	 * If we are allocating the first XID of a new page of the commit log,
@@ -365,11 +414,10 @@ ReadNewTransactionId(void)
 /*
  * Determine the last safe XID to allocate given the currently oldest
  * datfrozenxid (ie, the oldest XID that might exist in any database
- * of our cluster).
+ * of our cluster), and the OID of the (or a) database with that value.
  */
 void
-SetTransactionIdLimit(TransactionId oldest_datfrozenxid,
-					  Name oldest_datname)
+SetTransactionIdLimit(TransactionId oldest_datfrozenxid, Oid oldest_datoid)
 {
 	TransactionId xidVacLimit;
 	TransactionId xidWarnLimit;
@@ -441,14 +489,14 @@ SetTransactionIdLimit(TransactionId oldest_datfrozenxid,
 	ShmemVariableCache->xidWarnLimit = xidWarnLimit;
 	ShmemVariableCache->xidStopLimit = xidStopLimit;
 	ShmemVariableCache->xidWrapLimit = xidWrapLimit;
-	namecpy(&ShmemVariableCache->limit_datname, oldest_datname);
+	ShmemVariableCache->oldestXidDB = oldest_datoid;
 	curXid = ShmemVariableCache->nextXid;
 	LWLockRelease(XidGenLock);
 
 	/* Log the info */
 	ereport(DEBUG1,
-	   (errmsg("transaction ID wrap limit is %u, limited by database \"%s\"",
-			   xidWrapLimit, NameStr(*oldest_datname))));
+			(errmsg("transaction ID wrap limit is %u, limited by database with OID %u",
+					xidWrapLimit, oldest_datoid)));
 
 	/*
 	 * If past the autovacuum force point, immediately signal an autovac
@@ -458,18 +506,72 @@ SetTransactionIdLimit(TransactionId oldest_datfrozenxid,
 	 * another iteration immediately if there are still any old databases.
 	 */
 	if (TransactionIdFollowsOrEquals(curXid, xidVacLimit) &&
-		IsUnderPostmaster)
+		IsUnderPostmaster && !InRecovery)
 		SendPostmasterSignal(PMSIGNAL_START_AUTOVAC_LAUNCHER);
 
 	/* Give an immediate warning if past the wrap warn point */
-	if (TransactionIdFollowsOrEquals(curXid, xidWarnLimit))
-		ereport(WARNING,
-		   (errmsg("database \"%s\" must be vacuumed within %u transactions",
-				   NameStr(*oldest_datname),
-				   xidWrapLimit - curXid),
-			errhint("To avoid a database shutdown, execute a database-wide VACUUM in \"%s\".\n"
-					"You might also need to commit or roll back old prepared transactions.",
-					NameStr(*oldest_datname))));
+	if (TransactionIdFollowsOrEquals(curXid, xidWarnLimit) && !InRecovery)
+	{
+		char	   *oldest_datname = get_database_name(oldest_datoid);
+
+		/*
+		 * Note: it's possible that get_database_name fails and returns NULL,
+		 * for example because the database just got dropped.  We'll still
+		 * warn, even though the warning might now be unnecessary.
+		 */
+		if (oldest_datname)
+			ereport(WARNING,
+			(errmsg("database \"%s\" must be vacuumed within %u transactions",
+					oldest_datname,
+					xidWrapLimit - curXid),
+			 errhint("To avoid a database shutdown, execute a database-wide VACUUM in that database.\n"
+					 "You might also need to commit or roll back old prepared transactions.")));
+		else
+			ereport(WARNING,
+					(errmsg("database with OID %u must be vacuumed within %u transactions",
+							oldest_datoid,
+							xidWrapLimit - curXid),
+					 errhint("To avoid a database shutdown, execute a database-wide VACUUM in that database.\n"
+							 "You might also need to commit or roll back old prepared transactions.")));
+	}
+}
+
+
+/*
+ * ForceTransactionIdLimitUpdate -- does the XID wrap-limit data need updating?
+ *
+ * We primarily check whether oldestXidDB is valid.  The cases we have in
+ * mind are that that database was dropped, or the field was reset to zero
+ * by pg_resetxlog.  In either case we should force recalculation of the
+ * wrap limit.	Also do it if oldestXid is old enough to be forcing
+ * autovacuums or other actions; this ensures we update our state as soon
+ * as possible once extra overhead is being incurred.
+ */
+bool
+ForceTransactionIdLimitUpdate(void)
+{
+	TransactionId nextXid;
+	TransactionId xidVacLimit;
+	TransactionId oldestXid;
+	Oid			oldestXidDB;
+
+	/* Locking is probably not really necessary, but let's be careful */
+	LWLockAcquire(XidGenLock, LW_SHARED);
+	nextXid = ShmemVariableCache->nextXid;
+	xidVacLimit = ShmemVariableCache->xidVacLimit;
+	oldestXid = ShmemVariableCache->oldestXid;
+	oldestXidDB = ShmemVariableCache->oldestXidDB;
+	LWLockRelease(XidGenLock);
+
+	if (!TransactionIdIsNormal(oldestXid))
+		return true;			/* shouldn't happen, but just in case */
+	if (!TransactionIdIsValid(xidVacLimit))
+		return true;			/* this shouldn't happen anymore either */
+	if (TransactionIdFollowsOrEquals(nextXid, xidVacLimit))
+		return true;			/* past VacLimit, don't delay updating */
+	if (!SearchSysCacheExists1(DATABASEOID, ObjectIdGetDatum(oldestXidDB)))
+		return true;			/* could happen, per comments above */
+	return false;
 }
 
 
@@ -487,6 +589,10 @@ Oid
 GetNewObjectId(void)
 {
 	Oid			result;
+
+	/* safety check, we should never get this far in a HS slave */
+	if (RecoveryInProgress())
+		elog(ERROR, "cannot assign OIDs during recovery");
 
 	LWLockAcquire(OidGenLock, LW_EXCLUSIVE);
 

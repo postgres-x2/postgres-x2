@@ -3,11 +3,11 @@
  * proclang.c
  *	  PostgreSQL PROCEDURAL LANGUAGE support code.
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/commands/proclang.c,v 1.85 2009/06/11 14:48:56 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/commands/proclang.c,v 1.91 2010/02/26 02:00:39 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -17,7 +17,6 @@
 #include "access/heapam.h"
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
-#include "catalog/pg_authid.h"
 #include "catalog/pg_language.h"
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_pltemplate.h"
@@ -28,8 +27,8 @@
 #include "commands/defrem.h"
 #include "commands/proclang.h"
 #include "miscadmin.h"
-#include "parser/gramparse.h"
 #include "parser/parse_func.h"
+#include "parser/parser.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
@@ -44,12 +43,14 @@ typedef struct
 	bool		tmpltrusted;	/* trusted? */
 	bool		tmpldbacreate;	/* db owner allowed to create? */
 	char	   *tmplhandler;	/* name of handler function */
+	char	   *tmplinline;		/* name of anonymous-block handler, or NULL */
 	char	   *tmplvalidator;	/* name of validator function, or NULL */
 	char	   *tmpllibrary;	/* path of shared library */
 } PLTemplate;
 
-static void create_proc_lang(const char *languageName,
-				 Oid languageOwner, Oid handlerOid, Oid valOid, bool trusted);
+static void create_proc_lang(const char *languageName, bool replace,
+				 Oid languageOwner, Oid handlerOid, Oid inlineOid,
+				 Oid valOid, bool trusted);
 static PLTemplate *find_language_template(const char *languageName);
 static void AlterLanguageOwner_internal(HeapTuple tup, Relation rel,
 							Oid newOwnerId);
@@ -65,22 +66,15 @@ CreateProceduralLanguage(CreatePLangStmt *stmt)
 	char	   *languageName;
 	PLTemplate *pltemplate;
 	Oid			handlerOid,
+				inlineOid,
 				valOid;
 	Oid			funcrettype;
 	Oid			funcargtypes[1];
 
 	/*
-	 * Translate the language name and check that this language doesn't
-	 * already exist
+	 * Translate the language name to lower case
 	 */
 	languageName = case_translate_language_name(stmt->plname);
-
-	if (SearchSysCacheExists(LANGNAME,
-							 PointerGetDatum(languageName),
-							 0, 0, 0))
-		ereport(ERROR,
-				(errcode(ERRCODE_DUPLICATE_OBJECT),
-				 errmsg("language \"%s\" already exists", languageName)));
 
 	/*
 	 * If we have template information for the language, ignore the supplied
@@ -155,6 +149,44 @@ CreateProceduralLanguage(CreatePLangStmt *stmt)
 		}
 
 		/*
+		 * Likewise for the anonymous block handler, if required; but we don't
+		 * care about its return type.
+		 */
+		if (pltemplate->tmplinline)
+		{
+			funcname = SystemFuncName(pltemplate->tmplinline);
+			funcargtypes[0] = INTERNALOID;
+			inlineOid = LookupFuncName(funcname, 1, funcargtypes, true);
+			if (!OidIsValid(inlineOid))
+			{
+				inlineOid = ProcedureCreate(pltemplate->tmplinline,
+											PG_CATALOG_NAMESPACE,
+											false,		/* replace */
+											false,		/* returnsSet */
+											VOIDOID,
+											ClanguageId,
+											F_FMGR_C_VALIDATOR,
+											pltemplate->tmplinline,
+											pltemplate->tmpllibrary,
+											false,		/* isAgg */
+											false,		/* isWindowFunc */
+											false,		/* security_definer */
+											true,		/* isStrict */
+											PROVOLATILE_VOLATILE,
+											buildoidvector(funcargtypes, 1),
+											PointerGetDatum(NULL),
+											PointerGetDatum(NULL),
+											PointerGetDatum(NULL),
+											NIL,
+											PointerGetDatum(NULL),
+											1,
+											0);
+			}
+		}
+		else
+			inlineOid = InvalidOid;
+
+		/*
 		 * Likewise for the validator, if required; but we don't care about
 		 * its return type.
 		 */
@@ -177,7 +209,7 @@ CreateProceduralLanguage(CreatePLangStmt *stmt)
 										 false, /* isAgg */
 										 false, /* isWindowFunc */
 										 false, /* security_definer */
-										 false, /* isStrict */
+										 true,	/* isStrict */
 										 PROVOLATILE_VOLATILE,
 										 buildoidvector(funcargtypes, 1),
 										 PointerGetDatum(NULL),
@@ -193,8 +225,9 @@ CreateProceduralLanguage(CreatePLangStmt *stmt)
 			valOid = InvalidOid;
 
 		/* ok, create it */
-		create_proc_lang(languageName, GetUserId(), handlerOid, valOid,
-						 pltemplate->tmpltrusted);
+		create_proc_lang(languageName, stmt->replace, GetUserId(),
+						 handlerOid, inlineOid,
+						 valOid, pltemplate->tmpltrusted);
 	}
 	else
 	{
@@ -246,6 +279,16 @@ CreateProceduralLanguage(CreatePLangStmt *stmt)
 						 NameListToString(stmt->plhandler))));
 		}
 
+		/* validate the inline function */
+		if (stmt->plinline)
+		{
+			funcargtypes[0] = INTERNALOID;
+			inlineOid = LookupFuncName(stmt->plinline, 1, funcargtypes, false);
+			/* return value is ignored, so we don't check the type */
+		}
+		else
+			inlineOid = InvalidOid;
+
 		/* validate the validator function */
 		if (stmt->plvalidator)
 		{
@@ -257,8 +300,9 @@ CreateProceduralLanguage(CreatePLangStmt *stmt)
 			valOid = InvalidOid;
 
 		/* ok, create it */
-		create_proc_lang(languageName, GetUserId(), handlerOid, valOid,
-						 stmt->pltrusted);
+		create_proc_lang(languageName, stmt->replace, GetUserId(),
+						 handlerOid, inlineOid,
+						 valOid, stmt->pltrusted);
 	}
 }
 
@@ -266,26 +310,29 @@ CreateProceduralLanguage(CreatePLangStmt *stmt)
  * Guts of language creation.
  */
 static void
-create_proc_lang(const char *languageName,
-				 Oid languageOwner, Oid handlerOid, Oid valOid, bool trusted)
+create_proc_lang(const char *languageName, bool replace,
+				 Oid languageOwner, Oid handlerOid, Oid inlineOid,
+				 Oid valOid, bool trusted)
 {
 	Relation	rel;
 	TupleDesc	tupDesc;
 	Datum		values[Natts_pg_language];
 	bool		nulls[Natts_pg_language];
+	bool		replaces[Natts_pg_language];
 	NameData	langname;
+	HeapTuple	oldtup;
 	HeapTuple	tup;
+	bool		is_update;
 	ObjectAddress myself,
 				referenced;
 
-	/*
-	 * Insert the new language into pg_language
-	 */
 	rel = heap_open(LanguageRelationId, RowExclusiveLock);
-	tupDesc = rel->rd_att;
+	tupDesc = RelationGetDescr(rel);
 
+	/* Prepare data to be inserted */
 	memset(values, 0, sizeof(values));
 	memset(nulls, false, sizeof(nulls));
+	memset(replaces, true, sizeof(replaces));
 
 	namestrcpy(&langname, languageName);
 	values[Anum_pg_language_lanname - 1] = NameGetDatum(&langname);
@@ -293,33 +340,81 @@ create_proc_lang(const char *languageName,
 	values[Anum_pg_language_lanispl - 1] = BoolGetDatum(true);
 	values[Anum_pg_language_lanpltrusted - 1] = BoolGetDatum(trusted);
 	values[Anum_pg_language_lanplcallfoid - 1] = ObjectIdGetDatum(handlerOid);
+	values[Anum_pg_language_laninline - 1] = ObjectIdGetDatum(inlineOid);
 	values[Anum_pg_language_lanvalidator - 1] = ObjectIdGetDatum(valOid);
 	nulls[Anum_pg_language_lanacl - 1] = true;
 
-	tup = heap_form_tuple(tupDesc, values, nulls);
+	/* Check for pre-existing definition */
+	oldtup = SearchSysCache1(LANGNAME, PointerGetDatum(languageName));
 
-	simple_heap_insert(rel, tup);
+	if (HeapTupleIsValid(oldtup))
+	{
+		/* There is one; okay to replace it? */
+		if (!replace)
+			ereport(ERROR,
+					(errcode(ERRCODE_DUPLICATE_OBJECT),
+					 errmsg("language \"%s\" already exists", languageName)));
+		if (!pg_language_ownercheck(HeapTupleGetOid(oldtup), languageOwner))
+			aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_LANGUAGE,
+						   languageName);
 
+		/*
+		 * Do not change existing ownership or permissions.  Note
+		 * dependency-update code below has to agree with this decision.
+		 */
+		replaces[Anum_pg_language_lanowner - 1] = false;
+		replaces[Anum_pg_language_lanacl - 1] = false;
+
+		/* Okay, do it... */
+		tup = heap_modify_tuple(oldtup, tupDesc, values, nulls, replaces);
+		simple_heap_update(rel, &tup->t_self, tup);
+
+		ReleaseSysCache(oldtup);
+		is_update = true;
+	}
+	else
+	{
+		/* Creating a new language */
+		tup = heap_form_tuple(tupDesc, values, nulls);
+		simple_heap_insert(rel, tup);
+		is_update = false;
+	}
+
+	/* Need to update indexes for either the insert or update case */
 	CatalogUpdateIndexes(rel, tup);
 
 	/*
-	 * Create dependencies for language
+	 * Create dependencies for the new language.  If we are updating an
+	 * existing language, first delete any existing pg_depend entries.
+	 * (However, since we are not changing ownership or permissions, the
+	 * shared dependencies do *not* need to change, and we leave them alone.)
 	 */
 	myself.classId = LanguageRelationId;
 	myself.objectId = HeapTupleGetOid(tup);
 	myself.objectSubId = 0;
 
+	if (is_update)
+		deleteDependencyRecordsFor(myself.classId, myself.objectId);
+
 	/* dependency on owner of language */
-	referenced.classId = AuthIdRelationId;
-	referenced.objectId = languageOwner;
-	referenced.objectSubId = 0;
-	recordSharedDependencyOn(&myself, &referenced, SHARED_DEPENDENCY_OWNER);
+	if (!is_update)
+		recordDependencyOnOwner(myself.classId, myself.objectId,
+								languageOwner);
 
 	/* dependency on the PL handler function */
 	referenced.classId = ProcedureRelationId;
 	referenced.objectId = handlerOid;
 	referenced.objectSubId = 0;
 	recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
+
+	/* dependency on the inline handler function, if any */
+	if (OidIsValid(inlineOid))
+	{
+		referenced.classId = ProcedureRelationId;
+		referenced.objectId = inlineOid;
+		referenced.objectSubId = 0;
+		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
+	}
 
 	/* dependency on the validator function, if any */
 	if (OidIsValid(valOid))
@@ -370,6 +465,11 @@ find_language_template(const char *languageName)
 							 RelationGetDescr(rel), &isnull);
 		if (!isnull)
 			result->tmplhandler = TextDatumGetCString(datum);
+
+		datum = heap_getattr(tup, Anum_pg_pltemplate_tmplinline,
+							 RelationGetDescr(rel), &isnull);
+		if (!isnull)
+			result->tmplinline = TextDatumGetCString(datum);
 
 		datum = heap_getattr(tup, Anum_pg_pltemplate_tmplvalidator,
 							 RelationGetDescr(rel), &isnull);
@@ -422,9 +522,7 @@ DropProceduralLanguage(DropPLangStmt *stmt)
 	 */
 	languageName = case_translate_language_name(stmt->plname);
 
-	langTup = SearchSysCache(LANGNAME,
-							 CStringGetDatum(languageName),
-							 0, 0, 0);
+	langTup = SearchSysCache1(LANGNAME, CStringGetDatum(languageName));
 	if (!HeapTupleIsValid(langTup))
 	{
 		if (!stmt->missing_ok)
@@ -469,9 +567,7 @@ DropProceduralLanguageById(Oid langOid)
 
 	rel = heap_open(LanguageRelationId, RowExclusiveLock);
 
-	langTup = SearchSysCache(LANGOID,
-							 ObjectIdGetDatum(langOid),
-							 0, 0, 0);
+	langTup = SearchSysCache1(LANGOID, ObjectIdGetDatum(langOid));
 	if (!HeapTupleIsValid(langTup))		/* should not happen */
 		elog(ERROR, "cache lookup failed for language %u", langOid);
 
@@ -497,18 +593,14 @@ RenameLanguage(const char *oldname, const char *newname)
 
 	rel = heap_open(LanguageRelationId, RowExclusiveLock);
 
-	tup = SearchSysCacheCopy(LANGNAME,
-							 CStringGetDatum(oldname),
-							 0, 0, 0);
+	tup = SearchSysCacheCopy1(LANGNAME, CStringGetDatum(oldname));
 	if (!HeapTupleIsValid(tup))
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
 				 errmsg("language \"%s\" does not exist", oldname)));
 
 	/* make sure the new name doesn't exist */
-	if (SearchSysCacheExists(LANGNAME,
-							 CStringGetDatum(newname),
-							 0, 0, 0))
+	if (SearchSysCacheExists1(LANGNAME, CStringGetDatum(newname)))
 		ereport(ERROR,
 				(errcode(ERRCODE_DUPLICATE_OBJECT),
 				 errmsg("language \"%s\" already exists", newname)));
@@ -541,9 +633,7 @@ AlterLanguageOwner(const char *name, Oid newOwnerId)
 
 	rel = heap_open(LanguageRelationId, RowExclusiveLock);
 
-	tup = SearchSysCache(LANGNAME,
-						 CStringGetDatum(name),
-						 0, 0, 0);
+	tup = SearchSysCache1(LANGNAME, CStringGetDatum(name));
 	if (!HeapTupleIsValid(tup))
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
@@ -568,9 +658,7 @@ AlterLanguageOwner_oid(Oid oid, Oid newOwnerId)
 
 	rel = heap_open(LanguageRelationId, RowExclusiveLock);
 
-	tup = SearchSysCache(LANGOID,
-						 ObjectIdGetDatum(oid),
-						 0, 0, 0);
+	tup = SearchSysCache1(LANGOID, ObjectIdGetDatum(oid));
 	if (!HeapTupleIsValid(tup))
 		elog(ERROR, "cache lookup failed for language %u", oid);
 

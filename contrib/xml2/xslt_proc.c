@@ -1,5 +1,5 @@
 /*
- * $PostgreSQL: pgsql/contrib/xml2/xslt_proc.c,v 1.15 2009/06/11 14:48:53 momjian Exp $
+ * $PostgreSQL: pgsql/contrib/xml2/xslt_proc.c,v 1.21 2010/07/06 19:18:55 momjian Exp $
  *
  * XSLT processing functions (requiring libxslt)
  *
@@ -12,6 +12,9 @@
 #include "funcapi.h"
 #include "miscadmin.h"
 #include "utils/builtins.h"
+#include "utils/xml.h"
+
+#ifdef USE_LIBXSLT
 
 /* libxml includes */
 
@@ -25,26 +28,32 @@
 #include <libxslt/xsltInternals.h>
 #include <libxslt/transform.h>
 #include <libxslt/xsltutils.h>
+#endif   /* USE_LIBXSLT */
 
+
+/* externally accessible functions */
+
+Datum		xslt_process(PG_FUNCTION_ARGS);
+
+#ifdef USE_LIBXSLT
 
 /* declarations to come from xpath.c */
-extern void elog_error(int level, char *explain, int force);
-extern void pgxml_parser_init();
-extern xmlChar *pgxml_texttoxmlchar(text *textstring);
+extern void pgxml_parser_init(void);
 
 /* local defs */
 static void parse_params(const char **params, text *paramstr);
 
-Datum		xslt_process(PG_FUNCTION_ARGS);
+#define MAXPARAMS 20			/* must be even, see parse_params() */
+#endif   /* USE_LIBXSLT */
 
-
-#define MAXPARAMS 20
 
 PG_FUNCTION_INFO_V1(xslt_process);
 
 Datum
 xslt_process(PG_FUNCTION_ARGS)
 {
+#ifdef USE_LIBXSLT
+
 	text	   *doct = PG_GETARG_TEXT_P(0);
 	text	   *ssheet = PG_GETARG_TEXT_P(1);
 	text	   *paramstr;
@@ -77,12 +86,8 @@ xslt_process(PG_FUNCTION_ARGS)
 		doctree = xmlParseFile(text_to_cstring(doct));
 
 	if (doctree == NULL)
-	{
-		xmlCleanupParser();
-		elog_error(ERROR, "error parsing XML document", 0);
-
-		PG_RETURN_NULL();
-	}
+		xml_ereport(ERROR, ERRCODE_EXTERNAL_ROUTINE_EXCEPTION,
+					"error parsing XML document");
 
 	/* Same for stylesheet */
 	if (VARDATA(ssheet)[0] == '<')
@@ -92,9 +97,8 @@ xslt_process(PG_FUNCTION_ARGS)
 		if (ssdoc == NULL)
 		{
 			xmlFreeDoc(doctree);
-			xmlCleanupParser();
-			elog_error(ERROR, "error parsing stylesheet as XML document", 0);
-			PG_RETURN_NULL();
+			xml_ereport(ERROR, ERRCODE_EXTERNAL_ROUTINE_EXCEPTION,
+						"error parsing stylesheet as XML document");
 		}
 
 		stylesheet = xsltParseStylesheetDoc(ssdoc);
@@ -107,9 +111,8 @@ xslt_process(PG_FUNCTION_ARGS)
 	{
 		xmlFreeDoc(doctree);
 		xsltCleanupGlobals();
-		xmlCleanupParser();
-		elog_error(ERROR, "failed to parse stylesheet", 0);
-		PG_RETURN_NULL();
+		xml_ereport(ERROR, ERRCODE_EXTERNAL_ROUTINE_EXCEPTION,
+					"failed to parse stylesheet");
 	}
 
 	restree = xsltApplyStylesheet(stylesheet, doctree, params);
@@ -120,21 +123,27 @@ xslt_process(PG_FUNCTION_ARGS)
 	xmlFreeDoc(doctree);
 
 	xsltCleanupGlobals();
-	xmlCleanupParser();
 
 	if (resstat < 0)
 		PG_RETURN_NULL();
 
 	PG_RETURN_TEXT_P(cstring_to_text_with_len((char *) resstr, reslen));
+#else							/* !USE_LIBXSLT */
+
+	ereport(ERROR,
+			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+			 errmsg("xslt_process() is not available without libxslt")));
+	PG_RETURN_NULL();
+#endif   /* USE_LIBXSLT */
 }
 
+#ifdef USE_LIBXSLT
 
-void
+static void
 parse_params(const char **params, text *paramstr)
 {
 	char	   *pos;
 	char	   *pstr;
-
 	int			i;
 	char	   *nvsep = "=";
 	char	   *itsep = ",";
@@ -154,11 +163,13 @@ parse_params(const char **params, text *paramstr)
 		}
 		else
 		{
-			params[i] = NULL;
+			/* No equal sign, so ignore this "parameter" */
+			/* We'll reset params[i] to NULL below the loop */
 			break;
 		}
 		/* Value */
 		i++;
+		/* since MAXPARAMS is even, we still have i < MAXPARAMS */
 		params[i] = pos;
 		pos = strstr(pos, itsep);
 		if (pos != NULL)
@@ -167,9 +178,13 @@ parse_params(const char **params, text *paramstr)
 			pos++;
 		}
 		else
+		{
+			i++;
 			break;
-
+		}
 	}
-	if (i < MAXPARAMS)
-		params[i + 1] = NULL;
+
+	params[i] = NULL;
 }
+
+#endif   /* USE_LIBXSLT */

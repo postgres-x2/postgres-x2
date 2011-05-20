@@ -24,7 +24,7 @@
 
 # Original author:  Ryan Kirkpatrick <pgsql@rkirkpat.net>
 
-# $PostgreSQL: pgsql/contrib/start-scripts/linux,v 1.8 2006/07/13 14:44:33 petere Exp $
+# $PostgreSQL: pgsql/contrib/start-scripts/linux,v 1.11 2010/02/23 22:15:35 momjian Exp $
 
 ## EDIT FROM HERE
 
@@ -40,14 +40,22 @@ PGUSER=postgres
 # Where to keep a log file
 PGLOG="$PGDATA/serverlog"
 
+# It's often a good idea to protect the postmaster from being killed by the
+# OOM killer (which will tend to preferentially kill the postmaster because
+# of the way it accounts for shared memory).  Setting the OOM_ADJ value to
+# -17 will disable OOM kill altogether.  If you enable this, you probably want
+# to compile PostgreSQL with "-DLINUX_OOM_ADJ=0", so that individual backends
+# can still be killed by the OOM killer.
+#OOM_ADJ=-17
+
 ## STOP EDITING HERE
 
 # The path that is to be used for the script
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 
-# What to use to start up the postmaster (we do NOT use pg_ctl for this,
-# as it adds no value and can cause the postmaster to misrecognize a stale
-# lock file)
+# What to use to start up the postmaster.  (If you want the script to wait
+# until the server has started, you could use "pg_ctl start -w" here.
+# But without -w, pg_ctl adds no value.)
 DAEMON="$prefix/bin/postmaster"
 
 # What to use to shut down the postmaster
@@ -56,12 +64,21 @@ PGCTL="$prefix/bin/pg_ctl"
 set -e
 
 # Only start if we can find the postmaster.
-test -x $DAEMON || exit 0
+test -x $DAEMON ||
+{
+	echo "$DAEMON not found"
+	if [ "$1" = "stop" ]
+	then exit 0
+	else exit 5
+	fi
+}
+
 
 # Parse command line parameters.
 case $1 in
   start)
 	echo -n "Starting PostgreSQL: "
+	test x"$OOM_ADJ" != x && echo "$OOM_ADJ" > /proc/self/oom_adj
 	su - $PGUSER -c "$DAEMON -D '$PGDATA' &" >>$PGLOG 2>&1
 	echo "ok"
 	;;
@@ -73,6 +90,7 @@ case $1 in
   restart)
 	echo -n "Restarting PostgreSQL: "
 	su - $PGUSER -c "$PGCTL stop -D '$PGDATA' -s -m fast -w"
+	test x"$OOM_ADJ" != x && echo "$OOM_ADJ" > /proc/self/oom_adj
 	su - $PGUSER -c "$DAEMON -D '$PGDATA' &" >>$PGLOG 2>&1
 	echo "ok"
 	;;

@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/information_schema.sgml,v 1.39 2009/06/10 07:03:34 petere Exp $ -->
+<!-- $PostgreSQL: pgsql/doc/src/sgml/information_schema.sgml,v 1.45 2010/01/28 23:21:10 petere Exp $ -->
 
 <chapter id="information-schema">
  <title>The Information Schema</title>
@@ -96,19 +96,24 @@
       </para>
      </listitem>
     </varlistentry>
+
+    <varlistentry>
+     <term><type>yes_or_no</type></term>
+     <listitem>
+      <para>
+       A character string domain that contains
+       either <literal>YES</literal> or <literal>NO</literal>.  This
+       is used to represent Boolean (true/false) data in the
+       information schema.  (The information schema was invented
+       before the type <type>boolean</type> was added to the SQL
+       standard, so this convention is necessary to keep the
+       information schema backward compatible.)
+      </para>
+     </listitem>
+    </varlistentry>
    </variablelist>
 
-   Every column in the information schema has one of these four types.
-  </para>
-
-  <para>
-   Boolean (true/false) data is represented in the information schema
-   by a column of type <type>character_data</type> that contains
-   either <literal>YES</literal> or <literal>NO</literal>.  (The
-   information schema was invented before the type
-   <type>boolean</type> was added to the SQL standard, so this
-   convention is necessary to keep the information schema backward
-   compatible.)
+   Every column in the information schema has one of these five types.
   </para>
  </sect1>
 
@@ -184,7 +189,7 @@
 
      <row>
       <entry><literal>is_grantable</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>Always <literal>YES</literal></entry>
      </row>
     </tbody>
@@ -236,7 +241,7 @@
 
      <row>
       <entry><literal>is_grantable</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>
        <literal>YES</literal> if the grantee has the admin option on
        the role, <literal>NO</literal> if not
@@ -308,7 +313,7 @@
 
      <row>
       <entry><literal>is_nullable</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>
        <literal>YES</literal> if the attribute is possibly nullable,
        <literal>NO</literal> if it is known not nullable.
@@ -343,10 +348,10 @@
       <entry><type>cardinal_number</type></entry>
       <entry>
        If <literal>data_type</literal> identifies a character type,
-       the maximum possible length in octets (bytes) of a datum (this
-       should not be of concern to
-       <productname>PostgreSQL</productname> users); null for all
-       other data types.
+       the maximum possible length in octets (bytes) of a datum; null
+       for all other data types.  The maximum octet length depends on
+       the declared character maximum length (see above) and the
+       server encoding.
       </entry>
      </row>
 
@@ -480,7 +485,7 @@
 
      <row>
       <entry><literal>is_derived_reference_attribute</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
      </row>
     </tbody>
@@ -757,7 +762,7 @@
 
      <row>
       <entry><literal>is_grantable</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry><literal>YES</literal> if the privilege is grantable, <literal>NO</literal> if not</entry>
      </row>
     </tbody>
@@ -907,7 +912,7 @@
 
      <row>
       <entry><literal>is_nullable</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>
        <literal>YES</literal> if the column is possibly nullable,
        <literal>NO</literal> if it is known not nullable.  A not-null
@@ -947,9 +952,10 @@
       <entry><type>cardinal_number</type></entry>
       <entry>
        If <literal>data_type</literal> identifies a character type,
-       the maximum possible length in octets (bytes) of a datum (this
-       should not be of concern to <productname>PostgreSQL</productname> users); null for all
-       other data types.
+       the maximum possible length in octets (bytes) of a datum; null
+       for all other data types.  The maximum octet length depends on
+       the declared character maximum length (see above) and the
+       server encoding.
       </entry>
      </row>
 
@@ -1147,13 +1153,13 @@
 
      <row>
       <entry><literal>is_self_referencing</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
      </row>
 
      <row>
       <entry><literal>is_identity</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
      </row>
 
@@ -1189,7 +1195,7 @@
 
      <row>
       <entry><literal>identity_cycle</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
      </row>
 
@@ -1207,7 +1213,7 @@
 
      <row>
       <entry><literal>is_updatable</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>
        <literal>YES</literal> if the column is updatable,
        <literal>NO</literal> if not (Columns in base tables are always
@@ -1543,13 +1549,13 @@
 
      <row>
       <entry><literal>is_deferrable</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry><literal>YES</literal> if the constraint is deferrable, <literal>NO</literal> if not</entry>
      </row>
 
      <row>
       <entry><literal>initially_deferred</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry><literal>YES</literal> if the constraint is deferrable and initially deferred, <literal>NO</literal> if not</entry>
      </row>
     </tbody>
@@ -1688,9 +1694,9 @@
       <entry><type>cardinal_number</type></entry>
       <entry>
        If the domain has a character type, the maximum possible length
-       in octets (bytes) of a datum (this should not be of concern to
-       <productname>PostgreSQL</productname> users); null for all
-       other data types.
+       in octets (bytes) of a datum; null for all other data types.
+       The maximum octet length depends on the declared character
+       maximum length (see above) and the server encoding.
       </entry>
      </row>
 
@@ -2544,13 +2550,13 @@ ORDER BY c.ordinal_position;
 
      <row>
       <entry><literal>is_result</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
      </row>
 
      <row>
       <entry><literal>as_locator</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
      </row>
 
@@ -2837,7 +2843,11 @@ ORDER BY c.ordinal_position;
    The view <literal>role_column_grants</literal> identifies all
    privileges granted on columns where the grantor or grantee is a
    currently enabled role.  Further information can be found under
-   <literal>column_privileges</literal>.
+   <literal>column_privileges</literal>.  The only effective
+   difference between this view
+   and <literal>column_privileges</literal> is that this view omits
+   columns that have been made accessible to the current user by way
+   of a grant to public.
   </para>
 
   <table>
@@ -2901,7 +2911,7 @@ ORDER BY c.ordinal_position;
 
      <row>
       <entry><literal>is_grantable</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry><literal>YES</literal> if the privilege is grantable, <literal>NO</literal> if not</entry>
      </row>
     </tbody>
@@ -2916,7 +2926,11 @@ ORDER BY c.ordinal_position;
    The view <literal>role_routine_grants</literal> identifies all
    privileges granted on functions where the grantor or grantee is a
    currently enabled role.  Further information can be found under
-   <literal>routine_privileges</literal>.
+   <literal>routine_privileges</literal>.  The only effective
+   difference between this view
+   and <literal>routine_privileges</literal> is that this view omits
+   functions that have been made accessible to the current user by way
+   of a grant to public.
   </para>
 
   <table>
@@ -2991,7 +3005,7 @@ ORDER BY c.ordinal_position;
 
      <row>
       <entry><literal>is_grantable</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry><literal>YES</literal> if the privilege is grantable, <literal>NO</literal> if not</entry>
      </row>
     </tbody>
@@ -3006,7 +3020,11 @@ ORDER BY c.ordinal_position;
    The view <literal>role_table_grants</literal> identifies all
    privileges granted on tables or views where the grantor or grantee
    is a currently enabled role.  Further information can be found
-   under <literal>table_privileges</literal>.
+   under <literal>table_privileges</literal>.  The only effective
+   difference between this view
+   and <literal>table_privileges</literal> is that this view omits
+   tables that have been made accessible to the current user by way of
+   a grant to public.
   </para>
 
   <table>
@@ -3065,13 +3083,13 @@ ORDER BY c.ordinal_position;
 
      <row>
       <entry><literal>is_grantable</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry><literal>YES</literal> if the privilege is grantable, <literal>NO</literal> if not</entry>
      </row>
 
      <row>
       <entry><literal>with_hierarchy</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
      </row>
     </tbody>
@@ -3087,7 +3105,10 @@ ORDER BY c.ordinal_position;
    <literal>USAGE</literal> privileges granted on various kinds of
    objects where the grantor or grantee is a currently enabled role.
    Further information can be found under
-   <literal>usage_privileges</literal>.
+   <literal>usage_privileges</literal>.  The only effective difference
+   between this view and <literal>usage_privileges</literal> is that
+   this view omits objects that have been made accessible to the
+   current user by way of a grant to public.
   </para>
 
   <table>
@@ -3148,7 +3169,7 @@ ORDER BY c.ordinal_position;
 
      <row>
       <entry><literal>is_grantable</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry><literal>YES</literal> if the privilege is grantable, <literal>NO</literal> if not</entry>
      </row>
     </tbody>
@@ -3238,7 +3259,7 @@ ORDER BY c.ordinal_position;
 
      <row>
       <entry><literal>is_grantable</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry><literal>YES</literal> if the privilege is grantable, <literal>NO</literal> if not</entry>
      </row>
     </tbody>
@@ -3567,7 +3588,7 @@ ORDER BY c.ordinal_position;
 
      <row>
       <entry><literal>is_deterministic</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>
        If the function is declared immutable (called deterministic in
        the SQL standard), then <literal>YES</literal>, else
@@ -3588,7 +3609,7 @@ ORDER BY c.ordinal_position;
 
      <row>
       <entry><literal>is_null_call</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>
        If the function automatically returns null if any of its
        arguments are null, then <literal>YES</literal>, else
@@ -3604,7 +3625,7 @@ ORDER BY c.ordinal_position;
 
      <row>
       <entry><literal>schema_level_routine</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>
        Always <literal>YES</literal> (The opposite would be a method
        of a user-defined type, which is a feature not available in
@@ -3620,13 +3641,13 @@ ORDER BY c.ordinal_position;
 
      <row>
       <entry><literal>is_user_defined_cast</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
      </row>
 
      <row>
       <entry><literal>is_implicitly_invocable</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
      </row>
 
@@ -3661,7 +3682,7 @@ ORDER BY c.ordinal_position;
 
      <row>
       <entry><literal>as_locator</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
      </row>
 
@@ -3679,13 +3700,13 @@ ORDER BY c.ordinal_position;
 
      <row>
       <entry><literal>new_savepoint_level</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
      </row>
 
      <row>
       <entry><literal>is_udt_dependent</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
      </row>
 
@@ -3697,7 +3718,7 @@ ORDER BY c.ordinal_position;
 
      <row>
       <entry><literal>result_cast_as_locator</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
      </row>
 
@@ -4011,7 +4032,7 @@ ORDER BY c.ordinal_position;
 
      <row>
       <entry><literal>cycle_option</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>Not yet implemented</entry>
      </row>
     </tbody>
@@ -4069,7 +4090,7 @@ ORDER BY c.ordinal_position;
 
      <row>
       <entry><literal>is_supported</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>
        <literal>YES</literal> if the feature is fully supported by the
        current version of <productname>PostgreSQL</>, <literal>NO</literal> if not
@@ -4288,7 +4309,7 @@ ORDER BY c.ordinal_position;
 
      <row>
       <entry><literal>is_supported</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>
        <literal>YES</literal> if the package is fully supported by the
        current version of <productname>PostgreSQL</>, <literal>NO</literal> if not
@@ -4350,7 +4371,7 @@ ORDER BY c.ordinal_position;
 
      <row>
       <entry><literal>is_supported</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>
        <literal>YES</literal> if the part is fully supported by the
        current version of <productname>PostgreSQL</>,
@@ -4568,13 +4589,13 @@ ORDER BY c.ordinal_position;
 
      <row>
       <entry><literal>is_deferrable</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry><literal>YES</literal> if the constraint is deferrable, <literal>NO</literal> if not</entry>
      </row>
 
      <row>
       <entry><literal>initially_deferred</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry><literal>YES</literal> if the constraint is deferrable and initially deferred, <literal>NO</literal> if not</entry>
      </row>
     </tbody>
@@ -4648,13 +4669,13 @@ ORDER BY c.ordinal_position;
 
      <row>
       <entry><literal>is_grantable</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry><literal>YES</literal> if the privilege is grantable, <literal>NO</literal> if not</entry>
      </row>
 
      <row>
       <entry><literal>with_hierarchy</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
      </row>
     </tbody>
@@ -4729,24 +4750,34 @@ ORDER BY c.ordinal_position;
      <row>
       <entry><literal>user_defined_type_catalog</literal></entry>
       <entry><type>sql_identifier</type></entry>
-      <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
+      <entry>
+       If the table is a typed table, the name of the database that
+       contains the underlying data type (always the current
+       database), else null.
+      </entry>
      </row>
 
      <row>
       <entry><literal>user_defined_type_schema</literal></entry>
       <entry><type>sql_identifier</type></entry>
-      <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
+      <entry>
+       If the table is a typed table, the name of the schema that
+       contains the underlying data type, else null.
+      </entry>
      </row>
 
      <row>
       <entry><literal>user_defined_type_name</literal></entry>
       <entry><type>sql_identifier</type></entry>
-      <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
+      <entry>
+       If the table is a typed table, the name of the underlying data
+       type, else null.
+      </entry>
      </row>
 
      <row>
       <entry><literal>is_insertable_into</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>
        <literal>YES</literal> if the table is insertable into,
        <literal>NO</literal> if not (Base tables are always insertable
@@ -4756,8 +4787,8 @@ ORDER BY c.ordinal_position;
 
      <row>
       <entry><literal>is_typed</literal></entry>
-      <entry><type>character_data</type></entry>
-      <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
+      <entry><type>yes_or_no</type></entry>
+      <entry><literal>YES</literal> if the table is a typed table, <literal>NO</literal> if not</entry>
      </row>
 
      <row>
@@ -4769,6 +4800,80 @@ ORDER BY c.ordinal_position;
        defines other commit actions for temporary tables, which are
        not supported by <productname>PostgreSQL</>.)
       </entry>
+     </row>
+    </tbody>
+   </tgroup>
+  </table>
+ </sect1>
+
+ <sect1 id="infoschema-triggered-update-columns">
+  <title><literal>triggered_update_columns</literal></title>
+
+  <para>
+   For triggers in the current database that specify a column list
+   (like <literal>UPDATE OF column1, column2</literal>), the
+   view <literal>triggered_update_columns</literal> identifies these
+   columns.  Triggers that do not specify a column list are not
+   included in this view.  Only those columns are shown that the
+   current user owns or has some non-SELECT privilege on.
+  </para>
+
+  <table>
+   <title><literal>triggered_update_columns</literal> Columns</title>
+
+   <tgroup cols="3">
+    <thead>
+     <row>
+      <entry>Name</entry>
+      <entry>Data Type</entry>
+      <entry>Description</entry>
+     </row>
+    </thead>
+
+    <tbody>
+     <row>
+      <entry><literal>trigger_catalog</literal></entry>
+      <entry><type>sql_identifier</type></entry>
+      <entry>Name of the database that contains the trigger (always the current database)</entry>
+     </row>
+
+     <row>
+      <entry><literal>trigger_schema</literal></entry>
+      <entry><type>sql_identifier</type></entry>
+      <entry>Name of the schema that contains the trigger</entry>
+     </row>
+
+     <row>
+      <entry><literal>trigger_name</literal></entry>
+      <entry><type>sql_identifier</type></entry>
+      <entry>Name of the trigger</entry>
+     </row>
+
+     <row>
+      <entry><literal>event_object_catalog</literal></entry>
+      <entry><type>sql_identifier</type></entry>
+      <entry>
+       Name of the database that contains the table that the trigger
+       is defined on (always the current database)
+      </entry>
+     </row>
+
+     <row>
+      <entry><literal>event_object_schema</literal></entry>
+      <entry><type>sql_identifier</type></entry>
+      <entry>Name of the schema that contains the table that the trigger is defined on</entry>
+     </row>
+
+     <row>
+      <entry><literal>event_object_table</literal></entry>
+      <entry><type>sql_identifier</type></entry>
+      <entry>Name of the table that the trigger is defined on</entry>
+     </row>
+
+     <row>
+      <entry><literal>event_object_column</literal></entry>
+      <entry><type>sql_identifier</type></entry>
+      <entry>Name of the column that the trigger is defined on</entry>
      </row>
     </tbody>
    </tgroup>
@@ -4854,7 +4959,11 @@ ORDER BY c.ordinal_position;
      <row>
       <entry><literal>action_condition</literal></entry>
       <entry><type>character_data</type></entry>
-      <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
+      <entry>
+       <literal>WHEN</literal> condition of the trigger, null if none
+       (also null if the table is not owned by a currently enabled
+       role)
+      </entry>
      </row>
 
      <row>
@@ -5024,7 +5133,7 @@ ORDER BY c.ordinal_position;
 
      <row>
       <entry><literal>is_grantable</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry><literal>YES</literal> if the privilege is grantable, <literal>NO</literal> if not</entry>
      </row>
     </tbody>
@@ -5433,7 +5542,7 @@ ORDER BY c.ordinal_position;
 
      <row>
       <entry><literal>is_updatable</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>
        <literal>YES</literal> if the view is updatable (allows
        <command>UPDATE</command> and <command>DELETE</command>),
@@ -5443,11 +5552,29 @@ ORDER BY c.ordinal_position;
 
      <row>
       <entry><literal>is_insertable_into</literal></entry>
-      <entry><type>character_data</type></entry>
+      <entry><type>yes_or_no</type></entry>
       <entry>
        <literal>YES</literal> if the view is insertable into (allows
        <command>INSERT</command>), <literal>NO</literal> if not
       </entry>
+     </row>
+
+     <row>
+      <entry><literal>is_trigger_updatable</literal></entry>
+      <entry><type>yes_or_no</type></entry>
+      <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
+     </row>
+
+     <row>
+      <entry><literal>is_trigger_deletable</literal></entry>
+      <entry><type>yes_or_no</type></entry>
+      <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
+     </row>
+
+     <row>
+      <entry><literal>is_trigger_insertable_into</literal></entry>
+      <entry><type>yes_or_no</type></entry>
+      <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
      </row>
     </tbody>
    </tgroup>

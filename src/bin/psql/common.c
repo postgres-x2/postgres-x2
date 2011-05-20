@@ -1,9 +1,9 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2009, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2010, PostgreSQL Global Development Group
  *
- * $PostgreSQL: pgsql/src/bin/psql/common.c,v 1.142 2009/04/11 18:38:54 alvherre Exp $
+ * $PostgreSQL: pgsql/src/bin/psql/common.c,v 1.146 2010/07/06 19:18:59 momjian Exp $
  */
 #include "postgres_fe.h"
 #include "common.h"
@@ -555,8 +555,13 @@ PrintNotifications(void)
 
 	while ((notify = PQnotifies(pset.db)))
 	{
-		fprintf(pset.queryFout, _("Asynchronous notification \"%s\" received from server process with PID %d.\n"),
-				notify->relname, notify->be_pid);
+		/* for backward compatibility, only show payload if nonempty */
+		if (notify->extra[0])
+			fprintf(pset.queryFout, _("Asynchronous notification \"%s\" with payload \"%s\" received from server process with PID %d.\n"),
+					notify->relname, notify->extra, notify->be_pid);
+		else
+			fprintf(pset.queryFout, _("Asynchronous notification \"%s\" received from server process with PID %d.\n"),
+					notify->relname, notify->be_pid);
 		fflush(pset.queryFout);
 		PQfreemem(notify);
 	}
@@ -977,6 +982,7 @@ ExecQueryUsingCursor(const char *query, double *elapsed_msec)
 	char		fetch_cmd[64];
 	instr_time	before,
 				after;
+	int			flush_error;
 
 	*elapsed_msec = 0;
 
@@ -1040,6 +1046,9 @@ ExecQueryUsingCursor(const char *query, double *elapsed_msec)
 		}
 	}
 
+	/* clear any pre-existing error indication on the output stream */
+	clearerr(pset.queryFout);
+
 	for (;;)
 	{
 		if (pset.timing)
@@ -1091,19 +1100,29 @@ ExecQueryUsingCursor(const char *query, double *elapsed_msec)
 
 		printQuery(results, &my_popt, pset.queryFout, pset.logfile);
 
-		/*
-		 * Make sure to flush the output stream, so intermediate results are
-		 * visible to the client immediately.
-		 */
-		fflush(pset.queryFout);
+		PQclear(results);
 
 		/* after the first result set, disallow header decoration */
 		my_popt.topt.start_table = false;
 		my_popt.topt.prior_records += ntuples;
 
-		PQclear(results);
+		/*
+		 * Make sure to flush the output stream, so intermediate results are
+		 * visible to the client immediately.  We check the results because if
+		 * the pager dies/exits/etc, there's no sense throwing more data at
+		 * it.
+		 */
+		flush_error = fflush(pset.queryFout);
 
-		if (ntuples < pset.fetch_count || cancel_pressed)
+		/*
+		 * Check if we are at the end, if a cancel was pressed, or if there
+		 * were any errors either trying to flush out the results, or more
+		 * generally on the output stream at all.  If we hit any errors
+		 * writing things to the stream, we presume $PAGER has disappeared and
+		 * stop bothering to pull down more data.
+		 */
+		if (ntuples < pset.fetch_count || cancel_pressed || flush_error ||
+			ferror(pset.queryFout))
 			break;
 	}
 

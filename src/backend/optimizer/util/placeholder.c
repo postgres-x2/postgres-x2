@@ -4,12 +4,12 @@
  *	  PlaceHolderVar and PlaceHolderInfo manipulation routines
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/optimizer/util/placeholder.c,v 1.5 2009/06/11 14:48:59 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/optimizer/util/placeholder.c,v 1.8 2010/07/06 19:18:57 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -168,18 +168,27 @@ fix_placeholder_eval_levels(PlannerInfo *root)
 			list_free(vars);
 		}
 	}
+}
 
-	/*
-	 * Now, if any placeholder can be computed at a base rel and is needed
-	 * above it, add it to that rel's targetlist.  (This is essentially the
-	 * same logic as in add_placeholders_to_joinrel, but we can't do that part
-	 * until joinrels are formed.)	We have to do this as a separate step
-	 * because the ph_needed values aren't stable until the previous loop
-	 * finishes.
-	 */
-	foreach(lc1, root->placeholder_list)
+/*
+ * add_placeholders_to_base_rels
+ *		Add any required PlaceHolderVars to base rels' targetlists.
+ *
+ * If any placeholder can be computed at a base rel and is needed above it,
+ * add it to that rel's targetlist.  We have to do this separately from
+ * fix_placeholder_eval_levels() because join removal happens in between,
+ * and can change the ph_eval_at sets.	There is essentially the same logic
+ * in add_placeholders_to_joinrel, but we can't do that part until joinrels
+ * are formed.
+ */
+void
+add_placeholders_to_base_rels(PlannerInfo *root)
+{
+	ListCell   *lc;
+
+	foreach(lc, root->placeholder_list)
 	{
-		PlaceHolderInfo *phinfo = (PlaceHolderInfo *) lfirst(lc1);
+		PlaceHolderInfo *phinfo = (PlaceHolderInfo *) lfirst(lc);
 		Relids		eval_at = phinfo->ph_eval_at;
 
 		if (bms_membership(eval_at) == BMS_SINGLETON)

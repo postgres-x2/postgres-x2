@@ -13,9 +13,9 @@
  *	plan --- consider improving this someday.
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  *
- * $PostgreSQL: pgsql/src/backend/utils/adt/ri_triggers.c,v 1.113 2009/06/11 14:49:04 momjian Exp $
+ * $PostgreSQL: pgsql/src/backend/utils/adt/ri_triggers.c,v 1.118 2010/02/14 18:42:16 rhaas Exp $
  *
  * ----------
  */
@@ -2901,9 +2901,7 @@ ri_GenerateQual(StringInfo buf,
 	char	   *oprname;
 	char	   *nspname;
 
-	opertup = SearchSysCache(OPEROID,
-							 ObjectIdGetDatum(opoid),
-							 0, 0, 0);
+	opertup = SearchSysCache1(OPEROID, ObjectIdGetDatum(opoid));
 	if (!HeapTupleIsValid(opertup))
 		elog(ERROR, "cache lookup failed for operator %u", opoid);
 	operform = (Form_pg_operator) GETSTRUCT(opertup);
@@ -2940,9 +2938,7 @@ ri_add_cast_to(StringInfo buf, Oid typid)
 	char	   *typname;
 	char	   *nspname;
 
-	typetup = SearchSysCache(TYPEOID,
-							 ObjectIdGetDatum(typid),
-							 0, 0, 0);
+	typetup = SearchSysCache1(TYPEOID, ObjectIdGetDatum(typid));
 	if (!HeapTupleIsValid(typetup))
 		elog(ERROR, "cache lookup failed for type %u", typid);
 	typform = (Form_pg_type) GETSTRUCT(typetup);
@@ -3071,9 +3067,7 @@ ri_FetchConstraintInfo(RI_ConstraintInfo *riinfo,
 				 errhint("Remove this referential integrity trigger and its mates, then do ALTER TABLE ADD CONSTRAINT.")));
 
 	/* OK, fetch the tuple */
-	tup = SearchSysCache(CONSTROID,
-						 ObjectIdGetDatum(constraintOid),
-						 0, 0, 0);
+	tup = SearchSysCache1(CONSTROID, ObjectIdGetDatum(constraintOid));
 	if (!HeapTupleIsValid(tup)) /* should not happen */
 		elog(ERROR, "cache lookup failed for constraint %u", constraintOid);
 	conForm = (Form_pg_constraint) GETSTRUCT(tup);
@@ -3209,7 +3203,7 @@ ri_PlanCheck(const char *querystr, int nargs, Oid *argtypes,
 	SPIPlanPtr	qplan;
 	Relation	query_rel;
 	Oid			save_userid;
-	bool		save_secdefcxt;
+	int			save_sec_context;
 
 	/*
 	 * The query is always run against the FK table except when this is an
@@ -3223,8 +3217,9 @@ ri_PlanCheck(const char *querystr, int nargs, Oid *argtypes,
 		query_rel = fk_rel;
 
 	/* Switch to proper UID to perform check as */
-	GetUserIdAndContext(&save_userid, &save_secdefcxt);
-	SetUserIdAndContext(RelationGetForm(query_rel)->relowner, true);
+	GetUserIdAndSecContext(&save_userid, &save_sec_context);
+	SetUserIdAndSecContext(RelationGetForm(query_rel)->relowner,
+						   save_sec_context | SECURITY_LOCAL_USERID_CHANGE);
 
 	/* Create the plan */
 	qplan = SPI_prepare(querystr, nargs, argtypes);
@@ -3232,8 +3227,8 @@ ri_PlanCheck(const char *querystr, int nargs, Oid *argtypes,
 	if (qplan == NULL)
 		elog(ERROR, "SPI_prepare returned %d for %s", SPI_result, querystr);
 
-	/* Restore UID */
-	SetUserIdAndContext(save_userid, save_secdefcxt);
+	/* Restore UID and security context */
+	SetUserIdAndSecContext(save_userid, save_sec_context);
 
 	/* Save the plan if requested */
 	if (cache_plan)
@@ -3263,7 +3258,7 @@ ri_PerformCheck(RI_QueryKey *qkey, SPIPlanPtr qplan,
 	int			limit;
 	int			spi_result;
 	Oid			save_userid;
-	bool		save_secdefcxt;
+	int			save_sec_context;
 	Datum		vals[RI_MAX_NUMKEYS * 2];
 	char		nulls[RI_MAX_NUMKEYS * 2];
 
@@ -3343,8 +3338,9 @@ ri_PerformCheck(RI_QueryKey *qkey, SPIPlanPtr qplan,
 	limit = (expect_OK == SPI_OK_SELECT) ? 1 : 0;
 
 	/* Switch to proper UID to perform check as */
-	GetUserIdAndContext(&save_userid, &save_secdefcxt);
-	SetUserIdAndContext(RelationGetForm(query_rel)->relowner, true);
+	GetUserIdAndSecContext(&save_userid, &save_sec_context);
+	SetUserIdAndSecContext(RelationGetForm(query_rel)->relowner,
+						   save_sec_context | SECURITY_LOCAL_USERID_CHANGE);
 
 	/* Finally we can run the query. */
 	spi_result = SPI_execute_snapshot(qplan,
@@ -3352,8 +3348,8 @@ ri_PerformCheck(RI_QueryKey *qkey, SPIPlanPtr qplan,
 									  test_snapshot, crosscheck_snapshot,
 									  false, false, limit);
 
-	/* Restore UID */
-	SetUserIdAndContext(save_userid, save_secdefcxt);
+	/* Restore UID and security context */
+	SetUserIdAndSecContext(save_userid, save_sec_context);
 
 	/* Check result */
 	if (spi_result < 0)
@@ -3413,11 +3409,8 @@ ri_ReportViolation(RI_QueryKey *qkey, const char *constrname,
 				   HeapTuple violator, TupleDesc tupdesc,
 				   bool spi_err)
 {
-#define BUFLENGTH	512
-	char		key_names[BUFLENGTH];
-	char		key_values[BUFLENGTH];
-	char	   *name_ptr = key_names;
-	char	   *val_ptr = key_values;
+	StringInfoData key_names;
+	StringInfoData key_values;
 	bool		onfk;
 	int			idx,
 				key_idx;
@@ -3465,6 +3458,8 @@ ri_ReportViolation(RI_QueryKey *qkey, const char *constrname,
 	}
 
 	/* Get printable versions of the keys involved */
+	initStringInfo(&key_names);
+	initStringInfo(&key_values);
 	for (idx = 0; idx < qkey->nkeypairs; idx++)
 	{
 		int			fnum = qkey->keypair[idx][key_idx];
@@ -3476,20 +3471,13 @@ ri_ReportViolation(RI_QueryKey *qkey, const char *constrname,
 		if (!val)
 			val = "null";
 
-		/*
-		 * Go to "..." if name or value doesn't fit in buffer.  We reserve 5
-		 * bytes to ensure we can add comma, "...", null.
-		 */
-		if (strlen(name) >= (key_names + BUFLENGTH - 5) - name_ptr ||
-			strlen(val) >= (key_values + BUFLENGTH - 5) - val_ptr)
+		if (idx > 0)
 		{
-			sprintf(name_ptr, "...");
-			sprintf(val_ptr, "...");
-			break;
+			appendStringInfoString(&key_names, ", ");
+			appendStringInfoString(&key_values, ", ");
 		}
-
-		name_ptr += sprintf(name_ptr, "%s%s", idx > 0 ? "," : "", name);
-		val_ptr += sprintf(val_ptr, "%s%s", idx > 0 ? "," : "", val);
+		appendStringInfoString(&key_names, name);
+		appendStringInfoString(&key_values, val);
 	}
 
 	if (onfk)
@@ -3498,7 +3486,7 @@ ri_ReportViolation(RI_QueryKey *qkey, const char *constrname,
 				 errmsg("insert or update on table \"%s\" violates foreign key constraint \"%s\"",
 						RelationGetRelationName(fk_rel), constrname),
 				 errdetail("Key (%s)=(%s) is not present in table \"%s\".",
-						   key_names, key_values,
+						   key_names.data, key_values.data,
 						   RelationGetRelationName(pk_rel))));
 	else
 		ereport(ERROR,
@@ -3507,7 +3495,7 @@ ri_ReportViolation(RI_QueryKey *qkey, const char *constrname,
 						RelationGetRelationName(pk_rel),
 						constrname, RelationGetRelationName(fk_rel)),
 			errdetail("Key (%s)=(%s) is still referenced from table \"%s\".",
-					  key_names, key_values,
+					  key_names.data, key_values.data,
 					  RelationGetRelationName(fk_rel))));
 }
 
@@ -3971,10 +3959,12 @@ ri_HashCompareOp(Oid eq_opr, Oid typeid)
 			{
 				/*
 				 * The declared input type of the eq_opr might be a
-				 * polymorphic type such as ANYARRAY or ANYENUM.  If so,
-				 * assume the coercion is valid; otherwise complain.
+				 * polymorphic type such as ANYARRAY or ANYENUM, or other
+				 * special cases such as RECORD; find_coercion_pathway
+				 * currently doesn't subsume these special cases.
 				 */
-				if (!IsPolymorphicType(lefttype))
+				if (!IsPolymorphicType(lefttype) &&
+					!IsBinaryCoercible(typeid, lefttype))
 					elog(ERROR, "no conversion function from %s to %s",
 						 format_type_be(typeid),
 						 format_type_be(lefttype));

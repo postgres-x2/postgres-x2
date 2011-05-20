@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/plperl.sgml,v 2.69 2008/04/10 15:16:46 alvherre Exp $ -->
+<!-- $PostgreSQL: pgsql/doc/src/sgml/plperl.sgml,v 2.86 2010/07/08 21:35:33 petere Exp $ -->
 
  <chapter id="plperl">
   <title>PL/Perl - Perl Procedural Language</title>
@@ -13,8 +13,8 @@
 
   <para>
    PL/Perl is a loadable procedural language that enables you to write
-   <productname>PostgreSQL</productname> functions in the 
-   <ulink url="http://www.perl.com">Perl programming language</ulink>.
+   <productname>PostgreSQL</productname> functions in the
+   <ulink url="http://www.perl.org">Perl programming language</ulink>.
   </para>
 
   <para>
@@ -51,7 +51,7 @@
 
   <para>
    To create a function in the PL/Perl language, use the standard
-   <xref linkend="sql-createfunction" endterm="sql-createfunction-title">
+   <xref linkend="sql-createfunction">
    syntax:
 
 <programlisting>
@@ -59,21 +59,39 @@ CREATE FUNCTION <replaceable>funcname</replaceable> (<replaceable>argument-types
     # PL/Perl function body
 $$ LANGUAGE plperl;
 </programlisting>
+
    The body of the function is ordinary Perl code. In fact, the PL/Perl
-   glue code wraps it inside a Perl subroutine. A PL/Perl function must
-   always return a scalar value.  You can return more complex structures
-   (arrays, records, and sets) by returning a reference, as discussed below.
-   Never return a list.
+   glue code wraps it inside a Perl subroutine.  A PL/Perl function is
+   called in a scalar context, so it can't return a list.  You can return
+   non-scalar values (arrays, records, and sets) by returning a reference,
+   as discussed below.
+  </para>
+
+  <para>
+   PL/Perl also supports anonymous code blocks called with the
+   <xref linkend="sql-do"> statement:
+
+<programlisting>
+DO $$
+    # PL/Perl code
+$$ LANGUAGE plperl;
+</programlisting>
+
+   An anonymous code block receives no arguments, and whatever value it
+   might return is discarded.  Otherwise it behaves just like a function.
   </para>
 
   <note>
    <para>
     The use of named nested subroutines is dangerous in Perl, especially if
     they refer to lexical variables in the enclosing scope. Because a PL/Perl
-    function is wrapped in a subroutine, any named subroutine you create will
-    be nested. In general, it is far safer to create anonymous subroutines
-    which you call via a coderef. See the <literal>perldiag</literal>
-    man page for more details.
+    function is wrapped in a subroutine, any named subroutine you place inside
+    one will be nested. In general, it is far safer to create anonymous
+    subroutines which you call via a coderef. For more information, see the
+    entries for <literal>Variable "%s" will not stay shared</literal> and
+    <literal>Variable "%s" is not available</literal> in the
+    <citerefentry><refentrytitle>perldiag</></citerefentry> man page, or
+    search the Internet for <quote>perl nested named subroutine</>.
    </para>
   </note>
 
@@ -84,7 +102,7 @@ $$ LANGUAGE plperl;
    linkend="sql-syntax-dollar-quoting">) for the string constant.
    If you choose to use escape string syntax <literal>E''</>,
    you must double the single quote marks (<literal>'</>) and backslashes
-   (<literal>\</>) used in the body of the function 
+   (<literal>\</>) used in the body of the function
    (see <xref linkend="sql-syntax-strings">).
   </para>
 
@@ -124,13 +142,13 @@ $$ LANGUAGE plperl;
 
 <programlisting>
 CREATE FUNCTION perl_max (integer, integer) RETURNS integer AS $$
-    my ($x,$y) = @_;
-    if (! defined $x) {
-        if (! defined $y) { return undef; }
+    my ($x, $y) = @_;
+    if (not defined $x) {
+        return undef if not defined $y;
         return $y;
     }
-    if (! defined $y) { return $x; }
-    if ($x &gt; $y) { return $x; }
+    return $x if not defined $y;
+    return $x if $x &gt; $y;
     return $y;
 $$ LANGUAGE plperl;
 </programlisting>
@@ -141,32 +159,21 @@ $$ LANGUAGE plperl;
 
   <para>
    Anything in a function argument that is not a reference is
-   a string, which is in the standard <productname>PostgreSQL</productname> 
+   a string, which is in the standard <productname>PostgreSQL</productname>
    external text representation for the relevant data type. In the case of
    ordinary numeric or text types, Perl will just do the right thing and
    the programmer will normally not have to worry about it. However, in
-   other cases the argument will need to be converted into a form that is 
-   more usable in Perl. For example, here is how to convert an argument of 
-   type <type>bytea</> into unescaped binary 
-   data:
-
-<programlisting>
-    my $arg = shift;
-    $arg =~ s!\\(?:\\|(\d{3}))!$1 ? chr(oct($1)) : "\\"!ge;
-</programlisting>
-
+   other cases the argument will need to be converted into a form that is
+   more usable in Perl. For example, the <function>decode_bytea</function>
+   function can be used to convert an argument of
+   type <type>bytea</> into unescaped binary.
   </para>
 
   <para>
-   Similarly, values passed back to <productname>PostgreSQL</productname> 
-   must be in the external text representation format. For example, here 
-   is how to escape binary data for a return value of type <type>bytea</>:
-
-<programlisting>
-    $retval =~ s!(\\|[^ -~])!sprintf("\\%03o",ord($1))!ge;
-    return $retval;
-</programlisting>
-
+   Similarly, values passed back to <productname>PostgreSQL</productname>
+   must be in the external text representation format. For example, the
+   <function>encode_bytea</function> function can be used to
+   escape binary data for a return value of type <type>bytea</>.
   </para>
 
   <para>
@@ -279,37 +286,52 @@ SELECT * FROM perl_set();
   </para>
 
   <para>
-   If you wish to use the <literal>strict</> pragma with your code,
-   the easiest way to do so is to <command>SET</>
-   <literal>plperl.use_strict</literal> to true.  This parameter affects
-   subsequent compilations of <application>PL/Perl</> functions, but not
-   functions already compiled in the current session.  To set the
-   parameter before <application>PL/Perl</> has been loaded, it is
-   necessary to have added <quote><literal>plperl</></> to the <xref
-   linkend="guc-custom-variable-classes"> list in
-   <filename>postgresql.conf</filename>.
+   If you wish to use the <literal>strict</> pragma with your code you 
+   have a few options. For temporary global use you can <command>SET</> 
+   <literal>plperl.use_strict</literal> to true.
+   This will affect subsequent compilations of <application>PL/Perl</>
+   functions, but not functions already compiled in the current session.
+   For permanent global use you can set <literal>plperl.use_strict</literal>
+   to true in the <filename>postgresql.conf</filename> file.
   </para>
 
   <para>
-   Another way to use the <literal>strict</> pragma is to put:
+   For permanent use in specific functions you can simply put:
 <programlisting>
 use strict;
 </programlisting>
-   in the function body.  But this only works in <application>PL/PerlU</>
-   functions, since <literal>use</> is not a trusted operation.  In
-   <application>PL/Perl</> functions you can instead do:
-<programlisting>
-BEGIN { strict->import(); }
-</programlisting>
+   at the top of the function body.
+  </para>
+
+  <para>
+  The <literal>feature</> pragma is also available to <function>use</> if your Perl is version 5.10.0 or higher.
+  </para>
+
+ </sect1>
+
+ <sect1 id="plperl-data">
+  <title>Data Values in PL/Perl</title>
+
+  <para>
+   The argument values supplied to a PL/Perl function's code are
+   simply the input arguments converted to text form (just as if they
+   had been displayed by a <command>SELECT</command> statement).
+   Conversely, the <function>return</function> and <function>return_next</function>
+   commands will accept any string that is acceptable input format
+   for the function's declared return type.
   </para>
  </sect1>
 
- <sect1 id="plperl-database">
+ <sect1 id="plperl-builtins">
+  <title>Built-in Functions</title>
+
+ <sect2 id="plperl-database">
   <title>Database Access from PL/Perl</title>
 
   <para>
    Access to the database itself from your Perl function can be done
    via the following functions:
+  </para>
 
    <variablelist>
     <varlistentry>
@@ -317,16 +339,36 @@ BEGIN { strict->import(); }
       <primary>spi_exec_query</primary>
       <secondary>in PL/Perl</secondary>
      </indexterm>
+     <indexterm>
+      <primary>spi_query</primary>
+      <secondary>in PL/Perl</secondary>
+     </indexterm>
+     <indexterm>
+      <primary>spi_fetchrow</primary>
+      <secondary>in PL/Perl</secondary>
+     </indexterm>
+     <indexterm>
+      <primary>spi_prepare</primary>
+      <secondary>in PL/Perl</secondary>
+     </indexterm>
+     <indexterm>
+      <primary>spi_exec_prepared</primary>
+      <secondary>in PL/Perl</secondary>
+     </indexterm>
+     <indexterm>
+      <primary>spi_query_prepared</primary>
+      <secondary>in PL/Perl</secondary>
+     </indexterm>
+     <indexterm>
+      <primary>spi_cursor_close</primary>
+      <secondary>in PL/Perl</secondary>
+     </indexterm>
+     <indexterm>
+      <primary>spi_freeplan</primary>
+      <secondary>in PL/Perl</secondary>
+     </indexterm>
 
      <term><literal><function>spi_exec_query</>(<replaceable>query</replaceable> [, <replaceable>max-rows</replaceable>])</literal></term>
-     <term><literal><function>spi_query</>(<replaceable>command</replaceable>)</literal></term>
-     <term><literal><function>spi_fetchrow</>(<replaceable>cursor</replaceable>)</literal></term>
-     <term><literal><function>spi_prepare</>(<replaceable>command</replaceable>, <replaceable>argument types</replaceable>)</literal></term>
-     <term><literal><function>spi_exec_prepared</>(<replaceable>plan</replaceable>)</literal></term>
-     <term><literal><function>spi_query_prepared</>(<replaceable>plan</replaceable> [, <replaceable>attributes</replaceable>], <replaceable>arguments</replaceable>)</literal></term>
-     <term><literal><function>spi_cursor_close</>(<replaceable>cursor</replaceable>)</literal></term>
-     <term><literal><function>spi_freeplan</>(<replaceable>plan</replaceable>)</literal></term>
-
      <listitem>
       <para>
        <literal>spi_exec_query</literal> executes an SQL command and
@@ -399,7 +441,15 @@ $$ LANGUAGE plperl;
 SELECT * FROM test_munge();
 </programlisting>
     </para>
+    </listitem>
+    </varlistentry>
 
+    <varlistentry>
+     <term><literal><function>spi_query</>(<replaceable>command</replaceable>)</literal></term>
+     <term><literal><function>spi_fetchrow</>(<replaceable>cursor</replaceable>)</literal></term>
+     <term><literal><function>spi_cursor_close</>(<replaceable>cursor</replaceable>)</literal></term>
+
+    <listitem>
     <para>
     <literal>spi_query</literal> and <literal>spi_fetchrow</literal>
     work together as a pair for row sets which might be large, or for cases
@@ -437,36 +487,66 @@ $$ LANGUAGE plperlu;
 SELECT * from lotsa_md5(500);
 </programlisting>
     </para>
-      
+
     <para>
-    <literal>spi_prepare</literal>, <literal>spi_query_prepared</literal>, <literal>spi_exec_prepared</literal>, 
-    and <literal>spi_freeplan</literal> implement the same functionality but for prepared queries. Once
-    a query plan is prepared by a call to <literal>spi_prepare</literal>, the plan can be used instead
+     Normally, <function>spi_fetchrow</> should be repeated until it
+     returns <literal>undef</literal>, indicating that there are no more
+     rows to read.  The cursor returned by <literal>spi_query</literal>
+     is automatically freed when
+     <function>spi_fetchrow</> returns <literal>undef</literal>.
+     If you do not wish to read all the rows, instead call
+     <function>spi_cursor_close</> to free the cursor.
+     Failure to do so will result in memory leaks.
+    </para>
+
+    </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><literal><function>spi_prepare</>(<replaceable>command</replaceable>, <replaceable>argument types</replaceable>)</literal></term>
+     <term><literal><function>spi_query_prepared</>(<replaceable>plan</replaceable>, <replaceable>arguments</replaceable>)</literal></term>
+     <term><literal><function>spi_exec_prepared</>(<replaceable>plan</replaceable> [, <replaceable>attributes</replaceable>], <replaceable>arguments</replaceable>)</literal></term>
+     <term><literal><function>spi_freeplan</>(<replaceable>plan</replaceable>)</literal></term>
+
+    <listitem>
+    <para>
+    <literal>spi_prepare</literal>, <literal>spi_query_prepared</literal>, <literal>spi_exec_prepared</literal>,
+    and <literal>spi_freeplan</literal> implement the same functionality but for prepared queries.
+    <literal>spi_prepare</literal> accepts a query string with numbered argument placeholders ($1, $2, etc)
+    and a string list of argument types:
+<programlisting>
+$plan = spi_prepare('SELECT * FROM test WHERE id &gt; $1 AND name = $2',
+                                                     'INTEGER', 'TEXT');
+</programlisting>
+    Once a query plan is prepared by a call to <literal>spi_prepare</literal>, the plan can be used instead
     of the string query, either in <literal>spi_exec_prepared</literal>, where the result is the same as returned
     by <literal>spi_exec_query</literal>, or in <literal>spi_query_prepared</literal> which returns a cursor
     exactly as <literal>spi_query</literal> does, which can be later passed to <literal>spi_fetchrow</literal>.
+    The optional second parameter to <literal>spi_exec_prepared</literal> is a hash reference of attributes;
+    the only attribute currently supported is <literal>limit</literal>, which sets the maximum number of rows returned by a query. 
     </para>
-    
+
     <para>
     The advantage of prepared queries is that is it possible to use one prepared plan for more
-    than one query execution. After the plan is not needed anymore, it can be freed with 
+    than one query execution. After the plan is not needed anymore, it can be freed with
     <literal>spi_freeplan</literal>:
     </para>
 
     <para>
     <programlisting>
-CREATE OR REPLACE FUNCTION init() RETURNS INTEGER AS $$
-        $_SHARED{my_plan} = spi_prepare( 'SELECT (now() + $1)::date AS now', 'INTERVAL');
+CREATE OR REPLACE FUNCTION init() RETURNS VOID AS $$
+        $_SHARED{my_plan} = spi_prepare('SELECT (now() + $1)::date AS now',
+                                        'INTERVAL');
 $$ LANGUAGE plperl;
 
 CREATE OR REPLACE FUNCTION add_time( INTERVAL ) RETURNS TEXT AS $$
-        return spi_exec_prepared( 
+        return spi_exec_prepared(
                 $_SHARED{my_plan},
-                $_[0],
+                $_[0]
         )->{rows}->[0]->{now};
 $$ LANGUAGE plperl;
 
-CREATE OR REPLACE FUNCTION done() RETURNS INTEGER AS $$
+CREATE OR REPLACE FUNCTION done() RETURNS VOID AS $$
         spi_freeplan( $_SHARED{my_plan});
         undef $_SHARED{my_plan};
 $$ LANGUAGE plperl;
@@ -475,7 +555,7 @@ SELECT init();
 SELECT add_time('1 day'), add_time('2 days'), add_time('3 days');
 SELECT done();
 
-  add_time  |  add_time  |  add_time  
+  add_time  |  add_time  |  add_time
 ------------+------------+------------
  2005-12-10 | 2005-12-11 | 2005-12-12
     </programlisting>
@@ -488,17 +568,52 @@ SELECT done();
     </para>
 
     <para>
-     Normally, <function>spi_fetchrow</> should be repeated until it
-     returns <literal>undef</literal>, indicating that there are no more
-     rows to read.  The cursor is automatically freed when
-     <function>spi_fetchrow</> returns <literal>undef</literal>.
-     If you do not wish to read all the rows, instead call
-     <function>spi_cursor_close</> to free the cursor.
-     Failure to do so will result in memory leaks.
+    Another example illustrates usage of an optional parameter in <literal>spi_exec_prepared</literal>:
     </para>
-     </listitem>
-    </varlistentry>
 
+    <para>
+    <programlisting>
+CREATE TABLE hosts AS SELECT id, ('192.168.1.'||id)::inet AS address
+                      FROM generate_series(1,3) AS id;
+
+CREATE OR REPLACE FUNCTION init_hosts_query() RETURNS VOID AS $$
+        $_SHARED{plan} = spi_prepare('SELECT * FROM hosts 
+                                      WHERE address &lt;&lt; $1', 'inet');
+$$ LANGUAGE plperl;
+
+CREATE OR REPLACE FUNCTION query_hosts(inet) RETURNS SETOF hosts AS $$
+        return spi_exec_prepared(
+                $_SHARED{plan},
+                {limit =&gt; 2},
+                $_[0]
+        )->{rows};
+$$ LANGUAGE plperl;
+
+CREATE OR REPLACE FUNCTION release_hosts_query() RETURNS VOID AS $$
+        spi_freeplan($_SHARED{plan});
+        undef $_SHARED{plan};
+$$ LANGUAGE plperl;
+
+SELECT init_hosts_query();
+SELECT query_hosts('192.168.1.0/30');
+SELECT release_hosts_query();
+
+    query_hosts    
+-----------------
+ (1,192.168.1.1)
+ (2,192.168.1.2)
+(2 rows)
+    </programlisting>
+    </para>
+    </listitem>
+    </varlistentry>
+   </variablelist>
+ </sect2>
+
+ <sect2 id="plperl-utility-functions">
+  <title>Utility functions in PL/Perl</title>
+
+   <variablelist>
     <varlistentry>
      <indexterm>
       <primary>elog</primary>
@@ -527,22 +642,142 @@ SELECT done();
       </para>
      </listitem>
     </varlistentry>
+
+    <varlistentry>
+     <indexterm>
+      <primary>quote_literal</primary>
+      <secondary>in PL/Perl</secondary>
+     </indexterm>
+
+     <term><literal><function>quote_literal</>(<replaceable>string</replaceable>)</literal></term>
+     <listitem>
+      <para>
+        Return the given string suitably quoted to be used as a string literal in an SQL
+        statement string. Embedded single-quotes and backslashes are properly doubled.
+        Note that <function>quote_literal</> returns undef on undef input; if the argument
+        might be undef, <function>quote_nullable</> is often more suitable.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <indexterm>
+      <primary>quote_nullable</primary>
+      <secondary>in PL/Perl</secondary>
+     </indexterm>
+
+     <term><literal><function>quote_nullable</>(<replaceable>string</replaceable>)</literal></term>
+     <listitem>
+      <para>
+        Return the given string suitably quoted to be used as a string literal in an SQL
+        statement string; or, if the argument is undef, return the unquoted string "NULL".
+        Embedded single-quotes and backslashes are properly doubled.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <indexterm>
+      <primary>quote_ident</primary>
+      <secondary>in PL/Perl</secondary>
+     </indexterm>
+
+     <term><literal><function>quote_ident</>(<replaceable>string</replaceable>)</literal></term>
+     <listitem>
+      <para>
+        Return the given string suitably quoted to be used as an identifier in
+        an SQL statement string. Quotes are added only if necessary (i.e., if
+        the string contains non-identifier characters or would be case-folded).
+        Embedded quotes are properly doubled.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <indexterm>
+      <primary>decode_bytea</primary>
+      <secondary>in PL/Perl</secondary>
+     </indexterm>
+
+     <term><literal><function>decode_bytea</>(<replaceable>string</replaceable>)</literal></term>
+     <listitem>
+      <para>
+        Return the unescaped binary data represented by the contents of the given string,
+        which should be bytea encoded.
+        </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <indexterm>
+      <primary>encode_bytea</primary>
+      <secondary>in PL/Perl</secondary>
+     </indexterm>
+
+     <term><literal><function>encode_bytea</>(<replaceable>string</replaceable>)</literal></term>
+     <listitem>
+      <para>
+        Return the bytea encoded form of the binary data contents of the given string.
+        </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <indexterm>
+      <primary>encode_array_literal</primary>
+      <secondary>in PL/Perl</secondary>
+     </indexterm>
+
+     <term><literal><function>encode_array_literal</>(<replaceable>array</replaceable>)</literal></term>
+     <term><literal><function>encode_array_literal</>(<replaceable>array</replaceable>, <replaceable>delimiter</replaceable>)</literal></term>
+     <listitem>
+      <para>
+        Returns the contents of the referenced array as a string in array literal format
+        (see <xref linkend="arrays-input">).
+        Returns the argument value unaltered if it's not a reference to an array.
+        The delimiter used between elements of the array literal defaults to "<literal>, </literal>"
+        if a delimiter is not specified or is undef.
+        </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <indexterm>
+      <primary>encode_array_constructor</primary>
+      <secondary>in PL/Perl</secondary>
+     </indexterm>
+
+     <term><literal><function>encode_array_constructor</>(<replaceable>array</replaceable>)</literal></term>
+     <listitem>
+      <para>
+        Returns the contents of the referenced array as a string in array constructor format
+        (see <xref linkend="sql-syntax-array-constructors">).
+        Individual values are quoted using <function>quote_nullable</function>.
+        Returns the argument value, quoted using <function>quote_nullable</function>,
+        if it's not a reference to an array.
+        </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <indexterm>
+      <primary>looks_like_number</primary>
+      <secondary>in PL/Perl</secondary>
+     </indexterm>
+
+     <term><literal><function>looks_like_number</>(<replaceable>string</replaceable>)</literal></term>
+     <listitem>
+      <para>
+        Returns a true value if the content of the given string looks like a
+        number, according to Perl, returns false otherwise.
+        Returns undef if the argument is undef.  Leading and trailing space is
+        ignored. <literal>Inf</> and <literal>Infinity</> are regarded as numbers.
+        </para>
+     </listitem>
+    </varlistentry>
+
    </variablelist>
-  </para>
- </sect1>
-
- <sect1 id="plperl-data">
-  <title>Data Values in PL/Perl</title>
-
-  <para>
-   The argument values supplied to a PL/Perl function's code are
-   simply the input arguments converted to text form (just as if they
-   had been displayed by a <command>SELECT</command> statement).
-   Conversely, the <literal>return</> command will accept any string
-   that is acceptable input format for the function's declared return
-   type.  So, within the PL/Perl function,
-   all values are just text strings.
-  </para>
+ </sect2>
  </sect1>
 
  <sect1 id="plperl-global">
@@ -569,7 +804,7 @@ CREATE OR REPLACE FUNCTION get_var(name text) RETURNS text AS $$
     return $_SHARED{$_[0]};
 $$ LANGUAGE plperl;
 
-SELECT set_var('sample', 'Hello, PL/Perl!  How's tricks?');
+SELECT set_var('sample', 'Hello, PL/Perl!  How''s tricks?');
 SELECT get_var('sample');
 </programlisting>
   </para>
@@ -600,6 +835,13 @@ $$ LANGUAGE plperl;
    (You could have replaced the above with the one-liner
    <literal>return $_SHARED{myquote}-&gt;($_[0]);</literal>
    at the expense of readability.)
+  </para>
+
+  <para>
+    The <varname>%_SHARED</varname> variable and other global state within
+    the language are public data, available to all PL/Perl functions within a
+    session. Use with care, especially in situations that involve use of 
+    multiple roles or <literal>SECURITY DEFINER</> functions.
   </para>
  </sect1>
 
@@ -667,6 +909,13 @@ $$ LANGUAGE plperl;
    <literal>plperlu</>, execution would succeed.
   </para>
 
+  <para>
+   In the same way, anonymous code blocks written in Perl can use
+   restricted operations if the language is specified as
+   <literal>plperlu</> rather than <literal>plperl</>, but the caller
+   must be a superuser.
+  </para>
+
   <note>
     <para>
       For security reasons, to stop a leak of privileged operations from
@@ -676,15 +925,16 @@ $$ LANGUAGE plperl;
       However, not all installations are compiled with the requisite flags.
       If <productname>PostgreSQL</> detects that this is the case then it will
       not start a second interpreter, but instead create an error. In
-      consequence, in such an installation, you cannot use both 
+      consequence, in such an installation, you cannot use both
       <application>PL/PerlU</> and <application>PL/Perl</> in the same backend
-      process. The remedy for this is to obtain a Perl installation created
-      with the appropriate flags, namely either <literal>usemultiplicity</> or
-      both <literal>usethreads</> and <literal>useithreads</>. 
-      For more details,see the <literal>perlembed</> manual page.
+      process. The remedy for this is to obtain a Perl installation configured
+      with the appropriate flags, namely either <literal>usemultiplicity</>
+      or <literal>useithreads</>. <literal>usemultiplicity</> is preferred
+      unless you actually need to use threads. For more details, see the
+      <citerefentry><refentrytitle>perlembed</></citerefentry> man page.
     </para>
   </note>
-  
+
  </sect1>
 
  <sect1 id="plperl-triggers">
@@ -693,8 +943,8 @@ $$ LANGUAGE plperl;
   <para>
    PL/Perl can be used to write trigger functions.  In a trigger function,
    the hash reference <varname>$_TD</varname> contains information about the
-   current trigger event. <varname>$_TD</> is a global variable, 
-   which gets a separate local value for each invocation of the trigger. 
+   current trigger event. <varname>$_TD</> is a global variable,
+   which gets a separate local value for each invocation of the trigger.
    The fields of the <varname>$_TD</varname> hash reference are:
 
    <variablelist>
@@ -776,7 +1026,7 @@ $$ LANGUAGE plperl;
      <listitem>
       <para>
        Name of the table on which the trigger fired. This has been deprecated,
-       and could be removed in a future release. 
+       and could be removed in a future release.
        Please use $_TD-&gt;{table_name} instead.
       </para>
      </listitem>
@@ -873,7 +1123,131 @@ CREATE TRIGGER test_valid_id_trig
   </para>
  </sect1>
 
- <sect1 id="plperl-missing">
+ <sect1 id="plperl-under-the-hood">
+  <title>PL/Perl Under the Hood</title>
+
+ <sect2 id="plperl-config">
+  <title>Configuration</title>
+
+  <para>
+  This section lists configuration parameters that affect <application>PL/Perl</>.
+  To set any of these parameters before <application>PL/Perl</> has been loaded,
+  it is necessary to have added <quote><literal>plperl</></> to the
+  <xref linkend="guc-custom-variable-classes"> list in
+  <filename>postgresql.conf</filename>.
+  </para>
+
+  <variablelist>
+
+     <varlistentry id="guc-plperl-on-init" xreflabel="plperl.on_init">
+      <term><varname>plperl.on_init</varname> (<type>string</type>)</term>
+      <indexterm>
+       <primary><varname>plperl.on_init</> configuration parameter</primary>
+      </indexterm>
+      <listitem>
+       <para>
+       Specifies Perl code to be executed when a Perl interpreter is first initialized
+       and before it is specialized for use by <literal>plperl</> or <literal>plperlu</>.
+       The SPI functions are not available when this code is executed.
+       If the code fails with an error it will abort the initialization of the interpreter
+       and propagate out to the calling query, causing the current transaction
+       or subtransaction to be aborted.
+       </para>
+       <para>
+       The Perl code is limited to a single string. Longer code can be placed
+       into a module and loaded by the <literal>on_init</> string.
+       Examples:
+<programlisting>
+plperl.on_init = 'require "plperlinit.pl"'
+plperl.on_init = 'use lib "/my/app"; use MyApp::PgInit;'
+</programlisting>
+       </para>
+       <para>
+       Any modules loaded by <literal>plperl.on_init</>, either directly or
+       indirectly, will be available for use by <literal>plperl</>.  This may
+       create a security risk. To see what modules have been loaded you can use:
+<programlisting>
+DO 'elog(WARNING, join ", ", sort keys %INC)' language plperl;
+</programlisting>
+       </para>
+       <para>
+       Initialization will happen in the postmaster if the plperl library is included
+       in <literal>shared_preload_libraries</> (see <xref linkend="guc-shared-preload-libraries">),
+       in which case extra consideration should be given to the risk of destabilizing the postmaster.
+       </para>
+       <para>
+       This parameter can only be set in the postgresql.conf file or on the server command line.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry id="guc-plperl-on-plperl-init" xreflabel="plperl.on_plperl_init">
+      <term><varname>plperl.on_plperl_init</varname> (<type>string</type>)</term>
+      <term><varname>plperl.on_plperlu_init</varname> (<type>string</type>)</term>
+      <indexterm>
+       <primary><varname>plperl.on_plperl_init</> configuration parameter</primary>
+      </indexterm>
+      <indexterm>
+       <primary><varname>plperl.on_plperlu_init</> configuration parameter</primary>
+      </indexterm>
+      <listitem>
+       <para>
+       These parameters specify Perl code to be executed when the
+       <literal>plperl</>, or <literal>plperlu</> language is first used in a
+       session.  Changes to these parameters after the corresponding language
+       has been used will have no effect.
+       The SPI functions are not available when this code is executed.
+       Only superusers can change these settings.
+       The Perl code in <literal>plperl.on_plperl_init</> can only perform trusted operations.
+       </para>
+       <para>
+       The effect of setting these parameters is very similar to executing a
+       <literal>DO</> command with the Perl code before any other use of the
+       language.  The parameters are useful when you want to execute the Perl
+       code automatically on every connection, or when a connection is not
+       interactive. The parameters can be used by non-superusers by having a
+       superuser execute an <literal>ALTER USER ... SET ...</> command.
+       For example:
+<programlisting>
+ALTER USER joe SET plperl.on_plperl_init = '$_SHARED{debug} = 1';
+</programlisting>
+       </para>
+       <para>
+       If the code fails with an error it will abort the initialization and
+       propagate out to the calling query, causing the current transaction or
+       subtransaction to be aborted. Any changes within Perl won't be undone.
+       If the language is used again the initialization will be repeated.
+       </para>
+       <para>
+       The difference between these two settings and the 
+       <literal>plperl.on_init</> setting is that these can be used for
+       settings specific to the trusted or untrusted language variant, such
+       as setting values in the <varname>%_SHARED</> variable. By contrast,
+       <literal>plperl.on_init</> is more useful for doing things like
+       setting the library search path for <productname>Perl</> or 
+       loading Perl modules that don't interact directly with 
+       <productname>PostgreSQL</>.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry id="guc-plperl-use-strict" xreflabel="plperl.use_strict">
+      <term><varname>plperl.use_strict</varname> (<type>boolean</type>)</term>
+      <indexterm>
+       <primary><varname>plperl.use_strict</> configuration parameter</primary>
+      </indexterm>
+      <listitem>
+       <para>
+       When set true subsequent compilations of PL/Perl functions have the <literal>strict</> pragma enabled.
+       This parameter does not affect functions already compiled in the current session.
+       </para>
+      </listitem>
+     </varlistentry>
+
+  </variablelist>
+</sect2>
+
+ <sect2 id="plperl-missing">
   <title>Limitations and Missing Features</title>
 
   <para>
@@ -883,8 +1257,7 @@ CREATE TRIGGER test_valid_id_trig
    <itemizedlist>
     <listitem>
      <para>
-      PL/Perl functions cannot call each other directly (because they
-      are anonymous subroutines inside Perl).
+      PL/Perl functions cannot call each other directly.
      </para>
     </listitem>
 
@@ -909,10 +1282,21 @@ CREATE TRIGGER test_valid_id_trig
         <literal>return_next</literal> for each row returned, as shown
         previously.
      </para>
-
     </listitem>
+
+     <listitem>
+      <para>
+        When a session ends normally, not due to a fatal error, any
+        <literal>END</> blocks that have been defined are executed.
+        Currently no other actions are performed. Specifically, 
+        file handles are not automatically flushed and objects are 
+        not automatically destroyed.
+      </para>
+     </listitem>
    </itemizedlist>
   </para>
+ </sect2>
+
  </sect1>
 
 </chapter>

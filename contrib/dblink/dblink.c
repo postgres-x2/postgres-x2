@@ -8,8 +8,8 @@
  * Darko Prenosil <Darko.Prenosil@finteh.hr>
  * Shridhar Daithankar <shridhar_daithankar@persistent.co.in>
  *
- * $PostgreSQL: pgsql/contrib/dblink/dblink.c,v 1.82 2009/06/11 14:48:50 momjian Exp $
- * Copyright (c) 2001-2009, PostgreSQL Global Development Group
+ * $PostgreSQL: pgsql/contrib/dblink/dblink.c,v 1.99 2010/07/06 19:18:54 momjian Exp $
+ * Copyright (c) 2001-2010, PostgreSQL Global Development Group
  * ALL RIGHTS RESERVED;
  *
  * Permission to use, copy, modify, and distribute this software and its
@@ -54,6 +54,7 @@
 #include "nodes/nodes.h"
 #include "nodes/pg_list.h"
 #include "parser/parse_type.h"
+#include "parser/scansup.h"
 #include "utils/acl.h"
 #include "utils/array.h"
 #include "utils/builtins.h"
@@ -80,26 +81,30 @@ typedef struct remoteConn
  * Internal declarations
  */
 static Datum dblink_record_internal(FunctionCallInfo fcinfo, bool is_async);
+static void materializeResult(FunctionCallInfo fcinfo, PGresult *res);
 static remoteConn *getConnectionByName(const char *name);
 static HTAB *createConnHash(void);
 static void createNewConnection(const char *name, remoteConn *rconn);
 static void deleteConnection(const char *name);
-static char **get_pkey_attnames(Oid relid, int16 *numatts);
+static char **get_pkey_attnames(Relation rel, int16 *numatts);
 static char **get_text_array_contents(ArrayType *array, int *numitems);
-static char *get_sql_insert(Oid relid, int2vector *pkattnums, int16 pknumatts, char **src_pkattvals, char **tgt_pkattvals);
-static char *get_sql_delete(Oid relid, int2vector *pkattnums, int16 pknumatts, char **tgt_pkattvals);
-static char *get_sql_update(Oid relid, int2vector *pkattnums, int16 pknumatts, char **src_pkattvals, char **tgt_pkattvals);
+static char *get_sql_insert(Relation rel, int *pkattnums, int pknumatts, char **src_pkattvals, char **tgt_pkattvals);
+static char *get_sql_delete(Relation rel, int *pkattnums, int pknumatts, char **tgt_pkattvals);
+static char *get_sql_update(Relation rel, int *pkattnums, int pknumatts, char **src_pkattvals, char **tgt_pkattvals);
 static char *quote_literal_cstr(char *rawstr);
 static char *quote_ident_cstr(char *rawstr);
-static int16 get_attnum_pk_pos(int2vector *pkattnums, int16 pknumatts, int16 key);
-static HeapTuple get_tuple_of_interest(Oid relid, int2vector *pkattnums, int16 pknumatts, char **src_pkattvals);
-static Oid	get_relid_from_relname(text *relname_text);
-static char *generate_relation_name(Oid relid);
+static int	get_attnum_pk_pos(int *pkattnums, int pknumatts, int key);
+static HeapTuple get_tuple_of_interest(Relation rel, int *pkattnums, int pknumatts, char **src_pkattvals);
+static Relation get_rel_from_relname(text *relname_text, LOCKMODE lockmode, AclMode aclmode);
+static char *generate_relation_name(Relation rel);
 static void dblink_connstr_check(const char *connstr);
 static void dblink_security_check(PGconn *conn, remoteConn *rconn);
 static void dblink_res_error(const char *conname, PGresult *res, const char *dblink_context_msg, bool fail);
 static char *get_connect_string(const char *servername);
 static char *escape_param_str(const char *from);
+static void validate_pkattnums(Relation rel,
+				   int2vector *pkattnums_arg, int32 pknumatts_arg,
+				   int **pkattnums, int *pknumatts);
 
 /* Global */
 static remoteConn *pconn = NULL;
@@ -504,200 +509,94 @@ PG_FUNCTION_INFO_V1(dblink_fetch);
 Datum
 dblink_fetch(PG_FUNCTION_ARGS)
 {
-	FuncCallContext *funcctx;
-	TupleDesc	tupdesc = NULL;
-	int			call_cntr;
-	int			max_calls;
-	AttInMetadata *attinmeta;
+	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
 	PGresult   *res = NULL;
-	MemoryContext oldcontext;
 	char	   *conname = NULL;
 	remoteConn *rconn = NULL;
+	PGconn	   *conn = NULL;
+	StringInfoData buf;
+	char	   *curname = NULL;
+	int			howmany = 0;
+	bool		fail = true;	/* default to backward compatible */
 
 	DBLINK_INIT;
 
-	/* stuff done only on the first call of the function */
-	if (SRF_IS_FIRSTCALL())
+	if (PG_NARGS() == 4)
 	{
-		PGconn	   *conn = NULL;
-		StringInfoData buf;
-		char	   *curname = NULL;
-		int			howmany = 0;
-		bool		fail = true;	/* default to backward compatible */
+		/* text,text,int,bool */
+		conname = text_to_cstring(PG_GETARG_TEXT_PP(0));
+		curname = text_to_cstring(PG_GETARG_TEXT_PP(1));
+		howmany = PG_GETARG_INT32(2);
+		fail = PG_GETARG_BOOL(3);
 
-		if (PG_NARGS() == 4)
+		rconn = getConnectionByName(conname);
+		if (rconn)
+			conn = rconn->conn;
+	}
+	else if (PG_NARGS() == 3)
+	{
+		/* text,text,int or text,int,bool */
+		if (get_fn_expr_argtype(fcinfo->flinfo, 2) == BOOLOID)
 		{
-			/* text,text,int,bool */
+			curname = text_to_cstring(PG_GETARG_TEXT_PP(0));
+			howmany = PG_GETARG_INT32(1);
+			fail = PG_GETARG_BOOL(2);
+			conn = pconn->conn;
+		}
+		else
+		{
 			conname = text_to_cstring(PG_GETARG_TEXT_PP(0));
 			curname = text_to_cstring(PG_GETARG_TEXT_PP(1));
 			howmany = PG_GETARG_INT32(2);
-			fail = PG_GETARG_BOOL(3);
 
 			rconn = getConnectionByName(conname);
 			if (rconn)
 				conn = rconn->conn;
 		}
-		else if (PG_NARGS() == 3)
-		{
-			/* text,text,int or text,int,bool */
-			if (get_fn_expr_argtype(fcinfo->flinfo, 2) == BOOLOID)
-			{
-				curname = text_to_cstring(PG_GETARG_TEXT_PP(0));
-				howmany = PG_GETARG_INT32(1);
-				fail = PG_GETARG_BOOL(2);
-				conn = pconn->conn;
-			}
-			else
-			{
-				conname = text_to_cstring(PG_GETARG_TEXT_PP(0));
-				curname = text_to_cstring(PG_GETARG_TEXT_PP(1));
-				howmany = PG_GETARG_INT32(2);
-
-				rconn = getConnectionByName(conname);
-				if (rconn)
-					conn = rconn->conn;
-			}
-		}
-		else if (PG_NARGS() == 2)
-		{
-			/* text,int */
-			curname = text_to_cstring(PG_GETARG_TEXT_PP(0));
-			howmany = PG_GETARG_INT32(1);
-			conn = pconn->conn;
-		}
-
-		if (!conn)
-			DBLINK_CONN_NOT_AVAIL;
-
-		initStringInfo(&buf);
-		appendStringInfo(&buf, "FETCH %d FROM %s", howmany, curname);
-
-		/* create a function context for cross-call persistence */
-		funcctx = SRF_FIRSTCALL_INIT();
-
-		/*
-		 * Try to execute the query.  Note that since libpq uses malloc, the
-		 * PGresult will be long-lived even though we are still in a
-		 * short-lived memory context.
-		 */
-		res = PQexec(conn, buf.data);
-		if (!res ||
-			(PQresultStatus(res) != PGRES_COMMAND_OK &&
-			 PQresultStatus(res) != PGRES_TUPLES_OK))
-		{
-			dblink_res_error(conname, res, "could not fetch from cursor", fail);
-			SRF_RETURN_DONE(funcctx);
-		}
-		else if (PQresultStatus(res) == PGRES_COMMAND_OK)
-		{
-			/* cursor does not exist - closed already or bad name */
-			PQclear(res);
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_CURSOR_NAME),
-					 errmsg("cursor \"%s\" does not exist", curname)));
-		}
-
-		funcctx->max_calls = PQntuples(res);
-
-		/* got results, keep track of them */
-		funcctx->user_fctx = res;
-
-		/* get a tuple descriptor for our result type */
-		switch (get_call_result_type(fcinfo, NULL, &tupdesc))
-		{
-			case TYPEFUNC_COMPOSITE:
-				/* success */
-				break;
-			case TYPEFUNC_RECORD:
-				/* failed to determine actual type of RECORD */
-				ereport(ERROR,
-						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						 errmsg("function returning record called in context "
-								"that cannot accept type record")));
-				break;
-			default:
-				/* result type isn't composite */
-				elog(ERROR, "return type must be a row type");
-				break;
-		}
-
-		/* check result and tuple descriptor have the same number of columns */
-		if (PQnfields(res) != tupdesc->natts)
-			ereport(ERROR,
-					(errcode(ERRCODE_DATATYPE_MISMATCH),
-					 errmsg("remote query result rowtype does not match "
-							"the specified FROM clause rowtype")));
-
-		/*
-		 * fast track when no results.	We could exit earlier, but then we'd
-		 * not report error if the result tuple type is wrong.
-		 */
-		if (funcctx->max_calls < 1)
-		{
-			PQclear(res);
-			SRF_RETURN_DONE(funcctx);
-		}
-
-		/*
-		 * switch to memory context appropriate for multiple function calls,
-		 * so we can make long-lived copy of tupdesc etc
-		 */
-		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
-
-		/* make sure we have a persistent copy of the tupdesc */
-		tupdesc = CreateTupleDescCopy(tupdesc);
-
-		/* store needed metadata for subsequent calls */
-		attinmeta = TupleDescGetAttInMetadata(tupdesc);
-		funcctx->attinmeta = attinmeta;
-
-		MemoryContextSwitchTo(oldcontext);
+	}
+	else if (PG_NARGS() == 2)
+	{
+		/* text,int */
+		curname = text_to_cstring(PG_GETARG_TEXT_PP(0));
+		howmany = PG_GETARG_INT32(1);
+		conn = pconn->conn;
 	}
 
-	/* stuff done on every call of the function */
-	funcctx = SRF_PERCALL_SETUP();
+	if (!conn)
+		DBLINK_CONN_NOT_AVAIL;
+
+	/* let the caller know we're sending back a tuplestore */
+	rsinfo->returnMode = SFRM_Materialize;
+	rsinfo->setResult = NULL;
+	rsinfo->setDesc = NULL;
+
+	initStringInfo(&buf);
+	appendStringInfo(&buf, "FETCH %d FROM %s", howmany, curname);
 
 	/*
-	 * initialize per-call variables
+	 * Try to execute the query.  Note that since libpq uses malloc, the
+	 * PGresult will be long-lived even though we are still in a short-lived
+	 * memory context.
 	 */
-	call_cntr = funcctx->call_cntr;
-	max_calls = funcctx->max_calls;
-
-	res = (PGresult *) funcctx->user_fctx;
-	attinmeta = funcctx->attinmeta;
-	tupdesc = attinmeta->tupdesc;
-
-	if (call_cntr < max_calls)	/* do when there is more left to send */
+	res = PQexec(conn, buf.data);
+	if (!res ||
+		(PQresultStatus(res) != PGRES_COMMAND_OK &&
+		 PQresultStatus(res) != PGRES_TUPLES_OK))
 	{
-		char	  **values;
-		HeapTuple	tuple;
-		Datum		result;
-		int			i;
-		int			nfields = PQnfields(res);
-
-		values = (char **) palloc(nfields * sizeof(char *));
-		for (i = 0; i < nfields; i++)
-		{
-			if (PQgetisnull(res, call_cntr, i) == 0)
-				values[i] = PQgetvalue(res, call_cntr, i);
-			else
-				values[i] = NULL;
-		}
-
-		/* build the tuple */
-		tuple = BuildTupleFromCStrings(attinmeta, values);
-
-		/* make the tuple into a datum */
-		result = HeapTupleGetDatum(tuple);
-
-		SRF_RETURN_NEXT(funcctx, result);
+		dblink_res_error(conname, res, "could not fetch from cursor", fail);
+		return (Datum) 0;
 	}
-	else
+	else if (PQresultStatus(res) == PGRES_COMMAND_OK)
 	{
-		/* do when there is no more left */
+		/* cursor does not exist - closed already or bad name */
 		PQclear(res);
-		SRF_RETURN_DONE(funcctx);
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_CURSOR_NAME),
+				 errmsg("cursor \"%s\" does not exist", curname)));
 	}
+
+	materializeResult(fcinfo, res);
+	return (Datum) 0;
 }
 
 /*
@@ -749,147 +648,156 @@ dblink_get_result(PG_FUNCTION_ARGS)
 static Datum
 dblink_record_internal(FunctionCallInfo fcinfo, bool is_async)
 {
-	FuncCallContext *funcctx;
-	TupleDesc	tupdesc = NULL;
-	int			call_cntr;
-	int			max_calls;
-	AttInMetadata *attinmeta;
+	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
 	char	   *msg;
 	PGresult   *res = NULL;
-	bool		is_sql_cmd = false;
-	char	   *sql_cmd_status = NULL;
-	MemoryContext oldcontext;
+	PGconn	   *conn = NULL;
+	char	   *connstr = NULL;
+	char	   *sql = NULL;
+	char	   *conname = NULL;
+	remoteConn *rconn = NULL;
+	bool		fail = true;	/* default to backward compatible */
 	bool		freeconn = false;
+
+	/* check to see if caller supports us returning a tuplestore */
+	if (rsinfo == NULL || !IsA(rsinfo, ReturnSetInfo))
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("set-valued function called in context that cannot accept a set")));
+	if (!(rsinfo->allowedModes & SFRM_Materialize))
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("materialize mode required, but it is not " \
+						"allowed in this context")));
 
 	DBLINK_INIT;
 
-	/* stuff done only on the first call of the function */
-	if (SRF_IS_FIRSTCALL())
+	if (!is_async)
 	{
-		PGconn	   *conn = NULL;
-		char	   *connstr = NULL;
-		char	   *sql = NULL;
-		char	   *conname = NULL;
-		remoteConn *rconn = NULL;
-		bool		fail = true;	/* default to backward compatible */
-
-		/* create a function context for cross-call persistence */
-		funcctx = SRF_FIRSTCALL_INIT();
-
-		/*
-		 * switch to memory context appropriate for multiple function calls
-		 */
-		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
-
-		if (!is_async)
+		if (PG_NARGS() == 3)
 		{
-			if (PG_NARGS() == 3)
+			/* text,text,bool */
+			DBLINK_GET_CONN;
+			sql = text_to_cstring(PG_GETARG_TEXT_PP(1));
+			fail = PG_GETARG_BOOL(2);
+		}
+		else if (PG_NARGS() == 2)
+		{
+			/* text,text or text,bool */
+			if (get_fn_expr_argtype(fcinfo->flinfo, 1) == BOOLOID)
 			{
-				/* text,text,bool */
-				DBLINK_GET_CONN;
-				sql = text_to_cstring(PG_GETARG_TEXT_PP(1));
-				fail = PG_GETARG_BOOL(2);
-			}
-			else if (PG_NARGS() == 2)
-			{
-				/* text,text or text,bool */
-				if (get_fn_expr_argtype(fcinfo->flinfo, 1) == BOOLOID)
-				{
-					conn = pconn->conn;
-					sql = text_to_cstring(PG_GETARG_TEXT_PP(0));
-					fail = PG_GETARG_BOOL(1);
-				}
-				else
-				{
-					DBLINK_GET_CONN;
-					sql = text_to_cstring(PG_GETARG_TEXT_PP(1));
-				}
-			}
-			else if (PG_NARGS() == 1)
-			{
-				/* text */
 				conn = pconn->conn;
 				sql = text_to_cstring(PG_GETARG_TEXT_PP(0));
-			}
-			else
-				/* shouldn't happen */
-				elog(ERROR, "wrong number of arguments");
-		}
-		else	/* is_async */
-		{
-			/* get async result */
-			if (PG_NARGS() == 2)
-			{
-				/* text,bool */
-				DBLINK_GET_CONN;
 				fail = PG_GETARG_BOOL(1);
 			}
-			else if (PG_NARGS() == 1)
-			{
-				/* text */
-				DBLINK_GET_CONN;
-			}
 			else
-				/* shouldn't happen */
-				elog(ERROR, "wrong number of arguments");
-		}
-
-		if (!conn)
-			DBLINK_CONN_NOT_AVAIL;
-
-		/* synchronous query, or async result retrieval */
-		if (!is_async)
-			res = PQexec(conn, sql);
-		else
-		{
-			res = PQgetResult(conn);
-			/* NULL means we're all done with the async results */
-			if (!res)
 			{
-				MemoryContextSwitchTo(oldcontext);
-				SRF_RETURN_DONE(funcctx);
+				DBLINK_GET_CONN;
+				sql = text_to_cstring(PG_GETARG_TEXT_PP(1));
 			}
 		}
-
-		if (!res ||
-			(PQresultStatus(res) != PGRES_COMMAND_OK &&
-			 PQresultStatus(res) != PGRES_TUPLES_OK))
+		else if (PG_NARGS() == 1)
 		{
-			dblink_res_error(conname, res, "could not execute query", fail);
-			if (freeconn)
-				PQfinish(conn);
-			MemoryContextSwitchTo(oldcontext);
-			SRF_RETURN_DONE(funcctx);
+			/* text */
+			conn = pconn->conn;
+			sql = text_to_cstring(PG_GETARG_TEXT_PP(0));
 		}
+		else
+			/* shouldn't happen */
+			elog(ERROR, "wrong number of arguments");
+	}
+	else	/* is_async */
+	{
+		/* get async result */
+		if (PG_NARGS() == 2)
+		{
+			/* text,bool */
+			DBLINK_GET_CONN;
+			fail = PG_GETARG_BOOL(1);
+		}
+		else if (PG_NARGS() == 1)
+		{
+			/* text */
+			DBLINK_GET_CONN;
+		}
+		else
+			/* shouldn't happen */
+			elog(ERROR, "wrong number of arguments");
+	}
+
+	if (!conn)
+		DBLINK_CONN_NOT_AVAIL;
+
+	/* let the caller know we're sending back a tuplestore */
+	rsinfo->returnMode = SFRM_Materialize;
+	rsinfo->setResult = NULL;
+	rsinfo->setDesc = NULL;
+
+	/* synchronous query, or async result retrieval */
+	if (!is_async)
+		res = PQexec(conn, sql);
+	else
+	{
+		res = PQgetResult(conn);
+		/* NULL means we're all done with the async results */
+		if (!res)
+			return (Datum) 0;
+	}
+
+	/* if needed, close the connection to the database and cleanup */
+	if (freeconn)
+		PQfinish(conn);
+
+	if (!res ||
+		(PQresultStatus(res) != PGRES_COMMAND_OK &&
+		 PQresultStatus(res) != PGRES_TUPLES_OK))
+	{
+		dblink_res_error(conname, res, "could not execute query", fail);
+		return (Datum) 0;
+	}
+
+	materializeResult(fcinfo, res);
+	return (Datum) 0;
+}
+
+/*
+ * Materialize the PGresult to return them as the function result.
+ * The res will be released in this function.
+ */
+static void
+materializeResult(FunctionCallInfo fcinfo, PGresult *res)
+{
+	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
+
+	Assert(rsinfo->returnMode == SFRM_Materialize);
+
+	PG_TRY();
+	{
+		TupleDesc	tupdesc;
+		bool		is_sql_cmd = false;
+		int			ntuples;
+		int			nfields;
 
 		if (PQresultStatus(res) == PGRES_COMMAND_OK)
 		{
 			is_sql_cmd = true;
 
-			/* need a tuple descriptor representing one TEXT column */
+			/*
+			 * need a tuple descriptor representing one TEXT column to return
+			 * the command status string as our result tuple
+			 */
 			tupdesc = CreateTemplateTupleDesc(1, false);
 			TupleDescInitEntry(tupdesc, (AttrNumber) 1, "status",
 							   TEXTOID, -1, 0);
-
-			/*
-			 * and save a copy of the command status string to return as our
-			 * result tuple
-			 */
-			sql_cmd_status = PQcmdStatus(res);
-			funcctx->max_calls = 1;
+			ntuples = 1;
+			nfields = 1;
 		}
 		else
-			funcctx->max_calls = PQntuples(res);
-
-		/* got results, keep track of them */
-		funcctx->user_fctx = res;
-
-		/* if needed, close the connection to the database and cleanup */
-		if (freeconn)
-			PQfinish(conn);
-
-		if (!is_sql_cmd)
 		{
+			Assert(PQresultStatus(res) == PGRES_TUPLES_OK);
+
+			is_sql_cmd = false;
+
 			/* get a tuple descriptor for our result type */
 			switch (get_call_result_type(fcinfo, NULL, &tupdesc))
 			{
@@ -911,87 +819,78 @@ dblink_record_internal(FunctionCallInfo fcinfo, bool is_async)
 
 			/* make sure we have a persistent copy of the tupdesc */
 			tupdesc = CreateTupleDescCopy(tupdesc);
+			ntuples = PQntuples(res);
+			nfields = PQnfields(res);
 		}
 
 		/*
 		 * check result and tuple descriptor have the same number of columns
 		 */
-		if (PQnfields(res) != tupdesc->natts)
+		if (nfields != tupdesc->natts)
 			ereport(ERROR,
 					(errcode(ERRCODE_DATATYPE_MISMATCH),
 					 errmsg("remote query result rowtype does not match "
 							"the specified FROM clause rowtype")));
 
-		/* fast track when no results */
-		if (funcctx->max_calls < 1)
+		if (ntuples > 0)
 		{
-			if (res)
-				PQclear(res);
+			AttInMetadata *attinmeta;
+			Tuplestorestate *tupstore;
+			MemoryContext oldcontext;
+			int			row;
+			char	  **values;
+
+			attinmeta = TupleDescGetAttInMetadata(tupdesc);
+
+			oldcontext = MemoryContextSwitchTo(
+									rsinfo->econtext->ecxt_per_query_memory);
+			tupstore = tuplestore_begin_heap(true, false, work_mem);
+			rsinfo->setResult = tupstore;
+			rsinfo->setDesc = tupdesc;
 			MemoryContextSwitchTo(oldcontext);
-			SRF_RETURN_DONE(funcctx);
-		}
-
-		/* store needed metadata for subsequent calls */
-		attinmeta = TupleDescGetAttInMetadata(tupdesc);
-		funcctx->attinmeta = attinmeta;
-
-		MemoryContextSwitchTo(oldcontext);
-
-	}
-
-	/* stuff done on every call of the function */
-	funcctx = SRF_PERCALL_SETUP();
-
-	/*
-	 * initialize per-call variables
-	 */
-	call_cntr = funcctx->call_cntr;
-	max_calls = funcctx->max_calls;
-
-	res = (PGresult *) funcctx->user_fctx;
-	attinmeta = funcctx->attinmeta;
-	tupdesc = attinmeta->tupdesc;
-
-	if (call_cntr < max_calls)	/* do when there is more left to send */
-	{
-		char	  **values;
-		HeapTuple	tuple;
-		Datum		result;
-
-		if (!is_sql_cmd)
-		{
-			int			i;
-			int			nfields = PQnfields(res);
 
 			values = (char **) palloc(nfields * sizeof(char *));
-			for (i = 0; i < nfields; i++)
+
+			/* put all tuples into the tuplestore */
+			for (row = 0; row < ntuples; row++)
 			{
-				if (PQgetisnull(res, call_cntr, i) == 0)
-					values[i] = PQgetvalue(res, call_cntr, i);
+				HeapTuple	tuple;
+
+				if (!is_sql_cmd)
+				{
+					int			i;
+
+					for (i = 0; i < nfields; i++)
+					{
+						if (PQgetisnull(res, row, i))
+							values[i] = NULL;
+						else
+							values[i] = PQgetvalue(res, row, i);
+					}
+				}
 				else
-					values[i] = NULL;
+				{
+					values[0] = PQcmdStatus(res);
+				}
+
+				/* build the tuple and put it into the tuplestore. */
+				tuple = BuildTupleFromCStrings(attinmeta, values);
+				tuplestore_puttuple(tupstore, tuple);
 			}
-		}
-		else
-		{
-			values = (char **) palloc(1 * sizeof(char *));
-			values[0] = sql_cmd_status;
+
+			/* clean up and return the tuplestore */
+			tuplestore_donestoring(tupstore);
 		}
 
-		/* build the tuple */
-		tuple = BuildTupleFromCStrings(attinmeta, values);
-
-		/* make the tuple into a datum */
-		result = HeapTupleGetDatum(tuple);
-
-		SRF_RETURN_NEXT(funcctx, result);
-	}
-	else
-	{
-		/* do when there is no more left */
 		PQclear(res);
-		SRF_RETURN_DONE(funcctx);
 	}
+	PG_CATCH();
+	{
+		/* be sure to release the libpq result */
+		PQclear(res);
+		PG_RE_THROW();
+	}
+	PG_END_TRY();
 }
 
 /*
@@ -1121,7 +1020,6 @@ dblink_exec(PG_FUNCTION_ARGS)
 	char	   *msg;
 	PGresult   *res = NULL;
 	text	   *sql_cmd_status = NULL;
-	TupleDesc	tupdesc = NULL;
 	PGconn	   *conn = NULL;
 	char	   *connstr = NULL;
 	char	   *sql = NULL;
@@ -1174,11 +1072,6 @@ dblink_exec(PG_FUNCTION_ARGS)
 	{
 		dblink_res_error(conname, res, "could not execute command", fail);
 
-		/* need a tuple descriptor representing one TEXT column */
-		tupdesc = CreateTemplateTupleDesc(1, false);
-		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "status",
-						   TEXTOID, -1, 0);
-
 		/*
 		 * and save a copy of the command status string to return as our
 		 * result tuple
@@ -1187,11 +1080,6 @@ dblink_exec(PG_FUNCTION_ARGS)
 	}
 	else if (PQresultStatus(res) == PGRES_COMMAND_OK)
 	{
-		/* need a tuple descriptor representing one TEXT column */
-		tupdesc = CreateTemplateTupleDesc(1, false);
-		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "status",
-						   TEXTOID, -1, 0);
-
 		/*
 		 * and save a copy of the command status string to return as our
 		 * result tuple
@@ -1226,7 +1114,6 @@ Datum
 dblink_get_pkey(PG_FUNCTION_ARGS)
 {
 	int16		numatts;
-	Oid			relid;
 	char	  **results;
 	FuncCallContext *funcctx;
 	int32		call_cntr;
@@ -1237,7 +1124,8 @@ dblink_get_pkey(PG_FUNCTION_ARGS)
 	/* stuff done only on the first call of the function */
 	if (SRF_IS_FIRSTCALL())
 	{
-		TupleDesc	tupdesc = NULL;
+		Relation	rel;
+		TupleDesc	tupdesc;
 
 		/* create a function context for cross-call persistence */
 		funcctx = SRF_FIRSTCALL_INIT();
@@ -1247,13 +1135,13 @@ dblink_get_pkey(PG_FUNCTION_ARGS)
 		 */
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
-		/* convert relname to rel Oid */
-		relid = get_relid_from_relname(PG_GETARG_TEXT_P(0));
-		if (!OidIsValid(relid))
-			ereport(ERROR,
-					(errcode(ERRCODE_UNDEFINED_TABLE),
-					 errmsg("relation \"%s\" does not exist",
-							text_to_cstring(PG_GETARG_TEXT_PP(0)))));
+		/* open target relation */
+		rel = get_rel_from_relname(PG_GETARG_TEXT_P(0), AccessShareLock, ACL_SELECT);
+
+		/* get the array of attnums */
+		results = get_pkey_attnames(rel, &numatts);
+
+		relation_close(rel, AccessShareLock);
 
 		/*
 		 * need a tuple descriptor representing one INT and one TEXT column
@@ -1270,9 +1158,6 @@ dblink_get_pkey(PG_FUNCTION_ARGS)
 		 */
 		attinmeta = TupleDescGetAttInMetadata(tupdesc);
 		funcctx->attinmeta = attinmeta;
-
-		/* get an array of attnums */
-		results = get_pkey_attnames(relid, &numatts);
 
 		if ((results != NULL) && (numatts > 0))
 		{
@@ -1356,12 +1241,13 @@ Datum
 dblink_build_sql_insert(PG_FUNCTION_ARGS)
 {
 	text	   *relname_text = PG_GETARG_TEXT_P(0);
-	int2vector *pkattnums = (int2vector *) PG_GETARG_POINTER(1);
-	int32		pknumatts_tmp = PG_GETARG_INT32(2);
+	int2vector *pkattnums_arg = (int2vector *) PG_GETARG_POINTER(1);
+	int32		pknumatts_arg = PG_GETARG_INT32(2);
 	ArrayType  *src_pkattvals_arry = PG_GETARG_ARRAYTYPE_P(3);
 	ArrayType  *tgt_pkattvals_arry = PG_GETARG_ARRAYTYPE_P(4);
-	Oid			relid;
-	int16		pknumatts = 0;
+	Relation	rel;
+	int		   *pkattnums;
+	int			pknumatts;
 	char	  **src_pkattvals;
 	char	  **tgt_pkattvals;
 	int			src_nitems;
@@ -1369,30 +1255,15 @@ dblink_build_sql_insert(PG_FUNCTION_ARGS)
 	char	   *sql;
 
 	/*
-	 * Convert relname to rel OID.
+	 * Open target relation.
 	 */
-	relid = get_relid_from_relname(relname_text);
-	if (!OidIsValid(relid))
-		ereport(ERROR,
-				(errcode(ERRCODE_UNDEFINED_TABLE),
-				 errmsg("relation \"%s\" does not exist",
-						text_to_cstring(relname_text))));
+	rel = get_rel_from_relname(relname_text, AccessShareLock, ACL_SELECT);
 
 	/*
-	 * There should be at least one key attribute
+	 * Process pkattnums argument.
 	 */
-	if (pknumatts_tmp <= 0)
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("number of key attributes must be > 0")));
-
-	if (pknumatts_tmp <= SHRT_MAX)
-		pknumatts = pknumatts_tmp;
-	else
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("input for number of primary key " \
-						"attributes too large")));
+	validate_pkattnums(rel, pkattnums_arg, pknumatts_arg,
+					   &pkattnums, &pknumatts);
 
 	/*
 	 * Source array is made up of key values that will be used to locate the
@@ -1427,7 +1298,12 @@ dblink_build_sql_insert(PG_FUNCTION_ARGS)
 	/*
 	 * Prep work is finally done. Go get the SQL string.
 	 */
-	sql = get_sql_insert(relid, pkattnums, pknumatts, src_pkattvals, tgt_pkattvals);
+	sql = get_sql_insert(rel, pkattnums, pknumatts, src_pkattvals, tgt_pkattvals);
+
+	/*
+	 * Now we can close the relation.
+	 */
+	relation_close(rel, AccessShareLock);
 
 	/*
 	 * And send it
@@ -1456,40 +1332,26 @@ Datum
 dblink_build_sql_delete(PG_FUNCTION_ARGS)
 {
 	text	   *relname_text = PG_GETARG_TEXT_P(0);
-	int2vector *pkattnums = (int2vector *) PG_GETARG_POINTER(1);
-	int32		pknumatts_tmp = PG_GETARG_INT32(2);
+	int2vector *pkattnums_arg = (int2vector *) PG_GETARG_POINTER(1);
+	int32		pknumatts_arg = PG_GETARG_INT32(2);
 	ArrayType  *tgt_pkattvals_arry = PG_GETARG_ARRAYTYPE_P(3);
-	Oid			relid;
-	int16		pknumatts = 0;
+	Relation	rel;
+	int		   *pkattnums;
+	int			pknumatts;
 	char	  **tgt_pkattvals;
 	int			tgt_nitems;
 	char	   *sql;
 
 	/*
-	 * Convert relname to rel OID.
+	 * Open target relation.
 	 */
-	relid = get_relid_from_relname(relname_text);
-	if (!OidIsValid(relid))
-		ereport(ERROR,
-				(errcode(ERRCODE_UNDEFINED_TABLE),
-				 errmsg("relation \"%s\" does not exist",
-						text_to_cstring(relname_text))));
+	rel = get_rel_from_relname(relname_text, AccessShareLock, ACL_SELECT);
 
 	/*
-	 * There should be at least one key attribute
+	 * Process pkattnums argument.
 	 */
-	if (pknumatts_tmp <= 0)
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("number of key attributes must be > 0")));
-
-	if (pknumatts_tmp <= SHRT_MAX)
-		pknumatts = pknumatts_tmp;
-	else
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("input for number of primary key " \
-						"attributes too large")));
+	validate_pkattnums(rel, pkattnums_arg, pknumatts_arg,
+					   &pkattnums, &pknumatts);
 
 	/*
 	 * Target array is made up of key values that will be used to build the
@@ -1509,7 +1371,12 @@ dblink_build_sql_delete(PG_FUNCTION_ARGS)
 	/*
 	 * Prep work is finally done. Go get the SQL string.
 	 */
-	sql = get_sql_delete(relid, pkattnums, pknumatts, tgt_pkattvals);
+	sql = get_sql_delete(rel, pkattnums, pknumatts, tgt_pkattvals);
+
+	/*
+	 * Now we can close the relation.
+	 */
+	relation_close(rel, AccessShareLock);
 
 	/*
 	 * And send it
@@ -1542,12 +1409,13 @@ Datum
 dblink_build_sql_update(PG_FUNCTION_ARGS)
 {
 	text	   *relname_text = PG_GETARG_TEXT_P(0);
-	int2vector *pkattnums = (int2vector *) PG_GETARG_POINTER(1);
-	int32		pknumatts_tmp = PG_GETARG_INT32(2);
+	int2vector *pkattnums_arg = (int2vector *) PG_GETARG_POINTER(1);
+	int32		pknumatts_arg = PG_GETARG_INT32(2);
 	ArrayType  *src_pkattvals_arry = PG_GETARG_ARRAYTYPE_P(3);
 	ArrayType  *tgt_pkattvals_arry = PG_GETARG_ARRAYTYPE_P(4);
-	Oid			relid;
-	int16		pknumatts = 0;
+	Relation	rel;
+	int		   *pkattnums;
+	int			pknumatts;
 	char	  **src_pkattvals;
 	char	  **tgt_pkattvals;
 	int			src_nitems;
@@ -1555,30 +1423,15 @@ dblink_build_sql_update(PG_FUNCTION_ARGS)
 	char	   *sql;
 
 	/*
-	 * Convert relname to rel OID.
+	 * Open target relation.
 	 */
-	relid = get_relid_from_relname(relname_text);
-	if (!OidIsValid(relid))
-		ereport(ERROR,
-				(errcode(ERRCODE_UNDEFINED_TABLE),
-				 errmsg("relation \"%s\" does not exist",
-						text_to_cstring(relname_text))));
+	rel = get_rel_from_relname(relname_text, AccessShareLock, ACL_SELECT);
 
 	/*
-	 * There should be one source array key values for each key attnum
+	 * Process pkattnums argument.
 	 */
-	if (pknumatts_tmp <= 0)
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("number of key attributes must be > 0")));
-
-	if (pknumatts_tmp <= SHRT_MAX)
-		pknumatts = pknumatts_tmp;
-	else
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("input for number of primary key " \
-						"attributes too large")));
+	validate_pkattnums(rel, pkattnums_arg, pknumatts_arg,
+					   &pkattnums, &pknumatts);
 
 	/*
 	 * Source array is made up of key values that will be used to locate the
@@ -1613,7 +1466,12 @@ dblink_build_sql_update(PG_FUNCTION_ARGS)
 	/*
 	 * Prep work is finally done. Go get the SQL string.
 	 */
-	sql = get_sql_update(relid, pkattnums, pknumatts, src_pkattvals, tgt_pkattvals);
+	sql = get_sql_update(rel, pkattnums, pknumatts, src_pkattvals, tgt_pkattvals);
+
+	/*
+	 * Now we can close the relation.
+	 */
+	relation_close(rel, AccessShareLock);
 
 	/*
 	 * And send it
@@ -1635,6 +1493,86 @@ dblink_current_query(PG_FUNCTION_ARGS)
 	PG_RETURN_DATUM(current_query(fcinfo));
 }
 
+/*
+ * Retrieve async notifications for a connection.
+ *
+ * Returns an setof record of notifications, or an empty set if none recieved.
+ * Can optionally take a named connection as parameter, but uses the unnamed connection per default.
+ *
+ */
+#define DBLINK_NOTIFY_COLS		3
+
+PG_FUNCTION_INFO_V1(dblink_get_notify);
+Datum
+dblink_get_notify(PG_FUNCTION_ARGS)
+{
+	PGconn	   *conn = NULL;
+	remoteConn *rconn = NULL;
+	PGnotify   *notify;
+	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
+	TupleDesc	tupdesc;
+	Tuplestorestate *tupstore;
+	MemoryContext per_query_ctx;
+	MemoryContext oldcontext;
+
+	DBLINK_INIT;
+	if (PG_NARGS() == 1)
+		DBLINK_GET_NAMED_CONN;
+	else
+		conn = pconn->conn;
+
+	/* create the tuplestore */
+	per_query_ctx = rsinfo->econtext->ecxt_per_query_memory;
+	oldcontext = MemoryContextSwitchTo(per_query_ctx);
+
+	tupdesc = CreateTemplateTupleDesc(DBLINK_NOTIFY_COLS, false);
+	TupleDescInitEntry(tupdesc, (AttrNumber) 1, "notify_name",
+					   TEXTOID, -1, 0);
+	TupleDescInitEntry(tupdesc, (AttrNumber) 2, "be_pid",
+					   INT4OID, -1, 0);
+	TupleDescInitEntry(tupdesc, (AttrNumber) 3, "extra",
+					   TEXTOID, -1, 0);
+
+	tupstore = tuplestore_begin_heap(true, false, work_mem);
+	rsinfo->returnMode = SFRM_Materialize;
+	rsinfo->setResult = tupstore;
+	rsinfo->setDesc = tupdesc;
+
+	MemoryContextSwitchTo(oldcontext);
+
+	PQconsumeInput(conn);
+	while ((notify = PQnotifies(conn)) != NULL)
+	{
+		Datum		values[DBLINK_NOTIFY_COLS];
+		bool		nulls[DBLINK_NOTIFY_COLS];
+
+		memset(values, 0, sizeof(values));
+		memset(nulls, 0, sizeof(nulls));
+
+		if (notify->relname != NULL)
+			values[0] = CStringGetTextDatum(notify->relname);
+		else
+			nulls[0] = true;
+
+		values[1] = Int32GetDatum(notify->be_pid);
+
+		if (notify->extra != NULL)
+			values[2] = CStringGetTextDatum(notify->extra);
+		else
+			nulls[2] = true;
+
+		tuplestore_putvalues(tupstore, tupdesc, values, nulls);
+
+		PQfreemem(notify);
+		PQconsumeInput(conn);
+	}
+
+	/* clean up and return the tuplestore */
+	tuplestore_donestoring(tupstore);
+
+	return (Datum) 0;
+}
+
 /*************************************************************
  * internal functions
  */
@@ -1647,7 +1585,7 @@ dblink_current_query(PG_FUNCTION_ARGS)
  * Return NULL, and set numatts = 0, if no primary key exists.
  */
 static char **
-get_pkey_attnames(Oid relid, int16 *numatts)
+get_pkey_attnames(Relation rel, int16 *numatts)
 {
 	Relation	indexRelation;
 	ScanKeyData skey;
@@ -1655,21 +1593,10 @@ get_pkey_attnames(Oid relid, int16 *numatts)
 	HeapTuple	indexTuple;
 	int			i;
 	char	  **result = NULL;
-	Relation	rel;
 	TupleDesc	tupdesc;
-	AclResult	aclresult;
 
 	/* initialize numatts to 0 in case no primary key exists */
 	*numatts = 0;
-
-	/* open relation using relid, check permissions, get tupdesc */
-	rel = relation_open(relid, AccessShareLock);
-
-	aclresult = pg_class_aclcheck(RelationGetRelid(rel), GetUserId(),
-								  ACL_SELECT);
-	if (aclresult != ACLCHECK_OK)
-		aclcheck_error(aclresult, ACL_KIND_CLASS,
-					   RelationGetRelationName(rel));
 
 	tupdesc = rel->rd_att;
 
@@ -1678,7 +1605,7 @@ get_pkey_attnames(Oid relid, int16 *numatts)
 	ScanKeyInit(&skey,
 				Anum_pg_index_indrelid,
 				BTEqualStrategyNumber, F_OIDEQ,
-				ObjectIdGetDatum(relid));
+				ObjectIdGetDatum(RelationGetRelid(rel)));
 
 	scan = systable_beginscan(indexRelation, IndexIndrelidIndexId, true,
 							  SnapshotNow, 1, &skey);
@@ -1704,7 +1631,6 @@ get_pkey_attnames(Oid relid, int16 *numatts)
 
 	systable_endscan(scan);
 	heap_close(indexRelation, AccessShareLock);
-	relation_close(rel, AccessShareLock);
 
 	return result;
 }
@@ -1770,32 +1696,27 @@ get_text_array_contents(ArrayType *array, int *numitems)
 }
 
 static char *
-get_sql_insert(Oid relid, int2vector *pkattnums, int16 pknumatts, char **src_pkattvals, char **tgt_pkattvals)
+get_sql_insert(Relation rel, int *pkattnums, int pknumatts, char **src_pkattvals, char **tgt_pkattvals)
 {
-	Relation	rel;
 	char	   *relname;
 	HeapTuple	tuple;
 	TupleDesc	tupdesc;
 	int			natts;
 	StringInfoData buf;
 	char	   *val;
-	int16		key;
+	int			key;
 	int			i;
 	bool		needComma;
 
 	initStringInfo(&buf);
 
 	/* get relation name including any needed schema prefix and quoting */
-	relname = generate_relation_name(relid);
+	relname = generate_relation_name(rel);
 
-	/*
-	 * Open relation using relid
-	 */
-	rel = relation_open(relid, AccessShareLock);
 	tupdesc = rel->rd_att;
 	natts = tupdesc->natts;
 
-	tuple = get_tuple_of_interest(relid, pkattnums, pknumatts, src_pkattvals);
+	tuple = get_tuple_of_interest(rel, pkattnums, pknumatts, src_pkattvals);
 	if (!tuple)
 		ereport(ERROR,
 				(errcode(ERRCODE_CARDINALITY_VIOLATION),
@@ -1820,7 +1741,7 @@ get_sql_insert(Oid relid, int2vector *pkattnums, int16 pknumatts, char **src_pka
 	appendStringInfo(&buf, ") VALUES(");
 
 	/*
-	 * remember attvals are 1 based
+	 * Note: i is physical column number (counting from 0).
 	 */
 	needComma = false;
 	for (i = 0; i < natts; i++)
@@ -1831,12 +1752,9 @@ get_sql_insert(Oid relid, int2vector *pkattnums, int16 pknumatts, char **src_pka
 		if (needComma)
 			appendStringInfo(&buf, ",");
 
-		if (tgt_pkattvals != NULL)
-			key = get_attnum_pk_pos(pkattnums, pknumatts, i + 1);
-		else
-			key = -1;
+		key = get_attnum_pk_pos(pkattnums, pknumatts, i);
 
-		if (key > -1)
+		if (key >= 0)
 			val = tgt_pkattvals[key] ? pstrdup(tgt_pkattvals[key]) : NULL;
 		else
 			val = SPI_getvalue(tuple, tupdesc, i + 1);
@@ -1852,46 +1770,34 @@ get_sql_insert(Oid relid, int2vector *pkattnums, int16 pknumatts, char **src_pka
 	}
 	appendStringInfo(&buf, ")");
 
-	relation_close(rel, AccessShareLock);
 	return (buf.data);
 }
 
 static char *
-get_sql_delete(Oid relid, int2vector *pkattnums, int16 pknumatts, char **tgt_pkattvals)
+get_sql_delete(Relation rel, int *pkattnums, int pknumatts, char **tgt_pkattvals)
 {
-	Relation	rel;
 	char	   *relname;
 	TupleDesc	tupdesc;
-	int			natts;
 	StringInfoData buf;
 	int			i;
 
 	initStringInfo(&buf);
 
 	/* get relation name including any needed schema prefix and quoting */
-	relname = generate_relation_name(relid);
+	relname = generate_relation_name(rel);
 
-	/*
-	 * Open relation using relid
-	 */
-	rel = relation_open(relid, AccessShareLock);
 	tupdesc = rel->rd_att;
-	natts = tupdesc->natts;
 
 	appendStringInfo(&buf, "DELETE FROM %s WHERE ", relname);
 	for (i = 0; i < pknumatts; i++)
 	{
-		int16		pkattnum = pkattnums->values[i];
+		int			pkattnum = pkattnums[i];
 
 		if (i > 0)
 			appendStringInfo(&buf, " AND ");
 
 		appendStringInfoString(&buf,
-		   quote_ident_cstr(NameStr(tupdesc->attrs[pkattnum - 1]->attname)));
-
-		if (tgt_pkattvals == NULL)
-			/* internal error */
-			elog(ERROR, "target key array must not be NULL");
+			   quote_ident_cstr(NameStr(tupdesc->attrs[pkattnum]->attname)));
 
 		if (tgt_pkattvals[i] != NULL)
 			appendStringInfo(&buf, " = %s",
@@ -1900,37 +1806,31 @@ get_sql_delete(Oid relid, int2vector *pkattnums, int16 pknumatts, char **tgt_pka
 			appendStringInfo(&buf, " IS NULL");
 	}
 
-	relation_close(rel, AccessShareLock);
 	return (buf.data);
 }
 
 static char *
-get_sql_update(Oid relid, int2vector *pkattnums, int16 pknumatts, char **src_pkattvals, char **tgt_pkattvals)
+get_sql_update(Relation rel, int *pkattnums, int pknumatts, char **src_pkattvals, char **tgt_pkattvals)
 {
-	Relation	rel;
 	char	   *relname;
 	HeapTuple	tuple;
 	TupleDesc	tupdesc;
 	int			natts;
 	StringInfoData buf;
 	char	   *val;
-	int16		key;
+	int			key;
 	int			i;
 	bool		needComma;
 
 	initStringInfo(&buf);
 
 	/* get relation name including any needed schema prefix and quoting */
-	relname = generate_relation_name(relid);
+	relname = generate_relation_name(rel);
 
-	/*
-	 * Open relation using relid
-	 */
-	rel = relation_open(relid, AccessShareLock);
 	tupdesc = rel->rd_att;
 	natts = tupdesc->natts;
 
-	tuple = get_tuple_of_interest(relid, pkattnums, pknumatts, src_pkattvals);
+	tuple = get_tuple_of_interest(rel, pkattnums, pknumatts, src_pkattvals);
 	if (!tuple)
 		ereport(ERROR,
 				(errcode(ERRCODE_CARDINALITY_VIOLATION),
@@ -1938,6 +1838,9 @@ get_sql_update(Oid relid, int2vector *pkattnums, int16 pknumatts, char **src_pka
 
 	appendStringInfo(&buf, "UPDATE %s SET ", relname);
 
+	/*
+	 * Note: i is physical column number (counting from 0).
+	 */
 	needComma = false;
 	for (i = 0; i < natts; i++)
 	{
@@ -1950,12 +1853,9 @@ get_sql_update(Oid relid, int2vector *pkattnums, int16 pknumatts, char **src_pka
 		appendStringInfo(&buf, "%s = ",
 					  quote_ident_cstr(NameStr(tupdesc->attrs[i]->attname)));
 
-		if (tgt_pkattvals != NULL)
-			key = get_attnum_pk_pos(pkattnums, pknumatts, i + 1);
-		else
-			key = -1;
+		key = get_attnum_pk_pos(pkattnums, pknumatts, i);
 
-		if (key > -1)
+		if (key >= 0)
 			val = tgt_pkattvals[key] ? pstrdup(tgt_pkattvals[key]) : NULL;
 		else
 			val = SPI_getvalue(tuple, tupdesc, i + 1);
@@ -1974,29 +1874,22 @@ get_sql_update(Oid relid, int2vector *pkattnums, int16 pknumatts, char **src_pka
 
 	for (i = 0; i < pknumatts; i++)
 	{
-		int16		pkattnum = pkattnums->values[i];
+		int			pkattnum = pkattnums[i];
 
 		if (i > 0)
 			appendStringInfo(&buf, " AND ");
 
 		appendStringInfo(&buf, "%s",
-		   quote_ident_cstr(NameStr(tupdesc->attrs[pkattnum - 1]->attname)));
+			   quote_ident_cstr(NameStr(tupdesc->attrs[pkattnum]->attname)));
 
-		if (tgt_pkattvals != NULL)
-			val = tgt_pkattvals[i] ? pstrdup(tgt_pkattvals[i]) : NULL;
-		else
-			val = SPI_getvalue(tuple, tupdesc, pkattnum);
+		val = tgt_pkattvals[i];
 
 		if (val != NULL)
-		{
 			appendStringInfo(&buf, " = %s", quote_literal_cstr(val));
-			pfree(val);
-		}
 		else
 			appendStringInfo(&buf, " IS NULL");
 	}
 
-	relation_close(rel, AccessShareLock);
 	return (buf.data);
 }
 
@@ -2038,8 +1931,8 @@ quote_ident_cstr(char *rawstr)
 	return result;
 }
 
-static int16
-get_attnum_pk_pos(int2vector *pkattnums, int16 pknumatts, int16 key)
+static int
+get_attnum_pk_pos(int *pkattnums, int pknumatts, int key)
 {
 	int			i;
 
@@ -2047,34 +1940,22 @@ get_attnum_pk_pos(int2vector *pkattnums, int16 pknumatts, int16 key)
 	 * Not likely a long list anyway, so just scan for the value
 	 */
 	for (i = 0; i < pknumatts; i++)
-		if (key == pkattnums->values[i])
+		if (key == pkattnums[i])
 			return i;
 
 	return -1;
 }
 
 static HeapTuple
-get_tuple_of_interest(Oid relid, int2vector *pkattnums, int16 pknumatts, char **src_pkattvals)
+get_tuple_of_interest(Relation rel, int *pkattnums, int pknumatts, char **src_pkattvals)
 {
-	Relation	rel;
 	char	   *relname;
 	TupleDesc	tupdesc;
+	int			natts;
 	StringInfoData buf;
 	int			ret;
 	HeapTuple	tuple;
 	int			i;
-
-	initStringInfo(&buf);
-
-	/* get relation name including any needed schema prefix and quoting */
-	relname = generate_relation_name(relid);
-
-	/*
-	 * Open relation using relid
-	 */
-	rel = relation_open(relid, AccessShareLock);
-	tupdesc = CreateTupleDescCopy(rel->rd_att);
-	relation_close(rel, AccessShareLock);
 
 	/*
 	 * Connect to SPI manager
@@ -2083,21 +1964,46 @@ get_tuple_of_interest(Oid relid, int2vector *pkattnums, int16 pknumatts, char **
 		/* internal error */
 		elog(ERROR, "SPI connect failure - returned %d", ret);
 
+	initStringInfo(&buf);
+
+	/* get relation name including any needed schema prefix and quoting */
+	relname = generate_relation_name(rel);
+
+	tupdesc = rel->rd_att;
+	natts = tupdesc->natts;
+
 	/*
-	 * Build sql statement to look up tuple of interest Use src_pkattvals as
-	 * the criteria.
+	 * Build sql statement to look up tuple of interest, ie, the one matching
+	 * src_pkattvals.  We used to use "SELECT *" here, but it's simpler to
+	 * generate a result tuple that matches the table's physical structure,
+	 * with NULLs for any dropped columns.	Otherwise we have to deal with two
+	 * different tupdescs and everything's very confusing.
 	 */
-	appendStringInfo(&buf, "SELECT * FROM %s WHERE ", relname);
+	appendStringInfoString(&buf, "SELECT ");
+
+	for (i = 0; i < natts; i++)
+	{
+		if (i > 0)
+			appendStringInfoString(&buf, ", ");
+
+		if (tupdesc->attrs[i]->attisdropped)
+			appendStringInfoString(&buf, "NULL");
+		else
+			appendStringInfoString(&buf,
+					  quote_ident_cstr(NameStr(tupdesc->attrs[i]->attname)));
+	}
+
+	appendStringInfo(&buf, " FROM %s WHERE ", relname);
 
 	for (i = 0; i < pknumatts; i++)
 	{
-		int16		pkattnum = pkattnums->values[i];
+		int			pkattnum = pkattnums[i];
 
 		if (i > 0)
 			appendStringInfo(&buf, " AND ");
 
 		appendStringInfoString(&buf,
-		   quote_ident_cstr(NameStr(tupdesc->attrs[pkattnum - 1]->attname)));
+			   quote_ident_cstr(NameStr(tupdesc->attrs[pkattnum]->attname)));
 
 		if (src_pkattvals[i] != NULL)
 			appendStringInfo(&buf, " = %s",
@@ -2145,52 +2051,49 @@ get_tuple_of_interest(Oid relid, int2vector *pkattnums, int16 pknumatts, char **
 	return NULL;
 }
 
-static Oid
-get_relid_from_relname(text *relname_text)
+/*
+ * Open the relation named by relname_text, acquire specified type of lock,
+ * verify we have specified permissions.
+ * Caller must close rel when done with it.
+ */
+static Relation
+get_rel_from_relname(text *relname_text, LOCKMODE lockmode, AclMode aclmode)
 {
 	RangeVar   *relvar;
 	Relation	rel;
-	Oid			relid;
+	AclResult	aclresult;
 
 	relvar = makeRangeVarFromNameList(textToQualifiedNameList(relname_text));
-	rel = heap_openrv(relvar, AccessShareLock);
-	relid = RelationGetRelid(rel);
-	relation_close(rel, AccessShareLock);
+	rel = heap_openrv(relvar, lockmode);
 
-	return relid;
+	aclresult = pg_class_aclcheck(RelationGetRelid(rel), GetUserId(),
+								  aclmode);
+	if (aclresult != ACLCHECK_OK)
+		aclcheck_error(aclresult, ACL_KIND_CLASS,
+					   RelationGetRelationName(rel));
+
+	return rel;
 }
 
 /*
  * generate_relation_name - copied from ruleutils.c
- *		Compute the name to display for a relation specified by OID
+ *		Compute the name to display for a relation
  *
  * The result includes all necessary quoting and schema-prefixing.
  */
 static char *
-generate_relation_name(Oid relid)
+generate_relation_name(Relation rel)
 {
-	HeapTuple	tp;
-	Form_pg_class reltup;
 	char	   *nspname;
 	char	   *result;
 
-	tp = SearchSysCache(RELOID,
-						ObjectIdGetDatum(relid),
-						0, 0, 0);
-	if (!HeapTupleIsValid(tp))
-		elog(ERROR, "cache lookup failed for relation %u", relid);
-
-	reltup = (Form_pg_class) GETSTRUCT(tp);
-
 	/* Qualify the name if not visible in search path */
-	if (RelationIsVisible(relid))
+	if (RelationIsVisible(RelationGetRelid(rel)))
 		nspname = NULL;
 	else
-		nspname = get_namespace_name(reltup->relnamespace);
+		nspname = get_namespace_name(rel->rd_rel->relnamespace);
 
-	result = quote_qualified_identifier(nspname, NameStr(reltup->relname));
-
-	ReleaseSysCache(tp);
+	result = quote_qualified_identifier(nspname, RelationGetRelationName(rel));
 
 	return result;
 }
@@ -2200,13 +2103,13 @@ static remoteConn *
 getConnectionByName(const char *name)
 {
 	remoteConnHashEnt *hentry;
-	char		key[NAMEDATALEN];
+	char	   *key;
 
 	if (!remoteConnHash)
 		remoteConnHash = createConnHash();
 
-	MemSet(key, 0, NAMEDATALEN);
-	snprintf(key, NAMEDATALEN - 1, "%s", name);
+	key = pstrdup(name);
+	truncate_identifier(key, strlen(key), true);
 	hentry = (remoteConnHashEnt *) hash_search(remoteConnHash,
 											   key, HASH_FIND, NULL);
 
@@ -2232,20 +2135,25 @@ createNewConnection(const char *name, remoteConn *rconn)
 {
 	remoteConnHashEnt *hentry;
 	bool		found;
-	char		key[NAMEDATALEN];
+	char	   *key;
 
 	if (!remoteConnHash)
 		remoteConnHash = createConnHash();
 
-	MemSet(key, 0, NAMEDATALEN);
-	snprintf(key, NAMEDATALEN - 1, "%s", name);
+	key = pstrdup(name);
+	truncate_identifier(key, strlen(key), true);
 	hentry = (remoteConnHashEnt *) hash_search(remoteConnHash, key,
 											   HASH_ENTER, &found);
 
 	if (found)
+	{
+		PQfinish(rconn->conn);
+		pfree(rconn);
+
 		ereport(ERROR,
 				(errcode(ERRCODE_DUPLICATE_OBJECT),
 				 errmsg("duplicate connection name")));
+	}
 
 	hentry->rconn = rconn;
 	strlcpy(hentry->name, name, sizeof(hentry->name));
@@ -2256,14 +2164,13 @@ deleteConnection(const char *name)
 {
 	remoteConnHashEnt *hentry;
 	bool		found;
-	char		key[NAMEDATALEN];
+	char	   *key;
 
 	if (!remoteConnHash)
 		remoteConnHash = createConnHash();
 
-	MemSet(key, 0, NAMEDATALEN);
-	snprintf(key, NAMEDATALEN - 1, "%s", name);
-
+	key = pstrdup(name);
+	truncate_identifier(key, strlen(key), true);
 	hentry = (remoteConnHashEnt *) hash_search(remoteConnHash,
 											   key, HASH_REMOVE, &found);
 
@@ -2397,10 +2304,12 @@ get_connect_string(const char *servername)
 	StringInfo	buf = makeStringInfo();
 	ForeignDataWrapper *fdw;
 	AclResult	aclresult;
+	char	   *srvname;
 
 	/* first gather the server connstr options */
-	if (strlen(servername) < NAMEDATALEN)
-		foreign_server = GetForeignServerByName(servername, true);
+	srvname = pstrdup(servername);
+	truncate_identifier(srvname, strlen(srvname), false);
+	foreign_server = GetForeignServerByName(srvname, true);
 
 	if (foreign_server)
 	{
@@ -2466,4 +2375,75 @@ escape_param_str(const char *str)
 	}
 
 	return buf->data;
+}
+
+/*
+ * Validate the PK-attnums argument for dblink_build_sql_insert() and related
+ * functions, and translate to the internal representation.
+ *
+ * The user supplies an int2vector of 1-based logical attnums, plus a count
+ * argument (the need for the separate count argument is historical, but we
+ * still check it).  We check that each attnum corresponds to a valid,
+ * non-dropped attribute of the rel.  We do *not* prevent attnums from being
+ * listed twice, though the actual use-case for such things is dubious.
+ * Note that before Postgres 9.0, the user's attnums were interpreted as
+ * physical not logical column numbers; this was changed for future-proofing.
+ *
+ * The internal representation is a palloc'd int array of 0-based physical
+ * attnums.
+ */
+static void
+validate_pkattnums(Relation rel,
+				   int2vector *pkattnums_arg, int32 pknumatts_arg,
+				   int **pkattnums, int *pknumatts)
+{
+	TupleDesc	tupdesc = rel->rd_att;
+	int			natts = tupdesc->natts;
+	int			i;
+
+	/* Don't take more array elements than there are */
+	pknumatts_arg = Min(pknumatts_arg, pkattnums_arg->dim1);
+
+	/* Must have at least one pk attnum selected */
+	if (pknumatts_arg <= 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("number of key attributes must be > 0")));
+
+	/* Allocate output array */
+	*pkattnums = (int *) palloc(pknumatts_arg * sizeof(int));
+	*pknumatts = pknumatts_arg;
+
+	/* Validate attnums and convert to internal form */
+	for (i = 0; i < pknumatts_arg; i++)
+	{
+		int			pkattnum = pkattnums_arg->values[i];
+		int			lnum;
+		int			j;
+
+		/* Can throw error immediately if out of range */
+		if (pkattnum <= 0 || pkattnum > natts)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("invalid attribute number %d", pkattnum)));
+
+		/* Identify which physical column has this logical number */
+		lnum = 0;
+		for (j = 0; j < natts; j++)
+		{
+			/* dropped columns don't count */
+			if (tupdesc->attrs[j]->attisdropped)
+				continue;
+
+			if (++lnum == pkattnum)
+				break;
+		}
+
+		if (j < natts)
+			(*pkattnums)[i] = j;
+		else
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("invalid attribute number %d", pkattnum)));
+	}
 }

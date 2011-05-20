@@ -8,12 +8,12 @@
  * stepping on each others' toes.  Formerly we used table-level locks
  * on pg_database, but that's too coarse-grained.
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/commands/dbcommands.c,v 1.225 2009/06/11 14:48:55 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/commands/dbcommands.c,v 1.235 2010/02/26 02:00:38 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -26,6 +26,7 @@
 
 #include "access/genam.h"
 #include "access/heapam.h"
+#include "access/transam.h"
 #include "access/xact.h"
 #include "access/xlogutils.h"
 #include "catalog/catalog.h"
@@ -33,6 +34,7 @@
 #include "catalog/indexing.h"
 #include "catalog/pg_authid.h"
 #include "catalog/pg_database.h"
+#include "catalog/pg_db_role_setting.h"
 #include "catalog/pg_tablespace.h"
 #include "commands/comment.h"
 #include "commands/dbcommands.h"
@@ -47,11 +49,10 @@
 #include "storage/ipc.h"
 #include "storage/procarray.h"
 #include "storage/smgr.h"
+#include "storage/standby.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
-#include "utils/flatfiles.h"
 #include "utils/fmgroids.h"
-#include "utils/guc.h"
 #include "utils/lsyscache.h"
 #include "utils/pg_locale.h"
 #include "utils/snapmgr.h"
@@ -338,19 +339,21 @@ createdb(const CreatedbStmt *stmt)
 	 * Check whether chosen encoding matches chosen locale settings.  This
 	 * restriction is necessary because libc's locale-specific code usually
 	 * fails when presented with data in an encoding it's not expecting. We
-	 * allow mismatch in three cases:
+	 * allow mismatch in four cases:
 	 *
-	 * 1. locale encoding = SQL_ASCII, which means either that the locale is
-	 * C/POSIX which works with any encoding, or that we couldn't determine
-	 * the locale's encoding and have to trust the user to get it right.
+	 * 1. locale encoding = SQL_ASCII, which means that the locale is C/POSIX
+	 * which works with any encoding.
 	 *
-	 * 2. selected encoding is SQL_ASCII, but only if you're a superuser. This
-	 * is risky but we have historically allowed it --- notably, the
-	 * regression tests require it.
+	 * 2. locale encoding = -1, which means that we couldn't determine the
+	 * locale's encoding and have to trust the user to get it right.
 	 *
 	 * 3. selected encoding is UTF8 and platform is win32. This is because
 	 * UTF8 is a pseudo codepage that is supported in all locales since it's
 	 * converted to UTF16 before being used.
+	 *
+	 * 4. selected encoding is SQL_ASCII, but only if you're a superuser. This
+	 * is risky but we have historically allowed it --- notably, the
+	 * regression tests require it.
 	 *
 	 * Note: if you change this policy, fix initdb to match.
 	 */
@@ -359,6 +362,7 @@ createdb(const CreatedbStmt *stmt)
 
 	if (!(ctype_encoding == encoding ||
 		  ctype_encoding == PG_SQL_ASCII ||
+		  ctype_encoding == -1 ||
 #ifdef WIN32
 		  encoding == PG_UTF8 ||
 #endif
@@ -373,6 +377,7 @@ createdb(const CreatedbStmt *stmt)
 
 	if (!(collate_encoding == encoding ||
 		  collate_encoding == PG_SQL_ASCII ||
+		  collate_encoding == -1 ||
 #ifdef WIN32
 		  encoding == PG_UTF8 ||
 #endif
@@ -548,12 +553,10 @@ createdb(const CreatedbStmt *stmt)
 	new_record[Anum_pg_database_dattablespace - 1] = ObjectIdGetDatum(dst_deftablespace);
 
 	/*
-	 * We deliberately set datconfig and datacl to defaults (NULL), rather
-	 * than copying them from the template database.  Copying datacl would be
-	 * a bad idea when the owner is not the same as the template's owner. It's
-	 * more debatable whether datconfig should be copied.
+	 * We deliberately set datacl to default (NULL), rather than copying it
+	 * from the template database.	Copying it would be a bad idea when the
+	 * owner is not the same as the template's owner.
 	 */
-	new_record_nulls[Anum_pg_database_datconfig - 1] = true;
 	new_record_nulls[Anum_pg_database_datacl - 1] = true;
 
 	tuple = heap_form_tuple(RelationGetDescr(pg_database_rel),
@@ -694,19 +697,17 @@ createdb(const CreatedbStmt *stmt)
 		RequestCheckpoint(CHECKPOINT_IMMEDIATE | CHECKPOINT_FORCE | CHECKPOINT_WAIT);
 
 		/*
-		 * Close pg_database, but keep lock till commit (this is important to
-		 * prevent any risk of deadlock failure while updating flat file)
+		 * Close pg_database, but keep lock till commit.
 		 */
 		heap_close(pg_database_rel, NoLock);
 
 		/*
-		 * Set flag to update flat database file at commit.  Note: this also
-		 * forces synchronous commit, which minimizes the window between
+		 * Force synchronous commit, thus minimizing the window between
 		 * creation of the database files and commital of the transaction. If
 		 * we crash before committing, we'll have a DB that's taking up disk
 		 * space but is not in pg_database, which is not good.
 		 */
-		database_file_update_needed();
+		ForceSyncCommit();
 	}
 	PG_END_ENSURE_ERROR_CLEANUP(createdb_failure_callback,
 								PointerGetDatum(&fparms));
@@ -811,9 +812,7 @@ dropdb(const char *dbname, bool missing_ok)
 	/*
 	 * Remove the database's tuple from pg_database.
 	 */
-	tup = SearchSysCache(DATABASEOID,
-						 ObjectIdGetDatum(db_id),
-						 0, 0, 0);
+	tup = SearchSysCache1(DATABASEOID, ObjectIdGetDatum(db_id));
 	if (!HeapTupleIsValid(tup))
 		elog(ERROR, "cache lookup failed for database %u", db_id);
 
@@ -825,6 +824,11 @@ dropdb(const char *dbname, bool missing_ok)
 	 * Delete any comments associated with the database.
 	 */
 	DeleteSharedComments(db_id, DatabaseRelationId);
+
+	/*
+	 * Remove settings associated with this database
+	 */
+	DropSetting(db_id, InvalidOid);
 
 	/*
 	 * Remove shared dependency references for the database.
@@ -865,19 +869,17 @@ dropdb(const char *dbname, bool missing_ok)
 	remove_dbtablespaces(db_id);
 
 	/*
-	 * Close pg_database, but keep lock till commit (this is important to
-	 * prevent any risk of deadlock failure while updating flat file)
+	 * Close pg_database, but keep lock till commit.
 	 */
 	heap_close(pgdbrel, NoLock);
 
 	/*
-	 * Set flag to update flat database file at commit.  Note: this also
-	 * forces synchronous commit, which minimizes the window between removal
-	 * of the database files and commital of the transaction. If we crash
-	 * before committing, we'll have a DB that's gone on disk but still there
+	 * Force synchronous commit, thus minimizing the window between removal of
+	 * the database files and commital of the transaction. If we crash before
+	 * committing, we'll have a DB that's gone on disk but still there
 	 * according to pg_database, which is not good.
 	 */
-	database_file_update_needed();
+	ForceSyncCommit();
 	
 #ifdef PGXC
 	/* Drop sequences on gtm that are on the database dropped. */
@@ -957,9 +959,7 @@ RenameDatabase(const char *oldname, const char *newname)
 				 errdetail_busy_db(notherbackends, npreparedxacts)));
 
 	/* rename */
-	newtup = SearchSysCacheCopy(DATABASEOID,
-								ObjectIdGetDatum(db_id),
-								0, 0, 0);
+	newtup = SearchSysCacheCopy1(DATABASEOID, ObjectIdGetDatum(db_id));
 	if (!HeapTupleIsValid(newtup))
 		elog(ERROR, "cache lookup failed for database %u", db_id);
 	namestrcpy(&(((Form_pg_database) GETSTRUCT(newtup))->datname), newname);
@@ -967,15 +967,9 @@ RenameDatabase(const char *oldname, const char *newname)
 	CatalogUpdateIndexes(rel, newtup);
 
 	/*
-	 * Close pg_database, but keep lock till commit (this is important to
-	 * prevent any risk of deadlock failure while updating flat file)
+	 * Close pg_database, but keep lock till commit.
 	 */
 	heap_close(rel, NoLock);
-
-	/*
-	 * Set flag to update flat database file at commit.
-	 */
-	database_file_update_needed();
 }
 
 
@@ -1222,17 +1216,15 @@ movedb(const char *dbname, const char *tblspcname)
 		RequestCheckpoint(CHECKPOINT_IMMEDIATE | CHECKPOINT_FORCE | CHECKPOINT_WAIT);
 
 		/*
-		 * Set flag to update flat database file at commit.  Note: this also
-		 * forces synchronous commit, which minimizes the window between
+		 * Force synchronous commit, thus minimizing the window between
 		 * copying the database files and commital of the transaction. If we
 		 * crash before committing, we'll leave an orphaned set of files on
 		 * disk, which is not fatal but not good either.
 		 */
-		database_file_update_needed();
+		ForceSyncCommit();
 
 		/*
-		 * Close pg_database, but keep lock till commit (this is important to
-		 * prevent any risk of deadlock failure while updating flat file)
+		 * Close pg_database, but keep lock till commit.
 		 */
 		heap_close(pgdbrel, NoLock);
 	}
@@ -1411,11 +1403,6 @@ AlterDatabase(AlterDatabaseStmt *stmt, bool isTopLevel)
 
 	/* Close pg_database, but keep lock till commit */
 	heap_close(rel, NoLock);
-
-	/*
-	 * We don't bother updating the flat file since the existing options for
-	 * ALTER DATABASE don't affect it.
-	 */
 }
 
 
@@ -1425,90 +1412,26 @@ AlterDatabase(AlterDatabaseStmt *stmt, bool isTopLevel)
 void
 AlterDatabaseSet(AlterDatabaseSetStmt *stmt)
 {
-	char	   *valuestr;
-	HeapTuple	tuple,
-				newtuple;
-	Relation	rel;
-	ScanKeyData scankey;
-	SysScanDesc scan;
-	Datum		repl_val[Natts_pg_database];
-	bool		repl_null[Natts_pg_database];
-	bool		repl_repl[Natts_pg_database];
+	Oid			datid = get_database_oid(stmt->dbname);
 
-	valuestr = ExtractSetVariableArgs(stmt->setstmt);
-
-	/*
-	 * Get the old tuple.  We don't need a lock on the database per se,
-	 * because we're not going to do anything that would mess up incoming
-	 * connections.
-	 */
-	rel = heap_open(DatabaseRelationId, RowExclusiveLock);
-	ScanKeyInit(&scankey,
-				Anum_pg_database_datname,
-				BTEqualStrategyNumber, F_NAMEEQ,
-				NameGetDatum(stmt->dbname));
-	scan = systable_beginscan(rel, DatabaseNameIndexId, true,
-							  SnapshotNow, 1, &scankey);
-	tuple = systable_getnext(scan);
-	if (!HeapTupleIsValid(tuple))
+	if (!OidIsValid(datid))
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_DATABASE),
 				 errmsg("database \"%s\" does not exist", stmt->dbname)));
 
-	if (!pg_database_ownercheck(HeapTupleGetOid(tuple), GetUserId()))
+	/*
+	 * Obtain a lock on the database and make sure it didn't go away in the
+	 * meantime.
+	 */
+	shdepLockAndCheckObject(DatabaseRelationId, datid);
+
+	if (!pg_database_ownercheck(datid, GetUserId()))
 		aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_DATABASE,
 					   stmt->dbname);
 
-	memset(repl_repl, false, sizeof(repl_repl));
-	repl_repl[Anum_pg_database_datconfig - 1] = true;
+	AlterSetting(datid, InvalidOid, stmt->setstmt);
 
-	if (stmt->setstmt->kind == VAR_RESET_ALL)
-	{
-		/* RESET ALL, so just set datconfig to null */
-		repl_null[Anum_pg_database_datconfig - 1] = true;
-		repl_val[Anum_pg_database_datconfig - 1] = (Datum) 0;
-	}
-	else
-	{
-		Datum		datum;
-		bool		isnull;
-		ArrayType  *a;
-
-		repl_null[Anum_pg_database_datconfig - 1] = false;
-
-		/* Extract old value of datconfig */
-		datum = heap_getattr(tuple, Anum_pg_database_datconfig,
-							 RelationGetDescr(rel), &isnull);
-		a = isnull ? NULL : DatumGetArrayTypeP(datum);
-
-		/* Update (valuestr is NULL in RESET cases) */
-		if (valuestr)
-			a = GUCArrayAdd(a, stmt->setstmt->name, valuestr);
-		else
-			a = GUCArrayDelete(a, stmt->setstmt->name);
-
-		if (a)
-			repl_val[Anum_pg_database_datconfig - 1] = PointerGetDatum(a);
-		else
-			repl_null[Anum_pg_database_datconfig - 1] = true;
-	}
-
-	newtuple = heap_modify_tuple(tuple, RelationGetDescr(rel),
-								 repl_val, repl_null, repl_repl);
-	simple_heap_update(rel, &tuple->t_self, newtuple);
-
-	/* Update indexes */
-	CatalogUpdateIndexes(rel, newtuple);
-
-	systable_endscan(scan);
-
-	/* Close pg_database, but keep lock till commit */
-	heap_close(rel, NoLock);
-
-	/*
-	 * We don't bother updating the flat file since ALTER DATABASE SET doesn't
-	 * affect it.
-	 */
+	UnlockSharedObject(DatabaseRelationId, datid, 0, AccessShareLock);
 }
 
 
@@ -1618,11 +1541,6 @@ AlterDatabaseOwner(const char *dbname, Oid newOwnerId)
 
 	/* Close pg_database, but keep lock till commit */
 	heap_close(rel, NoLock);
-
-	/*
-	 * We don't bother updating the flat file since ALTER DATABASE OWNER
-	 * doesn't affect it.
-	 */
 }
 
 
@@ -1699,9 +1617,7 @@ get_db_info(const char *name, LOCKMODE lockmode,
 		 * the same name, we win; else, drop the lock and loop back to try
 		 * again.
 		 */
-		tuple = SearchSysCache(DATABASEOID,
-							   ObjectIdGetDatum(dbOid),
-							   0, 0, 0);
+		tuple = SearchSysCache1(DATABASEOID, ObjectIdGetDatum(dbOid));
 		if (HeapTupleIsValid(tuple))
 		{
 			Form_pg_database dbform = (Form_pg_database) GETSTRUCT(tuple);
@@ -1765,9 +1681,7 @@ have_createdb_privilege(void)
 	if (superuser())
 		return true;
 
-	utup = SearchSysCache(AUTHOID,
-						  ObjectIdGetDatum(GetUserId()),
-						  0, 0, 0);
+	utup = SearchSysCache1(AUTHOID, ObjectIdGetDatum(GetUserId()));
 	if (HeapTupleIsValid(utup))
 	{
 		result = ((Form_pg_authid) GETSTRUCT(utup))->rolcreatedb;
@@ -1963,9 +1877,7 @@ get_database_name(Oid dbid)
 	HeapTuple	dbtuple;
 	char	   *result;
 
-	dbtuple = SearchSysCache(DATABASEOID,
-							 ObjectIdGetDatum(dbid),
-							 0, 0, 0);
+	dbtuple = SearchSysCache1(DATABASEOID, ObjectIdGetDatum(dbid));
 	if (HeapTupleIsValid(dbtuple))
 	{
 		result = pstrdup(NameStr(((Form_pg_database) GETSTRUCT(dbtuple))->datname));
@@ -2031,6 +1943,18 @@ dbase_redo(XLogRecPtr lsn, XLogRecord *record)
 
 		dst_path = GetDatabasePath(xlrec->db_id, xlrec->tablespace_id);
 
+		if (InHotStandby)
+		{
+			/*
+			 * Lock database while we resolve conflicts to ensure that
+			 * InitPostgres() cannot fully re-execute concurrently. This
+			 * avoids backends re-connecting automatically to same database,
+			 * which can happen in some cases.
+			 */
+			LockSharedObjectForSession(DatabaseRelationId, xlrec->db_id, 0, AccessExclusiveLock);
+			ResolveRecoveryConflictWithDatabase(xlrec->db_id);
+		}
+
 		/* Drop pages for this database that are in the shared buffer cache */
 		DropDatabaseBuffers(xlrec->db_id);
 
@@ -2045,6 +1969,18 @@ dbase_redo(XLogRecPtr lsn, XLogRecord *record)
 			ereport(WARNING,
 					(errmsg("some useless files may be left behind in old database directory \"%s\"",
 							dst_path)));
+
+		if (InHotStandby)
+		{
+			/*
+			 * Release locks prior to commit. XXX There is a race condition
+			 * here that may allow backends to reconnect, but the window for
+			 * this is small because the gap between here and commit is mostly
+			 * fairly small and it is unlikely that people will be dropping
+			 * databases that we are trying to connect to anyway.
+			 */
+			UnlockSharedObjectForSession(DatabaseRelationId, xlrec->db_id, 0, AccessExclusiveLock);
+		}
 	}
 	else
 		elog(PANIC, "dbase_redo: unknown op code %u", info);

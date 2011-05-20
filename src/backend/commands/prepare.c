@@ -7,10 +7,10 @@
  * accessed via the extended FE/BE query protocol.
  *
  *
- * Copyright (c) 2002-2009, PostgreSQL Global Development Group
+ * Copyright (c) 2002-2010, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/commands/prepare.c,v 1.97 2009/06/11 14:48:56 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/commands/prepare.c,v 1.102 2010/01/02 16:57:37 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -18,7 +18,6 @@
 
 #include "access/xact.h"
 #include "catalog/pg_type.h"
-#include "commands/explain.h"
 #include "commands/prepare.h"
 #include "miscadmin.h"
 #include "nodes/nodeFuncs.h"
@@ -408,6 +407,11 @@ EvaluateParams(PreparedStatement *pstmt, List *params,
 	paramLI = (ParamListInfo)
 		palloc(sizeof(ParamListInfoData) +
 			   (num_params - 1) *sizeof(ParamExternData));
+	/* we have static list of params, so no hooks needed */
+	paramLI->paramFetch = NULL;
+	paramLI->paramFetchArg = NULL;
+	paramLI->parserSetup = NULL;
+	paramLI->parserSetupArg = NULL;
 	paramLI->numParams = num_params;
 
 	i = 0;
@@ -757,9 +761,8 @@ DropAllPreparedStatements(void)
  * not the original PREPARE; we get the latter string from the plancache.
  */
 void
-ExplainExecuteQuery(ExecuteStmt *execstmt, ExplainStmt *stmt,
-					const char *queryString,
-					ParamListInfo params, TupOutputState *tstate)
+ExplainExecuteQuery(ExecuteStmt *execstmt, ExplainState *es,
+					const char *queryString, ParamListInfo params)
 {
 	PreparedStatement *entry;
 	const char *query_string;
@@ -803,9 +806,6 @@ ExplainExecuteQuery(ExecuteStmt *execstmt, ExplainStmt *stmt,
 	foreach(p, plan_list)
 	{
 		PlannedStmt *pstmt = (PlannedStmt *) lfirst(p);
-		bool		is_last_query;
-
-		is_last_query = (lnext(p) == NULL);
 
 		if (IsA(pstmt, PlannedStmt))
 		{
@@ -823,20 +823,18 @@ ExplainExecuteQuery(ExecuteStmt *execstmt, ExplainStmt *stmt,
 				pstmt->intoClause = execstmt->into;
 			}
 
-			ExplainOnePlan(pstmt, stmt, query_string,
-						   paramLI, tstate);
+			ExplainOnePlan(pstmt, es, query_string, paramLI);
 		}
 		else
 		{
-			ExplainOneUtility((Node *) pstmt, stmt, query_string,
-							  params, tstate);
+			ExplainOneUtility((Node *) pstmt, es, query_string, params);
 		}
 
 		/* No need for CommandCounterIncrement, as ExplainOnePlan did it */
 
-		/* put a blank line between plans */
-		if (!is_last_query)
-			do_text_output_oneline(tstate, "");
+		/* Separate plans with an appropriate separator */
+		if (lnext(p) != NULL)
+			ExplainSeparatePlans(es);
 	}
 
 	if (estate)
@@ -897,6 +895,9 @@ pg_prepared_statement(PG_FUNCTION_ARGS)
 		tuplestore_begin_heap(rsinfo->allowedModes & SFRM_Materialize_Random,
 							  false, work_mem);
 
+	/* generate junk in short-term context */
+	MemoryContextSwitchTo(oldcontext);
+
 	/* hash table might be uninitialized */
 	if (prepared_queries)
 	{
@@ -909,9 +910,6 @@ pg_prepared_statement(PG_FUNCTION_ARGS)
 			Datum		values[5];
 			bool		nulls[5];
 
-			/* generate junk in short-term context */
-			MemoryContextSwitchTo(oldcontext);
-
 			MemSet(nulls, 0, sizeof(nulls));
 
 			values[0] = CStringGetTextDatum(prep_stmt->stmt_name);
@@ -921,16 +919,12 @@ pg_prepared_statement(PG_FUNCTION_ARGS)
 										  prep_stmt->plansource->num_params);
 			values[4] = BoolGetDatum(prep_stmt->from_sql);
 
-			/* switch to appropriate context while storing the tuple */
-			MemoryContextSwitchTo(per_query_ctx);
 			tuplestore_putvalues(tupstore, tupdesc, values, nulls);
 		}
 	}
 
 	/* clean up and return the tuplestore */
 	tuplestore_donestoring(tupstore);
-
-	MemoryContextSwitchTo(oldcontext);
 
 	rsinfo->returnMode = SFRM_Materialize;
 	rsinfo->setResult = tupstore;

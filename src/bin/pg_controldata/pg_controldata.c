@@ -6,15 +6,24 @@
  * copyright (c) Oliver Elphick <olly@lfix.co.uk>, 2001;
  * licence: BSD
  *
- * $PostgreSQL: pgsql/src/bin/pg_controldata/pg_controldata.c,v 1.43 2009/06/11 14:49:07 momjian Exp $
+ * $PostgreSQL: pgsql/src/bin/pg_controldata/pg_controldata.c,v 1.50 2010/06/03 03:20:00 rhaas Exp $
  */
-#include "postgres_fe.h"
+
+/*
+ * We have to use postgres.h not postgres_fe.h here, because there's so much
+ * backend-only stuff in the XLOG include files we need.  But we need a
+ * frontend-ish environment otherwise.	Hence this ugly hack.
+ */
+#define FRONTEND 1
+
+#include "postgres.h"
 
 #include <unistd.h>
 #include <time.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 
+#include "access/xlog.h"
 #include "catalog/pg_control.h"
 
 
@@ -48,6 +57,8 @@ dbState(DBState state)
 			return _("starting up");
 		case DB_SHUTDOWNED:
 			return _("shut down");
+		case DB_SHUTDOWNED_IN_RECOVERY:
+			return _("shut down in recovery");
 		case DB_SHUTDOWNING:
 			return _("shutting down");
 		case DB_IN_CRASH_RECOVERY:
@@ -58,6 +69,21 @@ dbState(DBState state)
 			return _("in production");
 	}
 	return _("unrecognized status code");
+}
+
+static const char *
+wal_level_str(WalLevel wal_level)
+{
+	switch (wal_level)
+	{
+		case WAL_LEVEL_MINIMAL:
+			return "minimal";
+		case WAL_LEVEL_ARCHIVE:
+			return "archive";
+		case WAL_LEVEL_HOT_STANDBY:
+			return "hot_standby";
+	}
+	return _("unrecognized wal_level");
 }
 
 
@@ -192,11 +218,28 @@ main(int argc, char *argv[])
 		   ControlFile.checkPointCopy.nextMulti);
 	printf(_("Latest checkpoint's NextMultiOffset:  %u\n"),
 		   ControlFile.checkPointCopy.nextMultiOffset);
+	printf(_("Latest checkpoint's oldestXID:        %u\n"),
+		   ControlFile.checkPointCopy.oldestXid);
+	printf(_("Latest checkpoint's oldestXID's DB:   %u\n"),
+		   ControlFile.checkPointCopy.oldestXidDB);
+	printf(_("Latest checkpoint's oldestActiveXID:  %u\n"),
+		   ControlFile.checkPointCopy.oldestActiveXid);
 	printf(_("Time of latest checkpoint:            %s\n"),
 		   ckpttime_str);
 	printf(_("Minimum recovery ending location:     %X/%X\n"),
 		   ControlFile.minRecoveryPoint.xlogid,
 		   ControlFile.minRecoveryPoint.xrecoff);
+	printf(_("Backup start location:                %X/%X\n"),
+		   ControlFile.backupStartPoint.xlogid,
+		   ControlFile.backupStartPoint.xrecoff);
+	printf(_("Current wal_level setting:            %s\n"),
+		   wal_level_str(ControlFile.wal_level));
+	printf(_("Current max_connections setting:      %d\n"),
+		   ControlFile.MaxConnections);
+	printf(_("Current max_prepared_xacts setting:   %d\n"),
+		   ControlFile.max_prepared_xacts);
+	printf(_("Current max_locks_per_xact setting:   %d\n"),
+		   ControlFile.max_locks_per_xact);
 	printf(_("Maximum data alignment:               %u\n"),
 		   ControlFile.maxAlign);
 	/* we don't print floatFormat since can't say much useful about it */

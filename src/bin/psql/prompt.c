@@ -1,9 +1,9 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2009, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2010, PostgreSQL Global Development Group
  *
- * $PostgreSQL: pgsql/src/bin/psql/prompt.c,v 1.52 2009/01/01 17:23:55 momjian Exp $
+ * $PostgreSQL: pgsql/src/bin/psql/prompt.c,v 1.54 2010/04/30 17:09:13 tgl Exp $
  */
 #include "postgres_fe.h"
 
@@ -252,7 +252,8 @@ get_prompt(promptStatus_t status)
 						fd = popen(file, "r");
 						if (fd)
 						{
-							fgets(buf, sizeof(buf), fd);
+							if (fgets(buf, sizeof(buf), fd) == NULL)
+								buf[0] = '\0';
 							pclose(fd);
 						}
 						if (strlen(buf) > 0 && buf[strlen(buf) - 1] == '\n')

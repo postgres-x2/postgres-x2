@@ -3,12 +3,12 @@
  * nodeFuncs.c
  *		Various general-purpose manipulations of Node trees
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/nodes/nodeFuncs.c,v 1.40 2009/06/11 14:48:58 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/nodes/nodeFuncs.c,v 1.46 2010/02/12 17:33:20 tgl Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -68,6 +68,9 @@ exprType(Node *expr)
 			break;
 		case T_FuncExpr:
 			type = ((FuncExpr *) expr)->funcresulttype;
+			break;
+		case T_NamedArgExpr:
+			type = exprType((Node *) ((NamedArgExpr *) expr)->arg);
 			break;
 		case T_OpExpr:
 			type = ((OpExpr *) expr)->opresulttype;
@@ -259,6 +262,8 @@ exprTypmod(Node *expr)
 					return coercedTypmod;
 			}
 			break;
+		case T_NamedArgExpr:
+			return exprTypmod((Node *) ((NamedArgExpr *) expr)->arg);
 		case T_SubLink:
 			{
 				SubLink    *sublink = (SubLink *) expr;
@@ -676,6 +681,15 @@ exprLocation(Node *expr)
 								  exprLocation((Node *) fexpr->args));
 			}
 			break;
+		case T_NamedArgExpr:
+			{
+				NamedArgExpr *na = (NamedArgExpr *) expr;
+
+				/* consider both argument name and value */
+				loc = leftmostLoc(na->location,
+								  exprLocation((Node *) na->arg));
+			}
+			break;
 		case T_OpExpr:
 		case T_DistinctExpr:	/* struct-equivalent to OpExpr */
 		case T_NullIfExpr:		/* struct-equivalent to OpExpr */
@@ -868,6 +882,7 @@ exprLocation(Node *expr)
 				FuncCall   *fc = (FuncCall *) expr;
 
 				/* consider both function name and leftmost arg */
+				/* (we assume any ORDER BY nodes must be to right of name) */
 				loc = leftmostLoc(fc->location,
 								  exprLocation((Node *) fc->args));
 			}
@@ -889,7 +904,7 @@ exprLocation(Node *expr)
 				 * any of the components might be leftmost.
 				 */
 				loc = exprLocation(tc->arg);
-				loc = leftmostLoc(loc, tc->typename->location);
+				loc = leftmostLoc(loc, tc->typeName->location);
 				loc = leftmostLoc(loc, tc->location);
 			}
 			break;
@@ -902,6 +917,9 @@ exprLocation(Node *expr)
 			break;
 		case T_TypeName:
 			loc = ((TypeName *) expr)->location;
+			break;
+		case T_Constraint:
+			loc = ((Constraint *) expr)->location;
 			break;
 		case T_XmlSerialize:
 			/* XMLSERIALIZE keyword should always be the first thing */
@@ -1065,6 +1083,7 @@ expression_tree_walker(Node *node,
 		case T_SetToDefault:
 		case T_CurrentOfExpr:
 		case T_RangeTblRef:
+		case T_SortGroupClause:
 			/* primitive node types with no expression subnodes */
 			break;
 		case T_Aggref:
@@ -1073,6 +1092,12 @@ expression_tree_walker(Node *node,
 
 				/* recurse directly on List */
 				if (expression_tree_walker((Node *) expr->args,
+										   walker, context))
+					return true;
+				if (expression_tree_walker((Node *) expr->aggorder,
+										   walker, context))
+					return true;
+				if (expression_tree_walker((Node *) expr->aggdistinct,
 										   walker, context))
 					return true;
 			}
@@ -1114,6 +1139,8 @@ expression_tree_walker(Node *node,
 					return true;
 			}
 			break;
+		case T_NamedArgExpr:
+			return walker(((NamedArgExpr *) node)->arg, context);
 		case T_OpExpr:
 			{
 				OpExpr	   *expr = (OpExpr *) node;
@@ -1270,6 +1297,10 @@ expression_tree_walker(Node *node,
 				if (walker(wc->partitionClause, context))
 					return true;
 				if (walker(wc->orderClause, context))
+					return true;
+				if (walker(wc->startOffset, context))
+					return true;
+				if (walker(wc->endOffset, context))
 					return true;
 			}
 			break;
@@ -1572,6 +1603,7 @@ expression_tree_mutator(Node *node,
 		case T_SetToDefault:
 		case T_CurrentOfExpr:
 		case T_RangeTblRef:
+		case T_SortGroupClause:
 			return (Node *) copyObject(node);
 		case T_Aggref:
 			{
@@ -1580,6 +1612,8 @@ expression_tree_mutator(Node *node,
 
 				FLATCOPY(newnode, aggref, Aggref);
 				MUTATE(newnode->args, aggref->args, List *);
+				MUTATE(newnode->aggorder, aggref->aggorder, List *);
+				MUTATE(newnode->aggdistinct, aggref->aggdistinct, List *);
 				return (Node *) newnode;
 			}
 			break;
@@ -1617,6 +1651,16 @@ expression_tree_mutator(Node *node,
 
 				FLATCOPY(newnode, expr, FuncExpr);
 				MUTATE(newnode->args, expr->args, List *);
+				return (Node *) newnode;
+			}
+			break;
+		case T_NamedArgExpr:
+			{
+				NamedArgExpr *nexpr = (NamedArgExpr *) node;
+				NamedArgExpr *newnode;
+
+				FLATCOPY(newnode, nexpr, NamedArgExpr);
+				MUTATE(newnode->arg, nexpr->arg, Expr *);
 				return (Node *) newnode;
 			}
 			break;
@@ -1910,6 +1954,8 @@ expression_tree_mutator(Node *node,
 				FLATCOPY(newnode, wc, WindowClause);
 				MUTATE(newnode->partitionClause, wc->partitionClause, List *);
 				MUTATE(newnode->orderClause, wc->orderClause, List *);
+				MUTATE(newnode->startOffset, wc->startOffset, Node *);
+				MUTATE(newnode->endOffset, wc->endOffset, Node *);
 				return (Node *) newnode;
 			}
 			break;
@@ -2374,11 +2420,15 @@ bool
 
 				if (walker(fcall->args, context))
 					return true;
+				if (walker(fcall->agg_order, context))
+					return true;
 				if (walker(fcall->over, context))
 					return true;
 				/* function name is deemed uninteresting */
 			}
 			break;
+		case T_NamedArgExpr:
+			return walker(((NamedArgExpr *) node)->arg, context);
 		case T_A_Indices:
 			{
 				A_Indices  *indices = (A_Indices *) node;
@@ -2417,7 +2467,7 @@ bool
 
 				if (walker(tc->arg, context))
 					return true;
-				if (walker(tc->typename, context))
+				if (walker(tc->typeName, context))
 					return true;
 			}
 			break;
@@ -2430,6 +2480,10 @@ bool
 				if (walker(wd->partitionClause, context))
 					return true;
 				if (walker(wd->orderClause, context))
+					return true;
+				if (walker(wd->startOffset, context))
+					return true;
+				if (walker(wd->endOffset, context))
 					return true;
 			}
 			break;
@@ -2468,7 +2522,7 @@ bool
 			{
 				ColumnDef  *coldef = (ColumnDef *) node;
 
-				if (walker(coldef->typename, context))
+				if (walker(coldef->typeName, context))
 					return true;
 				if (walker(coldef->raw_default, context))
 					return true;
@@ -2483,7 +2537,7 @@ bool
 
 				if (walker(xs->expr, context))
 					return true;
-				if (walker(xs->typename, context))
+				if (walker(xs->typeName, context))
 					return true;
 			}
 			break;

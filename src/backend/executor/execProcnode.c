@@ -7,18 +7,17 @@
  *	 ExecProcNode, or ExecEndNode on its subnodes and do the appropriate
  *	 processing.
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/executor/execProcnode.c,v 1.65 2009/01/01 17:23:41 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/executor/execProcnode.c,v 1.70 2010/01/02 16:57:41 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
 /*
  *	 INTERFACE ROUTINES
- *		ExecCountSlotsNode -	count tuple slots needed by plan tree
  *		ExecInitNode	-		initialize a plan node and its subplans
  *		ExecProcNode	-		get a tuple by executing the plan node
  *		ExecEndNode		-		shut down a plan node and its subplans
@@ -92,8 +91,10 @@
 #include "executor/nodeHashjoin.h"
 #include "executor/nodeIndexscan.h"
 #include "executor/nodeLimit.h"
+#include "executor/nodeLockRows.h"
 #include "executor/nodeMaterial.h"
 #include "executor/nodeMergejoin.h"
+#include "executor/nodeModifyTable.h"
 #include "executor/nodeNestloop.h"
 #include "executor/nodeRecursiveunion.h"
 #include "executor/nodeResult.h"
@@ -147,6 +148,11 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 		case T_Result:
 			result = (PlanState *) ExecInitResult((Result *) node,
 												  estate, eflags);
+			break;
+
+		case T_ModifyTable:
+			result = (PlanState *) ExecInitModifyTable((ModifyTable *) node,
+													   estate, eflags);
 			break;
 
 		case T_Append:
@@ -283,6 +289,11 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 												 estate, eflags);
 			break;
 
+		case T_LockRows:
+			result = (PlanState *) ExecInitLockRows((LockRows *) node,
+													estate, eflags);
+			break;
+
 		case T_Limit:
 			result = (PlanState *) ExecInitLimit((Limit *) node,
 												 estate, eflags);
@@ -319,7 +330,7 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 
 	/* Set up instrumentation for this node if requested */
 	if (estate->es_instrument)
-		result->instrument = InstrAlloc(1);
+		result->instrument = InstrAlloc(1, estate->es_instrument);
 
 	return result;
 }
@@ -351,6 +362,10 @@ ExecProcNode(PlanState *node)
 			 */
 		case T_ResultState:
 			result = ExecResult((ResultState *) node);
+			break;
+
+		case T_ModifyTableState:
+			result = ExecModifyTable((ModifyTableState *) node);
 			break;
 
 		case T_AppendState:
@@ -456,6 +471,10 @@ ExecProcNode(PlanState *node)
 			result = ExecSetOp((SetOpState *) node);
 			break;
 
+		case T_LockRowsState:
+			result = ExecLockRows((LockRowsState *) node);
+			break;
+
 		case T_LimitState:
 			result = ExecLimit((LimitState *) node);
 			break;
@@ -534,134 +553,13 @@ MultiExecProcNode(PlanState *node)
 }
 
 
-/*
- * ExecCountSlotsNode - count up the number of tuple table slots needed
- *
- * Note that this scans a Plan tree, not a PlanState tree, because we
- * haven't built the PlanState tree yet ...
- */
-int
-ExecCountSlotsNode(Plan *node)
-{
-	if (node == NULL)
-		return 0;
-
-	switch (nodeTag(node))
-	{
-			/*
-			 * control nodes
-			 */
-		case T_Result:
-			return ExecCountSlotsResult((Result *) node);
-
-		case T_Append:
-			return ExecCountSlotsAppend((Append *) node);
-
-		case T_RecursiveUnion:
-			return ExecCountSlotsRecursiveUnion((RecursiveUnion *) node);
-
-		case T_BitmapAnd:
-			return ExecCountSlotsBitmapAnd((BitmapAnd *) node);
-
-		case T_BitmapOr:
-			return ExecCountSlotsBitmapOr((BitmapOr *) node);
-
-			/*
-			 * scan nodes
-			 */
-		case T_SeqScan:
-			return ExecCountSlotsSeqScan((SeqScan *) node);
-
-		case T_IndexScan:
-			return ExecCountSlotsIndexScan((IndexScan *) node);
-
-		case T_BitmapIndexScan:
-			return ExecCountSlotsBitmapIndexScan((BitmapIndexScan *) node);
-
-		case T_BitmapHeapScan:
-			return ExecCountSlotsBitmapHeapScan((BitmapHeapScan *) node);
-
-		case T_TidScan:
-			return ExecCountSlotsTidScan((TidScan *) node);
-
-		case T_SubqueryScan:
-			return ExecCountSlotsSubqueryScan((SubqueryScan *) node);
-
-		case T_FunctionScan:
-			return ExecCountSlotsFunctionScan((FunctionScan *) node);
-
-		case T_ValuesScan:
-			return ExecCountSlotsValuesScan((ValuesScan *) node);
-
-		case T_CteScan:
-			return ExecCountSlotsCteScan((CteScan *) node);
-
-		case T_WorkTableScan:
-			return ExecCountSlotsWorkTableScan((WorkTableScan *) node);
-
-			/*
-			 * join nodes
-			 */
-		case T_NestLoop:
-			return ExecCountSlotsNestLoop((NestLoop *) node);
-
-		case T_MergeJoin:
-			return ExecCountSlotsMergeJoin((MergeJoin *) node);
-
-		case T_HashJoin:
-			return ExecCountSlotsHashJoin((HashJoin *) node);
-
-			/*
-			 * materialization nodes
-			 */
-		case T_Material:
-			return ExecCountSlotsMaterial((Material *) node);
-
-		case T_Sort:
-			return ExecCountSlotsSort((Sort *) node);
-
-		case T_Group:
-			return ExecCountSlotsGroup((Group *) node);
-
-		case T_Agg:
-			return ExecCountSlotsAgg((Agg *) node);
-
-		case T_WindowAgg:
-			return ExecCountSlotsWindowAgg((WindowAgg *) node);
-			break;
-
-		case T_Unique:
-			return ExecCountSlotsUnique((Unique *) node);
-
-		case T_Hash:
-			return ExecCountSlotsHash((Hash *) node);
-
-		case T_SetOp:
-			return ExecCountSlotsSetOp((SetOp *) node);
-
-		case T_Limit:
-			return ExecCountSlotsLimit((Limit *) node);
-
-#ifdef PGXC
-		case T_RemoteQuery:
-			return ExecCountSlotsRemoteQuery((RemoteQuery *) node);
-#endif
-
-		default:
-			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
-			break;
-	}
-
-	return 0;
-}
-
 /* ----------------------------------------------------------------
  *		ExecEndNode
  *
  *		Recursively cleans up all the nodes in the plan rooted
  *		at 'node'.
  *
- *		After this operation, the query plan will not be able to
+ *		After this operation, the query plan will not be able to be
  *		processed any further.	This should be called only after
  *		the query plan has been fully executed.
  * ----------------------------------------------------------------
@@ -688,6 +586,10 @@ ExecEndNode(PlanState *node)
 			 */
 		case T_ResultState:
 			ExecEndResult((ResultState *) node);
+			break;
+
+		case T_ModifyTableState:
+			ExecEndModifyTable((ModifyTableState *) node);
 			break;
 
 		case T_AppendState:
@@ -797,6 +699,10 @@ ExecEndNode(PlanState *node)
 
 		case T_SetOpState:
 			ExecEndSetOp((SetOpState *) node);
+			break;
+
+		case T_LockRowsState:
+			ExecEndLockRows((LockRowsState *) node);
 			break;
 
 		case T_LimitState:

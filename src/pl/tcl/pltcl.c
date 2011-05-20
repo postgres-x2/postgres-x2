@@ -2,7 +2,7 @@
  * pltcl.c		- PostgreSQL support for Tcl as
  *				  procedural language (PL)
  *
- *	  $PostgreSQL: pgsql/src/pl/tcl/pltcl.c,v 1.128 2009/06/11 14:49:14 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/pl/tcl/pltcl.c,v 1.134 2010/07/06 19:19:01 momjian Exp $
  *
  **********************************************************************/
 
@@ -120,7 +120,8 @@ typedef struct pltcl_query_desc
  * Global data
  **********************************************************************/
 static bool pltcl_pm_init_done = false;
-static bool pltcl_be_init_done = false;
+static bool pltcl_be_norm_init_done = false;
+static bool pltcl_be_safe_init_done = false;
 static Tcl_Interp *pltcl_hold_interp = NULL;
 static Tcl_Interp *pltcl_norm_interp = NULL;
 static Tcl_Interp *pltcl_safe_interp = NULL;
@@ -139,8 +140,8 @@ Datum		pltcl_call_handler(PG_FUNCTION_ARGS);
 Datum		pltclu_call_handler(PG_FUNCTION_ARGS);
 void		_PG_init(void);
 
-static void pltcl_init_all(void);
 static void pltcl_init_interp(Tcl_Interp *interp);
+static Tcl_Interp *pltcl_fetch_interp(bool pltrusted);
 static void pltcl_init_load_unknown(Tcl_Interp *interp);
 
 static Datum pltcl_func_handler(PG_FUNCTION_ARGS);
@@ -304,9 +305,12 @@ _PG_init(void)
 	 ************************************************************/
 	if ((pltcl_hold_interp = Tcl_CreateInterp()) == NULL)
 		elog(ERROR, "could not create \"hold\" interpreter");
+	if (Tcl_Init(pltcl_hold_interp) == TCL_ERROR)
+		elog(ERROR, "could not initialize \"hold\" interpreter");
 
 	/************************************************************
-	 * Create the two interpreters
+	 * Create the two slave interpreters.  Note: Tcl automatically does
+	 * Tcl_Init on the normal slave, and it's not wanted for the safe slave.
 	 ************************************************************/
 	if ((pltcl_norm_interp =
 		 Tcl_CreateSlave(pltcl_hold_interp, "norm", 0)) == NULL)
@@ -332,32 +336,11 @@ _PG_init(void)
 }
 
 /**********************************************************************
- * pltcl_init_all()		- Initialize all
- *
- * This does initialization that can't be done in the postmaster, and
- * hence is not safe to do at library load time.
- **********************************************************************/
-static void
-pltcl_init_all(void)
-{
-	/************************************************************
-	 * Try to load the unknown procedure from pltcl_modules
-	 ************************************************************/
-	if (!pltcl_be_init_done)
-	{
-		if (SPI_connect() != SPI_OK_CONNECT)
-			elog(ERROR, "SPI_connect failed");
-		pltcl_init_load_unknown(pltcl_norm_interp);
-		pltcl_init_load_unknown(pltcl_safe_interp);
-		if (SPI_finish() != SPI_OK_FINISH)
-			elog(ERROR, "SPI_finish failed");
-		pltcl_be_init_done = true;
-	}
-}
-
-
-/**********************************************************************
  * pltcl_init_interp() - initialize a Tcl interpreter
+ *
+ * The work done here must be safe to do in the postmaster process,
+ * in case the pltcl library is preloaded in the postmaster.  Note
+ * that this is applied separately to the "normal" and "safe" interpreters.
  **********************************************************************/
 static void
 pltcl_init_interp(Tcl_Interp *interp)
@@ -384,6 +367,42 @@ pltcl_init_interp(Tcl_Interp *interp)
 					  pltcl_SPI_lastoid, NULL, NULL);
 }
 
+/**********************************************************************
+ * pltcl_fetch_interp() - fetch the Tcl interpreter to use for a function
+ *
+ * This also takes care of any on-first-use initialization required.
+ * The initialization work done here can't be done in the postmaster, and
+ * hence is not safe to do at library load time, because it may invoke
+ * arbitrary user-defined code.
+ * Note: we assume caller has already connected to SPI.
+ **********************************************************************/
+static Tcl_Interp *
+pltcl_fetch_interp(bool pltrusted)
+{
+	Tcl_Interp *interp;
+
+	/* On first use, we try to load the unknown procedure from pltcl_modules */
+	if (pltrusted)
+	{
+		interp = pltcl_safe_interp;
+		if (!pltcl_be_safe_init_done)
+		{
+			pltcl_init_load_unknown(interp);
+			pltcl_be_safe_init_done = true;
+		}
+	}
+	else
+	{
+		interp = pltcl_norm_interp;
+		if (!pltcl_be_norm_init_done)
+		{
+			pltcl_init_load_unknown(interp);
+			pltcl_be_norm_init_done = true;
+		}
+	}
+
+	return interp;
+}
 
 /**********************************************************************
  * pltcl_init_load_unknown()	- Load the unknown procedure from
@@ -392,6 +411,11 @@ pltcl_init_interp(Tcl_Interp *interp)
 static void
 pltcl_init_load_unknown(Tcl_Interp *interp)
 {
+	Relation	pmrel;
+	char	   *pmrelname,
+			   *nspname;
+	char	   *buf;
+	int			buflen;
 	int			spi_rc;
 	int			tcl_rc;
 	Tcl_DString unknown_src;
@@ -401,46 +425,71 @@ pltcl_init_load_unknown(Tcl_Interp *interp)
 
 	/************************************************************
 	 * Check if table pltcl_modules exists
+	 *
+	 * We allow the table to be found anywhere in the search_path.
+	 * This is for backwards compatibility.  To ensure that the table
+	 * is trustworthy, we require it to be owned by a superuser.
 	 ************************************************************/
-	spi_rc = SPI_execute("select 1 from pg_catalog.pg_class "
-						 "where relname = 'pltcl_modules'",
-						 false, 1);
-	SPI_freetuptable(SPI_tuptable);
-	if (spi_rc != SPI_OK_SELECT)
-		elog(ERROR, "select from pg_class failed");
-	if (SPI_processed == 0)
+	pmrel = try_relation_openrv(makeRangeVar(NULL, "pltcl_modules", -1),
+								AccessShareLock);
+	if (pmrel == NULL)
 		return;
+	/* must be table or view, else ignore */
+	if (!(pmrel->rd_rel->relkind == RELKIND_RELATION ||
+		  pmrel->rd_rel->relkind == RELKIND_VIEW))
+	{
+		relation_close(pmrel, AccessShareLock);
+		return;
+	}
+	/* must be owned by superuser, else ignore */
+	if (!superuser_arg(pmrel->rd_rel->relowner))
+	{
+		relation_close(pmrel, AccessShareLock);
+		return;
+	}
+	/* get fully qualified table name for use in select command */
+	nspname = get_namespace_name(RelationGetNamespace(pmrel));
+	if (!nspname)
+		elog(ERROR, "cache lookup failed for namespace %u",
+			 RelationGetNamespace(pmrel));
+	pmrelname = quote_qualified_identifier(nspname,
+										   RelationGetRelationName(pmrel));
 
 	/************************************************************
-	 * Read all the row's from it where modname = 'unknown' in
-	 * the order of modseq
+	 * Read all the rows from it where modname = 'unknown',
+	 * in the order of modseq
 	 ************************************************************/
-	Tcl_DStringInit(&unknown_src);
+	buflen = strlen(pmrelname) + 100;
+	buf = (char *) palloc(buflen);
+	snprintf(buf, buflen,
+		   "select modsrc from %s where modname = 'unknown' order by modseq",
+			 pmrelname);
 
-	spi_rc = SPI_execute("select modseq, modsrc from pltcl_modules "
-						 "where modname = 'unknown' "
-						 "order by modseq",
-						 false, 0);
+	spi_rc = SPI_execute(buf, false, 0);
 	if (spi_rc != SPI_OK_SELECT)
 		elog(ERROR, "select from pltcl_modules failed");
+
+	pfree(buf);
 
 	/************************************************************
 	 * If there's nothing, module unknown doesn't exist
 	 ************************************************************/
 	if (SPI_processed == 0)
 	{
-		Tcl_DStringFree(&unknown_src);
 		SPI_freetuptable(SPI_tuptable);
 		elog(WARNING, "module \"unknown\" not found in pltcl_modules");
+		relation_close(pmrel, AccessShareLock);
 		return;
 	}
 
 	/************************************************************
-	 * There is a module named unknown. Resemble the
+	 * There is a module named unknown. Reassemble the
 	 * source from the modsrc attributes and evaluate
 	 * it in the Tcl interpreter
 	 ************************************************************/
 	fno = SPI_fnumber(SPI_tuptable->tupdesc, "modsrc");
+
+	Tcl_DStringInit(&unknown_src);
 
 	for (i = 0; i < SPI_processed; i++)
 	{
@@ -455,8 +504,19 @@ pltcl_init_load_unknown(Tcl_Interp *interp)
 		}
 	}
 	tcl_rc = Tcl_GlobalEval(interp, Tcl_DStringValue(&unknown_src));
+
 	Tcl_DStringFree(&unknown_src);
 	SPI_freetuptable(SPI_tuptable);
+
+	if (tcl_rc != TCL_OK)
+	{
+		UTF_BEGIN;
+		elog(ERROR, "could not load module \"unknown\": %s",
+			 UTF_U2E(Tcl_GetStringResult(interp)));
+		UTF_END;
+	}
+
+	relation_close(pmrel, AccessShareLock);
 }
 
 
@@ -476,11 +536,6 @@ pltcl_call_handler(PG_FUNCTION_ARGS)
 	Datum		retval;
 	FunctionCallInfo save_fcinfo;
 	pltcl_proc_desc *save_prodesc;
-
-	/*
-	 * Initialize interpreters if first time through
-	 */
-	pltcl_init_all();
 
 	/*
 	 * Ensure that static pointers are saved/restored properly
@@ -555,10 +610,7 @@ pltcl_func_handler(PG_FUNCTION_ARGS)
 
 	pltcl_current_prodesc = prodesc;
 
-	if (prodesc->lanpltrusted)
-		interp = pltcl_safe_interp;
-	else
-		interp = pltcl_norm_interp;
+	interp = pltcl_fetch_interp(prodesc->lanpltrusted);
 
 	/************************************************************
 	 * Create the tcl command to call the internal
@@ -716,10 +768,7 @@ pltcl_trigger_handler(PG_FUNCTION_ARGS)
 
 	pltcl_current_prodesc = prodesc;
 
-	if (prodesc->lanpltrusted)
-		interp = pltcl_safe_interp;
-	else
-		interp = pltcl_norm_interp;
+	interp = pltcl_fetch_interp(prodesc->lanpltrusted);
 
 	tupdesc = trigdata->tg_relation->rd_att;
 
@@ -955,9 +1004,8 @@ pltcl_trigger_handler(PG_FUNCTION_ARGS)
 			 * Lookup the attribute type in the syscache
 			 * for the input function
 			 ************************************************************/
-			typeTup = SearchSysCache(TYPEOID,
-					  ObjectIdGetDatum(tupdesc->attrs[attnum - 1]->atttypid),
-									 0, 0, 0);
+			typeTup = SearchSysCache1(TYPEOID,
+					 ObjectIdGetDatum(tupdesc->attrs[attnum - 1]->atttypid));
 			if (!HeapTupleIsValid(typeTup))
 				elog(ERROR, "cache lookup failed for type %u",
 					 tupdesc->attrs[attnum - 1]->atttypid);
@@ -1052,9 +1100,7 @@ compile_pltcl_function(Oid fn_oid, Oid tgreloid)
 	int			tcl_rc;
 
 	/* We'll need the pg_proc tuple in any case... */
-	procTup = SearchSysCache(PROCOID,
-							 ObjectIdGetDatum(fn_oid),
-							 0, 0, 0);
+	procTup = SearchSysCache1(PROCOID, ObjectIdGetDatum(fn_oid));
 	if (!HeapTupleIsValid(procTup))
 		elog(ERROR, "cache lookup failed for function %u", fn_oid);
 	procStruct = (Form_pg_proc) GETSTRUCT(procTup);
@@ -1138,9 +1184,8 @@ compile_pltcl_function(Oid fn_oid, Oid tgreloid)
 		/************************************************************
 		 * Lookup the pg_language tuple by Oid
 		 ************************************************************/
-		langTup = SearchSysCache(LANGOID,
-								 ObjectIdGetDatum(procStruct->prolang),
-								 0, 0, 0);
+		langTup = SearchSysCache1(LANGOID,
+								  ObjectIdGetDatum(procStruct->prolang));
 		if (!HeapTupleIsValid(langTup))
 		{
 			free(prodesc->user_proname);
@@ -1153,10 +1198,7 @@ compile_pltcl_function(Oid fn_oid, Oid tgreloid)
 		prodesc->lanpltrusted = langStruct->lanpltrusted;
 		ReleaseSysCache(langTup);
 
-		if (prodesc->lanpltrusted)
-			interp = pltcl_safe_interp;
-		else
-			interp = pltcl_norm_interp;
+		interp = pltcl_fetch_interp(prodesc->lanpltrusted);
 
 		/************************************************************
 		 * Get the required information for input conversion of the
@@ -1164,9 +1206,9 @@ compile_pltcl_function(Oid fn_oid, Oid tgreloid)
 		 ************************************************************/
 		if (!is_trigger)
 		{
-			typeTup = SearchSysCache(TYPEOID,
-									 ObjectIdGetDatum(procStruct->prorettype),
-									 0, 0, 0);
+			typeTup =
+				SearchSysCache1(TYPEOID,
+								ObjectIdGetDatum(procStruct->prorettype));
 			if (!HeapTupleIsValid(typeTup))
 			{
 				free(prodesc->user_proname);
@@ -1229,9 +1271,8 @@ compile_pltcl_function(Oid fn_oid, Oid tgreloid)
 			proc_internal_args[0] = '\0';
 			for (i = 0; i < prodesc->nargs; i++)
 			{
-				typeTup = SearchSysCache(TYPEOID,
-						 ObjectIdGetDatum(procStruct->proargtypes.values[i]),
-										 0, 0, 0);
+				typeTup = SearchSysCache1(TYPEOID,
+						ObjectIdGetDatum(procStruct->proargtypes.values[i]));
 				if (!HeapTupleIsValid(typeTup))
 				{
 					free(prodesc->user_proname);
@@ -1946,7 +1987,7 @@ pltcl_SPI_prepare(ClientData cdata, Tcl_Interp *interp,
 	 * Allocate the new querydesc structure
 	 ************************************************************/
 	qdesc = (pltcl_query_desc *) malloc(sizeof(pltcl_query_desc));
-	snprintf(qdesc->qname, sizeof(qdesc->qname), "%lx", (long) qdesc);
+	snprintf(qdesc->qname, sizeof(qdesc->qname), "%p", qdesc);
 	qdesc->nargs = nargs;
 	qdesc->argtypes = (Oid *) malloc(nargs * sizeof(Oid));
 	qdesc->arginfuncs = (FmgrInfo *) malloc(nargs * sizeof(FmgrInfo));
@@ -2334,9 +2375,8 @@ pltcl_set_tuple_values(Tcl_Interp *interp, CONST84 char *arrayname,
 		 * Lookup the attribute type in the syscache
 		 * for the output function
 		 ************************************************************/
-		typeTup = SearchSysCache(TYPEOID,
-							   ObjectIdGetDatum(tupdesc->attrs[i]->atttypid),
-								 0, 0, 0);
+		typeTup = SearchSysCache1(TYPEOID,
+							  ObjectIdGetDatum(tupdesc->attrs[i]->atttypid));
 		if (!HeapTupleIsValid(typeTup))
 			elog(ERROR, "cache lookup failed for type %u",
 				 tupdesc->attrs[i]->atttypid);
@@ -2403,9 +2443,8 @@ pltcl_build_tuple_argument(HeapTuple tuple, TupleDesc tupdesc,
 		 * Lookup the attribute type in the syscache
 		 * for the output function
 		 ************************************************************/
-		typeTup = SearchSysCache(TYPEOID,
-							   ObjectIdGetDatum(tupdesc->attrs[i]->atttypid),
-								 0, 0, 0);
+		typeTup = SearchSysCache1(TYPEOID,
+							  ObjectIdGetDatum(tupdesc->attrs[i]->atttypid));
 		if (!HeapTupleIsValid(typeTup))
 			elog(ERROR, "cache lookup failed for type %u",
 				 tupdesc->attrs[i]->atttypid);

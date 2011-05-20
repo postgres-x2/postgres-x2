@@ -1,13 +1,13 @@
 
 # -*-perl-*- hey - emacs - this is a perl file
 
-# $PostgreSQL: pgsql/src/tools/msvc/build.pl,v 1.1 2007/09/23 21:52:56 adunstan Exp $
+# $PostgreSQL: pgsql/src/tools/msvc/build.pl,v 1.3 2010/04/09 13:05:58 mha Exp $
 
 BEGIN
 {
-	
-	chdir("../../..") if  (-d "../msvc" && -d "../../../src");
-	
+
+    chdir("../../..") if  (-d "../msvc" && -d "../../../src");
+
 }
 
 use lib "src/tools/msvc";
@@ -29,10 +29,10 @@ elsif (-e "./buildenv.pl" )
     require "./buildenv.pl";
 }
 
-
 # set up the project
 our $config;
-require "config.pl";
+require "config_default.pl";
+require "config.pl" if (-f "src/tools/msvc/config.pl");
 
 Mkvcbuild::mkvcbuild($config);
 

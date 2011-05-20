@@ -76,8 +76,12 @@ CREATE INDEX gpolygonind ON polygon_tbl USING gist (f1);
 
 CREATE INDEX gcircleind ON circle_tbl USING gist (f1);
 
+CREATE INDEX gpointind ON point_tbl USING gist (f1);
+
 CREATE TEMP TABLE gpolygon_tbl AS
     SELECT polygon(home_base) AS f1 FROM slow_emp4000;
+INSERT INTO gpolygon_tbl VALUES ( '(1000,0,0,1000)' ); 
+INSERT INTO gpolygon_tbl VALUES ( '(0,1000,1000,1000)' ); 
 
 CREATE TEMP TABLE gcircle_tbl AS
     SELECT circle(home_base) AS f1 FROM slow_emp4000;
@@ -108,30 +112,99 @@ SELECT count(*) FROM gpolygon_tbl WHERE f1 && '(1000,1000,0,0)'::polygon;
 
 SELECT count(*) FROM gcircle_tbl WHERE f1 && '<(500,500),500>'::circle;
 
+SELECT count(*) FROM point_tbl WHERE f1 <@ box '(0,0,100,100)';
+
+SELECT count(*) FROM point_tbl WHERE box '(0,0,100,100)' @> f1;
+
+SELECT count(*) FROM point_tbl WHERE f1 <@ polygon '(0,0),(0,100),(100,100),(50,50),(100,0),(0,0)';
+
+SELECT count(*) FROM point_tbl WHERE f1 <@ circle '<(50,50),50>';
+
+SELECT count(*) FROM point_tbl p WHERE p.f1 << '(0.0, 0.0)';
+
+SELECT count(*) FROM point_tbl p WHERE p.f1 >> '(0.0, 0.0)';
+
+SELECT count(*) FROM point_tbl p WHERE p.f1 <^ '(0.0, 0.0)';
+
+SELECT count(*) FROM point_tbl p WHERE p.f1 >^ '(0.0, 0.0)';
+
+SELECT count(*) FROM point_tbl p WHERE p.f1 ~= '(-5, -12)';
+
 SET enable_seqscan = OFF;
 SET enable_indexscan = ON;
 SET enable_bitmapscan = ON;
 
--- there's no easy way to check that these commands actually use
--- the index, unfortunately.  (EXPLAIN would work, but its output
--- changes too often for me to want to put an EXPLAIN in the test...)
+EXPLAIN (COSTS OFF)
+SELECT * FROM fast_emp4000
+    WHERE home_base @ '(200,200),(2000,1000)'::box
+    ORDER BY (home_base[0])[0];
 SELECT * FROM fast_emp4000
     WHERE home_base @ '(200,200),(2000,1000)'::box
     ORDER BY (home_base[0])[0];
 
+EXPLAIN (COSTS OFF)
+SELECT count(*) FROM fast_emp4000 WHERE home_base && '(1000,1000,0,0)'::box;
 SELECT count(*) FROM fast_emp4000 WHERE home_base && '(1000,1000,0,0)'::box;
 
+EXPLAIN (COSTS OFF)
+SELECT count(*) FROM fast_emp4000 WHERE home_base IS NULL;
 SELECT count(*) FROM fast_emp4000 WHERE home_base IS NULL;
 
+EXPLAIN (COSTS OFF)
+SELECT * FROM polygon_tbl WHERE f1 ~ '((1,1),(2,2),(2,1))'::polygon
+    ORDER BY (poly_center(f1))[0];
 SELECT * FROM polygon_tbl WHERE f1 ~ '((1,1),(2,2),(2,1))'::polygon
     ORDER BY (poly_center(f1))[0];
 
+EXPLAIN (COSTS OFF)
+SELECT * FROM circle_tbl WHERE f1 && circle(point(1,-2), 1)
+    ORDER BY area(f1);
 SELECT * FROM circle_tbl WHERE f1 && circle(point(1,-2), 1)
     ORDER BY area(f1);
 
+EXPLAIN (COSTS OFF)
+SELECT count(*) FROM gpolygon_tbl WHERE f1 && '(1000,1000,0,0)'::polygon;
 SELECT count(*) FROM gpolygon_tbl WHERE f1 && '(1000,1000,0,0)'::polygon;
 
+EXPLAIN (COSTS OFF)
 SELECT count(*) FROM gcircle_tbl WHERE f1 && '<(500,500),500>'::circle;
+SELECT count(*) FROM gcircle_tbl WHERE f1 && '<(500,500),500>'::circle;
+
+EXPLAIN (COSTS OFF)
+SELECT count(*) FROM point_tbl WHERE f1 <@ box '(0,0,100,100)';
+SELECT count(*) FROM point_tbl WHERE f1 <@ box '(0,0,100,100)';
+
+EXPLAIN (COSTS OFF)
+SELECT count(*) FROM point_tbl WHERE box '(0,0,100,100)' @> f1;
+SELECT count(*) FROM point_tbl WHERE box '(0,0,100,100)' @> f1;
+
+EXPLAIN (COSTS OFF)
+SELECT count(*) FROM point_tbl WHERE f1 <@ polygon '(0,0),(0,100),(100,100),(50,50),(100,0),(0,0)';
+SELECT count(*) FROM point_tbl WHERE f1 <@ polygon '(0,0),(0,100),(100,100),(50,50),(100,0),(0,0)';
+
+EXPLAIN (COSTS OFF)
+SELECT count(*) FROM point_tbl WHERE f1 <@ circle '<(50,50),50>';
+SELECT count(*) FROM point_tbl WHERE f1 <@ circle '<(50,50),50>';
+
+EXPLAIN (COSTS OFF)
+SELECT count(*) FROM point_tbl p WHERE p.f1 << '(0.0, 0.0)';
+SELECT count(*) FROM point_tbl p WHERE p.f1 << '(0.0, 0.0)';
+
+EXPLAIN (COSTS OFF)
+SELECT count(*) FROM point_tbl p WHERE p.f1 >> '(0.0, 0.0)';
+SELECT count(*) FROM point_tbl p WHERE p.f1 >> '(0.0, 0.0)';
+
+EXPLAIN (COSTS OFF)
+SELECT count(*) FROM point_tbl p WHERE p.f1 <^ '(0.0, 0.0)';
+SELECT count(*) FROM point_tbl p WHERE p.f1 <^ '(0.0, 0.0)';
+
+EXPLAIN (COSTS OFF)
+SELECT count(*) FROM point_tbl p WHERE p.f1 >^ '(0.0, 0.0)';
+SELECT count(*) FROM point_tbl p WHERE p.f1 >^ '(0.0, 0.0)';
+
+EXPLAIN (COSTS OFF)
+SELECT count(*) FROM point_tbl p WHERE p.f1 ~= '(-5, -12)';
+SELECT count(*) FROM point_tbl p WHERE p.f1 ~= '(-5, -12)';
 
 RESET enable_seqscan;
 RESET enable_indexscan;
@@ -283,7 +356,8 @@ CREATE UNIQUE INDEX CONCURRENTLY concur_index3 ON concur_heap(f2);
 -- test that expression indexes and partial indexes work concurrently
 CREATE INDEX CONCURRENTLY concur_index4 on concur_heap(f2) WHERE f1='a';
 CREATE INDEX CONCURRENTLY concur_index5 on concur_heap(f2) WHERE f1='x';
-CREATE INDEX CONCURRENTLY concur_index6 on concur_heap((f2||f1));
+-- here we also check that you can default the index name
+CREATE INDEX CONCURRENTLY on concur_heap((f2||f1));
 
 -- You can't do a concurrent index build in a transaction
 BEGIN;
@@ -304,7 +378,7 @@ COMMIT;
 DROP TABLE concur_heap;
 
 --
--- Tests for IS NULL with b-tree indexes
+-- Tests for IS NULL/IS NOT NULL with b-tree indexes
 --
 
 SELECT unique1, unique2 INTO onek_with_null FROM onek;
@@ -317,6 +391,8 @@ SET enable_bitmapscan = ON;
 
 SELECT count(*) FROM onek_with_null WHERE unique1 IS NULL;
 SELECT count(*) FROM onek_with_null WHERE unique1 IS NULL AND unique2 IS NULL;
+SELECT count(*) FROM onek_with_null WHERE unique1 IS NOT NULL;
+SELECT count(*) FROM onek_with_null WHERE unique1 IS NULL AND unique2 IS NOT NULL;
 
 DROP INDEX onek_nulltest;
 
@@ -324,6 +400,8 @@ CREATE UNIQUE INDEX onek_nulltest ON onek_with_null (unique2 desc,unique1);
 
 SELECT count(*) FROM onek_with_null WHERE unique1 IS NULL;
 SELECT count(*) FROM onek_with_null WHERE unique1 IS NULL AND unique2 IS NULL;
+SELECT count(*) FROM onek_with_null WHERE unique1 IS NOT NULL;
+SELECT count(*) FROM onek_with_null WHERE unique1 IS NULL AND unique2 IS NOT NULL;
 
 DROP INDEX onek_nulltest;
 
@@ -331,6 +409,8 @@ CREATE UNIQUE INDEX onek_nulltest ON onek_with_null (unique2 desc nulls last,uni
 
 SELECT count(*) FROM onek_with_null WHERE unique1 IS NULL;
 SELECT count(*) FROM onek_with_null WHERE unique1 IS NULL AND unique2 IS NULL;
+SELECT count(*) FROM onek_with_null WHERE unique1 IS NOT NULL;
+SELECT count(*) FROM onek_with_null WHERE unique1 IS NULL AND unique2 IS NOT NULL;
 
 DROP INDEX onek_nulltest;
 
@@ -338,6 +418,8 @@ CREATE UNIQUE INDEX onek_nulltest ON onek_with_null (unique2  nulls first,unique
 
 SELECT count(*) FROM onek_with_null WHERE unique1 IS NULL;
 SELECT count(*) FROM onek_with_null WHERE unique1 IS NULL AND unique2 IS NULL;
+SELECT count(*) FROM onek_with_null WHERE unique1 IS NOT NULL;
+SELECT count(*) FROM onek_with_null WHERE unique1 IS NULL AND unique2 IS NOT NULL;
 
 RESET enable_seqscan;
 RESET enable_indexscan;

@@ -2,11 +2,11 @@
  *
  * pg_dumpall.c
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
- * $PostgreSQL: pgsql/src/bin/pg_dump/pg_dumpall.c,v 1.126 2009/06/11 14:49:07 momjian Exp $
+ * $PostgreSQL: pgsql/src/bin/pg_dump/pg_dumpall.c,v 1.134 2010/02/26 02:01:17 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -43,8 +43,10 @@ static void dropDBs(PGconn *conn);
 static void dumpCreateDB(PGconn *conn);
 static void dumpDatabaseConfig(PGconn *conn, const char *dbname);
 static void dumpUserConfig(PGconn *conn, const char *username);
+static void dumpDbRoleConfig(PGconn *conn);
 static void makeAlterConfigCommand(PGconn *conn, const char *arrayitem,
-					   const char *type, const char *name);
+					   const char *type, const char *name, const char *type2,
+					   const char *name2);
 static void dumpDatabases(PGconn *conn);
 static void dumpTimestamp(char *msg);
 static void doShellQuoting(PQExpBuffer buf, const char *str);
@@ -501,6 +503,13 @@ main(int argc, char *argv[])
 		/* Dump CREATE DATABASE commands */
 		if (!globals_only && !roles_only && !tablespaces_only)
 			dumpCreateDB(conn);
+
+		/* Dump role/database settings */
+		if (!tablespaces_only && !roles_only)
+		{
+			if (server_version >= 90000)
+				dumpDbRoleConfig(conn);
+		}
 	}
 
 	if (!globals_only && !roles_only && !tablespaces_only)
@@ -947,10 +956,19 @@ dumpTablespaces(PGconn *conn)
 	 * Get all tablespaces except built-in ones (which we assume are named
 	 * pg_xxx)
 	 */
-	if (server_version >= 80200)
+	if (server_version >= 90000)
 		res = executeQuery(conn, "SELECT spcname, "
 						 "pg_catalog.pg_get_userbyid(spcowner) AS spcowner, "
 						   "spclocation, spcacl, "
+						   "array_to_string(spcoptions, ', '),"
+						"pg_catalog.shobj_description(oid, 'pg_tablespace') "
+						   "FROM pg_catalog.pg_tablespace "
+						   "WHERE spcname !~ '^pg_' "
+						   "ORDER BY 1");
+	else if (server_version >= 80200)
+		res = executeQuery(conn, "SELECT spcname, "
+						 "pg_catalog.pg_get_userbyid(spcowner) AS spcowner, "
+						   "spclocation, spcacl, null, "
 						"pg_catalog.shobj_description(oid, 'pg_tablespace') "
 						   "FROM pg_catalog.pg_tablespace "
 						   "WHERE spcname !~ '^pg_' "
@@ -959,7 +977,7 @@ dumpTablespaces(PGconn *conn)
 		res = executeQuery(conn, "SELECT spcname, "
 						 "pg_catalog.pg_get_userbyid(spcowner) AS spcowner, "
 						   "spclocation, spcacl, "
-						   "null "
+						   "null, null "
 						   "FROM pg_catalog.pg_tablespace "
 						   "WHERE spcname !~ '^pg_' "
 						   "ORDER BY 1");
@@ -974,7 +992,8 @@ dumpTablespaces(PGconn *conn)
 		char	   *spcowner = PQgetvalue(res, i, 1);
 		char	   *spclocation = PQgetvalue(res, i, 2);
 		char	   *spcacl = PQgetvalue(res, i, 3);
-		char	   *spccomment = PQgetvalue(res, i, 4);
+		char	   *spcoptions = PQgetvalue(res, i, 4);
+		char	   *spccomment = PQgetvalue(res, i, 5);
 		char	   *fspcname;
 
 		/* needed for buildACLCommands() */
@@ -987,9 +1006,13 @@ dumpTablespaces(PGconn *conn)
 		appendStringLiteralConn(buf, spclocation, conn);
 		appendPQExpBuffer(buf, ";\n");
 
+		if (spcoptions && spcoptions[0] != '\0')
+			appendPQExpBuffer(buf, "ALTER TABLESPACE %s SET (%s);\n",
+							  fspcname, spcoptions);
+
 		if (!skip_acls &&
 			!buildACLCommands(fspcname, NULL, "TABLESPACE", spcacl, spcowner,
-							  server_version, buf))
+							  "", server_version, buf))
 		{
 			fprintf(stderr, _("%s: could not parse ACL list (%s) for tablespace \"%s\"\n"),
 					progname, spcacl, fspcname);
@@ -1289,7 +1312,7 @@ dumpCreateDB(PGconn *conn)
 
 		if (!skip_acls &&
 			!buildACLCommands(fdbname, NULL, "DATABASE", dbacl, dbowner,
-							  server_version, buf))
+							  "", server_version, buf))
 		{
 			fprintf(stderr, _("%s: could not parse ACL list (%s) for database \"%s\"\n"),
 					progname, dbacl, fdbname);
@@ -1325,15 +1348,24 @@ dumpDatabaseConfig(PGconn *conn, const char *dbname)
 	{
 		PGresult   *res;
 
-		printfPQExpBuffer(buf, "SELECT datconfig[%d] FROM pg_database WHERE datname = ", count);
+		if (server_version >= 90000)
+			printfPQExpBuffer(buf, "SELECT setconfig[%d] FROM pg_db_role_setting WHERE "
+							  "setrole = 0 AND setdatabase = (SELECT oid FROM pg_database WHERE datname = ", count);
+		else
+			printfPQExpBuffer(buf, "SELECT datconfig[%d] FROM pg_database WHERE datname = ", count);
 		appendStringLiteralConn(buf, dbname, conn);
+
+		if (server_version >= 90000)
+			appendPQExpBuffer(buf, ")");
+
 		appendPQExpBuffer(buf, ";");
 
 		res = executeQuery(conn, buf->data);
-		if (!PQgetisnull(res, 0, 0))
+		if (PQntuples(res) == 1 &&
+			!PQgetisnull(res, 0, 0))
 		{
 			makeAlterConfigCommand(conn, PQgetvalue(res, 0, 0),
-								   "DATABASE", dbname);
+								   "DATABASE", dbname, NULL, NULL);
 			PQclear(res);
 			count++;
 		}
@@ -1362,18 +1394,24 @@ dumpUserConfig(PGconn *conn, const char *username)
 	{
 		PGresult   *res;
 
-		if (server_version >= 80100)
+		if (server_version >= 90000)
+			printfPQExpBuffer(buf, "SELECT setconfig[%d] FROM pg_db_role_setting WHERE "
+							  "setdatabase = 0 AND setrole = "
+					   "(SELECT oid FROM pg_authid WHERE rolname = ", count);
+		else if (server_version >= 80100)
 			printfPQExpBuffer(buf, "SELECT rolconfig[%d] FROM pg_authid WHERE rolname = ", count);
 		else
 			printfPQExpBuffer(buf, "SELECT useconfig[%d] FROM pg_shadow WHERE usename = ", count);
 		appendStringLiteralConn(buf, username, conn);
+		if (server_version >= 90000)
+			appendPQExpBuffer(buf, ")");
 
 		res = executeQuery(conn, buf->data);
 		if (PQntuples(res) == 1 &&
 			!PQgetisnull(res, 0, 0))
 		{
 			makeAlterConfigCommand(conn, PQgetvalue(res, 0, 0),
-								   "ROLE", username);
+								   "ROLE", username, NULL, NULL);
 			PQclear(res);
 			count++;
 		}
@@ -1388,13 +1426,47 @@ dumpUserConfig(PGconn *conn, const char *username)
 }
 
 
+/*
+ * Dump user-and-database-specific configuration
+ */
+static void
+dumpDbRoleConfig(PGconn *conn)
+{
+	PQExpBuffer buf = createPQExpBuffer();
+	PGresult   *res;
+	int			i;
+
+	printfPQExpBuffer(buf, "SELECT rolname, datname, unnest(setconfig) "
+					  "FROM pg_db_role_setting, pg_authid, pg_database "
+		  "WHERE setrole = pg_authid.oid AND setdatabase = pg_database.oid");
+	res = executeQuery(conn, buf->data);
+
+	if (PQntuples(res) > 0)
+	{
+		fprintf(OPF, "--\n-- Per-Database Role Settings \n--\n\n");
+
+		for (i = 0; i < PQntuples(res); i++)
+		{
+			makeAlterConfigCommand(conn, PQgetvalue(res, i, 2),
+								   "ROLE", PQgetvalue(res, i, 0),
+								   "DATABASE", PQgetvalue(res, i, 1));
+		}
+
+		fprintf(OPF, "\n\n");
+	}
+
+	PQclear(res);
+	destroyPQExpBuffer(buf);
+}
+
 
 /*
  * Helper function for dumpXXXConfig().
  */
 static void
 makeAlterConfigCommand(PGconn *conn, const char *arrayitem,
-					   const char *type, const char *name)
+					   const char *type, const char *name,
+					   const char *type2, const char *name2)
 {
 	char	   *pos;
 	char	   *mine;
@@ -1407,6 +1479,8 @@ makeAlterConfigCommand(PGconn *conn, const char *arrayitem,
 
 	*pos = 0;
 	appendPQExpBuffer(buf, "ALTER %s %s ", type, fmtId(name));
+	if (type2 != NULL && name2 != NULL)
+		appendPQExpBuffer(buf, "IN %s %s ", type2, fmtId(name2));
 	appendPQExpBuffer(buf, "SET %s TO ", fmtId(mine));
 
 	/*
@@ -1544,8 +1618,36 @@ connectDatabase(const char *dbname, const char *pghost, const char *pgport,
 	 */
 	do
 	{
+#define PARAMS_ARRAY_SIZE	7
+		const char **keywords = malloc(PARAMS_ARRAY_SIZE * sizeof(*keywords));
+		const char **values = malloc(PARAMS_ARRAY_SIZE * sizeof(*values));
+
+		if (!keywords || !values)
+		{
+			fprintf(stderr, _("%s: out of memory\n"), progname);
+			exit(1);
+		}
+
+		keywords[0] = "host";
+		values[0] = pghost;
+		keywords[1] = "port";
+		values[1] = pgport;
+		keywords[2] = "user";
+		values[2] = pguser;
+		keywords[3] = "password";
+		values[3] = password;
+		keywords[4] = "dbname";
+		values[4] = dbname;
+		keywords[5] = "fallback_application_name";
+		values[5] = progname;
+		keywords[6] = NULL;
+		values[6] = NULL;
+
 		new_pass = false;
-		conn = PQsetdbLogin(pghost, pgport, NULL, NULL, dbname, pguser, password);
+		conn = PQconnectdbParams(keywords, values, true);
+
+		free(keywords);
+		free(values);
 
 		if (!conn)
 		{

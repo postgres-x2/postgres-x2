@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/filelist.sgml,v 1.61 2009/05/02 20:17:19 tgl Exp $ -->
+<!-- $PostgreSQL: pgsql/doc/src/sgml/filelist.sgml,v 1.69 2010/06/14 17:25:24 sriggs Exp $ -->
 
 <!entity history    SYSTEM "history.sgml">
 <!entity info       SYSTEM "info.sgml">
@@ -42,6 +42,7 @@
 <!entity manage-ag     SYSTEM "manage-ag.sgml">
 <!entity monitoring    SYSTEM "monitoring.sgml">
 <!entity regress       SYSTEM "regress.sgml">
+<!entity recovery-config SYSTEM "recovery-config.sgml">
 <!entity runtime       SYSTEM "runtime.sgml">
 <!entity config        SYSTEM "config.sgml">
 <!entity user-manag    SYSTEM "user-manag.sgml">
@@ -111,7 +112,9 @@
 <!entity ltree           SYSTEM "ltree.sgml">
 <!entity oid2name        SYSTEM "oid2name.sgml">
 <!entity pageinspect     SYSTEM "pageinspect.sgml">
+<!entity passwordcheck   SYSTEM "passwordcheck.sgml">
 <!entity pgbench         SYSTEM "pgbench.sgml">
+<!entity pgarchivecleanup SYSTEM "pgarchivecleanup.sgml">
 <!entity pgbuffercache   SYSTEM "pgbuffercache.sgml">
 <!entity pgcrypto        SYSTEM "pgcrypto.sgml">
 <!entity pgfreespacemap  SYSTEM "pgfreespacemap.sgml">
@@ -120,12 +123,14 @@
 <!entity pgstatstatements SYSTEM "pgstatstatements.sgml">
 <!entity pgstattuple     SYSTEM "pgstattuple.sgml">
 <!entity pgtrgm          SYSTEM "pgtrgm.sgml">
+<!entity pgupgrade       SYSTEM "pgupgrade.sgml">
 <!entity seg             SYSTEM "seg.sgml">
 <!entity contrib-spi     SYSTEM "contrib-spi.sgml">
 <!entity sslinfo         SYSTEM "sslinfo.sgml">
 <!entity tablefunc       SYSTEM "tablefunc.sgml">
 <!entity test-parser     SYSTEM "test-parser.sgml">
 <!entity tsearch2        SYSTEM "tsearch2.sgml">
+<!entity unaccent      SYSTEM "unaccent.sgml">
 <!entity uuid-ossp       SYSTEM "uuid-ossp.sgml">
 <!entity vacuumlo        SYSTEM "vacuumlo.sgml">
 <!entity xml2            SYSTEM "xml2.sgml"> 
@@ -140,6 +145,7 @@
 <!entity keywords   SYSTEM "keywords.sgml">
 
 <!entity release    SYSTEM "release.sgml">
+<!entity release-9.0    SYSTEM "release-9.0.sgml">
 <!entity release-8.4    SYSTEM "release-8.4.sgml">
 <!entity release-8.3    SYSTEM "release-8.3.sgml">
 <!entity release-8.2    SYSTEM "release-8.2.sgml">
@@ -165,3 +171,9 @@
  -->
 <!entity % standalone-ignore  "INCLUDE">
 <!entity % standalone-include "IGNORE">
+
+<!--
+ By default, no index is included.  Use -i include-index on the command line
+ to include it.
+ -->
+<!entity % include-index "IGNORE">

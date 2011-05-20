@@ -4,11 +4,11 @@
  *	  include file for the bootstrapping code
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
  *
- * $PostgreSQL: pgsql/src/include/bootstrap/bootstrap.h,v 1.51 2009/01/01 17:23:56 momjian Exp $
+ * $PostgreSQL: pgsql/src/include/bootstrap/bootstrap.h,v 1.55 2010/01/15 09:19:06 heikki Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -17,38 +17,47 @@
 
 #include "nodes/execnodes.h"
 
+typedef enum
+{
+	CheckerProcess,
+	BootstrapProcess,
+	StartupProcess,
+	BgWriterProcess,
+	WalWriterProcess,
+	WalReceiverProcess,
+#ifdef PGXC
+	PoolerProcess,
+#endif
+
+	NUM_AUXPROCTYPES			/* Must be last! */
+} AuxProcType;
+
 /*
  * MAXATTR is the maximum number of attributes in a relation supported
  * at bootstrap time (i.e., the max possible in a system table).
  */
 #define MAXATTR 40
 
-typedef struct hashnode
-{
-	int			strnum;			/* Index into string table */
-	struct hashnode *next;
-} hashnode;
-
-
 extern Relation boot_reldesc;
 extern Form_pg_attribute attrtypes[MAXATTR];
 extern int	numattr;
+
+
 extern void AuxiliaryProcessMain(int argc, char *argv[]);
 
-extern void index_register(Oid heap, Oid ind, IndexInfo *indexInfo);
-
 extern void err_out(void);
-extern void InsertOneTuple(Oid objectid);
+
 extern void closerel(char *name);
 extern void boot_openrel(char *name);
-extern char *LexIDStr(int ident_num);
 
 extern void DefineAttr(char *name, char *type, int attnum);
+extern void InsertOneTuple(Oid objectid);
 extern void InsertOneValue(char *value, int i);
 extern void InsertOneNull(int i);
+
 extern char *MapArrayTypeName(char *s);
-extern char *CleanUpStr(char *s);
-extern int	EnterString(char *str);
+
+extern void index_register(Oid heap, Oid ind, IndexInfo *indexInfo);
 extern void build_indices(void);
 
 extern void boot_get_type_io_data(Oid typid,
@@ -64,17 +73,5 @@ extern int	boot_yyparse(void);
 
 extern int	boot_yylex(void);
 extern void boot_yyerror(const char *str);
-
-typedef enum
-{
-	CheckerProcess,
-	BootstrapProcess,
-	StartupProcess,
-	BgWriterProcess,
-	WalWriterProcess
-#ifdef PGXC
-	,PoolerProcess
-#endif
-} AuxProcType;
 
 #endif   /* BOOTSTRAP_H */

@@ -17,7 +17,7 @@
  *
  *
  * IDENTIFICATION
- *		$PostgreSQL: pgsql/src/bin/pg_dump/pg_backup_archiver.h,v 1.79 2009/06/11 14:49:07 momjian Exp $
+ *		$PostgreSQL: pgsql/src/bin/pg_dump/pg_backup_archiver.h,v 1.85 2010/02/26 02:01:16 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -61,16 +61,16 @@ typedef struct _z_stream
 typedef z_stream *z_streamp;
 #endif
 
+/* Current archive version number (the format we can output) */
 #define K_VERS_MAJOR 1
-#define K_VERS_MINOR 11
+#define K_VERS_MINOR 12
 #define K_VERS_REV 0
 
 /* Data block types */
 #define BLK_DATA 1
-#define BLK_BLOB 2
 #define BLK_BLOBS 3
 
-/* Some important version numbers (checked in code) */
+/* Historical version numbers (checked in code) */
 #define K_VERS_1_0 (( (1 * 256 + 0) * 256 + 0) * 256 + 0)
 #define K_VERS_1_2 (( (1 * 256 + 2) * 256 + 0) * 256 + 0)		/* Allow No ZLIB */
 #define K_VERS_1_3 (( (1 * 256 + 3) * 256 + 0) * 256 + 0)		/* BLOBs */
@@ -87,8 +87,11 @@ typedef z_stream *z_streamp;
 #define K_VERS_1_10 (( (1 * 256 + 10) * 256 + 0) * 256 + 0)		/* add tablespace */
 #define K_VERS_1_11 (( (1 * 256 + 11) * 256 + 0) * 256 + 0)		/* add toc section
 																 * indicator */
+#define K_VERS_1_12 (( (1 * 256 + 12) * 256 + 0) * 256 + 0)		/* add separate BLOB
+																 * entries */
 
-#define K_VERS_MAX (( (1 * 256 + 11) * 256 + 255) * 256 + 0)
+/* Newest format we can read */
+#define K_VERS_MAX (( (1 * 256 + 12) * 256 + 255) * 256 + 0)
 
 
 /* Flags to indicate disposition of offsets stored in files */
@@ -314,7 +317,8 @@ typedef struct _tocEntry
 	void	   *formatData;		/* TOC Entry data specific to file format */
 
 	/* working state (needed only for parallel restore) */
-	bool		restored;		/* item is in progress or done */
+	struct _tocEntry *par_prev; /* list links for pending/ready items; */
+	struct _tocEntry *par_next; /* these are NULL if not in either list */
 	bool		created;		/* set for DATA member if TABLE was created */
 	int			depCount;		/* number of dependencies not yet restored */
 	DumpId	   *lockDeps;		/* dumpIds of objects this one needs lock on */
@@ -342,6 +346,9 @@ extern bool checkSeek(FILE *fp);
 #define appendStringLiteralAHX(buf,str,AH) \
 	appendStringLiteral(buf, str, (AH)->public.encoding, (AH)->public.std_strings)
 
+#define appendByteaLiteralAHX(buf,str,len,AH) \
+	appendByteaLiteral(buf, str, len, (AH)->public.std_strings)
+
 /*
  * Mandatory routines for each supported format
  */
@@ -355,7 +362,7 @@ int			ReadOffset(ArchiveHandle *, pgoff_t *);
 size_t		WriteOffset(ArchiveHandle *, pgoff_t, int);
 
 extern void StartRestoreBlobs(ArchiveHandle *AH);
-extern void StartRestoreBlob(ArchiveHandle *AH, Oid oid);
+extern void StartRestoreBlob(ArchiveHandle *AH, Oid oid, bool drop);
 extern void EndRestoreBlob(ArchiveHandle *AH, Oid oid);
 extern void EndRestoreBlobs(ArchiveHandle *AH);
 
@@ -367,6 +374,7 @@ extern void InitArchiveFmt_Tar(ArchiveHandle *AH);
 extern bool isValidTarHeader(char *header);
 
 extern int	ReconnectToServer(ArchiveHandle *AH, const char *dbname, const char *newUser);
+extern void DropBlobIfExists(ArchiveHandle *AH, Oid oid);
 
 int			ahwrite(const void *ptr, size_t size, size_t nmemb, ArchiveHandle *AH);
 int			ahprintf(ArchiveHandle *AH, const char *fmt,...) __attribute__((format(printf, 2, 3)));

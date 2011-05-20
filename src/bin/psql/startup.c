@@ -1,9 +1,9 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2009, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2010, PostgreSQL Global Development Group
  *
- * $PostgreSQL: pgsql/src/bin/psql/startup.c,v 1.156 2009/04/05 04:19:58 tgl Exp $
+ * $PostgreSQL: pgsql/src/bin/psql/startup.c,v 1.164 2010/03/07 17:02:34 mha Exp $
  */
 #include "postgres_fe.h"
 
@@ -171,11 +171,31 @@ main(int argc, char *argv[])
 	/* loop until we have a password if requested by backend */
 	do
 	{
+#define PARAMS_ARRAY_SIZE	7
+		const char **keywords = pg_malloc(PARAMS_ARRAY_SIZE * sizeof(*keywords));
+		const char **values = pg_malloc(PARAMS_ARRAY_SIZE * sizeof(*values));
+
+		keywords[0] = "host";
+		values[0] = options.host;
+		keywords[1] = "port";
+		values[1] = options.port;
+		keywords[2] = "user";
+		values[2] = options.username;
+		keywords[3] = "password";
+		values[3] = password;
+		keywords[4] = "dbname";
+		values[4] = (options.action == ACT_LIST_DB &&
+					 options.dbname == NULL) ?
+			"postgres" : options.dbname;
+		keywords[5] = "fallback_application_name";
+		values[5] = pset.progname;
+		keywords[6] = NULL;
+		values[6] = NULL;
+
 		new_pass = false;
-		pset.db = PQsetdbLogin(options.host, options.port, NULL, NULL,
-					options.action == ACT_LIST_DB && options.dbname == NULL ?
-							   "postgres" : options.dbname,
-							   options.username, password);
+		pset.db = PQconnectdbParams(keywords, values, true);
+		free(keywords);
+		free(values);
 
 		if (PQstatus(pset.db) == CONNECTION_BAD &&
 			PQconnectionNeedsPassword(pset.db) &&
@@ -225,7 +245,7 @@ main(int argc, char *argv[])
 	/*
 	 * process file given by -f
 	 */
-	if (options.action == ACT_FILE && strcmp(options.action_string, "-") != 0)
+	if (options.action == ACT_FILE)
 	{
 		if (!options.no_psqlrc)
 			process_psqlrc(argv[0]);
@@ -274,7 +294,7 @@ main(int argc, char *argv[])
 		if (!options.no_psqlrc)
 			process_psqlrc(argv[0]);
 
-		connection_warnings();
+		connection_warnings(true);
 		if (!pset.quiet && !pset.notty)
 			printf(_("Type \"help\" for help.\n\n"));
 		if (!pset.notty)

@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/pgcrypto.sgml,v 1.7 2009/05/18 11:08:24 petere Exp $ -->
+<!-- $PostgreSQL: pgsql/doc/src/sgml/pgcrypto.sgml,v 1.9 2010/06/29 22:29:14 momjian Exp $ -->
 
 <sect1 id="pgcrypto">
  <title>pgcrypto</title>
@@ -267,7 +267,7 @@
     of different hashing algorithms.
     The table shows how much time it would take to try all
     combinations of characters in an 8-character password, assuming
-    that the password contains either only lowercase letters, or
+    that the password contains either only lower case letters, or
     upper- and lower-case letters and numbers.
     In the <literal>crypt-bf</literal> entries, the number after a slash is
     the <parameter>iter_count</parameter> parameter of
@@ -1207,7 +1207,7 @@
      <para>Jean-Luc Cooke Fortuna-based /dev/random driver for Linux.</para>
     </listitem>
     <listitem>
-     <para><ulink url="http://www.cs.ut.ee/~helger/crypto/"></ulink></para>
+     <para><ulink url="http://research.cyber.ee/~lipmaa/crypto/"></ulink></para>
      <para>Collection of cryptology pointers.</para>
     </listitem>
    </itemizedlist>

@@ -4,10 +4,10 @@
  *	  handle CTEs (common table expressions) in parser
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/parser/parse_cte.h,v 1.2 2009/01/01 17:24:00 momjian Exp $
+ * $PostgreSQL: pgsql/src/include/parser/parse_cte.h,v 1.5 2010/02/26 02:01:26 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -17,5 +17,8 @@
 #include "parser/parse_node.h"
 
 extern List *transformWithClause(ParseState *pstate, WithClause *withClause);
+
+extern void analyzeCTETargetList(ParseState *pstate, CommonTableExpr *cte,
+					 List *tlist);
 
 #endif   /* PARSE_CTE_H */

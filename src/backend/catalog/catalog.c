@@ -5,12 +5,12 @@
  *		bits of hard-wired knowledge
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/catalog/catalog.c,v 1.83 2009/06/11 14:48:54 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/catalog/catalog.c,v 1.90 2010/04/20 23:48:47 tgl Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -31,6 +31,7 @@
 #include "catalog/pg_database.h"
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_pltemplate.h"
+#include "catalog/pg_db_role_setting.h"
 #include "catalog/pg_shdepend.h"
 #include "catalog/pg_shdescription.h"
 #include "catalog/pg_tablespace.h"
@@ -42,7 +43,6 @@
 #include "utils/tqual.h"
 
 
-#define OIDCHARS		10		/* max chars printed by %u */
 #define FORKNAMECHARS	4		/* max chars for a fork name */
 
 /*
@@ -115,16 +115,17 @@ relpath(RelFileNode rnode, ForkNumber forknum)
 	else
 	{
 		/* All other tablespaces are accessed via symlinks */
-		pathlen = 10 + OIDCHARS + 1 + OIDCHARS + 1 + OIDCHARS + 1
-			+ FORKNAMECHARS + 1;
+		pathlen = 9 + 1 + OIDCHARS + 1 + strlen(TABLESPACE_VERSION_DIRECTORY) +
+			1 + OIDCHARS + 1 + OIDCHARS + 1 + FORKNAMECHARS + 1;
 		path = (char *) palloc(pathlen);
 		if (forknum != MAIN_FORKNUM)
-			snprintf(path, pathlen, "pg_tblspc/%u/%u/%u_%s",
-					 rnode.spcNode, rnode.dbNode, rnode.relNode,
-					 forkNames[forknum]);
+			snprintf(path, pathlen, "pg_tblspc/%u/%s/%u/%u_%s",
+					 rnode.spcNode, TABLESPACE_VERSION_DIRECTORY,
+					 rnode.dbNode, rnode.relNode, forkNames[forknum]);
 		else
-			snprintf(path, pathlen, "pg_tblspc/%u/%u/%u",
-					 rnode.spcNode, rnode.dbNode, rnode.relNode);
+			snprintf(path, pathlen, "pg_tblspc/%u/%s/%u/%u",
+					 rnode.spcNode, TABLESPACE_VERSION_DIRECTORY,
+					 rnode.dbNode, rnode.relNode);
 	}
 	return path;
 }
@@ -161,10 +162,11 @@ GetDatabasePath(Oid dbNode, Oid spcNode)
 	else
 	{
 		/* All other tablespaces are accessed via symlinks */
-		pathlen = 10 + OIDCHARS + 1 + OIDCHARS + 1;
+		pathlen = 9 + 1 + OIDCHARS + 1 + strlen(TABLESPACE_VERSION_DIRECTORY) +
+			1 + OIDCHARS + 1;
 		path = (char *) palloc(pathlen);
-		snprintf(path, pathlen, "pg_tblspc/%u/%u",
-				 spcNode, dbNode);
+		snprintf(path, pathlen, "pg_tblspc/%u/%s/%u",
+				 spcNode, TABLESPACE_VERSION_DIRECTORY, dbNode);
 	}
 	return path;
 }
@@ -306,7 +308,8 @@ IsSharedRelation(Oid relationId)
 		relationId == PLTemplateRelationId ||
 		relationId == SharedDescriptionRelationId ||
 		relationId == SharedDependRelationId ||
-		relationId == TableSpaceRelationId)
+		relationId == TableSpaceRelationId ||
+		relationId == DbRoleSettingRelationId)
 		return true;
 	/* These are their indexes (see indexing.h) */
 	if (relationId == AuthIdRolnameIndexId ||
@@ -320,15 +323,16 @@ IsSharedRelation(Oid relationId)
 		relationId == SharedDependDependerIndexId ||
 		relationId == SharedDependReferenceIndexId ||
 		relationId == TablespaceOidIndexId ||
-		relationId == TablespaceNameIndexId)
+		relationId == TablespaceNameIndexId ||
+		relationId == DbRoleSettingDatidRolidIndexId)
 		return true;
 	/* These are their toast tables and toast indexes (see toasting.h) */
-	if (relationId == PgAuthidToastTable ||
-		relationId == PgAuthidToastIndex ||
-		relationId == PgDatabaseToastTable ||
+	if (relationId == PgDatabaseToastTable ||
 		relationId == PgDatabaseToastIndex ||
 		relationId == PgShdescriptionToastTable ||
-		relationId == PgShdescriptionToastIndex)
+		relationId == PgShdescriptionToastIndex ||
+		relationId == PgDbRoleSettingToastTable ||
+		relationId == PgDbRoleSettingToastIndex)
 		return true;
 	return false;
 }
@@ -454,16 +458,16 @@ GetNewOidWithIndex(Relation relation, Oid indexId, AttrNumber oidcolumn)
  * created by bootstrap have preassigned OIDs, so there's no need.
  */
 Oid
-GetNewRelFileNode(Oid reltablespace, bool relisshared, Relation pg_class)
+GetNewRelFileNode(Oid reltablespace, Relation pg_class)
 {
 	RelFileNode rnode;
 	char	   *rpath;
 	int			fd;
 	bool		collides;
 
-	/* This should match RelationInitPhysicalAddr */
+	/* This logic should match RelationInitPhysicalAddr */
 	rnode.spcNode = reltablespace ? reltablespace : MyDatabaseTableSpace;
-	rnode.dbNode = relisshared ? InvalidOid : MyDatabaseId;
+	rnode.dbNode = (rnode.spcNode == GLOBALTABLESPACE_OID) ? InvalidOid : MyDatabaseId;
 
 	do
 	{

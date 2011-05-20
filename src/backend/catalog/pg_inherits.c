@@ -8,18 +8,20 @@
  * Perhaps someday that code should be moved here, but it'd have to be
  * disentangled from other stuff such as pg_depend updates.
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/catalog/pg_inherits.c,v 1.3 2009/06/11 14:48:55 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/catalog/pg_inherits.c,v 1.8 2010/02/26 02:00:37 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
 
+#include "access/genam.h"
 #include "access/heapam.h"
+#include "catalog/indexing.h"
 #include "catalog/pg_class.h"
 #include "catalog/pg_inherits.h"
 #include "catalog/pg_inherits_fn.h"
@@ -28,6 +30,8 @@
 #include "utils/fmgroids.h"
 #include "utils/syscache.h"
 #include "utils/tqual.h"
+
+static int	oid_cmp(const void *p1, const void *p2);
 
 
 /*
@@ -46,10 +50,14 @@ find_inheritance_children(Oid parentrelId, LOCKMODE lockmode)
 {
 	List	   *list = NIL;
 	Relation	relation;
-	HeapScanDesc scan;
+	SysScanDesc scan;
 	ScanKeyData key[1];
 	HeapTuple	inheritsTuple;
 	Oid			inhrelid;
+	Oid		   *oidarr;
+	int			maxoids,
+				numoids,
+				i;
 
 	/*
 	 * Can skip the scan if pg_class shows the relation has never had a
@@ -59,21 +67,52 @@ find_inheritance_children(Oid parentrelId, LOCKMODE lockmode)
 		return NIL;
 
 	/*
-	 * XXX might be a good idea to create an index on pg_inherits' inhparent
-	 * field, so that we can use an indexscan instead of sequential scan here.
-	 * However, in typical databases pg_inherits won't have enough entries to
-	 * justify an indexscan...
+	 * Scan pg_inherits and build a working array of subclass OIDs.
 	 */
+	maxoids = 32;
+	oidarr = (Oid *) palloc(maxoids * sizeof(Oid));
+	numoids = 0;
+
 	relation = heap_open(InheritsRelationId, AccessShareLock);
+
 	ScanKeyInit(&key[0],
 				Anum_pg_inherits_inhparent,
 				BTEqualStrategyNumber, F_OIDEQ,
 				ObjectIdGetDatum(parentrelId));
-	scan = heap_beginscan(relation, SnapshotNow, 1, key);
 
-	while ((inheritsTuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
+	scan = systable_beginscan(relation, InheritsParentIndexId, true,
+							  SnapshotNow, 1, key);
+
+	while ((inheritsTuple = systable_getnext(scan)) != NULL)
 	{
 		inhrelid = ((Form_pg_inherits) GETSTRUCT(inheritsTuple))->inhrelid;
+		if (numoids >= maxoids)
+		{
+			maxoids *= 2;
+			oidarr = (Oid *) repalloc(oidarr, maxoids * sizeof(Oid));
+		}
+		oidarr[numoids++] = inhrelid;
+	}
+
+	systable_endscan(scan);
+
+	heap_close(relation, AccessShareLock);
+
+	/*
+	 * If we found more than one child, sort them by OID.  This ensures
+	 * reasonably consistent behavior regardless of the vagaries of an
+	 * indexscan.  This is important since we need to be sure all backends
+	 * lock children in the same order to avoid needless deadlocks.
+	 */
+	if (numoids > 1)
+		qsort(oidarr, numoids, sizeof(Oid), oid_cmp);
+
+	/*
+	 * Acquire locks and build the result list.
+	 */
+	for (i = 0; i < numoids; i++)
+	{
+		inhrelid = oidarr[i];
 
 		if (lockmode != NoLock)
 		{
@@ -85,9 +124,7 @@ find_inheritance_children(Oid parentrelId, LOCKMODE lockmode)
 			 * really exists or not.  If not, assume it was dropped while we
 			 * waited to acquire lock, and ignore it.
 			 */
-			if (!SearchSysCacheExists(RELOID,
-									  ObjectIdGetDatum(inhrelid),
-									  0, 0, 0))
+			if (!SearchSysCacheExists1(RELOID, ObjectIdGetDatum(inhrelid)))
 			{
 				/* Release useless lock */
 				UnlockRelationOid(inhrelid, lockmode);
@@ -99,8 +136,7 @@ find_inheritance_children(Oid parentrelId, LOCKMODE lockmode)
 		list = lappend_oid(list, inhrelid);
 	}
 
-	heap_endscan(scan);
-	heap_close(relation, AccessShareLock);
+	pfree(oidarr);
 
 	return list;
 }
@@ -110,6 +146,9 @@ find_inheritance_children(Oid parentrelId, LOCKMODE lockmode)
  * find_all_inheritors -
  *		Returns a list of relation OIDs including the given rel plus
  *		all relations that inherit from it, directly or indirectly.
+ *		Optionally, it also returns the number of parents found for
+ *		each such relation within the inheritance tree rooted at the
+ *		given rel.
  *
  * The specified lock type is acquired on all child relations (but not on the
  * given rel; caller should already have locked it).  If lockmode is NoLock
@@ -117,9 +156,10 @@ find_inheritance_children(Oid parentrelId, LOCKMODE lockmode)
  * against possible DROPs of child relations.
  */
 List *
-find_all_inheritors(Oid parentrelId, LOCKMODE lockmode)
+find_all_inheritors(Oid parentrelId, LOCKMODE lockmode, List **numparents)
 {
-	List	   *rels_list;
+	List	   *rels_list,
+			   *rel_numparents;
 	ListCell   *l;
 
 	/*
@@ -130,11 +170,13 @@ find_all_inheritors(Oid parentrelId, LOCKMODE lockmode)
 	 * doesn't fetch the next list element until the bottom of the loop.
 	 */
 	rels_list = list_make1_oid(parentrelId);
+	rel_numparents = list_make1_int(0);
 
 	foreach(l, rels_list)
 	{
 		Oid			currentrel = lfirst_oid(l);
 		List	   *currentchildren;
+		ListCell   *lc;
 
 		/* Get the direct children of this rel */
 		currentchildren = find_inheritance_children(currentrel, lockmode);
@@ -146,9 +188,37 @@ find_all_inheritors(Oid parentrelId, LOCKMODE lockmode)
 		 * loop, though theoretically there can't be any cycles in the
 		 * inheritance graph anyway.)
 		 */
-		rels_list = list_concat_unique_oid(rels_list, currentchildren);
+		foreach(lc, currentchildren)
+		{
+			Oid			child_oid = lfirst_oid(lc);
+			bool		found = false;
+			ListCell   *lo;
+			ListCell   *li;
+
+			/* if the rel is already there, bump number-of-parents counter */
+			forboth(lo, rels_list, li, rel_numparents)
+			{
+				if (lfirst_oid(lo) == child_oid)
+				{
+					lfirst_int(li)++;
+					found = true;
+					break;
+				}
+			}
+
+			/* if it's not there, add it. expect 1 parent, initially. */
+			if (!found)
+			{
+				rels_list = lappend_oid(rels_list, child_oid);
+				rel_numparents = lappend_int(rel_numparents, 1);
+			}
+		}
 	}
 
+	if (numparents)
+		*numparents = rel_numparents;
+	else
+		list_free(rel_numparents);
 	return rels_list;
 }
 
@@ -174,9 +244,7 @@ has_subclass(Oid relationId)
 	HeapTuple	tuple;
 	bool		result;
 
-	tuple = SearchSysCache(RELOID,
-						   ObjectIdGetDatum(relationId),
-						   0, 0, 0);
+	tuple = SearchSysCache1(RELOID, ObjectIdGetDatum(relationId));
 	if (!HeapTupleIsValid(tuple))
 		elog(ERROR, "cache lookup failed for relation %u", relationId);
 
@@ -231,7 +299,7 @@ typeInheritsFrom(Oid subclassTypeId, Oid superclassTypeId)
 	{
 		Oid			this_relid = lfirst_oid(queue_item);
 		ScanKeyData skey;
-		HeapScanDesc inhscan;
+		SysScanDesc inhscan;
 		HeapTuple	inhtup;
 
 		/*
@@ -255,9 +323,10 @@ typeInheritsFrom(Oid subclassTypeId, Oid superclassTypeId)
 					BTEqualStrategyNumber, F_OIDEQ,
 					ObjectIdGetDatum(this_relid));
 
-		inhscan = heap_beginscan(inhrel, SnapshotNow, 1, &skey);
+		inhscan = systable_beginscan(inhrel, InheritsRelidSeqnoIndexId, true,
+									 SnapshotNow, 1, &skey);
 
-		while ((inhtup = heap_getnext(inhscan, ForwardScanDirection)) != NULL)
+		while ((inhtup = systable_getnext(inhscan)) != NULL)
 		{
 			Form_pg_inherits inh = (Form_pg_inherits) GETSTRUCT(inhtup);
 			Oid			inhparent = inh->inhparent;
@@ -273,7 +342,7 @@ typeInheritsFrom(Oid subclassTypeId, Oid superclassTypeId)
 			queue = lappend_oid(queue, inhparent);
 		}
 
-		heap_endscan(inhscan);
+		systable_endscan(inhscan);
 
 		if (result)
 			break;
@@ -286,4 +355,19 @@ typeInheritsFrom(Oid subclassTypeId, Oid superclassTypeId)
 	list_free(queue);
 
 	return result;
+}
+
+
+/* qsort comparison function */
+static int
+oid_cmp(const void *p1, const void *p2)
+{
+	Oid			v1 = *((const Oid *) p1);
+	Oid			v2 = *((const Oid *) p2);
+
+	if (v1 < v2)
+		return -1;
+	if (v1 > v2)
+		return 1;
+	return 0;
 }

@@ -1,7 +1,7 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/textsearch.sgml,v 1.52 2009/06/17 21:58:49 tgl Exp $ -->
+<!-- $PostgreSQL: pgsql/doc/src/sgml/textsearch.sgml,v 1.56 2010/04/03 07:22:56 petere Exp $ -->
 
 <chapter id="textsearch">
- <title id="textsearch-title">Full Text Search</title>
+ <title>Full Text Search</title>
 
   <indexterm zone="textsearch">
    <primary>full text search</primary>
@@ -1943,6 +1943,13 @@ LIMIT 10;
     languages, token types <literal>word</> and <literal>asciiword</>
     should be treated alike.
    </para>
+
+   <para>
+    <literal>email</> does not support all valid email characters as
+    defined by RFC 5322.  Specifically, the only non-alphanumeric
+    characters supported for email user names are period, dash, and
+    underscore.
+   </para>
   </note>
 
   <para>
@@ -2288,6 +2295,63 @@ SELECT * FROM ts_debug('english', 'Paris');
  asciiword | Word, all ASCII | Paris | {my_synonym,english_stem} | my_synonym | {paris}
 </programlisting>
    </para>
+   
+   <para>
+    An asterisk (<literal>*</literal>) at the end of definition word indicates 
+    that definition word is a prefix, and <function>to_tsquery()</function> 
+    function will transform that definition to the prefix search format (see 
+    <xref linkend="textsearch-parsing-queries">). 
+    Notice that it is ignored in <function>to_tsvector()</function>.
+   </para>
+
+   <para>
+    Contents of <filename>$SHAREDIR/tsearch_data/synonym_sample.syn</>:
+   </para>
+<programlisting>
+postgres        pgsql
+postgresql      pgsql
+postgre pgsql
+gogle   googl
+indices index*
+</programlisting>
+
+   <para>
+    Results:
+   </para>
+<programlisting>
+=# create text search dictionary syn( template=synonym,synonyms='synonym_sample');
+=# select ts_lexize('syn','indices');
+ ts_lexize
+-----------
+ {index}
+(1 row)
+
+=# create text search configuration tst ( copy=simple);
+=# alter text search configuration tst alter mapping for asciiword with syn;
+=# select to_tsquery('tst','indices');
+ to_tsquery
+------------
+ 'index':*
+(1 row)
+
+=# select 'indexes are very useful'::tsvector;
+            tsvector             
+---------------------------------
+ 'are' 'indexes' 'useful' 'very'
+(1 row)
+
+=# select 'indexes are very useful'::tsvector @@ to_tsquery('tst','indices');
+ ?column?
+----------
+ t
+(1 row)
+
+=# select to_tsvector('tst','indices');
+ to_tsvector
+-------------
+ 'index':1
+(1 row)
+</programlisting>
 
    <para>
     The only parameter required by the <literal>synonym</> template is
@@ -2546,7 +2610,7 @@ SELECT plainto_tsquery('supernova star');
     url="http://ficus-www.cs.ucla.edu/geoff/ispell.html">Ispell</ulink>.
     Also, some more modern dictionary file formats are supported &mdash; <ulink
     url="http://en.wikipedia.org/wiki/MySpell">MySpell</ulink> (OO &lt; 2.0.1)
-    and <ulink url="http://sourceforge.net/projects/hunspell">Hunspell</ulink>
+    and <ulink url="http://sourceforge.net/projects/hunspell/">Hunspell</ulink>
     (OO &gt;= 2.0.2).  A large list of dictionaries is available on the <ulink
     url="http://wiki.services.openoffice.org/wiki/Dictionaries">OpenOffice
     Wiki</ulink>.

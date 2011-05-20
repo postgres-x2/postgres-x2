@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/perform.sgml,v 1.71 2009/06/17 21:58:49 tgl Exp $ -->
+<!-- $PostgreSQL: pgsql/doc/src/sgml/perform.sgml,v 1.82 2010/06/28 22:46:11 momjian Exp $ -->
 
  <chapter id="performance-tips">
   <title>Performance Tips</title>
@@ -32,7 +32,7 @@
     is absolutely critical for good performance, so the system includes
     a complex <firstterm>planner</> that tries to choose good plans.
     You can use the
-    <xref linkend="sql-explain" endterm="sql-explain-title"> command
+    <xref linkend="sql-explain"> command
     to see what query plan the planner creates for any query.
     Plan-reading is an art that deserves an extensive tutorial, which
     this is not; but here is some basic information.
@@ -554,16 +554,31 @@ WHERE relname LIKE 'tenk1%';
    For example, we might do:
 
 <screen>
-SELECT attname, n_distinct, most_common_vals
+SELECT attname, inherited, n_distinct,
+       array_to_string(most_common_vals, E'\n') as most_common_vals
 FROM pg_stats
 WHERE tablename = 'road';
 
- attname | n_distinct |                                                                                                                                                                                  most_common_vals                                                                                                                                                                                   
----------+------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- name    |  -0.467008 | {"I- 580                        Ramp","I- 880                        Ramp","Sp Railroad                       ","I- 580                            ","I- 680                        Ramp","I- 80                         Ramp","14th                          St  ","5th                           St  ","Mission                       Blvd","I- 880                            "}
- thepath |         20 | {"[(-122.089,37.71),(-122.0886,37.711)]"}
+ attname | inherited | n_distinct |          most_common_vals          
+---------+-----------+------------+------------------------------------
+ name    | f         |  -0.363388 | I- 580                        Ramp+
+         |           |            | I- 880                        Ramp+
+         |           |            | Sp Railroad                       +
+         |           |            | I- 580                            +
+         |           |            | I- 680                        Ramp
+ name    | t         |  -0.284859 | I- 880                        Ramp+
+         |           |            | I- 580                        Ramp+
+         |           |            | I- 680                        Ramp+
+         |           |            | I- 580                            +
+         |           |            | State Hwy 13                  Ramp
 (2 rows)
 </screen>
+
+   Note that two rows are displayed for the same column, one corresponding
+   to the complete inheritance hierarchy starting at the
+   <literal>road</literal> table (<literal>inherited</>=<literal>t</>),
+   and another one including only the <literal>road</literal> table itself
+   (<literal>inherited</>=<literal>f</>).
   </para>
 
   <para>
@@ -801,7 +816,7 @@ SELECT * FROM x, y, a, b, c WHERE something AND somethingelse;
    <title>Use <command>COPY</command></title>
 
    <para>
-    Use <xref linkend="sql-copy" endterm="sql-copy-title"> to load
+    Use <xref linkend="sql-copy"> to load
     all the rows in one command, instead of using a series of
     <command>INSERT</command> commands.  The <command>COPY</command>
     command is optimized for loading large numbers of rows; it is less
@@ -813,7 +828,7 @@ SELECT * FROM x, y, a, b, c WHERE something AND somethingelse;
 
    <para>
     If you cannot use <command>COPY</command>, it might help to use <xref
-    linkend="sql-prepare" endterm="sql-prepare-title"> to create a
+    linkend="sql-prepare"> to create a
     prepared <command>INSERT</command> statement, and then use
     <command>EXECUTE</command> as many times as required.  This avoids
     some of the overhead of repeatedly parsing and planning
@@ -835,9 +850,9 @@ SELECT * FROM x, y, a, b, c WHERE something AND somethingelse;
     <command>TRUNCATE</command> command. In such cases no WAL
     needs to be written, because in case of an error, the files
     containing the newly loaded data will be removed anyway.
-    However, this consideration does not apply when
-    <xref linkend="guc-archive-mode"> is on, as all commands
-    must write WAL in that case.
+    However, this consideration only applies when
+    <xref linkend="guc-wal-level"> is <literal>minimal</> as all commands
+    must write WAL otherwise.
    </para>
 
   </sect2>
@@ -855,11 +870,11 @@ SELECT * FROM x, y, a, b, c WHERE something AND somethingelse;
 
    <para>
     If you are adding large amounts of data to an existing table,
-    it might be a win to drop the index,
-    load the table, and then recreate the index.  Of course, the
+    it might be a win to drop the indexes,
+    load the table, and then recreate the indexes.  Of course, the
     database performance for other users might suffer
-    during the time the index is missing.  One should also think
-    twice before dropping unique indexes, since the error checking
+    during the time the indexes are missing.  One should also think
+    twice before dropping a unique index, since the error checking
     afforded by the unique constraint will be lost while the index is
     missing.
    </para>
@@ -874,6 +889,19 @@ SELECT * FROM x, y, a, b, c WHERE something AND somethingelse;
     useful to drop foreign key constraints, load data, and re-create
     the constraints.  Again, there is a trade-off between data load
     speed and loss of error checking while the constraint is missing.
+   </para>
+
+   <para>
+    What's more, when you load data into a table with existing foreign key
+    constraints, each new row requires an entry in the server's list of
+    pending trigger events (since it is the firing of a trigger that checks
+    the row's foreign key constraint).  Loading many millions of rows can
+    cause the trigger event queue to overflow available memory, leading to
+    intolerable swapping or even outright failure of the command.  Therefore
+    it may be <emphasis>necessary</>, not just desirable, to drop and re-apply
+    foreign keys when loading large amounts of data.  If temporarily removing
+    the constraint isn't acceptable, the only other recourse may be to split
+    up the load operation into smaller transactions.
    </para>
   </sect2>
 
@@ -909,25 +937,27 @@ SELECT * FROM x, y, a, b, c WHERE something AND somethingelse;
   </sect2>
 
   <sect2 id="populate-pitr">
-   <title>Turn off <varname>archive_mode</varname></title>
+   <title>Disable WAL archival and streaming replication</title>
 
    <para>
     When loading large amounts of data into an installation that uses
-    WAL archiving, you might want to disable archiving (turn off the
-    <xref linkend="guc-archive-mode"> configuration variable)
-    while loading.  It might be
-    faster to take a new base backup after the load has completed
-    than to process a large amount of incremental WAL data.
-    But note that turning <varname>archive_mode</varname> on or off
-    requires a server restart.
+    WAL archiving or streaming replication, it might be faster to take a
+    new base backup after the load has completed than to process a large
+    amount of incremental WAL data.  To prevent incremental WAL logging
+    while loading, disable archiving and streaming replication, by setting
+    <xref linkend="guc-wal-level"> to <literal>minimal</>,
+    <xref linkend="guc-archive-mode"> to <literal>off</>, and
+    <xref linkend="guc-max-wal-senders"> to zero.
+    But note that changing these settings requires a server restart.
    </para>
 
    <para>
-    Aside from avoiding the time for the archiver to process the WAL data,
+    Aside from avoiding the time for the archiver or WAL sender to
+    process the WAL data,
     doing this will actually make certain commands faster, because they
-    are designed not to write WAL at all if <varname>archive_mode</varname>
-    is off.  (They can guarantee crash safety more cheaply by doing an
-    <function>fsync</> at the end than by writing WAL.)
+    are designed not to write WAL at all if <varname>wal_level</varname>
+    is <literal>minimal</>.  (They can guarantee crash safety more cheaply
+    by doing an <function>fsync</> at the end than by writing WAL.)
     This applies to the following commands:
     <itemizedlist>
      <listitem>
@@ -966,15 +996,17 @@ SELECT * FROM x, y, a, b, c WHERE something AND somethingelse;
 
    <para>
     Whenever you have significantly altered the distribution of data
-    within a table, running <xref linkend="sql-analyze"
-    endterm="sql-analyze-title"> is strongly recommended. This
+    within a table, running <xref linkend="sql-analyze"> is strongly recommended. This
     includes bulk loading large amounts of data into the table.  Running
     <command>ANALYZE</command> (or <command>VACUUM ANALYZE</command>)
     ensures that the planner has up-to-date statistics about the
     table.  With no statistics or obsolete statistics, the planner might
     make poor decisions during query planning, leading to poor
     performance on any tables with inaccurate or nonexistent
-    statistics.
+    statistics.  Note that if the autovacuum daemon is enabled, it might
+    run <command>ANALYZE</command> automatically; see
+    <xref linkend="vacuum-for-statistics">
+    and <xref linkend="autovacuum"> for more information.
    </para>
   </sect2>
 
@@ -987,7 +1019,8 @@ SELECT * FROM x, y, a, b, c WHERE something AND somethingelse;
     <application>pg_dump</> dump as quickly as possible, you need to
     do a few extra things manually.  (Note that these points apply while
     <emphasis>restoring</> a dump, not while <emphasis>creating</> it.
-    The same points apply when using <application>pg_restore</> to load
+    The same points apply whether loading a text dump with
+    <application>psql</> or using <application>pg_restore</> to load
     from a <application>pg_dump</> archive file.)
    </para>
 
@@ -1007,10 +1040,13 @@ SELECT * FROM x, y, a, b, c WHERE something AND somethingelse;
      </listitem>
      <listitem>
       <para>
-       If using WAL archiving, consider disabling it during the restore.
-       To do that, turn off <varname>archive_mode</varname> before loading the
-       dump script, and afterwards turn it back on
-       and take a fresh base backup.
+       If using WAL archiving or streaming replication, consider disabling
+       them during the restore. To do that, set <varname>archive_mode</>
+       to <literal>off</>,
+       <varname>wal_level</varname> to <literal>minimal</>, and
+       <varname>max_wal_senders</> to zero before loading the dump.
+       Afterwards, set them back to the right values and take a fresh
+       base backup.
       </para>
      </listitem>
      <listitem>
@@ -1024,6 +1060,13 @@ SELECT * FROM x, y, a, b, c WHERE something AND somethingelse;
        interrelated the data is, that might seem preferable to manual cleanup,
        or not.  <command>COPY</> commands will run fastest if you use a single
        transaction and have WAL archiving turned off.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       If multiple CPUs are available in the database server, consider using
+       <application>pg_restore</>'s <option>--jobs</> option.  This
+       allows concurrent data loading and index creation.
       </para>
      </listitem>
      <listitem>
@@ -1054,9 +1097,73 @@ SELECT * FROM x, y, a, b, c WHERE something AND somethingelse;
     while loading the data, but don't bother increasing
     <varname>maintenance_work_mem</varname>; rather, you'd do that while
     manually recreating indexes and foreign keys afterwards.
-    And don't forget to <command>ANALYZE</> when you're done.
+    And don't forget to <command>ANALYZE</> when you're done; see
+    <xref linkend="vacuum-for-statistics">
+    and <xref linkend="autovacuum"> for more information.
    </para>
   </sect2>
+  </sect1>
+
+  <sect1 id="non-durability">
+   <title>Non-Durable Settings</title>
+
+   <indexterm zone="non-durability">
+    <primary>non-durable</primary>
+   </indexterm>
+
+   <para>
+    Durability is a database feature that guarantees the recording of
+    committed transactions even if the server crashes or loses
+    power.  However, durability adds significant database overhead,
+    so if your site does not require such a guarantee,
+    <productname>PostgreSQL</productname> can be configured to run
+    much faster.  The following are configuration changes you can make
+    to improve performance in such cases;  they do not invalidate
+    commit guarantees related to database crashes, only abrupt operating
+    system stoppage, except as mentioned below:
+
+    <itemizedlist>
+     <listitem>
+      <para>
+       Place the database cluster's data directory in a memory-backed
+       file system (i.e. <acronym>RAM</> disk).  This eliminates all
+       database disk I/O, but limits data storage to the amount of
+       available memory (and perhaps swap).
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+       Turn off <xref linkend="guc-fsync">;  there is no need to flush
+       data to disk.
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+       Turn off <xref linkend="guc-full-page-writes">;  there is no need
+       to guard against partial page writes.
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+       Increase <xref linkend="guc-checkpoint-segments"> and <xref
+       linkend="guc-checkpoint-timeout"> ; this reduces the frequency
+       of checkpoints, but increases the storage requirements of
+       <filename>/pg_xlog</>.
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+       Turn off <xref linkend="guc-synchronous-commit">;  there might be no
+       need to write the <acronym>WAL</acronym> to disk on every
+       commit.  This does affect database crash transaction durability.
+      </para>
+     </listitem>
+    </itemizedlist>
+   </para>
   </sect1>
 
  </chapter>

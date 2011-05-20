@@ -3,12 +3,12 @@
  * ipci.c
  *	  POSTGRES inter-process communication initialization code.
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/storage/ipc/ipci.c,v 1.100 2009/05/05 19:59:00 tgl Exp $
+ *	  $PostgreSQL: pgsql/src/backend/storage/ipc/ipci.c,v 1.104 2010/02/16 22:34:50 tgl Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -20,16 +20,20 @@
 #include "access/nbtree.h"
 #include "access/subtrans.h"
 #include "access/twophase.h"
+#include "commands/async.h"
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "postmaster/autovacuum.h"
 #include "postmaster/bgwriter.h"
 #include "postmaster/postmaster.h"
+#include "replication/walreceiver.h"
+#include "replication/walsender.h"
 #include "storage/bufmgr.h"
 #include "storage/ipc.h"
 #include "storage/pg_shmem.h"
 #include "storage/pmsignal.h"
 #include "storage/procarray.h"
+#include "storage/procsignal.h"
 #include "storage/sinvaladt.h"
 #include "storage/spin.h"
 
@@ -115,10 +119,14 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 		size = add_size(size, BackendStatusShmemSize());
 		size = add_size(size, SInvalShmemSize());
 		size = add_size(size, PMSignalShmemSize());
+		size = add_size(size, ProcSignalShmemSize());
 		size = add_size(size, BgWriterShmemSize());
 		size = add_size(size, AutoVacuumShmemSize());
+		size = add_size(size, WalSndShmemSize());
+		size = add_size(size, WalRcvShmemSize());
 		size = add_size(size, BTreeShmemSize());
 		size = add_size(size, SyncScanShmemSize());
+		size = add_size(size, AsyncShmemSize());
 #ifdef EXEC_BACKEND
 		size = add_size(size, ShmemBackendArraySize());
 #endif
@@ -214,14 +222,18 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 	 * Set up interprocess signaling mechanisms
 	 */
 	PMSignalShmemInit();
+	ProcSignalShmemInit();
 	BgWriterShmemInit();
 	AutoVacuumShmemInit();
+	WalSndShmemInit();
+	WalRcvShmemInit();
 
 	/*
 	 * Set up other modules that need some shared memory space
 	 */
 	BTreeShmemInit();
 	SyncScanShmemInit();
+	AsyncShmemInit();
 
 #ifdef EXEC_BACKEND
 

@@ -2,10 +2,10 @@
 #
 # Makefile for ecpg library
 #
-# Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+# Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
 # Portions Copyright (c) 1994, Regents of the University of California
 #
-# $PostgreSQL: pgsql/src/interfaces/ecpg/ecpglib/Makefile,v 1.63 2009/02/07 17:17:34 momjian Exp $
+# $PostgreSQL: pgsql/src/interfaces/ecpg/ecpglib/Makefile,v 1.66 2010/01/05 16:38:23 meskes Exp $
 #
 #-------------------------------------------------------------------------
 
@@ -15,7 +15,7 @@ include $(top_builddir)/src/Makefile.global
 
 NAME= ecpg
 SO_MAJOR_VERSION= 6
-SO_MINOR_VERSION= 1
+SO_MINOR_VERSION= 2
 
 override CPPFLAGS := -I../include -I$(top_srcdir)/src/interfaces/ecpg/include \
 	-I$(libpq_srcdir) -I$(top_builddir)/src/port $(CPPFLAGS)
@@ -24,7 +24,7 @@ override CFLAGS += $(PTHREAD_CFLAGS)
 # Need to recompile any libpgport object files
 LIBS := $(filter-out -lpgport, $(LIBS))
 
-OBJS= execute.o typename.o descriptor.o data.o error.o prepare.o memory.o \
+OBJS= execute.o typename.o descriptor.o sqlda.o data.o error.o prepare.o memory.o \
 	connect.o misc.o path.o pgstrcasecmp.o \
 	$(filter snprintf.o strlcpy.o, $(LIBOBJS))
 

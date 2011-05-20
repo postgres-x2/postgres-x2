@@ -8,7 +8,7 @@ msgstr ""
 "Project-Id-Version: PostgreSQL 8.4\n"
 "Report-Msgid-Bugs-To: pgsql-bugs@postgresql.org\n"
 "POT-Creation-Date: 2009-06-11 05:16+0000\n"
-"PO-Revision-Date: 2009-06-25 14:57+0200\n"
+"PO-Revision-Date: 2009-06-29 00:51+0200\n"
 "Last-Translator: Devrim GÜNDÜZ <devrim@gunduz.org>\n"
 "Language-Team: Turkish <devrim@gunduz.org>\n"
 "MIME-Version: 1.0\n"
@@ -162,6 +162,9 @@ msgid ""
 "If no output file is specified, the name is formed by adding .c to the\n"
 "input file name, after stripping off .pgc if present.\n"
 msgstr ""
+"\n"
+"Eğer çıktı dosyası belirtilmediyse, dosyanın adı eğer sonunda .pgc varsa\n"
+"kaldırıldıktan sonra girdi dosyasının sonuna .c eklenerek oluşturulur.\n"
 
 #: ecpg.c:62
 #, c-format
@@ -516,7 +519,7 @@ msgstr "EXEC SQL VAR konutunda ilklendiriciye izin verilmemektedir"
 
 #: preproc.y:11703
 msgid "arrays of indicators are not allowed on input"
-msgstr ""
+msgstr "belirticilerin dizilerine girdide izin verilmez"
 
 #. translator: %s is typically the translation of "syntax error"
 #: preproc.y:11930
@@ -541,7 +544,7 @@ msgstr "array/pointer için gösterici array/pointer olmalıdır"
 
 #: type.c:245
 msgid "nested arrays are not supported (except strings)"
-msgstr ""
+msgstr "içiçe geçmiş diziler, dizgiler haricinde desteklenmez"
 
 #: type.c:278
 msgid "indicator for struct has to be a struct"
@@ -573,12 +576,12 @@ msgstr "\"%s\" değişkeni bir pointer değil"
 #: variable.c:163
 #, c-format
 msgid "variable \"%s\" is not a pointer to a structure or a union"
-msgstr ""
+msgstr "\"%s\" değişkeni structure ya da union'a pointer değil"
 
 #: variable.c:150
 #, c-format
 msgid "variable \"%s\" is neither a structure nor a union"
-msgstr ""
+msgstr "\"%s\" değişkeni structure ya da union değil"
 
 #: variable.c:160
 #, c-format

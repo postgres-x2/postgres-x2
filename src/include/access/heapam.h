@@ -4,10 +4,10 @@
  *	  POSTGRES heap access method definitions.
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/access/heapam.h,v 1.143 2009/06/11 14:49:08 momjian Exp $
+ * $PostgreSQL: pgsql/src/include/access/heapam.h,v 1.149 2010/04/21 17:20:56 sriggs Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -126,14 +126,13 @@ extern void heap_desc(StringInfo buf, uint8 xl_info, char *rec);
 extern void heap2_redo(XLogRecPtr lsn, XLogRecord *rptr);
 extern void heap2_desc(StringInfo buf, uint8 xl_info, char *rec);
 
-extern XLogRecPtr log_heap_move(Relation reln, Buffer oldbuf,
-			  ItemPointerData from,
-			  Buffer newbuf, HeapTuple newtup);
+extern XLogRecPtr log_heap_cleanup_info(RelFileNode rnode,
+					  TransactionId latestRemovedXid);
 extern XLogRecPtr log_heap_clean(Relation reln, Buffer buffer,
 			   OffsetNumber *redirected, int nredirected,
 			   OffsetNumber *nowdead, int ndead,
 			   OffsetNumber *nowunused, int nunused,
-			   bool redirect_move);
+			   TransactionId latestRemovedXid);
 extern XLogRecPtr log_heap_freeze(Relation reln, Buffer buffer,
 				TransactionId cutoff_xid,
 				OffsetNumber *offsets, int offcnt);
@@ -145,12 +144,11 @@ extern void heap_page_prune_opt(Relation relation, Buffer buffer,
 					TransactionId OldestXmin);
 extern int heap_page_prune(Relation relation, Buffer buffer,
 				TransactionId OldestXmin,
-				bool redirect_move, bool report_stats);
+				bool report_stats, TransactionId *latestRemovedXid);
 extern void heap_page_prune_execute(Buffer buffer,
 						OffsetNumber *redirected, int nredirected,
 						OffsetNumber *nowdead, int ndead,
-						OffsetNumber *nowunused, int nunused,
-						bool redirect_move);
+						OffsetNumber *nowunused, int nunused);
 extern void heap_get_root_tuples(Page page, OffsetNumber *root_offsets);
 
 /* in heap/syncscan.c */

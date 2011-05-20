@@ -14,11 +14,11 @@
  *
  * Author: Andreas Pflug <pgadmin@pse-consulting.de>
  *
- * Copyright (c) 2004-2009, PostgreSQL Global Development Group
+ * Copyright (c) 2004-2010, PostgreSQL Global Development Group
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/postmaster/syslogger.c,v 1.51 2009/06/11 14:49:01 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/postmaster/syslogger.c,v 1.58 2010/07/06 19:18:57 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -117,7 +117,7 @@ HANDLE		syslogPipe[2] = {0, 0};
 
 #ifdef WIN32
 static HANDLE threadHandle = 0;
-static CRITICAL_SECTION sysfileSection;
+static CRITICAL_SECTION sysloggerSection;
 #endif
 
 /*
@@ -140,7 +140,7 @@ static void open_csvlogfile(void);
 static unsigned int __stdcall pipeThread(void *arg);
 #endif
 static void logfile_rotate(bool time_based_rotation, int size_rotation_for);
-static char *logfile_getname(pg_time_t timestamp, char *suffix);
+static char *logfile_getname(pg_time_t timestamp, const char *suffix);
 static void set_next_rotation_time(void);
 static void sigHupHandler(SIGNAL_ARGS);
 static void sigUsr1Handler(SIGNAL_ARGS);
@@ -194,9 +194,12 @@ SysLoggerMain(int argc, char *argv[])
 		 */
 		close(fileno(stdout));
 		close(fileno(stderr));
-		dup2(fd, fileno(stdout));
-		dup2(fd, fileno(stderr));
-		close(fd);
+		if (fd != -1)
+		{
+			dup2(fd, fileno(stdout));
+			dup2(fd, fileno(stderr));
+			close(fd);
+		}
 	}
 
 	/*
@@ -265,7 +268,8 @@ SysLoggerMain(int argc, char *argv[])
 
 #ifdef WIN32
 	/* Fire up separate data transfer thread */
-	InitializeCriticalSection(&sysfileSection);
+	InitializeCriticalSection(&sysloggerSection);
+	EnterCriticalSection(&sysloggerSection);
 
 	threadHandle = (HANDLE) _beginthreadex(NULL, 0, pipeThread, NULL, 0, NULL);
 	if (threadHandle == 0)
@@ -368,7 +372,7 @@ SysLoggerMain(int argc, char *argv[])
 		 * Wait for some data, timing out after 1 second
 		 */
 		FD_ZERO(&rfds);
-		FD_SET		(syslogPipe[0], &rfds);
+		FD_SET(syslogPipe[0], &rfds);
 
 		timeout.tv_sec = 1;
 		timeout.tv_usec = 0;
@@ -420,8 +424,16 @@ SysLoggerMain(int argc, char *argv[])
 		 * On Windows we leave it to a separate thread to transfer data and
 		 * detect pipe EOF.  The main thread just wakes up once a second to
 		 * check for SIGHUP and rotation conditions.
+		 *
+		 * Server code isn't generally thread-safe, so we ensure that only one
+		 * of the threads is active at a time by entering the critical section
+		 * whenever we're not sleeping.
 		 */
+		LeaveCriticalSection(&sysloggerSection);
+
 		pg_usleep(1000000L);
+
+		EnterCriticalSection(&sysloggerSection);
 #endif   /* WIN32 */
 
 		if (pipe_eof_seen)
@@ -573,7 +585,7 @@ SysLogger_Start(void)
 				 * chunking protocol.
 				 */
 				fflush(stderr);
-				fd = _open_osfhandle((long) syslogPipe[1],
+				fd = _open_osfhandle((intptr_t) syslogPipe[1],
 									 _O_APPEND | _O_BINARY);
 				if (dup2(fd, _fileno(stderr)) < 0)
 					ereport(FATAL,
@@ -908,16 +920,8 @@ write_syslogger_file(const char *buffer, int count, int destination)
 	if (destination == LOG_DESTINATION_CSVLOG && csvlogFile == NULL)
 		open_csvlogfile();
 
-#ifdef WIN32
-	EnterCriticalSection(&sysfileSection);
-#endif
-
 	logfile = destination == LOG_DESTINATION_CSVLOG ? csvlogFile : syslogFile;
 	rc = fwrite(buffer, 1, count, logfile);
-
-#ifdef WIN32
-	LeaveCriticalSection(&sysfileSection);
-#endif
 
 	/* can't use ereport here because of possible recursion */
 	if (rc != count)
@@ -942,11 +946,21 @@ pipeThread(void *arg)
 	for (;;)
 	{
 		DWORD		bytesRead;
+		BOOL		result;
 
-		if (!ReadFile(syslogPipe[0],
-					  logbuffer + bytes_in_logbuffer,
-					  sizeof(logbuffer) - bytes_in_logbuffer,
-					  &bytesRead, 0))
+		result = ReadFile(syslogPipe[0],
+						  logbuffer + bytes_in_logbuffer,
+						  sizeof(logbuffer) - bytes_in_logbuffer,
+						  &bytesRead, 0);
+
+		/*
+		 * Enter critical section before doing anything that might touch
+		 * global state shared by the main thread. Anything that uses
+		 * palloc()/pfree() in particular are not safe outside the critical
+		 * section.
+		 */
+		EnterCriticalSection(&sysloggerSection);
+		if (!result)
 		{
 			DWORD		error = GetLastError();
 
@@ -963,6 +977,7 @@ pipeThread(void *arg)
 			bytes_in_logbuffer += bytesRead;
 			process_pipe_input(logbuffer, &bytes_in_logbuffer);
 		}
+		LeaveCriticalSection(&sysloggerSection);
 	}
 
 	/* We exit the above loop only upon detecting pipe EOF */
@@ -971,6 +986,7 @@ pipeThread(void *arg)
 	/* if there's any data left then force it out now */
 	flush_pipe_input(logbuffer, &bytes_in_logbuffer);
 
+	LeaveCriticalSection(&sysloggerSection);
 	_endthread();
 	return 0;
 }
@@ -1016,6 +1032,7 @@ logfile_rotate(bool time_based_rotation, int size_rotation_for)
 {
 	char	   *filename;
 	char	   *csvfilename = NULL;
+	pg_time_t	fntime;
 	FILE	   *fh;
 
 	rotation_requested = false;
@@ -1026,17 +1043,12 @@ logfile_rotate(bool time_based_rotation, int size_rotation_for)
 	 * file name when we don't do the rotation immediately.
 	 */
 	if (time_based_rotation)
-	{
-		filename = logfile_getname(next_rotation_time, NULL);
-		if (csvlogFile != NULL)
-			csvfilename = logfile_getname(next_rotation_time, ".csv");
-	}
+		fntime = next_rotation_time;
 	else
-	{
-		filename = logfile_getname(time(NULL), NULL);
-		if (csvlogFile != NULL)
-			csvfilename = logfile_getname(time(NULL), ".csv");
-	}
+		fntime = time(NULL);
+	filename = logfile_getname(fntime, NULL);
+	if (csvlogFile != NULL)
+		csvfilename = logfile_getname(fntime, ".csv");
 
 	/*
 	 * Decide whether to overwrite or append.  We can overwrite if (a)
@@ -1080,11 +1092,13 @@ logfile_rotate(bool time_based_rotation, int size_rotation_for)
 			if (saveerrno != ENFILE && saveerrno != EMFILE)
 			{
 				ereport(LOG,
-						(errmsg("disabling automatic rotation (use SIGHUP to reenable)")));
+						(errmsg("disabling automatic rotation (use SIGHUP to re-enable)")));
 				Log_RotationAge = 0;
 				Log_RotationSize = 0;
 			}
-			pfree(filename);
+
+			if (filename)
+				pfree(filename);
 			if (csvfilename)
 				pfree(csvfilename);
 			return;
@@ -1096,20 +1110,14 @@ logfile_rotate(bool time_based_rotation, int size_rotation_for)
 		_setmode(_fileno(fh), _O_TEXT); /* use CRLF line endings on Windows */
 #endif
 
-		/* On Windows, need to interlock against data-transfer thread */
-#ifdef WIN32
-		EnterCriticalSection(&sysfileSection);
-#endif
 		fclose(syslogFile);
 		syslogFile = fh;
-#ifdef WIN32
-		LeaveCriticalSection(&sysfileSection);
-#endif
 
 		/* instead of pfree'ing filename, remember it for next time */
 		if (last_file_name != NULL)
 			pfree(last_file_name);
 		last_file_name = filename;
+		filename = NULL;
 	}
 
 	/* Same as above, but for csv file. */
@@ -1142,11 +1150,15 @@ logfile_rotate(bool time_based_rotation, int size_rotation_for)
 			if (saveerrno != ENFILE && saveerrno != EMFILE)
 			{
 				ereport(LOG,
-						(errmsg("disabling automatic rotation (use SIGHUP to reenable)")));
+						(errmsg("disabling automatic rotation (use SIGHUP to re-enable)")));
 				Log_RotationAge = 0;
 				Log_RotationSize = 0;
 			}
-			pfree(csvfilename);
+
+			if (filename)
+				pfree(filename);
+			if (csvfilename)
+				pfree(csvfilename);
 			return;
 		}
 
@@ -1156,21 +1168,20 @@ logfile_rotate(bool time_based_rotation, int size_rotation_for)
 		_setmode(_fileno(fh), _O_TEXT); /* use CRLF line endings on Windows */
 #endif
 
-		/* On Windows, need to interlock against data-transfer thread */
-#ifdef WIN32
-		EnterCriticalSection(&sysfileSection);
-#endif
 		fclose(csvlogFile);
 		csvlogFile = fh;
-#ifdef WIN32
-		LeaveCriticalSection(&sysfileSection);
-#endif
 
 		/* instead of pfree'ing filename, remember it for next time */
 		if (last_csv_file_name != NULL)
 			pfree(last_csv_file_name);
 		last_csv_file_name = csvfilename;
+		csvfilename = NULL;
 	}
+
+	if (filename)
+		pfree(filename);
+	if (csvfilename)
+		pfree(csvfilename);
 
 	set_next_rotation_time();
 }
@@ -1179,10 +1190,13 @@ logfile_rotate(bool time_based_rotation, int size_rotation_for)
 /*
  * construct logfile name using timestamp information
  *
+ * If suffix isn't NULL, append it to the name, replacing any ".log"
+ * that may be in the pattern.
+ *
  * Result is palloc'd.
  */
 static char *
-logfile_getname(pg_time_t timestamp, char *suffix)
+logfile_getname(pg_time_t timestamp, const char *suffix)
 {
 	char	   *filename;
 	int			len;
@@ -1193,7 +1207,7 @@ logfile_getname(pg_time_t timestamp, char *suffix)
 
 	len = strlen(filename);
 
-	/* treat it as a strftime pattern */
+	/* treat Log_filename as a strftime pattern */
 	pg_strftime(filename + len, MAXPGPATH - len, Log_filename,
 				pg_localtime(&timestamp, log_timezone));
 
@@ -1202,7 +1216,7 @@ logfile_getname(pg_time_t timestamp, char *suffix)
 		len = strlen(filename);
 		if (len > 4 && (strcmp(filename + (len - 4), ".log") == 0))
 			len -= 4;
-		strncpy(filename + len, suffix, MAXPGPATH - len);
+		strlcpy(filename + len, suffix, MAXPGPATH - len);
 	}
 
 	return filename;

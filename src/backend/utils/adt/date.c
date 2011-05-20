@@ -3,12 +3,12 @@
  * date.c
  *	  implements DATE and TIME data types specified in SQL-92 standard
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994-5, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/utils/adt/date.c,v 1.146 2009/06/11 14:49:03 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/utils/adt/date.c,v 1.152 2010/02/26 02:01:07 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -203,8 +203,20 @@ Datum
 date_recv(PG_FUNCTION_ARGS)
 {
 	StringInfo	buf = (StringInfo) PG_GETARG_POINTER(0);
+	DateADT		result;
 
-	PG_RETURN_DATEADT((DateADT) pq_getmsgint(buf, sizeof(DateADT)));
+	result = (DateADT) pq_getmsgint(buf, sizeof(DateADT));
+
+	/* Limit to the same range that date_in() accepts. */
+	if (DATE_NOT_FINITE(result))
+		 /* ok */ ;
+	else if (result < -POSTGRES_EPOCH_JDATE ||
+			 result >= JULIAN_MAX - POSTGRES_EPOCH_JDATE)
+		ereport(ERROR,
+				(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+				 errmsg("date out of range")));
+
+	PG_RETURN_DATEADT(result);
 }
 
 /*
@@ -1701,7 +1713,7 @@ time_part(PG_FUNCTION_ARGS)
 		{
 			case DTK_MICROSEC:
 #ifdef HAVE_INT64_TIMESTAMP
-				result = tm->tm_sec * USECS_PER_SEC + fsec;
+				result = tm->tm_sec * 1000000.0 + fsec;
 #else
 				result = (tm->tm_sec + fsec) * 1000000;
 #endif
@@ -1709,7 +1721,7 @@ time_part(PG_FUNCTION_ARGS)
 
 			case DTK_MILLISEC:
 #ifdef HAVE_INT64_TIMESTAMP
-				result = tm->tm_sec * INT64CONST(1000) + fsec / INT64CONST(1000);
+				result = tm->tm_sec * 1000.0 + fsec / 1000.0;
 #else
 				result = (tm->tm_sec + fsec) * 1000;
 #endif
@@ -1717,7 +1729,7 @@ time_part(PG_FUNCTION_ARGS)
 
 			case DTK_SECOND:
 #ifdef HAVE_INT64_TIMESTAMP
-				result = tm->tm_sec + fsec / USECS_PER_SEC;
+				result = tm->tm_sec + fsec / 1000000.0;
 #else
 				result = tm->tm_sec + fsec;
 #endif
@@ -2469,7 +2481,7 @@ timetz_part(PG_FUNCTION_ARGS)
 
 			case DTK_MICROSEC:
 #ifdef HAVE_INT64_TIMESTAMP
-				result = tm->tm_sec * USECS_PER_SEC + fsec;
+				result = tm->tm_sec * 1000000.0 + fsec;
 #else
 				result = (tm->tm_sec + fsec) * 1000000;
 #endif
@@ -2477,7 +2489,7 @@ timetz_part(PG_FUNCTION_ARGS)
 
 			case DTK_MILLISEC:
 #ifdef HAVE_INT64_TIMESTAMP
-				result = tm->tm_sec * INT64CONST(1000) + fsec / INT64CONST(1000);
+				result = tm->tm_sec * 1000.0 + fsec / 1000.0;
 #else
 				result = (tm->tm_sec + fsec) * 1000;
 #endif
@@ -2485,7 +2497,7 @@ timetz_part(PG_FUNCTION_ARGS)
 
 			case DTK_SECOND:
 #ifdef HAVE_INT64_TIMESTAMP
-				result = tm->tm_sec + fsec / USECS_PER_SEC;
+				result = tm->tm_sec + fsec / 1000000.0;
 #else
 				result = tm->tm_sec + fsec;
 #endif

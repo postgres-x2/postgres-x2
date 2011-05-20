@@ -38,12 +38,12 @@
  *
  * This code is released under the terms of the PostgreSQL License.
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
  * Portions taken from FreeBSD.
  *
- * $PostgreSQL: pgsql/src/bin/initdb/initdb.c,v 1.172 2009/06/11 14:49:07 momjian Exp $
+ * $PostgreSQL: pgsql/src/bin/initdb/initdb.c,v 1.186 2010/02/26 02:01:15 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -125,10 +125,10 @@ static int	n_buffers = 50;
  * Warning messages for authentication methods
  */
 #define AUTHTRUST_WARNING \
-"# CAUTION: Configuring the system for local \"trust\" authentication allows\n" \
-"# any local user to connect as any PostgreSQL user, including the database\n" \
-"# superuser. If you do not trust all your local users, use another\n" \
-"# authentication method.\n"
+"# CAUTION: Configuring the system for local \"trust\" authentication\n" \
+"# allows any local user to connect as any PostgreSQL user, including\n" \
+"# the database superuser.  If you do not trust all your local users,\n" \
+"# use another authentication method.\n"
 static char *authwarning = NULL;
 
 /*
@@ -154,23 +154,22 @@ static char **replace_token(char **lines,
 #ifndef HAVE_UNIX_SOCKETS
 static char **filter_lines_with_token(char **lines, const char *token);
 #endif
-static char **readfile(char *path);
+static char **readfile(const char *path);
 static void writefile(char *path, char **lines);
 static FILE *popen_check(const char *command, const char *mode);
 static int	mkdir_p(char *path, mode_t omode);
 static void exit_nicely(void);
 static char *get_id(void);
 static char *get_encoding_id(char *encoding_name);
-static char *get_short_version(void);
 static int	check_data_dir(char *dir);
 static bool mkdatadir(const char *subdir);
 static void set_input(char **dest, char *filename);
 static void check_input(char *path);
-static void set_short_version(char *short_version, char *extrapath);
+static void write_version_file(char *extrapath);
 static void set_null_conf(void);
 static void test_config_settings(void);
 static void setup_config(void);
-static void bootstrap_template1(char *short_version);
+static void bootstrap_template1(void);
 static void setup_auth(void);
 static void get_set_pwd(void);
 static void setup_depend(void);
@@ -181,6 +180,7 @@ static void setup_dictionary(void);
 static void setup_privileges(void);
 static void set_info_version(void);
 static void setup_schema(void);
+static void load_plpgsql(void);
 static void vacuum_db(void);
 static void make_template0(void);
 static void make_postgres(void);
@@ -367,10 +367,10 @@ filter_lines_with_token(char **lines, const char *token)
  * get the lines from a text file
  */
 static char **
-readfile(char *path)
+readfile(const char *path)
 {
 	FILE	   *infile;
-	int			maxlength = 0,
+	int			maxlength = 1,
 				linelen = 0;
 	int			nlines = 0;
 	char	  **result;
@@ -399,26 +399,20 @@ readfile(char *path)
 	}
 
 	/* handle last line without a terminating newline (yuck) */
-
 	if (linelen)
 		nlines++;
 	if (linelen > maxlength)
 		maxlength = linelen;
 
 	/* set up the result and the line buffer */
-
-	result = (char **) pg_malloc((nlines + 2) * sizeof(char *));
-	buffer = (char *) pg_malloc(maxlength + 2);
+	result = (char **) pg_malloc((nlines + 1) * sizeof(char *));
+	buffer = (char *) pg_malloc(maxlength + 1);
 
 	/* now reprocess the file and store the lines */
-
 	rewind(infile);
 	nlines = 0;
 	while (fgets(buffer, maxlength + 1, infile) != NULL)
-	{
-		result[nlines] = xstrdup(buffer);
-		nlines++;
-	}
+		result[nlines++] = xstrdup(buffer);
 
 	fclose(infile);
 	free(buffer);
@@ -813,42 +807,6 @@ find_matching_ts_config(const char *lc_type)
 
 
 /*
- * get short version of VERSION
- */
-static char *
-get_short_version(void)
-{
-	bool		gotdot = false;
-	int			end;
-	char	   *vr;
-
-	vr = xstrdup(PG_VERSION);
-
-	for (end = 0; vr[end] != '\0'; end++)
-	{
-		if (vr[end] == '.')
-		{
-			if (end == 0)
-				return NULL;
-			else if (gotdot)
-				break;
-			else
-				gotdot = true;
-		}
-		else if (vr[end] < '0' || vr[end] > '9')
-		{
-			/* gone past digits and dots */
-			break;
-		}
-	}
-	if (end == 0 || vr[end - 1] == '.' || !gotdot)
-		return NULL;
-
-	vr[end] = '\0';
-	return vr;
-}
-
-/*
  * make sure the directory either doesn't exist or is empty
  *
  * Returns 0 if nonexistent, 1 if exists and empty, 2 if not empty,
@@ -982,7 +940,7 @@ check_input(char *path)
  * if extrapath is not NULL
  */
 static void
-set_short_version(char *short_version, char *extrapath)
+write_version_file(char *extrapath)
 {
 	FILE	   *version_file;
 	char	   *path;
@@ -997,14 +955,14 @@ set_short_version(char *short_version, char *extrapath)
 		path = pg_malloc(strlen(pg_data) + strlen(extrapath) + 13);
 		sprintf(path, "%s/%s/PG_VERSION", pg_data, extrapath);
 	}
-	version_file = fopen(path, PG_BINARY_W);
-	if (version_file == NULL)
+
+	if ((version_file = fopen(path, PG_BINARY_W)) == NULL)
 	{
 		fprintf(stderr, _("%s: could not open file \"%s\" for writing: %s\n"),
 				progname, path, strerror(errno));
 		exit_nicely();
 	}
-	if (fprintf(version_file, "%s\n", short_version) < 0 ||
+	if (fprintf(version_file, "%s\n", PG_MAJORVERSION) < 0 ||
 		fclose(version_file))
 	{
 		fprintf(stderr, _("%s: could not write file \"%s\": %s\n"),
@@ -1262,14 +1220,14 @@ setup_config(void)
 		if (err != 0 ||
 			getaddrinfo("::1", NULL, &hints, &gai_result) != 0)
 			conflines = replace_token(conflines,
-									  "host    all         all         ::1",
-									  "#host    all         all         ::1");
+							   "host    all             all             ::1",
+							 "#host    all             all             ::1");
 	}
 #else							/* !HAVE_IPV6 */
 	/* If we didn't compile IPV6 support at all, always comment it out */
 	conflines = replace_token(conflines,
-							  "host    all         all         ::1",
-							  "#host    all         all         ::1");
+							  "host    all             all             ::1",
+							  "#host    all             all             ::1");
 #endif   /* HAVE_IPV6 */
 
 	/* Replace default authentication methods */
@@ -1320,7 +1278,7 @@ setup_config(void)
  * run the BKI script in bootstrap mode to create template1
  */
 static void
-bootstrap_template1(char *short_version)
+bootstrap_template1(void)
 {
 	PG_CMD_DECL;
 	char	  **line;
@@ -1340,7 +1298,7 @@ bootstrap_template1(char *short_version)
 	/* Check that bki file appears to be of the right version */
 
 	snprintf(headerline, sizeof(headerline), "# PostgreSQL %s\n",
-			 short_version);
+			 PG_MAJORVERSION);
 
 	if (strcmp(headerline, *bki_lines) != 0)
 	{
@@ -1423,20 +1381,6 @@ setup_auth(void)
 	const char **line;
 	static const char *pg_authid_setup[] = {
 		/*
-		 * Create triggers to ensure manual updates to shared catalogs will be
-		 * reflected into their "flat file" copies.
-		 */
-		"CREATE TRIGGER pg_sync_pg_database "
-		"  AFTER INSERT OR UPDATE OR DELETE ON pg_database "
-		"  FOR EACH STATEMENT EXECUTE PROCEDURE flatfile_update_trigger();\n",
-		"CREATE TRIGGER pg_sync_pg_authid "
-		"  AFTER INSERT OR UPDATE OR DELETE ON pg_authid "
-		"  FOR EACH STATEMENT EXECUTE PROCEDURE flatfile_update_trigger();\n",
-		"CREATE TRIGGER pg_sync_pg_auth_members "
-		"  AFTER INSERT OR UPDATE OR DELETE ON pg_auth_members "
-		"  FOR EACH STATEMENT EXECUTE PROCEDURE flatfile_update_trigger();\n",
-
-		/*
 		 * The authid table shouldn't be readable except through views, to
 		 * ensure passwords are not publicly visible.
 		 */
@@ -1472,8 +1416,6 @@ get_set_pwd(void)
 
 	char	   *pwd1,
 			   *pwd2;
-	char		pwdpath[MAXPGPATH];
-	struct stat statbuf;
 
 	if (pwprompt)
 	{
@@ -1543,16 +1485,6 @@ get_set_pwd(void)
 	PG_CMD_CLOSE;
 
 	check_ok();
-
-	snprintf(pwdpath, sizeof(pwdpath), "%s/global/pg_auth", pg_data);
-	if (stat(pwdpath, &statbuf) != 0 || !S_ISREG(statbuf.st_mode))
-	{
-		fprintf(stderr,
-				_("%s: The password file was not generated. "
-				  "Please report this problem.\n"),
-				progname);
-		exit_nicely();
-	}
 }
 
 /*
@@ -1833,6 +1765,7 @@ setup_privileges(void)
 		"  WHERE relkind IN ('r', 'v', 'S') AND relacl IS NULL;\n",
 		"GRANT USAGE ON SCHEMA pg_catalog TO PUBLIC;\n",
 		"GRANT CREATE, USAGE ON SCHEMA public TO PUBLIC;\n",
+		"REVOKE ALL ON pg_largeobject FROM PUBLIC;\n",
 		NULL
 	};
 
@@ -1936,6 +1869,31 @@ setup_schema(void)
 				   "  sub_feature_name, is_supported, comments) "
 				   " FROM E'%s';\n",
 				   escape_quotes(features_file));
+
+	PG_CMD_CLOSE;
+
+	check_ok();
+}
+
+/*
+ * load PL/pgsql server-side language
+ */
+static void
+load_plpgsql(void)
+{
+	PG_CMD_DECL;
+
+	fputs(_("loading PL/pgSQL server-side language ... "), stdout);
+	fflush(stdout);
+
+	snprintf(cmd, sizeof(cmd),
+			 "\"%s\" %s template1 >%s",
+			 backend_exec, backend_options,
+			 DEVNULL);
+
+	PG_CMD_OPEN;
+
+	PG_CMD_PUTS("CREATE LANGUAGE plpgsql;\n");
 
 	PG_CMD_CLOSE;
 
@@ -2243,21 +2201,14 @@ check_locale_encoding(const char *locale, int user_enc)
 
 	locale_enc = pg_get_encoding_from_locale(locale);
 
-	/* We allow selection of SQL_ASCII --- see notes in createdb() */
+	/* See notes in createdb() to understand these tests */
 	if (!(locale_enc == user_enc ||
 		  locale_enc == PG_SQL_ASCII ||
-		  user_enc == PG_SQL_ASCII
+		  locale_enc == -1 ||
 #ifdef WIN32
-
-	/*
-	 * On win32, if the encoding chosen is UTF8, all locales are OK (assuming
-	 * the actual locale name passed the checks above). This is because UTF8
-	 * is a pseudo-codepage, that we convert to UTF16 before doing any
-	 * operations on, and UTF16 supports all locales.
-	 */
-		  || user_enc == PG_UTF8
+		  user_enc == PG_UTF8 ||
 #endif
-		  ))
+		  user_enc == PG_SQL_ASCII))
 	{
 		fprintf(stderr, _("%s: encoding mismatch\n"), progname);
 		fprintf(stderr,
@@ -2411,6 +2362,10 @@ CreateRestrictedProcess(char *cmd, PROCESS_INFORMATION *processInfo)
 		return 0;
 	}
 
+#ifndef __CYGWIN__
+	AddUserToTokenDacl(restrictedToken);
+#endif
+
 	if (!CreateProcessAsUser(restrictedToken,
 							 NULL,
 							 cmd,
@@ -2427,10 +2382,6 @@ CreateRestrictedProcess(char *cmd, PROCESS_INFORMATION *processInfo)
 		fprintf(stderr, "CreateProcessAsUser failed: %lu\n", GetLastError());
 		return 0;
 	}
-
-#ifndef __CYGWIN__
-	AddUserToDacl(processInfo->hProcess);
-#endif
 
 	return ResumeThread(processInfo->hThread);
 }
@@ -2510,7 +2461,6 @@ main(int argc, char *argv[])
 				i,
 				ret;
 	int			option_index;
-	char	   *short_version;
 	char	   *effective_user;
 	char	   *pgdenv;			/* PGDATA value gotten from and sent to
 								 * environment */
@@ -2526,6 +2476,7 @@ main(int argc, char *argv[])
 		"pg_xlog",
 		"pg_xlog/archive_status",
 		"pg_clog",
+		"pg_notify",
 		"pg_subtrans",
 		"pg_twophase",
 		"pg_multixact/members",
@@ -2768,6 +2719,14 @@ main(int argc, char *argv[])
 	sprintf(pgdenv, "PGDATA=%s", pg_data);
 	putenv(pgdenv);
 
+	/*
+	 * Also ensure that TZ is set, so that we don't waste time identifying the
+	 * system timezone each of the many times we start a standalone backend.
+	 * It's okay to use a hard-wired value here because nothing done during
+	 * initdb cares about the timezone setting.
+	 */
+	putenv("TZ=GMT");
+
 	if ((ret = find_other_exec(argv[0], "postgres", PG_BACKEND_VERSIONSTR,
 							   backend_exec)) < 0)
 	{
@@ -2809,12 +2768,6 @@ main(int argc, char *argv[])
 	}
 
 	canonicalize_path(share_path);
-
-	if ((short_version = get_short_version()) == NULL)
-	{
-		fprintf(stderr, _("%s: could not determine valid short version string\n"), progname);
-		exit(1);
-	}
 
 	effective_user = get_id();
 	if (strlen(username) == 0)
@@ -2913,11 +2866,9 @@ main(int argc, char *argv[])
 
 		ctype_enc = pg_get_encoding_from_locale(lc_ctype);
 
-		if (ctype_enc == PG_SQL_ASCII &&
-			!(pg_strcasecmp(lc_ctype, "C") == 0 ||
-			  pg_strcasecmp(lc_ctype, "POSIX") == 0))
+		if (ctype_enc == -1)
 		{
-			/* Hmm, couldn't recognize the locale's codeset */
+			/* Couldn't recognize the locale's codeset */
 			fprintf(stderr, _("%s: could not find suitable encoding for locale %s\n"),
 					progname, lc_ctype);
 			fprintf(stderr, _("Rerun %s with the -E option.\n"), progname);
@@ -3159,7 +3110,7 @@ main(int argc, char *argv[])
 	check_ok();
 
 	/* Top level PG_VERSION is checked by bootstrapper, so make it first */
-	set_short_version(short_version, NULL);
+	write_version_file(NULL);
 
 	/* Select suitable configuration settings */
 	set_null_conf();
@@ -3169,12 +3120,12 @@ main(int argc, char *argv[])
 	setup_config();
 
 	/* Bootstrap template1 */
-	bootstrap_template1(short_version);
+	bootstrap_template1();
 
 	/*
 	 * Make the per-database PG_VERSION for template1 only after init'ing it
 	 */
-	set_short_version(short_version, "base/1");
+	write_version_file("base/1");
 
 	/* Create the stuff we don't need to use bootstrap mode for */
 
@@ -3195,6 +3146,8 @@ main(int argc, char *argv[])
 	setup_privileges();
 
 	setup_schema();
+
+	load_plpgsql();
 
 	vacuum_db();
 

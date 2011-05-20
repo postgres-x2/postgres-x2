@@ -1,9 +1,9 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2009, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2010, PostgreSQL Global Development Group
  *
- * $PostgreSQL: pgsql/src/bin/psql/command.c,v 1.206 2009/06/11 14:49:07 momjian Exp $
+ * $PostgreSQL: pgsql/src/bin/psql/command.c,v 1.221 2010/07/06 19:18:59 momjian Exp $
  */
 #include "postgres_fe.h"
 #include "command.h"
@@ -361,7 +361,10 @@ exec_command(const char *cmd,
 				success = listCasts(pattern);
 				break;
 			case 'd':
-				success = objectDescription(pattern, show_system);
+				if (strncmp(cmd, "ddp", 3) == 0)
+					success = listDefaultACLs(pattern);
+				else
+					success = objectDescription(pattern, show_system);
 				break;
 			case 'D':
 				success = listDomains(pattern, show_system);
@@ -407,6 +410,19 @@ exec_command(const char *cmd,
 			case 'i':
 			case 's':
 				success = listTables(&cmd[1], pattern, show_verbose, show_system);
+				break;
+			case 'r':
+				if (cmd[2] == 'd' && cmd[3] == 's')
+				{
+					char	   *pattern2 = NULL;
+
+					if (pattern)
+						pattern2 = psql_scan_slash_option(scan_state,
+													  OT_NORMAL, NULL, true);
+					success = listDbRoleSettings(pattern, pattern2);
+				}
+				else
+					success = PSQL_CMD_UNKNOWN;
 				break;
 			case 'u':
 				success = describeRoles(pattern, show_verbose);
@@ -635,6 +651,17 @@ exec_command(const char *cmd,
 	{
 		char	   *opt = psql_scan_slash_option(scan_state,
 												 OT_WHOLE_LINE, NULL, false);
+		size_t		len;
+
+		/* strip any trailing spaces and semicolons */
+		if (opt)
+		{
+			len = strlen(opt);
+			while (len > 0 &&
+				   (isspace((unsigned char) opt[len - 1])
+					|| opt[len - 1] == ';'))
+				opt[--len] = '\0';
+		}
 
 		helpSQL(opt, pset.popt.topt.pager);
 		free(opt);
@@ -908,7 +935,7 @@ exec_command(const char *cmd,
 
 		expand_tilde(&fname);
 		/* This scrolls off the screen when using /dev/tty */
-		success = saveHistory(fname ? fname : DEVTTY, false);
+		success = saveHistory(fname ? fname : DEVTTY, -1, false, false);
 		if (success && !pset.quiet && fname)
 			printf(gettext("Wrote history to file \"%s/%s\".\n"),
 				   pset.dirname ? pset.dirname : ".", fname);
@@ -1197,7 +1224,7 @@ param_is_newly_set(const char *old_val, const char *new_val)
  * Connects to a database with given parameters. If there exists an
  * established connection, NULL values will be replaced with the ones
  * in the current connection. Otherwise NULL will be passed for that
- * parameter to PQsetdbLogin(), so the libpq defaults will be used.
+ * parameter to PQconnectdbParams(), so the libpq defaults will be used.
  *
  * In interactive mode, if connection fails with the given parameters,
  * the old connection will be kept.
@@ -1239,8 +1266,29 @@ do_connect(char *dbname, char *user, char *host, char *port)
 
 	while (true)
 	{
-		n_conn = PQsetdbLogin(host, port, NULL, NULL,
-							  dbname, user, password);
+#define PARAMS_ARRAY_SIZE	7
+		const char **keywords = pg_malloc(PARAMS_ARRAY_SIZE * sizeof(*keywords));
+		const char **values = pg_malloc(PARAMS_ARRAY_SIZE * sizeof(*values));
+
+		keywords[0] = "host";
+		values[0] = host;
+		keywords[1] = "port";
+		values[1] = port;
+		keywords[2] = "user";
+		values[2] = user;
+		keywords[3] = "password";
+		values[3] = password;
+		keywords[4] = "dbname";
+		values[4] = dbname;
+		keywords[5] = "fallback_application_name";
+		values[5] = pset.progname;
+		keywords[6] = NULL;
+		values[6] = NULL;
+
+		n_conn = PQconnectdbParams(keywords, values, true);
+
+		free(keywords);
+		free(values);
 
 		/* We can immediately discard the password -- no longer needed */
 		if (password)
@@ -1294,7 +1342,7 @@ do_connect(char *dbname, char *user, char *host, char *port)
 	PQsetNoticeProcessor(n_conn, NoticeProcessor, NULL);
 	pset.db = n_conn;
 	SyncVariables();
-	connection_warnings();		/* Must be after SyncVariables */
+	connection_warnings(false); /* Must be after SyncVariables */
 
 	/* Tell the user about the new connection */
 	if (!pset.quiet)
@@ -1320,7 +1368,7 @@ do_connect(char *dbname, char *user, char *host, char *port)
 
 
 void
-connection_warnings(void)
+connection_warnings(bool in_startup)
 {
 	if (!pset.quiet && !pset.notty)
 	{
@@ -1346,7 +1394,8 @@ connection_warnings(void)
 			printf(_("%s (%s, server %s)\n"),
 				   pset.progname, PG_VERSION, server_version);
 		}
-		else
+		/* For version match, only print psql banner on startup. */
+		else if (in_startup)
 			printf("%s (%s)\n", pset.progname, PG_VERSION);
 
 		if (pset.sversion / 100 != client_ver / 100)
@@ -1675,8 +1724,13 @@ process_file(char *filename, bool single_txn)
 	if (!filename)
 		return EXIT_FAILURE;
 
-	canonicalize_path(filename);
-	fd = fopen(filename, PG_BINARY_R);
+	if (strcmp(filename, "-") != 0)
+	{
+		canonicalize_path(filename);
+		fd = fopen(filename, PG_BINARY_R);
+	}
+	else
+		fd = stdin;
 
 	if (!fd)
 	{
@@ -1688,10 +1742,28 @@ process_file(char *filename, bool single_txn)
 	pset.inputfile = filename;
 
 	if (single_txn)
-		res = PSQLexec("BEGIN", false);
+	{
+		if ((res = PSQLexec("BEGIN", false)) == NULL)
+		{
+			if (pset.on_error_stop)
+				return EXIT_USER;
+		}
+		else
+			PQclear(res);
+	}
+
 	result = MainLoop(fd);
+
 	if (single_txn)
-		res = PSQLexec("COMMIT", false);
+	{
+		if ((res = PSQLexec("COMMIT", false)) == NULL)
+		{
+			if (pset.on_error_stop)
+				return EXIT_USER;
+		}
+		else
+			PQclear(res);
+	}
 
 	fclose(fd);
 	pset.inputfile = oldfilename;
@@ -1770,6 +1842,28 @@ do_pset(const char *param, const char *value, printQueryOpt *popt, bool quiet)
 
 		if (!quiet)
 			printf(_("Output format is %s.\n"), _align2string(popt->topt.format));
+	}
+
+	/* set table line style */
+	else if (strcmp(param, "linestyle") == 0)
+	{
+		if (!value)
+			;
+		else if (pg_strncasecmp("ascii", value, vallen) == 0)
+			popt->topt.line_style = &pg_asciiformat;
+		else if (pg_strncasecmp("old-ascii", value, vallen) == 0)
+			popt->topt.line_style = &pg_asciiformat_old;
+		else if (pg_strncasecmp("unicode", value, vallen) == 0)
+			popt->topt.line_style = &pg_utf8format;
+		else
+		{
+			psql_error("\\pset: allowed line styles are ascii, old-ascii, unicode\n");
+			return false;
+		}
+
+		if (!quiet)
+			printf(_("Line style is %s.\n"),
+				   get_line_style(&popt->topt)->name);
 	}
 
 	/* set border style/width */

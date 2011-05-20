@@ -3,12 +3,12 @@
  * proc.c
  *	  routines to manage per-process shared memory data structure
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/storage/lmgr/proc.c,v 1.207 2009/06/11 14:49:02 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/storage/lmgr/proc.c,v 1.221 2010/07/06 19:18:57 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -42,11 +42,13 @@
 #ifdef PGXC
 #include "pgxc/pgxc.h"
 #endif
+#include "replication/walsender.h"
 #include "storage/ipc.h"
 #include "storage/lmgr.h"
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
+#include "storage/procsignal.h"
 #include "storage/spin.h"
 
 
@@ -75,6 +77,7 @@ NON_EXEC_STATIC PGPROC *AuxiliaryProcs = NULL;
 static LOCALLOCK *lockAwaited = NULL;
 
 /* Mark these volatile because they can be changed by signal handler */
+static volatile bool standby_timeout_active = false;
 static volatile bool statement_timeout_active = false;
 static volatile bool deadlock_timeout_active = false;
 static volatile DeadLockState deadlock_state = DS_NOT_YET_CHECKED;
@@ -85,12 +88,14 @@ static TimestampTz timeout_start_time;
 
 /* statement_fin_time is valid only if statement_timeout_active is true */
 static TimestampTz statement_fin_time;
+static TimestampTz statement_fin_time2; /* valid only in recovery */
 
 
 static void RemoveProcFromArray(int code, Datum arg);
 static void ProcKill(int code, Datum arg);
 static void AuxiliaryProcKill(int code, Datum arg);
 static bool CheckStatementTimeout(void);
+static bool CheckStandbyTimeout(void);
 
 
 /*
@@ -105,10 +110,12 @@ ProcGlobalShmemSize(void)
 	size = add_size(size, sizeof(PROC_HDR));
 	/* AuxiliaryProcs */
 	size = add_size(size, mul_size(NUM_AUXILIARY_PROCS, sizeof(PGPROC)));
-	/* MyProcs, including autovacuum */
+	/* MyProcs, including autovacuum workers and launcher */
 	size = add_size(size, mul_size(MaxBackends, sizeof(PGPROC)));
 	/* ProcStructLock */
 	size = add_size(size, sizeof(slock_t));
+	/* startupBufferPinWaitBufId */
+	size = add_size(size, sizeof(NBuffers));
 
 	return size;
 }
@@ -195,19 +202,27 @@ InitProcGlobal(void)
 		ProcGlobal->freeProcs = &procs[i];
 	}
 
-	procs = (PGPROC *) ShmemAlloc((autovacuum_max_workers) * sizeof(PGPROC));
+	/*
+	 * Likewise for the PGPROCs reserved for autovacuum.
+	 *
+	 * Note: the "+1" here accounts for the autovac launcher
+	 */
+	procs = (PGPROC *) ShmemAlloc((autovacuum_max_workers + 1) * sizeof(PGPROC));
 	if (!procs)
 		ereport(FATAL,
 				(errcode(ERRCODE_OUT_OF_MEMORY),
 				 errmsg("out of shared memory")));
-	MemSet(procs, 0, autovacuum_max_workers * sizeof(PGPROC));
-	for (i = 0; i < autovacuum_max_workers; i++)
+	MemSet(procs, 0, (autovacuum_max_workers + 1) * sizeof(PGPROC));
+	for (i = 0; i < autovacuum_max_workers + 1; i++)
 	{
 		PGSemaphoreCreate(&(procs[i].sem));
 		procs[i].links.next = (SHM_QUEUE *) ProcGlobal->autovacFreeProcs;
 		ProcGlobal->autovacFreeProcs = &procs[i];
 	}
 
+	/*
+	 * And auxiliary procs.
+	 */
 	MemSet(AuxiliaryProcs, 0, NUM_AUXILIARY_PROCS * sizeof(PGPROC));
 	for (i = 0; i < NUM_AUXILIARY_PROCS; i++)
 	{
@@ -251,14 +266,14 @@ InitProcess(void)
 
 	set_spins_per_delay(procglobal->spins_per_delay);
 
-	if (IsAutoVacuumWorkerProcess())
+	if (IsAnyAutoVacuumProcess())
 		MyProc = procglobal->autovacFreeProcs;
 	else
 		MyProc = procglobal->freeProcs;
 
 	if (MyProc != NULL)
 	{
-		if (IsAutoVacuumWorkerProcess())
+		if (IsAnyAutoVacuumProcess())
 			procglobal->autovacFreeProcs = (PGPROC *) MyProc->links.next;
 		else
 			procglobal->freeProcs = (PGPROC *) MyProc->links.next;
@@ -281,10 +296,16 @@ InitProcess(void)
 	/*
 	 * Now that we have a PGPROC, mark ourselves as an active postmaster
 	 * child; this is so that the postmaster can detect it if we exit without
-	 * cleaning up.
+	 * cleaning up.  (XXX autovac launcher currently doesn't participate in
+	 * this; it probably should.)
 	 */
-	if (IsUnderPostmaster)
-		MarkPostmasterChildActive();
+	if (IsUnderPostmaster && !IsAutoVacuumLauncherProcess())
+	{
+		if (am_walsender)
+			MarkPostmasterChildWalSender();
+		else
+			MarkPostmasterChildActive();
+	}
 
 	/*
 	 * Initialize all fields of MyProc, except for the semaphore which was
@@ -302,6 +323,7 @@ InitProcess(void)
 	MyProc->roleId = InvalidOid;
 	MyProc->inCommit = false;
 	MyProc->vacuumFlags = 0;
+	/* NB -- autovac launcher intentionally does not set IS_AUTOVACUUM */
 	if (IsAutoVacuumWorkerProcess())
 		MyProc->vacuumFlags |= PROC_IS_AUTOVACUUM;
 	MyProc->lwWaiting = false;
@@ -311,6 +333,7 @@ InitProcess(void)
 	MyProc->waitProcLock = NULL;
 	for (i = 0; i < NUM_LOCK_PARTITIONS; i++)
 		SHMQueueInit(&(MyProc->myProcLocks[i]));
+	MyProc->recoveryConflictPending = false;
 
 	/*
 	 * We might be reusing a semaphore that belonged to a failed process. So
@@ -335,21 +358,13 @@ InitProcess(void)
  * InitProcessPhase2 -- make MyProc visible in the shared ProcArray.
  *
  * This is separate from InitProcess because we can't acquire LWLocks until
- * we've created a PGPROC, but in the EXEC_BACKEND case there is a good deal
- * of stuff to be done before this step that will require LWLock access.
+ * we've created a PGPROC, but in the EXEC_BACKEND case ProcArrayAdd won't
+ * work until after we've done CreateSharedMemoryAndSemaphores.
  */
 void
 InitProcessPhase2(void)
 {
 	Assert(MyProc != NULL);
-
-	/*
-	 * We should now know what database we're in, so advertise that.  (We need
-	 * not do any locking here, since no other backend can yet see our
-	 * PGPROC.)
-	 */
-	Assert(OidIsValid(MyDatabaseId));
-	MyProc->databaseId = MyDatabaseId;
 
 	/*
 	 * Add our PGPROC to the PGPROC array in shared memory.
@@ -375,6 +390,11 @@ InitProcessPhase2(void)
  * to the ProcArray or the sinval messaging mechanism, either.	They also
  * don't get a VXID assigned, since this is only useful when we actually
  * hold lockmgr locks.
+ *
+ * Startup process however uses locks but never waits for them in the
+ * normal backend sense. Startup process also takes part in sinval messaging
+ * as a sendOnly process, so never reads messages from sinval queue. So
+ * Startup process does have a VXID and does show up in pg_locks.
  */
 void
 InitAuxiliaryProcess(void)
@@ -440,7 +460,6 @@ InitAuxiliaryProcess(void)
 	MyProc->databaseId = InvalidOid;
 	MyProc->roleId = InvalidOid;
 	MyProc->inCommit = false;
-	/* we don't set the "is autovacuum" flag in the launcher */
 	MyProc->vacuumFlags = 0;
 	MyProc->lwWaiting = false;
 	MyProc->lwExclusive = false;
@@ -461,6 +480,57 @@ InitAuxiliaryProcess(void)
 	 * Arrange to clean up at process exit.
 	 */
 	on_shmem_exit(AuxiliaryProcKill, Int32GetDatum(proctype));
+}
+
+/*
+ * Record the PID and PGPROC structures for the Startup process, for use in
+ * ProcSendSignal().  See comments there for further explanation.
+ */
+void
+PublishStartupProcessInformation(void)
+{
+	/* use volatile pointer to prevent code rearrangement */
+	volatile PROC_HDR *procglobal = ProcGlobal;
+
+	SpinLockAcquire(ProcStructLock);
+
+	procglobal->startupProc = MyProc;
+	procglobal->startupProcPid = MyProcPid;
+	procglobal->startupBufferPinWaitBufId = 0;
+
+	SpinLockRelease(ProcStructLock);
+}
+
+/*
+ * Used from bufgr to share the value of the buffer that Startup waits on,
+ * or to reset the value to "not waiting" (-1). This allows processing
+ * of recovery conflicts for buffer pins. Set is made before backends look
+ * at this value, so locking not required, especially since the set is
+ * an atomic integer set operation.
+ */
+void
+SetStartupBufferPinWaitBufId(int bufid)
+{
+	/* use volatile pointer to prevent code rearrangement */
+	volatile PROC_HDR *procglobal = ProcGlobal;
+
+	procglobal->startupBufferPinWaitBufId = bufid;
+}
+
+/*
+ * Used by backends when they receive a request to check for buffer pin waits.
+ */
+int
+GetStartupBufferPinWaitBufId(void)
+{
+	int			bufid;
+
+	/* use volatile pointer to prevent code rearrangement */
+	volatile PROC_HDR *procglobal = ProcGlobal;
+
+	bufid = procglobal->startupBufferPinWaitBufId;
+
+	return bufid;
 }
 
 /*
@@ -489,6 +559,15 @@ HaveNFreeProcs(int n)
 	SpinLockRelease(ProcStructLock);
 
 	return (n <= 0);
+}
+
+bool
+IsWaitingForLock(void)
+{
+	if (lockAwaited == NULL)
+		return false;
+
+	return true;
 }
 
 /*
@@ -552,8 +631,7 @@ LockWaitCancel(void)
  *			at main transaction commit or abort
  *
  * At main transaction commit, we release all locks except session locks.
- * At main transaction abort, we release all locks including session locks;
- * this lets us clean up after a VACUUM FULL failure.
+ * At main transaction abort, we release all locks including session locks.
  *
  * At subtransaction commit, we don't release any locks (so this func is not
  * needed at all); we will defer the releasing to the parent transaction.
@@ -615,8 +693,8 @@ ProcKill(int code, Datum arg)
 
 	SpinLockAcquire(ProcStructLock);
 
-	/* Return PGPROC structure (and semaphore) to freelist */
-	if (IsAutoVacuumWorkerProcess())
+	/* Return PGPROC structure (and semaphore) to appropriate freelist */
+	if (IsAnyAutoVacuumProcess())
 	{
 		MyProc->links.next = (SHM_QUEUE *) procglobal->autovacFreeProcs;
 		procglobal->autovacFreeProcs = MyProc;
@@ -637,14 +715,15 @@ ProcKill(int code, Datum arg)
 
 	/*
 	 * This process is no longer present in shared memory in any meaningful
-	 * way, so tell the postmaster we've cleaned up acceptably well.
+	 * way, so tell the postmaster we've cleaned up acceptably well. (XXX
+	 * autovac launcher should be included here someday)
 	 */
-	if (IsUnderPostmaster)
+	if (IsUnderPostmaster && !IsAutoVacuumLauncherProcess())
 		MarkPostmasterChildInactive();
 
 	/* wake autovac launcher if needed -- see comments in FreeWorkerInfo */
 	if (AutovacuumLauncherPid != 0)
-		kill(AutovacuumLauncherPid, SIGUSR1);
+		kill(AutovacuumLauncherPid, SIGUSR2);
 }
 
 /*
@@ -690,21 +769,22 @@ AuxiliaryProcKill(int code, Datum arg)
 /*
  * ProcQueueAlloc -- alloc/attach to a shared memory process queue
  *
- * Returns: a pointer to the queue or NULL
- * Side Effects: Initializes the queue if we allocated one
+ * Returns: a pointer to the queue
+ * Side Effects: Initializes the queue if it wasn't there before
  */
 #ifdef NOT_USED
 PROC_QUEUE *
-ProcQueueAlloc(char *name)
+ProcQueueAlloc(const char *name)
 {
+	PROC_QUEUE *queue;
 	bool		found;
-	PROC_QUEUE *queue = (PROC_QUEUE *)
-	ShmemInitStruct(name, sizeof(PROC_QUEUE), &found);
 
-	if (!queue)
-		return NULL;
+	queue = (PROC_QUEUE *)
+		ShmemInitStruct(name, sizeof(PROC_QUEUE), &found);
+
 	if (!found)
 		ProcQueueInit(queue);
+
 	return queue;
 }
 #endif
@@ -1299,7 +1379,31 @@ ProcWaitForSignal(void)
 void
 ProcSendSignal(int pid)
 {
-	PGPROC	   *proc = BackendPidGetProc(pid);
+	PGPROC	   *proc = NULL;
+
+	if (RecoveryInProgress())
+	{
+		/* use volatile pointer to prevent code rearrangement */
+		volatile PROC_HDR *procglobal = ProcGlobal;
+
+		SpinLockAcquire(ProcStructLock);
+
+		/*
+		 * Check to see whether it is the Startup process we wish to signal.
+		 * This call is made by the buffer manager when it wishes to wake up a
+		 * process that has been waiting for a pin in so it can obtain a
+		 * cleanup lock using LockBufferForCleanup(). Startup is not a normal
+		 * backend, so BackendPidGetProc() will not return any pid at all. So
+		 * we remember the information for this special case.
+		 */
+		if (pid == procglobal->startupProcPid)
+			proc = procglobal->startupProc;
+
+		SpinLockRelease(ProcStructLock);
+	}
+
+	if (proc == NULL)
+		proc = BackendPidGetProc(pid);
 
 	if (proc != NULL)
 		PGSemaphoreUnlock(&proc->sem);
@@ -1498,7 +1602,7 @@ CheckStatementTimeout(void)
 
 
 /*
- * Signal handler for SIGALRM
+ * Signal handler for SIGALRM for normal user backends
  *
  * Process deadlock check and/or statement timeout check, as needed.
  * To avoid various edge cases, we must be careful to do nothing
@@ -1518,6 +1622,183 @@ handle_sig_alarm(SIGNAL_ARGS)
 
 	if (statement_timeout_active)
 		(void) CheckStatementTimeout();
+
+	errno = save_errno;
+}
+
+/*
+ * Signal handler for SIGALRM in Startup process
+ *
+ * To avoid various edge cases, we must be careful to do nothing
+ * when there is nothing to be done.  We also need to be able to
+ * reschedule the timer interrupt if called before end of statement.
+ *
+ * We set either deadlock_timeout_active or statement_timeout_active
+ * or both. Interrupts are enabled if standby_timeout_active.
+ */
+bool
+enable_standby_sig_alarm(TimestampTz now, TimestampTz fin_time, bool deadlock_only)
+{
+	TimestampTz deadlock_time = TimestampTzPlusMilliseconds(now,
+															DeadlockTimeout);
+
+	if (deadlock_only)
+	{
+		/*
+		 * Wake up at deadlock_time only, then wait forever
+		 */
+		statement_fin_time = deadlock_time;
+		deadlock_timeout_active = true;
+		statement_timeout_active = false;
+	}
+	else if (fin_time > deadlock_time)
+	{
+		/*
+		 * Wake up at deadlock_time, then again at fin_time
+		 */
+		statement_fin_time = deadlock_time;
+		statement_fin_time2 = fin_time;
+		deadlock_timeout_active = true;
+		statement_timeout_active = true;
+	}
+	else
+	{
+		/*
+		 * Wake only at fin_time because its fairly soon
+		 */
+		statement_fin_time = fin_time;
+		deadlock_timeout_active = false;
+		statement_timeout_active = true;
+	}
+
+	if (deadlock_timeout_active || statement_timeout_active)
+	{
+		long		secs;
+		int			usecs;
+		struct itimerval timeval;
+
+		TimestampDifference(now, statement_fin_time,
+							&secs, &usecs);
+		if (secs == 0 && usecs == 0)
+			usecs = 1;
+		MemSet(&timeval, 0, sizeof(struct itimerval));
+		timeval.it_value.tv_sec = secs;
+		timeval.it_value.tv_usec = usecs;
+		if (setitimer(ITIMER_REAL, &timeval, NULL))
+			return false;
+		standby_timeout_active = true;
+	}
+
+	return true;
+}
+
+bool
+disable_standby_sig_alarm(void)
+{
+	/*
+	 * Always disable the interrupt if it is active; this avoids being
+	 * interrupted by the signal handler and thereby possibly getting
+	 * confused.
+	 *
+	 * We will re-enable the interrupt if necessary in CheckStandbyTimeout.
+	 */
+	if (standby_timeout_active)
+	{
+		struct itimerval timeval;
+
+		MemSet(&timeval, 0, sizeof(struct itimerval));
+		if (setitimer(ITIMER_REAL, &timeval, NULL))
+		{
+			standby_timeout_active = false;
+			return false;
+		}
+	}
+
+	standby_timeout_active = false;
+
+	return true;
+}
+
+/*
+ * CheckStandbyTimeout() runs unconditionally in the Startup process
+ * SIGALRM handler. Timers will only be set when InHotStandby.
+ * We simply ignore any signals unless the timer has been set.
+ */
+static bool
+CheckStandbyTimeout(void)
+{
+	TimestampTz now;
+	bool		reschedule = false;
+
+	standby_timeout_active = false;
+
+	now = GetCurrentTimestamp();
+
+	/*
+	 * Reschedule the timer if its not time to wake yet, or if we have both
+	 * timers set and the first one has just been reached.
+	 */
+	if (now >= statement_fin_time)
+	{
+		if (deadlock_timeout_active)
+		{
+			/*
+			 * We're still waiting when we reach deadlock timeout, so send out
+			 * a request to have other backends check themselves for deadlock.
+			 * Then continue waiting until statement_fin_time, if that's set.
+			 */
+			SendRecoveryConflictWithBufferPin(PROCSIG_RECOVERY_CONFLICT_STARTUP_DEADLOCK);
+			deadlock_timeout_active = false;
+
+			/*
+			 * Begin second waiting period if required.
+			 */
+			if (statement_timeout_active)
+			{
+				reschedule = true;
+				statement_fin_time = statement_fin_time2;
+			}
+		}
+		else
+		{
+			/*
+			 * We've now reached statement_fin_time, so ask all conflicts to
+			 * leave, so we can press ahead with applying changes in recovery.
+			 */
+			SendRecoveryConflictWithBufferPin(PROCSIG_RECOVERY_CONFLICT_BUFFERPIN);
+		}
+	}
+	else
+		reschedule = true;
+
+	if (reschedule)
+	{
+		long		secs;
+		int			usecs;
+		struct itimerval timeval;
+
+		TimestampDifference(now, statement_fin_time,
+							&secs, &usecs);
+		if (secs == 0 && usecs == 0)
+			usecs = 1;
+		MemSet(&timeval, 0, sizeof(struct itimerval));
+		timeval.it_value.tv_sec = secs;
+		timeval.it_value.tv_usec = usecs;
+		if (setitimer(ITIMER_REAL, &timeval, NULL))
+			return false;
+		standby_timeout_active = true;
+	}
+
+	return true;
+}
+
+void
+handle_standby_sig_alarm(SIGNAL_ARGS)
+{
+	int			save_errno = errno;
+
+	if (standby_timeout_active)
+		(void) CheckStandbyTimeout();
 
 	errno = save_errno;
 }

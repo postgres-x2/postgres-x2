@@ -3,12 +3,12 @@
  * schemacmds.c
  *	  schema creation/manipulation commands
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/commands/schemacmds.c,v 1.53 2009/06/11 14:48:56 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/commands/schemacmds.c,v 1.57 2010/02/26 02:00:39 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -51,10 +51,10 @@ CreateSchemaCommand(CreateSchemaStmt *stmt, const char *queryString)
 	ListCell   *parsetree_item;
 	Oid			owner_uid;
 	Oid			saved_uid;
-	bool		saved_secdefcxt;
+	int			save_sec_context;
 	AclResult	aclresult;
 
-	GetUserIdAndContext(&saved_uid, &saved_secdefcxt);
+	GetUserIdAndSecContext(&saved_uid, &save_sec_context);
 
 	/*
 	 * Who is supposed to own the new schema?
@@ -94,7 +94,8 @@ CreateSchemaCommand(CreateSchemaStmt *stmt, const char *queryString)
 	 * error, transaction abort will clean things up.)
 	 */
 	if (saved_uid != owner_uid)
-		SetUserIdAndContext(owner_uid, true);
+		SetUserIdAndSecContext(owner_uid,
+							save_sec_context | SECURITY_LOCAL_USERID_CHANGE);
 
 	/* Create the schema's namespace */
 	namespaceId = NamespaceCreate(schemaName, owner_uid);
@@ -145,8 +146,8 @@ CreateSchemaCommand(CreateSchemaStmt *stmt, const char *queryString)
 	/* Reset search path to normal state */
 	PopOverrideSearchPath();
 
-	/* Reset current user */
-	SetUserIdAndContext(saved_uid, saved_secdefcxt);
+	/* Reset current user and security context */
+	SetUserIdAndSecContext(saved_uid, save_sec_context);
 }
 
 
@@ -180,9 +181,8 @@ RemoveSchemas(DropStmt *drop)
 					 errmsg("schema name cannot be qualified")));
 		namespaceName = strVal(linitial(names));
 
-		namespaceId = GetSysCacheOid(NAMESPACENAME,
-									 CStringGetDatum(namespaceName),
-									 0, 0, 0);
+		namespaceId = GetSysCacheOid1(NAMESPACENAME,
+									  CStringGetDatum(namespaceName));
 
 		if (!OidIsValid(namespaceId))
 		{
@@ -235,9 +235,8 @@ RemoveSchemaById(Oid schemaOid)
 
 	relation = heap_open(NamespaceRelationId, RowExclusiveLock);
 
-	tup = SearchSysCache(NAMESPACEOID,
-						 ObjectIdGetDatum(schemaOid),
-						 0, 0, 0);
+	tup = SearchSysCache1(NAMESPACEOID,
+						  ObjectIdGetDatum(schemaOid));
 	if (!HeapTupleIsValid(tup)) /* should not happen */
 		elog(ERROR, "cache lookup failed for namespace %u", schemaOid);
 
@@ -261,9 +260,7 @@ RenameSchema(const char *oldname, const char *newname)
 
 	rel = heap_open(NamespaceRelationId, RowExclusiveLock);
 
-	tup = SearchSysCacheCopy(NAMESPACENAME,
-							 CStringGetDatum(oldname),
-							 0, 0, 0);
+	tup = SearchSysCacheCopy1(NAMESPACENAME, CStringGetDatum(oldname));
 	if (!HeapTupleIsValid(tup))
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_SCHEMA),
@@ -271,9 +268,8 @@ RenameSchema(const char *oldname, const char *newname)
 
 	/* make sure the new name doesn't exist */
 	if (HeapTupleIsValid(
-						 SearchSysCache(NAMESPACENAME,
-										CStringGetDatum(newname),
-										0, 0, 0)))
+						 SearchSysCache1(NAMESPACENAME,
+										 CStringGetDatum(newname))))
 		ereport(ERROR,
 				(errcode(ERRCODE_DUPLICATE_SCHEMA),
 				 errmsg("schema \"%s\" already exists", newname)));
@@ -332,9 +328,7 @@ AlterSchemaOwner_oid(Oid oid, Oid newOwnerId)
 
 	rel = heap_open(NamespaceRelationId, RowExclusiveLock);
 
-	tup = SearchSysCache(NAMESPACEOID,
-						 ObjectIdGetDatum(oid),
-						 0, 0, 0);
+	tup = SearchSysCache1(NAMESPACEOID, ObjectIdGetDatum(oid));
 	if (!HeapTupleIsValid(tup))
 		elog(ERROR, "cache lookup failed for schema %u", oid);
 
@@ -357,9 +351,7 @@ AlterSchemaOwner(const char *name, Oid newOwnerId)
 
 	rel = heap_open(NamespaceRelationId, RowExclusiveLock);
 
-	tup = SearchSysCache(NAMESPACENAME,
-						 CStringGetDatum(name),
-						 0, 0, 0);
+	tup = SearchSysCache1(NAMESPACENAME, CStringGetDatum(name));
 	if (!HeapTupleIsValid(tup))
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_SCHEMA),

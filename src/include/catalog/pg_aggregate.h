@@ -5,13 +5,13 @@
  *	  along with the relation's initial contents.
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/catalog/pg_aggregate.h,v 1.68 2009/01/01 17:23:56 momjian Exp $
+ * $PostgreSQL: pgsql/src/include/catalog/pg_aggregate.h,v 1.71 2010/02/01 03:14:43 itagaki Exp $
  *
  * NOTES
- *	  the genbki.sh script reads this file and generates .bki
+ *	  the genbki.pl script reads this file and generates .bki
  *	  information from the DATA() statements.
  *
  *-------------------------------------------------------------------------
@@ -426,6 +426,10 @@ DATA(insert ( 2901 xmlconcat2	  -					0	142		_null_ ));
 #else
 DATA(insert ( 2335	array_agg_transfn	array_agg_finalfn		0	2281	_null_ ));
 #endif
+
+/* text */
+DATA(insert (3537	string_agg_transfn			string_agg_finalfn	0	2281	_null_ ));
+DATA(insert (3538	string_agg_delim_transfn	string_agg_finalfn	0	2281	_null_ ));
 
 /*
  * prototypes for functions in pg_aggregate.c

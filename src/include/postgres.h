@@ -7,11 +7,11 @@
  * Client-side code should include postgres_fe.h instead.
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1995, Regents of the University of California
  * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
  *
- * $PostgreSQL: pgsql/src/include/postgres.h,v 1.92 2009/01/01 17:23:55 momjian Exp $
+ * $PostgreSQL: pgsql/src/include/postgres.h,v 1.94 2010/01/02 16:58:00 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -286,16 +286,10 @@ typedef struct
 
 /*
  * Port Notes:
- *	Postgres makes the following assumption about machines:
+ *	Postgres makes the following assumptions about datatype sizes:
  *
- *	sizeof(Datum) == sizeof(long) >= sizeof(void *) >= 4
- *
- *	Postgres also assumes that
- *
+ *	sizeof(Datum) == sizeof(void *) == 4 or 8
  *	sizeof(char) == 1
- *
- *	and that
- *
  *	sizeof(short) == 2
  *
  * When a type narrower than Datum is stored in a Datum, we place it in the
@@ -306,9 +300,9 @@ typedef struct
  * or short may contain garbage when called as if it returned Datum.
  */
 
-typedef unsigned long Datum;	/* XXX sizeof(long) >= sizeof(void *) */
+typedef uintptr_t Datum;
 
-#define SIZEOF_DATUM SIZEOF_UNSIGNED_LONG
+#define SIZEOF_DATUM SIZEOF_VOID_P
 
 typedef Datum *DatumPtr;
 

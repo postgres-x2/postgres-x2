@@ -4,11 +4,11 @@
  *	  WAL replay logic for GiST.
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *			 $PostgreSQL: pgsql/src/backend/access/gist/gistxlog.c,v 1.32 2009/01/20 18:59:36 heikki Exp $
+ *			 $PostgreSQL: pgsql/src/backend/access/gist/gistxlog.c,v 1.35 2010/01/02 16:57:34 momjian Exp $
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
@@ -396,6 +396,12 @@ gist_redo(XLogRecPtr lsn, XLogRecord *record)
 	uint8		info = record->xl_info & ~XLR_INFO_MASK;
 	MemoryContext oldCxt;
 
+	/*
+	 * GIST indexes do not require any conflict processing. NB: If we ever
+	 * implement a similar optimization we have in b-tree, and remove killed
+	 * tuples outside VACUUM, we'll need to handle that here.
+	 */
+
 	RestoreBkpBlocks(lsn, record, false);
 
 	oldCxt = MemoryContextSwitchTo(opCtx);
@@ -644,6 +650,7 @@ gistContinueInsert(gistIncompleteInsert *insert)
 			int			j,
 						k,
 						pituplen = 0;
+			uint8		xlinfo;
 			XLogRecData *rdata;
 			XLogRecPtr	recptr;
 			Buffer		tempbuffer = InvalidBuffer;
@@ -732,6 +739,7 @@ gistContinueInsert(gistIncompleteInsert *insert)
 				for (j = 0; j < ntodelete; j++)
 					PageIndexTupleDelete(pages[0], todelete[j]);
 
+				xlinfo = XLOG_GIST_PAGE_SPLIT;
 				rdata = formSplitRdata(index->rd_node, insert->path[i],
 									   false, &(insert->key),
 									 gistMakePageLayout(buffers, numbuffer));
@@ -745,6 +753,7 @@ gistContinueInsert(gistIncompleteInsert *insert)
 					PageIndexTupleDelete(pages[0], todelete[j]);
 				gistfillbuffer(pages[0], itup, lenitup, InvalidOffsetNumber);
 
+				xlinfo = XLOG_GIST_PAGE_UPDATE;
 				rdata = formUpdateRdata(index->rd_node, buffers[0],
 										todelete, ntodelete,
 										itup, lenitup, &(insert->key));
@@ -761,7 +770,7 @@ gistContinueInsert(gistIncompleteInsert *insert)
 				GistPageGetOpaque(pages[j])->rightlink = InvalidBlockNumber;
 				MarkBufferDirty(buffers[j]);
 			}
-			recptr = XLogInsert(RM_GIST_ID, XLOG_GIST_PAGE_UPDATE, rdata);
+			recptr = XLogInsert(RM_GIST_ID, xlinfo, rdata);
 			for (j = 0; j < numbuffer; j++)
 			{
 				PageSetLSN(pages[j], recptr);

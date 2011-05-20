@@ -1,7 +1,7 @@
 #
 # Autoconf macros for configuring the build of Python extension modules
 #
-# $PostgreSQL: pgsql/config/python.m4,v 1.15 2009/01/04 00:54:15 petere Exp $
+# $PostgreSQL: pgsql/config/python.m4,v 1.18 2010/03/17 22:02:44 petere Exp $
 #
 
 # PGAC_PATH_PYTHON
@@ -22,7 +22,7 @@ fi
 AC_DEFUN([_PGAC_CHECK_PYTHON_DIRS],
 [AC_REQUIRE([PGAC_PATH_PYTHON])
 AC_MSG_CHECKING([for Python distutils module])
-if "${PYTHON}" 2>&- -c 'import distutils'
+if "${PYTHON}" -c 'import distutils' 2>&AS_MESSAGE_LOG_FD
 then
     AC_MSG_RESULT(yes)
 else
@@ -30,10 +30,12 @@ else
     AC_MSG_ERROR([distutils module not found])
 fi
 AC_MSG_CHECKING([Python configuration directory])
+python_majorversion=`${PYTHON} -c "import sys; print(sys.version[[0]])"`
 python_version=`${PYTHON} -c "import sys; print(sys.version[[:3]])"`
 python_configdir=`${PYTHON} -c "from distutils.sysconfig import get_python_lib as f; import os; print(os.path.join(f(plat_specific=1,standard_lib=1),'config'))"`
 python_includespec=`${PYTHON} -c "import distutils.sysconfig; print('-I'+distutils.sysconfig.get_python_inc())"`
 
+AC_SUBST(python_majorversion)[]dnl
 AC_SUBST(python_version)[]dnl
 AC_SUBST(python_configdir)[]dnl
 AC_SUBST(python_includespec)[]dnl
@@ -70,7 +72,7 @@ else
 	python_libspec="-L${python_libdir} -lpython${python_version}"
 fi
 
-python_additional_libs=`${PYTHON} -c "import distutils.sysconfig,string; print(' '.join(filter(None,distutils.sysconfig.get_config_vars('LIBS','LIBC','LIBM','LOCALMODLIBS','BASEMODLIBS'))))"`
+python_additional_libs=`${PYTHON} -c "import distutils.sysconfig,string; print(' '.join(filter(None,distutils.sysconfig.get_config_vars('LIBS','LIBC','LIBM','BASEMODLIBS'))))"`
 
 AC_MSG_RESULT([${python_libspec} ${python_additional_libs}])
 

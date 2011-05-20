@@ -8,11 +8,11 @@
  * doesn't actually run the executor for them.
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/utils/mmgr/portalmem.c,v 1.113 2009/01/01 17:23:53 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/utils/mmgr/portalmem.c,v 1.120 2010/07/06 19:18:59 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -328,6 +328,13 @@ PortalReleaseCachedPlan(Portal portal)
 	{
 		ReleaseCachedPlan(portal->cplan, false);
 		portal->cplan = NULL;
+
+		/*
+		 * We must also clear portal->stmts which is now a dangling reference
+		 * to the cached plan's plan list.  This protects any code that might
+		 * try to examine the Portal later.
+		 */
+		portal->stmts = NIL;
 	}
 }
 
@@ -370,6 +377,28 @@ PortalCreateHoldStore(Portal portal)
 }
 
 /*
+ * PinPortal
+ *		Protect a portal from dropping.
+ */
+void
+PinPortal(Portal portal)
+{
+	if (portal->portalPinned)
+		elog(ERROR, "portal already pinned");
+
+	portal->portalPinned = true;
+}
+
+void
+UnpinPortal(Portal portal)
+{
+	if (!portal->portalPinned)
+		elog(ERROR, "portal not pinned");
+
+	portal->portalPinned = false;
+}
+
+/*
  * PortalDrop
  *		Destroy the portal.
  */
@@ -378,9 +407,16 @@ PortalDrop(Portal portal, bool isTopCommit)
 {
 	AssertArg(PortalIsValid(portal));
 
-	/* Not sure if this case can validly happen or not... */
-	if (portal->status == PORTAL_ACTIVE)
-		elog(ERROR, "cannot drop active portal");
+	/*
+	 * Don't allow dropping a pinned portal, it's still needed by whoever
+	 * pinned it. Not sure if the PORTAL_ACTIVE case can validly happen or
+	 * not...
+	 */
+	if (portal->portalPinned ||
+		portal->status == PORTAL_ACTIVE)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_CURSOR_STATE),
+				 errmsg("cannot drop active portal \"%s\"", portal->name)));
 
 	/*
 	 * Remove portal from hash table.  Because we do this first, we will not
@@ -395,8 +431,7 @@ PortalDrop(Portal portal, bool isTopCommit)
 		(*portal->cleanup) (portal);
 
 	/* drop cached plan reference, if any */
-	if (portal->cplan)
-		PortalReleaseCachedPlan(portal);
+	PortalReleaseCachedPlan(portal);
 
 	/*
 	 * Release any resources still attached to the portal.	There are several
@@ -529,8 +564,7 @@ CommitHoldablePortals(void)
 			PersistHoldablePortal(portal);
 
 			/* drop cached plan reference, if any */
-			if (portal->cplan)
-				PortalReleaseCachedPlan(portal);
+			PortalReleaseCachedPlan(portal);
 
 			/*
 			 * Any resources belonging to the portal will be released in the
@@ -626,6 +660,13 @@ AtCommit_Portals(void)
 		}
 
 		/*
+		 * There should be no pinned portals anymore. Complain if someone
+		 * leaked one.
+		 */
+		if (portal->portalPinned)
+			elog(ERROR, "cannot commit while a portal is pinned");
+
+		/*
 		 * Do nothing to cursors held over from a previous transaction
 		 * (including holdable ones just frozen by CommitHoldablePortals).
 		 */
@@ -663,6 +704,7 @@ AtAbort_Portals(void)
 	{
 		Portal		portal = hentry->portal;
 
+		/* Any portal that was actually running has to be considered broken */
 		if (portal->status == PORTAL_ACTIVE)
 			portal->status = PORTAL_FAILED;
 
@@ -672,6 +714,15 @@ AtAbort_Portals(void)
 		if (portal->createSubid == InvalidSubTransactionId)
 			continue;
 
+		/*
+		 * If it was created in the current transaction, we can't do normal
+		 * shutdown on a READY portal either; it might refer to objects
+		 * created in the failed transaction.  See comments in
+		 * AtSubAbort_Portals.
+		 */
+		if (portal->status == PORTAL_READY)
+			portal->status = PORTAL_FAILED;
+
 		/* let portalcmds.c clean up the state it knows about */
 		if (PointerIsValid(portal->cleanup))
 		{
@@ -680,8 +731,7 @@ AtAbort_Portals(void)
 		}
 
 		/* drop cached plan reference, if any */
-		if (portal->cplan)
-			PortalReleaseCachedPlan(portal);
+		PortalReleaseCachedPlan(portal);
 
 		/*
 		 * Any resources belonging to the portal will be released in the
@@ -724,7 +774,15 @@ AtCleanup_Portals(void)
 			continue;
 		}
 
-		/* Else zap it. */
+		/*
+		 * If a portal is still pinned, forcibly unpin it. PortalDrop will not
+		 * let us drop the portal otherwise. Whoever pinned the portal was
+		 * interrupted by the abort too and won't try to use it anymore.
+		 */
+		if (portal->portalPinned)
+			portal->portalPinned = false;
+
+		/* Zap it. */
 		PortalDrop(portal, false);
 	}
 }
@@ -785,62 +843,41 @@ AtSubAbort_Portals(SubTransactionId mySubid,
 			continue;
 
 		/*
-		 * Force any active portals of my own transaction into FAILED state.
-		 * This is mostly to ensure that a portal running a FETCH will go
-		 * FAILED if the underlying cursor fails.  (Note we do NOT want to do
-		 * this to upper-level portals, since they may be able to continue.)
-		 *
-		 * This is only needed to dodge the sanity check in PortalDrop.
+		 * Force any live portals of my own subtransaction into FAILED state.
+		 * We have to do this because they might refer to objects created or
+		 * changed in the failed subtransaction, leading to crashes if
+		 * execution is resumed, or even if we just try to run ExecutorEnd.
+		 * (Note we do NOT do this to upper-level portals, since they cannot
+		 * have such references and hence may be able to continue.)
 		 */
-		if (portal->status == PORTAL_ACTIVE)
+		if (portal->status == PORTAL_READY ||
+			portal->status == PORTAL_ACTIVE)
 			portal->status = PORTAL_FAILED;
 
+		/* let portalcmds.c clean up the state it knows about */
+		if (PointerIsValid(portal->cleanup))
+		{
+			(*portal->cleanup) (portal);
+			portal->cleanup = NULL;
+		}
+
+		/* drop cached plan reference, if any */
+		PortalReleaseCachedPlan(portal);
+
 		/*
-		 * If the portal is READY then allow it to survive into the parent
-		 * transaction; otherwise shut it down.
-		 *
-		 * Currently, we can't actually support that because the portal's
-		 * query might refer to objects created or changed in the failed
-		 * subtransaction, leading to crashes if execution is resumed. So,
-		 * even READY portals are deleted.	It would be nice to detect whether
-		 * the query actually depends on any such object, instead.
+		 * Any resources belonging to the portal will be released in the
+		 * upcoming transaction-wide cleanup; they will be gone before we run
+		 * PortalDrop.
 		 */
-#ifdef NOT_USED
-		if (portal->status == PORTAL_READY)
-		{
-			portal->createSubid = parentSubid;
-			if (portal->resowner)
-				ResourceOwnerNewParent(portal->resowner, parentXactOwner);
-		}
-		else
-#endif
-		{
-			/* let portalcmds.c clean up the state it knows about */
-			if (PointerIsValid(portal->cleanup))
-			{
-				(*portal->cleanup) (portal);
-				portal->cleanup = NULL;
-			}
+		portal->resowner = NULL;
 
-			/* drop cached plan reference, if any */
-			if (portal->cplan)
-				PortalReleaseCachedPlan(portal);
-
-			/*
-			 * Any resources belonging to the portal will be released in the
-			 * upcoming transaction-wide cleanup; they will be gone before we
-			 * run PortalDrop.
-			 */
-			portal->resowner = NULL;
-
-			/*
-			 * Although we can't delete the portal data structure proper, we
-			 * can release any memory in subsidiary contexts, such as executor
-			 * state.  The cleanup hook was the last thing that might have
-			 * needed data there.
-			 */
-			MemoryContextDeleteChildren(PortalGetHeapMemory(portal));
-		}
+		/*
+		 * Although we can't delete the portal data structure proper, we can
+		 * release any memory in subsidiary contexts, such as executor state.
+		 * The cleanup hook was the last thing that might have needed data
+		 * there.
+		 */
+		MemoryContextDeleteChildren(PortalGetHeapMemory(portal));
 	}
 }
 
@@ -923,6 +960,9 @@ pg_cursor(PG_FUNCTION_ARGS)
 		tuplestore_begin_heap(rsinfo->allowedModes & SFRM_Materialize_Random,
 							  false, work_mem);
 
+	/* generate junk in short-term context */
+	MemoryContextSwitchTo(oldcontext);
+
 	hash_seq_init(&hash_seq, PortalHashTable);
 	while ((hentry = hash_seq_search(&hash_seq)) != NULL)
 	{
@@ -934,9 +974,6 @@ pg_cursor(PG_FUNCTION_ARGS)
 		if (!portal->visible)
 			continue;
 
-		/* generate junk in short-term context */
-		MemoryContextSwitchTo(oldcontext);
-
 		MemSet(nulls, 0, sizeof(nulls));
 
 		values[0] = CStringGetTextDatum(portal->name);
@@ -946,15 +983,11 @@ pg_cursor(PG_FUNCTION_ARGS)
 		values[4] = BoolGetDatum(portal->cursorOptions & CURSOR_OPT_SCROLL);
 		values[5] = TimestampTzGetDatum(portal->creation_time);
 
-		/* switch to appropriate context while storing the tuple */
-		MemoryContextSwitchTo(per_query_ctx);
 		tuplestore_putvalues(tupstore, tupdesc, values, nulls);
 	}
 
 	/* clean up and return the tuplestore */
 	tuplestore_donestoring(tupstore);
-
-	MemoryContextSwitchTo(oldcontext);
 
 	rsinfo->returnMode = SFRM_Materialize;
 	rsinfo->setResult = tupstore;

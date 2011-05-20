@@ -3,12 +3,12 @@
  * pg_constraint.c
  *	  routines to support manipulation of the pg_constraint relation
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/catalog/pg_constraint.c,v 1.45 2009/06/11 14:48:55 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/catalog/pg_constraint.c,v 1.53 2010/02/26 02:00:37 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -49,6 +49,7 @@ CreateConstraintEntry(const char *constraintName,
 					  const int16 *constraintKey,
 					  int constraintNKeys,
 					  Oid domainId,
+					  Oid indexRelId,
 					  Oid foreignRelId,
 					  const int16 *foreignKey,
 					  const Oid *pfEqOp,
@@ -58,7 +59,7 @@ CreateConstraintEntry(const char *constraintName,
 					  char foreignUpdateType,
 					  char foreignDeleteType,
 					  char foreignMatchType,
-					  Oid indexRelId,
+					  const Oid *exclOp,
 					  Node *conExpr,
 					  const char *conBin,
 					  const char *conSrc,
@@ -75,6 +76,7 @@ CreateConstraintEntry(const char *constraintName,
 	ArrayType  *conpfeqopArray;
 	ArrayType  *conppeqopArray;
 	ArrayType  *conffeqopArray;
+	ArrayType  *conexclopArray;
 	NameData	cname;
 	int			i;
 	ObjectAddress conobject;
@@ -130,6 +132,19 @@ CreateConstraintEntry(const char *constraintName,
 		conffeqopArray = NULL;
 	}
 
+	if (exclOp != NULL)
+	{
+		Datum	   *opdatums;
+
+		opdatums = (Datum *) palloc(constraintNKeys * sizeof(Datum));
+		for (i = 0; i < constraintNKeys; i++)
+			opdatums[i] = ObjectIdGetDatum(exclOp[i]);
+		conexclopArray = construct_array(opdatums, constraintNKeys,
+										 OIDOID, sizeof(Oid), true, 'i');
+	}
+	else
+		conexclopArray = NULL;
+
 	/* initialize nulls and values */
 	for (i = 0; i < Natts_pg_constraint; i++)
 	{
@@ -144,6 +159,7 @@ CreateConstraintEntry(const char *constraintName,
 	values[Anum_pg_constraint_condeferred - 1] = BoolGetDatum(isDeferred);
 	values[Anum_pg_constraint_conrelid - 1] = ObjectIdGetDatum(relId);
 	values[Anum_pg_constraint_contypid - 1] = ObjectIdGetDatum(domainId);
+	values[Anum_pg_constraint_conindid - 1] = ObjectIdGetDatum(indexRelId);
 	values[Anum_pg_constraint_confrelid - 1] = ObjectIdGetDatum(foreignRelId);
 	values[Anum_pg_constraint_confupdtype - 1] = CharGetDatum(foreignUpdateType);
 	values[Anum_pg_constraint_confdeltype - 1] = CharGetDatum(foreignDeleteType);
@@ -175,6 +191,11 @@ CreateConstraintEntry(const char *constraintName,
 		values[Anum_pg_constraint_conffeqop - 1] = PointerGetDatum(conffeqopArray);
 	else
 		nulls[Anum_pg_constraint_conffeqop - 1] = true;
+
+	if (conexclopArray)
+		values[Anum_pg_constraint_conexclop - 1] = PointerGetDatum(conexclopArray);
+	else
+		nulls[Anum_pg_constraint_conexclop - 1] = true;
 
 	/*
 	 * initialize the binary form of the check constraint.
@@ -273,11 +294,13 @@ CreateConstraintEntry(const char *constraintName,
 		}
 	}
 
-	if (OidIsValid(indexRelId))
+	if (OidIsValid(indexRelId) && constraintType == CONSTRAINT_FOREIGN)
 	{
 		/*
 		 * Register normal dependency on the unique index that supports a
-		 * foreign-key constraint.
+		 * foreign-key constraint.	(Note: for indexes associated with unique
+		 * or primary-key constraints, the dependency runs the other way, and
+		 * is not made here.)
 		 */
 		ObjectAddress relobject;
 
@@ -317,6 +340,14 @@ CreateConstraintEntry(const char *constraintName,
 			}
 		}
 	}
+
+	/*
+	 * We don't bother to register dependencies on the exclusion operators of
+	 * an exclusion constraint.  We assume they are members of the opclass
+	 * supporting the index, so there's an indirect dependency via that. (This
+	 * would be pretty dicey for cross-type operators, but exclusion operators
+	 * can never be cross-type.)
+	 */
 
 	if (conExpr != NULL)
 	{
@@ -419,7 +450,7 @@ ConstraintNameIsUsed(ConstraintCategory conCat, Oid objId,
  */
 char *
 ChooseConstraintName(const char *name1, const char *name2,
-					 const char *label, Oid namespace,
+					 const char *label, Oid namespaceid,
 					 List *others)
 {
 	int			pass = 0;
@@ -461,7 +492,7 @@ ChooseConstraintName(const char *name1, const char *name2,
 			ScanKeyInit(&skey[1],
 						Anum_pg_constraint_connamespace,
 						BTEqualStrategyNumber, F_OIDEQ,
-						ObjectIdGetDatum(namespace));
+						ObjectIdGetDatum(namespaceid));
 
 			conscan = systable_beginscan(conDesc, ConstraintNameNspIndexId, true,
 										 SnapshotNow, 2, skey);
@@ -496,9 +527,7 @@ RemoveConstraintById(Oid conId)
 
 	conDesc = heap_open(ConstraintRelationId, RowExclusiveLock);
 
-	tup = SearchSysCache(CONSTROID,
-						 ObjectIdGetDatum(conId),
-						 0, 0, 0);
+	tup = SearchSysCache1(CONSTROID, ObjectIdGetDatum(conId));
 	if (!HeapTupleIsValid(tup)) /* should not happen */
 		elog(ERROR, "cache lookup failed for constraint %u", conId);
 	con = (Form_pg_constraint) GETSTRUCT(tup);
@@ -528,9 +557,8 @@ RemoveConstraintById(Oid conId)
 			Form_pg_class classForm;
 
 			pgrel = heap_open(RelationRelationId, RowExclusiveLock);
-			relTup = SearchSysCacheCopy(RELOID,
-										ObjectIdGetDatum(con->conrelid),
-										0, 0, 0);
+			relTup = SearchSysCacheCopy1(RELOID,
+										 ObjectIdGetDatum(con->conrelid));
 			if (!HeapTupleIsValid(relTup))
 				elog(ERROR, "cache lookup failed for relation %u",
 					 con->conrelid);
@@ -592,9 +620,7 @@ RenameConstraintById(Oid conId, const char *newname)
 
 	conDesc = heap_open(ConstraintRelationId, RowExclusiveLock);
 
-	tuple = SearchSysCacheCopy(CONSTROID,
-							   ObjectIdGetDatum(conId),
-							   0, 0, 0);
+	tuple = SearchSysCacheCopy1(CONSTROID, ObjectIdGetDatum(conId));
 	if (!HeapTupleIsValid(tuple))
 		elog(ERROR, "cache lookup failed for constraint %u", conId);
 	con = (Form_pg_constraint) GETSTRUCT(tuple);
@@ -698,4 +724,62 @@ AlterConstraintNamespaces(Oid ownerId, Oid oldNspId,
 	systable_endscan(scan);
 
 	heap_close(conRel, RowExclusiveLock);
+}
+
+/*
+ * GetConstraintByName
+ *		Find a constraint on the specified relation with the specified name.
+ *		Returns constraint's OID.
+ */
+Oid
+GetConstraintByName(Oid relid, const char *conname)
+{
+	Relation	pg_constraint;
+	HeapTuple	tuple;
+	SysScanDesc scan;
+	ScanKeyData skey[1];
+	Oid			conOid = InvalidOid;
+
+	/*
+	 * Fetch the constraint tuple from pg_constraint.  There may be more than
+	 * one match, because constraints are not required to have unique names;
+	 * if so, error out.
+	 */
+	pg_constraint = heap_open(ConstraintRelationId, AccessShareLock);
+
+	ScanKeyInit(&skey[0],
+				Anum_pg_constraint_conrelid,
+				BTEqualStrategyNumber, F_OIDEQ,
+				ObjectIdGetDatum(relid));
+
+	scan = systable_beginscan(pg_constraint, ConstraintRelidIndexId, true,
+							  SnapshotNow, 1, skey);
+
+	while (HeapTupleIsValid(tuple = systable_getnext(scan)))
+	{
+		Form_pg_constraint con = (Form_pg_constraint) GETSTRUCT(tuple);
+
+		if (strcmp(NameStr(con->conname), conname) == 0)
+		{
+			if (OidIsValid(conOid))
+				ereport(ERROR,
+						(errcode(ERRCODE_DUPLICATE_OBJECT),
+				 errmsg("table \"%s\" has multiple constraints named \"%s\"",
+						get_rel_name(relid), conname)));
+			conOid = HeapTupleGetOid(tuple);
+		}
+	}
+
+	systable_endscan(scan);
+
+	/* If no such constraint exists, complain */
+	if (!OidIsValid(conOid))
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+				 errmsg("constraint \"%s\" for table \"%s\" does not exist",
+						conname, get_rel_name(relid))));
+
+	heap_close(pg_constraint, AccessShareLock);
+
+	return conOid;
 }

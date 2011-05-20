@@ -3,12 +3,12 @@
  * view.c
  *	  use rewrite rules to construct views
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/commands/view.c,v 1.116 2009/06/11 14:48:56 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/commands/view.c,v 1.120 2010/01/02 16:57:40 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -119,11 +119,12 @@ DefineVirtualRelation(const RangeVar *relation, List *tlist, bool replace)
 			ColumnDef  *def = makeNode(ColumnDef);
 
 			def->colname = pstrdup(tle->resname);
-			def->typename = makeTypeNameFromOid(exprType((Node *) tle->expr),
+			def->typeName = makeTypeNameFromOid(exprType((Node *) tle->expr),
 											 exprTypmod((Node *) tle->expr));
 			def->inhcount = 0;
 			def->is_local = true;
 			def->is_not_null = false;
+			def->storage = 0;
 			def->raw_default = NULL;
 			def->cooked_default = NULL;
 			def->constraints = NIL;
@@ -360,10 +361,10 @@ UpdateRangeTableOfViewParse(Oid viewOid, Query *viewParse)
 	 * OLD first, then NEW....
 	 */
 	rt_entry1 = addRangeTableEntryForRelation(NULL, viewRel,
-											  makeAlias("*OLD*", NIL),
+											  makeAlias("old", NIL),
 											  false, false);
 	rt_entry2 = addRangeTableEntryForRelation(NULL, viewRel,
-											  makeAlias("*NEW*", NIL),
+											  makeAlias("new", NIL),
 											  false, false);
 	/* Must override addRangeTableEntry's default access-check flags */
 	rt_entry1->requiredPerms = 0;

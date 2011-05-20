@@ -3,12 +3,12 @@
  * nodeNestloop.c
  *	  routines to support nest-loop joins
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/executor/nodeNestloop.c,v 1.53 2009/06/11 14:48:57 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/executor/nodeNestloop.c,v 1.55 2010/01/02 16:57:44 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -318,8 +318,6 @@ ExecInitNestLoop(NestLoop *node, EState *estate, int eflags)
 	innerPlanState(nlstate) = ExecInitNode(innerPlan(node), estate,
 										   eflags | EXEC_FLAG_REWIND);
 
-#define NESTLOOP_NSLOTS 2
-
 	/*
 	 * tuple table initialization
 	 */
@@ -358,14 +356,6 @@ ExecInitNestLoop(NestLoop *node, EState *estate, int eflags)
 			   "node initialized");
 
 	return nlstate;
-}
-
-int
-ExecCountSlotsNestLoop(NestLoop *node)
-{
-	return ExecCountSlotsNode(outerPlan(node)) +
-		ExecCountSlotsNode(innerPlan(node)) +
-		NESTLOOP_NSLOTS;
 }
 
 /* ----------------------------------------------------------------

@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/monitoring.sgml,v 1.71 2009/06/26 22:08:17 tgl Exp $ -->
+<!-- $PostgreSQL: pgsql/doc/src/sgml/monitoring.sgml,v 1.80 2010/04/26 19:56:55 tgl Exp $ -->
 
 <chapter id="monitoring">
  <title>Monitoring Database Activity</title>
@@ -27,8 +27,7 @@
    <command>ps</>, <command>top</>, <command>iostat</>, and <command>vmstat</>.
    Also, once one has identified a
    poorly-performing query, further investigation might be needed using
-   <productname>PostgreSQL</productname>'s <xref linkend="sql-explain"
-   endterm="sql-explain-title"> command.
+   <productname>PostgreSQL</productname>'s <xref linkend="sql-explain"> command.
    <xref linkend="using-explain"> discusses <command>EXPLAIN</>
    and other methods for understanding the behavior of an individual
    query.
@@ -43,7 +42,7 @@
   </indexterm>
 
   <para>
-   On most platforms, <productname>PostgreSQL</productname> modifies its
+   On most Unix platforms, <productname>PostgreSQL</productname> modifies its
    command title as reported by <command>ps</>, so that individual server
    processes can readily be identified.  A sample display is
 
@@ -51,7 +50,7 @@
 $ ps auxww | grep ^postgres
 postgres   960  0.0  1.1  6104 1480 pts/1    SN   13:17   0:00 postgres -i
 postgres   963  0.0  1.1  7084 1472 pts/1    SN   13:17   0:00 postgres: writer process
-postgres   965  0.0  1.1  6152 1512 pts/1    SN   13:17   0:00 postgres: stats collector process   
+postgres   965  0.0  1.1  6152 1512 pts/1    SN   13:17   0:00 postgres: stats collector process
 postgres   998  0.0  2.3  6532 2992 pts/1    SN   13:18   0:00 postgres: tgl runbug 127.0.0.1 idle
 postgres  1003  0.0  2.4  6532 3128 pts/1    SN   13:19   0:00 postgres: tgl regression [local] SELECT waiting
 postgres  1016  0.1  2.4  6532 3080 pts/1    SN   13:19   0:00 postgres: tgl regression [local] idle in transaction
@@ -61,7 +60,7 @@ postgres  1016  0.1  2.4  6532 3080 pts/1    SN   13:19   0:00 postgres: tgl reg
    platforms, as do the details of what is shown.  This example is from a
    recent Linux system.)  The first process listed here is the
    master server process.  The command arguments
-   shown for it are the same ones given when it was launched.  The next two
+   shown for it are the same ones used when it was launched.  The next two
    processes are background worker processes automatically launched by the
    master process.  (The <quote>stats collector</> process will not be present
    if you have set
@@ -73,22 +72,22 @@ postgres  1016  0.1  2.4  6532 3080 pts/1    SN   13:19   0:00 postgres: tgl reg
 postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <replaceable>activity</>
 </screen>
 
-  The user, database, and connection source host items remain the same for
+  The user, database, and (client) host items remain the same for
   the life of the client connection, but the activity indicator changes.
   The activity can be <literal>idle</> (i.e., waiting for a client command),
   <literal>idle in transaction</> (waiting for client inside a <command>BEGIN</> block),
   or a command type name such as <literal>SELECT</>.  Also,
-  <literal>waiting</> is attached if the server process is presently waiting
-  on a lock held by another server process.  In the above example we can infer
+  <literal>waiting</> is appended if the server process is presently waiting
+  on a lock held by another session.  In the above example we can infer
   that process 1003 is waiting for process 1016 to complete its transaction and
-  thereby release some lock or other.
+  thereby release some lock.
   </para>
 
   <para>
    If you have turned off <xref linkend="guc-update-process-title"> then the
    activity indicator is not updated; the process title is set only once
-   when a new process is launched.  On some platforms this saves a useful
-   amount of per-command overhead, on others it's insignificant.
+   when a new process is launched.  On some platforms this saves a measurable
+   amount of per-command overhead;  on others it's insignificant.
   </para>
 
   <tip>
@@ -118,15 +117,15 @@ postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <re
    is a subsystem that supports collection and reporting of information about
    server activity.  Presently, the collector can count accesses to tables
    and indexes in both disk-block and individual-row terms.  It also tracks
-   total numbers of rows in each table, and the last vacuum and analyze times
+   the total number of rows in each table, and the last vacuum and analyze times
    for each table.  It can also count calls to user-defined functions and
    the total time spent in each one.
   </para>
 
   <para>
-   <productname>PostgreSQL</productname> also supports determining the exact
+   <productname>PostgreSQL</productname> also supports reporting of the exact
    command currently being executed by other server processes.  This is an
-   independent facility that does not depend on the collector process.
+   facility independent of the collector process.
   </para>
 
  <sect2 id="monitoring-stats-setup">
@@ -159,20 +158,20 @@ postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <re
    Normally these parameters are set in <filename>postgresql.conf</> so
    that they apply to all server processes, but it is possible to turn
    them on or off in individual sessions using the <xref
-   linkend="sql-set" endterm="sql-set-title"> command. (To prevent
+   linkend="sql-set"> command. (To prevent
    ordinary users from hiding their activity from the administrator,
    only superusers are allowed to change these parameters with
    <command>SET</>.)
   </para>
 
   <para>
-   The statistics collector communicates with the backends needing 
+   The statistics collector communicates with the backends needing
    information (including autovacuum) through temporary files.
    These files are stored in the <filename>pg_stat_tmp</filename> subdirectory.
    When the postmaster shuts down, a permanent copy of the statistics
    data is stored in the <filename>global</filename> subdirectory. For increased
    performance, the parameter <xref linkend="guc-stats-temp-directory"> can
-   be pointed at a RAM based filesystem, decreasing physical I/O requirements.
+   be pointed at a RAM-based file system, decreasing physical I/O requirements.
   </para>
 
  </sect2>
@@ -205,9 +204,9 @@ postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <re
    any of these statistics, it first fetches the most recent report emitted by
    the collector process and then continues to use this snapshot for all
    statistical views and functions until the end of its current transaction.
-   So the statistics will appear not to change as long as you continue the
+   So the statistics will show static information as long as you continue the
    current transaction.  Similarly, information about the current queries of
-   all processes is collected when any such information is first requested
+   all sessions is collected when any such information is first requested
    within a transaction, and the same information will be displayed throughout
    the transaction.
    This is a feature, not a bug, because it allows you to perform several
@@ -235,12 +234,12 @@ postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <re
      <row>
       <entry><structname>pg_stat_activity</></entry>
       <entry>One row per server process, showing database OID, database
-      name, process <acronym>ID</>, user OID, user name, current query,
-      query's waiting status, time at which the current transaction and
-      current query began execution, time at which the process was
-      started, and client's address and port number.  The columns that
-      report data on the current query are available unless the parameter
-      <varname>track_activities</varname> has been turned off.
+      name, process <acronym>ID</>, user OID, user name, application name,
+      client's address and port number, times at which the server process,
+      current transaction, and current query began execution, process's waiting
+      status, and text of the current query.
+      The columns that report data on the current query are available unless
+      the parameter <varname>track_activities</varname> has been turned off.
       Furthermore, these columns are only visible if the user examining
       the view is a superuser or the same as the user owning the process
       being reported on.
@@ -409,7 +408,7 @@ postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <re
    Beginning in <productname>PostgreSQL</productname> 8.1, indexes can be
    used either directly or via <quote>bitmap scans</>.  In a bitmap scan
    the output of several indexes can be combined via AND or OR rules;
-   so it is difficult to associate individual heap row fetches 
+   so it is difficult to associate individual heap row fetches
    with specific indexes when a bitmap scan is used.  Therefore, a bitmap
    scan increments the
    <structname>pg_stat_all_indexes</>.<structfield>idx_tup_read</>
@@ -488,7 +487,7 @@ postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <re
       <entry><literal><function>pg_stat_get_db_xact_commit</function>(<type>oid</type>)</literal></entry>
       <entry><type>bigint</type></entry>
       <entry>
-       Transactions committed in database
+       Number of transactions committed in database
       </entry>
      </row>
 
@@ -496,7 +495,7 @@ postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <re
       <entry><literal><function>pg_stat_get_db_xact_rollback</function>(<type>oid</type>)</literal></entry>
       <entry><type>bigint</type></entry>
       <entry>
-       Transactions rolled back in database
+       Number of transactions rolled back in database
       </entry>
      </row>
 
@@ -696,8 +695,8 @@ postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <re
       <entry>
        Returns a record of information about the backend with the specified pid, or
        one record for each active backend in the system if <symbol>NULL</symbol> is
-       specified. The fields returned are the same as in the 
-       <structname>pg_stat_activity</structname> view
+       specified. The fields returned are a subset of those in the
+       <structname>pg_stat_activity</structname> view.
       </entry>
      </row>
 
@@ -705,7 +704,7 @@ postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <re
       <entry><literal><function>pg_stat_get_function_calls</function>(<type>oid</type>)</literal></entry>
       <entry><type>bigint</type></entry>
       <entry>
-       Number of times the function has been called.
+       Number of times the function has been called
       </entry>
      </row>
 
@@ -732,7 +731,7 @@ postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <re
       <entry><type>setof integer</type></entry>
       <entry>
        Set of currently active server process numbers (from 1 to the
-       number of active server processes).  See usage example in the text
+       number of active server processes).  See usage example in the text.
       </entry>
      </row>
 
@@ -821,8 +820,8 @@ postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <re
       <entry><type>inet</type></entry>
       <entry>
        The IP address of the client connected to the given
-       server process. Null if the connection is over a Unix domain
-       socket. Also null if the current user is not a superuser nor
+       server process; null if the connection is over a Unix domain
+       socket, also null if the current user is not a superuser nor
        the same user as that of the session being queried
       </entry>
      </row>
@@ -831,9 +830,9 @@ postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <re
       <entry><literal><function>pg_stat_get_backend_client_port</function>(<type>integer</type>)</literal></entry>
       <entry><type>integer</type></entry>
       <entry>
-       The IP port number of the client connected to the given
-       server process.  -1 if the connection is over a Unix domain
-       socket. Null if the current user is not a superuser nor the
+       The TCP port number of the client connected to the given
+       server process; -1 if the connection is over a Unix domain
+       socket, null if the current user is not a superuser nor the
        same user as that of the session being queried
       </entry>
      </row>
@@ -842,7 +841,7 @@ postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <re
       <entry><literal><function>pg_stat_get_bgwriter_timed_checkpoints</function>()</literal></entry>
        <entry><type>bigint</type></entry>
        <entry>
-        The number of times the background writer has started timed checkpoints
+        Number of times the background writer has started timed checkpoints
         (because the <varname>checkpoint_timeout</varname> time has expired)
        </entry>
      </row>
@@ -851,7 +850,7 @@ postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <re
       <entry><literal><function>pg_stat_get_bgwriter_requested_checkpoints</function>()</literal></entry>
       <entry><type>bigint</type></entry>
       <entry>
-       The number of times the background writer has started checkpoints based
+       Number of times the background writer has started checkpoints based
        on requests from backends because the <varname>checkpoint_segments</varname>
        has been exceeded or because the <command>CHECKPOINT</command>
        command has been issued
@@ -862,7 +861,7 @@ postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <re
       <entry><literal><function>pg_stat_get_bgwriter_buf_written_checkpoints</function>()</literal></entry>
       <entry><type>bigint</type></entry>
       <entry>
-       The number of buffers written by the background writer during checkpoints
+       Number of buffers written by the background writer during checkpoints
       </entry>
      </row>
 
@@ -870,7 +869,7 @@ postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <re
       <entry><literal><function>pg_stat_get_bgwriter_buf_written_clean</function>()</literal></entry>
       <entry><type>bigint</type></entry>
       <entry>
-       The number of buffers written by the background writer for routine cleaning of
+       Number of buffers written by the background writer for routine cleaning of
        dirty pages
       </entry>
      </row>
@@ -879,7 +878,7 @@ postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <re
       <entry><literal><function>pg_stat_get_bgwriter_maxwritten_clean</function>()</literal></entry>
       <entry><type>bigint</type></entry>
       <entry>
-       The number of times the background writer has stopped its cleaning scan because
+       Number of times the background writer has stopped its cleaning scan because
        it has written more buffers than specified in the
        <varname>bgwriter_lru_maxpages</varname> parameter
       </entry>
@@ -889,7 +888,7 @@ postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <re
       <entry><literal><function>pg_stat_get_buf_written_backend</function>()</literal></entry>
       <entry><type>bigint</type></entry>
       <entry>
-       The number of buffers written by backends because they needed
+       Number of buffers written by backends because they needed
        to allocate a new buffer
       </entry>
      </row>
@@ -898,7 +897,7 @@ postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <re
       <entry><literal><function>pg_stat_get_buf_alloc</function>()</literal></entry>
       <entry><type>bigint</type></entry>
       <entry>
-       The total number of buffer allocations
+       Total number of buffer allocations
       </entry>
      </row>
 
@@ -916,6 +915,35 @@ postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <re
       <entry>
        Reset all statistics counters for the current database to zero
        (requires superuser privileges)
+      </entry>
+     </row>
+
+     <row>
+      <entry><literal><function>pg_stat_reset_shared</function>(text)</literal></entry>
+      <entry><type>void</type></entry>
+      <entry>
+       Reset some of the shared statistics counters for the database cluster to
+       zero (requires superuser privileges).  Calling
+       <literal>pg_stat_reset_shared('bgwriter')</> will zero all the values shown by
+       <structname>pg_stat_bgwriter</>.
+      </entry>
+     </row>
+
+     <row>
+      <entry><literal><function>pg_stat_reset_single_table_counters</function>(oid)</literal></entry>
+      <entry><type>void</type></entry>
+      <entry>
+       Reset statistics for a single table or index in the current database to
+       zero (requires superuser privileges)
+      </entry>
+     </row>
+
+     <row>
+      <entry><literal><function>pg_stat_reset_single_function_counters</function>(oid)</literal></entry>
+      <entry><type>void</type></entry>
+      <entry>
+       Reset statistics for a single function in the current database to
+       zero (requires superuser privileges)
       </entry>
      </row>
     </tbody>
@@ -1073,19 +1101,19 @@ SELECT pg_stat_get_backend_pid(s.backendid) AS procpid,
      <entry>transaction-start</entry>
      <entry>(LocalTransactionId)</entry>
      <entry>Probe that fires at the start of a new transaction.
-      arg0 is the transaction id.</entry>
+      arg0 is the transaction ID.</entry>
     </row>
     <row>
      <entry>transaction-commit</entry>
      <entry>(LocalTransactionId)</entry>
      <entry>Probe that fires when a transaction completes successfully.
-      arg0 is the transaction id.</entry>
+      arg0 is the transaction ID.</entry>
     </row>
     <row>
      <entry>transaction-abort</entry>
      <entry>(LocalTransactionId)</entry>
      <entry>Probe that fires when a transaction completes unsuccessfully.
-      arg0 is the transaction id.</entry>
+      arg0 is the transaction ID.</entry>
     </row>
     <row>
      <entry>query-start</entry>
@@ -1574,7 +1602,7 @@ Total time (ns)                        2312105013
     SystemTap uses a different notation for trace scripts than DTrace does,
     even though the underlying trace points are compatible.  One point worth
     noting is that at this writing, SystemTap scripts must reference probe
-    names using double underlines in place of hyphens.  This is expected to
+    names using double underscores in place of hyphens.  This is expected to
     be fixed in future SystemTap releases.
    </para>
   </note>

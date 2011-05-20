@@ -3,12 +3,12 @@
  * sinvaladt.c
  *	  POSTGRES shared cache invalidation data manager.
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/storage/ipc/sinvaladt.c,v 1.78 2009/06/11 14:49:02 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/storage/ipc/sinvaladt.c,v 1.82 2010/02/26 02:01:00 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -21,6 +21,7 @@
 #include "storage/backendid.h"
 #include "storage/ipc.h"
 #include "storage/proc.h"
+#include "storage/procsignal.h"
 #include "storage/shmem.h"
 #include "storage/sinvaladt.h"
 #include "storage/spin.h"
@@ -118,7 +119,7 @@
  * we exceed CLEANUP_MIN.  Should be a power of 2 for speed.
  *
  * SIG_THRESHOLD: the minimum number of messages a backend must have fallen
- * behind before we'll send it SIGUSR1.
+ * behind before we'll send it PROCSIG_CATCHUP_INTERRUPT.
  *
  * WRITE_QUANTUM: the max number of messages to push into the buffer per
  * iteration of SIInsertDataEntries.  Noncritical but should be less than
@@ -142,6 +143,14 @@ typedef struct ProcState
 	int			nextMsgNum;		/* next message number to read */
 	bool		resetState;		/* backend needs to reset its state */
 	bool		signaled;		/* backend has been sent catchup signal */
+
+	/*
+	 * Backend only sends invalidations, never receives them. This only makes
+	 * sense for Startup process during recovery because it doesn't maintain a
+	 * relcache, yet it fires inval messages to allow query backends to see
+	 * schema changes.
+	 */
+	bool		sendOnly;		/* backend only sends, never receives */
 
 	/*
 	 * Next LocalTransactionId to use for each idle backend slot.  We keep
@@ -248,7 +257,7 @@ CreateSharedInvalidationState(void)
  *		Initialize a new backend to operate on the sinval buffer
  */
 void
-SharedInvalBackendInit(void)
+SharedInvalBackendInit(bool sendOnly)
 {
 	int			index;
 	ProcState  *stateP = NULL;
@@ -307,6 +316,7 @@ SharedInvalBackendInit(void)
 	stateP->nextMsgNum = segP->maxMsgNum;
 	stateP->resetState = false;
 	stateP->signaled = false;
+	stateP->sendOnly = sendOnly;
 
 	LWLockRelease(SInvalWriteLock);
 
@@ -551,7 +561,7 @@ SIGetDataEntries(SharedInvalidationMessage *data, int datasize)
  * minFree is the minimum number of message slots to make free.
  *
  * Possible side effects of this routine include marking one or more
- * backends as "reset" in the array, and sending a catchup interrupt (SIGUSR1)
+ * backends as "reset" in the array, and sending PROCSIG_CATCHUP_INTERRUPT
  * to some backend that seems to be getting too far behind.  We signal at
  * most one backend at a time, for reasons explained at the top of the file.
  *
@@ -578,7 +588,9 @@ SICleanupQueue(bool callerHasWriteLock, int minFree)
 	/*
 	 * Recompute minMsgNum = minimum of all backends' nextMsgNum, identify the
 	 * furthest-back backend that needs signaling (if any), and reset any
-	 * backends that are too far back.
+	 * backends that are too far back.	Note that because we ignore sendOnly
+	 * backends here it is possible for them to keep sending messages without
+	 * a problem even when they are the only active backend.
 	 */
 	min = segP->maxMsgNum;
 	minsig = min - SIG_THRESHOLD;
@@ -590,7 +602,7 @@ SICleanupQueue(bool callerHasWriteLock, int minFree)
 		int			n = stateP->nextMsgNum;
 
 		/* Ignore if inactive or already in reset state */
-		if (stateP->procPid == 0 || stateP->resetState)
+		if (stateP->procPid == 0 || stateP->resetState || stateP->sendOnly)
 			continue;
 
 		/*
@@ -644,18 +656,20 @@ SICleanupQueue(bool callerHasWriteLock, int minFree)
 		segP->nextThreshold = (numMsgs / CLEANUP_QUANTUM + 1) * CLEANUP_QUANTUM;
 
 	/*
-	 * Lastly, signal anyone who needs a catchup interrupt.  Since kill()
-	 * might not be fast, we don't want to hold locks while executing it.
+	 * Lastly, signal anyone who needs a catchup interrupt.  Since
+	 * SendProcSignal() might not be fast, we don't want to hold locks while
+	 * executing it.
 	 */
 	if (needSig)
 	{
 		pid_t		his_pid = needSig->procPid;
+		BackendId	his_backendId = (needSig - &segP->procState[0]) + 1;
 
 		needSig->signaled = true;
 		LWLockRelease(SInvalReadLock);
 		LWLockRelease(SInvalWriteLock);
 		elog(DEBUG4, "sending sinval catchup signal to PID %d", (int) his_pid);
-		kill(his_pid, SIGUSR1);
+		SendProcSignal(his_pid, PROCSIG_CATCHUP_INTERRUPT, his_backendId);
 		if (callerHasWriteLock)
 			LWLockAcquire(SInvalWriteLock, LW_EXCLUSIVE);
 	}

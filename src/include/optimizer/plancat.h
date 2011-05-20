@@ -4,10 +4,10 @@
  *	  prototypes for plancat.c.
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/optimizer/plancat.h,v 1.54 2009/06/11 14:49:11 momjian Exp $
+ * $PostgreSQL: pgsql/src/include/optimizer/plancat.h,v 1.56 2010/01/02 16:58:07 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -39,12 +39,12 @@ extern List *build_physical_tlist(PlannerInfo *root, RelOptInfo *rel);
 extern bool has_unique_index(RelOptInfo *rel, AttrNumber attno);
 
 extern Selectivity restriction_selectivity(PlannerInfo *root,
-						Oid operator,
+						Oid operatorid,
 						List *args,
 						int varRelid);
 
 extern Selectivity join_selectivity(PlannerInfo *root,
-				 Oid operator,
+				 Oid operatorid,
 				 List *args,
 				 JoinType jointype,
 				 SpecialJoinInfo *sjinfo);

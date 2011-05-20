@@ -20,10 +20,10 @@
  * step 2 ...
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/bin/pg_resetxlog/pg_resetxlog.c,v 1.74 2009/06/11 14:49:07 momjian Exp $
+ * $PostgreSQL: pgsql/src/bin/pg_resetxlog/pg_resetxlog.c,v 1.80 2010/04/28 19:38:49 tgl Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -307,7 +307,21 @@ main(int argc, char *argv[])
 		ControlFile.checkPointCopy.nextXidEpoch = set_xid_epoch;
 
 	if (set_xid != 0)
+	{
 		ControlFile.checkPointCopy.nextXid = set_xid;
+
+		/*
+		 * For the moment, just set oldestXid to a value that will force
+		 * immediate autovacuum-for-wraparound.  It's not clear whether adding
+		 * user control of this is useful, so let's just do something that's
+		 * reasonably safe.  The magic constant here corresponds to the
+		 * maximum allowed value of autovacuum_freeze_max_age.
+		 */
+		ControlFile.checkPointCopy.oldestXid = set_xid - 2000000000;
+		if (ControlFile.checkPointCopy.oldestXid < FirstNormalTransactionId)
+			ControlFile.checkPointCopy.oldestXid += FirstNormalTransactionId;
+		ControlFile.checkPointCopy.oldestXidDB = InvalidOid;
+	}
 
 	if (set_oid != 0)
 		ControlFile.checkPointCopy.nextOid = set_oid;
@@ -476,15 +490,25 @@ GuessControlValues(void)
 	ControlFile.checkPointCopy.redo.xrecoff = SizeOfXLogLongPHD;
 	ControlFile.checkPointCopy.ThisTimeLineID = 1;
 	ControlFile.checkPointCopy.nextXidEpoch = 0;
-	ControlFile.checkPointCopy.nextXid = (TransactionId) 514;	/* XXX */
+	ControlFile.checkPointCopy.nextXid = FirstNormalTransactionId;
 	ControlFile.checkPointCopy.nextOid = FirstBootstrapObjectId;
 	ControlFile.checkPointCopy.nextMulti = FirstMultiXactId;
 	ControlFile.checkPointCopy.nextMultiOffset = 0;
+	ControlFile.checkPointCopy.oldestXid = FirstNormalTransactionId;
+	ControlFile.checkPointCopy.oldestXidDB = InvalidOid;
 	ControlFile.checkPointCopy.time = (pg_time_t) time(NULL);
+	ControlFile.checkPointCopy.oldestActiveXid = InvalidTransactionId;
 
 	ControlFile.state = DB_SHUTDOWNED;
 	ControlFile.time = (pg_time_t) time(NULL);
 	ControlFile.checkPoint = ControlFile.checkPointCopy.redo;
+
+	/* minRecoveryPoint and backupStartPoint can be left zero */
+
+	ControlFile.wal_level = WAL_LEVEL_MINIMAL;
+	ControlFile.MaxConnections = 100;
+	ControlFile.max_prepared_xacts = 0;
+	ControlFile.max_locks_per_xact = 64;
 
 	ControlFile.maxAlign = MAXIMUM_ALIGNOF;
 	ControlFile.floatFormat = FLOATFORMAT_VALUE;
@@ -554,6 +578,12 @@ PrintControlValues(bool guessed)
 		   ControlFile.checkPointCopy.nextMulti);
 	printf(_("Latest checkpoint's NextMultiOffset:  %u\n"),
 		   ControlFile.checkPointCopy.nextMultiOffset);
+	printf(_("Latest checkpoint's oldestXID:        %u\n"),
+		   ControlFile.checkPointCopy.oldestXid);
+	printf(_("Latest checkpoint's oldestXID's DB:   %u\n"),
+		   ControlFile.checkPointCopy.oldestXidDB);
+	printf(_("Latest checkpoint's oldestActiveXID:  %u\n"),
+		   ControlFile.checkPointCopy.oldestActiveXid);
 	printf(_("Maximum data alignment:               %u\n"),
 		   ControlFile.maxAlign);
 	/* we don't print floatFormat since can't say much useful about it */
@@ -605,6 +635,18 @@ RewriteControlFile(void)
 	ControlFile.prevCheckPoint.xrecoff = 0;
 	ControlFile.minRecoveryPoint.xlogid = 0;
 	ControlFile.minRecoveryPoint.xrecoff = 0;
+	ControlFile.backupStartPoint.xlogid = 0;
+	ControlFile.backupStartPoint.xrecoff = 0;
+
+	/*
+	 * Force the defaults for max_* settings. The values don't really matter
+	 * as long as wal_level='minimal'; the postmaster will reset these fields
+	 * anyway at startup.
+	 */
+	ControlFile.wal_level = WAL_LEVEL_MINIMAL;
+	ControlFile.MaxConnections = 100;
+	ControlFile.max_prepared_xacts = 0;
+	ControlFile.max_locks_per_xact = 64;
 
 	/* Now we can force the recorded xlog seg size to the right thing. */
 	ControlFile.xlog_seg_size = XLogSegSize;

@@ -27,10 +27,10 @@
  * the backend's "backend/libpq" is quite separate from "interfaces/libpq".
  * All that remains is similarities of names to trap the unwary...
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- *	$PostgreSQL: pgsql/src/backend/libpq/pqcomm.c,v 1.199 2009/01/01 17:23:42 momjian Exp $
+ *	$PostgreSQL: pgsql/src/backend/libpq/pqcomm.c,v 1.212 2010/07/08 16:19:50 mha Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -55,6 +55,7 @@
  *		pq_peekbyte		- peek at next byte from connection
  *		pq_putbytes		- send bytes to connection (not flushed until pq_flush)
  *		pq_flush		- flush pending output
+ *		pq_getbyte_if_available - get a byte if available without blocking
  *
  * message-level I/O (and old-style-COPY-OUT cruft):
  *		pq_putmessage	- send a normal message (suppressed in COPY OUT mode)
@@ -81,6 +82,9 @@
 #include <arpa/inet.h>
 #ifdef HAVE_UTIME_H
 #include <utime.h>
+#endif
+#ifdef WIN32_ONLY_COMPILER /* mstcpip.h is missing on mingw */
+#include <mstcpip.h>
 #endif
 
 #include "libpq/ip.h"
@@ -199,9 +203,10 @@ pq_close(int code, Datum arg)
 		 * transport layer reports connection closure, and you can be sure the
 		 * backend has exited.
 		 *
-		 * We do set sock to -1 to prevent any further I/O, though.
+		 * We do set sock to PGINVALID_SOCKET to prevent any further I/O,
+		 * though.
 		 */
-		MyProcPort->sock = -1;
+		MyProcPort->sock = PGINVALID_SOCKET;
 	}
 }
 
@@ -232,7 +237,7 @@ StreamDoUnlink(int code, Datum arg)
  * StreamServerPort -- open a "listening" port to accept connections.
  *
  * Successfully opened sockets are added to the ListenSocket[] array,
- * at the first position that isn't -1.
+ * at the first position that isn't PGINVALID_SOCKET.
  *
  * RETURNS: STATUS_OK or STATUS_ERROR
  */
@@ -240,10 +245,10 @@ StreamDoUnlink(int code, Datum arg)
 int
 StreamServerPort(int family, char *hostName, unsigned short portNumber,
 				 char *unixSocketName,
-				 int ListenSocket[], int MaxListen)
+				 pgsocket ListenSocket[], int MaxListen)
 {
-	int			fd,
-				err;
+	pgsocket	fd;
+	int			err;
 	int			maxconn;
 	int			ret;
 	char		portNumberStr[32];
@@ -311,7 +316,7 @@ StreamServerPort(int family, char *hostName, unsigned short portNumber,
 		/* See if there is still room to add 1 more socket. */
 		for (; listen_index < MaxListen; listen_index++)
 		{
-			if (ListenSocket[listen_index] == -1)
+			if (ListenSocket[listen_index] == PGINVALID_SOCKET)
 				break;
 		}
 		if (listen_index >= MaxListen)
@@ -570,7 +575,7 @@ Setup_AF_UNIX(void)
  * RETURNS: STATUS_OK or STATUS_ERROR
  */
 int
-StreamConnection(int server_fd, Port *port)
+StreamConnection(pgsocket server_fd, Port *port)
 {
 	/* accept connection and fill in the client (remote) address */
 	port->raddr.salen = sizeof(port->raddr.addr);
@@ -676,7 +681,7 @@ StreamConnection(int server_fd, Port *port)
  * we do NOT want to send anything to the far end.
  */
 void
-StreamClose(int sock)
+StreamClose(pgsocket sock)
 {
 	closesocket(sock);
 }
@@ -813,6 +818,96 @@ pq_peekbyte(void)
 			return EOF;			/* Failed to recv data */
 	}
 	return (unsigned char) PqRecvBuffer[PqRecvPointer];
+}
+
+
+/* --------------------------------
+ *		pq_getbyte_if_available - get a single byte from connection,
+ *			if available
+ *
+ * The received byte is stored in *c. Returns 1 if a byte was read,
+ * 0 if no data was available, or EOF if trouble.
+ * --------------------------------
+ */
+int
+pq_getbyte_if_available(unsigned char *c)
+{
+	int			r;
+
+	if (PqRecvPointer < PqRecvLength)
+	{
+		*c = PqRecvBuffer[PqRecvPointer++];
+		return 1;
+	}
+
+	/* Temporarily put the socket into non-blocking mode */
+#ifdef WIN32
+	pgwin32_noblock = 1;
+#else
+	if (!pg_set_noblock(MyProcPort->sock))
+		ereport(ERROR,
+				(errmsg("could not set socket to non-blocking mode: %m")));
+#endif
+	MyProcPort->noblock = true;
+	PG_TRY();
+	{
+		r = secure_read(MyProcPort, c, 1);
+		if (r < 0)
+		{
+			/*
+			 * Ok if no data available without blocking or interrupted (though
+			 * EINTR really shouldn't happen with a non-blocking socket).
+			 * Report other errors.
+			 */
+			if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
+				r = 0;
+			else
+			{
+				/*
+				 * Careful: an ereport() that tries to write to the client
+				 * would cause recursion to here, leading to stack overflow
+				 * and core dump!  This message must go *only* to the
+				 * postmaster log.
+				 */
+				ereport(COMMERROR,
+						(errcode_for_socket_access(),
+						 errmsg("could not receive data from client: %m")));
+				r = EOF;
+			}
+		}
+		else if (r == 0)
+		{
+			/* EOF detected */
+			r = EOF;
+		}
+	}
+	PG_CATCH();
+	{
+		/*
+		 * The rest of the backend code assumes the socket is in blocking
+		 * mode, so treat failure as FATAL.
+		 */
+#ifdef WIN32
+		pgwin32_noblock = 0;
+#else
+		if (!pg_set_block(MyProcPort->sock))
+			ereport(FATAL,
+					(errmsg("could not set socket to blocking mode: %m")));
+#endif
+		MyProcPort->noblock = false;
+		PG_RE_THROW();
+	}
+	PG_END_TRY();
+#ifdef WIN32
+	pgwin32_noblock = 0;
+#else
+	if (!pg_set_block(MyProcPort->sock))
+		ereport(FATAL,
+				(errmsg("could not set socket to blocking mode: %m")));
+#endif
+	MyProcPort->noblock = false;
+
+	return r;
 }
 
 /* --------------------------------
@@ -1222,10 +1317,55 @@ pq_endcopyout(bool errorAbort)
  * Support for TCP Keepalive parameters
  */
 
+/*
+ * On Windows, we need to set both idle and interval at the same time.
+ * We also cannot reset them to the default (setting to zero will
+ * actually set them to zero, not default), therefor we fallback to
+ * the out-of-the-box default instead.
+ */
+#if defined(WIN32) && defined(SIO_KEEPALIVE_VALS)
+static int
+pq_setkeepaliveswin32(Port *port, int idle, int interval)
+{
+	struct tcp_keepalive	ka;
+	DWORD					retsize;
+
+	if (idle <= 0)
+		idle = 2 * 60 * 60; /* default = 2 hours */
+	if (interval <= 0)
+		interval = 1;       /* default = 1 second */
+
+	ka.onoff = 1;
+	ka.keepalivetime = idle * 1000;
+	ka.keepaliveinterval = interval * 1000;
+
+	if (WSAIoctl(port->sock,
+				 SIO_KEEPALIVE_VALS,
+				 (LPVOID) &ka,
+				 sizeof(ka),
+				 NULL,
+				 0,
+				 &retsize,
+				 NULL,
+				 NULL)
+		!= 0)
+	{
+		elog(LOG, "WSAIoctl(SIO_KEEPALIVE_VALS) failed: %ui",
+			 WSAGetLastError());
+		return STATUS_ERROR;
+	}
+	if (port->keepalives_idle != idle)
+		port->keepalives_idle = idle;
+	if (port->keepalives_interval != interval)
+		port->keepalives_interval = interval;
+	return STATUS_OK;
+}
+#endif
+
 int
 pq_getkeepalivesidle(Port *port)
 {
-#ifdef TCP_KEEPIDLE
+#if defined(TCP_KEEPIDLE) || defined(TCP_KEEPALIVE) || defined(WIN32)
 	if (port == NULL || IS_AF_UNIX(port->laddr.addr.ss_family))
 		return 0;
 
@@ -1234,8 +1374,10 @@ pq_getkeepalivesidle(Port *port)
 
 	if (port->default_keepalives_idle == 0)
 	{
+#ifndef WIN32
 		ACCEPT_TYPE_ARG3 size = sizeof(port->default_keepalives_idle);
 
+#ifdef TCP_KEEPIDLE
 		if (getsockopt(port->sock, IPPROTO_TCP, TCP_KEEPIDLE,
 					   (char *) &port->default_keepalives_idle,
 					   &size) < 0)
@@ -1243,6 +1385,19 @@ pq_getkeepalivesidle(Port *port)
 			elog(LOG, "getsockopt(TCP_KEEPIDLE) failed: %m");
 			port->default_keepalives_idle = -1; /* don't know */
 		}
+#else
+		if (getsockopt(port->sock, IPPROTO_TCP, TCP_KEEPALIVE,
+					   (char *) &port->default_keepalives_idle,
+					   &size) < 0)
+		{
+			elog(LOG, "getsockopt(TCP_KEEPALIVE) failed: %m");
+			port->default_keepalives_idle = -1; /* don't know */
+		}
+#endif /* TCP_KEEPIDLE */
+#else /* WIN32 */
+		/* We can't get the defaults on Windows, so return "don't know" */
+		port->default_keepalives_idle = -1;
+#endif /* WIN32 */
 	}
 
 	return port->default_keepalives_idle;
@@ -1257,10 +1412,11 @@ pq_setkeepalivesidle(int idle, Port *port)
 	if (port == NULL || IS_AF_UNIX(port->laddr.addr.ss_family))
 		return STATUS_OK;
 
-#ifdef TCP_KEEPIDLE
+#if defined(TCP_KEEPIDLE) || defined(TCP_KEEPALIVE) || defined(SIO_KEEPALIVE_VALS)
 	if (idle == port->keepalives_idle)
 		return STATUS_OK;
 
+#ifndef WIN32
 	if (port->default_keepalives_idle <= 0)
 	{
 		if (pq_getkeepalivesidle(port) < 0)
@@ -1275,29 +1431,40 @@ pq_setkeepalivesidle(int idle, Port *port)
 	if (idle == 0)
 		idle = port->default_keepalives_idle;
 
+#ifdef TCP_KEEPIDLE
 	if (setsockopt(port->sock, IPPROTO_TCP, TCP_KEEPIDLE,
 				   (char *) &idle, sizeof(idle)) < 0)
 	{
 		elog(LOG, "setsockopt(TCP_KEEPIDLE) failed: %m");
 		return STATUS_ERROR;
 	}
-
-	port->keepalives_idle = idle;
 #else
-	if (idle != 0)
+	if (setsockopt(port->sock, IPPROTO_TCP, TCP_KEEPALIVE,
+				   (char *) &idle, sizeof(idle)) < 0)
 	{
-		elog(LOG, "setsockopt(TCP_KEEPIDLE) not supported");
+		elog(LOG, "setsockopt(TCP_KEEPALIVE) failed: %m");
 		return STATUS_ERROR;
 	}
 #endif
 
+	port->keepalives_idle = idle;
+#else /* WIN32 */
+	return pq_setkeepaliveswin32(port, idle, port->keepalives_interval);
+#endif
+#else /* TCP_KEEPIDLE || SIO_KEEPALIVE_VALS */
+	if (idle != 0)
+	{
+		elog(LOG, "setting the keepalive idle time is not supported");
+		return STATUS_ERROR;
+	}
+#endif
 	return STATUS_OK;
 }
 
 int
 pq_getkeepalivesinterval(Port *port)
 {
-#ifdef TCP_KEEPINTVL
+#if defined(TCP_KEEPINTVL) || defined(SIO_KEEPALIVE_VALS)
 	if (port == NULL || IS_AF_UNIX(port->laddr.addr.ss_family))
 		return 0;
 
@@ -1306,6 +1473,7 @@ pq_getkeepalivesinterval(Port *port)
 
 	if (port->default_keepalives_interval == 0)
 	{
+#ifndef WIN32
 		ACCEPT_TYPE_ARG3 size = sizeof(port->default_keepalives_interval);
 
 		if (getsockopt(port->sock, IPPROTO_TCP, TCP_KEEPINTVL,
@@ -1315,6 +1483,10 @@ pq_getkeepalivesinterval(Port *port)
 			elog(LOG, "getsockopt(TCP_KEEPINTVL) failed: %m");
 			port->default_keepalives_interval = -1;		/* don't know */
 		}
+#else
+		/* We can't get the defaults on Windows, so return "don't know" */
+		port->default_keepalives_interval = -1;
+#endif /* WIN32 */
 	}
 
 	return port->default_keepalives_interval;
@@ -1329,10 +1501,11 @@ pq_setkeepalivesinterval(int interval, Port *port)
 	if (port == NULL || IS_AF_UNIX(port->laddr.addr.ss_family))
 		return STATUS_OK;
 
-#ifdef TCP_KEEPINTVL
+#if defined(TCP_KEEPINTVL) || defined (SIO_KEEPALIVE_VALS)
 	if (interval == port->keepalives_interval)
 		return STATUS_OK;
 
+#ifndef WIN32
 	if (port->default_keepalives_interval <= 0)
 	{
 		if (pq_getkeepalivesinterval(port) < 0)
@@ -1355,6 +1528,9 @@ pq_setkeepalivesinterval(int interval, Port *port)
 	}
 
 	port->keepalives_interval = interval;
+#else /* WIN32 */
+	return pq_setkeepaliveswin32(port, port->keepalives_idle, interval);
+#endif
 #else
 	if (interval != 0)
 	{

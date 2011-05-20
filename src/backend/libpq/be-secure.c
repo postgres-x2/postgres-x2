@@ -6,18 +6,18 @@
  *	  message integrity and endpoint authentication.
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/libpq/be-secure.c,v 1.92 2009/06/11 14:48:58 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/libpq/be-secure.c,v 1.102 2010/07/06 19:18:56 momjian Exp $
  *
  *	  Since the server static private key ($DataDir/server.key)
  *	  will normally be stored unencrypted so that the database
  *	  backend can restart automatically, it is important that
  *	  we select an algorithm that continues to provide confidentiality
- *	  even if the attacker has the server's private key.  Empheral
+ *	  even if the attacker has the server's private key.  Ephemeral
  *	  DH (EDH) keys provide this, and in fact provide Perfect Forward
  *	  Secrecy (PFS) except for situations where the session can
  *	  be hijacked during a periodic handshake/renegotiation.
@@ -93,13 +93,14 @@ static void close_SSL(Port *);
 static const char *SSLerrmessage(void);
 #endif
 
-#ifdef USE_SSL
 /*
  *	How much data can be sent across a secure connection
  *	(total in both directions) before we require renegotiation.
+ *	Set to 0 to disable renegotiation completely.
  */
-#define RENEGOTIATION_LIMIT (512 * 1024 * 1024)
+int			ssl_renegotiation_limit;
 
+#ifdef USE_SSL
 static SSL_CTX *SSL_context = NULL;
 static bool ssl_loaded_verify_locations = false;
 
@@ -112,7 +113,7 @@ char	   *SSLCipherSuites = NULL;
 /* ------------------------------------------------------------ */
 
 /*
- *	Hardcoded DH parameters, used in empheral DH keying.
+ *	Hardcoded DH parameters, used in ephemeral DH keying.
  *	As discussed above, EDH protects the confidentiality of
  *	sessions even if the static private key is compromised,
  *	so we are *highly* motivated to ensure that we can use
@@ -245,6 +246,7 @@ secure_read(Port *port, void *ptr, size_t len)
 		int			err;
 
 rloop:
+		errno = 0;
 		n = SSL_read(port->ssl, ptr, len);
 		err = SSL_get_error(port->ssl, n);
 		switch (err)
@@ -254,6 +256,12 @@ rloop:
 				break;
 			case SSL_ERROR_WANT_READ:
 			case SSL_ERROR_WANT_WRITE:
+				if (port->noblock)
+				{
+					errno = EWOULDBLOCK;
+					n = -1;
+					break;
+				}
 #ifdef WIN32
 				pgwin32_waitforsinglesocket(SSL_get_fd(port->ssl),
 											(err == SSL_ERROR_WANT_READ) ?
@@ -313,7 +321,7 @@ secure_write(Port *port, void *ptr, size_t len)
 	{
 		int			err;
 
-		if (port->count > RENEGOTIATION_LIMIT)
+		if (ssl_renegotiation_limit && port->count > ssl_renegotiation_limit * 1024L)
 		{
 			SSL_set_session_id_context(port->ssl, (void *) &SSL_context,
 									   sizeof(SSL_context));
@@ -339,6 +347,7 @@ secure_write(Port *port, void *ptr, size_t len)
 		}
 
 wloop:
+		errno = 0;
 		n = SSL_write(port->ssl, ptr, len);
 		err = SSL_get_error(port->ssl, n);
 		switch (err)
@@ -402,7 +411,6 @@ wloop:
  * directly so it gets passed through the socket/signals layer on Win32.
  *
  * They are closely modelled on the original socket implementations in OpenSSL.
- *
  */
 
 static bool my_bio_initialized = false;
@@ -570,7 +578,7 @@ load_dh_buffer(const char *buffer, size_t len)
 }
 
 /*
- *	Generate an empheral DH key.  Because this can take a long
+ *	Generate an ephemeral DH key.  Because this can take a long
  *	time to compute, we can use precomputed parameters of the
  *	common key sizes.
  *
@@ -713,6 +721,8 @@ initialize_SSL(void)
 {
 	struct stat buf;
 
+	STACK_OF(X509_NAME) *root_cert_list = NULL;
+
 	if (!SSL_context)
 	{
 #if SSLEAY_VERSION_NUMBER >= 0x0907000L
@@ -727,7 +737,7 @@ initialize_SSL(void)
 							SSLerrmessage())));
 
 		/*
-		 * Load and verify certificate and private key
+		 * Load and verify server's certificate and private key
 		 */
 		if (SSL_CTX_use_certificate_chain_file(SSL_context,
 											   SERVER_CERT_FILE) != 1)
@@ -772,11 +782,11 @@ initialize_SSL(void)
 							SSLerrmessage())));
 	}
 
-	/* set up empheral DH keys */
+	/* set up ephemeral DH keys, and disallow SSL v2 while at it */
 	SSL_CTX_set_tmp_dh_callback(SSL_context, tmp_dh_cb);
 	SSL_CTX_set_options(SSL_context, SSL_OP_SINGLE_DH_USE | SSL_OP_NO_SSLv2);
 
-	/* setup the allowed cipher list */
+	/* set up the allowed cipher list */
 	if (SSL_CTX_set_cipher_list(SSL_context, SSLCipherSuites) != 1)
 		elog(FATAL, "could not set the cipher list (no valid ciphers available)");
 
@@ -784,41 +794,38 @@ initialize_SSL(void)
 	 * Attempt to load CA store, so we can verify client certificates if
 	 * needed.
 	 */
-	if (access(ROOT_CERT_FILE, R_OK))
-	{
-		ssl_loaded_verify_locations = false;
+	ssl_loaded_verify_locations = false;
 
+	if (access(ROOT_CERT_FILE, R_OK) != 0)
+	{
 		/*
-		 * If root certificate file simply not found. Don't log an error here,
+		 * If root certificate file simply not found, don't log an error here,
 		 * because it's quite likely the user isn't planning on using client
 		 * certificates. If we can't access it for other reasons, it is an
 		 * error.
 		 */
 		if (errno != ENOENT)
-		{
 			ereport(FATAL,
 				 (errmsg("could not access root certificate file \"%s\": %m",
 						 ROOT_CERT_FILE)));
-		}
 	}
-	else if (SSL_CTX_load_verify_locations(SSL_context, ROOT_CERT_FILE, NULL) != 1)
+	else if (SSL_CTX_load_verify_locations(SSL_context, ROOT_CERT_FILE, NULL) != 1 ||
+		  (root_cert_list = SSL_load_client_CA_file(ROOT_CERT_FILE)) == NULL)
 	{
 		/*
 		 * File was there, but we could not load it. This means the file is
-		 * somehow broken, and we cannot do verification at all - so abort
-		 * here.
+		 * somehow broken, and we cannot do verification at all - so fail.
 		 */
-		ssl_loaded_verify_locations = false;
 		ereport(FATAL,
 				(errmsg("could not load root certificate file \"%s\": %s",
 						ROOT_CERT_FILE, SSLerrmessage())));
 	}
 	else
 	{
-		/*
-		 * Check the Certificate Revocation List (CRL) if file exists.
-		 * http://searchsecurity.techtarget.com/sDefinition/0,,sid14_gci803160,
-		 * 00.html
+		/*----------
+		 * Load the Certificate Revocation List (CRL) if file exists.
+		 * http://searchsecurity.techtarget.com/sDefinition/0,,sid14_gci803160,00.html
+		 *----------
 		 */
 		X509_STORE *cvstore = SSL_CTX_get_cert_store(SSL_context);
 
@@ -826,7 +833,8 @@ initialize_SSL(void)
 		{
 			/* Set the flags to check against the complete CRL chain */
 			if (X509_STORE_load_locations(cvstore, ROOT_CRL_FILE, NULL) == 1)
-/* OpenSSL 0.96 does not support X509_V_FLAG_CRL_CHECK */
+			{
+				/* OpenSSL 0.96 does not support X509_V_FLAG_CRL_CHECK */
 #ifdef X509_V_FLAG_CRL_CHECK
 				X509_STORE_set_flags(cvstore,
 						  X509_V_FLAG_CRL_CHECK | X509_V_FLAG_CRL_CHECK_ALL);
@@ -836,6 +844,7 @@ initialize_SSL(void)
 						ROOT_CRL_FILE),
 				 errdetail("SSL library does not support certificate revocation lists.")));
 #endif
+			}
 			else
 			{
 				/* Not fatal - we do not require CRL */
@@ -847,16 +856,24 @@ initialize_SSL(void)
 
 			/*
 			 * Always ask for SSL client cert, but don't fail if it's not
-			 * presented. We'll fail later in this case, based on what we find
-			 * in pg_hba.conf.
+			 * presented.  We might fail such connections later, depending on
+			 * what we find in pg_hba.conf.
 			 */
 			SSL_CTX_set_verify(SSL_context,
 							   (SSL_VERIFY_PEER |
 								SSL_VERIFY_CLIENT_ONCE),
 							   verify_cb);
 
+			/* Set flag to remember CA store is successfully loaded */
 			ssl_loaded_verify_locations = true;
 		}
+
+		/*
+		 * Tell OpenSSL to send the list of root certs we trust to clients in
+		 * CertificateRequests.  This lets a client with a keystore select the
+		 * appropriate client certificate to send to us.
+		 */
+		SSL_CTX_set_client_CA_list(SSL_context, root_cert_list);
 	}
 }
 
@@ -953,9 +970,29 @@ aloop:
 		X509_NAME_oneline(X509_get_subject_name(port->peer),
 						  port->peer_dn, sizeof(port->peer_dn));
 		port->peer_dn[sizeof(port->peer_dn) - 1] = '\0';
-		X509_NAME_get_text_by_NID(X509_get_subject_name(port->peer),
+		r = X509_NAME_get_text_by_NID(X509_get_subject_name(port->peer),
 					   NID_commonName, port->peer_cn, sizeof(port->peer_cn));
 		port->peer_cn[sizeof(port->peer_cn) - 1] = '\0';
+		if (r == -1)
+		{
+			/* Unable to get the CN, set it to blank so it can't be used */
+			port->peer_cn[0] = '\0';
+		}
+		else
+		{
+			/*
+			 * Reject embedded NULLs in certificate common name to prevent
+			 * attacks like CVE-2009-4034.
+			 */
+			if (r != strlen(port->peer_cn))
+			{
+				ereport(COMMERROR,
+						(errcode(ERRCODE_PROTOCOL_VIOLATION),
+						 errmsg("SSL certificate's common name contains embedded null")));
+				close_SSL(port);
+				return -1;
+			}
+		}
 	}
 	ereport(DEBUG2,
 			(errmsg("SSL connection from \"%s\"", port->peer_cn)));

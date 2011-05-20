@@ -3,10 +3,10 @@
  * win32_shmem.c
  *	  Implement shared memory using win32 facilities
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/port/win32_shmem.c,v 1.11 2009/06/11 14:49:00 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/port/win32_shmem.c,v 1.16 2010/02/26 02:00:53 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -16,8 +16,9 @@
 #include "storage/ipc.h"
 #include "storage/pg_shmem.h"
 
-unsigned long UsedShmemSegID = 0;
+HANDLE		UsedShmemSegID = 0;
 void	   *UsedShmemSegAddr = NULL;
+static Size UsedShmemSegSize = 0;
 
 static void pgwin32_SharedMemoryDelete(int status, Datum shmId);
 
@@ -124,6 +125,8 @@ PGSharedMemoryCreate(Size size, bool makePrivate, int port)
 				hmap2;
 	char	   *szShareMem;
 	int			i;
+	DWORD		size_high;
+	DWORD		size_low;
 
 	/* Room for a header? */
 	Assert(size > MAXALIGN(sizeof(PGShmemHeader)));
@@ -131,6 +134,13 @@ PGSharedMemoryCreate(Size size, bool makePrivate, int port)
 	szShareMem = GetSharedMemName();
 
 	UsedShmemSegAddr = NULL;
+
+#ifdef _WIN64
+	size_high = size >> 32;
+#else
+	size_high = 0;
+#endif
+	size_low = (DWORD) size;
 
 	/*
 	 * When recycling a shared memory segment, it may take a short while
@@ -146,11 +156,11 @@ PGSharedMemoryCreate(Size size, bool makePrivate, int port)
 		 */
 		SetLastError(0);
 
-		hmap = CreateFileMapping((HANDLE) 0xFFFFFFFF,	/* Use the pagefile */
+		hmap = CreateFileMapping(INVALID_HANDLE_VALUE,	/* Use the pagefile */
 								 NULL,	/* Default security attrs */
 								 PAGE_READWRITE,		/* Memory is Read/Write */
-								 0L,	/* Size Upper 32 Bits	*/
-								 (DWORD) size,	/* Size Lower 32 bits */
+								 size_high,		/* Size Upper 32 Bits	*/
+								 size_low,		/* Size Lower 32 bits */
 								 szShareMem);
 
 		if (!hmap)
@@ -202,7 +212,7 @@ PGSharedMemoryCreate(Size size, bool makePrivate, int port)
 
 
 	/* Register on-exit routine to delete the new segment */
-	on_shmem_exit(pgwin32_SharedMemoryDelete, Int32GetDatum((unsigned long) hmap2));
+	on_shmem_exit(pgwin32_SharedMemoryDelete, PointerGetDatum(hmap2));
 
 	/*
 	 * Get a pointer to the new shared memory segment. Map the whole segment
@@ -233,7 +243,8 @@ PGSharedMemoryCreate(Size size, bool makePrivate, int port)
 
 	/* Save info for possible future use */
 	UsedShmemSegAddr = memAddress;
-	UsedShmemSegID = (unsigned long) hmap2;
+	UsedShmemSegSize = size;
+	UsedShmemSegID = hmap2;
 
 	return hdr;
 }
@@ -257,10 +268,17 @@ PGSharedMemoryReAttach(void)
 	Assert(UsedShmemSegAddr != NULL);
 	Assert(IsUnderPostmaster);
 
-	hdr = (PGShmemHeader *) MapViewOfFileEx((HANDLE) UsedShmemSegID, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0, UsedShmemSegAddr);
+	/*
+	 * Release memory region reservation that was made by the postmaster
+	 */
+	if (VirtualFree(UsedShmemSegAddr, 0, MEM_RELEASE) == 0)
+		elog(FATAL, "failed to release reserved memory region (addr=%p): %lu",
+			 UsedShmemSegAddr, GetLastError());
+
+	hdr = (PGShmemHeader *) MapViewOfFileEx(UsedShmemSegID, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0, UsedShmemSegAddr);
 	if (!hdr)
-		elog(FATAL, "could not reattach to shared memory (key=%d, addr=%p): %lu",
-			 (int) UsedShmemSegID, UsedShmemSegAddr, GetLastError());
+		elog(FATAL, "could not reattach to shared memory (key=%p, addr=%p): %lu",
+			 UsedShmemSegID, UsedShmemSegAddr, GetLastError());
 	if (hdr != origUsedShmemSegAddr)
 		elog(FATAL, "reattaching to shared memory returned unexpected address (got %p, expected %p)",
 			 hdr, origUsedShmemSegAddr);
@@ -299,6 +317,57 @@ static void
 pgwin32_SharedMemoryDelete(int status, Datum shmId)
 {
 	PGSharedMemoryDetach();
-	if (!CloseHandle((HANDLE) DatumGetInt32(shmId)))
+	if (!CloseHandle(DatumGetPointer(shmId)))
 		elog(LOG, "could not close handle to shared memory: %lu", GetLastError());
+}
+
+/*
+ * pgwin32_ReserveSharedMemoryRegion(hChild)
+ *
+ * Reserve the memory region that will be used for shared memory in a child
+ * process. It is called before the child process starts, to make sure the
+ * memory is available.
+ *
+ * Once the child starts, DLLs loading in different order or threads getting
+ * scheduled differently may allocate memory which can conflict with the
+ * address space we need for our shared memory. By reserving the shared
+ * memory region before the child starts, and freeing it only just before we
+ * attempt to get access to the shared memory forces these allocations to
+ * be given different address ranges that don't conflict.
+ *
+ * NOTE! This function executes in the postmaster, and should for this
+ * reason not use elog(FATAL) since that would take down the postmaster.
+ */
+int
+pgwin32_ReserveSharedMemoryRegion(HANDLE hChild)
+{
+	void	   *address;
+
+	Assert(UsedShmemSegAddr != NULL);
+	Assert(UsedShmemSegSize != 0);
+
+	address = VirtualAllocEx(hChild, UsedShmemSegAddr, UsedShmemSegSize,
+							 MEM_RESERVE, PAGE_READWRITE);
+	if (address == NULL)
+	{
+		/* Don't use FATAL since we're running in the postmaster */
+		elog(LOG, "could not reserve shared memory region (addr=%p) for child %p: %lu",
+			 UsedShmemSegAddr, hChild, GetLastError());
+		return false;
+	}
+	if (address != UsedShmemSegAddr)
+	{
+		/*
+		 * Should never happen - in theory if allocation granularity causes
+		 * strange effects it could, so check just in case.
+		 *
+		 * Don't use FATAL since we're running in the postmaster.
+		 */
+		elog(LOG, "reserved shared memory region got incorrect address %p, expected %p",
+			 address, UsedShmemSegAddr);
+		VirtualFreeEx(hChild, address, 0, MEM_RELEASE);
+		return false;
+	}
+
+	return true;
 }

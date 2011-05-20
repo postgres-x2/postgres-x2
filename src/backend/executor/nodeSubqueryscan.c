@@ -7,12 +7,12 @@
  * we need two sets of code.  Ought to look at trying to unify the cases.
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/executor/nodeSubqueryscan.c,v 1.40 2009/01/01 17:23:42 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/executor/nodeSubqueryscan.c,v 1.45 2010/02/26 02:00:42 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -48,22 +48,26 @@ SubqueryNext(SubqueryScanState *node)
 	TupleTableSlot *slot;
 
 	/*
-	 * We need not support EvalPlanQual here, since we are not scanning a real
-	 * relation.
-	 */
-
-	/*
 	 * Get the next tuple from the sub-query.
 	 */
 	slot = ExecProcNode(node->subplan);
 
 	/*
-	 * We just overwrite our ScanTupleSlot with the subplan's result slot,
-	 * rather than expending the cycles for ExecCopySlot().
+	 * We just return the subplan's result slot, rather than expending extra
+	 * cycles for ExecCopySlot().  (Our own ScanTupleSlot is used only for
+	 * EvalPlanQual rechecks.)
 	 */
-	node->ss.ss_ScanTupleSlot = slot;
-
 	return slot;
+}
+
+/*
+ * SubqueryRecheck -- access method routine to recheck a tuple in EvalPlanQual
+ */
+static bool
+SubqueryRecheck(SubqueryScanState *node, TupleTableSlot *slot)
+{
+	/* nothing to check */
+	return true;
 }
 
 /* ----------------------------------------------------------------
@@ -71,18 +75,16 @@ SubqueryNext(SubqueryScanState *node)
  *
  *		Scans the subquery sequentially and returns the next qualifying
  *		tuple.
- *		It calls the ExecScan() routine and passes it the access method
- *		which retrieve tuples sequentially.
- *
+ *		We call the ExecScan() routine and pass it the appropriate
+ *		access method functions.
+ * ----------------------------------------------------------------
  */
-
 TupleTableSlot *
 ExecSubqueryScan(SubqueryScanState *node)
 {
-	/*
-	 * use SubqueryNext as access method
-	 */
-	return ExecScan(&node->ss, (ExecScanAccessMtd) SubqueryNext);
+	return ExecScan(&node->ss,
+					(ExecScanAccessMtd) SubqueryNext,
+					(ExecScanRecheckMtd) SubqueryRecheck);
 }
 
 /* ----------------------------------------------------------------
@@ -99,11 +101,12 @@ ExecInitSubqueryScan(SubqueryScan *node, EState *estate, int eflags)
 
 	/*
 	 * SubqueryScan should not have any "normal" children.	Also, if planner
-	 * left anything in subrtable, it's fishy.
+	 * left anything in subrtable/subrowmark, it's fishy.
 	 */
 	Assert(outerPlan(node) == NULL);
 	Assert(innerPlan(node) == NULL);
 	Assert(node->subrtable == NIL);
+	Assert(node->subrowmark == NIL);
 
 	/*
 	 * create state structure
@@ -128,8 +131,6 @@ ExecInitSubqueryScan(SubqueryScan *node, EState *estate, int eflags)
 	subquerystate->ss.ps.qual = (List *)
 		ExecInitExpr((Expr *) node->scan.plan.qual,
 					 (PlanState *) subquerystate);
-
-#define SUBQUERYSCAN_NSLOTS 2
 
 	/*
 	 * tuple table initialization
@@ -159,15 +160,6 @@ ExecInitSubqueryScan(SubqueryScan *node, EState *estate, int eflags)
 	return subquerystate;
 }
 
-int
-ExecCountSlotsSubqueryScan(SubqueryScan *node)
-{
-	Assert(outerPlan(node) == NULL);
-	Assert(innerPlan(node) == NULL);
-	return ExecCountSlotsNode(node->subplan) +
-		SUBQUERYSCAN_NSLOTS;
-}
-
 /* ----------------------------------------------------------------
  *		ExecEndSubqueryScan
  *
@@ -186,7 +178,7 @@ ExecEndSubqueryScan(SubqueryScanState *node)
 	 * clean out the upper tuple table
 	 */
 	ExecClearTuple(node->ss.ps.ps_ResultTupleSlot);
-	node->ss.ss_ScanTupleSlot = NULL;	/* not ours to clear */
+	ExecClearTuple(node->ss.ss_ScanTupleSlot);
 
 	/*
 	 * close down subquery
@@ -203,9 +195,7 @@ ExecEndSubqueryScan(SubqueryScanState *node)
 void
 ExecSubqueryReScan(SubqueryScanState *node, ExprContext *exprCtxt)
 {
-	EState	   *estate;
-
-	estate = node->ss.ps.state;
+	ExecScanReScan(&node->ss);
 
 	/*
 	 * ExecReScan doesn't know about my subplan, so I have to do
@@ -221,7 +211,4 @@ ExecSubqueryReScan(SubqueryScanState *node, ExprContext *exprCtxt)
 	 */
 	if (node->subplan->chgParam == NULL)
 		ExecReScan(node->subplan, NULL);
-
-	node->ss.ss_ScanTupleSlot = NULL;
-	node->ss.ps.ps_TupFromTlist = false;
 }

@@ -3,12 +3,12 @@
  * rewriteDefine.c
  *	  routines for defining a rewrite rule
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/rewrite/rewriteDefine.c,v 1.138 2009/06/11 14:49:01 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/rewrite/rewriteDefine.c,v 1.141 2010/02/14 18:42:15 rhaas Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -96,10 +96,9 @@ InsertRule(char *rulname,
 	/*
 	 * Check to see if we are replacing an existing tuple
 	 */
-	oldtup = SearchSysCache(RULERELNAME,
-							ObjectIdGetDatum(eventrel_oid),
-							PointerGetDatum(rulname),
-							0, 0);
+	oldtup = SearchSysCache2(RULERELNAME,
+							 ObjectIdGetDatum(eventrel_oid),
+							 PointerGetDatum(rulname));
 
 	if (HeapTupleIsValid(oldtup))
 	{
@@ -601,9 +600,9 @@ checkRuleResultList(List *targetList, TupleDesc resultDesc, bool isSelect)
  *		Recursively scan a query or expression tree and set the checkAsUser
  *		field to the given userid in all rtable entries.
  *
- * Note: for a view (ON SELECT rule), the checkAsUser field of the *OLD*
+ * Note: for a view (ON SELECT rule), the checkAsUser field of the OLD
  * RTE entry will be overridden when the view rule is expanded, and the
- * checkAsUser field of the *NEW* entry is irrelevant because that entry's
+ * checkAsUser field of the NEW entry is irrelevant because that entry's
  * requiredPerms bits will always be zero.	However, for other types of rules
  * it's important to set these fields to match the rule owner.  So we just set
  * them always.
@@ -679,10 +678,9 @@ EnableDisableRule(Relation rel, const char *rulename,
 	 * Find the rule tuple to change.
 	 */
 	pg_rewrite_desc = heap_open(RewriteRelationId, RowExclusiveLock);
-	ruletup = SearchSysCacheCopy(RULERELNAME,
-								 ObjectIdGetDatum(owningRel),
-								 PointerGetDatum(rulename),
-								 0, 0);
+	ruletup = SearchSysCacheCopy2(RULERELNAME,
+								  ObjectIdGetDatum(owningRel),
+								  PointerGetDatum(rulename));
 	if (!HeapTupleIsValid(ruletup))
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
@@ -742,10 +740,9 @@ RenameRewriteRule(Oid owningRel, const char *oldName,
 
 	pg_rewrite_desc = heap_open(RewriteRelationId, RowExclusiveLock);
 
-	ruletup = SearchSysCacheCopy(RULERELNAME,
-								 ObjectIdGetDatum(owningRel),
-								 PointerGetDatum(oldName),
-								 0, 0);
+	ruletup = SearchSysCacheCopy2(RULERELNAME,
+								  ObjectIdGetDatum(owningRel),
+								  PointerGetDatum(oldName));
 	if (!HeapTupleIsValid(ruletup))
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_OBJECT),

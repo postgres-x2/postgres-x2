@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/libpq.sgml,v 1.289 2009/05/28 20:02:10 momjian Exp $ -->
+<!-- $PostgreSQL: pgsql/doc/src/sgml/libpq.sgml,v 1.313 2010/07/08 10:20:14 mha Exp $ -->
 
 <chapter id="libpq">
  <title><application>libpq</application> - C Library</title>
@@ -56,7 +56,8 @@
    one time.  (One reason to do that is to access more than one
    database.)  Each connection is represented by a
    <structname>PGconn</><indexterm><primary>PGconn</></> object, which
-   is obtained from the function <function>PQconnectdb</> or
+   is obtained from the function <function>PQconnectdb</>,
+   <function>PQconnectdbParams</>, or
    <function>PQsetdbLogin</>.  Note that these functions will always
    return a non-null object pointer, unless perhaps there is too
    little memory even to allocate the <structname>PGconn</> object.
@@ -91,35 +92,39 @@
 
    <variablelist>
     <varlistentry>
-     <term><function>PQconnectdb</function><indexterm><primary>PQconnectdb</></></term>
+     <term><function>PQconnectdbParams</function><indexterm><primary>PQconnectdbParams</></></term>
      <listitem>
       <para>
        Makes a new connection to the database server.
 
        <synopsis>
-        PGconn *PQconnectdb(const char *conninfo);
+        PGconn *PQconnectdbParams(const char **keywords, const char **values, int expand_dbname);
        </synopsis>
       </para>
 
       <para>
        This function opens a new database connection using the parameters taken
-       from the string <literal>conninfo</literal>.  Unlike <function>PQsetdbLogin</> below,
-       the parameter set can be extended without changing the function signature,
-       so use of this function (or its nonblocking analogues <function>PQconnectStart</>
-       and <function>PQconnectPoll</function>) is preferred for new application programming.
+       from two <symbol>NULL</symbol>-terminated arrays. The first,
+       <literal>keywords</literal>, is defined as an array of strings, each one
+       being a key word. The second, <literal>values</literal>, gives the value
+       for each key word. Unlike <function>PQsetdbLogin</> below, the parameter
+       set can be extended without changing the function signature, so use of
+       this function (or its nonblocking analogs <function>PQconnectStartParams</>
+       and <function>PQconnectPoll</function>) is preferred for new application
+       programming.
       </para>
 
       <para>
-       The passed string
-       can be empty to use all default parameters, or it can contain one or more
-       parameter settings separated by whitespace.
-       Each parameter setting is in the form <literal>keyword = value</literal>.
-       Spaces around the equal sign are optional.
-       To write an empty value or a value containing
-       spaces, surround it with single quotes, e.g.,
-       <literal>keyword = 'a value'</literal>.
-       Single quotes and backslashes within the value must be escaped with a
-       backslash, i.e., <literal>\'</literal> and <literal>\\</literal>.
+       When <literal>expand_dbname</literal> is non-zero, the
+       <parameter>dbname</parameter> key word value is allowed to be recognized
+       as a <parameter>conninfo</parameter> string. See below for details.
+      </para>
+
+      <para>
+       The passed arrays can be empty to use all default parameters, or can
+       contain one or more parameter settings. They should be matched in length.
+       Processing will stop with the last non-<symbol>NULL</symbol> element
+       of the <literal>keywords</literal> array.
       </para>
 
       <para>
@@ -249,6 +254,88 @@
          </listitem>
         </varlistentry>
 
+        <varlistentry id="libpq-connect-application-name" xreflabel="application_name">
+         <term><literal>application_name</literal></term>
+         <listitem>
+          <para>
+           Specifies a value for the <xref linkend="guc-application-name">
+           configuration parameter.
+          </para>
+         </listitem>
+        </varlistentry>
+
+        <varlistentry id="libpq-connect-fallback-application-name" xreflabel="fallback_application_name">
+         <term><literal>fallback_application_name</literal></term>
+         <listitem>
+          <para>
+           Specifies a fallback value for the <xref
+           linkend="guc-application-name"> configuration parameter.
+           This value will be used if no value has been given for
+           <literal>application_name</> via a connection parameter or the
+           <envar>PGAPPNAME</envar> environment variable.  Specifying
+           a fallback name is useful in generic utility programs that
+           wish to set a default application name but allow it to be
+           overridden by the user.
+          </para>
+         </listitem>
+        </varlistentry>
+
+        <varlistentry id="libpq-keepalives" xreflabel="keepalives">
+         <term><literal>keepalives</literal></term>
+         <listitem>
+          <para>
+           Controls whether client-side TCP keepalives are used. The default
+           value is 1, meaning on, but you can change this to 0, meaning off,
+           if keepalives are not wanted.  This parameter is ignored for
+           connections made via a Unix-domain socket.
+          </para>
+         </listitem>
+        </varlistentry>
+
+        <varlistentry id="libpq-keepalives-idle" xreflabel="keepalives_idle">
+         <term><literal>keepalives_idle</literal></term>
+         <listitem>
+          <para>
+           Controls the number of seconds of inactivity after which TCP should
+           send a keepalive message to the server.  A value of zero uses the
+           system default. This parameter is ignored for connections made via a
+           Unix-domain socket, or if keepalives are disabled. It is only supported
+           on systems where the <symbol>TCP_KEEPIDLE</> or <symbol>TCP_KEEPALIVE</>
+           socket option is available, and on Windows; on other systems, it has no
+           effect.
+          </para>
+         </listitem>
+        </varlistentry>
+
+        <varlistentry id="libpq-keepalives-interval" xreflabel="keepalives_interval">
+         <term><literal>keepalives_interval</literal></term>
+         <listitem>
+          <para>
+           Controls the number of seconds after which a TCP keepalive message
+           that is not acknowledged by the server should be retransmitted.  A
+           value of zero uses the system default. This parameter is ignored for
+           connections made via a Unix-domain socket, or if keepalives are disabled.
+           It is only supported on systems where the <symbol>TCP_KEEPINTVL</>
+           socket option is available, and on Windows; on other systems, it has no
+           effect.
+          </para>
+         </listitem>
+        </varlistentry>
+
+        <varlistentry id="libpq-keepalives-count" xreflabel="keepalives_count">
+         <term><literal>keepalives_count</literal></term>
+         <listitem>
+          <para>
+           Controls the number of TCP keepalives that can be lost before the
+           client's connection to the server is considered dead.  A value of
+           zero uses the system default. This parameter is ignored for
+           connections made via a Unix-domain socket, or if keepalives are disabled.
+           It is only supported on systems where the <symbol>TCP_KEEPINTVL</>
+           socket option is available; on other systems, it has no effect.
+          </para>
+         </listitem>
+        </varlistentry>
+
         <varlistentry id="libpq-connect-tty" xreflabel="tty">
          <term><literal>tty</literal></term>
          <listitem>
@@ -262,7 +349,7 @@
          <term><literal>sslmode</literal></term>
          <listitem>
           <para>
-           This option determines whether or with what priority a
+           This option determines whether or with what priority a secure
            <acronym>SSL</> TCP/IP connection will be negotiated with the
            server. There are six modes:
           </para>
@@ -276,28 +363,28 @@
               <entry>Description</entry>
              </row>
             </thead>
-        
+
             <tbody>
-        
+
              <row>
               <entry><literal>disable</></entry>
               <entry>only try a non-<acronym>SSL</> connection</entry>
              </row>
-        
+
              <row>
               <entry><literal>allow</></entry>
               <entry>first try a non-<acronym>SSL</>
                connection;  if that fails, try an <acronym>SSL</>
                connection</entry>
              </row>
-        
+
              <row>
               <entry><literal>prefer</> (default)</entry>
               <entry>first try an <acronym>SSL</> connection;  if
               that fails, try a non-<acronym>SSL</>
               connection</entry>
              </row>
-        
+
              <row>
               <entry><literal>require</></entry>
               <entry>only try an <acronym>SSL</> connection</entry>
@@ -306,7 +393,7 @@
              <row>
               <entry><literal>verify-ca</></entry>
               <entry>only try an <acronym>SSL</> connection, and verify that
-              the server certificate is issued by a trusted <acronym>CA</>.
+              the server certificate is issued by a trusted <acronym>CA</>
               </entry>
              </row>
 
@@ -314,7 +401,7 @@
               <entry><literal>verify-full</></entry>
               <entry>only try an <acronym>SSL</> connection, verify that
               the server certificate is issued by a trusted <acronym>CA</> and
-              that the server hostname matches that in the certificate.</entry>
+              that the server hostname matches that in the certificate</entry>
              </row>
 
             </tbody>
@@ -330,7 +417,8 @@
            <literal>sslmode</> is ignored for Unix domain socket
            communication.
            If <productname>PostgreSQL</> is compiled without SSL support,
-           using option <literal>require</> will cause an error, while
+           using options <literal>require</>, <literal>verify-ca</>, or
+           <literal>verify-full</> will cause an error, while
            options <literal>allow</> and <literal>prefer</> will be
            accepted but <application>libpq</> will not actually attempt
            an <acronym>SSL</>
@@ -367,7 +455,9 @@
          <listitem>
           <para>
            This parameter specifies the file name of the client SSL
-           certificate.
+           certificate, replacing the default
+           <filename>~/.postgresql/postgresql.crt</>.
+           This parameter is ignored if an SSL connection is not made. 
           </para>
          </listitem>
         </varlistentry>
@@ -376,13 +466,15 @@
          <term><literal>sslkey</literal></term>
          <listitem>
           <para>
-           This parameter specifies the location for the secret key
-           used for the client certificate. It can either specify a filename
-           that will be used instead of the default
-           <filename>~/.postgresql/postgresql.key</>, or can specify an external
-           engine (engines are <productname>OpenSSL</> loadable modules). The
-           external engine specification should consist of a colon-separated
-           engine name and an engine-specific key identifier.
+           This parameter specifies the location for the secret key used for
+           the client certificate. It can either specify a filename that will
+           be used instead of the default
+           <filename>~/.postgresql/postgresql.key</>, or it can specify a key
+           obtained from an external <quote>engine</> (engines are
+           <productname>OpenSSL</> loadable modules).  An external engine
+           specification should consist of a colon-separated engine name and
+           an engine-specific key identifier.  This parameter is ignored if an
+           SSL connection is not made.
           </para>
          </listitem>
         </varlistentry>
@@ -391,7 +483,11 @@
          <term><literal>sslrootcert</literal></term>
          <listitem>
           <para>
-           This parameter specifies the file name of the root SSL certificate.
+           This parameter specifies the name of a file containing SSL
+           certificate authority (<acronym>CA</>) certificate(s).
+           If the file exists, the server's certificate will be verified
+           to be signed by one of these authorities.  The default is
+           <filename>~/.postgresql/root.crt</>.
           </para>
          </listitem>
         </varlistentry>
@@ -401,7 +497,10 @@
          <listitem>
           <para>
            This parameter specifies the file name of the SSL certificate
-           revocation list (CRL).
+           revocation list (CRL).  Certificates listed in this file, if it
+           exists, will be rejected while attempting to authenticate the
+           server's certificate.  The default is
+           <filename>~/.postgresql/root.crl</>.
           </para>
          </listitem>
         </varlistentry>
@@ -447,6 +546,57 @@
        environment variable (see <xref linkend="libpq-envars">)
        is checked. If the  environment  variable is not set either,
        then the indicated built-in defaults are used.
+      </para>
+
+      <para>
+        If <literal>expand_dbname</literal> is non-zero and
+        <parameter>dbname</parameter> contains an <symbol>=</symbol> sign, it
+        is taken as a <parameter>conninfo</parameter> string in exactly the same way as
+        if it had been passed to <function>PQconnectdb</function>(see below). Previously
+        processed key words will be overridden by key words in the
+        <parameter>conninfo</parameter> string.
+      </para>
+
+      <para>
+        In general key words are processed from the beginning of these arrays in index
+        order. The effect of this is that when key words are repeated, the last processed
+        value is retained. Therefore, through careful placement of the
+        <parameter>dbname</parameter> key word, it is possible to determine what may
+        be overridden by a <parameter>conninfo</parameter> string, and what may not.
+      </para>
+
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><function>PQconnectdb</function><indexterm><primary>PQconnectdb</></></term>
+     <listitem>
+      <para>
+       Makes a new connection to the database server.
+
+       <synopsis>
+        PGconn *PQconnectdb(const char *conninfo);
+       </synopsis>
+      </para>
+
+      <para>
+       This function opens a new database connection using the parameters taken
+       from the string <literal>conninfo</literal>.
+      </para>
+
+      <para>
+       The passed string can be empty to use all default parameters, or it can
+       contain one or more parameter settings separated by whitespace.
+       Each parameter setting is in the form <literal>keyword = value</literal>.
+       Spaces around the equal sign are optional. To write an empty value,
+       or a value containing spaces, surround it with single quotes, e.g.,
+       <literal>keyword = 'a value'</literal>. Single quotes and backslashes
+       within the value must be escaped with a backslash, i.e.,
+       <literal>\'</literal> and <literal>\\</literal>.
+      </para>
+
+      <para>
+       The currently recognized parameter key words are the same as above.
       </para>
      </listitem>
     </varlistentry>
@@ -506,12 +656,17 @@ PGconn *PQsetdb(char *pghost,
     </varlistentry>
 
     <varlistentry>
+     <term><function>PQconnectStartParams</function><indexterm><primary>PQconnectStartParams</></></term>
      <term><function>PQconnectStart</function><indexterm><primary>PQconnectStart</></></term>
      <term><function>PQconnectPoll</function><indexterm><primary>PQconnectPoll</></></term>
      <listitem>
       <para>
        <indexterm><primary>nonblocking connection</primary></indexterm>
        Make a connection to the database server in a nonblocking manner.
+
+       <synopsis>
+        PGconn *PQconnectStartParams(const char **keywords, const char **values, int expand_dbname);
+       </synopsis>
 
        <synopsis>
         PGconn *PQconnectStart(const char *conninfo);
@@ -523,29 +678,37 @@ PGconn *PQsetdb(char *pghost,
       </para>
 
       <para>
-       These two functions are used to open a connection to a database server such
+       These three functions are used to open a connection to a database server such
        that your application's thread of execution is not blocked on remote I/O
-       whilst doing so.
-       The point of this approach is that the waits for I/O to complete can occur
-       in the application's main loop, rather than down inside
-       <function>PQconnectdb</>, and so the application can manage this
-       operation in parallel with other activities.
+       whilst doing so. The point of this approach is that the waits for I/O to
+       complete can occur in the application's main loop, rather than down inside
+       <function>PQconnectdbParams</> or <function>PQconnectdb</>, and so the
+       application can manage this operation in parallel with other activities.
       </para>
 
       <para>
-       The database connection is made using the parameters taken from the string
-       <literal>conninfo</literal>, passed to <function>PQconnectStart</function>. This string is in
-       the same format as described above for <function>PQconnectdb</function>.
+       With <function>PQconnectStartParams</function>, the database connection is made
+       using the parameters taken from the <literal>keywords</literal> and
+       <literal>values</literal> arrays, and controlled by <literal>expand_dbname</literal>,
+       as described above for <function>PQconnectdbParams</function>.
       </para>
+
       <para>
-       Neither <function>PQconnectStart</function> nor <function>PQconnectPoll</function> will block, so long as a number of
+       With <function>PQconnectStart</function>, the database connection is made
+       using the parameters taken from the string <literal>conninfo</literal> as
+       described above for <function>PQconnectdb</function>.
+      </para>
+
+      <para>
+       Neither <function>PQconnectStartParams</function> nor <function>PQconnectStart</function>
+       nor <function>PQconnectPoll</function> will block, so long as a number of
        restrictions are met:
        <itemizedlist>
         <listitem>
          <para>
           The <literal>hostaddr</> and <literal>host</> parameters are used appropriately to ensure that
           name and reverse name queries are not made. See the documentation of
-          these parameters under <function>PQconnectdb</function> above for details.
+          these parameters under <function>PQconnectdbParams</function> above for details.
          </para>
         </listitem>
 
@@ -563,6 +726,11 @@ PGconn *PQsetdb(char *pghost,
          </para>
         </listitem>
        </itemizedlist>
+      </para>
+
+      <para>
+       Note: use of <function>PQconnectStartParams</> is analogous to
+       <function>PQconnectStart</> shown below.
       </para>
 
       <para>
@@ -857,7 +1025,8 @@ PQconninfoOption *PQconninfoParse(const char *conninfo, char **errmsg);
        parameters previously used. This can be useful for error recovery if a
        working connection is lost. They differ from <function>PQreset</function> (above) in that they
        act in a nonblocking manner. These functions suffer from the same
-       restrictions as <function>PQconnectStart</> and <function>PQconnectPoll</>.
+       restrictions as <function>PQconnectStartParams</>, <function>PQconnectStart</>
+       and <function>PQconnectPoll</>.
       </para>
 
       <para>
@@ -1070,9 +1239,9 @@ PQconninfoOption *PQconninfoParse(const char *conninfo, char **errmsg);
       </para>
 
       <para>
-       See the entry for <function>PQconnectStart</> and <function>PQconnectPoll</> with regards
-       to other status codes
-       that might be seen.
+       See the entry for <function>PQconnectStartParams</>, <function>PQconnectStart</>
+       and <function>PQconnectPoll</> with regards to other status codes that
+       might be seen.
       </para>
      </listitem>
     </varlistentry>
@@ -1141,6 +1310,7 @@ PQconninfoOption *PQconninfoParse(const char *conninfo, char **errmsg);
        <literal>server_version</>,
        <literal>server_encoding</>,
        <literal>client_encoding</>,
+       <literal>application_name</>,
        <literal>is_superuser</>,
        <literal>session_authorization</>,
        <literal>DateStyle</>,
@@ -1151,8 +1321,9 @@ PQconninfoOption *PQconninfoParse(const char *conninfo, char **errmsg);
        (<literal>server_encoding</>, <literal>TimeZone</>, and
        <literal>integer_datetimes</> were not reported by releases before 8.0;
        <literal>standard_conforming_strings</> was not reported by releases
-       before 8.1; <literal>IntervalStyle</> was not reported by releases
-       before 8.4.)
+       before 8.1;
+       <literal>IntervalStyle</> was not reported by releases before 8.4;
+       <literal>application_name</> was not reported by releases before 9.0.)
        Note that
        <literal>server_version</>,
        <literal>server_encoding</> and
@@ -1379,8 +1550,9 @@ PQconninfoOption *PQconninfoParse(const char *conninfo, char **errmsg);
 
       <para>
        You must define <symbol>USE_SSL</symbol> in order to get the
-       correct prototype for this function. Doing this will also
-       automatically include <filename>ssl.h</filename> from <productname>OpenSSL</productname>.
+       correct prototype for this function. Doing so will also
+       automatically include <filename>ssl.h</filename> from
+       <productname>OpenSSL</productname>.
       </para>
      </listitem>
     </varlistentry>
@@ -1701,12 +1873,12 @@ PGresult *PQprepare(PGconn *conn,
     </variablelist>
 
     Prepared statements for use with <function>PQexecPrepared</> can also
-    be created by executing SQL <xref linkend="sql-prepare"
-    endterm="sql-prepare-title"> statements.  (But <function>PQprepare</>
+    be created by executing SQL <xref linkend="sql-prepare">
+    statements.  (But <function>PQprepare</>
     is more flexible since it does not require parameter types to be
     pre-specified.)  Also, although there is no <application>libpq</>
     function for deleting a prepared statement, the SQL <xref
-    linkend="sql-deallocate" endterm="sql-deallocate-title"> statement
+    linkend="sql-deallocate"> statement
     can be used for that purpose.
    </para>
 
@@ -2766,12 +2938,11 @@ typedef struct {
   </sect2>
 
   <sect2 id="libpq-exec-nonselect">
-   <title>Retrieving Result Information for Other Commands</title>
+   <title>Retrieving Other Result Information</title>
 
    <para>
-    These functions are used to extract information from
-    <structname>PGresult</structname> objects that are not
-    <command>SELECT</> results.
+    These functions are used to extract other information from
+    <structname>PGresult</structname> objects.
    </para>
 
    <variablelist>
@@ -2822,12 +2993,12 @@ typedef struct {
        This function returns a string containing the number of rows
        affected by the <acronym>SQL</> statement that generated the
        <structname>PGresult</>. This function can only be used following
-       the execution of an <command>INSERT</>, <command>UPDATE</>,
-       <command>DELETE</>, <command>MOVE</>, <command>FETCH</>, or
-       <command>COPY</> statement, or an <command>EXECUTE</> of a
-       prepared query that contains an <command>INSERT</>,
-       <command>UPDATE</>, or <command>DELETE</> statement.  If the
-       command that generated the <structname>PGresult</> was anything
+       the execution of a <command>SELECT</>, <command>CREATE TABLE AS</>,
+       <command>INSERT</>, <command>UPDATE</>, <command>DELETE</>,
+       <command>MOVE</>, <command>FETCH</>, or <command>COPY</> statement,
+       or an <command>EXECUTE</> of a prepared query that contains an
+       <command>INSERT</>, <command>UPDATE</>, or <command>DELETE</> statement.
+       If the command that generated the <structname>PGresult</> was anything
        else, <function>PQcmdTuples</> returns an empty string. The caller
        should not free the return value directly. It will be freed when
        the associated <structname>PGresult</> handle is passed to
@@ -2898,117 +3069,221 @@ typedef struct {
    <title>Escaping Strings for Inclusion in SQL Commands</title>
 
    <indexterm zone="libpq-exec-escape-string">
-    <primary>PQescapeStringConn</primary>
-   </indexterm>
-   <indexterm zone="libpq-exec-escape-string">
-    <primary>PQescapeString</primary>
-   </indexterm>
-   <indexterm zone="libpq-exec-escape-string">
     <primary>escaping strings</primary>
     <secondary>in libpq</secondary>
    </indexterm>
 
-   <para>
-    <function>PQescapeStringConn</function> escapes a string for use within an SQL
-    command.  This is useful when inserting data values as literal constants
-    in SQL commands.  Certain characters (such as quotes and backslashes) must
-    be escaped to prevent them from being interpreted specially by the SQL parser.
-    <function>PQescapeStringConn</> performs this operation.
-   </para>
-
-   <tip>
-    <para>
-     It is especially important to do proper escaping when handling strings that
-     were received from an untrustworthy source.  Otherwise there is a security
-     risk: you are vulnerable to <quote>SQL injection</> attacks wherein unwanted
-     SQL commands are fed to your database.
-    </para>
-   </tip>
-
-   <para>
-    Note that it is not necessary nor correct to do escaping when a data
-    value is passed as a separate parameter in <function>PQexecParams</> or
-    its sibling routines.
-
-    <synopsis>
-     size_t PQescapeStringConn (PGconn *conn,
-                                char *to, const char *from, size_t length,
-                                int *error);
-    </synopsis>
-   </para>
-
-   <para>
-    <function>PQescapeStringConn</> writes an escaped version of the
-    <parameter>from</> string to the <parameter>to</> buffer, escaping
-    special characters so that they cannot cause any harm, and adding a
-    terminating zero byte.  The single quotes that must surround
-    <productname>PostgreSQL</> string literals are not included in the
-    result string; they should be provided in the SQL command that the
-    result is inserted into.  The parameter <parameter>from</> points to
-    the first character of the string that is to be escaped, and the
-    <parameter>length</> parameter gives the number of bytes in this
-    string.  A terminating zero byte is not required, and should not be
-    counted in <parameter>length</>.  (If a terminating zero byte is found
-    before <parameter>length</> bytes are processed,
-    <function>PQescapeStringConn</> stops at the zero; the behavior is
-    thus rather like <function>strncpy</>.) <parameter>to</> shall point
-    to a buffer that is able to hold at least one more byte than twice
-    the value of <parameter>length</>, otherwise the behavior is undefined.
-    Behavior is likewise undefined if the <parameter>to</> and
-    <parameter>from</> strings overlap.
-   </para>
-
-   <para>
-    If the <parameter>error</> parameter is not NULL, then
-    <literal>*error</> is set to zero on success, nonzero on error.
-    Presently the only possible error conditions involve invalid multibyte
-    encoding in the source string.  The output string is still generated
-    on error, but it can be expected that the server will reject it as
-    malformed.  On error, a suitable message is stored in the
-    <parameter>conn</> object, whether or not <parameter>error</> is NULL.
-   </para>
-
-   <para>
-    <function>PQescapeStringConn</> returns the number of bytes written
-    to <parameter>to</>, not including the terminating zero byte.
-   </para>
-
-   <para>
-    <synopsis>
-     size_t PQescapeString (char *to, const char *from, size_t length);
-    </synopsis>
-   </para>
-
-   <para>
-    <function>PQescapeString</> is an older, deprecated version of
-    <function>PQescapeStringConn</>; the difference is that it does
-    not take <parameter>conn</> or <parameter>error</> parameters.
-    Because of this, it cannot adjust its behavior depending on the
-    connection properties (such as character encoding) and therefore
-    <emphasis>it might give the wrong results</>.  Also, it has no way
-    to report error conditions.
-   </para>
-
-   <para>
-    <function>PQescapeString</> can be used safely in single-threaded
-    client programs that work with only one <productname>PostgreSQL</>
-    connection at a time (in this case it can find out what it needs to
-    know <quote>behind the scenes</>).  In other contexts it is a security
-    hazard and should be avoided in favor of
-    <function>PQescapeStringConn</>.
-   </para>
-  </sect2>
-
-
-  <sect2 id="libpq-exec-escape-bytea">
-   <title>Escaping Binary Strings for Inclusion in SQL Commands</title>
-
-   <indexterm zone="libpq-exec-escape-bytea">
-    <primary>bytea</primary>
-    <secondary sortas="libpq">in libpq</secondary>
-   </indexterm>
-
    <variablelist>
+    <varlistentry>
+     <term>
+      <function>PQescapeLiteral</function>
+      <indexterm>
+       <primary>PQescapeLiteral</primary>
+      </indexterm>
+     </term>
+
+     <listitem>
+     <para>
+      <synopsis>
+       size_t PQescapeLiteral(PGconn *conn, char *str, size_t len)
+      </synopsis>
+     </para>
+
+     <para>
+      <function>PQescapeLiteral</function> escapes a string for
+      use within an SQL command.  This is useful when inserting data
+      values as literal constants in SQL commands.  Certain characters
+      (such as quotes and backslashes) must be escaped to prevent them
+      from being interpreted specially by the SQL parser.
+      <function>PQescapeLiteral</> performs this operation.
+     </para>
+
+     <para>
+      <function>PQescapeLiteral</> returns an escaped version of the
+      <parameter>str</parameter> parameter in memory allocated with
+      <function>malloc()</>.  This memory should be freed using
+      <function>PQfreemem()</> when the result is no longer needed.
+      A terminating zero byte is not required, and should not be
+      counted in <parameter>length</>.  (If a terminating zero byte is found
+      before <parameter>length</> bytes are processed,
+      <function>PQescapeLiteral</> stops at the zero; the behavior is
+      thus rather like <function>strncpy</>.) The
+      return string has all special characters replaced so that they can
+      be properly processed by the <productname>PostgreSQL</productname>
+      string literal parser.  A terminating zero byte is also added.  The
+      single quotes that must surround <productname>PostgreSQL</productname>
+      string literals are included in the result string.
+     </para>
+
+     <para>
+      On error, <function>PQescapeLiteral</> returns NULL and a suitable
+      message is stored in the <parameter>conn</> object.
+     </para>
+
+     <tip>
+      <para>
+       It is especially important to do proper escaping when handling
+       strings that were received from an untrustworthy source.
+       Otherwise there is a security risk: you are vulnerable to
+       <quote>SQL injection</> attacks wherein unwanted SQL commands are
+       fed to your database.
+      </para>
+     </tip>
+
+     <para>
+      Note that it is not necessary nor correct to do escaping when a data
+      value is passed as a separate parameter in <function>PQexecParams</> or
+      its sibling routines.
+     </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term>
+      <function>PQescapeIdentifier</function>
+      <indexterm>
+       <primary>PQescapeIdentifier</primary>
+      </indexterm>
+     </term>
+
+     <listitem>
+     <para>
+      <synopsis>
+       size_t PQescapeIdentifier(PGconn *conn, char *str, size_t len)
+      </synopsis>
+     </para>
+
+     <para>
+      <function>PQescapeIndentifier</function> escapes a string for
+      use as an SQL identifier, such as a table, column, or function name.
+      This is useful when a user-supplied identifier might contain
+      special characters that would otherwise not be interpreted as part
+      of the identifier by the SQL parser, or when the identifier might
+      contain upper case characters whose case should be preserved.
+     </para>
+
+     <para>
+      <function>PQescapeIdentifier</> returns a version of the
+      <parameter>str</parameter> parameter escaped as an SQL identifier
+      in memory allocated with <function>malloc()</>.  This memory must be
+      freed using <function>PQfreemem()</> when the result is no longer
+      needed.  A terminating zero byte is not required, and should not be
+      counted in <parameter>length</>.  (If a terminating zero byte is found
+      before <parameter>length</> bytes are processed,
+      <function>PQescapeIdentifier</> stops at the zero; the behavior is
+      thus rather like <function>strncpy</>.) The
+      return string has all special characters replaced so that it
+      will be properly processed as an SQL identifier.  A terminating zero byte
+      is also added.  The return string will also be surrounded by double
+      quotes.
+     </para>
+
+     <para>
+      On error, <function>PQescapeIdentifier</> returns NULL and a suitable
+      message is stored in the <parameter>conn</> object.
+     </para>
+
+     <tip>
+      <para>
+       As with string literals, to prevent SQL injection attacks,
+       SQL identifiers must be escaped when they are received from an
+       untrustworthy source.
+      </para>
+     </tip>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term>
+      <function>PQescapeStringConn</function>
+      <indexterm>
+       <primary>PQescapeStringConn</primary>
+      </indexterm>
+     </term>
+
+     <listitem>
+     <para>
+      <synopsis>
+       size_t PQescapeStringConn (PGconn *conn,
+                                  char *to, const char *from, size_t length,
+                                  int *error);
+      </synopsis>
+     </para>
+
+     <para>
+      <function>PQescapeStringConn</> escapes string literals, much like
+      <function>PQescapeLiteral</>.  Unlike <function>PQescapeLiteral</>,
+      the caller is responsible for providing an appropriately sized buffer.
+      Furthermore, <function>PQescapeStringConn</> does not generate the
+      single quotes that must surround <productname>PostgreSQL</> string
+      literals; they should be provided in the SQL command that the
+      result is inserted into.  The parameter <parameter>from</> points to
+      the first character of the string that is to be escaped, and the
+      <parameter>length</> parameter gives the number of bytes in this
+      string.  A terminating zero byte is not required, and should not be
+      counted in <parameter>length</>.  (If a terminating zero byte is found
+      before <parameter>length</> bytes are processed,
+      <function>PQescapeStringConn</> stops at the zero; the behavior is
+      thus rather like <function>strncpy</>.) <parameter>to</> shall point
+      to a buffer that is able to hold at least one more byte than twice
+      the value of <parameter>length</>, otherwise the behavior is undefined.
+      Behavior is likewise undefined if the <parameter>to</> and
+      <parameter>from</> strings overlap.
+     </para>
+
+     <para>
+      If the <parameter>error</> parameter is not NULL, then
+      <literal>*error</> is set to zero on success, nonzero on error.
+      Presently the only possible error conditions involve invalid multibyte
+      encoding in the source string.  The output string is still generated
+      on error, but it can be expected that the server will reject it as
+      malformed.  On error, a suitable message is stored in the
+      <parameter>conn</> object, whether or not <parameter>error</> is NULL.
+     </para>
+
+     <para>
+      <function>PQescapeStringConn</> returns the number of bytes written
+      to <parameter>to</>, not including the terminating zero byte.
+     </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term>
+      <function>PQescapeString</function>
+      <indexterm>
+       <primary>PQescapeString</primary>
+      </indexterm>
+     </term>
+
+     <listitem>
+     <para>
+      <synopsis>
+       size_t PQescapeString (char *to, const char *from, size_t length);
+      </synopsis>
+     </para>
+
+     <para>
+      <function>PQescapeString</> is an older, deprecated version of
+      <function>PQescapeStringConn</>; the difference is that it does
+      not take <parameter>conn</> or <parameter>error</> parameters.
+      Because of this, it cannot adjust its behavior depending on the
+      connection properties (such as character encoding) and therefore
+      <emphasis>it might give the wrong results</>.  Also, it has no way
+      to report error conditions.
+     </para>
+
+     <para>
+      <function>PQescapeString</> can be used safely in single-threaded
+      client programs that work with only one <productname>PostgreSQL</>
+      connection at a time (in this case it can find out what it needs to
+      know <quote>behind the scenes</>).  In other contexts it is a security
+      hazard and should be avoided in favor of
+      <function>PQescapeStringConn</>.
+     </para>
+     </listitem>
+    </varlistentry>
+
     <varlistentry>
      <term>
       <function>PQescapeByteaConn</function>
@@ -3057,7 +3332,7 @@ typedef struct {
       <para>
        <function>PQescapeByteaConn</> returns an escaped version of the
        <parameter>from</parameter> parameter binary string in memory
-       allocated with <function>malloc()</>.  This memory must be freed using
+       allocated with <function>malloc()</>.  This memory should be freed using
        <function>PQfreemem()</> when the result is no longer needed.  The
        return string has all special characters replaced so that they can
        be properly processed by the <productname>PostgreSQL</productname>
@@ -3905,50 +4180,48 @@ typedef struct {
    <productname>PostgreSQL</productname> offers asynchronous notification
    via the <command>LISTEN</command> and <command>NOTIFY</command>
    commands.  A client session registers its interest in a particular
-   notification condition with the <command>LISTEN</command> command (and
+   notification channel with the <command>LISTEN</command> command (and
    can stop listening with the <command>UNLISTEN</command> command).  All
-   sessions listening on a particular condition will be notified
+   sessions listening on a particular channel will be notified
    asynchronously when a <command>NOTIFY</command> command with that
-   condition name is executed by any session.  No additional information
-   is passed from the notifier to the listener.  Thus, typically, any
-   actual data that needs to be communicated is transferred through a
-   database table.  Commonly, the condition name is the same as the
-   associated table, but it is not necessary for there to be any associated
-   table.
+   channel name is executed by any session. A <quote>payload</> string can
+   be passed to communicate additional data to the listeners.
   </para>
 
   <para>
    <application>libpq</application> applications submit
-   <command>LISTEN</command> and <command>UNLISTEN</command> commands as
+   <command>LISTEN</command>, <command>UNLISTEN</command>,
+   and <command>NOTIFY</command> commands as
    ordinary SQL commands.  The arrival of <command>NOTIFY</command>
    messages can subsequently be detected by calling
    <function>PQnotifies</function>.<indexterm><primary>PQnotifies</></>
   </para>
 
   <para>
-   The function <function>PQnotifies</function>
-             returns  the next notification from a list of unhandled
-             notification messages received from the server.  It returns a null pointer if
-             there are no pending notifications.  Once a notification is
-             returned from <function>PQnotifies</>, it is considered handled and will be
-             removed from the list of notifications.
+   The function <function>PQnotifies</function> returns the next notification
+   from a list of unhandled notification messages received from the server.
+   It returns a null pointer if there are no pending notifications.  Once a
+   notification is returned from <function>PQnotifies</>, it is considered
+   handled and will be removed from the list of notifications.
+
    <synopsis>
    PGnotify *PQnotifies(PGconn *conn);
 
    typedef struct pgNotify {
-       char *relname;              /* notification condition name */
+       char *relname;              /* notification channel name */
        int  be_pid;                /* process ID of notifying server process */
-       char *extra;                /* notification parameter */
+       char *extra;                /* notification payload string */
    } PGnotify;
    </synopsis>
+
    After processing a <structname>PGnotify</structname> object returned
    by <function>PQnotifies</function>, be sure to free it with
    <function>PQfreemem</function>.  It is sufficient to free the
    <structname>PGnotify</structname> pointer; the
    <structfield>relname</structfield> and <structfield>extra</structfield>
-   fields do not represent separate allocations.  (At present, the
-   <structfield>extra</structfield> field is unused and will always point
-   to an empty string.)
+   fields do not represent separate allocations.  (The names of these fields
+   are historical; in particular, channel names need not have anything to
+   do with relation names.)
   </para>
 
   <para>
@@ -4075,7 +4348,7 @@ typedef struct {
        0 indicates the overall copy format is textual (rows separated by
        newlines, columns separated by separator characters, etc).  1
        indicates the overall copy format is binary.  See <xref
-       linkend="sql-copy" endterm="sql-copy-title"> for more information.
+       linkend="sql-copy"> for more information.
       </para>
      </listitem>
     </varlistentry>
@@ -4155,8 +4428,7 @@ typedef struct {
        into buffer loads of any convenient size.  Buffer-load boundaries
        have no semantic significance when sending.  The contents of the
        data stream must match the data format expected by the
-       <command>COPY</> command; see <xref linkend="sql-copy"
-       endterm="sql-copy-title"> for details.
+       <command>COPY</> command; see <xref linkend="sql-copy"> for details.
       </para>
      </listitem>
     </varlistentry>
@@ -4249,7 +4521,7 @@ typedef struct {
        be non-<symbol>NULL</symbol>.  <parameter>*buffer</> is set to
        point to the allocated memory, or to <symbol>NULL</symbol> in cases
        where no buffer is returned.  A non-<symbol>NULL</symbol> result
-       buffer must be freed using <function>PQfreemem</> when no longer
+       buffer should be freed using <function>PQfreemem</> when no longer
        needed.
       </para>
 
@@ -5672,7 +5944,7 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
       <indexterm>
        <primary><envar>PGHOST</envar></primary>
       </indexterm>
-      <envar>PGHOST</envar> behaves the same as <xref
+      <envar>PGHOST</envar> behaves the same as the <xref
       linkend="libpq-connect-host"> connection parameter.
      </para>
     </listitem>
@@ -5682,7 +5954,7 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
       <indexterm>
        <primary><envar>PGHOSTADDR</envar></primary>
       </indexterm>
-      <envar>PGHOSTADDR</envar> behaves the same as <xref
+      <envar>PGHOSTADDR</envar> behaves the same as the <xref
       linkend="libpq-connect-hostaddr"> connection parameter.
       This can be set instead of or in addition to <envar>PGHOST</envar>
       to avoid DNS lookup overhead.
@@ -5694,7 +5966,7 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
       <indexterm>
        <primary><envar>PGPORT</envar></primary>
       </indexterm>
-      <envar>PGPORT</envar> behaves the same as <xref
+      <envar>PGPORT</envar> behaves the same as the <xref
       linkend="libpq-connect-port"> connection parameter.
      </para>
     </listitem>
@@ -5704,7 +5976,7 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
       <indexterm>
        <primary><envar>PGDATABASE</envar></primary>
       </indexterm>
-      <envar>PGDATABASE</envar> behaves the same as <xref
+      <envar>PGDATABASE</envar> behaves the same as the <xref
       linkend="libpq-connect-dbname"> connection parameter.
       </para>
     </listitem>
@@ -5714,9 +5986,8 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
       <indexterm>
        <primary><envar>PGUSER</envar></primary>
       </indexterm>
-      <envar>PGUSER</envar> behaves the same as <xref
+      <envar>PGUSER</envar> behaves the same as the <xref
       linkend="libpq-connect-user"> connection parameter.
-      database.
      </para>
     </listitem>
 
@@ -5725,12 +5996,12 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
       <indexterm>
        <primary><envar>PGPASSWORD</envar></primary>
       </indexterm>
-      <envar>PGPASSWORD</envar> behaves the same as <xref
+      <envar>PGPASSWORD</envar> behaves the same as the <xref
       linkend="libpq-connect-password"> connection parameter.
       Use of this environment variable
-      is not recommended for security reasons (some operating systems
+      is not recommended for security reasons, as some operating systems
       allow non-root users to see process environment variables via
-      <application>ps</>); instead consider using the
+      <application>ps</>; instead consider using the
       <filename>~/.pgpass</> file (see <xref linkend="libpq-pgpass">).
      </para>
     </listitem>
@@ -5751,8 +6022,20 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
       <indexterm>
        <primary><envar>PGSERVICE</envar></primary>
       </indexterm>
-      <envar>PGSERVICE</envar> behaves the same as <xref
+      <envar>PGSERVICE</envar> behaves the same as the <xref
       linkend="libpq-connect-service"> connection parameter.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      <indexterm>
+       <primary><envar>PGSERVICEFILE</envar></primary>
+      </indexterm>
+      <envar>PGSERVICEFILE</envar> specifies the name of the per-user
+      connection service file.  If not set, it defaults
+      to <filename>~/.pg_service.conf</>
+      (see <xref linkend="libpq-pgservice">).
      </para>
     </listitem>
 
@@ -5777,8 +6060,18 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
       <indexterm>
        <primary><envar>PGOPTIONS</envar></primary>
       </indexterm>
-      <envar>PGOPTIONS</envar> behaves the same as <xref
+      <envar>PGOPTIONS</envar> behaves the same as the <xref
       linkend="libpq-connect-options"> connection parameter.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      <indexterm>
+       <primary><envar>PGAPPNAME</envar></primary>
+      </indexterm>
+      <envar>PGAPPNAME</envar> behaves the same as the <xref
+      linkend="libpq-connect-application-name"> connection parameter.
      </para>
     </listitem>
 
@@ -5787,7 +6080,7 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
       <indexterm>
        <primary><envar>PGSSLMODE</envar></primary>
       </indexterm>
-      <envar>PGSSLMODE</envar> behaves the same as <xref
+      <envar>PGSSLMODE</envar> behaves the same as the <xref
       linkend="libpq-connect-sslmode"> connection parameter.
      </para>
     </listitem>
@@ -5797,7 +6090,7 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
       <indexterm>
        <primary><envar>PGREQUIRESSL</envar></primary>
       </indexterm>
-      <envar>PGREQUIRESSL</envar> behaves the same as <xref
+      <envar>PGREQUIRESSL</envar> behaves the same as the <xref
       linkend="libpq-connect-requiressl"> connection parameter.
      </para>
     </listitem>
@@ -5807,7 +6100,7 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
       <indexterm>
        <primary><envar>PGSSLCERT</envar></primary>
       </indexterm>
-      <envar>PGSSLCERT</envar> behaves the same as <xref
+      <envar>PGSSLCERT</envar> behaves the same as the <xref
       linkend="libpq-connect-sslcert"> connection parameter.
      </para>
     </listitem>
@@ -5817,7 +6110,7 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
       <indexterm>
        <primary><envar>PGSSLKEY</envar></primary>
       </indexterm>
-      <envar>PGSSLKEY</envar> behaves the same as <xref
+      <envar>PGSSLKEY</envar> behaves the same as the <xref
       linkend="libpq-connect-sslkey"> connection parameter.
      </para>
     </listitem>
@@ -5827,7 +6120,7 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
       <indexterm>
        <primary><envar>PGSSLROOTCERT</envar></primary>
       </indexterm>
-      <envar>PGSSLROOTCERT</envar>  behaves the same as <xref
+      <envar>PGSSLROOTCERT</envar>  behaves the same as the <xref
       linkend="libpq-connect-sslrootcert"> connection parameter.
      </para>
     </listitem>
@@ -5837,7 +6130,7 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
       <indexterm>
        <primary><envar>PGSSLCRL</envar></primary>
       </indexterm>
-      <envar>PGSSLCRL</envar>  behaves the same as <xref
+      <envar>PGSSLCRL</envar>  behaves the same as the <xref
       linkend="libpq-connect-sslcrl"> connection parameter.
      </para>
     </listitem>
@@ -5847,7 +6140,7 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
       <indexterm>
        <primary><envar>PGKRBSRVNAME</envar></primary>
       </indexterm>
-      <envar>PGKRBSRVNAME</envar>  behaves the same as <xref
+      <envar>PGKRBSRVNAME</envar>  behaves the same as the <xref
       linkend="libpq-connect-krbsrvname"> connection parameter.
      </para>
     </listitem>
@@ -5857,7 +6150,7 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
       <indexterm>
        <primary><envar>PGGSSLIB</envar></primary>
       </indexterm>
-      <envar>PGGSSLIB</envar> behaves the same as <xref
+      <envar>PGGSSLIB</envar> behaves the same as the <xref
       linkend="libpq-connect-gsslib"> connection parameter.
      </para>
     </listitem>
@@ -5867,7 +6160,7 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
       <indexterm>
        <primary><envar>PGCONNECT_TIMEOUT</envar></primary>
       </indexterm>
-      <envar>PGCONNECT_TIMEOUT</envar>  behaves the same as <xref
+      <envar>PGCONNECT_TIMEOUT</envar>  behaves the same as the <xref
       linkend="libpq-connect-connect-timeout"> connection parameter.
      </para>
     </listitem>
@@ -5877,8 +6170,8 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
   <para>
    The following environment variables can be used to specify default
    behavior for each <productname>PostgreSQL</productname> session.  (See
-   also the <xref linkend="sql-alteruser" endterm="sql-alteruser-title">
-   and <xref linkend="sql-alterdatabase" endterm="sql-alterdatabase-title">
+   also the <xref linkend="sql-alteruser">
+   and <xref linkend="sql-alterdatabase">
    commands for ways to set default behavior on a per-user or per-database
    basis.)
 
@@ -5926,8 +6219,8 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
     </listitem>
    </itemizedlist>
 
-   Refer to the <acronym>SQL</acronym> command <xref linkend="sql-set"
-   endterm="sql-set-title"> for information on correct values for these
+   Refer to the <acronym>SQL</acronym> command <xref linkend="sql-set">
+   for information on correct values for these
    environment variables.
   </para>
 
@@ -5942,7 +6235,8 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
        <primary><envar>PGSYSCONFDIR</envar></primary>
       </indexterm>
       <envar>PGSYSCONFDIR</envar> sets the directory containing the
-      <filename>pg_service.conf</> file.
+      <filename>pg_service.conf</> file and in a future version
+      possibly other system-wide configuration files.
      </para>
     </listitem>
 
@@ -5995,7 +6289,8 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
    A host name of <literal>localhost</> matches both TCP (host name
    <literal>localhost</>) and Unix domain socket (<literal>pghost</> empty
    or the default socket directory) connections coming from the local
-   machine.
+   machine. In a standby server, a database name of <literal>replication</>
+   matches streaming replication connections made to the master server.
   </para>
 
   <para>
@@ -6018,6 +6313,9 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
   <indexterm zone="libpq-pgservice">
    <primary>pg_service.conf</primary>
   </indexterm>
+  <indexterm zone="libpq-pgservice">
+   <primary>.pg_service.conf</primary>
+  </indexterm>
 
   <para>
    The connection service file allows libpq connection parameters to be
@@ -6029,12 +6327,31 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
   </para>
 
   <para>
-   To use this feature, copy
-   <filename>share/pg_service.conf.sample</filename> to
-   <filename>etc/pg_service.conf</filename> and edit the file to add
-   service names and parameters. This file can be used for client-only
-   installs too. The file's location can also be specified by the
-   <envar>PGSYSCONFDIR</envar> environment variable.
+   The connection service file can be a per-user service file
+   at <filename>~/.pg_service.conf</filename> or the location
+   specified by the environment variable <envar>PGSERVICEFILE</envar>,
+   or it can be a system-wide file
+   at <filename>etc/pg_service.conf</filename> or in the directory
+   specified by the environment variable
+   <envar>PGSYSCONFDIR</envar>.  If service definitions with the same
+   name exist in the user and the system file, the user file takes
+   precedence.
+  </para>
+
+  <para>
+   The file uses an <quote>INI file</quote> format where the section
+   name is the service name and the parameters are connection
+   parameters; see <xref linkend="libpq-connect"> for a list.  For
+   example:
+<programlisting>
+# comment
+[mydb]
+host=somehost
+port=5433
+user=admin
+</programlisting>
+   An example file is provided at
+   <filename>share/pg_service.conf.sample</filename>.
   </para>
  </sect1>
 
@@ -6151,23 +6468,24 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
    By default, <productname>PostgreSQL</> will not perform any verification of
    the server certificate. This means that it is possible to spoof the server
    identity (for example by modifying a DNS record or by taking over the server
-   IP address) without the client knowing. In order to prevent this,
+   IP address) without the client knowing. In order to prevent spoofing,
    <acronym>SSL</> certificate verification must be used.
   </para>
 
   <para>
-   If the parameter <literal>sslmode</> is set to <literal>verify-ca</>
-   libpq will verify that the server is trustworthy by checking the certificate
-   chain up to a trusted <acronym>CA</>. If <literal>sslmode</> is set to
-   <literal>verify-full</>, libpq will <emphasis>also</> verify that the server
-   hostname matches that of the certificate. The SSL connection will fail if
-   the server certificate cannot be verified. <literal>verify-full</> is
-   recommended in most security sensitive environments.
+   If the parameter <literal>sslmode</> is set to <literal>verify-ca</>,
+   libpq will verify that the server is trustworthy by checking the
+   certificate chain up to a trusted certificate authority
+   (<acronym>CA</>). If <literal>sslmode</> is set to <literal>verify-full</>,
+   libpq will <emphasis>also</> verify that the server hostname matches its
+   certificate. The SSL connection will fail if the server certificate cannot
+   be verified. <literal>verify-full</> is recommended in most
+   security-sensitive environments.
   </para>
 
   <para>
-   In <literal>verify-full</> mode, the <literal>cn</> attribute of the
-   certificate is matched against the hostname. If the <literal>cn</>
+   In <literal>verify-full</> mode, the <literal>cn</> (Common Name) attribute
+   of the certificate is matched against the hostname. If the <literal>cn</>
    attribute starts with an asterisk (<literal>*</>), it will be treated as
    a wildcard, and will match all characters <emphasis>except</> a dot
    (<literal>.</>). This means the certificate will not match subdomains.
@@ -6176,7 +6494,8 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
   </para>
 
   <para>
-   To allow verification, the certificate of a trusted <acronym>CA</> must be
+   To allow server certificate verification, the certificate(s) of one or more
+   trusted <acronym>CA</>s must be
    placed in the file <filename>~/.postgresql/root.crt</> in the user's home
    directory. (On Microsoft Windows the file is named
    <filename>%APPDATA%\postgresql\root.crt</filename>.)
@@ -6190,8 +6509,9 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
   </para>
 
   <para>
-   The location of the root certificate store and the CRL can be overridden
-   by the connection parameters <literal>sslrootcert</> and <literal>sslcrl</>
+   The location of the root certificate file and the CRL can be changed by
+   setting
+   the connection parameters <literal>sslrootcert</> and <literal>sslcrl</>
    or the environment variables <envar>PGSSLROOTCERT</> and <envar>PGSSLCRL</>.
   </para>
  </sect2>
@@ -6218,6 +6538,24 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
    environment variables <envar>PGSSLCERT</> and <envar>PGSSLKEY</>.
   </para>
 
+  <para>
+   In some cases, the client certificate might be signed by an
+   <quote>intermediate</> certificate authority, rather than one that is
+   directly trusted by the server.  To use such a certificate, append the
+   certificate of the signing authority to the <filename>postgresql.crt</>
+   file, then its parent authority's certificate, and so on up to a
+   <quote>root</> authority that is trusted by the server.  The root
+   certificate should be included in every case where
+   <filename>postgresql.crt</> contains more than one certificate.
+  </para>
+
+  <para>
+   Note that <filename>root.crt</filename> lists the top-level CAs that are
+   considered trusted for signing server certificates.  In principle it need
+   not list the CA that signed the client's certificate, though in most cases
+   that CA would also be trusted for server certificates.
+  </para>
+
  </sect2>
 
  <sect2 id="libpq-ssl-protection">
@@ -6225,8 +6563,8 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
 
   <para>
    The different values for the <literal>sslmode</> parameter provide different
-   levels of protection, in different environments. SSL itself provides
-   protection against three different types of attacks:
+   levels of protection. SSL can provide
+   protection against three types of attacks:
   </para>
   <table id="libpq-ssl-protect-attacks">
    <title>SSL attacks</title>
@@ -6241,7 +6579,7 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
     <tbody>
      <row>
       <entry>Eavesdropping</entry>
-      <entry>If a third party can listen to the network traffic between the
+      <entry>If a third party can examine the network traffic between the
        client and the server, it can read both connection information (including
        the username and password) and the data that is passed. <acronym>SSL</>
        uses encryption to prevent this.
@@ -6276,27 +6614,28 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
   </table>
 
   <para>
-   For a connection to be known secure, the two first of these have to be
-   set up on <emphasis>both the client and the server</> before the connection
+   For a connection to be known secure, SSL usage must be configured
+   on <emphasis>both the client and the server</> before the connection
    is made. If it is only configured on the server, the client may end up
    sending sensitive information (e.g. passwords) before
-   it knows that the server requires high security. In libpq, this is controlled
+   it knows that the server requires high security. In libpq, secure
+   connections can be ensured
    by setting the <literal>sslmode</> parameter to <literal>verify-full</> or
    <literal>verify-ca</>, and providing the system with a root certificate to
-   verify against. This is analogous to using a <literal>https</>
+   verify against. This is analogous to using an <literal>https</>
    <acronym>URL</> for encrypted web browsing.
   </para>
 
   <para>
    Once the server has been authenticated, the client can pass sensitive data.
    This means that up until this point, the client does not need to know if
-   certificates will be used for authentication, making it safe to specify this
+   certificates will be used for authentication, making it safe to specify that
    only in the server configuration.
   </para>
 
   <para>
    All <acronym>SSL</> options carry overhead in the form of encryption and
-   key-exchange, and it is a tradeoff that has to be made between performance
+   key-exchange, so there is a tradeoff that has to be made between performance
    and security. The following table illustrates the risks the different
    <literal>sslmode</> values protect against, and what statement they make
    about security and overhead:
@@ -6378,8 +6717,8 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
    The difference between <literal>verify-ca</> and <literal>verify-full</>
    depends on the policy of the root <acronym>CA</>. If a public
    <acronym>CA</> is used, <literal>verify-ca</> allows connections to a server
-   that <emphasis>somebody else</> may have registered with the <acronym>CA</>
-   to succeed. In this case, <literal>verify-full</> should always be used. If
+   that <emphasis>somebody else</> may have registered with the <acronym>CA</>.
+   In this case, <literal>verify-full</> should always be used. If
    a local <acronym>CA</> is used, or even a self-signed certificate, using
    <literal>verify-ca</> often provides enough protection.
   </para>
@@ -6388,7 +6727,7 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
    The default value for <literal>sslmode</> is <literal>prefer</>. As is shown
    in the table, this makes no sense from a security point of view, and it only
    promises performance overhead if possible. It is only provided as the default
-   for backwards compatiblity, and not recommended in secure deployments.
+   for backwards compatibility, and is not recommended in secure deployments.
   </para>
 
  </sect2>
@@ -6424,7 +6763,7 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
      <row>
       <entry><filename>~/.postgresql/root.crt</></entry>
       <entry>trusted certificate authorities</entry>
-      <entry>checks server certificate is signed by a trusted certificate
+      <entry>checks that server certificate is signed by a trusted certificate
       authority</entry>
      </row>
 
@@ -6470,7 +6809,7 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
       <para>
        Allows applications to select which security libraries to initialize.
        <synopsis>
-        void PQinitOpenSSL(int do_ssl, init do_crypto);
+        void PQinitOpenSSL(int do_ssl, int do_crypto);
        </synopsis>
       </para>
 
@@ -6542,11 +6881,8 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
   </indexterm>
 
   <para>
-   <application>libpq</application> is reentrant and thread-safe if the
-   <filename>configure</filename> command-line option
-   <literal>--enable-thread-safety</> was used when the
-   <productname>PostgreSQL</productname> distribution was built.  In
-   addition, you might need to use additional compiler command-line
+   <application>libpq</application> is reentrant and thread-safe by default.
+   You might need to use special compiler command-line
    options when you compile your application code.  Refer to your
    system's documentation for information about how to build
    thread-enabled applications, or look in
@@ -6765,7 +7101,7 @@ testlibpq.o(.text+0xa4): undefined reference to `PQerrorMessage'
  */
 #include <stdio.h>
 #include <stdlib.h>
-#include "libpq-fe.h"
+#include <libpq-fe.h>
 
 static void
 exit_nicely(PGconn *conn)
@@ -6913,7 +7249,7 @@ main(int argc, char **argv)
 #include <string.h>
 #include <errno.h>
 #include <sys/time.h>
-#include "libpq-fe.h"
+#include <libpq-fe.h>
 
 static void
 exit_nicely(PGconn *conn)
@@ -7051,7 +7387,7 @@ main(int argc, char **argv)
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
-#include "libpq-fe.h"
+#include <libpq-fe.h>
 
 /* for ntohl/htonl */
 #include <netinet/in.h>

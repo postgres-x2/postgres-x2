@@ -4,11 +4,11 @@
  *	  This file contains routines to support creation of toast tables
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/catalog/toasting.c,v 1.17 2009/06/11 20:46:11 tgl Exp $
+ *	  $PostgreSQL: pgsql/src/backend/catalog/toasting.c,v 1.32 2010/02/26 02:00:37 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -31,22 +31,20 @@
 #include "utils/builtins.h"
 #include "utils/syscache.h"
 
+/* Kluges for upgrade-in-place support */
+extern Oid	binary_upgrade_next_toast_relfilenode;
+
+Oid			binary_upgrade_next_pg_type_toast_oid = InvalidOid;
 
 static bool create_toast_table(Relation rel, Oid toastOid, Oid toastIndexOid,
-				   Datum reloptions, bool force);
+				   Datum reloptions);
 static bool needs_toast_table(Relation rel);
 
 
 /*
  * AlterTableCreateToastTable
  *		If the table needs a toast table, and doesn't already have one,
- *		then create a toast table for it.  (With the force option, make
- *		a toast table even if it appears unnecessary.)
- *
- * The caller can also specify the OID to be used for the toast table.
- * Usually, toastOid should be InvalidOid to allow a free OID to be assigned.
- * (This option, as well as the force option, is not used by core Postgres,
- * but is provided to support pg_migrator.)
+ *		then create a toast table for it.
  *
  * reloptions for the toast table can be passed, too.  Pass (Datum) 0
  * for default reloptions.
@@ -56,8 +54,7 @@ static bool needs_toast_table(Relation rel);
  * to end with CommandCounterIncrement if it makes any changes.
  */
 void
-AlterTableCreateToastTable(Oid relOid, Oid toastOid,
-						   Datum reloptions, bool force)
+AlterTableCreateToastTable(Oid relOid, Datum reloptions)
 {
 	Relation	rel;
 
@@ -69,7 +66,7 @@ AlterTableCreateToastTable(Oid relOid, Oid toastOid,
 	rel = heap_open(relOid, AccessExclusiveLock);
 
 	/* create_toast_table does all the work */
-	(void) create_toast_table(rel, toastOid, InvalidOid, reloptions, force);
+	(void) create_toast_table(rel, InvalidOid, InvalidOid, reloptions);
 
 	heap_close(rel, NoLock);
 }
@@ -95,7 +92,7 @@ BootstrapToastTable(char *relName, Oid toastOid, Oid toastIndexOid)
 						relName)));
 
 	/* create_toast_table does all the work */
-	if (!create_toast_table(rel, toastOid, toastIndexOid, (Datum) 0, false))
+	if (!create_toast_table(rel, toastOid, toastIndexOid, (Datum) 0))
 		elog(ERROR, "\"%s\" does not require a toast table",
 			 relName);
 
@@ -107,20 +104,21 @@ BootstrapToastTable(char *relName, Oid toastOid, Oid toastIndexOid)
  * create_toast_table --- internal workhorse
  *
  * rel is already opened and exclusive-locked
- * toastOid and toastIndexOid are normally InvalidOid, but
- * either or both can be nonzero to specify caller-assigned OIDs
+ * toastOid and toastIndexOid are normally InvalidOid, but during
+ * bootstrap they can be nonzero to specify hand-assigned OIDs
  */
 static bool
-create_toast_table(Relation rel, Oid toastOid, Oid toastIndexOid,
-				   Datum reloptions, bool force)
+create_toast_table(Relation rel, Oid toastOid, Oid toastIndexOid, Datum reloptions)
 {
 	Oid			relOid = RelationGetRelid(rel);
 	HeapTuple	reltup;
 	TupleDesc	tupdesc;
 	bool		shared_relation;
+	bool		mapped_relation;
 	Relation	class_rel;
 	Oid			toast_relid;
 	Oid			toast_idxid;
+	Oid			toast_typid = InvalidOid;
 	Oid			namespaceid;
 	char		toast_relname[NAMEDATALEN];
 	char		toast_idxname[NAMEDATALEN];
@@ -142,6 +140,9 @@ create_toast_table(Relation rel, Oid toastOid, Oid toastIndexOid,
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 				 errmsg("shared tables cannot be toasted after initdb")));
 
+	/* It's mapped if and only if its parent is, too */
+	mapped_relation = RelationIsMapped(rel);
+
 	/*
 	 * Is it already toasted?
 	 */
@@ -151,11 +152,11 @@ create_toast_table(Relation rel, Oid toastOid, Oid toastIndexOid,
 	/*
 	 * Check to see whether the table actually needs a TOAST table.
 	 *
-	 * Caller can optionally override this check.  (Note: at present no
-	 * callers in core Postgres do so, but this option is needed by
-	 * pg_migrator.)
+	 * If an update-in-place toast relfilenode is specified, force toast file
+	 * creation even if it seems not to need one.
 	 */
-	if (!force && !needs_toast_table(rel))
+	if (!needs_toast_table(rel) &&
+		!OidIsValid(binary_upgrade_next_toast_relfilenode))
 		return false;
 
 	/*
@@ -199,19 +200,29 @@ create_toast_table(Relation rel, Oid toastOid, Oid toastIndexOid,
 	else
 		namespaceid = PG_TOAST_NAMESPACE;
 
+	if (OidIsValid(binary_upgrade_next_pg_type_toast_oid))
+	{
+		toast_typid = binary_upgrade_next_pg_type_toast_oid;
+		binary_upgrade_next_pg_type_toast_oid = InvalidOid;
+	}
+
 	toast_relid = heap_create_with_catalog(toast_relname,
 										   namespaceid,
 										   rel->rd_rel->reltablespace,
 										   toastOid,
+										   toast_typid,
+										   InvalidOid,
 										   rel->rd_rel->relowner,
 										   tupdesc,
 										   NIL,
 										   RELKIND_TOASTVALUE,
 										   shared_relation,
+										   mapped_relation,
 										   true,
 										   0,
 										   ONCOMMIT_NOOP,
 										   reloptions,
+										   false,
 										   true);
 
 	/* make the toast relation visible, else index creation will fail */
@@ -237,6 +248,9 @@ create_toast_table(Relation rel, Oid toastOid, Oid toastIndexOid,
 	indexInfo->ii_ExpressionsState = NIL;
 	indexInfo->ii_Predicate = NIL;
 	indexInfo->ii_PredicateState = NIL;
+	indexInfo->ii_ExclusionOps = NULL;
+	indexInfo->ii_ExclusionProcs = NULL;
+	indexInfo->ii_ExclusionStrats = NULL;
 	indexInfo->ii_Unique = true;
 	indexInfo->ii_ReadyForInserts = true;
 	indexInfo->ii_Concurrent = false;
@@ -250,19 +264,19 @@ create_toast_table(Relation rel, Oid toastOid, Oid toastIndexOid,
 
 	toast_idxid = index_create(toast_relid, toast_idxname, toastIndexOid,
 							   indexInfo,
+							   list_make2("chunk_id", "chunk_seq"),
 							   BTREE_AM_OID,
 							   rel->rd_rel->reltablespace,
 							   classObjectId, coloptions, (Datum) 0,
-							   true, false, true, false, false);
+							   true, false, false, false,
+							   true, false, false);
 
 	/*
 	 * Store the toast table's OID in the parent relation's pg_class row
 	 */
 	class_rel = heap_open(RelationRelationId, RowExclusiveLock);
 
-	reltup = SearchSysCacheCopy(RELOID,
-								ObjectIdGetDatum(relOid),
-								0, 0, 0);
+	reltup = SearchSysCacheCopy1(RELOID, ObjectIdGetDatum(relOid));
 	if (!HeapTupleIsValid(reltup))
 		elog(ERROR, "cache lookup failed for relation %u", relOid);
 

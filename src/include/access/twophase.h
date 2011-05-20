@@ -4,10 +4,10 @@
  *	  Two-phase-commit related declarations.
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/access/twophase.h,v 1.11 2009/01/01 17:23:56 momjian Exp $
+ * $PostgreSQL: pgsql/src/include/access/twophase.h,v 1.15 2010/04/13 14:17:46 heikki Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -15,6 +15,7 @@
 #define TWOPHASE_H
 
 #include "access/xlogdefs.h"
+#include "storage/backendid.h"
 #include "storage/proc.h"
 #include "utils/timestamp.h"
 
@@ -31,6 +32,7 @@ extern Size TwoPhaseShmemSize(void);
 extern void TwoPhaseShmemInit(void);
 
 extern PGPROC *TwoPhaseGetDummyProc(TransactionId xid);
+extern BackendId TwoPhaseGetDummyBackendId(TransactionId xid);
 
 extern GlobalTransaction MarkAsPreparing(TransactionId xid, const char *gid,
 				TimestampTz prepared_at,
@@ -38,8 +40,11 @@ extern GlobalTransaction MarkAsPreparing(TransactionId xid, const char *gid,
 
 extern void EndPrepare(GlobalTransaction gxact);
 extern void StartPrepare(GlobalTransaction gxact);
+extern bool StandbyTransactionIdIsPrepared(TransactionId xid);
 
-extern TransactionId PrescanPreparedTransactions(void);
+extern TransactionId PrescanPreparedTransactions(TransactionId **xids_p,
+							int *nxids_p);
+extern void StandbyRecoverPreparedTransactions(bool overwriteOK);
 extern void RecoverPreparedTransactions(void);
 
 extern void RecreateTwoPhaseFile(TransactionId xid, void *content, int len);

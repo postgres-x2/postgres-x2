@@ -3,11 +3,11 @@
  * encode.c
  *	  Various data encoding/decoding things.
  *
- * Copyright (c) 2001-2009, PostgreSQL Global Development Group
+ * Copyright (c) 2001-2010, PostgreSQL Global Development Group
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/utils/adt/encode.c,v 1.23 2009/01/01 17:23:49 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/utils/adt/encode.c,v 1.26 2010/01/02 16:57:53 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -109,7 +109,7 @@ binary_decode(PG_FUNCTION_ARGS)
  * HEX
  */
 
-static const char *hextbl = "0123456789abcdef";
+static const char hextbl[] = "0123456789abcdef";
 
 static const int8 hexlookup[128] = {
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
@@ -122,7 +122,7 @@ static const int8 hexlookup[128] = {
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 };
 
-static unsigned
+unsigned
 hex_encode(const char *src, unsigned len, char *dst)
 {
 	const char *end = src + len;
@@ -136,7 +136,7 @@ hex_encode(const char *src, unsigned len, char *dst)
 	return len * 2;
 }
 
-static char
+static inline char
 get_hex(char c)
 {
 	int			res = -1;
@@ -152,14 +152,14 @@ get_hex(char c)
 	return (char) res;
 }
 
-static unsigned
+unsigned
 hex_decode(const char *src, unsigned len, char *dst)
 {
 	const char *s,
 			   *srcend;
 	char		v1,
 				v2,
-			   *p = dst;
+			   *p;
 
 	srcend = src + len;
 	s = src;

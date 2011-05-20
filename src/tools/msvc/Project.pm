@@ -3,7 +3,7 @@ package Project;
 #
 # Package that encapsulates a Visual C++ project file generation
 #
-# $PostgreSQL: pgsql/src/tools/msvc/Project.pm,v 1.19 2008/04/15 16:22:36 adunstan Exp $
+# $PostgreSQL: pgsql/src/tools/msvc/Project.pm,v 1.26 2010/04/09 13:05:58 mha Exp $
 #
 use Carp;
 use strict;
@@ -31,8 +31,10 @@ sub new
         prefixincludes  => '',
         defines         => ';',
         solution        => $solution,
-        disablewarnings => '4018;4244;4273;4102;4090',
-        disablelinkerwarnings => ''
+        disablewarnings => '4018;4244;4273;4102;4090;4267',
+        disablelinkerwarnings => '',
+        vcver           => $solution->{vcver},
+        platform        => $solution->{platform},
     };
 
     bless $self;
@@ -100,11 +102,13 @@ sub RemoveFile
 sub RelocateFiles
 {
     my ($self, $targetdir, $proc) = @_;
-    foreach my $f (keys %{$self->{files}}) {
+    foreach my $f (keys %{$self->{files}})
+    {
         my $r = &$proc($f);
-        if ($r) {
-           $self->RemoveFile($f);
-           $self->AddFile($targetdir . '\\' . basename($f));
+        if ($r)
+        {
+            $self->RemoveFile($f);
+            $self->AddFile($targetdir . '\\' . basename($f));
         }
     }
 }
@@ -123,10 +127,10 @@ sub AddReference
 sub AddLibrary
 {
     my ($self, $lib, $dbgsuffix) = @_;
-    
+
     if ($lib =~ m/\s/)
     {
-    	$lib = '&quot;' . $lib . "&quot;";
+        $lib = '&quot;' . $lib . "&quot;";
     }
 
     push @{$self->{libraries}}, $lib;
@@ -331,7 +335,7 @@ sub DisableLinkerWarnings
 {
     my ($self, $warnings) = @_;
 
-    $self->{disablelinkerwarnings} .= ';' unless ($self->{disablelinkerwarnings} eq '');
+    $self->{disablelinkerwarnings} .= ',' unless ($self->{disablelinkerwarnings} eq '');
     $self->{disablelinkerwarnings} .= $warnings;
 }
 
@@ -345,6 +349,10 @@ sub Save
     {
         $self->FullExportDLL($self->{name} . ".lib");
     }
+
+    # Warning 4197 is about double exporting, disable this per
+    # http://connect.microsoft.com/VisualStudio/feedback/ViewFeedback.aspx?FeedbackID=99193
+    $self->DisableLinkerWarnings('4197') if ($self->{platform} eq 'x64');
 
     # Dump the project
     open(F, ">$self->{name}.vcproj") || croak("Could not write to $self->{name}.vcproj\n");
@@ -390,7 +398,7 @@ EOF
             $of =~ s/\.y$/.c/;
             $of =~ s{^src\\pl\\plpgsql\\src\\gram.c$}{src\\pl\\plpgsql\\src\\pl_gram.c};
             print F '>'
-              . GenerateCustomTool('Running bison on ' . $f,
+              . $self->GenerateCustomTool('Running bison on ' . $f,
                 'cmd /V:ON /c src\tools\msvc\pgbison.bat ' . $f, $of)
               . '</File>' . "\n";
         }
@@ -398,9 +406,9 @@ EOF
         {
             my $of = $f;
             $of =~ s/\.l$/.c/;
-            $of =~ s{^src\\pl\\plpgsql\\src\\scan.c$}{src\\pl\\plpgsql\\src\\pl_scan.c};
             print F '>'
-              . GenerateCustomTool('Running flex on ' . $f, 'src\tools\msvc\pgflex.bat ' . $f,$of)
+              . $self->GenerateCustomTool('Running flex on ' . $f,
+                'src\tools\msvc\pgflex.bat ' . $f,$of)
               . '</File>' . "\n";
         }
         elsif (defined($uniquefiles{$file}))
@@ -410,8 +418,8 @@ EOF
             my $obj = $dir;
             $obj =~ s/\\/_/g;
             print F
-"><FileConfiguration Name=\"Debug|Win32\"><Tool Name=\"VCCLCompilerTool\" ObjectFile=\".\\debug\\$self->{name}\\$obj"
-              . "_$file.obj\" /></FileConfiguration><FileConfiguration Name=\"Release|Win32\"><Tool Name=\"VCCLCompilerTool\" ObjectFile=\".\\release\\$self->{name}\\$obj"
+"><FileConfiguration Name=\"Debug|$self->{platform}\"><Tool Name=\"VCCLCompilerTool\" ObjectFile=\".\\debug\\$self->{name}\\$obj"
+              . "_$file.obj\" /></FileConfiguration><FileConfiguration Name=\"Release|$self->{platform}\"><Tool Name=\"VCCLCompilerTool\" ObjectFile=\".\\release\\$self->{name}\\$obj"
               . "_$file.obj\" /></FileConfiguration></File>\n";
         }
         else
@@ -431,14 +439,14 @@ EOF
 
 sub GenerateCustomTool
 {
-    my ($desc, $tool, $output, $cfg) = @_;
+    my ($self, $desc, $tool, $output, $cfg) = @_;
     if (!defined($cfg))
     {
-        return GenerateCustomTool($desc, $tool, $output, 'Debug')
-          .GenerateCustomTool($desc, $tool, $output, 'Release');
+        return $self->GenerateCustomTool($desc, $tool, $output, 'Debug')
+          .$self->GenerateCustomTool($desc, $tool, $output, 'Release');
     }
     return
-"<FileConfiguration Name=\"$cfg|Win32\"><Tool Name=\"VCCustomBuildTool\" Description=\"$desc\" CommandLine=\"$tool\" AdditionalDependencies=\"\" Outputs=\"$output\" /></FileConfiguration>";
+"<FileConfiguration Name=\"$cfg|$self->{platform}\"><Tool Name=\"VCCustomBuildTool\" Description=\"$desc\" CommandLine=\"$tool\" AdditionalDependencies=\"\" Outputs=\"$output\" /></FileConfiguration>";
 }
 
 sub WriteReferences
@@ -459,8 +467,8 @@ sub WriteHeader
 
     print $f <<EOF;
 <?xml version="1.0" encoding="Windows-1252"?>
-<VisualStudioProject ProjectType="Visual C++" Version="8.00" Name="$self->{name}" ProjectGUID="$self->{guid}">
- <Platforms><Platform Name="Win32"/></Platforms>
+<VisualStudioProject ProjectType="Visual C++" Version="$self->{vcver}" Name="$self->{name}" ProjectGUID="$self->{guid}">
+ <Platforms><Platform Name="$self->{platform}"/></Platforms>
  <Configurations>
 EOF
     $self->WriteConfiguration($f, 'Debug',
@@ -493,14 +501,18 @@ sub WriteConfiguration
     }
     $libs =~ s/ $//;
     $libs =~ s/__CFGNAME__/$cfgname/g;
+
+    my $targetmachine = $self->{platform} eq 'Win32' ? 1 : 17;
+
     print $f <<EOF;
-  <Configuration Name="$cfgname|Win32" OutputDirectory=".\\$cfgname\\$self->{name}" IntermediateDirectory=".\\$cfgname\\$self->{name}"
+  <Configuration Name="$cfgname|$self->{platform}" OutputDirectory=".\\$cfgname\\$self->{name}" IntermediateDirectory=".\\$cfgname\\$self->{name}"
 	ConfigurationType="$cfgtype" UseOfMFC="0" ATLMinimizesCRunTimeLibraryUsage="FALSE" CharacterSet="2" WholeProgramOptimization="$p->{wholeopt}">
 	<Tool Name="VCCLCompilerTool" Optimization="$p->{opt}"
 		AdditionalIncludeDirectories="$self->{prefixincludes}src/include;src/include/port/win32;src/include/port/win32_msvc;$self->{includes}"
 		PreprocessorDefinitions="WIN32;_WINDOWS;__WINDOWS__;__WIN32__;EXEC_BACKEND;WIN32_STACK_RLIMIT=4194304;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE$self->{defines}$p->{defs}"
 		StringPooling="$p->{strpool}"
 		RuntimeLibrary="$p->{runtime}" DisableSpecificWarnings="$self->{disablewarnings}"
+		AdditionalOptions="/MP"
 EOF
     print $f <<EOF;
 		AssemblerOutput="0" AssemblerListingLocation=".\\$cfgname\\$self->{name}\\" ObjectFile=".\\$cfgname\\$self->{name}\\"
@@ -512,7 +524,7 @@ EOF
 		StackReserveSize="4194304" DisableSpecificWarnings="$self->{disablewarnings}"
 		GenerateDebugInformation="TRUE" ProgramDatabaseFile=".\\$cfgname\\$self->{name}\\$self->{name}.pdb"
 		GenerateMapFile="FALSE" MapFileName=".\\$cfgname\\$self->{name}\\$self->{name}.map"
-		SubSystem="1" TargetMachine="1"
+		SubSystem="1" TargetMachine="$targetmachine"
 EOF
     if ($self->{disablelinkerwarnings})
     {
@@ -539,7 +551,7 @@ EOF
     if ($self->{builddef})
     {
         print $f
-"\t<Tool Name=\"VCPreLinkEventTool\" Description=\"Generate DEF file\" CommandLine=\"perl src\\tools\\msvc\\gendef.pl $cfgname\\$self->{name}\" />\n";
+"\t<Tool Name=\"VCPreLinkEventTool\" Description=\"Generate DEF file\" CommandLine=\"perl src\\tools\\msvc\\gendef.pl $cfgname\\$self->{name} $self->{platform}\" />\n";
     }
     print $f <<EOF;
   </Configuration>

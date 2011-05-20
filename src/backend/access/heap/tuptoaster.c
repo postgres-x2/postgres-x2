@@ -4,11 +4,11 @@
  *	  Support routines for external and compressed storage of
  *	  variable size attributes.
  *
- * Copyright (c) 2000-2009, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2010, PostgreSQL Global Development Group
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/access/heap/tuptoaster.c,v 1.93 2009/06/11 14:48:54 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/access/heap/tuptoaster.c,v 1.98 2010/02/26 02:00:33 momjian Exp $
  *
  *
  * INTERFACE ROUTINES
@@ -796,8 +796,12 @@ toast_insert_or_update(Relation rel, HeapTuple newtup, HeapTuple oldtup,
 	}
 
 	/*
-	 * Finally we store attributes of type 'm' external, if possible.
+	 * Finally we store attributes of type 'm' externally.	At this point we
+	 * increase the target tuple size, so that 'm' attributes aren't stored
+	 * externally unless really necessary.
 	 */
+	maxDataLen = TOAST_TUPLE_TARGET_MAIN - hoff;
+
 	while (heap_compute_data_size(tupleDesc,
 								  toast_values, toast_isnull) > maxDataLen &&
 		   rel->rd_rel->reltoastrelid != InvalidOid)
@@ -1181,10 +1185,25 @@ toast_save_datum(Relation rel, Datum value, int options)
 		toast_pointer.va_extsize = data_todo;
 	}
 
+	/*
+	 * Insert the correct table OID into the result TOAST pointer.
+	 *
+	 * Normally this is the actual OID of the target toast table, but during
+	 * table-rewriting operations such as CLUSTER, we have to insert the OID
+	 * of the table's real permanent toast table instead.  rd_toastoid is set
+	 * if we have to substitute such an OID.
+	 */
+	if (OidIsValid(rel->rd_toastoid))
+		toast_pointer.va_toastrelid = rel->rd_toastoid;
+	else
+		toast_pointer.va_toastrelid = RelationGetRelid(toastrel);
+
+	/*
+	 * Choose an unused OID within the toast table for this toast value.
+	 */
 	toast_pointer.va_valueid = GetNewOidWithIndex(toastrel,
 												  RelationGetRelid(toastidx),
 												  (AttrNumber) 1);
-	toast_pointer.va_toastrelid = rel->rd_rel->reltoastrelid;
 
 	/*
 	 * Initialize constant parts of the tuple data
@@ -1225,7 +1244,9 @@ toast_save_datum(Relation rel, Datum value, int options)
 		 */
 		index_insert(toastidx, t_values, t_isnull,
 					 &(toasttup->t_self),
-					 toastrel, toastidx->rd_index->indisunique);
+					 toastrel,
+					 toastidx->rd_index->indisunique ?
+					 UNIQUE_CHECK_YES : UNIQUE_CHECK_NO);
 
 		/*
 		 * Free memory

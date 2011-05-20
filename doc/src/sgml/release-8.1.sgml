@@ -1,5 +1,694 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/release-8.1.sgml,v 1.1 2009/05/02 20:17:19 tgl Exp $ -->
+<!-- $PostgreSQL: pgsql/doc/src/sgml/release-8.1.sgml,v 1.7 2010/05/13 21:26:59 tgl Exp $ -->
 <!-- See header comment in release.sgml about typical markup -->
+
+ <sect1 id="release-8-1-21">
+  <title>Release 8.1.21</title>
+
+  <note>
+  <title>Release date</title>
+  <simpara>2010-05-17</simpara>
+  </note>
+
+  <para>
+   This release contains a variety of fixes from 8.1.20.
+   For information about new features in the 8.1 major release, see
+   <xref linkend="release-8-1">.
+  </para>
+
+  <sect2>
+   <title>Migration to Version 8.1.21</title>
+
+   <para>
+    A dump/restore is not required for those running 8.1.X.
+    However, if you are upgrading from a version earlier than 8.1.18,
+    see the release notes for 8.1.18.
+   </para>
+
+  </sect2>
+
+  <sect2>
+   <title>Changes</title>
+
+   <itemizedlist>
+
+    <listitem>
+     <para>
+      Enforce restrictions in <literal>plperl</> using an opmask applied to
+      the whole interpreter, instead of using <filename>Safe.pm</>
+      (Tim Bunce, Andrew Dunstan)
+     </para>
+
+     <para>
+      Recent developments have convinced us that <filename>Safe.pm</> is too
+      insecure to rely on for making <literal>plperl</> trustable.  This
+      change removes use of <filename>Safe.pm</> altogether, in favor of using
+      a separate interpreter with an opcode mask that is always applied.
+      Pleasant side effects of the change include that it is now possible to
+      use Perl's <literal>strict</> pragma in a natural way in
+      <literal>plperl</>, and that Perl's <literal>$a</> and <literal>$b</>
+      variables work as expected in sort routines, and that function
+      compilation is significantly faster.  (CVE-2010-1169)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Prevent PL/Tcl from executing untrustworthy code from
+      <structname>pltcl_modules</> (Tom)
+     </para>
+
+     <para>
+      PL/Tcl's feature for autoloading Tcl code from a database table
+      could be exploited for trojan-horse attacks, because there was no
+      restriction on who could create or insert into that table.  This change
+      disables the feature unless <structname>pltcl_modules</> is owned by a
+      superuser.  (However, the permissions on the table are not checked, so
+      installations that really need a less-than-secure modules table can
+      still grant suitable privileges to trusted non-superusers.)  Also,
+      prevent loading code into the unrestricted <quote>normal</> Tcl
+      interpreter unless we are really going to execute a <literal>pltclu</>
+      function.  (CVE-2010-1170)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Do not allow an unprivileged user to reset superuser-only parameter
+      settings (Alvaro)
+     </para>
+
+     <para>
+      Previously, if an unprivileged user ran <literal>ALTER USER ... RESET
+      ALL</> for himself, or <literal>ALTER DATABASE ... RESET ALL</> for
+      a database he owns, this would remove all special parameter settings
+      for the user or database, even ones that are only supposed to be
+      changeable by a superuser.  Now, the <command>ALTER</> will only
+      remove the parameters that the user has permission to change.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Avoid possible crash during backend shutdown if shutdown occurs
+      when a <literal>CONTEXT</> addition would be made to log entries (Tom)
+     </para>
+
+     <para>
+      In some cases the context-printing function would fail because the
+      current transaction had already been rolled back when it came time
+      to print a log message.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Update pl/perl's <filename>ppport.h</> for modern Perl versions
+      (Andrew)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix assorted memory leaks in pl/python (Andreas Freund, Tom)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Prevent infinite recursion in <application>psql</> when expanding
+      a variable that refers to itself (Tom)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Ensure that <filename>contrib/pgstattuple</> functions respond to cancel
+      interrupts promptly (Tatsuhito Kasahara)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Make server startup deal properly with the case that
+      <function>shmget()</> returns <literal>EINVAL</> for an existing
+      shared memory segment (Tom)
+     </para>
+
+     <para>
+      This behavior has been observed on BSD-derived kernels including OS X.
+      It resulted in an entirely-misleading startup failure complaining that
+      the shared memory request size was too large.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Update time zone data files to <application>tzdata</> release 2010j
+      for DST law changes in Argentina, Australian Antarctic, Bangladesh,
+      Mexico, Morocco, Pakistan, Palestine, Russia, Syria, Tunisia;
+      also historical corrections for Taiwan.
+     </para>
+    </listitem>
+
+   </itemizedlist>
+
+  </sect2>
+ </sect1>
+
+ <sect1 id="release-8-1-20">
+  <title>Release 8.1.20</title>
+
+  <note>
+  <title>Release date</title>
+  <simpara>2010-03-15</simpara>
+  </note>
+
+  <para>
+   This release contains a variety of fixes from 8.1.19.
+   For information about new features in the 8.1 major release, see
+   <xref linkend="release-8-1">.
+  </para>
+
+  <sect2>
+   <title>Migration to Version 8.1.20</title>
+
+   <para>
+    A dump/restore is not required for those running 8.1.X.
+    However, if you are upgrading from a version earlier than 8.1.18,
+    see the release notes for 8.1.18.
+   </para>
+
+  </sect2>
+
+  <sect2>
+   <title>Changes</title>
+
+   <itemizedlist>
+
+    <listitem>
+     <para>
+      Add new configuration parameter <varname>ssl_renegotiation_limit</> to
+      control how often we do session key renegotiation for an SSL connection
+      (Magnus)
+     </para>
+
+     <para>
+      This can be set to zero to disable renegotiation completely, which may
+      be required if a broken SSL library is used.  In particular, some
+      vendors are shipping stopgap patches for CVE-2009-3555 that cause
+      renegotiation attempts to fail.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix possible crashes when trying to recover from a failure in
+      subtransaction start (Tom)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix server memory leak associated with use of savepoints and a client
+      encoding different from server's encoding (Tom)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Make <function>substring()</> for <type>bit</> types treat any negative
+      length as meaning <quote>all the rest of the string</> (Tom)
+     </para>
+
+     <para>
+      The previous coding treated only -1 that way, and would produce an
+      invalid result value for other negative values, possibly leading to
+      a crash (CVE-2010-0442).
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix integer-to-bit-string conversions to handle the first fractional
+      byte correctly when the output bit width is wider than the given
+      integer by something other than a multiple of 8 bits (Tom)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix some cases of pathologically slow regular expression matching (Tom)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix the <literal>STOP WAL LOCATION</> entry in backup history files to
+      report the next WAL segment's name when the end location is exactly at a
+      segment boundary (Itagaki Takahiro)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix some more cases of temporary-file leakage (Heikki)
+     </para>
+
+     <para>
+      This corrects a problem introduced in the previous minor release.
+      One case that failed is when a plpgsql function returning set is
+      called within another function's exception handler.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      When reading <filename>pg_hba.conf</> and related files, do not treat
+      <literal>@something</> as a file inclusion request if the <literal>@</>
+      appears inside quote marks; also, never treat <literal>@</> by itself
+      as a file inclusion request (Tom)
+     </para>
+
+     <para>
+      This prevents erratic behavior if a role or database name starts with
+      <literal>@</>.  If you need to include a file whose path name
+      contains spaces, you can still do so, but you must write
+      <literal>@"/path to/file"</> rather than putting the quotes around
+      the whole construct.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Prevent infinite loop on some platforms if a directory is named as
+      an inclusion target in <filename>pg_hba.conf</> and related files
+      (Tom)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix <application>psql</>'s <literal>numericlocale</> option to not
+      format strings it shouldn't in latex and troff output formats (Heikki)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix plpgsql failure in one case where a composite column is set to NULL
+      (Tom)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Add <literal>volatile</> markings in PL/Python to avoid possible
+      compiler-specific misbehavior (Zdenek Kotala)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Ensure PL/Tcl initializes the Tcl interpreter fully (Tom)
+     </para>
+
+     <para>
+      The only known symptom of this oversight is that the Tcl
+      <literal>clock</> command misbehaves if using Tcl 8.5 or later.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Prevent crash in <filename>contrib/dblink</> when too many key
+      columns are specified to a <function>dblink_build_sql_*</> function
+      (Rushabh Lathia, Joe Conway)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix assorted crashes in <filename>contrib/xml2</> caused by sloppy
+      memory management (Tom)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Update time zone data files to <application>tzdata</> release 2010e
+      for DST law changes in Bangladesh, Chile, Fiji, Mexico, Paraguay, Samoa.
+     </para>
+    </listitem>
+
+   </itemizedlist>
+
+  </sect2>
+ </sect1>
+
+ <sect1 id="release-8-1-19">
+  <title>Release 8.1.19</title>
+
+  <note>
+  <title>Release date</title>
+  <simpara>2009-12-14</simpara>
+  </note>
+
+  <para>
+   This release contains a variety of fixes from 8.1.18.
+   For information about new features in the 8.1 major release, see
+   <xref linkend="release-8-1">.
+  </para>
+
+  <sect2>
+   <title>Migration to Version 8.1.19</title>
+
+   <para>
+    A dump/restore is not required for those running 8.1.X.
+    However, if you are upgrading from a version earlier than 8.1.18,
+    see the release notes for 8.1.18.
+   </para>
+
+  </sect2>
+
+  <sect2>
+   <title>Changes</title>
+
+   <itemizedlist>
+
+    <listitem>
+     <para>
+      Protect against indirect security threats caused by index functions
+      changing session-local state (Gurjeet Singh, Tom)
+     </para>
+
+     <para>
+      This change prevents allegedly-immutable index functions from possibly
+      subverting a superuser's session (CVE-2009-4136).
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Reject SSL certificates containing an embedded null byte in the common
+      name (CN) field (Magnus)
+     </para>
+
+     <para>
+      This prevents unintended matching of a certificate to a server or client
+      name during SSL validation (CVE-2009-4034).
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix possible crash during backend-startup-time cache initialization (Tom)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Prevent signals from interrupting <literal>VACUUM</> at unsafe times
+      (Alvaro)
+     </para>
+
+     <para>
+      This fix prevents a PANIC if a <literal>VACUUM FULL</> is cancelled
+      after it's already committed its tuple movements, as well as transient
+      errors if a plain <literal>VACUUM</> is interrupted after having
+      truncated the table.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix possible crash due to integer overflow in hash table size
+      calculation (Tom)
+     </para>
+
+     <para>
+      This could occur with extremely large planner estimates for the size of
+      a hashjoin's result.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix very rare crash in <type>inet</>/<type>cidr</> comparisons (Chris
+      Mikkelson)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Ensure that shared tuple-level locks held by prepared transactions are
+      not ignored (Heikki)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix premature drop of temporary files used for a cursor that is accessed
+      within a subtransaction (Heikki)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix PAM password processing to be more robust (Tom)
+     </para>
+
+     <para>
+      The previous code is known to fail with the combination of the Linux
+      <literal>pam_krb5</> PAM module with Microsoft Active Directory as the
+      domain controller.  It might have problems elsewhere too, since it was
+      making unjustified assumptions about what arguments the PAM stack would
+      pass to it.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix processing of ownership dependencies during <literal>CREATE OR
+      REPLACE FUNCTION</> (Tom)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Ensure that Perl arrays are properly converted to
+      <productname>PostgreSQL</> arrays when returned by a set-returning
+      PL/Perl function (Andrew Dunstan, Abhijit Menon-Sen)
+     </para>
+
+     <para>
+      This worked correctly already for non-set-returning functions.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix rare crash in exception processing in PL/Python (Peter)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Ensure <application>psql</>'s flex module is compiled with the correct
+      system header definitions (Tom)
+     </para>
+
+     <para>
+      This fixes build failures on platforms where
+      <literal>--enable-largefile</> causes incompatible changes in the
+      generated code.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Make the postmaster ignore any <literal>application_name</> parameter in
+      connection request packets, to improve compatibility with future libpq
+      versions (Tom)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Update time zone data files to <application>tzdata</> release 2009s
+      for DST law changes in Antarctica, Argentina, Bangladesh, Fiji,
+      Novokuznetsk, Pakistan, Palestine, Samoa, Syria; also historical
+      corrections for Hong Kong.
+     </para>
+    </listitem>
+
+   </itemizedlist>
+
+  </sect2>
+ </sect1>
+
+ <sect1 id="release-8-1-18">
+  <title>Release 8.1.18</title>
+
+  <note>
+  <title>Release date</title>
+  <simpara>2009-09-09</simpara>
+  </note>
+
+  <para>
+   This release contains a variety of fixes from 8.1.17.
+   For information about new features in the 8.1 major release, see
+   <xref linkend="release-8-1">.
+  </para>
+
+  <sect2>
+   <title>Migration to Version 8.1.18</title>
+
+   <para>
+    A dump/restore is not required for those running 8.1.X.
+    However, if you have any hash indexes on <type>interval</> columns,
+    you must <command>REINDEX</> them after updating to 8.1.18.
+    Also, if you are upgrading from a version earlier than 8.1.15,
+    see the release notes for 8.1.15.
+   </para>
+
+  </sect2>
+
+  <sect2>
+   <title>Changes</title>
+
+   <itemizedlist>
+
+    <listitem>
+     <para>
+      Disallow <command>RESET ROLE</> and <command>RESET SESSION
+      AUTHORIZATION</> inside security-definer functions (Tom, Heikki)
+     </para>
+
+     <para>
+      This covers a case that was missed in the previous patch that
+      disallowed <command>SET ROLE</> and <command>SET SESSION
+      AUTHORIZATION</> inside security-definer functions.
+      (See CVE-2007-6600)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix handling of sub-SELECTs appearing in the arguments of
+      an outer-level aggregate function (Tom)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix hash calculation for data type <type>interval</> (Tom)
+     </para>
+
+     <para>
+      This corrects wrong results for hash joins on interval values.
+      It also changes the contents of hash indexes on interval columns.
+      If you have any such indexes, you must <command>REINDEX</> them
+      after updating.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Treat <function>to_char(..., 'TH')</> as an uppercase ordinal
+      suffix with <literal>'HH'</>/<literal>'HH12'</> (Heikki)
+     </para>
+
+     <para>
+      It was previously handled as <literal>'th'</> (lowercase).
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix overflow for <literal>INTERVAL '<replaceable>x</> ms'</literal>
+      when <replaceable>x</> is more than 2 million and integer
+      datetimes are in use (Alex Hunsaker)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix calculation of distance between a point and a line segment (Tom)
+     </para>
+
+     <para>
+      This led to incorrect results from a number of geometric operators.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix <type>money</> data type to work in locales where currency
+      amounts have no fractional digits, e.g. Japan (Itagaki Takahiro)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Properly round datetime input like
+      <literal>00:12:57.9999999999999999999999999999</> (Tom)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix poor choice of page split point in GiST R-tree operator classes
+      (Teodor)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix portability issues in plperl initialization (Andrew Dunstan)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix <application>pg_ctl</> to not go into an infinite loop if
+      <filename>postgresql.conf</> is empty (Jeff Davis)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix <filename>contrib/xml2</>'s <function>xslt_process()</> to
+      properly handle the maximum number of parameters (twenty) (Tom)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Improve robustness of <application>libpq</>'s code to recover
+      from errors during <command>COPY FROM STDIN</> (Tom)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Avoid including conflicting readline and editline header files
+      when both libraries are installed (Zdenek Kotala)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Update time zone data files to <application>tzdata</> release 2009l
+      for DST law changes in Bangladesh, Egypt, Jordan, Pakistan,
+      Argentina/San_Luis, Cuba, Jordan (historical correction only),
+      Mauritius, Morocco, Palestine, Syria, Tunisia.
+     </para>
+    </listitem>
+
+   </itemizedlist>
+
+  </sect2>
+ </sect1>
 
  <sect1 id="release-8-1-17">
   <title>Release 8.1.17</title>

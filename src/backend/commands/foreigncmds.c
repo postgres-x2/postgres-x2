@@ -3,11 +3,11 @@
  * foreigncmds.c
  *	  foreign-data wrapper/server creation/manipulation commands
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/commands/foreigncmds.c,v 1.8 2009/06/11 14:48:55 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/commands/foreigncmds.c,v 1.11 2010/02/14 18:42:14 rhaas Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -88,7 +88,8 @@ optionListToArray(List *options)
  * This is used by CREATE/ALTER of FOREIGN DATA WRAPPER/SERVER/USER MAPPING.
  */
 static Datum
-transformGenericOptions(Datum oldOptions,
+transformGenericOptions(Oid catalogId,
+						Datum oldOptions,
 						List *options,
 						Oid fdwvalidator)
 {
@@ -162,7 +163,7 @@ transformGenericOptions(Datum oldOptions,
 	result = optionListToArray(resultOptions);
 
 	if (fdwvalidator)
-		OidFunctionCall2(fdwvalidator, result, (Datum) 0);
+		OidFunctionCall2(fdwvalidator, result, ObjectIdGetDatum(catalogId));
 
 	return result;
 }
@@ -219,9 +220,7 @@ AlterForeignDataWrapperOwner(const char *name, Oid newOwnerId)
 
 	rel = heap_open(ForeignDataWrapperRelationId, RowExclusiveLock);
 
-	tup = SearchSysCacheCopy(FOREIGNDATAWRAPPERNAME,
-							 CStringGetDatum(name),
-							 0, 0, 0);
+	tup = SearchSysCacheCopy1(FOREIGNDATAWRAPPERNAME, CStringGetDatum(name));
 
 	if (!HeapTupleIsValid(tup))
 		ereport(ERROR,
@@ -263,9 +262,7 @@ AlterForeignServerOwner(const char *name, Oid newOwnerId)
 
 	rel = heap_open(ForeignServerRelationId, RowExclusiveLock);
 
-	tup = SearchSysCacheCopy(FOREIGNSERVERNAME,
-							 CStringGetDatum(name),
-							 0, 0, 0);
+	tup = SearchSysCacheCopy1(FOREIGNSERVERNAME, CStringGetDatum(name));
 
 	if (!HeapTupleIsValid(tup))
 		ereport(ERROR,
@@ -384,7 +381,9 @@ CreateForeignDataWrapper(CreateFdwStmt *stmt)
 
 	nulls[Anum_pg_foreign_data_wrapper_fdwacl - 1] = true;
 
-	fdwoptions = transformGenericOptions(PointerGetDatum(NULL), stmt->options,
+	fdwoptions = transformGenericOptions(ForeignDataWrapperRelationId,
+										 PointerGetDatum(NULL),
+										 stmt->options,
 										 fdwvalidator);
 
 	if (PointerIsValid(DatumGetPointer(fdwoptions)))
@@ -444,9 +443,8 @@ AlterForeignDataWrapper(AlterFdwStmt *stmt)
 					stmt->fdwname),
 			 errhint("Must be superuser to alter a foreign-data wrapper.")));
 
-	tp = SearchSysCacheCopy(FOREIGNDATAWRAPPERNAME,
-							CStringGetDatum(stmt->fdwname),
-							0, 0, 0);
+	tp = SearchSysCacheCopy1(FOREIGNDATAWRAPPERNAME,
+							 CStringGetDatum(stmt->fdwname));
 
 	if (!HeapTupleIsValid(tp))
 		ereport(ERROR,
@@ -501,7 +499,10 @@ AlterForeignDataWrapper(AlterFdwStmt *stmt)
 			datum = PointerGetDatum(NULL);
 
 		/* Transform the options */
-		datum = transformGenericOptions(datum, stmt->options, fdwvalidator);
+		datum = transformGenericOptions(ForeignDataWrapperRelationId,
+										datum,
+										stmt->options,
+										fdwvalidator);
 
 		if (PointerIsValid(DatumGetPointer(datum)))
 			repl_val[Anum_pg_foreign_data_wrapper_fdwoptions - 1] = datum;
@@ -581,9 +582,7 @@ RemoveForeignDataWrapperById(Oid fdwId)
 
 	rel = heap_open(ForeignDataWrapperRelationId, RowExclusiveLock);
 
-	tp = SearchSysCache(FOREIGNDATAWRAPPEROID,
-						ObjectIdGetDatum(fdwId),
-						0, 0, 0);
+	tp = SearchSysCache1(FOREIGNDATAWRAPPEROID, ObjectIdGetDatum(fdwId));
 
 	if (!HeapTupleIsValid(tp))
 		elog(ERROR, "cache lookup failed for foreign-data wrapper %u", fdwId);
@@ -667,7 +666,9 @@ CreateForeignServer(CreateForeignServerStmt *stmt)
 	nulls[Anum_pg_foreign_server_srvacl - 1] = true;
 
 	/* Add server options */
-	srvoptions = transformGenericOptions(PointerGetDatum(NULL), stmt->options,
+	srvoptions = transformGenericOptions(ForeignServerRelationId,
+										 PointerGetDatum(NULL),
+										 stmt->options,
 										 fdw->fdwvalidator);
 
 	if (PointerIsValid(DatumGetPointer(srvoptions)))
@@ -713,9 +714,8 @@ AlterForeignServer(AlterForeignServerStmt *stmt)
 	Oid			srvId;
 	Form_pg_foreign_server srvForm;
 
-	tp = SearchSysCacheCopy(FOREIGNSERVERNAME,
-							CStringGetDatum(stmt->servername),
-							0, 0, 0);
+	tp = SearchSysCacheCopy1(FOREIGNSERVERNAME,
+							 CStringGetDatum(stmt->servername));
 
 	if (!HeapTupleIsValid(tp))
 		ereport(ERROR,
@@ -765,7 +765,9 @@ AlterForeignServer(AlterForeignServerStmt *stmt)
 			datum = PointerGetDatum(NULL);
 
 		/* Prepare the options array */
-		datum = transformGenericOptions(datum, stmt->options,
+		datum = transformGenericOptions(ForeignServerRelationId,
+										datum,
+										stmt->options,
 										fdw->fdwvalidator);
 
 		if (PointerIsValid(DatumGetPointer(datum)))
@@ -841,9 +843,7 @@ RemoveForeignServerById(Oid srvId)
 
 	rel = heap_open(ForeignServerRelationId, RowExclusiveLock);
 
-	tp = SearchSysCache(FOREIGNSERVEROID,
-						ObjectIdGetDatum(srvId),
-						0, 0, 0);
+	tp = SearchSysCache1(FOREIGNSERVEROID, ObjectIdGetDatum(srvId));
 
 	if (!HeapTupleIsValid(tp))
 		elog(ERROR, "cache lookup failed for foreign server %u", srvId);
@@ -911,10 +911,9 @@ CreateUserMapping(CreateUserMappingStmt *stmt)
 	/*
 	 * Check that the user mapping is unique within server.
 	 */
-	umId = GetSysCacheOid(USERMAPPINGUSERSERVER,
-						  ObjectIdGetDatum(useId),
-						  ObjectIdGetDatum(srv->serverid),
-						  0, 0);
+	umId = GetSysCacheOid2(USERMAPPINGUSERSERVER,
+						   ObjectIdGetDatum(useId),
+						   ObjectIdGetDatum(srv->serverid));
 	if (OidIsValid(umId))
 		ereport(ERROR,
 				(errcode(ERRCODE_DUPLICATE_OBJECT),
@@ -936,7 +935,9 @@ CreateUserMapping(CreateUserMappingStmt *stmt)
 	values[Anum_pg_user_mapping_umserver - 1] = ObjectIdGetDatum(srv->serverid);
 
 	/* Add user options */
-	useoptions = transformGenericOptions(PointerGetDatum(NULL), stmt->options,
+	useoptions = transformGenericOptions(UserMappingRelationId,
+										 PointerGetDatum(NULL),
+										 stmt->options,
 										 fdw->fdwvalidator);
 
 	if (PointerIsValid(DatumGetPointer(useoptions)))
@@ -988,10 +989,9 @@ AlterUserMapping(AlterUserMappingStmt *stmt)
 	useId = GetUserOidFromMapping(stmt->username, false);
 	srv = GetForeignServerByName(stmt->servername, false);
 
-	umId = GetSysCacheOid(USERMAPPINGUSERSERVER,
-						  ObjectIdGetDatum(useId),
-						  ObjectIdGetDatum(srv->serverid),
-						  0, 0);
+	umId = GetSysCacheOid2(USERMAPPINGUSERSERVER,
+						   ObjectIdGetDatum(useId),
+						   ObjectIdGetDatum(srv->serverid));
 	if (!OidIsValid(umId))
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
@@ -1000,9 +1000,7 @@ AlterUserMapping(AlterUserMappingStmt *stmt)
 
 	user_mapping_ddl_aclcheck(useId, srv->serverid, stmt->servername);
 
-	tp = SearchSysCacheCopy(USERMAPPINGOID,
-							ObjectIdGetDatum(umId),
-							0, 0, 0);
+	tp = SearchSysCacheCopy1(USERMAPPINGOID, ObjectIdGetDatum(umId));
 
 	if (!HeapTupleIsValid(tp))
 		elog(ERROR, "cache lookup failed for user mapping %u", umId);
@@ -1031,7 +1029,9 @@ AlterUserMapping(AlterUserMappingStmt *stmt)
 			datum = PointerGetDatum(NULL);
 
 		/* Prepare the options array */
-		datum = transformGenericOptions(datum, stmt->options,
+		datum = transformGenericOptions(UserMappingRelationId,
+										datum,
+										stmt->options,
 										fdw->fdwvalidator);
 
 		if (PointerIsValid(DatumGetPointer(datum)))
@@ -1093,10 +1093,9 @@ RemoveUserMapping(DropUserMappingStmt *stmt)
 		return;
 	}
 
-	umId = GetSysCacheOid(USERMAPPINGUSERSERVER,
-						  ObjectIdGetDatum(useId),
-						  ObjectIdGetDatum(srv->serverid),
-						  0, 0);
+	umId = GetSysCacheOid2(USERMAPPINGUSERSERVER,
+						   ObjectIdGetDatum(useId),
+						   ObjectIdGetDatum(srv->serverid));
 
 	if (!OidIsValid(umId))
 	{
@@ -1137,9 +1136,7 @@ RemoveUserMappingById(Oid umId)
 
 	rel = heap_open(UserMappingRelationId, RowExclusiveLock);
 
-	tp = SearchSysCache(USERMAPPINGOID,
-						ObjectIdGetDatum(umId),
-						0, 0, 0);
+	tp = SearchSysCache1(USERMAPPINGOID, ObjectIdGetDatum(umId));
 
 	if (!HeapTupleIsValid(tp))
 		elog(ERROR, "cache lookup failed for user mapping %u", umId);

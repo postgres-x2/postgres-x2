@@ -3,10 +3,10 @@
  * pgtz.c
  *	  Timezone Library Integration Functions
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/timezone/pgtz.c,v 1.63 2009/06/11 14:49:15 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/timezone/pgtz.c,v 1.74 2010/07/06 19:19:01 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -498,7 +498,9 @@ identify_system_timezone(void)
 	if (std_zone_name[0] == '\0')
 	{
 		ereport(LOG,
-				(errmsg("could not determine system time zone, defaulting to \"%s\"", "GMT"),
+				(errmsg("could not determine system time zone"),
+				 errdetail("The PostgreSQL time zone will be set to \"%s\".",
+						   "GMT"),
 		errhint("You can specify the correct timezone in postgresql.conf.")));
 		return NULL;			/* go to GMT */
 	}
@@ -533,8 +535,9 @@ identify_system_timezone(void)
 			 (-std_ofs > 0) ? "+" : "", -std_ofs / 3600);
 
 	ereport(LOG,
-		 (errmsg("could not recognize system timezone, defaulting to \"%s\"",
-				 resultbuf),
+			(errmsg("could not recognize system time zone"),
+			 errdetail("The PostgreSQL time zone will be set to \"%s\".",
+					   resultbuf),
 	   errhint("You can specify the correct timezone in postgresql.conf.")));
 	return resultbuf;
 }
@@ -640,7 +643,7 @@ static const struct
 	/*
 	 * This list was built from the contents of the registry at
 	 * HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Time
-	 * Zones on Windows XP Professional SP2
+	 * Zones on Windows 2003 R2.
 	 *
 	 * The zones have been matched to zic timezones by looking at the cities
 	 * listed in the win32 display name (in the comment here) in most cases.
@@ -666,6 +669,10 @@ static const struct
 		"Asia/Baghdad"
 	},							/* (GMT+03:00) Baghdad */
 	{
+		"Argentina Standard Time", "Argentina Daylight Time",
+		"America/Buenos_Aires"
+	},							/* (GMT-03:00) Buenos Aires */
+	{
 		"Armenian Standard Time", "Armenian Daylight Time",
 		"Asia/Yerevan"
 	},							/* (GMT+04:00) Yerevan */
@@ -682,9 +689,17 @@ static const struct
 		"Australia/Canberra"
 	},							/* (GMT+10:00) Canberra, Melbourne, Sydney */
 	{
+		"Azerbaijan Standard Time", "Azerbaijan Daylight Time",
+		"Asia/Baku"
+	},							/* (GMT+04:00) Baku */
+	{
 		"Azores Standard Time", "Azores Daylight Time",
 		"Atlantic/Azores"
 	},							/* (GMT-01:00) Azores */
+	{
+		"Bangladesh Standard Time", "Bangladesh Daylight Time",
+		"Asia/Dhaka"
+	},							/* (GMT+06:00) Dhaka */
 	{
 		"Canada Central Standard Time", "Canada Central Daylight Time",
 		"Canada/Saskatchewan"
@@ -709,6 +724,10 @@ static const struct
 		"Central Asia Standard Time", "Central Asia Daylight Time",
 		"Asia/Dhaka"
 	},							/* (GMT+06:00) Astana, Dhaka */
+	{
+		"Central Brazilian Standard Time", "Central Brazilian Daylight Time",
+		"America/Cuiaba"
+	},							/* (GMT-04:00) Cuiaba */
 	{
 		"Central Europe Standard Time", "Central Europe Daylight Time",
 		"Europe/Belgrade"
@@ -822,9 +841,17 @@ static const struct
 		"Asia/Amman"
 	},							/* (GMT+02:00) Amman */
 	{
+		"Kamchatka Standard Time", "Kamchatka Daylight Time",
+		"Asia/Kamchatka"
+	},							/* (GMT+12:00) Petropavlovsk-Kamchatsky */
+	{
 		"Korea Standard Time", "Korea Daylight Time",
 		"Asia/Seoul"
 	},							/* (GMT+09:00) Seoul */
+	{
+		"Mauritius Standard Time", "Mauritius Daylight Time",
+		"Indian/Mauritius"
+	},							/* (GMT+04:00) Port Louis */
 	{
 		"Mexico Standard Time", "Mexico Daylight Time",
 		"America/Mexico_City"
@@ -847,6 +874,10 @@ static const struct
 		"America/Montevideo"
 	},							/* (GMT-03:00) Montevideo */
 	{
+		"Morocco Standard Time", "Morocco Daylight Time",
+		"Africa/Casablanca"
+	},							/* (GMT) Casablanca */
+	{
 		"Mountain Standard Time", "Mountain Daylight Time",
 		"US/Mountain"
 	},							/* (GMT-07:00) Mountain Time (US & Canada) */
@@ -861,8 +892,8 @@ static const struct
 	},							/* (GMT+06:30) Rangoon */
 	{
 		"N. Central Asia Standard Time", "N. Central Asia Daylight Time",
-		"Asia/Almaty"
-	},							/* (GMT+06:00) Almaty, Novosibirsk */
+		"Asia/Novosibirsk"
+	},							/* (GMT+06:00) Novosibirsk */
 	{
 		"Namibia Standard Time", "Namibia Daylight Time",
 		"Africa/Windhoek"
@@ -900,6 +931,14 @@ static const struct
 		"Pacific Standard Time (Mexico)", "Pacific Daylight Time (Mexico)",
 		"America/Tijuana"
 	},							/* (GMT-08:00) Tijuana, Baja California */
+	{
+		"Pakistan Standard Time", "Pakistan Daylight Time",
+		"Asia/Karachi"
+	},							/* (GMT+05:00) Islamabad, Karachi */
+	{
+		"Paraguay Standard Time", "Paraguay Daylight Time",
+		"America/Asuncion"
+	},							/* (GMT-04:00) Asuncion */
 	{
 		"Romance Standard Time", "Romance Daylight Time",
 		"Europe/Brussels"
@@ -959,6 +998,10 @@ static const struct
 		"Pacific/Tongatapu"
 	},							/* (GMT+13:00) Nuku'alofa */
 	{
+		"Ulaanbaatar Standard Time", "Ulaanbaatar Daylight Time",
+		"Asia/Ulaanbaatar",
+	},							/* (GMT+08:00) Ulaanbaatar */
+	{
 		"US Eastern Standard Time", "US Eastern Daylight Time",
 		"US/Eastern"
 	},							/* (GMT-05:00) Indiana (East) */
@@ -967,6 +1010,26 @@ static const struct
 		"US/Arizona"
 	},							/* (GMT-07:00) Arizona */
 	{
+		"Coordinated Universal Time", "Coordinated Universal Time",
+		"UTC"
+	},							/* (GMT) Coordinated Universal Time */
+	{
+		"UTC+12", "UTC+12",
+		"Etc/GMT+12"
+	},							/* (GMT+12:00) Coordinated Universal Time+12 */
+	{
+		"UTC-02", "UTC-02",
+		"Etc/GMT-02"
+	},							/* (GMT-02:00) Coordinated Universal Time-02 */
+	{
+		"UTC-11", "UTC-11",
+		"Etc/GMT-11"
+	},							/* (GMT-11:00) Coordinated Universal Time-11 */
+	{
+		"Venezuela Standard Time", "Venezuela Daylight Time",
+		"America/Caracas",
+	},							/* (GMT-04:30) Caracas */
+	{
 		"Vladivostok Standard Time", "Vladivostok Daylight Time",
 		"Asia/Vladivostok"
 	},							/* (GMT+10:00) Vladivostok */
@@ -974,9 +1037,13 @@ static const struct
 		"W. Australia Standard Time", "W. Australia Daylight Time",
 		"Australia/Perth"
 	},							/* (GMT+08:00) Perth */
-/*	{"W. Central Africa Standard Time", "W. Central Africa Daylight Time",
-	 *	 *	 *	 *	 *	 *	 *	 *	""}, Could not find a match for this one. Excluded for now. *//* (
-	 * G MT+01:00) West Central Africa */
+#ifdef NOT_USED
+	/* Could not find a match for this one (just a guess). Excluded for now. */
+	{
+		"W. Central Africa Standard Time", "W. Central Africa Daylight Time",
+		"WAT"
+	},							/* (GMT+01:00) West Central Africa */
+#endif
 	{
 		"W. Europe Standard Time", "W. Europe Daylight Time",
 		"CET"
@@ -1012,9 +1079,12 @@ identify_system_timezone(void)
 
 	if (!tm)
 	{
-		ereport(WARNING,
-				(errmsg_internal("could not determine current date/time: localtime failed")));
-		return NULL;
+		ereport(LOG,
+		  (errmsg("could not identify system time zone: localtime() failed"),
+		   errdetail("The PostgreSQL time zone will be set to \"%s\".",
+					 "GMT"),
+		errhint("You can specify the correct timezone in postgresql.conf.")));
+		return NULL;			/* go to GMT */
 	}
 
 	memset(tzname, 0, sizeof(tzname));
@@ -1025,7 +1095,7 @@ identify_system_timezone(void)
 		if (strcmp(tzname, win32_tzmap[i].stdname) == 0 ||
 			strcmp(tzname, win32_tzmap[i].dstname) == 0)
 		{
-			elog(DEBUG4, "TZ \"%s\" matches Windows timezone \"%s\"",
+			elog(DEBUG4, "TZ \"%s\" matches system time zone \"%s\"",
 				 win32_tzmap[i].pgtzname, tzname);
 			return win32_tzmap[i].pgtzname;
 		}
@@ -1043,9 +1113,13 @@ identify_system_timezone(void)
 					 KEY_READ,
 					 &rootKey) != ERROR_SUCCESS)
 	{
-		ereport(WARNING,
-				(errmsg_internal("could not open registry key to identify Windows timezone: %i", (int) GetLastError())));
-		return NULL;
+		ereport(LOG,
+				(errmsg("could not open registry key to identify system time zone: %i",
+						(int) GetLastError()),
+				 errdetail("The PostgreSQL time zone will be set to \"%s\".",
+						   "GMT"),
+		errhint("You can specify the correct timezone in postgresql.conf.")));
+		return NULL;			/* go to GMT */
 	}
 
 	for (idx = 0;; idx++)
@@ -1070,15 +1144,15 @@ identify_system_timezone(void)
 		{
 			if (r == ERROR_NO_MORE_ITEMS)
 				break;
-			ereport(WARNING,
-					(errmsg_internal("could not enumerate registry subkeys to identify Windows timezone: %i", (int) r)));
+			ereport(LOG,
+					(errmsg_internal("could not enumerate registry subkeys to identify system time zone: %i", (int) r)));
 			break;
 		}
 
 		if ((r = RegOpenKeyEx(rootKey, keyname, 0, KEY_READ, &key)) != ERROR_SUCCESS)
 		{
-			ereport(WARNING,
-					(errmsg_internal("could not open registry subkey to identify Windows timezone: %i", (int) r)));
+			ereport(LOG,
+					(errmsg_internal("could not open registry subkey to identify system time zone: %i", (int) r)));
 			break;
 		}
 
@@ -1086,10 +1160,11 @@ identify_system_timezone(void)
 		namesize = sizeof(zonename);
 		if ((r = RegQueryValueEx(key, "Std", NULL, NULL, zonename, &namesize)) != ERROR_SUCCESS)
 		{
-			ereport(WARNING,
-					(errmsg_internal("could not query value for 'std' to identify Windows timezone: %i", (int) r)));
+			ereport(LOG,
+					(errmsg_internal("could not query value for key \"std\" to identify system time zone \"%s\": %i",
+									 keyname, (int) r)));
 			RegCloseKey(key);
-			break;
+			continue;			/* Proceed to look at the next timezone */
 		}
 		if (strcmp(tzname, zonename) == 0)
 		{
@@ -1102,10 +1177,11 @@ identify_system_timezone(void)
 		namesize = sizeof(zonename);
 		if ((r = RegQueryValueEx(key, "Dlt", NULL, NULL, zonename, &namesize)) != ERROR_SUCCESS)
 		{
-			ereport(WARNING,
-					(errmsg_internal("could not query value for 'dlt' to identify Windows timezone: %i", (int) r)));
+			ereport(LOG,
+					(errmsg_internal("could not query value for key \"dlt\" to identify system time zone \"%s\": %i",
+									 keyname, (int) r)));
 			RegCloseKey(key);
-			break;
+			continue;			/* Proceed to look at the next timezone */
 		}
 		if (strcmp(tzname, zonename) == 0)
 		{
@@ -1128,17 +1204,20 @@ identify_system_timezone(void)
 			if (strcmp(localtzname, win32_tzmap[i].stdname) == 0 ||
 				strcmp(localtzname, win32_tzmap[i].dstname) == 0)
 			{
-				elog(DEBUG4, "TZ \"%s\" matches localized Windows timezone \"%s\" (\"%s\")",
+				elog(DEBUG4, "TZ \"%s\" matches localized system time zone \"%s\" (\"%s\")",
 					 win32_tzmap[i].pgtzname, tzname, localtzname);
 				return win32_tzmap[i].pgtzname;
 			}
 		}
 	}
 
-	ereport(WARNING,
-			(errmsg("could not find a match for Windows timezone \"%s\"",
-					tzname)));
-	return NULL;
+	ereport(LOG,
+			(errmsg("could not find a match for system time zone \"%s\"",
+					tzname),
+			 errdetail("The PostgreSQL time zone will be set to \"%s\".",
+					   "GMT"),
+	   errhint("You can specify the correct timezone in postgresql.conf.")));
+	return NULL;				/* go to GMT */
 }
 #endif   /* WIN32 */
 
@@ -1324,7 +1403,7 @@ select_default_timezone(void)
 		return def_tz;
 
 	ereport(FATAL,
-			(errmsg("could not select a suitable default timezone"),
+			(errmsg("could not select a suitable default time zone"),
 			 errdetail("It appears that your GMT time zone uses leap seconds. PostgreSQL does not support leap seconds.")));
 	return NULL;				/* keep compiler quiet */
 }
@@ -1348,7 +1427,7 @@ pg_timezone_pre_initialize(void)
 	 * seems OK to just use the "lastditch" case provided by tzparse().
 	 */
 	if (tzparse("GMT", &gmt_timezone_data.state, TRUE) != 0)
-		elog(FATAL, "could not initialize GMT timezone");
+		elog(FATAL, "could not initialize GMT time zone");
 	strcpy(gmt_timezone_data.TZname, "GMT");
 	gmt_timezone = &gmt_timezone_data;
 }
@@ -1366,7 +1445,7 @@ pg_timezone_initialize(void)
 	pg_tz	   *def_tz = NULL;
 
 	/* Do we need to try to figure the session timezone? */
-	if (pg_strcasecmp(GetConfigOption("timezone"), "UNKNOWN") == 0)
+	if (pg_strcasecmp(GetConfigOption("timezone", false), "UNKNOWN") == 0)
 	{
 		/* Select setting */
 		def_tz = select_default_timezone();
@@ -1377,7 +1456,7 @@ pg_timezone_initialize(void)
 	}
 
 	/* What about the log timezone? */
-	if (pg_strcasecmp(GetConfigOption("log_timezone"), "UNKNOWN") == 0)
+	if (pg_strcasecmp(GetConfigOption("log_timezone", false), "UNKNOWN") == 0)
 	{
 		/* Select setting, but don't duplicate work */
 		if (!def_tz)
@@ -1475,7 +1554,7 @@ pg_tzenumerate_next(pg_tzenum *dir)
 			/* Step into the subdirectory */
 			if (dir->depth >= MAX_TZDIR_DEPTH - 1)
 				ereport(ERROR,
-						(errmsg("timezone directory stack overflow")));
+					 (errmsg_internal("timezone directory stack overflow")));
 			dir->depth++;
 			dir->dirname[dir->depth] = pstrdup(fullname);
 			dir->dirdesc[dir->depth] = AllocateDir(fullname);

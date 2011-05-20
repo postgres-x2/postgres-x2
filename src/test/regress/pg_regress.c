@@ -8,10 +8,10 @@
  *
  * This code is released under the terms of the PostgreSQL License.
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/test/regress/pg_regress.c,v 1.63 2009/06/11 14:49:15 momjian Exp $
+ * $PostgreSQL: pgsql/src/test/regress/pg_regress.c,v 1.72 2010/06/12 17:21:29 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -65,9 +65,18 @@ static char *makeprog = MAKEPROG;
 static char *shellprog = SHELLPROG;
 #endif
 
-/* currently we can use the same diff switches on all platforms */
+/*
+ * On Windows we use -w in diff switches to avoid problems with inconsistent
+ * newline representation.	The actual result files will generally have
+ * Windows-style newlines, but the comparison files might or might not.
+ */
+#ifndef WIN32
+const char *basic_diff_opts = "";
+const char *pretty_diff_opts = "-C3";
+#else
 const char *basic_diff_opts = "-w";
 const char *pretty_diff_opts = "-w -C3";
+#endif
 
 /* options settable from command line */
 _stringlist *dblist = NULL;
@@ -84,6 +93,7 @@ static char *temp_install = NULL;
 static char *temp_config = NULL;
 static char *top_builddir = NULL;
 static bool nolocale = false;
+static bool use_existing = false;
 static char *hostname = NULL;
 static int	port = -1;
 static bool port_specified_by_user = false;
@@ -1021,6 +1031,10 @@ spawn_process(const char *cmdline)
 	cmdline2 = malloc(strlen(cmdline) + 8);
 	sprintf(cmdline2, "cmd /c %s", cmdline);
 
+#ifndef __CYGWIN__
+	AddUserToTokenDacl(restrictedToken);
+#endif
+
 	if (!CreateProcessAsUser(restrictedToken,
 							 NULL,
 							 cmdline2,
@@ -1037,10 +1051,6 @@ spawn_process(const char *cmdline)
 				cmdline2, GetLastError());
 		exit_nicely(2);
 	}
-
-#ifndef __CYGWIN__
-	AddUserToDacl(pi.hProcess);
-#endif
 
 	free(cmdline2);
 
@@ -1536,7 +1546,7 @@ run_schedule(const char *schedule, test_function tfunc)
 
 		if (num_tests == 1)
 		{
-			status(_("test %-20s ... "), tests[0]);
+			status(_("test %-24s ... "), tests[0]);
 			pids[0] = (tfunc) (tests[0], &resultfiles[0], &expectfiles[0], &tags[0]);
 			wait_for_tests(pids, statuses, NULL, 1);
 			/* status line is finished below */
@@ -1581,7 +1591,7 @@ run_schedule(const char *schedule, test_function tfunc)
 			bool		differ = false;
 
 			if (num_tests > 1)
-				status(_("     %-20s ... "), tests[i]);
+				status(_("     %-24s ... "), tests[i]);
 
 			/*
 			 * Advance over all three lists simultaneously.
@@ -1767,9 +1777,11 @@ create_database(const char *dbname)
 	 */
 	header(_("creating database \"%s\""), dbname);
 	if (encoding)
-		psql_command("postgres", "CREATE DATABASE \"%s\" TEMPLATE=template0 ENCODING='%s'", dbname, encoding);
+		psql_command("postgres", "CREATE DATABASE \"%s\" TEMPLATE=template0 ENCODING='%s'%s", dbname, encoding,
+					 (nolocale) ? " LC_COLLATE='C' LC_CTYPE='C'" : "");
 	else
-		psql_command("postgres", "CREATE DATABASE \"%s\" TEMPLATE=template0", dbname);
+		psql_command("postgres", "CREATE DATABASE \"%s\" TEMPLATE=template0%s", dbname,
+					 (nolocale) ? " LC_COLLATE='C' LC_CTYPE='C'" : "");
 	psql_command(dbname,
 				 "ALTER DATABASE \"%s\" SET lc_messages TO 'C';"
 				 "ALTER DATABASE \"%s\" SET lc_monetary TO 'C';"
@@ -1779,12 +1791,13 @@ create_database(const char *dbname)
 				 dbname, dbname, dbname, dbname, dbname);
 
 	/*
-	 * Install any requested procedural languages
+	 * Install any requested procedural languages.	We use CREATE OR REPLACE
+	 * so that this will work whether or not the language is preinstalled.
 	 */
 	for (sl = loadlanguage; sl != NULL; sl = sl->next)
 	{
 		header(_("installing %s"), sl->str);
-		psql_command(dbname, "CREATE LANGUAGE \"%s\"", sl->str);
+		psql_command(dbname, "CREATE OR REPLACE LANGUAGE \"%s\"", sl->str);
 	}
 }
 
@@ -1857,6 +1870,7 @@ help(void)
 	printf(_("                            (can be used multiple times to concatenate)\n"));
 	printf(_("  --dlpath=DIR              look for dynamic libraries in DIR\n"));
 	printf(_("  --temp-install=DIR        create a temporary installation in DIR\n"));
+	printf(_("  --use-existing            use an existing installation\n"));
 	printf(_("\n"));
 	printf(_("Options for \"temp-install\" mode:\n"));
 	printf(_("  --no-locale               use C locale\n"));
@@ -1907,6 +1921,7 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 		{"dlpath", required_argument, NULL, 17},
 		{"create-role", required_argument, NULL, 18},
 		{"temp-config", required_argument, NULL, 19},
+		{"use-existing", no_argument, NULL, 20},
 		{NULL, 0, NULL, 0}
 	};
 
@@ -1996,6 +2011,9 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 				break;
 			case 19:
 				temp_config = strdup(optarg);
+				break;
+			case 20:
+				use_existing = true;
 				break;
 			default:
 				/* getopt_long already emitted a complaint */
@@ -2243,19 +2261,25 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 		 * Using an existing installation, so may need to get rid of
 		 * pre-existing database(s) and role(s)
 		 */
-		for (sl = dblist; sl; sl = sl->next)
-			drop_database_if_exists(sl->str);
-		for (sl = extraroles; sl; sl = sl->next)
-			drop_role_if_exists(sl->str);
+		if (!use_existing)
+		{
+			for (sl = dblist; sl; sl = sl->next)
+				drop_database_if_exists(sl->str);
+			for (sl = extraroles; sl; sl = sl->next)
+				drop_role_if_exists(sl->str);
+		}
 	}
 
 	/*
 	 * Create the test database(s) and role(s)
 	 */
-	for (sl = dblist; sl; sl = sl->next)
-		create_database(sl->str);
-	for (sl = extraroles; sl; sl = sl->next)
-		create_role(sl->str, dblist);
+	if (!use_existing)
+	{
+		for (sl = dblist; sl; sl = sl->next)
+			create_database(sl->str);
+		for (sl = extraroles; sl; sl = sl->next)
+			create_role(sl->str, dblist);
+	}
 
 	/*
 	 * Ready to run the tests

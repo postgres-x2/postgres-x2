@@ -1,4 +1,4 @@
-# $PostgreSQL: pgsql/src/nls-global.mk,v 1.20 2009/01/20 09:58:50 petere Exp $
+# $PostgreSQL: pgsql/src/nls-global.mk,v 1.22 2010/05/13 14:35:28 petere Exp $
 
 # Common rules for Native Language Support (NLS)
 #
@@ -55,7 +55,7 @@ po/$(CATALOG_NAME).pot: $(GETTEXT_FILES) $(MAKEFILE_LIST)
 # consistent #: file references in the po files.
 	$(XGETTEXT) -D $(srcdir) -n $(addprefix -k, $(GETTEXT_TRIGGERS)) $(GETTEXT_FILES)
 endif
-	@$(mkinstalldirs) $(dir $@)
+	@$(MKDIR_P) $(dir $@)
 	sed -e '1,18 { s/SOME DESCRIPTIVE TITLE./LANGUAGE message translation file for $(CATALOG_NAME)/;s/PACKAGE/PostgreSQL/g;s/VERSION/$(MAJORVERSION)/g;s/YEAR/'`date +%Y`'/g; }' messages.po >$@
 	rm messages.po
 else # not XGETTEXT
@@ -72,10 +72,10 @@ ifneq (,$(LANGUAGES))
 endif
 
 installdirs-po:
-	$(mkinstalldirs) $(foreach lang, $(LANGUAGES), '$(DESTDIR)$(localedir)'/$(lang)/LC_MESSAGES)
+	$(if $(LANGUAGES),$(MKDIR_P) $(foreach lang, $(LANGUAGES), '$(DESTDIR)$(localedir)'/$(lang)/LC_MESSAGES),:)
 
 uninstall-po:
-	rm -f $(foreach lang, $(LANGUAGES), '$(DESTDIR)$(localedir)'/$(lang)/LC_MESSAGES/$(CATALOG_NAME)$(SO_MAJOR_VERSION)-$(MAJORVERSION).mo)
+	$(if $(LANGUAGES),rm -f $(foreach lang, $(LANGUAGES), '$(DESTDIR)$(localedir)'/$(lang)/LC_MESSAGES/$(CATALOG_NAME)$(SO_MAJOR_VERSION)-$(MAJORVERSION).mo),:)
 
 
 clean-po:
@@ -130,4 +130,3 @@ maintainer-check: maintainer-check-po
 
 .PHONY: all-po install-po installdirs-po uninstall-po clean-po \
         maintainer-check-po init-po update-po
-.SILENT: installdirs-po

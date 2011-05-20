@@ -3,11 +3,11 @@
  * dict_thesaurus.c
  *		Thesaurus dictionary: phrase to phrase substitution
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/tsearch/dict_thesaurus.c,v 1.13 2009/01/01 17:23:48 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/tsearch/dict_thesaurus.c,v 1.16 2010/01/02 16:57:53 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -57,8 +57,8 @@ typedef struct
 
 	/* Array to search lexeme by exact match */
 	TheLexeme  *wrds;
-	int			nwrds;
-	int			ntwrds;
+	int			nwrds;			/* current number of words */
+	int			ntwrds;			/* allocated array length */
 
 	/*
 	 * Storage of substituted result, n-th element is for n-th expression
@@ -298,7 +298,6 @@ thesaurusRead(char *filename, DictThesaurus *d)
 static TheLexeme *
 addCompiledLexeme(TheLexeme *newwrds, int *nnw, int *tnm, TSLexeme *lexeme, LexemeInfo *src, uint16 tnvariant)
 {
-
 	if (*nnw >= *tnm)
 	{
 		*tnm *= 2;
@@ -453,7 +452,8 @@ compileTheLexeme(DictThesaurus *d)
 		pfree(d->wrds[i].entries);
 	}
 
-	pfree(d->wrds);
+	if (d->wrds)
+		pfree(d->wrds);
 	d->wrds = newwrds;
 	d->nwrds = nnw;
 	d->ntwrds = tnm;
@@ -800,7 +800,7 @@ thesaurus_lexize(PG_FUNCTION_ARGS)
 
 	if (dstate->isend)
 		PG_RETURN_POINTER(NULL);
-	stored = (LexemeInfo *) dstate->private;
+	stored = (LexemeInfo *) dstate->private_state;
 
 	if (stored)
 		curpos = stored->posinsubst + 1;
@@ -859,7 +859,7 @@ thesaurus_lexize(PG_FUNCTION_ARGS)
 		info = NULL;			/* word isn't recognized */
 	}
 
-	dstate->private = (void *) info;
+	dstate->private_state = (void *) info;
 
 	if (!info)
 	{

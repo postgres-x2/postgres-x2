@@ -3,12 +3,12 @@
  * indexam.c
  *	  general index access method routines
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/access/index/indexam.c,v 1.114 2009/06/11 14:48:54 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/access/index/indexam.c,v 1.118 2010/02/26 02:00:34 momjian Exp $
  *
  * INTERFACE ROUTINES
  *		index_open		- open an index relation by relation OID
@@ -185,7 +185,7 @@ index_insert(Relation indexRelation,
 			 bool *isnull,
 			 ItemPointer heap_t_ctid,
 			 Relation heapRelation,
-			 bool check_uniqueness)
+			 IndexUniqueCheck checkUnique)
 {
 	FmgrInfo   *procedure;
 
@@ -201,7 +201,7 @@ index_insert(Relation indexRelation,
 									  PointerGetDatum(isnull),
 									  PointerGetDatum(heap_t_ctid),
 									  PointerGetDatum(heapRelation),
-									  BoolGetDatum(check_uniqueness)));
+									  Int32GetDatum((int32) checkUnique)));
 }
 
 /*
@@ -455,9 +455,12 @@ index_getnext(IndexScanDesc scan, ScanDirection direction)
 
 			/*
 			 * If we scanned a whole HOT chain and found only dead tuples,
-			 * tell index AM to kill its entry for that TID.
+			 * tell index AM to kill its entry for that TID. We do not do this
+			 * when in recovery because it may violate MVCC to do so. see
+			 * comments in RelationGetIndexScan().
 			 */
-			scan->kill_prior_tuple = scan->xs_hot_dead;
+			if (!scan->xactStartedInRecovery)
+				scan->kill_prior_tuple = scan->xs_hot_dead;
 
 			/*
 			 * The AM's gettuple proc finds the next index entry matching the

@@ -207,3 +207,8 @@ select sillysrf(42) order by 1;
 select sillysrf(-1) order by 1;
 
 drop function sillysrf(int);
+
+-- X = X isn't a no-op, it's effectively X IS NOT NULL assuming = is strict
+-- (see bug #5084)
+select * from (values (2),(null),(1)) v(k) where k = k order by k;
+select * from (values (2),(null),(1)) v(k) where k = k;

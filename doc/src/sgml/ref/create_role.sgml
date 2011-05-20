@@ -1,11 +1,11 @@
 <!--
-$PostgreSQL: pgsql/doc/src/sgml/ref/create_role.sgml,v 1.11 2008/11/14 10:22:46 petere Exp $
+$PostgreSQL: pgsql/doc/src/sgml/ref/create_role.sgml,v 1.14 2010/04/03 07:22:58 petere Exp $
 PostgreSQL documentation
 -->
 
 <refentry id="SQL-CREATEROLE">
  <refmeta>
-  <refentrytitle id="sql-createrole-title">CREATE ROLE</refentrytitle>
+  <refentrytitle>CREATE ROLE</refentrytitle>
   <manvolnum>7</manvolnum>
   <refmiscinfo>SQL - Language Statements</refmiscinfo>
  </refmeta>
@@ -23,7 +23,7 @@ PostgreSQL documentation
 <synopsis>
 CREATE ROLE <replaceable class="PARAMETER">name</replaceable> [ [ WITH ] <replaceable class="PARAMETER">option</replaceable> [ ... ] ]
 
-where <replaceable class="PARAMETER">option</replaceable> can be:
+<phrase>where <replaceable class="PARAMETER">option</replaceable> can be:</phrase>
     
       SUPERUSER | NOSUPERUSER
     | CREATEDB | NOCREATEDB
@@ -34,11 +34,11 @@ where <replaceable class="PARAMETER">option</replaceable> can be:
     | CONNECTION LIMIT <replaceable class="PARAMETER">connlimit</replaceable>
     | [ ENCRYPTED | UNENCRYPTED ] PASSWORD '<replaceable class="PARAMETER">password</replaceable>'
     | VALID UNTIL '<replaceable class="PARAMETER">timestamp</replaceable>' 
-    | IN ROLE <replaceable class="PARAMETER">rolename</replaceable> [, ...]
-    | IN GROUP <replaceable class="PARAMETER">rolename</replaceable> [, ...]
-    | ROLE <replaceable class="PARAMETER">rolename</replaceable> [, ...]
-    | ADMIN <replaceable class="PARAMETER">rolename</replaceable> [, ...]
-    | USER <replaceable class="PARAMETER">rolename</replaceable> [, ...]
+    | IN ROLE <replaceable class="PARAMETER">role_name</replaceable> [, ...]
+    | IN GROUP <replaceable class="PARAMETER">role_name</replaceable> [, ...]
+    | ROLE <replaceable class="PARAMETER">role_name</replaceable> [, ...]
+    | ADMIN <replaceable class="PARAMETER">role_name</replaceable> [, ...]
+    | USER <replaceable class="PARAMETER">role_name</replaceable> [, ...]
     | SYSID <replaceable class="PARAMETER">uid</replaceable> 
 </synopsis>
  </refsynopsisdiv>
@@ -237,7 +237,7 @@ where <replaceable class="PARAMETER">option</replaceable> can be:
      </varlistentry>
 
      <varlistentry>
-      <term><literal>IN ROLE</> <replaceable class="parameter">rolename</replaceable></term>
+      <term><literal>IN ROLE</> <replaceable class="parameter">role_name</replaceable></term>
       <listitem>
        <para>
         The <literal>IN ROLE</literal> clause lists one or more existing
@@ -249,7 +249,7 @@ where <replaceable class="PARAMETER">option</replaceable> can be:
      </varlistentry>
 
      <varlistentry>
-      <term><literal>IN GROUP</> <replaceable class="parameter">rolename</replaceable></term>
+      <term><literal>IN GROUP</> <replaceable class="parameter">role_name</replaceable></term>
       <listitem>
        <para>
         <literal>IN GROUP</literal> is an obsolete spelling of
@@ -259,7 +259,7 @@ where <replaceable class="PARAMETER">option</replaceable> can be:
      </varlistentry>
 
      <varlistentry>
-      <term><literal>ROLE</> <replaceable class="parameter">rolename</replaceable></term>
+      <term><literal>ROLE</> <replaceable class="parameter">role_name</replaceable></term>
       <listitem>
        <para>
         The <literal>ROLE</literal> clause lists one or more existing
@@ -270,7 +270,7 @@ where <replaceable class="PARAMETER">option</replaceable> can be:
      </varlistentry>
 
      <varlistentry>
-      <term><literal>ADMIN</> <replaceable class="parameter">rolename</replaceable></term>
+      <term><literal>ADMIN</> <replaceable class="parameter">role_name</replaceable></term>
       <listitem>
        <para>
         The <literal>ADMIN</literal> clause is like <literal>ROLE</literal>,
@@ -282,7 +282,7 @@ where <replaceable class="PARAMETER">option</replaceable> can be:
      </varlistentry>
 
      <varlistentry>
-      <term><literal>USER</> <replaceable class="parameter">rolename</replaceable></term>
+      <term><literal>USER</> <replaceable class="parameter">role_name</replaceable></term>
       <listitem>
        <para>
         The <literal>USER</literal> clause is an obsolete spelling of
@@ -307,9 +307,9 @@ where <replaceable class="PARAMETER">option</replaceable> can be:
   <title>Notes</title>
 
   <para>
-   Use <xref linkend="SQL-ALTERROLE" endterm="SQL-ALTERROLE-title"> to
-   change the attributes of a role, and <xref linkend="SQL-DROPROLE"
-   endterm="SQL-DROPROLE-title"> to remove a role.  All the attributes
+   Use <xref linkend="SQL-ALTERROLE"> to
+   change the attributes of a role, and <xref linkend="SQL-DROPROLE">
+   to remove a role.  All the attributes
    specified by <command>CREATE ROLE</> can be modified by later
    <command>ALTER ROLE</> commands.
   </para>
@@ -317,8 +317,8 @@ where <replaceable class="PARAMETER">option</replaceable> can be:
   <para>
    The preferred way to add and remove members of roles that are being
    used as groups is to use
-   <xref linkend="SQL-GRANT" endterm="SQL-GRANT-title"> and
-   <xref linkend="SQL-REVOKE" endterm="SQL-REVOKE-title">.
+   <xref linkend="SQL-GRANT"> and
+   <xref linkend="SQL-REVOKE">.
   </para>
 
   <para>
@@ -336,7 +336,7 @@ where <replaceable class="PARAMETER">option</replaceable> can be:
    a member of a role with <literal>CREATEDB</> privilege does not immediately
    grant the ability to create databases, even if <literal>INHERIT</> is set;
    it would be necessary to become that role via
-   <xref linkend="SQL-SET-ROLE" endterm="SQL-SET-ROLE-title"> before
+   <xref linkend="SQL-SET-ROLE"> before
    creating a database.
   </para>
 
@@ -363,7 +363,7 @@ where <replaceable class="PARAMETER">option</replaceable> can be:
 
   <para>
    <productname>PostgreSQL</productname> includes a program <xref
-   linkend="APP-CREATEUSER" endterm="APP-CREATEUSER-title"> that has
+   linkend="APP-CREATEUSER"> that has
    the same functionality as <command>CREATE ROLE</command> (in fact,
    it calls this command) but can be run from the command shell.
   </para>
@@ -380,9 +380,9 @@ where <replaceable class="PARAMETER">option</replaceable> can be:
    with this command.  The password will be transmitted to the server
    in cleartext, and it might also be logged in the client's command
    history or the server log.  The command <xref
-   linkend="APP-CREATEUSER" endterm="APP-CREATEUSER-title">, however, transmits
-   the password encrypted.  Also, <xref linkend="app-psql"
-   endterm="app-psql-title"> contains a command
+   linkend="APP-CREATEUSER">, however, transmits
+   the password encrypted.  Also, <xref linkend="app-psql">
+   contains a command
    <command>\password</command> that can be used to safely change the
    password later.
   </para>
@@ -432,7 +432,7 @@ CREATE ROLE admin WITH CREATEDB CREATEROLE;
    The <command>CREATE ROLE</command> statement is in the SQL standard,
    but the standard only requires the syntax
 <synopsis>
-CREATE ROLE <replaceable class="PARAMETER">name</> [ WITH ADMIN <replaceable class="PARAMETER">rolename</> ]
+CREATE ROLE <replaceable class="PARAMETER">name</> [ WITH ADMIN <replaceable class="PARAMETER">role_name</> ]
 </synopsis>
    Multiple initial administrators, and all the other options of
    <command>CREATE ROLE</command>, are
@@ -459,11 +459,11 @@ CREATE ROLE <replaceable class="PARAMETER">name</> [ WITH ADMIN <replaceable cla
   <title>See Also</title>
 
   <simplelist type="inline">
-   <member><xref linkend="sql-set-role" endterm="sql-set-role-title"></member>
-   <member><xref linkend="sql-alterrole" endterm="sql-alterrole-title"></member>
-   <member><xref linkend="sql-droprole" endterm="sql-droprole-title"></member>
-   <member><xref linkend="sql-grant" endterm="sql-grant-title"></member>
-   <member><xref linkend="sql-revoke" endterm="sql-revoke-title"></member>
+   <member><xref linkend="sql-set-role"></member>
+   <member><xref linkend="sql-alterrole"></member>
+   <member><xref linkend="sql-droprole"></member>
+   <member><xref linkend="sql-grant"></member>
+   <member><xref linkend="sql-revoke"></member>
    <member><xref linkend="app-createuser"></member>
   </simplelist>
  </refsect1>

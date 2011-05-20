@@ -5,13 +5,13 @@
  *
  * See src/backend/access/transam/README for more information.
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/access/transam/xact.c,v 1.274 2009/06/11 14:48:54 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/access/transam/xact.c,v 1.293 2010/07/06 19:18:55 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -52,12 +52,13 @@
 #include "storage/procarray.h"
 #include "storage/sinvaladt.h"
 #include "storage/smgr.h"
+#include "storage/standby.h"
 #include "utils/combocid.h"
-#include "utils/flatfiles.h"
 #include "utils/guc.h"
 #include "utils/inval.h"
 #include "utils/memutils.h"
 #include "utils/relcache.h"
+#include "utils/relmapper.h"
 #include "utils/snapmgr.h"
 #include "pg_trace.h"
 
@@ -155,8 +156,9 @@ typedef struct TransactionStateData
 	int			nChildXids;		/* # of subcommitted child XIDs */
 	int			maxChildXids;	/* allocated size of childXids[] */
 	Oid			prevUser;		/* previous CurrentUserId setting */
-	bool		prevSecDefCxt;	/* previous SecurityDefinerContext setting */
+	int			prevSecContext; /* previous SecurityRestrictionContext */
 	bool		prevXactReadOnly;		/* entry-time xact r/o state */
+	bool		startedInRecovery;		/* did we start in recovery? */
 	struct TransactionStateData *parent;		/* back link to parent */
 } TransactionStateData;
 
@@ -188,10 +190,18 @@ static TransactionStateData TopTransactionStateData = {
 	0,							/* # of subcommitted child Xids */
 	0,							/* allocated size of childXids[] */
 	InvalidOid,					/* previous CurrentUserId setting */
-	false,						/* previous SecurityDefinerContext setting */
+	0,							/* previous SecurityRestrictionContext */
 	false,						/* entry-time xact r/o state */
+	false,						/* startedInRecovery */
 	NULL						/* link to parent state block */
 };
+
+/*
+ * unreportedXids holds XIDs of all subtransactions that have not yet been
+ * reported in a XLOG_XACT_ASSIGNMENT record.
+ */
+static int	nUnreportedXids;
+static TransactionId unreportedXids[PGPROC_MAX_CACHED_SUBXIDS];
 
 static TransactionState CurrentTransactionState = &TopTransactionStateData;
 
@@ -276,7 +286,7 @@ static void AbortTransaction(void);
 static void AtAbort_Memory(void);
 static void AtCleanup_Memory(void);
 static void AtAbort_ResourceOwner(void);
-static void AtCommit_LocalCache(void);
+static void AtCCI_LocalCache(void);
 static void AtCommit_Memory(void);
 static void AtStart_Cache(void);
 static void AtStart_Memory(void);
@@ -393,8 +403,7 @@ IsTransactionState(void)
 /*
  *	IsAbortedTransactionBlockState
  *
- *	This returns true if we are currently running a query
- *	within an aborted transaction block.
+ *	This returns true if we are within an aborted transaction block.
  */
 bool
 IsAbortedTransactionBlockState(void)
@@ -526,7 +535,7 @@ AssignTransactionId(TransactionState s)
 #endif
 
 	if (isSubXact)
-		SubTransSetParent(s->transactionId, s->parent->transactionId);
+		SubTransSetParent(s->transactionId, s->parent->transactionId, false);
 
 	/*
 	 * Acquire lock on the transaction XID.  (We assume this cannot block.) We
@@ -547,8 +556,60 @@ AssignTransactionId(TransactionState s)
 	}
 	PG_END_TRY();
 	CurrentResourceOwner = currentOwner;
-}
 
+	/*
+	 * Every PGPROC_MAX_CACHED_SUBXIDS assigned transaction ids within each
+	 * top-level transaction we issue a WAL record for the assignment. We
+	 * include the top-level xid and all the subxids that have not yet been
+	 * reported using XLOG_XACT_ASSIGNMENT records.
+	 *
+	 * This is required to limit the amount of shared memory required in a hot
+	 * standby server to keep track of in-progress XIDs. See notes for
+	 * RecordKnownAssignedTransactionIds().
+	 *
+	 * We don't keep track of the immediate parent of each subxid, only the
+	 * top-level transaction that each subxact belongs to. This is correct in
+	 * recovery only because aborted subtransactions are separately WAL
+	 * logged.
+	 */
+	if (isSubXact && XLogStandbyInfoActive())
+	{
+		unreportedXids[nUnreportedXids] = s->transactionId;
+		nUnreportedXids++;
+
+		/*
+		 * ensure this test matches similar one in
+		 * RecoverPreparedTransactions()
+		 */
+		if (nUnreportedXids >= PGPROC_MAX_CACHED_SUBXIDS)
+		{
+			XLogRecData rdata[2];
+			xl_xact_assignment xlrec;
+
+			/*
+			 * xtop is always set by now because we recurse up transaction
+			 * stack to the highest unassigned xid and then come back down
+			 */
+			xlrec.xtop = GetTopTransactionId();
+			Assert(TransactionIdIsValid(xlrec.xtop));
+			xlrec.nsubxacts = nUnreportedXids;
+
+			rdata[0].data = (char *) &xlrec;
+			rdata[0].len = MinSizeOfXactAssignment;
+			rdata[0].buffer = InvalidBuffer;
+			rdata[0].next = &rdata[1];
+
+			rdata[1].data = (char *) unreportedXids;
+			rdata[1].len = PGPROC_MAX_CACHED_SUBXIDS * sizeof(TransactionId);
+			rdata[1].buffer = InvalidBuffer;
+			rdata[1].next = NULL;
+
+			(void) XLogInsert(RM_XACT_ID, XLOG_XACT_ASSIGNMENT, rdata);
+
+			nUnreportedXids = 0;
+		}
+	}
+}
 
 /*
  *	GetCurrentSubTransactionId
@@ -765,6 +826,18 @@ TransactionIdIsCurrentTransactionId(TransactionId xid)
 	return false;
 }
 
+/*
+ *	TransactionStartedDuringRecovery
+ *
+ * Returns true if the current transaction started while recovery was still
+ * in progress. Recovery might have ended since so RecoveryInProgress() might
+ * return false already.
+ */
+bool
+TransactionStartedDuringRecovery(void)
+{
+	return CurrentTransactionState->startedInRecovery;
+}
 
 /*
  *	CommandCounterIncrement
@@ -799,7 +872,7 @@ CommandCounterIncrement(void)
 		 * read-only command.  (But see hacks in inval.c to make real sure we
 		 * don't think a command that queued inval messages was read-only.)
 		 */
-		AtCommit_LocalCache();
+		AtCCI_LocalCache();
 	}
 
 	/*
@@ -976,10 +1049,8 @@ AtSubStart_ResourceOwner(void)
  *
  * Returns latest XID among xact and its children, or InvalidTransactionId
  * if the xact has no XID.	(We compute that here just because it's easier.)
- *
- * This is exported only to support an ugly hack in VACUUM FULL.
  */
-TransactionId
+static TransactionId
 RecordTransactionCommit(void)
 {
 	TransactionId xid = GetTopTransactionIdIfAny();
@@ -990,10 +1061,15 @@ RecordTransactionCommit(void)
 	bool		haveNonTemp;
 	int			nchildren;
 	TransactionId *children;
+	int			nmsgs;
+	SharedInvalidationMessage *invalMessages = NULL;
+	bool		RelcacheInitFileInval;
 
 	/* Get data needed for commit record */
 	nrels = smgrGetPendingDeletes(true, &rels, &haveNonTemp);
 	nchildren = xactGetCommittedChildren(&children);
+	nmsgs = xactGetCommittedInvalidationMessages(&invalMessages,
+												 &RelcacheInitFileInval);
 
 	/*
 	 * If we haven't been assigned an XID yet, we neither can, nor do we want
@@ -1028,12 +1104,24 @@ RecordTransactionCommit(void)
 		/*
 		 * Begin commit critical section and insert the commit XLOG record.
 		 */
-		XLogRecData rdata[3];
+		XLogRecData rdata[4];
 		int			lastrdata = 0;
 		xl_xact_commit xlrec;
 
 		/* Tell bufmgr and smgr to prepare for commit */
 		BufmgrCommit();
+
+		/*
+		 * Set flags required for recovery processing of commits.
+		 */
+		xlrec.xinfo = 0;
+		if (RelcacheInitFileInval)
+			xlrec.xinfo |= XACT_COMPLETION_UPDATE_RELCACHE_FILE;
+		if (forceSyncCommit)
+			xlrec.xinfo |= XACT_COMPLETION_FORCE_SYNC_COMMIT;
+
+		xlrec.dbId = MyDatabaseId;
+		xlrec.tsId = MyDatabaseTableSpace;
 
 		/*
 		 * Mark ourselves as within our "commit critical section".	This
@@ -1064,6 +1152,7 @@ RecordTransactionCommit(void)
 #endif
 		xlrec.nrels = nrels;
 		xlrec.nsubxacts = nchildren;
+		xlrec.nmsgs = nmsgs;
 		rdata[0].data = (char *) (&xlrec);
 		rdata[0].len = MinSizeOfXactCommit;
 		rdata[0].buffer = InvalidBuffer;
@@ -1085,6 +1174,15 @@ RecordTransactionCommit(void)
 			rdata[2].buffer = InvalidBuffer;
 			lastrdata = 2;
 		}
+		/* dump shared cache invalidation messages */
+		if (nmsgs > 0)
+		{
+			rdata[lastrdata].next = &(rdata[3]);
+			rdata[3].data = (char *) invalMessages;
+			rdata[3].len = nmsgs * sizeof(SharedInvalidationMessage);
+			rdata[3].buffer = InvalidBuffer;
+			lastrdata = 3;
+		}
 		rdata[lastrdata].next = NULL;
 
 		(void) XLogInsert(RM_XACT_ID, XLOG_XACT_COMMIT, rdata);
@@ -1103,7 +1201,7 @@ RecordTransactionCommit(void)
 	if (XactSyncCommit || forceSyncCommit || haveNonTemp)
 	{
 		/*
-		 * Synchronous commit case.
+		 * Synchronous commit case:
 		 *
 		 * Sleep before flush! So we can flush more than one commit records
 		 * per single fsync.  (The idea is some other backend may do the
@@ -1129,7 +1227,12 @@ RecordTransactionCommit(void)
 	else
 	{
 		/*
-		 * Asynchronous commit case.
+		 * Asynchronous commit case:
+		 *
+		 * This enables possible committed transaction loss in the case of a
+		 * postmaster crash because WAL buffers are left unwritten. Ideally we
+		 * could issue the WAL write without the fsync, but some
+		 * wal_sync_methods do not allow separate write/fsync.
 		 *
 		 * Report the latest async commit LSN, so that the WAL writer knows to
 		 * flush this commit.
@@ -1171,11 +1274,18 @@ cleanup:
 
 
 /*
- *	AtCommit_LocalCache
+ *	AtCCI_LocalCache
  */
 static void
-AtCommit_LocalCache(void)
+AtCCI_LocalCache(void)
 {
+	/*
+	 * Make any pending relation map changes visible.  We must do this before
+	 * processing local sinval messages, so that the map changes will get
+	 * reflected into the relcache when relcache invals are processed.
+	 */
+	AtCCI_RelationMap();
+
 	/*
 	 * Make catalog changes visible to me for the next command.
 	 */
@@ -1298,9 +1408,9 @@ AtSubCommit_childXids(void)
 	 *
 	 * Note: We rely on the fact that the XID of a child always follows that
 	 * of its parent.  By copying the XID of this subtransaction before the
-	 * XIDs of its children, we ensure that the array stays ordered.
-	 * Likewise, all XIDs already in the array belong to subtransactions
-	 * started and subcommitted before us, so their XIDs must precede ours.
+	 * XIDs of its children, we ensure that the array stays ordered. Likewise,
+	 * all XIDs already in the array belong to subtransactions started and
+	 * subcommitted before us, so their XIDs must precede ours.
 	 */
 	s->parent->childXids[s->parent->nChildXids] = s->transactionId;
 
@@ -1421,6 +1531,18 @@ RecordTransactionAbort(bool isSubXact)
 	(void) XLogInsert(RM_XACT_ID, XLOG_XACT_ABORT, rdata);
 
 	/*
+	 * Report the latest async abort LSN, so that the WAL writer knows to
+	 * flush this abort. There's nothing to be gained by delaying this, since
+	 * WALWriter may as well do this when it can. This is important with
+	 * streaming replication because if we don't flush WAL regularly we will
+	 * find that large aborts leave us with a long backlog for when commits
+	 * occur after the abort, increasing our window of data loss should
+	 * problems occur at that point.
+	 */
+	if (!isSubXact)
+		XLogSetAsyncCommitLSN(XactLastRecEnd);
+
+	/*
 	 * Mark the transaction aborted in clog.  This is not absolutely necessary
 	 * but we may as well do it while we are here; also, in the subxact case
 	 * it is helpful because XactLockTableWait makes use of it to avoid
@@ -1531,6 +1653,13 @@ AtSubAbort_childXids(void)
 	s->childXids = NULL;
 	s->nChildXids = 0;
 	s->maxChildXids = 0;
+
+	/*
+	 * We could prune the unreportedXids array here. But we don't bother. That
+	 * would potentially reduce number of XLOG_XACT_ASSIGNMENT records but it
+	 * would likely introduce more CPU time into the more common paths, so we
+	 * choose not to do that.
+	 */
 }
 
 /* ----------------------------------------------------------------
@@ -1649,9 +1778,23 @@ StartTransaction(void)
 	s->transactionId = InvalidTransactionId;	/* until assigned */
 	/*
 	 * Make sure we've reset xact state variables
+	 *
+	 * If recovery is still in progress, mark this transaction as read-only.
+	 * We have lower level defences in XLogInsert and elsewhere to stop us
+	 * from modifying data during recovery, but this gives the normal
+	 * indication to the user that the transaction is read-only.
 	 */
+	if (RecoveryInProgress())
+	{
+		s->startedInRecovery = true;
+		XactReadOnly = true;
+	}
+	else
+	{
+		s->startedInRecovery = false;
+		XactReadOnly = DefaultXactReadOnly;
+	}
 	XactIsoLevel = DefaultXactIsoLevel;
-	XactReadOnly = DefaultXactReadOnly;
 	forceSyncCommit = false;
 	MyXactAccessedTempRel = false;
 
@@ -1662,6 +1805,11 @@ StartTransaction(void)
 	currentSubTransactionId = TopSubTransactionId;
 	currentCommandId = FirstCommandId;
 	currentCommandIdUsed = false;
+
+	/*
+	 * initialize reported xid accounting
+	 */
+	nUnreportedXids = 0;
 
 	/*
 	 * must initialize resource-management stuff first
@@ -1715,9 +1863,9 @@ StartTransaction(void)
 	s->childXids = NULL;
 	s->nChildXids = 0;
 	s->maxChildXids = 0;
-	GetUserIdAndContext(&s->prevUser, &s->prevSecDefCxt);
-	/* SecurityDefinerContext should never be set outside a transaction */
-	Assert(!s->prevSecDefCxt);
+	GetUserIdAndSecContext(&s->prevUser, &s->prevSecContext);
+	/* SecurityRestrictionContext should never be set outside a transaction */
+	Assert(s->prevSecContext == 0);
 
 	/*
 	 * initialize other subsystems for new transaction
@@ -1847,14 +1995,12 @@ CommitTransaction(bool contact_gtm)
 	/* close large objects before lower-level cleanup */
 	AtEOXact_LargeObject(true);
 
-	/* NOTIFY commit must come before lower-level cleanup */
-	AtCommit_Notify();
-
 	/*
-	 * Update flat files if we changed pg_database, pg_authid or
-	 * pg_auth_members.  This should be the last step before commit.
+	 * Insert notifications sent by NOTIFY commands into the queue.  This
+	 * should be late in the pre-commit sequence to minimize time spent
+	 * holding the notify-insertion lock.
 	 */
-	AtEOXact_UpdateFlatFiles(true);
+	PreCommit_Notify();
 
 #ifdef PGXC
 	/*
@@ -1870,6 +2016,9 @@ CommitTransaction(bool contact_gtm)
 
 	/* Prevent cancel/die interrupt while cleaning up */
 	HOLD_INTERRUPTS();
+
+	/* Commit updates to the relation map --- do this as late as possible */
+	AtEOXact_RelationMap(true);
 
 	/*
 	 * set the current transaction state information appropriately during
@@ -2023,6 +2172,7 @@ CommitTransaction(bool contact_gtm)
 	/* Check we've released all catcache entries */
 	AtEOXact_CatCache(true);
 
+	AtCommit_Notify();
 	AtEOXact_GUC(true, 1);
 	AtEOXact_SPI(true);
 	AtEOXact_on_commit_actions(true);
@@ -2145,7 +2295,7 @@ PrepareTransaction(void)
 	/* close large objects before lower-level cleanup */
 	AtEOXact_LargeObject(true);
 
-	/* NOTIFY and flatfiles will be handled below */
+	/* NOTIFY will be handled below */
 
 	/*
 	 * Don't allow PREPARE TRANSACTION if we've accessed a temporary table in
@@ -2208,10 +2358,10 @@ PrepareTransaction(void)
 	StartPrepare(gxact);
 
 	AtPrepare_Notify();
-	AtPrepare_UpdateFlatFiles();
-	AtPrepare_Inval();
 	AtPrepare_Locks();
 	AtPrepare_PgStat();
+	AtPrepare_MultiXact();
+	AtPrepare_RelationMap();
 
 	/*
 	 * Here is where we really truly prepare.
@@ -2257,7 +2407,7 @@ PrepareTransaction(void)
 	/* Clean up the snapshot manager */
 	AtEarlyCommit_Snapshot();
 
-	/* notify and flatfiles don't need a postprepare call */
+	/* notify doesn't need a postprepare call */
 
 	PostPrepare_PgStat();
 
@@ -2265,7 +2415,7 @@ PrepareTransaction(void)
 
 	PostPrepare_smgr();
 
-	AtEOXact_MultiXact();
+	PostPrepare_MultiXact(xid);
 
 	PostPrepare_Locks(xid);
 
@@ -2384,13 +2534,13 @@ AbortTransaction(void)
 	 * Reset user ID which might have been changed transiently.  We need this
 	 * to clean up in case control escaped out of a SECURITY DEFINER function
 	 * or other local change of CurrentUserId; therefore, the prior value of
-	 * SecurityDefinerContext also needs to be restored.
+	 * SecurityRestrictionContext also needs to be restored.
 	 *
 	 * (Note: it is not necessary to restore session authorization or role
 	 * settings here because those can only be changed via GUC, and GUC will
 	 * take care of rolling them back if need be.)
 	 */
-	SetUserIdAndContext(s->prevUser, s->prevSecDefCxt);
+	SetUserIdAndSecContext(s->prevUser, s->prevSecContext);
 
 #ifdef PGXC
 	/*
@@ -2415,11 +2565,11 @@ AbortTransaction(void)
 	/*
 	 * do abort processing
 	 */
-	AfterTriggerEndXact(false);
+	AfterTriggerEndXact(false); /* 'false' means it's abort */
 	AtAbort_Portals();
-	AtEOXact_LargeObject(false);	/* 'false' means it's abort */
+	AtEOXact_LargeObject(false);
 	AtAbort_Notify();
-	AtEOXact_UpdateFlatFiles(false);
+	AtEOXact_RelationMap(false);
 
 	/*
 	 * Advertise the fact that we aborted in pg_clog (assuming that we got as
@@ -2513,37 +2663,40 @@ AbortTransaction(void)
 
 	/*
 	 * Post-abort cleanup.	See notes in CommitTransaction() concerning
-	 * ordering.
+	 * ordering.  We can skip all of it if the transaction failed before
+	 * creating a resource owner.
 	 */
+	if (TopTransactionResourceOwner != NULL)
+	{
+		CallXactCallbacks(XACT_EVENT_ABORT);
 
-	CallXactCallbacks(XACT_EVENT_ABORT);
+		ResourceOwnerRelease(TopTransactionResourceOwner,
+							 RESOURCE_RELEASE_BEFORE_LOCKS,
+							 false, true);
+		AtEOXact_Buffers(false);
+		AtEOXact_RelationCache(false);
+		AtEOXact_Inval(false);
+		smgrDoPendingDeletes(false);
+		AtEOXact_MultiXact();
+		ResourceOwnerRelease(TopTransactionResourceOwner,
+							 RESOURCE_RELEASE_LOCKS,
+							 false, true);
+		ResourceOwnerRelease(TopTransactionResourceOwner,
+							 RESOURCE_RELEASE_AFTER_LOCKS,
+							 false, true);
+		AtEOXact_CatCache(false);
 
-	ResourceOwnerRelease(TopTransactionResourceOwner,
-						 RESOURCE_RELEASE_BEFORE_LOCKS,
-						 false, true);
-	AtEOXact_Buffers(false);
-	AtEOXact_RelationCache(false);
-	AtEOXact_Inval(false);
-	smgrDoPendingDeletes(false);
-	AtEOXact_MultiXact();
-	ResourceOwnerRelease(TopTransactionResourceOwner,
-						 RESOURCE_RELEASE_LOCKS,
-						 false, true);
-	ResourceOwnerRelease(TopTransactionResourceOwner,
-						 RESOURCE_RELEASE_AFTER_LOCKS,
-						 false, true);
-	AtEOXact_CatCache(false);
-
-	AtEOXact_GUC(false, 1);
-	AtEOXact_SPI(false);
-	AtEOXact_on_commit_actions(false);
-	AtEOXact_Namespace(false);
-	AtEOXact_Files();
-	AtEOXact_ComboCid();
-	AtEOXact_HashTables(false);
-	AtEOXact_PgStat(false);
-	AtEOXact_Snapshot(false);
-	pgstat_report_xact_timestamp(0);
+		AtEOXact_GUC(false, 1);
+		AtEOXact_SPI(false);
+		AtEOXact_on_commit_actions(false);
+		AtEOXact_Namespace(false);
+		AtEOXact_Files();
+		AtEOXact_ComboCid();
+		AtEOXact_HashTables(false);
+		AtEOXact_PgStat(false);
+		AtEOXact_Snapshot(false);
+		pgstat_report_xact_timestamp(0);
+	}
 
 	/*
 	 * State remains TRANS_ABORT until CleanupTransaction().
@@ -4315,8 +4468,6 @@ CommitSubTransaction(void)
 	AtEOSubXact_LargeObject(true, s->subTransactionId,
 							s->parent->subTransactionId);
 	AtSubCommit_Notify();
-	AtEOSubXact_UpdateFlatFiles(true, s->subTransactionId,
-								s->parent->subTransactionId);
 
 	CallSubXactCallbacks(SUBXACT_EVENT_COMMIT_SUB, s->subTransactionId,
 						 s->parent->subTransactionId);
@@ -4421,7 +4572,7 @@ AbortSubTransaction(void)
 	 * Reset user ID which might have been changed transiently.  (See notes in
 	 * AbortTransaction.)
 	 */
-	SetUserIdAndContext(s->prevUser, s->prevSecDefCxt);
+	SetUserIdAndSecContext(s->prevUser, s->prevSecContext);
 
 	/*
 	 * We can skip all this stuff if the subxact failed before creating a
@@ -4436,8 +4587,6 @@ AbortSubTransaction(void)
 		AtEOSubXact_LargeObject(false, s->subTransactionId,
 								s->parent->subTransactionId);
 		AtSubAbort_Notify();
-		AtEOSubXact_UpdateFlatFiles(false, s->subTransactionId,
-									s->parent->subTransactionId);
 
 		/* Advertise the fact that we aborted in pg_clog. */
 		(void) RecordTransactionAbort(true);
@@ -4567,7 +4716,7 @@ PushTransaction(void)
 	s->savepointLevel = p->savepointLevel;
 	s->state = TRANS_DEFAULT;
 	s->blockState = TBLOCK_SUBBEGIN;
-	GetUserIdAndContext(&s->prevUser, &s->prevSecDefCxt);
+	GetUserIdAndSecContext(&s->prevUser, &s->prevSecContext);
 	s->prevXactReadOnly = XactReadOnly;
 
 	CurrentTransactionState = s;
@@ -4769,29 +4918,92 @@ xactGetCommittedChildren(TransactionId **ptr)
  *	XLOG support routines
  */
 
+/*
+ * Before 9.0 this was a fairly short function, but now it performs many
+ * actions for which the order of execution is critical.
+ */
 static void
-xact_redo_commit(xl_xact_commit *xlrec, TransactionId xid)
+xact_redo_commit(xl_xact_commit *xlrec, TransactionId xid, XLogRecPtr lsn)
 {
 	TransactionId *sub_xids;
+	SharedInvalidationMessage *inval_msgs;
 	TransactionId max_xid;
 	int			i;
 
-	/* Mark the transaction committed in pg_clog */
+	/* subxid array follows relfilenodes */
 	sub_xids = (TransactionId *) &(xlrec->xnodes[xlrec->nrels]);
-	TransactionIdCommitTree(xid, xlrec->nsubxacts, sub_xids);
+	/* invalidation messages array follows subxids */
+	inval_msgs = (SharedInvalidationMessage *) &(sub_xids[xlrec->nsubxacts]);
 
-	/* Make sure nextXid is beyond any XID mentioned in the record */
-	max_xid = xid;
-	for (i = 0; i < xlrec->nsubxacts; i++)
-	{
-		if (TransactionIdPrecedes(max_xid, sub_xids[i]))
-			max_xid = sub_xids[i];
-	}
+	max_xid = TransactionIdLatest(xid, xlrec->nsubxacts, sub_xids);
+
+	/*
+	 * Make sure nextXid is beyond any XID mentioned in the record.
+	 *
+	 * We don't expect anyone else to modify nextXid, hence we don't need to
+	 * hold a lock while checking this. We still acquire the lock to modify
+	 * it, though.
+	 */
 	if (TransactionIdFollowsOrEquals(max_xid,
 									 ShmemVariableCache->nextXid))
 	{
+		LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
 		ShmemVariableCache->nextXid = max_xid;
 		TransactionIdAdvance(ShmemVariableCache->nextXid);
+		LWLockRelease(XidGenLock);
+	}
+
+	if (standbyState == STANDBY_DISABLED)
+	{
+		/*
+		 * Mark the transaction committed in pg_clog.
+		 */
+		TransactionIdCommitTree(xid, xlrec->nsubxacts, sub_xids);
+	}
+	else
+	{
+		/*
+		 * If a transaction completion record arrives that has as-yet
+		 * unobserved subtransactions then this will not have been fully
+		 * handled by the call to RecordKnownAssignedTransactionIds() in the
+		 * main recovery loop in xlog.c. So we need to do bookkeeping again to
+		 * cover that case. This is confusing and it is easy to think this
+		 * call is irrelevant, which has happened three times in development
+		 * already. Leave it in.
+		 */
+		RecordKnownAssignedTransactionIds(max_xid);
+
+		/*
+		 * Mark the transaction committed in pg_clog. We use async commit
+		 * protocol during recovery to provide information on database
+		 * consistency for when users try to set hint bits. It is important
+		 * that we do not set hint bits until the minRecoveryPoint is past
+		 * this commit record. This ensures that if we crash we don't see hint
+		 * bits set on changes made by transactions that haven't yet
+		 * recovered. It's unlikely but it's good to be safe.
+		 */
+		TransactionIdAsyncCommitTree(xid, xlrec->nsubxacts, sub_xids, lsn);
+
+		/*
+		 * We must mark clog before we update the ProcArray.
+		 */
+		ExpireTreeKnownAssignedTransactionIds(xid, xlrec->nsubxacts, sub_xids, max_xid);
+
+		/*
+		 * Send any cache invalidations attached to the commit. We must
+		 * maintain the same order of invalidation then release locks as
+		 * occurs in CommitTransaction().
+		 */
+		ProcessCommittedInvalidationMessages(inval_msgs, xlrec->nmsgs,
+								  XactCompletionRelcacheInitFileInval(xlrec),
+											 xlrec->dbId, xlrec->tsId);
+
+		/*
+		 * Release locks, if any. We do this for both two phase and normal one
+		 * phase transactions. In effect we are ignoring the prepare phase and
+		 * just going straight to lock release.
+		 */
+		StandbyReleaseLockTree(xid, xlrec->nsubxacts, sub_xids);
 	}
 
 	/* Make sure files supposed to be dropped are dropped */
@@ -4810,8 +5022,32 @@ xact_redo_commit(xl_xact_commit *xlrec, TransactionId xid)
 		}
 		smgrclose(srel);
 	}
+
+	/*
+	 * We issue an XLogFlush() for the same reason we emit ForceSyncCommit()
+	 * in normal operation. For example, in DROP DATABASE, we delete all the
+	 * files belonging to the database, and then commit the transaction. If we
+	 * crash after all the files have been deleted but before the commit, you
+	 * have an entry in pg_database without any files. To minimize the window
+	 * for that, we use ForceSyncCommit() to rush the commit record to disk as
+	 * quick as possible. We have the same window during recovery, and forcing
+	 * an XLogFlush() (which updates minRecoveryPoint during recovery) helps
+	 * to reduce that problem window, for any user that requested
+	 * ForceSyncCommit().
+	 */
+	if (XactCompletionForceSyncCommit(xlrec))
+		XLogFlush(lsn);
 }
 
+/*
+ * Be careful with the order of execution, as with xact_redo_commit().
+ * The two functions are similar but differ in key places.
+ *
+ * Note also that an abort can be for a subtransaction and its children,
+ * not just for a top level abort. That means we have to consider
+ * topxid != xid, whereas in commit we would find topxid == xid always
+ * because subtransaction commit is never WAL logged.
+ */
 static void
 xact_redo_abort(xl_xact_abort *xlrec, TransactionId xid)
 {
@@ -4819,22 +5055,60 @@ xact_redo_abort(xl_xact_abort *xlrec, TransactionId xid)
 	TransactionId max_xid;
 	int			i;
 
-	/* Mark the transaction aborted in pg_clog */
 	sub_xids = (TransactionId *) &(xlrec->xnodes[xlrec->nrels]);
-	TransactionIdAbortTree(xid, xlrec->nsubxacts, sub_xids);
+	max_xid = TransactionIdLatest(xid, xlrec->nsubxacts, sub_xids);
 
 	/* Make sure nextXid is beyond any XID mentioned in the record */
-	max_xid = xid;
-	for (i = 0; i < xlrec->nsubxacts; i++)
-	{
-		if (TransactionIdPrecedes(max_xid, sub_xids[i]))
-			max_xid = sub_xids[i];
-	}
+
+	/*
+	 * We don't expect anyone else to modify nextXid, hence we don't need to
+	 * hold a lock while checking this. We still acquire the lock to modify
+	 * it, though.
+	 */
 	if (TransactionIdFollowsOrEquals(max_xid,
 									 ShmemVariableCache->nextXid))
 	{
+		LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
 		ShmemVariableCache->nextXid = max_xid;
 		TransactionIdAdvance(ShmemVariableCache->nextXid);
+		LWLockRelease(XidGenLock);
+	}
+
+	if (standbyState == STANDBY_DISABLED)
+	{
+		/* Mark the transaction aborted in pg_clog, no need for async stuff */
+		TransactionIdAbortTree(xid, xlrec->nsubxacts, sub_xids);
+	}
+	else
+	{
+		/*
+		 * If a transaction completion record arrives that has as-yet
+		 * unobserved subtransactions then this will not have been fully
+		 * handled by the call to RecordKnownAssignedTransactionIds() in the
+		 * main recovery loop in xlog.c. So we need to do bookkeeping again to
+		 * cover that case. This is confusing and it is easy to think this
+		 * call is irrelevant, which has happened three times in development
+		 * already. Leave it in.
+		 */
+		RecordKnownAssignedTransactionIds(max_xid);
+
+		/* Mark the transaction aborted in pg_clog, no need for async stuff */
+		TransactionIdAbortTree(xid, xlrec->nsubxacts, sub_xids);
+
+		/*
+		 * We must update the ProcArray after we have marked clog.
+		 */
+		ExpireTreeKnownAssignedTransactionIds(xid, xlrec->nsubxacts, sub_xids, max_xid);
+
+		/*
+		 * There are no flat files that need updating, nor invalidation
+		 * messages to send or undo.
+		 */
+
+		/*
+		 * Release locks, if any. There are no invalidations to send.
+		 */
+		StandbyReleaseLockTree(xid, xlrec->nsubxacts, sub_xids);
 	}
 
 	/* Make sure files supposed to be dropped are dropped */
@@ -4867,7 +5141,7 @@ xact_redo(XLogRecPtr lsn, XLogRecord *record)
 	{
 		xl_xact_commit *xlrec = (xl_xact_commit *) XLogRecGetData(record);
 
-		xact_redo_commit(xlrec, record->xl_xid);
+		xact_redo_commit(xlrec, record->xl_xid, lsn);
 	}
 	else if (info == XLOG_XACT_ABORT)
 	{
@@ -4885,7 +5159,7 @@ xact_redo(XLogRecPtr lsn, XLogRecord *record)
 	{
 		xl_xact_commit_prepared *xlrec = (xl_xact_commit_prepared *) XLogRecGetData(record);
 
-		xact_redo_commit(&xlrec->crec, xlrec->xid);
+		xact_redo_commit(&xlrec->crec, xlrec->xid, lsn);
 		RemoveTwoPhaseFile(xlrec->xid, false);
 	}
 	else if (info == XLOG_XACT_ABORT_PREPARED)
@@ -4895,6 +5169,14 @@ xact_redo(XLogRecPtr lsn, XLogRecord *record)
 		xact_redo_abort(&xlrec->arec, xlrec->xid);
 		RemoveTwoPhaseFile(xlrec->xid, false);
 	}
+	else if (info == XLOG_XACT_ASSIGNMENT)
+	{
+		xl_xact_assignment *xlrec = (xl_xact_assignment *) XLogRecGetData(record);
+
+		if (standbyState >= STANDBY_INITIALIZED)
+			ProcArrayApplyXidAssignment(xlrec->xtop,
+										xlrec->nsubxacts, xlrec->xsub);
+	}
 	else
 		elog(PANIC, "xact_redo: unknown op code %u", info);
 }
@@ -4903,8 +5185,12 @@ static void
 xact_desc_commit(StringInfo buf, xl_xact_commit *xlrec)
 {
 	int			i;
+	TransactionId *xacts;
+
+	xacts = (TransactionId *) &xlrec->xnodes[xlrec->nrels];
 
 	appendStringInfoString(buf, timestamptz_to_str(xlrec->xact_time));
+
 	if (xlrec->nrels > 0)
 	{
 		appendStringInfo(buf, "; rels:");
@@ -4918,12 +5204,39 @@ xact_desc_commit(StringInfo buf, xl_xact_commit *xlrec)
 	}
 	if (xlrec->nsubxacts > 0)
 	{
-		TransactionId *xacts = (TransactionId *)
-		&xlrec->xnodes[xlrec->nrels];
-
 		appendStringInfo(buf, "; subxacts:");
 		for (i = 0; i < xlrec->nsubxacts; i++)
 			appendStringInfo(buf, " %u", xacts[i]);
+	}
+	if (xlrec->nmsgs > 0)
+	{
+		SharedInvalidationMessage *msgs;
+
+		msgs = (SharedInvalidationMessage *) &xacts[xlrec->nsubxacts];
+
+		if (XactCompletionRelcacheInitFileInval(xlrec))
+			appendStringInfo(buf, "; relcache init file inval dbid %u tsid %u",
+							 xlrec->dbId, xlrec->tsId);
+
+		appendStringInfo(buf, "; inval msgs:");
+		for (i = 0; i < xlrec->nmsgs; i++)
+		{
+			SharedInvalidationMessage *msg = &msgs[i];
+
+			if (msg->id >= 0)
+				appendStringInfo(buf, " catcache %d", msg->id);
+			else if (msg->id == SHAREDINVALCATALOG_ID)
+				appendStringInfo(buf, " catalog %u", msg->cat.catId);
+			else if (msg->id == SHAREDINVALRELCACHE_ID)
+				appendStringInfo(buf, " relcache %u", msg->rc.relId);
+			/* remaining cases not expected, but print something anyway */
+			else if (msg->id == SHAREDINVALSMGR_ID)
+				appendStringInfo(buf, " smgr");
+			else if (msg->id == SHAREDINVALRELMAP_ID)
+				appendStringInfo(buf, " relmap");
+			else
+				appendStringInfo(buf, " unknown id %d", msg->id);
+		}
 	}
 }
 
@@ -4955,6 +5268,17 @@ xact_desc_abort(StringInfo buf, xl_xact_abort *xlrec)
 	}
 }
 
+static void
+xact_desc_assignment(StringInfo buf, xl_xact_assignment *xlrec)
+{
+	int			i;
+
+	appendStringInfo(buf, "subxacts:");
+
+	for (i = 0; i < xlrec->nsubxacts; i++)
+		appendStringInfo(buf, " %u", xlrec->xsub[i]);
+}
+
 void
 xact_desc(StringInfo buf, uint8 xl_info, char *rec)
 {
@@ -4982,15 +5306,27 @@ xact_desc(StringInfo buf, uint8 xl_info, char *rec)
 	{
 		xl_xact_commit_prepared *xlrec = (xl_xact_commit_prepared *) rec;
 
-		appendStringInfo(buf, "commit %u: ", xlrec->xid);
+		appendStringInfo(buf, "commit prepared %u: ", xlrec->xid);
 		xact_desc_commit(buf, &xlrec->crec);
 	}
 	else if (info == XLOG_XACT_ABORT_PREPARED)
 	{
 		xl_xact_abort_prepared *xlrec = (xl_xact_abort_prepared *) rec;
 
-		appendStringInfo(buf, "abort %u: ", xlrec->xid);
+		appendStringInfo(buf, "abort prepared %u: ", xlrec->xid);
 		xact_desc_abort(buf, &xlrec->arec);
+	}
+	else if (info == XLOG_XACT_ASSIGNMENT)
+	{
+		xl_xact_assignment *xlrec = (xl_xact_assignment *) rec;
+
+		/*
+		 * Note that we ignore the WAL record's xid, since we're more
+		 * interested in the top-level xid that issued the record and which
+		 * xids are being reported here.
+		 */
+		appendStringInfo(buf, "xid assignment xtop %u: ", xlrec->xtop);
+		xact_desc_assignment(buf, xlrec);
 	}
 	else
 		appendStringInfo(buf, "UNKNOWN");

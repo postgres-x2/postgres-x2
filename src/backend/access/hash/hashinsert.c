@@ -3,12 +3,12 @@
  * hashinsert.c
  *	  Item insertion in hash tables for Postgres.
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/access/hash/hashinsert.c,v 1.52 2009/01/01 17:23:35 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/access/hash/hashinsert.c,v 1.54 2010/01/02 16:57:34 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -18,10 +18,6 @@
 #include "access/hash.h"
 #include "storage/bufmgr.h"
 #include "utils/rel.h"
-
-
-static OffsetNumber _hash_pgaddtup(Relation rel, Buffer buf,
-			   Size itemsize, IndexTuple itup);
 
 
 /*
@@ -180,15 +176,16 @@ _hash_doinsert(Relation rel, IndexTuple itup)
 /*
  *	_hash_pgaddtup() -- add a tuple to a particular page in the index.
  *
- *		This routine adds the tuple to the page as requested; it does
- *		not write out the page.  It is an error to call pgaddtup() without
- *		a write lock and pin.
+ * This routine adds the tuple to the page as requested; it does not write out
+ * the page.  It is an error to call pgaddtup() without pin and write lock on
+ * the target buffer.
+ *
+ * Returns the offset number at which the tuple was inserted.  This function
+ * is responsible for preserving the condition that tuples in a hash index
+ * page are sorted by hashkey value.
  */
-static OffsetNumber
-_hash_pgaddtup(Relation rel,
-			   Buffer buf,
-			   Size itemsize,
-			   IndexTuple itup)
+OffsetNumber
+_hash_pgaddtup(Relation rel, Buffer buf, Size itemsize, IndexTuple itup)
 {
 	OffsetNumber itup_off;
 	Page		page;

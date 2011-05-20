@@ -3,12 +3,12 @@
  * datetime.c
  *	  Support functions for date/time types.
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/utils/adt/datetime.c,v 1.208 2009/06/11 14:49:03 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/utils/adt/datetime.c,v 1.212 2010/05/09 02:15:59 tgl Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -2986,6 +2986,9 @@ DecodeInterval(char **field, int *ftype, int nf, int range,
 						break;
 
 					case DTK_MILLISEC:
+						/* avoid overflowing the fsec field */
+						tm->tm_sec += val / 1000;
+						val -= (val / 1000) * 1000;
 #ifdef HAVE_INT64_TIMESTAMP
 						*fsec += rint((val + fval) * 1000);
 #else
@@ -3737,6 +3740,12 @@ EncodeDateTime(struct pg_tm * tm, fsec_t fsec, int *tzp, char **tzn, int style, 
 
 			AppendTimestampSeconds(str + strlen(str), tm, fsec);
 
+			/*
+			 * Note: the uses of %.*s in this function would be risky if the
+			 * timezone names ever contain non-ASCII characters.  However, all
+			 * TZ abbreviations in the Olson database are plain ASCII.
+			 */
+
 			if (tzp != NULL && tm->tm_isdst >= 0)
 			{
 				if (*tzn != NULL)
@@ -4088,6 +4097,7 @@ CheckDateTokenTable(const char *tablename, const datetkn *base, int nel)
 	{
 		if (strncmp(base[i - 1].token, base[i].token, TOKMAXLEN) >= 0)
 		{
+			/* %.*s is safe since all our tokens are ASCII */
 			elog(LOG, "ordering error in %s table: \"%.*s\" >= \"%.*s\"",
 				 tablename,
 				 TOKMAXLEN, base[i - 1].token,

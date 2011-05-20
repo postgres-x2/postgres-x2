@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/queries.sgml,v 1.55 2009/06/17 21:58:49 tgl Exp $ -->
+<!-- $PostgreSQL: pgsql/doc/src/sgml/queries.sgml,v 1.58 2010/07/03 02:57:46 rhaas Exp $ -->
 
 <chapter id="queries">
  <title>Queries</title>
@@ -24,7 +24,7 @@
   <para>
    The process of retrieving or the command to retrieve data from a
    database is called a <firstterm>query</firstterm>.  In SQL the
-   <xref linkend="sql-select" endterm="sql-select-title"> command is
+   <xref linkend="sql-select"> command is
    used to specify queries.  The general syntax of the
    <command>SELECT</command> command is
 <synopsis>
@@ -521,23 +521,13 @@ SELECT * FROM some_very_long_table_name s JOIN another_fairly_long_name a ON s.i
     </para>
 
     <para>
-     The alias becomes the new name of the table reference for the
-     current query &mdash; it is no longer possible to refer to the table
-     by the original name.  Thus:
+     The alias becomes the new name of the table reference so far as the
+     current query is concerned &mdash; it is not allowed to refer to the
+     table by the original name elsewhere in the query.  Thus, this is not
+     valid:
 <programlisting>
-SELECT * FROM my_table AS m WHERE my_table.a &gt; 5;
+SELECT * FROM my_table AS m WHERE my_table.a &gt; 5;    -- wrong
 </programlisting>
-     is not valid according to the SQL standard.  In
-     <productname>PostgreSQL</productname> this will draw an error, assuming the
-     <xref linkend="guc-add-missing-from"> configuration variable is
-     <literal>off</> (as it is by default).  If it is <literal>on</>,
-     an implicit table reference will be added to the
-     <literal>FROM</literal> clause, so the query is processed as if
-     it were written as:
-<programlisting>
-SELECT * FROM my_table AS m, my_table AS my_table WHERE my_table.a &gt; 5;
-</programlisting>
-     That will result in a cross join, which is usually not what you want.
     </para>
 
     <para>
@@ -989,7 +979,8 @@ SELECT product_id, p.name, (sum(s.units) * (p.price - p.cost)) AS profit
 
    <para>
     If the query contains any window functions (see
-    <xref linkend="tutorial-window"> and
+    <xref linkend="tutorial-window">,
+    <xref linkend="functions-window"> and
     <xref linkend="syntax-window-functions">), these functions are evaluated
     after any grouping, aggregation, and <literal>HAVING</> filtering is
     performed.  That is, if the query uses any aggregates, <literal>GROUP
@@ -1518,8 +1509,7 @@ SELECT <replaceable>select_list</replaceable> FROM <replaceable>table_expression
   </para>
 
   <para>
-   For more information see <xref linkend="sql-values"
-   endterm="sql-values-title">.
+   For more information see <xref linkend="sql-values">.
   </para>
 
  </sect1>

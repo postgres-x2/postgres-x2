@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/storage.sgml,v 1.29 2009/06/17 21:58:49 tgl Exp $ -->
+<!-- $PostgreSQL: pgsql/doc/src/sgml/storage.sgml,v 1.32 2010/02/16 22:34:43 tgl Exp $ -->
 
 <chapter id="storage">
 
@@ -78,6 +78,11 @@ Item
 </row>
 
 <row>
+ <entry><filename>pg_notify</></entry>
+ <entry>Subdirectory containing LISTEN/NOTIFY status data</entry>
+</row>
+
+<row>
  <entry><filename>pg_stat_tmp</></entry>
  <entry>Subdirectory containing temporary files for the statistics
   subsystem</entry>
@@ -147,6 +152,11 @@ Note that while a table's filenode often matches its OID, this is
 <command>TRUNCATE</>, <command>REINDEX</>, <command>CLUSTER</> and some forms
 of <command>ALTER TABLE</>, can change the filenode while preserving the OID.
 Avoid assuming that filenode and table OID are the same.
+Also, for certain system catalogs including <structname>pg_class</> itself,
+<structname>pg_class</>.<structfield>relfilenode</> contains zero.  The
+actual filenode number of these catalogs is stored in a lower-level data
+structure, and can be obtained using the <function>pg_relation_filenode()</>
+function.
 </para>
 </caution>
 
@@ -186,6 +196,16 @@ naming scheme.  The <literal>pg_default</> tablespace is not accessed through
 <varname>PGDATA</><filename>/base</>.  Similarly, the <literal>pg_global</>
 tablespace is not accessed through <filename>pg_tblspc</>, but corresponds to
 <varname>PGDATA</><filename>/global</>.
+</para>
+
+<para>
+The <function>pg_relation_filepath()</> function shows the entire path
+(relative to <varname>PGDATA</>) of any relation.  It is often useful
+as a substitute for remembering many of the above rules.  But keep in
+mind that this function just gives the name of the first segment of the
+main fork of the relation &mdash; you may need to append a segment number
+and/or <literal>_fsm</> or <literal>_vm</> to find all the files associated
+with the relation.
 </para>
 
 <para>
@@ -347,7 +367,7 @@ The <acronym>TOAST</> code recognizes four different strategies for storing
       <literal>MAIN</literal> allows compression but not out-of-line
       storage.  (Actually, out-of-line storage will still be performed
       for such columns, but only as a last resort when there is no other
-      way to make the row small enough.)
+      way to make the row small enough to fit on a page.)
      </para>
     </listitem>
    </itemizedlist>

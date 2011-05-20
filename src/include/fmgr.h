@@ -8,10 +8,10 @@
  * or call fmgr-callable functions.
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/fmgr.h,v 1.62 2009/01/01 17:23:55 momjian Exp $
+ * $PostgreSQL: pgsql/src/include/fmgr.h,v 1.66 2010/05/27 07:59:48 itagaki Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -328,7 +328,7 @@ typedef const Pg_finfo_record *(*PGFInfoFunction) (void);
  *	doesn't hurt to add PGDLLIMPORT in case they don't.
  */
 #define PG_FUNCTION_INFO_V1(funcname) \
-extern PGDLLIMPORT const Pg_finfo_record * CppConcat(pg_finfo_,funcname)(void); \
+extern PGDLLEXPORT const Pg_finfo_record * CppConcat(pg_finfo_,funcname)(void); \
 const Pg_finfo_record * \
 CppConcat(pg_finfo_,funcname) (void) \
 { \
@@ -397,7 +397,7 @@ typedef const Pg_magic_struct *(*PGModuleMagicFunction) (void);
 #define PG_MAGIC_FUNCTION_NAME_STRING "Pg_magic_func"
 
 #define PG_MODULE_MAGIC \
-extern PGDLLIMPORT const Pg_magic_struct *PG_MAGIC_FUNCTION_NAME(void); \
+extern PGDLLEXPORT const Pg_magic_struct *PG_MAGIC_FUNCTION_NAME(void); \
 const Pg_magic_struct * \
 PG_MAGIC_FUNCTION_NAME(void) \
 { \
@@ -529,6 +529,20 @@ extern PGFunction load_external_function(char *filename, char *funcname,
 extern PGFunction lookup_external_function(void *filehandle, char *funcname);
 extern void load_file(const char *filename, bool restricted);
 extern void **find_rendezvous_variable(const char *varName);
+
+/*
+ * Support for aggregate functions
+ *
+ * This is actually in executor/nodeAgg.c, but we declare it here since the
+ * whole point is for callers of it to not be overly friendly with nodeAgg.
+ */
+
+/* AggCheckCallContext can return one of the following codes, or 0: */
+#define AGG_CONTEXT_AGGREGATE	1		/* regular aggregate */
+#define AGG_CONTEXT_WINDOW		2		/* window function */
+
+extern int AggCheckCallContext(FunctionCallInfo fcinfo,
+					MemoryContext *aggcontext);
 
 
 /*

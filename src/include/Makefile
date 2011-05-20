@@ -4,7 +4,7 @@
 #
 # 'make install' installs whole contents of src/include.
 #
-# $PostgreSQL: pgsql/src/include/Makefile,v 1.26 2008/08/29 13:02:32 petere Exp $
+# $PostgreSQL: pgsql/src/include/Makefile,v 1.31 2010/01/15 09:19:05 heikki Exp $
 #
 #-------------------------------------------------------------------------
 
@@ -17,9 +17,10 @@ all: pg_config.h pg_config_os.h
 
 
 # Subdirectories containing headers for server-side dev
-SUBDIRS = access bootstrap catalog commands executor lib libpq mb \
-	nodes optimizer parser pgxc postmaster regex rewrite storage tcop \
+SUBDIRS = access bootstrap catalog commands executor foreign lib libpq mb \
+	nodes optimizer parser pgxc postmaster regex replication rewrite storage \
 	snowball snowball/libstemmer tsearch tsearch/dicts utils \
+	tcop snowball snowball/libstemmer tsearch tsearch/dicts utils \
 	port port/win32 port/win32_msvc port/win32_msvc/sys \
 	port/win32/arpa port/win32/netinet port/win32/sys \
 	portability
@@ -40,6 +41,7 @@ install: all installdirs
 # These headers are needed for server-side development
 	$(INSTALL_DATA) pg_config.h    '$(DESTDIR)$(includedir_server)'
 	$(INSTALL_DATA) pg_config_os.h '$(DESTDIR)$(includedir_server)'
+	$(INSTALL_DATA) utils/fmgroids.h '$(DESTDIR)$(includedir_server)/utils'
 # We don't use INSTALL_DATA for performance reasons --- there are a lot of files
 	cp $(srcdir)/*.h '$(DESTDIR)$(includedir_server)'/ || exit; \
 	chmod $(INSTALL_DATA_MODE) '$(DESTDIR)$(includedir_server)'/*.h  || exit; \
@@ -49,8 +51,8 @@ install: all installdirs
 	done
 
 installdirs:
-	$(mkinstalldirs) '$(DESTDIR)$(includedir)/libpq' '$(DESTDIR)$(includedir_internal)/libpq'
-	$(mkinstalldirs) $(addprefix '$(DESTDIR)$(includedir_server)'/, $(SUBDIRS))
+	$(MKDIR_P) '$(DESTDIR)$(includedir)/libpq' '$(DESTDIR)$(includedir_internal)/libpq'
+	$(MKDIR_P) $(addprefix '$(DESTDIR)$(includedir_server)'/, $(SUBDIRS))
 
 
 uninstall:
@@ -61,7 +63,7 @@ uninstall:
 
 
 clean:
-	rm -f utils/fmgroids.h parser/gram.h utils/probes.h
+	rm -f utils/fmgroids.h parser/gram.h utils/probes.h catalog/schemapg.h
 
 distclean maintainer-clean: clean
 	rm -f pg_config.h dynloader.h pg_config_os.h stamp-h

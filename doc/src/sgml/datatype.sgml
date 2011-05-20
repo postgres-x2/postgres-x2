@@ -1,7 +1,7 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/datatype.sgml,v 1.239 2009/06/17 21:58:49 tgl Exp $ -->
+<!-- $PostgreSQL: pgsql/doc/src/sgml/datatype.sgml,v 1.250 2010/07/03 04:03:06 tgl Exp $ -->
 
  <chapter id="datatype">
-  <title id="datatype-title">Data Types</title>
+  <title>Data Types</title>
 
   <indexterm zone="datatype">
    <primary>data type</primary>
@@ -16,7 +16,7 @@
    <productname>PostgreSQL</productname> has a rich set of native data
    types available to users.  Users can add new types to
    <productname>PostgreSQL</productname> using the <xref
-   linkend="sql-createtype" endterm="sql-createtype-title"> command.
+   linkend="sql-createtype"> command.
   </para>
 
   <para>
@@ -1177,7 +1177,7 @@ SELECT b, char_length(b) FROM test2;
    <para>
     A binary string is a sequence of octets (or bytes).  Binary
     strings are distinguished from character strings in two
-    ways: First, binary strings specifically allow storing
+    ways.  First, binary strings specifically allow storing
     octets of value zero and other <quote>non-printable</quote>
     octets (usually, octets outside the range 32 to 126).
     Character strings disallow zero octets, and also disallow any
@@ -1191,13 +1191,82 @@ SELECT b, char_length(b) FROM test2;
    </para>
 
    <para>
-    When entering <type>bytea</type> values, octets of certain
-    values <emphasis>must</emphasis> be escaped (but all octet
-    values <emphasis>can</emphasis> be escaped) when used as part
-    of a string literal in an <acronym>SQL</acronym> statement. In
+    The <type>bytea</type> type supports two external formats for
+    input and output: <productname>PostgreSQL</productname>'s historical
+    <quote>escape</quote> format, and <quote>hex</quote> format.  Both
+    of these are always accepted on input.  The output format depends
+    on the configuration parameter <xref linkend="guc-bytea-output">;
+    the default is hex.  (Note that the hex format was introduced in
+    <productname>PostgreSQL</productname> 9.0; earlier versions and some
+    tools don't understand it.)
+   </para>
+
+   <para>
+    The <acronym>SQL</acronym> standard defines a different binary
+    string type, called <type>BLOB</type> or <type>BINARY LARGE
+    OBJECT</type>.  The input format is different from
+    <type>bytea</type>, but the provided functions and operators are
+    mostly the same.
+   </para>
+
+  <sect2>
+   <title><type>bytea</> hex format</title>
+
+   <para>
+    The <quote>hex</> format encodes binary data as 2 hexadecimal digits
+    per byte, most significant nibble first.  The entire string is
+    preceded by the sequence <literal>\x</literal> (to distinguish it
+    from the escape format).  In some contexts, the initial backslash may
+    need to be escaped by doubling it, in the same cases in which backslashes
+    have to be doubled in escape format; details appear below.
+    The hexadecimal digits can
+    be either upper or lower case, and whitespace is permitted between
+    digit pairs (but not within a digit pair nor in the starting
+    <literal>\x</literal> sequence).
+    The hex format is compatible with a wide
+    range of external applications and protocols, and it tends to be
+    faster to convert than the escape format, so its use is preferred.
+   </para>
+
+   <para>
+    Example:
+<programlisting>
+SELECT E'\\xDEADBEEF';
+</programlisting>
+   </para>
+  </sect2>
+
+  <sect2>
+   <title><type>bytea</> escape format</title>
+
+   <para>
+    The <quote>escape</quote> format is the traditional
+    <productname>PostgreSQL</productname> format for the <type>bytea</type>
+    type.  It
+    takes the approach of representing a binary string as a sequence
+    of ASCII characters, while converting those bytes that cannot be
+    represented as an ASCII character into special escape sequences.
+    If, from the point of view of the application, representing bytes
+    as characters makes sense, then this representation can be
+    convenient.  But in practice it is usually confusing becauses it
+    fuzzes up the distinction between binary strings and character
+    strings, and also the particular escape mechanism that was chosen is
+    somewhat unwieldy.  So this format should probably be avoided
+    for most new applications.
+   </para>
+
+   <para>
+    When entering <type>bytea</type> values in escape format,
+    octets of certain
+    values <emphasis>must</emphasis> be escaped, while all octet
+    values <emphasis>can</emphasis> be escaped.  In
     general, to escape an octet, convert it into its three-digit
     octal value and precede it
-    by two backslashes.  <xref linkend="datatype-binary-sqlesc">
+    by a backslash (or two backslashes, if writing the value as a
+    literal using escape string syntax).
+    Backslash itself (octet value 92) can alternatively be represented by
+    double backslashes.
+    <xref linkend="datatype-binary-sqlesc">
     shows the characters that must be escaped, and gives the alternative
     escape sequences where applicable.
    </para>
@@ -1343,14 +1412,7 @@ SELECT b, char_length(b) FROM test2;
     have to escape line feeds and carriage returns if your interface
     automatically translates these.
    </para>
-
-   <para>
-        The <acronym>SQL</acronym> standard defines a different binary
-        string type, called <type>BLOB</type> or <type>BINARY LARGE
-        OBJECT</type>.  The input format is different from
-        <type>bytea</type>, but the provided functions and operators are
-        mostly the same.
-   </para>
+  </sect2>
  </sect1>
 
 
@@ -1461,9 +1523,11 @@ SELECT b, char_length(b) FROM test2;
 
    <note>
     <para>
-     Prior to <productname>PostgreSQL</productname> 7.3, writing just
-     <type>timestamp</type> was equivalent to <type>timestamp with
-     time zone</type>.  This was changed for SQL compliance.
+     The SQL standard requires that writing just <type>timestamp</type>
+     be equivalent to <type>timestamp without time
+     zone</type>, and <productname>PostgreSQL</productname> honors that
+     behavior.  (Releases prior to 7.3 treated it as <type>timestamp
+     with time zone</type>.)
     </para>
    </note>
 
@@ -1524,11 +1588,11 @@ SELECT b, char_length(b) FROM test2;
     DAY TO MINUTE
     DAY TO SECOND
     HOUR TO MINUTE
+    HOUR TO SECOND
     MINUTE TO SECOND
 </programlisting>
-    Input falling outside the specified set of fields is silently discarded.
     Note that if both <replaceable>fields</replaceable> and
-    <replaceable>precision</replaceable> are specified, the
+    <replaceable>p</replaceable> are specified, the
     <replaceable>fields</replaceable> must include <literal>SECOND</>,
     since the precision applies only to the seconds.
    </para>
@@ -2468,11 +2532,15 @@ P <optional> <replaceable>years</>-<replaceable>months</>-<replaceable>days</> <
 
     <para>
      When writing an interval constant with a <replaceable>fields</>
-     specification, or when assigning to an interval column that was defined
-     with a <replaceable>fields</> specification, the interpretation of
+     specification, or when assigning a string to an interval column that was
+     defined with a <replaceable>fields</> specification, the interpretation of
      unmarked quantities depends on the <replaceable>fields</>.  For
      example <literal>INTERVAL '1' YEAR</> is read as 1 year, whereas
-     <literal>INTERVAL '1'</> means 1 second.
+     <literal>INTERVAL '1'</> means 1 second.  Also, field values
+     <quote>to the right</> of the least significant field allowed by the
+     <replaceable>fields</> specification are silently discarded.  For
+     example, writing <literal>INTERVAL '1 day 2:03:04' HOUR TO MINUTE</>
+     results in dropping the seconds field, but not the day field.
     </para>
 
     <para>
@@ -2775,7 +2843,7 @@ SELECT * FROM test1 WHERE a;
 
     <para>
      Enum types are created using the <xref
-     linkend="sql-createtype" endterm="sql-createtype-title"> command,
+     linkend="sql-createtype"> command,
      for example:
 
 <programlisting>
@@ -2993,7 +3061,7 @@ SELECT person.name, holidays.num_weeks FROM person, holidays
 
    <para>
     A rich set of functions and operators is available to perform various geometric
-    operations such as scaling, translation, rotation, and determining 
+    operations such as scaling, translation, rotation, and determining
     intersections.  They are explained in <xref linkend="functions-geometry">.
    </para>
 
@@ -3005,8 +3073,9 @@ SELECT person.name, holidays.num_weeks FROM person, holidays
     </indexterm>
 
     <para>
-     Points are the fundamental two-dimensional building block for geometric types.
-     Values of type <type>point</type> are specified using the following syntax:
+     Points are the fundamental two-dimensional building block for geometric
+     types.  Values of type <type>point</type> are specified using either of
+     the following syntaxes:
 
 <synopsis>
 ( <replaceable>x</replaceable> , <replaceable>y</replaceable> )
@@ -3015,6 +3084,10 @@ SELECT person.name, holidays.num_weeks FROM person, holidays
 
      where <replaceable>x</> and <replaceable>y</> are the respective
      coordinates, as floating-point numbers.
+    </para>
+
+    <para>
+     Points are output using the first syntax.
     </para>
    </sect2>
 
@@ -3031,11 +3104,13 @@ SELECT person.name, holidays.num_weeks FROM person, holidays
 
     <para>
      Line segments (<type>lseg</type>) are represented by pairs of points.
-     Values of type <type>lseg</type> are specified using the following syntax:
+     Values of type <type>lseg</type> are specified using any of the following
+     syntaxes:
 
 <synopsis>
+[ ( <replaceable>x1</replaceable> , <replaceable>y1</replaceable> ) , ( <replaceable>x2</replaceable> , <replaceable>y2</replaceable> ) ]
 ( ( <replaceable>x1</replaceable> , <replaceable>y1</replaceable> ) , ( <replaceable>x2</replaceable> , <replaceable>y2</replaceable> ) )
-  ( <replaceable>x1</replaceable> , <replaceable>y1</replaceable> ) , ( <replaceable>x2</replaceable> , <replaceable>y2</replaceable> )  
+  ( <replaceable>x1</replaceable> , <replaceable>y1</replaceable> ) , ( <replaceable>x2</replaceable> , <replaceable>y2</replaceable> )
     <replaceable>x1</replaceable> , <replaceable>y1</replaceable>   ,   <replaceable>x2</replaceable> , <replaceable>y2</replaceable>
 </synopsis>
 
@@ -3044,6 +3119,10 @@ SELECT person.name, holidays.num_weeks FROM person, holidays
      and
      <literal>(<replaceable>x2</replaceable>,<replaceable>y2</replaceable>)</literal>
      are the end points of the line segment.
+    </para>
+
+    <para>
+     Line segments are output using the first syntax.
     </para>
    </sect2>
 
@@ -3061,11 +3140,12 @@ SELECT person.name, holidays.num_weeks FROM person, holidays
     <para>
      Boxes are represented by pairs of points that are opposite
      corners of the box.
-     Values of type <type>box</type> are specified using the following syntax:
+     Values of type <type>box</type> are specified using any of the following
+     syntaxes:
 
 <synopsis>
 ( ( <replaceable>x1</replaceable> , <replaceable>y1</replaceable> ) , ( <replaceable>x2</replaceable> , <replaceable>y2</replaceable> ) )
-  ( <replaceable>x1</replaceable> , <replaceable>y1</replaceable> ) , ( <replaceable>x2</replaceable> , <replaceable>y2</replaceable> )  
+  ( <replaceable>x1</replaceable> , <replaceable>y1</replaceable> ) , ( <replaceable>x2</replaceable> , <replaceable>y2</replaceable> )
     <replaceable>x1</replaceable> , <replaceable>y1</replaceable>   ,   <replaceable>x2</replaceable> , <replaceable>y2</replaceable>
 </synopsis>
 
@@ -3077,10 +3157,13 @@ SELECT person.name, holidays.num_weeks FROM person, holidays
     </para>
 
     <para>
-     Boxes are output using the first syntax.
+     Boxes are output using the second syntax.
+    </para>
+
+    <para>
      Any two opposite corners can be supplied on input, but the values
      will be reordered as needed to store the
-     upper right and lower left corners.
+     upper right and lower left corners, in that order.
     </para>
    </sect2>
 
@@ -3100,20 +3183,22 @@ SELECT person.name, holidays.num_weeks FROM person, holidays
     </para>
 
     <para>
-     Values of type <type>path</type> are specified using the following syntax:
+     Values of type <type>path</type> are specified using any of the following
+     syntaxes:
 
 <synopsis>
-( ( <replaceable>x1</replaceable> , <replaceable>y1</replaceable> ) , ... , ( <replaceable>xn</replaceable> , <replaceable>yn</replaceable> ) )
 [ ( <replaceable>x1</replaceable> , <replaceable>y1</replaceable> ) , ... , ( <replaceable>xn</replaceable> , <replaceable>yn</replaceable> ) ]
-  ( <replaceable>x1</replaceable> , <replaceable>y1</replaceable> ) , ... , ( <replaceable>xn</replaceable> , <replaceable>yn</replaceable> )  
-  ( <replaceable>x1</replaceable> , <replaceable>y1</replaceable>   , ... ,   <replaceable>xn</replaceable> , <replaceable>yn</replaceable> )  
-    <replaceable>x1</replaceable> , <replaceable>y1</replaceable>   , ... ,   <replaceable>xn</replaceable> , <replaceable>yn</replaceable>    
+( ( <replaceable>x1</replaceable> , <replaceable>y1</replaceable> ) , ... , ( <replaceable>xn</replaceable> , <replaceable>yn</replaceable> ) )
+  ( <replaceable>x1</replaceable> , <replaceable>y1</replaceable> ) , ... , ( <replaceable>xn</replaceable> , <replaceable>yn</replaceable> )
+  ( <replaceable>x1</replaceable> , <replaceable>y1</replaceable>   , ... ,   <replaceable>xn</replaceable> , <replaceable>yn</replaceable> )
+    <replaceable>x1</replaceable> , <replaceable>y1</replaceable>   , ... ,   <replaceable>xn</replaceable> , <replaceable>yn</replaceable>
 </synopsis>
 
      where the points are the end points of the line segments
      comprising the path.  Square brackets (<literal>[]</>) indicate
      an open path, while parentheses (<literal>()</>) indicate a
-     closed path.
+     closed path.  When the outermost parentheses are omitted, as
+     in the third through fifth syntaxes, a closed path is assumed.
     </para>
 
     <para>
@@ -3131,18 +3216,18 @@ SELECT person.name, holidays.num_weeks FROM person, holidays
     <para>
      Polygons are represented by lists of points (the vertexes of the
      polygon). Polygons are very similar to closed paths, but are
-     stored differently
-     and have their own set of support routines.
+     stored differently and have their own set of support routines.
     </para>
 
     <para>
-     Values of type <type>polygon</type> are specified using the following syntax:
+     Values of type <type>polygon</type> are specified using any of the
+     following syntaxes:
 
 <synopsis>
 ( ( <replaceable>x1</replaceable> , <replaceable>y1</replaceable> ) , ... , ( <replaceable>xn</replaceable> , <replaceable>yn</replaceable> ) )
-  ( <replaceable>x1</replaceable> , <replaceable>y1</replaceable> ) , ... , ( <replaceable>xn</replaceable> , <replaceable>yn</replaceable> )  
-  ( <replaceable>x1</replaceable> , <replaceable>y1</replaceable>   , ... ,   <replaceable>xn</replaceable> , <replaceable>yn</replaceable> )  
-    <replaceable>x1</replaceable> , <replaceable>y1</replaceable>   , ... ,   <replaceable>xn</replaceable> , <replaceable>yn</replaceable>    
+  ( <replaceable>x1</replaceable> , <replaceable>y1</replaceable> ) , ... , ( <replaceable>xn</replaceable> , <replaceable>yn</replaceable> )
+  ( <replaceable>x1</replaceable> , <replaceable>y1</replaceable>   , ... ,   <replaceable>xn</replaceable> , <replaceable>yn</replaceable> )
+    <replaceable>x1</replaceable> , <replaceable>y1</replaceable>   , ... ,   <replaceable>xn</replaceable> , <replaceable>yn</replaceable>
 </synopsis>
 
      where the points are the end points of the line segments
@@ -3163,18 +3248,20 @@ SELECT person.name, holidays.num_weeks FROM person, holidays
 
     <para>
      Circles are represented by a center point and radius.
-     Values of type <type>circle</type> are specified using the following syntax:
+     Values of type <type>circle</type> are specified using any of the
+     following syntaxes:
 
 <synopsis>
 &lt; ( <replaceable>x</replaceable> , <replaceable>y</replaceable> ) , <replaceable>r</replaceable> &gt;
 ( ( <replaceable>x</replaceable> , <replaceable>y</replaceable> ) , <replaceable>r</replaceable> )
-  ( <replaceable>x</replaceable> , <replaceable>y</replaceable> ) , <replaceable>r</replaceable>  
-    <replaceable>x</replaceable> , <replaceable>y</replaceable>   , <replaceable>r</replaceable>  
+  ( <replaceable>x</replaceable> , <replaceable>y</replaceable> ) , <replaceable>r</replaceable>
+    <replaceable>x</replaceable> , <replaceable>y</replaceable>   , <replaceable>r</replaceable>
 </synopsis>
 
      where
-     <literal>(<replaceable>x</replaceable>,<replaceable>y</replaceable>)</literal>
-     is the center point and <replaceable>r</replaceable> is the radius of the circle.
+     <literal>(<replaceable>x</replaceable>,<replaceable>y</replaceable>)</>
+     is the center point and <replaceable>r</replaceable> is the radius of the
+     circle.
     </para>
 
     <para>
@@ -3879,6 +3966,8 @@ xml '<foo>bar</foo>'
     against a document type declaration
     (DTD),<indexterm><primary>DTD</primary></indexterm>
     even when the input value specifies a DTD.
+    There is also currently no built-in support for validating against
+    other XML schema languages such as XML Schema.
    </para>
 
    <para>
@@ -3915,6 +4004,17 @@ SET xmloption TO { DOCUMENT | CONTENT };
     The default is <literal>CONTENT</literal>, so all forms of XML
     data are allowed.
    </para>
+
+   <note>
+    <para>
+     With the default XML option setting, you cannot directly cast
+     character strings to type <type>xml</type> if they contain a
+     document type declaration, because the definition of XML content
+     fragment does not accept them.  If you need to do that, either
+     use <literal>XMLPARSE</literal> or change the XML option.
+    </para>
+   </note>
+
    </sect2>
 
    <sect2>

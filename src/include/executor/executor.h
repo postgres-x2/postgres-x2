@@ -4,10 +4,10 @@
  *	  support for the POSTGRES executor module
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/executor/executor.h,v 1.155 2009/06/11 14:49:11 momjian Exp $
+ * $PostgreSQL: pgsql/src/include/executor/executor.h,v 1.168 2010/02/26 02:01:24 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -83,6 +83,7 @@ extern void ExecMarkPos(PlanState *node);
 extern void ExecRestrPos(PlanState *node);
 extern bool ExecSupportsMarkRestore(NodeTag plantype);
 extern bool ExecSupportsBackwardScan(Plan *node);
+extern bool ExecMaterializesOutput(NodeTag plantype);
 
 /*
  * prototypes from functions in execCurrent.c
@@ -160,14 +161,29 @@ extern void InitResultRelInfo(ResultRelInfo *resultRelInfo,
 				  Relation resultRelationDesc,
 				  Index resultRelationIndex,
 				  CmdType operation,
-				  bool doInstrument);
+				  int instrument_options);
 extern ResultRelInfo *ExecGetTriggerResultRel(EState *estate, Oid relid);
 extern bool ExecContextForcesOids(PlanState *planstate, bool *hasoids);
 extern void ExecConstraints(ResultRelInfo *resultRelInfo,
 				TupleTableSlot *slot, EState *estate);
-extern TupleTableSlot *EvalPlanQual(EState *estate, Index rti,
+extern TupleTableSlot *EvalPlanQual(EState *estate, EPQState *epqstate,
+			 Relation relation, Index rti,
 			 ItemPointer tid, TransactionId priorXmax);
-extern PlanState *ExecGetActivePlanTree(QueryDesc *queryDesc);
+extern HeapTuple EvalPlanQualFetch(EState *estate, Relation relation,
+				  int lockmode, ItemPointer tid, TransactionId priorXmax);
+extern void EvalPlanQualInit(EPQState *epqstate, EState *estate,
+				 Plan *subplan, int epqParam);
+extern void EvalPlanQualSetPlan(EPQState *epqstate, Plan *subplan);
+extern void EvalPlanQualAddRowMark(EPQState *epqstate, ExecRowMark *erm);
+extern void EvalPlanQualSetTuple(EPQState *epqstate, Index rti,
+					 HeapTuple tuple);
+extern HeapTuple EvalPlanQualGetTuple(EPQState *epqstate, Index rti);
+
+#define EvalPlanQualSetSlot(epqstate, slot)  ((epqstate)->origslot = (slot))
+extern void EvalPlanQualFetchRowMarks(EPQState *epqstate);
+extern TupleTableSlot *EvalPlanQualNext(EPQState *epqstate);
+extern void EvalPlanQualBegin(EPQState *epqstate, EState *parentestate);
+extern void EvalPlanQualEnd(EPQState *epqstate);
 extern DestReceiver *CreateIntoRelDestReceiver(void);
 
 /*
@@ -176,7 +192,6 @@ extern DestReceiver *CreateIntoRelDestReceiver(void);
 extern PlanState *ExecInitNode(Plan *node, EState *estate, int eflags);
 extern TupleTableSlot *ExecProcNode(PlanState *node);
 extern Node *MultiExecProcNode(PlanState *node);
-extern int	ExecCountSlotsNode(Plan *node);
 extern void ExecEndNode(PlanState *node);
 
 /*
@@ -204,9 +219,12 @@ extern TupleTableSlot *ExecProject(ProjectionInfo *projInfo,
  * prototypes from functions in execScan.c
  */
 typedef TupleTableSlot *(*ExecScanAccessMtd) (ScanState *node);
+typedef bool (*ExecScanRecheckMtd) (ScanState *node, TupleTableSlot *slot);
 
-extern TupleTableSlot *ExecScan(ScanState *node, ExecScanAccessMtd accessMtd);
+extern TupleTableSlot *ExecScan(ScanState *node, ExecScanAccessMtd accessMtd,
+		 ExecScanRecheckMtd recheckMtd);
 extern void ExecAssignScanProjectionInfo(ScanState *node);
+extern void ExecScanReScan(ScanState *node);
 
 /*
  * prototypes from functions in execTuples.c
@@ -223,15 +241,13 @@ extern void UpdateChangedParamSet(PlanState *node, Bitmapset *newchg);
 
 typedef struct TupOutputState
 {
-	/* use "struct" here to allow forward reference */
-	struct AttInMetadata *metadata;
 	TupleTableSlot *slot;
 	DestReceiver *dest;
 } TupOutputState;
 
 extern TupOutputState *begin_tup_output_tupdesc(DestReceiver *dest,
 						 TupleDesc tupdesc);
-extern void do_tup_output(TupOutputState *tstate, char **values);
+extern void do_tup_output(TupOutputState *tstate, Datum *values, bool *isnull);
 extern void do_text_output_multiline(TupOutputState *tstate, char *text);
 extern void end_tup_output(TupOutputState *tstate);
 
@@ -240,11 +256,14 @@ extern void end_tup_output(TupOutputState *tstate);
  *
  * Should only be used with a single-TEXT-attribute tupdesc.
  */
-#define do_text_output_oneline(tstate, text_to_emit) \
+#define do_text_output_oneline(tstate, str_to_emit) \
 	do { \
-		char *values_[1]; \
-		values_[0] = (text_to_emit); \
-		do_tup_output(tstate, values_); \
+		Datum	values_[1]; \
+		bool	isnull_[1]; \
+		values_[0] = PointerGetDatum(cstring_to_text(str_to_emit)); \
+		isnull_[0] = false; \
+		do_tup_output(tstate, values_, isnull_); \
+		pfree(DatumGetPointer(values_[0])); \
 	} while (0)
 
 
@@ -255,7 +274,7 @@ extern EState *CreateExecutorState(void);
 extern void FreeExecutorState(EState *estate);
 extern ExprContext *CreateExprContext(EState *estate);
 extern ExprContext *CreateStandaloneExprContext(void);
-extern void FreeExprContext(ExprContext *econtext);
+extern void FreeExprContext(ExprContext *econtext, bool isCommit);
 extern void ReScanExprContext(ExprContext *econtext);
 
 #define ResetExprContext(econtext) \
@@ -301,8 +320,14 @@ extern void ExecCloseScanRelation(Relation scanrel);
 
 extern void ExecOpenIndices(ResultRelInfo *resultRelInfo);
 extern void ExecCloseIndices(ResultRelInfo *resultRelInfo);
-extern void ExecInsertIndexTuples(TupleTableSlot *slot, ItemPointer tupleid,
-					  EState *estate, bool is_vacuum);
+extern List *ExecInsertIndexTuples(TupleTableSlot *slot, ItemPointer tupleid,
+					  EState *estate);
+extern bool check_exclusion_constraint(Relation heap, Relation index,
+						   IndexInfo *indexInfo,
+						   ItemPointer tupleid,
+						   Datum *values, bool *isnull,
+						   EState *estate,
+						   bool newIndex, bool errorOK);
 
 extern void RegisterExprContextCallback(ExprContext *econtext,
 							ExprContextCallbackFunction function,

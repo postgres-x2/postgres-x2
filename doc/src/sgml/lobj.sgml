@@ -1,7 +1,7 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/lobj.sgml,v 1.49 2008/12/07 23:46:39 alvherre Exp $ -->
+<!-- $PostgreSQL: pgsql/doc/src/sgml/lobj.sgml,v 1.53 2010/04/03 07:22:55 petere Exp $ -->
 
  <chapter id="largeObjects">
-  <title id="largeObjects-title">Large Objects</title>
+  <title>Large Objects</title>
 
   <indexterm zone="largeobjects"><primary>large object</></>
   <indexterm><primary>BLOB</><see>large object</></>
@@ -58,6 +58,21 @@
     rows in the database.  A B-tree index guarantees fast
     searches for the correct chunk number when doing random
     access reads and writes.
+   </para>
+
+   <para>
+    As of <productname>PostgreSQL</> 9.0, large objects have an owner
+    and a set of access permissions, which can be managed using
+    <xref linkend="sql-grant"> and
+    <xref linkend="sql-revoke">.  
+    For compatibility with prior releases, see
+    <xref linkend="guc-lo-compat-privileges">.
+    <literal>SELECT</literal> privileges are required to read a large
+    object, and 
+    <literal>UPDATE</literal> privileges are required to write to or
+    truncate it.
+    Only the large object owner (or the database superuser) can unlink, comment
+    on, or change the owner of a large object.
    </para>
   </sect1>
 
@@ -438,9 +453,9 @@ SELECT lo_export(image.raster, '/tmp/motd') FROM image
     owning user.  Therefore, their use is restricted to superusers.  In
     contrast, the client-side import and export functions read and write files
     in the client's file system, using the permissions of the client program.
-    The client-side functions can be used by any
-    <productname>PostgreSQL</productname> user.
+    The client-side functions do not require superuser privilege.
   </para>
+
 </sect1>
 
 <sect1 id="lo-examplesect">

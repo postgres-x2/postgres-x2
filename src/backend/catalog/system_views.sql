@@ -1,9 +1,9 @@
 /*
  * PostgreSQL System Views
  *
- * Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Copyright (c) 1996-2010, PostgreSQL Global Development Group
  *
- * $PostgreSQL: pgsql/src/backend/catalog/system_views.sql,v 1.60 2009/04/07 00:31:26 tgl Exp $
+ * $PostgreSQL: pgsql/src/backend/catalog/system_views.sql,v 1.66 2010/04/26 14:22:37 momjian Exp $
  */
 
 CREATE VIEW pg_roles AS 
@@ -18,21 +18,23 @@ CREATE VIEW pg_roles AS
         rolconnlimit,
         '********'::text as rolpassword,
         rolvaliduntil,
-        rolconfig,
-        oid
-    FROM pg_authid;
+        setconfig as rolconfig,
+        pg_authid.oid
+    FROM pg_authid LEFT JOIN pg_db_role_setting s
+    ON (pg_authid.oid = setrole AND setdatabase = 0);
 
 CREATE VIEW pg_shadow AS
     SELECT
         rolname AS usename,
-        oid AS usesysid,
+        pg_authid.oid AS usesysid,
         rolcreatedb AS usecreatedb,
         rolsuper AS usesuper,
         rolcatupdate AS usecatupd,
         rolpassword AS passwd,
         rolvaliduntil::abstime AS valuntil,
-        rolconfig AS useconfig
-    FROM pg_authid
+        setconfig AS useconfig
+    FROM pg_authid LEFT JOIN pg_db_role_setting s
+    ON (pg_authid.oid = setrole AND setdatabase = 0)
     WHERE rolcanlogin;
 
 REVOKE ALL on pg_shadow FROM public;
@@ -107,6 +109,7 @@ CREATE VIEW pg_stats AS
         nspname AS schemaname, 
         relname AS tablename, 
         attname AS attname, 
+        stainherit AS inherited, 
         stanullfrac AS null_frac, 
         stawidth AS avg_width, 
         stadistinct AS n_distinct, 
@@ -331,13 +334,14 @@ CREATE VIEW pg_stat_activity AS
             S.procpid,
             S.usesysid,
             U.rolname AS usename,
-            S.current_query,
-            S.waiting,
+            S.application_name,
+            S.client_addr,
+            S.client_port,
+            S.backend_start,
             S.xact_start,
             S.query_start,
-            S.backend_start,
-            S.client_addr,
-            S.client_port
+            S.waiting,
+            S.current_query
     FROM pg_database D, pg_stat_get_activity(NULL) AS S, pg_authid U
     WHERE S.datid = D.oid AND 
             S.usesysid = U.oid;

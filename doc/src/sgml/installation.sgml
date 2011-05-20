@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/installation.sgml,v 1.325 2009/06/23 03:46:00 tgl Exp $ -->
+<!-- $PostgreSQL: pgsql/doc/src/sgml/installation.sgml,v 1.348 2010/07/05 18:54:37 tgl Exp $ -->
 
 <chapter id="installation">
  <title><![%standalone-include[<productname>PostgreSQL</>]]>
@@ -79,7 +79,7 @@ su - postgres
 <screen>
 <userinput>gmake --version</userinput>
 </screen>
-      It is recommended to use version 3.76.1 or later.
+      It is recommended to use version 3.79.1 or later.
      </para>
     </listitem>
 
@@ -125,10 +125,10 @@ su - postgres
       <filename>libedit</filename> library is
       GNU <productname>Readline</productname>-compatible and is used if
       <filename>libreadline</filename> is not found, or if
-      <option>--with-libedit-preferred</option> is used as an 
+      <option>--with-libedit-preferred</option> is used as an
       option to <filename>configure</>. If you are using a package-based
-      Linux distribution, be aware that you need both the 
-      <literal>readline</> and <literal>readline-devel</> packages, if 
+      Linux distribution, be aware that you need both the
+      <literal>readline</> and <literal>readline-devel</> packages, if
       those are separate in your distribution.
      </para>
     </listitem>
@@ -195,11 +195,14 @@ su - postgres
      <para>
       To build the <application>PL/Python</> server programming
       language, you need a <productname>Python</productname>
-      installation with the header files and the <application>distutils</application> module.
-      The <application>distutils</application> module is included by default with
-      <productname>Python</productname> 1.6 and later; users of
-      earlier versions of <productname>Python</productname> will need
-      to install it.
+      installation with the header files and
+      the <application>distutils</application> module.  The minimum
+      required version is <productname>Python</productname>
+      2.2.  <productname>Python 3</productname> is supported if it's
+      version 3.1 or later; but see
+      <![%standalone-include[the <application>PL/Python</> documentation]]>
+      <![%standalone-ignore[<xref linkend="plpython-python23">]]>
+      when using Python 3.
      </para>
 
      <para>
@@ -252,7 +255,7 @@ su - postgres
       class="osname">Linux</>, <systemitem class="osname">NetBSD</>,
       <systemitem class="osname">Solaris</>), for other systems you
       can download an add-on package from <ulink
-      url="http://developer.postgresql.org/~petere/bsd-gettext/"></ulink>.
+      url="http://www.gnu.org/software/gettext/"></ulink>.
       If you are using the <application>Gettext</> implementation in
       the <acronym>GNU</acronym> C library then you will additionally
       need the <productname>GNU Gettext</productname> package for some
@@ -263,7 +266,7 @@ su - postgres
 
     <listitem>
      <para>
-      <application>Kerberos</>, <productname>OpenSSL</>, 
+      <application>Kerberos</>, <productname>OpenSSL</>,
       <productname>OpenLDAP</>, and/or
       <application>PAM</>, if you want to support authentication or
       encryption using these services.
@@ -296,7 +299,7 @@ su - postgres
       GNU <application>Flex</> and <application>Bison</>
       are needed to build from a CVS checkout, or if you changed the actual
       scanner and parser definition files. If you need them, be sure
-      to get <application>Flex</> 2.5.4 or later and
+      to get <application>Flex</> 2.5.31 or later and
       <application>Bison</> 1.875 or later. Other <application>lex</>
       and <application>yacc</> programs cannot be used.
      </para>
@@ -307,7 +310,7 @@ su - postgres
        <primary>perl</primary>
       </indexterm>
 
-      <application>Perl</> is also needed to build from a CVS checkout,
+      <application>Perl</> 5.8 or later is needed to build from a CVS checkout,
       or if you changed the input files for any of the build steps that
       use Perl scripts.  If building on Windows you will need
       <application>Perl</> in any case.
@@ -326,12 +329,12 @@ su - postgres
 
   <para>
    Also check that you have sufficient disk space. You will need about
-   65 MB for the source tree during compilation and about 15 MB for
+   100 MB for the source tree during compilation and about 20 MB for
    the installation directory. An empty database cluster takes about
-   25 MB; databases take about five times the amount of space that a
+   35 MB; databases take about five times the amount of space that a
    flat text file with the same data would take. If you are going to
    run the regression tests you will temporarily need up to an extra
-   90 MB. Use the <command>df</command> command to check free disk
+   150 MB. Use the <command>df</command> command to check free disk
    space.
   </para>
  </sect1>
@@ -356,6 +359,11 @@ su - postgres
    with the <productname>PostgreSQL</> sources.
    Change into that directory for the rest
    of the installation procedure.
+  </para>
+
+  <para>
+   You can also get the source directly from the version control repository, see
+   <xref linkend="cvs">.
   </para>
  </sect1>
 ]]>
@@ -448,7 +456,7 @@ su - postgres
      delete it, in case you have trouble and need to revert to it.  Keep
      in mind the directory might consume significant disk space.  To rename
      the directory, use a command like this:
-<screen> 
+<screen>
 <userinput>mv /usr/local/pgsql /usr/local/pgsql.old</>
 </screen>
     </para>
@@ -534,9 +542,18 @@ su - postgres
     This script will run a number of tests to determine values for various
     system dependent variables and detect any quirks of your
     operating system, and finally will create several files in the
-    build tree to record what it found.  (You can also run
+    build tree to record what it found.  You can also run
     <filename>configure</filename> in a directory outside the source
-    tree if you want to keep the build directory separate.)
+    tree, if you want to keep the build directory separate.  This
+    procedure is also called a
+    <indexterm><primary>VPATH</primary></indexterm><firstterm>VPATH</firstterm>
+    build.  Here's how:
+<screen>
+<userinput>mkdir build_dir</userinput>
+<userinput>cd build_dir</userinput>
+<userinput>/path/to/source/tree/configure [options go here]</userinput>
+<userinput>gmake</userinput>
+</screen>
    </para>
 
    <para>
@@ -573,7 +590,7 @@ su - postgres
         </para>
 
         <para>
-         For relocatable installs, you might want to use 
+         For relocatable installs, you might want to use
          <filename>configure</filename>'s <literal>--disable-rpath</>
          option.  Also, you will need to tell the operating system how
          to find the shared libraries.
@@ -895,7 +912,7 @@ su - postgres
          by GSSAPI).
          <literal>postgres</literal> is the default. There's usually no
          reason to change this unless you have a Windows environment,
-         in which case it must be set to uppercase
+         in which case it must be set to upper case
          <literal>POSTGRES</literal>.
         </para>
        </listitem>
@@ -935,7 +952,7 @@ su - postgres
        <listitem>
         <para>
          Build with <acronym>LDAP</><indexterm><primary>LDAP</></>
-         support for authentication and connection parameter lookup (see 
+         support for authentication and connection parameter lookup (see
          <![%standalone-include[the documentation about client authentication
          and libpq]]><![%standalone-ignore[<xref linkend="libpq-ldap"> and
          <xref linkend="auth-ldap">]]> for more information). On Unix,
@@ -944,7 +961,7 @@ su - postgres
          library is used.  <filename>configure</> will check for the required
          header files and libraries to make sure that your
          <productname>OpenLDAP</> installation is sufficient before
-         proceeding. 
+         proceeding.
         </para>
        </listitem>
       </varlistentry>
@@ -1098,7 +1115,7 @@ su - postgres
          a larger segment size.  This can be helpful to reduce the number of
          file descriptors consumed when working with very large tables.
          But be careful not to select a value larger than is supported
-         by your platform and the filesystem(s) you intend to use.  Other
+         by your platform and the file systems you intend to use.  Other
          tools you might wish to use, such as <application>tar</>, could
          also set limits on the usable file size.
          It is recommended, though not absolutely required, that this value
@@ -1167,14 +1184,13 @@ su - postgres
       </varlistentry>
 
       <varlistentry>
-       <term><option>--enable-thread-safety</option></term>
+       <term><option>--disable-thread-safety</option></term>
        <listitem>
         <para>
-         Make the client libraries thread-safe.  This allows
+         Disable the thread-safety of client libraries.  This prevents
          concurrent threads in <application>libpq</application> and
-         <application>ECPG</application> programs to safely control
-         their private connection handles.  This option requires adequate
-         threading support in your operating system.
+         <application>ECPG</application> programs from safely controlling
+         their private connection handles.
         </para>
        </listitem>
       </varlistentry>
@@ -1374,7 +1390,7 @@ su - postgres
     <para>
      Here is a list of the significant variables that can be set in
      this manner:
- 
+
      <variablelist>
       <varlistentry>
        <term><envar>BISON</envar></term>
@@ -1452,7 +1468,16 @@ su - postgres
        <term><envar>LDFLAGS</envar></term>
        <listitem>
         <para>
-         options to pass to the link editor
+         options to use when linking either executables or shared libraries
+        </para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term><envar>LDFLAGS_EX</envar></term>
+       <listitem>
+        <para>
+         additional options for linking executables only
         </para>
        </listitem>
       </varlistentry>
@@ -1461,7 +1486,7 @@ su - postgres
        <term><envar>LDFLAGS_SL</envar></term>
        <listitem>
         <para>
-         linker options for shared library linking
+         additional options for linking shared libraries only
         </para>
        </listitem>
       </varlistentry>
@@ -1519,7 +1544,7 @@ su - postgres
     </para>
    </step>
 
-  <step>
+  <step id="build">
    <title>Build</title>
 
    <para>
@@ -1532,6 +1557,19 @@ su - postgres
     hardware. The last line displayed should be:
 <screen>
 All of PostgreSQL is successfully made. Ready to install.
+</screen>
+   </para>
+
+  <para>
+   If you want to build everything that can be built, including the
+   documentation (HTML and man pages), and the additional modules
+   (<filename>contrib</filename>), type instead:
+<screen>
+<userinput>gmake world</userinput>
+</screen>
+   The last line displayed should be:
+<screen>
+PostgreSQL, contrib and HTML documentation successfully made. Ready to install.
 </screen>
    </para>
   </step>
@@ -1588,6 +1626,21 @@ All of PostgreSQL is successfully made. Ready to install.
    </para>
 
    <para>
+    To install the documentation (HTML and man pages), enter:
+<screen>
+<userinput>gmake install-docs</userinput>
+</screen>
+   </para>
+
+   <para>
+    If you built the world above, type instead:
+<screen>
+<userinput>gmake install-world</userinput>
+</screen>
+    This also installs the documentation.
+   </para>
+
+   <para>
     You can use <literal>gmake install-strip</literal> instead of
     <literal>gmake install</literal> to strip the executable files and
     libraries as they are installed.  This will save some space.  If
@@ -1628,7 +1681,7 @@ All of PostgreSQL is successfully made. Ready to install.
   </procedure>
 
   <formalpara>
-   <title>Registering <application>eventlog</> on <systemitem 
+   <title>Registering <application>eventlog</> on <systemitem
    class="osname">Windows</>:</title>
    <para>
     To register a <systemitem class="osname">Windows</> <application>eventlog</>
@@ -1718,7 +1771,7 @@ setenv LD_LIBRARY_PATH /usr/local/pgsql/lib
     <filename>/etc/profile</> or <filename>~/.bash_profile</>.  Some
     good information about the caveats associated with this method can
     be found at <ulink
-    url="http://www.visi.com/~barr/ldpath.html"></ulink>.
+    url="http://xahlee.org/UnixResource_dir/_/ldpath.html"></ulink>.
    </para>
 
    <para>
@@ -1880,7 +1933,7 @@ postgres$ <userinput>/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data</>
     <para>
      At this point, if you did not use the <command>initdb</> <literal>-A</>
      option, you might want to modify <filename>pg_hba.conf</> to control
-     local access to the server before you start it.  The default is to 
+     local access to the server before you start it.  The default is to
      trust all local users.
     </para>
    </step>
@@ -2211,9 +2264,9 @@ kill `cat /usr/local/pgsql/data/postmaster.pid`
      When implementing PostgreSQL version 8.1 on AIX 5.3, we
      periodically ran into problems where the statistics collector
      would <quote>mysteriously</quote> not come up successfully.  This
-     appears to be the result of unexpected behaviour in the IPv6
+     appears to be the result of unexpected behavior in the IPv6
      implementation.  It looks like PostgreSQL and IPv6 do not play
-     very well together at this time on AIX.
+     very well together on AIX 5.3.
     </para>
 
     <para>
@@ -2247,6 +2300,16 @@ hosts=local4,bind4
       </listitem>
      </itemizedlist>
     </para>
+
+    <warning> <para> This is really a workaround of problems relating
+    to immaturity of IPv6 support, which improved visibly during the
+    course of AIX 5.3 releases.  It has worked with AIX version 5.3,
+    but does not represent an elegant solution to the problem.  It has
+    been reported that this workaround is not only unnecessary, but
+    causes problems on AIX 6.1, where IPv6 support has become more
+    mature. </para>
+    </warning>
+
    </sect3>
 
    <sect3>
@@ -2261,14 +2324,14 @@ hosts=local4,bind4
      is <command>createlang</command> failing with unusual errors.
      For example, running as the owner of the PostgreSQL installation:
 <screen>
--bash-3.00$ createlang plpgsql template1
-createlang: language installation failed: ERROR:  could not load library "/opt/dbs/pgsql748/lib/plpgsql.so": A memory address is not in the address space for the process.
+-bash-3.00$ createlang plperl template1
+createlang: language installation failed: ERROR:  could not load library "/opt/dbs/pgsql748/lib/plperl.so": A memory address is not in the address space for the process.
 </screen>
     Running as a non-owner in the group posessing the PostgreSQL
     installation:
 <screen>
--bash-3.00$ createlang plpgsql template1
-createlang: language installation failed: ERROR:  could not load library "/opt/dbs/pgsql748/lib/plpgsql.so": Bad address
+-bash-3.00$ createlang plperl template1
+createlang: language installation failed: ERROR:  could not load library "/opt/dbs/pgsql748/lib/plperl.so": Bad address
 </screen>
      Another example is out of memory errors in the PostgreSQL server
      logs, with every memory allocation near or greater than 256 MB
@@ -2406,7 +2469,7 @@ createlang: language installation failed: ERROR:  could not load library "/opt/d
    <title>Cygwin</title>
 
    <indexterm zone="installation-notes-cygwin">
-    <primary>Cyginw</primary>
+    <primary>Cygwin</primary>
     <secondary>installation on</secondary>
    </indexterm>
 
@@ -2665,18 +2728,14 @@ cc-1020 cc: ERROR File = pqcomm.c, Line = 427
     this chapter; the Visual C++ build works completely differently
     and is described in <![%standalone-include[the
     documentation]]><![%standalone-ignore[<xref linkend="install-win32">]]>.
-    There is also a precompiled binary installer which you can find at
-    from <ulink url="http://pgfoundry.org/projects/pginstaller"></ulink>.
     It is a fully native build and uses no additional software like
-    MinGW.  The ready-made installer files are available on the main
-    PostgreSQL FTP servers in the <filename>binary/win32</filename>
-    directory.
-   </para>   
+    MinGW.  A ready-made installer is available on the main
+    PostgreSQL web site.
+   </para>
 
    <para>
-    The native Win32 port requires a 32-bit NT-based Microsoft
-    operating system, like Windows NT 4, Windows 2000/2003, or Windows
-    XP.  (NT 4 is no longer supported.)  Earlier operating systems do
+    The native Windows port requires a 32 or 64-bit version of Windows
+    2000 or later. Earlier operating systems do
     not have sufficient infrastructure (but Cygwin may be used on
     those).  MinGW, the Unix-like build tools, and MSYS, a collection
     of Unix tools required to run shell scripts
@@ -2725,8 +2784,8 @@ cc-1020 cc: ERROR File = pqcomm.c, Line = 427
      example, gzip, gunzip, GNU Make, Flex, and Bison are all
      included.  For UnixWare 7.1, this CD is now labeled "Open License
      Software Supplement".  If you do not have this CD, the software
-     on it is available via anonymous FTP
-     from <ulink url="ftp://ftp.sco.com/skunkware"></ulink>.
+     on it is available
+     from <ulink url="http://www.sco.com/skunkware/"></ulink>.
     </para>
 
     <para>
@@ -2767,7 +2826,7 @@ cc-1020 cc: ERROR File = pqcomm.c, Line = 427
      included on the UnixWare 7.1 Skunkware CD.  If you have the
      UnixWare 7.0.0 or 7.0.1 Skunkware CDs, you can install it from
      there.  Otherwise,
-     try <ulink url="ftp://ftp.sco.com/skunkware"></ulink>.
+     try <ulink url="http://www.sco.com/skunkware/"></ulink>.
     </para>
 
     <para>
@@ -2838,12 +2897,10 @@ MANPATH=/usr/lib/scohelp/%L/man:/usr/dt/man:/usr/man:/usr/share/man:scohelp:/usr
    </sect3>
 
    <sect3>
-    <title><option>--enable-thread-safety</option> and UnixWare</title>
+    <title>Threading on UnixWare</title>
 
     <para>
-     If you use the <command>configure</command>
-     option <option>--enable-thread-safety</option>,
-     you <emphasis>must</emphasis> use <option>-Kpthread</option>
+     For threading, you<emphasis>must</emphasis> use <option>-Kpthread</option>
      on <emphasis>all</emphasis> libpq-using programs.  libpq
      uses <function>pthread_*</function> calls, which are only
      available with the

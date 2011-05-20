@@ -3,13 +3,13 @@
  * syscache.c
  *	  System cache management routines
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/utils/cache/syscache.c,v 1.120 2009/06/11 14:49:05 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/utils/cache/syscache.c,v 1.126 2010/02/14 18:42:17 rhaas Exp $
  *
  * NOTES
  *	  These routines allow the parser/planner/executor to perform
@@ -32,6 +32,7 @@
 #include "catalog/pg_constraint.h"
 #include "catalog/pg_conversion.h"
 #include "catalog/pg_database.h"
+#include "catalog/pg_default_acl.h"
 #include "catalog/pg_enum.h"
 #include "catalog/pg_foreign_data_wrapper.h"
 #include "catalog/pg_foreign_server.h"
@@ -43,6 +44,7 @@
 #include "catalog/pg_proc.h"
 #include "catalog/pg_rewrite.h"
 #include "catalog/pg_statistic.h"
+#include "catalog/pg_tablespace.h"
 #include "catalog/pg_ts_config.h"
 #include "catalog/pg_ts_config_map.h"
 #include "catalog/pg_ts_dict.h"
@@ -66,12 +68,8 @@
 
 	Add your entry to the cacheinfo[] array below. All cache lists are
 	alphabetical, so add it in the proper place.  Specify the relation OID,
-	index OID, number of keys, key attribute numbers, and number of hash
-	buckets.  If the relation contains tuples that are associated with a
-	particular relation (for example, its attributes, rules, triggers, etc)
-	then specify the attribute number that contains the OID of the associated
-	relation.  This is used by CatalogCacheFlushRelation() to remove the
-	correct tuples during a table drop or relcache invalidation event.
+	index OID, number of keys, key attribute numbers, and initial number of
+	hash buckets.
 
 	The number of hash buckets must be a power of 2.  It's reasonable to
 	set this to the number of entries that might be in the particular cache
@@ -100,7 +98,6 @@ struct cachedesc
 {
 	Oid			reloid;			/* OID of the relation being cached */
 	Oid			indoid;			/* OID of index relation for this cache */
-	int			reloidattr;		/* attr number of rel OID reference, or 0 */
 	int			nkeys;			/* # of keys needed for cache lookup */
 	int			key[4];			/* attribute numbers of key attrs */
 	int			nbuckets;		/* number of hash buckets for this cache */
@@ -109,7 +106,6 @@ struct cachedesc
 static const struct cachedesc cacheinfo[] = {
 	{AggregateRelationId,		/* AGGFNOID */
 		AggregateFnoidIndexId,
-		0,
 		1,
 		{
 			Anum_pg_aggregate_aggfnoid,
@@ -121,7 +117,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{AccessMethodRelationId,	/* AMNAME */
 		AmNameIndexId,
-		0,
 		1,
 		{
 			Anum_pg_am_amname,
@@ -133,7 +128,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{AccessMethodRelationId,	/* AMOID */
 		AmOidIndexId,
-		0,
 		1,
 		{
 			ObjectIdAttributeNumber,
@@ -145,7 +139,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{AccessMethodOperatorRelationId,	/* AMOPOPID */
 		AccessMethodOperatorIndexId,
-		0,
 		2,
 		{
 			Anum_pg_amop_amopopr,
@@ -157,7 +150,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{AccessMethodOperatorRelationId,	/* AMOPSTRATEGY */
 		AccessMethodStrategyIndexId,
-		0,
 		4,
 		{
 			Anum_pg_amop_amopfamily,
@@ -169,7 +161,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{AccessMethodProcedureRelationId,	/* AMPROCNUM */
 		AccessMethodProcedureIndexId,
-		0,
 		4,
 		{
 			Anum_pg_amproc_amprocfamily,
@@ -181,7 +172,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{AttributeRelationId,		/* ATTNAME */
 		AttributeRelidNameIndexId,
-		Anum_pg_attribute_attrelid,
 		2,
 		{
 			Anum_pg_attribute_attrelid,
@@ -193,7 +183,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{AttributeRelationId,		/* ATTNUM */
 		AttributeRelidNumIndexId,
-		Anum_pg_attribute_attrelid,
 		2,
 		{
 			Anum_pg_attribute_attrelid,
@@ -205,7 +194,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{AuthMemRelationId,			/* AUTHMEMMEMROLE */
 		AuthMemMemRoleIndexId,
-		0,
 		2,
 		{
 			Anum_pg_auth_members_member,
@@ -217,7 +205,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{AuthMemRelationId,			/* AUTHMEMROLEMEM */
 		AuthMemRoleMemIndexId,
-		0,
 		2,
 		{
 			Anum_pg_auth_members_roleid,
@@ -229,7 +216,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{AuthIdRelationId,			/* AUTHNAME */
 		AuthIdRolnameIndexId,
-		0,
 		1,
 		{
 			Anum_pg_authid_rolname,
@@ -241,7 +227,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{AuthIdRelationId,			/* AUTHOID */
 		AuthIdOidIndexId,
-		0,
 		1,
 		{
 			ObjectIdAttributeNumber,
@@ -254,7 +239,6 @@ static const struct cachedesc cacheinfo[] = {
 	{
 		CastRelationId,			/* CASTSOURCETARGET */
 		CastSourceTargetIndexId,
-		0,
 		2,
 		{
 			Anum_pg_cast_castsource,
@@ -266,7 +250,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{OperatorClassRelationId,	/* CLAAMNAMENSP */
 		OpclassAmNameNspIndexId,
-		0,
 		3,
 		{
 			Anum_pg_opclass_opcmethod,
@@ -278,7 +261,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{OperatorClassRelationId,	/* CLAOID */
 		OpclassOidIndexId,
-		0,
 		1,
 		{
 			ObjectIdAttributeNumber,
@@ -290,7 +272,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{ConversionRelationId,		/* CONDEFAULT */
 		ConversionDefaultIndexId,
-		0,
 		4,
 		{
 			Anum_pg_conversion_connamespace,
@@ -302,7 +283,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{ConversionRelationId,		/* CONNAMENSP */
 		ConversionNameNspIndexId,
-		0,
 		2,
 		{
 			Anum_pg_conversion_conname,
@@ -314,7 +294,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{ConstraintRelationId,		/* CONSTROID */
 		ConstraintOidIndexId,
-		Anum_pg_constraint_conrelid,
 		1,
 		{
 			ObjectIdAttributeNumber,
@@ -326,7 +305,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{ConversionRelationId,		/* CONVOID */
 		ConversionOidIndexId,
-		0,
 		1,
 		{
 			ObjectIdAttributeNumber,
@@ -338,7 +316,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{DatabaseRelationId,		/* DATABASEOID */
 		DatabaseOidIndexId,
-		0,
 		1,
 		{
 			ObjectIdAttributeNumber,
@@ -348,9 +325,19 @@ static const struct cachedesc cacheinfo[] = {
 		},
 		4
 	},
+	{DefaultAclRelationId,		/* DEFACLROLENSPOBJ */
+		DefaultAclRoleNspObjIndexId,
+		3,
+		{
+			Anum_pg_default_acl_defaclrole,
+			Anum_pg_default_acl_defaclnamespace,
+			Anum_pg_default_acl_defaclobjtype,
+			0
+		},
+		256
+	},
 	{EnumRelationId,			/* ENUMOID */
 		EnumOidIndexId,
-		0,
 		1,
 		{
 			ObjectIdAttributeNumber,
@@ -362,7 +349,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{EnumRelationId,			/* ENUMTYPOIDNAME */
 		EnumTypIdLabelIndexId,
-		0,
 		2,
 		{
 			Anum_pg_enum_enumtypid,
@@ -374,7 +360,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{ForeignDataWrapperRelationId,		/* FOREIGNDATAWRAPPERNAME */
 		ForeignDataWrapperNameIndexId,
-		0,
 		1,
 		{
 			Anum_pg_foreign_data_wrapper_fdwname,
@@ -386,7 +371,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{ForeignDataWrapperRelationId,		/* FOREIGNDATAWRAPPEROID */
 		ForeignDataWrapperOidIndexId,
-		0,
 		1,
 		{
 			ObjectIdAttributeNumber,
@@ -398,7 +382,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{ForeignServerRelationId,	/* FOREIGNSERVERNAME */
 		ForeignServerNameIndexId,
-		0,
 		1,
 		{
 			Anum_pg_foreign_server_srvname,
@@ -410,7 +393,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{ForeignServerRelationId,	/* FOREIGNSERVEROID */
 		ForeignServerOidIndexId,
-		0,
 		1,
 		{
 			ObjectIdAttributeNumber,
@@ -422,7 +404,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{IndexRelationId,			/* INDEXRELID */
 		IndexRelidIndexId,
-		Anum_pg_index_indrelid,
 		1,
 		{
 			Anum_pg_index_indexrelid,
@@ -434,7 +415,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{LanguageRelationId,		/* LANGNAME */
 		LanguageNameIndexId,
-		0,
 		1,
 		{
 			Anum_pg_language_lanname,
@@ -446,7 +426,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{LanguageRelationId,		/* LANGOID */
 		LanguageOidIndexId,
-		0,
 		1,
 		{
 			ObjectIdAttributeNumber,
@@ -458,7 +437,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{NamespaceRelationId,		/* NAMESPACENAME */
 		NamespaceNameIndexId,
-		0,
 		1,
 		{
 			Anum_pg_namespace_nspname,
@@ -470,7 +448,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{NamespaceRelationId,		/* NAMESPACEOID */
 		NamespaceOidIndexId,
-		0,
 		1,
 		{
 			ObjectIdAttributeNumber,
@@ -482,7 +459,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{OperatorRelationId,		/* OPERNAMENSP */
 		OperatorNameNspIndexId,
-		0,
 		4,
 		{
 			Anum_pg_operator_oprname,
@@ -494,7 +470,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{OperatorRelationId,		/* OPEROID */
 		OperatorOidIndexId,
-		0,
 		1,
 		{
 			ObjectIdAttributeNumber,
@@ -506,7 +481,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{OperatorFamilyRelationId,	/* OPFAMILYAMNAMENSP */
 		OpfamilyAmNameNspIndexId,
-		0,
 		3,
 		{
 			Anum_pg_opfamily_opfmethod,
@@ -518,7 +492,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{OperatorFamilyRelationId,	/* OPFAMILYOID */
 		OpfamilyOidIndexId,
-		0,
 		1,
 		{
 			ObjectIdAttributeNumber,
@@ -531,7 +504,6 @@ static const struct cachedesc cacheinfo[] = {
 #ifdef PGXC
 	{PgxcClassRelationId,	/* PGXCCLASSRELID */
 		PgxcClassPgxcRelIdIndexId,
-		Anum_pgxc_class_pcrelid,
 		1,
 		{
 			ObjectIdAttributeNumber,
@@ -544,7 +516,6 @@ static const struct cachedesc cacheinfo[] = {
 #endif
 	{ProcedureRelationId,		/* PROCNAMEARGSNSP */
 		ProcedureNameArgsNspIndexId,
-		0,
 		3,
 		{
 			Anum_pg_proc_proname,
@@ -556,7 +527,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{ProcedureRelationId,		/* PROCOID */
 		ProcedureOidIndexId,
-		0,
 		1,
 		{
 			ObjectIdAttributeNumber,
@@ -568,7 +538,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{RelationRelationId,		/* RELNAMENSP */
 		ClassNameNspIndexId,
-		ObjectIdAttributeNumber,
 		2,
 		{
 			Anum_pg_class_relname,
@@ -580,7 +549,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{RelationRelationId,		/* RELOID */
 		ClassOidIndexId,
-		ObjectIdAttributeNumber,
 		1,
 		{
 			ObjectIdAttributeNumber,
@@ -592,7 +560,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{RewriteRelationId,			/* RULERELNAME */
 		RewriteRelRulenameIndexId,
-		Anum_pg_rewrite_ev_class,
 		2,
 		{
 			Anum_pg_rewrite_ev_class,
@@ -602,21 +569,30 @@ static const struct cachedesc cacheinfo[] = {
 		},
 		1024
 	},
-	{StatisticRelationId,		/* STATRELATT */
-		StatisticRelidAttnumIndexId,
-		Anum_pg_statistic_starelid,
-		2,
+	{StatisticRelationId,		/* STATRELATTINH */
+		StatisticRelidAttnumInhIndexId,
+		3,
 		{
 			Anum_pg_statistic_starelid,
 			Anum_pg_statistic_staattnum,
-			0,
+			Anum_pg_statistic_stainherit,
 			0
 		},
 		1024
 	},
+	{TableSpaceRelationId,		/* TABLESPACEOID */
+		TablespaceOidIndexId,
+		1,
+		{
+			ObjectIdAttributeNumber,
+			0,
+			0,
+			0,
+		},
+		16
+	},
 	{TSConfigMapRelationId,		/* TSCONFIGMAP */
 		TSConfigMapIndexId,
-		0,
 		3,
 		{
 			Anum_pg_ts_config_map_mapcfg,
@@ -628,7 +604,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{TSConfigRelationId,		/* TSCONFIGNAMENSP */
 		TSConfigNameNspIndexId,
-		0,
 		2,
 		{
 			Anum_pg_ts_config_cfgname,
@@ -640,7 +615,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{TSConfigRelationId,		/* TSCONFIGOID */
 		TSConfigOidIndexId,
-		0,
 		1,
 		{
 			ObjectIdAttributeNumber,
@@ -652,7 +626,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{TSDictionaryRelationId,	/* TSDICTNAMENSP */
 		TSDictionaryNameNspIndexId,
-		0,
 		2,
 		{
 			Anum_pg_ts_dict_dictname,
@@ -664,7 +637,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{TSDictionaryRelationId,	/* TSDICTOID */
 		TSDictionaryOidIndexId,
-		0,
 		1,
 		{
 			ObjectIdAttributeNumber,
@@ -676,7 +648,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{TSParserRelationId,		/* TSPARSERNAMENSP */
 		TSParserNameNspIndexId,
-		0,
 		2,
 		{
 			Anum_pg_ts_parser_prsname,
@@ -688,7 +659,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{TSParserRelationId,		/* TSPARSEROID */
 		TSParserOidIndexId,
-		0,
 		1,
 		{
 			ObjectIdAttributeNumber,
@@ -700,7 +670,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{TSTemplateRelationId,		/* TSTEMPLATENAMENSP */
 		TSTemplateNameNspIndexId,
-		0,
 		2,
 		{
 			Anum_pg_ts_template_tmplname,
@@ -712,7 +681,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{TSTemplateRelationId,		/* TSTEMPLATEOID */
 		TSTemplateOidIndexId,
-		0,
 		1,
 		{
 			ObjectIdAttributeNumber,
@@ -724,7 +692,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{TypeRelationId,			/* TYPENAMENSP */
 		TypeNameNspIndexId,
-		Anum_pg_type_typrelid,
 		2,
 		{
 			Anum_pg_type_typname,
@@ -736,7 +703,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{TypeRelationId,			/* TYPEOID */
 		TypeOidIndexId,
-		Anum_pg_type_typrelid,
 		1,
 		{
 			ObjectIdAttributeNumber,
@@ -748,7 +714,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{UserMappingRelationId,		/* USERMAPPINGOID */
 		UserMappingOidIndexId,
-		0,
 		1,
 		{
 			ObjectIdAttributeNumber,
@@ -760,7 +725,6 @@ static const struct cachedesc cacheinfo[] = {
 	},
 	{UserMappingRelationId,		/* USERMAPPINGUSERSERVER */
 		UserMappingUserServerIndexId,
-		0,
 		2,
 		{
 			Anum_pg_user_mapping_umuser,
@@ -800,7 +764,6 @@ InitCatalogCache(void)
 		SysCache[cacheId] = InitCatCache(cacheId,
 										 cacheinfo[cacheId].reloid,
 										 cacheinfo[cacheId].indoid,
-										 cacheinfo[cacheId].reloidattr,
 										 cacheinfo[cacheId].nkeys,
 										 cacheinfo[cacheId].key,
 										 cacheinfo[cacheId].nbuckets);
@@ -963,10 +926,9 @@ SearchSysCacheAttName(Oid relid, const char *attname)
 {
 	HeapTuple	tuple;
 
-	tuple = SearchSysCache(ATTNAME,
-						   ObjectIdGetDatum(relid),
-						   CStringGetDatum(attname),
-						   0, 0);
+	tuple = SearchSysCache2(ATTNAME,
+							ObjectIdGetDatum(relid),
+							CStringGetDatum(attname));
 	if (!HeapTupleIsValid(tuple))
 		return NULL;
 	if (((Form_pg_attribute) GETSTRUCT(tuple))->attisdropped)

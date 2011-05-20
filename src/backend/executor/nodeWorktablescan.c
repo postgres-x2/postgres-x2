@@ -3,12 +3,12 @@
  * nodeWorktablescan.c
  *	  routines to handle WorkTableScan nodes.
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/executor/nodeWorktablescan.c,v 1.7 2009/06/11 14:48:57 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/executor/nodeWorktablescan.c,v 1.10 2010/01/02 16:57:45 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -61,12 +61,22 @@ WorkTableScanNext(WorkTableScanState *node)
 	return slot;
 }
 
+/*
+ * WorkTableScanRecheck -- access method routine to recheck a tuple in EvalPlanQual
+ */
+static bool
+WorkTableScanRecheck(WorkTableScanState *node, TupleTableSlot *slot)
+{
+	/* nothing to check */
+	return true;
+}
+
 /* ----------------------------------------------------------------
  *		ExecWorkTableScan(node)
  *
  *		Scans the worktable sequentially and returns the next qualifying tuple.
- *		It calls the ExecScan() routine and passes it the access method
- *		which retrieves tuples sequentially.
+ *		We call the ExecScan() routine and pass it the appropriate
+ *		access method functions.
  * ----------------------------------------------------------------
  */
 TupleTableSlot *
@@ -106,10 +116,9 @@ ExecWorkTableScan(WorkTableScanState *node)
 		ExecAssignScanProjectionInfo(&node->ss);
 	}
 
-	/*
-	 * use WorkTableScanNext as access method
-	 */
-	return ExecScan(&node->ss, (ExecScanAccessMtd) WorkTableScanNext);
+	return ExecScan(&node->ss,
+					(ExecScanAccessMtd) WorkTableScanNext,
+					(ExecScanRecheckMtd) WorkTableScanRecheck);
 }
 
 
@@ -156,8 +165,6 @@ ExecInitWorkTableScan(WorkTableScan *node, EState *estate, int eflags)
 		ExecInitExpr((Expr *) node->scan.plan.qual,
 					 (PlanState *) scanstate);
 
-#define WORKTABLESCAN_NSLOTS 2
-
 	/*
 	 * tuple table initialization
 	 */
@@ -172,14 +179,6 @@ ExecInitWorkTableScan(WorkTableScan *node, EState *estate, int eflags)
 	scanstate->ss.ps.ps_TupFromTlist = false;
 
 	return scanstate;
-}
-
-int
-ExecCountSlotsWorkTableScan(WorkTableScan *node)
-{
-	return ExecCountSlotsNode(outerPlan(node)) +
-		ExecCountSlotsNode(innerPlan(node)) +
-		WORKTABLESCAN_NSLOTS;
 }
 
 /* ----------------------------------------------------------------
@@ -213,7 +212,8 @@ void
 ExecWorkTableScanReScan(WorkTableScanState *node, ExprContext *exprCtxt)
 {
 	ExecClearTuple(node->ss.ps.ps_ResultTupleSlot);
-	node->ss.ps.ps_TupFromTlist = false;
+
+	ExecScanReScan(&node->ss);
 
 	/* No need (or way) to rescan if ExecWorkTableScan not called yet */
 	if (node->rustate)

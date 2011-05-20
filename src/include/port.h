@@ -3,10 +3,10 @@
  * port.h
  *	  Header for src/port/ compatibility functions.
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/port.h,v 1.125 2009/06/11 14:49:08 momjian Exp $
+ * $PostgreSQL: pgsql/src/include/port.h,v 1.134 2010/05/15 14:44:13 tgl Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -17,9 +17,20 @@
 #include <netdb.h>
 #include <pwd.h>
 
+/* socket has a different definition on WIN32 */
+#ifndef WIN32
+typedef int pgsocket;
+
+#define PGINVALID_SOCKET (-1)
+#else
+typedef SOCKET pgsocket;
+
+#define PGINVALID_SOCKET INVALID_SOCKET
+#endif
+
 /* non-blocking */
-extern bool pg_set_noblock(int sock);
-extern bool pg_set_block(int sock);
+extern bool pg_set_noblock(pgsocket sock);
+extern bool pg_set_block(pgsocket sock);
 
 /* Portable path handling for Unix/Win32 (in path.c) */
 
@@ -81,7 +92,7 @@ extern int find_other_exec(const char *argv0, const char *target,
 
 /* Windows security token manipulation (in exec.c) */
 #ifdef WIN32
-extern BOOL AddUserToDacl(HANDLE hProcess);
+extern BOOL AddUserToTokenDacl(HANDLE hToken);
 #endif
 
 
@@ -115,7 +126,7 @@ extern BOOL AddUserToDacl(HANDLE hProcess);
  *	 - exactly two quote characters
  *	 - no special characters between the two quote characters, where special
  *	   is one of: &<>()@^|
- *	 - there are one or more whitespace characters between the the two quote
+ *	 - there are one or more whitespace characters between the two quote
  *	   characters
  *	 - the string between the two quote characters is the name of an
  *	   executable file.
@@ -316,10 +327,6 @@ extern FILE *pgwin32_fopen(const char *, const char *);
 #define popen(a,b) _popen(a,b)
 #define pclose(a) _pclose(a)
 
-/* Missing rand functions */
-extern long lrand48(void);
-extern void srand48(long seed);
-
 /* New versions of MingW have gettimeofday, old mingw and msvc don't */
 #ifndef HAVE_GETTIMEOFDAY
 /* Last parameter not used */
@@ -345,10 +352,17 @@ extern char *crypt(const char *key, const char *setting);
 /* WIN32 handled in port/win32.h */
 #ifndef WIN32
 #define pgoff_t off_t
-#if defined(bsdi) || defined(netbsd)
+#if defined(__bsdi__) || defined(__NetBSD__)
 extern int	fseeko(FILE *stream, off_t offset, int whence);
 extern off_t ftello(FILE *stream);
 #endif
+#endif
+
+#ifndef HAVE_ERAND48
+/* we assume all of these are present or missing together */
+extern double erand48(unsigned short xseed[3]);
+extern long lrand48(void);
+extern void srand48(long seed);
 #endif
 
 #ifndef HAVE_FSEEKO

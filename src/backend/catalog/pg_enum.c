@@ -3,11 +3,11 @@
  * pg_enum.c
  *	  routines to support manipulation of the pg_enum relation
  *
- * Copyright (c) 2006-2009, PostgreSQL Global Development Group
+ * Copyright (c) 2006-2010, PostgreSQL Global Development Group
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/catalog/pg_enum.c,v 1.9 2009/01/01 17:23:37 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/catalog/pg_enum.c,v 1.14 2010/02/26 02:00:37 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -33,20 +33,21 @@ static int	oid_cmp(const void *p1, const void *p2);
  * vals is a list of Value strings.
  */
 void
-EnumValuesCreate(Oid enumTypeOid, List *vals)
+EnumValuesCreate(Oid enumTypeOid, List *vals,
+				 Oid binary_upgrade_next_pg_enum_oid)
 {
 	Relation	pg_enum;
 	TupleDesc	tupDesc;
 	NameData	enumlabel;
 	Oid		   *oids;
-	int			i,
-				n;
+	int			elemno,
+				num_elems;
 	Datum		values[Natts_pg_enum];
 	bool		nulls[Natts_pg_enum];
 	ListCell   *lc;
 	HeapTuple	tup;
 
-	n = list_length(vals);
+	num_elems = list_length(vals);
 
 	/*
 	 * XXX we do not bother to check the list of values for duplicates --- if
@@ -58,25 +59,43 @@ EnumValuesCreate(Oid enumTypeOid, List *vals)
 	tupDesc = pg_enum->rd_att;
 
 	/*
-	 * Allocate oids.  While this method does not absolutely guarantee that we
-	 * generate no duplicate oids (since we haven't entered each oid into the
-	 * table before allocating the next), trouble could only occur if the oid
-	 * counter wraps all the way around before we finish. Which seems
-	 * unlikely.
+	 * Allocate oids
 	 */
-	oids = (Oid *) palloc(n * sizeof(Oid));
-	for (i = 0; i < n; i++)
+	oids = (Oid *) palloc(num_elems * sizeof(Oid));
+	if (OidIsValid(binary_upgrade_next_pg_enum_oid))
 	{
-		oids[i] = GetNewOid(pg_enum);
+		if (num_elems != 1)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("EnumValuesCreate() can only set a single OID")));
+		oids[0] = binary_upgrade_next_pg_enum_oid;
+		binary_upgrade_next_pg_enum_oid = InvalidOid;
 	}
-
-	/* sort them, just in case counter wrapped from high to low */
-	qsort(oids, n, sizeof(Oid), oid_cmp);
+	else
+	{
+		/*
+		 * While this method does not absolutely guarantee that we generate no
+		 * duplicate oids (since we haven't entered each oid into the table
+		 * before allocating the next), trouble could only occur if the oid
+		 * counter wraps all the way around before we finish. Which seems
+		 * unlikely.
+		 */
+		for (elemno = 0; elemno < num_elems; elemno++)
+		{
+			/*
+			 * The pg_enum.oid is stored in user tables.  This oid must be
+			 * preserved by binary upgrades.
+			 */
+			oids[elemno] = GetNewOid(pg_enum);
+		}
+		/* sort them, just in case counter wrapped from high to low */
+		qsort(oids, num_elems, sizeof(Oid), oid_cmp);
+	}
 
 	/* and make the entries */
 	memset(nulls, false, sizeof(nulls));
 
-	i = 0;
+	elemno = 0;
 	foreach(lc, vals)
 	{
 		char	   *lab = strVal(lfirst(lc));
@@ -97,13 +116,13 @@ EnumValuesCreate(Oid enumTypeOid, List *vals)
 		values[Anum_pg_enum_enumlabel - 1] = NameGetDatum(&enumlabel);
 
 		tup = heap_form_tuple(tupDesc, values, nulls);
-		HeapTupleSetOid(tup, oids[i]);
+		HeapTupleSetOid(tup, oids[elemno]);
 
 		simple_heap_insert(pg_enum, tup);
 		CatalogUpdateIndexes(pg_enum, tup);
 		heap_freetuple(tup);
 
-		i++;
+		elemno++;
 	}
 
 	/* clean up */

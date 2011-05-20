@@ -1,9 +1,9 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2009, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2010, PostgreSQL Global Development Group
  *
- * $PostgreSQL: pgsql/src/bin/psql/print.c,v 1.116 2009/06/12 16:17:29 tgl Exp $
+ * $PostgreSQL: pgsql/src/bin/psql/print.c,v 1.128 2010/07/06 19:19:00 momjian Exp $
  */
 #include "postgres_fe.h"
 
@@ -43,6 +43,82 @@ volatile bool cancel_pressed = false;
 static char *decimal_point;
 static char *grouping;
 static char *thousands_sep;
+
+/* Line style control structures */
+const printTextFormat pg_asciiformat =
+{
+	"ascii",
+	{
+		{"-", "+", "+", "+"},
+		{"-", "+", "+", "+"},
+		{"-", "+", "+", "+"},
+		{"", "|", "|", "|"}
+	},
+	"|",
+	"|",
+	"|",
+	" ",
+	"+",
+	" ",
+	"+",
+	".",
+	".",
+	true
+};
+
+const printTextFormat pg_asciiformat_old =
+{
+	"old-ascii",
+	{
+		{"-", "+", "+", "+"},
+		{"-", "+", "+", "+"},
+		{"-", "+", "+", "+"},
+		{"", "|", "|", "|"}
+	},
+	":",
+	";",
+	" ",
+	"+",
+	" ",
+	" ",
+	" ",
+	" ",
+	" ",
+	false
+};
+
+const printTextFormat pg_utf8format =
+{
+	"unicode",
+	{
+		/* ─, ┌, ┬, ┐ */
+		{"\342\224\200", "\342\224\214", "\342\224\254", "\342\224\220"},
+		/* ─, ├, ┼, ┤ */
+		{"\342\224\200", "\342\224\234", "\342\224\274", "\342\224\244"},
+		/* ─, └, ┴, ┘ */
+		{"\342\224\200", "\342\224\224", "\342\224\264", "\342\224\230"},
+		/* N/A, │, │, │ */
+		{"", "\342\224\202", "\342\224\202", "\342\224\202"}
+	},
+	/* │ */
+	"\342\224\202",
+	/* │ */
+	"\342\224\202",
+	/* │ */
+	"\342\224\202",
+	" ",
+	/* ↵ */
+	"\342\206\265",
+	" ",
+	/* ↵ */
+	"\342\206\265",
+	/* … */
+	"\342\200\246",
+	/* … */
+	"\342\200\246",
+	true
+};
+
 
 /* Local functions */
 static int	strlen_max_width(unsigned char *str, int *target_width, int encoding);
@@ -116,7 +192,10 @@ strlen_with_numeric_locale(const char *my_str)
 	return strlen(my_str) + additional_numeric_locale_len(my_str);
 }
 
-/* Returns the appropriately formatted string in a new allocated block, caller must free */
+/*
+ * Returns the appropriately formatted string in a new allocated block,
+ * caller must free
+ */
 static char *
 format_numeric_locale(const char *my_str)
 {
@@ -172,6 +251,21 @@ format_numeric_locale(const char *my_str)
 	return new_str;
 }
 
+
+/*
+ * fputnbytes: print exactly N bytes to a file
+ *
+ * We avoid using %.*s here because it can misbehave if the data
+ * is not valid in what libc thinks is the prevailing encoding.
+ */
+static void
+fputnbytes(FILE *f, const char *str, size_t n)
+{
+	while (n-- > 0)
+		fputc(*str++, f);
+}
+
+
 /*************************/
 /* Unaligned text		 */
 /*************************/
@@ -183,7 +277,6 @@ print_unaligned_text(const printTableContent *cont, FILE *fout)
 	const char *opt_fieldsep = cont->opt->fieldSep;
 	const char *opt_recordsep = cont->opt->recordSep;
 	bool		opt_tuples_only = cont->opt->tuples_only;
-	bool		opt_numeric_locale = cont->opt->numericLocale;
 	unsigned int i;
 	const char *const * ptr;
 	bool		need_recordsep = false;
@@ -228,15 +321,7 @@ print_unaligned_text(const printTableContent *cont, FILE *fout)
 			if (cancel_pressed)
 				break;
 		}
-		if (cont->aligns[i % cont->ncolumns] == 'r' && opt_numeric_locale)
-		{
-			char	   *my_cell = format_numeric_locale(*ptr);
-
-			fputs(my_cell, fout);
-			free(my_cell);
-		}
-		else
-			fputs(*ptr, fout);
+		fputs(*ptr, fout);
 
 		if ((i + 1) % cont->ncolumns)
 			fputs(opt_fieldsep, fout);
@@ -275,7 +360,6 @@ print_unaligned_vertical(const printTableContent *cont, FILE *fout)
 	const char *opt_fieldsep = cont->opt->fieldSep;
 	const char *opt_recordsep = cont->opt->recordSep;
 	bool		opt_tuples_only = cont->opt->tuples_only;
-	bool		opt_numeric_locale = cont->opt->numericLocale;
 	unsigned int i;
 	const char *const * ptr;
 	bool		need_recordsep = false;
@@ -316,15 +400,7 @@ print_unaligned_vertical(const printTableContent *cont, FILE *fout)
 
 		fputs(cont->headers[i % cont->ncolumns], fout);
 		fputs(opt_fieldsep, fout);
-		if (cont->aligns[i % cont->ncolumns] == 'r' && opt_numeric_locale)
-		{
-			char	   *my_cell = format_numeric_locale(*ptr);
-
-			fputs(my_cell, fout);
-			free(my_cell);
-		}
-		else
-			fputs(*ptr, fout);
+		fputs(*ptr, fout);
 
 		if ((i + 1) % cont->ncolumns)
 			fputs(opt_recordsep, fout);
@@ -360,34 +436,38 @@ print_unaligned_vertical(const printTableContent *cont, FILE *fout)
 /* draw "line" */
 static void
 _print_horizontal_line(const unsigned int ncolumns, const unsigned int *widths,
-					   unsigned short border, FILE *fout)
+					   unsigned short border, printTextRule pos,
+					   const printTextFormat *format,
+					   FILE *fout)
 {
+	const printTextLineFormat *lformat = &format->lrule[pos];
 	unsigned int i,
 				j;
 
 	if (border == 1)
-		fputc('-', fout);
+		fputs(lformat->hrule, fout);
 	else if (border == 2)
-		fputs("+-", fout);
+		fprintf(fout, "%s%s", lformat->leftvrule, lformat->hrule);
 
 	for (i = 0; i < ncolumns; i++)
 	{
 		for (j = 0; j < widths[i]; j++)
-			fputc('-', fout);
+			fputs(lformat->hrule, fout);
 
 		if (i < ncolumns - 1)
 		{
 			if (border == 0)
 				fputc(' ', fout);
 			else
-				fputs("-+-", fout);
+				fprintf(fout, "%s%s%s", lformat->hrule,
+						lformat->midvrule, lformat->hrule);
 		}
 	}
 
 	if (border == 2)
-		fputs("-+", fout);
+		fprintf(fout, "%s%s", lformat->hrule, lformat->rightvrule);
 	else if (border == 1)
-		fputc('-', fout);
+		fputs(lformat->hrule, fout);
 
 	fputc('\n', fout);
 }
@@ -400,9 +480,10 @@ static void
 print_aligned_text(const printTableContent *cont, FILE *fout)
 {
 	bool		opt_tuples_only = cont->opt->tuples_only;
-	bool		opt_numeric_locale = cont->opt->numericLocale;
 	int			encoding = cont->opt->encoding;
 	unsigned short opt_border = cont->opt->border;
+	const printTextFormat *format = get_line_style(cont->opt);
+	const printTextLineFormat *dformat = &format->lrule[PRINT_RULE_DATA];
 
 	unsigned int col_count = 0,
 				cell_count = 0;
@@ -429,6 +510,7 @@ print_aligned_text(const printTableContent *cont, FILE *fout)
 
 	bool	   *header_done;	/* Have all header lines been output? */
 	int		   *bytes_output;	/* Bytes output for column value */
+	printTextLineWrap *wrap;	/* Wrap status for each column */
 	int			output_columns = 0;		/* Width of interactive console */
 	bool		is_pager = false;
 
@@ -452,6 +534,7 @@ print_aligned_text(const printTableContent *cont, FILE *fout)
 		format_buf = pg_local_calloc(col_count, sizeof(*format_buf));
 		header_done = pg_local_calloc(col_count, sizeof(*header_done));
 		bytes_output = pg_local_calloc(col_count, sizeof(*bytes_output));
+		wrap = pg_local_calloc(col_count, sizeof(*wrap));
 	}
 	else
 	{
@@ -466,6 +549,7 @@ print_aligned_text(const printTableContent *cont, FILE *fout)
 		format_buf = NULL;
 		header_done = NULL;
 		bytes_output = NULL;
+		wrap = NULL;
 	}
 
 	/* scan all column headers, find maximum width and max max_nl_lines */
@@ -501,11 +585,6 @@ print_aligned_text(const printTableContent *cont, FILE *fout)
 
 		pg_wcssize((unsigned char *) *ptr, strlen(*ptr), encoding,
 				   &width, &nl_lines, &bytes_required);
-		if (opt_numeric_locale && cont->aligns[i % col_count] == 'r')
-		{
-			width += additional_numeric_locale_len(*ptr);
-			bytes_required += additional_numeric_locale_len(*ptr);
-		}
 
 		if (width > max_width[i % col_count])
 			max_width[i % col_count] = width;
@@ -528,7 +607,7 @@ print_aligned_text(const printTableContent *cont, FILE *fout)
 
 	/* adjust the total display width based on border style */
 	if (opt_border == 0)
-		width_total = col_count - 1;
+		width_total = col_count;
 	else if (opt_border == 1)
 		width_total = col_count * 3 - 1;
 	else
@@ -654,8 +733,6 @@ print_aligned_text(const printTableContent *cont, FILE *fout)
 
 			pg_wcssize((unsigned char *) *ptr, strlen(*ptr), encoding,
 					   &width, &nl_lines, &bytes_required);
-			if (opt_numeric_locale && cont->align[i] == 'r')
-				width += additional_numeric_locale_len(*ptr);
 
 			/*
 			 * A row can have both wrapping and newlines that cause it to
@@ -709,7 +786,8 @@ print_aligned_text(const printTableContent *cont, FILE *fout)
 			int			curr_nl_line;
 
 			if (opt_border == 2)
-				_print_horizontal_line(col_count, width_wrap, opt_border, fout);
+				_print_horizontal_line(col_count, width_wrap, opt_border,
+									   PRINT_RULE_TOP, format, fout);
 
 			for (i = 0; i < col_count; i++)
 				pg_wcsformat((unsigned char *) cont->headers[i],
@@ -722,15 +800,17 @@ print_aligned_text(const printTableContent *cont, FILE *fout)
 			while (more_col_wrapping)
 			{
 				if (opt_border == 2)
-					fprintf(fout, "|%c", curr_nl_line ? '+' : ' ');
-				else if (opt_border == 1)
-					fputc(curr_nl_line ? '+' : ' ', fout);
+					fputs(dformat->leftvrule, fout);
 
 				for (i = 0; i < cont->ncolumns; i++)
 				{
+					struct lineptr *this_line = col_lineptrs[i] + curr_nl_line;
 					unsigned int nbspace;
 
-					struct lineptr *this_line = col_lineptrs[i] + curr_nl_line;
+					if (opt_border != 0 ||
+						(format->wrap_right_border == false && i > 0))
+						fputs(curr_nl_line ? format->header_nl_left : " ",
+							  fout);
 
 					if (!header_done[i])
 					{
@@ -748,24 +828,23 @@ print_aligned_text(const printTableContent *cont, FILE *fout)
 					}
 					else
 						fprintf(fout, "%*s", width_wrap[i], "");
-					if (i < col_count - 1)
-					{
-						if (opt_border == 0)
-							fputc(curr_nl_line ? '+' : ' ', fout);
-						else
-							fprintf(fout, " |%c", curr_nl_line ? '+' : ' ');
-					}
+
+					if (opt_border != 0 || format->wrap_right_border == true)
+						fputs(!header_done[i] ? format->header_nl_right : " ",
+							  fout);
+
+					if (opt_border != 0 && i < col_count - 1)
+						fputs(dformat->midvrule, fout);
 				}
 				curr_nl_line++;
 
 				if (opt_border == 2)
-					fputs(" |", fout);
-				else if (opt_border == 1)
-					fputc(' ', fout);
+					fputs(dformat->rightvrule, fout);
 				fputc('\n', fout);
 			}
 
-			_print_horizontal_line(col_count, width_wrap, opt_border, fout);
+			_print_horizontal_line(col_count, width_wrap, opt_border,
+								   PRINT_RULE_MIDDLE, format, fout);
 		}
 	}
 
@@ -778,24 +857,13 @@ print_aligned_text(const printTableContent *cont, FILE *fout)
 			break;
 
 		/*
-		 * Format each cell.  Format again, if it's a numeric formatting
-		 * locale (e.g. 123,456 vs. 123456)
+		 * Format each cell.
 		 */
 		for (j = 0; j < col_count; j++)
 		{
 			pg_wcsformat((unsigned char *) ptr[j], strlen(ptr[j]), encoding,
 						 col_lineptrs[j], max_nl_lines[j]);
 			curr_nl_line[j] = 0;
-
-			if (opt_numeric_locale && cont->aligns[j] == 'r')
-			{
-				char	   *my_cell;
-
-				my_cell = format_numeric_locale((char *) col_lineptrs[j]->ptr);
-				/* Buffer IS large enough... now */
-				strcpy((char *) col_lineptrs[j]->ptr, my_cell);
-				free(my_cell);
-			}
 		}
 
 		memset(bytes_output, 0, col_count * sizeof(int));
@@ -811,9 +879,7 @@ print_aligned_text(const printTableContent *cont, FILE *fout)
 
 			/* left border */
 			if (opt_border == 2)
-				fputs("| ", fout);
-			else if (opt_border == 1)
-				fputc(' ', fout);
+				fputs(dformat->leftvrule, fout);
 
 			/* for each column */
 			for (j = 0; j < col_count; j++)
@@ -823,6 +889,17 @@ print_aligned_text(const printTableContent *cont, FILE *fout)
 				int			bytes_to_output;
 				int			chars_to_output = width_wrap[j];
 				bool		finalspaces = (opt_border == 2 || j < col_count - 1);
+
+				/* Print left-hand wrap or newline mark */
+				if (opt_border != 0)
+				{
+					if (wrap[j] == PRINT_LINE_WRAP_WRAP)
+						fputs(format->wrap_left, fout);
+					else if (wrap[j] == PRINT_LINE_WRAP_NEWLINE)
+						fputs(format->nl_left, fout);
+					else
+						fputc(' ', fout);
+				}
 
 				if (!this_line->ptr)
 				{
@@ -850,16 +927,16 @@ print_aligned_text(const printTableContent *cont, FILE *fout)
 					{
 						/* spaces first */
 						fprintf(fout, "%*s", width_wrap[j] - chars_to_output, "");
-						fprintf(fout, "%.*s", bytes_to_output,
-								this_line->ptr + bytes_output[j]);
+						fputnbytes(fout,
+								 (char *) (this_line->ptr + bytes_output[j]),
+								   bytes_to_output);
 					}
 					else	/* Left aligned cell */
 					{
 						/* spaces second */
-						fprintf(fout, "%.*s", bytes_to_output,
-								this_line->ptr + bytes_output[j]);
-						if (finalspaces)
-							fprintf(fout, "%*s", width_wrap[j] - chars_to_output, "");
+						fputnbytes(fout,
+								 (char *) (this_line->ptr + bytes_output[j]),
+								   bytes_to_output);
 					}
 
 					bytes_output[j] += bytes_to_output;
@@ -877,29 +954,54 @@ print_aligned_text(const printTableContent *cont, FILE *fout)
 					}
 				}
 
-				/* print a divider, if not the last column */
-				if (j < col_count - 1)
+				/* Determine next line's wrap status for this column */
+				wrap[j] = PRINT_LINE_WRAP_NONE;
+				if (col_lineptrs[j][curr_nl_line[j]].ptr != NULL)
 				{
-					if (opt_border == 0)
-						fputc(' ', fout);
-					/* Next value is beyond past newlines? */
+					if (bytes_output[j] != 0)
+						wrap[j] = PRINT_LINE_WRAP_WRAP;
+					else if (curr_nl_line[j] != 0)
+						wrap[j] = PRINT_LINE_WRAP_NEWLINE;
+				}
+
+				/*
+				 * If left-aligned, pad out remaining space if needed (not
+				 * last column, and/or wrap marks required).
+				 */
+				if (cont->aligns[j] != 'r')		/* Left aligned cell */
+				{
+					if (finalspaces ||
+						wrap[j] == PRINT_LINE_WRAP_WRAP ||
+						wrap[j] == PRINT_LINE_WRAP_NEWLINE)
+						fprintf(fout, "%*s",
+								width_wrap[j] - chars_to_output, "");
+				}
+
+				/* Print right-hand wrap or newline mark */
+				if (wrap[j] == PRINT_LINE_WRAP_WRAP)
+					fputs(format->wrap_right, fout);
+				else if (wrap[j] == PRINT_LINE_WRAP_NEWLINE)
+					fputs(format->nl_right, fout);
+				else if (opt_border == 2 || j < col_count - 1)
+					fputc(' ', fout);
+
+				/* Print column divider, if not the last column */
+				if (opt_border != 0 && j < col_count - 1)
+				{
+					if (wrap[j + 1] == PRINT_LINE_WRAP_WRAP)
+						fputs(format->midvrule_wrap, fout);
+					else if (wrap[j + 1] == PRINT_LINE_WRAP_NEWLINE)
+						fputs(format->midvrule_nl, fout);
 					else if (col_lineptrs[j + 1][curr_nl_line[j + 1]].ptr == NULL)
-						fputs("   ", fout);
-					/* In wrapping of value? */
-					else if (bytes_output[j + 1] != 0)
-						fputs(" ; ", fout);
-					/* After first newline value */
-					else if (curr_nl_line[j + 1] != 0)
-						fputs(" : ", fout);
+						fputs(format->midvrule_blank, fout);
 					else
-						/* Ordinary line */
-						fputs(" | ", fout);
+						fputs(dformat->midvrule, fout);
 				}
 			}
 
 			/* end-of-row border */
 			if (opt_border == 2)
-				fputs(" |", fout);
+				fputs(dformat->rightvrule, fout);
 			fputc('\n', fout);
 
 		} while (more_lines);
@@ -908,7 +1010,8 @@ print_aligned_text(const printTableContent *cont, FILE *fout)
 	if (cont->opt->stop_table)
 	{
 		if (opt_border == 2 && !cancel_pressed)
-			_print_horizontal_line(col_count, width_wrap, opt_border, fout);
+			_print_horizontal_line(col_count, width_wrap, opt_border,
+								   PRINT_RULE_BOTTOM, format, fout);
 
 		/* print footers */
 		if (cont->footers && !opt_tuples_only && !cancel_pressed)
@@ -923,6 +1026,11 @@ print_aligned_text(const printTableContent *cont, FILE *fout)
 	}
 
 	/* clean up */
+	for (i = 0; i < col_count; i++)
+	{
+		free(col_lineptrs[i]);
+		free(format_buf[i]);
+	}
 	free(width_header);
 	free(width_average);
 	free(max_width);
@@ -931,11 +1039,10 @@ print_aligned_text(const printTableContent *cont, FILE *fout)
 	free(curr_nl_line);
 	free(col_lineptrs);
 	free(max_bytes);
+	free(format_buf);
 	free(header_done);
 	free(bytes_output);
-	for (i = 0; i < col_count; i++)
-		free(format_buf[i]);
-	free(format_buf);
+	free(wrap);
 
 	if (is_pager)
 		ClosePager(fout);
@@ -943,11 +1050,69 @@ print_aligned_text(const printTableContent *cont, FILE *fout)
 
 
 static void
+print_aligned_vertical_line(const printTableContent *cont,
+							unsigned long record,
+							unsigned int hwidth,
+							unsigned int dwidth,
+							printTextRule pos,
+							FILE *fout)
+{
+	const printTextFormat *format = get_line_style(cont->opt);
+	const printTextLineFormat *lformat = &format->lrule[pos];
+	unsigned short opt_border = cont->opt->border;
+	unsigned int i;
+	int			reclen = 0;
+
+	if (opt_border == 2)
+		fprintf(fout, "%s%s", lformat->leftvrule, lformat->hrule);
+	else if (opt_border == 1)
+		fputs(lformat->hrule, fout);
+
+	if (record)
+	{
+		if (opt_border == 0)
+			reclen = fprintf(fout, "* Record %lu", record);
+		else
+			reclen = fprintf(fout, "[ RECORD %lu ]", record);
+	}
+	if (opt_border != 2)
+		reclen++;
+	if (reclen < 0)
+		reclen = 0;
+	for (i = reclen; i < hwidth; i++)
+		fputs(opt_border > 0 ? lformat->hrule : " ", fout);
+	reclen -= hwidth;
+
+	if (opt_border > 0)
+	{
+		if (reclen-- <= 0)
+			fputs(lformat->hrule, fout);
+		if (reclen-- <= 0)
+			fputs(lformat->midvrule, fout);
+		if (reclen-- <= 0)
+			fputs(lformat->hrule, fout);
+	}
+	else
+	{
+		if (reclen-- <= 0)
+			fputc(' ', fout);
+	}
+	if (reclen < 0)
+		reclen = 0;
+	for (i = reclen; i < dwidth; i++)
+		fputs(opt_border > 0 ? lformat->hrule : " ", fout);
+	if (opt_border == 2)
+		fprintf(fout, "%s%s", lformat->hrule, lformat->rightvrule);
+	fputc('\n', fout);
+}
+
+static void
 print_aligned_vertical(const printTableContent *cont, FILE *fout)
 {
 	bool		opt_tuples_only = cont->opt->tuples_only;
-	bool		opt_numeric_locale = cont->opt->numericLocale;
 	unsigned short opt_border = cont->opt->border;
+	const printTextFormat *format = get_line_style(cont->opt);
+	const printTextLineFormat *dformat = &format->lrule[PRINT_RULE_DATA];
 	int			encoding = cont->opt->encoding;
 	unsigned long record = cont->opt->prior_records + 1;
 	const char *const * ptr;
@@ -958,7 +1123,6 @@ print_aligned_vertical(const printTableContent *cont, FILE *fout)
 				dheight = 1,
 				hformatsize = 0,
 				dformatsize = 0;
-	char	   *divider;
 	struct lineptr *hlineptr,
 			   *dlineptr;
 
@@ -995,19 +1159,12 @@ print_aligned_vertical(const printTableContent *cont, FILE *fout)
 	/* find longest data cell */
 	for (i = 0, ptr = cont->cells; *ptr; ptr++, i++)
 	{
-		int			numeric_locale_len;
 		int			width,
 					height,
 					fs;
 
-		if (cont->aligns[i % cont->ncolumns] == 'r' && opt_numeric_locale)
-			numeric_locale_len = additional_numeric_locale_len(*ptr);
-		else
-			numeric_locale_len = 0;
-
 		pg_wcssize((unsigned char *) *ptr, strlen(*ptr), encoding,
 				   &width, &height, &fs);
-		width += numeric_locale_len;
 		if (width > dwidth)
 			dwidth = width;
 		if (height > dheight)
@@ -1026,22 +1183,6 @@ print_aligned_vertical(const printTableContent *cont, FILE *fout)
 	dlineptr->ptr = pg_local_malloc(dformatsize);
 	hlineptr->ptr = pg_local_malloc(hformatsize);
 
-	/* make horizontal border */
-	divider = pg_local_malloc(hwidth + dwidth + 10);
-	divider[0] = '\0';
-	if (opt_border == 2)
-		strcat(divider, "+-");
-	for (i = 0; i < hwidth; i++)
-		strcat(divider, opt_border > 0 ? "-" : " ");
-	if (opt_border > 0)
-		strcat(divider, "-+-");
-	else
-		strcat(divider, " ");
-	for (i = 0; i < dwidth; i++)
-		strcat(divider, opt_border > 0 ? "-" : " ");
-	if (opt_border == 2)
-		strcat(divider, "-+");
-
 	if (cont->opt->start_table)
 	{
 		/* print title */
@@ -1052,38 +1193,29 @@ print_aligned_vertical(const printTableContent *cont, FILE *fout)
 	/* print records */
 	for (i = 0, ptr = cont->cells; *ptr; i++, ptr++)
 	{
+		printTextRule pos;
 		int			line_count,
 					dcomplete,
 					hcomplete;
 
+		if (cancel_pressed)
+			break;
+
+		if (i == 0)
+			pos = PRINT_RULE_TOP;
+		else if (!(*(ptr + 1)))
+			pos = PRINT_RULE_BOTTOM;
+		else
+			pos = PRINT_RULE_MIDDLE;
+
 		if (i % cont->ncolumns == 0)
 		{
-			if (cancel_pressed)
-				break;
 			if (!opt_tuples_only)
-			{
-				char		record_str[64];
-				size_t		record_str_len;
-
-				if (opt_border == 0)
-					snprintf(record_str, 64, "* Record %lu", record++);
-				else
-					snprintf(record_str, 64, "[ RECORD %lu ]", record++);
-				record_str_len = strlen(record_str);
-
-				if (record_str_len + opt_border > strlen(divider))
-					fprintf(fout, "%.*s%s\n", opt_border, divider, record_str);
-				else
-				{
-					char	   *div_copy = pg_strdup(divider);
-
-					strncpy(div_copy + opt_border, record_str, record_str_len);
-					fprintf(fout, "%s\n", div_copy);
-					free(div_copy);
-				}
-			}
+				print_aligned_vertical_line(cont, record++, hwidth, dwidth,
+											pos, fout);
 			else if (i != 0 || !cont->opt->start_table || opt_border == 2)
-				fprintf(fout, "%s\n", divider);
+				print_aligned_vertical_line(cont, 0, hwidth, dwidth,
+											pos, fout);
 		}
 
 		/* Format the header */
@@ -1099,7 +1231,7 @@ print_aligned_vertical(const printTableContent *cont, FILE *fout)
 		while (!dcomplete || !hcomplete)
 		{
 			if (opt_border == 2)
-				fputs("| ", fout);
+				fprintf(fout, "%s ", dformat->leftvrule);
 			if (!hcomplete)
 			{
 				fprintf(fout, "%-s%*s", hlineptr[line_count].ptr,
@@ -1112,31 +1244,18 @@ print_aligned_vertical(const printTableContent *cont, FILE *fout)
 				fprintf(fout, "%*s", hwidth, "");
 
 			if (opt_border > 0)
-				fprintf(fout, " %c ", (line_count == 0) ? '|' : ':');
+				fprintf(fout, " %s ", dformat->midvrule);
 			else
-				fputs(" ", fout);
+				fputc(' ', fout);
 
 			if (!dcomplete)
 			{
-				if (cont->aligns[i % cont->ncolumns] == 'r' && opt_numeric_locale)
-				{
-					char	   *my_cell = format_numeric_locale((char *) dlineptr[line_count].ptr);
-
-					if (opt_border < 2)
-						fprintf(fout, "%s\n", my_cell);
-					else
-						fprintf(fout, "%-s%*s |\n", my_cell,
-								(int) (dwidth - strlen(my_cell)), "");
-					free(my_cell);
-				}
+				if (opt_border < 2)
+					fprintf(fout, "%s\n", dlineptr[line_count].ptr);
 				else
-				{
-					if (opt_border < 2)
-						fprintf(fout, "%s\n", dlineptr[line_count].ptr);
-					else
-						fprintf(fout, "%-s%*s |\n", dlineptr[line_count].ptr,
-								dwidth - dlineptr[line_count].width, "");
-				}
+					fprintf(fout, "%-s%*s %s\n", dlineptr[line_count].ptr,
+							dwidth - dlineptr[line_count].width, "",
+							dformat->rightvrule);
 
 				if (!dlineptr[line_count + 1].ptr)
 					dcomplete = 1;
@@ -1146,7 +1265,7 @@ print_aligned_vertical(const printTableContent *cont, FILE *fout)
 				if (opt_border < 2)
 					fputc('\n', fout);
 				else
-					fprintf(fout, "%*s |\n", dwidth, "");
+					fprintf(fout, "%*s %s\n", dwidth, "", dformat->rightvrule);
 			}
 			line_count++;
 		}
@@ -1155,7 +1274,8 @@ print_aligned_vertical(const printTableContent *cont, FILE *fout)
 	if (cont->opt->stop_table)
 	{
 		if (opt_border == 2 && !cancel_pressed)
-			fprintf(fout, "%s\n", divider);
+			print_aligned_vertical_line(cont, 0, hwidth, dwidth,
+										PRINT_RULE_BOTTOM, fout);
 
 		/* print footers */
 		if (!opt_tuples_only && cont->footers != NULL && !cancel_pressed)
@@ -1171,7 +1291,6 @@ print_aligned_vertical(const printTableContent *cont, FILE *fout)
 		fputc('\n', fout);
 	}
 
-	free(divider);
 	free(hlineptr->ptr);
 	free(dlineptr->ptr);
 	free(hlineptr);
@@ -1229,7 +1348,6 @@ static void
 print_html_text(const printTableContent *cont, FILE *fout)
 {
 	bool		opt_tuples_only = cont->opt->tuples_only;
-	bool		opt_numeric_locale = cont->opt->numericLocale;
 	unsigned short opt_border = cont->opt->border;
 	const char *opt_table_attr = cont->opt->tableAttr;
 	unsigned int i;
@@ -1281,13 +1399,6 @@ print_html_text(const printTableContent *cont, FILE *fout)
 		/* is string only whitespace? */
 		if ((*ptr)[strspn(*ptr, " \t")] == '\0')
 			fputs("&nbsp; ", fout);
-		else if (cont->aligns[i % cont->ncolumns] == 'r' && opt_numeric_locale)
-		{
-			char	   *my_cell = format_numeric_locale(*ptr);
-
-			html_escaped_print(my_cell, fout);
-			free(my_cell);
-		}
 		else
 			html_escaped_print(*ptr, fout);
 
@@ -1324,7 +1435,6 @@ static void
 print_html_vertical(const printTableContent *cont, FILE *fout)
 {
 	bool		opt_tuples_only = cont->opt->tuples_only;
-	bool		opt_numeric_locale = cont->opt->numericLocale;
 	unsigned short opt_border = cont->opt->border;
 	const char *opt_table_attr = cont->opt->tableAttr;
 	unsigned long record = cont->opt->prior_records + 1;
@@ -1373,13 +1483,6 @@ print_html_vertical(const printTableContent *cont, FILE *fout)
 		/* is string only whitespace? */
 		if ((*ptr)[strspn(*ptr, " \t")] == '\0')
 			fputs("&nbsp; ", fout);
-		else if (cont->aligns[i % cont->ncolumns] == 'r' && opt_numeric_locale)
-		{
-			char	   *my_cell = format_numeric_locale(*ptr);
-
-			html_escaped_print(my_cell, fout);
-			free(my_cell);
-		}
 		else
 			html_escaped_print(*ptr, fout);
 
@@ -1456,7 +1559,6 @@ static void
 print_latex_text(const printTableContent *cont, FILE *fout)
 {
 	bool		opt_tuples_only = cont->opt->tuples_only;
-	bool		opt_numeric_locale = cont->opt->numericLocale;
 	unsigned short opt_border = cont->opt->border;
 	unsigned int i;
 	const char *const * ptr;
@@ -1515,15 +1617,7 @@ print_latex_text(const printTableContent *cont, FILE *fout)
 	/* print cells */
 	for (i = 0, ptr = cont->cells; *ptr; i++, ptr++)
 	{
-		if (opt_numeric_locale)
-		{
-			char	   *my_cell = format_numeric_locale(*ptr);
-
-			latex_escaped_print(my_cell, fout);
-			free(my_cell);
-		}
-		else
-			latex_escaped_print(*ptr, fout);
+		latex_escaped_print(*ptr, fout);
 
 		if ((i + 1) % cont->ncolumns == 0)
 		{
@@ -1563,7 +1657,6 @@ static void
 print_latex_vertical(const printTableContent *cont, FILE *fout)
 {
 	bool		opt_tuples_only = cont->opt->tuples_only;
-	bool		opt_numeric_locale = cont->opt->numericLocale;
 	unsigned short opt_border = cont->opt->border;
 	unsigned long record = cont->opt->prior_records + 1;
 	unsigned int i;
@@ -1638,15 +1731,7 @@ print_latex_vertical(const printTableContent *cont, FILE *fout)
 
 			for (f = cont->footers; f; f = f->next)
 			{
-				if (opt_numeric_locale)
-				{
-					char	   *my_cell = format_numeric_locale(f->data);
-
-					latex_escaped_print(my_cell, fout);
-					free(my_cell);
-				}
-				else
-					latex_escaped_print(f->data, fout);
+				latex_escaped_print(f->data, fout);
 				fputs(" \\\\\n", fout);
 			}
 		}
@@ -1682,7 +1767,6 @@ static void
 print_troff_ms_text(const printTableContent *cont, FILE *fout)
 {
 	bool		opt_tuples_only = cont->opt->tuples_only;
-	bool		opt_numeric_locale = cont->opt->numericLocale;
 	unsigned short opt_border = cont->opt->border;
 	unsigned int i;
 	const char *const * ptr;
@@ -1736,15 +1820,7 @@ print_troff_ms_text(const printTableContent *cont, FILE *fout)
 	/* print cells */
 	for (i = 0, ptr = cont->cells; *ptr; i++, ptr++)
 	{
-		if (opt_numeric_locale)
-		{
-			char	   *my_cell = format_numeric_locale(*ptr);
-
-			troff_ms_escaped_print(my_cell, fout);
-			free(my_cell);
-		}
-		else
-			troff_ms_escaped_print(*ptr, fout);
+		troff_ms_escaped_print(*ptr, fout);
 
 		if ((i + 1) % cont->ncolumns == 0)
 		{
@@ -1781,7 +1857,6 @@ static void
 print_troff_ms_vertical(const printTableContent *cont, FILE *fout)
 {
 	bool		opt_tuples_only = cont->opt->tuples_only;
-	bool		opt_numeric_locale = cont->opt->numericLocale;
 	unsigned short opt_border = cont->opt->border;
 	unsigned long record = cont->opt->prior_records + 1;
 	unsigned int i;
@@ -1859,15 +1934,7 @@ print_troff_ms_vertical(const printTableContent *cont, FILE *fout)
 
 		troff_ms_escaped_print(cont->headers[i % cont->ncolumns], fout);
 		fputc('\t', fout);
-		if (opt_numeric_locale)
-		{
-			char	   *my_cell = format_numeric_locale(*ptr);
-
-			troff_ms_escaped_print(my_cell, fout);
-			free(my_cell);
-		}
-		else
-			troff_ms_escaped_print(*ptr, fout);
+		troff_ms_escaped_print(*ptr, fout);
 
 		fputc('\n', fout);
 	}
@@ -1992,6 +2059,7 @@ printTableInit(printTableContent *const content, const printTableOpt *opt,
 	content->cells = pg_local_calloc(ncolumns * nrows + 1,
 									 sizeof(*content->cells));
 
+	content->cellmustfree = NULL;
 	content->footers = NULL;
 
 	content->aligns = pg_local_calloc(ncolumns + 1,
@@ -2001,6 +2069,7 @@ printTableInit(printTableContent *const content, const printTableOpt *opt,
 	content->cell = content->cells;
 	content->footer = content->footers;
 	content->align = content->aligns;
+	content->cellsadded = 0;
 }
 
 /*
@@ -2051,16 +2120,19 @@ printTableAddHeader(printTableContent *const content, const char *header,
  *
  * If translate is true, the function will pass the cell through gettext.
  * Otherwise, the cell will not be translated.
+ *
+ * If mustfree is true, the cell string is freed by printTableCleanup().
+ * Note: Automatic freeing of translatable strings is not supported.
  */
 void
 printTableAddCell(printTableContent *const content, const char *cell,
-				  const bool translate)
+				  const bool translate, const bool mustfree)
 {
 #ifndef ENABLE_NLS
 	(void) translate;			/* unused parameter */
 #endif
 
-	if (content->cell >= content->cells + (content->ncolumns * content->nrows))
+	if (content->cellsadded >= content->ncolumns * content->nrows)
 	{
 		fprintf(stderr, _("Cannot add cell to table content: "
 						  "total cell count of %d exceeded.\n"),
@@ -2073,9 +2145,19 @@ printTableAddCell(printTableContent *const content, const char *cell,
 
 #ifdef ENABLE_NLS
 	if (translate)
-		*content->header = _(*content->header);
+		*content->cell = _(*content->cell);
 #endif
+
+	if (mustfree)
+	{
+		if (content->cellmustfree == NULL)
+			content->cellmustfree = pg_local_calloc(
+					   content->ncolumns * content->nrows + 1, sizeof(bool));
+
+		content->cellmustfree[content->cellsadded] = true;
+	}
 	content->cell++;
+	content->cellsadded++;
 }
 
 /*
@@ -2136,6 +2218,18 @@ printTableSetFooter(printTableContent *const content, const char *footer)
 void
 printTableCleanup(printTableContent *const content)
 {
+	if (content->cellmustfree)
+	{
+		int			i;
+
+		for (i = 0; i < content->nrows * content->ncolumns; i++)
+		{
+			if (content->cellmustfree[i])
+				free((char *) content->cells[i]);
+		}
+		free(content->cellmustfree);
+		content->cellmustfree = NULL;
+	}
 	free(content->headers);
 	free(content->cells);
 	free(content->aligns);
@@ -2323,15 +2417,23 @@ printQuery(const PGresult *result, const printQueryOpt *opt, FILE *fout, FILE *f
 		for (c = 0; c < cont.ncolumns; c++)
 		{
 			char	   *cell;
+			bool		mustfree = false;
 			bool		translate;
 
 			if (PQgetisnull(result, r, c))
 				cell = opt->nullPrint ? opt->nullPrint : "";
 			else
+			{
 				cell = PQgetvalue(result, r, c);
+				if (cont.aligns[c] == 'r' && opt->topt.numericLocale)
+				{
+					cell = format_numeric_locale(cell);
+					mustfree = true;
+				}
+			}
 
 			translate = (opt->translate_columns && opt->translate_columns[c]);
-			printTableAddCell(&cont, cell, translate);
+			printTableAddCell(&cont, cell, translate, mustfree);
 		}
 	}
 
@@ -2385,6 +2487,21 @@ setDecimalLocale(void)
 		thousands_sep = ",";
 	else
 		thousands_sep = ".";
+}
+
+/* get selected or default line style */
+const printTextFormat *
+get_line_style(const printTableOpt *opt)
+{
+	/*
+	 * Note: this function mainly exists to preserve the convention that a
+	 * printTableOpt struct can be initialized to zeroes to get default
+	 * behavior.
+	 */
+	if (opt->line_style != NULL)
+		return opt->line_style;
+	else
+		return &pg_asciiformat;
 }
 
 /*

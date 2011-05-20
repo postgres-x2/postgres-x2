@@ -3,12 +3,12 @@
  * fe-exec.c
  *	  functions related to sending a query down to the backend
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/interfaces/libpq/fe-exec.c,v 1.203 2009/06/11 14:49:13 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/interfaces/libpq/fe-exec.c,v 1.211 2010/02/26 02:01:32 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -2752,7 +2752,8 @@ PQcmdTuples(PGresult *res)
 			goto interpret_error;		/* no space? */
 		p++;
 	}
-	else if (strncmp(res->cmdStatus, "DELETE ", 7) == 0 ||
+	else if (strncmp(res->cmdStatus, "SELECT ", 7) == 0 ||
+			 strncmp(res->cmdStatus, "DELETE ", 7) == 0 ||
 			 strncmp(res->cmdStatus, "UPDATE ", 7) == 0)
 		p = res->cmdStatus + 7;
 	else if (strncmp(res->cmdStatus, "FETCH ", 6) == 0)
@@ -3058,23 +3059,191 @@ PQescapeString(char *to, const char *from, size_t length)
 								  static_std_strings);
 }
 
+
+/*
+ * Escape arbitrary strings.  If as_ident is true, we escape the result
+ * as an identifier; if false, as a literal.  The result is returned in
+ * a newly allocated buffer.  If we fail due to an encoding violation or out
+ * of memory condition, we return NULL, storing an error message into conn.
+ */
+static char *
+PQescapeInternal(PGconn *conn, const char *str, size_t len, bool as_ident)
+{
+	const char *s;
+	char	   *result;
+	char	   *rp;
+	int			num_quotes = 0; /* single or double, depending on as_ident */
+	int			num_backslashes = 0;
+	int			input_len;
+	int			result_size;
+	char		quote_char = as_ident ? '"' : '\'';
+
+	/* We must have a connection, else fail immediately. */
+	if (!conn)
+		return NULL;
+
+	/* Scan the string for characters that must be escaped. */
+	for (s = str; (s - str) < len && *s != '\0'; ++s)
+	{
+		if (*s == quote_char)
+			++num_quotes;
+		else if (*s == '\\')
+			++num_backslashes;
+		else if (IS_HIGHBIT_SET(*s))
+		{
+			int			charlen;
+
+			/* Slow path for possible multibyte characters */
+			charlen = pg_encoding_mblen(conn->client_encoding, s);
+
+			/* Multibyte character overruns allowable length. */
+			if ((s - str) + charlen > len || memchr(s, 0, charlen) != NULL)
+			{
+				printfPQExpBuffer(&conn->errorMessage,
+						  libpq_gettext("incomplete multibyte character\n"));
+				return NULL;
+			}
+
+			/* Adjust s, bearing in mind that for loop will increment it. */
+			s += charlen - 1;
+		}
+	}
+
+	/* Allocate output buffer. */
+	input_len = s - str;
+	result_size = input_len + num_quotes + 3;	/* two quotes, plus a NUL */
+	if (!as_ident && num_backslashes > 0)
+		result_size += num_backslashes + 2;
+	result = rp = (char *) malloc(result_size);
+	if (rp == NULL)
+	{
+		printfPQExpBuffer(&conn->errorMessage,
+						  libpq_gettext("out of memory\n"));
+		return NULL;
+	}
+
+	/*
+	 * If we are escaping a literal that contains backslashes, we use the
+	 * escape string syntax so that the result is correct under either value
+	 * of standard_conforming_strings.	We also emit a leading space in this
+	 * case, to guard against the possibility that the result might be
+	 * interpolated immediately following an identifier.
+	 */
+	if (!as_ident && num_backslashes > 0)
+	{
+		*rp++ = ' ';
+		*rp++ = 'E';
+	}
+
+	/* Opening quote. */
+	*rp++ = quote_char;
+
+	/*
+	 * Use fast path if possible.
+	 *
+	 * We've already verified that the input string is well-formed in the
+	 * current encoding.  If it contains no quotes and, in the case of
+	 * literal-escaping, no backslashes, then we can just copy it directly to
+	 * the output buffer, adding the necessary quotes.
+	 *
+	 * If not, we must rescan the input and process each character
+	 * individually.
+	 */
+	if (num_quotes == 0 && (num_backslashes == 0 || as_ident))
+	{
+		memcpy(rp, str, input_len);
+		rp += input_len;
+	}
+	else
+	{
+		for (s = str; s - str < input_len; ++s)
+		{
+			if (*s == quote_char || (!as_ident && *s == '\\'))
+			{
+				*rp++ = *s;
+				*rp++ = *s;
+			}
+			else if (!IS_HIGHBIT_SET(*s))
+				*rp++ = *s;
+			else
+			{
+				int			i = pg_encoding_mblen(conn->client_encoding, s);
+
+				while (1)
+				{
+					*rp++ = *s;
+					if (--i == 0)
+						break;
+					++s;		/* for loop will provide the final increment */
+				}
+			}
+		}
+	}
+
+	/* Closing quote and terminating NUL. */
+	*rp++ = quote_char;
+	*rp = '\0';
+
+	return result;
+}
+
+char *
+PQescapeLiteral(PGconn *conn, const char *str, size_t len)
+{
+	return PQescapeInternal(conn, str, len, false);
+}
+
+char *
+PQescapeIdentifier(PGconn *conn, const char *str, size_t len)
+{
+	return PQescapeInternal(conn, str, len, true);
+}
+
+/* HEX encoding support for bytea */
+static const char hextbl[] = "0123456789abcdef";
+
+static const int8 hexlookup[128] = {
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	0, 1, 2, 3, 4, 5, 6, 7, 8, 9, -1, -1, -1, -1, -1, -1,
+	-1, 10, 11, 12, 13, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	-1, 10, 11, 12, 13, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+};
+
+static inline char
+get_hex(char c)
+{
+	int			res = -1;
+
+	if (c > 0 && c < 127)
+		res = hexlookup[(unsigned char) c];
+
+	return (char) res;
+}
+
+
 /*
  *		PQescapeBytea	- converts from binary string to the
  *		minimal encoding necessary to include the string in an SQL
  *		INSERT statement with a bytea type column as the target.
  *
- *		The following transformations are applied
+ *		We can use either hex or escape (traditional) encoding.
+ *		In escape mode, the following transformations are applied:
  *		'\0' == ASCII  0 == \000
  *		'\'' == ASCII 39 == ''
  *		'\\' == ASCII 92 == \\
  *		anything < 0x20, or > 0x7e ---> \ooo
  *										(where ooo is an octal expression)
+ *
  *		If not std_strings, all backslashes sent to the output are doubled.
  */
 static unsigned char *
 PQescapeByteaInternal(PGconn *conn,
 					  const unsigned char *from, size_t from_length,
-					  size_t *to_length, bool std_strings)
+					  size_t *to_length, bool std_strings, bool use_hex)
 {
 	const unsigned char *vp;
 	unsigned char *rp;
@@ -3088,17 +3257,24 @@ PQescapeByteaInternal(PGconn *conn,
 	 */
 	len = 1;
 
-	vp = from;
-	for (i = from_length; i > 0; i--, vp++)
+	if (use_hex)
 	{
-		if (*vp < 0x20 || *vp > 0x7e)
-			len += bslash_len + 3;
-		else if (*vp == '\'')
-			len += 2;
-		else if (*vp == '\\')
-			len += bslash_len + bslash_len;
-		else
-			len++;
+		len += bslash_len + 1 + 2 * from_length;
+	}
+	else
+	{
+		vp = from;
+		for (i = from_length; i > 0; i--, vp++)
+		{
+			if (*vp < 0x20 || *vp > 0x7e)
+				len += bslash_len + 3;
+			else if (*vp == '\'')
+				len += 2;
+			else if (*vp == '\\')
+				len += bslash_len + bslash_len;
+			else
+				len++;
+		}
 	}
 
 	*to_length = len;
@@ -3111,26 +3287,39 @@ PQescapeByteaInternal(PGconn *conn,
 		return NULL;
 	}
 
+	if (use_hex)
+	{
+		if (!std_strings)
+			*rp++ = '\\';
+		*rp++ = '\\';
+		*rp++ = 'x';
+	}
+
 	vp = from;
 	for (i = from_length; i > 0; i--, vp++)
 	{
-		if (*vp < 0x20 || *vp > 0x7e)
-		{
-			int			val = *vp;
+		unsigned char c = *vp;
 
+		if (use_hex)
+		{
+			*rp++ = hextbl[(c >> 4) & 0xF];
+			*rp++ = hextbl[c & 0xF];
+		}
+		else if (c < 0x20 || c > 0x7e)
+		{
 			if (!std_strings)
 				*rp++ = '\\';
 			*rp++ = '\\';
-			*rp++ = (val >> 6) + '0';
-			*rp++ = ((val >> 3) & 07) + '0';
-			*rp++ = (val & 07) + '0';
+			*rp++ = (c >> 6) + '0';
+			*rp++ = ((c >> 3) & 07) + '0';
+			*rp++ = (c & 07) + '0';
 		}
-		else if (*vp == '\'')
+		else if (c == '\'')
 		{
 			*rp++ = '\'';
 			*rp++ = '\'';
 		}
-		else if (*vp == '\\')
+		else if (c == '\\')
 		{
 			if (!std_strings)
 			{
@@ -3141,7 +3330,7 @@ PQescapeByteaInternal(PGconn *conn,
 			*rp++ = '\\';
 		}
 		else
-			*rp++ = *vp;
+			*rp++ = c;
 	}
 	*rp = '\0';
 
@@ -3156,14 +3345,16 @@ PQescapeByteaConn(PGconn *conn,
 	if (!conn)
 		return NULL;
 	return PQescapeByteaInternal(conn, from, from_length, to_length,
-								 conn->std_strings);
+								 conn->std_strings,
+								 (conn->sversion >= 90000));
 }
 
 unsigned char *
 PQescapeBytea(const unsigned char *from, size_t from_length, size_t *to_length)
 {
 	return PQescapeByteaInternal(NULL, from, from_length, to_length,
-								 static_std_strings);
+								 static_std_strings,
+								 false /* can't use hex */ );
 }
 
 
@@ -3198,52 +3389,87 @@ PQunescapeBytea(const unsigned char *strtext, size_t *retbuflen)
 
 	strtextlen = strlen((const char *) strtext);
 
-	/*
-	 * Length of input is max length of output, but add one to avoid
-	 * unportable malloc(0) if input is zero-length.
-	 */
-	buffer = (unsigned char *) malloc(strtextlen + 1);
-	if (buffer == NULL)
-		return NULL;
-
-	for (i = j = 0; i < strtextlen;)
+	if (strtext[0] == '\\' && strtext[1] == 'x')
 	{
-		switch (strtext[i])
+		const unsigned char *s;
+		unsigned char *p;
+
+		buflen = (strtextlen - 2) / 2;
+		/* Avoid unportable malloc(0) */
+		buffer = (unsigned char *) malloc(buflen > 0 ? buflen : 1);
+		if (buffer == NULL)
+			return NULL;
+
+		s = strtext + 2;
+		p = buffer;
+		while (*s)
 		{
-			case '\\':
-				i++;
-				if (strtext[i] == '\\')
-					buffer[j++] = strtext[i++];
-				else
-				{
-					if ((ISFIRSTOCTDIGIT(strtext[i])) &&
-						(ISOCTDIGIT(strtext[i + 1])) &&
-						(ISOCTDIGIT(strtext[i + 2])))
-					{
-						int byte;
+			char		v1,
+						v2;
 
-						byte = OCTVAL(strtext[i++]);
-						byte = (byte <<3) +OCTVAL(strtext[i++]);
-						byte = (byte <<3) +OCTVAL(strtext[i++]);
-						buffer[j++] = byte;
-					}
-				}
-
-				/*
-				 * Note: if we see '\' followed by something that isn't a
-				 * recognized escape sequence, we loop around having done
-				 * nothing except advance i.  Therefore the something will be
-				 * emitted as ordinary data on the next cycle. Corner case:
-				 * '\' at end of string will just be discarded.
-				 */
-				break;
-
-			default:
-				buffer[j++] = strtext[i++];
-				break;
+			/*
+			 * Bad input is silently ignored.  Note that this includes
+			 * whitespace between hex pairs, which is allowed by byteain.
+			 */
+			v1 = get_hex(*s++);
+			if (!*s || v1 == (char) -1)
+				continue;
+			v2 = get_hex(*s++);
+			if (v2 != (char) -1)
+				*p++ = (v1 << 4) | v2;
 		}
+
+		buflen = p - buffer;
 	}
-	buflen = j;					/* buflen is the length of the dequoted data */
+	else
+	{
+		/*
+		 * Length of input is max length of output, but add one to avoid
+		 * unportable malloc(0) if input is zero-length.
+		 */
+		buffer = (unsigned char *) malloc(strtextlen + 1);
+		if (buffer == NULL)
+			return NULL;
+
+		for (i = j = 0; i < strtextlen;)
+		{
+			switch (strtext[i])
+			{
+				case '\\':
+					i++;
+					if (strtext[i] == '\\')
+						buffer[j++] = strtext[i++];
+					else
+					{
+						if ((ISFIRSTOCTDIGIT(strtext[i])) &&
+							(ISOCTDIGIT(strtext[i + 1])) &&
+							(ISOCTDIGIT(strtext[i + 2])))
+						{
+							int byte;
+
+							byte = OCTVAL(strtext[i++]);
+							byte = (byte <<3) +OCTVAL(strtext[i++]);
+							byte = (byte <<3) +OCTVAL(strtext[i++]);
+							buffer[j++] = byte;
+						}
+					}
+
+					/*
+					 * Note: if we see '\' followed by something that isn't a
+					 * recognized escape sequence, we loop around having done
+					 * nothing except advance i.  Therefore the something will
+					 * be emitted as ordinary data on the next cycle. Corner
+					 * case: '\' at end of string will just be discarded.
+					 */
+					break;
+
+				default:
+					buffer[j++] = strtext[i++];
+					break;
+			}
+		}
+		buflen = j;				/* buflen is the length of the dequoted data */
+	}
 
 	/* Shrink the buffer to be no larger than necessary */
 	/* +1 avoids unportable behavior when buflen==0 */

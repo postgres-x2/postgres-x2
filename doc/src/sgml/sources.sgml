@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/sources.sgml,v 2.34 2009/06/04 18:33:06 tgl Exp $ -->
+<!-- $PostgreSQL: pgsql/doc/src/sgml/sources.sgml,v 2.36 2010/06/28 17:48:26 petere Exp $ -->
 
  <chapter id="source">
   <title>PostgreSQL Coding Conventions</title>
@@ -125,7 +125,7 @@ ereport(ERROR,
         (errcode(ERRCODE_AMBIGUOUS_FUNCTION),
          errmsg("function %s is not unique",
                 func_signature_string(funcname, nargs,
-                                      actual_arg_types)),
+                                      NIL, actual_arg_types)),
          errhint("Unable to choose a best candidate function. "
                  "You might need to add explicit typecasts.")));
 </programlisting>
@@ -442,6 +442,12 @@ Hint:       the addendum
     a period.  Capitalize the first word of sentences.  Put two spaces after
     the period if another sentence follows (for English text; might be
     inappropriate in other languages).
+   </para>
+
+   <para>
+    Error context strings: Do not capitalize the first letter and do
+    not end the string with a period.  Context strings should normally
+    not be complete sentences.
    </para>
 
    <para>

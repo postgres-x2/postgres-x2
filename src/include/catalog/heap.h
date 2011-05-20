@@ -4,11 +4,11 @@
  *	  prototypes for functions in backend/catalog/heap.c
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
  *
- * $PostgreSQL: pgsql/src/include/catalog/heap.h,v 1.91 2009/06/11 14:49:09 momjian Exp $
+ * $PostgreSQL: pgsql/src/include/catalog/heap.h,v 1.98 2010/02/26 02:01:21 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -42,26 +42,33 @@ extern Relation heap_create(const char *relname,
 			TupleDesc tupDesc,
 			char relkind,
 			bool shared_relation,
+			bool mapped_relation,
 			bool allow_system_table_mods);
 
 extern Oid heap_create_with_catalog(const char *relname,
 						 Oid relnamespace,
 						 Oid reltablespace,
 						 Oid relid,
+						 Oid reltypeid,
+						 Oid reloftypeid,
 						 Oid ownerid,
 						 TupleDesc tupdesc,
 						 List *cooked_constraints,
 						 char relkind,
 						 bool shared_relation,
+						 bool mapped_relation,
 						 bool oidislocal,
 						 int oidinhcount,
 						 OnCommitAction oncommit,
 						 Datum reloptions,
+						 bool use_user_acl,
 						 bool allow_system_table_mods);
 
 extern void heap_drop_with_catalog(Oid relid);
 
 extern void heap_truncate(List *relids);
+
+extern void heap_truncate_one_rel(Relation rel);
 
 extern void heap_truncate_check_FKs(List *relations, bool tempTables);
 
@@ -74,6 +81,7 @@ extern void InsertPgAttributeTuple(Relation pg_attribute_rel,
 extern void InsertPgClassTuple(Relation pg_class_desc,
 				   Relation new_rel_desc,
 				   Oid new_rel_oid,
+				   Datum relacl,
 				   Datum reloptions);
 
 extern List *AddRelationNewConstraints(Relation rel,
@@ -104,9 +112,11 @@ extern Form_pg_attribute SystemAttributeDefinition(AttrNumber attno,
 extern Form_pg_attribute SystemAttributeByName(const char *attname,
 					  bool relhasoids);
 
-extern void CheckAttributeNamesTypes(TupleDesc tupdesc, char relkind);
+extern void CheckAttributeNamesTypes(TupleDesc tupdesc, char relkind,
+						 bool allow_system_table_mods);
 
-extern void CheckAttributeType(const char *attname, Oid atttypid);
+extern void CheckAttributeType(const char *attname, Oid atttypid,
+				   bool allow_system_table_mods);
 
 #ifdef PGXC
 extern void AddRelationDistribution (Oid relid, 

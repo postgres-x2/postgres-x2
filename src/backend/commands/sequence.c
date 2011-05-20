@@ -3,13 +3,13 @@
  * sequence.c
  *	  PostgreSQL sequences support code.
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/commands/sequence.c,v 1.160 2009/06/11 14:48:56 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/commands/sequence.c,v 1.168 2010/02/20 21:24:02 tgl Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -30,6 +30,7 @@
 #include "storage/bufmgr.h"
 #include "storage/lmgr.h"
 #include "storage/proc.h"
+#include "storage/smgr.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
@@ -157,6 +158,7 @@ DefineSequence(CreateSeqStmt *seq)
 		coldef->inhcount = 0;
 		coldef->is_local = true;
 		coldef->is_not_null = true;
+		coldef->storage = 0;
 		coldef->raw_default = NULL;
 		coldef->cooked_default = NULL;
 		coldef->constraints = NIL;
@@ -166,18 +168,18 @@ DefineSequence(CreateSeqStmt *seq)
 		switch (i)
 		{
 			case SEQ_COL_NAME:
-				coldef->typename = makeTypeNameFromOid(NAMEOID, -1);
+				coldef->typeName = makeTypeNameFromOid(NAMEOID, -1);
 				coldef->colname = "sequence_name";
 				namestrcpy(&name, seq->sequence->relname);
 				value[i - 1] = NameGetDatum(&name);
 				break;
 			case SEQ_COL_LASTVAL:
-				coldef->typename = makeTypeNameFromOid(INT8OID, -1);
+				coldef->typeName = makeTypeNameFromOid(INT8OID, -1);
 				coldef->colname = "last_value";
 				value[i - 1] = Int64GetDatumFast(new.last_value);
 				break;
 			case SEQ_COL_STARTVAL:
-				coldef->typename = makeTypeNameFromOid(INT8OID, -1);
+				coldef->typeName = makeTypeNameFromOid(INT8OID, -1);
 				coldef->colname = "start_value";
 				value[i - 1] = Int64GetDatumFast(new.start_value);
 #ifdef PGXC /* PGXC_COORD */
@@ -185,7 +187,7 @@ DefineSequence(CreateSeqStmt *seq)
 #endif
 				break;
 			case SEQ_COL_INCBY:
-				coldef->typename = makeTypeNameFromOid(INT8OID, -1);
+				coldef->typeName = makeTypeNameFromOid(INT8OID, -1);
 				coldef->colname = "increment_by";
 				value[i - 1] = Int64GetDatumFast(new.increment_by);
 #ifdef PGXC /* PGXC_COORD */
@@ -193,7 +195,7 @@ DefineSequence(CreateSeqStmt *seq)
 #endif
 				break;
 			case SEQ_COL_MAXVALUE:
-				coldef->typename = makeTypeNameFromOid(INT8OID, -1);
+				coldef->typeName = makeTypeNameFromOid(INT8OID, -1);
 				coldef->colname = "max_value";
 				value[i - 1] = Int64GetDatumFast(new.max_value);
 #ifdef PGXC /* PGXC_COORD */
@@ -201,7 +203,7 @@ DefineSequence(CreateSeqStmt *seq)
 #endif
 				break;
 			case SEQ_COL_MINVALUE:
-				coldef->typename = makeTypeNameFromOid(INT8OID, -1);
+				coldef->typeName = makeTypeNameFromOid(INT8OID, -1);
 				coldef->colname = "min_value";
 				value[i - 1] = Int64GetDatumFast(new.min_value);
 #ifdef PGXC /* PGXC_COORD */
@@ -209,17 +211,17 @@ DefineSequence(CreateSeqStmt *seq)
 #endif
 				break;
 			case SEQ_COL_CACHE:
-				coldef->typename = makeTypeNameFromOid(INT8OID, -1);
+				coldef->typeName = makeTypeNameFromOid(INT8OID, -1);
 				coldef->colname = "cache_value";
 				value[i - 1] = Int64GetDatumFast(new.cache_value);
 				break;
 			case SEQ_COL_LOG:
-				coldef->typename = makeTypeNameFromOid(INT8OID, -1);
+				coldef->typeName = makeTypeNameFromOid(INT8OID, -1);
 				coldef->colname = "log_cnt";
 				value[i - 1] = Int64GetDatum((int64) 1);
 				break;
 			case SEQ_COL_CYCLE:
-				coldef->typename = makeTypeNameFromOid(BOOLOID, -1);
+				coldef->typeName = makeTypeNameFromOid(BOOLOID, -1);
 				coldef->colname = "is_cycled";
 				value[i - 1] = BoolGetDatum(new.is_cycled);
 #ifdef PGXC  /* PGXC_COORD */
@@ -227,7 +229,7 @@ DefineSequence(CreateSeqStmt *seq)
 #endif
 				break;
 			case SEQ_COL_CALLED:
-				coldef->typename = makeTypeNameFromOid(BOOLOID, -1);
+				coldef->typeName = makeTypeNameFromOid(BOOLOID, -1);
 				coldef->colname = "is_called";
 				value[i - 1] = BoolGetDatum(false);
 				break;
@@ -259,7 +261,7 @@ DefineSequence(CreateSeqStmt *seq)
 	sm->magic = SEQ_MAGIC;
 
 	/* hack: ensure heap_insert will insert on the just-created page */
-	rel->rd_targblock = 0;
+	RelationSetTargetBlock(rel, 0);
 
 	/* Now form & insert sequence tuple */
 	tuple = heap_form_tuple(tupDesc, value, null);
@@ -572,6 +574,10 @@ nextval_internal(Oid relid)
 				 errmsg("permission denied for sequence %s",
 						RelationGetRelationName(seqrel))));
 
+	/* read-only transactions may only modify temp sequences */
+	if (!seqrel->rd_islocaltemp)
+		PreventCommandIfReadOnly("nextval()");
+
 	if (elm->last != elm->cached)		/* some numbers were cached */
 	{
 		Assert(elm->last_valid);
@@ -836,9 +842,7 @@ lastval(PG_FUNCTION_ARGS)
 				 errmsg("lastval is not yet defined in this session")));
 
 	/* Someone may have dropped the sequence since the last nextval() */
-	if (!SearchSysCacheExists(RELOID,
-							  ObjectIdGetDatum(last_used_seq->relid),
-							  0, 0, 0))
+	if (!SearchSysCacheExists1(RELOID, ObjectIdGetDatum(last_used_seq->relid)))
 		ereport(ERROR,
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 				 errmsg("lastval is not yet defined in this session")));
@@ -890,6 +894,10 @@ do_setval(Oid relid, int64 next, bool iscalled)
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 errmsg("permission denied for sequence %s",
 						RelationGetRelationName(seqrel))));
+
+	/* read-only transactions may only modify temp sequences */
+	if (!seqrel->rd_islocaltemp)
+		PreventCommandIfReadOnly("setval()");
 
 	/* lock page' buffer and read tuple */
 	seq = read_info(elm, seqrel, &buf);

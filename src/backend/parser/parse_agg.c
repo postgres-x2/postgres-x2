@@ -3,12 +3,12 @@
  * parse_agg.c
  *	  handle aggregates and window functions in parser
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/parser/parse_agg.c,v 1.88 2009/06/11 14:49:00 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/parser/parse_agg.c,v 1.93 2010/03/17 16:52:38 tgl Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -19,8 +19,10 @@
 #include "optimizer/tlist.h"
 #include "optimizer/var.h"
 #include "parser/parse_agg.h"
+#include "parser/parse_clause.h"
 #include "parser/parsetree.h"
 #include "rewrite/rewriteManip.h"
+#include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #ifdef PGXC
 #include "pgxc/pgxc.h"
@@ -47,16 +49,100 @@ static bool check_ungrouped_columns_walker(Node *node,
  * transformAggregateCall -
  *		Finish initial transformation of an aggregate call
  *
- * parse_func.c has recognized the function as an aggregate, and has set
- * up all the fields of the Aggref except agglevelsup.	Here we must
- * determine which query level the aggregate actually belongs to, set
- * agglevelsup accordingly, and mark p_hasAggs true in the corresponding
+ * parse_func.c has recognized the function as an aggregate, and has set up
+ * all the fields of the Aggref except args, aggorder, aggdistinct and
+ * agglevelsup.  The passed-in args list has been through standard expression
+ * transformation, while the passed-in aggorder list hasn't been transformed
+ * at all.
+ *
+ * Here we convert the args list into a targetlist by inserting TargetEntry
+ * nodes, and then transform the aggorder and agg_distinct specifications to
+ * produce lists of SortGroupClause nodes.	(That might also result in adding
+ * resjunk expressions to the targetlist.)
+ *
+ * We must also determine which query level the aggregate actually belongs to,
+ * set agglevelsup accordingly, and mark p_hasAggs true in the corresponding
  * pstate level.
  */
 void
-transformAggregateCall(ParseState *pstate, Aggref *agg)
+transformAggregateCall(ParseState *pstate, Aggref *agg,
+					   List *args, List *aggorder, bool agg_distinct)
 {
+	List	   *tlist;
+	List	   *torder;
+	List	   *tdistinct = NIL;
+	AttrNumber	attno;
+	int			save_next_resno;
 	int			min_varlevel;
+	ListCell   *lc;
+
+	/*
+	 * Transform the plain list of Exprs into a targetlist.  We don't bother
+	 * to assign column names to the entries.
+	 */
+	tlist = NIL;
+	attno = 1;
+	foreach(lc, args)
+	{
+		Expr	   *arg = (Expr *) lfirst(lc);
+		TargetEntry *tle = makeTargetEntry(arg, attno++, NULL, false);
+
+		tlist = lappend(tlist, tle);
+	}
+
+	/*
+	 * If we have an ORDER BY, transform it.  This will add columns to the
+	 * tlist if they appear in ORDER BY but weren't already in the arg list.
+	 * They will be marked resjunk = true so we can tell them apart from
+	 * regular aggregate arguments later.
+	 *
+	 * We need to mess with p_next_resno since it will be used to number any
+	 * new targetlist entries.
+	 */
+	save_next_resno = pstate->p_next_resno;
+	pstate->p_next_resno = attno;
+
+	torder = transformSortClause(pstate,
+								 aggorder,
+								 &tlist,
+								 true /* fix unknowns */ ,
+								 true /* force SQL99 rules */ );
+
+	/*
+	 * If we have DISTINCT, transform that to produce a distinctList.
+	 */
+	if (agg_distinct)
+	{
+		tdistinct = transformDistinctClause(pstate, &tlist, torder, true);
+
+		/*
+		 * Remove this check if executor support for hashed distinct for
+		 * aggregates is ever added.
+		 */
+		foreach(lc, tdistinct)
+		{
+			SortGroupClause *sortcl = (SortGroupClause *) lfirst(lc);
+
+			if (!OidIsValid(sortcl->sortop))
+			{
+				Node	   *expr = get_sortgroupclause_expr(sortcl, tlist);
+
+				ereport(ERROR,
+						(errcode(ERRCODE_UNDEFINED_FUNCTION),
+				errmsg("could not identify an ordering operator for type %s",
+					   format_type_be(exprType(expr))),
+						 errdetail("Aggregates with DISTINCT must be able to sort their inputs."),
+						 parser_errposition(pstate, exprLocation(expr))));
+			}
+		}
+	}
+
+	/* Update the Aggref with the transformation results */
+	agg->args = tlist;
+	agg->aggorder = torder;
+	agg->aggdistinct = tdistinct;
+
+	pstate->p_next_resno = save_next_resno;
 
 	/*
 	 * The aggregate's level is the same as the level of the lowest-level
@@ -204,7 +290,9 @@ transformWindowFuncCall(ParseState *pstate, WindowFunc *wfunc,
 				continue;
 			if (equal(refwin->partitionClause, windef->partitionClause) &&
 				equal(refwin->orderClause, windef->orderClause) &&
-				refwin->frameOptions == windef->frameOptions)
+				refwin->frameOptions == windef->frameOptions &&
+				equal(refwin->startOffset, windef->startOffset) &&
+				equal(refwin->endOffset, windef->endOffset))
 			{
 				/* found a duplicate window specification */
 				wfunc->winref = winref;
@@ -451,6 +539,7 @@ parseCheckWindowFuncs(ParseState *pstate, Query *qry)
 						 parser_errposition(pstate,
 											locate_windowfunc(expr))));
 		}
+		/* startOffset and limitOffset were checked in transformFrameOffset */
 	}
 }
 

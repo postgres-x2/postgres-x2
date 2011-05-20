@@ -32,11 +32,11 @@
  * entry, since that may need to change as a consequence of ALTER TABLE.
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/utils/cache/typcache.c,v 1.29 2009/01/01 17:23:50 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/utils/cache/typcache.c,v 1.32 2010/02/14 18:42:17 rhaas Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -109,15 +109,16 @@ lookup_type_cache(Oid type_id, int flags)
 		/* First time through: initialize the hash table */
 		HASHCTL		ctl;
 
-		if (!CacheMemoryContext)
-			CreateCacheMemoryContext();
-
 		MemSet(&ctl, 0, sizeof(ctl));
 		ctl.keysize = sizeof(Oid);
 		ctl.entrysize = sizeof(TypeCacheEntry);
 		ctl.hash = oid_hash;
 		TypeCacheHash = hash_create("Type information cache", 64,
 									&ctl, HASH_ELEM | HASH_FUNCTION);
+
+		/* Also make sure CacheMemoryContext exists */
+		if (!CacheMemoryContext)
+			CreateCacheMemoryContext();
 	}
 
 	/* Try to look up an existing entry */
@@ -134,9 +135,7 @@ lookup_type_cache(Oid type_id, int flags)
 		HeapTuple	tp;
 		Form_pg_type typtup;
 
-		tp = SearchSysCache(TYPEOID,
-							ObjectIdGetDatum(type_id),
-							0, 0, 0);
+		tp = SearchSysCache1(TYPEOID, ObjectIdGetDatum(type_id));
 		if (!HeapTupleIsValid(tp))
 			elog(ERROR, "cache lookup failed for type %u", type_id);
 		typtup = (Form_pg_type) GETSTRUCT(tp);
@@ -249,8 +248,8 @@ lookup_type_cache(Oid type_id, int flags)
 	 * Set up fmgr lookup info as requested
 	 *
 	 * Note: we tell fmgr the finfo structures live in CacheMemoryContext,
-	 * which is not quite right (they're really in DynaHashContext) but this
-	 * will do for our purposes.
+	 * which is not quite right (they're really in the hash table's private
+	 * memory context) but this will do for our purposes.
 	 */
 	if ((flags & TYPECACHE_EQ_OPR_FINFO) &&
 		typentry->eq_opr_finfo.fn_oid == InvalidOid &&
@@ -424,15 +423,16 @@ assign_record_type_typmod(TupleDesc tupDesc)
 		/* First time through: initialize the hash table */
 		HASHCTL		ctl;
 
-		if (!CacheMemoryContext)
-			CreateCacheMemoryContext();
-
 		MemSet(&ctl, 0, sizeof(ctl));
 		ctl.keysize = REC_HASH_KEYS * sizeof(Oid);
 		ctl.entrysize = sizeof(RecordCacheEntry);
 		ctl.hash = tag_hash;
 		RecordCacheHash = hash_create("Record information cache", 64,
 									  &ctl, HASH_ELEM | HASH_FUNCTION);
+
+		/* Also make sure CacheMemoryContext exists */
+		if (!CacheMemoryContext)
+			CreateCacheMemoryContext();
 	}
 
 	/* Find or create a hashtable entry for this hash class */

@@ -4,7 +4,7 @@
 #    Makefile for the timezone library
 
 # IDENTIFICATION
-#    $PostgreSQL: pgsql/src/timezone/Makefile,v 1.31 2009/01/06 02:25:29 momjian Exp $
+#    $PostgreSQL: pgsql/src/timezone/Makefile,v 1.33 2010/07/05 18:54:38 tgl Exp $
 #
 #-------------------------------------------------------------------------
 
@@ -47,7 +47,7 @@ ZIC= ./zic
 endif
 
 zic: $(ZICOBJS)
-	$(CC) $(CFLAGS) $(ZICOBJS) $(LDFLAGS) $(LIBS) -o $@$(X)
+	$(CC) $(CFLAGS) $(ZICOBJS) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 
 install: all installdirs
 ifeq (,$(with_system_tzdata))
@@ -56,7 +56,7 @@ endif
 	$(MAKE) -C tznames $@
 
 installdirs:
-	$(mkinstalldirs) '$(DESTDIR)$(datadir)'
+	$(MKDIR_P) '$(DESTDIR)$(datadir)'
 
 uninstall:
 ifeq (,$(with_system_tzdata))

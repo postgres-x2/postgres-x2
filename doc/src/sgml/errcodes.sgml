@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/errcodes.sgml,v 1.27 2009/03/04 10:55:00 petere Exp $ -->
+<!-- $PostgreSQL: pgsql/doc/src/sgml/errcodes.sgml,v 1.29 2010/03/13 14:55:57 momjian Exp $ -->
 
 <appendix id="errcodes-appendix">
  <title><productname>PostgreSQL</productname> Error Codes</title>
@@ -640,6 +640,12 @@
 <entry>check_violation</entry>
 </row>
 
+<row>
+<entry><literal>23P01</literal></entry>
+<entry>EXCLUSION VIOLATION</entry>
+<entry>exclusion_violation</entry>
+</row>
+
 
 <row>
 <entry spanname="span13"><emphasis role="bold">Class 24 &mdash; Invalid Cursor State</></entry>
@@ -753,6 +759,12 @@
 <entry><literal>28000</literal></entry>
 <entry>INVALID AUTHORIZATION SPECIFICATION</entry>
 <entry>invalid_authorization_specification</entry>
+</row>
+
+<row>
+<entry><literal>28P01</literal></entry>
+<entry>INVALID PASSWORD</entry>
+<entry>invalid_password</entry>
 </row>
 
 

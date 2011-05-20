@@ -17,12 +17,12 @@
  * append relations, and thenceforth share code with the UNION ALL case.
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/optimizer/prep/prepunion.c,v 1.171 2009/06/11 14:48:59 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/optimizer/prep/prepunion.c,v 1.183 2010/07/06 19:18:56 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -247,7 +247,8 @@ recurse_set_operations(Node *setOp, PlannerInfo *root,
 							  NIL,
 							  rtr->rtindex,
 							  subplan,
-							  subroot->parse->rtable);
+							  subroot->parse->rtable,
+							  subroot->rowMarks);
 
 		/*
 		 * We don't bother to determine the subquery's output ordering since
@@ -448,7 +449,7 @@ generate_union_plan(SetOperationStmt *op, PlannerInfo *root,
 	/*
 	 * Append the child results together.
 	 */
-	plan = (Plan *) make_append(planlist, false, tlist);
+	plan = (Plan *) make_append(planlist, tlist);
 
 	/*
 	 * For UNION ALL, we just need the Append plan.  For UNION, need to add
@@ -539,7 +540,7 @@ generate_nonunion_plan(SetOperationStmt *op, PlannerInfo *root,
 	/*
 	 * Append the child results together.
 	 */
-	plan = (Plan *) make_append(planlist, false, tlist);
+	plan = (Plan *) make_append(planlist, tlist);
 
 	/* Identify the grouping semantics */
 	groupList = generate_setop_grouplist(op, tlist);
@@ -1132,7 +1133,7 @@ expand_inherited_rtentry(PlannerInfo *root, RangeTblEntry *rte, Index rti)
 {
 	Query	   *parse = root->parse;
 	Oid			parentOID;
-	RowMarkClause *oldrc;
+	PlanRowMark *oldrc;
 	Relation	oldrelation;
 	LOCKMODE	lockmode;
 	List	   *inhOIDs;
@@ -1170,16 +1171,16 @@ expand_inherited_rtentry(PlannerInfo *root, RangeTblEntry *rte, Index rti)
 	 * the lock, leading to possible deadlocks.  (This code should match the
 	 * parser and rewriter.)
 	 */
-	oldrc = get_rowmark(parse, rti);
+	oldrc = get_plan_rowmark(root->rowMarks, rti);
 	if (rti == parse->resultRelation)
 		lockmode = RowExclusiveLock;
-	else if (oldrc)
+	else if (oldrc && RowMarkRequiresRowShareLock(oldrc->markType))
 		lockmode = RowShareLock;
 	else
 		lockmode = AccessShareLock;
 
 	/* Scan for all members of inheritance set, acquire needed locks */
-	inhOIDs = find_all_inheritors(parentOID, lockmode);
+	inhOIDs = find_all_inheritors(parentOID, lockmode, NULL);
 
 	/*
 	 * Check that there's at least one descendant, else treat as no-child
@@ -1195,8 +1196,8 @@ expand_inherited_rtentry(PlannerInfo *root, RangeTblEntry *rte, Index rti)
 
 	/*
 	 * If parent relation is selected FOR UPDATE/SHARE, we need to mark its
-	 * RowMarkClause as isParent = true, and generate a new RowMarkClause for
-	 * each child.
+	 * PlanRowMark as isParent = true, and generate a new PlanRowMark for each
+	 * child.
 	 */
 	if (oldrc)
 		oldrc->isParent = true;
@@ -1238,11 +1239,13 @@ expand_inherited_rtentry(PlannerInfo *root, RangeTblEntry *rte, Index rti)
 		/*
 		 * Build an RTE for the child, and attach to query's rangetable list.
 		 * We copy most fields of the parent's RTE, but replace relation OID,
-		 * and set inh = false.
+		 * and set inh = false.  Also, set requiredPerms to zero since all
+		 * required permissions checks are done on the original RTE.
 		 */
 		childrte = copyObject(rte);
 		childrte->relid = childOID;
 		childrte->inh = false;
+		childrte->requiredPerms = 0;
 		parse->rtable = lappend(parse->rtable, childrte);
 		childRTindex = list_length(parse->rtable);
 
@@ -1263,6 +1266,10 @@ expand_inherited_rtentry(PlannerInfo *root, RangeTblEntry *rte, Index rti)
 		 * Translate the column permissions bitmaps to the child's attnums (we
 		 * have to build the translated_vars list before we can do this). But
 		 * if this is the parent table, leave copyObject's result alone.
+		 *
+		 * Note: we need to do this even though the executor won't run any
+		 * permissions checks on the child RTE.  The modifiedCols bitmap may
+		 * be examined for trigger-firing purposes.
 		 */
 		if (childOID != parentOID)
 		{
@@ -1273,19 +1280,23 @@ expand_inherited_rtentry(PlannerInfo *root, RangeTblEntry *rte, Index rti)
 		}
 
 		/*
-		 * Build a RowMarkClause if parent is marked FOR UPDATE/SHARE.
+		 * Build a PlanRowMark if parent is marked FOR UPDATE/SHARE.
 		 */
 		if (oldrc)
 		{
-			RowMarkClause *newrc = makeNode(RowMarkClause);
+			PlanRowMark *newrc = makeNode(PlanRowMark);
 
 			newrc->rti = childRTindex;
 			newrc->prti = rti;
-			newrc->forUpdate = oldrc->forUpdate;
+			newrc->markType = oldrc->markType;
 			newrc->noWait = oldrc->noWait;
 			newrc->isParent = false;
+			/* junk attrs for children are not identified yet */
+			newrc->ctidAttNo = InvalidAttrNumber;
+			newrc->toidAttNo = InvalidAttrNumber;
+			newrc->wholeAttNo = InvalidAttrNumber;
 
-			parse->rowMarks = lappend(parse->rowMarks, newrc);
+			root->rowMarks = lappend(root->rowMarks, newrc);
 		}
 
 		/* Close child relations, but keep locks */
@@ -1309,13 +1320,6 @@ expand_inherited_rtentry(PlannerInfo *root, RangeTblEntry *rte, Index rti)
 
 	/* Otherwise, OK to add to root->append_rel_list */
 	root->append_rel_list = list_concat(root->append_rel_list, appinfos);
-
-	/*
-	 * The executor will check the parent table's access permissions when it
-	 * examines the parent's added RTE entry.  There's no need to check twice,
-	 * so turn off access check bits in the original RTE.
-	 */
-	rte->requiredPerms = 0;
 }
 
 /*
@@ -1477,8 +1481,8 @@ translate_col_privs(const Bitmapset *parent_privs,
  * Note: this is only applied after conversion of sublinks to subplans,
  * so we don't need to cope with recursion into sub-queries.
  *
- * Note: this is not hugely different from what ResolveNew() does; maybe
- * we should try to fold the two routines together.
+ * Note: this is not hugely different from what pullup_replace_vars() does;
+ * maybe we should try to fold the two routines together.
  */
 Node *
 adjust_appendrel_attrs(Node *node, AppendRelInfo *appinfo)
@@ -1638,7 +1642,9 @@ adjust_appendrel_attrs_mutator(Node *node, AppendRelInfo *context)
 	Assert(!IsA(node, PlaceHolderInfo));
 
 	/*
-	 * We have to process RestrictInfo nodes specially.
+	 * We have to process RestrictInfo nodes specially.  (Note: although
+	 * set_append_rel_pathlist will hide RestrictInfos in the parent's
+	 * baserestrictinfo list from us, it doesn't hide those in joininfo.)
 	 */
 	if (IsA(node, RestrictInfo))
 	{
@@ -1661,6 +1667,9 @@ adjust_appendrel_attrs_mutator(Node *node, AppendRelInfo *context)
 												  context->parent_relid,
 												  context->child_relid);
 		newinfo->required_relids = adjust_relid_set(oldinfo->required_relids,
+													context->parent_relid,
+													context->child_relid);
+		newinfo->nullable_relids = adjust_relid_set(oldinfo->nullable_relids,
 													context->parent_relid,
 													context->child_relid);
 		newinfo->left_relids = adjust_relid_set(oldinfo->left_relids,

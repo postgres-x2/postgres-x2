@@ -162,7 +162,7 @@ create trigger tg_pfield_ad after delete
 create function tg_pslot_biu() returns trigger as $proc$
 declare
     pfrec	record;
-    rename new to ps;
+    ps          alias for new;
 begin
     select into pfrec * from PField where name = ps.pfname;
     if not found then
@@ -285,11 +285,9 @@ begin
     if new.slotno < 1 or new.slotno > hubrec.nslots then
         raise exception ''no manual manipulation of HSlot'';
     end if;
-    if tg_op = ''UPDATE'' then
-	if new.hubname != old.hubname then
-	    if count(*) > 0 from Hub where name = old.hubname then
-		raise exception ''no manual manipulation of HSlot'';
-	    end if;
+    if tg_op = ''UPDATE'' and new.hubname != old.hubname then
+	if count(*) > 0 from Hub where name = old.hubname then
+	    raise exception ''no manual manipulation of HSlot'';
 	end if;
     end if;
     sname := ''HS.'' || trim(new.hubname);
@@ -901,7 +899,7 @@ begin
         declare
 	    rec		record;
 	begin
-	    select into rec * from PLine where slotname = outer.rec.backlink;
+	    select into rec * from PLine where slotname = "outer".rec.backlink;
 	    retval := ''Phone line '' || trim(rec.phonenumber);
 	    if rec.comment != '''' then
 	        retval := retval || '' ('';
@@ -1517,6 +1515,7 @@ select * from PField_v1 where pfname = 'PF0_2' order by slotname;
 --
 insert into PField values ('PF1_1', 'should fail due to unique index');
 ERROR:  duplicate key value violates unique constraint "pfield_name"
+DETAIL:  Key (name)=(PF1_1) already exists.
 update PSlot set backlink = 'WS.not.there' where slotname = 'PS.base.a1';
 ERROR:  WS.not.there         does not exist
 CONTEXT:  PL/pgSQL function "tg_backlink_a" line 16 at assignment
@@ -1531,6 +1530,7 @@ ERROR:  illegal slotlink beginning with XX
 CONTEXT:  PL/pgSQL function "tg_slotlink_a" line 16 at assignment
 insert into HSlot values ('HS', 'base.hub1', 1, '');
 ERROR:  duplicate key value violates unique constraint "hslot_name"
+DETAIL:  Key (slotname)=(HS.base.hub1.1      ) already exists.
 insert into HSlot values ('HS', 'base.hub1', 20, '');
 ERROR:  no manual manipulation of HSlot
 delete from HSlot;
@@ -1747,7 +1747,7 @@ create function f1(in i int, out j int) returns int as $$
 begin
   return i+1;
 end$$ language plpgsql;
-ERROR:  RETURN cannot have a parameter in function with OUT parameters at or near "i"
+ERROR:  RETURN cannot have a parameter in function with OUT parameters
 LINE 3:   return i+1;
                  ^
 create function f1(in i int, out j int) as $$
@@ -2066,13 +2066,13 @@ begin
 end$$ language plpgsql;
 select test_variable_storage();
 NOTICE:  should see this
-CONTEXT:  SQL statement "SELECT  trap_zero_divide(-100)"
+CONTEXT:  SQL statement "SELECT trap_zero_divide(-100)"
 PL/pgSQL function "test_variable_storage" line 7 at PERFORM
 NOTICE:  should see this only if -100 <> 0
-CONTEXT:  SQL statement "SELECT  trap_zero_divide(-100)"
+CONTEXT:  SQL statement "SELECT trap_zero_divide(-100)"
 PL/pgSQL function "test_variable_storage" line 7 at PERFORM
 NOTICE:  should see this only if -100 fits in smallint
-CONTEXT:  SQL statement "SELECT  trap_zero_divide(-100)"
+CONTEXT:  SQL statement "SELECT trap_zero_divide(-100)"
 PL/pgSQL function "test_variable_storage" line 7 at PERFORM
  test_variable_storage 
 -----------------------
@@ -2325,10 +2325,8 @@ begin
     return a;
 end$$ language plpgsql;
 ERROR:  syntax error at or near "Johnny"
-LINE 1: Johnny Yuma
-        ^
-QUERY:  Johnny Yuma
-CONTEXT:  SQL statement in PL/PgSQL function "bad_sql1" near line 4
+LINE 5:     Johnny Yuma;
+            ^
 create function bad_sql2() returns int as $$
 declare r record;
 begin
@@ -2338,26 +2336,22 @@ begin
     return 5;
 end;$$ language plpgsql;
 ERROR:  syntax error at or near "the"
-LINE 1:  select I fought the law, the law won
-                         ^
-QUERY:   select I fought the law, the law won
-CONTEXT:  SQL statement in PL/PgSQL function "bad_sql2" near line 3
+LINE 4:     for r in select I fought the law, the law won LOOP
+                                     ^
 -- a RETURN expression is mandatory, except for void-returning
 -- functions, where it is not allowed
 create function missing_return_expr() returns int as $$
 begin
     return ;
 end;$$ language plpgsql;
-ERROR:  syntax error at end of input
-LINE 1: SELECT 
-               ^
-QUERY:  SELECT 
-CONTEXT:  SQL statement in PL/PgSQL function "missing_return_expr" near line 2
+ERROR:  missing expression at or near ";"
+LINE 3:     return ;
+                   ^
 create function void_return_expr() returns void as $$
 begin
     return 5;
 end;$$ language plpgsql;
-ERROR:  RETURN cannot have a parameter in function returning void at or near "5"
+ERROR:  RETURN cannot have a parameter in function returning void
 LINE 3:     return 5;
                    ^
 -- VOID functions are allowed to omit RETURN
@@ -2427,9 +2421,9 @@ end; $$ language plpgsql;
 -- blocks
 select excpt_test1();
 ERROR:  column "sqlstate" does not exist
-LINE 1: SELECT  sqlstate
-                ^
-QUERY:  SELECT  sqlstate
+LINE 1: SELECT sqlstate
+               ^
+QUERY:  SELECT sqlstate
 CONTEXT:  PL/pgSQL function "excpt_test1" line 2 at RAISE
 create function excpt_test2() returns void as $$
 begin
@@ -2442,9 +2436,9 @@ end; $$ language plpgsql;
 -- should fail
 select excpt_test2();
 ERROR:  column "sqlstate" does not exist
-LINE 1: SELECT  sqlstate
-                ^
-QUERY:  SELECT  sqlstate
+LINE 1: SELECT sqlstate
+               ^
+QUERY:  SELECT sqlstate
 CONTEXT:  PL/pgSQL function "excpt_test2" line 4 at RAISE
 create function excpt_test3() returns void as $$
 begin
@@ -2714,7 +2708,8 @@ begin
 end;
 $$ language plpgsql;
 ERROR:  end label "outer_label" differs from block's label "inner_label"
-CONTEXT:  compilation of PL/pgSQL function "end_label3" near line 6
+LINE 7:   end loop outer_label;
+                   ^
 -- should fail: end label on a block without a start label
 create function end_label4() returns void as $$
 <<outer_label>>
@@ -2725,7 +2720,8 @@ begin
 end;
 $$ language plpgsql;
 ERROR:  end label "outer_label" specified for unlabelled block
-CONTEXT:  compilation of PL/pgSQL function "end_label4" near line 5
+LINE 6:   end loop outer_label;
+                   ^
 -- using list of scalars in fori and fore stmts
 create function for_vect() returns void as $proc$
 <<lbl>>declare a integer; b varchar; c varchar; r record;
@@ -3025,6 +3021,28 @@ select * from sc_test() order by 1;
 
 create or replace function sc_test() returns setof integer as $$
 declare
+  c refcursor;
+  x integer;
+begin
+  open c scroll for execute 'select f1 from int4_tbl';
+  fetch last from c into x;
+  while found loop
+    return next x;
+    move backward 2 from c;
+    fetch relative -1 from c into x;
+  end loop;
+  close c;
+end;
+$$ language plpgsql;
+select * from sc_test();
+   sc_test   
+-------------
+ -2147483647
+      123456
+(2 rows)
+
+create or replace function sc_test() returns setof integer as $$
+declare
   c cursor for select * from generate_series(1, 10);
   x integer;
 begin
@@ -3049,6 +3067,26 @@ select * from sc_test() order by 1;
        6
        9
 (3 rows)
+
+create or replace function sc_test() returns setof integer as $$
+declare
+  c cursor for select * from generate_series(1, 10);
+  x integer;
+begin
+  open c;
+  move forward all in c;
+  fetch backward from c into x;
+  if found then
+    return next x;
+  end if;
+  close c;
+end;
+$$ language plpgsql;
+select * from sc_test();
+ sc_test 
+---------
+      10
+(1 row)
 
 drop function sc_test();
 -- test qualified variable names
@@ -3151,6 +3189,35 @@ NOTICE:  6
         26
 (1 row)
 
+drop function exc_using(int, text);
+create or replace function exc_using(int) returns void as $$
+declare 
+  c refcursor;
+  i int;
+begin
+  open c for execute 'select * from generate_series(1,$1)' using $1+1;
+  loop
+    fetch c into i;
+    exit when not found;
+    raise notice '%', i;
+  end loop;
+  close c;
+  return;  
+end;
+$$ language plpgsql;
+select exc_using(5);
+NOTICE:  1
+NOTICE:  2
+NOTICE:  3
+NOTICE:  4
+NOTICE:  5
+NOTICE:  6
+ exc_using 
+-----------
+ 
+(1 row)
+
+drop function exc_using(int);
 -- test FOR-over-cursor
 create or replace function forc01() returns void as $$
 declare
@@ -3254,6 +3321,52 @@ select * from forc_test order by 1, 2;
  1000 | 20
 (10 rows)
 
+-- same, with a cursor whose portal name doesn't match variable name
+create or replace function forc01() returns void as $$
+declare
+  c refcursor := 'fooled_ya';
+  r record;
+begin
+  open c for select * from forc_test;
+  loop
+    fetch c into r;
+    exit when not found;
+    raise notice '%, %', r.i, r.j;
+    update forc_test set i = i * 100, j = r.j * 2 where current of c;
+  end loop;
+end;
+$$ language plpgsql;
+select forc01();
+NOTICE:  100, 2
+NOTICE:  200, 4
+NOTICE:  300, 6
+NOTICE:  400, 8
+NOTICE:  500, 10
+NOTICE:  600, 12
+NOTICE:  700, 14
+NOTICE:  800, 16
+NOTICE:  900, 18
+NOTICE:  1000, 20
+ forc01 
+--------
+ 
+(1 row)
+
+select * from forc_test;
+   i    | j  
+--------+----
+  10000 |  4
+  20000 |  8
+  30000 | 12
+  40000 | 16
+  50000 | 20
+  60000 | 24
+  70000 | 28
+  80000 | 32
+  90000 | 36
+ 100000 | 40
+(10 rows)
+
 drop function forc01();
 -- fail because cursor has no query bound to it
 create or replace function forc_bad() returns void as $$
@@ -3266,7 +3379,8 @@ begin
 end;
 $$ language plpgsql;
 ERROR:  cursor FOR loop must use a bound cursor variable
-CONTEXT:  compilation of PL/pgSQL function "forc_bad" near line 4
+LINE 5:   for r in c loop
+                   ^
 -- test RETURN QUERY EXECUTE
 create or replace function return_dquery()
 returns setof int as $$
@@ -3285,6 +3399,57 @@ select * from return_dquery() order by 1;
 (4 rows)
 
 drop function return_dquery();
+-- test RETURN QUERY with dropped columns
+create table tabwithcols(a int, b int, c int, d int);
+insert into tabwithcols values(10,20,30,40),(50,60,70,80);
+create or replace function returnqueryf()
+returns setof tabwithcols as $$
+begin
+  return query select * from tabwithcols;
+  return query execute 'select * from tabwithcols';
+end;
+$$ language plpgsql;
+select * from returnqueryf();
+ a  | b  | c  | d  
+----+----+----+----
+ 10 | 20 | 30 | 40
+ 50 | 60 | 70 | 80
+ 10 | 20 | 30 | 40
+ 50 | 60 | 70 | 80
+(4 rows)
+
+alter table tabwithcols drop column b;
+select * from returnqueryf();
+ a  | c  | d  
+----+----+----
+ 10 | 30 | 40
+ 50 | 70 | 80
+ 10 | 30 | 40
+ 50 | 70 | 80
+(4 rows)
+
+alter table tabwithcols drop column d;
+select * from returnqueryf();
+ a  | c  
+----+----
+ 10 | 30
+ 50 | 70
+ 10 | 30
+ 50 | 70
+(4 rows)
+
+alter table tabwithcols add column d int;
+select * from returnqueryf();
+ a  | c  | d 
+----+----+---
+ 10 | 30 |  
+ 50 | 70 |  
+ 10 | 30 |  
+ 50 | 70 |  
+(4 rows)
+
+drop function returnqueryf();
+drop table tabwithcols;
 -- Tests for 8.4's new RAISE features
 create or replace function raise_test() returns void as $$
 begin
@@ -3413,6 +3578,20 @@ $$ language plpgsql;
 select raise_test();
 ERROR:  RAISE without parameters cannot be used outside an exception handler
 CONTEXT:  PL/pgSQL function "raise_test"
+-- check cases where implicit SQLSTATE variable could be confused with
+-- SQLSTATE as a keyword, cf bug #5524
+create or replace function raise_test() returns void as $$
+begin
+  perform 1/0;
+exception
+  when sqlstate '22012' then
+    raise notice using message = sqlstate;
+    raise sqlstate '22012' using message = 'substitute message';
+end;
+$$ language plpgsql;
+select raise_test();
+NOTICE:  22012
+ERROR:  substitute message
 drop function raise_test();
 -- test CASE statement
 create or replace function case_test(bigint) returns text as $$
@@ -3746,21 +3925,24 @@ begin
 end
 $$ language plpgsql;
 WARNING:  nonstandard use of \\ in a string literal
+LINE 3:   raise notice 'foo\\bar\041baz';
+                       ^
 HINT:  Use the escape string syntax for backslashes, e.g., E'\\'.
-CONTEXT:  string literal in PL/PgSQL function "strtest" near line 2
 WARNING:  nonstandard use of \\ in a string literal
-LINE 1: SELECT  'foo\\bar\041baz'
-                ^
+LINE 4:   return 'foo\\bar\041baz';
+                 ^
 HINT:  Use the escape string syntax for backslashes, e.g., E'\\'.
-QUERY:  SELECT  'foo\\bar\041baz'
-CONTEXT:  SQL statement in PL/PgSQL function "strtest" near line 3
+WARNING:  nonstandard use of \\ in a string literal
+LINE 4:   return 'foo\\bar\041baz';
+                 ^
+HINT:  Use the escape string syntax for backslashes, e.g., E'\\'.
 select strtest();
 NOTICE:  foo\bar!baz
 WARNING:  nonstandard use of \\ in a string literal
-LINE 1: SELECT  'foo\\bar\041baz'
-                ^
+LINE 1: SELECT 'foo\\bar\041baz'
+               ^
 HINT:  Use the escape string syntax for backslashes, e.g., E'\\'.
-QUERY:  SELECT  'foo\\bar\041baz'
+QUERY:  SELECT 'foo\\bar\041baz'
 CONTEXT:  PL/pgSQL function "strtest" line 3 at RETURN
    strtest   
 -------------
@@ -3808,3 +3990,134 @@ NOTICE:  foo\bar!baz
 (1 row)
 
 drop function strtest();
+-- Test anonymous code blocks.
+DO $$
+DECLARE r record;
+BEGIN
+    FOR r IN SELECT rtrim(roomno) AS roomno, comment FROM Room ORDER BY roomno
+    LOOP
+        RAISE NOTICE '%, %', r.roomno, r.comment;
+    END LOOP;
+END$$;
+NOTICE:  001, Entrance
+NOTICE:  002, Office
+NOTICE:  003, Office
+NOTICE:  004, Technical
+NOTICE:  101, Office
+NOTICE:  102, Conference
+NOTICE:  103, Restroom
+NOTICE:  104, Technical
+NOTICE:  105, Office
+NOTICE:  106, Office
+-- these are to check syntax error reporting
+DO LANGUAGE plpgsql $$begin return 1; end$$;
+ERROR:  RETURN cannot have a parameter in function returning void
+LINE 1: DO LANGUAGE plpgsql $$begin return 1; end$$;
+                                           ^
+DO $$
+DECLARE r record;
+BEGIN
+    FOR r IN SELECT rtrim(roomno) AS roomno, foo FROM Room ORDER BY roomno
+    LOOP
+        RAISE NOTICE '%, %', r.roomno, r.comment;
+    END LOOP;
+END$$;
+ERROR:  column "foo" does not exist
+LINE 1: SELECT rtrim(roomno) AS roomno, foo FROM Room ORDER BY roomn...
+                                        ^
+QUERY:  SELECT rtrim(roomno) AS roomno, foo FROM Room ORDER BY roomno
+CONTEXT:  PL/pgSQL function "inline_code_block" line 3 at FOR over SELECT rows
+-- Check variable scoping -- a var is not available in its own or prior
+-- default expressions.
+create function scope_test() returns int as $$
+declare x int := 42;
+begin
+  declare y int := x + 1;
+          x int := x + 2;
+  begin
+    return x * 100 + y;
+  end;
+end;
+$$ language plpgsql;
+select scope_test();
+ scope_test 
+------------
+       4443
+(1 row)
+
+drop function scope_test();
+-- Check handling of conflicts between plpgsql vars and table columns.
+set plpgsql.variable_conflict = error;
+create function conflict_test() returns setof int8_tbl as $$
+declare r record;
+  q1 bigint := 42;
+begin
+  for r in select q1,q2 from int8_tbl loop
+    return next r;
+  end loop;
+end;
+$$ language plpgsql;
+select * from conflict_test();
+ERROR:  column reference "q1" is ambiguous
+LINE 1: select q1,q2 from int8_tbl
+               ^
+DETAIL:  It could refer to either a PL/pgSQL variable or a table column.
+QUERY:  select q1,q2 from int8_tbl
+CONTEXT:  PL/pgSQL function "conflict_test" line 4 at FOR over SELECT rows
+create or replace function conflict_test() returns setof int8_tbl as $$
+#variable_conflict use_variable
+declare r record;
+  q1 bigint := 42;
+begin
+  for r in select q1,q2 from int8_tbl loop
+    return next r;
+  end loop;
+end;
+$$ language plpgsql;
+select * from conflict_test();
+ q1 |        q2         
+----+-------------------
+ 42 |               456
+ 42 |  4567890123456789
+ 42 |               123
+ 42 |  4567890123456789
+ 42 | -4567890123456789
+(5 rows)
+
+create or replace function conflict_test() returns setof int8_tbl as $$
+#variable_conflict use_column
+declare r record;
+  q1 bigint := 42;
+begin
+  for r in select q1,q2 from int8_tbl loop
+    return next r;
+  end loop;
+end;
+$$ language plpgsql;
+select * from conflict_test();
+        q1        |        q2         
+------------------+-------------------
+              123 |               456
+              123 |  4567890123456789
+ 4567890123456789 |               123
+ 4567890123456789 |  4567890123456789
+ 4567890123456789 | -4567890123456789
+(5 rows)
+
+drop function conflict_test();
+-- Check that an unreserved keyword can be used as a variable name
+create function unreserved_test() returns int as $$
+declare
+  forward int := 21;
+begin
+  forward := forward * 2;
+  return forward;
+end
+$$ language plpgsql;
+select unreserved_test();
+ unreserved_test 
+-----------------
+              42
+(1 row)
+
+drop function unreserved_test();

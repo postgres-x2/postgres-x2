@@ -4,10 +4,10 @@
  *	  XML data type support.
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/backend/utils/adt/xml.c,v 1.92 2009/06/11 14:49:04 momjian Exp $
+ * $PostgreSQL: pgsql/src/backend/utils/adt/xml.c,v 1.98 2010/07/06 19:18:58 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -86,7 +86,6 @@ int			xmloption;
 
 static StringInfo xml_err_buf = NULL;
 
-static void xml_ereport(int level, int sqlcode, const char *msg);
 static void xml_errorHandler(void *ctxt, const char *msg,...);
 static void xml_ereport_by_code(int level, int sqlcode,
 					const char *msg, int errcode);
@@ -102,14 +101,13 @@ static void xml_pfree(void *ptr);
 static char *xml_pstrdup(const char *string);
 #endif   /* USE_LIBXMLCONTEXT */
 
-static void xml_init(void);
 static xmlChar *xml_text2xmlChar(text *in);
 static int parse_xml_decl(const xmlChar *str, size_t *lenp,
 			   xmlChar **version, xmlChar **encoding, int *standalone);
 static bool print_xml_decl(StringInfo buf, const xmlChar *version,
 			   pg_enc encoding, int standalone);
 static xmlDocPtr xml_parse(text *data, XmlOptionType xmloption_arg,
-		  bool preserve_whitespace, xmlChar *encoding);
+		  bool preserve_whitespace, int encoding);
 static text *xml_xmlnodetoxmltype(xmlNodePtr cur);
 #endif   /* USE_LIBXML */
 
@@ -183,7 +181,7 @@ xml_in(PG_FUNCTION_ARGS)
 	 * Parse the data to check if it is well-formed XML data.  Assume that
 	 * ERROR occurred if parsing failed.
 	 */
-	doc = xml_parse(vardata, xmloption, true, NULL);
+	doc = xml_parse(vardata, xmloption, true, GetDatabaseEncoding());
 	xmlFreeDoc(doc);
 
 	PG_RETURN_XML_P(vardata);
@@ -272,7 +270,8 @@ xml_recv(PG_FUNCTION_ARGS)
 	char	   *newstr;
 	int			nbytes;
 	xmlDocPtr	doc;
-	xmlChar    *encoding = NULL;
+	xmlChar    *encodingStr = NULL;
+	int			encoding;
 
 	/*
 	 * Read the data in raw format. We don't know yet what the encoding is, as
@@ -293,7 +292,15 @@ xml_recv(PG_FUNCTION_ARGS)
 	str = VARDATA(result);
 	str[nbytes] = '\0';
 
-	parse_xml_decl((xmlChar *) str, NULL, NULL, &encoding, NULL);
+	parse_xml_decl((xmlChar *) str, NULL, NULL, &encodingStr, NULL);
+
+	/*
+	 * If encoding wasn't explicitly specified in the XML header, treat it as
+	 * UTF-8, as that's the default in XML. This is different from xml_in(),
+	 * where the input has to go through the normal client to server encoding
+	 * conversion.
+	 */
+	encoding = encodingStr ? xmlChar_to_encoding(encodingStr) : PG_UTF8;
 
 	/*
 	 * Parse the data to check if it is well-formed XML data.  Assume that
@@ -305,9 +312,7 @@ xml_recv(PG_FUNCTION_ARGS)
 	/* Now that we know what we're dealing with, convert to server encoding */
 	newstr = (char *) pg_do_encoding_conversion((unsigned char *) str,
 												nbytes,
-												encoding ?
-											  xmlChar_to_encoding(encoding) :
-												PG_UTF8,
+												encoding,
 												GetDatabaseEncoding());
 
 	if (newstr != str)
@@ -592,7 +597,7 @@ xmlelement(XmlExprState *xmlExpr, ExprContext *econtext)
 	}
 
 	/* now safe to run libxml */
-	xml_init();
+	pg_xml_init();
 
 	PG_TRY();
 	{
@@ -659,7 +664,8 @@ xmlparse(text *data, XmlOptionType xmloption_arg, bool preserve_whitespace)
 #ifdef USE_LIBXML
 	xmlDocPtr	doc;
 
-	doc = xml_parse(data, xmloption_arg, preserve_whitespace, NULL);
+	doc = xml_parse(data, xmloption_arg, preserve_whitespace,
+					GetDatabaseEncoding());
 	xmlFreeDoc(doc);
 
 	return (xmltype *) data;
@@ -799,7 +805,8 @@ xml_is_document(xmltype *arg)
 	/* We want to catch ereport(INVALID_XML_DOCUMENT) and return false */
 	PG_TRY();
 	{
-		doc = xml_parse((text *) arg, XMLOPTION_DOCUMENT, true, NULL);
+		doc = xml_parse((text *) arg, XMLOPTION_DOCUMENT, true,
+						GetDatabaseEncoding());
 		result = true;
 	}
 	PG_CATCH();
@@ -836,14 +843,23 @@ xml_is_document(xmltype *arg)
 #ifdef USE_LIBXML
 
 /*
- * Set up for use of libxml --- this should be called by each function that
- * is about to use libxml facilities.
+ * pg_xml_init --- set up for use of libxml
+ *
+ * This should be called by each function that is about to use libxml
+ * facilities.	It has two responsibilities: verify compatibility with the
+ * loaded libxml version (done on first call in a session) and establish
+ * or re-establish our libxml error handler.  The latter needs to be done
+ * anytime we might have passed control to add-on modules (eg libperl) which
+ * might have set their own error handler for libxml.
+ *
+ * This is exported for use by contrib/xml2, as well as other code that might
+ * wish to share use of this module's libxml error handler.
  *
  * TODO: xmlChar is utf8-char, make proper tuning (initdb with enc!=utf8 and
  * check)
  */
-static void
-xml_init(void)
+void
+pg_xml_init(void)
 {
 	static bool first_time = true;
 
@@ -953,7 +969,7 @@ parse_xml_decl(const xmlChar *str, size_t *lenp,
 	int			utf8char;
 	int			utf8len;
 
-	xml_init();
+	pg_xml_init();
 
 	/* Initialize output arguments to "not present" */
 	if (version)
@@ -1105,7 +1121,7 @@ static bool
 print_xml_decl(StringInfo buf, const xmlChar *version,
 			   pg_enc encoding, int standalone)
 {
-	xml_init();					/* why is this here? */
+	pg_xml_init();				/* why is this here? */
 
 	if ((version && strcmp((char *) version, PG_XML_DEFAULT_VERSION) != 0)
 		|| (encoding && encoding != PG_UTF8)
@@ -1152,7 +1168,7 @@ print_xml_decl(StringInfo buf, const xmlChar *version,
  */
 static xmlDocPtr
 xml_parse(text *data, XmlOptionType xmloption_arg, bool preserve_whitespace,
-		  xmlChar *encoding)
+		  int encoding)
 {
 	int32		len;
 	xmlChar    *string;
@@ -1165,13 +1181,11 @@ xml_parse(text *data, XmlOptionType xmloption_arg, bool preserve_whitespace,
 
 	utf8string = pg_do_encoding_conversion(string,
 										   len,
-										   encoding ?
-										   xmlChar_to_encoding(encoding) :
-										   GetDatabaseEncoding(),
+										   encoding,
 										   PG_UTF8);
 
 	/* Start up libxml and its parser (no-ops if already done) */
-	xml_init();
+	pg_xml_init();
 	xmlInitParser();
 
 	ctxt = xmlNewParserCtxt();
@@ -1307,16 +1321,26 @@ xml_pstrdup(const char *string)
 
 
 /*
- * Wrapper for "ereport" function for XML-related errors.  The "msg"
- * is the SQL-level message; some can be adopted from the SQL/XML
- * standard.  This function adds libxml's native error messages, if
- * any, as detail.
+ * xml_ereport --- report an XML-related error
+ *
+ * The "msg" is the SQL-level message; some can be adopted from the SQL/XML
+ * standard.  This function adds libxml's native error message, if any, as
+ * detail.
+ *
+ * This is exported for modules that want to share the core libxml error
+ * handler.  Note that pg_xml_init() *must* have been called previously.
  */
-static void
+void
 xml_ereport(int level, int sqlcode, const char *msg)
 {
 	char	   *detail;
 
+	/*
+	 * It might seem that we should just pass xml_err_buf->data directly to
+	 * errdetail.  However, we want to clean out xml_err_buf before throwing
+	 * error, in case there is another function using libxml further down the
+	 * call stack.
+	 */
 	if (xml_err_buf->len > 0)
 	{
 		detail = pstrdup(xml_err_buf->data);
@@ -1325,11 +1349,11 @@ xml_ereport(int level, int sqlcode, const char *msg)
 	else
 		detail = NULL;
 
-	/* libxml error messages end in '\n'; get rid of it */
 	if (detail)
 	{
 		size_t		len;
 
+		/* libxml error messages end in '\n'; get rid of it */
 		len = strlen(detail);
 		if (len > 0 && detail[len - 1] == '\n')
 			detail[len - 1] = '\0';
@@ -1593,8 +1617,6 @@ map_xml_name_to_sql_identifier(char *name)
 char *
 map_sql_value_to_xml_value(Datum value, Oid type, bool xml_escape_strings)
 {
-	StringInfoData buf;
-
 	if (type_is_array(type))
 	{
 		ArrayType  *array;
@@ -1605,6 +1627,7 @@ map_sql_value_to_xml_value(Datum value, Oid type, bool xml_escape_strings)
 		int			num_elems;
 		Datum	   *elem_values;
 		bool	   *elem_nulls;
+		StringInfoData buf;
 		int			i;
 
 		array = DatumGetArrayTypeP(value);
@@ -1638,8 +1661,7 @@ map_sql_value_to_xml_value(Datum value, Oid type, bool xml_escape_strings)
 	{
 		Oid			typeOut;
 		bool		isvarlena;
-		char	   *p,
-				   *str;
+		char	   *str;
 
 		/*
 		 * Special XSD formatting for some data types
@@ -1733,7 +1755,7 @@ map_sql_value_to_xml_value(Datum value, Oid type, bool xml_escape_strings)
 					xmlTextWriterPtr writer = NULL;
 					char	   *result;
 
-					xml_init();
+					pg_xml_init();
 
 					PG_TRY();
 					{
@@ -1788,32 +1810,47 @@ map_sql_value_to_xml_value(Datum value, Oid type, bool xml_escape_strings)
 			return str;
 
 		/* otherwise, translate special characters as needed */
-		initStringInfo(&buf);
-
-		for (p = str; *p; p++)
-		{
-			switch (*p)
-			{
-				case '&':
-					appendStringInfoString(&buf, "&amp;");
-					break;
-				case '<':
-					appendStringInfoString(&buf, "&lt;");
-					break;
-				case '>':
-					appendStringInfoString(&buf, "&gt;");
-					break;
-				case '\r':
-					appendStringInfoString(&buf, "&#x0d;");
-					break;
-				default:
-					appendStringInfoCharMacro(&buf, *p);
-					break;
-			}
-		}
-
-		return buf.data;
+		return escape_xml(str);
 	}
+}
+
+
+/*
+ * Escape characters in text that have special meanings in XML.
+ *
+ * Returns a palloc'd string.
+ *
+ * NB: this is intentionally not dependent on libxml.
+ */
+char *
+escape_xml(const char *str)
+{
+	StringInfoData buf;
+	const char *p;
+
+	initStringInfo(&buf);
+	for (p = str; *p; p++)
+	{
+		switch (*p)
+		{
+			case '&':
+				appendStringInfoString(&buf, "&amp;");
+				break;
+			case '<':
+				appendStringInfoString(&buf, "&lt;");
+				break;
+			case '>':
+				appendStringInfoString(&buf, "&gt;");
+				break;
+			case '\r':
+				appendStringInfoString(&buf, "&#x0d;");
+				break;
+			default:
+				appendStringInfoCharMacro(&buf, *p);
+				break;
+		}
+	}
+	return buf.data;
 }
 
 
@@ -2592,9 +2629,7 @@ map_sql_table_to_xmlschema(TupleDesc tupdesc, Oid relid, bool nulls,
 		HeapTuple	tuple;
 		Form_pg_class reltuple;
 
-		tuple = SearchSysCache(RELOID,
-							   ObjectIdGetDatum(relid),
-							   0, 0, 0);
+		tuple = SearchSysCache1(RELOID, ObjectIdGetDatum(relid));
 		if (!HeapTupleIsValid(tuple))
 			elog(ERROR, "cache lookup failed for relation %u", relid);
 		reltuple = (Form_pg_class) GETSTRUCT(tuple);
@@ -2892,9 +2927,7 @@ map_sql_type_to_xml_name(Oid typeoid, int typmod)
 				HeapTuple	tuple;
 				Form_pg_type typtuple;
 
-				tuple = SearchSysCache(TYPEOID,
-									   ObjectIdGetDatum(typeoid),
-									   0, 0, 0);
+				tuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(typeoid));
 				if (!HeapTupleIsValid(tuple))
 					elog(ERROR, "cache lookup failed for type %u", typeoid);
 				typtuple = (Form_pg_type) GETSTRUCT(tuple);
@@ -3351,7 +3384,7 @@ xpath(PG_FUNCTION_ARGS)
 	memcpy(xpath_expr, VARDATA(xpath_expr_text), xpath_len);
 	xpath_expr[xpath_len] = '\0';
 
-	xml_init();
+	pg_xml_init();
 	xmlInitParser();
 
 	PG_TRY();

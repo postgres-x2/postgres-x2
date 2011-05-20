@@ -3,13 +3,13 @@
  * readfuncs.c
  *	  Reader functions for Postgres tree nodes.
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/nodes/readfuncs.c,v 1.222 2009/06/11 14:48:58 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/nodes/readfuncs.c,v 1.232 2010/02/16 22:34:43 tgl Exp $
  *
  * NOTES
  *	  Path and Plan nodes do not have any readfuncs support, because we
@@ -206,6 +206,7 @@ _readQuery(void)
 	READ_BOOL_FIELD(hasSubLinks);
 	READ_BOOL_FIELD(hasDistinctOn);
 	READ_BOOL_FIELD(hasRecursive);
+	READ_BOOL_FIELD(hasForUpdate);
 	READ_NODE_FIELD(cteList);
 	READ_NODE_FIELD(rtable);
 	READ_NODE_FIELD(jointree);
@@ -233,6 +234,7 @@ _readNotifyStmt(void)
 	READ_LOCALS(NotifyStmt);
 
 	READ_STRING_FIELD(conditionname);
+	READ_STRING_FIELD(payload);
 
 	READ_DONE();
 }
@@ -281,6 +283,8 @@ _readWindowClause(void)
 	READ_NODE_FIELD(partitionClause);
 	READ_NODE_FIELD(orderClause);
 	READ_INT_FIELD(frameOptions);
+	READ_NODE_FIELD(startOffset);
+	READ_NODE_FIELD(endOffset);
 	READ_UINT_FIELD(winref);
 	READ_BOOL_FIELD(copiedOrder);
 
@@ -296,10 +300,9 @@ _readRowMarkClause(void)
 	READ_LOCALS(RowMarkClause);
 
 	READ_UINT_FIELD(rti);
-	READ_UINT_FIELD(prti);
 	READ_BOOL_FIELD(forUpdate);
 	READ_BOOL_FIELD(noWait);
-	READ_BOOL_FIELD(isParent);
+	READ_BOOL_FIELD(pushedDown);
 
 	READ_DONE();
 }
@@ -464,9 +467,10 @@ _readAggref(void)
 	READ_OID_FIELD(aggfnoid);
 	READ_OID_FIELD(aggtype);
 	READ_NODE_FIELD(args);
-	READ_UINT_FIELD(agglevelsup);
+	READ_NODE_FIELD(aggorder);
+	READ_NODE_FIELD(aggdistinct);
 	READ_BOOL_FIELD(aggstar);
-	READ_BOOL_FIELD(aggdistinct);
+	READ_UINT_FIELD(agglevelsup);
 	READ_LOCATION_FIELD(location);
 
 	READ_DONE();
@@ -523,6 +527,22 @@ _readFuncExpr(void)
 	READ_BOOL_FIELD(funcretset);
 	READ_ENUM_FIELD(funcformat, CoercionForm);
 	READ_NODE_FIELD(args);
+	READ_LOCATION_FIELD(location);
+
+	READ_DONE();
+}
+
+/*
+ * _readNamedArgExpr
+ */
+static NamedArgExpr *
+_readNamedArgExpr(void)
+{
+	READ_LOCALS(NamedArgExpr);
+
+	READ_NODE_FIELD(arg);
+	READ_STRING_FIELD(name);
+	READ_INT_FIELD(argnumber);
 	READ_LOCATION_FIELD(location);
 
 	READ_DONE();
@@ -949,6 +969,7 @@ _readNullTest(void)
 
 	READ_NODE_FIELD(arg);
 	READ_ENUM_FIELD(nulltesttype, NullTestType);
+	READ_BOOL_FIELD(argisrow);
 
 	READ_DONE();
 }
@@ -1073,7 +1094,7 @@ _readJoinExpr(void)
 	READ_BOOL_FIELD(isNatural);
 	READ_NODE_FIELD(larg);
 	READ_NODE_FIELD(rarg);
-	READ_NODE_FIELD(using);
+	READ_NODE_FIELD(usingClause);
 	READ_NODE_FIELD(quals);
 	READ_NODE_FIELD(alias);
 	READ_INT_FIELD(rtindex);
@@ -1281,6 +1302,8 @@ parseNodeString(void)
 		return_value = _readArrayRef();
 	else if (MATCH("FUNCEXPR", 8))
 		return_value = _readFuncExpr();
+	else if (MATCH("NAMEDARGEXPR", 12))
+		return_value = _readNamedArgExpr();
 	else if (MATCH("OPEXPR", 6))
 		return_value = _readOpExpr();
 	else if (MATCH("DISTINCTEXPR", 12))

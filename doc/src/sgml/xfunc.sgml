@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/xfunc.sgml,v 1.138 2009/05/27 01:18:06 tgl Exp $ -->
+<!-- $PostgreSQL: pgsql/doc/src/sgml/xfunc.sgml,v 1.149 2010/05/30 18:10:40 tgl Exp $ -->
 
  <sect1 id="xfunc">
   <title>User-Defined Functions</title>
@@ -63,8 +63,7 @@
 
   <para>
    Throughout this chapter, it can be useful to look at the reference
-   page of the <xref linkend="sql-createfunction"
-   endterm="sql-createfunction-title"> command to
+   page of the <xref linkend="sql-createfunction"> command to
    understand the examples better.  Some examples from this chapter
    can be found in <filename>funcs.sql</filename> and
    <filename>funcs.c</filename> in the <filename>src/tutorial</>
@@ -517,6 +516,39 @@ SELECT getname(new_emp());
     </para>
    </sect2>
 
+   <sect2 id="xfunc-named-parameters">
+    <title><acronym>SQL</> Functions with Parameter Names</title>
+
+   <indexterm>
+    <primary>function</primary>
+    <secondary>named parameter</secondary>
+   </indexterm>
+
+    <para>
+     It is possible to attach names to a function's parameters, for example
+
+<programlisting>
+CREATE FUNCTION tf1 (acct_no integer, debit numeric) RETURNS numeric AS $$
+    UPDATE bank
+        SET balance = balance - $2
+        WHERE accountno = $1
+    RETURNING balance;
+$$ LANGUAGE SQL;
+</programlisting>
+
+     Here the first parameter has been given the name <literal>acct_no</>,
+     and the second parameter the name <literal>debit</>.
+     So far as the SQL function itself is concerned, these names are just
+     decoration; you must still refer to the parameters as <literal>$1</>,
+     <literal>$2</>, etc within the function body.  (Some procedural
+     languages let you use the parameter names instead.)  However,
+     attaching names to the parameters is useful for documentation purposes.
+     When a function has many parameters, it is also useful to use the names
+     while calling the function, as described in
+     <xref linkend="sql-syntax-calling-funcs">.
+    </para>
+   </sect2>
+
    <sect2 id="xfunc-output-parameters">
     <title><acronym>SQL</> Functions with Output Parameters</title>
 
@@ -571,7 +603,10 @@ LANGUAGE SQL;
 </screen>
 
      but not having to bother with the separate composite type definition
-     is often handy.
+     is often handy.  Notice that the names attached to the output parameters
+     are not just decoration, but determine the column names of the anonymous
+     composite type.  (If you omit a name for an output parameter, the
+     system will choose a name on its own.)
     </para>
 
     <para>
@@ -621,7 +656,7 @@ DROP FUNCTION sum_n_product (int, int);
      must be declared as being of an array type.  For example:
 
 <screen>
-CREATE FUNCTION mleast(VARIADIC numeric[]) RETURNS numeric AS $$
+CREATE FUNCTION mleast(VARIADIC arr numeric[]) RETURNS numeric AS $$
     SELECT min($1[i]) FROM generate_subscripts($1, 1) g(i);
 $$ LANGUAGE SQL;
 
@@ -661,6 +696,25 @@ SELECT mleast(VARIADIC ARRAY[10, -1, 5, 4.4]);
      normally.  <literal>VARIADIC</> can only be attached to the last
      actual argument of a function call.
     </para>
+
+    <para>
+     The array element parameters generated from a variadic parameter are
+     treated as not having any names of their own.  This means it is not
+     possible to call a variadic function using named arguments (<xref
+     linkend="sql-syntax-calling-funcs">), except when you specify
+     <literal>VARIADIC</>.  For example, this will work:
+
+<screen>
+SELECT mleast(VARIADIC arr := ARRAY[10, -1, 5, 4.4]);
+</screen>
+
+     but not these:
+
+<screen>
+SELECT mleast(arr := 10);
+SELECT mleast(arr := ARRAY[10, -1, 5, 4.4]);
+</screen>
+    </para>
    </sect2>
 
    <sect2 id="xfunc-sql-parameter-defaults">
@@ -677,7 +731,9 @@ SELECT mleast(VARIADIC ARRAY[10, -1, 5, 4.4]);
      called with insufficiently many actual arguments.  Since arguments
      can only be omitted from the end of the actual argument list, all
      parameters after a parameter with a default value have to have
-     default values as well.
+     default values as well.  (Although the use of named argument notation
+     could allow this restriction to be relaxed, it's still enforced so that
+     positional argument notation works sensibly.)
     </para>
 
     <para>
@@ -712,7 +768,7 @@ SELECT foo();  -- fails since there is no default for the first argument
 ERROR:  function foo() does not exist
 </screen>
      The <literal>=</literal> sign can also be used in place of the
-     key word <literal>DEFAULT</literal>,
+     key word <literal>DEFAULT</literal>.
     </para>
    </sect2>
 
@@ -803,7 +859,8 @@ SELECT * FROM getfoo(1) AS t1;
      output parameters, like this:
 
 <programlisting>
-CREATE FUNCTION sum_n_product_with_tab (x int, OUT sum int, OUT product int) RETURNS SETOF record AS $$
+CREATE FUNCTION sum_n_product_with_tab (x int, OUT sum int, OUT product int)
+RETURNS SETOF record AS $$
     SELECT $1 + tab.y, $1 * tab.y FROM tab;
 $$ LANGUAGE SQL;
 </programlisting>
@@ -901,7 +958,8 @@ SELECT name, listchildren(name) FROM nodes;
      done this way:
 
 <programlisting>
-CREATE FUNCTION sum_n_product_with_tab (x int) RETURNS TABLE(sum int, product int) AS $$
+CREATE FUNCTION sum_n_product_with_tab (x int)
+RETURNS TABLE(sum int, product int) AS $$
     SELECT $1 + tab.y, $1 * tab.y FROM tab;
 $$ LANGUAGE SQL;
 </programlisting>
@@ -1122,7 +1180,7 @@ CREATE FUNCTION test(int, int) RETURNS int
     Every function has a <firstterm>volatility</> classification, with
     the possibilities being <literal>VOLATILE</>, <literal>STABLE</>, or
     <literal>IMMUTABLE</>.  <literal>VOLATILE</> is the default if the
-    <xref linkend="sql-createfunction" endterm="sql-createfunction-title">
+    <xref linkend="sql-createfunction">
     command does not specify a category.  The volatility category is a
     promise to the optimizer about the behavior of the function:
 
@@ -1296,7 +1354,8 @@ CREATE FUNCTION test(int, int) RETURNS int
 
    <para>
     Normally, all internal functions present in the
-    server are declared during the initialization of the database cluster (<command>initdb</command>),
+    server are declared during the initialization of the database cluster
+    (see <xref linkend="creating-cluster">),
     but a user could use <command>CREATE FUNCTION</command>
     to create additional alias names for an internal function.
     Internal functions are declared in <command>CREATE FUNCTION</command>
@@ -1481,9 +1540,7 @@ PG_MODULE_MAGIC;
     file is retained in memory.  Future calls in the same session to
     the function(s) in that file will only incur the small overhead of
     a symbol table lookup.  If you need to force a reload of an object
-    file, for example after recompiling it, use the <xref
-    linkend="sql-load" endterm="sql-load-title"> command or begin a
-    fresh session.
+    file, for example after recompiling it, begin a fresh session.
    </para>
 
    <indexterm zone="xfunc-c-dynload">
@@ -1509,8 +1566,8 @@ PG_MODULE_MAGIC;
     unloading the file.  Likewise, the function receives no parameters and
     should return void.  Note that <function>_PG_fini</> will only be called
     during an unload of the file, not during process termination.
-    (Presently, an unload only happens in the context of re-loading
-    the file due to an explicit <command>LOAD</> command.)
+    (Presently, unloads are disabled and will never occur, but this may
+    change in the future.)
    </para>
 
   </sect2>
@@ -1870,6 +1927,11 @@ memcpy(destination->data, buffer, 40);
 <programlisting><![CDATA[
 #include "postgres.h"
 #include <string.h>
+#include "utils/geo_decls.h"
+
+#ifdef PG_MODULE_MAGIC
+PG_MODULE_MAGIC;
+#endif
 
 /* by value */
 
@@ -2015,7 +2077,7 @@ Datum funcname(PG_FUNCTION_ARGS)
 <programlisting>
 PG_FUNCTION_INFO_V1(funcname);
 </programlisting>
-     must appear in the same source file.  (Conventionally. it's
+     must appear in the same source file.  (Conventionally, it's
      written just before the function itself.)  This macro call is not
      needed for <literal>internal</>-language functions, since
      <productname>PostgreSQL</> assumes that all internal functions
@@ -2044,6 +2106,11 @@ PG_FUNCTION_INFO_V1(funcname);
 #include "postgres.h"
 #include <string.h>
 #include "fmgr.h"
+#include "utils/geo_decls.h"
+
+#ifdef PG_MODULE_MAGIC
+PG_MODULE_MAGIC;
+#endif
 
 /* by value */
 
@@ -2348,15 +2415,49 @@ include $(PGXS)
    </para>
 
    <para>
-    The following variables can be set:
+    Set one of these three variables to specify what is built:
 
     <variablelist>
      <varlistentry>
       <term><varname>MODULES</varname></term>
       <listitem>
        <para>
-        list of shared objects to be built from source file with same
+        list of shared objects to be built from source files with same
         stem (do not include suffix in this list)
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><varname>MODULE_big</varname></term>
+      <listitem>
+       <para>
+        a shared object to build from multiple source files
+        (list object files in <varname>OBJS</varname>)
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><varname>PROGRAM</varname></term>
+      <listitem>
+       <para>
+        a binary program to build
+        (list object files in <varname>OBJS</varname>)
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+
+    The following variables can also be set:
+
+    <variablelist>
+     <varlistentry>
+      <term><varname>MODULEDIR</varname></term>
+      <listitem>
+       <para>
+        subdirectory into which DATA and DOCS files should be
+        installed (if not set, default is <literal>contrib</literal>)
        </para>
       </listitem>
      </varlistentry>
@@ -2365,7 +2466,7 @@ include $(PGXS)
       <term><varname>DATA</varname></term>
       <listitem>
        <para>
-        random files to install into <literal><replaceable>prefix</replaceable>/share/contrib</literal>
+        random files to install into <literal><replaceable>prefix</replaceable>/share/$MODULEDIR</literal>
        </para>
       </listitem>
      </varlistentry>
@@ -2375,8 +2476,18 @@ include $(PGXS)
       <listitem>
        <para>
         random files to install into
-        <literal><replaceable>prefix</replaceable>/share/contrib</literal>,
+        <literal><replaceable>prefix</replaceable>/share/$MODULEDIR</literal>,
         which need to be built first
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><varname>DATA_TSEARCH</varname></term>
+      <listitem>
+       <para>
+        random files to install under
+        <literal><replaceable>prefix</replaceable>/share/tsearch_data</literal>
        </para>
       </listitem>
      </varlistentry>
@@ -2386,7 +2497,7 @@ include $(PGXS)
       <listitem>
        <para>
         random files to install under
-        <literal><replaceable>prefix</replaceable>/doc/contrib</literal>
+        <literal><replaceable>prefix</replaceable>/doc/$MODULEDIR</literal>
        </para>
       </listitem>
      </varlistentry>
@@ -2420,33 +2531,6 @@ include $(PGXS)
        </para>
       </listitem>
      </varlistentry>
-    </variablelist>
-
-    or at most one of these two:
-
-    <variablelist>
-     <varlistentry>
-      <term><varname>PROGRAM</varname></term>
-      <listitem>
-       <para>
-        a binary program to build (list objects files in <varname>OBJS</varname>)
-       </para>
-      </listitem>
-     </varlistentry>
-
-     <varlistentry>
-      <term><varname>MODULE_big</varname></term>
-      <listitem>
-       <para>
-        a shared object to build (list object files in <varname>OBJS</varname>)
-       </para>
-      </listitem>
-     </varlistentry>
-    </variablelist>
-
-    The following can also be set:
-
-    <variablelist>
 
      <varlistentry>
       <term><varname>EXTRA_CLEAN</varname></term>
@@ -2583,6 +2667,10 @@ SELECT name, c_overpaid(emp, 1500) AS overpaid
 #include "postgres.h"
 #include "executor/executor.h"  /* for GetAttributeByName() */
 
+#ifdef PG_MODULE_MAGIC
+PG_MODULE_MAGIC;
+#endif
+
 bool
 c_overpaid(HeapTupleHeader t, /* the current row of emp */
            int32 limit)
@@ -2603,6 +2691,10 @@ c_overpaid(HeapTupleHeader t, /* the current row of emp */
 <programlisting><![CDATA[
 #include "postgres.h"
 #include "executor/executor.h"  /* for GetAttributeByName() */
+
+#ifdef PG_MODULE_MAGIC
+PG_MODULE_MAGIC;
+#endif
 
 PG_FUNCTION_INFO_V1(c_overpaid);
 
@@ -2961,11 +3053,12 @@ my_set_returning_function(PG_FUNCTION_ARGS)
 {
     FuncCallContext  *funcctx;
     Datum             result;
-    MemoryContext     oldcontext;
     <replaceable>further declarations as needed</replaceable>
 
     if (SRF_IS_FIRSTCALL())
     {
+        MemoryContext oldcontext;
+
         funcctx = SRF_FIRSTCALL_INIT();
         oldcontext = MemoryContextSwitchTo(funcctx-&gt;multi_call_memory_ctx);
         /* One-time setup code appears here: */
@@ -3015,9 +3108,9 @@ retcomposite(PG_FUNCTION_ARGS)
     TupleDesc            tupdesc;
     AttInMetadata       *attinmeta;
 
-     /* stuff done only on the first call of the function */
-     if (SRF_IS_FIRSTCALL())
-     {
+    /* stuff done only on the first call of the function */
+    if (SRF_IS_FIRSTCALL())
+    {
         MemoryContext   oldcontext;
 
         /* create a function context for cross-call persistence */
@@ -3259,8 +3352,6 @@ void RequestAddinLWLocks(int n)
 
                 LWLockAcquire(AddinShmemInitLock, LW_EXCLUSIVE);
                 ptr = ShmemInitStruct("my struct name", size, &amp;found);
-                if (!ptr)
-                        elog(ERROR, "out of shared memory");
                 if (!found)
                 {
                         initialize contents of shmem area;

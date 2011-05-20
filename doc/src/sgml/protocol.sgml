@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/protocol.sgml,v 1.75 2008/11/09 00:28:34 tgl Exp $ -->
+<!-- $PostgreSQL: pgsql/doc/src/sgml/protocol.sgml,v 1.89 2010/06/07 02:01:08 itagaki Exp $ -->
 
 <chapter id="protocol">
  <title>Frontend/Backend Protocol</title>
@@ -26,12 +26,6 @@
   startup-request message tells the server which protocol version the
   client is attempting to use, and then the server follows that protocol
   if it is able.
- </para>
-
- <para>
-  Higher level features built on this protocol (for example, how
-  <application>libpq</application> passes certain environment
-  variables when the connection is established) are covered elsewhere.
  </para>
 
   <para>
@@ -354,7 +348,7 @@
        <para>
         This message contains the response data from the previous step
         of GSSAPI or SSPI negotiation (AuthenticationGSS, AuthenticationSSPI
-        or a previous AuthenticationGSSContinue). If the GSSAPI 
+        or a previous AuthenticationGSSContinue). If the GSSAPI
         or SSPI data in this message
         indicates more data is needed to complete the authentication,
         the frontend must send that data as another PasswordMessage. If
@@ -737,9 +731,9 @@
    <para>
     The unnamed prepared statement is likewise planned during Parse processing
     if the Parse message defines no parameters.  But if there are parameters,
-    query planning occurs during Bind processing instead.  This allows the
-    planner to make use of the actual values of the parameters provided in
-    the Bind message when planning the query.
+    query planning occurs every time Bind parameters are supplied.  This allows the
+    planner to make use of the actual values of the parameters provided by
+    each Bind message, rather than use generic estimates.
    </para>
 
    <note>
@@ -992,7 +986,7 @@
 
    <para>
     In the event of a backend-detected error during copy-in mode (including
-    receipt of a CopyFail message), the backend will issue an ErrorResponse 
+    receipt of a CopyFail message), the backend will issue an ErrorResponse
     message.  If the <command>COPY</> command was issued via an extended-query
     message, the backend will now discard frontend messages until a Sync
     message is received, then it will issue ReadyForQuery and return to normal
@@ -1088,6 +1082,7 @@
     <literal>server_version</>,
     <literal>server_encoding</>,
     <literal>client_encoding</>,
+    <literal>application_name</>,
     <literal>is_superuser</>,
     <literal>session_authorization</>,
     <literal>DateStyle</>,
@@ -1098,8 +1093,9 @@
     (<literal>server_encoding</>, <literal>TimeZone</>, and
     <literal>integer_datetimes</> were not reported by releases before 8.0;
     <literal>standard_conforming_strings</> was not reported by releases
-    before 8.1; <literal>IntervalStyle</> was not reported by releases
-    before 8.4.)
+    before 8.1;
+    <literal>IntervalStyle</> was not reported by releases before 8.4;
+    <literal>application_name</> was not reported by releases before 9.0.)
     Note that
     <literal>server_version</>,
     <literal>server_encoding</> and
@@ -1115,7 +1111,7 @@
     backend will send a NotificationResponse message (not to be
     confused with NoticeResponse!)  whenever a
     <command>NOTIFY</command> command is executed for the same
-    notification name.
+    channel name.
    </para>
 
    <note>
@@ -1288,6 +1284,173 @@
   </sect2>
  </sect1>
 
+<sect1 id="protocol-replication">
+<title>Streaming Replication Protocol</title>
+
+<para>
+To initiate streaming replication, the frontend sends the
+<literal>replication</> parameter in the startup message. This tells the
+backend to go into walsender mode, wherein a small set of replication commands
+can be issued instead of SQL statements. Only the simple query protocol can be
+used in walsender mode.
+
+The commands accepted in walsender mode are:
+
+<variablelist>
+  <varlistentry>
+    <term>IDENTIFY_SYSTEM</term>
+    <listitem>
+     <para>
+      Requests the server to identify itself. Server replies with a result
+      set of a single row, containing two fields:
+     </para>
+
+     <para>
+      <variablelist>
+      <varlistentry>
+      <term>
+       systemid
+      </term>
+      <listitem>
+      <para>
+       The unique system identifier identifying the cluster. This
+       can be used to check that the base backup used to initialize the
+       standby came from the same cluster.
+      </para>
+      </listitem>
+      </varlistentry>
+
+      <varlistentry>
+      <term>
+       timeline
+      </term>
+      <listitem>
+      <para>
+       Current TimelineID. Also useful to check that the standby is
+       consistent with the master.
+      </para>
+      </listitem>
+      </varlistentry>
+      </variablelist>
+     </para>
+    </listitem>
+  </varlistentry>
+
+  <varlistentry>
+    <term>START_REPLICATION <replaceable>XXX</>/<replaceable>XXX</></term>
+    <listitem>
+     <para>
+      Instructs server to start streaming WAL, starting at
+      WAL position <replaceable>XXX</>/<replaceable>XXX</>.
+      The server can reply with an error, e.g. if the requested section of WAL
+      has already been recycled. On success, server responds with a
+      CopyOutResponse message, and then starts to stream WAL to the frontend.
+      WAL will continue to be streamed until the connection is broken;
+      no further commands will be accepted.
+     </para>
+
+     <para>
+      WAL data is sent as a series of CopyData messages.  (This allows
+      other information to be intermixed; in particular the server can send
+      an ErrorResponse message if it encounters a failure after beginning
+      to stream.)  The payload in each CopyData message follows this format:
+     </para>
+
+     <para>
+      <variablelist>
+      <varlistentry>
+      <term>
+          XLogData (B)
+      </term>
+      <listitem>
+      <para>
+      <variablelist>
+      <varlistentry>
+      <term>
+          Byte1('w')
+      </term>
+      <listitem>
+      <para>
+          Identifies the message as WAL data.
+      </para>
+      </listitem>
+      </varlistentry>
+      <varlistentry>
+      <term>
+          Byte8
+      </term>
+      <listitem>
+      <para>
+          The starting point of the WAL data in this message, given in
+          XLogRecPtr format.
+      </para>
+      </listitem>
+      </varlistentry>
+      <varlistentry>
+      <term>
+          Byte8
+      </term>
+      <listitem>
+      <para>
+          The current end of WAL on the server, given in
+          XLogRecPtr format.
+      </para>
+      </listitem>
+      </varlistentry>
+      <varlistentry>
+      <term>
+          Byte8
+      </term>
+      <listitem>
+      <para>
+          The server's system clock at the time of transmission,
+          given in TimestampTz format.
+      </para>
+      </listitem>
+      </varlistentry>
+      <varlistentry>
+      <term>
+          Byte<replaceable>n</replaceable>
+      </term>
+      <listitem>
+      <para>
+          A section of the WAL data stream.
+      </para>
+      </listitem>
+      </varlistentry>
+      </variablelist>
+      </para>
+      </listitem>
+      </varlistentry>
+      </variablelist>
+     </para>
+     <para>
+       A single WAL record is never split across two CopyData messages.
+       When a WAL record crosses a WAL page boundary, and is therefore
+       already split using continuation records, it can be split at the page
+       boundary. In other words, the first main WAL record and its
+       continuation records can be sent in different CopyData messages.
+     </para>
+     <para>
+       Note that all fields within the WAL data and the above-described header
+       will be in the sending server's native format.  Endianness, and the
+       format for the timestamp, are unpredictable unless the receiver has
+       verified that the sender's system identifier matches its own
+       <filename>pg_control</> contents.
+     </para>
+     <para>
+       If the WAL sender process is terminated normally (during postmaster
+       shutdown), it will send a CommandComplete message before exiting.
+       This might not happen during an abnormal shutdown, of course.
+     </para>
+    </listitem>
+  </varlistentry>
+</variablelist>
+
+</para>
+
+</sect1>
+
 <sect1 id="protocol-message-types">
 <title>Message Data Types</title>
 
@@ -1338,7 +1501,7 @@ This section describes the base data types used in messages.
                 value that will appear, otherwise the value is variable.
                 Eg. String, String("user").
 </para>
-                
+
 <note>
 <para>
 <emphasis>There is no predefined limit</emphasis> on the length of a string
@@ -1949,7 +2112,7 @@ Bind (F)
                 (denoted <replaceable>R</> below).
                 This can be zero to indicate that there are no result columns
                 or that the result columns should all use the default format
-                (text); 
+                (text);
                 or one, in which case the specified format code is applied
                 to all result columns (if any); or it can equal the actual
                 number of result columns of the query.
@@ -2220,6 +2383,12 @@ CommandComplete (B)
        </para>
 
        <para>
+        For a <command>SELECT</command> or <command>CREATE TABLE AS</command>
+        command, the tag is <literal>SELECT <replaceable>rows</replaceable></literal>
+        where <replaceable>rows</replaceable> is the number of rows retrieved.
+       </para>
+
+       <para>
         For a <command>MOVE</command> command, the tag is
         <literal>MOVE <replaceable>rows</replaceable></literal> where
         <replaceable>rows</replaceable> is the number of rows the
@@ -2417,7 +2586,7 @@ CopyInResponse (B)
                 characters, etc).
                 1 indicates the overall copy format is binary (similar
                 to DataRow format).
-                See <xref linkend="sql-copy" endterm="sql-copy-title">
+                See <xref linkend="sql-copy">
                 for more information.
 </para>
 </listitem>
@@ -2491,8 +2660,7 @@ CopyOutResponse (B)
                 is textual (rows separated by newlines, columns
                 separated by separator characters, etc). 1 indicates
                 the overall copy format is binary (similar to DataRow
-                format). See <xref linkend="sql-copy"
-                endterm="sql-copy-title"> for more information. 
+                format). See <xref linkend="sql-copy"> for more information.
 </para>
 </listitem>
 </varlistentry>
@@ -3179,7 +3347,7 @@ NotificationResponse (B)
 </term>
 <listitem>
 <para>
-                The name of the condition that the notify has been raised on.
+                The name of the channel that the notify has been raised on.
 </para>
 </listitem>
 </varlistentry>
@@ -3189,9 +3357,7 @@ NotificationResponse (B)
 </term>
 <listitem>
 <para>
-                Additional information passed from the notifying process.
-                (Currently, this feature is unimplemented so the field
-                is always an empty string.)
+                The <quote>payload</> string passed from the notifying process.
 </para>
 </listitem>
 </varlistentry>
@@ -4138,7 +4304,6 @@ not line breaks.
 
 </sect1>
 
-
 <sect1 id="protocol-changes">
 <title>Summary of Changes since Protocol 2.0</title>
 
@@ -4232,7 +4397,7 @@ the backend.
 
 <para>
 The NotificationResponse ('<literal>A</>') message has an additional string
-field, which is presently empty but might someday carry additional data passed
+field, which can carry a <quote>payload</> string passed
 from the <command>NOTIFY</command> event sender.
 </para>
 
@@ -4242,6 +4407,5 @@ string parameter; this has been removed.
 </para>
 
 </sect1>
-
 
 </chapter>

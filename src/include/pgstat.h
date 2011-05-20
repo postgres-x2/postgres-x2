@@ -3,9 +3,9 @@
  *
  *	Definitions for the PostgreSQL statistics collector daemon.
  *
- *	Copyright (c) 2001-2009, PostgreSQL Global Development Group
+ *	Copyright (c) 2001-2010, PostgreSQL Global Development Group
  *
- *	$PostgreSQL: pgsql/src/include/pgstat.h,v 1.83 2009/06/11 14:49:08 momjian Exp $
+ *	$PostgreSQL: pgsql/src/include/pgstat.h,v 1.89 2010/02/26 02:01:20 momjian Exp $
  * ----------
  */
 #ifndef PGSTAT_H
@@ -38,6 +38,8 @@ typedef enum StatMsgType
 	PGSTAT_MTYPE_TABPURGE,
 	PGSTAT_MTYPE_DROPDB,
 	PGSTAT_MTYPE_RESETCOUNTER,
+	PGSTAT_MTYPE_RESETSHAREDCOUNTER,
+	PGSTAT_MTYPE_RESETSINGLECOUNTER,
 	PGSTAT_MTYPE_AUTOVAC_START,
 	PGSTAT_MTYPE_VACUUM,
 	PGSTAT_MTYPE_ANALYZE,
@@ -68,9 +70,9 @@ typedef int64 PgStat_Counter;
  * fetched by heap_fetch under the control of simple indexscans for this index.
  *
  * tuples_inserted/updated/deleted/hot_updated count attempted actions,
- * regardless of whether the transaction committed.  new_live_tuples and
- * new_dead_tuples are properly adjusted depending on commit or abort.
- * Note that new_live_tuples and new_dead_tuples can be negative!
+ * regardless of whether the transaction committed.  delta_live_tuples,
+ * delta_dead_tuples, and changed_tuples are set depending on commit or abort.
+ * Note that delta_live_tuples and delta_dead_tuples can be negative!
  * ----------
  */
 typedef struct PgStat_TableCounts
@@ -85,13 +87,26 @@ typedef struct PgStat_TableCounts
 	PgStat_Counter t_tuples_deleted;
 	PgStat_Counter t_tuples_hot_updated;
 
-	PgStat_Counter t_new_live_tuples;
-	PgStat_Counter t_new_dead_tuples;
+	PgStat_Counter t_delta_live_tuples;
+	PgStat_Counter t_delta_dead_tuples;
+	PgStat_Counter t_changed_tuples;
 
 	PgStat_Counter t_blocks_fetched;
 	PgStat_Counter t_blocks_hit;
 } PgStat_TableCounts;
 
+/* Possible targets for resetting cluster-wide shared values */
+typedef enum PgStat_Shared_Reset_Target
+{
+	RESET_BGWRITER
+} PgStat_Shared_Reset_Target;
+
+/* Possible object types for resetting single counters */
+typedef enum PgStat_Single_Reset_Type
+{
+	RESET_TABLE,
+	RESET_FUNCTION
+} PgStat_Single_Reset_Type;
 
 /* ------------------------------------------------------------
  * Structures kept in backend local memory while accumulating counts
@@ -102,14 +117,14 @@ typedef struct PgStat_TableCounts
 /* ----------
  * PgStat_TableStatus			Per-table status within a backend
  *
- * Most of the event counters are nontransactional, ie, we count events
+ * Many of the event counters are nontransactional, ie, we count events
  * in committed and aborted transactions alike.  For these, we just count
- * directly in the PgStat_TableStatus.	However, new_live_tuples and
- * new_dead_tuples must be derived from tuple insertion and deletion counts
+ * directly in the PgStat_TableStatus.	However, delta_live_tuples,
+ * delta_dead_tuples, and changed_tuples must be derived from event counts
  * with awareness of whether the transaction or subtransaction committed or
  * aborted.  Hence, we also keep a stack of per-(sub)transaction status
  * records for every table modified in the current transaction.  At commit
- * or abort, we propagate tuples_inserted and tuples_deleted up to the
+ * or abort, we propagate tuples_inserted/updated/deleted up to the
  * parent subtransaction level, or out to the parent PgStat_TableStatus,
  * as appropriate.
  * ----------
@@ -129,6 +144,7 @@ typedef struct PgStat_TableStatus
 typedef struct PgStat_TableXactStatus
 {
 	PgStat_Counter tuples_inserted;		/* tuples inserted in (sub)xact */
+	PgStat_Counter tuples_updated;		/* tuples updated in (sub)xact */
 	PgStat_Counter tuples_deleted;		/* tuples deleted in (sub)xact */
 	int			nest_level;		/* subtransaction nest level */
 	/* links to other structs for same relation: */
@@ -258,6 +274,29 @@ typedef struct PgStat_MsgResetcounter
 	Oid			m_databaseid;
 } PgStat_MsgResetcounter;
 
+/* ----------
+ * PgStat_MsgResetsharedcounter Sent by the backend to tell the collector
+ *								to reset a shared counter
+ * ----------
+ */
+typedef struct PgStat_MsgResetsharedcounter
+{
+	PgStat_MsgHdr m_hdr;
+	PgStat_Shared_Reset_Target m_resettarget;
+} PgStat_MsgResetsharedcounter;
+
+/* ----------
+ * PgStat_MsgResetsinglecounter Sent by the backend to tell the collector
+ *								to reset a single counter
+ * ----------
+ */
+typedef struct PgStat_MsgResetsinglecounter
+{
+	PgStat_MsgHdr m_hdr;
+	Oid			m_databaseid;
+	PgStat_Single_Reset_Type m_resettype;
+	Oid			m_objectid;
+} PgStat_MsgResetsinglecounter;
 
 /* ----------
  * PgStat_MsgAutovacStart		Sent by the autovacuum daemon to signal
@@ -274,7 +313,7 @@ typedef struct PgStat_MsgAutovacStart
 
 /* ----------
  * PgStat_MsgVacuum				Sent by the backend or autovacuum daemon
- *								after VACUUM or VACUUM ANALYZE
+ *								after VACUUM
  * ----------
  */
 typedef struct PgStat_MsgVacuum
@@ -282,9 +321,8 @@ typedef struct PgStat_MsgVacuum
 	PgStat_MsgHdr m_hdr;
 	Oid			m_databaseid;
 	Oid			m_tableoid;
-	bool		m_analyze;
+	bool		m_adopt_counts;
 	bool		m_autovacuum;
-	bool		m_scanned_all;
 	TimestampTz m_vacuumtime;
 	PgStat_Counter m_tuples;
 } PgStat_MsgVacuum;
@@ -300,6 +338,7 @@ typedef struct PgStat_MsgAnalyze
 	PgStat_MsgHdr m_hdr;
 	Oid			m_databaseid;
 	Oid			m_tableoid;
+	bool		m_adopt_counts;
 	bool		m_autovacuum;
 	TimestampTz m_analyzetime;
 	PgStat_Counter m_live_tuples;
@@ -412,6 +451,8 @@ typedef union PgStat_Msg
 	PgStat_MsgTabpurge msg_tabpurge;
 	PgStat_MsgDropdb msg_dropdb;
 	PgStat_MsgResetcounter msg_resetcounter;
+	PgStat_MsgResetsharedcounter msg_resetsharedcounter;
+	PgStat_MsgResetsinglecounter msg_resetsinglecounter;
 	PgStat_MsgAutovacStart msg_autovacuum;
 	PgStat_MsgVacuum msg_vacuum;
 	PgStat_MsgAnalyze msg_analyze;
@@ -478,7 +519,7 @@ typedef struct PgStat_StatTabEntry
 
 	PgStat_Counter n_live_tuples;
 	PgStat_Counter n_dead_tuples;
-	PgStat_Counter last_anl_tuples;
+	PgStat_Counter changes_since_analyze;
 
 	PgStat_Counter blocks_fetched;
 	PgStat_Counter blocks_hit;
@@ -564,6 +605,9 @@ typedef struct PgBackendStatus
 	/* Is backend currently waiting on an lmgr lock? */
 	bool		st_waiting;
 
+	/* application name; MUST be null-terminated */
+	char	   *st_appname;
+
 	/* current command string; MUST be null-terminated */
 	char	   *st_activity;
 } PgBackendStatus;
@@ -630,18 +674,20 @@ extern void pgstat_drop_database(Oid databaseid);
 
 extern void pgstat_clear_snapshot(void);
 extern void pgstat_reset_counters(void);
+extern void pgstat_reset_shared_counters(const char *);
+extern void pgstat_reset_single_counter(Oid objectid, PgStat_Single_Reset_Type type);
 
 extern void pgstat_report_autovac(Oid dboid);
-extern void pgstat_report_vacuum(Oid tableoid, bool shared, bool scanned_all,
-					 bool analyze, PgStat_Counter tuples);
-extern void pgstat_report_analyze(Relation rel,
-					  PgStat_Counter livetuples,
-					  PgStat_Counter deadtuples);
+extern void pgstat_report_vacuum(Oid tableoid, bool shared, bool adopt_counts,
+					 PgStat_Counter tuples);
+extern void pgstat_report_analyze(Relation rel, bool adopt_counts,
+					  PgStat_Counter livetuples, PgStat_Counter deadtuples);
 
 extern void pgstat_initialize(void);
 extern void pgstat_bestart(void);
 
-extern void pgstat_report_activity(const char *what);
+extern void pgstat_report_activity(const char *cmd_str);
+extern void pgstat_report_appname(const char *appname);
 extern void pgstat_report_xact_timestamp(TimestampTz tstamp);
 extern void pgstat_report_waiting(bool waiting);
 extern const char *pgstat_get_backend_current_activity(int pid, bool checkUser);

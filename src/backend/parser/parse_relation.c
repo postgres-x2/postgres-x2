@@ -3,12 +3,12 @@
  * parse_relation.c
  *	  parser support routines dealing with relations
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/parser/parse_relation.c,v 1.142 2009/06/11 14:49:00 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/parser/parse_relation.c,v 1.151 2010/04/28 00:46:33 tgl Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -32,16 +32,12 @@
 #include "utils/syscache.h"
 
 
-/* GUC parameter */
-bool		add_missing_from;
-
 static RangeTblEntry *scanNameSpaceForRefname(ParseState *pstate,
 						const char *refname, int location);
 static RangeTblEntry *scanNameSpaceForRelid(ParseState *pstate, Oid relid,
 					  int location);
 static void markRTEForSelectPriv(ParseState *pstate, RangeTblEntry *rte,
 					 int rtindex, AttrNumber col);
-static bool isLockedRel(ParseState *pstate, char *refname);
 static void expandRelation(Oid relid, Alias *eref,
 			   int rtindex, int sublevels_up,
 			   int location, bool include_dropped,
@@ -51,7 +47,6 @@ static void expandTupleDesc(TupleDesc tupdesc, Alias *eref,
 				int location, bool include_dropped,
 				List **colnames, List **colvars);
 static int	specialAttNum(const char *attname);
-static void warnAutoRange(ParseState *pstate, RangeVar *relation);
 
 
 /*
@@ -91,7 +86,17 @@ refnameRangeTblEntry(ParseState *pstate,
 	{
 		Oid			namespaceId;
 
-		namespaceId = LookupExplicitNamespace(schemaname);
+		/*
+		 * We can use LookupNamespaceNoError() here because we are only
+		 * interested in finding existing RTEs.  Checking USAGE permission on
+		 * the schema is unnecessary since it would have already been checked
+		 * when the RTE was made.  Furthermore, we want to report "RTE not
+		 * found", not "no permissions for schema", if the name happens to
+		 * match a schema name the user hasn't got access to.
+		 */
+		namespaceId = LookupNamespaceNoError(schemaname);
+		if (!OidIsValid(namespaceId))
+			return NULL;
 		relId = get_relname_relid(refname, namespaceId);
 		if (!OidIsValid(relId))
 			return NULL;
@@ -249,7 +254,7 @@ isFutureCTE(ParseState *pstate, const char *refname)
  * visible in the p_relnamespace lists.  This behavior is invalid per the SQL
  * spec, and it may give ambiguous results (there might be multiple equally
  * valid matches, but only one will be returned).  This must be used ONLY
- * as a heuristic in giving suitable error messages.  See warnAutoRange.
+ * as a heuristic in giving suitable error messages.  See errorMissingRTE.
  *
  * Notice that we consider both matches on actual relation (or CTE) name
  * and matches on alias.
@@ -497,10 +502,9 @@ scanRTEForColumn(ParseState *pstate, RangeTblEntry *rte, char *colname,
 		if (attnum != InvalidAttrNumber)
 		{
 			/* now check to see if column actually is defined */
-			if (SearchSysCacheExists(ATTNUM,
-									 ObjectIdGetDatum(rte->relid),
-									 Int16GetDatum(attnum),
-									 0, 0))
+			if (SearchSysCacheExists2(ATTNUM,
+									  ObjectIdGetDatum(rte->relid),
+									  Int16GetDatum(attnum)))
 			{
 				var = make_var(pstate, rte, attnum, location);
 				/* Require read access to the column */
@@ -558,39 +562,6 @@ colNameToVar(ParseState *pstate, char *colname, bool localonly,
 	}
 
 	return result;
-}
-
-/*
- * qualifiedNameToVar
- *	  Search for a qualified column name: either refname.colname or
- *	  schemaname.relname.colname.
- *
- *	  If found, return the appropriate Var node.
- *	  If not found, return NULL.  If the name proves ambiguous, raise error.
- */
-Node *
-qualifiedNameToVar(ParseState *pstate,
-				   char *schemaname,
-				   char *refname,
-				   char *colname,
-				   bool implicitRTEOK,
-				   int location)
-{
-	RangeTblEntry *rte;
-	int			sublevels_up;
-
-	rte = refnameRangeTblEntry(pstate, schemaname, refname, location,
-							   &sublevels_up);
-
-	if (rte == NULL)
-	{
-		if (!implicitRTEOK)
-			return NULL;
-		rte = addImplicitRTE(pstate,
-							 makeRangeVar(schemaname, refname, location));
-	}
-
-	return scanRTEForColumn(pstate, rte, colname, location);
 }
 
 /*
@@ -920,7 +891,7 @@ addRangeTableEntry(ParseState *pstate,
 	 * to a rel in a statement, be careful to get the right access level
 	 * depending on whether we're doing SELECT FOR UPDATE/SHARE.
 	 */
-	lockmode = isLockedRel(pstate, refname) ? RowShareLock : AccessShareLock;
+	lockmode = isLockedRefname(pstate, refname) ? RowShareLock : AccessShareLock;
 	rel = parserOpenTable(pstate, relation, lockmode);
 	rte->relid = RelationGetRelid(rel);
 
@@ -1198,13 +1169,13 @@ addRangeTableEntryForFunction(ParseState *pstate,
 			int32		attrtypmod;
 
 			attrname = pstrdup(n->colname);
-			if (n->typename->setof)
+			if (n->typeName->setof)
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
 						 errmsg("column \"%s\" cannot be declared SETOF",
 								attrname),
-						 parser_errposition(pstate, n->typename->location)));
-			attrtype = typenameTypeId(pstate, n->typename, &attrtypmod);
+						 parser_errposition(pstate, n->typeName->location)));
+			attrtype = typenameTypeId(pstate, n->typeName, &attrtypmod);
 			eref->colnames = lappend(eref->colnames, makeString(attrname));
 			rte->funccoltypes = lappend_oid(rte->funccoltypes, attrtype);
 			rte->funccoltypmods = lappend_int(rte->funccoltypmods, attrtypmod);
@@ -1475,40 +1446,46 @@ addRangeTableEntryForCTE(ParseState *pstate,
 /*
  * Has the specified refname been selected FOR UPDATE/FOR SHARE?
  *
- * Note: we pay no attention to whether it's FOR UPDATE vs FOR SHARE.
+ * This is used when we have not yet done transformLockingClause, but need
+ * to know the correct lock to take during initial opening of relations.
+ *
+ * Note: we pay no attention to whether it's FOR UPDATE vs FOR SHARE,
+ * since the table-level lock is the same either way.
  */
-static bool
-isLockedRel(ParseState *pstate, char *refname)
+bool
+isLockedRefname(ParseState *pstate, const char *refname)
 {
-	/* Outer loop to check parent query levels as well as this one */
-	while (pstate != NULL)
+	ListCell   *l;
+
+	/*
+	 * If we are in a subquery specified as locked FOR UPDATE/SHARE from
+	 * parent level, then act as though there's a generic FOR UPDATE here.
+	 */
+	if (pstate->p_locked_from_parent)
+		return true;
+
+	foreach(l, pstate->p_locking_clause)
 	{
-		ListCell   *l;
+		LockingClause *lc = (LockingClause *) lfirst(l);
 
-		foreach(l, pstate->p_locking_clause)
+		if (lc->lockedRels == NIL)
 		{
-			LockingClause *lc = (LockingClause *) lfirst(l);
+			/* all tables used in query */
+			return true;
+		}
+		else
+		{
+			/* just the named tables */
+			ListCell   *l2;
 
-			if (lc->lockedRels == NIL)
+			foreach(l2, lc->lockedRels)
 			{
-				/* all tables used in query */
-				return true;
-			}
-			else
-			{
-				/* just the named tables */
-				ListCell   *l2;
+				RangeVar   *thisrel = (RangeVar *) lfirst(l2);
 
-				foreach(l2, lc->lockedRels)
-				{
-					RangeVar   *thisrel = (RangeVar *) lfirst(l2);
-
-					if (strcmp(refname, thisrel->relname) == 0)
-						return true;
-				}
+				if (strcmp(refname, thisrel->relname) == 0)
+					return true;
 			}
 		}
-		pstate = pstate->parentParseState;
 	}
 	return false;
 }
@@ -1535,42 +1512,6 @@ addRTEtoQuery(ParseState *pstate, RangeTblEntry *rte,
 		pstate->p_relnamespace = lappend(pstate->p_relnamespace, rte);
 	if (addToVarNameSpace)
 		pstate->p_varnamespace = lappend(pstate->p_varnamespace, rte);
-}
-
-/*
- * Add a POSTQUEL-style implicit RTE.
- *
- * We assume caller has already checked that there is no RTE or join with
- * a conflicting name.
- */
-RangeTblEntry *
-addImplicitRTE(ParseState *pstate, RangeVar *relation)
-{
-	CommonTableExpr *cte = NULL;
-	Index		levelsup = 0;
-	RangeTblEntry *rte;
-
-	/* issue warning or error as needed */
-	warnAutoRange(pstate, relation);
-
-	/* if it is an unqualified name, it might be a CTE reference */
-	if (!relation->schemaname)
-		cte = scanNameSpaceForCTE(pstate, relation->relname, &levelsup);
-
-	/*
-	 * Note that we set inFromCl true, so that the RTE will be listed
-	 * explicitly if the parsetree is ever decompiled by ruleutils.c. This
-	 * provides a migration path for views/rules that were originally written
-	 * with implicit-RTE syntax.
-	 */
-	if (cte)
-		rte = addRangeTableEntryForCTE(pstate, cte, levelsup, NULL, true);
-	else
-		rte = addRangeTableEntry(pstate, relation, NULL, false, true);
-	/* Add to joinlist and relnamespace, but not varnamespace */
-	addRTEtoQuery(pstate, rte, true, true, false);
-
-	return rte;
 }
 
 /*
@@ -2047,10 +1988,9 @@ get_rte_attribute_type(RangeTblEntry *rte, AttrNumber attnum,
 				HeapTuple	tp;
 				Form_pg_attribute att_tup;
 
-				tp = SearchSysCache(ATTNUM,
-									ObjectIdGetDatum(rte->relid),
-									Int16GetDatum(attnum),
-									0, 0);
+				tp = SearchSysCache2(ATTNUM,
+									 ObjectIdGetDatum(rte->relid),
+									 Int16GetDatum(attnum));
 				if (!HeapTupleIsValid(tp))		/* shouldn't happen */
 					elog(ERROR, "cache lookup failed for attribute %d of relation %u",
 						 attnum, rte->relid);
@@ -2201,10 +2141,9 @@ get_rte_attribute_is_dropped(RangeTblEntry *rte, AttrNumber attnum)
 				HeapTuple	tp;
 				Form_pg_attribute att_tup;
 
-				tp = SearchSysCache(ATTNUM,
-									ObjectIdGetDatum(rte->relid),
-									Int16GetDatum(attnum),
-									0, 0);
+				tp = SearchSysCache2(ATTNUM,
+									 ObjectIdGetDatum(rte->relid),
+									 Int16GetDatum(attnum));
 				if (!HeapTupleIsValid(tp))		/* shouldn't happen */
 					elog(ERROR, "cache lookup failed for attribute %d of relation %u",
 						 attnum, rte->relid);
@@ -2254,10 +2193,9 @@ get_rte_attribute_is_dropped(RangeTblEntry *rte, AttrNumber attnum)
 					HeapTuple	tp;
 					Form_pg_attribute att_tup;
 
-					tp = SearchSysCache(ATTNUM,
-										ObjectIdGetDatum(funcrelid),
-										Int16GetDatum(attnum),
-										0, 0);
+					tp = SearchSysCache2(ATTNUM,
+										 ObjectIdGetDatum(funcrelid),
+										 Int16GetDatum(attnum));
 					if (!HeapTupleIsValid(tp))	/* shouldn't happen */
 						elog(ERROR, "cache lookup failed for attribute %d of relation %u",
 							 attnum, funcrelid);
@@ -2311,7 +2249,7 @@ get_tle_by_resno(List *tlist, AttrNumber resno)
  * Returns NULL if relation is not selected FOR UPDATE/SHARE
  */
 RowMarkClause *
-get_rowmark(Query *qry, Index rtindex)
+get_parse_rowmark(Query *qry, Index rtindex)
 {
 	ListCell   *l;
 
@@ -2427,13 +2365,13 @@ attnumTypeId(Relation rd, int attid)
 }
 
 /*
- * Generate a warning or error about an implicit RTE, if appropriate.
+ * Generate a suitable error about a missing RTE.
  *
- * If ADD_MISSING_FROM is not enabled, raise an error. Otherwise, emit
- * a warning.
+ * Since this is a very common type of error, we work rather hard to
+ * produce a helpful message.
  */
-static void
-warnAutoRange(ParseState *pstate, RangeVar *relation)
+void
+errorMissingRTE(ParseState *pstate, RangeVar *relation)
 {
 	RangeTblEntry *rte;
 	int			sublevels_up;
@@ -2441,7 +2379,8 @@ warnAutoRange(ParseState *pstate, RangeVar *relation)
 
 	/*
 	 * Check to see if there are any potential matches in the query's
-	 * rangetable.	This affects the message we provide.
+	 * rangetable.	(Note: cases involving a bad schema name in the RangeVar
+	 * will throw error immediately here.  That seems OK.)
 	 */
 	rte = searchRangeTable(pstate, relation);
 
@@ -2462,39 +2401,21 @@ warnAutoRange(ParseState *pstate, RangeVar *relation)
 							 &sublevels_up) == rte)
 		badAlias = rte->eref->aliasname;
 
-	if (!add_missing_from)
-	{
-		if (rte)
-			ereport(ERROR,
-					(errcode(ERRCODE_UNDEFINED_TABLE),
+	if (rte)
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_TABLE),
 			errmsg("invalid reference to FROM-clause entry for table \"%s\"",
 				   relation->relname),
-					 (badAlias ?
-			errhint("Perhaps you meant to reference the table alias \"%s\".",
-					badAlias) :
-					  errhint("There is an entry for table \"%s\", but it cannot be referenced from this part of the query.",
-							  rte->eref->aliasname)),
-					 parser_errposition(pstate, relation->location)));
-		else
-			ereport(ERROR,
-					(errcode(ERRCODE_UNDEFINED_TABLE),
-					 errmsg("missing FROM-clause entry for table \"%s\"",
-							relation->relname),
-					 parser_errposition(pstate, relation->location)));
-	}
-	else
-	{
-		/* just issue a warning */
-		ereport(NOTICE,
-				(errcode(ERRCODE_UNDEFINED_TABLE),
-				 errmsg("adding missing FROM-clause entry for table \"%s\"",
-						relation->relname),
 				 (badAlias ?
 			errhint("Perhaps you meant to reference the table alias \"%s\".",
 					badAlias) :
-				  (rte ?
-				   errhint("There is an entry for table \"%s\", but it cannot be referenced from this part of the query.",
-						   rte->eref->aliasname) : 0)),
+				  errhint("There is an entry for table \"%s\", but it cannot be referenced from this part of the query.",
+						  rte->eref->aliasname)),
 				 parser_errposition(pstate, relation->location)));
-	}
+	else
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_TABLE),
+				 errmsg("missing FROM-clause entry for table \"%s\"",
+						relation->relname),
+				 parser_errposition(pstate, relation->location)));
 }

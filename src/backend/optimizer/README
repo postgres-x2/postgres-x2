@@ -1,4 +1,4 @@
-$PostgreSQL: pgsql/src/backend/optimizer/README,v 1.49 2009/02/27 22:41:37 tgl Exp $
+$PostgreSQL: pgsql/src/backend/optimizer/README,v 1.53 2010/03/28 22:59:32 tgl Exp $
 
 Optimizer
 =========
@@ -214,10 +214,10 @@ out of the nullable side of an outer join:
 	!= (A leftjoin B on (Pab)) join C on (Pbc)
 
 SEMI joins work a little bit differently.  A semijoin can be reassociated
-into or out of the lefthand side of another semijoin, but not into or out
-of the righthand side.  Likewise, an inner join, left join, or antijoin
-can be reassociated into or out of the lefthand side of a semijoin, but
-not into or out of the righthand side.
+into or out of the lefthand side of another semijoin, left join, or
+antijoin, but not into or out of the righthand side.  Likewise, an inner
+join, left join, or antijoin can be reassociated into or out of the
+lefthand side of a semijoin, but not into or out of the righthand side.
 
 ANTI joins work approximately like LEFT joins, except that identity 3
 fails if the join to C is an antijoin (even if Pbc is strict, and in
@@ -480,7 +480,10 @@ operator is mergejoinable, so there is no way for a volatile expression to
 get into EquivalenceClasses otherwise.  Aggregates are disallowed in WHERE
 altogether, so will never be found in a mergejoinable clause.)  This is just
 a convenience to maintain a uniform PathKey representation: such an
-EquivalenceClass will never be merged with any other.
+EquivalenceClass will never be merged with any other.  Note in particular
+that a single-item EquivalenceClass {a.x} is *not* meant to imply an
+assertion that a.x = a.x; the practical effect of this is that a.x could
+be NULL.
 
 An EquivalenceClass also contains a list of btree opfamily OIDs, which
 determines what the equalities it represents actually "mean".  All the

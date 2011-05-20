@@ -4,12 +4,12 @@
  *
  *	  Routines for operator manipulation commands
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/commands/operatorcmds.c,v 1.43 2009/06/11 14:48:56 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/commands/operatorcmds.c,v 1.47 2010/07/06 19:18:56 momjian Exp $
  *
  * DESCRIPTION
  *	  The "DefineFoo" routines take the parse tree and pick out the
@@ -87,6 +87,16 @@ DefineOperator(List *names, List *parameters)
 
 	/* Convert list of names to a name and namespace */
 	oprNamespace = QualifiedNameGetCreationNamespace(names, &oprName);
+
+	/*
+	 * The SQL standard committee has decided that => should be used for named
+	 * parameters; therefore, a future release of PostgreSQL may disallow it
+	 * as the name of a user-defined operator.
+	 */
+	if (strcmp(oprName, "=>") == 0)
+		ereport(WARNING,
+				(errmsg("=> is deprecated as an operator name"),
+				 errdetail("This name may be disallowed altogether in future versions of PostgreSQL.")));
 
 	/* Check we have creation rights in target namespace */
 	aclresult = pg_namespace_aclcheck(oprNamespace, GetUserId(), ACL_CREATE);
@@ -308,9 +318,7 @@ RemoveOperator(RemoveFuncStmt *stmt)
 		return;
 	}
 
-	tup = SearchSysCache(OPEROID,
-						 ObjectIdGetDatum(operOid),
-						 0, 0, 0);
+	tup = SearchSysCache1(OPEROID, ObjectIdGetDatum(operOid));
 	if (!HeapTupleIsValid(tup)) /* should not happen */
 		elog(ERROR, "cache lookup failed for operator %u", operOid);
 
@@ -344,9 +352,7 @@ RemoveOperatorById(Oid operOid)
 
 	relation = heap_open(OperatorRelationId, RowExclusiveLock);
 
-	tup = SearchSysCache(OPEROID,
-						 ObjectIdGetDatum(operOid),
-						 0, 0, 0);
+	tup = SearchSysCache1(OPEROID, ObjectIdGetDatum(operOid));
 	if (!HeapTupleIsValid(tup)) /* should not happen */
 		elog(ERROR, "cache lookup failed for operator %u", operOid);
 
@@ -399,9 +405,7 @@ AlterOperatorOwner_internal(Relation rel, Oid operOid, Oid newOwnerId)
 
 	Assert(RelationGetRelid(rel) == OperatorRelationId);
 
-	tup = SearchSysCacheCopy(OPEROID,
-							 ObjectIdGetDatum(operOid),
-							 0, 0, 0);
+	tup = SearchSysCacheCopy1(OPEROID, ObjectIdGetDatum(operOid));
 	if (!HeapTupleIsValid(tup)) /* should not happen */
 		elog(ERROR, "cache lookup failed for operator %u", operOid);
 

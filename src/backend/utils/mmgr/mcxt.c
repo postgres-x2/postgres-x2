@@ -9,12 +9,12 @@
  * context's MemoryContextMethods struct.
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/utils/mmgr/mcxt.c,v 1.66 2009/01/01 17:23:53 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/utils/mmgr/mcxt.c,v 1.69 2010/02/13 02:34:12 tgl Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -193,7 +193,7 @@ MemoryContextDelete(MemoryContext context)
 			}
 		}
 	}
-	(*context->methods->delete) (context);
+	(*context->methods->delete_context) (context);
 	pfree(context);
 }
 
@@ -628,11 +628,10 @@ repalloc(void *pointer, Size size)
  * MemoryContextSwitchTo
  *		Returns the current context; installs the given context.
  *
- * This is inlined when using GCC.
- *
- * TODO: investigate supporting inlining for some non-GCC compilers.
+ * palloc.h defines an inline version of this function if allowed by the
+ * compiler; in which case the definition below is skipped.
  */
-#ifndef __GNUC__
+#ifndef USE_INLINE
 
 MemoryContext
 MemoryContextSwitchTo(MemoryContext context)
@@ -645,7 +644,7 @@ MemoryContextSwitchTo(MemoryContext context)
 	CurrentMemoryContext = context;
 	return old;
 }
-#endif   /* ! __GNUC__ */
+#endif   /* ! USE_INLINE */
 
 /*
  * MemoryContextStrdup

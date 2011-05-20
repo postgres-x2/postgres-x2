@@ -4,10 +4,10 @@
  *	  prototypes for various files in optimizer/plan
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/optimizer/planmain.h,v 1.118 2009/06/11 14:49:11 momjian Exp $
+ * $PostgreSQL: pgsql/src/include/optimizer/planmain.h,v 1.127 2010/03/28 22:59:33 tgl Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -39,9 +39,11 @@ extern Plan *optimize_minmax_aggregates(PlannerInfo *root, List *tlist,
  * prototypes for plan/createplan.c
  */
 extern Plan *create_plan(PlannerInfo *root, Path *best_path);
+extern Node *fix_indexqual_operand(Node *node, IndexOptInfo *index);
 extern SubqueryScan *make_subqueryscan(List *qptlist, List *qpqual,
-				  Index scanrelid, Plan *subplan, List *subrtable);
-extern Append *make_append(List *appendplans, bool isTarget, List *tlist);
+				  Index scanrelid, Plan *subplan,
+				  List *subrtable, List *subrowmark);
+extern Append *make_append(List *appendplans, List *tlist);
 extern RecursiveUnion *make_recursive_union(List *tlist,
 					 Plan *lefttree, Plan *righttree, int wtParam,
 					 List *distinctList, long numGroups);
@@ -60,13 +62,15 @@ extern WindowAgg *make_windowagg(PlannerInfo *root, List *tlist,
 			   int numWindowFuncs, Index winref,
 			   int partNumCols, AttrNumber *partColIdx, Oid *partOperators,
 			   int ordNumCols, AttrNumber *ordColIdx, Oid *ordOperators,
-			   int frameOptions, Plan *lefttree);
+			   int frameOptions, Node *startOffset, Node *endOffset,
+			   Plan *lefttree);
 extern Group *make_group(PlannerInfo *root, List *tlist, List *qual,
 		   int numGroupCols, AttrNumber *grpColIdx, Oid *grpOperators,
 		   double numGroups,
 		   Plan *lefttree);
 extern Plan *materialize_finished_plan(Plan *subplan);
 extern Unique *make_unique(Plan *lefttree, List *distinctList);
+extern LockRows *make_lockrows(Plan *lefttree, List *rowMarks, int epqParam);
 extern Limit *make_limit(Plan *lefttree, Node *limitOffset, Node *limitCount,
 		   int64 offset_est, int64 count_est);
 extern SetOp *make_setop(SetOpCmd cmd, SetOpStrategy strategy, Plan *lefttree,
@@ -74,6 +78,9 @@ extern SetOp *make_setop(SetOpCmd cmd, SetOpStrategy strategy, Plan *lefttree,
 		   long numGroups, double outputRows);
 extern Result *make_result(PlannerInfo *root, List *tlist,
 			Node *resconstantqual, Plan *subplan);
+extern ModifyTable *make_modifytable(CmdType operation, List *resultRelations,
+				 List *subplans, List *returningLists,
+				 List *rowMarks, int epqParam);
 extern bool is_projection_capable_plan(Plan *plan);
 
 /*
@@ -102,11 +109,17 @@ extern RestrictInfo *build_implied_join_equality(Oid opno,
 							Relids qualscope);
 
 /*
+ * prototypes for plan/analyzejoins.c
+ */
+extern List *remove_useless_joins(PlannerInfo *root, List *joinlist);
+
+/*
  * prototypes for plan/setrefs.c
  */
 extern Plan *set_plan_references(PlannerGlobal *glob,
 					Plan *plan,
-					List *rtable);
+					List *rtable,
+					List *rowmarks);
 extern List *set_returning_clause_references(PlannerGlobal *glob,
 								List *rlist,
 								Plan *topplan,
@@ -115,7 +128,7 @@ extern void fix_opfuncids(Node *node);
 extern void set_opfuncid(OpExpr *opexpr);
 extern void set_sa_opfuncid(ScalarArrayOpExpr *opexpr);
 extern void record_plan_function_dependency(PlannerGlobal *glob, Oid funcid);
-extern void extract_query_dependencies(List *queries,
+extern void extract_query_dependencies(Node *query,
 						   List **relationOids,
 						   List **invalItems);
 

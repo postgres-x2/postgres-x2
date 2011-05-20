@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/postgres.sgml,v 1.88 2009/06/17 21:58:49 tgl Exp $ -->
+<!-- $PostgreSQL: pgsql/doc/src/sgml/postgres.sgml,v 1.91 2010/02/22 11:47:30 heikki Exp $ -->
 
 <!DOCTYPE book PUBLIC "-//OASIS//DTD DocBook V4.2//EN" [
 
@@ -16,6 +16,8 @@
 
  <bookinfo>
   <corpauthor>The PostgreSQL Global Development Group</corpauthor>
+  <productname>PostgreSQL</productname>
+  <productnumber>&version;</productnumber>
   &legal;
  </bookinfo>
 
@@ -153,6 +155,7 @@
   &maintenance;
   &backup;
   &high-availability;
+  &recovery-config;
   &monitoring;
   &diskusage;
   &wal;
@@ -262,6 +265,6 @@
  </part>
 
  &biblio;
- &bookindex;
+ <![%include-index;[&bookindex;]]>
 
 </book>

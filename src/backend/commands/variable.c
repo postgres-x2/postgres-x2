@@ -4,12 +4,12 @@
  *		Routines for handling specialized SET variables.
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/commands/variable.c,v 1.130 2009/06/11 14:48:56 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/commands/variable.c,v 1.133 2010/02/14 18:42:14 rhaas Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -717,21 +717,6 @@ assign_session_authorization(const char *value, bool doit, GucSource source)
 		/* not a saved ID, so look it up */
 		HeapTuple	roleTup;
 
-		if (InSecurityDefinerContext())
-		{
-			/*
-			 * Disallow SET SESSION AUTHORIZATION inside a security definer
-			 * context.  We need to do this because when we exit the context,
-			 * GUC won't be notified, leaving things out of sync.  Note that
-			 * this test is positioned so that restoring a previously saved
-			 * setting isn't prevented.
-			 */
-			ereport(GUC_complaint_elevel(source),
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("cannot set session authorization within security-definer function")));
-			return NULL;
-		}
-
 		if (!IsTransactionState())
 		{
 			/*
@@ -742,9 +727,7 @@ assign_session_authorization(const char *value, bool doit, GucSource source)
 			return NULL;
 		}
 
-		roleTup = SearchSysCache(AUTHNAME,
-								 PointerGetDatum(value),
-								 0, 0, 0);
+		roleTup = SearchSysCache1(AUTHNAME, PointerGetDatum(value));
 		if (!HeapTupleIsValid(roleTup))
 		{
 			ereport(GUC_complaint_elevel(source),
@@ -838,24 +821,6 @@ assign_role(const char *value, bool doit, GucSource source)
 		}
 	}
 
-	if (roleid == InvalidOid && InSecurityDefinerContext())
-	{
-		/*
-		 * Disallow SET ROLE inside a security definer context.  We need to do
-		 * this because when we exit the context, GUC won't be notified,
-		 * leaving things out of sync.	Note that this test is arranged so
-		 * that restoring a previously saved setting isn't prevented.
-		 *
-		 * XXX it would be nice to allow this case in future, with the
-		 * behavior being that the SET ROLE's effects end when the security
-		 * definer context is exited.
-		 */
-		ereport(GUC_complaint_elevel(source),
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("cannot set role within security-definer function")));
-		return NULL;
-	}
-
 	if (roleid == InvalidOid &&
 		strcmp(actual_rolename, "none") != 0)
 	{
@@ -872,9 +837,7 @@ assign_role(const char *value, bool doit, GucSource source)
 			return NULL;
 		}
 
-		roleTup = SearchSysCache(AUTHNAME,
-								 PointerGetDatum(value),
-								 0, 0, 0);
+		roleTup = SearchSysCache1(AUTHNAME, PointerGetDatum(value));
 		if (!HeapTupleIsValid(roleTup))
 		{
 			ereport(GUC_complaint_elevel(source),

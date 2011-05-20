@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/intarray.sgml,v 1.8 2009/06/07 20:09:34 tgl Exp $ -->
+<!-- $PostgreSQL: pgsql/doc/src/sgml/intarray.sgml,v 1.10 2010/05/05 15:10:25 heikki Exp $ -->
 
 <sect1 id="intarray">
  <title>intarray</title>
@@ -90,7 +90,7 @@
      <row>
       <entry><function>subarray(int[], int start, int len)</function></entry>
       <entry><type>int[]</type></entry>
-      <entry>portion of array starting at position <parameter>start</>, len <parameter>elements</></entry>
+      <entry>portion of array starting at position <parameter>start</>, <parameter>len</> elements</entry>
       <entry><literal>subarray('{1,2,3,2,1}'::int[], 2, 3)</literal></entry>
       <entry><literal>{2,3,2}</literal></entry>
      </row>
@@ -317,7 +317,7 @@ SELECT message.mid FROM message WHERE message.sections @@ '1&amp;2'::query_int;
   <para>
    All work was done by Teodor Sigaev (<email>teodor@sigaev.ru</email>) and
    Oleg Bartunov (<email>oleg@sai.msu.su</email>). See
-   <ulink url="http://www.sai.msu.su/~megera/postgres/gist"></ulink> for
+   <ulink url="http://www.sai.msu.su/~megera/postgres/gist/"></ulink> for
    additional information. Andrey Oktyabrski did a great work on adding new
    functions and operations.
   </para>

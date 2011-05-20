@@ -3,12 +3,12 @@
  * relnode.c
  *	  Relation-node lookup/construction routines
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/optimizer/util/relnode.c,v 1.94 2009/06/11 14:48:59 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/optimizer/util/relnode.c,v 1.98 2010/02/26 02:00:47 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -87,6 +87,7 @@ build_simple_rel(PlannerInfo *root, int relid, RelOptKind reloptkind)
 	rel->tuples = 0;
 	rel->subplan = NULL;
 	rel->subrtable = NIL;
+	rel->subrowmark = NIL;
 	rel->baserestrictinfo = NIL;
 	rel->baserestrictcost.startup = 0;
 	rel->baserestrictcost.per_tuple = 0;
@@ -360,6 +361,7 @@ build_join_rel(PlannerInfo *root,
 	joinrel->tuples = 0;
 	joinrel->subplan = NULL;
 	joinrel->subrtable = NIL;
+	joinrel->subrowmark = NIL;
 	joinrel->baserestrictinfo = NIL;
 	joinrel->baserestrictcost.startup = 0;
 	joinrel->baserestrictcost.per_tuple = 0;
@@ -421,6 +423,20 @@ build_join_rel(PlannerInfo *root,
 											   &found);
 		Assert(!found);
 		hentry->join_rel = joinrel;
+	}
+
+	/*
+	 * Also, if dynamic-programming join search is active, add the new joinrel
+	 * to the appropriate sublist.	Note: you might think the Assert on number
+	 * of members should be for equality, but some of the level 1 rels might
+	 * have been joinrels already, so we can only assert <=.
+	 */
+	if (root->join_rel_level)
+	{
+		Assert(root->join_cur_level > 0);
+		Assert(root->join_cur_level <= bms_num_members(joinrel->relids));
+		root->join_rel_level[root->join_cur_level] =
+			lappend(root->join_rel_level[root->join_cur_level], joinrel);
 	}
 
 	return joinrel;

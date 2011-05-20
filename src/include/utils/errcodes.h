@@ -9,9 +9,9 @@
  * string is determined by the MAKE_SQLSTATE() macro, which is not defined
  * in this file; it can be defined by the caller for special purposes.
  *
- * Copyright (c) 2003-2009, PostgreSQL Global Development Group
+ * Copyright (c) 2003-2010, PostgreSQL Global Development Group
  *
- * $PostgreSQL: pgsql/src/include/utils/errcodes.h,v 1.29 2009/03/04 10:55:00 petere Exp $
+ * $PostgreSQL: pgsql/src/include/utils/errcodes.h,v 1.32 2010/03/13 14:55:57 momjian Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -167,6 +167,7 @@
 #define ERRCODE_FOREIGN_KEY_VIOLATION		MAKE_SQLSTATE('2','3', '5','0','3')
 #define ERRCODE_UNIQUE_VIOLATION			MAKE_SQLSTATE('2','3', '5','0','5')
 #define ERRCODE_CHECK_VIOLATION				MAKE_SQLSTATE('2','3', '5','1','4')
+#define ERRCODE_EXCLUSION_VIOLATION			MAKE_SQLSTATE('2','3', 'P','0','1')
 
 /* Class 24 - Invalid Cursor State */
 #define ERRCODE_INVALID_CURSOR_STATE		MAKE_SQLSTATE('2','4', '0','0','0')
@@ -193,6 +194,7 @@
 
 /* Class 28 - Invalid Authorization Specification */
 #define ERRCODE_INVALID_AUTHORIZATION_SPECIFICATION MAKE_SQLSTATE('2','8', '0','0','0')
+#define ERRCODE_INVALID_PASSWORD MAKE_SQLSTATE('2','8', 'P','0','1')
 
 /* Class 2B - Dependent Privilege Descriptors Still Exist */
 #define ERRCODE_DEPENDENT_PRIVILEGE_DESCRIPTORS_STILL_EXIST		MAKE_SQLSTATE('2','B', '0','0','0')

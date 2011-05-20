@@ -361,3 +361,33 @@ CREATE OR REPLACE FUNCTION perl_spi_prepared_bad(double precision) RETURNS doubl
 $$ LANGUAGE plperl;
 SELECT perl_spi_prepared_bad(4.35) as "double precision";
 
+-- simple test of a DO block
+DO $$
+  $a = 'This is a test';
+  elog(NOTICE, $a);
+$$ LANGUAGE plperl;
+
+-- check that restricted operations are rejected in a plperl DO block
+DO $$ system("/nonesuch"); $$ LANGUAGE plperl;
+DO $$ qx("/nonesuch"); $$ LANGUAGE plperl;
+DO $$ open my $fh, "</nonesuch"; $$ LANGUAGE plperl;
+
+-- check that eval is allowed and eval'd restricted ops are caught
+DO $$ eval q{chdir '.'}; warn "Caught: $@"; $$ LANGUAGE plperl;
+
+-- check that compiling do (dofile opcode) is allowed
+-- but that executing it for a file not already loaded (via require) dies
+DO $$ warn do "/dev/null"; $$ LANGUAGE plperl;
+
+-- check that we can't "use" a module that's not been loaded already
+-- compile-time error: "Unable to load blib.pm into plperl"
+DO $$ use blib; $$ LANGUAGE plperl;
+
+-- check that we can "use" a module that has already been loaded
+-- runtime error: "Can't use string ("foo") as a SCALAR ref while "strict refs" in use
+DO $do$ use strict; my $name = "foo"; my $ref = $$name; $do$ LANGUAGE plperl;
+
+-- check that we can "use warnings" (in this case to turn a warn into an error)
+-- yields "ERROR:  Useless use of sort in scalar context."
+DO $do$ use warnings FATAL => qw(void) ; my @y; my $x = sort @y; 1; $do$ LANGUAGE plperl;
+

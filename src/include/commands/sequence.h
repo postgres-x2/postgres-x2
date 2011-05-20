@@ -3,10 +3,10 @@
  * sequence.h
  *	  prototypes for sequence.c.
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/commands/sequence.h,v 1.42 2009/01/01 17:23:58 momjian Exp $
+ * $PostgreSQL: pgsql/src/include/commands/sequence.h,v 1.44 2010/01/07 04:53:35 tgl Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -22,16 +22,9 @@
 #include "utils/relcache.h"
 #endif
 
-/*
- * On a machine with no 64-bit-int C datatype, sizeof(int64) will not be 8,
- * but we need this struct type to line up with the way that a sequence
- * table is defined --- and pg_type will say that int8 is 8 bytes anyway.
- * So, we need padding.  Ugly but necessary.
- */
 typedef struct FormData_pg_sequence
 {
 	NameData	sequence_name;
-#ifndef INT64_IS_BUSTED
 	int64		last_value;
 	int64		start_value;
 	int64		increment_by;
@@ -39,22 +32,6 @@ typedef struct FormData_pg_sequence
 	int64		min_value;
 	int64		cache_value;
 	int64		log_cnt;
-#else
-	int32		last_value;
-	int32		pad1;
-	int32		start_value;
-	int32		pad2;
-	int32		increment_by;
-	int32		pad3;
-	int32		max_value;
-	int32		pad4;
-	int32		min_value;
-	int32		pad5;
-	int32		cache_value;
-	int32		pad6;
-	int32		log_cnt;
-	int32		pad7;
-#endif
 	bool		is_cycled;
 	bool		is_called;
 } FormData_pg_sequence;

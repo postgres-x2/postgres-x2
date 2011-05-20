@@ -3,13 +3,11 @@ package Solution;
 #
 # Package that encapsulates a Visual C++ solution file generation
 #
-# $PostgreSQL: pgsql/src/tools/msvc/Solution.pm,v 1.47 2009/01/06 18:37:50 mha Exp $
+# $PostgreSQL: pgsql/src/tools/msvc/Solution.pm,v 1.57 2010/04/09 13:05:58 mha Exp $
 #
 use Carp;
 use strict;
 use warnings;
-
-use Genbki;
 
 sub new
 {
@@ -20,13 +18,16 @@ sub new
         options  => $options,
         numver   => '',
         strver   => '',
+        vcver    => undef,
+        platform => undef,
     };
     bless $self;
-	# integer_datetimes is now the default
-	$options->{integer_datetimes} = 1 
-		unless exists $options->{integer_datetimes};
+
+    # integer_datetimes is now the default
+    $options->{integer_datetimes} = 1
+      unless exists $options->{integer_datetimes};
     $options->{float4byval} = 1
-        unless exists $options->{float4byval};
+      unless exists $options->{float4byval};
     if ($options->{xml})
     {
         if (!($options->{xslt} && $options->{iconv}))
@@ -34,24 +35,60 @@ sub new
             die "XML requires both XSLT and ICONV\n";
         }
     }
-	$options->{blocksize} = 8
-		unless $options->{blocksize}; # undef or 0 means default
-	die "Bad blocksize $options->{blocksize}"
-		unless grep {$_ == $options->{blocksize}} (1,2,4,8,16,32);
-	$options->{segsize} = 1
-		unless $options->{segsize}; # undef or 0 means default
-	# only allow segsize 1 for now, as we can't do large files yet in windows
-	die "Bad segsize $options->{segsize}"
-		unless $options->{segsize} == 1;
-	$options->{wal_blocksize} = 8
-		unless $options->{wal_blocksize}; # undef or 0 means default
-	die "Bad wal_blocksize $options->{wal_blocksize}"
-		unless grep {$_ == $options->{wal_blocksize}} (1,2,4,8,16,32,64);
-	$options->{wal_segsize} = 16
-		unless $options->{wal_segsize}; # undef or 0 means default
-	die "Bad wal_segsize $options->{wal_segsize}"
-		unless grep {$_ == $options->{wal_segsize}} (1,2,4,8,16,32,64);
+    $options->{blocksize} = 8
+      unless $options->{blocksize}; # undef or 0 means default
+    die "Bad blocksize $options->{blocksize}"
+      unless grep {$_ == $options->{blocksize}} (1,2,4,8,16,32);
+    $options->{segsize} = 1
+      unless $options->{segsize}; # undef or 0 means default
+    # only allow segsize 1 for now, as we can't do large files yet in windows
+    die "Bad segsize $options->{segsize}"
+      unless $options->{segsize} == 1;
+    $options->{wal_blocksize} = 8
+      unless $options->{wal_blocksize}; # undef or 0 means default
+    die "Bad wal_blocksize $options->{wal_blocksize}"
+      unless grep {$_ == $options->{wal_blocksize}} (1,2,4,8,16,32,64);
+    $options->{wal_segsize} = 16
+      unless $options->{wal_segsize}; # undef or 0 means default
+    die "Bad wal_segsize $options->{wal_segsize}"
+      unless grep {$_ == $options->{wal_segsize}} (1,2,4,8,16,32,64);
+
+    $self->DetermineToolVersions();
+
     return $self;
+}
+
+sub DetermineToolVersions
+{
+    my $self = shift;
+
+    # Determine version of vcbuild command, to set proper verison of visual studio
+    open(P,"vcbuild /? |") || die "vcbuild command not found";
+    my $line = <P>;
+    close(P);
+    if ($line !~ /^Microsoft\s*\(R\) Visual C\+\+ Project Builder - \D+(\d+)\.00\.\d+/)
+    {
+        die "Unable to determine vcbuild version from first line of output!";
+    }
+    if ($1 == 8) { $self->{vcver} = '8.00' }
+    elsif ($1 == 9) { $self->{vcver} = '9.00' }
+    else { die "Unsupported version of Visual Studio: $1" }
+    print "Detected Visual Studio version $self->{vcver}\n";
+
+    # Determine if we are in 32 or 64-bit mode. Do this by seeing if CL has
+    # 64-bit only parameters.
+    $self->{platform} = 'Win32';
+    open(P,"cl /? 2>NUL|") || die "cl command not found";
+    while (<P>)
+    {
+        if (/^\/favor:</)
+        {
+            $self->{platform} = 'x64';
+            last;
+        }
+    }
+    close(P);
+    print "Detected hardware platform: $self->{platform}\n";
 }
 
 # Return 1 if $oldfile is newer than $newfile, or if $newfile doesn't exist.
@@ -59,9 +96,13 @@ sub new
 sub IsNewer
 {
     my ($newfile, $oldfile) = @_;
-    if ($oldfile ne 'src\tools\msvc\config.pl')
+    if ($oldfile ne 'src\tools\msvc\config.pl' && $oldfile ne 'src\tools\msvc\config_default.pl')
     {
-        return 1 if IsNewer($newfile, 'src\tools\msvc\config.pl');
+        return 1
+          if (-f 'src\tools\msvc\config.pl') && IsNewer($newfile, 'src\tools\msvc\config.pl');
+        return 1
+          if (-f 'src\tools\msvc\config_default.pl')
+          && IsNewer($newfile, 'src\tools\msvc\config_default.pl');
     }
     return 1 if (!(-e $newfile));
     my @nstat = stat($newfile);
@@ -87,6 +128,7 @@ sub copyFile
 sub GenerateFiles
 {
     my $self = shift;
+    my $bits = $self->{platform} eq 'Win32' ? 32 : 64;
 
     # Parse configure.in to get version numbers
     open(C,"configure.in") || confess("Could not open configure.in for reading\n");
@@ -122,11 +164,10 @@ sub GenerateFiles
         {
             s{PG_VERSION "[^"]+"}{PG_VERSION "$self->{strver}"};
             s{PG_VERSION_NUM \d+}{PG_VERSION_NUM $self->{numver}};
-            # XXX: When we support 64-bit, need to remove this hardcoding
-s{PG_VERSION_STR "[^"]+"}{__STRINGIFY(x) #x\n#define __STRINGIFY2(z) __STRINGIFY(z)\n#define PG_VERSION_STR "PostgreSQL $self->{strver}, compiled by Visual C++ build " __STRINGIFY2(_MSC_VER) ", 32-bit"};
+s{PG_VERSION_STR "[^"]+"}{__STRINGIFY(x) #x\n#define __STRINGIFY2(z) __STRINGIFY(z)\n#define PG_VERSION_STR "PostgreSQL $self->{strver}, compiled by Visual C++ build " __STRINGIFY2(_MSC_VER) ", $bits-bit"};
             print O;
         }
-		print O "#define PG_MAJORVERSION \"$self->{majorver}\"\n";
+        print O "#define PG_MAJORVERSION \"$self->{majorver}\"\n";
         print O "#define LOCALEDIR \"/share/locale\"\n" if ($self->{options}->{nls});
         print O "/* defines added by config steps */\n";
         print O "#ifndef IGNORE_CONFIGURED_SETTINGS\n";
@@ -135,18 +176,15 @@ s{PG_VERSION_STR "[^"]+"}{__STRINGIFY(x) #x\n#define __STRINGIFY2(z) __STRINGIFY
         print O "#define USE_LDAP 1\n" if ($self->{options}->{ldap});
         print O "#define HAVE_LIBZ 1\n" if ($self->{options}->{zlib});
         print O "#define USE_SSL 1\n" if ($self->{options}->{openssl});
-		print O "#define ENABLE_NLS 1\n" if ($self->{options}->{nls});
+        print O "#define ENABLE_NLS 1\n" if ($self->{options}->{nls});
 
-		print O "#define BLCKSZ ",1024 * $self->{options}->{blocksize},"\n";
-		print O "#define RELSEG_SIZE ",
-			(1024 / $self->{options}->{blocksize}) * 
-				$self->{options}->{segsize} * 1024, "\n";
-		print O "#define XLOG_BLCKSZ ",
-			1024 * $self->{options}->{wal_blocksize},"\n";
-		print O "#define XLOG_SEG_SIZE (",
-			$self->{options}->{wal_segsize}," * 1024 * 1024)\n";
-        
-        if ($self->{options}->{float4byval}) 
+        print O "#define BLCKSZ ",1024 * $self->{options}->{blocksize},"\n";
+        print O "#define RELSEG_SIZE ",
+          (1024 / $self->{options}->{blocksize}) *$self->{options}->{segsize} * 1024, "\n";
+        print O "#define XLOG_BLCKSZ ",1024 * $self->{options}->{wal_blocksize},"\n";
+        print O "#define XLOG_SEG_SIZE (",$self->{options}->{wal_segsize}," * 1024 * 1024)\n";
+
+        if ($self->{options}->{float4byval})
         {
             print O "#define USE_FLOAT4_BYVAL 1\n";
             print O "#define FLOAT4PASSBYVAL true\n";
@@ -174,6 +212,11 @@ s{PG_VERSION_STR "[^"]+"}{__STRINGIFY(x) #x\n#define __STRINGIFY2(z) __STRINGIFY
             print O "#define HAVE_LIBXML2\n";
             print O "#define USE_LIBXML\n";
         }
+        if ($self->{options}->{xslt})
+        {
+            print O "#define HAVE_LIBXSLT\n";
+            print O "#define USE_LIBXSLT\n";
+        }
         if ($self->{options}->{krb5})
         {
             print O "#define KRB5 1\n";
@@ -195,25 +238,40 @@ s{PG_VERSION_STR "[^"]+"}{__STRINGIFY(x) #x\n#define __STRINGIFY2(z) __STRINGIFY
         close(I);
     }
 
-    $self->GenerateDefFile("src\\interfaces\\libpq\\libpqdll.def","src\\interfaces\\libpq\\exports.txt","LIBPQ");
-    $self->GenerateDefFile("src\\interfaces\\ecpg\\ecpglib\\ecpglib.def","src\\interfaces\\ecpg\\ecpglib\\exports.txt","LIBECPG");
-    $self->GenerateDefFile("src\\interfaces\\ecpg\\compatlib\\compatlib.def","src\\interfaces\\ecpg\\compatlib\\exports.txt","LIBECPG_COMPAT");
-    $self->GenerateDefFile("src\\interfaces\\ecpg\\pgtypeslib\\pgtypeslib.def","src\\interfaces\\ecpg\\pgtypeslib\\exports.txt","LIBPGTYPES");
+    $self->GenerateDefFile("src\\interfaces\\libpq\\libpqdll.def",
+        "src\\interfaces\\libpq\\exports.txt","LIBPQ");
+    $self->GenerateDefFile(
+        "src\\interfaces\\ecpg\\ecpglib\\ecpglib.def",
+        "src\\interfaces\\ecpg\\ecpglib\\exports.txt",
+        "LIBECPG"
+    );
+    $self->GenerateDefFile(
+        "src\\interfaces\\ecpg\\compatlib\\compatlib.def",
+        "src\\interfaces\\ecpg\\compatlib\\exports.txt",
+        "LIBECPG_COMPAT"
+    );
+    $self->GenerateDefFile(
+        "src\\interfaces\\ecpg\\pgtypeslib\\pgtypeslib.def",
+        "src\\interfaces\\ecpg\\pgtypeslib\\exports.txt",
+        "LIBPGTYPES"
+    );
 
     if (IsNewer('src\backend\utils\fmgrtab.c','src\include\catalog\pg_proc.h'))
     {
         print "Generating fmgrtab.c and fmgroids.h...\n";
         chdir('src\backend\utils');
-        system("perl Gen_fmgrtab.pl ../../../src/include/catalog/pg_proc.h");
+        system("perl -I ../catalog Gen_fmgrtab.pl ../../../src/include/catalog/pg_proc.h");
         chdir('..\..\..');
         copyFile('src\backend\utils\fmgroids.h','src\include\utils\fmgroids.h');
     }
 
     if (IsNewer('src\include\utils\probes.h','src\backend\utils\probes.d'))
     {
-		print "Generating probes.h...\n";
-		system('psed -f src\backend\utils\Gen_dummy_probes.sed src\backend\utils\probes.d > src\include\utils\probes.h'); 
-	}
+        print "Generating probes.h...\n";
+        system(
+'psed -f src\backend\utils\Gen_dummy_probes.sed src\backend\utils\probes.d > src\include\utils\probes.h'
+        );
+    }
 
     if (IsNewer('src\interfaces\libpq\libpq.rc','src\interfaces\libpq\libpq.rc.in'))
     {
@@ -235,16 +293,11 @@ s{PG_VERSION_STR "[^"]+"}{__STRINGIFY(x) #x\n#define __STRINGIFY2(z) __STRINGIFY
     {
         print "Generating sql_help.h...\n";
         chdir('src\bin\psql');
-        system("perl create_help.pl ../../../doc/src/sgml/ref sql_help.h");
+        system("perl create_help.pl ../../../doc/src/sgml/ref sql_help");
         chdir('..\..\..');
     }
 
-    if (
-        IsNewer(
-            'src\interfaces\ecpg\preproc\preproc.y',
-            'src\backend\parser\gram.y'
-        )
-      )
+    if (IsNewer('src\interfaces\ecpg\preproc\preproc.y','src\backend\parser\gram.y'))
     {
         print "Generating preproc.y...\n";
         chdir('src\interfaces\ecpg\preproc');
@@ -267,8 +320,8 @@ s{PG_VERSION_STR "[^"]+"}{__STRINGIFY(x) #x\n#define __STRINGIFY2(z) __STRINGIFY
 #define HAVE_LONG_LONG_INT_64
 #define ENABLE_THREAD_SAFETY 1
 EOF
-	print O "#define USE_INTEGER_DATETIMES 1\n" if ($self->{options}->{integer_datetimes});
-	print O "#endif\n";
+        print O "#define USE_INTEGER_DATETIMES 1\n" if ($self->{options}->{integer_datetimes});
+        print O "#endif\n";
         close(O);
     }
 
@@ -303,12 +356,14 @@ EOF
         next if $bki eq "";
         if (IsNewer('src/backend/catalog/postgres.bki', "src/include/catalog/$bki"))
         {
-            print "Generating postgres.bki...\n";
-            Genbki::genbki(
-                $self->{majorver},
-                "src/backend/catalog/postgres",
-                split(/ /,join(' src/include/catalog/',@allbki))
+            print "Generating postgres.bki and schemapg.h...\n";
+            chdir('src\backend\catalog');
+            my $bki_srcs = join(' ../../../src/include/catalog/', @allbki);
+            system(
+"perl genbki.pl -I../../../src/include/catalog --set-version=$self->{majorver} $bki_srcs"
             );
+            chdir('..\..\..');
+            copyFile('src\backend\catalog\schemapg.h', 'src\include\catalog\schemapg.h');
             last;
         }
     }
@@ -373,11 +428,20 @@ sub AddProject
         $proj->AddLibrary($self->{options}->{krb5} . '\lib\i386\comerr32.lib');
         $proj->AddLibrary($self->{options}->{krb5} . '\lib\i386\gssapi32.lib');
     }
+    if ($self->{options}->{iconv})
+    {
+        $proj->AddIncludeDir($self->{options}->{iconv} . '\include');
+        $proj->AddLibrary($self->{options}->{iconv} . '\lib\iconv.lib');
+    }
     if ($self->{options}->{xml})
     {
         $proj->AddIncludeDir($self->{options}->{xml} . '\include');
-        $proj->AddIncludeDir($self->{options}->{iconv} . '\include');
         $proj->AddLibrary($self->{options}->{xml} . '\lib\libxml2.lib');
+    }
+    if ($self->{options}->{xslt})
+    {
+        $proj->AddIncludeDir($self->{options}->{xslt} . '\include');
+        $proj->AddLibrary($self->{options}->{xslt} . '\lib\libxslt.lib');
     }
     return $proj;
 }
@@ -424,8 +488,8 @@ EOF
     print SLN <<EOF;
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
-		Debug|Win32 = Debug|Win32
-		Release|Win32 = Release|Win32
+		Debug|$self->{platform}= Debug|$self->{platform}
+		Release|$self->{platform} = Release|$self->{platform}
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 EOF
@@ -435,10 +499,10 @@ EOF
         foreach my $proj (@{$self->{projects}->{$fld}})
         {
             print SLN <<EOF;
-		$proj->{guid}.Debug|Win32.ActiveCfg = Debug|Win32
-		$proj->{guid}.Debug|Win32.Build.0  = Debug|Win32	
-		$proj->{guid}.Release|Win32.ActiveCfg = Release|Win32
-		$proj->{guid}.Release|Win32.Build.0 = Release|Win32
+		$proj->{guid}.Debug|$self->{platform}.ActiveCfg = Debug|$self->{platform}
+		$proj->{guid}.Debug|$self->{platform}.Build.0  = Debug|$self->{platform}
+		$proj->{guid}.Release|$self->{platform}.ActiveCfg = Release|$self->{platform}
+		$proj->{guid}.Release|$self->{platform}.Build.0 = Release|$self->{platform}
 EOF
         }
     }

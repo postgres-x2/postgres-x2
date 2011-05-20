@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/citext.sgml,v 1.2 2008/09/12 18:29:49 tgl Exp $ -->
+<!-- $PostgreSQL: pgsql/doc/src/sgml/citext.sgml,v 1.4 2010/06/29 22:29:13 momjian Exp $ -->
 
 <sect1 id="citext">
  <title>citext</title>
@@ -58,8 +58,8 @@
     The <type>citext</> data type allows you to eliminate calls
     to <function>lower</> in SQL queries, and allows a primary key to
     be case-insensitive. <type>citext</> is locale-aware, just
-    like <type>text</>, which means that the comparison of uppercase and
-    lowercase characters is dependent on the rules of
+    like <type>text</>, which means that the comparison of upper case and
+    lower case characters is dependent on the rules of
     the <literal>LC_CTYPE</> locale setting. Again, this behavior is
     identical to the use of <function>lower</> in queries. But because it's
     done transparently by the datatype, you don't have to remember to do
@@ -203,6 +203,15 @@
       as <type>citext</> and explicitly casting the column to <type>text</>
       when you want case-sensitive comparison.  In either situation, you
       will need two indexes if you want both types of searches to be fast.
+    </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      The schema containing the <type>citext</> operators must be
+      in the current <varname>search_path</> (typically <literal>public</>);
+      if it is not, a normal case-sensitive <type>text</> comparison
+      is performed.
     </para>
     </listitem>
    </itemizedlist>

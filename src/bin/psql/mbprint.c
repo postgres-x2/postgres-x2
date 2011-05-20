@@ -1,9 +1,9 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2009, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2010, PostgreSQL Global Development Group
  *
- * $PostgreSQL: pgsql/src/bin/psql/mbprint.c,v 1.35 2009/06/11 14:49:08 momjian Exp $
+ * $PostgreSQL: pgsql/src/bin/psql/mbprint.c,v 1.38 2010/01/02 16:57:59 momjian Exp $
  *
  * XXX this file does not really belong in psql/.  Perhaps move to libpq?
  * It also seems that the mbvalidate function is redundant with existing
@@ -31,7 +31,7 @@
 typedef unsigned int pg_wchar;
 
 static int
-get_utf8_id(void)
+pg_get_utf8_id(void)
 {
 	static int	utf8_id = -1;
 
@@ -40,7 +40,7 @@ get_utf8_id(void)
 	return utf8_id;
 }
 
-#define PG_UTF8		get_utf8_id()
+#define PG_UTF8		pg_get_utf8_id()
 
 
 static pg_wchar

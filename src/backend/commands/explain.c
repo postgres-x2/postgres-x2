@@ -3,11 +3,11 @@
  * explain.c
  *	  Explain query execution plans
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994-5, Regents of the University of California
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/commands/explain.c,v 1.186 2009/06/11 14:48:55 momjian Exp $
+ *	  $PostgreSQL: pgsql/src/backend/commands/explain.c,v 1.206 2010/06/10 01:26:30 rhaas Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -16,9 +16,11 @@
 #include "access/xact.h"
 #include "catalog/pg_constraint.h"
 #include "catalog/pg_type.h"
+#include "commands/defrem.h"
 #include "commands/explain.h"
 #include "commands/prepare.h"
 #include "commands/trigger.h"
+#include "executor/hashjoin.h"
 #include "executor/instrument.h"
 #include "optimizer/clauses.h"
 #include "optimizer/planner.h"
@@ -31,6 +33,7 @@
 #include "utils/lsyscache.h"
 #include "utils/tuplesort.h"
 #include "utils/snapmgr.h"
+#include "utils/xml.h"
 
 
 /* Hook for plugins to get control in ExplainOneQuery() */
@@ -40,39 +43,63 @@ ExplainOneQuery_hook_type ExplainOneQuery_hook = NULL;
 explain_get_index_name_hook_type explain_get_index_name_hook = NULL;
 
 
-typedef struct ExplainState
-{
-	/* options */
-	bool		printTList;		/* print plan targetlists */
-	bool		printAnalyze;	/* print actual times */
-	/* other states */
-	PlannedStmt *pstmt;			/* top of plan */
-	List	   *rtable;			/* range table */
-} ExplainState;
+/* OR-able flags for ExplainXMLTag() */
+#define X_OPENING 0
+#define X_CLOSING 1
+#define X_CLOSE_IMMEDIATE 2
+#define X_NOWHITESPACE 4
 
-static void ExplainOneQuery(Query *query, ExplainStmt *stmt,
-				const char *queryString,
-				ParamListInfo params, TupOutputState *tstate);
+static void ExplainOneQuery(Query *query, ExplainState *es,
+				const char *queryString, ParamListInfo params);
 static void report_triggers(ResultRelInfo *rInfo, bool show_relname,
-				StringInfo buf);
+				ExplainState *es);
 static double elapsed_time(instr_time *starttime);
-static void explain_outNode(StringInfo str,
-				Plan *plan, PlanState *planstate,
-				Plan *outer_plan,
-				int indent, ExplainState *es);
-static void show_plan_tlist(Plan *plan,
-				StringInfo str, int indent, ExplainState *es);
+static void ExplainNode(Plan *plan, PlanState *planstate,
+			Plan *outer_plan,
+			const char *relationship, const char *plan_name,
+			ExplainState *es);
+static void show_plan_tlist(Plan *plan, ExplainState *es);
+static void show_qual(List *qual, const char *qlabel, Plan *plan,
+		  Plan *outer_plan, bool useprefix, ExplainState *es);
 static void show_scan_qual(List *qual, const char *qlabel,
-			   int scanrelid, Plan *scan_plan, Plan *outer_plan,
-			   StringInfo str, int indent, ExplainState *es);
+			   Plan *scan_plan, Plan *outer_plan,
+			   ExplainState *es);
 static void show_upper_qual(List *qual, const char *qlabel, Plan *plan,
-				StringInfo str, int indent, ExplainState *es);
-static void show_sort_keys(Plan *sortplan, int nkeys, AttrNumber *keycols,
-			   const char *qlabel,
-			   StringInfo str, int indent, ExplainState *es);
-static void show_sort_info(SortState *sortstate,
-			   StringInfo str, int indent, ExplainState *es);
+				ExplainState *es);
+static void show_sort_keys(Plan *sortplan, ExplainState *es);
+static void show_sort_info(SortState *sortstate, ExplainState *es);
+static void show_hash_info(HashState *hashstate, ExplainState *es);
 static const char *explain_get_index_name(Oid indexId);
+static void ExplainScanTarget(Scan *plan, ExplainState *es);
+static void ExplainMemberNodes(List *plans, PlanState **planstate,
+				   Plan *outer_plan, ExplainState *es);
+static void ExplainSubPlans(List *plans, const char *relationship,
+				ExplainState *es);
+static void ExplainPropertyList(const char *qlabel, List *data,
+					ExplainState *es);
+static void ExplainProperty(const char *qlabel, const char *value,
+				bool numeric, ExplainState *es);
+
+#define ExplainPropertyText(qlabel, value, es)	\
+	ExplainProperty(qlabel, value, false, es)
+static void ExplainPropertyInteger(const char *qlabel, int value,
+					   ExplainState *es);
+static void ExplainPropertyLong(const char *qlabel, long value,
+					ExplainState *es);
+static void ExplainPropertyFloat(const char *qlabel, double value, int ndigits,
+					 ExplainState *es);
+static void ExplainOpenGroup(const char *objtype, const char *labelname,
+				 bool labeled, ExplainState *es);
+static void ExplainCloseGroup(const char *objtype, const char *labelname,
+				  bool labeled, ExplainState *es);
+static void ExplainDummyGroup(const char *objtype, const char *labelname,
+				  ExplainState *es);
+static void ExplainXMLTag(const char *tagname, int flags, ExplainState *es);
+static void ExplainJSONLineEnding(ExplainState *es);
+static void ExplainYAMLLineStarting(ExplainState *es);
+static void escape_json(StringInfo buf, const char *str);
+static void escape_yaml(StringInfo buf, const char *str);
+
 
 
 /*
@@ -83,50 +110,125 @@ void
 ExplainQuery(ExplainStmt *stmt, const char *queryString,
 			 ParamListInfo params, DestReceiver *dest)
 {
-	Oid		   *param_types;
-	int			num_params;
+	ExplainState es;
 	TupOutputState *tstate;
 	List	   *rewritten;
-	ListCell   *l;
+	ListCell   *lc;
 
-	/* Convert parameter type data to the form parser wants */
-	getParamListTypes(params, &param_types, &num_params);
+	/* Initialize ExplainState. */
+	ExplainInitState(&es);
+
+	/* Parse options list. */
+	foreach(lc, stmt->options)
+	{
+		DefElem    *opt = (DefElem *) lfirst(lc);
+
+		if (strcmp(opt->defname, "analyze") == 0)
+			es.analyze = defGetBoolean(opt);
+		else if (strcmp(opt->defname, "verbose") == 0)
+			es.verbose = defGetBoolean(opt);
+		else if (strcmp(opt->defname, "costs") == 0)
+			es.costs = defGetBoolean(opt);
+		else if (strcmp(opt->defname, "buffers") == 0)
+			es.buffers = defGetBoolean(opt);
+		else if (strcmp(opt->defname, "format") == 0)
+		{
+			char	   *p = defGetString(opt);
+
+			if (strcmp(p, "text") == 0)
+				es.format = EXPLAIN_FORMAT_TEXT;
+			else if (strcmp(p, "xml") == 0)
+				es.format = EXPLAIN_FORMAT_XML;
+			else if (strcmp(p, "json") == 0)
+				es.format = EXPLAIN_FORMAT_JSON;
+			else if (strcmp(p, "yaml") == 0)
+				es.format = EXPLAIN_FORMAT_YAML;
+			else
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				errmsg("unrecognized value for EXPLAIN option \"%s\": \"%s\"",
+					   opt->defname, p)));
+		}
+		else
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("unrecognized EXPLAIN option \"%s\"",
+							opt->defname)));
+	}
+
+	if (es.buffers && !es.analyze)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("EXPLAIN option BUFFERS requires ANALYZE")));
 
 	/*
-	 * Run parse analysis and rewrite.	Note this also acquires sufficient
-	 * locks on the source table(s).
+	 * Parse analysis was done already, but we still have to run the rule
+	 * rewriter.  We do not do AcquireRewriteLocks: we assume the query either
+	 * came straight from the parser, or suitable locks were acquired by
+	 * plancache.c.
 	 *
-	 * Because the parser and planner tend to scribble on their input, we make
+	 * Because the rewriter and planner tend to scribble on the input, we make
 	 * a preliminary copy of the source querytree.	This prevents problems in
 	 * the case that the EXPLAIN is in a portal or plpgsql function and is
 	 * executed repeatedly.  (See also the same hack in DECLARE CURSOR and
 	 * PREPARE.)  XXX FIXME someday.
 	 */
-	rewritten = pg_analyze_and_rewrite((Node *) copyObject(stmt->query),
-									   queryString, param_types, num_params);
+	Assert(IsA(stmt->query, Query));
+	rewritten = QueryRewrite((Query *) copyObject(stmt->query));
 
-	/* prepare for projection of tuples */
-	tstate = begin_tup_output_tupdesc(dest, ExplainResultDesc(stmt));
+	/* emit opening boilerplate */
+	ExplainBeginOutput(&es);
 
 	if (rewritten == NIL)
 	{
-		/* In the case of an INSTEAD NOTHING, tell at least that */
-		do_text_output_oneline(tstate, "Query rewrites to nothing");
+		/*
+		 * In the case of an INSTEAD NOTHING, tell at least that.  But in
+		 * non-text format, the output is delimited, so this isn't necessary.
+		 */
+		if (es.format == EXPLAIN_FORMAT_TEXT)
+			appendStringInfoString(es.str, "Query rewrites to nothing\n");
 	}
 	else
 	{
+		ListCell   *l;
+
 		/* Explain every plan */
 		foreach(l, rewritten)
 		{
-			ExplainOneQuery((Query *) lfirst(l), stmt,
-							queryString, params, tstate);
-			/* put a blank line between plans */
+			ExplainOneQuery((Query *) lfirst(l), &es, queryString, params);
+
+			/* Separate plans with an appropriate separator */
 			if (lnext(l) != NULL)
-				do_text_output_oneline(tstate, "");
+				ExplainSeparatePlans(&es);
 		}
 	}
 
+	/* emit closing boilerplate */
+	ExplainEndOutput(&es);
+	Assert(es.indent == 0);
+
+	/* output tuples */
+	tstate = begin_tup_output_tupdesc(dest, ExplainResultDesc(stmt));
+	if (es.format == EXPLAIN_FORMAT_TEXT)
+		do_text_output_multiline(tstate, es.str->data);
+	else
+		do_text_output_oneline(tstate, es.str->data);
 	end_tup_output(tstate);
+
+	pfree(es.str->data);
+}
+
+/*
+ * Initialize ExplainState.
+ */
+void
+ExplainInitState(ExplainState *es)
+{
+	/* Set default options. */
+	memset(es, 0, sizeof(ExplainState));
+	es->costs = true;
+	/* Prepare output buffer. */
+	es->str = makeStringInfo();
 }
 
 /*
@@ -137,11 +239,27 @@ TupleDesc
 ExplainResultDesc(ExplainStmt *stmt)
 {
 	TupleDesc	tupdesc;
+	ListCell   *lc;
+	bool		xml = false;
 
-	/* need a tuple descriptor representing a single TEXT column */
+	/* Check for XML format option */
+	foreach(lc, stmt->options)
+	{
+		DefElem    *opt = (DefElem *) lfirst(lc);
+
+		if (strcmp(opt->defname, "format") == 0)
+		{
+			char	   *p = defGetString(opt);
+
+			xml = (strcmp(p, "xml") == 0);
+			/* don't "break", as ExplainQuery will use the last value */
+		}
+	}
+
+	/* Need a tuple descriptor representing a single TEXT or XML column */
 	tupdesc = CreateTemplateTupleDesc(1, false);
 	TupleDescInitEntry(tupdesc, (AttrNumber) 1, "QUERY PLAN",
-					   TEXTOID, -1, 0);
+					   xml ? XMLOID : TEXTOID, -1, 0);
 	return tupdesc;
 }
 
@@ -150,20 +268,19 @@ ExplainResultDesc(ExplainStmt *stmt)
  *	  print out the execution plan for one Query
  */
 static void
-ExplainOneQuery(Query *query, ExplainStmt *stmt, const char *queryString,
-				ParamListInfo params, TupOutputState *tstate)
+ExplainOneQuery(Query *query, ExplainState *es,
+				const char *queryString, ParamListInfo params)
 {
 	/* planner will not cope with utility statements */
 	if (query->commandType == CMD_UTILITY)
 	{
-		ExplainOneUtility(query->utilityStmt, stmt,
-						  queryString, params, tstate);
+		ExplainOneUtility(query->utilityStmt, es, queryString, params);
 		return;
 	}
 
 	/* if an advisor plugin is present, let it manage things */
 	if (ExplainOneQuery_hook)
-		(*ExplainOneQuery_hook) (query, stmt, queryString, params, tstate);
+		(*ExplainOneQuery_hook) (query, es, queryString, params);
 	else
 	{
 		PlannedStmt *plan;
@@ -172,7 +289,7 @@ ExplainOneQuery(Query *query, ExplainStmt *stmt, const char *queryString,
 		plan = pg_plan_query(query, 0, params);
 
 		/* run it (if needed) and produce output */
-		ExplainOnePlan(plan, stmt, queryString, params, tstate);
+		ExplainOnePlan(plan, es, queryString, params);
 	}
 }
 
@@ -186,21 +303,30 @@ ExplainOneQuery(Query *query, ExplainStmt *stmt, const char *queryString,
  * EXPLAIN EXECUTE case
  */
 void
-ExplainOneUtility(Node *utilityStmt, ExplainStmt *stmt,
-				  const char *queryString, ParamListInfo params,
-				  TupOutputState *tstate)
+ExplainOneUtility(Node *utilityStmt, ExplainState *es,
+				  const char *queryString, ParamListInfo params)
 {
 	if (utilityStmt == NULL)
 		return;
 
 	if (IsA(utilityStmt, ExecuteStmt))
-		ExplainExecuteQuery((ExecuteStmt *) utilityStmt, stmt,
-							queryString, params, tstate);
+		ExplainExecuteQuery((ExecuteStmt *) utilityStmt, es,
+							queryString, params);
 	else if (IsA(utilityStmt, NotifyStmt))
-		do_text_output_oneline(tstate, "NOTIFY");
+	{
+		if (es->format == EXPLAIN_FORMAT_TEXT)
+			appendStringInfoString(es->str, "NOTIFY\n");
+		else
+			ExplainDummyGroup("Notify", NULL, es);
+	}
 	else
-		do_text_output_oneline(tstate,
-							   "Utility statements have no plan structure");
+	{
+		if (es->format == EXPLAIN_FORMAT_TEXT)
+			appendStringInfoString(es->str,
+							  "Utility statements have no plan structure\n");
+		else
+			ExplainDummyGroup("Utility Statement", NULL, es);
+	}
 }
 
 /*
@@ -218,15 +344,19 @@ ExplainOneUtility(Node *utilityStmt, ExplainStmt *stmt,
  * to call it.
  */
 void
-ExplainOnePlan(PlannedStmt *plannedstmt, ExplainStmt *stmt,
-			   const char *queryString, ParamListInfo params,
-			   TupOutputState *tstate)
+ExplainOnePlan(PlannedStmt *plannedstmt, ExplainState *es,
+			   const char *queryString, ParamListInfo params)
 {
 	QueryDesc  *queryDesc;
 	instr_time	starttime;
 	double		totaltime = 0;
-	StringInfoData buf;
 	int			eflags;
+	int			instrument_option = 0;
+
+	if (es->analyze)
+		instrument_option |= INSTRUMENT_TIMER;
+	if (es->buffers)
+		instrument_option |= INSTRUMENT_BUFFERS;
 
 	/*
 	 * Use a snapshot with an updated command ID to ensure this query sees
@@ -237,17 +367,16 @@ ExplainOnePlan(PlannedStmt *plannedstmt, ExplainStmt *stmt,
 	/* Create a QueryDesc requesting no output */
 	queryDesc = CreateQueryDesc(plannedstmt, queryString,
 								GetActiveSnapshot(), InvalidSnapshot,
-								None_Receiver, params,
-								stmt->analyze);
+								None_Receiver, params, instrument_option);
 
 	INSTR_TIME_SET_CURRENT(starttime);
 
 	/* If analyzing, we need to cope with queued triggers */
-	if (stmt->analyze)
+	if (es->analyze)
 		AfterTriggerBeginQuery();
 
 	/* Select execution options */
-	if (stmt->analyze)
+	if (es->analyze)
 		eflags = 0;				/* default run-to-completion flags */
 	else
 		eflags = EXEC_FLAG_EXPLAIN_ONLY;
@@ -256,7 +385,7 @@ ExplainOnePlan(PlannedStmt *plannedstmt, ExplainStmt *stmt,
 	ExecutorStart(queryDesc, eflags);
 
 	/* Execute the plan for statistics if asked for */
-	if (stmt->analyze)
+	if (es->analyze)
 	{
 		/* run the plan */
 		ExecutorRun(queryDesc, ForwardScanDirection, 0L);
@@ -265,16 +394,17 @@ ExplainOnePlan(PlannedStmt *plannedstmt, ExplainStmt *stmt,
 		totaltime += elapsed_time(&starttime);
 	}
 
+	ExplainOpenGroup("Query", NULL, true, es);
+
 	/* Create textual dump of plan tree */
-	initStringInfo(&buf);
-	ExplainPrintPlan(&buf, queryDesc, stmt->analyze, stmt->verbose);
+	ExplainPrintPlan(es, queryDesc);
 
 	/*
 	 * If we ran the command, run any AFTER triggers it queued.  (Note this
 	 * will not include DEFERRED triggers; since those don't run until end of
 	 * transaction, we can't measure them.)  Include into total runtime.
 	 */
-	if (stmt->analyze)
+	if (es->analyze)
 	{
 		INSTR_TIME_SET_CURRENT(starttime);
 		AfterTriggerEndQuery(queryDesc->estate);
@@ -282,7 +412,7 @@ ExplainOnePlan(PlannedStmt *plannedstmt, ExplainStmt *stmt,
 	}
 
 	/* Print info about runtime of triggers */
-	if (stmt->analyze)
+	if (es->analyze)
 	{
 		ResultRelInfo *rInfo;
 		bool		show_relname;
@@ -291,16 +421,20 @@ ExplainOnePlan(PlannedStmt *plannedstmt, ExplainStmt *stmt,
 		int			nr;
 		ListCell   *l;
 
+		ExplainOpenGroup("Triggers", "Triggers", false, es);
+
 		show_relname = (numrels > 1 || targrels != NIL);
 		rInfo = queryDesc->estate->es_result_relations;
 		for (nr = 0; nr < numrels; rInfo++, nr++)
-			report_triggers(rInfo, show_relname, &buf);
+			report_triggers(rInfo, show_relname, es);
 
 		foreach(l, targrels)
 		{
 			rInfo = (ResultRelInfo *) lfirst(l);
-			report_triggers(rInfo, show_relname, &buf);
+			report_triggers(rInfo, show_relname, es);
 		}
+
+		ExplainCloseGroup("Triggers", "Triggers", false, es);
 	}
 
 	/*
@@ -316,45 +450,57 @@ ExplainOnePlan(PlannedStmt *plannedstmt, ExplainStmt *stmt,
 	PopActiveSnapshot();
 
 	/* We need a CCI just in case query expanded to multiple plans */
-	if (stmt->analyze)
+	if (es->analyze)
 		CommandCounterIncrement();
 
 	totaltime += elapsed_time(&starttime);
 
-	if (stmt->analyze)
-		appendStringInfo(&buf, "Total runtime: %.3f ms\n",
-						 1000.0 * totaltime);
-	do_text_output_multiline(tstate, buf.data);
+	if (es->analyze)
+	{
+		if (es->format == EXPLAIN_FORMAT_TEXT)
+			appendStringInfo(es->str, "Total runtime: %.3f ms\n",
+							 1000.0 * totaltime);
+		else
+			ExplainPropertyFloat("Total Runtime", 1000.0 * totaltime,
+								 3, es);
+	}
 
-	pfree(buf.data);
+	ExplainCloseGroup("Query", NULL, true, es);
 }
 
 /*
  * ExplainPrintPlan -
- *	  convert a QueryDesc's plan tree to text and append it to 'str'
+ *	  convert a QueryDesc's plan tree to text and append it to es->str
  *
- * 'analyze' means to include runtime instrumentation results
- * 'verbose' means a verbose printout (currently, it shows targetlists)
+ * The caller should have set up the options fields of *es, as well as
+ * initializing the output buffer es->str.	Other fields in *es are
+ * initialized here.
  *
  * NB: will not work on utility statements
  */
 void
-ExplainPrintPlan(StringInfo str, QueryDesc *queryDesc,
-				 bool analyze, bool verbose)
+ExplainPrintPlan(ExplainState *es, QueryDesc *queryDesc)
 {
-	ExplainState es;
-
 	Assert(queryDesc->plannedstmt != NULL);
+	es->pstmt = queryDesc->plannedstmt;
+	es->rtable = queryDesc->plannedstmt->rtable;
+	ExplainNode(queryDesc->plannedstmt->planTree, queryDesc->planstate,
+				NULL, NULL, NULL, es);
+}
 
-	memset(&es, 0, sizeof(es));
-	es.printTList = verbose;
-	es.printAnalyze = analyze;
-	es.pstmt = queryDesc->plannedstmt;
-	es.rtable = queryDesc->plannedstmt->rtable;
-
-	explain_outNode(str,
-					queryDesc->plannedstmt->planTree, queryDesc->planstate,
-					NULL, 0, &es);
+/*
+ * ExplainQueryText -
+ *	  add a "Query Text" node that contains the actual text of the query
+ *
+ * The caller should have set up the options fields of *es, as well as
+ * initializing the output buffer es->str.
+ *
+ */
+void
+ExplainQueryText(ExplainState *es, QueryDesc *queryDesc)
+{
+	if (queryDesc->sourceText)
+		ExplainPropertyText("Query Text", queryDesc->sourceText, es);
 }
 
 /*
@@ -362,7 +508,7 @@ ExplainPrintPlan(StringInfo str, QueryDesc *queryDesc,
  *		report execution stats for a single relation's triggers
  */
 static void
-report_triggers(ResultRelInfo *rInfo, bool show_relname, StringInfo buf)
+report_triggers(ResultRelInfo *rInfo, bool show_relname, ExplainState *es)
 {
 	int			nt;
 
@@ -372,7 +518,8 @@ report_triggers(ResultRelInfo *rInfo, bool show_relname, StringInfo buf)
 	{
 		Trigger    *trig = rInfo->ri_TrigDesc->triggers + nt;
 		Instrumentation *instr = rInfo->ri_TrigInstrument + nt;
-		char	   *conname;
+		char	   *relname;
+		char	   *conname = NULL;
 
 		/* Must clean up instrumentation state */
 		InstrEndLoop(instr);
@@ -384,21 +531,44 @@ report_triggers(ResultRelInfo *rInfo, bool show_relname, StringInfo buf)
 		if (instr->ntuples == 0)
 			continue;
 
-		if (OidIsValid(trig->tgconstraint) &&
-			(conname = get_constraint_name(trig->tgconstraint)) != NULL)
+		ExplainOpenGroup("Trigger", NULL, true, es);
+
+		relname = RelationGetRelationName(rInfo->ri_RelationDesc);
+		if (OidIsValid(trig->tgconstraint))
+			conname = get_constraint_name(trig->tgconstraint);
+
+		/*
+		 * In text format, we avoid printing both the trigger name and the
+		 * constraint name unless VERBOSE is specified.  In non-text formats
+		 * we just print everything.
+		 */
+		if (es->format == EXPLAIN_FORMAT_TEXT)
 		{
-			appendStringInfo(buf, "Trigger for constraint %s", conname);
-			pfree(conname);
+			if (es->verbose || conname == NULL)
+				appendStringInfo(es->str, "Trigger %s", trig->tgname);
+			else
+				appendStringInfoString(es->str, "Trigger");
+			if (conname)
+				appendStringInfo(es->str, " for constraint %s", conname);
+			if (show_relname)
+				appendStringInfo(es->str, " on %s", relname);
+			appendStringInfo(es->str, ": time=%.3f calls=%.0f\n",
+							 1000.0 * instr->total, instr->ntuples);
 		}
 		else
-			appendStringInfo(buf, "Trigger %s", trig->tgname);
+		{
+			ExplainPropertyText("Trigger Name", trig->tgname, es);
+			if (conname)
+				ExplainPropertyText("Constraint Name", conname, es);
+			ExplainPropertyText("Relation", relname, es);
+			ExplainPropertyFloat("Time", 1000.0 * instr->total, 3, es);
+			ExplainPropertyFloat("Calls", instr->ntuples, 0, es);
+		}
 
-		if (show_relname)
-			appendStringInfo(buf, " on %s",
-							 RelationGetRelationName(rInfo->ri_RelationDesc));
+		if (conname)
+			pfree(conname);
 
-		appendStringInfo(buf, ": time=%.3f calls=%.0f\n",
-						 1000.0 * instr->total, instr->ntuples);
+		ExplainCloseGroup("Trigger", NULL, true, es);
 	}
 }
 
@@ -414,8 +584,8 @@ elapsed_time(instr_time *starttime)
 }
 
 /*
- * explain_outNode -
- *	  converts a Plan node into ascii string and appends it to 'str'
+ * ExplainNode -
+ *	  Appends a description of the Plan node to es->str
  *
  * planstate points to the executor state node corresponding to the plan node.
  * We need this to get at the instrumentation data (if any) as well as the
@@ -424,146 +594,106 @@ elapsed_time(instr_time *starttime)
  * outer_plan, if not null, references another plan node that is the outer
  * side of a join with the current node.  This is only interesting for
  * deciphering runtime keys of an inner indexscan.
+ *
+ * relationship describes the relationship of this plan node to its parent
+ * (eg, "Outer", "Inner"); it can be null at top level.  plan_name is an
+ * optional name to be attached to the node.
+ *
+ * In text format, es->indent is controlled in this function since we only
+ * want it to change at Plan-node boundaries.  In non-text formats, es->indent
+ * corresponds to the nesting depth of logical output groups, and therefore
+ * is controlled by ExplainOpenGroup/ExplainCloseGroup.
  */
 static void
-explain_outNode(StringInfo str,
-				Plan *plan, PlanState *planstate,
-				Plan *outer_plan,
-				int indent, ExplainState *es)
+ExplainNode(Plan *plan, PlanState *planstate,
+			Plan *outer_plan,
+			const char *relationship, const char *plan_name,
+			ExplainState *es)
 {
-	const char *pname;
-	int			i;
+	const char *pname;			/* node type name for text output */
+	const char *sname;			/* node type name for non-text output */
+	const char *strategy = NULL;
+	const char *operation = NULL;
+	int			save_indent = es->indent;
+	bool		haschildren;
 
-	if (plan == NULL)
-	{
-		appendStringInfoChar(str, '\n');
-		return;
-	}
+	Assert(plan);
 
 	switch (nodeTag(plan))
 	{
 		case T_Result:
-			pname = "Result";
+			pname = sname = "Result";
+			break;
+		case T_ModifyTable:
+			sname = "ModifyTable";
+			switch (((ModifyTable *) plan)->operation)
+			{
+				case CMD_INSERT:
+					pname = operation = "Insert";
+					break;
+				case CMD_UPDATE:
+					pname = operation = "Update";
+					break;
+				case CMD_DELETE:
+					pname = operation = "Delete";
+					break;
+				default:
+					pname = "???";
+					break;
+			}
 			break;
 		case T_Append:
-			pname = "Append";
+			pname = sname = "Append";
 			break;
 		case T_RecursiveUnion:
-			pname = "Recursive Union";
+			pname = sname = "Recursive Union";
 			break;
 		case T_BitmapAnd:
-			pname = "BitmapAnd";
+			pname = sname = "BitmapAnd";
 			break;
 		case T_BitmapOr:
-			pname = "BitmapOr";
+			pname = sname = "BitmapOr";
 			break;
 		case T_NestLoop:
-			switch (((NestLoop *) plan)->join.jointype)
-			{
-				case JOIN_INNER:
-					pname = "Nested Loop";
-					break;
-				case JOIN_LEFT:
-					pname = "Nested Loop Left Join";
-					break;
-				case JOIN_FULL:
-					pname = "Nested Loop Full Join";
-					break;
-				case JOIN_RIGHT:
-					pname = "Nested Loop Right Join";
-					break;
-				case JOIN_SEMI:
-					pname = "Nested Loop Semi Join";
-					break;
-				case JOIN_ANTI:
-					pname = "Nested Loop Anti Join";
-					break;
-				default:
-					pname = "Nested Loop ??? Join";
-					break;
-			}
+			pname = sname = "Nested Loop";
 			break;
 		case T_MergeJoin:
-			switch (((MergeJoin *) plan)->join.jointype)
-			{
-				case JOIN_INNER:
-					pname = "Merge Join";
-					break;
-				case JOIN_LEFT:
-					pname = "Merge Left Join";
-					break;
-				case JOIN_FULL:
-					pname = "Merge Full Join";
-					break;
-				case JOIN_RIGHT:
-					pname = "Merge Right Join";
-					break;
-				case JOIN_SEMI:
-					pname = "Merge Semi Join";
-					break;
-				case JOIN_ANTI:
-					pname = "Merge Anti Join";
-					break;
-				default:
-					pname = "Merge ??? Join";
-					break;
-			}
+			pname = "Merge";	/* "Join" gets added by jointype switch */
+			sname = "Merge Join";
 			break;
 		case T_HashJoin:
-			switch (((HashJoin *) plan)->join.jointype)
-			{
-				case JOIN_INNER:
-					pname = "Hash Join";
-					break;
-				case JOIN_LEFT:
-					pname = "Hash Left Join";
-					break;
-				case JOIN_FULL:
-					pname = "Hash Full Join";
-					break;
-				case JOIN_RIGHT:
-					pname = "Hash Right Join";
-					break;
-				case JOIN_SEMI:
-					pname = "Hash Semi Join";
-					break;
-				case JOIN_ANTI:
-					pname = "Hash Anti Join";
-					break;
-				default:
-					pname = "Hash ??? Join";
-					break;
-			}
+			pname = "Hash";		/* "Join" gets added by jointype switch */
+			sname = "Hash Join";
 			break;
 		case T_SeqScan:
-			pname = "Seq Scan";
+			pname = sname = "Seq Scan";
 			break;
 		case T_IndexScan:
-			pname = "Index Scan";
+			pname = sname = "Index Scan";
 			break;
 		case T_BitmapIndexScan:
-			pname = "Bitmap Index Scan";
+			pname = sname = "Bitmap Index Scan";
 			break;
 		case T_BitmapHeapScan:
-			pname = "Bitmap Heap Scan";
+			pname = sname = "Bitmap Heap Scan";
 			break;
 		case T_TidScan:
-			pname = "Tid Scan";
+			pname = sname = "Tid Scan";
 			break;
 		case T_SubqueryScan:
-			pname = "Subquery Scan";
+			pname = sname = "Subquery Scan";
 			break;
 		case T_FunctionScan:
-			pname = "Function Scan";
+			pname = sname = "Function Scan";
 			break;
 		case T_ValuesScan:
-			pname = "Values Scan";
+			pname = sname = "Values Scan";
 			break;
 		case T_CteScan:
-			pname = "CTE Scan";
+			pname = sname = "CTE Scan";
 			break;
 		case T_WorkTableScan:
-			pname = "WorkTable Scan";
+			pname = sname = "WorkTable Scan";
 			break;
 #ifdef PGXC
 		case T_RemoteQuery:
@@ -571,260 +701,264 @@ explain_outNode(StringInfo str,
 			break;
 #endif
 		case T_Material:
-			pname = "Materialize";
+			pname = sname = "Materialize";
 			break;
 		case T_Sort:
-			pname = "Sort";
+			pname = sname = "Sort";
 			break;
 		case T_Group:
-			pname = "Group";
+			pname = sname = "Group";
 			break;
 		case T_Agg:
+			sname = "Aggregate";
 			switch (((Agg *) plan)->aggstrategy)
 			{
 				case AGG_PLAIN:
 					pname = "Aggregate";
+					strategy = "Plain";
 					break;
 				case AGG_SORTED:
 					pname = "GroupAggregate";
+					strategy = "Sorted";
 					break;
 				case AGG_HASHED:
 					pname = "HashAggregate";
+					strategy = "Hashed";
 					break;
 				default:
 					pname = "Aggregate ???";
+					strategy = "???";
 					break;
 			}
 			break;
 		case T_WindowAgg:
-			pname = "WindowAgg";
+			pname = sname = "WindowAgg";
 			break;
 		case T_Unique:
-			pname = "Unique";
+			pname = sname = "Unique";
 			break;
 		case T_SetOp:
+			sname = "SetOp";
 			switch (((SetOp *) plan)->strategy)
 			{
 				case SETOP_SORTED:
-					switch (((SetOp *) plan)->cmd)
-					{
-						case SETOPCMD_INTERSECT:
-							pname = "SetOp Intersect";
-							break;
-						case SETOPCMD_INTERSECT_ALL:
-							pname = "SetOp Intersect All";
-							break;
-						case SETOPCMD_EXCEPT:
-							pname = "SetOp Except";
-							break;
-						case SETOPCMD_EXCEPT_ALL:
-							pname = "SetOp Except All";
-							break;
-						default:
-							pname = "SetOp ???";
-							break;
-					}
+					pname = "SetOp";
+					strategy = "Sorted";
 					break;
 				case SETOP_HASHED:
-					switch (((SetOp *) plan)->cmd)
-					{
-						case SETOPCMD_INTERSECT:
-							pname = "HashSetOp Intersect";
-							break;
-						case SETOPCMD_INTERSECT_ALL:
-							pname = "HashSetOp Intersect All";
-							break;
-						case SETOPCMD_EXCEPT:
-							pname = "HashSetOp Except";
-							break;
-						case SETOPCMD_EXCEPT_ALL:
-							pname = "HashSetOp Except All";
-							break;
-						default:
-							pname = "HashSetOp ???";
-							break;
-					}
+					pname = "HashSetOp";
+					strategy = "Hashed";
 					break;
 				default:
 					pname = "SetOp ???";
+					strategy = "???";
 					break;
 			}
 			break;
+		case T_LockRows:
+			pname = sname = "LockRows";
+			break;
 		case T_Limit:
-			pname = "Limit";
+			pname = sname = "Limit";
 			break;
 		case T_Hash:
-			pname = "Hash";
+			pname = sname = "Hash";
 			break;
 		default:
-			pname = "???";
+			pname = sname = "???";
 			break;
 	}
 
-	appendStringInfoString(str, pname);
+	ExplainOpenGroup("Plan",
+					 relationship ? NULL : "Plan",
+					 true, es);
+
+	if (es->format == EXPLAIN_FORMAT_TEXT)
+	{
+		if (plan_name)
+		{
+			appendStringInfoSpaces(es->str, es->indent * 2);
+			appendStringInfo(es->str, "%s\n", plan_name);
+			es->indent++;
+		}
+		if (es->indent)
+		{
+			appendStringInfoSpaces(es->str, es->indent * 2);
+			appendStringInfoString(es->str, "->  ");
+			es->indent += 2;
+		}
+		appendStringInfoString(es->str, pname);
+		es->indent++;
+	}
+	else
+	{
+		ExplainPropertyText("Node Type", sname, es);
+		if (strategy)
+			ExplainPropertyText("Strategy", strategy, es);
+		if (operation)
+			ExplainPropertyText("Operation", operation, es);
+		if (relationship)
+			ExplainPropertyText("Parent Relationship", relationship, es);
+		if (plan_name)
+			ExplainPropertyText("Subplan Name", plan_name, es);
+	}
+
 	switch (nodeTag(plan))
 	{
 		case T_IndexScan:
-			if (ScanDirectionIsBackward(((IndexScan *) plan)->indexorderdir))
-				appendStringInfoString(str, " Backward");
-			appendStringInfo(str, " using %s",
-					  explain_get_index_name(((IndexScan *) plan)->indexid));
+			{
+				IndexScan  *indexscan = (IndexScan *) plan;
+				const char *indexname =
+				explain_get_index_name(indexscan->indexid);
+
+				if (es->format == EXPLAIN_FORMAT_TEXT)
+				{
+					if (ScanDirectionIsBackward(indexscan->indexorderdir))
+						appendStringInfoString(es->str, " Backward");
+					appendStringInfo(es->str, " using %s", indexname);
+				}
+				else
+				{
+					const char *scandir;
+
+					switch (indexscan->indexorderdir)
+					{
+						case BackwardScanDirection:
+							scandir = "Backward";
+							break;
+						case NoMovementScanDirection:
+							scandir = "NoMovement";
+							break;
+						case ForwardScanDirection:
+							scandir = "Forward";
+							break;
+						default:
+							scandir = "???";
+							break;
+					}
+					ExplainPropertyText("Scan Direction", scandir, es);
+					ExplainPropertyText("Index Name", indexname, es);
+				}
+			}
 			/* FALL THRU */
 		case T_SeqScan:
 		case T_BitmapHeapScan:
 		case T_TidScan:
+		case T_SubqueryScan:
+		case T_FunctionScan:
+		case T_ValuesScan:
+		case T_CteScan:
+		case T_WorkTableScan:
 #ifdef PGXC
 		case T_RemoteQuery:
 #endif
-			if (((Scan *) plan)->scanrelid > 0)
-			{
-				RangeTblEntry *rte = rt_fetch(((Scan *) plan)->scanrelid,
-											  es->rtable);
-				char	   *relname;
-
-				/* Assume it's on a real relation */
-				Assert(rte->rtekind == RTE_RELATION);
-
-				/* We only show the rel name, not schema name */
-#ifdef PGXC
-				relname = rte->relname;
-#else
-				relname = get_rel_name(rte->relid);
-#endif
-
-				appendStringInfo(str, " on %s",
-								 quote_identifier(relname));
-				if (strcmp(rte->eref->aliasname, relname) != 0)
-					appendStringInfo(str, " %s",
-									 quote_identifier(rte->eref->aliasname));
-			}
-#ifdef PGXC
-			if (IsA(plan, RemoteQuery))
-			{
-				RemoteQuery *remote_query = (RemoteQuery *) plan;
-
-				/* if it is a single-step plan, print out the sql being used */
-				if (remote_query->sql_statement)
-				{
-					char *realsql = NULL;
-					realsql = strcasestr(remote_query->sql_statement, "explain");
-					if (!realsql)
-						realsql = remote_query->sql_statement;
-					else
-						realsql += 8; /* skip "EXPLAIN" */
-
-					appendStringInfo(str, " %s",
-								 quote_identifier(realsql));
-				}
-			}
-#endif
+			ExplainScanTarget((Scan *) plan, es);
 			break;
 		case T_BitmapIndexScan:
-			appendStringInfo(str, " on %s",
-				explain_get_index_name(((BitmapIndexScan *) plan)->indexid));
-			break;
-		case T_SubqueryScan:
-			if (((Scan *) plan)->scanrelid > 0)
 			{
-				RangeTblEntry *rte = rt_fetch(((Scan *) plan)->scanrelid,
-											  es->rtable);
+				BitmapIndexScan *bitmapindexscan = (BitmapIndexScan *) plan;
+				const char *indexname =
+				explain_get_index_name(bitmapindexscan->indexid);
 
-				appendStringInfo(str, " %s",
-								 quote_identifier(rte->eref->aliasname));
+				if (es->format == EXPLAIN_FORMAT_TEXT)
+					appendStringInfo(es->str, " on %s", indexname);
+				else
+					ExplainPropertyText("Index Name", indexname, es);
 			}
 			break;
-		case T_FunctionScan:
-			if (((Scan *) plan)->scanrelid > 0)
+		case T_NestLoop:
+		case T_MergeJoin:
+		case T_HashJoin:
 			{
-				RangeTblEntry *rte = rt_fetch(((Scan *) plan)->scanrelid,
-											  es->rtable);
-				Node	   *funcexpr;
-				char	   *proname;
+				const char *jointype;
 
-				/* Assert it's on a RangeFunction */
-				Assert(rte->rtekind == RTE_FUNCTION);
-
-				/*
-				 * If the expression is still a function call, we can get the
-				 * real name of the function.  Otherwise, punt (this can
-				 * happen if the optimizer simplified away the function call,
-				 * for example).
-				 */
-				funcexpr = ((FunctionScan *) plan)->funcexpr;
-				if (funcexpr && IsA(funcexpr, FuncExpr))
+				switch (((Join *) plan)->jointype)
 				{
-					Oid			funcid = ((FuncExpr *) funcexpr)->funcid;
-
-					/* We only show the func name, not schema name */
-					proname = get_func_name(funcid);
+					case JOIN_INNER:
+						jointype = "Inner";
+						break;
+					case JOIN_LEFT:
+						jointype = "Left";
+						break;
+					case JOIN_FULL:
+						jointype = "Full";
+						break;
+					case JOIN_RIGHT:
+						jointype = "Right";
+						break;
+					case JOIN_SEMI:
+						jointype = "Semi";
+						break;
+					case JOIN_ANTI:
+						jointype = "Anti";
+						break;
+					default:
+						jointype = "???";
+						break;
+				}
+				if (es->format == EXPLAIN_FORMAT_TEXT)
+				{
+					/*
+					 * For historical reasons, the join type is interpolated
+					 * into the node type name...
+					 */
+					if (((Join *) plan)->jointype != JOIN_INNER)
+						appendStringInfo(es->str, " %s Join", jointype);
+					else if (!IsA(plan, NestLoop))
+						appendStringInfo(es->str, " Join");
 				}
 				else
-					proname = rte->eref->aliasname;
-
-				appendStringInfo(str, " on %s",
-								 quote_identifier(proname));
-				if (strcmp(rte->eref->aliasname, proname) != 0)
-					appendStringInfo(str, " %s",
-									 quote_identifier(rte->eref->aliasname));
+					ExplainPropertyText("Join Type", jointype, es);
 			}
 			break;
-		case T_ValuesScan:
-			if (((Scan *) plan)->scanrelid > 0)
+		case T_SetOp:
 			{
-				RangeTblEntry *rte = rt_fetch(((Scan *) plan)->scanrelid,
-											  es->rtable);
-				char	   *valsname;
+				const char *setopcmd;
 
-				/* Assert it's on a values rte */
-				Assert(rte->rtekind == RTE_VALUES);
-
-				valsname = rte->eref->aliasname;
-
-				appendStringInfo(str, " on %s",
-								 quote_identifier(valsname));
-			}
-			break;
-		case T_CteScan:
-			if (((Scan *) plan)->scanrelid > 0)
-			{
-				RangeTblEntry *rte = rt_fetch(((Scan *) plan)->scanrelid,
-											  es->rtable);
-
-				/* Assert it's on a non-self-reference CTE */
-				Assert(rte->rtekind == RTE_CTE);
-				Assert(!rte->self_reference);
-
-				appendStringInfo(str, " on %s",
-								 quote_identifier(rte->ctename));
-				if (strcmp(rte->eref->aliasname, rte->ctename) != 0)
-					appendStringInfo(str, " %s",
-									 quote_identifier(rte->eref->aliasname));
-			}
-			break;
-		case T_WorkTableScan:
-			if (((Scan *) plan)->scanrelid > 0)
-			{
-				RangeTblEntry *rte = rt_fetch(((Scan *) plan)->scanrelid,
-											  es->rtable);
-
-				/* Assert it's on a self-reference CTE */
-				Assert(rte->rtekind == RTE_CTE);
-				Assert(rte->self_reference);
-
-				appendStringInfo(str, " on %s",
-								 quote_identifier(rte->ctename));
-				if (strcmp(rte->eref->aliasname, rte->ctename) != 0)
-					appendStringInfo(str, " %s",
-									 quote_identifier(rte->eref->aliasname));
+				switch (((SetOp *) plan)->cmd)
+				{
+					case SETOPCMD_INTERSECT:
+						setopcmd = "Intersect";
+						break;
+					case SETOPCMD_INTERSECT_ALL:
+						setopcmd = "Intersect All";
+						break;
+					case SETOPCMD_EXCEPT:
+						setopcmd = "Except";
+						break;
+					case SETOPCMD_EXCEPT_ALL:
+						setopcmd = "Except All";
+						break;
+					default:
+						setopcmd = "???";
+						break;
+				}
+				if (es->format == EXPLAIN_FORMAT_TEXT)
+					appendStringInfo(es->str, " %s", setopcmd);
+				else
+					ExplainPropertyText("Command", setopcmd, es);
 			}
 			break;
 		default:
 			break;
 	}
 
-	appendStringInfo(str, "  (cost=%.2f..%.2f rows=%.0f width=%d)",
-					 plan->startup_cost, plan->total_cost,
-					 plan->plan_rows, plan->plan_width);
+	if (es->costs)
+	{
+		if (es->format == EXPLAIN_FORMAT_TEXT)
+		{
+			appendStringInfo(es->str, "  (cost=%.2f..%.2f rows=%.0f width=%d)",
+							 plan->startup_cost, plan->total_cost,
+							 plan->plan_rows, plan->plan_width);
+		}
+		else
+		{
+			ExplainPropertyFloat("Startup Cost", plan->startup_cost, 2, es);
+			ExplainPropertyFloat("Total Cost", plan->total_cost, 2, es);
+			ExplainPropertyFloat("Plan Rows", plan->plan_rows, 0, es);
+			ExplainPropertyInteger("Plan Width", plan->plan_width, es);
+		}
+	}
 
 	/*
 	 * We have to forcibly clean up the instrumentation state because we
@@ -836,50 +970,60 @@ explain_outNode(StringInfo str,
 	if (planstate->instrument && planstate->instrument->nloops > 0)
 	{
 		double		nloops = planstate->instrument->nloops;
+		double		startup_sec = 1000.0 * planstate->instrument->startup / nloops;
+		double		total_sec = 1000.0 * planstate->instrument->total / nloops;
+		double		rows = planstate->instrument->ntuples / nloops;
 
-		appendStringInfo(str, " (actual time=%.3f..%.3f rows=%.0f loops=%.0f)",
-						 1000.0 * planstate->instrument->startup / nloops,
-						 1000.0 * planstate->instrument->total / nloops,
-						 planstate->instrument->ntuples / nloops,
-						 planstate->instrument->nloops);
+		if (es->format == EXPLAIN_FORMAT_TEXT)
+		{
+			appendStringInfo(es->str,
+							 " (actual time=%.3f..%.3f rows=%.0f loops=%.0f)",
+							 startup_sec, total_sec, rows, nloops);
+		}
+		else
+		{
+			ExplainPropertyFloat("Actual Startup Time", startup_sec, 3, es);
+			ExplainPropertyFloat("Actual Total Time", total_sec, 3, es);
+			ExplainPropertyFloat("Actual Rows", rows, 0, es);
+			ExplainPropertyFloat("Actual Loops", nloops, 0, es);
+		}
 	}
-	else if (es->printAnalyze)
-		appendStringInfo(str, " (never executed)");
-	appendStringInfoChar(str, '\n');
+	else if (es->analyze)
+	{
+		if (es->format == EXPLAIN_FORMAT_TEXT)
+			appendStringInfo(es->str, " (never executed)");
+		else
+		{
+			ExplainPropertyFloat("Actual Startup Time", 0.0, 3, es);
+			ExplainPropertyFloat("Actual Total Time", 0.0, 3, es);
+			ExplainPropertyFloat("Actual Rows", 0.0, 0, es);
+			ExplainPropertyFloat("Actual Loops", 0.0, 0, es);
+		}
+	}
+
+	/* in text format, first line ends here */
+	if (es->format == EXPLAIN_FORMAT_TEXT)
+		appendStringInfoChar(es->str, '\n');
 
 	/* target list */
-	if (es->printTList)
-		show_plan_tlist(plan, str, indent, es);
+	if (es->verbose)
+		show_plan_tlist(plan, es);
 
 	/* quals, sort keys, etc */
 	switch (nodeTag(plan))
 	{
 		case T_IndexScan:
 			show_scan_qual(((IndexScan *) plan)->indexqualorig,
-						   "Index Cond",
-						   ((Scan *) plan)->scanrelid,
-						   plan, outer_plan,
-						   str, indent, es);
-			show_scan_qual(plan->qual,
-						   "Filter",
-						   ((Scan *) plan)->scanrelid,
-						   plan, outer_plan,
-						   str, indent, es);
+						   "Index Cond", plan, outer_plan, es);
+			show_scan_qual(plan->qual, "Filter", plan, outer_plan, es);
 			break;
 		case T_BitmapIndexScan:
 			show_scan_qual(((BitmapIndexScan *) plan)->indexqualorig,
-						   "Index Cond",
-						   ((Scan *) plan)->scanrelid,
-						   plan, outer_plan,
-						   str, indent, es);
+						   "Index Cond", plan, outer_plan, es);
 			break;
 		case T_BitmapHeapScan:
-			/* XXX do we want to show this in production? */
 			show_scan_qual(((BitmapHeapScan *) plan)->bitmapqualorig,
-						   "Recheck Cond",
-						   ((Scan *) plan)->scanrelid,
-						   plan, outer_plan,
-						   str, indent, es);
+						   "Recheck Cond", plan, outer_plan, es);
 			/* FALL THRU */
 		case T_SeqScan:
 		case T_FunctionScan:
@@ -889,18 +1033,8 @@ explain_outNode(StringInfo str,
 #ifdef PGXC
 		case T_RemoteQuery:
 #endif
-			show_scan_qual(plan->qual,
-						   "Filter",
-						   ((Scan *) plan)->scanrelid,
-						   plan, outer_plan,
-						   str, indent, es);
-			break;
 		case T_SubqueryScan:
-			show_scan_qual(plan->qual,
-						   "Filter",
-						   ((Scan *) plan)->scanrelid,
-						   plan, outer_plan,
-						   str, indent, es);
+			show_scan_qual(plan->qual, "Filter", plan, outer_plan, es);
 			break;
 		case T_TidScan:
 			{
@@ -912,256 +1046,227 @@ explain_outNode(StringInfo str,
 
 				if (list_length(tidquals) > 1)
 					tidquals = list_make1(make_orclause(tidquals));
-				show_scan_qual(tidquals,
-							   "TID Cond",
-							   ((Scan *) plan)->scanrelid,
-							   plan, outer_plan,
-							   str, indent, es);
-				show_scan_qual(plan->qual,
-							   "Filter",
-							   ((Scan *) plan)->scanrelid,
-							   plan, outer_plan,
-							   str, indent, es);
+				show_scan_qual(tidquals, "TID Cond", plan, outer_plan, es);
+				show_scan_qual(plan->qual, "Filter", plan, outer_plan, es);
 			}
 			break;
 		case T_NestLoop:
 			show_upper_qual(((NestLoop *) plan)->join.joinqual,
-							"Join Filter", plan,
-							str, indent, es);
-			show_upper_qual(plan->qual,
-							"Filter", plan,
-							str, indent, es);
+							"Join Filter", plan, es);
+			show_upper_qual(plan->qual, "Filter", plan, es);
 			break;
 		case T_MergeJoin:
 			show_upper_qual(((MergeJoin *) plan)->mergeclauses,
-							"Merge Cond", plan,
-							str, indent, es);
+							"Merge Cond", plan, es);
 			show_upper_qual(((MergeJoin *) plan)->join.joinqual,
-							"Join Filter", plan,
-							str, indent, es);
-			show_upper_qual(plan->qual,
-							"Filter", plan,
-							str, indent, es);
+							"Join Filter", plan, es);
+			show_upper_qual(plan->qual, "Filter", plan, es);
 			break;
 		case T_HashJoin:
 			show_upper_qual(((HashJoin *) plan)->hashclauses,
-							"Hash Cond", plan,
-							str, indent, es);
+							"Hash Cond", plan, es);
 			show_upper_qual(((HashJoin *) plan)->join.joinqual,
-							"Join Filter", plan,
-							str, indent, es);
-			show_upper_qual(plan->qual,
-							"Filter", plan,
-							str, indent, es);
+							"Join Filter", plan, es);
+			show_upper_qual(plan->qual, "Filter", plan, es);
 			break;
 		case T_Agg:
 		case T_Group:
-			show_upper_qual(plan->qual,
-							"Filter", plan,
-							str, indent, es);
+			show_upper_qual(plan->qual, "Filter", plan, es);
 			break;
 		case T_Sort:
-			show_sort_keys(plan,
-						   ((Sort *) plan)->numCols,
-						   ((Sort *) plan)->sortColIdx,
-						   "Sort Key",
-						   str, indent, es);
-			show_sort_info((SortState *) planstate,
-						   str, indent, es);
+			show_sort_keys(plan, es);
+			show_sort_info((SortState *) planstate, es);
 			break;
 		case T_Result:
 			show_upper_qual((List *) ((Result *) plan)->resconstantqual,
-							"One-Time Filter", plan,
-							str, indent, es);
-			show_upper_qual(plan->qual,
-							"Filter", plan,
-							str, indent, es);
+							"One-Time Filter", plan, es);
+			show_upper_qual(plan->qual, "Filter", plan, es);
+			break;
+		case T_Hash:
+			show_hash_info((HashState *) planstate, es);
 			break;
 		default:
 			break;
 	}
 
-	/* initPlan-s */
-	if (plan->initPlan)
+	/* Show buffer usage */
+	if (es->buffers)
 	{
-		ListCell   *lst;
+		const BufferUsage *usage = &planstate->instrument->bufusage;
 
-		foreach(lst, planstate->initPlan)
+		if (es->format == EXPLAIN_FORMAT_TEXT)
 		{
-			SubPlanState *sps = (SubPlanState *) lfirst(lst);
-			SubPlan    *sp = (SubPlan *) sps->xprstate.expr;
+			bool		has_shared = (usage->shared_blks_hit > 0 ||
+									  usage->shared_blks_read > 0 ||
+									  usage->shared_blks_written);
+			bool		has_local = (usage->local_blks_hit > 0 ||
+									 usage->local_blks_read > 0 ||
+									 usage->local_blks_written);
+			bool		has_temp = (usage->temp_blks_read > 0 ||
+									usage->temp_blks_written);
 
-			for (i = 0; i < indent; i++)
-				appendStringInfo(str, "  ");
-			appendStringInfo(str, "  %s\n", sp->plan_name);
-			for (i = 0; i < indent; i++)
-				appendStringInfo(str, "  ");
-			appendStringInfo(str, "    ->  ");
-			explain_outNode(str,
-							exec_subplan_get_plan(es->pstmt, sp),
-							sps->planstate,
-							NULL,
-							indent + 4, es);
+			/* Show only positive counter values. */
+			if (has_shared || has_local || has_temp)
+			{
+				appendStringInfoSpaces(es->str, es->indent * 2);
+				appendStringInfoString(es->str, "Buffers:");
+
+				if (has_shared)
+				{
+					appendStringInfoString(es->str, " shared");
+					if (usage->shared_blks_hit > 0)
+						appendStringInfo(es->str, " hit=%ld",
+										 usage->shared_blks_hit);
+					if (usage->shared_blks_read > 0)
+						appendStringInfo(es->str, " read=%ld",
+										 usage->shared_blks_read);
+					if (usage->shared_blks_written > 0)
+						appendStringInfo(es->str, " written=%ld",
+										 usage->shared_blks_written);
+					if (has_local || has_temp)
+						appendStringInfoChar(es->str, ',');
+				}
+				if (has_local)
+				{
+					appendStringInfoString(es->str, " local");
+					if (usage->local_blks_hit > 0)
+						appendStringInfo(es->str, " hit=%ld",
+										 usage->local_blks_hit);
+					if (usage->local_blks_read > 0)
+						appendStringInfo(es->str, " read=%ld",
+										 usage->local_blks_read);
+					if (usage->local_blks_written > 0)
+						appendStringInfo(es->str, " written=%ld",
+										 usage->local_blks_written);
+					if (has_temp)
+						appendStringInfoChar(es->str, ',');
+				}
+				if (has_temp)
+				{
+					appendStringInfoString(es->str, " temp");
+					if (usage->temp_blks_read > 0)
+						appendStringInfo(es->str, " read=%ld",
+										 usage->temp_blks_read);
+					if (usage->temp_blks_written > 0)
+						appendStringInfo(es->str, " written=%ld",
+										 usage->temp_blks_written);
+				}
+				appendStringInfoChar(es->str, '\n');
+			}
+		}
+		else
+		{
+			ExplainPropertyLong("Shared Hit Blocks", usage->shared_blks_hit, es);
+			ExplainPropertyLong("Shared Read Blocks", usage->shared_blks_read, es);
+			ExplainPropertyLong("Shared Written Blocks", usage->shared_blks_written, es);
+			ExplainPropertyLong("Local Hit Blocks", usage->local_blks_hit, es);
+			ExplainPropertyLong("Local Read Blocks", usage->local_blks_read, es);
+			ExplainPropertyLong("Local Written Blocks", usage->local_blks_written, es);
+			ExplainPropertyLong("Temp Read Blocks", usage->temp_blks_read, es);
+			ExplainPropertyLong("Temp Written Blocks", usage->temp_blks_written, es);
 		}
 	}
+
+	/* Get ready to display the child plans */
+	haschildren = plan->initPlan ||
+		outerPlan(plan) ||
+		innerPlan(plan) ||
+		IsA(plan, ModifyTable) ||
+		IsA(plan, Append) ||
+		IsA(plan, BitmapAnd) ||
+		IsA(plan, BitmapOr) ||
+		IsA(plan, SubqueryScan) ||
+		planstate->subPlan;
+	if (haschildren)
+		ExplainOpenGroup("Plans", "Plans", false, es);
+
+	/* initPlan-s */
+	if (plan->initPlan)
+		ExplainSubPlans(planstate->initPlan, "InitPlan", es);
 
 	/* lefttree */
 	if (outerPlan(plan))
 	{
-		for (i = 0; i < indent; i++)
-			appendStringInfo(str, "  ");
-		appendStringInfo(str, "  ->  ");
-
 		/*
 		 * Ordinarily we don't pass down our own outer_plan value to our child
 		 * nodes, but in bitmap scan trees we must, since the bottom
 		 * BitmapIndexScan nodes may have outer references.
 		 */
-		explain_outNode(str, outerPlan(plan),
-						outerPlanState(planstate),
-						IsA(plan, BitmapHeapScan) ? outer_plan : NULL,
-						indent + 3, es);
+		ExplainNode(outerPlan(plan), outerPlanState(planstate),
+					IsA(plan, BitmapHeapScan) ? outer_plan : NULL,
+					"Outer", NULL, es);
 	}
 
 	/* righttree */
 	if (innerPlan(plan))
 	{
-		for (i = 0; i < indent; i++)
-			appendStringInfo(str, "  ");
-		appendStringInfo(str, "  ->  ");
-		explain_outNode(str, innerPlan(plan),
-						innerPlanState(planstate),
-						outerPlan(plan),
-						indent + 3, es);
+		ExplainNode(innerPlan(plan), innerPlanState(planstate),
+					outerPlan(plan),
+					"Inner", NULL, es);
 	}
 
-	if (IsA(plan, Append))
+	/* special child plans */
+	switch (nodeTag(plan))
 	{
-		Append	   *appendplan = (Append *) plan;
-		AppendState *appendstate = (AppendState *) planstate;
-		ListCell   *lst;
-		int			j;
+		case T_ModifyTable:
+			ExplainMemberNodes(((ModifyTable *) plan)->plans,
+							   ((ModifyTableState *) planstate)->mt_plans,
+							   outer_plan, es);
+			break;
+		case T_Append:
+			ExplainMemberNodes(((Append *) plan)->appendplans,
+							   ((AppendState *) planstate)->appendplans,
+							   outer_plan, es);
+			break;
+		case T_BitmapAnd:
+			ExplainMemberNodes(((BitmapAnd *) plan)->bitmapplans,
+							   ((BitmapAndState *) planstate)->bitmapplans,
+							   outer_plan, es);
+			break;
+		case T_BitmapOr:
+			ExplainMemberNodes(((BitmapOr *) plan)->bitmapplans,
+							   ((BitmapOrState *) planstate)->bitmapplans,
+							   outer_plan, es);
+			break;
+		case T_SubqueryScan:
+			{
+				SubqueryScan *subqueryscan = (SubqueryScan *) plan;
+				SubqueryScanState *subquerystate = (SubqueryScanState *) planstate;
 
-		j = 0;
-		foreach(lst, appendplan->appendplans)
-		{
-			Plan	   *subnode = (Plan *) lfirst(lst);
-
-			for (i = 0; i < indent; i++)
-				appendStringInfo(str, "  ");
-			appendStringInfo(str, "  ->  ");
-
-			/*
-			 * Ordinarily we don't pass down our own outer_plan value to our
-			 * child nodes, but in an Append we must, since we might be
-			 * looking at an appendrel indexscan with outer references from
-			 * the member scans.
-			 */
-			explain_outNode(str, subnode,
-							appendstate->appendplans[j],
-							outer_plan,
-							indent + 3, es);
-			j++;
-		}
-	}
-
-	if (IsA(plan, BitmapAnd))
-	{
-		BitmapAnd  *bitmapandplan = (BitmapAnd *) plan;
-		BitmapAndState *bitmapandstate = (BitmapAndState *) planstate;
-		ListCell   *lst;
-		int			j;
-
-		j = 0;
-		foreach(lst, bitmapandplan->bitmapplans)
-		{
-			Plan	   *subnode = (Plan *) lfirst(lst);
-
-			for (i = 0; i < indent; i++)
-				appendStringInfo(str, "  ");
-			appendStringInfo(str, "  ->  ");
-
-			explain_outNode(str, subnode,
-							bitmapandstate->bitmapplans[j],
-							outer_plan, /* pass down same outer plan */
-							indent + 3, es);
-			j++;
-		}
-	}
-
-	if (IsA(plan, BitmapOr))
-	{
-		BitmapOr   *bitmaporplan = (BitmapOr *) plan;
-		BitmapOrState *bitmaporstate = (BitmapOrState *) planstate;
-		ListCell   *lst;
-		int			j;
-
-		j = 0;
-		foreach(lst, bitmaporplan->bitmapplans)
-		{
-			Plan	   *subnode = (Plan *) lfirst(lst);
-
-			for (i = 0; i < indent; i++)
-				appendStringInfo(str, "  ");
-			appendStringInfo(str, "  ->  ");
-
-			explain_outNode(str, subnode,
-							bitmaporstate->bitmapplans[j],
-							outer_plan, /* pass down same outer plan */
-							indent + 3, es);
-			j++;
-		}
-	}
-
-	if (IsA(plan, SubqueryScan))
-	{
-		SubqueryScan *subqueryscan = (SubqueryScan *) plan;
-		SubqueryScanState *subquerystate = (SubqueryScanState *) planstate;
-		Plan	   *subnode = subqueryscan->subplan;
-
-		for (i = 0; i < indent; i++)
-			appendStringInfo(str, "  ");
-		appendStringInfo(str, "  ->  ");
-
-		explain_outNode(str, subnode,
-						subquerystate->subplan,
-						NULL,
-						indent + 3, es);
+				ExplainNode(subqueryscan->subplan, subquerystate->subplan,
+							NULL,
+							"Subquery", NULL, es);
+			}
+			break;
+		default:
+			break;
 	}
 
 	/* subPlan-s */
 	if (planstate->subPlan)
-	{
-		ListCell   *lst;
+		ExplainSubPlans(planstate->subPlan, "SubPlan", es);
 
-		foreach(lst, planstate->subPlan)
-		{
-			SubPlanState *sps = (SubPlanState *) lfirst(lst);
-			SubPlan    *sp = (SubPlan *) sps->xprstate.expr;
+	/* end of child plans */
+	if (haschildren)
+		ExplainCloseGroup("Plans", "Plans", false, es);
 
-			for (i = 0; i < indent; i++)
-				appendStringInfo(str, "  ");
-			appendStringInfo(str, "  %s\n", sp->plan_name);
-			for (i = 0; i < indent; i++)
-				appendStringInfo(str, "  ");
-			appendStringInfo(str, "    ->  ");
-			explain_outNode(str,
-							exec_subplan_get_plan(es->pstmt, sp),
-							sps->planstate,
-							NULL,
-							indent + 4, es);
-		}
-	}
+	/* in text format, undo whatever indentation we added */
+	if (es->format == EXPLAIN_FORMAT_TEXT)
+		es->indent = save_indent;
+
+	ExplainCloseGroup("Plan",
+					  relationship ? NULL : "Plan",
+					  true, es);
 }
 
 /*
  * Show the targetlist of a plan node
  */
 static void
-show_plan_tlist(Plan *plan,
-				StringInfo str, int indent, ExplainState *es)
+show_plan_tlist(Plan *plan, ExplainState *es)
 {
 	List	   *context;
+	List	   *result = NIL;
 	bool		useprefix;
 	ListCell   *lc;
 	int			i;
@@ -1183,45 +1288,34 @@ show_plan_tlist(Plan *plan,
 									   es->pstmt->subplans);
 	useprefix = list_length(es->rtable) > 1;
 
-	/* Emit line prefix */
-	for (i = 0; i < indent; i++)
-		appendStringInfo(str, "  ");
-	appendStringInfo(str, "  Output: ");
-
-	/* Deparse each non-junk result column */
+	/* Deparse each result column (we now include resjunk ones) */
 	i = 0;
 	foreach(lc, plan->targetlist)
 	{
 		TargetEntry *tle = (TargetEntry *) lfirst(lc);
 
-		if (tle->resjunk)
-			continue;
-		if (i++ > 0)
-			appendStringInfo(str, ", ");
-		appendStringInfoString(str,
-							   deparse_expression((Node *) tle->expr, context,
-												  useprefix, false));
+		result = lappend(result,
+						 deparse_expression((Node *) tle->expr, context,
+											useprefix, false));
 	}
 
-	appendStringInfoChar(str, '\n');
+	/* Print results */
+	ExplainPropertyList("Output", result, es);
 }
 
 /*
- * Show a qualifier expression for a scan plan node
+ * Show a qualifier expression
  *
  * Note: outer_plan is the referent for any OUTER vars in the scan qual;
  * this would be the outer side of a nestloop plan.  Pass NULL if none.
  */
 static void
-show_scan_qual(List *qual, const char *qlabel,
-			   int scanrelid, Plan *scan_plan, Plan *outer_plan,
-			   StringInfo str, int indent, ExplainState *es)
+show_qual(List *qual, const char *qlabel, Plan *plan, Plan *outer_plan,
+		  bool useprefix, ExplainState *es)
 {
 	List	   *context;
-	bool		useprefix;
 	Node	   *node;
 	char	   *exprstr;
-	int			i;
 
 	/* No work if empty qual */
 	if (qual == NIL)
@@ -1231,82 +1325,68 @@ show_scan_qual(List *qual, const char *qlabel,
 	node = (Node *) make_ands_explicit(qual);
 
 	/* Set up deparsing context */
-	context = deparse_context_for_plan((Node *) scan_plan,
+	context = deparse_context_for_plan((Node *) plan,
 									   (Node *) outer_plan,
 									   es->rtable,
 									   es->pstmt->subplans);
-	useprefix = (outer_plan != NULL || IsA(scan_plan, SubqueryScan));
 
 	/* Deparse the expression */
 	exprstr = deparse_expression(node, context, useprefix, false);
 
-	/* And add to str */
-	for (i = 0; i < indent; i++)
-		appendStringInfo(str, "  ");
-	appendStringInfo(str, "  %s: %s\n", qlabel, exprstr);
+	/* And add to es->str */
+	ExplainPropertyText(qlabel, exprstr, es);
+}
+
+/*
+ * Show a qualifier expression for a scan plan node
+ */
+static void
+show_scan_qual(List *qual, const char *qlabel,
+			   Plan *scan_plan, Plan *outer_plan,
+			   ExplainState *es)
+{
+	bool		useprefix;
+
+	useprefix = (outer_plan != NULL || IsA(scan_plan, SubqueryScan) ||
+				 es->verbose);
+	show_qual(qual, qlabel, scan_plan, outer_plan, useprefix, es);
 }
 
 /*
  * Show a qualifier expression for an upper-level plan node
  */
 static void
-show_upper_qual(List *qual, const char *qlabel, Plan *plan,
-				StringInfo str, int indent, ExplainState *es)
+show_upper_qual(List *qual, const char *qlabel, Plan *plan, ExplainState *es)
 {
-	List	   *context;
 	bool		useprefix;
-	Node	   *node;
-	char	   *exprstr;
-	int			i;
 
-	/* No work if empty qual */
-	if (qual == NIL)
-		return;
-
-	/* Set up deparsing context */
-	context = deparse_context_for_plan((Node *) plan,
-									   NULL,
-									   es->rtable,
-									   es->pstmt->subplans);
-	useprefix = list_length(es->rtable) > 1;
-
-	/* Deparse the expression */
-	node = (Node *) make_ands_explicit(qual);
-	exprstr = deparse_expression(node, context, useprefix, false);
-
-	/* And add to str */
-	for (i = 0; i < indent; i++)
-		appendStringInfo(str, "  ");
-	appendStringInfo(str, "  %s: %s\n", qlabel, exprstr);
+	useprefix = (list_length(es->rtable) > 1 || es->verbose);
+	show_qual(qual, qlabel, plan, NULL, useprefix, es);
 }
 
 /*
  * Show the sort keys for a Sort node.
  */
 static void
-show_sort_keys(Plan *sortplan, int nkeys, AttrNumber *keycols,
-			   const char *qlabel,
-			   StringInfo str, int indent, ExplainState *es)
+show_sort_keys(Plan *sortplan, ExplainState *es)
 {
+	int			nkeys = ((Sort *) sortplan)->numCols;
+	AttrNumber *keycols = ((Sort *) sortplan)->sortColIdx;
 	List	   *context;
+	List	   *result = NIL;
 	bool		useprefix;
 	int			keyno;
 	char	   *exprstr;
-	int			i;
 
 	if (nkeys <= 0)
 		return;
-
-	for (i = 0; i < indent; i++)
-		appendStringInfo(str, "  ");
-	appendStringInfo(str, "  %s: ", qlabel);
 
 	/* Set up deparsing context */
 	context = deparse_context_for_plan((Node *) sortplan,
 									   NULL,
 									   es->rtable,
 									   es->pstmt->subplans);
-	useprefix = list_length(es->rtable) > 1;
+	useprefix = (list_length(es->rtable) > 1 || es->verbose);
 
 	for (keyno = 0; keyno < nkeys; keyno++)
 	{
@@ -1319,34 +1399,83 @@ show_sort_keys(Plan *sortplan, int nkeys, AttrNumber *keycols,
 		/* Deparse the expression, showing any top-level cast */
 		exprstr = deparse_expression((Node *) target->expr, context,
 									 useprefix, true);
-		/* And add to str */
-		if (keyno > 0)
-			appendStringInfo(str, ", ");
-		appendStringInfoString(str, exprstr);
+		result = lappend(result, exprstr);
 	}
 
-	appendStringInfo(str, "\n");
+	ExplainPropertyList("Sort Key", result, es);
 }
 
 /*
- * If it's EXPLAIN ANALYZE, show tuplesort explain info for a sort node
+ * If it's EXPLAIN ANALYZE, show tuplesort stats for a sort node
  */
 static void
-show_sort_info(SortState *sortstate,
-			   StringInfo str, int indent, ExplainState *es)
+show_sort_info(SortState *sortstate, ExplainState *es)
 {
 	Assert(IsA(sortstate, SortState));
-	if (es->printAnalyze && sortstate->sort_Done &&
+	if (es->analyze && sortstate->sort_Done &&
 		sortstate->tuplesortstate != NULL)
 	{
-		char	   *sortinfo;
-		int			i;
+		Tuplesortstate *state = (Tuplesortstate *) sortstate->tuplesortstate;
+		const char *sortMethod;
+		const char *spaceType;
+		long		spaceUsed;
 
-		sortinfo = tuplesort_explain((Tuplesortstate *) sortstate->tuplesortstate);
-		for (i = 0; i < indent; i++)
-			appendStringInfo(str, "  ");
-		appendStringInfo(str, "  %s\n", sortinfo);
-		pfree(sortinfo);
+		tuplesort_get_stats(state, &sortMethod, &spaceType, &spaceUsed);
+
+		if (es->format == EXPLAIN_FORMAT_TEXT)
+		{
+			appendStringInfoSpaces(es->str, es->indent * 2);
+			appendStringInfo(es->str, "Sort Method:  %s  %s: %ldkB\n",
+							 sortMethod, spaceType, spaceUsed);
+		}
+		else
+		{
+			ExplainPropertyText("Sort Method", sortMethod, es);
+			ExplainPropertyLong("Sort Space Used", spaceUsed, es);
+			ExplainPropertyText("Sort Space Type", spaceType, es);
+		}
+	}
+}
+
+/*
+ * Show information on hash buckets/batches.
+ */
+static void
+show_hash_info(HashState *hashstate, ExplainState *es)
+{
+	HashJoinTable hashtable;
+
+	Assert(IsA(hashstate, HashState));
+	hashtable = hashstate->hashtable;
+
+	if (hashtable)
+	{
+		long		spacePeakKb = (hashtable->spacePeak + 1023) / 1024;
+
+		if (es->format != EXPLAIN_FORMAT_TEXT)
+		{
+			ExplainPropertyLong("Hash Buckets", hashtable->nbuckets, es);
+			ExplainPropertyLong("Hash Batches", hashtable->nbatch, es);
+			ExplainPropertyLong("Original Hash Batches",
+								hashtable->nbatch_original, es);
+			ExplainPropertyLong("Peak Memory Usage", spacePeakKb, es);
+		}
+		else if (hashtable->nbatch_original != hashtable->nbatch)
+		{
+			appendStringInfoSpaces(es->str, es->indent * 2);
+			appendStringInfo(es->str,
+			"Buckets: %d  Batches: %d (originally %d)  Memory Usage: %ldkB\n",
+							 hashtable->nbuckets, hashtable->nbatch,
+							 hashtable->nbatch_original, spacePeakKb);
+		}
+		else
+		{
+			appendStringInfoSpaces(es->str, es->indent * 2);
+			appendStringInfo(es->str,
+						   "Buckets: %d  Batches: %d  Memory Usage: %ldkB\n",
+							 hashtable->nbuckets, hashtable->nbatch,
+							 spacePeakKb);
+		}
 	}
 }
 
@@ -1374,4 +1503,678 @@ explain_get_index_name(Oid indexId)
 		result = quote_identifier(result);
 	}
 	return result;
+}
+
+/*
+ * Show the target of a Scan node
+ */
+static void
+ExplainScanTarget(Scan *plan, ExplainState *es)
+{
+	char	   *objectname = NULL;
+	char	   *namespace = NULL;
+	const char *objecttag = NULL;
+	RangeTblEntry *rte;
+
+	if (plan->scanrelid <= 0)	/* Is this still possible? */
+		return;
+	rte = rt_fetch(plan->scanrelid, es->rtable);
+
+	switch (nodeTag(plan))
+	{
+		case T_SeqScan:
+		case T_IndexScan:
+		case T_BitmapHeapScan:
+		case T_TidScan:
+			/* Assert it's on a real relation */
+			Assert(rte->rtekind == RTE_RELATION);
+			objectname = get_rel_name(rte->relid);
+			if (es->verbose)
+				namespace = get_namespace_name(get_rel_namespace(rte->relid));
+			objecttag = "Relation Name";
+			break;
+		case T_FunctionScan:
+			{
+				Node	   *funcexpr;
+
+				/* Assert it's on a RangeFunction */
+				Assert(rte->rtekind == RTE_FUNCTION);
+
+				/*
+				 * If the expression is still a function call, we can get the
+				 * real name of the function.  Otherwise, punt (this can
+				 * happen if the optimizer simplified away the function call,
+				 * for example).
+				 */
+				funcexpr = ((FunctionScan *) plan)->funcexpr;
+				if (funcexpr && IsA(funcexpr, FuncExpr))
+				{
+					Oid			funcid = ((FuncExpr *) funcexpr)->funcid;
+
+					objectname = get_func_name(funcid);
+					if (es->verbose)
+						namespace =
+							get_namespace_name(get_func_namespace(funcid));
+				}
+				objecttag = "Function Name";
+			}
+			break;
+		case T_ValuesScan:
+			Assert(rte->rtekind == RTE_VALUES);
+			break;
+		case T_CteScan:
+			/* Assert it's on a non-self-reference CTE */
+			Assert(rte->rtekind == RTE_CTE);
+			Assert(!rte->self_reference);
+			objectname = rte->ctename;
+			objecttag = "CTE Name";
+			break;
+		case T_WorkTableScan:
+			/* Assert it's on a self-reference CTE */
+			Assert(rte->rtekind == RTE_CTE);
+			Assert(rte->self_reference);
+			objectname = rte->ctename;
+			objecttag = "CTE Name";
+			break;
+		default:
+			break;
+	}
+
+	if (es->format == EXPLAIN_FORMAT_TEXT)
+	{
+		appendStringInfoString(es->str, " on");
+		if (namespace != NULL)
+			appendStringInfo(es->str, " %s.%s", quote_identifier(namespace),
+							 quote_identifier(objectname));
+		else if (objectname != NULL)
+			appendStringInfo(es->str, " %s", quote_identifier(objectname));
+		if (objectname == NULL ||
+			strcmp(rte->eref->aliasname, objectname) != 0)
+			appendStringInfo(es->str, " %s",
+							 quote_identifier(rte->eref->aliasname));
+	}
+	else
+	{
+		if (objecttag != NULL && objectname != NULL)
+			ExplainPropertyText(objecttag, objectname, es);
+		if (namespace != NULL)
+			ExplainPropertyText("Schema", namespace, es);
+		ExplainPropertyText("Alias", rte->eref->aliasname, es);
+	}
+}
+
+/*
+ * Explain the constituent plans of a ModifyTable, Append, BitmapAnd,
+ * or BitmapOr node.
+ *
+ * Ordinarily we don't pass down outer_plan to our child nodes, but in these
+ * cases we must, since the node could be an "inner indexscan" in which case
+ * outer references can appear in the child nodes.
+ */
+static void
+ExplainMemberNodes(List *plans, PlanState **planstate, Plan *outer_plan,
+				   ExplainState *es)
+{
+	ListCell   *lst;
+	int			j = 0;
+
+	foreach(lst, plans)
+	{
+		Plan	   *subnode = (Plan *) lfirst(lst);
+
+		ExplainNode(subnode, planstate[j],
+					outer_plan,
+					"Member", NULL,
+					es);
+		j++;
+	}
+}
+
+/*
+ * Explain a list of SubPlans (or initPlans, which also use SubPlan nodes).
+ */
+static void
+ExplainSubPlans(List *plans, const char *relationship, ExplainState *es)
+{
+	ListCell   *lst;
+
+	foreach(lst, plans)
+	{
+		SubPlanState *sps = (SubPlanState *) lfirst(lst);
+		SubPlan    *sp = (SubPlan *) sps->xprstate.expr;
+
+		ExplainNode(exec_subplan_get_plan(es->pstmt, sp),
+					sps->planstate,
+					NULL,
+					relationship, sp->plan_name,
+					es);
+	}
+}
+
+/*
+ * Explain a property, such as sort keys or targets, that takes the form of
+ * a list of unlabeled items.  "data" is a list of C strings.
+ */
+static void
+ExplainPropertyList(const char *qlabel, List *data, ExplainState *es)
+{
+	ListCell   *lc;
+	bool		first = true;
+
+	switch (es->format)
+	{
+		case EXPLAIN_FORMAT_TEXT:
+			appendStringInfoSpaces(es->str, es->indent * 2);
+			appendStringInfo(es->str, "%s: ", qlabel);
+			foreach(lc, data)
+			{
+				if (!first)
+					appendStringInfoString(es->str, ", ");
+				appendStringInfoString(es->str, (const char *) lfirst(lc));
+				first = false;
+			}
+			appendStringInfoChar(es->str, '\n');
+			break;
+
+		case EXPLAIN_FORMAT_XML:
+			ExplainXMLTag(qlabel, X_OPENING, es);
+			foreach(lc, data)
+			{
+				char	   *str;
+
+				appendStringInfoSpaces(es->str, es->indent * 2 + 2);
+				appendStringInfoString(es->str, "<Item>");
+				str = escape_xml((const char *) lfirst(lc));
+				appendStringInfoString(es->str, str);
+				pfree(str);
+				appendStringInfoString(es->str, "</Item>\n");
+			}
+			ExplainXMLTag(qlabel, X_CLOSING, es);
+			break;
+
+		case EXPLAIN_FORMAT_JSON:
+			ExplainJSONLineEnding(es);
+			appendStringInfoSpaces(es->str, es->indent * 2);
+			escape_json(es->str, qlabel);
+			appendStringInfoString(es->str, ": [");
+			foreach(lc, data)
+			{
+				if (!first)
+					appendStringInfoString(es->str, ", ");
+				escape_json(es->str, (const char *) lfirst(lc));
+				first = false;
+			}
+			appendStringInfoChar(es->str, ']');
+			break;
+
+		case EXPLAIN_FORMAT_YAML:
+			ExplainYAMLLineStarting(es);
+			appendStringInfo(es->str, "%s: ", qlabel);
+			foreach(lc, data)
+			{
+				appendStringInfoChar(es->str, '\n');
+				appendStringInfoSpaces(es->str, es->indent * 2 + 2);
+				appendStringInfoString(es->str, "- ");
+				escape_yaml(es->str, (const char *) lfirst(lc));
+			}
+			break;
+	}
+}
+
+/*
+ * Explain a simple property.
+ *
+ * If "numeric" is true, the value is a number (or other value that
+ * doesn't need quoting in JSON).
+ *
+ * This usually should not be invoked directly, but via one of the datatype
+ * specific routines ExplainPropertyText, ExplainPropertyInteger, etc.
+ */
+static void
+ExplainProperty(const char *qlabel, const char *value, bool numeric,
+				ExplainState *es)
+{
+	switch (es->format)
+	{
+		case EXPLAIN_FORMAT_TEXT:
+			appendStringInfoSpaces(es->str, es->indent * 2);
+			appendStringInfo(es->str, "%s: %s\n", qlabel, value);
+			break;
+
+		case EXPLAIN_FORMAT_XML:
+			{
+				char	   *str;
+
+				appendStringInfoSpaces(es->str, es->indent * 2);
+				ExplainXMLTag(qlabel, X_OPENING | X_NOWHITESPACE, es);
+				str = escape_xml(value);
+				appendStringInfoString(es->str, str);
+				pfree(str);
+				ExplainXMLTag(qlabel, X_CLOSING | X_NOWHITESPACE, es);
+				appendStringInfoChar(es->str, '\n');
+			}
+			break;
+
+		case EXPLAIN_FORMAT_JSON:
+			ExplainJSONLineEnding(es);
+			appendStringInfoSpaces(es->str, es->indent * 2);
+			escape_json(es->str, qlabel);
+			appendStringInfoString(es->str, ": ");
+			if (numeric)
+				appendStringInfoString(es->str, value);
+			else
+				escape_json(es->str, value);
+			break;
+
+		case EXPLAIN_FORMAT_YAML:
+			ExplainYAMLLineStarting(es);
+			appendStringInfo(es->str, "%s: ", qlabel);
+			if (numeric)
+				appendStringInfoString(es->str, value);
+			else
+				escape_yaml(es->str, value);
+			break;
+	}
+}
+
+/*
+ * Explain an integer-valued property.
+ */
+static void
+ExplainPropertyInteger(const char *qlabel, int value, ExplainState *es)
+{
+	char		buf[32];
+
+	snprintf(buf, sizeof(buf), "%d", value);
+	ExplainProperty(qlabel, buf, true, es);
+}
+
+/*
+ * Explain a long-integer-valued property.
+ */
+static void
+ExplainPropertyLong(const char *qlabel, long value, ExplainState *es)
+{
+	char		buf[32];
+
+	snprintf(buf, sizeof(buf), "%ld", value);
+	ExplainProperty(qlabel, buf, true, es);
+}
+
+/*
+ * Explain a float-valued property, using the specified number of
+ * fractional digits.
+ */
+static void
+ExplainPropertyFloat(const char *qlabel, double value, int ndigits,
+					 ExplainState *es)
+{
+	char		buf[256];
+
+	snprintf(buf, sizeof(buf), "%.*f", ndigits, value);
+	ExplainProperty(qlabel, buf, true, es);
+}
+
+/*
+ * Open a group of related objects.
+ *
+ * objtype is the type of the group object, labelname is its label within
+ * a containing object (if any).
+ *
+ * If labeled is true, the group members will be labeled properties,
+ * while if it's false, they'll be unlabeled objects.
+ */
+static void
+ExplainOpenGroup(const char *objtype, const char *labelname,
+				 bool labeled, ExplainState *es)
+{
+	switch (es->format)
+	{
+		case EXPLAIN_FORMAT_TEXT:
+			/* nothing to do */
+			break;
+
+		case EXPLAIN_FORMAT_XML:
+			ExplainXMLTag(objtype, X_OPENING, es);
+			es->indent++;
+			break;
+
+		case EXPLAIN_FORMAT_JSON:
+			ExplainJSONLineEnding(es);
+			appendStringInfoSpaces(es->str, 2 * es->indent);
+			if (labelname)
+			{
+				escape_json(es->str, labelname);
+				appendStringInfoString(es->str, ": ");
+			}
+			appendStringInfoChar(es->str, labeled ? '{' : '[');
+
+			/*
+			 * In JSON format, the grouping_stack is an integer list.  0 means
+			 * we've emitted nothing at this grouping level, 1 means we've
+			 * emitted something (and so the next item needs a comma). See
+			 * ExplainJSONLineEnding().
+			 */
+			es->grouping_stack = lcons_int(0, es->grouping_stack);
+			es->indent++;
+			break;
+
+		case EXPLAIN_FORMAT_YAML:
+
+			/*
+			 * In YAML format, the grouping stack is an integer list.  0 means
+			 * we've emitted nothing at this grouping level AND this grouping
+			 * level is unlabelled and must be marked with "- ".  See
+			 * ExplainYAMLLineStarting().
+			 */
+			ExplainYAMLLineStarting(es);
+			if (labelname)
+			{
+				appendStringInfo(es->str, "%s: ", labelname);
+				es->grouping_stack = lcons_int(1, es->grouping_stack);
+			}
+			else
+			{
+				appendStringInfoString(es->str, "- ");
+				es->grouping_stack = lcons_int(0, es->grouping_stack);
+			}
+			es->indent++;
+			break;
+	}
+}
+
+/*
+ * Close a group of related objects.
+ * Parameters must match the corresponding ExplainOpenGroup call.
+ */
+static void
+ExplainCloseGroup(const char *objtype, const char *labelname,
+				  bool labeled, ExplainState *es)
+{
+	switch (es->format)
+	{
+		case EXPLAIN_FORMAT_TEXT:
+			/* nothing to do */
+			break;
+
+		case EXPLAIN_FORMAT_XML:
+			es->indent--;
+			ExplainXMLTag(objtype, X_CLOSING, es);
+			break;
+
+		case EXPLAIN_FORMAT_JSON:
+			es->indent--;
+			appendStringInfoChar(es->str, '\n');
+			appendStringInfoSpaces(es->str, 2 * es->indent);
+			appendStringInfoChar(es->str, labeled ? '}' : ']');
+			es->grouping_stack = list_delete_first(es->grouping_stack);
+			break;
+
+		case EXPLAIN_FORMAT_YAML:
+			es->indent--;
+			es->grouping_stack = list_delete_first(es->grouping_stack);
+			break;
+	}
+}
+
+/*
+ * Emit a "dummy" group that never has any members.
+ *
+ * objtype is the type of the group object, labelname is its label within
+ * a containing object (if any).
+ */
+static void
+ExplainDummyGroup(const char *objtype, const char *labelname, ExplainState *es)
+{
+	switch (es->format)
+	{
+		case EXPLAIN_FORMAT_TEXT:
+			/* nothing to do */
+			break;
+
+		case EXPLAIN_FORMAT_XML:
+			ExplainXMLTag(objtype, X_CLOSE_IMMEDIATE, es);
+			break;
+
+		case EXPLAIN_FORMAT_JSON:
+			ExplainJSONLineEnding(es);
+			appendStringInfoSpaces(es->str, 2 * es->indent);
+			if (labelname)
+			{
+				escape_json(es->str, labelname);
+				appendStringInfoString(es->str, ": ");
+			}
+			escape_json(es->str, objtype);
+			break;
+
+		case EXPLAIN_FORMAT_YAML:
+			ExplainYAMLLineStarting(es);
+			if (labelname)
+			{
+				escape_yaml(es->str, labelname);
+				appendStringInfoString(es->str, ": ");
+			}
+			else
+			{
+				appendStringInfoString(es->str, "- ");
+			}
+			escape_yaml(es->str, objtype);
+			break;
+	}
+}
+
+/*
+ * Emit the start-of-output boilerplate.
+ *
+ * This is just enough different from processing a subgroup that we need
+ * a separate pair of subroutines.
+ */
+void
+ExplainBeginOutput(ExplainState *es)
+{
+	switch (es->format)
+	{
+		case EXPLAIN_FORMAT_TEXT:
+			/* nothing to do */
+			break;
+
+		case EXPLAIN_FORMAT_XML:
+			appendStringInfoString(es->str,
+			 "<explain xmlns=\"http://www.postgresql.org/2009/explain\">\n");
+			es->indent++;
+			break;
+
+		case EXPLAIN_FORMAT_JSON:
+			/* top-level structure is an array of plans */
+			appendStringInfoChar(es->str, '[');
+			es->grouping_stack = lcons_int(0, es->grouping_stack);
+			es->indent++;
+			break;
+
+		case EXPLAIN_FORMAT_YAML:
+			es->grouping_stack = lcons_int(0, es->grouping_stack);
+			break;
+	}
+}
+
+/*
+ * Emit the end-of-output boilerplate.
+ */
+void
+ExplainEndOutput(ExplainState *es)
+{
+	switch (es->format)
+	{
+		case EXPLAIN_FORMAT_TEXT:
+			/* nothing to do */
+			break;
+
+		case EXPLAIN_FORMAT_XML:
+			es->indent--;
+			appendStringInfoString(es->str, "</explain>");
+			break;
+
+		case EXPLAIN_FORMAT_JSON:
+			es->indent--;
+			appendStringInfoString(es->str, "\n]");
+			es->grouping_stack = list_delete_first(es->grouping_stack);
+			break;
+
+		case EXPLAIN_FORMAT_YAML:
+			es->grouping_stack = list_delete_first(es->grouping_stack);
+			break;
+	}
+}
+
+/*
+ * Put an appropriate separator between multiple plans
+ */
+void
+ExplainSeparatePlans(ExplainState *es)
+{
+	switch (es->format)
+	{
+		case EXPLAIN_FORMAT_TEXT:
+			/* add a blank line */
+			appendStringInfoChar(es->str, '\n');
+			break;
+
+		case EXPLAIN_FORMAT_XML:
+		case EXPLAIN_FORMAT_JSON:
+		case EXPLAIN_FORMAT_YAML:
+			/* nothing to do */
+			break;
+	}
+}
+
+/*
+ * Emit opening or closing XML tag.
+ *
+ * "flags" must contain X_OPENING, X_CLOSING, or X_CLOSE_IMMEDIATE.
+ * Optionally, OR in X_NOWHITESPACE to suppress the whitespace we'd normally
+ * add.
+ *
+ * XML tag names can't contain white space, so we replace any spaces in
+ * "tagname" with dashes.
+ */
+static void
+ExplainXMLTag(const char *tagname, int flags, ExplainState *es)
+{
+	const char *s;
+
+	if ((flags & X_NOWHITESPACE) == 0)
+		appendStringInfoSpaces(es->str, 2 * es->indent);
+	appendStringInfoCharMacro(es->str, '<');
+	if ((flags & X_CLOSING) != 0)
+		appendStringInfoCharMacro(es->str, '/');
+	for (s = tagname; *s; s++)
+		appendStringInfoCharMacro(es->str, (*s == ' ') ? '-' : *s);
+	if ((flags & X_CLOSE_IMMEDIATE) != 0)
+		appendStringInfoString(es->str, " /");
+	appendStringInfoCharMacro(es->str, '>');
+	if ((flags & X_NOWHITESPACE) == 0)
+		appendStringInfoCharMacro(es->str, '\n');
+}
+
+/*
+ * Emit a JSON line ending.
+ *
+ * JSON requires a comma after each property but the last.	To facilitate this,
+ * in JSON format, the text emitted for each property begins just prior to the
+ * preceding line-break (and comma, if applicable).
+ */
+static void
+ExplainJSONLineEnding(ExplainState *es)
+{
+	Assert(es->format == EXPLAIN_FORMAT_JSON);
+	if (linitial_int(es->grouping_stack) != 0)
+		appendStringInfoChar(es->str, ',');
+	else
+		linitial_int(es->grouping_stack) = 1;
+	appendStringInfoChar(es->str, '\n');
+}
+
+/*
+ * Indent a YAML line.
+ *
+ * YAML lines are ordinarily indented by two spaces per indentation level.
+ * The text emitted for each property begins just prior to the preceding
+ * line-break, except for the first property in an unlabelled group, for which
+ * it begins immediately after the "- " that introduces the group.	The first
+ * property of the group appears on the same line as the opening "- ".
+ */
+static void
+ExplainYAMLLineStarting(ExplainState *es)
+{
+	Assert(es->format == EXPLAIN_FORMAT_YAML);
+	if (linitial_int(es->grouping_stack) == 0)
+	{
+		linitial_int(es->grouping_stack) = 1;
+	}
+	else
+	{
+		appendStringInfoChar(es->str, '\n');
+		appendStringInfoSpaces(es->str, es->indent * 2);
+	}
+}
+
+/*
+ * Produce a JSON string literal, properly escaping characters in the text.
+ */
+static void
+escape_json(StringInfo buf, const char *str)
+{
+	const char *p;
+
+	appendStringInfoCharMacro(buf, '\"');
+	for (p = str; *p; p++)
+	{
+		switch (*p)
+		{
+			case '\b':
+				appendStringInfoString(buf, "\\b");
+				break;
+			case '\f':
+				appendStringInfoString(buf, "\\f");
+				break;
+			case '\n':
+				appendStringInfoString(buf, "\\n");
+				break;
+			case '\r':
+				appendStringInfoString(buf, "\\r");
+				break;
+			case '\t':
+				appendStringInfoString(buf, "\\t");
+				break;
+			case '"':
+				appendStringInfoString(buf, "\\\"");
+				break;
+			case '\\':
+				appendStringInfoString(buf, "\\\\");
+				break;
+			default:
+				if ((unsigned char) *p < ' ')
+					appendStringInfo(buf, "\\u%04x", (int) *p);
+				else
+					appendStringInfoCharMacro(buf, *p);
+				break;
+		}
+	}
+	appendStringInfoCharMacro(buf, '\"');
+}
+
+/*
+ * YAML is a superset of JSON; unfortuantely, the YAML quoting rules are
+ * ridiculously complicated -- as documented in sections 5.3 and 7.3.3 of
+ * http://yaml.org/spec/1.2/spec.html -- so we chose to just quote everything.
+ * Empty strings, strings with leading or trailing whitespace, and strings
+ * containing a variety of special characters must certainly be quoted or the
+ * output is invalid; and other seemingly harmless strings like "0xa" or
+ * "true" must be quoted, lest they be interpreted as a hexadecimal or Boolean
+ * constant rather than a string.
+ */
+static void
+escape_yaml(StringInfo buf, const char *str)
+{
+	escape_json(buf, str);
 }
