@@ -2780,16 +2780,6 @@ DataNodeCopyFinish(PGXCNodeHandle** copy_connections, int primary_data_node,
 				 errmsg("Error while running COPY")));
 }
 
-#define REMOTE_QUERY_NSLOTS 2
-int
-ExecCountSlotsRemoteQuery(RemoteQuery *node)
-{
-	return ExecCountSlotsNode(outerPlan((Plan *) node)) +
-		ExecCountSlotsNode(innerPlan((Plan *) node)) +
-		REMOTE_QUERY_NSLOTS;
-}
-
-
 RemoteQueryState *
 ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 {
