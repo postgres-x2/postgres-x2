@@ -365,7 +365,7 @@ start_postmaster(void)
 	if (log_file != NULL)
 #ifdef PGXC
 		snprintf(cmd, MAXPGPATH, SYSTEMQUOTE "\"%s\" %s %s%s < \"%s\" >> \"%s\" 2>&1 &" SYSTEMQUOTE,
-				postgres_path, pgxcCommand, pgdata_opt, post_opts,
+				exec_path, pgxcCommand, pgdata_opt, post_opts,
 				DEVNULL, log_file);
 #else
 		snprintf(cmd, MAXPGPATH, SYSTEMQUOTE "\"%s\" %s%s < \"%s\" >> \"%s\" 2>&1 &" SYSTEMQUOTE,
