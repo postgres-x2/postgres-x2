@@ -43,20 +43,23 @@
 #include "utils/lsyscache.h"
 #include "utils/portal.h"
 #include "utils/syscache.h"
-
+#include "utils/numeric.h"
+#include "access/hash.h"
+#include "utils/timestamp.h"
+#include "utils/date.h"
 
 /*
  * Convenient format for literal comparisons
  *
- * PGXCTODO - make constant type Datum, handle other types
  */
 typedef struct
 {
-	Oid			relid;
-	RelationLocInfo *rel_loc_info;
-	Oid			attrnum;
-	char	   *col_name;
-	long		constant;		/* assume long PGXCTODO - should be Datum */
+	Oid		relid;
+	RelationLocInfo	*rel_loc_info;
+	Oid		attrnum;
+	char		*col_name;
+	Datum		constValue;
+	Oid		constType;
 } Literal_Comparison;
 
 /*
@@ -471,15 +474,12 @@ get_base_var(Var *var, XCWalkerContext *context)
 static void
 get_plan_nodes_insert(PlannerInfo *root, RemoteQuery *step)
 {
-	Query	   *query = root->parse;
-	RangeTblEntry *rte;
-	RelationLocInfo *rel_loc_info;
-	Const	   *constant;
-	ListCell   *lc;
-	long		part_value;
-	long	   *part_value_ptr = NULL;
-	Expr	   *eval_expr = NULL;
-
+	Query	   	*query = root->parse;
+	RangeTblEntry	*rte;
+	RelationLocInfo	*rel_loc_info;
+	Const	   	*constant;
+	ListCell	*lc;
+	Expr		*eval_expr = NULL;
 
 	step->exec_nodes = NULL;
 
@@ -568,7 +568,7 @@ get_plan_nodes_insert(PlannerInfo *root, RemoteQuery *step)
 		if (!lc)
 		{
 			/* Skip rest, handle NULL */
-			step->exec_nodes = GetRelationNodes(rel_loc_info, NULL, RELATION_ACCESS_INSERT);
+			step->exec_nodes = GetRelationNodes(rel_loc_info, 0, UNKNOWNOID, RELATION_ACCESS_INSERT);
 			return;
 		}
 
@@ -650,21 +650,11 @@ get_plan_nodes_insert(PlannerInfo *root, RemoteQuery *step)
 			}
 
 			constant = (Const *) checkexpr;
-
-			if (constant->consttype == INT4OID ||
-				constant->consttype == INT2OID ||
-				constant->consttype == INT8OID)
-			{
-				part_value = (long) constant->constvalue;
-				part_value_ptr = &part_value;
-			}
-			/* PGXCTODO - handle other data types */
 		}
 	}
 
 	/* single call handles both replicated and partitioned types */
-	step->exec_nodes = GetRelationNodes(rel_loc_info, part_value_ptr,
-								  RELATION_ACCESS_INSERT);
+	step->exec_nodes = GetRelationNodes(rel_loc_info, constant->constvalue, constant->consttype, RELATION_ACCESS_INSERT);
 
 	if (eval_expr)
 		pfree(eval_expr);
@@ -1048,6 +1038,28 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 		{
 			Expr	   *arg1 = linitial(opexpr->args);
 			Expr	   *arg2 = lsecond(opexpr->args);
+			RelabelType *rt;
+			Expr	   *targ;
+
+			if (IsA(arg1, RelabelType))
+			{
+				rt = arg1;
+				arg1 = rt->arg;
+			}
+
+			if (IsA(arg2, RelabelType))
+			{
+				rt = arg2;
+				arg2 = rt->arg;
+			}
+
+			/* Handle constant = var */
+			if (IsA(arg2, Var))
+			{
+				targ = arg1;
+				arg1 = arg2;
+				arg2 = targ;
+			}
 
 			/* Look for a table */
 			if (IsA(arg1, Var))
@@ -1135,7 +1147,8 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 						lit_comp->relid = column_base->relid;
 						lit_comp->rel_loc_info = rel_loc_info1;
 						lit_comp->col_name = column_base->colname;
-						lit_comp->constant = constant->constvalue;
+						lit_comp->constValue = constant->constvalue;
+						lit_comp->constType = constant->consttype;
 
 						context->conditions->partitioned_literal_comps = lappend(
 									   context->conditions->partitioned_literal_comps,
@@ -1743,9 +1756,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 		if (rel_loc_info->locatorType != LOCATOR_TYPE_HASH &&
 			rel_loc_info->locatorType != LOCATOR_TYPE_MODULO)
 			/* do not need to determine partitioning expression */
-			context->query_step->exec_nodes = GetRelationNodes(rel_loc_info,
-															   NULL,
-															   context->accessType);
+			context->query_step->exec_nodes = GetRelationNodes(rel_loc_info, 0, UNKNOWNOID, context->accessType);
 
 		/* Note replicated table usage for determining safe queries */
 		if (context->query_step->exec_nodes)
@@ -1801,9 +1812,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 		{
 			Literal_Comparison *lit_comp = (Literal_Comparison *) lfirst(lc);
 
-			test_exec_nodes = GetRelationNodes(
-						lit_comp->rel_loc_info, &(lit_comp->constant),
-						RELATION_ACCESS_READ);
+			test_exec_nodes = GetRelationNodes(lit_comp->rel_loc_info, lit_comp->constValue, lit_comp->constType, RELATION_ACCESS_READ);
 
 			test_exec_nodes->tableusagetype = table_usage_type;
 			if (context->query_step->exec_nodes == NULL)
@@ -1829,9 +1838,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 		parent_child = (Parent_Child_Join *)
 				linitial(context->conditions->partitioned_parent_child);
 
-		context->query_step->exec_nodes = GetRelationNodes(parent_child->rel_loc_info1,
-														   NULL,
-														   context->accessType);
+		context->query_step->exec_nodes = GetRelationNodes(parent_child->rel_loc_info1, 0, UNKNOWNOID, context->accessType);
 		context->query_step->exec_nodes->tableusagetype = table_usage_type;
 	}
 
@@ -3379,8 +3386,6 @@ GetHashExecNodes(RelationLocInfo *rel_loc_info, ExecNodes **exec_nodes, const Ex
 	Expr	   *checkexpr;
 	Expr	   *eval_expr = NULL;
 	Const	   *constant;
-	long		part_value;
-	long	   *part_value_ptr = NULL;
 
 	eval_expr = (Expr *) eval_const_expressions(NULL, (Node *)expr);
 	checkexpr = get_numeric_constant(eval_expr);
@@ -3390,17 +3395,8 @@ GetHashExecNodes(RelationLocInfo *rel_loc_info, ExecNodes **exec_nodes, const Ex
 
 	constant = (Const *) checkexpr;
 
-	if (constant->consttype == INT4OID ||
-		constant->consttype == INT2OID ||
-		constant->consttype == INT8OID)
-	{
-		part_value = (long) constant->constvalue;
-		part_value_ptr = &part_value;
-	}
-
 	/* single call handles both replicated and partitioned types */
-	*exec_nodes = GetRelationNodes(rel_loc_info, part_value_ptr,
-								   RELATION_ACCESS_INSERT);
+	*exec_nodes = GetRelationNodes(rel_loc_info, constant->constvalue, constant->consttype, RELATION_ACCESS_INSERT);
 	if (eval_expr)
 		pfree(eval_expr);
 

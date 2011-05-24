@@ -41,7 +41,7 @@
 
 #include "catalog/pgxc_class.h"
 #include "catalog/namespace.h"
-
+#include "access/hash.h"
 
 /*
  * PGXCTODO For prototype, relations use the same hash mapping table.
@@ -206,7 +206,32 @@ char *pColName;
 bool
 IsHashDistributable(Oid col_type)
 {
-	if (col_type == INT4OID || col_type == INT2OID)
+	if(col_type == INT8OID
+	|| col_type == INT2OID
+	|| col_type == OIDOID
+	|| col_type == INT4OID
+	|| col_type == BOOLOID
+	|| col_type == CHAROID
+	|| col_type == NAMEOID
+	|| col_type == INT2VECTOROID
+	|| col_type == TEXTOID
+	|| col_type == OIDVECTOROID
+	|| col_type == FLOAT4OID
+	|| col_type == FLOAT8OID
+	|| col_type == ABSTIMEOID
+	|| col_type == RELTIMEOID
+	|| col_type == CASHOID
+	|| col_type == BPCHAROID
+	|| col_type == BYTEAOID
+	|| col_type == VARCHAROID
+	|| col_type == DATEOID
+	|| col_type == TIMEOID
+	|| col_type == TIMESTAMPOID
+	|| col_type == TIMESTAMPTZOID
+	|| col_type == INTERVALOID
+	|| col_type == TIMETZOID
+	|| col_type == NUMERICOID
+	)
 		return true;
 
 	return false;
@@ -296,7 +321,32 @@ RelationLocInfo *rel_loc_info;
 bool
 IsModuloDistributable(Oid col_type)
 {
-	if (col_type == INT4OID || col_type == INT2OID)
+	if(col_type == INT8OID
+	|| col_type == INT2OID
+	|| col_type == OIDOID
+	|| col_type == INT4OID
+	|| col_type == BOOLOID
+	|| col_type == CHAROID
+	|| col_type == NAMEOID
+	|| col_type == INT2VECTOROID
+	|| col_type == TEXTOID
+	|| col_type == OIDVECTOROID
+	|| col_type == FLOAT4OID
+	|| col_type == FLOAT8OID
+	|| col_type == ABSTIMEOID
+	|| col_type == RELTIMEOID
+	|| col_type == CASHOID
+	|| col_type == BPCHAROID
+	|| col_type == BYTEAOID
+	|| col_type == VARCHAROID
+	|| col_type == DATEOID
+	|| col_type == TIMEOID
+	|| col_type == TIMESTAMPOID
+	|| col_type == TIMESTAMPTZOID
+	|| col_type == INTERVALOID
+	|| col_type == TIMETZOID
+	|| col_type == NUMERICOID
+	)
 		return true;
 
 	return false;
@@ -409,13 +459,13 @@ GetRoundRobinNode(Oid relid)
  * The returned List is a copy, so it should be freed when finished.
  */
 ExecNodes *
-GetRelationNodes(RelationLocInfo *rel_loc_info, long *partValue,
-				 RelationAccessType accessType)
+GetRelationNodes(RelationLocInfo *rel_loc_info, Datum valueForDistCol, Oid typeOfValueForDistCol, RelationAccessType accessType)
 {
 	ListCell   *prefItem;
 	ListCell   *stepItem;
 	ExecNodes *exec_nodes;
-
+	long	hashValue;
+	int	nError;
 
 	if (rel_loc_info == NULL)
 		return NULL;
@@ -480,10 +530,10 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, long *partValue,
 			break;
 
 		case LOCATOR_TYPE_HASH:
-
-			if (partValue != NULL)
+			hashValue = compute_hash(typeOfValueForDistCol, valueForDistCol, &nError);
+			if (nError == 0)
 				/* in prototype, all partitioned tables use same map */
-				exec_nodes->nodelist = lappend_int(NULL, get_node_from_hash(hash_range_int(*partValue)));
+				exec_nodes->nodelist = lappend_int(NULL, get_node_from_hash(hash_range_int(hashValue)));
 			else
 				if (accessType == RELATION_ACCESS_INSERT)
 					/* Insert NULL to node 1 */
@@ -494,9 +544,10 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, long *partValue,
 			break;
 
 		case LOCATOR_TYPE_MODULO:
-			if (partValue != NULL)
+			hashValue = compute_hash(typeOfValueForDistCol, valueForDistCol, &nError);
+			if (nError == 0)
 				/* in prototype, all partitioned tables use same map */
-				exec_nodes->nodelist = lappend_int(NULL, get_node_from_modulo(compute_modulo(*partValue)));
+				exec_nodes->nodelist = lappend_int(NULL, get_node_from_modulo(compute_modulo(hashValue)));
 			else
 				if (accessType == RELATION_ACCESS_INSERT)
 					/* Insert NULL to node 1 */
@@ -750,7 +801,6 @@ RelationLocInfo *
 GetRelationLocInfo(Oid relid)
 {
 	RelationLocInfo *ret_loc_info = NULL;
-	char *namespace;
 
 	Relation	rel = relation_open(relid, AccessShareLock);
 

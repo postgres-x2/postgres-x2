@@ -134,31 +134,31 @@ SET enable_seqscan = OFF;
 SET enable_indexscan = ON;
 SET enable_bitmapscan = ON;
 
-EXPLAIN (COSTS OFF)
+--EXPLAIN (COSTS OFF)
+--SELECT * FROM fast_emp4000
+--    WHERE home_base @ '(200,200),(2000,1000)'::box
+--    ORDER BY (home_base[0])[0];
 SELECT * FROM fast_emp4000
     WHERE home_base @ '(200,200),(2000,1000)'::box
     ORDER BY (home_base[0])[0];
-SELECT * FROM fast_emp4000
-    WHERE home_base @ '(200,200),(2000,1000)'::box
-    ORDER BY (home_base[0])[0];
 
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM fast_emp4000 WHERE home_base && '(1000,1000,0,0)'::box;
+--EXPLAIN (COSTS OFF)
+--SELECT count(*) FROM fast_emp4000 WHERE home_base && '(1000,1000,0,0)'::box;
 SELECT count(*) FROM fast_emp4000 WHERE home_base && '(1000,1000,0,0)'::box;
 
-EXPLAIN (COSTS OFF)
-SELECT count(*) FROM fast_emp4000 WHERE home_base IS NULL;
+--EXPLAIN (COSTS OFF)
+--SELECT count(*) FROM fast_emp4000 WHERE home_base IS NULL;
 SELECT count(*) FROM fast_emp4000 WHERE home_base IS NULL;
 
-EXPLAIN (COSTS OFF)
-SELECT * FROM polygon_tbl WHERE f1 ~ '((1,1),(2,2),(2,1))'::polygon
-    ORDER BY (poly_center(f1))[0];
+--EXPLAIN (COSTS OFF)
+--SELECT * FROM polygon_tbl WHERE f1 ~ '((1,1),(2,2),(2,1))'::polygon
+--    ORDER BY (poly_center(f1))[0];
 SELECT * FROM polygon_tbl WHERE f1 ~ '((1,1),(2,2),(2,1))'::polygon
     ORDER BY (poly_center(f1))[0];
 
-EXPLAIN (COSTS OFF)
-SELECT * FROM circle_tbl WHERE f1 && circle(point(1,-2), 1)
-    ORDER BY area(f1);
+--EXPLAIN (COSTS OFF)
+--SELECT * FROM circle_tbl WHERE f1 && circle(point(1,-2), 1)
+--    ORDER BY area(f1);
 SELECT * FROM circle_tbl WHERE f1 && circle(point(1,-2), 1)
     ORDER BY area(f1);
 

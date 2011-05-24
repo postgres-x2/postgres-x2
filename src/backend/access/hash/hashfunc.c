@@ -28,6 +28,13 @@
 
 #include "access/hash.h"
 
+#ifdef PGXC
+#include "catalog/pg_type.h"
+#include "utils/builtins.h"
+#include "utils/timestamp.h"
+#include "utils/date.h"
+#include "utils/nabstime.h"
+#endif
 
 /* Note: this is used for both "char" and boolean datatypes */
 Datum
@@ -521,3 +528,91 @@ hash_uint32(uint32 k)
 	/* report the result */
 	return UInt32GetDatum(c);
 }
+
+#ifdef PGXC
+/*
+ * compute_hash() -- Generaic hash function for all datatypes
+ *
+ */
+
+Datum
+compute_hash(Oid type, Datum value, int *pErr)
+{
+	Assert(pErr);
+
+	*pErr = 0;
+
+	if (value == NULL)
+	{
+		*pErr = 1;
+		return 0;
+	}
+
+	switch(type)
+	{
+		case INT8OID:
+			/* This gives added advantage that
+			 *	a = 8446744073709551359
+			 * and	a = 8446744073709551359::int8 both work*/
+			return DatumGetInt32(value);
+		case INT2OID:
+			return DatumGetInt16(value);
+		case OIDOID:
+			return DatumGetObjectId(value);
+		case INT4OID:
+			return DatumGetInt32(value);
+		case BOOLOID:
+			return DatumGetBool(value);
+
+		case CHAROID:
+			return DirectFunctionCall1(hashchar, value);
+		case NAMEOID:
+			return DirectFunctionCall1(hashname, value);
+		case INT2VECTOROID:
+			return DirectFunctionCall1(hashint2vector, value);
+
+		case VARCHAROID:
+		case TEXTOID:
+			return DirectFunctionCall1(hashtext, value);
+
+		case OIDVECTOROID:
+			return DirectFunctionCall1(hashoidvector, value);
+		case FLOAT4OID:
+			return DirectFunctionCall1(hashfloat4, value);
+		case FLOAT8OID:
+			return DirectFunctionCall1(hashfloat8, value);
+
+		case ABSTIMEOID:
+			return DatumGetAbsoluteTime(value);
+		case RELTIMEOID:
+			return DatumGetRelativeTime(value);
+		case CASHOID:
+			return DirectFunctionCall1(hashint8, value);
+
+		case BPCHAROID:
+			return DirectFunctionCall1(hashbpchar, value);
+		case BYTEAOID:
+			return DirectFunctionCall1(hashvarlena, value);
+
+		case DATEOID:
+			return DatumGetDateADT(value);
+		case TIMEOID:
+			return DirectFunctionCall1(time_hash, value);
+		case TIMESTAMPOID:
+			return DirectFunctionCall1(timestamp_hash, value);
+		case TIMESTAMPTZOID:
+			return DirectFunctionCall1(timestamp_hash, value);
+		case INTERVALOID:
+			return DirectFunctionCall1(interval_hash, value);
+		case TIMETZOID:
+			return DirectFunctionCall1(timetz_hash, value);
+
+		case NUMERICOID:
+			return DirectFunctionCall1(hash_numeric, value);
+		default:
+			*pErr = 1;
+			return 0;
+	}
+}
+
+#endif

@@ -1643,14 +1643,14 @@ CopyTo(CopyState cstate)
 	}
 
 #ifdef PGXC
-    if (IS_PGXC_COORDINATOR && cstate->rel_loc)
+	if (IS_PGXC_COORDINATOR && cstate->rel_loc)
 	{
 		cstate->processed = DataNodeCopyOut(
-				GetRelationNodes(cstate->rel_loc, NULL, RELATION_ACCESS_READ),
+				GetRelationNodes(cstate->rel_loc, 0, UNKNOWNOID, RELATION_ACCESS_READ),
 				cstate->connections,
 				cstate->copy_file);
 	}
-    else
+	else
 	{
 #endif
 
@@ -2415,15 +2415,18 @@ CopyFrom(CopyState cstate)
 #ifdef PGXC
 		if (IS_PGXC_COORDINATOR && cstate->rel_loc)
 		{
-			Datum 	   *dist_col_value = NULL;
+			Datum	dist_col_value;
+			Oid	dist_col_type = UNKNOWNOID;
 
 			if (cstate->idx_dist_by_col >= 0 && !nulls[cstate->idx_dist_by_col])
-				dist_col_value = &values[cstate->idx_dist_by_col];
+			{
+				dist_col_value = values[cstate->idx_dist_by_col];
+				dist_col_type = attr[cstate->idx_dist_by_col]->atttypid;
+			}
 
 			if (DataNodeCopyIn(cstate->line_buf.data,
 					       cstate->line_buf.len,
-						   GetRelationNodes(cstate->rel_loc, (long *)dist_col_value,
-											RELATION_ACCESS_INSERT),
+						   GetRelationNodes(cstate->rel_loc, dist_col_value, dist_col_type, RELATION_ACCESS_INSERT),
 						   cstate->connections))
 				ereport(ERROR,
 						(errcode(ERRCODE_CONNECTION_EXCEPTION),
@@ -4035,7 +4038,8 @@ DoInsertSelectCopy(EState *estate, TupleTableSlot *slot)
 	HeapTuple tuple;
 	Datum *values;
 	bool *nulls;
-	Datum *dist_col_value = NULL;
+	Datum	dist_col_value;
+	Oid	dist_col_type;
 	MemoryContext oldcontext;
 	CopyState cstate;
 
@@ -4079,6 +4083,11 @@ DoInsertSelectCopy(EState *estate, TupleTableSlot *slot)
 		/* We use fe_msgbuf as a per-row buffer regardless of copy_dest */
 		cstate->fe_msgbuf = makeStringInfo();
 		attr = cstate->tupDesc->attrs;
+
+		if (cstate->idx_dist_by_col >= 0)
+			dist_col_type = attr[cstate->idx_dist_by_col]->atttypid;
+		else
+			dist_col_type = UNKNOWNOID;
 
 		/* Get info about the columns we need to process. */
 		cstate->out_functions = (FmgrInfo *) palloc(cstate->tupDesc->natts * sizeof(FmgrInfo));
@@ -4150,12 +4159,14 @@ DoInsertSelectCopy(EState *estate, TupleTableSlot *slot)
 
 	/* Get dist column, if any */
 	if (cstate->idx_dist_by_col >= 0 && !nulls[cstate->idx_dist_by_col])
-		dist_col_value = &values[cstate->idx_dist_by_col];
+		dist_col_value = values[cstate->idx_dist_by_col];
+	else
+		dist_col_type = UNKNOWNOID;	
 
 	/* Send item to the appropriate data node(s) (buffer) */
 	if (DataNodeCopyIn(cstate->fe_msgbuf->data,
 			       cstate->fe_msgbuf->len,
-				   GetRelationNodes(cstate->rel_loc, (long *)dist_col_value, RELATION_ACCESS_INSERT),
+				   GetRelationNodes(cstate->rel_loc, dist_col_value, dist_col_type, RELATION_ACCESS_INSERT),
 				   cstate->connections))
 			ereport(ERROR,
 				(errcode(ERRCODE_CONNECTION_EXCEPTION),

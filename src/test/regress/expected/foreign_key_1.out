@@ -773,9 +773,9 @@ INSERT INTO FKTABLE VALUES(43);		-- should fail
 ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_ftest1_fkey"
 DETAIL:  Key (ftest1)=(43) is not present in table "pktable".
 UPDATE FKTABLE SET ftest1 = ftest1;	-- should succeed
+ERROR:  Partition column can't be updated in current version
 UPDATE FKTABLE SET ftest1 = ftest1 + 1;	-- should fail
-ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_ftest1_fkey"
-DETAIL:  Key (ftest1)=(43) is not present in table "pktable".
+ERROR:  Partition column can't be updated in current version
 DROP TABLE FKTABLE;
 -- This should fail, because we'd have to cast numeric to int which is
 -- not an implicit coercion (or use numeric=numeric, but that's not part
@@ -787,34 +787,22 @@ DROP TABLE PKTABLE;
 -- On the other hand, this should work because int implicitly promotes to
 -- numeric, and we allow promotion on the FK side
 CREATE TABLE PKTABLE (ptest1 numeric PRIMARY KEY);
-ERROR:  Column ptest1 is not a hash distributable data type
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
 INSERT INTO PKTABLE VALUES(42);
-ERROR:  relation "pktable" does not exist
-LINE 1: INSERT INTO PKTABLE VALUES(42);
-                    ^
 CREATE TABLE FKTABLE (ftest1 int REFERENCES pktable);
-ERROR:  relation "pktable" does not exist
 -- Check it actually works
 INSERT INTO FKTABLE VALUES(42);		-- should succeed
-ERROR:  relation "fktable" does not exist
-LINE 1: INSERT INTO FKTABLE VALUES(42);
-                    ^
+ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_ftest1_fkey"
+DETAIL:  Key (ftest1)=(42) is not present in table "pktable".
 INSERT INTO FKTABLE VALUES(43);		-- should fail
-ERROR:  relation "fktable" does not exist
-LINE 1: INSERT INTO FKTABLE VALUES(43);
-                    ^
+ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_ftest1_fkey"
+DETAIL:  Key (ftest1)=(43) is not present in table "pktable".
 UPDATE FKTABLE SET ftest1 = ftest1;	-- should succeed
-ERROR:  relation "fktable" does not exist
-LINE 1: UPDATE FKTABLE SET ftest1 = ftest1;
-               ^
+ERROR:  Partition column can't be updated in current version
 UPDATE FKTABLE SET ftest1 = ftest1 + 1;	-- should fail
-ERROR:  relation "fktable" does not exist
-LINE 1: UPDATE FKTABLE SET ftest1 = ftest1 + 1;
-               ^
+ERROR:  Partition column can't be updated in current version
 DROP TABLE FKTABLE;
-ERROR:  table "fktable" does not exist
 DROP TABLE PKTABLE;
-ERROR:  table "pktable" does not exist
 -- Two columns, two tables
 CREATE TABLE PKTABLE (ptest1 int, ptest2 inet, PRIMARY KEY(ptest1, ptest2));
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"

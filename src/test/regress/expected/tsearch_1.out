@@ -801,7 +801,7 @@ SELECT COUNT(*) FROM test_tsquery WHERE keyword >  'new & york';
 (1 row)
 
 CREATE UNIQUE INDEX bt_tsq ON test_tsquery (keyword);
-ERROR:  Cannot locally enforce a unique index on round robin distributed table.
+ERROR:  Unique index of partitioned table must contain the hash/modulo distribution column.
 SET enable_seqscan=OFF;
 SELECT COUNT(*) FROM test_tsquery WHERE keyword <  'new & york';
  count 
@@ -1054,6 +1054,7 @@ SELECT count(*) FROM test_tsvector WHERE a @@ to_tsquery('345&qwerty');
 (0 rows)
 
 UPDATE test_tsvector SET t = null WHERE t = '345 qwerty';
+ERROR:  Partition column can't be updated in current version
 SELECT count(*) FROM test_tsvector WHERE a @@ to_tsquery('345&qwerty');
  count 
 -------

@@ -128,16 +128,6 @@ SELECT 'nan'::numeric::float4;
 SELECT '' AS five, * FROM FLOAT4_TBL ORDER BY f1;
  five |     f1      
 ------+-------------
-      |      1004.3
-      | 1.23457e+20
-      |           0
-      |      -34.84
-      | 1.23457e-20
-(5 rows)
-
-SELECT '' AS five, * FROM FLOAT4_TBL ORDER BY f1;
- five |     f1      
-------+-------------
       |      -34.84
       |           0
       | 1.23457e-20
@@ -257,13 +247,14 @@ SELECT '' AS five, f.f1, @f.f1 AS abs_f1 FROM FLOAT4_TBL f ORDER BY f1;
 UPDATE FLOAT4_TBL
    SET f1 = FLOAT4_TBL.f1 * '-1'
    WHERE FLOAT4_TBL.f1 > '0.0';
+ERROR:  Partition column can't be updated in current version
 SELECT '' AS five, * FROM FLOAT4_TBL ORDER BY f1;
- five |      f1      
-------+--------------
-      | -1.23457e+20
-      |      -1004.3
-      |       -34.84
-      | -1.23457e-20
-      |            0
+ five |     f1      
+------+-------------
+      |      -34.84
+      |           0
+      | 1.23457e-20
+      |      1004.3
+      | 1.23457e+20
 (5 rows)
 

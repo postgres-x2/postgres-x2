@@ -664,18 +664,18 @@ pg_analyze_and_rewrite(Node *parsetree, const char *query_string,
 	querytree_list = pg_rewrite_query(query);
 
 #ifdef PGXC
-        if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-        {
-                ListCell   *lc;
-
-                foreach(lc, querytree_list)
-                {
-                        Query *query = (Query *) lfirst(lc);
-
-                        if (query->sql_statement == NULL)
-                                query->sql_statement = pstrdup(query_string);
-                }
-        }
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	{
+		ListCell   *lc;
+	
+		foreach(lc, querytree_list)
+		{
+			Query *query = (Query *) lfirst(lc);
+		
+			if (query->sql_statement == NULL)
+				query->sql_statement = pstrdup(query_string);
+		}
+	}
 #endif
 
 	TRACE_POSTGRESQL_QUERY_REWRITE_DONE(query_string);
@@ -1036,7 +1036,7 @@ exec_simple_query(const char *query_string)
 
 		querytree_list = pg_analyze_and_rewrite(parsetree, query_string,
 												NULL, 0);
-
+		
 		plantree_list = pg_plan_queries(querytree_list, 0, NULL);
 
 		/* Done with the snapshot used for parsing/planning */

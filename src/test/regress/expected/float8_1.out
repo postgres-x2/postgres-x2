@@ -381,6 +381,7 @@ SELECT '' AS five, * FROM FLOAT8_TBL ORDER BY f1;
 UPDATE FLOAT8_TBL
    SET f1 = FLOAT8_TBL.f1 * '-1'
    WHERE FLOAT8_TBL.f1 > '0.0';
+ERROR:  Partition column can't be updated in current version
 SELECT '' AS bad, f.f1 ^ '1e200' from FLOAT8_TBL f ORDER BY f1;
 ERROR:  value out of range: overflow
 SELECT '' AS bad, f.f1 ^ '1e200' from FLOAT8_TBL f ORDER BY f1;
@@ -396,17 +397,17 @@ ERROR:  cannot take logarithm of zero
 SELECT '' AS bad, ln(f.f1) from FLOAT8_TBL f where f.f1 < '0.0';
 ERROR:  cannot take logarithm of a negative number
 SELECT '' AS bad, exp(f.f1) from FLOAT8_TBL f ORDER BY f1;
-ERROR:  value out of range: underflow
+ERROR:  value out of range: overflow
 SELECT '' AS bad, f.f1 / '0.0' from FLOAT8_TBL f;
 ERROR:  division by zero
 SELECT '' AS five, * FROM FLOAT8_TBL ORDER BY f1;
- five |          f1           
-------+-----------------------
-      | -1.2345678901234e+200
-      |               -1004.3
-      |                -34.84
-      | -1.2345678901234e-200
-      |                     0
+ five |          f1          
+------+----------------------
+      |               -34.84
+      |                    0
+      | 1.2345678901234e-200
+      |               1004.3
+      | 1.2345678901234e+200
 (5 rows)
 
 -- test for over- and underflow 

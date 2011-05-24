@@ -1061,7 +1061,8 @@ BufferConnection(PGXCNodeHandle *conn)
 	RemoteQueryState *combiner = conn->combiner;
 	MemoryContext oldcontext;
 
-	Assert(conn->state == DN_CONNECTION_STATE_QUERY && combiner);
+	if (combiner == NULL || conn->state != DN_CONNECTION_STATE_QUERY)
+		return;
 
 	/*
 	 * When BufferConnection is invoked CurrentContext is related to other
@@ -3076,9 +3077,8 @@ get_exec_connections(RemoteQueryState *planstate,
 				if (!isnull)
 				{
 					RelationLocInfo *rel_loc_info = GetRelationLocInfo(exec_nodes->relid);
-					ExecNodes *nodes = GetRelationNodes(rel_loc_info,
-														(long *) &partvalue,
-														exec_nodes->accesstype);
+					/* PGXCTODO what is the type of partvalue here*/
+					ExecNodes *nodes = GetRelationNodes(rel_loc_info, partvalue, UNKNOWNOID, exec_nodes->accesstype);
 					if (nodes)
 					{
 						nodelist = nodes->nodelist;

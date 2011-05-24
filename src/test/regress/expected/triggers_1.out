@@ -717,30 +717,30 @@ ERROR:  Postgres-XC does not support TRIGGER yet
 DETAIL:  The feature is not currently supported
 \set QUIET false
 UPDATE min_updates_test SET f1 = f1;
-UPDATE 2
-UPDATE min_updates_test SET f2 = f2 + 1;
 ERROR:  Partition column can't be updated in current version
+UPDATE min_updates_test SET f2 = f2 + 1;
+UPDATE 2
 UPDATE min_updates_test SET f3 = 2 WHERE f3 is null;
 UPDATE 1
 UPDATE min_updates_test_oids SET f1 = f1;
-UPDATE 2
-UPDATE min_updates_test_oids SET f2 = f2 + 1;
 ERROR:  Partition column can't be updated in current version
+UPDATE min_updates_test_oids SET f2 = f2 + 1;
+UPDATE 2
 UPDATE min_updates_test_oids SET f3 = 2 WHERE f3 is null;
 UPDATE 1
 \set QUIET true
 SELECT * FROM min_updates_test ORDER BY 1,2,3;
  f1 | f2 | f3 
 ----+----+----
- a  |  1 |  2
- b  |  2 |  2
+ a  |  2 |  2
+ b  |  3 |  2
 (2 rows)
 
 SELECT * FROM min_updates_test_oids ORDER BY 1,2,3;
  f1 | f2 | f3 
 ----+----+----
- a  |  1 |  2
- b  |  2 |  2
+ a  |  2 |  2
+ b  |  3 |  2
 (2 rows)
 
 DROP TABLE min_updates_test;

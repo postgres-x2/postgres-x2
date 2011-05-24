@@ -851,8 +851,28 @@ ExplainNode(Plan *plan, PlanState *planstate,
 		case T_WorkTableScan:
 #ifdef PGXC
 		case T_RemoteQuery:
+			{
+				RemoteQuery *remote_query = (RemoteQuery *) plan;
+				int pnc, nc;
+	
+				pnc = 0;
+				nc = 0;
+				if (remote_query->exec_nodes != NULL)
+				{
+					if (remote_query->exec_nodes->primarynodelist != NULL)
+					{
+						pnc = list_length(remote_query->exec_nodes->primarynodelist);
+						appendStringInfo(es->str, " (Primary Node Count [%d])", pnc);
+					}
+					if (remote_query->exec_nodes->nodelist)
+					{
+						nc = list_length(remote_query->exec_nodes->nodelist);
+						appendStringInfo(es->str, " (Node Count [%d])", nc);
+					}
+				}
 #endif
-			ExplainScanTarget((Scan *) plan, es);
+				ExplainScanTarget((Scan *) plan, es);
+			}
 			break;
 		case T_BitmapIndexScan:
 			{

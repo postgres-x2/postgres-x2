@@ -2418,9 +2418,7 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 		scan_plan->exec_nodes->baselocatortype = rel_loc_info->locatorType;
 	else
 		scan_plan->exec_nodes->baselocatortype = '\0';
-	scan_plan->exec_nodes = GetRelationNodes(rel_loc_info,
-														   NULL,
-														   RELATION_ACCESS_READ);
+	scan_plan->exec_nodes = GetRelationNodes(rel_loc_info, 0, UNKNOWNOID, RELATION_ACCESS_READ);
 	copy_path_costsize(&scan_plan->scan.plan, best_path);
 
 	/* PGXCTODO - get better estimates */
@@ -5024,8 +5022,7 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		fstep->sql_statement = pstrdup(buf->data);
 		fstep->combine_type = COMBINE_TYPE_SAME;
 		fstep->read_only = false;
-		fstep->exec_nodes = GetRelationNodes(rel_loc_info, NULL,
-											 RELATION_ACCESS_UPDATE);
+		fstep->exec_nodes = GetRelationNodes(rel_loc_info, 0, UNKNOWNOID, RELATION_ACCESS_UPDATE);
 	}
 	else
 	{
