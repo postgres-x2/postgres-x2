@@ -2835,7 +2835,7 @@ DATA(insert OID = 2966 (  float8_collect   PGNSP PGUID 12 1 0 0 f f f t f i 2 0 
 DESCR("aggregate collection function");
 DATA(insert OID = 2964 (  numeric_avg_collect	PGNSP PGUID 12 1 0 0 f f f t f i 2 0 1231 "1231 1231" _null_ _null_ _null_ _null_ numeric_avg_collect _null_ _null_ _null_ ));
 DESCR("aggregate collection function");
-DATA(insert OID = 2730 (  numeric_collect	PGNSP PGUID 12 1 0 0 f f f t f i 2 0 1231 "1231 1231" _null_ _null_ _null_ _null_ numeric_collect _null_ _null_ _null_ ));
+DATA(insert OID = 2968 (  numeric_collect	PGNSP PGUID 12 1 0 0 f f f t f i 2 0 1231 "1231 1231" _null_ _null_ _null_ _null_ numeric_collect _null_ _null_ _null_ ));
 DESCR("aggregate collection function");
 DATA(insert OID = 2967 (  interval_collect   PGNSP PGUID 12 1 0 0 f f f t f i 2 0 1187 "1187 1187" _null_ _null_ _null_ _null_ interval_collect _null_ _null_ _null_ ));
 DESCR("aggregate transition function");
