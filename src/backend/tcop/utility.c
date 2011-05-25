@@ -1478,6 +1478,19 @@ standard_ProcessUtility(Node *parsetree,
 			/* should we allow DISCARD PLANS? */
 			CheckRestrictedOperation("DISCARD");
 			DiscardCommand((DiscardStmt *) parsetree, isTopLevel);
+#ifdef PGXC
+			/* Let the pooler manage the statement */
+			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+			{
+				/*
+				 * If command is local and we are not in a transaction block do NOT
+				 * send this query to backend nodes
+				 */
+				if (!IsTransactionBlock())
+					if (PoolManagerSetCommand(false, queryString) < 0)
+						elog(ERROR, "Postgres-XC: ERROR DISCARD query");
+			}
+#endif
 			break;
 
 		case T_CreateTrigStmt:
