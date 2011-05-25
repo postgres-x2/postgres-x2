@@ -388,10 +388,17 @@ DefineRelation(CreateStmt *stmt, char relkind)
 	 * code.  This is needed because calling code might not expect untrusted
 	 * tables to appear in pg_temp at the front of its search path.
 	 */
+#ifdef PGXC
+	if (stmt->relation->istemp && IsUnderPostmaster)
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 errmsg("PG-XC does not yet support temporary tables")));
+#else
 	if (stmt->relation->istemp && InSecurityRestrictedOperation())
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 errmsg("cannot create temporary table within security-restricted operation")));
+#endif
 
 	/*
 	 * Look up the namespace in which we are supposed to create the relation.
