@@ -125,7 +125,7 @@ SELECT 'nan'::numeric::float8;
     NaN
 (1 row)
 
-SELECT '' AS five, * FROM FLOAT8_TBL;
+SELECT '' AS five, * FROM FLOAT8_TBL ORDER BY f1;
  five |          f1          
 ------+----------------------
       |               -34.84

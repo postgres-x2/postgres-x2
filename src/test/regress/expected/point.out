@@ -91,7 +91,7 @@ SELECT '' AS three, p.* FROM POINT_TBL p
 (3 rows)
 
 SELECT '' AS three, p.* FROM POINT_TBL p
-   WHERE not p.f1 <@ box '(0,0,100,100)';
+   WHERE not p.f1 <@ box '(0,0,100,100)' ORDER BY p.f1[0], p.f1[1];
  three |    f1    
 -------+----------
        | (-10,0)

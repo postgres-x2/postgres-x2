@@ -48,7 +48,7 @@ SELECT '' AS three, p.* FROM POINT_TBL p
    WHERE p.f1 <@ box '(0,0,100,100)' ORDER BY p.f1[0], p.f1[1];
 
 SELECT '' AS three, p.* FROM POINT_TBL p
-   WHERE box '(0,0,100,100)' @> p.f1 ORDER BY p.f1[0], p.f1[1];
+   WHERE box '(0,0,100,100)' @> p.f1;
 
 SELECT '' AS three, p.* FROM POINT_TBL p
    WHERE not p.f1 <@ box '(0,0,100,100)';
