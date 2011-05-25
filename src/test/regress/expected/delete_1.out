@@ -27,11 +27,9 @@ DELETE FROM delete_test dt WHERE delete_test.a > 25;
 ERROR:  relation "delete_test" does not exist
 LINE 1: DELETE FROM delete_test dt WHERE delete_test.a > 25;
                     ^
-SELECT * FROM delete_test;
+SELECT * FROM delete_test ORDER BY id;
 ERROR:  relation "delete_test" does not exist
-LINE 1: SELECT * FROM delete_test;
+LINE 1: SELECT * FROM delete_test ORDER BY id;
                       ^
-DROP TABLE delete_test ORDER BY id;
-ERROR:  syntax error at or near "ORDER"
-LINE 1: DROP TABLE delete_test ORDER BY id;
-                               ^
+DROP TABLE delete_test;
+ERROR:  table "delete_test" does not exist
