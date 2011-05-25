@@ -380,9 +380,9 @@ LINE 1: insert into clstr_temp values (2, 'two'), (1, 'one');
                     ^
 cluster clstr_temp using clstr_temp_pkey;
 ERROR:  relation "clstr_temp" does not exist
-select * from clstr_temp  ORDER BY 1;
+select * from clstr_temp;
 ERROR:  relation "clstr_temp" does not exist
-LINE 1: select * from clstr_temp  ORDER BY 1;
+LINE 1: select * from clstr_temp;
                       ^
 drop table clstr_temp;
 ERROR:  table "clstr_temp" does not exist

@@ -116,7 +116,7 @@ REASSIGN OWNED BY regression_user1 TO regression_user2;
 -- doesn't work: grant still exists
 DROP USER regression_user1;
 ERROR:  role "regression_user1" cannot be dropped because some objects depend on it
-DETAIL:  privileges for table deptest1
+DETAIL:  access to table deptest1
 DROP OWNED BY regression_user1;
 DROP USER regression_user1;
 \set VERBOSITY terse

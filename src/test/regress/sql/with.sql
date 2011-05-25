@@ -480,11 +480,11 @@ with cte(foo) as ( select 42 ) select * from ((select foo from cte)) q;
 -- signaling still works properly after fixing this bug)
 select ( with cte(foo) as ( values(f1) )
          select (select foo from cte) )
-from int4_tbl;
+from int4_tbl order by 1;
 
 select ( with cte(foo) as ( values(f1) )
           values((select foo from cte)) )
-from int4_tbl;
+from int4_tbl order by 1;
 
 --
 -- test for nested-recursive-WITH bug
@@ -499,4 +499,4 @@ WITH RECURSIVE t(j) AS (
     UNION ALL
     SELECT j+1 FROM t WHERE j < 10
 )
-SELECT * FROM t;
+SELECT * FROM t order by 1;
