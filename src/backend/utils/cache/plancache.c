@@ -676,12 +676,17 @@ ReleaseCachedPlan(CachedPlan *plan, bool useResOwner)
 		if (plan->fully_planned)
 		{
 			ListCell *lc;
-			/* close any active datanode statements */
+
+			/* Close any active planned datanode statements */
 			foreach (lc, plan->stmt_list)
 			{
-				PlannedStmt *ps = (PlannedStmt *)lfirst(lc);
+				Node *node = lfirst(lc);
 
-				release_datanode_statements(ps->planTree);
+				if (IsA(node, PlannedStmt))
+				{
+					PlannedStmt *ps = (PlannedStmt *)node;
+					release_datanode_statements(ps->planTree);
+				}
 			}
 		}
 #endif

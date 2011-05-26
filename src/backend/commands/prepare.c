@@ -475,6 +475,10 @@ InitQueryHashTable(void)
 static int
 set_remote_stmtname(Plan *plan, const char *stmt_name, int n)
 {
+	/* If no plan simply return */
+	if (!plan)
+		return 0;
+
 	if (IsA(plan, RemoteQuery))
 	{
 		DatanodeStatement *entry;
