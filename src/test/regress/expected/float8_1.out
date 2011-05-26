@@ -382,7 +382,8 @@ UPDATE FLOAT8_TBL
    SET f1 = FLOAT8_TBL.f1 * '-1'
    WHERE FLOAT8_TBL.f1 > '0.0';
 ERROR:  Partition column can't be updated in current version
-SELECT '' AS bad, f.f1 ^ '1e200' from FLOAT8_TBL f ORDER BY f1;
+   
+SELECT '' AS bad, f.f1 * '1e200' from FLOAT8_TBL f ORDER BY f1;
 ERROR:  value out of range: overflow
 SELECT '' AS bad, f.f1 ^ '1e200' from FLOAT8_TBL f ORDER BY f1;
 ERROR:  value out of range: overflow
