@@ -667,11 +667,11 @@ pg_analyze_and_rewrite(Node *parsetree, const char *query_string,
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 	{
 		ListCell   *lc;
-	
+
 		foreach(lc, querytree_list)
 		{
 			Query *query = (Query *) lfirst(lc);
-		
+
 			if (query->sql_statement == NULL)
 				query->sql_statement = pstrdup(query_string);
 		}
@@ -1380,7 +1380,9 @@ exec_parse_message(const char *query_string,	/* string to execute */
 			foreach(lc, querytree_list)
 			{
 				Query *query = (Query *) lfirst(lc);
-				query->sql_statement = pstrdup(query_string);
+
+				if (query->sql_statement == NULL)
+					query->sql_statement = pstrdup(query_string);
 			}
 		}
 #endif
