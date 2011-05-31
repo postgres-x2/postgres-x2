@@ -247,6 +247,17 @@ typedef struct AggStatePerGroupData
 	 * NULL and not auto-replace it with a later input value. Only the first
 	 * non-NULL input will be auto-substituted.
 	 */
+#ifdef PGXC
+	/*
+	 * PGXCTODO: we should be able to reuse the fields above, rather than having
+	 * separate fields here, that can be done once we get rid of different
+	 * collection and transition result types in pg_aggregate.h. Collection at
+	 * coordinator is equivalent to the transition at non-XC PG.
+	 */
+	Datum		collectValue;		/* current collection value */
+	bool		collectValueIsNull;
+	bool		noCollectValue;		/* true if the collectValue not set yet */
+#endif /* PGXC */
 } AggStatePerGroupData;
 
 /*
@@ -370,6 +381,37 @@ initialize_aggregates(AggState *aggstate,
 		 * signals that we still need to do this.
 		 */
 		pergroupstate->noTransValue = peraggstate->initValueIsNull;
+
+#ifdef PGXC
+		/*
+		 * (Re)set collectValue to the initial value.
+		 *
+		 * Note that when the initial value is pass-by-ref, we must copy it
+		 * (into the aggcontext) since we will pfree the collectValue later.
+		 */
+		if (peraggstate->initCollectValueIsNull)
+			pergroupstate->collectValue = peraggstate->initCollectValue;
+		else
+		{
+			MemoryContext oldContext;
+
+			oldContext = MemoryContextSwitchTo(aggstate->aggcontext);
+			pergroupstate->collectValue = datumCopy(peraggstate->initCollectValue,
+												  peraggstate->collecttypeByVal,
+												  peraggstate->collecttypeLen);
+			MemoryContextSwitchTo(oldContext);
+		}
+		pergroupstate->collectValueIsNull = peraggstate->initCollectValueIsNull;
+
+		/*
+		 * If the initial value for the transition state doesn't exist in the
+		 * pg_aggregate table then we will let the first non-NULL value
+		 * returned from the outer procNode become the initial value. (This is
+		 * useful for aggregates like max() and min().) The noTransValue flag
+		 * signals that we still need to do this.
+		 */
+		pergroupstate->noCollectValue = peraggstate->initCollectValueIsNull;
+#endif /* PGXC */
 	}
 }
 
@@ -475,6 +517,116 @@ advance_transition_function(AggState *aggstate,
 	MemoryContextSwitchTo(oldContext);
 }
 
+#ifdef PGXC
+/*
+ * Given new input value(s), advance the collection function of an aggregate.
+ *
+ * The new values (and null flags) have been preloaded into argument positions
+ * 1 and up in fcinfo, so that we needn't copy them again to pass to the
+ * collection function.  No other fields of fcinfo are assumed valid.
+ *
+ * It doesn't matter which memory context this is called in.
+ */
+static void
+advance_collection_function(AggState *aggstate,
+							AggStatePerAgg peraggstate,
+							AggStatePerGroup pergroupstate,
+							FunctionCallInfoData *fcinfo)
+{
+	int			numArguments = peraggstate->numArguments;
+	Datum		newVal;
+	MemoryContext oldContext;
+
+	/*
+	 * numArgument has to be one, since each datanode is going to send a single
+	 * transition value
+	 */
+	Assert(numArguments == 1);
+	if (peraggstate->collectfn.fn_strict)
+	{
+		int cntArgs;
+		/*
+		 * For a strict collectfn, nothing happens when there's a NULL input; we
+		 * just keep the prior transition value, transValue.
+		 */
+		for (cntArgs = 1; cntArgs <= numArguments; cntArgs++)
+		{
+			if (fcinfo->argnull[cntArgs])
+				return;
+		}
+		if (pergroupstate->noCollectValue)
+		{
+			/*
+			 * collection result has not been initialized
+			 * We must copy the datum into result if it is pass-by-ref. We
+			 * do not need to pfree the old result, since it's NULL.
+			 * PGXCTODO: in case the transition result type is different from
+			 * collection result type, this code would not work, since we are
+			 * assigning datum of one type to another. For this code to work the
+			 * input and output of collection function needs to be binary
+			 * compatible which is not. So, either check in AggregateCreate,
+			 * that the input and output of collection function are binary
+			 * coercible or set the initial values something non-null or change
+			 * this code
+			 */
+			oldContext = MemoryContextSwitchTo(aggstate->aggcontext);
+			pergroupstate->collectValue = datumCopy(fcinfo->arg[1],
+												  peraggstate->collecttypeByVal,
+												  peraggstate->collecttypeLen);
+			pergroupstate->collectValueIsNull = false;
+			pergroupstate->noCollectValue = false;
+			MemoryContextSwitchTo(oldContext);
+			return;
+		}
+		if (pergroupstate->collectValueIsNull)
+		{
+			/*
+			 * Don't call a strict function with NULL inputs.  Note it is
+			 * possible to get here despite the above tests, if the collectfn is
+			 * strict *and* returned a NULL on a prior cycle. If that happens
+			 * we will propagate the NULL all the way to the end.
+			 */
+			return;
+		}
+	}
+
+	/* We run the collection functions in per-input-tuple memory context */
+	oldContext = MemoryContextSwitchTo(aggstate->tmpcontext->ecxt_per_tuple_memory);
+
+	/*
+	 * OK to call the collection function
+	 */
+	InitFunctionCallInfoData(*fcinfo, &(peraggstate->collectfn), 2, (void *)aggstate, NULL);
+	fcinfo->arg[0] = pergroupstate->collectValue;
+	fcinfo->argnull[0] = pergroupstate->collectValueIsNull;
+	newVal = FunctionCallInvoke(fcinfo);
+
+	/*
+	 * If pass-by-ref datatype, must copy the new value into aggcontext and
+	 * pfree the prior transValue.	But if collectfn returned a pointer to its
+	 * first input, we don't need to do anything.
+	 */
+	if (!peraggstate->collecttypeByVal &&
+	        DatumGetPointer(newVal) != DatumGetPointer(pergroupstate->collectValue))
+	{
+		if (!fcinfo->isnull)
+		{
+			MemoryContextSwitchTo(aggstate->aggcontext);
+			newVal = datumCopy(newVal,
+			                   peraggstate->collecttypeByVal,
+			                   peraggstate->collecttypeLen);
+		}
+		if (!pergroupstate->collectValueIsNull)
+			pfree(DatumGetPointer(pergroupstate->collectValue));
+	}
+
+	pergroupstate->collectValue = newVal;
+	pergroupstate->collectValueIsNull = fcinfo->isnull;
+
+	MemoryContextSwitchTo(oldContext);
+}
+#endif /* PGXC */
+
 /*
  * Advance all the aggregates for one input tuple.	The input tuple
  * has been stored in tmpcontext->ecxt_outertuple, so that it is accessible
@@ -544,8 +696,21 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 				fcinfo.argnull[i + 1] = slot->tts_isnull[i];
 			}
 
+#ifdef PGXC
+			if (aggstate->skip_trans)
+			{
+				Assert(IS_PGXC_COORDINATOR);
+				/*
+				 * we are collecting results sent by the datanodes, so advance
+				 * collections instead of transitions
+				 */
+				advance_collection_function(aggstate, peraggstate,
+											pergroupstate, &fcinfo);
+			}
+			else
+#endif /* PGXC */
 			advance_transition_function(aggstate, peraggstate, pergroupstate,
-										&fcinfo);
+											&fcinfo);
 		}
 	}
 }
@@ -751,9 +916,10 @@ finalize_aggregate(AggState *aggstate,
 	 * should be consumable by final function.
 	 * As such this step is meant only to convert transition results into form
 	 * consumable by final function, the step does not actually do any
-	 * collection.
+	 * collection. Skipping transitionp means, that the collection
+	 * phase is over and we need to apply final function directly.
 	 */
-	if (OidIsValid(peraggstate->collectfn_oid))
+	if (OidIsValid(peraggstate->collectfn_oid) && !aggstate->skip_trans)
 	{
 		FunctionCallInfoData fcinfo;
 		InitFunctionCallInfoData(fcinfo, &(peraggstate->collectfn), 2,
@@ -789,6 +955,16 @@ finalize_aggregate(AggState *aggstate,
 			pergroupstate->transValue = newVal;
 			pergroupstate->transValueIsNull = fcinfo.isnull;
 		}
+	}
+
+	/*
+	 * if we skipped the transition phase, we have the collection result in the
+	 * collectValue, move it to transValue for finalization to work on
+	 */
+	if (aggstate->skip_trans)
+	{
+		pergroupstate->transValue = pergroupstate->collectValue;
+		pergroupstate->transValueIsNull = pergroupstate->collectValueIsNull;
 	}
 #endif /* PGXC */
 
@@ -1453,6 +1629,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	aggstate->pergroup = NULL;
 	aggstate->grp_firstTuple = NULL;
 	aggstate->hashtable = NULL;
+	aggstate->skip_trans = node->skip_trans;
 
 	/*
 	 * Create expression contexts.	We need two, one for per-input-tuple

@@ -535,6 +535,11 @@ typedef struct Agg
 	AttrNumber *grpColIdx;		/* their indexes in the target list */
 	Oid		   *grpOperators;	/* equality operators to compare with */
 	long		numGroups;		/* estimated number of groups in input */
+#ifdef PGXC
+	bool		skip_trans;		/* apply collection directly on the data received
+								 * from remote data nodes
+								 */
+#endif /* PGXC */
 } Agg;
 
 /* ----------------

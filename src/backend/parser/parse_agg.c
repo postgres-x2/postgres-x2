@@ -75,6 +75,10 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 	int			save_next_resno;
 	int			min_varlevel;
 	ListCell   *lc;
+#ifdef PGXC
+	HeapTuple	aggTuple;
+	Form_pg_aggregate aggform;
+#endif /* PGXC */
 
 	/*
 	 * Transform the plain list of Exprs into a targetlist.  We don't bother
@@ -191,23 +195,19 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 	 * on the coordinator.
 	 * Look up the aggregate definition and replace agg->aggtype
 	 */
+
+	aggTuple = SearchSysCache(AGGFNOID,
+					  ObjectIdGetDatum(agg->aggfnoid),
+					  0, 0, 0);
+	if (!HeapTupleIsValid(aggTuple))
+		elog(ERROR, "cache lookup failed for aggregate %u",
+			 agg->aggfnoid);
+	aggform = (Form_pg_aggregate) GETSTRUCT(aggTuple);
+	agg->aggtrantype = aggform->aggtranstype;
 	if (IS_PGXC_DATANODE)
-	{
-		HeapTuple	aggTuple;
-		Form_pg_aggregate aggform;
+		agg->aggtype = agg->aggtrantype;
 
-		aggTuple = SearchSysCache(AGGFNOID,
-						  ObjectIdGetDatum(agg->aggfnoid),
-						  0, 0, 0);
-		if (!HeapTupleIsValid(aggTuple))
-			elog(ERROR, "cache lookup failed for aggregate %u",
-				 agg->aggfnoid);
-		aggform = (Form_pg_aggregate) GETSTRUCT(aggTuple);
-
-		agg->aggtype = aggform->aggtranstype;
-
-		ReleaseSysCache(aggTuple);
-	}
+	ReleaseSysCache(aggTuple);
 #endif
 }
 

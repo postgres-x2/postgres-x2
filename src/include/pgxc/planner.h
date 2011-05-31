@@ -203,6 +203,7 @@ extern bool StrictSelectChecking;
 
 extern PlannedStmt *pgxc_planner(Query *query, int cursorOptions,
 								 ParamListInfo boundParams);
+extern Plan *pgxc_grouping_planner(PlannerInfo *root, Plan *agg_plan);
 extern bool IsHashDistributable(Oid col_type);
 
 extern bool is_immutable_func(Oid funcid);

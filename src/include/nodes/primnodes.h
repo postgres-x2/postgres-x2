@@ -228,6 +228,9 @@ typedef struct Aggref
 	Expr		xpr;
 	Oid			aggfnoid;		/* pg_proc Oid of the aggregate */
 	Oid			aggtype;		/* type Oid of result of the aggregate */
+#ifdef PGXC
+	Oid			aggtrantype;	/* type Oid of transition results */
+#endif /* PGXC */
 	List	   *args;			/* arguments and sort expressions */
 	List	   *aggorder;		/* ORDER BY (list of SortGroupClause) */
 	List	   *aggdistinct;	/* DISTINCT (list of SortGroupClause) */

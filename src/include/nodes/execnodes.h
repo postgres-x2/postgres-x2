@@ -1570,6 +1570,9 @@ typedef struct AggState
 	List	   *hash_needed;	/* list of columns needed in hash table */
 	bool		table_filled;	/* hash table filled yet? */
 	TupleHashIterator hashiter; /* for iterating through hash table */
+#ifdef PGXC
+	bool		skip_trans;		/* skip the transition step for aggregates */
+#endif /* PGXC */
 } AggState;
 
 /* ----------------

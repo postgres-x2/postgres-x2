@@ -1170,6 +1170,9 @@ _copyAggref(Aggref *from)
 
 	COPY_SCALAR_FIELD(aggfnoid);
 	COPY_SCALAR_FIELD(aggtype);
+#ifdef PGXC
+	COPY_SCALAR_FIELD(aggtrantype);
+#endif /* PGXC */
 	COPY_NODE_FIELD(args);
 	COPY_NODE_FIELD(aggorder);
 	COPY_NODE_FIELD(aggdistinct);

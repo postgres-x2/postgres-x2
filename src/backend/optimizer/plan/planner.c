@@ -1334,6 +1334,13 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 												numGroups,
 												agg_counts.numAggs,
 												result_plan);
+#ifdef PGXC
+				/*
+				 * can we push any clauses to the remote node? try doing that
+				 */
+				if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+					result_plan = create_remotegrouping_plan(root, result_plan);
+#endif /* PGXC */
 				/* Hashed aggregation produces randomly-ordered results */
 				current_pathkeys = NIL;
 			}
