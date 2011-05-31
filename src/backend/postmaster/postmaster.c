@@ -3371,7 +3371,7 @@ BackendStartup(Port *port)
 
 #ifdef PGXC /* PGXC_COORD */
 	/* Don't get a Pooler Handle if Postmaster is activated from another Coordinator */
-	if (IS_PGXC_COORDINATOR)
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 	{
 		pool_handle = GetPoolManagerHandle();
 		if (pool_handle == NULL)
@@ -3414,11 +3414,10 @@ BackendStartup(Port *port)
 		BackendInitialize(port);
 
 #ifdef PGXC /* PGXC_COORD */
-		if (IS_PGXC_COORDINATOR)
+		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 		{
 			/* User is authenticated and dbname is known at this point */
 			PoolManagerConnect(pool_handle, port->database_name, port->user_name);
-			InitGTM();
 		}
 #endif 
 
@@ -3428,7 +3427,7 @@ BackendStartup(Port *port)
 #endif   /* EXEC_BACKEND */
 
 #ifdef PGXC /* PGXC_COORD */
-	if (IS_PGXC_COORDINATOR)
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 		PoolManagerCloseHandle(pool_handle);
 #endif 
 
