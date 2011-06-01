@@ -82,7 +82,8 @@ extern ModifyTable *make_modifytable(CmdType operation, List *resultRelations,
 				 List *subplans, List *returningLists,
 				 List *rowMarks, int epqParam);
 extern bool is_projection_capable_plan(Plan *plan);
-extern Plan *create_remotegrouping_plan(PlannerInfo *root, Plan *agg_plan);
+extern Plan *create_remotegroup_plan(PlannerInfo *root, Plan *local_plan);
+extern Plan *create_remoteagg_plan(PlannerInfo *root, Plan *agg_plan);
 
 /*
  * prototypes for plan/initsplan.c

@@ -10,9 +10,19 @@ explain verbose select count(*), sum(tab1.val * tab2.val), avg(tab1.val*tab2.val
 -- aggregates over aggregates
 select sum(y) from (select sum(val) y, val2%2 x from tab1 group by val2) q1 group by x;
 explain verbose select sum(y) from (select sum(val) y, val2%2 x from tab1 group by val2) q1 group by x;
--- group by without aggregate, just like distinct?
+-- group by without aggregate
+set enable_hashagg to off;
 select val2 from tab1 group by val2;
 explain verbose select val2 from tab1 group by val2;
+select val + val2 from tab1 group by val + val2;
+explain verbose select val + val2 from tab1 group by val + val2;
+select val + val2, val, val2 from tab1 group by val, val2;
+explain verbose select val + val2, val, val2 from tab1 group by val, val2;
+select tab1.val + tab2.val2, tab1.val, tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by tab1.val, tab2.val2;
+explain verbose select tab1.val + tab2.val2, tab1.val, tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by tab1.val, tab2.val2;
+select tab1.val + tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by tab1.val + tab2.val2;
+explain verbose select tab1.val + tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by tab1.val + tab2.val2;
+reset enable_hashagg;
 -- group by with aggregates in expression
 select count(*) + sum(val) + avg(val), val2 from tab1 group by val2;
 explain verbose select count(*) + sum(val) + avg(val), val2 from tab1 group by val2;
@@ -36,9 +46,19 @@ explain verbose select count(*), sum(tab1.val * tab2.val), avg(tab1.val*tab2.val
 -- aggregates over aggregates
 select sum(y) from (select sum(val) y, val2%2 x from tab1 group by val2) q1 group by x;
 explain verbose select sum(y) from (select sum(val) y, val2%2 x from tab1 group by val2) q1 group by x;
--- group by without aggregate, just like distinct?
+-- group by without aggregate
+set enable_hashagg to off;
 select val2 from tab1 group by val2;
 explain verbose select val2 from tab1 group by val2;
+select val + val2 from tab1 group by val + val2;
+explain verbose select val + val2 from tab1 group by val + val2;
+select val + val2, val, val2 from tab1 group by val, val2;
+explain verbose select val + val2, val, val2 from tab1 group by val, val2;
+select tab1.val + tab2.val2, tab1.val, tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by tab1.val, tab2.val2;
+explain verbose select tab1.val + tab2.val2, tab1.val, tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by tab1.val, tab2.val2;
+select tab1.val + tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by tab1.val + tab2.val2;
+explain verbose select tab1.val + tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by tab1.val + tab2.val2;
+reset enable_hashagg;
 -- group by with aggregates in expression
 select count(*) + sum(val) + avg(val), val2 from tab1 group by val2;
 explain verbose select count(*) + sum(val) + avg(val), val2 from tab1 group by val2;

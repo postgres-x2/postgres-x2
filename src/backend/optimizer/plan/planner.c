@@ -1336,10 +1336,13 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 												result_plan);
 #ifdef PGXC
 				/*
-				 * can we push any clauses to the remote node? try doing that
+				 * Grouping will certainly not increase the number of rows
+				 * coordinator fetches from datanode, in fact it's expected to
+				 * reduce the number drastically. Hence, try pushing GROUP BY
+				 * clauses and aggregates to the datanode, thus saving bandwidth.
 				 */
 				if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-					result_plan = create_remotegrouping_plan(root, result_plan);
+					result_plan = create_remoteagg_plan(root, result_plan);
 #endif /* PGXC */
 				/* Hashed aggregation produces randomly-ordered results */
 				current_pathkeys = NIL;
@@ -1412,7 +1415,16 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 									extract_grouping_ops(parse->groupClause),
 												  dNumGroups,
 												  result_plan);
-				/* The Group node won't change sort ordering */
+#ifdef PGXC
+				/*
+				 * Grouping will certainly not increase the number of rows
+				 * coordinator fetches from datanode, in fact it's expected to
+				 * reduce the number drastically. Hence, try pushing GROUP BY
+				 * clauses and aggregates to the datanode, thus saving bandwidth.
+				 */
+				if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+					result_plan = create_remotegroup_plan(root, result_plan);
+#endif /* PGXC */
 			}
 			else if (root->hasHavingQual)
 			{
