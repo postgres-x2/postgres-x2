@@ -4779,7 +4779,7 @@ findReferencedVars(List *parent_vars, Plan *plan, List **out_tlist, Relids *out_
 			relids = bms_add_member(relids, var->varno);
 	}
 
-	/* now consider the local quals */
+	/* Now consider the local quals */
 	vars = pull_var_clause((Node *)plan->qual, PVC_REJECT_PLACEHOLDERS);
 
 	foreach(l, vars)
@@ -4896,7 +4896,7 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		else
 		{
 			/*
-			 * multi-table case
+			 * Multi table case
 			 * Assuming the RemoteQuery is created in create_remotejoin_plan().
 			 * If the final RemoteQuery is for correlated delete outer_statement
 			 * is just a SELECT FROM target_table, outer_statement is correlated
@@ -4919,10 +4919,12 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 			/* Append WHERE clause */
 			appendStringInfoString(buf, fstep->join_condition);
 		}
-		/* replace step query */
+
+		/* Replace step query */
 		pfree(fstep->sql_statement);
 		fstep->sql_statement = pstrdup(buf->data);
-		/* set combine_type, it is COMBINE_TYPE_NONE for SELECT */
+
+		/* Set combine_type, it is COMBINE_TYPE_NONE for SELECT */
 		fstep->combine_type = rel_loc_info->locatorType == LOCATOR_TYPE_REPLICATED ?
 								  COMBINE_TYPE_SAME : COMBINE_TYPE_SUM;
 		fstep->read_only = false;
@@ -4973,7 +4975,7 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 			{
 				Form_pg_attribute att_tup = (Form_pg_attribute) GETSTRUCT(tp);
 
-				/* add comma before all except first attributes */
+				/* Add comma before all except first attributes */
 				if (att > 1)
 				{
 					appendStringInfoString(xbuf, ", ");
@@ -4994,12 +4996,12 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 					 att, ttab->relid);
 		}
 
-		/* complete SELECT command */
+		/* Complete SELECT command */
 		appendStringInfo(xbuf, " FROM %s.%s WHERE ctid = $1",
 						 quote_identifier(nspname),
 						 quote_identifier(ttab->relname));
 
-		/* build up the extra select step */
+		/* Build up the extra select step */
 		xstep = make_remotequery(xtlist, ttab, NIL, ttab->relid);
 		innerPlan(xstep) = topplan;
 		xstep->sql_statement = pstrdup(xbuf->data);
@@ -5012,14 +5014,14 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		xstep->exec_nodes->relid = ttab->relid;
 		xstep->exec_nodes->accesstype = RELATION_ACCESS_READ;
 
-		/* first and only target entry of topplan is ctid, reference it */
+		/* First and only target entry of topplan is ctid, reference it */
 		ctid = makeVar(INNER, 1, TIDOID, -1, 0);
 		xstep->exec_nodes->expr = (Expr *) ctid;
 
 		pfree(xbuf->data);
 		pfree(xbuf);
 
-		/* build up the final delete step */
+		/* Build up the final delete step */
 		innerPlan(fstep) = (Plan *) xstep;
 		fstep->sql_statement = pstrdup(buf->data);
 		fstep->combine_type = COMBINE_TYPE_SAME;
@@ -5028,7 +5030,7 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 	}
 	else
 	{
-		/* build up the final delete step */
+		/* Build up the final delete step */
 		innerPlan(fstep) = topplan;
 		appendStringInfoString(buf, " WHERE ctid = $1");
 		fstep->sql_statement = pstrdup(buf->data);
@@ -5042,7 +5044,7 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		fstep->exec_nodes->relid = ttab->relid;
 		fstep->exec_nodes->accesstype = RELATION_ACCESS_UPDATE;
 
-		/* first and only target entry of topplan is ctid, reference it */
+		/* First and only target entry of topplan is ctid, reference it */
 		ctid = makeVar(INNER, 1, TIDOID, -1, 0);
 		fstep->exec_nodes->expr = (Expr *) ctid;
 	}
@@ -5055,7 +5057,7 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 
 /*
  * create_remoteagg_plan
- * tries to see if the grouping and aggregates can be pushed down to the
+ * Check if the grouping and aggregates can be pushed down to the
  * datanodes.
  * Right now we can push with following restrictions
  * 1. there are plain aggregates (no expressions involving aggregates) and/or
@@ -5098,13 +5100,13 @@ create_remoteagg_plan(PlannerInfo *root, Plan *local_plan)
 									 * the Agg plan
 									 */
 
-	/* for now only Agg plans */
+	/* For now only Agg plans */
 	Assert(IsA(local_plan, Agg));
 	agg_plan = (Agg *)local_plan;
 
 	/*
-	 * we don't push aggregation and grouping to datanodes, in case there are
-	 * windowing aggregates, distinct, having clause or sort clauses
+	 * We don't push aggregation and grouping to datanodes, in case there are
+	 * windowing aggregates, distinct, having clause or sort clauses.
 	 */
 	if (query->hasWindowFuncs ||
 		query->distinctClause ||
@@ -5113,10 +5115,10 @@ create_remoteagg_plan(PlannerInfo *root, Plan *local_plan)
 		return local_plan;
 
 	/*
-	 * optimize if only the tree underneath is reduced to RemoteQuery, any other
+	 * Optimize if only the tree underneath is reduced to RemoteQuery, any other
 	 * node there indicates that the scans can not be completely pushed to the
-	 * remote data nodes
-	 * RemoteQuery is hidden underneath Material plan, take it out
+	 * remote data nodes.
+	 * RemoteQuery is hidden underneath Material plan, take it out.
 	 */
 	if (IsA(temp_plan, Material))
 		temp_plan = temp_plan->lefttree;
@@ -5125,9 +5127,8 @@ create_remoteagg_plan(PlannerInfo *root, Plan *local_plan)
 	else
 		agg_left = (RemoteQuery *)temp_plan;
 
-
 	/*
-	 * walk through the target list and find out whether we can push the
+	 * Walk through the target list and find out whether we can push the
 	 * aggregates and grouping to datanodes. We can do so if the target list
 	 * contains plain aggregates (without any expression involving those) and
 	 * expressions in group by clauses only (last one to make the query legit.
@@ -5146,25 +5147,25 @@ create_remoteagg_plan(PlannerInfo *root, Plan *local_plan)
 	}
 
 	/*
-	 * cleared of all the charges, now take following steps
-	 * 1. create a remote query node reflecting the query to be pushed to the
+	 * Cleared of all the charges, now take following steps
+	 * 1. Create a remote query node reflecting the query to be pushed to the
 	 *    datanode
 	 * 2. Modify the Agg node passed in so that it reflects the aggregation
 	 *    (collection) to be done at the coordinator based on the results sent by
 	 *    the datanodes.
 	 */
-
 	appendStringInfo(in_alias, "%s_%d", "group", root->rs_alias_index);
 
-	/* find all the relations referenced by targetlist of Agg node */
+	/* Find all the relations referenced by targetlist of Agg node */
 	temp_vars = pull_var_clause((Node *)agg_tlist, PVC_REJECT_PLACEHOLDERS);
 	findReferencedVars(temp_vars, (Plan *)agg_left, &temp_vartlist, &in_relids);
 
 	/*
-	 * build partial RemoteQuery node to be used for creating the Select clause
+	 * Build partial RemoteQuery node to be used for creating the Select clause
 	 * to be sent to the remote node. Rest of the node will be built later
 	 */
 	agg_remote = makeNode(RemoteQuery);
+
 	/*
 	 * Save information about the plan we are reducing.
 	 * We may need this information later if more entries are added to it
@@ -5176,10 +5177,11 @@ create_remoteagg_plan(PlannerInfo *root, Plan *local_plan)
 	agg_remote->inner_relids       = in_relids;
 	agg_remote->inner_statement	   = pstrdup(agg_left->sql_statement);
 	agg_remote->exec_nodes         = agg_left->exec_nodes;
-	/* don't forget to increment the index for the next time around! */
+
+	/* Don't forget to increment the index for the next time around! */
 	agg_remote->reduce_level	   = root->rs_alias_index++;
 
-	/* generate the select clause of the remote query */
+	/* Generate the select clause of the remote query */
 	appendStringInfoString(remote_targetlist, "SELECT");
 	foreach (temp, agg_tlist)
 	{
@@ -5187,18 +5189,19 @@ create_remoteagg_plan(PlannerInfo *root, Plan *local_plan)
 		Node		*expr = (Node *)tle->expr;
 
 		create_remote_expr(root, local_plan, remote_targetlist, expr, agg_remote);
-		/* if this is not last target entry, add a comma with space */
+
+		/* If this is not last target entry, add a comma with space */
 		if (lnext(temp))
 			appendStringInfoString(remote_targetlist, ",");
 	}
 
-	/* generate the from clause of the remote query */
+	/* Generate the from clause of the remote query */
 	appendStringInfo(remote_fromlist, "FROM (%s) %s",
 							agg_remote->inner_statement, agg_remote->inner_alias);
 
 	/*
-	 * generate group by clause for the remote query and recompute the group by
-	 * column locations
+	 * Generate group by clause for the remote query and recompute the group by
+	 * columE.n locations
 	 */
 	if (query->groupClause)
 	{
@@ -5206,11 +5209,11 @@ create_remoteagg_plan(PlannerInfo *root, Plan *local_plan)
 		Assert(IsA(local_plan, Agg));
 
 		/*
-		 * recompute the column ids of the grouping columns,
+		 * Recompute the column ids of the grouping columns,
 		 * the group column indexes computed earlier point in the
 		 * targetlists of the scan plans under this node. But now the grouping
 		 * column indexes will be pointing in the targetlist of the new
-		 * RemoteQuery, hence those need to be recomputed
+		 * RemoteQuery, hence those need to be recomputed.
 		 */
 		pgxc_locate_grouping_columns(root, agg_tlist, agg_plan->grpColIdx);
 
@@ -5224,18 +5227,20 @@ create_remoteagg_plan(PlannerInfo *root, Plan *local_plan)
 		}
 	}
 
-	/* generate the remote sql statement from the pieces */
+	/* Generate the remote sql statement from the pieces */
 	appendStringInfo(remote_sql_stmt, "%s %s %s", remote_targetlist->data,
 						remote_fromlist->data, groupby_clause->data);
+
 	/*
-	 * set the base_tlist for the RemoteQuery node being created, it's used to
+	 * Set the base_tlist for the RemoteQuery node being created, it's used to
 	 * create the tuple descriptor for the result from RemoteQuery and rewrite
 	 * the Aggregates targetlist accept the results of the RemoteQuery.
 	 */
 	base_tlist = add_to_flat_tlist(NIL, get_tlist_exprs(agg_tlist, true));
+
 	/*
-	 * we need to change the return types of the aggregates. Datanodes send the
-	 * aggregation results in the form of transition results
+	 * We need to change the return types of the aggregates. Datanodes send the
+	 * aggregation results in the form of transition results.
 	 */
 	foreach (temp, base_tlist)
 	{
@@ -5251,7 +5256,7 @@ create_remoteagg_plan(PlannerInfo *root, Plan *local_plan)
 	}
 
 	/*
-	 * create a dummy RTE for the remote query being created. Append the dummy
+	 * Create a dummy RTE for the remote query being created. Append the dummy
 	 * range table entry to the range table. Note that this modifies the master
 	 * copy the caller passed us, otherwise e.g EXPLAIN VERBOSE will fail to
 	 * find the rte the Vars built below refer to. Also create the tuple
@@ -5261,17 +5266,19 @@ create_remoteagg_plan(PlannerInfo *root, Plan *local_plan)
 	dummy_rte = makeNode(RangeTblEntry);
 	dummy_rte->reltupdesc = ExecTypeFromTL(base_tlist, false);
 	dummy_rte->rtekind = RTE_RELATION;
-	/* use a dummy relname... */
+
+	/* Use a dummy relname... */
 	dummy_rte->relname	   = "__FOREIGN_QUERY__";
 	dummy_rte->eref		   = makeAlias("__FOREIGN_QUERY__", NIL);
-	/* rest will be zeroed out in makeNode() */
+
+	/* Rest will be zeroed out in makeNode() */
 	root->parse->rtable = lappend(root->parse->rtable, dummy_rte);
 	dummy_rtindex = list_length(root->parse->rtable);
 
 	/*
-	 * change the aggref nodes in the local Agg plan to accept the transition
+	 * Change the aggref nodes in the local Agg plan to accept the transition
 	 * results from the remote query output. Do this after we have created base
-	 * list, otherwise we might introduce these changes in the base list
+	 * list, otherwise we might introduce these changes in the base list.
 	 * Do this after the RTE for the remote query is added to the root.
 	 */
 	forboth (temp, agg_tlist, temp_remote, base_tlist)
@@ -5287,10 +5294,10 @@ create_remoteagg_plan(PlannerInfo *root, Plan *local_plan)
 			Assert(IsA(expr_remote, Aggref));
 
 			/*
-			 * replace the args of the local Aggref with Aggref node to be
+			 * Replace the args of the local Aggref with Aggref node to be
 			 * included in RemoteQuery node, so that set_plan_refs can convert
 			 * the args into VAR pointing to the appropriate result in the tuple
-			 * coming from RemoteQuery node
+			 * coming from RemoteQuery node.
 			 * PGXCTODO: should we push this change in targetlists of plans
 			 * above?
 			 */
@@ -5299,18 +5306,21 @@ create_remoteagg_plan(PlannerInfo *root, Plan *local_plan)
 		}
 	}
 
-	/* build rest of the RemoteQuery node and the plan there */
+	/* Build rest of the RemoteQuery node and the plan there */
 	agg_remote_plan = &agg_remote->scan.plan;
-	/* the join targetlist becomes this node's tlist */
+
+	/* The join targetlist becomes this node's tlist */
 	agg_remote_plan->targetlist = base_tlist;
 	agg_remote_plan->lefttree 	= NULL;
 	agg_remote_plan->righttree 	= NULL;
 	agg_remote->scan.scanrelid 	= dummy_rtindex;
 	agg_remote->sql_statement = remote_sql_stmt->data;
+
 	/* set_plan_refs needs this later */
 	agg_remote->base_tlist		= base_tlist;
 	agg_remote->relname			= "__FOREIGN_QUERY__";
 	agg_remote->partitioned_replicated = agg_left->partitioned_replicated;
+
 	/*
 	 * Only quals that can be pushed to the remote side the ones in the having
 	 * clause. Till we work out how to handle having quals in XC, we don't have
@@ -5319,20 +5329,21 @@ create_remoteagg_plan(PlannerInfo *root, Plan *local_plan)
 	 * node, may have local quals. In such case, we have to aggregate and group
 	 * at coordinator and can not push the grouping clause to the datanodes. Is
 	 * there a case in XC, where we can have local quals?
-	 * we actually need not worry about costs since this is the final plan
+	 * We actually need not worry about costs since this is the final plan.
 	 */
 	agg_remote_plan->startup_cost = agg_left->scan.plan.startup_cost;
 	agg_remote_plan->total_cost   = agg_left->scan.plan.total_cost;
 	agg_remote_plan->plan_rows 	  = agg_left->scan.plan.plan_rows;
 	agg_remote_plan->plan_width   = agg_left->scan.plan.plan_width;
 
-	/* modify the passed in Agg plan according to the remote query we built */
 	/*
-	 * Materialization is always need for RemoteQuery in case we need to restart
-	 * the scan
+	 * Modify the passed in Agg plan according to the remote query we built.
+	 * Materialization is always needed for RemoteQuery in case we need to restart
+	 * the scan.
 	 */
 	agg_plan->plan.lefttree = (Plan *) make_material(agg_remote_plan);
-	/* indicate that we should apply collection function directly */
+
+	/* Indicate that we should apply collection function directly */
 	agg_plan->skip_trans = true;
 
 	return (Plan *)agg_plan;
@@ -5340,7 +5351,7 @@ create_remoteagg_plan(PlannerInfo *root, Plan *local_plan)
 
 /*
  * create_remotegroup_plan
- * given a Group plan, try to push as much of the query to the datanodes and
+ * Given a Group plan, try to push as much of the query to the datanodes and
  * build a Group plan to combiner the results across the datanodes. The Sort
  * node under the Group plan is pushed down to RemoteQuery plan, since the
  * combiner knows how to merge the results across datanodes in sorted manner.
@@ -5385,13 +5396,14 @@ create_remotegroup_plan(PlannerInfo *root, Plan *local_plan)
 		query->hasWindowFuncs)
 		return local_plan;
 
-	/* for now only for Group plans */
+	/* For now only for Group plans are treated */
 	Assert(IsA(local_plan, Group));
 	group_plan = (Group *)local_plan;
 	remote_scan = NULL;
 	temp_plan = local_plan->lefttree;
+
 	/*
-	 * we expect plan tree as Group->Sort->{Result}?->{Material}?->RemoteQuery,
+	 * We expect plan tree as Group->Sort->{Result}?->{Material}?->RemoteQuery,
 	 * anything else is not handled right now.
 	 */
 	if (IsA(temp_plan, Sort))
@@ -5411,6 +5423,7 @@ create_remotegroup_plan(PlannerInfo *root, Plan *local_plan)
 
 	Assert(IsA(remote_scan, RemoteQuery));
 	Assert(IsA(sort_plan, Sort));
+
 	/*
 	 * grouping_planner will add Sort node before Group node to sort the rows
 	 * based on the columns in GROUP BY clause. Hence the columns in Sort and
@@ -5425,26 +5438,28 @@ create_remotegroup_plan(PlannerInfo *root, Plan *local_plan)
 		if (sort_plan->sortColIdx[cntCols] != group_plan->grpColIdx[cntCols])
 			return local_plan;
 	}
+
 	/*
 	 * We are now ready to create the RemoteQuery node to push the query to
 	 * datanode.
-	 * 1. create a remote query node reflecting the query to be pushed to the
-	 *    datanode
+	 * 1. Create a remote query node reflecting the query to be pushed to the
+	 *    datanode.
 	 * 2. Modify the Group node passed in, to accept the results sent by the
-	 *    datanodes and group them
+	 *    datanodes and group them.
 	 */
-
 	local_tlist = local_plan->targetlist;
 	appendStringInfo(in_alias, "%s_%d", "group", root->rs_alias_index);
 
-	/* find all the relations referenced by targetlist of Group node */
+	/* Find all the relations referenced by targetlist of Group node */
 	temp_vars = pull_var_clause((Node *)local_tlist, PVC_REJECT_PLACEHOLDERS);
 	findReferencedVars(temp_vars, (Plan *)remote_scan, &temp_vartlist, &in_relids);
+
 	/*
-	 * build partial RemoteQuery node to be used for creating the Select clause
+	 * Build partial RemoteQuery node to be used for creating the Select clause
 	 * to be sent to the remote node. Rest of the node will be built later
 	 */
 	remote_group = makeNode(RemoteQuery);
+
 	/*
 	 * Save information about the plan we are reducing.
 	 * We may need this information later if more entries are added to it
@@ -5456,10 +5471,11 @@ create_remotegroup_plan(PlannerInfo *root, Plan *local_plan)
 	remote_group->inner_relids      	= in_relids;
 	remote_group->inner_statement		= pstrdup(remote_scan->sql_statement);
 	remote_group->exec_nodes			= remote_scan->exec_nodes;
-	/* don't forget to increment the index for the next time around! */
+
+	/* Don't forget to increment the index for the next time around! */
 	remote_group->reduce_level			= root->rs_alias_index++;
 
-	/* generate the select clause of the remote query */
+	/* Generate the select clause of the remote query */
 	appendStringInfoString(remote_targetlist, "SELECT");
 	foreach (temp, local_tlist)
 	{
@@ -5467,17 +5483,18 @@ create_remotegroup_plan(PlannerInfo *root, Plan *local_plan)
 		Node		*expr = (Node *)tle->expr;
 
 		create_remote_expr(root, local_plan, remote_targetlist, expr, remote_group);
-		/* if this is not last target entry, add a comma with space */
+
+		/* If this is not last target entry, add a comma with space */
 		if (lnext(temp))
 			appendStringInfoString(remote_targetlist, ",");
 	}
 
-	/* generate the from clause of the remote query */
+	/* Generate the from clause of the remote query */
 	appendStringInfo(remote_fromlist, "FROM (%s) %s",
 							remote_group->inner_statement, remote_group->inner_alias);
 
 	/*
-	 * generate group by clause for the remote query and recompute the group by
+	 * Generate group by clause for the remote query and recompute the group by
 	 * column locations. We want the tuples from remote node to be ordered by
 	 * the grouping columns so that ExecGroup can work without any modification,
 	 * hence create a SimpleSort structure to be added to RemoteQuery (which
@@ -5490,7 +5507,7 @@ create_remotegroup_plan(PlannerInfo *root, Plan *local_plan)
 		char			*sep = "";
 
 		/*
-		 * reuse the arrays allocated in sort_plan to create SimpleSort
+		 * Reuse the arrays allocated in sort_plan to create SimpleSort
 		 * structure. sort_plan is useless henceforth.
 		 */
 		remote_sort->numCols = group_plan->numCols;
@@ -5514,75 +5531,86 @@ create_remotegroup_plan(PlannerInfo *root, Plan *local_plan)
 		remote_group->sort = remote_sort;
 	}
 
-	/* generate the remote sql statement from the pieces */
+	/* Generate the remote sql statement from the pieces */
 	appendStringInfo(remote_sql_stmt, "%s %s %s %s", remote_targetlist->data,
 						remote_fromlist->data, groupby_clause->data,
 						orderby_clause->data);
+
 	/*
-	 * set the base_tlist for the RemoteQuery node being created, it's used to
+	 * Set the base_tlist for the RemoteQuery node being created, it's used to
 	 * create the tuple descriptor for the result from RemoteQuery and rewrite
 	 * the Aggregates targetlist accept the results of the RemoteQuery.
 	 */
 	base_tlist = add_to_flat_tlist(NIL, get_tlist_exprs(local_tlist, true));
+
 	/*
-	 * create a dummy RTE for the remote query being created. Append the dummy
+	 * Create a dummy RTE for the remote query being created. Append the dummy
 	 * range table entry to the range table. Note that this modifies the master
 	 * copy the caller passed us, otherwise e.g EXPLAIN VERBOSE will fail to
 	 * find the rte the Vars built below refer to.
 	 */
-	/* cook up the reltupdesc using this base_tlist */
+
+	/* Cook up the reltupdesc using this base_tlist */
 	dummy_rte = makeNode(RangeTblEntry);
 	dummy_rte->reltupdesc = ExecTypeFromTL(base_tlist, false);
 	dummy_rte->rtekind = RTE_RELATION;
-	/* use a dummy relname... */
+
+	/* Use a dummy relname... */
 	dummy_rte->relname	   = "__FOREIGN_QUERY__";
 	dummy_rte->eref		   = makeAlias("__FOREIGN_QUERY__", NIL);
-	/* rest will be zeroed out in makeNode() */
+
+	/* Rest will be zeroed out in makeNode() */
 	root->parse->rtable = lappend(root->parse->rtable, dummy_rte);
 	dummy_rtindex = list_length(root->parse->rtable);
 
-	/* build rest of the RemoteQuery node and the plan there */
+	/* Build rest of the RemoteQuery node and the plan there */
 	remote_group_plan = &remote_group->scan.plan;
-	/* the join targetlist becomes this node's tlist */
+
+	/* The join targetlist becomes this node's tlist */
 	remote_group_plan->targetlist = base_tlist;
 	remote_group_plan->lefttree 	= NULL;
 	remote_group_plan->righttree 	= NULL;
 	remote_group->scan.scanrelid 	= dummy_rtindex;
 	remote_group->sql_statement = remote_sql_stmt->data;
+
 	/* set_plan_refs needs this later */
 	remote_group->base_tlist		= base_tlist;
 	remote_group->relname			= "__FOREIGN_QUERY__";
 	remote_group->partitioned_replicated = remote_scan->partitioned_replicated;
+
 	/*
 	 * Only quals that can be pushed to the remote side are the ones in the having
 	 * clause. Till we work out how to handle having quals in XC, we don't have
 	 * any quals here.
+	 *
 	 * PGXCTODO: the RemoteQuery node that was earlier the lefttree of Agg
 	 * node, may have local quals. In such case, we have to aggregate and group
 	 * at coordinator and can not push the grouping clause to the datanodes. Is
 	 * there a case in XC, where we can have local quals?
 	 */
-	/* we actually need not worry about costs since this is the final plan */
+
+	/* We actually do not need to worry about costs since this is the final plan */
 	remote_group_plan->startup_cost	= remote_scan->scan.plan.startup_cost;
 	remote_group_plan->total_cost	= remote_scan->scan.plan.total_cost;
 	remote_group_plan->plan_rows	= remote_scan->scan.plan.plan_rows;
 	remote_group_plan->plan_width	= remote_scan->scan.plan.plan_width;
 
-	/* modify the passed in Group plan according to the remote query we built */
 	/*
+	 * Modify the passed in Group plan according to the remote query we built.
 	 * Materialization is always need for RemoteQuery in case we need to restart
-	 * the scan
+	 * the scan.
 	 */
 	group_plan->plan.lefttree = (Plan *) make_material(remote_group_plan);
 	return (Plan *)group_plan;
 }
 
 /*
- * locates the grouping clauses in the given target list. This is very similar
+ * pgxc_locate_grouping_columns
+ * Locates the grouping clauses in the given target list. This is very similar
  * to locate_grouping_columns except that there is only one target list to
- * search into
- * PGXCTODO: can we reuse locate_grouping_columns() instead of writing this
- * function. But this function is optimized to search in the same target list.
+ * search into.
+ * PGXCTODO: Can we reuse locate_grouping_columns() instead of writing this
+ * function? But this function is optimized to search in the same target list.
  */
 static void
 pgxc_locate_grouping_columns(PlannerInfo *root, List *tlist,
