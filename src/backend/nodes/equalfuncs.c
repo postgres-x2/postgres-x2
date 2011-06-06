@@ -2362,6 +2362,9 @@ _equalValue(Value *a, Value *b)
 }
 
 #ifdef PGXC
+/*
+ * stuff from barrier.h
+ */
 
 static bool
 _equalBarrierStmt(BarrierStmt *a, BarrierStmt *b)

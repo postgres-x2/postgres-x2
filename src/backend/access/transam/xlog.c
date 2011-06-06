@@ -39,7 +39,9 @@
 #include "funcapi.h"
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
+#ifdef PGXC
 #include "pgxc/barrier.h"
+#endif
 #include "pgstat.h"
 #include "postmaster/bgwriter.h"
 #include "replication/walreceiver.h"
@@ -4371,6 +4373,7 @@ writeTimeLineHistory(TimeLineID newTLI, TimeLineID parentTLI,
 				 xlogfname,
 				 recoveryStopAfter ? "after" : "before",
 				 timestamptz_to_str(recoveryStopTime));
+#ifdef PGXC
 	else if (recoveryTarget == RECOVERY_TARGET_BARRIER)
 		snprintf(buffer, sizeof(buffer),
 				 "%s%u\t%s\t%s %s\n",
@@ -4379,6 +4382,7 @@ writeTimeLineHistory(TimeLineID newTLI, TimeLineID parentTLI,
 				 xlogfname,
 				 recoveryStopAfter ? "after" : "before",
 				 recoveryTargetBarrierId);
+#endif
 	else
 		snprintf(buffer, sizeof(buffer),
 				 "%s%u\t%s\tno recovery target specified\n",
@@ -5492,24 +5496,26 @@ recoveryStopsHere(XLogRecord *record, bool *includeThis)
 		return false;
 
 	record_info = record->xl_info & ~XLR_INFO_MASK;
+#ifdef PGXC
 	if (record->xl_rmid == RM_XACT_ID)
 	{
-		if (record_info == XLOG_XACT_COMMIT)
-		{
-			xl_xact_commit *recordXactCommitData;
+#endif
+	if (record_info == XLOG_XACT_COMMIT)
+	{
+		xl_xact_commit *recordXactCommitData;
 
-			recordXactCommitData = (xl_xact_commit *) XLogRecGetData(record);
-			recordXtime = recordXactCommitData->xact_time;
-		}
-		else if (record_info == XLOG_XACT_ABORT)
-		{
-			xl_xact_abort *recordXactAbortData;
+		recordXactCommitData = (xl_xact_commit *) XLogRecGetData(record);
+		recordXtime = recordXactCommitData->xact_time;
+	}
+	else if (record_info == XLOG_XACT_ABORT)
+	{
+		xl_xact_abort *recordXactAbortData;
 
-			recordXactAbortData = (xl_xact_abort *) XLogRecGetData(record);
-			recordXtime = recordXactAbortData->xact_time;
-		}
+		recordXactAbortData = (xl_xact_abort *) XLogRecGetData(record);
+		recordXtime = recordXactAbortData->xact_time;
 	}
 #ifdef PGXC
+	} /* end if (record->xl_rmid == RM_XACT_ID) */
 	else if (record->xl_rmid == RM_BARRIER_ID)
 	{
 		if (record_info == XLOG_BARRIER_CREATE)
@@ -5883,10 +5889,12 @@ StartupXLOG(void)
 			ereport(LOG,
 					(errmsg("starting point-in-time recovery to %s",
 							timestamptz_to_str(recoveryTargetTime))));
+#ifdef PGXC
 		else if (recoveryTarget == RECOVERY_TARGET_BARRIER)
 			ereport(LOG,
 					(errmsg("starting point-in-time recovery to barrier %s",
 							(recoveryTargetBarrierId))));
+#endif
 		else
 			ereport(LOG,
 					(errmsg("starting archive recovery")));

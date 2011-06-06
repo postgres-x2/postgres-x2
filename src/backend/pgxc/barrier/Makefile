@@ -1,7 +1,7 @@
 #-------------------------------------------------------------------------
 #
 # Makefile--
-#    Makefile for pool
+#    Makefile for barrier
 #
 #  Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
 #

@@ -44,7 +44,7 @@ extern void ProcessCreateBarrierExecute(const char *id);
  * while all other backend starting a 2PC will grab the lock in shared
  * mode. So as long as we hold the exclusive lock, no other backend start a
  * new 2PC and there can not be any 2PC in-progress. This technique would
- * rely on assumption that an exclsuive lock requester is not starved by
+ * rely on assumption that an exclusive lock requester is not starved by
  * share lock requesters.
  *
  * Note: To ensure that the 2PC are not blocked for a long time, we should
@@ -76,7 +76,7 @@ ProcessCreateBarrierPrepare(const char *id)
 }
 
 /*
- * Mark the completetion of an on-going barrier. We must have remembered the
+ * Mark the completion of an on-going barrier. We must have remembered the
  * barrier ID when we received the CREATE BARRIER PREPARE command
  */
 void
@@ -103,7 +103,7 @@ ProcessCreateBarrierEnd(const char *id)
 }
 
 /*
- * Execute the CREATE BARRIER comamnd. Write a BARRIER WAL record and flush the
+ * Execute the CREATE BARRIER command. Write a BARRIER WAL record and flush the
  * WAL buffers to disk before returning to the caller. Writing the WAL record
  * does not guarantee successful completion of the barrier command.
  */
@@ -140,15 +140,15 @@ static const char *
 generate_barrier_id(const char *id)
 {
 	/*
-	 * TODO If the caller can passeed a NULL value, generate an id which is
+	 * TODO If the caller can passed a NULL value, generate an id which is
 	 * guaranteed to be unique across the cluster. We can use a combination of
 	 * the coordinator node id and a timestamp. This may not be complete if we
 	 * support changing coordinator ids without initdb or the system clocks are
 	 * modified.
 	 *
 	 * Another option would be to let the GTM issue globally unique barrier
-	 * IDs. For the time being, we leave it to the user to come up with an
-	 * unique identifier
+	 * IDs (GTM-timestamp based). For the time being, we leave it to the user
+	 * to come up with an unique identifier.
 	 */
 	return id ? id : pstrdup("dummy_barrier_id");
 }
@@ -326,7 +326,7 @@ PrepareBarrier(const char *id)
 	 */
 	LWLockAcquire(BarrierLock, LW_EXCLUSIVE);
 
-	elog(DEBUG2, "Disabled 2PC commits origniating at the diriving coordinator");
+	elog(DEBUG2, "Disabled 2PC commits originating at the driving coordinator");
 
 	/*
 	 * TODO Start a timer to cancel the barrier request in case of a timeout
@@ -375,7 +375,7 @@ ExecuteBarrier(const char *id)
 		if (handle->state != DN_CONNECTION_STATE_IDLE)
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("Failed to send CREATE BARRIER PREPARE request "
+					 errmsg("Failed to send CREATE BARRIER EXECUTE request "
 						 	"to the node")));
 
 		barrier_idlen = strlen(id) + 1;

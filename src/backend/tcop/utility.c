@@ -489,7 +489,7 @@ standard_ProcessUtility(Node *parsetree,
 						 *
 						 * XXX We call FinishPreparedTransaction inside
 						 * PGXCNodeCommitPrepared if we are doing a local
-						 * operation. This is convinient because we want to
+						 * operation. This is convenient because we want to
 						 * hold on to the BarrierLock until local transaction
 						 * is committed too.
 						 *  

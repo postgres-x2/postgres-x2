@@ -1931,7 +1931,7 @@ PGXCNodeImplicitCommitPrepared(GlobalTransactionId prepare_xid,
 	 * We should acquire the BarrierLock in SHARE mode here to ensure that
 	 * there are no in-progress barrier at this point. This mechanism would
 	 * work as long as LWLock mechanism does not starve a EXCLUSIVE lock
-	 * requesster
+	 * requester
 	 */
 	LWLockAcquire(BarrierLock, LW_SHARED);
 	res = pgxc_node_implicit_commit_prepared(prepare_xid, commit_xid,

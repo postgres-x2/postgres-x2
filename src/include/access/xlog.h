@@ -184,8 +184,11 @@ typedef enum
 {
 	RECOVERY_TARGET_UNSET,
 	RECOVERY_TARGET_XID,
-	RECOVERY_TARGET_TIME,
+	RECOVERY_TARGET_TIME
+#ifdef PGXC
+	,
 	RECOVERY_TARGET_BARRIER
+#endif
 } RecoveryTargetType;
 
 extern XLogRecPtr XactLastRecEnd;

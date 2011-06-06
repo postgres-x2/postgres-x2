@@ -2302,7 +2302,6 @@ typedef struct BarrierStmt
 	NodeTag		type;
 	const char	*id;			/* User supplied barrier id, if any */
 } BarrierStmt;
-
 #endif
 
 /* ----------------------
