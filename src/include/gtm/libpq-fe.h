@@ -119,6 +119,7 @@ extern void GTMPQconninfoFree(GTMPQconninfoOption *connOptions);
 extern char *GTMPQhost(const GTM_Conn *conn);
 extern char *GTMPQport(const GTM_Conn *conn);
 extern ConnStatusType GTMPQstatus(const GTM_Conn *conn);
+extern int GTMPQispostmaster(const GTM_Conn *conn);
 extern char *GTMPQerrorMessage(const GTM_Conn *conn);
 extern int	GTMPQsocket(const GTM_Conn *conn);
 

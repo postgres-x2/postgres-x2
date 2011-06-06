@@ -226,8 +226,7 @@ static void
 DataNodeShutdown (int code, Datum arg)
 {
 	/* Close connection with GTM, if active */
-	if (IsAutoVacuumWorkerProcess())
-		CloseGTM();
+	CloseGTM();
 }
 #endif
 

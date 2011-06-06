@@ -28,17 +28,28 @@ extern bool FirstSnapshotSet;
 
 static GTM_Conn *conn;
 
-#define CheckConnection() \
-	if (GTMPQstatus(conn) != CONNECTION_OK) InitGTM()
-
 bool
 IsGTMConnected()
 {
 	return conn != NULL;
 }
 
+static void
+CheckConnection(void)
+{
+	/* Be sure that a backend does not use a postmaster connection */
+	if (IsUnderPostmaster && GTMPQispostmaster(conn) == 1)
+	{
+		InitGTM();
+		return;
+	}
+
+	if (GTMPQstatus(conn) != CONNECTION_OK)
+		InitGTM();
+}
+
 void
-InitGTM()
+InitGTM(void)
 {
 	/* 256 bytes should be enough */
 	char conn_str[256];
@@ -55,9 +66,22 @@ InitGTM()
 
 		sprintf(conn_str, "host=%s port=%d pgxc_node_id=%d remote_type=%d postmaster=1",
 								GtmHost, GtmPort, PGXCNodeId, remote_type);
+
+		/* Log activity of GTM connections */
+		elog(DEBUG1, "Postmaster: connection established to GTM with string %s", conn_str);
 	}
 	else
+	{
 		sprintf(conn_str, "host=%s port=%d pgxc_node_id=%d", GtmHost, GtmPort, PGXCNodeId);
+
+		/* Log activity of GTM connections */
+		if (IsAutoVacuumWorkerProcess())
+			elog(DEBUG1, "Autovacuum worker: connection established to GTM with string %s", conn_str);
+		else if (IsAutoVacuumLauncherProcess())
+			elog(DEBUG1, "Autovacuum launcher: connection established to GTM with string %s", conn_str);
+		else
+			elog(DEBUG1, "Postmaster child: connection established to GTM with string %s", conn_str);
+	}
 
 	conn = PQconnectGTM(conn_str);
 	if (GTMPQstatus(conn) != CONNECTION_OK)
@@ -79,6 +103,16 @@ CloseGTM(void)
 {
 	GTMPQfinish(conn);
 	conn = NULL;
+
+	/* Log activity of GTM connections */
+	if (!IsUnderPostmaster)
+		elog(DEBUG1, "Postmaster: connection to GTM closed");
+	else if (IsAutoVacuumWorkerProcess())
+		elog(DEBUG1, "Autovacuum worker: connection to GTM closed");
+	else if (IsAutoVacuumLauncherProcess())
+		elog(DEBUG1, "Autovacuum launcher: connection to GTM closed");
+	else
+		elog(DEBUG1, "Postmaster child: connection to GTM closed");
 }
 
 GlobalTransactionId
@@ -114,7 +148,8 @@ BeginTranAutovacuumGTM(void)
 	if (conn)
 		xid =  begin_transaction_autovacuum(conn, GTM_ISOLATION_RC);
 
-	/* If something went wrong (timeout), try and reset GTM connection and retry.
+	/*
+	 * If something went wrong (timeout), try and reset GTM connection and retry.
 	 * This is safe at the beginning of a transaction.
 	 */
 	if (!TransactionIdIsValid(xid))
@@ -147,6 +182,11 @@ CommitTranGTM(GlobalTransactionId gxid)
 		CloseGTM();
 		InitGTM();
 	}
+
+	/* Close connection in case commit is done by autovacuum worker or launcher */
+	if (IsAutoVacuumWorkerProcess() || IsAutoVacuumLauncherProcess())
+		CloseGTM();
+
 	return ret;
 }
 

@@ -1254,6 +1254,14 @@ GTMPQstatus(const GTM_Conn *conn)
 	return conn->status;
 }
 
+int
+GTMPQispostmaster(const GTM_Conn *conn)
+{
+	if (!conn)
+		return 0;
+	return conn->is_postmaster;
+}
+
 char *
 GTMPQerrorMessage(const GTM_Conn *conn)
 {
