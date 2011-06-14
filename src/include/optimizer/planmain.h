@@ -137,8 +137,7 @@ extern Var *search_tlist_for_var(Var *var, List *jtlist);
 extern Plan *create_remoteinsert_plan(PlannerInfo *root, Plan *topplan);
 extern Plan *create_remoteupdate_plan(PlannerInfo *root, Plan *topplan);
 extern Plan *create_remotedelete_plan(PlannerInfo *root, Plan *topplan);
-extern Plan *create_remotegroup_plan(PlannerInfo *root, Plan *local_plan);
-extern Plan *create_remoteagg_plan(PlannerInfo *root, Plan *agg_plan);
+extern Plan *create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan);
 #endif
 
 #endif   /* PLANMAIN_H */

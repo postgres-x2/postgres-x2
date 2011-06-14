@@ -1334,16 +1334,6 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 												numGroups,
 												agg_counts.numAggs,
 												result_plan);
-#ifdef PGXC
-				/*
-				 * Grouping will certainly not increase the number of rows
-				 * coordinator fetches from datanode, in fact it's expected to
-				 * reduce the number drastically. Hence, try pushing GROUP BY
-				 * clauses and aggregates to the datanode, thus saving bandwidth.
-				 */
-				if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-					result_plan = create_remoteagg_plan(root, result_plan);
-#endif /* PGXC */
 				/* Hashed aggregation produces randomly-ordered results */
 				current_pathkeys = NIL;
 			}
@@ -1415,16 +1405,6 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 									extract_grouping_ops(parse->groupClause),
 												  dNumGroups,
 												  result_plan);
-#ifdef PGXC
-				/*
-				 * Grouping will certainly not increase the number of rows
-				 * coordinator fetches from datanode, in fact it's expected to
-				 * reduce the number drastically. Hence, try pushing GROUP BY
-				 * clauses and aggregates to the datanode, thus saving bandwidth.
-				 */
-				if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-					result_plan = create_remotegroup_plan(root, result_plan);
-#endif /* PGXC */
 			}
 			else if (root->hasHavingQual)
 			{
@@ -1445,6 +1425,17 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 												   parse->havingQual,
 												   NULL);
 			}
+#ifdef PGXC
+			/*
+			 * Grouping will certainly not increase the number of rows
+			 * coordinator fetches from datanode, in fact it's expected to
+			 * reduce the number drastically. Hence, try pushing GROUP BY
+			 * clauses and aggregates to the datanode, thus saving bandwidth.
+			 */
+			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+				result_plan = create_remotegrouping_plan(root, result_plan);
+#endif /* PGXC */
+
 		}						/* end of non-minmax-aggregate case */
 
 		/*
