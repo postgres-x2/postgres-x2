@@ -241,8 +241,8 @@ DATA(insert ( 3527	enum_smaller	enum_smaller	-				3518	3500	3500	_null_ _null_ )
 /* count */
 /* Final function is data type conversion function numeric_int8 is refernced by OID because of ambiguous defininition in pg_proc */
 #ifdef PGXC
-DATA(insert ( 2147	int8inc_any		int8_sum_to_int8 -				0		20		20		"0" _null_ ));
-DATA(insert ( 2803	int8inc			int8_sum_to_int8 -				0		20		20		"0" _null_ ));
+DATA(insert ( 2147	int8inc_any		int8_sum_to_int8 -				0		20		20		"0" "0" ));
+DATA(insert ( 2803	int8inc			int8_sum_to_int8 -				0		20		20		"0" "0" ));
 #endif
 #ifdef PGXC
 //DATA(insert ( 2147	int8inc_any		-				0		20		"0" ));

@@ -1045,26 +1045,30 @@ DETAIL:  The feature is not currently supported
 SELECT count(*) FROM test_tsvector WHERE a @@ to_tsquery('345&qwerty');
  count 
 -------
-(0 rows)
+     0
+(1 row)
 
 INSERT INTO test_tsvector (t) VALUES ('345 qwerty');
 SELECT count(*) FROM test_tsvector WHERE a @@ to_tsquery('345&qwerty');
  count 
 -------
-(0 rows)
+     0
+(1 row)
 
 UPDATE test_tsvector SET t = null WHERE t = '345 qwerty';
 ERROR:  Partition column can't be updated in current version
 SELECT count(*) FROM test_tsvector WHERE a @@ to_tsquery('345&qwerty');
  count 
 -------
-(0 rows)
+     0
+(1 row)
 
 INSERT INTO test_tsvector (t) VALUES ('345 qwerty');
 SELECT count(*) FROM test_tsvector WHERE a @@ to_tsquery('345&qwerty');
  count 
 -------
-(0 rows)
+     0
+(1 row)
 
 -- test finding items in GIN's pending list
 create table pendtest (ts tsvector);
