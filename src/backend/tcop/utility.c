@@ -370,13 +370,10 @@ standard_ProcessUtility(Node *parsetree,
 						{
 							ListCell   *lc;
 #ifdef PGXC
-							/*
-							 * If a COMMIT PREPARED message is received from another Coordinator,
-							 * Don't send it down to Datanodes.
-							 */
 							if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 								PGXCNodeBegin();
 #endif
+
 							BeginTransactionBlock();
 							foreach(lc, stmt->options)
 							{
@@ -391,6 +388,33 @@ standard_ProcessUtility(Node *parsetree,
 												  list_make1(item->arg),
 												  true);
 							}
+
+#ifdef PGXC
+							/*
+							 * Now that all the local variables have been set,
+							 * it is time to rebuild the query.
+							 */
+							if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+							{
+								char *begin_string = NULL;
+
+								/* Result is palloc'd */
+								foreach(lc, stmt->options)
+								{
+									DefElem    *item = (DefElem *) lfirst(lc);
+
+									if (strcmp(item->defname, "transaction_isolation") == 0)
+										begin_string = RewriteBeginQuery(begin_string,
+																		 "transaction_isolation",
+																		 list_make1(item->arg));
+									else if (strcmp(item->defname, "transaction_read_only") == 0)
+										begin_string = RewriteBeginQuery(begin_string,
+																		 "transaction_read_only",
+																		 list_make1(item->arg));
+								}
+								PGXCNodeSetBeginQuery(begin_string);
+							}
+#endif
 						}
 						break;
 

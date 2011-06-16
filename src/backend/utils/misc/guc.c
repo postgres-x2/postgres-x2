@@ -8320,4 +8320,44 @@ assign_application_name(const char *newval, bool doit, GucSource source)
 		return newval;
 }
 
+#ifdef PGXC
+/*
+ * RewriteBeginQuery
+ *
+ * Rewrite transaction start query depending on the isolation level
+ * and read operation options.
+ */
+char *
+RewriteBeginQuery(char *query_string, const char *name, List *args)
+{
+	char *value = GetConfigOptionByName(name, NULL);
+
+	if (!query_string)
+	{
+		query_string = (char *)palloc(18);
+		sprintf(query_string, "START TRANSACTION");
+	}
+
+	if (strcmp(name, "transaction_isolation") == 0)
+	{
+		query_string = (char *)repalloc(query_string, strlen(query_string) + strlen(value) + 18);
+		sprintf(query_string, "%s ISOLATION LEVEL %s", query_string, value);
+	}
+	else if (strcmp(name, "transaction_read_only") == 0)
+	{
+		char buffer[512];
+		if (strcmp(value, "on") == 0)
+			sprintf(buffer, "READ ONLY");
+		else
+			sprintf(buffer, "READ WRITE");
+
+		query_string = (char *)repalloc(query_string, strlen(query_string) + strlen(buffer) + 2);
+		sprintf(query_string, "%s %s", query_string, buffer);
+	}
+
+	pfree(value);
+	return query_string;
+}
+#endif
+
 #include "guc-file.c"

@@ -53,6 +53,7 @@ static bool is_ddl = false;
 static bool implicit_force_autocommit = false;
 static PGXCNodeHandle **write_node_list = NULL;
 static int	write_node_count = 0;
+static char *begin_string = NULL;
 
 static int	pgxc_node_begin(int conn_count, PGXCNodeHandle ** connections,
 				GlobalTransactionId gxid);
@@ -1536,8 +1537,16 @@ pgxc_node_begin(int conn_count, PGXCNodeHandle ** connections,
 		if (GlobalTimestampIsValid(timestamp) && pgxc_node_send_timestamp(connections[i], timestamp))
 			return EOF;
 
-		if (pgxc_node_send_query(connections[i], "BEGIN"))
-			return EOF;
+		if (begin_string)
+		{
+			if (pgxc_node_send_query(connections[i], begin_string))
+				return EOF;
+		}
+		else
+		{
+			if (pgxc_node_send_query(connections[i], "BEGIN"))
+				return EOF;
+		}
 	}
 
 	combiner = CreateResponseCombiner(conn_count, COMBINE_TYPE_NONE);
@@ -1573,6 +1582,22 @@ PGXCNodeBegin(void)
 	clear_write_node_list();
 }
 
+void
+PGXCNodeSetBeginQuery(char *query_string)
+{
+	int len;
+
+	if (!query_string)
+		return;
+
+	len = strlen(query_string);
+	/*
+	 * This query string is sent to backend nodes,
+	 * it contains serializable and read options
+	 */
+	begin_string = (char *)malloc(len + 1);
+	begin_string = memcpy(begin_string, query_string, len + 1);
+}
 
 /*
  * Prepare transaction on Datanodes and Coordinators involved in current transaction.
@@ -1624,6 +1649,11 @@ finish:
 	if (!PersistentConnections)
 		release_handles();
 	autocommit = true;
+	if (begin_string)
+	{
+		free(begin_string);
+		begin_string = NULL;
+	}
 	is_ddl = false;
 	clear_write_node_list();
 
@@ -1898,6 +1928,11 @@ finish:
 	if (!PersistentConnections && res == 0)
 		release_handles();
 	autocommit = true;
+	if (begin_string)
+	{
+		free(begin_string);
+		begin_string = NULL;
+	}
 	is_ddl = false;
 	clear_write_node_list();
 
@@ -2034,6 +2069,11 @@ finish:
 	if (!PersistentConnections)
 		release_handles();
 	autocommit = true;
+	if (begin_string)
+	{
+		free(begin_string);
+		begin_string = NULL;
+	}
 	is_ddl = false;
 	clear_write_node_list();
 
@@ -2158,6 +2198,11 @@ finish:
 	if (!PersistentConnections)
 		release_handles();
 	autocommit = true;
+	if (begin_string)
+	{
+		free(begin_string);
+		begin_string = NULL;
+	}
 	is_ddl = false;
 	clear_write_node_list();
 
@@ -2250,6 +2295,11 @@ finish:
 	if (!PersistentConnections && bReleaseHandles)
 		release_handles();
 	autocommit = true;
+	if (begin_string)
+	{
+		free(begin_string);
+		begin_string = NULL;
+	}
 	is_ddl = false;
 	clear_write_node_list();
 
@@ -2319,6 +2369,11 @@ finish:
 	if (!PersistentConnections)
 		release_handles();
 	autocommit = true;
+	if (begin_string)
+	{
+		free(begin_string);
+		begin_string = NULL;
+	}
 	is_ddl = false;
 	clear_write_node_list();
 

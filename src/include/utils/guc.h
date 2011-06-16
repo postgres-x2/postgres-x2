@@ -277,6 +277,10 @@ extern void SetPGVariable(const char *name, List *args, bool is_local);
 extern void GetPGVariable(const char *name, DestReceiver *dest);
 extern TupleDesc GetPGVariableResultDesc(const char *name);
 
+#ifdef PGXC
+extern char *RewriteBeginQuery(char *query_string, const char *name, List *args);
+#endif
+
 extern void ExecSetVariableStmt(VariableSetStmt *stmt);
 extern char *ExtractSetVariableArgs(VariableSetStmt *stmt);
 
