@@ -2117,7 +2117,6 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 	step->sql_statement = NULL;
 	step->exec_nodes = NULL;
 	step->combine_type = COMBINE_TYPE_NONE;
-	step->simple_aggregates = NIL;
 	step->sort = NULL;
 	step->distinct = NULL;
 	step->read_only = true;

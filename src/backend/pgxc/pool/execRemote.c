@@ -223,7 +223,6 @@ CreateResponseCombiner(int node_count, CombineType combine_type)
 	combiner->rowBuffer = NIL;
 	combiner->tapenodes = NULL;
 	combiner->initAggregates = true;
-	combiner->simple_aggregates = NULL;
 	combiner->copy_file = NULL;
 
 	return combiner;
@@ -254,146 +253,6 @@ parse_row_count(const char *message, size_t len, uint64 *rowcount)
 		}
 	}
 	return digits;
-}
-
-/*
- * Initialize the collection value, when agregation is first set up, or for a
- * new group (grouping support is not implemented yet)
- */
-static void
-initialize_collect_aggregates(SimpleAgg  *simple_agg)
-{
-	if (simple_agg->initValueIsNull)
-		simple_agg->collectValue = simple_agg->initValue;
-	else
-		simple_agg->collectValue = datumCopy(simple_agg->initValue,
-		                                     simple_agg->transtypeByVal,
-		                                     simple_agg->transtypeLen);
-	simple_agg->noCollectValue = simple_agg->initValueIsNull;
-	simple_agg->collectValueNull = simple_agg->initValueIsNull;
-}
-
-/*
- * Finalize the aggregate after current group or entire relation is processed
- * (grouping support is not implemented yet)
- */
-static void
-finalize_collect_aggregates(SimpleAgg  *simple_agg, Datum *resultVal, bool *resultIsNull)
-{
-	/*
-	 * Apply the agg's finalfn if one is provided, else return collectValue.
-	 */
-	if (OidIsValid(simple_agg->finalfn_oid))
-	{
-		FunctionCallInfoData fcinfo;
-
-		InitFunctionCallInfoData(fcinfo, &(simple_agg->finalfn), 1,
-		                         (void *) simple_agg, NULL);
-		fcinfo.arg[0] = simple_agg->collectValue;
-		fcinfo.argnull[0] = simple_agg->collectValueNull;
-		if (fcinfo.flinfo->fn_strict && simple_agg->collectValueNull)
-		{
-			/* don't call a strict function with NULL inputs */
-			*resultVal = (Datum) 0;
-			*resultIsNull = true;
-		}
-		else
-		{
-			*resultVal = FunctionCallInvoke(&fcinfo);
-			*resultIsNull = fcinfo.isnull;
-		}
-	}
-	else
-	{
-		*resultVal = simple_agg->collectValue;
-		*resultIsNull = simple_agg->collectValueNull;
-	}
-}
-
-/*
- * Given new input value(s), advance the transition function of an aggregate.
- *
- * The new values (and null flags) have been preloaded into argument positions
- * 1 and up in fcinfo, so that we needn't copy them again to pass to the
- * collection function.  No other fields of fcinfo are assumed valid.
- *
- * It doesn't matter which memory context this is called in.
- */
-static void
-advance_collect_function(SimpleAgg  *simple_agg, FunctionCallInfoData *fcinfo)
-{
-	Datum		newVal;
-
-	if (simple_agg->transfn.fn_strict)
-	{
-		/*
-		 * For a strict transfn, nothing happens when there's a NULL input; we
-		 * just keep the prior transValue.
-		 */
-		if (fcinfo->argnull[1])
-			return;
-		if (simple_agg->noCollectValue)
-		{
-			/*
-			 * result has not been initialized
-			 * We must copy the datum into result if it is pass-by-ref. We
-			 * do not need to pfree the old result, since it's NULL.
-			 * PGXCTODO: in case the transition result type is different from
-			 * collection result type, this code would not work, since we are
-			 * assigning datum of one type to another. For this code to work the
-			 * input and output of collection function needs to be binary
-			 * compatible which is not. So, either check in AggregateCreate,
-			 * that the input and output of collection function are binary
-			 * coercible or set the initial values something non-null or change
-			 * this code
-			 */
-			simple_agg->collectValue = datumCopy(fcinfo->arg[1],
-			                                     simple_agg->transtypeByVal,
-			                                     simple_agg->transtypeLen);
-			simple_agg->collectValueNull = false;
-			simple_agg->noCollectValue = false;
-			return;
-		}
-		if (simple_agg->collectValueNull)
-		{
-			/*
-			 * Don't call a strict function with NULL inputs.  Note it is
-			 * possible to get here despite the above tests, if the transfn is
-			 * strict *and* returned a NULL on a prior cycle. If that happens
-			 * we will propagate the NULL all the way to the end.
-			 */
-			return;
-		}
-	}
-
-	/*
-	 * OK to call the transition function
-	 */
-	InitFunctionCallInfoData(*fcinfo, &(simple_agg->transfn), 2, (void *) simple_agg, NULL);
-	fcinfo->arg[0] = simple_agg->collectValue;
-	fcinfo->argnull[0] = simple_agg->collectValueNull;
-	newVal = FunctionCallInvoke(fcinfo);
-
-	/*
-	 * If pass-by-ref datatype, must copy the new value into aggcontext and
-	 * pfree the prior transValue.	But if transfn returned a pointer to its
-	 * first input, we don't need to do anything.
-	 */
-	if (!simple_agg->transtypeByVal &&
-	        DatumGetPointer(newVal) != DatumGetPointer(simple_agg->collectValue))
-	{
-		if (!fcinfo->isnull)
-		{
-			newVal = datumCopy(newVal,
-			                   simple_agg->transtypeByVal,
-			                   simple_agg->transtypeLen);
-		}
-		if (!simple_agg->collectValueNull)
-			pfree(DatumGetPointer(simple_agg->collectValue));
-	}
-
-	simple_agg->collectValue = newVal;
-	simple_agg->collectValueNull = fcinfo->isnull;
 }
 
 /*
@@ -458,64 +317,6 @@ create_tuple_desc(char *msg_body, size_t len)
 		TupleDescInitEntry(result, attnum, attname, oidtypeid, typmod, 0);
 	}
 	return result;
-}
-
-static void
-exec_simple_aggregates(RemoteQueryState *combiner, TupleTableSlot *slot)
-{
-	ListCell   *lc;
-
-	Assert(combiner->simple_aggregates);
-	Assert(!TupIsNull(slot));
-
-	if (combiner->initAggregates)
-	{
-		foreach (lc, combiner->simple_aggregates)
-			initialize_collect_aggregates((SimpleAgg *) lfirst(lc));
-
-		combiner->initAggregates = false;
-	}
-
-	foreach (lc, combiner->simple_aggregates)
-	{
-		SimpleAgg  *simple_agg = (SimpleAgg *) lfirst(lc);
-		FunctionCallInfoData fcinfo;
-		int attr = simple_agg->column_pos;
-
-		slot_getsomeattrs(slot, attr + 1);
-		fcinfo.arg[1] = slot->tts_values[attr];
-		fcinfo.argnull[1] = slot->tts_isnull[attr];
-
-		advance_collect_function(simple_agg, &fcinfo);
-	}
-}
-
-static void
-finish_simple_aggregates(RemoteQueryState *combiner, TupleTableSlot *slot)
-{
-	ListCell   *lc;
-	ExecClearTuple(slot);
-
-	/*
-	 * Aggregates may not been initialized if no rows has been received
-	 * from the data nodes because of HAVING clause.
-	 * In this case finish_simple_aggregates() should return empty slot
-	 */
-	if (!combiner->initAggregates)
-	{
-		foreach (lc, combiner->simple_aggregates)
-		{
-			SimpleAgg  *simple_agg = (SimpleAgg *) lfirst(lc);
-			int attr = simple_agg->column_pos;
-
-			finalize_collect_aggregates(simple_agg,
-										slot->tts_values + attr,
-										slot->tts_isnull + attr);
-		}
-		ExecStoreVirtualTuple(slot);
-		/* To prevent aggregates get finalized again */
-		combiner->initAggregates = true;
-	}
 }
 
 /*
@@ -1034,7 +835,6 @@ ValidateAndResetCombiner(RemoteQueryState *combiner)
 	combiner->currentRow.msgnode = 0;
 	combiner->rowBuffer = NIL;
 	combiner->tapenodes = NULL;
-	combiner->simple_aggregates = NULL;
 	combiner->copy_file = NULL;
 
 	return valid;
@@ -2913,7 +2713,6 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 	remotestate = CreateResponseCombiner(0, node->combine_type);
 	remotestate->ss.ps.plan = (Plan *) node;
 	remotestate->ss.ps.state = estate;
-	remotestate->simple_aggregates = node->simple_aggregates;
 
 	remotestate->ss.ps.qual = (List *)
 		ExecInitExpr((Expr *) node->scan.plan.qual,
@@ -2990,6 +2789,8 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 			ExecAssignExprContext(estate, &remotestate->ss.ps);
 		}
 	}
+	else if (remotestate->ss.ps.qual)
+		ExecAssignExprContext(estate, &remotestate->ss.ps);
 
 	if (innerPlan(node))
 		innerPlanState(remotestate) = ExecInitNode(innerPlan(node), estate, eflags);
@@ -3691,6 +3492,8 @@ ExecRemoteQuery(RemoteQueryState *node)
 	TupleTableSlot *resultslot = node->ss.ps.ps_ResultTupleSlot;
 	TupleTableSlot *scanslot = node->ss.ss_ScanTupleSlot;
 	bool have_tuple = false;
+	List			*qual = node->ss.ps.qual;
+	ExprContext		*econtext = node->ss.ps.ps_ExprContext;
 
 	if (!node->query_Done)
 	{
@@ -3757,7 +3560,15 @@ handle_results:
 		while (tuplesort_gettupleslot((Tuplesortstate *) node->tuplesortstate,
 									  true, scanslot))
 		{
-			have_tuple = true;
+			if (qual)
+				econtext->ecxt_scantuple = scanslot;
+			if (!qual || ExecQual(qual, econtext, false))
+				have_tuple = true;
+			else
+			{
+				have_tuple = false;
+				continue;
+			}
 			/*
 			 * If DISTINCT is specified and current tuple matches to
 			 * previous skip it and get next one.
@@ -3791,16 +3602,9 @@ handle_results:
 	{
 		while (FetchTuple(node, scanslot) && !TupIsNull(scanslot))
 		{
-			if (node->simple_aggregates)
-			{
-				/*
-				 * Advance aggregate functions and allow to read up next
-				 * data row message and get tuple in the same slot on
-				 * next iteration
-				 */
-				exec_simple_aggregates(node, scanslot);
-			}
-			else
+			if (qual)
+				econtext->ecxt_scantuple = scanslot;
+			if (!qual || ExecQual(qual, econtext, false))
 			{
 				/*
 				 * Receive current slot and read up next data row
@@ -3812,17 +3616,6 @@ handle_results:
 				have_tuple = true;
 				break;
 			}
-		}
-
-		/*
-		 * We may need to finalize aggregates
-		 */
-		if (node->simple_aggregates)
-		{
-			finish_simple_aggregates(node, resultslot);
-
-			if (!TupIsNull(resultslot))
-				have_tuple = true;
 		}
 
 		if (!have_tuple) /* report end of scan */

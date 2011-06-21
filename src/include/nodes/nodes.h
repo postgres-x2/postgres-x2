@@ -79,7 +79,6 @@ typedef enum NodeTag
 	 * TAGS FOR PGXC NODES (planner.h, locator.h)
 	 */
 	T_ExecNodes,
-	T_SimpleAgg,
 	T_SimpleSort,
 	T_SimpleDistinct,
 	T_RemoteQuery,

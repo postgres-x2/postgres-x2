@@ -921,7 +921,8 @@ finalize_aggregate(AggState *aggstate,
 	 */
 	if (OidIsValid(peraggstate->collectfn_oid) && !aggstate->skip_trans)
 	{
-		FunctionCallInfoData fcinfo;
+		FunctionCallInfoData	fcinfo;
+		int						saved_numArguments;
 		InitFunctionCallInfoData(fcinfo, &(peraggstate->collectfn), 2,
 									(void *) aggstate, NULL);
 		/*
@@ -937,24 +938,19 @@ finalize_aggregate(AggState *aggstate,
 		fcinfo.argnull[0] = peraggstate->initCollectValueIsNull;
 		fcinfo.arg[1] = pergroupstate->transValue;
 		fcinfo.argnull[1] = pergroupstate->transValueIsNull;
-		if (fcinfo.flinfo->fn_strict &&
-			(pergroupstate->transValueIsNull || peraggstate->initCollectValueIsNull))
-		{
-			pergroupstate->transValue = (Datum)0;
-			pergroupstate->transValueIsNull = true;
-		}
-		else
-		{
-			Datum newVal = FunctionCallInvoke(&fcinfo);
-
-			/*
-			 * set the result of collection function to the transValue so that code
-			 * below invoking final function does not change
-			 */
-			/* PGXCTODO: worry about the memory management here? */
-			pergroupstate->transValue = newVal;
-			pergroupstate->transValueIsNull = fcinfo.isnull;
-		}
+		/*
+		 * For collection function we expect only one argument other than the
+		 * running collection result. The numArguments in peraggstate
+		 * corresponds to the number of arguments to the aggregate, which is not
+		 * correct for collection. Hence while applying collection function
+		 * set numArguments to 1 and switch it back once the purpose is served.
+		 */
+		saved_numArguments = peraggstate->numArguments;
+		peraggstate->numArguments = 1;
+		advance_collection_function(aggstate, peraggstate, pergroupstate, &fcinfo);
+		peraggstate->numArguments = saved_numArguments;
+		pergroupstate->transValue = pergroupstate->collectValue;
+		pergroupstate->transValueIsNull = pergroupstate->collectValueIsNull;
 	}
 
 	/*

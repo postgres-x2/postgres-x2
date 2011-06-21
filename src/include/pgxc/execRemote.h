@@ -101,13 +101,6 @@ typedef struct RemoteQueryState
 	 * to initialize collecting of aggregates from the DNs
 	 */
 	bool		initAggregates;
-	/*
-	 * PGXCTODO -
-	 * we should get rid of the simple_aggregates member, that should work
-	 * through Agg node and grouping_planner should take care of optimizing it
-	 * to the fullest
-	 */
-	List	   *simple_aggregates;		/* description of aggregate functions */
 	void	   *tuplesortstate;			/* for merge sort */
 	/* Simple DISTINCT support */
 	FmgrInfo   *eqfunctions; 			/* functions to compare tuples */

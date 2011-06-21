@@ -93,7 +93,6 @@ typedef struct
 	char	   *sql_statement;
 	ExecNodes  *exec_nodes;			/* List of Datanodes where to launch query */
 	CombineType combine_type;
-	List	   *simple_aggregates;	/* simple aggregate to combine on this step */
 	SimpleSort *sort;
 	SimpleDistinct *distinct;
 	bool		read_only;          /* do not use 2PC when committing read only steps */
@@ -121,73 +120,6 @@ typedef struct
 	char	  *outer_statement;
 	char	  *join_condition;
 } RemoteQuery;
-
-
-/*
- * For handling simple aggregates (no group by present)
- * For now, only MAX will be supported.
- */
-typedef enum
-{
-	AGG_TYPE_MAX,
-	AGG_TYPE_MIN,
-	AGG_TYPE_COUNT,
-	AGG_TYPE_SUM,
-	AGG_TYPE_AVG
-} SimpleAggType;
-
-
-/* For handling simple aggregates */
-typedef struct
-{
-	NodeTag		type;
-	int			column_pos;		/* Only use 1 for now */
-	Aggref	   *aggref;
-	Oid			transfn_oid;
-	Oid			finalfn_oid;
-
-	/* Input Functions, to parse arguments coming from the data nodes */
-	FmgrInfo	arginputfn;
-	Oid			argioparam;
-
-	/* Output Function, to encode result to present to client */
-	FmgrInfo	resoutputfn;
-
-	/*
-	 * fmgr lookup data for transfer functions --- only valid when
-	 * corresponding oid is not InvalidOid.  Note in particular that fn_strict
-	 * flags are kept here.
-	 */
-	FmgrInfo	transfn;
-	FmgrInfo	finalfn;
-
-	/*
-	 * initial value from pg_aggregate entry
-	 */
-	Datum		initValue;
-	bool		initValueIsNull;
-
-	/*
-	 * We need the len and byval info for the agg's input, result, and
-	 * transition data types in order to know how to copy/delete values.
-	 */
-	int16		inputtypeLen,
-				resulttypeLen,
-				transtypeLen;
-	bool		inputtypeByVal,
-				resulttypeByVal,
-				transtypeByVal;
-
-	/*
-	 * State of current group
-	 */
-	bool		noCollectValue;
-	Datum		collectValue;
-	bool		collectValueNull;
-
-	/* a value buffer to avoid multiple allocations */
-	StringInfoData valuebuf;
-} SimpleAgg;
 
 typedef struct
 {

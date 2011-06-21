@@ -905,7 +905,6 @@ _copyRemoteQuery(RemoteQuery *from)
 	COPY_STRING_FIELD(sql_statement);
 	COPY_NODE_FIELD(exec_nodes);
 	COPY_SCALAR_FIELD(combine_type);
-	COPY_NODE_FIELD(simple_aggregates);
 	COPY_NODE_FIELD(sort);
 	COPY_NODE_FIELD(distinct);
 	COPY_SCALAR_FIELD(read_only);
@@ -948,40 +947,6 @@ _copyExecNodes(ExecNodes *from)
 	COPY_NODE_FIELD(expr);
 	COPY_SCALAR_FIELD(relid);
 	COPY_SCALAR_FIELD(accesstype);
-
-	return newnode;
-}
-
-/*
- * _copySimpleAgg
- */
-static SimpleAgg *
-_copySimpleAgg(SimpleAgg *from)
-{
-	SimpleAgg *newnode = makeNode(SimpleAgg);
-
-	COPY_SCALAR_FIELD(column_pos);
-	COPY_NODE_FIELD(aggref);
-	COPY_SCALAR_FIELD(transfn_oid);
-	COPY_SCALAR_FIELD(finalfn_oid);
-	COPY_SCALAR_FIELD(arginputfn);
-	COPY_SCALAR_FIELD(argioparam);
-	COPY_SCALAR_FIELD(resoutputfn);
-	COPY_SCALAR_FIELD(transfn);
-	COPY_SCALAR_FIELD(finalfn);
-	if (!from->initValueIsNull)
-		newnode->initValue = datumCopy(from->initValue, from->transtypeByVal,
-									   from->transtypeLen);
-	COPY_SCALAR_FIELD(initValueIsNull);
-	COPY_SCALAR_FIELD(inputtypeLen);
-	COPY_SCALAR_FIELD(resulttypeLen);
-	COPY_SCALAR_FIELD(transtypeLen);
-	COPY_SCALAR_FIELD(inputtypeByVal);
-	COPY_SCALAR_FIELD(resulttypeByVal);
-	COPY_SCALAR_FIELD(transtypeByVal);
-	/* No need to copy runtime info, just init */
-	newnode->collectValueNull = true;
-	initStringInfo(&newnode->valuebuf);
 
 	return newnode;
 }
@@ -3859,9 +3824,6 @@ copyObject(void *from)
 			break;
 		case T_ExecNodes:
 			retval = _copyExecNodes(from);
-			break;
-		case T_SimpleAgg:
-			retval = _copySimpleAgg(from);
 			break;
 		case T_SimpleSort:
 			retval = _copySimpleSort(from);

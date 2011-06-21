@@ -1903,7 +1903,6 @@ makeRemoteQuery(void)
 	result->sql_statement = NULL;
 	result->exec_nodes = NULL;
 	result->combine_type = COMBINE_TYPE_NONE;
-	result->simple_aggregates = NIL;
 	result->sort = NULL;
 	result->distinct = NULL;
 	result->read_only = true;
@@ -2017,192 +2016,6 @@ get_plan_combine_type(Query *query, char baselocatortype)
 	/* quiet compiler warning */
 	return COMBINE_TYPE_NONE;
 }
-
-
-/*
- * Get list of simple aggregates used.
- */
-static List *
-get_simple_aggregates(Query * query)
-{
-	List	   *simple_agg_list = NIL;
-
-	/* Check for simple multi-node aggregate */
-	if (query->hasAggs)
-  	{
-		ListCell   *lc;
-		int			column_pos = 0;
-
-		foreach (lc, query->targetList)
-		{
-			TargetEntry *tle = (TargetEntry *) lfirst(lc);
-
-			if (IsA(tle->expr, Aggref))
-			{
-				/*PGXC borrowed this code from nodeAgg.c, see ExecInitAgg()*/
-				SimpleAgg  *simple_agg;
-				Aggref 	   *aggref = (Aggref *) tle->expr;
-				HeapTuple	aggTuple;
-				Form_pg_aggregate aggform;
-				Oid			aggcollecttype;
-				AclResult	aclresult;
-				Oid			transfn_oid,
-							finalfn_oid;
-				Expr	   *transfnexpr,
-						   *finalfnexpr;
-				Datum		textInitVal;
-
-				simple_agg = makeNode(SimpleAgg);
-				simple_agg->column_pos = column_pos;
-				initStringInfo(&simple_agg->valuebuf);
-				simple_agg->aggref = aggref;
-
-				aggTuple = SearchSysCache(AGGFNOID,
-										  ObjectIdGetDatum(aggref->aggfnoid),
-										  0, 0, 0);
-				if (!HeapTupleIsValid(aggTuple))
-					elog(ERROR, "cache lookup failed for aggregate %u",
-						 aggref->aggfnoid);
-				aggform = (Form_pg_aggregate) GETSTRUCT(aggTuple);
-
-				/* Check permission to call aggregate function */
-				aclresult = pg_proc_aclcheck(aggref->aggfnoid, GetUserId(),
-											 ACL_EXECUTE);
-				if (aclresult != ACLCHECK_OK)
-					aclcheck_error(aclresult, ACL_KIND_PROC,
-								   get_func_name(aggref->aggfnoid));
-
-				simple_agg->transfn_oid = transfn_oid = aggform->aggcollectfn;
-				simple_agg->finalfn_oid = finalfn_oid = aggform->aggfinalfn;
-
-				/* Check that aggregate owner has permission to call component fns */
-				{
-					HeapTuple	procTuple;
-					Oid			aggOwner;
-
-					procTuple = SearchSysCache(PROCOID,
-											   ObjectIdGetDatum(aggref->aggfnoid),
-											   0, 0, 0);
-					if (!HeapTupleIsValid(procTuple))
-						elog(ERROR, "cache lookup failed for function %u",
-							 aggref->aggfnoid);
-					aggOwner = ((Form_pg_proc) GETSTRUCT(procTuple))->proowner;
-					ReleaseSysCache(procTuple);
-
-					aclresult = pg_proc_aclcheck(transfn_oid, aggOwner,
-												 ACL_EXECUTE);
-					if (aclresult != ACLCHECK_OK)
-						aclcheck_error(aclresult, ACL_KIND_PROC,
-									   get_func_name(transfn_oid));
-					if (OidIsValid(finalfn_oid))
-					{
-						aclresult = pg_proc_aclcheck(finalfn_oid, aggOwner,
-													 ACL_EXECUTE);
-						if (aclresult != ACLCHECK_OK)
-							aclcheck_error(aclresult, ACL_KIND_PROC,
-										   get_func_name(finalfn_oid));
-					}
-				}
-
-				/* resolve actual type of transition state, if polymorphic */
-				aggcollecttype = aggform->aggcollecttype;
-
-				/* build expression trees using actual argument & result types */
-				build_aggregate_fnexprs(&aggform->aggtranstype,
-										1,
-										aggcollecttype,
-										aggref->aggtype,
-										transfn_oid,
-										finalfn_oid,
-										&transfnexpr,
-										&finalfnexpr);
-
-				/* Get InputFunction info for transition result */
-				{
-					Oid			typinput;
-
-					getTypeInputInfo(aggform->aggtranstype, &typinput, &simple_agg->argioparam);
-					fmgr_info(typinput, &simple_agg->arginputfn);
-				}
-
-				/* Get InputFunction info for result */
-				{
-					Oid			typoutput;
-					bool		typvarlena;
-
-					getTypeOutputInfo(simple_agg->aggref->aggtype, &typoutput, &typvarlena);
-					fmgr_info(typoutput, &simple_agg->resoutputfn);
-				}
-
-				fmgr_info(transfn_oid, &simple_agg->transfn);
-				simple_agg->transfn.fn_expr = (Node *) transfnexpr;
-
-				if (OidIsValid(finalfn_oid))
-				{
-					fmgr_info(finalfn_oid, &simple_agg->finalfn);
-					simple_agg->finalfn.fn_expr = (Node *) finalfnexpr;
-				}
-
-				get_typlenbyval(aggref->aggtype,
-								&simple_agg->resulttypeLen,
-								&simple_agg->resulttypeByVal);
-				get_typlenbyval(aggcollecttype,
-								&simple_agg->transtypeLen,
-								&simple_agg->transtypeByVal);
-
-				/*
-				 * initval is potentially null, so don't try to access it as a struct
-				 * field. Must do it the hard way with SysCacheGetAttr.
-				 */
-				textInitVal = SysCacheGetAttr(AGGFNOID, aggTuple,
-											  Anum_pg_aggregate_agginitcollect,
-											  &simple_agg->initValueIsNull);
-
-				if (simple_agg->initValueIsNull)
-					simple_agg->initValue = (Datum) 0;
-				else
-				{
-					Oid			typinput,
-								typioparam;
-					char	   *strInitVal;
-					Datum		initVal;
-
-					getTypeInputInfo(aggcollecttype, &typinput, &typioparam);
-					strInitVal = TextDatumGetCString(textInitVal);
-					initVal = OidInputFunctionCall(typinput, strInitVal,
-												   typioparam, -1);
-					pfree(strInitVal);
-					simple_agg->initValue = initVal;
-				}
-
-				/*
-				 * If the transfn is strict and the initval is NULL, make sure trans
-				 * type and collect type are the same (or at least binary-compatible),
-				 * so that it's OK to use the first input value as the initial
-				 * transValue.	This should have been checked at agg definition time,
-				 * but just in case...
-				 */
-				if (simple_agg->transfn.fn_strict && simple_agg->initValueIsNull)
-				{
-					if (!IsBinaryCoercible(aggform->aggtranstype, aggcollecttype))
-						ereport(ERROR,
-								(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-								 errmsg("aggregate %u needs to have compatible transition type and collection type",
-										aggref->aggfnoid)));
-				}
-
-				/* PGXCTODO distinct support */
-
-				ReleaseSysCache(aggTuple);
-
-				simple_agg_list = lappend(simple_agg_list, simple_agg);
-			}
-			column_pos++;
-  		}
-  	}
-	return simple_agg_list;
-}
-
 
 /*
  * add_sort_column --- utility subroutine for building sort info arrays
@@ -2966,14 +2779,6 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 		query_step->combine_type = get_plan_combine_type(
 				query, query_step->exec_nodes->baselocatortype);
 
-	/* Set up simple aggregates */
-	/* PGXCTODO - we should detect what types of aggregates are used.
-	 * in some cases we can avoid the final step and merely proxy results
-	 * (when there is only one data node involved) instead of using
-	 * coordinator consolidation. At the moment this is needed for AVG()
-	 */
-	query_step->simple_aggregates = get_simple_aggregates(query);
-
 	/*
 	 * Add sorting to the step
 	 */
@@ -3000,7 +2805,7 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	 * distribution the table has.
 	 */
 	if (query->commandType == CMD_SELECT
-					&& (query->groupClause || query->hasWindowFuncs || query->hasRecursive))
+					&& (query->hasAggs || query->groupClause || query->hasWindowFuncs || query->hasRecursive))
 	{
 		result = standard_planner(query, cursorOptions, boundParams);
 		return result;
@@ -3092,8 +2897,6 @@ free_query_step(RemoteQuery *query_step)
 		if (query_step->exec_nodes->primarynodelist)
 			list_free(query_step->exec_nodes->primarynodelist);
 	}
-	if (query_step->simple_aggregates != NULL)
-		list_free_deep(query_step->simple_aggregates);
 	pfree(query_step);
 }
 

@@ -5158,11 +5158,20 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 		return local_plan;
 	/*
 	 * for Group plan we expect Sort under the Group, which is always the case,
-	 * the condition below is really for some possible non-existent case
+	 * the condition below is really for some possibly non-existent case.
 	 */
 	if (IsA(local_plan, Group) && !sort_plan)
 		return local_plan;
-
+	/*
+	 * If the remote_scan has any quals on it, those need to be executed before
+	 * doing anything. Hence we won't be able to push any aggregates or grouping
+	 * to the data node.
+	 * If it has any SimpleSort in it, then sorting is intended to be applied
+	 * before doing anything. Hence can not push any aggregates or grouping to
+	 * the data node.
+	 */
+	if (remote_scan->scan.plan.qual || remote_scan->sort)
+		return local_plan;
 
 	/*
 	 * Grouping_planner may add Sort node to sort the rows
@@ -5182,6 +5191,11 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 				return local_plan;
 		}
 	}
+
+	/*
+	 * At last we find the plan underneath is reducible into a single
+	 * RemoteQuery node.
+	 */
 
 	/* find all the relations referenced by targetlist of Grouping node */
 	temp_vars = pull_var_clause((Node *)local_plan->targetlist,
