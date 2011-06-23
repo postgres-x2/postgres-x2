@@ -15,6 +15,7 @@
  */
 
 #include "postgres.h"
+#include "access/gtm.h"
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
 #include "pgxc/barrier.h"
@@ -139,18 +140,25 @@ ProcessCreateBarrierExecute(const char *id)
 static const char *
 generate_barrier_id(const char *id)
 {
+	char genid[1024];
+	TimestampTz ts;
+
 	/*
-	 * TODO If the caller can passed a NULL value, generate an id which is
-	 * guaranteed to be unique across the cluster. We can use a combination of
-	 * the coordinator node id and a timestamp. This may not be complete if we
-	 * support changing coordinator ids without initdb or the system clocks are
-	 * modified.
-	 *
-	 * Another option would be to let the GTM issue globally unique barrier
-	 * IDs (GTM-timestamp based). For the time being, we leave it to the user
-	 * to come up with an unique identifier.
+	 * If the caller can passed a NULL value, generate an id which is
+	 * guaranteed to be unique across the cluster. We use a combination of
+	 * the coordinator node id and current timestamp.
 	 */
-	return id ? id : pstrdup("dummy_barrier_id");
+
+	if (id)
+	   return id;
+
+	ts = GetCurrentTimestamp();
+#ifdef HAVE_INT64_TIMESTAMP
+	sprintf(genid, "%d_"INT64_FORMAT, PGXCNodeId, ts);
+#else
+	sprintf(genid, "%d_%.0f", PGXCNodeId, ts);
+#endif
+	return pstrdup(genid);
 }
 
 static PGXCNodeAllHandles *
