@@ -1195,8 +1195,8 @@ pgxc_node_receive_responses(const int conn_count, PGXCNodeHandle ** connections,
 int
 handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner)
 {
-	char	   *msg;
-	int			msg_len;
+	char		*msg;
+	int		msg_len;
 	char		msg_type;
 	bool		suspended = false;
 
@@ -1325,6 +1325,64 @@ handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner)
 	return RESPONSE_EOF;
 }
 
+
+/*
+ * Has the data node sent Ready For Query
+ */
+
+bool
+is_data_node_ready(PGXCNodeHandle * conn)
+{
+	char		*msg;
+	int		msg_len;
+	char		msg_type;
+	bool		suspended = false;
+
+	for (;;)
+	{
+		/*
+		 * If we are in the process of shutting down, we
+		 * may be rolling back, and the buffer may contain other messages.
+		 * We want to avoid a procarray exception
+		 * as well as an error stack overflow.
+		 */
+		if (proc_exit_inprogress)
+			conn->state = DN_CONNECTION_STATE_ERROR_FATAL;
+
+		/* don't read from from the connection if there is a fatal error */
+		if (conn->state == DN_CONNECTION_STATE_ERROR_FATAL)
+			return true;
+
+		/* No data available, exit */
+		if (!HAS_MESSAGE_BUFFERED(conn))
+			return false;
+
+		msg_type = get_message(conn, &msg_len, &msg);
+		switch (msg_type)
+		{
+			case 's':			/* PortalSuspended */
+				suspended = true;
+				break;
+
+			case 'Z':			/* ReadyForQuery */
+			{
+				/*
+				 * Return result depends on previous connection state.
+				 * If it was PORTAL_SUSPENDED coordinator want to send down
+				 * another EXECUTE to fetch more rows, otherwise it is done
+				 * with the connection
+				 */
+				int result = suspended ? RESPONSE_SUSPENDED : RESPONSE_COMPLETE;
+				conn->transaction_status = msg[0];
+				conn->state = DN_CONNECTION_STATE_IDLE;
+				conn->combiner = NULL;
+				return true;
+			}
+		}
+	}
+	/* never happen, but keep compiler quiet */
+	return false;
+}
 
 /*
  * Send BEGIN command to the Datanodes or Coordinators and receive responses
@@ -2453,7 +2511,7 @@ DataNodeCopyIn(char *data_row, int len, ExecNodes *exec_nodes, PGXCNodeHandle** 
 			if (bytes_needed > COPY_BUFFER_SIZE)
 			{
 				/* First look if data node has sent a error message */
-				int read_status = pgxc_node_read_data(primary_handle);
+				int read_status = pgxc_node_read_data(primary_handle, true);
 				if (read_status == EOF || read_status < 0)
 				{
 					add_error_message(primary_handle, "failed to read data from data node");
@@ -2514,7 +2572,7 @@ DataNodeCopyIn(char *data_row, int len, ExecNodes *exec_nodes, PGXCNodeHandle** 
 				int to_send = handle->outEnd;
 
 				/* First look if data node has sent a error message */
-				int read_status = pgxc_node_read_data(handle);
+				int read_status = pgxc_node_read_data(handle, true);
 				if (read_status == EOF || read_status < 0)
 				{
 					add_error_message(handle, "failed to read data from data node");
@@ -2615,7 +2673,7 @@ DataNodeCopyOut(ExecNodes *exec_nodes, PGXCNodeHandle** copy_connections, FILE* 
 				if (handle_response(handle,combiner) == RESPONSE_EOF)
 				{
 					/* read some extra-data */
-					read_status = pgxc_node_read_data(handle);
+					read_status = pgxc_node_read_data(handle, true);
 					if (read_status < 0)
 						ereport(ERROR,
 								(errcode(ERRCODE_CONNECTION_FAILURE),
@@ -2679,30 +2737,9 @@ DataNodeCopyFinish(PGXCNodeHandle** copy_connections, int primary_data_node,
 
 	if (primary_handle)
 	{
+		error = true;
 		if (primary_handle->state == DN_CONNECTION_STATE_COPY_IN || primary_handle->state == DN_CONNECTION_STATE_COPY_OUT)
-		{
-			/* msgType + msgLen */
-			if (ensure_out_buffer_capacity(primary_handle->outEnd + 1 + 4, primary_handle) != 0)
-			{
-				ereport(ERROR,
-						(errcode(ERRCODE_OUT_OF_MEMORY),
-						 errmsg("out of memory")));
-			}
-
-			primary_handle->outBuffer[primary_handle->outEnd++] = 'c';
-			memcpy(primary_handle->outBuffer + primary_handle->outEnd, &nLen, 4);
-			primary_handle->outEnd += 4;
-
-			/* We need response right away, so send immediately */
-			if (pgxc_node_flush(primary_handle) < 0)
-			{
-				error = true;
-			}
-		}
-		else
-		{
-			error = true;
-		}
+			error = DataNodeCopyEnd(primary_handle, false);
 
 		combiner = CreateResponseCombiner(conn_count + 1, combine_type);
 		error = (pgxc_node_receive_responses(1, &primary_handle, timeout, combiner) != 0) || error;
@@ -2712,30 +2749,9 @@ DataNodeCopyFinish(PGXCNodeHandle** copy_connections, int primary_data_node,
 	{
 		PGXCNodeHandle *handle = connections[i];
 
+		error = true;
 		if (handle->state == DN_CONNECTION_STATE_COPY_IN || handle->state == DN_CONNECTION_STATE_COPY_OUT)
-		{
-			/* msgType + msgLen */
-			if (ensure_out_buffer_capacity(handle->outEnd + 1 + 4, handle) != 0)
-			{
-				ereport(ERROR,
-						(errcode(ERRCODE_OUT_OF_MEMORY),
-						 errmsg("out of memory")));
-			}
-
-			handle->outBuffer[handle->outEnd++] = 'c';
-			memcpy(handle->outBuffer + handle->outEnd, &nLen, 4);
-			handle->outEnd += 4;
-
-			/* We need response right away, so send immediately */
-			if (pgxc_node_flush(handle) < 0)
-			{
-				error = true;
-			}
-		}
-		else
-		{
-			error = true;
-		}
+			error = DataNodeCopyEnd(handle, false);
 	}
 
 	need_tran = !autocommit || primary_handle || conn_count > 1;
@@ -2748,6 +2764,36 @@ DataNodeCopyFinish(PGXCNodeHandle** copy_connections, int primary_data_node,
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("Error while running COPY")));
+}
+
+/*
+ * End copy process on a connection
+ */
+bool
+DataNodeCopyEnd(PGXCNodeHandle *handle, bool is_error)
+{
+	int 		nLen = htonl(4);
+
+	if (handle == NULL)
+		return true;
+
+	/* msgType + msgLen */
+	if (ensure_out_buffer_capacity(handle->outEnd + 1 + 4, handle) != 0)
+		return true;
+
+	if (is_error)
+		handle->outBuffer[handle->outEnd++] = 'f';
+	else
+		handle->outBuffer[handle->outEnd++] = 'c';
+
+	memcpy(handle->outBuffer + handle->outEnd, &nLen, 4);
+	handle->outEnd += 4;
+
+	/* We need response right away, so send immediately */
+	if (pgxc_node_flush(handle) < 0)
+		return true;
+
+	return false;
 }
 
 RemoteQueryState *
@@ -3296,7 +3342,9 @@ do_query(RemoteQueryState *node)
 		while (true)
 		{
 			int res;
-			pgxc_node_receive(1, &primaryconnection, NULL);
+			if (pgxc_node_receive(1, &primaryconnection, NULL))
+				break;
+
 			res = handle_response(primaryconnection, node);
 			if (res == RESPONSE_COMPLETE)
 				break;
@@ -4248,7 +4296,8 @@ ExecRemoteUtility(RemoteQuery *node)
 		{
 			int i = 0;
 
-			pgxc_node_receive(dn_conn_count, pgxc_connections->datanode_handles, NULL);
+			if (pgxc_node_receive(dn_conn_count, pgxc_connections->datanode_handles, NULL))
+				break;
 			/*
 			 * Handle input from the data nodes.
 			 * We do not expect data nodes returning tuples when running utility
@@ -4296,7 +4345,9 @@ ExecRemoteUtility(RemoteQuery *node)
 		{
 			int i = 0;
 
-			pgxc_node_receive(co_conn_count, pgxc_connections->coord_handles, NULL);
+			if (pgxc_node_receive(co_conn_count, pgxc_connections->coord_handles, NULL))
+				break;
+
 			while (i < co_conn_count)
 			{
 				int res = handle_response(pgxc_connections->coord_handles[i], remotestate);

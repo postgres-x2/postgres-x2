@@ -28,6 +28,7 @@
 
 /* Connection to data node maintained by Pool Manager */
 typedef struct PGconn NODE_CONNECTION;
+typedef struct PGcancel NODE_CANCEL;
 
 /* Helper structure to access data node from Session */
 typedef enum
@@ -105,6 +106,9 @@ extern void PGXCNodeCleanAndRelease(int code, Datum arg);
 
 extern PGXCNodeAllHandles *get_handles(List *datanodelist, List *coordlist, bool is_query_coord_only);
 extern void release_handles(void);
+extern void cancel_query(void);
+extern void clear_all_data(void);
+
 
 extern int	get_transaction_nodes(PGXCNodeHandle ** connections,
 								  char client_conn_type,
@@ -130,11 +134,14 @@ extern int	pgxc_node_send_gxid(PGXCNodeHandle * handle, GlobalTransactionId gxid
 extern int	pgxc_node_send_snapshot(PGXCNodeHandle * handle, Snapshot snapshot);
 extern int	pgxc_node_send_timestamp(PGXCNodeHandle * handle, TimestampTz timestamp);
 
-extern int pgxc_node_receive(const int conn_count,
+extern bool	pgxc_node_receive(const int conn_count,
 				  PGXCNodeHandle ** connections, struct timeval * timeout);
-extern int	pgxc_node_read_data(PGXCNodeHandle * conn);
+extern int	pgxc_node_read_data(PGXCNodeHandle * conn, bool close_if_error);
+extern int	pgxc_node_is_data_enqueued(PGXCNodeHandle *conn);
+
 extern int	send_some(PGXCNodeHandle * handle, int len);
 extern int	pgxc_node_flush(PGXCNodeHandle *handle);
+extern void	pgxc_node_flush_read(PGXCNodeHandle *handle);
 
 extern int	pgxc_all_handles_send_gxid(PGXCNodeAllHandles *pgxc_handles, GlobalTransactionId gxid, bool stop_at_error);
 extern int	pgxc_all_handles_send_query(PGXCNodeAllHandles *pgxc_handles, const char *buffer, bool stop_at_error);

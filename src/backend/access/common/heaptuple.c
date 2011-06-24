@@ -1130,13 +1130,18 @@ slot_deform_tuple(TupleTableSlot *slot, int natts)
 static void
 slot_deform_datarow(TupleTableSlot *slot)
 {
-	int attnum = slot->tts_tupleDescriptor->natts;
+	int attnum;
 	int i;
 	int 		col_count;
 	char	   *cur = slot->tts_dataRow;
 	StringInfo  buffer;
 	uint16		n16;
 	uint32		n32;
+
+	if (slot->tts_tupleDescriptor == NULL || slot->tts_dataRow == NULL)
+		return;
+
+	attnum = slot->tts_tupleDescriptor->natts;
 
 	/* fastpath: exit if values already extracted */
 	if (slot->tts_nvalid == attnum)

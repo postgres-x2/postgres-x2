@@ -435,9 +435,7 @@ pool_flush(PoolPort *port)
 				 * If shutting down already, do not call.
 				 */
 				if (!proc_exit_inprogress)
-					ereport(ERROR,
-							(errcode_for_socket_access(),
-							 errmsg("could not send data to client: %m")));
+					return 0;
 			}
 
 			/*

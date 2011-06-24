@@ -42,7 +42,7 @@ test: comments
 test: geometry
 #After supporting other data types as distribution key, this test case crashes the server
 #Bug ID 3306801 tracks this crash
-#test: horology
+test: horology
 test: oidjoins
 test: type_sanity
 test: opr_sanity

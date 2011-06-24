@@ -451,15 +451,15 @@ select * from ts_tab order by a;
 (2 rows)
 
 select * from ts_tab where a = 'May 10, 2011 00:01:02.03';
-           a            
-------------------------
- 2011-05-10 00:01:02.03
+              a              
+-----------------------------
+ Tue May 10 00:01:02.03 2011
 (1 row)
 
 select * from ts_tab where a = 'August 14, 2001 23:59:59.99';
-           a            
-------------------------
- 2001-08-14 23:59:59.99
+              a              
+-----------------------------
+ Tue Aug 14 23:59:59.99 2001
 (1 row)
 
 create table in_tab(a interval) distribute by modulo(a);
@@ -517,15 +517,15 @@ select * from atim_tab order by a;
 (2 rows)
 
 select * from atim_tab where a = abstime('May 10, 2011 00:01:02.03');
-           a            
-------------------------
- 2011-05-10 12:01:02+05
+              a               
+------------------------------
+ Tue May 10 00:01:02 2011 PDT
 (1 row)
 
 select * from atim_tab where a = abstime('Jun 23, 2001 23:59:59.99');
-           a            
-------------------------
- 2001-06-24 11:59:59+05
+              a               
+------------------------------
+ Sat Jun 23 23:59:59 2001 PDT
 (1 row)
 
 create table rtim_tab(a reltime) distribute by modulo(a);
@@ -563,13 +563,13 @@ select * from date_tab order by a;
 select * from date_tab where a = 'May 10, 2011';
      a      
 ------------
- 2011-05-10
+ 05-10-2011
 (1 row)
 
 select * from date_tab where a = 'August 23, 2001';
      a      
 ------------
- 2001-08-23
+ 08-23-2001
 (1 row)
 
 create table tstz_tab(a timestamp with time zone) distribute by modulo(a);
@@ -583,15 +583,15 @@ select * from tstz_tab order by a;
 (2 rows)
 
 select * from tstz_tab where a = 'May 10, 2011 00:01:02.03 PST';
-             a             
----------------------------
- 2011-05-10 13:01:02.03+05
+                a                
+---------------------------------
+ Tue May 10 01:01:02.03 2011 PDT
 (1 row)
 
 select * from tstz_tab where a = 'Jun 23, 2001 23:59:59.99 PST';
-             a             
----------------------------
- 2001-06-24 12:59:59.99+05
+                a                
+---------------------------------
+ Sun Jun 24 00:59:59.99 2001 PDT
 (1 row)
 
 create table tstz_tab_h(a timestamp with time zone) distribute by hash(a);
@@ -605,14 +605,14 @@ select * from tstz_tab_h order by a;
 (2 rows)
 
 select * from tstz_tab_h where a = 'May 10, 2011 00:01:02.03 PST';
-             a             
----------------------------
- 2011-05-10 13:01:02.03+05
+                a                
+---------------------------------
+ Tue May 10 01:01:02.03 2011 PDT
 (1 row)
 
 select * from tstz_tab_h where a = 'Jun 23, 2001 23:59:59.99 PST';
-             a             
----------------------------
- 2001-06-24 12:59:59.99+05
+                a                
+---------------------------------
+ Sun Jun 24 00:59:59.99 2001 PDT
 (1 row)
 

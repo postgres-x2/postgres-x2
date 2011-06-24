@@ -104,6 +104,7 @@ static DatabasePool *find_database_pool_to_clean(const char *database,
 												 List *co_list);
 static DatabasePool *remove_database_pool(const char *database, const char *user_name);
 static int *agent_acquire_connections(PoolAgent *agent, List *datanodelist, List *coordlist);
+static int cancel_query_on_connections(PoolAgent *agent, List *datanodelist, List *coordlist);
 static PGXCNodePoolSlot *acquire_connection(DatabasePool *dbPool, int node, char client_conn_type);
 static void agent_release_connections(PoolAgent *agent, List *dn_discard, List *co_discard);
 static void agent_reset_params(PoolAgent *agent, List *dn_list, List *co_list);
@@ -878,17 +879,17 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 	 */
 	for (;;)
 	{
-		const char *database = NULL;
-		const char *user_name = NULL;
-		const char *set_command;
+		const char	*database = NULL;
+		const char	*user_name = NULL;
+		const char	*set_command;
 		bool		is_local;
-		int			datanodecount;
-		int			coordcount;
-		List	   *datanodelist = NIL;
-		List	   *coordlist = NIL;
-		int		   *fds;
-		int		   *pids;
-		int			i, len, res;
+		int		datanodecount;
+		int		coordcount;
+		List		*datanodelist = NIL;
+		List		*coordlist = NIL;
+		int		*fds;
+		int		*pids;
+		int		i, len, res;
 
 		/*
 		 * During a pool cleaning, Abort, Connect and Get Connections messages
@@ -1001,6 +1002,32 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 				if (fds)
 					pfree(fds);
 				break;
+
+			case 'h':			/* Cancel SQL Command in progress on specified connections */
+				/*
+				 * Length of message is caused by:
+				 * - Message header = 4bytes
+				 * - List of datanodes = NumDataNodes * 4bytes (max)
+				 * - List of coordinators = NumCoords * 4bytes (max)
+				 * - Number of Datanodes sent = 4bytes
+				 * - Number of Coordinators sent = 4bytes
+				 */
+				pool_getmessage(&agent->port, s, 4 * NumDataNodes + 4 * NumCoords + 12);
+				datanodecount = pq_getmsgint(s, 4);
+				for (i = 0; i < datanodecount; i++)
+					datanodelist = lappend_int(datanodelist, pq_getmsgint(s, 4));
+				coordcount = pq_getmsgint(s, 4);
+				/* It is possible that no Coordinators are involved in the transaction */
+				for (i = 0; i < coordcount; i++)
+					coordlist = lappend_int(coordlist, pq_getmsgint(s, 4));
+				pq_getmsgend(s);
+
+				cancel_query_on_connections(agent, datanodelist, coordlist);
+				list_free(datanodelist);
+				list_free(coordlist);
+
+				break;
+
 			case 'r':			/* RELEASE CONNECTIONS */
 				pool_getmessage(&agent->port, s, 4 * NumDataNodes + 4 * NumCoords + 12);
 				datanodecount = pq_getmsgint(s, 4);
@@ -1245,6 +1272,61 @@ agent_acquire_connections(PoolAgent *agent, List *datanodelist, List *coordlist)
 	return result;
 }
 
+/*
+ * Cancel query
+ */
+static int 
+cancel_query_on_connections(PoolAgent *agent, List *datanodelist, List *coordlist)
+{
+	int		i;
+	ListCell	*nodelist_item;
+	char		errbuf[256];
+	int		nCount;
+	bool		bRet;
+
+	nCount = 0;
+
+	if (agent == NULL)
+		return nCount;
+
+	/* Send cancel on Data nodes first */
+	foreach(nodelist_item, datanodelist)
+	{
+		int	node = lfirst_int(nodelist_item);
+
+		if(node <= 0 || node > NumDataNodes)
+			continue;
+
+		if (agent->dn_connections == NULL)
+			break;
+
+		bRet = PQcancel((PGcancel *) agent->dn_connections[node - 1]->xc_cancelConn, errbuf, sizeof(errbuf));
+		if (bRet != false)
+		{
+			nCount++;
+		}
+	}
+
+	/* Send cancel to Coordinators too, e.g. if DDL was in progress */
+	foreach(nodelist_item, coordlist)
+	{
+		int	node = lfirst_int(nodelist_item);
+
+		if(node <= 0 || node > NumDataNodes)
+			continue;
+
+		if (agent->coord_connections == NULL)
+			break;
+
+		bRet = PQcancel((PGcancel *) agent->coord_connections[node - 1]->xc_cancelConn, errbuf, sizeof(errbuf));
+		if (bRet != false)
+		{
+			nCount++;
+		}
+	}
+
+	return nCount;
+}
 
 /*
  * Return connections back to the pool
@@ -1261,6 +1343,9 @@ PoolManagerReleaseConnections(int dn_ndisc, int* dn_discard, int co_ndisc, int* 
 	int 		i;
 
 	Assert(Handle);
+
+	if (dn_ndisc == 0 && co_ndisc == 0)
+		return;
 
 	/* Insert the list of Datanodes in buffer */
 	n32 = htonl((uint32) dn_ndisc);
@@ -1290,6 +1375,52 @@ PoolManagerReleaseConnections(int dn_ndisc, int* dn_discard, int co_ndisc, int* 
 	pool_flush(&Handle->port);
 }
 
+/*
+ * Cancel Query
+ */
+void
+PoolManagerCancelQuery(int dn_count, int* dn_list, int co_count, int* co_list)
+{
+	uint32		n32;
+	/*
+	 * Buffer contains the list of both Coordinator and Datanodes, as well
+	 * as the number of connections
+	 */
+	uint32 		buf[2 + dn_count + co_count];
+	int 		i;
+
+	if (Handle == NULL || dn_list == NULL || co_list == NULL)
+		return;
+
+	if (dn_count == 0 && co_count == 0)
+		return;
+
+	/* Insert the list of Datanodes in buffer */
+	n32 = htonl((uint32) dn_count);
+	buf[0] = n32;
+
+	for (i = 0; i < dn_count;)
+	{
+		n32 = htonl((uint32) dn_list[i++]);
+		buf[i] = n32;
+	}
+
+	/* Insert the list of Coordinators in buffer */
+	n32 = htonl((uint32) co_count);
+	buf[dn_count + 1] = n32;
+
+	/* Not necessary to send to pooler a request if there is no Coordinator */
+	if (co_count != 0)
+	{
+		for (i = dn_count + 1; i < (dn_count + co_count + 1);)
+		{
+			n32 = htonl((uint32) co_list[i - (dn_count + 1)]);
+			buf[++i] = n32;
+		}
+	}
+	pool_putmessage(&Handle->port, 'h', (char *) buf, (2 + dn_count + co_count) * sizeof(uint32));
+	pool_flush(&Handle->port);
+}
 
 /*
  * Release connections for Datanodes and Coordinators
@@ -1950,6 +2081,8 @@ grow_pool(DatabasePool * dbPool, int index, char client_conn_type)
 			break;
 		}
 
+		slot->xc_cancelConn = PQgetCancel(slot->conn);
+
 		/* Insert at the end of the pool */
 		nodePool->slot[(nodePool->freeSize)++] = slot;
 
@@ -1968,6 +2101,7 @@ grow_pool(DatabasePool * dbPool, int index, char client_conn_type)
 static void
 destroy_slot(PGXCNodePoolSlot *slot)
 {
+	PQfreeCancel(slot->xc_cancelConn);
 	PGXCNodeClose(slot->conn);
 	pfree(slot);
 }

@@ -20,6 +20,7 @@
 #include <sys/select.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <sys/ioctl.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -279,21 +280,35 @@ pgxc_node_init(PGXCNodeHandle *handle, int sock, int nodenum)
  * Wait while at least one of specified connections has data available and read
  * the data into the buffer
  */
-int
+bool
 pgxc_node_receive(const int conn_count,
 				  PGXCNodeHandle ** connections, struct timeval * timeout)
 {
+#define ERROR_OCCURED		true
+#define NO_ERROR_OCCURED	false
 	int			i,
 				res_select,
 				nfds = 0;
-	fd_set		readfds;
+	fd_set			readfds;
+	bool			is_msg_buffered;
 
 	FD_ZERO(&readfds);
+
+	is_msg_buffered = false;
+	for (i = 0; i < conn_count; i++)
+	{
+		/* If connection has a buffered message */
+		if (HAS_MESSAGE_BUFFERED(connections[i]))
+		{
+			is_msg_buffered = true;
+			break;
+		}
+	}
+
 	for (i = 0; i < conn_count; i++)
 	{
 		/* If connection finished sending do not wait input from it */
-		if (connections[i]->state == DN_CONNECTION_STATE_IDLE
-				|| HAS_MESSAGE_BUFFERED(connections[i]))
+		if (connections[i]->state == DN_CONNECTION_STATE_IDLE || HAS_MESSAGE_BUFFERED(connections[i]))
 			continue;
 
 		/* prepare select params */
@@ -313,7 +328,11 @@ pgxc_node_receive(const int conn_count,
 	 * Return if we do not have connections to receive input
 	 */
 	if (nfds == 0)
-		return 0;
+	{
+		if (is_msg_buffered)
+			return NO_ERROR_OCCURED;
+		return ERROR_OCCURED;
+	}
 
 retry:
 	res_select = select(nfds + 1, &readfds, NULL, NULL, timeout);
@@ -328,14 +347,16 @@ retry:
 			elog(WARNING, "select() bad file descriptor set");
 		}
 		elog(WARNING, "select() error: %d", errno);
-		return errno;
+		if (errno)
+			return ERROR_OCCURED;
+		return NO_ERROR_OCCURED;
 	}
 
 	if (res_select == 0)
 	{
 		/* Handle timeout */
 		elog(WARNING, "timeout while waiting for response");
-		return EOF;
+		return ERROR_OCCURED;
 	}
 
 	/* read data */
@@ -345,7 +366,7 @@ retry:
 
 		if (FD_ISSET(conn->sock, &readfds))
 		{
-			int	read_status = pgxc_node_read_data(conn);
+			int	read_status = pgxc_node_read_data(conn, true);
 
 			if (read_status == EOF || read_status < 0)
 			{
@@ -354,26 +375,46 @@ retry:
 				add_error_message(conn, "unexpected EOF on datanode connection");
 				elog(WARNING, "unexpected EOF on datanode connection");
 				/* Should we read from the other connections before returning? */
-				return EOF;
+				return ERROR_OCCURED;
 			}
 		}
 	}
-	return 0;
+	return NO_ERROR_OCCURED;
 }
 
+/*
+ * Is there any data enqueued in the TCP input buffer waiting 
+ * to be read sent by the PGXC node connection
+ */
+
+int
+pgxc_node_is_data_enqueued(PGXCNodeHandle *conn)
+{
+	int ret;
+	int enqueued;
+
+	if (conn->sock < 0)
+		return 0;
+	ret = ioctl(conn->sock, FIONREAD, &enqueued);
+	if (ret != 0)
+		return 0;
+
+	return enqueued;
+}
 
 /*
  * Read up incoming messages from the PGXC node connection
  */
 int
-pgxc_node_read_data(PGXCNodeHandle *conn)
+pgxc_node_read_data(PGXCNodeHandle *conn, bool close_if_error)
 {
 	int			someread = 0;
 	int			nread;
 
 	if (conn->sock < 0)
 	{
-		add_error_message(conn, "bad socket");
+		if (close_if_error)
+			add_error_message(conn, "bad socket");
 		return EOF;
 	}
 
@@ -412,7 +453,8 @@ pgxc_node_read_data(PGXCNodeHandle *conn)
 			 */
 			if (conn->inSize - conn->inEnd < 100)
 			{
-				add_error_message(conn, "can not allocate buffer");
+				if (close_if_error)
+					add_error_message(conn, "can not allocate buffer");
 				return -1;
 			}
 		}
@@ -424,7 +466,8 @@ retry:
 
 	if (nread < 0)
 	{
-		elog(DEBUG1, "dnrd errno = %d", errno);
+		if (close_if_error)
+			elog(DEBUG1, "dnrd errno = %d", errno);
 		if (errno == EINTR)
 			goto retry;
 		/* Some systems return EAGAIN/EWOULDBLOCK for no data */
@@ -444,19 +487,22 @@ retry:
 			 * OK, we are getting a zero read even though select() says ready. This
 			 * means the connection has been closed.  Cope.
 			 */
-			add_error_message(conn,
-							  "data node closed the connection unexpectedly\n"
-				"\tThis probably means the data node terminated abnormally\n"
-							  "\tbefore or while processing the request.\n");
-			conn->state = DN_CONNECTION_STATE_ERROR_FATAL;	/* No more connection to
-														 * backend */
-			closesocket(conn->sock);
-			conn->sock = NO_SOCKET;
-
+			if (close_if_error)
+			{
+				add_error_message(conn,
+								"data node closed the connection unexpectedly\n"
+					"\tThis probably means the data node terminated abnormally\n"
+								"\tbefore or while processing the request.\n");
+				conn->state = DN_CONNECTION_STATE_ERROR_FATAL;	/* No more connection to
+															* backend */
+				closesocket(conn->sock);
+				conn->sock = NO_SOCKET;
+			}
 			return -1;
 		}
 #endif
-		add_error_message(conn, "could not receive data from server");
+		if (close_if_error)
+			add_error_message(conn, "could not receive data from server");
 		return -1;
 
 	}
@@ -488,7 +534,8 @@ retry:
 
 	if (nread == 0)
 	{
-		elog(DEBUG1, "nread returned 0");
+		if (close_if_error)
+			elog(DEBUG1, "nread returned 0");
 		return EOF;
 	}
 
@@ -661,6 +708,102 @@ release_handles(void)
 	coord_count = 0;
 }
 
+/*
+ * cancel a running query due to error while processing rows
+ */
+void
+cancel_query(void)
+{
+	int			i;
+	int 			dn_cancel[NumDataNodes];
+	int			co_cancel[NumCoords];
+	int			dn_count = 0;
+	int			co_count = 0;
+
+	if (datanode_count == 0 && coord_count == 0)
+		return;
+
+	/* Collect Data Nodes handles */
+	for (i = 0; i < NumDataNodes; i++)
+	{
+		PGXCNodeHandle *handle = &dn_handles[i];
+
+		if (handle->sock != NO_SOCKET)
+		{
+			if (handle->state == DN_CONNECTION_STATE_COPY_IN || handle->state == DN_CONNECTION_STATE_COPY_OUT)
+			{
+				DataNodeCopyEnd(handle, true);
+			}
+			else
+			{
+				if (handle->state != DN_CONNECTION_STATE_IDLE)
+				{
+					dn_cancel[dn_count++] = handle->nodenum;
+				}
+			}
+		}
+	}
+
+	/* Collect Coordinator handles */
+	for (i = 0; i < NumCoords; i++)
+	{
+		PGXCNodeHandle *handle = &co_handles[i];
+
+		if (handle->sock != NO_SOCKET)
+		{
+			if (handle->state == DN_CONNECTION_STATE_COPY_IN || handle->state == DN_CONNECTION_STATE_COPY_OUT)
+			{
+				DataNodeCopyEnd(handle, true);
+			}
+			else
+			{
+				if (handle->state != DN_CONNECTION_STATE_IDLE)
+				{
+					co_cancel[dn_count++] = handle->nodenum;
+				}
+			}
+		}
+	}
+	
+	PoolManagerCancelQuery(dn_count, dn_cancel, co_count, co_cancel);
+}
+
+/*
+ * This method won't return until all network buffers are empty
+ * To ensure all data in all network buffers is read and wasted
+ */
+void
+clear_all_data(void)
+{
+	int			i;
+
+	if (datanode_count == 0 && coord_count == 0)
+		return;
+
+	/* Collect Data Nodes handles */
+	for (i = 0; i < NumDataNodes; i++)
+	{
+		PGXCNodeHandle *handle = &dn_handles[i];
+
+		if (handle->sock != NO_SOCKET && handle->state != DN_CONNECTION_STATE_IDLE)
+		{
+			pgxc_node_flush_read(handle);
+			handle->state = DN_CONNECTION_STATE_IDLE;
+		}
+	}
+
+	/* Collect Coordinator handles */
+	for (i = 0; i < NumCoords; i++)
+	{
+		PGXCNodeHandle *handle = &co_handles[i];
+
+		if (handle->sock != NO_SOCKET && handle->state != DN_CONNECTION_STATE_IDLE)
+		{
+			pgxc_node_flush_read(handle);
+			handle->state = DN_CONNECTION_STATE_IDLE;
+		}
+	}
+}
 
 /*
  * Ensure specified amount of data can fit to the incoming buffer and
@@ -1221,6 +1364,31 @@ pgxc_node_flush(PGXCNodeHandle *handle)
 		}
 	}
 	return 0;
+}
+
+/*
+ * This method won't return until network buffer is empty or error occurs
+ * To ensure all data in network buffers is read and wasted 
+ */
+void
+pgxc_node_flush_read(PGXCNodeHandle *handle)
+{
+	bool	is_ready;
+	int	read_result;
+
+	if (handle == NULL)
+		return;
+
+	while(true)
+	{
+		is_ready = is_data_node_ready(handle);
+		if (is_ready == true)
+			break;
+
+		read_result = pgxc_node_read_data(handle, false);
+		if (read_result < 0)
+			break;
+	}
 }
 
 /*

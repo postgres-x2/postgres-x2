@@ -48,8 +48,7 @@ ERROR:  value too long for type character varying(5)
 INSERT INTO basictest values ('88', 'haha', 'short', '123.1212');    -- Truncate numeric
 -- Test copy
 COPY basictest (testvarchar) FROM stdin; -- fail
-ERROR:  value too long for type character varying(5)
-CONTEXT:  COPY basictest, line 1, column testvarchar: "notsoshorttext"
+ERROR:  Error while running COPY
 COPY basictest (testvarchar) FROM stdin;
 select * from basictest order by 1, 2, 3, 4;
  testint4 | testtext | testvarchar | testnumeric 
@@ -129,8 +128,7 @@ select testint4arr[1], testchar4arr[2:2] from domarrtest order by 1, 2;
 
 COPY domarrtest FROM stdin;
 COPY domarrtest FROM stdin;	-- fail
-ERROR:  value too long for type character varying(4)
-CONTEXT:  COPY domarrtest, line 1, column testchar4arr: "{qwerty,w,e}"
+ERROR:  Error while running COPY
 select * from domarrtest order by 1, 2;
   testint4arr  |    testchar4arr     
 ---------------+---------------------
@@ -174,8 +172,7 @@ INSERT INTO nulltest values ('a', 'b', 'c', NULL, 'd'); -- Good
 COPY nulltest FROM stdin; --fail
 ERROR:  Error while running COPY
 COPY nulltest FROM stdin; --fail
-ERROR:  domain dcheck does not allow null values
-CONTEXT:  COPY nulltest, line 1, column col5: null input
+ERROR:  Error while running COPY
 -- Last row is bad
 COPY nulltest FROM stdin;
 ERROR:  Error while running COPY
