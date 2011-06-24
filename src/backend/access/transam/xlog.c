@@ -5237,6 +5237,13 @@ readRecoveryCommandFile(void)
 					(errmsg("recovery_target_time = '%s'",
 							timestamptz_to_str(recoveryTargetTime))));
 		}
+#ifdef PGXC
+		else if (strcmp(tok1, "recovery_target_barrier") == 0)
+		{
+			recoveryTarget = RECOVERY_TARGET_BARRIER;
+			recoveryTargetBarrierId = pstrdup(tok2);
+		}
+#endif
 		else if (strcmp(tok1, "recovery_target_inclusive") == 0)
 		{
 			/*
@@ -5249,13 +5256,6 @@ readRecoveryCommandFile(void)
 			ereport(DEBUG2,
 					(errmsg("recovery_target_inclusive = %s", tok2)));
 		}
-#ifdef PGXC
-		else if (strcmp(tok1, "recovery_barrier_id") == 0)
-		{
-			recoveryTarget = RECOVERY_TARGET_BARRIER;
-			recoveryTargetBarrierId = pstrdup(tok2);
-		}
-#endif
 		else if (strcmp(tok1, "standby_mode") == 0)
 		{
 			if (!parse_bool(tok2, &StandbyMode))
@@ -5279,13 +5279,6 @@ readRecoveryCommandFile(void)
 					(errmsg("trigger_file = '%s'",
 							TriggerFile)));
 		}
-#ifdef PGXC
-		else if (strcmp(tok1, "recovery_barrier_id") == 0)
-		{
-			recoveryTarget = true;
-			recoveryTargetBarrierId = pstrdup(tok2);
-		}
-#endif
 		else
 			ereport(FATAL,
 					(errmsg("unrecognized recovery parameter \"%s\"",
