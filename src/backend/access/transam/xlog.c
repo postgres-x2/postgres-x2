@@ -39,6 +39,9 @@
 #include "funcapi.h"
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
+#ifdef PGXC
+#include "pgxc/barrier.h"
+#endif
 #include "pgstat.h"
 #include "postmaster/bgwriter.h"
 #include "replication/walreceiver.h"
@@ -184,6 +187,7 @@ static RecoveryTargetType recoveryTarget = RECOVERY_TARGET_UNSET;
 static bool recoveryTargetInclusive = true;
 static TransactionId recoveryTargetXid;
 static TimestampTz recoveryTargetTime;
+static char *recoveryTargetBarrierId;
 
 /* options taken from recovery.conf for XLOG streaming */
 static bool StandbyMode = false;
@@ -4369,6 +4373,16 @@ writeTimeLineHistory(TimeLineID newTLI, TimeLineID parentTLI,
 				 xlogfname,
 				 recoveryStopAfter ? "after" : "before",
 				 timestamptz_to_str(recoveryStopTime));
+#ifdef PGXC
+	else if (recoveryTarget == RECOVERY_TARGET_BARRIER)
+		snprintf(buffer, sizeof(buffer),
+				 "%s%u\t%s\t%s %s\n",
+				 (srcfd < 0) ? "" : "\n",
+				 parentTLI,
+				 xlogfname,
+				 recoveryStopAfter ? "after" : "before",
+				 recoveryTargetBarrierId);
+#endif
 	else
 		snprintf(buffer, sizeof(buffer),
 				 "%s%u\t%s\tno recovery target specified\n",
@@ -5223,6 +5237,13 @@ readRecoveryCommandFile(void)
 					(errmsg("recovery_target_time = '%s'",
 							timestamptz_to_str(recoveryTargetTime))));
 		}
+#ifdef PGXC
+		else if (strcmp(tok1, "recovery_target_barrier") == 0)
+		{
+			recoveryTarget = RECOVERY_TARGET_BARRIER;
+			recoveryTargetBarrierId = pstrdup(tok2);
+		}
+#endif
 		else if (strcmp(tok1, "recovery_target_inclusive") == 0)
 		{
 			/*
@@ -5451,13 +5472,27 @@ static bool
 recoveryStopsHere(XLogRecord *record, bool *includeThis)
 {
 	bool		stopsHere;
+#ifdef PGXC
+	bool		stopsAtThisBarrier = false;
+	char		*recordBarrierId;
+#endif
 	uint8		record_info;
 	TimestampTz recordXtime;
 
+#ifdef PGXC
+	/* We only consider stoppping at COMMIT, ABORT or BARRIER records */
+	if ((record->xl_rmid != RM_XACT_ID) && (record->xl_rmid != RM_BARRIER_ID))
+#else
 	/* We only consider stopping at COMMIT or ABORT records */
 	if (record->xl_rmid != RM_XACT_ID)
+#endif
 		return false;
+
 	record_info = record->xl_info & ~XLR_INFO_MASK;
+#ifdef PGXC
+	if (record->xl_rmid == RM_XACT_ID)
+	{
+#endif
 	if (record_info == XLOG_XACT_COMMIT)
 	{
 		xl_xact_commit *recordXactCommitData;
@@ -5472,6 +5507,18 @@ recoveryStopsHere(XLogRecord *record, bool *includeThis)
 		recordXactAbortData = (xl_xact_abort *) XLogRecGetData(record);
 		recordXtime = recordXactAbortData->xact_time;
 	}
+#ifdef PGXC
+	} /* end if (record->xl_rmid == RM_XACT_ID) */
+	else if (record->xl_rmid == RM_BARRIER_ID)
+	{
+		if (record_info == XLOG_BARRIER_CREATE)
+		{
+			recordBarrierId = (char *) XLogRecGetData(record);
+			ereport(DEBUG2,
+					(errmsg("processing barrier xlog record for %s", recordBarrierId)));
+		}
+	}
+#endif	
 	else
 		return false;
 
@@ -5497,6 +5544,21 @@ recoveryStopsHere(XLogRecord *record, bool *includeThis)
 		if (stopsHere)
 			*includeThis = recoveryTargetInclusive;
 	}
+#ifdef PGXC
+	else if (recoveryTarget == RECOVERY_TARGET_BARRIER)
+	{
+		stopsHere = false;
+		if ((record->xl_rmid == RM_BARRIER_ID) &&
+			(record_info == XLOG_BARRIER_CREATE))
+		{
+			ereport(DEBUG2,
+					(errmsg("checking if barrier record matches the target "
+							"barrier")));
+			if (strcmp(recoveryTargetBarrierId, recordBarrierId) == 0)
+				stopsAtThisBarrier = true;
+		}
+	}
+#endif
 	else
 	{
 		/*
@@ -5548,6 +5610,17 @@ recoveryStopsHere(XLogRecord *record, bool *includeThis)
 		if (recoveryStopAfter)
 			SetLatestXTime(recordXtime);
 	}
+#ifdef PGXC
+	else if (stopsAtThisBarrier)
+	{
+		recoveryStopTime = recordXtime;
+		ereport(LOG,
+				(errmsg("recovery stopping at barrier %s, time %s",
+						recoveryTargetBarrierId,
+						timestamptz_to_str(recoveryStopTime))));
+		return true;
+	}
+#endif
 	else
 		SetLatestXTime(recordXtime);
 
@@ -5809,6 +5882,12 @@ StartupXLOG(void)
 			ereport(LOG,
 					(errmsg("starting point-in-time recovery to %s",
 							timestamptz_to_str(recoveryTargetTime))));
+#ifdef PGXC
+		else if (recoveryTarget == RECOVERY_TARGET_BARRIER)
+			ereport(LOG,
+					(errmsg("starting point-in-time recovery to barrier %s",
+							(recoveryTargetBarrierId))));
+#endif
 		else
 			ereport(LOG,
 					(errmsg("starting archive recovery")));

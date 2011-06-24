@@ -3691,6 +3691,18 @@ _copyValue(Value *from)
 	return newnode;
 }
 
+#ifdef PGXC
+static BarrierStmt *
+_copyBarrierStmt(BarrierStmt *from)
+{
+	BarrierStmt *newnode = makeNode(BarrierStmt);
+
+	COPY_STRING_FIELD(id);
+
+	return newnode;
+}
+#endif
+
 /*
  * copyObject
  *
@@ -4269,6 +4281,11 @@ copyObject(void *from)
 		case T_CheckPointStmt:
 			retval = (void *) makeNode(CheckPointStmt);
 			break;
+#ifdef PGXC
+		case T_BarrierStmt:
+			retval = _copyBarrierStmt(from);
+			break;
+#endif
 		case T_CreateSchemaStmt:
 			retval = _copyCreateSchemaStmt(from);
 			break;

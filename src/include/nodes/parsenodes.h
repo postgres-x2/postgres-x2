@@ -2292,6 +2292,18 @@ typedef struct VacuumStmt
 	List	   *va_cols;		/* list of column names, or NIL for all */
 } VacuumStmt;
 
+#ifdef PGXC
+/*
+ * ----------------------
+ *      Barrier Statement
+ */
+typedef struct BarrierStmt
+{
+	NodeTag		type;
+	const char	*id;			/* User supplied barrier id, if any */
+} BarrierStmt;
+#endif
+
 /* ----------------------
  *		Explain Statement
  *

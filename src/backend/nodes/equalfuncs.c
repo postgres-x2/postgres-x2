@@ -2361,6 +2361,19 @@ _equalValue(Value *a, Value *b)
 	return true;
 }
 
+#ifdef PGXC
+/*
+ * stuff from barrier.h
+ */
+
+static bool
+_equalBarrierStmt(BarrierStmt *a, BarrierStmt *b)
+{
+	COMPARE_STRING_FIELD(id);
+	return true;
+}
+#endif
+
 /*
  * equal
  *	  returns whether two nodes are equal
@@ -2811,6 +2824,11 @@ equal(void *a, void *b)
 		case T_CheckPointStmt:
 			retval = true;
 			break;
+#ifdef PGXC
+		case T_BarrierStmt:
+			retval = _equalBarrierStmt(a, b);
+			break;
+#endif
 		case T_CreateSchemaStmt:
 			retval = _equalCreateSchemaStmt(a, b);
 			break;

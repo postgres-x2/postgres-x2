@@ -36,6 +36,7 @@
 #define RESPONSE_TUPDESC 2
 #define RESPONSE_DATAROW 3
 #define RESPONSE_COPY 4
+#define RESPONSE_BARRIER_OK 5
 
 typedef enum
 {
@@ -121,7 +122,7 @@ extern void	PGXCNodeCommit(bool bReleaseHandles);
 extern int	PGXCNodeRollback(void);
 extern bool	PGXCNodePrepare(char *gid);
 extern bool	PGXCNodeRollbackPrepared(char *gid);
-extern bool	PGXCNodeCommitPrepared(char *gid);
+extern void PGXCNodeCommitPrepared(char *gid);
 extern bool	PGXCNodeIsImplicit2PC(bool *prepare_local_coord);
 extern int	PGXCNodeImplicitPrepare(GlobalTransactionId prepare_xid, char *gid);
 extern void	PGXCNodeImplicitCommitPrepared(GlobalTransactionId prepare_xid,

@@ -11,6 +11,6 @@ subdir = src/backend/pgxc
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
-SUBDIRS	    = locator plan pool
+SUBDIRS	    = locator plan pool barrier
 
 include $(top_srcdir)/src/backend/common.mk

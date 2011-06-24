@@ -66,6 +66,7 @@ struct pgxc_node_handle
 #ifdef DN_CONNECTION_DEBUG
 	bool		have_row_desc;
 #endif
+	char	   *barrier_id;
 	char	   *error;
 	/* Output buffer */
 	char	   *outBuffer;

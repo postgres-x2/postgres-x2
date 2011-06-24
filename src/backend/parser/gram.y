@@ -216,6 +216,7 @@ static TypeName *TableFuncTypeName(List *columns);
 		DeallocateStmt PrepareStmt ExecuteStmt
 		DropOwnedStmt ReassignOwnedStmt
 		AlterTSConfigurationStmt AlterTSDictionaryStmt
+		BarrierStmt
 
 %type <node>	select_no_parens select_with_parens select_clause
 				simple_select values_clause
@@ -445,6 +446,7 @@ static TypeName *TableFuncTypeName(List *columns);
 				opt_frame_clause frame_extent frame_bound
 %type <str>		opt_existing_window_name
 /* PGXC_BEGIN */
+%type <str>		opt_barrier_id
 %type <distby>	OptDistributeBy
 /* PGXC_END */
 
@@ -470,12 +472,13 @@ static TypeName *TableFuncTypeName(List *columns);
  */
 
 /* ordinary key words in alphabetical order */
-/* PGXC - added REPLICATION, DISTRIBUTE, MODULO and HASH */
+/* PGXC - added DISTRIBUTE, DIRECT, HASH, REPLICATION, ROUND ROBIN,
+ * COORDINATOR, CLEAN, MODULO, NODE, BARRIER */
 %token <keyword> ABORT_P ABSOLUTE_P ACCESS ACTION ADD_P ADMIN AFTER
 	AGGREGATE ALL ALSO ALTER ALWAYS ANALYSE ANALYZE AND ANY ARRAY AS ASC
 	ASSERTION ASSIGNMENT ASYMMETRIC AT AUTHORIZATION
 
-	BACKWARD BEFORE BEGIN_P BETWEEN BIGINT BINARY BIT
+	BACKWARD BARRIER BEFORE BEGIN_P BETWEEN BIGINT BINARY BIT
 	BOOLEAN_P BOTH BY
 
 	CACHE CALLED CASCADE CASCADED CASE CAST CATALOG_P CHAIN CHAR_P
@@ -683,6 +686,7 @@ stmt :
 			| AlterUserSetStmt
 			| AlterUserStmt
 			| AnalyzeStmt
+			| BarrierStmt
 			| CheckPointStmt
 			| CleanConnStmt
 			| ClosePortalStmt
@@ -6985,6 +6989,27 @@ opt_name_list:
 		;
 
 
+/* PGXC_BEGIN */
+BarrierStmt: CREATE BARRIER opt_barrier_id
+				{
+					BarrierStmt *n = makeNode(BarrierStmt);
+					n->id = $3;
+					$$ = (Node *)n;
+				}
+			;
+
+opt_barrier_id:
+				Sconst
+				{
+					$$ = pstrdup($1);
+				}
+			| /* EMPTY */
+				{
+					$$ = NULL;
+				}
+			;
+/* PGXC_END */
+
 /*****************************************************************************
  *
  *		QUERY:
@@ -10997,7 +11022,8 @@ ColLabel:	IDENT									{ $$ = $1; }
 
 /* "Unreserved" keywords --- available for use as any kind of name.
  */
-/* PGXC - added DISTRIBUTE, HASH, REPLICATION, MODULO */
+/* PGXC - added DISTRIBUTE, DIRECT, HASH, REPLICATION, ROUND ROBIN,
+ * COORDINATOR, CLEAN, MODULO, NODE, BARRIER */
 unreserved_keyword:
 			  ABORT_P
 			| ABSOLUTE_P
@@ -11014,6 +11040,9 @@ unreserved_keyword:
 			| ASSIGNMENT
 			| AT
 			| BACKWARD
+/* PGXC_BEGIN */
+			| BARRIER
+/* PGXC_END */
 			| BEFORE
 			| BEGIN_P
 			| BY

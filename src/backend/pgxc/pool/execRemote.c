@@ -17,6 +17,7 @@
 
 #include <time.h>
 #include "postgres.h"
+#include "access/twophase.h"
 #include "access/gtm.h"
 #include "access/xact.h"
 #include "catalog/pg_type.h"
@@ -1189,6 +1190,7 @@ pgxc_node_receive_responses(const int conn_count, PGXCNodeHandle ** connections,
  * RESPONSE_TUPLEDESC - got tuple description
  * RESPONSE_DATAROW - got data row
  * RESPONSE_COPY - got copy response
+ * RESPONSE_BARRIER_OK - barrier command completed successfully
  */
 int
 handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner)
@@ -1300,6 +1302,16 @@ handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner)
 #endif
 				return result;
 			}
+
+#ifdef PGXC
+			case 'b':
+				{
+					Assert((strncmp(msg, conn->barrier_id, msg_len) == 0));
+					conn->state = DN_CONNECTION_STATE_IDLE;
+					return RESPONSE_BARRIER_OK;
+				}
+#endif
+
 			case 'I':			/* EmptyQuery */
 			default:
 				/* sync lost? */
@@ -1713,8 +1725,22 @@ PGXCNodeImplicitCommitPrepared(GlobalTransactionId prepare_xid,
 		goto finish;
 	}
 
+	/*
+	 * Barrier:
+	 *
+	 * We should acquire the BarrierLock in SHARE mode here to ensure that
+	 * there are no in-progress barrier at this point. This mechanism would
+	 * work as long as LWLock mechanism does not starve a EXCLUSIVE lock
+	 * requester
+	 */
+	LWLockAcquire(BarrierLock, LW_SHARED);
 	res = pgxc_node_implicit_commit_prepared(prepare_xid, commit_xid,
 								pgxc_connections, gid, is_commit);
+
+	/*
+	 * Release the BarrierLock.
+	 */
+	LWLockRelease(BarrierLock);
 
 finish:
 	/* Clear nodes, signals are clear */
@@ -1808,7 +1834,7 @@ finish:
  * or not but send the message to all of them.
  * This avoid to have any additional interaction with GTM when making a 2PC transaction.
  */
-bool
+void
 PGXCNodeCommitPrepared(char *gid)
 {
 	int			res = 0;
@@ -1859,7 +1885,15 @@ PGXCNodeCommitPrepared(char *gid)
 	/*
 	 * Commit here the prepared transaction to all Datanodes and Coordinators
 	 * If necessary, local Coordinator Commit is performed after this DataNodeCommitPrepared.
+	 *
+	 * BARRIER:
+	 *
+	 * Take the BarrierLock in SHARE mode to synchronize on in-progress
+	 * barriers. We should hold on to the lock until the local prepared
+	 * transaction is also committed
 	 */
+	LWLockAcquire(BarrierLock, LW_SHARED);
+
 	res = pgxc_node_commit_prepared(gxid, prepared_gxid, pgxc_handles, gid);
 
 finish:
@@ -1885,6 +1919,7 @@ finish:
 		free(coordinators);
 
 	pfree_pgxc_all_handles(pgxc_handles);
+
 	if (res_gtm < 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
@@ -1895,7 +1930,17 @@ finish:
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("Could not commit prepared transaction on data nodes")));
 
-	return operation_local;
+	/*
+	 * A local Coordinator always commits if involved in Prepare.
+	 * 2PC file is created and flushed if a DDL has been involved in the transaction.
+	 * If remote connection is a Coordinator type, the commit prepared has to be done locally
+	 * if and only if the Coordinator number was in the node list received from GTM.
+	 */
+	if (operation_local)
+		FinishPreparedTransaction(gid, true);
+
+	LWLockRelease(BarrierLock);
+	return;
 }
 
 /*

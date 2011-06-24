@@ -326,6 +326,9 @@ typedef enum NodeTag
 	T_ConstraintsSetStmt,
 	T_ReindexStmt,
 	T_CheckPointStmt,
+#ifdef PGXC
+	T_BarrierStmt,
+#endif
 	T_CreateSchemaStmt,
 	T_AlterDatabaseStmt,
 	T_AlterDatabaseSetStmt,
