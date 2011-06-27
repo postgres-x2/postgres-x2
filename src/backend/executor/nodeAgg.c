@@ -176,15 +176,9 @@ typedef struct AggStatePerAggData
 	int16		inputtypeLen,
 				resulttypeLen,
 				transtypeLen;
-#ifdef PGXC
-	int16		collecttypeLen;
-#endif /* PGXC */
 	bool		inputtypeByVal,
 				resulttypeByVal,
 				transtypeByVal;
-#ifdef PGXC
-	bool		collecttypeByVal;
-#endif /* PGXC */
 
 	/*
 	 * Stuff for evaluation of inputs.	We used to just use ExecEvalExpr, but
@@ -388,6 +382,7 @@ initialize_aggregates(AggState *aggstate,
 		 *
 		 * Note that when the initial value is pass-by-ref, we must copy it
 		 * (into the aggcontext) since we will pfree the collectValue later.
+		 * collection type is same as transition type.
 		 */
 		if (peraggstate->initCollectValueIsNull)
 			pergroupstate->collectValue = peraggstate->initCollectValue;
@@ -397,8 +392,8 @@ initialize_aggregates(AggState *aggstate,
 
 			oldContext = MemoryContextSwitchTo(aggstate->aggcontext);
 			pergroupstate->collectValue = datumCopy(peraggstate->initCollectValue,
-												  peraggstate->collecttypeByVal,
-												  peraggstate->collecttypeLen);
+												  peraggstate->transtypeByVal,
+												  peraggstate->transtypeLen);
 			MemoryContextSwitchTo(oldContext);
 		}
 		pergroupstate->collectValueIsNull = peraggstate->initCollectValueIsNull;
@@ -557,22 +552,16 @@ advance_collection_function(AggState *aggstate,
 		if (pergroupstate->noCollectValue)
 		{
 			/*
-			 * collection result has not been initialized
+			 * collection result has not been initialized. This is the first non-NULL
+			 * transition value. We use it as the initial value for collectValue.
+			 * Aggregate's transition and collection type are same
 			 * We must copy the datum into result if it is pass-by-ref. We
 			 * do not need to pfree the old result, since it's NULL.
-			 * PGXCTODO: in case the transition result type is different from
-			 * collection result type, this code would not work, since we are
-			 * assigning datum of one type to another. For this code to work the
-			 * input and output of collection function needs to be binary
-			 * compatible which is not. So, either check in AggregateCreate,
-			 * that the input and output of collection function are binary
-			 * coercible or set the initial values something non-null or change
-			 * this code
 			 */
 			oldContext = MemoryContextSwitchTo(aggstate->aggcontext);
 			pergroupstate->collectValue = datumCopy(fcinfo->arg[1],
-												  peraggstate->collecttypeByVal,
-												  peraggstate->collecttypeLen);
+												  peraggstate->transtypeByVal,
+												  peraggstate->transtypeLen);
 			pergroupstate->collectValueIsNull = false;
 			pergroupstate->noCollectValue = false;
 			MemoryContextSwitchTo(oldContext);
@@ -606,15 +595,15 @@ advance_collection_function(AggState *aggstate,
 	 * pfree the prior transValue.	But if collectfn returned a pointer to its
 	 * first input, we don't need to do anything.
 	 */
-	if (!peraggstate->collecttypeByVal &&
+	if (!peraggstate->transtypeByVal &&
 	        DatumGetPointer(newVal) != DatumGetPointer(pergroupstate->collectValue))
 	{
 		if (!fcinfo->isnull)
 		{
 			MemoryContextSwitchTo(aggstate->aggcontext);
 			newVal = datumCopy(newVal,
-			                   peraggstate->collecttypeByVal,
-			                   peraggstate->collecttypeLen);
+			                   peraggstate->transtypeByVal,
+			                   peraggstate->transtypeLen);
 		}
 		if (!pergroupstate->collectValueIsNull)
 			pfree(DatumGetPointer(pergroupstate->collectValue));
@@ -908,51 +897,6 @@ finalize_aggregate(AggState *aggstate,
 
 	oldContext = MemoryContextSwitchTo(aggstate->ss.ps.ps_ExprContext->ecxt_per_tuple_memory);
 #ifdef PGXC
-	/*
-	 * PGXCTODO: see PGXCTODO item in advance_collect_function 
-	 * this step is needed in case the transition function does not produce
-	 * result consumable by final function and need collection function to be
-	 * applied on transition function results. Usually results by both functions
-	 * should be consumable by final function.
-	 * As such this step is meant only to convert transition results into form
-	 * consumable by final function, the step does not actually do any
-	 * collection. Skipping transitionp means, that the collection
-	 * phase is over and we need to apply final function directly.
-	 */
-	if (OidIsValid(peraggstate->collectfn_oid) && !aggstate->skip_trans)
-	{
-		FunctionCallInfoData	fcinfo;
-		int						saved_numArguments;
-		InitFunctionCallInfoData(fcinfo, &(peraggstate->collectfn), 2,
-									(void *) aggstate, NULL);
-		/*
-		 * copy the initial datum since it might get changed inside the
-		 * collection function
-		 */
-		if (peraggstate->initCollectValueIsNull)
-			fcinfo.arg[0] = peraggstate->initCollectValue;
-		else
-			fcinfo.arg[0] = datumCopy(peraggstate->initCollectValue,
-			                                     peraggstate->collecttypeByVal,
-			                                     peraggstate->collecttypeLen);
-		fcinfo.argnull[0] = peraggstate->initCollectValueIsNull;
-		fcinfo.arg[1] = pergroupstate->transValue;
-		fcinfo.argnull[1] = pergroupstate->transValueIsNull;
-		/*
-		 * For collection function we expect only one argument other than the
-		 * running collection result. The numArguments in peraggstate
-		 * corresponds to the number of arguments to the aggregate, which is not
-		 * correct for collection. Hence while applying collection function
-		 * set numArguments to 1 and switch it back once the purpose is served.
-		 */
-		saved_numArguments = peraggstate->numArguments;
-		peraggstate->numArguments = 1;
-		advance_collection_function(aggstate, peraggstate, pergroupstate, &fcinfo);
-		peraggstate->numArguments = saved_numArguments;
-		pergroupstate->transValue = pergroupstate->collectValue;
-		pergroupstate->transValueIsNull = pergroupstate->collectValueIsNull;
-	}
-
 	/*
 	 * if we skipped the transition phase, we have the collection result in the
 	 * collectValue, move it to transValue for finalization to work on
@@ -1945,14 +1889,14 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			Expr	*dummyexpr;
 			/*
 			 * for XC, we need to setup the collection function expression as well.
-			 * Use the same function with invalid final function oid, and collection
+			 * Use build_aggregate_fnexpr() with invalid final function oid, and collection
 			 * function information instead of transition function information.
 			 * PGXCTODO: we should really be adding this step inside
 			 * build_aggregate_fnexprs() but this way it becomes easy to merge.
 			 */
-			build_aggregate_fnexprs(&aggform->aggtranstype,
+			build_aggregate_fnexprs(&aggtranstype,
 									1,
-									aggform->aggcollecttype,
+									aggtranstype,
 									aggref->aggtype,
 									collectfn_oid,
 									InvalidOid,
@@ -1985,11 +1929,6 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		get_typlenbyval(aggtranstype,
 						&peraggstate->transtypeLen,
 						&peraggstate->transtypeByVal);
-#ifdef PGXC
-		get_typlenbyval(aggform->aggcollecttype,
-						&peraggstate->collecttypeLen,
-						&peraggstate->collecttypeByVal);
-#endif /* PGXC */
 
 		/*
 		 * initval is potentially null, so don't try to access it as a struct
@@ -2019,7 +1958,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			peraggstate->initCollectValue = (Datum) 0;
 		else
 			peraggstate->initCollectValue = GetAggInitVal(textInitVal,
-												   aggform->aggcollecttype);
+												   aggtranstype);
 #endif /* PGXC */
 
 		/*

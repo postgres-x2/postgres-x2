@@ -139,6 +139,10 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 				 errmsg("aggregate cfunc must be specified")));
+	if (collectType != transType)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+				 errmsg("aggregate ctype should be same as aggregate stype")));
 
 #endif
 	/*
@@ -247,7 +251,6 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 					sortoperatorName,	/* sort operator name */
 					transTypeId,	/* transition data type */
 #ifdef PGXC
-					collectTypeId,	/* collection data type */
 					initval,	/* initial condition */
 					initcollect);	/* initial condition for collection function */
 #else

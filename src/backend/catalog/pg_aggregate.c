@@ -54,7 +54,6 @@ AggregateCreate(const char *aggName,
 				List *aggsortopName,
 				Oid aggTransType,
 #ifdef PGXC
-				Oid aggCollectType,
 				const char *agginitval,
 				const char *agginitcollect)
 #else
@@ -175,30 +174,25 @@ AggregateCreate(const char *aggName,
 
 #ifdef PGXC
 	/*
-	 * Collection function must be of two arguments
-	 * First must be of aggCollectType, second must be of aggTransType
-	 * Return value must be of aggCollectType
+	 * Collection function must be of two arguments, both of type aggTransType
+	 * and return type is also aggTransType
 	 */
-	fnArgs[0] = aggCollectType;
+	fnArgs[0] = aggTransType;
 	fnArgs[1] = aggTransType;
 	collectfn = lookup_agg_function(aggcollectfnName, 2, fnArgs,
 									  &rettype);
-	if (rettype != aggCollectType)
+	if (rettype != aggTransType)
 		ereport(ERROR,
 				(errcode(ERRCODE_DATATYPE_MISMATCH),
 				 errmsg("return type of collection function %s is not %s",
 						NameListToString(aggcollectfnName),
-						format_type_be(aggCollectType))));
+						format_type_be(aggTransType))));
 
 #endif
 	/* handle finalfn, if supplied */
 	if (aggfinalfnName)
 	{
-#ifdef PGXC
-		fnArgs[0] = aggCollectType;
-#else
 		fnArgs[0] = aggTransType;
-#endif
 		finalfn = lookup_agg_function(aggfinalfnName, 1, fnArgs,
 									  &finaltype);
 	}
@@ -207,11 +201,7 @@ AggregateCreate(const char *aggName,
 		/*
 		 * If no finalfn, aggregate result type is type of the state value
 		 */
-#ifdef PGXC
-		finaltype = aggCollectType;
-#else
 		finaltype = aggTransType;
-#endif
 	}
 	Assert(OidIsValid(finaltype));
 
@@ -302,7 +292,6 @@ AggregateCreate(const char *aggName,
 	values[Anum_pg_aggregate_aggtranstype - 1] = ObjectIdGetDatum(aggTransType);
 #ifdef PGXC
 	values[Anum_pg_aggregate_aggcollectfn - 1] = ObjectIdGetDatum(collectfn);
-	values[Anum_pg_aggregate_aggcollecttype - 1] = ObjectIdGetDatum(aggCollectType);
 #endif
 	if (agginitval)
 		values[Anum_pg_aggregate_agginitval - 1] = CStringGetTextDatum(agginitval);
