@@ -208,7 +208,7 @@ strpos(char *str, char *substr)
  * True if both lists contain only one node and are the same
  */
 static bool
-same_single_node (List *nodelist1, List *nodelist2)
+same_single_node(List *nodelist1, List *nodelist2)
 {
 	return nodelist1 && list_length(nodelist1) == 1
 			&& nodelist2 && list_length(nodelist2) == 1
@@ -1096,46 +1096,6 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 					if (!rel_loc_info1)
 						return true;
 
-					/* Check if this constant expression is targetting multiple tables */
-					if (list_length(context->query->rtable) > 1)
-					{
-						ListCell *lc;
-						RangeTblEntry *save_rte = NULL;
-						RelationLocInfo *save_loc_info;
-
-						foreach(lc, context->query->rtable)
-						{
-							RangeTblEntry *rte = lfirst(lc);
-
-							if (!save_rte)
-							{
-								save_rte = rte;
-								save_loc_info = GetRelationLocInfo(save_rte->relid);
-							}
-							else
-							{
-								/*
-								 * If there are two distributed tables at least
-								 * among the multiple tables, push down the query to all nodes.
-								 */
-								if (save_rte->relid != rte->relid)
-								{
-									RelationLocInfo *loc_info = GetRelationLocInfo(rte->relid);
-
-									if (loc_info->locatorType != LOCATOR_TYPE_REPLICATED &&
-										save_loc_info->locatorType != LOCATOR_TYPE_REPLICATED)
-										return true;
-									if (loc_info->locatorType != LOCATOR_TYPE_REPLICATED &&
-										save_loc_info->locatorType == LOCATOR_TYPE_REPLICATED)
-									{
-										save_rte = rte;
-										save_loc_info = loc_info;
-									}
-								}
-							}
-						}
-					}
-
 					/* If hash or modulo partitioned, check if the part column was used */
 					if (IsHashColumn(rel_loc_info1, column_base->colname) ||
 						IsModuloColumn(rel_loc_info1, column_base->colname))
@@ -1361,7 +1321,8 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 					if (save_exec_nodes->tableusagetype != TABLE_USAGE_TYPE_USER_REPLICATED)
 					{
 						/* See if they run on the same node */
-						if (same_single_node (context->query_step->exec_nodes->nodelist, save_exec_nodes->nodelist))
+						if (same_single_node(context->query_step->exec_nodes->nodelist,
+											 save_exec_nodes->nodelist))
 							return false;
 					}
 					else
@@ -1622,7 +1583,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 					else
 					{
 						/* Allow if they are both using one node, and the same one */
-						if (!same_single_node (from_query_nodes->nodelist, current_nodes->nodelist))
+						if (!same_single_node(from_query_nodes->nodelist, current_nodes->nodelist))
 							/* Complicated */
 							return true;
 					}
@@ -1730,7 +1691,8 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 				 * If the query is rewritten (which can be due to rules or views),
 				 * ignore extra stuff. Also ignore subqueries we have processed
 				 */
-				if ((!rte->inFromCl && query->commandType == CMD_SELECT) || rte->rtekind != RTE_RELATION)
+				if ((!rte->inFromCl && query->commandType == CMD_SELECT) ||
+					rte->rtekind != RTE_RELATION)
 					continue;
 
 				/* PGXCTODO - handle RTEs that are functions */
@@ -1756,7 +1718,10 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 		if (rel_loc_info->locatorType != LOCATOR_TYPE_HASH &&
 			rel_loc_info->locatorType != LOCATOR_TYPE_MODULO)
 			/* do not need to determine partitioning expression */
-			context->query_step->exec_nodes = GetRelationNodes(rel_loc_info, 0, UNKNOWNOID, context->accessType);
+			context->query_step->exec_nodes = GetRelationNodes(rel_loc_info,
+															   0,
+															   UNKNOWNOID,
+															   context->accessType);
 
 		/* Note replicated table usage for determining safe queries */
 		if (context->query_step->exec_nodes)
@@ -1765,9 +1730,12 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 				table_usage_type = TABLE_USAGE_TYPE_USER_REPLICATED;
 
 			context->query_step->exec_nodes->tableusagetype = table_usage_type;
-		} else if (context->conditions->partitioned_expressions) {
+		}
+		else if (context->conditions->partitioned_expressions)
+		{
 			/* probably we can determine nodes on execution time */
-			foreach(lc, context->conditions->partitioned_expressions) {
+			foreach(lc, context->conditions->partitioned_expressions)
+			{
 				Expr_Comparison *expr_comp = (Expr_Comparison *) lfirst(lc);
 				if (rel_loc_info->relid == expr_comp->relid)
 				{
@@ -1784,7 +1752,9 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 					break;
 				}
 			}
-		} else {
+		}
+		else
+		{
 			/* run query on all nodes */
 			context->query_step->exec_nodes = makeNode(ExecNodes);
 			context->query_step->exec_nodes->baselocatortype =
@@ -1802,7 +1772,54 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 	/* check for partitioned col comparison against a literal */
 	else if (list_length(context->conditions->partitioned_literal_comps) > 0)
 	{
+		bool is_single_node_safe = true;
+
 		context->query_step->exec_nodes = NULL;
+
+		/*
+		 * We may have a literal comparison with a parent-child join
+		 * on a distributed table. In this case choose node targetting the column.
+		 * But first check if it is targetting multiple distributed tables.
+		 */
+		if (list_length(context->query->rtable) > 1 &&
+			!context->conditions->partitioned_parent_child)
+		{
+			ListCell *lc;
+			RangeTblEntry *save_rte = NULL;
+			RelationLocInfo *save_loc_info;
+
+			foreach(lc, context->query->rtable)
+			{
+				RangeTblEntry *rte = lfirst(lc);
+
+				if (!save_rte)
+				{
+					save_rte = rte;
+					save_loc_info = GetRelationLocInfo(save_rte->relid);
+				}
+				else
+				{
+					/*
+					 * If there are two distributed tables at least
+					 * among target tables, push down the query to all nodes.
+					 */
+					if (save_rte->relid != rte->relid)
+					{
+						RelationLocInfo *loc_info = GetRelationLocInfo(rte->relid);
+
+						if (loc_info->locatorType != LOCATOR_TYPE_REPLICATED &&
+							save_loc_info->locatorType != LOCATOR_TYPE_REPLICATED)
+							is_single_node_safe = false;
+						if (loc_info->locatorType != LOCATOR_TYPE_REPLICATED &&
+							save_loc_info->locatorType == LOCATOR_TYPE_REPLICATED)
+						{
+							save_rte = rte;
+							save_loc_info = loc_info;
+						}
+					}
+				}
+			}
+		}
 
 		/*
 		 * Make sure that if there are multiple such comparisons, that they
@@ -1812,17 +1829,22 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 		{
 			Literal_Comparison *lit_comp = (Literal_Comparison *) lfirst(lc);
 
-			test_exec_nodes = GetRelationNodes(lit_comp->rel_loc_info, lit_comp->constValue, lit_comp->constType, RELATION_ACCESS_READ);
+			test_exec_nodes = GetRelationNodes(lit_comp->rel_loc_info,
+											   lit_comp->constValue,
+											   lit_comp->constType,
+											   RELATION_ACCESS_READ);
 
 			test_exec_nodes->tableusagetype = table_usage_type;
-			if (context->query_step->exec_nodes == NULL)
+			if (is_single_node_safe &&
+				context->query_step->exec_nodes == NULL)
 				context->query_step->exec_nodes = test_exec_nodes;
 			else
 			{
-				if (!same_single_node(context->query_step->exec_nodes->nodelist, test_exec_nodes->nodelist))
-				{
+				if (context->query_step->exec_nodes == NULL ||
+					!is_single_node_safe ||
+					!same_single_node(context->query_step->exec_nodes->nodelist,
+									  test_exec_nodes->nodelist))
 					return true;
-				}
 			}
 		}
 	}
@@ -1838,7 +1860,10 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 		parent_child = (Parent_Child_Join *)
 				linitial(context->conditions->partitioned_parent_child);
 
-		context->query_step->exec_nodes = GetRelationNodes(parent_child->rel_loc_info1, 0, UNKNOWNOID, context->accessType);
+		context->query_step->exec_nodes = GetRelationNodes(parent_child->rel_loc_info1,
+														   0,
+														   UNKNOWNOID,
+														   context->accessType);
 		context->query_step->exec_nodes->tableusagetype = table_usage_type;
 	}
 
@@ -1853,7 +1878,8 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 		 * same node
 		 */
 		else if (from_query_nodes->tableusagetype == TABLE_USAGE_TYPE_USER_REPLICATED
-					|| (same_single_node(from_query_nodes->nodelist, context->query_step->exec_nodes->nodelist)))
+					|| (same_single_node(from_query_nodes->nodelist,
+										 context->query_step->exec_nodes->nodelist)))
 				return false;
 		else
 		{
@@ -2355,8 +2381,8 @@ make_simple_sort_from_sortclauses(Query *query, RemoteQuery *step)
 		 * 	   been removed because of duplicate ORDER BY entry. Check original
 		 * 	   DISTINCT clause, if expression is there continue iterating.
 		 * 3c. DISTINCT and ORDER BY are not compatible, emit error
-		 * 4. DISTINCT and ORDER BY are compatible, if we have remaining items
-		 *    in the working copy we should append it to the order by list
+		 * 4.  DISTINCT and ORDER BY are compatible, if we have remaining items
+		 * 	   in the working copy we should append it to the order by list
 		 */
 		/*
 		 * Create the list of unique DISTINCT clause expressions
@@ -2945,8 +2971,8 @@ free_query_step(RemoteQuery *query_step)
  *
  * RemoteQuery *innernode  - the inner node
  * RemoteQuery *outernode  - the outer node
- * List *rtable_list       - rtables
- * JoinPath *join_path     - used to examine join restrictions
+ * List *rtable_list	   - rtables
+ * JoinPath *join_path	   - used to examine join restrictions
  * PGXCJoinInfo *join_info - contains info about the join reduction
  * join_info->partitioned_replicated  is set to true if we have a partitioned-replicated
  *                          join. We want to use replicated tables with non-replicated
@@ -3199,7 +3225,10 @@ GetHashExecNodes(RelationLocInfo *rel_loc_info, ExecNodes **exec_nodes, const Ex
 	constant = (Const *) checkexpr;
 
 	/* single call handles both replicated and partitioned types */
-	*exec_nodes = GetRelationNodes(rel_loc_info, constant->constvalue, constant->consttype, RELATION_ACCESS_INSERT);
+	*exec_nodes = GetRelationNodes(rel_loc_info,
+								   constant->constvalue,
+								   constant->consttype,
+								   RELATION_ACCESS_INSERT);
 	if (eval_expr)
 		pfree(eval_expr);
 
