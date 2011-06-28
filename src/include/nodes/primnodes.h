@@ -230,6 +230,7 @@ typedef struct Aggref
 	Oid			aggtype;		/* type Oid of result of the aggregate */
 #ifdef PGXC
 	Oid			aggtrantype;	/* type Oid of transition results */
+	bool		has_collectfn;	/* is collection function available */
 #endif /* PGXC */
 	List	   *args;			/* arguments and sort expressions */
 	List	   *aggorder;		/* ORDER BY (list of SortGroupClause) */

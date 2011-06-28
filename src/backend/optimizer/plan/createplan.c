@@ -5452,9 +5452,9 @@ pgxc_process_grouping_targetlist(PlannerInfo *root, List **local_tlist)
 
 	/*
 	 * Walk through the target list and find out whether we can push the
-	 * aggregates and grouping to datanodes. We can do so if the target list
-	 * contains plain aggregates (without any expression involving those) and
-	 * expressions in group by clauses only (last one to make the query legit.
+	 * aggregates and grouping to datanodes. Also while doing so, create the
+	 * targetlist for the query to be shipped to the datanode. Adjust the local
+	 * targetlist accordingly.
 	 */
 	foreach(temp, *local_tlist)
 	{
@@ -5465,7 +5465,24 @@ pgxc_process_grouping_targetlist(PlannerInfo *root, List **local_tlist)
 		if (IsA(expr, Aggref))
 		{
 			Aggref	*aggref = (Aggref *)expr;
-			if (aggref->aggorder || aggref->aggdistinct || aggref->agglevelsup)
+			/*
+			 * If the aggregation needs tuples ordered specifically, or only
+			 * accepts distinct values, we can not aggregate unless we have all
+			 * the qualifying rows. Hence partial aggregation at data nodes can
+			 * give wrong results. Hence we can not such aggregates to the
+			 * datanodes.
+			 * If there is no collection function, we can not combine the
+			 * partial aggregation results from the data nodes, hence can not
+			 * push such aggregate to the data nodes.
+			 * PGXCTODO: If the transition type of the collection is polymorphic we
+			 * need to resolve it first. That tells us the partial aggregation type
+			 * expected from data node.
+			 */
+			if (aggref->aggorder ||
+				aggref->aggdistinct ||
+				aggref->agglevelsup ||
+				!aggref->has_collectfn ||
+				IsPolymorphicType(aggref->aggtrantype))
 			{
 				shippable_remote_tlist = false;
 				break;

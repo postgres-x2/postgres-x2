@@ -532,6 +532,8 @@ advance_collection_function(AggState *aggstate,
 	Datum		newVal;
 	MemoryContext oldContext;
 
+	Assert(OidIsValid(peraggstate->collectfn.fn_oid));
+
 	/*
 	 * numArgument has to be one, since each datanode is going to send a single
 	 * transition value
