@@ -120,6 +120,13 @@ typedef struct GTMProxy_ThreadInfo
 	gtm_List 					*thr_pending_commands[MSG_TYPE_COUNT];
 
 	GTM_Conn				*thr_gtm_conn;
+
+	/* Reconnect Info */
+	int						can_accept_SIGUSR2;
+	int						reconnect_issued;
+	int						can_longjmp;
+	sigjmp_buf				longjmp_env;
+
 } GTMProxy_ThreadInfo;
 
 typedef struct GTMProxy_Threads
@@ -138,7 +145,7 @@ int GTMProxy_ThreadRemove(GTMProxy_ThreadInfo *thrinfo);
 int GTMProxy_ThreadJoin(GTMProxy_ThreadInfo *thrinfo);
 void GTMProxy_ThreadExit(void);
 
-extern GTMProxy_ThreadInfo *GTMProxy_ThreadCreate(void *(* startroutine)(void *));
+extern GTMProxy_ThreadInfo *GTMProxy_ThreadCreate(void *(* startroutine)(void *), int idx);
 extern GTMProxy_ThreadInfo * GTMProxy_GetThreadInfo(GTM_ThreadID thrid);
 extern GTMProxy_ThreadInfo *GTMProxy_ThreadAddConnection(GTMProxy_ConnectionInfo *conninfo);
 extern int GTMProxy_ThreadRemoveConnection(GTMProxy_ThreadInfo *thrinfo,
@@ -236,4 +243,23 @@ extern GTM_ThreadID						TopMostThreadID;
 		    CritSectionCount--; \
 	} while(0)
 
+/* Signal Handler controller */
+#define SIGUSR2DETECTED() (GetMyThreadInfo->reconnect_issued == TRUE)
+#define RECONNECT_LONGJMP() do{longjmp(GetMyThreadInfo->longjmp_env, 1);}while(0)
+#if 1
+#define Disable_Longjmp() do{GetMyThreadInfo->can_longjmp = FALSE;}while(0)
+#define Enable_Longjmp() \
+	do{						 \
+		if (SIGUSR2DETECTED()) { \
+			RECONNECT_LONGJMP(); \
+		} \
+		else { \
+			GetMyThreadInfo->can_longjmp = TRUE;	\
+		} \
+	} while(0)
+#else
+#define Disable_Longjmp() 
+#define Enable_Longjmp()
+#endif
+	
 #endif

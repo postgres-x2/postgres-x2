@@ -42,6 +42,8 @@
 #include "gtm/libpq-int.h"
 #include "gtm/gtm_ip.h"
 #include "gtm/gtm_standby.h"
+/* For reconnect control lock */
+#include "gtm/gtm_lock.h"
 
 extern int	optind;
 extern char *optarg;
@@ -60,11 +62,27 @@ int			GTMProxyPortNumber;
 int			GTMProxyWorkerThreads;
 char		*GTMProxyDataDir;
 
+/* GTM communication error handling options */
+int			GTMErrorWaitOpt = FALSE;		/* Wait and assume XCM if TRUE */
+int			GTMErrorWaitSecs = 0;			/* Duration of each wait */
+int			GTMErrorWaitCount = 0;			/* How many durations to wait */
+
 char		*GTMServerHost;
 int			GTMServerPortNumber;
 
 GTM_PGXCNodeId	GTMProxyID = 0;
 GTM_ThreadID	TopMostThreadID;
+
+/* Communication area with SIGUSR2 signal handler */
+GTMProxy_ThreadInfo **Proxy_ThreadInfo;
+short	ReadyToReconnect = FALSE;
+char	*NewGTMServerHost;
+int		NewGTMServerPortNumber;
+
+/* Reconnect Control Lock */
+GTM_RWLock 	ReconnectControlLock;
+jmp_buf     mainThreadSIGUSR1_buf;
+int			SIGUSR1Accepted = FALSE;
 
 /* The socket(s) we're listening to. */
 #define MAXLISTEN	64
@@ -119,9 +137,11 @@ static void SetDataDir(void);
 static void ChangeToDataDir(void);
 static void checkDataDir(void);
 static void DeleteLockFile(const char *filename);
-static void RegisterProxy(void);
+static void RegisterProxy(bool is_reconnect);
 static void UnregisterProxy(void);
 static GTM_Conn *ConnectGTM(void);
+static void ReleaseCmdBackup(GTMProxy_CommandInfo *cmdinfo);
+static void workerThreadReconnectToGTMstandby(void);
 
 /*
  * One-time initialization. It's called immediately after the main process
@@ -188,11 +208,15 @@ BaseInit()
 		sprintf(GTMLogFile, "%s/%s", GTMProxyDataDir, GTM_LOG_FILE);
 	}
 
+	/* Initialize reconnect control lock */
+
+	GTM_RWLockInit(&ReconnectControlLock);
+
 	/* Save Node Register File in register.c */
 	Recovery_SaveRegisterFileName(GTMProxyDataDir);
 
 	/* Register Proxy on GTM */
-	RegisterProxy();
+	RegisterProxy(false);
 
 	DebugFileOpen();
 
@@ -208,10 +232,125 @@ BaseInit()
 	}
 }
 
+static char *
+read_token(char *line, char **next)
+{
+	char *tok;
+	char *next_token;
+
+	if (line == NULL)
+	{
+		*next = NULL;
+		return(NULL);
+	}
+	for (tok = line;; tok++)
+	{
+		if (*tok == 0 || *tok == '\n')
+			return(NULL);
+		if (*tok == ' ' || *tok == '\t')
+			continue;
+		else
+			break;
+	}
+	for (next_token = tok;; next_token++)
+	{
+		if (*next_token == 0 || *next_token == '\n')
+		{
+			*next_token = 0;
+			*next = NULL;
+			return(tok);
+		}
+		if (*next_token == ' ' || *next_token == '\t')
+		{
+			*next_token = 0;
+			*next = next_token + 1;
+			return(tok);
+		}
+		else
+			continue;
+	}
+	Assert(0);		/* Never comes here.  Keep compiler quiet. */
+}
+
+/*
+ * Returns non-zero if failed.
+ * We assume that current working directory is that specified by -D option.
+ */
+#define MAXLINE 1024
+#define INVALID_RECONNECT_OPTION_MSG() \
+	do{ \
+		ereport(ERROR, (0, errmsg("Invalid Reconnect Option"))); \
+	} while(0)
+
+static int
+GTMProxy_ReadReconnectInfo(void)
+{
+
+	char optstr[MAXLINE];
+	char *line;
+	FILE *optarg_file;
+	char *optValue;
+	char *option;
+	char *next_token;
+
+	optarg_file = fopen("newgtm", "r");
+	if (optarg_file == NULL)
+	{
+		INVALID_RECONNECT_OPTION_MSG();
+		return(-1);
+	}
+	line = fgets(optstr, MAXLINE, optarg_file);
+	if (line == NULL)
+	{
+		INVALID_RECONNECT_OPTION_MSG();
+		return(-1);
+	}
+	fclose(optarg_file);
+#ifdef GTM_SBY_DEBUG
+	elog(LOG, "reconnect option = \"%s\"\n", optstr);
+#endif
+	next_token = optstr;
+	while ((option = read_token(next_token, &next_token)))
+	{
+		if (strcmp(option, "-t") == 0)	/* New GTM port */
+		{
+			optValue = read_token(next_token, &next_token);
+			if (optValue == NULL)
+			{
+				INVALID_RECONNECT_OPTION_MSG();
+				return(-1);
+			}
+			NewGTMServerPortNumber = atoi(optValue);
+			continue;
+		}
+		else if (strcmp(option, "-s") == 0)
+		{
+			optValue = read_token(next_token, &next_token);
+			if (optValue == NULL)
+			{
+				INVALID_RECONNECT_OPTION_MSG();
+				return(-1);
+			}
+			if (NewGTMServerHost)
+				free(NewGTMServerHost);
+			NewGTMServerHost = strdup(optValue);
+			continue;
+		}
+		else
+		{
+			INVALID_RECONNECT_OPTION_MSG();
+			return(-1);
+		}
+	}
+	return(0);
+}
+
 static void
 GTMProxy_SigleHandler(int signal)
 {
-	fprintf(stderr, "Received signal %d", signal);
+	int ii;
+
+	elog(LOG, "Received signal %d", signal);
 
 	switch (signal)
 	{
@@ -221,6 +360,111 @@ GTMProxy_SigleHandler(int signal)
 		case SIGINT:
 		case SIGHUP:
 			break;
+		case SIGUSR1:	/* Reconnect from gtm_ctl */
+			/*
+			 * Only the main thread can distribute SIGUSR2 to avoid lock contention
+			 * of the thread info. If an other thread receives SIGUSR1, it will proxy
+			 * SIGUSR1 to the main thread.
+			 *
+			 * The mask is set to block signals.  They're blocked until all the
+			 * threads reconnect to the new GTM.
+			 */
+#ifdef GTM_SBY_DEBUG
+			elog(LOG, "Accepted SIGUSR1\n");
+#endif
+			if (MyThreadID != TopMostThreadID)
+			{
+#ifdef GTM_SBY_DEBUG
+				elog(LOG, "Not on main thread, proxy the signal to the main thread.");
+#endif
+				pthread_kill(TopMostThreadID, SIGUSR1);
+				return;
+			}
+			/*
+			 * Then this is the main thread.
+			 */
+			PG_SETMASK(&BlockSig);
+#ifdef GTM_SBY_DEBUG
+			elog(LOG, "I'm the main thread. Accepted SIGUSR1.");
+#endif
+			/*
+			 * Set Reconnect Info
+			 */
+			if (!ReadyToReconnect)
+			{
+				elog(LOG, "SIGUSR1 detected, but not ready to handle this. Ignored");
+				PG_SETMASK(&UnBlockSig);
+				return;
+			}
+			elog(LOG, "SIGUSR1 detected. Set reconnect info for each worker thread");
+			if (GTMProxy_ReadReconnectInfo() != 0)
+			{
+				/* Failed to read reconnect information from reconnect data file */
+				PG_SETMASK(&UnBlockSig);
+				return;
+			}
+			/*
+			 * Send SIGUSR2 to all worker threads.
+			 * Check if all the worker threads can accept SIGUSR2
+			 */
+			for (ii = 0; ii < GTMProxyWorkerThreads; ii++)
+			{
+				if ((Proxy_ThreadInfo[ii] == NULL) ||
+					(Proxy_ThreadInfo[ii]->can_accept_SIGUSR2 == FALSE))
+				{
+					elog(NOTICE, "Some worker thread is not ready to handle this. Retry reconnection later.\n");
+					PG_SETMASK(&UnBlockSig);
+					return;
+				}
+			}
+			/*
+			 * Before send SIGUSR2 to worker threads, acquire reconnect control lock in write mode
+			 * so that worker threads wait until main thread reconnects to new GTM and register
+			 * itself.
+			 */
+			GTM_RWLockAcquire(&ReconnectControlLock, GTM_LOCKMODE_WRITE);
+
+			/* We cannot accept the next SIGUSR1 until all the reconnect is finished. */
+			ReadyToReconnect = false;
+
+			/*
+			 * Issue SIGUSR2 to all the worker threads.
+			 * It will not be issued to the main thread.
+			 */
+			for (ii = 0; ii < GTMProxyWorkerThreads; ii++)
+				pthread_kill(Proxy_ThreadInfo[ii]->thr_id, SIGUSR2);
+
+			elog(LOG, "SIGUSR2 issued to all the worker threads.");
+			PG_SETMASK(&UnBlockSig);
+
+			/*
+			 * Note that during connection handling with backends, signals are blocked
+			 * so it is safe to longjump here.
+			 */
+			siglongjmp(mainThreadSIGUSR1_buf, 1);
+
+		case SIGUSR2:  /* Reconnect from the main thread */
+			/* Main thread has nothing to do twith this signal and should not receive this. */
+			PG_SETMASK(&BlockSig);
+#ifdef GTM_SBY_DEBUG
+			elog(LOG, "Detected SIGUSR2, thread:%ld", MyThreadID);
+#endif
+			if (MyThreadID == TopMostThreadID)
+			{
+				/* This should not be reached. Just in case. */
+#ifdef GTM_SBY_DEBUG
+				elog(LOG, "SIGUSR2 received by the main thread.  Ignoring.");
+#endif
+				PG_SETMASK(&UnBlockSig);
+				return;
+			}
+			GetMyThreadInfo->reconnect_issued = TRUE;
+			if (GetMyThreadInfo->can_longjmp)
+			{
+				siglongjmp(GetMyThreadInfo->longjmp_env, 1);
+			}
+			PG_SETMASK(&UnBlockSig);
+			return;
 
 		default:
 			fprintf(stderr, "Unknown signal %d\n", signal);
@@ -289,10 +533,12 @@ main(int argc, char *argv[])
 	GTMProxyPortNumber = GTM_PROXY_DEFAULT_PORT;
 	GTMProxyWorkerThreads = GTM_PROXY_DEFAULT_WORKERS;
 
+	NewGTMServerHost = NULL;
+
 	/*
 	 * Parse the command like options and set variables
 	 */
-	while ((opt = getopt(argc, argv, "h:i:p:n:D:l:s:t:")) != -1)
+	while ((opt = getopt(argc, argv, "h:i:p:n:D:l:s:t:w:z:")) != -1)
 	{
 		switch (opt)
 		{
@@ -336,6 +582,16 @@ main(int argc, char *argv[])
 				GTMServerPortNumber = atoi(optarg);
 				break;
 
+			case 'w':
+				/* Duration to wait at GTM communication error */
+				GTMErrorWaitSecs = atoi(optarg);
+				break;
+
+			case 'z':
+				/* How many durations to wait */
+				GTMErrorWaitCount = atoi(optarg);
+				break;
+
 			default:
 				write_stderr("Try \"%s --help\" for more information.\n",
 							 progname);
@@ -357,6 +613,19 @@ main(int argc, char *argv[])
 		exit(1);
 	}
 
+	/*
+	 * Validate GTM communication error handling option
+	 */
+	if (GTMErrorWaitSecs > 0 && GTMErrorWaitCount > 0)
+	{
+		GTMErrorWaitOpt = TRUE;
+	}
+	else
+	{
+		GTMErrorWaitOpt = FALSE;
+		GTMErrorWaitSecs = 0;
+		GTMErrorWaitCount = 0;
+	}
 	/*
 	 * GTM accepts no non-option switch arguments.
 	 */
@@ -420,19 +689,25 @@ main(int argc, char *argv[])
 	pqsignal(SIGQUIT, GTMProxy_SigleHandler);
 	pqsignal(SIGTERM, GTMProxy_SigleHandler);
 	pqsignal(SIGINT, GTMProxy_SigleHandler);
+	pqsignal(SIGUSR1, GTMProxy_SigleHandler);
+	pqsignal(SIGUSR2, GTMProxy_SigleHandler);
 
 	pqinitmask();
 
 	/*
+	 * Initialize SIGUSR2 interface area (Thread info)
+	 */
+	Proxy_ThreadInfo = palloc0(sizeof(GTMProxy_ThreadInfo *) * GTMProxyWorkerThreads);
+
+	/*
 	 * Pre-fork so many worker threads
 	 */
-
 	for (i = 0; i < GTMProxyWorkerThreads; i++)
 	{
 		/*
 		 * XXX Start the worker thread
 		 */
-		if (GTMProxy_ThreadCreate(GTMProxy_ThreadMain) == NULL)
+		if (GTMProxy_ThreadCreate(GTMProxy_ThreadMain, i) == NULL)
 		{
 			elog(ERROR, "failed to create a new thread");
 			return STATUS_ERROR;
@@ -507,10 +782,35 @@ ServerLoop(void)
 		fd_set		rmask;
 		int			selres;
 
+		if (sigsetjmp(mainThreadSIGUSR1_buf, 1) != 0)
+		{
+			/*
+			 * Reconnect!
+			 * Use RegisterProxy() call. Before this, change connection information
+			 * of GTM to the new one.
+			 * Because this is done while ReconnectControlLock is acquired,
+			 * worker threads can use this change and they don't have to worry about
+			 * new connection point.
+			 *
+			 * Because we leave the old socket as is, there could be some waste of
+			 * the resource but this may not happen so many times.
+			 */
+
+			RegisterProxy(TRUE);
+
+			/* If it is done, then release the lock for worker threads. */
+			GTM_RWLockRelease(&ReconnectControlLock);
+		}
+		/*
+		 * Delay the point to accept reconnect until here because
+		 * longjmp buffer has not been prepared.
+		 */
+		ReadyToReconnect = TRUE;
+
 		/*
 		 * Wait for a connection request to arrive.
 		 *
-		 * We wait at most one minute, to ensure that the other background
+		 * Wait at most one minute, to ensure that the other background
 		 * tasks handled below get done even when no requests are arriving.
 		 */
 		memcpy((char *) &rmask, (char *) &readmask, sizeof(fd_set));
@@ -626,6 +926,7 @@ GTMProxy_ThreadMain(void *argp)
 	int32 saved_seqno = -1;
 	int ii, nrfds;
 	char gtm_connect_string[1024];
+	int	first_turn = TRUE;	/* Used only to set longjmp target at the first turn of thread loop */
 
 	elog(DEBUG3, "Starting the connection helper thread");
 
@@ -662,6 +963,25 @@ GTMProxy_ThreadMain(void *argp)
 	 */
 
 	initStringInfo(&input_message);
+
+	/*
+	 * Set GTM communication error handling options.
+	 */
+	thrinfo->thr_gtm_conn->gtmErrorWaitOpt = GTMErrorWaitOpt;
+	thrinfo->thr_gtm_conn->gtmErrorWaitSecs = GTMErrorWaitSecs;
+	thrinfo->thr_gtm_conn->gtmErrorWaitCount = GTMErrorWaitCount;
+
+	thrinfo->reconnect_issued = FALSE;
+
+	/*
+	 * Initialize comand backup area
+	 */
+	for (ii = 0; ii < GTM_PROXY_MAX_CONNECTIONS; ii++)
+	{
+		thrinfo->thr_any_backup[ii] = FALSE;
+		thrinfo->thr_qtype[ii] = 0;
+		initStringInfo(&(thrinfo->thr_inBufData[ii]));
+	}
 
 	/*
 	 * If an exception is encountered, processing resumes here so we abort the
@@ -730,6 +1050,18 @@ GTMProxy_ThreadMain(void *argp)
 	/* We can now handle ereport(ERROR) */
 	PG_exception_stack = &local_sigjmp_buf;
 
+	/*
+	 * Now we're entering thread loop. The last work is to initialize SIGUSR2 control.
+	 */
+	Disable_Longjmp();
+	GetMyThreadInfo->can_accept_SIGUSR2 = TRUE;
+	GetMyThreadInfo->reconnect_issued = FALSE;
+	GetMyThreadInfo->can_longjmp = FALSE;
+
+	/*--------------------------------------------------------------
+	 * Thread Loop
+	 *-------------------------------------------------------------
+	 */
 	for (;;)
 	{
 		gtm_ListCell *elem = NULL;
@@ -743,86 +1075,142 @@ GTMProxy_ThreadMain(void *argp)
 		MemoryContextResetAndDeleteChildren(MessageContext);
 
 		/*
+		 * The following block should be skipped at the first turn.
+		 */
+		if (!first_turn)
+		{
+			/*
+			 * Check if there are any changes to the connection array assigned to
+			 * this thread. If so, we need to rebuild the fd array.
+			 */
+			GTM_MutexLockAcquire(&thrinfo->thr_lock);
+			if (saved_seqno != thrinfo->thr_seqno)
+			{
+				saved_seqno = thrinfo->thr_seqno;
+
+				while (thrinfo->thr_conn_count <= 0)
+				{
+					/*
+					 * No connections assigned to the thread. Wait for at least one
+					 * connection to be assigned to us
+					 */
+					if (sigsetjmp(GetMyThreadInfo->longjmp_env, 1) == 0)
+					{
+						Enable_Longjmp();
+						GTM_CVWait(&thrinfo->thr_cv, &thrinfo->thr_lock);
+						Disable_Longjmp();
+					}
+					else
+					{
+						/* SIGUSR2 here */
+						workerThreadReconnectToGTMstandby();
+					}
+				}
+
+				memset(thrinfo->thr_poll_fds, 0, sizeof (thrinfo->thr_poll_fds));
+
+				/*
+				 * Now grab all the open connections. A lock is being hold so no
+				 * new connections can be added.
+				 */
+				for (ii = 0; ii < thrinfo->thr_conn_count; ii++)
+				{
+					GTMProxy_ConnectionInfo *conninfo = thrinfo->thr_all_conns[ii];
+
+					/*
+					 * Detect if the connection has been dropped to avoid
+					 * a segmentation fault. 
+					 */
+					if (conninfo->con_port == NULL)
+					{
+						conninfo->con_disconnected = true;
+						continue;
+					} 
+
+					/*
+					 * If this is a newly added connection, complete the handshake
+					 */
+					if (!conninfo->con_authenticated)
+						GTMProxy_HandshakeConnection(conninfo);
+
+					thrinfo->thr_poll_fds[ii].fd = conninfo->con_port->sock;
+					thrinfo->thr_poll_fds[ii].events = POLLIN;
+					thrinfo->thr_poll_fds[ii].revents = 0;
+				}
+			}
+			GTM_MutexLockRelease(&thrinfo->thr_lock);
+
+			while (true)
+			{
+				Enable_Longjmp();
+				nrfds = poll(thrinfo->thr_poll_fds, thrinfo->thr_conn_count, 1000);
+				Disable_Longjmp();
+
+				if (nrfds < 0)
+				{
+					if (errno == EINTR)
+						continue;
+					elog(FATAL, "poll returned with error %d", nrfds);
+				}
+				else
+					break;
+			}
+
+			if (nrfds == 0)
+				continue;
+
+			/*
+			 * Initialize the lists
+			 */
+			thrinfo->thr_processed_commands = gtm_NIL;
+			memset(thrinfo->thr_pending_commands, 0, sizeof (thrinfo->thr_pending_commands));
+		}
+
+		/*
+		 * Each SIGUSR2 should return here and please note that from the beginning
+		 * of the outer loop, longjmp is disabled and signal handler will simply return
+		 * so that we don't have to be botherd with the memory context. We should be
+		 * sure to be in MemoryContext where siglongjmp() is issued.
+		 */
+setjmp_again:
+		if (sigsetjmp(thrinfo->longjmp_env, 1) == 0)
+		{
+			Disable_Longjmp();
+		}
+		else
+		{
+			/*
+			 * SIGUSR2 is detected and jumped here
+			 * Reconnection phase
+			 */
+			workerThreadReconnectToGTMstandby();
+
+			/*
+			 * Correction of pending works.
+			 */
+			thrinfo->thr_processed_commands = gtm_NIL;
+			for (ii = 0; ii < MSG_TYPE_COUNT; ii++)
+			{
+				thrinfo->thr_pending_commands[ii] = gtm_NIL;
+			}
+			gtm_list_free_deep(thrinfo->thr_processed_commands);
+			thrinfo->thr_processed_commands = gtm_NIL;
+			goto setjmp_again;	/* Get ready for another SIGUSR2 */
+		}
+		if (first_turn)
+		{
+			first_turn = FALSE;
+			continue;
+		}
+
+		/*
 		 * Just reset the input buffer to avoid repeated palloc/pfrees
 		 *
 		 * XXX We should consider resetting the MessageContext periodically to
 		 * handle any memory leaks
 		 */
 		resetStringInfo(&input_message);
-
-		/*
-		 * Check if there are any changes to the connection array assigned to
-		 * this thread. If so, we need to rebuild the fd array.
-		 */
-		GTM_MutexLockAcquire(&thrinfo->thr_lock);
-		if (saved_seqno != thrinfo->thr_seqno)
-		{
-			saved_seqno = thrinfo->thr_seqno;
-
-			while (thrinfo->thr_conn_count <= 0)
-			{
-				/*
-				 * No connections assigned to the thread. Wait for at least one
-				 * connection to be assgined to us
-				 */
-				GTM_CVWait(&thrinfo->thr_cv, &thrinfo->thr_lock);
-			}
-
-			memset(thrinfo->thr_poll_fds, 0, sizeof (thrinfo->thr_poll_fds));
-
-			/*
-			 * Now grab all the open connections. We are holding the lock so no
-			 * new connections can be added.
-			 */
-			for (ii = 0; ii < thrinfo->thr_conn_count; ii++)
-			{
-				GTMProxy_ConnectionInfo *conninfo = thrinfo->thr_all_conns[ii];
-
-				/* We detect if the connection has been dropped to avoid
-				 * a segmentation fault. 
-				*/
-				if (conninfo->con_port == NULL)
-				{
-					conninfo->con_disconnected = true;
-					continue;
-				} 
-
-				/*
-				 * If this is a newly added connection, complete the handshake
-				 */
-				if (!conninfo->con_authenticated)
-					GTMProxy_HandshakeConnection(conninfo);
-
-				thrinfo->thr_poll_fds[ii].fd = conninfo->con_port->sock;
-				thrinfo->thr_poll_fds[ii].events = POLLIN;
-				thrinfo->thr_poll_fds[ii].revents = 0;
-			}
-		}
-		GTM_MutexLockRelease(&thrinfo->thr_lock);
-
-		while (true)
-		{
-			nrfds = poll(thrinfo->thr_poll_fds, thrinfo->thr_conn_count, 1000);
-
-			if (nrfds < 0)
-			{
-				if (errno == EINTR)
-					continue;
-				elog(FATAL, "poll returned with error %d", nrfds);
-			}
-			else
-				break;
-		}
-
-		if (nrfds == 0)
-			continue;
-
-		/*
-		 * Initialize the lists
-		 */
-		thrinfo->thr_processed_commands = gtm_NIL;
-		memset(thrinfo->thr_pending_commands, 0, sizeof (thrinfo->thr_pending_commands));
-
+			
 		/*
 		 * Now, read command from each of the connections that has some data to
 		 * be read.
@@ -843,12 +1231,15 @@ GTMProxy_ThreadMain(void *argp)
 				continue;
 			}
 
-			if (thrinfo->thr_poll_fds[ii].revents & POLLIN)
+			if ((thrinfo->thr_any_backup[ii]) ||
+				(thrinfo->thr_poll_fds[ii].revents & POLLIN))
 			{
 				/*
 				 * (3) read a command (loop blocks here)
 				 */
 				qtype = ReadCommand(thrinfo->thr_conn, &input_message);
+
+				thrinfo->thr_poll_fds[ii].revents = 0;
 
 				switch(qtype)
 				{
@@ -903,7 +1294,9 @@ GTMProxy_ThreadMain(void *argp)
 		/*
 		 * Make sure everything is on wire now
 		 */
+		Enable_Longjmp();
 		gtmpqFlush(thrinfo->thr_gtm_conn);
+		Disable_Longjmp();
 
 		/*
 		 * Read back the responses and put them on to the right backend
@@ -920,8 +1313,10 @@ GTMProxy_ThreadMain(void *argp)
 			 */
 			if (cmdinfo->ci_res_index == 0)
 			{
+				Enable_Longjmp();
 				if ((res = GTMPQgetResult(thrinfo->thr_gtm_conn)) == NULL)
 					elog(ERROR, "GTMPQgetResult failed");
+				Disable_Longjmp();
 			}
 
 			ProcessResponse(thrinfo, cmdinfo, res);
@@ -1055,9 +1450,15 @@ ProcessResponse(GTMProxy_ThreadInfo *thrinfo, GTMProxy_CommandInfo *cmdinfo,
 			if (res->gr_status == GTM_RESULT_OK)
 			{
 				if (res->gr_type != TXN_BEGIN_GETGXID_MULTI_RESULT)
+				{
+					ReleaseCmdBackup(cmdinfo);
 					elog(ERROR, "Wrong result");
+				}
 				if (cmdinfo->ci_res_index >= res->gr_resdata.grd_txn_get_multi.txn_count)
+				{
+					ReleaseCmdBackup(cmdinfo);
 					elog(ERROR, "Too few GXIDs");
+				}
 
 				gxid = res->gr_resdata.grd_txn_get_multi.start_gxid + cmdinfo->ci_res_index;
 
@@ -1083,18 +1484,25 @@ ProcessResponse(GTMProxy_ThreadInfo *thrinfo, GTMProxy_CommandInfo *cmdinfo,
 				pq_flush(cmdinfo->ci_conn->con_port);
 			}
 			cmdinfo->ci_conn->con_pending_msg = MSG_TYPE_INVALID;
+			ReleaseCmdBackup(cmdinfo);
 			break;
 
 		case MSG_TXN_COMMIT:
 			if (res->gr_type != TXN_COMMIT_MULTI_RESULT)
+			{
+				ReleaseCmdBackup(cmdinfo);
 				elog(ERROR, "Wrong result");
+			}
 			/*
 			 * These are grouped messages. We send an array of GXIDs to commit
 			 * or rollback and the server sends us back an array of status
 			 * codes.
 			 */
 			if (cmdinfo->ci_res_index >= res->gr_resdata.grd_txn_rc_multi.txn_count)
+			{
+				ReleaseCmdBackup(cmdinfo);
 				elog(ERROR, "Too few GXIDs");
+			}
 
 			if (res->gr_resdata.grd_txn_rc_multi.status[cmdinfo->ci_res_index] == STATUS_OK)
 			{
@@ -1105,20 +1513,30 @@ ProcessResponse(GTMProxy_ThreadInfo *thrinfo, GTMProxy_CommandInfo *cmdinfo,
 				pq_flush(cmdinfo->ci_conn->con_port);
 			}
 			else
+			{
+				ReleaseCmdBackup(cmdinfo);
 				ereport(ERROR2, (EINVAL, errmsg("Transaction commit failed")));
+			}
 			cmdinfo->ci_conn->con_pending_msg = MSG_TYPE_INVALID;
+			ReleaseCmdBackup(cmdinfo);
 			break;
 
 		case MSG_TXN_ROLLBACK:
 			if (res->gr_type != TXN_ROLLBACK_MULTI_RESULT)
+			{
+				ReleaseCmdBackup(cmdinfo);
 				elog(ERROR, "Wrong result");
+			}
 			/*
 			 * These are grouped messages. We send an array of GXIDs to commit
 			 * or rollback and the server sends us back an array of status
 			 * codes.
 			 */
 			if (cmdinfo->ci_res_index >= res->gr_resdata.grd_txn_rc_multi.txn_count)
+			{
+				ReleaseCmdBackup(cmdinfo);
 				elog(ERROR, "Too few GXIDs");
+			}
 
 			if (res->gr_resdata.grd_txn_rc_multi.status[cmdinfo->ci_res_index] == STATUS_OK)
 			{
@@ -1129,17 +1547,27 @@ ProcessResponse(GTMProxy_ThreadInfo *thrinfo, GTMProxy_CommandInfo *cmdinfo,
 				pq_flush(cmdinfo->ci_conn->con_port);
 			}
 			else
+			{
+				ReleaseCmdBackup(cmdinfo);
 				ereport(ERROR2, (EINVAL, errmsg("Transaction commit failed")));
+			}
 			cmdinfo->ci_conn->con_pending_msg = MSG_TYPE_INVALID;
+			ReleaseCmdBackup(cmdinfo);
 			break;
 
 		case MSG_SNAPSHOT_GET:
 			if ((res->gr_type != SNAPSHOT_GET_RESULT) &&
 				(res->gr_type != SNAPSHOT_GET_MULTI_RESULT))
+			{
+				ReleaseCmdBackup(cmdinfo);
 				elog(ERROR, "Wrong result");
+			}
 
 			if (cmdinfo->ci_res_index >= res->gr_resdata.grd_txn_snap_multi.txn_count)
+			{
+				ReleaseCmdBackup(cmdinfo);
 				elog(ERROR, "Too few GXIDs");
+			}
 
 			if (res->gr_resdata.grd_txn_snap_multi.status[cmdinfo->ci_res_index] == STATUS_OK)
 			{
@@ -1161,8 +1589,12 @@ ProcessResponse(GTMProxy_ThreadInfo *thrinfo, GTMProxy_CommandInfo *cmdinfo,
 				pq_flush(cmdinfo->ci_conn->con_port);
 			}
 			else
+			{
+				ReleaseCmdBackup(cmdinfo);
 				ereport(ERROR2, (EINVAL, errmsg("snapshot request failed")));
+			}
 			cmdinfo->ci_conn->con_pending_msg = MSG_TYPE_INVALID;
+			ReleaseCmdBackup(cmdinfo);
 			break;
 
 		case MSG_TXN_BEGIN:
@@ -1188,7 +1620,10 @@ ProcessResponse(GTMProxy_ThreadInfo *thrinfo, GTMProxy_CommandInfo *cmdinfo,
 			if ((res->gr_proxyhdr.ph_conid == InvalidGTMProxyConnID) ||
 				(res->gr_proxyhdr.ph_conid >= GTM_PROXY_MAX_CONNECTIONS) ||
 				(thrinfo->thr_all_conns[res->gr_proxyhdr.ph_conid] != cmdinfo->ci_conn))
+			{
+				ReleaseCmdBackup(cmdinfo);
 				elog(PANIC, "Invalid response or synchronization loss");
+			}
 
 			/*
 			 * These are just proxied messages.. so just forward the response
@@ -1216,9 +1651,11 @@ ProcessResponse(GTMProxy_ThreadInfo *thrinfo, GTMProxy_CommandInfo *cmdinfo,
 					break;
 			}
 			cmdinfo->ci_conn->con_pending_msg = MSG_TYPE_INVALID;
+			ReleaseCmdBackup(cmdinfo);
 			break;
 
 		default:
+			ReleaseCmdBackup(cmdinfo);
 			ereport(FATAL,
 					(EPROTO,
 					 errmsg("invalid frontend message type %d",
@@ -1237,11 +1674,32 @@ static int
 ReadCommand(GTMProxy_ConnectionInfo *conninfo, StringInfo inBuf)
 {
 	int 			qtype;
+	int				rv;
+	int				connIdx = conninfo->con_id;
+	int				anyBackup;
+	int				myLocalId;
 
+	myLocalId = GetMyThreadInfo->thr_localid;
+	anyBackup = (GetMyThreadInfo->thr_any_backup[connIdx] ? TRUE : FALSE);
+	
+	
 	/*
 	 * Get message type code from the frontend.
 	 */
-	qtype = pq_getbyte(conninfo->con_port);
+	if (!anyBackup)
+	{
+		qtype = pq_getbyte(conninfo->con_port);
+		GetMyThreadInfo->thr_qtype[connIdx] = qtype;
+		/*
+		 * We should not update thr_any_backup here.  This should be
+		 * updated when the backup is consumed or command processing
+		 * is done.
+		 */
+	}
+	else
+	{
+		qtype = GetMyThreadInfo->thr_qtype[connIdx];
+	}
 
 	if (qtype == EOF)			/* frontend disconnected */
 	{
@@ -1286,9 +1744,23 @@ ReadCommand(GTMProxy_ConnectionInfo *conninfo, StringInfo inBuf)
 	 * after the type code; we can read the message contents independently of
 	 * the type.
 	 */
-	if (pq_getmessage(conninfo->con_port, inBuf, 0))
-		return EOF;			/* suitable message already logged */
+	if (!anyBackup)
+	{
+		if (pq_getmessage(conninfo->con_port, inBuf, 0))
+			return EOF;			/* suitable message already logged */
 
+		copyStringInfo(&(GetMyThreadInfo->thr_inBufData[connIdx]), inBuf);
+
+		/* The next line should be added when we add the code to clear backup
+		 * when the response is processed. */
+#if 0
+		GetMyThreadInfo->thr_any_backup[connIdx] = TRUE;
+#endif
+	}
+	else
+	{
+		copyStringInfo(inBuf, &(GetMyThreadInfo->thr_inBufData[connIdx]));
+	}
 	return qtype;
 }
 
@@ -1343,6 +1815,7 @@ ProcessPGXCNodeCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 			len = pq_getmsgint(message, sizeof(GTM_StrLen));
 			pq_getmsgbytes(message, len);
 
+			/* Then the next is the port number */
 			memcpy(&cmd_data.cd_reg.port, pq_getmsgbytes(message, sizeof (GTM_PGXCNodePort)),
 				   sizeof (GTM_PGXCNodePort));
 			memcpy(&cmd_data.cd_reg.proxynum, pq_getmsgbytes(message, sizeof (GTM_PGXCNodeId)),
@@ -1575,8 +2048,10 @@ GTMProxy_ProxyCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 	thrinfo->thr_processed_commands = gtm_lappend(thrinfo->thr_processed_commands, cmdinfo);
 
 	/* Finish the message. */
+	Enable_Longjmp();
 	if (gtmpqPutMsgEnd(gtm_conn))
 		elog(ERROR, "Error finishing the message");
+	Disable_Longjmp();
 
 	return;
 }
@@ -1621,6 +2096,7 @@ static void GTMProxy_ProxyPGXCNodeCommand(GTMProxy_ConnectionInfo *conninfo,GTM_
 				gtmpqPutnchar(cmd_data.cd_reg.datafolder, strlen(cmd_data.cd_reg.datafolder), gtm_conn) ||
 				/* Node Status */
 				gtmpqPutInt(cmd_data.cd_reg.status, sizeof(GTM_PGXCNodeStatus), gtm_conn))
+
 				elog(ERROR, "Error proxing data");
 			break;
 
@@ -1841,8 +2317,10 @@ GTMProxy_ProcessPendingCommands(GTMProxy_ThreadInfo *thrinfo)
 				}
 
 				/* Finish the message. */
+				Enable_Longjmp();
 				if (gtmpqPutMsgEnd(gtm_conn))
 					elog(ERROR, "Error finishing the message");
+				Disable_Longjmp();
 
 				/*
 				 * Move the entire list to the processed command
@@ -1879,8 +2357,10 @@ GTMProxy_ProcessPendingCommands(GTMProxy_ThreadInfo *thrinfo)
 				}
 
 				/* Finish the message. */
+				Enable_Longjmp();
 				if (gtmpqPutMsgEnd(gtm_conn))
 					elog(ERROR, "Error finishing the message");
+				Disable_Longjmp();
 
 				/*
 				 * Move the entire list to the processed command
@@ -1919,8 +2399,10 @@ GTMProxy_ProcessPendingCommands(GTMProxy_ThreadInfo *thrinfo)
 				}
 
 				/* Finish the message. */
+				Enable_Longjmp();
 				if (gtmpqPutMsgEnd(gtm_conn))
 					elog(ERROR, "Error finishing the message");
+				Disable_Longjmp();
 
 
 				/*
@@ -1958,8 +2440,10 @@ GTMProxy_ProcessPendingCommands(GTMProxy_ThreadInfo *thrinfo)
 				}
 
 				/* Finish the message. */
+				Enable_Longjmp();
 				if (gtmpqPutMsgEnd(gtm_conn))
 					elog(ERROR, "Error finishing the message");
+				Disable_Longjmp();
 
 				/*
 				 * Move the entire list to the processed command
@@ -2047,9 +2531,9 @@ SetDataDir(void)
 	new = make_absolute_path(GTMProxyDataDir);
 	if (!new)
 		ereport(FATAL,
-			(errno,
-			 errmsg("failed to set the data directory \"%s\"",
-				GTMProxyDataDir)));
+				(errno,
+				 errmsg("failed to set the data directory \"%s\"",
+						GTMProxyDataDir)));
 
 	if (GTMProxyDataDir)
 		free(GTMProxyDataDir);
@@ -2360,15 +2844,39 @@ failed:
 
 /*
  * Register Proxy on GTM
+ *
+ * If reconnect is specified, then existing connection is closed
+ * and the target GTM is taken from NewGTMServerHost and 
+ * NewGTMServerPortNumber.
  */
 static void
-RegisterProxy(void)
+RegisterProxy(bool is_reconnect)
 {
 	GTM_PGXCNodeType type = PGXC_NODE_GTM_PROXY;
 	GTM_PGXCNodePort port = (GTM_PGXCNodePort) GTMProxyPortNumber;
 	GTM_Result *res = NULL;
 	GTM_PGXCNodeId proxynum = 0;
 	time_t finish_time;
+
+	MemoryContext old_mcxt;
+
+	if (is_reconnect)
+	{
+		elog(NOTICE,
+			 "Reconnect to new GTM, hostname=%s, port=%d",
+			 NewGTMServerHost, NewGTMServerPortNumber);
+		/*
+		 * Now reconnect.   Close the exising connection
+		 * and update the target host and port.
+		 * First, change the memory context to TopMemoryContext
+		 */
+		old_mcxt = MemoryContextSwitchTo(TopMemoryContext);
+
+		/* Change the target to new GTM */
+		GTMPQfinish(master_conn);
+		GTMServerHost = NewGTMServerHost;
+		GTMServerPortNumber = NewGTMServerPortNumber;
+	}
 
 	master_conn = ConnectGTM();
 	if (!master_conn)
@@ -2413,6 +2921,9 @@ RegisterProxy(void)
 		Assert(res->gr_resdata.grd_node.nodenum == GTMProxyID);
 	}
 
+	/* If reconnect, restore the old memory context */
+	if (is_reconnect)
+		MemoryContextSwitchTo(old_mcxt);
 	return;
 
 failed:
@@ -2442,4 +2953,47 @@ ConnectGTM(void)
 	}
 
 	return conn;
+}
+
+/*
+ * Release backup command data
+ */
+static void ReleaseCmdBackup(GTMProxy_CommandInfo *cmdinfo)
+{
+	GTMProxy_ConnID connIdx = cmdinfo->ci_conn->con_id;
+
+	GetMyThreadInfo->thr_any_backup[connIdx] = FALSE;
+	GetMyThreadInfo->thr_qtype[connIdx] = 0;
+	resetStringInfo(&(GetMyThreadInfo->thr_inBufData[connIdx]));
+}
+
+static void
+workerThreadReconnectToGTMstandby(void)
+{
+	char gtm_connect_string[1024];
+
+	/*
+	 * First of all, we should acquire reconnect control lock in READ mode
+	 * to wait for the main thread to finish reconnect.
+	 */
+	GTM_RWLockAcquire(&ReconnectControlLock, GTM_LOCKMODE_READ);
+	GTM_RWLockRelease(&ReconnectControlLock);	/* The lock not needed any longer */
+	PG_SETMASK(&UnBlockSig);
+
+	/* Disconnect the current connection and re-connect to the new GTM */
+	GTMPQfinish(GetMyThreadInfo->thr_gtm_conn);
+	sprintf(gtm_connect_string, "host=%s port=%d pgxc_node_id=%d remote_type=%d",
+			NewGTMServerHost, NewGTMServerPortNumber, GTMProxyID, PGXC_NODE_GTM_PROXY);
+	GetMyThreadInfo->thr_gtm_conn = PQconnectGTM(gtm_connect_string);
+
+	if (GetMyThreadInfo->thr_gtm_conn == NULL)
+		elog(FATAL, "GTM connection failed.");
+
+	/* Set GTM communication error handling option */
+	GetMyThreadInfo->thr_gtm_conn->gtmErrorWaitOpt = GTMErrorWaitOpt;
+	GetMyThreadInfo->thr_gtm_conn->gtmErrorWaitSecs = GTMErrorWaitSecs;
+	GetMyThreadInfo->thr_gtm_conn->gtmErrorWaitCount = GTMErrorWaitCount;
+
+	/* Initialize the command processing */
+	GetMyThreadInfo->reconnect_issued = FALSE;
 }

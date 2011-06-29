@@ -44,7 +44,8 @@ typedef enum
 	STOP_COMMAND,
 	PROMOTE_COMMAND,
 	RESTART_COMMAND,
-	STATUS_COMMAND
+	STATUS_COMMAND,
+	RECONNECT_COMMAND	/* gtm_ctl -S gtm_proxy reconnect */
 } CtlCommand;
 
 #define DEFAULT_WAIT	60
@@ -64,6 +65,8 @@ static char *log_file = NULL;
 static char *gtm_path = NULL;
 static char *gtm_app = NULL;
 static char *argv0 = NULL;
+static char *reconnect_host = NULL;
+static char *reconnect_port = NULL;
 
 static void
 write_stderr(const char *fmt,...)
@@ -78,6 +81,7 @@ static void set_mode(char *modeopt);
 static void do_start(void);
 static void do_stop(void);
 static void do_restart(void);
+static void do_reconnect(void);
 static void print_msg(const char *msg);
 
 static pgpid_t get_pgpid(void);
@@ -571,6 +575,92 @@ do_promote(void)
 	}
 }
 
+/*
+ * At least we expect the following argument
+ *
+ * 1) -D datadir
+ * 2) -o options: we expect that -t and -s options are specified here.
+ *		Check will be done in GTM-Proxy. If there's an error, it will be
+ *		logged. In this case, GTM-Proxy won't terminate. It will continue
+ *		to read/write with old GTM.
+ *
+ * Because they are not passed to gtm directly, they should appear in
+ * gtm_ctl argument, not in -o options.  They're specific to gtm_ctl
+ * reconnect.
+ */
+static void
+do_reconnect(void)
+{
+	pgpid_t	pid;
+	char *reconnect_point_file_nam;
+	FILE *reconnect_point_file;
+
+#ifdef GTM_SBY_DEBUG
+	write_stderr("Reconnecting to new GTM ... DEBUG MODE.");
+#endif
+
+	/*
+	 * Target must be "gtm_proxy"
+	 */
+	if (strcmp(gtm_app, "gtm_proxy") != 0)
+	{
+		write_stderr(_("%s: only gtm_proxy can accept reconnect command\n"), progname);
+		exit(1);
+	}
+	pid = get_pgpid();
+
+	if (pid == 0)				/* no pid file */
+	{
+		write_stderr(_("%s: PID file \"%s\" does not exist\n"), progname, pid_file);
+		write_stderr(_("Is server running?\n"));
+		exit(1);
+	}
+	else if (pid < 0)			/* standalone backend, not gtm */
+	{
+		pid = -pid;
+		write_stderr(_("%s: cannot promote server; "
+					   "single-user server is running (PID: %ld)\n"),
+					 progname, pid);
+		exit(1);
+	}
+	read_gtm_opts();
+	/*
+	 * Pass reconnect info to GTM-Proxy.
+	 *
+	 * Option arguments are written to new gtm file under -D directory.
+	 */
+	reconnect_point_file_nam = malloc(strlen(gtm_data) + 9);
+	if (reconnect_point_file_nam == NULL)
+	{
+		write_stderr(_("%s: No memory available.\n"), progname);
+		exit(1);
+	}
+
+	snprintf(reconnect_point_file_nam, strlen(gtm_data) + 8, "%s/newgtm", gtm_data);
+	reconnect_point_file = fopen(reconnect_point_file_nam, "w");
+
+	if (reconnect_point_file == NULL)
+	{
+		write_stderr(_("%s: Cannot open reconnect point file %s\n"), progname, reconnect_point_file_nam);
+		exit(1);
+	}
+
+	fprintf(reconnect_point_file, "%s\n", gtm_opts);
+	fclose(reconnect_point_file);
+	free(reconnect_point_file_nam);
+#if 0 /* GTM_SBY_DEBUG */
+	write_stderr("Now about to send SIGUSR1 to pid %ld.\n", pid);
+	write_stderr("Returning.  This is the debug. Don't send signal actually.\n");
+	return;
+#endif
+	if (kill((pid_t) pid, SIGUSR1) != 0)
+	{
+		write_stderr(_("%s: could not send promote signal (PID: %ld): %s\n"), progname, pid,
+					 strerror(errno));
+		exit(1);
+	}
+}
+	
 
 /*
  *	restart/reload routines
@@ -790,6 +880,7 @@ do_help(void)
 	printf(_("  %s restart -S STARTUP_MODE [-w] [-t SECS] [-D DATADIR] [-m SHUTDOWN-MODE]\n"
 		 "                 [-o \"OPTIONS\"]\n"), progname);
 	printf(_("  %s status  -S STARTUP_MODE [-w] [-t SECS] [-D DATADIR]\n"), progname);
+	printf(_("  %s reconnect  [-D DATADIR] -o \"OPTIONS\"]\n"), progname);
 
 	printf(_("\nCommon options:\n"));
 	printf(_("  -D DATADIR             location of the database storage area\n"));
@@ -809,6 +900,10 @@ do_help(void)
 	printf(_("  -p PATH-TO-GTM/PROXY   path to gtm/gtm_proxy executables\n"));
 	printf(_("\nOptions for stop or restart:\n"));
 	printf(_("  -m SHUTDOWN-MODE   can be \"smart\", \"fast\", or \"immediate\"\n"));
+
+	printf(_("\nOptions for reconnect:\n"));
+	printf(_("  -t NewGTMPORT          Port number of new GTM.\n"));
+	printf(_("  -s NewGTMHost          Host Name of new GTM.\n"));
 
 	printf(_("\nShutdown modes are:\n"));
 	printf(_("  smart       quit after all clients have disconnected\n"));
@@ -985,6 +1080,8 @@ main(int argc, char **argv)
 				ctl_command = RESTART_COMMAND;
 			else if (strcmp(argv[optind], "status") == 0)
 				ctl_command = STATUS_COMMAND;
+			else if (strcmp(argv[optind], "reconnect") == 0)
+				ctl_command = RECONNECT_COMMAND;
 			else
 			{
 				write_stderr(_("%s: unrecognized operation mode \"%s\"\n"), 
@@ -1135,6 +1232,9 @@ main(int argc, char **argv)
 			break;
 		case STATUS_COMMAND:
 			do_status();
+			break;
+		case RECONNECT_COMMAND:
+			do_reconnect();
 			break;
 		default:
 			break;

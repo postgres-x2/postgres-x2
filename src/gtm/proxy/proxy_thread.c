@@ -27,6 +27,9 @@ GTMProxy_Threads *GTMProxyThreads = &GTMProxyThreadsData;
 #define GTM_PROXY_MAX_THREADS 1024		/* Max threads allowed in the GTMProxy */
 #define GTMProxyThreadsFull	(GTMProxyThreads->gt_thread_count == GTMProxyThreads->gt_array_size)	
 
+extern int GTMProxyWorkerThreads;
+extern GTMProxy_ThreadInfo **Proxy_ThreadInfo;
+
 /*
  * Add the given thrinfo structure to the global array, expanding it if
  * necessary
@@ -126,7 +129,7 @@ GTMProxy_ThreadRemove(GTMProxy_ThreadInfo *thrinfo)
  * "startroutine". The thread information is returned to the calling process.
  */
 GTMProxy_ThreadInfo *
-GTMProxy_ThreadCreate(void *(* startroutine)(void *))
+GTMProxy_ThreadCreate(void *(* startroutine)(void *), int idx)
 {
 	GTMProxy_ThreadInfo *thrinfo;
 	int err;
@@ -140,6 +143,11 @@ GTMProxy_ThreadCreate(void *(* startroutine)(void *))
 
 	GTM_MutexLockInit(&thrinfo->thr_lock);
 	GTM_CVInit(&thrinfo->thr_cv);
+
+	/*
+	 * Initialize communication area with SIGUSR2 signal handler (reconnect)
+	 */
+	Proxy_ThreadInfo[idx] = thrinfo;
 
 	/*
 	 * The thread status is set to GTM_PROXY_THREAD_STARTING and will be changed by
@@ -416,6 +424,13 @@ GTMProxy_ThreadRemoveConnection(GTMProxy_ThreadInfo *thrinfo, GTMProxy_Connectio
 		GTM_MutexLockRelease(&thrinfo->thr_lock);
 		elog(ERROR, "No such connection");
 	}
+
+	/*
+	 * Reset command backup info
+	 */
+	thrinfo->thr_any_backup[ii] = FALSE;
+	thrinfo->thr_qtype[ii] = 0;
+	resetStringInfo(&(thrinfo->thr_inBufData[ii]));
 
 	/*
 	 * If this is the last entry in the array ? If not, then copy the last
