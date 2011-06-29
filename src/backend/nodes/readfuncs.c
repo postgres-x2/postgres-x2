@@ -468,6 +468,7 @@ _readAggref(void)
 	READ_OID_FIELD(aggtype);
 #ifdef PGXC
 	READ_OID_FIELD(aggtrantype);
+	READ_BOOL_FIELD(agghas_collectfn);
 #endif /* PGXC */
 	READ_NODE_FIELD(args);
 	READ_NODE_FIELD(aggorder);

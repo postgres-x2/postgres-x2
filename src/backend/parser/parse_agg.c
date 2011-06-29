@@ -204,7 +204,7 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 			 agg->aggfnoid);
 	aggform = (Form_pg_aggregate) GETSTRUCT(aggTuple);
 	agg->aggtrantype = aggform->aggtranstype;
-	agg->has_collectfn = OidIsValid(aggform->aggcollectfn);
+	agg->agghas_collectfn = OidIsValid(aggform->aggcollectfn);
 	if (IS_PGXC_DATANODE)
 		agg->aggtype = agg->aggtrantype;
 

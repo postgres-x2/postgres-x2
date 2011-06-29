@@ -185,6 +185,7 @@ _equalAggref(Aggref *a, Aggref *b)
 	COMPARE_SCALAR_FIELD(aggtype);
 #ifdef PGXC
 	COMPARE_SCALAR_FIELD(aggtrantype);
+	COMPARE_SCALAR_FIELD(agghas_collectfn);
 #endif /* PGXC */
 	COMPARE_NODE_FIELD(args);
 	COMPARE_NODE_FIELD(aggorder);

@@ -59,8 +59,6 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 	char	   *initval = NULL;
 #ifdef PGXC
 	List	   *collectfuncName = NIL;
-	TypeName   *collectType = NULL;
-	Oid			collectTypeId;
 	char	   *initcollect = NULL;
 #endif
 	Oid		   *aggArgTypes;
@@ -106,8 +104,6 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 #ifdef PGXC
 		else if (pg_strcasecmp(defel->defname, "cfunc") == 0)
 			collectfuncName = defGetQualifiedName(defel);
-		else if (pg_strcasecmp(defel->defname, "ctype") == 0)
-			collectType = defGetTypeName(defel);
 		else if (pg_strcasecmp(defel->defname, "initcollect") == 0)
 			initcollect = defGetString(defel);
 #endif
@@ -130,21 +126,6 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 				 errmsg("aggregate sfunc must be specified")));
 
-#ifdef PGXC
-	if (collectType == NULL)
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-				 errmsg("aggregate ctype must be specified")));
-	if (collectfuncName == NIL)
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-				 errmsg("aggregate cfunc must be specified")));
-	if (collectType != transType)
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-				 errmsg("aggregate ctype should be same as aggregate stype")));
-
-#endif
 	/*
 	 * look up the aggregate's input datatype(s).
 	 */
@@ -221,21 +202,6 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 							format_type_be(transTypeId))));
 	}
 
-#ifdef PGXC
-	collectTypeId = typenameTypeId(NULL, collectType, NULL);
-	if (get_typtype(collectTypeId) == TYPTYPE_PSEUDO &&
-		!IsPolymorphicType(collectTypeId))
-	{
-		if (collectTypeId == INTERNALOID && superuser())
-			 /* okay */ ;
-		else
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-					 errmsg("aggregate transition data type cannot be %s",
-							format_type_be(collectTypeId))));
-	}
-
-#endif
 	/*
 	 * Most of the argument-checking is done inside of AggregateCreate
 	 */

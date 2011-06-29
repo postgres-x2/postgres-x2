@@ -67,7 +67,7 @@ AggregateCreate(const char *aggName,
 	Form_pg_proc proc;
 	Oid			transfn;
 #ifdef PGXC
-	Oid			collectfn;
+	Oid			collectfn = InvalidOid;	/* can be omitted */
 #endif
 	Oid			finalfn = InvalidOid;	/* can be omitted */
 	Oid			sortop = InvalidOid;	/* can be omitted */
@@ -91,8 +91,6 @@ AggregateCreate(const char *aggName,
 		elog(ERROR, "aggregate must have a transition function");
 
 #ifdef PGXC
-	if (!aggcollectfnName)
-		elog(ERROR, "aggregate must have a collection function");
 
 	if (aggTransType == INTERNALOID)
 		ereport(ERROR,
@@ -173,20 +171,23 @@ AggregateCreate(const char *aggName,
 	ReleaseSysCache(tup);
 
 #ifdef PGXC
-	/*
-	 * Collection function must be of two arguments, both of type aggTransType
-	 * and return type is also aggTransType
-	 */
-	fnArgs[0] = aggTransType;
-	fnArgs[1] = aggTransType;
-	collectfn = lookup_agg_function(aggcollectfnName, 2, fnArgs,
-									  &rettype);
-	if (rettype != aggTransType)
-		ereport(ERROR,
-				(errcode(ERRCODE_DATATYPE_MISMATCH),
-				 errmsg("return type of collection function %s is not %s",
-						NameListToString(aggcollectfnName),
-						format_type_be(aggTransType))));
+	if (aggcollectfnName)
+	{
+		/*
+		 * Collection function must be of two arguments, both of type aggTransType
+		 * and return type is also aggTransType
+		 */
+		fnArgs[0] = aggTransType;
+		fnArgs[1] = aggTransType;
+		collectfn = lookup_agg_function(aggcollectfnName, 2, fnArgs,
+										  &rettype);
+		if (rettype != aggTransType)
+			ereport(ERROR,
+					(errcode(ERRCODE_DATATYPE_MISMATCH),
+					 errmsg("return type of collection function %s is not %s",
+							NameListToString(aggcollectfnName),
+							format_type_be(aggTransType))));
+	}
 
 #endif
 	/* handle finalfn, if supplied */
@@ -329,11 +330,14 @@ AggregateCreate(const char *aggName,
 	recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 
 #ifdef PGXC
-	/* Depends on collection function */
-	referenced.classId = ProcedureRelationId;
-	referenced.objectId = collectfn;
-	referenced.objectSubId = 0;
-	recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
+	if (OidIsValid(collectfn))
+	{
+		/* Depends on collection function */
+		referenced.classId = ProcedureRelationId;
+		referenced.objectId = collectfn;
+		referenced.objectSubId = 0;
+		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
+	}
 
 #endif
 	/* Depends on final function, if any */

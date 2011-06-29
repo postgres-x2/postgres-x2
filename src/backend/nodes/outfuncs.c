@@ -873,6 +873,7 @@ _outAggref(StringInfo str, Aggref *node)
 	WRITE_OID_FIELD(aggtype);
 #ifdef PGXC
 	WRITE_OID_FIELD(aggtrantype);
+	WRITE_BOOL_FIELD(agghas_collectfn);
 #endif /* PGXC */
 	WRITE_NODE_FIELD(args);
 	WRITE_NODE_FIELD(aggorder);

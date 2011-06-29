@@ -5481,7 +5481,7 @@ pgxc_process_grouping_targetlist(PlannerInfo *root, List **local_tlist)
 			if (aggref->aggorder ||
 				aggref->aggdistinct ||
 				aggref->agglevelsup ||
-				!aggref->has_collectfn ||
+				!aggref->agghas_collectfn ||
 				IsPolymorphicType(aggref->aggtrantype))
 			{
 				shippable_remote_tlist = false;

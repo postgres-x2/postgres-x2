@@ -1137,6 +1137,7 @@ _copyAggref(Aggref *from)
 	COPY_SCALAR_FIELD(aggtype);
 #ifdef PGXC
 	COPY_SCALAR_FIELD(aggtrantype);
+	COPY_SCALAR_FIELD(agghas_collectfn);
 #endif /* PGXC */
 	COPY_NODE_FIELD(args);
 	COPY_NODE_FIELD(aggorder);
