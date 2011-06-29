@@ -65,6 +65,8 @@
  *------------------------
  */
 
+#include "pg_config.h"
+
 #include <signal.h>
 #include <fcntl.h>
 #include <grp.h>
@@ -73,6 +75,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <sys/types.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #ifdef HAVE_NETINET_TCP_H
@@ -344,7 +347,7 @@ StreamConnection(int server_fd, Port *port)
 	port->raddr.salen = sizeof(port->raddr.addr);
 	if ((port->sock = accept(server_fd,
 							 (struct sockaddr *) & port->raddr.addr,
-							 &port->raddr.salen)) < 0)
+							 (socklen_t *)&port->raddr.salen)) < 0)
 	{
 		ereport(LOG,
 				(EACCES,
@@ -375,7 +378,7 @@ StreamConnection(int server_fd, Port *port)
 	port->laddr.salen = sizeof(port->laddr.addr);
 	if (getsockname(port->sock,
 					(struct sockaddr *) & port->laddr.addr,
-					&port->laddr.salen) < 0)
+					(socklen_t *)&port->laddr.salen) < 0)
 	{
 		elog(LOG, "getsockname() failed: %m");
 		return STATUS_ERROR;
@@ -597,6 +600,7 @@ pq_getbytes(Port *myport, char *s, size_t len)
 	return 0;
 }
 
+#ifdef NOT_USED
 /* --------------------------------
  *		pq_discardbytes		- throw away a known number of bytes
  *
@@ -626,6 +630,7 @@ pq_discardbytes(Port *myport, size_t len)
 	}
 	return 0;
 }
+#endif /* NOT_USED */
 
 /* --------------------------------
  *		pq_getstring	- get a null terminated string from connection

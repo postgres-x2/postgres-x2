@@ -25,17 +25,22 @@
 #include <stdio.h>
 
 #include "gtm/gtm_c.h"
-#include "gtm/gtm.h"
 #include "gtm/path.h"
+#include "gtm/gtm.h"
 #include "gtm/elog.h"
 #include "gtm/memutils.h"
 #include "gtm/gtm_list.h"
+#include "gtm/gtm_seq.h"
+#include "gtm/standby_utils.h"
+#include "gtm/gtm_standby.h"
 #include "gtm/libpq.h"
+#include "gtm/libpq-fe.h"
 #include "gtm/libpq-be.h"
 #include "gtm/pqsignal.h"
 #include "gtm/pqformat.h"
 #include "gtm/assert.h"
 #include "gtm/register.h"
+#include "gtm/replication.h"
 #include "gtm/gtm_txn.h"
 #include "gtm/gtm_seq.h"
 #include "gtm/gtm_msg.h"
@@ -69,7 +74,7 @@ static Port *ConnCreate(int serverFd);
 static int ServerLoop(void);
 static int initMasks(fd_set *rmask);
 void *GTM_ThreadMain(void *argp);
-static int GTMAddConnection(Port *port);
+static int GTMAddConnection(Port *port, GTM_Conn *standby);
 static int ReadCommand(Port *myport, StringInfo inBuf);
 
 static void ProcessCommand(Port *myport, StringInfo input_message);
@@ -80,7 +85,6 @@ static void ProcessSequenceCommand(Port *myport, GTM_MessageType mtype, StringIn
 static void ProcessQueryCommand(Port *myport, GTM_MessageType mtype, StringInfo message);
 
 static void GTM_RegisterPGXCNode(Port *myport, GTM_PGXCNodeId pgxc_node_id);
-static void GTM_UnregisterPGXCNode(Port *myport, GTM_PGXCNodeId pgxc_node_id);
 
 static bool CreateOptsFile(int argc, char *argv[]);
 static void CreateDataDirLockFile(void);
@@ -89,6 +93,7 @@ static void SetDataDir(void);
 static void ChangeToDataDir(void);
 static void checkDataDir(void);
 static void DeleteLockFile(const char *filename);
+static void PromoteToActive(void);
 
 /*
  * One-time initialization. It's called immediately after the main process
@@ -190,6 +195,10 @@ GTM_SigleHandler(int signal)
 		case SIGHUP:
 			break;
 
+		case SIGUSR1:
+			PromoteToActive();
+			return;
+
 		default:
 			fprintf(stderr, "Unknown signal %d\n", signal);
 			return;
@@ -220,12 +229,27 @@ help(const char *progname)
 	printf(_("This is the GTM server.\n\n"));
 	printf(_("Usage:\n  %s [OPTION]...\n\n"), progname);
 	printf(_("Options:\n"));
-	printf(_("  -h hostname     GTM server hostname/IP\n"));
-	printf(_("  -p port			GTM server port number\n"));
-	printf(_("  -x xid			Starting GXID \n"));
-	printf(_("  -D directory	GTM working directory\n"));
-	printf(_("  -l filename		GTM server log file name \n"));
+	printf(_("  -h hostname     GTM server hostname/IP to listen.\n"));
+	printf(_("  -p port         GTM server port number to listen.\n"));
+	printf(_("  -n nodenum      Node number for GTM server.\n"));
+	printf(_("  -x xid          Starting GXID \n"));
+	printf(_("  -D directory    GTM working directory\n"));
+	printf(_("  -l filename     GTM server log file name \n"));
+	printf(_("  -c              show server status, then exit\n"));
 	printf(_("  --help          show this help, then exit\n"));
+	printf(_("\n"));
+	printf(_("Options for Standby mode:\n"));
+	printf(_("  -s              Start as a GTM standby server.\n"));
+	printf(_("  -i hostname     Active GTM server hostname/IP to connect.\n"));
+	printf(_("  -q port         Active GTM server port number to connect.\n"));
+	printf(_("\n"));
+}
+
+static void
+gtm_status()
+{
+	fprintf(stderr, "gtm_status(): must be implemented to scan the shmem.\n");
+	exit(0);
 }
 
 int
@@ -236,6 +260,9 @@ main(int argc, char *argv[])
 	int			i;
 	GlobalTransactionId next_gxid = InvalidGlobalTransactionId;
 	int			ctlfd;
+	char *active_addr;
+	int active_port;
+	GTM_PGXCNodeId node_num = 1001;
 
 	/*
 	 * Catch standard options before doing much else
@@ -255,12 +282,20 @@ main(int argc, char *argv[])
 	/*
 	 * Parse the command like options and set variables
 	 */
-	while ((opt = getopt(argc, argv, "h:p:x:D:l:")) != -1)
+	while ((opt = getopt(argc, argv, "ch:n:p:x:D:l:si:q:")) != -1)
 	{
 		switch (opt)
 		{
+			case 'c':
+				gtm_status();
+				break; /* never reach here. */
+
 			case 'h':
 				ListenAddresses = strdup(optarg);
+				break;
+
+			case 'n':
+				node_num = atoi(optarg);
 				break;
 
 			case 'p':
@@ -268,7 +303,7 @@ main(int argc, char *argv[])
 				break;
 
 			case 'x':
-				next_gxid = (GlobalTransactionId )atoll(optarg);
+				next_gxid = (GlobalTransactionId)atoll(optarg);
 				break;
 
 			case 'D':
@@ -280,10 +315,35 @@ main(int argc, char *argv[])
 				GTMLogFile = strdup(optarg);
 				break;
 
+			case 's':
+				Recovery_StandbySetStandby(true);
+				break;
+
+			case 'i':
+				active_addr = strdup(optarg);
+				break;
+
+			case 'q':
+				active_port = atoi(optarg);
+				break;
+				
 			default:
 				write_stderr("Try \"%s --help\" for more information.\n",
 							 progname);
 		}
+	}
+
+	/*
+	 * Check options for the standby mode.
+	 */
+	if (Recovery_IsStandby())
+	{
+		if (active_addr == NULL || active_port < 1)
+		{
+			help(argv[0]);
+			exit(1);
+		}
+		Recovery_StandbySetConnInfo(active_addr, active_port);
 	}
 
 	if (GTMDataDir == NULL)
@@ -311,21 +371,80 @@ main(int argc, char *argv[])
 	 */
 	BaseInit();
 
+	/*
+	 * Establish a connection between the active and standby.
+	 */
+	if (Recovery_IsStandby())
+	{
+		if (!gtm_standby_start_startup())
+		{
+			elog(ERROR, "Failed to establish a connection to active-GTM.");
+			exit(1);
+		}
+		elog(LOG, "Startup connection established with active-GTM.");
+	}
+
 	elog(DEBUG3, "Starting GTM server at (%s:%d) -- control file %s", ListenAddresses, GTMPortNumber, GTMControlFile);
 
 	/*
 	 * Read the last GXID and start from there
 	 */
+	if (Recovery_IsStandby())
+	{
+		if (!gtm_standby_restore_next_gxid())
+		{
+			elog(ERROR, "Failed to restore next/last gxid from the active-GTM.");
+			exit(1);
+		}
+		elog(LOG, "Restoring next/last gxid from the active-GTM succeeded.");
 
-	ctlfd = open(GTMControlFile, O_RDONLY);
+		if (!gtm_standby_restore_gxid())
+		{
+			elog(ERROR, "Failed to restore all of gxid(s) from the active-GTM.");
+			exit(1);
+		}
+		elog(LOG, "Restoring all of gxid(s) from the active-GTM succeeded.");
 
-	GTM_RestoreTxnInfo(ctlfd, next_gxid);
-	GTM_RestoreSeqInfo(ctlfd);
+		if (!gtm_standby_restore_sequence())
+		{
+			elog(ERROR, "Failed to restore sequences from the active-GTM.");
+			exit(1);
+		}
+		elog(LOG, "Restoring sequences from the active-GTM succeeded.");
+	}
+	else
+	{
+		ctlfd = open(GTMControlFile, O_RDONLY);
+		GTM_RestoreTxnInfo(ctlfd, next_gxid);
+		GTM_RestoreSeqInfo(ctlfd);
+		close(ctlfd);
+	}
 
-	close(ctlfd);
+	if (Recovery_IsStandby())
+	{
+			if (!gtm_standby_register_self(node_num, GTMPortNumber, GTMDataDir))
+		{
+			elog(ERROR, "Failed to register myself on the active-GTM as a GTM node.");
+			exit(1);
+		}
+		elog(LOG, "Registering myself to the active-GTM as a GTM node succeeded.");
+	}
 
 	/* Recover Data of Registered nodes. */
-	Recovery_RestoreRegisterInfo();
+	if (Recovery_IsStandby())
+	{
+		if (!gtm_standby_restore_node())
+		{
+			elog(ERROR, "Failed to restore node information from the active-GTM.");
+			exit(1);
+		}
+		elog(LOG, "Restoring node information from the active-GTM succeeded.");
+	}
+	else
+	{
+		/* Recover Data of Registered nodes. */
+		Recovery_RestoreRegisterInfo();
+	}
 
 	/*
 	 * Establish input sockets.
@@ -367,8 +486,28 @@ main(int argc, char *argv[])
 	pqsignal(SIGQUIT, GTM_SigleHandler);
 	pqsignal(SIGTERM, GTM_SigleHandler);
 	pqsignal(SIGINT, GTM_SigleHandler);
+	pqsignal(SIGUSR1, GTM_SigleHandler);
 
 	pqinitmask();
+	
+	/*
+	 * Now, activating a standby GTM...
+	 */
+	if (Recovery_IsStandby())
+	{
+		if (!gtm_standby_activate_self())
+		{
+			elog(ERROR, "Failed to update the standby-GTM status as \"CONNECTED\".");
+			exit(1);
+		}
+		elog(LOG, "Updating the standby-GTM status as \"CONNECTED\" succeeded.");
+		if (!gtm_standby_finish_startup())
+		{
+			elog(ERROR, "Failed to close the initial connection to the active-GTM.");
+			exit(1);
+		}
+		elog(LOG, "Startup connection with the active-GTM closed.");
+	}
 
 	/*
 	 * Accept any new connections. Fork a new thread for each incoming
@@ -528,18 +667,27 @@ ServerLoop(void)
 					port = ConnCreate(ListenSocket[i]);
 					if (port)
 					{
-						if (GTMAddConnection(port) != STATUS_OK)
+						GTM_Conn *standby = NULL;
+
+						standby = gtm_standby_connect_to_standby();
+
+						if (GTMAddConnection(port, standby) != STATUS_OK)
 						{
 							elog(ERROR, "Too many connections");
+
+							gtm_standby_disconnect_from_standby(standby);
+
 							StreamClose(port->sock);
 							ConnFree(port);
 						}
+
 					}
 				}
 			}
 		}
 	}
 }
+
 
 /*
  * Initialise the masks for select() for the ports we are listening on.
@@ -791,9 +939,12 @@ ProcessCommand(Port *myport, StringInfo input_message)
 	{
 		case MSG_NODE_REGISTER:
 		case MSG_NODE_UNREGISTER:
+		case MSG_NODE_LIST:
 			ProcessPGXCNodeCommand(myport, mtype, input_message);
 			break;
 
+		case MSG_NODE_BEGIN_REPLICATION_INIT:
+		case MSG_NODE_END_REPLICATION_INIT:
 		case MSG_TXN_BEGIN:
 		case MSG_TXN_BEGIN_GETGXID:
 		case MSG_TXN_BEGIN_GETGXID_AUTOVACUUM:
@@ -807,6 +958,8 @@ ProcessCommand(Port *myport, StringInfo input_message)
 		case MSG_TXN_COMMIT_MULTI:
 		case MSG_TXN_ROLLBACK_MULTI:
 		case MSG_TXN_GET_GID_DATA:
+		case MSG_TXN_GET_NEXT_GXID:
+		case MSG_TXN_GXID_LIST:
 			ProcessTransactionCommand(myport, mtype, input_message);
 			break;
 
@@ -825,6 +978,7 @@ ProcessCommand(Port *myport, StringInfo input_message)
 		case MSG_SEQUENCE_CLOSE:
 		case MSG_SEQUENCE_RENAME:
 		case MSG_SEQUENCE_ALTER:
+		case MSG_SEQUENCE_LIST:
 			ProcessSequenceCommand(myport, mtype, input_message);
 			break;
 
@@ -849,11 +1003,12 @@ ProcessCommand(Port *myport, StringInfo input_message)
 }
 
 static int
-GTMAddConnection(Port *port)
+GTMAddConnection(Port *port, GTM_Conn *standby)
 {
 	GTM_ConnectionInfo *conninfo = NULL;
 
 	conninfo = (GTM_ConnectionInfo *)palloc(sizeof (GTM_ConnectionInfo));
+	memset(conninfo, 0, sizeof(GTM_ConnectionInfo));
 
 	if (conninfo == NULL)
 	{
@@ -865,6 +1020,12 @@ GTMAddConnection(Port *port)
 		
 	elog(DEBUG3, "Started new connection");
 	conninfo->con_port = port;
+
+	/*
+	 * Add a connection to the standby.
+	 */
+	if (standby != NULL)
+		conninfo->standby = standby;
 
 	/*
 	 * XXX Start the thread
@@ -960,6 +1121,10 @@ ProcessPGXCNodeCommand(Port *myport, GTM_MessageType mtype, StringInfo message)
 			ProcessPGXCNodeUnregister(myport, message);
 			break;
 
+		case MSG_NODE_LIST:
+			ProcessPGXCNodeList(myport, message);
+			break;
+
 		default:
 			Assert(0);			/* Shouldn't come here.. keep compiler quite */
 	}
@@ -972,6 +1137,14 @@ ProcessTransactionCommand(Port *myport, GTM_MessageType mtype, StringInfo messag
 
 	switch (mtype)
 	{
+		case MSG_NODE_BEGIN_REPLICATION_INIT:
+			ProcessBeginReplicationInitialSyncRequest(myport, message);
+			break;
+
+		case MSG_NODE_END_REPLICATION_INIT:
+			ProcessEndReplicationInitialSyncRequest(myport, message);
+			break;
+
 		case MSG_TXN_BEGIN:
 			ProcessBeginTransactionCommand(myport, message);
 			break;
@@ -1022,6 +1195,15 @@ ProcessTransactionCommand(Port *myport, GTM_MessageType mtype, StringInfo messag
 
 		case MSG_TXN_GET_GID_DATA:
 			ProcessGetGIDDataTransactionCommand(myport, message);
+			break;
+
+		case MSG_TXN_GET_NEXT_GXID:
+			ProcessGetNextGXIDTransactionCommand(myport, message);
+			break;
+
+		case MSG_TXN_GXID_LIST:
+			ProcessGXIDListCommand(myport, message);
+			break;
 
 		default:
 			Assert(0);			/* Shouldn't come here.. keep compiler quite */
@@ -1088,6 +1270,10 @@ ProcessSequenceCommand(Port *myport, GTM_MessageType mtype, StringInfo message)
 			ProcessSequenceRenameCommand(myport, message);
 			break;
 
+		case MSG_SEQUENCE_LIST:
+			ProcessSequenceListCommand(myport, message);
+			break;
+
 		default:
 			Assert(0);			/* Shouldn't come here.. keep compiler quite */
 	}
@@ -1114,16 +1300,6 @@ GTM_RegisterPGXCNode(Port *myport, GTM_PGXCNodeId cid)
 {
 	elog(DEBUG3, "Registering coordinator with cid %d", cid);
 	myport->pgxc_node_id = cid;
-}
-
-
-static void
-GTM_UnregisterPGXCNode(Port *myport, GTM_PGXCNodeId cid)
-{
-	/*
-	 * Do a clean shutdown
-	 */
-	return;
 }
 
 /*
@@ -1196,10 +1372,10 @@ SetDataDir()
 	new = make_absolute_path(GTMDataDir);
 	if (!new)
 		ereport(FATAL,
-			(errno,
-			 errmsg("failed to set the data directory \"%s\"",
-				GTMDataDir)));
-	
+				(errno,
+				 errmsg("failed to set the data directory \"%s\"",
+						GTMDataDir)));
+
 	if (GTMDataDir)
 		free(GTMDataDir);
 
@@ -1382,8 +1558,8 @@ CreateLockFile(const char *filename, const char *refName)
 	/*
 	 * Successfully created the file, now fill it.
 	 */
-	snprintf(buffer, sizeof(buffer), "%d\n%s\n",
-			 (int) my_pid, GTMDataDir);
+	snprintf(buffer, sizeof(buffer), "%d\n%s\n%d\n",
+			 (int) my_pid, GTMDataDir, (Recovery_IsStandby() ? 0 : 1));
 	errno = 0;
 	if (write(fd, buffer, strlen(buffer)) != strlen(buffer))
 	{
@@ -1451,4 +1627,18 @@ DeleteLockFile(const char *filename)
 			 errhint("The file seems accidentally left over, but "
 					 "it could not be removed. Please remove the file "
 					 "by hand and try again.")));
+}
+
+static void
+PromoteToActive(void)
+{
+	elog(LOG, "Promote signal received. Becoming an active...");
+
+	/*
+	 * Do promoting things here.
+	 */
+	Recovery_StandbySetStandby(false);
+	CreateDataDirLockFile();
+
+	return;
 }

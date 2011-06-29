@@ -19,14 +19,15 @@
 #ifndef LIBPQ_BE_H
 #define LIBPQ_BE_H
 
+#include "gtm/pqcomm.h"
+#include "gtm/gtm_c.h"
+
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
 #ifdef HAVE_NETINET_TCP_H
 #include <netinet/tcp.h>
 #endif
-
-#include "gtm/pqcomm.h"
 
 /*
  * This is used by the postmaster in its communication with frontends.	It
@@ -72,6 +73,13 @@ typedef struct Port
 	int			keepalives_idle;
 	int			keepalives_interval;
 	int			keepalives_count;
+
+	/*
+	 * GTM communication error handling.  See libpq-int.h for details.
+	 */
+	int			connErr_WaitOpt;
+	int			connErr_WaitSecs;
+	int			connErr_WaitCount;
 } Port;
 
 /* TCP keepalives configuration. These are no-ops on an AF_UNIX socket. */

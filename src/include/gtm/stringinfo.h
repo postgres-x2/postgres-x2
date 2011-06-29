@@ -146,4 +146,17 @@ extern void appendBinaryStringInfo(StringInfo str,
  */
 extern void enlargeStringInfo(StringInfo str, int needed);
 
+/*-----------------------
+ * dupStringInfo
+ * Get new StringInfo and copy the original to it.
+ */
+extern StringInfo dupStringInfo(StringInfo orig);
+
+/*------------------------
+ * copyStringInfo
+ * Copy StringInfo. Deep copy: Data will be copied too.
+ * cursor of "to" will be initialized to zero.
+ */
+extern void copyStringInfo(StringInfo to, StringInfo from);
+
 #endif   /* STRINGINFO_H */

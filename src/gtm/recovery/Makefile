@@ -8,7 +8,7 @@ NAME=gtmrecovery
 SO_MAJOR_VERSION= 1
 SO_MINOR_VERSION= 0
 
-OBJS=register.o ../client/libgtmclient.a
+OBJS=register.o replication.o standby_utils.o ../client/libgtmclient.a
 
 all:all-lib
 

@@ -265,6 +265,17 @@ GTM_ThreadCleanup(void *argp)
 	elog(LOG, "Cleaning up thread state");
 
 	/*
+	 * Close a connection to GTM standby.
+	 */
+	if (thrinfo->thr_conn->standby)
+	{
+		elog(LOG, "Closing a connection to the GTM standby.");
+
+		GTMPQfinish(thrinfo->thr_conn->standby);
+		thrinfo->thr_conn->standby = NULL;
+	}
+
+	/*
 	 * TODO Close the open connection.
 	 */
 	StreamClose(thrinfo->thr_conn->con_port->sock);

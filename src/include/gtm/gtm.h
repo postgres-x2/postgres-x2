@@ -64,7 +64,7 @@ typedef struct GTM_ThreadInfo
 	GTM_ConnectionInfo	*thr_conn;
 
 	GTM_RWLock			thr_lock;
-	List				*thr_cached_txninfo;
+	gtm_List				*thr_cached_txninfo;
 
 } GTM_ThreadInfo;
 
@@ -117,10 +117,10 @@ extern GTM_ThreadID						TopMostThreadID;
 #define IsMainThread()			(GetMyThreadInfo->thr_id == TopMostThreadID)
 
 #define GTM_CachedTransInfo				(GetMyThreadInfo->thr_cached_txninfo)
-#define GTM_HaveFreeCachedTransInfo()	(list_length(GTM_CachedTransInfo))
+#define GTM_HaveFreeCachedTransInfo()	(gtm_list_length(GTM_CachedTransInfo))
 
 #define GTM_MAX_CACHED_TRANSINFO		0
-#define GTM_HaveEnoughCachedTransInfo()	(list_length(GTM_CachedTransInfo) >= GTM_MAX_CACHED_TRANSINFO)
+#define GTM_HaveEnoughCachedTransInfo()	(gtm_list_length(GTM_CachedTransInfo) >= GTM_MAX_CACHED_TRANSINFO)
 
 #define START_CRIT_SECTION()  (CritSectionCount++)
 

@@ -14,6 +14,8 @@
 #ifndef GTM_ASSERT_H
 #define GTM_ASSERT_H
 
+#include "c.h"
+
 extern bool assert_enabled;
 
 /*

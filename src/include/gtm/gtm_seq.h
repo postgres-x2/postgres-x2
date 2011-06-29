@@ -15,6 +15,8 @@
 #define GTM_SEQ_H
 
 #include "gtm/stringinfo.h"
+#include "gtm/gtm_lock.h"
+#include "gtm/libpq-be.h"
 
 /* Global sequence  related structures */
 
@@ -83,7 +85,18 @@ void ProcessSequenceCloseCommand(Port *myport, StringInfo message);
 void ProcessSequenceRenameCommand(Port *myport, StringInfo message);
 void ProcessSequenceAlterCommand(Port *myport, StringInfo message);
 
+void ProcessSequenceListCommand(Port *myport, StringInfo message);
+
 void GTM_SaveSeqInfo(int ctlfd);
 void GTM_RestoreSeqInfo(int ctlfd);
+int GTM_SeqRestore(GTM_SequenceKey seqkey,
+			   GTM_Sequence increment_by,
+			   GTM_Sequence minval,
+			   GTM_Sequence maxval,
+			   GTM_Sequence startval,
+			   GTM_Sequence curval,
+			   int32 state,
+			   bool cycle,
+			   bool called);
 
 #endif

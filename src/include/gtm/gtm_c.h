@@ -1,6 +1,6 @@
 /*-------------------------------------------------------------------------
  *
- * c.h
+ * gtm_c.h
  *	  Fundamental C definitions.  This is included by every .c file in
  *	  PostgreSQL (via either postgres.h or postgres_fe.h, as appropriate).
  *
@@ -53,6 +53,7 @@ typedef enum GTM_PGXCNodeType
 	PGXC_NODE_GTM_PROXY_POSTMASTER,	/* Used by Proxy to communicate with GTM and not use Proxy headers */
 	PGXC_NODE_COORDINATOR,
 	PGXC_NODE_DATANODE,
+	PGXC_NODE_GTM,
 	PGXC_NODE_DEFAULT	/* In case nothing is associated to connection */
 } GTM_PGXCNodeType;
 

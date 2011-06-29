@@ -87,4 +87,12 @@ extern char *pgport_pstrdup(const char *str);
 extern void pgport_pfree(void *pointer);
 #endif
 
+#ifdef PGXC
+/*
+ * The following part provides common palloc binary interface.  This
+ * is needed especially for gtm_serialize.c and gtm_serialize_debug.c.
+ */
+#include "gen_alloc.h"
+#endif
+
 #endif   /* PALLOC_H */

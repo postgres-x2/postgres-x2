@@ -20,7 +20,10 @@
 
 #include "gtm/libpq-fe.h"
 #include "gtm/libpq-int.h"
+#include "gtm/gtm_seq.h"
 #include "gtm/gtm_client.h"
+#include "gtm/gtm_serialize.h"
+#include "gtm/register.h"
 
 #include <unistd.h>
 #include <netinet/in.h>
@@ -126,7 +129,7 @@ pqParseInput(GTM_Conn *conn)
 		case 'E':		/* error return */
 			if (gtmpqGetError(conn, result))
 				return NULL;
-			result->gr_status = -1;	
+			result->gr_status = GTM_RESULT_ERROR;	
 			break;
 		default:
 			printfGTMPQExpBuffer(&conn->errorMessage,
@@ -211,7 +214,7 @@ gtmpqGetError(GTM_Conn *conn, GTM_Result *result)
 		if (gtmpqGetnchar((char *)result->gr_proxy_data,
 					result->gr_msglen, conn))
 		{
-			result->gr_status = 1;
+			result->gr_status = GTM_RESULT_UNKNOWN;
 			return 1;
 		}
 
@@ -286,13 +289,18 @@ GTMPQgetResult(GTM_Conn *conn)
 	return res;
 }
 
+/*
+ * return 0 if parsing command is totally completed.
+ * return 1 if it needs to be read continuously.
+ */
 static int
 gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 {
 	int xcnt, xsize;
+	int i;
 	GlobalTransactionId *xip = NULL;
 
-	result->gr_status = 0;
+	result->gr_status = GTM_RESULT_OK;
 
 	if (gtmpqGetInt((int *)&result->gr_type, 4, conn))
 		return 1;
@@ -332,40 +340,46 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 		if (gtmpqGetnchar((char *)result->gr_proxy_data,
 					result->gr_msglen, conn))
 		{
-			result->gr_status = 1;
+			result->gr_status = GTM_RESULT_UNKNOWN;
 			return 1;
 		}
 
 		return result->gr_status;
 	}
 
-	result->gr_status = 0;
+	result->gr_status = GTM_RESULT_OK;
 
 	switch (result->gr_type)
 	{
+		case NODE_BEGIN_REPLICATION_INIT_RESULT:
+			break;
+
+		case NODE_END_REPLICATION_INIT_RESULT:
+			break;
+
 		case TXN_BEGIN_RESULT:
 			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_txnhandle,
 						   sizeof (GTM_TransactionHandle), conn))
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 			break;
 
 		case TXN_BEGIN_GETGXID_RESULT:
 			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_gxid_tp.gxid,
 							  sizeof (GlobalTransactionId), conn))
 			{
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 				break;
 			}
 			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_gxid_tp.timestamp,
 							  sizeof (GTM_Timestamp), conn))
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 			break;
 		case TXN_BEGIN_GETGXID_AUTOVACUUM_RESULT:
 		case TXN_PREPARE_RESULT:
 		case TXN_START_PREPARED_RESULT:
 			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_gxid,
 						   sizeof (GlobalTransactionId), conn))
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 			break;
 
 		case TXN_COMMIT_RESULT:
@@ -373,38 +387,47 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 		case TXN_ROLLBACK_RESULT:
 			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_gxid,
 						   sizeof (GlobalTransactionId), conn))
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 			break;
 
 		case TXN_GET_GXID_RESULT:
 			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_txn.txnhandle,
 						   sizeof (GTM_TransactionHandle), conn))
 			{
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 				break;
 			}
 
 			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_txn.gxid,
 						   sizeof (GlobalTransactionId), conn))
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
+			break;
+
+		case TXN_GET_NEXT_GXID_RESULT:
+			if (gtmpqGetInt((int *)&result->gr_resdata.grd_next_gxid,
+					sizeof (int32), conn))
+			{
+				result->gr_status = GTM_RESULT_ERROR;
+				break;
+			}
 			break;
 
 		case TXN_BEGIN_GETGXID_MULTI_RESULT:
 			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_txn_get_multi.txn_count,
 						   sizeof (int), conn))
 			{
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 				break;
 			}
 			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_txn_get_multi.start_gxid,
 						   sizeof (GlobalTransactionId), conn))
 			{
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 				break;
 			}
 			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_txn_get_multi.timestamp,
 						   sizeof (GTM_Timestamp), conn))
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 			break;
 
 		case TXN_COMMIT_MULTI_RESULT:
@@ -412,13 +435,13 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_txn_rc_multi.txn_count,
 						   sizeof (int), conn))
 			{
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 				break;
 			}
 			if (gtmpqGetnchar((char *)result->gr_resdata.grd_txn_rc_multi.status,
 						   sizeof (int) * result->gr_resdata.grd_txn_rc_multi.txn_count, conn))
 			{
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 				break;
 			}
 			break;
@@ -427,7 +450,7 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_txn_snap_multi.txnhandle,
 						   sizeof (GTM_TransactionHandle), conn))
 			{
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 				break;
 			}
 			/* Fall through */
@@ -435,7 +458,7 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_txn_snap_multi.gxid,
 						   sizeof (GlobalTransactionId), conn))
 			{
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 				break;
 			}
 			/* Fall through */
@@ -443,42 +466,42 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_txn_snap_multi.txn_count,
 						   sizeof (int), conn))
 			{
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 				break;
 			}
 			if (gtmpqGetnchar((char *)result->gr_resdata.grd_txn_snap_multi.status,
 						   sizeof (int) * result->gr_resdata.grd_txn_snap_multi.txn_count, conn))
 			{
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 				break;
 			}
 
 			if (gtmpqGetnchar((char *)&result->gr_snapshot.sn_xmin,
 						   sizeof (GlobalTransactionId), conn))
 			{
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 				break;
 			}
 
 			if (gtmpqGetnchar((char *)&result->gr_snapshot.sn_xmax,
 						   sizeof (GlobalTransactionId), conn))
 			{
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 				break;
 			}
 
 			if (gtmpqGetnchar((char *)&result->gr_snapshot.sn_recent_global_xmin,
 						   sizeof (GlobalTransactionId), conn))
 			{
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 				break;
 			}
 
 
-			if (gtmpqGetInt(&result->gr_snapshot.sn_xcnt,
+			if (gtmpqGetInt((int *)&result->gr_snapshot.sn_xcnt,
 						   sizeof (int32), conn))
 			{
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 				break;
 			}
 
@@ -495,7 +518,7 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 			
 			if (gtmpqGetnchar((char *)xip, sizeof (GlobalTransactionId) * xcnt, conn))
 			{
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 				break;
 			}
 
@@ -508,7 +531,7 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 		case SEQUENCE_ALTER_RESULT:
 		case SEQUENCE_SET_VAL_RESULT:
 			if (gtmpqReadSeqKey(&result->gr_resdata.grd_seqkey, conn))
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 			break;
 
 		case SEQUENCE_GET_CURRENT_RESULT:
@@ -516,12 +539,50 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 		case SEQUENCE_GET_LAST_RESULT:
 			if (gtmpqReadSeqKey(&result->gr_resdata.grd_seq.seqkey, conn))
 			{
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 				break;
 			}
 			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_seq.seqval,
 						   sizeof (GTM_Sequence), conn))
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
+			break;
+
+		case SEQUENCE_LIST_RESULT:
+			if (gtmpqGetInt(&result->gr_resdata.grd_seq_list.seq_count,
+					sizeof (int32), conn))
+			{
+				result->gr_status = GTM_RESULT_ERROR;
+				break;
+			}
+			
+			result->gr_resdata.grd_seq_list.seq =
+						(GTM_SeqInfo **)malloc(sizeof(GTM_SeqInfo *) *
+											   result->gr_resdata.grd_seq_list.seq_count);
+
+			for (i = 0 ; i < result->gr_resdata.grd_seq_list.seq_count; i++)
+			{
+				int buflen;
+				char *buf;
+
+				/* a length of the next serialized sequence */
+				if (gtmpqGetInt(&buflen, sizeof (int32), conn))
+				{
+					result->gr_status = GTM_RESULT_ERROR;
+					break;
+				}
+
+				/* a data body of the serialized sequence */
+				buf = (char *)malloc(buflen);
+				if (gtmpqGetnchar(buf, buflen, conn))
+				{
+					result->gr_status = GTM_RESULT_ERROR;
+					break;
+				}
+
+				result->gr_resdata.grd_seq_list.seq[i] = gtm_deserialize_sequence(buf, buflen);
+
+				free(buf);
+			}
 			break;
 
 		case TXN_GET_STATUS_RESULT:
@@ -534,19 +595,19 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_txn_get_gid_data.gxid,
 							  sizeof (GlobalTransactionId), conn))
 			{
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 				break;
 			}
 			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_txn_get_gid_data.prepared_gxid,
 							  sizeof (GlobalTransactionId), conn))
 			{
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 				break;
 			}
 			if (gtmpqGetInt(&result->gr_resdata.grd_txn_get_gid_data.datanodecnt,
 					sizeof (int32), conn))
 			{
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 				break;
 			}
 			if (result->gr_resdata.grd_txn_get_gid_data.datanodecnt != 0)
@@ -554,20 +615,20 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 				if ((result->gr_resdata.grd_txn_get_gid_data.datanodes = (PGXC_NodeId *)
 						malloc(sizeof(PGXC_NodeId) * result->gr_resdata.grd_txn_get_gid_data.datanodecnt)) == NULL)
 				{
-					result->gr_status = -1;
+					result->gr_status = GTM_RESULT_ERROR;
 					break;
 				}
 				if (gtmpqGetnchar((char *)result->gr_resdata.grd_txn_get_gid_data.datanodes,
 						sizeof(PGXC_NodeId) * result->gr_resdata.grd_txn_get_gid_data.datanodecnt, conn))
 				{
-					result->gr_status = -1;
+					result->gr_status = GTM_RESULT_ERROR;
 					break;
 				}
 			}
 			if (gtmpqGetInt(&result->gr_resdata.grd_txn_get_gid_data.coordcnt,
 					sizeof (int32), conn))
 			{
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 				break;
 			}
 			if (result->gr_resdata.grd_txn_get_gid_data.coordcnt != 0)
@@ -575,15 +636,44 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 				if ((result->gr_resdata.grd_txn_get_gid_data.coordinators = (PGXC_NodeId *)
 					 malloc(sizeof(PGXC_NodeId) * result->gr_resdata.grd_txn_get_gid_data.coordcnt)) == NULL)
 				{
-					result->gr_status = -1;
+					result->gr_status = GTM_RESULT_ERROR;
 					break;
 				}
 				if (gtmpqGetnchar((char *)result->gr_resdata.grd_txn_get_gid_data.coordinators,
 								  sizeof(PGXC_NodeId) * result->gr_resdata.grd_txn_get_gid_data.coordcnt, conn))
 				{
-					result->gr_status = -1;
+					result->gr_status = GTM_RESULT_ERROR;
 					break;
 				}
+			}
+			break;
+
+		case TXN_GXID_LIST_RESULT:
+			result->gr_resdata.grd_txn_gid_list.len = 0;
+			result->gr_resdata.grd_txn_gid_list.ptr = NULL;
+
+			if (gtmpqGetInt((int *)&result->gr_resdata.grd_txn_gid_list.len,
+					sizeof(int32), conn))
+			{
+				result->gr_status = GTM_RESULT_ERROR;
+				break;
+			}
+
+			result->gr_resdata.grd_txn_gid_list.ptr =
+					(char *)malloc(result->gr_resdata.grd_txn_gid_list.len);
+
+			if (result->gr_resdata.grd_txn_gid_list.ptr==NULL)
+			{
+				result->gr_status = GTM_RESULT_ERROR;
+				break;
+			}
+
+			if (gtmpqGetnchar(result->gr_resdata.grd_txn_gid_list.ptr,
+					  result->gr_resdata.grd_txn_gid_list.len,
+					  conn))  /* serialized GTM_Transactions */
+			{
+				result->gr_status = GTM_RESULT_ERROR;
+				break;
 			}
 			break;
 
@@ -592,21 +682,55 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_node.type,
 						sizeof (GTM_PGXCNodeType), conn))
 			{
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 				break;
 			}
 			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_node.nodenum,
 						sizeof (GTM_PGXCNodeId), conn))
 			{
-				result->gr_status = -1;
+				result->gr_status = GTM_RESULT_ERROR;
 			}
 			break;
 
+		case NODE_LIST_RESULT:
+		{
+			int i;
+
+			if (gtmpqGetInt(&result->gr_resdata.grd_node_list.num_node, sizeof(int32), conn))
+			{
+				result->gr_status = GTM_RESULT_ERROR;
+				break;
+			}
+
+			for (i = 0 ; i < result->gr_resdata.grd_node_list.num_node; i++)
+			{
+				int size;
+				char buf[1024];
+				GTM_PGXCNodeInfo *data = (GTM_PGXCNodeInfo *)malloc(sizeof(GTM_PGXCNodeInfo));
+
+				if (gtmpqGetInt(&size, sizeof(int32), conn))
+				{
+					result->gr_status = GTM_RESULT_ERROR;
+					break;
+				}
+
+				if (gtmpqGetnchar((char *)&buf, size, conn))
+				{
+					result->gr_status = GTM_RESULT_ERROR;
+					break;
+				}
+				gtm_deserialize_pgxcnodeinfo(data, buf, size);
+
+				result->gr_resdata.grd_node_list.nodeinfo[i] = data;
+			}
+
+			break;
+		}
 		default:
 			printfGTMPQExpBuffer(&conn->errorMessage,
 							  "unexpected result type from server; result typr was \"%d\"\n",
 							  result->gr_type);
-			result->gr_status = -1;
+			result->gr_status = GTM_RESULT_ERROR;
 			break;
 	}
 
@@ -619,7 +743,7 @@ gtmpqReadSeqKey(GTM_SequenceKey seqkey, GTM_Conn *conn)
 	/*
 	 * Read keylength
 	 */
-	if (gtmpqGetInt(&seqkey->gsk_keylen, 4, conn))
+	if (gtmpqGetInt((int *)&seqkey->gsk_keylen, 4, conn))
 		return EINVAL;
 
 	/*

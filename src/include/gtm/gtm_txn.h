@@ -14,6 +14,7 @@
 #ifndef _GTM_TXN_H
 #define _GTM_TXN_H
 
+#include "gtm/libpq-be.h"
 #include "gtm/gtm_c.h"
 #include "gtm/gtm_lock.h"
 #include "gtm/gtm_list.h"
@@ -163,14 +164,14 @@ typedef struct GTM_Transactions
 
 	int32				gt_lastslot;
 	GTM_TransactionInfo	gt_transactions_array[GTM_MAX_GLOBAL_TRANSACTIONS];
-	List				*gt_open_transactions;
+	gtm_List				*gt_open_transactions;
 	
 	GTM_RWLock			gt_TransArrayLock;
 } GTM_Transactions;
 
 extern GTM_Transactions	GTMTransactions;
 
-#define GTM_CountOpenTransactions()		(list_length(GTMTransactions.gt_open_transactions))
+#define GTM_CountOpenTransactions()		(gtm_list_length(GTMTransactions.gt_open_transactions))
 
 /*
  * Two hash tables will be maintained to quickly find the
@@ -239,6 +240,8 @@ void ProcessStartPreparedTransactionCommand(Port *myport, StringInfo message);
 void ProcessPrepareTransactionCommand(Port *myport, StringInfo message);
 void ProcessGetGIDDataTransactionCommand(Port *myport, StringInfo message);
 void ProcessGetGXIDTransactionCommand(Port *myport, StringInfo message);
+void ProcessGXIDListCommand(Port *myport, StringInfo message);
+void ProcessGetNextGXIDTransactionCommand(Port *myport, StringInfo message);
 
 void ProcessBeginTransactionGetGXIDAutovacuumCommand(Port *myport, StringInfo message);
 void ProcessBeginTransactionGetGXIDCommandMulti(Port *myport, StringInfo message);

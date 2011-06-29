@@ -42,7 +42,9 @@ typedef enum
 	NO_COMMAND = 0,
 	START_COMMAND,
 	STOP_COMMAND,
+	PROMOTE_COMMAND,
 	RESTART_COMMAND,
+	STATUS_COMMAND
 } CtlCommand;
 
 #define DEFAULT_WAIT	60
@@ -92,7 +94,7 @@ static char gtmopts_file[MAXPGPATH];
 static char pid_file[MAXPGPATH];
 
 /*
- * Write errors to stderr (or by equal means when stderr is
+ * Write errors to stderr (or by gtm_equal means when stderr is
  * not available).
  */
 static void
@@ -297,7 +299,6 @@ start_gtm(void)
 
 	return system(cmd);
 }
-
 
 
 /*
@@ -540,6 +541,36 @@ do_stop(void)
 	}
 }
 
+static void
+do_promote(void)
+{
+	pgpid_t		pid;
+
+	pid = get_pgpid();
+
+	if (pid == 0)				/* no pid file */
+	{
+		write_stderr(_("%s: PID file \"%s\" does not exist\n"), progname, pid_file);
+		write_stderr(_("Is server running?\n"));
+		exit(1);
+	}
+	else if (pid < 0)			/* standalone backend, not gtm */
+	{
+		pid = -pid;
+		write_stderr(_("%s: cannot promote server; "
+					   "single-user server is running (PID: %ld)\n"),
+					 progname, pid);
+		exit(1);
+	}
+
+	if (kill((pid_t) pid, SIGUSR1) != 0)
+	{
+		write_stderr(_("%s: could not send promote signal (PID: %ld): %s\n"), progname, pid,
+					 strerror(errno));
+		exit(1);
+	}
+}
+
 
 /*
  *	restart/reload routines
@@ -621,6 +652,97 @@ do_restart(void)
 }
 
 
+static void
+do_status(void)
+{
+	pgpid_t	pid;
+	char datpath[MAXPGPATH];
+	int mode;
+	FILE *pidf;
+
+	/*
+	 * Read a PID file to get GTM server status instead of attaching shared memory.
+	 */
+	pidf = fopen(pid_file, "r");
+	if (pidf == NULL)
+	{
+		write_stderr(_("%s: could not open PID file \"%s\": %s\n"),
+					 progname, pid_file, strerror(errno));
+		exit(1);
+	}
+
+	if (fscanf(pidf, "%ld", &pid) != 1)
+	{
+		write_stderr(_("%s: invalid data in PID file \"%s\"\n"),
+					 progname, pid_file);
+		exit(1);
+	}
+
+	if (fscanf(pidf, "%s", datpath) != 1)
+	{
+		write_stderr(_("%s: invalid data in PID file \"%s\"\n"),
+					 progname, pid_file);
+		exit(1);
+	}
+
+	if (fscanf(pidf, "%d", &mode) != 1)
+	{
+		write_stderr(_("%s: invalid data in PID file \"%s\"\n"),
+					 progname, pid_file);
+		exit(1);
+	}
+
+	fclose(pidf);
+
+	printf("pid: %ld\n", pid);
+	printf("data: %s\n", datpath);
+	printf("active: %d\n", mode);
+
+#ifdef NOT_USED
+	pid = get_pgpid();
+
+	if (pid == 0)				/* no pid file */
+	{
+		write_stderr(_("%s: PID file \"%s\" does not exist\n"),
+					 progname, pid_file);
+		write_stderr(_("Is server running?\n"));
+		exit(1);
+	}
+	else if (pid < 0)			/* standalone backend, not gtm */
+	{
+		pid = -pid;
+		if (gtm_is_alive((pid_t) pid))
+		{
+			write_stderr(_("%s: cannot get server status; "
+						   "single-user server is running (PID: %ld)\n"),
+						 progname, pid);
+			write_stderr(_("Please terminate the single-user server and try again.\n"));
+			exit(1);
+		}
+	}
+
+	if (!gtm_is_alive((pid_t) pid))
+	{
+		write_stderr(_("%s: old server process (PID: %ld) seems to be gone\n"),
+					 progname, pid);
+		exit(1);
+	}
+
+	/*
+	 * status check stuffs.
+	 */
+	exitcode = check_gtm();
+	if (exitcode != 0)
+	{
+		write_stderr(_("%s: could not get server status: exit code was %d\n"),
+					 progname, exitcode);
+		exit(1);
+	}
+#endif /* NOT_USED */
+}
+
+
+
 /*
  *	utility routines
  */
@@ -660,19 +782,19 @@ static void
 do_help(void)
 {
 	printf(_("%s is a utility to start, stop or restart,\n"
-			 "a GTM server or GTM proxy.\n\n"), progname);
+			 "a GTM server, a GTM standby or GTM proxy.\n\n"), progname);
 	printf(_("Usage:\n"));
-	printf(_("  %s start   -S STARTUP_MODE [-w] [-t SECS] [-D DATADIR] [-s] [-l FILENAME] [-o \"OPTIONS\"]\n"), progname);
-	printf(_("  %s stop    -S STARTUP_MODE [-W] [-t SECS] [-D DATADIR] [-s] [-m SHUTDOWN-MODE]\n"), progname);
-	printf(_("  %s restart -S STARTUP_MODE [-w] [-t SECS] [-D DATADIR] [-s] [-m SHUTDOWN-MODE]\n"
+	printf(_("  %s start   -S STARTUP_MODE [-w] [-t SECS] [-D DATADIR] [-l FILENAME] [-o \"OPTIONS\"]\n"), progname);
+	printf(_("  %s stop    -S STARTUP_MODE [-W] [-t SECS] [-D DATADIR] [-m SHUTDOWN-MODE]\n"), progname);
+	printf(_("  %s promote -S STARTUP_MODE [-w] [-t SECS] [-D DATADIR]\n"), progname);
+	printf(_("  %s restart -S STARTUP_MODE [-w] [-t SECS] [-D DATADIR] [-m SHUTDOWN-MODE]\n"
 		 "                 [-o \"OPTIONS\"]\n"), progname);
+	printf(_("  %s status  -S STARTUP_MODE [-w] [-t SECS] [-D DATADIR]\n"), progname);
 
 	printf(_("\nCommon options:\n"));
 	printf(_("  -D DATADIR             location of the database storage area\n"));
 	printf(_("  -i NODE_ID             set gtm_proxy ID registered on GTM\n"));
 	printf(_("                         (option ignored if used with GTM)\n"));
-	printf(_("  -S                     set gtm or gtm_proxy to launch one of them\n"));
-	printf(_("  -s,                    only print errors, no informational messages\n"));
 	printf(_("  -t SECS                seconds to wait when using -w option\n"));
 	printf(_("  -w                     wait until operation completes\n"));
 	printf(_("  -W                     do not wait until operation completes\n"));
@@ -680,7 +802,7 @@ do_help(void)
 	printf(_("(The default is to wait for shutdown, but not for start or restart.)\n\n"));
 
 	printf(_("\nOptions for start or restart:\n"));
-	printf(_("  -S STARTUP-MODE        can be \"gtm\" or \"gtm_proxy\"\n"));
+	printf(_("  -S STARTUP-MODE        can be \"gtm\", \"gtm_standby\" or \"gtm_proxy\"\n"));
 	printf(_("  -l FILENAME            write (or append) server log to FILENAME\n"));
 	printf(_("  -o OPTIONS             command line options to pass to gtm\n"
 			 "                         (GTM server executable)\n"));
@@ -816,6 +938,14 @@ main(int argc, char **argv)
 					break;
 				case 'S':
 					gtm_app = xstrdup(optarg);
+					if (strcmp(gtm_app,"gtm_proxy") != 0
+						&& strcmp(gtm_app,"gtm_standby") != 0
+						&& strcmp(gtm_app,"gtm") != 0)
+					{
+						write_stderr(_("%s: %s launch name set not correct\n"), progname, gtm_app);
+						do_advice();
+						exit(1);
+					}
 					break;
 				case 't':
 					wait_seconds = atoi(optarg);
@@ -849,11 +979,16 @@ main(int argc, char **argv)
 				ctl_command = START_COMMAND;
 			else if (strcmp(argv[optind], "stop") == 0)
 				ctl_command = STOP_COMMAND;
+			else if (strcmp(argv[optind], "promote") == 0)
+				ctl_command = PROMOTE_COMMAND;
 			else if (strcmp(argv[optind], "restart") == 0)
 				ctl_command = RESTART_COMMAND;
+			else if (strcmp(argv[optind], "status") == 0)
+				ctl_command = STATUS_COMMAND;
 			else
 			{
-				write_stderr(_("%s: unrecognized operation mode \"%s\"\n"), progname, argv[optind]);
+				write_stderr(_("%s: unrecognized operation mode \"%s\"\n"), 
+							 progname, argv[optind]);
 				do_advice();
 				exit(1);
 			}
@@ -931,6 +1066,8 @@ main(int argc, char **argv)
 		{
 			case RESTART_COMMAND:
 			case START_COMMAND:
+			case PROMOTE_COMMAND:
+			case STATUS_COMMAND:
 				do_wait = false;
 				break;
 			case STOP_COMMAND:
@@ -941,6 +1078,26 @@ main(int argc, char **argv)
 		}
 	}
 
+#if 0
+	if (gtm_data)
+	{
+		if (strcmp(gtm_app,"gtm_proxy") == 0)
+		{
+			snprintf(pid_file, MAXPGPATH, "%s/gtm_proxy.pid", gtm_data);
+			snprintf(gtmopts_file, MAXPGPATH, "%s/gtm_proxy.opts", gtm_data);
+		}
+		else if (strcmp(gtm_app,"gtm") == 0)
+		{
+			snprintf(pid_file, MAXPGPATH, "%s/gtm.pid", gtm_data);
+			snprintf(gtmopts_file, MAXPGPATH, "%s/gtm.opts", gtm_data);
+		}
+		else if (strcmp(gtm_app,"gtm_standby") == 0)
+		{
+			snprintf(pid_file, MAXPGPATH, "%s/gtm.pid", gtm_data);
+			snprintf(gtmopts_file, MAXPGPATH, "%s/gtm.opts", gtm_data);
+		}
+	}
+#else
 	/* Build strings for pid file and option file */
 	if (strcmp(gtm_app,"gtm_proxy") == 0)
 	{
@@ -952,6 +1109,15 @@ main(int argc, char **argv)
 		snprintf(pid_file, MAXPGPATH, "%s/gtm.pid", gtm_data);
 		snprintf(gtmopts_file, MAXPGPATH, "%s/gtm.opts", gtm_data);
 	}
+	else if (strcmp(gtm_app,"gtm_standby") == 0)
+	{
+		snprintf(pid_file, MAXPGPATH, "%s/gtm.pid", gtm_data);
+		snprintf(gtmopts_file, MAXPGPATH, "%s/gtm.opts", gtm_data);
+	}
+#endif
+
+	if (ctl_command==STATUS_COMMAND)
+		gtm_opts = xstrdup("-c");
 
 	switch (ctl_command)
 	{
@@ -961,8 +1127,14 @@ main(int argc, char **argv)
 		case STOP_COMMAND:
 			do_stop();
 			break;
+		case PROMOTE_COMMAND:
+			do_promote();
+			break;
 		case RESTART_COMMAND:
 			do_restart();
+			break;
+		case STATUS_COMMAND:
+			do_status();
 			break;
 		default:
 			break;

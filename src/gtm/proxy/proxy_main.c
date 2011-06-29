@@ -40,6 +40,8 @@
 #include "gtm/gtm_seq.h"
 #include "gtm/gtm_msg.h"
 #include "gtm/libpq-int.h"
+#include "gtm/gtm_ip.h"
+#include "gtm/gtm_standby.h"
 
 extern int	optind;
 extern char *optarg;
@@ -730,7 +732,7 @@ GTMProxy_ThreadMain(void *argp)
 
 	for (;;)
 	{
-		ListCell *elem = NULL;
+		gtm_ListCell *elem = NULL;
 		GTM_Result *res = NULL;
 
 		/*
@@ -818,7 +820,7 @@ GTMProxy_ThreadMain(void *argp)
 		/*
 		 * Initialize the lists
 		 */
-		thrinfo->thr_processed_commands = NIL;
+		thrinfo->thr_processed_commands = gtm_NIL;
 		memset(thrinfo->thr_pending_commands, 0, sizeof (thrinfo->thr_pending_commands));
 
 		/*
@@ -907,9 +909,9 @@ GTMProxy_ThreadMain(void *argp)
 		 * Read back the responses and put them on to the right backend
 		 * connection.
 		 */
-		foreach(elem, thrinfo->thr_processed_commands)
+		gtm_foreach(elem, thrinfo->thr_processed_commands)
 		{
-			GTMProxy_CommandInfo *cmdinfo = (GTMProxy_CommandInfo *)lfirst(elem);
+			GTMProxy_CommandInfo *cmdinfo = (GTMProxy_CommandInfo *)gtm_lfirst(elem);
 
 			/*
 			 * If this is a continuation of a multi-part command response, we
@@ -925,8 +927,8 @@ GTMProxy_ThreadMain(void *argp)
 			ProcessResponse(thrinfo, cmdinfo, res);
 		}
 
-		list_free_deep(thrinfo->thr_processed_commands);
-		thrinfo->thr_processed_commands = NIL;
+		gtm_list_free_deep(thrinfo->thr_processed_commands);
+		thrinfo->thr_processed_commands = gtm_NIL;
 
 		/*
 		 * Now clean up disconnected connections
@@ -1050,7 +1052,7 @@ ProcessResponse(GTMProxy_ThreadInfo *thrinfo, GTMProxy_CommandInfo *cmdinfo,
 			 * derive our GXID from the start GXID and the our position in the
 			 * command queue
 			 */
-			if (res->gr_status == 0)
+			if (res->gr_status == GTM_RESULT_OK)
 			{
 				if (res->gr_type != TXN_BEGIN_GETGXID_MULTI_RESULT)
 					elog(ERROR, "Wrong result");
@@ -1198,7 +1200,7 @@ ProcessResponse(GTMProxy_ThreadInfo *thrinfo, GTMProxy_CommandInfo *cmdinfo,
 			 */
 			switch (res->gr_status)
 			{
-				case 0:
+				case GTM_RESULT_OK:
 					pq_beginmessage(&buf, 'S');
 					pq_sendint(&buf, res->gr_type, 4);
 					pq_sendbytes(&buf, res->gr_proxy_data, res->gr_msglen);
@@ -1334,6 +1336,13 @@ ProcessPGXCNodeCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 				   sizeof (GTM_PGXCNodeType));
 			memcpy(&cmd_data.cd_reg.nodenum, pq_getmsgbytes(message, sizeof (GTM_PGXCNodeId)),
 				   sizeof (GTM_PGXCNodeId));
+			/*
+			 * Now we have to waste the following host information. It is taken from
+			 * the address field in the conn.
+			 */
+			len = pq_getmsgint(message, sizeof(GTM_StrLen));
+			pq_getmsgbytes(message, len);
+
 			memcpy(&cmd_data.cd_reg.port, pq_getmsgbytes(message, sizeof (GTM_PGXCNodePort)),
 				   sizeof (GTM_PGXCNodePort));
 			memcpy(&cmd_data.cd_reg.proxynum, pq_getmsgbytes(message, sizeof (GTM_PGXCNodeId)),
@@ -1341,6 +1350,9 @@ ProcessPGXCNodeCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 
 			len = pq_getmsgint(message, sizeof (int));
 			cmd_data.cd_reg.datafolder = (char *)pq_getmsgbytes(message, len);
+
+			/* Now we have one more data to waste, "status" */
+			cmd_data.cd_reg.status = pq_getmsgint(message, sizeof(GTM_PGXCNodeStatus));
 			pq_getmsgend(message);
 
 			/* Copy also remote host address in data to be proxied */
@@ -1560,7 +1572,7 @@ GTMProxy_ProxyCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 	cmdinfo->ci_mtype = mtype;
 	cmdinfo->ci_conn = conninfo;
 	cmdinfo->ci_res_index = 0;
-	thrinfo->thr_processed_commands = lappend(thrinfo->thr_processed_commands, cmdinfo);
+	thrinfo->thr_processed_commands = gtm_lappend(thrinfo->thr_processed_commands, cmdinfo);
 
 	/* Finish the message. */
 	if (gtmpqPutMsgEnd(gtm_conn))
@@ -1587,16 +1599,28 @@ static void GTMProxy_ProxyPGXCNodeCommand(GTMProxy_ConnectionInfo *conninfo,GTM_
 		case MSG_NODE_REGISTER:
 			/* Rebuild the message */
 			if (gtmpqPutMsgStart('C', true, gtm_conn) ||
+				/* GTM Proxy Header */
 				gtmpqPutnchar((char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader), gtm_conn) ||
+				/* Message Type */
 				gtmpqPutInt(MSG_NODE_REGISTER, sizeof (GTM_MessageType), gtm_conn) ||
+				/* Node Type to Register */
 				gtmpqPutnchar((char *)&cmd_data.cd_reg.type, sizeof(GTM_PGXCNodeType), gtm_conn) ||
+				/* Node Number to Register */
 				gtmpqPutnchar((char *)&cmd_data.cd_reg.nodenum, sizeof(GTM_PGXCNodeId), gtm_conn) ||
-				gtmpqPutnchar((char *)&cmd_data.cd_reg.port, sizeof(GTM_PGXCNodePort), gtm_conn) ||
-				gtmpqPutnchar((char *)&GTMProxyID, sizeof(GTM_PGXCNodeId), gtm_conn) ||
+				/* Host Name (length) */
 				gtmpqPutInt(strlen(cmd_data.cd_reg.ipaddress), sizeof (GTM_StrLen), gtm_conn) ||
+				/* Host Name (var-len) */
 				gtmpqPutnchar(cmd_data.cd_reg.ipaddress, strlen(cmd_data.cd_reg.ipaddress), gtm_conn) ||
+				/* Port Number */
+				gtmpqPutnchar((char *)&cmd_data.cd_reg.port, sizeof(GTM_PGXCNodePort), gtm_conn) ||
+				/* Proxy ID (zero if connected to GTM directly) */
+				gtmpqPutnchar((char *)&GTMProxyID, sizeof(GTM_PGXCNodeId), gtm_conn) ||
+				/* Data Folder length */
 				gtmpqPutInt(strlen(cmd_data.cd_reg.datafolder), 4, gtm_conn) ||
-				gtmpqPutnchar(cmd_data.cd_reg.datafolder, strlen(cmd_data.cd_reg.datafolder), gtm_conn))
+				/* Data folder name (var-len) */
+				gtmpqPutnchar(cmd_data.cd_reg.datafolder, strlen(cmd_data.cd_reg.datafolder), gtm_conn) ||
+				/* Node Status */
+				gtmpqPutInt(cmd_data.cd_reg.status, sizeof(GTM_PGXCNodeStatus), gtm_conn))
 				elog(ERROR, "Error proxing data");
 			break;
 
@@ -1620,7 +1644,7 @@ static void GTMProxy_ProxyPGXCNodeCommand(GTMProxy_ConnectionInfo *conninfo,GTM_
 	cmdinfo->ci_mtype = mtype;
 	cmdinfo->ci_conn = conninfo;
 	cmdinfo->ci_res_index = 0;
-	thrinfo->thr_processed_commands = lappend(thrinfo->thr_processed_commands, cmdinfo);
+	thrinfo->thr_processed_commands = gtm_lappend(thrinfo->thr_processed_commands, cmdinfo);
 
 	/* Finish the message. */
 	if (gtmpqPutMsgEnd(gtm_conn))
@@ -1649,7 +1673,7 @@ GTMProxy_CommandPending(GTMProxy_ConnectionInfo *conninfo, GTM_MessageType mtype
 	cmdinfo->ci_conn = conninfo;
 	cmdinfo->ci_res_index = 0;
 	cmdinfo->ci_data = cmd_data;
-	thrinfo->thr_pending_commands[mtype] = lappend(thrinfo->thr_pending_commands[mtype], cmdinfo);
+	thrinfo->thr_pending_commands[mtype] = gtm_lappend(thrinfo->thr_pending_commands[mtype], cmdinfo);
 
 	return;
 }
@@ -1776,13 +1800,13 @@ GTMProxy_ProcessPendingCommands(GTMProxy_ThreadInfo *thrinfo)
 	GTMProxy_CommandInfo *cmdinfo = NULL;
 	GTM_ProxyMsgHeader proxyhdr;
 	GTM_Conn *gtm_conn = thrinfo->thr_gtm_conn;
-	ListCell *elem = NULL;
+	gtm_ListCell *elem = NULL;
 
 	for (ii = 0; ii < MSG_TYPE_COUNT; ii++)
 	{
 		int res_index = 0;
 
-		if (list_length(thrinfo->thr_pending_commands[ii]) == 0)
+		if (gtm_list_length(thrinfo->thr_pending_commands[ii]) == 0)
 			continue;
 
 		/*
@@ -1797,15 +1821,15 @@ GTMProxy_ProcessPendingCommands(GTMProxy_ThreadInfo *thrinfo)
 		switch (ii)
 		{
 			case MSG_TXN_BEGIN_GETGXID:
-				if (list_length(thrinfo->thr_pending_commands[ii]) <=0 )
+				if (gtm_list_length(thrinfo->thr_pending_commands[ii]) <=0 )
 					elog(PANIC, "No pending commands of type %d", ii);
 
 				if (gtmpqPutInt(MSG_TXN_BEGIN_GETGXID_MULTI, sizeof (GTM_MessageType), gtm_conn) ||
-					gtmpqPutInt(list_length(thrinfo->thr_pending_commands[ii]), sizeof(int), gtm_conn))
+					gtmpqPutInt(gtm_list_length(thrinfo->thr_pending_commands[ii]), sizeof(int), gtm_conn))
 					elog(ERROR, "Error sending data");
-				foreach (elem, thrinfo->thr_pending_commands[ii])
+				gtm_foreach (elem, thrinfo->thr_pending_commands[ii])
 				{
-					cmdinfo = (GTMProxy_CommandInfo *)lfirst(elem);
+					cmdinfo = (GTMProxy_CommandInfo *)gtm_lfirst(elem);
 					Assert(cmdinfo->ci_mtype == ii);
 					cmdinfo->ci_res_index = res_index++;
 					if (gtmpqPutInt(cmdinfo->ci_data.cd_beg.iso_level,
@@ -1823,19 +1847,19 @@ GTMProxy_ProcessPendingCommands(GTMProxy_ThreadInfo *thrinfo)
 				/*
 				 * Move the entire list to the processed command
 				 */
-				thrinfo->thr_processed_commands = list_concat(thrinfo->thr_processed_commands,
+				thrinfo->thr_processed_commands = gtm_list_concat(thrinfo->thr_processed_commands,
 						thrinfo->thr_pending_commands[ii]);
-				thrinfo->thr_pending_commands[ii] = NIL;
+				thrinfo->thr_pending_commands[ii] = gtm_NIL;
 				break;
 
 			case MSG_TXN_COMMIT:
 				if (gtmpqPutInt(MSG_TXN_COMMIT_MULTI, sizeof (GTM_MessageType), gtm_conn) ||
-					gtmpqPutInt(list_length(thrinfo->thr_pending_commands[ii]), sizeof(int), gtm_conn))
+					gtmpqPutInt(gtm_list_length(thrinfo->thr_pending_commands[ii]), sizeof(int), gtm_conn))
 					elog(ERROR, "Error sending data");
 
-				foreach (elem, thrinfo->thr_pending_commands[ii])
+				gtm_foreach (elem, thrinfo->thr_pending_commands[ii])
 				{
-					cmdinfo = (GTMProxy_CommandInfo *)lfirst(elem);
+					cmdinfo = (GTMProxy_CommandInfo *)gtm_lfirst(elem);
 					Assert(cmdinfo->ci_mtype == ii);
 					cmdinfo->ci_res_index = res_index++;
 					if (cmdinfo->ci_data.cd_rc.isgxid)
@@ -1861,21 +1885,21 @@ GTMProxy_ProcessPendingCommands(GTMProxy_ThreadInfo *thrinfo)
 				/*
 				 * Move the entire list to the processed command
 				 */
-				thrinfo->thr_processed_commands = list_concat(thrinfo->thr_processed_commands,
+				thrinfo->thr_processed_commands = gtm_list_concat(thrinfo->thr_processed_commands,
 						thrinfo->thr_pending_commands[ii]);
-				thrinfo->thr_pending_commands[ii] = NIL;
+				thrinfo->thr_pending_commands[ii] = gtm_NIL;
 				break;
 
 				break;
 
 			case MSG_TXN_ROLLBACK:
 				if (gtmpqPutInt(MSG_TXN_ROLLBACK_MULTI, sizeof (GTM_MessageType), gtm_conn) ||
-					gtmpqPutInt(list_length(thrinfo->thr_pending_commands[ii]), sizeof(int), gtm_conn))
+					gtmpqPutInt(gtm_list_length(thrinfo->thr_pending_commands[ii]), sizeof(int), gtm_conn))
 					elog(ERROR, "Error sending data");
 
-				foreach (elem, thrinfo->thr_pending_commands[ii])
+				gtm_foreach (elem, thrinfo->thr_pending_commands[ii])
 				{
-					cmdinfo = (GTMProxy_CommandInfo *)lfirst(elem);
+					cmdinfo = (GTMProxy_CommandInfo *)gtm_lfirst(elem);
 					Assert(cmdinfo->ci_mtype == ii);
 					cmdinfo->ci_res_index = res_index++;
 					if (cmdinfo->ci_data.cd_rc.isgxid)
@@ -1902,19 +1926,19 @@ GTMProxy_ProcessPendingCommands(GTMProxy_ThreadInfo *thrinfo)
 				/*
 				 * Move the entire list to the processed command
 				 */
-				thrinfo->thr_processed_commands = list_concat(thrinfo->thr_processed_commands,
+				thrinfo->thr_processed_commands = gtm_list_concat(thrinfo->thr_processed_commands,
 						thrinfo->thr_pending_commands[ii]);
-				thrinfo->thr_pending_commands[ii] = NIL;
+				thrinfo->thr_pending_commands[ii] = gtm_NIL;
 				break;
 
 			case MSG_SNAPSHOT_GET:
 				if (gtmpqPutInt(MSG_SNAPSHOT_GET_MULTI, sizeof (GTM_MessageType), gtm_conn) ||
-					gtmpqPutInt(list_length(thrinfo->thr_pending_commands[ii]), sizeof(int), gtm_conn))
+					gtmpqPutInt(gtm_list_length(thrinfo->thr_pending_commands[ii]), sizeof(int), gtm_conn))
 					elog(ERROR, "Error sending data");
 
-				foreach (elem, thrinfo->thr_pending_commands[ii])
+				gtm_foreach (elem, thrinfo->thr_pending_commands[ii])
 				{
-					cmdinfo = (GTMProxy_CommandInfo *)lfirst(elem);
+					cmdinfo = (GTMProxy_CommandInfo *)gtm_lfirst(elem);
 					Assert(cmdinfo->ci_mtype == ii);
 					cmdinfo->ci_res_index = res_index++;
 					if (cmdinfo->ci_data.cd_rc.isgxid)
@@ -1940,9 +1964,9 @@ GTMProxy_ProcessPendingCommands(GTMProxy_ThreadInfo *thrinfo)
 				/*
 				 * Move the entire list to the processed command
 				 */
-				thrinfo->thr_processed_commands = list_concat(thrinfo->thr_processed_commands,
+				thrinfo->thr_processed_commands = gtm_list_concat(thrinfo->thr_processed_commands,
 						thrinfo->thr_pending_commands[ii]);
-				thrinfo->thr_pending_commands[ii] = NIL;
+				thrinfo->thr_pending_commands[ii] = gtm_NIL;
 				break;
 
 
@@ -2015,7 +2039,7 @@ retry:
  * never set DataDir directly.
  */
 void
-SetDataDir()
+SetDataDir(void)
 {
 	char   *new;
 
@@ -2319,7 +2343,7 @@ UnregisterProxy(void)
 		goto failed;
 
 	/* Check on node type and node number */
-	if (res->gr_status == 0)
+	if (res->gr_status == GTM_RESULT_OK)
 	{
 		Assert(res->gr_resdata.grd_node.type == type);
 		Assert(res->gr_resdata.grd_node.nodenum == GTMProxyID);
@@ -2358,10 +2382,13 @@ RegisterProxy(void)
 		gtmpqPutInt(MSG_NODE_REGISTER, sizeof (GTM_MessageType), master_conn) ||
 		gtmpqPutnchar((char *)&type, sizeof(GTM_PGXCNodeType), master_conn) ||
 		gtmpqPutnchar((char *)&GTMProxyID, sizeof(GTM_PGXCNodeId), master_conn) || /* nodenum */
+		gtmpqPutInt((int)strlen(ListenAddresses), sizeof(int), master_conn) ||
+		gtmpqPutnchar(ListenAddresses, (int)strlen(ListenAddresses), master_conn) ||
 		gtmpqPutnchar((char *)&port, sizeof(GTM_PGXCNodePort), master_conn) ||
 		gtmpqPutnchar((char *)&proxynum, sizeof(GTM_PGXCNodeId), master_conn) ||
-		gtmpqPutInt(strlen(GTMProxyDataDir), 4, master_conn) ||
-		gtmpqPutnchar(GTMProxyDataDir, strlen(GTMProxyDataDir), master_conn))
+		gtmpqPutInt((int)strlen(GTMProxyDataDir), 4, master_conn) ||
+		gtmpqPutnchar(GTMProxyDataDir, strlen(GTMProxyDataDir), master_conn)||
+		gtmpqPutInt(NODE_CONNECTED, sizeof(GTM_PGXCNodeStatus), master_conn))
 		goto failed;
 
 	/* Finish the message. */
@@ -2380,7 +2407,7 @@ RegisterProxy(void)
 	if ((res = GTMPQgetResult(master_conn)) == NULL)
 		goto failed;
 
-	if (res->gr_status == 0)
+	if (res->gr_status == GTM_RESULT_OK)
 	{
 		Assert(res->gr_resdata.grd_node.type == type);
 		Assert(res->gr_resdata.grd_node.nodenum == GTMProxyID);

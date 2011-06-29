@@ -1,6 +1,6 @@
 /*-------------------------------------------------------------------------
  *
- * ip.h
+ * gtm_ip.h
  *	  Definitions for IPv6-aware network access.
  *
  * These definitions are used by both frontend and backend code.  Be careful

@@ -82,6 +82,11 @@ PQconnectGTM(const char *conninfo)
 
 	if (conn && conn->status != CONNECTION_BAD)
 		(void) connectGTMComplete(conn);
+	else if (conn != NULL)
+	{
+		freeGTM_Conn(conn);
+		conn = NULL;
+	}
 
 	return conn;
 }
@@ -607,7 +612,7 @@ keep_going:						/* We will come back to here until there is
 				 */
 
 				if (getsockopt(conn->sock, SOL_SOCKET, SO_ERROR,
-							   (char *) &optval, &optlen) == -1)
+						       (char *) &optval, (socklen_t *)&optlen) == -1)
 				{
 					appendGTMPQExpBuffer(&conn->errorMessage,
 					libpq_gettext("could not get socket error status: \n"));
@@ -644,7 +649,7 @@ keep_going:						/* We will come back to here until there is
 				conn->laddr.salen = sizeof(conn->laddr.addr);
 				if (getsockname(conn->sock,
 								(struct sockaddr *) & conn->laddr.addr,
-								&conn->laddr.salen) < 0)
+								(socklen_t *)&conn->laddr.salen) < 0)
 				{
 					appendGTMPQExpBuffer(&conn->errorMessage,
 									  "could not get client address from socket:\n");

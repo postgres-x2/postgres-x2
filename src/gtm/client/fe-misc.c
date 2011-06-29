@@ -224,7 +224,7 @@ gtmpqGetInt(int *result, size_t bytes, GTM_Conn *conn)
 			*result = (int) ntohl(tmp4);
 			break;
 		default:
-			fprintf(conn->Pfdebug, "Integer size of (%d) bytes not supported", bytes);
+			fprintf(conn->Pfdebug, "Integer size of (%ld) bytes not supported", bytes);
 			return EOF;
 	}
 
@@ -258,7 +258,7 @@ gtmpqPutInt(int value, size_t bytes, GTM_Conn *conn)
 				return EOF;
 			break;
 		default:
-			fprintf(conn->Pfdebug, "Integer size of (%d) bytes not supported", bytes);
+			fprintf(conn->Pfdebug, "Integer size of (%ld) bytes not supported", bytes);
 			return EOF;
 	}
 
@@ -620,12 +620,14 @@ retry3:
 		 * amount of data already read in the current message.	We consider
 		 * the message "long" once we have acquired 32k ...
 		 */
+#ifdef NOT_USED
 		if (conn->inEnd > 32768 &&
 			(conn->inBufSize - conn->inEnd) >= 8192)
 		{
 			someread = 1;
 			goto retry3;
 		}
+#endif
 		return 1;
 	}
 

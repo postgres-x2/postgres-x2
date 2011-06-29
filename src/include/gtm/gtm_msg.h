@@ -19,6 +19,9 @@ typedef enum GTM_MessageType
 	MSG_TYPE_INVALID,
 	MSG_NODE_REGISTER,		/* Register a PGXC Node with GTM */
 	MSG_NODE_UNREGISTER,	/* Unregister a PGXC Node with GTM */
+	MSG_NODE_LIST,
+	MSG_NODE_BEGIN_REPLICATION_INIT,
+	MSG_NODE_END_REPLICATION_INIT,
 	MSG_TXN_BEGIN,			/* Start a new transaction */
 	MSG_TXN_BEGIN_GETGXID,	/* Start a new transaction and get GXID */
 	MSG_TXN_BEGIN_GETGXID_MULTI,	/* Start multiple new transactions and get GXIDs */
@@ -31,6 +34,8 @@ typedef enum GTM_MessageType
 	MSG_TXN_ROLLBACK_MULTI,	/* Rollback multiple transactions */
 	MSG_TXN_GET_GID_DATA,	/* Get info associated with a GID, and get a GXID */
 	MSG_TXN_GET_GXID,		/* Get a GXID for a transaction */
+	MSG_TXN_GET_NEXT_GXID,		/* Get next GXID */
+	MSG_TXN_GXID_LIST,
 	MSG_SNAPSHOT_GET,		/* Get a global snapshot */
 	MSG_SNAPSHOT_GET_MULTI,	/* Get multiple global snapshots */
 	MSG_SNAPSHOT_GXID_GET,	/* Get GXID and snapshot together */
@@ -43,6 +48,7 @@ typedef enum GTM_MessageType
 	MSG_SEQUENCE_CLOSE,		/* Close a previously inited sequence */
 	MSG_SEQUENCE_RENAME,	/* Rename a sequence */
 	MSG_SEQUENCE_ALTER,		/* Alter a sequence */
+	MSG_SEQUENCE_LIST,		/* Get a list of sequences */
 	MSG_TXN_GET_STATUS,		/* Get status of a given transaction */
 	MSG_TXN_GET_ALL_PREPARED,	/* Get information about all outstanding
 								 * prepared transactions */
@@ -60,6 +66,9 @@ typedef enum GTM_ResultType
 {
 	NODE_REGISTER_RESULT,
 	NODE_UNREGISTER_RESULT,
+	NODE_LIST_RESULT,
+	NODE_BEGIN_REPLICATION_INIT_RESULT,
+	NODE_END_REPLICATION_INIT_RESULT,
 	TXN_BEGIN_RESULT,
 	TXN_BEGIN_GETGXID_RESULT,
 	TXN_BEGIN_GETGXID_MULTI_RESULT,
@@ -72,6 +81,8 @@ typedef enum GTM_ResultType
 	TXN_ROLLBACK_MULTI_RESULT,
 	TXN_GET_GID_DATA_RESULT,
 	TXN_GET_GXID_RESULT,
+	TXN_GET_NEXT_GXID_RESULT,
+	TXN_GXID_LIST_RESULT,
 	SNAPSHOT_GET_RESULT,
 	SNAPSHOT_GET_MULTI_RESULT,
 	SNAPSHOT_GXID_GET_RESULT,
@@ -84,6 +95,7 @@ typedef enum GTM_ResultType
 	SEQUENCE_CLOSE_RESULT,
 	SEQUENCE_RENAME_RESULT,
 	SEQUENCE_ALTER_RESULT,
+	SEQUENCE_LIST_RESULT,
 	TXN_GET_STATUS_RESULT,
 	TXN_GET_ALL_PREPARED_RESULT,
 	TXN_BEGIN_GETGXID_AUTOVACUUM_RESULT,

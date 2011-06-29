@@ -13,17 +13,15 @@
  *
  *-------------------------------------------------------------------------
  */
-#include "gtm/gtm_c.h"
-#include "gtm/elog.h"
-#include "gtm/palloc.h"
-#include "gtm/gtm.h"
-#include "gtm/gtm_txn.h"
 #include "gtm/assert.h"
+#include "gtm/elog.h"
+#include "gtm/gtm.h"
+#include "gtm/gtm_client.h"
+#include "gtm/gtm_standby.h"
 #include "gtm/stringinfo.h"
 #include "gtm/libpq.h"
+#include "gtm/libpq-int.h"
 #include "gtm/pqformat.h"
-#include "gtm/gtm_msg.h"
-
 
 /*
  * Get snapshot for the given transactions. If this is the first call in the
@@ -58,7 +56,7 @@ GTM_GetTransactionSnapshot(GTM_TransactionHandle handle[], int txn_count, int *s
 	GlobalTransactionId xmax;
 	GlobalTransactionId globalxmin;
 	int			count = 0;
-	ListCell *elem = NULL;
+	gtm_ListCell *elem = NULL;
 	int ii;
 
 	/*
@@ -126,9 +124,9 @@ GTM_GetTransactionSnapshot(GTM_TransactionHandle handle[], int txn_count, int *s
 	 * Spin over transaction list checking xid, xmin, and subxids.  The goal is to
 	 * gather all active xids and find the lowest xmin
 	 */
-	foreach(elem, GTMTransactions.gt_open_transactions) 
+	gtm_foreach(elem, GTMTransactions.gt_open_transactions) 
 	{
-		volatile GTM_TransactionInfo *gtm_txninfo = (GTM_TransactionInfo *)lfirst(elem);
+		volatile GTM_TransactionInfo *gtm_txninfo = (GTM_TransactionInfo *)gtm_lfirst(elem);
 		GlobalTransactionId xid;
 
 		/* Don't take into account LAZY VACUUMs */
@@ -444,6 +442,32 @@ ProcessGetSnapshotCommandMulti(Port *myport, StringInfo message)
 
 	if (myport->remote_type != PGXC_NODE_GTM_PROXY)
 		pq_flush(myport);
+
+	if (GetMyThreadInfo->thr_conn->standby)
+	{
+		int _rc;
+		int txn_count_out;
+		int status_out[GTM_MAX_GLOBAL_TRANSACTIONS];
+		GlobalTransactionId xmin_out;
+		GlobalTransactionId xmax_out;
+		GlobalTransactionId recent_global_xmin_out;
+		int32 xcnt_out;
+
+		GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
+		int count = 0;
+retry:
+		elog(LOG, "calling snapshot_get_multi() for standby GTM %p.",
+		     GetMyThreadInfo->thr_conn->standby);
+
+		_rc = snapshot_get_multi(GetMyThreadInfo->thr_conn->standby,
+					 txn_count, gxid, &txn_count_out, status_out,
+					 &xmin_out, &xmax_out, &recent_global_xmin_out, &xcnt_out);
+		
+		if (gtm_standby_check_communication_error(&count, oldconn))
+			goto retry;
+
+		elog(LOG, "snapshot_get_multi() rc=%d done.", _rc);
+	}
 
 	return;
 }

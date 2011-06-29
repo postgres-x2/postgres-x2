@@ -110,11 +110,16 @@ typedef struct GTMProxy_ThreadInfo
 	/* connection array */
 	GTMProxy_ConnectionInfo	*thr_all_conns[GTM_PROXY_MAX_CONNECTIONS];
 	struct pollfd			thr_poll_fds[GTM_PROXY_MAX_CONNECTIONS];
-	List 					*thr_processed_commands;
-	List 					*thr_pending_commands[MSG_TYPE_COUNT];
+
+	/* Command backup */
+	short					thr_any_backup[GTM_PROXY_MAX_CONNECTIONS];
+	int						thr_qtype[GTM_PROXY_MAX_CONNECTIONS];
+	StringInfoData			thr_inBufData[GTM_PROXY_MAX_CONNECTIONS];
+
+	gtm_List 					*thr_processed_commands;
+	gtm_List 					*thr_pending_commands[MSG_TYPE_COUNT];
 
 	GTM_Conn				*thr_gtm_conn;
-
 } GTMProxy_ThreadInfo;
 
 typedef struct GTMProxy_Threads
@@ -173,6 +178,7 @@ typedef union GTMProxy_CommandData
 		GTM_PGXCNodeId		proxynum;
 		char			   *datafolder;
 		char			   *ipaddress;
+		GTM_PGXCNodeStatus  status;
 	} cd_reg;
 } GTMProxy_CommandData;
 

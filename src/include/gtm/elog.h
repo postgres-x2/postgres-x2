@@ -15,6 +15,8 @@
 #ifndef ELOG_H
 #define ELOG_H
 
+#include "c.h"
+
 /* Error level codes */
 #define DEBUG5		10			/* Debugging messages, in categories of
 								 * decreasing detail. */

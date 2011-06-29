@@ -15,7 +15,10 @@
 #define GTM_CLIENT_H
 
 #include "gtm/gtm_c.h"
+#include "gtm/gtm_seq.h"
+#include "gtm/gtm_txn.h"
 #include "gtm/gtm_msg.h"
+#include "gtm/register.h"
 #include "gtm/libpq-fe.h"
 
 typedef union GTM_ResultData
@@ -35,6 +38,8 @@ typedef union GTM_ResultData
 											 * TXN_ROLLBACK
 											 */
 	
+	GlobalTransactionId		grd_next_gxid;
+
 	struct
 	{
 		GTM_TransactionHandle	txnhandle;
@@ -50,6 +55,11 @@ typedef union GTM_ResultData
 		GTM_Sequence		seqval;
 	} grd_seq;								/* SEQUENCE_GET_CURRENT
 											   SEQUENCE_GET_NEXT */
+	struct
+	{
+		int seq_count;
+		GTM_SeqInfo	**seq;
+	} grd_seq_list;								/* SEQUENCE_GET_LIST */
 
 	struct
 	{
@@ -84,9 +94,21 @@ typedef union GTM_ResultData
 
 	struct
 	{
+		char				*ptr;
+		size_t				len;
+	} grd_txn_gid_list;					/* TXN_GXID_LIST_RESULT */
+
+	struct
+	{
 		GTM_PGXCNodeType	type;			/* NODE_REGISTER */
 		GTM_PGXCNodeId		nodenum;		/* NODE_UNREGISTER */
 	} grd_node;
+
+	struct
+	{
+		int			num_node;
+		GTM_PGXCNodeInfo	*nodeinfo[MAX_NODES];
+	} grd_node_list;
 
 	/*
 	 * TODO
@@ -94,6 +116,16 @@ typedef union GTM_ResultData
 	 * 	TXN_GET_ALL_PREPARED
 	 */
 } GTM_ResultData;
+
+#define GTM_RESULT_COMM_ERROR (-2) /* Communication error */
+#define GTM_RESULT_ERROR      (-1)
+#define GTM_RESULT_OK         (0)
+/*
+ * This error is used ion the case where allocated buffer is not large 
+ * enough to store the errors. It may happen of an allocation failed
+ * so it's status is considered as unknown.
+ */
+#define GTM_RESULT_UNKNOWN    (1)
 
 typedef struct GTM_Result
 {
@@ -123,6 +155,14 @@ typedef struct GTM_Result
 GTM_Conn *connect_gtm(const char *connect_string);
 void disconnect_gtm(GTM_Conn *conn);
 
+int begin_replication_initial_sync(GTM_Conn *);
+int end_replication_initial_sync(GTM_Conn *);
+
+size_t get_node_list(GTM_Conn *, GTM_PGXCNodeInfo *, size_t);
+GlobalTransactionId get_next_gxid(GTM_Conn *);
+uint32 get_txn_gxid_list(GTM_Conn *, GTM_Transactions *);
+size_t get_sequence_list(GTM_Conn *, GTM_SeqInfo **, size_t);
+
 /*
  * Transaction Management API
  */
@@ -141,6 +181,25 @@ int get_gid_data(GTM_Conn *conn, GTM_IsolationLevel isolevel, char *gid,
 				 PGXC_NodeId **coordinators);
 
 /*
+ * Multiple Transaction Management API
+ */
+int
+begin_transaction_multi(GTM_Conn *conn, int txn_count, GTM_IsolationLevel *txn_isolation_level,
+			bool *txn_read_only, GTMProxy_ConnID *txn_connid,
+			int *txn_count_out, GlobalTransactionId *gxid_out, GTM_Timestamp *ts_out);
+int
+commit_transaction_multi(GTM_Conn *conn, int txn_count, GlobalTransactionId *gxid,
+			 int *txn_count_out, int *status_out);
+int
+abort_transaction_multi(GTM_Conn *conn, int txn_count, GlobalTransactionId *gxid,
+			int *txn_count_out, int *status_out);
+int
+snapshot_get_multi(GTM_Conn *conn, int txn_count, GlobalTransactionId *gxid,
+		   int *txn_count_out, int *status_out,
+		   GlobalTransactionId *xmin_out, GlobalTransactionId *xmax_out,
+		   GlobalTransactionId *recent_global_xmin_out, int32 *xcnt_out);
+
+/*
  * Snapshot Management API
  */
 GTM_SnapshotData *get_snapshot(GTM_Conn *conn, GlobalTransactionId gxid,
@@ -151,7 +210,12 @@ GTM_SnapshotData *get_snapshot(GTM_Conn *conn, GlobalTransactionId gxid,
  */
 int node_register(GTM_Conn *conn, GTM_PGXCNodeType type, GTM_PGXCNodeId nodenum,
 				  GTM_PGXCNodePort port, char *datafolder);
+int node_register_internal(GTM_Conn *conn, GTM_PGXCNodeType type, const char *host,
+						   GTM_PGXCNodePort port, GTM_PGXCNodeId nodenum, char *datafolder,
+						   GTM_PGXCNodeStatus status);
 int node_unregister(GTM_Conn *conn, GTM_PGXCNodeType type, GTM_PGXCNodeId nodenum);
+int backend_disconnect(GTM_Conn *conn, bool is_postmaster, GTM_PGXCNodeType type, GTM_PGXCNodeId nodenum);
+char *node_get_local_addr(GTM_Conn *conn, char *buf, size_t buflen, int *rc);
 
 /*
  * Sequence Management API
@@ -168,6 +232,5 @@ GTM_Sequence get_current(GTM_Conn *conn, GTM_SequenceKey key);
 GTM_Sequence get_next(GTM_Conn *conn, GTM_SequenceKey key);
 int set_val(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence nextval, bool is_called);
 int reset_sequence(GTM_Conn *conn, GTM_SequenceKey key);
-
 
 #endif

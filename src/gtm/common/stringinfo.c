@@ -41,6 +41,41 @@ makeStringInfo(void)
 }
 
 /*
+ * dupStringInfo
+ *
+ * Get new StringInfo and copy the original to it.
+ */
+StringInfo
+dupStringInfo(StringInfo orig)
+{
+	StringInfo new;
+
+	new = makeStringInfo();
+	if (!new)
+		return(new);
+
+	if (orig->len > 0)
+	{
+		appendBinaryStringInfo(new, orig->data, orig->len);
+		new->cursor = orig->cursor;
+	}
+	return(new);
+}
+
+/*
+ * copyStringInfo
+ * Deep copy: Data part is copied too.   Cursor of the destination is
+ * initialized to zero.
+ */
+void
+copyStringInfo(StringInfo to, StringInfo from)
+{
+	resetStringInfo(to);
+	appendBinaryStringInfo(to, from->data, from->len);
+	return;
+}
+
+/*
  * initStringInfo
  *
  * Initialize a StringInfoData struct (with previously undefined contents)

@@ -20,17 +20,17 @@
 #include "gtm/memutils.h"
 #include "gtm/assert.h"
 
-#define equal(a, b)		((a) == (b))
+#define gtm_equal(a, b)		((a) == (b))
 
 
 #ifdef USE_ASSERT_CHECKING
 /*
- * Check that the specified List is valid (so far as we can tell).
+ * Check that the specified gtm_List is valid (so far as we can tell).
  */
 static void
-check_list_invariants(List *list)
+check_list_invariants(gtm_List *list)
 {
-	if (list == NIL)
+	if (list == gtm_NIL)
 		return;
 
 	Assert(list->length > 0);
@@ -48,21 +48,21 @@ check_list_invariants(List *list)
 #endif   /* USE_ASSERT_CHECKING */
 
 /*
- * Return a freshly allocated List. Since empty non-NIL lists are
+ * Return a freshly allocated gtm_List. Since empty non-gtm_NIL lists are
  * invalid, new_list() also allocates the head cell of the new list:
  * the caller should be sure to fill in that cell's data.
  */
-static List *
+static gtm_List *
 new_list()
 {
-	List	   *new_list;
-	ListCell   *new_head;
+	gtm_List	   *new_list;
+	gtm_ListCell   *new_head;
 
-	new_head = (ListCell *) palloc(sizeof(*new_head));
+	new_head = (gtm_ListCell *) palloc(sizeof(*new_head));
 	new_head->next = NULL;
 	/* new_head->data is left undefined! */
 
-	new_list = (List *) palloc(sizeof(*new_list));
+	new_list = (gtm_List *) palloc(sizeof(*new_list));
 	new_list->length = 1;
 	new_list->head = new_head;
 	new_list->tail = new_head;
@@ -72,17 +72,17 @@ new_list()
 
 /*
  * Allocate a new cell and make it the head of the specified
- * list. Assumes the list it is passed is non-NIL.
+ * list. Assumes the list it is passed is non-gtm_NIL.
  *
  * The data in the new head cell is undefined; the caller should be
  * sure to fill it in
  */
 static void
-new_head_cell(List *list)
+new_head_cell(gtm_List *list)
 {
-	ListCell   *new_head;
+	gtm_ListCell   *new_head;
 
-	new_head = (ListCell *) palloc(sizeof(*new_head));
+	new_head = (gtm_ListCell *) palloc(sizeof(*new_head));
 	new_head->next = list->head;
 
 	list->head = new_head;
@@ -91,17 +91,17 @@ new_head_cell(List *list)
 
 /*
  * Allocate a new cell and make it the tail of the specified
- * list. Assumes the list it is passed is non-NIL.
+ * list. Assumes the list it is passed is non-gtm_NIL.
  *
  * The data in the new tail cell is undefined; the caller should be
  * sure to fill it in
  */
 static void
-new_tail_cell(List *list)
+new_tail_cell(gtm_List *list)
 {
-	ListCell   *new_tail;
+	gtm_ListCell   *new_tail;
 
-	new_tail = (ListCell *) palloc(sizeof(*new_tail));
+	new_tail = (gtm_ListCell *) palloc(sizeof(*new_tail));
 	new_tail->next = NULL;
 
 	list->tail->next = new_tail;
@@ -116,15 +116,15 @@ new_tail_cell(List *list)
  * value, rather than continuing to use the pointer passed as the
  * first argument.
  */
-List *
-lappend(List *list, void *datum)
+gtm_List *
+gtm_lappend(gtm_List *list, void *datum)
 {
-	if (list == NIL)
+	if (list == gtm_NIL)
 		list = new_list();
 	else
 		new_tail_cell(list);
 
-	lfirst(list->tail) = datum;
+	gtm_lfirst(list->tail) = datum;
 	check_list_invariants(list);
 	return list;
 }
@@ -132,15 +132,15 @@ lappend(List *list, void *datum)
 /*
  * Add a new cell to the list, in the position after 'prev_cell'. The
  * data in the cell is left undefined, and must be filled in by the
- * caller. 'list' is assumed to be non-NIL, and 'prev_cell' is assumed
- * to be non-NULL and a member of 'list'.
+ * caller. 'list' is assumed to be non-gtm_NIL, and 'prev_cell' is assumed
+ * to be non-NULL and a gtm_member of 'list'.
  */
-static ListCell *
-add_new_cell(List *list, ListCell *prev_cell)
+static gtm_ListCell *
+add_new_cell(gtm_List *list, gtm_ListCell *prev_cell)
 {
-	ListCell   *new_cell;
+	gtm_ListCell   *new_cell;
 
-	new_cell = (ListCell *) palloc(sizeof(*new_cell));
+	new_cell = (gtm_ListCell *) palloc(sizeof(*new_cell));
 	/* new_cell->data is left undefined! */
 	new_cell->next = prev_cell->next;
 	prev_cell->next = new_cell;
@@ -154,18 +154,18 @@ add_new_cell(List *list, ListCell *prev_cell)
 }
 
 /*
- * Add a new cell to the specified list (which must be non-NIL);
+ * Add a new cell to the specified list (which must be non-gtm_NIL);
  * it will be placed after the list cell 'prev' (which must be
- * non-NULL and a member of 'list'). The data placed in the new cell
+ * non-NULL and a gtm_member of 'list'). The data placed in the new cell
  * is 'datum'. The newly-constructed cell is returned.
  */
-ListCell *
-lappend_cell(List *list, ListCell *prev, void *datum)
+gtm_ListCell *
+gtm_lappend_cell(gtm_List *list, gtm_ListCell *prev, void *datum)
 {
-	ListCell   *new_cell;
+	gtm_ListCell   *new_cell;
 
 	new_cell = add_new_cell(list, prev);
-	lfirst(new_cell) = datum;
+	gtm_lfirst(new_cell) = datum;
 	check_list_invariants(list);
 	return new_cell;
 }
@@ -177,15 +177,15 @@ lappend_cell(List *list, ListCell *prev, void *datum)
  * value, rather than continuing to use the pointer passed as the
  * second argument.
  */
-List *
-lcons(void *datum, List *list)
+gtm_List *
+gtm_lcons(void *datum, gtm_List *list)
 {
-	if (list == NIL)
+	if (list == gtm_NIL)
 		list = new_list();
 	else
 		new_head_cell(list);
 
-	lfirst(list->head) = datum;
+	gtm_lfirst(list->head) = datum;
 	check_list_invariants(list);
 	return list;
 }
@@ -198,18 +198,18 @@ lcons(void *datum, List *list)
  *
  * The nodes in list2 are merely appended to the end of list1 in-place
  * (i.e. they aren't copied; the two lists will share some of the same
- * storage). Therefore, invoking list_free() on list2 will also
+ * storage). Therefore, invoking gtm_list_free() on list2 will also
  * invalidate a portion of list1.
  */
-List *
-list_concat(List *list1, List *list2)
+gtm_List *
+gtm_list_concat(gtm_List *list1, gtm_List *list2)
 {
-	if (list1 == NIL)
+	if (list1 == gtm_NIL)
 		return list2;
-	if (list2 == NIL)
+	if (list2 == gtm_NIL)
 		return list1;
 	if (list1 == list2)
-		elog(ERROR, "cannot list_concat() a list to itself");
+		elog(ERROR, "cannot gtm_list_concat() a list to itself");
 
 
 	list1->length += list2->length;
@@ -227,23 +227,23 @@ list_concat(List *list1, List *list2)
  * list -- it may or may not be the same as the pointer that was
  * passed.
  *
- * Note that any cells removed by list_truncate() are NOT pfree'd.
+ * Note that any cells removed by gtm_list_truncate() are NOT pfree'd.
  */
-List *
-list_truncate(List *list, int new_size)
+gtm_List *
+gtm_list_truncate(gtm_List *list, int new_size)
 {
-	ListCell   *cell;
+	gtm_ListCell   *cell;
 	int			n;
 
 	if (new_size <= 0)
-		return NIL;				/* truncate to zero length */
+		return gtm_NIL;				/* truncate to zero length */
 
 	/* If asked to effectively extend the list, do nothing */
-	if (new_size >= list_length(list))
+	if (new_size >= gtm_list_length(list))
 		return list;
 
 	n = 1;
-	foreach(cell, list)
+	gtm_foreach(cell, list)
 	{
 		if (n == new_size)
 		{
@@ -265,12 +265,12 @@ list_truncate(List *list, int new_size)
  * Locate the n'th cell (counting from 0) of the list.  It is an assertion
  * failure if there is no such cell.
  */
-static ListCell *
-list_nth_cell(List *list, int n)
+static gtm_ListCell *
+list_nth_cell(gtm_List *list, int n)
 {
-	ListCell   *match;
+	gtm_ListCell   *match;
 
-	Assert(list != NIL);
+	Assert(list != gtm_NIL);
 	Assert(n >= 0);
 	Assert(n < list->length);
 	check_list_invariants(list);
@@ -287,29 +287,29 @@ list_nth_cell(List *list, int n)
 
 /*
  * Return the data value contained in the n'th element of the
- * specified list. (List elements begin at 0.)
+ * specified list. (gtm_List elements begin at 0.)
  */
 void *
-list_nth(List *list, int n)
+gtm_list_nth(gtm_List *list, int n)
 {
-	return lfirst(list_nth_cell(list, n));
+	return gtm_lfirst(list_nth_cell(list, n));
 }
 
 /*
- * Return true iff 'datum' is a member of the list. Equality is
- * determined via equal(), so callers should ensure that they pass a
+ * Return true if 'datum' is a gtm_member of the list. Equality is
+ * determined via gtm_equal(), so callers should ensure that they pass a
  * Node as 'datum'.
  */
 bool
-list_member(List *list, void *datum)
+gtm_list_member(gtm_List *list, void *datum)
 {
-	ListCell   *cell;
+	gtm_ListCell   *cell;
 
 	check_list_invariants(list);
 
-	foreach(cell, list)
+	gtm_foreach(cell, list)
 	{
-		if (equal(lfirst(cell), datum))
+		if (gtm_equal(gtm_lfirst(cell), datum))
 			return true;
 	}
 
@@ -317,19 +317,19 @@ list_member(List *list, void *datum)
 }
 
 /*
- * Return true iff 'datum' is a member of the list. Equality is
+ * Return true if 'datum' is a gtm_member of the list. Equality is
  * determined by using simple pointer comparison.
  */
 bool
-list_member_ptr(List *list, void *datum)
+gtm_list_member_ptr(gtm_List *list, void *datum)
 {
-	ListCell   *cell;
+	gtm_ListCell   *cell;
 
 	check_list_invariants(list);
 
-	foreach(cell, list)
+	gtm_foreach(cell, list)
 	{
-		if (lfirst(cell) == datum)
+		if (gtm_lfirst(cell) == datum)
 			return true;
 	}
 
@@ -340,23 +340,23 @@ list_member_ptr(List *list, void *datum)
  * Delete 'cell' from 'list'; 'prev' is the previous element to 'cell'
  * in 'list', if any (i.e. prev == NULL iff list->head == cell)
  *
- * The cell is pfree'd, as is the List header if this was the last member.
+ * The cell is pfree'd, as is the gtm_List header if this was the last gtm_member.
  */
-List *
-list_delete_cell(List *list, ListCell *cell, ListCell *prev)
+gtm_List *
+gtm_list_delete_cell(gtm_List *list, gtm_ListCell *cell, gtm_ListCell *prev)
 {
 	check_list_invariants(list);
-	Assert(prev != NULL ? lnext(prev) == cell : list_head(list) == cell);
+	Assert(prev != NULL ? gtm_lnext(prev) == cell : gtm_list_head(list) == cell);
 
 	/*
 	 * If we're about to delete the last node from the list, free the whole
-	 * list instead and return NIL, which is the only valid representation of
+	 * list instead and return gtm_NIL, which is the only valid representation of
 	 * a zero-length list.
 	 */
 	if (list->length == 1)
 	{
-		list_free(list);
-		return NIL;
+		gtm_list_free(list);
+		return gtm_NIL;
 	}
 
 	/*
@@ -379,21 +379,21 @@ list_delete_cell(List *list, ListCell *cell, ListCell *prev)
 
 /*
  * Delete the first cell in list that matches datum, if any.
- * Equality is determined via equal().
+ * Equality is determined via gtm_equal().
  */
-List *
-list_delete(List *list, void *datum)
+gtm_List *
+gtm_list_delete(gtm_List *list, void *datum)
 {
-	ListCell   *cell;
-	ListCell   *prev;
+	gtm_ListCell   *cell;
+	gtm_ListCell   *prev;
 
 	check_list_invariants(list);
 
 	prev = NULL;
-	foreach(cell, list)
+	gtm_foreach(cell, list)
 	{
-		if (equal(lfirst(cell), datum))
-			return list_delete_cell(list, cell, prev);
+		if (gtm_equal(gtm_lfirst(cell), datum))
+			return gtm_list_delete_cell(list, cell, prev);
 
 		prev = cell;
 	}
@@ -403,19 +403,19 @@ list_delete(List *list, void *datum)
 }
 
 /* As above, but use simple pointer equality */
-List *
-list_delete_ptr(List *list, void *datum)
+gtm_List *
+gtm_list_delete_ptr(gtm_List *list, void *datum)
 {
-	ListCell   *cell;
-	ListCell   *prev;
+	gtm_ListCell   *cell;
+	gtm_ListCell   *prev;
 
 	check_list_invariants(list);
 
 	prev = NULL;
-	foreach(cell, list)
+	gtm_foreach(cell, list)
 	{
-		if (lfirst(cell) == datum)
-			return list_delete_cell(list, cell, prev);
+		if (gtm_lfirst(cell) == datum)
+			return gtm_list_delete_cell(list, cell, prev);
 
 		prev = cell;
 	}
@@ -428,53 +428,53 @@ list_delete_ptr(List *list, void *datum)
 /*
  * Delete the first element of the list.
  *
- * This is useful to replace the Lisp-y code "list = lnext(list);" in cases
+ * This is useful to replace the Lisp-y code "list = gtm_lnext(list);" in cases
  * where the intent is to alter the list rather than just traverse it.
- * Beware that the removed cell is freed, whereas the lnext() coding leaves
+ * Beware that the removed cell is freed, whereas the gtm_lnext() coding leaves
  * the original list head intact if there's another pointer to it.
  */
-List *
-list_delete_first(List *list)
+gtm_List *
+gtm_list_delete_first(gtm_List *list)
 {
 	check_list_invariants(list);
 
-	if (list == NIL)
-		return NIL;				/* would an error be better? */
+	if (list == gtm_NIL)
+		return gtm_NIL;				/* would an error be better? */
 
-	return list_delete_cell(list, list_head(list), NULL);
+	return gtm_list_delete_cell(list, gtm_list_head(list), NULL);
 }
 
 /*
  * Generate the union of two lists. This is calculated by copying
- * list1 via list_copy(), then adding to it all the members of list2
+ * list1 via gtm_list_copy(), then adding to it all the members of list2
  * that aren't already in list1.
  *
  * Whether an element is already a member of the list is determined
- * via equal().
+ * via gtm_equal().
  *
  * The returned list is newly-allocated, although the content of the
  * cells is the same (i.e. any pointed-to objects are not copied).
  *
  * NB: this function will NOT remove any duplicates that are present
  * in list1 (so it only performs a "union" if list1 is known unique to
- * start with).  Also, if you are about to write "x = list_union(x, y)"
- * you probably want to use list_concat_unique() instead to avoid wasting
+ * start with).  Also, if you are about to write "x = gtm_list_union(x, y)"
+ * you probably want to use gtm_list_concat_unique() instead to avoid wasting
  * the list cells of the old x list.
  *
  * This function could probably be implemented a lot faster if it is a
  * performance bottleneck.
  */
-List *
-list_union(List *list1, List *list2)
+gtm_List *
+gtm_list_union(gtm_List *list1, gtm_List *list2)
 {
-	List	   *result;
-	ListCell   *cell;
+	gtm_List	   *result;
+	gtm_ListCell   *cell;
 
-	result = list_copy(list1);
-	foreach(cell, list2)
+	result = gtm_list_copy(list1);
+	gtm_foreach(cell, list2)
 	{
-		if (!list_member(result, lfirst(cell)))
-			result = lappend(result, lfirst(cell));
+		if (!gtm_list_member(result, gtm_lfirst(cell)))
+			result = gtm_lappend(result, gtm_lfirst(cell));
 	}
 
 	check_list_invariants(result);
@@ -482,21 +482,21 @@ list_union(List *list1, List *list2)
 }
 
 /*
- * This variant of list_union() determines duplicates via simple
+ * This variant of gtm_list_union() determines duplicates via simple
  * pointer comparison.
  */
-List *
-list_union_ptr(List *list1, List *list2)
+gtm_List *
+gtm_list_union_ptr(gtm_List *list1, gtm_List *list2)
 {
-	List	   *result;
-	ListCell   *cell;
+	gtm_List	   *result;
+	gtm_ListCell   *cell;
 
 
-	result = list_copy(list1);
-	foreach(cell, list2)
+	result = gtm_list_copy(list1);
+	gtm_foreach(cell, list2)
 	{
-		if (!list_member_ptr(result, lfirst(cell)))
-			result = lappend(result, lfirst(cell));
+		if (!gtm_list_member_ptr(result, gtm_lfirst(cell)))
+			result = gtm_lappend(result, gtm_lfirst(cell));
 	}
 
 	check_list_invariants(result);
@@ -513,23 +513,23 @@ list_union_ptr(List *list1, List *list2)
  * "intersection" if list1 is known unique beforehand.
  *
  * This variant works on lists of pointers, and determines list
- * membership via equal().  Note that the list1 member will be pointed
+ * membership via gtm_equal().  Note that the list1 gtm_member will be pointed
  * to in the result.
  */
-List *
-list_intersection(List *list1, List *list2)
+gtm_List *
+gtm_list_intersection(gtm_List *list1, gtm_List *list2)
 {
-	List	   *result;
-	ListCell   *cell;
+	gtm_List	   *result;
+	gtm_ListCell   *cell;
 
-	if (list1 == NIL || list2 == NIL)
-		return NIL;
+	if (list1 == gtm_NIL || list2 == gtm_NIL)
+		return gtm_NIL;
 
-	result = NIL;
-	foreach(cell, list1)
+	result = gtm_NIL;
+	gtm_foreach(cell, list1)
 	{
-		if (list_member(list2, lfirst(cell)))
-			result = lappend(result, lfirst(cell));
+		if (gtm_list_member(list2, gtm_lfirst(cell)))
+			result = gtm_lappend(result, gtm_lfirst(cell));
 	}
 
 	check_list_invariants(result);
@@ -543,21 +543,21 @@ list_intersection(List *list1, List *list2)
  * input lists.
  *
  * This variant works on lists of pointers, and determines list
- * membership via equal()
+ * membership via gtm_equal()
  */
-List *
-list_difference(List *list1, List *list2)
+gtm_List *
+gtm_list_difference(gtm_List *list1, gtm_List *list2)
 {
-	ListCell   *cell;
-	List	   *result = NIL;
+	gtm_ListCell   *cell;
+	gtm_List	   *result = gtm_NIL;
 
-	if (list2 == NIL)
-		return list_copy(list1);
+	if (list2 == gtm_NIL)
+		return gtm_list_copy(list1);
 
-	foreach(cell, list1)
+	gtm_foreach(cell, list1)
 	{
-		if (!list_member(list2, lfirst(cell)))
-			result = lappend(result, lfirst(cell));
+		if (!gtm_list_member(list2, gtm_lfirst(cell)))
+			result = gtm_lappend(result, gtm_lfirst(cell));
 	}
 
 	check_list_invariants(result);
@@ -565,22 +565,22 @@ list_difference(List *list1, List *list2)
 }
 
 /*
- * This variant of list_difference() determines list membership via
+ * This variant of gtm_list_difference() determines list membership via
  * simple pointer equality.
  */
-List *
-list_difference_ptr(List *list1, List *list2)
+gtm_List *
+gtm_list_difference_ptr(gtm_List *list1, gtm_List *list2)
 {
-	ListCell   *cell;
-	List	   *result = NIL;
+	gtm_ListCell   *cell;
+	gtm_List	   *result = gtm_NIL;
 
-	if (list2 == NIL)
-		return list_copy(list1);
+	if (list2 == gtm_NIL)
+		return gtm_list_copy(list1);
 
-	foreach(cell, list1)
+	gtm_foreach(cell, list1)
 	{
-		if (!list_member_ptr(list2, lfirst(cell)))
-			result = lappend(result, lfirst(cell));
+		if (!gtm_list_member_ptr(list2, gtm_lfirst(cell)))
+			result = gtm_lappend(result, gtm_lfirst(cell));
 	}
 
 	check_list_invariants(result);
@@ -591,49 +591,49 @@ list_difference_ptr(List *list1, List *list2)
  * Append datum to list, but only if it isn't already in the list.
  *
  * Whether an element is already a member of the list is determined
- * via equal().
+ * via gtm_equal().
  */
-List *
-list_append_unique(List *list, void *datum)
+gtm_List *
+gtm_list_append_unique(gtm_List *list, void *datum)
 {
-	if (list_member(list, datum))
+	if (gtm_list_member(list, datum))
 		return list;
 	else
-		return lappend(list, datum);
+		return gtm_lappend(list, datum);
 }
 
 /*
- * This variant of list_append_unique() determines list membership via
+ * This variant of gtm_list_append_unique() determines list membership via
  * simple pointer equality.
  */
-List *
-list_append_unique_ptr(List *list, void *datum)
+gtm_List *
+gtm_list_append_unique_ptr(gtm_List *list, void *datum)
 {
-	if (list_member_ptr(list, datum))
+	if (gtm_list_member_ptr(list, datum))
 		return list;
 	else
-		return lappend(list, datum);
+		return gtm_lappend(list, datum);
 }
 
 /*
  * Append to list1 each member of list2 that isn't already in list1.
  *
  * Whether an element is already a member of the list is determined
- * via equal().
+ * via gtm_equal().
  *
- * This is almost the same functionality as list_union(), but list1 is
+ * This is almost the same functionality as gtm_list_union(), but list1 is
  * modified in-place rather than being copied.	Note also that list2's cells
- * are not inserted in list1, so the analogy to list_concat() isn't perfect.
+ * are not inserted in list1, so the analogy to gtm_list_concat() isn't perfect.
  */
-List *
-list_concat_unique(List *list1, List *list2)
+gtm_List *
+gtm_list_concat_unique(gtm_List *list1, gtm_List *list2)
 {
-	ListCell   *cell;
+	gtm_ListCell   *cell;
 
-	foreach(cell, list2)
+	gtm_foreach(cell, list2)
 	{
-		if (!list_member(list1, lfirst(cell)))
-			list1 = lappend(list1, lfirst(cell));
+		if (!gtm_list_member(list1, gtm_lfirst(cell)))
+			list1 = gtm_lappend(list1, gtm_lfirst(cell));
 	}
 
 	check_list_invariants(list1);
@@ -641,18 +641,18 @@ list_concat_unique(List *list1, List *list2)
 }
 
 /*
- * This variant of list_concat_unique() determines list membership via
+ * This variant of gtm_list_concat_unique() determines list membership via
  * simple pointer equality.
  */
-List *
-list_concat_unique_ptr(List *list1, List *list2)
+gtm_List *
+gtm_list_concat_unique_ptr(gtm_List *list1, gtm_List *list2)
 {
-	ListCell   *cell;
+	gtm_ListCell   *cell;
 
-	foreach(cell, list2)
+	gtm_foreach(cell, list2)
 	{
-		if (!list_member_ptr(list1, lfirst(cell)))
-			list1 = lappend(list1, lfirst(cell));
+		if (!gtm_list_member_ptr(list1, gtm_lfirst(cell)))
+			list1 = gtm_lappend(list1, gtm_lfirst(cell));
 	}
 
 	check_list_invariants(list1);
@@ -663,20 +663,20 @@ list_concat_unique_ptr(List *list1, List *list2)
  * Free all storage in a list, and optionally the pointed-to elements
  */
 static void
-list_free_private(List *list, bool deep)
+list_free_private(gtm_List *list, bool deep)
 {
-	ListCell   *cell;
+	gtm_ListCell   *cell;
 
 	check_list_invariants(list);
 
-	cell = list_head(list);
+	cell = gtm_list_head(list);
 	while (cell != NULL)
 	{
-		ListCell   *tmp = cell;
+		gtm_ListCell   *tmp = cell;
 
-		cell = lnext(cell);
+		cell = gtm_lnext(cell);
 		if (deep)
-			pfree(lfirst(tmp));
+			pfree(gtm_lfirst(tmp));
 		pfree(tmp);
 	}
 
@@ -690,10 +690,10 @@ list_free_private(List *list, bool deep)
  * free'd.
  *
  * On return, the argument to this function has been freed, so the
- * caller would be wise to set it to NIL for safety's sake.
+ * caller would be wise to set it to gtm_NIL for safety's sake.
  */
 void
-list_free(List *list)
+gtm_list_free(gtm_List *list)
 {
 	list_free_private(list, false);
 }
@@ -704,10 +704,10 @@ list_free(List *list)
  * list must contain a pointer to a palloc()'d region of memory!)
  *
  * On return, the argument to this function has been freed, so the
- * caller would be wise to set it to NIL for safety's sake.
+ * caller would be wise to set it to gtm_NIL for safety's sake.
  */
 void
-list_free_deep(List *list)
+gtm_list_free_deep(gtm_List *list)
 {
 	/*
 	 * A "deep" free operation only makes sense on a list of pointers.
@@ -718,15 +718,15 @@ list_free_deep(List *list)
 /*
  * Return a shallow copy of the specified list.
  */
-List *
-list_copy(List *oldlist)
+gtm_List *
+gtm_list_copy(gtm_List *oldlist)
 {
-	List	   *newlist;
-	ListCell   *newlist_prev;
-	ListCell   *oldlist_cur;
+	gtm_List	   *newlist;
+	gtm_ListCell   *newlist_prev;
+	gtm_ListCell   *oldlist_cur;
 
-	if (oldlist == NIL)
-		return NIL;
+	if (oldlist == gtm_NIL)
+		return gtm_NIL;
 
 	newlist = new_list();
 	newlist->length = oldlist->length;
@@ -741,9 +741,9 @@ list_copy(List *oldlist)
 	oldlist_cur = oldlist->head->next;
 	while (oldlist_cur)
 	{
-		ListCell   *newlist_cur;
+		gtm_ListCell   *newlist_cur;
 
-		newlist_cur = (ListCell *) palloc(sizeof(*newlist_cur));
+		newlist_cur = (gtm_ListCell *) palloc(sizeof(*newlist_cur));
 		newlist_cur->data = oldlist_cur->data;
 		newlist_prev->next = newlist_cur;
 
@@ -761,18 +761,18 @@ list_copy(List *oldlist)
 /*
  * Return a shallow copy of the specified list, without the first N elements.
  */
-List *
-list_copy_tail(List *oldlist, int nskip)
+gtm_List *
+gtm_list_copy_tail(gtm_List *oldlist, int nskip)
 {
-	List	   *newlist;
-	ListCell   *newlist_prev;
-	ListCell   *oldlist_cur;
+	gtm_List	   *newlist;
+	gtm_ListCell   *newlist_prev;
+	gtm_ListCell   *oldlist_cur;
 
 	if (nskip < 0)
 		nskip = 0;				/* would it be better to elog? */
 
-	if (oldlist == NIL || nskip >= oldlist->length)
-		return NIL;
+	if (oldlist == gtm_NIL || nskip >= oldlist->length)
+		return gtm_NIL;
 
 	newlist = new_list();
 	newlist->length = oldlist->length - nskip;
@@ -794,9 +794,9 @@ list_copy_tail(List *oldlist, int nskip)
 	oldlist_cur = oldlist_cur->next;
 	while (oldlist_cur)
 	{
-		ListCell   *newlist_cur;
+		gtm_ListCell   *newlist_cur;
 
-		newlist_cur = (ListCell *) palloc(sizeof(*newlist_cur));
+		newlist_cur = (gtm_ListCell *) palloc(sizeof(*newlist_cur));
 		newlist_cur->data = oldlist_cur->data;
 		newlist_prev->next = newlist_cur;
 
@@ -819,20 +819,20 @@ list_copy_tail(List *oldlist, int nskip)
  */
 #ifndef __GNUC__
 
-ListCell *
-list_head(List *l)
+gtm_ListCell *
+gtm_list_head(gtm_List *l)
 {
 	return l ? l->head : NULL;
 }
 
-ListCell *
-list_tail(List *l)
+gtm_ListCell *
+gtm_list_tail(gtm_List *l)
 {
 	return l ? l->tail : NULL;
 }
 
 int
-list_length(List *l)
+gtm_list_length(gtm_List *l)
 {
 	return l ? l->length : 0;
 }
@@ -851,13 +851,13 @@ list_length(List *l)
  * Given a list, return its length. This is merely defined for the
  * sake of backward compatibility: we can't afford to define a macro
  * called "length", so it must be a function. New code should use the
- * list_length() macro in order to avoid the overhead of a function
+ * gtm_list_length() macro in order to avoid the overhead of a function
  * call.
  */
-int			length(List *list);
+int			gtm_length(gtm_List *list);
 
 int
-length(List *list)
+gtm_length(gtm_List *list)
 {
-	return list_length(list);
+	return gtm_list_length(list);
 }

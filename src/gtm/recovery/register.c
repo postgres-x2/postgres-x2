@@ -15,18 +15,20 @@
  */
 
 #include <fcntl.h>
+#include <stdio.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "gtm/gtm_c.h"
+#include "gtm/elog.h"
 #include "gtm/gtm.h"
-#include "gtm/register.h"
-#include "gtm/assert.h"
-#include <stdio.h>
+#include "gtm/gtm_client.h"
+#include "gtm/gtm_serialize.h"
+#include "gtm/gtm_standby.h"
 #include "gtm/libpq.h"
+#include "gtm/libpq-int.h"
 #include "gtm/pqformat.h"
-#include "gtm/gtm_msg.h"
 #include "gtm/stringinfo.h"
+
 #include "gtm/gtm_ip.h"
 
 #define GTM_NODE_FILE			"register.node"
@@ -35,7 +37,7 @@
 
 typedef struct GTM_NodeInfoHashBucket
 {
-	List        *nhb_list;
+	gtm_List        *nhb_list;
 	GTM_RWLock  nhb_lock;
 } GTM_PGXCNodeInfoHashBucket;
 
@@ -61,6 +63,78 @@ static char *pgxcnode_copy_char(const char *str);
 #define pgxcnode_nodenum_equal(num1,num2) (num1 == num2)
 #define pgxcnode_port_equal(port1,port2) (port1 == port2)
 
+size_t
+pgxcnode_get_all(GTM_PGXCNodeInfo **data, size_t maxlen)
+{
+	GTM_PGXCNodeInfoHashBucket *bucket;
+	gtm_ListCell *elem;
+	int node = 0;
+	int i;
+
+	for (i = 0; i < NODE_HASH_TABLE_SIZE; i++)
+	{
+		bucket = &GTM_PGXCNodes[i];
+
+		GTM_RWLockAcquire(&bucket->nhb_lock, GTM_LOCKMODE_READ);
+
+		gtm_foreach(elem, bucket->nhb_list)
+		{
+			GTM_PGXCNodeInfo *curr_nodeinfo = NULL;
+
+			curr_nodeinfo = (GTM_PGXCNodeInfo *) gtm_lfirst(elem);
+			if (curr_nodeinfo != NULL)
+			{
+				data[node] = curr_nodeinfo;
+				node++;
+			}
+
+			if (node == maxlen)
+				break;
+		}
+
+		GTM_RWLockRelease(&bucket->nhb_lock);
+	}
+
+	return node;
+}
+
+size_t
+pgxcnode_find_by_type(GTM_PGXCNodeType type, GTM_PGXCNodeInfo **data, size_t maxlen)
+{
+	GTM_PGXCNodeInfoHashBucket *bucket;
+	gtm_ListCell *elem;
+	int node = 0;
+	int i;
+
+	for (i = 0; i < NODE_HASH_TABLE_SIZE; i++)
+	{
+		bucket = &GTM_PGXCNodes[i];
+
+		GTM_RWLockAcquire(&bucket->nhb_lock, GTM_LOCKMODE_READ);
+
+		gtm_foreach(elem, bucket->nhb_list)
+		{
+			GTM_PGXCNodeInfo *cur = NULL;
+
+			cur = (GTM_PGXCNodeInfo *) gtm_lfirst(elem);
+
+			if (cur != NULL && cur->type == type)
+			{
+				data[node] = cur;
+				elog(LOG, "pgxcnode_find_by_type: cur=%p, ipaddress=%s", cur, cur->ipaddress);
+				node++;
+			}
+
+			if (node == maxlen)
+				break;
+		}
+
+		GTM_RWLockRelease(&bucket->nhb_lock);
+	}
+
+	return node;
+}
+
 /*
  * Find the pgxcnode info structure for the given node type and number key.
  */
@@ -70,16 +144,16 @@ pgxcnode_find_info(GTM_PGXCNodeType	type,
 {
 	uint32 hash = pgxcnode_gethash(nodenum);
 	GTM_PGXCNodeInfoHashBucket *bucket;
-	ListCell *elem;
+	gtm_ListCell *elem;
 	GTM_PGXCNodeInfo *curr_nodeinfo = NULL;
 
 	bucket = &GTM_PGXCNodes[hash];
 
 	GTM_RWLockAcquire(&bucket->nhb_lock, GTM_LOCKMODE_READ);
 
-	foreach(elem, bucket->nhb_list)
+	gtm_foreach(elem, bucket->nhb_list)
 	{
-		curr_nodeinfo = (GTM_PGXCNodeInfo *) lfirst(elem);
+		curr_nodeinfo = (GTM_PGXCNodeInfo *) gtm_lfirst(elem);
 		if (pgxcnode_type_equal(curr_nodeinfo->type, type) &&
 			pgxcnode_nodenum_equal(curr_nodeinfo->nodenum, nodenum))
 			break;
@@ -121,7 +195,7 @@ pgxcnode_remove_info(GTM_PGXCNodeInfo *nodeinfo)
 	GTM_RWLockAcquire(&bucket->nhb_lock, GTM_LOCKMODE_WRITE);
 	GTM_RWLockAcquire(&nodeinfo->node_lock, GTM_LOCKMODE_WRITE);
 
-	bucket->nhb_list = list_delete(bucket->nhb_list, nodeinfo);
+	bucket->nhb_list = gtm_list_delete(bucket->nhb_list, nodeinfo);
 
 	GTM_RWLockRelease(&nodeinfo->node_lock);
 	GTM_RWLockRelease(&bucket->nhb_lock);
@@ -137,16 +211,16 @@ pgxcnode_add_info(GTM_PGXCNodeInfo *nodeinfo)
 {
 	uint32 hash = pgxcnode_gethash(nodeinfo->nodenum);
 	GTM_PGXCNodeInfoHashBucket   *bucket;
-	ListCell *elem;
+	gtm_ListCell *elem;
 
 	bucket = &GTM_PGXCNodes[hash];
 
 	GTM_RWLockAcquire(&bucket->nhb_lock, GTM_LOCKMODE_WRITE);
 
-	foreach(elem, bucket->nhb_list)
+	gtm_foreach(elem, bucket->nhb_list)
 	{
 		GTM_PGXCNodeInfo *curr_nodeinfo = NULL;
-		curr_nodeinfo = (GTM_PGXCNodeInfo *) lfirst(elem);
+		curr_nodeinfo = (GTM_PGXCNodeInfo *) gtm_lfirst(elem);
 
 		/* GTM Proxy are always registered as they do not have Identification numbers yet */
 		if (pgxcnode_type_equal(curr_nodeinfo->type, nodeinfo->type) &&
@@ -208,7 +282,7 @@ pgxcnode_add_info(GTM_PGXCNodeInfo *nodeinfo)
 	/*
 	 * Safe to add the structure to the list
 	 */
-	bucket->nhb_list = lappend(bucket->nhb_list, nodeinfo);
+	bucket->nhb_list = gtm_lappend(bucket->nhb_list, nodeinfo);
 	GTM_RWLockRelease(&bucket->nhb_lock);
 
     return 0;
@@ -228,12 +302,13 @@ pgxcnode_copy_char(const char *str)
 	 * contextes.
 	 */
 	retstr = (char *) MemoryContextAlloc(TopMostMemoryContext,
-										 strlen(str));
+										 strlen(str) + 1);
 
 	if (retstr == NULL)
 		ereport(ERROR, (ENOMEM, errmsg("Out of memory")));
 
 	memcpy(retstr, str, strlen(str));
+	retstr[strlen(str)] = '\0';
 
 	return retstr;
 }
@@ -252,9 +327,6 @@ Recovery_PGXCNodeUnregister(GTM_PGXCNodeType type, GTM_PGXCNodeId nodenum, bool 
 		 * Unregistration has to be made by the same connection as the one used for registration
 		 * or the one that reconnected the node.
 		 */
-		if (!in_recovery && socket != nodeinfo->socket)
-			return EINVAL;
-
 		pgxcnode_remove_info(nodeinfo);
 
 		/* Add a record to file on disk saying that this node has been unregistered correctly */
@@ -302,6 +374,14 @@ Recovery_PGXCNodeRegister(GTM_PGXCNodeType	type,
 	nodeinfo->status = status;
 	nodeinfo->socket = socket;
 
+	elog(LOG, "Recovery_PGXCNodeRegister Request info: type=%d, nodenum=%d, port=%d," \
+			  "datafolder=%s, ipaddress=%s, status=%d",
+			  type, nodenum, port, datafolder, ipaddress, status);
+	elog(LOG, "Recovery_PGXCNodeRegister Node info: type=%d, nodenum=%d, port=%d, "\
+			  "datafolder=%s, ipaddress=%s, status=%d",
+			  nodeinfo->type, nodeinfo->nodenum, nodeinfo->port,
+			  nodeinfo->datafolder, nodeinfo->ipaddress, nodeinfo->status);
+
 	/* Add PGXC Node Info to the global hash table */
 	errcode = pgxcnode_add_info(nodeinfo);
 
@@ -326,40 +406,25 @@ ProcessPGXCNodeRegister(Port *myport, StringInfo message)
 	GTM_PGXCNodeId		nodenum, proxynum;
 	GTM_PGXCNodePort	port;
 	char				remote_host[NI_MAXHOST];
-	char				remote_port[NI_MAXSERV];
-	char			   *datafolder;
+	char			    datafolder[NI_MAXHOST];
 	char			   *ipaddress;
 	MemoryContext		oldContext;
-	int					strlen;
+	int					len;
 	StringInfoData		buf;
+	GTM_PGXCNodeStatus	status;
 
-	/* Get the Remote node IP and port to register it */
-	remote_host[0] = '\0';
-	remote_port[0] = '\0';
-
-	if (myport->remote_type != PGXC_NODE_GTM_PROXY)
-	{
-		if (gtm_getnameinfo_all(&myport->raddr.addr, myport->raddr.salen,
-								remote_host, sizeof(remote_host),
-								remote_port, sizeof(remote_port),
-								NI_NUMERICSERV))
-		{
-			int	ret = gtm_getnameinfo_all(&myport->raddr.addr, myport->raddr.salen,
-										 remote_host, sizeof(remote_host),
-										 remote_port, sizeof(remote_port),
-										 NI_NUMERICHOST | NI_NUMERICSERV);
-
-			if (ret)
-				ereport(WARNING,
-						(errmsg_internal("gtm_getnameinfo_all() failed")));
-		}
-	}
-
-	/* Read Node Type and number */
+	/* Read Node Type */
 	memcpy(&type, pq_getmsgbytes(message, sizeof (GTM_PGXCNodeType)),
 			sizeof (GTM_PGXCNodeType));
+	/* Node Number */
 	memcpy(&nodenum, pq_getmsgbytes(message, sizeof (GTM_PGXCNodeId)),
 			sizeof (GTM_PGXCNodeId));
+
+	 /* Read Host name */
+	len = pq_getmsgint(message, sizeof (int));
+	memcpy(remote_host, (char *)pq_getmsgbytes(message, len), len);
+	remote_host[len] = '\0';
+	ipaddress = remote_host;
 
 	/* Read Port Number */
 	memcpy(&port, pq_getmsgbytes(message, sizeof (GTM_PGXCNodePort)),
@@ -368,27 +433,27 @@ ProcessPGXCNodeRegister(Port *myport, StringInfo message)
 	/* Read Proxy ID number (0 if no proxy used) */
 	memcpy(&proxynum, pq_getmsgbytes(message, sizeof (GTM_PGXCNodeId)),
 			sizeof (GTM_PGXCNodeId));
-
-	/*
-	 * Message is received from a proxy, get also the remote node address
-	 * In the case a proxy registering itself, the remote address
-	 * is directly taken from socket.
-	 */
-	if (myport->remote_type == PGXC_NODE_GTM_PROXY &&
-		!myport->is_postmaster)
-	{
-		strlen = pq_getmsgint(message, sizeof (GTM_StrLen));
-		ipaddress = (char *)pq_getmsgbytes(message, strlen);
-	}
-	else
-		ipaddress = remote_host;
+	elog(LOG, "ProcessPGXCNodeRegister: ipaddress = %s", ipaddress);
 
 	/*
 	 * Finish by reading Data Folder (length and then string)
 	 */
+	len = pq_getmsgint(message, sizeof (GTM_StrLen));
 
-	strlen = pq_getmsgint(message, sizeof (GTM_StrLen));
-	datafolder = (char *)pq_getmsgbytes(message, strlen);
+	memcpy(datafolder, (char *)pq_getmsgbytes(message, len), len);
+	datafolder[len] = '\0';
+
+	status = pq_getmsgint(message, sizeof (GTM_PGXCNodeStatus));
+
+	if ((type!=PGXC_NODE_GTM_PROXY) &&
+		(type!=PGXC_NODE_GTM_PROXY_POSTMASTER) &&
+		(type!=PGXC_NODE_COORDINATOR) &&
+		(type!=PGXC_NODE_DATANODE) &&
+		(type!=PGXC_NODE_GTM) &&
+		(type!=PGXC_NODE_DEFAULT))
+		ereport(ERROR,
+				(EINVAL,
+				 errmsg("Unknown node type.")));
 
 	/*
 	 * We must use the TopMostMemoryContext because the Node ID information is
@@ -427,6 +492,30 @@ ProcessPGXCNodeRegister(Port *myport, StringInfo message)
 
 	if (myport->remote_type != PGXC_NODE_GTM_PROXY)
 		pq_flush(myport);
+
+	if (GetMyThreadInfo->thr_conn->standby)
+	{
+		int _rc;
+		GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
+		int count = 0;
+
+		elog(LOG, "calling node_register_internal() for standby GTM %p.",
+		 GetMyThreadInfo->thr_conn->standby);
+
+retry:
+		_rc = node_register_internal(GetMyThreadInfo->thr_conn->standby,
+									 type,
+									 ipaddress,
+									 port,
+									 nodenum,
+									 datafolder,
+									 status);
+
+		if (gtm_standby_check_communication_error(&count, oldconn))
+			goto retry;
+
+		elog(LOG, "node_register_internal() returns rc %d.", _rc);
+	}
 }
 
 /*
@@ -481,6 +570,112 @@ ProcessPGXCNodeUnregister(Port *myport, StringInfo message)
 
 	if (myport->remote_type != PGXC_NODE_GTM_PROXY)
 		pq_flush(myport);
+
+	if (GetMyThreadInfo->thr_conn->standby)
+	{
+		int _rc;
+		GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
+		int count = 0;
+
+		elog(LOG, "calling node_unregister() for standby GTM %p.",
+		 GetMyThreadInfo->thr_conn->standby);
+		
+retry:
+		_rc = node_unregister(GetMyThreadInfo->thr_conn->standby,
+							  type,
+							  nodenum);
+		
+		if (gtm_standby_check_communication_error(&count, oldconn))
+			goto retry;
+
+		elog(LOG, "node_unregister() returns rc %d.", _rc);
+	}
+}
+
+/*
+ * Process MSG_NODE_LIST
+ */
+void
+ProcessPGXCNodeList(Port *myport, StringInfo message)
+{
+	MemoryContext		oldContext;
+	StringInfoData		buf;
+	int			num_node = 13;
+	int i;
+
+	GTM_PGXCNodeInfo *data[MAX_NODES];
+	char *s_data[MAX_NODES];
+	size_t s_datalen[MAX_NODES];
+
+	/*
+	 * We must use the TopMostMemoryContext because the Node ID information is
+	 * not bound to a thread and can outlive any of the thread specific
+	 * contextes.
+	 */
+	oldContext = MemoryContextSwitchTo(TopMostMemoryContext);
+
+	memset(data, 0, sizeof(GTM_PGXCNodeInfo *) * MAX_NODES);
+	memset(s_data, 0, sizeof(char *) * MAX_NODES);
+
+	num_node = pgxcnode_get_all(data, MAX_NODES);
+
+	for (i = 0; i < num_node; i++)
+	{
+		size_t s_len;
+
+		s_len = gtm_get_pgxcnodeinfo_size(data[i]);
+
+		/*
+		 * Allocate memory blocks for serialized GTM_PGXCNodeInfo data.
+		 */
+		s_data[i] = (char *)malloc(s_len+1);
+		memset(s_data[i], 0, s_len+1);
+
+		s_datalen[i] = gtm_serialize_pgxcnodeinfo(data[i], s_data[i], s_len+1);
+
+		elog(LOG, "gtm_get_pgxcnodeinfo_size: s_len=%ld, s_datalen=%ld", s_len, s_datalen[i]);
+	}
+
+	MemoryContextSwitchTo(oldContext);
+
+	pq_getmsgend(message);
+
+	/*
+	 * Send a SUCCESS message back to the client
+	 */
+	pq_beginmessage(&buf, 'S');
+	pq_sendint(&buf, NODE_LIST_RESULT, 4);
+	if (myport->remote_type == PGXC_NODE_GTM_PROXY)
+	{
+		GTM_ProxyMsgHeader proxyhdr;
+		proxyhdr.ph_conid = myport->conn_id;
+		pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
+	}
+	pq_sendint(&buf, num_node, sizeof(int));   /* number of nodes */
+
+	/*
+	 * Send pairs of GTM_PGXCNodeInfo size and serialized GTM_PGXCNodeInfo body.
+	 */
+	for (i = 0; i < num_node; i++)
+	{
+		pq_sendint(&buf, s_datalen[i], sizeof(int));
+		pq_sendbytes(&buf, s_data[i], s_datalen[i]);
+	}
+
+	pq_endmessage(myport, &buf);
+
+	if (myport->remote_type != PGXC_NODE_GTM_PROXY)
+		pq_flush(myport);
+
+	/*
+	 * Release memory blocks for the serialized data.
+	 */
+	for (i = 0; i < num_node; i++)
+	{
+		free(s_data[i]);
+	}
+
+	elog(LOG, "ProcessPGXCNodeList() ok.");
 }
 
 /*
@@ -490,10 +685,10 @@ ProcessPGXCNodeUnregister(Port *myport, StringInfo message)
 void
 Recovery_SaveRegisterInfo(void)
 {
-    GTM_PGXCNodeInfoHashBucket *bucket;
-    ListCell *elem;
-    GTM_PGXCNodeInfo *nodeinfo = NULL;
-    int hash, ctlfd;
+GTM_PGXCNodeInfoHashBucket *bucket;
+gtm_ListCell *elem;
+GTM_PGXCNodeInfo *nodeinfo = NULL;
+int hash, ctlfd;
 	char filebkp[GTM_NODE_FILE_MAX_PATH];
 
 	GTM_RWLockAcquire(&RegisterFileLock, GTM_LOCKMODE_WRITE);
@@ -510,18 +705,18 @@ Recovery_SaveRegisterInfo(void)
 		return;
 	}
 
-    for (hash = 0; hash < NODE_HASH_TABLE_SIZE; hash++)
+for (hash = 0; hash < NODE_HASH_TABLE_SIZE; hash++)
 	{
 		bucket = &GTM_PGXCNodes[hash];
 
 		GTM_RWLockAcquire(&bucket->nhb_lock, GTM_LOCKMODE_READ);
 
 		/* Write one by one information about registered nodes */
-		foreach(elem, bucket->nhb_list)
+		gtm_foreach(elem, bucket->nhb_list)
 		{
 			int len;
 
-			nodeinfo = (GTM_PGXCNodeInfo *) lfirst(elem);
+			nodeinfo = (GTM_PGXCNodeInfo *) gtm_lfirst(elem);
 			if (nodeinfo == NULL)
 				break;
 
@@ -550,7 +745,7 @@ Recovery_SaveRegisterInfo(void)
 		}
 
 		GTM_RWLockRelease(&bucket->nhb_lock);
-	}    
+	}
 
 	close(ctlfd);
 
@@ -718,8 +913,11 @@ Recovery_PGXCNodeDisconnect(Port *myport)
 
 	if (nodeinfo != NULL)
 	{
-		/* Disconnection cannot be made with another socket than the one used for registration */
-		if (myport->sock != nodeinfo->socket)
+		/*
+		 * Disconnection cannot be made with another socket than the one used for registration.
+		 * socket may have a dummy value (-1) under GTM standby node.
+		 */
+		if (nodeinfo->socket >= 0 && myport->sock != nodeinfo->socket)
 			return;
 
 		GTM_RWLockAcquire(&nodeinfo->node_lock, GTM_LOCKMODE_WRITE);
@@ -805,4 +1003,29 @@ ProcessPGXCNodeBackendDisconnect(Port *myport, StringInfo message)
 	}
 
 	MemoryContextSwitchTo(oldContext);
+
+	/*
+	 * Forwarding MSG_BACKEND_DISCONNECT message to GTM standby.
+	 * No need to wait any response.
+	 */
+	if (GetMyThreadInfo->thr_conn->standby)
+	{
+		int _rc;
+		GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
+		int count = 0;
+
+		elog(LOG, "forwarding MSG_BACKEND_DISCONNECT to standby GTM %p.",
+				  GetMyThreadInfo->thr_conn->standby);
+
+retry:
+		_rc = backend_disconnect(GetMyThreadInfo->thr_conn->standby,
+					 is_postmaster,
+					 type,
+					 nodenum);
+
+		if (gtm_standby_check_communication_error(&count, oldconn))
+			goto retry;
+
+		elog(LOG, "MSG_BACKEND_DISCONNECT rc=%d done.", _rc);
+	}
 }

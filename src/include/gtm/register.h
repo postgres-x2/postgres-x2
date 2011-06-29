@@ -14,6 +14,7 @@
 #ifndef _REGISTER_H
 #define _REGISTER_H
 
+#include "gtm/libpq-be.h"
 #include "gtm/gtm_c.h"
 #include "gtm/gtm_lock.h"
 #include "gtm/gtm_list.h"
@@ -51,6 +52,12 @@ typedef struct GTM_PGXCNodeInfo
 	int					socket;		/* socket number used for registration */
 } GTM_PGXCNodeInfo;
 
+/* Maximum number of nodes that can be registered */
+#define MAX_NODES 1024
+
+size_t pgxcnode_get_all(GTM_PGXCNodeInfo **data, size_t maxlen);
+size_t pgxcnode_find_by_type(GTM_PGXCNodeType type, GTM_PGXCNodeInfo **data, size_t maxlen);
+
 int Recovery_PGXCNodeRegister(GTM_PGXCNodeType	type,
 							  GTM_PGXCNodeId	nodenum,
 							  GTM_PGXCNodePort	port,
@@ -75,5 +82,6 @@ void Recovery_SaveRegisterFileName(char *dir);
 void ProcessPGXCNodeRegister(Port *myport, StringInfo message);
 void ProcessPGXCNodeUnregister(Port *myport, StringInfo message);
 void ProcessPGXCNodeBackendDisconnect(Port *myport, StringInfo message);
+void ProcessPGXCNodeList(Port *myport, StringInfo message);
 
 #endif /* GTM_NODE_H */

@@ -760,4 +760,13 @@ pgport_pfree(void *pointer)
 	pfree(pointer);
 }
 
+
 #endif
+
+#include "gen_alloc.h"
+void *current_memcontext(void);
+void *current_memcontext(void)
+{
+	return((void *)CurrentMemoryContext);
+}
+Gen_Alloc genAlloc_class = {MemoryContextAlloc, MemoryContextAllocZero, repalloc, pfree, current_memcontext};

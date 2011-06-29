@@ -1,6 +1,6 @@
 /*-------------------------------------------------------------------------
  *
- * pg_list.h
+ * gtm_list.h
  *	  interface for PostgreSQL generic linked list package
  *
  * This package implements singly-linked homogeneous lists.
@@ -39,31 +39,31 @@
 #define GTM_LIST_H
 
 
-typedef struct ListCell ListCell;
+typedef struct gtm_ListCell gtm_ListCell;
 
-typedef struct List
+typedef struct gtm_List
 {
 	int			length;
-	ListCell   *head;
-	ListCell   *tail;
-} List;
+	gtm_ListCell   *head;
+	gtm_ListCell   *tail;
+} gtm_List;
 
-struct ListCell
+struct gtm_ListCell
 {
 	union
 	{
 		void	   *ptr_value;
 		int			int_value;
 	}			data;
-	ListCell   *next;
+	gtm_ListCell   *next;
 };
 
 /*
- * The *only* valid representation of an empty list is NIL; in other
- * words, a non-NIL list is guaranteed to have length >= 1 and
+ * The *only* valid representation of an empty list is gtm_NIL; in other
+ * words, a non-gtm_NIL list is guaranteed to have length >= 1 and
  * head/tail != NULL
  */
-#define NIL						((List *) NULL)
+#define gtm_NIL						((gtm_List *) NULL)
 
 /*
  * These routines are used frequently. However, we can't implement
@@ -73,150 +73,150 @@ struct ListCell
  */
 #ifdef __GNUC__
 
-static __inline__ ListCell *
-list_head(List *l)
+static __inline__ gtm_ListCell *
+gtm_list_head(gtm_List *l)
 {
 	return l ? l->head : NULL;
 }
 
-static __inline__ ListCell *
-list_tail(List *l)
+static __inline__ gtm_ListCell *
+gtm_list_tail(gtm_List *l)
 {
 	return l ? l->tail : NULL;
 }
 
 static __inline__ int
-list_length(List *l)
+gtm_list_length(gtm_List *l)
 {
 	return l ? l->length : 0;
 }
 #else
 
-extern ListCell *list_head(List *l);
-extern ListCell *list_tail(List *l);
-extern int	list_length(List *l);
+extern gtm_ListCell *gtm_list_head(gtm_List *l);
+extern gtm_ListCell *gtm_list_tail(gtm_List *l);
+extern int	gtm_list_length(gtm_List *l);
 #endif   /* __GNUC__ */
 
 /*
  * NB: There is an unfortunate legacy from a previous incarnation of
- * the List API: the macro lfirst() was used to mean "the data in this
- * cons cell". To avoid changing every usage of lfirst(), that meaning
- * has been kept. As a result, lfirst() takes a ListCell and returns
+ * the gtm_List API: the macro gtm_lfirst() was used to mean "the data in this
+ * cons cell". To avoid changing every usage of gtm_lfirst(), that meaning
+ * has been kept. As a result, gtm_lfirst() takes a gtm_ListCell and returns
  * the data it contains; to get the data in the first cell of a
- * List, use linitial(). Worse, lsecond() is more closely related to
- * linitial() than lfirst(): given a List, lsecond() returns the data
+ * gtm_List, use gtm_linitial(). Worse, gtm_lsecond() is more closely related to
+ * gtm_linitial() than gtm_lfirst(): given a gtm_List, gtm_lsecond() returns the data
  * in the second cons cell.
  */
 
-#define lnext(lc)				((lc)->next)
-#define lfirst(lc)				((lc)->data.ptr_value)
-#define lfirst_int(lc)			((lc)->data.int_value)
+#define gtm_lnext(lc)				((lc)->next)
+#define gtm_lfirst(lc)				((lc)->data.ptr_value)
+#define gtm_lfirst_int(lc)			((lc)->data.int_value)
 
-#define linitial(l)				lfirst(list_head(l))
-#define linitial_int(l)			lfirst_int(list_head(l))
+#define gtm_linitial(l)				gtm_lfirst(gtm_list_head(l))
+#define gtm_linitial_int(l)			gtm_lfirst_int(gtm_list_head(l))
 
-#define lsecond(l)				lfirst(lnext(list_head(l)))
-#define lsecond_int(l)			lfirst_int(lnext(list_head(l)))
+#define gtm_lsecond(l)				gtm_lfirst(gtm_lnext(gtm_list_head(l)))
+#define gtm_lsecond_int(l)			gtm_lfirst_int(gtm_lnext(gtm_list_head(l)))
 
-#define lthird(l)				lfirst(lnext(lnext(list_head(l))))
-#define lthird_int(l)			lfirst_int(lnext(lnext(list_head(l))))
+#define gtm_lthird(l)				gtm_lfirst(gtm_lnext(gtm_lnext(gtm_list_head(l))))
+#define gtm_lthird_int(l)			gtm_lfirst_int(gtm_lnext(gtm_lnext(gtm_list_head(l))))
 
-#define lfourth(l)				lfirst(lnext(lnext(lnext(list_head(l)))))
-#define lfourth_int(l)			lfirst_int(lnext(lnext(lnext(list_head(l)))))
+#define gtm_lfourth(l)				gtm_lfirst(gtm_lnext(gtm_lnext(gtm_lnext(gtm_list_head(l)))))
+#define gtm_lfourth_int(l)			gtm_lfirst_int(gtm_lnext(gtm_lnext(gtm_lnext(gtm_list_head(l)))))
 
-#define llast(l)				lfirst(list_tail(l))
-#define llast_int(l)			lfirst_int(list_tail(l))
+#define gtm_llast(l)				gtm_lfirst(gtm_list_tail(l))
+#define gtm_llast_int(l)			gtm_lfirst_int(gtm_list_tail(l))
 
 /*
  * Convenience macros for building fixed-length lists
  */
-#define list_make1(x1)				lcons(x1, NIL)
-#define list_make2(x1,x2)			lcons(x1, list_make1(x2))
-#define list_make3(x1,x2,x3)		lcons(x1, list_make2(x2, x3))
-#define list_make4(x1,x2,x3,x4)		lcons(x1, list_make3(x2, x3, x4))
+#define gtm_list_make1(x1)				gtm_lcons(x1, gtm_NIL)
+#define gtm_list_make2(x1,x2)			gtm_lcons(x1, gtm_list_make1(x2))
+#define gtm_list_make3(x1,x2,x3)		gtm_lcons(x1, gtm_list_make2(x2, x3))
+#define gtm_list_make4(x1,x2,x3,x4)		gtm_lcons(x1, gtm_list_make3(x2, x3, x4))
 
-#define list_make1_int(x1)			lcons_int(x1, NIL)
-#define list_make2_int(x1,x2)		lcons_int(x1, list_make1_int(x2))
-#define list_make3_int(x1,x2,x3)	lcons_int(x1, list_make2_int(x2, x3))
-#define list_make4_int(x1,x2,x3,x4) lcons_int(x1, list_make3_int(x2, x3, x4))
+#define gtm_list_make1_int(x1)			gtm_lcons_int(x1, gtm_NIL)
+#define gtm_list_make2_int(x1,x2)		gtm_lcons_int(x1, gtm_list_make1_int(x2))
+#define gtm_list_make3_int(x1,x2,x3)	gtm_lcons_int(x1, gtm_list_make2_int(x2, x3))
+#define gtm_list_make4_int(x1,x2,x3,x4) gtm_lcons_int(x1, gtm_list_make3_int(x2, x3, x4))
 
 /*
- * foreach -
+ * gtm_foreach -
  *	  a convenience macro which loops through the list
  */
-#define foreach(cell, l)	\
-	for ((cell) = list_head(l); (cell) != NULL; (cell) = lnext(cell))
+#define gtm_foreach(cell, l)	\
+	for ((cell) = gtm_list_head(l); (cell) != NULL; (cell) = gtm_lnext(cell))
 
 /*
- * for_each_cell -
+ * gtm_for_each_cell -
  *	  a convenience macro which loops through a list starting from a
  *	  specified cell
  */
-#define for_each_cell(cell, initcell)	\
-	for ((cell) = (initcell); (cell) != NULL; (cell) = lnext(cell))
+#define gtm_for_each_cell(cell, initcell)	\
+	for ((cell) = (initcell); (cell) != NULL; (cell) = gtm_lnext(cell))
 
 /*
- * forboth -
+ * gtm_forboth -
  *	  a convenience macro for advancing through two linked lists
  *	  simultaneously. This macro loops through both lists at the same
  *	  time, stopping when either list runs out of elements. Depending
  *	  on the requirements of the call site, it may also be wise to
- *	  assert that the lengths of the two lists are equal.
+ *	  assert that the lengths of the two lists are gtm_equal.
  */
-#define forboth(cell1, list1, cell2, list2)							\
-	for ((cell1) = list_head(list1), (cell2) = list_head(list2);	\
+#define gtm_forboth(cell1, list1, cell2, list2)							\
+	for ((cell1) = gtm_list_head(list1), (cell2) = gtm_list_head(list2);	\
 		 (cell1) != NULL && (cell2) != NULL;						\
-		 (cell1) = lnext(cell1), (cell2) = lnext(cell2))
+		 (cell1) = gtm_lnext(cell1), (cell2) = gtm_lnext(cell2))
 
-extern List *lappend(List *list, void *datum);
-extern List *lappend_int(List *list, int datum);
+extern gtm_List *gtm_lappend(gtm_List *list, void *datum);
+extern gtm_List *gtm_lappend_int(gtm_List *list, int datum);
 
-extern ListCell *lappend_cell(List *list, ListCell *prev, void *datum);
-extern ListCell *lappend_cell_int(List *list, ListCell *prev, int datum);
+extern gtm_ListCell *gtm_lappend_cell(gtm_List *list, gtm_ListCell *prev, void *datum);
+extern gtm_ListCell *gtm_lappend_cell_int(gtm_List *list, gtm_ListCell *prev, int datum);
 
-extern List *lcons(void *datum, List *list);
-extern List *lcons_int(int datum, List *list);
+extern gtm_List *gtm_lcons(void *datum, gtm_List *list);
+extern gtm_List *gtm_lcons_int(int datum, gtm_List *list);
 
-extern List *list_concat(List *list1, List *list2);
-extern List *list_truncate(List *list, int new_size);
+extern gtm_List *gtm_list_concat(gtm_List *list1, gtm_List *list2);
+extern gtm_List *gtm_list_truncate(gtm_List *list, int new_size);
 
-extern void *list_nth(List *list, int n);
-extern int	list_nth_int(List *list, int n);
+extern void *gtm_list_nth(gtm_List *list, int n);
+extern int	gtm_list_nth_int(gtm_List *list, int n);
 
-extern bool list_member(List *list, void *datum);
-extern bool list_member_ptr(List *list, void *datum);
-extern bool list_member_int(List *list, int datum);
+extern bool gtm_list_member(gtm_List *list, void *datum);
+extern bool gtm_list_member_ptr(gtm_List *list, void *datum);
+extern bool gtm_list_member_int(gtm_List *list, int datum);
 
-extern List *list_delete(List *list, void *datum);
-extern List *list_delete_ptr(List *list, void *datum);
-extern List *list_delete_int(List *list, int datum);
-extern List *list_delete_first(List *list);
-extern List *list_delete_cell(List *list, ListCell *cell, ListCell *prev);
+extern gtm_List *gtm_list_delete(gtm_List *list, void *datum);
+extern gtm_List *gtm_list_delete_ptr(gtm_List *list, void *datum);
+extern gtm_List *gtm_list_delete_int(gtm_List *list, int datum);
+extern gtm_List *gtm_list_delete_first(gtm_List *list);
+extern gtm_List *gtm_list_delete_cell(gtm_List *list, gtm_ListCell *cell, gtm_ListCell *prev);
 
-extern List *list_union(List *list1, List *list2);
-extern List *list_union_ptr(List *list1, List *list2);
-extern List *list_union_int(List *list1, List *list2);
+extern gtm_List *gtm_list_union(gtm_List *list1, gtm_List *list2);
+extern gtm_List *gtm_list_union_ptr(gtm_List *list1, gtm_List *list2);
+extern gtm_List *gtm_list_union_int(gtm_List *list1, gtm_List *list2);
 
-extern List *list_intersection(List *list1, List *list2);
+extern gtm_List *gtm_list_intersection(gtm_List *list1, gtm_List *list2);
 /* currently, there's no need for list_intersection_int etc */
 
-extern List *list_difference(List *list1, List *list2);
-extern List *list_difference_ptr(List *list1, List *list2);
-extern List *list_difference_int(List *list1, List *list2);
+extern gtm_List *gtm_list_difference(gtm_List *list1, gtm_List *list2);
+extern gtm_List *gtm_list_difference_ptr(gtm_List *list1, gtm_List *list2);
+extern gtm_List *gtm_list_difference_int(gtm_List *list1, gtm_List *list2);
 
-extern List *list_append_unique(List *list, void *datum);
-extern List *list_append_unique_ptr(List *list, void *datum);
-extern List *list_append_unique_int(List *list, int datum);
+extern gtm_List *gtm_list_append_unique(gtm_List *list, void *datum);
+extern gtm_List *gtm_list_append_unique_ptr(gtm_List *list, void *datum);
+extern gtm_List *gtm_list_append_unique_int(gtm_List *list, int datum);
 
-extern List *list_concat_unique(List *list1, List *list2);
-extern List *list_concat_unique_ptr(List *list1, List *list2);
-extern List *list_concat_unique_int(List *list1, List *list2);
+extern gtm_List *gtm_list_concat_unique(gtm_List *list1, gtm_List *list2);
+extern gtm_List *gtm_list_concat_unique_ptr(gtm_List *list1, gtm_List *list2);
+extern gtm_List *gtm_list_concat_unique_int(gtm_List *list1, gtm_List *list2);
 
-extern void list_free(List *list);
-extern void list_free_deep(List *list);
+extern void gtm_list_free(gtm_List *list);
+extern void gtm_list_free_deep(gtm_List *list);
 
-extern List *list_copy(List *list);
-extern List *list_copy_tail(List *list, int nskip);
+extern gtm_List *gtm_list_copy(gtm_List *list);
+extern gtm_List *gtm_list_copy_tail(gtm_List *list, int nskip);
 
 /*
  * To ease migration to the new list API, a set of compatibility
@@ -227,54 +227,54 @@ extern List *list_copy_tail(List *list, int nskip);
  */
 #ifdef ENABLE_LIST_COMPAT
 
-#define lfirsti(lc)					lfirst_int(lc)
+#define gtm_lfirsti(lc)					gtm_lfirst_int(lc)
 
-#define makeList1(x1)				list_make1(x1)
-#define makeList2(x1, x2)			list_make2(x1, x2)
-#define makeList3(x1, x2, x3)		list_make3(x1, x2, x3)
-#define makeList4(x1, x2, x3, x4)	list_make4(x1, x2, x3, x4)
+#define gtm_makeList1(x1)				gtm_list_make1(x1)
+#define gtm_makeList2(x1, x2)			gtm_list_make2(x1, x2)
+#define gtm_makeList3(x1, x2, x3)		gtm_list_make3(x1, x2, x3)
+#define gtm_makeList4(x1, x2, x3, x4)	gtm_list_make4(x1, x2, x3, x4)
 
-#define makeListi1(x1)				list_make1_int(x1)
-#define makeListi2(x1, x2)			list_make2_int(x1, x2)
+#define gtm_makeListi1(x1)				gtm_list_make1_int(x1)
+#define gtm_makeListi2(x1, x2)			gtm_list_make2_int(x1, x2)
 
-#define lconsi(datum, list)			lcons_int(datum, list)
+#define gtm_lconsi(datum, list)			gtm_lcons_int(datum, list)
 
-#define lappendi(list, datum)		lappend_int(list, datum)
+#define gtm_lappendi(list, datum)		gtm_lappend_int(list, datum)
 
-#define nconc(l1, l2)				list_concat(l1, l2)
+#define gtm_nconc(l1, l2)				gtm_list_concat(l1, l2)
 
-#define nth(n, list)				list_nth(list, n)
+#define gtm_nth(n, list)				gtm_list_nth(list, n)
 
-#define member(datum, list)			list_member(list, datum)
-#define ptrMember(datum, list)		list_member_ptr(list, datum)
-#define intMember(datum, list)		list_member_int(list, datum)
+#define gtm_member(datum, list)			gtm_list_member(list, datum)
+#define gtm_ptrMember(datum, list)		gtm_list_member_ptr(list, datum)
+#define gtm_intMember(datum, list)		gtm_list_member_int(list, datum)
 
 /*
- * Note that the old lremove() determined equality via pointer
- * comparison, whereas the new list_delete() uses equal(); in order to
- * keep the same behavior, we therefore need to map lremove() calls to
- * list_delete_ptr() rather than list_delete()
+ * Note that the old gtm_lremove() determined equality via pointer
+ * comparison, whereas the new gtm_list_delete() uses gtm_equal(); in order to
+ * keep the same behavior, we therefore need to map gtm_lremove() calls to
+ * gtm_list_delete_ptr() rather than gtm_list_delete()
  */
-#define lremove(elem, list)			list_delete_ptr(list, elem)
-#define LispRemove(elem, list)		list_delete(list, elem)
-#define lremovei(elem, list)		list_delete_int(list, elem)
+#define gtm_lremove(elem, list)			gtm_list_delete_ptr(list, elem)
+#define gtm_LispRemove(elem, list)		gtm_list_delete(list, elem)
+#define gtm_lremovei(elem, list)		gtm_list_delete_int(list, elem)
 
-#define ltruncate(n, list)			list_truncate(list, n)
+#define gtm_ltruncate(n, list)			gtm_list_truncate(list, n)
 
-#define set_union(l1, l2)			list_union(l1, l2)
-#define set_ptrUnion(l1, l2)		list_union_ptr(l1, l2)
+#define gtm_set_union(l1, l2)			gtm_list_union(l1, l2)
+#define gtm_set_ptrUnion(l1, l2)		gtm_list_union_ptr(l1, l2)
 
-#define set_difference(l1, l2)		list_difference(l1, l2)
-#define set_ptrDifference(l1, l2)	list_difference_ptr(l1, l2)
+#define gtm_set_difference(l1, l2)		gtm_list_difference(l1, l2)
+#define gtm_set_ptrDifference(l1, l2)	gtm_list_difference_ptr(l1, l2)
 
-#define equali(l1, l2)				equal(l1, l2)
-#define equalo(l1, l2)				equal(l1, l2)
+#define gtm_equali(l1, l2)				gtm_equal(l1, l2)
+#define gtm_equalo(l1, l2)				gtm_equal(l1, l2)
 
-#define freeList(list)				list_free(list)
+#define gtm_freeList(list)				gtm_list_free(list)
 
-#define listCopy(list)				list_copy(list)
+#define gtm_listCopy(list)				gtm_list_copy(list)
 
-extern int	length(List *list);
+extern int	gtm_length(gtm_List *list);
 #endif   /* ENABLE_LIST_COMPAT */
 
 #endif   /* GTM_LIST_H */

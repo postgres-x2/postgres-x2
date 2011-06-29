@@ -39,14 +39,6 @@ typedef struct
 				(port))
 
 /*
- * Packet lengths are 4 bytes in network byte order.
- *
- * The initial length is omitted from the packet layouts appearing below.
- */
-
-typedef uint32 PacketLen;
-
-/*
  * In protocol 3.0 and later, the startup packet length is not fixed, but
  * we set an arbitrary limit on it anyway.	This is just to prevent simple
  * denial-of-service attacks via sending enough data to run the server

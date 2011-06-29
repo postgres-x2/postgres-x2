@@ -15,6 +15,8 @@
 #define GTM_CONN_H
 
 #include "gtm/libpq-be.h"
+#include "gtm/libpq-fe.h"
+#include "gtm/libpq-int.h"
 
 struct GTM_ThreadInfo;
 
@@ -24,6 +26,9 @@ typedef struct GTM_ConnectionInfo
 	Port					*con_port;
 	struct GTM_ThreadInfo	*con_thrinfo;
 	bool					con_authenticated;
+
+	/* a connection object to the standby */
+	GTM_Conn				*standby;
 } GTM_ConnectionInfo;
 
 typedef struct GTM_Connections

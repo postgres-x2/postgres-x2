@@ -176,6 +176,7 @@ trim_trailing_separator(char *path)
 		for (p--; p > path && IS_DIR_SEP(*p); p--)
 			*p = '\0';
 }
+
 /*
  * If the given pathname isn't already absolute, make it so, interpreting
  * it relative to the current working directory.
@@ -186,7 +187,7 @@ trim_trailing_separator(char *path)
 char *
 make_absolute_path(const char *path)
 {
-	char	   *new;
+	char   *new;
 
 	/* Returning null for null input is convenient for some callers */
 	if (path == NULL)
@@ -194,8 +195,8 @@ make_absolute_path(const char *path)
 
 	if (!is_absolute_path(path))
 	{
-		char	   *buf;
-		size_t		buflen;
+		char   *buf;
+		size_t  buflen;
 
 		buflen = MAXPGPATH;
 		for (;;)
@@ -221,7 +222,7 @@ make_absolute_path(const char *path)
 
 		new = malloc(strlen(buf) + strlen(path) + 2);
 		if (!new)
-		     return NULL;
+			return NULL;
 		sprintf(new, "%s/%s", buf, path);
 		free(buf);
 	}
@@ -229,7 +230,7 @@ make_absolute_path(const char *path)
 	{
 		new = strdup(path);
 		if (!new)
-		     return NULL;
+			return NULL;
 	}
 
 	/* Make sure punctuation is canonical, too */
