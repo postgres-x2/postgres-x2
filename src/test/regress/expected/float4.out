@@ -7,7 +7,7 @@ INSERT INTO FLOAT4_TBL(f1) VALUES ('1004.30   ');
 INSERT INTO FLOAT4_TBL(f1) VALUES ('     -34.84    ');
 INSERT INTO FLOAT4_TBL(f1) VALUES ('1.2345678901234e+20');
 INSERT INTO FLOAT4_TBL(f1) VALUES ('1.2345678901234e-20');
--- test for over and under flow 
+-- test for over and under flow
 INSERT INTO FLOAT4_TBL(f1) VALUES ('10e70');
 ERROR:  value out of range: overflow
 LINE 1: INSERT INTO FLOAT4_TBL(f1) VALUES ('10e70');

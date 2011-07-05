@@ -4,11 +4,11 @@
  *	  Routines for interprocess signalling
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/storage/ipc/procsignal.c,v 1.6 2010/02/26 02:01:00 momjian Exp $
+ *	  src/backend/storage/ipc/procsignal.c
  *
  *-------------------------------------------------------------------------
  */
@@ -21,6 +21,7 @@
 #include "commands/async.h"
 #include "miscadmin.h"
 #include "storage/ipc.h"
+#include "storage/latch.h"
 #include "storage/procsignal.h"
 #include "storage/shmem.h"
 #include "storage/sinval.h"
@@ -66,7 +67,7 @@ static bool CheckProcSignal(ProcSignalReason reason);
 static void CleanupProcSignalState(int status, Datum arg);
 
 /*
- * ProcSignalShmemInit
+ * ProcSignalShmemSize
  *		Compute space needed for procsignal's shared memory
  */
 Size
@@ -277,6 +278,8 @@ procsignal_sigusr1_handler(SIGNAL_ARGS)
 
 	if (CheckProcSignal(PROCSIG_RECOVERY_CONFLICT_BUFFERPIN))
 		RecoveryConflictInterrupt(PROCSIG_RECOVERY_CONFLICT_BUFFERPIN);
+
+	latch_sigusr1_handler();
 
 	errno = save_errno;
 }

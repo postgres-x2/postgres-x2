@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/external-projects.sgml,v 1.20 2010/06/07 02:01:08 itagaki Exp $ -->
+<!-- doc/src/sgml/external-projects.sgml -->
 
  <appendix id="external-projects">
   <title>External Projects</title>
@@ -17,10 +17,10 @@
    projects that are maintained outside the core <productname>PostgreSQL</>
    distribution. PgFoundry is built using the GForge software project and is
    similar to <ulink url="http://sourceforge.net">SourceForge.net</> in its
-   feature set, providing mailing lists, forums, bug tracking, CVS, and web
+   feature set, providing mailing lists, forums, bug tracking, SCM, and web
    hosting. If you have a <productname>PostgreSQL</>-related open source
-   project that you would like to have hosted at PgFoundy, please feel free
-   to create a new project.
+   project that you would like to have hosted at PgFoundry, please feel free
+   to create a new project there.
   </para>
 
  <sect1 id="external-interfaces">
@@ -45,7 +45,7 @@
 
     <listitem>
      <para>
-      <link linkend="ecpg">ecpg</link> is included because it depends on the
+      <link linkend="ecpg">ECPG</link> is included because it depends on the
       server-side SQL grammar, and is therefore sensitive to changes in
       <productname>PostgreSQL</productname> itself.
      </para>
@@ -61,7 +61,7 @@
   </para>
 
   <table id="language-interface-table">
-   <title>Externally Maintained Client Interfaces</>
+   <title>Externally Maintained Client Interfaces</title>
 
    <tgroup cols="4">
     <thead>
@@ -134,6 +134,22 @@
   </table>
  </sect1>
 
+ <sect1 id="external-admin-tools">
+ <title>Administration Tools</title>
+
+  <indexterm>
+   <primary>administration tools</primary>
+   <secondary>externally maintained</secondary>
+  </indexterm>
+
+  <para>
+   There are several administration tools available for
+   <productname>PostgreSQL</>. The most popular is
+   <application><ulink url="http://www.pgadmin.org/">pgAdmin III</ulink></>,
+   and there are several commercially available ones as well.
+  </para>
+ </sect1>
+
  <sect1 id="external-pl">
   <title>Procedural Languages</title>
 
@@ -145,7 +161,7 @@
   <para>
    <productname>PostgreSQL</productname> includes several procedural
    languages with the base distribution: <link
-   linkend="plpgsql">PL/PgSQL</link>, <link linkend="pltcl">PL/Tcl</link>,
+   linkend="plpgsql">PL/pgSQL</link>, <link linkend="pltcl">PL/Tcl</link>,
    <link linkend="plperl">PL/Perl</link>, and <link
    linkend="plpython">PL/Python</link>.
   </para>
@@ -218,37 +234,29 @@
    </tgroup>
   </table>
  </sect1>
- 
+
  <sect1 id="external-extensions">
  <title>Extensions</title>
 
   <indexterm>
-   <primary>extensions</primary>
+   <primary>extension</primary>
+   <secondary>externally maintained</secondary>
   </indexterm>
 
   <para>
    <productname>PostgreSQL</> is designed to be easily extensible. For
-   this reason, extensions loaded into the database can function just
-   like features that are packaged with the database. The
+   this reason, extensions loaded into the database can function
+   just like features that are built in. The
    <filename>contrib/</> directory shipped with the source code
-   contains a large number of extensions. The <filename>README</> file
-   in that directory contains a summary. They include conversion
-   tools, full-text indexing, <acronym>XML</> tools, and additional
-   data types and indexing methods. Other extensions are developed
+   contains several extensions, which are described in
+   <xref linkend="contrib">.  Other extensions are developed
    independently, like <application><ulink
    url="http://www.postgis.org/">PostGIS</ulink></>.  Even
-   <productname>PostgreSQL</> replication solutions are developed
+   <productname>PostgreSQL</> replication solutions can be developed
    externally. For example, <application> <ulink
    url="http://www.slony.info">Slony-I</ulink></> is a popular
    master/standby replication solution that is developed independently
    from the core project.
-  </para>
-
-  <para>
-   There are several administration tools available for
-   <productname>PostgreSQL</>. The most popular is
-   <application><ulink url="http://www.pgadmin.org/">pgAdmin III</ulink></>, 
-   and there are several commercially available ones as well.
   </para>
  </sect1>
 </appendix>

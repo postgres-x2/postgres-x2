@@ -4,10 +4,10 @@
  * Postgres transaction log manager record pointer and
  * timeline number definitions
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/access/xlogdefs.h,v 1.26 2010/02/19 10:51:04 heikki Exp $
+ * src/include/access/xlogdefs.h
  */
 #ifndef XLOG_DEFS_H
 #define XLOG_DEFS_H
@@ -85,13 +85,12 @@ typedef uint32 TimeLineID;
 
 /*
  *	Because O_DIRECT bypasses the kernel buffers, and because we never
- *	read those buffers except during crash recovery, it is a win to use
- *	it in all cases where we sync on each write().	We could allow O_DIRECT
- *	with fsync(), but because skipping the kernel buffer forces writes out
- *	quickly, it seems best just to use it for O_SYNC.  It is hard to imagine
- *	how fsync() could be a win for O_DIRECT compared to O_SYNC and O_DIRECT.
- *	Also, O_DIRECT is never enough to force data to the drives, it merely
- *	tries to bypass the kernel cache, so we still need O_SYNC or fsync().
+ *	read those buffers except during crash recovery or if wal_level != minimal,
+ *	it is a win to use it in all cases where we sync on each write().  We could
+ *	allow O_DIRECT with fsync(), but it is unclear if fsync() could process
+ *	writes not buffered in the kernel.	Also, O_DIRECT is never enough to force
+ *	data to the drives, it merely tries to bypass the kernel cache, so we still
+ *	need O_SYNC/O_DSYNC.
  */
 #ifdef O_DIRECT
 #define PG_O_DIRECT				O_DIRECT
@@ -123,12 +122,12 @@ typedef uint32 TimeLineID;
 #endif
 #endif
 
-#if defined(OPEN_DATASYNC_FLAG)
+#if defined(PLATFORM_DEFAULT_SYNC_METHOD)
+#define DEFAULT_SYNC_METHOD		PLATFORM_DEFAULT_SYNC_METHOD
+#elif defined(OPEN_DATASYNC_FLAG)
 #define DEFAULT_SYNC_METHOD		SYNC_METHOD_OPEN_DSYNC
 #elif defined(HAVE_FDATASYNC)
 #define DEFAULT_SYNC_METHOD		SYNC_METHOD_FDATASYNC
-#elif defined(HAVE_FSYNC_WRITETHROUGH_ONLY)
-#define DEFAULT_SYNC_METHOD		SYNC_METHOD_FSYNC_WRITETHROUGH
 #else
 #define DEFAULT_SYNC_METHOD		SYNC_METHOD_FSYNC
 #endif

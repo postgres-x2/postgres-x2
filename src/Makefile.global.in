@@ -1,5 +1,5 @@
 # -*-makefile-*-
-# $PostgreSQL: pgsql/src/Makefile.global.in,v 1.264 2010/07/06 22:03:05 tgl Exp $
+# src/Makefile.global.in
 
 #------------------------------------------------------------------------------
 # All PostgreSQL makefiles include this file and use the variables it sets,
@@ -18,7 +18,9 @@
 #
 # Meta configuration
 
-.PHONY: all install install-strip installdirs uninstall clean distclean maintainer-clean distprep check installcheck maintainer-check coverage html man installcheck-parallel world install-world installcheck-world
+standard_targets = all install installdirs uninstall distprep clean distclean maintainer-clean coverage check installcheck maintainer-check
+
+.PHONY: $(standard_targets) install-strip html man installcheck-parallel
 
 # make `all' the default target
 all:
@@ -156,6 +158,7 @@ with_python	= @with_python@
 with_tcl	= @with_tcl@
 with_openssl	= @with_openssl@
 with_ossp_uuid	= @with_ossp_uuid@
+with_selinux	= @with_selinux@
 with_libxml	= @with_libxml@
 with_libxslt	= @with_libxslt@
 with_system_tzdata = @with_system_tzdata@
@@ -258,7 +261,7 @@ RANLIB = @RANLIB@
 WINDRES = @WINDRES@
 X = @EXEEXT@
 
-# Perl 
+# Perl
 
 ifneq (@PERL@,)
     # quoted to protect pathname with spaces
@@ -283,9 +286,6 @@ XGETTEXT = @XGETTEXT@
 
 GZIP	= gzip
 BZIP2	= bzip2
-
-PL_TESTDB = pl_regression
-CONTRIB_TESTDB = contrib_regression
 
 # Installation.
 
@@ -363,6 +363,9 @@ ELF_SYSTEM= @ELF_SYS@
 # Backend stack size limit has to be hard-wired on Windows (it's in bytes)
 WIN32_STACK_RLIMIT=4194304
 
+# Set if we have a working win32 crashdump header
+have_win32_dbghelp = @have_win32_dbghelp@
+
 # Pull in platform-specific magic
 include $(top_builddir)/src/Makefile.port
 
@@ -391,7 +394,7 @@ endif
 # This macro is for use by libraries linking to libpq.  (Because libpgport
 # isn't created with the same link flags as libpq, it can't be used.)
 libpq = -L$(libpq_builddir) -lpq
-  
+
 # If doing static linking, shared library dependency info isn't available,
 # so add in the libraries that libpq depends on.
 ifeq ($(enable_shared), no)
@@ -400,9 +403,9 @@ libpq += $(filter -lintl -lssl -lcrypto -lkrb5 -lcrypt, $(LIBS)) \
 endif
 
 # This macro is for use by client executables (not libraries) that use libpq.
-# We force clients to pull symbols from the non-shared library libpgport 
-# rather than pulling some libpgport symbols from libpq just because 
-# libpq uses those functions too.  This makes applications less 
+# We force clients to pull symbols from the non-shared library libpgport
+# rather than pulling some libpgport symbols from libpq just because
+# libpq uses those functions too.  This makes applications less
 # dependent on changes in libpq's usage of pgport.  To do this we link to
 # pgport before libpq.  This does cause duplicate -lpgport's to appear
 # on client link lines.
@@ -420,6 +423,25 @@ submake-libpgport:
 	$(MAKE) -C $(top_builddir)/src/port all
 
 .PHONY: submake-libpq submake-libpgport
+
+
+##########################################################################
+#
+# Testing support
+
+PL_TESTDB = pl_regression
+CONTRIB_TESTDB = contrib_regression
+
+ifdef NO_LOCALE
+NOLOCALE += --no-locale
+endif
+
+pg_regress_locale_flags = $(if $(ENCODING),--encoding=$(ENCODING)) $(NOLOCALE)
+
+pg_regress_check = $(top_builddir)/src/test/regress/pg_regress --inputdir=$(srcdir) --temp-install=./tmp_check --top-builddir=$(top_builddir) $(pg_regress_locale_flags)
+pg_regress_installcheck = $(top_builddir)/src/test/regress/pg_regress --inputdir=$(srcdir) --psqldir=$(PSQLDIR) $(pg_regress_locale_flags)
+
+pg_regress_clean_files = results/ regression.diffs regression.out tmp_check/ log/
 
 
 ##########################################################################
@@ -517,7 +539,7 @@ $(top_builddir)/src/include/pg_config.h: $(top_builddir)/src/include/stamp-h
 $(top_builddir)/src/include/stamp-h: $(top_srcdir)/src/include/pg_config.h.in $(top_builddir)/config.status
 	cd $(top_builddir) && ./config.status src/include/pg_config.h
 
-# Also remake ecpg_config.h from ecpg_config.h.in if the latter changed, same 
+# Also remake ecpg_config.h from ecpg_config.h.in if the latter changed, same
 # logic as above.
 $(top_builddir)/src/interfaces/ecpg/include/ecpg_config.h: $(top_builddir)/src/interfaces/ecpg/include/stamp-h
 
@@ -538,6 +560,50 @@ install-strip:
 	    INSTALL_SHLIB_ENV="STRIPPROG='$(STRIP_SHARED_LIB)'" \
 	    INSTALL_STRIP_FLAG=-s \
 	    install
+
+
+##########################################################################
+#
+# Recursive make support
+# ----------------------
+# Instead of recursing through subdirectories with a for loop or
+# repeated $(MAKE) -C whatever calls, this is a little smarter: it
+# allows parallel make across directories and lets make -k and -q work
+# correctly.
+
+# We need the $(eval) function and order-only prerequisites, which are
+# available in GNU make 3.80.  That also happens to be the version
+# where the .VARIABLES variable was introduced, so this is a simple check.
+ifndef .VARIABLES
+$(error GNU make 3.80 or newer is required.  You are using version $(MAKE_VERSION))
+endif
+
+# This function is only for internal use below.  It should be called
+# using $(eval).  It will set up a target so that it recurses into
+# a given subdirectory.  Note that to avoid a nasty bug in make 3.80,
+# this function has to avoid using any complicated constructs (like
+# multiple targets on a line) and also not contain any lines that expand
+# to more than about 200 bytes.  This is why we make it apply to just one
+# subdirectory at a time, rather than to a list of subdirectories.
+# $1: target name, e.g., all
+# $2: subdir name
+# $3: target to run in subdir, usually same as $1
+define _create_recursive_target
+.PHONY: $(1)-$(2)-recurse
+$(1): $(1)-$(2)-recurse
+$(1)-$(2)-recurse:
+	$$(MAKE) -C $(2) $(3)
+endef
+# Note that the use of $$ on the last line above is important; we want
+# $(MAKE) to be evaluated when the rule is run, not when the $(eval) is run
+# to create the rule.  This is necessary to get make -q working.
+
+# Call this function in a makefile that needs to recurse into subdirectories.
+# In the normal case all arguments can be defaulted.
+# $1: targets to make recursive (defaults to list of standard targets)
+# $2: list of subdirs (defaults to SUBDIRS variable)
+# $3: target to run in subdir (defaults to current element of $1)
+recurse = $(foreach target,$(if $1,$1,$(standard_targets)),$(foreach subdir,$(if $2,$2,$(SUBDIRS)),$(eval $(call _create_recursive_target,$(target),$(subdir),$(if $3,$3,$(target))))))
 
 
 ##########################################################################
@@ -581,6 +647,17 @@ clean distclean maintainer-clean: clean-deps
 .PHONY: clean-deps
 clean-deps:
 	@rm -rf $(DEPDIR)
+
+# When in automatic dependency mode, never delete any intermediate
+# files automatically.  Otherwise, the following could happen: When
+# starting from a clean source tree, the first build would delete the
+# intermediate file, but also create the dependency file, which
+# mentions the intermediate file, thus making it non-intermediate.
+# The second build will then need to rebuild the now non-intermediate
+# missing file.  So the second build will do work even though nothing
+# had changed.  One place where this happens is the .c -> .o -> .so
+# chain for some contrib modules.
+.SECONDARY:
 
 endif # autodepend
 
@@ -631,7 +708,6 @@ lcov.info: $(gcda_files)
 	$(GCOV) -b -f -p -o . $(GCOVFLAGS) $*.c >$*.c.gcov.out
 
 coverage: $(gcda_files:.gcda=.c.gcov) lcov.info
-	$(if $(SUBDIRS),for dir in $(SUBDIRS); do $(MAKE) -C $$dir coverage || exit; done)
 
 .PHONY: coverage-html
 coverage-html: coverage

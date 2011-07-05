@@ -1,6 +1,6 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/fuzzystrmatch.sgml,v 1.5 2009/04/06 15:43:00 tgl Exp $ -->
+<!-- doc/src/sgml/fuzzystrmatch.sgml -->
 
-<sect1 id="fuzzystrmatch">
+<sect1 id="fuzzystrmatch" xreflabel="fuzzystrmatch">
  <title>fuzzystrmatch</title>
 
  <indexterm zone="fuzzystrmatch">
@@ -14,8 +14,9 @@
 
  <caution>
   <para>
-   At present, <filename>fuzzystrmatch</> does not work well with
-   multi-byte encodings (such as UTF-8).
+   At present, the <function>soundex</>, <function>metaphone</>,
+   <function>dmetaphone</>, and <function>dmetaphone_alt</> functions do
+   not work well with multibyte encodings (such as UTF-8).
   </para>
  </caution>
 
@@ -34,10 +35,10 @@
    for working with Soundex codes:
   </para>
 
-  <programlisting>
-   soundex(text) returns text
-   difference(text, text) returns int
-  </programlisting>
+<synopsis>
+soundex(text) returns text
+difference(text, text) returns int
+</synopsis>
 
   <para>
    The <function>soundex</> function converts a string to its Soundex code.
@@ -53,7 +54,7 @@
    Here are some usage examples:
   </para>
 
-  <programlisting>
+<programlisting>
 SELECT soundex('hello world!');
 
 SELECT soundex('Anne'), soundex('Ann'), difference('Anne', 'Ann');
@@ -70,7 +71,7 @@ INSERT INTO s VALUES ('jack');
 SELECT * FROM s WHERE soundex(nm) = soundex('john');
 
 SELECT * FROM s WHERE difference(s.nm, 'john') &gt; 2;
-  </programlisting>
+</programlisting>
  </sect2>
 
  <sect2>
@@ -80,10 +81,12 @@ SELECT * FROM s WHERE difference(s.nm, 'john') &gt; 2;
    This function calculates the Levenshtein distance between two strings:
   </para>
 
-  <programlisting>
-   levenshtein(text source, text target, int ins_cost, int del_cost, int sub_cost) returns int
-   levenshtein(text source, text target) returns int
-  </programlisting>
+<synopsis>
+levenshtein(text source, text target, int ins_cost, int del_cost, int sub_cost) returns int
+levenshtein(text source, text target) returns int
+levenshtein_less_equal(text source, text target, int ins_cost, int del_cost, int sub_cost, int max_d) returns int
+levenshtein_less_equal(text source, text target, int max_d) returns int
+</synopsis>
 
   <para>
    Both <literal>source</literal> and <literal>target</literal> can be any
@@ -91,13 +94,18 @@ SELECT * FROM s WHERE difference(s.nm, 'john') &gt; 2;
    specify how much to charge for a character insertion, deletion, or
    substitution, respectively.  You can omit the cost parameters, as in
    the second version of the function; in that case they all default to 1.
+   <literal>levenshtein_less_equal</literal> is accelerated version of
+   levenshtein function for low values of distance. If actual distance
+   is less or equal then max_d, then <literal>levenshtein_less_equal</literal>
+   returns accurate value of it. Otherwise this function returns value
+   which is greater than max_d.
   </para>
 
   <para>
    Examples:
   </para>
 
-  <programlisting>
+<screen>
 test=# SELECT levenshtein('GUMBO', 'GAMBOL');
  levenshtein
 -------------
@@ -109,7 +117,19 @@ test=# SELECT levenshtein('GUMBO', 'GAMBOL', 2,1,1);
 -------------
            3
 (1 row)
-  </programlisting>
+
+test=# SELECT levenshtein_less_equal('extensive', 'exhaustive',2);
+ levenshtein_less_equal
+------------------------
+                      3
+(1 row)
+
+test=# SELECT levenshtein_less_equal('extensive', 'exhaustive',4);
+ levenshtein_less_equal
+------------------------
+                      4
+(1 row)
+</screen>
  </sect2>
 
  <sect2>
@@ -125,9 +145,9 @@ test=# SELECT levenshtein('GUMBO', 'GAMBOL', 2,1,1);
    This function calculates the metaphone code of an input string:
   </para>
 
-  <programlisting>
-   metaphone(text source, int max_output_length) returns text
-  </programlisting>
+<synopsis>
+metaphone(text source, int max_output_length) returns text
+</synopsis>
 
   <para>
    <literal>source</literal> has to be a non-null string with a maximum of
@@ -140,13 +160,13 @@ test=# SELECT levenshtein('GUMBO', 'GAMBOL', 2,1,1);
    Example:
   </para>
 
-  <programlisting>
+<screen>
 test=# SELECT metaphone('GUMBO', 4);
  metaphone
 -----------
  KM
 (1 row)
-  </programlisting>
+</screen>
  </sect2>
 
  <sect2>
@@ -160,10 +180,10 @@ test=# SELECT metaphone('GUMBO', 4);
    These functions compute the primary and alternate codes:
   </para>
 
-  <programlisting>
-   dmetaphone(text source) returns text
-   dmetaphone_alt(text source) returns text
-  </programlisting>
+<synopsis>
+dmetaphone(text source) returns text
+dmetaphone_alt(text source) returns text
+</synopsis>
 
   <para>
    There is no length limit on the input strings.
@@ -173,13 +193,13 @@ test=# SELECT metaphone('GUMBO', 4);
    Example:
   </para>
 
-  <programlisting>
+<screen>
 test=# select dmetaphone('gumbo');
  dmetaphone
 ------------
  KMP
 (1 row)
-  </programlisting>
+</screen>
  </sect2>
 
 </sect1>

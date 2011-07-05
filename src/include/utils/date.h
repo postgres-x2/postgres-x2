@@ -4,10 +4,10 @@
  *	  Definitions for the SQL92 "date" and "time" types.
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/utils/date.h,v 1.44 2010/01/02 16:58:10 momjian Exp $
+ * src/include/utils/date.h
  *
  *-------------------------------------------------------------------------
  */
@@ -91,6 +91,8 @@ typedef struct
 
 
 /* date.c */
+extern double date2timestamp_no_overflow(DateADT dateVal);
+
 extern Datum date_in(PG_FUNCTION_ARGS);
 extern Datum date_out(PG_FUNCTION_ARGS);
 extern Datum date_recv(PG_FUNCTION_ARGS);

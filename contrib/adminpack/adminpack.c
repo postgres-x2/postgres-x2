@@ -3,12 +3,12 @@
  * adminpack.c
  *
  *
- * Copyright (c) 2002-2010, PostgreSQL Global Development Group
+ * Copyright (c) 2002-2011, PostgreSQL Global Development Group
  *
  * Author: Andreas Pflug <pgadmin@pse-consulting.de>
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/contrib/adminpack/adminpack.c,v 1.13 2010/01/02 16:57:32 momjian Exp $
+ *	  contrib/adminpack/adminpack.c
  *
  *-------------------------------------------------------------------------
  */
@@ -73,32 +73,31 @@ convert_and_check_filename(text *arg, bool logAllowed)
 
 	canonicalize_path(filename);	/* filename can change length here */
 
-	/* Disallow ".." in the path */
-	if (path_contains_parent_reference(filename))
-		ereport(ERROR,
-				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-			(errmsg("reference to parent directory (\"..\") not allowed"))));
-
 	if (is_absolute_path(filename))
 	{
-		/* Allow absolute references within DataDir */
-		if (path_is_prefix_of_path(DataDir, filename))
-			return filename;
-		/* The log directory might be outside our datadir, but allow it */
-		if (logAllowed &&
-			is_absolute_path(Log_directory) &&
-			path_is_prefix_of_path(Log_directory, filename))
-			return filename;
+		/* Disallow '/a/b/data/..' */
+		if (path_contains_parent_reference(filename))
+			ereport(ERROR,
+					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+			(errmsg("reference to parent directory (\"..\") not allowed"))));
 
+		/*
+		 * Allow absolute paths if within DataDir or Log_directory, even
+		 * though Log_directory might be outside DataDir.
+		 */
+		if (!path_is_prefix_of_path(DataDir, filename) &&
+			(!logAllowed || !is_absolute_path(Log_directory) ||
+			 !path_is_prefix_of_path(Log_directory, filename)))
+			ereport(ERROR,
+					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+					 (errmsg("absolute path not allowed"))));
+	}
+	else if (!path_is_relative_and_below_cwd(filename))
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-				 (errmsg("absolute path not allowed"))));
-		return NULL;			/* keep compiler quiet */
-	}
-	else
-	{
-		return filename;
-	}
+				 (errmsg("path must be in or below the current directory"))));
+
+	return filename;
 }
 
 

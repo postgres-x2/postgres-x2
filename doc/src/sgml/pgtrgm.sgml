@@ -1,6 +1,6 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/pgtrgm.sgml,v 2.2 2007/12/10 05:32:51 tgl Exp $ -->
+<!-- doc/src/sgml/pgtrgm.sgml -->
 
-<sect1 id="pgtrgm">
+<sect1 id="pgtrgm" xreflabel="pg_trgm">
  <title>pg_trgm</title>
 
  <indexterm zone="pgtrgm">
@@ -43,8 +43,14 @@
  <sect2>
   <title>Functions and Operators</title>
 
+  <para>
+   The functions provided by the <filename>pg_trgm</filename> module
+   are shown in <xref linkend="pgtrgm-func-table">, the operators
+   in <xref linkend="pgtrgm-op-table">.
+  </para>
+
   <table id="pgtrgm-func-table">
-   <title><filename>pg_trgm</filename> functions</title>
+   <title><filename>pg_trgm</filename> Functions</title>
    <tgroup cols="3">
     <thead>
      <row>
@@ -97,7 +103,7 @@
   </table>
 
   <table id="pgtrgm-op-table">
-   <title><filename>pg_trgm</filename> operators</title>
+   <title><filename>pg_trgm</filename> Operators</title>
    <tgroup cols="3">
     <thead>
      <row>
@@ -117,6 +123,14 @@
        <function>set_limit</>.
       </entry>
      </row>
+     <row>
+      <entry><type>text</> <literal>&lt;-&gt;</literal> <type>text</></entry>
+      <entry><type>real</type></entry>
+      <entry>
+       Returns the <quote>distance</> between the arguments, that is
+       one minus the <function>similarity()</> value.
+      </entry>
+     </row>
     </tbody>
    </tgroup>
   </table>
@@ -129,38 +143,62 @@
    The <filename>pg_trgm</filename> module provides GiST and GIN index
    operator classes that allow you to create an index over a text column for
    the purpose of very fast similarity searches.  These index types support
-   the <literal>%</> similarity operator (and no other operators, so you may
-   want a regular btree index too).
+   the above-described similarity operators, and additionally support
+   trigram-based index searches for <literal>LIKE</> and <literal>ILIKE</>
+   queries.  (These indexes do not support equality nor simple comparison
+   operators, so you may need a regular B-tree index too.)
   </para>
 
   <para>
    Example:
 
-  <programlisting>
+<programlisting>
 CREATE TABLE test_trgm (t text);
 CREATE INDEX trgm_idx ON test_trgm USING gist (t gist_trgm_ops);
-  </programlisting>
+</programlisting>
 or
-  <programlisting>
+<programlisting>
 CREATE INDEX trgm_idx ON test_trgm USING gin (t gin_trgm_ops);
-  </programlisting>
+</programlisting>
   </para>
 
   <para>
    At this point, you will have an index on the <structfield>t</> column that
    you can use for similarity searching.  A typical query is
-  </para>
-  <programlisting>
+<programlisting>
 SELECT t, similarity(t, '<replaceable>word</>') AS sml
   FROM test_trgm
   WHERE t % '<replaceable>word</>'
   ORDER BY sml DESC, t;
-  </programlisting>
-  <para>
+</programlisting>
    This will return all values in the text column that are sufficiently
    similar to <replaceable>word</>, sorted from best match to worst.  The
    index will be used to make this a fast operation even over very large data
    sets.
+  </para>
+
+  <para>
+   A variant of the above query is
+<programlisting>
+SELECT t, t &lt;-&gt; '<replaceable>word</>' AS dist
+  FROM test_trgm
+  ORDER BY dist LIMIT 10;
+</programlisting>
+   This can be implemented quite efficiently by GiST indexes, but not
+   by GIN indexes.  It will usually beat the first formulation when only
+   a small number of the closest matches is wanted.
+  </para>
+
+  <para>
+   Beginning in <productname>PostgreSQL</> 9.1, these index types also support
+   index searches for <literal>LIKE</> and <literal>ILIKE</>, for example
+<programlisting>
+SELECT * FROM test_trgm WHERE t LIKE '%foo%bar';
+</programlisting>
+   The index search works by extracting trigrams from the search string
+   and then looking these up in the index.  The more trigrams in the search
+   string, the more effective the index search is.  Unlike B-tree based
+   searches, the search string need not be left-anchored.
   </para>
 
   <para>
@@ -185,14 +223,12 @@ SELECT t, similarity(t, '<replaceable>word</>') AS sml
   <para>
    The first step is to generate an auxiliary table containing all
    the unique words in the documents:
-  </para>
 
-  <programlisting>
+<programlisting>
 CREATE TABLE words AS SELECT word FROM
         ts_stat('SELECT to_tsvector(''simple'', bodytext) FROM documents');
-  </programlisting>
+</programlisting>
 
-  <para>
    where <structname>documents</> is a table that has a text field
    <structfield>bodytext</> that we wish to search.  The reason for using
    the <literal>simple</> configuration with the <function>to_tsvector</>
@@ -202,13 +238,11 @@ CREATE TABLE words AS SELECT word FROM
 
   <para>
    Next, create a trigram index on the word column:
-  </para>
 
-  <programlisting>
+<programlisting>
 CREATE INDEX words_idx ON words USING gin(word gin_trgm_ops);
-  </programlisting>
+</programlisting>
 
-  <para>
    Now, a <command>SELECT</command> query similar to the previous example can
    be used to suggest spellings for misspelled words in user search terms.
    A useful extra test is to require that the selected words are also of

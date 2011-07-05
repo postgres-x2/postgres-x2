@@ -3,12 +3,12 @@
  * visibilitymap.c
  *	  bitmap for tracking visibility of heap tuples
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/access/heap/visibilitymap.c,v 1.10 2010/04/23 23:21:44 rhaas Exp $
+ *	  src/backend/access/heap/visibilitymap.c
  *
  * INTERFACE ROUTINES
  *		visibilitymap_clear - clear a bit in the visibility map
@@ -373,8 +373,7 @@ visibilitymap_truncate(Relation rel, BlockNumber nheapblocks)
 	}
 
 	/* Truncate the unused VM pages, and send smgr inval message */
-	smgrtruncate(rel->rd_smgr, VISIBILITYMAP_FORKNUM, newnblocks,
-				 rel->rd_istemp);
+	smgrtruncate(rel->rd_smgr, VISIBILITYMAP_FORKNUM, newnblocks);
 
 	/*
 	 * We might as well update the local smgr_vm_nblocks setting. smgrtruncate
@@ -478,7 +477,7 @@ vm_extend(Relation rel, BlockNumber vm_nblocks)
 	while (vm_nblocks_now < vm_nblocks)
 	{
 		smgrextend(rel->rd_smgr, VISIBILITYMAP_FORKNUM, vm_nblocks_now,
-				   (char *) pg, rel->rd_istemp);
+				   (char *) pg, false);
 		vm_nblocks_now++;
 	}
 

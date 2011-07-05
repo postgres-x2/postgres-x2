@@ -1,10 +1,12 @@
-# $PostgreSQL: pgsql/contrib/chkpass/Makefile,v 1.10 2007/11/10 23:59:50 momjian Exp $
+# contrib/chkpass/Makefile
 
 MODULE_big = chkpass
 OBJS = chkpass.o
+
+EXTENSION = chkpass
+DATA = chkpass--1.0.sql chkpass--unpackaged--1.0.sql
+
 SHLIB_LINK = $(filter -lcrypt, $(LIBS))
-DATA_built = chkpass.sql
-DATA = uninstall_chkpass.sql
 
 ifdef USE_PGXS
 PG_CONFIG = pg_config

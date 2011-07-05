@@ -4,10 +4,10 @@
  *	  prototypes for typecmds.c.
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/commands/typecmds.h,v 1.27 2010/01/02 16:58:03 momjian Exp $
+ * src/include/commands/typecmds.h
  *
  *-------------------------------------------------------------------------
  */
@@ -24,6 +24,7 @@ extern void RemoveTypes(DropStmt *drop);
 extern void RemoveTypeById(Oid typeOid);
 extern void DefineDomain(CreateDomainStmt *stmt);
 extern void DefineEnum(CreateEnumStmt *stmt);
+extern void AlterEnum(AlterEnumStmt *stmt);
 extern Oid	DefineCompositeType(const RangeVar *typevar, List *coldeflist);
 extern Oid	AssignTypeArrayOid(void);
 
@@ -40,7 +41,8 @@ extern void AlterTypeOwner(List *names, Oid newOwnerId);
 extern void AlterTypeOwnerInternal(Oid typeOid, Oid newOwnerId,
 					   bool hasDependEntry);
 extern void AlterTypeNamespace(List *names, const char *newschema);
-extern void AlterTypeNamespaceInternal(Oid typeOid, Oid nspOid,
+extern Oid	AlterTypeNamespace_oid(Oid typeOid, Oid nspOid);
+extern Oid AlterTypeNamespaceInternal(Oid typeOid, Oid nspOid,
 						   bool isImplicitArray,
 						   bool errorOnTableType);
 

@@ -1,6 +1,6 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/pgstatstatements.sgml,v 1.6 2010/01/08 00:38:20 itagaki Exp $ -->
+<!-- doc/src/sgml/pgstatstatements.sgml -->
 
-<sect1 id="pgstatstatements">
+<sect1 id="pgstatstatements" xreflabel="pg_stat_statements">
  <title>pg_stat_statements</title>
 
  <indexterm zone="pgstatstatements">
@@ -20,7 +20,7 @@
  </para>
 
  <sect2>
-  <title>The <structname>pg_stat_statements</structname> view</title>
+  <title>The <structname>pg_stat_statements</structname> View</title>
 
   <para>
    The statistics gathered by the module are made available via a system view
@@ -31,7 +31,7 @@
   </para>
 
   <table id="pgstatstatements-columns">
-   <title><structname>pg_stat_statements</> columns</title>
+   <title><structname>pg_stat_statements</> Columns</title>
 
    <tgroup cols="4">
     <thead>
@@ -148,7 +148,7 @@
   <para>
    This view, and the function <function>pg_stat_statements_reset</>,
    are available only in databases they have been specifically installed into
-   by running the <filename>pg_stat_statements.sql</> install script.
+   by installing the <literal>pg_stat_statements</> extension.
    However, statistics are tracked across all databases of the server
    whenever the <filename>pg_stat_statements</filename> module is loaded
    into the server, regardless of presence of the view.
@@ -190,7 +190,7 @@
  </sect2>
 
  <sect2>
-  <title>Configuration parameters</title>
+  <title>Configuration Parameters</title>
 
   <variablelist>
    <varlistentry>
@@ -279,22 +279,22 @@
    <filename>postgresql.conf</> file,
    you will need to add <literal>pg_stat_statements</> to
    <xref linkend="guc-custom-variable-classes">.  Typical usage might be:
-  </para>
 
-  <programlisting>
+<programlisting>
 # postgresql.conf
 shared_preload_libraries = 'pg_stat_statements'
 
 custom_variable_classes = 'pg_stat_statements'
 pg_stat_statements.max = 10000
 pg_stat_statements.track = all
-  </programlisting>
+</programlisting>
+  </para>
  </sect2>
 
  <sect2>
-  <title>Sample output</title>
+  <title>Sample Output</title>
 
-  <programlisting>
+<screen>
 bench=# SELECT pg_stat_statements_reset();
 
 $ pgbench -i bench
@@ -334,7 +334,7 @@ calls       | 1
 total_time  | 0.08142
 rows        | 0
 hit_percent | 34.4947735191637631
-  </programlisting>
+</screen>
  </sect2>
 
  <sect2>

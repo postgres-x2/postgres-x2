@@ -3,12 +3,12 @@
  * twophase.c
  *		Two-phase commit support functions.
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
  *
  * IDENTIFICATION
- *		$PostgreSQL: pgsql/src/backend/access/transam/twophase.c,v 1.62 2010/07/06 19:18:55 momjian Exp $
+ *		src/backend/access/transam/twophase.c
  *
  * NOTES
  *		Each global transaction is associated with a global transaction
@@ -56,7 +56,10 @@
 #include "miscadmin.h"
 #include "pg_trace.h"
 #include "pgstat.h"
+#include "replication/walsender.h"
+#include "replication/syncrep.h"
 #include "storage/fd.h"
+#include "storage/predicate.h"
 #include "storage/procarray.h"
 #include "storage/sinvaladt.h"
 #include "storage/smgr.h"
@@ -122,7 +125,7 @@ typedef struct GlobalTransactionData
 	TransactionId locking_xid;	/* top-level XID of backend working on xact */
 	bool		valid;			/* TRUE if fully prepared */
 	char		gid[GIDSIZE];	/* The GID assigned to the prepared xact */
-} GlobalTransactionData;
+}	GlobalTransactionData;
 
 /*
  * Two Phase Commit shared state.  Access to this struct is protected
@@ -870,8 +873,8 @@ StartPrepare(GlobalTransaction gxact)
 	hdr.prepared_at = gxact->prepared_at;
 	hdr.owner = gxact->owner;
 	hdr.nsubxacts = xactGetCommittedChildren(&children);
-	hdr.ncommitrels = smgrGetPendingDeletes(true, &commitrels, NULL);
-	hdr.nabortrels = smgrGetPendingDeletes(false, &abortrels, NULL);
+	hdr.ncommitrels = smgrGetPendingDeletes(true, &commitrels);
+	hdr.nabortrels = smgrGetPendingDeletes(false, &abortrels);
 	hdr.ninvalmsgs = xactGetCommittedInvalidationMessages(&invalmsgs,
 														  &hdr.initfileinval);
 	StrNCpy(hdr.gid, gxact->gid, GIDSIZE);
@@ -1032,6 +1035,13 @@ EndPrepare(GlobalTransaction gxact)
 
 	/* If we crash now, we have prepared: WAL replay will fix things */
 
+	/*
+	 * Wake up all walsenders to send WAL up to the PREPARE record immediately
+	 * if replication is enabled
+	 */
+	if (max_wal_senders > 0)
+		WalSndWakeup();
+
 	/* write correct CRC and close file */
 	if ((write(fd, &statefile_crc, sizeof(pg_crc32))) != sizeof(pg_crc32))
 	{
@@ -1068,6 +1078,14 @@ EndPrepare(GlobalTransaction gxact)
 	MyProc->inCommit = false;
 
 	END_CRIT_SECTION();
+
+	/*
+	 * Wait for synchronous replication, if required.
+	 *
+	 * Note that at this stage we have marked the prepare, but still show as
+	 * running in the procarray (twice!) and continue to hold locks.
+	 */
+	SyncRepWaitForLSN(gxact->prepare_lsn);
 
 	records.tail = records.head = NULL;
 }
@@ -1327,13 +1345,13 @@ FinishPreparedTransaction(const char *gid, bool isCommit)
 	}
 	for (i = 0; i < ndelrels; i++)
 	{
-		SMgrRelation srel = smgropen(delrels[i]);
+		SMgrRelation srel = smgropen(delrels[i], InvalidBackendId);
 		ForkNumber	fork;
 
 		for (fork = 0; fork <= MAX_FORKNUM; fork++)
 		{
 			if (smgrexists(srel, fork))
-				smgrdounlink(srel, fork, false, false);
+				smgrdounlink(srel, fork, false);
 		}
 		smgrclose(srel);
 	}
@@ -1355,6 +1373,8 @@ FinishPreparedTransaction(const char *gid, bool isCommit)
 		ProcessRecords(bufptr, xid, twophase_postcommit_callbacks);
 	else
 		ProcessRecords(bufptr, xid, twophase_postabort_callbacks);
+
+	PredicateLockTwoPhaseFinish(xid, isCommit);
 
 	/* Count the prepared xact as committed or aborted */
 	AtEOXact_PgStat(isCommit);
@@ -2012,6 +2032,13 @@ RecordTransactionCommitPrepared(TransactionId xid,
 	/* Flush XLOG to disk */
 	XLogFlush(recptr);
 
+	/*
+	 * Wake up all walsenders to send WAL up to the COMMIT PREPARED record
+	 * immediately if replication is enabled
+	 */
+	if (max_wal_senders > 0)
+		WalSndWakeup();
+
 	/* Mark the transaction committed in pg_clog */
 	TransactionIdCommitTree(xid, nchildren, children);
 
@@ -2019,6 +2046,14 @@ RecordTransactionCommitPrepared(TransactionId xid,
 	MyProc->inCommit = false;
 
 	END_CRIT_SECTION();
+
+	/*
+	 * Wait for synchronous replication, if required.
+	 *
+	 * Note that at this stage we have marked clog, but still show as running
+	 * in the procarray and continue to hold locks.
+	 */
+	SyncRepWaitForLSN(recptr);
 }
 
 /*
@@ -2085,10 +2120,25 @@ RecordTransactionAbortPrepared(TransactionId xid,
 	XLogFlush(recptr);
 
 	/*
+	 * Wake up all walsenders to send WAL up to the ABORT PREPARED record
+	 * immediately if replication is enabled
+	 */
+	if (max_wal_senders > 0)
+		WalSndWakeup();
+
+	/*
 	 * Mark the transaction aborted in clog.  This is not absolutely necessary
 	 * but we may as well do it while we are here.
 	 */
 	TransactionIdAbortTree(xid, nchildren, children);
 
 	END_CRIT_SECTION();
+
+	/*
+	 * Wait for synchronous replication, if required.
+	 *
+	 * Note that at this stage we have marked clog, but still show as running
+	 * in the procarray and continue to hold locks.
+	 */
+	SyncRepWaitForLSN(recptr);
 }

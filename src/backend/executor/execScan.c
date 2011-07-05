@@ -7,12 +7,12 @@
  *	  stuff - checking the qualification and projecting the tuple
  *	  appropriately.
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/executor/execScan.c,v 1.49 2010/02/26 02:00:41 momjian Exp $
+ *	  src/backend/executor/execScan.c
  *
  *-------------------------------------------------------------------------
  */
@@ -120,13 +120,17 @@ ExecScan(ScanState *node,
 	 */
 	qual = node->ps.qual;
 	projInfo = node->ps.ps_ProjInfo;
+	econtext = node->ps.ps_ExprContext;
 
 	/*
 	 * If we have neither a qual to check nor a projection to do, just skip
 	 * all the overhead and return the raw scan tuple.
 	 */
 	if (!qual && !projInfo)
+	{
+		ResetExprContext(econtext);
 		return ExecScanFetch(node, accessMtd, recheckMtd);
+	}
 
 	/*
 	 * Check to see if we're still projecting out tuples from a previous scan
@@ -148,7 +152,6 @@ ExecScan(ScanState *node,
 	 * storage allocated in the previous tuple cycle.  Note this can't happen
 	 * until we're done projecting out tuples from a scan tuple.
 	 */
-	econtext = node->ps.ps_ExprContext;
 	ResetExprContext(econtext);
 
 	/*

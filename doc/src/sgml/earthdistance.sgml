@@ -1,6 +1,6 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/earthdistance.sgml,v 1.3 2007/12/06 04:12:10 tgl Exp $ -->
+<!-- doc/src/sgml/earthdistance.sgml -->
 
-<sect1 id="earthdistance">
+<sect1 id="earthdistance" xreflabel="earthdistance">
  <title>earthdistance</title>
 
  <indexterm zone="earthdistance">
@@ -10,9 +10,9 @@
  <para>
   The <filename>earthdistance</> module provides two different approaches to
   calculating great circle distances on the surface of the Earth. The one
-  described first depends on the <filename>cube</> package (which
+  described first depends on the <filename>cube</> module (which
   <emphasis>must</> be installed before <filename>earthdistance</> can be
-  installed). The second one is based on the built-in <type>point</> datatype,
+  installed). The second one is based on the built-in <type>point</> data type,
   using longitude and latitude for the coordinates.
  </para>
 
@@ -24,7 +24,7 @@
  </para>
 
  <sect2>
-  <title>Cube-based earth distances</title>
+  <title>Cube-based Earth Distances</title>
 
   <para>
    Data is stored in cubes that are points (both corners are the same) using 3
@@ -38,7 +38,7 @@
    The radius of the Earth is obtained from the <function>earth()</>
    function. It is given in meters. But by changing this one function you can
    change the module to use some other units, or to use a different value of
-   the radius that you feel is more appropiate.
+   the radius that you feel is more appropriate.
   </para>
 
   <para>
@@ -55,11 +55,12 @@
   </para>
 
   <para>
-   The following functions are provided:
+   The provided functions are shown
+   in <xref linkend="earthdistance-cube-functions">.
   </para>
 
   <table id="earthdistance-cube-functions">
-   <title>Cube-based earthdistance functions</title>
+   <title>Cube-based Earthdistance Functions</title>
    <tgroup cols="3">
     <thead>
      <row>
@@ -136,7 +137,7 @@
  </sect2>
 
  <sect2>
-  <title>Point-based earth distances</title>
+  <title>Point-based Earth Distances</title>
 
   <para>
    The second part of the module relies on representing Earth locations as
@@ -148,11 +149,12 @@
   </para>
 
   <para>
-   A single operator is provided:
+   A single operator is provided, shown
+   in <xref linkend="earthdistance-point-operators">.
   </para>
 
   <table id="earthdistance-point-operators">
-   <title>Point-based earthdistance operators</title>
+   <title>Point-based Earthdistance Operators</title>
    <tgroup cols="3">
     <thead>
      <row>

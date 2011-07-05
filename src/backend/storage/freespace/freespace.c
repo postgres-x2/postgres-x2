@@ -4,11 +4,11 @@
  *	  POSTGRES free space map for quickly finding free space in relations
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/storage/freespace/freespace.c,v 1.77 2010/02/26 02:00:59 momjian Exp $
+ *	  src/backend/storage/freespace/freespace.c
  *
  *
  * NOTES:
@@ -303,7 +303,7 @@ FreeSpaceMapTruncateRel(Relation rel, BlockNumber nblocks)
 	}
 
 	/* Truncate the unused FSM pages, and send smgr inval message */
-	smgrtruncate(rel->rd_smgr, FSM_FORKNUM, new_nfsmblocks, rel->rd_istemp);
+	smgrtruncate(rel->rd_smgr, FSM_FORKNUM, new_nfsmblocks);
 
 	/*
 	 * We might as well update the local smgr_fsm_nblocks setting.
@@ -588,7 +588,7 @@ fsm_extend(Relation rel, BlockNumber fsm_nblocks)
 	while (fsm_nblocks_now < fsm_nblocks)
 	{
 		smgrextend(rel->rd_smgr, FSM_FORKNUM, fsm_nblocks_now,
-				   (char *) pg, rel->rd_istemp);
+				   (char *) pg, false);
 		fsm_nblocks_now++;
 	}
 

@@ -1,15 +1,51 @@
-
-#  $PostgreSQL: pgsql/src/pl/plperl/plc_perlboot.pl,v 1.6 2010/05/13 16:39:43 adunstan Exp $
+#  src/pl/plperl/plc_perlboot.pl
 
 use 5.008001;
+use vars qw(%_SHARED $_TD);
 
 PostgreSQL::InServer::Util::bootstrap();
 
-package PostgreSQL::InServer;
+# globals
 
+sub ::is_array_ref {
+	return ref($_[0]) =~ m/^(?:PostgreSQL::InServer::)?ARRAY$/;
+}
+
+sub ::encode_array_literal {
+	my ($arg, $delim) = @_;
+	return $arg unless(::is_array_ref($arg));
+	$delim = ', ' unless defined $delim;
+	my $res = '';
+	foreach my $elem (@$arg) {
+		$res .= $delim if length $res;
+		if (ref $elem) {
+			$res .= ::encode_array_literal($elem, $delim);
+		}
+		elsif (defined $elem) {
+			(my $str = $elem) =~ s/(["\\])/\\$1/g;
+			$res .= qq("$str");
+		}
+		else {
+			$res .= 'NULL';
+		}
+	}
+	return qq({$res});
+}
+
+sub ::encode_array_constructor {
+	my $arg = shift;
+	return ::quote_nullable($arg) unless ::is_array_ref($arg);
+	my $res = join ", ", map {
+		(ref $_) ? ::encode_array_constructor($_)
+		         : ::quote_nullable($_)
+	} @$arg;
+	return "ARRAY[$res]";
+}
+
+{
+package PostgreSQL::InServer;
 use strict;
 use warnings;
-use vars qw(%_SHARED);
 
 sub plperl_warn {
 	(my $msg = shift) =~ s/\(eval \d+\) //g;
@@ -44,36 +80,26 @@ sub mkfunc {
 	return $ret;
 }
 
-sub ::encode_array_literal {
-	my ($arg, $delim) = @_;
-	return $arg
-		if ref $arg ne 'ARRAY';
-	$delim = ', ' unless defined $delim;
-	my $res = '';
-	foreach my $elem (@$arg) {
-		$res .= $delim if length $res;
-		if (ref $elem) {
-			$res .= ::encode_array_literal($elem, $delim);
-		}
-		elsif (defined $elem) {
-			(my $str = $elem) =~ s/(["\\])/\\$1/g;
-			$res .= qq("$str");
-		}
-		else {
-			$res .= 'NULL';
-		}
-	}
-	return qq({$res});
+1;
 }
 
-sub ::encode_array_constructor {
-	my $arg = shift;
-	return ::quote_nullable($arg)
-		if ref $arg ne 'ARRAY';
-	my $res = join ", ", map {
-		(ref $_) ? ::encode_array_constructor($_)
-		         : ::quote_nullable($_)
-	} @$arg;
-	return "ARRAY[$res]";
+{
+package PostgreSQL::InServer::ARRAY;
+use strict;
+use warnings;
+
+use overload
+	'""'=>\&to_str,
+	'@{}'=>\&to_arr;
+
+sub to_str {
+	my $self = shift;
+	return ::encode_typed_literal($self->{'array'}, $self->{'typeoid'});
 }
 
+sub to_arr {
+	return shift->{'array'};
+}
+
+1;
+}

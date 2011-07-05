@@ -3,10 +3,10 @@
  * sequence.h
  *	  prototypes for sequence.c.
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/commands/sequence.h,v 1.44 2010/01/07 04:53:35 tgl Exp $
+ * src/include/commands/sequence.h
  *
  *-------------------------------------------------------------------------
  */
@@ -72,9 +72,11 @@ extern Datum setval_oid(PG_FUNCTION_ARGS);
 extern Datum setval3_oid(PG_FUNCTION_ARGS);
 extern Datum lastval(PG_FUNCTION_ARGS);
 
+extern Datum pg_sequence_parameters(PG_FUNCTION_ARGS);
+
 extern void DefineSequence(CreateSeqStmt *stmt);
 extern void AlterSequence(AlterSeqStmt *stmt);
-extern void AlterSequenceInternal(Oid relid, List *options);
+extern void ResetSequence(Oid seq_relid);
 
 extern void seq_redo(XLogRecPtr lsn, XLogRecord *rptr);
 extern void seq_desc(StringInfo buf, uint8 xl_info, char *rec);

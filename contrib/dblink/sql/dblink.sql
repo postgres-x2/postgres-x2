@@ -1,17 +1,4 @@
--- Adjust this setting to control where the objects get created.
-SET search_path = public;
-
---
--- Define the functions and test data
--- therein.
---
--- Turn off echoing so that expected file does not depend on
--- contents of dblink.sql.
-SET client_min_messages = warning;
-\set ECHO none
-\i dblink.sql
-\set ECHO all
-RESET client_min_messages;
+CREATE EXTENSION dblink;
 
 CREATE TABLE foo(f1 int, f2 text, f3 text[], primary key (f1,f2));
 INSERT INTO foo VALUES (0,'a','{"a0","b0","c0"}');
@@ -327,15 +314,15 @@ SELECT dblink_disconnect('myconn');
 
 -- test asynchronous queries
 SELECT dblink_connect('dtest1', 'dbname=contrib_regression');
-SELECT * from 
+SELECT * from
  dblink_send_query('dtest1', 'select * from foo where f1 < 3') as t1;
 
 SELECT dblink_connect('dtest2', 'dbname=contrib_regression');
-SELECT * from 
+SELECT * from
  dblink_send_query('dtest2', 'select * from foo where f1 > 2 and f1 < 7') as t1;
 
 SELECT dblink_connect('dtest3', 'dbname=contrib_regression');
-SELECT * from 
+SELECT * from
  dblink_send_query('dtest3', 'select * from foo where f1 > 6') as t1;
 
 CREATE TEMPORARY TABLE result AS
@@ -364,7 +351,7 @@ SELECT dblink_disconnect('dtest3');
 SELECT * from result;
 
 SELECT dblink_connect('dtest1', 'dbname=contrib_regression');
-SELECT * from 
+SELECT * from
  dblink_send_query('dtest1', 'select * from foo where f1 < 3') as t1;
 
 SELECT dblink_cancel_query('dtest1');

@@ -3,9 +3,9 @@
  * walprotocol.h
  *	  Definitions relevant to the streaming WAL transmission protocol.
  *
- * Portions Copyright (c) 2010-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 2010-2011, PostgreSQL Global Development Group
  *
- * $PostgreSQL: pgsql/src/include/replication/walprotocol.h,v 1.2 2010/07/06 19:19:00 momjian Exp $
+ * src/include/replication/walprotocol.h
  *
  *-------------------------------------------------------------------------
  */
@@ -38,6 +38,47 @@ typedef struct
 	/* Sender's system clock at the time of transmission */
 	TimestampTz sendTime;
 } WalDataMessageHeader;
+
+/*
+ * Reply message from standby (message type 'r').  This is wrapped within
+ * a CopyData message at the FE/BE protocol level.
+ *
+ * Note that the data length is not specified here.
+ */
+typedef struct
+{
+	/*
+	 * The xlog locations that have been written, flushed, and applied by
+	 * standby-side. These may be invalid if the standby-side is unable to or
+	 * chooses not to report these.
+	 */
+	XLogRecPtr	write;
+	XLogRecPtr	flush;
+	XLogRecPtr	apply;
+
+	/* Sender's system clock at the time of transmission */
+	TimestampTz sendTime;
+} StandbyReplyMessage;
+
+/*
+ * Hot Standby feedback from standby (message type 'h').  This is wrapped within
+ * a CopyData message at the FE/BE protocol level.
+ *
+ * Note that the data length is not specified here.
+ */
+typedef struct
+{
+	/*
+	 * The current xmin and epoch from the standby, for Hot Standby feedback.
+	 * This may be invalid if the standby-side does not support feedback, or
+	 * Hot Standby is not yet available.
+	 */
+	TransactionId xmin;
+	uint32		epoch;
+
+	/* Sender's system clock at the time of transmission */
+	TimestampTz sendTime;
+} StandbyHSFeedbackMessage;
 
 /*
  * Maximum data payload in a WAL data message.	Must be >= XLOG_BLCKSZ.

@@ -1,4 +1,10 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/installation.sgml,v 1.348 2010/07/05 18:54:37 tgl Exp $ -->
+<!-- doc/src/sgml/installation.sgml -->
+<!--
+
+Use </link> not just </> so INSTALL.html can be created without links
+to the main documentation.  Don't use <xref>.
+
+-->
 
 <chapter id="installation">
  <title><![%standalone-include[<productname>PostgreSQL</>]]>
@@ -68,8 +74,8 @@ su - postgres
        <primary>make</primary>
       </indexterm>
 
-      <acronym>GNU</> <application>make</> is required; other
-      <application>make</> programs will <emphasis>not</> work.
+      <acronym>GNU</> <application>make</> version 3.80 or newer is required; other
+      <application>make</> programs or older <acronym>GNU</> <application>make</> versions will <emphasis>not</> work.
       <acronym>GNU</> <application>make</> is often installed under
       the name <filename>gmake</filename>; this document will always
       refer to it by that name. (On some systems
@@ -79,7 +85,6 @@ su - postgres
 <screen>
 <userinput>gmake --version</userinput>
 </screen>
-      It is recommended to use version 3.79.1 or later.
      </para>
     </listitem>
 
@@ -97,9 +102,7 @@ su - postgres
      <para>
       <application>tar</> is required to unpack the source
       distribution, in addition to either
-      <application>gzip</> or <application>bzip2</>.  In
-      addition, <application>gzip</> is required to install the
-      documentation.
+      <application>gzip</> or <application>bzip2</>.
      </para>
     </listitem>
 
@@ -139,7 +142,7 @@ su - postgres
        <primary>zlib</primary>
       </indexterm>
 
-      The <productname>zlib</productname> compression library will be
+      The <productname>zlib</productname> compression library is
       used by default. If you don't want to use it then you must
       specify the <option>--without-zlib</option> option to
       <filename>configure</filename>. Using this option disables
@@ -169,6 +172,11 @@ su - postgres
       recent <productname>Perl</productname> versions, but it was not
       in earlier versions, and in any case it is the choice of whomever
       installed Perl at your site.
+      If you intend to make more than incidental use of
+      <application>PL/Perl</application>, you should ensure that the
+      <productname>Perl</productname> installation was built with the
+      <literal>usemultiplicity</> option enabled (<literal>perl -V</>
+      will show whether this is the case).
      </para>
 
      <para>
@@ -237,7 +245,7 @@ su - postgres
 
     <listitem>
      <para>
-      If you want to build the <application>PL/Tcl</application>
+      To build the <application>PL/Tcl</application>
       procedural language, you of course need a <productname>Tcl</>
       installation.  If you are using a pre-8.4 release of
       <productname>Tcl</>, ensure that it was built without multithreading
@@ -266,17 +274,17 @@ su - postgres
 
     <listitem>
      <para>
-      <application>Kerberos</>, <productname>OpenSSL</>,
+      You need <application>Kerberos</>, <productname>OpenSSL</>,
       <productname>OpenLDAP</>, and/or
       <application>PAM</>, if you want to support authentication or
-      encryption using these services.
+      encryption using those services.
      </para>
     </listitem>
    </itemizedlist>
   </para>
 
   <para>
-   If you are building from a <acronym>CVS</acronym> tree instead of
+   If you are building from a <productname>Git</productname> tree instead of
    using a released source package, or if you want to do server development,
    you also need the following packages:
 
@@ -297,7 +305,7 @@ su - postgres
       </indexterm>
 
       GNU <application>Flex</> and <application>Bison</>
-      are needed to build from a CVS checkout, or if you changed the actual
+      are needed to build from a Git checkout, or if you changed the actual
       scanner and parser definition files. If you need them, be sure
       to get <application>Flex</> 2.5.31 or later and
       <application>Bison</> 1.875 or later. Other <application>lex</>
@@ -310,7 +318,7 @@ su - postgres
        <primary>perl</primary>
       </indexterm>
 
-      <application>Perl</> 5.8 or later is needed to build from a CVS checkout,
+      <application>Perl</> 5.8 or later is needed to build from a Git checkout,
       or if you changed the input files for any of the build steps that
       use Perl scripts.  If building on Windows you will need
       <application>Perl</> in any case.
@@ -363,161 +371,10 @@ su - postgres
 
   <para>
    You can also get the source directly from the version control repository, see
-   <xref linkend="cvs">.
+   <xref linkend="sourcerepo">.
   </para>
  </sect1>
 ]]>
-
- <sect1 id="install-upgrading">
-  <title>Upgrading</title>
-
-  <indexterm zone="install-upgrading">
-   <primary>upgrading</primary>
-  </indexterm>
-
-  <para>
-   These instructions assume that your existing installation is under the
-   <filename>/usr/local/pgsql</> directory, and that the data area is in
-   <filename>/usr/local/pgsql/data</>.  Substitute your paths
-   appropriately.
-  </para>
-
-  <para>
-   The internal data storage format typically changes in every major
-   release of <productname>PostgreSQL</>. Therefore, if you are upgrading
-   an existing installation that does not have a version number of
-   <quote>&majorversion;.x</quote>, you must back up and restore your
-   data.  If you are upgrading from <productname>PostgreSQL</>
-   <quote>&majorversion;.x</quote>, the new version can use your current
-   data files so you should skip the backup and restore steps below because
-   they are unnecessary.
-  </para>
-
-  <procedure>
-   <step>
-    <para>
-     If making a backup, make sure that your database is not being updated.
-     This does not affect the integrity of the backup, but the changed
-     data would of course not be included. If necessary, edit the
-     permissions in the file <filename>/usr/local/pgsql/data/pg_hba.conf</>
-     (or equivalent) to disallow access from everyone except you.
-    </para>
-
-    <para>
-     <indexterm>
-      <primary>pg_dumpall</primary>
-      <secondary>use during upgrade</secondary>
-     </indexterm>
-
-     To back up your database installation, type:
-<screen>
-<userinput>pg_dumpall &gt; <replaceable>outputfile</></userinput>
-</screen>
-     If you need to preserve OIDs (such as when using them as
-     foreign keys), then use the <option>-o</option> option when running
-     <application>pg_dumpall</>.
-    </para>
-
-    <para>
-     To make the backup, you can use the <application>pg_dumpall</application>
-     command from the version you are currently running.  For best
-     results, however, try to use the <application>pg_dumpall</application>
-     command from <productname>PostgreSQL</productname> &version;,
-     since this version contains bug fixes and improvements over older
-     versions.  While this advice might seem idiosyncratic since you
-     haven't installed the new version yet, it is advisable to follow
-     it if you plan to install the new version in parallel with the
-     old version.  In that case you can complete the installation
-     normally and transfer the data later.  This will also decrease
-     the downtime.
-    </para>
-   </step>
-
-   <step>
-    <para>
-     Shut down the old server:
-<screen>
-<userinput>pg_ctl stop</>
-</screen>
-     On systems that have <productname>PostgreSQL</> started at boot time,
-     there is probably a start-up file that will accomplish the same thing. For
-     example, on a <systemitem class="osname">Red Hat Linux</> system one
-     might find that this works:
-<screen>
-<userinput>/etc/rc.d/init.d/postgresql stop</userinput>
-</screen>
-    </para>
-   </step>
-
-   <step>
-    <para>
-     If restoring from backup, rename or delete the old installation
-     directory.  It is a good idea to rename the directory, rather than
-     delete it, in case you have trouble and need to revert to it.  Keep
-     in mind the directory might consume significant disk space.  To rename
-     the directory, use a command like this:
-<screen>
-<userinput>mv /usr/local/pgsql /usr/local/pgsql.old</>
-</screen>
-    </para>
-   </step>
-
-   <step>
-    <para>
-     Install the new version of <productname>PostgreSQL</productname> as
-     outlined in <![%standalone-include[the next section.]]>
-     <![%standalone-ignore[<xref linkend="install-procedure">.]]>
-    </para>
-   </step>
-
-   <step>
-    <para>
-     Create a new database cluster if needed.  Remember that you must
-     execute these commands while logged in to the special database user
-     account (which you already have if you are upgrading).
-<programlisting>
-<userinput>/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data</>
-</programlisting>
-    </para>
-   </step>
-
-   <step>
-    <para>
-     Restore your previous <filename>pg_hba.conf</> and any
-     <filename>postgresql.conf</> modifications.
-    </para>
-   </step>
-
-   <step>
-    <para>
-     Start the database server, again using the special database user
-     account:
-<programlisting>
-<userinput>/usr/local/pgsql/bin/postgres -D /usr/local/pgsql/data</>
-</programlisting>
-    </para>
-   </step>
-
-   <step>
-    <para>
-     Finally, restore your data from backup with:
-<screen>
-<userinput>/usr/local/pgsql/bin/psql -d postgres -f <replaceable>outputfile</></userinput>
-</screen>
-     using the <emphasis>new</> <application>psql</>.
-    </para>
-   </step>
-  </procedure>
-
-  <para>
-   Further discussion appears in
-   <![%standalone-include[the documentation,]]>
-   <![%standalone-ignore[<xref linkend="migration">,]]>
-   including instructions on how the previous installation can continue
-   running while the new installation is installed.
-  </para>
- </sect1>
-
 
  <sect1 id="install-procedure">
   <title>Installation Procedure</title>
@@ -525,7 +382,7 @@ su - postgres
   <procedure>
 
   <step id="configure">
-   <title>Configuration</>
+   <title>Configuration</title>
 
    <indexterm zone="configure">
     <primary>configure</primary>
@@ -1004,9 +861,12 @@ su - postgres
        <term><option>--with-ossp-uuid</option></term>
        <listitem>
         <para>
-         Use the <ulink url="http://www.ossp.org/pkg/lib/uuid/">OSSP UUID
-         library</ulink> when building <filename>contrib/uuid-ossp</>.
-         The library provides functions to generate
+         Build components using the <ulink
+         url="http://www.ossp.org/pkg/lib/uuid/">OSSP UUID
+         library</ulink>.  Specifically, build the
+         <![%standalone-include[uuid-ossp]]>
+         <![%standalone-ignore[<xref linkend="uuid-ossp">]]> module,
+         which provides functions to generate
          UUIDs.<indexterm><primary>UUID</primary></indexterm>
         </para>
        </listitem>
@@ -1039,9 +899,11 @@ su - postgres
        <term><option>--with-libxslt</option></term>
        <listitem>
         <para>
-         Use libxslt when building <filename>contrib/xml2</>.
-         <filename>contrib/xml2</> relies on this library to perform
-         XSL transformations of XML.
+         Use libxslt when building the
+         <![%standalone-include[xml2]]>
+         <![%standalone-ignore[<xref linkend="xml2">]]>
+         module.  <application>xml2</> relies on this library
+         to perform XSL transformations of XML.
         </para>
        </listitem>
       </varlistentry>
@@ -1219,14 +1081,15 @@ su - postgres
          pointed to works correctly with <productname>PostgreSQL</>.
         </para>
 
+        <indexterm><primary>cross compilation</primary></indexterm>
+
         <para>
          This option is mainly aimed at binary package distributors
          who know their target operating system well.  The main
          advantage of using this option is that the PostgreSQL package
          won't need to be upgraded whenever any of the many local
          daylight-saving time rules change.  Another advantage is that
-         PostgreSQL can be cross-compiled<indexterm><primary>cross
-         compilation</primary></indexterm> more straightforwardly if the
+         PostgreSQL can be cross-compiled more straightforwardly if the
          time zone database files do not need to be built during the
          installation.
         </para>
@@ -1515,7 +1378,14 @@ su - postgres
        <listitem>
         <para>
          Full path to the Python interpreter.  This will be used to
-         determine the dependencies for building PL/Python.
+         determine the dependencies for building PL/Python.  Also,
+         whether Python 2 or 3 is specified here (or otherwise
+         implicitly chosen) determines which variant of the PL/Python
+         language becomes available.  See
+         <![%standalone-include[the <application>PL/Python</>
+         documentation]]>
+         <![%standalone-ignore[<xref linkend="plpython-python23">]]>
+         for more information.
         </para>
        </listitem>
       </varlistentry>
@@ -1605,10 +1475,11 @@ PostgreSQL, contrib and HTML documentation successfully made. Ready to install.
 
    <note>
     <para>
-     If you are upgrading an existing system and are going to install
-     the new files over the old ones, be sure to back up
-     your data and shut down the old server before proceeding, as explained in
-     <xref linkend="install-upgrading"> above.
+     If you are upgrading an existing system be sure to read
+     <![%standalone-include[the documentation,]]>
+     <![%standalone-ignore[<xref linkend="upgrading">]]>
+     which has instructions about upgrading a
+     cluster.
     </para>
    </note>
 
@@ -2090,7 +1961,7 @@ kill `cat /usr/local/pgsql/data/postmaster.pid`
  </sect1>
 
  <sect1 id="installation-platform-notes">
-  <title>Platform-Specific Notes</title>
+  <title>Platform-specific Notes</title>
 
   <para>
    This section documents additional platform-specific issues
@@ -2119,87 +1990,59 @@ kill `cat /usr/local/pgsql/data/postmaster.pid`
    <para>
     PostgreSQL works on AIX, but getting it installed properly can be
     challenging.  AIX versions from 4.3.3 to 6.1 are considered supported.
-    You can use GCC or the native IBM compiler xlc.  In
+    You can use GCC or the native IBM compiler <command>xlc</command>.  In
     general, using recent versions of AIX and PostgreSQL helps.  Check
     the build farm for up to date information about which versions of
     AIX are known to work.
    </para>
 
    <para>
-    Use the following <command>configure</command> flags in addition
-    to your own if you have installed Readline or libz
-    there: <literal>--with-includes=/usr/local/include
-    --with-libraries=/usr/local/lib</literal>.
+    The minimum recommended fix levels for supported AIX versions are:
    </para>
 
-   <para>
-    If you don't have a PowerPC or use GCC you might see rounding
-    differences in the geometry regression test.  There will probably
-    be warnings about 0.0/0.0 division and duplicate symbols which you
-    can safely ignore.
-   </para>
+   <variablelist>
+    <varlistentry>
+     <term>AIX 4.3.3</term>
+     <listitem><para>Maintenance Level 11 + post ML11 bundle</para></listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term>AIX 5.1</term>
+     <listitem><para>Maintenance Level 9 + post ML9 bundle</para></listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term>AIX 5.2</term>
+     <listitem><para>Technology Level 10 Service Pack 3</para></listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term>AIX 5.3</term>
+     <listitem><para>Technology Level 7</para></listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term>AIX 6.1</term>
+     <listitem><para>Base Level</para></listitem>
+    </varlistentry>
+   </variablelist>
 
    <para>
-    Some of the AIX tools may be <quote>a little different</quote>
-    from what you may be accustomed to on other platforms.  If you are
-    looking for a version of <command>ldd</command>, useful for
-    determining what object code depends on what libraries, the
-    following URLs may help you:
-    <ulink url="http://www.faqs.org/faqs/aix-faq/part4/section-22.html"></ulink>,
-    <ulink url="http://www.han.de/~jum/aix/ldd.c"></ulink>.
-   </para>
-
-   <para>
-    <xref linkend="AIX-fixlevels"> shows the minimum recommended fix levels
-    for various AIX versions.  To check your current fix level, use
+    To check your current fix level, use
     <command>oslevel -r</command> in AIX 4.3.3 to AIX 5.2 ML 7, or
     <command>oslevel -s</command> in later versions.
    </para>
 
-   <table id="AIX-fixlevels">
-    <title>
-     Minimum recommended <systemitem class="osname">AIX</systemitem> fix levels
-    </title>
-
-    <tgroup cols="2">
-     <thead>
-      <row>
-       <entry>AIX version</entry>
-       <entry>fix level</entry>
-      </row>
-     </thead>
-
-     <tbody>
-      <row>
-       <entry>AIX 4.3.3</entry>
-       <entry>Maintenance Level 11 + post ML11 bundle</entry>
-      </row>
-
-      <row>
-       <entry>AIX 5.1</entry>
-       <entry>Maintenance Level 9 + post ML9 bundle</entry>
-      </row>
-
-      <row>
-       <entry>AIX 5.2</entry>
-       <entry>Technology Level 10 Service Pack 3</entry>
-      </row>
-
-      <row>
-       <entry>AIX 5.3</entry>
-       <entry>Technology Level 7</entry>
-      </row>
-
-      <row>
-       <entry>AIX 6.1</entry>
-       <entry>Base Level</entry>
-      </row>
-     </tbody>
-    </tgroup>
-   </table>
+   <para>
+    Use the following <command>configure</command> flags in addition
+    to your own if you have installed Readline or libz in
+    <literal>/usr/local</>:
+    <literal>--with-includes=/usr/local/include
+    --with-libraries=/usr/local/lib</literal>.
+   </para>
 
    <sect3>
-    <title>GCC issues</title>
+    <title>GCC Issues</title>
 
     <para>
      On AIX 5.3, there have been some problems getting PostgreSQL to
@@ -2217,7 +2060,7 @@ kill `cat /usr/local/pgsql/data/postmaster.pid`
    </sect3>
 
    <sect3>
-    <title>Unix-domain sockets broken</title>
+    <title>Unix-Domain Sockets Broken</title>
 
     <para>
      AIX 5.3 has a problem
@@ -2243,15 +2086,15 @@ kill `cat /usr/local/pgsql/data/postmaster.pid`
    </sect3>
 
    <sect3>
-    <title>Internet address issues</title>
+    <title>Internet Address Issues</title>
 
     <para>
      PostgreSQL relies on the system's <function>getaddrinfo</> function
      to parse IP addresses in <varname>listen_addresses</>,
      <filename>pg_hba.conf</>, etc.  Older versions of AIX have assorted
      bugs in this function.  If you have problems related to these settings,
-     updating to the appropriate fix level shown in <xref
-     linkend="AIX-fixlevels"> should take care of it.
+     updating to the appropriate AIX fix level shown above
+     should take care of it.
     </para>
 
     <!-- http://archives.postgresql.org/message-id/6064jt6cfm.fsf_-_@dba2.int.libertyrms.com -->
@@ -2301,19 +2144,21 @@ hosts=local4,bind4
      </itemizedlist>
     </para>
 
-    <warning> <para> This is really a workaround of problems relating
-    to immaturity of IPv6 support, which improved visibly during the
-    course of AIX 5.3 releases.  It has worked with AIX version 5.3,
-    but does not represent an elegant solution to the problem.  It has
-    been reported that this workaround is not only unnecessary, but
-    causes problems on AIX 6.1, where IPv6 support has become more
-    mature. </para>
+    <warning>
+    <para>
+     This is really a workaround for problems relating
+     to immaturity of IPv6 support, which improved visibly during the
+     course of AIX 5.3 releases.  It has worked with AIX version 5.3,
+     but does not represent an elegant solution to the problem.  It has
+     been reported that this workaround is not only unnecessary, but
+     causes problems on AIX 6.1, where IPv6 support has become more mature.
+    </para>
     </warning>
 
    </sect3>
 
    <sect3>
-    <title>Memory management</title>
+    <title>Memory Management</title>
     <!-- http://archives.postgresql.org/message-id/603bgqmpl9.fsf@dba2.int.libertyrms.com -->
 
     <para>
@@ -2327,7 +2172,7 @@ hosts=local4,bind4
 -bash-3.00$ createlang plperl template1
 createlang: language installation failed: ERROR:  could not load library "/opt/dbs/pgsql748/lib/plperl.so": A memory address is not in the address space for the process.
 </screen>
-    Running as a non-owner in the group posessing the PostgreSQL
+    Running as a non-owner in the group possessing the PostgreSQL
     installation:
 <screen>
 -bash-3.00$ createlang plperl template1
@@ -2408,7 +2253,7 @@ createlang: language installation failed: ERROR:  could not load library "/opt/d
     </para>
 
     <bibliography>
-     <title>References and resources</title>
+     <title>References and Resources</title>
 
      <biblioentry>
       <biblioset relation="article">
@@ -2476,8 +2321,8 @@ createlang: language installation failed: ERROR:  could not load library "/opt/d
    <para>
     PostgreSQL can be built using Cygwin, a Linux-like environment for
     Windows, but that method is inferior to the native Windows build
-    <![%standalone-ignore[(see <xref linkend="install-win32">)]]> and
-    is no longer recommended.
+    <![%standalone-ignore[(see <xref linkend="install-windows">)]]> and
+    running a server under Cygwin is no longer recommended.
    </para>
 
    <para>
@@ -2497,7 +2342,7 @@ createlang: language installation failed: ERROR:  could not load library "/opt/d
 
      <listitem>
       <para>
-       The GNU make command is called "make" not "gmake".
+       The GNU make command is called <command>make</command>, not <command>gmake</command>.
       </para>
      </listitem>
 
@@ -2533,6 +2378,16 @@ createlang: language installation failed: ERROR:  could not load library "/opt/d
        default <command>cygserver</command> configuration may need to
        be changed (e.g., increase <symbol>SEMMNS</symbol>) to prevent
        PostgreSQL from failing due to a lack of system resources.
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+        Building might fail on some systems where a locale other than
+        C is in use. To fix this, set the locale to C by doing
+        <command>export LANG=C.utf8</command> before building, and then
+        setting it back to the previous setting, after you have installed
+        PostgreSQL.
       </para>
      </listitem>
 
@@ -2583,7 +2438,7 @@ make MAX_CONNECTIONS=5 check
    <para>
     Aside from the PostgreSQL source distribution, you will need GNU
     make (HP's make will not do), and either GCC or HP's full ANSI C
-    compiler.  If you intend to build from CVS sources rather than a
+    compiler.  If you intend to build from Git sources rather than a
     distribution tarball, you will also need Flex (GNU lex) and Bison
     (GNU yacc).  We also recommend making sure you are fairly
     up-to-date on HP patches.  At a minimum, if you are building 64
@@ -2727,7 +2582,7 @@ cc-1020 cc: ERROR File = pqcomm.c, Line = 427
     The MinGW build variant uses the normal build system described in
     this chapter; the Visual C++ build works completely differently
     and is described in <![%standalone-include[the
-    documentation]]><![%standalone-ignore[<xref linkend="install-win32">]]>.
+    documentation]]><![%standalone-ignore[<xref linkend="install-windows">]]>.
     It is a fully native build and uses no additional software like
     MinGW.  A ready-made installer is available on the main
     PostgreSQL web site.
@@ -2746,11 +2601,35 @@ cc-1020 cc: ERROR File = pqcomm.c, Line = 427
    </para>
 
    <para>
+     To build 64 bit binaries using MinGW, install the 64 bit tool set
+     from <ulink url="http://mingw-w64.sourceforge.net/"></ulink>, put its bin
+     directory in the <envar>PATH</envar>, and run
+     <command>configure</command> with the
+     <command>--host=x86_64-w64-mingw</command> option.
+   </para>
+
+   <para>
     After you have everything installed, it is suggested that you
     run <application>psql</application>
     under <command>CMD.EXE</command>, as the MSYS console has
     buffering issues.
    </para>
+
+   <sect3 id="windows-crash-dumps">
+    <title>Collecting Crash Dumps on Windows</title>
+
+    <para>
+     If PostgreSQL on Windows crashes, it has the ability to generate
+     <productname>minidumps</> that can be used to track down the cause
+     for the crash, similar to core dumps on Unix. These dumps can be
+     read using the <productname>Windows Debugger Tools</> or using
+     <productname>Visual Studio</>. To enable the generation of dumps
+     on Windows, create a subdirectory named <filename>crashdumps</filename>
+     inside the cluster data directory. The dumps will then be written
+     into this directory with a unique name based on the identifier of
+     the crashing process and the current time of the crash.
+    </para>
+   </sect3>
   </sect2>
 
   <sect2 id="installation-notes-sco">
@@ -2859,7 +2738,7 @@ cc-1020 cc: ERROR File = pqcomm.c, Line = 427
    </sect3>
 
    <sect3>
-    <title>Reading the PostgreSQL man pages</title>
+    <title>Reading the PostgreSQL Man Pages</title>
 
     <para>
      By default, the PostgreSQL man pages are installed into
@@ -2933,13 +2812,13 @@ MANPATH=/usr/lib/scohelp/%L/man:/usr/dt/man:/usr/man:/usr/share/man:scohelp:/usr
    </para>
 
    <sect3>
-    <title>Required tools</title>
+    <title>Required Tools</title>
 
     <para>
      You can build with either GCC or Sun's compiler suite.  For
      better code optimization, Sun's compiler is strongly recommended
      on the SPARC architecture.  We have heard reports of problems
-     when using GCC 2.95.1; gcc 2.95.3 or later is recommended.  If
+     when using GCC 2.95.1; GCC 2.95.3 or later is recommended.  If
      you are using Sun's compiler, be careful not to select
      <filename>/usr/ucb/cc</filename>;
      use <filename>/opt/SUNWspro/bin/cc</filename>.
@@ -2983,7 +2862,7 @@ MANPATH=/usr/lib/scohelp/%L/man:/usr/dt/man:/usr/man:/usr/share/man:scohelp:/usr
    </sect3>
 
    <sect3>
-    <title>configure complains about a failed test program</title>
+    <title>configure Complains About a Failed Test Program</title>
 
     <para>
      If <command>configure</command> complains about a failed test
@@ -3002,13 +2881,13 @@ configure ... LDFLAGS="-R /usr/sfw/lib:/opt/sfw/lib:/usr/local/lib"
    </sect3>
 
    <sect3>
-    <title>64-bit build sometimes crashes</title>
+    <title>64-bit Build Sometimes Crashes</title>
 
     <para>
      On Solaris 7 and older, the 64-bit version of libc has a buggy
      <function>vsnprintf</function> routine, which leads to erratic
      core dumps in PostgreSQL.  The simplest known workaround is to
-     force PostgreSQL to use its own version of vsnprintf rather than
+     force PostgreSQL to use its own version of <function>vsnprintf</function> rather than
      the library copy.  To do this, after you
      run <command>configure</command> edit a file produced by
      <command>configure</command>:
@@ -3026,7 +2905,7 @@ LIBOBJS = snprintf.o
    </sect3>
 
    <sect3>
-    <title>Compiling for optimal performance</title>
+    <title>Compiling for Optimal Performance</title>
 
     <para>
      On the SPARC architecture, Sun Studio is strongly recommended for
@@ -3059,7 +2938,7 @@ LIBOBJS = snprintf.o
    </sect3>
 
    <sect3>
-    <title>Using DTrace for tracing PostgreSQL</title>
+    <title>Using DTrace for Tracing PostgreSQL</title>
 
     <para>
      Yes, using DTrace is possible.  See <![%standalone-include[the
@@ -3070,7 +2949,7 @@ LIBOBJS = snprintf.o
     </para>
 
     <para>
-     If you see the linking of the postgres executable abort with an
+     If you see the linking of the <command>postgres</command> executable abort with an
      error message like:
 <screen>
 Undefined                       first referenced

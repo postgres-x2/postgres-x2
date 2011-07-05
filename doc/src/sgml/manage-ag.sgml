@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/manage-ag.sgml,v 2.62 2010/04/03 07:22:55 petere Exp $ -->
+<!-- doc/src/sgml/manage-ag.sgml -->
 
 <chapter id="managing-databases">
  <title>Managing Databases</title>
@@ -78,6 +78,8 @@ SELECT datname FROM pg_database;
  <sect1 id="manage-ag-createdb">
   <title>Creating a Database</title>
 
+  <indexterm><primary>CREATE DATABASE</></>
+
   <para>
    In order to create a database, the <productname>PostgreSQL</>
    server must be up and running (see <xref
@@ -86,8 +88,7 @@ SELECT datname FROM pg_database;
 
   <para>
    Databases are created with the SQL command
-   <xref linkend="sql-createdatabase">:<indexterm><primary>CREATE
-   DATABASE</></>
+   <xref linkend="sql-createdatabase">:
 <synopsis>
 CREATE DATABASE <replaceable>name</>;
 </synopsis>

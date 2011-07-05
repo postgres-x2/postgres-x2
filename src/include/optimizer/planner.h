@@ -4,10 +4,10 @@
  *	  prototypes for planner.c.
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/optimizer/planner.h,v 1.48 2010/01/02 16:58:07 momjian Exp $
+ * src/include/optimizer/planner.h
  *
  *-------------------------------------------------------------------------
  */
@@ -40,5 +40,7 @@ extern Expr *expression_planner(Expr *expr);
 extern void GetHashExecNodes(RelationLocInfo *rel_loc_info, 
 							ExecNodes **exec_nodes, const Expr *expr);
 #endif
+
+extern bool plan_cluster_use_sort(Oid tableOid, Oid indexOid);
 
 #endif   /* PLANNER_H */

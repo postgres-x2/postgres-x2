@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/gist.sgml,v 1.31 2009/06/12 19:48:53 tgl Exp $ -->
+<!-- doc/src/sgml/gist.sgml -->
 
 <chapter id="GiST">
 <title>GiST Indexes</title>
@@ -78,7 +78,7 @@
 
  <para>
    All it takes to get a <acronym>GiST</acronym> access method up and running
-   is to implement seven user-defined methods, which define the behavior of
+   is to implement several user-defined methods, which define the behavior of
    keys in the tree. Of course these methods have to be pretty fancy to
    support fancy queries, but for all the standard queries (B-trees,
    R-trees, etc.) they're relatively straightforward. In short,
@@ -93,19 +93,23 @@
 
  <para>
    There are seven methods that an index operator class for
-   <acronym>GiST</acronym> must provide. Correctness of the index is ensured
+   <acronym>GiST</acronym> must provide, and an eighth that is optional.
+   Correctness of the index is ensured
    by proper implementation of the <function>same</>, <function>consistent</>
    and <function>union</> methods, while efficiency (size and speed) of the
    index will depend on the <function>penalty</> and <function>picksplit</>
    methods.
-   The remaining two methods are <function>compress</> and
+   The remaining two basic methods are <function>compress</> and
    <function>decompress</>, which allow an index to have internal tree data of
    a different type than the data it indexes. The leaves are to be of the
    indexed data type, while the other tree nodes can be of any C struct (but
-   you still have to follow <productname>PostgreSQL</> datatype rules here,
+   you still have to follow <productname>PostgreSQL</> data type rules here,
    see about <literal>varlena</> for variable sized data). If the tree's
    internal data type exists at the SQL level, the <literal>STORAGE</> option
    of the <command>CREATE OPERATOR CLASS</> command can be used.
+   The optional eighth method is <function>distance</>, which is needed
+   if the operator class wishes to support ordered scans (nearest-neighbor
+   searches).
  </para>
 
  <variablelist>
@@ -374,6 +378,8 @@ my_decompress(PG_FUNCTION_ARGS)
        Returns a value indicating the <quote>cost</quote> of inserting the new
        entry into a particular branch of the tree.  Items will be inserted
        down the path of least <function>penalty</function> in the tree.
+       Values returned by <function>penalty</function> should be non-negative.
+       If a negative value is returned, it will be treated as zero.
       </para>
 
       <para>
@@ -561,9 +567,76 @@ my_same(PG_FUNCTION_ARGS)
 </programlisting>
 
         For historical reasons, the <function>same</> function doesn't
-        just return a boolean result; instead it has to store the flag
+        just return a Boolean result; instead it has to store the flag
         at the location indicated by the third argument.
       </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><function>distance</></term>
+     <listitem>
+      <para>
+       Given an index entry <literal>p</> and a query value <literal>q</>,
+       this function determines the index entry's
+       <quote>distance</> from the query value.  This function must be
+       supplied if the operator class contains any ordering operators.
+       A query using the ordering operator will be implemented by returning
+       index entries with the smallest <quote>distance</> values first,
+       so the results must be consistent with the operator's semantics.
+       For a leaf index entry the result just represents the distance to
+       the index entry; for an internal tree node, the result must be the
+       smallest distance that any child entry could have.
+      </para>
+
+      <para>
+        The <acronym>SQL</> declaration of the function must look like this:
+
+<programlisting>
+CREATE OR REPLACE FUNCTION my_distance(internal, data_type, smallint, oid)
+RETURNS float8
+AS 'MODULE_PATHNAME'
+LANGUAGE C STRICT;
+</programlisting>
+
+        And the matching code in the C module could then follow this skeleton:
+
+<programlisting>
+Datum       my_distance(PG_FUNCTION_ARGS);
+PG_FUNCTION_INFO_V1(my_distance);
+
+Datum
+my_distance(PG_FUNCTION_ARGS)
+{
+    GISTENTRY  *entry = (GISTENTRY *) PG_GETARG_POINTER(0);
+    data_type  *query = PG_GETARG_DATA_TYPE_P(1);
+    StrategyNumber strategy = (StrategyNumber) PG_GETARG_UINT16(2);
+    /* Oid subtype = PG_GETARG_OID(3); */
+    data_type  *key = DatumGetDataType(entry-&gt;key);
+    double      retval;
+
+    /*
+     * determine return value as a function of strategy, key and query.
+     */
+
+    PG_RETURN_FLOAT8(retval);
+}
+</programlisting>
+
+       The arguments to the <function>distance</> function are identical to
+       the arguments of the <function>consistent</> function, except that no
+       recheck flag is used.  The distance to a leaf index entry must always
+       be determined exactly, since there is no way to re-order the tuples
+       once they are returned.  Some approximation is allowed when determining
+       the distance to an internal tree node, so long as the result is never
+       greater than any child's actual distance.  Thus, for example, distance
+       to a bounding box is usually sufficient in geometric applications.  The
+       result value can be any finite <type>float8</> value.  (Infinity and
+       minus infinity are used internally to handle cases such as nulls, so it
+       is not recommended that <function>distance</> functions return these
+       values.)
+      </para>
+
      </listitem>
     </varlistentry>
 
@@ -583,88 +656,59 @@ my_same(PG_FUNCTION_ARGS)
   (see <filename>src/backend/access/gist/gistproc.c</>).  The following
   <filename>contrib</> modules also contain <acronym>GiST</acronym>
   operator classes:
- </para>
 
  <variablelist>
   <varlistentry>
-   <term>btree_gist</term>
+   <term><filename>btree_gist</></term>
    <listitem>
-    <para>B-Tree equivalent functionality for several data types</para>
+    <para>B-tree equivalent functionality for several data types</para>
    </listitem>
   </varlistentry>
 
   <varlistentry>
-   <term>cube</term>
+   <term><filename>cube</></term>
    <listitem>
     <para>Indexing for multidimensional cubes</para>
    </listitem>
   </varlistentry>
 
   <varlistentry>
-   <term>hstore</term>
+   <term><filename>hstore</></term>
    <listitem>
     <para>Module for storing (key, value) pairs</para>
    </listitem>
   </varlistentry>
 
   <varlistentry>
-   <term>intarray</term>
+   <term><filename>intarray</></term>
    <listitem>
     <para>RD-Tree for one-dimensional array of int4 values</para>
    </listitem>
   </varlistentry>
 
   <varlistentry>
-   <term>ltree</term>
+   <term><filename>ltree</></term>
    <listitem>
     <para>Indexing for tree-like structures</para>
    </listitem>
   </varlistentry>
 
   <varlistentry>
-   <term>pg_trgm</term>
+   <term><filename>pg_trgm</></term>
    <listitem>
     <para>Text similarity using trigram matching</para>
    </listitem>
   </varlistentry>
 
   <varlistentry>
-   <term>seg</term>
+   <term><filename>seg</></term>
    <listitem>
     <para>Indexing for <quote>float ranges</quote></para>
    </listitem>
   </varlistentry>
  </variablelist>
-
-</sect1>
-
-<sect1 id="gist-recovery">
- <title>Crash Recovery</title>
-
- <para>
-  Usually, replay of the WAL log is sufficient to restore the integrity
-  of a GiST index following a database crash.  However, there are some
-  corner cases in which the index state is not fully rebuilt.  The index
-  will still be functionally correct, but there might be some performance
-  degradation.  When this occurs, the index can be repaired by
-  <command>VACUUM</>ing its table, or by rebuilding the index using
-  <command>REINDEX</>.  In some cases a plain <command>VACUUM</> is
-  not sufficient, and either <command>VACUUM FULL</> or <command>REINDEX</>
-  is needed.  The need for one of these procedures is indicated by occurrence
-  of this log message during crash recovery:
-<programlisting>
-LOG:  index NNN/NNN/NNN needs VACUUM or REINDEX to finish crash recovery
-</programlisting>
-  or this log message during routine index insertions:
-<programlisting>
-LOG:  index "FOO" needs VACUUM or REINDEX to finish crash recovery
-</programlisting>
-  If a plain <command>VACUUM</> finds itself unable to complete recovery
-  fully, it will return a notice:
-<programlisting>
-NOTICE:  index "FOO" needs VACUUM FULL or REINDEX to finish crash recovery
-</programlisting>
  </para>
+
 </sect1>
 
 </chapter>

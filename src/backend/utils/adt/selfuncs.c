@@ -10,12 +10,12 @@
  *	  Index cost functions are registered in the pg_am catalog
  *	  in the "amcostestimate" attribute.
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/utils/adt/selfuncs.c,v 1.270 2010/02/26 02:01:10 momjian Exp $
+ *	  src/backend/utils/adt/selfuncs.c
  *
  *-------------------------------------------------------------------------
  */
@@ -91,8 +91,10 @@
 #include <ctype.h>
 #include <math.h>
 
+#include "access/gin.h"
 #include "access/sysattr.h"
 #include "catalog/index.h"
+#include "catalog/pg_collation.h"
 #include "catalog/pg_opfamily.h"
 #include "catalog/pg_statistic.h"
 #include "catalog/pg_type.h"
@@ -288,13 +290,15 @@ var_eq_const(VariableStatData *vardata, Oid operator,
 			{
 				/* be careful to apply operator right way 'round */
 				if (varonleft)
-					match = DatumGetBool(FunctionCall2(&eqproc,
-													   values[i],
-													   constval));
+					match = DatumGetBool(FunctionCall2Coll(&eqproc,
+													   DEFAULT_COLLATION_OID,
+														   values[i],
+														   constval));
 				else
-					match = DatumGetBool(FunctionCall2(&eqproc,
-													   constval,
-													   values[i]));
+					match = DatumGetBool(FunctionCall2Coll(&eqproc,
+													   DEFAULT_COLLATION_OID,
+														   constval,
+														   values[i]));
 				if (match)
 					break;
 			}
@@ -594,12 +598,14 @@ mcv_selectivity(VariableStatData *vardata, FmgrInfo *opproc,
 		for (i = 0; i < nvalues; i++)
 		{
 			if (varonleft ?
-				DatumGetBool(FunctionCall2(opproc,
-										   values[i],
-										   constval)) :
-				DatumGetBool(FunctionCall2(opproc,
-										   constval,
-										   values[i])))
+				DatumGetBool(FunctionCall2Coll(opproc,
+											   DEFAULT_COLLATION_OID,
+											   values[i],
+											   constval)) :
+				DatumGetBool(FunctionCall2Coll(opproc,
+											   DEFAULT_COLLATION_OID,
+											   constval,
+											   values[i])))
 				mcv_selec += numbers[i];
 			sumcommon += numbers[i];
 		}
@@ -674,12 +680,14 @@ histogram_selectivity(VariableStatData *vardata, FmgrInfo *opproc,
 			for (i = n_skip; i < nvalues - n_skip; i++)
 			{
 				if (varonleft ?
-					DatumGetBool(FunctionCall2(opproc,
-											   values[i],
-											   constval)) :
-					DatumGetBool(FunctionCall2(opproc,
-											   constval,
-											   values[i])))
+					DatumGetBool(FunctionCall2Coll(opproc,
+												   DEFAULT_COLLATION_OID,
+												   values[i],
+												   constval)) :
+					DatumGetBool(FunctionCall2Coll(opproc,
+												   DEFAULT_COLLATION_OID,
+												   constval,
+												   values[i])))
 					nmatch++;
 			}
 			result = ((double) nmatch) / ((double) (nvalues - 2 * n_skip));
@@ -798,9 +806,10 @@ ineq_histogram_selectivity(PlannerInfo *root,
 														 NULL,
 														 &values[probe]);
 
-				ltcmp = DatumGetBool(FunctionCall2(opproc,
-												   values[probe],
-												   constval));
+				ltcmp = DatumGetBool(FunctionCall2Coll(opproc,
+													   DEFAULT_COLLATION_OID,
+													   values[probe],
+													   constval));
 				if (isgt)
 					ltcmp = !ltcmp;
 				if (ltcmp)
@@ -1077,7 +1086,6 @@ patternsel(PG_FUNCTION_ARGS, Pattern_Type ptype, bool negate)
 	List	   *args = (List *) PG_GETARG_POINTER(2);
 	int			varRelid = PG_GETARG_INT32(3);
 	VariableStatData vardata;
-	Node	   *variable;
 	Node	   *other;
 	bool		varonleft;
 	Datum		constval;
@@ -1119,7 +1127,6 @@ patternsel(PG_FUNCTION_ARGS, Pattern_Type ptype, bool negate)
 		ReleaseVariableStats(vardata);
 		return result;
 	}
-	variable = (Node *) linitial(args);
 
 	/*
 	 * If the constant is NULL, assume operator is strict and return zero, ie,
@@ -1177,9 +1184,14 @@ patternsel(PG_FUNCTION_ARGS, Pattern_Type ptype, bool negate)
 			return result;
 	}
 
-	/* divide pattern into fixed prefix and remainder */
+	/*
+	 * Divide pattern into fixed prefix and remainder.	XXX we have to assume
+	 * default collation here, because we don't have access to the actual
+	 * input collation for the operator.  FIXME ...
+	 */
 	patt = (Const *) other;
-	pstatus = pattern_fixed_prefix(patt, ptype, &prefix, &rest);
+	pstatus = pattern_fixed_prefix(patt, ptype, DEFAULT_COLLATION_OID,
+								   &prefix, &rest);
 
 	/*
 	 * If necessary, coerce the prefix constant to the right type. (The "rest"
@@ -1681,6 +1693,7 @@ scalararraysel(PlannerInfo *root,
 	Node	   *leftop;
 	Node	   *rightop;
 	Oid			nominal_element_type;
+	Oid			nominal_element_collation;
 	RegProcedure oprsel;
 	FmgrInfo	oprselproc;
 	Selectivity s1;
@@ -1703,9 +1716,11 @@ scalararraysel(PlannerInfo *root,
 	rightop = (Node *) lsecond(clause->args);
 
 	/* get nominal (after relabeling) element type of rightop */
-	nominal_element_type = get_element_type(exprType(rightop));
+	nominal_element_type = get_base_element_type(exprType(rightop));
 	if (!OidIsValid(nominal_element_type))
 		return (Selectivity) 0.5;		/* probably shouldn't happen */
+	/* get nominal collation, too, for generating constants */
+	nominal_element_collation = exprCollation(rightop);
 
 	/* look through any binary-compatible relabeling of rightop */
 	rightop = strip_array_coercion(rightop);
@@ -1753,6 +1768,7 @@ scalararraysel(PlannerInfo *root,
 			args = list_make2(leftop,
 							  makeConst(nominal_element_type,
 										-1,
+										nominal_element_collation,
 										elmlen,
 										elem_values[i],
 										elem_nulls[i],
@@ -1833,6 +1849,7 @@ scalararraysel(PlannerInfo *root,
 		dummyexpr = makeNode(CaseTestExpr);
 		dummyexpr->typeId = nominal_element_type;
 		dummyexpr->typeMod = -1;
+		dummyexpr->collation = clause->inputcollid;
 		args = list_make2(leftop, dummyexpr);
 		if (is_join_clause)
 			s2 = DatumGetFloat8(FunctionCall5(&oprselproc,
@@ -2131,9 +2148,10 @@ eqjoinsel_inner(Oid operator,
 			{
 				if (hasmatch2[j])
 					continue;
-				if (DatumGetBool(FunctionCall2(&eqproc,
-											   values1[i],
-											   values2[j])))
+				if (DatumGetBool(FunctionCall2Coll(&eqproc,
+												   DEFAULT_COLLATION_OID,
+												   values1[i],
+												   values2[j])))
 				{
 					hasmatch1[i] = hasmatch2[j] = true;
 					matchprodfreq += numbers1[i] * numbers2[j];
@@ -2274,7 +2292,6 @@ eqjoinsel_semi(Oid operator,
 	double		nd1;
 	double		nd2;
 	Form_pg_statistic stats1 = NULL;
-	Form_pg_statistic stats2 = NULL;
 	bool		have_mcvs1 = false;
 	Datum	   *values1 = NULL;
 	int			nvalues1 = 0;
@@ -2304,7 +2321,6 @@ eqjoinsel_semi(Oid operator,
 
 	if (HeapTupleIsValid(vardata2->statsTuple))
 	{
-		stats2 = (Form_pg_statistic) GETSTRUCT(vardata2->statsTuple);
 		have_mcvs2 = get_attstatsslot(vardata2->statsTuple,
 									  vardata2->atttype,
 									  vardata2->atttypmod,
@@ -2329,7 +2345,9 @@ eqjoinsel_semi(Oid operator,
 		bool	   *hasmatch1;
 		bool	   *hasmatch2;
 		double		nullfrac1 = stats1->stanullfrac;
-		double		matchfreq1;
+		double		matchfreq1,
+					uncertainfrac,
+					uncertain;
 		int			i,
 					nmatches;
 
@@ -2352,9 +2370,10 @@ eqjoinsel_semi(Oid operator,
 			{
 				if (hasmatch2[j])
 					continue;
-				if (DatumGetBool(FunctionCall2(&eqproc,
-											   values1[i],
-											   values2[j])))
+				if (DatumGetBool(FunctionCall2Coll(&eqproc,
+												   DEFAULT_COLLATION_OID,
+												   values1[i],
+												   values2[j])))
 				{
 					hasmatch1[i] = hasmatch2[j] = true;
 					nmatches++;
@@ -2382,18 +2401,26 @@ eqjoinsel_semi(Oid operator,
 		 * the uncertain rows that a fraction nd2/nd1 have join partners. We
 		 * can discount the known-matched MCVs from the distinct-values counts
 		 * before doing the division.
+		 *
+		 * Crude as the above is, it's completely useless if we don't have
+		 * reliable ndistinct values for both sides.  Hence, if either nd1 or
+		 * nd2 is default, punt and assume half of the uncertain rows have
+		 * join partners.
 		 */
-		nd1 -= nmatches;
-		nd2 -= nmatches;
-		if (nd1 <= nd2 || nd2 <= 0)
-			selec = Max(matchfreq1, 1.0 - nullfrac1);
-		else
+		if (nd1 != DEFAULT_NUM_DISTINCT && nd2 != DEFAULT_NUM_DISTINCT)
 		{
-			double		uncertain = 1.0 - matchfreq1 - nullfrac1;
-
-			CLAMP_PROBABILITY(uncertain);
-			selec = matchfreq1 + (nd2 / nd1) * uncertain;
+			nd1 -= nmatches;
+			nd2 -= nmatches;
+			if (nd1 <= nd2 || nd2 <= 0)
+				uncertainfrac = 1.0;
+			else
+				uncertainfrac = nd2 / nd1;
 		}
+		else
+			uncertainfrac = 0.5;
+		uncertain = 1.0 - matchfreq1 - nullfrac1;
+		CLAMP_PROBABILITY(uncertain);
+		selec = matchfreq1 + uncertainfrac * uncertain;
 	}
 	else
 	{
@@ -2403,15 +2430,20 @@ eqjoinsel_semi(Oid operator,
 		 */
 		double		nullfrac1 = stats1 ? stats1->stanullfrac : 0.0;
 
-		if (vardata1->rel)
-			nd1 = Min(nd1, vardata1->rel->rows);
-		if (vardata2->rel)
-			nd2 = Min(nd2, vardata2->rel->rows);
+		if (nd1 != DEFAULT_NUM_DISTINCT && nd2 != DEFAULT_NUM_DISTINCT)
+		{
+			if (vardata1->rel)
+				nd1 = Min(nd1, vardata1->rel->rows);
+			if (vardata2->rel)
+				nd2 = Min(nd2, vardata2->rel->rows);
 
-		if (nd1 <= nd2 || nd2 <= 0)
-			selec = 1.0 - nullfrac1;
+			if (nd1 <= nd2 || nd2 <= 0)
+				selec = 1.0 - nullfrac1;
+			else
+				selec = (nd2 / nd1) * (1.0 - nullfrac1);
+		}
 		else
-			selec = (nd2 / nd1) * (1.0 - nullfrac1);
+			selec = 0.5 * (1.0 - nullfrac1);
 	}
 
 	if (have_mcvs1)
@@ -2630,7 +2662,7 @@ mergejoinscansel(PlannerInfo *root, Node *clause,
 	examine_variable(root, right, 0, &rightvar);
 
 	/* Extract the operator's declared left/right datatypes */
-	get_op_opfamily_properties(opno, opfamily,
+	get_op_opfamily_properties(opno, opfamily, false,
 							   &op_strategy,
 							   &op_lefttype,
 							   &op_righttype);
@@ -3699,7 +3731,7 @@ convert_string_datum(Datum value, Oid typid)
 			return NULL;
 	}
 
-	if (!lc_collate_is_c())
+	if (!lc_collate_is_c(DEFAULT_COLLATION_OID))
 	{
 		char	   *xfrmstr;
 		size_t		xfrmlen;
@@ -3865,8 +3897,7 @@ convert_timevalue_to_scalar(Datum value, Oid typid)
 			return DatumGetTimestamp(DirectFunctionCall1(abstime_timestamp,
 														 value));
 		case DATEOID:
-			return DatumGetTimestamp(DirectFunctionCall1(date_timestamp,
-														 value));
+			return date2timestamp_no_overflow(DatumGetDateADT(value));
 		case INTERVALOID:
 			{
 				Interval   *interval = DatumGetIntervalP(value);
@@ -4398,7 +4429,6 @@ get_variable_range(PlannerInfo *root, VariableStatData *vardata, Oid sortop,
 	Datum		tmin = 0;
 	Datum		tmax = 0;
 	bool		have_data = false;
-	Form_pg_statistic stats;
 	int16		typLen;
 	bool		typByVal;
 	Datum	   *values;
@@ -4422,7 +4452,6 @@ get_variable_range(PlannerInfo *root, VariableStatData *vardata, Oid sortop,
 		/* no stats available, so default result */
 		return false;
 	}
-	stats = (Form_pg_statistic) GETSTRUCT(vardata->statsTuple);
 
 	get_typlenbyval(vardata->atttype, &typLen, &typByVal);
 
@@ -4486,12 +4515,16 @@ get_variable_range(PlannerInfo *root, VariableStatData *vardata, Oid sortop,
 				tmin_is_mcv = tmax_is_mcv = have_data = true;
 				continue;
 			}
-			if (DatumGetBool(FunctionCall2(&opproc, values[i], tmin)))
+			if (DatumGetBool(FunctionCall2Coll(&opproc,
+											   DEFAULT_COLLATION_OID,
+											   values[i], tmin)))
 			{
 				tmin = values[i];
 				tmin_is_mcv = true;
 			}
-			if (DatumGetBool(FunctionCall2(&opproc, tmax, values[i])))
+			if (DatumGetBool(FunctionCall2Coll(&opproc,
+											   DEFAULT_COLLATION_OID,
+											   tmax, values[i])))
 			{
 				tmax = values[i];
 				tmax_is_mcv = true;
@@ -4556,24 +4589,36 @@ get_actual_variable_range(PlannerInfo *root, VariableStatData *vardata,
 			continue;
 
 		/*
-		 * The index list might include fictitious indexes inserted by a
+		 * The index list might include hypothetical indexes inserted by a
 		 * get_relation_info hook --- don't try to access them.
 		 */
-		if (!OidIsValid(index->indexoid))
+		if (index->hypothetical)
 			continue;
 
 		/*
 		 * The first index column must match the desired variable and sort
 		 * operator --- but we can use a descending-order index.
 		 */
-		if (sortop == index->fwdsortop[0])
-			indexscandir = ForwardScanDirection;
-		else if (sortop == index->revsortop[0])
-			indexscandir = BackwardScanDirection;
-		else
-			continue;
 		if (!match_index_to_operand(vardata->var, 0, index))
 			continue;
+		switch (get_op_opfamily_strategy(sortop, index->sortopfamily[0]))
+		{
+			case BTLessStrategyNumber:
+				if (index->reverse_sort[0])
+					indexscandir = BackwardScanDirection;
+				else
+					indexscandir = ForwardScanDirection;
+				break;
+			case BTGreaterStrategyNumber:
+				if (index->reverse_sort[0])
+					indexscandir = ForwardScanDirection;
+				else
+					indexscandir = BackwardScanDirection;
+				break;
+			default:
+				/* index doesn't match the sortop */
+				continue;
+		}
 
 		/*
 		 * Found a suitable index to extract data from.  We'll need an EState
@@ -4624,6 +4669,7 @@ get_actual_variable_range(PlannerInfo *root, VariableStatData *vardata,
 								   1,	/* index col to scan */
 								   InvalidStrategy,		/* no strategy */
 								   InvalidOid,	/* no strategy subtype */
+								   InvalidOid,	/* no collation */
 								   InvalidOid,	/* no reg proc for this */
 								   (Datum) 0);	/* constant */
 
@@ -4633,7 +4679,8 @@ get_actual_variable_range(PlannerInfo *root, VariableStatData *vardata,
 			if (min)
 			{
 				index_scan = index_beginscan(heapRel, indexRel, SnapshotNow,
-											 1, scankeys);
+											 1, 0);
+				index_rescan(index_scan, scankeys, 1, NULL, 0);
 
 				/* Fetch first tuple in sortop's direction */
 				if ((tup = index_getnext(index_scan,
@@ -4664,7 +4711,8 @@ get_actual_variable_range(PlannerInfo *root, VariableStatData *vardata,
 			if (max && have_data)
 			{
 				index_scan = index_beginscan(heapRel, indexRel, SnapshotNow,
-											 1, scankeys);
+											 1, 0);
+				index_rescan(index_scan, scankeys, 1, NULL, 0);
 
 				/* Fetch first tuple in reverse direction */
 				if ((tup = index_getnext(index_scan,
@@ -4728,6 +4776,29 @@ get_actual_variable_range(PlannerInfo *root, VariableStatData *vardata,
  */
 
 /*
+ * Check whether char is a letter (and, hence, subject to case-folding)
+ *
+ * In multibyte character sets, we can't use isalpha, and it does not seem
+ * worth trying to convert to wchar_t to use iswalpha.	Instead, just assume
+ * any multibyte char is potentially case-varying.
+ */
+static int
+pattern_char_isalpha(char c, bool is_multibyte,
+					 pg_locale_t locale, bool locale_is_c)
+{
+	if (locale_is_c)
+		return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+	else if (is_multibyte && IS_HIGHBIT_SET(c))
+		return true;
+#ifdef HAVE_LOCALE_T
+	else if (locale)
+		return isalpha_l((unsigned char) c, locale);
+#endif
+	else
+		return isalpha((unsigned char) c);
+}
+
+/*
  * Extract the fixed prefix, if any, for a pattern.
  *
  * *prefix is set to a palloc'd prefix string (in the form of a Const node),
@@ -4741,7 +4812,7 @@ get_actual_variable_range(PlannerInfo *root, VariableStatData *vardata,
  */
 
 static Pattern_Prefix_Status
-like_fixed_prefix(Const *patt_const, bool case_insensitive,
+like_fixed_prefix(Const *patt_const, bool case_insensitive, Oid collation,
 				  Const **prefix_const, Const **rest_const)
 {
 	char	   *match;
@@ -4752,14 +4823,38 @@ like_fixed_prefix(Const *patt_const, bool case_insensitive,
 	int			pos,
 				match_pos;
 	bool		is_multibyte = (pg_database_encoding_max_length() > 1);
+	pg_locale_t locale = 0;
+	bool		locale_is_c = false;
 
 	/* the right-hand const is type text or bytea */
 	Assert(typeid == BYTEAOID || typeid == TEXTOID);
 
-	if (typeid == BYTEAOID && case_insensitive)
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-		   errmsg("case insensitive matching not supported on type bytea")));
+	if (case_insensitive)
+	{
+		if (typeid == BYTEAOID)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+			errmsg("case insensitive matching not supported on type bytea")));
+
+		/* If case-insensitive, we need locale info */
+		if (lc_ctype_is_c(collation))
+			locale_is_c = true;
+		else if (collation != DEFAULT_COLLATION_OID)
+		{
+			if (!OidIsValid(collation))
+			{
+				/*
+				 * This typically means that the parser could not resolve a
+				 * conflict of implicit collations, so report it that way.
+				 */
+				ereport(ERROR,
+						(errcode(ERRCODE_INDETERMINATE_COLLATION),
+						 errmsg("could not determine which collation to use for ILIKE"),
+						 errhint("Use the COLLATE clause to set the collation explicitly.")));
+			}
+			locale = pg_newlocale_from_collation(collation);
+		}
+	}
 
 	if (typeid != BYTEAOID)
 	{
@@ -4794,23 +4889,11 @@ like_fixed_prefix(Const *patt_const, bool case_insensitive,
 				break;
 		}
 
-		/*
-		 * XXX In multibyte character sets, we can't trust isalpha, so assume
-		 * any multibyte char is potentially case-varying.
-		 */
-		if (case_insensitive)
-		{
-			if (is_multibyte && (unsigned char) patt[pos] >= 0x80)
-				break;
-			if (isalpha((unsigned char) patt[pos]))
-				break;
-		}
+		/* Stop if case-varying character (it's sort of a wildcard) */
+		if (case_insensitive &&
+		  pattern_char_isalpha(patt[pos], is_multibyte, locale, locale_is_c))
+			break;
 
-		/*
-		 * NOTE: this code used to think that %% meant a literal %, but
-		 * textlike() itself does not think that, and the SQL92 spec doesn't
-		 * say any such thing either.
-		 */
 		match[match_pos++] = patt[pos];
 	}
 
@@ -4842,7 +4925,7 @@ like_fixed_prefix(Const *patt_const, bool case_insensitive,
 }
 
 static Pattern_Prefix_Status
-regex_fixed_prefix(Const *patt_const, bool case_insensitive,
+regex_fixed_prefix(Const *patt_const, bool case_insensitive, Oid collation,
 				   Const **prefix_const, Const **rest_const)
 {
 	char	   *match;
@@ -4855,6 +4938,8 @@ regex_fixed_prefix(Const *patt_const, bool case_insensitive,
 	char	   *rest;
 	Oid			typeid = patt_const->consttype;
 	bool		is_multibyte = (pg_database_encoding_max_length() > 1);
+	pg_locale_t locale = 0;
+	bool		locale_is_c = false;
 
 	/*
 	 * Should be unnecessary, there are no bytea regex operators defined. As
@@ -4865,6 +4950,28 @@ regex_fixed_prefix(Const *patt_const, bool case_insensitive,
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 		 errmsg("regular-expression matching not supported on type bytea")));
+
+	if (case_insensitive)
+	{
+		/* If case-insensitive, we need locale info */
+		if (lc_ctype_is_c(collation))
+			locale_is_c = true;
+		else if (collation != DEFAULT_COLLATION_OID)
+		{
+			if (!OidIsValid(collation))
+			{
+				/*
+				 * This typically means that the parser could not resolve a
+				 * conflict of implicit collations, so report it that way.
+				 */
+				ereport(ERROR,
+						(errcode(ERRCODE_INDETERMINATE_COLLATION),
+						 errmsg("could not determine which collation to use for regular expression"),
+						 errhint("Use the COLLATE clause to set the collation explicitly.")));
+			}
+			locale = pg_newlocale_from_collation(collation);
+		}
+	}
 
 	/* the right-hand const is type text for all of these */
 	patt = TextDatumGetCString(patt_const->constvalue);
@@ -4941,17 +5048,10 @@ regex_fixed_prefix(Const *patt_const, bool case_insensitive,
 			patt[pos] == '$')
 			break;
 
-		/*
-		 * XXX In multibyte character sets, we can't trust isalpha, so assume
-		 * any multibyte char is potentially case-varying.
-		 */
-		if (case_insensitive)
-		{
-			if (is_multibyte && (unsigned char) patt[pos] >= 0x80)
-				break;
-			if (isalpha((unsigned char) patt[pos]))
-				break;
-		}
+		/* Stop if case-varying character (it's sort of a wildcard) */
+		if (case_insensitive &&
+		  pattern_char_isalpha(patt[pos], is_multibyte, locale, locale_is_c))
+			break;
 
 		/*
 		 * Check for quantifiers.  Except for +, this means the preceding
@@ -4976,7 +5076,7 @@ regex_fixed_prefix(Const *patt_const, bool case_insensitive,
 		 * backslash followed by alphanumeric is an escape, not a quoted
 		 * character.  Must treat it as having multiple possible matches.
 		 * Note: since only ASCII alphanumerics are escapes, we don't have to
-		 * be paranoid about multibyte here.
+		 * be paranoid about multibyte or collations here.
 		 */
 		if (patt[pos] == '\\')
 		{
@@ -5028,7 +5128,7 @@ regex_fixed_prefix(Const *patt_const, bool case_insensitive,
 }
 
 Pattern_Prefix_Status
-pattern_fixed_prefix(Const *patt, Pattern_Type ptype,
+pattern_fixed_prefix(Const *patt, Pattern_Type ptype, Oid collation,
 					 Const **prefix, Const **rest)
 {
 	Pattern_Prefix_Status result;
@@ -5036,16 +5136,16 @@ pattern_fixed_prefix(Const *patt, Pattern_Type ptype,
 	switch (ptype)
 	{
 		case Pattern_Type_Like:
-			result = like_fixed_prefix(patt, false, prefix, rest);
+			result = like_fixed_prefix(patt, false, collation, prefix, rest);
 			break;
 		case Pattern_Type_Like_IC:
-			result = like_fixed_prefix(patt, true, prefix, rest);
+			result = like_fixed_prefix(patt, true, collation, prefix, rest);
 			break;
 		case Pattern_Type_Regex:
-			result = regex_fixed_prefix(patt, false, prefix, rest);
+			result = regex_fixed_prefix(patt, false, collation, prefix, rest);
 			break;
 		case Pattern_Type_Regex_IC:
-			result = regex_fixed_prefix(patt, true, prefix, rest);
+			result = regex_fixed_prefix(patt, true, collation, prefix, rest);
 			break;
 		default:
 			elog(ERROR, "unrecognized ptype: %d", (int) ptype);
@@ -5110,8 +5210,8 @@ prefix_selectivity(PlannerInfo *root, VariableStatData *vardata,
 	if (cmpopr == InvalidOid)
 		elog(ERROR, "no < operator for opfamily %u", opfamily);
 	fmgr_info(get_opcode(cmpopr), &opproc);
-
-	greaterstrcon = make_greater_string(prefixcon, &opproc);
+	greaterstrcon = make_greater_string(prefixcon, &opproc,
+										DEFAULT_COLLATION_OID);
 	if (greaterstrcon)
 	{
 		Selectivity topsel;
@@ -5406,21 +5506,21 @@ pattern_selectivity(Const *patt, Pattern_Type ptype)
  * in the form of a Const node; else return NULL.
  *
  * The caller must provide the appropriate "less than" comparison function
- * for testing the strings.
+ * for testing the strings, along with the collation to use.
  *
  * The key requirement here is that given a prefix string, say "foo",
  * we must be able to generate another string "fop" that is greater than
  * all strings "foobar" starting with "foo".  We can test that we have
- * generated a string greater than the prefix string, but in non-C locales
+ * generated a string greater than the prefix string, but in non-C collations
  * that is not a bulletproof guarantee that an extension of the string might
  * not sort after it; an example is that "foo " is less than "foo!", but it
  * is not clear that a "dictionary" sort ordering will consider "foo!" less
  * than "foo bar".	CAUTION: Therefore, this function should be used only for
- * estimation purposes when working in a non-C locale.
+ * estimation purposes when working in a non-C collation.
  *
  * To try to catch most cases where an extended string might otherwise sort
  * before the result value, we determine which of the strings "Z", "z", "y",
- * and "9" is seen as largest by the locale, and append that to the given
+ * and "9" is seen as largest by the collation, and append that to the given
  * prefix before trying to find a string that compares as larger.
  *
  * If we max out the righthand byte, truncate off the last character
@@ -5432,7 +5532,7 @@ pattern_selectivity(Const *patt, Pattern_Type ptype)
  * won't have to try more than one or two strings before succeeding.
  */
 Const *
-make_greater_string(const Const *str_const, FmgrInfo *ltproc)
+make_greater_string(const Const *str_const, FmgrInfo *ltproc, Oid collation)
 {
 	Oid			datatype = str_const->consttype;
 	char	   *workstr;
@@ -5468,25 +5568,27 @@ make_greater_string(const Const *str_const, FmgrInfo *ltproc)
 	{
 		workstr = TextDatumGetCString(str_const->constvalue);
 		len = strlen(workstr);
-		if (lc_collate_is_c() || len == 0)
+		if (lc_collate_is_c(collation) || len == 0)
 			cmpstr = str_const->constvalue;
 		else
 		{
 			/* If first time through, determine the suffix to use */
 			static char suffixchar = 0;
+			static Oid	suffixcollation = 0;
 
-			if (!suffixchar)
+			if (!suffixchar || suffixcollation != collation)
 			{
 				char	   *best;
 
 				best = "Z";
-				if (varstr_cmp(best, 1, "z", 1) < 0)
+				if (varstr_cmp(best, 1, "z", 1, collation) < 0)
 					best = "z";
-				if (varstr_cmp(best, 1, "y", 1) < 0)
+				if (varstr_cmp(best, 1, "y", 1, collation) < 0)
 					best = "y";
-				if (varstr_cmp(best, 1, "9", 1) < 0)
+				if (varstr_cmp(best, 1, "9", 1, collation) < 0)
 					best = "9";
 				suffixchar = *best;
+				suffixcollation = collation;
 			}
 
 			/* And build the string to compare to */
@@ -5522,9 +5624,10 @@ make_greater_string(const Const *str_const, FmgrInfo *ltproc)
 			else
 				workstr_const = string_to_bytea_const(workstr, len);
 
-			if (DatumGetBool(FunctionCall2(ltproc,
-										   cmpstr,
-										   workstr_const->constvalue)))
+			if (DatumGetBool(FunctionCall2Coll(ltproc,
+											   collation,
+											   cmpstr,
+											   workstr_const->constvalue)))
 			{
 				/* Successfully made a string larger than cmpstr */
 				if (cmptxt)
@@ -5591,9 +5694,39 @@ static Const *
 string_to_const(const char *str, Oid datatype)
 {
 	Datum		conval = string_to_datum(str, datatype);
+	Oid			collation;
+	int			constlen;
 
-	return makeConst(datatype, -1,
-					 ((datatype == NAMEOID) ? NAMEDATALEN : -1),
+	/*
+	 * We only need to support a few datatypes here, so hard-wire properties
+	 * instead of incurring the expense of catalog lookups.
+	 */
+	switch (datatype)
+	{
+		case TEXTOID:
+		case VARCHAROID:
+		case BPCHAROID:
+			collation = DEFAULT_COLLATION_OID;
+			constlen = -1;
+			break;
+
+		case NAMEOID:
+			collation = InvalidOid;
+			constlen = NAMEDATALEN;
+			break;
+
+		case BYTEAOID:
+			collation = InvalidOid;
+			constlen = -1;
+			break;
+
+		default:
+			elog(ERROR, "unexpected datatype in string_to_const: %u",
+				 datatype);
+			return NULL;
+	}
+
+	return makeConst(datatype, -1, collation, constlen,
 					 conval, false, false);
 }
 
@@ -5610,7 +5743,7 @@ string_to_bytea_const(const char *str, size_t str_len)
 	SET_VARSIZE(bstr, VARHDRSZ + str_len);
 	conval = PointerGetDatum(bstr);
 
-	return makeConst(BYTEAOID, -1, -1, conval, false, false);
+	return makeConst(BYTEAOID, -1, InvalidOid, -1, conval, false, false);
 }
 
 /*-------------------------------------------------------------------------
@@ -5631,7 +5764,9 @@ string_to_bytea_const(const char *str, size_t str_len)
 
 static void
 genericcostestimate(PlannerInfo *root,
-					IndexOptInfo *index, List *indexQuals,
+					IndexOptInfo *index,
+					List *indexQuals,
+					List *indexOrderBys,
 					RelOptInfo *outer_rel,
 					double numIndexTuples,
 					Cost *indexStartupCost,
@@ -5843,7 +5978,8 @@ genericcostestimate(PlannerInfo *root,
 	 * CPU costs as cpu_index_tuple_cost plus one cpu_operator_cost per
 	 * indexqual operator.	Because we have numIndexTuples as a per-scan
 	 * number, we have to multiply by num_sa_scans to get the correct result
-	 * for ScalarArrayOpExpr cases.
+	 * for ScalarArrayOpExpr cases.  Similarly add in costs for any index
+	 * ORDER BY expressions.
 	 *
 	 * Note: this neglects the possible costs of rechecking lossy operators
 	 * and OR-clause expressions.  Detecting that that might be needed seems
@@ -5851,11 +5987,15 @@ genericcostestimate(PlannerInfo *root,
 	 * inaccuracies here ...
 	 */
 	cost_qual_eval(&index_qual_cost, indexQuals, root);
-	qual_op_cost = cpu_operator_cost * list_length(indexQuals);
-	qual_arg_cost = index_qual_cost.startup +
-		index_qual_cost.per_tuple - qual_op_cost;
+	qual_arg_cost = index_qual_cost.startup + index_qual_cost.per_tuple;
+	cost_qual_eval(&index_qual_cost, indexOrderBys, root);
+	qual_arg_cost += index_qual_cost.startup + index_qual_cost.per_tuple;
+	qual_op_cost = cpu_operator_cost *
+		(list_length(indexQuals) + list_length(indexOrderBys));
+	qual_arg_cost -= qual_op_cost;
 	if (qual_arg_cost < 0)		/* just in case... */
 		qual_arg_cost = 0;
+
 	*indexStartupCost = qual_arg_cost;
 	*indexTotalCost += qual_arg_cost;
 	*indexTotalCost += numIndexTuples * num_sa_scans * (cpu_index_tuple_cost + qual_op_cost);
@@ -5888,11 +6028,12 @@ btcostestimate(PG_FUNCTION_ARGS)
 	PlannerInfo *root = (PlannerInfo *) PG_GETARG_POINTER(0);
 	IndexOptInfo *index = (IndexOptInfo *) PG_GETARG_POINTER(1);
 	List	   *indexQuals = (List *) PG_GETARG_POINTER(2);
-	RelOptInfo *outer_rel = (RelOptInfo *) PG_GETARG_POINTER(3);
-	Cost	   *indexStartupCost = (Cost *) PG_GETARG_POINTER(4);
-	Cost	   *indexTotalCost = (Cost *) PG_GETARG_POINTER(5);
-	Selectivity *indexSelectivity = (Selectivity *) PG_GETARG_POINTER(6);
-	double	   *indexCorrelation = (double *) PG_GETARG_POINTER(7);
+	List	   *indexOrderBys = (List *) PG_GETARG_POINTER(3);
+	RelOptInfo *outer_rel = (RelOptInfo *) PG_GETARG_POINTER(4);
+	Cost	   *indexStartupCost = (Cost *) PG_GETARG_POINTER(5);
+	Cost	   *indexTotalCost = (Cost *) PG_GETARG_POINTER(6);
+	Selectivity *indexSelectivity = (Selectivity *) PG_GETARG_POINTER(7);
+	double	   *indexCorrelation = (double *) PG_GETARG_POINTER(8);
 	Oid			relid;
 	AttrNumber	colnum;
 	VariableStatData vardata;
@@ -6069,7 +6210,8 @@ btcostestimate(PG_FUNCTION_ARGS)
 		numIndexTuples = rint(numIndexTuples / num_sa_scans);
 	}
 
-	genericcostestimate(root, index, indexQuals, outer_rel, numIndexTuples,
+	genericcostestimate(root, index, indexQuals, indexOrderBys,
+						outer_rel, numIndexTuples,
 						indexStartupCost, indexTotalCost,
 						indexSelectivity, indexCorrelation);
 
@@ -6149,12 +6291,18 @@ btcostestimate(PG_FUNCTION_ARGS)
 
 	if (HeapTupleIsValid(vardata.statsTuple))
 	{
+		Oid			sortop;
 		float4	   *numbers;
 		int			nnumbers;
 
-		if (get_attstatsslot(vardata.statsTuple, InvalidOid, 0,
+		sortop = get_opfamily_member(index->opfamily[0],
+									 index->opcintype[0],
+									 index->opcintype[0],
+									 BTLessStrategyNumber);
+		if (OidIsValid(sortop) &&
+			get_attstatsslot(vardata.statsTuple, InvalidOid, 0,
 							 STATISTIC_KIND_CORRELATION,
-							 index->fwdsortop[0],
+							 sortop,
 							 NULL,
 							 NULL, NULL,
 							 &numbers, &nnumbers))
@@ -6164,29 +6312,13 @@ btcostestimate(PG_FUNCTION_ARGS)
 			Assert(nnumbers == 1);
 			varCorrelation = numbers[0];
 
+			if (index->reverse_sort[0])
+				varCorrelation = -varCorrelation;
+
 			if (index->ncolumns > 1)
 				*indexCorrelation = varCorrelation * 0.75;
 			else
 				*indexCorrelation = varCorrelation;
-
-			free_attstatsslot(InvalidOid, NULL, 0, numbers, nnumbers);
-		}
-		else if (get_attstatsslot(vardata.statsTuple, InvalidOid, 0,
-								  STATISTIC_KIND_CORRELATION,
-								  index->revsortop[0],
-								  NULL,
-								  NULL, NULL,
-								  &numbers, &nnumbers))
-		{
-			double		varCorrelation;
-
-			Assert(nnumbers == 1);
-			varCorrelation = numbers[0];
-
-			if (index->ncolumns > 1)
-				*indexCorrelation = -varCorrelation * 0.75;
-			else
-				*indexCorrelation = -varCorrelation;
 
 			free_attstatsslot(InvalidOid, NULL, 0, numbers, nnumbers);
 		}
@@ -6203,13 +6335,14 @@ hashcostestimate(PG_FUNCTION_ARGS)
 	PlannerInfo *root = (PlannerInfo *) PG_GETARG_POINTER(0);
 	IndexOptInfo *index = (IndexOptInfo *) PG_GETARG_POINTER(1);
 	List	   *indexQuals = (List *) PG_GETARG_POINTER(2);
-	RelOptInfo *outer_rel = (RelOptInfo *) PG_GETARG_POINTER(3);
-	Cost	   *indexStartupCost = (Cost *) PG_GETARG_POINTER(4);
-	Cost	   *indexTotalCost = (Cost *) PG_GETARG_POINTER(5);
-	Selectivity *indexSelectivity = (Selectivity *) PG_GETARG_POINTER(6);
-	double	   *indexCorrelation = (double *) PG_GETARG_POINTER(7);
+	List	   *indexOrderBys = (List *) PG_GETARG_POINTER(3);
+	RelOptInfo *outer_rel = (RelOptInfo *) PG_GETARG_POINTER(4);
+	Cost	   *indexStartupCost = (Cost *) PG_GETARG_POINTER(5);
+	Cost	   *indexTotalCost = (Cost *) PG_GETARG_POINTER(6);
+	Selectivity *indexSelectivity = (Selectivity *) PG_GETARG_POINTER(7);
+	double	   *indexCorrelation = (double *) PG_GETARG_POINTER(8);
 
-	genericcostestimate(root, index, indexQuals, outer_rel, 0.0,
+	genericcostestimate(root, index, indexQuals, indexOrderBys, outer_rel, 0.0,
 						indexStartupCost, indexTotalCost,
 						indexSelectivity, indexCorrelation);
 
@@ -6222,34 +6355,400 @@ gistcostestimate(PG_FUNCTION_ARGS)
 	PlannerInfo *root = (PlannerInfo *) PG_GETARG_POINTER(0);
 	IndexOptInfo *index = (IndexOptInfo *) PG_GETARG_POINTER(1);
 	List	   *indexQuals = (List *) PG_GETARG_POINTER(2);
-	RelOptInfo *outer_rel = (RelOptInfo *) PG_GETARG_POINTER(3);
-	Cost	   *indexStartupCost = (Cost *) PG_GETARG_POINTER(4);
-	Cost	   *indexTotalCost = (Cost *) PG_GETARG_POINTER(5);
-	Selectivity *indexSelectivity = (Selectivity *) PG_GETARG_POINTER(6);
-	double	   *indexCorrelation = (double *) PG_GETARG_POINTER(7);
+	List	   *indexOrderBys = (List *) PG_GETARG_POINTER(3);
+	RelOptInfo *outer_rel = (RelOptInfo *) PG_GETARG_POINTER(4);
+	Cost	   *indexStartupCost = (Cost *) PG_GETARG_POINTER(5);
+	Cost	   *indexTotalCost = (Cost *) PG_GETARG_POINTER(6);
+	Selectivity *indexSelectivity = (Selectivity *) PG_GETARG_POINTER(7);
+	double	   *indexCorrelation = (double *) PG_GETARG_POINTER(8);
 
-	genericcostestimate(root, index, indexQuals, outer_rel, 0.0,
+	genericcostestimate(root, index, indexQuals, indexOrderBys, outer_rel, 0.0,
 						indexStartupCost, indexTotalCost,
 						indexSelectivity, indexCorrelation);
 
 	PG_RETURN_VOID();
 }
 
+/* Find the index column matching "op"; return its index, or -1 if no match */
+static int
+find_index_column(Node *op, IndexOptInfo *index)
+{
+	int			i;
+
+	for (i = 0; i < index->ncolumns; i++)
+	{
+		if (match_index_to_operand(op, i, index))
+			return i;
+	}
+
+	return -1;
+}
+
+/*
+ * GIN has search behavior completely different from other index types
+ */
 Datum
 gincostestimate(PG_FUNCTION_ARGS)
 {
 	PlannerInfo *root = (PlannerInfo *) PG_GETARG_POINTER(0);
 	IndexOptInfo *index = (IndexOptInfo *) PG_GETARG_POINTER(1);
 	List	   *indexQuals = (List *) PG_GETARG_POINTER(2);
-	RelOptInfo *outer_rel = (RelOptInfo *) PG_GETARG_POINTER(3);
-	Cost	   *indexStartupCost = (Cost *) PG_GETARG_POINTER(4);
-	Cost	   *indexTotalCost = (Cost *) PG_GETARG_POINTER(5);
-	Selectivity *indexSelectivity = (Selectivity *) PG_GETARG_POINTER(6);
-	double	   *indexCorrelation = (double *) PG_GETARG_POINTER(7);
+	List	   *indexOrderBys = (List *) PG_GETARG_POINTER(3);
+	RelOptInfo *outer_rel = (RelOptInfo *) PG_GETARG_POINTER(4);
+	Cost	   *indexStartupCost = (Cost *) PG_GETARG_POINTER(5);
+	Cost	   *indexTotalCost = (Cost *) PG_GETARG_POINTER(6);
+	Selectivity *indexSelectivity = (Selectivity *) PG_GETARG_POINTER(7);
+	double	   *indexCorrelation = (double *) PG_GETARG_POINTER(8);
+	ListCell   *l;
+	List	   *selectivityQuals;
+	double		numPages = index->pages,
+				numTuples = index->tuples;
+	double		numEntryPages,
+				numDataPages,
+				numPendingPages,
+				numEntries;
+	bool		haveFullScan = false;
+	double		partialEntriesInQuals = 0.0;
+	double		searchEntriesInQuals = 0.0;
+	double		exactEntriesInQuals = 0.0;
+	double		entryPagesFetched,
+				dataPagesFetched,
+				dataPagesFetchedBySel;
+	double		qual_op_cost,
+				qual_arg_cost,
+				spc_random_page_cost,
+				num_scans;
+	QualCost	index_qual_cost;
+	Relation	indexRel;
+	GinStatsData ginStats;
 
-	genericcostestimate(root, index, indexQuals, outer_rel, 0.0,
-						indexStartupCost, indexTotalCost,
-						indexSelectivity, indexCorrelation);
+	/*
+	 * Obtain statistic information from the meta page
+	 */
+	indexRel = index_open(index->indexoid, AccessShareLock);
+	ginGetStats(indexRel, &ginStats);
+	index_close(indexRel, AccessShareLock);
+
+	numEntryPages = ginStats.nEntryPages;
+	numDataPages = ginStats.nDataPages;
+	numPendingPages = ginStats.nPendingPages;
+	numEntries = ginStats.nEntries;
+
+	/*
+	 * nPendingPages can be trusted, but the other fields are as of the last
+	 * VACUUM.	Scale them by the ratio numPages / nTotalPages to account for
+	 * growth since then.  If the fields are zero (implying no VACUUM at all,
+	 * and an index created pre-9.1), assume all pages are entry pages.
+	 */
+	if (ginStats.nTotalPages == 0 || ginStats.nEntryPages == 0)
+	{
+		numEntryPages = numPages;
+		numDataPages = 0;
+		numEntries = numTuples; /* bogus, but no other info available */
+	}
+	else
+	{
+		double		scale = numPages / ginStats.nTotalPages;
+
+		numEntryPages = ceil(numEntryPages * scale);
+		numDataPages = ceil(numDataPages * scale);
+		numEntries = ceil(numEntries * scale);
+		/* ensure we didn't round up too much */
+		numEntryPages = Min(numEntryPages, numPages);
+		numDataPages = Min(numDataPages, numPages - numEntryPages);
+	}
+
+	/* In an empty index, numEntries could be zero.  Avoid divide-by-zero */
+	if (numEntries < 1)
+		numEntries = 1;
+
+	/*
+	 * Include predicate in selectivityQuals (should match
+	 * genericcostestimate)
+	 */
+	if (index->indpred != NIL)
+	{
+		List	   *predExtraQuals = NIL;
+
+		foreach(l, index->indpred)
+		{
+			Node	   *predQual = (Node *) lfirst(l);
+			List	   *oneQual = list_make1(predQual);
+
+			if (!predicate_implied_by(oneQual, indexQuals))
+				predExtraQuals = list_concat(predExtraQuals, oneQual);
+		}
+		/* list_concat avoids modifying the passed-in indexQuals list */
+		selectivityQuals = list_concat(predExtraQuals, indexQuals);
+	}
+	else
+		selectivityQuals = indexQuals;
+
+	/* Estimate the fraction of main-table tuples that will be visited */
+	*indexSelectivity = clauselist_selectivity(root, selectivityQuals,
+											   index->rel->relid,
+											   JOIN_INNER,
+											   NULL);
+
+	/* fetch estimated page cost for schema containing index */
+	get_tablespace_page_costs(index->reltablespace,
+							  &spc_random_page_cost,
+							  NULL);
+
+	/*
+	 * Generic assumption about index correlation: there isn't any.
+	 */
+	*indexCorrelation = 0.0;
+
+	/*
+	 * Examine quals to estimate number of search entries & partial matches
+	 */
+	foreach(l, indexQuals)
+	{
+		RestrictInfo *rinfo = (RestrictInfo *) lfirst(l);
+		Expr	   *clause;
+		Node	   *leftop,
+				   *rightop,
+				   *operand;
+		Oid			extractProcOid;
+		Oid			clause_op;
+		int			strategy_op;
+		Oid			lefttype,
+					righttype;
+		int32		nentries = 0;
+		bool	   *partial_matches = NULL;
+		Pointer    *extra_data = NULL;
+		bool	   *nullFlags = NULL;
+		int32		searchMode = GIN_SEARCH_MODE_DEFAULT;
+		int			indexcol;
+
+		Assert(IsA(rinfo, RestrictInfo));
+		clause = rinfo->clause;
+		Assert(IsA(clause, OpExpr));
+		leftop = get_leftop(clause);
+		rightop = get_rightop(clause);
+		clause_op = ((OpExpr *) clause)->opno;
+
+		if ((indexcol = find_index_column(leftop, index)) >= 0)
+		{
+			operand = rightop;
+		}
+		else if ((indexcol = find_index_column(rightop, index)) >= 0)
+		{
+			operand = leftop;
+			clause_op = get_commutator(clause_op);
+		}
+		else
+		{
+			elog(ERROR, "could not match index to operand");
+			operand = NULL;		/* keep compiler quiet */
+		}
+
+		if (IsA(operand, RelabelType))
+			operand = (Node *) ((RelabelType *) operand)->arg;
+
+		/*
+		 * It's impossible to call extractQuery method for unknown operand. So
+		 * unless operand is a Const we can't do much; just assume there will
+		 * be one ordinary search entry from the operand at runtime.
+		 */
+		if (!IsA(operand, Const))
+		{
+			searchEntriesInQuals++;
+			continue;
+		}
+
+		/* If Const is null, there can be no matches */
+		if (((Const *) operand)->constisnull)
+		{
+			*indexStartupCost = 0;
+			*indexTotalCost = 0;
+			*indexSelectivity = 0;
+			PG_RETURN_VOID();
+		}
+
+		/*
+		 * Get the operator's strategy number and declared input data types
+		 * within the index opfamily.  (We don't need the latter, but we use
+		 * get_op_opfamily_properties because it will throw error if it fails
+		 * to find a matching pg_amop entry.)
+		 */
+		get_op_opfamily_properties(clause_op, index->opfamily[indexcol], false,
+								   &strategy_op, &lefttype, &righttype);
+
+		/*
+		 * GIN always uses the "default" support functions, which are those
+		 * with lefttype == righttype == the opclass' opcintype (see
+		 * IndexSupportInitialize in relcache.c).
+		 */
+		extractProcOid = get_opfamily_proc(index->opfamily[indexcol],
+										   index->opcintype[indexcol],
+										   index->opcintype[indexcol],
+										   GIN_EXTRACTQUERY_PROC);
+
+		if (!OidIsValid(extractProcOid))
+		{
+			/* should not happen; throw same error as index_getprocinfo */
+			elog(ERROR, "missing support function %d for attribute %d of index \"%s\"",
+				 GIN_EXTRACTQUERY_PROC, indexcol + 1,
+				 get_rel_name(index->indexoid));
+		}
+
+		OidFunctionCall7(extractProcOid,
+						 ((Const *) operand)->constvalue,
+						 PointerGetDatum(&nentries),
+						 UInt16GetDatum(strategy_op),
+						 PointerGetDatum(&partial_matches),
+						 PointerGetDatum(&extra_data),
+						 PointerGetDatum(&nullFlags),
+						 PointerGetDatum(&searchMode));
+
+		if (nentries <= 0 && searchMode == GIN_SEARCH_MODE_DEFAULT)
+		{
+			/* No match is possible */
+			*indexStartupCost = 0;
+			*indexTotalCost = 0;
+			*indexSelectivity = 0;
+			PG_RETURN_VOID();
+		}
+		else
+		{
+			int32		i;
+
+			for (i = 0; i < nentries; i++)
+			{
+				/*
+				 * For partial match we haven't any information to estimate
+				 * number of matched entries in index, so, we just estimate it
+				 * as 100
+				 */
+				if (partial_matches && partial_matches[i])
+					partialEntriesInQuals += 100;
+				else
+					exactEntriesInQuals++;
+
+				searchEntriesInQuals++;
+			}
+		}
+
+		if (searchMode == GIN_SEARCH_MODE_INCLUDE_EMPTY)
+		{
+			/* Treat "include empty" like an exact-match item */
+			exactEntriesInQuals++;
+			searchEntriesInQuals++;
+		}
+		else if (searchMode != GIN_SEARCH_MODE_DEFAULT)
+		{
+			/* It's GIN_SEARCH_MODE_ALL */
+			haveFullScan = true;
+		}
+	}
+
+	if (haveFullScan || indexQuals == NIL)
+	{
+		/*
+		 * Full index scan will be required.  We treat this as if every key in
+		 * the index had been listed in the query; is that reasonable?
+		 */
+		searchEntriesInQuals = numEntries;
+	}
+
+	/* Will we have more than one iteration of a nestloop scan? */
+	if (outer_rel != NULL && outer_rel->rows > 1)
+		num_scans = outer_rel->rows;
+	else
+		num_scans = 1;
+
+	/*
+	 * cost to begin scan, first of all, pay attention to pending list.
+	 */
+	entryPagesFetched = numPendingPages;
+
+	/*
+	 * Estimate number of entry pages read.  We need to do
+	 * searchEntriesInQuals searches.  Use a power function as it should be,
+	 * but tuples on leaf pages usually is much greater. Here we include all
+	 * searches in entry tree, including search of first entry in partial
+	 * match algorithm
+	 */
+	entryPagesFetched += ceil(searchEntriesInQuals * rint(pow(numEntryPages, 0.15)));
+
+	/*
+	 * Add an estimate of entry pages read by partial match algorithm. It's a
+	 * scan over leaf pages in entry tree.	We haven't any useful stats here,
+	 * so estimate it as proportion.
+	 */
+	entryPagesFetched += ceil(numEntryPages * partialEntriesInQuals / numEntries);
+
+	/*
+	 * Partial match algorithm reads all data pages before doing actual scan,
+	 * so it's a startup cost. Again, we havn't any useful stats here, so,
+	 * estimate it as proportion
+	 */
+	dataPagesFetched = ceil(numDataPages * partialEntriesInQuals / numEntries);
+
+	/* calculate cache effects */
+	if (num_scans > 1 || searchEntriesInQuals > 1)
+	{
+		entryPagesFetched = index_pages_fetched(entryPagesFetched,
+												(BlockNumber) numEntryPages,
+												numEntryPages, root);
+		dataPagesFetched = index_pages_fetched(dataPagesFetched,
+											   (BlockNumber) numDataPages,
+											   numDataPages, root);
+	}
+
+	/*
+	 * Here we use random page cost because logically-close pages could be far
+	 * apart on disk.
+	 */
+	*indexStartupCost = (entryPagesFetched + dataPagesFetched) * spc_random_page_cost;
+
+	/* cost to scan data pages for each exact (non-partial) matched entry */
+	dataPagesFetched = ceil(numDataPages * exactEntriesInQuals / numEntries);
+
+	/*
+	 * Estimate number of data pages read, using selectivity estimation and
+	 * capacity of data page.
+	 */
+	dataPagesFetchedBySel = ceil(*indexSelectivity *
+								 (numTuples / (BLCKSZ / SizeOfIptrData)));
+
+	if (dataPagesFetchedBySel > dataPagesFetched)
+	{
+		/*
+		 * At least one of entries is very frequent and, unfortunately, we
+		 * couldn't get statistic about entries (only tsvector has such
+		 * statistics). So, we obviously have too small estimation of pages
+		 * fetched from data tree. Re-estimate it from known capacity of data
+		 * pages
+		 */
+		dataPagesFetched = dataPagesFetchedBySel;
+	}
+
+	if (num_scans > 1)
+		dataPagesFetched = index_pages_fetched(dataPagesFetched,
+											   (BlockNumber) numDataPages,
+											   numDataPages, root);
+	*indexTotalCost = *indexStartupCost +
+		dataPagesFetched * spc_random_page_cost;
+
+	/*
+	 * Add on index qual eval costs, much as in genericcostestimate
+	 */
+	cost_qual_eval(&index_qual_cost, indexQuals, root);
+	qual_arg_cost = index_qual_cost.startup + index_qual_cost.per_tuple;
+	cost_qual_eval(&index_qual_cost, indexOrderBys, root);
+	qual_arg_cost += index_qual_cost.startup + index_qual_cost.per_tuple;
+	qual_op_cost = cpu_operator_cost *
+		(list_length(indexQuals) + list_length(indexOrderBys));
+	qual_arg_cost -= qual_op_cost;
+	if (qual_arg_cost < 0)		/* just in case... */
+		qual_arg_cost = 0;
+
+	*indexStartupCost += qual_arg_cost;
+	*indexTotalCost += qual_arg_cost;
+	*indexTotalCost += (numTuples * *indexSelectivity) * (cpu_index_tuple_cost + qual_op_cost);
 
 	PG_RETURN_VOID();
 }

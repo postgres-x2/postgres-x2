@@ -4,12 +4,12 @@
  *
  *	  Routines for operator manipulation commands
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/commands/operatorcmds.c,v 1.47 2010/07/06 19:18:56 momjian Exp $
+ *	  src/backend/commands/operatorcmds.c
  *
  * DESCRIPTION
  *	  The "DefineFoo" routines take the parse tree and pick out the
@@ -39,7 +39,9 @@
 #include "catalog/indexing.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_operator.h"
+#include "catalog/pg_namespace.h"
 #include "catalog/pg_type.h"
+#include "commands/alter.h"
 #include "commands/defrem.h"
 #include "miscadmin.h"
 #include "parser/parse_func.h"
@@ -167,9 +169,9 @@ DefineOperator(List *names, List *parameters)
 
 	/* Transform type names to type OIDs */
 	if (typeName1)
-		typeId1 = typenameTypeId(NULL, typeName1, NULL);
+		typeId1 = typenameTypeId(NULL, typeName1);
 	if (typeName2)
-		typeId2 = typenameTypeId(NULL, typeName2, NULL);
+		typeId2 = typenameTypeId(NULL, typeName2);
 
 	if (!OidIsValid(typeId1) && !OidIsValid(typeId2))
 		ereport(ERROR,
@@ -451,4 +453,57 @@ AlterOperatorOwner_internal(Relation rel, Oid operOid, Oid newOwnerId)
 	}
 
 	heap_freetuple(tup);
+}
+
+/*
+ * Execute ALTER OPERATOR SET SCHEMA
+ */
+void
+AlterOperatorNamespace(List *names, List *argtypes, const char *newschema)
+{
+	List	   *operatorName = names;
+	TypeName   *typeName1 = (TypeName *) linitial(argtypes);
+	TypeName   *typeName2 = (TypeName *) lsecond(argtypes);
+	Oid			operOid,
+				nspOid;
+	Relation	rel;
+
+	rel = heap_open(OperatorRelationId, RowExclusiveLock);
+
+	Assert(list_length(argtypes) == 2);
+	operOid = LookupOperNameTypeNames(NULL, operatorName,
+									  typeName1, typeName2,
+									  false, -1);
+
+	/* get schema OID */
+	nspOid = LookupCreationNamespace(newschema);
+
+	AlterObjectNamespace(rel, OPEROID, -1,
+						 operOid, nspOid,
+						 Anum_pg_operator_oprname,
+						 Anum_pg_operator_oprnamespace,
+						 Anum_pg_operator_oprowner,
+						 ACL_KIND_OPER);
+
+	heap_close(rel, RowExclusiveLock);
+}
+
+Oid
+AlterOperatorNamespace_oid(Oid operOid, Oid newNspOid)
+{
+	Oid			oldNspOid;
+	Relation	rel;
+
+	rel = heap_open(OperatorRelationId, RowExclusiveLock);
+
+	oldNspOid = AlterObjectNamespace(rel, OPEROID, -1,
+									 operOid, newNspOid,
+									 Anum_pg_operator_oprname,
+									 Anum_pg_operator_oprnamespace,
+									 Anum_pg_operator_oprowner,
+									 ACL_KIND_OPER);
+
+	heap_close(rel, RowExclusiveLock);
+
+	return oldNspOid;
 }

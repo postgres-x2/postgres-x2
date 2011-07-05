@@ -1,4 +1,4 @@
-# $PostgreSQL: pgsql/config/perl.m4,v 1.9 2010/02/23 18:35:06 tgl Exp $
+# config/perl.m4
 
 
 # PGAC_PATH_PERL
@@ -24,7 +24,7 @@ fi
 
 if test -z "$PERL"; then
   AC_MSG_WARN([
-*** Without Perl you will not be able to build PostgreSQL from CVS.
+*** Without Perl you will not be able to build PostgreSQL from Git.
 *** You can obtain Perl from any CPAN mirror site.
 *** (If you are using the official distribution of PostgreSQL then you do not
 *** need to worry about this, because the Perl output is pre-generated.)])

@@ -1,7 +1,5 @@
 --
 -- INT2
--- NOTE: int2 operators never check for over/underflow!
--- Some of these answers are consequently numerically incorrect.
 --
 
 CREATE TABLE INT2_TBL(f1 int2);
@@ -86,3 +84,6 @@ SELECT '' AS five, i.f1, i.f1 / int2 '2' AS x FROM INT2_TBL i ORDER BY f1;
 
 SELECT '' AS five, i.f1, i.f1 / int4 '2' AS x FROM INT2_TBL i ORDER BY f1;
 
+-- corner cases
+SELECT (-1::int2<<15)::text;
+SELECT ((-1::int2<<15)+1::int2)::text;

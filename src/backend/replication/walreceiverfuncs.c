@@ -6,11 +6,11 @@
  * with the walreceiver process. Functions implementing walreceiver itself
  * are in walreceiver.c.
  *
- * Portions Copyright (c) 2010-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 2010-2011, PostgreSQL Global Development Group
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/replication/walreceiverfuncs.c,v 1.7 2010/07/06 19:18:57 momjian Exp $
+ *	  src/backend/replication/walreceiverfuncs.c
  *
  *-------------------------------------------------------------------------
  */
@@ -199,8 +199,17 @@ RequestXLogStreaming(XLogRecPtr recptr, const char *conninfo)
 	walrcv->walRcvState = WALRCV_STARTING;
 	walrcv->startTime = now;
 
-	walrcv->receivedUpto = recptr;
-	walrcv->latestChunkStart = recptr;
+	/*
+	 * If this is the first startup of walreceiver, we initialize receivedUpto
+	 * and latestChunkStart to receiveStart.
+	 */
+	if (walrcv->receiveStart.xlogid == 0 &&
+		walrcv->receiveStart.xrecoff == 0)
+	{
+		walrcv->receivedUpto = recptr;
+		walrcv->latestChunkStart = recptr;
+	}
+	walrcv->receiveStart = recptr;
 
 	SpinLockRelease(&walrcv->mutex);
 

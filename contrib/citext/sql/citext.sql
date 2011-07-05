@@ -2,15 +2,7 @@
 --  Test citext datatype
 --
 
---
--- first, define the datatype.  Turn off echoing so that expected file
--- does not depend on contents of citext.sql.
---
-SET client_min_messages = warning;
-\set ECHO none
-\i citext.sql
-RESET client_min_messages;
-\set ECHO all
+CREATE EXTENSION citext;
 
 -- Test the operators and indexing functions
 
@@ -302,7 +294,7 @@ CREATE TABLE caster (
     bpchar      bpchar,
     char        char,
     chr         "char",
-    name        name,    
+    name        name,
     bytea       bytea,
     boolean     boolean,
     float4      float4,
@@ -311,7 +303,7 @@ CREATE TABLE caster (
     int8        int8,
     int4        int4,
     int2        int2,
-    cidr        cidr,   
+    cidr        cidr,
     inet        inet,
     macaddr     macaddr,
     money       money,

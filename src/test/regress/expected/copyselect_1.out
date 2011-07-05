@@ -137,7 +137,7 @@ ERROR:  relation "test1" does not exist
 \copy v_test1 to stdout
 ERROR:  relation "v_test1" does not exist
 \copy: ERROR:  relation "v_test1" does not exist
--- 
+--
 -- Test \copy (select ...)
 --
 \copy (select "id",'id','id""'||t,(id + 1)*id,t,"test1"."t" from test1 where id=3) to stdout

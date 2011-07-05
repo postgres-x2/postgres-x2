@@ -6,12 +6,12 @@
  * Since pg4_dump is long-dead code, there is no longer any useful distinction
  * between this file and pg_dump.c.
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/bin/pg_dump/common.c,v 1.109 2010/01/02 16:57:58 momjian Exp $
+ *	  src/bin/pg_dump/common.c
  *
  *-------------------------------------------------------------------------
  */
@@ -54,10 +54,12 @@ static int	numTables;
 static int	numTypes;
 static int	numFuncs;
 static int	numOperators;
+static int	numCollations;
 static DumpableObject **tblinfoindex;
 static DumpableObject **typinfoindex;
 static DumpableObject **funinfoindex;
 static DumpableObject **oprinfoindex;
+static DumpableObject **collinfoindex;
 
 
 static void flagInhTables(TableInfo *tbinfo, int numTables,
@@ -78,23 +80,11 @@ static int	strInArray(const char *pattern, char **arr, int arr_size);
 TableInfo *
 getSchemaData(int *numTablesPtr)
 {
-	NamespaceInfo *nsinfo;
-	AggInfo    *agginfo;
+	ExtensionInfo *extinfo;
 	InhInfo    *inhinfo;
-	RuleInfo   *ruleinfo;
-	ProcLangInfo *proclanginfo;
-	CastInfo   *castinfo;
-	OpclassInfo *opcinfo;
-	OpfamilyInfo *opfinfo;
-	ConvInfo   *convinfo;
-	TSParserInfo *prsinfo;
-	TSTemplateInfo *tmplinfo;
-	TSDictInfo *dictinfo;
-	TSConfigInfo *cfginfo;
-	FdwInfo    *fdwinfo;
-	ForeignServerInfo *srvinfo;
-	DefaultACLInfo *daclinfo;
+	CollInfo   *collinfo;
 	int			numNamespaces;
+	int			numExtensions;
 	int			numAggregates;
 	int			numInherits;
 	int			numRules;
@@ -113,7 +103,11 @@ getSchemaData(int *numTablesPtr)
 
 	if (g_verbose)
 		write_msg(NULL, "reading schemas\n");
-	nsinfo = getNamespaces(&numNamespaces);
+	getNamespaces(&numNamespaces);
+
+	if (g_verbose)
+		write_msg(NULL, "reading extensions\n");
+	extinfo = getExtensions(&numExtensions);
 
 	if (g_verbose)
 		write_msg(NULL, "reading user-defined functions\n");
@@ -129,11 +123,11 @@ getSchemaData(int *numTablesPtr)
 	/* this must be after getFuncs, too */
 	if (g_verbose)
 		write_msg(NULL, "reading procedural languages\n");
-	proclanginfo = getProcLangs(&numProcLangs);
+	getProcLangs(&numProcLangs);
 
 	if (g_verbose)
 		write_msg(NULL, "reading user-defined aggregate functions\n");
-	agginfo = getAggregates(&numAggregates);
+	getAggregates(&numAggregates);
 
 	if (g_verbose)
 		write_msg(NULL, "reading user-defined operators\n");
@@ -142,43 +136,52 @@ getSchemaData(int *numTablesPtr)
 
 	if (g_verbose)
 		write_msg(NULL, "reading user-defined operator classes\n");
-	opcinfo = getOpclasses(&numOpclasses);
-
-	if (g_verbose)
-		write_msg(NULL, "reading user-defined text search parsers\n");
-	prsinfo = getTSParsers(&numTSParsers);
-
-	if (g_verbose)
-		write_msg(NULL, "reading user-defined text search templates\n");
-	tmplinfo = getTSTemplates(&numTSTemplates);
-
-	if (g_verbose)
-		write_msg(NULL, "reading user-defined text search dictionaries\n");
-	dictinfo = getTSDictionaries(&numTSDicts);
-
-	if (g_verbose)
-		write_msg(NULL, "reading user-defined text search configurations\n");
-	cfginfo = getTSConfigurations(&numTSConfigs);
-
-	if (g_verbose)
-		write_msg(NULL, "reading user-defined foreign-data wrappers\n");
-	fdwinfo = getForeignDataWrappers(&numForeignDataWrappers);
-
-	if (g_verbose)
-		write_msg(NULL, "reading user-defined foreign servers\n");
-	srvinfo = getForeignServers(&numForeignServers);
-
-	if (g_verbose)
-		write_msg(NULL, "reading default privileges\n");
-	daclinfo = getDefaultACLs(&numDefaultACLs);
+	getOpclasses(&numOpclasses);
 
 	if (g_verbose)
 		write_msg(NULL, "reading user-defined operator families\n");
-	opfinfo = getOpfamilies(&numOpfamilies);
+	getOpfamilies(&numOpfamilies);
+
+	if (g_verbose)
+		write_msg(NULL, "reading user-defined text search parsers\n");
+	getTSParsers(&numTSParsers);
+
+	if (g_verbose)
+		write_msg(NULL, "reading user-defined text search templates\n");
+	getTSTemplates(&numTSTemplates);
+
+	if (g_verbose)
+		write_msg(NULL, "reading user-defined text search dictionaries\n");
+	getTSDictionaries(&numTSDicts);
+
+	if (g_verbose)
+		write_msg(NULL, "reading user-defined text search configurations\n");
+	getTSConfigurations(&numTSConfigs);
+
+	if (g_verbose)
+		write_msg(NULL, "reading user-defined foreign-data wrappers\n");
+	getForeignDataWrappers(&numForeignDataWrappers);
+
+	if (g_verbose)
+		write_msg(NULL, "reading user-defined foreign servers\n");
+	getForeignServers(&numForeignServers);
+
+	if (g_verbose)
+		write_msg(NULL, "reading default privileges\n");
+	getDefaultACLs(&numDefaultACLs);
+
+	if (g_verbose)
+		write_msg(NULL, "reading user-defined collations\n");
+	collinfo = getCollations(&numCollations);
+	collinfoindex = buildIndexArray(collinfo, numCollations, sizeof(CollInfo));
 
 	if (g_verbose)
 		write_msg(NULL, "reading user-defined conversions\n");
-	convinfo = getConversions(&numConversions);
+	getConversions(&numConversions);
+
+	if (g_verbose)
+		write_msg(NULL, "reading type casts\n");
+	getCasts(&numCasts);
 
 	if (g_verbose)
 		write_msg(NULL, "reading user-defined tables\n");
@@ -191,11 +194,16 @@ getSchemaData(int *numTablesPtr)
 
 	if (g_verbose)
 		write_msg(NULL, "reading rewrite rules\n");
-	ruleinfo = getRules(&numRules);
+	getRules(&numRules);
 
+	/*
+	 * Identify extension member objects and mark them as not to be dumped.
+	 * This must happen after reading all objects that can be direct members
+	 * of extensions, but before we begin to process table subsidiary objects.
+	 */
 	if (g_verbose)
-		write_msg(NULL, "reading type casts\n");
-	castinfo = getCasts(&numCasts);
+		write_msg(NULL, "finding extension members\n");
+	getExtensionMembership(extinfo, numExtensions);
 
 	/* Link tables to parents, mark parents of target tables interesting */
 	if (g_verbose)
@@ -448,6 +456,7 @@ AssignDumpId(DumpableObject *dobj)
 	dobj->name = NULL;			/* must be set later */
 	dobj->namespace = NULL;		/* may be set later */
 	dobj->dump = true;			/* default assumption */
+	dobj->ext_member = false;	/* default assumption */
 	dobj->dependencies = NULL;
 	dobj->nDeps = 0;
 	dobj->allocDeps = 0;
@@ -518,9 +527,9 @@ findObjectByDumpId(DumpId dumpId)
  * Returns NULL for unknown ID
  *
  * We use binary search in a sorted list that is built on first call.
- * If AssignDumpId() and findObjectByCatalogId() calls were intermixed,
+ * If AssignDumpId() and findObjectByCatalogId() calls were freely intermixed,
  * the code would work, but possibly be very slow.	In the current usage
- * pattern that does not happen, indeed we only need to build the list once.
+ * pattern that does not happen, indeed we build the list at most twice.
  */
 DumpableObject *
 findObjectByCatalogId(CatalogId catalogId)
@@ -760,6 +769,17 @@ OprInfo *
 findOprByOid(Oid oid)
 {
 	return (OprInfo *) findObjectByOid(oid, oprinfoindex, numOperators);
+}
+
+/*
+ * findCollationByOid
+ *	  finds the entry (in collinfo) of the collation with the given oid
+ *	  returns NULL if not found
+ */
+CollInfo *
+findCollationByOid(Oid oid)
+{
+	return (CollInfo *) findObjectByOid(oid, collinfoindex, numCollations);
 }
 
 

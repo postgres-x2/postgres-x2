@@ -3,12 +3,12 @@
  * path.c
  *	  portable path handling routines
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/port/path.c,v 1.80 2010/01/02 16:58:13 momjian Exp $
+ *	  src/port/path.c
  *
  *-------------------------------------------------------------------------
  */
@@ -35,15 +35,9 @@
 
 
 #ifndef WIN32
-#define IS_DIR_SEP(ch)	((ch) == '/')
+#define IS_PATH_VAR_SEP(ch) ((ch) == ':')
 #else
-#define IS_DIR_SEP(ch)	((ch) == '/' || (ch) == '\\')
-#endif
-
-#ifndef WIN32
-#define IS_PATH_SEP(ch) ((ch) == ':')
-#else
-#define IS_PATH_SEP(ch) ((ch) == ';')
+#define IS_PATH_VAR_SEP(ch) ((ch) == ';')
 #endif
 
 static void make_relative_path(char *ret_path, const char *target_path,
@@ -98,19 +92,19 @@ first_dir_separator(const char *filename)
 }
 
 /*
- *	first_path_separator
+ *	first_path_var_separator
  *
  * Find the location of the first path separator (i.e. ':' on
  * Unix, ';' on Windows), return NULL if not found.
  */
 char *
-first_path_separator(const char *pathlist)
+first_path_var_separator(const char *pathlist)
 {
 	const char *p;
 
 	/* skip_drive is not needed */
 	for (p = pathlist; *p; p++)
-		if (IS_PATH_SEP(*p))
+		if (IS_PATH_VAR_SEP(*p))
 			return (char *) p;
 	return NULL;
 }
@@ -362,6 +356,40 @@ path_contains_parent_reference(const char *path)
 		return true;
 
 	return false;
+}
+
+/*
+ * Detect whether a path is only in or below the current working directory.
+ * An absolute path that matches the current working directory should
+ * return false (we only want relative to the cwd).  We don't allow
+ * "/../" even if that would keep us under the cwd (it is too hard to
+ * track that).
+ */
+bool
+path_is_relative_and_below_cwd(const char *path)
+{
+	if (is_absolute_path(path))
+		return false;
+	/* don't allow anything above the cwd */
+	else if (path_contains_parent_reference(path))
+		return false;
+#ifdef WIN32
+
+	/*
+	 * On Win32, a drive letter _not_ followed by a slash, e.g. 'E:abc', is
+	 * relative to the cwd on that drive, or the drive's root directory if
+	 * that drive has no cwd.  Because the path itself cannot tell us which is
+	 * the case, we have to assume the worst, i.e. that it is not below the
+	 * cwd.  We could use GetFullPathName() to find the full path but that
+	 * could change if the current directory for the drive changes underneath
+	 * us, so we just disallow it.
+	 */
+	else if (isalpha((unsigned char) path[0]) && path[1] == ':' &&
+			 !IS_DIR_SEP(path[2]))
+		return false;
+#endif
+	else
+		return true;
 }
 
 /*

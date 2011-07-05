@@ -4,10 +4,10 @@
  *	  POSTGRES error reporting/logging definitions.
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/utils/elog.h,v 1.102 2010/01/02 16:58:10 momjian Exp $
+ * src/include/utils/elog.h
  *
  *-------------------------------------------------------------------------
  */
@@ -124,53 +124,53 @@ extern int
 errmsg(const char *fmt,...)
 /* This extension allows gcc to check the format string for consistency with
    the supplied arguments. */
-__attribute__((format(printf, 1, 2)));
+__attribute__((format(PG_PRINTF_ATTRIBUTE, 1, 2)));
 
 extern int
 errmsg_internal(const char *fmt,...)
 /* This extension allows gcc to check the format string for consistency with
    the supplied arguments. */
-__attribute__((format(printf, 1, 2)));
+__attribute__((format(PG_PRINTF_ATTRIBUTE, 1, 2)));
 
 extern int
 errmsg_plural(const char *fmt_singular, const char *fmt_plural,
 			  unsigned long n,...)
 /* This extension allows gcc to check the format string for consistency with
    the supplied arguments. */
-__attribute__((format(printf, 1, 4)))
-__attribute__((format(printf, 2, 4)));
+__attribute__((format(PG_PRINTF_ATTRIBUTE, 1, 4)))
+__attribute__((format(PG_PRINTF_ATTRIBUTE, 2, 4)));
 
 extern int
 errdetail(const char *fmt,...)
 /* This extension allows gcc to check the format string for consistency with
    the supplied arguments. */
-__attribute__((format(printf, 1, 2)));
+__attribute__((format(PG_PRINTF_ATTRIBUTE, 1, 2)));
 
 extern int
 errdetail_log(const char *fmt,...)
 /* This extension allows gcc to check the format string for consistency with
    the supplied arguments. */
-__attribute__((format(printf, 1, 2)));
+__attribute__((format(PG_PRINTF_ATTRIBUTE, 1, 2)));
 
 extern int
 errdetail_plural(const char *fmt_singular, const char *fmt_plural,
 				 unsigned long n,...)
 /* This extension allows gcc to check the format string for consistency with
    the supplied arguments. */
-__attribute__((format(printf, 1, 4)))
-__attribute__((format(printf, 2, 4)));
+__attribute__((format(PG_PRINTF_ATTRIBUTE, 1, 4)))
+__attribute__((format(PG_PRINTF_ATTRIBUTE, 2, 4)));
 
 extern int
 errhint(const char *fmt,...)
 /* This extension allows gcc to check the format string for consistency with
    the supplied arguments. */
-__attribute__((format(printf, 1, 2)));
+__attribute__((format(PG_PRINTF_ATTRIBUTE, 1, 2)));
 
 extern int
 errcontext(const char *fmt,...)
 /* This extension allows gcc to check the format string for consistency with
    the supplied arguments. */
-__attribute__((format(printf, 1, 2)));
+__attribute__((format(PG_PRINTF_ATTRIBUTE, 1, 2)));
 
 extern int	errhidestmt(bool hide_stmt);
 
@@ -197,7 +197,17 @@ extern void
 elog_finish(int elevel, const char *fmt,...)
 /* This extension allows gcc to check the format string for consistency with
    the supplied arguments. */
-__attribute__((format(printf, 2, 3)));
+__attribute__((format(PG_PRINTF_ATTRIBUTE, 2, 3)));
+
+
+/* Support for constructing error strings separately from ereport() calls */
+
+extern void pre_format_elog_string(int errnumber, const char *domain);
+extern char *
+format_elog_string(const char *fmt,...)
+/* This extension allows gcc to check the format string for consistency with
+   the supplied arguments. */
+__attribute__((format(PG_PRINTF_ATTRIBUTE, 1, 2)));
 
 
 /* Support for attaching context information to error reports */
@@ -326,7 +336,7 @@ typedef enum
 	PGERROR_TERSE,				/* single-line error messages */
 	PGERROR_DEFAULT,			/* recommended style */
 	PGERROR_VERBOSE				/* all the facts, ma'am */
-} PGErrorVerbosity;
+}	PGErrorVerbosity;
 
 extern int	Log_error_verbosity;
 extern char *Log_line_prefix;
@@ -356,6 +366,6 @@ extern void
 write_stderr(const char *fmt,...)
 /* This extension allows gcc to check the format string for consistency with
    the supplied arguments. */
-__attribute__((format(printf, 1, 2)));
+__attribute__((format(PG_PRINTF_ATTRIBUTE, 1, 2)));
 
 #endif   /* ELOG_H */

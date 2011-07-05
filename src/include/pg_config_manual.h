@@ -6,7 +6,7 @@
  * for developers.	If you edit any of these, be sure to do a *full*
  * rebuild (and an initdb if noted).
  *
- * $PostgreSQL: pgsql/src/include/pg_config_manual.h,v 1.40 2010/01/07 04:53:35 tgl Exp $
+ * src/include/pg_config_manual.h
  *------------------------------------------------------------------------
  */
 
@@ -22,7 +22,7 @@
 /*
  * Maximum number of arguments to a function.
  *
- * The minimum value is 8 (index cost estimation uses 8-argument functions).
+ * The minimum value is 9 (index cost estimation uses 9-argument functions).
  * The maximum possible value is around 600 (limited by index tuple size in
  * pg_proc's index; BLCKSZ larger than 8K would allow more).  Values larger
  * than needed will waste memory and processing time, but do not directly
@@ -154,6 +154,21 @@
  */
 #define MAX_RANDOM_VALUE  (0x7FFFFFFF)
 
+/*
+ * Set the format style used by gcc to check printf type functions. We really
+ * want the "gnu_printf" style set, which includes what glibc uses, such
+ * as %m for error strings and %lld for 64 bit long longs. But not all gcc
+ * compilers are known to support it, so we just use "printf" which all
+ * gcc versions alive are known to support, except on Windows where
+ * using "gnu_printf" style makes a dramatic difference. Maybe someday
+ * we'll have a configure test for this, if we ever discover use of more
+ * variants to be necessary.
+ */
+#ifdef WIN32
+#define PG_PRINTF_ATTRIBUTE gnu_printf
+#else
+#define PG_PRINTF_ATTRIBUTE printf
+#endif
 
 /*
  *------------------------------------------------------------------------
@@ -203,7 +218,7 @@
  * Enable debugging print statements for WAL-related operations; see
  * also the wal_debug GUC var.
  */
-/* #define WAL_DEBUG */
+#define WAL_DEBUG
 
 /*
  * Enable tracing of resource consumption during sort operations;

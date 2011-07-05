@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/start.sgml,v 1.51 2009/12/19 02:34:17 alvherre Exp $ -->
+<!-- doc/src/sgml/start.sgml -->
 
  <chapter id="tutorial-start">
   <title>Getting Started</title>
@@ -242,7 +242,7 @@ createdb: database creation failed: ERROR:  permission denied to create database
     You can also create databases with other names.
     <productname>PostgreSQL</productname> allows you to create any
     number of databases at a given site.  Database names must have an
-    alphabetic first character and are limited to 63 characters in
+    alphabetic first character and are limited to 63 bytes in
     length.  A convenient choice is to create a database with the same
     name as your current user name.  Many tools assume that database
     name as the default, so it can save you some typing.  To create
@@ -331,7 +331,7 @@ createdb: database creation failed: ERROR:  permission denied to create database
 <screen>
 psql (&version;)
 Type "help" for help.
- 
+
 mydb=&gt;
 </screen>
     <indexterm><primary>superuser</primary></indexterm>
@@ -403,11 +403,8 @@ mydb=#
     command shell. (For more internal commands, type
     <literal>\?</literal> at the <command>psql</command> prompt.)  The
     full capabilities of <command>psql</command> are documented in
-    <xref linkend="app-psql">.  If <productname>PostgreSQL</> is
-    installed correctly you can also type <literal>man psql</literal>
-    at the operating system shell prompt to see the documentation.  In
-    this tutorial we will not use these features explicitly, but you
-    can use them yourself when it is helpful.
+    <xref linkend="app-psql">.  In this tutorial we will not use these
+    features explicitly, but you can use them yourself when it is helpful.
    </para>
 
   </sect1>

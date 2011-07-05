@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/plpgsql.sgml,v 1.154 2010/06/29 22:29:14 momjian Exp $ -->
+<!-- doc/src/sgml/plpgsql.sgml -->
 
 <chapter id="plpgsql">
   <title><application>PL/pgSQL</application> - <acronym>SQL</acronym> Procedural Language</title>
@@ -328,15 +328,17 @@ arow RECORD;
     <para>
      The general syntax of a variable declaration is:
 <synopsis>
-<replaceable>name</replaceable> <optional> CONSTANT </optional> <replaceable>type</replaceable> <optional> NOT NULL </optional> <optional> { DEFAULT | := } <replaceable>expression</replaceable> </optional>;
+<replaceable>name</replaceable> <optional> CONSTANT </optional> <replaceable>type</replaceable> <optional> COLLATE <replaceable>collation_name</replaceable> </optional> <optional> NOT NULL </optional> <optional> { DEFAULT | := } <replaceable>expression</replaceable> </optional>;
 </synopsis>
       The <literal>DEFAULT</> clause, if given, specifies the initial value assigned
       to the variable when the block is entered.  If the <literal>DEFAULT</> clause
       is not given then the variable is initialized to the
       <acronym>SQL</acronym> null value.
       The <literal>CONSTANT</> option prevents the variable from being
-      assigned to, so that its value will remain constant for the duration of
-      the block.
+      assigned to after initialization, so that its value will remain constant
+      for the duration of the block.
+      The <literal>COLLATE</> option specifies a collation to use for the
+      variable (see <xref linkend="plpgsql-declaration-collation">).
       If <literal>NOT NULL</>
       is specified, an assignment of a null value results in a run-time
       error. All variables declared as <literal>NOT NULL</>
@@ -706,6 +708,99 @@ SELECT merge_fields(t.*) FROM table1 t WHERE ... ;
     structure on-the-fly.
    </para>
   </sect2>
+
+  <sect2 id="plpgsql-declaration-collation">
+   <title>Collation of <application>PL/pgSQL</application> Variables</title>
+
+   <indexterm>
+    <primary>collation</>
+    <secondary>in PL/pgSQL</>
+   </indexterm>
+
+   <para>
+    When a <application>PL/pgSQL</application> function has one or more
+    parameters of collatable data types, a collation is identified for each
+    function call depending on the collations assigned to the actual
+    arguments, as described in <xref linkend="collation">.  If a collation is
+    successfully identified (i.e., there are no conflicts of implicit
+    collations among the arguments) then all the collatable parameters are
+    treated as having that collation implicitly.  This will affect the
+    behavior of collation-sensitive operations within the function.
+    For example, consider
+
+<programlisting>
+CREATE FUNCTION less_than(a text, b text) RETURNS boolean AS $$
+BEGIN
+    RETURN a &lt; b;
+END;
+$$ LANGUAGE plpgsql;
+
+SELECT less_than(text_field_1, text_field_2) FROM table1;
+SELECT less_than(text_field_1, text_field_2 COLLATE "C") FROM table1;
+</programlisting>
+
+    The first use of <function>less_than</> will use the common collation
+    of <structfield>text_field_1</> and <structfield>text_field_2</> for
+    the comparison, while the second use will use <literal>C</> collation.
+   </para>
+
+   <para>
+    Furthermore, the identified collation is also assumed as the collation of
+    any local variables that are of collatable types.  Thus this function
+    would not work any differently if it were written as
+
+<programlisting>
+CREATE FUNCTION less_than(a text, b text) RETURNS boolean AS $$
+DECLARE
+    local_a text := a;
+    local_b text := b;
+BEGIN
+    RETURN local_a &lt; local_b;
+END;
+$$ LANGUAGE plpgsql;
+</programlisting>
+   </para>
+
+   <para>
+    If there are no parameters of collatable data types, or no common
+    collation can be identified for them, then parameters and local variables
+    use the default collation of their data type (which is usually the
+    database's default collation, but could be different for variables of
+    domain types).
+   </para>
+
+   <para>
+    A local variable of a collatable data type can have a different collation
+    associated with it by including the <literal>COLLATE</> option in its
+    declaration, for example
+
+<programlisting>
+DECLARE
+    local_a text COLLATE "en_US";
+</programlisting>
+
+    This option overrides the collation that would otherwise be
+    given to the variable according to the rules above.
+   </para>
+
+   <para>
+    Also, of course explicit <literal>COLLATE</> clauses can be written inside
+    a function if it is desired to force a particular collation to be used in
+    a particular operation.  For example,
+
+<programlisting>
+CREATE FUNCTION less_than_c(a text, b text) RETURNS boolean AS $$
+BEGIN
+    RETURN a &lt; b COLLATE "C";
+END;
+$$ LANGUAGE plpgsql;
+</programlisting>
+
+    This overrides the collations associated with the table columns,
+    parameters, or local variables used in the expression, just as would
+    happen in a plain SQL command.
+   </para>
+  </sect2>
   </sect1>
 
   <sect1 id="plpgsql-expressions">
@@ -874,7 +969,7 @@ PERFORM create_mv('cs_session_page_requests_mv', my_query);
    </sect2>
 
    <sect2 id="plpgsql-statements-sql-onerow">
-    <title>Executing a Query with a Single-Row Result</title>
+    <title>Executing a Query with a Single-row Result</title>
 
     <indexterm zone="plpgsql-statements-sql-onerow">
      <primary>SELECT INTO</primary>
@@ -1135,21 +1230,26 @@ EXECUTE 'SELECT count(*) FROM '
    </note>
 
    <example id="plpgsql-quote-literal-example">
-   <title>Quoting values in dynamic queries</title>
+   <title>Quoting Values In Dynamic Queries</title>
 
     <indexterm>
      <primary>quote_ident</primary>
-     <secondary>use in PL/PgSQL</secondary>
+     <secondary>use in PL/pgSQL</secondary>
     </indexterm>
 
     <indexterm>
      <primary>quote_literal</primary>
-     <secondary>use in PL/PgSQL</secondary>
+     <secondary>use in PL/pgSQL</secondary>
     </indexterm>
 
     <indexterm>
      <primary>quote_nullable</primary>
-     <secondary>use in PL/PgSQL</secondary>
+     <secondary>use in PL/pgSQL</secondary>
+    </indexterm>
+
+    <indexterm>
+     <primary>format</primary>
+     <secondary>use in PL/pgSQL</secondary>
     </indexterm>
 
     <para>
@@ -1217,14 +1317,14 @@ EXECUTE 'UPDATE tbl SET '
      As always, care must be taken to ensure that null values in a query do
      not deliver unintended results.  For example the <literal>WHERE</> clause
 <programlisting>
-     'WHERE key = ' || quote_nullable(keyvalue)
+'WHERE key = ' || quote_nullable(keyvalue)
 </programlisting>
      will never succeed if <literal>keyvalue</> is null, because the
      result of using the equality operator <literal>=</> with a null operand
      is always null.  If you wish null to work like an ordinary key value,
      you would need to rewrite the above as
 <programlisting>
-     'WHERE key IS NOT DISTINCT FROM ' || quote_nullable(keyvalue)
+'WHERE key IS NOT DISTINCT FROM ' || quote_nullable(keyvalue)
 </programlisting>
      (At present, <literal>IS NOT DISTINCT FROM</> is handled much less
      efficiently than <literal>=</>, so don't do this unless you must.
@@ -1249,6 +1349,24 @@ EXECUTE 'UPDATE tbl SET '
      So, to safely quote text that is not known in advance, you
      <emphasis>must</> use <function>quote_literal</>,
      <function>quote_nullable</>, or <function>quote_ident</>, as appropriate.
+    </para>
+
+    <para>
+     Dynamic SQL statements can also be safely constructed using the
+     <function>format</function> function (see <xref
+     linkend="functions-string">). For example:
+<programlisting>
+EXECUTE format('UPDATE tbl SET %I = %L WHERE key = %L', colname, newvalue, keyvalue);
+</programlisting>
+     The <function>format</function> function can be used in conjunction with
+     the <literal>USING</literal> clause:
+<programlisting>
+EXECUTE format('UPDATE tbl SET %I = $1 WHERE key = $2', colname)
+   USING newvalue, keyvalue;
+</programlisting>
+     This form is more efficient, because the parameters
+     <literal>newvalue</literal> and <literal>keyvalue</literal> are not
+     converted to text.
     </para>
    </example>
 
@@ -1333,25 +1451,21 @@ GET DIAGNOSTICS integer_var = ROW_COUNT;
             true if it successfully repositions the cursor, false otherwise.
            </para>
           </listitem>
-
           <listitem>
            <para>
-            A <command>FOR</> statement sets <literal>FOUND</literal> true
-            if it iterates one or more times, else false.  This applies to
-            all four variants of the <command>FOR</> statement (integer
-            <command>FOR</> loops, record-set <command>FOR</> loops,
-            dynamic record-set <command>FOR</> loops, and cursor
-            <command>FOR</> loops).
+            A <command>FOR</> or <command>FOREACH</> statement sets
+            <literal>FOUND</literal> true
+            if it iterates one or more times, else false.
             <literal>FOUND</literal> is set this way when the
-            <command>FOR</> loop exits; inside the execution of the loop,
+            loop exits; inside the execution of the loop,
             <literal>FOUND</literal> is not modified by the
-            <command>FOR</> statement, although it might be changed by the
+            loop statement, although it might be changed by the
             execution of other statements within the loop body.
            </para>
           </listitem>
           <listitem>
            <para>
-            A <command>RETURN QUERY</command> and <command>RETURN QUERY
+            <command>RETURN QUERY</command> and <command>RETURN QUERY
             EXECUTE</command> statements set <literal>FOUND</literal>
             true if the query returns at least one row, false if no row
             is returned.
@@ -1391,20 +1505,20 @@ NULL;
     <para>
      For example, the following two fragments of code are equivalent:
 <programlisting>
-    BEGIN
-        y := x / 0;
-    EXCEPTION
-        WHEN division_by_zero THEN
-            NULL;  -- ignore the error
-    END;
+BEGIN
+    y := x / 0;
+EXCEPTION
+    WHEN division_by_zero THEN
+        NULL;  -- ignore the error
+END;
 </programlisting>
 
 <programlisting>
-    BEGIN
-        y := x / 0;
-    EXCEPTION
-        WHEN division_by_zero THEN  -- ignore the error
-    END;
+BEGIN
+    y := x / 0;
+EXCEPTION
+    WHEN division_by_zero THEN  -- ignore the error
+END;
 </programlisting>
      Which is preferable is a matter of taste.
     </para>
@@ -1492,11 +1606,11 @@ RETURN <replaceable>expression</replaceable>;
      <title><command>RETURN NEXT</> and <command>RETURN QUERY</command></title>
     <indexterm>
      <primary>RETURN NEXT</primary>
-     <secondary>in PL/PgSQL</secondary>
+     <secondary>in PL/pgSQL</secondary>
     </indexterm>
     <indexterm>
      <primary>RETURN QUERY</primary>
-     <secondary>in PL/PgSQL</secondary>
+     <secondary>in PL/pgSQL</secondary>
     </indexterm>
 
 <synopsis>
@@ -1842,7 +1956,7 @@ END CASE;
 
       <para>
        The searched form of <command>CASE</> provides conditional execution
-       based on truth of boolean expressions.  Each <literal>WHEN</> clause's
+       based on truth of Boolean expressions.  Each <literal>WHEN</> clause's
        <replaceable>boolean-expression</replaceable> is evaluated in turn,
        until one is found that yields <literal>true</>.  Then the
        corresponding <replaceable>statements</replaceable> are executed, and
@@ -1887,9 +2001,9 @@ END CASE;
 
     <para>
      With the <literal>LOOP</>, <literal>EXIT</>,
-     <literal>CONTINUE</>, <literal>WHILE</>, and <literal>FOR</>
-     statements, you can arrange for your <application>PL/pgSQL</>
-     function to repeat a series of commands.
+     <literal>CONTINUE</>, <literal>WHILE</>, <literal>FOR</>,
+     and <literal>FOREACH</> statements, you can arrange for your
+     <application>PL/pgSQL</> function to repeat a series of commands.
     </para>
 
     <sect3>
@@ -2071,7 +2185,7 @@ END LOOP;
      </sect3>
 
      <sect3 id="plpgsql-integer-for">
-      <title><literal>FOR</> (integer variant)</title>
+      <title><literal>FOR</> (Integer Variant)</title>
 
 <synopsis>
 <optional> &lt;&lt;<replaceable>label</replaceable>&gt;&gt; </optional>
@@ -2150,21 +2264,20 @@ CREATE FUNCTION cs_refresh_mviews() RETURNS integer AS $$
 DECLARE
     mviews RECORD;
 BEGIN
-    PERFORM cs_log('Refreshing materialized views...');
+    RAISE NOTICE 'Refreshing materialized views...';
 
     FOR mviews IN SELECT * FROM cs_materialized_views ORDER BY sort_key LOOP
 
         -- Now "mviews" has one record from cs_materialized_views
 
-        PERFORM cs_log('Refreshing materialized view '
-                   || quote_ident(mviews.mv_name) || ' ...');
+        RAISE NOTICE 'Refreshing materialized view %s ...', quote_ident(mviews.mv_name);
         EXECUTE 'TRUNCATE TABLE ' || quote_ident(mviews.mv_name);
         EXECUTE 'INSERT INTO '
-                   || quote_ident(mviews.mv_name) || ' ' 
+                   || quote_ident(mviews.mv_name) || ' '
                    || mviews.mv_query;
     END LOOP;
 
-    PERFORM cs_log('Done refreshing materialized views.');
+    RAISE NOTICE 'Done refreshing materialized views.';
     RETURN 1;
 END;
 $$ LANGUAGE plpgsql;
@@ -2215,12 +2328,96 @@ END LOOP <optional> <replaceable>label</replaceable> </optional>;
     </para>
    </sect2>
 
+   <sect2 id="plpgsql-foreach-array">
+    <title>Looping Through Arrays</title>
+
+    <para>
+     The <literal>FOREACH</> loop is much like a <literal>FOR</> loop,
+     but instead of iterating through the rows returned by a SQL query,
+     it iterates through the elements of an array value.
+     (In general, <literal>FOREACH</> is meant for looping through
+     components of a composite-valued expression; variants for looping
+     through composites besides arrays may be added in future.)
+     The <literal>FOREACH</> statement to loop over an array is:
+
+<synopsis>
+<optional> &lt;&lt;<replaceable>label</replaceable>&gt;&gt; </optional>
+FOREACH <replaceable>target</replaceable> <optional> SLICE <replaceable>number</replaceable> </optional> IN ARRAY <replaceable>expression</replaceable> LOOP
+    <replaceable>statements</replaceable>
+END LOOP <optional> <replaceable>label</replaceable> </optional>;
+</synopsis>
+    </para>
+
+    <para>
+     Without <literal>SLICE</>, or if <literal>SLICE 0</> is specified,
+     the loop iterates through individual elements of the array produced
+     by evaluating the <replaceable>expression</replaceable>.
+     The <replaceable>target</replaceable> variable is assigned each
+     element value in sequence, and the loop body is executed for each element.
+     Here is an example of looping through the elements of an integer
+     array:
+
+<programlisting>
+CREATE FUNCTION sum(int[]) RETURNS int8 AS $$
+DECLARE
+  s int8 := 0;
+  x int;
+BEGIN
+  FOREACH x IN ARRAY $1
+  LOOP
+    s := s + x;
+  END LOOP;
+  RETURN s;
+END;
+$$ LANGUAGE plpgsql;
+</programlisting>
+
+     The elements are visited in storage order, regardless of the number of
+     array dimensions.  Although the <replaceable>target</replaceable> is
+     usually just a single variable, it can be a list of variables when
+     looping through an array of composite values (records).  In that case,
+     for each array element, the variables are assigned from successive
+     columns of the composite value.
+    </para>
+
+    <para>
+     With a positive <literal>SLICE</> value, <literal>FOREACH</>
+     iterates through slices of the array rather than single elements.
+     The <literal>SLICE</> value must be an integer constant not larger
+     than the number of dimensions of the array.  The
+     <replaceable>target</replaceable> variable must be an array,
+     and it receives successive slices of the array value, where each slice
+     is of the number of dimensions specified by <literal>SLICE</>.
+     Here is an example of iterating through one-dimensional slices:
+
+<programlisting>
+CREATE FUNCTION scan_rows(int[]) RETURNS void AS $$
+DECLARE
+  x int[];
+BEGIN
+  FOREACH x SLICE 1 IN ARRAY $1
+  LOOP
+    RAISE NOTICE 'row = %', x;
+  END LOOP;
+END;
+$$ LANGUAGE plpgsql;
+
+SELECT scan_rows(ARRAY[[1,2,3],[4,5,6],[7,8,9],[10,11,12]]);
+
+NOTICE:  row = {1,2,3}
+NOTICE:  row = {4,5,6}
+NOTICE:  row = {7,8,9}
+NOTICE:  row = {10,11,12}
+</programlisting>
+    </para>
+   </sect2>
+
    <sect2 id="plpgsql-error-trapping">
     <title>Trapping Errors</title>
 
     <indexterm>
      <primary>exceptions</primary>
-     <secondary>in PL/PgSQL</secondary>
+     <secondary>in PL/pgSQL</secondary>
     </indexterm>
 
     <para>
@@ -2275,8 +2472,8 @@ END;
      not case-sensitive.  Also, an error condition can be specified
      by <literal>SQLSTATE</> code; for example these are equivalent:
 <programlisting>
-        WHEN division_by_zero THEN ...
-        WHEN SQLSTATE '22012' THEN ...
+WHEN division_by_zero THEN ...
+WHEN SQLSTATE '22012' THEN ...
 </programlisting>
     </para>
 
@@ -2295,16 +2492,16 @@ END;
      As an example, consider this fragment:
 
 <programlisting>
-    INSERT INTO mytab(firstname, lastname) VALUES('Tom', 'Jones');
-    BEGIN
-        UPDATE mytab SET firstname = 'Joe' WHERE lastname = 'Jones';
-        x := x + 1;
-        y := x / 0;
-    EXCEPTION
-        WHEN division_by_zero THEN
-            RAISE NOTICE 'caught division_by_zero';
-            RETURN x;
-    END;
+INSERT INTO mytab(firstname, lastname) VALUES('Tom', 'Jones');
+BEGIN
+    UPDATE mytab SET firstname = 'Joe' WHERE lastname = 'Jones';
+    x := x + 1;
+    y := x / 0;
+EXCEPTION
+    WHEN division_by_zero THEN
+        RAISE NOTICE 'caught division_by_zero';
+        RETURN x;
+END;
 </programlisting>
 
      When control reaches the assignment to <literal>y</>, it will
@@ -2361,7 +2558,7 @@ BEGIN
             INSERT INTO db(a,b) VALUES (key, data);
             RETURN;
         EXCEPTION WHEN unique_violation THEN
-            -- do nothing, and loop to try the UPDATE again
+            -- Do nothing, and loop to try the UPDATE again.
         END;
     END LOOP;
 END;
@@ -2371,7 +2568,9 @@ LANGUAGE plpgsql;
 SELECT merge_db(1, 'david');
 SELECT merge_db(1, 'dennis');
 </programlisting>
-
+     This example assumes the <literal>unique_violation</> error is caused by
+     the <command>INSERT</>, and not by an <command>INSERT</> trigger function
+     on the table.
     </para>
     </example>
   </sect2>
@@ -2523,7 +2722,7 @@ OPEN <replaceable>unbound_cursorvar</replaceable> <optional> <optional> NO </opt
        <para>
         An example:
 <programlisting>
-OPEN curs1 FOR EXECUTE 'SELECT * FROM ' || quote_ident(tabname) 
+OPEN curs1 FOR EXECUTE 'SELECT * FROM ' || quote_ident(tabname)
                                         || ' WHERE col1 = $1' USING keyvalue;
 </programlisting>
         In this example, the table name is inserted into the query textually,
@@ -2898,7 +3097,7 @@ END LOOP <optional> <replaceable>label</replaceable> </optional>;
 
    <indexterm>
     <primary>reporting errors</primary>
-    <secondary>in PL/PgSQL</secondary>
+    <secondary>in PL/pgSQL</secondary>
    </indexterm>
 
    <para>
@@ -3012,9 +3211,20 @@ RAISE unique_violation USING MESSAGE = 'Duplicate user ID: ' || user_id;
     The last variant of <command>RAISE</> has no parameters at all.
     This form can only be used inside a <literal>BEGIN</> block's
     <literal>EXCEPTION</> clause;
-    it causes the error currently being handled to be re-thrown to the
-    next enclosing block.
+    it causes the error currently being handled to be re-thrown.
    </para>
+
+   <note>
+    <para>
+     Before <productname>PostgreSQL</> 9.1, <command>RAISE</> without
+     parameters was interpreted as re-throwing the error from the block
+     containing the active exception handler.  Thus an <literal>EXCEPTION</>
+     clause nested within that handler could not catch it, even if the
+     <command>RAISE</> was within the nested <literal>EXCEPTION</> clause's
+     block. This was deemed surprising as well as being incompatible with
+     Oracle's PL/SQL.
+    </para>
+   </note>
 
    <para>
     If no condition name nor SQLSTATE is specified in a
@@ -3101,9 +3311,9 @@ RAISE unique_violation USING MESSAGE = 'Duplicate user ID: ' || user_id;
      <term><varname>TG_WHEN</varname></term>
      <listitem>
       <para>
-       Data type <type>text</type>; a string of either
-       <literal>BEFORE</literal> or <literal>AFTER</literal>
-       depending on the trigger's definition.
+       Data type <type>text</type>; a string of
+       <literal>BEFORE</literal>, <literal>AFTER</literal>, or
+       <literal>INSTEAD OF</literal>, depending on the trigger's definition.
       </para>
      </listitem>
     </varlistentry>
@@ -3223,8 +3433,25 @@ RAISE unique_violation USING MESSAGE = 'Duplicate user ID: ' || user_id;
     effect, but it has to be nonnull to allow the trigger action to
     proceed.  Note that <varname>NEW</varname> is null
     in <command>DELETE</command> triggers, so returning that is
-    usually not sensible.  A useful idiom in <command>DELETE</command>
-    triggers might be to return <varname>OLD</varname>.
+    usually not sensible.  The usual idiom in <command>DELETE</command>
+    triggers is to return <varname>OLD</varname>.
+   </para>
+
+   <para>
+    <literal>INSTEAD OF</> triggers (which are always row-level triggers,
+    and may only be used on views) can return null to signal that they did
+    not perform any updates, and that the rest of the operation for this
+    row should be skipped (i.e., subsequent triggers are not fired, and the
+    row is not counted in the rows-affected status for the surrounding
+    <command>INSERT</>/<command>UPDATE</>/<command>DELETE</>).
+    Otherwise a nonnull value should be returned, to signal
+    that the trigger performed the requested operation. For
+    <command>INSERT</> and <command>UPDATE</> operations, the return value
+    should be <varname>NEW</>, which the trigger function may modify to
+    support <command>INSERT RETURNING</> and <command>UPDATE RETURNING</>
+    (this will also affect the row value passed to any subsequent triggers).
+    For <command>DELETE</> operations, the return value should be
+    <varname>OLD</>.
    </para>
 
    <para>
@@ -3340,6 +3567,85 @@ $emp_audit$ LANGUAGE plpgsql;
 CREATE TRIGGER emp_audit
 AFTER INSERT OR UPDATE OR DELETE ON emp
     FOR EACH ROW EXECUTE PROCEDURE process_emp_audit();
+</programlisting>
+   </example>
+
+   <para>
+    A variation of the previous example uses a view joining the main table
+    to the audit table, to show when each entry was last modified. This
+    approach still records the full audit trail of changes to the table,
+    but also presents a simplified view of the audit trail, showing just
+    the last modified timestamp derived from the audit trail for each entry.
+    <xref linkend="plpgsql-view-trigger-audit-example"> shows an example
+    of an audit trigger on a view in <application>PL/pgSQL</application>.
+   </para>
+
+   <example id="plpgsql-view-trigger-audit-example">
+    <title>A <application>PL/pgSQL</application> View Trigger Procedure For Auditing</title>
+
+    <para>
+     This example uses a trigger on the view to make it updatable, and
+     ensure that any insert, update or delete of a row in the view is
+     recorded (i.e., audited) in the <literal>emp_audit</literal> table. The current time
+     and user name are recorded, together with the type of operation
+     performed, and the view displays the last modified time of each row.
+    </para>
+
+<programlisting>
+CREATE TABLE emp (
+    empname           text PRIMARY KEY,
+    salary            integer
+);
+
+CREATE TABLE emp_audit(
+    operation         char(1)   NOT NULL,
+    userid            text      NOT NULL,
+    empname           text      NOT NULL,
+    salary            integer,
+    stamp             timestamp NOT NULL
+);
+
+CREATE VIEW emp_view AS
+    SELECT e.empname,
+           e.salary,
+           max(ea.stamp) AS last_updated
+      FROM emp e
+      LEFT JOIN emp_audit ea ON ea.empname = e.empname
+     GROUP BY 1, 2;
+
+CREATE OR REPLACE FUNCTION update_emp_view() RETURNS TRIGGER AS $$
+    BEGIN
+        --
+        -- Perform the required operation on emp, and create a row in emp_audit
+        -- to reflect the change made to emp.
+        --
+        IF (TG_OP = 'DELETE') THEN
+            DELETE FROM emp WHERE empname = OLD.empname;
+            IF NOT FOUND THEN RETURN NULL; END IF;
+
+            OLD.last_updated = now();
+            INSERT INTO emp_audit VALUES('D', user, OLD.*);
+            RETURN OLD;
+        ELSIF (TG_OP = 'UPDATE') THEN
+            UPDATE emp SET salary = NEW.salary WHERE empname = OLD.empname;
+            IF NOT FOUND THEN RETURN NULL; END IF;
+
+            NEW.last_updated = now();
+            INSERT INTO emp_audit VALUES('U', user, NEW.*);
+            RETURN NEW;
+        ELSIF (TG_OP = 'INSERT') THEN
+            INSERT INTO emp VALUES(NEW.empname, NEW.salary);
+
+            NEW.last_updated = now();
+            INSERT INTO emp_audit VALUES('I', user, NEW.*);
+            RETURN NEW;
+        END IF;
+    END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER emp_audit
+INSTEAD OF INSERT OR UPDATE OR DELETE ON emp_view
+    FOR EACH ROW EXECUTE PROCEDURE update_emp_view();
 </programlisting>
    </example>
 
@@ -3519,7 +3825,7 @@ SELECT * FROM sales_summary_bytime;
     column reference is syntactically allowed.  As an extreme case, consider
     this example of poor programming style:
 <programlisting>
-        INSERT INTO foo (foo) VALUES (foo);
+INSERT INTO foo (foo) VALUES (foo);
 </programlisting>
     The first occurrence of <literal>foo</> must syntactically be a table
     name, so it will not be substituted, even if the function has a variable
@@ -3542,7 +3848,7 @@ SELECT * FROM sales_summary_bytime;
     tables: is a given name meant to refer to a table column, or a variable?
     Let's change the previous example to
 <programlisting>
-        INSERT INTO dest (col) SELECT foo + bar FROM src;
+INSERT INTO dest (col) SELECT foo + bar FROM src;
 </programlisting>
     Here, <literal>dest</> and <literal>src</> must be table names, and
     <literal>col</> must be a column of <literal>dest</>, but <literal>foo</>
@@ -3575,12 +3881,12 @@ SELECT * FROM sales_summary_bytime;
     declare it in a labeled block and use the block's label
     (see <xref linkend="plpgsql-structure">).  For example,
 <programlisting>
-    &lt;&lt;block&gt;&gt;
-    DECLARE
-        foo int;
-    BEGIN
-        foo := ...;
-        INSERT INTO dest (col) SELECT block.foo + bar FROM src;
+&lt;&lt;block&gt;&gt;
+DECLARE
+    foo int;
+BEGIN
+    foo := ...;
+    INSERT INTO dest (col) SELECT block.foo + bar FROM src;
 </programlisting>
     Here <literal>block.foo</> means the variable even if there is a column
     <literal>foo</> in <literal>src</>.  Function parameters, as well as
@@ -3697,13 +4003,16 @@ $$ LANGUAGE plpgsql;
    </para>
 
    <para>
+    <indexterm>
+     <primary>preparing a query</>
+     <secondary>in PL/pgSQL</>
+    </indexterm>
     As each expression and <acronym>SQL</acronym> command is first
     executed in the function, the <application>PL/pgSQL</> interpreter
     creates a prepared execution plan (using the
     <acronym>SPI</acronym> manager's <function>SPI_prepare</function>
-    and <function>SPI_saveplan</function>
-    functions).<indexterm><primary>preparing a query</><secondary>in
-    PL/pgSQL</></> Subsequent visits to that expression or command
+    and <function>SPI_saveplan</function> functions).
+    Subsequent visits to that expression or command
     reuse the prepared plan.  Thus, a function with conditional code
     that contains many statements for which execution plans might be
     required will only prepare and save those plans that are really
@@ -4279,7 +4588,7 @@ show errors;
 <programlisting>
 CREATE OR REPLACE FUNCTION cs_update_referrer_type_proc() RETURNS void AS $func$
 DECLARE
-    CURSOR referrer_keys IS
+    referrer_keys CURSOR IS
         SELECT * FROM cs_referrer_keys
         ORDER BY try_order;
     func_body text;
@@ -4591,17 +4900,17 @@ $$ LANGUAGE plpgsql;
      is equivalent to what you'd get in Oracle with:
 
 <programlisting>
-    BEGIN
-        SAVEPOINT s1;
+BEGIN
+    SAVEPOINT s1;
+    ... code here ...
+EXCEPTION
+    WHEN ... THEN
+        ROLLBACK TO s1;
         ... code here ...
-    EXCEPTION
-        WHEN ... THEN
-            ROLLBACK TO s1;
-            ... code here ...
-        WHEN ... THEN
-            ROLLBACK TO s1;
-            ... code here ...
-    END;
+    WHEN ... THEN
+        ROLLBACK TO s1;
+        ... code here ...
+END;
 </programlisting>
 
      If you are translating an Oracle procedure that uses

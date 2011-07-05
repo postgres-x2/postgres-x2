@@ -4,10 +4,10 @@
  *	  Lightweight lock manager
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/storage/lwlock.h,v 1.46 2010/02/26 02:01:27 momjian Exp $
+ * src/include/storage/lwlock.h
  *
  *-------------------------------------------------------------------------
  */
@@ -26,6 +26,10 @@
 /* Number of partitions the shared lock tables are divided into */
 #define LOG2_NUM_LOCK_PARTITIONS  4
 #define NUM_LOCK_PARTITIONS  (1 << LOG2_NUM_LOCK_PARTITIONS)
+
+/* Number of partitions the shared predicate lock tables are divided into */
+#define LOG2_NUM_PREDICATELOCK_PARTITIONS  4
+#define NUM_PREDICATELOCK_PARTITIONS  (1 << LOG2_NUM_PREDICATELOCK_PARTITIONS)
 
 /*
  * We have a number of predefined LWLocks, plus a bunch of LWLocks that are
@@ -74,12 +78,18 @@ typedef enum LWLockId
 	RelationMappingLock,
 	AsyncCtlLock,
 	AsyncQueueLock,
+	SerializableXactHashLock,
+	SerializableFinishedListLock,
+	SerializablePredicateLockListLock,
+	OldSerXidLock,
+	SyncRepLock,
 	/* Individual lock IDs end here */
 	FirstBufMappingLock,
 	FirstLockMgrLock = FirstBufMappingLock + NUM_BUFFER_PARTITIONS,
+	FirstPredicateLockMgrLock = FirstLockMgrLock + NUM_LOCK_PARTITIONS,
 
 	/* must be last except for MaxDynamicLWLock: */
-	NumFixedLWLocks = FirstLockMgrLock + NUM_LOCK_PARTITIONS,
+	NumFixedLWLocks = FirstPredicateLockMgrLock + NUM_PREDICATELOCK_PARTITIONS,
 
 	MaxDynamicLWLock = 1000000000
 } LWLockId;

@@ -4,10 +4,10 @@
  *	  Relation descriptor cache definitions.
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/utils/relcache.h,v 1.69 2010/02/26 02:01:29 momjian Exp $
+ * src/include/utils/relcache.h
  *
  *-------------------------------------------------------------------------
  */
@@ -69,7 +69,8 @@ extern Relation RelationBuildLocalRelation(const char *relname,
 						   Oid relid,
 						   Oid reltablespace,
 						   bool shared_relation,
-						   bool mapped_relation);
+						   bool mapped_relation,
+						   char relpersistence);
 
 /*
  * Routine to manage assignment of new relfilenode to a relation

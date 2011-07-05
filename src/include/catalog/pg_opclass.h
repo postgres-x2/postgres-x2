@@ -25,10 +25,10 @@
  * AMs support this.
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/catalog/pg_opclass.h,v 1.88 2010/01/14 16:31:09 teodor Exp $
+ * src/include/catalog/pg_opclass.h
  *
  * NOTES
  *	  the genbki.pl script reads this file and generates .bki
@@ -92,6 +92,7 @@ typedef FormData_pg_opclass *Form_pg_opclass;
 
 DATA(insert (	403		abstime_ops			PGNSP PGUID  421  702 t 0 ));
 DATA(insert (	403		array_ops			PGNSP PGUID  397 2277 t 0 ));
+DATA(insert (	405		array_ops			PGNSP PGUID  627 2277 t 0 ));
 DATA(insert (	403		bit_ops				PGNSP PGUID  423 1560 t 0 ));
 DATA(insert (	403		bool_ops			PGNSP PGUID  424   16 t 0 ));
 DATA(insert (	403		bpchar_ops			PGNSP PGUID  426 1042 t 0 ));

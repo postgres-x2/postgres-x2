@@ -1,4 +1,4 @@
-# $PostgreSQL: pgsql/contrib/Makefile,v 1.93 2010/06/14 16:17:56 sriggs Exp $
+# contrib/Makefile
 
 subdir = contrib
 top_builddir = ..
@@ -6,6 +6,7 @@ include $(top_builddir)/src/Makefile.global
 
 SUBDIRS = \
 		adminpack	\
+		auth_delay	\
 		auto_explain	\
 		btree_gin	\
 		btree_gist	\
@@ -15,7 +16,9 @@ SUBDIRS = \
 		dblink		\
 		dict_int	\
 		dict_xsyn	\
+		dummy_seclabel	\
 		earthdistance	\
+		file_fdw	\
 		fuzzystrmatch	\
 		hstore		\
 		intagg		\
@@ -31,6 +34,7 @@ SUBDIRS = \
 		pg_freespacemap \
 		pg_standby	\
 		pg_stat_statements \
+		pg_test_fsync	\
 		pg_trgm		\
 		pg_upgrade	\
 		pg_upgrade_support \
@@ -58,18 +62,12 @@ ifeq ($(with_libxml),yes)
 SUBDIRS += xml2
 endif
 
+ifeq ($(with_selinux),yes)
+SUBDIRS += sepgsql
+endif
+
 # Missing:
 #		start-scripts	\ (does not have a makefile)
 
 
-all install installdirs uninstall distprep clean distclean maintainer-clean:
-	@for dir in $(SUBDIRS); do \
-		$(MAKE) -C $$dir $@ || exit; \
-	done
-
-# We'd like check operations to run all the subtests before failing.
-check installcheck:
-	@CHECKERR=0; for dir in $(SUBDIRS); do \
-		$(MAKE) -C $$dir $@ || CHECKERR=$$?; \
-	done; \
-	exit $$CHECKERR
+$(recurse)

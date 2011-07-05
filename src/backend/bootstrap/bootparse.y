@@ -4,12 +4,12 @@
  * bootparse.y
  *	  yacc grammar for the "bootstrap" mode (BKI file format)
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/bootstrap/bootparse.y,v 1.105 2010/02/07 20:48:09 tgl Exp $
+ *	  src/backend/bootstrap/bootparse.y
  *
  *-------------------------------------------------------------------------
  */
@@ -219,6 +219,7 @@ Boot_CreateStmt:
 												   $3,
 												   tupdesc,
 												   RELKIND_RELATION,
+												   RELPERSISTENCE_PERMANENT,
 												   shared_relation,
 												   mapped_relation,
 												   true);
@@ -238,6 +239,7 @@ Boot_CreateStmt:
 													  tupdesc,
 													  NIL,
 													  RELKIND_RELATION,
+													  RELPERSISTENCE_PERMANENT,
 													  shared_relation,
 													  mapped_relation,
 													  true,
@@ -342,6 +344,7 @@ boot_index_param:
 					n->name = $1;
 					n->expr = NULL;
 					n->indexcolname = NULL;
+					n->collation = NIL;
 					n->opclass = list_make1(makeString($2));
 					n->ordering = SORTBY_DEFAULT;
 					n->nulls_ordering = SORTBY_NULLS_DEFAULT;

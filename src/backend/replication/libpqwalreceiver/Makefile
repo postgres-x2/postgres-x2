@@ -4,7 +4,7 @@
 #    Makefile for src/backend/replication/libpqwalreceiver
 #
 # IDENTIFICATION
-#    $PostgreSQL: pgsql/src/backend/replication/libpqwalreceiver/Makefile,v 1.2 2010/01/20 20:34:51 heikki Exp $
+#    src/backend/replication/libpqwalreceiver/Makefile
 #
 #-------------------------------------------------------------------------
 
@@ -16,9 +16,10 @@ override CPPFLAGS := -I$(srcdir) -I$(libpq_srcdir) $(CPPFLAGS)
 
 OBJS = libpqwalreceiver.o
 SHLIB_LINK = $(libpq)
+SHLIB_PREREQS = submake-libpq
 NAME = libpqwalreceiver
 
-all: submake-libpq all-shared-lib
+all: all-shared-lib
 
 include $(top_srcdir)/src/Makefile.shlib
 

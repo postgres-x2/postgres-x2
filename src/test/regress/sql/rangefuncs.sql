@@ -164,12 +164,12 @@ INSERT INTO foorescan values(5009,5,'abc.5009.5');
 
 CREATE FUNCTION foorescan(int,int) RETURNS setof foorescan AS 'SELECT * FROM foorescan WHERE fooid >= $1 and fooid < $2 ;' LANGUAGE SQL;
 
---invokes ExecFunctionReScan
+--invokes ExecReScanFunctionScan
 SELECT * FROM foorescan f WHERE f.fooid IN (SELECT fooid FROM foorescan(5002,5004)) ORDER BY 1,2;
 
 CREATE VIEW vw_foorescan AS SELECT * FROM foorescan(5002,5004);
 
---invokes ExecFunctionReScan
+--invokes ExecReScanFunctionScan
 SELECT * FROM foorescan f WHERE f.fooid IN (SELECT fooid FROM vw_foorescan) ORDER BY 1,2;
 
 CREATE TABLE barrescan (fooid int primary key);
@@ -182,7 +182,7 @@ INSERT INTO barrescan values(5008);
 
 CREATE FUNCTION foorescan(int) RETURNS setof foorescan AS 'SELECT * FROM foorescan WHERE fooid = $1;' LANGUAGE SQL;
 
---invokes ExecFunctionReScan with chgParam != NULL
+--invokes ExecReScanFunctionScan with chgParam != NULL
 SELECT f.* FROM barrescan b, foorescan f WHERE f.fooid = b.fooid AND b.fooid IN (SELECT fooid FROM foorescan(b.fooid)) ORDER BY 1,2;
 SELECT b.fooid, max(f.foosubid) FROM barrescan b, foorescan f WHERE f.fooid = b.fooid AND b.fooid IN (SELECT fooid FROM foorescan(b.fooid)) GROUP BY b.fooid ORDER BY 1,2;
 
@@ -427,5 +427,24 @@ language sql stable;
 
 select foobar();
 select * from foobar();
+
+drop function foobar();
+
+-- check handling of a SQL function with multiple OUT params (bug #5777)
+
+create or replace function foobar(out integer, out numeric) as
+$$ select (1, 2.1) $$ language sql;
+
+select * from foobar();
+
+create or replace function foobar(out integer, out numeric) as
+$$ select (1, 2) $$ language sql;
+
+select * from foobar();  -- fail
+
+create or replace function foobar(out integer, out numeric) as
+$$ select (1, 2.1, 3) $$ language sql;
+
+select * from foobar();  -- fail
 
 drop function foobar();

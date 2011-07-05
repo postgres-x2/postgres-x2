@@ -7,16 +7,17 @@
  *		pull_up_sublinks
  *		inline_set_returning_functions
  *		pull_up_subqueries
+ *		flatten_simple_union_all
  *		do expression preprocessing (including flattening JOIN alias vars)
  *		reduce_outer_joins
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/optimizer/prep/prepjointree.c,v 1.73 2010/07/06 19:18:56 momjian Exp $
+ *	  src/backend/optimizer/prep/prepjointree.c
  *
  *-------------------------------------------------------------------------
  */
@@ -317,6 +318,7 @@ pull_up_sublinks_qual_recurse(PlannerInfo *root, Node *node,
 	{
 		SubLink    *sublink = (SubLink *) node;
 		JoinExpr   *j;
+		Relids		child_rels;
 
 		/* Is it a convertible ANY or EXISTS clause? */
 		if (sublink->subLinkType == ANY_SUBLINK)
@@ -325,7 +327,18 @@ pull_up_sublinks_qual_recurse(PlannerInfo *root, Node *node,
 											available_rels);
 			if (j)
 			{
-				/* Yes, insert the new join node into the join tree */
+				/* Yes; recursively process what we pulled up */
+				j->rarg = pull_up_sublinks_jointree_recurse(root,
+															j->rarg,
+															&child_rels);
+				/* Pulled-up ANY/EXISTS quals can use those rels too */
+				child_rels = bms_add_members(child_rels, available_rels);
+				/* ... and any inserted joins get stacked onto j->rarg */
+				j->quals = pull_up_sublinks_qual_recurse(root,
+														 j->quals,
+														 child_rels,
+														 &j->rarg);
+				/* Now insert the new join node into the join tree */
 				j->larg = *jtlink;
 				*jtlink = (Node *) j;
 				/* and return NULL representing constant TRUE */
@@ -338,7 +351,18 @@ pull_up_sublinks_qual_recurse(PlannerInfo *root, Node *node,
 											   available_rels);
 			if (j)
 			{
-				/* Yes, insert the new join node into the join tree */
+				/* Yes; recursively process what we pulled up */
+				j->rarg = pull_up_sublinks_jointree_recurse(root,
+															j->rarg,
+															&child_rels);
+				/* Pulled-up ANY/EXISTS quals can use those rels too */
+				child_rels = bms_add_members(child_rels, available_rels);
+				/* ... and any inserted joins get stacked onto j->rarg */
+				j->quals = pull_up_sublinks_qual_recurse(root,
+														 j->quals,
+														 child_rels,
+														 &j->rarg);
+				/* Now insert the new join node into the join tree */
 				j->larg = *jtlink;
 				*jtlink = (Node *) j;
 				/* and return NULL representing constant TRUE */
@@ -353,6 +377,7 @@ pull_up_sublinks_qual_recurse(PlannerInfo *root, Node *node,
 		/* If the immediate argument of NOT is EXISTS, try to convert */
 		SubLink    *sublink = (SubLink *) get_notclausearg((Expr *) node);
 		JoinExpr   *j;
+		Relids		child_rels;
 
 		if (sublink && IsA(sublink, SubLink))
 		{
@@ -362,7 +387,18 @@ pull_up_sublinks_qual_recurse(PlannerInfo *root, Node *node,
 												   available_rels);
 				if (j)
 				{
-					/* Yes, insert the new join node into the join tree */
+					/* Yes; recursively process what we pulled up */
+					j->rarg = pull_up_sublinks_jointree_recurse(root,
+																j->rarg,
+																&child_rels);
+					/* Pulled-up ANY/EXISTS quals can use those rels too */
+					child_rels = bms_add_members(child_rels, available_rels);
+					/* ... and any inserted joins get stacked onto j->rarg */
+					j->quals = pull_up_sublinks_qual_recurse(root,
+															 j->quals,
+															 child_rels,
+															 &j->rarg);
+					/* Now insert the new join node into the join tree */
 					j->larg = *jtlink;
 					*jtlink = (Node *) j;
 					/* and return NULL representing constant TRUE */
@@ -444,6 +480,7 @@ inline_set_returning_functions(PlannerInfo *root)
 				rte->funcexpr = NULL;
 				rte->funccoltypes = NIL;
 				rte->funccoltypmods = NIL;
+				rte->funccolcollations = NIL;
 			}
 		}
 	}
@@ -869,11 +906,6 @@ pull_up_simple_union_all(PlannerInfo *root, Node *jtnode, RangeTblEntry *rte)
 	List	   *rtable;
 
 	/*
-	 * Append the subquery rtable entries to upper query.
-	 */
-	rtoffset = list_length(root->parse->rtable);
-
-	/*
 	 * Append child RTEs to parent rtable.
 	 *
 	 * Upper-level vars in subquery are now one level closer to their parent
@@ -881,6 +913,7 @@ pull_up_simple_union_all(PlannerInfo *root, Node *jtnode, RangeTblEntry *rte)
 	 * because any such vars must refer to stuff above the level of the query
 	 * we are pulling into.
 	 */
+	rtoffset = list_length(root->parse->rtable);
 	rtable = copyObject(subquery->rtable);
 	IncrementVarSublevelsUp_rtable(rtable, -1, 1);
 	root->parse->rtable = list_concat(root->parse->rtable, rtable);
@@ -888,7 +921,7 @@ pull_up_simple_union_all(PlannerInfo *root, Node *jtnode, RangeTblEntry *rte)
 	/*
 	 * Recursively scan the subquery's setOperations tree and add
 	 * AppendRelInfo nodes for leaf subqueries to the parent's
-	 * append_rel_list.
+	 * append_rel_list.  Also apply pull_up_subqueries to the leaf subqueries.
 	 */
 	Assert(subquery->setOperations);
 	pull_up_union_leaf_queries(subquery->setOperations, root, varno, subquery,
@@ -905,14 +938,20 @@ pull_up_simple_union_all(PlannerInfo *root, Node *jtnode, RangeTblEntry *rte)
 /*
  * pull_up_union_leaf_queries -- recursive guts of pull_up_simple_union_all
  *
- * Note that setOpQuery is the Query containing the setOp node, whose rtable
- * is where to look up the RTE if setOp is a RangeTblRef.  This is *not* the
- * same as root->parse, which is the top-level Query we are pulling up into.
+ * Build an AppendRelInfo for each leaf query in the setop tree, and then
+ * apply pull_up_subqueries to the leaf query.
+ *
+ * Note that setOpQuery is the Query containing the setOp node, whose tlist
+ * contains references to all the setop output columns.  When called from
+ * pull_up_simple_union_all, this is *not* the same as root->parse, which is
+ * the parent Query we are pulling up into.
  *
  * parentRTindex is the appendrel parent's index in root->parse->rtable.
  *
- * The child RTEs have already been copied to the parent. childRToffset
- * tells us where in the parent's range table they were copied.
+ * The child RTEs have already been copied to the parent.  childRToffset
+ * tells us where in the parent's range table they were copied.  When called
+ * from flatten_simple_union_all, childRToffset is 0 since the child RTEs
+ * were already in root->parse->rtable and no RT index adjustment is needed.
  */
 static void
 pull_up_union_leaf_queries(Node *setOp, PlannerInfo *root, int parentRTindex,
@@ -991,11 +1030,7 @@ make_setop_translation_list(Query *query, Index newvarno,
 		if (tle->resjunk)
 			continue;
 
-		vars = lappend(vars, makeVar(newvarno,
-									 tle->resno,
-									 exprType((Node *) tle->expr),
-									 exprTypmod((Node *) tle->expr),
-									 0));
+		vars = lappend(vars, makeVarFromTargetEntry(newvarno, tle));
 	}
 
 	*translated_vars = vars;
@@ -1136,7 +1171,7 @@ is_simple_union_all_recurse(Node *setOp, Query *setOpQuery, List *colTypes)
 		Assert(subquery != NULL);
 
 		/* Leaf nodes are OK if they match the toplevel column types */
-		/* We don't have to compare typmods here */
+		/* We don't have to compare typmods or collations here */
 		return tlist_same_datatypes(subquery->targetList, colTypes, true);
 	}
 	else if (IsA(setOp, SetOperationStmt))
@@ -1421,6 +1456,102 @@ pullup_replace_vars_callback(Var *var,
 
 	return newnode;
 }
+
+
+/*
+ * flatten_simple_union_all
+ *		Try to optimize top-level UNION ALL structure into an appendrel
+ *
+ * If a query's setOperations tree consists entirely of simple UNION ALL
+ * operations, flatten it into an append relation, which we can process more
+ * intelligently than the general setops case.	Otherwise, do nothing.
+ *
+ * In most cases, this can succeed only for a top-level query, because for a
+ * subquery in FROM, the parent query's invocation of pull_up_subqueries would
+ * already have flattened the UNION via pull_up_simple_union_all.  But there
+ * are a few cases we can support here but not in that code path, for example
+ * when the subquery also contains ORDER BY.
+ */
+void
+flatten_simple_union_all(PlannerInfo *root)
+{
+	Query	   *parse = root->parse;
+	SetOperationStmt *topop;
+	Node	   *leftmostjtnode;
+	int			leftmostRTI;
+	RangeTblEntry *leftmostRTE;
+	int			childRTI;
+	RangeTblEntry *childRTE;
+	RangeTblRef *rtr;
+
+	/* Shouldn't be called unless query has setops */
+	topop = (SetOperationStmt *) parse->setOperations;
+	Assert(topop && IsA(topop, SetOperationStmt));
+
+	/* Can't optimize away a recursive UNION */
+	if (root->hasRecursion)
+		return;
+
+	/*
+	 * Recursively check the tree of set operations.  If not all UNION ALL
+	 * with identical column types, punt.
+	 */
+	if (!is_simple_union_all_recurse((Node *) topop, parse, topop->colTypes))
+		return;
+
+	/*
+	 * Locate the leftmost leaf query in the setops tree.  The upper query's
+	 * Vars all refer to this RTE (see transformSetOperationStmt).
+	 */
+	leftmostjtnode = topop->larg;
+	while (leftmostjtnode && IsA(leftmostjtnode, SetOperationStmt))
+		leftmostjtnode = ((SetOperationStmt *) leftmostjtnode)->larg;
+	Assert(leftmostjtnode && IsA(leftmostjtnode, RangeTblRef));
+	leftmostRTI = ((RangeTblRef *) leftmostjtnode)->rtindex;
+	leftmostRTE = rt_fetch(leftmostRTI, parse->rtable);
+	Assert(leftmostRTE->rtekind == RTE_SUBQUERY);
+
+	/*
+	 * Make a copy of the leftmost RTE and add it to the rtable.  This copy
+	 * will represent the leftmost leaf query in its capacity as a member of
+	 * the appendrel.  The original will represent the appendrel as a whole.
+	 * (We must do things this way because the upper query's Vars have to be
+	 * seen as referring to the whole appendrel.)
+	 */
+	childRTE = copyObject(leftmostRTE);
+	parse->rtable = lappend(parse->rtable, childRTE);
+	childRTI = list_length(parse->rtable);
+
+	/* Modify the setops tree to reference the child copy */
+	((RangeTblRef *) leftmostjtnode)->rtindex = childRTI;
+
+	/* Modify the formerly-leftmost RTE to mark it as an appendrel parent */
+	leftmostRTE->inh = true;
+
+	/*
+	 * Form a RangeTblRef for the appendrel, and insert it into FROM.  The top
+	 * Query of a setops tree should have had an empty FromClause initially.
+	 */
+	rtr = makeNode(RangeTblRef);
+	rtr->rtindex = leftmostRTI;
+	Assert(parse->jointree->fromlist == NIL);
+	parse->jointree->fromlist = list_make1(rtr);
+
+	/*
+	 * Now pretend the query has no setops.  We must do this before trying to
+	 * do subquery pullup, because of Assert in pull_up_simple_subquery.
+	 */
+	parse->setOperations = NULL;
+
+	/*
+	 * Build AppendRelInfo information, and apply pull_up_subqueries to the
+	 * leaf queries of the UNION ALL.  (We must do that now because they
+	 * weren't previously referenced by the jointree, and so were missed by
+	 * the main invocation of pull_up_subqueries.)
+	 */
+	pull_up_union_leaf_queries((Node *) topop, root, leftmostRTI, parse, 0);
+}
+
 
 /*
  * reduce_outer_joins
@@ -1745,6 +1876,11 @@ reduce_outer_joins_pass2(Node *jtnode,
 			 * is that we pass either the local or the upper constraints,
 			 * never both, to the children of an outer join.
 			 *
+			 * Note that a SEMI join works like an inner join here: it's okay
+			 * to pass down both local and upper constraints.  (There can't be
+			 * any upper constraints affecting its inner side, but it's not
+			 * worth having a separate code path to avoid passing them.)
+			 *
 			 * At a FULL join we just punt and pass nothing down --- is it
 			 * possible to be smarter?
 			 */
@@ -1754,7 +1890,7 @@ reduce_outer_joins_pass2(Node *jtnode,
 				if (!computed_local_nonnullable_vars)
 					local_nonnullable_vars = find_nonnullable_vars(j->quals);
 				local_forced_null_vars = find_forced_null_vars(j->quals);
-				if (jointype == JOIN_INNER)
+				if (jointype == JOIN_INNER || jointype == JOIN_SEMI)
 				{
 					/* OK to merge upper and local constraints */
 					local_nonnullable_rels = bms_add_members(local_nonnullable_rels,
@@ -1774,14 +1910,14 @@ reduce_outer_joins_pass2(Node *jtnode,
 
 			if (left_state->contains_outer)
 			{
-				if (jointype == JOIN_INNER)
+				if (jointype == JOIN_INNER || jointype == JOIN_SEMI)
 				{
 					/* pass union of local and upper constraints */
 					pass_nonnullable_rels = local_nonnullable_rels;
 					pass_nonnullable_vars = local_nonnullable_vars;
 					pass_forced_null_vars = local_forced_null_vars;
 				}
-				else if (jointype != JOIN_FULL) /* ie, LEFT/SEMI/ANTI */
+				else if (jointype != JOIN_FULL) /* ie, LEFT or ANTI */
 				{
 					/* can't pass local constraints to non-nullable side */
 					pass_nonnullable_rels = nonnullable_rels;
@@ -1874,6 +2010,7 @@ substitute_multiple_relids_walker(Node *node,
 	Assert(!IsA(node, SpecialJoinInfo));
 	Assert(!IsA(node, AppendRelInfo));
 	Assert(!IsA(node, PlaceHolderInfo));
+	Assert(!IsA(node, MinMaxAggInfo));
 
 	return expression_tree_walker(node, substitute_multiple_relids_walker,
 								  (void *) context);

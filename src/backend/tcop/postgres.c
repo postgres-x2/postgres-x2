@@ -3,13 +3,13 @@
  * postgres.c
  *	  POSTGRES C Backend Interface
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/tcop/postgres.c,v 1.595 2010/07/06 19:18:57 momjian Exp $
+ *	  src/backend/tcop/postgres.c
  *
  * NOTES
  *	  this is the "main" module of the postgres backend and
@@ -20,10 +20,11 @@
 
 #include "postgres.h"
 
+#include <fcntl.h>
+#include <limits.h>
+#include <signal.h>
 #include <time.h>
 #include <unistd.h>
-#include <signal.h>
-#include <fcntl.h>
 #include <sys/socket.h>
 #ifdef HAVE_SYS_SELECT_H
 #include <sys/select.h>
@@ -131,6 +132,12 @@ static long max_stack_depth_bytes = 100 * 1024L;
  */
 char	   *stack_base_ptr = NULL;
 
+/*
+ * On IA64 we also have to remember the register stack base.
+ */
+#if defined(__ia64__) || defined(__ia64)
+char	   *register_stack_base_ptr = NULL;
+#endif
 
 /*
  * Flag to mark SIGHUP. Whenever the main loop comes around it
@@ -542,47 +549,6 @@ client_read_ended(void)
 	}
 }
 
-
-/*
- * Parse a query string and pass it through the rewriter.
- *
- * A list of Query nodes is returned, since the string might contain
- * multiple queries and/or the rewriter might expand one query to several.
- *
- * NOTE: this routine is no longer used for processing interactive queries,
- * but it is still needed for parsing of SQL function bodies.
- */
-List *
-pg_parse_and_rewrite(const char *query_string,	/* string to execute */
-					 Oid *paramTypes,	/* parameter types */
-					 int numParams)		/* number of parameters */
-{
-	List	   *raw_parsetree_list;
-	List	   *querytree_list;
-	ListCell   *list_item;
-
-	/*
-	 * (1) parse the request string into a list of raw parse trees.
-	 */
-	raw_parsetree_list = pg_parse_query(query_string);
-
-	/*
-	 * (2) Do parse analysis and rule rewrite.
-	 */
-	querytree_list = NIL;
-	foreach(list_item, raw_parsetree_list)
-	{
-		Node	   *parsetree = (Node *) lfirst(list_item);
-
-		querytree_list = list_concat(querytree_list,
-									 pg_analyze_and_rewrite(parsetree,
-															query_string,
-															paramTypes,
-															numParams));
-	}
-
-	return querytree_list;
-}
 
 /*
  * Do raw parsing (only).
@@ -1670,7 +1636,7 @@ exec_bind_message(StringInfo input_message)
 
 		/* sizeof(ParamListInfoData) includes the first array element */
 		params = (ParamListInfo) palloc(sizeof(ParamListInfoData) +
-								   (numParams - 1) *sizeof(ParamExternData));
+								  (numParams - 1) * sizeof(ParamExternData));
 		/* we have static list of params, so no hooks needed */
 		params->paramFetch = NULL;
 		params->paramFetchArg = NULL;
@@ -2758,6 +2724,9 @@ die(SIGNAL_ARGS)
 			InterruptHoldoffCount--;
 			ProcessInterrupts();
 		}
+
+		/* Interrupt any sync rep wait which is currently in progress. */
+		SetLatch(&(MyProc->waitLatch));
 	}
 
 	errno = save_errno;
@@ -2797,6 +2766,9 @@ StatementCancelHandler(SIGNAL_ARGS)
 			InterruptHoldoffCount--;
 			ProcessInterrupts();
 		}
+
+		/* Interrupt any sync rep wait which is currently in progress. */
+		SetLatch(&(MyProc->waitLatch));
 	}
 
 	errno = save_errno;
@@ -2823,7 +2795,7 @@ SigHupHandler(SIGNAL_ARGS)
 
 /*
  * RecoveryConflictInterrupt: out-of-line portion of recovery conflict
- * handling ollowing receipt of SIGUSR1. Designed to be similar to die()
+ * handling following receipt of SIGUSR1. Designed to be similar to die()
  * and StatementCancelHandler(). Called only by a normal user backend
  * that begins a transaction during recovery.
  */
@@ -2884,7 +2856,7 @@ RecoveryConflictInterrupt(ProcSignalReason reason)
 				 *
 				 * PROCSIG_RECOVERY_CONFLICT_SNAPSHOT if no snapshots are held
 				 * by parent transactions and the transaction is not
-				 * serializable
+				 * transaction-snapshot mode
 				 *
 				 * PROCSIG_RECOVERY_CONFLICT_TABLESPACE if no temp files or
 				 * cursors open in parent transactions
@@ -2914,7 +2886,8 @@ RecoveryConflictInterrupt(ProcSignalReason reason)
 				break;
 
 			default:
-				elog(FATAL, "Unknown conflict mode");
+				elog(FATAL, "unrecognized conflict mode: %d",
+					 (int) reason);
 		}
 
 		Assert(RecoveryConflictPending && (QueryCancelPending || ProcDiePending));
@@ -2978,15 +2951,23 @@ ProcessInterrupts(void)
 					(errcode(ERRCODE_ADMIN_SHUTDOWN),
 					 errmsg("terminating autovacuum process due to administrator command")));
 		else if (RecoveryConflictPending && RecoveryConflictRetryable)
+		{
+			pgstat_report_recovery_conflict(RecoveryConflictReason);
 			ereport(FATAL,
 					(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 			  errmsg("terminating connection due to conflict with recovery"),
 					 errdetail_recovery_conflict()));
+		}
 		else if (RecoveryConflictPending)
+		{
+			/* Currently there is only one non-retryable recovery conflict */
+			Assert(RecoveryConflictReason == PROCSIG_RECOVERY_CONFLICT_DATABASE);
+			pgstat_report_recovery_conflict(RecoveryConflictReason);
 			ereport(FATAL,
-					(errcode(ERRCODE_ADMIN_SHUTDOWN),
+					(errcode(ERRCODE_DATABASE_DROPPED),
 			  errmsg("terminating connection due to conflict with recovery"),
 					 errdetail_recovery_conflict()));
+		}
 		else
 			ereport(FATAL,
 					(errcode(ERRCODE_ADMIN_SHUTDOWN),
@@ -3031,6 +3012,7 @@ ProcessInterrupts(void)
 			RecoveryConflictPending = false;
 			DisableNotifyInterrupt();
 			DisableCatchupInterrupt();
+			pgstat_report_recovery_conflict(RecoveryConflictReason);
 			if (DoingCommandRead)
 				ereport(FATAL,
 						(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
@@ -3062,6 +3044,42 @@ ProcessInterrupts(void)
 	}
 	/* If we get here, do nothing (probably, QueryCancelPending was reset) */
 }
+
+
+/*
+ * IA64-specific code to fetch the AR.BSP register for stack depth checks.
+ *
+ * We currently support gcc, icc, and HP-UX inline assembly here.
+ */
+#if defined(__ia64__) || defined(__ia64)
+
+#if defined(__hpux) && !defined(__GNUC__) && !defined __INTEL_COMPILER
+#include <ia64/sys/inline.h>
+#define ia64_get_bsp() ((char *) (_Asm_mov_from_ar(_AREG_BSP, _NO_FENCE)))
+#else
+
+#ifdef __INTEL_COMPILER
+#include <asm/ia64regs.h>
+#endif
+
+static __inline__ char *
+ia64_get_bsp(void)
+{
+	char	   *ret;
+
+#ifndef __INTEL_COMPILER
+	/* the ;; is a "stop", seems to be required before fetching BSP */
+	__asm__		__volatile__(
+										 ";;\n"
+										 "	mov	%0=ar.bsp	\n"
+							 :			 "=r"(ret));
+#else
+	ret = (char *) __getReg(_IA64_REG_AR_BSP);
+#endif
+	return ret;
+}
+#endif
+#endif   /* IA64 */
 
 
 /*
@@ -3103,30 +3121,59 @@ check_stack_depth(void)
 		ereport(ERROR,
 				(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
 				 errmsg("stack depth limit exceeded"),
-		 errhint("Increase the configuration parameter \"max_stack_depth\", "
-		   "after ensuring the platform's stack depth limit is adequate.")));
+				 errhint("Increase the configuration parameter \"max_stack_depth\" (currently %dkB), "
+			  "after ensuring the platform's stack depth limit is adequate.",
+						 max_stack_depth)));
 	}
+
+	/*
+	 * On IA64 there is a separate "register" stack that requires its own
+	 * independent check.  For this, we have to measure the change in the
+	 * "BSP" pointer from PostgresMain to here.  Logic is just as above,
+	 * except that we know IA64's register stack grows up.
+	 *
+	 * Note we assume that the same max_stack_depth applies to both stacks.
+	 */
+#if defined(__ia64__) || defined(__ia64)
+	stack_depth = (long) (ia64_get_bsp() - register_stack_base_ptr);
+
+	if (stack_depth > max_stack_depth_bytes &&
+		register_stack_base_ptr != NULL)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+				 errmsg("stack depth limit exceeded"),
+				 errhint("Increase the configuration parameter \"max_stack_depth\" (currently %dkB), "
+			  "after ensuring the platform's stack depth limit is adequate.",
+						 max_stack_depth)));
+	}
+#endif   /* IA64 */
 }
 
-/* GUC assign hook for max_stack_depth */
+/* GUC check hook for max_stack_depth */
 bool
-assign_max_stack_depth(int newval, bool doit, GucSource source)
+check_max_stack_depth(int *newval, void **extra, GucSource source)
 {
-	long		newval_bytes = newval * 1024L;
+	long		newval_bytes = *newval * 1024L;
 	long		stack_rlimit = get_stack_depth_rlimit();
 
 	if (stack_rlimit > 0 && newval_bytes > stack_rlimit - STACK_DEPTH_SLOP)
 	{
-		ereport(GUC_complaint_elevel(source),
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("\"max_stack_depth\" must not exceed %ldkB",
-						(stack_rlimit - STACK_DEPTH_SLOP) / 1024L),
-				 errhint("Increase the platform's stack depth limit via \"ulimit -s\" or local equivalent.")));
+		GUC_check_errdetail("\"max_stack_depth\" must not exceed %ldkB.",
+							(stack_rlimit - STACK_DEPTH_SLOP) / 1024L);
+		GUC_check_errhint("Increase the platform's stack depth limit via \"ulimit -s\" or local equivalent.");
 		return false;
 	}
-	if (doit)
-		max_stack_depth_bytes = newval_bytes;
 	return true;
+}
+
+/* GUC assign hook for max_stack_depth */
+void
+assign_max_stack_depth(int newval, void *extra)
+{
+	long		newval_bytes = newval * 1024L;
+
+	max_stack_depth_bytes = newval_bytes;
 }
 
 
@@ -3275,9 +3322,9 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx)
 	 * the common help() function in main/main.c.
 	 */
 #ifdef PGXC
-	while ((flag = getopt(argc, argv, "A:B:Cc:D:d:EeFf:h:ijk:lN:nOo:Pp:r:S:sTt:v:W:Xz:-:")) != -1)
+	while ((flag = getopt(argc, argv, "A:B:bCc:D:d:EeFf:h:ijk:lN:nOo:Pp:r:S:sTt:v:W:Xz:-:")) != -1)
 #else
-	while ((flag = getopt(argc, argv, "A:B:c:D:d:EeFf:h:ijk:lN:nOo:Pp:r:S:sTt:v:W:-:")) != -1)
+	while ((flag = getopt(argc, argv, "A:B:bc:D:d:EeFf:h:ijk:lN:nOo:Pp:r:S:sTt:v:W:-:")) != -1)
 #endif
 	{
 		switch (flag)
@@ -3290,12 +3337,15 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx)
 				SetConfigOption("shared_buffers", optarg, ctx, gucsource);
 				break;
 
+			case 'b':
+				/* Undocumented flag used for binary upgrades */
+				IsBinaryUpgrade = true;
+				break;
 #ifdef PGXC
 			case 'C':
 				isPGXCCoordinator = true;
 				break;
 #endif
-
 			case 'D':
 				if (secure)
 					userDoption = strdup(optarg);
@@ -3561,6 +3611,9 @@ PostgresMain(int argc, char *argv[], const char *username)
 
 	/* Set up reference point for stack depth checking */
 	stack_base_ptr = &stack_base;
+#if defined(__ia64__) || defined(__ia64)
+	register_stack_base_ptr = ia64_get_bsp();
+#endif
 
 	/* Compute paths, if we didn't inherit them from postmaster */
 	if (my_exec_path[0] == '\0')
@@ -4090,8 +4143,9 @@ PostgresMain(int argc, char *argv[], const char *username)
 				/* Set statement_timestamp() */
 				SetCurrentStatementStartTimestamp();
 
-				/* Tell the collector what we're doing */
+				/* Report query to various monitoring facilities. */
 				pgstat_report_activity("<FASTPATH> function call");
+				set_ps_display("<FASTPATH>", false);
 
 				/* start an xact for this function invocation */
 				start_xact_command();
@@ -4343,7 +4397,7 @@ PostgresMain(int argc, char *argv[], const char *username)
 /*
  * Obtain platform stack depth limit (in bytes)
  *
- * Return -1 if unlimited or not known
+ * Return -1 if unknown
  */
 long
 get_stack_depth_rlimit(void)
@@ -4359,7 +4413,10 @@ get_stack_depth_rlimit(void)
 		if (getrlimit(RLIMIT_STACK, &rlim) < 0)
 			val = -1;
 		else if (rlim.rlim_cur == RLIM_INFINITY)
-			val = -1;
+			val = LONG_MAX;
+		/* rlim_cur is probably of an unsigned type, so check for overflow */
+		else if (rlim.rlim_cur >= LONG_MAX)
+			val = LONG_MAX;
 		else
 			val = rlim.rlim_cur;
 	}

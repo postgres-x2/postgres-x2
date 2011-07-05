@@ -4,10 +4,10 @@
  *	  prototypes for files in optimizer/prep/
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/optimizer/prep.h,v 1.68 2010/01/02 16:58:07 momjian Exp $
+ * src/include/optimizer/prep.h
  *
  *-------------------------------------------------------------------------
  */
@@ -26,6 +26,7 @@ extern void inline_set_returning_functions(PlannerInfo *root);
 extern Node *pull_up_subqueries(PlannerInfo *root, Node *jtnode,
 				   JoinExpr *lowest_outer_join,
 				   AppendRelInfo *containing_appendrel);
+extern void flatten_simple_union_all(PlannerInfo *root);
 extern void reduce_outer_joins(PlannerInfo *root);
 extern Relids get_relids_in_jointree(Node *jtnode, bool include_joins);
 extern Relids get_relids_for_join(PlannerInfo *root, int joinrelid);
@@ -33,6 +34,7 @@ extern Relids get_relids_for_join(PlannerInfo *root, int joinrelid);
 /*
  * prototypes for prepqual.c
  */
+extern Node *negate_clause(Node *node);
 extern Expr *canonicalize_qual(Expr *qual);
 
 /*

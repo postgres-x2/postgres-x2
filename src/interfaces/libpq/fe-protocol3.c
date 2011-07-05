@@ -3,12 +3,12 @@
  * fe-protocol3.c
  *	  functions that are specific to frontend/backend protocol version 3
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/interfaces/libpq/fe-protocol3.c,v 1.43 2010/04/28 13:46:23 mha Exp $
+ *	  src/interfaces/libpq/fe-protocol3.c
  *
  *-------------------------------------------------------------------------
  */
@@ -356,6 +356,12 @@ pqParseInput3(PGconn *conn)
 					if (getCopyStart(conn, PGRES_COPY_OUT))
 						return;
 					conn->asyncStatus = PGASYNC_COPY_OUT;
+					conn->copy_already_done = 0;
+					break;
+				case 'W':		/* Start Copy Both */
+					if (getCopyStart(conn, PGRES_COPY_BOTH))
+						return;
+					conn->asyncStatus = PGASYNC_COPY_BOTH;
 					conn->copy_already_done = 0;
 					break;
 				case 'd':		/* Copy Data */
@@ -758,15 +764,19 @@ pqGetErrorNotice3(PGconn *conn, bool isError)
 
 	/*
 	 * Now build the "overall" error message for PQresultErrorMessage.
+	 *
+	 * Also, save the SQLSTATE in conn->last_sqlstate.
 	 */
 	resetPQExpBuffer(&workBuf);
 	val = PQresultErrorField(res, PG_DIAG_SEVERITY);
 	if (val)
 		appendPQExpBuffer(&workBuf, "%s:  ", val);
-	if (conn->verbosity == PQERRORS_VERBOSE)
+	val = PQresultErrorField(res, PG_DIAG_SQLSTATE);
+	if (val)
 	{
-		val = PQresultErrorField(res, PG_DIAG_SQLSTATE);
-		if (val)
+		if (strlen(val) < sizeof(conn->last_sqlstate))
+			strcpy(conn->last_sqlstate, val);
+		if (conn->verbosity == PQERRORS_VERBOSE)
 			appendPQExpBuffer(&workBuf, "%s: ", val);
 	}
 	val = PQresultErrorField(res, PG_DIAG_MESSAGE_PRIMARY);
@@ -1192,7 +1202,8 @@ getNotify(PGconn *conn)
 }
 
 /*
- * getCopyStart - process CopyInResponse or CopyOutResponse message
+ * getCopyStart - process CopyInResponse, CopyOutResponse or
+ * CopyBothResponse message
  *
  * parseInput already read the message type and length.
  */
@@ -1363,6 +1374,7 @@ getCopyDataMessage(PGconn *conn)
 
 /*
  * PQgetCopyData - read a row of data from the backend during COPY OUT
+ * or COPY BOTH
  *
  * If successful, sets *buffer to point to a malloc'd row of data, and
  * returns row length (always > 0) as result.
@@ -1386,10 +1398,10 @@ pqGetCopyData3(PGconn *conn, char **buffer, int async)
 		if (msgLength < 0)
 		{
 			/*
-			 * On end-of-copy, exit COPY_OUT mode and let caller read status
-			 * with PQgetResult().	The normal case is that it's Copy Done,
-			 * but we let parseInput read that.  If error, we expect the state
-			 * was already changed.
+			 * On end-of-copy, exit COPY_OUT or COPY_BOTH mode and let caller
+			 * read status with PQgetResult().	The normal case is that it's
+			 * Copy Done, but we let parseInput read that.	If error, we
+			 * expect the state was already changed.
 			 */
 			if (msgLength == -1)
 				conn->asyncStatus = PGASYNC_BUSY;
@@ -1920,6 +1932,9 @@ build_startup_packet(const PGconn *conn, char *packet,
 		if (val && val[0])
 			ADD_STARTUP_OPTION("application_name", val);
 	}
+
+	if (conn->client_encoding_initial && conn->client_encoding_initial[0])
+		ADD_STARTUP_OPTION("client_encoding", conn->client_encoding_initial);
 
 	/* Add any environment-driven GUC settings needed */
 	for (next_eo = options; next_eo->envName; next_eo++)

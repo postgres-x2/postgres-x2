@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/datatype.sgml,v 1.250 2010/07/03 04:03:06 tgl Exp $ -->
+<!-- doc/src/sgml/datatype.sgml -->
 
  <chapter id="datatype">
   <title>Data Types</title>
@@ -21,7 +21,7 @@
 
   <para>
    <xref linkend="datatype-table"> shows all the built-in general-purpose data
-   types. Most of the alternative names listed in the 
+   types. Most of the alternative names listed in the
    <quote>Aliases</quote> column are the names used internally by
    <productname>PostgreSQL</productname> for historical reasons.  In
    addition, some internally used or deprecated types are available,
@@ -346,13 +346,13 @@
         <entry><type>decimal</></entry>
         <entry>variable</entry>
         <entry>user-specified precision, exact</entry>
-        <entry>no limit</entry>
+        <entry>up to 131072 digits before the decimal point; up to 16383 digits after the decimal point</entry>
        </row>
        <row>
         <entry><type>numeric</></entry>
         <entry>variable</entry>
         <entry>user-specified precision, exact</entry>
-        <entry>no limit</entry>
+        <entry>up to 131072 digits before the decimal point; up to 16383 digits after the decimal point</entry>
        </row>
 
        <row>
@@ -435,7 +435,7 @@
      the best balance between range, storage size, and performance.
      The <type>smallint</type> type is generally only used if disk
      space is at a premium.  The <type>bigint</type> type should only
-     be used if the <type>integer</type> range is insufficient,
+     be used if the range of the <type>integer</type> type is insufficient,
      because the latter is definitely faster.
     </para>
 
@@ -476,8 +476,8 @@
     </indexterm>
 
     <para>
-     The type <type>numeric</type> can store numbers with up to 1000
-     digits of precision and perform calculations exactly. It is
+     The type <type>numeric</type> can store numbers with a
+     very large number of digits and perform calculations exactly. It is
      especially recommended for storing monetary amounts and other
      quantities where exactness is required. However, arithmetic on
      <type>numeric</type> values is very slow compared to the integer
@@ -525,6 +525,15 @@ NUMERIC
      explicitly.)
     </para>
 
+    <note>
+     <para>
+      The maximum allowed precision when explicitly specified in the
+      type declaration is 1000; <type>NUMERIC</type> without a specified
+      precision is subject to the limits described in <xref
+      linkend="datatype-numeric-table">.
+     </para>
+    </note>
+
     <para>
      If the scale of a value to be stored is greater than the declared
      scale of the column, the system will round the value to the specified
@@ -555,7 +564,7 @@ NUMERIC
 
     <para>
      In addition to ordinary numeric values, the <type>numeric</type>
-     type allows the special value <literal>NaN</>, meaning 
+     type allows the special value <literal>NaN</>, meaning
      <quote>not-a-number</quote>.  Any operation on <literal>NaN</>
      yields another <literal>NaN</>.  When writing this value
      as a constant in an SQL command, you must put quotes around it,
@@ -703,9 +712,9 @@ NUMERIC
      <type>float(<replaceable>p</replaceable>)</type> for specifying
      inexact numeric types.  Here, <replaceable>p</replaceable> specifies
      the minimum acceptable precision in <emphasis>binary</> digits.
-     <productname>PostgreSQL</productname> accepts 
+     <productname>PostgreSQL</productname> accepts
      <type>float(1)</type> to <type>float(24)</type> as selecting the
-     <type>real</type> type, while 
+     <type>real</type> type, while
      <type>float(25)</type> to <type>float(53)</type> select
      <type>double precision</type>.  Values of <replaceable>p</replaceable>
      outside the allowed range draw an error.
@@ -839,32 +848,11 @@ ALTER SEQUENCE <replaceable class="parameter">tablename</replaceable>_<replaceab
     fractional precision; see <xref
     linkend="datatype-money-table">.  The fractional precision is
     determined by the database's <xref linkend="guc-lc-monetary"> setting.
+    The range shown in the table assumes there are two fractional digits.
     Input is accepted in a variety of formats, including integer and
     floating-point literals, as well as typical
     currency formatting, such as <literal>'$1,000.00'</literal>.
     Output is generally in the latter form but depends on the locale.
-    Non-quoted numeric values can be converted to <type>money</type> by
-    casting the numeric value to <type>text</type> and then
-    <type>money</type>, for example:
-<programlisting>
-SELECT 1234::text::money;
-</programlisting>
-    There is no simple way of doing the reverse in a locale-independent
-    manner, namely casting a <type>money</type> value to a numeric type.
-    If you know the currency symbol and thousands separator you can use
-    <function>regexp_replace()</>:
-<programlisting>
-SELECT regexp_replace('52093.89'::money::text, '[$,]', '', 'g')::numeric;
-</programlisting>
-
-   </para>
-
-   <para>
-    Since the output of this data type is locale-sensitive, it might not
-    work to load <type>money</> data into a database that has a different
-    setting of <varname>lc_monetary</>.  To avoid problems, before
-    restoring a dump into a new database make sure <varname>lc_monetary</> has the same or
-    equivalent value as in the database that was dumped.
    </para>
 
     <table id="datatype-money-table">
@@ -888,6 +876,42 @@ SELECT regexp_replace('52093.89'::money::text, '[$,]', '', 'g')::numeric;
       </tbody>
      </tgroup>
     </table>
+
+   <para>
+    Since the output of this data type is locale-sensitive, it might not
+    work to load <type>money</> data into a database that has a different
+    setting of <varname>lc_monetary</>.  To avoid problems, before
+    restoring a dump into a new database make sure <varname>lc_monetary</> has
+    the same or equivalent value as in the database that was dumped.
+   </para>
+
+   <para>
+    Values of the <type>numeric</type>, <type>int</type>, and
+    <type>bigint</type> data types can be cast to <type>money</type>.
+    Conversion from the <type>real</type> and <type>double precision</type>
+    data types can be done by casting to <type>numeric</type> first, for
+    example:
+<programlisting>
+SELECT '12.34'::float8::numeric::money;
+</programlisting>
+    However, this is not recommended.  Floating point numbers should not be
+    used to handle money due to the potential for rounding errors.
+   </para>
+
+   <para>
+    A <type>money</type> value can be cast to <type>numeric</type> without
+    loss of precision. Conversion to other types could potentially lose
+    precision, and must also be done in two stages:
+<programlisting>
+SELECT '52093.89'::money::numeric::float8;
+</programlisting>
+   </para>
+
+   <para>
+    When a <type>money</type> value is divided by another <type>money</type>
+    value, the result is <type>double precision</type> (i.e., a pure number,
+    not money); the currency units cancel each other out in the division.
+   </para>
   </sect1>
 
 
@@ -1010,7 +1034,9 @@ SELECT regexp_replace('52093.89'::money::text, '[$,]', '', 'g')::numeric;
     and they will be removed when converting a <type>character</type> value
     to one of the other string types.  Note that trailing spaces
     <emphasis>are</> semantically significant in
-    <type>character varying</type> and <type>text</type> values.
+    <type>character varying</type> and <type>text</type> values, and
+    when using pattern matching, e.g. <literal>LIKE</>,
+    regular expressions.
    </para>
 
    <para>
@@ -1057,7 +1083,7 @@ SELECT regexp_replace('52093.89'::money::text, '[$,]', '', 'g')::numeric;
    </para>
 
    <example>
-    <title>Using the character types</title>
+    <title>Using the Character Types</title>
 
 <programlisting>
 CREATE TABLE test1 (a character(4));
@@ -1210,7 +1236,7 @@ SELECT b, char_length(b) FROM test2;
    </para>
 
   <sect2>
-   <title><type>bytea</> hex format</title>
+   <title><type>bytea</> Hex Format</title>
 
    <para>
     The <quote>hex</> format encodes binary data as 2 hexadecimal digits
@@ -1237,7 +1263,7 @@ SELECT E'\\xDEADBEEF';
   </sect2>
 
   <sect2>
-   <title><type>bytea</> escape format</title>
+   <title><type>bytea</> Escape Format</title>
 
    <para>
     The <quote>escape</quote> format is the traditional
@@ -1248,7 +1274,7 @@ SELECT E'\\xDEADBEEF';
     represented as an ASCII character into special escape sequences.
     If, from the point of view of the application, representing bytes
     as characters makes sense, then this representation can be
-    convenient.  But in practice it is usually confusing becauses it
+    convenient.  But in practice it is usually confusing because it
     fuzzes up the distinction between binary strings and character
     strings, and also the particular escape mechanism that was chosen is
     somewhat unwieldy.  So this format should probably be avoided
@@ -1435,6 +1461,9 @@ SELECT E'\\xDEADBEEF';
     <primary>timestamp</primary>
    </indexterm>
    <indexterm zone="datatype-datetime">
+    <primary>timestamptz</primary>
+   </indexterm>
+   <indexterm zone="datatype-datetime">
     <primary>timestamp with time zone</primary>
    </indexterm>
    <indexterm zone="datatype-datetime">
@@ -1527,7 +1556,9 @@ SELECT E'\\xDEADBEEF';
      be equivalent to <type>timestamp without time
      zone</type>, and <productname>PostgreSQL</productname> honors that
      behavior.  (Releases prior to 7.3 treated it as <type>timestamp
-     with time zone</type>.)
+     with time zone</type>.)  <type>timestamptz</type> is accepted as an
+     abbreviation for <type>timestamp with time zone</type>; this is a
+     <productname>PostgreSQL</productname> extension.
     </para>
    </note>
 
@@ -1576,21 +1607,21 @@ SELECT E'\\xDEADBEEF';
    <para>
     The <type>interval</type> type has an additional option, which is
     to restrict the set of stored fields by writing one of these phrases:
-<programlisting>
-    YEAR
-    MONTH
-    DAY
-    HOUR
-    MINUTE
-    SECOND
-    YEAR TO MONTH
-    DAY TO HOUR
-    DAY TO MINUTE
-    DAY TO SECOND
-    HOUR TO MINUTE
-    HOUR TO SECOND
-    MINUTE TO SECOND
-</programlisting>
+<literallayout class="monospaced">
+YEAR
+MONTH
+DAY
+HOUR
+MINUTE
+SECOND
+YEAR TO MONTH
+DAY TO HOUR
+DAY TO MINUTE
+DAY TO SECOND
+HOUR TO MINUTE
+HOUR TO SECOND
+MINUTE TO SECOND
+</literallayout>
     Note that if both <replaceable>fields</replaceable> and
     <replaceable>p</replaceable> are specified, the
     <replaceable>fields</replaceable> must include <literal>SECOND</>,
@@ -1620,7 +1651,7 @@ SELECT E'\\xDEADBEEF';
 
     <para>
      Date and time input is accepted in almost any reasonable format, including
-     ISO 8601, <acronym>SQL</acronym>-compatible, 
+     ISO 8601, <acronym>SQL</acronym>-compatible,
      traditional <productname>POSTGRES</productname>, and others.
      For some formats, ordering of day, month, and year in date input is
      ambiguous and there is support for specifying the expected
@@ -1637,12 +1668,12 @@ SELECT E'\\xDEADBEEF';
      See <xref linkend="datetime-appendix">
      for the exact parsing rules of date/time input and for the
      recognized text fields including months, days of the week, and
-     time zones. 
+     time zones.
     </para>
 
     <para>
      Remember that any date or time literal input needs to be enclosed
-     in single quotes, like text strings.  Refer to 
+     in single quotes, like text strings.  Refer to
      <xref linkend="sql-syntax-constants-generic"> for more
      information.
      <acronym>SQL</acronym> requires the following syntax
@@ -1664,7 +1695,7 @@ SELECT E'\\xDEADBEEF';
     <indexterm>
      <primary>date</primary>
     </indexterm>
- 
+
     <para>
      <xref linkend="datatype-datetime-date-table"> shows some possible
      inputs for the <type>date</type> type.
@@ -1779,7 +1810,7 @@ SELECT E'\\xDEADBEEF';
      <para>
       Valid input for these types consists of a time of day followed
       by an optional time zone. (See <xref
-      linkend="datatype-datetime-time-table"> 
+      linkend="datatype-datetime-time-table">
       and <xref linkend="datatype-timezone-table">.)  If a time zone is
       specified in the input for <type>time without time zone</type>,
       it is silently ignored. You can also specify a date but it will
@@ -1946,8 +1977,8 @@ January 8 04:05:06 1999 PST
 
      <para>
       The <acronym>SQL</acronym> standard differentiates
-      <type>timestamp without time zone</type> 
-      and <type>timestamp with time zone</type> literals by the presence of a 
+      <type>timestamp without time zone</type>
+      and <type>timestamp with time zone</type> literals by the presence of a
       <quote>+</quote> or <quote>-</quote> symbol and time zone offset after
       the time.  Hence, according to the standard,
 
@@ -2089,10 +2120,10 @@ January 8 04:05:06 1999 PST
       The following <acronym>SQL</acronym>-compatible functions can also
       be used to obtain the current time value for the corresponding data
       type:
-      <literal>CURRENT_DATE</literal>, <literal>CURRENT_TIME</literal>, 
-      <literal>CURRENT_TIMESTAMP</literal>, <literal>LOCALTIME</literal>, 
-      <literal>LOCALTIMESTAMP</literal>.  The latter four accept an 
-      optional subsecond precision specification.  (See <xref 
+      <literal>CURRENT_DATE</literal>, <literal>CURRENT_TIME</literal>,
+      <literal>CURRENT_TIMESTAMP</literal>, <literal>LOCALTIME</literal>,
+      <literal>LOCALTIMESTAMP</literal>.  The latter four accept an
+      optional subsecond precision specification.  (See <xref
       linkend="functions-datetime-current">.)  Note that these are
       SQL functions and are <emphasis>not</> recognized in data input strings.
      </para>
@@ -2247,10 +2278,10 @@ January 8 04:05:06 1999 PST
      <itemizedlist>
       <listitem>
        <para>
-        Although the <type>date</type> type 
+        Although the <type>date</type> type
         cannot have an associated time zone, the
         <type>time</type> type can.
-        Time zones in the real world have little meaning unless 
+        Time zones in the real world have little meaning unless
         associated with a date as well as a time,
         since the offset can vary through the year with daylight-saving
         time boundaries.
@@ -2259,7 +2290,7 @@ January 8 04:05:06 1999 PST
 
       <listitem>
        <para>
-        The default time zone is specified as a constant numeric offset 
+        The default time zone is specified as a constant numeric offset
         from <acronym>UTC</>. It is therefore impossible to adapt to
         daylight-saving time when doing date/time arithmetic across
         <acronym>DST</acronym> boundaries.
@@ -2479,7 +2510,7 @@ P <replaceable>quantity</> <replaceable>unit</> <optional> <replaceable>quantity
      </para>
 
      <table id="datatype-interval-iso8601-units">
-      <title>ISO 8601 interval unit abbreviations</title>
+      <title>ISO 8601 Interval Unit Abbreviations</title>
      <tgroup cols="2">
        <thead>
         <row>
@@ -2751,12 +2782,33 @@ P <optional> <replaceable>years</>-<replaceable>months</>-<replaceable>days</> <
 
    <para>
     <productname>PostgreSQL</productname> provides the
-    standard <acronym>SQL</acronym> type <type>boolean</type>.
-    <type>boolean</type> can have one of only two states:
-    <quote>true</quote> or <quote>false</quote>.  A third state,
-    <quote>unknown</quote>, is represented by the
+    standard <acronym>SQL</acronym> type <type>boolean</type>;
+    see <xref linkend="datatype-boolean-table">.
+    The <type>boolean</type> type can have several states:
+    <quote>true</quote>, <quote>false</quote>, and a third state,
+    <quote>unknown</quote>, which is represented by the
     <acronym>SQL</acronym> null value.
    </para>
+
+   <table id="datatype-boolean-table">
+    <title>Boolean Data Type</title>
+    <tgroup cols="3">
+     <thead>
+      <row>
+       <entry>Name</entry>
+       <entry>Storage Size</entry>
+       <entry>Description</entry>
+      </row>
+     </thead>
+     <tbody>
+      <row>
+       <entry><type>boolean</type></entry>
+       <entry>1 byte</entry>
+       <entry>state of true or false</entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
 
    <para>
     Valid literal values for the <quote>true</quote> state are:
@@ -2786,8 +2838,14 @@ P <optional> <replaceable>years</>-<replaceable>months</>-<replaceable>days</> <
     (<acronym>SQL</acronym>-compliant) usage.
    </para>
 
+   <para>
+    <xref linkend="datatype-boolean-example"> shows that
+    <type>boolean</type> values are output using the letters
+    <literal>t</literal> and <literal>f</literal>.
+   </para>
+
    <example id="datatype-boolean-example">
-    <title>Using the <type>boolean</type> type</title>
+    <title>Using the <type>boolean</type> Type</title>
 
 <programlisting>
 CREATE TABLE test1 (a boolean, b text);
@@ -2805,16 +2863,6 @@ SELECT * FROM test1 WHERE a;
  t | sic est
 </programlisting>
    </example>
-
-   <para>
-    <xref linkend="datatype-boolean-example"> shows that
-    <type>boolean</type> values are output using the letters
-    <literal>t</literal> and <literal>f</literal>.
-   </para>
-
-   <para>
-    <type>boolean</type> uses 1 byte of storage.
-   </para>
   </sect1>
 
   <sect1 id="datatype-enum">
@@ -2852,10 +2900,6 @@ CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy');
 
      Once created, the enum type can be used in table and function
      definitions much like any other type:
-    </para>
-
-    <example>
-     <title>Basic Enum Usage</title>
 <programlisting>
 CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy');
 CREATE TABLE person (
@@ -2869,7 +2913,7 @@ SELECT * FROM person WHERE current_mood = 'happy';
  Moe  | happy
 (1 row)
 </programlisting>
-     </example>
+    </para>
     </sect2>
 
     <sect2>
@@ -2880,10 +2924,7 @@ SELECT * FROM person WHERE current_mood = 'happy';
       order in which the values were listed when the type was created.
       All standard comparison operators and related
       aggregate functions are supported for enums.  For example:
-     </para>
 
-     <example>
-      <title>Enum Ordering</title>
 <programlisting>
 INSERT INTO person VALUES ('Larry', 'sad');
 INSERT INTO person VALUES ('Curly', 'ok');
@@ -2901,7 +2942,7 @@ SELECT * FROM person WHERE current_mood > 'sad' ORDER BY current_mood;
  Moe   | happy
 (2 rows)
 
-SELECT name 
+SELECT name
 FROM person
 WHERE current_mood = (SELECT MIN(current_mood) FROM person);
  name  
@@ -2909,7 +2950,7 @@ WHERE current_mood = (SELECT MIN(current_mood) FROM person);
  Larry
 (1 row)
 </programlisting>
-    </example>
+     </para>
    </sect2>
 
    <sect2>
@@ -2917,11 +2958,8 @@ WHERE current_mood = (SELECT MIN(current_mood) FROM person);
 
     <para>
      Each enumerated data type is separate and cannot
-     be compared with other enumerated types.
-    </para>
+     be compared with other enumerated types.  See this example:
 
-    <example>
-     <title>Lack of Casting</title>
 <programlisting>
 CREATE TYPE happiness AS ENUM ('happy', 'very happy', 'ecstatic');
 CREATE TABLE holidays (
@@ -2937,15 +2975,12 @@ SELECT person.name, holidays.num_weeks FROM person, holidays
   WHERE person.current_mood = holidays.happiness;
 ERROR:  operator does not exist: mood = happiness
 </programlisting>
-    </example>
+    </para>
 
     <para>
      If you really need to do something like that, you can either
      write a custom operator or add explicit casts to your query:
-    </para>
 
-    <example>
-     <title>Comparing Different Enums by Casting to Text</title>
 <programlisting>
 SELECT person.name, holidays.num_weeks FROM person, holidays
   WHERE person.current_mood::text = holidays.happiness::text;
@@ -2955,12 +2990,12 @@ SELECT person.name, holidays.num_weeks FROM person, holidays
 (1 row)
 
 </programlisting>
-    </example>
+    </para>
    </sect2>
 
    <sect2>
     <title>Implementation Details</title>
-    
+
     <para>
      An enum value occupies four bytes on disk.  The length of an enum
      value's textual label is limited by the <symbol>NAMEDATALEN</symbol>
@@ -3397,11 +3432,11 @@ SELECT person.name, holidays.num_weeks FROM person, holidays
      <table id="datatype-net-cidr-table">
       <title><type>cidr</> Type Input Examples</title>
       <tgroup cols="3">
-       <thead> 
-        <row> 
+       <thead>
+        <row>
          <entry><type>cidr</type> Input</entry>
          <entry><type>cidr</type> Output</entry>
-         <entry><literal><function>abbrev</function>(<type>cidr</type>)</literal></entry>
+         <entry><literal><function>abbrev(<type>cidr</type>)</function></literal></entry>
         </row>
        </thead>
        <tbody>
@@ -3509,7 +3544,7 @@ SELECT person.name, holidays.num_weeks FROM person, holidays
    </sect2>
 
    <sect2 id="datatype-macaddr">
-    <title><type>macaddr</></>
+    <title><type>macaddr</type></title>
 
     <indexterm>
      <primary>macaddr (data type)</primary>
@@ -3607,7 +3642,7 @@ SELECT person.name, holidays.num_weeks FROM person, holidays
    </para>
 
    <example>
-    <title>Using the bit string types</title>
+    <title>Using the Bit String Types</title>
 
 <programlisting>
 CREATE TABLE test (a BIT(3), b BIT VARYING(5));
@@ -3760,7 +3795,7 @@ select 'The Fat Rats'::tsvector;
      for searching:
 
 <programlisting>
-SELECT to_tsvector('english', 'The Fat Rats');         
+SELECT to_tsvector('english', 'The Fat Rats');
    to_tsvector   
 -----------------
  'fat':2 'rat':3
@@ -3780,13 +3815,13 @@ SELECT to_tsvector('english', 'The Fat Rats');
 
     <para>
      A <type>tsquery</type> value stores lexemes that are to be
-     searched for, and combines them honoring the boolean operators
+     searched for, and combines them honoring the Boolean operators
      <literal>&amp;</literal> (AND), <literal>|</literal> (OR), and
      <literal>!</> (NOT).  Parentheses can be used to enforce grouping
      of the operators:
 
 <programlisting>
- SELECT 'fat &amp; rat'::tsquery;
+SELECT 'fat &amp; rat'::tsquery;
     tsquery    
 ---------------
  'fat' &amp; 'rat'
@@ -3830,7 +3865,25 @@ SELECT 'super:*'::tsquery;
  'super':*
 </programlisting>
      This query will match any word in a <type>tsvector</> that begins
-     with <quote>super</>.
+     with <quote>super</>.  Note that prefixes are first processed by
+     text search configurations, which means this comparison returns
+     true:
+<programlisting>
+SELECT to_tsvector( 'postgraduate' ) @@ to_tsquery( 'postgres:*' );
+ ?column? 
+----------
+ t
+(1 row)
+</programlisting>
+     because <literal>postgres</> gets stemmed to <literal>postgr</>: 
+<programlisting>
+SELECT to_tsquery('postgres:*');
+ to_tsquery 
+------------
+ 'postgr':*
+(1 row)
+</programlisting>
+     which then matches <literal>postgraduate</>.
     </para>
 
     <para>
@@ -3900,9 +3953,9 @@ a0ee-bc99-9c0b-4ef8-bb6d-6bb9-bd38-0a11
     <productname>PostgreSQL</productname> provides storage and comparison
     functions for UUIDs, but the core database does not include any
     function for generating UUIDs, because no single algorithm is well
-    suited for every application.  The contrib module
-    <filename>contrib/uuid-ossp</filename> provides functions that implement 
-    several standard algorithms.
+    suited for every application.  The <xref
+    linkend="uuid-ossp"> module
+    provides functions that implement several standard algorithms.
     Alternatively, UUIDs could be generated by client applications or
     other libraries invoked through a server-side function.
    </para>
@@ -3921,7 +3974,7 @@ a0ee-bc99-9c0b-4ef8-bb6d-6bb9-bd38-0a11
     checks the input values for well-formedness, and there are support
     functions to perform type-safe operations on it; see <xref
     linkend="functions-xml">.  Use of this data type requires the
-    installation to have been built with <command>configure 
+    installation to have been built with <command>configure
     --with-libxml</>.
    </para>
 
@@ -4397,6 +4450,10 @@ SELECT * FROM pg_attribute
    </indexterm>
 
    <indexterm zone="datatype-pseudo">
+    <primary>fdw_handler</primary>
+   </indexterm>
+
+   <indexterm zone="datatype-pseudo">
     <primary>cstring</primary>
    </indexterm>
 
@@ -4476,6 +4533,11 @@ SELECT * FROM pg_attribute
        <row>
         <entry><type>language_handler</></entry>
         <entry>A procedural language call handler is declared to return <type>language_handler</>.</entry>
+       </row>
+
+       <row>
+        <entry><type>fdw_handler</></entry>
+        <entry>A foreign-data wrapper handler is declared to return <type>fdw_handler</>.</entry>
        </row>
 
        <row>

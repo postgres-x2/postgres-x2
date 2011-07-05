@@ -5,10 +5,10 @@
  *	  along with the relation's initial contents.
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/catalog/pg_aggregate.h,v 1.71 2010/02/01 03:14:43 itagaki Exp $
+ * src/include/catalog/pg_aggregate.h
  *
  * NOTES
  *	  the genbki.pl script reads this file and generates .bki
@@ -124,8 +124,8 @@ DATA(insert ( 2106	interval_accum	interval_collect	interval_avg	0	1187	"{0 secon
 /* sum */
 #ifdef PGXC
 DATA(insert ( 2107	int8_sum		numeric_add		-				0	1700	_null_ "0" ));
-DATA(insert ( 2108	int4_sum		int8_sum_to_int8 -				0	20		_null_ _null_ ));
-DATA(insert ( 2109	int2_sum		int8_sum_to_int8 -				0	20		_null_ _null_ ));
+DATA(insert ( 2108	int4_sum		int8_sum_to_int8		-				0	20		_null_ _null_ ));
+DATA(insert ( 2109	int2_sum		int8_sum_to_int8		-				0	20		_null_ _null_ ));
 DATA(insert ( 2110	float4pl		float4pl		-				0	700		_null_ "0" ));
 DATA(insert ( 2111	float8pl		float8pl		-				0	701		_null_ "0" ));
 DATA(insert ( 2112	cash_pl			cash_pl			-				0	790		_null_ _null_ ));
@@ -236,7 +236,7 @@ DATA(insert ( 3527	enum_smaller	enum_smaller	-				3518	3500	_null_ _null_ ));
 #endif
 
 /* count */
-/* Final function is data type conversion function numeric_int8 is refernced by OID because of ambiguous defininition in pg_proc */
+/* Final function is data type conversion function numeric_int8 is referenced by OID because of ambiguous definition in pg_proc */
 #ifdef PGXC
 DATA(insert ( 2147	int8inc_any		int8_sum_to_int8 -				0		20		"0" "0" ));
 DATA(insert ( 2803	int8inc			int8_sum_to_int8 -				0		20		"0" "0" ));
@@ -356,7 +356,7 @@ DATA(insert ( 2159	numeric_accum	numeric_collect	numeric_stddev_samp 0	1231	"{0,
 
 /* SQL2003 binary regression aggregates */
 #ifdef PGXC
-DATA(insert ( 2818	int8inc_float8_float8	int8_sum_to_int8	-					0	20		"0" _null_ ));
+DATA(insert ( 2818	int8inc_float8_float8	int8_sum_to_int8			-					0	20		"0" _null_ ));
 DATA(insert ( 2819	float8_regr_accum	float8_regr_collect	float8_regr_sxx			0	1022	"{0,0,0,0,0,0}" "{0,0,0,0,0,0}" ));
 DATA(insert ( 2820	float8_regr_accum	float8_regr_collect	float8_regr_syy			0	1022	"{0,0,0,0,0,0}" "{0,0,0,0,0,0}" ));
 DATA(insert ( 2821	float8_regr_accum	float8_regr_collect	float8_regr_sxy			0	1022	"{0,0,0,0,0,0}" "{0,0,0,0,0,0}" ));
@@ -436,8 +436,10 @@ DATA(insert ( 2335	array_agg_transfn	-	array_agg_finalfn		0	2281	_null_ _null_ )
 
 /* text */
 #ifdef PGXC
-DATA(insert (3537	string_agg_transfn			-	string_agg_finalfn	0	2281	_null_ _null_ ));
-DATA(insert (3538	string_agg_delim_transfn	-	string_agg_finalfn	0	2281	_null_ _null_ ));
+DATA(insert ( 3538	string_agg_transfn			-	string_agg_finalfn	0	2281	_null_ _null_ ));
+#endif
+#ifdef PGXC
+//DATA(insert ( 3538	string_agg_transfn	string_agg_finalfn		0	2281	_null_ ));
 #endif
 
 /*

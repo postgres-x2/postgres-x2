@@ -1,5 +1,5 @@
 @echo off
-REM $PostgreSQL: pgsql/src/tools/msvc/pgbison.bat,v 1.10 2008/08/30 02:32:24 tgl Exp $
+REM src/tools/msvc/pgbison.bat
 
 IF NOT EXIST src\tools\msvc\buildenv.pl goto nobuildenv
 perl -e "require 'src/tools/msvc/buildenv.pl'; while(($k,$v) = each %ENV) { print qq[\@SET $k=$v\n]; }" > bldenv.bat
@@ -17,7 +17,9 @@ goto nobison
 
 if "%1" == "src\backend\parser\gram.y" call :generate %1 src\backend\parser\gram.c src\backend\parser\gram.h
 if "%1" == "src\backend\bootstrap\bootparse.y" call :generate %1 src\backend\bootstrap\bootparse.c
+if "%1" == "src\backend\replication\repl_gram.y" call :generate %1 src\backend\replication\repl_gram.c
 if "%1" == "src\pl\plpgsql\src\gram.y" call :generate %1 src\pl\plpgsql\src\pl_gram.c src\pl\plpgsql\src\pl_gram.h
+if "%1" == "src\test\isolation\specparse.y" call :generate %1 src\test\isolation\specparse.c
 if "%1" == "src\interfaces\ecpg\preproc\preproc.y" call :generate %1 src\interfaces\ecpg\preproc\preproc.c src\interfaces\ecpg\preproc\preproc.h
 if "%1" == "contrib\cube\cubeparse.y" call :generate %1 contrib\cube\cubeparse.c
 if "%1" == "contrib\seg\segparse.y" call :generate %1 contrib\seg\segparse.c

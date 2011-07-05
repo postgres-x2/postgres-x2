@@ -5,10 +5,10 @@
  *	  standard operators and index access methods.
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/utils/selfuncs.h,v 1.50 2010/01/02 16:58:10 momjian Exp $
+ * src/include/utils/selfuncs.h
  *
  *-------------------------------------------------------------------------
  */
@@ -132,9 +132,11 @@ extern double histogram_selectivity(VariableStatData *vardata, FmgrInfo *opproc,
 
 extern Pattern_Prefix_Status pattern_fixed_prefix(Const *patt,
 					 Pattern_Type ptype,
+					 Oid collation,
 					 Const **prefix,
 					 Const **rest);
-extern Const *make_greater_string(const Const *str_const, FmgrInfo *ltproc);
+extern Const *make_greater_string(const Const *str_const, FmgrInfo *ltproc,
+					Oid collation);
 
 extern Datum eqsel(PG_FUNCTION_ARGS);
 extern Datum neqsel(PG_FUNCTION_ARGS);

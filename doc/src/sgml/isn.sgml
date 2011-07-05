@@ -1,6 +1,6 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/isn.sgml,v 1.5 2009/05/18 11:08:24 petere Exp $ -->
+<!-- doc/src/sgml/isn.sgml -->
 
-<sect1 id="isn">
+<sect1 id="isn" xreflabel="isn">
  <title>isn</title>
 
  <indexterm zone="isn">
@@ -10,19 +10,31 @@
  <para>
   The <filename>isn</filename> module provides data types for the following
   international product numbering standards: EAN13, UPC, ISBN (books), ISMN
-  (music), and ISSN (serials).  Numbers are validated on input, and correctly
-  hyphenated on output.
+  (music), and ISSN (serials).  Numbers are validated on input according to a
+  hard-coded list of prefixes; this list of prefixes is also used to hyphenate
+  numbers on output.  Since new prefixes are assigned from time to time, the
+  list of prefixes may be out of date.  It is hoped that a future version of
+  this module will obtained the prefix list from one or more tables that
+  can be easily updated by users as needed; however, at present, the
+  list can only be updated by modifying the source code and recompiling.
+  Alternatively, prefix validation and hyphenation support may be
+  dropped from a future version of this module.
  </para>
 
  <sect2>
-  <title>Data types</title>
+  <title>Data Types</title>
 
-  <table>
-   <title><filename>isn</filename> data types</title>
+  <para>
+   <xref linkend="isn-datatypes"> shows the data types provided by
+   the <filename>isn</filename> module.
+  </para>
+
+  <table id="isn-datatypes">
+   <title><filename>isn</filename> Data Types</title>
    <tgroup cols="2">
     <thead>
      <row>
-      <entry>Data type</entry>
+      <entry>Data Type</entry>
       <entry>Description</entry>
      </row>
     </thead>
@@ -209,14 +221,14 @@
 
   <para>
    The <filename>isn</> module provides the standard comparison operators,
-   plus btree and hash indexing support for all these datatypes.  In
+   plus B-tree and hash indexing support for all these data types.  In
    addition there are several specialized functions; shown in <xref linkend="isn-functions">.
    In this table,
    <type>isn</> means any one of the module's data types.
   </para>
 
   <table id="isn-functions">
-   <title><filename>isn</> functions</title>
+   <title><filename>isn</> Functions</title>
    <tgroup cols="3">
     <thead>
      <row>
@@ -295,7 +307,7 @@
  <sect2>
   <title>Examples</title>
 
-  <programlisting>
+<programlisting>
 --Using the types directly:
 SELECT isbn('978-0-393-04002-9');
 SELECT isbn13('0901690546');
@@ -333,7 +345,7 @@ UPDATE test SET id = make_valid(id) WHERE id = '2-205-00876-X!';
 SELECT * FROM test;
 
 SELECT isbn13(id) FROM test;
-  </programlisting>
+</programlisting>
  </sect2>
 
  <sect2>
@@ -342,24 +354,20 @@ SELECT isbn13(id) FROM test;
   <para>
    The information to implement this module was collected from
    several sites, including:
-  </para>
-  <programlisting>
-   http://www.isbn-international.org/
-   http://www.issn.org/
-   http://www.ismn-international.org/
-   http://www.wikipedia.org/
-  </programlisting>
+   <itemizedlist>
+    <listitem><para><ulink url="http://www.isbn-international.org/"></ulink></para></listitem>
+    <listitem><para><ulink url="http://www.issn.org/"></ulink></para></listitem>
+    <listitem><para><ulink url="http://www.ismn-international.org/"></ulink></para></listitem>
+    <listitem><para><ulink url="http://www.wikipedia.org/"></ulink></para></listitem>
+   </itemizedlist>
 
-  <para>
    The prefixes used for hyphenation were also compiled from:
-  </para>
-  <programlisting>
-   http://www.gs1.org/productssolutions/idkeys/support/prefix_list.html
-   http://www.isbn-international.org/en/identifiers.html
-   http://www.ismn-international.org/ranges.html
-  </programlisting>
+   <itemizedlist>
+    <listitem><para><ulink url="http://www.gs1.org/productssolutions/idkeys/support/prefix_list.html"></ulink></para></listitem>
+    <listitem><para><ulink url="http://www.isbn-international.org/en/identifiers.html"></ulink></para></listitem>
+    <listitem><para><ulink url="http://www.ismn-international.org/ranges.html"></ulink></para></listitem>
+   </itemizedlist>
 
-  <para>
    Care was taken during the creation of the algorithms and they
    were meticulously verified against the suggested algorithms
    in the official ISBN, ISMN, ISSN User Manuals.
@@ -369,12 +377,12 @@ SELECT isbn13(id) FROM test;
  <sect2>
   <title>Author</title>
   <para>
-   Germán Méndez Bravo (Kronuz), 2004 - 2006
+   Germ&aacute;n M&eacute;ndez Bravo (Kronuz), 2004 - 2006
   </para>
 
   <para>
    This module was inspired by Garrett A. Wollman's
-   isbn_issn code.
+   <filename>isbn_issn</> code.
   </para>
  </sect2>
 

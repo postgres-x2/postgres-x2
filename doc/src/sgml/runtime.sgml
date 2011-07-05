@@ -1,6 +1,6 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/runtime.sgml,v 1.436 2010/05/26 23:49:19 tgl Exp $ -->
+<!-- doc/src/sgml/runtime.sgml -->
 
-<chapter Id="runtime">
+<chapter id="runtime">
  <title>Server Setup and Operation</title>
 
  <para>
@@ -21,8 +21,8 @@
    separate user account. This user account should only own the data
    that is managed by the server, and should not be shared with other
    daemons. (For example, using the user <literal>nobody</literal> is a bad
-   idea.) It is not advisable to install executables owned by this 
-   user because compromised systems could then modify their own 
+   idea.) It is not advisable to install executables owned by this
+   user because compromised systems could then modify their own
    binaries.
   </para>
 
@@ -142,13 +142,16 @@ postgres$ <userinput>initdb -D /usr/local/pgsql/data</userinput>
    trust other local users, we recommend you use one of
    <command>initdb</command>'s <option>-W</option>, <option>--pwprompt</option>
    or <option>--pwfile</option> options to assign a password to the
-   database superuser.<indexterm><primary>password</><secondary>of the
-   superuser</></indexterm>  Also, specify <option>-A md5</> or
+   database superuser.<indexterm>
+     <primary>password</>
+     <secondary>of the superuser</>
+   </indexterm>
+   Also, specify <option>-A md5</> or
    <option>-A password</> so that the default <literal>trust</> authentication
    mode is not used; or modify the generated <filename>pg_hba.conf</filename>
    file after running <command>initdb</command>, but
    <emphasis>before</> you start the server for the first time. (Other
-   reasonable approaches include using <literal>ident</literal> authentication
+   reasonable approaches include using <literal>peer</literal> authentication
    or file system permissions to restrict connections. See <xref
    linkend="client-authentication"> for more information.)
   </para>
@@ -264,8 +267,11 @@ pg_ctl start -l logfile
 
   <para>
    Normally, you will want to start the database server when the
-   computer boots.<indexterm><primary>booting</><secondary>starting
-   the server during</></> Autostart scripts are operating-system-specific.
+   computer boots.<indexterm>
+     <primary>booting</>
+     <secondary>starting the server during</>
+   </indexterm>
+   Autostart scripts are operating-system-specific.
    There are a few distributed with
    <productname>PostgreSQL</productname> in the
    <filename>contrib/start-scripts</> directory. Installing one will require
@@ -526,7 +532,7 @@ psql: could not connect to server: No such file or directory
     them turned on or sufficiently sized by default, especially as
     available RAM and the demands of database applications grow.
     (On <systemitem class="osname">Windows</>,
-    <productname>PostgreSQL</> provides its own replacement 
+    <productname>PostgreSQL</> provides its own replacement
     implementation of these facilities, so most of this section
     can be disregarded.)
    </para>
@@ -552,7 +558,7 @@ psql: could not connect to server: No such file or directory
 
 
    <table id="sysvipc-parameters">
-    <title><systemitem class="osname">System V</> <acronym>IPC</> parameters</>
+    <title><systemitem class="osname">System V</> <acronym>IPC</> Parameters</title>
 
     <tgroup cols="3">
      <thead>
@@ -738,7 +744,7 @@ psql: could not connect to server: No such file or directory
       <indexterm><primary>BSD/OS</><secondary>IPC configuration</></>
       <listitem>
        <formalpara>
-        <title>Shared Memory</>
+        <title>Shared Memory</title>
         <para>
          By default, only 4 MB of shared memory is supported. Keep in
          mind that shared memory is not pageable; it is locked in RAM.
@@ -759,7 +765,7 @@ options "SHMMAX=\(SHMALL*PAGE_SIZE\)"
        </formalpara>
 
        <formalpara>
-        <title>Semaphores</>
+        <title>Semaphores</title>
         <para>
          You will probably want to increase the number of semaphores
          as well; the default system total of 60 will only allow about
@@ -827,7 +833,7 @@ options "SEMMNS=240"
        </para>
 
        <para>
-        <systemitem class="osname">FreeBSD</> versions before 4.0 work like 
+        <systemitem class="osname">FreeBSD</> versions before 4.0 work like
         <systemitem class="osname">NetBSD</> and <systemitem class="osname">
         OpenBSD</> (see below).
        </para>
@@ -921,7 +927,7 @@ options        SEMMAP=256
 
        <para>
         Ancient distributions might not have the <command>sysctl</command> program,
-        but equivalent changes can be made by manipulating the 
+        but equivalent changes can be made by manipulating the
         <filename>/proc</filename> file system:
 <screen>
 <prompt>$</prompt> <userinput>echo 17179869184 &gt;/proc/sys/kernel/shmmax</userinput>
@@ -1028,14 +1034,14 @@ sysctl -w kern.sysv.shmall
 
 
      <varlistentry>
-      <term><systemitem class="osname">Solaris</></term>
+      <term><systemitem class="osname">Solaris</> 2.6 to 2.9 (Solaris
+      6 to Solaris 9)</term>
       <indexterm><primary>Solaris</><secondary>IPC configuration</></>
       <listitem>
        <para>
-        At least in version 2.6, the default maximum size of a shared
-        memory segment is too low for <productname>PostgreSQL</>. The
-        relevant settings can be changed in <filename>/etc/system</>,
-        for example:
+        The default maximum size of a shared memory segment is too low for
+        <productname>PostgreSQL</>. The relevant settings can be changed in
+        <filename>/etc/system</>, for example:
 <programlisting>
 set shmsys:shminfo_shmmax=0x2000000
 set shmsys:shminfo_shmmin=1
@@ -1047,14 +1053,58 @@ set semsys:seminfo_semmni=512
 set semsys:seminfo_semmns=512
 set semsys:seminfo_semmsl=32
 </programlisting>
-        You need to reboot for the changes to take effect.
+        You need to reboot for the changes to take effect.  See also
+        <ulink url="http://sunsite.uakom.sk/sunworldonline/swol-09-1997/swol-09-insidesolaris.html"></ulink>
+        for information on shared memory under older versions of Solaris.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><systemitem class="osname">Solaris</> 2.10 (Solaris
+      10)</term>
+      <term><systemitem class="osname">OpenSolaris</></term>
+      <listitem>
+       <para>
+        In Solaris 10 and OpenSolaris, the default shared memory and
+        semaphore settings are good enough for most
+        <productname>PostgreSQL</> applications.  Solaris now defaults
+        to a <varname>SHMMAX</> of one-quarter of system <acronym>RAM</>.  If
+        you need to increase this in order to set shared memory settings
+        slightly higher, you should use a project setting associated
+        with the <literal>postgres</> user.  For example, run the
+        following as <literal>root</>:
+<programlisting>
+projadd -c "PostgreSQL DB User" -K "project.max-shm-memory=(privileged,8GB,deny)" -U postgres -G postgres user.postgres
+</programlisting>
        </para>
 
        <para>
-        See also <ulink
-        url="http://sunsite.uakom.sk/sunworldonline/swol-09-1997/swol-09-insidesolaris.html"></>
-        for information on shared memory under
-        <productname>Solaris</>.
+        This command adds the <literal>user.postgres</> project and
+        raises the shared memory maximum for the <literal>postgres</>
+        user to 8GB, and takes effect the next time that user logs
+        in, or when you restart <productname>PostgreSQL</> (not reload).
+        The above assumes that <productname>PostgreSQL</> is run by
+        the <literal>postgres</> user in the <literal>postgres</>
+        group.  No server reboot is required.
+       </para>
+
+       <para>
+        Other recommended kernel setting changes for database servers which will
+        have a large number of connections are:
+<programlisting>
+project.max-shm-ids=(priv,32768,deny)
+project.max-sem-ids=(priv,4096,deny)
+project.max-msg-ids=(priv,4096,deny)
+</programlisting>
+       </para>
+
+       <para>
+        Additionally, if you are running <productname>PostgreSQL</>
+        inside a zone, you may need to raise the zone resource usage
+        limits as well.  See "Chapter2:  Projects and Tasks" in the
+        <citetitle>Solaris 10 System Administrator's Guide</> for more
+        information on <literal>projects</> and <command>prctl</>.
        </para>
       </listitem>
      </varlistentry>
@@ -1092,7 +1142,7 @@ set semsys:seminfo_semmsl=32
 
 
    <table id="shared-memory-parameters">
-    <title><productname>PostgreSQL</productname> shared memory usage</>
+    <title><productname>PostgreSQL</productname> Shared Memory Usage</>
 
     <tgroup cols="2">
      <thead>
@@ -1418,6 +1468,305 @@ $ <userinput>kill -INT `head -1 /usr/local/pgsql/data/postmaster.pid`</userinput
   </para>
  </sect1>
 
+ <sect1 id="upgrading">
+  <title>Upgrading a <productname>PostgreSQL</> Cluster</title>
+
+  <indexterm zone="upgrading">
+   <primary>upgrading</primary>
+  </indexterm>
+
+  <indexterm zone="upgrading">
+   <primary>version</primary>
+   <secondary>compatibility</secondary>
+  </indexterm>
+
+  <para>
+   This section discusses how to upgrade your database data from one
+   <productname>PostgreSQL</> release to a newer one.
+  </para>
+
+  <para>
+   <productname>PostgreSQL</> major versions are represented by the
+   first two digit groups of the version number, e.g., 8.4.
+   <productname>PostgreSQL</> minor versions are represented by the
+   third group of version digits, e.g., 8.4.2 is the second minor
+   release of 8.4.  Minor releases never change the internal storage
+   format and are always compatible with earlier and later minor
+   releases of the same major version number, e.g., 8.4.2 is compatible
+   with 8.4, 8.4.1 and 8.4.6.  To update between compatible versions,
+   you simply replace the executables while the server is down and
+   restart the server.  The data directory remains unchanged &mdash;
+   minor upgrades are that simple.
+  </para>
+
+  <para>
+   For <emphasis>major</> releases of <productname>PostgreSQL</>, the
+   internal data storage format is subject to change, thus complicating
+   upgrades.  The traditional method for moving data to a new major version
+   is to dump and reload the database.  Other methods are available,
+   as discussed below.
+  </para>
+
+  <para>
+   New major versions also typically introduce some user-visible
+   incompatibilities, so application programming changes might be required.
+   All user-visible changes are listed in the release notes (<xref
+   linkend="release">);  pay particular attention to the section
+   labeled "Migration".  If you are upgrading across several major
+   versions, be sure to read the release notes for each intervening
+   version.
+  </para>
+
+  <para>
+   Cautious users will want to test their client applications on the new
+   version before switching over fully; therefore, it's often a good idea to
+   set up concurrent installations of old and new versions.  When
+   testing a <productname>PostgreSQL</> major upgrade, consider the
+   following categories of possible changes:
+  </para>
+
+  <variablelist>
+
+   <varlistentry>
+    <term>Administration</term>
+    <listitem>
+     <para>
+      The capabilities available for administrators to monitor and control
+      the server often change and improve in each major release.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term>SQL</term>
+    <listitem>
+     <para>
+      Typically this includes new SQL command capabilities and not changes
+      in behavior, unless specifically mentioned in the release notes.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term>Library API</term>
+    <listitem>
+     <para>
+      Typically libraries like <application>libpq</> only add new
+      functionality, again unless mentioned in the release notes.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term>System Catalogs</term>
+    <listitem>
+     <para>
+      System catalog changes usually only affect database management tools.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term>Server C-language API</term>
+    <listitem>
+     <para>
+      This involves changes in the backend function API, which is written
+      in the C programming language.  Such changes affect code that
+      references backend functions deep inside the server.
+     </para>
+    </listitem>
+   </varlistentry>
+
+  </variablelist>
+
+  <sect2 id="upgrade-methods-pgdump">
+   <title>Upgrading Data via <application>pg_dump</></title>
+
+   <para>
+    To dump data from one major version of <productname>PostgreSQL</> and
+    reload it in another, you must use <application>pg_dump</>; file system
+    level backup methods will not work. (There are checks in place that prevent
+    you from using a data directory with an incompatible version of
+    <productname>PostgreSQL</productname>, so no great harm can be done by
+    trying to start the wrong server version on a data directory.)
+   </para>
+
+   <para>
+    It is recommended that you use the <application>pg_dump</> and
+    <application>pg_dumpall</> programs from the newer version of
+    <productname>PostgreSQL</>, to take advantage of enhancements
+    that might have been made in these programs.  Current releases of the
+    dump programs can read data from any server version back to 7.0.
+   </para>
+
+   <para>
+    These instructions assume that your existing installation is under the
+    <filename>/usr/local/pgsql</> directory, and that the data area is in
+    <filename>/usr/local/pgsql/data</>.  Substitute your paths
+    appropriately.
+   </para>
+
+   <procedure>
+    <step>
+     <para>
+      If making a backup, make sure that your database is not being updated.
+      This does not affect the integrity of the backup, but the changed
+      data would of course not be included. If necessary, edit the
+      permissions in the file <filename>/usr/local/pgsql/data/pg_hba.conf</>
+      (or equivalent) to disallow access from everyone except you.
+      See <xref linkend="client-authentication"> for additional information on
+      access control.
+     </para>
+
+     <para>
+      <indexterm>
+       <primary>pg_dumpall</primary>
+       <secondary>use during upgrade</secondary>
+      </indexterm>
+
+      To back up your database installation, type:
+<screen>
+<userinput>pg_dumpall &gt; <replaceable>outputfile</></userinput>
+</screen>
+      If you need to preserve OIDs (such as when using them as
+      foreign keys), then use the <option>-o</option> option when running
+      <application>pg_dumpall</>.
+     </para>
+
+     <para>
+      To make the backup, you can use the <application>pg_dumpall</application>
+      command from the version you are currently running.  For best
+      results, however, try to use the <application>pg_dumpall</application>
+      command from <productname>PostgreSQL</productname> &version;,
+      since this version contains bug fixes and improvements over older
+      versions.  While this advice might seem idiosyncratic since you
+      haven't installed the new version yet, it is advisable to follow
+      it if you plan to install the new version in parallel with the
+      old version.  In that case you can complete the installation
+      normally and transfer the data later.  This will also decrease
+      the downtime.
+     </para>
+    </step>
+
+    <step>
+     <para>
+      Shut down the old server:
+<screen>
+<userinput>pg_ctl stop</>
+</screen>
+      On systems that have <productname>PostgreSQL</> started at boot time,
+      there is probably a start-up file that will accomplish the same thing. For
+      example, on a <systemitem class="osname">Red Hat Linux</> system one
+      might find that this works:
+<screen>
+<userinput>/etc/rc.d/init.d/postgresql stop</userinput>
+</screen>
+      See <xref linkend="runtime"> for details about starting and
+      stopping the server.
+     </para>
+    </step>
+
+    <step>
+     <para>
+      If restoring from backup, rename or delete the old installation
+      directory.  It is a good idea to rename the directory, rather than
+      delete it, in case you have trouble and need to revert to it.  Keep
+      in mind the directory might consume significant disk space.  To rename
+      the directory, use a command like this:
+<screen>
+<userinput>mv /usr/local/pgsql /usr/local/pgsql.old</>
+</screen>
+     (Be sure to move the directory as a single unit so relative paths
+     remain unchanged.)
+     </para>
+    </step>
+
+    <step>
+     <para>
+      Install the new version of <productname>PostgreSQL</productname> as
+      outlined in <![%standalone-include[the next section.]]>
+      <![%standalone-ignore[<xref linkend="install-procedure">.]]>
+     </para>
+    </step>
+
+    <step>
+     <para>
+      Create a new database cluster if needed.  Remember that you must
+      execute these commands while logged in to the special database user
+      account (which you already have if you are upgrading).
+<programlisting>
+<userinput>/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data</>
+</programlisting>
+     </para>
+    </step>
+
+    <step>
+     <para>
+      Restore your previous <filename>pg_hba.conf</> and any
+      <filename>postgresql.conf</> modifications.
+     </para>
+    </step>
+
+    <step>
+     <para>
+      Start the database server, again using the special database user
+      account:
+<programlisting>
+<userinput>/usr/local/pgsql/bin/postgres -D /usr/local/pgsql/data</>
+</programlisting>
+     </para>
+    </step>
+
+    <step>
+     <para>
+      Finally, restore your data from backup with:
+<screen>
+<userinput>/usr/local/pgsql/bin/psql -d postgres -f <replaceable>outputfile</></userinput>
+</screen>
+      using the <emphasis>new</> <application>psql</>.
+     </para>
+    </step>
+   </procedure>
+
+   <para>
+    The least downtime can be achieved by installing the new server in
+    a different directory and running both the old and the new servers
+    in parallel, on different ports. Then you can use something like:
+
+<programlisting>
+pg_dumpall -p 5432 | psql -d postgres -p 5433
+</programlisting>
+    to transfer your data.
+   </para>
+
+  </sect2>
+
+  <sect2 id="upgrading-methods-other">
+   <title>Non-Dump Upgrade Methods</title>
+
+   <para>
+    The <link linkend="pgupgrade">pg_upgrade</link> module allows an
+    installation to be migrated in-place from one major
+    <productname>PostgreSQL</> version to the next.  Upgrades can be
+    performed in minutes.
+   </para>
+
+   <para>
+    It is also possible to use certain replication methods, such as
+    <productname>Slony</>, to create a standby server with the updated version of
+    <productname>PostgreSQL</>.  This is possible because Slony supports
+    replication between different major versions of
+    <productname>PostgreSQL</>.  The standby can be on the same computer or
+    a different computer.  Once it has synced up with the master server
+    (running the older version of <productname>PostgreSQL</>), you can
+    switch masters and make the standby the master and shut down the older
+    database instance.  Such a switch-over results in only several seconds
+    of downtime for an upgrade.
+   </para>
+
+  </sect2>
+ </sect1>
+
  <sect1 id="preventing-server-spoofing">
   <title>Preventing Server Spoofing</title>
 
@@ -1464,7 +1813,7 @@ $ <userinput>kill -INT `head -1 /usr/local/pgsql/data/postmaster.pid`</userinput
    file installed (<xref linkend="libpq-connect">).
   </para>
  </sect1>
-  
+
  <sect1 id="encryption-options">
   <title>Encryption Options</title>
 
@@ -1479,7 +1828,7 @@ $ <userinput>kill -INT `head -1 /usr/local/pgsql/data/postmaster.pid`</userinput
    insecure networks. Encryption might also be required to secure
    sensitive data such as medical records or financial transactions.
   </para>
-   
+
   <variablelist>
 
   <varlistentry>
@@ -1502,13 +1851,13 @@ $ <userinput>kill -INT `head -1 /usr/local/pgsql/data/postmaster.pid`</userinput
 
    <listitem>
     <para>
-     The <filename>contrib</> function library
-     <function>pgcrypto</function> allows certain fields to be stored
-     encrypted. This is useful if only some of the data is sensitive.
+     The <xref linkend="pgcrypto"> module allows certain fields to be
+     stored encrypted.
+     This is useful if only some of the data is sensitive.
      The client supplies the decryption key and the data is decrypted
      on the server and then sent to the client.
     </para>
-     
+
     <para>
      The decrypted data and the decryption key are present on the
      server for a brief time while it is being decrypted and
@@ -1701,14 +2050,14 @@ $ <userinput>kill -INT `head -1 /usr/local/pgsql/data/postmaster.pid`</userinput
   </para>
 
   <sect2 id="ssl-client-certificates">
-   <title>Using client certificates</title>
+   <title>Using Client Certificates</title>
 
    <para>
    To require the client to supply a trusted certificate, place
    certificates of the certificate authorities (<acronym>CA</acronym>s)
    you trust in the file <filename>root.crt</filename> in the data
    directory, and set the <literal>clientcert</literal> parameter
-   to <literal>1</literal> on the appropriate <literal>hostssl</> line(s) in
+   to 1 on the appropriate <literal>hostssl</> line(s) in
    <filename>pg_hba.conf</>.
    A certificate will then be requested from the client during
    SSL connection startup.  (See <xref linkend="libpq-ssl"> for a
@@ -1726,7 +2075,7 @@ $ <userinput>kill -INT `head -1 /usr/local/pgsql/data/postmaster.pid`</userinput
    The <literal>clientcert</literal> option in <filename>pg_hba.conf</> is
    available for all authentication methods, but only for rows specified as
    <literal>hostssl</>.  When <literal>clientcert</literal> is not specified
-   or is set to <literal>0</>, the server will still verify presented client
+   or is set to 0, the server will still verify presented client
    certificates against <filename>root.crt</filename> if that file exists
    &mdash; but it will not insist that a client certificate be presented.
   </para>
@@ -1748,12 +2097,11 @@ $ <userinput>kill -INT `head -1 /usr/local/pgsql/data/postmaster.pid`</userinput
 
   <sect2 id="ssl-server-files">
    <title>SSL Server File Usage</title>
-  <para>
-   The files <filename>server.key</>, <filename>server.crt</>,
-   <filename>root.crt</filename>, and <filename>root.crl</filename>
-   are only examined during server start; so you must restart
-   the server for changes in them to take effect.
-  </para>
+
+   <para>
+    <xref linkend="ssl-file-usage"> summarizes the files that are
+    relevant to the SSL setup on the server.
+   </para>
 
   <table id="ssl-file-usage">
    <title>SSL Server File Usage</title>
@@ -1769,27 +2117,27 @@ $ <userinput>kill -INT `head -1 /usr/local/pgsql/data/postmaster.pid`</userinput
     <tbody>
 
      <row>
-      <entry><filename>server.crt</></entry>
+      <entry><filename>$PGDATA/server.crt</></entry>
       <entry>server certificate</entry>
       <entry>sent to client to indicate server's identity</entry>
      </row>
 
      <row>
-      <entry><filename>server.key</></entry>
+      <entry><filename>$PGDATA/server.key</></entry>
       <entry>server private key</entry>
       <entry>proves server certificate was sent by the owner; does not indicate
       certificate owner is trustworthy</entry>
      </row>
 
      <row>
-      <entry><filename>root.crt</></entry>
+      <entry><filename>$PGDATA/root.crt</></entry>
       <entry>trusted certificate authorities</entry>
       <entry>checks that client certificate is
       signed by a trusted certificate authority</entry>
      </row>
 
      <row>
-      <entry><filename>root.crl</></entry>
+      <entry><filename>$PGDATA/root.crl</></entry>
       <entry>certificates revoked by certificate authorities</entry>
       <entry>client certificate must not be on this list</entry>
      </row>
@@ -1797,10 +2145,17 @@ $ <userinput>kill -INT `head -1 /usr/local/pgsql/data/postmaster.pid`</userinput
     </tbody>
    </tgroup>
   </table>
+
+   <para>
+    The files <filename>server.key</>, <filename>server.crt</>,
+    <filename>root.crt</filename>, and <filename>root.crl</filename>
+    are only examined during server start; so you must restart
+    the server for changes in them to take effect.
+   </para>
   </sect2>
 
   <sect2 id="ssl-certificate-creation">
-   <title>Creating a Self-Signed Certificate</title>
+   <title>Creating a Self-signed Certificate</title>
 
    <para>
     To create a quick self-signed certificate for the server, use the

@@ -3,8 +3,8 @@
  *
  *	Postgres-version-specific routines
  *
- *	Copyright (c) 2010, PostgreSQL Global Development Group
- *	$PostgreSQL: pgsql/contrib/pg_upgrade/version.c,v 1.5 2010/07/03 16:33:14 momjian Exp $
+ *	Copyright (c) 2010-2011, PostgreSQL Global Development Group
+ *	contrib/pg_upgrade/version.c
  */
 
 #include "pg_upgrade.h"
@@ -18,30 +18,27 @@
  *	9.0 has a new pg_largeobject permission table
  */
 void
-new_9_0_populate_pg_largeobject_metadata(migratorContext *ctx, bool check_mode,
-										 Cluster whichCluster)
+new_9_0_populate_pg_largeobject_metadata(ClusterInfo *cluster, bool check_mode)
 {
-	ClusterInfo *active_cluster = (whichCluster == CLUSTER_OLD) ?
-	&ctx->old : &ctx->new;
 	int			dbnum;
 	FILE	   *script = NULL;
 	bool		found = false;
 	char		output_path[MAXPGPATH];
 
-	prep_status(ctx, "Checking for large objects");
+	prep_status("Checking for large objects");
 
 	snprintf(output_path, sizeof(output_path), "%s/pg_largeobject.sql",
-			 ctx->cwd);
+			 os_info.cwd);
 
-	for (dbnum = 0; dbnum < active_cluster->dbarr.ndbs; dbnum++)
+	for (dbnum = 0; dbnum < cluster->dbarr.ndbs; dbnum++)
 	{
 		PGresult   *res;
 		int			i_count;
-		DbInfo	   *active_db = &active_cluster->dbarr.dbs[dbnum];
-		PGconn	   *conn = connectToServer(ctx, active_db->db_name, whichCluster);
+		DbInfo	   *active_db = &cluster->dbarr.dbs[dbnum];
+		PGconn	   *conn = connectToServer(cluster, active_db->db_name);
 
 		/* find if there are any large objects */
-		res = executeQueryOrDie(ctx, conn,
+		res = executeQueryOrDie(conn,
 								"SELECT count(*) "
 								"FROM	pg_catalog.pg_largeobject ");
 
@@ -52,9 +49,9 @@ new_9_0_populate_pg_largeobject_metadata(migratorContext *ctx, bool check_mode,
 			if (!check_mode)
 			{
 				if (script == NULL && (script = fopen(output_path, "w")) == NULL)
-					pg_log(ctx, PG_FATAL, "Could not create necessary file:  %s\n", output_path);
+					pg_log(PG_FATAL, "could not create necessary file:  %s\n", output_path);
 				fprintf(script, "\\connect %s\n",
-						quote_identifier(ctx, active_db->db_name));
+						quote_identifier(active_db->db_name));
 				fprintf(script,
 						"SELECT pg_catalog.lo_create(t.loid)\n"
 						"FROM (SELECT DISTINCT loid FROM pg_catalog.pg_largeobject) AS t;\n");
@@ -65,20 +62,21 @@ new_9_0_populate_pg_largeobject_metadata(migratorContext *ctx, bool check_mode,
 		PQfinish(conn);
 	}
 
+	if (script)
+		fclose(script);
+
 	if (found)
 	{
-		if (!check_mode)
-			fclose(script);
-		report_status(ctx, PG_WARNING, "warning");
+		report_status(PG_WARNING, "warning");
 		if (check_mode)
-			pg_log(ctx, PG_WARNING, "\n"
+			pg_log(PG_WARNING, "\n"
 				   "| Your installation contains large objects.\n"
 				   "| The new database has an additional large object\n"
-				   "| permission table.  After migration, you will be\n"
+				   "| permission table.  After upgrading, you will be\n"
 				   "| given a command to populate the pg_largeobject\n"
 				   "| permission table with default permissions.\n\n");
 		else
-			pg_log(ctx, PG_WARNING, "\n"
+			pg_log(PG_WARNING, "\n"
 				   "| Your installation contains large objects.\n"
 				   "| The new database has an additional large object\n"
 				   "| permission table so default permissions must be\n"
@@ -89,5 +87,5 @@ new_9_0_populate_pg_largeobject_metadata(migratorContext *ctx, bool check_mode,
 				   output_path);
 	}
 	else
-		check_ok(ctx);
+		check_ok();
 }

@@ -3,12 +3,12 @@
  * nodeMergejoin.c
  *	  routines supporting merge joins
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/executor/nodeMergejoin.c,v 1.103 2010/07/06 19:18:56 momjian Exp $
+ *	  src/backend/executor/nodeMergejoin.c
  *
  *-------------------------------------------------------------------------
  */
@@ -95,7 +95,6 @@
 #include "access/nbtree.h"
 #include "catalog/pg_amop.h"
 #include "executor/execdebug.h"
-#include "executor/execdefs.h"
 #include "executor/nodeMergejoin.h"
 #include "miscadmin.h"
 #include "utils/acl.h"
@@ -103,6 +102,21 @@
 #include "utils/memutils.h"
 #include "utils/syscache.h"
 
+
+/*
+ * States of the ExecMergeJoin state machine
+ */
+#define EXEC_MJ_INITIALIZE_OUTER		1
+#define EXEC_MJ_INITIALIZE_INNER		2
+#define EXEC_MJ_JOINTUPLES				3
+#define EXEC_MJ_NEXTOUTER				4
+#define EXEC_MJ_TESTOUTER				5
+#define EXEC_MJ_NEXTINNER				6
+#define EXEC_MJ_SKIP_TEST				7
+#define EXEC_MJ_SKIPOUTER_ADVANCE		8
+#define EXEC_MJ_SKIPINNER_ADVANCE		9
+#define EXEC_MJ_ENDOUTER				10
+#define EXEC_MJ_ENDINNER				11
 
 /*
  * Runtime data for each mergejoin clause
@@ -124,12 +138,13 @@ typedef struct MergeJoinClauseData
 
 	/*
 	 * The comparison strategy in use, and the lookup info to let us call the
-	 * btree comparison support function.
+	 * btree comparison support function, and the collation to use.
 	 */
 	bool		reverse;		/* if true, negate the cmpfn's output */
 	bool		nulls_first;	/* if true, nulls sort low */
 	FmgrInfo	cmpfinfo;
-} MergeJoinClauseData;
+	Oid			collation;
+}	MergeJoinClauseData;
 
 /* Result type for MJEvalOuterValues and MJEvalInnerValues */
 typedef enum
@@ -155,17 +170,18 @@ typedef enum
  * the two expressions from the original clause.
  *
  * In addition to the expressions themselves, the planner passes the btree
- * opfamily OID, btree strategy number (BTLessStrategyNumber or
+ * opfamily OID, collation OID, btree strategy number (BTLessStrategyNumber or
  * BTGreaterStrategyNumber), and nulls-first flag that identify the intended
  * sort ordering for each merge key.  The mergejoinable operator is an
- * equality operator in this opfamily, and the two inputs are guaranteed to be
+ * equality operator in the opfamily, and the two inputs are guaranteed to be
  * ordered in either increasing or decreasing (respectively) order according
- * to this opfamily, with nulls at the indicated end of the range.	This
- * allows us to obtain the needed comparison function from the opfamily.
+ * to the opfamily and collation, with nulls at the indicated end of the range.
+ * This allows us to obtain the needed comparison function from the opfamily.
  */
 static MergeJoinClause
 MJExamineQuals(List *mergeclauses,
 			   Oid *mergefamilies,
+			   Oid *mergecollations,
 			   int *mergestrategies,
 			   bool *mergenullsfirst,
 			   PlanState *parent)
@@ -183,6 +199,7 @@ MJExamineQuals(List *mergeclauses,
 		OpExpr	   *qual = (OpExpr *) lfirst(cl);
 		MergeJoinClause clause = &clauses[iClause];
 		Oid			opfamily = mergefamilies[iClause];
+		Oid			collation = mergecollations[iClause];
 		StrategyNumber opstrategy = mergestrategies[iClause];
 		bool		nulls_first = mergenullsfirst[iClause];
 		int			op_strategy;
@@ -201,7 +218,7 @@ MJExamineQuals(List *mergeclauses,
 		clause->rexpr = ExecInitExpr((Expr *) lsecond(qual->args), parent);
 
 		/* Extract the operator's declared left/right datatypes */
-		get_op_opfamily_properties(qual->opno, opfamily,
+		get_op_opfamily_properties(qual->opno, opfamily, false,
 								   &op_strategy,
 								   &op_lefttype,
 								   &op_righttype);
@@ -236,6 +253,9 @@ MJExamineQuals(List *mergeclauses,
 			elog(ERROR, "unsupported mergejoin strategy %d", opstrategy);
 
 		clause->nulls_first = nulls_first;
+
+		/* ... and the collation too */
+		clause->collation = collation;
 
 		iClause++;
 	}
@@ -412,7 +432,7 @@ MJCompare(MergeJoinState *mergestate)
 		 * OK to call the comparison function.
 		 */
 		InitFunctionCallInfoData(fcinfo, &(clause->cmpfinfo), 2,
-								 NULL, NULL);
+								 clause->collation, NULL, NULL);
 		fcinfo.arg[0] = clause->ldatum;
 		fcinfo.arg[1] = clause->rdatum;
 		fcinfo.argnull[0] = false;
@@ -622,7 +642,6 @@ ExecMergeTupleDump(MergeJoinState *mergestate)
 TupleTableSlot *
 ExecMergeJoin(MergeJoinState *node)
 {
-	EState	   *estate;
 	List	   *joinqual;
 	List	   *otherqual;
 	bool		qualResult;
@@ -638,7 +657,6 @@ ExecMergeJoin(MergeJoinState *node)
 	/*
 	 * get information from node
 	 */
-	estate = node->js.ps.state;
 	innerPlan = innerPlanState(node);
 	outerPlan = outerPlanState(node);
 	econtext = node->js.ps.ps_ExprContext;
@@ -1622,6 +1640,7 @@ ExecInitMergeJoin(MergeJoin *node, EState *estate, int eflags)
 	mergestate->mj_NumClauses = list_length(node->mergeclauses);
 	mergestate->mj_Clauses = MJExamineQuals(node->mergeclauses,
 											node->mergeFamilies,
+											node->mergeCollations,
 											node->mergeStrategies,
 											node->mergeNullsFirst,
 											(PlanState *) mergestate);
@@ -1680,7 +1699,7 @@ ExecEndMergeJoin(MergeJoinState *node)
 }
 
 void
-ExecReScanMergeJoin(MergeJoinState *node, ExprContext *exprCtxt)
+ExecReScanMergeJoin(MergeJoinState *node)
 {
 	ExecClearTuple(node->mj_MarkedTupleSlot);
 
@@ -1695,9 +1714,9 @@ ExecReScanMergeJoin(MergeJoinState *node, ExprContext *exprCtxt)
 	 * if chgParam of subnodes is not null then plans will be re-scanned by
 	 * first ExecProcNode.
 	 */
-	if (((PlanState *) node)->lefttree->chgParam == NULL)
-		ExecReScan(((PlanState *) node)->lefttree, exprCtxt);
-	if (((PlanState *) node)->righttree->chgParam == NULL)
-		ExecReScan(((PlanState *) node)->righttree, exprCtxt);
+	if (node->js.ps.lefttree->chgParam == NULL)
+		ExecReScan(node->js.ps.lefttree);
+	if (node->js.ps.righttree->chgParam == NULL)
+		ExecReScan(node->js.ps.righttree);
 
 }

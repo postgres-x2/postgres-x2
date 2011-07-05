@@ -19,11 +19,11 @@
  * routines.
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/interfaces/libpq/fe-misc.c,v 1.144 2010/07/06 19:19:01 momjian Exp $
+ *	  src/interfaces/libpq/fe-misc.c
  *
  *-------------------------------------------------------------------------
  */
@@ -66,6 +66,14 @@ static int pqSocketCheck(PGconn *conn, int forRead, int forWrite,
 			  time_t end_time);
 static int	pqSocketPoll(int sock, int forRead, int forWrite, time_t end_time);
 
+/*
+ * PQlibVersion: return the libpq version number
+ */
+int
+PQlibVersion(void)
+{
+	return PG_VERSION_NUM;
+}
 
 /*
  * fputnbytes: print exactly N bytes to a file

@@ -1,5 +1,5 @@
 /*
- * $PostgreSQL: pgsql/src/interfaces/libpq/win32.c,v 1.27 2010/01/02 16:58:12 momjian Exp $
+ * src/interfaces/libpq/win32.c
  *
  *
  *	FILE
@@ -15,7 +15,7 @@
  * The error constants are taken from the Frambak Bakfram LGSOCKET
  * library guys who in turn took them from the Winsock FAQ.
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  */

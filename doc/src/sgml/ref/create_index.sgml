@@ -1,5 +1,5 @@
 <!--
-$PostgreSQL: pgsql/doc/src/sgml/ref/create_index.sgml,v 1.74 2010/04/03 07:22:58 petere Exp $
+doc/src/sgml/ref/create_index.sgml
 PostgreSQL documentation
 -->
 
@@ -22,7 +22,7 @@ PostgreSQL documentation
  <refsynopsisdiv>
 <synopsis>
 CREATE [ UNIQUE ] INDEX [ CONCURRENTLY ] [ <replaceable class="parameter">name</replaceable> ] ON <replaceable class="parameter">table</replaceable> [ USING <replaceable class="parameter">method</replaceable> ]
-    ( { <replaceable class="parameter">column</replaceable> | ( <replaceable class="parameter">expression</replaceable> ) } [ <replaceable class="parameter">opclass</replaceable> ] [ ASC | DESC ] [ NULLS { FIRST | LAST } ] [, ...] )
+    ( { <replaceable class="parameter">column</replaceable> | ( <replaceable class="parameter">expression</replaceable> ) } [ COLLATE <replaceable class="parameter">collation</replaceable> ] [ <replaceable class="parameter">opclass</replaceable> ] [ ASC | DESC ] [ NULLS { FIRST | LAST } ] [, ...] )
     [ WITH ( <replaceable class="PARAMETER">storage_parameter</replaceable> = <replaceable class="PARAMETER">value</replaceable> [, ... ] ) ]
     [ TABLESPACE <replaceable class="parameter">tablespace</replaceable> ]
     [ WHERE <replaceable class="parameter">predicate</replaceable> ]
@@ -177,6 +177,19 @@ CREATE [ UNIQUE ] INDEX [ CONCURRENTLY ] [ <replaceable class="parameter">name</
         expression usually must be written with surrounding parentheses,
         as shown in the syntax.  However, the parentheses can be omitted
         if the expression has the form of a function call.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><replaceable class="parameter">collation</replaceable></term>
+      <listitem>
+       <para>
+        The name of the collation to use for the index.  By default,
+        the index uses the collation declared for the column to be
+        indexed or the result collation of the expression to be
+        indexed.  Indexes with non-default collations can be useful for
+        queries that involve expressions using non-default collations.
        </para>
       </listitem>
      </varlistentry>
@@ -524,6 +537,13 @@ CREATE INDEX ON films ((lower(title)));
   </para>
 
   <para>
+   To create an index with non-default collation:
+<programlisting>
+CREATE INDEX title_idx_german ON films (title COLLATE "de_DE");
+</programlisting>
+  </para>
+
+  <para>
    To create an index with non-default sort ordering of nulls:
 <programlisting>
 CREATE INDEX title_idx_nulls_low ON films (title NULLS FIRST);
@@ -557,12 +577,12 @@ CREATE INDEX code_idx ON films (code) TABLESPACE indexspace;
    To create a GiST index on a point attribute so that we
    can efficiently use box operators on the result of the
    conversion function:
-  <programlisting>
+<programlisting>
 CREATE INDEX pointloc
     ON points USING gist (box(location,location));
 SELECT * FROM points
     WHERE box(location,location) &amp;&amp; '(0,0),(1,1)'::box;
-  </programlisting>
+</programlisting>
   </para>
 
   <para>

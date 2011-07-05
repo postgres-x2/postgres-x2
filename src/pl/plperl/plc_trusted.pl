@@ -1,9 +1,7 @@
-
-
-#  $PostgreSQL: pgsql/src/pl/plperl/plc_trusted.pl,v 1.1 2010/05/13 16:39:43 adunstan Exp $
+#  src/pl/plperl/plc_trusted.pl
 
 package PostgreSQL::InServer::safe;
- 
+
 # Load widely useful pragmas into plperl to make them available.
 #
 # SECURITY RISKS:

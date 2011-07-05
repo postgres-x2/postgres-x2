@@ -4,7 +4,7 @@
 
 BEGIN;
 
-SELECT * 
+SELECT *
    INTO TABLE xacttest
    FROM aggtest;
 
@@ -27,7 +27,7 @@ SELECT * FROM aggtest;
 
 ABORT;
 
--- should not exist 
+-- should not exist
 SELECT oid FROM pg_class WHERE relname = 'disappear';
 
 -- should have members again 
@@ -38,6 +38,48 @@ SELECT * FROM aggtest order by a, b;
 
 CREATE TABLE writetest (a int);
 CREATE TEMPORARY TABLE temptest (a int);
+
+BEGIN;
+SET TRANSACTION ISOLATION LEVEL SERIALIZABLE, READ ONLY, DEFERRABLE; -- ok
+SELECT * FROM writetest; -- ok
+SET TRANSACTION READ WRITE; --fail
+COMMIT;
+
+BEGIN;
+SET TRANSACTION READ ONLY; -- ok
+SET TRANSACTION READ WRITE; -- ok
+SET TRANSACTION READ ONLY; -- ok
+SELECT * FROM writetest; -- ok
+SAVEPOINT x;
+SET TRANSACTION READ ONLY; -- ok
+SELECT * FROM writetest; -- ok
+SET TRANSACTION READ ONLY; -- ok
+SET TRANSACTION READ WRITE; --fail
+COMMIT;
+
+BEGIN;
+SET TRANSACTION READ WRITE; -- ok
+SAVEPOINT x;
+SET TRANSACTION READ WRITE; -- ok
+SET TRANSACTION READ ONLY; -- ok
+SELECT * FROM writetest; -- ok
+SET TRANSACTION READ ONLY; -- ok
+SET TRANSACTION READ WRITE; --fail
+COMMIT;
+
+BEGIN;
+SET TRANSACTION READ WRITE; -- ok
+SAVEPOINT x;
+SET TRANSACTION READ ONLY; -- ok
+SELECT * FROM writetest; -- ok
+ROLLBACK TO SAVEPOINT x;
+SHOW transaction_read_only;  -- off
+SAVEPOINT y;
+SET TRANSACTION READ ONLY; -- ok
+SELECT * FROM writetest; -- ok
+RELEASE SAVEPOINT y;
+SHOW transaction_read_only;  -- off
+COMMIT;
 
 SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY;
 

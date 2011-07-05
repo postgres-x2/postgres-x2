@@ -3,8 +3,8 @@
  *
  *	relfilenode functions
  *
- *	Copyright (c) 2010, PostgreSQL Global Development Group
- *	$PostgreSQL: pgsql/contrib/pg_upgrade/relfilenode.c,v 1.8 2010/07/06 19:18:55 momjian Exp $
+ *	Copyright (c) 2010-2011, PostgreSQL Global Development Group
+ *	contrib/pg_upgrade/relfilenode.c
  */
 
 #include "pg_upgrade.h"
@@ -13,12 +13,11 @@
 #include "access/transam.h"
 
 
-static void transfer_single_new_db(migratorContext *ctx, pageCnvCtx *pageConverter,
+static void transfer_single_new_db(pageCnvCtx *pageConverter,
 					   FileNameMap *maps, int size);
-static void transfer_relfile(migratorContext *ctx, pageCnvCtx *pageConverter,
+static void transfer_relfile(pageCnvCtx *pageConverter,
 				 const char *fromfile, const char *tofile,
-				 const char *oldnspname, const char *oldrelname,
-				 const char *newnspname, const char *newrelname);
+				 const char *nspname, const char *relname);
 
 /* used by scandir(), must be global */
 char		scandir_file_pattern[MAXPGPATH];
@@ -30,41 +29,48 @@ char		scandir_file_pattern[MAXPGPATH];
  * physically link the databases.
  */
 const char *
-transfer_all_new_dbs(migratorContext *ctx, DbInfoArr *olddb_arr,
-					 DbInfoArr *newdb_arr, char *old_pgdata, char *new_pgdata)
+transfer_all_new_dbs(DbInfoArr *old_db_arr,
+				   DbInfoArr *new_db_arr, char *old_pgdata, char *new_pgdata)
 {
 	int			dbnum;
 	const char *msg = NULL;
 
-	prep_status(ctx, "Restoring user relation files\n");
+	prep_status("Restoring user relation files\n");
 
-	for (dbnum = 0; dbnum < newdb_arr->ndbs; dbnum++)
+	if (old_db_arr->ndbs != new_db_arr->ndbs)
+		pg_log(PG_FATAL, "old and new clusters have a different number of databases\n");
+
+	for (dbnum = 0; dbnum < old_db_arr->ndbs; dbnum++)
 	{
-		DbInfo	   *new_db = &newdb_arr->dbs[dbnum];
-		DbInfo	   *old_db = dbarr_lookup_db(olddb_arr, new_db->db_name);
+		DbInfo	   *old_db = &old_db_arr->dbs[dbnum];
+		DbInfo	   *new_db = &new_db_arr->dbs[dbnum];
 		FileNameMap *mappings;
 		int			n_maps;
 		pageCnvCtx *pageConverter = NULL;
 
+		if (strcmp(old_db->db_name, new_db->db_name) != 0)
+			pg_log(PG_FATAL, "old and new databases have different names: old \"%s\", new \"%s\"\n",
+				   old_db->db_name, new_db->db_name);
+
 		n_maps = 0;
-		mappings = gen_db_file_maps(ctx, old_db, new_db, &n_maps, old_pgdata,
+		mappings = gen_db_file_maps(old_db, new_db, &n_maps, old_pgdata,
 									new_pgdata);
 
 		if (n_maps)
 		{
-			print_maps(ctx, mappings, n_maps, new_db->db_name);
+			print_maps(mappings, n_maps, new_db->db_name);
 
 #ifdef PAGE_CONVERSION
-			msg = setupPageConverter(ctx, &pageConverter);
+			msg = setupPageConverter(&pageConverter);
 #endif
-			transfer_single_new_db(ctx, pageConverter, mappings, n_maps);
+			transfer_single_new_db(pageConverter, mappings, n_maps);
 
 			pg_free(mappings);
 		}
 	}
 
-	prep_status(ctx, "");		/* in case nothing printed */
-	check_ok(ctx);
+	prep_status("");			/* in case nothing printed */
+	check_ok();
 
 	return msg;
 }
@@ -77,13 +83,13 @@ transfer_all_new_dbs(migratorContext *ctx, DbInfoArr *olddb_arr,
  *	relfilenodes later in the upgrade process.
  */
 void
-get_pg_database_relfilenode(migratorContext *ctx, Cluster whichCluster)
+get_pg_database_relfilenode(ClusterInfo *cluster)
 {
-	PGconn	   *conn = connectToServer(ctx, "template1", whichCluster);
+	PGconn	   *conn = connectToServer(cluster, "template1");
 	PGresult   *res;
 	int			i_relfile;
 
-	res = executeQueryOrDie(ctx, conn,
+	res = executeQueryOrDie(conn,
 							"SELECT c.relname, c.relfilenode "
 							"FROM 	pg_catalog.pg_class c, "
 							"		pg_catalog.pg_namespace n "
@@ -93,10 +99,7 @@ get_pg_database_relfilenode(migratorContext *ctx, Cluster whichCluster)
 							"ORDER BY c.relname");
 
 	i_relfile = PQfnumber(res, "relfilenode");
-	if (whichCluster == CLUSTER_OLD)
-		ctx->old.pg_database_oid = atol(PQgetvalue(res, 0, i_relfile));
-	else
-		ctx->new.pg_database_oid = atol(PQgetvalue(res, 0, i_relfile));
+	cluster->pg_database_oid = atooid(PQgetvalue(res, 0, i_relfile));
 
 	PQclear(res);
 	PQfinish(conn);
@@ -109,57 +112,75 @@ get_pg_database_relfilenode(migratorContext *ctx, Cluster whichCluster)
  * create links for mappings stored in "maps" array.
  */
 static void
-transfer_single_new_db(migratorContext *ctx, pageCnvCtx *pageConverter,
+transfer_single_new_db(pageCnvCtx *pageConverter,
 					   FileNameMap *maps, int size)
 {
+	char		old_dir[MAXPGPATH];
+	struct dirent **namelist = NULL;
+	int			numFiles = 0;
 	int			mapnum;
+	int			fileno;
+
+	old_dir[0] = '\0';
 
 	for (mapnum = 0; mapnum < size; mapnum++)
 	{
 		char		old_file[MAXPGPATH];
 		char		new_file[MAXPGPATH];
-		struct dirent **namelist = NULL;
-		int			numFiles;
+
+		/* Changed tablespaces?  Need a new directory scan? */
+		if (strcmp(maps[mapnum].old_dir, old_dir) != 0)
+		{
+			if (numFiles > 0)
+			{
+				for (fileno = 0; fileno < numFiles; fileno++)
+					pg_free(namelist[fileno]);
+				pg_free(namelist);
+			}
+
+			snprintf(old_dir, sizeof(old_dir), "%s", maps[mapnum].old_dir);
+			numFiles = pg_scandir(old_dir, &namelist, NULL);
+		}
 
 		/* Copying files might take some time, so give feedback. */
 
-		snprintf(old_file, sizeof(old_file), "%s/%u", maps[mapnum].old_file, maps[mapnum].old);
-		snprintf(new_file, sizeof(new_file), "%s/%u", maps[mapnum].new_file, maps[mapnum].new);
-		pg_log(ctx, PG_REPORT, OVERWRITE_MESSAGE, old_file);
+		snprintf(old_file, sizeof(old_file), "%s/%u", maps[mapnum].old_dir,
+				 maps[mapnum].old_relfilenode);
+		snprintf(new_file, sizeof(new_file), "%s/%u", maps[mapnum].new_dir,
+				 maps[mapnum].new_relfilenode);
+		pg_log(PG_REPORT, OVERWRITE_MESSAGE, old_file);
 
 		/*
 		 * Copy/link the relation file to the new cluster
 		 */
 		unlink(new_file);
-		transfer_relfile(ctx, pageConverter, old_file, new_file,
-						 maps[mapnum].old_nspname, maps[mapnum].old_relname,
-						 maps[mapnum].new_nspname, maps[mapnum].new_relname);
+		transfer_relfile(pageConverter, old_file, new_file,
+						 maps[mapnum].nspname, maps[mapnum].relname);
 
 		/* fsm/vm files added in PG 8.4 */
-		if (GET_MAJOR_VERSION(ctx->old.major_version) >= 804)
+		if (GET_MAJOR_VERSION(old_cluster.major_version) >= 804)
 		{
 			/*
-			 * Now copy/link any fsm and vm files, if they exist
+			 * Copy/link any fsm and vm files, if they exist
 			 */
-			snprintf(scandir_file_pattern, sizeof(scandir_file_pattern), "%u_", maps[mapnum].old);
-			numFiles = pg_scandir(ctx, maps[mapnum].old_file, &namelist, dir_matching_filenames);
+			snprintf(scandir_file_pattern, sizeof(scandir_file_pattern), "%u_",
+					 maps[mapnum].old_relfilenode);
 
-			while (numFiles--)
+			for (fileno = 0; fileno < numFiles; fileno++)
 			{
-				snprintf(old_file, sizeof(old_file), "%s/%s", maps[mapnum].old_file,
-						 namelist[numFiles]->d_name);
-				snprintf(new_file, sizeof(new_file), "%s/%u%s", maps[mapnum].new_file,
-				  maps[mapnum].new, strchr(namelist[numFiles]->d_name, '_'));
+				if (strncmp(namelist[fileno]->d_name, scandir_file_pattern,
+							strlen(scandir_file_pattern)) == 0)
+				{
+					snprintf(old_file, sizeof(old_file), "%s/%s", maps[mapnum].old_dir,
+							 namelist[fileno]->d_name);
+					snprintf(new_file, sizeof(new_file), "%s/%u%s", maps[mapnum].new_dir,
+							 maps[mapnum].new_relfilenode, strchr(namelist[fileno]->d_name, '_'));
 
-				unlink(new_file);
-				transfer_relfile(ctx, pageConverter, old_file, new_file,
-						  maps[mapnum].old_nspname, maps[mapnum].old_relname,
-						 maps[mapnum].new_nspname, maps[mapnum].new_relname);
-
-				pg_free(namelist[numFiles]);
+					unlink(new_file);
+					transfer_relfile(pageConverter, old_file, new_file,
+								 maps[mapnum].nspname, maps[mapnum].relname);
+				}
 			}
-
-			pg_free(namelist);
 		}
 
 		/*
@@ -169,24 +190,31 @@ transfer_single_new_db(migratorContext *ctx, pageCnvCtx *pageConverter,
 		 * relfilenode.3, ...  'fsm' and 'vm' files use underscores so are not
 		 * copied.
 		 */
-		snprintf(scandir_file_pattern, sizeof(scandir_file_pattern), "%u.", maps[mapnum].old);
-		numFiles = pg_scandir(ctx, maps[mapnum].old_file, &namelist, dir_matching_filenames);
+		snprintf(scandir_file_pattern, sizeof(scandir_file_pattern), "%u.",
+				 maps[mapnum].old_relfilenode);
 
-		while (numFiles--)
+		for (fileno = 0; fileno < numFiles; fileno++)
 		{
-			snprintf(old_file, sizeof(old_file), "%s/%s", maps[mapnum].old_file,
-					 namelist[numFiles]->d_name);
-			snprintf(new_file, sizeof(new_file), "%s/%u%s", maps[mapnum].new_file,
-				  maps[mapnum].new, strchr(namelist[numFiles]->d_name, '.'));
+			if (strncmp(namelist[fileno]->d_name, scandir_file_pattern,
+						strlen(scandir_file_pattern)) == 0)
+			{
+				snprintf(old_file, sizeof(old_file), "%s/%s", maps[mapnum].old_dir,
+						 namelist[fileno]->d_name);
+				snprintf(new_file, sizeof(new_file), "%s/%u%s", maps[mapnum].new_dir,
+						 maps[mapnum].new_relfilenode, strchr(namelist[fileno]->d_name, '.'));
 
-			unlink(new_file);
-			transfer_relfile(ctx, pageConverter, old_file, new_file,
-						  maps[mapnum].old_nspname, maps[mapnum].old_relname,
-						 maps[mapnum].new_nspname, maps[mapnum].new_relname);
-
-			pg_free(namelist[numFiles]);
+				unlink(new_file);
+				transfer_relfile(pageConverter, old_file, new_file,
+								 maps[mapnum].nspname, maps[mapnum].relname);
+			}
 		}
+	}
 
+
+	if (numFiles > 0)
+	{
+		for (fileno = 0; fileno < numFiles; fileno++)
+			pg_free(namelist[fileno]);
 		pg_free(namelist);
 	}
 }
@@ -198,33 +226,31 @@ transfer_single_new_db(migratorContext *ctx, pageCnvCtx *pageConverter,
  * Copy or link file from old cluster to new one.
  */
 static void
-transfer_relfile(migratorContext *ctx, pageCnvCtx *pageConverter, const char *oldfile,
-		 const char *newfile, const char *oldnspname, const char *oldrelname,
-				 const char *newnspname, const char *newrelname)
+transfer_relfile(pageCnvCtx *pageConverter, const char *old_file,
+			  const char *new_file, const char *nspname, const char *relname)
 {
 	const char *msg;
 
-	if ((ctx->transfer_mode == TRANSFER_MODE_LINK) && (pageConverter != NULL))
-		pg_log(ctx, PG_FATAL, "this migration requires page-by-page conversion, "
+	if ((user_opts.transfer_mode == TRANSFER_MODE_LINK) && (pageConverter != NULL))
+		pg_log(PG_FATAL, "this upgrade requires page-by-page conversion, "
 			   "you must use copy-mode instead of link-mode\n");
 
-	if (ctx->transfer_mode == TRANSFER_MODE_COPY)
+	if (user_opts.transfer_mode == TRANSFER_MODE_COPY)
 	{
-		pg_log(ctx, PG_INFO, "copying %s to %s\n", oldfile, newfile);
+		pg_log(PG_INFO, "copying %s to %s\n", old_file, new_file);
 
-		if ((msg = copyAndUpdateFile(ctx, pageConverter, oldfile, newfile, true)) != NULL)
-			pg_log(ctx, PG_FATAL, "error while copying %s.%s(%s) to %s.%s(%s): %s\n",
-				   oldnspname, oldrelname, oldfile, newnspname, newrelname, newfile, msg);
+		if ((msg = copyAndUpdateFile(pageConverter, old_file, new_file, true)) != NULL)
+			pg_log(PG_FATAL, "error while copying %s.%s (%s to %s): %s\n",
+				   nspname, relname, old_file, new_file, msg);
 	}
 	else
 	{
-		pg_log(ctx, PG_INFO, "linking %s to %s\n", newfile, oldfile);
+		pg_log(PG_INFO, "linking %s to %s\n", old_file, new_file);
 
-		if ((msg = linkAndUpdateFile(ctx, pageConverter, oldfile, newfile)) != NULL)
-			pg_log(ctx, PG_FATAL,
-			   "error while creating link from %s.%s(%s) to %s.%s(%s): %s\n",
-				   oldnspname, oldrelname, oldfile, newnspname, newrelname,
-				   newfile, msg);
+		if ((msg = linkAndUpdateFile(pageConverter, old_file, new_file)) != NULL)
+			pg_log(PG_FATAL,
+				   "error while creating link from %s.%s (%s to %s): %s\n",
+				   nspname, relname, old_file, new_file, msg);
 	}
 	return;
 }

@@ -2,7 +2,7 @@
 -- TRANSACTIONS
 --
 BEGIN;
-SELECT * 
+SELECT *
    INTO TABLE xacttest
    FROM aggtest;
 ERROR:  INTO clause not yet supported
@@ -24,7 +24,7 @@ SELECT * FROM aggtest;
 (0 rows)
 
 ABORT;
--- should not exist 
+-- should not exist
 SELECT oid FROM pg_class WHERE relname = 'disappear';
  oid 
 -----
@@ -44,6 +44,74 @@ SELECT * FROM aggtest order by a, b;
 CREATE TABLE writetest (a int);
 CREATE TEMPORARY TABLE temptest (a int);
 ERROR:  PG-XC does not yet support temporary tables
+BEGIN;
+SET TRANSACTION ISOLATION LEVEL SERIALIZABLE, READ ONLY, DEFERRABLE; -- ok
+SELECT * FROM writetest; -- ok
+ a 
+---
+(0 rows)
+
+SET TRANSACTION READ WRITE; --fail
+ERROR:  transaction read-write mode must be set before any query
+COMMIT;
+BEGIN;
+SET TRANSACTION READ ONLY; -- ok
+SET TRANSACTION READ WRITE; -- ok
+SET TRANSACTION READ ONLY; -- ok
+SELECT * FROM writetest; -- ok
+ a 
+---
+(0 rows)
+
+SAVEPOINT x;
+ERROR:  SAVEPOINT is not yet supported.
+SET TRANSACTION READ ONLY; -- ok
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+SELECT * FROM writetest; -- ok
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+SET TRANSACTION READ ONLY; -- ok
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+SET TRANSACTION READ WRITE; --fail
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+COMMIT;
+BEGIN;
+SET TRANSACTION READ WRITE; -- ok
+SAVEPOINT x;
+ERROR:  SAVEPOINT is not yet supported.
+SET TRANSACTION READ WRITE; -- ok
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+SET TRANSACTION READ ONLY; -- ok
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+SELECT * FROM writetest; -- ok
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+SET TRANSACTION READ ONLY; -- ok
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+SET TRANSACTION READ WRITE; --fail
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+COMMIT;
+BEGIN;
+SET TRANSACTION READ WRITE; -- ok
+SAVEPOINT x;
+ERROR:  SAVEPOINT is not yet supported.
+SET TRANSACTION READ ONLY; -- ok
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+SELECT * FROM writetest; -- ok
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ROLLBACK TO SAVEPOINT x;
+ERROR:  no such savepoint
+SHOW transaction_read_only;  -- off
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+SAVEPOINT y;
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+SET TRANSACTION READ ONLY; -- ok
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+SELECT * FROM writetest; -- ok
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+RELEASE SAVEPOINT y;
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+SHOW transaction_read_only;  -- off
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+COMMIT;
 SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY;
 DROP TABLE writetest; -- fail
 ERROR:  cannot execute DROP TABLE in a read-only transaction
@@ -520,9 +588,9 @@ insert into abc values (10);
 insert into abc values (15);
 declare foo cursor for select * from abc;
 fetch from foo;
- a  
-----
- 10
+ a 
+---
+ 5
 (1 row)
 
 savepoint x;

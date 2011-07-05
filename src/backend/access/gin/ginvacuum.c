@@ -4,18 +4,17 @@
  *	  delete & vacuum routines for the postgres GIN
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *			$PostgreSQL: pgsql/src/backend/access/gin/ginvacuum.c,v 1.33 2010/02/08 04:33:52 tgl Exp $
+ *			src/backend/access/gin/ginvacuum.c
  *-------------------------------------------------------------------------
  */
 
 #include "postgres.h"
 
-#include "access/genam.h"
-#include "access/gin.h"
+#include "access/gin_private.h"
 #include "catalog/storage.h"
 #include "commands/vacuum.h"
 #include "miscadmin.h"
@@ -93,7 +92,7 @@ xlogVacuumPage(Relation index, Buffer buffer)
 
 	Assert(GinPageIsLeaf(page));
 
-	if (index->rd_istemp)
+	if (!RelationNeedsWAL(index))
 		return;
 
 	data.node = index->rd_node;
@@ -190,7 +189,6 @@ ginVacuumPostingTreeLeaves(GinVacuumState *gvs, BlockNumber blkno, bool isRoot, 
 		/* saves changes about deleted tuple ... */
 		if (oldMaxOff != newMaxOff)
 		{
-
 			START_CRIT_SECTION();
 
 			if (newMaxOff > 0)
@@ -293,7 +291,7 @@ ginDeletePage(GinVacuumState *gvs, BlockNumber deleteBlkno, BlockNumber leftBlkn
 		Assert(PostingItemGetBlockNumber(tod) == deleteBlkno);
 	} while (0);
 #endif
-	PageDeletePostingItem(parentPage, myoff);
+	GinPageDeletePostingItem(parentPage, myoff);
 
 	page = BufferGetPage(dBuffer);
 
@@ -308,7 +306,7 @@ ginDeletePage(GinVacuumState *gvs, BlockNumber deleteBlkno, BlockNumber leftBlkn
 		MarkBufferDirty(lBuffer);
 	MarkBufferDirty(dBuffer);
 
-	if (!gvs->index->rd_istemp)
+	if (RelationNeedsWAL(gvs->index))
 	{
 		XLogRecPtr	recptr;
 		XLogRecData rdata[4];
@@ -519,7 +517,7 @@ ginVacuumEntryPage(GinVacuumState *gvs, Buffer buffer, BlockNumber *roots, uint3
 			 * store posting tree's roots for further processing, we can't
 			 * vacuum it just now due to risk of deadlocks with scans/inserts
 			 */
-			roots[*nroot] = GinItemPointerGetBlockNumber(&itup->t_tid);
+			roots[*nroot] = GinGetDownlink(itup);
 			(*nroot)++;
 		}
 		else if (GinGetNPosting(itup) > 0)
@@ -533,8 +531,9 @@ ginVacuumEntryPage(GinVacuumState *gvs, Buffer buffer, BlockNumber *roots, uint3
 
 			if (GinGetNPosting(itup) != newN)
 			{
-				Datum		value;
 				OffsetNumber attnum;
+				Datum		key;
+				GinNullCategory category;
 
 				/*
 				 * Some ItemPointers was deleted, so we should remake our
@@ -562,9 +561,9 @@ ginVacuumEntryPage(GinVacuumState *gvs, Buffer buffer, BlockNumber *roots, uint3
 					itup = (IndexTuple) PageGetItem(tmppage, PageGetItemId(tmppage, i));
 				}
 
-				value = gin_index_getattr(&gvs->ginstate, itup);
 				attnum = gintuple_get_attrnum(&gvs->ginstate, itup);
-				itup = GinFormTuple(gvs->index, &gvs->ginstate, attnum, value,
+				key = gintuple_get_key(&gvs->ginstate, itup, &category);
+				itup = GinFormTuple(&gvs->ginstate, attnum, key, category,
 									GinGetPosting(itup), newN, true);
 				PageIndexTupleDelete(tmppage, i);
 
@@ -606,7 +605,7 @@ ginbulkdelete(PG_FUNCTION_ARGS)
 		/* Yes, so initialize stats to zeroes */
 		stats = (IndexBulkDeleteResult *) palloc0(sizeof(IndexBulkDeleteResult));
 		/* and cleanup any pending inserts */
-		ginInsertCleanup(index, &gvs.ginstate, true, stats);
+		ginInsertCleanup(&gvs.ginstate, true, stats);
 	}
 
 	/* we'll re-count the tuples each time */
@@ -642,7 +641,7 @@ ginbulkdelete(PG_FUNCTION_ARGS)
 		Assert(PageGetMaxOffsetNumber(page) >= FirstOffsetNumber);
 
 		itup = (IndexTuple) PageGetItem(page, PageGetItemId(page, FirstOffsetNumber));
-		blkno = GinItemPointerGetBlockNumber(&(itup)->t_tid);
+		blkno = GinGetDownlink(itup);
 		Assert(blkno != InvalidBlockNumber);
 
 		UnlockReleaseBuffer(buffer);
@@ -707,9 +706,8 @@ ginvacuumcleanup(PG_FUNCTION_ARGS)
 	BlockNumber npages,
 				blkno;
 	BlockNumber totFreePages;
-	BlockNumber lastBlock = GIN_ROOT_BLKNO,
-				lastFilledBlock = GIN_ROOT_BLKNO;
 	GinState	ginstate;
+	GinStatsData idxStat;
 
 	/*
 	 * In an autovacuum analyze, we want to clean up pending insertions.
@@ -720,7 +718,7 @@ ginvacuumcleanup(PG_FUNCTION_ARGS)
 		if (IsAutoVacuumWorkerProcess())
 		{
 			initGinState(&ginstate, index);
-			ginInsertCleanup(index, &ginstate, true, stats);
+			ginInsertCleanup(&ginstate, true, stats);
 		}
 		PG_RETURN_POINTER(stats);
 	}
@@ -733,8 +731,10 @@ ginvacuumcleanup(PG_FUNCTION_ARGS)
 	{
 		stats = (IndexBulkDeleteResult *) palloc0(sizeof(IndexBulkDeleteResult));
 		initGinState(&ginstate, index);
-		ginInsertCleanup(index, &ginstate, true, stats);
+		ginInsertCleanup(&ginstate, true, stats);
 	}
+
+	memset(&idxStat, 0, sizeof(idxStat));
 
 	/*
 	 * XXX we always report the heap tuple count as the number of index
@@ -757,7 +757,7 @@ ginvacuumcleanup(PG_FUNCTION_ARGS)
 
 	totFreePages = 0;
 
-	for (blkno = GIN_ROOT_BLKNO + 1; blkno < npages; blkno++)
+	for (blkno = GIN_ROOT_BLKNO; blkno < npages; blkno++)
 	{
 		Buffer		buffer;
 		Page		page;
@@ -771,15 +771,28 @@ ginvacuumcleanup(PG_FUNCTION_ARGS)
 
 		if (GinPageIsDeleted(page))
 		{
+			Assert(blkno != GIN_ROOT_BLKNO);
 			RecordFreeIndexPage(index, blkno);
 			totFreePages++;
 		}
-		else
-			lastFilledBlock = blkno;
+		else if (GinPageIsData(page))
+		{
+			idxStat.nDataPages++;
+		}
+		else if (!GinPageIsList(page))
+		{
+			idxStat.nEntryPages++;
+
+			if (GinPageIsLeaf(page))
+				idxStat.nEntries += PageGetMaxOffsetNumber(page);
+		}
 
 		UnlockReleaseBuffer(buffer);
 	}
-	lastBlock = npages - 1;
+
+	/* Update the metapage with accurate page and entry counts */
+	idxStat.nTotalPages = npages;
+	ginUpdateStats(info->index, &idxStat);
 
 	/* Finally, vacuum the FSM */
 	IndexFreeSpaceMapVacuum(info->index);

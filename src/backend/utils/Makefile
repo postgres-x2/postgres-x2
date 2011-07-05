@@ -1,7 +1,7 @@
 #
 # Makefile for utils
 #
-# $PostgreSQL: pgsql/src/backend/utils/Makefile,v 1.29 2010/01/05 01:06:56 tgl Exp $
+# src/backend/utils/Makefile
 #
 
 subdir = src/backend/utils
@@ -16,7 +16,7 @@ catalogdir  = $(top_srcdir)/src/backend/catalog
 
 include $(top_srcdir)/src/backend/common.mk
 
-all: fmgroids.h probes.h
+all: errcodes.h fmgroids.h probes.h
 
 $(SUBDIRS:%=%-recursive): fmgroids.h
 
@@ -25,6 +25,9 @@ fmgroids.h: fmgrtab.c ;
 
 fmgrtab.c: Gen_fmgrtab.pl $(catalogdir)/Catalog.pm $(top_srcdir)/src/include/catalog/pg_proc.h
 	$(PERL) -I $(catalogdir) $< $(top_srcdir)/src/include/catalog/pg_proc.h
+
+errcodes.h: $(top_srcdir)/src/backend/utils/errcodes.txt generate-errcodes.pl
+	$(PERL) $(srcdir)/generate-errcodes.pl $< > $@
 
 ifneq ($(enable_dtrace), yes)
 probes.h: Gen_dummy_probes.sed
@@ -40,10 +43,10 @@ else
 endif
 
 
-# fmgroids.h and fmgrtab.c are in the distribution tarball, so they
+# fmgroids.h, fmgrtab.c and errcodes.h are in the distribution tarball, so they
 # are not cleaned here.
 clean:
 	rm -f probes.h
 
 maintainer-clean: clean
-	rm -f fmgroids.h fmgrtab.c
+	rm -f fmgroids.h fmgrtab.c errcodes.h

@@ -1,6 +1,6 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/vacuumlo.sgml,v 1.4 2009/02/26 16:02:37 petere Exp $ -->
+<!-- doc/src/sgml/vacuumlo.sgml -->
 
-<sect1 id="vacuumlo">
+<sect1 id="vacuumlo" xreflabel="vacuumlo">
  <title>vacuumlo</title>
 
  <indexterm zone="vacuumlo">
@@ -17,7 +17,7 @@
 
  <para>
   If you use this, you may also be interested in the <function>lo_manage</>
-  trigger in <filename>contrib/lo</> (see <xref linkend="lo">).
+  trigger in the <xref linkend="lo"> module.
   <function>lo_manage</> is useful to try
   to avoid creating orphaned LOs in the first place.
  </para>
@@ -25,9 +25,9 @@
  <sect2>
   <title>Usage</title>
 
-  <synopsis>
+<synopsis>
 vacuumlo [options] database [database2 ... databaseN]
-  </synopsis>
+</synopsis>
 
   <para>
    All databases named on the command line are processed.  Available options
@@ -52,7 +52,7 @@ vacuumlo [options] database [database2 ... databaseN]
    <varlistentry>
     <term><option>-U</option> <replaceable>username</></term>
     <listitem>
-     <para>Username to connect as.</para>
+     <para>User name to connect as.</para>
     </listitem>
    </varlistentry>
 
@@ -75,7 +75,7 @@ vacuumlo [options] database [database2 ... databaseN]
     <listitem>
      <para>
       Force <application>vacuumlo</application> to prompt for a
-      password before connecting to a database.  
+      password before connecting to a database.
      </para>
 
      <para>

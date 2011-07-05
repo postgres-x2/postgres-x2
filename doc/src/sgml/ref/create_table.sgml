@@ -1,5 +1,5 @@
 <!--
-$PostgreSQL: pgsql/doc/src/sgml/ref/create_table.sgml,v 1.128 2010/06/07 02:59:02 itagaki Exp $
+doc/src/sgml/ref/create_table.sgml
 PostgreSQL documentation
 -->
 
@@ -21,8 +21,8 @@ PostgreSQL documentation
 
  <refsynopsisdiv>
 <synopsis>
-CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } ] TABLE <replaceable class="PARAMETER">table_name</replaceable> ( [
-  { <replaceable class="PARAMETER">column_name</replaceable> <replaceable class="PARAMETER">data_type</replaceable> [ DEFAULT <replaceable>default_expr</replaceable> ] [ <replaceable class="PARAMETER">column_constraint</replaceable> [ ... ] ]
+CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE [ IF NOT EXISTS ] <replaceable class="PARAMETER">table_name</replaceable> ( [
+  { <replaceable class="PARAMETER">column_name</replaceable> <replaceable class="PARAMETER">data_type</replaceable> [ COLLATE <replaceable>collation</replaceable> ] [ <replaceable class="PARAMETER">column_constraint</replaceable> [ ... ] ]
     | <replaceable>table_constraint</replaceable>
     | LIKE <replaceable>parent_table</replaceable> [ <replaceable>like_option</replaceable> ... ] }
     [, ... ]
@@ -32,9 +32,9 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } ] TABLE <replaceable class="PAR
 [ ON COMMIT { PRESERVE ROWS | DELETE ROWS | DROP } ]
 [ TABLESPACE <replaceable class="PARAMETER">tablespace</replaceable> ]
 
-CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } ] TABLE <replaceable class="PARAMETER">table_name</replaceable>
+CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE [ IF NOT EXISTS ] <replaceable class="PARAMETER">table_name</replaceable>
     OF <replaceable class="PARAMETER">type_name</replaceable> [ (
-  { <replaceable class="PARAMETER">column_name</replaceable> WITH OPTIONS [ DEFAULT <replaceable>default_expr</replaceable> ] [ <replaceable class="PARAMETER">column_constraint</replaceable> [ ... ] ]
+  { <replaceable class="PARAMETER">column_name</replaceable> WITH OPTIONS [ <replaceable class="PARAMETER">column_constraint</replaceable> [ ... ] ]
     | <replaceable>table_constraint</replaceable> }
     [, ... ]
 ) ]
@@ -48,6 +48,7 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } ] TABLE <replaceable class="PAR
 { NOT NULL |
   NULL |
   CHECK ( <replaceable class="PARAMETER">expression</replaceable> ) |
+  DEFAULT <replaceable>default_expr</replaceable> |
   UNIQUE <replaceable class="PARAMETER">index_parameters</replaceable> |
   PRIMARY KEY <replaceable class="PARAMETER">index_parameters</replaceable> |
   REFERENCES <replaceable class="PARAMETER">reftable</replaceable> [ ( <replaceable class="PARAMETER">refcolumn</replaceable> ) ] [ MATCH FULL | MATCH PARTIAL | MATCH SIMPLE ]
@@ -96,8 +97,8 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } ] TABLE <replaceable class="PAR
    schema.  Otherwise it is created in the current schema.  Temporary
    tables exist in a special schema, so a schema name cannot be given
    when creating a temporary table.  The name of the table must be
-   distinct from the name of any other table, sequence, index, or view
-   in the same schema.
+   distinct from the name of any other table, sequence, index, view,
+   or foreign table in the same schema.
   </para>
 
   <para>
@@ -164,6 +165,35 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } ] TABLE <replaceable class="PAR
    </varlistentry>
 
    <varlistentry>
+    <term><literal>UNLOGGED</></term>
+    <listitem>
+     <para>
+      If specified, the table is created as an unlogged table.  Data written
+      to unlogged tables is not written to the write-ahead log (see <xref
+      linkend="wal">), which makes them considerably faster than ordinary
+      tables.  However, they are not crash-safe: an unlogged table is
+      automatically truncated after a crash or unclean shutdown.  The contents
+      of an unlogged table are also not replicated to standby servers.
+      Any indexes created on an unlogged table are automatically unlogged as
+      well; however, unlogged <link linkend="GiST">GiST indexes</link> are
+      currently not supported and cannot be created on an unlogged table.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>IF NOT EXISTS</></term>
+    <listitem>
+     <para>
+      Do not throw an error if a relation with the same name already exists.
+      A notice is issued in this case.  Note that there is no guarantee that
+      the existing relation is anything like the one that would have been
+      created.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
     <term><replaceable class="PARAMETER">table_name</replaceable></term>
     <listitem>
      <para>
@@ -215,22 +245,12 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } ] TABLE <replaceable class="PAR
    </varlistentry>
 
    <varlistentry>
-    <term><literal>DEFAULT
-    <replaceable>default_expr</replaceable></literal></term>
+    <term><literal>COLLATE <replaceable>collation</replaceable></literal></term>
     <listitem>
      <para>
-      The <literal>DEFAULT</> clause assigns a default data value for
-      the column whose column definition it appears within.  The value
-      is any variable-free expression (subqueries and cross-references
-      to other columns in the current table are not allowed).  The
-      data type of the default expression must match the data type of the
-      column.
-     </para>
-
-     <para>
-      The default expression will be used in any insert operation that
-      does not specify a value for the column.  If there is no default
-      for a column, then the default is null.
+      The <literal>COLLATE</> clause assigns a collation to
+      the column (which must be of a collatable data type).
+      If not specified, the column data type's default collation is used.
      </para>
     </listitem>
    </varlistentry>
@@ -410,6 +430,27 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } ] TABLE <replaceable class="PAR
    </varlistentry>
 
    <varlistentry>
+    <term><literal>DEFAULT
+    <replaceable>default_expr</replaceable></literal></term>
+    <listitem>
+     <para>
+      The <literal>DEFAULT</> clause assigns a default data value for
+      the column whose column definition it appears within.  The value
+      is any variable-free expression (subqueries and cross-references
+      to other columns in the current table are not allowed).  The
+      data type of the default expression must match the data type of the
+      column.
+     </para>
+
+     <para>
+      The default expression will be used in any insert operation that
+      does not specify a value for the column.  If there is no default
+      for a column, then the default is null.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
     <term><literal>UNIQUE</> (column constraint)</term>
     <term><literal>UNIQUE ( <replaceable class="PARAMETER">column_name</replaceable> [, ... ] )</> (table constraint)</term>
 
@@ -500,7 +541,7 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } ] TABLE <replaceable class="PAR
       The access method must support <literal>amgettuple</> (see <xref
       linkend="indexam">); at present this means <acronym>GIN</>
       cannot be used.  Although it's allowed, there is little point in using
-      btree or hash indexes with an exclusion constraint, because this
+      B-tree or hash indexes with an exclusion constraint, because this
       does nothing that an ordinary unique constraint doesn't do better.
       So in practice the access method will always be <acronym>GiST</>.
      </para>
@@ -1339,7 +1380,7 @@ CREATE TABLE employees OF employee_type (
   </refsect2>
 
   <refsect2>
-   <title>Zero-column tables</title>
+   <title>Zero-column Tables</title>
 
    <para>
     <productname>PostgreSQL</productname> allows a table of no columns
@@ -1352,7 +1393,7 @@ CREATE TABLE employees OF employee_type (
   </refsect2>
 
   <refsect2>
-   <title><literal>WITH</> clause</title>
+   <title><literal>WITH</> Clause</title>
 
    <para>
     The <literal>WITH</> clause is a <productname>PostgreSQL</productname>

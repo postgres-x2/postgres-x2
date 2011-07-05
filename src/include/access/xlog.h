@@ -3,10 +3,10 @@
  *
  * PostgreSQL transaction log manager
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/access/xlog.h,v 1.114 2010/07/03 20:43:58 tgl Exp $
+ * src/include/access/xlog.h
  */
 #ifndef XLOG_H
 #define XLOG_H
@@ -149,7 +149,7 @@ extern bool InRecovery;
  * InHotStandby will read as FALSE).
  *
  * In DISABLED state, we're performing crash recovery or hot standby was
- * disabled in recovery.conf.
+ * disabled in postgresql.conf.
  *
  * In INITIALIZED state, we've run InitRecoveryTransactionEnvironment, but
  * we haven't yet processed a RUNNING_XACTS or shutdown-checkpoint WAL record
@@ -184,7 +184,8 @@ typedef enum
 {
 	RECOVERY_TARGET_UNSET,
 	RECOVERY_TARGET_XID,
-	RECOVERY_TARGET_TIME
+	RECOVERY_TARGET_TIME,
+	RECOVERY_TARGET_NAME
 #ifdef PGXC
 	,
 	RECOVERY_TARGET_BARRIER
@@ -261,6 +262,13 @@ typedef struct CheckpointStatsData
 	int			ckpt_segs_added;	/* # of new xlog segments created */
 	int			ckpt_segs_removed;		/* # of xlog segments deleted */
 	int			ckpt_segs_recycled;		/* # of xlog segments recycled */
+
+	int			ckpt_sync_rels; /* # of relations synced */
+	uint64		ckpt_longest_sync;		/* Longest sync for one relation */
+	uint64		ckpt_agg_sync_time;		/* The sum of all the individual sync
+										 * times, which is not necessarily the
+										 * same as the total elapsed time for
+										 * the entire sync phase. */
 } CheckpointStatsData;
 
 extern CheckpointStatsData CheckpointStats;
@@ -275,7 +283,7 @@ extern int	XLogFileOpen(uint32 log, uint32 seg);
 
 
 extern void XLogGetLastRemoved(uint32 *log, uint32 *seg);
-extern void XLogSetAsyncCommitLSN(XLogRecPtr record);
+extern void XLogSetAsyncXactLSN(XLogRecPtr record);
 
 extern void RestoreBkpBlocks(XLogRecPtr lsn, XLogRecord *record, bool cleanup);
 
@@ -285,8 +293,10 @@ extern void xlog_desc(StringInfo buf, uint8 xl_info, char *rec);
 extern void issue_xlog_fsync(int fd, uint32 log, uint32 seg);
 
 extern bool RecoveryInProgress(void);
+extern bool HotStandbyActive(void);
 extern bool XLogInsertAllowed(void);
 extern void GetXLogReceiptTime(TimestampTz *rtime, bool *fromStream);
+extern XLogRecPtr GetXLogReplayRecPtr(void);
 
 extern void UpdateControlFile(void);
 extern uint64 GetSystemIdentifier(void);
@@ -299,6 +309,7 @@ extern void InitXLOGAccess(void);
 extern void CreateCheckPoint(int flags);
 extern bool CreateRestartPoint(int flags);
 extern void XLogPutNextOid(Oid nextOid);
+extern XLogRecPtr XLogRestorePoint(const char *rpName);
 extern XLogRecPtr GetRedoRecPtr(void);
 extern XLogRecPtr GetInsertRecPtr(void);
 extern XLogRecPtr GetFlushRecPtr(void);
@@ -307,5 +318,18 @@ extern TimeLineID GetRecoveryTargetTLI(void);
 
 extern void HandleStartupProcInterrupts(void);
 extern void StartupProcessMain(void);
+extern bool CheckPromoteSignal(void);
+extern void WakeupRecovery(void);
+
+/*
+ * Starting/stopping a base backup
+ */
+extern XLogRecPtr do_pg_start_backup(const char *backupidstr, bool fast, char **labelfile);
+extern XLogRecPtr do_pg_stop_backup(char *labelfile, bool waitforarchive);
+extern void do_pg_abort_backup(void);
+
+/* File path names (all relative to $PGDATA) */
+#define BACKUP_LABEL_FILE		"backup_label"
+#define BACKUP_LABEL_OLD		"backup_label.old"
 
 #endif   /* XLOG_H */

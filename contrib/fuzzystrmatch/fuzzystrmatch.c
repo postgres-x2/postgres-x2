@@ -5,18 +5,9 @@
  *
  * Joe Conway <mail@joeconway.com>
  *
- * $PostgreSQL: pgsql/contrib/fuzzystrmatch/fuzzystrmatch.c,v 1.32 2010/01/02 16:57:32 momjian Exp $
- * Copyright (c) 2001-2010, PostgreSQL Global Development Group
+ * contrib/fuzzystrmatch/fuzzystrmatch.c
+ * Copyright (c) 2001-2011, PostgreSQL Global Development Group
  * ALL RIGHTS RESERVED;
- *
- * levenshtein()
- * -------------
- * Written based on a description of the algorithm by Michael Gilleland
- * found at http://www.merriampark.com/ld.htm
- * Also looked at levenshtein.c in the PHP 4.0.6 distribution for
- * inspiration.
- * Configurable penalty costs extension is introduced by Volkan
- * YAZICI <volkan.yazici@gmail.com>.
  *
  * metaphone()
  * -----------
@@ -50,6 +41,7 @@
 #include <ctype.h>
 
 #include "fmgr.h"
+#include "mb/pg_wchar.h"
 #include "utils/builtins.h"
 
 PG_MODULE_MAGIC;
@@ -60,6 +52,8 @@ PG_MODULE_MAGIC;
  */
 extern Datum levenshtein_with_costs(PG_FUNCTION_ARGS);
 extern Datum levenshtein(PG_FUNCTION_ARGS);
+extern Datum levenshtein_less_equal_with_costs(PG_FUNCTION_ARGS);
+extern Datum levenshtein_less_equal(PG_FUNCTION_ARGS);
 extern Datum metaphone(PG_FUNCTION_ARGS);
 extern Datum soundex(PG_FUNCTION_ARGS);
 extern Datum difference(PG_FUNCTION_ARGS);
@@ -83,16 +77,6 @@ soundex_code(char letter)
 		return soundex_table[letter - 'A'];
 	return letter;
 }
-
-
-/*
- * Levenshtein
- */
-#define MAX_LEVENSHTEIN_STRLEN		255
-
-static int levenshtein_internal(const char *s, const char *t,
-					 int ins_c, int del_c, int sub_c);
-
 
 /*
  * Metaphone
@@ -183,113 +167,29 @@ getcode(char c)
 /* These prevent GH from becoming F */
 #define NOGHTOF(c)	(getcode(c) & 16)	/* BDH */
 
-
-/*
- * levenshtein_internal - Calculates Levenshtein distance metric
- *						  between supplied strings. Generally
- *						  (1, 1, 1) penalty costs suffices common
- *						  cases, but your mileage may vary.
- */
-static int
-levenshtein_internal(const char *s, const char *t,
-					 int ins_c, int del_c, int sub_c)
+/* Faster than memcmp(), for this use case. */
+static bool inline
+rest_of_char_same(const char *s1, const char *s2, int len)
 {
-	int			m,
-				n;
-	int		   *prev;
-	int		   *curr;
-	int			i,
-				j;
-	const char *x;
-	const char *y;
-
-	m = strlen(s);
-	n = strlen(t);
-
-	/*
-	 * We can transform an empty s into t with n insertions, or a non-empty t
-	 * into an empty s with m deletions.
-	 */
-	if (!m)
-		return n * ins_c;
-	if (!n)
-		return m * del_c;
-
-	/*
-	 * For security concerns, restrict excessive CPU+RAM usage. (This
-	 * implementation uses O(m) memory and has O(mn) complexity.)
-	 */
-	if (m > MAX_LEVENSHTEIN_STRLEN ||
-		n > MAX_LEVENSHTEIN_STRLEN)
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("argument exceeds the maximum length of %d bytes",
-						MAX_LEVENSHTEIN_STRLEN)));
-
-	/* One more cell for initialization column and row. */
-	++m;
-	++n;
-
-	/*
-	 * Instead of building an (m+1)x(n+1) array, we'll use two different
-	 * arrays of size m+1 for storing accumulated values. At each step one
-	 * represents the "previous" row and one is the "current" row of the
-	 * notional large array.
-	 */
-	prev = (int *) palloc(2 * m * sizeof(int));
-	curr = prev + m;
-
-	/* Initialize the "previous" row to 0..cols */
-	for (i = 0; i < m; i++)
-		prev[i] = i * del_c;
-
-	/* Loop through rows of the notional array */
-	for (y = t, j = 1; j < n; y++, j++)
+	while (len > 0)
 	{
-		int		   *temp;
-
-		/*
-		 * First cell must increment sequentially, as we're on the j'th row of
-		 * the (m+1)x(n+1) array.
-		 */
-		curr[0] = j * ins_c;
-
-		for (x = s, i = 1; i < m; x++, i++)
-		{
-			int			ins;
-			int			del;
-			int			sub;
-
-			/* Calculate costs for probable operations. */
-			ins = prev[i] + ins_c;		/* Insertion	*/
-			del = curr[i - 1] + del_c;	/* Deletion		*/
-			sub = prev[i - 1] + ((*x == *y) ? 0 : sub_c);		/* Substitution */
-
-			/* Take the one with minimum cost. */
-			curr[i] = Min(ins, del);
-			curr[i] = Min(curr[i], sub);
-		}
-
-		/* Swap current row with previous row. */
-		temp = curr;
-		curr = prev;
-		prev = temp;
+		len--;
+		if (s1[len] != s2[len])
+			return false;
 	}
-
-	/*
-	 * Because the final value was swapped from the previous row to the
-	 * current row, that's where we'll find it.
-	 */
-	return prev[m - 1];
+	return true;
 }
 
+#include "levenshtein.c"
+#define LEVENSHTEIN_LESS_EQUAL
+#include "levenshtein.c"
 
 PG_FUNCTION_INFO_V1(levenshtein_with_costs);
 Datum
 levenshtein_with_costs(PG_FUNCTION_ARGS)
 {
-	char	   *src = TextDatumGetCString(PG_GETARG_DATUM(0));
-	char	   *dst = TextDatumGetCString(PG_GETARG_DATUM(1));
+	text	   *src = PG_GETARG_TEXT_PP(0);
+	text	   *dst = PG_GETARG_TEXT_PP(1);
 	int			ins_c = PG_GETARG_INT32(2);
 	int			del_c = PG_GETARG_INT32(3);
 	int			sub_c = PG_GETARG_INT32(4);
@@ -302,10 +202,37 @@ PG_FUNCTION_INFO_V1(levenshtein);
 Datum
 levenshtein(PG_FUNCTION_ARGS)
 {
-	char	   *src = TextDatumGetCString(PG_GETARG_DATUM(0));
-	char	   *dst = TextDatumGetCString(PG_GETARG_DATUM(1));
+	text	   *src = PG_GETARG_TEXT_PP(0);
+	text	   *dst = PG_GETARG_TEXT_PP(1);
 
 	PG_RETURN_INT32(levenshtein_internal(src, dst, 1, 1, 1));
+}
+
+
+PG_FUNCTION_INFO_V1(levenshtein_less_equal_with_costs);
+Datum
+levenshtein_less_equal_with_costs(PG_FUNCTION_ARGS)
+{
+	text	   *src = PG_GETARG_TEXT_PP(0);
+	text	   *dst = PG_GETARG_TEXT_PP(1);
+	int			ins_c = PG_GETARG_INT32(2);
+	int			del_c = PG_GETARG_INT32(3);
+	int			sub_c = PG_GETARG_INT32(4);
+	int			max_d = PG_GETARG_INT32(5);
+
+	PG_RETURN_INT32(levenshtein_less_equal_internal(src, dst, ins_c, del_c, sub_c, max_d));
+}
+
+
+PG_FUNCTION_INFO_V1(levenshtein_less_equal);
+Datum
+levenshtein_less_equal(PG_FUNCTION_ARGS)
+{
+	text	   *src = PG_GETARG_TEXT_PP(0);
+	text	   *dst = PG_GETARG_TEXT_PP(1);
+	int			max_d = PG_GETARG_INT32(2);
+
+	PG_RETURN_INT32(levenshtein_less_equal_internal(src, dst, 1, 1, 1, max_d));
 }
 
 

@@ -6,11 +6,11 @@
  * loaded as a dynamic module to avoid linking the main server binary with
  * libpq.
  *
- * Portions Copyright (c) 2010-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 2010-2011, PostgreSQL Global Development Group
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/replication/libpqwalreceiver/libpqwalreceiver.c,v 1.12 2010/07/06 19:18:57 momjian Exp $
+ *	  src/backend/replication/libpqwalreceiver/libpqwalreceiver.c
  *
  *-------------------------------------------------------------------------
  */
@@ -41,7 +41,6 @@ void		_PG_init(void);
 
 /* Current connection to the primary, if any */
 static PGconn *streamConn = NULL;
-static bool justconnected = false;
 
 /* Buffer for currently read records */
 static char *recvBuf = NULL;
@@ -50,6 +49,7 @@ static char *recvBuf = NULL;
 static bool libpqrcv_connect(char *conninfo, XLogRecPtr startpoint);
 static bool libpqrcv_receive(int timeout, unsigned char *type,
 				 char **buffer, int *len);
+static void libpqrcv_send(const char *buffer, int nbytes);
 static void libpqrcv_disconnect(void);
 
 /* Prototypes for private functions */
@@ -64,10 +64,11 @@ _PG_init(void)
 {
 	/* Tell walreceiver how to reach us */
 	if (walrcv_connect != NULL || walrcv_receive != NULL ||
-		walrcv_disconnect != NULL)
+		walrcv_send != NULL || walrcv_disconnect != NULL)
 		elog(ERROR, "libpqwalreceiver already loaded");
 	walrcv_connect = libpqrcv_connect;
 	walrcv_receive = libpqrcv_receive;
+	walrcv_send = libpqrcv_send;
 	walrcv_disconnect = libpqrcv_disconnect;
 }
 
@@ -77,7 +78,7 @@ _PG_init(void)
 static bool
 libpqrcv_connect(char *conninfo, XLogRecPtr startpoint)
 {
-	char		conninfo_repl[MAXCONNINFO + 37];
+	char		conninfo_repl[MAXCONNINFO + 75];
 	char	   *primary_sysid;
 	char		standby_sysid[32];
 	TimeLineID	primary_tli;
@@ -91,7 +92,7 @@ libpqrcv_connect(char *conninfo, XLogRecPtr startpoint)
 	 * "replication" for .pgpass lookup.
 	 */
 	snprintf(conninfo_repl, sizeof(conninfo_repl),
-			 "%s dbname=replication replication=true",
+			 "%s dbname=replication replication=true fallback_application_name=walreceiver",
 			 conninfo);
 
 	streamConn = PQconnectdb(conninfo_repl);
@@ -113,7 +114,7 @@ libpqrcv_connect(char *conninfo, XLogRecPtr startpoint)
 						"the primary server: %s",
 						PQerrorMessage(streamConn))));
 	}
-	if (PQnfields(res) != 2 || PQntuples(res) != 1)
+	if (PQnfields(res) != 3 || PQntuples(res) != 1)
 	{
 		int			ntuples = PQntuples(res);
 		int			nfields = PQnfields(res);
@@ -121,7 +122,7 @@ libpqrcv_connect(char *conninfo, XLogRecPtr startpoint)
 		PQclear(res);
 		ereport(ERROR,
 				(errmsg("invalid response from primary server"),
-				 errdetail("Expected 1 tuple with 2 fields, got %d tuples with %d fields.",
+				 errdetail("Expected 1 tuple with 3 fields, got %d tuples with %d fields.",
 						   ntuples, nfields)));
 	}
 	primary_sysid = PQgetvalue(res, 0, 0);
@@ -157,7 +158,7 @@ libpqrcv_connect(char *conninfo, XLogRecPtr startpoint)
 	snprintf(cmd, sizeof(cmd), "START_REPLICATION %X/%X",
 			 startpoint.xlogid, startpoint.xrecoff);
 	res = libpqrcv_PQexec(cmd);
-	if (PQresultStatus(res) != PGRES_COPY_OUT)
+	if (PQresultStatus(res) != PGRES_COPY_BOTH)
 	{
 		PQclear(res);
 		ereport(ERROR,
@@ -166,7 +167,6 @@ libpqrcv_connect(char *conninfo, XLogRecPtr startpoint)
 	}
 	PQclear(res);
 
-	justconnected = true;
 	ereport(LOG,
 		(errmsg("streaming replication successfully connected to primary")));
 
@@ -303,6 +303,7 @@ libpqrcv_PQexec(const char *query)
 
 		if (PQresultStatus(lastResult) == PGRES_COPY_IN ||
 			PQresultStatus(lastResult) == PGRES_COPY_OUT ||
+			PQresultStatus(lastResult) == PGRES_COPY_BOTH ||
 			PQstatus(streamConn) == CONNECTION_BAD)
 			break;
 	}
@@ -318,7 +319,6 @@ libpqrcv_disconnect(void)
 {
 	PQfinish(streamConn);
 	streamConn = NULL;
-	justconnected = false;
 }
 
 /*
@@ -348,28 +348,30 @@ libpqrcv_receive(int timeout, unsigned char *type, char **buffer, int *len)
 		PQfreemem(recvBuf);
 	recvBuf = NULL;
 
-	/*
-	 * If the caller requested to block, wait for data to arrive. But if this
-	 * is the first call after connecting, don't wait, because there might
-	 * already be some data in libpq buffer that we haven't returned to
-	 * caller.
-	 */
-	if (timeout > 0 && !justconnected)
+	/* Try to receive a CopyData message */
+	rawlen = PQgetCopyData(streamConn, &recvBuf, 1);
+	if (rawlen == 0)
 	{
-		if (!libpq_select(timeout))
-			return false;
+		/*
+		 * No data available yet. If the caller requested to block, wait for
+		 * more data to arrive.
+		 */
+		if (timeout > 0)
+		{
+			if (!libpq_select(timeout))
+				return false;
+		}
 
 		if (PQconsumeInput(streamConn) == 0)
 			ereport(ERROR,
 					(errmsg("could not receive data from WAL stream: %s",
 							PQerrorMessage(streamConn))));
-	}
-	justconnected = false;
 
-	/* Receive CopyData message */
-	rawlen = PQgetCopyData(streamConn, &recvBuf, 1);
-	if (rawlen == 0)			/* no data available yet, then return */
-		return false;
+		/* Now that we've consumed some input, try again */
+		rawlen = PQgetCopyData(streamConn, &recvBuf, 1);
+		if (rawlen == 0)
+			return false;
+	}
 	if (rawlen == -1)			/* end-of-streaming or error */
 	{
 		PGresult   *res;
@@ -397,4 +399,19 @@ libpqrcv_receive(int timeout, unsigned char *type, char **buffer, int *len)
 	*len = rawlen - sizeof(*type);
 
 	return true;
+}
+
+/*
+ * Send a message to XLOG stream.
+ *
+ * ereports on error.
+ */
+static void
+libpqrcv_send(const char *buffer, int nbytes)
+{
+	if (PQputCopyData(streamConn, buffer, nbytes) <= 0 ||
+		PQflush(streamConn))
+		ereport(ERROR,
+				(errmsg("could not send data to WAL stream: %s",
+						PQerrorMessage(streamConn))));
 }

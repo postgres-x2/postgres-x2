@@ -4,11 +4,11 @@
  *	  prototypes for functions in backend/catalog/heap.c
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
  *
- * $PostgreSQL: pgsql/src/include/catalog/heap.h,v 1.98 2010/02/26 02:01:21 momjian Exp $
+ * src/include/catalog/heap.h
  *
  *-------------------------------------------------------------------------
  */
@@ -41,6 +41,7 @@ extern Relation heap_create(const char *relname,
 			Oid relid,
 			TupleDesc tupDesc,
 			char relkind,
+			char relpersistence,
 			bool shared_relation,
 			bool mapped_relation,
 			bool allow_system_table_mods);
@@ -55,6 +56,7 @@ extern Oid heap_create_with_catalog(const char *relname,
 						 TupleDesc tupdesc,
 						 List *cooked_constraints,
 						 char relkind,
+						 char relpersistence,
 						 bool shared_relation,
 						 bool mapped_relation,
 						 bool oidislocal,
@@ -115,7 +117,9 @@ extern Form_pg_attribute SystemAttributeByName(const char *attname,
 extern void CheckAttributeNamesTypes(TupleDesc tupdesc, char relkind,
 						 bool allow_system_table_mods);
 
-extern void CheckAttributeType(const char *attname, Oid atttypid,
+extern void CheckAttributeType(const char *attname,
+				   Oid atttypid, Oid attcollation,
+				   List *containing_rowtypes,
 				   bool allow_system_table_mods);
 
 #ifdef PGXC

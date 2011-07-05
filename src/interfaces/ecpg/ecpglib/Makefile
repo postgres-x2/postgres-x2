@@ -2,10 +2,10 @@
 #
 # Makefile for ecpg library
 #
-# Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+# Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
 # Portions Copyright (c) 1994, Regents of the University of California
 #
-# $PostgreSQL: pgsql/src/interfaces/ecpg/ecpglib/Makefile,v 1.66 2010/01/05 16:38:23 meskes Exp $
+# src/interfaces/ecpg/ecpglib/Makefile
 #
 #-------------------------------------------------------------------------
 
@@ -15,7 +15,7 @@ include $(top_builddir)/src/Makefile.global
 
 NAME= ecpg
 SO_MAJOR_VERSION= 6
-SO_MINOR_VERSION= 2
+SO_MINOR_VERSION= 3
 
 override CPPFLAGS := -I../include -I$(top_srcdir)/src/interfaces/ecpg/include \
 	-I$(libpq_srcdir) -I$(top_builddir)/src/port $(CPPFLAGS)
@@ -34,6 +34,7 @@ OBJS += thread.o
 endif
 
 SHLIB_LINK = -L../pgtypeslib -lpgtypes $(libpq) $(filter -lintl -lm, $(LIBS)) $(PTHREAD_LIBS)
+SHLIB_PREREQS = submake-libpq submake-pgtypeslib
 
 SHLIB_EXPORTS = exports.txt
 
@@ -42,12 +43,10 @@ ifeq ($(PORTNAME), win32)
 SHLIB_LINK += -lshfolder
 endif
 
-all: libpq pgtypeslib all-lib
+all: all-lib
 
-libpq:
-	$(MAKE) -C $(top_builddir)/src/interfaces/libpq all
-
-pgtypeslib:
+.PHONY: submake-pgtypeslib
+submake-pgtypeslib:
 	$(MAKE) -C $(top_builddir)/src/interfaces/ecpg/pgtypeslib all
 
 # Shared library stuff

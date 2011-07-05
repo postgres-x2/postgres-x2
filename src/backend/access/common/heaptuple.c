@@ -45,12 +45,12 @@
  * and we'd like to still refer to them via C struct offsets.
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/access/common/heaptuple.c,v 1.130 2010/01/10 04:26:36 rhaas Exp $
+ *	  src/backend/access/common/heaptuple.c
  *
  *-------------------------------------------------------------------------
  */
@@ -353,7 +353,7 @@ nocachegetattr(HeapTuple tuple,
 		 *
 		 * check to see if any preceding bits are null...
 		 */
-		int byte = attnum >> 3;
+		int			byte = attnum >> 3;
 		int			finalbit = attnum & 0x07;
 
 		/* check for nulls "before" final bit of last byte */

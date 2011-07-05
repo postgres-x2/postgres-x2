@@ -3,12 +3,12 @@
  * print.c
  *	  various print routines (used mostly for debugging)
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/nodes/print.c,v 1.92 2010/01/02 16:57:46 momjian Exp $
+ *	  src/backend/nodes/print.c
  *
  * HISTORY
  *	  AUTHOR			DATE			MAJOR EVENT
@@ -265,8 +265,8 @@ print_rt(List *rtable)
 		switch (rte->rtekind)
 		{
 			case RTE_RELATION:
-				printf("%d\t%s\t%u",
-					   i, rte->eref->aliasname, rte->relid);
+				printf("%d\t%s\t%u\t%c",
+					   i, rte->eref->aliasname, rte->relid, rte->relkind);
 				break;
 			case RTE_SUBQUERY:
 				printf("%d\t%s\t[subquery]",
@@ -274,10 +274,6 @@ print_rt(List *rtable)
 				break;
 			case RTE_JOIN:
 				printf("%d\t%s\t[join]",
-					   i, rte->eref->aliasname);
-				break;
-			case RTE_SPECIAL:
-				printf("%d\t%s\t[special]",
 					   i, rte->eref->aliasname);
 				break;
 			case RTE_FUNCTION:

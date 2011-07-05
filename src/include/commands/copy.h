@@ -4,20 +4,34 @@
  *	  Definitions for using the POSTGRES copy command.
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/commands/copy.h,v 1.33 2010/01/02 16:58:03 momjian Exp $
+ * src/include/commands/copy.h
  *
  *-------------------------------------------------------------------------
  */
 #ifndef COPY_H
 #define COPY_H
 
+#include "nodes/execnodes.h"
 #include "nodes/parsenodes.h"
 #include "tcop/dest.h"
 
+/* CopyStateData is private in commands/copy.c */
+typedef struct CopyStateData *CopyState;
+
 extern uint64 DoCopy(const CopyStmt *stmt, const char *queryString);
+
+extern void ProcessCopyOptions(CopyState cstate, bool is_from, List *options);
+extern CopyState BeginCopyFrom(Relation rel, const char *filename,
+			  List *attnamelist, List *options);
+extern void EndCopyFrom(CopyState cstate);
+extern bool NextCopyFrom(CopyState cstate, ExprContext *econtext,
+			 Datum *values, bool *nulls, Oid *tupleOid);
+extern bool NextCopyFromRawFields(CopyState cstate,
+					  char ***fields, int *nfields);
+extern void CopyFromErrorCallback(void *arg);
 
 extern DestReceiver *CreateCopyDestReceiver(void);
 

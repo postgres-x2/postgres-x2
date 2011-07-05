@@ -1,6 +1,7 @@
-# $PostgreSQL: pgsql/contrib/intagg/Makefile,v 1.11 2010/02/05 03:06:30 momjian Exp $
+# contrib/intagg/Makefile
 
-DATA = int_aggregate.sql uninstall_int_aggregate.sql
+EXTENSION = intagg
+DATA = intagg--1.0.sql intagg--unpackaged--1.0.sql
 
 ifdef USE_PGXS
 PG_CONFIG = pg_config

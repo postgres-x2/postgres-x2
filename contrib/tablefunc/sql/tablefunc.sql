@@ -1,12 +1,4 @@
---
--- first, define the functions.  Turn off echoing so that expected file
--- does not depend on contents of tablefunc.sql.
---
-SET client_min_messages = warning;
-\set ECHO none
-\i tablefunc.sql
-\set ECHO all
-RESET client_min_messages;
+CREATE EXTENSION tablefunc;
 
 --
 -- normal_rand()
@@ -196,4 +188,3 @@ INSERT INTO connectby_int VALUES(111,11);
 INSERT INTO connectby_int VALUES(1,111);
 -- this should not fail due to recursion detection
 SELECT * FROM connectby('connectby_int', 'keyid', 'parent_keyid', '11', 0, '-') AS t(keyid int, parent_keyid int, level int, branch text);
-

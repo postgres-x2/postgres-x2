@@ -10,10 +10,10 @@
  * amounts are sorted using temporary files and a standard external sort
  * algorithm.
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/utils/tuplesort.h,v 1.36 2010/02/26 02:01:29 momjian Exp $
+ * src/include/utils/tuplesort.h
  *
  *-------------------------------------------------------------------------
  */
@@ -35,29 +35,40 @@
 typedef struct Tuplesortstate Tuplesortstate;
 
 /*
- * We provide two different interfaces to what is essentially the same
- * code: one for sorting HeapTuples and one for sorting IndexTuples.
- * They differ primarily in the way that the sort key information is
- * supplied.  Also, the HeapTuple case actually stores MinimalTuples,
- * which means it doesn't preserve the "system columns" (tuple identity and
- * transaction visibility info).  The IndexTuple case does preserve all
- * the header fields of an index entry.  In the HeapTuple case we can
- * save some cycles by passing and returning the tuples in TupleTableSlots,
- * rather than forming actual HeapTuples (which'd have to be converted to
- * MinimalTuples).
+ * We provide multiple interfaces to what is essentially the same code,
+ * since different callers have different data to be sorted and want to
+ * specify the sort key information differently.  There are two APIs for
+ * sorting HeapTuples and two more for sorting IndexTuples.  Yet another
+ * API supports sorting bare Datums.
  *
- * The IndexTuple case is itself broken into two subcases, one for btree
- * indexes and one for hash indexes; the latter variant actually sorts
- * the tuples by hash code.  The API is the same except for the "begin"
- * routine.
+ * The "heap" API actually stores/sorts MinimalTuples, which means it doesn't
+ * preserve the system columns (tuple identity and transaction visibility
+ * info).  The sort keys are specified by column numbers within the tuples
+ * and sort operator OIDs.	We save some cycles by passing and returning the
+ * tuples in TupleTableSlots, rather than forming actual HeapTuples (which'd
+ * have to be converted to MinimalTuples).	This API works well for sorts
+ * executed as parts of plan trees.
  *
- * Yet another slightly different interface supports sorting bare Datums.
+ * The "cluster" API stores/sorts full HeapTuples including all visibility
+ * info. The sort keys are specified by reference to a btree index that is
+ * defined on the relation to be sorted.  Note that putheaptuple/getheaptuple
+ * go with this API, not the "begin_heap" one!
+ *
+ * The "index_btree" API stores/sorts IndexTuples (preserving all their
+ * header fields).	The sort keys are specified by a btree index definition.
+ *
+ * The "index_hash" API is similar to index_btree, but the tuples are
+ * actually sorted by their hash codes not the raw data.
  */
 
 extern Tuplesortstate *tuplesort_begin_heap(TupleDesc tupDesc,
 					 int nkeys, AttrNumber *attNums,
-					 Oid *sortOperators, bool *nullsFirstFlags,
+					 Oid *sortOperators, Oid *sortCollations,
+					 bool *nullsFirstFlags,
 					 int workMem, bool randomAccess);
+extern Tuplesortstate *tuplesort_begin_cluster(TupleDesc tupDesc,
+						Relation indexRel,
+						int workMem, bool randomAccess);
 extern Tuplesortstate *tuplesort_begin_index_btree(Relation indexRel,
 							bool enforceUnique,
 							int workMem, bool randomAccess);
@@ -65,7 +76,8 @@ extern Tuplesortstate *tuplesort_begin_index_hash(Relation indexRel,
 						   uint32 hash_mask,
 						   int workMem, bool randomAccess);
 extern Tuplesortstate *tuplesort_begin_datum(Oid datumType,
-					  Oid sortOperator, bool nullsFirstFlag,
+					  Oid sortOperator, Oid sortCollation,
+					  bool nullsFirstFlag,
 					  int workMem, bool randomAccess);
 #ifdef PGXC
 extern Tuplesortstate *tuplesort_begin_merge(TupleDesc tupDesc,
@@ -79,6 +91,7 @@ extern void tuplesort_set_bound(Tuplesortstate *state, int64 bound);
 
 extern void tuplesort_puttupleslot(Tuplesortstate *state,
 					   TupleTableSlot *slot);
+extern void tuplesort_putheaptuple(Tuplesortstate *state, HeapTuple tup);
 extern void tuplesort_putindextuple(Tuplesortstate *state, IndexTuple tuple);
 extern void tuplesort_putdatum(Tuplesortstate *state, Datum val,
 				   bool isNull);
@@ -87,6 +100,8 @@ extern void tuplesort_performsort(Tuplesortstate *state);
 
 extern bool tuplesort_gettupleslot(Tuplesortstate *state, bool forward,
 					   TupleTableSlot *slot);
+extern HeapTuple tuplesort_getheaptuple(Tuplesortstate *state, bool forward,
+					   bool *should_free);
 extern IndexTuple tuplesort_getindextuple(Tuplesortstate *state, bool forward,
 						bool *should_free);
 extern bool tuplesort_getdatum(Tuplesortstate *state, bool forward,
@@ -122,6 +137,7 @@ extern void SelectSortFunction(Oid sortOperator, bool nulls_first,
  * reverse-sort and NULLs-ordering properly.
  */
 extern int32 ApplySortFunction(FmgrInfo *sortFunction, int sortFlags,
+				  Oid collation,
 				  Datum datum1, bool isNull1,
 				  Datum datum2, bool isNull2);
 

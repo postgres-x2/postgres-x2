@@ -4,11 +4,11 @@
  *	  Definitions for tagged nodes.
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
  *
- * $PostgreSQL: pgsql/src/include/nodes/nodes.h,v 1.234 2010/03/28 22:59:33 tgl Exp $
+ * src/include/nodes/nodes.h
  *
  *-------------------------------------------------------------------------
  */
@@ -46,6 +46,7 @@ typedef enum NodeTag
 	T_Result,
 	T_ModifyTable,
 	T_Append,
+	T_MergeAppend,
 	T_RecursiveUnion,
 	T_BitmapAnd,
 	T_BitmapOr,
@@ -60,6 +61,8 @@ typedef enum NodeTag
 	T_ValuesScan,
 	T_CteScan,
 	T_WorkTableScan,
+	T_ForeignScan,
+	T_FdwPlan,
 	T_Join,
 	T_NestLoop,
 	T_MergeJoin,
@@ -84,6 +87,7 @@ typedef enum NodeTag
 	T_RemoteQuery,
 #endif
 	/* these aren't subclasses of Plan: */
+	T_NestLoopParam,
 	T_PlanRowMark,
 	T_PlanInvalItem,
 
@@ -96,6 +100,7 @@ typedef enum NodeTag
 	T_ResultState,
 	T_ModifyTableState,
 	T_AppendState,
+	T_MergeAppendState,
 	T_RecursiveUnionState,
 	T_BitmapAndState,
 	T_BitmapOrState,
@@ -110,6 +115,7 @@ typedef enum NodeTag
 	T_ValuesScanState,
 	T_CteScanState,
 	T_WorkTableScanState,
+	T_ForeignScanState,
 	T_JoinState,
 	T_NestLoopState,
 	T_MergeJoinState,
@@ -144,6 +150,7 @@ typedef enum NodeTag
 	T_NamedArgExpr,
 	T_OpExpr,
 	T_DistinctExpr,
+	T_NullIfExpr,
 	T_ScalarArrayOpExpr,
 	T_BoolExpr,
 	T_SubLink,
@@ -155,6 +162,7 @@ typedef enum NodeTag
 	T_CoerceViaIO,
 	T_ArrayCoerceExpr,
 	T_ConvertRowtypeExpr,
+	T_CollateExpr,
 	T_CaseExpr,
 	T_CaseWhen,
 	T_CaseTestExpr,
@@ -164,7 +172,6 @@ typedef enum NodeTag
 	T_CoalesceExpr,
 	T_MinMaxExpr,
 	T_XmlExpr,
-	T_NullIfExpr,
 	T_NullTest,
 	T_BooleanTest,
 	T_CoerceToDomain,
@@ -229,7 +236,9 @@ typedef enum NodeTag
 	T_MergePath,
 	T_HashPath,
 	T_TidPath,
+	T_ForeignPath,
 	T_AppendPath,
+	T_MergeAppendPath,
 	T_ResultPath,
 	T_MaterialPath,
 	T_UniquePath,
@@ -242,6 +251,7 @@ typedef enum NodeTag
 	T_SpecialJoinInfo,
 	T_AppendRelInfo,
 	T_PlaceHolderInfo,
+	T_MinMaxAggInfo,
 	T_PlannerParamItem,
 
 	/*
@@ -353,6 +363,7 @@ typedef enum NodeTag
 	T_ReassignOwnedStmt,
 	T_CompositeTypeStmt,
 	T_CreateEnumStmt,
+	T_AlterEnumStmt,
 	T_AlterTSDictionaryStmt,
 	T_AlterTSConfigurationStmt,
 	T_CreateFdwStmt,
@@ -367,6 +378,11 @@ typedef enum NodeTag
 	T_ExecDirectStmt,
 	T_CleanConnStmt,
 	T_AlterTableSpaceOptionsStmt,
+	T_SecLabelStmt,
+	T_CreateForeignTableStmt,
+	T_CreateExtensionStmt,
+	T_AlterExtensionStmt,
+	T_AlterExtensionContentsStmt,
 
 	/*
 	 * TAGS FOR PARSE TREE NODES (parsenodes.h)
@@ -382,6 +398,7 @@ typedef enum NodeTag
 	T_A_ArrayExpr,
 	T_ResTarget,
 	T_TypeCast,
+	T_CollateClause,
 	T_SortBy,
 	T_WindowDef,
 	T_RangeSubselect,
@@ -418,7 +435,8 @@ typedef enum NodeTag
 	T_ReturnSetInfo,			/* in nodes/execnodes.h */
 	T_WindowObjectData,			/* private in nodeWindowAgg.c */
 	T_TIDBitmap,				/* in nodes/tidbitmap.h */
-	T_InlineCodeBlock			/* in nodes/parsenodes.h */
+	T_InlineCodeBlock,			/* in nodes/parsenodes.h */
+	T_FdwRoutine				/* in foreign/fdwapi.h */
 } NodeTag;
 
 /*

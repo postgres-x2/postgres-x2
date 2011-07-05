@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/array.sgml,v 1.70 2009/06/17 21:58:48 tgl Exp $ -->
+<!-- doc/src/sgml/array.sgml -->
 
 <sect1 id="arrays">
  <title>Arrays</title>
@@ -259,7 +259,7 @@ SELECT schedule[1:2][1:1] FROM sal_emp WHERE name = 'Bill';
 
   If any dimension is written as a slice, i.e., contains a colon, then all
   dimensions are treated as slices.  Any dimension that has only a single
-  number (no colon) is treated as being from <literal>1</>
+  number (no colon) is treated as being from 1
   to the number specified.  For example, <literal>[2]</> is treated as
   <literal>[1:2]</>, as in this example:
 
@@ -369,7 +369,7 @@ UPDATE sal_emp SET pay_by_quarter = ARRAY[25000,25000,27000,27000]
 <programlisting>
 UPDATE sal_emp SET pay_by_quarter[4] = 15000
     WHERE name = 'Bill';
-</programListing>
+</programlisting>
 
   or updated in a slice:
 
@@ -646,7 +646,7 @@ SELECT f1[1][-2][3] AS e1, f1[1][-1][5] AS e2
    If the value written for an element is <literal>NULL</> (in any case
    variant), the element is taken to be NULL.  The presence of any quotes
    or backslashes disables this and allows the literal string value
-   <quote>NULL</> to be entered.  Also, for backwards compatibility with
+   <quote>NULL</> to be entered.  Also, for backward compatibility with
    pre-8.2 versions of <productname>PostgreSQL</>, the <xref
    linkend="guc-array-nulls"> configuration parameter can be turned
    <literal>off</> to suppress recognition of <literal>NULL</> as a NULL.

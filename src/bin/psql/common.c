@@ -1,9 +1,9 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2010, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2011, PostgreSQL Global Development Group
  *
- * $PostgreSQL: pgsql/src/bin/psql/common.c,v 1.146 2010/07/06 19:18:59 momjian Exp $
+ * src/bin/psql/common.c
  */
 #include "postgres_fe.h"
 #include "common.h"
@@ -936,7 +936,7 @@ SendQuery(const char *query)
 	PQclear(results);
 
 	/* Possible microtiming output */
-	if (OK && pset.timing && !pset.quiet)
+	if (OK && pset.timing)
 		printf(_("Time: %.3f ms\n"), elapsed_msec);
 
 	/* check for events that may occur during query execution */
@@ -1386,6 +1386,23 @@ command_no_begin(const char *query)
 			return true;
 		if (wordlen == 10 && pg_strncasecmp(query, "tablespace", 10) == 0)
 			return true;
+		return false;
+	}
+
+	/* DISCARD ALL isn't allowed in xacts, but other variants are allowed. */
+	if (wordlen == 7 && pg_strncasecmp(query, "discard", 7) == 0)
+	{
+		query += wordlen;
+
+		query = skip_white_space(query);
+
+		wordlen = 0;
+		while (isalpha((unsigned char) query[wordlen]))
+			wordlen += PQmblen(&query[wordlen], pset.encoding);
+
+		if (wordlen == 3 && pg_strncasecmp(query, "all", 3) == 0)
+			return true;
+		return false;
 	}
 
 	return false;

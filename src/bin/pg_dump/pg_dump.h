@@ -3,10 +3,10 @@
  * pg_dump.h
  *	  Common header file for the pg_dump utility
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/bin/pg_dump/pg_dump.h,v 1.164 2010/02/26 02:01:17 momjian Exp $
+ * src/bin/pg_dump/pg_dump.h
  *
  *-------------------------------------------------------------------------
  */
@@ -89,6 +89,7 @@ typedef enum
 {
 	/* When modifying this enum, update priority tables in pg_dump_sort.c! */
 	DO_NAMESPACE,
+	DO_EXTENSION,
 	DO_TYPE,
 	DO_SHELL_TYPE,
 	DO_FUNC,
@@ -116,7 +117,8 @@ typedef enum
 	DO_FOREIGN_SERVER,
 	DO_DEFAULT_ACL,
 	DO_BLOB,
-	DO_BLOB_DATA
+	DO_BLOB_DATA,
+	DO_COLLATION
 } DumpableObjectType;
 
 typedef struct _dumpableObject
@@ -127,6 +129,7 @@ typedef struct _dumpableObject
 	char	   *name;			/* object name (should never be NULL) */
 	struct _namespaceInfo *namespace;	/* containing namespace, or NULL */
 	bool		dump;			/* true if we want to dump this object */
+	bool		ext_member;		/* true if object is member of extension */
 	DumpId	   *dependencies;	/* dumpIds of objects this one depends on */
 	int			nDeps;			/* number of valid dependencies */
 	int			allocDeps;		/* allocated size of dependencies[] */
@@ -138,6 +141,16 @@ typedef struct _namespaceInfo
 	char	   *rolname;		/* name of owner, or empty string */
 	char	   *nspacl;
 } NamespaceInfo;
+
+typedef struct _extensionInfo
+{
+	DumpableObject dobj;
+	char	   *namespace;		/* schema containing extension's objects */
+	bool		relocatable;
+	char	   *extversion;
+	char	   *extconfig;		/* info about configuration tables */
+	char	   *extcondition;
+} ExtensionInfo;
 
 typedef struct _typeInfo
 {
@@ -205,6 +218,12 @@ typedef struct _opfamilyInfo
 	char	   *rolname;
 } OpfamilyInfo;
 
+typedef struct _collInfo
+{
+	DumpableObject dobj;
+	char	   *rolname;
+} CollInfo;
+
 typedef struct _convInfo
 {
 	DumpableObject dobj;
@@ -220,6 +239,7 @@ typedef struct _tableInfo
 	char	   *rolname;		/* name of owner, or empty string */
 	char	   *relacl;
 	char		relkind;
+	char		relpersistence; /* relation persistence */
 	char	   *reltablespace;	/* relation tablespace */
 	char	   *reloptions;		/* options specified by WITH (...) */
 	char	   *toast_reloptions;		/* ditto, for the TOAST table */
@@ -228,6 +248,8 @@ typedef struct _tableInfo
 	bool		hastriggers;	/* does it have any triggers? */
 	bool		hasoids;		/* does it have OIDs? */
 	uint32		frozenxid;		/* for restore frozen xid */
+	Oid			toast_oid;		/* for restore toast frozen xid */
+	uint32		toast_frozenxid;	/* for restore toast frozen xid */
 	int			ncheck;			/* # of CHECK expressions */
 	char	   *reloftype;		/* underlying type for typed table */
 	/* these two are set only if table is a sequence owned by a column: */
@@ -257,6 +279,7 @@ typedef struct _tableInfo
 	char	   *attalign;		/* attribute align, used by binary_upgrade */
 	bool	   *attislocal;		/* true if attr has local definition */
 	char	  **attoptions;		/* per-attribute options */
+	Oid		   *attcollation;	/* per-attribute collation selection */
 
 	/*
 	 * Note: we need to store per-attribute notnull, default, and constraint
@@ -292,6 +315,7 @@ typedef struct _tableDataInfo
 	DumpableObject dobj;
 	TableInfo  *tdtable;		/* link to table to dump */
 	bool		oids;			/* include OIDs in data? */
+	char	   *filtercond;		/* WHERE condition to limit rows dumped */
 } TableDataInfo;
 
 typedef struct _indxInfo
@@ -424,6 +448,7 @@ typedef struct _fdwInfo
 {
 	DumpableObject dobj;
 	char	   *rolname;
+	char	   *fdwhandler;
 	char	   *fdwvalidator;
 	char	   *fdwoptions;
 	char	   *fdwacl;
@@ -493,6 +518,7 @@ extern TableInfo *findTableByOid(Oid oid);
 extern TypeInfo *findTypeByOid(Oid oid);
 extern FuncInfo *findFuncByOid(Oid oid);
 extern OprInfo *findOprByOid(Oid oid);
+extern CollInfo *findCollationByOid(Oid oid);
 
 extern void simple_oid_list_append(SimpleOidList *list, Oid val);
 extern void simple_string_list_append(SimpleStringList *list, const char *val);
@@ -517,12 +543,14 @@ extern void sortDumpableObjectsByTypeOid(DumpableObject **objs, int numObjs);
  * version specific routines
  */
 extern NamespaceInfo *getNamespaces(int *numNamespaces);
+extern ExtensionInfo *getExtensions(int *numExtensions);
 extern TypeInfo *getTypes(int *numTypes);
 extern FuncInfo *getFuncs(int *numFuncs);
 extern AggInfo *getAggregates(int *numAggregates);
 extern OprInfo *getOperators(int *numOperators);
 extern OpclassInfo *getOpclasses(int *numOpclasses);
 extern OpfamilyInfo *getOpfamilies(int *numOpfamilies);
+extern CollInfo *getCollations(int *numCollations);
 extern ConvInfo *getConversions(int *numConversions);
 extern TableInfo *getTables(int *numTables);
 extern InhInfo *getInherits(int *numInherits);
@@ -540,5 +568,6 @@ extern TSConfigInfo *getTSConfigurations(int *numTSConfigs);
 extern FdwInfo *getForeignDataWrappers(int *numForeignDataWrappers);
 extern ForeignServerInfo *getForeignServers(int *numForeignServers);
 extern DefaultACLInfo *getDefaultACLs(int *numDefaultACLs);
+extern void getExtensionMembership(ExtensionInfo extinfo[], int numExtensions);
 
 #endif   /* PG_DUMP_H */

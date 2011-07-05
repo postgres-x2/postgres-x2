@@ -1,6 +1,6 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/lo.sgml,v 1.3 2007/12/06 04:12:10 tgl Exp $ -->
+<!-- doc/src/sgml/lo.sgml -->
 
-<sect1 id="lo">
+<sect1 id="lo" xreflabel="lo">
  <title>lo</title>
 
  <indexterm zone="lo">
@@ -66,12 +66,12 @@
    Here's a simple example of usage:
   </para>
 
-  <programlisting>
-   CREATE TABLE image (title TEXT, raster lo);
+<programlisting>
+CREATE TABLE image (title TEXT, raster lo);
 
-   CREATE TRIGGER t_raster BEFORE UPDATE OR DELETE ON image
-     FOR EACH ROW EXECUTE PROCEDURE lo_manage(raster);
-  </programlisting>
+CREATE TRIGGER t_raster BEFORE UPDATE OR DELETE ON image
+    FOR EACH ROW EXECUTE PROCEDURE lo_manage(raster);
+</programlisting>
 
   <para>
    For each column that will contain unique references to large objects,
@@ -99,7 +99,7 @@
 
     <para>
      If you already have, or suspect you have, orphaned large objects, see the
-     <filename>contrib/vacuumlo</> module (<xref linkend="vacuumlo">) to help
+     <xref linkend="vacuumlo"> module to help
      you clean them up.  It's a good idea to run <application>vacuumlo</>
      occasionally as a back-stop to the <function>lo_manage</> trigger.
     </para>

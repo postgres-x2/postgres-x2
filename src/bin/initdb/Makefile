@@ -2,10 +2,10 @@
 #
 # Makefile for src/bin/initdb
 #
-# Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+# Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
 # Portions Copyright (c) 1994, Regents of the University of California
 #
-# $PostgreSQL: pgsql/src/bin/initdb/Makefile,v 1.61 2010/07/05 18:54:37 tgl Exp $
+# src/bin/initdb/Makefile
 #
 #-------------------------------------------------------------------------
 
@@ -20,9 +20,9 @@ override CPPFLAGS := -DFRONTEND -I$(libpq_srcdir) $(CPPFLAGS)
 
 OBJS=	initdb.o encnames.o pqsignal.o $(WIN32RES)
 
-all: submake-libpgport initdb
+all: initdb
 
-initdb: $(OBJS)
+initdb: $(OBJS) | submake-libpgport
 	$(CC) $(CFLAGS) $(OBJS) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 
 # We used to pull in all of libpq to get encnames and pqsignal, but that

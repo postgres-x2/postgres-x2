@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/contacts.sgml,v 1.9 2006/03/10 19:10:47 momjian Exp $ -->
+<!-- doc/src/sgml/contacts.sgml -->
 
 <appendix label="B" id="contacts">
 <title>Contacts</title>
@@ -15,7 +15,7 @@ and the mailing lists themselves.
 
 <para>
 Refer to the introduction in this manual or to the
-<productname>PostgreSQL</productname> 
+<productname>PostgreSQL</productname>
 <ulink url="http://www.postgresql.org">web page</ulink>
 for subscription information to the no-cost mailing lists.
 </para>

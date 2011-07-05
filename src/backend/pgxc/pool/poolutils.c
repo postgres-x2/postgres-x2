@@ -99,7 +99,7 @@ CleanConnection(CleanConnStmt *stmt)
 
 	/* Check if the Database exists by getting its Oid */
 	if (dbname &&
-		!OidIsValid(get_database_oid(dbname)))
+		!OidIsValid(get_database_oid(dbname, true)))
 	{
 		ereport(WARNING,
 				(errcode(ERRCODE_UNDEFINED_DATABASE),
@@ -109,7 +109,7 @@ CleanConnection(CleanConnStmt *stmt)
 
 	/* Check if role exists */
 	if (username &&
-		!OidIsValid(get_roleid(username)))
+		!OidIsValid(get_role_oid(username, false)))
 	{
 		ereport(WARNING,
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
@@ -227,10 +227,9 @@ DropDBCleanConnection(char *dbname)
 {
 	List	*co_list = GetAllCoordNodes();
 	List	*dn_list = GetAllDataNodes();
-	char	query[256];
 
 	/* Check permissions for this database */
-	if (!pg_database_ownercheck(get_database_oid(dbname), GetUserId()))
+	if (!pg_database_ownercheck(get_database_oid(dbname, true), GetUserId()))
 		aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_DATABASE,
 					   dbname);
 

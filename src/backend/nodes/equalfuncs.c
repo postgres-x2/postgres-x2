@@ -18,12 +18,12 @@
  * "x" to be considered equal() to another reference to "x" in the query.
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/nodes/equalfuncs.c,v 1.385 2010/02/26 02:00:43 momjian Exp $
+ *	  src/backend/nodes/equalfuncs.c
  *
  *-------------------------------------------------------------------------
  */
@@ -105,7 +105,7 @@ _equalRangeVar(RangeVar *a, RangeVar *b)
 	COMPARE_STRING_FIELD(schemaname);
 	COMPARE_STRING_FIELD(relname);
 	COMPARE_SCALAR_FIELD(inhOpt);
-	COMPARE_SCALAR_FIELD(istemp);
+	COMPARE_SCALAR_FIELD(relpersistence);
 	COMPARE_NODE_FIELD(alias);
 	COMPARE_LOCATION_FIELD(location);
 
@@ -138,6 +138,7 @@ _equalVar(Var *a, Var *b)
 	COMPARE_SCALAR_FIELD(varattno);
 	COMPARE_SCALAR_FIELD(vartype);
 	COMPARE_SCALAR_FIELD(vartypmod);
+	COMPARE_SCALAR_FIELD(varcollid);
 	COMPARE_SCALAR_FIELD(varlevelsup);
 	COMPARE_SCALAR_FIELD(varnoold);
 	COMPARE_SCALAR_FIELD(varoattno);
@@ -151,6 +152,7 @@ _equalConst(Const *a, Const *b)
 {
 	COMPARE_SCALAR_FIELD(consttype);
 	COMPARE_SCALAR_FIELD(consttypmod);
+	COMPARE_SCALAR_FIELD(constcollid);
 	COMPARE_SCALAR_FIELD(constlen);
 	COMPARE_SCALAR_FIELD(constisnull);
 	COMPARE_SCALAR_FIELD(constbyval);
@@ -173,6 +175,7 @@ _equalParam(Param *a, Param *b)
 	COMPARE_SCALAR_FIELD(paramid);
 	COMPARE_SCALAR_FIELD(paramtype);
 	COMPARE_SCALAR_FIELD(paramtypmod);
+	COMPARE_SCALAR_FIELD(paramcollid);
 	COMPARE_LOCATION_FIELD(location);
 
 	return true;
@@ -187,6 +190,8 @@ _equalAggref(Aggref *a, Aggref *b)
 	COMPARE_SCALAR_FIELD(aggtrantype);
 	COMPARE_SCALAR_FIELD(agghas_collectfn);
 #endif /* PGXC */
+	COMPARE_SCALAR_FIELD(aggcollid);
+	COMPARE_SCALAR_FIELD(inputcollid);
 	COMPARE_NODE_FIELD(args);
 	COMPARE_NODE_FIELD(aggorder);
 	COMPARE_NODE_FIELD(aggdistinct);
@@ -202,6 +207,8 @@ _equalWindowFunc(WindowFunc *a, WindowFunc *b)
 {
 	COMPARE_SCALAR_FIELD(winfnoid);
 	COMPARE_SCALAR_FIELD(wintype);
+	COMPARE_SCALAR_FIELD(wincollid);
+	COMPARE_SCALAR_FIELD(inputcollid);
 	COMPARE_NODE_FIELD(args);
 	COMPARE_SCALAR_FIELD(winref);
 	COMPARE_SCALAR_FIELD(winstar);
@@ -217,6 +224,7 @@ _equalArrayRef(ArrayRef *a, ArrayRef *b)
 	COMPARE_SCALAR_FIELD(refarraytype);
 	COMPARE_SCALAR_FIELD(refelemtype);
 	COMPARE_SCALAR_FIELD(reftypmod);
+	COMPARE_SCALAR_FIELD(refcollid);
 	COMPARE_NODE_FIELD(refupperindexpr);
 	COMPARE_NODE_FIELD(reflowerindexpr);
 	COMPARE_NODE_FIELD(refexpr);
@@ -241,6 +249,8 @@ _equalFuncExpr(FuncExpr *a, FuncExpr *b)
 		b->funcformat != COERCE_DONTCARE)
 		return false;
 
+	COMPARE_SCALAR_FIELD(funccollid);
+	COMPARE_SCALAR_FIELD(inputcollid);
 	COMPARE_NODE_FIELD(args);
 	COMPARE_LOCATION_FIELD(location);
 
@@ -276,6 +286,8 @@ _equalOpExpr(OpExpr *a, OpExpr *b)
 
 	COMPARE_SCALAR_FIELD(opresulttype);
 	COMPARE_SCALAR_FIELD(opretset);
+	COMPARE_SCALAR_FIELD(opcollid);
+	COMPARE_SCALAR_FIELD(inputcollid);
 	COMPARE_NODE_FIELD(args);
 	COMPARE_LOCATION_FIELD(location);
 
@@ -300,6 +312,34 @@ _equalDistinctExpr(DistinctExpr *a, DistinctExpr *b)
 
 	COMPARE_SCALAR_FIELD(opresulttype);
 	COMPARE_SCALAR_FIELD(opretset);
+	COMPARE_SCALAR_FIELD(opcollid);
+	COMPARE_SCALAR_FIELD(inputcollid);
+	COMPARE_NODE_FIELD(args);
+	COMPARE_LOCATION_FIELD(location);
+
+	return true;
+}
+
+static bool
+_equalNullIfExpr(NullIfExpr *a, NullIfExpr *b)
+{
+	COMPARE_SCALAR_FIELD(opno);
+
+	/*
+	 * Special-case opfuncid: it is allowable for it to differ if one node
+	 * contains zero and the other doesn't.  This just means that the one node
+	 * isn't as far along in the parse/plan pipeline and hasn't had the
+	 * opfuncid cache filled yet.
+	 */
+	if (a->opfuncid != b->opfuncid &&
+		a->opfuncid != 0 &&
+		b->opfuncid != 0)
+		return false;
+
+	COMPARE_SCALAR_FIELD(opresulttype);
+	COMPARE_SCALAR_FIELD(opretset);
+	COMPARE_SCALAR_FIELD(opcollid);
+	COMPARE_SCALAR_FIELD(inputcollid);
 	COMPARE_NODE_FIELD(args);
 	COMPARE_LOCATION_FIELD(location);
 
@@ -323,6 +363,7 @@ _equalScalarArrayOpExpr(ScalarArrayOpExpr *a, ScalarArrayOpExpr *b)
 		return false;
 
 	COMPARE_SCALAR_FIELD(useOr);
+	COMPARE_SCALAR_FIELD(inputcollid);
 	COMPARE_NODE_FIELD(args);
 	COMPARE_LOCATION_FIELD(location);
 
@@ -361,6 +402,7 @@ _equalSubPlan(SubPlan *a, SubPlan *b)
 	COMPARE_STRING_FIELD(plan_name);
 	COMPARE_SCALAR_FIELD(firstColType);
 	COMPARE_SCALAR_FIELD(firstColTypmod);
+	COMPARE_SCALAR_FIELD(firstColCollation);
 	COMPARE_SCALAR_FIELD(useHashTable);
 	COMPARE_SCALAR_FIELD(unknownEqFalse);
 	COMPARE_NODE_FIELD(setParam);
@@ -387,6 +429,7 @@ _equalFieldSelect(FieldSelect *a, FieldSelect *b)
 	COMPARE_SCALAR_FIELD(fieldnum);
 	COMPARE_SCALAR_FIELD(resulttype);
 	COMPARE_SCALAR_FIELD(resulttypmod);
+	COMPARE_SCALAR_FIELD(resultcollid);
 
 	return true;
 }
@@ -408,6 +451,7 @@ _equalRelabelType(RelabelType *a, RelabelType *b)
 	COMPARE_NODE_FIELD(arg);
 	COMPARE_SCALAR_FIELD(resulttype);
 	COMPARE_SCALAR_FIELD(resulttypmod);
+	COMPARE_SCALAR_FIELD(resultcollid);
 
 	/*
 	 * Special-case COERCE_DONTCARE, so that planner can build coercion nodes
@@ -428,6 +472,7 @@ _equalCoerceViaIO(CoerceViaIO *a, CoerceViaIO *b)
 {
 	COMPARE_NODE_FIELD(arg);
 	COMPARE_SCALAR_FIELD(resulttype);
+	COMPARE_SCALAR_FIELD(resultcollid);
 
 	/*
 	 * Special-case COERCE_DONTCARE, so that planner can build coercion nodes
@@ -450,6 +495,7 @@ _equalArrayCoerceExpr(ArrayCoerceExpr *a, ArrayCoerceExpr *b)
 	COMPARE_SCALAR_FIELD(elemfuncid);
 	COMPARE_SCALAR_FIELD(resulttype);
 	COMPARE_SCALAR_FIELD(resulttypmod);
+	COMPARE_SCALAR_FIELD(resultcollid);
 	COMPARE_SCALAR_FIELD(isExplicit);
 
 	/*
@@ -487,9 +533,20 @@ _equalConvertRowtypeExpr(ConvertRowtypeExpr *a, ConvertRowtypeExpr *b)
 }
 
 static bool
+_equalCollateExpr(CollateExpr *a, CollateExpr *b)
+{
+	COMPARE_NODE_FIELD(arg);
+	COMPARE_SCALAR_FIELD(collOid);
+	COMPARE_LOCATION_FIELD(location);
+
+	return true;
+}
+
+static bool
 _equalCaseExpr(CaseExpr *a, CaseExpr *b)
 {
 	COMPARE_SCALAR_FIELD(casetype);
+	COMPARE_SCALAR_FIELD(casecollid);
 	COMPARE_NODE_FIELD(arg);
 	COMPARE_NODE_FIELD(args);
 	COMPARE_NODE_FIELD(defresult);
@@ -513,6 +570,7 @@ _equalCaseTestExpr(CaseTestExpr *a, CaseTestExpr *b)
 {
 	COMPARE_SCALAR_FIELD(typeId);
 	COMPARE_SCALAR_FIELD(typeMod);
+	COMPARE_SCALAR_FIELD(collation);
 
 	return true;
 }
@@ -521,6 +579,7 @@ static bool
 _equalArrayExpr(ArrayExpr *a, ArrayExpr *b)
 {
 	COMPARE_SCALAR_FIELD(array_typeid);
+	COMPARE_SCALAR_FIELD(array_collid);
 	COMPARE_SCALAR_FIELD(element_typeid);
 	COMPARE_NODE_FIELD(elements);
 	COMPARE_SCALAR_FIELD(multidims);
@@ -556,6 +615,7 @@ _equalRowCompareExpr(RowCompareExpr *a, RowCompareExpr *b)
 	COMPARE_SCALAR_FIELD(rctype);
 	COMPARE_NODE_FIELD(opnos);
 	COMPARE_NODE_FIELD(opfamilies);
+	COMPARE_NODE_FIELD(inputcollids);
 	COMPARE_NODE_FIELD(largs);
 	COMPARE_NODE_FIELD(rargs);
 
@@ -566,6 +626,7 @@ static bool
 _equalCoalesceExpr(CoalesceExpr *a, CoalesceExpr *b)
 {
 	COMPARE_SCALAR_FIELD(coalescetype);
+	COMPARE_SCALAR_FIELD(coalescecollid);
 	COMPARE_NODE_FIELD(args);
 	COMPARE_LOCATION_FIELD(location);
 
@@ -576,6 +637,8 @@ static bool
 _equalMinMaxExpr(MinMaxExpr *a, MinMaxExpr *b)
 {
 	COMPARE_SCALAR_FIELD(minmaxtype);
+	COMPARE_SCALAR_FIELD(minmaxcollid);
+	COMPARE_SCALAR_FIELD(inputcollid);
 	COMPARE_SCALAR_FIELD(op);
 	COMPARE_NODE_FIELD(args);
 	COMPARE_LOCATION_FIELD(location);
@@ -594,30 +657,6 @@ _equalXmlExpr(XmlExpr *a, XmlExpr *b)
 	COMPARE_SCALAR_FIELD(xmloption);
 	COMPARE_SCALAR_FIELD(type);
 	COMPARE_SCALAR_FIELD(typmod);
-	COMPARE_LOCATION_FIELD(location);
-
-	return true;
-}
-
-static bool
-_equalNullIfExpr(NullIfExpr *a, NullIfExpr *b)
-{
-	COMPARE_SCALAR_FIELD(opno);
-
-	/*
-	 * Special-case opfuncid: it is allowable for it to differ if one node
-	 * contains zero and the other doesn't.  This just means that the one node
-	 * isn't as far along in the parse/plan pipeline and hasn't had the
-	 * opfuncid cache filled yet.
-	 */
-	if (a->opfuncid != b->opfuncid &&
-		a->opfuncid != 0 &&
-		b->opfuncid != 0)
-		return false;
-
-	COMPARE_SCALAR_FIELD(opresulttype);
-	COMPARE_SCALAR_FIELD(opretset);
-	COMPARE_NODE_FIELD(args);
 	COMPARE_LOCATION_FIELD(location);
 
 	return true;
@@ -648,6 +687,7 @@ _equalCoerceToDomain(CoerceToDomain *a, CoerceToDomain *b)
 	COMPARE_NODE_FIELD(arg);
 	COMPARE_SCALAR_FIELD(resulttype);
 	COMPARE_SCALAR_FIELD(resulttypmod);
+	COMPARE_SCALAR_FIELD(resultcollid);
 
 	/*
 	 * Special-case COERCE_DONTCARE, so that planner can build coercion nodes
@@ -668,6 +708,7 @@ _equalCoerceToDomainValue(CoerceToDomainValue *a, CoerceToDomainValue *b)
 {
 	COMPARE_SCALAR_FIELD(typeId);
 	COMPARE_SCALAR_FIELD(typeMod);
+	COMPARE_SCALAR_FIELD(collation);
 	COMPARE_LOCATION_FIELD(location);
 
 	return true;
@@ -678,6 +719,7 @@ _equalSetToDefault(SetToDefault *a, SetToDefault *b)
 {
 	COMPARE_SCALAR_FIELD(typeId);
 	COMPARE_SCALAR_FIELD(typeMod);
+	COMPARE_SCALAR_FIELD(collation);
 	COMPARE_LOCATION_FIELD(location);
 
 	return true;
@@ -843,6 +885,7 @@ _equalPlaceHolderInfo(PlaceHolderInfo *a, PlaceHolderInfo *b)
 	COMPARE_NODE_FIELD(ph_var);
 	COMPARE_BITMAPSET_FIELD(ph_eval_at);
 	COMPARE_BITMAPSET_FIELD(ph_needed);
+	COMPARE_BITMAPSET_FIELD(ph_may_need);
 	COMPARE_SCALAR_FIELD(ph_width);
 
 	return true;
@@ -867,6 +910,7 @@ _equalQuery(Query *a, Query *b)
 	COMPARE_SCALAR_FIELD(hasSubLinks);
 	COMPARE_SCALAR_FIELD(hasDistinctOn);
 	COMPARE_SCALAR_FIELD(hasRecursive);
+	COMPARE_SCALAR_FIELD(hasModifyingCTE);
 	COMPARE_SCALAR_FIELD(hasForUpdate);
 	COMPARE_NODE_FIELD(cteList);
 	COMPARE_NODE_FIELD(rtable);
@@ -882,6 +926,7 @@ _equalQuery(Query *a, Query *b)
 	COMPARE_NODE_FIELD(limitCount);
 	COMPARE_NODE_FIELD(rowMarks);
 	COMPARE_NODE_FIELD(setOperations);
+	COMPARE_NODE_FIELD(constraintDeps);
 
 	return true;
 }
@@ -893,6 +938,7 @@ _equalInsertStmt(InsertStmt *a, InsertStmt *b)
 	COMPARE_NODE_FIELD(cols);
 	COMPARE_NODE_FIELD(selectStmt);
 	COMPARE_NODE_FIELD(returningList);
+	COMPARE_NODE_FIELD(withClause);
 
 	return true;
 }
@@ -904,6 +950,7 @@ _equalDeleteStmt(DeleteStmt *a, DeleteStmt *b)
 	COMPARE_NODE_FIELD(usingClause);
 	COMPARE_NODE_FIELD(whereClause);
 	COMPARE_NODE_FIELD(returningList);
+	COMPARE_NODE_FIELD(withClause);
 
 	return true;
 }
@@ -916,6 +963,7 @@ _equalUpdateStmt(UpdateStmt *a, UpdateStmt *b)
 	COMPARE_NODE_FIELD(whereClause);
 	COMPARE_NODE_FIELD(fromClause);
 	COMPARE_NODE_FIELD(returningList);
+	COMPARE_NODE_FIELD(withClause);
 
 	return true;
 }
@@ -954,6 +1002,7 @@ _equalSetOperationStmt(SetOperationStmt *a, SetOperationStmt *b)
 	COMPARE_NODE_FIELD(rarg);
 	COMPARE_NODE_FIELD(colTypes);
 	COMPARE_NODE_FIELD(colTypmods);
+	COMPARE_NODE_FIELD(colCollations);
 	COMPARE_NODE_FIELD(groupClauses);
 
 	return true;
@@ -975,7 +1024,6 @@ _equalAlterTableCmd(AlterTableCmd *a, AlterTableCmd *b)
 	COMPARE_SCALAR_FIELD(subtype);
 	COMPARE_STRING_FIELD(name);
 	COMPARE_NODE_FIELD(def);
-	COMPARE_NODE_FIELD(transform);
 	COMPARE_SCALAR_FIELD(behavior);
 	COMPARE_SCALAR_FIELD(missing_ok);
 
@@ -1109,6 +1157,7 @@ _equalCreateStmt(CreateStmt *a, CreateStmt *b)
 	COMPARE_NODE_FIELD(options);
 	COMPARE_SCALAR_FIELD(oncommit);
 	COMPARE_STRING_FIELD(tablespacename);
+	COMPARE_SCALAR_FIELD(if_not_exists);
 #ifdef PGXC
 	COMPARE_NODE_FIELD(distributeby);
 #endif
@@ -1170,6 +1219,18 @@ _equalCommentStmt(CommentStmt *a, CommentStmt *b)
 }
 
 static bool
+_equalSecLabelStmt(SecLabelStmt *a, SecLabelStmt *b)
+{
+	COMPARE_SCALAR_FIELD(objtype);
+	COMPARE_NODE_FIELD(objname);
+	COMPARE_NODE_FIELD(objargs);
+	COMPARE_STRING_FIELD(provider);
+	COMPARE_STRING_FIELD(label);
+
+	return true;
+}
+
+static bool
 _equalFetchStmt(FetchStmt *a, FetchStmt *b)
 {
 	COMPARE_SCALAR_FIELD(direction);
@@ -1191,6 +1252,7 @@ _equalIndexStmt(IndexStmt *a, IndexStmt *b)
 	COMPARE_NODE_FIELD(options);
 	COMPARE_NODE_FIELD(whereClause);
 	COMPARE_NODE_FIELD(excludeOpNames);
+	COMPARE_SCALAR_FIELD(indexOid);
 	COMPARE_SCALAR_FIELD(unique);
 	COMPARE_SCALAR_FIELD(primary);
 	COMPARE_SCALAR_FIELD(isconstraint);
@@ -1285,6 +1347,7 @@ _equalRenameStmt(RenameStmt *a, RenameStmt *b)
 	COMPARE_NODE_FIELD(objarg);
 	COMPARE_STRING_FIELD(subname);
 	COMPARE_STRING_FIELD(newname);
+	COMPARE_SCALAR_FIELD(behavior);
 
 	return true;
 }
@@ -1383,6 +1446,17 @@ _equalCreateEnumStmt(CreateEnumStmt *a, CreateEnumStmt *b)
 }
 
 static bool
+_equalAlterEnumStmt(AlterEnumStmt *a, AlterEnumStmt *b)
+{
+	COMPARE_NODE_FIELD(typeName);
+	COMPARE_STRING_FIELD(newVal);
+	COMPARE_STRING_FIELD(newValNeighbor);
+	COMPARE_SCALAR_FIELD(newValIsAfter);
+
+	return true;
+}
+
+static bool
 _equalViewStmt(ViewStmt *a, ViewStmt *b)
 {
 	COMPARE_NODE_FIELD(view);
@@ -1406,6 +1480,7 @@ _equalCreateDomainStmt(CreateDomainStmt *a, CreateDomainStmt *b)
 {
 	COMPARE_NODE_FIELD(domainname);
 	COMPARE_NODE_FIELD(typeName);
+	COMPARE_NODE_FIELD(collClause);
 	COMPARE_NODE_FIELD(constraints);
 
 	return true;
@@ -1431,6 +1506,7 @@ _equalCreateOpClassItem(CreateOpClassItem *a, CreateOpClassItem *b)
 	COMPARE_NODE_FIELD(name);
 	COMPARE_NODE_FIELD(args);
 	COMPARE_SCALAR_FIELD(number);
+	COMPARE_NODE_FIELD(order_family);
 	COMPARE_NODE_FIELD(class_args);
 	COMPARE_NODE_FIELD(storedtype);
 
@@ -1519,6 +1595,7 @@ _equalCreateSeqStmt(CreateSeqStmt *a, CreateSeqStmt *b)
 {
 	COMPARE_NODE_FIELD(sequence);
 	COMPARE_NODE_FIELD(options);
+	COMPARE_SCALAR_FIELD(ownerId);
 
 	return true;
 }
@@ -1590,10 +1667,41 @@ _equalAlterTableSpaceOptionsStmt(AlterTableSpaceOptionsStmt *a,
 }
 
 static bool
+_equalCreateExtensionStmt(CreateExtensionStmt *a, CreateExtensionStmt *b)
+{
+	COMPARE_STRING_FIELD(extname);
+	COMPARE_SCALAR_FIELD(if_not_exists);
+	COMPARE_NODE_FIELD(options);
+
+	return true;
+}
+
+static bool
+_equalAlterExtensionStmt(AlterExtensionStmt *a, AlterExtensionStmt *b)
+{
+	COMPARE_STRING_FIELD(extname);
+	COMPARE_NODE_FIELD(options);
+
+	return true;
+}
+
+static bool
+_equalAlterExtensionContentsStmt(AlterExtensionContentsStmt *a, AlterExtensionContentsStmt *b)
+{
+	COMPARE_STRING_FIELD(extname);
+	COMPARE_SCALAR_FIELD(action);
+	COMPARE_SCALAR_FIELD(objtype);
+	COMPARE_NODE_FIELD(objname);
+	COMPARE_NODE_FIELD(objargs);
+
+	return true;
+}
+
+static bool
 _equalCreateFdwStmt(CreateFdwStmt *a, CreateFdwStmt *b)
 {
 	COMPARE_STRING_FIELD(fdwname);
-	COMPARE_NODE_FIELD(validator);
+	COMPARE_NODE_FIELD(func_options);
 	COMPARE_NODE_FIELD(options);
 
 	return true;
@@ -1603,8 +1711,7 @@ static bool
 _equalAlterFdwStmt(AlterFdwStmt *a, AlterFdwStmt *b)
 {
 	COMPARE_STRING_FIELD(fdwname);
-	COMPARE_NODE_FIELD(validator);
-	COMPARE_SCALAR_FIELD(change_validator);
+	COMPARE_NODE_FIELD(func_options);
 	COMPARE_NODE_FIELD(options);
 
 	return true;
@@ -1684,14 +1791,26 @@ _equalDropUserMappingStmt(DropUserMappingStmt *a, DropUserMappingStmt *b)
 }
 
 static bool
+_equalCreateForeignTableStmt(CreateForeignTableStmt *a, CreateForeignTableStmt *b)
+{
+	if (!_equalCreateStmt(&a->base, &b->base))
+		return false;
+
+	COMPARE_STRING_FIELD(servername);
+	COMPARE_NODE_FIELD(options);
+
+	return true;
+}
+
+static bool
 _equalCreateTrigStmt(CreateTrigStmt *a, CreateTrigStmt *b)
 {
 	COMPARE_STRING_FIELD(trigname);
 	COMPARE_NODE_FIELD(relation);
 	COMPARE_NODE_FIELD(funcname);
 	COMPARE_NODE_FIELD(args);
-	COMPARE_SCALAR_FIELD(before);
 	COMPARE_SCALAR_FIELD(row);
+	COMPARE_SCALAR_FIELD(timing);
 	COMPARE_SCALAR_FIELD(events);
 	COMPARE_NODE_FIELD(columns);
 	COMPARE_NODE_FIELD(whenClause);
@@ -2047,6 +2166,16 @@ _equalTypeCast(TypeCast *a, TypeCast *b)
 }
 
 static bool
+_equalCollateClause(CollateClause *a, CollateClause *b)
+{
+	COMPARE_NODE_FIELD(arg);
+	COMPARE_NODE_FIELD(collname);
+	COMPARE_LOCATION_FIELD(location);
+
+	return true;
+}
+
+static bool
 _equalSortBy(SortBy *a, SortBy *b)
 {
 	COMPARE_NODE_FIELD(node);
@@ -2098,6 +2227,7 @@ _equalIndexElem(IndexElem *a, IndexElem *b)
 	COMPARE_STRING_FIELD(name);
 	COMPARE_NODE_FIELD(expr);
 	COMPARE_STRING_FIELD(indexcolname);
+	COMPARE_NODE_FIELD(collation);
 	COMPARE_NODE_FIELD(opclass);
 	COMPARE_SCALAR_FIELD(ordering);
 	COMPARE_SCALAR_FIELD(nulls_ordering);
@@ -2113,9 +2243,12 @@ _equalColumnDef(ColumnDef *a, ColumnDef *b)
 	COMPARE_SCALAR_FIELD(inhcount);
 	COMPARE_SCALAR_FIELD(is_local);
 	COMPARE_SCALAR_FIELD(is_not_null);
+	COMPARE_SCALAR_FIELD(is_from_type);
 	COMPARE_SCALAR_FIELD(storage);
 	COMPARE_NODE_FIELD(raw_default);
 	COMPARE_NODE_FIELD(cooked_default);
+	COMPARE_NODE_FIELD(collClause);
+	COMPARE_SCALAR_FIELD(collOid);
 	COMPARE_NODE_FIELD(constraints);
 
 	return true;
@@ -2134,6 +2267,7 @@ _equalConstraint(Constraint *a, Constraint *b)
 	COMPARE_NODE_FIELD(keys);
 	COMPARE_NODE_FIELD(exclusions);
 	COMPARE_NODE_FIELD(options);
+	COMPARE_STRING_FIELD(indexname);
 	COMPARE_STRING_FIELD(indexspace);
 	COMPARE_STRING_FIELD(access_method);
 	COMPARE_NODE_FIELD(where_clause);
@@ -2144,6 +2278,7 @@ _equalConstraint(Constraint *a, Constraint *b)
 	COMPARE_SCALAR_FIELD(fk_upd_action);
 	COMPARE_SCALAR_FIELD(fk_del_action);
 	COMPARE_SCALAR_FIELD(skip_validation);
+	COMPARE_SCALAR_FIELD(initially_valid);
 
 	return true;
 }
@@ -2174,18 +2309,22 @@ _equalRangeTblEntry(RangeTblEntry *a, RangeTblEntry *b)
 {
 	COMPARE_SCALAR_FIELD(rtekind);
 	COMPARE_SCALAR_FIELD(relid);
+	COMPARE_SCALAR_FIELD(relkind);
 	COMPARE_NODE_FIELD(subquery);
 	COMPARE_SCALAR_FIELD(jointype);
 	COMPARE_NODE_FIELD(joinaliasvars);
 	COMPARE_NODE_FIELD(funcexpr);
 	COMPARE_NODE_FIELD(funccoltypes);
 	COMPARE_NODE_FIELD(funccoltypmods);
+	COMPARE_NODE_FIELD(funccolcollations);
 	COMPARE_NODE_FIELD(values_lists);
+	COMPARE_NODE_FIELD(values_collations);
 	COMPARE_STRING_FIELD(ctename);
 	COMPARE_SCALAR_FIELD(ctelevelsup);
 	COMPARE_SCALAR_FIELD(self_reference);
 	COMPARE_NODE_FIELD(ctecoltypes);
 	COMPARE_NODE_FIELD(ctecoltypmods);
+	COMPARE_NODE_FIELD(ctecolcollations);
 	COMPARE_NODE_FIELD(alias);
 	COMPARE_NODE_FIELD(eref);
 	COMPARE_SCALAR_FIELD(inh);
@@ -2205,6 +2344,7 @@ _equalSortGroupClause(SortGroupClause *a, SortGroupClause *b)
 	COMPARE_SCALAR_FIELD(eqop);
 	COMPARE_SCALAR_FIELD(sortop);
 	COMPARE_SCALAR_FIELD(nulls_first);
+	COMPARE_SCALAR_FIELD(hashable);
 
 	return true;
 }
@@ -2258,6 +2398,7 @@ _equalCommonTableExpr(CommonTableExpr *a, CommonTableExpr *b)
 	COMPARE_NODE_FIELD(ctecolnames);
 	COMPARE_NODE_FIELD(ctecoltypes);
 	COMPARE_NODE_FIELD(ctecoltypmods);
+	COMPARE_NODE_FIELD(ctecolcollations);
 
 	return true;
 }
@@ -2443,6 +2584,9 @@ equal(void *a, void *b)
 		case T_DistinctExpr:
 			retval = _equalDistinctExpr(a, b);
 			break;
+		case T_NullIfExpr:
+			retval = _equalNullIfExpr(a, b);
+			break;
 		case T_ScalarArrayOpExpr:
 			retval = _equalScalarArrayOpExpr(a, b);
 			break;
@@ -2476,6 +2620,9 @@ equal(void *a, void *b)
 		case T_ConvertRowtypeExpr:
 			retval = _equalConvertRowtypeExpr(a, b);
 			break;
+		case T_CollateExpr:
+			retval = _equalCollateExpr(a, b);
+			break;
 		case T_CaseExpr:
 			retval = _equalCaseExpr(a, b);
 			break;
@@ -2502,9 +2649,6 @@ equal(void *a, void *b)
 			break;
 		case T_XmlExpr:
 			retval = _equalXmlExpr(a, b);
-			break;
-		case T_NullIfExpr:
-			retval = _equalNullIfExpr(a, b);
 			break;
 		case T_NullTest:
 			retval = _equalNullTest(a, b);
@@ -2642,6 +2786,9 @@ equal(void *a, void *b)
 		case T_CommentStmt:
 			retval = _equalCommentStmt(a, b);
 			break;
+		case T_SecLabelStmt:
+			retval = _equalSecLabelStmt(a, b);
+			break;
 		case T_FetchStmt:
 			retval = _equalFetchStmt(a, b);
 			break;
@@ -2698,6 +2845,9 @@ equal(void *a, void *b)
 			break;
 		case T_CreateEnumStmt:
 			retval = _equalCreateEnumStmt(a, b);
+			break;
+		case T_AlterEnumStmt:
+			retval = _equalAlterEnumStmt(a, b);
 			break;
 		case T_ViewStmt:
 			retval = _equalViewStmt(a, b);
@@ -2762,6 +2912,15 @@ equal(void *a, void *b)
 		case T_AlterTableSpaceOptionsStmt:
 			retval = _equalAlterTableSpaceOptionsStmt(a, b);
 			break;
+		case T_CreateExtensionStmt:
+			retval = _equalCreateExtensionStmt(a, b);
+			break;
+		case T_AlterExtensionStmt:
+			retval = _equalAlterExtensionStmt(a, b);
+			break;
+		case T_AlterExtensionContentsStmt:
+			retval = _equalAlterExtensionContentsStmt(a, b);
+			break;
 		case T_CreateFdwStmt:
 			retval = _equalCreateFdwStmt(a, b);
 			break;
@@ -2788,6 +2947,9 @@ equal(void *a, void *b)
 			break;
 		case T_DropUserMappingStmt:
 			retval = _equalDropUserMappingStmt(a, b);
+			break;
+		case T_CreateForeignTableStmt:
+			retval = _equalCreateForeignTableStmt(a, b);
 			break;
 		case T_CreateTrigStmt:
 			retval = _equalCreateTrigStmt(a, b);
@@ -2896,6 +3058,9 @@ equal(void *a, void *b)
 			break;
 		case T_TypeCast:
 			retval = _equalTypeCast(a, b);
+			break;
+		case T_CollateClause:
+			retval = _equalCollateClause(a, b);
 			break;
 		case T_SortBy:
 			retval = _equalSortBy(a, b);

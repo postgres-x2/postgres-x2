@@ -1,6 +1,6 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/oid2name.sgml,v 1.8 2010/05/25 15:55:28 momjian Exp $ -->
+<!-- doc/src/sgml/oid2name.sgml -->
 
-<sect1 id="oid2name">
+<sect1 id="oid2name" xreflabel="oid2name">
  <title>oid2name</title>
 
  <indexterm zone="oid2name">
@@ -105,7 +105,7 @@
 
     <varlistentry>
      <term><option>-U</option> <replaceable>username</></term>
-     <listitem><para>username to connect as</para></listitem>
+     <listitem><para>user name to connect as</para></listitem>
     </varlistentry>
 
     <varlistentry>
@@ -122,8 +122,8 @@
    using <option>-o</>, <option>-f</> and/or <option>-t</>.
    <option>-o</> takes an OID,
    <option>-f</> takes a filenode,
-   and <option>-t</> takes a tablename (actually, it's a LIKE
-   pattern, so you can use things like <option>foo%</>).
+   and <option>-t</> takes a table name (actually, it's a <literal>LIKE</>
+   pattern, so you can use things like <literal>foo%</>).
    You can use as many
    of these options as you like, and the listing will include all objects
    matched by any of the options.  But note that these options can only
@@ -147,7 +147,7 @@
  <sect2>
   <title>Examples</title>
 
-  <programlisting>
+<screen>
 $ # what's in this database server, anyway?
 $ oid2name
 All databases:
@@ -264,7 +264,7 @@ From database "alvherre":
   Filenode  Table Name
 ----------------------
     155156         foo
-  </programlisting>
+</screen>
  </sect2>
 
  <sect2>

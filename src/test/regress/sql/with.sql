@@ -339,6 +339,39 @@ WITH RECURSIVE
  SELECT * FROM z ORDER BY id;
 
 --
+-- Test WITH attached to a data-modifying statement
+--
+
+CREATE TEMPORARY TABLE y (a INTEGER);
+INSERT INTO y SELECT generate_series(1, 10);
+
+WITH t AS (
+	SELECT a FROM y
+)
+INSERT INTO y
+SELECT a+20 FROM t RETURNING *;
+
+SELECT * FROM y;
+
+WITH t AS (
+	SELECT a FROM y
+)
+UPDATE y SET a = y.a-10 FROM t WHERE y.a > 20 AND t.a = y.a RETURNING y.a;
+
+SELECT * FROM y;
+
+WITH RECURSIVE t(a) AS (
+	SELECT 11
+	UNION ALL
+	SELECT a+1 FROM t WHERE a < 50
+)
+DELETE FROM y USING t WHERE t.a = y.a RETURNING y.a;
+
+SELECT * FROM y;
+
+DROP TABLE y;
+
+--
 -- error cases
 --
 
@@ -470,6 +503,11 @@ WITH RECURSIVE foo(i) AS
    SELECT (i+1)::numeric(10,0) FROM foo WHERE i < 10)
 SELECT * FROM foo;
 
+-- disallow OLD/NEW reference in CTE
+CREATE TEMPORARY TABLE x (n integer);
+CREATE RULE r2 AS ON UPDATE TO x DO INSTEAD
+    WITH t AS (SELECT OLD.*) UPDATE y SET a = t.n FROM t;
+
 --
 -- test for bug #4902
 --
@@ -500,3 +538,254 @@ WITH RECURSIVE t(j) AS (
     SELECT j+1 FROM t WHERE j < 10
 )
 SELECT * FROM t order by 1;
+
+--
+-- Data-modifying statements in WITH
+--
+
+-- INSERT ... RETURNING
+WITH t AS (
+    INSERT INTO y
+    VALUES
+        (11),
+        (12),
+        (13),
+        (14),
+        (15),
+        (16),
+        (17),
+        (18),
+        (19),
+        (20)
+    RETURNING *
+)
+SELECT * FROM t;
+
+SELECT * FROM y;
+
+-- UPDATE ... RETURNING
+WITH t AS (
+    UPDATE y
+    SET a=a+1
+    RETURNING *
+)
+SELECT * FROM t;
+
+SELECT * FROM y;
+
+-- DELETE ... RETURNING
+WITH t AS (
+    DELETE FROM y
+    WHERE a <= 10
+    RETURNING *
+)
+SELECT * FROM t;
+
+SELECT * FROM y;
+
+-- forward reference
+WITH RECURSIVE t AS (
+	INSERT INTO y
+		SELECT a+5 FROM t2 WHERE a > 5
+	RETURNING *
+), t2 AS (
+	UPDATE y SET a=a-11 RETURNING *
+)
+SELECT * FROM t
+UNION ALL
+SELECT * FROM t2;
+
+SELECT * FROM y;
+
+-- unconditional DO INSTEAD rule
+CREATE RULE y_rule AS ON DELETE TO y DO INSTEAD
+  INSERT INTO y VALUES(42) RETURNING *;
+
+WITH t AS (
+	DELETE FROM y RETURNING *
+)
+SELECT * FROM t;
+
+SELECT * FROM y;
+
+DROP RULE y_rule ON y;
+
+-- check merging of outer CTE with CTE in a rule action
+CREATE TEMP TABLE bug6051 AS
+  select i from generate_series(1,3) as t(i);
+
+SELECT * FROM bug6051;
+
+WITH t1 AS ( DELETE FROM bug6051 RETURNING * )
+INSERT INTO bug6051 SELECT * FROM t1;
+
+SELECT * FROM bug6051;
+
+CREATE TEMP TABLE bug6051_2 (i int);
+
+CREATE RULE bug6051_ins AS ON INSERT TO bug6051 DO INSTEAD
+ INSERT INTO bug6051_2
+ SELECT NEW.i;
+
+WITH t1 AS ( DELETE FROM bug6051 RETURNING * )
+INSERT INTO bug6051 SELECT * FROM t1;
+
+SELECT * FROM bug6051;
+SELECT * FROM bug6051_2;
+
+-- a truly recursive CTE in the same list
+WITH RECURSIVE t(a) AS (
+	SELECT 0
+		UNION ALL
+	SELECT a+1 FROM t WHERE a+1 < 5
+), t2 as (
+	INSERT INTO y
+		SELECT * FROM t RETURNING *
+)
+SELECT * FROM t2 JOIN y USING (a) ORDER BY a;
+
+SELECT * FROM y;
+
+-- data-modifying WITH in a modifying statement
+WITH t AS (
+    DELETE FROM y
+    WHERE a <= 10
+    RETURNING *
+)
+INSERT INTO y SELECT -a FROM t RETURNING *;
+
+SELECT * FROM y;
+
+-- check that WITH query is run to completion even if outer query isn't
+WITH t AS (
+    UPDATE y SET a = a * 100 RETURNING *
+)
+SELECT * FROM t LIMIT 10;
+
+SELECT * FROM y;
+
+-- check that run to completion happens in proper ordering
+
+TRUNCATE TABLE y;
+INSERT INTO y SELECT generate_series(1, 3);
+CREATE TEMPORARY TABLE yy (a INTEGER);
+
+WITH RECURSIVE t1 AS (
+  INSERT INTO y SELECT * FROM y RETURNING *
+), t2 AS (
+  INSERT INTO yy SELECT * FROM t1 RETURNING *
+)
+SELECT 1;
+
+SELECT * FROM y;
+SELECT * FROM yy;
+
+WITH RECURSIVE t1 AS (
+  INSERT INTO yy SELECT * FROM t2 RETURNING *
+), t2 AS (
+  INSERT INTO y SELECT * FROM y RETURNING *
+)
+SELECT 1;
+
+SELECT * FROM y;
+SELECT * FROM yy;
+
+-- triggers
+
+TRUNCATE TABLE y;
+INSERT INTO y SELECT generate_series(1, 10);
+
+CREATE FUNCTION y_trigger() RETURNS trigger AS $$
+begin
+  raise notice 'y_trigger: a = %', new.a;
+  return new;
+end;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER y_trig BEFORE INSERT ON y FOR EACH ROW
+    EXECUTE PROCEDURE y_trigger();
+
+WITH t AS (
+    INSERT INTO y
+    VALUES
+        (21),
+        (22),
+        (23)
+    RETURNING *
+)
+SELECT * FROM t;
+
+SELECT * FROM y;
+
+DROP TRIGGER y_trig ON y;
+
+CREATE TRIGGER y_trig AFTER INSERT ON y FOR EACH ROW
+    EXECUTE PROCEDURE y_trigger();
+
+WITH t AS (
+    INSERT INTO y
+    VALUES
+        (31),
+        (32),
+        (33)
+    RETURNING *
+)
+SELECT * FROM t LIMIT 1;
+
+SELECT * FROM y;
+
+DROP TRIGGER y_trig ON y;
+
+CREATE OR REPLACE FUNCTION y_trigger() RETURNS trigger AS $$
+begin
+  raise notice 'y_trigger';
+  return null;
+end;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER y_trig AFTER INSERT ON y FOR EACH STATEMENT
+    EXECUTE PROCEDURE y_trigger();
+
+WITH t AS (
+    INSERT INTO y
+    VALUES
+        (41),
+        (42),
+        (43)
+    RETURNING *
+)
+SELECT * FROM t;
+
+SELECT * FROM y;
+
+DROP TRIGGER y_trig ON y;
+DROP FUNCTION y_trigger();
+
+-- error cases
+
+-- data-modifying WITH tries to use its own output
+WITH RECURSIVE t AS (
+	INSERT INTO y
+		SELECT * FROM t
+)
+VALUES(FALSE);
+
+-- no RETURNING in a referenced data-modifying WITH
+WITH t AS (
+	INSERT INTO y VALUES(0)
+)
+SELECT * FROM t;
+
+-- data-modifying WITH allowed only at the top level
+SELECT * FROM (
+	WITH t AS (UPDATE y SET a=a+1 RETURNING *)
+	SELECT * FROM t
+) ss;
+
+-- most variants of rules aren't allowed
+CREATE RULE y_rule AS ON INSERT TO y WHERE a=0 DO INSTEAD DELETE FROM y;
+WITH t AS (
+	INSERT INTO y VALUES(0)
+)
+VALUES(FALSE);
+DROP RULE y_rule ON y;

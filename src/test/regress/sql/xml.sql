@@ -163,3 +163,51 @@ SELECT xpath('', '<!-- error -->');
 SELECT xpath('//text()', '<local:data xmlns:local="http://127.0.0.1"><local:piece id="1">number one</local:piece><local:piece id="2" /></local:data>');
 SELECT xpath('//loc:piece/@id', '<local:data xmlns:local="http://127.0.0.1"><local:piece id="1">number one</local:piece><local:piece id="2" /></local:data>', ARRAY[ARRAY['loc', 'http://127.0.0.1']]);
 SELECT xpath('//b', '<a>one <b>two</b> three <b>etc</b></a>');
+
+-- Test xmlexists and xpath_exists
+SELECT xmlexists('//town[text() = ''Toronto'']' PASSING BY REF '<towns><town>Bidford-on-Avon</town><town>Cwmbran</town><town>Bristol</town></towns>');
+SELECT xmlexists('//town[text() = ''Cwmbran'']' PASSING BY REF '<towns><town>Bidford-on-Avon</town><town>Cwmbran</town><town>Bristol</town></towns>');
+SELECT xpath_exists('//town[text() = ''Toronto'']','<towns><town>Bidford-on-Avon</town><town>Cwmbran</town><town>Bristol</town></towns>'::xml);
+SELECT xpath_exists('//town[text() = ''Cwmbran'']','<towns><town>Bidford-on-Avon</town><town>Cwmbran</town><town>Bristol</town></towns>'::xml);
+
+INSERT INTO xmltest VALUES (4, '<menu><beers><name>Budvar</name><cost>free</cost><name>Carling</name><cost>lots</cost></beers></menu>'::xml);
+INSERT INTO xmltest VALUES (5, '<menu><beers><name>Molson</name><cost>free</cost><name>Carling</name><cost>lots</cost></beers></menu>'::xml);
+INSERT INTO xmltest VALUES (6, '<myns:menu xmlns:myns="http://myns.com"><myns:beers><myns:name>Budvar</myns:name><myns:cost>free</myns:cost><myns:name>Carling</myns:name><myns:cost>lots</myns:cost></myns:beers></myns:menu>'::xml);
+INSERT INTO xmltest VALUES (7, '<myns:menu xmlns:myns="http://myns.com"><myns:beers><myns:name>Molson</myns:name><myns:cost>free</myns:cost><myns:name>Carling</myns:name><myns:cost>lots</myns:cost></myns:beers></myns:menu>'::xml);
+
+SELECT COUNT(id) FROM xmltest WHERE xmlexists('/menu/beer' PASSING data);
+SELECT COUNT(id) FROM xmltest WHERE xmlexists('/menu/beer' PASSING BY REF data BY REF);
+SELECT COUNT(id) FROM xmltest WHERE xmlexists('/menu/beers' PASSING BY REF data);
+SELECT COUNT(id) FROM xmltest WHERE xmlexists('/menu/beers/name[text() = ''Molson'']' PASSING BY REF data);
+
+SELECT COUNT(id) FROM xmltest WHERE xpath_exists('/menu/beer',data);
+SELECT COUNT(id) FROM xmltest WHERE xpath_exists('/menu/beers',data);
+SELECT COUNT(id) FROM xmltest WHERE xpath_exists('/menu/beers/name[text() = ''Molson'']',data);
+SELECT COUNT(id) FROM xmltest WHERE xpath_exists('/myns:menu/myns:beer',data,ARRAY[ARRAY['myns','http://myns.com']]);
+SELECT COUNT(id) FROM xmltest WHERE xpath_exists('/myns:menu/myns:beers',data,ARRAY[ARRAY['myns','http://myns.com']]);
+SELECT COUNT(id) FROM xmltest WHERE xpath_exists('/myns:menu/myns:beers/myns:name[text() = ''Molson'']',data,ARRAY[ARRAY['myns','http://myns.com']]);
+
+CREATE TABLE query ( expr TEXT );
+INSERT INTO query VALUES ('/menu/beers/cost[text() = ''lots'']');
+SELECT COUNT(id) FROM xmltest, query WHERE xmlexists(expr PASSING BY REF data);
+
+-- Test xml_is_well_formed and variants
+
+SELECT xml_is_well_formed_document('<foo>bar</foo>');
+SELECT xml_is_well_formed_document('abc');
+SELECT xml_is_well_formed_content('<foo>bar</foo>');
+SELECT xml_is_well_formed_content('abc');
+
+SET xmloption TO DOCUMENT;
+SELECT xml_is_well_formed('abc');
+SELECT xml_is_well_formed('<>');
+SELECT xml_is_well_formed('<abc/>');
+SELECT xml_is_well_formed('<foo>bar</foo>');
+SELECT xml_is_well_formed('<foo>bar</foo');
+SELECT xml_is_well_formed('<foo><bar>baz</foo>');
+SELECT xml_is_well_formed('<local:data xmlns:local="http://127.0.0.1"><local:piece id="1">number one</local:piece><local:piece id="2" /></local:data>');
+SELECT xml_is_well_formed('<pg:foo xmlns:pg="http://postgresql.org/stuff">bar</my:foo>');
+SELECT xml_is_well_formed('<pg:foo xmlns:pg="http://postgresql.org/stuff">bar</pg:foo>');
+
+SET xmloption TO CONTENT;
+SELECT xml_is_well_formed('abc');

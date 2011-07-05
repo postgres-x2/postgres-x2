@@ -1,7 +1,7 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/user-manag.sgml,v 1.43 2010/04/03 07:22:56 petere Exp $ -->
+<!-- doc/src/sgml/user-manag.sgml -->
 
 <chapter id="user-manag">
- <title>Database Roles and Privileges</title>
+ <title>Database Roles</title>
 
  <para>
   <productname>PostgreSQL</productname> manages database access permissions
@@ -22,10 +22,9 @@
  </para>
 
  <para>
-  This chapter describes how to create and manage roles and introduces
-  the privilege system.  More information about the various types of
-  database objects and the effects of privileges can be found in
-  <xref linkend="ddl">.
+  This chapter describes how to create and manage roles.
+  More information about the effects of role privileges on various
+  database objects can be found in <xref linkend="ddl-priv">.
  </para>
 
  <sect1 id="database-roles">
@@ -129,7 +128,7 @@ SELECT rolname FROM pg_roles;
    is determined by the client authentication setup, as explained in
    <xref linkend="client-authentication">. (Thus, a client is not
    limited to connect as the role matching
-   its operating system user, just as a person's login name 
+   its operating system user, just as a person's login name
    need not match her real name.)  Since the role
    identity determines the set of privileges available to a connected
    client, it is important to carefully configure privileges when setting up
@@ -169,12 +168,17 @@ CREATE USER <replaceable>name</replaceable>;
       <term>superuser status<indexterm><primary>superuser</></></term>
       <listitem>
        <para>
-        A database superuser bypasses all permission checks.  This is a
+        A database superuser bypasses all permission checks, except the right
+        to log in or the right to initiate replication.  This is a
         dangerous privilege and should not be used carelessly; it is best
         to do most of your work as a role that is not a superuser.
         To create a new database superuser, use <literal>CREATE ROLE
         <replaceable>name</replaceable> SUPERUSER</literal>.  You must do
-        this as a role that is already a superuser.
+        this as a role that is already a superuser. Creating a superuser
+        will by default also grant permissions to initiate streaming
+        replication. For increased security this can be disallowed using
+        <literal>CREATE ROLE <replaceable>name</replaceable> SUPERUSER
+        NOREPLICATION</literal>.
        </para>
       </listitem>
      </varlistentry>
@@ -209,6 +213,19 @@ CREATE USER <replaceable>name</replaceable>;
      </varlistentry>
 
      <varlistentry>
+      <term>initiating replication<indexterm><primary>role</><secondary>privilege to initiate replication</></></term>
+      <listitem>
+       <para>
+        A role must explicitly be given permission to initiate streaming
+        replication. A role used for streaming replication must always
+        have <literal>LOGIN</> permission as well. To create such a role, use
+        <literal>CREATE ROLE <replaceable>name</replaceable> REPLICATION
+        LOGIN</literal>.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
       <term>password<indexterm><primary>password</></></term>
       <listitem>
        <para>
@@ -219,7 +236,7 @@ CREATE USER <replaceable>name</replaceable>;
         make use of passwords. Database passwords are separate from
         operating system passwords. Specify a password upon role
         creation with <literal>CREATE ROLE
-        <replaceable>name</replaceable> PASSWORD '<replaceable>string</>'</literal>. 
+        <replaceable>name</replaceable> PASSWORD '<replaceable>string</>'</literal>.
        </para>
       </listitem>
      </varlistentry>
@@ -249,11 +266,11 @@ CREATE USER <replaceable>name</replaceable>;
    want to disable index scans (hint: not a good idea) anytime you
    connect, you can use:
 <programlisting>
-ALTER ROLE myname SET statement_timeout = '5min';
+ALTER ROLE myname SET enable_indexscan TO off;
 </programlisting>
    This will save the setting (but not set it immediately).  In
    subsequent connections by this role it will appear as though
-   <literal>SET statement_timeout = '5min'</literal> had been executed
+   <literal>SET enable_indexscan TO off</literal> had been executed
    just before the session started.
    You can still alter this setting during the session; it will only
    be the default. To remove a role-specific default setting, use
@@ -261,81 +278,6 @@ ALTER ROLE myname SET statement_timeout = '5min';
    Note that role-specific defaults attached to roles without
    <literal>LOGIN</> privilege are fairly useless, since they will never
    be invoked.
-  </para>
- </sect1>
-
- <sect1 id="privileges">
-  <title>Privileges</title>
-
-  <indexterm zone="privileges">
-   <primary>privilege</primary>
-  </indexterm>
-
-  <indexterm zone="privileges">
-   <primary>owner</primary>
-  </indexterm>
-
-  <indexterm zone="privileges">
-   <primary>GRANT</primary>
-  </indexterm>
-
-  <indexterm zone="privileges">
-   <primary>REVOKE</primary>
-  </indexterm>
-
-  <para>
-   When an object is created, it is assigned an owner. The
-   owner is normally the role that executed the creation statement.
-   For most kinds of objects, the initial state is that only the owner
-   (or a superuser) can do anything with the object. To allow
-   other roles to use it, <firstterm>privileges</firstterm> must be
-   granted.
-   There are several different kinds of privilege: <literal>SELECT</>,
-   <literal>INSERT</>, <literal>UPDATE</>, <literal>DELETE</>,
-   <literal>TRUNCATE</>, <literal>REFERENCES</>, <literal>TRIGGER</>,
-   <literal>CREATE</>, <literal>CONNECT</>, <literal>TEMPORARY</>,
-   <literal>EXECUTE</>, and <literal>USAGE</>.
-   For more information on the different types of privileges supported by
-   <productname>PostgreSQL</productname>, see the
-   <xref linkend="sql-grant"> reference page.
-  </para>
-
-  <para>
-   To assign privileges, the <command>GRANT</command> command is
-   used. So, if <literal>joe</literal> is an existing role, and
-   <literal>accounts</literal> is an existing table, the privilege to
-   update the table can be granted with:
-<programlisting>
-GRANT UPDATE ON accounts TO joe;
-</programlisting>
-   The special name <literal>PUBLIC</literal> can
-   be used to grant a privilege to every role on the system. Writing
-   <literal>ALL</literal> in place of a specific privilege specifies that all
-   privileges that apply to the object will be granted.
-  </para>
-
-  <para>
-   To revoke a privilege, use the fittingly named
-   <xref linkend="sql-revoke"> command:
-<programlisting>
-REVOKE ALL ON accounts FROM PUBLIC;
-</programlisting>
-  </para>
-
-  <para>
-   The special privileges of an object's owner (i.e., the right to modify
-   or destroy the object) are always implicit in being the owner,
-   and cannot be granted or revoked.  But the owner can choose
-   to revoke his own ordinary privileges, for example to make a
-   table read-only for himself as well as others.
-  </para>
-
-  <para>
-   An object can be assigned to a new owner with an <command>ALTER</command>
-   command of the appropriate kind for the object.  Superusers can always do
-   this; ordinary roles can only do it if they are both the current owner
-   of the object (or a member of the owning role) and a member of the new
-   owning role.
   </para>
  </sect1>
 
@@ -387,10 +329,10 @@ REVOKE <replaceable>group_role</replaceable> FROM <replaceable>role1</replaceabl
    database session has access to the privileges of the group role rather
    than the original login role, and any database objects created are
    considered owned by the group role not the login role.  Second, member
-   roles that have the <literal>INHERIT</> attribute automatically inherit the
-   privileges of roles of which they are members, including their
-   <literal>INHERIT</> attributes.  As an example, suppose we have
-   done:
+   roles that have the <literal>INHERIT</> attribute automatically have use
+   of the privileges of roles of which they are members, including any
+   privileges inherited by those roles.
+   As an example, suppose we have done:
 <programlisting>
 CREATE ROLE joe LOGIN INHERIT;
 CREATE ROLE admin NOINHERIT;
@@ -442,7 +384,7 @@ RESET ROLE;
     roles being used as SQL roles the <literal>INHERIT</> attribute, while
     giving roles being used as SQL users the <literal>NOINHERIT</> attribute.
     However, <productname>PostgreSQL</productname> defaults to giving all roles
-    the <literal>INHERIT</> attribute, for backwards compatibility with pre-8.1
+    the <literal>INHERIT</> attribute, for backward compatibility with pre-8.1
     releases in which users always had use of permissions granted to groups
     they were members of.
    </para>

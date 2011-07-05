@@ -35,12 +35,12 @@
  * and munge the system catalogs of the new database.
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/commands/tablespace.c,v 1.76 2010/07/06 19:18:56 momjian Exp $
+ *	  src/backend/commands/tablespace.c
  *
  *-------------------------------------------------------------------------
  */
@@ -59,6 +59,7 @@
 #include "catalog/catalog.h"
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
+#include "catalog/objectaccess.h"
 #include "catalog/pg_tablespace.h"
 #include "commands/comment.h"
 #include "commands/defrem.h"
@@ -246,7 +247,7 @@ CreateTableSpace(CreateTableSpaceStmt *stmt)
 
 	/* However, the eventual owner of the tablespace need not be */
 	if (stmt->owner)
-		ownerId = get_roleid_checked(stmt->owner);
+		ownerId = get_role_oid(stmt->owner, false);
 	else
 		ownerId = GetUserId();
 
@@ -298,7 +299,7 @@ CreateTableSpace(CreateTableSpaceStmt *stmt)
 	 * index would catch this anyway, but might as well give a friendlier
 	 * message.)
 	 */
-	if (OidIsValid(get_tablespace_oid(stmt->tablespacename)))
+	if (OidIsValid(get_tablespace_oid(stmt->tablespacename, true)))
 		ereport(ERROR,
 				(errcode(ERRCODE_DUPLICATE_OBJECT),
 				 errmsg("tablespace \"%s\" already exists",
@@ -332,6 +333,10 @@ CreateTableSpace(CreateTableSpaceStmt *stmt)
 
 	/* Record dependency on owner */
 	recordDependencyOnOwner(TableSpaceRelationId, tablespaceoid, ownerId);
+
+	/* Post creation hook for new tablespace */
+	InvokeObjectAccessHook(OAT_POST_CREATE,
+						   TableSpaceRelationId, tablespaceoid, 0);
 
 	create_tablespace_directories(location, tablespaceoid);
 
@@ -547,19 +552,38 @@ create_tablespace_directories(const char *location, const Oid tablespaceoid)
 	 * Attempt to coerce target directory to safe permissions.	If this fails,
 	 * it doesn't exist or has the wrong owner.
 	 */
-	if (chmod(location, 0700) != 0)
+	if (chmod(location, S_IRWXU) != 0)
 	{
 		if (errno == ENOENT)
 			ereport(ERROR,
 					(errcode(ERRCODE_UNDEFINED_FILE),
 					 errmsg("directory \"%s\" does not exist", location),
-					 InRecovery ? errhint("Create directory \"%s\" for this tablespace before "
-								   "restarting the server.", location) : 0));
+					 InRecovery ? errhint("Create this directory for the tablespace before "
+										  "restarting the server.") : 0));
 		else
 			ereport(ERROR,
 					(errcode_for_file_access(),
 				  errmsg("could not set permissions on directory \"%s\": %m",
 						 location)));
+	}
+
+	if (InRecovery)
+	{
+		struct stat st;
+
+		/*
+		 * Our theory for replaying a CREATE is to forcibly drop the target
+		 * subdirectory if present, and then recreate it. This may be more
+		 * work than needed, but it is simple to implement.
+		 */
+		if (stat(location_with_version_dir, &st) == 0 && S_ISDIR(st.st_mode))
+		{
+			if (!rmtree(location_with_version_dir, true))
+				/* If this failed, mkdir() below is going to error. */
+				ereport(WARNING,
+						(errmsg("some useless files may be left behind in old database directory \"%s\"",
+								location_with_version_dir)));
+		}
 	}
 
 	/*
@@ -578,6 +602,16 @@ create_tablespace_directories(const char *location, const Oid tablespaceoid)
 					(errcode_for_file_access(),
 					 errmsg("could not create directory \"%s\": %m",
 							location_with_version_dir)));
+	}
+
+	/* Remove old symlink in recovery, in case it points to the wrong place */
+	if (InRecovery)
+	{
+		if (unlink(linkloc) < 0 && errno != ENOENT)
+			ereport(ERROR,
+					(errcode_for_file_access(),
+					 errmsg("could not remove symbolic link \"%s\": %m",
+							linkloc)));
 	}
 
 	/*
@@ -989,9 +1023,9 @@ AlterTableSpaceOptions(AlterTableSpaceOptionsStmt *stmt)
  * Routines for handling the GUC variable 'default_tablespace'.
  */
 
-/* assign_hook: validate new default_tablespace, do extra actions as needed */
-const char *
-assign_default_tablespace(const char *newval, bool doit, GucSource source)
+/* check_hook: validate new default_tablespace */
+bool
+check_default_tablespace(char **newval, void **extra, GucSource source)
 {
 	/*
 	 * If we aren't inside a transaction, we cannot do database access so
@@ -999,25 +1033,23 @@ assign_default_tablespace(const char *newval, bool doit, GucSource source)
 	 */
 	if (IsTransactionState())
 	{
-		if (newval[0] != '\0' &&
-			!OidIsValid(get_tablespace_oid(newval)))
+		if (**newval != '\0' &&
+			!OidIsValid(get_tablespace_oid(*newval, true)))
 		{
-			ereport(GUC_complaint_elevel(source),
-					(errcode(ERRCODE_UNDEFINED_OBJECT),
-					 errmsg("tablespace \"%s\" does not exist",
-							newval)));
-			return NULL;
+			GUC_check_errdetail("Tablespace \"%s\" does not exist.",
+								*newval);
+			return false;
 		}
 	}
 
-	return newval;
+	return true;
 }
 
 /*
  * GetDefaultTablespace -- get the OID of the current default tablespace
  *
- * Regular objects and temporary objects have different default tablespaces,
- * hence the forTemp parameter must be specified.
+ * Temporary objects have different default tablespaces, hence the
+ * relpersistence parameter must be specified.
  *
  * May return InvalidOid to indicate "use the database's default tablespace".
  *
@@ -1028,12 +1060,12 @@ assign_default_tablespace(const char *newval, bool doit, GucSource source)
  * default_tablespace GUC variable.
  */
 Oid
-GetDefaultTablespace(bool forTemp)
+GetDefaultTablespace(char relpersistence)
 {
 	Oid			result;
 
 	/* The temp-table case is handled elsewhere */
-	if (forTemp)
+	if (relpersistence == RELPERSISTENCE_TEMP)
 	{
 		PrepareTempTablespaces();
 		return GetNextTempTableSpace();
@@ -1050,7 +1082,7 @@ GetDefaultTablespace(bool forTemp)
 	 * to refer to an existing tablespace; we just silently return InvalidOid,
 	 * causing the new object to be created in the database's tablespace.
 	 */
-	result = get_tablespace_oid(default_tablespace);
+	result = get_tablespace_oid(default_tablespace, true);
 
 	/*
 	 * Allow explicit specification of database's default tablespace in
@@ -1066,23 +1098,30 @@ GetDefaultTablespace(bool forTemp)
  * Routines for handling the GUC variable 'temp_tablespaces'.
  */
 
-/* assign_hook: validate new temp_tablespaces, do extra actions as needed */
-const char *
-assign_temp_tablespaces(const char *newval, bool doit, GucSource source)
+typedef struct
+{
+	int			numSpcs;
+	Oid			tblSpcs[1];		/* VARIABLE LENGTH ARRAY */
+} temp_tablespaces_extra;
+
+/* check_hook: validate new temp_tablespaces */
+bool
+check_temp_tablespaces(char **newval, void **extra, GucSource source)
 {
 	char	   *rawname;
 	List	   *namelist;
 
 	/* Need a modifiable copy of string */
-	rawname = pstrdup(newval);
+	rawname = pstrdup(*newval);
 
 	/* Parse string into list of identifiers */
 	if (!SplitIdentifierString(rawname, ',', &namelist))
 	{
 		/* syntax error in name list */
+		GUC_check_errdetail("List syntax is invalid.");
 		pfree(rawname);
 		list_free(namelist);
-		return NULL;
+		return false;
 	}
 
 	/*
@@ -1092,17 +1131,13 @@ assign_temp_tablespaces(const char *newval, bool doit, GucSource source)
 	 */
 	if (IsTransactionState())
 	{
-		/*
-		 * If we error out below, or if we are called multiple times in one
-		 * transaction, we'll leak a bit of TopTransactionContext memory.
-		 * Doesn't seem worth worrying about.
-		 */
+		temp_tablespaces_extra *myextra;
 		Oid		   *tblSpcs;
 		int			numSpcs;
 		ListCell   *l;
 
-		tblSpcs = (Oid *) MemoryContextAlloc(TopTransactionContext,
-										list_length(namelist) * sizeof(Oid));
+		/* temporary workspace until we are done verifying the list */
+		tblSpcs = (Oid *) palloc(list_length(namelist) * sizeof(Oid));
 		numSpcs = 0;
 		foreach(l, namelist)
 		{
@@ -1117,21 +1152,13 @@ assign_temp_tablespaces(const char *newval, bool doit, GucSource source)
 				continue;
 			}
 
-			/* Else verify that name is a valid tablespace name */
-			curoid = get_tablespace_oid(curname);
+			/*
+			 * In an interactive SET command, we ereport for bad info.
+			 * Otherwise, silently ignore any bad list elements.
+			 */
+			curoid = get_tablespace_oid(curname, source < PGC_S_INTERACTIVE);
 			if (curoid == InvalidOid)
-			{
-				/*
-				 * In an interactive SET command, we ereport for bad info.
-				 * Otherwise, silently ignore any bad list elements.
-				 */
-				if (source >= PGC_S_INTERACTIVE)
-					ereport(ERROR,
-							(errcode(ERRCODE_UNDEFINED_OBJECT),
-							 errmsg("tablespace \"%s\" does not exist",
-									curname)));
 				continue;
-			}
 
 			/*
 			 * Allow explicit specification of database's default tablespace
@@ -1143,7 +1170,7 @@ assign_temp_tablespaces(const char *newval, bool doit, GucSource source)
 				continue;
 			}
 
-			/* Check permissions similarly */
+			/* Check permissions, similarly complaining only if interactive */
 			aclresult = pg_tablespace_aclcheck(curoid, GetUserId(),
 											   ACL_CREATE);
 			if (aclresult != ACLCHECK_OK)
@@ -1156,17 +1183,41 @@ assign_temp_tablespaces(const char *newval, bool doit, GucSource source)
 			tblSpcs[numSpcs++] = curoid;
 		}
 
-		/* If actively "doing it", give the new list to fd.c */
-		if (doit)
-			SetTempTablespaces(tblSpcs, numSpcs);
-		else
-			pfree(tblSpcs);
+		/* Now prepare an "extra" struct for assign_temp_tablespaces */
+		myextra = malloc(offsetof(temp_tablespaces_extra, tblSpcs) +
+						 numSpcs * sizeof(Oid));
+		if (!myextra)
+			return false;
+		myextra->numSpcs = numSpcs;
+		memcpy(myextra->tblSpcs, tblSpcs, numSpcs * sizeof(Oid));
+		*extra = (void *) myextra;
+
+		pfree(tblSpcs);
 	}
 
 	pfree(rawname);
 	list_free(namelist);
 
-	return newval;
+	return true;
+}
+
+/* assign_hook: do extra actions as needed */
+void
+assign_temp_tablespaces(const char *newval, void *extra)
+{
+	temp_tablespaces_extra *myextra = (temp_tablespaces_extra *) extra;
+
+	/*
+	 * If check_temp_tablespaces was executed inside a transaction, then pass
+	 * the list it made to fd.c.  Otherwise, clear fd.c's list; we must be
+	 * still outside a transaction, or else restoring during transaction exit,
+	 * and in either case we can just let the next PrepareTempTablespaces call
+	 * make things sane.
+	 */
+	if (myextra)
+		SetTempTablespaces(myextra->tblSpcs, myextra->numSpcs);
+	else
+		SetTempTablespaces(NULL, 0);
 }
 
 /*
@@ -1230,10 +1281,10 @@ PrepareTempTablespaces(void)
 		}
 
 		/* Else verify that name is a valid tablespace name */
-		curoid = get_tablespace_oid(curname);
+		curoid = get_tablespace_oid(curname, true);
 		if (curoid == InvalidOid)
 		{
-			/* Silently ignore any bad list elements */
+			/* Skip any bad list elements */
 			continue;
 		}
 
@@ -1266,10 +1317,11 @@ PrepareTempTablespaces(void)
 /*
  * get_tablespace_oid - given a tablespace name, look up the OID
  *
- * Returns InvalidOid if tablespace name not found.
+ * If missing_ok is false, throw an error if tablespace name not found.  If
+ * true, just return InvalidOid.
  */
 Oid
-get_tablespace_oid(const char *tablespacename)
+get_tablespace_oid(const char *tablespacename, bool missing_ok)
 {
 	Oid			result;
 	Relation	rel;
@@ -1299,6 +1351,12 @@ get_tablespace_oid(const char *tablespacename)
 
 	heap_endscan(scandesc);
 	heap_close(rel, AccessShareLock);
+
+	if (!OidIsValid(result) && !missing_ok)
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+				 errmsg("tablespace \"%s\" does not exist",
+						tablespacename)));
 
 	return result;
 }

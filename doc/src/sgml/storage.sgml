@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/storage.sgml,v 1.32 2010/02/16 22:34:43 tgl Exp $ -->
+<!-- doc/src/sgml/storage.sgml -->
 
 <chapter id="storage">
 
@@ -83,6 +83,11 @@ Item
 </row>
 
 <row>
+ <entry><filename>pg_serial</></entry>
+ <entry>Subdirectory containing information about committed serializable transactions</entry>
+</row>
+
+<row>
  <entry><filename>pg_stat_tmp</></entry>
  <entry>Subdirectory containing temporary files for the statistics
   subsystem</entry>
@@ -116,8 +121,15 @@ last started with</entry>
 
 <row>
  <entry><filename>postmaster.pid</></entry>
- <entry>A lock file recording the current server PID and shared memory
-segment ID (not present after server shutdown)</entry>
+ <entry>A lock file recording the current postmaster process id (PID),
+  cluster data directory path,
+  postmaster start timestamp,
+  port number,
+  Unix-domain socket directory path (empty on Windows),
+  first valid listen_address (IP address or <literal>*</>, or empty if
+  not listening on TCP),
+  and shared memory segment ID
+  (this file is not present after server shutdown)</entry>
 </row>
 
 </tbody>
@@ -133,16 +145,22 @@ there.
 </para>
 
 <para>
-Each table and index is stored in a separate file, named after the table
-or index's <firstterm>filenode</> number, which can be found in
-<structname>pg_class</>.<structfield>relfilenode</>. In addition to the
-main file (a/k/a main fork), each table and index has a <firstterm>free space
-map</> (see <xref linkend="storage-fsm">), which stores information about free
-space available in the relation.  The free space map is stored in a file named
-with the filenode number plus the suffix <literal>_fsm</>.  Tables also have a
-<firstterm>visibility map</>, stored in a fork with the suffix
-<literal>_vm</>, to track which pages are known to have no dead tuples.
-The visibility map is described further in <xref linkend="storage-vm">.
+Each table and index is stored in a separate file.  For ordinary relations,
+these files are named after the table or index's <firstterm>filenode</> number,
+which can be found in <structname>pg_class</>.<structfield>relfilenode</>. But
+for temporary relations, the file name is of the form
+<literal>t<replaceable>BBB</>_<replaceable>FFF</></>, where <replaceable>BBB</>
+is the backend ID of the backend which created the file, and <replaceable>FFF</>
+is the filenode number.  In either case, in addition to the main file (a/k/a
+main fork), each table and index has a <firstterm>free space map</> (see <xref
+linkend="storage-fsm">), which stores information about free space available in
+the relation.  The free space map is stored in a file named with the filenode
+number plus the suffix <literal>_fsm</>.  Tables also have a
+<firstterm>visibility map</>, stored in a fork with the suffix <literal>_vm</>,
+to track which pages are known to have no dead tuples.  The visibility map is
+described further in <xref linkend="storage-vm">.  Unlogged tables and indexes
+have a third fork, known as the initialization fork, which is stored in a fork
+with the suffix <literal>_init</literal> (see <xref linkend="storage-init">).
 </para>
 
 <caution>
@@ -170,8 +188,6 @@ adjusted using the configuration option <option>--with-segsize</option>
 when building <productname>PostgreSQL</>.)
 In principle, free space map and visibility map forks could require multiple
 segments as well, though this is unlikely to happen in practice.
-The contents of tables and indexes are discussed further in
-<xref linkend="storage-page-layout">.
 </para>
 
 <para>
@@ -184,14 +200,26 @@ See <xref linkend="storage-toast"> for more information.
 </para>
 
 <para>
+The contents of tables and indexes are discussed further in
+<xref linkend="storage-page-layout">.
+</para>
+
+<para>
 Tablespaces make the scenario more complicated.  Each user-defined tablespace
 has a symbolic link inside the <varname>PGDATA</><filename>/pg_tblspc</>
-directory, which points to the physical tablespace directory (as specified in
-its <command>CREATE TABLESPACE</> command).  The symbolic link is named after
+directory, which points to the physical tablespace directory (i.e., the
+location specified in the tablespace's <command>CREATE TABLESPACE</> command).
+This symbolic link is named after
 the tablespace's OID.  Inside the physical tablespace directory there is
+a subdirectory with a name that depends on the <productname>PostgreSQL</>
+server version, such as <literal>PG_9.0_201008051</>.  (The reason for using
+this subdirectory is so that successive versions of the database can use
+the same <command>CREATE TABLESPACE</> location value without conflicts.)
+Within the version-specific subdirectory, there is
 a subdirectory for each database that has elements in the tablespace, named
-after the database's OID.  Tables within that directory follow the filenode
-naming scheme.  The <literal>pg_default</> tablespace is not accessed through
+after the database's OID.  Tables and indexes are stored within that
+directory, using the filenode naming scheme.
+The <literal>pg_default</> tablespace is not accessed through
 <filename>pg_tblspc</>, but corresponds to
 <varname>PGDATA</><filename>/base</>.  Similarly, the <literal>pg_global</>
 tablespace is not accessed through <filename>pg_tblspc</>, but corresponds to
@@ -432,8 +460,8 @@ at the root.
 <para>
 See <filename>src/backend/storage/freespace/README</> for more details on
 how the <acronym>FSM</> is structured, and how it's updated and searched.
-The <filename>contrib/pg_freespacemap</> module can be used to examine the
-information stored in free space maps (see <xref linkend="pgfreespacemap">).
+The <xref linkend="pgfreespacemap"> module
+can be used to examine the information stored in free space maps.
 </para>
 
 </sect1>
@@ -466,6 +494,24 @@ in future it might also be used to avoid visiting the page for visibility
 checks. The map is conservative in the sense that we
 make sure that whenever a bit is set, we know the condition is true, but if
 a bit is not set, it might or might not be true.
+</para>
+
+</sect1>
+
+<sect1 id="storage-init">
+
+<title>The Initialization Fork</title>
+
+<indexterm>
+ <primary>Initialization Fork</primary>
+</indexterm>
+
+<para>
+Each unlogged table, and each index on an unlogged table, has an initialization
+fork.  The initialization fork is an empty table or index of the appropriate
+type.  When an unlogged table must be reset to empty due to a crash, the
+initialization fork is copied over the main fork, and any other forks are
+erased (they will be recreated automatically as needed).
 </para>
 
 </sect1>
@@ -817,7 +863,7 @@ data. Empty in ordinary tables.</entry>
   the next. Then make sure you have the right alignment.  If the field is a
   fixed width field, then all the bytes are simply placed. If it's a
   variable length field (attlen = -1) then it's a bit more complicated.
-  All variable-length datatypes share the common header structure
+  All variable-length data types share the common header structure
   <type>struct varlena</type>, which includes the total length of the stored
   value and some flag bits.  Depending on the flags, the data can be either
   inline or in a <acronym>TOAST</> table;

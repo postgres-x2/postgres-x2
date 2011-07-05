@@ -9,12 +9,12 @@
  * context's MemoryContextMethods struct.
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/utils/mmgr/mcxt.c,v 1.69 2010/02/13 02:34:12 tgl Exp $
+ *	  src/backend/utils/mmgr/mcxt.c
  *
  *-------------------------------------------------------------------------
  */
@@ -127,7 +127,12 @@ MemoryContextReset(MemoryContext context)
 	if (context->firstchild != NULL)
 		MemoryContextResetChildren(context);
 
-	(*context->methods->reset) (context);
+	/* Nothing to do if no pallocs since startup or last reset */
+	if (!context->isReset)
+	{
+		(*context->methods->reset) (context);
+		context->isReset = true;
+	}
 }
 
 /*
@@ -229,7 +234,7 @@ MemoryContextResetAndDeleteChildren(MemoryContext context)
 	AssertArg(MemoryContextIsValid(context));
 
 	MemoryContextDeleteChildren(context);
-	(*context->methods->reset) (context);
+	MemoryContextReset(context);
 }
 
 /*
@@ -476,6 +481,7 @@ MemoryContextCreate(NodeTag tag, Size size,
 	node->parent = NULL;		/* for the moment */
 	node->firstchild = NULL;
 	node->nextchild = NULL;
+	node->isReset = true;
 	node->name = ((char *) node) + size;
 	strcpy(node->name, name);
 
@@ -510,6 +516,8 @@ MemoryContextAlloc(MemoryContext context, Size size)
 		elog(ERROR, "invalid memory alloc request size %lu",
 			 (unsigned long) size);
 
+	context->isReset = false;
+
 	return (*context->methods->alloc) (context, size);
 }
 
@@ -530,6 +538,8 @@ MemoryContextAllocZero(MemoryContext context, Size size)
 	if (!AllocSizeIsValid(size))
 		elog(ERROR, "invalid memory alloc request size %lu",
 			 (unsigned long) size);
+
+	context->isReset = false;
 
 	ret = (*context->methods->alloc) (context, size);
 
@@ -555,6 +565,8 @@ MemoryContextAllocZeroAligned(MemoryContext context, Size size)
 	if (!AllocSizeIsValid(size))
 		elog(ERROR, "invalid memory alloc request size %lu",
 			 (unsigned long) size);
+
+	context->isReset = false;
 
 	ret = (*context->methods->alloc) (context, size);
 
@@ -619,6 +631,9 @@ repalloc(void *pointer, Size size)
 	if (!AllocSizeIsValid(size))
 		elog(ERROR, "invalid memory alloc request size %lu",
 			 (unsigned long) size);
+
+	/* isReset must be false already */
+	Assert(!header->context->isReset);
 
 	return (*header->context->methods->realloc) (header->context,
 												 pointer, size);

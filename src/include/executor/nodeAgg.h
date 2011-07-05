@@ -4,10 +4,10 @@
  *	  prototypes for nodeAgg.c
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/executor/nodeAgg.h,v 1.32 2010/01/02 16:58:03 momjian Exp $
+ * src/include/executor/nodeAgg.h
  *
  *-------------------------------------------------------------------------
  */
@@ -19,7 +19,7 @@
 extern AggState *ExecInitAgg(Agg *node, EState *estate, int eflags);
 extern TupleTableSlot *ExecAgg(AggState *node);
 extern void ExecEndAgg(AggState *node);
-extern void ExecReScanAgg(AggState *node, ExprContext *exprCtxt);
+extern void ExecReScanAgg(AggState *node);
 
 extern Size hash_agg_entry_size(int numAggs);
 

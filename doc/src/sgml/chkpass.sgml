@@ -1,6 +1,6 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/chkpass.sgml,v 1.2 2007/12/06 04:12:09 tgl Exp $ -->
+<!-- doc/src/sgml/chkpass.sgml -->
 
-<sect1 id="chkpass">
+<sect1 id="chkpass" xreflabel="chkpass">
  <title>chkpass</title>
 
  <indexterm zone="chkpass">
@@ -32,7 +32,7 @@
   passwords without re-encrypting them.  If you want the encrypted password
   without the colon then use the <function>raw()</> function.
   This allows you to use the
-  type with things like Apache's Auth_PostgreSQL module.
+  type with things like Apache's <literal>Auth_PostgreSQL</> module.
  </para>
 
  <para>
@@ -43,7 +43,7 @@
  </para>
 
  <para>
-  Note that the chkpass data type is not indexable.
+  Note that the <type>chkpass</type> data type is not indexable.
   <!--
   I haven't worried about making this type indexable.  I doubt that anyone
   would ever need to sort a file in order of encrypted password.

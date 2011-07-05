@@ -1,6 +1,6 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/cube.sgml,v 1.7 2009/12/08 20:08:30 mha Exp $ -->
+<!-- doc/src/sgml/cube.sgml -->
 
-<sect1 id="cube">
+<sect1 id="cube" xreflabel="cube">
  <title>cube</title>
 
  <indexterm zone="cube">
@@ -9,7 +9,7 @@
 
  <para>
   This module implements a data type <type>cube</> for
-  representing multi-dimensional cubes.
+  representing multidimensional cubes.
  </para>
 
  <sect2>
@@ -23,7 +23,7 @@
   </para>
 
   <table id="cube-repr-table">
-   <title>Cube external representations</title>
+   <title>Cube External Representations</title>
    <tgroup cols="2">
     <tbody>
      <row>
@@ -98,59 +98,76 @@
   <para>
    The <filename>cube</> module includes a GiST index operator class for
    <type>cube</> values.
-   The operators supported by the GiST opclass include:
+   The operators supported by the GiST operator class are shown in <xref linkend="cube-gist-operators">.
   </para>
 
-  <itemizedlist>
-   <listitem>
-    <programlisting>
-a = b                 Same as
-    </programlisting>
-    <para>
-     The cubes a and b are identical.
-    </para>
-   </listitem>
-   <listitem>
-    <programlisting>
-a &amp;&amp; b                Overlaps
-    </programlisting>
-    <para>
-     The cubes a and b overlap.
-    </para>
-   </listitem>
-   <listitem>
-    <programlisting>
-a @&gt; b                Contains
-    </programlisting>
-    <para>
-     The cube a contains the cube b.
-    </para>
-   </listitem>
-   <listitem>
-  <programlisting>
-a &lt;@ b                Contained in
-  </programlisting>
-    <para>
-     The cube a is contained in the cube b.
-    </para>
-   </listitem>
-  </itemizedlist>
+  <table id="cube-gist-operators">
+   <title>Cube GiST Operators</title>
+   <tgroup cols="2">
+    <thead>
+     <row>
+      <entry>Operator</entry>
+      <entry>Description</entry>
+     </row>
+    </thead>
+
+    <tbody>
+     <row>
+      <entry><literal>a = b</></entry>
+      <entry>The cubes a and b are identical.</entry>
+     </row>
+
+     <row>
+      <entry><literal>a &amp;&amp; b</></entry>
+      <entry>The cubes a and b overlap.</entry>
+     </row>
+
+     <row>
+      <entry><literal>a @&gt; b</></entry>
+      <entry>The cube a contains the cube b.</entry>
+     </row>
+
+     <row>
+      <entry><literal>a &lt;@ b</></entry>
+      <entry>The cube a is contained in the cube b.</entry>
+     </row>
+    </tbody>
+   </tgroup>
+  </table>
 
   <para>
-   (Before PostgreSQL 8.2, the containment operators @&gt; and &lt;@ were
-   respectively called @ and ~.  These names are still available, but are
+   (Before PostgreSQL 8.2, the containment operators <literal>@&gt;</> and <literal>&lt;@</> were
+   respectively called <literal>@</> and <literal>~</>.  These names are still available, but are
    deprecated and will eventually be retired.  Notice that the old names
    are reversed from the convention formerly followed by the core geometric
-   datatypes!)
+   data types!)
   </para>
 
   <para>
    The standard B-tree operators are also provided, for example
 
-  <programlisting>
-[a, b] &lt; [c, d]                Less than
-[a, b] &gt; [c, d]                Greater than
-  </programlisting>
+   <informaltable>
+    <tgroup cols="2">
+     <thead>
+      <row>
+       <entry>Operator</entry>
+       <entry>Description</entry>
+      </row>
+     </thead>
+
+     <tbody>
+      <row>
+       <entry><literal>[a, b] &lt; [c, d]</literal></entry>
+       <entry>Less than</entry>
+      </row>
+
+      <row>
+       <entry><literal>[a, b] &gt; [c, d]</literal></entry>
+       <entry>Greater than</entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </informaltable>
 
    These operators do not make a lot of sense for any practical
    purpose but sorting. These operators first compare (a) to (c),
@@ -164,7 +181,7 @@ a &lt;@ b                Contained in
   </para>
 
   <table id="cube-functions-table">
-   <title>Cube functions</title>
+   <title>Cube Functions</title>
    <tgroup cols="2">
     <tbody>
      <row>
@@ -322,7 +339,7 @@ cube_inter
 
    <para>
     In all binary operations on differently-dimensioned cubes, I assume the
-    lower-dimensional one to be a cartesian projection, i. e., having zeroes
+    lower-dimensional one to be a Cartesian projection, i. e., having zeroes
     in place of coordinates omitted in the string representation. The above
     examples are equivalent to:
    </para>

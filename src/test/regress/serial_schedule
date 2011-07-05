@@ -1,4 +1,4 @@
-# $PostgreSQL: pgsql/src/test/regress/serial_schedule,v 1.56 2010/02/12 17:33:21 tgl Exp $
+# src/test/regress/serial_schedule
 # This should probably be in an order similar to parallel_schedule.
 test: tablespace
 test: boolean
@@ -40,8 +40,6 @@ test: macaddr
 test: tstypes
 test: comments
 test: geometry
-#After supporting other data types as distribution key, this test case crashes the server
-#Bug ID 3306801 tracks this crash
 test: horology
 test: oidjoins
 test: type_sanity
@@ -92,6 +90,8 @@ test: delete
 test: namespace
 test: prepared_xacts
 test: privileges
+test: security_label
+test: collate
 test: misc
 test: rules
 test: select_views
@@ -107,6 +107,8 @@ test: tsdicts
 test: foreign_data
 test: window
 test: xmlmap
+test: functional_deps
+test: advisory_lock
 test: plancache
 test: limit
 test: plpgsql

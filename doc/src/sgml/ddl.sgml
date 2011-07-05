@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/ddl.sgml,v 1.93 2010/04/06 02:18:04 momjian Exp $ -->
+<!-- doc/src/sgml/ddl.sgml -->
 
 <chapter id="ddl">
  <title>Data Definition</title>
@@ -36,7 +36,7 @@
    is fixed, and each column has a name.  The number of rows is
    variable &mdash; it reflects how much data is stored at a given moment.
    SQL does not make any guarantees about the order of the rows in a
-   table.  When a table is read, the rows will appear in random order,
+   table.  When a table is read, the rows will appear in an unspecified order,
    unless sorting is explicitly requested.  This is covered in <xref
    linkend="queries">.  Furthermore, SQL does not assign unique
    identifiers to rows, so it is possible to have several completely
@@ -544,6 +544,11 @@ CREATE TABLE products (
 </programlisting>
    </para>
 
+   <para>
+    Adding a unique constraint will automatically create a unique btree
+    index on the column or group of columns used in the constraint.
+   </para>
+
    <indexterm>
     <primary>null value</primary>
     <secondary sortas="unique constraints">with unique constraints</secondary>
@@ -620,6 +625,11 @@ CREATE TABLE example (
     a GUI application that allows modifying row values probably needs
     to know the primary key of a table to be able to identify rows
     uniquely.
+   </para>
+
+   <para>
+    Adding a primary key will automatically create a unique btree index
+    on the column or group of columns used in the primary key.
    </para>
 
    <para>
@@ -832,6 +842,16 @@ CREATE TABLE order_items (
    </para>
 
    <para>
+    Since a <command>DELETE</command> of a row from the referenced table
+    or an <command>UPDATE</command> of a referenced column will require
+    a scan of the referencing table for rows matching the old value, it
+    is often a good idea to index the referencing columns.  Because this
+    is not always needed, and there are many choices available on how
+    to index, declaration of a foreign key constraint does not
+    automatically create an index on the referencing columns.
+   </para>
+
+   <para>
     More information about updating and deleting data is in <xref
     linkend="dml">.
    </para>
@@ -846,8 +866,8 @@ CREATE TABLE order_items (
    </para>
   </sect2>
 
-  <sect2>
-   <title>Exclusion constraints</title>
+  <sect2 id="ddl-constraints-exclusion">
+   <title>Exclusion Constraints</title>
 
    <indexterm>
     <primary>exclusion constraint</primary>
@@ -874,6 +894,11 @@ CREATE TABLE circles (
    <para>
     See also <link linkend="SQL-CREATETABLE-EXCLUDE"><command>CREATE
     TABLE ... CONSTRAINT ... EXCLUDE</></link> for details.
+   </para>
+
+   <para>
+    Adding an exclusion constraint will automatically create an index
+    of the type specified in the constraint declaration.
    </para>
   </sect2>
  </sect1>
@@ -1375,17 +1400,29 @@ ALTER TABLE products RENAME TO items;
    <see>privilege</see>
   </indexterm>
 
+  <indexterm zone="ddl-priv">
+   <primary>owner</primary>
+  </indexterm>
+
+  <indexterm zone="ddl-priv">
+   <primary>GRANT</primary>
+  </indexterm>
+
+  <indexterm zone="ddl-priv">
+   <primary>REVOKE</primary>
+  </indexterm>
+
   <para>
-   When you create a database object, you become its owner.  By
-   default, only the owner of an object can do anything with the
-   object. In order to allow other users to use it,
-   <firstterm>privileges</firstterm> must be granted.  (However,
-   users that have the superuser attribute can always
-   access any object.)
+   When an object is created, it is assigned an owner. The
+   owner is normally the role that executed the creation statement.
+   For most kinds of objects, the initial state is that only the owner
+   (or a superuser) can do anything with the object. To allow
+   other roles to use it, <firstterm>privileges</firstterm> must be
+   granted.
   </para>
 
   <para>
-   There are several different privileges: <literal>SELECT</>,
+   There are different kinds of privileges: <literal>SELECT</>,
    <literal>INSERT</>, <literal>UPDATE</>, <literal>DELETE</>,
    <literal>TRUNCATE</>, <literal>REFERENCES</>, <literal>TRIGGER</>,
    <literal>CREATE</>, <literal>CONNECT</>, <literal>TEMPORARY</>,
@@ -1404,14 +1441,14 @@ ALTER TABLE products RENAME TO items;
    the owner only.
   </para>
 
-  <note>
-   <para>
-    To change the owner of a table, index, sequence, or view, use the
-    <xref linkend="sql-altertable">
-    command.  There are corresponding <literal>ALTER</> commands for
-    other object types.
-   </para>
-  </note>
+  <para>
+   An object can be assigned to a new owner with an <command>ALTER</command>
+   command of the appropriate kind for the object, e.g. <xref
+   linkend="sql-altertable">.  Superusers can always do
+   this; ordinary roles can only do it if they are both the current owner
+   of the object (or a member of the owning role) and a member of the new
+   owning role.
+  </para>
 
   <para>
    To assign privileges, the <command>GRANT</command> command is
@@ -2520,7 +2557,7 @@ CREATE TABLE measurement_y2008m01 ( ) INHERITS (measurement);
         just creating the partition tables as above, the table creation
         script should really be:
 
- <programlisting>
+<programlisting>
 CREATE TABLE measurement_y2006m02 (
     CHECK ( logdate &gt;= DATE '2006-02-01' AND logdate &lt; DATE '2006-03-01' )
 ) INHERITS (measurement);
@@ -2545,7 +2582,7 @@ CREATE TABLE measurement_y2008m01 (
        <para>
         We probably need indexes on the key columns too:
 
- <programlisting>
+<programlisting>
 CREATE INDEX measurement_y2006m02_logdate ON measurement_y2006m02 (logdate);
 CREATE INDEX measurement_y2006m03_logdate ON measurement_y2006m03 (logdate);
 ...
@@ -2959,6 +2996,53 @@ ANALYZE measurement;
    </itemizedlist>
    </para>
   </sect2>
+ </sect1>
+
+ <sect1 id="ddl-foreign-data">
+  <title>Foreign Data</title>
+
+   <indexterm>
+    <primary>foreign data</primary>
+   </indexterm>
+   <indexterm>
+    <primary>foreign table</primary>
+   </indexterm>
+
+   <para>
+    <productname>PostgreSQL</productname> implements portions of the SQL/MED
+    specification, allowing you to access data that resides outside
+    PostgreSQL using regular SQL queries.  Such data is referred to as
+    <firstterm>foreign data</>.  (Note that this usage is not to be confused
+    with foreign keys, which are a type of constraint within the database.)
+   </para>
+
+   <para>
+    Foreign data is accessed with help from a
+    <firstterm>foreign data wrapper</firstterm>. A foreign data wrapper is a
+    library that can communicate with an external data source, hiding the
+    details of connecting to the data source and fetching data from it. There
+    are several foreign data wrappers available, which can for example read
+    plain data files residing on the server, or connect to another PostgreSQL
+    instance. If none of the existing foreign data wrappers suit your needs,
+    you can write your own; see <xref linkend="fdwhandler">.
+   </para>
+
+   <para>
+    To access foreign data, you need to create a <firstterm>foreign server</>
+    object, which defines how to connect to a particular external data source,
+    according to the set of options used by a particular foreign data
+    wrapper. Then you need to create one or more <firstterm>foreign
+    tables</firstterm>, which define the structure of the remote data. A
+    foreign table can be used in queries just like a normal table, but a
+    foreign table has no storage in the PostgreSQL server.  Whenever it is
+    used, PostgreSQL asks the foreign data wrapper to fetch the data from the
+    external source.
+   </para>
+
+   <para>
+    Currently, foreign tables are read-only.  This limitation may be fixed
+    in a future release.
+   </para>
  </sect1>
 
  <sect1 id="ddl-others">

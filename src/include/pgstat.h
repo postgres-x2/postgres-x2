@@ -3,9 +3,9 @@
  *
  *	Definitions for the PostgreSQL statistics collector daemon.
  *
- *	Copyright (c) 2001-2010, PostgreSQL Global Development Group
+ *	Copyright (c) 2001-2011, PostgreSQL Global Development Group
  *
- *	$PostgreSQL: pgsql/src/include/pgstat.h,v 1.89 2010/02/26 02:01:20 momjian Exp $
+ *	src/include/pgstat.h
  * ----------
  */
 #ifndef PGSTAT_H
@@ -24,7 +24,7 @@ typedef enum TrackFunctionsLevel
 	TRACK_FUNC_OFF,
 	TRACK_FUNC_PL,
 	TRACK_FUNC_ALL
-} TrackFunctionsLevel;
+}	TrackFunctionsLevel;
 
 /* ----------
  * The types of backend -> collector messages
@@ -45,7 +45,8 @@ typedef enum StatMsgType
 	PGSTAT_MTYPE_ANALYZE,
 	PGSTAT_MTYPE_BGWRITER,
 	PGSTAT_MTYPE_FUNCSTAT,
-	PGSTAT_MTYPE_FUNCPURGE
+	PGSTAT_MTYPE_FUNCPURGE,
+	PGSTAT_MTYPE_RECOVERYCONFLICT
 } StatMsgType;
 
 /* ----------
@@ -321,7 +322,6 @@ typedef struct PgStat_MsgVacuum
 	PgStat_MsgHdr m_hdr;
 	Oid			m_databaseid;
 	Oid			m_tableoid;
-	bool		m_adopt_counts;
 	bool		m_autovacuum;
 	TimestampTz m_vacuumtime;
 	PgStat_Counter m_tuples;
@@ -338,7 +338,6 @@ typedef struct PgStat_MsgAnalyze
 	PgStat_MsgHdr m_hdr;
 	Oid			m_databaseid;
 	Oid			m_tableoid;
-	bool		m_adopt_counts;
 	bool		m_autovacuum;
 	TimestampTz m_analyzetime;
 	PgStat_Counter m_live_tuples;
@@ -360,9 +359,21 @@ typedef struct PgStat_MsgBgWriter
 	PgStat_Counter m_buf_written_clean;
 	PgStat_Counter m_maxwritten_clean;
 	PgStat_Counter m_buf_written_backend;
+	PgStat_Counter m_buf_fsync_backend;
 	PgStat_Counter m_buf_alloc;
 } PgStat_MsgBgWriter;
 
+/* ----------
+ * PgStat_MsgRecoveryConflict	Sent by the backend upon recovery conflict
+ * ----------
+ */
+typedef struct PgStat_MsgRecoveryConflict
+{
+	PgStat_MsgHdr m_hdr;
+
+	Oid			m_databaseid;
+	int			m_reason;
+} PgStat_MsgRecoveryConflict;
 
 /* ----------
  * PgStat_FunctionCounts	The actual per-function counts kept by a backend
@@ -459,6 +470,7 @@ typedef union PgStat_Msg
 	PgStat_MsgBgWriter msg_bgwriter;
 	PgStat_MsgFuncstat msg_funcstat;
 	PgStat_MsgFuncpurge msg_funcpurge;
+	PgStat_MsgRecoveryConflict msg_recoveryconflict;
 } PgStat_Msg;
 
 
@@ -470,7 +482,7 @@ typedef union PgStat_Msg
  * ------------------------------------------------------------
  */
 
-#define PGSTAT_FILE_FORMAT_ID	0x01A5BC98
+#define PGSTAT_FILE_FORMAT_ID	0x01A5BC99
 
 /* ----------
  * PgStat_StatDBEntry			The collector's data per database
@@ -489,6 +501,13 @@ typedef struct PgStat_StatDBEntry
 	PgStat_Counter n_tuples_updated;
 	PgStat_Counter n_tuples_deleted;
 	TimestampTz last_autovac_time;
+	PgStat_Counter n_conflict_tablespace;
+	PgStat_Counter n_conflict_lock;
+	PgStat_Counter n_conflict_snapshot;
+	PgStat_Counter n_conflict_bufferpin;
+	PgStat_Counter n_conflict_startup_deadlock;
+	TimestampTz stat_reset_timestamp;
+
 
 	/*
 	 * tables and functions must be last in the struct, because we don't write
@@ -525,9 +544,13 @@ typedef struct PgStat_StatTabEntry
 	PgStat_Counter blocks_hit;
 
 	TimestampTz vacuum_timestamp;		/* user initiated vacuum */
+	PgStat_Counter vacuum_count;
 	TimestampTz autovac_vacuum_timestamp;		/* autovacuum initiated */
+	PgStat_Counter autovac_vacuum_count;
 	TimestampTz analyze_timestamp;		/* user initiated */
+	PgStat_Counter analyze_count;
 	TimestampTz autovac_analyze_timestamp;		/* autovacuum initiated */
+	PgStat_Counter autovac_analyze_count;
 } PgStat_StatTabEntry;
 
 
@@ -558,7 +581,9 @@ typedef struct PgStat_GlobalStats
 	PgStat_Counter buf_written_clean;
 	PgStat_Counter maxwritten_clean;
 	PgStat_Counter buf_written_backend;
+	PgStat_Counter buf_fsync_backend;
 	PgStat_Counter buf_alloc;
+	TimestampTz stat_reset_timestamp;
 } PgStat_GlobalStats;
 
 
@@ -601,6 +626,7 @@ typedef struct PgBackendStatus
 	Oid			st_databaseid;
 	Oid			st_userid;
 	SockAddr	st_clientaddr;
+	char	   *st_clienthostname;		/* MUST be null-terminated */
 
 	/* Is backend currently waiting on an lmgr lock? */
 	bool		st_waiting;
@@ -678,10 +704,12 @@ extern void pgstat_reset_shared_counters(const char *);
 extern void pgstat_reset_single_counter(Oid objectid, PgStat_Single_Reset_Type type);
 
 extern void pgstat_report_autovac(Oid dboid);
-extern void pgstat_report_vacuum(Oid tableoid, bool shared, bool adopt_counts,
+extern void pgstat_report_vacuum(Oid tableoid, bool shared,
 					 PgStat_Counter tuples);
-extern void pgstat_report_analyze(Relation rel, bool adopt_counts,
+extern void pgstat_report_analyze(Relation rel,
 					  PgStat_Counter livetuples, PgStat_Counter deadtuples);
+
+extern void pgstat_report_recovery_conflict(int reason);
 
 extern void pgstat_initialize(void);
 extern void pgstat_bestart(void);
@@ -692,43 +720,46 @@ extern void pgstat_report_xact_timestamp(TimestampTz tstamp);
 extern void pgstat_report_waiting(bool waiting);
 extern const char *pgstat_get_backend_current_activity(int pid, bool checkUser);
 
+extern PgStat_TableStatus *find_tabstat_entry(Oid rel_id);
+extern PgStat_BackendFunctionEntry *find_funcstat_entry(Oid func_id);
+
 extern void pgstat_initstats(Relation rel);
 
 /* nontransactional event counts are simple enough to inline */
 
 #define pgstat_count_heap_scan(rel)									\
 	do {															\
-		if (pgstat_track_counts && (rel)->pgstat_info != NULL)		\
+		if ((rel)->pgstat_info != NULL)								\
 			(rel)->pgstat_info->t_counts.t_numscans++;				\
 	} while (0)
 #define pgstat_count_heap_getnext(rel)								\
 	do {															\
-		if (pgstat_track_counts && (rel)->pgstat_info != NULL)		\
+		if ((rel)->pgstat_info != NULL)								\
 			(rel)->pgstat_info->t_counts.t_tuples_returned++;		\
 	} while (0)
 #define pgstat_count_heap_fetch(rel)								\
 	do {															\
-		if (pgstat_track_counts && (rel)->pgstat_info != NULL)		\
+		if ((rel)->pgstat_info != NULL)								\
 			(rel)->pgstat_info->t_counts.t_tuples_fetched++;		\
 	} while (0)
 #define pgstat_count_index_scan(rel)								\
 	do {															\
-		if (pgstat_track_counts && (rel)->pgstat_info != NULL)		\
+		if ((rel)->pgstat_info != NULL)								\
 			(rel)->pgstat_info->t_counts.t_numscans++;				\
 	} while (0)
 #define pgstat_count_index_tuples(rel, n)							\
 	do {															\
-		if (pgstat_track_counts && (rel)->pgstat_info != NULL)		\
+		if ((rel)->pgstat_info != NULL)								\
 			(rel)->pgstat_info->t_counts.t_tuples_returned += (n);	\
 	} while (0)
 #define pgstat_count_buffer_read(rel)								\
 	do {															\
-		if (pgstat_track_counts && (rel)->pgstat_info != NULL)		\
+		if ((rel)->pgstat_info != NULL)								\
 			(rel)->pgstat_info->t_counts.t_blocks_fetched++;		\
 	} while (0)
 #define pgstat_count_buffer_hit(rel)								\
 	do {															\
-		if (pgstat_track_counts && (rel)->pgstat_info != NULL)		\
+		if ((rel)->pgstat_info != NULL)								\
 			(rel)->pgstat_info->t_counts.t_blocks_hit++;			\
 	} while (0)
 

@@ -4,7 +4,7 @@
 #    Makefile for the timezone library
 
 # IDENTIFICATION
-#    $PostgreSQL: pgsql/src/timezone/Makefile,v 1.33 2010/07/05 18:54:38 tgl Exp $
+#    src/timezone/Makefile
 #
 #-------------------------------------------------------------------------
 
@@ -35,7 +35,7 @@ endif
 include $(top_srcdir)/src/backend/common.mk
 
 ifeq (,$(with_system_tzdata))
-all: submake-libpgport zic
+all: zic
 endif
 
 # We could do this test in the action section:
@@ -46,7 +46,7 @@ ifeq (,$(ZIC))
 ZIC= ./zic
 endif
 
-zic: $(ZICOBJS)
+zic: $(ZICOBJS) | submake-libpgport
 	$(CC) $(CFLAGS) $(ZICOBJS) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 
 install: all installdirs

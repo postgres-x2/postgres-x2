@@ -4,10 +4,10 @@
  *	  prototypes for catalog/index.c.
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/catalog/index.h,v 1.83 2010/02/07 22:40:33 tgl Exp $
+ * src/include/catalog/index.h
  *
  *-------------------------------------------------------------------------
  */
@@ -28,13 +28,18 @@ typedef void (*IndexBuildCallback) (Relation index,
 												void *state);
 
 
-extern Oid index_create(Oid heapRelationId,
+extern void index_check_primary_key(Relation heapRel,
+						IndexInfo *indexInfo,
+						bool is_alter_table);
+
+extern Oid index_create(Relation heapRelation,
 			 const char *indexRelationName,
 			 Oid indexRelationId,
 			 IndexInfo *indexInfo,
 			 List *indexColNames,
 			 Oid accessMethodObjectId,
 			 Oid tableSpaceId,
+			 Oid *collationObjectId,
 			 Oid *classObjectId,
 			 int16 *coloptions,
 			 Datum reloptions,
@@ -45,6 +50,17 @@ extern Oid index_create(Oid heapRelationId,
 			 bool allow_system_table_mods,
 			 bool skip_build,
 			 bool concurrent);
+
+extern void index_constraint_create(Relation heapRelation,
+						Oid indexRelationId,
+						IndexInfo *indexInfo,
+						const char *constraintName,
+						char constraintType,
+						bool deferrable,
+						bool initdeferred,
+						bool mark_as_primary,
+						bool update_pgindex,
+						bool allow_system_table_mods);
 
 extern void index_drop(Oid indexId);
 
@@ -59,7 +75,8 @@ extern void FormIndexDatum(IndexInfo *indexInfo,
 extern void index_build(Relation heapRelation,
 			Relation indexRelation,
 			IndexInfo *indexInfo,
-			bool isprimary);
+			bool isprimary,
+			bool isreindex);
 
 extern double IndexBuildHeapScan(Relation heapRelation,
 				   Relation indexRelation,
@@ -71,7 +88,13 @@ extern double IndexBuildHeapScan(Relation heapRelation,
 extern void validate_index(Oid heapId, Oid indexId, Snapshot snapshot);
 
 extern void reindex_index(Oid indexId, bool skip_constraint_checks);
-extern bool reindex_relation(Oid relid, bool toast_too, bool heap_rebuilt);
+
+/* Flag bits for reindex_relation(): */
+#define REINDEX_REL_PROCESS_TOAST		0x01
+#define REINDEX_REL_SUPPRESS_INDEX_USE	0x02
+#define REINDEX_REL_CHECK_CONSTRAINTS	0x04
+
+extern bool reindex_relation(Oid relid, int flags);
 
 extern bool ReindexIsProcessingHeap(Oid heapOid);
 extern bool ReindexIsProcessingIndex(Oid indexOid);

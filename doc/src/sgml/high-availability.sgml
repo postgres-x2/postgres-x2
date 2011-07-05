@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/high-availability.sgml,v 1.77 2010/07/03 20:43:57 tgl Exp $ -->
+<!-- doc/src/sgml/high-availability.sgml -->
 
 <chapter id="high-availability">
  <title>High Availability, Load Balancing, and Replication</title>
@@ -82,7 +82,7 @@
  </para>
 
  <sect1 id="different-replication-solutions">
- <title>Comparison of different solutions</title>
+ <title>Comparison of Different Solutions</title>
 
  <variablelist>
 
@@ -188,9 +188,10 @@ protocol to make nodes agree on a serializable transactional order.
     <para>
      With statement-based replication middleware, a program intercepts
      every SQL query and sends it to one or all servers.  Each server
-     operates independently.  Read-write queries are sent to all servers,
-     while read-only queries can be sent to just one server, allowing
-     the read workload to be distributed.
+     operates independently.  Read-write queries must be sent to all servers,
+     so that every server receives any changes.  But read-only queries can be
+     sent to just one server, allowing the read workload to be distributed
+     among them.
     </para>
 
     <para>
@@ -209,8 +210,8 @@ protocol to make nodes agree on a serializable transactional order.
      transactions either commit or abort on all servers, perhaps
      using two-phase commit (<xref linkend="sql-prepare-transaction">
      and <xref linkend="sql-commit-prepared">.
-     <productname>Pgpool-II</> and <productname>Sequoia</> are examples of
-     this type of replication.
+     <productname>Pgpool-II</> and <productname>Continuent Tungsten</>
+     are examples of this type of replication.
     </para>
    </listitem>
   </varlistentry>
@@ -449,7 +450,7 @@ protocol to make nodes agree on a serializable transactional order.
      part of the query and return results to a central server where they
      are combined and returned to the user.  <productname>Pgpool-II</>
      has this capability.  Also, this can be implemented using the
-     <productname>PL/Proxy</> toolset.
+     <productname>PL/Proxy</> tool set.
     </para>
 
    </listitem>
@@ -486,18 +487,19 @@ protocol to make nodes agree on a serializable transactional order.
   <para>
    Directly moving WAL records from one database server to another
    is typically described as log shipping. <productname>PostgreSQL</>
-   implements file-based log shipping, which means that WAL records are
-   transferred one file (WAL segment) at a time. WAL files (16MB) can be
+   implements file-based log shipping by transferring WAL records
+   one file (WAL segment) at a time. WAL files (16MB) can be
    shipped easily and cheaply over any distance, whether it be to an
    adjacent system, another system at the same site, or another system on
    the far side of the globe. The bandwidth required for this technique
    varies according to the transaction rate of the primary server.
-   Record-based log shipping is also possible with streaming replication
-   (see <xref linkend="streaming-replication">).
+   Record-based log shipping is more granular and streams WAL changes
+   incrementally over a network connection (see <xref
+   linkend="streaming-replication">).
   </para>
 
   <para>
-   It should be noted that the log shipping is asynchronous, i.e., the WAL
+   It should be noted that log shipping is asynchronous, i.e., the WAL
    records are shipped after transaction commit. As a result, there is a
    window for data loss should the primary server suffer a catastrophic
    failure; transactions not yet shipped will be lost.  The size of the
@@ -505,8 +507,8 @@ protocol to make nodes agree on a serializable transactional order.
    <varname>archive_timeout</varname> parameter, which can be set as low
    as a few seconds.  However such a low setting will
    substantially increase the bandwidth required for file shipping.
-   If you need a window of less than a minute or so, consider using
-   streaming replication (see <xref linkend="streaming-replication">).
+   Streaming replication (see <xref linkend="streaming-replication">)
+   allows a much smaller window of data loss.
   </para>
 
   <para>
@@ -589,7 +591,7 @@ protocol to make nodes agree on a serializable transactional order.
    <para>
     In standby mode, the server continuously applies WAL received from the
     master server. The standby server can read WAL from a WAL archive
-    (see <varname>restore_command</>) or directly from the master
+    (see <xref linkend="restore-command">) or directly from the master
     over a TCP connection (streaming replication). The standby server will
     also attempt to restore any WAL found in the standby cluster's
     <filename>pg_xlog</> directory. That typically happens after a server
@@ -602,21 +604,22 @@ protocol to make nodes agree on a serializable transactional order.
     At startup, the standby begins by restoring all WAL available in the
     archive location, calling <varname>restore_command</>. Once it
     reaches the end of WAL available there and <varname>restore_command</>
-    fails, it tries to restore any WAL available in the pg_xlog directory.
+    fails, it tries to restore any WAL available in the <filename>pg_xlog</> directory.
     If that fails, and streaming replication has been configured, the
     standby tries to connect to the primary server and start streaming WAL
-    from the last valid record found in archive or pg_xlog. If that fails
+    from the last valid record found in archive or <filename>pg_xlog</>. If that fails
     or streaming replication is not configured, or if the connection is
     later disconnected, the standby goes back to step 1 and tries to
     restore the file from the archive again. This loop of retries from the
-    archive, pg_xlog, and via streaming replication goes on until the server
+    archive, <filename>pg_xlog</>, and via streaming replication goes on until the server
     is stopped or failover is triggered by a trigger file.
    </para>
 
    <para>
-    Standby mode is exited and the server switches to normal operation,
-    when a trigger file is found (<varname>trigger_file</>). Before failover,
-    any WAL immediately available in the archive or in pg_xlog will be
+    Standby mode is exited and the server switches to normal operation
+    when <command>pg_ctl promote</> is run or a trigger file is found
+    (<varname>trigger_file</>). Before failover,
+    any WAL immediately available in the archive or in <filename>pg_xlog</> will be
     restored, but no attempt is made to connect to the master.
    </para>
   </sect2>
@@ -636,8 +639,8 @@ protocol to make nodes agree on a serializable transactional order.
    <para>
     If you want to use streaming replication, set up authentication on the
     primary server to allow replication connections from the standby
-    server(s); that is, provide a suitable entry or entries in
-    <filename>pg_hba.conf</> with the database field set to
+    server(s); that is, create a role and provide a suitable entry or
+    entries in <filename>pg_hba.conf</> with the database field set to
     <literal>replication</>.  Also ensure <varname>max_wal_senders</> is set
     to a sufficiently large value in the configuration file of the primary
     server.
@@ -658,7 +661,10 @@ protocol to make nodes agree on a serializable transactional order.
     command file <filename>recovery.conf</> in the standby's cluster data
     directory, and turn on <varname>standby_mode</>. Set
     <varname>restore_command</> to a simple command to copy files from
-    the WAL archive.
+    the WAL archive. If you plan to have multiple standby servers for high
+    availability purposes, set <varname>recovery_target_timeline</> to
+    <literal>latest</>, to make the standby server follow the timeline change
+    that occurs at failover to another standby.
    </para>
 
    <note>
@@ -681,19 +687,22 @@ protocol to make nodes agree on a serializable transactional order.
    </para>
 
    <para>
-    You can use <varname>archive_cleanup_command</> to prune the archive of
-    files no longer needed by the standby.
-   </para>
-
-   <para>
     If you're setting up the standby server for high availability purposes,
     set up WAL archiving, connections and authentication like the primary
     server, because the standby server will work as a primary server after
-    failover. You will also need to set <varname>trigger_file</> to make
-    it possible to fail over.
-    If you're setting up the standby server for reporting
-    purposes, with no plans to fail over to it, <varname>trigger_file</>
-    is not required.
+    failover.
+   </para>
+
+   <para>
+    If you're using a WAL archive, its size can be minimized using the <xref
+    linkend="archive-cleanup-command"> parameter to remove files that are no
+    longer required by the standby server.
+    The <application>pg_archivecleanup</> utility is designed specifically to
+    be used with <varname>archive_cleanup_command</> in typical single-standby
+    configurations, see <xref linkend="pgarchivecleanup">.
+    Note however, that if you're using the archive for backup purposes, you
+    need to retain files needed to recover from at least the latest base
+    backup, even if they're no longer needed by the standby.
    </para>
 
    <para>
@@ -702,7 +711,7 @@ protocol to make nodes agree on a serializable transactional order.
 standby_mode = 'on'
 primary_conninfo = 'host=192.168.1.50 port=5432 user=foo password=foopass'
 restore_command = 'cp /path/to/archive/%f %p'
-trigger_file = '/path/to/trigger_file'
+archive_cleanup_command = 'pg_archivecleanup /path/to/archive %r'
 </programlisting>
    </para>
 
@@ -712,14 +721,6 @@ trigger_file = '/path/to/trigger_file'
     the primary to allow them to be connected simultaneously.
    </para>
 
-   <para>
-    If you're using a WAL archive, its size can be minimized using
-    the <varname>archive_cleanup_command</> option to remove files that are
-    no longer required by the standby server. Note however, that if you're
-    using the archive for backup purposes, you need to retain files needed
-    to recover from at least the latest base backup, even if they're no
-    longer needed by the standby.
-   </para>
   </sect2>
 
   <sect2 id="streaming-replication">
@@ -753,7 +754,7 @@ trigger_file = '/path/to/trigger_file'
     too early, while the standby might still need them to catch up. If the
     standby falls behind too much, it needs to be reinitialized from a new
     base backup. If you set up a WAL archive that's accessible from the
-    standby, wal_keep_segments is not required as the standby can always
+    standby, <varname>wal_keep_segments</> is not required as the standby can always
     use the archive to catch up.
    </para>
 
@@ -796,15 +797,28 @@ trigger_file = '/path/to/trigger_file'
      It is very important that the access privileges for replication be set up
      so that only trusted users can read the WAL stream, because it is
      easy to extract privileged information from it.  Standby servers must
-     authenticate to the primary as a superuser account.
-     So a role with the <literal>SUPERUSER</> and <literal>LOGIN</>
-     privileges needs to be created on the primary.
+     authenticate to the primary as an account that has the
+     <literal>REPLICATION</> privilege. So a role with the
+     <literal>REPLICATION</> and <literal>LOGIN</> privileges needs to be
+     created on the primary.
     </para>
+
+    <note>
+     <para>
+      It is recommended that a dedicated user account is used for replication.
+      While the <literal>REPLICATION</> privilege is granted to superuser
+      accounts by default, it is not recommended to use superuser accounts
+      for replication. While <literal>REPLICATION</> privilege gives very high
+      permissions, it does not allow the user to modify any data on the
+      primary system, which the <literal>SUPERUSER</> privilege does.
+     </para>
+    </note>
+
     <para>
      Client authentication for replication is controlled by a
      <filename>pg_hba.conf</> record specifying <literal>replication</> in the
      <replaceable>database</> field. For example, if the standby is running on
-     host IP <literal>192.168.1.100</> and the superuser's name for replication
+     host IP <literal>192.168.1.100</> and the account name for replication
      is <literal>foo</>, the administrator can add the following line to the
      <filename>pg_hba.conf</> file on the primary:
 
@@ -812,7 +826,7 @@ trigger_file = '/path/to/trigger_file'
 # Allow the user "foo" from host 192.168.1.100 to connect to the primary
 # as a replication standby if the user's password is correctly supplied.
 #
-# TYPE  DATABASE        USER            CIDR-ADDRESS            METHOD
+# TYPE  DATABASE        USER            ADDRESS                 METHOD
 host    replication     foo             192.168.1.100/32        md5
 </programlisting>
     </para>
@@ -823,7 +837,7 @@ host    replication     foo             192.168.1.100/32        md5
      standby (specify <literal>replication</> in the <replaceable>database</>
      field).
      For example, if the primary is running on host IP <literal>192.168.1.50</>,
-     port <literal>5432</literal>, the superuser's name for replication is
+     port <literal>5432</literal>, the account name for replication is
      <literal>foo</>, and the password is <literal>foopass</>, the administrator
      can add the following line to the <filename>recovery.conf</> file on the
      standby:
@@ -852,8 +866,211 @@ primary_conninfo = 'host=192.168.1.50 port=5432 user=foo password=foopass'
      process status of the WAL receiver process, displayed using the
      <command>ps</> command (see <xref linkend="monitoring-ps"> for details).
     </para>
+    <para>
+     You can retrieve a list of WAL sender processes via the
+     <link linkend="monitoring-stats-views-table">
+     <literal>pg_stat_replication</></link> view. Large differences between
+     <function>pg_current_xlog_location</> and <literal>sent_location</> field
+     might indicate that the master server is under heavy load, while
+     differences between <literal>sent_location</> and 
+     <function>pg_last_xlog_receive_location</> on the standby might indicate
+     network delay, or that the standby is under heavy load.
+    </para>
    </sect3>
 
+  </sect2>
+  <sect2 id="synchronous-replication">
+   <title>Synchronous Replication</title>
+
+   <indexterm zone="high-availability">
+    <primary>Synchronous Replication</primary>
+   </indexterm>
+
+   <para>
+    <productname>PostgreSQL</> streaming replication is asynchronous by
+    default. If the primary server
+    crashes then some transactions that were committed may not have been
+    replicated to the standby server, causing data loss. The amount
+    of data loss is proportional to the replication delay at the time of
+    failover.
+   </para>
+
+   <para>
+    Synchronous replication offers the ability to confirm that all changes
+    made by a transaction have been transferred to one synchronous standby
+    server. This extends the standard level of durability
+    offered by a transaction commit. This level of protection is referred
+    to as 2-safe replication in computer science theory.
+   </para>
+
+   <para>
+    When requesting synchronous replication, each commit of a
+    write transaction will wait until confirmation is
+    received that the commit has been written to the transaction log on disk
+    of both the primary and standby server. The only possibility that data
+    can be lost is if both the primary and the standby suffer crashes at the
+    same time. This can provide a much higher level of durability, though only
+    if the sysadmin is cautious about the placement and management of the two
+    servers.  Waiting for confirmation increases the user's confidence that the
+    changes will not be lost in the event of server crashes but it also
+    necessarily increases the response time for the requesting transaction.
+    The minimum wait time is the roundtrip time between primary to standby.
+   </para>
+
+   <para>
+    Read only transactions and transaction rollbacks need not wait for
+    replies from standby servers. Subtransaction commits do not wait for
+    responses from standby servers, only top-level commits. Long
+    running actions such as data loading or index building do not wait
+    until the very final commit message. All two-phase commit actions
+    require commit waits, including both prepare and commit.
+   </para>
+
+   <sect3 id="synchronous-replication-config">
+    <title>Basic Configuration</title>
+
+   <para>
+    Once streaming replication has been configured, configuring synchronous
+    replication requires only one additional configuration step:
+    <xref linkend="guc-synchronous-standby-names"> must be set to
+    a non-empty value.  <varname>synchronous_commit</> must also be set to
+    <literal>on</>, but since this is the default value, typically no change is
+    required.  This configuration will cause each commit to wait for
+    confirmation that the standby has written the commit record to durable
+    storage, even if that takes a very long time.
+    <varname>synchronous_commit</> can be set by individual
+    users, so can be configured in the configuration file, for particular
+    users or databases, or dynamically by applications, in order to control
+    the durability guarantee on a per-transaction basis.
+   </para>
+
+   <para>
+    After a commit record has been written to disk on the primary, the
+    WAL record is then sent to the standby. The standby sends reply
+    messages each time a new batch of WAL data is written to disk, unless
+    <varname>wal_receiver_status_interval</> is set to zero on the standby.
+    If the standby is the first matching standby, as specified in
+    <varname>synchronous_standby_names</> on the primary, the reply
+    messages from that standby will be used to wake users waiting for
+    confirmation that the commit record has been received. These parameters
+    allow the administrator to specify which standby servers should be
+    synchronous standbys. Note that the configuration of synchronous
+    replication is mainly on the master.
+   </para>
+
+   <para>
+    Users will stop waiting if a fast shutdown is requested.  However, as
+    when using asynchronous replication, the server will does not fully
+    shutdown until all outstanding WAL records are transferred to the currently
+    connected standby servers.
+   </para>
+
+   </sect3>
+
+   <sect3 id="synchronous-replication-performance">
+    <title>Planning for Performance</title>
+
+   <para>
+    Synchronous replication usually requires carefully planned and placed
+    standby servers to ensure applications perform acceptably. Waiting
+    doesn't utilise system resources, but transaction locks continue to be
+    held until the transfer is confirmed. As a result, incautious use of
+    synchronous replication will reduce performance for database
+    applications because of increased response times and higher contention.
+   </para>
+
+   <para>
+    <productname>PostgreSQL</> allows the application developer
+    to specify the durability level required via replication. This can be
+    specified for the system overall, though it can also be specified for
+    specific users or connections, or even individual transactions.
+   </para>
+
+   <para>
+    For example, an application workload might consist of:
+    10% of changes are important customer details, while
+    90% of changes are less important data that the business can more
+    easily survive if it is lost, such as chat messages between users.
+   </para>
+
+   <para>
+    With synchronous replication options specified at the application level
+    (on the primary) we can offer synchronous replication for the most
+    important changes, without slowing down the bulk of the total workload.
+    Application level options are an important and practical tool for allowing
+    the benefits of synchronous replication for high performance applications.
+   </para>
+
+   <para>
+    You should consider that the network bandwidth must be higher than
+    the rate of generation of WAL data.
+   </para>
+
+   </sect3>
+
+   <sect3 id="synchronous-replication-ha">
+    <title>Planning for High Availability</title>
+
+   <para>
+    Commits made when <varname>synchronous_commit</> is set to <literal>on</>
+    will wait until the sync standby responds. The response may never occur
+    if the last, or only, standby should crash.
+   </para>
+
+   <para>
+    The best solution for avoiding data loss is to ensure you don't lose
+    your last remaining sync standby. This can be achieved by naming multiple
+    potential synchronous standbys using <varname>synchronous_standby_names</>.
+    The first named standby will be used as the synchronous standby. Standbys
+    listed after this will take over the role of synchronous standby if the
+    first one should fail.
+   </para>
+
+   <para>
+    When a standby first attaches to the primary, it will not yet be properly
+    synchronized. This is described as <literal>CATCHUP</> mode. Once
+    the lag between standby and primary reaches zero for the first time
+    we move to real-time <literal>STREAMING</> state.
+    The catch-up duration may be long immediately after the standby has
+    been created. If the standby is shut down, then the catch-up period
+    will increase according to the length of time the standby has been down.
+    The standby is only able to become a synchronous standby
+    once it has reached <literal>STREAMING</> state.
+   </para>
+
+   <para>
+    If primary restarts while commits are waiting for acknowledgement, those
+    waiting transactions will be marked fully committed once the primary
+    database recovers.
+    There is no way to be certain that all standbys have received all
+    outstanding WAL data at time of the crash of the primary. Some
+    transactions may not show as committed on the standby, even though
+    they show as committed on the primary. The guarantee we offer is that
+    the application will not receive explicit acknowledgement of the
+    successful commit of a transaction until the WAL data is known to be
+    safely received by the standby.
+   </para>
+
+   <para>
+    If you really do lose your last standby server then you should disable
+    <varname>synchronous_standby_names</> and reload the configuration file
+    on the primary server.
+   </para>
+
+   <para>
+    If the primary is isolated from remaining standby servers you should
+    fail over to the best candidate of those other remaining standby servers.
+   </para>
+
+   <para>
+    If you need to re-create a standby server while transactions are
+    waiting, make sure that the commands to run pg_start_backup() and
+    pg_stop_backup() are run in a session with
+    <varname>synchronous_commit</> = <literal>off</>, otherwise those
+    requests will wait forever for the standby to appear.
+   </para>
+
+   </sect3>
   </sect2>
   </sect1>
 
@@ -907,7 +1124,7 @@ primary_conninfo = 'host=192.168.1.50 port=5432 user=foo password=foopass'
     and might stay down.  To return to normal operation, a standby server
     must be recreated,
     either on the former primary system when it comes up, or on a third,
-    possibly new, system. Once complete the primary and standby can be
+    possibly new, system. Once complete, the primary and standby can be
     considered to have switched roles. Some people choose to use a third
     server to provide backup for the new primary until the new standby
     server is recreated,
@@ -925,26 +1142,27 @@ primary_conninfo = 'host=192.168.1.50 port=5432 user=foo password=foopass'
    </para>
 
    <para>
-    To trigger failover of a log-shipping standby server, create a trigger
-    file with the filename and path specified by the <varname>trigger_file</>
-    setting in <filename>recovery.conf</>. If <varname>trigger_file</> is
-    not given, there is no way to exit recovery in the standby and promote
-    it to a master. That can be useful for e.g reporting servers that are
+    To trigger failover of a log-shipping standby server,
+    run <command>pg_ctl promote</> or create a trigger
+    file with the file name and path specified by the <varname>trigger_file</>
+    setting in <filename>recovery.conf</>. If you're planning to use
+    <command>pg_ctl promote</> to fail over, <varname>trigger_file</> is
+    not required. If you're setting up the reporting servers that are
     only used to offload read-only queries from the primary, not for high
-    availability purposes.
+    availability purposes, you don't need to promote it.
    </para>
   </sect1>
 
   <sect1 id="log-shipping-alternative">
-   <title>Alternative method for log shipping</title>
+   <title>Alternative Method for Log Shipping</title>
 
    <para>
     An alternative to the built-in standby mode described in the previous
     sections is to use a <varname>restore_command</> that polls the archive location.
     This was the only option available in versions 8.4 and below. In this
     setup, set <varname>standby_mode</> off, because you are implementing
-    the polling required for standby operation yourself. See
-    contrib/pg_standby (<xref linkend="pgstandby">) for a reference
+    the polling required for standby operation yourself. See the
+    <xref linkend="pgstandby"> module for a reference
     implementation of this.
    </para>
 
@@ -1004,7 +1222,7 @@ if (!triggered)
 
    <para>
     A working example of a waiting <varname>restore_command</> is provided
-    as a <filename>contrib</> module named <application>pg_standby</>. It
+    in the <xref linkend="pgstandby"> module. It
     should be used as a reference on how to correctly implement the logic
     described above. It can also be extended as needed to support specific
     configurations and environments.
@@ -1353,7 +1571,7 @@ if (!triggered)
   </sect2>
 
   <sect2 id="hot-standby-conflict">
-   <title>Handling query conflicts</title>
+   <title>Handling Query Conflicts</title>
 
    <para>
     The primary and standby servers are in many ways loosely connected. Actions
@@ -1462,23 +1680,6 @@ if (!triggered)
    </para>
 
    <para>
-    The most common reason for conflict between standby queries and WAL replay
-    is <quote>early cleanup</>.  Normally, <productname>PostgreSQL</> allows
-    cleanup of old row versions when there are no transactions that need to
-    see them to ensure correct visibility of data according to MVCC rules.
-    However, this rule can only be applied for transactions executing on the
-    master.  So it is possible that cleanup on the master will remove row
-    versions that are still visible to a transaction on the standby.
-   </para>
-
-   <para>
-    Experienced users should note that both row version cleanup and row version
-    freezing will potentially conflict with standby queries. Running a manual
-    <command>VACUUM FREEZE</> is likely to cause conflicts even on tables with
-    no updated or deleted rows.
-   </para>
-
-   <para>
     Once the delay specified by <varname>max_standby_archive_delay</> or
     <varname>max_standby_streaming_delay</> has been exceeded, conflicting
     queries will be cancelled.  This usually results just in a cancellation
@@ -1505,6 +1706,23 @@ if (!triggered)
    </para>
 
    <para>
+    The most common reason for conflict between standby queries and WAL replay
+    is <quote>early cleanup</>.  Normally, <productname>PostgreSQL</> allows
+    cleanup of old row versions when there are no transactions that need to
+    see them to ensure correct visibility of data according to MVCC rules.
+    However, this rule can only be applied for transactions executing on the
+    master.  So it is possible that cleanup on the master will remove row
+    versions that are still visible to a transaction on the standby.
+   </para>
+
+   <para>
+    Experienced users should note that both row version cleanup and row version
+    freezing will potentially conflict with standby queries. Running a manual
+    <command>VACUUM FREEZE</> is likely to cause conflicts even on tables with
+    no updated or deleted rows.
+   </para>
+
+   <para>
     Users should be clear that tables that are regularly and heavily updated
     on the primary server will quickly cause cancellation of longer running
     queries on the standby. In such cases the setting of a finite value for
@@ -1515,12 +1733,10 @@ if (!triggered)
 
    <para>
     Remedial possibilities exist if the number of standby-query cancellations
-    is found to be unacceptable.  The first option is to connect to the
-    primary server and keep a query active for as long as needed to
-    run queries on the standby. This prevents <command>VACUUM</> from removing
-    recently-dead rows and so cleanup conflicts do not occur.
-    This could be done using <filename>contrib/dblink</> and
-    <function>pg_sleep()</>, or via other mechanisms. If you do this, you
+    is found to be unacceptable.  The first option is to set the parameter
+    <varname>hot_standby_feedback</>, which prevents <command>VACUUM</> from
+    removing recently-dead rows and so cleanup conflicts do not occur.
+    If you do this, you
     should note that this will delay cleanup of dead rows on the primary,
     which may result in undesirable table bloat. However, the cleanup
     situation will be no worse than if the standby queries were running
@@ -1540,6 +1756,13 @@ if (!triggered)
     difficult to guarantee any specific execution-time window with this
     approach, since <varname>vacuum_defer_cleanup_age</> is measured in
     transactions executed on the primary server.
+   </para>
+
+   <para>
+    The number of query cancels and the reason for them can be viewed using
+    the <structname>pg_stat_database_conflicts</> system view on the standby
+    server. The <structname>pg_stat_database</> system view also contains
+    summary information.
    </para>
   </sect2>
 
@@ -1743,7 +1966,7 @@ LOG:  database system is ready to accept read only connections
    </para>
 
    <para>
-    New oids cannot be assigned, though some <acronym>UUID</> generators may still
+    New OIDs cannot be assigned, though some <acronym>UUID</> generators may still
     work as long as they do not rely on writing new status to the database.
    </para>
 
@@ -1764,12 +1987,15 @@ LOG:  database system is ready to accept read only connections
    </para>
 
    <para>
-    Running <command>DROP DATABASE</>, <command>ALTER DATABASE ... SET
-    TABLESPACE</>, or <command>ALTER DATABASE ... RENAME</> on the primary
+    Running <command>DROP DATABASE</> or <command>ALTER DATABASE ... SET
+    TABLESPACE</> on the primary
     will generate a WAL entry that will cause all users connected to that
     database on the standby to be forcibly disconnected. This action occurs
     immediately, whatever the setting of
-    <varname>max_standby_streaming_delay</>.
+    <varname>max_standby_streaming_delay</>. Note that
+    <command>ALTER DATABASE ... RENAME</> does not disconnect users, which
+    in most cases will go unnoticed, though might in some cases cause a
+    program confusion if it depends in some way upon database name.
    </para>
 
    <para>
@@ -1842,8 +2068,7 @@ LOG:  database system is ready to accept read only connections
    <listitem>
     <para>
      Operations on hash indexes are not presently WAL-logged, so
-     replay will not update these indexes.  Hash indexes will not be
-     used for query plans during recovery.
+     replay will not update these indexes.
     </para>
    </listitem>
    <listitem>
@@ -1880,7 +2105,16 @@ LOG:  database system is ready to accept read only connections
      advised to select a larger value of <varname>max_locks_per_transaction</>,
      perhaps as much as twice the value of the parameter on
      the primary server. You need not consider this at all if
-     your setting of <varname>max_prepared_transactions</> is <literal>0</>.
+     your setting of <varname>max_prepared_transactions</> is 0.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     The Serializable transaction isolation level is not yet available in hot
+     standby.  (See <xref linkend="xact-serializable"> and
+     <xref linkend="serializable-consistency"> for details.)
+     An attempt to set a transaction to the serializable isolation level in
+     hot standby mode will generate an error.
     </para>
    </listitem>
   </itemizedlist>
@@ -1889,96 +2123,5 @@ LOG:  database system is ready to accept read only connections
   </sect2>
 
  </sect1>
-
-  <sect1 id="backup-incremental-updated">
-   <title>Incrementally Updated Backups</title>
-
-  <indexterm zone="high-availability">
-   <primary>incrementally updated backups</primary>
-  </indexterm>
-
-  <indexterm zone="high-availability">
-   <primary>change accumulation</primary>
-  </indexterm>
-
-   <para>
-    In a standby configuration, it is possible to offload the expense of
-    taking periodic base backups from the primary server; instead base backups
-    can be made by backing
-    up a standby server's files.  This concept is generally known as
-    incrementally updated backups, log change accumulation, or more simply,
-    change accumulation.
-   </para>
-
-   <para>
-    If we take a file system backup of the standby server's data
-    directory while it is processing
-    logs shipped from the primary, we will be able to reload that backup and
-    restart the standby's recovery process from the last restart point.
-    We no longer need to keep WAL files from before the standby's restart point.
-    If recovery is needed, it will be faster to recover from the incrementally
-    updated backup than from the original base backup.
-   </para>
-
-   <para>
-    The procedure for taking a file system backup of the standby server's
-    data directory while it's processing logs shipped from the primary is:
-   <orderedlist>
-    <listitem>
-     <para>
-      Perform the backup, without using <function>pg_start_backup</> and
-      <function>pg_stop_backup</>. Note that the <filename>pg_control</>
-      file must be backed up <emphasis>first</>, as in:
-<programlisting>
-cp /var/lib/pgsql/data/global/pg_control /tmp
-cp -r /var/lib/pgsql/data /path/to/backup
-mv /tmp/pg_control /path/to/backup/data/global
-</programlisting>
-      <filename>pg_control</> contains the location where WAL replay will
-      begin after restoring from the backup; backing it up first ensures
-      that it points to the last restartpoint when the backup started, not
-      some later restartpoint that happened while files were copied to the
-      backup.
-     </para>
-    </listitem>
-    <listitem>
-     <para>
-      Make note of the backup ending WAL location by calling the <function>
-      pg_last_xlog_replay_location</> function at the end of the backup,
-      and keep it with the backup.
-<programlisting>
-psql -c "select pg_last_xlog_replay_location();" > /path/to/backup/end_location
-</programlisting>
-      When recovering from the incrementally updated backup, the server
-      can begin accepting connections and complete the recovery successfully
-      before the database has become consistent. To avoid that, you must
-      ensure the database is consistent before users try to connect to the
-      server and when the recovery ends. You can do that by comparing the
-      progress of the recovery with the stored backup ending WAL location:
-      the server is not consistent until recovery has reached the backup end
-      location. The progress of the recovery can also be observed with the
-      <function>pg_last_xlog_replay_location</> function, but that required
-      connecting to the server while it might not be consistent yet, so
-      care should be taken with that method.
-     </para>
-     <para>
-     </para>
-    </listitem>
-   </orderedlist>
-   </para>
-
-   <para>
-    Since the standby server is not <quote>live</>, it is not possible to
-    use <function>pg_start_backup()</> and <function>pg_stop_backup()</>
-    to manage the backup process; it will be up to you to determine how
-    far back you need to keep WAL segment files to have a recoverable
-    backup. That is determined by the last restartpoint when the backup
-    was taken, any WAL older than that can be deleted from the archive
-    once the backup is complete. You can determine the last restartpoint
-    by running <application>pg_controldata</> on the standby server before
-    taking the backup, or by using the <varname>log_checkpoints</> option
-    to print values to the standby's server log.
-   </para>
-  </sect1>
 
 </chapter>

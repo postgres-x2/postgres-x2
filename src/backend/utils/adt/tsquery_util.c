@@ -3,11 +3,11 @@
  * tsquery_util.c
  *	  Utilities for tsquery datatype
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/utils/adt/tsquery_util.c,v 1.13 2010/01/02 16:57:55 momjian Exp $
+ *	  src/backend/utils/adt/tsquery_util.c
  *
  *-------------------------------------------------------------------------
  */
@@ -45,7 +45,7 @@ QT2QTN(QueryItem *in, char *operand)
 	else if (operand)
 	{
 		node->word = operand + in->qoperand.distance;
-		node->sign = 1 << (in->qoperand.valcrc % 32);
+		node->sign = ((uint32) 1) << (((unsigned int) in->qoperand.valcrc) % 32);
 	}
 
 	return node;
@@ -113,12 +113,10 @@ QTNodeCompare(QTNode *an, QTNode *bn)
 		}
 		return 0;
 	}
-	else
+	else if (an->valnode->type == QI_VAL)
 	{
 		QueryOperand *ao = &an->valnode->qoperand;
 		QueryOperand *bo = &bn->valnode->qoperand;
-
-		Assert(an->valnode->type == QI_VAL);
 
 		if (ao->valcrc != bo->valcrc)
 		{
@@ -126,6 +124,11 @@ QTNodeCompare(QTNode *an, QTNode *bn)
 		}
 
 		return tsCompareString(an->word, ao->length, bn->word, bo->length, false);
+	}
+	else
+	{
+		elog(ERROR, "unrecognized QueryItem type: %d", an->valnode->type);
+		return 0;				/* keep compiler quiet */
 	}
 }
 
@@ -333,7 +336,7 @@ QTN2QT(QTNode *in)
 	cntsize(in, &sumlen, &nnode);
 	len = COMPUTESIZE(nnode, sumlen);
 
-	out = (TSQuery) palloc(len);
+	out = (TSQuery) palloc0(len);
 	SET_VARSIZE(out, len);
 	out->size = nnode;
 

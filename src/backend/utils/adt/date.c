@@ -3,12 +3,12 @@
  * date.c
  *	  implements DATE and TIME data types specified in SQL-92 standard
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994-5, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/utils/adt/date.c,v 1.152 2010/02/26 02:01:07 momjian Exp $
+ *	  src/backend/utils/adt/date.c
  *
  *-------------------------------------------------------------------------
  */
@@ -453,6 +453,39 @@ date2timestamptz(DateADT dateVal)
 					 errmsg("date out of range for timestamp")));
 #else
 		result = dateVal * (double) SECS_PER_DAY + tz;
+#endif
+	}
+
+	return result;
+}
+
+/*
+ * date2timestamp_no_overflow
+ *
+ * This is chartered to produce a double value that is numerically
+ * equivalent to the corresponding Timestamp value, if the date is in the
+ * valid range of Timestamps, but in any case not throw an overflow error.
+ * We can do this since the numerical range of double is greater than
+ * that of non-erroneous timestamps.  The results are currently only
+ * used for statistical estimation purposes.
+ */
+double
+date2timestamp_no_overflow(DateADT dateVal)
+{
+	double		result;
+
+	if (DATE_IS_NOBEGIN(dateVal))
+		result = -DBL_MAX;
+	else if (DATE_IS_NOEND(dateVal))
+		result = DBL_MAX;
+	else
+	{
+#ifdef HAVE_INT64_TIMESTAMP
+		/* date is days since 2000, timestamp is microseconds since same... */
+		result = dateVal * (double) USECS_PER_DAY;
+#else
+		/* date is days since 2000, timestamp is seconds since same... */
+		result = dateVal * (double) SECS_PER_DAY;
 #endif
 	}
 
@@ -2579,7 +2612,7 @@ timetz_zone(PG_FUNCTION_ARGS)
 	type = DecodeSpecial(0, lowzone, &val);
 
 	if (type == TZ || type == DTZ)
-		tz = val * 60;
+		tz = val * MINS_PER_HOUR;
 	else
 	{
 		tzp = pg_tzset(tzname);

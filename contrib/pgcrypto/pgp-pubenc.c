@@ -26,7 +26,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $PostgreSQL: pgsql/contrib/pgcrypto/pgp-pubenc.c,v 1.5 2009/06/11 14:48:52 momjian Exp $
+ * contrib/pgcrypto/pgp-pubenc.c
  */
 #include "postgres.h"
 
@@ -199,13 +199,15 @@ pgp_write_pubenc_sesskey(PGP_Context *ctx, PushFilter *dst)
 	PGP_PubKey *pk = ctx->pub_key;
 	uint8		ver = 3;
 	PushFilter *pkt = NULL;
-	uint8		algo = pk->algo;
+	uint8		algo;
 
 	if (pk == NULL)
 	{
 		px_debug("no pubkey?\n");
 		return PXE_BUG;
 	}
+
+	algo = pk->algo;
 
 	/*
 	 * now write packet

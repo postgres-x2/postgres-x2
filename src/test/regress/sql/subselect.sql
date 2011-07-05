@@ -177,7 +177,7 @@ SELECT *,
 				ELSE 'Approved'
 			END)
 		ELSE 'PO'
-	END) 
+	END)
 END) AS "Status",
 (CASE
  WHEN ord.ordercancelled
@@ -192,7 +192,7 @@ END) AS "Status",
 				ELSE 'Approved'
 			END)
 		ELSE 'PO'
-	END) 
+	END)
 END) AS "Status_OK"
 FROM orderstest ord;
 
@@ -348,3 +348,9 @@ from
    from int8_tbl) sq0
   join
   int4_tbl i4 on dummy = i4.f1;
+
+--
+-- Test case for premature memory release during hashing of subplan output
+--
+
+select '1'::text in (select '1'::name union all select '1'::name);

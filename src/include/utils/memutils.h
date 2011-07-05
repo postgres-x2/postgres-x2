@@ -7,10 +7,10 @@
  *	  of the API of the memory management subsystem.
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/utils/memutils.h,v 1.66 2010/01/02 16:58:10 momjian Exp $
+ * src/include/utils/memutils.h
  *
  *-------------------------------------------------------------------------
  */
@@ -30,7 +30,9 @@
  *		be summarily denied.
  *
  * XXX This is deliberately chosen to correspond to the limiting size
- * of varlena objects under TOAST.	See VARATT_MASK_SIZE in postgres.h.
+ * of varlena objects under TOAST.	See VARSIZE_4B() and related macros
+ * in postgres.h.  Many datatypes assume that any allocatable size can
+ * be represented in a varlena header.
  *
  * XXX Also, various places in aset.c assume they can compute twice an
  * allocation's size without overflow, so beware of raising this.

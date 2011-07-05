@@ -1,6 +1,6 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/pgstattuple.sgml,v 1.5 2009/05/18 11:08:24 petere Exp $ -->
+<!-- doc/src/sgml/pgstattuple.sgml -->
 
-<sect1 id="pgstattuple">
+<sect1 id="pgstattuple" xreflabel="pgstattuple">
  <title>pgstattuple</title>
 
  <indexterm zone="pgstattuple">
@@ -45,7 +45,7 @@ free_percent       | 1.95
     </para>
 
     <table id="pgstattuple-columns">
-     <title><function>pgstattuple</function> output columns</title>
+     <title><function>pgstattuple</function> Output Columns</title>
      <tgroup cols="3">
       <thead>
        <row>
@@ -140,9 +140,8 @@ free_percent       | 1.95
     <listitem>
      <para>
       <function>pgstatindex</function> returns a record showing information
-      about a btree index.  For example:
-     </para>
-     <programlisting>
+      about a B-tree index.  For example:
+<programlisting>
 test=> SELECT * FROM pgstatindex('pg_cast_oid_index');
 -[ RECORD 1 ]------+------
 version            | 2
@@ -155,14 +154,13 @@ empty_pages        | 0
 deleted_pages      | 0
 avg_leaf_density   | 50.27
 leaf_fragmentation | 0
-    </programlisting>
+</programlisting>
+     </para>
 
     <para>
      The output columns are:
-    </para>
 
-    <table>
-     <title><function>pgstatindex</function> output columns</title>
+    <informaltable>
      <tgroup cols="3">
       <thead>
        <row>
@@ -176,7 +174,7 @@ leaf_fragmentation | 0
        <row>
         <entry><structfield>version</structfield></entry>
         <entry><type>integer</type></entry>
-        <entry>Btree version number</entry>
+        <entry>B-tree version number</entry>
        </row>
 
        <row>
@@ -235,7 +233,8 @@ leaf_fragmentation | 0
 
       </tbody>
      </tgroup>
-    </table>
+    </informaltable>
+    </para>
 
     <para>
      As with <function>pgstattuple</>, the results are accumulated

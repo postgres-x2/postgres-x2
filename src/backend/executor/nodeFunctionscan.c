@@ -3,12 +3,12 @@
  * nodeFunctionscan.c
  *	  Support routines for scanning RangeFunctions (functions in rangetable).
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/executor/nodeFunctionscan.c,v 1.55 2010/01/02 16:57:41 momjian Exp $
+ *	  src/backend/executor/nodeFunctionscan.c
  *
  *-------------------------------------------------------------------------
  */
@@ -18,12 +18,13 @@
  *		ExecFunctionNext		retrieve next tuple in sequential order.
  *		ExecInitFunctionScan	creates and initializes a functionscan node.
  *		ExecEndFunctionScan		releases any storage allocated.
- *		ExecFunctionReScan		rescans the function
+ *		ExecReScanFunctionScan	rescans the function
  */
 #include "postgres.h"
 
 #include "executor/nodeFunctionscan.h"
 #include "funcapi.h"
+#include "nodes/nodeFuncs.h"
 #include "utils/builtins.h"
 
 
@@ -185,12 +186,16 @@ ExecInitFunctionScan(FunctionScan *node, EState *estate, int eflags)
 						   funcrettype,
 						   -1,
 						   0);
+		TupleDescInitEntryCollation(tupdesc,
+									(AttrNumber) 1,
+									exprCollation(node->funcexpr));
 	}
 	else if (functypclass == TYPEFUNC_RECORD)
 	{
 		tupdesc = BuildDescFromLists(node->funccolnames,
 									 node->funccoltypes,
-									 node->funccoltypmods);
+									 node->funccoltypmods,
+									 node->funccolcollations);
 	}
 	else
 	{
@@ -255,13 +260,13 @@ ExecEndFunctionScan(FunctionScanState *node)
 }
 
 /* ----------------------------------------------------------------
- *		ExecFunctionReScan
+ *		ExecReScanFunctionScan
  *
  *		Rescans the relation.
  * ----------------------------------------------------------------
  */
 void
-ExecFunctionReScan(FunctionScanState *node, ExprContext *exprCtxt)
+ExecReScanFunctionScan(FunctionScanState *node)
 {
 	ExecClearTuple(node->ss.ps.ps_ResultTupleSlot);
 

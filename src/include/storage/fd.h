@@ -4,10 +4,10 @@
  *	  Virtual file descriptor definitions.
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/storage/fd.h,v 1.68 2010/02/26 02:01:27 momjian Exp $
+ * src/include/storage/fd.h
  *
  *-------------------------------------------------------------------------
  */
@@ -61,6 +61,7 @@ extern int	max_files_per_process;
 /* Operations on virtual Files --- equivalent to Unix kernel file ops */
 extern File PathNameOpenFile(FileName fileName, int fileFlags, int fileMode);
 extern File OpenTemporaryFile(bool interXact);
+extern void FileSetTransient(File file);
 extern void FileClose(File file);
 extern int	FilePrefetch(File file, off_t offset, int amount);
 extern int	FileRead(File file, char *buffer, int amount);

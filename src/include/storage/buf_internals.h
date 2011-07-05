@@ -5,10 +5,10 @@
  *	  strategy.
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/storage/buf_internals.h,v 1.104 2010/01/02 16:58:08 momjian Exp $
+ * src/include/storage/buf_internals.h
  *
  *-------------------------------------------------------------------------
  */
@@ -37,6 +37,8 @@
 #define BM_JUST_DIRTIED			(1 << 5)		/* dirtied since write started */
 #define BM_PIN_COUNT_WAITER		(1 << 6)		/* have waiter for sole pin */
 #define BM_CHECKPOINT_NEEDED	(1 << 7)		/* must write for checkpoint */
+#define BM_PERMANENT			(1 << 8)		/* permanent relation (not
+												 * unlogged) */
 
 typedef bits16 BufFlags;
 

@@ -1,15 +1,15 @@
 #!/bin/sh
 
-# $PostgreSQL: pgsql/src/tools/find_typedef,v 1.16 2009/06/12 03:09:07 momjian Exp $
+# src/tools/find_typedef
 
 # This script attempts to find all typedef's in the postgres binaries
 # by using 'nm' to report all typedef debugging symbols.
-# 
-# For this program to work, you must have compiled all binaries with 
+#
+# For this program to work, you must have compiled all binaries with
 # debugging symbols.
 #
 # This is run on BSD/OS 4.0 or Linux, so you may need to make changes.
-# 
+#
 # Ignore the nm errors about a file not being a binary file.
 #
 # It gets typedefs by reading "STABS":

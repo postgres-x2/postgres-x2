@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/backup.sgml,v 2.156 2010/06/07 02:01:08 itagaki Exp $ -->
+<!-- doc/src/sgml/backup.sgml -->
 
 <chapter id="backup">
  <title>Backup and Restore</title>
@@ -20,7 +20,8 @@
    <listitem><para>File system level backup</para></listitem>
    <listitem><para>Continuous archiving</para></listitem>
   </itemizedlist>
-  Each has its own strengths and weaknesses; each is discussed in turn below.
+  Each has its own strengths and weaknesses; each is discussed in turn
+  in the following sections.
  </para>
 
  <sect1 id="backup-dump">
@@ -74,6 +75,16 @@ pg_dump <replaceable class="parameter">dbname</replaceable> &gt; <replaceable cl
   </para>
 
   <para>
+   An important advantage of <application>pg_dump</> over the other backup
+   methods described later is that <application>pg_dump</>'s output can
+   generally be re-loaded into newer versions of <productname>PostgreSQL</>,
+   whereas file-level backups and continuous archiving are both extremely
+   server-version-specific.  <application>pg_dump</> is also the only method
+   that will work when transferring a database to a different machine
+   architecture, such as going from a 32-bit to a 64-bit server.
+  </para>
+
+  <para>
    Dumps created by <application>pg_dump</> are internally consistent,
    meaning, the dump represents a snapshot of the database at the time
    <application>pg_dump</> began running. <application>pg_dump</> does not
@@ -92,7 +103,7 @@ pg_dump <replaceable class="parameter">dbname</replaceable> &gt; <replaceable cl
   </important>
 
   <sect2 id="backup-dump-restore">
-   <title>Restoring the dump</title>
+   <title>Restoring the Dump</title>
 
    <para>
     The text files created by <application>pg_dump</> are intended to
@@ -214,7 +225,7 @@ psql -f <replaceable class="parameter">infile</replaceable> postgres
   </sect2>
 
   <sect2 id="backup-dump-large">
-   <title>Handling large databases</title>
+   <title>Handling Large Databases</title>
 
    <para>
     Some operating systems have maximum file size limits that cause
@@ -372,6 +383,8 @@ tar -cf backup.tar /usr/local/pgsql/data
    on the backed-up data, it will think the previous server instance
    crashed and will replay the WAL log.  This is not a problem; just
    be aware of it (and be sure to include the WAL files in your backup).
+   You can perform a <command>CHECKPOINT</command> before taking the
+   snapshot to reduce recovery time.
   </para>
 
   <para>
@@ -388,7 +401,7 @@ tar -cf backup.tar /usr/local/pgsql/data
   <para>
    If simultaneous snapshots are not possible, one option is to shut down
    the database server long enough to establish all the frozen snapshots.
-   Another option is perform a continuous archiving base backup (<xref
+   Another option is to perform a continuous archiving base backup (<xref
    linkend="backup-base-backup">) because such backups are immune to file
    system changes during the backup.  This requires enabling continuous
    archiving just during the backup process; restore is done using
@@ -415,7 +428,7 @@ tar -cf backup.tar /usr/local/pgsql/data
  </sect1>
 
  <sect1 id="continuous-archiving">
-  <title>Continuous Archiving and Point-In-Time Recovery (PITR)</title>
+  <title>Continuous Archiving and Point-in-Time Recovery (PITR)</title>
 
   <indexterm zone="backup">
    <primary>continuous archiving</primary>
@@ -490,7 +503,7 @@ tar -cf backup.tar /usr/local/pgsql/data
     <application>pg_dumpall</application> do not produce file-system-level
     backups and cannot be used as part of a continuous-archiving solution.
     Such dumps are <emphasis>logical</> and do not contain enough
-    information to used by WAL reply.
+    information to be used by WAL replay.
    </para>
   </note>
 
@@ -514,7 +527,7 @@ tar -cf backup.tar /usr/local/pgsql/data
   </para>
 
   <sect2 id="backup-archiving-wal">
-   <title>Setting up WAL archiving</title>
+   <title>Setting Up WAL Archiving</title>
 
    <para>
     In an abstract sense, a running <productname>PostgreSQL</> system
@@ -566,7 +579,8 @@ tar -cf backup.tar /usr/local/pgsql/data
     character in the command.  The simplest useful command is something
     like:
 <programlisting>
-archive_command = 'cp -i %p /mnt/server/archivedir/%f &lt;/dev/null'
+archive_command = 'cp -i %p /mnt/server/archivedir/%f &lt;/dev/null'  # Unix
+archive_command = 'copy "%p" "C:\\server\\archivedir\\%f"'  # Windows
 </programlisting>
     which will copy archivable WAL segments to the directory
     <filename>/mnt/server/archivedir</>.  (This is an example, not a
@@ -799,6 +813,17 @@ SELECT pg_stop_backup();
    </para>
 
    <para>
+    You can also use the <xref linkend="app-pgbasebackup"> tool to take
+    the backup, instead of manually copying the files. This tool will do
+    the equivalent of <function>pg_start_backup()</>, copy and
+    <function>pg_stop_backup()</> steps automatically, and transfers the
+    backup over a regular <productname>PostgreSQL</productname> connection
+    using the replication protocol, instead of requiring file system level
+    access. <command>pg_basebackup</command> does not interfere with file system level backups
+    taken using <function>pg_start_backup()</>/<function>pg_stop_backup()</>.
+   </para>
+
+   <para>
     Some file system backup tools emit warnings or errors
     if the files they are trying to copy change while the copy proceeds.
     When taking a base backup of an active database, this situation is normal
@@ -810,8 +835,8 @@ SELECT pg_stop_backup();
     GNU <application>tar</> return an error code indistinguishable from
     a fatal error if a file was truncated while <application>tar</> was
     copying it.  Fortunately, GNU <application>tar</> versions 1.16 and
-    later exit with <literal>1</> if a file was changed during the backup,
-    and <literal>2</> for other errors.
+    later exit with 1 if a file was changed during the backup,
+    and 2 for other errors.
    </para>
 
    <para>
@@ -910,7 +935,7 @@ SELECT pg_stop_backup();
   </sect2>
 
   <sect2 id="backup-pitr-recovery">
-   <title>Recovering using a Continuous Archive Backup</title>
+   <title>Recovering Using a Continuous Archive Backup</title>
 
    <para>
     Okay, the worst has happened and you need to recover from your backup.
@@ -1061,9 +1086,10 @@ restore_command = 'cp /mnt/server/archivedir/%f %p'
     the junior DBA dropped your main transaction table), just specify the
     required stopping point in <filename>recovery.conf</>.  You can specify
     the stop point, known as the <quote>recovery target</>, either by
-    date/time or by completion of a specific transaction ID.  As of this
-    writing only the date/time option is very usable, since there are no tools
-    to help you identify with any accuracy which transaction ID to use.
+    date/time, named restore point or by completion of a specific transaction
+    ID.  As of this writing only the date/time and named restore point options
+    are very usable, since there are no tools to help you identify with any
+    accuracy which transaction ID to use.
    </para>
 
    <note>
@@ -1169,7 +1195,7 @@ restore_command = 'cp /mnt/server/archivedir/%f %p'
    </para>
 
     <sect3 id="backup-standalone">
-     <title>Standalone hot backups</title>
+     <title>Standalone Hot Backups</title>
 
      <para>
       It is possible to use <productname>PostgreSQL</>'s backup facilities to
@@ -1232,7 +1258,7 @@ restore_command = 'gunzip &lt; /mnt/server/archivedir/%f | pg_decompresslog - %p
     </sect3>
 
     <sect3 id="backup-scripts">
-     <title><varname>archive_command</varname> scripts</title>
+     <title><varname>archive_command</varname> Scripts</title>
 
      <para>
       Many people choose to use scripts to define their
@@ -1352,190 +1378,4 @@ archive_command = 'local_backup_script.sh'
   </sect2>
  </sect1>
 
- <sect1 id="migration">
-  <title>Migration Between Releases</title>
-
-  <indexterm zone="migration">
-   <primary>upgrading</primary>
-  </indexterm>
-
-  <indexterm zone="migration">
-   <primary>version</primary>
-   <secondary>compatibility</secondary>
-  </indexterm>
-
-  <para>
-   This section discusses how to migrate your database data from one
-   <productname>PostgreSQL</> release to a newer one.
-   The software installation procedure <foreignphrase>per se</> is not the
-   subject of this section; those details are in <xref linkend="installation">.
-  </para>
-
-  <para>
-   <productname>PostgreSQL</> major versions are represented by the
-   first two digit groups of the version number, e.g. 8.4.
-   <productname>PostgreSQL</> minor versions are represented by the
-   the third group of version digits, i.e., 8.4.2 is the second minor
-   release of 8.4.  Minor releases never change the internal storage
-   format and are always compatible with earlier and later minor
-   releases of the same major version number, i.e. 8.4.2 is compatible
-   with 8.4, 8.4.1 and 8.4.6.  To update between compatible versions,
-   you simply replace the executables while the server is down and
-   restart the server.  The data directory remains unchanged &mdash;
-   minor upgrades are that simple.
-  </para>
-
-  <para>
-   For <emphasis>major</> releases of <productname>PostgreSQL</>, the
-   internal data storage format is subject to change.  When migrating
-   data from one major version of <productname>PostgreSQL</> to another,
-   you need to back up your data and restore it on the new server.
-   This must be done using <application>pg_dump</>; file system level
-   backup methods will not work. There are checks in place that prevent
-   you from using a data directory with an incompatible version of
-   <productname>PostgreSQL</productname>, so no great harm can be done
-   by trying to start the wrong server version on a data directory.
-  </para>
-
-  <para>
-   It is recommended that you use the <application>pg_dump</> and
-   <application>pg_dumpall</> programs from the newer version of
-   <productname>PostgreSQL</>, to take advantage of enhancements
-   that might have been made in these programs.  Current releases of the
-   dump programs can read data from any server version back to 7.0.
-  </para>
-
-  <para>
-   The least downtime can be achieved by installing the new server in
-   a different directory and running both the old and the new servers
-   in parallel, on different ports. Then you can use something like:
-
-<programlisting>
-pg_dumpall -p 5432 | psql -d postgres -p 6543
-</programlisting>
-
-   to transfer your data.  Or use an intermediate file if you wish.
-   Then you can shut down the old server and start the new server using
-   the port the old one was running on. You should make sure that the
-   old database is not updated after you begin to run
-   <application>pg_dumpall</>, otherwise you will lose that data. See <xref
-   linkend="client-authentication"> for information on how to prohibit
-   access.
-  </para>
-
-  <para>
-   It is also possible to use replication methods, such as
-   <productname>Slony</>, to create a standby server with the updated version of
-   <productname>PostgreSQL</>.  The standby can be on the same computer or
-   a different computer.  Once it has synced up with the master server
-   (running the older version of <productname>PostgreSQL</>), you can
-   switch masters and make the standby the master and shut down the older
-   database instance.  Such a switch-over results in only several seconds
-   of downtime for an upgrade.
-  </para>
-
-  <para>
-   If you cannot or do not want to run two servers in parallel, you can
-   do the backup step before installing the new version, bring down
-   the old server, move the old version out of the way, install the new
-   version, start the new server, and restore the data. For example:
-
-<programlisting>
-pg_dumpall &gt; backup
-pg_ctl stop
-mv /usr/local/pgsql /usr/local/pgsql.old
-# Rename any tablespace directories as well
-cd ~/postgresql-&version;
-gmake install
-initdb -D /usr/local/pgsql/data
-postgres -D /usr/local/pgsql/data
-psql -f backup postgres
-</programlisting>
-
-   See <xref linkend="runtime"> about ways to start and stop the
-   server and other details. The installation instructions will advise
-   you of strategic places to perform these steps.
-  </para>
-
-  <note>
-   <para>
-    When you <quote>move the old installation out of the way</quote>
-    it might no longer be perfectly usable. Some of the executable programs
-    contain absolute paths to various installed programs and data files.
-    This is usually not a big problem, but if you plan on using two
-    installations in parallel for a while you should assign them
-    different installation directories at build time.  (This problem
-    is rectified in <productname>PostgreSQL</> version 8.0 and later, so long
-    as you move all subdirectories containing installed files together;
-    for example if <filename>/usr/local/postgres/bin/</> goes to
-    <filename>/usr/local/postgres.old/bin/</>, then
-    <filename>/usr/local/postgres/share/</> must go to
-    <filename>/usr/local/postgres.old/share/</>.  In pre-8.0 releases
-    moving an installation like this will not work.)
-   </para>
-  </note>
-
-  <para>
-   In practice you probably want to test your client applications on the
-   new version before switching over completely.  This is another reason
-   for setting up concurrent installations of old and new versions.  When
-   testing a <productname>PostgreSQL</> major upgrade, consider the
-   following categories of possible changes:
-  </para>
-
-  <variablelist>
-
-   <varlistentry>
-    <term>Administration</term>
-    <listitem>
-     <para>
-      The capabilities available for administrators to monitor and control
-      the server often change and improve in each major release.
-     </para>
-    </listitem>
-   </varlistentry>
-
-   <varlistentry>
-    <term>SQL</term>
-    <listitem>
-     <para>
-      Typically this includes new SQL command capabilities and not changes
-      in behavior, unless specifically mentioned in the release notes.
-     </para>
-    </listitem>
-   </varlistentry>
-
-   <varlistentry>
-    <term>Library API</term>
-    <listitem>
-     <para>
-      Typically libraries like <application>libpq</> only add new
-      functionality, again unless mentioned in the release notes.
-     </para>
-    </listitem>
-   </varlistentry>
-
-   <varlistentry>
-    <term>System Catalogs</term>
-    <listitem>
-     <para>
-      System catalog changes usually only affect database management tools.
-     </para>
-    </listitem>
-   </varlistentry>
-
-   <varlistentry>
-    <term>Server C-language API</term>
-    <listitem>
-     <para>
-      This involved changes in the backend function API, which is written
-      in the C programming language.  Such changes effect code that
-      references backend functions deep inside the server.
-     </para>
-    </listitem>
-   </varlistentry>
-
-  </variablelist>
-
- </sect1>
 </chapter>

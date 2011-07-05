@@ -3,12 +3,12 @@
  * pl_handler.c		- Handler for the PL/pgSQL
  *			  procedural language
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/pl/plpgsql/src/pl_handler.c,v 1.51 2010/02/26 02:01:35 momjian Exp $
+ *	  src/pl/plpgsql/src/pl_handler.c
  *
  *-------------------------------------------------------------------------
  */
@@ -63,7 +63,7 @@ _PG_init(void)
 							 PLPGSQL_RESOLVE_ERROR,
 							 variable_conflict_options,
 							 PGC_SUSET, 0,
-							 NULL, NULL);
+							 NULL, NULL, NULL);
 
 	EmitWarningsOnPlaceholders("plpgsql");
 
@@ -172,6 +172,9 @@ plpgsql_inline_handler(PG_FUNCTION_ARGS)
 	/* Compile the anonymous code block */
 	func = plpgsql_compile_inline(codeblock->source_text);
 
+	/* Mark the function as busy, just pro forma */
+	func->use_count++;
+
 	/*
 	 * Set up a fake fcinfo with just enough info to satisfy
 	 * plpgsql_exec_function().  In particular note that this sets things up
@@ -184,6 +187,13 @@ plpgsql_inline_handler(PG_FUNCTION_ARGS)
 	flinfo.fn_mcxt = CurrentMemoryContext;
 
 	retval = plpgsql_exec_function(func, &fake_fcinfo);
+
+	/* Function should now have no remaining use-counts ... */
+	func->use_count--;
+	Assert(func->use_count == 0);
+
+	/* ... so we can free subsidiary storage */
+	plpgsql_free_function_memory(func);
 
 	/*
 	 * Disconnect from SPI manager

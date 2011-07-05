@@ -4,10 +4,10 @@
  *	  prototypes for functions in backend/catalog/namespace.c
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/catalog/namespace.h,v 1.62 2010/01/02 16:58:01 momjian Exp $
+ * src/include/catalog/namespace.h
  *
  *-------------------------------------------------------------------------
  */
@@ -49,6 +49,7 @@ typedef struct OverrideSearchPath
 
 extern Oid	RangeVarGetRelid(const RangeVar *relation, bool failOK);
 extern Oid	RangeVarGetCreationNamespace(const RangeVar *newRelation);
+extern Oid	RangeVarGetAndCheckCreationNamespace(const RangeVar *newRelation);
 extern Oid	RelnameGetRelid(const char *relname);
 extern bool RelationIsVisible(Oid relid);
 
@@ -71,19 +72,22 @@ extern bool OpclassIsVisible(Oid opcid);
 extern Oid	OpfamilynameGetOpfid(Oid amid, const char *opfname);
 extern bool OpfamilyIsVisible(Oid opfid);
 
+extern Oid	CollationGetCollid(const char *collname);
+extern bool CollationIsVisible(Oid collid);
+
 extern Oid	ConversionGetConid(const char *conname);
 extern bool ConversionIsVisible(Oid conid);
 
-extern Oid	TSParserGetPrsid(List *names, bool failOK);
+extern Oid	get_ts_parser_oid(List *names, bool missing_ok);
 extern bool TSParserIsVisible(Oid prsId);
 
-extern Oid	TSDictionaryGetDictid(List *names, bool failOK);
+extern Oid	get_ts_dict_oid(List *names, bool missing_ok);
 extern bool TSDictionaryIsVisible(Oid dictId);
 
-extern Oid	TSTemplateGetTmplid(List *names, bool failOK);
+extern Oid	get_ts_template_oid(List *names, bool missing_ok);
 extern bool TSTemplateIsVisible(Oid tmplId);
 
-extern Oid	TSConfigGetCfgid(List *names, bool failOK);
+extern Oid	get_ts_config_oid(List *names, bool missing_ok);
 extern bool TSConfigIsVisible(Oid cfgid);
 
 extern void DeconstructQualifiedName(List *names,
@@ -91,8 +95,11 @@ extern void DeconstructQualifiedName(List *names,
 						 char **objname_p);
 extern Oid	LookupNamespaceNoError(const char *nspname);
 extern Oid	LookupExplicitNamespace(const char *nspname);
+extern Oid	get_namespace_oid(const char *nspname, bool missing_ok);
 
 extern Oid	LookupCreationNamespace(const char *nspname);
+extern void CheckSetNamespace(Oid oldNspOid, Oid nspOid, Oid classid,
+				  Oid objid);
 extern Oid	QualifiedNameGetCreationNamespace(List *names, char **objname_p);
 extern RangeVar *makeRangeVarFromNameList(List *names);
 extern char *NameListToString(List *names);
@@ -111,7 +118,8 @@ extern OverrideSearchPath *GetOverrideSearchPath(MemoryContext context);
 extern void PushOverrideSearchPath(OverrideSearchPath *newpath);
 extern void PopOverrideSearchPath(void);
 
-extern Oid	FindConversionByName(List *conname);
+extern Oid	get_collation_oid(List *collname, bool missing_ok);
+extern Oid	get_conversion_oid(List *conname, bool missing_ok);
 extern Oid	FindDefaultConversionProc(int4 for_encoding, int4 to_encoding);
 
 /* initialization & transaction cleanup code */

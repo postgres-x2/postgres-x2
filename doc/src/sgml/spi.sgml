@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/spi.sgml,v 1.67 2010/04/03 07:22:55 petere Exp $ -->
+<!-- doc/src/sgml/spi.sgml -->
 
 <chapter id="spi">
  <title>Server Programming Interface</title>
@@ -340,7 +340,7 @@ SPI_execute("INSERT INTO foo SELECT * FROM bar", false, 5);
    <function>SPI_execute</function> increments the command
    counter and computes a new <firstterm>snapshot</> before executing each
    command in the string.  The snapshot does not actually change if the
-   current transaction isolation level is <literal>SERIALIZABLE</>, but in
+   current transaction isolation level is <literal>SERIALIZABLE</> or <literal>REPEATABLE READ</>, but in
    <literal>READ COMMITTED</> mode the snapshot update allows each command to
    see the results of newly committed transactions from other sessions.
    This is essential for consistent behavior when the commands are modifying
@@ -987,7 +987,7 @@ SPIPlanPtr SPI_prepare_cursor(const char * <parameter>command</parameter>, int <
   <para>
    <function>SPI_prepare_cursor</function> is identical to
    <function>SPI_prepare</function>, except that it also allows specification
-   of the planner's <quote>cursor options</> parameter.  This is a bitmask
+   of the planner's <quote>cursor options</> parameter.  This is a bit mask
    having the values shown in <filename>nodes/parsenodes.h</filename>
    for the <structfield>options</> field of <structname>DeclareCursorStmt</>.
    <function>SPI_prepare</function> always takes the cursor options as zero.
@@ -1030,7 +1030,7 @@ SPIPlanPtr SPI_prepare_cursor(const char * <parameter>command</parameter>, int <
     <term><literal>int <parameter>cursorOptions</parameter></literal></term>
     <listitem>
      <para>
-      integer bitmask of cursor options; zero produces default behavior
+      integer bit mask of cursor options; zero produces default behavior
      </para>
     </listitem>
    </varlistentry>
@@ -1130,7 +1130,7 @@ SPIPlanPtr SPI_prepare_params(const char * <parameter>command</parameter>,
     <term><literal>int <parameter>cursorOptions</parameter></literal></term>
     <listitem>
      <para>
-      integer bitmask of cursor options; zero produces default behavior
+      integer bit mask of cursor options; zero produces default behavior
      </para>
     </listitem>
    </varlistentry>
@@ -1199,7 +1199,7 @@ int SPI_getargcount(SPIPlanPtr <parameter>plan</parameter>)
     The count of expected arguments for the <parameter>plan</parameter>.
     If the <parameter>plan</parameter> is <symbol>NULL</symbol> or invalid,
     <varname>SPI_result</varname> is set to <symbol>SPI_ERROR_ARGUMENT</symbol>
-    and <literal>-1</literal> is returned.
+    and -1 is returned.
   </para>
  </refsect1>
 </refentry>
@@ -1925,7 +1925,7 @@ Portal SPI_cursor_open_with_args(const char *<parameter>name</parameter>,
     <term><literal>int <parameter>cursorOptions</parameter></literal></term>
     <listitem>
      <para>
-      integer bitmask of cursor options; zero produces default behavior
+      integer bit mask of cursor options; zero produces default behavior
      </para>
     </listitem>
    </varlistentry>
@@ -3188,9 +3188,12 @@ char * SPI_getnspname(Relation <parameter>rel</parameter>)
   <title>Memory Management</title>
 
   <para>
+    <indexterm>
+     <primary>memory context</primary>
+     <secondary>in SPI</secondary>
+    </indexterm>
    <productname>PostgreSQL</productname> allocates memory within
-   <firstterm>memory contexts</firstterm><indexterm><primary>memory
-   context</primary><secondary>in SPI</secondary></indexterm>, which provide a convenient method of
+   <firstterm>memory contexts</firstterm>, which provide a convenient method of
    managing allocations made in many different places that need to
    live for differing amounts of time.  Destroying a context releases
    all the memory that was allocated in it.  Thus, it is not necessary
@@ -3939,8 +3942,8 @@ INSERT INTO a SELECT * FROM a;
    using <function>SPI_exec</function> and returns the number of rows
    that were processed by the command.  You can find more complex
    examples for SPI in the source tree in
-   <filename>src/test/regress/regress.c</filename> and in
-   <filename>contrib/spi</filename>.
+   <filename>src/test/regress/regress.c</filename> and in the
+   <xref linkend="contrib-spi"> module.
   </para>
 
 <programlisting>

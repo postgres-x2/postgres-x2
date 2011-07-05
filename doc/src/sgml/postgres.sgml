@@ -1,13 +1,13 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/postgres.sgml,v 1.91 2010/02/22 11:47:30 heikki Exp $ -->
+<!-- doc/src/sgml/postgres.sgml -->
 
 <!DOCTYPE book PUBLIC "-//OASIS//DTD DocBook V4.2//EN" [
 
-<!entity % version SYSTEM "version.sgml">
+<!ENTITY % version SYSTEM "version.sgml">
 %version;
-<!entity % filelist SYSTEM "filelist.sgml">
+<!ENTITY % filelist SYSTEM "filelist.sgml">
 %filelist;
 
-<!entity reference  SYSTEM "reference.sgml">
+<!ENTITY reference  SYSTEM "reference.sgml">
 
 ]>
 
@@ -238,6 +238,7 @@
   &sources;
   &nls;
   &plhandler;
+  &fdwhandler;
   &geqo;
   &indexam;
   &gist;
@@ -258,7 +259,7 @@
   &release;
   &contrib;
   &external-projects;
-  &cvs;
+  &sourcerepo;
   &docguide;
   &acronyms;
 

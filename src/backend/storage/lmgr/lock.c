@@ -3,12 +3,12 @@
  * lock.c
  *	  POSTGRES primary lock mechanism
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/storage/lmgr/lock.c,v 1.197 2010/04/28 16:54:16 tgl Exp $
+ *	  src/backend/storage/lmgr/lock.c
  *
  * NOTES
  *	  A lock table is a shared memory hash table.  When
@@ -130,7 +130,7 @@ static const LockMethodData default_lockmethod = {
 
 static const LockMethodData user_lockmethod = {
 	AccessExclusiveLock,		/* highest valid lock mode number */
-	false,
+	true,
 	LockConflicts,
 	lock_mode_names,
 #ifdef LOCK_DEBUG
@@ -256,6 +256,7 @@ static uint32 proclock_hash(const void *key, Size keysize);
 static void RemoveLocalLock(LOCALLOCK *locallock);
 static void GrantLockLocal(LOCALLOCK *locallock, ResourceOwner owner);
 static void WaitOnLock(LOCALLOCK *locallock, ResourceOwner owner);
+static void ReleaseLockForOwner(LOCALLOCK *locallock, ResourceOwner owner);
 static bool UnGrantLock(LOCK *lock, LOCKMODE lockmode,
 			PROCLOCK *proclock, LockMethod lockMethodTable);
 static void CleanUpLock(LOCK *lock, PROCLOCK *proclock,
@@ -345,7 +346,7 @@ InitLocks(void)
 	hash_flags = (HASH_ELEM | HASH_FUNCTION);
 
 	LockMethodLocalHash = hash_create("LOCALLOCK hash",
-									  128,
+									  16,
 									  &info,
 									  hash_flags);
 }
@@ -499,6 +500,7 @@ LockAcquireExtended(const LOCKTAG *locktag,
 	int			partition;
 	LWLockId	partitionLock;
 	int			status;
+	bool		log_lock = false;
 
 	if (lockmethodid <= 0 || lockmethodid >= lengthof(LockMethods))
 		elog(ERROR, "unrecognized lock method: %d", lockmethodid);
@@ -577,6 +579,25 @@ LockAcquireExtended(const LOCKTAG *locktag,
 	{
 		GrantLockLocal(locallock, owner);
 		return LOCKACQUIRE_ALREADY_HELD;
+	}
+
+	/*
+	 * Emit a WAL record if acquisition of this lock needs to be replayed in a
+	 * standby server. Only AccessExclusiveLocks can conflict with lock types
+	 * that read-only transactions can acquire in a standby server.
+	 *
+	 * Make sure this definition matches the one in
+	 * GetRunningTransactionLocks().
+	 *
+	 * First we prepare to log, then after lock acquired we issue log record.
+	 */
+	if (lockmode >= AccessExclusiveLock &&
+		locktag->locktag_type == LOCKTAG_RELATION &&
+		!RecoveryInProgress() &&
+		XLogStandbyInfoActive())
+	{
+		LogAccessExclusiveLockPrepare();
+		log_lock = true;
 	}
 
 	/*
@@ -868,15 +889,9 @@ LockAcquireExtended(const LOCKTAG *locktag,
 
 	/*
 	 * Emit a WAL record if acquisition of this lock need to be replayed in a
-	 * standby server. Only AccessExclusiveLocks can conflict with lock types
-	 * that read-only transactions can acquire in a standby server.
-	 *
-	 * Make sure this definition matches the one GetRunningTransactionLocks().
+	 * standby server.
 	 */
-	if (lockmode >= AccessExclusiveLock &&
-		locktag->locktag_type == LOCKTAG_RELATION &&
-		!RecoveryInProgress() &&
-		XLogStandbyInfoActive())
+	if (log_lock)
 	{
 		/*
 		 * Decode the locktag back to the original values, to avoid sending
@@ -1471,6 +1486,31 @@ LockRelease(const LOCKTAG *locktag, LOCKMODE lockmode, bool sessionLock)
 }
 
 /*
+ * LockReleaseSession -- Release all session locks of the specified lock method
+ *		that are held by the current process.
+ */
+void
+LockReleaseSession(LOCKMETHODID lockmethodid)
+{
+	HASH_SEQ_STATUS status;
+	LOCALLOCK  *locallock;
+
+	if (lockmethodid <= 0 || lockmethodid >= lengthof(LockMethods))
+		elog(ERROR, "unrecognized lock method: %d", lockmethodid);
+
+	hash_seq_init(&status, LockMethodLocalHash);
+
+	while ((locallock = (LOCALLOCK *) hash_seq_search(&status)) != NULL)
+	{
+		/* Ignore items that are not of the specified lock method */
+		if (LOCALLOCK_LOCKMETHOD(*locallock) != lockmethodid)
+			continue;
+
+		ReleaseLockForOwner(locallock, NULL);
+	}
+}
+
+/*
  * LockReleaseAll -- Release all locks of the specified lock method that
  *		are held by the current process.
  *
@@ -1666,8 +1706,6 @@ LockReleaseCurrentOwner(void)
 {
 	HASH_SEQ_STATUS status;
 	LOCALLOCK  *locallock;
-	LOCALLOCKOWNER *lockOwners;
-	int			i;
 
 	hash_seq_init(&status, LockMethodLocalHash);
 
@@ -1677,38 +1715,51 @@ LockReleaseCurrentOwner(void)
 		if (!LockMethods[LOCALLOCK_LOCKMETHOD(*locallock)]->transactional)
 			continue;
 
-		/* Scan to see if there are any locks belonging to current owner */
-		lockOwners = locallock->lockOwners;
-		for (i = locallock->numLockOwners - 1; i >= 0; i--)
+		ReleaseLockForOwner(locallock, CurrentResourceOwner);
+	}
+}
+
+/*
+ * Subroutine to release a lock belonging to the 'owner' if found.
+ * 'owner' can be NULL to release a session lock.
+ */
+static void
+ReleaseLockForOwner(LOCALLOCK *locallock, ResourceOwner owner)
+{
+	int			i;
+	LOCALLOCKOWNER *lockOwners;
+
+	/* Scan to see if there are any locks belonging to the owner */
+	lockOwners = locallock->lockOwners;
+	for (i = locallock->numLockOwners - 1; i >= 0; i--)
+	{
+		if (lockOwners[i].owner == owner)
 		{
-			if (lockOwners[i].owner == CurrentResourceOwner)
+			Assert(lockOwners[i].nLocks > 0);
+			if (lockOwners[i].nLocks < locallock->nLocks)
 			{
-				Assert(lockOwners[i].nLocks > 0);
-				if (lockOwners[i].nLocks < locallock->nLocks)
-				{
-					/*
-					 * We will still hold this lock after forgetting this
-					 * ResourceOwner.
-					 */
-					locallock->nLocks -= lockOwners[i].nLocks;
-					/* compact out unused slot */
-					locallock->numLockOwners--;
-					if (i < locallock->numLockOwners)
-						lockOwners[i] = lockOwners[locallock->numLockOwners];
-				}
-				else
-				{
-					Assert(lockOwners[i].nLocks == locallock->nLocks);
-					/* We want to call LockRelease just once */
-					lockOwners[i].nLocks = 1;
-					locallock->nLocks = 1;
-					if (!LockRelease(&locallock->tag.lock,
-									 locallock->tag.mode,
-									 false))
-						elog(WARNING, "LockReleaseCurrentOwner: failed??");
-				}
-				break;
+				/*
+				 * We will still hold this lock after forgetting this
+				 * ResourceOwner.
+				 */
+				locallock->nLocks -= lockOwners[i].nLocks;
+				/* compact out unused slot */
+				locallock->numLockOwners--;
+				if (i < locallock->numLockOwners)
+					lockOwners[i] = lockOwners[locallock->numLockOwners];
 			}
+			else
+			{
+				Assert(lockOwners[i].nLocks == locallock->nLocks);
+				/* We want to call LockRelease just once */
+				lockOwners[i].nLocks = 1;
+				locallock->nLocks = 1;
+				if (!LockRelease(&locallock->tag.lock,
+								 locallock->tag.mode,
+								 owner == NULL))
+					elog(WARNING, "ReleaseLockForOwner: failed??");
+			}
+			break;
 		}
 	}
 }

@@ -3,7 +3,7 @@
  * 2006-07-17 by Arthur David Olson.
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/timezone/zic.c,v 1.26 2010/03/13 00:40:43 momjian Exp $
+ *	  src/timezone/zic.c
  */
 
 #include "postgres_fe.h"
@@ -810,7 +810,7 @@ associate(void)
 			 * Note, though, that if there's no rule, a '%s' in the format is
 			 * a bad thing.
 			 */
-			if (strchr(zp->z_format, '%') != 0)
+			if (strchr(zp->z_format, '%') != NULL)
 				error(_("%s in ruleless zone"));
 		}
 	}
@@ -1111,9 +1111,9 @@ inzsub(char **fields, int nfields, int iscont)
 	z.z_filename = filename;
 	z.z_linenum = linenum;
 	z.z_gmtoff = gethms(fields[i_gmtoff], _("invalid UTC offset"), TRUE);
-	if ((cp = strchr(fields[i_format], '%')) != 0)
+	if ((cp = strchr(fields[i_format], '%')) != NULL)
 	{
-		if (*++cp != 's' || strchr(cp, '%') != 0)
+		if (*++cp != 's' || strchr(cp, '%') != NULL)
 		{
 			error(_("invalid abbreviation format"));
 			return FALSE;
@@ -1438,9 +1438,9 @@ rulesub(struct rule * rp, const char *loyearp, const char *hiyearp,
 	}
 	else
 	{
-		if ((ep = strchr(dp, '<')) != 0)
+		if ((ep = strchr(dp, '<')) != NULL)
 			rp->r_dycode = DC_DOWLEQ;
-		else if ((ep = strchr(dp, '>')) != 0)
+		else if ((ep = strchr(dp, '>')) != NULL)
 			rp->r_dycode = DC_DOWGEQ;
 		else
 		{
@@ -2826,7 +2826,7 @@ mkdirs(char *argname)
 	if (argname == NULL || *argname == '\0')
 		return 0;
 	cp = name = ecpyalloc(argname);
-	while ((cp = strchr(cp + 1, '/')) != 0)
+	while ((cp = strchr(cp + 1, '/')) != NULL)
 	{
 		*cp = '\0';
 #ifdef WIN32

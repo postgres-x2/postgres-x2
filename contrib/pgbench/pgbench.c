@@ -4,8 +4,8 @@
  * A simple benchmark program for PostgreSQL
  * Originally written by Tatsuo Ishii and enhanced by many contributors.
  *
- * $PostgreSQL: pgsql/contrib/pgbench/pgbench.c,v 1.99 2010/07/06 19:18:55 momjian Exp $
- * Copyright (c) 2000-2010, PostgreSQL Global Development Group
+ * contrib/pgbench/pgbench.c
+ * Copyright (c) 2000-2011, PostgreSQL Global Development Group
  * ALL RIGHTS RESERVED;
  *
  * Permission to use, copy, modify, and distribute this software and its
@@ -69,7 +69,7 @@
 typedef struct win32_pthread *pthread_t;
 typedef int pthread_attr_t;
 
-static int	pthread_create(pthread_t *thread, pthread_attr_t *attr, void *(*start_routine) (void *), void *arg);
+static int	pthread_create(pthread_t *thread, pthread_attr_t * attr, void *(*start_routine) (void *), void *arg);
 static int	pthread_join(pthread_t th, void **thread_return);
 #elif defined(ENABLE_THREAD_SAFETY)
 /* Use platform-dependent pthread capability */
@@ -87,7 +87,7 @@ static int	pthread_join(pthread_t th, void **thread_return);
 typedef struct fork_pthread *pthread_t;
 typedef int pthread_attr_t;
 
-static int	pthread_create(pthread_t *thread, pthread_attr_t *attr, void *(*start_routine) (void *), void *arg);
+static int	pthread_create(pthread_t *thread, pthread_attr_t * attr, void *(*start_routine) (void *), void *arg);
 static int	pthread_join(pthread_t th, void **thread_return);
 #endif
 
@@ -136,6 +136,7 @@ bool		use_branch = true;	/* use branch id in DDL and DML */
 #endif
 bool		use_log;			/* log transaction latencies to a file */
 bool		is_connect;			/* establish connection for each transaction */
+bool		is_latencies;		/* report per-command latencies */
 int			main_pid;			/* main process id used in log filename */
 
 char	   *pghost = "";
@@ -174,7 +175,8 @@ typedef struct
 	int64		until;			/* napping until (usec) */
 	Variable   *variables;		/* array of variable definitions */
 	int			nvariables;
-	instr_time	txn_begin;		/* used for measuring latencies */
+	instr_time	txn_begin;		/* used for measuring transaction latencies */
+	instr_time	stmt_begin;		/* used for measuring statement latencies */
 	int			use_file;		/* index in sql_files for this client */
 	bool		prepared[MAX_FILES];
 } CState;
@@ -189,6 +191,8 @@ typedef struct
 	CState	   *state;			/* array of CState */
 	int			nstate;			/* length of state[] */
 	instr_time	start_time;		/* thread start time */
+	instr_time *exec_elapsed;	/* time spent executing cmds (per Command) */
+	int		   *exec_count;		/* number of cmd executions (per Command) */
 } TState;
 
 #define INVALID_THREAD		((pthread_t) 0)
@@ -219,13 +223,16 @@ static const char *QUERYMODE[] = {"simple", "extended", "prepared"};
 
 typedef struct
 {
+	char	   *line;			/* full text of command line */
+	int			command_num;	/* unique index of this Command struct */
 	int			type;			/* command type (SQL_COMMAND or META_COMMAND) */
-	int			argc;			/* number of commands */
-	char	   *argv[MAX_ARGS]; /* command list */
+	int			argc;			/* number of command words */
+	char	   *argv[MAX_ARGS]; /* command word list */
 } Command;
 
 static Command **sql_files[MAX_FILES];	/* SQL script files */
 static int	num_files;			/* number of script files */
+static int	num_commands = 0;	/* total number of Command structs */
 static int	debug = 0;			/* debug flag */
 
 /* default scenario */
@@ -310,6 +317,53 @@ static char *select_only = {
 static void setalarm(int seconds);
 static void *threadRun(void *arg);
 
+
+/*
+ * routines to check mem allocations and fail noisily.
+ */
+static void *
+xmalloc(size_t size)
+{
+	void	   *result;
+
+	result = malloc(size);
+	if (!result)
+	{
+		fprintf(stderr, "out of memory\n");
+		exit(1);
+	}
+	return result;
+}
+
+static void *
+xrealloc(void *ptr, size_t size)
+{
+	void	   *result;
+
+	result = realloc(ptr, size);
+	if (!result)
+	{
+		fprintf(stderr, "out of memory\n");
+		exit(1);
+	}
+	return result;
+}
+
+static char *
+xstrdup(const char *s)
+{
+	char	   *result;
+
+	result = strdup(s);
+	if (!result)
+	{
+		fprintf(stderr, "out of memory\n");
+		exit(1);
+	}
+	return result;
+}
+
+
 static void
 usage(const char *progname)
 {
@@ -338,6 +392,7 @@ usage(const char *progname)
 		   "               protocol for submitting queries to server (default: simple)\n"
 		   "  -n           do not run VACUUM before tests\n"
 		   "  -N           do not update tables \"pgbench_tellers\" and \"pgbench_branches\"\n"
+		   "  -r           report average latency per command\n"
 		   "  -s NUM       report this scale factor in output\n"
 		   "  -S           perform SELECT-only transactions\n"
 	 "  -t NUM       number of transactions each client runs (default: 10)\n"
@@ -518,28 +573,17 @@ putVariable(CState *st, const char *context, char *name, char *value)
 		}
 
 		if (st->variables)
-			newvars = (Variable *) realloc(st->variables,
+			newvars = (Variable *) xrealloc(st->variables,
 									(st->nvariables + 1) * sizeof(Variable));
 		else
-			newvars = (Variable *) malloc(sizeof(Variable));
-
-		if (newvars == NULL)
-			goto out_of_memory;
+			newvars = (Variable *) xmalloc(sizeof(Variable));
 
 		st->variables = newvars;
 
 		var = &newvars[st->nvariables];
 
-		var->name = NULL;
-		var->value = NULL;
-
-		if ((var->name = strdup(name)) == NULL ||
-			(var->value = strdup(value)) == NULL)
-		{
-			free(var->name);
-			free(var->value);
-			return false;
-		}
+		var->name = xstrdup(name);
+		var->value = xstrdup(value);
 
 		st->nvariables++;
 
@@ -550,18 +594,14 @@ putVariable(CState *st, const char *context, char *name, char *value)
 	{
 		char	   *val;
 
-		if ((val = strdup(value)) == NULL)
-			return false;
+		/* dup then free, in case value is pointing at this variable */
+		val = xstrdup(value);
 
 		free(var->value);
 		var->value = val;
 	}
 
 	return true;
-
-out_of_memory:
-	fprintf(stderr, "%s: out of memory for variable '%s'\n", context, name);
-	return false;
 }
 
 static char *
@@ -577,9 +617,7 @@ parseVariable(const char *sql, int *eaten)
 	if (i == 1)
 		return NULL;
 
-	name = malloc(i);
-	if (name == NULL)
-		return NULL;
+	name = xmalloc(i);
 	memcpy(name, &sql[1], i - 1);
 	name[i - 1] = '\0';
 
@@ -594,16 +632,9 @@ replaceVariable(char **sql, char *param, int len, char *value)
 
 	if (valueln > len)
 	{
-		char	   *tmp;
 		size_t		offset = param - *sql;
 
-		tmp = realloc(*sql, strlen(*sql) - len + valueln + 1);
-		if (tmp == NULL)
-		{
-			free(*sql);
-			return NULL;
-		}
-		*sql = tmp;
+		*sql = xrealloc(*sql, strlen(*sql) - len + valueln + 1);
 		param = *sql + offset;
 	}
 
@@ -644,8 +675,7 @@ assignVariables(CState *st, char *sql)
 			continue;
 		}
 
-		if ((p = replaceVariable(&sql, p, eaten, val)) == NULL)
-			return NULL;
+		p = replaceVariable(&sql, p, eaten, val);
 	}
 
 	return sql;
@@ -675,11 +705,13 @@ runShellCommand(CState *st, char *variable, char **argv, int argc)
 	char	   *endptr;
 	int			retval;
 
-	/*
-	 * Join arguments with whilespace separaters. Arguments starting with
-	 * exactly one colon are treated as variables: name - append a string
-	 * "name" :var - append a variable named 'var'. ::name - append a string
-	 * ":name"
+	/*----------
+	 * Join arguments with whitespace separators. Arguments starting with
+	 * exactly one colon are treated as variables:
+	 *	name - append a string "name"
+	 *	:var - append a variable named 'var'
+	 *	::name - append a string ":name"
+	 *----------
 	 */
 	for (i = 0; i < argc; i++)
 	{
@@ -786,7 +818,7 @@ clientDone(CState *st, bool ok)
 
 /* return false iff client should be disconnected */
 static bool
-doCustom(CState *st, instr_time *conn_time, FILE *logfile)
+doCustom(TState *thread, CState *st, instr_time *conn_time, FILE *logfile)
 {
 	PGresult   *res;
 	Command   **commands;
@@ -821,7 +853,22 @@ top:
 		}
 
 		/*
-		 * transaction finished: record the time it took in the log
+		 * command finished: accumulate per-command execution times in
+		 * thread-local data structure, if per-command latencies are requested
+		 */
+		if (is_latencies)
+		{
+			instr_time	now;
+			int			cnum = commands[st->state]->command_num;
+
+			INSTR_TIME_SET_CURRENT(now);
+			INSTR_TIME_ACCUM_DIFF(thread->exec_elapsed[cnum],
+								  now, st->stmt_begin);
+			thread->exec_count[cnum]++;
+		}
+
+		/*
+		 * if transaction finished, record the time it took in the log
 		 */
 		if (logfile && commands[st->state + 1] == NULL)
 		{
@@ -848,6 +895,10 @@ top:
 
 		if (commands[st->state]->type == SQL_COMMAND)
 		{
+			/*
+			 * Read and discard the query result; note this is not included in
+			 * the statement latency numbers.
+			 */
 			res = PQgetResult(st->con);
 			switch (PQresultStatus(res))
 			{
@@ -902,8 +953,13 @@ top:
 		INSTR_TIME_ACCUM_DIFF(*conn_time, end, start);
 	}
 
+	/* Record transaction start time if logging is enabled */
 	if (logfile && st->state == 0)
 		INSTR_TIME_SET_CURRENT(st->txn_begin);
+
+	/* Record statement start time if per-command latencies are requested */
+	if (is_latencies)
+		INSTR_TIME_SET_CURRENT(st->stmt_begin);
 
 	if (commands[st->state]->type == SQL_COMMAND)
 	{
@@ -914,13 +970,8 @@ top:
 		{
 			char	   *sql;
 
-			if ((sql = strdup(command->argv[0])) == NULL
-				|| (sql = assignVariables(st, sql)) == NULL)
-			{
-				fprintf(stderr, "out of memory\n");
-				st->ecnt++;
-				return true;
-			}
+			sql = xstrdup(command->argv[0]);
+			sql = assignVariables(st, sql);
 
 			if (debug)
 				fprintf(stderr, "client %d sending %s\n", st->id, sql);
@@ -1433,9 +1484,7 @@ parseQuery(Command *cmd, const char *raw_sql)
 	char	   *sql,
 			   *p;
 
-	sql = strdup(raw_sql);
-	if (sql == NULL)
-		return false;
+	sql = xstrdup(raw_sql);
 	cmd->argc = 1;
 
 	p = sql;
@@ -1462,8 +1511,7 @@ parseQuery(Command *cmd, const char *raw_sql)
 		}
 
 		sprintf(var, "$%d", cmd->argc);
-		if ((p = replaceVariable(&sql, p, eaten, var)) == NULL)
-			return false;
+		p = replaceVariable(&sql, p, eaten, var);
 
 		cmd->argv[cmd->argc] = name;
 		cmd->argc++;
@@ -1473,6 +1521,7 @@ parseQuery(Command *cmd, const char *raw_sql)
 	return true;
 }
 
+/* Parse a command; return a Command struct, or NULL if it's a comment */
 static Command *
 process_commands(char *buf)
 {
@@ -1483,24 +1532,24 @@ process_commands(char *buf)
 	char	   *p,
 			   *tok;
 
+	/* Make the string buf end at the next newline */
 	if ((p = strchr(buf, '\n')) != NULL)
 		*p = '\0';
 
+	/* Skip leading whitespace */
 	p = buf;
 	while (isspace((unsigned char) *p))
 		p++;
 
+	/* If the line is empty or actually a comment, we're done */
 	if (*p == '\0' || strncmp(p, "--", 2) == 0)
-	{
 		return NULL;
-	}
 
-	my_commands = (Command *) malloc(sizeof(Command));
-	if (my_commands == NULL)
-	{
-		return NULL;
-	}
-
+	/* Allocate and initialize Command structure */
+	my_commands = (Command *) xmalloc(sizeof(Command));
+	my_commands->line = xstrdup(buf);
+	my_commands->command_num = num_commands++;
+	my_commands->type = 0;		/* until set */
 	my_commands->argc = 0;
 
 	if (*p == '\\')
@@ -1512,12 +1561,8 @@ process_commands(char *buf)
 
 		while (tok != NULL)
 		{
-			if ((my_commands->argv[j] = strdup(tok)) == NULL)
-				return NULL;
-
+			my_commands->argv[j++] = xstrdup(tok);
 			my_commands->argc++;
-
-			j++;
 			tok = strtok(NULL, delim);
 		}
 
@@ -1526,7 +1571,7 @@ process_commands(char *buf)
 			if (my_commands->argc < 4)
 			{
 				fprintf(stderr, "%s: missing argument\n", my_commands->argv[0]);
-				return NULL;
+				exit(1);
 			}
 
 			for (j = 4; j < my_commands->argc; j++)
@@ -1538,7 +1583,7 @@ process_commands(char *buf)
 			if (my_commands->argc < 3)
 			{
 				fprintf(stderr, "%s: missing argument\n", my_commands->argv[0]);
-				return NULL;
+				exit(1);
 			}
 
 			for (j = my_commands->argc < 5 ? 3 : 5; j < my_commands->argc; j++)
@@ -1550,7 +1595,7 @@ process_commands(char *buf)
 			if (my_commands->argc < 2)
 			{
 				fprintf(stderr, "%s: missing argument\n", my_commands->argv[0]);
-				return NULL;
+				exit(1);
 			}
 
 			/*
@@ -1581,7 +1626,7 @@ process_commands(char *buf)
 				{
 					fprintf(stderr, "%s: unknown time unit '%s' - must be us, ms or s\n",
 							my_commands->argv[0], my_commands->argv[2]);
-					return NULL;
+					exit(1);
 				}
 			}
 
@@ -1594,7 +1639,7 @@ process_commands(char *buf)
 			if (my_commands->argc < 3)
 			{
 				fprintf(stderr, "%s: missing argument\n", my_commands->argv[0]);
-				return NULL;
+				exit(1);
 			}
 		}
 		else if (pg_strcasecmp(my_commands->argv[0], "shell") == 0)
@@ -1602,13 +1647,13 @@ process_commands(char *buf)
 			if (my_commands->argc < 1)
 			{
 				fprintf(stderr, "%s: missing command\n", my_commands->argv[0]);
-				return NULL;
+				exit(1);
 			}
 		}
 		else
 		{
 			fprintf(stderr, "Invalid command %s\n", my_commands->argv[0]);
-			return NULL;
+			exit(1);
 		}
 	}
 	else
@@ -1618,17 +1663,16 @@ process_commands(char *buf)
 		switch (querymode)
 		{
 			case QUERY_SIMPLE:
-				if ((my_commands->argv[0] = strdup(p)) == NULL)
-					return NULL;
+				my_commands->argv[0] = xstrdup(p);
 				my_commands->argc++;
 				break;
 			case QUERY_EXTENDED:
 			case QUERY_PREPARED:
 				if (!parseQuery(my_commands, p))
-					return NULL;
+					exit(1);
 				break;
 			default:
-				return NULL;
+				exit(1);
 		}
 	}
 
@@ -1653,9 +1697,7 @@ process_file(char *filename)
 	}
 
 	alloc_num = COMMANDS_ALLOC_NUM;
-	my_commands = (Command **) malloc(sizeof(Command *) * alloc_num);
-	if (my_commands == NULL)
-		return false;
+	my_commands = (Command **) xmalloc(sizeof(Command *) * alloc_num);
 
 	if (strcmp(filename, "-") == 0)
 		fd = stdin;
@@ -1669,37 +1711,19 @@ process_file(char *filename)
 
 	while (fgets(buf, sizeof(buf), fd) != NULL)
 	{
-		Command    *commands;
-		int			i;
+		Command    *command;
 
-		i = 0;
-		while (isspace((unsigned char) buf[i]))
-			i++;
-
-		if (buf[i] != '\0' && strncmp(&buf[i], "--", 2) != 0)
-		{
-			commands = process_commands(&buf[i]);
-			if (commands == NULL)
-			{
-				fclose(fd);
-				return false;
-			}
-		}
-		else
+		command = process_commands(buf);
+		if (command == NULL)
 			continue;
 
-		my_commands[lineno] = commands;
+		my_commands[lineno] = command;
 		lineno++;
 
 		if (lineno >= alloc_num)
 		{
 			alloc_num += COMMANDS_ALLOC_NUM;
-			my_commands = realloc(my_commands, sizeof(Command *) * alloc_num);
-			if (my_commands == NULL)
-			{
-				fclose(fd);
-				return false;
-			}
+			my_commands = xrealloc(my_commands, sizeof(Command *) * alloc_num);
 		}
 	}
 	fclose(fd);
@@ -1721,20 +1745,15 @@ process_builtin(char *tb)
 	char		buf[BUFSIZ];
 	int			alloc_num;
 
-	if (*tb == '\0')
-		return NULL;
-
 	alloc_num = COMMANDS_ALLOC_NUM;
-	my_commands = (Command **) malloc(sizeof(Command *) * alloc_num);
-	if (my_commands == NULL)
-		return NULL;
+	my_commands = (Command **) xmalloc(sizeof(Command *) * alloc_num);
 
 	lineno = 0;
 
 	for (;;)
 	{
 		char	   *p;
-		Command    *commands;
+		Command    *command;
 
 		p = buf;
 		while (*tb && *tb != '\n')
@@ -1748,23 +1767,17 @@ process_builtin(char *tb)
 
 		*p = '\0';
 
-		commands = process_commands(buf);
-		if (commands == NULL)
-		{
-			return NULL;
-		}
+		command = process_commands(buf);
+		if (command == NULL)
+			continue;
 
-		my_commands[lineno] = commands;
+		my_commands[lineno] = command;
 		lineno++;
 
 		if (lineno >= alloc_num)
 		{
 			alloc_num += COMMANDS_ALLOC_NUM;
-			my_commands = realloc(my_commands, sizeof(Command *) * alloc_num);
-			if (my_commands == NULL)
-			{
-				return NULL;
-			}
+			my_commands = xrealloc(my_commands, sizeof(Command *) * alloc_num);
 		}
 	}
 
@@ -1775,7 +1788,8 @@ process_builtin(char *tb)
 
 /* print out results */
 static void
-printResults(int ttype, int normal_xacts, int nclients, int nthreads,
+printResults(int ttype, int normal_xacts, int nclients,
+			 TState *threads, int nthreads,
 			 instr_time total_time, instr_time conn_total_time)
 {
 	double		time_include,
@@ -1816,6 +1830,51 @@ printResults(int ttype, int normal_xacts, int nclients, int nthreads,
 	}
 	printf("tps = %f (including connections establishing)\n", tps_include);
 	printf("tps = %f (excluding connections establishing)\n", tps_exclude);
+
+	/* Report per-command latencies */
+	if (is_latencies)
+	{
+		int			i;
+
+		for (i = 0; i < num_files; i++)
+		{
+			Command   **commands;
+
+			if (num_files > 1)
+				printf("statement latencies in milliseconds, file %d:\n", i + 1);
+			else
+				printf("statement latencies in milliseconds:\n");
+
+			for (commands = sql_files[i]; *commands != NULL; commands++)
+			{
+				Command    *command = *commands;
+				int			cnum = command->command_num;
+				double		total_time;
+				instr_time	total_exec_elapsed;
+				int			total_exec_count;
+				int			t;
+
+				/* Accumulate per-thread data for command */
+				INSTR_TIME_SET_ZERO(total_exec_elapsed);
+				total_exec_count = 0;
+				for (t = 0; t < nthreads; t++)
+				{
+					TState	   *thread = &threads[t];
+
+					INSTR_TIME_ADD(total_exec_elapsed,
+								   thread->exec_elapsed[cnum]);
+					total_exec_count += thread->exec_count[cnum];
+				}
+
+				if (total_exec_count > 0)
+					total_time = INSTR_TIME_GET_MILLISEC(total_exec_elapsed) / (double) total_exec_count;
+				else
+					total_time = 0.0;
+
+				printf("\t%f\t%s\n", total_time, command->line);
+			}
+		}
+	}
 }
 
 
@@ -1883,19 +1942,13 @@ main(int argc, char **argv)
 	else if ((env = getenv("PGUSER")) != NULL && *env != '\0')
 		login = env;
 
-	state = (CState *) malloc(sizeof(CState));
-	if (state == NULL)
-	{
-		fprintf(stderr, "Couldn't allocate memory for state\n");
-		exit(1);
-	}
-
-	memset(state, 0, sizeof(*state));
+	state = (CState *) xmalloc(sizeof(CState));
+	memset(state, 0, sizeof(CState));
 
 #ifdef PGXC
-	while ((c = getopt(argc, argv, "ih:knvp:dSNc:Cs:t:T:U:lf:D:F:M:j:")) != -1)
+	while ((c = getopt(argc, argv, "ih:knvp:dSNc:j:Crs:t:T:U:lf:D:F:M:")) != -1)
 #else
-	while ((c = getopt(argc, argv, "ih:nvp:dSNc:Cs:t:T:U:lf:D:F:M:j:")) != -1)
+	while ((c = getopt(argc, argv, "ih:nvp:dSNc:j:Crs:t:T:U:lf:D:F:M:")) != -1)
 #endif
 	{
 		switch (c)
@@ -1964,6 +2017,9 @@ main(int argc, char **argv)
 				break;
 			case 'C':
 				is_connect = true;
+				break;
+			case 'r':
+				is_latencies = true;
 				break;
 			case 's':
 				scale_given = true;
@@ -2086,6 +2142,22 @@ main(int argc, char **argv)
 	}
 
 	/*
+	 * is_latencies only works with multiple threads in thread-based
+	 * implementations, not fork-based ones, because it supposes that the
+	 * parent can see changes made to the per-thread execution stats by child
+	 * threads.  It seems useful enough to accept despite this limitation, but
+	 * perhaps we should FIXME someday (by passing the stats data back up
+	 * through the parent-to-child pipes).
+	 */
+#ifndef ENABLE_THREAD_SAFETY
+	if (is_latencies && nthreads > 1)
+	{
+		fprintf(stderr, "-r does not work with -j larger than 1 on this platform.\n");
+		exit(1);
+	}
+#endif
+
+	/*
 	 * save main process id in the global variable because process id will be
 	 * changed after fork.
 	 */
@@ -2093,14 +2165,8 @@ main(int argc, char **argv)
 
 	if (nclients > 1)
 	{
-		state = (CState *) realloc(state, sizeof(CState) * nclients);
-		if (state == NULL)
-		{
-			fprintf(stderr, "Couldn't allocate memory for state\n");
-			exit(1);
-		}
-
-		memset(state + 1, 0, sizeof(*state) * (nclients - 1));
+		state = (CState *) xrealloc(state, sizeof(CState) * nclients);
+		memset(state + 1, 0, sizeof(CState) * (nclients - 1));
 
 		/* copy any -D switch values to all clients */
 		for (i = 1; i < nclients; i++)
@@ -2235,6 +2301,39 @@ main(int argc, char **argv)
 			break;
 	}
 
+	/* set up thread data structures */
+	threads = (TState *) xmalloc(sizeof(TState) * nthreads);
+	for (i = 0; i < nthreads; i++)
+	{
+		TState	   *thread = &threads[i];
+
+		thread->tid = i;
+		thread->state = &state[nclients / nthreads * i];
+		thread->nstate = nclients / nthreads;
+
+		if (is_latencies)
+		{
+			/* Reserve memory for the thread to store per-command latencies */
+			int			t;
+
+			thread->exec_elapsed = (instr_time *)
+				xmalloc(sizeof(instr_time) * num_commands);
+			thread->exec_count = (int *)
+				xmalloc(sizeof(int) * num_commands);
+
+			for (t = 0; t < num_commands; t++)
+			{
+				INSTR_TIME_SET_ZERO(thread->exec_elapsed[t]);
+				thread->exec_count[t] = 0;
+			}
+		}
+		else
+		{
+			thread->exec_elapsed = NULL;
+			thread->exec_count = NULL;
+		}
+	}
+
 	/* get start up time */
 	INSTR_TIME_SET_CURRENT(start_time);
 
@@ -2243,20 +2342,18 @@ main(int argc, char **argv)
 		setalarm(duration);
 
 	/* start threads */
-	threads = (TState *) malloc(sizeof(TState) * nthreads);
 	for (i = 0; i < nthreads; i++)
 	{
-		threads[i].tid = i;
-		threads[i].state = &state[nclients / nthreads * i];
-		threads[i].nstate = nclients / nthreads;
-		INSTR_TIME_SET_CURRENT(threads[i].start_time);
+		TState	   *thread = &threads[i];
+
+		INSTR_TIME_SET_CURRENT(thread->start_time);
 
 		/* the first thread (i = 0) is executed by main thread */
 		if (i > 0)
 		{
-			int			err = pthread_create(&threads[i].thread, NULL, threadRun, &threads[i]);
+			int			err = pthread_create(&thread->thread, NULL, threadRun, thread);
 
-			if (err != 0 || threads[i].thread == INVALID_THREAD)
+			if (err != 0 || thread->thread == INVALID_THREAD)
 			{
 				fprintf(stderr, "cannot create thread: %s\n", strerror(err));
 				exit(1);
@@ -2264,7 +2361,7 @@ main(int argc, char **argv)
 		}
 		else
 		{
-			threads[i].thread = INVALID_THREAD;
+			thread->thread = INVALID_THREAD;
 		}
 	}
 
@@ -2294,7 +2391,8 @@ main(int argc, char **argv)
 	/* get end time */
 	INSTR_TIME_SET_CURRENT(total_time);
 	INSTR_TIME_SUBTRACT(total_time, start_time);
-	printResults(ttype, total_xacts, nclients, nthreads, total_time, conn_total_time);
+	printResults(ttype, total_xacts, nclients, threads, nthreads,
+				 total_time, conn_total_time);
 
 	return 0;
 }
@@ -2312,7 +2410,7 @@ threadRun(void *arg)
 	int			remains = nstate;		/* number of remaining clients */
 	int			i;
 
-	result = malloc(sizeof(TResult));
+	result = xmalloc(sizeof(TResult));
 	INSTR_TIME_SET_ZERO(result->conn_time);
 
 	/* open log file if requested */
@@ -2355,7 +2453,7 @@ threadRun(void *arg)
 		int			prev_ecnt = st->ecnt;
 
 		st->use_file = getrand(0, num_files - 1);
-		if (!doCustom(st, &result->conn_time, logfile))
+		if (!doCustom(thread, st, &result->conn_time, logfile))
 			remains--;			/* I've aborted */
 
 		if (st->ecnt > prev_ecnt && commands[st->state]->type == META_COMMAND)
@@ -2457,7 +2555,7 @@ threadRun(void *arg)
 			if (st->con && (FD_ISSET(PQsocket(st->con), &input_mask)
 							|| commands[st->state]->type == META_COMMAND))
 			{
-				if (!doCustom(st, &result->conn_time, logfile))
+				if (!doCustom(thread, st, &result->conn_time, logfile))
 					remains--;	/* I've aborted */
 			}
 
@@ -2518,7 +2616,7 @@ typedef struct fork_pthread
 
 static int
 pthread_create(pthread_t *thread,
-			   pthread_attr_t *attr,
+			   pthread_attr_t * attr,
 			   void *(*start_routine) (void *),
 			   void *arg)
 {
@@ -2526,8 +2624,12 @@ pthread_create(pthread_t *thread,
 	void	   *ret;
 	instr_time	start_time;
 
-	th = (fork_pthread *) malloc(sizeof(fork_pthread));
-	pipe(th->pipes);
+	th = (fork_pthread *) xmalloc(sizeof(fork_pthread));
+	if (pipe(th->pipes) < 0)
+	{
+		free(th);
+		return errno;
+	}
 
 	th->pid = fork();
 	if (th->pid == -1)			/* error */
@@ -2581,7 +2683,7 @@ pthread_join(pthread_t th, void **thread_return)
 	if (thread_return != NULL)
 	{
 		/* assume result is TResult */
-		*thread_return = malloc(sizeof(TResult));
+		*thread_return = xmalloc(sizeof(TResult));
 		if (read(th->pipes[0], *thread_return, sizeof(TResult)) != sizeof(TResult))
 		{
 			free(*thread_return);
@@ -2628,7 +2730,7 @@ typedef struct win32_pthread
 	void	   *(*routine) (void *);
 	void	   *arg;
 	void	   *result;
-}	win32_pthread;
+} win32_pthread;
 
 static unsigned __stdcall
 win32_pthread_run(void *arg)
@@ -2642,14 +2744,14 @@ win32_pthread_run(void *arg)
 
 static int
 pthread_create(pthread_t *thread,
-			   pthread_attr_t *attr,
+			   pthread_attr_t * attr,
 			   void *(*start_routine) (void *),
 			   void *arg)
 {
 	int			save_errno;
 	win32_pthread *th;
 
-	th = (win32_pthread *) malloc(sizeof(win32_pthread));
+	th = (win32_pthread *) xmalloc(sizeof(win32_pthread));
 	th->routine = start_routine;
 	th->arg = arg;
 	th->result = NULL;

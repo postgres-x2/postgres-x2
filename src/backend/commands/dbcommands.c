@@ -8,12 +8,12 @@
  * stepping on each others' toes.  Formerly we used table-level locks
  * on pg_database, but that's too coarse-grained.
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/commands/dbcommands.c,v 1.235 2010/02/26 02:00:38 momjian Exp $
+ *	  src/backend/commands/dbcommands.c
  *
  *-------------------------------------------------------------------------
  */
@@ -32,6 +32,7 @@
 #include "catalog/catalog.h"
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
+#include "catalog/objectaccess.h"
 #include "catalog/pg_authid.h"
 #include "catalog/pg_database.h"
 #include "catalog/pg_db_role_setting.h"
@@ -44,6 +45,7 @@
 #include "pgstat.h"
 #include "postmaster/bgwriter.h"
 #include "storage/bufmgr.h"
+#include "storage/copydir.h"
 #include "storage/fd.h"
 #include "storage/lmgr.h"
 #include "storage/ipc.h"
@@ -130,8 +132,6 @@ createdb(const CreatedbStmt *stmt)
 	char	   *dbctype = NULL;
 	int			encoding = -1;
 	int			dbconnlimit = -1;
-	int			ctype_encoding;
-	int			collate_encoding;
 	int			notherbackends;
 	int			npreparedxacts;
 	createdb_failure_params fparms;
@@ -258,7 +258,7 @@ createdb(const CreatedbStmt *stmt)
 
 	/* obtain OID of proposed owner */
 	if (dbowner)
-		datdba = get_roleid_checked(dbowner);
+		datdba = get_role_oid(dbowner, false);
 	else
 		datdba = GetUserId();
 
@@ -335,60 +335,7 @@ createdb(const CreatedbStmt *stmt)
 				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 				 errmsg("invalid locale name %s", dbctype)));
 
-	/*
-	 * Check whether chosen encoding matches chosen locale settings.  This
-	 * restriction is necessary because libc's locale-specific code usually
-	 * fails when presented with data in an encoding it's not expecting. We
-	 * allow mismatch in four cases:
-	 *
-	 * 1. locale encoding = SQL_ASCII, which means that the locale is C/POSIX
-	 * which works with any encoding.
-	 *
-	 * 2. locale encoding = -1, which means that we couldn't determine the
-	 * locale's encoding and have to trust the user to get it right.
-	 *
-	 * 3. selected encoding is UTF8 and platform is win32. This is because
-	 * UTF8 is a pseudo codepage that is supported in all locales since it's
-	 * converted to UTF16 before being used.
-	 *
-	 * 4. selected encoding is SQL_ASCII, but only if you're a superuser. This
-	 * is risky but we have historically allowed it --- notably, the
-	 * regression tests require it.
-	 *
-	 * Note: if you change this policy, fix initdb to match.
-	 */
-	ctype_encoding = pg_get_encoding_from_locale(dbctype);
-	collate_encoding = pg_get_encoding_from_locale(dbcollate);
-
-	if (!(ctype_encoding == encoding ||
-		  ctype_encoding == PG_SQL_ASCII ||
-		  ctype_encoding == -1 ||
-#ifdef WIN32
-		  encoding == PG_UTF8 ||
-#endif
-		  (encoding == PG_SQL_ASCII && superuser())))
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("encoding %s does not match locale %s",
-						pg_encoding_to_char(encoding),
-						dbctype),
-			   errdetail("The chosen LC_CTYPE setting requires encoding %s.",
-						 pg_encoding_to_char(ctype_encoding))));
-
-	if (!(collate_encoding == encoding ||
-		  collate_encoding == PG_SQL_ASCII ||
-		  collate_encoding == -1 ||
-#ifdef WIN32
-		  encoding == PG_UTF8 ||
-#endif
-		  (encoding == PG_SQL_ASCII && superuser())))
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("encoding %s does not match locale %s",
-						pg_encoding_to_char(encoding),
-						dbcollate),
-			 errdetail("The chosen LC_COLLATE setting requires encoding %s.",
-					   pg_encoding_to_char(collate_encoding))));
+	check_encoding_locale_matches(encoding, dbcollate, dbctype);
 
 	/*
 	 * Check that the new encoding and locale settings match the source
@@ -432,12 +379,7 @@ createdb(const CreatedbStmt *stmt)
 		AclResult	aclresult;
 
 		tablespacename = strVal(dtablespacename->arg);
-		dst_deftablespace = get_tablespace_oid(tablespacename);
-		if (!OidIsValid(dst_deftablespace))
-			ereport(ERROR,
-					(errcode(ERRCODE_UNDEFINED_OBJECT),
-					 errmsg("tablespace \"%s\" does not exist",
-							tablespacename)));
+		dst_deftablespace = get_tablespace_oid(tablespacename, false);
 		/* check permissions */
 		aclresult = pg_tablespace_aclcheck(dst_deftablespace, GetUserId(),
 										   ACL_CREATE);
@@ -494,7 +436,7 @@ createdb(const CreatedbStmt *stmt)
 	 * message than "unique index violation".  There's a race condition but
 	 * we're willing to accept the less friendly message in that case.
 	 */
-	if (OidIsValid(get_database_oid(dbname)))
+	if (OidIsValid(get_database_oid(dbname, true)))
 		ereport(ERROR,
 				(errcode(ERRCODE_DUPLICATE_DATABASE),
 				 errmsg("database \"%s\" already exists", dbname)));
@@ -578,6 +520,9 @@ createdb(const CreatedbStmt *stmt)
 
 	/* Create pg_shdepend entries for objects within database */
 	copyTemplateDependencies(src_dboid, dboid);
+
+	/* Post creation hook for new database */
+	InvokeObjectAccessHook(OAT_POST_CREATE, DatabaseRelationId, dboid, 0);
 
 	/*
 	 * Force a checkpoint before starting the copy. This will force dirty
@@ -711,6 +656,65 @@ createdb(const CreatedbStmt *stmt)
 	}
 	PG_END_ENSURE_ERROR_CLEANUP(createdb_failure_callback,
 								PointerGetDatum(&fparms));
+}
+
+/*
+ * Check whether chosen encoding matches chosen locale settings.  This
+ * restriction is necessary because libc's locale-specific code usually
+ * fails when presented with data in an encoding it's not expecting. We
+ * allow mismatch in four cases:
+ *
+ * 1. locale encoding = SQL_ASCII, which means that the locale is C/POSIX
+ * which works with any encoding.
+ *
+ * 2. locale encoding = -1, which means that we couldn't determine the
+ * locale's encoding and have to trust the user to get it right.
+ *
+ * 3. selected encoding is UTF8 and platform is win32. This is because
+ * UTF8 is a pseudo codepage that is supported in all locales since it's
+ * converted to UTF16 before being used.
+ *
+ * 4. selected encoding is SQL_ASCII, but only if you're a superuser. This
+ * is risky but we have historically allowed it --- notably, the
+ * regression tests require it.
+ *
+ * Note: if you change this policy, fix initdb to match.
+ */
+void
+check_encoding_locale_matches(int encoding, const char *collate, const char *ctype)
+{
+	int			ctype_encoding = pg_get_encoding_from_locale(ctype, true);
+	int			collate_encoding = pg_get_encoding_from_locale(collate, true);
+
+	if (!(ctype_encoding == encoding ||
+		  ctype_encoding == PG_SQL_ASCII ||
+		  ctype_encoding == -1 ||
+#ifdef WIN32
+		  encoding == PG_UTF8 ||
+#endif
+		  (encoding == PG_SQL_ASCII && superuser())))
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("encoding %s does not match locale %s",
+						pg_encoding_to_char(encoding),
+						ctype),
+			   errdetail("The chosen LC_CTYPE setting requires encoding %s.",
+						 pg_encoding_to_char(ctype_encoding))));
+
+	if (!(collate_encoding == encoding ||
+		  collate_encoding == PG_SQL_ASCII ||
+		  collate_encoding == -1 ||
+#ifdef WIN32
+		  encoding == PG_UTF8 ||
+#endif
+		  (encoding == PG_SQL_ASCII && superuser())))
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("encoding %s does not match locale %s",
+						pg_encoding_to_char(encoding),
+						collate),
+			 errdetail("The chosen LC_COLLATE setting requires encoding %s.",
+					   pg_encoding_to_char(collate_encoding))));
 }
 
 /* Error cleanup callback for createdb */
@@ -929,7 +933,7 @@ RenameDatabase(const char *oldname, const char *newname)
 	 * Make sure the new name doesn't exist.  See notes for same error in
 	 * CREATE DATABASE.
 	 */
-	if (OidIsValid(get_database_oid(newname)))
+	if (OidIsValid(get_database_oid(newname, true)))
 		ereport(ERROR,
 				(errcode(ERRCODE_DUPLICATE_DATABASE),
 				 errmsg("database \"%s\" already exists", newname)));
@@ -1040,11 +1044,7 @@ movedb(const char *dbname, const char *tblspcname)
 	/*
 	 * Get tablespace's oid
 	 */
-	dst_tblspcoid = get_tablespace_oid(tblspcname);
-	if (dst_tblspcoid == InvalidOid)
-		ereport(ERROR,
-				(errcode(ERRCODE_UNDEFINED_DATABASE),
-				 errmsg("tablespace \"%s\" does not exist", tblspcname)));
+	dst_tblspcoid = get_tablespace_oid(tblspcname, false);
 
 	/*
 	 * Permission checks
@@ -1412,12 +1412,7 @@ AlterDatabase(AlterDatabaseStmt *stmt, bool isTopLevel)
 void
 AlterDatabaseSet(AlterDatabaseSetStmt *stmt)
 {
-	Oid			datid = get_database_oid(stmt->dbname);
-
-	if (!OidIsValid(datid))
-		ereport(ERROR,
-				(errcode(ERRCODE_UNDEFINED_DATABASE),
-				 errmsg("database \"%s\" does not exist", stmt->dbname)));
+	Oid			datid = get_database_oid(stmt->dbname, false);
 
 	/*
 	 * Obtain a lock on the database and make sure it didn't go away in the
@@ -1828,10 +1823,11 @@ errdetail_busy_db(int notherbackends, int npreparedxacts)
 /*
  * get_database_oid - given a database name, look up the OID
  *
- * Returns InvalidOid if database name not found.
+ * If missing_ok is false, throw an error if database name not found.  If
+ * true, just return InvalidOid.
  */
 Oid
-get_database_oid(const char *dbname)
+get_database_oid(const char *dbname, bool missing_ok)
 {
 	Relation	pg_database;
 	ScanKeyData entry[1];
@@ -1861,6 +1857,12 @@ get_database_oid(const char *dbname)
 
 	systable_endscan(scan);
 	heap_close(pg_database, AccessShareLock);
+
+	if (!OidIsValid(oid) && !missing_ok)
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_DATABASE),
+				 errmsg("database \"%s\" does not exist",
+						dbname)));
 
 	return oid;
 }
@@ -1918,6 +1920,7 @@ dbase_redo(XLogRecPtr lsn, XLogRecord *record)
 		if (stat(dst_path, &st) == 0 && S_ISDIR(st.st_mode))
 		{
 			if (!rmtree(dst_path, true))
+				/* If this failed, copydir() below is going to error. */
 				ereport(WARNING,
 						(errmsg("some useless files may be left behind in old database directory \"%s\"",
 								dst_path)));

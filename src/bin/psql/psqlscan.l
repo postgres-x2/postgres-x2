@@ -29,11 +29,11 @@
  * subroutine is responsible for looking back to the original string and
  * replacing FF's with the corresponding original bytes.
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/bin/psql/psqlscan.l,v 1.34 2010/05/30 18:10:41 tgl Exp $
+ *	  src/bin/psql/psqlscan.l
  *
  *-------------------------------------------------------------------------
  */
@@ -120,7 +120,6 @@ static bool var_is_current_source(PsqlScanState state, const char *varname);
 static YY_BUFFER_STATE prepare_buffer(const char *txt, int len,
 									  char **txtcopy);
 static void emit(const char *txt, int len);
-static bool is_utf16_surrogate_first(uint32 c);
 static void escape_variable(bool as_ident);
 
 #define ECHO emit(yytext, yyleng)
@@ -163,7 +162,11 @@ static void escape_variable(bool as_ident);
  *  <xdolq> $foo$ quoted strings
  *  <xui> quoted identifier with Unicode escapes
  *  <xus> quoted string with Unicode escapes
- *  <xeu> Unicode surrogate pair in extended quoted string
+ *
+ * Note: we intentionally don't mimic the backend's <xeu> state; we have
+ * no need to distinguish it from <xe> state, and no good way to get out
+ * of it in error cases.  The backend just throws yyerror() in those
+ * cases, but that's not an option here.
  */
 
 %x xb
@@ -175,7 +178,6 @@ static void escape_variable(bool as_ident);
 %x xdolq
 %x xui
 %x xus
-%x xeu
 /* Additional exclusive states for psql only: lex backslash commands */
 %x xslashcmd
 %x xslasharg
@@ -275,8 +277,8 @@ xqinside		[^']+
 
 /* $foo$ style quotes ("dollar quoting")
  * The quoted string starts with $foo$ where "foo" is an optional string
- * in the form of an identifier, except that it may not contain "$", 
- * and extends to the first occurrence of an identical string.  
+ * in the form of an identifier, except that it may not contain "$",
+ * and extends to the first occurrence of an identical string.
  * There is *no* processing of the quoted text.
  *
  * {dolqfailed} is an error rule to avoid scanner backup when {dolqdelim}
@@ -362,7 +364,7 @@ self			[,()\[\].;\:\+\-\*\/\%\^\<\>\=]
 op_chars		[\~\!\@\#\^\&\|\`\?\+\-\*\/\%\<\>\=]
 operator		{op_chars}+
 
-/* we no longer allow unary minus in numbers. 
+/* we no longer allow unary minus in numbers.
  * instead we pass it separately to parser. there it gets
  * coerced via doNegate() -- Leon aug 20 1999
  *
@@ -529,19 +531,9 @@ other			.
 					ECHO;
 				}
 <xe>{xeunicode} {
-					uint32 c = strtoul(yytext+2, NULL, 16);
-
-					if (is_utf16_surrogate_first(c))
-						BEGIN(xeu);
 					ECHO;
 				}
-<xeu>{xeunicode} {
-					BEGIN(xe);
-					ECHO;
-				}
-<xeu>.			{ ECHO; }
-<xeu>\n			{ ECHO; }
-<xe,xeu>{xeunicodefail}	{
+<xe>{xeunicodefail}	{
 					ECHO;
 				}
 <xe>{xeescape}  {
@@ -1242,6 +1234,7 @@ psql_scan(PsqlScanState state,
 		case LEXRES_EOL:		/* end of input */
 			switch (state->start_state)
 			{
+				/* This switch must cover all non-slash-command states. */
 				case INITIAL:
 					if (state->paren_depth > 0)
 					{
@@ -1276,17 +1269,25 @@ psql_scan(PsqlScanState state,
 					result = PSCAN_INCOMPLETE;
 					*prompt = PROMPT_SINGLEQUOTE;
 					break;
-				case xq:
+				case xe:
 					result = PSCAN_INCOMPLETE;
 					*prompt = PROMPT_SINGLEQUOTE;
 					break;
-				case xe:
+				case xq:
 					result = PSCAN_INCOMPLETE;
 					*prompt = PROMPT_SINGLEQUOTE;
 					break;
 				case xdolq:
 					result = PSCAN_INCOMPLETE;
 					*prompt = PROMPT_DOLLARQUOTE;
+					break;
+				case xui:
+					result = PSCAN_INCOMPLETE;
+					*prompt = PROMPT_DOUBLEQUOTE;
+					break;
+				case xus:
+					result = PSCAN_INCOMPLETE;
+					*prompt = PROMPT_SINGLEQUOTE;
 					break;
 				default:
 					/* can't get here */
@@ -1383,7 +1384,6 @@ char *
 psql_scan_slash_command(PsqlScanState state)
 {
 	PQExpBufferData mybuf;
-	int			lexresult;
 
 	/* Must be scanning already */
 	psql_assert(state->scanbufhandle);
@@ -1403,7 +1403,7 @@ psql_scan_slash_command(PsqlScanState state)
 	BEGIN(xslashcmd);
 
 	/* And lex. */
-	lexresult = yylex();
+	yylex();
 
 	/* There are no possible errors in this lex state... */
 
@@ -1640,8 +1640,6 @@ psql_scan_slash_option(PsqlScanState state,
 void
 psql_scan_slash_command_end(PsqlScanState state)
 {
-	int			lexresult;
-
 	/* Must be scanning already */
 	psql_assert(state->scanbufhandle);
 
@@ -1657,7 +1655,7 @@ psql_scan_slash_command_end(PsqlScanState state)
 	BEGIN(xslashend);
 
 	/* And lex. */
-	lexresult = yylex();
+	yylex();
 
 	/* There are no possible errors in this lex state... */
 }
@@ -1812,12 +1810,6 @@ emit(const char *txt, int len)
 			appendPQExpBufferChar(output_buf, ch);
 		}
 	}
-}
-
-static bool
-is_utf16_surrogate_first(uint32 c)
-{
-	return (c >= 0xD800 && c <= 0xDBFF);
 }
 
 static void

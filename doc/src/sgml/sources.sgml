@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/sources.sgml,v 2.36 2010/06/28 17:48:26 petere Exp $ -->
+<!-- doc/src/sgml/sources.sgml -->
 
  <chapter id="source">
   <title>PostgreSQL Coding Conventions</title>
@@ -16,6 +16,13 @@
     Layout rules (brace positioning, etc) follow BSD conventions.  In
     particular, curly braces for the controlled blocks of <literal>if</>,
     <literal>while</>, <literal>switch</>, etc go on their own lines.
+   </para>
+
+   <para>
+    Limit line lengths so that the code is readable in an 80-column window.
+    (This doesn't mean that you must never go past 80 columns.  For instance,
+    breaking a long error message string in arbitrary places just to keep the
+    code within 80 columns is probably not a net gain in readability.)
    </para>
 
    <para>
@@ -50,6 +57,8 @@
     rules, it's a good idea to do so.  Your code will get run through
     <application>pgindent</> before the next release, so there's no point in
     making it look nice under some other set of formatting conventions.
+    A good rule of thumb for patches is <quote>make the new code look like
+    the existing code around it</>.
    </para>
 
    <para>
@@ -317,7 +326,7 @@ ereport(level, (errmsg_internal("format string", ...)));
    </para>
 
   <simplesect>
-   <title>What goes where</title>
+   <title>What Goes Where</title>
 
    <para>
     The primary message should be short, factual, and avoid reference to
@@ -379,7 +388,7 @@ Hint:       the addendum
   </simplesect>
 
   <simplesect>
-   <title>Quotation marks</title>
+   <title>Quotation Marks</title>
 
    <para>
     English text should use double quotes when quoting is appropriate.
@@ -400,7 +409,7 @@ Hint:       the addendum
   </simplesect>
 
   <simplesect>
-   <title>Use of quotes</title>
+   <title>Use of Quotes</title>
 
    <para>
     Use quotes always to delimit file names, user-supplied identifiers, and
@@ -410,7 +419,7 @@ Hint:       the addendum
 
    <para>
     There are functions in the backend that will double-quote their own output
-    at need (for example, <function>format_type_be</>()).  Do not put
+    at need (for example, <function>format_type_be()</function>).  Do not put
     additional quotes around the output of such functions.
    </para>
 
@@ -424,7 +433,7 @@ Hint:       the addendum
   </simplesect>
 
   <simplesect>
-   <title>Grammar and punctuation</title>
+   <title>Grammar and Punctuation</title>
 
    <para>
     The rules are different for primary error messages and for detail/hint
@@ -463,7 +472,7 @@ Hint:       the addendum
   </simplesect>
 
   <simplesect>
-   <title>Upper case vs. lower case</title>
+   <title>Upper Case vs. Lower Case</title>
 
    <para>
     Use lower case for message wording, including the first letter of a
@@ -479,7 +488,7 @@ Hint:       the addendum
   </simplesect>
 
   <simplesect>
-   <title>Avoid passive voice</title>
+   <title>Avoid Passive Voice</title>
 
    <para>
     Use the active voice.  Use complete sentences when there is an acting
@@ -495,7 +504,7 @@ Hint:       the addendum
   </simplesect>
 
   <simplesect>
-   <title>Present vs past tense</title>
+   <title>Present vs. Past Tense</title>
 
    <para>
     Use past tense if an attempt to do something failed, but could perhaps
@@ -535,7 +544,7 @@ cannot open file "%s"
   </simplesect>
 
   <simplesect>
-   <title>Type of the object</title>
+   <title>Type of the Object</title>
 
    <para>
     When citing the name of an object, state what kind of object it is.
@@ -564,7 +573,7 @@ cannot open file "%s"
   </simplesect>
 
   <simplesect>
-   <title>Assembling error messages</title>
+   <title>Assembling Error Messages</title>
 
    <para>
    When a message includes text that is generated elsewhere, embed it in
@@ -585,7 +594,7 @@ could not open file %s: %m
   </simplesect>
 
   <simplesect>
-   <title>Reasons for errors</title>
+   <title>Reasons for Errors</title>
 
    <para>
     Messages should always state the reason why an error occurred.
@@ -600,7 +609,7 @@ BETTER: could not open file %s (I/O failure)
   </simplesect>
 
   <simplesect>
-   <title>Function names</title>
+   <title>Function Names</title>
 
    <para>
     Don't include the name of the reporting routine in the error text. We have
@@ -632,7 +641,7 @@ BETTER: could not open file %s: %m
   </simplesect>
 
   <simplesect>
-   <title>Tricky words to avoid</title>
+   <title>Tricky Words to Avoid</title>
 
   <formalpara>
     <title>Unable</title>
@@ -708,7 +717,7 @@ BETTER: unrecognized node type: 42
   </simplesect>
 
   <simplesect>
-   <title>Proper spelling</title>
+   <title>Proper Spelling</title>
 
    <para>
     Spell out words in full.  For instance, avoid:

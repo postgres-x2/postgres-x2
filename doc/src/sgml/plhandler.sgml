@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/plhandler.sgml,v 1.11 2010/06/08 20:12:59 rhaas Exp $ -->
+<!-- doc/src/sgml/plhandler.sgml -->
 
  <chapter id="plhandler">
    <title>Writing A Procedural Language Handler</title>
@@ -214,6 +214,15 @@ CREATE LANGUAGE plsample
     about the <command>DO</> statement's parameters, in particular the
     text of the anonymous code block to be executed.  The inline handler
     should execute this code and return.
+   </para>
+
+   <para>
+    It's recommended that you wrap all these function declarations,
+    as well as the <command>CREATE LANGUAGE</> command itself, into
+    an <firstterm>extension</> so that a simple <command>CREATE EXTENSION</>
+    command is sufficient to install the language.  See
+    <xref linkend="extend-extensions"> for information about writing
+    extensions.
    </para>
 
    <para>

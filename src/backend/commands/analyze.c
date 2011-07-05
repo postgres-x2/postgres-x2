@@ -3,12 +3,12 @@
  * analyze.c
  *	  the Postgres statistics generator
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/commands/analyze.c,v 1.152 2010/02/26 02:00:37 momjian Exp $
+ *	  src/backend/commands/analyze.c
  *
  *-------------------------------------------------------------------------
  */
@@ -24,6 +24,7 @@
 #include "catalog/index.h"
 #include "catalog/indexing.h"
 #include "catalog/namespace.h"
+#include "catalog/pg_collation.h"
 #include "catalog/pg_inherits_fn.h"
 #include "catalog/pg_namespace.h"
 #include "commands/dbcommands.h"
@@ -36,6 +37,7 @@
 #include "pgstat.h"
 #include "postmaster/autovacuum.h"
 #include "storage/bufmgr.h"
+#include "storage/lmgr.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
 #include "utils/acl.h"
@@ -82,8 +84,7 @@ static MemoryContext anl_context = NULL;
 static BufferAccessStrategy vac_strategy;
 
 
-static void do_analyze_rel(Relation onerel, VacuumStmt *vacstmt,
-			   bool update_reltuples, bool inh);
+static void do_analyze_rel(Relation onerel, VacuumStmt *vacstmt, bool inh);
 static void BlockSampler_Init(BlockSampler bs, BlockNumber nblocks,
 				  int samplesize);
 static bool BlockSampler_HasMore(BlockSampler bs);
@@ -92,7 +93,8 @@ static void compute_index_stats(Relation onerel, double totalrows,
 					AnlIndexData *indexdata, int nindexes,
 					HeapTuple *rows, int numrows,
 					MemoryContext col_context);
-static VacAttrStats *examine_attribute(Relation onerel, int attnum);
+static VacAttrStats *examine_attribute(Relation onerel, int attnum,
+				  Node *index_expr);
 static int acquire_sample_rows(Relation onerel, HeapTuple *rows,
 					int targrows, double *totalrows, double *totaldeadrows);
 static double random_fract(void);
@@ -112,18 +114,9 @@ static bool std_typanalyze(VacAttrStats *stats);
 
 /*
  *	analyze_rel() -- analyze one relation
- *
- * If update_reltuples is true, we update reltuples and relpages columns
- * in pg_class.  Caller should pass false if we're part of VACUUM ANALYZE,
- * and the VACUUM didn't skip any pages.  We only have an approximate count,
- * so we don't want to overwrite the accurate values already inserted by the
- * VACUUM in that case.  VACUUM always scans all indexes, however, so the
- * pg_class entries for indexes are never updated if we're part of VACUUM
- * ANALYZE.
  */
 void
-analyze_rel(Oid relid, VacuumStmt *vacstmt,
-			BufferAccessStrategy bstrategy, bool update_reltuples)
+analyze_rel(Oid relid, VacuumStmt *vacstmt, BufferAccessStrategy bstrategy)
 {
 	Relation	onerel;
 
@@ -147,7 +140,19 @@ analyze_rel(Oid relid, VacuumStmt *vacstmt,
 	 * matter if we ever try to accumulate stats on dead tuples.) If the rel
 	 * has been dropped since we last saw it, we don't need to process it.
 	 */
-	onerel = try_relation_open(relid, ShareUpdateExclusiveLock);
+	if (!(vacstmt->options & VACOPT_NOWAIT))
+		onerel = try_relation_open(relid, ShareUpdateExclusiveLock);
+	else if (ConditionalLockRelationOid(relid, ShareUpdateExclusiveLock))
+		onerel = try_relation_open(relid, NoLock);
+	else
+	{
+		onerel = NULL;
+		if (IsAutoVacuumWorkerProcess() && Log_autovacuum_min_duration >= 0)
+			ereport(LOG,
+					(errcode(ERRCODE_LOCK_NOT_AVAILABLE),
+				  errmsg("skipping analyze of \"%s\" --- lock not available",
+						 vacstmt->relation->relname)));
+	}
 	if (!onerel)
 		return;
 
@@ -186,7 +191,7 @@ analyze_rel(Oid relid, VacuumStmt *vacstmt,
 		/* No need for a WARNING if we already complained during VACUUM */
 		if (!(vacstmt->options & VACOPT_VACUUM))
 			ereport(WARNING,
-					(errmsg("skipping \"%s\" --- cannot analyze indexes, views, or special system tables",
+					(errmsg("skipping \"%s\" --- cannot analyze non-tables or special system tables",
 							RelationGetRelationName(onerel))));
 		relation_close(onerel, ShareUpdateExclusiveLock);
 		return;
@@ -223,13 +228,13 @@ analyze_rel(Oid relid, VacuumStmt *vacstmt,
 	/*
 	 * Do the normal non-recursive ANALYZE.
 	 */
-	do_analyze_rel(onerel, vacstmt, update_reltuples, false);
+	do_analyze_rel(onerel, vacstmt, false);
 
 	/*
 	 * If there are child tables, do recursive ANALYZE.
 	 */
 	if (onerel->rd_rel->relhassubclass)
-		do_analyze_rel(onerel, vacstmt, false, true);
+		do_analyze_rel(onerel, vacstmt, true);
 
 	/*
 	 * Close source relation now, but keep lock so that no one deletes it
@@ -252,8 +257,7 @@ analyze_rel(Oid relid, VacuumStmt *vacstmt,
  *	do_analyze_rel() -- analyze one relation, recursively or not
  */
 static void
-do_analyze_rel(Relation onerel, VacuumStmt *vacstmt,
-			   bool update_reltuples, bool inh)
+do_analyze_rel(Relation onerel, VacuumStmt *vacstmt, bool inh)
 {
 	int			attr_cnt,
 				tcnt,
@@ -339,7 +343,7 @@ do_analyze_rel(Relation onerel, VacuumStmt *vacstmt,
 						(errcode(ERRCODE_UNDEFINED_COLUMN),
 					errmsg("column \"%s\" of relation \"%s\" does not exist",
 						   col, RelationGetRelationName(onerel))));
-			vacattrstats[tcnt] = examine_attribute(onerel, i);
+			vacattrstats[tcnt] = examine_attribute(onerel, i, NULL);
 			if (vacattrstats[tcnt] != NULL)
 				tcnt++;
 		}
@@ -353,7 +357,7 @@ do_analyze_rel(Relation onerel, VacuumStmt *vacstmt,
 		tcnt = 0;
 		for (i = 1; i <= attr_cnt; i++)
 		{
-			vacattrstats[tcnt] = examine_attribute(onerel, i);
+			vacattrstats[tcnt] = examine_attribute(onerel, i, NULL);
 			if (vacattrstats[tcnt] != NULL)
 				tcnt++;
 		}
@@ -407,21 +411,8 @@ do_analyze_rel(Relation onerel, VacuumStmt *vacstmt,
 							elog(ERROR, "too few entries in indexprs list");
 						indexkey = (Node *) lfirst(indexpr_item);
 						indexpr_item = lnext(indexpr_item);
-
-						/*
-						 * Can't analyze if the opclass uses a storage type
-						 * different from the expression result type. We'd get
-						 * confused because the type shown in pg_attribute for
-						 * the index column doesn't match what we are getting
-						 * from the expression. Perhaps this can be fixed
-						 * someday, but for now, punt.
-						 */
-						if (exprType(indexkey) !=
-							Irel[ind]->rd_att->attrs[i]->atttypid)
-							continue;
-
 						thisdata->vacattrstats[tcnt] =
-							examine_attribute(Irel[ind], i + 1);
+							examine_attribute(Irel[ind], i + 1, indexkey);
 						if (thisdata->vacattrstats[tcnt] != NULL)
 						{
 							tcnt++;
@@ -435,9 +426,9 @@ do_analyze_rel(Relation onerel, VacuumStmt *vacstmt,
 	}
 
 	/*
-	 * Quit if no analyzable columns and no pg_class update needed.
+	 * Quit if no analyzable columns.
 	 */
-	if (attr_cnt <= 0 && !analyzableindex && !update_reltuples)
+	if (attr_cnt <= 0 && !analyzableindex)
 		goto cleanup;
 
 	/*
@@ -547,10 +538,10 @@ do_analyze_rel(Relation onerel, VacuumStmt *vacstmt,
 	}
 
 	/*
-	 * Update pages/tuples stats in pg_class, but not if we're inside a VACUUM
-	 * that got a more precise number.
+	 * Update pages/tuples stats in pg_class ... but not if we're doing
+	 * inherited stats.
 	 */
-	if (update_reltuples)
+	if (!inh)
 		vac_update_relstats(onerel,
 							RelationGetNumberOfBlocks(onerel),
 							totalrows, hasindex, InvalidTransactionId);
@@ -560,7 +551,7 @@ do_analyze_rel(Relation onerel, VacuumStmt *vacstmt,
 	 * VACUUM ANALYZE, don't overwrite the accurate count already inserted by
 	 * VACUUM.
 	 */
-	if (!(vacstmt->options & VACOPT_VACUUM))
+	if (!inh && !(vacstmt->options & VACOPT_VACUUM))
 	{
 		for (ind = 0; ind < nindexes; ind++)
 		{
@@ -575,13 +566,12 @@ do_analyze_rel(Relation onerel, VacuumStmt *vacstmt,
 	}
 
 	/*
-	 * Report ANALYZE to the stats collector, too; likewise, tell it to adopt
-	 * these numbers only if we're not inside a VACUUM that got a better
-	 * number.	However, a call with inh = true shouldn't reset the stats.
+	 * Report ANALYZE to the stats collector, too.	However, if doing
+	 * inherited stats we shouldn't report, because the stats collector only
+	 * tracks per-table stats.
 	 */
 	if (!inh)
-		pgstat_report_analyze(onerel, update_reltuples,
-							  totalrows, totaldeadrows);
+		pgstat_report_analyze(onerel, totalrows, totaldeadrows);
 
 	/* We skip to here if there were no analyzable columns */
 cleanup:
@@ -707,6 +697,12 @@ compute_index_stats(Relation onerel, double totalrows,
 		{
 			HeapTuple	heapTuple = rows[rowno];
 
+			/*
+			 * Reset the per-tuple context each time, to reclaim any cruft
+			 * left behind by evaluating the predicate or index expressions.
+			 */
+			ResetExprContext(econtext);
+
 			/* Set up for predicate or expression evaluation */
 			ExecStoreTuple(heapTuple, slot, InvalidBuffer, false);
 
@@ -731,15 +727,26 @@ compute_index_stats(Relation onerel, double totalrows,
 							   isnull);
 
 				/*
-				 * Save just the columns we care about.
+				 * Save just the columns we care about.  We copy the values
+				 * into ind_context from the estate's per-tuple context.
 				 */
 				for (i = 0; i < attr_cnt; i++)
 				{
 					VacAttrStats *stats = thisdata->vacattrstats[i];
 					int			attnum = stats->attr->attnum;
 
-					exprvals[tcnt] = values[attnum - 1];
-					exprnulls[tcnt] = isnull[attnum - 1];
+					if (isnull[attnum - 1])
+					{
+						exprvals[tcnt] = (Datum) 0;
+						exprnulls[tcnt] = true;
+					}
+					else
+					{
+						exprvals[tcnt] = datumCopy(values[attnum - 1],
+												   stats->attrtype->typbyval,
+												   stats->attrtype->typlen);
+						exprnulls[tcnt] = false;
+					}
 					tcnt++;
 				}
 			}
@@ -802,9 +809,12 @@ compute_index_stats(Relation onerel, double totalrows,
  *
  * Determine whether the column is analyzable; if so, create and initialize
  * a VacAttrStats struct for it.  If not, return NULL.
+ *
+ * If index_expr isn't NULL, then we're trying to analyze an expression index,
+ * and index_expr is the expression tree representing the column's data.
  */
 static VacAttrStats *
-examine_attribute(Relation onerel, int attnum)
+examine_attribute(Relation onerel, int attnum, Node *index_expr)
 {
 	Form_pg_attribute attr = onerel->rd_att->attrs[attnum - 1];
 	HeapTuple	typtuple;
@@ -827,9 +837,30 @@ examine_attribute(Relation onerel, int attnum)
 	stats = (VacAttrStats *) palloc0(sizeof(VacAttrStats));
 	stats->attr = (Form_pg_attribute) palloc(ATTRIBUTE_FIXED_PART_SIZE);
 	memcpy(stats->attr, attr, ATTRIBUTE_FIXED_PART_SIZE);
-	typtuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(attr->atttypid));
+
+	/*
+	 * When analyzing an expression index, believe the expression tree's type
+	 * not the column datatype --- the latter might be the opckeytype storage
+	 * type of the opclass, which is not interesting for our purposes.	(Note:
+	 * if we did anything with non-expression index columns, we'd need to
+	 * figure out where to get the correct type info from, but for now that's
+	 * not a problem.)	It's not clear whether anyone will care about the
+	 * typmod, but we store that too just in case.
+	 */
+	if (index_expr)
+	{
+		stats->attrtypid = exprType(index_expr);
+		stats->attrtypmod = exprTypmod(index_expr);
+	}
+	else
+	{
+		stats->attrtypid = attr->atttypid;
+		stats->attrtypmod = attr->atttypmod;
+	}
+
+	typtuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(stats->attrtypid));
 	if (!HeapTupleIsValid(typtuple))
-		elog(ERROR, "cache lookup failed for type %u", attr->atttypid);
+		elog(ERROR, "cache lookup failed for type %u", stats->attrtypid);
 	stats->attrtype = (Form_pg_type) palloc(sizeof(FormData_pg_type));
 	memcpy(stats->attrtype, GETSTRUCT(typtuple), sizeof(FormData_pg_type));
 	ReleaseSysCache(typtuple);
@@ -838,12 +869,12 @@ examine_attribute(Relation onerel, int attnum)
 
 	/*
 	 * The fields describing the stats->stavalues[n] element types default to
-	 * the type of the field being analyzed, but the type-specific typanalyze
+	 * the type of the data being analyzed, but the type-specific typanalyze
 	 * function can change them if it wants to store something else.
 	 */
 	for (i = 0; i < STATISTIC_NUM_SLOTS; i++)
 	{
-		stats->statypid[i] = stats->attr->atttypid;
+		stats->statypid[i] = stats->attrtypid;
 		stats->statyplen[i] = stats->attrtype->typlen;
 		stats->statypbyval[i] = stats->attrtype->typbyval;
 		stats->statypalign[i] = stats->attrtype->typalign;
@@ -1200,18 +1231,19 @@ acquire_sample_rows(Relation onerel, HeapTuple *rows, int targrows,
 		qsort((void *) rows, numrows, sizeof(HeapTuple), compare_rows);
 
 	/*
-	 * Estimate total numbers of rows in relation.
+	 * Estimate total numbers of rows in relation.	For live rows, use
+	 * vac_estimate_reltuples; for dead rows, we have no source of old
+	 * information, so we have to assume the density is the same in unseen
+	 * pages as in the pages we scanned.
 	 */
+	*totalrows = vac_estimate_reltuples(onerel, true,
+										totalblocks,
+										bs.m,
+										liverows);
 	if (bs.m > 0)
-	{
-		*totalrows = floor((liverows * totalblocks) / bs.m + 0.5);
-		*totaldeadrows = floor((deadrows * totalblocks) / bs.m + 0.5);
-	}
+		*totaldeadrows = floor((deadrows / bs.m) * totalblocks + 0.5);
 	else
-	{
-		*totalrows = 0.0;
 		*totaldeadrows = 0.0;
-	}
 
 	/*
 	 * Emit some interesting relation info
@@ -1780,9 +1812,10 @@ std_typanalyze(VacAttrStats *stats)
 		attr->attstattarget = default_statistics_target;
 
 	/* Look for default "<" and "=" operators for column's type */
-	get_sort_group_operators(attr->atttypid,
+	get_sort_group_operators(stats->attrtypid,
 							 false, false, false,
-							 &ltopr, &eqopr, NULL);
+							 &ltopr, &eqopr, NULL,
+							 NULL);
 
 	/* If column has no "=" operator, we can't do much of anything */
 	if (!OidIsValid(eqopr))
@@ -1860,10 +1893,10 @@ compute_minimal_stats(VacAttrStatsP stats,
 	int			nonnull_cnt = 0;
 	int			toowide_cnt = 0;
 	double		total_width = 0;
-	bool		is_varlena = (!stats->attr->attbyval &&
-							  stats->attr->attlen == -1);
-	bool		is_varwidth = (!stats->attr->attbyval &&
-							   stats->attr->attlen < 0);
+	bool		is_varlena = (!stats->attrtype->typbyval &&
+							  stats->attrtype->typlen == -1);
+	bool		is_varwidth = (!stats->attrtype->typbyval &&
+							   stats->attrtype->typlen < 0);
 	FmgrInfo	f_cmpeq;
 	typedef struct
 	{
@@ -1944,7 +1977,10 @@ compute_minimal_stats(VacAttrStatsP stats,
 		firstcount1 = track_cnt;
 		for (j = 0; j < track_cnt; j++)
 		{
-			if (DatumGetBool(FunctionCall2(&f_cmpeq, value, track[j].value)))
+			/* We always use the default collation for statistics */
+			if (DatumGetBool(FunctionCall2Coll(&f_cmpeq,
+											   DEFAULT_COLLATION_OID,
+											   value, track[j].value)))
 			{
 				match = true;
 				break;
@@ -2126,8 +2162,8 @@ compute_minimal_stats(VacAttrStatsP stats,
 			for (i = 0; i < num_mcv; i++)
 			{
 				mcv_values[i] = datumCopy(track[i].value,
-										  stats->attr->attbyval,
-										  stats->attr->attlen);
+										  stats->attrtype->typbyval,
+										  stats->attrtype->typlen);
 				mcv_freqs[i] = (double) track[i].count / (double) samplerows;
 			}
 			MemoryContextSwitchTo(old_context);
@@ -2184,10 +2220,10 @@ compute_scalar_stats(VacAttrStatsP stats,
 	int			nonnull_cnt = 0;
 	int			toowide_cnt = 0;
 	double		total_width = 0;
-	bool		is_varlena = (!stats->attr->attbyval &&
-							  stats->attr->attlen == -1);
-	bool		is_varwidth = (!stats->attr->attbyval &&
-							   stats->attr->attlen < 0);
+	bool		is_varlena = (!stats->attrtype->typbyval &&
+							  stats->attrtype->typlen == -1);
+	bool		is_varwidth = (!stats->attrtype->typbyval &&
+							   stats->attrtype->typlen < 0);
 	double		corr_xysum;
 	Oid			cmpFn;
 	int			cmpFlags;
@@ -2476,8 +2512,8 @@ compute_scalar_stats(VacAttrStatsP stats,
 			for (i = 0; i < num_mcv; i++)
 			{
 				mcv_values[i] = datumCopy(values[track[i].first].value,
-										  stats->attr->attbyval,
-										  stats->attr->attlen);
+										  stats->attrtype->typbyval,
+										  stats->attrtype->typlen);
 				mcv_freqs[i] = (double) track[i].count / (double) samplerows;
 			}
 			MemoryContextSwitchTo(old_context);
@@ -2583,8 +2619,8 @@ compute_scalar_stats(VacAttrStatsP stats,
 			for (i = 0; i < num_hist; i++)
 			{
 				hist_values[i] = datumCopy(values[pos].value,
-										   stats->attr->attbyval,
-										   stats->attr->attlen);
+										   stats->attrtype->typbyval,
+										   stats->attrtype->typlen);
 				pos += delta;
 				posfrac += deltafrac;
 				if (posfrac >= (num_hist - 1))
@@ -2681,7 +2717,9 @@ compare_scalars(const void *a, const void *b, void *arg)
 	CompareScalarsContext *cxt = (CompareScalarsContext *) arg;
 	int32		compare;
 
+	/* We always use the default collation for statistics */
 	compare = ApplySortFunction(cxt->cmpFn, cxt->cmpFlags,
+								DEFAULT_COLLATION_OID,
 								da, false, db, false);
 	if (compare != 0)
 		return compare;

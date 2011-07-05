@@ -2,9 +2,9 @@
 /*
  * Scanner for the configuration file
  *
- * Copyright (c) 2000-2010, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2011, PostgreSQL Global Development Group
  *
- * $PostgreSQL: pgsql/src/backend/utils/misc/guc-file.l,v 1.64 2010/01/02 16:57:58 momjian Exp $
+ * src/backend/utils/misc/guc-file.l
  */
 
 %{
@@ -14,6 +14,7 @@
 #include <ctype.h>
 #include <unistd.h>
 
+#include "mb/pg_wchar.h"
 #include "miscadmin.h"
 #include "storage/fd.h"
 #include "utils/guc.h"
@@ -35,25 +36,11 @@ enum {
 	GUC_ERROR = 100
 };
 
-struct name_value_pair
-{
-	char       *name;
-	char       *value;
-	char	   *filename;
-	int			sourceline;
-	struct name_value_pair *next;
-};
-
 static unsigned int ConfigFileLineno;
 
 /* flex fails to supply a prototype for yylex, so provide one */
 int GUC_yylex(void);
 
-static bool ParseConfigFile(const char *config_file, const char *calling_file,
-							int depth, GucContext context, int elevel,
-							struct name_value_pair **head_p,
-							struct name_value_pair **tail_p);
-static void free_name_value_list(struct name_value_pair * list);
 static char *GUC_scanstr(const char *s);
 
 %}
@@ -118,10 +105,11 @@ void
 ProcessConfigFile(GucContext context)
 {
 	int			elevel;
-	struct name_value_pair *item, *head, *tail;
+	ConfigVariable *item,
+				   *head,
+				   *tail;
 	char	   *cvc = NULL;
 	struct config_string *cvc_struct;
-	const char *envvar;
 	int			i;
 
 	Assert(context == PGC_POSTMASTER || context == PGC_SIGHUP);
@@ -140,9 +128,7 @@ ProcessConfigFile(GucContext context)
 	/* Parse the file into a list of option names and values */
 	head = tail = NULL;
 
-	if (!ParseConfigFile(ConfigFileName, NULL,
-						 0, context, elevel,
-						 &head, &tail))
+	if (!ParseConfigFile(ConfigFileName, NULL, 0, elevel, &head, &tail))
 		goto cleanup_list;
 
 	/*
@@ -155,7 +141,8 @@ ProcessConfigFile(GucContext context)
 	 */
 	cvc_struct = (struct config_string *)
 		find_option("custom_variable_classes", false, elevel);
-	if (cvc_struct && cvc_struct->gen.reset_source > PGC_S_FILE)
+	Assert(cvc_struct);
+	if (cvc_struct->gen.reset_source > PGC_S_FILE)
 	{
 		cvc = guc_strdup(elevel, cvc_struct->reset_val);
 		if (cvc == NULL)
@@ -165,19 +152,18 @@ ProcessConfigFile(GucContext context)
 			 guc_name_compare(head->name, "custom_variable_classes") == 0)
 	{
 		/*
-		 * Need to canonicalize the value via the assign hook.  Casting away
-		 * const is a bit ugly, but we know the result is malloc'd.
+		 * Need to canonicalize the value by calling the check hook.
 		 */
-		cvc = (char *) assign_custom_variable_classes(head->value,
-													  false, PGC_S_FILE);
+		void   *extra = NULL;
+
+		cvc = guc_strdup(elevel, head->value);
 		if (cvc == NULL)
-		{
-			ereport(elevel,
-					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					 errmsg("invalid value for parameter \"%s\": \"%s\"",
-							head->name, head->value)));
 			goto cleanup_list;
-		}
+		if (!call_string_check_hook(cvc_struct, &cvc, &extra,
+									PGC_S_FILE, elevel))
+			goto cleanup_list;
+		if (extra)
+			free(extra);
 	}
 
 	/*
@@ -279,7 +265,7 @@ ProcessConfigFile(GucContext context)
 				stack->source = PGC_S_DEFAULT;
 		}
 
-		/* Now we can re-apply the wired-in default */
+		/* Now we can re-apply the wired-in default (i.e., the boot_val) */
 		set_config_option(gconf->name, NULL, context, PGC_S_DEFAULT,
 						  GUC_ACTION_SET, true);
 		if (context == PGC_SIGHUP)
@@ -289,25 +275,28 @@ ProcessConfigFile(GucContext context)
 	}
 
 	/*
-	 * Restore any variables determined by environment variables.  This
-	 * is a no-op except in the case where one of these had been in the
-	 * config file and is now removed.  PGC_S_ENV_VAR will override the
-	 * wired-in default we just applied, but cannot override any other source.
+	 * Restore any variables determined by environment variables or
+	 * dynamically-computed defaults.  This is a no-op except in the case
+	 * where one of these had been in the config file and is now removed.
 	 *
-	 * Keep this list in sync with InitializeGUCOptions()!
-	 * PGPORT can be ignored, because it cannot be changed without restart.
-	 * We assume rlimit hasn't changed, either.
+	 * In particular, we *must not* do this during the postmaster's
+	 * initial loading of the file, since the timezone functions in
+	 * particular should be run only after initialization is complete.
+	 *
+	 * XXX this is an unmaintainable crock, because we have to know how
+	 * to set (or at least what to call to set) every variable that could
+	 * potentially have PGC_S_DYNAMIC_DEFAULT or PGC_S_ENV_VAR source.
+	 * However, there's no time to redesign it for 9.1.
 	 */
-	envvar = getenv("PGDATESTYLE");
-	if (envvar != NULL)
-		set_config_option("datestyle", envvar, PGC_POSTMASTER,
-						  PGC_S_ENV_VAR, GUC_ACTION_SET, true);
-
-	envvar = getenv("PGCLIENTENCODING");
-	if (envvar != NULL)
-		set_config_option("client_encoding", envvar, PGC_POSTMASTER,
-						  PGC_S_ENV_VAR, GUC_ACTION_SET, true);
-
+	if (context == PGC_SIGHUP)
+	{
+		InitializeGUCOptionsFromEnvironment();
+		pg_timezone_initialize();
+		pg_timezone_abbrev_initialize();
+		/* this selects SQL_ASCII in processes not connected to a database */
+		SetConfigOption("client_encoding", GetDatabaseEncodingName(),
+						PGC_BACKEND, PGC_S_DYNAMIC_DEFAULT);
+	}
 
 	/* If we got here all the options checked out okay, so apply them. */
 	for (item = head; item; item = item->next)
@@ -353,51 +342,24 @@ ProcessConfigFile(GucContext context)
 	PgReloadTime = GetCurrentTimestamp();
 
  cleanup_list:
-	free_name_value_list(head);
+	FreeConfigVariables(head);
 	if (cvc)
 		free(cvc);
 }
 
-
 /*
- * Read and parse a single configuration file.  This function recurses
- * to handle "include" directives.
- *
- * Input parameters:
- *	config_file: absolute or relative path of file to read
- *	calling_file: absolute path of file containing the "include" directive,
- *		or NULL at outer level (config_file must be absolute at outer level)
- *	depth: recursion depth (used only to prevent infinite recursion)
- *	context: GucContext passed to ProcessConfigFile()
- *	elevel: error logging level determined by ProcessConfigFile()
- * Output parameters:
- *	head_p, tail_p: head and tail of linked list of name/value pairs
- *
- * *head_p and *tail_p must be initialized to NULL before calling the outer
- * recursion level.  On exit, they contain a list of name-value pairs read
- * from the input file(s).
- *
- * Returns TRUE if successful, FALSE if an error occurred.  The error has
- * already been ereport'd, it is only necessary for the caller to clean up
- * its own state and release the name/value pairs list.
- *
- * Note: if elevel >= ERROR then an error will not return control to the
- * caller, and internal state such as open files will not be cleaned up.
- * This case occurs only during postmaster or standalone-backend startup,
- * where an error will lead to immediate process exit anyway; so there is
- * no point in contorting the code so it can clean up nicely.
+ * See next function for details. This one will just work with a config_file
+ * name rather than an already opened File Descriptor
  */
-static bool
+bool
 ParseConfigFile(const char *config_file, const char *calling_file,
-				int depth, GucContext context, int elevel,
-				struct name_value_pair **head_p,
-				struct name_value_pair **tail_p)
+				int depth, int elevel,
+				ConfigVariable **head_p,
+				ConfigVariable **tail_p)
 {
 	bool		OK = true;
-	char		abs_path[MAXPGPATH];
 	FILE	   *fp;
-	YY_BUFFER_STATE lex_buffer;
-	int			token;
+	char		abs_path[MAXPGPATH];
 
 	/*
 	 * Reject too-deep include nesting depth.  This is just a safety check
@@ -419,12 +381,23 @@ ParseConfigFile(const char *config_file, const char *calling_file,
 	 */
 	if (!is_absolute_path(config_file))
 	{
-		Assert(calling_file != NULL);
-		strlcpy(abs_path, calling_file, sizeof(abs_path));
-		get_parent_directory(abs_path);
-		join_path_components(abs_path, abs_path, config_file);
-		canonicalize_path(abs_path);
-		config_file = abs_path;
+		if (calling_file != NULL)
+		{
+			strlcpy(abs_path, calling_file, sizeof(abs_path));
+			get_parent_directory(abs_path);
+			join_path_components(abs_path, abs_path, config_file);
+			canonicalize_path(abs_path);
+			config_file = abs_path;
+		}
+		else
+		{
+			/*
+			 * calling_file is NULL, we make an absolute path from $PGDATA
+			 */
+			join_path_components(abs_path, data_directory, config_file);
+			canonicalize_path(abs_path);
+			config_file = abs_path;
+		}
 	}
 
 	fp = AllocateFile(config_file, "r");
@@ -436,6 +409,47 @@ ParseConfigFile(const char *config_file, const char *calling_file,
 						config_file)));
 		return false;
 	}
+
+	OK = ParseConfigFp(fp, config_file, depth, elevel, head_p, tail_p);
+
+	FreeFile(fp);
+
+	return OK;
+}
+
+/*
+ * Read and parse a single configuration file.  This function recurses
+ * to handle "include" directives.
+ *
+ * Input parameters:
+ *	fp: file pointer from AllocateFile for the configuration file to parse
+ *	config_file: absolute or relative path of file to read
+ *	depth: recursion depth (used only to prevent infinite recursion)
+ *	elevel: error logging level determined by ProcessConfigFile()
+ * Output parameters:
+ *	head_p, tail_p: head and tail of linked list of name/value pairs
+ *
+ * *head_p and *tail_p must be initialized to NULL before calling the outer
+ * recursion level.  On exit, they contain a list of name-value pairs read
+ * from the input file(s).
+ *
+ * Returns TRUE if successful, FALSE if an error occurred.  The error has
+ * already been ereport'd, it is only necessary for the caller to clean up
+ * its own state and release the name/value pairs list.
+ *
+ * Note: if elevel >= ERROR then an error will not return control to the
+ * caller, and internal state such as open files will not be cleaned up.
+ * This case occurs only during postmaster or standalone-backend startup,
+ * where an error will lead to immediate process exit anyway; so there is
+ * no point in contorting the code so it can clean up nicely.
+ */
+bool
+ParseConfigFp(FILE *fp, const char *config_file, int depth, int elevel,
+			  ConfigVariable **head_p, ConfigVariable **tail_p)
+{
+	bool		OK = true;
+	YY_BUFFER_STATE lex_buffer;
+	int			token;
 
 	/*
 	 * Parse
@@ -449,7 +463,7 @@ ParseConfigFile(const char *config_file, const char *calling_file,
 	while ((token = yylex()))
 	{
 		char	   *opt_name, *opt_value;
-		struct name_value_pair *item;
+		ConfigVariable *item;
 
 		if (token == GUC_EOL)	/* empty or comment line */
 			continue;
@@ -466,9 +480,9 @@ ParseConfigFile(const char *config_file, const char *calling_file,
 
 		/* now we must have the option value */
 		if (token != GUC_ID &&
-			token != GUC_STRING && 
-			token != GUC_INTEGER && 
-			token != GUC_REAL && 
+			token != GUC_STRING &&
+			token != GUC_INTEGER &&
+			token != GUC_REAL &&
 			token != GUC_UNQUOTED_STRING)
 			goto parse_error;
 		if (token == GUC_STRING)	/* strip quotes and escapes */
@@ -496,7 +510,7 @@ ParseConfigFile(const char *config_file, const char *calling_file,
 			unsigned int save_ConfigFileLineno = ConfigFileLineno;
 
 			if (!ParseConfigFile(opt_value, config_file,
-								 depth + 1, context, elevel,
+								 depth + 1, elevel,
 								 head_p, tail_p))
 			{
 				pfree(opt_name);
@@ -576,29 +590,28 @@ ParseConfigFile(const char *config_file, const char *calling_file,
 	else
 		ereport(elevel,
 				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("syntax error in file \"%s\" line %u, near token \"%s\"", 
+				 errmsg("syntax error in file \"%s\" line %u, near token \"%s\"",
 						config_file, ConfigFileLineno, yytext)));
 	OK = false;
 
 cleanup_exit:
 	yy_delete_buffer(lex_buffer);
-	FreeFile(fp);
 	return OK;
 }
 
 
 /*
- * Free a list of name/value pairs, including the names and the values
+ * Free a list of ConfigVariables, including the names and the values
  */
-static void
-free_name_value_list(struct name_value_pair *list)
+void
+FreeConfigVariables(ConfigVariable *list)
 {
-	struct name_value_pair *item;
+	ConfigVariable *item;
 
 	item = list;
 	while (item)
 	{
-		struct name_value_pair *next = item->next;
+		ConfigVariable *next = item->next;
 
 		pfree(item->name);
 		pfree(item->value);

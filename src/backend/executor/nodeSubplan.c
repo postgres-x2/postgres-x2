@@ -3,11 +3,11 @@
  * nodeSubplan.c
  *	  routines to support subselects
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/executor/nodeSubplan.c,v 1.101 2010/01/02 16:57:45 momjian Exp $
+ *	  src/backend/executor/nodeSubplan.c
  *
  *-------------------------------------------------------------------------
  */
@@ -89,7 +89,6 @@ ExecHashSubPlan(SubPlanState *node,
 {
 	SubPlan    *subplan = (SubPlan *) node->xprstate.expr;
 	PlanState  *planstate = node->planstate;
-	ExprContext *innerecontext = node->innerecontext;
 	TupleTableSlot *slot;
 
 	/* Shouldn't have any direct correlation Vars */
@@ -125,12 +124,6 @@ ExecHashSubPlan(SubPlanState *node,
 	 * be reset before we're called again, and then the tuple slot will think
 	 * it still needs to free the tuple.
 	 */
-
-	/*
-	 * Since the hashtable routines will use innerecontext's per-tuple memory
-	 * as working memory, be sure to reset it for each tuple.
-	 */
-	ResetExprContext(innerecontext);
 
 	/*
 	 * If the LHS is all non-null, probe for an exact match in the main hash
@@ -256,7 +249,7 @@ ExecScanSubPlan(SubPlanState *node,
 	/*
 	 * Now that we've set up its parameters, we can reset the subplan.
 	 */
-	ExecReScan(planstate, NULL);
+	ExecReScan(planstate);
 
 	/*
 	 * For all sublink types except EXPR_SUBLINK and ARRAY_SUBLINK, the result
@@ -438,9 +431,8 @@ buildSubPlanHash(SubPlanState *node, ExprContext *econtext)
 	PlanState  *planstate = node->planstate;
 	int			ncols = list_length(subplan->paramIds);
 	ExprContext *innerecontext = node->innerecontext;
-	MemoryContext tempcxt = innerecontext->ecxt_per_tuple_memory;
 	MemoryContext oldcontext;
-	int			nbuckets;
+	long		nbuckets;
 	TupleTableSlot *slot;
 
 	Assert(subplan->subLinkType == ANY_SUBLINK);
@@ -460,13 +452,13 @@ buildSubPlanHash(SubPlanState *node, ExprContext *econtext)
 	 * If it's not necessary to distinguish FALSE and UNKNOWN, then we don't
 	 * need to store subplan output rows that contain NULL.
 	 */
-	MemoryContextReset(node->tablecxt);
+	MemoryContextReset(node->hashtablecxt);
 	node->hashtable = NULL;
 	node->hashnulls = NULL;
 	node->havehashrows = false;
 	node->havenullrows = false;
 
-	nbuckets = (int) ceil(planstate->plan->plan_rows);
+	nbuckets = (long) Min(planstate->plan->plan_rows, (double) LONG_MAX);
 	if (nbuckets < 1)
 		nbuckets = 1;
 
@@ -476,8 +468,8 @@ buildSubPlanHash(SubPlanState *node, ExprContext *econtext)
 										  node->tab_hash_funcs,
 										  nbuckets,
 										  sizeof(TupleHashEntryData),
-										  node->tablecxt,
-										  tempcxt);
+										  node->hashtablecxt,
+										  node->hashtempcxt);
 
 	if (!subplan->unknownEqFalse)
 	{
@@ -495,8 +487,8 @@ buildSubPlanHash(SubPlanState *node, ExprContext *econtext)
 											  node->tab_hash_funcs,
 											  nbuckets,
 											  sizeof(TupleHashEntryData),
-											  node->tablecxt,
-											  tempcxt);
+											  node->hashtablecxt,
+											  node->hashtempcxt);
 	}
 
 	/*
@@ -508,7 +500,7 @@ buildSubPlanHash(SubPlanState *node, ExprContext *econtext)
 	/*
 	 * Reset subplan to start.
 	 */
-	ExecReScan(planstate, NULL);
+	ExecReScan(planstate);
 
 	/*
 	 * Scan the subplan and load the hash table(s).  Note that when there are
@@ -555,7 +547,7 @@ buildSubPlanHash(SubPlanState *node, ExprContext *econtext)
 
 		/*
 		 * Reset innerecontext after each inner tuple to free any memory used
-		 * in hash computation or comparison routines.
+		 * during ExecProject.
 		 */
 		ResetExprContext(innerecontext);
 	}
@@ -680,7 +672,8 @@ ExecInitSubPlan(SubPlan *subplan, PlanState *parent)
 	sstate->projRight = NULL;
 	sstate->hashtable = NULL;
 	sstate->hashnulls = NULL;
-	sstate->tablecxt = NULL;
+	sstate->hashtablecxt = NULL;
+	sstate->hashtempcxt = NULL;
 	sstate->innerecontext = NULL;
 	sstate->keyColIdx = NULL;
 	sstate->tab_hash_funcs = NULL;
@@ -730,12 +723,19 @@ ExecInitSubPlan(SubPlan *subplan, PlanState *parent)
 		ListCell   *l;
 
 		/* We need a memory context to hold the hash table(s) */
-		sstate->tablecxt =
+		sstate->hashtablecxt =
 			AllocSetContextCreate(CurrentMemoryContext,
 								  "Subplan HashTable Context",
 								  ALLOCSET_DEFAULT_MINSIZE,
 								  ALLOCSET_DEFAULT_INITSIZE,
 								  ALLOCSET_DEFAULT_MAXSIZE);
+		/* and a small one for the hash tables to use as temp storage */
+		sstate->hashtempcxt =
+			AllocSetContextCreate(CurrentMemoryContext,
+								  "Subplan HashTable Temp Context",
+								  ALLOCSET_SMALL_MINSIZE,
+								  ALLOCSET_SMALL_INITSIZE,
+								  ALLOCSET_SMALL_MAXSIZE);
 		/* and a short-lived exprcontext for function evaluation */
 		sstate->innerecontext = CreateExprContext(estate);
 		/* Silly little array of column numbers 1..n */
@@ -831,7 +831,7 @@ ExecInitSubPlan(SubPlan *subplan, PlanState *parent)
 
 			/* Lookup the equality function (potentially cross-type) */
 			fmgr_info(opexpr->opfuncid, &sstate->cur_eq_funcs[i - 1]);
-			sstate->cur_eq_funcs[i - 1].fn_expr = (Node *) opexpr;
+			fmgr_info_set_expr((Node *) opexpr, &sstate->cur_eq_funcs[i - 1]);
 
 			/* Look up the equality function for the RHS type */
 			if (!get_compatible_hash_operators(opexpr->opno,
@@ -884,7 +884,7 @@ ExecInitSubPlan(SubPlan *subplan, PlanState *parent)
  *
  *		Executes an InitPlan subplan and sets its output parameters.
  *
- * This is called from ExecEvalParam() when the value of a PARAM_EXEC
+ * This is called from ExecEvalParamExec() when the value of a PARAM_EXEC
  * parameter is requested and the param's execPlan field is set (indicating
  * that the param has not yet been evaluated).	This allows lazy evaluation
  * of initplans: we don't run the subplan until/unless we need its output.

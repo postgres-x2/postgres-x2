@@ -3,12 +3,12 @@
  * fe-connect.c
  *	  functions related to setting up a connection to the backend
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/interfaces/libpq/fe-connect.c,v 1.398 2010/07/08 16:19:50 mha Exp $
+ *	  src/interfaces/libpq/fe-connect.c
  *
  *-------------------------------------------------------------------------
  */
@@ -38,7 +38,7 @@
 #endif
 #define near
 #include <shlobj.h>
-#ifdef WIN32_ONLY_COMPILER /* mstcpip.h is missing on mingw */
+#ifdef WIN32_ONLY_COMPILER		/* mstcpip.h is missing on mingw */
 #include <mstcpip.h>
 #endif
 #else
@@ -96,6 +96,8 @@ static int ldapServiceLookup(const char *purl, PQconninfoOption *options,
 
 /* This is part of the protocol so just define it */
 #define ERRCODE_INVALID_PASSWORD "28P01"
+/* This too */
+#define ERRCODE_CANNOT_CONNECT_NOW "57P03"
 
 /*
  * fall back options if they are not specified by arguments or defined
@@ -170,6 +172,9 @@ static const PQconninfoOption PQconninfoOptions[] = {
 	{"port", "PGPORT", DEF_PGPORT_STR, NULL,
 	"Database-Port", "", 6},
 
+	{"client_encoding", "PGCLIENTENCODING", NULL, NULL,
+	"Client-Encoding", "", 10},
+
 	/*
 	 * "tty" is no longer used either, but keep it present for backwards
 	 * compatibility.
@@ -229,6 +234,9 @@ static const PQconninfoOption PQconninfoOptions[] = {
 	{"sslcrl", "PGSSLCRL", NULL, NULL,
 	"SSL-Revocation-List", "", 64},
 
+	{"requirepeer", "PGREQUIREPEER", NULL, NULL,
+	"Require-Peer", "", 10},
+
 #if defined(KRB5) || defined(ENABLE_GSS) || defined(ENABLE_SSPI)
 	/* Kerberos and GSSAPI authentication support specifying the service name */
 	{"krbsrvname", "PGKRBSRVNAME", PG_KRB_SRVNAM, NULL,
@@ -262,9 +270,6 @@ static const PQEnvironmentOption EnvironmentOptions[] =
 	{
 		"PGTZ", "timezone"
 	},
-	{
-		"PGCLIENTENCODING", "client_encoding"
-	},
 	/* internal performance-related settings */
 	{
 		"PGGEQO", "geqo"
@@ -279,6 +284,7 @@ static bool connectOptions1(PGconn *conn, const char *conninfo);
 static bool connectOptions2(PGconn *conn);
 static int	connectDBStart(PGconn *conn);
 static int	connectDBComplete(PGconn *conn);
+static PGPing internal_ping(PGconn *conn);
 static PGconn *makeEmptyPGconn(void);
 static void fillPGconn(PGconn *conn, PQconninfoOption *connOptions);
 static void freePGconn(PGconn *conn);
@@ -370,6 +376,25 @@ PQconnectdbParams(const char **keywords,
 }
 
 /*
+ *		PQpingParams
+ *
+ * check server status, accepting parameters identical to PQconnectdbParams
+ */
+PGPing
+PQpingParams(const char **keywords,
+			 const char **values,
+			 int expand_dbname)
+{
+	PGconn	   *conn = PQconnectStartParams(keywords, values, expand_dbname);
+	PGPing		ret;
+
+	ret = internal_ping(conn);
+	PQfinish(conn);
+
+	return ret;
+}
+
+/*
  *		PQconnectdb
  *
  * establishes a connection to a postgres backend through the postmaster
@@ -400,6 +425,23 @@ PQconnectdb(const char *conninfo)
 		(void) connectDBComplete(conn);
 
 	return conn;
+}
+
+/*
+ *		PQping
+ *
+ * check server status, accepting parameters identical to PQconnectdb
+ */
+PGPing
+PQping(const char *conninfo)
+{
+	PGconn	   *conn = PQconnectStart(conninfo);
+	PGPing		ret;
+
+	ret = internal_ping(conn);
+	PQfinish(conn);
+
+	return ret;
 }
 
 /*
@@ -446,7 +488,7 @@ PQconnectStartParams(const char **keywords,
 	{
 		conn->status = CONNECTION_BAD;
 		/* errorMessage is already set */
-		return false;
+		return conn;
 	}
 
 	/*
@@ -567,6 +609,8 @@ fillPGconn(PGconn *conn, PQconninfoOption *connOptions)
 	conn->pgpass = tmp ? strdup(tmp) : NULL;
 	tmp = conninfo_getval(connOptions, "connect_timeout");
 	conn->connect_timeout = tmp ? strdup(tmp) : NULL;
+	tmp = conninfo_getval(connOptions, "client_encoding");
+	conn->client_encoding_initial = tmp ? strdup(tmp) : NULL;
 	tmp = conninfo_getval(connOptions, "keepalives");
 	conn->keepalives = tmp ? strdup(tmp) : NULL;
 	tmp = conninfo_getval(connOptions, "keepalives_idle");
@@ -595,6 +639,8 @@ fillPGconn(PGconn *conn, PQconninfoOption *connOptions)
 		conn->sslmode = strdup("require");
 	}
 #endif
+	tmp = conninfo_getval(connOptions, "requirepeer");
+	conn->requirepeer = tmp ? strdup(tmp) : NULL;
 #if defined(KRB5) || defined(ENABLE_GSS) || defined(ENABLE_SSPI)
 	tmp = conninfo_getval(connOptions, "krbsrvname");
 	conn->krbsrvname = tmp ? strdup(tmp) : NULL;
@@ -738,6 +784,16 @@ connectOptions2(PGconn *conn)
 	}
 	else
 		conn->sslmode = strdup(DefaultSSLMode);
+
+	/*
+	 * Resolve special "auto" client_encoding from the locale
+	 */
+	if (conn->client_encoding_initial &&
+		strcmp(conn->client_encoding_initial, "auto") == 0)
+	{
+		free(conn->client_encoding_initial);
+		conn->client_encoding_initial = strdup(pg_encoding_to_char(pg_get_encoding_from_locale(NULL, true)));
+	}
 
 	/*
 	 * Only if we get this far is it appropriate to try to connect. (We need a
@@ -952,17 +1008,67 @@ connectFailureMessage(PGconn *conn, int errorno)
 	else
 #endif   /* HAVE_UNIX_SOCKETS */
 	{
-		appendPQExpBuffer(&conn->errorMessage,
-						  libpq_gettext("could not connect to server: %s\n"
+		char		host_addr[NI_MAXHOST];
+		const char *displayed_host;
+		struct sockaddr_storage *addr = &conn->raddr.addr;
+
+		/*
+		 * Optionally display the network address with the hostname. This is
+		 * useful to distinguish between IPv4 and IPv6 connections.
+		 */
+		if (conn->pghostaddr != NULL)
+			strlcpy(host_addr, conn->pghostaddr, NI_MAXHOST);
+		else if (addr->ss_family == AF_INET)
+		{
+			if (inet_net_ntop(AF_INET,
+							  &((struct sockaddr_in *) addr)->sin_addr.s_addr,
+							  32,
+							  host_addr, sizeof(host_addr)) == NULL)
+				strcpy(host_addr, "???");
+		}
+#ifdef HAVE_IPV6
+		else if (addr->ss_family == AF_INET6)
+		{
+			if (inet_net_ntop(AF_INET6,
+						  &((struct sockaddr_in6 *) addr)->sin6_addr.s6_addr,
+							  128,
+							  host_addr, sizeof(host_addr)) == NULL)
+				strcpy(host_addr, "???");
+		}
+#endif
+		else
+			strcpy(host_addr, "???");
+
+		if (conn->pghostaddr && conn->pghostaddr[0] != '\0')
+			displayed_host = conn->pghostaddr;
+		else if (conn->pghost && conn->pghost[0] != '\0')
+			displayed_host = conn->pghost;
+		else
+			displayed_host = DefaultHost;
+
+		/*
+		 * If the user did not supply an IP address using 'hostaddr', and
+		 * 'host' was missing or does not match our lookup, display the
+		 * looked-up IP address.
+		 */
+		if ((conn->pghostaddr == NULL) &&
+			(conn->pghost == NULL || strcmp(conn->pghost, host_addr) != 0))
+			appendPQExpBuffer(&conn->errorMessage,
+							libpq_gettext("could not connect to server: %s\n"
+				"\tIs the server running on host \"%s\" (%s) and accepting\n"
+									   "\tTCP/IP connections on port %s?\n"),
+							  SOCK_STRERROR(errorno, sebuf, sizeof(sebuf)),
+							  displayed_host,
+							  host_addr,
+							  conn->pgport);
+		else
+			appendPQExpBuffer(&conn->errorMessage,
+							libpq_gettext("could not connect to server: %s\n"
 					 "\tIs the server running on host \"%s\" and accepting\n"
-										"\tTCP/IP connections on port %s?\n"),
-						  SOCK_STRERROR(errorno, sebuf, sizeof(sebuf)),
-						  conn->pghostaddr
-						  ? conn->pghostaddr
-						  : (conn->pghost
-							 ? conn->pghost
-							 : "???"),
-						  conn->pgport);
+									   "\tTCP/IP connections on port %s?\n"),
+							  SOCK_STRERROR(errorno, sebuf, sizeof(sebuf)),
+							  displayed_host,
+							  conn->pgport);
 	}
 }
 
@@ -1018,10 +1124,10 @@ setKeepalivesIdle(PGconn *conn)
 	if (setsockopt(conn->sock, IPPROTO_TCP, TCP_KEEPALIVE,
 				   (char *) &idle, sizeof(idle)) < 0)
 	{
-		char	sebuf[256];
+		char		sebuf[256];
 
 		appendPQExpBuffer(&conn->errorMessage,
-						  libpq_gettext("setsockopt(TCP_KEEPALIVE) failed: %s\n"),
+					 libpq_gettext("setsockopt(TCP_KEEPALIVE) failed: %s\n"),
 						  SOCK_STRERROR(SOCK_ERRNO, sebuf, sizeof(sebuf)));
 		return 0;
 	}
@@ -1093,8 +1199,7 @@ setKeepalivesCount(PGconn *conn)
 
 	return 1;
 }
-
-#else /* Win32 */
+#else							/* Win32 */
 #ifdef SIO_KEEPALIVE_VALS
 /*
  * Enable keepalives and set the keepalive values on Win32,
@@ -1103,20 +1208,20 @@ setKeepalivesCount(PGconn *conn)
 static int
 setKeepalivesWin32(PGconn *conn)
 {
-	struct tcp_keepalive 	ka;
-	DWORD					retsize;
-	int						idle = 0;
-	int						interval = 0;
+	struct tcp_keepalive ka;
+	DWORD		retsize;
+	int			idle = 0;
+	int			interval = 0;
 
 	if (conn->keepalives_idle)
 		idle = atoi(conn->keepalives_idle);
 	if (idle <= 0)
-		idle = 2 * 60 * 60; /* 2 hours = default */
+		idle = 2 * 60 * 60;		/* 2 hours = default */
 
 	if (conn->keepalives_interval)
 		interval = atoi(conn->keepalives_interval);
 	if (interval <= 0)
-		interval = 1; /* 1 second = default */
+		interval = 1;			/* 1 second = default */
 
 	ka.onoff = 1;
 	ka.keepalivetime = idle * 1000;
@@ -1134,14 +1239,14 @@ setKeepalivesWin32(PGconn *conn)
 		!= 0)
 	{
 		appendPQExpBuffer(&conn->errorMessage,
-						  libpq_gettext("WSAIoctl(SIO_KEEPALIVE_VALS) failed: %ui\n"),
+				 libpq_gettext("WSAIoctl(SIO_KEEPALIVE_VALS) failed: %ui\n"),
 						  WSAGetLastError());
 		return 0;
 	}
 	return 1;
 }
-#endif /* SIO_KEEPALIVE_VALS */
-#endif /* WIN32 */
+#endif   /* SIO_KEEPALIVE_VALS */
+#endif   /* WIN32 */
 
 /* ----------
  * connectDBStart -
@@ -1188,6 +1293,7 @@ connectDBStart(PGconn *conn)
 			appendPQExpBuffer(&conn->errorMessage,
 							  libpq_gettext("invalid port number: \"%s\"\n"),
 							  conn->pgport);
+			conn->options_valid = false;
 			goto connect_errReturn;
 		}
 	}
@@ -1217,7 +1323,7 @@ connectDBStart(PGconn *conn)
 		UNIXSOCK_PATH(portstr, portnum, conn->pgunixsocket);
 #else
 		/* Without Unix sockets, default to localhost instead */
-		node = "localhost";
+		node = DefaultHost;
 		hint.ai_family = AF_UNSPEC;
 #endif   /* HAVE_UNIX_SOCKETS */
 	}
@@ -1236,6 +1342,7 @@ connectDBStart(PGconn *conn)
 							  portstr, gai_strerror(ret));
 		if (addrs)
 			pg_freeaddrinfo_all(hint.ai_family, addrs);
+		conn->options_valid = false;
 		goto connect_errReturn;
 	}
 
@@ -1457,9 +1564,7 @@ keep_going:						/* We will come back to here until there is
 				/*
 				 * Try to initiate a connection to one of the addresses
 				 * returned by pg_getaddrinfo_all().  conn->addr_cur is the
-				 * next one to try. We fail when we run out of addresses
-				 * (reporting the error returned for the *last* alternative,
-				 * which may not be what users expect :-().
+				 * next one to try. We fail when we run out of addresses.
 				 */
 				while (conn->addr_cur != NULL)
 				{
@@ -1530,7 +1635,9 @@ keep_going:						/* We will come back to here until there is
 
 					if (!IS_AF_UNIX(addr_cur->ai_family))
 					{
+#ifndef WIN32
 						int			on = 1;
+#endif
 						int			usekeepalives = useKeepalives(conn);
 						int			err = 0;
 
@@ -1558,12 +1665,12 @@ keep_going:						/* We will come back to here until there is
 								 || !setKeepalivesInterval(conn)
 								 || !setKeepalivesCount(conn))
 							err = 1;
-#else /* WIN32 */
+#else							/* WIN32 */
 #ifdef SIO_KEEPALIVE_VALS
 						else if (!setKeepalivesWin32(conn))
 							err = 1;
-#endif /* SIO_KEEPALIVE_VALS */
-#endif /* WIN32 */
+#endif   /* SIO_KEEPALIVE_VALS */
+#endif   /* WIN32 */
 
 						if (err)
 						{
@@ -1745,6 +1852,58 @@ keep_going:						/* We will come back to here until there is
 			{
 				char	   *startpacket;
 				int			packetlen;
+
+#ifdef HAVE_UNIX_SOCKETS
+
+				/*
+				 * Implement requirepeer check, if requested and it's a
+				 * Unix-domain socket.
+				 */
+				if (conn->requirepeer && conn->requirepeer[0] &&
+					IS_AF_UNIX(conn->raddr.addr.ss_family))
+				{
+					char		pwdbuf[BUFSIZ];
+					struct passwd pass_buf;
+					struct passwd *pass;
+					uid_t		uid;
+					gid_t		gid;
+
+					errno = 0;
+					if (getpeereid(conn->sock, &uid, &gid) != 0)
+					{
+						/*
+						 * Provide special error message if getpeereid is a
+						 * stub
+						 */
+						if (errno == ENOSYS)
+							appendPQExpBuffer(&conn->errorMessage,
+											  libpq_gettext("requirepeer parameter is not supported on this platform\n"));
+						else
+							appendPQExpBuffer(&conn->errorMessage,
+											  libpq_gettext("could not get peer credentials: %s\n"),
+									pqStrerror(errno, sebuf, sizeof(sebuf)));
+						goto error_return;
+					}
+
+					pqGetpwuid(uid, &pass_buf, pwdbuf, sizeof(pwdbuf), &pass);
+
+					if (pass == NULL)
+					{
+						appendPQExpBuffer(&conn->errorMessage,
+										  libpq_gettext("local user with ID %d does not exist\n"),
+										  (int) uid);
+						goto error_return;
+					}
+
+					if (strcmp(pass->pw_name, conn->requirepeer) != 0)
+					{
+						appendPQExpBuffer(&conn->errorMessage,
+										  libpq_gettext("requirepeer specifies \"%s\", but actual peer user name is \"%s\"\n"),
+										  conn->requirepeer, pass->pw_name);
+						goto error_return;
+					}
+				}
+#endif   /* HAVE_UNIX_SOCKETS */
 
 #ifdef USE_SSL
 
@@ -2153,6 +2312,8 @@ keep_going:						/* We will come back to here until there is
 				}
 
 				/* It is an authentication request. */
+				conn->auth_req_received = true;
+
 				/* Get the type of request. */
 				if (pqGetInt((int *) &areq, 4, conn))
 				{
@@ -2332,7 +2493,7 @@ keep_going:						/* We will come back to here until there is
 				if (PG_PROTOCOL_MAJOR(conn->pversion) < 3)
 				{
 					conn->status = CONNECTION_SETENV;
-					conn->setenv_state = SETENV_STATE_OPTION_SEND;
+					conn->setenv_state = SETENV_STATE_CLIENT_ENCODING_SEND;
 					conn->next_eo = EnvironmentOptions;
 					return PGRES_POLLING_WRITING;
 				}
@@ -2400,6 +2561,73 @@ error_return:
 
 
 /*
+ * internal_ping
+ *		Determine if a server is running and if we can connect to it.
+ *
+ * The argument is a connection that's been started, but not completed.
+ */
+static PGPing
+internal_ping(PGconn *conn)
+{
+	/* Say "no attempt" if we never got to PQconnectPoll */
+	if (!conn || !conn->options_valid)
+		return PQPING_NO_ATTEMPT;
+
+	/* Attempt to complete the connection */
+	if (conn->status != CONNECTION_BAD)
+		(void) connectDBComplete(conn);
+
+	/* Definitely OK if we succeeded */
+	if (conn->status != CONNECTION_BAD)
+		return PQPING_OK;
+
+	/*
+	 * Here begins the interesting part of "ping": determine the cause of the
+	 * failure in sufficient detail to decide what to return.  We do not want
+	 * to report that the server is not up just because we didn't have a valid
+	 * password, for example.  In fact, any sort of authentication request
+	 * implies the server is up.  (We need this check since the libpq side of
+	 * things might have pulled the plug on the connection before getting an
+	 * error as such from the postmaster.)
+	 */
+	if (conn->auth_req_received)
+		return PQPING_OK;
+
+	/*
+	 * If we failed to get any ERROR response from the postmaster, report
+	 * PQPING_NO_RESPONSE.	This result could be somewhat misleading for a
+	 * pre-7.4 server, since it won't send back a SQLSTATE, but those are long
+	 * out of support.	Another corner case where the server could return a
+	 * failure without a SQLSTATE is fork failure, but NO_RESPONSE isn't
+	 * totally unreasonable for that anyway.  We expect that every other
+	 * failure case in a modern server will produce a report with a SQLSTATE.
+	 *
+	 * NOTE: whenever we get around to making libpq generate SQLSTATEs for
+	 * client-side errors, we should either not store those into
+	 * last_sqlstate, or add an extra flag so we can tell client-side errors
+	 * apart from server-side ones.
+	 */
+	if (strlen(conn->last_sqlstate) != 5)
+		return PQPING_NO_RESPONSE;
+
+	/*
+	 * Report PQPING_REJECT if server says it's not accepting connections. (We
+	 * distinguish this case mainly for the convenience of pg_ctl.)
+	 */
+	if (strcmp(conn->last_sqlstate, ERRCODE_CANNOT_CONNECT_NOW) == 0)
+		return PQPING_REJECT;
+
+	/*
+	 * Any other SQLSTATE can be taken to indicate that the server is up.
+	 * Presumably it didn't like our username, password, or database name; or
+	 * perhaps it had some transient failure, but that should not be taken as
+	 * meaning "it's down".
+	 */
+	return PQPING_OK;
+}
+
+
+/*
  * makeEmptyPGconn
  *	 - create a PGconn data structure with (as yet) no interesting data
  */
@@ -2444,6 +2672,7 @@ makeEmptyPGconn(void)
 	conn->std_strings = false;	/* unless server says differently */
 	conn->verbosity = PQERRORS_DEFAULT;
 	conn->sock = -1;
+	conn->auth_req_received = false;
 	conn->password_needed = false;
 	conn->dot_pgpass_used = false;
 #ifdef USE_SSL
@@ -2553,6 +2782,8 @@ freePGconn(PGconn *conn)
 		free(conn->sslrootcert);
 	if (conn->sslcrl)
 		free(conn->sslcrl);
+	if (conn->requirepeer)
+		free(conn->requirepeer);
 #if defined(KRB5) || defined(ENABLE_GSS) || defined(ENABLE_SSPI)
 	if (conn->krbsrvname)
 		free(conn->krbsrvname);
@@ -3147,7 +3378,7 @@ ldapServiceLookup(const char *purl, PQconninfoOption *options,
 	/* hostname */
 	hostname = url + strlen(LDAP_URL);
 	if (*hostname == '/')		/* no hostname? */
-		hostname = "localhost"; /* the default */
+		hostname = DefaultHost; /* the default */
 
 	/* dn, "distinguished name" */
 	p = strchr(url + strlen(LDAP_URL), '/');
@@ -3337,10 +3568,11 @@ ldapServiceLookup(const char *purl, PQconninfoOption *options,
 		return 1;
 	}
 
-	/* concatenate values to a single string */
-	for (size = 0, i = 0; values[i] != NULL; ++i)
+	/* concatenate values into a single string with newline terminators */
+	size = 1;					/* for the trailing null */
+	for (i = 0; values[i] != NULL; i++)
 		size += values[i]->bv_len + 1;
-	if ((result = malloc(size + 1)) == NULL)
+	if ((result = malloc(size)) == NULL)
 	{
 		printfPQExpBuffer(errorMessage,
 						  libpq_gettext("out of memory\n"));
@@ -3348,14 +3580,14 @@ ldapServiceLookup(const char *purl, PQconninfoOption *options,
 		ldap_unbind(ld);
 		return 3;
 	}
-	for (p = result, i = 0; values[i] != NULL; ++i)
+	p = result;
+	for (i = 0; values[i] != NULL; i++)
 	{
-		strncpy(p, values[i]->bv_val, values[i]->bv_len);
+		memcpy(p, values[i]->bv_val, values[i]->bv_len);
 		p += values[i]->bv_len;
 		*(p++) = '\n';
-		if (values[i + 1] == NULL)
-			*(p + 1) = '\0';
 	}
+	*p = '\0';
 
 	ldap_value_free_len(values);
 	ldap_unbind(ld);
@@ -3384,6 +3616,7 @@ ldapServiceLookup(const char *purl, PQconninfoOption *options,
 					printfPQExpBuffer(errorMessage, libpq_gettext(
 					"missing \"=\" after \"%s\" in connection info string\n"),
 									  optname);
+					free(result);
 					return 3;
 				}
 				else if (*p == '=')
@@ -3402,6 +3635,7 @@ ldapServiceLookup(const char *purl, PQconninfoOption *options,
 					printfPQExpBuffer(errorMessage, libpq_gettext(
 					"missing \"=\" after \"%s\" in connection info string\n"),
 									  optname);
+					free(result);
 					return 3;
 				}
 				break;
@@ -3465,6 +3699,7 @@ ldapServiceLookup(const char *purl, PQconninfoOption *options,
 				printfPQExpBuffer(errorMessage,
 						 libpq_gettext("invalid connection option \"%s\"\n"),
 								  optname);
+				free(result);
 				return 1;
 			}
 			optname = NULL;
@@ -3472,6 +3707,8 @@ ldapServiceLookup(const char *purl, PQconninfoOption *options,
 		}
 		oldstate = state;
 	}
+
+	free(result);
 
 	if (state == 5 || state == 6)
 	{
@@ -4414,6 +4651,10 @@ PQsetClientEncoding(PGconn *conn, const char *encoding)
 
 	if (!encoding)
 		return -1;
+
+	/* Resolve special "auto" value from the locale */
+	if (strcmp(encoding, "auto") == 0)
+		encoding = pg_encoding_to_char(pg_get_encoding_from_locale(NULL, true));
 
 	/* check query buffer overflow */
 	if (sizeof(qbuf) < (sizeof(query) + strlen(encoding)))

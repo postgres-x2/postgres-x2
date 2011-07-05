@@ -4,11 +4,11 @@
  *	  routines for signaling the postmaster from its child processes
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/storage/ipc/pmsignal.c,v 1.30 2010/01/15 09:19:03 heikki Exp $
+ *	  src/backend/storage/ipc/pmsignal.c
  *
  *-------------------------------------------------------------------------
  */
@@ -19,6 +19,7 @@
 
 #include "miscadmin.h"
 #include "postmaster/postmaster.h"
+#include "replication/walsender.h"
 #include "storage/pmsignal.h"
 #include "storage/shmem.h"
 
@@ -46,8 +47,10 @@
  * child processes at random, and postmaster.c is responsible for tracking
  * which one goes with which PID.
  *
- * The fourth state, WALSENDER, is just like ACTIVE, but carries the extra
- * information that the child is a WAL sender.
+ * Actually there is a fourth state, WALSENDER.  This is just like ACTIVE,
+ * but carries the extra information that the child is a WAL sender.
+ * WAL senders too start in ACTIVE state, but switch to WALSENDER once they
+ * start streaming the WAL (and they never go back to ACTIVE after that).
  */
 
 #define PM_CHILD_UNUSED		0	/* these values must fit in sig_atomic_t */
@@ -228,18 +231,20 @@ MarkPostmasterChildActive(void)
 }
 
 /*
- * MarkPostmasterChildWalSender - like MarkPostmasterChildActive(), but
- * marks the postmaster child as a WAL sender instead of a regular backend.
- * This is called in the child process.
+ * MarkPostmasterChildWalSender - mark a postmaster child as a WAL sender
+ * process.  This is called in the child process, sometime after marking the
+ * child as active.
  */
 void
 MarkPostmasterChildWalSender(void)
 {
 	int			slot = MyPMChildSlot;
 
+	Assert(am_walsender);
+
 	Assert(slot > 0 && slot <= PMSignalState->num_child_flags);
 	slot--;
-	Assert(PMSignalState->PMChildFlags[slot] == PM_CHILD_ASSIGNED);
+	Assert(PMSignalState->PMChildFlags[slot] == PM_CHILD_ACTIVE);
 	PMSignalState->PMChildFlags[slot] = PM_CHILD_WALSENDER;
 }
 
@@ -274,22 +279,30 @@ PostmasterIsAlive(bool amDirectChild)
 #ifndef WIN32
 	if (amDirectChild)
 	{
+		pid_t		ppid = getppid();
+
+		/* If the postmaster is still our parent, it must be alive. */
+		if (ppid == PostmasterPid)
+			return true;
+
+		/* If the init process is our parent, postmaster must be dead. */
+		if (ppid == 1)
+			return false;
+
 		/*
-		 * If the postmaster is alive, we'll still be its child.  If it's
-		 * died, we'll be reassigned as a child of the init process.
+		 * If we get here, our parent process is neither the postmaster nor
+		 * init.  This can occur on BSD and MacOS systems if a debugger has
+		 * been attached.  We fall through to the less-reliable kill() method.
 		 */
-		return (getppid() == PostmasterPid);
 	}
-	else
-	{
-		/*
-		 * Use kill() to see if the postmaster is still alive.	This can
-		 * sometimes give a false positive result, since the postmaster's PID
-		 * may get recycled, but it is good enough for existing uses by
-		 * indirect children.
-		 */
-		return (kill(PostmasterPid, 0) == 0);
-	}
+
+	/*
+	 * Use kill() to see if the postmaster is still alive.	This can sometimes
+	 * give a false positive result, since the postmaster's PID may get
+	 * recycled, but it is good enough for existing uses by indirect children
+	 * and in debugging environments.
+	 */
+	return (kill(PostmasterPid, 0) == 0);
 #else							/* WIN32 */
 	return (WaitForSingleObject(PostmasterHandle, 0) == WAIT_TIMEOUT);
 #endif   /* WIN32 */

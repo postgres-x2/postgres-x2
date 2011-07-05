@@ -347,7 +347,7 @@ ERROR:  Partition column can't be updated in current version
 -- Test update where the new row version is found first in the scan
 UPDATE clustertest SET key = 35 WHERE key = 40;
 ERROR:  current transaction is aborted, commands ignored until end of transaction block
--- Test longer update chain 
+-- Test longer update chain
 UPDATE clustertest SET key = 60 WHERE key = 50;
 ERROR:  current transaction is aborted, commands ignored until end of transaction block
 UPDATE clustertest SET key = 70 WHERE key = 60;

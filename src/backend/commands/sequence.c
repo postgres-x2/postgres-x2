@@ -3,13 +3,13 @@
  * sequence.c
  *	  PostgreSQL sequences support code.
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/commands/sequence.c,v 1.168 2010/02/20 21:24:02 tgl Exp $
+ *	  src/backend/commands/sequence.c
  *
  *-------------------------------------------------------------------------
  */
@@ -25,6 +25,7 @@
 #include "commands/defrem.h"
 #include "commands/sequence.h"
 #include "commands/tablecmds.h"
+#include "funcapi.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "storage/bufmgr.h"
@@ -76,6 +77,7 @@ typedef struct SeqTableData
 {
 	struct SeqTableData *next;	/* link to next SeqTable object */
 	Oid			relid;			/* pg_class OID of this sequence */
+	Oid			filenode;		/* last seen relfilenode of this sequence */
 	LocalTransactionId lxid;	/* xact in which we last did a seq op */
 	bool		last_valid;		/* do we have a valid "last" value? */
 	int64		last;			/* value last returned by nextval */
@@ -95,6 +97,7 @@ static SeqTable seqtab = NULL;	/* Head of list of SeqTable items */
  */
 static SeqTableData *last_used_seq = NULL;
 
+static void fill_seq_with_data(Relation rel, HeapTuple tuple);
 static int64 nextval_internal(Oid relid);
 static Relation open_share_lock(SeqTable seq);
 static void init_sequence(Oid relid, SeqTable *p_elm, Relation *p_rel);
@@ -122,9 +125,6 @@ DefineSequence(CreateSeqStmt *seq)
 	CreateStmt *stmt = makeNode(CreateStmt);
 	Oid			seqoid;
 	Relation	rel;
-	Buffer		buf;
-	Page		page;
-	sequence_magic *sm;
 	HeapTuple	tuple;
 	TupleDesc	tupDesc;
 	Datum		value[SEQ_COL_LASTCOL];
@@ -140,6 +140,12 @@ DefineSequence(CreateSeqStmt *seq)
 	bool		is_restart;
 #endif
 
+	/* Unlogged sequences are not implemented -- not clear if useful. */
+	if (seq->sequence->relpersistence == RELPERSISTENCE_UNLOGGED)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("unlogged sequences are not supported")));
+
 	/* Check and set all option values */
 #ifdef PGXC
 	init_params(seq->options, true, &new, &owned_by, &is_restart);
@@ -148,7 +154,8 @@ DefineSequence(CreateSeqStmt *seq)
 #endif
 
 #ifdef PGXC
-	if (seq->sequence->istemp)
+	if (seq->sequence->relpersistence != RELPERSISTENCE_PERMANENT &&
+		seq->sequence->relpersistence != RELPERSISTENCE_UNLOGGED)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("Postgres-XC does not support TEMPORARY SEQUENCE yet"),
@@ -166,9 +173,12 @@ DefineSequence(CreateSeqStmt *seq)
 		coldef->inhcount = 0;
 		coldef->is_local = true;
 		coldef->is_not_null = true;
+		coldef->is_from_type = false;
 		coldef->storage = 0;
 		coldef->raw_default = NULL;
 		coldef->cooked_default = NULL;
+		coldef->collClause = NULL;
+		coldef->collOid = InvalidOid;
 		coldef->constraints = NIL;
 
 		null[i - 1] = false;
@@ -251,11 +261,128 @@ DefineSequence(CreateSeqStmt *seq)
 	stmt->options = list_make1(defWithOids(false));
 	stmt->oncommit = ONCOMMIT_NOOP;
 	stmt->tablespacename = NULL;
+	stmt->if_not_exists = false;
 
-	seqoid = DefineRelation(stmt, RELKIND_SEQUENCE);
+	seqoid = DefineRelation(stmt, RELKIND_SEQUENCE, seq->ownerId);
+	Assert(seqoid != InvalidOid);
 
 	rel = heap_open(seqoid, AccessExclusiveLock);
 	tupDesc = RelationGetDescr(rel);
+
+	/* now initialize the sequence's data */
+	tuple = heap_form_tuple(tupDesc, value, null);
+	fill_seq_with_data(rel, tuple);
+
+	/* process OWNED BY if given */
+	if (owned_by)
+		process_owned_by(rel, owned_by);
+
+	heap_close(rel, NoLock);
+
+#ifdef PGXC  /* PGXC_COORD */
+	/* Remote Coordinator is in charge of creating sequence in GTM */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	{
+		char *seqname = GetGlobalSeqName(rel, NULL, NULL);
+
+		/* We also need to create it on the GTM */
+		if (CreateSequenceGTM(seqname,
+							  increment,
+							  min_value,
+							  max_value, 
+				start_value, cycle) < 0)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_CONNECTION_FAILURE),
+					 errmsg("GTM error, could not create sequence")));
+		}
+		pfree(seqname);
+	}
+#endif
+}
+
+/*
+ * Reset a sequence to its initial value.
+ *
+ * The change is made transactionally, so that on failure of the current
+ * transaction, the sequence will be restored to its previous state.
+ * We do that by creating a whole new relfilenode for the sequence; so this
+ * works much like the rewriting forms of ALTER TABLE.
+ *
+ * Caller is assumed to have acquired AccessExclusiveLock on the sequence,
+ * which must not be released until end of transaction.  Caller is also
+ * responsible for permissions checking.
+ */
+void
+ResetSequence(Oid seq_relid)
+{
+	Relation	seq_rel;
+	SeqTable	elm;
+	Form_pg_sequence seq;
+	Buffer		buf;
+	Page		page;
+	HeapTuple	tuple;
+	HeapTupleData tupledata;
+	ItemId		lp;
+
+	/*
+	 * Read the old sequence.  This does a bit more work than really
+	 * necessary, but it's simple, and we do want to double-check that it's
+	 * indeed a sequence.
+	 */
+	init_sequence(seq_relid, &elm, &seq_rel);
+	seq = read_info(elm, seq_rel, &buf);
+
+	/*
+	 * Copy the existing sequence tuple.
+	 */
+	page = BufferGetPage(buf);
+	lp = PageGetItemId(page, FirstOffsetNumber);
+	Assert(ItemIdIsNormal(lp));
+
+	tupledata.t_data = (HeapTupleHeader) PageGetItem(page, lp);
+	tupledata.t_len = ItemIdGetLength(lp);
+	tuple = heap_copytuple(&tupledata);
+
+	/* Now we're done with the old page */
+	UnlockReleaseBuffer(buf);
+
+	/*
+	 * Modify the copied tuple to execute the restart (compare the RESTART
+	 * action in AlterSequence)
+	 */
+	seq = (Form_pg_sequence) GETSTRUCT(tuple);
+	seq->last_value = seq->start_value;
+	seq->is_called = false;
+	seq->log_cnt = 1;
+
+	/*
+	 * Create a new storage file for the sequence.	We want to keep the
+	 * sequence's relfrozenxid at 0, since it won't contain any unfrozen XIDs.
+	 */
+	RelationSetNewRelfilenode(seq_rel, InvalidTransactionId);
+
+	/*
+	 * Insert the modified tuple into the new storage file.
+	 */
+	fill_seq_with_data(seq_rel, tuple);
+
+	/* Clear local cache so that we don't think we have cached numbers */
+	/* Note that we do not change the currval() state */
+	elm->cached = elm->last;
+
+	relation_close(seq_rel, NoLock);
+}
+
+/*
+ * Initialize a sequence's relation with the specified tuple as content
+ */
+static void
+fill_seq_with_data(Relation rel, HeapTuple tuple)
+{
+	Buffer		buf;
+	Page		page;
+	sequence_magic *sm;
 
 	/* Initialize first page of relation with special magic number */
 
@@ -271,8 +398,7 @@ DefineSequence(CreateSeqStmt *seq)
 	/* hack: ensure heap_insert will insert on the just-created page */
 	RelationSetTargetBlock(rel, 0);
 
-	/* Now form & insert sequence tuple */
-	tuple = heap_form_tuple(tupDesc, value, null);
+	/* Now insert sequence tuple */
 	simple_heap_insert(rel, tuple);
 
 	Assert(ItemPointerGetOffsetNumber(&(tuple->t_self)) == FirstOffsetNumber);
@@ -320,7 +446,7 @@ DefineSequence(CreateSeqStmt *seq)
 	MarkBufferDirty(buf);
 
 	/* XLOG stuff */
-	if (!rel->rd_istemp)
+	if (RelationNeedsWAL(rel))
 	{
 		xl_seq_rec	xlrec;
 		XLogRecPtr	recptr;
@@ -352,33 +478,6 @@ DefineSequence(CreateSeqStmt *seq)
 	END_CRIT_SECTION();
 
 	UnlockReleaseBuffer(buf);
-
-	/* process OWNED BY if given */
-	if (owned_by)
-		process_owned_by(rel, owned_by);
-
-	heap_close(rel, NoLock);
-
-#ifdef PGXC  /* PGXC_COORD */
-	/* Remote Coordinator is in charge of creating sequence in GTM */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-	{
-		char *seqname = GetGlobalSeqName(rel, NULL, NULL);
-
-		/* We also need to create it on the GTM */
-		if (CreateSequenceGTM(seqname,
-							  increment,
-							  min_value,
-							  max_value, 
-				start_value, cycle) < 0)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_CONNECTION_FAILURE),
-					 errmsg("GTM error, could not create sequence")));
-		}
-		pfree(seqname);
-	}
-#endif
 }
 
 /*
@@ -390,29 +489,6 @@ void
 AlterSequence(AlterSeqStmt *stmt)
 {
 	Oid			relid;
-
-	/* find sequence */
-	relid = RangeVarGetRelid(stmt->sequence, false);
-
-	/* allow ALTER to sequence owner only */
-	/* if you change this, see also callers of AlterSequenceInternal! */
-	if (!pg_class_ownercheck(relid, GetUserId()))
-		aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_CLASS,
-					   stmt->sequence->relname);
-
-	/* do the work */
-	AlterSequenceInternal(relid, stmt->options);
-}
-
-/*
- * AlterSequenceInternal
- *
- * Same as AlterSequence except that the sequence is specified by OID
- * and we assume the caller already checked permissions.
- */
-void
-AlterSequenceInternal(Oid relid, List *options)
-{
 	SeqTable	elm;
 	Relation	seqrel;
 	Buffer		buf;
@@ -431,7 +507,13 @@ AlterSequenceInternal(Oid relid, List *options)
 #endif
 
 	/* open and AccessShareLock sequence */
+	relid = RangeVarGetRelid(stmt->sequence, false);
 	init_sequence(relid, &elm, &seqrel);
+
+	/* allow ALTER to sequence owner only */
+	if (!pg_class_ownercheck(relid, GetUserId()))
+		aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_CLASS,
+					   stmt->sequence->relname);
 
 	/* lock page' buffer and read tuple into new sequence structure */
 	seq = read_info(elm, seqrel, &buf);
@@ -442,9 +524,9 @@ AlterSequenceInternal(Oid relid, List *options)
 
 	/* Check and set new values */
 #ifdef PGXC
-	init_params(options, false, &new, &owned_by, &is_restart);
+	init_params(stmt->options, false, &new, &owned_by, &is_restart);
 #else
-	init_params(options, false, &new, &owned_by);
+	init_params(stmt->options, false, &new, &owned_by);
 #endif
 
 	/* Clear local cache so that we don't think we have cached numbers */
@@ -468,7 +550,7 @@ AlterSequenceInternal(Oid relid, List *options)
 	MarkBufferDirty(buf);
 
 	/* XLOG stuff */
-	if (!seqrel->rd_istemp)
+	if (RelationNeedsWAL(seqrel))
 	{
 		xl_seq_rec	xlrec;
 		XLogRecPtr	recptr;
@@ -583,7 +665,7 @@ nextval_internal(Oid relid)
 						RelationGetRelationName(seqrel))));
 
 	/* read-only transactions may only modify temp sequences */
-	if (!seqrel->rd_islocaltemp)
+	if (seqrel->rd_backend != MyBackendId)
 		PreventCommandIfReadOnly("nextval()");
 
 	if (elm->last != elm->cached)		/* some numbers were cached */
@@ -764,7 +846,7 @@ nextval_internal(Oid relid)
 	MarkBufferDirty(buf);
 
 	/* XLOG stuff */
-	if (logit && !seqrel->rd_istemp)
+	if (logit && RelationNeedsWAL(seqrel))
 	{
 		xl_seq_rec	xlrec;
 		XLogRecPtr	recptr;
@@ -920,7 +1002,7 @@ do_setval(Oid relid, int64 next, bool iscalled)
 						RelationGetRelationName(seqrel))));
 
 	/* read-only transactions may only modify temp sequences */
-	if (!seqrel->rd_islocaltemp)
+	if (seqrel->rd_backend != MyBackendId)
 		PreventCommandIfReadOnly("setval()");
 
 	/* lock page' buffer and read tuple */
@@ -984,7 +1066,7 @@ do_setval(Oid relid, int64 next, bool iscalled)
 	MarkBufferDirty(buf);
 
 	/* XLOG stuff */
-	if (!seqrel->rd_istemp)
+	if (RelationNeedsWAL(seqrel))
 	{
 		xl_seq_rec	xlrec;
 		XLogRecPtr	recptr;
@@ -1139,6 +1221,7 @@ init_sequence(Oid relid, SeqTable *p_elm, Relation *p_rel)
 					(errcode(ERRCODE_OUT_OF_MEMORY),
 					 errmsg("out of memory")));
 		elm->relid = relid;
+		elm->filenode = InvalidOid;
 		elm->lxid = InvalidLocalTransactionId;
 		elm->last_valid = false;
 		elm->last = elm->cached = elm->increment = 0;
@@ -1157,6 +1240,18 @@ init_sequence(Oid relid, SeqTable *p_elm, Relation *p_rel)
 				 errmsg("\"%s\" is not a sequence",
 						RelationGetRelationName(seqrel))));
 
+	/*
+	 * If the sequence has been transactionally replaced since we last saw it,
+	 * discard any cached-but-unissued values.	We do not touch the currval()
+	 * state, however.
+	 */
+	if (seqrel->rd_rel->relfilenode != elm->filenode)
+	{
+		elm->filenode = seqrel->rd_rel->relfilenode;
+		elm->cached = elm->last;
+	}
+
+	/* Return results */
 	*p_elm = elm;
 	*p_rel = seqrel;
 }
@@ -1185,6 +1280,22 @@ read_info(SeqTable elm, Relation rel, Buffer *buf)
 	lp = PageGetItemId(page, FirstOffsetNumber);
 	Assert(ItemIdIsNormal(lp));
 	tuple.t_data = (HeapTupleHeader) PageGetItem(page, lp);
+
+	/*
+	 * Previous releases of Postgres neglected to prevent SELECT FOR UPDATE on
+	 * a sequence, which would leave a non-frozen XID in the sequence tuple's
+	 * xmax, which eventually leads to clog access failures or worse. If we
+	 * see this has happened, clean up after it.  We treat this like a hint
+	 * bit update, ie, don't bother to WAL-log it, since we can certainly do
+	 * this again if the update gets lost.
+	 */
+	if (HeapTupleHeaderGetXmax(tuple.t_data) != InvalidTransactionId)
+	{
+		HeapTupleHeaderSetXmax(tuple.t_data, InvalidTransactionId);
+		tuple.t_data->t_infomask &= ~HEAP_XMAX_COMMITTED;
+		tuple.t_data->t_infomask |= HEAP_XMAX_INVALID;
+		SetBufferCommitInfoNeedsSave(*buf);
+	}
 
 	seq = (Form_pg_sequence) GETSTRUCT(&tuple);
 
@@ -1315,7 +1426,7 @@ init_params(List *options, bool isInit,
 	if (is_cycled != NULL)
 	{
 		new->is_cycled = intVal(is_cycled->arg);
-		Assert(new->is_cycled == false || new->is_cycled == true);
+		Assert(BoolIsValid(new->is_cycled));
 	}
 	else if (isInit)
 		new->is_cycled = false;
@@ -1596,6 +1707,61 @@ process_owned_by(Relation seqrel, List *owned_by)
 	/* Done, but hold lock until commit */
 	if (tablerel)
 		relation_close(tablerel, NoLock);
+}
+
+
+/*
+ * Return sequence parameters, for use by information schema
+ */
+Datum
+pg_sequence_parameters(PG_FUNCTION_ARGS)
+{
+	Oid			relid = PG_GETARG_OID(0);
+	TupleDesc	tupdesc;
+	Datum		values[5];
+	bool		isnull[5];
+	SeqTable	elm;
+	Relation	seqrel;
+	Buffer		buf;
+	Form_pg_sequence seq;
+
+	/* open and AccessShareLock sequence */
+	init_sequence(relid, &elm, &seqrel);
+
+	if (pg_class_aclcheck(relid, GetUserId(), ACL_SELECT | ACL_UPDATE | ACL_USAGE) != ACLCHECK_OK)
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 errmsg("permission denied for sequence %s",
+						RelationGetRelationName(seqrel))));
+
+	tupdesc = CreateTemplateTupleDesc(5, false);
+	TupleDescInitEntry(tupdesc, (AttrNumber) 1, "start_value",
+					   INT8OID, -1, 0);
+	TupleDescInitEntry(tupdesc, (AttrNumber) 2, "minimum_value",
+					   INT8OID, -1, 0);
+	TupleDescInitEntry(tupdesc, (AttrNumber) 3, "maximum_value",
+					   INT8OID, -1, 0);
+	TupleDescInitEntry(tupdesc, (AttrNumber) 4, "increment",
+					   INT8OID, -1, 0);
+	TupleDescInitEntry(tupdesc, (AttrNumber) 5, "cycle_option",
+					   BOOLOID, -1, 0);
+
+	BlessTupleDesc(tupdesc);
+
+	memset(isnull, 0, sizeof(isnull));
+
+	seq = read_info(elm, seqrel, &buf);
+
+	values[0] = Int64GetDatum(seq->start_value);
+	values[1] = Int64GetDatum(seq->min_value);
+	values[2] = Int64GetDatum(seq->max_value);
+	values[3] = Int64GetDatum(seq->increment_by);
+	values[4] = BoolGetDatum(seq->is_cycled);
+
+	UnlockReleaseBuffer(buf);
+	relation_close(seqrel, NoLock);
+
+	return HeapTupleGetDatum(heap_form_tuple(tupdesc, values, isnull));
 }
 
 

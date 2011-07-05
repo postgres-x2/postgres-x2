@@ -3,12 +3,12 @@
  * nodeMaterial.c
  *	  Routines to handle materialization nodes.
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/executor/nodeMaterial.c,v 1.71 2010/01/02 16:57:42 momjian Exp $
+ *	  src/backend/executor/nodeMaterial.c
  *
  *-------------------------------------------------------------------------
  */
@@ -309,22 +309,22 @@ ExecMaterialRestrPos(MaterialState *node)
 }
 
 /* ----------------------------------------------------------------
- *		ExecMaterialReScan
+ *		ExecReScanMaterial
  *
  *		Rescans the materialized relation.
  * ----------------------------------------------------------------
  */
 void
-ExecMaterialReScan(MaterialState *node, ExprContext *exprCtxt)
+ExecReScanMaterial(MaterialState *node)
 {
 	ExecClearTuple(node->ss.ps.ps_ResultTupleSlot);
 
 	if (node->eflags != 0)
 	{
 		/*
-		 * If we haven't materialized yet, just return. If outerplan' chgParam
-		 * is not NULL then it will be re-scanned by ExecProcNode, else - no
-		 * reason to re-scan it at all.
+		 * If we haven't materialized yet, just return. If outerplan's
+		 * chgParam is not NULL then it will be re-scanned by ExecProcNode,
+		 * else no reason to re-scan it at all.
 		 */
 		if (!node->tuplestorestate)
 			return;
@@ -339,13 +339,13 @@ ExecMaterialReScan(MaterialState *node, ExprContext *exprCtxt)
 		 * Otherwise we can just rewind and rescan the stored output. The
 		 * state of the subnode does not change.
 		 */
-		if (((PlanState *) node)->lefttree->chgParam != NULL ||
+		if (node->ss.ps.lefttree->chgParam != NULL ||
 			(node->eflags & EXEC_FLAG_REWIND) == 0)
 		{
 			tuplestore_end(node->tuplestorestate);
 			node->tuplestorestate = NULL;
-			if (((PlanState *) node)->lefttree->chgParam == NULL)
-				ExecReScan(((PlanState *) node)->lefttree, exprCtxt);
+			if (node->ss.ps.lefttree->chgParam == NULL)
+				ExecReScan(node->ss.ps.lefttree);
 			node->eof_underlying = false;
 		}
 		else
@@ -359,8 +359,8 @@ ExecMaterialReScan(MaterialState *node, ExprContext *exprCtxt)
 		 * if chgParam of subnode is not null then plan will be re-scanned by
 		 * first ExecProcNode.
 		 */
-		if (((PlanState *) node)->lefttree->chgParam == NULL)
-			ExecReScan(((PlanState *) node)->lefttree, exprCtxt);
+		if (node->ss.ps.lefttree->chgParam == NULL)
+			ExecReScan(node->ss.ps.lefttree);
 		node->eof_underlying = false;
 	}
 }

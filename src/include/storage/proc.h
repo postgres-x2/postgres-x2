@@ -4,16 +4,19 @@
  *	  per-process shared memory data structures
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/storage/proc.h,v 1.123 2010/07/06 19:19:00 momjian Exp $
+ * src/include/storage/proc.h
  *
  *-------------------------------------------------------------------------
  */
 #ifndef _PROC_H_
 #define _PROC_H_
 
+#include "access/xlog.h"
+#include "replication/syncrep.h"
+#include "storage/latch.h"
 #include "storage/lock.h"
 #include "storage/pg_sema.h"
 #include "utils/timestamp.h"
@@ -114,6 +117,17 @@ struct PGPROC
 	LOCKMODE	waitLockMode;	/* type of lock we're waiting for */
 	LOCKMASK	heldLocks;		/* bitmask for lock types already held on this
 								 * lock object by this backend */
+
+	/*
+	 * Info to allow us to wait for synchronous replication, if needed.
+	 * waitLSN is InvalidXLogRecPtr if not waiting; set only by user backend.
+	 * syncRepState must not be touched except by owning process or WALSender.
+	 * syncRepLinks used only while holding SyncRepLock.
+	 */
+	Latch		waitLatch;		/* allow us to wait for sync rep */
+	XLogRecPtr	waitLSN;		/* waiting for this LSN or higher */
+	int			syncRepState;	/* wait state for sync rep */
+	SHM_QUEUE	syncRepLinks;	/* list link if process is in syncrep queue */
 
 	/*
 	 * All PROCLOCK objects for locks held or awaited by this backend are

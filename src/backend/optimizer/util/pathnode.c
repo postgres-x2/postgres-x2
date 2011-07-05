@@ -3,12 +3,12 @@
  * pathnode.c
  *	  Routines to manipulate pathlists and create path nodes
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/optimizer/util/pathnode.c,v 1.158 2010/03/28 22:59:33 tgl Exp $
+ *	  src/backend/optimizer/util/pathnode.c
  *
  *-------------------------------------------------------------------------
  */
@@ -17,7 +17,9 @@
 #include <math.h>
 
 #include "catalog/pg_operator.h"
+#include "foreign/fdwapi.h"
 #include "miscadmin.h"
+#include "nodes/nodeFuncs.h"
 #include "optimizer/clauses.h"
 #include "optimizer/cost.h"
 #include "optimizer/pathnode.h"
@@ -252,8 +254,9 @@ add_path(RelOptInfo *parent_rel, Path *new_path)
 {
 	bool		accept_new = true;		/* unless we find a superior old path */
 	ListCell   *insert_after = NULL;	/* where to insert new item */
-	ListCell   *p1_prev = NULL;
 	ListCell   *p1;
+	ListCell   *p1_prev;
+	ListCell   *p1_next;
 
 	/*
 	 * This is a convenient place to check for query cancel --- no part of the
@@ -265,13 +268,18 @@ add_path(RelOptInfo *parent_rel, Path *new_path)
 	 * Loop to check proposed new path against old paths.  Note it is possible
 	 * for more than one old path to be tossed out because new_path dominates
 	 * it.
+	 *
+	 * We can't use foreach here because the loop body may delete the current
+	 * list cell.
 	 */
-	p1 = list_head(parent_rel->pathlist);		/* cannot use foreach here */
-	while (p1 != NULL)
+	p1_prev = NULL;
+	for (p1 = list_head(parent_rel->pathlist); p1 != NULL; p1 = p1_next)
 	{
 		Path	   *old_path = (Path *) lfirst(p1);
 		bool		remove_old = false; /* unless new proves superior */
 		int			costcmp;
+
+		p1_next = lnext(p1);
 
 		/*
 		 * As of Postgres 8.0, we use fuzzy cost comparison to avoid wasting
@@ -341,20 +349,15 @@ add_path(RelOptInfo *parent_rel, Path *new_path)
 			 */
 			if (!IsA(old_path, IndexPath))
 				pfree(old_path);
-			/* Advance list pointer */
-			if (p1_prev)
-				p1 = lnext(p1_prev);
-			else
-				p1 = list_head(parent_rel->pathlist);
+			/* p1_prev does not advance */
 		}
 		else
 		{
 			/* new belongs after this old path if it has cost >= old's */
 			if (costcmp >= 0)
 				insert_after = p1;
-			/* Advance list pointers */
+			/* p1_prev advances */
 			p1_prev = p1;
-			p1 = lnext(p1);
 		}
 
 		/*
@@ -413,6 +416,8 @@ create_seqscan_path(PlannerInfo *root, RelOptInfo *rel)
  * 'index' is a usable index.
  * 'clause_groups' is a list of lists of RestrictInfo nodes
  *			to be used as index qual conditions in the scan.
+ * 'indexorderbys' is a list of bare expressions (no RestrictInfos)
+ *			to be used as index ordering operators in the scan.
  * 'pathkeys' describes the ordering of the path.
  * 'indexscandir' is ForwardScanDirection or BackwardScanDirection
  *			for an ordered index, or NoMovementScanDirection for
@@ -426,6 +431,7 @@ IndexPath *
 create_index_path(PlannerInfo *root,
 				  IndexOptInfo *index,
 				  List *clause_groups,
+				  List *indexorderbys,
 				  List *pathkeys,
 				  ScanDirection indexscandir,
 				  RelOptInfo *outer_rel)
@@ -462,6 +468,7 @@ create_index_path(PlannerInfo *root,
 	pathnode->indexinfo = index;
 	pathnode->indexclauses = allclauses;
 	pathnode->indexquals = indexquals;
+	pathnode->indexorderbys = indexorderbys;
 
 	pathnode->isjoininner = (outer_rel != NULL);
 	pathnode->indexscandir = indexscandir;
@@ -503,7 +510,7 @@ create_index_path(PlannerInfo *root,
 		pathnode->rows = rel->rows;
 	}
 
-	cost_index(pathnode, root, index, indexquals, outer_rel);
+	cost_index(pathnode, root, index, indexquals, indexorderbys, outer_rel);
 
 	return pathnode;
 }
@@ -636,6 +643,8 @@ create_tidscan_path(PlannerInfo *root, RelOptInfo *rel, List *tidquals)
  * create_append_path
  *	  Creates a path corresponding to an Append plan, returning the
  *	  pathnode.
+ *
+ * Note that we must handle subpaths = NIL, representing a dummy access path.
  */
 AppendPath *
 create_append_path(RelOptInfo *rel, List *subpaths)
@@ -649,6 +658,13 @@ create_append_path(RelOptInfo *rel, List *subpaths)
 										 * unsorted */
 	pathnode->subpaths = subpaths;
 
+	/*
+	 * Compute cost as sum of subplan costs.  We charge nothing extra for the
+	 * Append itself, which perhaps is too optimistic, but since it doesn't do
+	 * any selection or projection, it is a pretty cheap node.
+	 *
+	 * If you change this, see also make_append().
+	 */
 	pathnode->path.startup_cost = 0;
 	pathnode->path.total_cost = 0;
 	foreach(l, subpaths)
@@ -659,6 +675,97 @@ create_append_path(RelOptInfo *rel, List *subpaths)
 			pathnode->path.startup_cost = subpath->startup_cost;
 		pathnode->path.total_cost += subpath->total_cost;
 	}
+
+	return pathnode;
+}
+
+/*
+ * create_merge_append_path
+ *	  Creates a path corresponding to a MergeAppend plan, returning the
+ *	  pathnode.
+ */
+MergeAppendPath *
+create_merge_append_path(PlannerInfo *root,
+						 RelOptInfo *rel,
+						 List *subpaths,
+						 List *pathkeys)
+{
+	MergeAppendPath *pathnode = makeNode(MergeAppendPath);
+	Cost		input_startup_cost;
+	Cost		input_total_cost;
+	ListCell   *l;
+
+	pathnode->path.pathtype = T_MergeAppend;
+	pathnode->path.parent = rel;
+	pathnode->path.pathkeys = pathkeys;
+	pathnode->subpaths = subpaths;
+
+	/*
+	 * Apply query-wide LIMIT if known and path is for sole base relation.
+	 * Finding out the latter at this low level is a bit klugy.
+	 */
+	pathnode->limit_tuples = root->limit_tuples;
+	if (pathnode->limit_tuples >= 0)
+	{
+		Index		rti;
+
+		for (rti = 1; rti < root->simple_rel_array_size; rti++)
+		{
+			RelOptInfo *brel = root->simple_rel_array[rti];
+
+			if (brel == NULL)
+				continue;
+
+			/* ignore RTEs that are "other rels" */
+			if (brel->reloptkind != RELOPT_BASEREL)
+				continue;
+
+			if (brel != rel)
+			{
+				/* Oops, it's a join query */
+				pathnode->limit_tuples = -1.0;
+				break;
+			}
+		}
+	}
+
+	/* Add up all the costs of the input paths */
+	input_startup_cost = 0;
+	input_total_cost = 0;
+	foreach(l, subpaths)
+	{
+		Path	   *subpath = (Path *) lfirst(l);
+
+		if (pathkeys_contained_in(pathkeys, subpath->pathkeys))
+		{
+			/* Subpath is adequately ordered, we won't need to sort it */
+			input_startup_cost += subpath->startup_cost;
+			input_total_cost += subpath->total_cost;
+		}
+		else
+		{
+			/* We'll need to insert a Sort node, so include cost for that */
+			Path		sort_path;		/* dummy for result of cost_sort */
+
+			cost_sort(&sort_path,
+					  root,
+					  pathkeys,
+					  subpath->total_cost,
+					  subpath->parent->tuples,
+					  subpath->parent->width,
+					  0.0,
+					  work_mem,
+					  pathnode->limit_tuples);
+			input_startup_cost += sort_path.startup_cost;
+			input_total_cost += sort_path.total_cost;
+		}
+	}
+
+	/* Now we can compute total costs of the MergeAppend */
+	cost_merge_append(&pathnode->path, root,
+					  pathkeys, list_length(subpaths),
+					  input_startup_cost, input_total_cost,
+					  rel->tuples);
 
 	return pathnode;
 }
@@ -807,6 +914,7 @@ create_unique_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath,
 		Relids		left_varnos;
 		Relids		right_varnos;
 		Relids		all_varnos;
+		Oid			opinputtype;
 
 		/* Is it a binary opclause? */
 		if (!IsA(op, OpExpr) ||
@@ -837,6 +945,7 @@ create_unique_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath,
 		left_varnos = pull_varnos(left_expr);
 		right_varnos = pull_varnos(right_expr);
 		all_varnos = bms_union(left_varnos, right_varnos);
+		opinputtype = exprType(left_expr);
 
 		/* Does it reference both sides? */
 		if (!bms_overlap(all_varnos, sjinfo->syn_righthand) ||
@@ -875,14 +984,14 @@ create_unique_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath,
 		if (all_btree)
 		{
 			/* oprcanmerge is considered a hint... */
-			if (!op_mergejoinable(opno) ||
+			if (!op_mergejoinable(opno, opinputtype) ||
 				get_mergejoin_opfamilies(opno) == NIL)
 				all_btree = false;
 		}
 		if (all_hash)
 		{
 			/* ... but oprcanhash had better be correct */
-			if (!op_hashjoinable(opno))
+			if (!op_hashjoinable(opno, opinputtype))
 				all_hash = false;
 		}
 		if (!(all_btree || all_hash))
@@ -969,6 +1078,8 @@ create_unique_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath,
 				  subpath->total_cost,
 				  rel->rows,
 				  rel->width,
+				  0.0,
+				  work_mem,
 				  -1.0);
 
 		/*
@@ -992,7 +1103,7 @@ create_unique_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath,
 			all_hash = false;	/* don't try to hash */
 		else
 			cost_agg(&agg_path, root,
-					 AGG_HASHED, 0,
+					 AGG_HASHED, NULL,
 					 numCols, pathnode->rows,
 					 subpath->startup_cost,
 					 subpath->total_cost,
@@ -1339,6 +1450,41 @@ create_remotequery_path(PlannerInfo *root, RelOptInfo *rel)
 	return pathnode;
 }
 #endif
+
+/*
+ * create_foreignscan_path
+ *	  Creates a path corresponding to a scan of a foreign table,
+ *	  returning the pathnode.
+ */
+ForeignPath *
+create_foreignscan_path(PlannerInfo *root, RelOptInfo *rel)
+{
+	ForeignPath *pathnode = makeNode(ForeignPath);
+	RangeTblEntry *rte;
+	FdwRoutine *fdwroutine;
+	FdwPlan    *fdwplan;
+
+	pathnode->path.pathtype = T_ForeignScan;
+	pathnode->path.parent = rel;
+	pathnode->path.pathkeys = NIL;		/* result is always unordered */
+
+	/* Get FDW's callback info */
+	rte = planner_rt_fetch(rel->relid, root);
+	fdwroutine = GetFdwRoutineByRelId(rte->relid);
+
+	/* Let the FDW do its planning */
+	fdwplan = fdwroutine->PlanForeignScan(rte->relid, root, rel);
+	if (fdwplan == NULL || !IsA(fdwplan, FdwPlan))
+		elog(ERROR, "foreign-data wrapper PlanForeignScan function for relation %u did not return an FdwPlan struct",
+			 rte->relid);
+	pathnode->fdwplan = fdwplan;
+
+	/* use costs estimated by FDW */
+	pathnode->path.startup_cost = fdwplan->startup_cost;
+	pathnode->path.total_cost = fdwplan->total_cost;
+
+	return pathnode;
+}
 
 /*
  * create_nestloop_path

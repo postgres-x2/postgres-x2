@@ -2,9 +2,9 @@
 #
 # Makefile for src/bin/pg_controldata
 #
-# Copyright (c) 1998-2010, PostgreSQL Global Development Group
+# Copyright (c) 1998-2011, PostgreSQL Global Development Group
 #
-# $PostgreSQL: pgsql/src/bin/pg_controldata/Makefile,v 1.22 2010/07/05 18:54:38 tgl Exp $
+# src/bin/pg_controldata/Makefile
 #
 #-------------------------------------------------------------------------
 
@@ -17,9 +17,9 @@ include $(top_builddir)/src/Makefile.global
 
 OBJS= pg_controldata.o pg_crc.o $(WIN32RES)
 
-all: submake-libpgport pg_controldata
+all: pg_controldata
 
-pg_controldata: $(OBJS)
+pg_controldata: $(OBJS) | submake-libpgport
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 
 pg_crc.c: $(top_srcdir)/src/backend/utils/hash/pg_crc.c

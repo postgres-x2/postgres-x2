@@ -3,21 +3,18 @@
  * parse_expr.c
  *	  handle expressions in parser
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/parser/parse_expr.c,v 1.256 2010/07/06 19:18:57 momjian Exp $
+ *	  src/backend/parser/parse_expr.c
  *
  *-------------------------------------------------------------------------
  */
 
 #include "postgres.h"
 
-#include "catalog/pg_attrdef.h"
-#include "catalog/pg_constraint.h"
-#include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
 #include "commands/dbcommands.h"
 #include "miscadmin.h"
@@ -26,6 +23,7 @@
 #include "optimizer/var.h"
 #include "parser/analyze.h"
 #include "parser/parse_coerce.h"
+#include "parser/parse_collate.h"
 #include "parser/parse_expr.h"
 #include "parser/parse_func.h"
 #include "parser/parse_oper.h"
@@ -33,7 +31,6 @@
 #include "parser/parse_target.h"
 #include "parser/parse_type.h"
 #include "utils/builtins.h"
-#include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
 #include "utils/xml.h"
 
@@ -69,6 +66,7 @@ static Node *transformWholeRowRef(ParseState *pstate, RangeTblEntry *rte,
 static Node *transformIndirection(ParseState *pstate, Node *basenode,
 					 List *indirection);
 static Node *transformTypeCast(ParseState *pstate, TypeCast *tc);
+static Node *transformCollateClause(ParseState *pstate, CollateClause *c);
 static Node *make_row_comparison_op(ParseState *pstate, List *opname,
 					   List *largs, List *rargs, int location);
 static Node *make_row_distinct_op(ParseState *pstate, List *opname,
@@ -163,21 +161,20 @@ transformExpr(ParseState *pstate, Node *expr)
 					Oid			elementType;
 					int32		targetTypmod;
 
-					targetType = typenameTypeId(pstate, tc->typeName,
-												&targetTypmod);
+					typenameTypeIdAndMod(pstate, tc->typeName,
+										 &targetType, &targetTypmod);
+
+					/*
+					 * If target is a domain over array, work with the base
+					 * array type here.  transformTypeCast below will cast the
+					 * array type to the domain.  In the usual case that the
+					 * target is not a domain, transformTypeCast is a no-op.
+					 */
+					targetType = getBaseTypeAndTypmod(targetType,
+													  &targetTypmod);
 					elementType = get_element_type(targetType);
 					if (OidIsValid(elementType))
 					{
-						/*
-						 * tranformArrayExpr doesn't know how to check domain
-						 * constraints, so ask it to return the base type
-						 * instead. transformTypeCast below will cast it to
-						 * the domain. In the usual case that the target is
-						 * not a domain, transformTypeCast is a no-op.
-						 */
-						targetType = getBaseTypeAndTypmod(targetType,
-														  &targetTypmod);
-
 						tc = copyObject(tc);
 						tc->arg = transformArrayExpr(pstate,
 													 (A_ArrayExpr *) tc->arg,
@@ -190,6 +187,10 @@ transformExpr(ParseState *pstate, Node *expr)
 				result = transformTypeCast(pstate, tc);
 				break;
 			}
+
+		case T_CollateClause:
+			result = transformCollateClause(pstate, (CollateClause *) expr);
+			break;
 
 		case T_A_Expr:
 			{
@@ -310,8 +311,8 @@ transformExpr(ParseState *pstate, Node *expr)
 		case T_FuncExpr:
 		case T_OpExpr:
 		case T_DistinctExpr:
-		case T_ScalarArrayOpExpr:
 		case T_NullIfExpr:
+		case T_ScalarArrayOpExpr:
 		case T_BoolExpr:
 		case T_FieldSelect:
 		case T_FieldStore:
@@ -319,6 +320,7 @@ transformExpr(ParseState *pstate, Node *expr)
 		case T_CoerceViaIO:
 		case T_ArrayCoerceExpr:
 		case T_ConvertRowtypeExpr:
+		case T_CollateExpr:
 		case T_CaseTestExpr:
 		case T_ArrayExpr:
 		case T_CoerceToDomain:
@@ -999,25 +1001,34 @@ transformAExprNullIf(ParseState *pstate, A_Expr *a)
 {
 	Node	   *lexpr = transformExpr(pstate, a->lexpr);
 	Node	   *rexpr = transformExpr(pstate, a->rexpr);
-	Node	   *result;
+	OpExpr	   *result;
 
-	result = (Node *) make_op(pstate,
-							  a->name,
-							  lexpr,
-							  rexpr,
-							  a->location);
-	if (((OpExpr *) result)->opresulttype != BOOLOID)
+	result = (OpExpr *) make_op(pstate,
+								a->name,
+								lexpr,
+								rexpr,
+								a->location);
+
+	/*
+	 * The comparison operator itself should yield boolean ...
+	 */
+	if (result->opresulttype != BOOLOID)
 		ereport(ERROR,
 				(errcode(ERRCODE_DATATYPE_MISMATCH),
 				 errmsg("NULLIF requires = operator to yield boolean"),
 				 parser_errposition(pstate, a->location)));
 
 	/*
+	 * ... but the NullIfExpr will yield the first operand's type.
+	 */
+	result->opresulttype = exprType((Node *) linitial(result->args));
+
+	/*
 	 * We rely on NullIfExpr and OpExpr being the same struct
 	 */
 	NodeSetTag(result, T_NullIfExpr);
 
-	return result;
+	return (Node *) result;
 }
 
 static Node *
@@ -1037,7 +1048,7 @@ transformAExprOf(ParseState *pstate, A_Expr *a)
 	ltype = exprType(lexpr);
 	foreach(telem, (List *) a->rexpr)
 	{
-		rtype = typenameTypeId(pstate, lfirst(telem), NULL);
+		rtype = typenameTypeId(pstate, lfirst(telem));
 		matched = (rtype == ltype);
 		if (matched)
 			break;
@@ -1151,6 +1162,7 @@ transformAExprIn(ParseState *pstate, A_Expr *a)
 			}
 			newa = makeNode(ArrayExpr);
 			newa->array_typeid = array_type;
+			/* array_collid will be set by parse_collate.c */
 			newa->element_typeid = scalar_type;
 			newa->elements = aexprs;
 			newa->multidims = false;
@@ -1214,7 +1226,6 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 {
 	List	   *targs;
 	ListCell   *args;
-	Node	   *result;
 
 	/* Transform the list of arguments ... */
 	targs = NIL;
@@ -1225,97 +1236,16 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 	}
 
 	/* ... and hand off to ParseFuncOrColumn */
-	result = ParseFuncOrColumn(pstate,
-							   fn->funcname,
-							   targs,
-							   fn->agg_order,
-							   fn->agg_star,
-							   fn->agg_distinct,
-							   fn->func_variadic,
-							   fn->over,
-							   false,
-							   fn->location);
-
-	/*
-	 * pg_get_expr() is a system function that exposes the expression
-	 * deparsing functionality in ruleutils.c to users. Very handy, but it was
-	 * later realized that the functions in ruleutils.c don't check the input
-	 * rigorously, assuming it to come from system catalogs and to therefore
-	 * be valid. That makes it easy for a user to crash the backend by passing
-	 * a maliciously crafted string representation of an expression to
-	 * pg_get_expr().
-	 *
-	 * There's a lot of code in ruleutils.c, so it's not feasible to add
-	 * water-proof input checking after the fact. Even if we did it once, it
-	 * would need to be taken into account in any future patches too.
-	 *
-	 * Instead, we restrict pg_rule_expr() to only allow input from system
-	 * catalogs instead. This is a hack, but it's the most robust and easiest
-	 * to backpatch way of plugging the vulnerability.
-	 *
-	 * This is transparent to the typical usage pattern of
-	 * "pg_get_expr(systemcolumn, ...)", but will break "pg_get_expr('foo',
-	 * ...)", even if 'foo' is a valid expression fetched earlier from a
-	 * system catalog. Hopefully there's isn't many clients doing that out
-	 * there.
-	 */
-	if (result && IsA(result, FuncExpr) &&!superuser())
-	{
-		FuncExpr   *fe = (FuncExpr *) result;
-
-		if (fe->funcid == F_PG_GET_EXPR || fe->funcid == F_PG_GET_EXPR_EXT)
-		{
-			Expr	   *arg = linitial(fe->args);
-			bool		allowed = false;
-
-			/*
-			 * Check that the argument came directly from one of the allowed
-			 * system catalog columns
-			 */
-			if (IsA(arg, Var))
-			{
-				Var		   *var = (Var *) arg;
-				RangeTblEntry *rte;
-
-				rte = GetRTEByRangeTablePosn(pstate,
-											 var->varno, var->varlevelsup);
-
-				switch (rte->relid)
-				{
-					case IndexRelationId:
-						if (var->varattno == Anum_pg_index_indexprs ||
-							var->varattno == Anum_pg_index_indpred)
-							allowed = true;
-						break;
-
-					case AttrDefaultRelationId:
-						if (var->varattno == Anum_pg_attrdef_adbin)
-							allowed = true;
-						break;
-
-					case ProcedureRelationId:
-						if (var->varattno == Anum_pg_proc_proargdefaults)
-							allowed = true;
-						break;
-
-					case ConstraintRelationId:
-						if (var->varattno == Anum_pg_constraint_conbin)
-							allowed = true;
-						break;
-
-					case TypeRelationId:
-						if (var->varattno == Anum_pg_type_typdefaultbin)
-							allowed = true;
-						break;
-				}
-			}
-			if (!allowed)
-				ereport(ERROR,
-						(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-						 errmsg("argument to pg_get_expr() must come from system catalogs")));
-		}
-	}
-	return result;
+	return ParseFuncOrColumn(pstate,
+							 fn->funcname,
+							 targs,
+							 fn->agg_order,
+							 fn->agg_star,
+							 fn->agg_distinct,
+							 fn->func_variadic,
+							 fn->over,
+							 false,
+							 fn->location);
 }
 
 #ifdef PGXC
@@ -1376,9 +1306,18 @@ transformCaseExpr(ParseState *pstate, CaseExpr *c)
 		if (exprType(arg) == UNKNOWNOID)
 			arg = coerce_to_common_type(pstate, arg, TEXTOID, "CASE");
 
+		/*
+		 * Run collation assignment on the test expression so that we know
+		 * what collation to mark the placeholder with.  In principle we could
+		 * leave it to parse_collate.c to do that later, but propagating the
+		 * result to the CaseTestExpr would be unnecessarily complicated.
+		 */
+		assign_expr_collations(pstate, arg);
+
 		placeholder = makeNode(CaseTestExpr);
 		placeholder->typeId = exprType(arg);
 		placeholder->typeMod = exprTypmod(arg);
+		placeholder->collation = exprCollation(arg);
 	}
 	else
 		placeholder = NULL;
@@ -1443,6 +1382,7 @@ transformCaseExpr(ParseState *pstate, CaseExpr *c)
 	ptype = select_common_type(pstate, resultexprs, "CASE", NULL);
 	Assert(OidIsValid(ptype));
 	newc->casetype = ptype;
+	/* casecollid will be set by parse_collate.c */
 
 	/* Convert default result clause, if necessary */
 	newc->defresult = (Expr *)
@@ -1573,6 +1513,7 @@ transformSubLink(ParseState *pstate, SubLink *sublink)
 			param->paramid = tent->resno;
 			param->paramtype = exprType((Node *) tent->expr);
 			param->paramtypmod = exprTypmod((Node *) tent->expr);
+			param->paramcollid = exprCollation((Node *) tent->expr);
 			param->location = -1;
 
 			right_list = lappend(right_list, param);
@@ -1760,6 +1701,7 @@ transformArrayExpr(ParseState *pstate, A_ArrayExpr *a,
 	}
 
 	newa->array_typeid = array_type;
+	/* array_collid will be set by parse_collate.c */
 	newa->element_typeid = element_type;
 	newa->elements = newcoercedelems;
 	newa->location = a->location;
@@ -1802,6 +1744,7 @@ transformCoalesceExpr(ParseState *pstate, CoalesceExpr *c)
 	}
 
 	newc->coalescetype = select_common_type(pstate, newargs, "COALESCE", NULL);
+	/* coalescecollid will be set by parse_collate.c */
 
 	/* Convert arguments if necessary */
 	foreach(args, newargs)
@@ -1840,6 +1783,7 @@ transformMinMaxExpr(ParseState *pstate, MinMaxExpr *m)
 	}
 
 	newm->minmaxtype = select_common_type(pstate, newargs, funcname, NULL);
+	/* minmaxcollid and inputcollid will be set by parse_collate.c */
 
 	/* Convert arguments if necessary */
 	foreach(args, newargs)
@@ -2001,7 +1945,7 @@ transformXmlSerialize(ParseState *pstate, XmlSerialize *xs)
 													 XMLOID,
 													 "XMLSERIALIZE"));
 
-	targetType = typenameTypeId(pstate, xs->typeName, &targetTypmod);
+	typenameTypeIdAndMod(pstate, xs->typeName, &targetType, &targetTypmod);
 
 	xexpr->xmloption = xs->xmloption;
 	xexpr->location = xs->location;
@@ -2131,12 +2075,6 @@ transformCurrentOfExpr(ParseState *pstate, CurrentOfExpr *cexpr)
 
 /*
  * Construct a whole-row reference to represent the notation "relation.*".
- *
- * A whole-row reference is a Var with varno set to the correct range
- * table entry, and varattno == 0 to signal that it references the whole
- * tuple.  (Use of zero here is unclean, since it could easily be confused
- * with error cases, but it's not worth changing now.)  The vartype indicates
- * a rowtype; either a named composite type, or RECORD.
  */
 static Node *
 transformWholeRowRef(ParseState *pstate, RangeTblEntry *rte, int location)
@@ -2144,80 +2082,14 @@ transformWholeRowRef(ParseState *pstate, RangeTblEntry *rte, int location)
 	Var		   *result;
 	int			vnum;
 	int			sublevels_up;
-	Oid			toid;
 
 	/* Find the RTE's rangetable location */
-
 	vnum = RTERangeTablePosn(pstate, rte, &sublevels_up);
 
 	/* Build the appropriate referencing node */
+	result = makeWholeRowVar(rte, vnum, sublevels_up);
 
-	switch (rte->rtekind)
-	{
-		case RTE_RELATION:
-			/* relation: the rowtype is a named composite type */
-			toid = get_rel_type_id(rte->relid);
-			if (!OidIsValid(toid))
-				elog(ERROR, "could not find type OID for relation %u",
-					 rte->relid);
-			result = makeVar(vnum,
-							 InvalidAttrNumber,
-							 toid,
-							 -1,
-							 sublevels_up);
-			break;
-		case RTE_FUNCTION:
-			toid = exprType(rte->funcexpr);
-			if (type_is_rowtype(toid))
-			{
-				/* func returns composite; same as relation case */
-				result = makeVar(vnum,
-								 InvalidAttrNumber,
-								 toid,
-								 -1,
-								 sublevels_up);
-			}
-			else
-			{
-				/*
-				 * func returns scalar; instead of making a whole-row Var,
-				 * just reference the function's scalar output.  (XXX this
-				 * seems a tad inconsistent, especially if "f.*" was
-				 * explicitly written ...)
-				 */
-				result = makeVar(vnum,
-								 1,
-								 toid,
-								 -1,
-								 sublevels_up);
-			}
-			break;
-		case RTE_VALUES:
-			toid = RECORDOID;
-			/* returns composite; same as relation case */
-			result = makeVar(vnum,
-							 InvalidAttrNumber,
-							 toid,
-							 -1,
-							 sublevels_up);
-			break;
-		default:
-
-			/*
-			 * RTE is a join or subselect.	We represent this as a whole-row
-			 * Var of RECORD type.	(Note that in most cases the Var will be
-			 * expanded to a RowExpr during planning, but that is not our
-			 * concern here.)
-			 */
-			result = makeVar(vnum,
-							 InvalidAttrNumber,
-							 RECORDOID,
-							 -1,
-							 sublevels_up);
-			break;
-	}
-
-	/* location is not filled in by makeVar */
+	/* location is not filled in by makeWholeRowVar */
 	result->location = location;
 
 	/* mark relation as requiring whole-row SELECT access */
@@ -2242,7 +2114,7 @@ transformTypeCast(ParseState *pstate, TypeCast *tc)
 	int32		targetTypmod;
 	int			location;
 
-	targetType = typenameTypeId(pstate, tc->typeName, &targetTypmod);
+	typenameTypeIdAndMod(pstate, tc->typeName, &targetType, &targetTypmod);
 
 	if (inputType == InvalidOid)
 		return expr;			/* do nothing if NULL input */
@@ -2270,6 +2142,39 @@ transformTypeCast(ParseState *pstate, TypeCast *tc)
 				 parser_coercion_errposition(pstate, location, expr)));
 
 	return result;
+}
+
+/*
+ * Handle an explicit COLLATE clause.
+ *
+ * Transform the argument, and look up the collation name.
+ */
+static Node *
+transformCollateClause(ParseState *pstate, CollateClause *c)
+{
+	CollateExpr *newc;
+	Oid			argtype;
+
+	newc = makeNode(CollateExpr);
+	newc->arg = (Expr *) transformExpr(pstate, c->arg);
+
+	argtype = exprType((Node *) newc->arg);
+
+	/*
+	 * The unknown type is not collatable, but coerce_type() takes care of it
+	 * separately, so we'll let it go here.
+	 */
+	if (!type_is_collatable(argtype) && argtype != UNKNOWNOID)
+		ereport(ERROR,
+				(errcode(ERRCODE_DATATYPE_MISMATCH),
+				 errmsg("collations are not supported by type %s",
+						format_type_be(argtype)),
+				 parser_errposition(pstate, c->location)));
+
+	newc->collOid = LookupCollation(pstate, c->collname, c->location);
+	newc->location = c->location;
+
+	return (Node *) newc;
 }
 
 /*
@@ -2478,6 +2383,7 @@ make_row_comparison_op(ParseState *pstate, List *opname,
 	rcexpr->rctype = rctype;
 	rcexpr->opnos = opnos;
 	rcexpr->opfamilies = opfamilies;
+	rcexpr->inputcollids = NIL; /* assign_expr_collations will fix this */
 	rcexpr->largs = largs;
 	rcexpr->rargs = rargs;
 

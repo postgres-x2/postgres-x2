@@ -103,8 +103,8 @@ insert into vc_tab values(NULL);
 select * from vc_tab order by a;
              a              
 ----------------------------
- abcdefghijklmnopqrstuvwxyz
  A quick brown fox
+ abcdefghijklmnopqrstuvwxyz
  
 (3 rows)
 

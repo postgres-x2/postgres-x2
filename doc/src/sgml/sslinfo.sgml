@@ -1,6 +1,6 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/sslinfo.sgml,v 1.3 2007/12/06 04:12:10 tgl Exp $ -->
+<!-- doc/src/sgml/sslinfo.sgml -->
 
-<sect1 id="sslinfo">
+<sect1 id="sslinfo" xreflabel="sslinfo">
  <title>sslinfo</title>
 
  <indexterm zone="sslinfo">
@@ -31,6 +31,30 @@ ssl_is_used() returns boolean
     <para>
      Returns TRUE if current connection to server uses SSL, and FALSE
      otherwise.
+    </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><function>
+ssl_version() returns text
+    </function></term>
+    <listitem>
+    <para>
+     Returns the name of the protocol used for the SSL connection (e.g. SSLv2,
+     SSLv3, or TLSv1).
+    </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><function>
+ssl_cipher() returns text
+    </function></term>
+    <listitem>
+    <para>
+     Returns the name of the cipher used for the SSL connection
+     (e.g. DHE-RSA-AES256-SHA).
     </para>
     </listitem>
    </varlistentry>
@@ -123,7 +147,7 @@ ssl_client_dn_field(fieldname text) returns text
      converted into ASN1 object identifiers using the OpenSSL object
      database.  The following values are acceptable:
     </para>
-    <programlisting>
+<literallayout class="monospaced">
 commonName (alias CN)
 surname (alias SN)
 name
@@ -145,7 +169,7 @@ x500UniqueIdentifier
 pseudonym
 role
 emailAddress
-    </programlisting>
+</literallayout>
     <para>
      All of these fields are optional, except <structfield>commonName</>.
      It depends

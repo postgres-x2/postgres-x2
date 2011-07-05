@@ -23,4 +23,3 @@ select * from LSEG_TBL ORDER BY (s[0])[0], (s[0])[1];
 SELECT * FROM LSEG_TBL WHERE s <= lseg '[(1,2),(3,4)]' ORDER BY (s[0])[0], (s[0])[1];
 
 SELECT * FROM LSEG_TBL WHERE (s <-> lseg '[(1,2),(3,4)]') < 10 ORDER BY (s[0])[0], (s[0])[1];
-

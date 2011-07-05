@@ -1,6 +1,6 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/pgstandby.sgml,v 2.11 2010/05/25 15:55:28 momjian Exp $ -->
+<!-- doc/src/sgml/pgstandby.sgml -->
 
-<sect1 id="pgstandby">
+<sect1 id="pgstandby" xreflabel="pg_standby">
  <title>pg_standby</title>
 
  <indexterm zone="pgstandby">
@@ -15,7 +15,7 @@
 
  <para>
   <application>pg_standby</> is designed to be a waiting
-  <literal>restore_command</literal>, which is needed to turn a standard
+  <varname>restore_command</>, which is needed to turn a standard
   archive recovery into a warm standby operation.  Other
   configuration is required as well, all of which is described in the main
   server manual (see <xref linkend="warm-standby">).
@@ -50,22 +50,18 @@
    To configure a standby
    server to use <application>pg_standby</>, put this into its
    <filename>recovery.conf</filename> configuration file:
-  </para>
-  <programlisting>
+<programlisting>
 restore_command = 'pg_standby <replaceable>archiveDir</> %f %p %r'
-  </programlisting>
-  <para>
+</programlisting>
    where <replaceable>archiveDir</> is the directory from which WAL segment
    files should be restored.
   </para>
   <para>
    The full syntax of <application>pg_standby</>'s command line is
-  </para>
-  <synopsis>
+<synopsis>
 pg_standby <optional> <replaceable>option</> ... </optional> <replaceable>archivelocation</> <replaceable>nextwalfile</> <replaceable>xlogfilepath</> <optional> <replaceable>restartwalfile</> </optional>
-  </synopsis>
-  <para>
-   When used within <literal>restore_command</literal>, the <literal>%f</> and
+</synopsis>
+   When used within <varname>restore_command</>, the <literal>%f</> and
    <literal>%p</> macros should be specified for <replaceable>nextwalfile</>
    and <replaceable>xlogfilepath</> respectively, to provide the actual file
    and path required for the restore.
@@ -206,7 +202,7 @@ pg_standby <optional> <replaceable>option</> ... </optional> <replaceable>archiv
       <listitem>
        <para>
         Specify a trigger file whose presence should cause failover.
-        It is recommended that you use a structured filename to
+        It is recommended that you use a structured file name to
         avoid confusion as to which server is being triggered
         when multiple servers exist on the same system; for example
         <filename>/tmp/pgsql.trigger.5432</>.
@@ -235,21 +231,19 @@ pg_standby <optional> <replaceable>option</> ... </optional> <replaceable>archiv
  <sect2>
   <title>Examples</title>
 
-  <para>On Linux or Unix systems, you might use:</para>
+  <para>On Linux or Unix systems, you might use:
 
-  <programlisting>
+<programlisting>
 archive_command = 'cp %p .../archive/%f'
 
 restore_command = 'pg_standby -d -s 2 -t /tmp/pgsql.trigger.5442 .../archive %f %p %r 2>>standby.log'
 
 recovery_end_command = 'rm -f /tmp/pgsql.trigger.5442'
-  </programlisting>
-  <para>
+</programlisting>
    where the archive directory is physically located on the standby server,
-   so that the <literal>archive_command</> is accessing it across NFS,
+   so that the <varname>archive_command</> is accessing it across NFS,
    but the files are local to the standby (enabling use of <literal>ln</>).
    This will:
-  </para>
   <itemizedlist>
    <listitem>
     <para>
@@ -279,22 +273,21 @@ recovery_end_command = 'rm -f /tmp/pgsql.trigger.5442'
     </para>
    </listitem>
   </itemizedlist>
+  </para>
 
-  <para>On Windows, you might use:</para>
+  <para>On Windows, you might use:
 
-  <programlisting>
+<programlisting>
 archive_command = 'copy %p ...\\archive\\%f'
 
 restore_command = 'pg_standby -d -s 5 -t C:\pgsql.trigger.5442 ...\archive %f %p %r 2>>standby.log'
 
 recovery_end_command = 'del C:\pgsql.trigger.5442'
-  </programlisting>
-  <para>
+</programlisting>
    Note that backslashes need to be doubled in the
-   <literal>archive_command</>, but <emphasis>not</emphasis> in the
-   <literal>restore_command</> or <literal>recovery_end_command</>.
+   <varname>archive_command</>, but <emphasis>not</emphasis> in the
+   <varname>restore_command</> or <varname>recovery_end_command</>.
    This will:
-  </para>
   <itemizedlist>
    <listitem>
     <para>
@@ -329,10 +322,11 @@ recovery_end_command = 'del C:\pgsql.trigger.5442'
     </para>
    </listitem>
   </itemizedlist>
+  </para>
 
   <para>
    The <literal>copy</> command on Windows sets the final file size
-   before the file is completely copied, which would ordinarly confuse
+   before the file is completely copied, which would ordinarily confuse
    <application>pg_standby</application>.  Therefore
    <application>pg_standby</application> waits <literal>sleeptime</>
    seconds once it sees the proper file size.  GNUWin32's <literal>cp</>
@@ -348,7 +342,7 @@ recovery_end_command = 'del C:\pgsql.trigger.5442'
  </sect2>
 
  <sect2>
-  <title>Supported server versions</title>
+  <title>Supported Server Versions</title>
 
   <para>
    <application>pg_standby</application> is designed to work with
@@ -363,7 +357,7 @@ recovery_end_command = 'del C:\pgsql.trigger.5442'
   </para>
   <para>
    <productname>PostgreSQL</> 8.4 provides the
-   <literal>recovery_end_command</literal> option.  Without this option
+   <varname>recovery_end_command</> option.  Without this option
    a leftover trigger file can be hazardous.
   </para>
  </sect2>

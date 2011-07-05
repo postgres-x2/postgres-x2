@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/syntax.sgml,v 1.147 2010/07/03 02:57:46 rhaas Exp $ -->
+<!-- doc/src/sgml/syntax.sgml -->
 
 <chapter id="sql-syntax">
  <title>SQL Syntax</title>
@@ -47,12 +47,6 @@
    special character is adjacent to some other token type).
   </para>
 
-  <para>
-   Additionally, <firstterm>comments</firstterm> can occur in SQL
-   input.  They are not tokens, they are effectively equivalent to
-   whitespace.
-  </para>
-
    <para>
     For example, the following is (syntactically) valid SQL input:
 <programlisting>
@@ -64,6 +58,12 @@ INSERT INTO MY_TABLE VALUES (3, 'hi there');
     is not required; more than one command can be on a line, and
     commands can usefully be split across lines).
    </para>
+
+  <para>
+   Additionally, <firstterm>comments</firstterm> can occur in SQL
+   input.  They are not tokens, they are effectively equivalent to
+   whitespace.
+  </para>
 
   <para>
    The SQL syntax is not very consistent regarding what tokens
@@ -189,9 +189,13 @@ UPDATE "my_table" SET "a" = 5;
     ampersands.  The length limitation still applies.
    </para>
 
+   <indexterm>
+     <primary>Unicode escape</primary>
+     <secondary>in identifiers</secondary>
+   </indexterm>
+
    <para>
-    <indexterm><primary>Unicode escape</primary><secondary>in
-    identifiers</secondary></indexterm> A variant of quoted
+    A variant of quoted
     identifiers allows including escaped Unicode characters identified
     by their code points.  This variant starts
     with <literal>U&amp;</literal> (upper or lower case U followed by
@@ -236,12 +240,14 @@ U&amp;"d!0061t!+000061" UESCAPE '!'
 
    <para>
     The Unicode escape syntax works only when the server encoding is
-    UTF8.  When other server encodings are used, only code points in
-    the ASCII range (up to <literal>\007F</literal>) can be specified.
-    Both the 4-digit and the 6-digit form can be used to specify
-    UTF-16 surrogate pairs to compose characters with code points
-    larger than U+FFFF (although the availability of
-    the 6-digit form technically makes this unnecessary).
+    <literal>UTF8</>.  When other server encodings are used, only code
+    points in the ASCII range (up to <literal>\007F</literal>) can be
+    specified.  Both the 4-digit and the 6-digit form can be used to
+    specify UTF-16 surrogate pairs to compose characters with code
+    points larger than U+FFFF, although the availability of the
+    6-digit form technically makes this unnecessary.  (Surrogate
+    pairs are not stored directly, but combined into a single
+    code point that is then encoded in UTF-8.)
    </para>
 
    <para>
@@ -327,7 +333,7 @@ SELECT 'foo'      'bar';
    </sect3>
 
    <sect3 id="sql-syntax-strings-escape">
-    <title>String Constants with C-Style Escapes</title>
+    <title>String Constants with C-style Escapes</title>
 
      <indexterm zone="sql-syntax-strings-escape">
       <primary>escape string syntax</primary>
@@ -431,13 +437,15 @@ SELECT 'foo'      'bar';
 
     <para>
      The Unicode escape syntax works fully only when the server
-     encoding is UTF-8.  When other server encodings are used, only
-     code points in the ASCII range (up to <literal>\u007F</>) can be
-     specified.  Both the 4-digit and the 8-digit form can be used to
-     specify UTF-16 surrogate pairs to compose characters with code
-     points larger than U+FFFF (although the
-     availability of the 8-digit form technically makes this
-     unnecessary).
+     encoding is <literal>UTF8</>.  When other server encodings are
+     used, only code points in the ASCII range (up
+     to <literal>\u007F</>) can be specified.  Both the 4-digit and
+     the 8-digit form can be used to specify UTF-16 surrogate pairs to
+     compose characters with code points larger than U+FFFF, although
+     the availability of the 8-digit form technically makes this
+     unnecessary.  (When surrogate pairs are used when the server
+     encoding is <literal>UTF8</>, they are first combined into a
+     single code point that is then encoded in UTF-8.)
     </para>
 
     <caution>
@@ -445,16 +453,15 @@ SELECT 'foo'      'bar';
      If the configuration parameter
      <xref linkend="guc-standard-conforming-strings"> is <literal>off</>,
      then <productname>PostgreSQL</productname> recognizes backslash escapes
-     in both regular and escape string constants.  This is for backward
-     compatibility with the historical behavior, where backslash escapes
-     were always recognized.
-     Although <varname>standard_conforming_strings</> currently defaults to
-     <literal>off</>, the default will change to <literal>on</> in a future
-     release for improved standards compliance.  Applications are therefore
-     encouraged to migrate away from using backslash escapes.  If you need
-     to use a backslash escape to represent a special character, write the
-     string constant with an <literal>E</> to be sure it will be handled the same
-     way in future releases.
+     in both regular and escape string constants.  However, as of
+     <productname>PostgreSQL</> 9.1, the default is <literal>on</>, meaning
+     that backslash escapes are recognized only in escape string constants.
+     This behavior is more standards-compliant, but might break applications
+     which rely on the historical behavior, where backslash escapes
+     were always recognized.  As a workaround, you can set this parameter
+     to <literal>off</>, but it is better to migrate away from using backslash
+     escapes.  If you need to use a backslash escape to represent a special
+     character, write the string constant with an <literal>E</>.
     </para>
 
     <para>
@@ -518,13 +525,15 @@ U&amp;'d!0061t!+000061' UESCAPE '!'
 
     <para>
      The Unicode escape syntax works only when the server encoding is
-     UTF8.  When other server encodings are used, only code points in
-     the ASCII range (up to <literal>\007F</literal>) can be
-     specified.
-     Both the 4-digit and the 6-digit form can be used to specify
-     UTF-16 surrogate pairs to compose characters with code points
-     larger than U+FFFF (although the availability
-     of the 6-digit form technically makes this unnecessary).
+     <literal>UTF8</>.  When other server encodings are used, only
+     code points in the ASCII range (up to <literal>\007F</literal>)
+     can be specified.  Both the 4-digit and the 6-digit form can be
+     used to specify UTF-16 surrogate pairs to compose characters with
+     code points larger than U+FFFF, although the availability of the
+     6-digit form technically makes this unnecessary.  (When surrogate
+     pairs are used when the server encoding is <literal>UTF8</>, they
+     are first combined into a single code point that is then encoded
+     in UTF-8.)
     </para>
 
     <para>
@@ -545,7 +554,7 @@ U&amp;'d!0061t!+000061' UESCAPE '!'
    </sect3>
 
    <sect3 id="sql-syntax-dollar-quoting">
-    <title>Dollar-Quoted String Constants</title>
+    <title>Dollar-quoted String Constants</title>
 
      <indexterm>
       <primary>dollar quoting</primary>
@@ -625,7 +634,7 @@ $function$
    </sect3>
 
    <sect3 id="sql-syntax-bit-strings">
-    <title>Bit-String Constants</title>
+    <title>Bit-string Constants</title>
 
     <indexterm zone="sql-syntax-bit-strings">
      <primary>bit string</primary>
@@ -963,7 +972,7 @@ CAST ( '<replaceable>string</replaceable>' AS <replaceable>type</replaceable> )
   </sect2>
 
   <sect2 id="sql-precedence">
-   <title>Lexical Precedence</title>
+   <title>Operator Precedence</title>
 
    <indexterm zone="sql-precedence">
     <primary>operator</primary>
@@ -1030,9 +1039,9 @@ SELECT (5 !) - 6;
       </row>
 
       <row>
-       <entry><token>-</token></entry>
+       <entry><token>+</token> <token>-</token></entry>
        <entry>right</entry>
-       <entry>unary minus</entry>
+       <entry>unary plus, unary minus</entry>
       </row>
 
       <row>
@@ -1056,7 +1065,7 @@ SELECT (5 !) - 6;
       <row>
        <entry><token>IS</token></entry>
        <entry></entry>
-       <entry><literal>IS TRUE</>, <literal>IS FALSE</>, <literal>IS UNKNOWN</>, <literal>IS NULL</></entry>
+       <entry><literal>IS TRUE</>, <literal>IS FALSE</>, <literal>IS NULL</>, etc</entry>
       </row>
 
       <row>
@@ -1254,6 +1263,12 @@ SELECT 3 OPERATOR(pg_catalog.+) 4;
 
     <listitem>
      <para>
+      A collation expression
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
       A scalar subquery
      </para>
     </listitem>
@@ -1401,7 +1416,7 @@ $1[10:42]
    </para>
   </sect2>
 
-  <sect2>
+  <sect2 id="field-selection">
    <title>Field Selection</title>
 
    <indexterm>
@@ -1441,6 +1456,15 @@ $1.somecolumn
     <structfield>compositecol</> is a column name not a table name,
     or that <structname>mytable</> is a table name not a schema name
     in the second case.
+   </para>
+
+   <para>
+    In a select list (see <xref linkend="queries-select-lists">), you
+    can ask for all fields of a composite value by
+    writing <literal>.*</literal>:
+<programlisting>
+(compositecol).*
+</programlisting>
    </para>
   </sect2>
 
@@ -1507,6 +1531,19 @@ sqrt(2)
     The arguments can optionally have names attached.
     See <xref linkend="sql-syntax-calling-funcs"> for details.
    </para>
+
+   <note>
+    <para>
+     A function that takes a single argument of composite type can
+     optionally be called using field-selection syntax, and conversely
+     field selection can be written in functional style.  That is, the
+     notations <literal>col(table)</> and <literal>table.col</> are
+     interchangeable.  This behavior is not SQL-standard but is provided
+     in <productname>PostgreSQL</> because it allows use of functions to
+     emulate <quote>computed fields</>.  For more information see
+     <xref linkend="xfunc-sql-composite-functions">.
+    </para>
+   </note>
   </sect2>
 
   <sect2 id="syntax-aggregates">
@@ -1542,23 +1579,29 @@ sqrt(2)
 
    <para>
     The first form of aggregate expression invokes the aggregate
-    across all input rows for which the given expression(s) yield
-    non-null values.  (Actually, it is up to the aggregate function
-    whether to ignore null values or not &mdash; but all the standard ones do.)
+    once for each input row.
     The second form is the same as the first, since
-    <literal>ALL</literal> is the default.  The third form invokes the
-    aggregate for all distinct values of the expressions found
-    in the input rows (ignoring nulls if the function chooses to do so).
-    The last form invokes the aggregate once for
-    each input row regardless of null or non-null values; since no
+    <literal>ALL</literal> is the default.
+    The third form invokes the aggregate once for each distinct value
+    of the expression (or distinct set of values, for multiple expressions)
+    found in the input rows.
+    The last form invokes the aggregate once for each input row; since no
     particular input value is specified, it is generally only useful
     for the <function>count(*)</function> aggregate function.
    </para>
 
    <para>
+    Most aggregate functions ignore null inputs, so that rows in which
+    one or more of the expression(s) yield null are discarded.  This
+    can be assumed to be true, unless otherwise specified, for all
+    built-in aggregates.
+   </para>
+
+   <para>
     For example, <literal>count(*)</literal> yields the total number
     of input rows; <literal>count(f1)</literal> yields the number of
-    input rows in which <literal>f1</literal> is non-null;
+    input rows in which <literal>f1</literal> is non-null, since
+    <function>count</> ignores nulls; and
     <literal>count(distinct f1)</literal> yields the number of
     distinct non-null values of <literal>f1</literal>.
    </para>
@@ -1568,7 +1611,7 @@ sqrt(2)
     unspecified order.  In many cases this does not matter; for example,
     <function>min</> produces the same result no matter what order it
     receives the inputs in.  However, some aggregate functions
-    (such as <function>array_agg</> and <function>xmlagg</>) produce
+    (such as <function>array_agg</> and <function>string_agg</>) produce
     results that depend on the ordering of the input rows.  When using
     such an aggregate, the optional <replaceable>order_by_clause</> can be
     used to specify the desired ordering.  The <replaceable>order_by_clause</>
@@ -1576,10 +1619,25 @@ sqrt(2)
     described in <xref linkend="queries-order">, except that its expressions
     are always just expressions and cannot be output-column names or numbers.
     For example:
-
 <programlisting>
 SELECT array_agg(a ORDER BY b DESC) FROM table;
 </programlisting>
+   </para>
+
+   <para>
+    When dealing with multiple-argument aggregate functions, note that the
+    <literal>ORDER BY</> clause goes after all the aggregate arguments.
+    For example, write this:
+<programlisting>
+SELECT string_agg(a, ',' ORDER BY a) FROM table;
+</programlisting>
+    not this:
+<programlisting>
+SELECT string_agg(a ORDER BY a, ',') FROM table;  -- incorrect
+</programlisting>
+    The latter is syntactically valid, but it represents a call of a
+    single-argument aggregate function with two <literal>ORDER BY</> keys
+    (the second one being rather useless since it's a constant).
    </para>
 
    <para>
@@ -1848,6 +1906,67 @@ CAST ( <replaceable>expression</replaceable> AS <replaceable>type</replaceable> 
      <xref linkend="sql-createcast">.
     </para>
    </note>
+  </sect2>
+
+  <sect2 id="sql-syntax-collate-exprs">
+   <title>Collation Expressions</title>
+
+   <indexterm>
+    <primary>COLLATE</primary>
+   </indexterm>
+
+   <para>
+    The <literal>COLLATE</literal> clause overrides the collation of
+    an expression.  It is appended to the expression it applies to:
+<synopsis>
+<replaceable>expr</replaceable> COLLATE <replaceable>collation</replaceable>
+</synopsis>
+    where <replaceable>collation</replaceable> is a possibly
+    schema-qualified identifier.  The <literal>COLLATE</literal>
+    clause binds tighter than operators; parentheses can be used when
+    necessary.
+   </para>
+
+   <para>
+    If no collation is explicitly specified, the database system
+    either derives a collation from the columns involved in the
+    expression, or it defaults to the default collation of the
+    database if no column is involved in the expression.
+   </para>
+
+   <para>
+    The two common uses of the <literal>COLLATE</literal> clause are
+    overriding the sort order in an <literal>ORDER BY</> clause, for
+    example:
+<programlisting>
+SELECT a, b, c FROM tbl WHERE ... ORDER BY a COLLATE "C";
+</programlisting>
+    and overriding the collation of a function or operator call that
+    has locale-sensitive results, for example:
+<programlisting>
+SELECT * FROM tbl WHERE a &gt; 'foo' COLLATE "C";
+</programlisting>
+    Note that in the latter case the <literal>COLLATE</> clause is
+    attached to an input argument of the operator we wish to affect.
+    It doesn't matter which argument of the operator or function call the
+    <literal>COLLATE</> clause is attached to, because the collation that is
+    applied by the operator or function is derived by considering all
+    arguments, and an explicit <literal>COLLATE</> clause will override the
+    collations of all other arguments.  (Attaching non-matching
+    <literal>COLLATE</> clauses to more than one argument, however, is an
+    error.  For more details see <xref linkend="collation">.)
+    Thus, this gives the same result as the previous example:
+<programlisting>
+SELECT * FROM tbl WHERE a COLLATE "C" &gt; 'foo';
+</programlisting>
+    But this is an error:
+<programlisting>
+SELECT * FROM tbl WHERE (a &gt; 'foo') COLLATE "C";
+</programlisting>
+    because it attempts to apply a collation to the result of the
+    <literal>&gt;</> operator, which is of the non-collatable data type
+    <type>boolean</>.
+   </para>
   </sect2>
 
   <sect2 id="sql-syntax-scalar-subqueries">
@@ -2247,7 +2366,7 @@ LANGUAGE SQL IMMUTABLE STRICT;
    </para>
 
    <sect2 id="sql-syntax-calling-funcs-positional">
-    <title>Using positional notation</title>
+    <title>Using Positional Notation</title>
 
     <indexterm>
      <primary>function</primary>
@@ -2282,7 +2401,7 @@ SELECT concat_lower_or_upper('Hello', 'World');
    </sect2>
 
    <sect2 id="sql-syntax-calling-funcs-named">
-    <title>Using named notation</title>
+    <title>Using Named Notation</title>
 
     <indexterm>
      <primary>function</primary>
@@ -2321,7 +2440,7 @@ SELECT concat_lower_or_upper(a := 'Hello', uppercase := true, b := 'World');
    </sect2>
 
   <sect2 id="sql-syntax-calling-funcs-mixed">
-   <title>Using mixed notation</title>
+   <title>Using Mixed Notation</title>
 
    <indexterm>
     <primary>function</primary>

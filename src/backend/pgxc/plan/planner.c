@@ -836,7 +836,7 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 							attnames[att-1] = pstrdup(NameStr(att_tup->attname));
 							appendStringInfoString(&buf, attnames[att - 1]);
 							expr = makeVar(att, att, att_tup->atttypid,
-										   att_tup->atttypmod, 0);
+										   att_tup->atttypmod, InvalidOid, 0);
 							tle = makeTargetEntry((Expr *) expr, att,
 												  attnames[att - 1], false);
 							step1->scan.plan.targetlist = lappend(step1->scan.plan.targetlist, tle);
@@ -1034,7 +1034,8 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 		OpExpr	   *opexpr = (OpExpr *) expr_node;
 
 		/* See if we can equijoin these */
-		if (op_mergejoinable(opexpr->opno) && opexpr->args->length == 2)
+		if (op_mergejoinable(opexpr->opno, opexpr->inputcollid) &&
+			opexpr->args->length == 2)
 		{
 			Expr	   *arg1 = linitial(opexpr->args);
 			Expr	   *arg2 = lsecond(opexpr->args);
@@ -2132,7 +2133,7 @@ reconstruct_step_query(List *rtable, bool has_order_by, List *extra_sort,
 	StringInfo	buf = makeStringInfo();
 	char	   *sql_from;
 
-	context = deparse_context_for_plan((Node *) step, NULL, rtable, NIL);
+	context = deparse_context_for_planstate((Node *) step, NULL, rtable);
 	useprefix = list_length(rtable) > 1;
 
 	foreach(l, sub_tlist)

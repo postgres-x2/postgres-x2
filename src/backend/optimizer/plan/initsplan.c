@@ -3,12 +3,12 @@
  * initsplan.c
  *	  Target list, qualification, joininfo initialization routines
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/optimizer/plan/initsplan.c,v 1.158 2010/02/26 02:00:45 momjian Exp $
+ *	  src/backend/optimizer/plan/initsplan.c
  *
  *-------------------------------------------------------------------------
  */
@@ -16,6 +16,7 @@
 
 #include "catalog/pg_operator.h"
 #include "catalog/pg_type.h"
+#include "nodes/nodeFuncs.h"
 #include "optimizer/clauses.h"
 #include "optimizer/cost.h"
 #include "optimizer/joininfo.h"
@@ -187,6 +188,14 @@ add_vars_to_targetlist(PlannerInfo *root, List *vars, Relids where_needed)
 
 			phinfo->ph_needed = bms_add_members(phinfo->ph_needed,
 												where_needed);
+
+			/*
+			 * Update ph_may_need too.	This is currently only necessary when
+			 * being called from build_base_rel_tlists, but we may as well do
+			 * it always.
+			 */
+			phinfo->ph_may_need = bms_add_members(phinfo->ph_may_need,
+												  where_needed);
 		}
 		else
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
@@ -465,7 +474,11 @@ deconstruct_recurse(PlannerInfo *root, Node *jtnode, bool below_outer_join,
 
 		/* Now we can add the SpecialJoinInfo to join_info_list */
 		if (sjinfo)
+		{
 			root->join_info_list = lappend(root->join_info_list, sjinfo);
+			/* Each time we do that, recheck placeholder eval levels */
+			update_placeholder_eval_levels(root, sjinfo);
+		}
 
 		/*
 		 * Finally, compute the output joinlist.  We fold subproblems together
@@ -685,6 +698,32 @@ make_outerjoininfo(PlannerInfo *root,
 												otherinfo->syn_righthand);
 			}
 		}
+	}
+
+	/*
+	 * Examine PlaceHolderVars.  If a PHV is supposed to be evaluated within
+	 * this join's nullable side, and it may get used above this join, then
+	 * ensure that min_righthand contains the full eval_at set of the PHV.
+	 * This ensures that the PHV actually can be evaluated within the RHS.
+	 * Note that this works only because we should already have determined the
+	 * final eval_at level for any PHV syntactically within this join.
+	 */
+	foreach(l, root->placeholder_list)
+	{
+		PlaceHolderInfo *phinfo = (PlaceHolderInfo *) lfirst(l);
+		Relids		ph_syn_level = phinfo->ph_var->phrels;
+
+		/* Ignore placeholder if it didn't syntactically come from RHS */
+		if (!bms_is_subset(ph_syn_level, right_rels))
+			continue;
+
+		/* We can also ignore it if it's certainly not used above this join */
+		/* XXX this test is probably overly conservative */
+		if (bms_is_subset(phinfo->ph_may_need, min_righthand))
+			continue;
+
+		/* Else, prevent join from being formed before we eval the PHV */
+		min_righthand = bms_add_members(min_righthand, phinfo->ph_eval_at);
 	}
 
 	/*
@@ -1029,6 +1068,12 @@ distribute_qual_to_rels(PlannerInfo *root, Node *clause,
 	 *
 	 * If none of the above hold, pass it off to
 	 * distribute_restrictinfo_to_rels().
+	 *
+	 * In all cases, it's important to initialize the left_ec and right_ec
+	 * fields of a mergejoinable clause, so that all possibly mergejoinable
+	 * expressions have representations in EquivalenceClasses.	If
+	 * process_equivalence is successful, it will take care of that;
+	 * otherwise, we have to call initialize_mergeclause_eclasses to do it.
 	 */
 	if (restrictinfo->mergeopfamilies)
 	{
@@ -1036,10 +1081,15 @@ distribute_qual_to_rels(PlannerInfo *root, Node *clause,
 		{
 			if (process_equivalence(root, restrictinfo, below_outer_join))
 				return;
-			/* EC rejected it, so pass to distribute_restrictinfo_to_rels */
+			/* EC rejected it, so set left_ec/right_ec the hard way ... */
+			initialize_mergeclause_eclasses(root, restrictinfo);
+			/* ... and fall through to distribute_restrictinfo_to_rels */
 		}
 		else if (maybe_outer_join && restrictinfo->can_join)
 		{
+			/* we need to set up left_ec/right_ec the hard way */
+			initialize_mergeclause_eclasses(root, restrictinfo);
+			/* now see if it should go to any outer-join lists */
 			if (bms_is_subset(restrictinfo->left_relids,
 							  outerjoin_nonnullable) &&
 				!bms_overlap(restrictinfo->right_relids,
@@ -1067,6 +1117,12 @@ distribute_qual_to_rels(PlannerInfo *root, Node *clause,
 												  restrictinfo);
 				return;
 			}
+			/* nope, so fall through to distribute_restrictinfo_to_rels */
+		}
+		else
+		{
+			/* we still need to set up left_ec/right_ec */
+			initialize_mergeclause_eclasses(root, restrictinfo);
 		}
 	}
 
@@ -1273,10 +1329,9 @@ distribute_restrictinfo_to_rels(PlannerInfo *root,
 
 			/*
 			 * Check for hashjoinable operators.  (We don't bother setting the
-			 * hashjoin info if we're not going to need it.)
+			 * hashjoin info except in true join clauses.)
 			 */
-			if (enable_hashjoin)
-				check_hashjoinable(restrictinfo);
+			check_hashjoinable(restrictinfo);
 
 			/*
 			 * Add clause to the join lists of all the relevant relations.
@@ -1317,6 +1372,7 @@ distribute_restrictinfo_to_rels(PlannerInfo *root,
 void
 process_implied_equality(PlannerInfo *root,
 						 Oid opno,
+						 Oid collation,
 						 Expr *item1,
 						 Expr *item2,
 						 Relids qualscope,
@@ -1333,7 +1389,9 @@ process_implied_equality(PlannerInfo *root,
 						   BOOLOID,		/* opresulttype */
 						   false,		/* opretset */
 						   (Expr *) copyObject(item1),
-						   (Expr *) copyObject(item2));
+						   (Expr *) copyObject(item2),
+						   InvalidOid,
+						   collation);
 
 	/* If both constant, try to reduce to a boolean constant. */
 	if (both_const)
@@ -1367,9 +1425,13 @@ process_implied_equality(PlannerInfo *root,
  *
  * This overlaps the functionality of process_implied_equality(), but we
  * must return the RestrictInfo, not push it into the joininfo tree.
+ *
+ * Note: we do not do initialize_mergeclause_eclasses() here.  It is
+ * caller's responsibility that left_ec/right_ec be set as necessary.
  */
 RestrictInfo *
 build_implied_join_equality(Oid opno,
+							Oid collation,
 							Expr *item1,
 							Expr *item2,
 							Relids qualscope)
@@ -1385,7 +1447,9 @@ build_implied_join_equality(Oid opno,
 						   BOOLOID,		/* opresulttype */
 						   false,		/* opretset */
 						   (Expr *) copyObject(item1),
-						   (Expr *) copyObject(item2));
+						   (Expr *) copyObject(item2),
+						   InvalidOid,
+						   collation);
 
 	/* Make a copy of qualscope to avoid problems if source EC changes */
 	qualscope = bms_copy(qualscope);
@@ -1400,10 +1464,9 @@ build_implied_join_equality(Oid opno,
 									 qualscope, /* required_relids */
 									 NULL);		/* nullable_relids */
 
-	/* Set mergejoinability info always, and hashjoinability if enabled */
+	/* Set mergejoinability/hashjoinability flags */
 	check_mergejoinable(restrictinfo);
-	if (enable_hashjoin)
-		check_hashjoinable(restrictinfo);
+	check_hashjoinable(restrictinfo);
 
 	return restrictinfo;
 }
@@ -1429,6 +1492,7 @@ check_mergejoinable(RestrictInfo *restrictinfo)
 {
 	Expr	   *clause = restrictinfo->clause;
 	Oid			opno;
+	Node	   *leftarg;
 
 	if (restrictinfo->pseudoconstant)
 		return;
@@ -1438,8 +1502,9 @@ check_mergejoinable(RestrictInfo *restrictinfo)
 		return;
 
 	opno = ((OpExpr *) clause)->opno;
+	leftarg = linitial(((OpExpr *) clause)->args);
 
-	if (op_mergejoinable(opno) &&
+	if (op_mergejoinable(opno, exprType(leftarg)) &&
 		!contain_volatile_functions((Node *) clause))
 		restrictinfo->mergeopfamilies = get_mergejoin_opfamilies(opno);
 
@@ -1464,6 +1529,7 @@ check_hashjoinable(RestrictInfo *restrictinfo)
 {
 	Expr	   *clause = restrictinfo->clause;
 	Oid			opno;
+	Node	   *leftarg;
 
 	if (restrictinfo->pseudoconstant)
 		return;
@@ -1473,8 +1539,9 @@ check_hashjoinable(RestrictInfo *restrictinfo)
 		return;
 
 	opno = ((OpExpr *) clause)->opno;
+	leftarg = linitial(((OpExpr *) clause)->args);
 
-	if (op_hashjoinable(opno) &&
+	if (op_hashjoinable(opno, exprType(leftarg)) &&
 		!contain_volatile_functions((Node *) clause))
 		restrictinfo->hashjoinoperator = opno;
 }

@@ -3,11 +3,11 @@
  * proclang.c
  *	  PostgreSQL PROCEDURAL LANGUAGE support code.
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/commands/proclang.c,v 1.91 2010/02/26 02:00:39 momjian Exp $
+ *	  src/backend/commands/proclang.c
  *
  *-------------------------------------------------------------------------
  */
@@ -17,6 +17,7 @@
 #include "access/heapam.h"
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
+#include "catalog/objectaccess.h"
 #include "catalog/pg_language.h"
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_pltemplate.h"
@@ -387,19 +388,24 @@ create_proc_lang(const char *languageName, bool replace,
 	 * Create dependencies for the new language.  If we are updating an
 	 * existing language, first delete any existing pg_depend entries.
 	 * (However, since we are not changing ownership or permissions, the
-	 * shared dependencies do *not* need to change, and we leave them alone.)
+	 * shared dependencies do *not* need to change, and we leave them alone.
+	 * We also don't change any pre-existing extension-membership dependency.)
 	 */
 	myself.classId = LanguageRelationId;
 	myself.objectId = HeapTupleGetOid(tup);
 	myself.objectSubId = 0;
 
 	if (is_update)
-		deleteDependencyRecordsFor(myself.classId, myself.objectId);
+		deleteDependencyRecordsFor(myself.classId, myself.objectId, true);
 
 	/* dependency on owner of language */
 	if (!is_update)
 		recordDependencyOnOwner(myself.classId, myself.objectId,
 								languageOwner);
+
+	/* dependency on extension */
+	if (!is_update)
+		recordDependencyOnCurrentExtension(&myself);
 
 	/* dependency on the PL handler function */
 	referenced.classId = ProcedureRelationId;
@@ -424,6 +430,10 @@ create_proc_lang(const char *languageName, bool replace,
 		referenced.objectSubId = 0;
 		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 	}
+
+	/* Post creation hook for new procedural language */
+	InvokeObjectAccessHook(OAT_POST_CREATE,
+						   LanguageRelationId, myself.objectId, 0);
 
 	heap_close(rel, RowExclusiveLock);
 }
@@ -514,7 +524,7 @@ void
 DropProceduralLanguage(DropPLangStmt *stmt)
 {
 	char	   *languageName;
-	HeapTuple	langTup;
+	Oid			oid;
 	ObjectAddress object;
 
 	/*
@@ -522,33 +532,25 @@ DropProceduralLanguage(DropPLangStmt *stmt)
 	 */
 	languageName = case_translate_language_name(stmt->plname);
 
-	langTup = SearchSysCache1(LANGNAME, CStringGetDatum(languageName));
-	if (!HeapTupleIsValid(langTup))
+	oid = get_language_oid(languageName, stmt->missing_ok);
+	if (!OidIsValid(oid))
 	{
-		if (!stmt->missing_ok)
-			ereport(ERROR,
-					(errcode(ERRCODE_UNDEFINED_OBJECT),
-					 errmsg("language \"%s\" does not exist", languageName)));
-		else
-			ereport(NOTICE,
-					(errmsg("language \"%s\" does not exist, skipping",
-							languageName)));
-
+		ereport(NOTICE,
+				(errmsg("language \"%s\" does not exist, skipping",
+						languageName)));
 		return;
 	}
 
 	/*
 	 * Check permission
 	 */
-	if (!pg_language_ownercheck(HeapTupleGetOid(langTup), GetUserId()))
+	if (!pg_language_ownercheck(oid, GetUserId()))
 		aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_LANGUAGE,
 					   languageName);
 
 	object.classId = LanguageRelationId;
-	object.objectId = HeapTupleGetOid(langTup);
+	object.objectId = oid;
 	object.objectSubId = 0;
-
-	ReleaseSysCache(langTup);
 
 	/*
 	 * Do the deletion
@@ -734,4 +736,23 @@ AlterLanguageOwner_internal(HeapTuple tup, Relation rel, Oid newOwnerId)
 		changeDependencyOnOwner(LanguageRelationId, HeapTupleGetOid(tup),
 								newOwnerId);
 	}
+}
+
+/*
+ * get_language_oid - given a language name, look up the OID
+ *
+ * If missing_ok is false, throw an error if language name not found.  If
+ * true, just return InvalidOid.
+ */
+Oid
+get_language_oid(const char *langname, bool missing_ok)
+{
+	Oid			oid;
+
+	oid = GetSysCacheOid1(LANGNAME, CStringGetDatum(langname));
+	if (!OidIsValid(oid) && !missing_ok)
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+				 errmsg("language \"%s\" does not exist", langname)));
+	return oid;
 }

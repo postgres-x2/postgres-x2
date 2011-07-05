@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/protocol.sgml,v 1.89 2010/06/07 02:01:08 itagaki Exp $ -->
+<!-- doc/src/sgml/protocol.sgml -->
 
 <chapter id="protocol">
  <title>Frontend/Backend Protocol</title>
@@ -210,7 +210,7 @@
   </para>
 
   <sect2>
-   <title>Start-Up</title>
+   <title>Start-up</title>
 
    <para>
     To begin a session, a frontend opens a connection to the server and sends
@@ -314,6 +314,8 @@
         the credential message.)  If the credential is acceptable,
         the server responds with an
         AuthenticationOk, otherwise it responds with an ErrorResponse.
+        (This message type is only issued by pre-9.1 servers.  It may
+        eventually be removed from the protocol specification.)
        </para>
       </listitem>
      </varlistentry>
@@ -1033,12 +1035,25 @@
    </para>
 
    <para>
-    The CopyInResponse and CopyOutResponse messages include fields that
-    inform the frontend of the number of columns per row and the format
-    codes being used for each column.  (As of the present implementation,
-    all columns in a given <command>COPY</> operation will use the same
-    format, but the message design does not assume this.)
+    There is another Copy-related mode called Copy-both, which allows
+    high-speed bulk data transfer to <emphasis>and</> from the server.
+    Copy-both mode is initiated when a backend in walsender mode
+    executes a <command>START_REPLICATION</command> statement.  The
+    backend sends a CopyBothResponse message to the frontend.  Both
+    the backend and the frontend may then send CopyData messages
+    until the connection is terminated.  See <xref
+    linkend="protocol-replication">.
    </para>
+
+   <para>
+    The CopyInResponse, CopyOutResponse and CopyBothResponse messages
+    include fields that inform the frontend of the number of columns
+    per row and the format codes being used for each column.  (As of
+    the present implementation, all columns in a given <command>COPY</>
+    operation will use the same format, but the message design does not
+    assume this.)
+   </para>
+
   </sect2>
 
   <sect2 id="protocol-async">
@@ -1079,27 +1094,27 @@
    <para>
     At present there is a hard-wired set of parameters for which
     ParameterStatus will be generated: they are
-    <literal>server_version</>,
-    <literal>server_encoding</>,
-    <literal>client_encoding</>,
-    <literal>application_name</>,
-    <literal>is_superuser</>,
-    <literal>session_authorization</>,
-    <literal>DateStyle</>,
-    <literal>IntervalStyle</>,
-    <literal>TimeZone</>,
-    <literal>integer_datetimes</>, and
-    <literal>standard_conforming_strings</>.
-    (<literal>server_encoding</>, <literal>TimeZone</>, and
-    <literal>integer_datetimes</> were not reported by releases before 8.0;
-    <literal>standard_conforming_strings</> was not reported by releases
+    <varname>server_version</>,
+    <varname>server_encoding</>,
+    <varname>client_encoding</>,
+    <varname>application_name</>,
+    <varname>is_superuser</>,
+    <varname>session_authorization</>,
+    <varname>DateStyle</>,
+    <varname>IntervalStyle</>,
+    <varname>TimeZone</>,
+    <varname>integer_datetimes</>, and
+    <varname>standard_conforming_strings</>.
+    (<varname>server_encoding</>, <varname>TimeZone</>, and
+    <varname>integer_datetimes</> were not reported by releases before 8.0;
+    <varname>standard_conforming_strings</> was not reported by releases
     before 8.1;
-    <literal>IntervalStyle</> was not reported by releases before 8.4;
-    <literal>application_name</> was not reported by releases before 9.0.)
+    <varname>IntervalStyle</> was not reported by releases before 8.4;
+    <varname>application_name</> was not reported by releases before 9.0.)
     Note that
-    <literal>server_version</>,
-    <literal>server_encoding</> and
-    <literal>integer_datetimes</>
+    <varname>server_version</>,
+    <varname>server_encoding</> and
+    <varname>integer_datetimes</>
     are pseudo-parameters that cannot change after startup.
     This set might change in the future, or even become configurable.
     Accordingly, a frontend should simply ignore ParameterStatus for
@@ -1302,7 +1317,7 @@ The commands accepted in walsender mode are:
     <listitem>
      <para>
       Requests the server to identify itself. Server replies with a result
-      set of a single row, containing two fields:
+      set of a single row, containing three fields:
      </para>
 
      <para>
@@ -1331,6 +1346,19 @@ The commands accepted in walsender mode are:
       </para>
       </listitem>
       </varlistentry>
+
+      <varlistentry>
+      <term>
+       xlogpos
+      </term>
+      <listitem>
+      <para>
+       Current xlog write location. Useful to get a known location in the
+       transaction log where streaming can start.
+      </para>
+      </listitem>
+      </varlistentry>
+
       </variablelist>
      </para>
     </listitem>
@@ -1344,7 +1372,7 @@ The commands accepted in walsender mode are:
       WAL position <replaceable>XXX</>/<replaceable>XXX</>.
       The server can reply with an error, e.g. if the requested section of WAL
       has already been recycled. On success, server responds with a
-      CopyOutResponse message, and then starts to stream WAL to the frontend.
+      CopyBothResponse message, and then starts to stream WAL to the frontend.
       WAL will continue to be streamed until the connection is broken;
       no further commands will be accepted.
      </para>
@@ -1442,6 +1470,294 @@ The commands accepted in walsender mode are:
        If the WAL sender process is terminated normally (during postmaster
        shutdown), it will send a CommandComplete message before exiting.
        This might not happen during an abnormal shutdown, of course.
+     </para>
+
+     <para>
+       The receiving process can send replies back to the sender at any time,
+       using one of the following message formats (also in the payload of a
+       CopyData message):
+     </para>
+
+     <para>
+      <variablelist>
+      <varlistentry>
+      <term>
+          Standby status update (F)
+      </term>
+      <listitem>
+      <para>
+      <variablelist>
+      <varlistentry>
+      <term>
+          Byte1('r')
+      </term>
+      <listitem>
+      <para>
+          Identifies the message as a receiver status update.
+      </para>
+      </listitem>
+      </varlistentry>
+      <varlistentry>
+      <term>
+          Byte8
+      </term>
+      <listitem>
+      <para>
+          The location of the last WAL byte + 1 received and written to disk
+          in the standby, in XLogRecPtr format.
+      </para>
+      </listitem>
+      </varlistentry>
+      <varlistentry>
+      <term>
+          Byte8
+      </term>
+      <listitem>
+      <para>
+          The location of the last WAL byte + 1 flushed to disk in
+          the standby, in XLogRecPtr format.
+      </para>
+      </listitem>
+      </varlistentry>
+      <varlistentry>
+      <term>
+          Byte8
+      </term>
+      <listitem>
+      <para>
+          The location of the last WAL byte + 1 applied in the standby, in
+          XLogRecPtr format.
+      </para>
+      </listitem>
+      </varlistentry>
+      <varlistentry>
+      <term>
+          Byte8
+      </term>
+      <listitem>
+      <para>
+          The server's system clock at the time of transmission,
+          given in TimestampTz format.
+      </para>
+      </listitem>
+      </varlistentry>
+      </variablelist>
+      </para>
+      </listitem>
+      </varlistentry>
+      </variablelist>
+     </para>
+
+     <para>
+      <variablelist>
+      <varlistentry>
+      <term>
+          Hot Standby feedback message (F)
+      </term>
+      <listitem>
+      <para>
+      <variablelist>
+      <varlistentry>
+      <term>
+          Byte1('h')
+      </term>
+      <listitem>
+      <para>
+          Identifies the message as a Hot Standby feedback message.
+      </para>
+      </listitem>
+      </varlistentry>
+      <varlistentry>
+      <term>
+          Byte8
+      </term>
+      <listitem>
+      <para>
+          The server's system clock at the time of transmission,
+          given in TimestampTz format.
+      </para>
+      </listitem>
+      </varlistentry>
+      <varlistentry>
+      <term>
+          Byte4
+      </term>
+      <listitem>
+      <para>
+          The standby's current xmin.
+      </para>
+      </listitem>
+      </varlistentry>
+      <varlistentry>
+      <term>
+          Byte4
+      </term>
+      <listitem>
+      <para>
+          The standby's current epoch.
+      </para>
+      </listitem>
+      </varlistentry>
+      </variablelist>
+      </para>
+      </listitem>
+      </varlistentry>
+      </variablelist>
+     </para>
+    </listitem>
+  </varlistentry>
+
+  <varlistentry>
+    <term>BASE_BACKUP [<literal>LABEL</literal> <replaceable>'label'</replaceable>] [<literal>PROGRESS</literal>] [<literal>FAST</literal>] [<literal>WAL</literal>] [<literal>NOWAIT</literal>]</term>
+    <listitem>
+     <para>
+      Instructs the server to start streaming a base backup.
+      The system will automatically be put in backup mode before the backup
+      is started, and taken out of it when the backup is complete. The
+      following options are accepted:
+      <variablelist>
+       <varlistentry>
+        <term><literal>LABEL</literal> <replaceable>'label'</replaceable></term>
+        <listitem>
+         <para>
+          Sets the label of the backup. If none is specified, a backup label
+          of <literal>base backup</literal> will be used. The quoting rules
+          for the label are the same as a standard SQL string with
+          <xref linkend="guc-standard-conforming-strings"> turned on.
+         </para>
+        </listitem>
+       </varlistentry>
+
+       <varlistentry>
+        <term><literal>PROGRESS</></term>
+        <listitem>
+         <para>
+          Request information required to generate a progress report. This will
+          send back an approximate size in the header of each tablespace, which
+          can be used to calculate how far along the stream is done. This is
+          calculated by enumerating all the file sizes once before the transfer
+          is even started, and may as such have a negative impact on the
+          performance - in particular it may take longer before the first data
+          is streamed. Since the database files can change during the backup,
+          the size is only approximate and may both grow and shrink between
+          the time of approximation and the sending of the actual files.
+         </para>
+        </listitem>
+       </varlistentry>
+
+       <varlistentry>
+        <term><literal>FAST</></term>
+        <listitem>
+         <para>
+          Request a fast checkpoint.
+         </para>
+        </listitem>
+       </varlistentry>
+
+       <varlistentry>
+        <term><literal>WAL</literal></term>
+        <listitem>
+         <para>
+          Include the necessary WAL segments in the backup. This will include
+          all the files between start and stop backup in the
+          <filename>pg_xlog</filename> directory of the base directory tar
+          file.
+         </para>
+        </listitem>
+       </varlistentry>
+
+       <varlistentry>
+        <term><literal>NOWAIT</literal></term>
+        <listitem>
+         <para>
+          By default, the backup will wait until the last required xlog
+          segment has been archived, or emit a warning if log archiving is
+          not enabled. Specifying <literal>NOWAIT</literal> disables both
+          the waiting and the warning, leaving the client responsible for
+          ensuring the required log is available.
+         </para>
+         </listitem>
+       </varlistentry>
+      </variablelist>
+     </para>
+     <para>
+      When the backup is started, the server will first send two
+      ordinary result sets, followed by one or more CopyResponse
+      results.
+     </para>
+     <para>
+      The first ordinary result set contains the starting position of the
+      backup, given in XLogRecPtr format as a single column in a single row.
+     </para>
+     <para>
+      The second ordinary result set has one row for each tablespace.
+      The fields in this row are:
+      <variablelist>
+       <varlistentry>
+        <term>spcoid</term>
+        <listitem>
+         <para>
+          The oid of the tablespace, or <literal>NULL</> if it's the base
+          directory.
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>spclocation</term>
+        <listitem>
+         <para>
+          The full path of the tablespace directory, or <literal>NULL</>
+          if it's the base directory.
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>size</term>
+        <listitem>
+         <para>
+          The approximate size of the tablespace, if progress report has
+          been requested; otherwise it's <literal>NULL</>.
+         </para>
+        </listitem>
+       </varlistentry>
+      </variablelist>
+     </para>
+     <para>
+      After the second regular result set, one or more CopyResponse results
+      will be sent, one for PGDATA and one for each additional tablespace other
+      than <literal>pg_default</> and <literal>pg_global</>. The data in
+      the CopyResponse results will be a tar format (using ustar00
+      extensions) dump of the tablespace contents. After the tar data is
+      complete, a final ordinary result set will be sent.
+     </para>
+
+     <para>
+      The tar archive for the data directory and each tablespace will contain
+      all files in the directories, regardless of whether they are
+      <productname>PostgreSQL</> files or other files added to the same
+      directory. The only excluded files are:
+      <itemizedlist spacing="compact" mark="bullet">
+       <listitem>
+        <para>
+         <filename>postmaster.pid</>
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         <filename>pg_xlog</>, including subdirectories. If the backup is run
+         with wal files included, a synthesized version of pg_xlog will be
+         included, but it will only contain the files necessary for the
+         backup to work, not the rest of the contents.
+        </para>
+       </listitem>
+      </itemizedlist>
+      Owner, group and file mode are set if the underlying filesystem on
+      the server supports it.
+     </para>
+     <para>
+      Once all tablespaces have been sent, a final regular result set will
+      be sent. This result set contains the end position of the
+      backup, given in XLogRecPtr format as a single column in a single row.
      </para>
     </listitem>
   </varlistentry>
@@ -2637,6 +2953,79 @@ CopyOutResponse (B)
 <para>
                 Identifies the message as a Start Copy Out response.
                 This message will be followed by copy-out data.
+</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>
+        Int32
+</term>
+<listitem>
+<para>
+                Length of message contents in bytes, including self.
+</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>
+        Int8
+</term>
+<listitem>
+<para>
+                0 indicates the overall <command>COPY</command> format
+                is textual (rows separated by newlines, columns
+                separated by separator characters, etc). 1 indicates
+                the overall copy format is binary (similar to DataRow
+                format). See <xref linkend="sql-copy"> for more information.
+</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>
+        Int16
+</term>
+<listitem>
+<para>
+                The number of columns in the data to be copied
+                (denoted <replaceable>N</> below).
+</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>
+        Int16[<replaceable>N</>]
+</term>
+<listitem>
+<para>
+                The format codes to be used for each column.
+                Each must presently be zero (text) or one (binary).
+                All must be zero if the overall copy format is textual.
+</para>
+</listitem>
+</varlistentry>
+</variablelist>
+
+</para>
+</listitem>
+</varlistentry>
+
+
+<varlistentry>
+<term>
+CopyBothResponse (B)
+</term>
+<listitem>
+<para>
+
+<variablelist>
+<varlistentry>
+<term>
+        Byte1('W')
+</term>
+<listitem>
+<para>
+                Identifies the message as a Start Copy Both response.
+                This message is used only for Streaming Replication.
 </para>
 </listitem>
 </varlistentry>

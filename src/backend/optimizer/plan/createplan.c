@@ -5,12 +5,12 @@
  *	  Planning is complete, we just need to convert the selected
  *	  Path into a Plan.
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/optimizer/plan/createplan.c,v 1.275 2010/05/25 17:44:41 tgl Exp $
+ *	  src/backend/optimizer/plan/createplan.c
  *
  *-------------------------------------------------------------------------
  */
@@ -20,14 +20,18 @@
 #include <math.h>
 
 #include "access/skey.h"
+#include "foreign/fdwapi.h"
+#include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "optimizer/clauses.h"
 #include "optimizer/cost.h"
+#include "optimizer/paths.h"
 #include "optimizer/plancat.h"
 #include "optimizer/planmain.h"
 #include "optimizer/predtest.h"
 #include "optimizer/restrictinfo.h"
+#include "optimizer/subselect.h"
 #include "optimizer/tlist.h"
 #include "optimizer/var.h"
 #include "parser/parse_clause.h"
@@ -46,6 +50,7 @@
 #include "utils/lsyscache.h"
 
 
+static Plan *create_plan_recurse(PlannerInfo *root, Path *best_path);
 static Plan *create_scan_plan(PlannerInfo *root, Path *best_path);
 static List *build_relation_tlist(RelOptInfo *rel);
 static bool use_physical_tlist(PlannerInfo *root, RelOptInfo *rel);
@@ -53,6 +58,7 @@ static void disuse_physical_tlist(Plan *plan, Path *path);
 static Plan *create_gating_plan(PlannerInfo *root, Plan *plan, List *quals);
 static Plan *create_join_plan(PlannerInfo *root, JoinPath *best_path);
 static Plan *create_append_plan(PlannerInfo *root, AppendPath *best_path);
+static Plan *create_merge_append_plan(PlannerInfo *root, MergeAppendPath *best_path);
 static Result *create_result_plan(PlannerInfo *root, ResultPath *best_path);
 static Material *create_material_plan(PlannerInfo *root, MaterialPath *best_path);
 static Plan *create_unique_plan(PlannerInfo *root, UniquePath *best_path);
@@ -93,13 +99,21 @@ static void pgxc_locate_grouping_columns(PlannerInfo *root, List *tlist,
 static List *pgxc_process_grouping_targetlist(PlannerInfo *root,
 												List **local_tlist);
 #endif
+static ForeignScan *create_foreignscan_plan(PlannerInfo *root, ForeignPath *best_path,
+						List *tlist, List *scan_clauses);
 static NestLoop *create_nestloop_plan(PlannerInfo *root, NestPath *best_path,
 					 Plan *outer_plan, Plan *inner_plan);
 static MergeJoin *create_mergejoin_plan(PlannerInfo *root, MergePath *best_path,
 					  Plan *outer_plan, Plan *inner_plan);
 static HashJoin *create_hashjoin_plan(PlannerInfo *root, HashPath *best_path,
 					 Plan *outer_plan, Plan *inner_plan);
-static List *fix_indexqual_references(List *indexquals, IndexPath *index_path);
+static Node *replace_nestloop_params(PlannerInfo *root, Node *expr);
+static Node *replace_nestloop_params_mutator(Node *node, PlannerInfo *root);
+static List *fix_indexqual_references(PlannerInfo *root, IndexPath *index_path,
+						 List *indexquals);
+static List *fix_indexorderby_references(PlannerInfo *root, IndexPath *index_path,
+							List *indexorderbys);
+static Node *fix_indexqual_operand(Node *node, IndexOptInfo *index);
 static List *get_switched_clauses(List *clauses, Relids outerrelids);
 static List *order_qual_clauses(PlannerInfo *root, List *clauses);
 static void copy_path_costsize(Plan *dest, Path *src);
@@ -107,6 +121,7 @@ static void copy_plan_costsize(Plan *dest, Plan *src);
 static SeqScan *make_seqscan(List *qptlist, List *qpqual, Index scanrelid);
 static IndexScan *make_indexscan(List *qptlist, List *qpqual, Index scanrelid,
 			   Oid indexid, List *indexqual, List *indexqualorig,
+			   List *indexorderby, List *indexorderbyorig,
 			   ScanDirection indexscandir);
 static BitmapIndexScan *make_bitmap_indexscan(Index scanrelid, Oid indexid,
 					  List *indexqual,
@@ -120,7 +135,8 @@ static TidScan *make_tidscan(List *qptlist, List *qpqual, Index scanrelid,
 			 List *tidquals);
 static FunctionScan *make_functionscan(List *qptlist, List *qpqual,
 				  Index scanrelid, Node *funcexpr, List *funccolnames,
-				  List *funccoltypes, List *funccoltypmods);
+				  List *funccoltypes, List *funccoltypmods,
+				  List *funccolcollations);
 static ValuesScan *make_valuesscan(List *qptlist, List *qpqual,
 				Index scanrelid, List *values_lists);
 static CteScan *make_ctescan(List *qptlist, List *qpqual,
@@ -131,10 +147,12 @@ static WorkTableScan *make_worktablescan(List *qptlist, List *qpqual,
 static RemoteQuery *make_remotequery(List *qptlist, RangeTblEntry *rte,
 				   List *qpqual, Index scanrelid);
 #endif
+static ForeignScan *make_foreignscan(List *qptlist, List *qpqual,
+				 Index scanrelid, bool fsSystemCol, FdwPlan *fdwplan);
 static BitmapAnd *make_bitmap_and(List *bitmapplans);
 static BitmapOr *make_bitmap_or(List *bitmapplans);
 static NestLoop *make_nestloop(List *tlist,
-			  List *joinclauses, List *otherclauses,
+			  List *joinclauses, List *otherclauses, List *nestParams,
 			  Plan *lefttree, Plan *righttree,
 			  JoinType jointype);
 static HashJoin *make_hashjoin(List *tlist,
@@ -152,13 +170,23 @@ static MergeJoin *make_mergejoin(List *tlist,
 			   List *joinclauses, List *otherclauses,
 			   List *mergeclauses,
 			   Oid *mergefamilies,
+			   Oid *mergecollations,
 			   int *mergestrategies,
 			   bool *mergenullsfirst,
 			   Plan *lefttree, Plan *righttree,
 			   JoinType jointype);
 static Sort *make_sort(PlannerInfo *root, Plan *lefttree, int numCols,
-		  AttrNumber *sortColIdx, Oid *sortOperators, bool *nullsFirst,
+		  AttrNumber *sortColIdx, Oid *sortOperators,
+		  Oid *collations, bool *nullsFirst,
 		  double limit_tuples);
+static Plan *prepare_sort_from_pathkeys(PlannerInfo *root,
+						   Plan *lefttree, List *pathkeys,
+						   bool adjust_tlist_in_place,
+						   int *p_numsortkeys,
+						   AttrNumber **p_sortColIdx,
+						   Oid **p_sortOperators,
+						   Oid **p_collations,
+						   bool **p_nullsFirst);
 static Material *make_material(Plan *lefttree);
 
 #ifdef PGXC
@@ -172,8 +200,8 @@ static void create_remote_expr(PlannerInfo *root, Plan *parent, StringInfo expr,
 
 /*
  * create_plan
- *	  Creates the access plan for a query by tracing backwards through the
- *	  desired chain of pathnodes, starting at the node 'best_path'.  For
+ *	  Creates the access plan for a query by recursively processing the
+ *	  desired tree of pathnodes, starting at the node 'best_path'.	For
  *	  every pathnode found, we create a corresponding plan node containing
  *	  appropriate id, target list, and qualification information.
  *
@@ -190,6 +218,29 @@ create_plan(PlannerInfo *root, Path *best_path)
 {
 	Plan	   *plan;
 
+	/* Initialize this module's private workspace in PlannerInfo */
+	root->curOuterRels = NULL;
+	root->curOuterParams = NIL;
+
+	/* Recursively process the path tree */
+	plan = create_plan_recurse(root, best_path);
+
+	/* Check we successfully assigned all NestLoopParams to plan nodes */
+	if (root->curOuterParams != NIL)
+		elog(ERROR, "failed to assign all NestLoopParams to plan nodes");
+
+	return plan;
+}
+
+/*
+ * create_plan_recurse
+ *	  Recursive guts of create_plan().
+ */
+static Plan *
+create_plan_recurse(PlannerInfo *root, Path *best_path)
+{
+	Plan	   *plan;
+
 	switch (best_path->pathtype)
 	{
 		case T_SeqScan:
@@ -201,6 +252,7 @@ create_plan(PlannerInfo *root, Path *best_path)
 		case T_ValuesScan:
 		case T_CteScan:
 		case T_WorkTableScan:
+		case T_ForeignScan:
 #ifdef PGXC
 		case T_RemoteQuery:
 #endif
@@ -215,6 +267,10 @@ create_plan(PlannerInfo *root, Path *best_path)
 		case T_Append:
 			plan = create_append_plan(root,
 									  (AppendPath *) best_path);
+			break;
+		case T_MergeAppend:
+			plan = create_merge_append_plan(root,
+											(MergeAppendPath *) best_path);
 			break;
 		case T_Result:
 			plan = (Plan *) create_result_plan(root,
@@ -348,6 +404,14 @@ create_scan_plan(PlannerInfo *root, Path *best_path)
 													  scan_clauses);
 			break;
 #endif
+
+		case T_ForeignScan:
+			plan = (Plan *) create_foreignscan_plan(root,
+													(ForeignPath *) best_path,
+													tlist,
+													scan_clauses);
+			break;
+
 		default:
 			elog(ERROR, "unrecognized node type: %d",
 				 (int) best_path->pathtype);
@@ -470,6 +534,7 @@ disuse_physical_tlist(Plan *plan, Path *path)
 		case T_ValuesScan:
 		case T_CteScan:
 		case T_WorkTableScan:
+		case T_ForeignScan:
 			plan->targetlist = build_relation_tlist(path->parent);
 			break;
 		default:
@@ -527,9 +592,16 @@ create_join_plan(PlannerInfo *root, JoinPath *best_path)
 	Plan	   *outer_plan;
 	Plan	   *inner_plan;
 	Plan	   *plan;
+	Relids		saveOuterRels = root->curOuterRels;
 
-	outer_plan = create_plan(root, best_path->outerjoinpath);
-	inner_plan = create_plan(root, best_path->innerjoinpath);
+	outer_plan = create_plan_recurse(root, best_path->outerjoinpath);
+
+	/* For a nestloop, include outer relids in curOuterRels for inner side */
+	if (best_path->path.pathtype == T_NestLoop)
+		root->curOuterRels = bms_union(root->curOuterRels,
+								   best_path->outerjoinpath->parent->relids);
+
+	inner_plan = create_plan_recurse(root, best_path->innerjoinpath);
 
 	switch (best_path->path.pathtype)
 	{
@@ -546,6 +618,10 @@ create_join_plan(PlannerInfo *root, JoinPath *best_path)
 												 inner_plan);
 			break;
 		case T_NestLoop:
+			/* Restore curOuterRels */
+			bms_free(root->curOuterRels);
+			root->curOuterRels = saveOuterRels;
+
 			plan = (Plan *) create_nestloop_plan(root,
 												 (NestPath *) best_path,
 												 outer_plan,
@@ -1186,10 +1262,9 @@ create_remote_expr(PlannerInfo *root, Plan *parent, StringInfo expr,
 	bms_free(tmprelids);
 
 	/* Set up deparsing context */
-	context = deparse_context_for_plan((Node *) parent,
+	context = deparse_context_for_planstate((Node *) parent,
 			NULL,
-			root->parse->rtable,
-			NULL);
+			root->parse->rtable);
 
 	exprstr = deparse_expression(node, context, true, false);
 
@@ -1254,12 +1329,109 @@ create_append_plan(PlannerInfo *root, AppendPath *best_path)
 	{
 		Path	   *subpath = (Path *) lfirst(subpaths);
 
-		subplans = lappend(subplans, create_plan(root, subpath));
+		subplans = lappend(subplans, create_plan_recurse(root, subpath));
 	}
 
 	plan = make_append(subplans, tlist);
 
 	return (Plan *) plan;
+}
+
+/*
+ * create_merge_append_plan
+ *	  Create a MergeAppend plan for 'best_path' and (recursively) plans
+ *	  for its subpaths.
+ *
+ *	  Returns a Plan node.
+ */
+static Plan *
+create_merge_append_plan(PlannerInfo *root, MergeAppendPath *best_path)
+{
+	MergeAppend *node = makeNode(MergeAppend);
+	Plan	   *plan = &node->plan;
+	List	   *tlist = build_relation_tlist(best_path->path.parent);
+	List	   *pathkeys = best_path->path.pathkeys;
+	List	   *subplans = NIL;
+	ListCell   *subpaths;
+
+	/*
+	 * We don't have the actual creation of the MergeAppend node split out
+	 * into a separate make_xxx function.  This is because we want to run
+	 * prepare_sort_from_pathkeys on it before we do so on the individual
+	 * child plans, to make cross-checking the sort info easier.
+	 */
+	copy_path_costsize(plan, (Path *) best_path);
+	plan->targetlist = tlist;
+	plan->qual = NIL;
+	plan->lefttree = NULL;
+	plan->righttree = NULL;
+
+	/* Compute sort column info, and adjust MergeAppend's tlist as needed */
+	(void) prepare_sort_from_pathkeys(root, plan, pathkeys,
+									  true,
+									  &node->numCols,
+									  &node->sortColIdx,
+									  &node->sortOperators,
+									  &node->collations,
+									  &node->nullsFirst);
+
+	/*
+	 * Now prepare the child plans.  We must apply prepare_sort_from_pathkeys
+	 * even to subplans that don't need an explicit sort, to make sure they
+	 * are returning the same sort key columns the MergeAppend expects.
+	 */
+	foreach(subpaths, best_path->subpaths)
+	{
+		Path	   *subpath = (Path *) lfirst(subpaths);
+		Plan	   *subplan;
+		int			numsortkeys;
+		AttrNumber *sortColIdx;
+		Oid		   *sortOperators;
+		Oid		   *collations;
+		bool	   *nullsFirst;
+
+		/* Build the child plan */
+		subplan = create_plan_recurse(root, subpath);
+
+		/* Compute sort column info, and adjust subplan's tlist as needed */
+		subplan = prepare_sort_from_pathkeys(root, subplan, pathkeys,
+											 false,
+											 &numsortkeys,
+											 &sortColIdx,
+											 &sortOperators,
+											 &collations,
+											 &nullsFirst);
+
+		/*
+		 * Check that we got the same sort key information.  We just Assert
+		 * that the sortops match, since those depend only on the pathkeys;
+		 * but it seems like a good idea to check the sort column numbers
+		 * explicitly, to ensure the tlists really do match up.
+		 */
+		Assert(numsortkeys == node->numCols);
+		if (memcmp(sortColIdx, node->sortColIdx,
+				   numsortkeys * sizeof(AttrNumber)) != 0)
+			elog(ERROR, "MergeAppend child's targetlist doesn't match MergeAppend");
+		Assert(memcmp(sortOperators, node->sortOperators,
+					  numsortkeys * sizeof(Oid)) == 0);
+		Assert(memcmp(collations, node->collations,
+					  numsortkeys * sizeof(Oid)) == 0);
+		Assert(memcmp(nullsFirst, node->nullsFirst,
+					  numsortkeys * sizeof(bool)) == 0);
+
+		/* Now, insert a Sort node if subplan isn't sufficiently ordered */
+		if (!pathkeys_contained_in(pathkeys, subpath->pathkeys))
+			subplan = (Plan *) make_sort(root, subplan, numsortkeys,
+										 sortColIdx, sortOperators,
+										 collations, nullsFirst,
+										 best_path->limit_tuples);
+
+		subplans = lappend(subplans, subplan);
+	}
+
+	node->mergeplans = subplans;
+
+	return (Plan *) node;
 }
 
 /*
@@ -1299,7 +1471,7 @@ create_material_plan(PlannerInfo *root, MaterialPath *best_path)
 	Material   *plan;
 	Plan	   *subplan;
 
-	subplan = create_plan(root, best_path->subpath);
+	subplan = create_plan_recurse(root, best_path->subpath);
 
 	/* We don't want any excess columns in the materialized tuples */
 	disuse_physical_tlist(subplan, best_path->subpath);
@@ -1333,7 +1505,7 @@ create_unique_plan(PlannerInfo *root, UniquePath *best_path)
 	int			groupColPos;
 	ListCell   *l;
 
-	subplan = create_plan(root, best_path->subpath);
+	subplan = create_plan_recurse(root, best_path->subpath);
 
 	/* Done if we don't need to do any actual unique-ifying */
 	if (best_path->umethod == UNIQUE_PATH_NOOP)
@@ -1450,11 +1622,11 @@ create_unique_plan(PlannerInfo *root, UniquePath *best_path)
 								 build_relation_tlist(best_path->path.parent),
 								 NIL,
 								 AGG_HASHED,
+								 NULL,
 								 numGroupCols,
 								 groupColIdx,
 								 groupOperators,
 								 numGroups,
-								 0,
 								 subplan);
 	}
 	else
@@ -1497,6 +1669,7 @@ create_unique_plan(PlannerInfo *root, UniquePath *best_path)
 			sortcl->eqop = eqop;
 			sortcl->sortop = sortop;
 			sortcl->nulls_first = false;
+			sortcl->hashable = false;	/* no need to make this accurate */
 			sortList = lappend(sortList, sortcl);
 			groupColPos++;
 		}
@@ -1565,11 +1738,13 @@ create_indexscan_plan(PlannerInfo *root,
 					  List *scan_clauses)
 {
 	List	   *indexquals = best_path->indexquals;
+	List	   *indexorderbys = best_path->indexorderbys;
 	Index		baserelid = best_path->path.parent->relid;
 	Oid			indexoid = best_path->indexinfo->indexoid;
 	List	   *qpqual;
 	List	   *stripped_indexquals;
 	List	   *fixed_indexquals;
+	List	   *fixed_indexorderbys;
 	ListCell   *l;
 	IndexScan  *scan_plan;
 
@@ -1587,7 +1762,12 @@ create_indexscan_plan(PlannerInfo *root,
 	 * The executor needs a copy with the indexkey on the left of each clause
 	 * and with index attr numbers substituted for table ones.
 	 */
-	fixed_indexquals = fix_indexqual_references(indexquals, best_path);
+	fixed_indexquals = fix_indexqual_references(root, best_path, indexquals);
+
+	/*
+	 * Likewise fix up index attr references in the ORDER BY expressions.
+	 */
+	fixed_indexorderbys = fix_indexorderby_references(root, best_path, indexorderbys);
 
 	/*
 	 * If this is an innerjoin scan, the indexclauses will contain join
@@ -1658,6 +1838,25 @@ create_indexscan_plan(PlannerInfo *root,
 	/* Reduce RestrictInfo list to bare expressions; ignore pseudoconstants */
 	qpqual = extract_actual_clauses(qpqual, false);
 
+	/*
+	 * We have to replace any outer-relation variables with nestloop params in
+	 * the indexqualorig, qpqual, and indexorderbyorig expressions.  A bit
+	 * annoying to have to do this separately from the processing in
+	 * fix_indexqual_references --- rethink this when generalizing the inner
+	 * indexscan support.  But note we can't really do this earlier because
+	 * it'd break the comparisons to predicates above ... (or would it?  Those
+	 * wouldn't have outer refs)
+	 */
+	if (best_path->isjoininner)
+	{
+		stripped_indexquals = (List *)
+			replace_nestloop_params(root, (Node *) stripped_indexquals);
+		qpqual = (List *)
+			replace_nestloop_params(root, (Node *) qpqual);
+		indexorderbys = (List *)
+			replace_nestloop_params(root, (Node *) indexorderbys);
+	}
+
 	/* Finally ready to build the plan node */
 	scan_plan = make_indexscan(tlist,
 							   qpqual,
@@ -1665,6 +1864,8 @@ create_indexscan_plan(PlannerInfo *root,
 							   indexoid,
 							   fixed_indexquals,
 							   stripped_indexquals,
+							   fixed_indexorderbys,
+							   indexorderbys,
 							   best_path->indexscandir);
 
 	copy_path_costsize(&scan_plan->scan.plan, &best_path->path);
@@ -1950,6 +2151,18 @@ create_bitmap_subplan(PlannerInfo *root, Path *bitmapqual,
 				*indexqual = lappend(*indexqual, pred);
 			}
 		}
+
+		/*
+		 * Replace outer-relation variables with nestloop params, but only
+		 * after doing the above comparisons to index predicates.
+		 */
+		if (ipath->isjoininner)
+		{
+			*qual = (List *)
+				replace_nestloop_params(root, (Node *) *qual);
+			*indexqual = (List *)
+				replace_nestloop_params(root, (Node *) *indexqual);
+		}
 	}
 	else
 	{
@@ -2064,7 +2277,8 @@ create_functionscan_plan(PlannerInfo *root, Path *best_path,
 								  rte->funcexpr,
 								  rte->eref->colnames,
 								  rte->funccoltypes,
-								  rte->funccoltypmods);
+								  rte->funccoltypmods,
+								  rte->funccolcollations);
 
 	copy_path_costsize(&scan_plan->scan.plan, best_path);
 
@@ -2242,6 +2456,7 @@ create_worktablescan_plan(PlannerInfo *root, Path *best_path,
 	return scan_plan;
 }
 
+
 #ifdef PGXC
 /*
  * create_remotequery_plan
@@ -2270,7 +2485,6 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	bool			first;
 	StringInfoData	sql;
 	RelationLocInfo *rel_loc_info;
-
 
 	Assert(scan_relid > 0);
 	rte = planner_rt_fetch(scan_relid, root);
@@ -2433,6 +2647,55 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 }
 #endif
 
+/*
+ * create_foreignscan_plan
+ *	 Returns a foreignscan plan for the base relation scanned by 'best_path'
+ *	 with restriction clauses 'scan_clauses' and targetlist 'tlist'.
+ */
+static ForeignScan *
+create_foreignscan_plan(PlannerInfo *root, ForeignPath *best_path,
+						List *tlist, List *scan_clauses)
+{
+	ForeignScan *scan_plan;
+	RelOptInfo *rel = best_path->path.parent;
+	Index		scan_relid = rel->relid;
+	RangeTblEntry *rte;
+	bool		fsSystemCol;
+	int			i;
+
+	/* it should be a base rel... */
+	Assert(scan_relid > 0);
+	Assert(rel->rtekind == RTE_RELATION);
+	rte = planner_rt_fetch(scan_relid, root);
+	Assert(rte->rtekind == RTE_RELATION);
+
+	/* Sort clauses into best execution order */
+	scan_clauses = order_qual_clauses(root, scan_clauses);
+
+	/* Reduce RestrictInfo list to bare expressions; ignore pseudoconstants */
+	scan_clauses = extract_actual_clauses(scan_clauses, false);
+
+	/* Detect whether any system columns are requested from rel */
+	fsSystemCol = false;
+	for (i = rel->min_attr; i < 0; i++)
+	{
+		if (!bms_is_empty(rel->attr_needed[i - rel->min_attr]))
+		{
+			fsSystemCol = true;
+			break;
+		}
+	}
+
+	scan_plan = make_foreignscan(tlist,
+								 scan_clauses,
+								 scan_relid,
+								 fsSystemCol,
+								 best_path->fdwplan);
+
+	copy_path_costsize(&scan_plan->scan.plan, &best_path->path);
+
+	return scan_plan;
+}
 
 /*****************************************************************************
  *
@@ -2446,11 +2709,16 @@ create_nestloop_plan(PlannerInfo *root,
 					 Plan *outer_plan,
 					 Plan *inner_plan)
 {
-	List	   *tlist = build_relation_tlist(best_path->path.parent);
-	List	   *joinrestrictclauses = best_path->joinrestrictinfo;
-	List	   *joinclauses;
-	List	   *otherclauses;
-	NestLoop   *join_plan;
+    NestLoop   *join_plan;
+    List       *tlist = build_relation_tlist(best_path->path.parent);
+    List       *joinrestrictclauses = best_path->joinrestrictinfo;
+    List       *joinclauses;
+    List       *otherclauses;
+    Relids      outerrelids;
+    List       *nestParams;
+    ListCell   *cell;
+    ListCell   *prev;
+    ListCell   *next;
 
 	/*
 	 * If the inner path is a nestloop inner indexscan, it might be using some
@@ -2479,9 +2747,32 @@ create_nestloop_plan(PlannerInfo *root,
 		otherclauses = NIL;
 	}
 
+	/*
+	 * Identify any nestloop parameters that should be supplied by this join
+	 * node, and move them from root->curOuterParams to the nestParams list.
+	 */
+	outerrelids = best_path->outerjoinpath->parent->relids;
+	nestParams = NIL;
+	prev = NULL;
+	for (cell = list_head(root->curOuterParams); cell; cell = next)
+	{
+		NestLoopParam *nlp = (NestLoopParam *) lfirst(cell);
+
+		next = lnext(cell);
+		if (bms_is_member(nlp->paramval->varno, outerrelids))
+		{
+			root->curOuterParams = list_delete_cell(root->curOuterParams,
+													cell, prev);
+			nestParams = lappend(nestParams, nlp);
+		}
+		else
+			prev = cell;
+	}
+
 	join_plan = make_nestloop(tlist,
 							  joinclauses,
 							  otherclauses,
+							  nestParams,
 							  outer_plan,
 							  inner_plan,
 							  best_path->jointype);
@@ -2505,6 +2796,7 @@ create_mergejoin_plan(PlannerInfo *root,
 	List	   *innerpathkeys;
 	int			nClauses;
 	Oid		   *mergefamilies;
+	Oid		   *mergecollations;
 	int		   *mergestrategies;
 	bool	   *mergenullsfirst;
 	MergeJoin  *join_plan;
@@ -2596,14 +2888,15 @@ create_mergejoin_plan(PlannerInfo *root,
 	}
 
 	/*
-	 * Compute the opfamily/strategy/nullsfirst arrays needed by the executor.
-	 * The information is in the pathkeys for the two inputs, but we need to
-	 * be careful about the possibility of mergeclauses sharing a pathkey
-	 * (compare find_mergeclauses_for_pathkeys()).
+	 * Compute the opfamily/collation/strategy/nullsfirst arrays needed by the
+	 * executor.  The information is in the pathkeys for the two inputs, but
+	 * we need to be careful about the possibility of mergeclauses sharing a
+	 * pathkey (compare find_mergeclauses_for_pathkeys()).
 	 */
 	nClauses = list_length(mergeclauses);
 	Assert(nClauses == list_length(best_path->path_mergeclauses));
 	mergefamilies = (Oid *) palloc(nClauses * sizeof(Oid));
+	mergecollations = (Oid *) palloc(nClauses * sizeof(Oid));
 	mergestrategies = (int *) palloc(nClauses * sizeof(int));
 	mergenullsfirst = (bool *) palloc(nClauses * sizeof(bool));
 
@@ -2732,12 +3025,14 @@ create_mergejoin_plan(PlannerInfo *root,
 
 		/* pathkeys should match each other too (more debugging) */
 		if (opathkey->pk_opfamily != ipathkey->pk_opfamily ||
+			opathkey->pk_eclass->ec_collation != ipathkey->pk_eclass->ec_collation ||
 			opathkey->pk_strategy != ipathkey->pk_strategy ||
 			opathkey->pk_nulls_first != ipathkey->pk_nulls_first)
 			elog(ERROR, "left and right pathkeys do not match in mergejoin");
 
 		/* OK, save info for executor */
 		mergefamilies[i] = opathkey->pk_opfamily;
+		mergecollations[i] = opathkey->pk_eclass->ec_collation;
 		mergestrategies[i] = opathkey->pk_strategy;
 		mergenullsfirst[i] = opathkey->pk_nulls_first;
 		i++;
@@ -2757,6 +3052,7 @@ create_mergejoin_plan(PlannerInfo *root,
 							   otherclauses,
 							   mergeclauses,
 							   mergefamilies,
+							   mergecollations,
 							   mergestrategies,
 							   mergenullsfirst,
 							   outer_plan,
@@ -2890,12 +3186,72 @@ create_hashjoin_plan(PlannerInfo *root,
  *****************************************************************************/
 
 /*
+ * replace_nestloop_params
+ *	  Replace outer-relation Vars in the given expression with nestloop Params
+ *
+ * All Vars belonging to the relation(s) identified by root->curOuterRels
+ * are replaced by Params, and entries are added to root->curOuterParams if
+ * not already present.
+ */
+static Node *
+replace_nestloop_params(PlannerInfo *root, Node *expr)
+{
+	/* No setup needed for tree walk, so away we go */
+	return replace_nestloop_params_mutator(expr, root);
+}
+
+static Node *
+replace_nestloop_params_mutator(Node *node, PlannerInfo *root)
+{
+	if (node == NULL)
+		return NULL;
+	if (IsA(node, Var))
+	{
+		Var		   *var = (Var *) node;
+		Param	   *param;
+		NestLoopParam *nlp;
+		ListCell   *lc;
+
+		/* Upper-level Vars should be long gone at this point */
+		Assert(var->varlevelsup == 0);
+		/* If not to be replaced, we can just return the Var unmodified */
+		if (!bms_is_member(var->varno, root->curOuterRels))
+			return node;
+		/* Create a Param representing the Var */
+		param = assign_nestloop_param(root, var);
+		/* Is this param already listed in root->curOuterParams? */
+		foreach(lc, root->curOuterParams)
+		{
+			nlp = (NestLoopParam *) lfirst(lc);
+			if (nlp->paramno == param->paramid)
+			{
+				Assert(equal(var, nlp->paramval));
+				/* Present, so we can just return the Param */
+				return (Node *) param;
+			}
+		}
+		/* No, so add it */
+		nlp = makeNode(NestLoopParam);
+		nlp->paramno = param->paramid;
+		nlp->paramval = var;
+		root->curOuterParams = lappend(root->curOuterParams, nlp);
+		/* And return the replacement Param */
+		return (Node *) param;
+	}
+	return expression_tree_mutator(node,
+								   replace_nestloop_params_mutator,
+								   (void *) root);
+}
+
+/*
  * fix_indexqual_references
  *	  Adjust indexqual clauses to the form the executor's indexqual
  *	  machinery needs.
  *
- * We have three tasks here:
+ * We have four tasks here:
  *	* Remove RestrictInfo nodes from the input clauses.
+ *	* Replace any outer-relation Var nodes with nestloop Params.
+ *	  (XXX eventually, that responsibility should go elsewhere?)
  *	* Index keys must be represented by Var nodes with varattno set to the
  *	  index's attribute number, not the attribute number in the original rel.
  *	* If the index key is on the right, commute the clause to put it on the
@@ -2907,7 +3263,8 @@ create_hashjoin_plan(PlannerInfo *root,
  * two separate copies of the subplan tree, or things will go awry).
  */
 static List *
-fix_indexqual_references(List *indexquals, IndexPath *index_path)
+fix_indexqual_references(PlannerInfo *root, IndexPath *index_path,
+						 List *indexquals)
 {
 	IndexOptInfo *index = index_path->indexinfo;
 	List	   *fixed_indexquals;
@@ -2915,26 +3272,20 @@ fix_indexqual_references(List *indexquals, IndexPath *index_path)
 
 	fixed_indexquals = NIL;
 
-	/*
-	 * For each qual clause, commute if needed to put the indexkey operand on
-	 * the left, and then fix its varattno.  (We do not need to change the
-	 * other side of the clause.)
-	 */
 	foreach(l, indexquals)
 	{
 		RestrictInfo *rinfo = (RestrictInfo *) lfirst(l);
-		Expr	   *clause;
+		Node	   *clause;
 
 		Assert(IsA(rinfo, RestrictInfo));
 
 		/*
-		 * Make a copy that will become the fixed clause.
+		 * Replace any outer-relation variables with nestloop params.
 		 *
-		 * We used to try to do a shallow copy here, but that fails if there
-		 * is a subplan in the arguments of the opclause.  So just do a full
-		 * copy.
+		 * This also makes a copy of the clause, so it's safe to modify it
+		 * in-place below.
 		 */
-		clause = (Expr *) copyObject((Node *) rinfo->clause);
+		clause = replace_nestloop_params(root, (Node *) rinfo->clause);
 
 		if (IsA(clause, OpExpr))
 		{
@@ -3013,12 +3364,67 @@ fix_indexqual_references(List *indexquals, IndexPath *index_path)
 }
 
 /*
+ * fix_indexorderby_references
+ *	  Adjust indexorderby clauses to the form the executor's index
+ *	  machinery needs.
+ *
+ * This is a simplified version of fix_indexqual_references.  The input does
+ * not have RestrictInfo nodes, and we assume that indxqual.c already
+ * commuted the clauses to put the index keys on the left.	Also, we don't
+ * bother to support any cases except simple OpExprs, since nothing else
+ * is allowed for ordering operators.
+ */
+static List *
+fix_indexorderby_references(PlannerInfo *root, IndexPath *index_path,
+							List *indexorderbys)
+{
+	IndexOptInfo *index = index_path->indexinfo;
+	List	   *fixed_indexorderbys;
+	ListCell   *l;
+
+	fixed_indexorderbys = NIL;
+
+	foreach(l, indexorderbys)
+	{
+		Node	   *clause = (Node *) lfirst(l);
+
+		/*
+		 * Replace any outer-relation variables with nestloop params.
+		 *
+		 * This also makes a copy of the clause, so it's safe to modify it
+		 * in-place below.
+		 */
+		clause = replace_nestloop_params(root, clause);
+
+		if (IsA(clause, OpExpr))
+		{
+			OpExpr	   *op = (OpExpr *) clause;
+
+			if (list_length(op->args) != 2)
+				elog(ERROR, "indexorderby clause is not binary opclause");
+
+			/*
+			 * Now, determine which index attribute this is and change the
+			 * indexkey operand as needed.
+			 */
+			linitial(op->args) = fix_indexqual_operand(linitial(op->args),
+													   index);
+		}
+		else
+			elog(ERROR, "unsupported indexorderby type: %d",
+				 (int) nodeTag(clause));
+
+		fixed_indexorderbys = lappend(fixed_indexorderbys, clause);
+	}
+
+	return fixed_indexorderbys;
+}
+
+/*
  * fix_indexqual_operand
  *	  Convert an indexqual expression to a Var referencing the index column.
- *
- * This is exported because planagg.c needs it.
  */
-Node *
+static Node *
 fix_indexqual_operand(Node *node, IndexOptInfo *index)
 {
 	/*
@@ -3076,6 +3482,7 @@ fix_indexqual_operand(Node *node, IndexOptInfo *index)
 				/* Found a match */
 				result = makeVar(index->rel->relid, pos + 1,
 								 exprType(lfirst(indexpr_item)), -1,
+								 exprCollation(lfirst(indexpr_item)),
 								 0);
 				return (Node *) result;
 			}
@@ -3122,6 +3529,8 @@ get_switched_clauses(List *clauses, Relids outerrelids)
 			temp->opfuncid = InvalidOid;
 			temp->opresulttype = clause->opresulttype;
 			temp->opretset = clause->opretset;
+			temp->opcollid = clause->opcollid;
+			temp->inputcollid = clause->inputcollid;
 			temp->args = list_copy(clause->args);
 			temp->location = clause->location;
 			/* Commute it --- note this modifies the temp node in-place. */
@@ -3226,7 +3635,7 @@ order_qual_clauses(PlannerInfo *root, List *clauses)
 
 /*
  * Copy cost and size info from a Path node to the Plan node created from it.
- * The executor won't use this info, but it's needed by EXPLAIN.
+ * The executor usually won't use this info, but it's needed by EXPLAIN.
  */
 static void
 copy_path_costsize(Plan *dest, Path *src)
@@ -3249,9 +3658,7 @@ copy_path_costsize(Plan *dest, Path *src)
 
 /*
  * Copy cost and size info from a lower plan node to an inserted node.
- * This is not critical, since the decisions have already been made,
- * but it helps produce more reasonable-looking EXPLAIN output.
- * (Some callers alter the info after copying it.)
+ * (Most callers alter the info after copying it.)
  */
 static void
 copy_plan_costsize(Plan *dest, Plan *src)
@@ -3307,6 +3714,8 @@ make_indexscan(List *qptlist,
 			   Oid indexid,
 			   List *indexqual,
 			   List *indexqualorig,
+			   List *indexorderby,
+			   List *indexorderbyorig,
 			   ScanDirection indexscandir)
 {
 	IndexScan  *node = makeNode(IndexScan);
@@ -3321,6 +3730,8 @@ make_indexscan(List *qptlist,
 	node->indexid = indexid;
 	node->indexqual = indexqual;
 	node->indexqualorig = indexqualorig;
+	node->indexorderby = indexorderby;
+	node->indexorderbyorig = indexorderbyorig;
 	node->indexorderdir = indexscandir;
 
 	return node;
@@ -3427,7 +3838,8 @@ make_functionscan(List *qptlist,
 				  Node *funcexpr,
 				  List *funccolnames,
 				  List *funccoltypes,
-				  List *funccoltypmods)
+				  List *funccoltypmods,
+				  List *funccolcollations)
 {
 	FunctionScan *node = makeNode(FunctionScan);
 	Plan	   *plan = &node->scan.plan;
@@ -3442,6 +3854,7 @@ make_functionscan(List *qptlist,
 	node->funccolnames = funccolnames;
 	node->funccoltypes = funccoltypes;
 	node->funccoltypmods = funccoltypmods;
+	node->funccolcollations = funccolcollations;
 
 	return node;
 }
@@ -3508,6 +3921,7 @@ make_worktablescan(List *qptlist,
 	return node;
 }
 
+
 #ifdef PGXC
 static RemoteQuery *
 make_remotequery(List *qptlist,
@@ -3530,6 +3944,30 @@ make_remotequery(List *qptlist,
 }
 #endif
 
+static ForeignScan *
+make_foreignscan(List *qptlist,
+				 List *qpqual,
+				 Index scanrelid,
+				 bool fsSystemCol,
+				 FdwPlan *fdwplan)
+{
+	ForeignScan *node = makeNode(ForeignScan);
+
+	Plan	   *plan = &node->scan.plan;
+
+	/* cost should be inserted by caller */
+	plan->targetlist = qptlist;
+	plan->qual = qpqual;
+	plan->lefttree = NULL;
+	plan->righttree = NULL;
+	node->scan.scanrelid = scanrelid;
+	node->fsSystemCol = fsSystemCol;
+	node->fdwplan = fdwplan;
+
+	return node;
+}
+
+
 Append *
 make_append(List *appendplans, List *tlist)
 {
@@ -3542,6 +3980,12 @@ make_append(List *appendplans, List *tlist)
 	 * Compute cost as sum of subplan costs.  We charge nothing extra for the
 	 * Append itself, which perhaps is too optimistic, but since it doesn't do
 	 * any selection or projection, it is a pretty cheap node.
+	 *
+	 * If you change this, see also create_append_path().  Also, the size
+	 * calculations should match set_append_rel_pathlist().  It'd be better
+	 * not to duplicate all this logic, but some callers of this function
+	 * aren't working from an appendrel or AppendPath, so there's noplace to
+	 * copy the data from.
 	 */
 	plan->startup_cost = 0;
 	plan->total_cost = 0;
@@ -3661,6 +4105,7 @@ static NestLoop *
 make_nestloop(List *tlist,
 			  List *joinclauses,
 			  List *otherclauses,
+			  List *nestParams,
 			  Plan *lefttree,
 			  Plan *righttree,
 			  JoinType jointype)
@@ -3675,6 +4120,7 @@ make_nestloop(List *tlist,
 	plan->righttree = righttree;
 	node->join.jointype = jointype;
 	node->join.joinqual = joinclauses;
+	node->nestParams = nestParams;
 
 	return node;
 }
@@ -3741,6 +4187,7 @@ make_mergejoin(List *tlist,
 			   List *otherclauses,
 			   List *mergeclauses,
 			   Oid *mergefamilies,
+			   Oid *mergecollations,
 			   int *mergestrategies,
 			   bool *mergenullsfirst,
 			   Plan *lefttree,
@@ -3757,6 +4204,7 @@ make_mergejoin(List *tlist,
 	plan->righttree = righttree;
 	node->mergeclauses = mergeclauses;
 	node->mergeFamilies = mergefamilies;
+	node->mergeCollations = mergecollations;
 	node->mergeStrategies = mergestrategies;
 	node->mergeNullsFirst = mergenullsfirst;
 	node->join.jointype = jointype;
@@ -3768,13 +4216,14 @@ make_mergejoin(List *tlist,
 /*
  * make_sort --- basic routine to build a Sort plan node
  *
- * Caller must have built the sortColIdx, sortOperators, and nullsFirst
- * arrays already.	limit_tuples is as for cost_sort (in particular, pass
- * -1 if no limit)
+ * Caller must have built the sortColIdx, sortOperators, collations, and
+ * nullsFirst arrays already.
+ * limit_tuples is as for cost_sort (in particular, pass -1 if no limit)
  */
 static Sort *
 make_sort(PlannerInfo *root, Plan *lefttree, int numCols,
-		  AttrNumber *sortColIdx, Oid *sortOperators, bool *nullsFirst,
+		  AttrNumber *sortColIdx, Oid *sortOperators,
+		  Oid *collations, bool *nullsFirst,
 		  double limit_tuples)
 {
 	Sort	   *node = makeNode(Sort);
@@ -3786,6 +4235,8 @@ make_sort(PlannerInfo *root, Plan *lefttree, int numCols,
 			  lefttree->total_cost,
 			  lefttree->plan_rows,
 			  lefttree->plan_width,
+			  0.0,
+			  work_mem,
 			  limit_tuples);
 	plan->startup_cost = sort_path.startup_cost;
 	plan->total_cost = sort_path.total_cost;
@@ -3796,6 +4247,7 @@ make_sort(PlannerInfo *root, Plan *lefttree, int numCols,
 	node->numCols = numCols;
 	node->sortColIdx = sortColIdx;
 	node->sortOperators = sortOperators;
+	node->collations = collations;
 	node->nullsFirst = nullsFirst;
 
 	return node;
@@ -3811,9 +4263,9 @@ make_sort(PlannerInfo *root, Plan *lefttree, int numCols,
  * max possible number of columns.	Return value is the new column count.
  */
 static int
-add_sort_column(AttrNumber colIdx, Oid sortOp, bool nulls_first,
+add_sort_column(AttrNumber colIdx, Oid sortOp, Oid coll, bool nulls_first,
 				int numCols, AttrNumber *sortColIdx,
-				Oid *sortOperators, bool *nullsFirst)
+				Oid *sortOperators, Oid *collations, bool *nullsFirst)
 {
 	int			i;
 
@@ -3827,9 +4279,15 @@ add_sort_column(AttrNumber colIdx, Oid sortOp, bool nulls_first,
 		 * values that < considers equal.  We need not check nulls_first
 		 * however because a lower-order column with the same sortop but
 		 * opposite nulls direction is redundant.
+		 *
+		 * We could probably consider sort keys with the same sortop and
+		 * different collations to be redundant too, but for the moment treat
+		 * them as not redundant.  This will be needed if we ever support
+		 * collations with different notions of equality.
 		 */
 		if (sortColIdx[i] == colIdx &&
-			sortOperators[numCols] == sortOp)
+			sortOperators[numCols] == sortOp &&
+			collations[numCols] == coll)
 		{
 			/* Already sorting by this col, so extra sort key is useless */
 			return numCols;
@@ -3839,37 +4297,56 @@ add_sort_column(AttrNumber colIdx, Oid sortOp, bool nulls_first,
 	/* Add the column */
 	sortColIdx[numCols] = colIdx;
 	sortOperators[numCols] = sortOp;
+	collations[numCols] = coll;
 	nullsFirst[numCols] = nulls_first;
 	return numCols + 1;
 }
 
 /*
- * make_sort_from_pathkeys
- *	  Create sort plan to sort according to given pathkeys
+ * prepare_sort_from_pathkeys
+ *	  Prepare to sort according to given pathkeys
  *
+ * This is used to set up for both Sort and MergeAppend nodes.	It calculates
+ * the executor's representation of the sort key information, and adjusts the
+ * plan targetlist if needed to add resjunk sort columns.
+ *
+ * Input parameters:
  *	  'lefttree' is the node which yields input tuples
  *	  'pathkeys' is the list of pathkeys by which the result is to be sorted
- *	  'limit_tuples' is the bound on the number of output tuples;
- *				-1 if no bound
+ *	  'adjust_tlist_in_place' is TRUE if lefttree must be modified in-place
  *
  * We must convert the pathkey information into arrays of sort key column
- * numbers and sort operator OIDs.
+ * numbers, sort operator OIDs, collation OIDs, and nulls-first flags,
+ * which is the representation the executor wants.	These are returned into
+ * the output parameters *p_numsortkeys etc.
  *
  * If the pathkeys include expressions that aren't simple Vars, we will
  * usually need to add resjunk items to the input plan's targetlist to
- * compute these expressions (since the Sort node itself won't do it).
- * If the input plan type isn't one that can do projections, this means
- * adding a Result node just to do the projection.
+ * compute these expressions, since the Sort/MergeAppend node itself won't
+ * do any such calculations.  If the input plan type isn't one that can do
+ * projections, this means adding a Result node just to do the projection.
+ * However, the caller can pass adjust_tlist_in_place = TRUE to force the
+ * lefttree tlist to be modified in-place regardless of whether the node type
+ * can project --- we use this for fixing the tlist of MergeAppend itself.
+ *
+ * Returns the node which is to be the input to the Sort (either lefttree,
+ * or a Result stacked atop lefttree).
  */
-Sort *
-make_sort_from_pathkeys(PlannerInfo *root, Plan *lefttree, List *pathkeys,
-						double limit_tuples)
+static Plan *
+prepare_sort_from_pathkeys(PlannerInfo *root, Plan *lefttree, List *pathkeys,
+						   bool adjust_tlist_in_place,
+						   int *p_numsortkeys,
+						   AttrNumber **p_sortColIdx,
+						   Oid **p_sortOperators,
+						   Oid **p_collations,
+						   bool **p_nullsFirst)
 {
 	List	   *tlist = lefttree->targetlist;
 	ListCell   *i;
 	int			numsortkeys;
 	AttrNumber *sortColIdx;
 	Oid		   *sortOperators;
+	Oid		   *collations;
 	bool	   *nullsFirst;
 
 	/*
@@ -3878,6 +4355,7 @@ make_sort_from_pathkeys(PlannerInfo *root, Plan *lefttree, List *pathkeys,
 	numsortkeys = list_length(pathkeys);
 	sortColIdx = (AttrNumber *) palloc(numsortkeys * sizeof(AttrNumber));
 	sortOperators = (Oid *) palloc(numsortkeys * sizeof(Oid));
+	collations = (Oid *) palloc(numsortkeys * sizeof(Oid));
 	nullsFirst = (bool *) palloc(numsortkeys * sizeof(bool));
 
 	numsortkeys = 0;
@@ -3927,7 +4405,12 @@ make_sort_from_pathkeys(PlannerInfo *root, Plan *lefttree, List *pathkeys,
 			{
 				EquivalenceMember *em = (EquivalenceMember *) lfirst(j);
 
-				if (em->em_is_const || em->em_is_child)
+				/*
+				 * We shouldn't be trying to sort by an equivalence class that
+				 * contains a constant, so no need to consider such cases any
+				 * further.
+				 */
+				if (em->em_is_const)
 					continue;
 
 				tle = tlist_member((Node *) em->em_expr, tlist);
@@ -3963,7 +4446,7 @@ make_sort_from_pathkeys(PlannerInfo *root, Plan *lefttree, List *pathkeys,
 					List	   *exprvars;
 					ListCell   *k;
 
-					if (em->em_is_const || em->em_is_child)
+					if (em->em_is_const)
 						continue;
 					sortexpr = em->em_expr;
 					exprvars = pull_var_clause((Node *) sortexpr,
@@ -3986,13 +4469,17 @@ make_sort_from_pathkeys(PlannerInfo *root, Plan *lefttree, List *pathkeys,
 				/*
 				 * Do we need to insert a Result node?
 				 */
-				if (!is_projection_capable_plan(lefttree))
+				if (!adjust_tlist_in_place &&
+					!is_projection_capable_plan(lefttree))
 				{
 					/* copy needed so we don't modify input's tlist below */
 					tlist = copyObject(tlist);
 					lefttree = (Plan *) make_result(root, tlist, NULL,
 													lefttree);
 				}
+
+				/* Don't bother testing is_projection_capable_plan again */
+				adjust_tlist_in_place = true;
 
 				/*
 				 * Add resjunk entry to input's tlist
@@ -4027,15 +4514,57 @@ make_sort_from_pathkeys(PlannerInfo *root, Plan *lefttree, List *pathkeys,
 		 */
 		numsortkeys = add_sort_column(tle->resno,
 									  sortop,
+									  pathkey->pk_eclass->ec_collation,
 									  pathkey->pk_nulls_first,
 									  numsortkeys,
-									  sortColIdx, sortOperators, nullsFirst);
+									  sortColIdx, sortOperators,
+									  collations, nullsFirst);
 	}
 
 	Assert(numsortkeys > 0);
 
+	/* Return results */
+	*p_numsortkeys = numsortkeys;
+	*p_sortColIdx = sortColIdx;
+	*p_sortOperators = sortOperators;
+	*p_collations = collations;
+	*p_nullsFirst = nullsFirst;
+
+	return lefttree;
+}
+
+/*
+ * make_sort_from_pathkeys
+ *	  Create sort plan to sort according to given pathkeys
+ *
+ *	  'lefttree' is the node which yields input tuples
+ *	  'pathkeys' is the list of pathkeys by which the result is to be sorted
+ *	  'limit_tuples' is the bound on the number of output tuples;
+ *				-1 if no bound
+ */
+Sort *
+make_sort_from_pathkeys(PlannerInfo *root, Plan *lefttree, List *pathkeys,
+						double limit_tuples)
+{
+	int			numsortkeys;
+	AttrNumber *sortColIdx;
+	Oid		   *sortOperators;
+	Oid		   *collations;
+	bool	   *nullsFirst;
+
+	/* Compute sort column info, and adjust lefttree as needed */
+	lefttree = prepare_sort_from_pathkeys(root, lefttree, pathkeys,
+										  false,
+										  &numsortkeys,
+										  &sortColIdx,
+										  &sortOperators,
+										  &collations,
+										  &nullsFirst);
+
+	/* Now build the Sort node */
 	return make_sort(root, lefttree, numsortkeys,
-					 sortColIdx, sortOperators, nullsFirst, limit_tuples);
+					 sortColIdx, sortOperators, collations,
+					 nullsFirst, limit_tuples);
 }
 
 /*
@@ -4053,6 +4582,7 @@ make_sort_from_sortclauses(PlannerInfo *root, List *sortcls, Plan *lefttree)
 	int			numsortkeys;
 	AttrNumber *sortColIdx;
 	Oid		   *sortOperators;
+	Oid		   *collations;
 	bool	   *nullsFirst;
 
 	/*
@@ -4061,6 +4591,7 @@ make_sort_from_sortclauses(PlannerInfo *root, List *sortcls, Plan *lefttree)
 	numsortkeys = list_length(sortcls);
 	sortColIdx = (AttrNumber *) palloc(numsortkeys * sizeof(AttrNumber));
 	sortOperators = (Oid *) palloc(numsortkeys * sizeof(Oid));
+	collations = (Oid *) palloc(numsortkeys * sizeof(Oid));
 	nullsFirst = (bool *) palloc(numsortkeys * sizeof(bool));
 
 	numsortkeys = 0;
@@ -4076,15 +4607,18 @@ make_sort_from_sortclauses(PlannerInfo *root, List *sortcls, Plan *lefttree)
 		 * redundantly.
 		 */
 		numsortkeys = add_sort_column(tle->resno, sortcl->sortop,
+									  exprCollation((Node *) tle->expr),
 									  sortcl->nulls_first,
 									  numsortkeys,
-									  sortColIdx, sortOperators, nullsFirst);
+									  sortColIdx, sortOperators,
+									  collations, nullsFirst);
 	}
 
 	Assert(numsortkeys > 0);
 
 	return make_sort(root, lefttree, numsortkeys,
-					 sortColIdx, sortOperators, nullsFirst, -1.0);
+					 sortColIdx, sortOperators, collations,
+					 nullsFirst, -1.0);
 }
 
 /*
@@ -4112,6 +4646,7 @@ make_sort_from_groupcols(PlannerInfo *root,
 	int			numsortkeys;
 	AttrNumber *sortColIdx;
 	Oid		   *sortOperators;
+	Oid		   *collations;
 	bool	   *nullsFirst;
 
 	/*
@@ -4120,6 +4655,7 @@ make_sort_from_groupcols(PlannerInfo *root,
 	numsortkeys = list_length(groupcls);
 	sortColIdx = (AttrNumber *) palloc(numsortkeys * sizeof(AttrNumber));
 	sortOperators = (Oid *) palloc(numsortkeys * sizeof(Oid));
+	collations = (Oid *) palloc(numsortkeys * sizeof(Oid));
 	nullsFirst = (bool *) palloc(numsortkeys * sizeof(bool));
 
 	numsortkeys = 0;
@@ -4135,16 +4671,19 @@ make_sort_from_groupcols(PlannerInfo *root,
 		 * redundantly.
 		 */
 		numsortkeys = add_sort_column(tle->resno, grpcl->sortop,
+									  exprCollation((Node *) tle->expr),
 									  grpcl->nulls_first,
 									  numsortkeys,
-									  sortColIdx, sortOperators, nullsFirst);
+									  sortColIdx, sortOperators,
+									  collations, nullsFirst);
 		grpno++;
 	}
 
 	Assert(numsortkeys > 0);
 
 	return make_sort(root, lefttree, numsortkeys,
-					 sortColIdx, sortOperators, nullsFirst, -1.0);
+					 sortColIdx, sortOperators, collations,
+					 nullsFirst, -1.0);
 }
 
 static Material *
@@ -4200,9 +4739,9 @@ materialize_finished_plan(Plan *subplan)
 
 Agg *
 make_agg(PlannerInfo *root, List *tlist, List *qual,
-		 AggStrategy aggstrategy,
+		 AggStrategy aggstrategy, const AggClauseCosts *aggcosts,
 		 int numGroupCols, AttrNumber *grpColIdx, Oid *grpOperators,
-		 long numGroups, int numAggs,
+		 long numGroups,
 		 Plan *lefttree)
 {
 	Agg		   *node = makeNode(Agg);
@@ -4218,7 +4757,7 @@ make_agg(PlannerInfo *root, List *tlist, List *qual,
 
 	copy_plan_costsize(plan, lefttree); /* only care about copying size */
 	cost_agg(&agg_path, root,
-			 aggstrategy, numAggs,
+			 aggstrategy, aggcosts,
 			 numGroupCols, numGroups,
 			 lefttree->startup_cost,
 			 lefttree->total_cost,
@@ -4266,7 +4805,7 @@ make_agg(PlannerInfo *root, List *tlist, List *qual,
 
 WindowAgg *
 make_windowagg(PlannerInfo *root, List *tlist,
-			   int numWindowFuncs, Index winref,
+			   List *windowFuncs, Index winref,
 			   int partNumCols, AttrNumber *partColIdx, Oid *partOperators,
 			   int ordNumCols, AttrNumber *ordColIdx, Oid *ordOperators,
 			   int frameOptions, Node *startOffset, Node *endOffset,
@@ -4290,7 +4829,7 @@ make_windowagg(PlannerInfo *root, List *tlist,
 
 	copy_plan_costsize(plan, lefttree); /* only care about copying size */
 	cost_windowagg(&windowagg_path, root,
-				   numWindowFuncs, partNumCols, ordNumCols,
+				   windowFuncs, partNumCols, ordNumCols,
 				   lefttree->startup_cost,
 				   lefttree->total_cost,
 				   lefttree->plan_rows);
@@ -4662,7 +5201,8 @@ make_result(PlannerInfo *root,
  * to make it look better sometime.
  */
 ModifyTable *
-make_modifytable(CmdType operation, List *resultRelations,
+make_modifytable(CmdType operation, bool canSetTag,
+				 List *resultRelations,
 				 List *subplans, List *returningLists,
 				 List *rowMarks, int epqParam)
 {
@@ -4712,7 +5252,9 @@ make_modifytable(CmdType operation, List *resultRelations,
 		node->plan.targetlist = NIL;
 
 	node->operation = operation;
+	node->canSetTag = canSetTag;
 	node->resultRelations = resultRelations;
+	node->resultRelIndex = -1;	/* will be set correctly in setrefs.c */
 	node->plans = subplans;
 	node->returningLists = returningLists;
 	node->rowMarks = rowMarks;
@@ -4740,6 +5282,7 @@ is_projection_capable_plan(Plan *plan)
 		case T_Limit:
 		case T_ModifyTable:
 		case T_Append:
+		case T_MergeAppend:
 		case T_RecursiveUnion:
 			return false;
 		default:
@@ -4988,7 +5531,7 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 				appendStringInfo(buf, " %s = $%d", NameStr(att_tup->attname), att);
 
 				expr = makeVar(att, att, att_tup->atttypid,
-							   att_tup->atttypmod, 0);
+							   att_tup->atttypmod, InvalidOid, 0);
 				tle = makeTargetEntry((Expr *) expr, att,
 									  NameStr(att_tup->attname), false);
 				xtlist = lappend(xtlist, tle);
@@ -5018,7 +5561,7 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		xstep->exec_nodes->accesstype = RELATION_ACCESS_READ;
 
 		/* First and only target entry of topplan is ctid, reference it */
-		ctid = makeVar(INNER, 1, TIDOID, -1, 0);
+		ctid = makeVar(INNER, 1, TIDOID, -1, InvalidOid, 0);
 		xstep->exec_nodes->expr = (Expr *) ctid;
 
 		pfree(xbuf->data);
@@ -5048,7 +5591,7 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		fstep->exec_nodes->accesstype = RELATION_ACCESS_UPDATE;
 
 		/* First and only target entry of topplan is ctid, reference it */
-		ctid = makeVar(INNER, 1, TIDOID, -1, 0);
+		ctid = makeVar(INNER, 1, TIDOID, -1, InvalidOid, 0);
 		fstep->exec_nodes->expr = (Expr *) ctid;
 	}
 

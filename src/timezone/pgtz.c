@@ -3,10 +3,10 @@
  * pgtz.c
  *	  Timezone Library Integration Functions
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/timezone/pgtz.c,v 1.74 2010/07/06 19:19:01 momjian Exp $
+ *	  src/timezone/pgtz.c
  *
  *-------------------------------------------------------------------------
  */
@@ -1158,7 +1158,7 @@ identify_system_timezone(void)
 
 		memset(zonename, 0, sizeof(zonename));
 		namesize = sizeof(zonename);
-		if ((r = RegQueryValueEx(key, "Std", NULL, NULL, zonename, &namesize)) != ERROR_SUCCESS)
+		if ((r = RegQueryValueEx(key, "Std", NULL, NULL, (unsigned char *) zonename, &namesize)) != ERROR_SUCCESS)
 		{
 			ereport(LOG,
 					(errmsg_internal("could not query value for key \"std\" to identify system time zone \"%s\": %i",
@@ -1175,7 +1175,7 @@ identify_system_timezone(void)
 		}
 		memset(zonename, 0, sizeof(zonename));
 		namesize = sizeof(zonename);
-		if ((r = RegQueryValueEx(key, "Dlt", NULL, NULL, zonename, &namesize)) != ERROR_SUCCESS)
+		if ((r = RegQueryValueEx(key, "Dlt", NULL, NULL, (unsigned char *) zonename, &namesize)) != ERROR_SUCCESS)
 		{
 			ereport(LOG,
 					(errmsg_internal("could not query value for key \"dlt\" to identify system time zone \"%s\": %i",
@@ -1438,34 +1438,63 @@ pg_timezone_pre_initialize(void)
  * This is called after initial loading of postgresql.conf.  If no TimeZone
  * setting was found therein, we try to derive one from the environment.
  * Likewise for log_timezone.
+ *
+ * Note: this is also called from ProcessConfigFile, to re-establish valid
+ * GUC settings if the GUCs have been reset to default following their
+ * removal from postgresql.conf.
  */
 void
 pg_timezone_initialize(void)
 {
 	pg_tz	   *def_tz = NULL;
 
-	/* Do we need to try to figure the session timezone? */
-	if (pg_strcasecmp(GetConfigOption("timezone", false), "UNKNOWN") == 0)
+	/*
+	 * Make sure that session_timezone and log_timezone are set.
+	 * (session_timezone could still be NULL even if a timezone value was set
+	 * in postgresql.conf, if that setting was interval-based rather than
+	 * timezone-based.)
+	 */
+	if (!session_timezone)
 	{
-		/* Select setting */
 		def_tz = select_default_timezone();
 		session_timezone = def_tz;
-		/* Tell GUC about the value. Will redundantly call pg_tzset() */
-		SetConfigOption("timezone", pg_get_timezone_name(def_tz),
-						PGC_POSTMASTER, PGC_S_ARGV);
 	}
-
-	/* What about the log timezone? */
-	if (pg_strcasecmp(GetConfigOption("log_timezone", false), "UNKNOWN") == 0)
+	if (!log_timezone)
 	{
-		/* Select setting, but don't duplicate work */
+		/* Don't duplicate work */
 		if (!def_tz)
 			def_tz = select_default_timezone();
 		log_timezone = def_tz;
-		/* Tell GUC about the value. Will redundantly call pg_tzset() */
-		SetConfigOption("log_timezone", pg_get_timezone_name(def_tz),
-						PGC_POSTMASTER, PGC_S_ARGV);
 	}
+
+	/*
+	 * Now, set the timezone and log_timezone GUCs if they're still default.
+	 * (This will redundantly call pg_tzset().)
+	 *
+	 * We choose to label these values PGC_S_ENV_VAR, rather than
+	 * PGC_S_DYNAMIC_DEFAULT which would be functionally equivalent, because
+	 * they came either from getenv("TZ") or from libc behavior that's
+	 * determined by process environment of some kind.
+	 *
+	 * Note: in the case where a setting has just been removed from
+	 * postgresql.conf, this code will not do what you might expect, namely
+	 * call select_default_timezone() and install that value as the setting.
+	 * Rather, the previously active setting --- typically the one from
+	 * postgresql.conf --- will be reinstalled, relabeled as PGC_S_ENV_VAR. If
+	 * we did try to install the "correct" default value, the effect would be
+	 * that each postmaster child would independently run an extremely
+	 * expensive search of the timezone database, bringing the database to its
+	 * knees for possibly multiple seconds.  This is so unpleasant, and could
+	 * so easily be triggered quite unintentionally, that it seems better to
+	 * violate the principle of least astonishment.
+	 */
+	if (GetConfigOptionResetString("timezone") == NULL)
+		SetConfigOption("timezone", pg_get_timezone_name(session_timezone),
+						PGC_POSTMASTER, PGC_S_ENV_VAR);
+
+	if (GetConfigOptionResetString("log_timezone") == NULL)
+		SetConfigOption("log_timezone", pg_get_timezone_name(log_timezone),
+						PGC_POSTMASTER, PGC_S_ENV_VAR);
 }
 
 

@@ -1,5 +1,5 @@
 # Makefile for PL/Perl
-# $PostgreSQL: pgsql/src/pl/plperl/GNUmakefile,v 1.44 2010/05/13 16:39:43 adunstan Exp $
+# src/pl/plperl/GNUmakefile
 
 subdir = src/pl/plperl
 top_builddir = ../../..
@@ -36,13 +36,16 @@ NAME = plperl
 
 OBJS = plperl.o SPI.o Util.o
 
+DATA = plperl.control plperl--1.0.sql plperl--unpackaged--1.0.sql \
+       plperlu.control plperlu--1.0.sql plperlu--unpackaged--1.0.sql
+
 PERLCHUNKS = plc_perlboot.pl plc_trusted.pl
 
 SHLIB_LINK = $(perl_embed_ldflags)
 
-REGRESS_OPTS = --dbname=$(PL_TESTDB) --load-language=plperl  --load-language=plperlu
-REGRESS = plperl plperl_trigger plperl_shared plperl_elog plperl_util plperl_init plperlu
-# if Perl can support two interpreters in one backend, 
+REGRESS_OPTS = --dbname=$(PL_TESTDB) --load-extension=plperl  --load-extension=plperlu
+REGRESS = plperl plperl_trigger plperl_shared plperl_elog plperl_util plperl_init plperlu plperl_array
+# if Perl can support two interpreters in one backend,
 # test plperl-and-plperlu cases
 ifneq ($(PERL),)
 ifeq ($(shell $(PERL) -V:usemultiplicity), usemultiplicity='define';)
@@ -59,7 +62,7 @@ plperl.o: perlchunks.h plperl_opmask.h
 plperl_opmask.h: plperl_opmask.pl
 	$(PERL) $< $@
 
-perlchunks.h: $(PERLCHUNKS) 
+perlchunks.h: $(PERLCHUNKS)
 	$(PERL) $(srcdir)/text2macro.pl --strip='^(\#.*|\s*)$$' $^ > $@
 
 all: all-lib
@@ -70,14 +73,28 @@ SPI.c: SPI.xs
 Util.c: Util.xs
 	$(PERL) $(perl_privlibexp)/ExtUtils/xsubpp -typemap $(perl_privlibexp)/ExtUtils/typemap $< >$@
 
-install: all installdirs install-lib
+
+install: all install-lib install-data
 
 installdirs: installdirs-lib
+	$(MKDIR_P) '$(DESTDIR)$(datadir)/extension'
 
-uninstall: uninstall-lib
+uninstall: uninstall-lib uninstall-data
+
+install-data: installdirs
+	$(INSTALL_DATA) $(addprefix $(srcdir)/, $(DATA)) '$(DESTDIR)$(datadir)/extension/'
+
+uninstall-data:
+	rm -f $(addprefix '$(DESTDIR)$(datadir)/extension'/, $(notdir $(DATA)))
+
+.PHONY: install-data uninstall-data
+
+
+check: submake
+	$(pg_regress_check) $(REGRESS_OPTS) $(REGRESS)
 
 installcheck: submake
-	$(top_builddir)/src/test/regress/pg_regress --inputdir=$(srcdir) --psqldir=$(PSQLDIR) $(REGRESS_OPTS) $(REGRESS)
+	$(pg_regress_installcheck) $(REGRESS_OPTS) $(REGRESS)
 
 .PHONY: submake
 submake:
@@ -85,8 +102,7 @@ submake:
 
 clean distclean maintainer-clean: clean-lib
 	rm -f SPI.c Util.c $(OBJS) perlchunks.h plperl_opmask.h
-	rm -rf results
-	rm -f regression.diffs regression.out
+	rm -rf $(pg_regress_clean_files)
 
 else # can't build
 

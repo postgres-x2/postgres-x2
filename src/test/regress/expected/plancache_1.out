@@ -93,15 +93,15 @@ $$ language plpgsql;
 select cache_test(1);
 ERROR:  PG-XC does not yet support temporary tables
 CONTEXT:  SQL statement "create temp table t1(f1 int)"
-PL/pgSQL function "cache_test" line 3 at SQL statement
+PL/pgSQL function "cache_test" line 4 at SQL statement
 select cache_test(2);
 ERROR:  PG-XC does not yet support temporary tables
 CONTEXT:  SQL statement "create temp table t1(f1 int)"
-PL/pgSQL function "cache_test" line 3 at SQL statement
+PL/pgSQL function "cache_test" line 4 at SQL statement
 select cache_test(3);
 ERROR:  PG-XC does not yet support temporary tables
 CONTEXT:  SQL statement "create temp table t1(f1 int)"
-PL/pgSQL function "cache_test" line 3 at SQL statement
+PL/pgSQL function "cache_test" line 4 at SQL statement
 -- Check invalidation of plpgsql "simple expression"
 create temp view v1 as
   select 2+2 as f1;
@@ -115,7 +115,7 @@ ERROR:  relation "v1" does not exist
 LINE 1: SELECT f1 from v1
                        ^
 QUERY:  SELECT f1 from v1
-CONTEXT:  PL/pgSQL function "cache_test_2" line 2 at RETURN
+CONTEXT:  PL/pgSQL function "cache_test_2" line 3 at RETURN
 create or replace temp view v1 as
   select 2+2+4 as f1;
 ERROR:  PG-XC does not yet support temporary tables
@@ -124,7 +124,7 @@ ERROR:  relation "v1" does not exist
 LINE 1: SELECT f1 from v1
                        ^
 QUERY:  SELECT f1 from v1
-CONTEXT:  PL/pgSQL function "cache_test_2" line 2 at RETURN
+CONTEXT:  PL/pgSQL function "cache_test_2" line 3 at RETURN
 create or replace temp view v1 as
   select 2+2+4+(select max(unique1) from tenk1) as f1;
 ERROR:  PG-XC does not yet support temporary tables
@@ -133,7 +133,7 @@ ERROR:  relation "v1" does not exist
 LINE 1: SELECT f1 from v1
                        ^
 QUERY:  SELECT f1 from v1
-CONTEXT:  PL/pgSQL function "cache_test_2" line 2 at RETURN
+CONTEXT:  PL/pgSQL function "cache_test_2" line 3 at RETURN
 --- Check that change of search_path is ignored by replans
 create schema s1
   create table abc (f1 int);
@@ -200,14 +200,14 @@ end$$ language plpgsql;
 select cachebug();
 NOTICE:  table "temptable" does not exist, skipping
 CONTEXT:  SQL statement "drop table if exists temptable cascade"
-PL/pgSQL function "cachebug" line 3 at SQL statement
+PL/pgSQL function "cachebug" line 4 at SQL statement
 ERROR:  INTO clause not yet supported
 CONTEXT:  SQL statement "create temp table temptable as select * from generate_series(1,3) as f1"
-PL/pgSQL function "cachebug" line 4 at SQL statement
+PL/pgSQL function "cachebug" line 5 at SQL statement
 select cachebug();
 NOTICE:  table "temptable" does not exist, skipping
 CONTEXT:  SQL statement "drop table if exists temptable cascade"
-PL/pgSQL function "cachebug" line 3 at SQL statement
+PL/pgSQL function "cachebug" line 4 at SQL statement
 ERROR:  INTO clause not yet supported
 CONTEXT:  SQL statement "create temp table temptable as select * from generate_series(1,3) as f1"
-PL/pgSQL function "cachebug" line 4 at SQL statement
+PL/pgSQL function "cachebug" line 5 at SQL statement

@@ -4,10 +4,10 @@
  *	  Declarations for XML data type support.
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/utils/xml.h,v 1.31 2010/03/03 17:29:45 tgl Exp $
+ * src/include/utils/xml.h
  *
  *-------------------------------------------------------------------------
  */
@@ -37,6 +37,11 @@ extern Datum texttoxml(PG_FUNCTION_ARGS);
 extern Datum xmltotext(PG_FUNCTION_ARGS);
 extern Datum xmlvalidate(PG_FUNCTION_ARGS);
 extern Datum xpath(PG_FUNCTION_ARGS);
+extern Datum xpath_exists(PG_FUNCTION_ARGS);
+extern Datum xmlexists(PG_FUNCTION_ARGS);
+extern Datum xml_is_well_formed(PG_FUNCTION_ARGS);
+extern Datum xml_is_well_formed_document(PG_FUNCTION_ARGS);
+extern Datum xml_is_well_formed_content(PG_FUNCTION_ARGS);
 
 extern Datum table_to_xml(PG_FUNCTION_ARGS);
 extern Datum query_to_xml(PG_FUNCTION_ARGS);
@@ -61,7 +66,7 @@ typedef enum
 	XML_STANDALONE_NO,
 	XML_STANDALONE_NO_VALUE,
 	XML_STANDALONE_OMITTED
-} XmlStandaloneType;
+}	XmlStandaloneType;
 
 extern void pg_xml_init(void);
 extern void xml_ereport(int level, int sqlcode, const char *msg);
@@ -82,7 +87,7 @@ typedef enum
 {
 	XMLBINARY_BASE64,
 	XMLBINARY_HEX
-} XmlBinaryType;
+}	XmlBinaryType;
 
 extern int	xmlbinary;			/* XmlBinaryType, but int for guc enum */
 

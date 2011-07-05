@@ -1,5 +1,5 @@
 @echo off
-REM $PostgreSQL: pgsql/src/tools/msvc/clean.bat,v 1.18 2010/01/05 01:06:57 tgl Exp $
+REM src/tools/msvc/clean.bat
 
 set DIST=0
 if "%1"=="dist" set DIST=1
@@ -20,6 +20,7 @@ REM Delete files created with GenerateFiles() in Solution.pm
 if exist src\include\pg_config.h del /q src\include\pg_config.h
 if exist src\include\pg_config_os.h del /q src\include\pg_config_os.h
 if %DIST%==1 if exist src\backend\parser\gram.h del /q src\backend\parser\gram.h
+if exist src\include\utils\errcodes.h del /q src\include\utils\errcodes.h
 if exist src\include\utils\fmgroids.h del /q src\include\utils\fmgroids.h
 if exist src\include\utils\probes.h del /q src\include\utils\probes.h
 

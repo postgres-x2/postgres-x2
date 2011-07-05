@@ -16,7 +16,7 @@ INSERT INTO POINT_TBL(f1) VALUES ('(5.1, 34.5)');
 
 INSERT INTO POINT_TBL(f1) VALUES ('(-5.0,-12.0)');
 
--- bad format points 
+-- bad format points
 INSERT INTO POINT_TBL(f1) VALUES ('asdfasdf');
 
 INSERT INTO POINT_TBL(f1) VALUES ('10.0,10.0');
@@ -43,7 +43,7 @@ SELECT '' AS one, p.* FROM POINT_TBL p WHERE p.f1 <^ '(0.0, 0.0)' ORDER BY p.f1[
 -- equal 
 SELECT '' AS one, p.* FROM POINT_TBL p WHERE p.f1 ~= '(5.1, 34.5)' ORDER BY p.f1[0], p.f1[1];
 
--- point in box 
+-- point in box
 SELECT '' AS three, p.* FROM POINT_TBL p
    WHERE p.f1 <@ box '(0,0,100,100)' ORDER BY p.f1[0], p.f1[1];
 
@@ -79,6 +79,6 @@ SELECT '' AS fifteen, p1.f1 AS point1, p2.f1 AS point2, (p1.f1 <-> p2.f1) AS dis
 
 -- put distance result into output to allow sorting with GEQ optimizer - tgl 97/05/10
 SELECT '' AS three, p1.f1 AS point1, p2.f1 AS point2, (p1.f1 <-> p2.f1) AS distance
-   FROM POINT_TBL p1, POINT_TBL p2 
+   FROM POINT_TBL p1, POINT_TBL p2
    WHERE (p1.f1 <-> p2.f1) > 3 and p1.f1 << p2.f1 and p1.f1 >^ p2.f1
    ORDER BY distance, p1.f1[0], p1.f1[1], p2.f1[0], p2.f1[1];

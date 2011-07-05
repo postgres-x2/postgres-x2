@@ -1,8 +1,10 @@
-# $PostgreSQL: pgsql/contrib/tablefunc/Makefile,v 1.10 2010/07/05 23:15:56 tgl Exp $
+# contrib/tablefunc/Makefile
 
 MODULES = tablefunc
-DATA_built = tablefunc.sql
-DATA = uninstall_tablefunc.sql
+
+EXTENSION = tablefunc
+DATA = tablefunc--1.0.sql tablefunc--unpackaged--1.0.sql
+
 REGRESS = tablefunc
 
 LDFLAGS_SL += $(filter -lm, $(LIBS))

@@ -3,10 +3,10 @@
  * geqo_misc.h
  *	  prototypes for printout routines in optimizer/geqo
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/optimizer/geqo_misc.h,v 1.34 2010/01/02 16:58:07 momjian Exp $
+ * src/include/optimizer/geqo_misc.h
  *
  *-------------------------------------------------------------------------
  */

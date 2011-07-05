@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/perform.sgml,v 1.82 2010/06/28 22:46:11 momjian Exp $ -->
+<!-- doc/src/sgml/perform.sgml -->
 
  <chapter id="performance-tips">
   <title>Performance Tips</title>
@@ -316,7 +316,7 @@ WHERE t1.unique1 &lt; 100 AND t1.unique2 = t2.unique2;
          -&gt;  Bitmap Index Scan on tenk1_unique1  (cost=0.00..2.37 rows=106 width=0)
                Index Cond: (unique1 &lt; 100)
    -&gt;  Index Scan using tenk2_unique2 on tenk2 t2  (cost=0.00..3.01 rows=1 width=244)
-         Index Cond: (t2.unique2 = t1.unique2)
+         Index Cond: (unique2 = t1.unique2)
 </programlisting>
    </para>
 
@@ -329,7 +329,7 @@ WHERE t1.unique1 &lt; 100 AND t1.unique2 = t2.unique2;
     so it doesn't affect the row count of the outer scan.  For the inner (lower) scan, the
     <literal>unique2</> value of the current outer-scan row is plugged into
     the inner index scan to produce an index condition like
-    <literal>t2.unique2 = <replaceable>constant</replaceable></literal>.
+    <literal>unique2 = <replaceable>constant</replaceable></literal>.
     So we get the same inner-scan plan and costs that we'd get from, say,
     <literal>EXPLAIN SELECT * FROM tenk2 WHERE unique2 = 42</literal>.  The
     costs of the loop node are then set on the basis of the cost of the outer
@@ -405,7 +405,7 @@ WHERE t1.unique1 &lt; 100 AND t1.unique2 = t2.unique2;
          -&gt;  Bitmap Index Scan on tenk1_unique1  (cost=0.00..2.37 rows=106 width=0) (actual time=0.546..0.546 rows=100 loops=1)
                Index Cond: (unique1 &lt; 100)
    -&gt;  Index Scan using tenk2_unique2 on tenk2 t2  (cost=0.00..3.01 rows=1 width=244) (actual time=0.067..0.078 rows=1 loops=100)
-         Index Cond: (t2.unique2 = t1.unique2)
+         Index Cond: (unique2 = t1.unique2)
  Total runtime: 14.452 ms
 </screen>
 
@@ -430,18 +430,30 @@ WHERE t1.unique1 &lt; 100 AND t1.unique2 = t2.unique2;
 
    <para>
     The <literal>Total runtime</literal> shown by <command>EXPLAIN
-    ANALYZE</command> includes executor start-up and shut-down time, as well
-    as time spent processing the result rows.  It does not include parsing,
-    rewriting, or planning time.  For a <command>SELECT</> query, the total
-    run time will normally be just a little larger than the total time
-    reported for the top-level plan node.  For <command>INSERT</>,
-    <command>UPDATE</>, and <command>DELETE</> commands, the total run time
-    might be considerably larger, because it includes the time spent processing
-    the result rows.  For these commands, the time for the top plan node is
-    essentially the time spent locating the old rows and/or computing
-    the new ones, but it doesn't include the time spent applying the changes.
-    Time spent firing triggers, if any, is also outside the top plan node,
-    and is shown separately for each trigger.
+    ANALYZE</command> includes executor start-up and shut-down time, but not
+    parsing, rewriting, or planning time.  For <command>INSERT</>,
+    <command>UPDATE</>, and <command>DELETE</> commands, the time spent
+    applying the table changes is charged to a top-level Insert, Update,
+    or Delete plan node.  (The plan nodes underneath this node represent
+    the work of locating the old rows and/or computing the new ones.)
+    Time spent executing <literal>BEFORE</> triggers, if any, is charged to
+    the related Insert, Update, or Delete node, although time spent executing
+    <literal>AFTER</> triggers is not.  The time spent in each trigger
+    (either <literal>BEFORE</> or <literal>AFTER</>) is also shown separately
+    and is included in total run time.
+    Note, however, that deferred constraint triggers will not be executed
+    until end of transaction and are thus not shown by
+    <command>EXPLAIN ANALYZE</command>.
+   </para>
+
+   <para>
+    There are two significant ways in which run times measured by
+    <command>EXPLAIN ANALYZE</command> can deviate from normal execution of
+    the same query.  First, since no output rows are delivered to the client,
+    network transmission costs and I/O formatting costs are not included.
+    Second, the overhead added by <command>EXPLAIN ANALYZE</command> can be
+    significant, especially on machines with slow <function>gettimeofday()</>
+    kernel calls.
    </para>
 
    <para>
@@ -937,7 +949,7 @@ SELECT * FROM x, y, a, b, c WHERE something AND somethingelse;
   </sect2>
 
   <sect2 id="populate-pitr">
-   <title>Disable WAL archival and streaming replication</title>
+   <title>Disable WAL Archival and Streaming Replication</title>
 
    <para>
     When loading large amounts of data into an installation that uses
@@ -1086,7 +1098,7 @@ SELECT * FROM x, y, a, b, c WHERE something AND somethingelse;
       <para>
        You can get the effect of disabling foreign keys by using
        the <option>--disable-triggers</> option &mdash; but realize that
-       that eliminates, rather than just postponing, foreign key
+       that eliminates, rather than just postpones, foreign key
        validation, and so it is possible to insert bad data if you use it.
       </para>
      </footnote>
@@ -1118,9 +1130,10 @@ SELECT * FROM x, y, a, b, c WHERE something AND somethingelse;
     so if your site does not require such a guarantee,
     <productname>PostgreSQL</productname> can be configured to run
     much faster.  The following are configuration changes you can make
-    to improve performance in such cases;  they do not invalidate
-    commit guarantees related to database crashes, only abrupt operating
-    system stoppage, except as mentioned below:
+    to improve performance in such cases.  Except as noted below, durability
+    is still guaranteed in case of a crash of the database software;
+    only abrupt operating system stoppage creates a risk of data loss
+    or corruption when these settings are used.
 
     <itemizedlist>
      <listitem>
@@ -1159,7 +1172,8 @@ SELECT * FROM x, y, a, b, c WHERE something AND somethingelse;
       <para>
        Turn off <xref linkend="guc-synchronous-commit">;  there might be no
        need to write the <acronym>WAL</acronym> to disk on every
-       commit.  This does affect database crash transaction durability.
+       commit.  This setting does risk transaction loss (though not data
+       corruption) in case of a crash of the <emphasis>database</> alone.
       </para>
      </listitem>
     </itemizedlist>

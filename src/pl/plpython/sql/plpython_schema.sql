@@ -1,10 +1,9 @@
-
 CREATE TABLE users (
 	fname text not null,
 	lname text not null,
 	username text,
 	userid serial,
-	PRIMARY KEY(lname, fname) 
+	PRIMARY KEY(lname, fname)
 	) ;
 
 CREATE INDEX users_username_idx ON users(username);

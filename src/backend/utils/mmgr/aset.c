@@ -7,11 +7,11 @@
  * type.
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/utils/mmgr/aset.c,v 1.83 2010/02/26 02:01:14 momjian Exp $
+ *	  src/backend/utils/mmgr/aset.c
  *
  * NOTE:
  *	This is a new (Feb. 05, 1999) implementation of the allocation set
@@ -89,7 +89,9 @@
  *
  * With the current parameters, request sizes up to 8K are treated as chunks,
  * larger requests go into dedicated blocks.  Change ALLOCSET_NUM_FREELISTS
- * to adjust the boundary point.
+ * to adjust the boundary point.  (But in contexts with small maxBlockSize,
+ * we may set the allocChunkLimit to less than 8K, so as to avoid space
+ * wastage.)
  *--------------------
  */
 
@@ -97,6 +99,8 @@
 #define ALLOCSET_NUM_FREELISTS	11
 #define ALLOC_CHUNK_LIMIT	(1 << (ALLOCSET_NUM_FREELISTS-1+ALLOC_MINBITS))
 /* Size of largest chunk that we use a fixed size for */
+#define ALLOC_CHUNK_FRACTION	4
+/* We allow chunks to be at most 1/4 of maxBlockSize (less overhead) */
 
 /*--------------------
  * The first block allocated for an allocset has size initBlockSize.
@@ -124,11 +128,11 @@ typedef void *AllocPointer;
 /*
  * AllocSetContext is our standard implementation of MemoryContext.
  *
- * Note: isReset means there is nothing for AllocSetReset to do.  This is
- * different from the aset being physically empty (empty blocks list) because
- * we may still have a keeper block.  It's also different from the set being
- * logically empty, because we don't attempt to detect pfree'ing the last
- * active chunk.
+ * Note: header.isReset means there is nothing for AllocSetReset to do.
+ * This is different from the aset being physically empty (empty blocks list)
+ * because we may still have a keeper block.  It's also different from the set
+ * being logically empty, because we don't attempt to detect pfree'ing the
+ * last active chunk.
  */
 typedef struct AllocSetContext
 {
@@ -136,7 +140,6 @@ typedef struct AllocSetContext
 	/* Info about storage allocated in this context: */
 	AllocBlock	blocks;			/* head of list of blocks in this set */
 	AllocChunk	freelist[ALLOCSET_NUM_FREELISTS];		/* free chunk lists */
-	bool		isReset;		/* T = no space alloced since last reset */
 	/* Allocation parameters for this context: */
 	Size		initBlockSize;	/* initial block size */
 	Size		maxBlockSize;	/* maximum block size */
@@ -165,7 +168,7 @@ typedef struct AllocBlockData
 	AllocBlock	next;			/* next block in aset's blocks list */
 	char	   *freeptr;		/* start of free space in this block */
 	char	   *endptr;			/* end of space in this block */
-} AllocBlockData;
+}	AllocBlockData;
 
 /*
  * AllocChunk
@@ -184,7 +187,7 @@ typedef struct AllocChunkData
 	/* this is zero in a free chunk */
 	Size		requested_size;
 #endif
-} AllocChunkData;
+}	AllocChunkData;
 
 /*
  * AllocPointerIsValid
@@ -380,15 +383,20 @@ AllocSetContextCreate(MemoryContext parent,
 	/*
 	 * Compute the allocation chunk size limit for this context.  It can't be
 	 * more than ALLOC_CHUNK_LIMIT because of the fixed number of freelists.
-	 * If maxBlockSize is small then requests exceeding the maxBlockSize
-	 * should be treated as large chunks, too.	We have to have
-	 * allocChunkLimit a power of two, because the requested and
-	 * actually-allocated sizes of any chunk must be on the same side of the
-	 * limit, else we get confused about whether the chunk is "big".
+	 * If maxBlockSize is small then requests exceeding the maxBlockSize, or
+	 * even a significant fraction of it, should be treated as large chunks
+	 * too.  For the typical case of maxBlockSize a power of 2, the chunk size
+	 * limit will be at most 1/8th maxBlockSize, so that given a stream of
+	 * requests that are all the maximum chunk size we will waste at most
+	 * 1/8th of the allocated space.
+	 *
+	 * We have to have allocChunkLimit a power of two, because the requested
+	 * and actually-allocated sizes of any chunk must be on the same side of
+	 * the limit, else we get confused about whether the chunk is "big".
 	 */
 	context->allocChunkLimit = ALLOC_CHUNK_LIMIT;
-	while (context->allocChunkLimit >
-		   (Size) (maxBlockSize - ALLOC_BLOCKHDRSZ - ALLOC_CHUNKHDRSZ))
+	while ((Size) (context->allocChunkLimit + ALLOC_CHUNKHDRSZ) >
+		   (Size) ((maxBlockSize - ALLOC_BLOCKHDRSZ) / ALLOC_CHUNK_FRACTION))
 		context->allocChunkLimit >>= 1;
 
 	/*
@@ -417,8 +425,6 @@ AllocSetContextCreate(MemoryContext parent,
 		/* Mark block as not to be released at reset time */
 		context->keeper = block;
 	}
-
-	context->isReset = true;
 
 	return (MemoryContext) context;
 }
@@ -463,10 +469,6 @@ AllocSetReset(MemoryContext context)
 
 	AssertArg(AllocSetIsValid(set));
 
-	/* Nothing to do if no pallocs since startup or last reset */
-	if (set->isReset)
-		return;
-
 #ifdef MEMORY_CONTEXT_CHECKING
 	/* Check for corruption and leaks before freeing */
 	AllocSetCheck(context);
@@ -510,8 +512,6 @@ AllocSetReset(MemoryContext context)
 
 	/* Reset block size allocation sequence, too */
 	set->nextBlockSize = set->initBlockSize;
-
-	set->isReset = true;
 }
 
 /*
@@ -620,8 +620,6 @@ AllocSetAlloc(MemoryContext context, Size size)
 			set->blocks = block;
 		}
 
-		set->isReset = false;
-
 		AllocAllocInfo(set, chunk);
 		return AllocChunkGetPointer(chunk);
 	}
@@ -652,9 +650,6 @@ AllocSetAlloc(MemoryContext context, Size size)
 		/* fill the allocated space with junk */
 		randomize_mem((char *) AllocChunkGetPointer(chunk), size);
 #endif
-
-		/* isReset must be false already */
-		Assert(!set->isReset);
 
 		AllocAllocInfo(set, chunk);
 		return AllocChunkGetPointer(chunk);
@@ -813,8 +808,6 @@ AllocSetAlloc(MemoryContext context, Size size)
 	randomize_mem((char *) AllocChunkGetPointer(chunk), size);
 #endif
 
-	set->isReset = false;
-
 	AllocAllocInfo(set, chunk);
 	return AllocChunkGetPointer(chunk);
 }
@@ -912,9 +905,6 @@ AllocSetRealloc(MemoryContext context, void *pointer, Size size)
 			elog(WARNING, "detected write past chunk end in %s %p",
 				 set->header.name, chunk);
 #endif
-
-	/* isReset must be false already */
-	Assert(!set->isReset);
 
 	/*
 	 * Chunk sizes are aligned to power of 2 in AllocSetAlloc(). Maybe the
@@ -1050,15 +1040,13 @@ AllocSetGetChunkSpace(MemoryContext context, void *pointer)
 static bool
 AllocSetIsEmpty(MemoryContext context)
 {
-	AllocSet	set = (AllocSet) context;
-
 	/*
 	 * For now, we say "empty" only if the context is new or just reset. We
 	 * could examine the freelists to determine if all space has been freed,
 	 * but it's not really worth the trouble for present uses of this
 	 * functionality.
 	 */
-	if (set->isReset)
+	if (context->isReset)
 		return true;
 	return false;
 }

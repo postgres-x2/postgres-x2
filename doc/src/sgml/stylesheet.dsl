@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/stylesheet.dsl,v 1.36 2009/09/29 20:25:01 petere Exp $ -->
+<!-- doc/src/sgml/stylesheet.dsl -->
 <!DOCTYPE style-sheet PUBLIC "-//James Clark//DTD DSSSL Style Sheet//EN" [
 
 <!-- must turn on one of these with -i on the jade command line -->
@@ -22,7 +22,7 @@
 
 <style-sheet>
  <style-specification use="docbook">
-  <style-specification-body> 
+  <style-specification-body>
 
 <!-- general customization ......................................... -->
 
@@ -45,7 +45,7 @@
 ;; Don't append period if run-in title ends with any of these
 ;; characters.  We had to add the colon here.  This is fixed in
 ;; stylesheets version 1.71, so it can be removed sometime.
-(define %content-title-end-punct% 
+(define %content-title-end-punct%
   '(#\. #\! #\? #\:))
 
 ;; No automatic punctuation after honorific name parts
@@ -114,7 +114,7 @@
    (normalize "author")
    (normalize "authorgroup")
    (normalize "title")
-   (normalize "subtitle")   
+   (normalize "subtitle")
    (normalize "volumenum")
    (normalize "edition")
    (normalize "othercredit")
@@ -161,6 +161,22 @@
 (mode book-titlepage-verso-mode
   (element (para productname) ($charseq$)))
 ;; Add more here if needed...
+
+
+;; Replace a sequence of whitespace in a string by a single space
+(define (normalize-whitespace str #!optional (whitespace '(#\space #\U-000D)))
+  (let loop ((characters (string->list str))
+             (result '())
+             (prev-was-space #f))
+    (if (null? characters)
+        (list->string (reverse result))
+        (let ((c (car characters))
+              (rest (cdr characters)))
+          (if (member c whitespace)
+              (if prev-was-space
+                  (loop rest result #t)
+                  (loop rest (cons #\space result) #t))
+              (loop rest (cons c result) #f))))))
 
 
 <!-- HTML output customization ..................................... -->
@@ -214,7 +230,7 @@
       (empty-sosofo)))
 
 ;; Add character encoding and time of creation into HTML header
-(define %html-header-tags% 
+(define %html-header-tags%
   (list (list "META" '("HTTP-EQUIV" "Content-Type") '("CONTENT" "text/html; charset=ISO-8859-1"))
 	(list "META" '("NAME" "creation") (list "CONTENT" (time->string (time) #t)))))
 
@@ -332,7 +348,7 @@
 				    (make element gi: "A"
 					  attributes: (list
 						       (list "TITLE" (element-title-string nextsib))
-						       (list "HREF" 
+						       (list "HREF"
 							     (href-to
 							      nextsib)))
 					  (gentext-nav-next-sibling nextsib))))
@@ -346,7 +362,7 @@
 				    (make element gi: "A"
 					  attributes: (list
 						       (list "TITLE" (element-title-string next))
-						       (list "HREF" 
+						       (list "HREF"
 							     (href-to
 							      next))
 						       (list "ACCESSKEY"
@@ -369,6 +385,69 @@
 			     (list "ALIGN" "LEFT")
 			     (list "WIDTH" %gentext-nav-tblwidth%))))
 	(empty-sosofo))))
+
+
+;; Put index "quicklinks" (A | B | C | ...) at the top of the bookindex page.
+
+(element index
+  (let ((preamble (node-list-filter-by-not-gi
+                   (children (current-node))
+                   (list (normalize "indexentry"))))
+        (indexdivs  (node-list-filter-by-gi
+		     (children (current-node))
+		     (list (normalize "indexdiv"))))
+        (entries  (node-list-filter-by-gi
+                   (children (current-node))
+                   (list (normalize "indexentry")))))
+    (html-document
+     (with-mode head-title-mode
+       (literal (element-title-string (current-node))))
+     (make element gi: "DIV"
+           attributes: (list (list "CLASS" (gi)))
+           ($component-separator$)
+           ($component-title$)
+	   (if (node-list-empty? indexdivs)
+	       (empty-sosofo)
+	       (make element gi: "P"
+		     attributes: (list (list "CLASS" "INDEXDIV-QUICKLINKS"))
+		     (with-mode indexdiv-quicklinks-mode
+		       (process-node-list indexdivs))))
+           (process-node-list preamble)
+           (if (node-list-empty? entries)
+               (empty-sosofo)
+               (make element gi: "DL"
+                     (process-node-list entries)))))))
+
+
+(mode indexdiv-quicklinks-mode
+  (element indexdiv
+    (make sequence
+      (make element gi: "A"
+	    attributes: (list (list "HREF" (href-to (current-node))))
+	    (element-title-sosofo))
+      (if (not (last-sibling?))
+	  (literal " | ")
+	  (literal "")))))
+
+
+;; Changed to strip and normalize index term content (overrides
+;; dbindex.dsl)
+(define (htmlindexterm)
+  (let* ((attr    (gi (current-node)))
+         (content (data (current-node)))
+         (string  (strip (normalize-whitespace content))) ;; changed
+         (sortas  (attribute-string (normalize "sortas"))))
+    (make sequence
+      (make formatting-instruction data: attr)
+      (if sortas
+          (make sequence
+            (make formatting-instruction data: "[")
+            (make formatting-instruction data: sortas)
+            (make formatting-instruction data: "]"))
+          (empty-sosofo))
+      (make formatting-instruction data: " ")
+      (make formatting-instruction data: string)
+      (htmlnewline))))
 
 
 ]]> <!-- %output-html -->
@@ -513,7 +592,7 @@
         (my-simplelist-vert members))
        ((equal? type (normalize "horiz"))
         (simplelist-table 'row    cols members)))))
- 
+
 (element member
   (let ((type (inherited-attribute-string (normalize "type"))))
     (cond
@@ -542,7 +621,7 @@
   (let ((table (ancestor-member nd ($table-element-list$))))
     (if (node-list-empty? table)
 	nd
-	table)))	 
+	table)))
 
 ;; (The function below overrides the one in print/dbindex.dsl.)
 
@@ -609,7 +688,7 @@
 
 
 (define (part-titlepage elements #!optional (side 'recto))
-  (let ((nodelist (titlepage-nodelist 
+  (let ((nodelist (titlepage-nodelist
 		   (if (equal? side 'recto)
 		       (reference-titlepage-recto-elements)
 		       (reference-titlepage-verso-elements))
@@ -627,7 +706,7 @@
 	  page-number-restart?: (first-part?)
 	  input-whitespace-treatment: 'collapse
 	  use: default-text-style
-	  
+
 	  ;; This hack is required for the RTF backend. If an external-graphic
 	  ;; is the first thing on the page, RTF doesn't seem to do the right
 	  ;; thing (the graphic winds up on the baseline of the first line
@@ -636,7 +715,7 @@
 	  (make paragraph
 	    line-spacing: 1pt
 	    (literal ""))
-      
+
 	  (let loop ((nl nodelist) (lastnode (empty-node-list)))
 	    (if (node-list-empty? nl)
 		(empty-sosofo)
@@ -674,7 +753,7 @@
 
 
 (define (reference-titlepage elements #!optional (side 'recto))
-  (let ((nodelist (titlepage-nodelist 
+  (let ((nodelist (titlepage-nodelist
 		   (if (equal? side 'recto)
 		       (reference-titlepage-recto-elements)
 		       (reference-titlepage-verso-elements))
@@ -692,7 +771,7 @@
 	  page-number-restart?: (first-reference?)
 	  input-whitespace-treatment: 'collapse
 	  use: default-text-style
-	  
+
 	  ;; This hack is required for the RTF backend. If an external-graphic
 	  ;; is the first thing on the page, RTF doesn't seem to do the right
 	  ;; thing (the graphic winds up on the baseline of the first line
@@ -701,7 +780,7 @@
 	  (make paragraph
 	    line-spacing: 1pt
 	    (literal ""))
-      
+
 	  (let loop ((nl nodelist) (lastnode (empty-node-list)))
 	    (if (node-list-empty? nl)
 		(empty-sosofo)
@@ -769,13 +848,13 @@ Lynx, or similar).
     (literal "*")
     sosofo
     (literal "*")))
- 
+
 (define ($dquote-seq$ #!optional (sosofo (process-children)))
   (make sequence
     (literal (gentext-start-quote))
     sosofo
     (literal (gentext-end-quote))))
- 
+
 (element (para command) ($dquote-seq$))
 (element (para emphasis) ($asterix-seq$))
 (element (para filename) ($dquote-seq$))

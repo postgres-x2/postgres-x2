@@ -8,11 +8,11 @@
  *	  This file contains only the public interface routines.
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/access/nbtree/nbtree.c,v 1.177 2010/03/28 09:27:01 sriggs Exp $
+ *	  src/backend/access/nbtree/nbtree.c
  *
  *-------------------------------------------------------------------------
  */
@@ -29,6 +29,9 @@
 #include "storage/indexfsm.h"
 #include "storage/ipc.h"
 #include "storage/lmgr.h"
+#include "storage/predicate.h"
+#include "storage/smgr.h"
+#include "tcop/tcopprot.h"
 #include "utils/memutils.h"
 
 
@@ -205,6 +208,36 @@ btbuildCallback(Relation index,
 }
 
 /*
+ *	btbuildempty() -- build an empty btree index in the initialization fork
+ */
+Datum
+btbuildempty(PG_FUNCTION_ARGS)
+{
+	Relation	index = (Relation) PG_GETARG_POINTER(0);
+	Page		metapage;
+
+	/* Construct metapage. */
+	metapage = (Page) palloc(BLCKSZ);
+	_bt_initmetapage(metapage, P_NONE, 0);
+
+	/* Write the page.	If archiving/streaming, XLOG it. */
+	smgrwrite(index->rd_smgr, INIT_FORKNUM, BTREE_METAPAGE,
+			  (char *) metapage, true);
+	if (XLogIsNeeded())
+		log_newpage(&index->rd_smgr->smgr_rnode.node, INIT_FORKNUM,
+					BTREE_METAPAGE, metapage);
+
+	/*
+	 * An immediate sync is require even if we xlog'd the page, because the
+	 * write did not go through shared_buffers and therefore a concurrent
+	 * checkpoint may have move the redo pointer past our xlog record.
+	 */
+	smgrimmedsync(index->rd_smgr, INIT_FORKNUM);
+
+	PG_RETURN_VOID();
+}
+
+/*
  *	btinsert() -- insert an index tuple into a btree.
  *
  *		Descend the tree recursively, find the appropriate location for our
@@ -337,12 +370,27 @@ Datum
 btbeginscan(PG_FUNCTION_ARGS)
 {
 	Relation	rel = (Relation) PG_GETARG_POINTER(0);
-	int			keysz = PG_GETARG_INT32(1);
-	ScanKey		scankey = (ScanKey) PG_GETARG_POINTER(2);
+	int			nkeys = PG_GETARG_INT32(1);
+	int			norderbys = PG_GETARG_INT32(2);
 	IndexScanDesc scan;
+	BTScanOpaque so;
+
+	/* no order by operators allowed */
+	Assert(norderbys == 0);
 
 	/* get the scan */
-	scan = RelationGetIndexScan(rel, keysz, scankey);
+	scan = RelationGetIndexScan(rel, nkeys, norderbys);
+
+	/* allocate private workspace */
+	so = (BTScanOpaque) palloc(sizeof(BTScanOpaqueData));
+	so->currPos.buf = so->markPos.buf = InvalidBuffer;
+	if (scan->numberOfKeys > 0)
+		so->keyData = (ScanKey) palloc(scan->numberOfKeys * sizeof(ScanKeyData));
+	else
+		so->keyData = NULL;
+	so->killedItems = NULL;		/* until needed */
+	so->numKilled = 0;
+	scan->opaque = so;
 
 	PG_RETURN_POINTER(scan);
 }
@@ -355,22 +403,9 @@ btrescan(PG_FUNCTION_ARGS)
 {
 	IndexScanDesc scan = (IndexScanDesc) PG_GETARG_POINTER(0);
 	ScanKey		scankey = (ScanKey) PG_GETARG_POINTER(1);
-	BTScanOpaque so;
 
-	so = (BTScanOpaque) scan->opaque;
-
-	if (so == NULL)				/* if called from btbeginscan */
-	{
-		so = (BTScanOpaque) palloc(sizeof(BTScanOpaqueData));
-		so->currPos.buf = so->markPos.buf = InvalidBuffer;
-		if (scan->numberOfKeys > 0)
-			so->keyData = (ScanKey) palloc(scan->numberOfKeys * sizeof(ScanKeyData));
-		else
-			so->keyData = NULL;
-		so->killedItems = NULL; /* until needed */
-		so->numKilled = 0;
-		scan->opaque = so;
-	}
+	/* remaining arguments are ignored */
+	BTScanOpaque so = (BTScanOpaque) scan->opaque;
 
 	/* we aren't holding any read locks, but gotta drop the pins */
 	if (BTScanPosIsValid(so->currPos))

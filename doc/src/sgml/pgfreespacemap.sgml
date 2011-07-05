@@ -1,6 +1,6 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/pgfreespacemap.sgml,v 2.6 2010/04/23 23:21:43 rhaas Exp $ -->
+<!-- doc/src/sgml/pgfreespacemap.sgml -->
 
-<sect1 id="pgfreespacemap">
+<sect1 id="pgfreespacemap" xreflabel="pg_freespacemap">
  <title>pg_freespacemap</title>
 
  <indexterm zone="pgfreespacemap">
@@ -33,7 +33,6 @@
      <para>
       Returns the amount of free space on the page of the relation, specified
       by <literal>blkno</>, according to the FSM.
-      (blkno).
      </para>
     </listitem>
    </varlistentry>
@@ -56,7 +55,7 @@
 
   <para>
    The values stored in the free space map are not exact. They're rounded
-   to precision of 1/256th of BLCKSZ (32 bytes with default BLCKSZ), and
+   to precision of 1/256th of <symbol>BLCKSZ</> (32 bytes with default <symbol>BLCKSZ</>), and
    they're not kept fully up-to-date as tuples are inserted and updated.
   </para>
 
@@ -73,9 +72,9 @@
  </sect2>
 
  <sect2>
-  <title>Sample output</title>
+  <title>Sample Output</title>
 
-  <programlisting>
+<screen>
 postgres=# SELECT * FROM pg_freespace('foo');
  blkno | avail 
 -------+-------
@@ -106,8 +105,7 @@ postgres=# SELECT * FROM pg_freespace('foo', 7);
 --------------
          1216
 (1 row)
-
-  </programlisting>
+</screen>
  </sect2>
 
  <sect2>

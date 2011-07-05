@@ -4,10 +4,10 @@
  *	  POSTGRES relation scan descriptor definitions.
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/access/relscan.h,v 1.70 2010/02/26 02:01:21 momjian Exp $
+ * src/include/access/relscan.h
  *
  *-------------------------------------------------------------------------
  */
@@ -35,6 +35,7 @@ typedef struct HeapScanDescData
 	BlockNumber rs_startblock;	/* block # to start at */
 	BufferAccessStrategy rs_strategy;	/* access strategy for reads */
 	bool		rs_syncscan;	/* report location to syncscan logic? */
+	bool		rs_relpredicatelocked;	/* predicate lock on relation exists */
 
 	/* scan current state */
 	bool		rs_inited;		/* false = scan not init'd yet */
@@ -49,7 +50,7 @@ typedef struct HeapScanDescData
 	int			rs_mindex;		/* marked tuple's saved index */
 	int			rs_ntuples;		/* number of visible tuples on page */
 	OffsetNumber rs_vistuples[MaxHeapTuplesPerPage];	/* their offsets */
-} HeapScanDescData;
+}	HeapScanDescData;
 
 /*
  * We use the same IndexScanDescData structure for both amgettuple-based
@@ -62,8 +63,10 @@ typedef struct IndexScanDescData
 	Relation	heapRelation;	/* heap relation descriptor, or NULL */
 	Relation	indexRelation;	/* index relation descriptor */
 	Snapshot	xs_snapshot;	/* snapshot to see */
-	int			numberOfKeys;	/* number of scan keys */
-	ScanKey		keyData;		/* array of scan key descriptors */
+	int			numberOfKeys;	/* number of index qualifier conditions */
+	int			numberOfOrderBys;		/* number of ordering operators */
+	ScanKey		keyData;		/* array of index qualifier descriptors */
+	ScanKey		orderByData;	/* array of ordering op descriptors */
 
 	/* signaling to index AM about killing index tuples */
 	bool		kill_prior_tuple;		/* last-returned tuple is dead */
@@ -84,7 +87,7 @@ typedef struct IndexScanDescData
 	bool		xs_hot_dead;	/* T if all members of HOT chain are dead */
 	OffsetNumber xs_next_hot;	/* next member of HOT chain, if any */
 	TransactionId xs_prev_xmax; /* previous HOT chain member's XMAX, if any */
-} IndexScanDescData;
+}	IndexScanDescData;
 
 /* Struct for heap-or-index scans of system tables */
 typedef struct SysScanDescData
@@ -93,6 +96,6 @@ typedef struct SysScanDescData
 	Relation	irel;			/* NULL if doing heap scan */
 	HeapScanDesc scan;			/* only valid in heap-scan case */
 	IndexScanDesc iscan;		/* only valid in index-scan case */
-} SysScanDescData;
+}	SysScanDescData;
 
 #endif   /* RELSCAN_H */

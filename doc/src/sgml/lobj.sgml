@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/lobj.sgml,v 1.53 2010/04/03 07:22:55 petere Exp $ -->
+<!-- doc/src/sgml/lobj.sgml -->
 
  <chapter id="largeObjects">
   <title>Large Objects</title>
@@ -42,7 +42,7 @@
     This makes the large object facility partially obsolete.  One
     remaining advantage of the large object facility is that it allows values
     up to 2 GB in size, whereas <acronym>TOAST</acronym>ed fields can be at
-    most 1 GB.  Also, large objects can be randomly modified using a read/write 
+    most 1 GB.  Also, large objects can be randomly modified using a read/write
     API that is more efficient than performing such operations using
     <acronym>TOAST</acronym>.
    </para>
@@ -64,11 +64,11 @@
     As of <productname>PostgreSQL</> 9.0, large objects have an owner
     and a set of access permissions, which can be managed using
     <xref linkend="sql-grant"> and
-    <xref linkend="sql-revoke">.  
+    <xref linkend="sql-revoke">.
     For compatibility with prior releases, see
     <xref linkend="guc-lo-compat-privileges">.
     <literal>SELECT</literal> privileges are required to read a large
-    object, and 
+    object, and
     <literal>UPDATE</literal> privileges are required to write to or
     truncate it.
     Only the large object owner (or the database superuser) can unlink, comment
@@ -99,7 +99,7 @@
     <application>libpq</application> library.
    </para>
 
-   <sect2>
+   <sect2 id="lo-create">
     <title>Creating a Large Object</title>
 
     <para>
@@ -108,13 +108,13 @@
 Oid lo_creat(PGconn *conn, int mode);
 </synopsis>
      <indexterm><primary>lo_creat</></>
-     creates a new large object.  
+     creates a new large object.
      The return value is the OID that was assigned to the new large object,
      or <symbol>InvalidOid</symbol> (zero) on failure.
 
      <replaceable class="parameter">mode</replaceable> is unused and
      ignored as of <productname>PostgreSQL</productname> 8.1; however, for
-     backwards compatibility with earlier releases it is best to
+     backward compatibility with earlier releases it is best to
      set it to <symbol>INV_READ</symbol>, <symbol>INV_WRITE</symbol>,
      or <symbol>INV_READ</symbol> <literal>|</> <symbol>INV_WRITE</symbol>.
      (These symbolic constants are defined
@@ -158,7 +158,7 @@ inv_oid = lo_create(conn, desired_oid);
     </para>
    </sect2>
 
-   <sect2>
+   <sect2 id="lo-import">
     <title>Importing a Large Object</title>
 
     <para>
@@ -167,7 +167,7 @@ inv_oid = lo_create(conn, desired_oid);
 Oid lo_import(PGconn *conn, const char *filename);
 </synopsis>
      <indexterm><primary>lo_import</></>
-     <replaceable class="parameter">filename</replaceable> 
+     <replaceable class="parameter">filename</replaceable>
      specifies the operating system name of
      the file to be imported as a large object.
      The return value is the OID that was assigned to the new large object,
@@ -200,7 +200,7 @@ Oid lo_import_with_oid(PGconn *conn, const char *filename, Oid lobjId);
     </para>
    </sect2>
 
-   <sect2>
+   <sect2 id="lo-export">
     <title>Exporting a Large Object</title>
 
     <para>
@@ -218,7 +218,7 @@ int lo_export(PGconn *conn, Oid lobjId, const char *filename);
     </para>
    </sect2>
 
-   <sect2>
+   <sect2 id="lo-open">
     <title>Opening an Existing Large Object</title>
 
     <para>
@@ -238,7 +238,7 @@ int lo_open(PGconn *conn, Oid lobjId, int mode);
      descriptor for later use in <function>lo_read</function>,
      <function>lo_write</function>, <function>lo_lseek</function>,
      <function>lo_tell</function>, and <function>lo_close</function>.
-     The descriptor is only valid for 
+     The descriptor is only valid for
      the duration of the current transaction.
      On failure, -1 is returned.
     </para>
@@ -256,7 +256,7 @@ int lo_open(PGconn *conn, Oid lobjId, int mode);
      from a descriptor opened with <symbol>INV_WRITE</symbol> returns
      data that reflects all writes of other committed transactions as well
      as writes of the current transaction.  This is similar to the behavior
-     of <literal>SERIALIZABLE</> versus <literal>READ COMMITTED</> transaction
+     of <literal>REPEATABLE READ</> versus <literal>READ COMMITTED</> transaction
      modes for ordinary SQL <command>SELECT</> commands.
     </para>
 
@@ -268,7 +268,7 @@ inv_fd = lo_open(conn, inv_oid, INV_READ|INV_WRITE);
     </para>
 </sect2>
 
-<sect2>
+<sect2 id="lo-write">
 <title>Writing Data to a Large Object</title>
 
 <para>
@@ -286,7 +286,7 @@ int lo_write(PGconn *conn, int fd, const char *buf, size_t len);
 </para>
 </sect2>
 
-<sect2>
+<sect2 id="lo-read">
 <title>Reading Data from a Large Object</title>
 
 <para>
@@ -304,7 +304,7 @@ int lo_read(PGconn *conn, int fd, char *buf, size_t len);
 </para>
 </sect2>
 
-<sect2>
+<sect2 id="lo-seek">
 <title>Seeking in a Large Object</title>
 
 <para>
@@ -324,7 +324,7 @@ int lo_lseek(PGconn *conn, int fd, int offset, int whence);
 </para>
 </sect2>
 
-<sect2>
+<sect2 id="lo-tell">
 <title>Obtaining the Seek Position of a Large Object</title>
 
 <para>
@@ -338,7 +338,7 @@ int lo_tell(PGconn *conn, int fd);
 </para>
 </sect2>
 
-<sect2>
+<sect2 id="lo-truncate">
 <title>Truncating a Large Object</title>
 
 <para>
@@ -370,7 +370,7 @@ int lo_truncate(PGcon *conn, int fd, size_t len);
 </para>
 </sect2>
 
-<sect2>
+<sect2 id="lo-close">
 <title>Closing a Large Object Descriptor</title>
 
 <para>
@@ -390,7 +390,7 @@ int lo_close(PGconn *conn, int fd);
 </para>
 </sect2>
 
-   <sect2>
+   <sect2 id="lo-unlink">
     <title>Removing a Large Object</title>
 
     <para>
@@ -407,7 +407,7 @@ int lo_unlink(PGconn *conn, Oid lobjId);
 </sect1>
 
 <sect1 id="lo-funcs">
-<title>Server-Side Functions</title>
+<title>Server-side Functions</title>
 
   <para>
    There are server-side functions callable from SQL that correspond to
@@ -462,9 +462,9 @@ SELECT lo_export(image.raster, '/tmp/motd') FROM image
 <title>Example Program</title>
 
 <para>
-     <xref linkend="lo-example"> is a sample program which shows how the large object  
+     <xref linkend="lo-example"> is a sample program which shows how the large object
      interface
-     in <application>libpq</> can be used.  Parts of the program are 
+     in <application>libpq</> can be used.  Parts of the program are
      commented out but are left in the source for  the  reader's
      benefit.  This program can also be found in
      <filename>src/test/examples/testlo.c</filename> in the source distribution.

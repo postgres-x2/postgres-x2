@@ -3,12 +3,12 @@
  * proc.c
  *	  routines to manage per-process shared memory data structure
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/storage/lmgr/proc.c,v 1.221 2010/07/06 19:18:57 momjian Exp $
+ *	  src/backend/storage/lmgr/proc.c
  *
  *-------------------------------------------------------------------------
  */
@@ -42,7 +42,7 @@
 #ifdef PGXC
 #include "pgxc/pgxc.h"
 #endif
-#include "replication/walsender.h"
+#include "replication/syncrep.h"
 #include "storage/ipc.h"
 #include "storage/lmgr.h"
 #include "storage/pmsignal.h"
@@ -200,6 +200,7 @@ InitProcGlobal(void)
 		PGSemaphoreCreate(&(procs[i].sem));
 		procs[i].links.next = (SHM_QUEUE *) ProcGlobal->freeProcs;
 		ProcGlobal->freeProcs = &procs[i];
+		InitSharedLatch(&procs[i].waitLatch);
 	}
 
 	/*
@@ -218,6 +219,7 @@ InitProcGlobal(void)
 		PGSemaphoreCreate(&(procs[i].sem));
 		procs[i].links.next = (SHM_QUEUE *) ProcGlobal->autovacFreeProcs;
 		ProcGlobal->autovacFreeProcs = &procs[i];
+		InitSharedLatch(&procs[i].waitLatch);
 	}
 
 	/*
@@ -228,6 +230,7 @@ InitProcGlobal(void)
 	{
 		AuxiliaryProcs[i].pid = 0;		/* marks auxiliary proc as not in use */
 		PGSemaphoreCreate(&(AuxiliaryProcs[i].sem));
+		InitSharedLatch(&procs[i].waitLatch);
 	}
 
 	/* Create ProcStructLock spinlock, too */
@@ -300,12 +303,7 @@ InitProcess(void)
 	 * this; it probably should.)
 	 */
 	if (IsUnderPostmaster && !IsAutoVacuumLauncherProcess())
-	{
-		if (am_walsender)
-			MarkPostmasterChildWalSender();
-		else
-			MarkPostmasterChildActive();
-	}
+		MarkPostmasterChildActive();
 
 	/*
 	 * Initialize all fields of MyProc, except for the semaphore which was
@@ -334,6 +332,13 @@ InitProcess(void)
 	for (i = 0; i < NUM_LOCK_PARTITIONS; i++)
 		SHMQueueInit(&(MyProc->myProcLocks[i]));
 	MyProc->recoveryConflictPending = false;
+
+	/* Initialise for sync rep */
+	MyProc->waitLSN.xlogid = 0;
+	MyProc->waitLSN.xrecoff = 0;
+	MyProc->syncRepState = SYNC_REP_NOT_WAITING;
+	SHMQueueElemInit(&(MyProc->syncRepLinks));
+	OwnLatch((Latch *) &MyProc->waitLatch);
 
 	/*
 	 * We might be reusing a semaphore that belonged to a failed process. So
@@ -374,6 +379,7 @@ InitProcessPhase2(void)
 	/*
 	 * Arrange to clean that up at backend exit.
 	 */
+	on_shmem_exit(SyncRepCleanupAtProcExit, 0);
 	on_shmem_exit(RemoveProcFromArray, 0);
 }
 
@@ -638,8 +644,6 @@ LockWaitCancel(void)
  * At subtransaction abort, we release all locks held by the subtransaction;
  * this is implemented by retail releasing of the locks under control of
  * the ResourceOwner mechanism.
- *
- * Note that user locks are not released in any case.
  */
 void
 ProcReleaseLocks(bool isCommit)
@@ -650,6 +654,9 @@ ProcReleaseLocks(bool isCommit)
 	LockWaitCancel();
 	/* Release locks */
 	LockReleaseAll(DEFAULT_LOCKMETHOD, !isCommit);
+
+	/* Release transaction level advisory locks */
+	LockReleaseAll(USER_LOCKMETHOD, false);
 }
 
 

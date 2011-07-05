@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/pltcl.sgml,v 2.50 2010/05/13 18:29:12 tgl Exp $ -->
+<!-- doc/src/sgml/pltcl.sgml -->
 
  <chapter id="pltcl">
   <title>PL/Tcl - Tcl Procedural Language</title>
@@ -66,6 +66,7 @@
     directory if Tcl support is specified in the configuration step of
     the installation procedure.  To install <application>PL/Tcl</>
     and/or <application>PL/TclU</> in a particular database, use the
+    <command>CREATE EXTENSION</> command or the
     <command>createlang</command> program, for example
     <literal>createlang pltcl <replaceable>dbname</></literal> or
     <literal>createlang pltclu <replaceable>dbname</></literal>.
@@ -214,14 +215,36 @@ $$ LANGUAGE pltcl;
      Sometimes it
      is useful to have some global data that is held between two
      calls to a function or is shared between different functions.
-     This is easily done since
-     all PL/Tcl functions executed in one session share the same
-     safe Tcl interpreter.  So, any global Tcl variable is accessible to
-     all PL/Tcl function calls and will persist for the duration of the
-     SQL session.  (Note that <application>PL/TclU</> functions likewise share
-     global data, but they are in a different Tcl interpreter and cannot
-     communicate with PL/Tcl functions.)
+     This is easily done in PL/Tcl, but there are some restrictions that
+     must be understood.
     </para>
+
+    <para>
+     For security reasons, PL/Tcl executes functions called by any one SQL
+     role in a separate Tcl interpreter for that role.  This prevents
+     accidental or malicious interference by one user with the behavior of
+     another user's PL/Tcl functions.  Each such interpreter will have its own
+     values for any <quote>global</> Tcl variables.  Thus, two PL/Tcl
+     functions will share the same global variables if and only if they are
+     executed by the same SQL role.  In an application wherein a single
+     session executes code under multiple SQL roles (via <literal>SECURITY
+     DEFINER</> functions, use of <command>SET ROLE</>, etc) you may need to
+     take explicit steps to ensure that PL/Tcl functions can share data.  To
+     do that, make sure that functions that should communicate are owned by
+     the same user, and mark them <literal>SECURITY DEFINER</>.  You must of
+     course take care that such functions can't be used to do anything
+     unintended.
+    </para>
+
+    <para>
+     All PL/TclU functions used in a session execute in the same Tcl
+     interpreter, which of course is distinct from the interpreter(s)
+     used for PL/Tcl functions.  So global data is automatically shared
+     between PL/TclU functions.  This is not considered a security risk
+     because all PL/TclU functions execute at the same trust level,
+     namely that of a database superuser.
+    </para>
+
     <para>
      To help protect PL/Tcl functions from unintentionally interfering
      with each other, a global
@@ -231,7 +254,9 @@ $$ LANGUAGE pltcl;
      <literal>GD</> be used
      for persistent private data of a function.  Use regular Tcl global
      variables only for values that you specifically intend to be shared among
-     multiple functions.
+     multiple functions.  (Note that the <literal>GD</> arrays are only
+     global within a particular interpreter, so they do not bypass the
+     security restrictions mentioned above.)
     </para>
 
     <para>
@@ -278,7 +303,7 @@ $$ LANGUAGE pltcl;
         If the command is a <command>SELECT</> statement and no <replaceable>loop-body</>
         script is given, then only the first row of results are stored into
         Tcl variables; remaining rows, if any, are ignored.  No storing occurs
-        if the 
+        if the
         query returns no rows.  (This case can be detected by checking the
         result of <function>spi_exec</function>.)  For example:
 <programlisting>
@@ -319,8 +344,8 @@ spi_exec -array C "SELECT * FROM pg_class" {
        <para>
         Prepares and saves a query plan for later execution.  The
         saved plan will be retained for the life of the current
-        session.<indexterm><primary>preparing a query</><secondary>in
-        PL/Tcl</></>
+        session.<indexterm><primary>preparing a query</>
+        <secondary>in PL/Tcl</></>
        </para>
        <para>
         The query can use parameters, that is, placeholders for
@@ -567,8 +592,8 @@ SELECT 'doesn''t' AS ret
        <term><varname>$TG_when</varname></term>
        <listitem>
         <para>
-         The string <literal>BEFORE</> or <literal>AFTER</> depending on the
-         type of trigger event.
+         The string <literal>BEFORE</>, <literal>AFTER</>, or
+         <literal>INSTEAD OF</>, depending on the type of trigger event.
         </para>
        </listitem>
       </varlistentry>
@@ -641,10 +666,14 @@ SELECT 'doesn''t' AS ret
      the operation (<command>INSERT</>/<command>UPDATE</>/<command>DELETE</>) that fired the trigger will proceed
      normally. <literal>SKIP</> tells the trigger manager to silently suppress
      the operation for this row. If a list is returned, it tells PL/Tcl to
-     return a modified row to the trigger manager that will be inserted
-     instead of the one given in <varname>$NEW</>.  (This works for <command>INSERT</> and <command>UPDATE</>
-     only.) Needless to say that all this is only meaningful when the trigger
-     is <literal>BEFORE</> and <command>FOR EACH ROW</>; otherwise the return value is ignored.
+     return a modified row to the trigger manager. This is only meaningful
+     for row-level <literal>BEFORE</> <command>INSERT</> or <command>UPDATE</>
+     triggers for which the modified row will be inserted instead of the one
+     given in <varname>$NEW</>; or for row-level <literal>INSTEAD OF</>
+     <command>INSERT</> or <command>UPDATE</> triggers where the returned row
+     is used to support <command>INSERT RETURNING</> and
+     <command>UPDATE RETURNING</> commands. The return value is ignored for
+     other types of triggers.
     </para>
 
     <para>
@@ -683,7 +712,7 @@ CREATE TRIGGER trig_mytab_modcount BEFORE INSERT OR UPDATE ON mytab
    </sect1>
 
    <sect1 id="pltcl-unknown">
-       <title>Modules and the <function>unknown</> command</title>
+       <title>Modules and the <function>unknown</> Command</title>
        <para>
         PL/Tcl has support for autoloading Tcl code when used.
         It recognizes a special table, <literal>pltcl_modules</>, which
@@ -691,8 +720,8 @@ CREATE TRIGGER trig_mytab_modcount BEFORE INSERT OR UPDATE ON mytab
         exists, the module <literal>unknown</> is fetched from the table
         and loaded into the Tcl interpreter immediately before the first
         execution of a PL/Tcl function in a database session.  (This
-        happens separately for PL/Tcl and PL/TclU, if both are used,
-        because separate interpreters are used for the two languages.)
+        happens separately for each Tcl interpreter, if more than one is
+        used in a session; see <xref linkend="pltcl-global">.)
        </para>
        <para>
         While the <literal>unknown</> module could actually contain any
@@ -735,7 +764,7 @@ CREATE TRIGGER trig_mytab_modcount BEFORE INSERT OR UPDATE ON mytab
      different function definitions as long as the number of arguments or their types
      differ. Tcl, however, requires all procedure names to be distinct.
      PL/Tcl deals with this by making the internal Tcl procedure names contain
-     the object 
+     the object
      ID of the function from the system table <structname>pg_proc</> as part of their name. Thus,
      <productname>PostgreSQL</productname> functions with the same name
      and different argument types will be different Tcl procedures, too.  This

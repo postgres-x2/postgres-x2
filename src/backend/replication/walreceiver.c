@@ -12,7 +12,7 @@
  * in the primary server), and then keeps receiving XLOG records and
  * writing them to the disk as long as the connection is alive. As XLOG
  * records are received and flushed to disk, it updates the
- * WalRcv->receivedUpTo variable in shared memory, to inform the startup
+ * WalRcv->receivedUpto variable in shared memory, to inform the startup
  * process of how far it can proceed with XLOG replay.
  *
  * Normal termination is by SIGTERM, which instructs the walreceiver to
@@ -25,11 +25,11 @@
  * specific parts are in the libpqwalreceiver module. It's loaded
  * dynamically to avoid linking the server with libpq.
  *
- * Portions Copyright (c) 2010-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 2010-2011, PostgreSQL Global Development Group
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/replication/walreceiver.c,v 1.16 2010/07/06 19:18:57 momjian Exp $
+ *	  src/backend/replication/walreceiver.c
  *
  *-------------------------------------------------------------------------
  */
@@ -38,6 +38,7 @@
 #include <signal.h>
 #include <unistd.h>
 
+#include "access/transam.h"
 #include "access/xlog_internal.h"
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
@@ -45,6 +46,7 @@
 #include "replication/walreceiver.h"
 #include "storage/ipc.h"
 #include "storage/pmsignal.h"
+#include "storage/procarray.h"
 #include "utils/builtins.h"
 #include "utils/guc.h"
 #include "utils/memutils.h"
@@ -54,9 +56,14 @@
 /* Global variable to indicate if this process is a walreceiver process */
 bool		am_walreceiver;
 
+/* GUC variable */
+int			wal_receiver_status_interval;
+bool		hot_standby_feedback;
+
 /* libpqreceiver hooks to these when loaded */
 walrcv_connect_type walrcv_connect = NULL;
 walrcv_receive_type walrcv_receive = NULL;
+walrcv_send_type walrcv_send = NULL;
 walrcv_disconnect_type walrcv_disconnect = NULL;
 
 #define NAPTIME_PER_CYCLE 100	/* max sleep time between cycles (100ms) */
@@ -87,6 +94,9 @@ static struct
 	XLogRecPtr	Flush;			/* last byte + 1 flushed in the standby */
 }	LogstreamResult;
 
+static StandbyReplyMessage reply_message;
+static StandbyHSFeedbackMessage feedback_message;
+
 /*
  * About SIGTERM handling:
  *
@@ -112,7 +122,9 @@ static void DisableWalRcvImmediateExit(void);
 static void WalRcvDie(int code, Datum arg);
 static void XLogWalRcvProcessMsg(unsigned char type, char *buf, Size len);
 static void XLogWalRcvWrite(char *buf, Size nbytes, XLogRecPtr recptr);
-static void XLogWalRcvFlush(void);
+static void XLogWalRcvFlush(bool dying);
+static void XLogWalRcvSendReply(void);
+static void XLogWalRcvSendHSFeedback(void);
 
 /* Signal handlers */
 static void WalRcvSigHupHandler(SIGNAL_ARGS);
@@ -206,7 +218,7 @@ WalReceiverMain(void)
 
 	/* Fetch information required to start streaming */
 	strlcpy(conninfo, (char *) walrcv->conninfo, MAXCONNINFO);
-	startpoint = walrcv->receivedUpto;
+	startpoint = walrcv->receiveStart;
 	SpinLockRelease(&walrcv->mutex);
 
 	/* Arrange to clean up at walreceiver exit */
@@ -247,7 +259,7 @@ WalReceiverMain(void)
 	/* Load the libpq-specific functions */
 	load_file("libpqwalreceiver", false);
 	if (walrcv_connect == NULL || walrcv_receive == NULL ||
-		walrcv_disconnect == NULL)
+		walrcv_send == NULL || walrcv_disconnect == NULL)
 		elog(ERROR, "libpqwalreceiver didn't initialize correctly");
 
 	/*
@@ -305,11 +317,23 @@ WalReceiverMain(void)
 			while (walrcv_receive(0, &type, &buf, &len))
 				XLogWalRcvProcessMsg(type, buf, len);
 
+			/* Let the master know that we received some data. */
+			XLogWalRcvSendReply();
+
 			/*
 			 * If we've written some records, flush them to disk and let the
-			 * startup process know about them.
+			 * startup process and primary server know about them.
 			 */
-			XLogWalRcvFlush();
+			XLogWalRcvFlush(false);
+		}
+		else
+		{
+			/*
+			 * We didn't receive anything new, but send a status update to the
+			 * master anyway, to report any progress in applying WAL.
+			 */
+			XLogWalRcvSendReply();
+			XLogWalRcvSendHSFeedback();
 		}
 	}
 }
@@ -322,6 +346,9 @@ WalRcvDie(int code, Datum arg)
 {
 	/* use volatile pointer to prevent code rearrangement */
 	volatile WalRcvData *walrcv = WalRcv;
+
+	/* Ensure that all WAL records received are flushed to disk */
+	XLogWalRcvFlush(true);
 
 	SpinLockAcquire(&walrcv->mutex);
 	Assert(walrcv->walRcvState == WALRCV_RUNNING ||
@@ -440,7 +467,7 @@ XLogWalRcvWrite(char *buf, Size nbytes, XLogRecPtr recptr)
 			 */
 			if (recvFile >= 0)
 			{
-				XLogWalRcvFlush();
+				XLogWalRcvFlush(false);
 
 				/*
 				 * XLOG segment files will be re-read by recovery in startup
@@ -510,9 +537,14 @@ XLogWalRcvWrite(char *buf, Size nbytes, XLogRecPtr recptr)
 	}
 }
 
-/* Flush the log to disk */
+/*
+ * Flush the log to disk.
+ *
+ * If we're in the midst of dying, it's unwise to do anything that might throw
+ * an error, so we skip sending a reply in that case.
+ */
 static void
-XLogWalRcvFlush(void)
+XLogWalRcvFlush(bool dying)
 {
 	if (XLByteLT(LogstreamResult.Flush, LogstreamResult.Write))
 	{
@@ -525,9 +557,15 @@ XLogWalRcvFlush(void)
 
 		/* Update shared-memory status */
 		SpinLockAcquire(&walrcv->mutex);
-		walrcv->latestChunkStart = walrcv->receivedUpto;
-		walrcv->receivedUpto = LogstreamResult.Flush;
+		if (XLByteLT(walrcv->receivedUpto, LogstreamResult.Flush))
+		{
+			walrcv->latestChunkStart = walrcv->receivedUpto;
+			walrcv->receivedUpto = LogstreamResult.Flush;
+		}
 		SpinLockRelease(&walrcv->mutex);
+
+		/* Signal the startup process that new WAL has arrived */
+		WakeupRecovery();
 
 		/* Report XLOG streaming progress in PS display */
 		if (update_process_title)
@@ -539,5 +577,132 @@ XLogWalRcvFlush(void)
 					 LogstreamResult.Write.xrecoff);
 			set_ps_display(activitymsg, false);
 		}
+
+		/* Also let the master know that we made some progress */
+		if (!dying)
+		{
+			XLogWalRcvSendReply();
+			XLogWalRcvSendHSFeedback();
+		}
 	}
+}
+
+/*
+ * Send reply message to primary, indicating our current XLOG positions and
+ * the current time.
+ */
+static void
+XLogWalRcvSendReply(void)
+{
+	char		buf[sizeof(StandbyReplyMessage) + 1];
+	TimestampTz now;
+
+	/*
+	 * If the user doesn't want status to be reported to the master, be sure
+	 * to exit before doing anything at all.
+	 */
+	if (wal_receiver_status_interval <= 0)
+		return;
+
+	/* Get current timestamp. */
+	now = GetCurrentTimestamp();
+
+	/*
+	 * We can compare the write and flush positions to the last message we
+	 * sent without taking any lock, but the apply position requires a spin
+	 * lock, so we don't check that unless something else has changed or 10
+	 * seconds have passed.  This means that the apply log position will
+	 * appear, from the master's point of view, to lag slightly, but since
+	 * this is only for reporting purposes and only on idle systems, that's
+	 * probably OK.
+	 */
+	if (XLByteEQ(reply_message.write, LogstreamResult.Write)
+		&& XLByteEQ(reply_message.flush, LogstreamResult.Flush)
+		&& !TimestampDifferenceExceeds(reply_message.sendTime, now,
+									   wal_receiver_status_interval * 1000))
+		return;
+
+	/* Construct a new message */
+	reply_message.write = LogstreamResult.Write;
+	reply_message.flush = LogstreamResult.Flush;
+	reply_message.apply = GetXLogReplayRecPtr();
+	reply_message.sendTime = now;
+
+	elog(DEBUG2, "sending write %X/%X flush %X/%X apply %X/%X",
+		 reply_message.write.xlogid, reply_message.write.xrecoff,
+		 reply_message.flush.xlogid, reply_message.flush.xrecoff,
+		 reply_message.apply.xlogid, reply_message.apply.xrecoff);
+
+	/* Prepend with the message type and send it. */
+	buf[0] = 'r';
+	memcpy(&buf[1], &reply_message, sizeof(StandbyReplyMessage));
+	walrcv_send(buf, sizeof(StandbyReplyMessage) + 1);
+}
+
+/*
+ * Send hot standby feedback message to primary, plus the current time,
+ * in case they don't have a watch.
+ */
+static void
+XLogWalRcvSendHSFeedback(void)
+{
+	char		buf[sizeof(StandbyHSFeedbackMessage) + 1];
+	TimestampTz now;
+	TransactionId nextXid;
+	uint32		nextEpoch;
+	TransactionId xmin;
+
+	/*
+	 * If the user doesn't want status to be reported to the master, be sure
+	 * to exit before doing anything at all.
+	 */
+	if (wal_receiver_status_interval <= 0 || !hot_standby_feedback)
+		return;
+
+	/* Get current timestamp. */
+	now = GetCurrentTimestamp();
+
+	/*
+	 * Send feedback at most once per wal_receiver_status_interval.
+	 */
+	if (!TimestampDifferenceExceeds(feedback_message.sendTime, now,
+									wal_receiver_status_interval * 1000))
+		return;
+
+	/*
+	 * If Hot Standby is not yet active there is nothing to send. Check this
+	 * after the interval has expired to reduce number of calls.
+	 */
+	if (!HotStandbyActive())
+		return;
+
+	/*
+	 * Make the expensive call to get the oldest xmin once we are certain
+	 * everything else has been checked.
+	 */
+	xmin = GetOldestXmin(true, false);
+
+	/*
+	 * Get epoch and adjust if nextXid and oldestXmin are different sides of
+	 * the epoch boundary.
+	 */
+	GetNextXidAndEpoch(&nextXid, &nextEpoch);
+	if (nextXid < xmin)
+		nextEpoch--;
+
+	/*
+	 * Always send feedback message.
+	 */
+	feedback_message.sendTime = now;
+	feedback_message.xmin = xmin;
+	feedback_message.epoch = nextEpoch;
+
+	elog(DEBUG2, "sending hot standby feedback xmin %u epoch %u",
+		 feedback_message.xmin,
+		 feedback_message.epoch);
+
+	/* Prepend with the message type and send it. */
+	buf[0] = 'h';
+	memcpy(&buf[1], &feedback_message, sizeof(StandbyHSFeedbackMessage));
+	walrcv_send(buf, sizeof(StandbyHSFeedbackMessage) + 1);
 }

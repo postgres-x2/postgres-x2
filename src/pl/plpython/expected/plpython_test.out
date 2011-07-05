@@ -1,5 +1,5 @@
 -- first some tests of basic functionality
-CREATE LANGUAGE plpython2u;
+CREATE EXTENSION plpython2u;
 -- really stupid function just to get the module loaded
 CREATE FUNCTION stupid() RETURNS text AS 'return "zarkon"' LANGUAGE plpythonu;
 select stupid();
@@ -35,6 +35,19 @@ select argument_test_one(users, fname, lname) from users where lname = 'doe' ord
  willem doe => {fname: willem, lname: doe, userid: 3, username: w_doe}
 (3 rows)
 
+-- check module contents
+CREATE FUNCTION module_contents() RETURNS text AS
+$$
+contents = list(filter(lambda x: not x.startswith("__"), dir(plpy)))
+contents.sort()
+return ", ".join(contents)
+$$ LANGUAGE plpythonu;
+select module_contents();
+                                                                           module_contents                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Error, Fatal, SPIError, debug, error, execute, fatal, info, log, notice, prepare, quote_ident, quote_literal, quote_nullable, spiexceptions, subtransaction, warning
+(1 row)
+
 CREATE FUNCTION elog_test() RETURNS void
 AS $$
 plpy.debug('debug')
@@ -60,5 +73,8 @@ NOTICE:  notice
 CONTEXT:  PL/Python function "elog_test"
 WARNING:  warning
 CONTEXT:  PL/Python function "elog_test"
-ERROR:  error
-CONTEXT:  PL/Python function "elog_test"
+ERROR:  plpy.Error: error
+CONTEXT:  Traceback (most recent call last):
+  PL/Python function "elog_test", line 10, in <module>
+    plpy.error('error')
+PL/Python function "elog_test"

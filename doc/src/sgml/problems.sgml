@@ -1,4 +1,4 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/problems.sgml,v 2.30 2009/04/27 16:27:36 momjian Exp $ -->
+<!-- doc/src/sgml/problems.sgml -->
 
 <sect1 id="bug-reporting">
  <title>Bug Reporting Guidelines</title>
@@ -8,7 +8,7 @@
   hear about it. Your bug reports play an important part in making
   <productname>PostgreSQL</productname> more reliable because even the utmost
   care cannot guarantee that every part of
-  <productname>PostgreSQL</productname> 
+  <productname>PostgreSQL</productname>
   will work on every platform under every circumstance.
  </para>
 
@@ -78,7 +78,7 @@
     </listitem>
    </itemizedlist>
 
-   Here <quote>program</quote> refers to any executable, not only the backend server.
+   Here <quote>program</quote> refers to any executable, not only the backend process.
   </para>
 
   <para>
@@ -97,7 +97,7 @@
  </sect2>
 
  <sect2>
-  <title>What to report</title>
+  <title>What to Report</title>
 
   <para>
    The most important thing to remember about bug reporting is to state all
@@ -228,8 +228,8 @@
       If the function or the options do not exist then your version is
       more than old enough to warrant an upgrade.
       If you run a prepackaged version, such as RPMs, say so, including any
-      subversion the package might have. If you are talking about a CVS
-      snapshot, mention that, including its date and time.
+      subversion the package might have. If you are talking about a Git
+      snapshot, mention that, including the commit hash.
      </para>
 
      <para>
@@ -280,9 +280,9 @@
    When writing a bug report, please avoid confusing terminology.
    The software package in total is called <quote>PostgreSQL</quote>,
    sometimes <quote>Postgres</quote> for short. If you
-   are specifically talking about the backend server, mention that, do not
+   are specifically talking about the backend process, mention that, do not
    just say <quote>PostgreSQL crashes</quote>.  A crash of a single
-   backend server process is quite different from crash of the parent
+   backend process is quite different from crash of the parent
    <quote>postgres</> process; please don't say <quote>the server
    crashed</> when you mean a single backend process went down, nor vice versa.
    Also, client programs such as the interactive frontend <quote><application>psql</application></quote>
@@ -292,7 +292,7 @@
  </sect2>
 
  <sect2>
-  <title>Where to report bugs</title>
+  <title>Where to Report Bugs</title>
 
   <para>
    In general, send bug reports to the bug report mailing list at
@@ -301,7 +301,7 @@
    message, perhaps parts of the error message.
   </para>
 
-  <para> 
+  <para>
    Another method is to fill in the bug report web-form available
    at the project's
    <ulink url="http://www.postgresql.org/">web site</ulink>.
@@ -316,7 +316,7 @@
    reported privately to <email>security@postgresql.org</email>.
   </para>
 
-  <para> 
+  <para>
    Do not send bug reports to any of the user mailing lists, such as
    <email>pgsql-sql@postgresql.org</email> or
    <email>pgsql-general@postgresql.org</email>.

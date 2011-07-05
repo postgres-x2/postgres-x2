@@ -3,9 +3,9 @@
  * bgwriter.h
  *	  Exports from postmaster/bgwriter.c.
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  *
- * $PostgreSQL: pgsql/src/include/postmaster/bgwriter.h,v 1.15 2010/01/02 16:58:08 momjian Exp $
+ * src/include/postmaster/bgwriter.h
  *
  *-------------------------------------------------------------------------
  */
@@ -27,7 +27,7 @@ extern void BackgroundWriterMain(void);
 extern void RequestCheckpoint(int flags);
 extern void CheckpointWriteDelay(int flags, double progress);
 
-extern bool ForwardFsyncRequest(RelFileNode rnode, ForkNumber forknum,
+extern bool ForwardFsyncRequest(RelFileNodeBackend rnode, ForkNumber forknum,
 					BlockNumber segno);
 extern void AbsorbFsyncRequests(void);
 

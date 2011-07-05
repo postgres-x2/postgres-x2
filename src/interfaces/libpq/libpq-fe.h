@@ -4,10 +4,10 @@
  *	  This file contains definitions for structures and
  *	  externs for functions used by frontend postgres applications.
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/interfaces/libpq/libpq-fe.h,v 1.152 2010/02/26 02:01:33 momjian Exp $
+ * src/interfaces/libpq/libpq-fe.h
  *
  *-------------------------------------------------------------------------
  */
@@ -88,7 +88,8 @@ typedef enum
 	PGRES_BAD_RESPONSE,			/* an unexpected response was recv'd from the
 								 * backend */
 	PGRES_NONFATAL_ERROR,		/* notice or warning message */
-	PGRES_FATAL_ERROR			/* query failed */
+	PGRES_FATAL_ERROR,			/* query failed */
+	PGRES_COPY_BOTH				/* Copy In/Out data transfer in progress */
 } ExecStatusType;
 
 typedef enum
@@ -106,6 +107,14 @@ typedef enum
 	PQERRORS_DEFAULT,			/* recommended style */
 	PQERRORS_VERBOSE			/* all the facts, ma'am */
 } PGVerbosity;
+
+typedef enum
+{
+	PQPING_OK,					/* server is accepting connections */
+	PQPING_REJECT,				/* server is alive but rejecting connections */
+	PQPING_NO_RESPONSE,			/* could not establish connection */
+	PQPING_NO_ATTEMPT			/* connection not attempted (bad params) */
+} PGPing;
 
 /* PGconn encapsulates a connection to the backend.
  * The contents of this struct are not supposed to be known to applications.
@@ -403,6 +412,9 @@ extern int	PQendcopy(PGconn *conn);
 extern int	PQsetnonblocking(PGconn *conn, int arg);
 extern int	PQisnonblocking(const PGconn *conn);
 extern int	PQisthreadsafe(void);
+extern PGPing PQping(const char *conninfo);
+extern PGPing PQpingParams(const char **keywords,
+			 const char **values, int expand_dbname);
 
 /* Force the write buffer to be written (or at least try) */
 extern int	PQflush(PGconn *conn);
@@ -534,6 +546,9 @@ extern Oid	lo_import_with_oid(PGconn *conn, const char *filename, Oid lobjId);
 extern int	lo_export(PGconn *conn, Oid lobjId, const char *filename);
 
 /* === in fe-misc.c === */
+
+/* Get the version of the libpq library in use */
+extern int	PQlibVersion(void);
 
 /* Determine length of multibyte encoded char at *s */
 extern int	PQmblen(const char *s, int encoding);

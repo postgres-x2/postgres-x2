@@ -1,6 +1,6 @@
--- 
+--
 -- IF EXISTS tests
--- 
+--
 
 -- table (will be really dropped at the end)
 
@@ -115,4 +115,3 @@ DROP GROUP tg2;
 DROP GROUP IF EXISTS tg1, tg2;
 
 DROP GROUP tg1;
-

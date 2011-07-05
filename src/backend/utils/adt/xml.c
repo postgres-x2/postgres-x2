@@ -4,10 +4,10 @@
  *	  XML data type support.
  *
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/backend/utils/adt/xml.c,v 1.98 2010/07/06 19:18:58 momjian Exp $
+ * src/backend/utils/adt/xml.c
  *
  *-------------------------------------------------------------------------
  */
@@ -137,7 +137,7 @@ static void SPI_sql_row_to_xmlelement(int rownum, StringInfo result,
 			 errhint("You need to rebuild PostgreSQL using --with-libxml.")))
 
 
-/* from SQL/XML:2003 section 4.7 */
+/* from SQL/XML:2008 section 4.9 */
 #define NAMESPACE_XSD "http://www.w3.org/2001/XMLSchema"
 #define NAMESPACE_XSI "http://www.w3.org/2001/XMLSchema-instance"
 #define NAMESPACE_SQLXML "http://standards.iso.org/iso/9075/2003/sqlxml"
@@ -1067,13 +1067,15 @@ parse_xml_decl(const xmlChar *str, size_t *lenp,
 		if (xmlStrncmp(p, (xmlChar *) "'yes'", 5) == 0 ||
 			xmlStrncmp(p, (xmlChar *) "\"yes\"", 5) == 0)
 		{
-			*standalone = 1;
+			if (standalone)
+				*standalone = 1;
 			p += 5;
 		}
 		else if (xmlStrncmp(p, (xmlChar *) "'no'", 4) == 0 ||
 				 xmlStrncmp(p, (xmlChar *) "\"no\"", 4) == 0)
 		{
-			*standalone = 0;
+			if (standalone)
+				*standalone = 0;
 			p += 4;
 		}
 		else
@@ -1200,9 +1202,10 @@ xml_parse(text *data, XmlOptionType xmloption_arg, bool preserve_whitespace,
 		{
 			/*
 			 * Note, that here we try to apply DTD defaults
-			 * (XML_PARSE_DTDATTR) according to SQL/XML:10.16.7.d: 'Default
-			 * values defined by internal DTD are applied'. As for external
-			 * DTDs, we try to support them too, (see SQL/XML:10.16.7.e)
+			 * (XML_PARSE_DTDATTR) according to SQL/XML:2008 GR 10.16.7.d:
+			 * 'Default values defined by internal DTD are applied'. As for
+			 * external DTDs, we try to support them too, (see SQL/XML:2008 GR
+			 * 10.16.7.e)
 			 */
 			doc = xmlCtxtReadDoc(ctxt, utf8string,
 								 NULL,
@@ -1217,8 +1220,8 @@ xml_parse(text *data, XmlOptionType xmloption_arg, bool preserve_whitespace,
 		{
 			int			res_code;
 			size_t		count;
-			xmlChar    *version = NULL;
-			int			standalone = -1;
+			xmlChar    *version;
+			int			standalone;
 
 			res_code = parse_xml_decl(utf8string,
 									  &count, &version, NULL, &standalone);
@@ -1490,7 +1493,7 @@ is_valid_xml_namechar(pg_wchar c)
 
 
 /*
- * Map SQL identifier to XML name; see SQL/XML:2003 section 9.1.
+ * Map SQL identifier to XML name; see SQL/XML:2008 section 9.1.
  */
 char *
 map_sql_identifier_to_xml_name(char *ident, bool fully_escaped,
@@ -1570,7 +1573,7 @@ unicode_to_sqlchar(pg_wchar c)
 
 
 /*
- * Map XML name to SQL identifier; see SQL/XML:2003 section 9.17.
+ * Map XML name to SQL identifier; see SQL/XML:2008 section 9.3.
  */
 char *
 map_xml_name_to_sql_identifier(char *name)
@@ -1603,21 +1606,19 @@ map_xml_name_to_sql_identifier(char *name)
 }
 
 /*
- * Map SQL value to XML value; see SQL/XML:2003 section 9.16.
+ * Map SQL value to XML value; see SQL/XML:2008 section 9.8.
  *
  * When xml_escape_strings is true, then certain characters in string
  * values are replaced by entity references (&lt; etc.), as specified
- * in SQL/XML:2003 section 9.16 GR 8) ii).	This is normally what is
+ * in SQL/XML:2008 section 9.8 GR 9) a) iii).	This is normally what is
  * wanted.	The false case is mainly useful when the resulting value
  * is used with xmlTextWriterWriteAttribute() to write out an
- * attribute, because that function does the escaping itself.  The SQL
- * standard of 2003 is somewhat buggy in this regard, so we do our
- * best to make sense.
+ * attribute, because that function does the escaping itself.
  */
 char *
 map_sql_value_to_xml_value(Datum value, Oid type, bool xml_escape_strings)
 {
-	if (type_is_array(type))
+	if (type_is_array_domain(type))
 	{
 		ArrayType  *array;
 		Oid			elmtype;
@@ -1868,12 +1869,13 @@ _SPI_strdup(const char *s)
 /*
  * SQL to XML mapping functions
  *
- * What follows below is intentionally organized so that you can read
- * along in the SQL/XML:2003 standard.	The functions are mostly split
- * up and ordered they way the clauses lay out in the standards
+ * What follows below was at one point intentionally organized so that
+ * you can read along in the SQL/XML standard. The functions are
+ * mostly split up the way the clauses lay out in the standards
  * document, and the identifiers are also aligned with the standard
- * text.  (SQL/XML:2006 appears to be ordered differently,
- * unfortunately.)
+ * text.  Unfortunately, SQL/XML:2006 reordered the clauses
+ * differently than SQL/XML:2003, so the order below doesn't make much
+ * sense anymore.
  *
  * There are many things going on there:
  *
@@ -1902,8 +1904,8 @@ _SPI_strdup(const char *s)
 
 
 /*
- * Visibility of objects for XML mappings; see SQL/XML:2003 section
- * 4.8.5.
+ * Visibility of objects for XML mappings; see SQL/XML:2008 section
+ * 4.10.8.
  */
 
 /*
@@ -1972,8 +1974,8 @@ database_get_xml_visible_tables(void)
 
 
 /*
- * Map SQL table to XML and/or XML Schema document; see SQL/XML:2003
- * section 9.3.
+ * Map SQL table to XML and/or XML Schema document; see SQL/XML:2008
+ * section 9.11.
  */
 
 static StringInfo
@@ -2269,8 +2271,8 @@ query_to_xml_and_xmlschema(PG_FUNCTION_ARGS)
 
 
 /*
- * Map SQL schema to XML and/or XML Schema document; see SQL/XML:2003
- * section 9.4.
+ * Map SQL schema to XML and/or XML Schema document; see SQL/XML:2008
+ * sections 9.13, 9.14.
  */
 
 static StringInfo
@@ -2446,8 +2448,8 @@ schema_to_xml_and_xmlschema(PG_FUNCTION_ARGS)
 
 
 /*
- * Map SQL database to XML and/or XML Schema document; see SQL/XML:2003
- * section 9.5.
+ * Map SQL database to XML and/or XML Schema document; see SQL/XML:2008
+ * sections 9.16, 9.17.
  */
 
 static StringInfo
@@ -2578,7 +2580,7 @@ database_to_xml_and_xmlschema(PG_FUNCTION_ARGS)
 
 
 /*
- * Map a multi-part SQL name to an XML name; see SQL/XML:2003 section
+ * Map a multi-part SQL name to an XML name; see SQL/XML:2008 section
  * 9.2.
  */
 static char *
@@ -2606,11 +2608,11 @@ map_multipart_sql_identifier_to_xml_name(char *a, char *b, char *c, char *d)
 
 
 /*
- * Map an SQL table to an XML Schema document; see SQL/XML:2003
- * section 9.3.
+ * Map an SQL table to an XML Schema document; see SQL/XML:2008
+ * section 9.11.
  *
- * Map an SQL table to XML Schema data types; see SQL/XML:2003 section
- * 9.6.
+ * Map an SQL table to XML Schema data types; see SQL/XML:2008 section
+ * 9.9.
  */
 static const char *
 map_sql_table_to_xmlschema(TupleDesc tupdesc, Oid relid, bool nulls,
@@ -2712,8 +2714,8 @@ map_sql_table_to_xmlschema(TupleDesc tupdesc, Oid relid, bool nulls,
 
 
 /*
- * Map an SQL schema to XML Schema data types; see SQL/XML section
- * 9.7.
+ * Map an SQL schema to XML Schema data types; see SQL/XML:2008
+ * section 9.12.
  */
 static const char *
 map_sql_schema_to_xmlschema_types(Oid nspid, List *relid_list, bool nulls,
@@ -2785,8 +2787,8 @@ map_sql_schema_to_xmlschema_types(Oid nspid, List *relid_list, bool nulls,
 
 
 /*
- * Map an SQL catalog to XML Schema data types; see SQL/XML section
- * 9.8.
+ * Map an SQL catalog to XML Schema data types; see SQL/XML:2008
+ * section 9.15.
  */
 static const char *
 map_sql_catalog_to_xmlschema_types(List *nspid_list, bool nulls,
@@ -2843,7 +2845,7 @@ map_sql_catalog_to_xmlschema_types(List *nspid_list, bool nulls,
 
 
 /*
- * Map an SQL data type to an XML name; see SQL/XML:2003 section 9.9.
+ * Map an SQL data type to an XML name; see SQL/XML:2008 section 9.4.
  */
 static const char *
 map_sql_type_to_xml_name(Oid typeoid, int typmod)
@@ -2948,7 +2950,7 @@ map_sql_type_to_xml_name(Oid typeoid, int typmod)
 
 /*
  * Map a collection of SQL data types to XML Schema data types; see
- * SQL/XML:2002 section 9.10.
+ * SQL/XML:2008 section 9.7.
  */
 static const char *
 map_sql_typecoll_to_xmlschema_types(List *tupdesc_list)
@@ -2997,12 +2999,12 @@ map_sql_typecoll_to_xmlschema_types(List *tupdesc_list)
 
 
 /*
- * Map an SQL data type to a named XML Schema data type; see SQL/XML
- * sections 9.11 and 9.15.
+ * Map an SQL data type to a named XML Schema data type; see
+ * SQL/XML:2008 sections 9.5 and 9.6.
  *
- * (The distinction between 9.11 and 9.15 is basically that 9.15 adds
+ * (The distinction between 9.5 and 9.6 is basically that 9.6 adds
  * a name attribute, which this function does.	The name-less version
- * 9.11 doesn't appear to be required anywhere.)
+ * 9.5 doesn't appear to be required anywhere.)
  */
 static const char *
 map_sql_type_to_xmlschema_type(Oid typeoid, int typmod)
@@ -3179,7 +3181,7 @@ map_sql_type_to_xmlschema_type(Oid typeoid, int typmod)
 
 /*
  * Map an SQL row to an XML element, taking the row from the active
- * SPI cursor.	See also SQL/XML:2003 section 9.12.
+ * SPI cursor.	See also SQL/XML:2008 section 9.10.
  */
 static void
 SPI_sql_row_to_xmlelement(int rownum, StringInfo result, char *tablename,
@@ -3295,24 +3297,20 @@ xml_xmlnodetoxmltype(xmlNodePtr cur)
 
 
 /*
- * Evaluate XPath expression and return array of XML values.
+ * Common code for xpath() and xmlexists()
  *
- * As we have no support of XQuery sequences yet, this function seems
- * to be the most useful one (array of XML functions plays a role of
- * some kind of substitution for XQuery sequences).
+ * Evaluate XPath expression and return number of nodes in res_items
+ * and array of XML values in astate.
  *
  * It is up to the user to ensure that the XML passed is in fact
  * an XML document - XPath doesn't work easily on fragments without
  * a context node being known.
  */
-Datum
-xpath(PG_FUNCTION_ARGS)
-{
 #ifdef USE_LIBXML
-	text	   *xpath_expr_text = PG_GETARG_TEXT_P(0);
-	xmltype    *data = PG_GETARG_XML_P(1);
-	ArrayType  *namespaces = PG_GETARG_ARRAYTYPE_P(2);
-	ArrayBuildState *astate = NULL;
+static void
+xpath_internal(text *xpath_expr_text, xmltype *data, ArrayType *namespaces,
+			   int *res_nitems, ArrayBuildState **astate)
+{
 	xmlParserCtxtPtr ctxt = NULL;
 	xmlDocPtr	doc = NULL;
 	xmlXPathContextPtr xpathctx = NULL;
@@ -3324,7 +3322,6 @@ xpath(PG_FUNCTION_ARGS)
 	xmlChar    *string;
 	xmlChar    *xpath_expr;
 	int			i;
-	int			res_nitems;
 	int			ndim;
 	Datum	   *ns_names_uris;
 	bool	   *ns_names_uris_nulls;
@@ -3339,7 +3336,7 @@ xpath(PG_FUNCTION_ARGS)
 	 * ARRAY[ARRAY['myns', 'http://example.com'], ARRAY['myns2',
 	 * 'http://example2.com']].
 	 */
-	ndim = ARR_NDIM(namespaces);
+	ndim = namespaces ? ARR_NDIM(namespaces) : 0;
 	if (ndim != 0)
 	{
 		int		   *dims;
@@ -3439,6 +3436,13 @@ xpath(PG_FUNCTION_ARGS)
 			xml_ereport(ERROR, ERRCODE_INTERNAL_ERROR,
 						"invalid XPath expression");
 
+		/*
+		 * Version 2.6.27 introduces a function named
+		 * xmlXPathCompiledEvalToBoolean, which would be enough for xmlexists,
+		 * but we can derive the existence by whether any nodes are returned,
+		 * thereby preventing a library version upgrade and keeping the code
+		 * the same.
+		 */
 		xpathobj = xmlXPathCompiledEval(xpathcomp, xpathctx);
 		if (xpathobj == NULL)	/* TODO: reason? */
 			xml_ereport(ERROR, ERRCODE_INTERNAL_ERROR,
@@ -3446,21 +3450,22 @@ xpath(PG_FUNCTION_ARGS)
 
 		/* return empty array in cases when nothing is found */
 		if (xpathobj->nodesetval == NULL)
-			res_nitems = 0;
+			*res_nitems = 0;
 		else
-			res_nitems = xpathobj->nodesetval->nodeNr;
+			*res_nitems = xpathobj->nodesetval->nodeNr;
 
-		if (res_nitems)
+		if (*res_nitems && astate)
 		{
+			*astate = NULL;
 			for (i = 0; i < xpathobj->nodesetval->nodeNr; i++)
 			{
 				Datum		elem;
 				bool		elemisnull = false;
 
 				elem = PointerGetDatum(xml_xmlnodetoxmltype(xpathobj->nodesetval->nodeTab[i]));
-				astate = accumArrayResult(astate, elem,
-										  elemisnull, XMLOID,
-										  CurrentMemoryContext);
+				*astate = accumArrayResult(*astate, elem,
+										   elemisnull, XMLOID,
+										   CurrentMemoryContext);
 			}
 		}
 	}
@@ -3485,6 +3490,28 @@ xpath(PG_FUNCTION_ARGS)
 	xmlXPathFreeContext(xpathctx);
 	xmlFreeDoc(doc);
 	xmlFreeParserCtxt(ctxt);
+}
+#endif   /* USE_LIBXML */
+
+/*
+ * Evaluate XPath expression and return array of XML values.
+ *
+ * As we have no support of XQuery sequences yet, this function seems
+ * to be the most useful one (array of XML functions plays a role of
+ * some kind of substitution for XQuery sequences).
+ */
+Datum
+xpath(PG_FUNCTION_ARGS)
+{
+#ifdef USE_LIBXML
+	text	   *xpath_expr_text = PG_GETARG_TEXT_P(0);
+	xmltype    *data = PG_GETARG_XML_P(1);
+	ArrayType  *namespaces = PG_GETARG_ARRAYTYPE_P(2);
+	int			res_nitems;
+	ArrayBuildState *astate;
+
+	xpath_internal(xpath_expr_text, data, namespaces,
+				   &res_nitems, &astate);
 
 	if (res_nitems == 0)
 		PG_RETURN_ARRAYTYPE_P(construct_empty_array(XMLOID));
@@ -3494,4 +3521,120 @@ xpath(PG_FUNCTION_ARGS)
 	NO_XML_SUPPORT();
 	return 0;
 #endif
+}
+
+/*
+ * Determines if the node specified by the supplied XPath exists
+ * in a given XML document, returning a boolean.
+ */
+Datum
+xmlexists(PG_FUNCTION_ARGS)
+{
+#ifdef USE_LIBXML
+	text	   *xpath_expr_text = PG_GETARG_TEXT_P(0);
+	xmltype    *data = PG_GETARG_XML_P(1);
+	int			res_nitems;
+
+	xpath_internal(xpath_expr_text, data, NULL,
+				   &res_nitems, NULL);
+
+	PG_RETURN_BOOL(res_nitems > 0);
+#else
+	NO_XML_SUPPORT();
+	return 0;
+#endif
+}
+
+/*
+ * Determines if the node specified by the supplied XPath exists
+ * in a given XML document, returning a boolean. Differs from
+ * xmlexists as it supports namespaces and is not defined in SQL/XML.
+ */
+Datum
+xpath_exists(PG_FUNCTION_ARGS)
+{
+#ifdef USE_LIBXML
+	text	   *xpath_expr_text = PG_GETARG_TEXT_P(0);
+	xmltype    *data = PG_GETARG_XML_P(1);
+	ArrayType  *namespaces = PG_GETARG_ARRAYTYPE_P(2);
+	int			res_nitems;
+
+	xpath_internal(xpath_expr_text, data, namespaces,
+				   &res_nitems, NULL);
+
+	PG_RETURN_BOOL(res_nitems > 0);
+#else
+	NO_XML_SUPPORT();
+	return 0;
+#endif
+}
+
+/*
+ * Functions for checking well-formed-ness
+ */
+
+#ifdef USE_LIBXML
+static bool
+wellformed_xml(text *data, XmlOptionType xmloption_arg)
+{
+	bool		result;
+	xmlDocPtr	doc = NULL;
+
+	/* We want to catch any exceptions and return false */
+	PG_TRY();
+	{
+		doc = xml_parse(data, xmloption_arg, true, GetDatabaseEncoding());
+		result = true;
+	}
+	PG_CATCH();
+	{
+		FlushErrorState();
+		result = false;
+	}
+	PG_END_TRY();
+
+	if (doc)
+		xmlFreeDoc(doc);
+
+	return result;
+}
+#endif
+
+Datum
+xml_is_well_formed(PG_FUNCTION_ARGS)
+{
+#ifdef USE_LIBXML
+	text	   *data = PG_GETARG_TEXT_P(0);
+
+	PG_RETURN_BOOL(wellformed_xml(data, xmloption));
+#else
+	NO_XML_SUPPORT();
+	return 0;
+#endif   /* not USE_LIBXML */
+}
+
+Datum
+xml_is_well_formed_document(PG_FUNCTION_ARGS)
+{
+#ifdef USE_LIBXML
+	text	   *data = PG_GETARG_TEXT_P(0);
+
+	PG_RETURN_BOOL(wellformed_xml(data, XMLOPTION_DOCUMENT));
+#else
+	NO_XML_SUPPORT();
+	return 0;
+#endif   /* not USE_LIBXML */
+}
+
+Datum
+xml_is_well_formed_content(PG_FUNCTION_ARGS)
+{
+#ifdef USE_LIBXML
+	text	   *data = PG_GETARG_TEXT_P(0);
+
+	PG_RETURN_BOOL(wellformed_xml(data, XMLOPTION_CONTENT));
+#else
+	NO_XML_SUPPORT();
+	return 0;
+#endif   /* not USE_LIBXML */
 }

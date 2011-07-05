@@ -1,5 +1,4 @@
-$PostgreSQL: pgsql/src/tools/backend/README,v 1.2 2008/03/21 13:23:29 momjian Exp $
+src/tools/backend/README
 
-Just point your browser at the index.html file, and click on the 
+Just point your browser at the index.html file, and click on the
 flowchart to see the description and source code.
-

@@ -1,5 +1,4 @@
-
-# $PostgreSQL: pgsql/src/pl/plperl/text2macro.pl,v 1.2 2010/01/20 01:08:21 adunstan Exp $
+# src/pl/plperl/text2macro.pl
 
 =head1 NAME
 
@@ -89,7 +88,7 @@ sub selftest {
 	print $fh "int main() { puts(X); return 0; }\n";
 	close $fh;
 	system("cat -n $tmp.c");
-	
+
 	system("make $tmp") == 0 or die;
 	open $fh, "./$tmp |" or die;
 	my $result = <$fh>;

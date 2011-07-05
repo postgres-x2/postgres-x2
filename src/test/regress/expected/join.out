@@ -2486,6 +2486,51 @@ group by t1.q2 order by 1;
 (4 rows)
 
 --
+-- test incorrect failure to NULL pulled-up subexpressions
+--
+begin;
+create temp table a (
+     code char not null,
+     constraint a_pk primary key (code)
+);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "a_pk" for table "a"
+create temp table b (
+     a char not null,
+     num integer not null,
+     constraint b_pk primary key (a, num)
+);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "b_pk" for table "b"
+create temp table c (
+     name char not null,
+     a char,
+     constraint c_pk primary key (name)
+);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "c_pk" for table "c"
+insert into a (code) values ('p');
+insert into a (code) values ('q');
+insert into b (a, num) values ('p', 1);
+insert into b (a, num) values ('p', 2);
+insert into c (name, a) values ('A', 'p');
+insert into c (name, a) values ('B', 'q');
+insert into c (name, a) values ('C', null);
+select c.name, ss.code, ss.b_cnt, ss.const
+from c left join
+  (select a.code, coalesce(b_grp.cnt, 0) as b_cnt, -1 as const
+   from a left join
+     (select count(1) as cnt, b.a from b group by b.a) as b_grp
+     on a.code = b_grp.a
+  ) as ss
+  on (c.a = ss.code)
+order by c.name;
+ name | code | b_cnt | const 
+------+------+-------+-------
+ A    | p    |     2 |    -1
+ B    | q    |     0 |    -1
+ C    |      |       |      
+(3 rows)
+
+rollback;
+--
 -- test the corner cases FULL JOIN ON TRUE and FULL JOIN ON FALSE
 --
 select * from int4_tbl a full join int4_tbl b on true;
@@ -2628,6 +2673,43 @@ explain (costs off)
          ->  Seq Scan on child c
 (5 rows)
 
+-- check for a 9.0rc1 bug: join removal breaks pseudoconstant qual handling
+select p.* from
+  parent p left join child c on (p.k = c.k)
+  where p.k = 1 and p.k = 2;
+ k | pd 
+---+----
+(0 rows)
+
+explain (costs off)
+select p.* from
+  parent p left join child c on (p.k = c.k)
+  where p.k = 1 and p.k = 2;
+                   QUERY PLAN                   
+------------------------------------------------
+ Result
+   One-Time Filter: false
+   ->  Index Scan using parent_pkey on parent p
+         Index Cond: (k = 1)
+(4 rows)
+
+select p.* from
+  (parent p left join child c on (p.k = c.k)) join parent x on p.k = x.k
+  where p.k = 1 and p.k = 2;
+ k | pd 
+---+----
+(0 rows)
+
+explain (costs off)
+select p.* from
+  (parent p left join child c on (p.k = c.k)) join parent x on p.k = x.k
+  where p.k = 1 and p.k = 2;
+        QUERY PLAN        
+--------------------------
+ Result
+   One-Time Filter: false
+(2 rows)
+
 -- bug 5255: this is not optimizable by join removal
 begin;
 CREATE TEMP TABLE a (id int PRIMARY KEY);
@@ -2647,5 +2729,26 @@ SELECT b.* FROM b LEFT JOIN a ON (b.a_id = a.id) WHERE (a.id IS NULL OR a.id > 0
 ----+------
   1 |     
 (1 row)
+
+rollback;
+-- another join removal bug: this is not optimizable, either
+begin;
+create temp table innertab (id int8 primary key, dat1 int8);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "innertab_pkey" for table "innertab"
+insert into innertab values(123, 42);
+SELECT * FROM
+    (SELECT 1 AS x) ss1
+  LEFT JOIN
+    (SELECT q1, q2, COALESCE(dat1, q1) AS y
+     FROM int8_tbl LEFT JOIN innertab ON q2 = id) ss2
+  ON true;
+ x |        q1        |        q2         |        y         
+---+------------------+-------------------+------------------
+ 1 |              123 |               456 |              123
+ 1 |              123 |  4567890123456789 |              123
+ 1 | 4567890123456789 |               123 |               42
+ 1 | 4567890123456789 |  4567890123456789 | 4567890123456789
+ 1 | 4567890123456789 | -4567890123456789 | 4567890123456789
+(5 rows)
 
 rollback;

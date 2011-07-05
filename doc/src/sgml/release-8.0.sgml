@@ -1,11 +1,215 @@
-<!-- $PostgreSQL: pgsql/doc/src/sgml/release-8.0.sgml,v 1.7 2010/05/13 21:26:59 tgl Exp $ -->
+<!-- doc/src/sgml/release-8.0.sgml -->
 <!-- See header comment in release.sgml about typical markup -->
+
+ <sect1 id="release-8-0-26">
+  <title>Release 8.0.26</title>
+
+  <note>
+  <title>Release Date</title>
+  <simpara>2010-10-04</simpara>
+  </note>
+
+  <para>
+   This release contains a variety of fixes from 8.0.25.
+   For information about new features in the 8.0 major release, see
+   <xref linkend="release-8-0">.
+  </para>
+
+  <para>
+   This is expected to be the last <productname>PostgreSQL</> release
+   in the 8.0.X series.  Users are encouraged to update to a newer
+   release branch soon.
+  </para>
+
+  <sect2>
+   <title>Migration to Version 8.0.26</title>
+
+   <para>
+    A dump/restore is not required for those running 8.0.X.
+    However, if you are upgrading from a version earlier than 8.0.22,
+    see the release notes for 8.0.22.
+   </para>
+
+  </sect2>
+
+  <sect2>
+   <title>Changes</title>
+
+   <itemizedlist>
+
+    <listitem>
+     <para>
+      Use a separate interpreter for each calling SQL userid in PL/Perl and
+      PL/Tcl (Tom Lane)
+     </para>
+
+     <para>
+      This change prevents security problems that can be caused by subverting
+      Perl or Tcl code that will be executed later in the same session under
+      another SQL user identity (for example, within a <literal>SECURITY
+      DEFINER</> function).  Most scripting languages offer numerous ways that
+      that might be done, such as redefining standard functions or operators
+      called by the target function.  Without this change, any SQL user with
+      Perl or Tcl language usage rights can do essentially anything with the
+      SQL privileges of the target function's owner.
+     </para>
+
+     <para>
+      The cost of this change is that intentional communication among Perl
+      and Tcl functions becomes more difficult.  To provide an escape hatch,
+      PL/PerlU and PL/TclU functions continue to use only one interpreter
+      per session.  This is not considered a security issue since all such
+      functions execute at the trust level of a database superuser already.
+     </para>
+
+     <para>
+      It is likely that third-party procedural languages that claim to offer
+      trusted execution have similar security issues.  We advise contacting
+      the authors of any PL you are depending on for security-critical
+      purposes.
+     </para>
+
+     <para>
+      Our thanks to Tim Bunce for pointing out this issue (CVE-2010-3433).
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Prevent possible crashes in <function>pg_get_expr()</> by disallowing
+      it from being called with an argument that is not one of the system
+      catalog columns it's intended to be used with
+      (Heikki Linnakangas, Tom Lane)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix <quote>cannot handle unplanned sub-select</quote> error (Tom Lane)
+     </para>
+
+     <para>
+      This occurred when a sub-select contains a join alias reference that
+      expands into an expression containing another sub-select.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Defend against functions returning setof record where not all the
+      returned rows are actually of the same rowtype (Tom Lane)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Take care to fsync the contents of lockfiles (both
+      <filename>postmaster.pid</> and the socket lockfile) while writing them
+      (Tom Lane)
+     </para>
+
+     <para>
+      This omission could result in corrupted lockfile contents if the
+      machine crashes shortly after postmaster start.  That could in turn
+      prevent subsequent attempts to start the postmaster from succeeding,
+      until the lockfile is manually removed.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Avoid recursion while assigning XIDs to heavily-nested
+      subtransactions (Andres Freund, Robert Haas)
+     </para>
+
+     <para>
+      The original coding could result in a crash if there was limited
+      stack space.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix <varname>log_line_prefix</>'s <literal>%i</> escape,
+      which could produce junk early in backend startup (Tom Lane)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix possible data corruption in <command>ALTER TABLE ... SET
+      TABLESPACE</> when archiving is enabled (Jeff Davis)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Allow <command>CREATE DATABASE</> and <command>ALTER DATABASE ... SET
+      TABLESPACE</> to be interrupted by query-cancel (Guillaume Lelarge)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      In PL/Python, defend against null pointer results from
+      <function>PyCObject_AsVoidPtr</> and <function>PyCObject_FromVoidPtr</>
+      (Peter Eisentraut)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Improve <filename>contrib/dblink</>'s handling of tables containing
+      dropped columns (Tom Lane)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix connection leak after <quote>duplicate connection name</quote>
+      errors in <filename>contrib/dblink</> (Itagaki Takahiro)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix <filename>contrib/dblink</> to handle connection names longer than
+      62 bytes correctly (Itagaki Takahiro)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Update build infrastructure and documentation to reflect the source code
+      repository's move from CVS to Git (Magnus Hagander and others)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Update time zone data files to <application>tzdata</> release 2010l
+      for DST law changes in Egypt and Palestine; also historical corrections
+      for Finland.
+     </para>
+
+     <para>
+      This change also adds new names for two Micronesian timezones:
+      Pacific/Chuuk is now preferred over Pacific/Truk (and the preferred
+      abbreviation is CHUT not TRUT) and Pacific/Pohnpei is preferred over
+      Pacific/Ponape.
+     </para>
+    </listitem>
+
+   </itemizedlist>
+
+  </sect2>
+ </sect1>
 
  <sect1 id="release-8-0-25">
   <title>Release 8.0.25</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>2010-05-17</simpara>
   </note>
 
@@ -165,7 +369,7 @@
   <title>Release 8.0.24</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>2010-03-15</simpara>
   </note>
 
@@ -342,7 +546,7 @@
   <title>Release 8.0.23</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>2009-12-14</simpara>
   </note>
 
@@ -497,7 +701,7 @@
   <title>Release 8.0.22</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>2009-09-09</simpara>
   </note>
 
@@ -661,7 +865,7 @@
   <title>Release 8.0.21</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>2009-03-16</simpara>
   </note>
 
@@ -741,7 +945,7 @@
   <title>Release 8.0.20</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>2009-02-02</simpara>
   </note>
 
@@ -827,7 +1031,7 @@
   <title>Release 8.0.19</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>2008-11-03</simpara>
   </note>
 
@@ -938,7 +1142,7 @@
   <title>Release 8.0.18</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>2008-09-22</simpara>
   </note>
 
@@ -1072,7 +1276,7 @@
   <title>Release 8.0.17</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>2008-06-12</simpara>
   </note>
 
@@ -1126,7 +1330,7 @@
   <title>Release 8.0.16</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>never released</simpara>
   </note>
 
@@ -1363,7 +1567,7 @@
   <title>Release 8.0.15</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>2008-01-07</simpara>
   </note>
 
@@ -1579,7 +1783,7 @@
   <title>Release 8.0.14</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>2007-09-17</simpara>
   </note>
 
@@ -1687,7 +1891,7 @@
   <title>Release 8.0.13</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>2007-04-23</simpara>
   </note>
 
@@ -1764,7 +1968,7 @@
   <title>Release 8.0.12</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>2007-02-07</simpara>
   </note>
 
@@ -1806,7 +2010,7 @@
   <title>Release 8.0.11</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>2007-02-05</simpara>
   </note>
 
@@ -1877,7 +2081,7 @@
   <title>Release 8.0.10</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>2007-01-08</simpara>
   </note>
 
@@ -1996,7 +2200,7 @@
   <title>Release 8.0.9</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>2006-10-16</simpara>
   </note>
 
@@ -2052,7 +2256,7 @@ Wieland)</para></listitem>
   <title>Release 8.0.8</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>2006-05-23</simpara>
   </note>
 
@@ -2166,7 +2370,7 @@ Fuhr)</para></listitem>
   <title>Release 8.0.7</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>2006-02-14</simpara>
   </note>
 
@@ -2265,7 +2469,7 @@ and <function>isinf</> during configure (Tom)</para></listitem>
   <title>Release 8.0.6</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>2006-01-09</simpara>
   </note>
 
@@ -2350,7 +2554,7 @@ what's actually returned by the query (Joe)</para></listitem>
   <title>Release 8.0.5</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>2005-12-12</simpara>
   </note>
 
@@ -2432,7 +2636,7 @@ to subquery results</para></listitem>
   <title>Release 8.0.4</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>2005-10-04</simpara>
   </note>
 
@@ -2512,7 +2716,7 @@ when opening the file fails</para></listitem>
 constraints more reliably</para></listitem>
 <listitem><para>Fix password prompting in <application>pg_restore</> on
 Windows</para></listitem>
-<listitem><para>Fix PL/PgSQL to handle <literal>var := var</> correctly when
+<listitem><para>Fix PL/pgSQL to handle <literal>var := var</> correctly when
 the variable is of pass-by-reference type</para></listitem>
 <listitem><para>Fix PL/Perl <literal>%_SHARED</> so it's actually
 shared</para></listitem>
@@ -2529,7 +2733,7 @@ code</para></listitem>
   <title>Release 8.0.3</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>2005-05-09</simpara>
   </note>
 
@@ -2649,7 +2853,7 @@ data types</para></listitem>
   <title>Release 8.0.2</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>2005-04-07</simpara>
   </note>
 
@@ -2806,7 +3010,7 @@ addresses in <type>INET</> data types (Tom)</para></listitem>
   <title>Release 8.0.1</title>
 
   <note>
-  <title>Release date</title>
+  <title>Release Date</title>
   <simpara>2005-01-31</simpara>
   </note>
 
@@ -2875,7 +3079,7 @@ typedefs (Michael)</para></listitem>
   <title>Release 8.0</title>
 
   <note>
-   <title>Release date</title>
+   <title>Release Date</title>
    <simpara>2005-01-19</simpara>
   </note>
 

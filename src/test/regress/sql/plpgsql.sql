@@ -1420,7 +1420,7 @@ insert into IFace values ('IF', 'orion', 'ethernet_interface_name_too_long', '')
 
 --
 -- The following tests are unrelated to the scenario outlined above;
--- they merely exercise specific parts of PL/PgSQL
+-- they merely exercise specific parts of PL/pgSQL
 --
 
 --
@@ -1965,6 +1965,31 @@ end;
 $$ language plpgsql;
 
 select raise_test2(10);
+
+-- Test re-RAISE inside a nested exception block.  This case is allowed
+-- by Oracle's PL/SQL but was handled differently by PG before 9.1.
+
+CREATE FUNCTION reraise_test() RETURNS void AS $$
+BEGIN
+   BEGIN
+       RAISE syntax_error;
+   EXCEPTION
+       WHEN syntax_error THEN
+           BEGIN
+               raise notice 'exception % thrown in inner block, reraising', sqlerrm;
+               RAISE;
+           EXCEPTION
+               WHEN OTHERS THEN
+                   raise notice 'RIGHT - exception % caught in inner block', sqlerrm;
+           END;
+   END;
+EXCEPTION
+   WHEN OTHERS THEN
+       raise notice 'WRONG - exception % caught in outer block', sqlerrm;
+END;
+$$ LANGUAGE plpgsql;
+
+SELECT reraise_test();
 
 --
 -- reject function definitions that contain malformed SQL queries at
@@ -2632,7 +2657,7 @@ select exc_using(5, 'foobar');
 drop function exc_using(int, text);
 
 create or replace function exc_using(int) returns void as $$
-declare 
+declare
   c refcursor;
   i int;
 begin
@@ -2643,7 +2668,7 @@ begin
     raise notice '%', i;
   end loop;
   close c;
-  return;  
+  return;
 end;
 $$ language plpgsql;
 
@@ -3125,6 +3150,88 @@ SELECT * FROM leaker_1(true);
 DROP FUNCTION leaker_1(bool);
 DROP FUNCTION leaker_2(bool);
 
+-- Test for appropriate cleanup of non-simple expression evaluations
+-- (bug in all versions prior to August 2010)
+
+CREATE FUNCTION nonsimple_expr_test() RETURNS text[] AS $$
+DECLARE
+  arr text[];
+  lr text;
+  i integer;
+BEGIN
+  arr := array[array['foo','bar'], array['baz', 'quux']];
+  lr := 'fool';
+  i := 1;
+  -- use sub-SELECTs to make expressions non-simple
+  arr[(SELECT i)][(SELECT i+1)] := (SELECT lr);
+  RETURN arr;
+END;
+$$ LANGUAGE plpgsql;
+
+SELECT nonsimple_expr_test();
+
+DROP FUNCTION nonsimple_expr_test();
+
+CREATE FUNCTION nonsimple_expr_test() RETURNS integer AS $$
+declare
+   i integer NOT NULL := 0;
+begin
+  begin
+    i := (SELECT NULL::integer);  -- should throw error
+  exception
+    WHEN OTHERS THEN
+      i := (SELECT 1::integer);
+  end;
+  return i;
+end;
+$$ LANGUAGE plpgsql;
+
+SELECT nonsimple_expr_test();
+
+DROP FUNCTION nonsimple_expr_test();
+
+--
+-- Test cases involving recursion and error recovery in simple expressions
+-- (bugs in all versions before October 2010).  The problems are most
+-- easily exposed by mutual recursion between plpgsql and sql functions.
+--
+
+create function recurse(float8) returns float8 as
+$$
+begin
+  if ($1 > 0) then
+    return sql_recurse($1 - 1);
+  else
+    return $1;
+  end if;
+end;
+$$ language plpgsql;
+
+-- "limit" is to prevent this from being inlined
+create function sql_recurse(float8) returns float8 as
+$$ select recurse($1) limit 1; $$ language sql;
+
+select recurse(10);
+
+create function error1(text) returns text language sql as
+$$ SELECT relname::text FROM pg_class c WHERE c.oid = $1::regclass $$;
+
+create function error2(p_name_table text) returns text language plpgsql as $$
+begin
+  return error1(p_name_table);
+end$$;
+
+BEGIN;
+create table public.stuffs (stuff text);
+SAVEPOINT a;
+select error2('nonexistent.stuffs');
+ROLLBACK TO a;
+select error2('public.stuffs');
+rollback;
+
+drop function error2(p_name_table text);
+drop function error1(text);
+
 -- Test handling of string literals.
 
 set standard_conforming_strings = off;
@@ -3268,3 +3375,117 @@ $$ language plpgsql;
 select unreserved_test();
 
 drop function unreserved_test();
+
+--
+-- Test FOREACH over arrays
+--
+
+create function foreach_test(anyarray)
+returns void as $$
+declare x int;
+begin
+  foreach x in array $1
+  loop
+    raise notice '%', x;
+  end loop;
+  end;
+$$ language plpgsql;
+
+select foreach_test(ARRAY[1,2,3,4]);
+select foreach_test(ARRAY[[1,2],[3,4]]);
+
+create or replace function foreach_test(anyarray)
+returns void as $$
+declare x int;
+begin
+  foreach x slice 1 in array $1
+  loop
+    raise notice '%', x;
+  end loop;
+  end;
+$$ language plpgsql;
+
+-- should fail
+select foreach_test(ARRAY[1,2,3,4]);
+select foreach_test(ARRAY[[1,2],[3,4]]);
+
+create or replace function foreach_test(anyarray)
+returns void as $$
+declare x int[];
+begin
+  foreach x slice 1 in array $1
+  loop
+    raise notice '%', x;
+  end loop;
+  end;
+$$ language plpgsql;
+
+select foreach_test(ARRAY[1,2,3,4]);
+select foreach_test(ARRAY[[1,2],[3,4]]);
+
+-- higher level of slicing
+create or replace function foreach_test(anyarray)
+returns void as $$
+declare x int[];
+begin
+  foreach x slice 2 in array $1
+  loop
+    raise notice '%', x;
+  end loop;
+  end;
+$$ language plpgsql;
+
+-- should fail
+select foreach_test(ARRAY[1,2,3,4]);
+-- ok
+select foreach_test(ARRAY[[1,2],[3,4]]);
+select foreach_test(ARRAY[[[1,2]],[[3,4]]]);
+
+create type xy_tuple AS (x int, y int);
+
+-- iteration over array of records
+create or replace function foreach_test(anyarray)
+returns void as $$
+declare r record;
+begin
+  foreach r in array $1
+  loop
+    raise notice '%', r;
+  end loop;
+  end;
+$$ language plpgsql;
+
+select foreach_test(ARRAY[(10,20),(40,69),(35,78)]::xy_tuple[]);
+select foreach_test(ARRAY[[(10,20),(40,69)],[(35,78),(88,76)]]::xy_tuple[]);
+
+create or replace function foreach_test(anyarray)
+returns void as $$
+declare x int; y int;
+begin
+  foreach x, y in array $1
+  loop
+    raise notice 'x = %, y = %', x, y;
+  end loop;
+  end;
+$$ language plpgsql;
+
+select foreach_test(ARRAY[(10,20),(40,69),(35,78)]::xy_tuple[]);
+select foreach_test(ARRAY[[(10,20),(40,69)],[(35,78),(88,76)]]::xy_tuple[]);
+
+-- slicing over array of composite types
+create or replace function foreach_test(anyarray)
+returns void as $$
+declare x xy_tuple[];
+begin
+  foreach x slice 1 in array $1
+  loop
+    raise notice '%', x;
+  end loop;
+  end;
+$$ language plpgsql;
+
+select foreach_test(ARRAY[(10,20),(40,69),(35,78)]::xy_tuple[]);
+select foreach_test(ARRAY[[(10,20),(40,69)],[(35,78),(88,76)]]::xy_tuple[]);
+
+drop function foreach_test(anyarray);
+drop type xy_tuple;

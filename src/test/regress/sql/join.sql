@@ -605,6 +605,46 @@ from int8_tbl t1 left join
 group by t1.q2 order by 1;
 
 --
+-- test incorrect failure to NULL pulled-up subexpressions
+--
+begin;
+
+create temp table a (
+     code char not null,
+     constraint a_pk primary key (code)
+);
+create temp table b (
+     a char not null,
+     num integer not null,
+     constraint b_pk primary key (a, num)
+);
+create temp table c (
+     name char not null,
+     a char,
+     constraint c_pk primary key (name)
+);
+
+insert into a (code) values ('p');
+insert into a (code) values ('q');
+insert into b (a, num) values ('p', 1);
+insert into b (a, num) values ('p', 2);
+insert into c (name, a) values ('A', 'p');
+insert into c (name, a) values ('B', 'q');
+insert into c (name, a) values ('C', null);
+
+select c.name, ss.code, ss.b_cnt, ss.const
+from c left join
+  (select a.code, coalesce(b_grp.cnt, 0) as b_cnt, -1 as const
+   from a left join
+     (select count(1) as cnt, b.a from b group by b.a) as b_grp
+     on a.code = b_grp.a
+  ) as ss
+  on (c.a = ss.code)
+order by c.name;
+
+rollback;
+
+--
 -- test the corner cases FULL JOIN ON TRUE and FULL JOIN ON FALSE
 --
 select * from int4_tbl a full join int4_tbl b on true;
@@ -657,6 +697,23 @@ explain (costs off)
     left join (select c.*, true as linked from child c) as ss
     on (p.k = ss.k);
 
+-- check for a 9.0rc1 bug: join removal breaks pseudoconstant qual handling
+select p.* from
+  parent p left join child c on (p.k = c.k)
+  where p.k = 1 and p.k = 2;
+explain (costs off)
+select p.* from
+  parent p left join child c on (p.k = c.k)
+  where p.k = 1 and p.k = 2;
+
+select p.* from
+  (parent p left join child c on (p.k = c.k)) join parent x on p.k = x.k
+  where p.k = 1 and p.k = 2;
+explain (costs off)
+select p.* from
+  (parent p left join child c on (p.k = c.k)) join parent x on p.k = x.k
+  where p.k = 1 and p.k = 2;
+
 -- bug 5255: this is not optimizable by join removal
 begin;
 
@@ -667,5 +724,20 @@ INSERT INTO b VALUES (0, 0), (1, NULL);
 
 SELECT * FROM b LEFT JOIN a ON (b.a_id = a.id) WHERE (a.id IS NULL OR a.id > 0);
 SELECT b.* FROM b LEFT JOIN a ON (b.a_id = a.id) WHERE (a.id IS NULL OR a.id > 0);
+
+rollback;
+
+-- another join removal bug: this is not optimizable, either
+begin;
+
+create temp table innertab (id int8 primary key, dat1 int8);
+insert into innertab values(123, 42);
+
+SELECT * FROM
+    (SELECT 1 AS x) ss1
+  LEFT JOIN
+    (SELECT q1, q2, COALESCE(dat1, q1) AS y
+     FROM int8_tbl LEFT JOIN innertab ON q2 = id) ss2
+  ON true;
 
 rollback;

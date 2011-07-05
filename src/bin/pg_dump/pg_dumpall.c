@@ -2,11 +2,11 @@
  *
  * pg_dumpall.c
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
- * $PostgreSQL: pgsql/src/bin/pg_dump/pg_dumpall.c,v 1.134 2010/02/26 02:01:17 momjian Exp $
+ * src/bin/pg_dump/pg_dumpall.c
  *
  *-------------------------------------------------------------------------
  */
@@ -69,6 +69,8 @@ static int	disable_triggers = 0;
 static int	inserts = 0;
 static int	no_tablespaces = 0;
 static int	use_setsessauth = 0;
+static int	no_security_labels = 0;
+static int	no_unlogged_table_data = 0;
 static int	server_version;
 
 static FILE *OPF;
@@ -89,7 +91,6 @@ main(int argc, char *argv[])
 	bool		output_clean = false;
 	bool		roles_only = false;
 	bool		tablespaces_only = false;
-	bool		schema_only = false;
 	PGconn	   *conn;
 	int			encoding;
 	const char *std_strings;
@@ -130,8 +131,11 @@ main(int argc, char *argv[])
 		{"inserts", no_argument, &inserts, 1},
 		{"lock-wait-timeout", required_argument, NULL, 2},
 		{"no-tablespaces", no_argument, &no_tablespaces, 1},
+		{"quote-all-identifiers", no_argument, &quote_all_identifiers, 1},
 		{"role", required_argument, NULL, 3},
 		{"use-set-session-authorization", no_argument, &use_setsessauth, 1},
+		{"no-security-labels", no_argument, &no_security_labels, 1},
+		{"no-unlogged-table-data", no_argument, &no_unlogged_table_data, 1},
 
 		{NULL, 0, NULL, 0}
 	};
@@ -180,7 +184,7 @@ main(int argc, char *argv[])
 
 	pgdumpopts = createPQExpBuffer();
 
-	while ((c = getopt_long(argc, argv, "acf:gh:il:oOp:rsS:tU:vwWxX:", long_options, &optindex)) != -1)
+	while ((c = getopt_long(argc, argv, "acf:gh:il:oOp:rsS:tU:vwWx", long_options, &optindex)) != -1)
 	{
 		switch (c)
 		{
@@ -236,7 +240,6 @@ main(int argc, char *argv[])
 				break;
 
 			case 's':
-				schema_only = true;
 				appendPQExpBuffer(pgdumpopts, " -s");
 				break;
 
@@ -275,26 +278,6 @@ main(int argc, char *argv[])
 				appendPQExpBuffer(pgdumpopts, " -x");
 				break;
 
-			case 'X':
-				/* -X is a deprecated alternative to long options */
-				if (strcmp(optarg, "disable-dollar-quoting") == 0)
-					disable_dollar_quoting = 1;
-				else if (strcmp(optarg, "disable-triggers") == 0)
-					disable_triggers = 1;
-				else if (strcmp(optarg, "no-tablespaces") == 0)
-					no_tablespaces = 1;
-				else if (strcmp(optarg, "use-set-session-authorization") == 0)
-					use_setsessauth = 1;
-				else
-				{
-					fprintf(stderr,
-							_("%s: invalid -X option -- %s\n"),
-							progname, optarg);
-					fprintf(stderr, _("Try \"%s --help\" for more information.\n"), progname);
-					exit(1);
-				}
-				break;
-
 			case 0:
 				break;
 
@@ -315,22 +298,7 @@ main(int argc, char *argv[])
 		}
 	}
 
-	/* Add long options to the pg_dump argument list */
-	if (binary_upgrade)
-		appendPQExpBuffer(pgdumpopts, " --binary-upgrade");
-	if (column_inserts)
-		appendPQExpBuffer(pgdumpopts, " --column-inserts");
-	if (disable_dollar_quoting)
-		appendPQExpBuffer(pgdumpopts, " --disable-dollar-quoting");
-	if (disable_triggers)
-		appendPQExpBuffer(pgdumpopts, " --disable-triggers");
-	if (inserts)
-		appendPQExpBuffer(pgdumpopts, " --inserts");
-	if (no_tablespaces)
-		appendPQExpBuffer(pgdumpopts, " --no-tablespaces");
-	if (use_setsessauth)
-		appendPQExpBuffer(pgdumpopts, " --use-set-session-authorization");
-
+	/* Complain if any arguments remain */
 	if (optind < argc)
 	{
 		fprintf(stderr, _("%s: too many command-line arguments (first is \"%s\")\n"),
@@ -367,6 +335,28 @@ main(int argc, char *argv[])
 				progname);
 		exit(1);
 	}
+
+	/* Add long options to the pg_dump argument list */
+	if (binary_upgrade)
+		appendPQExpBuffer(pgdumpopts, " --binary-upgrade");
+	if (column_inserts)
+		appendPQExpBuffer(pgdumpopts, " --column-inserts");
+	if (disable_dollar_quoting)
+		appendPQExpBuffer(pgdumpopts, " --disable-dollar-quoting");
+	if (disable_triggers)
+		appendPQExpBuffer(pgdumpopts, " --disable-triggers");
+	if (inserts)
+		appendPQExpBuffer(pgdumpopts, " --inserts");
+	if (no_tablespaces)
+		appendPQExpBuffer(pgdumpopts, " --no-tablespaces");
+	if (quote_all_identifiers)
+		appendPQExpBuffer(pgdumpopts, " --quote-all-identifiers");
+	if (use_setsessauth)
+		appendPQExpBuffer(pgdumpopts, " --use-set-session-authorization");
+	if (no_security_labels)
+		appendPQExpBuffer(pgdumpopts, " --no-security-labels");
+	if (no_unlogged_table_data)
+		appendPQExpBuffer(pgdumpopts, " --no-unlogged-table-data");
 
 	/*
 	 * If there was a database specified on the command line, use that,
@@ -439,6 +429,10 @@ main(int argc, char *argv[])
 		executeCommand(conn, query->data);
 		destroyPQExpBuffer(query);
 	}
+
+	/* Force quoting of all identifiers if requested. */
+	if (quote_all_identifiers && server_version >= 90100)
+		executeCommand(conn, "SET quote_all_identifiers = true");
 
 	fprintf(OPF, "--\n-- PostgreSQL database cluster dump\n--\n\n");
 	if (verbose)
@@ -552,12 +546,14 @@ help(void)
 	printf(_("  -t, --tablespaces-only      dump only tablespaces, no databases or roles\n"));
 	printf(_("  -x, --no-privileges         do not dump privileges (grant/revoke)\n"));
 	printf(_("  --binary-upgrade            for use by upgrade utilities only\n"));
-	printf(_("  --inserts                   dump data as INSERT commands, rather than COPY\n"));
 	printf(_("  --column-inserts            dump data as INSERT commands with column names\n"));
 	printf(_("  --disable-dollar-quoting    disable dollar quoting, use SQL standard quoting\n"));
 	printf(_("  --disable-triggers          disable triggers during data-only restore\n"));
+	printf(_("  --inserts                   dump data as INSERT commands, rather than COPY\n"));
+	printf(_("  --no-security-labels        do not dump security label assignments\n"));
 	printf(_("  --no-tablespaces            do not dump tablespace assignments\n"));
-	printf(_("  --role=ROLENAME             do SET ROLE before dump\n"));
+	printf(_("  --no-unlogged-table-data    do not dump unlogged table data\n"));
+	printf(_("  --quote-all-identifiers     quote all identifiers, even if not key words\n"));
 	printf(_("  --use-set-session-authorization\n"
 			 "                              use SET SESSION AUTHORIZATION commands instead of\n"
 	"                              ALTER OWNER commands to set ownership\n"));
@@ -569,6 +565,7 @@ help(void)
 	printf(_("  -U, --username=NAME      connect as specified database user\n"));
 	printf(_("  -w, --no-password        never prompt for password\n"));
 	printf(_("  -W, --password           force password prompt (should happen automatically)\n"));
+	printf(_("  --role=ROLENAME          do SET ROLE before dump\n"));
 
 	printf(_("\nIf -f/--file is not used, then the SQL script will be written to the standard\n"
 			 "output.\n\n"));
@@ -627,80 +624,92 @@ dumpRoles(PGconn *conn)
 {
 	PQExpBuffer buf = createPQExpBuffer();
 	PGresult   *res;
-	int			i_rolname,
+	int			i_oid,
+				i_rolname,
 				i_rolsuper,
 				i_rolinherit,
 				i_rolcreaterole,
 				i_rolcreatedb,
-				i_rolcatupdate,
 				i_rolcanlogin,
 				i_rolconnlimit,
 				i_rolpassword,
 				i_rolvaliduntil,
+				i_rolreplication,
 				i_rolcomment;
 	int			i;
 
 	/* note: rolconfig is dumped later */
-	if (server_version >= 80200)
+	if (server_version >= 90100)
 		printfPQExpBuffer(buf,
-						  "SELECT rolname, rolsuper, rolinherit, "
-						  "rolcreaterole, rolcreatedb, rolcatupdate, "
+						  "SELECT oid, rolname, rolsuper, rolinherit, "
+						  "rolcreaterole, rolcreatedb, "
 						  "rolcanlogin, rolconnlimit, rolpassword, "
-						  "rolvaliduntil, "
+						  "rolvaliduntil, rolreplication, "
 			  "pg_catalog.shobj_description(oid, 'pg_authid') as rolcomment "
 						  "FROM pg_authid "
-						  "ORDER BY 1");
+						  "ORDER BY 2");
+	else if (server_version >= 80200)
+		printfPQExpBuffer(buf,
+						  "SELECT oid, rolname, rolsuper, rolinherit, "
+						  "rolcreaterole, rolcreatedb, "
+						  "rolcanlogin, rolconnlimit, rolpassword, "
+						  "rolvaliduntil, false as rolreplication, "
+			  "pg_catalog.shobj_description(oid, 'pg_authid') as rolcomment "
+						  "FROM pg_authid "
+						  "ORDER BY 2");
 	else if (server_version >= 80100)
 		printfPQExpBuffer(buf,
-						  "SELECT rolname, rolsuper, rolinherit, "
-						  "rolcreaterole, rolcreatedb, rolcatupdate, "
+						  "SELECT oid, rolname, rolsuper, rolinherit, "
+						  "rolcreaterole, rolcreatedb, "
 						  "rolcanlogin, rolconnlimit, rolpassword, "
-						  "rolvaliduntil, null as rolcomment "
+						  "rolvaliduntil, false as rolreplication, "
+						  "null as rolcomment "
 						  "FROM pg_authid "
-						  "ORDER BY 1");
+						  "ORDER BY 2");
 	else
 		printfPQExpBuffer(buf,
-						  "SELECT usename as rolname, "
+						  "SELECT 0, usename as rolname, "
 						  "usesuper as rolsuper, "
 						  "true as rolinherit, "
 						  "usesuper as rolcreaterole, "
 						  "usecreatedb as rolcreatedb, "
-						  "usecatupd as rolcatupdate, "
 						  "true as rolcanlogin, "
 						  "-1 as rolconnlimit, "
 						  "passwd as rolpassword, "
 						  "valuntil as rolvaliduntil, "
+						  "false as rolreplication, "
 						  "null as rolcomment "
 						  "FROM pg_shadow "
 						  "UNION ALL "
-						  "SELECT groname as rolname, "
+						  "SELECT 0, groname as rolname, "
 						  "false as rolsuper, "
 						  "true as rolinherit, "
 						  "false as rolcreaterole, "
 						  "false as rolcreatedb, "
-						  "false as rolcatupdate, "
 						  "false as rolcanlogin, "
 						  "-1 as rolconnlimit, "
 						  "null::text as rolpassword, "
 						  "null::abstime as rolvaliduntil, "
+						  "false as rolreplication, "
 						  "null as rolcomment "
 						  "FROM pg_group "
 						  "WHERE NOT EXISTS (SELECT 1 FROM pg_shadow "
 						  " WHERE usename = groname) "
-						  "ORDER BY 1");
+						  "ORDER BY 2");
 
 	res = executeQuery(conn, buf->data);
 
+	i_oid = PQfnumber(res, "oid");
 	i_rolname = PQfnumber(res, "rolname");
 	i_rolsuper = PQfnumber(res, "rolsuper");
 	i_rolinherit = PQfnumber(res, "rolinherit");
 	i_rolcreaterole = PQfnumber(res, "rolcreaterole");
 	i_rolcreatedb = PQfnumber(res, "rolcreatedb");
-	i_rolcatupdate = PQfnumber(res, "rolcatupdate");
 	i_rolcanlogin = PQfnumber(res, "rolcanlogin");
 	i_rolconnlimit = PQfnumber(res, "rolconnlimit");
 	i_rolpassword = PQfnumber(res, "rolpassword");
 	i_rolvaliduntil = PQfnumber(res, "rolvaliduntil");
+	i_rolreplication = PQfnumber(res, "rolreplication");
 	i_rolcomment = PQfnumber(res, "rolcomment");
 
 	if (PQntuples(res) > 0)
@@ -713,6 +722,16 @@ dumpRoles(PGconn *conn)
 		rolename = PQgetvalue(res, i, i_rolname);
 
 		resetPQExpBuffer(buf);
+
+		if (binary_upgrade)
+		{
+			Oid			auth_oid = atooid(PQgetvalue(res, i, i_oid));
+
+			appendPQExpBuffer(buf, "\n-- For binary upgrade, must preserve pg_authid.oid\n");
+			appendPQExpBuffer(buf,
+							  "SELECT binary_upgrade.set_next_pg_authid_oid('%u'::pg_catalog.oid);\n\n",
+							  auth_oid);
+		}
 
 		/*
 		 * We dump CREATE ROLE followed by ALTER ROLE to ensure that the role
@@ -748,6 +767,11 @@ dumpRoles(PGconn *conn)
 			appendPQExpBuffer(buf, " LOGIN");
 		else
 			appendPQExpBuffer(buf, " NOLOGIN");
+
+		if (strcmp(PQgetvalue(res, i, i_rolreplication), "t") == 0)
+			appendPQExpBuffer(buf, " REPLICATION");
+		else
+			appendPQExpBuffer(buf, " NOREPLICATION");
 
 		if (strcmp(PQgetvalue(res, i, i_rolconnlimit), "-1") != 0)
 			appendPQExpBuffer(buf, " CONNECTION LIMIT %s",

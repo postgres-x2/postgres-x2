@@ -3,12 +3,12 @@
  * varchar.c
  *	  Functions for the built-in types char(n) and varchar(n).
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/utils/adt/varchar.c,v 1.133 2010/01/02 16:57:55 momjian Exp $
+ *	  src/backend/utils/adt/varchar.c
  *
  *-------------------------------------------------------------------------
  */
@@ -690,7 +690,7 @@ bpchareq(PG_FUNCTION_ARGS)
 	if (len1 != len2)
 		result = false;
 	else
-		result = (strncmp(VARDATA_ANY(arg1), VARDATA_ANY(arg2), len1) == 0);
+		result = (memcmp(VARDATA_ANY(arg1), VARDATA_ANY(arg2), len1) == 0);
 
 	PG_FREE_IF_COPY(arg1, 0);
 	PG_FREE_IF_COPY(arg2, 1);
@@ -717,7 +717,7 @@ bpcharne(PG_FUNCTION_ARGS)
 	if (len1 != len2)
 		result = true;
 	else
-		result = (strncmp(VARDATA_ANY(arg1), VARDATA_ANY(arg2), len1) != 0);
+		result = (memcmp(VARDATA_ANY(arg1), VARDATA_ANY(arg2), len1) != 0);
 
 	PG_FREE_IF_COPY(arg1, 0);
 	PG_FREE_IF_COPY(arg2, 1);
@@ -737,7 +737,8 @@ bpcharlt(PG_FUNCTION_ARGS)
 	len1 = bcTruelen(arg1);
 	len2 = bcTruelen(arg2);
 
-	cmp = varstr_cmp(VARDATA_ANY(arg1), len1, VARDATA_ANY(arg2), len2);
+	cmp = varstr_cmp(VARDATA_ANY(arg1), len1, VARDATA_ANY(arg2), len2,
+					 PG_GET_COLLATION());
 
 	PG_FREE_IF_COPY(arg1, 0);
 	PG_FREE_IF_COPY(arg2, 1);
@@ -757,7 +758,8 @@ bpcharle(PG_FUNCTION_ARGS)
 	len1 = bcTruelen(arg1);
 	len2 = bcTruelen(arg2);
 
-	cmp = varstr_cmp(VARDATA_ANY(arg1), len1, VARDATA_ANY(arg2), len2);
+	cmp = varstr_cmp(VARDATA_ANY(arg1), len1, VARDATA_ANY(arg2), len2,
+					 PG_GET_COLLATION());
 
 	PG_FREE_IF_COPY(arg1, 0);
 	PG_FREE_IF_COPY(arg2, 1);
@@ -777,7 +779,8 @@ bpchargt(PG_FUNCTION_ARGS)
 	len1 = bcTruelen(arg1);
 	len2 = bcTruelen(arg2);
 
-	cmp = varstr_cmp(VARDATA_ANY(arg1), len1, VARDATA_ANY(arg2), len2);
+	cmp = varstr_cmp(VARDATA_ANY(arg1), len1, VARDATA_ANY(arg2), len2,
+					 PG_GET_COLLATION());
 
 	PG_FREE_IF_COPY(arg1, 0);
 	PG_FREE_IF_COPY(arg2, 1);
@@ -797,7 +800,8 @@ bpcharge(PG_FUNCTION_ARGS)
 	len1 = bcTruelen(arg1);
 	len2 = bcTruelen(arg2);
 
-	cmp = varstr_cmp(VARDATA_ANY(arg1), len1, VARDATA_ANY(arg2), len2);
+	cmp = varstr_cmp(VARDATA_ANY(arg1), len1, VARDATA_ANY(arg2), len2,
+					 PG_GET_COLLATION());
 
 	PG_FREE_IF_COPY(arg1, 0);
 	PG_FREE_IF_COPY(arg2, 1);
@@ -817,7 +821,8 @@ bpcharcmp(PG_FUNCTION_ARGS)
 	len1 = bcTruelen(arg1);
 	len2 = bcTruelen(arg2);
 
-	cmp = varstr_cmp(VARDATA_ANY(arg1), len1, VARDATA_ANY(arg2), len2);
+	cmp = varstr_cmp(VARDATA_ANY(arg1), len1, VARDATA_ANY(arg2), len2,
+					 PG_GET_COLLATION());
 
 	PG_FREE_IF_COPY(arg1, 0);
 	PG_FREE_IF_COPY(arg2, 1);
@@ -837,7 +842,8 @@ bpchar_larger(PG_FUNCTION_ARGS)
 	len1 = bcTruelen(arg1);
 	len2 = bcTruelen(arg2);
 
-	cmp = varstr_cmp(VARDATA_ANY(arg1), len1, VARDATA_ANY(arg2), len2);
+	cmp = varstr_cmp(VARDATA_ANY(arg1), len1, VARDATA_ANY(arg2), len2,
+					 PG_GET_COLLATION());
 
 	PG_RETURN_BPCHAR_P((cmp >= 0) ? arg1 : arg2);
 }
@@ -854,7 +860,8 @@ bpchar_smaller(PG_FUNCTION_ARGS)
 	len1 = bcTruelen(arg1);
 	len2 = bcTruelen(arg2);
 
-	cmp = varstr_cmp(VARDATA_ANY(arg1), len1, VARDATA_ANY(arg2), len2);
+	cmp = varstr_cmp(VARDATA_ANY(arg1), len1, VARDATA_ANY(arg2), len2,
+					 PG_GET_COLLATION());
 
 	PG_RETURN_BPCHAR_P((cmp <= 0) ? arg1 : arg2);
 }
@@ -905,7 +912,7 @@ internal_bpchar_pattern_compare(BpChar *arg1, BpChar *arg2)
 	len1 = bcTruelen(arg1);
 	len2 = bcTruelen(arg2);
 
-	result = strncmp(VARDATA_ANY(arg1), VARDATA_ANY(arg2), Min(len1, len2));
+	result = memcmp(VARDATA_ANY(arg1), VARDATA_ANY(arg2), Min(len1, len2));
 	if (result != 0)
 		return result;
 	else if (len1 < len2)

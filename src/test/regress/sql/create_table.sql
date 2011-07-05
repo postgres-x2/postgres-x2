@@ -6,7 +6,7 @@
 -- CLASS DEFINITIONS
 --
 CREATE TABLE hobbies_r (
-	name		text, 
+	name		text,
 	person 		text
 );
 
@@ -147,7 +147,7 @@ CREATE TABLE real_city (
 -- f inherits from e (three-level single inheritance)
 --
 CREATE TABLE a_star (
-	class		char, 
+	class		char,
 	a 			int4
 );
 
@@ -203,7 +203,7 @@ CREATE TABLE hash_f8_heap (
 
 -- don't include the hash_ovfl_heap stuff in the distribution
 -- the data set is too large for what it's worth
--- 
+--
 -- CREATE TABLE hash_ovfl_heap (
 --	x			int4,
 --	y			int4
@@ -225,7 +225,7 @@ CREATE TABLE bt_txt_heap (
 );
 
 CREATE TABLE bt_f8_heap (
-	seqno 		float8, 
+	seqno 		float8,
 	random 		int4
 );
 
@@ -241,8 +241,11 @@ CREATE TABLE array_index_op_test (
 	t			text[]
 );
 
-CREATE TABLE test_tsvector( 
-	t text, 
-	a tsvector 
+CREATE TABLE IF NOT EXISTS test_tsvector(
+	t text,
+	a tsvector
 );
 
+CREATE TABLE IF NOT EXISTS test_tsvector(
+	t text
+);

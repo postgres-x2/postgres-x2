@@ -4,10 +4,10 @@
  *	  solution to the query optimization problem
  *	  by means of a Genetic Algorithm (GA)
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/backend/optimizer/geqo/geqo_main.c,v 1.59 2010/01/02 16:57:46 momjian Exp $
+ * src/backend/optimizer/geqo/geqo_main.c
  *
  *-------------------------------------------------------------------------
  */
@@ -73,15 +73,17 @@ geqo(PlannerInfo *root, int number_of_rels, List *initial_rels)
 	Chromosome *kid;
 	Pool	   *pool;
 	int			pool_size,
-				number_generations,
-				status_interval;
+				number_generations;
+
+#ifdef GEQO_DEBUG
+	int			status_interval;
+#endif
 	Gene	   *best_tour;
 	RelOptInfo *best_rel;
 
 #if defined(ERX)
 	Edge	   *edge_table;		/* list of edges */
 	int			edge_failures = 0;
-	float		difference;
 #endif
 #if defined(CX) || defined(PX) || defined(OX1) || defined(OX2)
 	City	   *city_table;		/* list of cities */
@@ -101,7 +103,9 @@ geqo(PlannerInfo *root, int number_of_rels, List *initial_rels)
 /* set GA parameters */
 	pool_size = gimme_pool_size(number_of_rels);
 	number_generations = gimme_number_generations(pool_size);
+#ifdef GEQO_DEBUG
 	status_interval = 10;
+#endif
 
 /* allocate genetic pool memory */
 	pool = alloc_pool(root, pool_size, number_of_rels);
@@ -178,7 +182,7 @@ geqo(PlannerInfo *root, int number_of_rels, List *initial_rels)
 
 #if defined (ERX)
 		/* EDGE RECOMBINATION CROSSOVER */
-		difference = gimme_edge_table(root, momma->string, daddy->string, pool->string_length, edge_table);
+		gimme_edge_table(root, momma->string, daddy->string, pool->string_length, edge_table);
 
 		kid = momma;
 

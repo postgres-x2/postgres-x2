@@ -3,8 +3,8 @@
  *
  *	utility functions
  *
- *	Copyright (c) 2010, PostgreSQL Global Development Group
- *	$PostgreSQL: pgsql/contrib/pg_upgrade/util.c,v 1.5 2010/07/06 19:18:55 momjian Exp $
+ *	Copyright (c) 2010-2011, PostgreSQL Global Development Group
+ *	contrib/pg_upgrade/util.c
  */
 
 #include "pg_upgrade.h"
@@ -12,13 +12,15 @@
 #include <signal.h>
 
 
+LogOpts		log_opts;
+
 /*
  * report_status()
  *
  *	Displays the result of an operation (ok, failed, error message,...)
  */
 void
-report_status(migratorContext *ctx, eLogType type, const char *fmt,...)
+report_status(eLogType type, const char *fmt,...)
 {
 	va_list		args;
 	char		message[MAX_STRING];
@@ -27,27 +29,27 @@ report_status(migratorContext *ctx, eLogType type, const char *fmt,...)
 	vsnprintf(message, sizeof(message), fmt, args);
 	va_end(args);
 
-	pg_log(ctx, type, "%s\n", message);
+	pg_log(type, "%s\n", message);
 }
 
 
 /*
- * prep_status(&ctx, )
+ * prep_status
  *
  *	Displays a message that describes an operation we are about to begin.
  *	We pad the message out to MESSAGE_WIDTH characters so that all of the "ok" and
  *	"failed" indicators line up nicely.
  *
  *	A typical sequence would look like this:
- *		prep_status(&ctx,  "about to flarb the next %d files", fileCount );
+ *		prep_status("about to flarb the next %d files", fileCount );
  *
  *		if(( message = flarbFiles(fileCount)) == NULL)
- *		  report_status(ctx, PG_REPORT, "ok" );
+ *		  report_status(PG_REPORT, "ok" );
  *		else
- *		  pg_log(ctx, PG_FATAL, "failed - %s", message );
+ *		  pg_log(PG_FATAL, "failed - %s\n", message );
  */
 void
-prep_status(migratorContext *ctx, const char *fmt,...)
+prep_status(const char *fmt,...)
 {
 	va_list		args;
 	char		message[MAX_STRING];
@@ -57,14 +59,14 @@ prep_status(migratorContext *ctx, const char *fmt,...)
 	va_end(args);
 
 	if (strlen(message) > 0 && message[strlen(message) - 1] == '\n')
-		pg_log(ctx, PG_REPORT, "%s", message);
+		pg_log(PG_REPORT, "%s", message);
 	else
-		pg_log(ctx, PG_REPORT, "%-" MESSAGE_WIDTH "s", message);
+		pg_log(PG_REPORT, "%-" MESSAGE_WIDTH "s", message);
 }
 
 
 void
-pg_log(migratorContext *ctx, eLogType type, char *fmt,...)
+pg_log(eLogType type, char *fmt,...)
 {
 	va_list		args;
 	char		message[MAX_STRING];
@@ -73,19 +75,19 @@ pg_log(migratorContext *ctx, eLogType type, char *fmt,...)
 	vsnprintf(message, sizeof(message), fmt, args);
 	va_end(args);
 
-	if (ctx->log_fd != NULL)
+	if (log_opts.fd != NULL)
 	{
-		fwrite(message, strlen(message), 1, ctx->log_fd);
+		fwrite(message, strlen(message), 1, log_opts.fd);
 		/* if we are using OVERWRITE_MESSAGE, add newline */
 		if (strchr(message, '\r') != NULL)
-			fwrite("\n", 1, 1, ctx->log_fd);
-		fflush(ctx->log_fd);
+			fwrite("\n", 1, 1, log_opts.fd);
+		fflush(log_opts.fd);
 	}
 
 	switch (type)
 	{
 		case PG_INFO:
-			if (ctx->verbose)
+			if (log_opts.verbose)
 				printf("%s", _(message));
 			break;
 
@@ -95,14 +97,14 @@ pg_log(migratorContext *ctx, eLogType type, char *fmt,...)
 			break;
 
 		case PG_FATAL:
-			printf("%s", "\n");
-			printf("%s", _(message));
-			exit_nicely(ctx, true);
+			printf("\n%s", _(message));
+			printf("Failure, exiting\n");
+			exit(1);
 			break;
 
 		case PG_DEBUG:
-			if (ctx->debug)
-				fprintf(ctx->debug_fd, "%s\n", _(message));
+			if (log_opts.debug)
+				fprintf(log_opts.debug_fd, "%s\n", _(message));
 			break;
 
 		default:
@@ -113,10 +115,10 @@ pg_log(migratorContext *ctx, eLogType type, char *fmt,...)
 
 
 void
-check_ok(migratorContext *ctx)
+check_ok(void)
 {
 	/* all seems well */
-	report_status(ctx, PG_REPORT, "ok");
+	report_status(PG_REPORT, "ok");
 	fflush(stdout);
 }
 
@@ -129,9 +131,9 @@ check_ok(migratorContext *ctx)
  * memory leakage is not a big deal in this program.
  */
 char *
-quote_identifier(migratorContext *ctx, const char *s)
+quote_identifier(const char *s)
 {
-	char	   *result = pg_malloc(ctx, strlen(s) * 2 + 3);
+	char	   *result = pg_malloc(strlen(s) * 2 + 3);
 	char	   *r = result;
 
 	*r++ = '"';
@@ -154,7 +156,7 @@ quote_identifier(migratorContext *ctx, const char *s)
  * (copied from initdb.c) find the current user
  */
 int
-get_user_info(migratorContext *ctx, char **user_name)
+get_user_info(char **user_name)
 {
 	int			user_id;
 
@@ -176,48 +178,19 @@ get_user_info(migratorContext *ctx, char **user_name)
 	user_id = 1;
 #endif
 
-	*user_name = pg_strdup(ctx, pw->pw_name);
+	*user_name = pg_strdup(pw->pw_name);
 
 	return user_id;
 }
 
 
-void
-exit_nicely(migratorContext *ctx, bool need_cleanup)
-{
-	stop_postmaster(ctx, true, true);
-
-	pg_free(ctx->logfile);
-
-	if (ctx->log_fd)
-		fclose(ctx->log_fd);
-
-	if (ctx->debug_fd)
-		fclose(ctx->debug_fd);
-
-	/* terminate any running instance of postmaster */
-	if (ctx->postmasterPID != 0)
-		kill(ctx->postmasterPID, SIGTERM);
-
-	if (need_cleanup)
-	{
-		/*
-		 * FIXME must delete intermediate files
-		 */
-		exit(1);
-	}
-	else
-		exit(0);
-}
-
-
 void *
-pg_malloc(migratorContext *ctx, int n)
+pg_malloc(int n)
 {
 	void	   *p = malloc(n);
 
 	if (p == NULL)
-		pg_log(ctx, PG_FATAL, "%s: out of memory\n", ctx->progname);
+		pg_log(PG_FATAL, "%s: out of memory\n", os_info.progname);
 
 	return p;
 }
@@ -232,12 +205,12 @@ pg_free(void *p)
 
 
 char *
-pg_strdup(migratorContext *ctx, const char *s)
+pg_strdup(const char *s)
 {
 	char	   *result = strdup(s);
 
 	if (result == NULL)
-		pg_log(ctx, PG_FATAL, "%s: out of memory\n", ctx->progname);
+		pg_log(PG_FATAL, "%s: out of memory\n", os_info.progname);
 
 	return result;
 }
@@ -258,4 +231,53 @@ getErrorText(int errNum)
 	_dosmaperr(GetLastError());
 #endif
 	return strdup(strerror(errNum));
+}
+
+
+/*
+ *	str2uint()
+ *
+ *	convert string to oid
+ */
+unsigned int
+str2uint(const char *str)
+{
+	return strtoul(str, NULL, 10);
+}
+
+
+/*
+ *	pg_putenv()
+ *
+ *	This is like putenv(), but takes two arguments.
+ *	It also does unsetenv() if val is NULL.
+ */
+void
+pg_putenv(const char *var, const char *val)
+{
+	if (val)
+	{
+#ifndef WIN32
+		char	   *envstr = (char *) pg_malloc(strlen(var) +
+												strlen(val) + 2);
+
+		sprintf(envstr, "%s=%s", var, val);
+		putenv(envstr);
+
+		/*
+		 * Do not free envstr because it becomes part of the environment on
+		 * some operating systems.	See port/unsetenv.c::unsetenv.
+		 */
+#else
+		SetEnvironmentVariableA(var, val);
+#endif
+	}
+	else
+	{
+#ifndef WIN32
+		unsetenv(var);
+#else
+		SetEnvironmentVariableA(var, "");
+#endif
+	}
 }

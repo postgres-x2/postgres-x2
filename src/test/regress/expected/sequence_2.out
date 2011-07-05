@@ -1,11 +1,9 @@
 ---
 --- test creation of SERIAL column
 ---
- 
 CREATE TABLE serialTest (f1 text, f2 serial);
 ERROR:  Postgres-XC does not support SERIAL yet
 DETAIL:  The feature is not currently supported
- 
 INSERT INTO serialTest VALUES ('foo');
 ERROR:  relation "serialtest" does not exist
 LINE 1: INSERT INTO serialTest VALUES ('foo');
@@ -29,7 +27,6 @@ LINE 1: SELECT * FROM serialTest ORDER BY f1, f2;
                       ^
 -- basic sequence operations using both text and oid references
 CREATE SEQUENCE sequence_test;
- 
 SELECT nextval('sequence_test'::text);
  nextval 
 ---------
@@ -233,6 +230,13 @@ SELECT nextval('sequence_test2');
  nextval 
 ---------
        5
+(1 row)
+
+-- Information schema
+SELECT * FROM information_schema.sequences WHERE sequence_name IN ('sequence_test2');
+ sequence_catalog | sequence_schema | sequence_name  | data_type | numeric_precision | numeric_precision_radix | numeric_scale | start_value | minimum_value | maximum_value | increment | cycle_option 
+------------------+-----------------+----------------+-----------+-------------------+-------------------------+---------------+-------------+---------------+---------------+-----------+--------------
+ regression       | public          | sequence_test2 | bigint    |                64 |                       2 |             0 | 32          | 5             | 36            | 4         | YES
 (1 row)
 
 -- Test comments

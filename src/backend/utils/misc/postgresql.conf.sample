@@ -62,7 +62,7 @@
 					# (change requires restart)
 #port = 5432				# (change requires restart)
 #max_connections = 100			# (change requires restart)
-# Note:  Increasing max_connections costs ~400 bytes of shared memory per 
+# Note:  Increasing max_connections costs ~400 bytes of shared memory per
 # connection slot, plus lock space (see max_locks_per_transaction).
 #superuser_reserved_connections = 3	# (change requires restart)
 #unix_socket_directory = ''		# (change requires restart)
@@ -151,17 +151,18 @@
 # - Settings -
 
 #wal_level = minimal			# minimal, archive, or hot_standby
+					# (change requires restart)
 #fsync = on				# turns forced synchronization on or off
-#synchronous_commit = on		# immediate fsync at commit
-#wal_sync_method = fsync		# the default is the first option 
+#synchronous_commit = on		# synchronization level; on, off, or local
+#wal_sync_method = fsync		# the default is the first option
 					# supported by the operating system:
 					#   open_datasync
-					#   fdatasync
+					#   fdatasync (default on Linux)
 					#   fsync
 					#   fsync_writethrough
 					#   open_sync
 #full_page_writes = on			# recover from partial page writes
-#wal_buffers = 64kB			# min 32kB
+#wal_buffers = -1			# min 32kB, -1 sets based on shared_buffers
 					# (change requires restart)
 #wal_writer_delay = 200ms		# 1-10000 milliseconds
 
@@ -183,22 +184,32 @@
 #archive_timeout = 0		# force a logfile segment switch after this
 				# number of seconds; 0 disables
 
-# - Streaming Replication -
+# - Streaming Replication - Server Settings
+
+#synchronous_standby_names = ''	# standby servers that provide sync rep
+				# comma-separated list of application_name from standby(s);
+				# '*' = all
+
 
 #max_wal_senders = 0		# max number of walsender processes
-#wal_sender_delay = 200ms	# walsender cycle time, 1-10000 milliseconds
+				# (change requires restart)
+#wal_sender_delay = 1s		# walsender cycle time, 1-10000 milliseconds
 #wal_keep_segments = 0		# in logfile segments, 16MB each; 0 disables
 #vacuum_defer_cleanup_age = 0	# number of xacts by which cleanup is delayed
+#replication_timeout = 60s # in milliseconds, 0 is disabled
 
 # - Standby Servers -
 
 #hot_standby = off			# "on" allows queries during recovery
+					# (change requires restart)
+#hot_standby_feedback = off	# info from standby to prevent query conflicts
 #max_standby_archive_delay = 30s	# max delay before canceling queries
 					# when reading WAL from archive;
 					# -1 allows indefinite delay
 #max_standby_streaming_delay = 30s	# max delay before canceling queries
 					# when reading streaming WAL;
 					# -1 allows indefinite delay
+#wal_receiver_status_interval = 10s	# replies at least this often, 0 disables
 
 
 #------------------------------------------------------------------------------
@@ -243,7 +254,7 @@
 #constraint_exclusion = partition	# on, off, or partition
 #cursor_tuple_fraction = 0.1		# range 0.0-1.0
 #from_collapse_limit = 8
-#join_collapse_limit = 8		# 1 disables collapsing of explicit 
+#join_collapse_limit = 8		# 1 disables collapsing of explicit
 					# JOIN clauses
 
 
@@ -269,7 +280,9 @@
 					# can be absolute or relative to PGDATA
 #log_filename = 'postgresql-%Y-%m-%d_%H%M%S.log'	# log file name pattern,
 					# can include strftime() escapes
-#log_truncate_on_rotation = off		# If on, an existing log file of the
+#log_file_mode = 0600			# creation mode for log files,
+					# begin with 0 to use octal notation
+#log_truncate_on_rotation = off		# If on, an existing log file with the
 					# same name as the new log file will be
 					# truncated rather than appended to.
 					# But such truncation only occurs on
@@ -279,7 +292,7 @@
 					# in all cases.
 #log_rotation_age = 1d			# Automatic rotation of logfiles will
 					# happen after that time.  0 disables.
-#log_rotation_size = 10MB		# Automatic rotation of logfiles will 
+#log_rotation_size = 10MB		# Automatic rotation of logfiles will
 					# happen after that much log output.
 					# 0 disables.
 
@@ -377,8 +390,7 @@
 #log_temp_files = -1			# log temporary files equal or larger
 					# than the specified size in kilobytes;
 					# -1 disables, 0 logs all temp files
-#log_timezone = unknown			# actually, defaults to TZ environment
-					# setting
+#log_timezone = '(defaults to server environment setting)'
 
 
 #------------------------------------------------------------------------------
@@ -390,7 +402,7 @@
 #track_activities = on
 #track_counts = on
 #track_functions = none			# none, pl, all
-#track_activity_query_size = 1024
+#track_activity_query_size = 1024 	# (change requires restart)
 #update_process_title = on
 #stats_temp_directory = 'pg_stat_tmp'
 
@@ -407,17 +419,18 @@
 # AUTOVACUUM PARAMETERS
 #------------------------------------------------------------------------------
 
-#autovacuum = on			# Enable autovacuum subprocess?  'on' 
+#autovacuum = on			# Enable autovacuum subprocess?  'on'
 					# requires track_counts to also be on.
 #log_autovacuum_min_duration = -1	# -1 disables, 0 logs all actions and
 					# their durations, > 0 logs only
 					# actions running at least this number
 					# of milliseconds.
 #autovacuum_max_workers = 3		# max number of autovacuum subprocesses
+					# (change requires restart)
 #autovacuum_naptime = 1min		# time between autovacuum runs
 #autovacuum_vacuum_threshold = 50	# min number of row updates before
 					# vacuum
-#autovacuum_analyze_threshold = 50	# min number of row updates before 
+#autovacuum_analyze_threshold = 50	# min number of row updates before
 					# analyze
 #autovacuum_vacuum_scale_factor = 0.2	# fraction of table size before vacuum
 #autovacuum_analyze_scale_factor = 0.1	# fraction of table size before analyze
@@ -444,6 +457,7 @@
 #check_function_bodies = on
 #default_transaction_isolation = 'read committed'
 #default_transaction_read_only = off
+#default_transaction_deferrable = off
 #session_replication_role = 'origin'
 #statement_timeout = 0			# in milliseconds, 0 is disabled
 #vacuum_freeze_min_age = 50000000
@@ -456,8 +470,7 @@
 
 #datestyle = 'iso, mdy'
 #intervalstyle = 'postgres'
-#timezone = unknown			# actually, defaults to TZ environment
-					# setting
+#timezone = '(defaults to server environment setting)'
 #timezone_abbreviations = 'Default'     # Select the set of available time zone
 					# abbreviations.  Currently, there are
 					#   Default
@@ -495,7 +508,8 @@
 # Note:  Each lock table slot uses ~270 bytes of shared memory, and there are
 # max_locks_per_transaction * (max_connections + max_prepared_transactions)
 # lock table slots.
-
+#max_pred_locks_per_transaction = 64	# min 10
+					# (change requires restart)
 
 #------------------------------------------------------------------------------
 # VERSION/PLATFORM COMPATIBILITY
@@ -508,13 +522,21 @@
 #default_with_oids = off
 #escape_string_warning = on
 #lo_compat_privileges = off
+#quote_all_identifiers = off
 #sql_inheritance = on
-#standard_conforming_strings = off
+#standard_conforming_strings = on
 #synchronize_seqscans = on
 
 # - Other Platforms and Clients -
 
 #transform_null_equals = off
+
+##------------------------------------------------------------------------------
+# ERROR HANDLING
+#------------------------------------------------------------------------------
+
+#exit_on_error = off				# terminate session on any error?
+#restart_after_crash = on			# reinitialize after backend crash?
 
 #------------------------------------------------------------------------------
 # DATA NODES AND CONNECTION POOLING
@@ -576,8 +598,7 @@
 #strict_select_checking = off		# Temporary; be strict about allowing 
 					# multi-node ORDER BY
 
-
-##------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
 # CUSTOMIZED OPTIONS
 #------------------------------------------------------------------------------
 

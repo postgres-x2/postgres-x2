@@ -1,9 +1,9 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2010, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2011, PostgreSQL Global Development Group
  *
- * $PostgreSQL: pgsql/src/bin/psql/variables.h,v 1.24 2010/01/02 16:58:00 momjian Exp $
+ * src/bin/psql/variables.h
  */
 #ifndef VARIABLES_H
 #define VARIABLES_H

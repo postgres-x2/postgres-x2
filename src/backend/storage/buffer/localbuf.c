@@ -4,12 +4,12 @@
  *	  local buffer manager. Fast buffer manager for temporary tables,
  *	  which never need to be WAL-logged or checkpointed, etc.
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994-5, Regents of the University of California
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/storage/buffer/localbuf.c,v 1.89 2010/01/02 16:57:51 momjian Exp $
+ *	  src/backend/storage/buffer/localbuf.c
  *
  *-------------------------------------------------------------------------
  */
@@ -68,7 +68,7 @@ LocalPrefetchBuffer(SMgrRelation smgr, ForkNumber forkNum,
 	BufferTag	newTag;			/* identity of requested block */
 	LocalBufferLookupEnt *hresult;
 
-	INIT_BUFFERTAG(newTag, smgr->smgr_rnode, forkNum, blockNum);
+	INIT_BUFFERTAG(newTag, smgr->smgr_rnode.node, forkNum, blockNum);
 
 	/* Initialize local buffers if first request in this session */
 	if (LocalBufHash == NULL)
@@ -110,7 +110,7 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 	int			trycounter;
 	bool		found;
 
-	INIT_BUFFERTAG(newTag, smgr->smgr_rnode, forkNum, blockNum);
+	INIT_BUFFERTAG(newTag, smgr->smgr_rnode.node, forkNum, blockNum);
 
 	/* Initialize local buffers if first request in this session */
 	if (LocalBufHash == NULL)
@@ -127,7 +127,7 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 		Assert(BUFFERTAGS_EQUAL(bufHdr->tag, newTag));
 #ifdef LBDEBUG
 		fprintf(stderr, "LB ALLOC (%u,%d,%d) %d\n",
-				smgr->smgr_rnode.relNode, forkNum, blockNum, -b - 1);
+				smgr->smgr_rnode.node.relNode, forkNum, blockNum, -b - 1);
 #endif
 		/* this part is equivalent to PinBuffer for a shared buffer */
 		if (LocalRefCount[b] == 0)
@@ -150,7 +150,8 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 
 #ifdef LBDEBUG
 	fprintf(stderr, "LB ALLOC (%u,%d,%d) %d\n",
-		 smgr->smgr_rnode.relNode, forkNum, blockNum, -nextFreeLocalBuf - 1);
+			smgr->smgr_rnode.node.relNode, forkNum, blockNum,
+			-nextFreeLocalBuf - 1);
 #endif
 
 	/*
@@ -198,14 +199,14 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 		SMgrRelation oreln;
 
 		/* Find smgr relation for buffer */
-		oreln = smgropen(bufHdr->tag.rnode);
+		oreln = smgropen(bufHdr->tag.rnode, MyBackendId);
 
 		/* And write... */
 		smgrwrite(oreln,
 				  bufHdr->tag.forkNum,
 				  bufHdr->tag.blockNum,
 				  (char *) LocalBufHdrGetBlock(bufHdr),
-				  true);
+				  false);
 
 		/* Mark not-dirty now in case we error out below */
 		bufHdr->flags &= ~BM_DIRTY;
@@ -309,7 +310,8 @@ DropRelFileNodeLocalBuffers(RelFileNode rnode, ForkNumber forkNum,
 			if (LocalRefCount[i] != 0)
 				elog(ERROR, "block %u of %s is still referenced (local %u)",
 					 bufHdr->tag.blockNum,
-					 relpath(bufHdr->tag.rnode, bufHdr->tag.forkNum),
+					 relpathbackend(bufHdr->tag.rnode, MyBackendId,
+									bufHdr->tag.forkNum),
 					 LocalRefCount[i]);
 			/* Remove entry from hashtable */
 			hresult = (LocalBufferLookupEnt *)
@@ -397,6 +399,7 @@ GetLocalBufferStorage(void)
 	static int	next_buf_in_block = 0;
 	static int	num_bufs_in_block = 0;
 	static int	total_bufs_allocated = 0;
+	static MemoryContext LocalBufferContext = NULL;
 
 	char	   *this_buf;
 
@@ -407,6 +410,19 @@ GetLocalBufferStorage(void)
 		/* Need to make a new request to memmgr */
 		int			num_bufs;
 
+		/*
+		 * We allocate local buffers in a context of their own, so that the
+		 * space eaten for them is easily recognizable in MemoryContextStats
+		 * output.	Create the context on first use.
+		 */
+		if (LocalBufferContext == NULL)
+			LocalBufferContext =
+				AllocSetContextCreate(TopMemoryContext,
+									  "LocalBufferContext",
+									  ALLOCSET_DEFAULT_MINSIZE,
+									  ALLOCSET_DEFAULT_INITSIZE,
+									  ALLOCSET_DEFAULT_MAXSIZE);
+
 		/* Start with a 16-buffer request; subsequent ones double each time */
 		num_bufs = Max(num_bufs_in_block * 2, 16);
 		/* But not more than what we need for all remaining local bufs */
@@ -414,8 +430,7 @@ GetLocalBufferStorage(void)
 		/* And don't overflow MaxAllocSize, either */
 		num_bufs = Min(num_bufs, MaxAllocSize / BLCKSZ);
 
-		/* Allocate space from TopMemoryContext so it never goes away */
-		cur_block = (char *) MemoryContextAlloc(TopMemoryContext,
+		cur_block = (char *) MemoryContextAlloc(LocalBufferContext,
 												num_bufs * BLCKSZ);
 		next_buf_in_block = 0;
 		num_bufs_in_block = num_bufs;
@@ -453,14 +468,23 @@ AtEOXact_LocalBuffers(bool isCommit)
 /*
  * AtProcExit_LocalBuffers - ensure we have dropped pins during backend exit.
  *
- * This is just like AtProcExit_Buffers, but for local buffers.  We have
- * to drop pins to ensure that any attempt to drop temp files doesn't
- * fail in DropRelFileNodeBuffers.
+ * This is just like AtProcExit_Buffers, but for local buffers.  We shouldn't
+ * be holding any remaining pins; if we are, and assertions aren't enabled,
+ * we'll fail later in DropRelFileNodeBuffers while trying to drop the temp
+ * rels.
  */
 void
 AtProcExit_LocalBuffers(void)
 {
-	/* just zero the refcounts ... */
-	if (LocalRefCount)
-		MemSet(LocalRefCount, 0, NLocBuffer * sizeof(*LocalRefCount));
+#ifdef USE_ASSERT_CHECKING
+	if (assert_enabled && LocalRefCount)
+	{
+		int			i;
+
+		for (i = 0; i < NLocBuffer; i++)
+		{
+			Assert(LocalRefCount[i] == 0);
+		}
+	}
+#endif
 }
