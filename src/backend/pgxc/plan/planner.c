@@ -2832,7 +2832,11 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	 * distribution the table has.
 	 */
 	if (query->commandType == CMD_SELECT
-					&& (query->hasAggs || query->groupClause || query->hasWindowFuncs || query->hasRecursive))
+					&& (query->hasAggs ||
+						query->groupClause ||
+						query->havingQual ||
+						query->hasWindowFuncs ||
+						query->hasRecursive))
 	{
 		result = standard_planner(query, cursorOptions, boundParams);
 		return result;

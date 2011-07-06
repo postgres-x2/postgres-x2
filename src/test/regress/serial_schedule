@@ -131,4 +131,5 @@ test: xml
 test: stats
 test: xc_groupby
 test: xc_distkey
+test: xc_having
 
