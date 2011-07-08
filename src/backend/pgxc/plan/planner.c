@@ -36,6 +36,7 @@
 #include "pgxc/pgxc.h"
 #include "pgxc/locator.h"
 #include "pgxc/planner.h"
+#include "pgxc/postgresql_fdw.h"
 #include "tcop/pquery.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
@@ -170,7 +171,6 @@ static int handle_limit_offset(RemoteQuery *query_step, Query *query, PlannedStm
 static void InitXCWalkerContext(XCWalkerContext *context);
 static RemoteQuery *makeRemoteQuery(void);
 static void validate_part_col_updatable(const Query *query);
-static bool	is_pgxc_safe_func(Oid funcid);
 
 
 /*
@@ -1239,6 +1239,13 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 					 */
 					return false;
 				}
+				else
+				{
+					/* Check if this node can be pushed down. */
+					if (!is_foreign_qual((Node *) arg2))
+						return true;
+				}
+
 				/*
 				 * Check if it is an expression like pcol = expr, where pcol is
 				 * a partitioning column of the rel1 and planner could not
@@ -1267,13 +1274,19 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 					return false;
 				}
 			}
+			else
+			{
+				/* Check if this node can be pushed down. */
+				if (!is_foreign_qual((Node *) arg2))
+					return true;
+			}
 		}
 	}
 
 	/* See if the function is immutable, otherwise give up */
 	if (IsA(expr_node, FuncExpr))
 	{
-		if (!is_pgxc_safe_func(((FuncExpr*) expr_node)->funcid))
+		if (!is_foreign_qual((Node *) expr_node))
 			return true;
 	}
 
@@ -3143,64 +3156,6 @@ validate_part_col_updatable(const Query *query)
 	}
 }
 
-/*
- * See if it is safe to use this function in single step.
- *
- * Based on is_immutable_func from postgresql_fdw.c
- * We add an exeption for base postgresql functions, to
- * allow now() and others to still execute as part of single step
- * queries.
- *
- * PGXCTODO - we currently make the false assumption that immutable
- * functions will not write to the database. This could be addressed
- * by either a more thorough analysis of functions at
- * creation time or additional tags at creation time (preferably
- * in standard PostgreSQL). Ideally such functionality could be
- * committed back to standard PostgreSQL.
- */
-bool
-is_pgxc_safe_func(Oid funcid)
-{
-	HeapTuple		tp;
-	bool			isnull;
-	Datum			datum;
-	bool			ret_val = false;
-
-	tp = SearchSysCache(PROCOID, ObjectIdGetDatum(funcid), 0, 0, 0);
-	if (!HeapTupleIsValid(tp))
-		elog(ERROR, "cache lookup failed for function %u", funcid);
-
-#ifdef DEBUG_FDW
-	/* print function name and its immutability */
-	{
-		char		   *proname;
-		datum = SysCacheGetAttr(PROCOID, tp, Anum_pg_proc_proname, &isnull);
-		proname = pstrdup(DatumGetName(datum)->data);
-		elog(DEBUG1, "func %s(%u) is%s immutable", proname, funcid,
-			(DatumGetChar(datum) == PROVOLATILE_IMMUTABLE) ? "" : " not");
-		pfree(proname);
-	}
-#endif
-
-	datum = SysCacheGetAttr(PROCOID, tp, Anum_pg_proc_provolatile, &isnull);
-
-	if (DatumGetChar(datum) == PROVOLATILE_IMMUTABLE)
-		ret_val = true;
-	/*
-	 * Also allow stable and volatile ones that are in the PG_CATALOG_NAMESPACE
-	 * this allows now() and others that do not update the database
-	 * PGXCTODO - examine default functions carefully for those that may
-	 * write to the database.
-	 */
-	else
-	{
-		datum = SysCacheGetAttr(PROCOID, tp, Anum_pg_proc_pronamespace, &isnull);
-		if (DatumGetObjectId(datum) == PG_CATALOG_NAMESPACE)
-			ret_val = true;
-	}
-	ReleaseSysCache(tp);
-	return ret_val;
-}
 
 /*
  * GetHashExecNodes -

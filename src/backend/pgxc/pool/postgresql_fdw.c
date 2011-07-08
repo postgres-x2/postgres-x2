@@ -10,30 +10,25 @@
  *
  *-------------------------------------------------------------------------
  */
-#include "postgres.h"
-
+#include "pgxc/postgresql_fdw.h"
 #include "catalog/pg_operator.h"
 #include "catalog/pg_proc.h"
 #include "funcapi.h"
-//#include "libpq-fe.h"
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
 #include "nodes/nodeFuncs.h"
 #include "nodes/makefuncs.h"
 #include "optimizer/clauses.h"
 #include "parser/scansup.h"
-#include "pgxc/execRemote.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/syscache.h"
 
-//#include "dblink.h"
-
 #define DEBUG_FDW
 
 /*
- * WHERE caluse optimization level
+ * WHERE clause optimization level
  */
 #define EVAL_QUAL_LOCAL		0	/* evaluate none in foreign, all in local */
 #define EVAL_QUAL_BOTH		1	/* evaluate some in foreign, all in local */
@@ -41,14 +36,8 @@
 
 #define OPTIMIZE_WHERE_CLAUSE	EVAL_QUAL_FOREIGN
 
-
-
 /* deparse SQL from the request */
-bool is_immutable_func(Oid funcid);
-bool is_foreign_qual(Node *node);
 static bool foreign_qual_walker(Node *node, void *context);
-char *deparseSql(RemoteQueryState *scanstate);
-
 
 /*
  * Check whether the function is IMMUTABLE.

@@ -39,6 +39,7 @@
 #ifdef PGXC
 #include "pgxc/pgxc.h"
 #include "pgxc/planner.h"
+#include "pgxc/postgresql_fdw.h"
 #include "access/sysattr.h"
 #include "utils/builtins.h"
 #include "utils/syscache.h"
@@ -191,7 +192,6 @@ static Material *make_material(Plan *lefttree);
 
 #ifdef PGXC
 static void findReferencedVars(List *parent_vars, Plan *plan, List **out_tlist, Relids *out_relids);
-extern bool is_foreign_qual(Node *clause);
 static void create_remote_clause_expr(PlannerInfo *root, Plan *parent, StringInfo clauses,
 	  List *qual, RemoteQuery *scan);
 static void create_remote_expr(PlannerInfo *root, Plan *parent, StringInfo expr,

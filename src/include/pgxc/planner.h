@@ -138,8 +138,6 @@ extern PlannedStmt *pgxc_planner(Query *query, int cursorOptions,
 extern Plan *pgxc_grouping_planner(PlannerInfo *root, Plan *agg_plan);
 extern bool IsHashDistributable(Oid col_type);
 
-extern bool is_immutable_func(Oid funcid);
-
 extern bool IsJoinReducible(RemoteQuery *innernode, RemoteQuery *outernode,
 					List *rtable_list, JoinPath *join_path, JoinReduceInfo *join_info);
 
