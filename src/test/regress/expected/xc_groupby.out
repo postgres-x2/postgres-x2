@@ -6,11 +6,11 @@
 -- Combination 1: enable_hashagg on and distributed tables
 set enable_hashagg to on;
 -- create required tables and fill them with data
-create table tab1 (val int, val2 int);
-create table tab2 (val int, val2 int);
-insert into tab1 values (1, 1), (2, 1), (3, 1), (2, 2), (6, 2), (4, 3), (1, 3), (6, 3);
-insert into tab2 values (1, 1), (4, 1), (8, 1), (2, 4), (9, 4), (3, 4), (4, 2), (5, 2), (3, 2);
-select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from tab1 group by val2;
+create table xc_groupby_tab1 (val int, val2 int);
+create table xc_groupby_tab2 (val int, val2 int);
+insert into xc_groupby_tab1 values (1, 1), (2, 1), (3, 1), (2, 2), (6, 2), (4, 3), (1, 3), (6, 3);
+insert into xc_groupby_tab2 values (1, 1), (4, 1), (8, 1), (2, 4), (9, 4), (3, 4), (4, 2), (5, 2), (3, 2);
+select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_groupby_tab1 group by val2;
  count | sum |        avg         |     ?column?     | val2 
 -------+-----+--------------------+------------------+------
      3 |   6 | 2.0000000000000000 |                2 |    1
@@ -18,10 +18,10 @@ select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from tab1 g
      3 |  11 | 3.6666666666666667 | 3.66666666666667 |    3
 (3 rows)
 
-explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from tab1 group by val2;
+explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_groupby_tab1 group by val2;
                                                  QUERY PLAN                                                  
 -------------------------------------------------------------------------------------------------------------
- HashAggregate  (cost=1.03..1.06 rows=1 width=8)
+ HashAggregate  (cost=1.03..1.05 rows=1 width=8)
    Output: count(*), sum(val), avg(val), ((sum(val))::double precision / (count(*))::double precision), val2
    ->  Materialize  (cost=0.00..1.01 rows=1 width=8)
          Output: val, val2
@@ -30,7 +30,7 @@ explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), 
 (6 rows)
 
 -- joins and group by
-select count(*), sum(tab1.val * tab2.val), avg(tab1.val*tab2.val), sum(tab1.val*tab2.val)::float8/count(*), tab1.val2, tab2.val2 from tab1 full outer join tab2 on tab1.val2 = tab2.val2 group by tab1.val2, tab2.val2;
+select count(*), sum(xc_groupby_tab1.val * xc_groupby_tab2.val), avg(xc_groupby_tab1.val*xc_groupby_tab2.val), sum(xc_groupby_tab1.val*xc_groupby_tab2.val)::float8/count(*), xc_groupby_tab1.val2, xc_groupby_tab2.val2 from xc_groupby_tab1 full outer join xc_groupby_tab2 on xc_groupby_tab1.val2 = xc_groupby_tab2.val2 group by xc_groupby_tab1.val2, xc_groupby_tab2.val2;
  count | sum |         avg         |     ?column?     | val2 | val2 
 -------+-----+---------------------+------------------+------+------
      6 |  96 | 16.0000000000000000 |               16 |    2 |    2
@@ -39,53 +39,49 @@ select count(*), sum(tab1.val * tab2.val), avg(tab1.val*tab2.val), sum(tab1.val*
      3 |     |                     |                  |      |    4
 (4 rows)
 
-explain verbose select count(*), sum(tab1.val * tab2.val), avg(tab1.val*tab2.val), sum(tab1.val*tab2.val)::float8/count(*), tab1.val2, tab2.val2 from tab1 full outer join tab2 on tab1.val2 = tab2.val2 group by tab1.val2, tab2.val2;
-                                                                                    QUERY PLAN                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- HashAggregate  (cost=2.09..2.13 rows=1 width=16)
-   Output: count(*), sum((tab1.val * tab2.val)), avg((tab1.val * tab2.val)), ((sum((tab1.val * tab2.val)))::double precision / (count(*))::double precision), tab1.val2, tab2.val2
-   ->  Merge Full Join  (cost=2.05..2.07 rows=1 width=16)
-         Output: tab1.val, tab1.val2, tab2.val, tab2.val2
-         Merge Cond: (tab1.val2 = tab2.val2)
-         ->  Sort  (cost=1.02..1.03 rows=1 width=8)
-               Output: tab1.val, tab1.val2
-               Sort Key: tab1.val2
+explain verbose select count(*), sum(xc_groupby_tab1.val * xc_groupby_tab2.val), avg(xc_groupby_tab1.val*xc_groupby_tab2.val), sum(xc_groupby_tab1.val*xc_groupby_tab2.val)::float8/count(*), xc_groupby_tab1.val2, xc_groupby_tab2.val2 from xc_groupby_tab1 full outer join xc_groupby_tab2 on xc_groupby_tab1.val2 = xc_groupby_tab2.val2 group by xc_groupby_tab1.val2, xc_groupby_tab2.val2;
+                                                                                                                                QUERY PLAN                                                                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ HashAggregate  (cost=2.08..2.10 rows=1 width=16)
+   Output: count(*), sum((xc_groupby_tab1.val * xc_groupby_tab2.val)), avg((xc_groupby_tab1.val * xc_groupby_tab2.val)), ((sum((xc_groupby_tab1.val * xc_groupby_tab2.val)))::double precision / (count(*))::double precision), xc_groupby_tab1.val2, xc_groupby_tab2.val2
+   ->  Hash Full Join  (cost=1.03..2.06 rows=1 width=16)
+         Output: xc_groupby_tab1.val, xc_groupby_tab1.val2, xc_groupby_tab2.val, xc_groupby_tab2.val2
+         Hash Cond: (xc_groupby_tab1.val2 = xc_groupby_tab2.val2)
+         ->  Materialize  (cost=0.00..1.01 rows=1 width=8)
+               Output: xc_groupby_tab1.val, xc_groupby_tab1.val2
+               ->  Data Node Scan (Node Count [2]) on xc_groupby_tab1  (cost=0.00..1.01 rows=1000 width=8)
+                     Output: xc_groupby_tab1.val, xc_groupby_tab1.val2
+         ->  Hash  (cost=1.01..1.01 rows=1 width=8)
+               Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
                ->  Materialize  (cost=0.00..1.01 rows=1 width=8)
-                     Output: tab1.val, tab1.val2
-                     ->  Data Node Scan (Node Count [2]) on tab1  (cost=0.00..1.01 rows=1000 width=8)
-                           Output: tab1.val, tab1.val2
-         ->  Sort  (cost=1.02..1.03 rows=1 width=8)
-               Output: tab2.val, tab2.val2
-               Sort Key: tab2.val2
-               ->  Materialize  (cost=0.00..1.01 rows=1 width=8)
-                     Output: tab2.val, tab2.val2
-                     ->  Data Node Scan (Node Count [2]) on tab2  (cost=0.00..1.01 rows=1000 width=8)
-                           Output: tab2.val, tab2.val2
-(19 rows)
+                     Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
+                     ->  Data Node Scan (Node Count [2]) on xc_groupby_tab2  (cost=0.00..1.01 rows=1000 width=8)
+                           Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
+(15 rows)
 
 -- aggregates over aggregates
-select sum(y) from (select sum(val) y, val2%2 x from tab1 group by val2) q1 group by x;
+select sum(y) from (select sum(val) y, val2%2 x from xc_groupby_tab1 group by val2) q1 group by x;
  sum 
 -----
    8
   17
 (2 rows)
 
-explain verbose select sum(y) from (select sum(val) y, val2%2 x from tab1 group by val2) q1 group by x;
-                                       QUERY PLAN                                       
-----------------------------------------------------------------------------------------
+explain verbose select sum(y) from (select sum(val) y, val2%2 x from xc_groupby_tab1 group by val2) q1 group by x;
+                                                   QUERY PLAN                                                   
+----------------------------------------------------------------------------------------------------------------
  HashAggregate  (cost=1.05..1.06 rows=1 width=12)
-   Output: sum((pg_catalog.sum((sum(tab1.val))))), ((tab1.val2 % 2))
+   Output: sum((pg_catalog.sum((sum(xc_groupby_tab1.val))))), ((xc_groupby_tab1.val2 % 2))
    ->  HashAggregate  (cost=1.02..1.03 rows=1 width=8)
-         Output: pg_catalog.sum((sum(tab1.val))), ((tab1.val2 % 2)), tab1.val2
+         Output: pg_catalog.sum((sum(xc_groupby_tab1.val))), ((xc_groupby_tab1.val2 % 2)), xc_groupby_tab1.val2
          ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-               Output: (sum(tab1.val)), ((tab1.val2 % 2)), tab1.val2
+               Output: (sum(xc_groupby_tab1.val)), ((xc_groupby_tab1.val2 % 2)), xc_groupby_tab1.val2
                ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=8)
-                     Output: sum(tab1.val), (tab1.val2 % 2), tab1.val2
+                     Output: sum(xc_groupby_tab1.val), (xc_groupby_tab1.val2 % 2), xc_groupby_tab1.val2
 (8 rows)
 
 -- group by without aggregate
-select val2 from tab1 group by val2;
+select val2 from xc_groupby_tab1 group by val2;
  val2 
 ------
     1
@@ -93,18 +89,18 @@ select val2 from tab1 group by val2;
     3
 (3 rows)
 
-explain verbose select val2 from tab1 group by val2;
+explain verbose select val2 from xc_groupby_tab1 group by val2;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=4)
-   Output: tab1.val2
+   Output: xc_groupby_tab1.val2
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: tab1.val2
+         Output: xc_groupby_tab1.val2
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=4)
-               Output: tab1.val2
+               Output: xc_groupby_tab1.val2
 (6 rows)
 
-select val + val2 from tab1 group by val + val2;
+select val + val2 from xc_groupby_tab1 group by val + val2;
  ?column? 
 ----------
         4
@@ -115,18 +111,18 @@ select val + val2 from tab1 group by val + val2;
         2
 (6 rows)
 
-explain verbose select val + val2 from tab1 group by val + val2;
+explain verbose select val + val2 from xc_groupby_tab1 group by val + val2;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=8)
-   Output: ((tab1.val + tab1.val2))
+   Output: ((xc_groupby_tab1.val + xc_groupby_tab1.val2))
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: ((tab1.val + tab1.val2))
+         Output: ((xc_groupby_tab1.val + xc_groupby_tab1.val2))
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=8)
-               Output: (tab1.val + tab1.val2)
+               Output: (xc_groupby_tab1.val + xc_groupby_tab1.val2)
 (6 rows)
 
-select val + val2, val, val2 from tab1 group by val, val2;
+select val + val2, val, val2 from xc_groupby_tab1 group by val, val2;
  ?column? | val | val2 
 ----------+-----+------
         7 |   4 |    3
@@ -139,18 +135,18 @@ select val + val2, val, val2 from tab1 group by val, val2;
         9 |   6 |    3
 (8 rows)
 
-explain verbose select val + val2, val, val2 from tab1 group by val, val2;
-                                    QUERY PLAN                                    
-----------------------------------------------------------------------------------
+explain verbose select val + val2, val, val2 from xc_groupby_tab1 group by val, val2;
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=8)
-   Output: ((tab1.val + tab1.val2)), tab1.val, tab1.val2
+   Output: ((xc_groupby_tab1.val + xc_groupby_tab1.val2)), xc_groupby_tab1.val, xc_groupby_tab1.val2
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: ((tab1.val + tab1.val2)), tab1.val, tab1.val2
+         Output: ((xc_groupby_tab1.val + xc_groupby_tab1.val2)), xc_groupby_tab1.val, xc_groupby_tab1.val2
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=8)
-               Output: (tab1.val + tab1.val2), tab1.val, tab1.val2
+               Output: (xc_groupby_tab1.val + xc_groupby_tab1.val2), xc_groupby_tab1.val, xc_groupby_tab1.val2
 (6 rows)
 
-select tab1.val + tab2.val2, tab1.val, tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by tab1.val, tab2.val2;
+select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val, xc_groupby_tab2.val2;
  ?column? | val | val2 
 ----------+-----+------
         5 |   3 |    2
@@ -161,18 +157,18 @@ select tab1.val + tab2.val2, tab1.val, tab2.val2 from tab1, tab2 where tab1.val 
         7 |   3 |    4
 (6 rows)
 
-explain verbose select tab1.val + tab2.val2, tab1.val, tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by tab1.val, tab2.val2;
-                                  QUERY PLAN                                   
--------------------------------------------------------------------------------
+explain verbose select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val, xc_groupby_tab2.val2;
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
  HashAggregate  (cost=0.00..0.01 rows=1 width=0)
-   Output: ((tab1.val + tab2.val2)), tab1.val, tab2.val2
+   Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: ((tab1.val + tab2.val2)), tab1.val, tab2.val2
+         Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1 width=4)
-               Output: (tab1.val + tab2.val2), tab1.val, tab2.val2
+               Output: (xc_groupby_tab1.val + xc_groupby_tab2.val2), xc_groupby_tab1.val, xc_groupby_tab2.val2
 (6 rows)
 
-select tab1.val + tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by tab1.val + tab2.val2;
+select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
  ?column? 
 ----------
         6
@@ -181,19 +177,19 @@ select tab1.val + tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by t
         5
 (4 rows)
 
-explain verbose select tab1.val + tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by tab1.val + tab2.val2;
+explain verbose select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
                                   QUERY PLAN                                   
 -------------------------------------------------------------------------------
  HashAggregate  (cost=0.00..0.01 rows=1 width=0)
-   Output: ((tab1.val + tab2.val2))
+   Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: ((tab1.val + tab2.val2))
+         Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1 width=4)
-               Output: (tab1.val + tab2.val2)
+               Output: (xc_groupby_tab1.val + xc_groupby_tab2.val2)
 (6 rows)
 
 -- group by with aggregates in expression
-select count(*) + sum(val) + avg(val), val2 from tab1 group by val2;
+select count(*) + sum(val) + avg(val), val2 from xc_groupby_tab1 group by val2;
       ?column?       | val2 
 ---------------------+------
  11.0000000000000000 |    1
@@ -201,10 +197,10 @@ select count(*) + sum(val) + avg(val), val2 from tab1 group by val2;
  17.6666666666666667 |    3
 (3 rows)
 
-explain verbose select count(*) + sum(val) + avg(val), val2 from tab1 group by val2;
+explain verbose select count(*) + sum(val) + avg(val), val2 from xc_groupby_tab1 group by val2;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
- HashAggregate  (cost=1.02..1.05 rows=1 width=8)
+ HashAggregate  (cost=1.02..1.04 rows=1 width=8)
    Output: (((count(*) + sum(val)))::numeric + avg(val)), val2
    ->  Materialize  (cost=0.00..1.01 rows=1 width=8)
          Output: val, val2
@@ -213,7 +209,7 @@ explain verbose select count(*) + sum(val) + avg(val), val2 from tab1 group by v
 (6 rows)
 
 -- group by with expressions in group by clause
-select sum(val), avg(val), 2 * val2 from tab1 group by 2 * val2;
+select sum(val), avg(val), 2 * val2 from xc_groupby_tab1 group by 2 * val2;
  sum |        avg         | ?column? 
 -----+--------------------+----------
   11 | 3.6666666666666667 |        6
@@ -221,35 +217,35 @@ select sum(val), avg(val), 2 * val2 from tab1 group by 2 * val2;
    8 | 4.0000000000000000 |        4
 (3 rows)
 
-explain verbose select sum(val), avg(val), 2 * val2 from tab1 group by 2 * val2;
-                                          QUERY PLAN                                           
------------------------------------------------------------------------------------------------
+explain verbose select sum(val), avg(val), 2 * val2 from xc_groupby_tab1 group by 2 * val2;
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.04 rows=1 width=8)
-   Output: pg_catalog.sum((sum(tab1.val))), pg_catalog.avg((avg(tab1.val))), ((2 * tab1.val2))
+   Output: pg_catalog.sum((sum(xc_groupby_tab1.val))), pg_catalog.avg((avg(xc_groupby_tab1.val))), ((2 * xc_groupby_tab1.val2))
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (sum(tab1.val)), (avg(tab1.val)), ((2 * tab1.val2))
+         Output: (sum(xc_groupby_tab1.val)), (avg(xc_groupby_tab1.val)), ((2 * xc_groupby_tab1.val2))
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=8)
-               Output: sum(tab1.val), avg(tab1.val), (2 * tab1.val2)
+               Output: sum(xc_groupby_tab1.val), avg(xc_groupby_tab1.val), (2 * xc_groupby_tab1.val2)
 (6 rows)
 
-drop table tab1;
-drop table tab2;
+drop table xc_groupby_tab1;
+drop table xc_groupby_tab2;
 -- some tests involving nulls, characters, float type etc.
-create table def(a int, b varchar(25)); 
-insert into def VALUES (NULL, NULL);
-insert into def VALUES (1, NULL);
-insert into def VALUES (NULL, 'One');
-insert into def VALUES (2, 'Two');
-insert into def VALUES (2, 'Two');
-insert into def VALUES (3, 'Three');
-insert into def VALUES (4, 'Three');
-insert into def VALUES (5, 'Three');
-insert into def VALUES (6, 'Two');
-insert into def VALUES (7, NULL);
-insert into def VALUES (8, 'Two');
-insert into def VALUES (9, 'Three');
-insert into def VALUES (10, 'Three');
-select a,count(a) from def group by a order by a;
+create table xc_groupby_def(a int, b varchar(25)); 
+insert into xc_groupby_def VALUES (NULL, NULL);
+insert into xc_groupby_def VALUES (1, NULL);
+insert into xc_groupby_def VALUES (NULL, 'One');
+insert into xc_groupby_def VALUES (2, 'Two');
+insert into xc_groupby_def VALUES (2, 'Two');
+insert into xc_groupby_def VALUES (3, 'Three');
+insert into xc_groupby_def VALUES (4, 'Three');
+insert into xc_groupby_def VALUES (5, 'Three');
+insert into xc_groupby_def VALUES (6, 'Two');
+insert into xc_groupby_def VALUES (7, NULL);
+insert into xc_groupby_def VALUES (8, 'Two');
+insert into xc_groupby_def VALUES (9, 'Three');
+insert into xc_groupby_def VALUES (10, 'Three');
+select a,count(a) from xc_groupby_def group by a order by a;
  a  | count 
 ----+-------
   1 |     1
@@ -265,14 +261,14 @@ select a,count(a) from def group by a order by a;
     |     0
 (11 rows)
 
-explain verbose select a,count(a) from def group by a order by a;
+explain verbose select a,count(a) from xc_groupby_def group by a order by a;
                                           QUERY PLAN                                          
 ----------------------------------------------------------------------------------------------
- GroupAggregate  (cost=1.02..1.05 rows=1 width=4)
+ GroupAggregate  (cost=1.02..1.04 rows=1 width=4)
    Output: a, count(a)
    ->  Sort  (cost=1.02..1.03 rows=1 width=4)
          Output: a
-         Sort Key: def.a
+         Sort Key: xc_groupby_def.a
          ->  Result  (cost=0.00..1.01 rows=1 width=4)
                Output: a
                ->  Materialize  (cost=0.00..1.01 rows=1 width=4)
@@ -281,7 +277,7 @@ explain verbose select a,count(a) from def group by a order by a;
                            Output: a, b
 (11 rows)
 
-select avg(a) from def group by a; 
+select avg(a) from xc_groupby_def group by a; 
           avg           
 ------------------------
                        
@@ -297,7 +293,7 @@ select avg(a) from def group by a;
      4.0000000000000000
 (11 rows)
 
-select avg(a) from def group by a;
+select avg(a) from xc_groupby_def group by a;
           avg           
 ------------------------
                        
@@ -313,18 +309,18 @@ select avg(a) from def group by a;
      4.0000000000000000
 (11 rows)
 
-explain verbose select avg(a) from def group by a;
+explain verbose select avg(a) from xc_groupby_def group by a;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=4)
-   Output: pg_catalog.avg((avg(def.a))), def.a
+   Output: pg_catalog.avg((avg(xc_groupby_def.a))), xc_groupby_def.a
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (avg(def.a)), def.a
+         Output: (avg(xc_groupby_def.a)), xc_groupby_def.a
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=4)
-               Output: avg(def.a), def.a
+               Output: avg(xc_groupby_def.a), xc_groupby_def.a
 (6 rows)
 
-select avg(a) from def group by b;
+select avg(a) from xc_groupby_def group by b;
         avg         
 --------------------
  4.0000000000000000
@@ -333,18 +329,18 @@ select avg(a) from def group by b;
  6.2000000000000000
 (4 rows)
 
-explain verbose select avg(a) from def group by b;
+explain verbose select avg(a) from xc_groupby_def group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- HashAggregate  (cost=1.02..1.03 rows=1 width=33)
-   Output: pg_catalog.avg((avg(def.a))), def.b
+ HashAggregate  (cost=1.02..1.03 rows=1 width=72)
+   Output: pg_catalog.avg((avg(xc_groupby_def.a))), xc_groupby_def.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (avg(def.a)), def.b
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=33)
-               Output: avg(def.a), def.b
+         Output: (avg(xc_groupby_def.a)), xc_groupby_def.b
+         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=72)
+               Output: avg(xc_groupby_def.a), xc_groupby_def.b
 (6 rows)
 
-select sum(a) from def group by b;
+select sum(a) from xc_groupby_def group by b;
  sum 
 -----
    8
@@ -353,18 +349,18 @@ select sum(a) from def group by b;
   31
 (4 rows)
 
-explain verbose select sum(a) from def group by b;
+explain verbose select sum(a) from xc_groupby_def group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- HashAggregate  (cost=1.02..1.03 rows=1 width=33)
-   Output: pg_catalog.sum((sum(def.a))), def.b
+ HashAggregate  (cost=1.02..1.03 rows=1 width=72)
+   Output: pg_catalog.sum((sum(xc_groupby_def.a))), xc_groupby_def.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (sum(def.a)), def.b
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=33)
-               Output: sum(def.a), def.b
+         Output: (sum(xc_groupby_def.a)), xc_groupby_def.b
+         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=72)
+               Output: sum(xc_groupby_def.a), xc_groupby_def.b
 (6 rows)
 
-select count(*) from def group by b;
+select count(*) from xc_groupby_def group by b;
  count 
 -------
      3
@@ -373,18 +369,18 @@ select count(*) from def group by b;
      5
 (4 rows)
 
-explain verbose select count(*) from def group by b;
+explain verbose select count(*) from xc_groupby_def group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- HashAggregate  (cost=1.02..1.03 rows=1 width=29)
-   Output: pg_catalog.count(*), def.b
+ HashAggregate  (cost=1.02..1.03 rows=1 width=68)
+   Output: pg_catalog.count(*), xc_groupby_def.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (count(*)), def.b
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=29)
-               Output: count(*), def.b
+         Output: (count(*)), xc_groupby_def.b
+         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=68)
+               Output: count(*), xc_groupby_def.b
 (6 rows)
 
-select count(*) from def where a is not null group by a;
+select count(*) from xc_groupby_def where a is not null group by a;
  count 
 -------
      1
@@ -399,18 +395,18 @@ select count(*) from def where a is not null group by a;
      1
 (10 rows)
 
-explain verbose select count(*) from def where a is not null group by a;
+explain verbose select count(*) from xc_groupby_def where a is not null group by a;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=4)
-   Output: pg_catalog.count(*), def.a
+   Output: pg_catalog.count(*), xc_groupby_def.a
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (count(*)), def.a
+         Output: (count(*)), xc_groupby_def.a
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=4)
-               Output: count(*), def.a
+               Output: count(*), xc_groupby_def.a
 (6 rows)
 
-select b from def group by b;
+select b from xc_groupby_def group by b;
    b   
 -------
  
@@ -419,18 +415,18 @@ select b from def group by b;
  Three
 (4 rows)
 
-explain verbose select b from def group by b;
+explain verbose select b from xc_groupby_def group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- HashAggregate  (cost=1.02..1.03 rows=1 width=29)
-   Output: def.b
+ HashAggregate  (cost=1.02..1.03 rows=1 width=68)
+   Output: xc_groupby_def.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: def.b
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=29)
-               Output: def.b
+         Output: xc_groupby_def.b
+         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=68)
+               Output: xc_groupby_def.b
 (6 rows)
 
-select b,count(b) from def group by b;
+select b,count(b) from xc_groupby_def group by b;
    b   | count 
 -------+-------
        |     0
@@ -439,156 +435,156 @@ select b,count(b) from def group by b;
  Three |     5
 (4 rows)
 
-explain verbose select b,count(b) from def group by b;
+explain verbose select b,count(b) from xc_groupby_def group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- HashAggregate  (cost=1.02..1.03 rows=1 width=29)
-   Output: def.b, count((count(def.b)))
+ HashAggregate  (cost=1.02..1.03 rows=1 width=68)
+   Output: xc_groupby_def.b, count((count(xc_groupby_def.b)))
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: def.b, (count(def.b))
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=29)
-               Output: def.b, count(def.b)
+         Output: xc_groupby_def.b, (count(xc_groupby_def.b))
+         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=68)
+               Output: xc_groupby_def.b, count(xc_groupby_def.b)
 (6 rows)
 
-select count(*) from def where b is null group by b;
+select count(*) from xc_groupby_def where b is null group by b;
  count 
 -------
      3
 (1 row)
 
-explain verbose select count(*) from def where b is null group by b;
+explain verbose select count(*) from xc_groupby_def where b is null group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- HashAggregate  (cost=1.02..1.03 rows=1 width=29)
-   Output: pg_catalog.count(*), def.b
+ HashAggregate  (cost=1.02..1.03 rows=1 width=68)
+   Output: pg_catalog.count(*), xc_groupby_def.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (count(*)), def.b
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=29)
-               Output: count(*), def.b
+         Output: (count(*)), xc_groupby_def.b
+         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=68)
+               Output: count(*), xc_groupby_def.b
 (6 rows)
 
-create table g(a int, b float, c numeric);
-insert into g values(1,2.1,3.2);
-insert into g values(1,2.1,3.2);
-insert into g values(2,2.3,5.2);
-select sum(a) from g group by a;
+create table xc_groupby_g(a int, b float, c numeric);
+insert into xc_groupby_g values(1,2.1,3.2);
+insert into xc_groupby_g values(1,2.1,3.2);
+insert into xc_groupby_g values(2,2.3,5.2);
+select sum(a) from xc_groupby_g group by a;
  sum 
 -----
    2
    2
 (2 rows)
 
-explain verbose select sum(a) from g group by a;
+explain verbose select sum(a) from xc_groupby_g group by a;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=4)
-   Output: pg_catalog.sum((sum(g.a))), g.a
+   Output: pg_catalog.sum((sum(xc_groupby_g.a))), xc_groupby_g.a
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (sum(g.a)), g.a
+         Output: (sum(xc_groupby_g.a)), xc_groupby_g.a
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=4)
-               Output: sum(g.a), g.a
+               Output: sum(xc_groupby_g.a), xc_groupby_g.a
 (6 rows)
 
-select sum(b) from g group by b;
+select sum(b) from xc_groupby_g group by b;
  sum 
 -----
  2.3
  4.2
 (2 rows)
 
-explain verbose select sum(b) from g group by b;
+explain verbose select sum(b) from xc_groupby_g group by b;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=8)
-   Output: sum((sum(g.b))), g.b
+   Output: sum((sum(xc_groupby_g.b))), xc_groupby_g.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (sum(g.b)), g.b
+         Output: (sum(xc_groupby_g.b)), xc_groupby_g.b
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=8)
-               Output: sum(g.b), g.b
+               Output: sum(xc_groupby_g.b), xc_groupby_g.b
 (6 rows)
 
-select sum(c) from g group by b;
+select sum(c) from xc_groupby_g group by b;
  sum 
 -----
  5.2
  6.4
 (2 rows)
 
-explain verbose select sum(c) from g group by b;
+explain verbose select sum(c) from xc_groupby_g group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=40)
-   Output: sum((sum(g.c))), g.b
+   Output: sum((sum(xc_groupby_g.c))), xc_groupby_g.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (sum(g.c)), g.b
+         Output: (sum(xc_groupby_g.c)), xc_groupby_g.b
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=40)
-               Output: sum(g.c), g.b
+               Output: sum(xc_groupby_g.c), xc_groupby_g.b
 (6 rows)
 
-select avg(a) from g group by b;
+select avg(a) from xc_groupby_g group by b;
           avg           
 ------------------------
      2.0000000000000000
  1.00000000000000000000
 (2 rows)
 
-explain verbose select avg(a) from g group by b;
+explain verbose select avg(a) from xc_groupby_g group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=12)
-   Output: pg_catalog.avg((avg(g.a))), g.b
+   Output: pg_catalog.avg((avg(xc_groupby_g.a))), xc_groupby_g.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (avg(g.a)), g.b
+         Output: (avg(xc_groupby_g.a)), xc_groupby_g.b
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=12)
-               Output: avg(g.a), g.b
+               Output: avg(xc_groupby_g.a), xc_groupby_g.b
 (6 rows)
 
-select avg(b) from g group by c;
+select avg(b) from xc_groupby_g group by c;
  avg 
 -----
  2.3
  2.1
 (2 rows)
 
-explain verbose select avg(b) from g group by c;
+explain verbose select avg(b) from xc_groupby_g group by c;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=40)
-   Output: pg_catalog.avg((avg(g.b))), g.c
+   Output: pg_catalog.avg((avg(xc_groupby_g.b))), xc_groupby_g.c
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (avg(g.b)), g.c
+         Output: (avg(xc_groupby_g.b)), xc_groupby_g.c
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=40)
-               Output: avg(g.b), g.c
+               Output: avg(xc_groupby_g.b), xc_groupby_g.c
 (6 rows)
 
-select avg(c) from g group by c;
+select avg(c) from xc_groupby_g group by c;
         avg         
 --------------------
  5.2000000000000000
  3.2000000000000000
 (2 rows)
 
-explain verbose select avg(c) from g group by c;
+explain verbose select avg(c) from xc_groupby_g group by c;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=32)
-   Output: pg_catalog.avg((avg(g.c))), g.c
+   Output: pg_catalog.avg((avg(xc_groupby_g.c))), xc_groupby_g.c
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (avg(g.c)), g.c
+         Output: (avg(xc_groupby_g.c)), xc_groupby_g.c
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=32)
-               Output: avg(g.c), g.c
+               Output: avg(xc_groupby_g.c), xc_groupby_g.c
 (6 rows)
 
-drop table def;
-drop table g;
+drop table xc_groupby_def;
+drop table xc_groupby_g;
 -- Combination 2, enable_hashagg on and replicated tables.
 -- repeat the same tests for replicated tables
 -- create required tables and fill them with data
-create table tab1 (val int, val2 int) distribute by replication;
-create table tab2 (val int, val2 int) distribute by replication;
-insert into tab1 values (1, 1), (2, 1), (3, 1), (2, 2), (6, 2), (4, 3), (1, 3), (6, 3);
-insert into tab2 values (1, 1), (4, 1), (8, 1), (2, 4), (9, 4), (3, 4), (4, 2), (5, 2), (3, 2);
-select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from tab1 group by val2;
+create table xc_groupby_tab1 (val int, val2 int) distribute by replication;
+create table xc_groupby_tab2 (val int, val2 int) distribute by replication;
+insert into xc_groupby_tab1 values (1, 1), (2, 1), (3, 1), (2, 2), (6, 2), (4, 3), (1, 3), (6, 3);
+insert into xc_groupby_tab2 values (1, 1), (4, 1), (8, 1), (2, 4), (9, 4), (3, 4), (4, 2), (5, 2), (3, 2);
+select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_groupby_tab1 group by val2;
  count | sum |        avg         |     ?column?     | val2 
 -------+-----+--------------------+------------------+------
      3 |   6 | 2.0000000000000000 |                2 |    1
@@ -596,10 +592,10 @@ select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from tab1 g
      3 |  11 | 3.6666666666666667 | 3.66666666666667 |    3
 (3 rows)
 
-explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from tab1 group by val2;
+explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_groupby_tab1 group by val2;
                                                  QUERY PLAN                                                  
 -------------------------------------------------------------------------------------------------------------
- HashAggregate  (cost=1.03..1.06 rows=1 width=8)
+ HashAggregate  (cost=1.03..1.05 rows=1 width=8)
    Output: count(*), sum(val), avg(val), ((sum(val))::double precision / (count(*))::double precision), val2
    ->  Materialize  (cost=0.00..1.01 rows=1 width=8)
          Output: val, val2
@@ -608,7 +604,7 @@ explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), 
 (6 rows)
 
 -- joins and group by
-select count(*), sum(tab1.val * tab2.val), avg(tab1.val*tab2.val), sum(tab1.val*tab2.val)::float8/count(*), tab1.val2, tab2.val2 from tab1 full outer join tab2 on tab1.val2 = tab2.val2 group by tab1.val2, tab2.val2;
+select count(*), sum(xc_groupby_tab1.val * xc_groupby_tab2.val), avg(xc_groupby_tab1.val*xc_groupby_tab2.val), sum(xc_groupby_tab1.val*xc_groupby_tab2.val)::float8/count(*), xc_groupby_tab1.val2, xc_groupby_tab2.val2 from xc_groupby_tab1 full outer join xc_groupby_tab2 on xc_groupby_tab1.val2 = xc_groupby_tab2.val2 group by xc_groupby_tab1.val2, xc_groupby_tab2.val2;
  count | sum |         avg         |     ?column?     | val2 | val2 
 -------+-----+---------------------+------------------+------+------
      6 |  96 | 16.0000000000000000 |               16 |    2 |    2
@@ -617,53 +613,49 @@ select count(*), sum(tab1.val * tab2.val), avg(tab1.val*tab2.val), sum(tab1.val*
      3 |     |                     |                  |      |    4
 (4 rows)
 
-explain verbose select count(*), sum(tab1.val * tab2.val), avg(tab1.val*tab2.val), sum(tab1.val*tab2.val)::float8/count(*), tab1.val2, tab2.val2 from tab1 full outer join tab2 on tab1.val2 = tab2.val2 group by tab1.val2, tab2.val2;
-                                                                                    QUERY PLAN                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- HashAggregate  (cost=2.09..2.13 rows=1 width=16)
-   Output: count(*), sum((tab1.val * tab2.val)), avg((tab1.val * tab2.val)), ((sum((tab1.val * tab2.val)))::double precision / (count(*))::double precision), tab1.val2, tab2.val2
-   ->  Merge Full Join  (cost=2.05..2.07 rows=1 width=16)
-         Output: tab1.val, tab1.val2, tab2.val, tab2.val2
-         Merge Cond: (tab1.val2 = tab2.val2)
-         ->  Sort  (cost=1.02..1.03 rows=1 width=8)
-               Output: tab1.val, tab1.val2
-               Sort Key: tab1.val2
+explain verbose select count(*), sum(xc_groupby_tab1.val * xc_groupby_tab2.val), avg(xc_groupby_tab1.val*xc_groupby_tab2.val), sum(xc_groupby_tab1.val*xc_groupby_tab2.val)::float8/count(*), xc_groupby_tab1.val2, xc_groupby_tab2.val2 from xc_groupby_tab1 full outer join xc_groupby_tab2 on xc_groupby_tab1.val2 = xc_groupby_tab2.val2 group by xc_groupby_tab1.val2, xc_groupby_tab2.val2;
+                                                                                                                                QUERY PLAN                                                                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ HashAggregate  (cost=2.08..2.10 rows=1 width=16)
+   Output: count(*), sum((xc_groupby_tab1.val * xc_groupby_tab2.val)), avg((xc_groupby_tab1.val * xc_groupby_tab2.val)), ((sum((xc_groupby_tab1.val * xc_groupby_tab2.val)))::double precision / (count(*))::double precision), xc_groupby_tab1.val2, xc_groupby_tab2.val2
+   ->  Hash Full Join  (cost=1.03..2.06 rows=1 width=16)
+         Output: xc_groupby_tab1.val, xc_groupby_tab1.val2, xc_groupby_tab2.val, xc_groupby_tab2.val2
+         Hash Cond: (xc_groupby_tab1.val2 = xc_groupby_tab2.val2)
+         ->  Materialize  (cost=0.00..1.01 rows=1 width=8)
+               Output: xc_groupby_tab1.val, xc_groupby_tab1.val2
+               ->  Data Node Scan (Node Count [1]) on xc_groupby_tab1  (cost=0.00..1.01 rows=1000 width=8)
+                     Output: xc_groupby_tab1.val, xc_groupby_tab1.val2
+         ->  Hash  (cost=1.01..1.01 rows=1 width=8)
+               Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
                ->  Materialize  (cost=0.00..1.01 rows=1 width=8)
-                     Output: tab1.val, tab1.val2
-                     ->  Data Node Scan (Node Count [1]) on tab1  (cost=0.00..1.01 rows=1000 width=8)
-                           Output: tab1.val, tab1.val2
-         ->  Sort  (cost=1.02..1.03 rows=1 width=8)
-               Output: tab2.val, tab2.val2
-               Sort Key: tab2.val2
-               ->  Materialize  (cost=0.00..1.01 rows=1 width=8)
-                     Output: tab2.val, tab2.val2
-                     ->  Data Node Scan (Node Count [1]) on tab2  (cost=0.00..1.01 rows=1000 width=8)
-                           Output: tab2.val, tab2.val2
-(19 rows)
+                     Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
+                     ->  Data Node Scan (Node Count [1]) on xc_groupby_tab2  (cost=0.00..1.01 rows=1000 width=8)
+                           Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
+(15 rows)
 
 -- aggregates over aggregates
-select sum(y) from (select sum(val) y, val2%2 x from tab1 group by val2) q1 group by x;
+select sum(y) from (select sum(val) y, val2%2 x from xc_groupby_tab1 group by val2) q1 group by x;
  sum 
 -----
    8
   17
 (2 rows)
 
-explain verbose select sum(y) from (select sum(val) y, val2%2 x from tab1 group by val2) q1 group by x;
-                                       QUERY PLAN                                       
-----------------------------------------------------------------------------------------
+explain verbose select sum(y) from (select sum(val) y, val2%2 x from xc_groupby_tab1 group by val2) q1 group by x;
+                                                   QUERY PLAN                                                   
+----------------------------------------------------------------------------------------------------------------
  HashAggregate  (cost=1.05..1.06 rows=1 width=12)
-   Output: sum((pg_catalog.sum((sum(tab1.val))))), ((tab1.val2 % 2))
+   Output: sum((pg_catalog.sum((sum(xc_groupby_tab1.val))))), ((xc_groupby_tab1.val2 % 2))
    ->  HashAggregate  (cost=1.02..1.03 rows=1 width=8)
-         Output: pg_catalog.sum((sum(tab1.val))), ((tab1.val2 % 2)), tab1.val2
+         Output: pg_catalog.sum((sum(xc_groupby_tab1.val))), ((xc_groupby_tab1.val2 % 2)), xc_groupby_tab1.val2
          ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-               Output: (sum(tab1.val)), ((tab1.val2 % 2)), tab1.val2
+               Output: (sum(xc_groupby_tab1.val)), ((xc_groupby_tab1.val2 % 2)), xc_groupby_tab1.val2
                ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=8)
-                     Output: sum(tab1.val), (tab1.val2 % 2), tab1.val2
+                     Output: sum(xc_groupby_tab1.val), (xc_groupby_tab1.val2 % 2), xc_groupby_tab1.val2
 (8 rows)
 
 -- group by without aggregate
-select val2 from tab1 group by val2;
+select val2 from xc_groupby_tab1 group by val2;
  val2 
 ------
     1
@@ -671,18 +663,18 @@ select val2 from tab1 group by val2;
     3
 (3 rows)
 
-explain verbose select val2 from tab1 group by val2;
+explain verbose select val2 from xc_groupby_tab1 group by val2;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=4)
-   Output: tab1.val2
+   Output: xc_groupby_tab1.val2
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: tab1.val2
+         Output: xc_groupby_tab1.val2
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=4)
-               Output: tab1.val2
+               Output: xc_groupby_tab1.val2
 (6 rows)
 
-select val + val2 from tab1 group by val + val2;
+select val + val2 from xc_groupby_tab1 group by val + val2;
  ?column? 
 ----------
         4
@@ -693,18 +685,18 @@ select val + val2 from tab1 group by val + val2;
         2
 (6 rows)
 
-explain verbose select val + val2 from tab1 group by val + val2;
+explain verbose select val + val2 from xc_groupby_tab1 group by val + val2;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=8)
-   Output: ((tab1.val + tab1.val2))
+   Output: ((xc_groupby_tab1.val + xc_groupby_tab1.val2))
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: ((tab1.val + tab1.val2))
+         Output: ((xc_groupby_tab1.val + xc_groupby_tab1.val2))
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=8)
-               Output: (tab1.val + tab1.val2)
+               Output: (xc_groupby_tab1.val + xc_groupby_tab1.val2)
 (6 rows)
 
-select val + val2, val, val2 from tab1 group by val, val2;
+select val + val2, val, val2 from xc_groupby_tab1 group by val, val2;
  ?column? | val | val2 
 ----------+-----+------
         7 |   4 |    3
@@ -717,18 +709,18 @@ select val + val2, val, val2 from tab1 group by val, val2;
         9 |   6 |    3
 (8 rows)
 
-explain verbose select val + val2, val, val2 from tab1 group by val, val2;
-                                    QUERY PLAN                                    
-----------------------------------------------------------------------------------
+explain verbose select val + val2, val, val2 from xc_groupby_tab1 group by val, val2;
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=8)
-   Output: ((tab1.val + tab1.val2)), tab1.val, tab1.val2
+   Output: ((xc_groupby_tab1.val + xc_groupby_tab1.val2)), xc_groupby_tab1.val, xc_groupby_tab1.val2
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: ((tab1.val + tab1.val2)), tab1.val, tab1.val2
+         Output: ((xc_groupby_tab1.val + xc_groupby_tab1.val2)), xc_groupby_tab1.val, xc_groupby_tab1.val2
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=8)
-               Output: (tab1.val + tab1.val2), tab1.val, tab1.val2
+               Output: (xc_groupby_tab1.val + xc_groupby_tab1.val2), xc_groupby_tab1.val, xc_groupby_tab1.val2
 (6 rows)
 
-select tab1.val + tab2.val2, tab1.val, tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by tab1.val, tab2.val2;
+select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val, xc_groupby_tab2.val2;
  ?column? | val | val2 
 ----------+-----+------
         5 |   3 |    2
@@ -739,18 +731,18 @@ select tab1.val + tab2.val2, tab1.val, tab2.val2 from tab1, tab2 where tab1.val 
         7 |   3 |    4
 (6 rows)
 
-explain verbose select tab1.val + tab2.val2, tab1.val, tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by tab1.val, tab2.val2;
-                                  QUERY PLAN                                   
--------------------------------------------------------------------------------
+explain verbose select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val, xc_groupby_tab2.val2;
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
  HashAggregate  (cost=0.00..0.01 rows=1 width=0)
-   Output: ((tab1.val + tab2.val2)), tab1.val, tab2.val2
+   Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: ((tab1.val + tab2.val2)), tab1.val, tab2.val2
+         Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1 width=4)
-               Output: (tab1.val + tab2.val2), tab1.val, tab2.val2
+               Output: (xc_groupby_tab1.val + xc_groupby_tab2.val2), xc_groupby_tab1.val, xc_groupby_tab2.val2
 (6 rows)
 
-select tab1.val + tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by tab1.val + tab2.val2;
+select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
  ?column? 
 ----------
         6
@@ -759,19 +751,19 @@ select tab1.val + tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by t
         5
 (4 rows)
 
-explain verbose select tab1.val + tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by tab1.val + tab2.val2;
+explain verbose select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
                                   QUERY PLAN                                   
 -------------------------------------------------------------------------------
  HashAggregate  (cost=0.00..0.01 rows=1 width=0)
-   Output: ((tab1.val + tab2.val2))
+   Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: ((tab1.val + tab2.val2))
+         Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1 width=4)
-               Output: (tab1.val + tab2.val2)
+               Output: (xc_groupby_tab1.val + xc_groupby_tab2.val2)
 (6 rows)
 
 -- group by with aggregates in expression
-select count(*) + sum(val) + avg(val), val2 from tab1 group by val2;
+select count(*) + sum(val) + avg(val), val2 from xc_groupby_tab1 group by val2;
       ?column?       | val2 
 ---------------------+------
  11.0000000000000000 |    1
@@ -779,10 +771,10 @@ select count(*) + sum(val) + avg(val), val2 from tab1 group by val2;
  17.6666666666666667 |    3
 (3 rows)
 
-explain verbose select count(*) + sum(val) + avg(val), val2 from tab1 group by val2;
+explain verbose select count(*) + sum(val) + avg(val), val2 from xc_groupby_tab1 group by val2;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
- HashAggregate  (cost=1.02..1.05 rows=1 width=8)
+ HashAggregate  (cost=1.02..1.04 rows=1 width=8)
    Output: (((count(*) + sum(val)))::numeric + avg(val)), val2
    ->  Materialize  (cost=0.00..1.01 rows=1 width=8)
          Output: val, val2
@@ -791,7 +783,7 @@ explain verbose select count(*) + sum(val) + avg(val), val2 from tab1 group by v
 (6 rows)
 
 -- group by with expressions in group by clause
-select sum(val), avg(val), 2 * val2 from tab1 group by 2 * val2;
+select sum(val), avg(val), 2 * val2 from xc_groupby_tab1 group by 2 * val2;
  sum |        avg         | ?column? 
 -----+--------------------+----------
   11 | 3.6666666666666667 |        6
@@ -799,35 +791,35 @@ select sum(val), avg(val), 2 * val2 from tab1 group by 2 * val2;
    8 | 4.0000000000000000 |        4
 (3 rows)
 
-explain verbose select sum(val), avg(val), 2 * val2 from tab1 group by 2 * val2;
-                                          QUERY PLAN                                           
------------------------------------------------------------------------------------------------
+explain verbose select sum(val), avg(val), 2 * val2 from xc_groupby_tab1 group by 2 * val2;
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.04 rows=1 width=8)
-   Output: pg_catalog.sum((sum(tab1.val))), pg_catalog.avg((avg(tab1.val))), ((2 * tab1.val2))
+   Output: pg_catalog.sum((sum(xc_groupby_tab1.val))), pg_catalog.avg((avg(xc_groupby_tab1.val))), ((2 * xc_groupby_tab1.val2))
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (sum(tab1.val)), (avg(tab1.val)), ((2 * tab1.val2))
+         Output: (sum(xc_groupby_tab1.val)), (avg(xc_groupby_tab1.val)), ((2 * xc_groupby_tab1.val2))
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=8)
-               Output: sum(tab1.val), avg(tab1.val), (2 * tab1.val2)
+               Output: sum(xc_groupby_tab1.val), avg(xc_groupby_tab1.val), (2 * xc_groupby_tab1.val2)
 (6 rows)
 
-drop table tab1;
-drop table tab2;
+drop table xc_groupby_tab1;
+drop table xc_groupby_tab2;
 -- some tests involving nulls, characters, float type etc.
-create table def(a int, b varchar(25)) distribute by replication; 
-insert into def VALUES (NULL, NULL);
-insert into def VALUES (1, NULL);
-insert into def VALUES (NULL, 'One');
-insert into def VALUES (2, 'Two');
-insert into def VALUES (2, 'Two');
-insert into def VALUES (3, 'Three');
-insert into def VALUES (4, 'Three');
-insert into def VALUES (5, 'Three');
-insert into def VALUES (6, 'Two');
-insert into def VALUES (7, NULL);
-insert into def VALUES (8, 'Two');
-insert into def VALUES (9, 'Three');
-insert into def VALUES (10, 'Three');
-select a,count(a) from def group by a order by a;
+create table xc_groupby_def(a int, b varchar(25)) distribute by replication; 
+insert into xc_groupby_def VALUES (NULL, NULL);
+insert into xc_groupby_def VALUES (1, NULL);
+insert into xc_groupby_def VALUES (NULL, 'One');
+insert into xc_groupby_def VALUES (2, 'Two');
+insert into xc_groupby_def VALUES (2, 'Two');
+insert into xc_groupby_def VALUES (3, 'Three');
+insert into xc_groupby_def VALUES (4, 'Three');
+insert into xc_groupby_def VALUES (5, 'Three');
+insert into xc_groupby_def VALUES (6, 'Two');
+insert into xc_groupby_def VALUES (7, NULL);
+insert into xc_groupby_def VALUES (8, 'Two');
+insert into xc_groupby_def VALUES (9, 'Three');
+insert into xc_groupby_def VALUES (10, 'Three');
+select a,count(a) from xc_groupby_def group by a order by a;
  a  | count 
 ----+-------
   1 |     1
@@ -843,14 +835,14 @@ select a,count(a) from def group by a order by a;
     |     0
 (11 rows)
 
-explain verbose select a,count(a) from def group by a order by a;
+explain verbose select a,count(a) from xc_groupby_def group by a order by a;
                                           QUERY PLAN                                          
 ----------------------------------------------------------------------------------------------
- GroupAggregate  (cost=1.02..1.05 rows=1 width=4)
+ GroupAggregate  (cost=1.02..1.04 rows=1 width=4)
    Output: a, count(a)
    ->  Sort  (cost=1.02..1.03 rows=1 width=4)
          Output: a
-         Sort Key: def.a
+         Sort Key: xc_groupby_def.a
          ->  Result  (cost=0.00..1.01 rows=1 width=4)
                Output: a
                ->  Materialize  (cost=0.00..1.01 rows=1 width=4)
@@ -859,7 +851,7 @@ explain verbose select a,count(a) from def group by a order by a;
                            Output: a, b
 (11 rows)
 
-select avg(a) from def group by a; 
+select avg(a) from xc_groupby_def group by a; 
           avg           
 ------------------------
                        
@@ -875,18 +867,18 @@ select avg(a) from def group by a;
      4.0000000000000000
 (11 rows)
 
-explain verbose select avg(a) from def group by a; 
+explain verbose select avg(a) from xc_groupby_def group by a; 
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=4)
-   Output: pg_catalog.avg((avg(def.a))), def.a
+   Output: pg_catalog.avg((avg(xc_groupby_def.a))), xc_groupby_def.a
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (avg(def.a)), def.a
+         Output: (avg(xc_groupby_def.a)), xc_groupby_def.a
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=4)
-               Output: avg(def.a), def.a
+               Output: avg(xc_groupby_def.a), xc_groupby_def.a
 (6 rows)
 
-select avg(a) from def group by a;
+select avg(a) from xc_groupby_def group by a;
           avg           
 ------------------------
                        
@@ -902,18 +894,18 @@ select avg(a) from def group by a;
      4.0000000000000000
 (11 rows)
 
-explain verbose select avg(a) from def group by a;
+explain verbose select avg(a) from xc_groupby_def group by a;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=4)
-   Output: pg_catalog.avg((avg(def.a))), def.a
+   Output: pg_catalog.avg((avg(xc_groupby_def.a))), xc_groupby_def.a
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (avg(def.a)), def.a
+         Output: (avg(xc_groupby_def.a)), xc_groupby_def.a
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=4)
-               Output: avg(def.a), def.a
+               Output: avg(xc_groupby_def.a), xc_groupby_def.a
 (6 rows)
 
-select avg(a) from def group by b;
+select avg(a) from xc_groupby_def group by b;
         avg         
 --------------------
  4.0000000000000000
@@ -922,18 +914,18 @@ select avg(a) from def group by b;
  6.2000000000000000
 (4 rows)
 
-explain verbose select avg(a) from def group by b;
+explain verbose select avg(a) from xc_groupby_def group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- HashAggregate  (cost=1.02..1.03 rows=1 width=33)
-   Output: pg_catalog.avg((avg(def.a))), def.b
+ HashAggregate  (cost=1.02..1.03 rows=1 width=72)
+   Output: pg_catalog.avg((avg(xc_groupby_def.a))), xc_groupby_def.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (avg(def.a)), def.b
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=33)
-               Output: avg(def.a), def.b
+         Output: (avg(xc_groupby_def.a)), xc_groupby_def.b
+         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=72)
+               Output: avg(xc_groupby_def.a), xc_groupby_def.b
 (6 rows)
 
-select sum(a) from def group by b;
+select sum(a) from xc_groupby_def group by b;
  sum 
 -----
    8
@@ -942,18 +934,18 @@ select sum(a) from def group by b;
   31
 (4 rows)
 
-explain verbose select sum(a) from def group by b;
+explain verbose select sum(a) from xc_groupby_def group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- HashAggregate  (cost=1.02..1.03 rows=1 width=33)
-   Output: pg_catalog.sum((sum(def.a))), def.b
+ HashAggregate  (cost=1.02..1.03 rows=1 width=72)
+   Output: pg_catalog.sum((sum(xc_groupby_def.a))), xc_groupby_def.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (sum(def.a)), def.b
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=33)
-               Output: sum(def.a), def.b
+         Output: (sum(xc_groupby_def.a)), xc_groupby_def.b
+         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=72)
+               Output: sum(xc_groupby_def.a), xc_groupby_def.b
 (6 rows)
 
-select count(*) from def group by b;
+select count(*) from xc_groupby_def group by b;
  count 
 -------
      3
@@ -962,18 +954,18 @@ select count(*) from def group by b;
      5
 (4 rows)
 
-explain verbose select count(*) from def group by b;
+explain verbose select count(*) from xc_groupby_def group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- HashAggregate  (cost=1.02..1.03 rows=1 width=29)
-   Output: pg_catalog.count(*), def.b
+ HashAggregate  (cost=1.02..1.03 rows=1 width=68)
+   Output: pg_catalog.count(*), xc_groupby_def.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (count(*)), def.b
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=29)
-               Output: count(*), def.b
+         Output: (count(*)), xc_groupby_def.b
+         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=68)
+               Output: count(*), xc_groupby_def.b
 (6 rows)
 
-select count(*) from def where a is not null group by a;
+select count(*) from xc_groupby_def where a is not null group by a;
  count 
 -------
      1
@@ -988,18 +980,18 @@ select count(*) from def where a is not null group by a;
      1
 (10 rows)
 
-explain verbose select count(*) from def where a is not null group by a;
+explain verbose select count(*) from xc_groupby_def where a is not null group by a;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=4)
-   Output: pg_catalog.count(*), def.a
+   Output: pg_catalog.count(*), xc_groupby_def.a
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (count(*)), def.a
+         Output: (count(*)), xc_groupby_def.a
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=4)
-               Output: count(*), def.a
+               Output: count(*), xc_groupby_def.a
 (6 rows)
 
-select b from def group by b;
+select b from xc_groupby_def group by b;
    b   
 -------
  
@@ -1008,18 +1000,18 @@ select b from def group by b;
  Three
 (4 rows)
 
-explain verbose select b from def group by b;
+explain verbose select b from xc_groupby_def group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- HashAggregate  (cost=1.02..1.03 rows=1 width=29)
-   Output: def.b
+ HashAggregate  (cost=1.02..1.03 rows=1 width=68)
+   Output: xc_groupby_def.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: def.b
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=29)
-               Output: def.b
+         Output: xc_groupby_def.b
+         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=68)
+               Output: xc_groupby_def.b
 (6 rows)
 
-select b,count(b) from def group by b;
+select b,count(b) from xc_groupby_def group by b;
    b   | count 
 -------+-------
        |     0
@@ -1028,157 +1020,157 @@ select b,count(b) from def group by b;
  Three |     5
 (4 rows)
 
-explain verbose select b,count(b) from def group by b;
+explain verbose select b,count(b) from xc_groupby_def group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- HashAggregate  (cost=1.02..1.03 rows=1 width=29)
-   Output: def.b, count((count(def.b)))
+ HashAggregate  (cost=1.02..1.03 rows=1 width=68)
+   Output: xc_groupby_def.b, count((count(xc_groupby_def.b)))
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: def.b, (count(def.b))
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=29)
-               Output: def.b, count(def.b)
+         Output: xc_groupby_def.b, (count(xc_groupby_def.b))
+         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=68)
+               Output: xc_groupby_def.b, count(xc_groupby_def.b)
 (6 rows)
 
-select count(*) from def where b is null group by b;
+select count(*) from xc_groupby_def where b is null group by b;
  count 
 -------
      3
 (1 row)
 
-explain verbose select count(*) from def where b is null group by b;
+explain verbose select count(*) from xc_groupby_def where b is null group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- HashAggregate  (cost=1.02..1.03 rows=1 width=29)
-   Output: pg_catalog.count(*), def.b
+ HashAggregate  (cost=1.02..1.03 rows=1 width=68)
+   Output: pg_catalog.count(*), xc_groupby_def.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (count(*)), def.b
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=29)
-               Output: count(*), def.b
+         Output: (count(*)), xc_groupby_def.b
+         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=68)
+               Output: count(*), xc_groupby_def.b
 (6 rows)
 
-create table g(a int, b float, c numeric) distribute by replication;
-insert into g values(1,2.1,3.2);
-insert into g values(1,2.1,3.2);
-insert into g values(2,2.3,5.2);
-select sum(a) from g group by a;
+create table xc_groupby_g(a int, b float, c numeric) distribute by replication;
+insert into xc_groupby_g values(1,2.1,3.2);
+insert into xc_groupby_g values(1,2.1,3.2);
+insert into xc_groupby_g values(2,2.3,5.2);
+select sum(a) from xc_groupby_g group by a;
  sum 
 -----
    2
    2
 (2 rows)
 
-explain verbose select sum(a) from g group by a;
+explain verbose select sum(a) from xc_groupby_g group by a;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=4)
-   Output: pg_catalog.sum((sum(g.a))), g.a
+   Output: pg_catalog.sum((sum(xc_groupby_g.a))), xc_groupby_g.a
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (sum(g.a)), g.a
+         Output: (sum(xc_groupby_g.a)), xc_groupby_g.a
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=4)
-               Output: sum(g.a), g.a
+               Output: sum(xc_groupby_g.a), xc_groupby_g.a
 (6 rows)
 
-select sum(b) from g group by b;
+select sum(b) from xc_groupby_g group by b;
  sum 
 -----
  2.3
  4.2
 (2 rows)
 
-explain verbose select sum(b) from g group by b;
+explain verbose select sum(b) from xc_groupby_g group by b;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=8)
-   Output: sum((sum(g.b))), g.b
+   Output: sum((sum(xc_groupby_g.b))), xc_groupby_g.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (sum(g.b)), g.b
+         Output: (sum(xc_groupby_g.b)), xc_groupby_g.b
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=8)
-               Output: sum(g.b), g.b
+               Output: sum(xc_groupby_g.b), xc_groupby_g.b
 (6 rows)
 
-select sum(c) from g group by b;
+select sum(c) from xc_groupby_g group by b;
  sum 
 -----
  5.2
  6.4
 (2 rows)
 
-explain verbose select sum(c) from g group by b;
+explain verbose select sum(c) from xc_groupby_g group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=40)
-   Output: sum((sum(g.c))), g.b
+   Output: sum((sum(xc_groupby_g.c))), xc_groupby_g.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (sum(g.c)), g.b
+         Output: (sum(xc_groupby_g.c)), xc_groupby_g.b
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=40)
-               Output: sum(g.c), g.b
+               Output: sum(xc_groupby_g.c), xc_groupby_g.b
 (6 rows)
 
-select avg(a) from g group by b;
+select avg(a) from xc_groupby_g group by b;
           avg           
 ------------------------
      2.0000000000000000
  1.00000000000000000000
 (2 rows)
 
-explain verbose select avg(a) from g group by b;
+explain verbose select avg(a) from xc_groupby_g group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=12)
-   Output: pg_catalog.avg((avg(g.a))), g.b
+   Output: pg_catalog.avg((avg(xc_groupby_g.a))), xc_groupby_g.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (avg(g.a)), g.b
+         Output: (avg(xc_groupby_g.a)), xc_groupby_g.b
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=12)
-               Output: avg(g.a), g.b
+               Output: avg(xc_groupby_g.a), xc_groupby_g.b
 (6 rows)
 
-select avg(b) from g group by c;
+select avg(b) from xc_groupby_g group by c;
  avg 
 -----
  2.3
  2.1
 (2 rows)
 
-explain verbose select avg(b) from g group by c;
+explain verbose select avg(b) from xc_groupby_g group by c;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=40)
-   Output: pg_catalog.avg((avg(g.b))), g.c
+   Output: pg_catalog.avg((avg(xc_groupby_g.b))), xc_groupby_g.c
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (avg(g.b)), g.c
+         Output: (avg(xc_groupby_g.b)), xc_groupby_g.c
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=40)
-               Output: avg(g.b), g.c
+               Output: avg(xc_groupby_g.b), xc_groupby_g.c
 (6 rows)
 
-select avg(c) from g group by c;
+select avg(c) from xc_groupby_g group by c;
         avg         
 --------------------
  5.2000000000000000
  3.2000000000000000
 (2 rows)
 
-explain verbose select avg(c) from g group by c;
+explain verbose select avg(c) from xc_groupby_g group by c;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=32)
-   Output: pg_catalog.avg((avg(g.c))), g.c
+   Output: pg_catalog.avg((avg(xc_groupby_g.c))), xc_groupby_g.c
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (avg(g.c)), g.c
+         Output: (avg(xc_groupby_g.c)), xc_groupby_g.c
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=32)
-               Output: avg(g.c), g.c
+               Output: avg(xc_groupby_g.c), xc_groupby_g.c
 (6 rows)
 
-drop table def;
-drop table g;
+drop table xc_groupby_def;
+drop table xc_groupby_g;
 reset enable_hashagg;
 -- Combination 3 enable_hashagg off and distributed tables
 set enable_hashagg to off;
 -- create required tables and fill them with data
-create table tab1 (val int, val2 int);
-create table tab2 (val int, val2 int);
-insert into tab1 values (1, 1), (2, 1), (3, 1), (2, 2), (6, 2), (4, 3), (1, 3), (6, 3);
-insert into tab2 values (1, 1), (4, 1), (8, 1), (2, 4), (9, 4), (3, 4), (4, 2), (5, 2), (3, 2);
-select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from tab1 group by val2;
+create table xc_groupby_tab1 (val int, val2 int);
+create table xc_groupby_tab2 (val int, val2 int);
+insert into xc_groupby_tab1 values (1, 1), (2, 1), (3, 1), (2, 2), (6, 2), (4, 3), (1, 3), (6, 3);
+insert into xc_groupby_tab2 values (1, 1), (4, 1), (8, 1), (2, 4), (9, 4), (3, 4), (4, 2), (5, 2), (3, 2);
+select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_groupby_tab1 group by val2;
  count | sum |        avg         |     ?column?     | val2 
 -------+-----+--------------------+------------------+------
      3 |   6 | 2.0000000000000000 |                2 |    1
@@ -1186,14 +1178,14 @@ select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from tab1 g
      3 |  11 | 3.6666666666666667 | 3.66666666666667 |    3
 (3 rows)
 
-explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from tab1 group by val2;
+explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_groupby_tab1 group by val2;
                                                  QUERY PLAN                                                  
 -------------------------------------------------------------------------------------------------------------
- GroupAggregate  (cost=1.02..1.07 rows=1 width=8)
+ GroupAggregate  (cost=1.02..1.06 rows=1 width=8)
    Output: count(*), sum(val), avg(val), ((sum(val))::double precision / (count(*))::double precision), val2
    ->  Sort  (cost=1.02..1.03 rows=1 width=8)
          Output: val, val2
-         Sort Key: tab1.val2
+         Sort Key: xc_groupby_tab1.val2
          ->  Result  (cost=0.00..1.01 rows=1 width=8)
                Output: val, val2
                ->  Materialize  (cost=0.00..1.01 rows=1 width=8)
@@ -1203,7 +1195,7 @@ explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), 
 (11 rows)
 
 -- joins and group by
-select count(*), sum(tab1.val * tab2.val), avg(tab1.val*tab2.val), sum(tab1.val*tab2.val)::float8/count(*), tab1.val2, tab2.val2 from tab1 full outer join tab2 on tab1.val2 = tab2.val2 group by tab1.val2, tab2.val2;
+select count(*), sum(xc_groupby_tab1.val * xc_groupby_tab2.val), avg(xc_groupby_tab1.val*xc_groupby_tab2.val), sum(xc_groupby_tab1.val*xc_groupby_tab2.val)::float8/count(*), xc_groupby_tab1.val2, xc_groupby_tab2.val2 from xc_groupby_tab1 full outer join xc_groupby_tab2 on xc_groupby_tab1.val2 = xc_groupby_tab2.val2 group by xc_groupby_tab1.val2, xc_groupby_tab2.val2;
  count | sum |         avg         |     ?column?     | val2 | val2 
 -------+-----+---------------------+------------------+------+------
      9 |  78 |  8.6666666666666667 | 8.66666666666667 |    1 |    1
@@ -1212,44 +1204,40 @@ select count(*), sum(tab1.val * tab2.val), avg(tab1.val*tab2.val), sum(tab1.val*
      3 |     |                     |                  |      |    4
 (4 rows)
 
-explain verbose select count(*), sum(tab1.val * tab2.val), avg(tab1.val*tab2.val), sum(tab1.val*tab2.val)::float8/count(*), tab1.val2, tab2.val2 from tab1 full outer join tab2 on tab1.val2 = tab2.val2 group by tab1.val2, tab2.val2;
-                                                                                    QUERY PLAN                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate  (cost=2.08..2.14 rows=1 width=16)
-   Output: count(*), sum((tab1.val * tab2.val)), avg((tab1.val * tab2.val)), ((sum((tab1.val * tab2.val)))::double precision / (count(*))::double precision), tab1.val2, tab2.val2
-   ->  Sort  (cost=2.08..2.09 rows=1 width=16)
-         Output: tab1.val, tab2.val, tab1.val2, tab2.val2
-         Sort Key: tab1.val2, tab2.val2
-         ->  Merge Full Join  (cost=2.05..2.07 rows=1 width=16)
-               Output: tab1.val, tab2.val, tab1.val2, tab2.val2
-               Merge Cond: (tab1.val2 = tab2.val2)
-               ->  Sort  (cost=1.02..1.03 rows=1 width=8)
-                     Output: tab1.val, tab1.val2
-                     Sort Key: tab1.val2
+explain verbose select count(*), sum(xc_groupby_tab1.val * xc_groupby_tab2.val), avg(xc_groupby_tab1.val*xc_groupby_tab2.val), sum(xc_groupby_tab1.val*xc_groupby_tab2.val)::float8/count(*), xc_groupby_tab1.val2, xc_groupby_tab2.val2 from xc_groupby_tab1 full outer join xc_groupby_tab2 on xc_groupby_tab1.val2 = xc_groupby_tab2.val2 group by xc_groupby_tab1.val2, xc_groupby_tab2.val2;
+                                                                                                                                QUERY PLAN                                                                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=2.07..2.12 rows=1 width=16)
+   Output: count(*), sum((xc_groupby_tab1.val * xc_groupby_tab2.val)), avg((xc_groupby_tab1.val * xc_groupby_tab2.val)), ((sum((xc_groupby_tab1.val * xc_groupby_tab2.val)))::double precision / (count(*))::double precision), xc_groupby_tab1.val2, xc_groupby_tab2.val2
+   ->  Sort  (cost=2.07..2.07 rows=1 width=16)
+         Output: xc_groupby_tab1.val, xc_groupby_tab2.val, xc_groupby_tab1.val2, xc_groupby_tab2.val2
+         Sort Key: xc_groupby_tab1.val2, xc_groupby_tab2.val2
+         ->  Hash Full Join  (cost=1.03..2.06 rows=1 width=16)
+               Output: xc_groupby_tab1.val, xc_groupby_tab2.val, xc_groupby_tab1.val2, xc_groupby_tab2.val2
+               Hash Cond: (xc_groupby_tab1.val2 = xc_groupby_tab2.val2)
+               ->  Materialize  (cost=0.00..1.01 rows=1 width=8)
+                     Output: xc_groupby_tab1.val, xc_groupby_tab1.val2
+                     ->  Data Node Scan (Node Count [2]) on xc_groupby_tab1  (cost=0.00..1.01 rows=1000 width=8)
+                           Output: xc_groupby_tab1.val, xc_groupby_tab1.val2
+               ->  Hash  (cost=1.01..1.01 rows=1 width=8)
+                     Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
                      ->  Materialize  (cost=0.00..1.01 rows=1 width=8)
-                           Output: tab1.val, tab1.val2
-                           ->  Data Node Scan (Node Count [2]) on tab1  (cost=0.00..1.01 rows=1000 width=8)
-                                 Output: tab1.val, tab1.val2
-               ->  Sort  (cost=1.02..1.03 rows=1 width=8)
-                     Output: tab2.val, tab2.val2
-                     Sort Key: tab2.val2
-                     ->  Materialize  (cost=0.00..1.01 rows=1 width=8)
-                           Output: tab2.val, tab2.val2
-                           ->  Data Node Scan (Node Count [2]) on tab2  (cost=0.00..1.01 rows=1000 width=8)
-                                 Output: tab2.val, tab2.val2
-(22 rows)
+                           Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
+                           ->  Data Node Scan (Node Count [2]) on xc_groupby_tab2  (cost=0.00..1.01 rows=1000 width=8)
+                                 Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
+(18 rows)
 
 -- aggregates over aggregates
-select sum(y) from (select sum(val) y, val2%2 x from tab1 group by val2) q1 group by x;
+select sum(y) from (select sum(val) y, val2%2 x from xc_groupby_tab1 group by val2) q1 group by x;
  sum 
 -----
    8
   17
 (2 rows)
 
-explain verbose select sum(y) from (select sum(val) y, val2%2 x from tab1 group by val2) q1 group by x;
-                                             QUERY PLAN                                             
-----------------------------------------------------------------------------------------------------
+explain verbose select sum(y) from (select sum(val) y, val2%2 x from xc_groupby_tab1 group by val2) q1 group by x;
+                                                         QUERY PLAN                                                         
+----------------------------------------------------------------------------------------------------------------------------
  GroupAggregate  (cost=1.07..1.09 rows=1 width=12)
    Output: sum(q1.y), q1.x
    ->  Sort  (cost=1.07..1.07 rows=1 width=12)
@@ -1258,15 +1246,15 @@ explain verbose select sum(y) from (select sum(val) y, val2%2 x from tab1 group 
          ->  Subquery Scan on q1  (cost=1.02..1.06 rows=1 width=12)
                Output: q1.y, q1.x
                ->  GroupAggregate  (cost=1.02..1.05 rows=1 width=8)
-                     Output: pg_catalog.sum((sum(tab1.val))), ((tab1.val2 % 2)), tab1.val2
+                     Output: pg_catalog.sum((sum(xc_groupby_tab1.val))), ((xc_groupby_tab1.val2 % 2)), xc_groupby_tab1.val2
                      ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-                           Output: (sum(tab1.val)), ((tab1.val2 % 2)), tab1.val2
+                           Output: (sum(xc_groupby_tab1.val)), ((xc_groupby_tab1.val2 % 2)), xc_groupby_tab1.val2
                            ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=8)
-                                 Output: sum(tab1.val), (tab1.val2 % 2), tab1.val2
+                                 Output: sum(xc_groupby_tab1.val), (xc_groupby_tab1.val2 % 2), xc_groupby_tab1.val2
 (13 rows)
 
 -- group by without aggregate
-select val2 from tab1 group by val2;
+select val2 from xc_groupby_tab1 group by val2;
  val2 
 ------
     1
@@ -1274,18 +1262,18 @@ select val2 from tab1 group by val2;
     3
 (3 rows)
 
-explain verbose select val2 from tab1 group by val2;
+explain verbose select val2 from xc_groupby_tab1 group by val2;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
  Group  (cost=1.02..1.03 rows=1 width=4)
-   Output: tab1.val2
+   Output: xc_groupby_tab1.val2
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: tab1.val2
+         Output: xc_groupby_tab1.val2
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=4)
-               Output: tab1.val2
+               Output: xc_groupby_tab1.val2
 (6 rows)
 
-select val + val2 from tab1 group by val + val2;
+select val + val2 from xc_groupby_tab1 group by val + val2;
  ?column? 
 ----------
         2
@@ -1296,18 +1284,18 @@ select val + val2 from tab1 group by val + val2;
         9
 (6 rows)
 
-explain verbose select val + val2 from tab1 group by val + val2;
+explain verbose select val + val2 from xc_groupby_tab1 group by val + val2;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
  Group  (cost=1.03..1.04 rows=1 width=8)
-   Output: ((tab1.val + tab1.val2))
+   Output: ((xc_groupby_tab1.val + xc_groupby_tab1.val2))
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: ((tab1.val + tab1.val2))
+         Output: ((xc_groupby_tab1.val + xc_groupby_tab1.val2))
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=8)
-               Output: (tab1.val + tab1.val2)
+               Output: (xc_groupby_tab1.val + xc_groupby_tab1.val2)
 (6 rows)
 
-select val + val2, val, val2 from tab1 group by val, val2;
+select val + val2, val, val2 from xc_groupby_tab1 group by val, val2;
  ?column? | val | val2 
 ----------+-----+------
         2 |   1 |    1
@@ -1320,18 +1308,18 @@ select val + val2, val, val2 from tab1 group by val, val2;
         9 |   6 |    3
 (8 rows)
 
-explain verbose select val + val2, val, val2 from tab1 group by val, val2;
-                                    QUERY PLAN                                    
-----------------------------------------------------------------------------------
+explain verbose select val + val2, val, val2 from xc_groupby_tab1 group by val, val2;
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
  Group  (cost=1.02..1.04 rows=1 width=8)
-   Output: ((tab1.val + tab1.val2)), tab1.val, tab1.val2
+   Output: ((xc_groupby_tab1.val + xc_groupby_tab1.val2)), xc_groupby_tab1.val, xc_groupby_tab1.val2
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: ((tab1.val + tab1.val2)), tab1.val, tab1.val2
+         Output: ((xc_groupby_tab1.val + xc_groupby_tab1.val2)), xc_groupby_tab1.val, xc_groupby_tab1.val2
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=8)
-               Output: (tab1.val + tab1.val2), tab1.val, tab1.val2
+               Output: (xc_groupby_tab1.val + xc_groupby_tab1.val2), xc_groupby_tab1.val, xc_groupby_tab1.val2
 (6 rows)
 
-select tab1.val + tab2.val2, tab1.val, tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by tab1.val, tab2.val2;
+select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val, xc_groupby_tab2.val2;
  ?column? | val | val2 
 ----------+-----+------
         2 |   1 |    1
@@ -1342,18 +1330,18 @@ select tab1.val + tab2.val2, tab1.val, tab2.val2 from tab1, tab2 where tab1.val 
         6 |   4 |    2
 (6 rows)
 
-explain verbose select tab1.val + tab2.val2, tab1.val, tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by tab1.val, tab2.val2;
-                                  QUERY PLAN                                   
--------------------------------------------------------------------------------
+explain verbose select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val, xc_groupby_tab2.val2;
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
  Group  (cost=0.01..0.02 rows=1 width=0)
-   Output: ((tab1.val + tab2.val2)), tab1.val, tab2.val2
+   Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: ((tab1.val + tab2.val2)), tab1.val, tab2.val2
+         Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1 width=4)
-               Output: (tab1.val + tab2.val2), tab1.val, tab2.val2
+               Output: (xc_groupby_tab1.val + xc_groupby_tab2.val2), xc_groupby_tab1.val, xc_groupby_tab2.val2
 (6 rows)
 
-select tab1.val + tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by tab1.val + tab2.val2;
+select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
  ?column? 
 ----------
         2
@@ -1362,19 +1350,19 @@ select tab1.val + tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by t
         7
 (4 rows)
 
-explain verbose select tab1.val + tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by tab1.val + tab2.val2;
+explain verbose select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
                                   QUERY PLAN                                   
 -------------------------------------------------------------------------------
  Group  (cost=0.01..0.02 rows=1 width=0)
-   Output: ((tab1.val + tab2.val2))
+   Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: ((tab1.val + tab2.val2))
+         Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1 width=4)
-               Output: (tab1.val + tab2.val2)
+               Output: (xc_groupby_tab1.val + xc_groupby_tab2.val2)
 (6 rows)
 
 -- group by with aggregates in expression
-select count(*) + sum(val) + avg(val), val2 from tab1 group by val2;
+select count(*) + sum(val) + avg(val), val2 from xc_groupby_tab1 group by val2;
       ?column?       | val2 
 ---------------------+------
  11.0000000000000000 |    1
@@ -1382,14 +1370,14 @@ select count(*) + sum(val) + avg(val), val2 from tab1 group by val2;
  17.6666666666666667 |    3
 (3 rows)
 
-explain verbose select count(*) + sum(val) + avg(val), val2 from tab1 group by val2;
+explain verbose select count(*) + sum(val) + avg(val), val2 from xc_groupby_tab1 group by val2;
                                           QUERY PLAN                                          
 ----------------------------------------------------------------------------------------------
  GroupAggregate  (cost=1.02..1.06 rows=1 width=8)
    Output: (((count(*) + sum(val)))::numeric + avg(val)), val2
    ->  Sort  (cost=1.02..1.03 rows=1 width=8)
          Output: val, val2
-         Sort Key: tab1.val2
+         Sort Key: xc_groupby_tab1.val2
          ->  Result  (cost=0.00..1.01 rows=1 width=8)
                Output: val, val2
                ->  Materialize  (cost=0.00..1.01 rows=1 width=8)
@@ -1399,7 +1387,7 @@ explain verbose select count(*) + sum(val) + avg(val), val2 from tab1 group by v
 (11 rows)
 
 -- group by with expressions in group by clause
-select sum(val), avg(val), 2 * val2 from tab1 group by 2 * val2;
+select sum(val), avg(val), 2 * val2 from xc_groupby_tab1 group by 2 * val2;
  sum |        avg         | ?column? 
 -----+--------------------+----------
    6 | 2.0000000000000000 |        2
@@ -1407,35 +1395,35 @@ select sum(val), avg(val), 2 * val2 from tab1 group by 2 * val2;
   11 | 3.6666666666666667 |        6
 (3 rows)
 
-explain verbose select sum(val), avg(val), 2 * val2 from tab1 group by 2 * val2;
-                                          QUERY PLAN                                           
------------------------------------------------------------------------------------------------
- GroupAggregate  (cost=1.03..1.06 rows=1 width=8)
-   Output: pg_catalog.sum((sum(tab1.val))), pg_catalog.avg((avg(tab1.val))), ((2 * tab1.val2))
+explain verbose select sum(val), avg(val), 2 * val2 from xc_groupby_tab1 group by 2 * val2;
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=1.03..1.05 rows=1 width=8)
+   Output: pg_catalog.sum((sum(xc_groupby_tab1.val))), pg_catalog.avg((avg(xc_groupby_tab1.val))), ((2 * xc_groupby_tab1.val2))
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (sum(tab1.val)), (avg(tab1.val)), ((2 * tab1.val2))
+         Output: (sum(xc_groupby_tab1.val)), (avg(xc_groupby_tab1.val)), ((2 * xc_groupby_tab1.val2))
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=8)
-               Output: sum(tab1.val), avg(tab1.val), (2 * tab1.val2)
+               Output: sum(xc_groupby_tab1.val), avg(xc_groupby_tab1.val), (2 * xc_groupby_tab1.val2)
 (6 rows)
 
-drop table tab1;
-drop table tab2;
+drop table xc_groupby_tab1;
+drop table xc_groupby_tab2;
 -- some tests involving nulls, characters, float type etc.
-create table def(a int, b varchar(25)); 
-insert into def VALUES (NULL, NULL);
-insert into def VALUES (1, NULL);
-insert into def VALUES (NULL, 'One');
-insert into def VALUES (2, 'Two');
-insert into def VALUES (2, 'Two');
-insert into def VALUES (3, 'Three');
-insert into def VALUES (4, 'Three');
-insert into def VALUES (5, 'Three');
-insert into def VALUES (6, 'Two');
-insert into def VALUES (7, NULL);
-insert into def VALUES (8, 'Two');
-insert into def VALUES (9, 'Three');
-insert into def VALUES (10, 'Three');
-select a,count(a) from def group by a order by a;
+create table xc_groupby_def(a int, b varchar(25)); 
+insert into xc_groupby_def VALUES (NULL, NULL);
+insert into xc_groupby_def VALUES (1, NULL);
+insert into xc_groupby_def VALUES (NULL, 'One');
+insert into xc_groupby_def VALUES (2, 'Two');
+insert into xc_groupby_def VALUES (2, 'Two');
+insert into xc_groupby_def VALUES (3, 'Three');
+insert into xc_groupby_def VALUES (4, 'Three');
+insert into xc_groupby_def VALUES (5, 'Three');
+insert into xc_groupby_def VALUES (6, 'Two');
+insert into xc_groupby_def VALUES (7, NULL);
+insert into xc_groupby_def VALUES (8, 'Two');
+insert into xc_groupby_def VALUES (9, 'Three');
+insert into xc_groupby_def VALUES (10, 'Three');
+select a,count(a) from xc_groupby_def group by a order by a;
  a  | count 
 ----+-------
   1 |     1
@@ -1451,14 +1439,14 @@ select a,count(a) from def group by a order by a;
     |     0
 (11 rows)
 
-explain verbose select a,count(a) from def group by a order by a;
+explain verbose select a,count(a) from xc_groupby_def group by a order by a;
                                           QUERY PLAN                                          
 ----------------------------------------------------------------------------------------------
- GroupAggregate  (cost=1.02..1.05 rows=1 width=4)
+ GroupAggregate  (cost=1.02..1.04 rows=1 width=4)
    Output: a, count(a)
    ->  Sort  (cost=1.02..1.03 rows=1 width=4)
          Output: a
-         Sort Key: def.a
+         Sort Key: xc_groupby_def.a
          ->  Result  (cost=0.00..1.01 rows=1 width=4)
                Output: a
                ->  Materialize  (cost=0.00..1.01 rows=1 width=4)
@@ -1467,7 +1455,7 @@ explain verbose select a,count(a) from def group by a order by a;
                            Output: a, b
 (11 rows)
 
-select avg(a) from def group by a; 
+select avg(a) from xc_groupby_def group by a; 
           avg           
 ------------------------
  1.00000000000000000000
@@ -1483,7 +1471,7 @@ select avg(a) from def group by a;
                        
 (11 rows)
 
-select avg(a) from def group by a;
+select avg(a) from xc_groupby_def group by a;
           avg           
 ------------------------
  1.00000000000000000000
@@ -1499,18 +1487,18 @@ select avg(a) from def group by a;
                        
 (11 rows)
 
-explain verbose select avg(a) from def group by a;
+explain verbose select avg(a) from xc_groupby_def group by a;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
  GroupAggregate  (cost=1.02..1.05 rows=1 width=4)
-   Output: pg_catalog.avg((avg(def.a))), def.a
+   Output: pg_catalog.avg((avg(xc_groupby_def.a))), xc_groupby_def.a
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (avg(def.a)), def.a
+         Output: (avg(xc_groupby_def.a)), xc_groupby_def.a
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=4)
-               Output: avg(def.a), def.a
+               Output: avg(xc_groupby_def.a), xc_groupby_def.a
 (6 rows)
 
-select avg(a) from def group by b;
+select avg(a) from xc_groupby_def group by b;
         avg         
 --------------------
                    
@@ -1519,18 +1507,18 @@ select avg(a) from def group by b;
  4.0000000000000000
 (4 rows)
 
-explain verbose select avg(a) from def group by b;
+explain verbose select avg(a) from xc_groupby_def group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- GroupAggregate  (cost=1.02..1.05 rows=1 width=33)
-   Output: pg_catalog.avg((avg(def.a))), def.b
+ GroupAggregate  (cost=1.02..1.05 rows=1 width=72)
+   Output: pg_catalog.avg((avg(xc_groupby_def.a))), xc_groupby_def.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (avg(def.a)), def.b
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=33)
-               Output: avg(def.a), def.b
+         Output: (avg(xc_groupby_def.a)), xc_groupby_def.b
+         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=72)
+               Output: avg(xc_groupby_def.a), xc_groupby_def.b
 (6 rows)
 
-select sum(a) from def group by b;
+select sum(a) from xc_groupby_def group by b;
  sum 
 -----
     
@@ -1539,18 +1527,18 @@ select sum(a) from def group by b;
    8
 (4 rows)
 
-explain verbose select sum(a) from def group by b;
+explain verbose select sum(a) from xc_groupby_def group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- GroupAggregate  (cost=1.02..1.05 rows=1 width=33)
-   Output: pg_catalog.sum((sum(def.a))), def.b
+ GroupAggregate  (cost=1.02..1.04 rows=1 width=72)
+   Output: pg_catalog.sum((sum(xc_groupby_def.a))), xc_groupby_def.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (sum(def.a)), def.b
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=33)
-               Output: sum(def.a), def.b
+         Output: (sum(xc_groupby_def.a)), xc_groupby_def.b
+         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=72)
+               Output: sum(xc_groupby_def.a), xc_groupby_def.b
 (6 rows)
 
-select count(*) from def group by b;
+select count(*) from xc_groupby_def group by b;
  count 
 -------
      1
@@ -1559,18 +1547,18 @@ select count(*) from def group by b;
      3
 (4 rows)
 
-explain verbose select count(*) from def group by b;
+explain verbose select count(*) from xc_groupby_def group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- GroupAggregate  (cost=1.02..1.05 rows=1 width=29)
-   Output: pg_catalog.count(*), def.b
+ GroupAggregate  (cost=1.02..1.04 rows=1 width=68)
+   Output: pg_catalog.count(*), xc_groupby_def.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (count(*)), def.b
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=29)
-               Output: count(*), def.b
+         Output: (count(*)), xc_groupby_def.b
+         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=68)
+               Output: count(*), xc_groupby_def.b
 (6 rows)
 
-select count(*) from def where a is not null group by a;
+select count(*) from xc_groupby_def where a is not null group by a;
  count 
 -------
      1
@@ -1585,18 +1573,18 @@ select count(*) from def where a is not null group by a;
      1
 (10 rows)
 
-explain verbose select count(*) from def where a is not null group by a;
+explain verbose select count(*) from xc_groupby_def where a is not null group by a;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
- GroupAggregate  (cost=1.02..1.05 rows=1 width=4)
-   Output: pg_catalog.count(*), def.a
+ GroupAggregate  (cost=1.02..1.04 rows=1 width=4)
+   Output: pg_catalog.count(*), xc_groupby_def.a
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (count(*)), def.a
+         Output: (count(*)), xc_groupby_def.a
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=4)
-               Output: count(*), def.a
+               Output: count(*), xc_groupby_def.a
 (6 rows)
 
-select b from def group by b;
+select b from xc_groupby_def group by b;
    b   
 -------
  One
@@ -1605,18 +1593,18 @@ select b from def group by b;
  
 (4 rows)
 
-explain verbose select b from def group by b;
+explain verbose select b from xc_groupby_def group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- Group  (cost=1.02..1.03 rows=1 width=29)
-   Output: def.b
+ Group  (cost=1.02..1.03 rows=1 width=68)
+   Output: xc_groupby_def.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: def.b
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=29)
-               Output: def.b
+         Output: xc_groupby_def.b
+         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=68)
+               Output: xc_groupby_def.b
 (6 rows)
 
-select b,count(b) from def group by b;
+select b,count(b) from xc_groupby_def group by b;
    b   | count 
 -------+-------
  One   |     1
@@ -1625,156 +1613,156 @@ select b,count(b) from def group by b;
        |     0
 (4 rows)
 
-explain verbose select b,count(b) from def group by b;
+explain verbose select b,count(b) from xc_groupby_def group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- GroupAggregate  (cost=1.02..1.05 rows=1 width=29)
-   Output: def.b, count((count(def.b)))
+ GroupAggregate  (cost=1.02..1.04 rows=1 width=68)
+   Output: xc_groupby_def.b, count((count(xc_groupby_def.b)))
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: def.b, (count(def.b))
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=29)
-               Output: def.b, count(def.b)
+         Output: xc_groupby_def.b, (count(xc_groupby_def.b))
+         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=68)
+               Output: xc_groupby_def.b, count(xc_groupby_def.b)
 (6 rows)
 
-select count(*) from def where b is null group by b;
+select count(*) from xc_groupby_def where b is null group by b;
  count 
 -------
      3
 (1 row)
 
-explain verbose select count(*) from def where b is null group by b;
+explain verbose select count(*) from xc_groupby_def where b is null group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- GroupAggregate  (cost=1.02..1.05 rows=1 width=29)
-   Output: pg_catalog.count(*), def.b
+ GroupAggregate  (cost=1.02..1.04 rows=1 width=68)
+   Output: pg_catalog.count(*), xc_groupby_def.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (count(*)), def.b
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=29)
-               Output: count(*), def.b
+         Output: (count(*)), xc_groupby_def.b
+         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=68)
+               Output: count(*), xc_groupby_def.b
 (6 rows)
 
-create table g(a int, b float, c numeric);
-insert into g values(1,2.1,3.2);
-insert into g values(1,2.1,3.2);
-insert into g values(2,2.3,5.2);
-select sum(a) from g group by a;
+create table xc_groupby_g(a int, b float, c numeric);
+insert into xc_groupby_g values(1,2.1,3.2);
+insert into xc_groupby_g values(1,2.1,3.2);
+insert into xc_groupby_g values(2,2.3,5.2);
+select sum(a) from xc_groupby_g group by a;
  sum 
 -----
    2
    2
 (2 rows)
 
-explain verbose select sum(a) from g group by a;
+explain verbose select sum(a) from xc_groupby_g group by a;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
- GroupAggregate  (cost=1.02..1.05 rows=1 width=4)
-   Output: pg_catalog.sum((sum(g.a))), g.a
+ GroupAggregate  (cost=1.02..1.04 rows=1 width=4)
+   Output: pg_catalog.sum((sum(xc_groupby_g.a))), xc_groupby_g.a
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (sum(g.a)), g.a
+         Output: (sum(xc_groupby_g.a)), xc_groupby_g.a
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=4)
-               Output: sum(g.a), g.a
+               Output: sum(xc_groupby_g.a), xc_groupby_g.a
 (6 rows)
 
-select sum(b) from g group by b;
+select sum(b) from xc_groupby_g group by b;
  sum 
 -----
  4.2
  2.3
 (2 rows)
 
-explain verbose select sum(b) from g group by b;
+explain verbose select sum(b) from xc_groupby_g group by b;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
- GroupAggregate  (cost=1.02..1.05 rows=1 width=8)
-   Output: sum((sum(g.b))), g.b
+ GroupAggregate  (cost=1.02..1.04 rows=1 width=8)
+   Output: sum((sum(xc_groupby_g.b))), xc_groupby_g.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (sum(g.b)), g.b
+         Output: (sum(xc_groupby_g.b)), xc_groupby_g.b
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=8)
-               Output: sum(g.b), g.b
+               Output: sum(xc_groupby_g.b), xc_groupby_g.b
 (6 rows)
 
-select sum(c) from g group by b;
+select sum(c) from xc_groupby_g group by b;
  sum 
 -----
  6.4
  5.2
 (2 rows)
 
-explain verbose select sum(c) from g group by b;
+explain verbose select sum(c) from xc_groupby_g group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- GroupAggregate  (cost=1.02..1.05 rows=1 width=40)
-   Output: sum((sum(g.c))), g.b
+ GroupAggregate  (cost=1.02..1.04 rows=1 width=40)
+   Output: sum((sum(xc_groupby_g.c))), xc_groupby_g.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (sum(g.c)), g.b
+         Output: (sum(xc_groupby_g.c)), xc_groupby_g.b
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=40)
-               Output: sum(g.c), g.b
+               Output: sum(xc_groupby_g.c), xc_groupby_g.b
 (6 rows)
 
-select avg(a) from g group by b;
+select avg(a) from xc_groupby_g group by b;
           avg           
 ------------------------
  1.00000000000000000000
      2.0000000000000000
 (2 rows)
 
-explain verbose select avg(a) from g group by b;
+explain verbose select avg(a) from xc_groupby_g group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
  GroupAggregate  (cost=1.02..1.05 rows=1 width=12)
-   Output: pg_catalog.avg((avg(g.a))), g.b
+   Output: pg_catalog.avg((avg(xc_groupby_g.a))), xc_groupby_g.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (avg(g.a)), g.b
+         Output: (avg(xc_groupby_g.a)), xc_groupby_g.b
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=12)
-               Output: avg(g.a), g.b
+               Output: avg(xc_groupby_g.a), xc_groupby_g.b
 (6 rows)
 
-select avg(b) from g group by c;
+select avg(b) from xc_groupby_g group by c;
  avg 
 -----
  2.1
  2.3
 (2 rows)
 
-explain verbose select avg(b) from g group by c;
+explain verbose select avg(b) from xc_groupby_g group by c;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
  GroupAggregate  (cost=1.02..1.05 rows=1 width=40)
-   Output: pg_catalog.avg((avg(g.b))), g.c
+   Output: pg_catalog.avg((avg(xc_groupby_g.b))), xc_groupby_g.c
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (avg(g.b)), g.c
+         Output: (avg(xc_groupby_g.b)), xc_groupby_g.c
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=40)
-               Output: avg(g.b), g.c
+               Output: avg(xc_groupby_g.b), xc_groupby_g.c
 (6 rows)
 
-select avg(c) from g group by c;
+select avg(c) from xc_groupby_g group by c;
         avg         
 --------------------
  3.2000000000000000
  5.2000000000000000
 (2 rows)
 
-explain verbose select avg(c) from g group by c;
+explain verbose select avg(c) from xc_groupby_g group by c;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
  GroupAggregate  (cost=1.02..1.05 rows=1 width=32)
-   Output: pg_catalog.avg((avg(g.c))), g.c
+   Output: pg_catalog.avg((avg(xc_groupby_g.c))), xc_groupby_g.c
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (avg(g.c)), g.c
+         Output: (avg(xc_groupby_g.c)), xc_groupby_g.c
          ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=32)
-               Output: avg(g.c), g.c
+               Output: avg(xc_groupby_g.c), xc_groupby_g.c
 (6 rows)
 
-drop table def;
-drop table g;
+drop table xc_groupby_def;
+drop table xc_groupby_g;
 -- Combination 4 enable_hashagg off and replicated tables.
 -- repeat the same tests for replicated tables
 -- create required tables and fill them with data
-create table tab1 (val int, val2 int) distribute by replication;
-create table tab2 (val int, val2 int) distribute by replication;
-insert into tab1 values (1, 1), (2, 1), (3, 1), (2, 2), (6, 2), (4, 3), (1, 3), (6, 3);
-insert into tab2 values (1, 1), (4, 1), (8, 1), (2, 4), (9, 4), (3, 4), (4, 2), (5, 2), (3, 2);
-select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from tab1 group by val2;
+create table xc_groupby_tab1 (val int, val2 int) distribute by replication;
+create table xc_groupby_tab2 (val int, val2 int) distribute by replication;
+insert into xc_groupby_tab1 values (1, 1), (2, 1), (3, 1), (2, 2), (6, 2), (4, 3), (1, 3), (6, 3);
+insert into xc_groupby_tab2 values (1, 1), (4, 1), (8, 1), (2, 4), (9, 4), (3, 4), (4, 2), (5, 2), (3, 2);
+select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_groupby_tab1 group by val2;
  count | sum |        avg         |     ?column?     | val2 
 -------+-----+--------------------+------------------+------
      3 |   6 | 2.0000000000000000 |                2 |    1
@@ -1782,14 +1770,14 @@ select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from tab1 g
      3 |  11 | 3.6666666666666667 | 3.66666666666667 |    3
 (3 rows)
 
-explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from tab1 group by val2;
+explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_groupby_tab1 group by val2;
                                                  QUERY PLAN                                                  
 -------------------------------------------------------------------------------------------------------------
- GroupAggregate  (cost=1.02..1.07 rows=1 width=8)
+ GroupAggregate  (cost=1.02..1.06 rows=1 width=8)
    Output: count(*), sum(val), avg(val), ((sum(val))::double precision / (count(*))::double precision), val2
    ->  Sort  (cost=1.02..1.03 rows=1 width=8)
          Output: val, val2
-         Sort Key: tab1.val2
+         Sort Key: xc_groupby_tab1.val2
          ->  Result  (cost=0.00..1.01 rows=1 width=8)
                Output: val, val2
                ->  Materialize  (cost=0.00..1.01 rows=1 width=8)
@@ -1799,7 +1787,7 @@ explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), 
 (11 rows)
 
 -- joins and group by
-select count(*), sum(tab1.val * tab2.val), avg(tab1.val*tab2.val), sum(tab1.val*tab2.val)::float8/count(*), tab1.val2, tab2.val2 from tab1 full outer join tab2 on tab1.val2 = tab2.val2 group by tab1.val2, tab2.val2;
+select count(*), sum(xc_groupby_tab1.val * xc_groupby_tab2.val), avg(xc_groupby_tab1.val*xc_groupby_tab2.val), sum(xc_groupby_tab1.val*xc_groupby_tab2.val)::float8/count(*), xc_groupby_tab1.val2, xc_groupby_tab2.val2 from xc_groupby_tab1 full outer join xc_groupby_tab2 on xc_groupby_tab1.val2 = xc_groupby_tab2.val2 group by xc_groupby_tab1.val2, xc_groupby_tab2.val2;
  count | sum |         avg         |     ?column?     | val2 | val2 
 -------+-----+---------------------+------------------+------+------
      9 |  78 |  8.6666666666666667 | 8.66666666666667 |    1 |    1
@@ -1808,44 +1796,40 @@ select count(*), sum(tab1.val * tab2.val), avg(tab1.val*tab2.val), sum(tab1.val*
      3 |     |                     |                  |      |    4
 (4 rows)
 
-explain verbose select count(*), sum(tab1.val * tab2.val), avg(tab1.val*tab2.val), sum(tab1.val*tab2.val)::float8/count(*), tab1.val2, tab2.val2 from tab1 full outer join tab2 on tab1.val2 = tab2.val2 group by tab1.val2, tab2.val2;
-                                                                                    QUERY PLAN                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate  (cost=2.08..2.14 rows=1 width=16)
-   Output: count(*), sum((tab1.val * tab2.val)), avg((tab1.val * tab2.val)), ((sum((tab1.val * tab2.val)))::double precision / (count(*))::double precision), tab1.val2, tab2.val2
-   ->  Sort  (cost=2.08..2.09 rows=1 width=16)
-         Output: tab1.val, tab2.val, tab1.val2, tab2.val2
-         Sort Key: tab1.val2, tab2.val2
-         ->  Merge Full Join  (cost=2.05..2.07 rows=1 width=16)
-               Output: tab1.val, tab2.val, tab1.val2, tab2.val2
-               Merge Cond: (tab1.val2 = tab2.val2)
-               ->  Sort  (cost=1.02..1.03 rows=1 width=8)
-                     Output: tab1.val, tab1.val2
-                     Sort Key: tab1.val2
+explain verbose select count(*), sum(xc_groupby_tab1.val * xc_groupby_tab2.val), avg(xc_groupby_tab1.val*xc_groupby_tab2.val), sum(xc_groupby_tab1.val*xc_groupby_tab2.val)::float8/count(*), xc_groupby_tab1.val2, xc_groupby_tab2.val2 from xc_groupby_tab1 full outer join xc_groupby_tab2 on xc_groupby_tab1.val2 = xc_groupby_tab2.val2 group by xc_groupby_tab1.val2, xc_groupby_tab2.val2;
+                                                                                                                                QUERY PLAN                                                                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=2.07..2.12 rows=1 width=16)
+   Output: count(*), sum((xc_groupby_tab1.val * xc_groupby_tab2.val)), avg((xc_groupby_tab1.val * xc_groupby_tab2.val)), ((sum((xc_groupby_tab1.val * xc_groupby_tab2.val)))::double precision / (count(*))::double precision), xc_groupby_tab1.val2, xc_groupby_tab2.val2
+   ->  Sort  (cost=2.07..2.07 rows=1 width=16)
+         Output: xc_groupby_tab1.val, xc_groupby_tab2.val, xc_groupby_tab1.val2, xc_groupby_tab2.val2
+         Sort Key: xc_groupby_tab1.val2, xc_groupby_tab2.val2
+         ->  Hash Full Join  (cost=1.03..2.06 rows=1 width=16)
+               Output: xc_groupby_tab1.val, xc_groupby_tab2.val, xc_groupby_tab1.val2, xc_groupby_tab2.val2
+               Hash Cond: (xc_groupby_tab1.val2 = xc_groupby_tab2.val2)
+               ->  Materialize  (cost=0.00..1.01 rows=1 width=8)
+                     Output: xc_groupby_tab1.val, xc_groupby_tab1.val2
+                     ->  Data Node Scan (Node Count [1]) on xc_groupby_tab1  (cost=0.00..1.01 rows=1000 width=8)
+                           Output: xc_groupby_tab1.val, xc_groupby_tab1.val2
+               ->  Hash  (cost=1.01..1.01 rows=1 width=8)
+                     Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
                      ->  Materialize  (cost=0.00..1.01 rows=1 width=8)
-                           Output: tab1.val, tab1.val2
-                           ->  Data Node Scan (Node Count [1]) on tab1  (cost=0.00..1.01 rows=1000 width=8)
-                                 Output: tab1.val, tab1.val2
-               ->  Sort  (cost=1.02..1.03 rows=1 width=8)
-                     Output: tab2.val, tab2.val2
-                     Sort Key: tab2.val2
-                     ->  Materialize  (cost=0.00..1.01 rows=1 width=8)
-                           Output: tab2.val, tab2.val2
-                           ->  Data Node Scan (Node Count [1]) on tab2  (cost=0.00..1.01 rows=1000 width=8)
-                                 Output: tab2.val, tab2.val2
-(22 rows)
+                           Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
+                           ->  Data Node Scan (Node Count [1]) on xc_groupby_tab2  (cost=0.00..1.01 rows=1000 width=8)
+                                 Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
+(18 rows)
 
 -- aggregates over aggregates
-select sum(y) from (select sum(val) y, val2%2 x from tab1 group by val2) q1 group by x;
+select sum(y) from (select sum(val) y, val2%2 x from xc_groupby_tab1 group by val2) q1 group by x;
  sum 
 -----
    8
   17
 (2 rows)
 
-explain verbose select sum(y) from (select sum(val) y, val2%2 x from tab1 group by val2) q1 group by x;
-                                             QUERY PLAN                                             
-----------------------------------------------------------------------------------------------------
+explain verbose select sum(y) from (select sum(val) y, val2%2 x from xc_groupby_tab1 group by val2) q1 group by x;
+                                                         QUERY PLAN                                                         
+----------------------------------------------------------------------------------------------------------------------------
  GroupAggregate  (cost=1.07..1.09 rows=1 width=12)
    Output: sum(q1.y), q1.x
    ->  Sort  (cost=1.07..1.07 rows=1 width=12)
@@ -1854,15 +1838,15 @@ explain verbose select sum(y) from (select sum(val) y, val2%2 x from tab1 group 
          ->  Subquery Scan on q1  (cost=1.02..1.06 rows=1 width=12)
                Output: q1.y, q1.x
                ->  GroupAggregate  (cost=1.02..1.05 rows=1 width=8)
-                     Output: pg_catalog.sum((sum(tab1.val))), ((tab1.val2 % 2)), tab1.val2
+                     Output: pg_catalog.sum((sum(xc_groupby_tab1.val))), ((xc_groupby_tab1.val2 % 2)), xc_groupby_tab1.val2
                      ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-                           Output: (sum(tab1.val)), ((tab1.val2 % 2)), tab1.val2
+                           Output: (sum(xc_groupby_tab1.val)), ((xc_groupby_tab1.val2 % 2)), xc_groupby_tab1.val2
                            ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=8)
-                                 Output: sum(tab1.val), (tab1.val2 % 2), tab1.val2
+                                 Output: sum(xc_groupby_tab1.val), (xc_groupby_tab1.val2 % 2), xc_groupby_tab1.val2
 (13 rows)
 
 -- group by without aggregate
-select val2 from tab1 group by val2;
+select val2 from xc_groupby_tab1 group by val2;
  val2 
 ------
     1
@@ -1870,18 +1854,18 @@ select val2 from tab1 group by val2;
     3
 (3 rows)
 
-explain verbose select val2 from tab1 group by val2;
+explain verbose select val2 from xc_groupby_tab1 group by val2;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
  Group  (cost=1.02..1.03 rows=1 width=4)
-   Output: tab1.val2
+   Output: xc_groupby_tab1.val2
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: tab1.val2
+         Output: xc_groupby_tab1.val2
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=4)
-               Output: tab1.val2
+               Output: xc_groupby_tab1.val2
 (6 rows)
 
-select val + val2 from tab1 group by val + val2;
+select val + val2 from xc_groupby_tab1 group by val + val2;
  ?column? 
 ----------
         2
@@ -1892,18 +1876,18 @@ select val + val2 from tab1 group by val + val2;
         9
 (6 rows)
 
-explain verbose select val + val2 from tab1 group by val + val2;
+explain verbose select val + val2 from xc_groupby_tab1 group by val + val2;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
  Group  (cost=1.03..1.04 rows=1 width=8)
-   Output: ((tab1.val + tab1.val2))
+   Output: ((xc_groupby_tab1.val + xc_groupby_tab1.val2))
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: ((tab1.val + tab1.val2))
+         Output: ((xc_groupby_tab1.val + xc_groupby_tab1.val2))
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=8)
-               Output: (tab1.val + tab1.val2)
+               Output: (xc_groupby_tab1.val + xc_groupby_tab1.val2)
 (6 rows)
 
-select val + val2, val, val2 from tab1 group by val, val2;
+select val + val2, val, val2 from xc_groupby_tab1 group by val, val2;
  ?column? | val | val2 
 ----------+-----+------
         2 |   1 |    1
@@ -1916,18 +1900,18 @@ select val + val2, val, val2 from tab1 group by val, val2;
         9 |   6 |    3
 (8 rows)
 
-explain verbose select val + val2, val, val2 from tab1 group by val, val2;
-                                    QUERY PLAN                                    
-----------------------------------------------------------------------------------
+explain verbose select val + val2, val, val2 from xc_groupby_tab1 group by val, val2;
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
  Group  (cost=1.02..1.04 rows=1 width=8)
-   Output: ((tab1.val + tab1.val2)), tab1.val, tab1.val2
+   Output: ((xc_groupby_tab1.val + xc_groupby_tab1.val2)), xc_groupby_tab1.val, xc_groupby_tab1.val2
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: ((tab1.val + tab1.val2)), tab1.val, tab1.val2
+         Output: ((xc_groupby_tab1.val + xc_groupby_tab1.val2)), xc_groupby_tab1.val, xc_groupby_tab1.val2
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=8)
-               Output: (tab1.val + tab1.val2), tab1.val, tab1.val2
+               Output: (xc_groupby_tab1.val + xc_groupby_tab1.val2), xc_groupby_tab1.val, xc_groupby_tab1.val2
 (6 rows)
 
-select tab1.val + tab2.val2, tab1.val, tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by tab1.val, tab2.val2;
+select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val, xc_groupby_tab2.val2;
  ?column? | val | val2 
 ----------+-----+------
         2 |   1 |    1
@@ -1938,18 +1922,18 @@ select tab1.val + tab2.val2, tab1.val, tab2.val2 from tab1, tab2 where tab1.val 
         6 |   4 |    2
 (6 rows)
 
-explain verbose select tab1.val + tab2.val2, tab1.val, tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by tab1.val, tab2.val2;
-                                  QUERY PLAN                                   
--------------------------------------------------------------------------------
+explain verbose select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val, xc_groupby_tab2.val2;
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
  Group  (cost=0.01..0.02 rows=1 width=0)
-   Output: ((tab1.val + tab2.val2)), tab1.val, tab2.val2
+   Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: ((tab1.val + tab2.val2)), tab1.val, tab2.val2
+         Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1 width=4)
-               Output: (tab1.val + tab2.val2), tab1.val, tab2.val2
+               Output: (xc_groupby_tab1.val + xc_groupby_tab2.val2), xc_groupby_tab1.val, xc_groupby_tab2.val2
 (6 rows)
 
-select tab1.val + tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by tab1.val + tab2.val2;
+select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
  ?column? 
 ----------
         2
@@ -1958,19 +1942,19 @@ select tab1.val + tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by t
         7
 (4 rows)
 
-explain verbose select tab1.val + tab2.val2 from tab1, tab2 where tab1.val = tab2.val group by tab1.val + tab2.val2;
+explain verbose select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
                                   QUERY PLAN                                   
 -------------------------------------------------------------------------------
  Group  (cost=0.01..0.02 rows=1 width=0)
-   Output: ((tab1.val + tab2.val2))
+   Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: ((tab1.val + tab2.val2))
+         Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1 width=4)
-               Output: (tab1.val + tab2.val2)
+               Output: (xc_groupby_tab1.val + xc_groupby_tab2.val2)
 (6 rows)
 
 -- group by with aggregates in expression
-select count(*) + sum(val) + avg(val), val2 from tab1 group by val2;
+select count(*) + sum(val) + avg(val), val2 from xc_groupby_tab1 group by val2;
       ?column?       | val2 
 ---------------------+------
  11.0000000000000000 |    1
@@ -1978,14 +1962,14 @@ select count(*) + sum(val) + avg(val), val2 from tab1 group by val2;
  17.6666666666666667 |    3
 (3 rows)
 
-explain verbose select count(*) + sum(val) + avg(val), val2 from tab1 group by val2;
+explain verbose select count(*) + sum(val) + avg(val), val2 from xc_groupby_tab1 group by val2;
                                           QUERY PLAN                                          
 ----------------------------------------------------------------------------------------------
  GroupAggregate  (cost=1.02..1.06 rows=1 width=8)
    Output: (((count(*) + sum(val)))::numeric + avg(val)), val2
    ->  Sort  (cost=1.02..1.03 rows=1 width=8)
          Output: val, val2
-         Sort Key: tab1.val2
+         Sort Key: xc_groupby_tab1.val2
          ->  Result  (cost=0.00..1.01 rows=1 width=8)
                Output: val, val2
                ->  Materialize  (cost=0.00..1.01 rows=1 width=8)
@@ -1995,7 +1979,7 @@ explain verbose select count(*) + sum(val) + avg(val), val2 from tab1 group by v
 (11 rows)
 
 -- group by with expressions in group by clause
-select sum(val), avg(val), 2 * val2 from tab1 group by 2 * val2;
+select sum(val), avg(val), 2 * val2 from xc_groupby_tab1 group by 2 * val2;
  sum |        avg         | ?column? 
 -----+--------------------+----------
    6 | 2.0000000000000000 |        2
@@ -2003,35 +1987,35 @@ select sum(val), avg(val), 2 * val2 from tab1 group by 2 * val2;
   11 | 3.6666666666666667 |        6
 (3 rows)
 
-explain verbose select sum(val), avg(val), 2 * val2 from tab1 group by 2 * val2;
-                                          QUERY PLAN                                           
------------------------------------------------------------------------------------------------
- GroupAggregate  (cost=1.03..1.06 rows=1 width=8)
-   Output: pg_catalog.sum((sum(tab1.val))), pg_catalog.avg((avg(tab1.val))), ((2 * tab1.val2))
+explain verbose select sum(val), avg(val), 2 * val2 from xc_groupby_tab1 group by 2 * val2;
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=1.03..1.05 rows=1 width=8)
+   Output: pg_catalog.sum((sum(xc_groupby_tab1.val))), pg_catalog.avg((avg(xc_groupby_tab1.val))), ((2 * xc_groupby_tab1.val2))
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (sum(tab1.val)), (avg(tab1.val)), ((2 * tab1.val2))
+         Output: (sum(xc_groupby_tab1.val)), (avg(xc_groupby_tab1.val)), ((2 * xc_groupby_tab1.val2))
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=8)
-               Output: sum(tab1.val), avg(tab1.val), (2 * tab1.val2)
+               Output: sum(xc_groupby_tab1.val), avg(xc_groupby_tab1.val), (2 * xc_groupby_tab1.val2)
 (6 rows)
 
-drop table tab1;
-drop table tab2;
+drop table xc_groupby_tab1;
+drop table xc_groupby_tab2;
 -- some tests involving nulls, characters, float type etc.
-create table def(a int, b varchar(25)) distribute by replication; 
-insert into def VALUES (NULL, NULL);
-insert into def VALUES (1, NULL);
-insert into def VALUES (NULL, 'One');
-insert into def VALUES (2, 'Two');
-insert into def VALUES (2, 'Two');
-insert into def VALUES (3, 'Three');
-insert into def VALUES (4, 'Three');
-insert into def VALUES (5, 'Three');
-insert into def VALUES (6, 'Two');
-insert into def VALUES (7, NULL);
-insert into def VALUES (8, 'Two');
-insert into def VALUES (9, 'Three');
-insert into def VALUES (10, 'Three');
-select a,count(a) from def group by a order by a;
+create table xc_groupby_def(a int, b varchar(25)) distribute by replication; 
+insert into xc_groupby_def VALUES (NULL, NULL);
+insert into xc_groupby_def VALUES (1, NULL);
+insert into xc_groupby_def VALUES (NULL, 'One');
+insert into xc_groupby_def VALUES (2, 'Two');
+insert into xc_groupby_def VALUES (2, 'Two');
+insert into xc_groupby_def VALUES (3, 'Three');
+insert into xc_groupby_def VALUES (4, 'Three');
+insert into xc_groupby_def VALUES (5, 'Three');
+insert into xc_groupby_def VALUES (6, 'Two');
+insert into xc_groupby_def VALUES (7, NULL);
+insert into xc_groupby_def VALUES (8, 'Two');
+insert into xc_groupby_def VALUES (9, 'Three');
+insert into xc_groupby_def VALUES (10, 'Three');
+select a,count(a) from xc_groupby_def group by a order by a;
  a  | count 
 ----+-------
   1 |     1
@@ -2047,14 +2031,14 @@ select a,count(a) from def group by a order by a;
     |     0
 (11 rows)
 
-explain verbose select a,count(a) from def group by a order by a;
+explain verbose select a,count(a) from xc_groupby_def group by a order by a;
                                           QUERY PLAN                                          
 ----------------------------------------------------------------------------------------------
- GroupAggregate  (cost=1.02..1.05 rows=1 width=4)
+ GroupAggregate  (cost=1.02..1.04 rows=1 width=4)
    Output: a, count(a)
    ->  Sort  (cost=1.02..1.03 rows=1 width=4)
          Output: a
-         Sort Key: def.a
+         Sort Key: xc_groupby_def.a
          ->  Result  (cost=0.00..1.01 rows=1 width=4)
                Output: a
                ->  Materialize  (cost=0.00..1.01 rows=1 width=4)
@@ -2063,7 +2047,7 @@ explain verbose select a,count(a) from def group by a order by a;
                            Output: a, b
 (11 rows)
 
-select avg(a) from def group by a; 
+select avg(a) from xc_groupby_def group by a; 
           avg           
 ------------------------
  1.00000000000000000000
@@ -2079,18 +2063,18 @@ select avg(a) from def group by a;
                        
 (11 rows)
 
-explain verbose select avg(a) from def group by a; 
+explain verbose select avg(a) from xc_groupby_def group by a; 
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
  GroupAggregate  (cost=1.02..1.05 rows=1 width=4)
-   Output: pg_catalog.avg((avg(def.a))), def.a
+   Output: pg_catalog.avg((avg(xc_groupby_def.a))), xc_groupby_def.a
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (avg(def.a)), def.a
+         Output: (avg(xc_groupby_def.a)), xc_groupby_def.a
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=4)
-               Output: avg(def.a), def.a
+               Output: avg(xc_groupby_def.a), xc_groupby_def.a
 (6 rows)
 
-select avg(a) from def group by a;
+select avg(a) from xc_groupby_def group by a;
           avg           
 ------------------------
  1.00000000000000000000
@@ -2106,18 +2090,18 @@ select avg(a) from def group by a;
                        
 (11 rows)
 
-explain verbose select avg(a) from def group by a;
+explain verbose select avg(a) from xc_groupby_def group by a;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
  GroupAggregate  (cost=1.02..1.05 rows=1 width=4)
-   Output: pg_catalog.avg((avg(def.a))), def.a
+   Output: pg_catalog.avg((avg(xc_groupby_def.a))), xc_groupby_def.a
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (avg(def.a)), def.a
+         Output: (avg(xc_groupby_def.a)), xc_groupby_def.a
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=4)
-               Output: avg(def.a), def.a
+               Output: avg(xc_groupby_def.a), xc_groupby_def.a
 (6 rows)
 
-select avg(a) from def group by b;
+select avg(a) from xc_groupby_def group by b;
         avg         
 --------------------
                    
@@ -2126,18 +2110,18 @@ select avg(a) from def group by b;
  4.0000000000000000
 (4 rows)
 
-explain verbose select avg(a) from def group by b;
+explain verbose select avg(a) from xc_groupby_def group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- GroupAggregate  (cost=1.02..1.05 rows=1 width=33)
-   Output: pg_catalog.avg((avg(def.a))), def.b
+ GroupAggregate  (cost=1.02..1.05 rows=1 width=72)
+   Output: pg_catalog.avg((avg(xc_groupby_def.a))), xc_groupby_def.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (avg(def.a)), def.b
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=33)
-               Output: avg(def.a), def.b
+         Output: (avg(xc_groupby_def.a)), xc_groupby_def.b
+         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=72)
+               Output: avg(xc_groupby_def.a), xc_groupby_def.b
 (6 rows)
 
-select sum(a) from def group by b;
+select sum(a) from xc_groupby_def group by b;
  sum 
 -----
     
@@ -2146,18 +2130,18 @@ select sum(a) from def group by b;
    8
 (4 rows)
 
-explain verbose select sum(a) from def group by b;
+explain verbose select sum(a) from xc_groupby_def group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- GroupAggregate  (cost=1.02..1.05 rows=1 width=33)
-   Output: pg_catalog.sum((sum(def.a))), def.b
+ GroupAggregate  (cost=1.02..1.04 rows=1 width=72)
+   Output: pg_catalog.sum((sum(xc_groupby_def.a))), xc_groupby_def.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (sum(def.a)), def.b
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=33)
-               Output: sum(def.a), def.b
+         Output: (sum(xc_groupby_def.a)), xc_groupby_def.b
+         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=72)
+               Output: sum(xc_groupby_def.a), xc_groupby_def.b
 (6 rows)
 
-select count(*) from def group by b;
+select count(*) from xc_groupby_def group by b;
  count 
 -------
      1
@@ -2166,18 +2150,18 @@ select count(*) from def group by b;
      3
 (4 rows)
 
-explain verbose select count(*) from def group by b;
+explain verbose select count(*) from xc_groupby_def group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- GroupAggregate  (cost=1.02..1.05 rows=1 width=29)
-   Output: pg_catalog.count(*), def.b
+ GroupAggregate  (cost=1.02..1.04 rows=1 width=68)
+   Output: pg_catalog.count(*), xc_groupby_def.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (count(*)), def.b
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=29)
-               Output: count(*), def.b
+         Output: (count(*)), xc_groupby_def.b
+         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=68)
+               Output: count(*), xc_groupby_def.b
 (6 rows)
 
-select count(*) from def where a is not null group by a;
+select count(*) from xc_groupby_def where a is not null group by a;
  count 
 -------
      1
@@ -2192,18 +2176,18 @@ select count(*) from def where a is not null group by a;
      1
 (10 rows)
 
-explain verbose select count(*) from def where a is not null group by a;
+explain verbose select count(*) from xc_groupby_def where a is not null group by a;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
- GroupAggregate  (cost=1.02..1.05 rows=1 width=4)
-   Output: pg_catalog.count(*), def.a
+ GroupAggregate  (cost=1.02..1.04 rows=1 width=4)
+   Output: pg_catalog.count(*), xc_groupby_def.a
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (count(*)), def.a
+         Output: (count(*)), xc_groupby_def.a
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=4)
-               Output: count(*), def.a
+               Output: count(*), xc_groupby_def.a
 (6 rows)
 
-select b from def group by b;
+select b from xc_groupby_def group by b;
    b   
 -------
  One
@@ -2212,18 +2196,18 @@ select b from def group by b;
  
 (4 rows)
 
-explain verbose select b from def group by b;
+explain verbose select b from xc_groupby_def group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- Group  (cost=1.02..1.03 rows=1 width=29)
-   Output: def.b
+ Group  (cost=1.02..1.03 rows=1 width=68)
+   Output: xc_groupby_def.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: def.b
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=29)
-               Output: def.b
+         Output: xc_groupby_def.b
+         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=68)
+               Output: xc_groupby_def.b
 (6 rows)
 
-select b,count(b) from def group by b;
+select b,count(b) from xc_groupby_def group by b;
    b   | count 
 -------+-------
  One   |     1
@@ -2232,146 +2216,146 @@ select b,count(b) from def group by b;
        |     0
 (4 rows)
 
-explain verbose select b,count(b) from def group by b;
+explain verbose select b,count(b) from xc_groupby_def group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- GroupAggregate  (cost=1.02..1.05 rows=1 width=29)
-   Output: def.b, count((count(def.b)))
+ GroupAggregate  (cost=1.02..1.04 rows=1 width=68)
+   Output: xc_groupby_def.b, count((count(xc_groupby_def.b)))
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: def.b, (count(def.b))
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=29)
-               Output: def.b, count(def.b)
+         Output: xc_groupby_def.b, (count(xc_groupby_def.b))
+         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=68)
+               Output: xc_groupby_def.b, count(xc_groupby_def.b)
 (6 rows)
 
-select count(*) from def where b is null group by b;
+select count(*) from xc_groupby_def where b is null group by b;
  count 
 -------
      3
 (1 row)
 
-explain verbose select count(*) from def where b is null group by b;
+explain verbose select count(*) from xc_groupby_def where b is null group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- GroupAggregate  (cost=1.02..1.05 rows=1 width=29)
-   Output: pg_catalog.count(*), def.b
+ GroupAggregate  (cost=1.02..1.04 rows=1 width=68)
+   Output: pg_catalog.count(*), xc_groupby_def.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (count(*)), def.b
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=29)
-               Output: count(*), def.b
+         Output: (count(*)), xc_groupby_def.b
+         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=68)
+               Output: count(*), xc_groupby_def.b
 (6 rows)
 
-create table g(a int, b float, c numeric) distribute by replication;
-insert into g values(1,2.1,3.2);
-insert into g values(1,2.1,3.2);
-insert into g values(2,2.3,5.2);
-select sum(a) from g group by a;
+create table xc_groupby_g(a int, b float, c numeric) distribute by replication;
+insert into xc_groupby_g values(1,2.1,3.2);
+insert into xc_groupby_g values(1,2.1,3.2);
+insert into xc_groupby_g values(2,2.3,5.2);
+select sum(a) from xc_groupby_g group by a;
  sum 
 -----
    2
    2
 (2 rows)
 
-explain verbose select sum(a) from g group by a;
+explain verbose select sum(a) from xc_groupby_g group by a;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
- GroupAggregate  (cost=1.02..1.05 rows=1 width=4)
-   Output: pg_catalog.sum((sum(g.a))), g.a
+ GroupAggregate  (cost=1.02..1.04 rows=1 width=4)
+   Output: pg_catalog.sum((sum(xc_groupby_g.a))), xc_groupby_g.a
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (sum(g.a)), g.a
+         Output: (sum(xc_groupby_g.a)), xc_groupby_g.a
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=4)
-               Output: sum(g.a), g.a
+               Output: sum(xc_groupby_g.a), xc_groupby_g.a
 (6 rows)
 
-select sum(b) from g group by b;
+select sum(b) from xc_groupby_g group by b;
  sum 
 -----
  4.2
  2.3
 (2 rows)
 
-explain verbose select sum(b) from g group by b;
+explain verbose select sum(b) from xc_groupby_g group by b;
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
- GroupAggregate  (cost=1.02..1.05 rows=1 width=8)
-   Output: sum((sum(g.b))), g.b
+ GroupAggregate  (cost=1.02..1.04 rows=1 width=8)
+   Output: sum((sum(xc_groupby_g.b))), xc_groupby_g.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (sum(g.b)), g.b
+         Output: (sum(xc_groupby_g.b)), xc_groupby_g.b
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=8)
-               Output: sum(g.b), g.b
+               Output: sum(xc_groupby_g.b), xc_groupby_g.b
 (6 rows)
 
-select sum(c) from g group by b;
+select sum(c) from xc_groupby_g group by b;
  sum 
 -----
  6.4
  5.2
 (2 rows)
 
-explain verbose select sum(c) from g group by b;
+explain verbose select sum(c) from xc_groupby_g group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- GroupAggregate  (cost=1.02..1.05 rows=1 width=40)
-   Output: sum((sum(g.c))), g.b
+ GroupAggregate  (cost=1.02..1.04 rows=1 width=40)
+   Output: sum((sum(xc_groupby_g.c))), xc_groupby_g.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (sum(g.c)), g.b
+         Output: (sum(xc_groupby_g.c)), xc_groupby_g.b
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=40)
-               Output: sum(g.c), g.b
+               Output: sum(xc_groupby_g.c), xc_groupby_g.b
 (6 rows)
 
-select avg(a) from g group by b;
+select avg(a) from xc_groupby_g group by b;
           avg           
 ------------------------
  1.00000000000000000000
      2.0000000000000000
 (2 rows)
 
-explain verbose select avg(a) from g group by b;
+explain verbose select avg(a) from xc_groupby_g group by b;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
  GroupAggregate  (cost=1.02..1.05 rows=1 width=12)
-   Output: pg_catalog.avg((avg(g.a))), g.b
+   Output: pg_catalog.avg((avg(xc_groupby_g.a))), xc_groupby_g.b
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (avg(g.a)), g.b
+         Output: (avg(xc_groupby_g.a)), xc_groupby_g.b
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=12)
-               Output: avg(g.a), g.b
+               Output: avg(xc_groupby_g.a), xc_groupby_g.b
 (6 rows)
 
-select avg(b) from g group by c;
+select avg(b) from xc_groupby_g group by c;
  avg 
 -----
  2.1
  2.3
 (2 rows)
 
-explain verbose select avg(b) from g group by c;
+explain verbose select avg(b) from xc_groupby_g group by c;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
  GroupAggregate  (cost=1.02..1.05 rows=1 width=40)
-   Output: pg_catalog.avg((avg(g.b))), g.c
+   Output: pg_catalog.avg((avg(xc_groupby_g.b))), xc_groupby_g.c
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (avg(g.b)), g.c
+         Output: (avg(xc_groupby_g.b)), xc_groupby_g.c
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=40)
-               Output: avg(g.b), g.c
+               Output: avg(xc_groupby_g.b), xc_groupby_g.c
 (6 rows)
 
-select avg(c) from g group by c;
+select avg(c) from xc_groupby_g group by c;
         avg         
 --------------------
  3.2000000000000000
  5.2000000000000000
 (2 rows)
 
-explain verbose select avg(c) from g group by c;
+explain verbose select avg(c) from xc_groupby_g group by c;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
  GroupAggregate  (cost=1.02..1.05 rows=1 width=32)
-   Output: pg_catalog.avg((avg(g.c))), g.c
+   Output: pg_catalog.avg((avg(xc_groupby_g.c))), xc_groupby_g.c
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
-         Output: (avg(g.c)), g.c
+         Output: (avg(xc_groupby_g.c)), xc_groupby_g.c
          ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=32)
-               Output: avg(g.c), g.c
+               Output: avg(xc_groupby_g.c), xc_groupby_g.c
 (6 rows)
 
-drop table def;
-drop table g;
+drop table xc_groupby_def;
+drop table xc_groupby_g;
 reset enable_hashagg;
