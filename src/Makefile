@@ -16,11 +16,11 @@ SUBDIRS = \
 	port \
 	timezone \
 	gtm \
+	interfaces \
 	backend \
 	backend/utils/mb/conversion_procs \
 	backend/snowball \
 	include \
-	interfaces \
 	backend/replication/libpqwalreceiver \
 	bin \
 	pl \
