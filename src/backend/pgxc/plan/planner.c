@@ -1239,12 +1239,6 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 					 */
 					return false;
 				}
-				else
-				{
-					/* Check if this node can be pushed down. */
-					if (!is_foreign_qual((Node *) arg2))
-						return true;
-				}
 
 				/*
 				 * Check if it is an expression like pcol = expr, where pcol is
@@ -1274,20 +1268,7 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 					return false;
 				}
 			}
-			else
-			{
-				/* Check if this node can be pushed down. */
-				if (!is_foreign_qual((Node *) arg2))
-					return true;
-			}
 		}
-	}
-
-	/* See if the function is immutable, otherwise give up */
-	if (IsA(expr_node, FuncExpr))
-	{
-		if (!is_foreign_qual((Node *) expr_node))
-			return true;
 	}
 
 	/* Handle subquery */
@@ -1660,7 +1641,8 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 	}
 
 	/* Examine the WHERE clause, too */
-	if (examine_conditions_walker(query->jointree->quals, context))
+	if (examine_conditions_walker(query->jointree->quals, context) ||
+		!is_foreign_qual(query->jointree->quals))
 		return true;
 
 	if (context->query_step->exec_nodes)
