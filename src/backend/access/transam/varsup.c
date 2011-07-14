@@ -203,7 +203,8 @@ GetNewTransactionId(bool isSubXact)
 				increment_xid = false;
 				elog(DEBUG1, "xid (%d) does not follow ShmemVariableCache->nextXid (%d)", 
 					xid, ShmemVariableCache->nextXid);
-			} else
+			}
+			else
 				ShmemVariableCache->nextXid = xid;
 		}
 		else

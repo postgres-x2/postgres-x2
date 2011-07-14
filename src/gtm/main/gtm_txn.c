@@ -1363,7 +1363,7 @@ ProcessCommitTransactionCommand(Port *myport, StringInfo message)
 	pq_getmsgend(message);
 
 	oldContext = MemoryContextSwitchTo(TopMemoryContext);
-	
+
 	elog(LOG, "Committing transaction id %u", gxid);
 
 	/*
@@ -1454,6 +1454,8 @@ ProcessCommitPreparedTransactionCommand(Port *myport, StringInfo message)
 	pq_getmsgend(message);
 
 	oldContext = MemoryContextSwitchTo(TopMemoryContext);
+
+	elog(LOG, "Committing: prepared id %u and commit prepared id %u ", gxid[0], gxid[1]);
 
 	/*
 	 * Commit the prepared transaction.
