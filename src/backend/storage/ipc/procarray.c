@@ -1243,18 +1243,25 @@ GetSnapshotData(Snapshot snapshot)
 		/* else fallthrough */
 	}
 
-	/* If we have no snapshot, we will use a local one.
+	/*
+	 * If we have no snapshot, we will use a local one.
 	 * If we are in normal mode, we output a warning though.
 	 * We currently fallback and use a local one at initdb time,
 	 * as well as when a new connection occurs.
+	 * This is also the case for autovacuum launcher.
+	 *
 	 * IsPostmasterEnvironment - checks for initdb
 	 * IsNormalProcessingMode() - checks for new connections
+	 * IsAutoVacuumLauncherProcess - checks for autovacuum launcher process
 	 */
-	 if (IS_PGXC_DATANODE && snapshot_source == SNAPSHOT_UNDEFINED 
-	 		&& IsPostmasterEnvironment && IsNormalProcessingMode())
-	 {
-	 	elog(WARNING, "Do not have a GTM snapshot available");
-	 }
+	if (IS_PGXC_DATANODE &&
+		snapshot_source == SNAPSHOT_UNDEFINED &&
+		IsPostmasterEnvironment &&
+		IsNormalProcessingMode() &&
+		!IsAutoVacuumLauncherProcess())
+	{
+		elog(WARNING, "Do not have a GTM snapshot available");
+	}
 #endif
       
 	/*
