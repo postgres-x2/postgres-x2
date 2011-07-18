@@ -99,6 +99,9 @@ static void pgxc_locate_grouping_columns(PlannerInfo *root, List *tlist,
 											AttrNumber *grpColIdx);
 static List *pgxc_process_grouping_targetlist(PlannerInfo *root,
 												List **local_tlist);
+static List *pgxc_process_having_clause(PlannerInfo *root, List *remote_tlist,
+												Node *havingQual, List **local_qual,
+												List **remote_qual, bool *reduce_plan);
 #endif
 static ForeignScan *create_foreignscan_plan(PlannerInfo *root, ForeignPath *best_path,
 						List *tlist, List *scan_clauses);
@@ -820,7 +823,7 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 			 * If the JOIN ON clause has a local dependency then we cannot ship
 			 * the join to the remote side at all, bail out immediately.
 			 */
-			if (!is_foreign_qual((Node *)nest_parent->join.joinqual))
+			if (!is_foreign_expr((Node *)nest_parent->join.joinqual, NULL))
 			{
 				elog(DEBUG1, "cannot reduce: local dependencies in the joinqual");
 				return parent;
@@ -832,7 +835,7 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 			 * entire list. These local quals will become part of the quals
 			 * list of the reduced remote scan node down later.
 			 */
-			if (!is_foreign_qual((Node *)nest_parent->join.plan.qual))
+			if (!is_foreign_expr((Node *)nest_parent->join.plan.qual, NULL))
 			{
 				elog(DEBUG1, "local dependencies in the join plan qual");
 
@@ -850,7 +853,7 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 					 * is currentof clause, so keep that information intact and
 					 * pass a dummy argument here.
 					 */
-					if (!is_foreign_qual((Node *)clause))
+					if (!is_foreign_expr((Node *)clause, NULL))
 						local_scan_clauses	= lappend(local_scan_clauses, clause);
 					else
 						remote_scan_clauses = lappend(remote_scan_clauses, clause);
@@ -2507,7 +2510,7 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	    {
 			Node *clause = lfirst(l);
 
-			if (is_foreign_qual(clause))
+			if (is_foreign_expr(clause, NULL))
 				remote_scan_clauses = lappend(remote_scan_clauses, clause);
 			else
 				local_scan_clauses = lappend(local_scan_clauses, clause);
@@ -5633,18 +5636,22 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	List		*temp_vars;			/* temporarily hold the VARs */
 	List		*temp_vartlist;		/* temporarity hold tlist of VARs */
 	ListCell	*temp;
-	StringInfo	remote_targetlist = makeStringInfo();/* SELECT clause of remote query */
-	StringInfo	remote_sql_stmt = makeStringInfo();
-	StringInfo	groupby_clause = makeStringInfo();	/* remote query GROUP BY */
-	StringInfo	orderby_clause = makeStringInfo();	/* remote query ORDER BY */
-	StringInfo	remote_fromlist = makeStringInfo();	/* remote query FROM */
-	StringInfo	in_alias = makeStringInfo();
+	StringInfo	remote_targetlist;/* SELECT clause of remote query */
+	StringInfo	remote_sql_stmt;
+	StringInfo	groupby_clause;	/* remote query GROUP BY */
+	StringInfo	orderby_clause;	/* remote query ORDER BY */
+	StringInfo	remote_fromlist;	/* remote query FROM */
+	StringInfo	in_alias;
+	StringInfo	having_clause;	/* remote query HAVING clause */
 	Relids		in_relids;			/* the list of Relids referenced by lefttree */
 	Index		dummy_rtindex;
 	List		*base_tlist;
 	RangeTblEntry	*dummy_rte;
 	int			numGroupCols;
 	AttrNumber	*grpColIdx;
+	bool		reduce_plan;
+	List		*remote_qual;
+	List 		*local_qual;
 
 	/*
 	 * We don't push aggregation and grouping to datanodes, in case there are
@@ -5652,8 +5659,7 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	 */
 	if (query->hasWindowFuncs ||
 		query->distinctClause ||
-		query->sortClause ||
-		query->havingQual)
+		query->sortClause)
 		return local_plan;
 
 	/*
@@ -5750,14 +5756,22 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	 * targetlist of the query to be shipped to the remote side
 	 */
 	base_tlist = pgxc_process_grouping_targetlist(root, &(local_plan->targetlist));
+	/*
+	 * If can not construct a targetlist shippable to the datanode. Resort to
+	 * the plan created by grouping_planner()
+	 */
 	if (!base_tlist)
-	{
-		/*
-		 * for some reason we can not construct a targetlist shippable to the
-		 * datanode. Resort to the plan created by grouping_planner()
-		 */
 		return local_plan;
-	}
+
+	base_tlist = pgxc_process_having_clause(root, base_tlist, query->havingQual,
+												&local_qual, &remote_qual, &reduce_plan);
+	/*
+	 * Because of HAVING clause, we can not push the aggregates and GROUP BY
+	 * clause to the data node. Resort to the plan created by grouping planner.
+	 */
+	if (!reduce_plan)
+		return local_plan;
+	Assert(base_tlist);
 
 	/*
 	 * We are now ready to create the RemoteQuery node to push the query to
@@ -5767,6 +5781,14 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	 * 2. Modify the Grouping node passed in, to accept the results sent by the
 	 *    Datanodes, then group and aggregate them, if needed.
 	 */
+	remote_targetlist = makeStringInfo();
+	remote_sql_stmt = makeStringInfo();
+	groupby_clause = makeStringInfo();
+	orderby_clause = makeStringInfo();
+	remote_fromlist = makeStringInfo();
+	in_alias = makeStringInfo();
+	having_clause = makeStringInfo();
+
 	appendStringInfo(in_alias, "%s_%d", "group", root->rs_alias_index);
 
 	/*
@@ -5798,13 +5820,13 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 
 		create_remote_expr(root, local_plan, remote_targetlist, expr, remote_group);
 
-		/* If this is not last target entry, add a comma with space */
+		/* If this is not last target entry, add a comma */
 		if (lnext(temp))
 			appendStringInfoString(remote_targetlist, ",");
 	}
 
 	/* Generate the from clause of the remote query */
-	appendStringInfo(remote_fromlist, "FROM (%s) %s",
+	appendStringInfo(remote_fromlist, " FROM (%s) %s",
 							remote_group->inner_statement, remote_group->inner_alias);
 
 	/*
@@ -5860,11 +5882,17 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 		}
 	}
 
-	/* Generate the remote sql statement from the pieces */
-	appendStringInfo(remote_sql_stmt, "%s %s %s %s", remote_targetlist->data,
-						remote_fromlist->data, groupby_clause->data,
-						orderby_clause->data);
+	if (remote_qual)
+	{
+		appendStringInfoString(having_clause, "HAVING ");
+		create_remote_clause_expr(root, local_plan, having_clause, remote_qual,
+							remote_group);
+	}
 
+	/* Generate the remote sql statement from the pieces */
+	appendStringInfo(remote_sql_stmt, "%s %s %s %s %s", remote_targetlist->data,
+						remote_fromlist->data, groupby_clause->data,
+						orderby_clause->data, having_clause->data);
 	/*
 	 * Create a dummy RTE for the remote query being created. Append the dummy
 	 * range table entry to the range table. Note that this modifies the master
@@ -5901,17 +5929,7 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	remote_group->partitioned_replicated = remote_scan->partitioned_replicated;
 	remote_group->read_only = query->commandType == CMD_SELECT;
 
-	/*
-	 * Only quals that can be pushed to the remote side are the ones in the having
-	 * clause. Till we work out how to handle having quals in XC, we don't have
-	 * any quals here.
-	 *
-	 * PGXCTODO: the RemoteQuery node that was earlier the lefttree of Agg
-	 * node, may have local quals. In such case, we have to aggregate and group
-	 * at coordinator and can not push the grouping clause to the datanodes. Is
-	 * there a case in XC, where we can have local quals?
-	 * we actually need not worry about costs since this is the final plan
-	 */
+	/* we actually need not worry about costs since this is the final plan */
 	remote_group_plan->startup_cost	= remote_scan->scan.plan.startup_cost;
 	remote_group_plan->total_cost	= remote_scan->scan.plan.total_cost;
 	remote_group_plan->plan_rows	= remote_scan->scan.plan.plan_rows;
@@ -5923,6 +5941,7 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	 * the scan.
 	 */
 	local_plan->lefttree = (Plan *) make_material(remote_group_plan);
+	local_plan->qual = local_qual;
 	/* indicate that we should apply collection function directly */
 	if (IsA(local_plan, Agg))
 		((Agg *)local_plan)->skip_trans = true;
@@ -5966,6 +5985,85 @@ pgxc_locate_grouping_columns(PlannerInfo *root, List *tlist,
 }
 
 /*
+ * pgxc_add_node_to_grouping_tlist
+ * Add the given node to the target list to be sent to the datanode. If it's
+ * Aggref node, also change the passed in node to point to the Aggref node in
+ * the data node's target list
+ */
+static List *
+pgxc_add_node_to_grouping_tlist(List *remote_tlist, Node *expr, Index ressortgroupref)
+{
+	TargetEntry *remote_tle;
+	Oid			saved_aggtype;
+
+	/*
+	 * When we add an aggregate to the remote targetlist the aggtype of such
+	 * Aggref node is changed to aggtrantype. Hence while searching a given
+	 * Aggref in remote targetlist, we need to change the aggtype accordingly
+	 * and then switch it back.
+	 */
+	if (IsA(expr, Aggref))
+	{
+		Aggref *aggref = (Aggref *)expr;
+		saved_aggtype = aggref->aggtype;
+		aggref->aggtype = aggref->aggtrantype;
+	}
+	remote_tle = tlist_member(expr, remote_tlist);
+	if (IsA(expr, Aggref))
+		((Aggref *)expr)->aggtype = saved_aggtype;
+
+	if (!remote_tle)
+	{
+		remote_tle = makeTargetEntry(copyObject(expr),
+							  list_length(remote_tlist) + 1,
+							  NULL,
+							  false);
+		/* Copy GROUP BY/SORT BY reference for the locating group by columns */
+		remote_tle->ressortgroupref = ressortgroupref;
+		remote_tlist = lappend(remote_tlist, remote_tle);
+	}
+	else
+	{
+
+		if (remote_tle->ressortgroupref == 0)
+			remote_tle->ressortgroupref = ressortgroupref;
+		else if (ressortgroupref == 0)
+		{
+			/* do nothing remote_tle->ressortgroupref has the right value */
+		}
+		else
+		{
+			/*
+			 * if the expression's TLE already has a Sorting/Grouping reference,
+			 * and caller has passed a non-zero one as well, better both of them
+			 * be same
+			 */
+			Assert(remote_tle->ressortgroupref == ressortgroupref);
+		}
+	}
+
+	/*
+	 * Replace the args of the local Aggref with Aggref node to be
+	 * included in RemoteQuery node, so that set_plan_refs can convert
+	 * the args into VAR pointing to the appropriate result in the tuple
+	 * coming from RemoteQuery node
+	 * PGXCTODO: should we push this change in targetlists of plans
+	 * above?
+	 */
+	if (IsA(expr, Aggref))
+	{
+		Aggref	*local_aggref = (Aggref *)expr;
+		Aggref	*remote_aggref = (Aggref *)remote_tle->expr;
+		Assert(IsA(remote_tle->expr, Aggref));
+		remote_aggref->aggtype = remote_aggref->aggtrantype;
+		/* Is copyObject() needed here? probably yes */
+		local_aggref->args = list_make1(makeTargetEntry(copyObject(remote_tle->expr),
+																1, NULL,
+																false));
+	}
+	return remote_tlist;
+}
+/*
  * pgxc_process_grouping_targetlist
  * The function scans the targetlist to check if the we can push anything
  * from the targetlist to the datanode. Following rules govern the choice
@@ -5988,10 +6086,8 @@ pgxc_process_grouping_targetlist(PlannerInfo *root, List **local_tlist)
 {
 	bool	shippable_remote_tlist = true;
 	List	*remote_tlist = NIL;
-	int		next_resno = 1;	/* resno start from 1 */
 	List	*orig_local_tlist = NIL;/* Copy original local_tlist, in case it changes */
 	ListCell	*temp;
-	Query	*query = root->parse;
 
 	/*
 	 * Walk through the target list and find out whether we can push the
@@ -6001,83 +6097,90 @@ pgxc_process_grouping_targetlist(PlannerInfo *root, List **local_tlist)
 	 */
 	foreach(temp, *local_tlist)
 	{
-		TargetEntry	*local_tle = lfirst(temp);
-		TargetEntry *remote_tle;
-		Node		*expr = (Node *)local_tle->expr;
+		TargetEntry				*local_tle = lfirst(temp);
+		Node					*expr = (Node *)local_tle->expr;
+		foreign_qual_context	context;
 
-		if (IsA(expr, Aggref))
+		pgxc_foreign_qual_context_init(&context);
+		/*
+		 * If the expression is not Aggref but involves aggregates (has Aggref
+		 * nodes in the expression tree, we can not push the entire expression
+		 * to the datanode, but push those aggregates to the data node, if those
+		 * aggregates can be evaluated at the data nodes (if is_foreign_expr
+		 * returns true for entire expression). To evaluate the rest of the
+		 * expression, we need to fetch the values of VARs participating in the
+		 * expression. But, if we include the VARs under the aggregate nodes,
+		 * they may not be part of GROUP BY clause, thus generating an invalid
+		 * query. Hence, is_foreign_expr() wouldn't collect VARs under the
+		 * expression tree rooted under Aggref node.
+		 * For example, the original query is
+		 * SELECT sum(val) * val2 FROM tab1 GROUP BY val2;
+		 * the query pushed to the data node is
+		 * SELECT sum(val), val2 FROM tab1 GROUP BY val2;
+		 * Notice that, if we include val in the query, it will become invalid.
+		 */
+		context.collect_vars = true;
+
+		if (!is_foreign_expr(expr, &context))
 		{
-			Aggref	*aggref = (Aggref *)expr;
+				shippable_remote_tlist = false;
+				break;
+		}
+
+		/*
+		 * We are about to change the local_tlist, check if we have already
+		 * copied original local_tlist, if not take a copy
+		 */
+		if (!orig_local_tlist && (IsA(expr, Aggref) || context.aggs))
+				orig_local_tlist = copyObject(*local_tlist);
+
+		/*
+		 * if there are aggregates involved in the expression, whole expression
+		 * can not be pushed to the data node. Pick up the aggregates and the
+		 * VAR nodes not covered by aggregates.
+		 */
+		if (context.aggs)
+		{
+			ListCell				*lcell;
 			/*
-			 * If the aggregation needs tuples ordered specifically, or only
-			 * accepts distinct values, we can not aggregate unless we have all
-			 * the qualifying rows. Hence partial aggregation at data nodes can
-			 * give wrong results. Hence we can not such aggregates to the
-			 * datanodes.
-			 * If there is no collection function, we can not combine the
-			 * partial aggregation results from the data nodes, hence can not
-			 * push such aggregate to the data nodes.
-			 * PGXCTODO: If the transition type of the collection is polymorphic we
-			 * need to resolve it first. That tells us the partial aggregation type
-			 * expected from data node.
+			 * if the target list expression is an Aggref, then the context should
+			 * have only one Aggref in the list and no VARs.
 			 */
-			if (aggref->aggorder ||
-				aggref->aggdistinct ||
-				aggref->agglevelsup ||
-				!aggref->agghas_collectfn ||
-				IsPolymorphicType(aggref->aggtrantype))
+			Assert(!IsA(expr, Aggref) ||
+						(list_length(context.aggs) == 1 &&
+						linitial(context.aggs) == expr &&
+						!context.vars));
+			/*
+			 * this expression is not going to be pushed as whole, thus other
+			 * clauses won't be able to find out this TLE in the results
+			 * obtained from data node. Hence can't optimize this query.
+			 */
+			if (local_tle->ressortgroupref > 0)
 			{
 				shippable_remote_tlist = false;
 				break;
 			}
+			/* copy the aggregates into the remote target list */
+			foreach (lcell, context.aggs)
+			{
+				Assert(IsA(lfirst(lcell), Aggref));
+				remote_tlist = pgxc_add_node_to_grouping_tlist(remote_tlist, lfirst(lcell),
+																0);
+			}
+			/* copy the vars into the remote target list */
+			foreach (lcell, context.vars)
+			{
+				Assert(IsA(lfirst(lcell), Var));
+				remote_tlist = pgxc_add_node_to_grouping_tlist(remote_tlist, lfirst(lcell),
+																0);
+			}
 		}
-		else if (query->hasAggs && checkExprHasAggs(expr))
-		{
-			/*
-			 * Targetlist expressions which have aggregates embedded inside
-			 * are not handled right now.
-			 * PGXCTODO: We should be able to extract those aggregates out.
-			 * Add those to remote targetlist and modify the local
-			 * targetlist accordingly. Thus we get those aggregates grouped
-			 * and "transitioned" at the datanode.
-			 */
-			shippable_remote_tlist = false;
-			break;
-		}
+		/* Expression doesn't contain any aggregate */
+		else
+			remote_tlist = pgxc_add_node_to_grouping_tlist(remote_tlist, expr,
+													local_tle->ressortgroupref);
 
-		remote_tle = makeTargetEntry(copyObject(expr),
-							  next_resno++,
-							  NULL,
-							  false);
-		/* Copy GROUP BY/SORT BY reference for the locating group by columns */
-		remote_tle->ressortgroupref = local_tle->ressortgroupref;
-		remote_tlist = lappend(remote_tlist, remote_tle);
-
-		/*
-		 * Replace the args of the local Aggref with Aggref node to be
-		 * included in RemoteQuery node, so that set_plan_refs can convert
-		 * the args into VAR pointing to the appropriate result in the tuple
-		 * coming from RemoteQuery node
-		 * PGXCTODO: should we push this change in targetlists of plans
-		 * above?
-		 */
-		if (IsA(expr, Aggref))
-		{
-			Aggref	*local_aggref = (Aggref *)expr;
-			Aggref	*remote_aggref = (Aggref *)remote_tle->expr;
-			Assert(IsA(remote_tle->expr, Aggref));
-			remote_aggref->aggtype = remote_aggref->aggtrantype;
-			/*
-			 * We are about to change the local_tlist, check if we have already
-			 * copied original local_tlist, if not take a copy
-			 */
-			if (!orig_local_tlist)
-				orig_local_tlist = copyObject(*local_tlist);
-			/* Is copyObject() needed here? probably yes */
-			local_aggref->args = list_make1(makeTargetEntry(copyObject(remote_tle->expr),
-																	1, NULL,
-																	false));
-		}
+		pgxc_foreign_qual_context_free(&context);
 	}
 
 	if (!shippable_remote_tlist)
@@ -6104,4 +6207,94 @@ pgxc_process_grouping_targetlist(PlannerInfo *root, List **local_tlist)
 	return remote_tlist;
 }
 
+/*
+ * pgxc_process_having_clause
+ * For every expression in the havingQual take following action
+ * 1. If it has aggregates, which can be evaluated at the data nodes, add those
+ *    aggregates to the targetlist and modify the local aggregate expressions to
+ *    point to the aggregate expressions being pushed to the data node. Add this
+ *    expression to the local qual to be evaluated locally.
+ * 2. If the expression does not have aggregates and the whole expression can be
+ *    evaluated at the data node, add the expression to the remote qual to be
+ *    evaluated at the data node.
+ * 3. If qual contains an expression which can not be evaluated at the data
+ *    node, the parent group plan can not be reduced to a remote_query.
+ */
+static List *
+pgxc_process_having_clause(PlannerInfo *root, List *remote_tlist, Node *havingQual,
+												List **local_qual, List **remote_qual,
+												bool *reduce_plan)
+{
+	foreign_qual_context	context;
+	List		*qual;
+	ListCell	*temp;
+
+	*reduce_plan = true;
+	*remote_qual = NIL;
+	*local_qual = NIL;
+
+	if (!havingQual)
+		return remote_tlist;
+	/*
+	 * PGXCTODO: we expect the quals in the form of List only. Is there a
+	 * possibility that the quals will be another form?
+	 */
+	if (!IsA(havingQual, List))
+	{
+		*reduce_plan = false;
+		return remote_tlist;
+	}
+	/*
+	 * Copy the havingQual so that the copy can be modified later. In case we
+	 * back out in between, the original expression remains intact.
+	 */
+	qual = copyObject(havingQual);
+	foreach(temp, qual)
+	{
+		Node *expr = lfirst(temp);
+		pgxc_foreign_qual_context_init(&context);
+		if (!is_foreign_expr(expr, &context))
+		{
+			*reduce_plan = false;
+			break;
+		}
+
+		if (context.aggs)
+		{
+				ListCell				*lcell;
+				/*
+				 * if the target list havingQual is an Aggref, then the context should
+				 * have only one Aggref in the list and no VARs.
+				 */
+				Assert(!IsA(expr, Aggref) ||
+							(list_length(context.aggs) == 1 &&
+							linitial(context.aggs) == expr &&
+							!context.vars));
+				/* copy the aggregates into the remote target list */
+				foreach (lcell, context.aggs)
+				{
+					Assert(IsA(lfirst(lcell), Aggref));
+					remote_tlist = pgxc_add_node_to_grouping_tlist(remote_tlist, lfirst(lcell),
+																	0);
+				}
+				/* copy the vars into the remote target list */
+				foreach (lcell, context.vars)
+				{
+					Assert(IsA(lfirst(lcell), Var));
+					remote_tlist = pgxc_add_node_to_grouping_tlist(remote_tlist, lfirst(lcell),
+																	0);
+				}
+				*local_qual = lappend(*local_qual, expr);
+		}
+		else
+			*remote_qual = lappend(*remote_qual, expr);
+
+		pgxc_foreign_qual_context_free(&context);
+	}
+
+	if (!(*reduce_plan))
+		list_free_deep(qual);
+
+	return remote_tlist;
+}
 #endif

@@ -13,6 +13,7 @@
 #include "pgxc/postgresql_fdw.h"
 #include "catalog/pg_operator.h"
 #include "catalog/pg_proc.h"
+#include "catalog/pg_type.h"
 #include "funcapi.h"
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
@@ -37,7 +38,7 @@
 #define OPTIMIZE_WHERE_CLAUSE	EVAL_QUAL_FOREIGN
 
 /* deparse SQL from the request */
-static bool foreign_qual_walker(Node *node, void *context);
+static bool foreign_qual_walker(Node *node, foreign_qual_context *context);
 
 /*
  * Check whether the function is IMMUTABLE.
@@ -93,17 +94,35 @@ is_immutable_func(Oid funcid)
  *  - scalar array operator (ANY/ALL)
  */
 bool
-is_foreign_qual(Node *node)
+is_foreign_expr(Node *node, foreign_qual_context *context)
 {
-	return !foreign_qual_walker(node, NULL);
+	return !foreign_qual_walker(node, context);
 }
 
+void
+pgxc_foreign_qual_context_init(foreign_qual_context *context)
+{
+	context->collect_vars = false;
+	context->vars = NIL;
+	context->aggs = NIL;
+}
+
+void
+pgxc_foreign_qual_context_free(foreign_qual_context *context)
+{
+	list_free(context->vars);
+	context->vars = NIL;
+	list_free(context->aggs);
+	context->aggs = NIL;
+}
 /*
  * return true if node cannot be evaluatated in foreign server.
  */
 static bool
-foreign_qual_walker(Node *node, void *context)
+foreign_qual_walker(Node *node, foreign_qual_context *context)
 {
+	bool	ret_val;
+	bool	saved_collect_vars;
 	if (node == NULL)
 		return false;
 
@@ -137,7 +156,44 @@ foreign_qual_walker(Node *node, void *context)
 			if (!is_immutable_func(((FuncExpr*) node)->funcid))
 				return true;
 			break;
-		case T_TargetEntry:
+		case T_Aggref:
+			{
+				Aggref *aggref = (Aggref *)node;
+				/*
+				 * An aggregate with ORDER BY, DISTINCT directives need to be
+				 * computed at coordinator using all the rows. An aggregate
+				 * without collection function needs to be computed at
+				 * coordinator.
+				 * PGXCTODO: polymorphic transition types need to be resolved to
+				 * correctly interpret the transition results from data nodes.
+				 * For now compute such aggregates at coordinator.
+				 */
+				if (aggref->aggorder ||
+					aggref->aggdistinct ||
+					aggref->agglevelsup ||
+					!aggref->agghas_collectfn ||
+					IsPolymorphicType(aggref->aggtrantype))
+					return true;
+				/*
+				 * data node can compute transition results, so, add the
+				 * aggregate to the context if context is present
+				 */
+				if (context)
+				{
+					/*
+					 * Don't collect VARs under the Aggref node. See
+					 * pgxc_process_grouping_targetlist() for details.
+					 */
+					saved_collect_vars = context->collect_vars;
+					context->collect_vars = false;
+					context->aggs = lappend(context->aggs, aggref);
+				}
+			}
+			break;
+		case T_Var:
+			if (context && context->collect_vars)
+				context->vars = lappend(context->vars, node);
+			break;
 		case T_PlaceHolderVar:
 		case T_AppendRelInfo:
 		case T_PlaceHolderInfo:
@@ -147,13 +203,22 @@ foreign_qual_walker(Node *node, void *context)
 			break;
 	}
 
-	return expression_tree_walker(node, foreign_qual_walker, context);
+	ret_val = expression_tree_walker(node, foreign_qual_walker, context);
+
+	/*
+	 * restore value of collect_vars in the context, since we have finished
+	 * traversing tree rooted under and Aggref node
+	 */
+	if (context && IsA(node, Aggref))
+		context->collect_vars = saved_collect_vars;
+
+	return ret_val;
 }
 
 /*
  * Deparse SQL string from query request.
  *
- * The expressions in Plan.qual are deparsed when it satisfies is_foreign_qual()
+ * The expressions in Plan.qual are deparsed when it satisfies is_foreign_expr()
  * and removed.
  */
 char *
@@ -255,7 +320,7 @@ elog(DEBUG2, "%s(%u) called", __FUNCTION__, __LINE__);
 	/*
 	 * deparse WHERE cluase
 	 *
-	 * The expressions which satisfy is_foreign_qual() are deparsed into WHERE
+	 * The expressions which satisfy is_foreign_expr() are deparsed into WHERE
 	 * clause of result SQL string, and they could be removed from qual of
 	 * PlanState to avoid duplicate evaluation at ExecScan().
 	 *
@@ -278,7 +343,7 @@ elog(DEBUG2, "%s(%u) called", __FUNCTION__, __LINE__);
 		{
 			ExprState	   *state = lfirst(lc);
 
-			if (is_foreign_qual((Node *) state))
+			if (is_foreign_expr((Node *) state, NULL))
 			{
 				elog(DEBUG1, "foreign qual: %s", nodeToString(state->expr));
 				foreign_qual = lappend(foreign_qual, state);

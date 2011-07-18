@@ -1642,7 +1642,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 
 	/* Examine the WHERE clause, too */
 	if (examine_conditions_walker(query->jointree->quals, context) ||
-		!is_foreign_qual(query->jointree->quals))
+		!is_foreign_expr(query->jointree->quals, NULL))
 		return true;
 
 	if (context->query_step->exec_nodes)
