@@ -58,8 +58,10 @@ bool		locatorInited = false;
 char	   *PreferredDataNodes = NULL;
 int			primary_data_node = 1;
 
-/* Preferred to use when reading from replicated tables */
-static List *globalPreferredNodes = NIL;
+/* Local functions */
+static List *get_preferred_node_list(void);
+static void init_mapping_table(int nodeCount, int mapTable[]);
+
 
 /*
  * init_mapping_table - initializes a mapping table
@@ -79,19 +81,60 @@ init_mapping_table(int nodeCount, int mapTable[])
 	}
 }
 
+/*
+ * get_preferred_node_list
+ *
+ * Build list of prefered Datanodes
+ * from string preferred_data_nodes (GUC parameter).
+ * This is used to identify nodes that should be used when
+ * performing a read operation on replicated tables.
+ * Result needs to be freed.
+ */
+static List *
+get_preferred_node_list(void)
+{
+	List *rawlist;
+	List *result = NIL;
+	char *rawstring = pstrdup(PreferredDataNodes);
+	ListCell *cell;
+
+	if (!SplitIdentifierString(rawstring, ',', &rawlist))
+	{
+		/* Syntax error in string parameter */
+		ereport(FATAL,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("invalid list syntax for \"preferred_data_nodes\"")));
+	}
+
+	/* Finish list conversion */
+	foreach(cell, rawlist)
+	{
+		int nodenum = atoi(lfirst(cell));
+		result = lappend_int(result, nodenum);
+	}
+
+	pfree(rawstring);
+	list_free(rawlist);
+	return result;
+}
+
 
 /*
- * Pick any data node, but try a preferred node
+ * GetAnyDataNode
  *
+ * Pick any data node, but try a preferred node
  */
 List *
 GetAnyDataNode(void)
 {
 	List		*destList = NULL;
+	List		*globalPreferredNodes = get_preferred_node_list();
 
 	/* try and pick from the preferred list */
 	if (globalPreferredNodes != NULL)
 		return destList = lappend_int(NULL, linitial_int(globalPreferredNodes));
+
+	list_free(globalPreferredNodes);
 
 	return destList = lappend_int(NULL, 1);
 }
@@ -422,7 +465,7 @@ GetRoundRobinNode(Oid relid)
 
 	Relation	rel = relation_open(relid, AccessShareLock);
 
-    Assert (rel->rd_locator_info->locatorType == LOCATOR_TYPE_REPLICATED ||
+	Assert (rel->rd_locator_info->locatorType == LOCATOR_TYPE_REPLICATED ||
 			rel->rd_locator_info->locatorType == LOCATOR_TYPE_RROBIN);
 
 	ret_node = lfirst_int(rel->rd_locator_info->roundRobinNode);
@@ -496,6 +539,8 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, Datum valueForDistCol, Oid typeO
 			}
 			else
 			{
+				List *globalPreferredNodes = get_preferred_node_list();
+
 				if (accessType == RELATION_ACCESS_READ_FOR_UPDATE
 						&& primary_data_node)
 				{
@@ -522,6 +567,7 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, Datum valueForDistCol, Oid typeO
 						}
 					}
 				}
+				list_free(globalPreferredNodes);
 
 				if (exec_nodes->nodelist == NULL)
 					/* read from just one of them. Use round robin mechanism */
