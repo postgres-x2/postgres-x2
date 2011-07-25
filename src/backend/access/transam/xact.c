@@ -65,6 +65,7 @@
 #include "utils/snapmgr.h"
 #include "pg_trace.h"
 
+
 /*
  *	User-tweakable parameters
  */
@@ -126,6 +127,7 @@ typedef enum TBlockState
 	TBLOCK_ABORT_END,			/* failed xact, ROLLBACK received */
 	TBLOCK_ABORT_PENDING,		/* live xact, ROLLBACK received */
 	TBLOCK_PREPARE,				/* live xact, PREPARE received */
+
 	/* subtransaction states */
 	TBLOCK_SUBBEGIN,			/* starting a subtransaction */
 	TBLOCK_SUBINPROGRESS,		/* live subtransaction */
@@ -302,7 +304,11 @@ static void CallSubXactCallbacks(SubXactEvent event,
 					 SubTransactionId mySubid,
 					 SubTransactionId parentSubid);
 static void CleanupTransaction(void);
+#ifdef PGXC
 static void CommitTransaction(bool contact_gtm);
+#else
+static void CommitTransaction(void);
+#endif
 static TransactionId RecordTransactionAbort(bool isSubXact);
 static void StartTransaction(void);
 
@@ -467,7 +473,6 @@ GetCurrentTransactionId(void)
 		AssignTransactionId(s);
 	return s->transactionId;
 }
-
 
 /*
  *	GetCurrentTransactionIdIfAny
@@ -737,7 +742,6 @@ GetCurrentTransactionStopTimestamp(void)
 #else
 	if (xactStopTimestamp != 0)
 		return xactStopTimestamp;
-
 	return GetCurrentTimestamp();
 #endif
 }
@@ -2036,8 +2040,10 @@ CommitTransaction(bool contact_gtm)
 		 */
 		if (!PreCommit_Portals(false))
 			break;
+#ifdef PGXC
 		else
 			IsHoldableCursor = true;
+#endif
 	}
 
 	/*
@@ -3067,6 +3073,8 @@ CommitTransactionCommand(void)
 				Assert(s->parent == NULL);
 #ifdef PGXC
 				PrepareTransaction(false);
+#else
+				PrepareTransaction();
 #endif
 				s->blockState = TBLOCK_DEFAULT;
 			}
@@ -4211,6 +4219,7 @@ BeginInternalSubTransaction(char *name)
 			if (name)
 				s->name = MemoryContextStrdup(TopTransactionContext, name);
 			break;
+
 			/* These cases are invalid. */
 		case TBLOCK_DEFAULT:
 		case TBLOCK_BEGIN:
