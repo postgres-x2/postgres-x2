@@ -3188,6 +3188,10 @@ AddRemoteQueryNode(List *stmts, const char *queryString, RemoteQueryExecType rem
 {
 	List *result = stmts;
 
+	/* If node is appplied on EXEC_ON_NONE, simply return the list unchanged */
+	if (remoteExecType == EXEC_ON_NONE)
+		return result;
+
 	/* Only a remote Coordinator is allowed to send a query to backend nodes */
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 	{

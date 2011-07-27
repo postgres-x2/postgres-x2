@@ -65,7 +65,8 @@ typedef enum
 {
 	EXEC_ON_DATANODES,
 	EXEC_ON_COORDS,
-	EXEC_ON_ALL_NODES
+	EXEC_ON_ALL_NODES,
+	EXEC_ON_NONE
 } RemoteQueryExecType;
 
 typedef enum

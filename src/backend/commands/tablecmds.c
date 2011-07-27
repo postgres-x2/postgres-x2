@@ -440,7 +440,9 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId)
 	 * tables to appear in pg_temp at the front of its search path.
 	 */
 #ifdef PGXC
-	if (stmt->relation->relpersistence == RELPERSISTENCE_TEMP && IsUnderPostmaster)
+	if (stmt->relation->relpersistence == RELPERSISTENCE_TEMP &&
+		IsUnderPostmaster &&
+		relkind != RELKIND_SEQUENCE)
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 errmsg("PG-XC does not yet support temporary tables")));
@@ -2300,9 +2302,10 @@ RenameRelation(Oid myrelid, const char *newrelname, ObjectType reltype)
 	RenameRelationInternal(myrelid, newrelname, namespaceId);
 #ifdef PGXC
 	/* Operation with GTM can only be done with a Remote Coordinator */
-	if (IS_PGXC_COORDINATOR
-		&& !IsConnFromCoord()
-		&& (reltype == OBJECT_SEQUENCE || relkind == RELKIND_SEQUENCE)) /* It is possible to rename a sequence with ALTER TABLE */
+	if (IS_PGXC_COORDINATOR &&
+		!IsConnFromCoord() &&
+		(reltype == OBJECT_SEQUENCE || relkind == RELKIND_SEQUENCE) &&
+		!IsTempSequence(myrelid)) /* It is possible to rename a sequence with ALTER TABLE */
 	{
 		char *seqname = GetGlobalSeqName(targetrelation, NULL, NULL);
 		char *newseqname = GetGlobalSeqName(targetrelation, newrelname, NULL);
@@ -9081,7 +9084,8 @@ AlterTableNamespace(RangeVar *relation, const char *newschema,
 	/* Rename also sequence on GTM for a sequence */
 	if (IS_PGXC_COORDINATOR &&
 		!IsConnFromCoord() &&
-		rel->rd_rel->relkind == RELKIND_SEQUENCE)
+		rel->rd_rel->relkind == RELKIND_SEQUENCE &&
+		!IsTempSequence(relid))
 	{
 		char *seqname = GetGlobalSeqName(rel, NULL, NULL);
 		char *newseqname = GetGlobalSeqName(rel, NULL, newschema);

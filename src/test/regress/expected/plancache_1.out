@@ -169,8 +169,6 @@ NOTICE:  drop cascades to table abc
 reset search_path;
 -- Check that invalidation deals with regclass constants
 create temp sequence seq;
-ERROR:  Postgres-XC does not support TEMPORARY SEQUENCE yet
-DETAIL:  The feature is not currently supported
 prepare p2 as select nextval('seq');
 ERROR:  Postgres-XC does not support PREPARE yet
 DETAIL:  The feature is not currently supported
@@ -178,10 +176,7 @@ execute p2;
 ERROR:  Postgres-XC does not support EXECUTE yet
 DETAIL:  The feature is not currently supported
 drop sequence seq;
-ERROR:  sequence "seq" does not exist
 create temp sequence seq;
-ERROR:  Postgres-XC does not support TEMPORARY SEQUENCE yet
-DETAIL:  The feature is not currently supported
 execute p2;
 ERROR:  Postgres-XC does not support EXECUTE yet
 DETAIL:  The feature is not currently supported

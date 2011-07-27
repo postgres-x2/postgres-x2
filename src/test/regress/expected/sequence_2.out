@@ -143,11 +143,7 @@ LINE 1: SELECT * FROM serialTest ORDER BY f1, f2;
 -- Check dependencies of serial and ordinary sequences
 --
 CREATE TEMP SEQUENCE myseq2;
-ERROR:  Postgres-XC does not support TEMPORARY SEQUENCE yet
-DETAIL:  The feature is not currently supported
 CREATE TEMP SEQUENCE myseq3;
-ERROR:  Postgres-XC does not support TEMPORARY SEQUENCE yet
-DETAIL:  The feature is not currently supported
 CREATE TEMP TABLE t1 (
   f1 serial,
   f2 int DEFAULT nextval('myseq2'),
@@ -157,20 +153,18 @@ ERROR:  Postgres-XC does not support SERIAL yet
 DETAIL:  The feature is not currently supported
 -- Both drops should fail, but with different error messages:
 DROP SEQUENCE t1_f1_seq;
-ERROR:  sequence "t1_f1_seq" does not exist
+ERROR:  relation "t1_f1_seq" does not exist
 DROP SEQUENCE myseq2;
-ERROR:  sequence "myseq2" does not exist
 -- This however will work:
 DROP SEQUENCE myseq3;
-ERROR:  sequence "myseq3" does not exist
 DROP TABLE t1;
 ERROR:  table "t1" does not exist
 -- Fails because no longer existent:
 DROP SEQUENCE t1_f1_seq;
-ERROR:  sequence "t1_f1_seq" does not exist
+ERROR:  relation "t1_f1_seq" does not exist
 -- Now OK:
 DROP SEQUENCE myseq2;
-ERROR:  sequence "myseq2" does not exist
+ERROR:  relation "myseq2" does not exist
 --
 -- Alter sequence
 --

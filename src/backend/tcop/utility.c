@@ -71,6 +71,9 @@
 
 static void ExecUtilityStmtOnNodes(const char *queryString, ExecNodes *nodes,
 								   bool force_autocommit, RemoteQueryExecType exec_type);
+static RemoteQueryExecType ExecUtilityFindNodes(const char *queryString,
+												ObjectType objectType,
+												Oid relid);
 #endif
 
 
@@ -793,6 +796,54 @@ standard_ProcessUtility(Node *parsetree,
 		case T_DropStmt:
 			{
 				DropStmt   *stmt = (DropStmt *) parsetree;
+#ifdef PGXC
+				bool		is_temp = false;
+
+				/*
+				 * We need to check details of the objects being dropped and
+				 * run command on correct nodes.
+				 * This process has to be done before removing anything on local node
+				 */
+				if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+				{
+					/*
+					 * Check the list of sequences/tables going to be dropped.
+					 * XC does not allow yet to mix drop of temporary and
+					 * non-temporary objects because this involves to rewrite
+					 * query to process for tables and stop remote query process
+					 * for sequences.
+					 * PGXCTODO: For the time being this is just checked for
+					 * sequences but should also be done for tables
+					 */
+
+					if (stmt->removeType == OBJECT_SEQUENCE)
+					{
+						ListCell   *cell;
+						bool		is_first = true;
+
+						foreach(cell, stmt->objects)
+						{
+							RangeVar   *rel = makeRangeVarFromNameList((List *) lfirst(cell));
+							Oid         relid;
+
+							relid = RangeVarGetRelid(rel, false);
+							if (is_first)
+							{
+								is_temp = IsTempSequence(relid);
+								is_first = false;
+							}
+							else
+							{
+								if (IsTempSequence(relid) != is_temp)
+									ereport(ERROR,
+											(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+											 errmsg("DROP SEQUENCE not supported for TEMP and non-TEMP sequences"),
+											 errdetail("DROP can be done if TEMP and non-TEMP objects are separated")));
+							}
+						}
+					}
+				}
+#endif
 				switch (stmt->removeType)
 				{
 					case OBJECT_TABLE:
@@ -845,12 +896,14 @@ standard_ProcessUtility(Node *parsetree,
 							 (int) stmt->removeType);
 						break;
 				}
+
 #ifdef PGXC
 				/*
-				 * We need to check details of the object being dropped and
-				 * run command on correct nodes
+				 * Drop can be done on non-temporary objects and temporary objects
+				 * if they are not mixed up.
+				 * PGXCTODO: This should be extended to tables
 				 */
-				if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+				if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && !is_temp)
 				{
 					/* Sequence and views exists only on Coordinators */
 					if (stmt->removeType == OBJECT_SEQUENCE ||
@@ -881,31 +934,12 @@ standard_ProcessUtility(Node *parsetree,
 
 #ifdef PGXC
 			/*
-			 * We need to check details of the object being dropped and
-			 * run command on correct nodes
+			 * PGXCTODO
+			 * Comments on temporary objects need special handling
+			 * depending on their types.
 			 */
 			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-			{
-				CommentStmt *stmt = (CommentStmt *) parsetree;
-
-				/* Sequence and views exists only on Coordinators */
-				if (stmt->objtype == OBJECT_SEQUENCE ||
-					stmt->objtype == OBJECT_VIEW)
-					ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_COORDS);
-				else if (stmt->objtype == OBJECT_RULE)
-				{
-					/*
-					 * Sometimes rules are created only on Coordinator (views), sometimes
-					 * on all nodes (other relations), so block it for the moment.
-					 */
-					ereport(ERROR,
-							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-							 errmsg("Postgres-XC does not support COMMENT on RULE yet"),
-							 errdetail("The feature is not currently supported")));
-				}
-				else
-					ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_ALL_NODES);
-			}
+				ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_COORDS);
 #endif
 			break;
 
@@ -957,21 +991,21 @@ standard_ProcessUtility(Node *parsetree,
 #ifdef PGXC
 			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 			{
-				RemoteQueryExecType remoteExecType = EXEC_ON_ALL_NODES;
 				RenameStmt *stmt = (RenameStmt *) parsetree;
+				RemoteQueryExecType exec_type;
 
-				if (stmt->renameType == OBJECT_SEQUENCE ||
-					stmt->renameType == OBJECT_VIEW)
-					remoteExecType = EXEC_ON_COORDS;
-				else if (stmt->renameType == OBJECT_TABLE)
-				{
-					Oid relid = RangeVarGetRelid(stmt->relation, false);
+				/* Relation is not set for a schema */
+				if (stmt->relation)
+					exec_type = ExecUtilityFindNodes(queryString,
+									   stmt->renameType,
+									   RangeVarGetRelid(stmt->relation, false));
+				else
+					exec_type = EXEC_ON_ALL_NODES;
 
-					if (get_rel_relkind(relid) == RELKIND_SEQUENCE)
-						remoteExecType = EXEC_ON_COORDS;
-				}
-
-				ExecUtilityStmtOnNodes(queryString, NULL, false, remoteExecType);
+				ExecUtilityStmtOnNodes(queryString,
+									   NULL,
+									   false,
+									   exec_type);
 			}
 #endif
 			ExecRenameStmt((RenameStmt *) parsetree);
@@ -981,20 +1015,20 @@ standard_ProcessUtility(Node *parsetree,
 #ifdef PGXC
 			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 			{
-				RemoteQueryExecType remoteExecType = EXEC_ON_ALL_NODES;
 				AlterObjectSchemaStmt *stmt = (AlterObjectSchemaStmt *) parsetree;
 
-				if (stmt->objectType == OBJECT_SEQUENCE ||
-					stmt->objectType == OBJECT_VIEW)
-					remoteExecType = EXEC_ON_COORDS;
-				else if (stmt->objectType == OBJECT_TABLE)
-				{
-					Oid relid = RangeVarGetRelid(stmt->relation, false);
+				RemoteQueryExecType exec_type;
+				if (stmt->relation)
+					exec_type = ExecUtilityFindNodes(queryString,
+										   stmt->objectType,
+										   RangeVarGetRelid(stmt->relation, false));
+				else
+					exec_type = EXEC_ON_ALL_NODES;
 
-					if (get_rel_relkind(relid) == RELKIND_SEQUENCE)
-						remoteExecType = EXEC_ON_COORDS;
-				}
-				ExecUtilityStmtOnNodes(queryString, NULL, false, remoteExecType);
+				ExecUtilityStmtOnNodes(queryString,
+									   NULL,
+									   false,
+									   exec_type);
 			}
 #endif
 			ExecAlterObjectSchemaStmt((AlterObjectSchemaStmt *) parsetree);
@@ -1023,21 +1057,12 @@ standard_ProcessUtility(Node *parsetree,
 				 */
 				if (isTopLevel)
 				{
-					RemoteQueryExecType remoteExecType = EXEC_ON_ALL_NODES;
 					AlterTableStmt *stmt = (AlterTableStmt *) parsetree;
+					RemoteQueryExecType exec_type = ExecUtilityFindNodes(queryString,
+										   stmt->relkind,
+										   RangeVarGetRelid(stmt->relation, false));
 
-					if (stmt->relkind == OBJECT_VIEW ||
-						stmt->relkind == OBJECT_SEQUENCE)
-						remoteExecType = EXEC_ON_COORDS;
-					else if (stmt->relkind == OBJECT_TABLE)
-					{
-						Oid relid = RangeVarGetRelid(stmt->relation, false);
-
-						if (get_rel_relkind(relid) == RELKIND_SEQUENCE)
-							remoteExecType = EXEC_ON_COORDS;
-					}
-
-					stmts = AddRemoteQueryNode(stmts, queryString, remoteExecType);
+					stmts = AddRemoteQueryNode(stmts, queryString, exec_type);
 				}
 #endif
 
@@ -1125,10 +1150,9 @@ standard_ProcessUtility(Node *parsetree,
 				GrantStmt *stmt = (GrantStmt *) parsetree;
 
 				/* Launch GRANT on Coordinator if object is a sequence */
-				if (stmt->objtype == ACL_OBJECT_SEQUENCE)
-					remoteExecType = EXEC_ON_COORDS;
-				else if (stmt->objtype == ACL_OBJECT_RELATION &&
-						 stmt->targtype == ACL_TARGET_OBJECT)
+				if ((stmt->objtype == ACL_OBJECT_RELATION &&
+					 stmt->targtype == ACL_TARGET_OBJECT) ||
+					stmt->objtype == ACL_OBJECT_SEQUENCE)
 				{
 					/*
 					 * In case object is a relation, differenciate the case
@@ -1146,9 +1170,18 @@ standard_ProcessUtility(Node *parsetree,
 
 						if (get_rel_relkind(relid) == RELKIND_SEQUENCE ||
 							get_rel_relkind(relid) == RELKIND_VIEW)
-							remoteExecType = EXEC_ON_COORDS;
+						{
+							/* PGXCTODO: extend that for temporary views and tables */
+							if (get_rel_relkind(relid) == RELKIND_SEQUENCE &&
+								IsTempSequence(relid))
+								remoteExecType = EXEC_ON_NONE;
+							else
+								remoteExecType = EXEC_ON_COORDS;
+						}
 						else
+						{
 							remoteExecType = EXEC_ON_ALL_NODES;
+						}
 
 						/* Check if objects can be launched at the same place as 1st one */
 						if (first)
@@ -1372,7 +1405,17 @@ standard_ProcessUtility(Node *parsetree,
 			DefineSequence((CreateSeqStmt *) parsetree);
 #ifdef PGXC
 			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_COORDS);
+			{
+				/*
+				 * If sequence is temporary, no need to send this query to other
+				 * remote Coordinators.
+				 */
+				CreateSeqStmt *stmt = (CreateSeqStmt *) parsetree;
+
+				if (stmt->sequence->relpersistence == RELPERSISTENCE_PERMANENT ||
+					stmt->sequence->relpersistence == RELPERSISTENCE_UNLOGGED)
+					ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_COORDS);
+			}
 #endif
 			break;
 
@@ -1380,7 +1423,17 @@ standard_ProcessUtility(Node *parsetree,
 			AlterSequence((AlterSeqStmt *) parsetree);
 #ifdef PGXC
 			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_COORDS);
+			{
+				/*
+				 * If sequence is temporary, no need to send this query to other
+				 * remote Coordinators.
+				 */
+				AlterSeqStmt *stmt = (AlterSeqStmt *) parsetree;
+				Oid			  relid = RangeVarGetRelid(stmt->sequence, false);
+
+				if (!IsTempSequence(relid))
+					ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_COORDS);
+			}
 #endif
 			break;
 
@@ -1936,6 +1989,10 @@ static void
 ExecUtilityStmtOnNodes(const char *queryString, ExecNodes *nodes,
 					   bool force_autocommit, RemoteQueryExecType exec_type)
 {
+	/* Return if query is launched on no nodes */
+	if (exec_type == EXEC_ON_NONE)
+		return;
+
 	if (!IsConnFromCoord())
 	{
 		RemoteQuery *step = makeNode(RemoteQuery);
@@ -1948,6 +2005,44 @@ ExecUtilityStmtOnNodes(const char *queryString, ExecNodes *nodes,
 		pfree(step->sql_statement);
 		pfree(step);
 	}
+}
+
+/*
+ * ExecUtilityFindNodes
+ *
+ * Determine the list of nodes to launch query on.
+ * This depends on temporary nature of object and object type.
+ * PGXCTODO: Extend temporary object check for tables.
+ */
+static RemoteQueryExecType
+ExecUtilityFindNodes(const char *queryString,
+					 ObjectType object_type,
+					 Oid relid)
+{
+	bool is_temp = false;
+	RemoteQueryExecType remoteExecType = EXEC_ON_NONE;
+
+	/* Check if object is a temporary sequence */
+	if (object_type == OBJECT_SEQUENCE ||
+		(object_type == OBJECT_TABLE &&
+		 get_rel_relkind(relid) == RELKIND_SEQUENCE))
+		is_temp = IsTempSequence(relid);
+
+	if (!is_temp)
+	{
+		remoteExecType = EXEC_ON_ALL_NODES;
+
+		if (object_type == OBJECT_SEQUENCE ||
+			object_type == OBJECT_VIEW)
+			remoteExecType = EXEC_ON_COORDS;
+		else if (object_type == OBJECT_TABLE)
+		{
+			if (get_rel_relkind(relid) == RELKIND_SEQUENCE)
+				remoteExecType = EXEC_ON_COORDS;
+		}
+	}
+
+	return remoteExecType;
 }
 #endif
 

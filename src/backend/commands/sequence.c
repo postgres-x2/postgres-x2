@@ -153,15 +153,6 @@ DefineSequence(CreateSeqStmt *seq)
 	init_params(seq->options, true, &new, &owned_by);
 #endif
 
-#ifdef PGXC
-	if (seq->sequence->relpersistence != RELPERSISTENCE_PERMANENT &&
-		seq->sequence->relpersistence != RELPERSISTENCE_UNLOGGED)
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("Postgres-XC does not support TEMPORARY SEQUENCE yet"),
-				 errdetail("The feature is not currently supported")));
-#endif
-
 	/*
 	 * Create relation (and fill value[] and null[] for the tuple)
 	 */
@@ -280,8 +271,14 @@ DefineSequence(CreateSeqStmt *seq)
 	heap_close(rel, NoLock);
 
 #ifdef PGXC  /* PGXC_COORD */
-	/* Remote Coordinator is in charge of creating sequence in GTM */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	/*
+	 * Remote Coordinator is in charge of creating sequence in GTM.
+	 * If sequence is temporary, it is not necessary to create it on GTM.
+	 */
+	if (IS_PGXC_COORDINATOR &&
+		!IsConnFromCoord() &&
+		(seq->sequence->relpersistence == RELPERSISTENCE_PERMANENT ||
+		 seq->sequence->relpersistence == RELPERSISTENCE_UNLOGGED))
 	{
 		char *seqname = GetGlobalSeqName(rel, NULL, NULL);
 
@@ -585,8 +582,13 @@ AlterSequence(AlterSeqStmt *stmt)
 	relation_close(seqrel, NoLock);
 
 #ifdef PGXC
-	/* Remote Coordinator is in charge of create sequence in GTM */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	/*
+	 * Remote Coordinator is in charge of create sequence in GTM
+	 * If sequence is temporary, no need to go through GTM.
+	 */
+	if (IS_PGXC_COORDINATOR &&
+		!IsConnFromCoord() &&
+		seqrel->rd_backend != MyBackendId)
 	{
 		char *seqname = GetGlobalSeqName(seqrel, NULL, NULL);
 
@@ -653,6 +655,9 @@ nextval_internal(Oid relid)
 				next,
 				rescnt = 0;
 	bool		logit = false;
+#ifdef PGXC
+	bool		is_temp;
+#endif
 
 	/* open and AccessShareLock sequence */
 	init_sequence(relid, &elm, &seqrel);
@@ -667,6 +672,10 @@ nextval_internal(Oid relid)
 	/* read-only transactions may only modify temp sequences */
 	if (seqrel->rd_backend != MyBackendId)
 		PreventCommandIfReadOnly("nextval()");
+
+#ifdef PGXC
+	is_temp = seqrel->rd_backend == MyBackendId;
+#endif
 
 	if (elm->last != elm->cached)		/* some numbers were cached */
 	{
@@ -683,7 +692,7 @@ nextval_internal(Oid relid)
 	page = BufferGetPage(buf);
 
 #ifdef PGXC  /* PGXC_COORD */
-	if (IS_PGXC_COORDINATOR)
+	if (IS_PGXC_COORDINATOR && !is_temp)
 	{
 		char *seqname = GetGlobalSeqName(seqrel, NULL, NULL);
 
@@ -763,7 +772,11 @@ nextval_internal(Oid relid)
 		 * Check MAXVALUE for ascending sequences and MINVALUE for descending
 		 * sequences
 		 */
-#ifndef PGXC
+#ifdef PGXC
+		/* Temporary sequences go through normal process */
+		if (is_temp)
+		{
+#endif
 		/* Result has been checked and received from GTM */
 		if (incby > 0)
 		{
@@ -811,13 +824,19 @@ nextval_internal(Oid relid)
 			else
 				next += incby;
 		}
+#ifdef PGXC
+		}
 #endif
 		fetch--;
 		if (rescnt < cache)
 		{
 			log--;
 			rescnt++;
-#ifndef PGXC
+#ifdef PGXC
+			/* Temporary sequences can go through normal process */
+			if (is_temp)
+			{
+#endif
 			/*
 			 * This part is not taken into account,
 			 * result has been received from GTM
@@ -825,6 +844,8 @@ nextval_internal(Oid relid)
 			last = next;
 			if (rescnt == 1)	/* if it's first result - */
 				result = next;	/* it's what to return */
+#ifdef PGXC
+			}
 #endif
 		}
 	}
@@ -832,7 +853,11 @@ nextval_internal(Oid relid)
 	log -= fetch;				/* adjust for any unfetched numbers */
 	Assert(log >= 0);
 
-#ifndef PGXC
+#ifdef PGXC
+	/* Temporary sequences go through normal process */
+	if (is_temp)
+	{
+#endif
 	/* Result has been received from GTM */
 	/* save info in local cache */
 	elm->last = result;			/* last returned number */
@@ -881,8 +906,13 @@ nextval_internal(Oid relid)
 	seq->log_cnt = log;			/* how much is logged */
 
 	END_CRIT_SECTION();
-#else
-	seq->log_cnt = log;
+
+#ifdef PGXC
+	}
+	else
+	{
+		seq->log_cnt = log;
+	}
 #endif
 	UnlockReleaseBuffer(buf);
 
@@ -902,7 +932,6 @@ currval_oid(PG_FUNCTION_ARGS)
 	/* open and AccessShareLock sequence */
 	init_sequence(relid, &elm, &seqrel);
 
-
 	if (pg_class_aclcheck(elm->relid, GetUserId(), ACL_SELECT) != ACLCHECK_OK &&
 		pg_class_aclcheck(elm->relid, GetUserId(), ACL_USAGE) != ACLCHECK_OK)
 		ereport(ERROR,
@@ -917,7 +946,8 @@ currval_oid(PG_FUNCTION_ARGS)
 						RelationGetRelationName(seqrel))));
 
 #ifdef PGXC
-	if (IS_PGXC_COORDINATOR)
+	if (IS_PGXC_COORDINATOR &&
+		seqrel->rd_backend != MyBackendId)
 	{
 		char *seqname = GetGlobalSeqName(seqrel, NULL, NULL);
 
@@ -928,8 +958,11 @@ currval_oid(PG_FUNCTION_ARGS)
 					 errmsg("GTM error, could not obtain sequence value")));
 		pfree(seqname);
 	}
-#else
+	else {
+#endif
 	result = elm->last;
+#ifdef PGXC
+	}
 #endif
 	relation_close(seqrel, NoLock);
 
@@ -991,6 +1024,9 @@ do_setval(Oid relid, int64 next, bool iscalled)
 	Relation	seqrel;
 	Buffer		buf;
 	Form_pg_sequence seq;
+#ifdef PGXC
+	bool		is_temp;
+#endif
 
 	/* open and AccessShareLock sequence */
 	init_sequence(relid, &elm, &seqrel);
@@ -1004,6 +1040,10 @@ do_setval(Oid relid, int64 next, bool iscalled)
 	/* read-only transactions may only modify temp sequences */
 	if (seqrel->rd_backend != MyBackendId)
 		PreventCommandIfReadOnly("setval()");
+
+#ifdef PGXC
+	is_temp = seqrel->rd_backend == MyBackendId;
+#endif
 
 	/* lock page' buffer and read tuple */
 	seq = read_info(elm, seqrel, &buf);
@@ -1025,7 +1065,7 @@ do_setval(Oid relid, int64 next, bool iscalled)
 	}
 
 #ifdef PGXC
-	if (IS_PGXC_COORDINATOR)
+	if (IS_PGXC_COORDINATOR && !is_temp)
 	{
 		char *seqname = GetGlobalSeqName(seqrel, NULL, NULL);
 
@@ -1571,11 +1611,12 @@ init_params(List *options, bool isInit,
 
 #ifdef PGXC
 /*
+ * GetGlobalSeqName
+ *
  * Returns a global sequence name adapted to GTM
  * Name format is dbname.schemaname.seqname
  * so as to identify in a unique way in the whole cluster each sequence
  */
-
 char *
 GetGlobalSeqName(Relation seqrel, const char *new_seqname, const char *new_schemaname)
 {
@@ -1613,6 +1654,26 @@ GetGlobalSeqName(Relation seqrel, const char *new_seqname, const char *new_schem
 		pfree(schemaname);
 
 	return seqname;
+}
+
+/*
+ * IsTempSequence
+ *
+ * Determine if given sequence is temporary or not.
+ */
+bool
+IsTempSequence(Oid relid)
+{
+	Relation seqrel;
+	bool res;
+	SeqTable	elm;
+
+	/* open and AccessShareLock sequence */
+	init_sequence(relid, &elm, &seqrel);
+
+	res = seqrel->rd_backend == MyBackendId;
+	relation_close(seqrel, NoLock);
+	return res;
 }
 #endif
 
