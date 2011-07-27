@@ -1035,8 +1035,8 @@ _copyExecNodes(ExecNodes *from)
 	COPY_NODE_FIELD(nodelist);
 	COPY_SCALAR_FIELD(baselocatortype);
 	COPY_SCALAR_FIELD(tableusagetype);
-	COPY_NODE_FIELD(expr);
-	COPY_SCALAR_FIELD(relid);
+	COPY_NODE_FIELD(en_expr);
+	COPY_SCALAR_FIELD(en_relid);
 	COPY_SCALAR_FIELD(accesstype);
 
 	return newnode;

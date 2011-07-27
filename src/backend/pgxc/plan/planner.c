@@ -643,8 +643,8 @@ get_plan_nodes_insert(PlannerInfo *root, RemoteQuery *step)
 				step->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
 				step->exec_nodes->primarynodelist = NULL;
 				step->exec_nodes->nodelist = NULL;
-				step->exec_nodes->expr = eval_expr;
-				step->exec_nodes->relid = rel_loc_info->relid;
+				step->exec_nodes->en_expr = eval_expr;
+				step->exec_nodes->en_relid = rel_loc_info->relid;
 				step->exec_nodes->accesstype = RELATION_ACCESS_INSERT;
 				return;
 			}
@@ -1742,8 +1742,8 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 						TABLE_USAGE_TYPE_USER;
 					context->query_step->exec_nodes->primarynodelist = NULL;
 					context->query_step->exec_nodes->nodelist = NULL;
-					context->query_step->exec_nodes->expr = expr_comp->expr;
-					context->query_step->exec_nodes->relid = expr_comp->relid;
+					context->query_step->exec_nodes->en_expr = expr_comp->expr;
+					context->query_step->exec_nodes->en_relid = expr_comp->relid;
 					context->query_step->exec_nodes->accesstype = context->accessType;
 					break;
 				}
@@ -1760,8 +1760,8 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 			context->query_step->exec_nodes->primarynodelist = NULL;
 			context->query_step->exec_nodes->nodelist =
 				list_copy(rel_loc_info->nodeList);
-			context->query_step->exec_nodes->expr = NULL;
-			context->query_step->exec_nodes->relid = NULL;
+			context->query_step->exec_nodes->en_expr = NULL;
+			context->query_step->exec_nodes->en_relid = NULL;
 			context->query_step->exec_nodes->accesstype = context->accessType;
 		}
 	}

@@ -2382,7 +2382,7 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 	step->exec_nodes = (ExecNodes *) palloc(sizeof(ExecNodes));
 	step->exec_nodes->primarynodelist = NIL;
 	step->exec_nodes->nodelist = NIL;
-	step->exec_nodes->expr = NIL;
+	step->exec_nodes->en_expr = NIL;
 	step->force_autocommit = false;
 	step->combine_type = COMBINE_TYPE_SAME;
 	step->read_only = true;

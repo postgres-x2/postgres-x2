@@ -5560,12 +5560,12 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		xstep->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
 		xstep->exec_nodes->primarynodelist = NULL;
 		xstep->exec_nodes->nodelist = NULL;
-		xstep->exec_nodes->relid = ttab->relid;
+		xstep->exec_nodes->en_relid = ttab->relid;
 		xstep->exec_nodes->accesstype = RELATION_ACCESS_READ;
 
 		/* First and only target entry of topplan is ctid, reference it */
 		ctid = makeVar(INNER, 1, TIDOID, -1, InvalidOid, 0);
-		xstep->exec_nodes->expr = (Expr *) ctid;
+		xstep->exec_nodes->en_expr = (Expr *) ctid;
 
 		pfree(xbuf->data);
 		pfree(xbuf);
@@ -5590,12 +5590,12 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		fstep->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
 		fstep->exec_nodes->primarynodelist = NULL;
 		fstep->exec_nodes->nodelist = NULL;
-		fstep->exec_nodes->relid = ttab->relid;
+		fstep->exec_nodes->en_relid = ttab->relid;
 		fstep->exec_nodes->accesstype = RELATION_ACCESS_UPDATE;
 
 		/* First and only target entry of topplan is ctid, reference it */
 		ctid = makeVar(INNER, 1, TIDOID, -1, InvalidOid, 0);
-		fstep->exec_nodes->expr = (Expr *) ctid;
+		fstep->exec_nodes->en_expr = (Expr *) ctid;
 	}
 
 	pfree(buf->data);
