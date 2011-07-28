@@ -56,6 +56,6 @@ UPDATE update_test AS t SET b = update_test.b + 10 WHERE t.a = 10;
 
 -- Make sure that we can update to a TOASTed value.
 UPDATE update_test SET c = repeat('x', 10000) WHERE c = 'car';
-SELECT a, b, char_length(c) FROM update_test;
+SELECT a, b, char_length(c) FROM update_test ORDER BY a;
 
 DROP TABLE update_test;
