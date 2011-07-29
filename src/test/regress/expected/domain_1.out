@@ -487,17 +487,16 @@ ERROR:  value for domain str_domain2 violates check constraint "str_domain2_chec
 -- unknown type are enforced correctly.
 create domain pos_int as int4 check (value > 0) not null;
 prepare s1 as select $1::pos_int = 10 as "is_ten";
-ERROR:  Postgres-XC does not support PREPARE yet
-DETAIL:  The feature is not currently supported
 execute s1(10);
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ is_ten 
+--------
+ t
+(1 row)
+
 execute s1(0); -- should fail
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ERROR:  value for domain pos_int violates check constraint "pos_int_check"
 execute s1(NULL); -- should fail
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ERROR:  domain pos_int does not allow null values
 -- Check that domain constraints on plpgsql function parameters, results,
 -- and local variables are enforced correctly.
 create function doubledecrement(p1 pos_int) returns pos_int as $$

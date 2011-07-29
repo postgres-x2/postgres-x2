@@ -5,56 +5,48 @@ CREATE TEMP TABLE pcachetest AS SELECT * FROM int8_tbl;
 ERROR:  INTO clause not yet supported
 -- create and use a cached plan
 PREPARE prepstmt AS SELECT * FROM pcachetest ORDER BY q1, q2;
-ERROR:  Postgres-XC does not support PREPARE yet
-DETAIL:  The feature is not currently supported
+ERROR:  relation "pcachetest" does not exist
+LINE 1: PREPARE prepstmt AS SELECT * FROM pcachetest ORDER BY q1, q2...
+                                          ^
 EXECUTE prepstmt;
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ERROR:  prepared statement "prepstmt" does not exist
 -- and one with parameters
 PREPARE prepstmt2(bigint) AS SELECT * FROM pcachetest WHERE q1 = $1 ORDER BY q1, q2;
-ERROR:  Postgres-XC does not support PREPARE yet
-DETAIL:  The feature is not currently supported
+ERROR:  relation "pcachetest" does not exist
+LINE 1: PREPARE prepstmt2(bigint) AS SELECT * FROM pcachetest WHERE ...
+                                                   ^
 EXECUTE prepstmt2(123);
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ERROR:  prepared statement "prepstmt2" does not exist
 -- invalidate the plans and see what happens
 DROP TABLE pcachetest;
 ERROR:  table "pcachetest" does not exist
 EXECUTE prepstmt;
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ERROR:  prepared statement "prepstmt" does not exist
 EXECUTE prepstmt2(123);
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ERROR:  prepared statement "prepstmt2" does not exist
 -- recreate the temp table (this demonstrates that the raw plan is
 -- purely textual and doesn't depend on OIDs, for instance)
 CREATE TEMP TABLE pcachetest AS SELECT * FROM int8_tbl ORDER BY q1, q2;
 ERROR:  INTO clause not yet supported
 EXECUTE prepstmt;
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ERROR:  prepared statement "prepstmt" does not exist
 EXECUTE prepstmt2(123);
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ERROR:  prepared statement "prepstmt2" does not exist
 -- prepared statements should prevent change in output tupdesc,
 -- since clients probably aren't expecting that to change on the fly
 ALTER TABLE pcachetest ADD COLUMN q3 bigint;
 ERROR:  relation "pcachetest" does not exist
 EXECUTE prepstmt;
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ERROR:  prepared statement "prepstmt" does not exist
 EXECUTE prepstmt2(123);
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ERROR:  prepared statement "prepstmt2" does not exist
 -- but we're nice guys and will let you undo your mistake
 ALTER TABLE pcachetest DROP COLUMN q3;
 ERROR:  relation "pcachetest" does not exist
 EXECUTE prepstmt;
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ERROR:  prepared statement "prepstmt" does not exist
 EXECUTE prepstmt2(123);
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ERROR:  prepared statement "prepstmt2" does not exist
 -- Try it with a view, which isn't directly used in the resulting plan
 -- but should trigger invalidation anyway
 CREATE TEMP VIEW pcacheview AS
@@ -63,19 +55,18 @@ ERROR:  relation "pcachetest" does not exist
 LINE 2:   SELECT * FROM pcachetest;
                         ^
 PREPARE vprep AS SELECT * FROM pcacheview ORDER BY q1, q2;
-ERROR:  Postgres-XC does not support PREPARE yet
-DETAIL:  The feature is not currently supported
+ERROR:  relation "pcacheview" does not exist
+LINE 1: PREPARE vprep AS SELECT * FROM pcacheview ORDER BY q1, q2;
+                                       ^
 EXECUTE vprep;
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ERROR:  prepared statement "vprep" does not exist
 CREATE OR REPLACE TEMP VIEW pcacheview AS
   SELECT q1, q2/2 AS q2 FROM pcachetest ORDER BY q1, q2;
 ERROR:  relation "pcachetest" does not exist
 LINE 2:   SELECT q1, q2/2 AS q2 FROM pcachetest ORDER BY q1, q2;
                                      ^
 EXECUTE vprep;
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ERROR:  prepared statement "vprep" does not exist
 -- Check basic SPI plan invalidation
 create function cache_test(int) returns int as $$
 declare total int;
@@ -143,11 +134,12 @@ insert into s1.abc values(123);
 insert into s2.abc values(456);
 set search_path = s1;
 prepare p1 as select f1 from abc;
-ERROR:  Postgres-XC does not support PREPARE yet
-DETAIL:  The feature is not currently supported
 execute p1;
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ f1  
+-----
+ 123
+(1 row)
+
 set search_path = s2;
 select f1 from abc;
  f1  
@@ -156,12 +148,18 @@ select f1 from abc;
 (1 row)
 
 execute p1;
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ f1  
+-----
+ 123
+(1 row)
+
 alter table s1.abc add column f2 float8;   -- force replan
 execute p1;
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ f1  
+-----
+ 123
+(1 row)
+
 drop schema s1 cascade;
 NOTICE:  drop cascades to table s1.abc
 drop schema s2 cascade;
@@ -170,16 +168,15 @@ reset search_path;
 -- Check that invalidation deals with regclass constants
 create temp sequence seq;
 prepare p2 as select nextval('seq');
-ERROR:  Postgres-XC does not support PREPARE yet
-DETAIL:  The feature is not currently supported
+ERROR:  relation "seq" does not exist
+LINE 1: prepare p2 as select nextval('seq');
+                                     ^
 execute p2;
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ERROR:  prepared statement "p2" does not exist
 drop sequence seq;
 create temp sequence seq;
 execute p2;
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ERROR:  prepared statement "p2" does not exist
 -- Check DDL via SPI, immediately followed by SPI plan re-use
 -- (bug in original coding)
 create function cachebug() returns void as $$

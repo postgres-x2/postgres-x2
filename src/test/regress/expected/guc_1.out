@@ -434,8 +434,6 @@ SELECT relname FROM pg_class WHERE relname = 'reset_test';
 -- do changes
 DECLARE foo CURSOR WITH HOLD FOR SELECT 1;
 PREPARE foo AS SELECT 1;
-ERROR:  Postgres-XC does not support PREPARE yet
-DETAIL:  The feature is not currently supported
 LISTEN foo_event;
 SET vacuum_cost_delay = 13;
 CREATE TEMP TABLE tmp_foo (data text) ON COMMIT DELETE ROWS;
@@ -452,7 +450,8 @@ SELECT pg_listening_channels();
 SELECT name FROM pg_prepared_statements;
  name 
 ------
-(0 rows)
+ foo
+(1 row)
 
 SELECT name FROM pg_cursors;
  name 

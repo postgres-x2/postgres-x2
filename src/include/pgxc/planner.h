@@ -100,6 +100,11 @@ typedef struct
 	bool		force_autocommit;	/* some commands like VACUUM require autocommit mode */
 	char	   *statement;			/* if specified use it as a PreparedStatement name on data nodes */
 	char	   *cursor;				/* if specified use it as a Portal name on data nodes */
+	int			num_params;			/* number of parameters specified for Prepared statement */
+	const Oid  *param_types;		/* parameter types, this pointer is shared
+									 * across all the RemoteQuery nodes in the
+									 * plan. So, don't change this once set.
+									 */
 	RemoteQueryExecType		exec_type;
 
 	/* Support for parameters */

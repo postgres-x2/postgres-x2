@@ -128,6 +128,7 @@ extern int	pgxc_node_send_close(PGXCNodeHandle * handle, bool is_statement,
 extern int	pgxc_node_send_sync(PGXCNodeHandle * handle);
 extern int	pgxc_node_send_query_extended(PGXCNodeHandle *handle, const char *query,
 							  const char *statement, const char *portal,
+							  int num_params, Oid *param_types,
 							  int paramlen, char *params,
 							  bool send_describe, int fetch_size);
 extern int	pgxc_node_send_gxid(PGXCNodeHandle * handle, GlobalTransactionId gxid);

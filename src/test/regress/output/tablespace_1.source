@@ -40,12 +40,9 @@ SELECT relname, spcname FROM pg_catalog.pg_tablespace t, pg_catalog.pg_class c
 (0 rows)
 
 PREPARE selectsource(int) AS SELECT $1;
-ERROR:  Postgres-XC does not support PREPARE yet
-DETAIL:  The feature is not currently supported
 CREATE TABLE testschema.asexecute TABLESPACE testspace
     AS EXECUTE selectsource(2);
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ERROR:  tablespace "testspace" does not exist
 SELECT relname, spcname FROM pg_catalog.pg_tablespace t, pg_catalog.pg_class c
     where c.reltablespace = t.oid AND c.relname = 'asexecute';
  relname | spcname 

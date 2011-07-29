@@ -1012,17 +1012,22 @@ send_some(PGXCNodeHandle *handle, int len)
  */
 int
 pgxc_node_send_parse(PGXCNodeHandle * handle, const char* statement,
-					 const char *query)
+						const char *query, short num_params, Oid *param_types)
 {
 	/* statement name size (allow NULL) */
 	int			stmtLen = statement ? strlen(statement) + 1 : 1;
 	/* size of query string */
 	int			strLen = strlen(query) + 1;
-	/* size of parameter array (always empty for now) */
-	int 		paramLen = 2;
-
+	/* size of parameter type array */
+	int 		paramTypeLen = sizeof(param_types[0]) * num_params + sizeof(num_params);
 	/* size + stmtLen + strlen + paramLen */
-	int			msgLen = 4 + stmtLen + strLen + paramLen;
+	int			msgLen = 4 + stmtLen + strLen + paramTypeLen;
+	int			cnt_params;
+
+	/* we assume Oid to be 4 byte integer */
+	Assert(sizeof(param_types[0]) == 4);
+	/* if there are parameters, param_types should exist */
+	Assert(num_params <= 0 || param_types);
 
 	/* msgType + msgLen */
 	if (ensure_out_buffer_capacity(handle->outEnd + 1 + msgLen, handle) != 0)
@@ -1047,9 +1052,16 @@ pgxc_node_send_parse(PGXCNodeHandle * handle, const char* statement,
 	/* query */
 	memcpy(handle->outBuffer + handle->outEnd, query, strLen);
 	handle->outEnd += strLen;
-	/* parameter types (none) */
-	handle->outBuffer[handle->outEnd++] = 0;
-	handle->outBuffer[handle->outEnd++] = 0;
+	/* parameter types */
+	Assert(sizeof(num_params) == 2);
+	*((short *)(handle->outBuffer + handle->outEnd)) = htons(num_params);
+	handle->outEnd += sizeof(num_params);
+	/* TODO we need to use htonl and convert byte ordering of OID here */
+	for (cnt_params = 0; cnt_params < num_params; cnt_params++)
+	{
+		*((Oid *)(handle->outBuffer + handle->outEnd)) = htonl(param_types[cnt_params]);
+		handle->outEnd += sizeof(param_types[cnt_params]);
+	}
 
  	return 0;
 }
@@ -1327,12 +1339,13 @@ pgxc_node_send_sync(PGXCNodeHandle * handle)
 int
 pgxc_node_send_query_extended(PGXCNodeHandle *handle, const char *query,
 							  const char *statement, const char *portal,
+							  int num_params, Oid *param_types,
 							  int paramlen, char *params,
 							  bool send_describe, int fetch_size)
 {
 	/* NULL query indicates already prepared statement */
 	if (query)
-		if (pgxc_node_send_parse(handle, statement, query))
+		if (pgxc_node_send_parse(handle, statement, query, num_params, param_types))
 			return EOF;
 	if (pgxc_node_send_bind(handle, portal, statement, paramlen, params))
 		return EOF;

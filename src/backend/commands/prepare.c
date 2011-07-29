@@ -159,22 +159,6 @@ PrepareQuery(PrepareStmt *stmt, const char *queryString)
 	/* Generate plans for queries. */
 	plan_list = pg_plan_queries(query_list, 0, NULL);
 
-#ifdef PGXC
-	/*
-	 * Check if we are dealing with more than one step.
-	 * Multi-step preapred statements are not yet supported.
-	 * PGXCTODO - temporary - Once we add support, this code should be removed.
-	 */
-	if (IS_PGXC_COORDINATOR && plan_list && plan_list->head)
-	{
-		PlannedStmt *stmt = (PlannedStmt *) lfirst(plan_list->head);
-
-		if (stmt->planTree->lefttree || stmt->planTree->righttree)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_PSTATEMENT_DEFINITION),
-					 errmsg("Multi-step Prepared Statements not yet supported")));
-	}
-#endif
 	/*
 	 * Save the results.
 	 */
@@ -477,7 +461,8 @@ InitQueryHashTable(void)
  * they use datanode statements
  */
 static int
-set_remote_stmtname(Plan *plan, const char *stmt_name, int n)
+set_remote_stmtname(Plan *plan, const char *stmt_name, int num_params,
+						Oid *param_types, int n)
 {
 	/* If no plan simply return */
 	if (!plan)
@@ -513,6 +498,8 @@ set_remote_stmtname(Plan *plan, const char *stmt_name, int n)
 			hash_search(datanode_queries, name, HASH_FIND, &exists);
 		} while (exists);
 		((RemoteQuery *) plan)->statement = pstrdup(name);
+		((RemoteQuery *) plan)->num_params = num_params;
+		((RemoteQuery *) plan)->param_types = param_types;
 		entry = (DatanodeStatement *) hash_search(datanode_queries,
 												  name,
 												  HASH_ENTER,
@@ -521,10 +508,12 @@ set_remote_stmtname(Plan *plan, const char *stmt_name, int n)
 	}
 
 	if (innerPlan(plan))
-		n = set_remote_stmtname(innerPlan(plan), stmt_name, n);
+		n = set_remote_stmtname(innerPlan(plan), stmt_name, num_params,
+									param_types, n);
 
 	if (outerPlan(plan))
-		n = set_remote_stmtname(outerPlan(plan), stmt_name, n);
+		n = set_remote_stmtname(outerPlan(plan), stmt_name, num_params,
+									param_types, n);
 
 	return n;
 }
@@ -571,8 +560,13 @@ StorePreparedStatement(const char *stmt_name,
 #ifdef PGXC
 	if (IS_PGXC_COORDINATOR)
 	{
-		ListCell   *lc;
+		ListCell	*lc;
 		int 		n;
+		Oid			*param_types_copy = palloc(sizeof(param_types[0]) * num_params);
+		memcpy(param_types_copy, param_types, sizeof(param_types[0]) * num_params);
+
+		/* copy the param_types array in proper context */
+
 
 		/*
 		 * Scan the plans and set the statement field for all found RemoteQuery
@@ -582,7 +576,8 @@ StorePreparedStatement(const char *stmt_name,
 		foreach(lc, stmt_list)
 		{
 			PlannedStmt *ps = (PlannedStmt *) lfirst(lc);
-			n = set_remote_stmtname(ps->planTree, stmt_name, n);
+			n = set_remote_stmtname(ps->planTree, stmt_name, num_params,
+										param_types_copy, n);
 		}
 	}
 #endif

@@ -228,13 +228,12 @@ PREPARE foo AS
   SELECT id, keywords, title, body, created
   FROM articles
   GROUP BY id;
-ERROR:  Postgres-XC does not support PREPARE yet
-DETAIL:  The feature is not currently supported
+ERROR:  relation "articles" does not exist
+LINE 3:   FROM articles
+               ^
 EXECUTE foo;
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ERROR:  prepared statement "foo" does not exist
 ALTER TABLE articles DROP CONSTRAINT articles_pkey RESTRICT;
 ERROR:  relation "articles" does not exist
 EXECUTE foo;  -- fail
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ERROR:  prepared statement "foo" does not exist

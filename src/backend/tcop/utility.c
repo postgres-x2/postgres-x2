@@ -958,23 +958,11 @@ standard_ProcessUtility(Node *parsetree,
 			break;
 
 		case T_PrepareStmt:
-#ifdef PGXC
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("Postgres-XC does not support PREPARE yet"),
-					 errdetail("The feature is not currently supported")));
-#endif
 			CheckRestrictedOperation("PREPARE");
 			PrepareQuery((PrepareStmt *) parsetree, queryString);
 			break;
 
 		case T_ExecuteStmt:
-#ifdef PGXC
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("Postgres-XC does not support EXECUTE yet"),
-					 errdetail("The feature is not currently supported")));
-#endif
 			ExecuteQuery((ExecuteStmt *) parsetree, queryString, params,
 						 dest, completionTag);
 			break;
