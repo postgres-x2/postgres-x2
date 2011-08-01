@@ -131,11 +131,9 @@ ERROR:  relation "temptest" does not exist
 LINE 1: UPDATE temptest SET a = 0 FROM writetest WHERE temptest.a = ...
                ^
 PREPARE test AS UPDATE writetest SET a = 0; -- ok
-ERROR:  Postgres-XC does not support PREPARE yet
-DETAIL:  The feature is not currently supported
+ERROR:  Partition column can't be updated in current version
 EXECUTE test; -- fail
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ERROR:  prepared statement "test" does not exist
 SELECT * FROM writetest, temptest; -- ok
 ERROR:  relation "temptest" does not exist
 LINE 1: SELECT * FROM writetest, temptest;
