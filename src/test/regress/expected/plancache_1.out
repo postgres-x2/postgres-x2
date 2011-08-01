@@ -168,15 +168,20 @@ reset search_path;
 -- Check that invalidation deals with regclass constants
 create temp sequence seq;
 prepare p2 as select nextval('seq');
-ERROR:  relation "seq" does not exist
-LINE 1: prepare p2 as select nextval('seq');
-                                     ^
 execute p2;
-ERROR:  prepared statement "p2" does not exist
+ nextval 
+---------
+       1
+(1 row)
+
 drop sequence seq;
 create temp sequence seq;
 execute p2;
-ERROR:  prepared statement "p2" does not exist
+ nextval 
+---------
+       1
+(1 row)
+
 -- Check DDL via SPI, immediately followed by SPI plan re-use
 -- (bug in original coding)
 create function cachebug() returns void as $$
