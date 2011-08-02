@@ -1,0 +1,139 @@
+<!--
+$PostgreSQL: pgsql/doc/src/sgml/ref/initdb.sgml,v 1.47 2010/04/03 07:23:01 petere Exp $
+PostgreSQL documentation
+-->
+
+<refentry id="APP-GTM-PROXY">
+ <refmeta>
+  <refentrytitle>gtm_proxy</refentrytitle>
+  <manvolnum>1</manvolnum>
+  <refmiscinfo>Application</refmiscinfo>
+ </refmeta>
+
+ <refnamediv>
+  <refname>gtm_proxy</refname>
+  <refpurpose>
+   Proxy to <command>gtm</command>, <productname>Postgres-XC</productname> Global Transaction Manager
+  </refpurpose>
+ </refnamediv>
+
+ <indexterm zone="app-gtm-proxy">
+  <primary>gtm_proxy</primary>
+ </indexterm>
+
+ <refsynopsisdiv>
+  <cmdsynopsis>
+   <command>gtm_proxy</command>
+   <arg rep="repeat"><replaceable>option</></arg>
+  </cmdsynopsis>
+ </refsynopsisdiv>
+
+ <refsect1 id="R1-APP-GTM-PROXY-1">
+  <title>
+   Description
+  </title>
+&xconly
+  <para>
+   Gtm proxy provides proxy feature from Postgres-XC coordinator and
+   datanode to gtm. Gtm proxy groups connections and interactions
+   between gtm and other Postgres-XC components to reduce both the
+   number of interactions and the size of messages.
+  </para>
+
+  <para>
+   It is highly advised to start and stop gtm_proxy with gtm_ctl(8).
+  </para>
+
+ </refsect1>
+
+ <refsect1>
+  <title>Options</title>
+
+  <para>
+   Options are specified with preceding '<literal>-</literal>', each
+   option may be associated with a value. They can be specified
+   in <literal>-o</literal> option of gtm_ctl(8).
+  </para>
+
+  <para>
+   Options are as follows:
+  </para>
+
+  <para>
+   <variablelist>
+    <varlistentry>
+     <term><option>D</option></term>
+     <listitem>
+      <para>
+       Specify a directory which holds data for <command>gtm_proxy</command>
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>l</option></term>
+     <listitem>
+      <para>
+       Specify a log file for <command>gtm_ctl</command>.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>h</option></term>
+     <listitem>
+      <para>
+       Specify host name or IP address used by the <command>gtm_proxy</command>.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>p</option></term>
+     <listitem>
+      <para>
+       Specify port number to listen.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>i</option></term>
+     <listitem>
+      <para>
+       Specify gtm_proxy id, which is registered to gtm.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>n</option></term>
+     <listitem>
+      <para>
+       Specify number of worker threads of gtm_proxy.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>s</option></term>
+     <listitem>
+      <para>
+       Specify host name or IP address of target gtm.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>t</option></term>
+     <listitem>
+      <para>
+       Specify port number of target gtm.
+      </para>
+     </listitem>
+    </varlistentry>
+
+   </variablelist>
+  </para>
+ </refsect1>
+</refentry>

@@ -1,0 +1,313 @@
+<!--
+$PostgreSQL: pgsql/doc/src/sgml/ref/initdb.sgml,v 1.47 2010/04/03 07:23:01 petere Exp $
+PostgreSQL documentation
+-->
+
+<refentry id="APP-PGXC-DDL">
+ <refmeta>
+  <refentrytitle>pgxc_ddl</refentrytitle>
+  <manvolnum>1</manvolnum>
+  <refmiscinfo>Application</refmiscinfo>
+ </refmeta>
+
+ <refnamediv>
+  <refname>pgxc_ddl</refname>
+  <refpurpose>
+   Coordinator catalog table synchronization and DDL treatment module
+  </refpurpose>
+ </refnamediv>
+
+ <indexterm zone="app-pgxc-ddl">
+  <primary>pgxc_ddl</primary>
+ </indexterm>
+
+ <refsynopsisdiv>
+  <cmdsynopsis>
+   <command>pgxc_ddl</command>
+   <arg rep="repeat"><replaceable>option</></arg>
+  </cmdsynopsis>
+ </refsynopsisdiv>
+
+ <refsect1 id="R1-APP-PGXC-DDL-1">
+  <title>
+   Description
+  </title>
+&xconly
+  <para>
+   pgxc_ddl is used to synchronize all coordinator catalog tables from
+one chosen by a user. It is also possible to launch a DDL on one
+coordinator, and then to synchronize all the coordinator catalog
+tables from the catalog table of the coordinator having received the
+DDL.  Copy method is cold-based. All the coordinators are stopped,
+catalog files are copied, then all the coordinators are restarted.
+  </para>
+
+  <para>
+   Since <productname>Postgres-XC</productname> 0.9.3, DDL are
+   synchronized automatically on all the nodes of the
+   cluster, <command>pgxc_ddl</command> is let on purpose of future
+   feature development.
+  </para>
+
+  <para>
+   Since <productname>Postgres-XC</productname> 0.9.4, pgxc_ddl and
+   pgxc.conf are not anymore installed by default.  Scripts are saved
+   in the folder <filename>src/pgxc/bin/pgxc_ddl</filename>.
+  </para>
+
+ </refsect1>
+
+ <refsect1>
+  <title>Options</title>
+
+  <para>
+   Options are specified with preceding '<literal>-</literal>', each
+   option may be associated with a value.
+  </para>
+
+  <para>
+   Options are as follows:
+  </para>
+
+  <para>
+   <variablelist>
+    <varlistentry>
+     <term><option>D</option></term>
+     <listitem>
+      <para>
+       Specify <filename>pgxc.conf</filename> folder, for
+       characteristics of all the coordinators.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>l</option></term>
+     <listitem>
+      <para>
+       Specify application folder, in case <varname>PATH</varname> is not defined.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>f</option></term>
+     <listitem>
+      <para>
+       Specify DDL file location.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>d</option></term>
+     <listitem>
+      <para>
+       Database name.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>n</option></term>
+     <listitem>
+      <para>
+       Coordinator number. Coordinator chosen corresponds to the one
+       defined in <filename>pgxc.conf</filename> at the nth place.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>t</option></term>
+     <listitem>
+      <para>
+       Specify temporary folder where to copy the configuration files
+       postgresql.conf and pg_hba.conf for each coordinator.
+      </para>
+     </listitem>
+    </varlistentry>
+
+   </variablelist>
+  </para>
+
+  <para>
+   <command>gtm_ctl</command> issues the following keywords to select
+   operations on <command>gtm</command>
+   and <command>gtm_proxy</command>.
+  </para>
+
+  <para>
+   <variablelist>
+
+    <varlistentry>
+     <term><option>start</option></term>
+     <listitem>
+      <para>
+       Start a GTM/GTM proxy instance.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>restart</option></term>
+     <listitem>
+      <para>
+       Restart a GTM/GTM proxy instance.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>stop</option></term>
+     <listitem>
+      <para>
+       Stop a GTM/GTM proxy instance.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>status</option></term>
+     <listitem>
+      <para>
+       Look at the status of GTM instance. If active, 1 is printed. If
+       standby, 0 is printed.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>promote</option></term>
+     <listitem>
+      <para>
+       Promote a GTM instance as active.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>reconnect</option></term>
+     <listitem>
+      <para>
+       Reconnect a GTM Proxy to another GTM instance.
+      </para>
+     </listitem>
+    </varlistentry>
+
+   </variablelist>
+  </para>
+
+  <para>
+   Typically, you can issue the following command to start <command>gtm</command>/
+<programlisting>
+gtm_ctl start -S gtm -D datafolder
+</programlisting>
+  </para>
+
+  <para>
+   Or <command>gtm_proxy</command>:
+<programlisting>
+gtm_ctl start -S gtm_proxy -D datafolder_proxy
+</programlisting>
+  </para>
+
+  <para>
+   Promote a GTM as active:
+<programlisting>
+gtm_ctl promote -S gtm -D datafolder
+</programlisting>
+  </para>
+
+  <para>
+   Reconnect a GTM proxy to another GTM instance:
+<programlisting>
+gtm_ctl reconnect -S gtm_proxy -D datafolder_proxy -o '-s hostname -t port_number'
+</programlisting>
+  </para>
+
+  <para>
+   Look at the status of a GTM server:
+<programlisting>
+gtm_ctl status -S gtm -D datafolder
+</programlisting>
+  </para>
+ </refsect1>
+
+ <refsect1 id="R1-APP-PGXC-DDL-2">
+  <title>
+   Configuration
+  </title>
+&xconly
+  <para>
+   Because <command>pgxc_ddl</command> requires access to coordinator
+   configuration file and data folders, the following parameters have
+   to be set in <filename>pgxc.conf</filename>:
+  </para>
+
+  <table>
+   <title><filename>pgxc.conf</filename> entries</title>
+
+   <tgroup cols="3">
+    <thead>
+     <row>
+      <entry>Name</entry>
+      <entry>Type</entry>
+      <entry>Description</entry>
+     </row>
+    </thead>
+
+    <tbody>
+     <row>
+      <entry><varname>coordinator_ports</varname></entry>
+      <entry>string</entry>
+      <entry>
+       Specify the port number of all the coordinators. Maintain the
+       order of the value same as those in coordinator_hosts. It is
+       necessary to specify a number of ports equal to the number of
+       hosts. A comma separator is also necessary.
+      </entry>
+     </row>
+
+     <row>
+      <entry><varname>coordinator_folders</varname></entry>
+      <entry>string</entry>
+      <entry>
+       Specify the data folders of all the coordinators. Maintain the
+       order of the value same as those in coordinator_hosts. It is
+       necessary to specify a number of data folders equal to the
+       number of hosts. A comma separator is also necessary.
+      </entry>
+     </row>
+
+     <row>
+      <entry><varname>coordinator_hosts</varname></entry>
+      <entry>string</entry>
+      <entry>
+       Specify the host name or IP address of coordinator. Separate
+       each value with comma.
+      </entry>
+     </row>
+    </tbody>
+   </tgroup>
+  </table>
+
+  <note>
+   <para>
+    About the temporary folder, this one has the name chosen by the
+    user. As an extension name, the PID of the shell script is
+    added. This folder is by definition in /tmp. The user can choose
+    the name freely.
+   </para>
+  </note>
+
+  <note>
+   <para>
+    Configuration files of coordinators that have their catalog files
+    changed are defined with an extension name postgresql.conf.number,
+    "number" being the number of t coordinator in the order defined
+    in <filename>pgxc.conf</filename>.
+   </para>
+  </note>
+ </refsect1>
+</refentry>

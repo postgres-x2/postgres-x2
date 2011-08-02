@@ -1,0 +1,290 @@
+--- config.sgmlin	2011-06-09 09:49:58.000000000 +0900
++++ /home/common/PGXC/pgxc_documentation/postgres-xc/doc/src/sgml/config.sgmlin	2011-06-08 18:35:51.000000000 +0900
+@@ -1,19 +1,34 @@
+-<!-- doc/src/sgml/config.sgml
++<!-- $PostgreSQL: pgsql/doc/src/sgml/config.sgml,v 1.294.2.9 2010/08/26 22:00:31 tgl Exp $ -->
+ 
+ <chapter Id="runtime-config">
++<!## PG>
+   <title>Server Configuration</title>
++<!## end>
++<!## XC>
++  <title>Coordinator and Datanode Configuration</title>
++<!## end>
+ 
+   <indexterm>
+    <primary>configuration</primary>
+    <secondary>of the server</secondary>
+   </indexterm>
+ 
++<!## PG>
+   <para>
+    There are many configuration parameters that affect the behavior of
+    the database system. In the first section of this chapter, we
+    describe how to set configuration parameters. The subsequent sections
+    discuss each parameter in detail.
+   </para>
++<!## end>
++<!## XC>
++  <para>
++   There are many configuration parameters that affect the behavior of
++   the database system. In the first section of this chapter, we
++   describe how to set configuration parameters for coordinator and datanodes. The subsequent sections
++   discuss each parameter in detail.
++  </para>
++<!## end>
+ 
+   <sect1 id="config-setting">
+    <title>Setting Parameters</title>
+@@ -93,6 +108,7 @@
+     <indexterm>
+      <primary>SIGHUP</primary>
+     </indexterm>
++<!## PG>
+     The configuration file is reread whenever the main server process receives a
+     <systemitem>SIGHUP</> signal (which is most easily sent by means
+     of <literal>pg_ctl reload</>). The main server process
+@@ -102,14 +118,33 @@
+     process directly.  Some parameters can only be set at server start;
+     any changes to their entries in the configuration file will be ignored
+     until the server is restarted.
++<!## end>
++<!## XC>
++    The configuration file is reread whenever the main coordinator/datanode process receives a
++    <systemitem>SIGHUP</> signal (which is most easily sent by means
++    of <literal>pg_ctl reload</>). The main coordinator/datanode process
++    also propagates this signal to all currently running server
++    processes so that existing sessions also get the new
++    value. Alternatively, you can send the signal to a single server
++    process directly.  Some parameters can only be set at server start;
++    any changes to their entries in the configuration file will be ignored
++    until the server is restarted.
++<!## end>
+    </para>
+ 
+    <para>
+     A second way to set these configuration parameters is to give them
+     as a command-line option to the <command>postgres</command> command, such as:
++<!## PG>
+ <programlisting>
+ postgres -c log_connections=yes -c log_destination='syslog'
+ </programlisting>
++<!## end>
++<!## XC>
++<programlisting>
++postgres -C -c log_connections=yes -c log_destination='syslog'
++</programlisting>
++<!## end>
+     Command-line options override any conflicting settings in
+     <filename>postgresql.conf</filename>.  Note that this means you won't
+     be able to change the value on-the-fly by editing
+@@ -368,13 +403,32 @@
+         determined during <application>initdb</>).  This parameter can
+         only be set at server start.
+        </para>
++<!## XC>
++       <para>
++        In the case of the coordinator, this parameter determines how many 
++        connections can each coordinator accept.
++       </para>
++       <para>
++        In the case of the datanode, number of connection to each datanode may become
++        as large as <varname>max_connections</> multiplied by the number of coordinators.
++       </para>
++<!## end>
+ 
+        <para>
++<!## PG>
+         Increasing this parameter might cause <productname>PostgreSQL</>
+         to request more <systemitem class="osname">System V</> shared
+         memory or semaphores than your operating system's default configuration
+         allows. See <xref linkend="sysvipc"> for information on how to
+         adjust those parameters, if necessary.
++<!## end>
++<!## XC>
++        Increasing this parameter might cause <filename>coordinator</> or <filename>datanode</>
++        to request more <systemitem class="osname">System V</> shared
++        memory or semaphores than your operating system's default configuration
++        allows. See <xref linkend="sysvipc"> for information on how to
++        adjust those parameters, if necessary.
++<!## end>
+        </para>
+ 
+        <para>
+@@ -394,6 +448,7 @@
+       </indexterm>
+       <listitem>
+        <para>
++<!## PG>
+         Determines the number of connection <quote>slots</quote> that
+         are reserved for connections by <productname>PostgreSQL</>
+         superusers.  At most <xref linkend="guc-max-connections">
+@@ -403,6 +458,18 @@
+         <varname>superuser_reserved_connections</varname>, new
+         connections will be accepted only for superusers, and no
+         new replication connections will be accepted.
++<!## end>
++<!## XC>
++        Determines the number of connection <quote>slots</quote> that
++        are reserved for connections by <filename>coordinator</> or <filename>datanode</>
++        superusers.  At most <xref linkend="guc-max-connections">
++        connections can ever be active simultaneously.  Whenever the
++        number of active concurrent connections is at least
++        <varname>max_connections</> minus
++        <varname>superuser_reserved_connections</varname>, new
++        connections will be accepted only for superusers, and no
++        new replication connections will be accepted.
++<!## end>
+        </para>
+ 
+        <para>
+@@ -509,6 +576,8 @@
+       </listitem>
+      </varlistentry>
+ 
++<!## PG>
++<!-- XC does not include BONJOUR support at present! -->
+      <varlistentry id="guc-bonjour" xreflabel="bonjour">
+       <term><varname>bonjour</varname> (<type>boolean</type>)</term>
+       <indexterm>
+@@ -539,6 +608,7 @@
+        </para>
+       </listitem>
+      </varlistentry>
++<!## end>
+ 
+      <varlistentry id="guc-tcp-keepalives-idle" xreflabel="tcp_keepalives_idle">
+       <term><varname>tcp_keepalives_idle</varname> (<type>integer</type>)</term>
+@@ -634,6 +704,8 @@
+       </listitem>
+      </varlistentry>
+ 
++<!## PG>
++<!-- XC is not configured with SSL! -->
+      <varlistentry id="guc-ssl" xreflabel="ssl">
+       <term><varname>ssl</varname> (<type>boolean</type>)</term>
+       <indexterm>
+@@ -693,6 +765,8 @@
+       </listitem>
+      </varlistentry>
+ 
++<!## end>
++
+      <varlistentry id="guc-password-encryption" xreflabel="password_encryption">
+       <term><varname>password_encryption</varname> (<type>boolean</type>)</term>
+       <indexterm>
+@@ -711,6 +785,8 @@
+       </listitem>
+      </varlistentry>
+ 
++<!## PG>
++<!-- No Kerberos support yet -->
+      <varlistentry id="guc-krb-server-keyfile" xreflabel="krb_server_keyfile">
+       <term><varname>krb_server_keyfile</varname> (<type>string</type>)</term>
+       <indexterm>
+@@ -754,6 +830,7 @@
+        </para>
+       </listitem>
+      </varlistentry>
++<!## end>
+ 
+      <varlistentry id="guc-db-user-namespace" xreflabel="db_user_namespace">
+       <term><varname>db_user_namespace</varname> (<type>boolean</type>)</term>
+@@ -934,6 +1011,21 @@
+         same or higher value than on the master server. Otherwise, queries
+         will not be allowed in the standby server.
+        </para>
++
++<!## XC>
++       <para>
++
++        Even though your application does not issue <command>PREPARE
++        TRANSACTION</> explicitly, coordinator may generate this
++        command when an updating transaction involves more than one
++        coordinators and datanodes.
++
++	    For datanodes, you should specify this value as the same value
++	    as <varname>max_connections</>.
++
++       </para>
++<!## end>
++
+       </listitem>
+      </varlistentry>
+ 
+@@ -1065,11 +1157,20 @@
+        </para>
+ 
+        <para>
++<!## PG>
+         <productname>PostgreSQL</productname> procedural language
+         libraries can be preloaded in this way, typically by using the
+         syntax <literal>'$libdir/plXXX'</literal> where
+         <literal>XXX</literal> is <literal>pgsql</>, <literal>perl</>,
+         <literal>tcl</>, or <literal>python</>.
++<!## end>
++<!## XC>
++        <productname>Postgres-XC</productname> procedural language
++        libraries can be preloaded in this way, typically by using the
++        syntax <literal>'$libdir/plXXX'</literal> where
++        <literal>XXX</literal> is <literal>pgsql</>, <literal>perl</>,
++        <literal>tcl</>, or <literal>python</>.
++<!## end>
+        </para>
+ 
+        <para>
+@@ -1080,6 +1181,8 @@
+         libraries that will be used in most sessions. 
+        </para>
+ 
++<!## PG>
++<!-- No Window Support yet! -->
+      <note>
+       <para>
+         On Windows hosts, preloading a library at server start will not reduce
+@@ -1091,6 +1194,7 @@
+         or shared memory and you can't do that after the postmaster has started).
+        </para>
+       </note>
++<!## end>
+        <para>
+         If a specified library is not found,
+         the server will fail to start.
+@@ -1883,6 +1987,8 @@
+      </variablelist>
+     </sect2>
+ 
++<!## PG>
++<!-- No evaluation for asynchronous streaming replication -->
+     <sect2 id="runtime-config-replication">
+      <title>Streaming Replication</title>
+ 
+@@ -1991,6 +2097,10 @@
+      </variablelist>
+     </sect2>
+ 
++<!## end>
++
++<!## PG>
++<!-- No evaluation for standby servers yet! -->
+     <sect2 id="runtime-config-standby">
+     <title>Standby Servers</title>
+ 
+@@ -2080,6 +2190,9 @@
+ 
+      </variablelist>
+     </sect2>
++
++<!## end>
++
+    </sect1>
+ 
+    <sect1 id="runtime-config-query">
+@@ -6073,4 +6186,7 @@
+     </table>
+ 
+   </sect1>
++<!-- WIP: Koichi
++     Insert XC-specific configuration parameter here!
++-->
+ </chapter>

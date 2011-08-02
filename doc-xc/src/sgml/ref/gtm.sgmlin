@@ -1,0 +1,148 @@
+<!--
+$PostgreSQL: pgsql/doc/src/sgml/ref/initdb.sgml,v 1.47 2010/04/03 07:23:01 petere Exp $
+PostgreSQL documentation
+-->
+
+<refentry id="APP-GTM">
+ <refmeta>
+  <refentrytitle>gtm</refentrytitle>
+  <manvolnum>1</manvolnum>
+  <refmiscinfo>Application</refmiscinfo>
+ </refmeta>
+
+ <refnamediv>
+  <refname>gtm</refname>
+  <refpurpose>
+   provides global transaction management feature to <productname>Postgres-XC</productname>.
+  </refpurpose>
+ </refnamediv>
+
+ <indexterm zone="app-gtm">
+  <primary>gtm</primary>
+ </indexterm>
+
+ <refsynopsisdiv>
+  <cmdsynopsis>
+   <command>gtm</command>
+   <arg rep="repeat"><replaceable>option</></arg>
+  </cmdsynopsis>
+ </refsynopsisdiv>
+
+ <refsect1 id="R1-APP-GTM-1">
+  <title>
+   Description
+  </title>
+&xconly
+  <para>
+   gtm provides consistent transaction manager fully compatible with
+   vanilla PostgreSQL. It is highly advised to start and stop gtm
+   using gtm_ctl(8).
+  </para>
+
+ </refsect1>
+
+ <refsect1>
+  <title>Options</title>
+
+  <para>
+   Options are specified with preceding '<literal>-</literal>', each
+   option may be associated with a value. They can be specified
+   in <literal>-o</literal> option of gtm_ctl(8).
+  </para>
+
+  <para>
+   Options are as follows:
+  </para>
+
+  <para>
+   <variablelist>
+    <varlistentry>
+     <term><option>D</option></term>
+     <listitem>
+      <para>
+       Specify a directory which holds data for gtm or gtm_proxy
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>l</option></term>
+     <listitem>
+      <para>
+       Specify a log file for gtm_ctl.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>x</option></term>
+     <listitem>
+      <para>
+       Specify global transaction ID to start with. This is needed
+       when you start gtm for the first time
+       because <command>initdb</command> consumes XID locally and gtm
+       should start to give GXID greater than the last one
+       each <command>initdb</command> consumed locally. If gtm has
+       been shut down gracefully, then this value will be taken from
+       the last run.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>h</option></term>
+     <listitem>
+      <para>
+       Specify host name or IP address used.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>p</option></term>
+     <listitem>
+      <para>
+       Specify port number to listen.
+      </para>
+     </listitem>
+    </varlistentry>
+
+   </variablelist>
+  </para>
+
+  <para>
+    When starting GTM as a standby instance, following options can also be provided.
+  </para>
+
+  <para>
+   <variablelist>
+    <varlistentry>
+     <term><option>s</option></term>
+     <listitem>
+      <para>
+       Specify if GTM starts as a standby
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>i</option></term>
+     <listitem>
+      <para>
+       Specify host name or IP address of active GTM instance to connect to
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>q</option></term>
+     <listitem>
+      <para>
+       Specify port number of active GTM instance to connect to
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </para>
+ </refsect1>
+</refentry>

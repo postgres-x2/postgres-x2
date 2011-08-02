@@ -14,20 +14,20 @@ all:
 	+@echo "All of PostgreSQL successfully made. Ready to install."
 
 docs:
-	$(MAKE) -C doc all
+	$(MAKE) -C doc-xc all
 
 $(call recurse,world,doc src config contrib,all)
 world:
 	+@echo "PostgreSQL, contrib, and documentation successfully made. Ready to install."
 
 html man:
-	$(MAKE) -C doc $@
+	$(MAKE) -C doc-xc $@
 
 install:
 	+@echo "PostgreSQL installation complete."
 
 install-docs:
-	$(MAKE) -C doc install
+	$(MAKE) -C doc-xc install
 
 $(call recurse,install-world,doc src config contrib,install)
 install-world:
@@ -47,7 +47,7 @@ clean:
 # Important: distclean `src' last, otherwise Makefile.global
 # will be gone too soon.
 distclean maintainer-clean:
-	$(MAKE) -C doc $@
+	$(MAKE) -C doc-xc $@
 	$(MAKE) -C contrib $@
 	$(MAKE) -C config $@
 	$(MAKE) -C src $@
