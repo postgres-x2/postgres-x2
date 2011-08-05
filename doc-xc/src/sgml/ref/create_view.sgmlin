@@ -28,7 +28,7 @@ CREATE [ OR REPLACE ] [ TEMP | TEMPORARY ] VIEW <replaceable class="PARAMETER">n
 <!## end>
 <!## XC>
 <synopsis>
-CREATE [ OR REPLACE ] VIEW <replaceable class="PARAMETER">name</replaceable> [ ( <replaceable class="PARAMETER">column_name</replaceable> [, ...] ) ]
+CREATE [ OR REPLACE ] [ TEMP | TEMPORARY ] VIEW <replaceable class="PARAMETER">name</replaceable> [ ( <replaceable class="PARAMETER">column_name</replaceable> [, ...] ) ]
     AS <replaceable class="PARAMETER">query</replaceable>
 </synopsis>
 <!## end>
