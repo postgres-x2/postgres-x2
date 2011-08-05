@@ -918,6 +918,12 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 		rte->relkind = rel->rd_rel->relkind;
 		rte->requiredPerms = required_access;
 
+#ifdef PGXC
+		/* In case COPY is used on a temporary table, never use 2PC for implicit commits */
+		if (rel->rd_rel->relpersistence == RELPERSISTENCE_TEMP)
+			ExecSetTempObjectIncluded();
+#endif
+
 		tupDesc = RelationGetDescr(rel);
 		attnums = CopyGetAttnums(tupDesc, rel, stmt->attlist);
 		foreach(cur, attnums)

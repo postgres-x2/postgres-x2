@@ -70,5 +70,13 @@ extern void AtEOXact_on_commit_actions(bool isCommit);
 extern void AtEOSubXact_on_commit_actions(bool isCommit,
 							  SubTransactionId mySubid,
 							  SubTransactionId parentSubid);
+#ifdef PGXC
+extern bool IsTempTable(Oid relid);
+extern bool IsIndexUsingTempTable(Oid relid);
+extern bool IsOnCommitActions(void);
+extern void DropTableThrowErrorExternal(RangeVar *relation,
+										ObjectType removeType,
+										bool missing_ok);
+#endif
 
 #endif   /* TABLECMDS_H */

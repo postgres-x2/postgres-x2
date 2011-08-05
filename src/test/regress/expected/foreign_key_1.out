@@ -1125,7 +1125,8 @@ CREATE TEMP TABLE pktable (
         id3     REAL UNIQUE,
         UNIQUE(id1, id2, id3)
 );
-ERROR:  PG-XC does not yet support temporary tables
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
+ERROR:  Unique index of partitioned table must contain the hash/modulo distribution column.
 CREATE TEMP TABLE fktable (
         x1      INT4 REFERENCES pktable(id1),
         x2      VARCHAR(4) REFERENCES pktable(id2),
@@ -1197,7 +1198,7 @@ CREATE TEMP TABLE pktable (
     id int primary key,
     other int
 );
-ERROR:  PG-XC does not yet support temporary tables
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
 CREATE TEMP TABLE fktable (
     id int primary key,
     fk int references pktable deferrable initially deferred
@@ -1205,9 +1206,6 @@ CREATE TEMP TABLE fktable (
 ERROR:  Postgres-XC does not support DEFERRED constraints yet
 DETAIL:  The feature is not currently supported
 INSERT INTO pktable VALUES (5, 10);
-ERROR:  relation "pktable" does not exist
-LINE 1: INSERT INTO pktable VALUES (5, 10);
-                    ^
 BEGIN;
 -- doesn't match PK, but no error yet
 INSERT INTO fktable VALUES (0, 20);
@@ -1272,26 +1270,17 @@ CREATE TEMP TABLE users (
   id INT PRIMARY KEY,
   name VARCHAR NOT NULL
 );
-ERROR:  PG-XC does not yet support temporary tables
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "users_pkey" for table "users"
 INSERT INTO users VALUES (1, 'Jozko');
-ERROR:  relation "users" does not exist
-LINE 1: INSERT INTO users VALUES (1, 'Jozko');
-                    ^
 INSERT INTO users VALUES (2, 'Ferko');
-ERROR:  relation "users" does not exist
-LINE 1: INSERT INTO users VALUES (2, 'Ferko');
-                    ^
 INSERT INTO users VALUES (3, 'Samko');
-ERROR:  relation "users" does not exist
-LINE 1: INSERT INTO users VALUES (3, 'Samko');
-                    ^
 CREATE TEMP TABLE tasks (
   id INT PRIMARY KEY,
   owner INT REFERENCES users ON UPDATE CASCADE ON DELETE SET NULL,
   worker INT REFERENCES users ON UPDATE CASCADE ON DELETE SET NULL,
   checked_by INT REFERENCES users ON UPDATE CASCADE ON DELETE SET NULL
 );
-ERROR:  relation "users" does not exist
+ERROR:  Hash/Modulo distributed table must include distribution column in index
 INSERT INTO tasks VALUES (1,1,NULL,NULL);
 ERROR:  relation "tasks" does not exist
 LINE 1: INSERT INTO tasks VALUES (1,1,NULL,NULL);
@@ -1309,17 +1298,12 @@ ERROR:  relation "tasks" does not exist
 LINE 1: SELECT * FROM tasks ORDER BY 1, 2, 3,4;
                       ^
 UPDATE users SET id = 4 WHERE id = 3;
-ERROR:  relation "users" does not exist
-LINE 1: UPDATE users SET id = 4 WHERE id = 3;
-               ^
+ERROR:  Partition column can't be updated in current version
 SELECT * FROM tasks ORDER BY 1, 2, 3,4;
 ERROR:  relation "tasks" does not exist
 LINE 1: SELECT * FROM tasks ORDER BY 1, 2, 3,4;
                       ^
 DELETE FROM users WHERE id = 4;
-ERROR:  relation "users" does not exist
-LINE 1: DELETE FROM users WHERE id = 4;
-                    ^
 SELECT * FROM tasks ORDER BY 1, 2, 3,4;
 ERROR:  relation "tasks" does not exist
 LINE 1: SELECT * FROM tasks ORDER BY 1, 2, 3,4;

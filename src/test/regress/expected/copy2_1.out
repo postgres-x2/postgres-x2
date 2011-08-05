@@ -167,78 +167,69 @@ CREATE TEMP TABLE y (
 	col1 text,
 	col2 text
 );
-ERROR:  PG-XC does not yet support temporary tables
 INSERT INTO y VALUES ('Jackson, Sam', E'\\h');
-ERROR:  relation "y" does not exist
-LINE 1: INSERT INTO y VALUES ('Jackson, Sam', E'\\h');
-                    ^
 INSERT INTO y VALUES ('It is "perfect".',E'\t');
-ERROR:  relation "y" does not exist
-LINE 1: INSERT INTO y VALUES ('It is "perfect".',E'\t');
-                    ^
 INSERT INTO y VALUES ('', NULL);
-ERROR:  relation "y" does not exist
-LINE 1: INSERT INTO y VALUES ('', NULL);
-                    ^
 COPY y TO stdout WITH CSV;
-ERROR:  relation "y" does not exist
+"Jackson, Sam",\h
+"It is ""perfect"".",	
+"",
 COPY y TO stdout WITH CSV QUOTE '''' DELIMITER '|';
-ERROR:  relation "y" does not exist
+Jackson, Sam|\h
+It is "perfect".|	
+''|
 COPY y TO stdout WITH CSV FORCE QUOTE col2 ESCAPE E'\\' ENCODING 'sql_ascii';
-ERROR:  relation "y" does not exist
+"Jackson, Sam","\\h"
+"It is \"perfect\".","	"
+"",
 COPY y TO stdout WITH CSV FORCE QUOTE *;
-ERROR:  relation "y" does not exist
+"Jackson, Sam",\h
+"It is ""perfect"".",	
+"",
 -- Repeat above tests with new 9.0 option syntax
 COPY y TO stdout (FORMAT CSV);
-ERROR:  relation "y" does not exist
+"Jackson, Sam",\h
+"It is ""perfect"".",	
+"",
 COPY y TO stdout (FORMAT CSV, QUOTE '''', DELIMITER '|');
-ERROR:  relation "y" does not exist
+Jackson, Sam|\h
+It is "perfect".|	
+''|
 COPY y TO stdout (FORMAT CSV, FORCE_QUOTE (col2), ESCAPE E'\\');
-ERROR:  relation "y" does not exist
+"Jackson, Sam","\\h"
+"It is \"perfect\".","	"
+"",
 COPY y TO stdout (FORMAT CSV, FORCE_QUOTE *);
-ERROR:  relation "y" does not exist
+"Jackson, Sam",\h
+"It is ""perfect"".",	
+"",
 \copy y TO stdout (FORMAT CSV)
-ERROR:  relation "y" does not exist
-\copy: ERROR:  relation "y" does not exist
+"Jackson, Sam",\h
+"It is ""perfect"".",	
+"",
 \copy y TO stdout (FORMAT CSV, QUOTE '''', DELIMITER '|')
-ERROR:  relation "y" does not exist
-\copy: ERROR:  relation "y" does not exist
+Jackson, Sam|\h
+It is "perfect".|	
+''|
 \copy y TO stdout (FORMAT CSV, FORCE_QUOTE (col2), ESCAPE E'\\')
-ERROR:  relation "y" does not exist
-\copy: ERROR:  relation "y" does not exist
+"Jackson, Sam","\\h"
+"It is \"perfect\".","	"
+"",
 \copy y TO stdout (FORMAT CSV, FORCE_QUOTE *)
-ERROR:  relation "y" does not exist
-\copy: ERROR:  relation "y" does not exist
+"Jackson, Sam",\h
+"It is ""perfect"".",	
+"",
 --test that we read consecutive LFs properly
 CREATE TEMP TABLE testnl (a int, b text, c int);
-ERROR:  PG-XC does not yet support temporary tables
 COPY testnl FROM stdin CSV;
-ERROR:  relation "testnl" does not exist
-1,"a field with two LFs
-
-inside",2
-\.
-invalid command \.
 -- test end of copy marker
 CREATE TEMP TABLE testeoc (a text);
-ERROR:  syntax error at or near "1"
-LINE 1: 1,"a field with two LFs
-        ^
 COPY testeoc FROM stdin CSV;
-ERROR:  relation "testeoc" does not exist
-a\.
-invalid command \.
-\.b
-invalid command \.b
-c\.d
-invalid command \.d
-"\."
-\.
-invalid command \.
 COPY testeoc TO stdout CSV;
-ERROR:  syntax error at or near "a"
-LINE 1: a
-        ^
+a\.
+\.b
+c\.d
+"\."
 DROP TABLE x, y;
 ERROR:  table "x" does not exist
 DROP FUNCTION fn_x_before();

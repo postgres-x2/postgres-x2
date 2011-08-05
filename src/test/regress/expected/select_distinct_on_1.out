@@ -25,6 +25,5 @@ select distinct on (1) floor(random()) as r, f1 from int4_tbl order by 1,2;
  r |     f1      
 ---+-------------
  0 | -2147483647
- 0 |     -123456
-(2 rows)
+(1 row)
 

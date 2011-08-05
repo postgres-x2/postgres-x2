@@ -438,33 +438,18 @@ ERROR:  value for domain dtop violates check constraint "dinter_check"
 select 'xz23'::dtop; -- fail
 ERROR:  value for domain dtop violates check constraint "dtop_check"
 create temp table dtest(f1 dtop);
-ERROR:  PG-XC does not yet support temporary tables
 insert into dtest values('x123');
-ERROR:  relation "dtest" does not exist
-LINE 1: insert into dtest values('x123');
-                    ^
 insert into dtest values('x1234'); -- fail, implicit coercion
-ERROR:  relation "dtest" does not exist
-LINE 1: insert into dtest values('x1234');
-                    ^
+ERROR:  value too long for type character varying(4)
 insert into dtest values('y1234'); -- fail, implicit coercion
-ERROR:  relation "dtest" does not exist
-LINE 1: insert into dtest values('y1234');
-                    ^
+ERROR:  value too long for type character varying(4)
 insert into dtest values('y123'); -- fail
-ERROR:  relation "dtest" does not exist
-LINE 1: insert into dtest values('y123');
-                    ^
+ERROR:  value for domain dtop violates check constraint "dinter_check"
 insert into dtest values('yz23'); -- fail
-ERROR:  relation "dtest" does not exist
-LINE 1: insert into dtest values('yz23');
-                    ^
+ERROR:  value for domain dtop violates check constraint "dinter_check"
 insert into dtest values('xz23'); -- fail
-ERROR:  relation "dtest" does not exist
-LINE 1: insert into dtest values('xz23');
-                    ^
+ERROR:  value for domain dtop violates check constraint "dtop_check"
 drop table dtest;
-ERROR:  table "dtest" does not exist
 drop domain vchar4 cascade;
 NOTICE:  drop cascades to 2 other objects
 DETAIL:  drop cascades to type dinter
@@ -636,27 +621,19 @@ select array[1,2]::orderedpair;
 select array[2,1]::orderedpair;  -- fail
 ERROR:  value for domain orderedpair violates check constraint "orderedpair_check"
 create temp table op (f1 orderedpair);
-ERROR:  PG-XC does not yet support temporary tables
 insert into op values (array[1,2]);
-ERROR:  relation "op" does not exist
-LINE 1: insert into op values (array[1,2]);
-                    ^
 insert into op values (array[2,1]);  -- fail
-ERROR:  relation "op" does not exist
-LINE 1: insert into op values (array[2,1]);
-                    ^
+ERROR:  value for domain orderedpair violates check constraint "orderedpair_check"
 update op set f1[2] = 3;
-ERROR:  relation "op" does not exist
-LINE 1: update op set f1[2] = 3;
-               ^
+ERROR:  syntax error at or near ":="
 update op set f1[2] = 0;  -- fail
-ERROR:  relation "op" does not exist
-LINE 1: update op set f1[2] = 0;
-               ^
+ERROR:  syntax error at or near ":="
 select * from op;
-ERROR:  relation "op" does not exist
-LINE 1: select * from op;
-                      ^
+  f1   
+-------
+ {1,2}
+(1 row)
+
 create or replace function array_elem_check(int) returns int as $$
 declare
   x orderedpair := '{1,2}';

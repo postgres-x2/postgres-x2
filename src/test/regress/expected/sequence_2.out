@@ -153,7 +153,7 @@ ERROR:  Postgres-XC does not support SERIAL yet
 DETAIL:  The feature is not currently supported
 -- Both drops should fail, but with different error messages:
 DROP SEQUENCE t1_f1_seq;
-ERROR:  relation "t1_f1_seq" does not exist
+ERROR:  sequence "t1_f1_seq" does not exist
 DROP SEQUENCE myseq2;
 -- This however will work:
 DROP SEQUENCE myseq3;
@@ -161,10 +161,10 @@ DROP TABLE t1;
 ERROR:  table "t1" does not exist
 -- Fails because no longer existent:
 DROP SEQUENCE t1_f1_seq;
-ERROR:  relation "t1_f1_seq" does not exist
+ERROR:  sequence "t1_f1_seq" does not exist
 -- Now OK:
 DROP SEQUENCE myseq2;
-ERROR:  relation "myseq2" does not exist
+ERROR:  sequence "myseq2" does not exist
 --
 -- Alter sequence
 --

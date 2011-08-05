@@ -194,7 +194,7 @@ SELECT * FROM clustertest ORDER BY 1;
 create temp table clstr_temp (col1 int primary key, col2 text);
 insert into clstr_temp values (2, 'two'), (1, 'one');
 cluster clstr_temp using clstr_temp_pkey;
-select * from clstr_temp;
+select * from clstr_temp order by 1;
 drop table clstr_temp;
 
 -- clean up

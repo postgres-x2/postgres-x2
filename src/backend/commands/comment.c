@@ -4,7 +4,8 @@
  *
  * PostgreSQL object comments utility code.
  *
- * Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
  *
  * IDENTIFICATION
  *	  src/backend/commands/comment.c
@@ -460,3 +461,42 @@ GetComment(Oid oid, Oid classoid, int32 subid)
 
 	return comment;
 }
+
+
+#ifdef PGXC
+/*
+ * GetCommentObjectId
+ *
+ * Return Object ID of object commented
+ * Note: This function uses portions of the code of CommentObject,
+ * even if this code is duplicated this is done like this to facilitate
+ * merges with PostgreSQL head.
+ */
+Oid
+GetCommentObjectId(CommentStmt *stmt)
+{
+	ObjectAddress address;
+	Relation	relation;
+
+	if (stmt->objtype == OBJECT_DATABASE && list_length(stmt->objname) == 1)
+	{
+		char	   *database = strVal(linitial(stmt->objname));
+
+		if (!OidIsValid(get_database_oid(database, true)))
+		{
+			ereport(WARNING,
+					(errcode(ERRCODE_UNDEFINED_DATABASE),
+					 errmsg("database \"%s\" does not exist", database)));
+			return InvalidOid;
+		}
+	}
+
+	address = get_object_address(stmt->objtype, stmt->objname, stmt->objargs,
+								 &relation, ShareUpdateExclusiveLock);
+
+	if (relation != NULL)
+		relation_close(relation, NoLock);
+
+	return address.objectId;
+}
+#endif

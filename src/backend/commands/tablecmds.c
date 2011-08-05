@@ -89,6 +89,7 @@
 #include "pgxc/pgxc.h"
 #include "access/gtm.h"
 #include "commands/sequence.h"
+#include "pgxc/execRemote.h"
 #endif
 
 /*
@@ -439,20 +440,11 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId)
 	 * code.  This is needed because calling code might not expect untrusted
 	 * tables to appear in pg_temp at the front of its search path.
 	 */
-#ifdef PGXC
-	if (stmt->relation->relpersistence == RELPERSISTENCE_TEMP &&
-		IsUnderPostmaster &&
-		relkind != RELKIND_SEQUENCE)
-		ereport(ERROR,
-				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-				 errmsg("PG-XC does not yet support temporary tables")));
-#else
 	if (stmt->relation->relpersistence == RELPERSISTENCE_TEMP
 		&& InSecurityRestrictedOperation())
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 errmsg("cannot create temporary table within security-restricted operation")));
-#endif
 
 	/*
 	 * Look up the namespace in which we are supposed to create the relation,
@@ -9462,3 +9454,110 @@ AtEOSubXact_on_commit_actions(bool isCommit, SubTransactionId mySubid,
 		}
 	}
 }
+
+#ifdef PGXC
+/*
+ * IsTempTable
+ *
+ * Check if given table Oid is temporary.
+ */
+bool
+IsTempTable(Oid relid)
+{
+	Relation	rel;
+	bool		res;
+	/*
+	 * PGXCTODO: Is it correct to open without locks?
+	 * we just check if this table is temporary though...
+	 */
+	rel = relation_open(relid, NoLock);
+	res = rel->rd_rel->relpersistence == RELPERSISTENCE_TEMP;
+	relation_close(rel, NoLock);
+	return res;
+}
+
+/*
+ * IsIndexUsingTemp
+ *
+ * Check if given index relation uses temporary tables.
+ */
+bool
+IsIndexUsingTempTable(Oid relid)
+{
+	bool res = false;
+	HeapTuple   tuple;
+	Oid parent_id = InvalidOid;
+
+	tuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(relid));
+	if (HeapTupleIsValid(tuple))
+	{
+		Form_pg_index index = (Form_pg_index) GETSTRUCT(tuple);
+		parent_id = index->indrelid;
+
+		/* Release system cache BEFORE looking at the parent table */
+		ReleaseSysCache(tuple);
+
+		res = IsTempTable(parent_id);
+	}
+	else
+		res = false; /* Default case */
+
+	return res;
+}
+
+/*
+ * IsOnCommitDeleteRows
+ *
+ * Check if there are any on-commit actions activated
+ * This is possible in the case of ON COMMIT DELETE ROWS for example.
+ * In this case 2PC cannot be used.
+ */
+bool
+IsOnCommitActions(void)
+{
+	return list_length(on_commits) > 0;
+}
+
+/*
+ * DropTableThrowErrorExternal
+ *
+ * Error interface for DROP when looking for execution node type.
+ */
+void
+DropTableThrowErrorExternal(RangeVar *relation, ObjectType removeType, bool missing_ok)
+{
+	char relkind;
+
+	/* Determine required relkind */
+	switch (removeType)
+	{
+		case OBJECT_TABLE:
+			relkind = RELKIND_RELATION;
+			break;
+
+		case OBJECT_INDEX:
+			relkind = RELKIND_INDEX;
+			break;
+
+		case OBJECT_SEQUENCE:
+			relkind = RELKIND_SEQUENCE;
+			break;
+
+		case OBJECT_VIEW:
+			relkind = RELKIND_VIEW;
+			break;
+
+		case OBJECT_FOREIGN_TABLE:
+			relkind = RELKIND_FOREIGN_TABLE;
+			break;
+
+		default:
+			elog(ERROR, "unrecognized drop object type: %d",
+				 (int) removeType);
+			relkind = 0;		/* keep compiler quiet */
+			break;
+	}
+
+	DropErrorMsgNonExistent(relation->relname, relkind, missing_ok);
+}
+#endif

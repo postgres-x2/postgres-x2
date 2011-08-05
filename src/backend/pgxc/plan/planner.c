@@ -46,6 +46,7 @@
 #include "utils/syscache.h"
 #include "utils/numeric.h"
 #include "access/hash.h"
+#include "commands/tablecmds.h"
 #include "utils/timestamp.h"
 #include "utils/date.h"
 
@@ -171,7 +172,8 @@ static int handle_limit_offset(RemoteQuery *query_step, Query *query, PlannedStm
 static void InitXCWalkerContext(XCWalkerContext *context);
 static RemoteQuery *makeRemoteQuery(void);
 static void validate_part_col_updatable(const Query *query);
-
+static bool contains_temp_tables(List *rtable);
+static bool contains_only_pg_catalog(List *rtable);
 
 /*
  * Find position of specified substring in the string
@@ -1403,7 +1405,7 @@ examine_conditions_fromlist(Node *treenode, XCWalkerContext *context)
  * only contain pg_catalog entries.
  */
 static bool
-contains_only_pg_catalog (List *rtable)
+contains_only_pg_catalog(List *rtable)
 {
 	ListCell *item;
 
@@ -1416,13 +1418,39 @@ contains_only_pg_catalog (List *rtable)
 		{
 			if (get_rel_namespace(rte->relid) != PG_CATALOG_NAMESPACE)
 				return false;
-		} else if (rte->rtekind == RTE_SUBQUERY &&
-				!contains_only_pg_catalog (rte->subquery->rtable))
+		}
+		else if (rte->rtekind == RTE_SUBQUERY &&
+				 !contains_only_pg_catalog(rte->subquery->rtable))
 			return false;
 	}
 	return true;
 }
 
+/*
+ * Returns true if at least one temporary table is in use
+ * in query (and its subqueries)
+ */
+static bool
+contains_temp_tables(List *rtable)
+{
+	ListCell *item;
+
+	foreach(item, rtable)
+	{
+		RangeTblEntry *rte = (RangeTblEntry *) lfirst(item);
+
+		if (rte->rtekind == RTE_RELATION)
+		{
+			if (IsTempTable(rte->relid))
+				return true;
+		}
+		else if (rte->rtekind == RTE_SUBQUERY &&
+				 contains_temp_tables(rte->subquery->rtable))
+			return true;
+	}
+
+	return false;
+}
 
 /*
  * get_plan_nodes - determine the nodes to execute the command on.
@@ -1934,6 +1962,7 @@ makeRemoteQuery(void)
 	result->paramval_data = NULL;
 	result->paramval_len = 0;
 	result->exec_direct_type = EXEC_DIRECT_NONE;
+	result->is_temp = false;
 
 	result->relname = NULL;
 	result->remotejoin = false;
@@ -2737,11 +2766,15 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	if (query->commandType != CMD_SELECT)
 		result->resultRelations = list_make1_int(query->resultRelation);
 
-	if (contains_only_pg_catalog (query->rtable))
+	if (contains_only_pg_catalog(query->rtable))
 	{
 		result = standard_planner(query, cursorOptions, boundParams);
 		return result;
 	}
+
+	/* Check if temporary tables are in use in target list */
+	if (contains_temp_tables(query->rtable))
+		query_step->is_temp = true;
 
 	if (query_step->exec_nodes == NULL)
 		get_plan_nodes_command(query_step, root);
@@ -3184,7 +3217,7 @@ GetHashExecNodes(RelationLocInfo *rel_loc_info, ExecNodes **exec_nodes, const Ex
  * duplicated queries on Datanodes.
  */
 List *
-AddRemoteQueryNode(List *stmts, const char *queryString, RemoteQueryExecType remoteExecType)
+AddRemoteQueryNode(List *stmts, const char *queryString, RemoteQueryExecType remoteExecType, bool is_temp)
 {
 	List *result = stmts;
 
@@ -3199,6 +3232,7 @@ AddRemoteQueryNode(List *stmts, const char *queryString, RemoteQueryExecType rem
 		step->combine_type = COMBINE_TYPE_SAME;
 		step->sql_statement = queryString;
 		step->exec_type = remoteExecType;
+		step->is_temp = is_temp;
 		result = lappend(result, step);
 	}
 
