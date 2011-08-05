@@ -6,14 +6,15 @@ CREATE TEMP TABLE articles (
     body text UNIQUE,
     created date
 );
-ERROR:  PG-XC does not yet support temporary tables
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "articles_pkey" for table "articles"
+ERROR:  Unique index of partitioned table must contain the hash/modulo distribution column.
 CREATE TEMP TABLE articles_in_category (
     article_id int,
     category_id int,
     changed date,
     PRIMARY KEY (article_id, category_id)
 );
-ERROR:  PG-XC does not yet support temporary tables
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "articles_in_category_pkey" for table "articles_in_category"
 -- test functional dependencies based on primary keys/unique constraints
 -- base tables
 -- group by primary key (OK)
@@ -96,32 +97,29 @@ LINE 2: FROM articles AS a JOIN articles_in_category AS aic ON a.id ...
              ^
 -- example from documentation
 CREATE TEMP TABLE products (product_id int, name text, price numeric);
-ERROR:  PG-XC does not yet support temporary tables
 CREATE TEMP TABLE sales (product_id int, units int);
-ERROR:  PG-XC does not yet support temporary tables
 -- OK
 SELECT product_id, p.name, (sum(s.units) * p.price) AS sales
     FROM products p LEFT JOIN sales s USING (product_id)
     GROUP BY product_id, p.name, p.price;
-ERROR:  relation "products" does not exist
-LINE 2:     FROM products p LEFT JOIN sales s USING (product_id)
-                 ^
+ product_id | name | sales 
+------------+------+-------
+(0 rows)
+
 -- fail
 SELECT product_id, p.name, (sum(s.units) * p.price) AS sales
     FROM products p LEFT JOIN sales s USING (product_id)
     GROUP BY product_id;
-ERROR:  relation "products" does not exist
-LINE 2:     FROM products p LEFT JOIN sales s USING (product_id)
-                 ^
+ERROR:  column "p.name" must appear in the GROUP BY clause or be used in an aggregate function
+LINE 1: SELECT product_id, p.name, (sum(s.units) * p.price) AS sales
+                           ^
 ALTER TABLE products ADD PRIMARY KEY (product_id);
-ERROR:  relation "products" does not exist
+NOTICE:  ALTER TABLE / ADD PRIMARY KEY will create implicit index "products_pkey" for table "products"
 -- OK now
 SELECT product_id, p.name, (sum(s.units) * p.price) AS sales
     FROM products p LEFT JOIN sales s USING (product_id)
     GROUP BY product_id;
-ERROR:  relation "products" does not exist
-LINE 2:     FROM products p LEFT JOIN sales s USING (product_id)
-                 ^
+ERROR:  column "group_2.name_1_2_1" must appear in the GROUP BY clause or be used in an aggregate function
 -- Drupal example, http://drupal.org/node/555530
 CREATE TEMP TABLE node (
     nid SERIAL,
@@ -144,7 +142,8 @@ CREATE TEMP TABLE users (
     PRIMARY KEY (uid),
     UNIQUE (name)
 );
-ERROR:  PG-XC does not yet support temporary tables
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "users_pkey" for table "users"
+ERROR:  Unique index of partitioned table must contain the hash/modulo distribution column.
 -- OK
 SELECT u.uid, u.name FROM node n
 INNER JOIN users u ON u.uid = n.uid
@@ -195,7 +194,6 @@ LINE 3: FROM articles AS a JOIN articles_in_category AS aic ON a.id ...
 ALTER TABLE articles DROP CONSTRAINT articles_pkey RESTRICT; -- fail
 ERROR:  relation "articles" does not exist
 ALTER TABLE articles_in_category DROP CONSTRAINT articles_in_category_pkey RESTRICT; --fail
-ERROR:  relation "articles_in_category" does not exist
 DROP VIEW fdv2;
 ERROR:  view "fdv2" does not exist
 -- nested queries

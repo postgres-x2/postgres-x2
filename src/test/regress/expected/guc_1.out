@@ -416,11 +416,11 @@ SELECT '2006-08-13 12:34:56'::timestamptz;
 -- Test DISCARD TEMP
 --
 CREATE TEMP TABLE reset_test ( data text ) ON COMMIT DELETE ROWS;
-ERROR:  PG-XC does not yet support temporary tables
 SELECT relname FROM pg_class WHERE relname = 'reset_test';
- relname 
----------
-(0 rows)
+  relname   
+------------
+ reset_test
+(1 row)
 
 DISCARD TEMP;
 SELECT relname FROM pg_class WHERE relname = 'reset_test';
@@ -437,7 +437,6 @@ PREPARE foo AS SELECT 1;
 LISTEN foo_event;
 SET vacuum_cost_delay = 13;
 CREATE TEMP TABLE tmp_foo (data text) ON COMMIT DELETE ROWS;
-ERROR:  PG-XC does not yet support temporary tables
 CREATE ROLE temp_reset_user;
 SET SESSION AUTHORIZATION temp_reset_user;
 -- look changes
@@ -468,7 +467,8 @@ SHOW vacuum_cost_delay;
 SELECT relname from pg_class where relname = 'tmp_foo';
  relname 
 ---------
-(0 rows)
+ tmp_foo
+(1 row)
 
 SELECT current_user = 'temp_reset_user';
  ?column? 

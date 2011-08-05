@@ -23,6 +23,28 @@
 
 #define MAX_IDLE_TIME 60
 
+/*
+ * List of flags related to pooler connection clean up when disconnecting
+ * a session or relaeasing handles.
+ * When Local SET commands (POOL_CMD_LOCAL_SET) are used, local parameter
+ * string is cleaned by the node commit itself.
+ * When global SET commands (POOL_CMD_GLOBAL_SET) are used, "RESET ALL"
+ * command is sent down to activated nodes to at session end. At the end
+ * of a transaction, connections using global SET commands are not sent
+ * back to pool.
+ * When temporary object commands are used (POOL_CMD_TEMP), "DISCARD ALL"
+ * query is sent down to nodes whose connection is activated at the end of
+ * a session.
+ * At the end of a transaction, a session using either temporary objects
+ * or global session parameters has its connections not sent back to pool.
+ */
+typedef enum
+{
+	POOL_CMD_TEMP, /* Temporary object flag */
+	POOL_CMD_LOCAL_SET, /* Local SET flag */
+	POOL_CMD_GLOBAL_SET /* Global SET flag */
+} PoolCommandType;
+
 /* TODO move? */
 typedef struct
 {
@@ -73,6 +95,7 @@ typedef struct
 	PGXCNodePoolSlot **coord_connections; /* one for each Coordinator */
 	char	   *session_params;
 	char	   *local_params;
+	bool		is_temp; /* Temporary objects used for this pool session? */
 } PoolAgent;
 
 /* Handle to the pool manager (Session's side) */
@@ -136,7 +159,7 @@ extern void PoolManagerConnect(PoolHandle *handle, const char *database, const c
  * and stored in pooler agent to be replayed when new connections
  * are requested.
  */
-extern int PoolManagerSetCommand(bool is_local, const char *set_command);
+extern int PoolManagerSetCommand(PoolCommandType command_type, const char *set_command);
 
 /* Get pooled connections */
 extern int *PoolManagerGetConnections(List *datanodelist, List *coordlist);

@@ -43,7 +43,6 @@ SELECT * FROM aggtest order by a, b;
 -- Read-only tests
 CREATE TABLE writetest (a int);
 CREATE TEMPORARY TABLE temptest (a int);
-ERROR:  PG-XC does not yet support temporary tables
 BEGIN;
 SET TRANSACTION ISOLATION LEVEL SERIALIZABLE, READ ONLY, DEFERRABLE; -- ok
 SELECT * FROM writetest; -- ok
@@ -123,21 +122,17 @@ SELECT * FROM writetest; -- ok
 (0 rows)
 
 DELETE FROM temptest; -- ok
-ERROR:  relation "temptest" does not exist
-LINE 1: DELETE FROM temptest;
-                    ^
 UPDATE temptest SET a = 0 FROM writetest WHERE temptest.a = 1 AND writetest.a = temptest.a; -- ok
-ERROR:  relation "temptest" does not exist
-LINE 1: UPDATE temptest SET a = 0 FROM writetest WHERE temptest.a = ...
-               ^
+ERROR:  Partition column can't be updated in current version
 PREPARE test AS UPDATE writetest SET a = 0; -- ok
 ERROR:  Partition column can't be updated in current version
 EXECUTE test; -- fail
 ERROR:  prepared statement "test" does not exist
 SELECT * FROM writetest, temptest; -- ok
-ERROR:  relation "temptest" does not exist
-LINE 1: SELECT * FROM writetest, temptest;
-                                 ^
+ a | a 
+---+---
+(0 rows)
+
 CREATE TABLE test AS SELECT * FROM writetest; -- fail
 ERROR:  INTO clause not yet supported
 START TRANSACTION READ WRITE;

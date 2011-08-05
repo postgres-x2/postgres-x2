@@ -344,136 +344,205 @@ CREATE AGGREGATE mysum2(anyelement,anyelement) (SFUNC = sum3,
   STYPE = anyelement, INITCOND = '0');
 -- create test data for polymorphic aggregates
 create temp table t(f1 int, f2 int[], f3 text);
-ERROR:  PG-XC does not yet support temporary tables
 insert into t values(1,array[1],'a');
-ERROR:  relation "t" does not exist
-LINE 1: insert into t values(1,array[1],'a');
-                    ^
 insert into t values(1,array[11],'b');
-ERROR:  relation "t" does not exist
-LINE 1: insert into t values(1,array[11],'b');
-                    ^
 insert into t values(1,array[111],'c');
-ERROR:  relation "t" does not exist
-LINE 1: insert into t values(1,array[111],'c');
-                    ^
 insert into t values(2,array[2],'a');
-ERROR:  relation "t" does not exist
-LINE 1: insert into t values(2,array[2],'a');
-                    ^
 insert into t values(2,array[22],'b');
-ERROR:  relation "t" does not exist
-LINE 1: insert into t values(2,array[22],'b');
-                    ^
 insert into t values(2,array[222],'c');
-ERROR:  relation "t" does not exist
-LINE 1: insert into t values(2,array[222],'c');
-                    ^
 insert into t values(3,array[3],'a');
-ERROR:  relation "t" does not exist
-LINE 1: insert into t values(3,array[3],'a');
-                    ^
 insert into t values(3,array[3],'b');
-ERROR:  relation "t" does not exist
-LINE 1: insert into t values(3,array[3],'b');
-                    ^
 -- test the successfully created polymorphic aggregates
 select f3, myaggp01a(*) from t group by f3 order by f3;
-ERROR:  relation "t" does not exist
-LINE 1: select f3, myaggp01a(*) from t group by f3 order by f3;
-                                     ^
+ f3 | myaggp01a 
+----+-----------
+ a  | {}
+ b  | {}
+ c  | {}
+(3 rows)
+
 select f3, myaggp03a(*) from t group by f3 order by f3;
-ERROR:  relation "t" does not exist
-LINE 1: select f3, myaggp03a(*) from t group by f3 order by f3;
-                                     ^
+ f3 | myaggp03a 
+----+-----------
+ a  | {}
+ b  | {}
+ c  | {}
+(3 rows)
+
 select f3, myaggp03b(*) from t group by f3 order by f3;
-ERROR:  relation "t" does not exist
-LINE 1: select f3, myaggp03b(*) from t group by f3 order by f3;
-                                     ^
+ f3 | myaggp03b 
+----+-----------
+ a  | {}
+ b  | {}
+ c  | {}
+(3 rows)
+
 select f3, myaggp05a(f1) from t group by f3 order by f3;
-ERROR:  relation "t" does not exist
-LINE 1: select f3, myaggp05a(f1) from t group by f3 order by f3;
-                                      ^
+ f3 | myaggp05a 
+----+-----------
+ a  | {3,2,1}
+ b  | {3,2,1}
+ c  | {1,2}
+(3 rows)
+
 select f3, myaggp06a(f1) from t group by f3 order by f3;
-ERROR:  relation "t" does not exist
-LINE 1: select f3, myaggp06a(f1) from t group by f3 order by f3;
-                                      ^
+ f3 | myaggp06a 
+----+-----------
+ a  | {}
+ b  | {}
+ c  | {}
+(3 rows)
+
 select f3, myaggp08a(f1) from t group by f3 order by f3;
-ERROR:  relation "t" does not exist
-LINE 1: select f3, myaggp08a(f1) from t group by f3 order by f3;
-                                      ^
+ f3 | myaggp08a 
+----+-----------
+ a  | {}
+ b  | {}
+ c  | {}
+(3 rows)
+
 select f3, myaggp09a(f1) from t group by f3 order by f3;
-ERROR:  relation "t" does not exist
-LINE 1: select f3, myaggp09a(f1) from t group by f3 order by f3;
-                                      ^
+ f3 | myaggp09a 
+----+-----------
+ a  | {}
+ b  | {}
+ c  | {}
+(3 rows)
+
 select f3, myaggp09b(f1) from t group by f3 order by f3;
-ERROR:  relation "t" does not exist
-LINE 1: select f3, myaggp09b(f1) from t group by f3 order by f3;
-                                      ^
+ f3 | myaggp09b 
+----+-----------
+ a  | {}
+ b  | {}
+ c  | {}
+(3 rows)
+
 select f3, myaggp10a(f1) from t group by f3 order by f3;
-ERROR:  relation "t" does not exist
-LINE 1: select f3, myaggp10a(f1) from t group by f3 order by f3;
-                                      ^
+ f3 | myaggp10a 
+----+-----------
+ a  | {3,2,1}
+ b  | {3,2,1}
+ c  | {1,2}
+(3 rows)
+
 select f3, myaggp10b(f1) from t group by f3 order by f3;
-ERROR:  relation "t" does not exist
-LINE 1: select f3, myaggp10b(f1) from t group by f3 order by f3;
-                                      ^
+ f3 | myaggp10b 
+----+-----------
+ a  | {3,2,1}
+ b  | {3,2,1}
+ c  | {1,2}
+(3 rows)
+
 select f3, myaggp20a(f1) from t group by f3 order by f3;
-ERROR:  relation "t" does not exist
-LINE 1: select f3, myaggp20a(f1) from t group by f3 order by f3;
-                                      ^
+ f3 | myaggp20a 
+----+-----------
+ a  | {3,2,1}
+ b  | {3,2,1}
+ c  | {1,2}
+(3 rows)
+
 select f3, myaggp20b(f1) from t group by f3 order by f3;
-ERROR:  relation "t" does not exist
-LINE 1: select f3, myaggp20b(f1) from t group by f3 order by f3;
-                                      ^
+ f3 | myaggp20b 
+----+-----------
+ a  | {3,2,1}
+ b  | {3,2,1}
+ c  | {1,2}
+(3 rows)
+
 select f3, myaggn01a(*) from t group by f3 order by f3;
-ERROR:  relation "t" does not exist
-LINE 1: select f3, myaggn01a(*) from t group by f3 order by f3;
-                                     ^
+ f3 | myaggn01a 
+----+-----------
+ a  | {}
+ b  | {}
+ c  | {}
+(3 rows)
+
 select f3, myaggn01b(*) from t group by f3 order by f3;
-ERROR:  relation "t" does not exist
-LINE 1: select f3, myaggn01b(*) from t group by f3 order by f3;
-                                     ^
+ f3 | myaggn01b 
+----+-----------
+ a  | {}
+ b  | {}
+ c  | {}
+(3 rows)
+
 select f3, myaggn03a(*) from t group by f3 order by f3;
-ERROR:  relation "t" does not exist
-LINE 1: select f3, myaggn03a(*) from t group by f3 order by f3;
-                                     ^
+ f3 | myaggn03a 
+----+-----------
+ a  | {}
+ b  | {}
+ c  | {}
+(3 rows)
+
 select f3, myaggn05a(f1) from t group by f3 order by f3;
-ERROR:  relation "t" does not exist
-LINE 1: select f3, myaggn05a(f1) from t group by f3 order by f3;
-                                      ^
+ f3 | myaggn05a 
+----+-----------
+ a  | {3,2,1}
+ b  | {3,2,1}
+ c  | {1,2}
+(3 rows)
+
 select f3, myaggn05b(f1) from t group by f3 order by f3;
-ERROR:  relation "t" does not exist
-LINE 1: select f3, myaggn05b(f1) from t group by f3 order by f3;
-                                      ^
+ f3 | myaggn05b 
+----+-----------
+ a  | {3,2,1}
+ b  | {3,2,1}
+ c  | {1,2}
+(3 rows)
+
 select f3, myaggn06a(f1) from t group by f3 order by f3;
-ERROR:  relation "t" does not exist
-LINE 1: select f3, myaggn06a(f1) from t group by f3 order by f3;
-                                      ^
+ f3 | myaggn06a 
+----+-----------
+ a  | {}
+ b  | {}
+ c  | {}
+(3 rows)
+
 select f3, myaggn06b(f1) from t group by f3 order by f3;
-ERROR:  relation "t" does not exist
-LINE 1: select f3, myaggn06b(f1) from t group by f3 order by f3;
-                                      ^
+ f3 | myaggn06b 
+----+-----------
+ a  | {}
+ b  | {}
+ c  | {}
+(3 rows)
+
 select f3, myaggn08a(f1) from t group by f3 order by f3;
-ERROR:  relation "t" does not exist
-LINE 1: select f3, myaggn08a(f1) from t group by f3 order by f3;
-                                      ^
+ f3 | myaggn08a 
+----+-----------
+ a  | {}
+ b  | {}
+ c  | {}
+(3 rows)
+
 select f3, myaggn08b(f1) from t group by f3 order by f3;
-ERROR:  relation "t" does not exist
-LINE 1: select f3, myaggn08b(f1) from t group by f3 order by f3;
-                                      ^
+ f3 | myaggn08b 
+----+-----------
+ a  | {}
+ b  | {}
+ c  | {}
+(3 rows)
+
 select f3, myaggn09a(f1) from t group by f3 order by f3;
-ERROR:  relation "t" does not exist
-LINE 1: select f3, myaggn09a(f1) from t group by f3 order by f3;
-                                      ^
+ f3 | myaggn09a 
+----+-----------
+ a  | {}
+ b  | {}
+ c  | {}
+(3 rows)
+
 select f3, myaggn10a(f1) from t group by f3 order by f3;
-ERROR:  relation "t" does not exist
-LINE 1: select f3, myaggn10a(f1) from t group by f3 order by f3;
-                                      ^
+ f3 | myaggn10a 
+----+-----------
+ a  | {2,1,3}
+ b  | {3,1,2}
+ c  | {2,1}
+(3 rows)
+
 select mysum2(f1, f1 + 1) from t;
-ERROR:  relation "t" does not exist
-LINE 1: select mysum2(f1, f1 + 1) from t;
-                                       ^
+ mysum2 
+--------
+     38
+(1 row)
+
 -- test inlining of polymorphic SQL functions
 create function bleat(int) returns int as $$
 begin

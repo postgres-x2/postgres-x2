@@ -162,5 +162,7 @@ extern int ParamListToDataRow(ParamListInfo params, char** result);
 
 extern void ExecCloseRemoteStatement(const char *stmt_name, List *nodelist);
 
+extern void ExecSetTempObjectIncluded(void);
+
 extern int primary_data_node;
 #endif

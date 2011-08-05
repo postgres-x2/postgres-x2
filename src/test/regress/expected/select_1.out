@@ -527,91 +527,218 @@ ORDER BY column1,column2;
 -- Test ORDER BY options
 --
 CREATE TEMP TABLE foo (f1 int);
-ERROR:  PG-XC does not yet support temporary tables
 INSERT INTO foo VALUES (42),(3),(10),(7),(null),(null),(1);
-ERROR:  relation "foo" does not exist
-LINE 1: INSERT INTO foo VALUES (42),(3),(10),(7),(null),(null),(1);
-                    ^
 SELECT * FROM foo ORDER BY f1;
-ERROR:  relation "foo" does not exist
-LINE 1: SELECT * FROM foo ORDER BY f1;
-                      ^
+ f1 
+----
+  1
+  3
+  7
+ 10
+ 42
+   
+   
+(7 rows)
+
 SELECT * FROM foo ORDER BY f1 ASC;	-- same thing
-ERROR:  relation "foo" does not exist
-LINE 1: SELECT * FROM foo ORDER BY f1 ASC;
-                      ^
+ f1 
+----
+  1
+  3
+  7
+ 10
+ 42
+   
+   
+(7 rows)
+
 SELECT * FROM foo ORDER BY f1 NULLS FIRST;
-ERROR:  relation "foo" does not exist
-LINE 1: SELECT * FROM foo ORDER BY f1 NULLS FIRST;
-                      ^
+ f1 
+----
+   
+   
+  1
+  3
+  7
+ 10
+ 42
+(7 rows)
+
 SELECT * FROM foo ORDER BY f1 DESC;
-ERROR:  relation "foo" does not exist
-LINE 1: SELECT * FROM foo ORDER BY f1 DESC;
-                      ^
+ f1 
+----
+   
+   
+ 42
+ 10
+  7
+  3
+  1
+(7 rows)
+
 SELECT * FROM foo ORDER BY f1 DESC NULLS LAST;
-ERROR:  relation "foo" does not exist
-LINE 1: SELECT * FROM foo ORDER BY f1 DESC NULLS LAST;
-                      ^
+ f1 
+----
+ 42
+ 10
+  7
+  3
+  1
+   
+   
+(7 rows)
+
 -- check if indexscans do the right things
 CREATE INDEX fooi ON foo (f1);
-ERROR:  relation "foo" does not exist
 SET enable_sort = false;
 SELECT * FROM foo ORDER BY f1;
-ERROR:  relation "foo" does not exist
-LINE 1: SELECT * FROM foo ORDER BY f1;
-                      ^
+ f1 
+----
+  1
+  3
+  7
+ 10
+ 42
+   
+   
+(7 rows)
+
 SELECT * FROM foo ORDER BY f1 NULLS FIRST;
-ERROR:  relation "foo" does not exist
-LINE 1: SELECT * FROM foo ORDER BY f1 NULLS FIRST;
-                      ^
+ f1 
+----
+   
+   
+  1
+  3
+  7
+ 10
+ 42
+(7 rows)
+
 SELECT * FROM foo ORDER BY f1 DESC;
-ERROR:  relation "foo" does not exist
-LINE 1: SELECT * FROM foo ORDER BY f1 DESC;
-                      ^
+ f1 
+----
+   
+   
+ 42
+ 10
+  7
+  3
+  1
+(7 rows)
+
 SELECT * FROM foo ORDER BY f1 DESC NULLS LAST;
-ERROR:  relation "foo" does not exist
-LINE 1: SELECT * FROM foo ORDER BY f1 DESC NULLS LAST;
-                      ^
+ f1 
+----
+ 42
+ 10
+  7
+  3
+  1
+   
+   
+(7 rows)
+
 DROP INDEX fooi;
-ERROR:  index "fooi" does not exist
 CREATE INDEX fooi ON foo (f1 DESC);
-ERROR:  relation "foo" does not exist
 SELECT * FROM foo ORDER BY f1;
-ERROR:  relation "foo" does not exist
-LINE 1: SELECT * FROM foo ORDER BY f1;
-                      ^
+ f1 
+----
+  1
+  3
+  7
+ 10
+ 42
+   
+   
+(7 rows)
+
 SELECT * FROM foo ORDER BY f1 NULLS FIRST;
-ERROR:  relation "foo" does not exist
-LINE 1: SELECT * FROM foo ORDER BY f1 NULLS FIRST;
-                      ^
+ f1 
+----
+   
+   
+  1
+  3
+  7
+ 10
+ 42
+(7 rows)
+
 SELECT * FROM foo ORDER BY f1 DESC;
-ERROR:  relation "foo" does not exist
-LINE 1: SELECT * FROM foo ORDER BY f1 DESC;
-                      ^
+ f1 
+----
+   
+   
+ 42
+ 10
+  7
+  3
+  1
+(7 rows)
+
 SELECT * FROM foo ORDER BY f1 DESC NULLS LAST;
-ERROR:  relation "foo" does not exist
-LINE 1: SELECT * FROM foo ORDER BY f1 DESC NULLS LAST;
-                      ^
+ f1 
+----
+ 42
+ 10
+  7
+  3
+  1
+   
+   
+(7 rows)
+
 DROP INDEX fooi;
-ERROR:  index "fooi" does not exist
 CREATE INDEX fooi ON foo (f1 DESC NULLS LAST);
-ERROR:  relation "foo" does not exist
 SELECT * FROM foo ORDER BY f1;
-ERROR:  relation "foo" does not exist
-LINE 1: SELECT * FROM foo ORDER BY f1;
-                      ^
+ f1 
+----
+  1
+  3
+  7
+ 10
+ 42
+   
+   
+(7 rows)
+
 SELECT * FROM foo ORDER BY f1 NULLS FIRST;
-ERROR:  relation "foo" does not exist
-LINE 1: SELECT * FROM foo ORDER BY f1 NULLS FIRST;
-                      ^
+ f1 
+----
+   
+   
+  1
+  3
+  7
+ 10
+ 42
+(7 rows)
+
 SELECT * FROM foo ORDER BY f1 DESC;
-ERROR:  relation "foo" does not exist
-LINE 1: SELECT * FROM foo ORDER BY f1 DESC;
-                      ^
+ f1 
+----
+   
+   
+ 42
+ 10
+  7
+  3
+  1
+(7 rows)
+
 SELECT * FROM foo ORDER BY f1 DESC NULLS LAST;
-ERROR:  relation "foo" does not exist
-LINE 1: SELECT * FROM foo ORDER BY f1 DESC NULLS LAST;
-                      ^
+ f1 
+----
+ 42
+ 10
+  7
+  3
+  1
+   
+   
+(7 rows)
+
 --
 -- Test some corner cases that have been known to confuse the planner
 --

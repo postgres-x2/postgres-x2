@@ -47,6 +47,7 @@
 #include "catalog/pg_type.h"
 #include "executor/executor.h"
 #include "rewrite/rewriteManip.h"
+#include "commands/tablecmds.h"
 #endif
 #include "utils/lsyscache.h"
 
@@ -2601,8 +2602,15 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	/*
 	 * XXX: should use GENERIC OPTIONS like 'foreign_relname' or something for
 	 * the foreign table name instead of the local name ?
+	 *
+	 * A temporary table does not use namespace as it may not be
+	 * consistent among nodes cluster. Relation name is sufficient.
 	 */
-	appendStringInfo(&sql, "%s.%s %s", nspname_q, relname_q, aliasname_q);
+	if (IsTempTable(rte->relid))
+		appendStringInfo(&sql, "%s %s", relname_q, aliasname_q);
+	else
+		appendStringInfo(&sql, "%s.%s %s", nspname_q, relname_q, aliasname_q);
+
 	pfree(nspname);
 	pfree(relname);
 	if (nspname_q != nspname_q)

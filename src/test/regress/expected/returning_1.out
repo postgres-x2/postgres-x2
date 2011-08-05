@@ -77,7 +77,7 @@ LINE 1: SELECT * FROM foo ORDER BY f1;
                       ^
 -- Check inheritance cases
 CREATE TEMP TABLE foochild (fc int) INHERITS (foo);
-ERROR:  PG-XC does not yet support temporary tables
+ERROR:  relation "foo" does not exist
 INSERT INTO foochild VALUES(123,'child',999,-123);
 ERROR:  relation "foochild" does not exist
 LINE 1: INSERT INTO foochild VALUES(123,'child',999,-123);
@@ -220,19 +220,9 @@ LINE 1: SELECT * FROM voo ORDER BY f1;
                       ^
 -- Try a join case
 CREATE TEMP TABLE joinme (f2j text, other int);
-ERROR:  PG-XC does not yet support temporary tables
 INSERT INTO joinme VALUES('more', 12345);
-ERROR:  relation "joinme" does not exist
-LINE 1: INSERT INTO joinme VALUES('more', 12345);
-                    ^
 INSERT INTO joinme VALUES('zoo2', 54321);
-ERROR:  relation "joinme" does not exist
-LINE 1: INSERT INTO joinme VALUES('zoo2', 54321);
-                    ^
 INSERT INTO joinme VALUES('other', 0);
-ERROR:  relation "joinme" does not exist
-LINE 1: INSERT INTO joinme VALUES('other', 0);
-                    ^
 CREATE TEMP VIEW joinview AS
   SELECT foo.*, other FROM foo JOIN joinme ON (f2 = f2j);
 ERROR:  relation "foo" does not exist

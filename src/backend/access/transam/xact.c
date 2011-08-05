@@ -1962,6 +1962,14 @@ CommitTransaction(bool contact_gtm)
 	char implicitgid[256];
 	TransactionId xid = InvalidTransactionId;
 
+	/*
+	 * Check if there are any On Commit actions and force temporary object flag.
+	 * This is possible in the case of a session using ON COMMIT DELETE ROWS.
+	 * It is essential to do this check *before* calling PGXCNodeIsImplicit2PC.
+	 */
+	if (IsOnCommitActions())
+		ExecSetTempObjectIncluded();
+
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && contact_gtm)
 		PreparePGXCNodes = PGXCNodeIsImplicit2PC(&PrepareLocalCoord);
 
@@ -2329,6 +2337,15 @@ PrepareTransaction(void)
 	TimestampTz prepared_at;
 
 	ShowTransactionState("PrepareTransaction");
+
+#ifdef PGXC
+	/*
+	 * Check if there are any On Commit actions and force temporary object flag.
+	 * This is possible in the case of a session using ON COMMIT DELETE ROWS.
+	 */
+	if (IsOnCommitActions())
+		ExecSetTempObjectIncluded();
+#endif
 
 	/*
 	 * check the current transaction state

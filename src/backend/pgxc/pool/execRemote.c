@@ -52,6 +52,7 @@
 static bool autocommit = true;
 static bool is_ddl = false;
 static bool implicit_force_autocommit = false;
+static bool temp_object_included = false;
 static PGXCNodeHandle **write_node_list = NULL;
 static int	write_node_count = 0;
 static char *begin_string = NULL;
@@ -1536,10 +1537,26 @@ finish:
 
 	if (res != 0)
 	{
-		ereport(ERROR,
-				(errcode(ERRCODE_INTERNAL_ERROR),
-				 errmsg("Could not prepare transaction on data nodes")));
+
+		/* In case transaction has operated on temporary objects */
+		if (temp_object_included)
+		{
+			/* Reset temporary object flag */
+			temp_object_included = false;
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("cannot PREPARE a transaction that has operated on temporary tables")));
+		}
+		else
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Could not prepare transaction on data nodes")));
+		}
 	}
+
+	/* Reset temporary object flag */
+	temp_object_included = false;
 
 	return local_operation;
 }
@@ -1824,6 +1841,9 @@ finish:
 	is_ddl = false;
 	clear_write_node_list();
 
+	/* Reset temporary object flag */
+	temp_object_included = false;
+
 	/* Clean up connections */
 	pfree_pgxc_all_handles(pgxc_connections);
 
@@ -1973,6 +1993,9 @@ finish:
 	is_ddl = false;
 	clear_write_node_list();
 
+	/* Reset temporary object flag */
+	temp_object_included = false;
+
 	/* Free node list taken from GTM */
 	if (datanodes && datanodecnt != 0)
 		free(datanodes);
@@ -2113,6 +2136,9 @@ finish:
 	is_ddl = false;
 	clear_write_node_list();
 
+	/* Reset temporary object flag */
+	temp_object_included = false;
+
 	/* Free node list taken from GTM */
 	if (datanodes)
 		free(datanodes);
@@ -2210,6 +2236,9 @@ finish:
 	is_ddl = false;
 	clear_write_node_list();
 
+	/* Reset temporary object flag */
+	temp_object_included = false;
+
 	/* Clean up connections */
 	pfree_pgxc_all_handles(pgxc_connections);
 	if (res != 0)
@@ -2283,6 +2312,9 @@ finish:
 	}
 	is_ddl = false;
 	clear_write_node_list();
+
+	/* Reset temporary object flag */
+	temp_object_included = false;
 
 	/* Clean up connections */
 	pfree_pgxc_all_handles(pgxc_connections);
@@ -3217,6 +3249,10 @@ do_query(RemoteQueryState *node)
 	bool			need_tran;
 	PGXCNodeAllHandles *pgxc_connections;
 
+	/* Be sure to set temporary object flag if necessary */
+	if (step->is_temp)
+		temp_object_included = true;
+
 	/*
 	 * Get connections for Datanodes only, utilities and DDLs
 	 * are launched in ExecRemoteUtility
@@ -4033,6 +4069,9 @@ ExecRemoteUtility(RemoteQuery *node)
 
 	implicit_force_autocommit = force_autocommit;
 
+	/* A transaction using temporary objects cannot use 2PC */
+	temp_object_included = node->is_temp;
+
 	remotestate = CreateResponseCombiner(0, node->combine_type);
 
 	pgxc_connections = get_exec_connections(NULL, node->exec_nodes, exec_type);
@@ -4516,12 +4555,14 @@ PGXCNodeIsImplicit2PC(bool *prepare_local_coord)
 
 	/*
 	 * In case of an autocommit or forced autocommit transaction, 2PC is not involved
-	 * This case happens for Utilities using force autocommit (CREATE DATABASE, VACUUM...)
+	 * This case happens for Utilities using force autocommit (CREATE DATABASE, VACUUM...).
+	 * For a transaction using temporary objects, 2PC is not authorized.
 	 */
-	if (implicit_force_autocommit)
+	if (implicit_force_autocommit || temp_object_included)
 	{
 		*prepare_local_coord = false;
 		implicit_force_autocommit = false;
+		temp_object_included = false;
 		return false;
 	}
 
@@ -4621,4 +4662,16 @@ int DataNodeCopyInBinaryForAll(char *msg_buf, int len, PGXCNodeHandle** copy_con
 	}
 
 	return 0;
+}
+
+/*
+ * ExecSetTempObjectIncluded
+ *
+ * Set Temp object flag on the fly for transactions
+ * This flag will be reinitialized at commit.
+ */
+void
+ExecSetTempObjectIncluded(void)
+{
+	temp_object_included = true;
 }
