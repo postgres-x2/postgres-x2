@@ -887,8 +887,8 @@ dropdb(const char *dbname, bool missing_ok)
 	
 #ifdef PGXC
 	/* Drop sequences on gtm that are on the database dropped. */
-	if(IS_PGXC_COORDINATOR && !IsConnFromCoord())
-		if(DropSequenceGTM(dbname, GTM_SEQ_DB_NAME))
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		if (DropSequenceGTM((char *)dbname, GTM_SEQ_DB_NAME))
 			elog(ERROR, "Deletion of sequences on database %s not completed", dbname);
 #endif
 }

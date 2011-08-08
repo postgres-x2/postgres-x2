@@ -440,7 +440,7 @@ SetValGTM(char *seqname, GTM_Sequence nextval, bool iscalled)
  *		GTM_SEQ_DB_NAME, DB name part of sequence key
  */
 int
-DropSequenceGTM(const char *name, GTM_SequenceKeyType type)
+DropSequenceGTM(char *name, GTM_SequenceKeyType type)
 {
 	GTM_SequenceKeyData seqkey;
 	CheckConnection();

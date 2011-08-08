@@ -126,6 +126,11 @@ extern int	pgxc_node_send_execute(PGXCNodeHandle * handle, const char *portal, i
 extern int	pgxc_node_send_close(PGXCNodeHandle * handle, bool is_statement,
 					 const char *name);
 extern int	pgxc_node_send_sync(PGXCNodeHandle * handle);
+extern int	pgxc_node_send_bind(PGXCNodeHandle * handle, const char *portal,
+								const char *statement, int paramlen, char *params);
+extern int	pgxc_node_send_parse(PGXCNodeHandle * handle, const char* statement,
+								 const char *query, short num_params, Oid *param_types);
+extern int	pgxc_node_send_flush(PGXCNodeHandle * handle);
 extern int	pgxc_node_send_query_extended(PGXCNodeHandle *handle, const char *query,
 							  const char *statement, const char *portal,
 							  int num_params, Oid *param_types,

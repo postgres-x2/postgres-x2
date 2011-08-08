@@ -1137,6 +1137,7 @@ slot_deform_datarow(TupleTableSlot *slot)
 	StringInfo  buffer;
 	uint16		n16;
 	uint32		n32;
+	MemoryContext oldcontext;
 
 	if (slot->tts_tupleDescriptor == NULL || slot->tts_dataRow == NULL)
 		return;
@@ -1162,7 +1163,7 @@ slot_deform_datarow(TupleTableSlot *slot)
 	 * Ensure info about input functions is available as long as slot lives
 	 * as well as deformed values
 	 */
-	MemoryContext oldcontext = MemoryContextSwitchTo(slot->tts_mcxt);
+	oldcontext = MemoryContextSwitchTo(slot->tts_mcxt);
 
 	if (slot->tts_attinmeta == NULL)
 		slot->tts_attinmeta = TupleDescGetAttInMetadata(slot->tts_tupleDescriptor);
@@ -1170,7 +1171,6 @@ slot_deform_datarow(TupleTableSlot *slot)
 	buffer = makeStringInfo();
 	for (i = 0; i < attnum; i++)
 	{
-		Form_pg_attribute attr = slot->tts_tupleDescriptor->attrs[i];
 		int len;
 
 		/* get size */

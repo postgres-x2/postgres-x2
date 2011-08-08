@@ -31,6 +31,7 @@
 #include "commands/prepare.h"
 #include "gtm/gtm_c.h"
 #include "pgxc/pgxcnode.h"
+#include "pgxc/execRemote.h"
 #include "pgxc/locator.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/poolmgr.h"
@@ -1074,7 +1075,6 @@ int
 pgxc_node_send_bind(PGXCNodeHandle * handle, const char *portal,
 					const char *statement, int paramlen, char *params)
 {
-	uint16		n16;
 	int			pnameLen;
 	int			stmtLen;
 	int 		paramCodeLen;

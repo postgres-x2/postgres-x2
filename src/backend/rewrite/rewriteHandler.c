@@ -31,6 +31,7 @@
 #ifdef PGXC
 #include "pgxc/pgxc.h"
 #include "pgxc/poolmgr.h"
+#include "optimizer/planner.h"
 #endif
 
 
@@ -2477,7 +2478,7 @@ GetRelPartColPos(const Query *query, const char *partColName)
 static void
 ProcessHashValue(List **valuesList, const List *subList, const int node)
 {
-	valuesList[node - 1] = lappend(valuesList[node - 1], subList); 
+	valuesList[node - 1] = lappend(valuesList[node - 1], (List *) subList);
 }
 
 /*
@@ -2502,7 +2503,7 @@ static void
 DestroyValuesList(List **valuesList[])
 {
 	pfree(*valuesList);
-	*valuesList = NIL;
+	*valuesList = NULL;
 }
 
 /*

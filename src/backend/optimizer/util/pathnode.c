@@ -1445,7 +1445,7 @@ create_remotequery_path(PlannerInfo *root, RelOptInfo *rel)
 	 * execute query against remote query multiple times.
 	 * Subject for future optimization
 	 */
-	pathnode = create_material_path(rel, pathnode);
+	pathnode = (Path *) create_material_path(rel, pathnode);
 
 	return pathnode;
 }

@@ -31,10 +31,6 @@ static PGXCNodeAllHandles *PrepareBarrier(const char *id);
 static void ExecuteBarrier(const char *id);
 static void EndBarrier(PGXCNodeAllHandles *handles, const char *id);
 
-extern void ProcessCreateBarrierPrepare(const char *id);
-extern void ProcessCreateBarrierEnd(const char *id);
-extern void ProcessCreateBarrierExecute(const char *id);
-
 /*
  * Prepare ourselves for an incoming BARRIER. We must disable all new 2PC
  * commits and let the ongoing commits to finish. We then remember the

@@ -79,6 +79,7 @@
 #include "utils/ps_status.h"
 #ifdef PGXC
 #include "pgxc/pgxc.h"
+#include "pgxc/execRemote.h"
 #endif
 
 

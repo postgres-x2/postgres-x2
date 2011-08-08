@@ -8157,12 +8157,12 @@ CleanConnStmt: CLEAN CONNECTION TO COORDINATOR coord_list CleanConnDbName CleanC
 
 CleanConnDbName: FOR DATABASE database_name		{ $$ = $3; }
 				| FOR database_name				{ $$ = $2; }
-				| /* EMPTY */					{ $$ = NIL; }
+				| /* EMPTY */					{ $$ = NULL; }
 		;
 
 CleanConnUserName: TO USER RoleId				{ $$ = $3; }
 				| TO RoleId						{ $$ = $2; }
-				| /* EMPTY */					{ $$ = NIL; }
+				| /* EMPTY */					{ $$ = NULL; }
 		;
 /* PGXC_END */
 

@@ -769,4 +769,10 @@ void *current_memcontext(void)
 {
 	return((void *)CurrentMemoryContext);
 }
-Gen_Alloc genAlloc_class = {MemoryContextAlloc, MemoryContextAllocZero, repalloc, pfree, current_memcontext};
+
+Gen_Alloc genAlloc_class = {(void *)MemoryContextAlloc,
+                            (void *)MemoryContextAllocZero,
+                            (void *)repalloc,
+                            (void *)pfree,
+                            (void *)current_memcontext};
+

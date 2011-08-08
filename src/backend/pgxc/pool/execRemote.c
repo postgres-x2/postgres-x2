@@ -1370,19 +1370,16 @@ is_data_node_ready(PGXCNodeHandle * conn)
 				break;
 
 			case 'Z':			/* ReadyForQuery */
-			{
 				/*
 				 * Return result depends on previous connection state.
 				 * If it was PORTAL_SUSPENDED coordinator want to send down
 				 * another EXECUTE to fetch more rows, otherwise it is done
 				 * with the connection
 				 */
-				int result = suspended ? RESPONSE_SUSPENDED : RESPONSE_COMPLETE;
 				conn->transaction_status = msg[0];
 				conn->state = DN_CONNECTION_STATE_IDLE;
 				conn->combiner = NULL;
 				return true;
-			}
 		}
 	}
 	/* never happen, but keep compiler quiet */

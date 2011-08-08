@@ -57,6 +57,6 @@ extern int CreateSequenceGTM(char *seqname, GTM_Sequence increment,
 extern int AlterSequenceGTM(char *seqname, GTM_Sequence increment,
 		GTM_Sequence minval, GTM_Sequence maxval, GTM_Sequence startval,
 							GTM_Sequence lastval, bool cycle, bool is_restart);
-extern int DropSequenceGTM(const char *name, GTM_SequenceKeyType type);
+extern int DropSequenceGTM(char *name, GTM_SequenceKeyType type);
 extern int RenameSequenceGTM(char *seqname, const char *newseqname);
 #endif /* ACCESS_GTM_H */

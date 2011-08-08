@@ -47,6 +47,7 @@
 #include "pgxc/pgxc.h"
 #include "pgxc/poolutils.h"
 #include "../interfaces/libpq/libpq-fe.h"
+#include "../interfaces/libpq/libpq-int.h"
 #include "postmaster/postmaster.h"		/* For UnixSocketDir */
 #include <stdlib.h>
 #include <string.h>
@@ -132,9 +133,6 @@ static int *abort_pids(int *count,
 /* Signal handlers */
 static void pooler_die(SIGNAL_ARGS);
 static void pooler_quickdie(SIGNAL_ARGS);
-
-/* Check status of connection */
-extern int	pqReadReady(PGconn *conn);
 
 /*
  * Flags set by interrupt handlers for later service in the main loop.
@@ -552,7 +550,7 @@ PoolManagerConnect(PoolHandle *handle, const char *database, const char *user_na
 int
 PoolManagerSetCommand(PoolCommandType command_type, const char *set_command)
 {
-	int n32;
+	int n32, res;
 	char msgtype = 's';
 
 	Assert(Handle);
@@ -591,7 +589,9 @@ PoolManagerSetCommand(PoolCommandType command_type, const char *set_command)
 	pool_flush(&Handle->port);
 
 	/* Get result */
-	pool_recvres(&Handle->port);
+	res = pool_recvres(&Handle->port);
+
+	return res;
 }
 
 /*
@@ -614,6 +614,8 @@ agent_init(PoolAgent *agent, const char *database, const char *user_name)
 	/* create if not found */
 	if (agent->pool == NULL)
 		agent->pool = create_database_pool(database, user_name);
+
+	return;
 }
 
 
@@ -1974,7 +1976,7 @@ acquire_connection(DatabasePool *dbPool, int node, char client_conn_type)
 
 	retry:
 		/* Make sure connection is ok */
-		poll_result = pqReadReady(slot->conn);
+		poll_result = pqReadReady((PGconn *)slot->conn);
 
 		if (poll_result == 0)
 			break; 		/* ok, no data */
@@ -2173,7 +2175,7 @@ grow_pool(DatabasePool * dbPool, int index, char client_conn_type)
 			break;
 		}
 
-		slot->xc_cancelConn = PQgetCancel(slot->conn);
+		slot->xc_cancelConn = (NODE_CANCEL *) PQgetCancel((PGconn *)slot->conn);
 
 		/* Insert at the end of the pool */
 		nodePool->slot[(nodePool->freeSize)++] = slot;
@@ -2193,7 +2195,7 @@ grow_pool(DatabasePool * dbPool, int index, char client_conn_type)
 static void
 destroy_slot(PGXCNodePoolSlot *slot)
 {
-	PQfreeCancel(slot->xc_cancelConn);
+	PQfreeCancel((PGcancel *)slot->xc_cancelConn);
 	PGXCNodeClose(slot->conn);
 	pfree(slot);
 }

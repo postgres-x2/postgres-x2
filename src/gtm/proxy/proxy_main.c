@@ -1674,7 +1674,6 @@ static int
 ReadCommand(GTMProxy_ConnectionInfo *conninfo, StringInfo inBuf)
 {
 	int 			qtype;
-	int				rv;
 	int				connIdx = conninfo->con_id;
 	int				anyBackup;
 	int				myLocalId;

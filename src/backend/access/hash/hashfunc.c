@@ -542,7 +542,7 @@ compute_hash(Oid type, Datum value, int *pErr)
 
 	*pErr = 0;
 
-	if (value == NULL)
+	if (!value)
 	{
 		*pErr = 1;
 		return 0;

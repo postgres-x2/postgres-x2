@@ -42,6 +42,7 @@
 #include "parser/parsetree.h"
 #include "rewrite/rewriteManip.h"
 #ifdef PGXC
+#include "miscadmin.h"
 #include "pgxc/pgxc.h"
 #include "access/gtm.h"
 #include "pgxc/planner.h"
@@ -2382,7 +2383,7 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 	step->exec_nodes = (ExecNodes *) palloc(sizeof(ExecNodes));
 	step->exec_nodes->primarynodelist = NIL;
 	step->exec_nodes->nodelist = NIL;
-	step->exec_nodes->en_expr = NIL;
+	step->exec_nodes->en_expr = NULL;
 	step->force_autocommit = false;
 	step->combine_type = COMBINE_TYPE_SAME;
 	step->read_only = true;

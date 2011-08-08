@@ -65,8 +65,6 @@ static char *log_file = NULL;
 static char *gtm_path = NULL;
 static char *gtm_app = NULL;
 static char *argv0 = NULL;
-static char *reconnect_host = NULL;
-static char *reconnect_port = NULL;
 
 static void
 write_stderr(const char *fmt,...)

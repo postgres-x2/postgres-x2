@@ -707,7 +707,6 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 		/* Find referenced portal and figure out what was the last fetch node */
 		Portal		portal;
 		QueryDesc  *queryDesc;
-		PlanState  *state;
 		CurrentOfExpr *cexpr = (CurrentOfExpr *) expr_node;
 		char	   *cursor_name = cexpr->cursor_name;
 		char	   *node_cursor;
@@ -1046,13 +1045,13 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 
 			if (IsA(arg1, RelabelType))
 			{
-				rt = arg1;
+				rt = (RelabelType *) arg1;
 				arg1 = rt->arg;
 			}
 
 			if (IsA(arg2, RelabelType))
 			{
-				rt = arg2;
+				rt = (RelabelType *)arg2;
 				arg2 = rt->arg;
 			}
 
@@ -1789,7 +1788,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 			context->query_step->exec_nodes->nodelist =
 				list_copy(rel_loc_info->nodeList);
 			context->query_step->exec_nodes->en_expr = NULL;
-			context->query_step->exec_nodes->en_relid = NULL;
+			context->query_step->exec_nodes->en_relid = InvalidOid;
 			context->query_step->exec_nodes->accesstype = context->accessType;
 		}
 	}
@@ -2938,29 +2937,6 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 
 
 /*
- * Free Query_Step struct
- */
-static void
-free_query_step(RemoteQuery *query_step)
-{
-	if (query_step == NULL)
-		return;
-
-	pfree(query_step->sql_statement);
-	if (query_step->cursor)
-		pfree(query_step->cursor);
-	if (query_step->exec_nodes)
-	{
-		if (query_step->exec_nodes->nodelist)
-			list_free(query_step->exec_nodes->nodelist);
-		if (query_step->exec_nodes->primarynodelist)
-			list_free(query_step->exec_nodes->primarynodelist);
-	}
-	pfree(query_step);
-}
-
-
-/*
  * See if we can reduce the passed in RemoteQuery nodes to a single step.
  *
  * We need to check when we can further collapse already collapsed nodes.
@@ -3230,7 +3206,7 @@ AddRemoteQueryNode(List *stmts, const char *queryString, RemoteQueryExecType rem
 	{
 		RemoteQuery *step = makeNode(RemoteQuery);
 		step->combine_type = COMBINE_TYPE_SAME;
-		step->sql_statement = queryString;
+		step->sql_statement = (char *) queryString;
 		step->exec_type = remoteExecType;
 		step->is_temp = is_temp;
 		result = lappend(result, step);

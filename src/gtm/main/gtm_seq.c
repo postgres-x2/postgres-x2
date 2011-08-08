@@ -22,6 +22,7 @@
 #include "gtm/gtm_seq.h"
 #include "gtm/gtm_serialize.h"
 #include "gtm/gtm_standby.h"
+#include "gtm/standby_utils.h"
 #include "gtm/libpq.h"
 #include "gtm/libpq-int.h"
 #include "gtm/pqformat.h"
@@ -639,7 +640,7 @@ GTM_SeqRename(GTM_SequenceKey seqkey, GTM_SequenceKey newseqkey)
 	/* Release first the structure as it has been taken previously */
 	seq_release_seqinfo(seqinfo);
 
-	/* Close sequence properly, full name is here */                                                                                                                                                       
+	/* Close sequence properly, full name is here */
 	seqkey->gsk_type = GTM_SEQ_FULL_NAME;
 	/* Then close properly the old sequence */
 	GTM_SeqClose(seqkey);
@@ -685,7 +686,8 @@ GTM_SeqSetVal(GTM_SequenceKey seqkey, GTM_Sequence nextval, bool iscalled)
 		ereport(LOG,
 				(EINVAL,
 				 errmsg("The sequence with the given key does not exist")));
-		return InvalidSequenceValue;
+
+		return EINVAL;
 	}
 
 	GTM_RWLockAcquire(&seqinfo->gs_lock, GTM_LOCKMODE_WRITE);

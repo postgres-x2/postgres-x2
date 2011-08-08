@@ -23,6 +23,7 @@
 #include "gtm/gtm_txn.h"
 #include "gtm/gtm_serialize.h"
 #include "gtm/gtm_standby.h"
+#include "gtm/standby_utils.h"
 #include "gtm/libpq.h"
 #include "gtm/libpq-int.h"
 #include "gtm/pqformat.h"

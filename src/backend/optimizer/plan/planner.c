@@ -267,6 +267,8 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 			case CMD_DELETE:
 				top_plan = create_remotedelete_plan(root, top_plan);
 				break;
+			default:
+				break;
 		}
 #endif
 

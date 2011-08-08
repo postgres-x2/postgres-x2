@@ -1290,22 +1290,6 @@ _readRangeTblEntry(void)
 	READ_DONE();
 }
 
-#ifdef PGXC
-/*
- * _readDistributeBy
- */
-static DistributeBy *
-_readDistributeBy(void)
-{
-	READ_LOCALS(DistributeBy);
-
-	READ_ENUM_FIELD(disttype, DistributionType);
-	READ_STRING_FIELD(colname);
-
-	READ_DONE();
-}
-#endif
-
 
 /*
  * parseNodeString

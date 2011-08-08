@@ -2185,7 +2185,7 @@ deparse_context_for_remotequery(Alias *aliasname, Oid relid)
 	dpns->planstate = NULL;
 	dpns->ancestors = NIL;
 	dpns->outer_plan = dpns->inner_plan = NULL;
-	dpns->outer_planstate = dpns->inner_planstate = NIL;
+	dpns->outer_planstate = dpns->inner_planstate = NULL;
 	dpns->remotequery = true;
 
 	/* Return a one-deep namespace stack */
@@ -2689,7 +2689,7 @@ get_query_def_from_valuesList(Query *query, StringInfo buf)
 	dpns.planstate = NULL;
 	dpns.ancestors = NIL;
 	dpns.outer_plan = dpns.inner_plan = NULL;
-	dpns.outer_planstate = dpns.inner_planstate = NIL;
+	dpns.outer_planstate = dpns.inner_planstate = NULL;
 	dpns.remotequery = false;
 
 	/*

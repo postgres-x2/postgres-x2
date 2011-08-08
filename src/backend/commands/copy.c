@@ -339,12 +339,6 @@ static bool CopyGetInt16(CopyState cstate, int16 *val);
 #ifdef PGXC
 static ExecNodes *build_copy_statement(CopyState cstate, List *attnamelist,
 				TupleDesc tupDesc, bool is_from, List *force_quote, List *force_notnull);
-/*
- * A kluge here making this static to avoid having to move the
- * CopyState definition to a header file making it harder to merge
- * with the vanilla PostgreSQL code
- */
-static CopyState insertstate;
 #endif
 
 /*
@@ -2521,10 +2515,10 @@ BeginCopyFrom(Relation rel,
 				tmp |= (1 << 16);
 			tmp = htonl(tmp);
 
-			appendBinaryStringInfo(&cstate->line_buf, &tmp, 4);
+			appendBinaryStringInfo(&cstate->line_buf, (char *) &tmp, 4);
 			tmp = 0;
 			tmp = htonl(tmp);
-			appendBinaryStringInfo(&cstate->line_buf, &tmp, 4);
+			appendBinaryStringInfo(&cstate->line_buf, (char *) &tmp, 4);
 
 			if (DataNodeCopyInBinaryForAll(cstate->line_buf.data, 19, cstate->connections))
 					ereport(ERROR,
@@ -2748,7 +2742,7 @@ NextCopyFrom(CopyState cstate, ExprContext *econtext,
 				enlargeStringInfo(&cstate->line_buf, sizeof(uint16));
 				/* Receive field count directly from datanodes */
 				fld_count = htons(fld_count);
-				appendBinaryStringInfo(&cstate->line_buf, &fld_count, sizeof(uint16));
+				appendBinaryStringInfo(&cstate->line_buf, (char *) &fld_count, sizeof(uint16));
 			}
 #endif
 
@@ -2781,7 +2775,7 @@ NextCopyFrom(CopyState cstate, ExprContext *econtext,
 				enlargeStringInfo(&cstate->line_buf, sizeof(uint16));
 				/* Receive field count directly from datanodes */
 				fld_count = htons(fld_count);
-				appendBinaryStringInfo(&cstate->line_buf, &fld_count, sizeof(uint16));
+				appendBinaryStringInfo(&cstate->line_buf, (char *) &fld_count, sizeof(uint16));
 			}
 #endif
 
@@ -2807,7 +2801,7 @@ NextCopyFrom(CopyState cstate, ExprContext *econtext,
 
 			enlargeStringInfo(&cstate->line_buf, sizeof(uint16));
 			fld_count = htons(fld_count);
-			appendBinaryStringInfo(&cstate->line_buf, &fld_count, sizeof(uint16));
+			appendBinaryStringInfo(&cstate->line_buf, (char *) &fld_count, sizeof(uint16));
 		}
 #endif
 
@@ -3792,7 +3786,7 @@ CopyReadBinaryAttribute(CopyState cstate,
 		/* Get the field size from Datanode */
 		enlargeStringInfo(&cstate->line_buf, sizeof(int32));
 		nSize = htonl(fld_size);
-		appendBinaryStringInfo(&cstate->line_buf, &nSize, sizeof(int32));
+		appendBinaryStringInfo(&cstate->line_buf, (char *) &nSize, sizeof(int32));
 	}
 #endif
 
@@ -4378,175 +4372,5 @@ build_copy_statement(CopyState cstate, List *attnamelist,
 		}
 	}
 	return exec_nodes;
-}
-
-/*
- * Use COPY for handling INSERT SELECT
- * It may be a bit better to use binary mode here, but
- * we have not implemented binary support for COPY yet.
- *
- * We borrow some code from CopyTo and DoCopy here.
- * We do not refactor them so that it is later easier to remerge
- * with vanilla PostgreSQL
- */
-void
-DoInsertSelectCopy(EState *estate, TupleTableSlot *slot)
-{
-	ExecNodes *exec_nodes;
-	HeapTuple tuple;
-	Datum *values;
-	bool *nulls;
-	Datum	dist_col_value;
-	Oid	dist_col_type;
-	MemoryContext oldcontext;
-	CopyState cstate;
-
-
-	Assert(IS_PGXC_COORDINATOR);
-
-	/* See if we need to initialize COPY (first tuple) */
-	if (estate->es_processed == 0)
-	{
-		ListCell *lc;
-		List *attnamelist = NIL;
-		ResultRelInfo *resultRelInfo = estate->es_result_relation_info;
-		Form_pg_attribute *attr;
-
-		oldcontext = MemoryContextSwitchTo(estate->es_query_cxt);
-		exec_nodes = makeNode(ExecNodes);
-
-		/*
-		 * We use the cstate struct here, though we do not need everything
-		 * We will just use the properties we are interested in here.
-		 */
-		insertstate = (CopyStateData *) palloc0(sizeof(CopyStateData));
-		cstate = insertstate;
-
-		cstate->rowcontext = AllocSetContextCreate(CurrentMemoryContext,
-											   "COPY TO",
-											   ALLOCSET_DEFAULT_MINSIZE,
-											   ALLOCSET_DEFAULT_INITSIZE,
-											   ALLOCSET_DEFAULT_MAXSIZE);
-
-		cstate->rel = resultRelInfo->ri_RelationDesc;
-		cstate->tupDesc = RelationGetDescr(cstate->rel);
-
-		foreach(lc, estate->es_plannedstmt->planTree->targetlist)
-		{
-			TargetEntry *target = (TargetEntry *) lfirst(lc);
-			attnamelist = lappend(attnamelist, makeString(target->resname));
-		}
-		cstate->attnumlist = CopyGetAttnums(cstate->tupDesc, cstate->rel, attnamelist);
-
-		/* We use fe_msgbuf as a per-row buffer regardless of copy_dest */
-		cstate->fe_msgbuf = makeStringInfo();
-		attr = cstate->tupDesc->attrs;
-
-		if (cstate->idx_dist_by_col >= 0)
-			dist_col_type = attr[cstate->idx_dist_by_col]->atttypid;
-		else
-			dist_col_type = UNKNOWNOID;
-
-		/* Get info about the columns we need to process. */
-		cstate->out_functions = (FmgrInfo *) palloc(cstate->tupDesc->natts * sizeof(FmgrInfo));
-		foreach(lc, cstate->attnumlist)
-		{
-			int			attnum = lfirst_int(lc);
-			Oid			out_func_oid;
-			bool		isvarlena;
-
-			if (cstate->binary)
-				getTypeBinaryOutputInfo(attr[attnum - 1]->atttypid,
-										&out_func_oid,
-										&isvarlena);
-			else
-				getTypeOutputInfo(attr[attnum - 1]->atttypid,
-								  &out_func_oid,
-								  &isvarlena);
-			fmgr_info(out_func_oid, &cstate->out_functions[attnum - 1]);
-		}
-
-		/* Set defaults for omitted options */
-		if (!cstate->delim)
-			cstate->delim = cstate->csv_mode ? "," : "\t";
-
-		if (!cstate->null_print)
-			cstate->null_print = cstate->csv_mode ? "" : "\\N";
-		cstate->null_print_len = strlen(cstate->null_print);
-		cstate->null_print_client = cstate->null_print;		/* default */
-
-		if (cstate->csv_mode)
-		{
-			if (!cstate->quote)
-				cstate->quote = "\"";
-			if (!cstate->escape)
-				cstate->escape = cstate->quote;
-		}
-
-		exec_nodes = build_copy_statement(cstate, attnamelist,
-				cstate->tupDesc, true,  NULL, NULL);
-
-		cstate->connections = DataNodeCopyBegin(cstate->query_buf.data,
-				exec_nodes->nodelist,
-				GetActiveSnapshot(),
-				true);
-
-		if (!cstate->connections)
-			ereport(ERROR,
-					(errcode(ERRCODE_CONNECTION_EXCEPTION),
-					errmsg("Failed to initialize data nodes for COPY")));
-
-		cstate->copy_dest = COPY_BUFFER;
-
-		MemoryContextSwitchTo(oldcontext);
-	}
-	cstate = insertstate;
-
-	values = (Datum *) palloc(cstate->tupDesc->natts * sizeof(Datum));
-	nulls = (bool *) palloc(cstate->tupDesc->natts * sizeof(bool));
-
-	/* Process Tuple */
-	/* We need to format the line for sending to data nodes */
-	tuple = ExecMaterializeSlot(slot);
-
-	/* Deconstruct the tuple ... faster than repeated heap_getattr */
-	heap_deform_tuple(tuple, cstate->tupDesc, values, nulls);
-
-	/* Format the input tuple for sending */
-	CopyOneRowTo(cstate, 0, values, nulls);
-
-	/* Get dist column, if any */
-	if (cstate->idx_dist_by_col >= 0 && !nulls[cstate->idx_dist_by_col])
-		dist_col_value = values[cstate->idx_dist_by_col];
-	else
-		dist_col_type = UNKNOWNOID;	
-
-	/* Send item to the appropriate data node(s) (buffer) */
-	if (DataNodeCopyIn(cstate->fe_msgbuf->data,
-			       cstate->fe_msgbuf->len,
-				   GetRelationNodes(cstate->rel_loc, dist_col_value, dist_col_type, RELATION_ACCESS_INSERT),
-				   cstate->connections))
-			ereport(ERROR,
-				(errcode(ERRCODE_CONNECTION_EXCEPTION),
-				 errmsg("Copy failed on a data node")));
-
-	resetStringInfo(cstate->fe_msgbuf);
-	estate->es_processed++;
-}
-
-/*
- *
- */
-void
-EndInsertSelectCopy(void)
-{
-	Assert(IS_PGXC_COORDINATOR);
-
-	DataNodeCopyFinish(
-			insertstate->connections,
-			primary_data_node,
-			COMBINE_TYPE_NONE);
-	pfree(insertstate->connections);
-	MemoryContextDelete(insertstate->rowcontext);
 }
 #endif

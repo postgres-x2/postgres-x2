@@ -4353,7 +4353,7 @@ PostgresMain(int argc, char *argv[], const char *username)
 					char *id;
 
 					command = pq_getmsgbyte(&input_message);
-					id = pq_getmsgstring(&input_message);
+					id = (char *) pq_getmsgstring(&input_message);
 					pq_getmsgend(&input_message);
 
 					switch (command)

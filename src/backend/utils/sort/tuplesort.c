@@ -3105,7 +3105,7 @@ getlen_datanode(Tuplesortstate *state, int tapenum, bool eofOK)
 				if (pgxc_node_receive(1, &conn, NULL))
 					ereport(ERROR,
 							(errcode(ERRCODE_INTERNAL_ERROR),
-							 errmsg(conn->error)));
+							 errmsg("%s", conn->error)));
 				break;
 			case RESPONSE_COMPLETE:
 				/* EOF encountered, close the tape and report EOF */
