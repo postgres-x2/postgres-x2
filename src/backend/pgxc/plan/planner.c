@@ -176,12 +176,12 @@ static bool contains_temp_tables(List *rtable);
 static bool contains_only_pg_catalog(List *rtable);
 
 /*
- * Find position of specified substring in the string
+ * Find nth position of specified substring in the string
  * All non-printable symbols of str treated as spaces, all letters as uppercase
  * Returns pointer to the beginning of the substring or NULL
  */
 static char *
-strpos(char *str, char *substr)
+strpos(char *str, char *substr, int n_pos)
 {
 	char		copy[strlen(str) + 1];
 	char	   *src = str;
@@ -189,7 +189,7 @@ strpos(char *str, char *substr)
 
 	/*
 	 * Initialize mutable copy, converting letters to uppercase and
-	 * various witespace characters to spaces
+	 * various whitespace characters to spaces
 	 */
 	while (*src)
 	{
@@ -202,8 +202,61 @@ strpos(char *str, char *substr)
 			*dst++ = toupper(*src++);
 	}
 	*dst = '\0';
+
 	dst = strstr(copy, substr);
+
+	if (n_pos != 1)
+		dst = strpos(dst + strlen(substr), substr, n_pos - 1);
+
 	return dst ? str + (dst - copy) : NULL;
+}
+
+/*
+ * Convert input string characters into uppercases and
+ * replace "orig" string by "replace" string in given string input
+ * Result has to be freed after calling this function.
+ */
+static char *
+strreplace(char *str, char *orig, char *replace, int *replace_cnt)
+{
+	char		copy[strlen(str) + 1];
+	char	   *src = str;
+	char	   *dst = copy;
+	char	   *buffer = NULL;
+
+	*replace_cnt = 0;
+
+	/* Convert input into correct format with uppercases */
+	while (*src)
+	{
+		if (isspace(*src))
+		{
+			src++;
+			*dst++ = ' ';
+		}
+		else
+			*dst++ = toupper(*src++);
+	}
+	*dst = '\0';
+
+	/* We are sure there is a least 1 replacement */
+	buffer = pstrdup(copy);
+
+	/* Then replace each occurence */
+	while ((dst = strstr(buffer, orig)))
+	{
+		int	strdiff = strlen(str) - strlen(dst);
+
+		(*replace_cnt)++;
+		buffer = (char *) repalloc(buffer, strlen(str) +
+								   (*replace_cnt) * (strlen(replace) - strlen(orig) + 1));
+
+		strncpy(buffer, buffer, strdiff);
+		buffer[strdiff] = '\0';
+		sprintf(buffer + strdiff, "%s%s", replace, dst + strlen(orig));
+	}
+
+	return buffer;
 }
 
 /*
@@ -2155,6 +2208,7 @@ reconstruct_step_query(List *rtable, bool has_order_by, List *extra_sort,
 	ListCell   *l;
 	StringInfo	buf = makeStringInfo();
 	char	   *sql_from;
+	int			count_from = 1;
 
 	context = deparse_context_for_planstate((Node *) step, NULL, rtable);
 	useprefix = list_length(rtable) > 1;
@@ -2177,7 +2231,25 @@ reconstruct_step_query(List *rtable, bool has_order_by, List *extra_sort,
 		appendStringInfoString(buf, exprstr);
 
 		if (tle->resname != NULL)
-			appendStringInfo(buf, " AS %s", quote_identifier(tle->resname));
+		{
+			/*
+			 * Check if relation aliases are using keyword FROM
+			 * If yes, replace that with _FROM_ to avoid conflicts with
+			 * ORDER BY query reconstruction below.
+			 */
+			if (strpos((char *)quote_identifier(tle->resname), " FROM ", 1))
+			{
+				char   *buffer;
+				int		cnt;
+				buffer = strreplace((char *)quote_identifier(tle->resname),
+									" FROM ", "_FROM_", &cnt);
+				appendStringInfo(buf, " AS %s", buffer);
+				pfree(buffer);
+				count_from += cnt;
+			}
+			else
+				appendStringInfo(buf, " AS %s", quote_identifier(tle->resname));
+		}
 	}
 
 	/*
@@ -2187,7 +2259,7 @@ reconstruct_step_query(List *rtable, bool has_order_by, List *extra_sort,
 	 * Do not handle the case if " FROM " we found is not a "FROM" keyword, but,
 	 * for example, a part of string constant.
 	 */
-	sql_from = strpos(step->sql_statement, " FROM ");
+	sql_from = strpos(step->sql_statement, " FROM ", count_from++);
 	if (sql_from)
 	{
 		/*
@@ -2292,7 +2364,7 @@ fetch_ctid_of(Plan *subtree, RowMarkClause *rmc)
 		 * TODO Find if the table is referenced by the step query
 		 */
 
-		char *from_sql = strpos(step->sql_statement, " FROM ");
+		char *from_sql = strpos(step->sql_statement, " FROM ", 1);
 		if (from_sql)
 		{
 			StringInfoData buf;
