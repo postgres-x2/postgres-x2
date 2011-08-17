@@ -53,9 +53,6 @@
 #include "utils/rel.h"
 #include "utils/syscache.h"
 
-#ifdef PGXC
-#include "pgxc/pgxc.h"
-#endif
 
 /*
  * The namespace search path is a possibly-empty list of namespace OIDs.

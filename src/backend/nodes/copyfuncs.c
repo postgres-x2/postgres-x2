@@ -977,6 +977,21 @@ _copyPlanInvalItem(PlanInvalItem *from)
 
 #ifdef PGXC
 /*
+ * _copyExecDirect
+ */
+static ExecDirectStmt*
+_copyExecDirect(ExecDirectStmt *from)
+{
+	ExecDirectStmt *newnode = makeNode(ExecDirectStmt);
+
+	COPY_SCALAR_FIELD(coordinator);
+	COPY_NODE_FIELD(nodes);
+	COPY_STRING_FIELD(query);
+
+	return newnode;
+}
+
+/*
  * _copyRemoteQuery
  */
 static RemoteQuery *
@@ -993,6 +1008,7 @@ _copyRemoteQuery(RemoteQuery *from)
 	 * copy remainder of node
 	 */
 	COPY_SCALAR_FIELD(is_single_step);
+	COPY_SCALAR_FIELD(exec_direct_type);
 	COPY_STRING_FIELD(sql_statement);
 	COPY_NODE_FIELD(exec_nodes);
 	COPY_SCALAR_FIELD(combine_type);
@@ -1006,6 +1022,7 @@ _copyRemoteQuery(RemoteQuery *from)
 	COPY_POINTER_FIELD(param_types,
 					   sizeof(from->param_types[0]) * from->num_params);
 	COPY_SCALAR_FIELD(exec_type);
+	COPY_SCALAR_FIELD(is_temp);
 	COPY_SCALAR_FIELD(paramval_data);
 	COPY_SCALAR_FIELD(paramval_len);
 
@@ -4113,6 +4130,9 @@ copyObject(void *from)
 			/*
 			 * PGXC SPECIFIC NODES
 			 */
+		case T_ExecDirectStmt:
+			retval = _copyExecDirect(from);
+			break;
 		case T_RemoteQuery:
 			retval = _copyRemoteQuery(from);
 			break;

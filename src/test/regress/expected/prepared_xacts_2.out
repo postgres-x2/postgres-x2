@@ -9,7 +9,7 @@
 CREATE TABLE pxtest1 (foobar VARCHAR(10)) distribute by replication;
 INSERT INTO pxtest1 VALUES ('aaa');
 -- Test PREPARE TRANSACTION
-BEGIN;
+BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;
 UPDATE pxtest1 SET foobar = 'bbb' WHERE foobar = 'aaa';
 SELECT * FROM pxtest1 ORDER BY foobar;
  foobar 
@@ -25,9 +25,15 @@ SELECT * FROM pxtest1 ORDER BY foobar;
 (1 row)
 
 -- Test pg_prepared_xacts system view
-SELECT DISTINCT gid FROM pg_prepared_xacts ORDER BY gid;
- gid  
-------
+SELECT gid FROM pg_prepared_xacts ORDER BY gid;
+ gid 
+-----
+(0 rows)
+
+-- Test pgxc_prepared_xacts system view
+SELECT pgxc_prepared_xact FROM pgxc_prepared_xacts ORDER by 1;
+ pgxc_prepared_xact 
+--------------------
  foo1
 (1 row)
 
@@ -39,13 +45,20 @@ SELECT * FROM pxtest1  ORDER BY foobar;
  aaa
 (1 row)
 
-SELECT DISTINCT gid FROM pg_prepared_xacts ORDER BY gid;
+-- Check prepared transactions on Coordinator
+SELECT gid FROM pg_prepared_xacts ORDER BY gid;
  gid 
 -----
 (0 rows)
 
+-- Check prepared transactions in the cluster
+SELECT pgxc_prepared_xact FROM pgxc_prepared_xacts ORDER by 1;
+ pgxc_prepared_xact 
+--------------------
+(0 rows)
+
 -- Test COMMIT PREPARED
-BEGIN;
+BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;
 INSERT INTO pxtest1 VALUES ('ddd');
 SELECT * FROM pxtest1 ORDER BY foobar;
  foobar 
@@ -70,7 +83,7 @@ SELECT * FROM pxtest1  ORDER BY foobar;
 (2 rows)
 
 -- Test duplicate gids
-BEGIN;
+BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;
 UPDATE pxtest1 SET foobar = 'eee' WHERE foobar = 'ddd';
 SELECT * FROM pxtest1  ORDER BY foobar;
  foobar 
@@ -80,13 +93,20 @@ SELECT * FROM pxtest1  ORDER BY foobar;
 (2 rows)
 
 PREPARE TRANSACTION 'foo3';
-SELECT DISTINCT gid FROM pg_prepared_xacts ORDER BY gid;
- gid  
-------
+-- Check prepared transactions on Coordinator
+SELECT gid FROM pg_prepared_xacts ORDER BY gid;
+ gid 
+-----
+(0 rows)
+
+-- Check prepared transactions in the cluster
+SELECT pgxc_prepared_xact FROM pgxc_prepared_xacts ORDER by 1;
+ pgxc_prepared_xact 
+--------------------
  foo3
 (1 row)
 
-BEGIN;
+BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;
 INSERT INTO pxtest1 VALUES ('fff');
 SELECT * FROM pxtest1  ORDER BY foobar;
  foobar 
@@ -98,7 +118,8 @@ SELECT * FROM pxtest1  ORDER BY foobar;
 
 -- This should fail, because the gid foo3 is already in use
 PREPARE TRANSACTION 'foo3';
-ERROR:  Could not prepare transaction on data nodes
+ERROR:  transaction identifier "foo3" is already in use
+-- Rollback on all the nodes
 ROLLBACK;
 SELECT * FROM pxtest1  ORDER BY foobar;
  foobar 
@@ -118,7 +139,7 @@ SELECT * FROM pxtest1  ORDER BY foobar;
 -- Clean up
 DROP TABLE pxtest1;
 -- Test subtransactions
-BEGIN;
+BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;
   CREATE TABLE pxtest2 (a int);
   INSERT INTO pxtest2 VALUES (1);
   SAVEPOINT a;
@@ -132,14 +153,9 @@ ERROR:  current transaction is aborted, commands ignored until end of transactio
   INSERT INTO pxtest2 VALUES (3);
 ERROR:  current transaction is aborted, commands ignored until end of transaction block
 PREPARE TRANSACTION 'regress-one';
-BEGIN;
-  CREATE TABLE pxtest2 (a int);
-  INSERT INTO pxtest2 VALUES (1);
-  INSERT INTO pxtest2 VALUES (3);
-PREPARE TRANSACTION 'regress-one';
 CREATE TABLE pxtest3(fff int);
 -- Test shared invalidation
-BEGIN;
+BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;
   DROP TABLE pxtest3;
   CREATE TABLE pxtest4 (a int);
   INSERT INTO pxtest4 VALUES (1);
@@ -149,7 +165,7 @@ BEGIN;
   FETCH 1 FROM foo;
  a 
 ---
- 1
+ 2
 (1 row)
 
 PREPARE TRANSACTION 'regress-two';
@@ -162,12 +178,18 @@ ERROR:  relation "pxtest2" does not exist
 LINE 1: SELECT * FROM pxtest2;
                       ^
 -- There should be two prepared transactions
-SELECT DISTINCT gid FROM pg_prepared_xacts ORDER BY gid;
+SELECT gid FROM pg_prepared_xacts ORDER BY gid;
      gid     
 -------------
- regress-one
  regress-two
-(2 rows)
+(1 row)
+
+-- Check prepared transactions in the cluster
+SELECT pgxc_prepared_xact FROM pgxc_prepared_xacts ORDER by 1;
+ pgxc_prepared_xact 
+--------------------
+ regress-two
+(1 row)
 
 -- pxtest3 should be locked because of the pending DROP
 set statement_timeout to 2000;
@@ -177,12 +199,18 @@ reset statement_timeout;
 -- Disconnect, we will continue testing in a different backend
 \c -
 -- There should still be two prepared transactions
-SELECT DISTINCT gid FROM pg_prepared_xacts ORDER BY gid;
+SELECT gid FROM pg_prepared_xacts ORDER BY gid;
      gid     
 -------------
- regress-one
  regress-two
-(2 rows)
+(1 row)
+
+-- Check prepared transactions in the cluster
+SELECT pgxc_prepared_xact FROM pgxc_prepared_xacts ORDER by 1;
+ pgxc_prepared_xact 
+--------------------
+ regress-two
+(1 row)
 
 -- pxtest3 should still be locked because of the pending DROP
 set statement_timeout to 2000;
@@ -191,23 +219,23 @@ ERROR:  canceling statement due to statement timeout
 reset statement_timeout;
 -- Commit table creation
 COMMIT PREPARED 'regress-one';
+ERROR:  prepared transaction with identifier "regress-one" does not exist
 \d pxtest2
-    Table "public.pxtest2"
- Column |  Type   | Modifiers 
---------+---------+-----------
- a      | integer | 
-
 SELECT * FROM pxtest2;
- a 
----
- 1
- 3
-(2 rows)
-
+ERROR:  relation "pxtest2" does not exist
+LINE 1: SELECT * FROM pxtest2;
+                      ^
 -- There should be one prepared transaction
-SELECT DISTINCT gid FROM pg_prepared_xacts;
+SELECT gid FROM pg_prepared_xacts ORDER BY 1;
      gid     
 -------------
+ regress-two
+(1 row)
+
+-- Check prepared transactions in the cluster
+SELECT pgxc_prepared_xact FROM pgxc_prepared_xacts ORDER by 1;
+ pgxc_prepared_xact 
+--------------------
  regress-two
 (1 row)
 
@@ -218,13 +246,20 @@ ERROR:  relation "pxtest3" does not exist
 LINE 1: SELECT * FROM pxtest3;
                       ^
 -- There should be no prepared transactions
-SELECT DISTINCT gid FROM pg_prepared_xacts ORDER BY gid;
+SELECT gid FROM pg_prepared_xacts ORDER BY gid;
  gid 
 -----
 (0 rows)
 
+-- Check prepared transactions in the cluster
+SELECT pgxc_prepared_xact FROM pgxc_prepared_xacts ORDER by 1;
+ pgxc_prepared_xact 
+--------------------
+(0 rows)
+
 -- Clean up
 DROP TABLE pxtest2;
+ERROR:  table "pxtest2" does not exist
 DROP TABLE pxtest3;  -- will still be there if prepared xacts are disabled
 ERROR:  table "pxtest3" does not exist
 DROP TABLE pxtest4;

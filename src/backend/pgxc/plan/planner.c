@@ -2741,6 +2741,7 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	PlannerInfo *root;
 	RemoteQuery *query_step;
 	StringInfoData buf;
+	bool exec_dir_catalog = false;
 
 	/*
 	 * Set up global state for this planner invocation.  This data is needed
@@ -2793,6 +2794,9 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 			query_step = stmt;
 			query->utilityStmt = NULL;
 			result->utilityStmt = NULL;
+
+			/* Force execution on nodes if query is only used for catalogs */
+			exec_dir_catalog = contains_only_pg_catalog(query->rtable);
 		}
 		else
 		{
@@ -2837,7 +2841,7 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	if (query->commandType != CMD_SELECT)
 		result->resultRelations = list_make1_int(query->resultRelation);
 
-	if (contains_only_pg_catalog(query->rtable))
+	if (contains_only_pg_catalog(query->rtable) && !exec_dir_catalog)
 	{
 		result = standard_planner(query, cursorOptions, boundParams);
 		return result;

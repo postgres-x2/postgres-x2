@@ -166,17 +166,7 @@ CREATE VIEW pg_available_extension_versions AS
            LEFT JOIN pg_extension AS X
              ON E.name = X.extname AND E.version = X.extversion;
 
-CREATE SCHEMA __pgxc_coordinator_schema__;
-CREATE SCHEMA __pgxc_datanode_schema__;
-
-create table __pgxc_coordinator_schema__.pg_prepared_xacts
-    ( transaction xid, gid text, prepared timestamptz, owner name, database name );
-
-INSERT INTO pgxc_class VALUES
-    ((SELECT oid FROM pg_class
-      WHERE relkind = 'r' AND relname = 'pg_prepared_xacts'), 'N', 0,0,0);
-
-CREATE VIEW __pgxc_datanode_schema__.pg_prepared_xacts AS
+CREATE VIEW pg_prepared_xacts AS
     SELECT P.transaction, P.gid, P.prepared,
            U.rolname AS owner, D.datname AS database
     FROM pg_prepared_xact() AS P

@@ -2532,10 +2532,6 @@ static struct config_int ConfigureNamesInt[] =
 	}
 };
 
-#ifdef PGXC
-/* Variable to store search path */
-static char boot_search_path[255];
-#endif
 
 static struct config_real ConfigureNamesReal[] =
 {
@@ -2892,13 +2888,8 @@ static struct config_string ConfigureNamesString[] =
 			GUC_LIST_INPUT | GUC_LIST_QUOTE
 		},
 		&namespace_search_path,
-#ifdef PGXC
-		boot_search_path,
-		check_search_path, assign_search_path, NULL
-#else
 		"\"$user\",public",
 		check_search_path, assign_search_path, NULL
-#endif
 	},
 
 	{
@@ -3756,14 +3747,6 @@ build_guc_variables(void)
 	int			num_vars = 0;
 	struct config_generic **guc_vars;
 	int			i;
-
-#ifdef PGXC
-	strcpy(boot_search_path, "\"$user\",public, ");
-	if (IS_PGXC_DATANODE)
-		strcat(boot_search_path, PGXC_DATA_NODE_SCHEMA);
-	else
-		strcat(boot_search_path, PGXC_COORDINATOR_SCHEMA);
-#endif
 
 	for (i = 0; ConfigureNamesBool[i].gen.name; i++)
 	{

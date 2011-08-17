@@ -8070,7 +8070,6 @@ ExecDirectStmt: EXECUTE DIRECT ON COORDINATOR coord_list DirectStmt
 				{
 					ExecDirectStmt *n = makeNode(ExecDirectStmt);
 					n->coordinator = TRUE;
-					n->nodes = NIL;
 					n->nodes = $5;
 					n->query = $6;
 					$$ = (Node *)n;

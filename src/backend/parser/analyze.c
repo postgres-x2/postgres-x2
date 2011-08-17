@@ -2353,7 +2353,7 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 	/* Default list of parameters to set */
 	step->is_single_step = true;
 	step->sql_statement = NULL;
-	step->exec_nodes = NULL;
+	step->exec_nodes = makeNode(ExecNodes);
 	step->combine_type = COMBINE_TYPE_NONE;
 	step->sort = NULL;
 	step->distinct = NULL;
@@ -2380,10 +2380,6 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 	step->join_condition = NULL;
 
 	/* Change the list of nodes that will be executed for the query and others */
-	step->exec_nodes = (ExecNodes *) palloc(sizeof(ExecNodes));
-	step->exec_nodes->primarynodelist = NIL;
-	step->exec_nodes->nodelist = NIL;
-	step->exec_nodes->en_expr = NULL;
 	step->force_autocommit = false;
 	step->combine_type = COMBINE_TYPE_SAME;
 	step->read_only = true;

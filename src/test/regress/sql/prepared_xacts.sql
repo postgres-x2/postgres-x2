@@ -22,15 +22,19 @@ PREPARE TRANSACTION 'foo1';
 SELECT * FROM pxtest1 ORDER BY foobar;
 
 -- Test pg_prepared_xacts system view
-SELECT DISTINCT gid FROM pg_prepared_xacts ORDER BY gid;
+SELECT gid FROM pg_prepared_xacts ORDER BY gid;
+-- Test pgxc_prepared_xacts system view
+SELECT pgxc_prepared_xact FROM pgxc_prepared_xacts ORDER by 1;
 
 -- Test ROLLBACK PREPARED
 ROLLBACK PREPARED 'foo1';
 
 SELECT * FROM pxtest1  ORDER BY foobar;
 
-SELECT DISTINCT gid FROM pg_prepared_xacts ORDER BY gid;
-
+-- Check prepared transactions on Coordinator
+SELECT gid FROM pg_prepared_xacts ORDER BY gid;
+-- Check prepared transactions in the cluster
+SELECT pgxc_prepared_xact FROM pgxc_prepared_xacts ORDER by 1;
 
 -- Test COMMIT PREPARED
 BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;
@@ -50,7 +54,10 @@ UPDATE pxtest1 SET foobar = 'eee' WHERE foobar = 'ddd';
 SELECT * FROM pxtest1  ORDER BY foobar;
 PREPARE TRANSACTION 'foo3';
 
-SELECT DISTINCT gid FROM pg_prepared_xacts ORDER BY gid;
+-- Check prepared transactions on Coordinator
+SELECT gid FROM pg_prepared_xacts ORDER BY gid;
+-- Check prepared transactions in the cluster
+SELECT pgxc_prepared_xact FROM pgxc_prepared_xacts ORDER by 1;
 
 BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;
 INSERT INTO pxtest1 VALUES ('fff');
@@ -58,9 +65,11 @@ SELECT * FROM pxtest1  ORDER BY foobar;
 
 -- This should fail, because the gid foo3 is already in use
 PREPARE TRANSACTION 'foo3';
-
+-- Rollback on all the nodes
 ROLLBACK;
+
 SELECT * FROM pxtest1  ORDER BY foobar;
+
 ROLLBACK PREPARED 'foo3';
 
 SELECT * FROM pxtest1  ORDER BY foobar;
@@ -78,13 +87,6 @@ BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;
   SAVEPOINT b;
   INSERT INTO pxtest2 VALUES (3);
 PREPARE TRANSACTION 'regress-one';
-
-BEGIN;
-  CREATE TABLE pxtest2 (a int);
-  INSERT INTO pxtest2 VALUES (1);
-  INSERT INTO pxtest2 VALUES (3);
-PREPARE TRANSACTION 'regress-one';
-
 
 CREATE TABLE pxtest3(fff int);
 
@@ -106,7 +108,9 @@ FETCH 1 FROM foo;
 SELECT * FROM pxtest2;
 
 -- There should be two prepared transactions
-SELECT DISTINCT gid FROM pg_prepared_xacts ORDER BY gid;
+SELECT gid FROM pg_prepared_xacts ORDER BY gid;
+-- Check prepared transactions in the cluster
+SELECT pgxc_prepared_xact FROM pgxc_prepared_xacts ORDER by 1;
 
 -- pxtest3 should be locked because of the pending DROP
 set statement_timeout to 2000;
@@ -117,7 +121,9 @@ reset statement_timeout;
 \c -
 
 -- There should still be two prepared transactions
-SELECT DISTINCT gid FROM pg_prepared_xacts ORDER BY gid;
+SELECT gid FROM pg_prepared_xacts ORDER BY gid;
+-- Check prepared transactions in the cluster
+SELECT pgxc_prepared_xact FROM pgxc_prepared_xacts ORDER by 1;
 
 -- pxtest3 should still be locked because of the pending DROP
 set statement_timeout to 2000;
@@ -130,17 +136,20 @@ COMMIT PREPARED 'regress-one';
 SELECT * FROM pxtest2;
 
 -- There should be one prepared transaction
-SELECT DISTINCT gid FROM pg_prepared_xacts;
+SELECT gid FROM pg_prepared_xacts ORDER BY 1;
+-- Check prepared transactions in the cluster
+SELECT pgxc_prepared_xact FROM pgxc_prepared_xacts ORDER by 1;
 
 -- Commit table drop
 COMMIT PREPARED 'regress-two';
 SELECT * FROM pxtest3;
 
 -- There should be no prepared transactions
-SELECT DISTINCT gid FROM pg_prepared_xacts ORDER BY gid;
+SELECT gid FROM pg_prepared_xacts ORDER BY gid;
+-- Check prepared transactions in the cluster
+SELECT pgxc_prepared_xact FROM pgxc_prepared_xacts ORDER by 1;
 
 -- Clean up
 DROP TABLE pxtest2;
 DROP TABLE pxtest3;  -- will still be there if prepared xacts are disabled
 DROP TABLE pxtest4;
-

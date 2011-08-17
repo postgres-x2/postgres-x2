@@ -1472,6 +1472,12 @@ PGXCNodeSetBeginQuery(char *query_string)
 }
 
 /*
+ * Error messages for PREPARE
+ */
+#define ERROR_DATANODES_PREPARE	-1
+#define ERROR_ALREADY_PREPARE	-2
+
+/*
  * Prepare transaction on Datanodes and Coordinators involved in current transaction.
  * GXID associated to current transaction has to be committed on GTM.
  */
@@ -1544,12 +1550,15 @@ finish:
 					(errcode(ERRCODE_INTERNAL_ERROR),
 					 errmsg("cannot PREPARE a transaction that has operated on temporary tables")));
 		}
+
+		if (res == ERROR_ALREADY_PREPARE)
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("transaction identifier \"%s\" is already in use", gid)));
 		else
-		{
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
 					 errmsg("Could not prepare transaction on data nodes")));
-		}
 	}
 
 	/* Reset temporary object flag */
@@ -1683,10 +1692,10 @@ finish:
 		 */
 		if (!gtm_error)
 			if (pgxc_all_handles_send_gxid(pgxc_handles, rollback_xid, false))
-				result = EOF;
+				result = ERROR_DATANODES_PREPARE;
 
 		if (pgxc_all_handles_send_query(pgxc_handles, buffer, false))
-			result = EOF;
+			result = ERROR_DATANODES_PREPARE;
 
 		result = pgxc_node_receive_and_validate(dn_conn_count, pgxc_handles->datanode_handles, false);
 		result |= pgxc_node_receive_and_validate(co_conn_count, pgxc_handles->coord_handles, false);
@@ -1698,7 +1707,10 @@ finish:
 		if (!gtm_error)
 			CommitPreparedTranGTM(gxid, rollback_xid);
 
-		return EOF;
+		if (gtm_error)
+			return ERROR_ALREADY_PREPARE;
+		else
+			return ERROR_DATANODES_PREPARE;
 	}
 
 	return result;
