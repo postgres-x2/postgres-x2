@@ -75,6 +75,8 @@ extern DatanodeStatement *FetchDatanodeStatement(const char *stmt_name, bool thr
 extern bool ActivateDatanodeStatementOnNode(const char *stmt_name, int node);
 extern bool HaveActiveDatanodeStatements(void);
 extern void DropDatanodeStatement(const char *stmt_name);
+extern int SetRemoteStatementName(Plan *plan, const char *stmt_name, int num_params,
+						Oid *param_types, int n);
 #endif
 
 #endif   /* PREPARE_H */

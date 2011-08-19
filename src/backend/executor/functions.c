@@ -18,12 +18,16 @@
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
 #include "commands/trigger.h"
+#ifdef PGXC
+#include "commands/prepare.h"
+#endif /* PGXC */
 #include "executor/functions.h"
 #include "funcapi.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "parser/parse_coerce.h"
+#include "pgxc/pgxc.h"
 #include "tcop/utility.h"
 #include "utils/builtins.h"
 #include "utils/datum.h"
@@ -301,6 +305,21 @@ init_execution_state(List *queryTree_list,
 				/* translator: %s is a SQL statement name */
 					   errmsg("%s is not allowed in a non-volatile function",
 							  CreateCommandTag(stmt))));
+
+#ifdef PGXC
+			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+			{
+				/*
+				 * The parameterised queries in RemoteQuery nodes will be prepared
+				 * on the datanode, and need parameter types for the same. Set the
+				 * parameter types and their number in all RemoteQuery nodes in the
+				 * plan
+				 */
+				SetRemoteStatementName(((PlannedStmt *)stmt)->planTree, NULL,
+										fcache->pinfo->nargs,
+										fcache->pinfo->argtypes, 0);
+			}
+#endif /* PGXC */
 
 			/* OK, build the execution_state for this query */
 			newes = (execution_state *) palloc(sizeof(execution_state));

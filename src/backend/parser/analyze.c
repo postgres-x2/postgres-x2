@@ -2361,8 +2361,6 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 	step->force_autocommit = false;
 	step->cursor = NULL;
 	step->exec_type = EXEC_ON_DATANODES;
-	step->paramval_data = NULL;
-	step->paramval_len = 0;
 
 	step->relname = NULL;
 	step->remotejoin = false;

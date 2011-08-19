@@ -460,8 +460,8 @@ InitQueryHashTable(void)
  * Assign the statement name for all the RemoteQueries in the plan tree, so
  * they use datanode statements
  */
-static int
-set_remote_stmtname(Plan *plan, const char *stmt_name, int num_params,
+int
+SetRemoteStatementName(Plan *plan, const char *stmt_name, int num_params,
 						Oid *param_types, int n)
 {
 	/* If no plan simply return */
@@ -472,47 +472,55 @@ set_remote_stmtname(Plan *plan, const char *stmt_name, int num_params,
 	{
 		DatanodeStatement *entry;
 		bool exists;
-
 		char name[NAMEDATALEN];
-		do
+
+		if (stmt_name)
 		{
-			strcpy(name, stmt_name);
-			/*
-			 * Append modifier. If resulting string is going to be truncated,
-			 * truncate better the base string, otherwise we may enter endless
-			 * loop
-			 */
-			if (n)
+			do
 			{
-				char modifier[NAMEDATALEN];
-				sprintf(modifier, "__%d", n);
+				strcpy(name, stmt_name);
 				/*
-				 * if position NAMEDATALEN - strlen(modifier) - 1 is beyond the
-				 * base string this is effectively noop, otherwise it truncates
-				 * the base string
+				 * Append modifier. If resulting string is going to be truncated,
+				 * truncate better the base string, otherwise we may enter endless
+				 * loop
 				 */
-				name[NAMEDATALEN - strlen(modifier) - 1] = '\0';
-				strcat(name, modifier);
-			}
-			n++;
-			hash_search(datanode_queries, name, HASH_FIND, &exists);
-		} while (exists);
-		((RemoteQuery *) plan)->statement = pstrdup(name);
-		((RemoteQuery *) plan)->num_params = num_params;
-		((RemoteQuery *) plan)->param_types = param_types;
-		entry = (DatanodeStatement *) hash_search(datanode_queries,
+				if (n)
+				{
+					char modifier[NAMEDATALEN];
+					sprintf(modifier, "__%d", n);
+					/*
+					 * if position NAMEDATALEN - strlen(modifier) - 1 is beyond the
+					 * base string this is effectively noop, otherwise it truncates
+					 * the base string
+					 */
+					name[NAMEDATALEN - strlen(modifier) - 1] = '\0';
+					strcat(name, modifier);
+				}
+				n++;
+				hash_search(datanode_queries, name, HASH_FIND, &exists);
+			} while (exists);
+			entry = (DatanodeStatement *) hash_search(datanode_queries,
 												  name,
 												  HASH_ENTER,
 												  NULL);
-		entry->nodenum = 0;
+			((RemoteQuery *) plan)->statement = pstrdup(name);
+			entry->nodenum = 0;
+		}
+		else if (((RemoteQuery *)plan)->statement)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("Passing parameters in PREPARE statement is not supported")));
+
+		((RemoteQuery *) plan)->num_params = num_params;
+		((RemoteQuery *) plan)->param_types = param_types;
 	}
 
 	if (innerPlan(plan))
-		n = set_remote_stmtname(innerPlan(plan), stmt_name, num_params,
+		n = SetRemoteStatementName(innerPlan(plan), stmt_name, num_params,
 									param_types, n);
 
 	if (outerPlan(plan))
-		n = set_remote_stmtname(outerPlan(plan), stmt_name, num_params,
+		n = SetRemoteStatementName(outerPlan(plan), stmt_name, num_params,
 									param_types, n);
 
 	return n;
@@ -576,7 +584,7 @@ StorePreparedStatement(const char *stmt_name,
 		foreach(lc, stmt_list)
 		{
 			PlannedStmt *ps = (PlannedStmt *) lfirst(lc);
-			n = set_remote_stmtname(ps->planTree, stmt_name, num_params,
+			n = SetRemoteStatementName(ps->planTree, stmt_name, num_params,
 										param_types_copy, n);
 		}
 	}

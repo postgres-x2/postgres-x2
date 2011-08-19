@@ -113,6 +113,10 @@ typedef struct RemoteQueryState
 	char	   *update_cursor;			/* throw this cursor current tuple can be updated */
 	int			cursor_count;			/* total count of participating nodes */
 	PGXCNodeHandle **cursor_connections;/* data node connections being combined */
+	/* Support for parameters */
+	char	   *paramval_data;		/* parameter data, format is like in BIND */
+	int			paramval_len;		/* length of parameter values data */
+
 }	RemoteQueryState;
 
 /* Multinode Executor */

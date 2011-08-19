@@ -36,6 +36,7 @@
 #include "pgxc/pgxc.h"
 #include "pgxc/poolmgr.h"
 #include "tcop/dest.h"
+#include "utils/builtins.h"
 #include "utils/elog.h"
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
@@ -1019,16 +1020,27 @@ pgxc_node_send_parse(PGXCNodeHandle * handle, const char* statement,
 	int			stmtLen = statement ? strlen(statement) + 1 : 1;
 	/* size of query string */
 	int			strLen = strlen(query) + 1;
-	/* size of parameter type array */
-	int 		paramTypeLen = sizeof(param_types[0]) * num_params + sizeof(num_params);
-	/* size + stmtLen + strlen + paramLen */
-	int			msgLen = 4 + stmtLen + strLen + paramTypeLen;
+	char 		**paramTypes = (char **)palloc(sizeof(char *) * num_params);
+	/* total size of parameter type names */
+	int 		paramTypeLen;
+	/* message length */
+	int			msgLen;
 	int			cnt_params;
+	size_t		old_outEnd = handle->outEnd;
 
-	/* we assume Oid to be 4 byte integer */
-	Assert(sizeof(param_types[0]) == 4);
 	/* if there are parameters, param_types should exist */
 	Assert(num_params <= 0 || param_types);
+	/* 2 bytes for number of parameters, preceding the type names */
+	paramTypeLen = 2;
+	/* find names of the types of parameters */
+	for (cnt_params = 0; cnt_params < num_params; cnt_params++)
+	{
+		paramTypes[cnt_params] = format_type_be(param_types[cnt_params]);
+		paramTypeLen += strlen(paramTypes[cnt_params]) + 1;
+	}
+
+	/* size + stmtLen + strlen + paramTypeLen */
+	msgLen = 4 + stmtLen + strLen + paramTypeLen;
 
 	/* msgType + msgLen */
 	if (ensure_out_buffer_capacity(handle->outEnd + 1 + msgLen, handle) != 0)
@@ -1057,12 +1069,20 @@ pgxc_node_send_parse(PGXCNodeHandle * handle, const char* statement,
 	Assert(sizeof(num_params) == 2);
 	*((short *)(handle->outBuffer + handle->outEnd)) = htons(num_params);
 	handle->outEnd += sizeof(num_params);
-	/* TODO we need to use htonl and convert byte ordering of OID here */
+	/*
+	 * instead of parameter ids we should send parameter names (qualified by
+	 * schema name if required). The OIDs of types can be different on
+	 * datanodes.
+	 */
 	for (cnt_params = 0; cnt_params < num_params; cnt_params++)
 	{
-		*((Oid *)(handle->outBuffer + handle->outEnd)) = htonl(param_types[cnt_params]);
-		handle->outEnd += sizeof(param_types[cnt_params]);
+		memcpy(handle->outBuffer + handle->outEnd, paramTypes[cnt_params],
+					strlen(paramTypes[cnt_params]) + 1);
+		handle->outEnd += strlen(paramTypes[cnt_params]) + 1;
+		pfree(paramTypes[cnt_params]);
 	}
+	pfree(paramTypes);
+	Assert(old_outEnd + ntohl(msgLen) + 1 == handle->outEnd);
 
  	return 0;
 }

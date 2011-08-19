@@ -52,7 +52,6 @@
 
 /*
  * Convenient format for literal comparisons
- *
  */
 typedef struct
 {
@@ -2011,8 +2010,6 @@ makeRemoteQuery(void)
 	result->force_autocommit = false;
 	result->cursor = NULL;
 	result->exec_type = EXEC_ON_DATANODES;
-	result->paramval_data = NULL;
-	result->paramval_len = 0;
 	result->exec_direct_type = EXEC_DIRECT_NONE;
 	result->is_temp = false;
 
@@ -2985,13 +2982,6 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 		set_cursor_name(result->planTree, stmt->portalname, 0);
 	}
 
-	/*
-	 * Assume single step. If there are multiple steps we should make up
-	 * parameters for each step where they referenced
-	 */
-	if (boundParams)
-		query_step->paramval_len = ParamListToDataRow(boundParams,
-													  &query_step->paramval_data);
 	/*
 	 * If query is FOR UPDATE fetch CTIDs from the remote node
 	 * Use CTID as a key to update tuples on remote nodes when handling

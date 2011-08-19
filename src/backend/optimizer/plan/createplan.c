@@ -5670,12 +5670,6 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 		query->sortClause)
 		return local_plan;
 
-	/*
-	 * PGXCTODO: we don't support the parameterised queries yet. So, for the
-	 * time being we don't apply the optimizations for parameterised queries
-	 */
-	if (root->glob->boundParams)
-		return local_plan;
 	/* for now only Agg/Group plans */
 	if (local_plan && IsA(local_plan, Agg))
 	{

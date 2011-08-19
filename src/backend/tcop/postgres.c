@@ -56,6 +56,9 @@
 #include "pg_trace.h"
 #include "parser/analyze.h"
 #include "parser/parser.h"
+#ifdef PGXC
+#include "parser/parse_type.h"
+#endif /* PGXC */
 #include "postmaster/autovacuum.h"
 #include "postmaster/postmaster.h"
 #include "replication/walsender.h"
@@ -1175,11 +1178,14 @@ exec_simple_query(const char *query_string)
  * exec_parse_message
  *
  * Execute a "Parse" protocol message.
+ * If paramTypeNames is specified, paraTypes is filled with corresponding OIDs.
+ * The caller is expected to allocate space for the paramTypes.
  */
 static void
 exec_parse_message(const char *query_string,	/* string to execute */
 				   const char *stmt_name,		/* name for prepared stmt */
 				   Oid *paramTypes,		/* parameter types */
+				   char **paramTypeNames,	/* parameter type names */
 				   int numParams)		/* number of parameters */
 {
 	MemoryContext oldcontext;
@@ -1249,6 +1255,24 @@ exec_parse_message(const char *query_string,	/* string to execute */
 								  ALLOCSET_DEFAULT_MAXSIZE);
 		oldcontext = MemoryContextSwitchTo(unnamed_stmt_context);
 	}
+
+#ifdef PGXC
+	/*
+	 * if we have the parameter types passed, which happens only in case of
+	 * connection from coordinators, fill paramTypes with their OIDs for
+	 * subsequent use. We have to do name to OID conversion, in a transaction
+	 * context.
+	 */
+	if (IsConnFromCoord() && paramTypeNames)
+	{
+		int cnt_param;
+		/* we don't expect type mod */
+		for (cnt_param = 0; cnt_param < numParams; cnt_param++)
+			parseTypeString(paramTypeNames[cnt_param], &paramTypes[cnt_param],
+								NULL);
+
+	}
+#endif /* PGXC */
 
 	/*
 	 * Do basic parsing of the query or queries (this should be safe even if
@@ -4090,6 +4114,7 @@ PostgresMain(int argc, char *argv[], const char *username)
 					const char *query_string;
 					int			numParams;
 					Oid		   *paramTypes = NULL;
+					char 	  **paramTypeNames = NULL;
 
 					/* Set statement_timestamp() */
 					SetCurrentStatementStartTimestamp();
@@ -4097,18 +4122,28 @@ PostgresMain(int argc, char *argv[], const char *username)
 					stmt_name = pq_getmsgstring(&input_message);
 					query_string = pq_getmsgstring(&input_message);
 					numParams = pq_getmsgint(&input_message, 2);
+					paramTypes = (Oid *) palloc(numParams * sizeof(Oid));
 					if (numParams > 0)
 					{
 						int			i;
-
-						paramTypes = (Oid *) palloc(numParams * sizeof(Oid));
-						for (i = 0; i < numParams; i++)
-							paramTypes[i] = pq_getmsgint(&input_message, 4);
+#ifdef PGXC
+						if (IsConnFromCoord())
+						{
+							paramTypeNames = (char **)palloc(numParams * sizeof(char *));
+							for (i = 0; i < numParams; i++)
+								paramTypeNames[i] = (char *)pq_getmsgstring(&input_message);
+						}
+						else
+#endif /* PGXC */
+						{
+							for (i = 0; i < numParams; i++)
+								paramTypes[i] = pq_getmsgint(&input_message, 4);
+						}
 					}
 					pq_getmsgend(&input_message);
 
 					exec_parse_message(query_string, stmt_name,
-									   paramTypes, numParams);
+									   paramTypes, paramTypeNames, numParams);
 				}
 				break;
 

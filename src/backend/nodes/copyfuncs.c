@@ -1023,8 +1023,6 @@ _copyRemoteQuery(RemoteQuery *from)
 					   sizeof(from->param_types[0]) * from->num_params);
 	COPY_SCALAR_FIELD(exec_type);
 	COPY_SCALAR_FIELD(is_temp);
-	COPY_SCALAR_FIELD(paramval_data);
-	COPY_SCALAR_FIELD(paramval_len);
 
 	COPY_STRING_FIELD(relname);
 	COPY_SCALAR_FIELD(remotejoin);
