@@ -32,16 +32,7 @@ EXECUTE <replaceable class="PARAMETER">name</replaceable> [ ( <replaceable class
 
  <refsect1>
   <title>Description</title>
-
-<!## XC>
-&xconly;
-  <para>
-   <command>EXECUTE</> has not been supported yet.  This may be
-   suppoted in the future releases.
-  </para>
-<!## end>
-
-<!## PG>
+&common;
   <para>
    <command>EXECUTE</command> is used to execute a previously prepared
    statement. Since prepared statements only exist for the duration of a
@@ -118,7 +109,6 @@ EXECUTE <replaceable class="PARAMETER">name</replaceable> [ ( <replaceable class
    <command>EXECUTE</command> statement also uses a somewhat different
    syntax.
   </para>
-<!## end>
  </refsect1>
 
  <refsect1>

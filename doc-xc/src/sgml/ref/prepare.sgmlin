@@ -32,17 +32,7 @@ PREPARE <replaceable class="PARAMETER">name</replaceable> [ ( <replaceable class
 
  <refsect1>
   <title>Description</title>
-
-<!## XC>
-&xconly;
-  <para>
-   <command>PREPARE</> has not been supported
-   by <productname>Postgres-XC</> yet.  This may be supported in the
-   future releases.
-  </para>
-<!## end>
-
-<!## PG>
+&common;
   <para>
    <command>PREPARE</command> creates a prepared statement. A prepared
    statement is a server-side object that can be used to optimize
@@ -202,7 +192,6 @@ EXECUTE usrrptplan(1, current_date);
    <command>PREPARE</command> statement also uses a somewhat different
    syntax.
   </para>
-<!## end>
  </refsect1>
 
  <refsect1>

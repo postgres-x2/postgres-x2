@@ -33,15 +33,7 @@ DEALLOCATE [ PREPARE ] { <replaceable class="parameter">name</replaceable> | ALL
  <refsect1>
   <title>Description</title>
 
-&xconly;
-<!## XC>
-  <para>
-   Current relase of <productname>Postgres-XC</> does not
-   support <command>DEALLOCATE</command> command.
-  </para>
-<!## end>
-
-<!## PG>
+&common;
   <para>
    <command>DEALLOCATE</command> is used to deallocate a previously
    prepared SQL statement. If you do not explicitly deallocate a
@@ -103,7 +95,5 @@ DEALLOCATE [ PREPARE ] { <replaceable class="parameter">name</replaceable> | ALL
    <member><xref linkend="sql-execute"></member>
    <member><xref linkend="sql-prepare"></member>
   </simplelist>
-
-<!## end>
  </refsect1>
 </refentry>

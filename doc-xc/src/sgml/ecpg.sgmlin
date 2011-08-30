@@ -1,13 +1,5 @@
 <!-- doc/src/sgml/ecpg.sgml -->
 
-<!-- COMMENT: K.Suzuki
-
-     This file assumes that PREPARE and EXECUTE statements will soon
-     be supported.  Description of them are scattered into so many
-     parts of the document and I found it is not practical to write
-     notice, which will be removed soon.
--->
-
 <chapter id="ecpg">
  <title><application>ECPG</application> - Embedded <acronym>SQL</acronym> in C</title>
 
