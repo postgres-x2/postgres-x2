@@ -1,6 +1,6 @@
 (This file does not appear in release tarballs.)
 
-In a release or snapshot tarball of PostgreSQL, documentation files named
+In a release or snapshot tarball of Postgres-XC, documentation files named
 INSTALL and HISTORY will appear in this directory.  However, these files are
 not stored in git and so will not be present if you are using a git checkout.
 If you are using git, you can view the most recent install instructions at:
