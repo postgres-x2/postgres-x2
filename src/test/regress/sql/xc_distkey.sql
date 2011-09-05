@@ -243,3 +243,10 @@ select * from tstz_tab_h order by a;
 select * from tstz_tab_h where a = 'May 10, 2011 00:01:02.03 PST';
 select * from tstz_tab_h where a = 'Jun 23, 2001 23:59:59.99 PST';
 
+
+create table my_rr_tab(a integer, b varchar(100)) distribute by round robin;
+insert into my_rr_tab values(1 , 'One');
+insert into my_rr_tab values(2, 'Two');
+
+select * from my_rr_tab order by a;
+
