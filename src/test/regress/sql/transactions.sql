@@ -342,7 +342,7 @@ savepoint x;
 create table abc (a int);
 insert into abc values (5);
 insert into abc values (10);
-declare foo cursor for select * from abc;
+declare foo cursor for select * from abc order by a;
 fetch from foo;
 rollback to x;
 
@@ -356,7 +356,7 @@ create table abc (a int);
 insert into abc values (5);
 insert into abc values (10);
 insert into abc values (15);
-declare foo cursor for select * from abc;
+declare foo cursor for select * from abc order by a;
 
 fetch from foo;
 

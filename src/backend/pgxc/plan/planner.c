@@ -531,7 +531,7 @@ get_plan_nodes_insert(PlannerInfo *root, RemoteQuery *step)
 	Query	   	*query = root->parse;
 	RangeTblEntry	*rte;
 	RelationLocInfo	*rel_loc_info;
-	Const	   	*constant = NULL;
+	Const	   	*constExpr = NULL;
 	ListCell	*lc;
 	Expr		*eval_expr = NULL;
 
@@ -703,14 +703,14 @@ get_plan_nodes_insert(PlannerInfo *root, RemoteQuery *step)
 				return;
 			}
 
-			constant = (Const *) checkexpr;
+			constExpr = (Const *) checkexpr;
 		}
 	}
 
-	if (constant == NULL)
+	if (constExpr == NULL)
 		step->exec_nodes = GetRelationNodes(rel_loc_info, 0, InvalidOid, RELATION_ACCESS_INSERT);
 	else
-		step->exec_nodes = GetRelationNodes(rel_loc_info, constant->constvalue, constant->consttype, RELATION_ACCESS_INSERT);
+		step->exec_nodes = GetRelationNodes(rel_loc_info, constExpr->constvalue, constExpr->consttype, RELATION_ACCESS_INSERT);
 
 	if (eval_expr)
 		pfree(eval_expr);

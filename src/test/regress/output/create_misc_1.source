@@ -5,7 +5,7 @@
 --	(any resemblance to real life is purely coincidental)
 --
 INSERT INTO tenk2 SELECT * FROM tenk1;
-COPY tenk2 FROM '/home/michael/bin/regress/data/tenk.data';
+COPY tenk2 FROM '@abs_srcdir@/data/tenk.data';
 SELECT * INTO TABLE onek2 FROM onek;
 ERROR:  INTO clause not yet supported
 CREATE TABLE onek2 (
@@ -26,7 +26,7 @@ CREATE TABLE onek2 (
 	stringu2	name,
 	string4		name
 );
-COPY onek2 FROM '/home/michael/bin/regress/data/onek.data';
+COPY onek2 FROM '@abs_srcdir@/data/onek.data';
 INSERT INTO fast_emp4000 SELECT * FROM slow_emp4000;
 SELECT *
    INTO TABLE Bprime
