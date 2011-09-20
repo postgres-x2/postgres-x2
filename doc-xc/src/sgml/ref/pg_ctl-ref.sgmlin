@@ -355,7 +355,7 @@ PostgreSQL documentation
 
 <!## XC>
      <varlistentry>
-      <term><option>-S<replaceable class="parameter">nodeopt</replaceable></option></term>
+      <term><option>-Z<replaceable class="parameter">nodeopt</replaceable></option></term>
       <listitem>
        <para>
         Specifies to run as coordinator or as datanode.  You should
