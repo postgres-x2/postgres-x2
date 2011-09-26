@@ -115,6 +115,7 @@ static int cancel_query_on_connections(PoolAgent *agent, List *datanodelist, Lis
 static PGXCNodePoolSlot *acquire_connection(DatabasePool *dbPool, int node, char client_conn_type);
 static void agent_release_connections(PoolAgent *agent, List *dn_discard, List *co_discard);
 static void agent_reset_session(PoolAgent *agent, List *dn_list, List *co_list);
+static void agent_reset_slot(PoolAgent *agent, PGXCNodePoolSlot *slot);
 static void release_connection(DatabasePool *dbPool, PGXCNodePoolSlot *slot, int index, bool clean,
 							   char client_conn_type);
 static void destroy_slot(PGXCNodePoolSlot *slot);
@@ -1591,11 +1592,7 @@ agent_reset_session(PoolAgent *agent, List *dn_list, List *co_list)
 	if (!agent->session_params && !agent->local_params && !agent->is_temp)
 		return;
 
-	/*
-	 * Reset Datanode connection params.
-	 * Discard is only done for Datanodes as Temporary objects are never created
-	 * to other Coordinators in a session.
-	 */
+	/* Reset Datanode connection params */
 	if (dn_list &&
 		(agent->session_params || agent->local_params || agent->is_temp))
 	{
@@ -1609,26 +1606,14 @@ agent_reset_session(PoolAgent *agent, List *dn_list, List *co_list)
 			Assert(node > 0 && node <= NumDataNodes);
 			slot = agent->dn_connections[node - 1];
 
-			/* Reset connection params */
-			if (slot)
-			{
-				if (agent->session_params || agent->local_params)
-					PGXCNodeSendSetQuery(slot->conn, "RESET ALL;");
-
-				/*
-				 * Discard queries cannot be sent as multiple-queries,
-				 * so do it separately. It is OK to use this slow process
-				 * as session is ending.
-				 */
-				if (agent->is_temp)
-					PGXCNodeSendSetQuery(slot->conn, "DISCARD ALL;");
-			}
+			/* Reset given slot with parameters and temporary objects */
+			agent_reset_slot(agent, slot);
 		}
 	}
 
 	/* Reset Coordinator connection params */
 	if (co_list &&
-		(agent->session_params || agent->local_params))
+		(agent->session_params || agent->local_params || agent->is_temp))
 	{
 		ListCell   *lc;
 
@@ -1640,9 +1625,8 @@ agent_reset_session(PoolAgent *agent, List *dn_list, List *co_list)
 			Assert(node > 0 && node <= NumCoords);
 			slot = agent->coord_connections[node - 1];
 
-			/* Reset connection params */
-			if (slot)
-				PGXCNodeSendSetQuery(slot->conn, "RESET ALL;");
+			/* Reset given slot with parameters and temporary objects */
+			agent_reset_slot(agent, slot);
 		}
 	}
 
@@ -1658,6 +1642,27 @@ agent_reset_session(PoolAgent *agent, List *dn_list, List *co_list)
 		agent->local_params = NULL;
 	}
 	agent->is_temp = false;
+}
+
+/*
+ * Reset all the parameters of slot regarding pooler session agent
+ */
+static void
+agent_reset_slot(PoolAgent *agent, PGXCNodePoolSlot *slot)
+{
+	if (!slot)
+		return;
+
+	if (agent->session_params || agent->local_params)
+		PGXCNodeSendSetQuery(slot->conn, "RESET ALL;");
+
+	/*
+	 * Discard queries cannot be sent as multiple-queries,
+	 * so do it separately. It is OK to use this slow process
+	 * as session is ending.
+	 */
+	if (agent->is_temp)
+		PGXCNodeSendSetQuery(slot->conn, "DISCARD ALL;");
 }
 
 /*

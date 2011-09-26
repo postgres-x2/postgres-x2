@@ -722,12 +722,7 @@ standard_ProcessUtility(Node *parsetree,
 				 * Add a RemoteQuery node for a query at top level on a remote Coordinator
 				 */
 				if (isTopLevel)
-				{
-					if (is_temp)
-						stmts = AddRemoteQueryNode(stmts, queryString, EXEC_ON_DATANODES, is_temp);
-					else
-						stmts = AddRemoteQueryNode(stmts, queryString, EXEC_ON_ALL_NODES, is_temp);
-					}
+					stmts = AddRemoteQueryNode(stmts, queryString, EXEC_ON_ALL_NODES, is_temp);
 #endif
 
 				/* ... and do it */
@@ -2208,10 +2203,8 @@ ExecUtilityFindNodesRelkind(Oid relid, bool *is_temp)
 			break;
 
 		case RELKIND_RELATION:
-			if ((*is_temp = IsTempTable(relid)))
-				exec_type = EXEC_ON_DATANODES;
-			else
-				exec_type = EXEC_ON_ALL_NODES;
+			*is_temp = IsTempTable(relid);
+			exec_type = EXEC_ON_ALL_NODES;
 			break;
 
 		case RELKIND_VIEW:

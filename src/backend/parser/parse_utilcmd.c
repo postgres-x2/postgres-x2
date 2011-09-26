@@ -58,6 +58,7 @@
 #include "pgxc/locator.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/planner.h"
+#include "pgxc/execRemote.h"
 #endif
 #include "parser/parser.h"
 #include "rewrite/rewriteManip.h"
@@ -652,6 +653,16 @@ transformInhRelation(CreateStmtContext *cxt, InhRelation *inhRelation)
 				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 				 errmsg("inherited relation \"%s\" is not a table",
 						inhRelation->relation->relname)));
+
+#ifdef PGXC
+	/*
+	 * Check if relation is temporary and assign correct flag.
+	 * This will override transaction direct commit as no 2PC
+	 * can be used for transactions involving temporary objects.
+	 */
+	if (IsTempTable(RangeVarGetRelid(inhRelation->relation, false)))
+		ExecSetTempObjectIncluded();
+#endif
 
 	/*
 	 * Check for SELECT privilages

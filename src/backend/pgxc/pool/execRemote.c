@@ -4082,8 +4082,14 @@ ExecRemoteUtility(RemoteQuery *node)
 
 	implicit_force_autocommit = force_autocommit;
 
-	/* A transaction using temporary objects cannot use 2PC */
-	temp_object_included = node->is_temp;
+	/*
+	 * A transaction using temporary objects cannot use 2PC.
+	 * It is possible to invoke create table with inheritance on
+	 * temporary objects, so in this case temp_object_included flag
+	 * is already assigned when analyzing inner relations.
+	 */
+	if (!temp_object_included)
+		temp_object_included = node->is_temp;
 
 	remotestate = CreateResponseCombiner(0, node->combine_type);
 
