@@ -173,6 +173,10 @@ static RemoteQuery *makeRemoteQuery(void);
 static void validate_part_col_updatable(const Query *query);
 static bool contains_temp_tables(List *rtable);
 static bool contains_only_pg_catalog(List *rtable);
+static void pgxc_handle_unsupported_stmts(Query *query);
+static PlannedStmt *pgxc_fqs_planner(Query *query, int cursorOptions,
+										ParamListInfo boundParams);
+static bool pgxc_query_needs_coord(Query *query);
 
 /*
  * Find nth position of specified substring in the string
@@ -2725,22 +2729,104 @@ handle_limit_offset(RemoteQuery *query_step, Query *query, PlannedStmt *plan_stm
 	return 0;
 }
 
-
 /*
  * Build up a QueryPlan to execute on.
  *
- * For the prototype, there will only be one step,
- * and the nodelist will be NULL if it is not a PGXC-safe statement.
+ * This functions tries to find out whether
+ * 1. The statement can be shipped to the datanode and coordinator is needed
+ *    only as a proxy - in which case, it creates a single node plan.
+ * 2. The statement can be evaluated on the coordinator completely - thus no
+ *    query shipping is involved and standard_planner() is invoked to plan the
+ *    statement
+ * 3. The statement needs coordinator as well as datanode for evaluation -
+ *    again we use standard_planner() to plan the statement.
+ *
+ * The plan generated in either of the above cases is returned.
  */
 PlannedStmt *
 pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
+{
+	PlannedStmt *result;
+
+	/* handle the un-supported statements, obvious errors etc. */
+	pgxc_handle_unsupported_stmts(query);
+
+	/* see if can ship the query completely */
+	result = pgxc_fqs_planner(query, cursorOptions, boundParams);
+
+	/* we need coordinator for evaluation, invoke standard planner */
+	if (!result)
+		result = standard_planner(query, cursorOptions, boundParams);
+
+	return result;
+}
+
+/*
+ * pgxc_handle_unsupported_stmts
+ * Throw error for the statements that can not be handled in XC
+ */
+static void
+pgxc_handle_unsupported_stmts(Query *query)
+{
+	/* we don't support SELECT INTO yet */
+	if (query->commandType == CMD_SELECT && query->intoClause)
+		ereport(ERROR,
+				(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+				 (errmsg("INTO clause not yet supported"))));
+
+	/*
+	 * PGXCTODO: This validation will not be removed
+	 * until we support moving tuples from one node to another
+	 * when the partition column of a table is updated
+	 */
+	if (query->commandType == CMD_UPDATE)
+		validate_part_col_updatable(query);
+
+	if (query->returningList)
+		ereport(ERROR,
+				(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+				 (errmsg("RETURNING clause not yet supported"))));
+}
+
+/*
+ * pgxc_fqs_planner
+ * The routine tries to see if the statement can be completely evaluated on the
+ * datanodes. In such cases coordinator is not needed to evaluate the statement,
+ * and just acts as a proxy. A statement can be completely shipped to the remote
+ * node if every row of the result can be evaluated on a single datanode.
+ * For example:
+ *
+ * 1. SELECT * FROM tab1; where tab1 is a distributed table - Every row of the
+ * result set can be evaluated at a single datanode. Hence this statement is
+ * completely shippable even though many datanodes are involved in evaluating
+ * complete result set. In such case coordinator will be able to gather rows
+ * arisign from individual datanodes and proxy the result to the client.
+ *
+ * 2. SELECT count(*) FROM tab1; where tab1 is a distributed table - there is
+ * only one row in the result but it needs input from all the datanodes. Hence
+ * this is not completely shippable.
+ *
+ * 3. SELECT count(*) FROM tab1; where tab1 is replicated table - since result
+ * can be obtained from a single datanode, this is a completely shippable
+ * statement.
+ *
+ * fqs in the name of function is acronym for fast query shipping.
+ */
+static PlannedStmt *
+pgxc_fqs_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 {
 	PlannedStmt *result;
 	PlannerGlobal *glob;
 	PlannerInfo *root;
 	RemoteQuery *query_step;
 	StringInfoData buf;
-	bool exec_dir_catalog = false;
+
+	/*
+	 * If the query needs coordinator for evaluation or the query can be
+	 * completed on coordinator itself, we plan it through standard_planner()
+	 */
+	if (pgxc_query_needs_coord(query))
+		return NULL;
 
 	/*
 	 * Set up global state for this planner invocation.  This data is needed
@@ -2793,9 +2879,6 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 			query_step = stmt;
 			query->utilityStmt = NULL;
 			result->utilityStmt = NULL;
-
-			/* Force execution on nodes if query is only used for catalogs */
-			exec_dir_catalog = contains_only_pg_catalog(query->rtable);
 		}
 		else
 		{
@@ -2818,33 +2901,10 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 
 	result->planTree = (Plan *) query_step;
 
-	/* Perform some checks to make sure we can support the statement */
-	if (query->commandType == CMD_SELECT && query->intoClause)
-		ereport(ERROR,
-				(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-				 (errmsg("INTO clause not yet supported"))));
-
-	/* PGXCTODO: This validation will not be removed
-	 * until we support moving tuples from one node to another
-	 * when the partition column of a table is updated
-	 */
-	if (query->commandType == CMD_UPDATE)
-		validate_part_col_updatable(query);
-
-	if (query->returningList)
-		ereport(ERROR,
-				(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-				 (errmsg("RETURNING clause not yet supported"))));
 
 	/* Set result relations */
 	if (query->commandType != CMD_SELECT)
 		result->resultRelations = list_make1_int(query->resultRelation);
-
-	if (contains_only_pg_catalog(query->rtable) && !exec_dir_catalog)
-	{
-		result = standard_planner(query, cursorOptions, boundParams);
-		return result;
-	}
 
 	/* Check if temporary tables are in use in target list */
 	if (contains_temp_tables(query->rtable))
@@ -2853,31 +2913,14 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	if (query_step->exec_nodes == NULL)
 		get_plan_nodes_command(query_step, root);
 
-	/* standard planner handles correlated UPDATE or DELETE */
-	if ((query->commandType == CMD_UPDATE || query->commandType == CMD_DELETE)
-			&& list_length(query->rtable) > 1)
-	{
-		result = standard_planner(query, cursorOptions, boundParams);
-		return result;
-	}
 
 	if (query_step->exec_nodes == NULL)
 	{
 		/*
 		 * Processing guery against catalog tables, or multi-step command.
-		 * Run through standard planner
+		 * Need both coordinator and datanodes. Run through standard planner.
 		 */
-		result = standard_planner(query, cursorOptions, boundParams);
-		return result;
-	}
-
-	/* Do not yet allow multi-node correlated UPDATE or DELETE */
-	if ((query->commandType == CMD_UPDATE || query->commandType == CMD_DELETE)
-					&& !query_step->exec_nodes
-					&& list_length(query->rtable) > 1)
-	{
-		result = standard_planner(query, cursorOptions, boundParams);
-		return result;
+		return NULL;
 	}
 
 	/*
@@ -2917,58 +2960,15 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 
 	/* Handle LIMIT and OFFSET for single-step queries on multiple nodes */
 	if (handle_limit_offset(query_step, query, result))
-	{
-		/* complicated expressions, just fallback to standard plan */
-		result = standard_planner(query, cursorOptions, boundParams);
-		return result;
-	}
-
-	/*
-	 * PGXCTODO - this could be improved to check if the first
-	 * group by expression is the partitioning column, in which
-	 * case it is ok to treat as a single step.
-	 * PGXCTODO - whatever number of nodes involved in the query, grouping,
-	 * windowing and recursive queries take place at the coordinator. The
-	 * corresponding planner should be able to optimize the queries such that
-	 * most of the query is pushed to datanode, based on the kind of
-	 * distribution the table has.
-	 */
-	if (query->commandType == CMD_SELECT
-					&& (query->hasAggs ||
-						query->groupClause ||
-						query->havingQual ||
-						query->hasWindowFuncs ||
-						query->hasRecursive))
-	{
-		result = standard_planner(query, cursorOptions, boundParams);
-		return result;
-	}
-
-	/* Allow for override */
-	/* AM: Is this ever possible? */
-	if (query->commandType != CMD_SELECT &&
-			query->commandType != CMD_INSERT &&
-			query->commandType != CMD_UPDATE &&
-			query->commandType != CMD_DELETE)
-	{
-		if (StrictStatementChecking)
-			ereport(ERROR,
-					(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-					 (errmsg("This command is not yet supported."))));
-		else
-			result = standard_planner(query, cursorOptions, boundParams);
-			return result;
-	}
+		return NULL;
 
 	/*
 	 * If creating a plan for a scrollable cursor, make sure it can run
 	 * backwards on demand.  Add a Material node at the top at need.
 	 */
-	if (cursorOptions & CURSOR_OPT_SCROLL)
-	{
-		if (!ExecSupportsBackwardScan(result->planTree))
+	if ((cursorOptions & CURSOR_OPT_SCROLL) &&
+		!ExecSupportsBackwardScan(result->planTree))
 			result->planTree = materialize_finished_plan(result->planTree);
-	}
 
 	/*
 	 * Support for multi-step cursor.
@@ -3003,6 +3003,80 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	return result;
 }
 
+/*
+ * pgxc_query_needs_coord
+ * Check if the query needs coordinator for evaluation or it can be completely
+ * evaluated on coordinator. Return true if so, otherwise return false
+ */
+static bool
+pgxc_query_needs_coord(Query *query)
+{
+	/*
+	 * if the query has its utility set, it could be an EXEC_DIRECT statement,
+	 * check if it needs to be executed on coordinator
+	 */
+	if (query->utilityStmt &&
+		IsA(query->utilityStmt, RemoteQuery))
+	{
+		RemoteQuery *node = (RemoteQuery *)query->utilityStmt;
+
+		/* EXECUTE DIRECT statements on coordinator will need coordinator */
+		if(node->exec_direct_type == EXEC_DIRECT_LOCAL ||
+			node->exec_direct_type == EXEC_DIRECT_LOCAL_UTILITY)
+			return true;
+
+		/* EXECUTE DIRECT statements on remote nodes don't need coordinator */
+		if (node->exec_direct_type != EXEC_DIRECT_NONE)
+			return false;
+	}
+
+	/*
+	 * If the query involves just the catalog tables, and is not an EXEC DIRECT
+	 * statement, it can be evaluated completely on the coordinator. No need to
+	 * involve datanodes.
+	 */
+	if (contains_only_pg_catalog(query->rtable))
+		return true;
+
+	/* correlated UPDATE or DELETE needs to be handled at the coordinator */
+	if ((query->commandType == CMD_UPDATE || query->commandType == CMD_DELETE)
+			&& list_length(query->rtable) > 1)
+		return true;
+
+	/*
+	 * PGXCTODO - this could be improved to check if the first
+	 * group by expression is the partitioning column, in which
+	 * case it is ok to treat as a single step.
+	 * PGXCTODO - whatever number of nodes involved in the query, grouping,
+	 * windowing and recursive queries take place at the coordinator. The
+	 * corresponding planner should be able to optimize the queries such that
+	 * most of the query is pushed to datanode, based on the kind of
+	 * distribution the table has.
+	 */
+	if (query->commandType == CMD_SELECT
+					&& (query->hasAggs ||
+						query->groupClause ||
+						query->havingQual ||
+						query->hasWindowFuncs ||
+						query->hasRecursive))
+		return true;
+
+	/* Allow for override */
+	if (query->commandType != CMD_SELECT &&
+			query->commandType != CMD_INSERT &&
+			query->commandType != CMD_UPDATE &&
+			query->commandType != CMD_DELETE)
+	{
+		if (StrictStatementChecking)
+			ereport(ERROR,
+					(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+					 (errmsg("This command is not yet supported."))));
+
+			return true;
+	}
+
+	return false;
+}
 
 /*
  * See if we can reduce the passed in RemoteQuery nodes to a single step.
