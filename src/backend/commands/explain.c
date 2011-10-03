@@ -843,6 +843,9 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		case T_ValuesScan:
 		case T_CteScan:
 		case T_WorkTableScan:
+		case T_ForeignScan:
+			ExplainScanTarget((Scan *) plan, es);
+			break;
 #ifdef PGXC
 		case T_RemoteQuery:
 			{
@@ -867,9 +870,6 @@ ExplainNode(PlanState *planstate, List *ancestors,
 #endif
 				ExplainScanTarget((Scan *) plan, es);
 			}
-			break;
-		case T_ForeignScan:
-			ExplainScanTarget((Scan *) plan, es);
 			break;
 		case T_BitmapIndexScan:
 			{
