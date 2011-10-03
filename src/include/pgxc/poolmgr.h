@@ -171,7 +171,7 @@ extern void PoolManagerCleanConnection(List *datanodelist, List *coordlist, char
 extern int	PoolManagerAbortTransactions(char *dbname, char *username, int **proc_pids);
 
 /* Return connections back to the pool, for both Coordinator and Datanode connections */
-extern void PoolManagerReleaseConnections(int dn_ndisc, int* dn_discard, int co_ndisc, int* co_discard);
+extern void PoolManagerReleaseConnections(void);
 
 /* Cancel a running query on data nodes as well as on other coordinators */
 extern void PoolManagerCancelQuery(int dn_count, int* dn_list, int co_count, int* co_list);

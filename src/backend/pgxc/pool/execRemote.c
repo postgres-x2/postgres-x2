@@ -1285,6 +1285,7 @@ handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner)
 				break;
 			case 'A':			/* NotificationResponse */
 			case 'N':			/* NoticeResponse */
+			case 'S':			/* SetCommandComplete */
 				/*
 				 * Ignore these to prevent multiple messages, one from each
 				 * node. Coordinator will send one for DDL anyway
@@ -3534,7 +3535,6 @@ do_query(RemoteQueryState *node)
 static bool
 ExecRemoteQueryInnerPlan(RemoteQueryState *node)
 {
-	RemoteQuery    *step = (RemoteQuery *) node->ss.ps.plan;
 	EState		   *estate = node->ss.ps.state;
 	TupleTableSlot *innerSlot = ExecProcNode(innerPlanState(node));
 	/*

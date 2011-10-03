@@ -648,17 +648,13 @@ get_message(PGXCNodeHandle *conn, int *len, char **msg)
 
 
 /*
- * Release all data node connections  and coordinator connections
+ * Release all Datanode and Coordinator connections
  * back to pool and release occupied memory
  */
 void
 release_handles(void)
 {
 	int			i;
-	int 		dn_discard[NumDataNodes];
-	int			co_discard[NumCoords];
-	int			dn_ndisc = 0;
-	int			co_ndisc = 0;
 
 	if (datanode_count == 0 && coord_count == 0)
 		return;
@@ -667,20 +663,16 @@ release_handles(void)
 	if (HaveActiveDatanodeStatements())
 		return;
 
-	/* Collect Data Nodes handles */
+	/* Free Datanodes handles */
 	for (i = 0; i < NumDataNodes; i++)
 	{
 		PGXCNodeHandle *handle = &dn_handles[i];
 
 		if (handle->sock != NO_SOCKET)
 		{
-			if (handle->state == DN_CONNECTION_STATE_ERROR_FATAL)
-				dn_discard[dn_ndisc++] = handle->nodenum;
-			else if (handle->state != DN_CONNECTION_STATE_IDLE)
-			{
-				elog(DEBUG1, "Connection to Datanode %d has unexpected state %d and will be dropped", handle->nodenum, handle->state);
-				dn_discard[dn_ndisc++] = handle->nodenum;
-			}
+			if (handle->state != DN_CONNECTION_STATE_IDLE)
+				elog(DEBUG1, "Connection to Datanode %d has unexpected state %d and will be dropped",
+					 handle->nodenum, handle->state);
 			pgxc_node_free(handle);
 		}
 	}
@@ -692,19 +684,15 @@ release_handles(void)
 
 		if (handle->sock != NO_SOCKET)
 		{
-			if (handle->state == DN_CONNECTION_STATE_ERROR_FATAL)
-				co_discard[co_ndisc++] = handle->nodenum;
-			else if (handle->state != DN_CONNECTION_STATE_IDLE)
-			{
-				elog(DEBUG1, "Connection to Coordinator %d has unexpected state %d and will be dropped", handle->nodenum, handle->state);
-				co_discard[co_ndisc++] = handle->nodenum;
-			}
+			if (handle->state != DN_CONNECTION_STATE_IDLE)
+				elog(DEBUG1, "Connection to Coordinator %d has unexpected state %d and will be dropped",
+					 handle->nodenum, handle->state);
 			pgxc_node_free(handle);
 		}
 	}
 
-	/* Here We have to add also the list of Coordinator Connections we want to drop at the same time */
-	PoolManagerReleaseConnections(dn_ndisc, dn_discard, co_ndisc, co_discard);
+	/* And finally release all the connections on pooler */
+	PoolManagerReleaseConnections();
 
 	datanode_count = 0;
 	coord_count = 0;
@@ -732,7 +720,8 @@ cancel_query(void)
 
 		if (handle->sock != NO_SOCKET)
 		{
-			if (handle->state == DN_CONNECTION_STATE_COPY_IN || handle->state == DN_CONNECTION_STATE_COPY_OUT)
+			if (handle->state == DN_CONNECTION_STATE_COPY_IN ||
+				handle->state == DN_CONNECTION_STATE_COPY_OUT)
 			{
 				DataNodeCopyEnd(handle, true);
 			}
@@ -753,7 +742,8 @@ cancel_query(void)
 
 		if (handle->sock != NO_SOCKET)
 		{
-			if (handle->state == DN_CONNECTION_STATE_COPY_IN || handle->state == DN_CONNECTION_STATE_COPY_OUT)
+			if (handle->state == DN_CONNECTION_STATE_COPY_IN ||
+				handle->state == DN_CONNECTION_STATE_COPY_OUT)
 			{
 				DataNodeCopyEnd(handle, true);
 			}

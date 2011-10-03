@@ -20,6 +20,10 @@
 #include "postgres.h"
 
 #include "access/xact.h"
+#ifdef PGXC
+#include "access/transam.h"
+#include "pgxc/pgxc.h"
+#endif
 #include "catalog/dependency.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_authid.h"
@@ -3474,11 +3478,23 @@ RemoveTempRelationsCallback(int code, Datum arg)
 	{
 		/* Need to ensure we have a usable transaction. */
 		AbortOutOfAnyTransaction();
+#ifdef PGXC
+		/*
+		 * When a backend closes, this insures that
+		 * transaction ID taken is unique in the cluster.
+		 */
+		if (IsConnFromCoord())
+			SetForceXidFromGTM(true);
+#endif
 		StartTransactionCommand();
 
 		RemoveTempRelations(myTempNamespace);
 
 		CommitTransactionCommand();
+#ifdef PGXC
+		if (IsConnFromCoord())
+			SetForceXidFromGTM(false);
+#endif
 	}
 }
 
