@@ -36,6 +36,9 @@
 #include "commands/tablespace.h"
 #include "executor/spi.h"
 #include "funcapi.h"
+#ifdef PGXC
+#include "nodes/execnodes.h"
+#endif
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "optimizer/clauses.h"
@@ -171,6 +174,9 @@ static int print_function_arguments(StringInfo buf, HeapTuple proctup,
 						 bool print_table_args, bool print_defaults);
 static void print_function_rettype(StringInfo buf, HeapTuple proctup);
 static void set_deparse_planstate(deparse_namespace *dpns, PlanState *ps);
+#ifdef PGXC
+static void set_deparse_plan(deparse_namespace *dpns, Plan *plan);
+#endif
 static void push_child_plan(deparse_namespace *dpns, PlanState *ps,
 				deparse_namespace *save_dpns);
 static void pop_child_plan(deparse_namespace *dpns,
@@ -2289,6 +2295,104 @@ set_deparse_planstate(deparse_namespace *dpns, PlanState *ps)
 		dpns->inner_plan = NULL;
 }
 
+#ifdef PGXC
+/*
+ * This is a special case deparse context to be used at the planning time to
+ * generate query strings and expressions for remote shipping.
+ *
+ * XXX We should be careful while using this since the support is quite
+ * limited. The only supported use case at this point is for remote join
+ * reduction and some simple plan trees rooted by Agg node having a single
+ * RemoteQuery node as leftree.
+ */
+List *
+deparse_context_for_plan(Node *plan, List *ancestors,
+							  List *rtable)
+{
+	deparse_namespace *dpns;
+
+	dpns = (deparse_namespace *) palloc0(sizeof(deparse_namespace));
+
+	/* Initialize fields that stay the same across the whole plan tree */
+	dpns->rtable = rtable;
+	dpns->ctes = NIL;
+#ifdef PGXC
+	dpns->remotequery = false;
+#endif
+
+	/* Set our attention on the specific plan node passed in */
+	set_deparse_plan(dpns, (Plan *) plan);
+	dpns->ancestors = ancestors;
+
+	/* Return a one-deep namespace stack */
+	return list_make1(dpns);
+}
+
+/*
+ * Set deparse context for Plan. Only those plan nodes which are immediate (or
+ * through simple nodes) parents of RemoteQuery nodes are supported right now.
+ *
+ * This is a kind of work-around since the new deparse interface (since 9.1)
+ * expects a PlanState node. But planstates are instantiated only at execution
+ * time when InitPlan is called. But we are required to deparse the query
+ * during planning time, so we hand-cook these dummy PlanState nodes instead of
+ * init-ing the plan. Another approach could have been to delay the query
+ * generation to the execution time, but we are not yet sure if this can be
+ * safely done, especially for remote join reduction.
+ */
+static void
+set_deparse_plan(deparse_namespace *dpns, Plan *plan)
+{
+
+	if (IsA(plan, NestLoop))
+	{
+		NestLoop *nestloop = (NestLoop *) plan;
+
+		dpns->planstate = (PlanState *) makeNode(NestLoopState);
+		dpns->planstate->plan = plan;
+
+		dpns->outer_planstate = (PlanState *) makeNode(PlanState);
+		dpns->outer_plan = dpns->outer_planstate->plan = nestloop->join.plan.lefttree;
+		
+		dpns->inner_planstate = (PlanState *) makeNode(PlanState);
+		dpns->inner_plan = dpns->inner_planstate->plan = nestloop->join.plan.righttree;
+	}
+	else if (IsA(plan, RemoteQuery))
+	{
+		dpns->planstate = (PlanState *) makeNode(PlanState);
+		dpns->planstate->plan = plan;
+	}
+	else if (IsA(plan, Agg) || IsA(plan, Group))
+	{
+		/*
+		 * We expect plan tree as Group/Agg->Sort->Result->Material->RemoteQuery,
+		 * Result, Material nodes are optional. Sort is compulsory for Group but not
+		 * for Agg.
+		 * anything else is not handled right now.
+		 */
+		Plan *temp_plan = plan->lefttree;
+		Plan *remote_scan = NULL;
+
+		if (temp_plan && IsA(temp_plan, Sort))
+			temp_plan = temp_plan->lefttree;
+		if (temp_plan && IsA(temp_plan, Result))
+			temp_plan = temp_plan->lefttree;
+		if (temp_plan && IsA(temp_plan, Material))
+			temp_plan = temp_plan->lefttree;
+		if (temp_plan && IsA(temp_plan, RemoteQuery))
+			remote_scan = temp_plan;
+
+		if (!remote_scan)
+			elog(ERROR, "Deparse of this query at planning is not supported yet");
+
+		dpns->planstate = (PlanState *) makeNode(PlanState);
+		dpns->planstate->plan = plan;
+	}
+	else
+		elog(ERROR, "Deparse of this query at planning not supported yet");
+}
+
+#endif
 /*
  * push_child_plan: temporarily transfer deparsing attention to a child plan
  *

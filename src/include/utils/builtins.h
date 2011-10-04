@@ -640,6 +640,10 @@ extern void deparse_query(Query *query, StringInfo buf, List *parentnamespace);
 extern List *deparse_context_for(const char *aliasname, Oid relid);
 extern List *deparse_context_for_planstate(Node *planstate, List *ancestors,
 							  List *rtable);
+#ifdef PGXC
+extern List *deparse_context_for_plan(Node *plan, List *ancestors,
+							  List *rtable);
+#endif
 extern const char *quote_identifier(const char *ident);
 extern char *quote_qualified_identifier(const char *qualifier,
 						   const char *ident);

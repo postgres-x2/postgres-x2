@@ -2213,7 +2213,7 @@ reconstruct_step_query(List *rtable, bool has_order_by, List *extra_sort,
 	char	   *sql_from;
 	int			count_from = 1;
 
-	context = deparse_context_for_planstate((Node *) step, NULL, rtable);
+	context = deparse_context_for_plan((Node *) step, NULL, rtable);
 	useprefix = list_length(rtable) > 1;
 
 	foreach(l, sub_tlist)

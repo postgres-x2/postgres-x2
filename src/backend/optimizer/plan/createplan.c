@@ -1266,7 +1266,7 @@ create_remote_expr(PlannerInfo *root, Plan *parent, StringInfo expr,
 	bms_free(tmprelids);
 
 	/* Set up deparsing context */
-	context = deparse_context_for_planstate((Node *) parent,
+	context = deparse_context_for_plan((Node *) parent,
 			NULL,
 			root->parse->rtable);
 

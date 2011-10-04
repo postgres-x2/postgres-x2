@@ -248,7 +248,7 @@ elog(DEBUG2, "%s(%u) called", __FUNCTION__, __LINE__);
 
 	/* prepare to deparse plan */
 	initStringInfo(&sql);
-	context = deparse_context_for_planstate((Node *)scan, NULL,
+	context = deparse_context_for_plan((Node *)scan, NULL,
 											estate->es_range_table);
 
 	/*
