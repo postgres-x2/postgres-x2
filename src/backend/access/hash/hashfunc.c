@@ -554,7 +554,7 @@ compute_hash(Oid type, Datum value, int *pErr)
 			/* This gives added advantage that
 			 *	a = 8446744073709551359
 			 * and	a = 8446744073709551359::int8 both work*/
-			return DatumGetInt32(value);
+			return DatumGetInt64(value);
 		case INT2OID:
 			return DatumGetInt16(value);
 		case OIDOID:
