@@ -1229,7 +1229,7 @@ GetSnapshotData(Snapshot snapshot)
  	 * The data nodes may however connect directly to GTM themselves to obtain
  	 * XID and snapshot information for autovacuum worker threads.
  	 */
-	if (IS_PGXC_DATANODE)
+	if (IS_PGXC_DATANODE || IsConnFromCoord())
 	{
 		if (GetSnapshotDataDataNode(snapshot))
 			return snapshot;
@@ -2410,7 +2410,7 @@ UnsetGlobalSnapshotData(void)
 static bool 
 GetSnapshotDataDataNode(Snapshot snapshot)
 {
-	Assert(IS_PGXC_DATANODE);
+	Assert(IS_PGXC_DATANODE || IsConnFromCoord());
 
 
 	if (IsAutoVacuumWorkerProcess() || GetForceXidFromGTM())
