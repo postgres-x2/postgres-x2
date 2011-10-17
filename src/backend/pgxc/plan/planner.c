@@ -2923,6 +2923,9 @@ pgxc_fqs_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 		return NULL;
 	}
 
+	/* Datanodes should finalise the results of this query */
+	query->qry_finalise_aggs = true;
+
 	/*
 	 * Deparse query tree to get step query. It may be modified later on
 	 */
@@ -2930,6 +2933,13 @@ pgxc_fqs_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	deparse_query(query, &buf, NIL);
 	query_step->sql_statement = pstrdup(buf.data);
 	pfree(buf.data);
+	/*
+	 * PGXCTODO: we may route this same Query structure through
+	 * standard_planner, where we don't want datanodes to finalise the results.
+	 * Turn it off. At some point, we will avoid routing the same query
+	 * structure through the standard_planner
+	 */
+	query->qry_finalise_aggs = false;
 
 	query_step->is_single_step = true;
 	/*

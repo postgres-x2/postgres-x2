@@ -159,6 +159,9 @@ typedef struct Query
 	/* need this info for PGXC Planner, may be temporary */
 	char	   *sql_statement;	/* original query */
 	ExecNodes  *execNodes;	/* execute nodes */
+	bool		qry_finalise_aggs;	/* used for queries intended for datanodes,
+									 * should datanode finalise the aggregagtes?
+									 */
 #endif
 } Query;
 

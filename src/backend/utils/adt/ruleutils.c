@@ -23,6 +23,9 @@
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
 #include "catalog/pg_authid.h"
+#ifdef PGXC
+#include "catalog/pg_aggregate.h"
+#endif /* PGXC */
 #include "catalog/pg_collation.h"
 #include "catalog/pg_constraint.h"
 #include "catalog/pg_depend.h"
@@ -98,6 +101,9 @@ typedef struct
 	int			prettyFlags;	/* enabling of pretty-print functions */
 	int			indentLevel;	/* current indent level for prettyprint */
 	bool		varprefix;		/* TRUE to print prefixes on Vars */
+#ifdef PGXC
+	bool		finalise_aggs;	/* should datanode finalise the aggregates? */
+#endif /* PGXC */
 } deparse_context;
 
 /*
@@ -682,6 +688,9 @@ pg_get_triggerdef_worker(Oid trigid, bool pretty)
 		context.windowTList = NIL;
 		context.varprefix = true;
 		context.prettyFlags = pretty ? PRETTYFLAG_PAREN : 0;
+#ifdef PGXC
+		context.finalise_aggs = false;
+#endif /* PGXC */
 		context.indentLevel = PRETTYINDENT_STD;
 
 		get_rule_expr(qual, &context, false);
@@ -2125,6 +2134,9 @@ deparse_expression_pretty(Node *expr, List *dpcontext,
 	context.windowTList = NIL;
 	context.varprefix = forceprefix;
 	context.prettyFlags = prettyFlags;
+#ifdef PGXC
+	context.finalise_aggs = false;
+#endif /* PGXC */
 	context.indentLevel = startIndent;
 
 	get_rule_expr(expr, &context, showimplicit);
@@ -2625,6 +2637,9 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 		context.varprefix = (list_length(query->rtable) != 1);
 		context.prettyFlags = prettyFlags;
 		context.indentLevel = PRETTYINDENT_STD;
+#ifdef PGXC
+		context.finalise_aggs = false;
+#endif /* PGXC */
 
 		memset(&dpns, 0, sizeof(dpns));
 		dpns.rtable = query->rtable;
@@ -2787,6 +2802,9 @@ get_query_def_from_valuesList(Query *query, StringInfo buf)
 	context.varprefix = (list_length(query->rtable) != 1);
 	context.prettyFlags = 0;
 	context.indentLevel = 0;
+#ifdef PGXC
+	context.finalise_aggs = query->qry_finalise_aggs;
+#endif /* PGXC */
 
 	dpns.rtable = query->rtable;
 	dpns.ctes = query->cteList;
@@ -2942,6 +2960,9 @@ get_query_def(Query *query, StringInfo buf, List *parentnamespace,
 						 list_length(query->rtable) != 1);
 	context.prettyFlags = prettyFlags;
 	context.indentLevel = startIndent;
+#ifdef PGXC
+	context.finalise_aggs = query->qry_finalise_aggs;
+#endif /* PGXC */
 
 	memset(&dpns, 0, sizeof(dpns));
 	dpns.rtable = query->rtable;
@@ -6215,6 +6236,9 @@ get_agg_expr(Aggref *aggref, deparse_context *context)
 	List	   *arglist;
 	int			nargs;
 	ListCell   *l;
+#ifdef PGXC
+	bool		added_finalfn = false;
+#endif /* PGXC */
 
 	/* Extract the regular arguments, ignoring resjunk stuff for the moment */
 	arglist = NIL;
@@ -6236,6 +6260,35 @@ get_agg_expr(Aggref *aggref, deparse_context *context)
 		nargs++;
 	}
 
+#ifdef PGXC
+	/*
+	 * Datanode should send finalised aggregate results. Datanodes evaluate only
+	 * transition results. In order to get the finalised aggregate, we enclose
+	 * the aggregate call inside final function call, so as to get finalised
+	 * results at the coordinator
+	 */
+	if (context->finalise_aggs)
+	{
+		HeapTuple			aggTuple;
+		Form_pg_aggregate	aggform;
+		aggTuple = SearchSysCache(AGGFNOID,
+						  ObjectIdGetDatum(aggref->aggfnoid),
+						  0, 0, 0);
+		if (!HeapTupleIsValid(aggTuple))
+			elog(ERROR, "cache lookup failed for aggregate %u",
+				 aggref->aggfnoid);
+		aggform = (Form_pg_aggregate) GETSTRUCT(aggTuple);
+
+		if (OidIsValid(aggform->aggfinalfn))
+		{
+			appendStringInfo(buf, "%s(", generate_function_name(aggform->aggfinalfn, 0,
+													NULL, NULL, NULL));
+			added_finalfn = true;
+		}
+		ReleaseSysCache(aggTuple);
+	}
+#endif /* PGXC */
+
 	appendStringInfo(buf, "%s(%s",
 					 generate_function_name(aggref->aggfnoid, nargs,
 											NIL, argtypes, NULL),
@@ -6251,6 +6304,11 @@ get_agg_expr(Aggref *aggref, deparse_context *context)
 		get_rule_orderby(aggref->aggorder, aggref->args, false, context);
 	}
 	appendStringInfoChar(buf, ')');
+
+#ifdef PGXC
+	if (added_finalfn)
+		appendStringInfoChar(buf, ')');
+#endif /* PGXC */
 }
 
 /*
