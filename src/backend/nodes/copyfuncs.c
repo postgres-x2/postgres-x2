@@ -1007,7 +1007,6 @@ _copyRemoteQuery(RemoteQuery *from)
 	/*
 	 * copy remainder of node
 	 */
-	COPY_SCALAR_FIELD(is_single_step);
 	COPY_SCALAR_FIELD(exec_direct_type);
 	COPY_STRING_FIELD(sql_statement);
 	COPY_NODE_FIELD(exec_nodes);

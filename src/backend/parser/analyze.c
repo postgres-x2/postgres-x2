@@ -2351,7 +2351,6 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 	result->sql_statement = pstrdup(query);
 
 	/* Default list of parameters to set */
-	step->is_single_step = true;
 	step->sql_statement = NULL;
 	step->exec_nodes = makeNode(ExecNodes);
 	step->combine_type = COMBINE_TYPE_NONE;

@@ -89,7 +89,6 @@ typedef enum
 typedef struct
 {
 	Scan		scan;
-	bool		is_single_step;		/* special case, skip extra work */
 	ExecDirectType	exec_direct_type;	/* track if remote query is execute direct and what type it is */
 	char	   *sql_statement;
 	ExecNodes  *exec_nodes;			/* List of Datanodes where to launch query */

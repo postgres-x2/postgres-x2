@@ -962,7 +962,6 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 			}
 			FreeRelationLocInfo(rel_loc_info1);
 
-			context->query_step->is_single_step = true;
 			/*
 			 * replace cursor name in the query if differs
 			 */
@@ -2006,8 +2005,6 @@ static RemoteQuery *
 makeRemoteQuery(void)
 {
 	RemoteQuery *result = makeNode(RemoteQuery);
-	result->is_single_step = true;
-	result->sql_statement = NULL;
 	result->exec_nodes = NULL;
 	result->combine_type = COMBINE_TYPE_NONE;
 	result->sort = NULL;
@@ -2656,8 +2653,6 @@ handle_limit_offset(RemoteQuery *query_step, Query *query, PlannedStmt *plan_stm
 		return 1;
 
 	/*
-	 * Note that query_step->is_single_step is set to true, but
-	 * it is ok even if we add limit here.
 	 * If OFFSET is set, we strip the final offset value and add
 	 * it to the LIMIT passed down. If there is an OFFSET and no
 	 * LIMIT, we just strip off OFFSET.
@@ -2941,7 +2936,6 @@ pgxc_fqs_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	 */
 	query->qry_finalise_aggs = false;
 
-	query_step->is_single_step = true;
 	/*
 	 * PGXCTODO
 	 * When Postgres runs insert into t (a) values (1); against table
