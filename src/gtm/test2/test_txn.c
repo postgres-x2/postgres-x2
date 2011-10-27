@@ -96,9 +96,9 @@ test_txn_11()
 	GlobalTransactionId gxid =InvalidGlobalTransactionId;
 	GlobalTransactionId prepared_gxid =InvalidGlobalTransactionId;
 	int datanodecnt = 0;
-	PGXC_NodeId *datanodes = NULL;
+	char **datanodes = NULL;
 	int coordcnt = 0;
-	PGXC_NodeId *coordinators = NULL;
+	char **coordinators = NULL;
 	int rc;
 
 	SETUP();
@@ -182,7 +182,7 @@ test_txn_54()
 int
 main(int argc, char *argv[])
 {
-	sprintf(connect_string, "host=localhost port=6666 pgxc_node_id=1 remote_type=%d",
+	sprintf(connect_string, "host=localhost port=6666 node_name=one remote_type=%d",
 		PGXC_NODE_GTM);
 	
 	test_txn_01();
@@ -194,7 +194,7 @@ main(int argc, char *argv[])
 	/*
 	 * connect to standby. must be prevented.
 	 */
-	sprintf(connect_string, "host=localhost port=6667 pgxc_node_id=1 remote_type=%d",
+	sprintf(connect_string, "host=localhost port=6667 node_name=one remote_type=%d",
 		PGXC_NODE_GTM);
 	
 	test_txn_51();

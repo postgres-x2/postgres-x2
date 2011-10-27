@@ -134,6 +134,17 @@ extern Oid	getBaseType(Oid typid);
 extern Oid	getBaseTypeAndTypmod(Oid typid, int32 *typmod);
 #ifdef PGXC
 extern char *get_typename(Oid typid);
+extern char *get_pgxc_nodename(Oid nodeoid);
+extern Oid	get_pgxc_nodeoid(const char *nodename);
+extern char	get_pgxc_nodetype(Oid nodeid);
+extern int	get_pgxc_nodeport(Oid nodeid);
+extern char *get_pgxc_nodehost(Oid nodeid);
+extern Oid	get_pgxc_noderelated(Oid nodeid);
+extern bool	is_pgxc_nodepreferred(Oid nodeid);
+extern bool	is_pgxc_nodeprimary(Oid nodeid);
+extern Oid	get_pgxc_groupoid(const char *groupname);
+extern int	get_pgxc_groupmembers(Oid groupid, Oid **members);
+extern int	get_pgxc_classnodes(Oid tableid, Oid **nodes);
 #endif
 extern int32 get_typavgwidth(Oid typid, int32 typmod);
 extern int32 get_attavgwidth(Oid relid, AttrNumber attnum);

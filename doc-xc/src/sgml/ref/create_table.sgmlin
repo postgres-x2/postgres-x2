@@ -94,6 +94,7 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE [ IF NOT EXI
 [ ON COMMIT { PRESERVE ROWS | DELETE ROWS | DROP } ]
 [ TABLESPACE <replaceable class="PARAMETER">tablespace</replaceable> ]
 [ DISTRIBUTE BY { REPLICATION | ROUND ROBIN | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</> ) } } ]
+[ TO ( GROUP <replaceable class="PARAMETER">groupname</replaceable> | NODE <replaceable class="PARAMETER">nodename</replaceable> [, ... ] ) ]
 
 CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
     OF <replaceable class="PARAMETER">type_name</replaceable> [ (
@@ -105,6 +106,7 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
 [ ON COMMIT { PRESERVE ROWS | DELETE ROWS | DROP } ]
 [ TABLESPACE <replaceable class="PARAMETER">tablespace</replaceable> ]
 [ DISTRIBUTE BY { REPLICATION | ROUND ROBIN | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</> ) } } ]
+[ TO ( GROUP <replaceable class="PARAMETER">groupname</replaceable> | NODE <replaceable class="PARAMETER">nodename</replaceable> [, ... ] ) ]
 
 <phrase>where <replaceable class="PARAMETER">column_constraint</replaceable> is:</phrase>
 
@@ -202,10 +204,6 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
    <varlistentry>
     <term><literal>TEMPORARY</> or <literal>TEMP</></term>
     <listitem>
-<!## PG>
-<!-- NOTICE:
-     NO TEMPORARY tables yet.
--->
      <para>
       If specified, the table is created as a temporary table.
       Temporary tables are automatically dropped at the end of a
@@ -233,14 +231,6 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
       <xref linkend="sql-createtable-compatibility"
       endterm="sql-createtable-compatibility-title">.
      </para>
-<!## end>
-<!## XC>
-     <para>
-      <productname>Postgres-XC</> does not
-      support <literal>TEMPORARY</> table.  This may be supported in
-      the future releases.
-     </para>
-<!## end>
     </listitem>
    </varlistentry>
 
@@ -1043,7 +1033,38 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
 
    </listitem>
    </varlistentry>
-	<!## end>
+
+   <varlistentry>
+    <term><literal>TO GROUP</literal></term>
+    <term><literal>TO NODE</literal></term>
+      <listitem>
+       <para>
+        This defines on the list of nodes on which table data exists.
+        If this is not specified table data is present on all Datanodes.
+       </para>
+      </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><replaceable class="PARAMETER">nodename</replaceable></term>
+      <listitem>
+       <para>
+        Associated with <literal>TO NODE</literal>, it defines a <productname>
+        Postgres-XC</productname> node of catalog pgxc_node.
+       </para>
+      </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><replaceable class="PARAMETER">groupname</replaceable></term>
+      <listitem>
+       <para>
+        Associated with <literal>TO GROUP</literal>, it defines a <productname>
+        Postgres-XC</productname> node group in catalog pgxc_group.
+       </para>
+      </listitem>
+   </varlistentry>
+<!## end>
 
   </variablelist>
 

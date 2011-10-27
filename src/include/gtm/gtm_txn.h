@@ -107,32 +107,30 @@ typedef enum GTM_TransactionStates
 typedef struct GTM_TransactionInfo
 {
 	GTM_TransactionHandle		gti_handle;
-	GTM_ThreadID				gti_thread_id;
+	GTM_ThreadID			gti_thread_id;
 
-	bool						gti_in_use;
-	GlobalTransactionId			gti_gxid;
+	bool				gti_in_use;
+	GlobalTransactionId		gti_gxid;
 	GTM_TransactionStates		gti_state;
-	PGXC_NodeId					gti_coordid;
-	GlobalTransactionId			gti_xmin;
-	GTM_IsolationLevel			gti_isolevel;
-	bool						gti_readonly;
-	GTMProxy_ConnID				gti_backend_id;
-	uint32						gti_datanodecount;
-	PGXC_NodeId					*gti_datanodes;
-	uint32						gti_coordcount;
-	PGXC_NodeId					*gti_coordinators;
-	char						*gti_gid;
+	char				*gti_coordname;
+	GlobalTransactionId		gti_xmin;
+	GTM_IsolationLevel		gti_isolevel;
+	bool				gti_readonly;
+	GTMProxy_ConnID			gti_backend_id;
+	char				*nodestring; /* List of nodes prepared */
+	char				*gti_gid;
 
-	GTM_SnapshotData			gti_current_snapshot;
-	bool						gti_snapshot_set;
+	GTM_SnapshotData		gti_current_snapshot;
+	bool				gti_snapshot_set;
 
-	GTM_RWLock					gti_lock;
-	bool						gti_vacuum;
+	GTM_RWLock			gti_lock;
+	bool				gti_vacuum;
 } GTM_TransactionInfo;
 
 #define GTM_MAX_2PC_NODES				16
 /* By default a GID length is limited to 256 bits in PostgreSQL */
 #define GTM_MAX_GID_LEN					256
+#define GTM_MAX_NODESTRING_LEN			1024
 #define GTM_CheckTransactionHandle(x)	((x) >= 0 && (x) < GTM_MAX_GLOBAL_TRANSACTIONS)
 #define GTM_IsTransSerializable(x)		((x)->gti_isolevel == GTM_ISOLATION_SERIALIZABLE)
 
@@ -184,10 +182,10 @@ GTM_TransactionHandle GTM_GIDToHandle(char *gid);
 
 /* Transaction Control */
 void GTM_InitTxnManager(void);
-GTM_TransactionHandle GTM_BeginTransaction(GTM_PGXCNodeId coord_id,
+GTM_TransactionHandle GTM_BeginTransaction(char *coord_name,
 										   GTM_IsolationLevel isolevel,
 										   bool readonly);
-int GTM_BeginTransactionMulti(GTM_PGXCNodeId coord_id,
+int GTM_BeginTransactionMulti(char *coord_name,
 										   GTM_IsolationLevel isolevel[],
 										   bool readonly[],
 										   GTMProxy_ConnID connid[],
@@ -202,22 +200,13 @@ int GTM_CommitTransactionGXID(GlobalTransactionId gxid);
 int GTM_PrepareTransaction(GTM_TransactionHandle txn);
 int GTM_StartPreparedTransaction(GTM_TransactionHandle txn,
 								 char *gid,
-								 uint32 datanodecnt,
-								 PGXC_NodeId datanodes[],
-								 uint32 coordcnt,
-								 PGXC_NodeId coordinators[]);
+								 char *nodestring);
 int GTM_StartPreparedTransactionGXID(GlobalTransactionId gxid,
 									 char *gid,
-									 uint32 datanodecnt,
-									 PGXC_NodeId datanodes[],
-									 uint32 coordcnt,
-									 PGXC_NodeId coordinators[]);
+									 char *nodestring);
 int GTM_GetGIDData(GTM_TransactionHandle prepared_txn,
 				   GlobalTransactionId *prepared_gxid,
-				   int *datanodecnt,
-				   PGXC_NodeId **datanodes,
-				   int *coordcnt,
-				   PGXC_NodeId **coordinators);
+				   char **nodestring);
 uint32 GTM_GetAllPrepared(GlobalTransactionId gxids[], uint32 gxidcnt);
 GTM_TransactionStates GTM_GetStatus(GTM_TransactionHandle txn);
 GTM_TransactionStates GTM_GetStatusGXID(GlobalTransactionId gxid);

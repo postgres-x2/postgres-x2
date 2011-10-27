@@ -370,9 +370,7 @@ GetGlobalTransactionId(TransactionState s)
 	 * Here we receive timestamp at the same time as gxid.
 	 */
 	if (!GlobalTransactionIdIsValid(s->globalTransactionId))
-		s->globalTransactionId = (GlobalTransactionId) GetNewTransactionId(s->parent != NULL,
-																		   &received_tp,
-																		   &gtm_timestamp);
+		s->globalTransactionId = (GlobalTransactionId) GetNewTransactionId(s->parent != NULL, &received_tp, &gtm_timestamp);
 
 	/* Set a timestamp value if and only if it has been received from GTM */
 	if (received_tp)
@@ -2723,28 +2721,39 @@ AbortTransaction(void)
 			 * don't have any side effects with partially committed transactions
 			 */
 			char	implicitgid[256];
-			int		co_conn_count, dn_conn_count;
-			PGXC_NodeId *datanodes = NULL;
-			PGXC_NodeId *coordinators = NULL;
+			char	*nodestring = NULL;
 
 			sprintf(implicitgid, "T%d", s->globalTransactionId);
 
 			/* Get the list of nodes in error state */
-			PGXCNodeGetNodeList(&datanodes, &dn_conn_count, &coordinators, &co_conn_count);
-
-			/* Save the node list and gid on GTM. */
-			StartPreparedTranGTM(s->globalTransactionId, implicitgid,
-								 dn_conn_count, datanodes, co_conn_count, coordinators);
-
-			/* Finish to prepare the transaction. */
-			PrepareTranGTM(s->globalTransactionId);
+			nodestring = PGXCNodeGetNodeList(nodestring);
 
 			/*
-			 * Rollback commit GXID as it has been used by an implicit 2PC.
-			 * It is important at this point not to Commit the GXID used for PREPARE
-			 * to keep it visible in snapshot for other transactions.
+			 * If there are no nodes in error state,
+			 * all the nodes are already prepared
 			 */
-			RollbackTranGTM(s->globalCommitTransactionId);
+			if (nodestring)
+			{
+				/* Save the node list and gid on GTM. */
+				StartPreparedTranGTM(s->globalTransactionId, implicitgid,
+									 nodestring);
+
+				/* Finish to prepare the transaction. */
+				PrepareTranGTM(s->globalTransactionId);
+
+				/*
+				 * Rollback commit GXID as it has been used by an implicit 2PC.
+				 * It is important at this point not to Commit the GXID used for PREPARE
+				 * to keep it visible in snapshot for other transactions.
+				 */
+				RollbackTranGTM(s->globalCommitTransactionId);
+			}
+			else
+			{
+				/* No nodes need to be registered, so just clean up */
+				RollbackTranGTM(s->globalTransactionId);
+				RollbackTranGTM(s->globalCommitTransactionId);
+			}
 		}
 	}
 	else if (IS_PGXC_DATANODE || IsConnFromCoord())

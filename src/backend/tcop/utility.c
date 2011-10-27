@@ -68,7 +68,10 @@
 #include "pgxc/pgxc.h"
 #include "pgxc/planner.h"
 #include "pgxc/poolutils.h"
+#include "nodes/nodes.h"
 #include "pgxc/poolmgr.h"
+#include "pgxc/nodemgr.h"
+#include "pgxc/groupmgr.h"
 #include "utils/lsyscache.h"
 
 static void ExecUtilityStmtOnNodes(const char *queryString, ExecNodes *nodes,
@@ -745,7 +748,6 @@ standard_ProcessUtility(Node *parsetree,
 						relOid = DefineRelation((CreateStmt *) stmt,
 												RELKIND_RELATION,
 												InvalidOid);
-
 						/*
 						 * Let AlterTableCreateToastTable decide if this one
 						 * needs a secondary relation too.
@@ -758,6 +760,7 @@ standard_ProcessUtility(Node *parsetree,
 															"toast",
 															validnsps,
 															true, false);
+
 						(void) heap_reloptions(RELKIND_TOASTVALUE, toast_options,
 											   true);
 
@@ -1459,8 +1462,9 @@ standard_ProcessUtility(Node *parsetree,
 
 				/* INDEX on a temporary table cannot use 2PC at commit */
 				relid = RangeVarGetRelid(stmt->relation, true);
+
 				if (OidIsValid(relid))
-					exec_type = ExecUtilityFindNodes(OBJECT_TABLE, relid, &is_temp);
+					exec_type = ExecUtilityFindNodes(OBJECT_INDEX, relid, &is_temp);
 #endif
 
 				if (stmt->concurrent)
@@ -1945,6 +1949,41 @@ standard_ProcessUtility(Node *parsetree,
 		case T_BarrierStmt:
 			RequestBarrier(((BarrierStmt *) parsetree)->id, completionTag);
 			break;
+
+		case T_AlterNodeStmt:
+			PgxcNodeAlter((AlterNodeStmt *) parsetree);
+
+			if (IS_PGXC_COORDINATOR)
+				ExecUtilityStmtOnNodes(queryString, NULL, true, EXEC_ON_ALL_NODES, false);
+			break;
+
+		case T_CreateNodeStmt:
+			PgxcNodeCreate((CreateNodeStmt *) parsetree);
+
+			if (IS_PGXC_COORDINATOR)
+				ExecUtilityStmtOnNodes(queryString, NULL, true, EXEC_ON_ALL_NODES, false);
+			break;
+
+		case T_DropNodeStmt:
+			PgxcNodeRemove((DropNodeStmt *) parsetree);
+
+			if (IS_PGXC_COORDINATOR)
+				ExecUtilityStmtOnNodes(queryString, NULL, true, EXEC_ON_ALL_NODES, false);
+			break;
+
+		case T_CreateGroupStmt:
+			PgxcGroupCreate((CreateGroupStmt *) parsetree);
+
+			if (IS_PGXC_COORDINATOR)
+				ExecUtilityStmtOnNodes(queryString, NULL, true, EXEC_ON_ALL_NODES, false);
+			break;
+
+		case T_DropGroupStmt:
+			PgxcGroupRemove((DropGroupStmt *) parsetree);
+
+			if (IS_PGXC_COORDINATOR)
+				ExecUtilityStmtOnNodes(queryString, NULL, true, EXEC_ON_ALL_NODES, false);
+			break;
 #endif
 
 		case T_ReindexStmt:
@@ -2162,7 +2201,7 @@ ExecUtilityFindNodes(ObjectType object_type,
 
 		case OBJECT_INDEX:
 			/* Check if given index uses temporary tables */
-			if ((*is_temp = IsIndexUsingTempTable(relid)))
+			if ((*is_temp = IsTempTable(relid)))
 				exec_type = EXEC_ON_DATANODES;
 			else
 				exec_type = EXEC_ON_ALL_NODES;
@@ -3020,6 +3059,26 @@ CreateCommandTag(Node *parsetree)
 #ifdef PGXC
 		case T_BarrierStmt:
 			tag = "BARRIER";
+			break;
+
+		case T_AlterNodeStmt:
+			tag = "ALTER NODE";
+			break;
+
+		case T_CreateNodeStmt:
+			tag = "CREATE NODE";
+			break;
+
+		case T_DropNodeStmt:
+			tag = "DROP NODE";
+			break;
+
+		case T_CreateGroupStmt:
+			tag = "CREATE NODE GROUP";
+			break;
+
+		case T_DropGroupStmt:
+			tag = "DROP NODE GROUP";
 			break;
 #endif
 

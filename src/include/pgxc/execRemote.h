@@ -17,6 +17,7 @@
 #ifndef EXECREMOTE_H
 #define EXECREMOTE_H
 #include "locator.h"
+#include "nodes/nodes.h"
 #include "pgxcnode.h"
 #include "planner.h"
 #include "access/tupdesc.h"
@@ -61,9 +62,9 @@ typedef struct CombineTag
  */
 typedef struct RemoteDataRowData
 {
-	char	   *msg;					/* last data row message */
-	int 		msglen;					/* length of the data row message */
-	int 		msgnode;				/* node number of the data row message */
+	char	*msg;					/* last data row message */
+	int 	msglen;					/* length of the data row message */
+	int 	msgnode;				/* node number of the data row message */
 } 	RemoteDataRowData;
 typedef RemoteDataRowData *RemoteDataRow;
 
@@ -135,16 +136,13 @@ extern void	PGXCNodeImplicitCommitPrepared(GlobalTransactionId prepare_xid,
 										   bool is_commit);
 
 /* Get list of nodes */
-extern void PGXCNodeGetNodeList(PGXC_NodeId **datanodes,
-								int *dn_conn_count,
-								PGXC_NodeId **coordinators,
-								int *co_conn_count);
+extern char *PGXCNodeGetNodeList(char *nodestring);
 
 /* Copy command just involves Datanodes */
 extern PGXCNodeHandle** DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_from);
 extern int DataNodeCopyIn(char *data_row, int len, ExecNodes *exec_nodes, PGXCNodeHandle** copy_connections);
 extern uint64 DataNodeCopyOut(ExecNodes *exec_nodes, PGXCNodeHandle** copy_connections, FILE* copy_file);
-extern void DataNodeCopyFinish(PGXCNodeHandle** copy_connections, int primary_data_node, CombineType combine_type);
+extern void DataNodeCopyFinish(PGXCNodeHandle** copy_connections, int primary_dn_index, CombineType combine_type);
 extern bool DataNodeCopyEnd(PGXCNodeHandle *handle, bool is_error);
 extern int DataNodeCopyInBinaryForAll(char *msg_buf, int len, PGXCNodeHandle** copy_connections);
 
@@ -167,6 +165,4 @@ extern int ParamListToDataRow(ParamListInfo params, char** result);
 extern void ExecCloseRemoteStatement(const char *stmt_name, List *nodelist);
 
 extern void ExecSetTempObjectIncluded(void);
-
-extern int primary_data_node;
 #endif

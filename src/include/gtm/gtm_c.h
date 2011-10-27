@@ -35,7 +35,6 @@
 #include "c.h"
 
 typedef uint32	GlobalTransactionId;		/* 32-bit global transaction ids */
-typedef uint32	PGXC_NodeId;
 typedef int16	GTMProxy_ConnID;
 typedef uint32	GTM_StrLen;
 
@@ -95,8 +94,8 @@ typedef GTM_SequenceKeyData *GTM_SequenceKey;
 
 #define GTM_MAX_SEQKEY_LENGTH		1024
 
-#define InvalidSequenceValue				0x7fffffffffffffffLL
-#define SEQVAL_IS_VALID(v)					((v) != InvalidSequenceValue)
+#define InvalidSequenceValue		0x7fffffffffffffffLL
+#define SEQVAL_IS_VALID(v)		((v) != InvalidSequenceValue)
 
 #define GTM_MAX_GLOBAL_TRANSACTIONS	4096
 
@@ -111,14 +110,17 @@ typedef struct GTM_SnapshotData
 	GlobalTransactionId		sn_xmin;
 	GlobalTransactionId		sn_xmax;
 	GlobalTransactionId		sn_recent_global_xmin;
-	uint32					sn_xcnt;
+	uint32				sn_xcnt;
 	GlobalTransactionId		*sn_xip;
 } GTM_SnapshotData;
 
 typedef GTM_SnapshotData *GTM_Snapshot;
 
+/* Define max size of node name in start up packet */
+#define SP_NODE_NAME		64
+
 typedef struct GTM_StartupPacket {
-	GTM_PGXCNodeId			sp_cid;
+	char					sp_node_name[SP_NODE_NAME];
 	GTM_PGXCNodeType		sp_remotetype;
 	bool					sp_ispostmaster;
 } GTM_StartupPacket;

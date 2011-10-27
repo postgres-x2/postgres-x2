@@ -40,13 +40,13 @@ typedef enum GTMProxy_ThreadStatus
 typedef struct GTMProxy_ConnectionInfo
 {
 	/* Port contains all the vital information about this connection */
-	Port						*con_port;
+	Port				*con_port;
 	struct GTMProxy_ThreadInfo	*con_thrinfo;
-	bool						con_authenticated;
-	bool						con_disconnected;
-	GTMProxy_ConnID				con_id;
+	bool				con_authenticated;
+	bool				con_disconnected;
+	GTMProxy_ConnID			con_id;
 
-	GTM_MessageType				con_pending_msg;
+	GTM_MessageType			con_pending_msg;
 	GlobalTransactionId 		con_txid;
 	GTM_TransactionHandle		con_handle;
 } GTMProxy_ConnectionInfo;
@@ -159,33 +159,33 @@ typedef union GTMProxy_CommandData
 {
 	struct
 	{
-		bool					rdonly;
-		GTM_IsolationLevel		iso_level;
+		bool			rdonly;
+		GTM_IsolationLevel	iso_level;
 	} cd_beg;
 
 	struct
 	{
-		bool					isgxid;
-		GlobalTransactionId		gxid;
+		bool			isgxid;
+		GlobalTransactionId	gxid;
 		GTM_TransactionHandle	handle;
 	} cd_rc;
 
 	struct
 	{
-		bool					isgxid;
-		GlobalTransactionId		gxid;
+		bool			isgxid;
+		GlobalTransactionId	gxid;
 		GTM_TransactionHandle	handle;
 	} cd_snap;
 	
 	struct
 	{
 		GTM_PGXCNodeType	type;
-		GTM_PGXCNodeId		nodenum;
+		char			*nodename;
 		GTM_PGXCNodePort	port;
-		GTM_PGXCNodeId		proxynum;
-		char			   *datafolder;
-		char			   *ipaddress;
-		GTM_PGXCNodeStatus  status;
+		char			*gtm_proxy_nodename;
+		char			*datafolder;
+		char			*ipaddress;
+		GTM_PGXCNodeStatus	status;
 	} cd_reg;
 } GTMProxy_CommandData;
 

@@ -35,8 +35,10 @@
 #include "utils/snapmgr.h"
 #ifdef PGXC
 #include "pgxc/pgxc.h"
+#include "nodes/nodes.h"
 #include "pgxc/poolmgr.h"
 #include "pgxc/execRemote.h"
+#include "catalog/pgxc_node.h"
 #endif
 
 /*
@@ -504,7 +506,7 @@ SetRemoteStatementName(Plan *plan, const char *stmt_name, int num_params,
 												  HASH_ENTER,
 												  NULL);
 			((RemoteQuery *) plan)->statement = pstrdup(name);
-			entry->nodenum = 0;
+			entry->number_of_nodes = 0;
 		}
 		else if (((RemoteQuery *)plan)->statement)
 			ereport(ERROR,
@@ -978,10 +980,7 @@ FetchDatanodeStatement(const char *stmt_name, bool throwError)
 	 * anything, therefore it couldn't possibly store our plan.
 	 */
 	if (datanode_queries)
-		entry = (DatanodeStatement *) hash_search(datanode_queries,
-												  stmt_name,
-												  HASH_FIND,
-												  NULL);
+		entry = (DatanodeStatement *) hash_search(datanode_queries, stmt_name, HASH_FIND, NULL);
 	else
 		entry = NULL;
 
@@ -1010,9 +1009,9 @@ DropDatanodeStatement(const char *stmt_name)
 		List *nodelist = NIL;
 
 		/* make a List of integers from node numbers */
-		for (i = 0; i < entry->nodenum; i++)
-			nodelist = lappend_int(nodelist, entry->nodes[i]);
-		entry->nodenum = 0;
+		for (i = 0; i < entry->number_of_nodes; i++)
+			nodelist = lappend_int(nodelist, entry->dns_node_indices[i]);
+		entry->number_of_nodes = 0;
 
 		ExecCloseRemoteStatement(stmt_name, nodelist);
 
@@ -1040,7 +1039,7 @@ HaveActiveDatanodeStatements(void)
 	while ((entry = hash_seq_search(&seq)) != NULL)
 	{
 		/* Stop walking and return true */
-		if (entry->nodenum > 0)
+		if (entry->number_of_nodes > 0)
 		{
 			hash_seq_term(&seq);
 			return true;
@@ -1058,7 +1057,7 @@ HaveActiveDatanodeStatements(void)
  * prepared on the node
  */
 bool
-ActivateDatanodeStatementOnNode(const char *stmt_name, int node)
+ActivateDatanodeStatementOnNode(const char *stmt_name, int noid)
 {
 	DatanodeStatement *entry;
 	int i;
@@ -1067,12 +1066,12 @@ ActivateDatanodeStatementOnNode(const char *stmt_name, int node)
 	entry = FetchDatanodeStatement(stmt_name, true);
 
 	/* see if statement already active on the node */
-	for (i = 0; i < entry->nodenum; i++)
-		if (entry->nodes[i] == node)
+	for (i = 0; i < entry->number_of_nodes; i++)
+		if (entry->dns_node_indices[i] == noid)
 			return true;
 
 	/* statement is not active on the specified node append item to the list */
-	entry->nodes[entry->nodenum++] = node;
+	entry->dns_node_indices[entry->number_of_nodes++] = noid;
 	return false;
 }
 #endif

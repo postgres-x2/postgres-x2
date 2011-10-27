@@ -15,23 +15,19 @@ CREATE FUNCTION pgxc_prepared_xact()
 RETURNS setof text
 AS $$
 DECLARE
-	num_nodes integer;
-	i integer;
-	num_nodes_text text;
 	text_output text;
 	row_data record;
+	row_name record;
 	query_str text;
+	query_str_nodes text;
 	BEGIN
-		--Get total number of nodes
-		SELECT INTO num_nodes_text setting FROM pg_settings WHERE name = 'num_data_nodes';
-		num_nodes = num_nodes_text::integer;
-		i := 1;
-		WHILE i <= num_nodes LOOP
-			query_str := 'EXECUTE DIRECT ON NODE ' || i || ' ''SELECT gid FROM pg_prepared_xact()''';
+		--Get all the node names
+		query_str_nodes := 'SELECT node_name FROM pgxc_node WHERE node_type = ''D''';
+		FOR row_name IN EXECUTE(query_str_nodes) LOOP
+			query_str := 'EXECUTE DIRECT ON NODE ' || row_name.node_name || ' ''SELECT gid FROM pg_prepared_xact()''';
 			FOR row_data IN EXECUTE(query_str) LOOP
 				return next row_data.gid;
 			END LOOP;
-			i := i + 1;
 		END LOOP;
 		return;
 	END; $$

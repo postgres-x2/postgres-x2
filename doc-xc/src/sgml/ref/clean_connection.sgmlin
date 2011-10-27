@@ -21,7 +21,7 @@ PostgreSQL documentation
 
  <refsynopsisdiv>
 <synopsis>
-CLEAN CONNECTION TO (COORDINATOR <replaceable class="parameter">num</replaceable> | NODE <replaceable class="parameter">num</replaceable> | ALL {FORCE})
+CLEAN CONNECTION TO ( COORDINATOR <replaceable class="parameter">nodename</replaceable> [, ... ] | NODE <replaceable class="parameter">nodename</replaceable> [, ... ] | ALL {FORCE})
     [ FOR DATABASE <replaceable class="parameter">dbname</replaceable> ]
     [ TO USER <replaceable class="parameter">username</replaceable> ]
 </synopsis>
@@ -78,18 +78,18 @@ CLEAN CONNECTION TO (COORDINATOR <replaceable class="parameter">num</replaceable
    </varlistentry>
 
    <varlistentry>
-    <term><replaceable class="parameter">num</replaceable></term>
+    <term><replaceable class="parameter">nodename</replaceable></term>
     <listitem>
      <para>
       In the case of cleaning connections to a given list of
-      Coordinator, <replaceable class="parameter">num</replaceable>
+      Coordinator, <replaceable class="parameter">nodename</replaceable>
       has to be specified with the clause <literal>TO COORDINATOR
       </literal>.
      </para>
      <para>
        In the case of cleaning connections to a given list of
-       Datanodes, <replaceable class="parameter">num</replaceable>
-       has to be specified with the clause <literal>TO DATANODE
+       Datanodes, <replaceable class="parameter">nodename</replaceable>
+       has to be specified with the clause <literal>TO NODE
        </literal>.
      </para>
      <para>
@@ -97,9 +97,9 @@ CLEAN CONNECTION TO (COORDINATOR <replaceable class="parameter">num</replaceable
        a list of nodes like in the query:
 
 <programlisting>
-CLEAN CONNECTION TO COORDINATOR 1,2 FOR DATABASE<replaceable>name</replaceable>;
+CLEAN CONNECTION TO COORDINATOR coord1,coord2 FOR DATABASE<replaceable>name</replaceable>;
 </programlisting>
-       to clean connections to Coordinators 1 and 2.
+       to clean connections to Coordinators coord1 and coord2.
      </para>
     </listitem>
    </varlistentry>
@@ -120,16 +120,16 @@ CLEAN CONNECTION TO COORDINATOR 1,2 FOR DATABASE<replaceable>name</replaceable>;
   <title>Examples</title>
 
   <para>
-   Cleaning connection to Datanodes 1 and 2 for database template1:
+   Cleaning connection to Datanodes dn1 and dn2 for database template1:
 <programlisting>
-CLEAN CONNECTION TO NODE 1,2 FOR DATABASE template1;
+CLEAN CONNECTION TO NODE dn1,dn2 FOR DATABASE template1;
 </programlisting>
   </para>
 
   <para>
-   Cleaning connection to Datanode 3 for role postgres:
+   Cleaning connection to Datanode dn3 for role postgres:
 <programlisting>
-CLEAN CONNECTION TO NODE 3 TO USER postgres;
+CLEAN CONNECTION TO NODE dn3 TO USER postgres;
 </programlisting>
   </para>
 

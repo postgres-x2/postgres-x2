@@ -123,8 +123,9 @@ extern void CheckAttributeType(const char *attname,
 				   bool allow_system_table_mods);
 
 #ifdef PGXC
-extern void AddRelationDistribution (Oid relid, 
+extern void AddRelationDistribution(Oid relid, 
 				DistributeBy *distributeby,
+				PGXCSubCluster *subcluster,
 				List 		 *parentOids,
 				TupleDesc	 descriptor);
 #endif

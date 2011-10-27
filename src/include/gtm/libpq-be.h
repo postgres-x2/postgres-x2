@@ -41,24 +41,24 @@
 typedef struct Port
 {
 	int			sock;			/* File descriptor */
-	SockAddr	laddr;			/* local addr (postmaster) */
-	SockAddr	raddr;			/* remote addr (client) */
-	char	   *remote_host;	/* name (or ip addr) of remote host */
-	char	   *remote_port;	/* text rep of remote port */
+	SockAddr		laddr;			/* local addr (postmaster) */
+	SockAddr		raddr;			/* remote addr (client) */
+	char			*remote_host;		/* name (or ip addr) of remote host */
+	char			*remote_port;		/* text rep of remote port */
 
-	GTMProxy_ConnID	conn_id;	/* RequestID of this command */
+	GTMProxy_ConnID		conn_id;		/* RequestID of this command */
 
-	GTM_PGXCNodeType	remote_type;	/* Type of remote connection */
-	GTM_PGXCNodeId		pgxc_node_id;	/* Coordinator ID */
-	bool				is_postmaster;	/* Is remote a node postmaster? */
+	GTM_PGXCNodeType	remote_type;		/* Type of remote connection */
+	char			*node_name;
+	bool			is_postmaster;		/* Is remote a node postmaster? */
 #define PQ_BUFFER_SIZE 8192
 
-	char 	PqSendBuffer[PQ_BUFFER_SIZE];
-	int		PqSendPointer;		/* Next index to store a byte in PqSendBuffer */
+	char			PqSendBuffer[PQ_BUFFER_SIZE];
+	int			PqSendPointer;		/* Next index to store a byte in PqSendBuffer */
 
-	char 	PqRecvBuffer[PQ_BUFFER_SIZE];
-	int		PqRecvPointer;		/* Next index to read a byte from PqRecvBuffer */
-	int		PqRecvLength;		/* End of data available in PqRecvBuffer */
+	char 			PqRecvBuffer[PQ_BUFFER_SIZE];
+	int			PqRecvPointer;		/* Next index to read a byte from PqRecvBuffer */
+	int			PqRecvLength;		/* End of data available in PqRecvBuffer */
 
 	/*
 	 * TCP keepalive settings.

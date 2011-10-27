@@ -34,7 +34,7 @@ int gtm_standby_restore_gxid(void);
 int gtm_standby_restore_sequence(void);
 int gtm_standby_restore_node(void);
 
-int gtm_standby_register_self(GTM_PGXCNodeId nodenum, int port, const char *datadir);
+int gtm_standby_register_self(const char *node_name, int port, const char *datadir);
 int gtm_standby_activate_self(void);
 
 GTM_Conn *gtm_standby_connect_to_standby(void);

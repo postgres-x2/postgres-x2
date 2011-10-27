@@ -60,6 +60,7 @@ char	   *ListenAddresses;
 int			GTMPortNumber;
 char		GTMControlFile[GTM_MAX_PATH];
 char		*GTMDataDir;
+char		*NodeName;
 
 GTM_ThreadID	TopMostThreadID;
 
@@ -84,7 +85,7 @@ static void ProcessSnapshotCommand(Port *myport, GTM_MessageType mtype, StringIn
 static void ProcessSequenceCommand(Port *myport, GTM_MessageType mtype, StringInfo message);
 static void ProcessQueryCommand(Port *myport, GTM_MessageType mtype, StringInfo message);
 
-static void GTM_RegisterPGXCNode(Port *myport, GTM_PGXCNodeId pgxc_node_id);
+static void GTM_RegisterPGXCNode(Port *myport, char *PGXCNodeName);
 
 static bool CreateOptsFile(int argc, char *argv[]);
 static void CreateDataDirLockFile(void);
@@ -231,7 +232,7 @@ help(const char *progname)
 	printf(_("Options:\n"));
 	printf(_("  -h hostname     GTM server hostname/IP to listen.\n"));
 	printf(_("  -p port         GTM server port number to listen.\n"));
-	printf(_("  -n nodenum      Node number for GTM server.\n"));
+	printf(_("  -n nodename     Node name for GTM server.\n"));
 	printf(_("  -x xid          Starting GXID \n"));
 	printf(_("  -D directory    GTM working directory\n"));
 	printf(_("  -l filename     GTM server log file name \n"));
@@ -262,7 +263,6 @@ main(int argc, char *argv[])
 	int			ctlfd;
 	char *active_addr;
 	int active_port;
-	GTM_PGXCNodeId node_num = 1001;
 
 	/*
 	 * Catch standard options before doing much else
@@ -295,7 +295,7 @@ main(int argc, char *argv[])
 				break;
 
 			case 'n':
-				node_num = atoi(optarg);
+				NodeName = strdup(optarg);
 				break;
 
 			case 'p':
@@ -422,7 +422,7 @@ main(int argc, char *argv[])
 
 	if (Recovery_IsStandby())
 	{
-			if (!gtm_standby_register_self(node_num, GTMPortNumber, GTMDataDir))
+		if (!gtm_standby_register_self(NodeName, GTMPortNumber, GTMDataDir))
 		{
 			elog(ERROR, "Failed to register myself on the active-GTM as a GTM node.");
 			exit(1);
@@ -777,7 +777,7 @@ GTM_ThreadMain(void *argp)
 			   sizeof (GTM_StartupPacket));
 		pq_getmsgend(&inBuf);
 
-		GTM_RegisterPGXCNode(thrinfo->thr_conn->con_port, sp.sp_cid);
+		GTM_RegisterPGXCNode(thrinfo->thr_conn->con_port, sp.sp_node_name);
 		thrinfo->thr_conn->con_port->remote_type = sp.sp_remotetype;
 		thrinfo->thr_conn->con_port->is_postmaster = sp.sp_ispostmaster;
 	}
@@ -1296,10 +1296,10 @@ ProcessQueryCommand(Port *myport, GTM_MessageType mtype, StringInfo message)
 }
 
 static void
-GTM_RegisterPGXCNode(Port *myport, GTM_PGXCNodeId cid)
+GTM_RegisterPGXCNode(Port *myport, char *PGXCNodeName)
 {
-	elog(DEBUG3, "Registering coordinator with cid %d", cid);
-	myport->pgxc_node_id = cid;
+	elog(DEBUG3, "Registering coordinator with name %s", PGXCNodeName);
+	myport->node_name = strdup(PGXCNodeName);
 }
 
 /*

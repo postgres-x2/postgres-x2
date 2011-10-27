@@ -107,6 +107,7 @@
 #include "pgxc/pgxc.h"
 /* COORD */
 #include "pgxc/locator.h"
+#include "nodes/nodes.h"
 #include "pgxc/poolmgr.h"
 #include "access/gtm.h"
 #endif
@@ -127,6 +128,9 @@
 #include "utils/datetime.h"
 #include "utils/memutils.h"
 #include "utils/ps_status.h"
+#ifdef PGXC
+#include "utils/resowner.h"
+#endif
 
 #ifdef EXEC_BACKEND
 #include "storage/spin.h"
@@ -330,6 +334,11 @@ extern int	optreset;			/* might not be declared by system headers */
 
 #ifdef USE_BONJOUR
 static DNSServiceRef bonjour_sdref = NULL;
+#endif
+
+#ifdef PGXC
+char			*PGXCNodeName = NULL;
+int			PGXCNodeId = -1;
 #endif
 
 /*
@@ -3372,9 +3381,6 @@ BackendStartup(Port *port)
 {
 	Backend    *bn;				/* for backend cleanup */
 	pid_t		pid;
-#ifdef PGXC /* PGXC_COORD */
-	PoolHandle *pool_handle;
-#endif 
 
 	/*
 	 * Create backend data structure.  Better before the fork() so we can
@@ -3410,22 +3416,6 @@ BackendStartup(Port *port)
 	else
 		bn->child_slot = 0;
 
-#ifdef PGXC /* PGXC_COORD */
-	/* Don't get a Pooler Handle if Postmaster is activated from another Coordinator */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-	{
-		pool_handle = GetPoolManagerHandle();
-		if (pool_handle == NULL)
-		{
-			ereport(ERROR,
-				(errcode(ERRCODE_IO_ERROR),
-				 errmsg("Can not connect to pool manager")));
-			return STATUS_ERROR;
-		}
-	}
-#endif 
-
-
 #ifdef EXEC_BACKEND
 	pid = backend_forkexec(port);
 #else							/* !EXEC_BACKEND */
@@ -3454,23 +3444,10 @@ BackendStartup(Port *port)
 		/* Perform additional initialization and collect startup packet */
 		BackendInitialize(port);
 
-#ifdef PGXC /* PGXC_COORD */
-		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-		{
-			/* User is authenticated and dbname is known at this point */
-			PoolManagerConnect(pool_handle, port->database_name, port->user_name);
-		}
-#endif 
-
 		/* And run the backend */
 		proc_exit(BackendRun(port));
 	}
 #endif   /* EXEC_BACKEND */
-
-#ifdef PGXC /* PGXC_COORD */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-		PoolManagerCloseHandle(pool_handle);
-#endif 
 
 	if (pid < 0)
 	{

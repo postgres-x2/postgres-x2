@@ -14,7 +14,7 @@
 void
 setUp()
 {
-	sprintf(connect_string, "host=localhost port=6666 pgxc_node_id=1 remote_type=%d",
+	sprintf(connect_string, "host=localhost port=6666 node_name=one remote_type=%d",
 		PGXC_NODE_GTM);
 	
 	conn = PQconnectGTM(connect_string);

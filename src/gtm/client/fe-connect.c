@@ -54,7 +54,7 @@ static const GTMPQconninfoOption GTMPQconninfoOptions[] = {
 	{"host", NULL},
 	{"hostaddr", NULL},
 	{"port", NULL},
-	{"pgxc_node_id", NULL},
+	{"node_name", NULL},
 	{"remote_type", NULL},
 	{"postmaster", NULL},
 	/* Terminating entry --- MUST BE LAST */
@@ -174,8 +174,8 @@ connectOptions1(GTM_Conn *conn, const char *conninfo)
 	conn->pgport = tmp ? strdup(tmp) : NULL;
 	tmp = conninfo_getval(connOptions, "connect_timeout");
 	conn->connect_timeout = tmp ? strdup(tmp) : NULL;
-	tmp = conninfo_getval(connOptions, "pgxc_node_id");
-	conn->pgxc_node_id = tmp ? strdup(tmp) : NULL;
+	tmp = conninfo_getval(connOptions, "node_name");
+	conn->gc_node_name = tmp ? strdup(tmp) : NULL;
 	tmp = conninfo_getval(connOptions, "postmaster");
 	conn->is_postmaster = tmp ? atoi(tmp) : 0;
 	tmp = conninfo_getval(connOptions, "remote_type");
@@ -669,13 +669,13 @@ keep_going:						/* We will come back to here until there is
 
 				/*
 				 * Build a startup packet. We tell the GTM server/proxy our
-				 * PGXC Node ID and whether we are a proxy or not.
+				 * PGXC Node name and whether we are a proxy or not.
 				 *
 				 * When the connection is made from the proxy, we let the GTM
 				 * server know about it so that some special headers are
 				 * handled correctly by the server.
 				 */
-				sp.sp_cid = atoi(conn->pgxc_node_id);
+				strcpy(sp.sp_node_name, conn->gc_node_name);
 				sp.sp_remotetype = conn->remote_type;
 				sp.sp_ispostmaster = conn->is_postmaster;
 
@@ -685,8 +685,7 @@ keep_going:						/* We will come back to here until there is
 				 * Theoretically, this could block, but it really shouldn't
 				 * since we only got here if the socket is write-ready.
 				 */
-				if (pqPacketSend(conn, 'A', &sp,
-								 sizeof (GTM_StartupPacket)) != STATUS_OK)
+				if (pqPacketSend(conn, 'A', &sp, sizeof (GTM_StartupPacket)) != STATUS_OK)
 				{
 					appendGTMPQExpBuffer(&conn->errorMessage,
 						"could not send startup packet: \n");
@@ -874,8 +873,8 @@ freeGTM_Conn(GTM_Conn *conn)
 		free(conn->pgport);
 	if (conn->connect_timeout)
 		free(conn->connect_timeout);
-	if (conn->pgxc_node_id)
-		free(conn->pgxc_node_id);
+	if (conn->gc_node_name)
+		free(conn->gc_node_name);
 	if (conn->inBuffer)
 		free(conn->inBuffer);
 	if (conn->outBuffer)

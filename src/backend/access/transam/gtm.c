@@ -22,8 +22,6 @@
 /* Configuration variables */
 char *GtmHost = "localhost";
 int GtmPort = 6666;
-int PGXCNodeId = 1;
-
 extern bool FirstSnapshotSet;
 
 static GTM_Conn *conn;
@@ -64,15 +62,15 @@ InitGTM(void)
 		else if (IS_PGXC_DATANODE)
 			remote_type = PGXC_NODE_DATANODE;
 
-		sprintf(conn_str, "host=%s port=%d pgxc_node_id=%d remote_type=%d postmaster=1",
-								GtmHost, GtmPort, PGXCNodeId, remote_type);
+		sprintf(conn_str, "host=%s port=%d node_name=%s remote_type=%d postmaster=1",
+								GtmHost, GtmPort, PGXCNodeName, remote_type);
 
 		/* Log activity of GTM connections */
 		elog(DEBUG1, "Postmaster: connection established to GTM with string %s", conn_str);
 	}
 	else
 	{
-		sprintf(conn_str, "host=%s port=%d pgxc_node_id=%d", GtmHost, GtmPort, PGXCNodeId);
+		sprintf(conn_str, "host=%s port=%d node_name=%s", GtmHost, GtmPort, PGXCNodeName);
 
 		/* Log activity of GTM connections */
 		if (IsAutoVacuumWorkerProcess())
@@ -245,11 +243,8 @@ RollbackTranGTM(GlobalTransactionId gxid)
 
 int
 StartPreparedTranGTM(GlobalTransactionId gxid,
-					char *gid,
-					int datanodecnt,
-					PGXC_NodeId datanodes[],
-					int coordcnt,
-					PGXC_NodeId coordinators[])
+					 char *gid,
+					 char *nodestring)
 {
 	int ret = 0;
 
@@ -257,7 +252,7 @@ StartPreparedTranGTM(GlobalTransactionId gxid,
 		return 0;
 	CheckConnection();
 
-	ret = start_prepared_transaction(conn, gxid, gid, datanodecnt, datanodes, coordcnt, coordinators);
+	ret = start_prepared_transaction(conn, gxid, gid, nodestring);
 
 	/*
 	 * If something went wrong (timeout), try and reset GTM connection.
@@ -301,17 +296,13 @@ int
 GetGIDDataGTM(char *gid,
 			  GlobalTransactionId *gxid,
 			  GlobalTransactionId *prepared_gxid,
-			  int *datanodecnt,
-			  PGXC_NodeId **datanodes,
-			  int *coordcnt,
-			  PGXC_NodeId **coordinators)
+			  char **nodestring)
 {
 	int ret = 0;
 
 	CheckConnection();
 	ret = get_gid_data(conn, GTM_ISOLATION_RC, gid, gxid,
-					   prepared_gxid, datanodecnt, datanodes,
-					   coordcnt, coordinators);
+					   prepared_gxid, nodestring);
 
 	/*
 	 * If something went wrong (timeout), try and reset GTM connection.
@@ -481,7 +472,7 @@ RegisterGTM(GTM_PGXCNodeType type, GTM_PGXCNodePort port, char *datafolder)
 	if (!conn)
 		return EOF;
 
-	ret = node_register(conn, type, port, PGXCNodeId, datafolder);
+	ret = node_register(conn, type, port, PGXCNodeName, datafolder);
 
 	/* If something went wrong, retry once */
 	if (ret < 0)
@@ -489,7 +480,7 @@ RegisterGTM(GTM_PGXCNodeType type, GTM_PGXCNodePort port, char *datafolder)
 		CloseGTM();
 		InitGTM();
 		if (conn)
-			ret = node_register(conn, type, port, PGXCNodeId, datafolder);
+			ret = node_register(conn, type, port, PGXCNodeName, datafolder);
 	}
 
 	return ret;
@@ -509,7 +500,7 @@ UnregisterGTM(GTM_PGXCNodeType type)
 	if (!conn)
 		return EOF;
 
-	ret = node_unregister(conn, type, PGXCNodeId);
+	ret = node_unregister(conn, type, PGXCNodeName);
 
 	/* If something went wrong, retry once */
 	if (ret < 0)
@@ -517,7 +508,7 @@ UnregisterGTM(GTM_PGXCNodeType type)
 		CloseGTM();
 		InitGTM();
 		if (conn)
-			ret = node_unregister(conn, type, PGXCNodeId);
+			ret = node_unregister(conn, type, PGXCNodeName);
 	}
 
 	/*

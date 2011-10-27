@@ -36,60 +36,60 @@
 struct gtm_conn
 {
 	/* Saved values of connection options */
-	char	   *pghost;			/* the machine on which the server is running */
-	char	   *pghostaddr;		/* the IPv4 address of the machine on which
-								 * the server is running, in IPv4
-								 * numbers-and-dots notation. Takes precedence
-								 * over above. */
-	char	   *pgport;			/* the server's communication port */
-	char	   *connect_timeout;	/* connection timeout (numeric string) */
-	char	   *pgxc_node_id;	/* PGXC Node id */
-	int			remote_type;		/* is this a connection to/from a proxy ? */
-	int			is_postmaster;	/* is this connection to/from a postmaster instance */
+	char		*pghost;		/* the machine on which the server is running */
+	char		*pghostaddr;		/* the IPv4 address of the machine on which
+					 	* the server is running, in IPv4
+					 	* numbers-and-dots notation. Takes precedence
+					 	* over above. */
+	char		*pgport;		/* the server's communication port */
+	char		*connect_timeout;	/* connection timeout (numeric string) */
+	char		*gc_node_name;		/* PGXC Node Name */
+	int		remote_type;		/* is this a connection to/from a proxy ? */
+	int		is_postmaster;		/* is this connection to/from a postmaster instance */
 
 	/* Optional file to write trace info to */
-	FILE	   *Pfdebug;
+	FILE		*Pfdebug;
 
 	/* Status indicators */
-	ConnStatusType status;
+	ConnStatusType	status;
 
 	/* Connection data */
-	int			sock;			/* Unix FD for socket, -1 if not connected */
+	int		sock;			/* Unix FD for socket, -1 if not connected */
 	SockAddr	laddr;			/* Local address */
 	SockAddr	raddr;			/* Remote address */
 
 	/* Transient state needed while establishing connection */
-	struct addrinfo *addrlist;	/* list of possible backend addresses */
-	struct addrinfo *addr_cur;	/* the one currently being tried */
-	int			addrlist_family;	/* needed to know how to free addrlist */
+	struct addrinfo	*addrlist;		/* list of possible backend addresses */
+	struct addrinfo	*addr_cur;		/* the one currently being tried */
+	int		addrlist_family;	/* needed to know how to free addrlist */
 
 	/* Buffer for data received from backend and not yet processed */
-	char	   *inBuffer;		/* currently allocated buffer */
-	int			inBufSize;		/* allocated size of buffer */
-	int			inStart;		/* offset to first unconsumed data in buffer */
-	int			inCursor;		/* next byte to tentatively consume */
-	int			inEnd;			/* offset to first position after avail data */
+	char		*inBuffer;		/* currently allocated buffer */
+	int		inBufSize;		/* allocated size of buffer */
+	int		inStart;		/* offset to first unconsumed data in buffer */
+	int		inCursor;		/* next byte to tentatively consume */
+	int		inEnd;			/* offset to first position after avail data */
 
 	/* Buffer for data not yet sent to backend */
-	char	   *outBuffer;		/* currently allocated buffer */
-	int			outBufSize;		/* allocated size of buffer */
-	int			outCount;		/* number of chars waiting in buffer */
+	char		*outBuffer;		/* currently allocated buffer */
+	int		outBufSize;		/* allocated size of buffer */
+	int		outCount;		/* number of chars waiting in buffer */
 
 	/* State for constructing messages in outBuffer */
-	int			outMsgStart;	/* offset to msg start (length word); if -1,
-								 * msg has no length word */
-	int			outMsgEnd;		/* offset to msg end (so far) */
+	int		outMsgStart;		/* offset to msg start (length word); if -1,
+						 * msg has no length word */
+	int		outMsgEnd;		/* offset to msg end (so far) */
 
 	/* Buffer for current error message */
-	PQExpBufferData errorMessage;		/* expansible string */
+	PQExpBufferData	errorMessage;		/* expansible string */
 
 	/* Buffer for receiving various parts of messages */
-	PQExpBufferData workBuffer; /* expansible string */
+	PQExpBufferData	workBuffer; /* expansible string */
 
 	/* Options to handle GTM communication error */
-	int			gtmErrorWaitOpt;	/* If true, wait reconnect signal. */
-	int			gtmErrorWaitSecs;	/* Duration of the wait time in second */
-	int			gtmErrorWaitCount;	/* How many durations to wait */
+	int		gtmErrorWaitOpt;	/* If true, wait reconnect signal. */
+	int		gtmErrorWaitSecs;	/* Duration of the wait time in second */
+	int		gtmErrorWaitCount;	/* How many durations to wait */
 
 	/* Pointer to the result of last operation */
 	GTM_Result	*result;

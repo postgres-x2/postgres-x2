@@ -2648,6 +2648,7 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 		scan_plan->exec_nodes->baselocatortype = rel_loc_info->locatorType;
 	else
 		scan_plan->exec_nodes->baselocatortype = '\0';
+
 	scan_plan->exec_nodes = GetRelationNodes(rel_loc_info, 0, UNKNOWNOID, RELATION_ACCESS_READ);
 	copy_path_costsize(&scan_plan->scan.plan, best_path);
 
@@ -5567,7 +5568,7 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		xstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
 		xstep->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
 		xstep->exec_nodes->primarynodelist = NULL;
-		xstep->exec_nodes->nodelist = NULL;
+		xstep->exec_nodes->nodeList = NULL;
 		xstep->exec_nodes->en_relid = ttab->relid;
 		xstep->exec_nodes->accesstype = RELATION_ACCESS_READ;
 
@@ -5597,7 +5598,7 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
 		fstep->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
 		fstep->exec_nodes->primarynodelist = NULL;
-		fstep->exec_nodes->nodelist = NULL;
+		fstep->exec_nodes->nodeList = NULL;
 		fstep->exec_nodes->en_relid = ttab->relid;
 		fstep->exec_nodes->accesstype = RELATION_ACCESS_UPDATE;
 

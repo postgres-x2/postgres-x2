@@ -22,6 +22,7 @@
 #include "pgxc/execRemote.h"
 #include "pgxc/locator.h"
 #include "pgxc/pgxc.h"
+#include "nodes/nodes.h"
 #include "pgxc/pgxcnode.h"
 #include "storage/lwlock.h"
 #include "tcop/dest.h"
@@ -150,9 +151,9 @@ generate_barrier_id(const char *id)
 
 	ts = GetCurrentTimestamp();
 #ifdef HAVE_INT64_TIMESTAMP
-	sprintf(genid, "%d_"INT64_FORMAT, PGXCNodeId, ts);
+	sprintf(genid, "%s_"INT64_FORMAT, PGXCNodeName, ts);
 #else
-	sprintf(genid, "%d_%.0f", PGXCNodeId, ts);
+	sprintf(genid, "%s_%.0f", PGXCNodeName, ts);
 #endif
 	return pstrdup(genid);
 }

@@ -700,7 +700,7 @@ get_plan_nodes_insert(PlannerInfo *root, RemoteQuery *step)
 				step->exec_nodes->baselocatortype = rel_loc_info->locatorType;
 				step->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
 				step->exec_nodes->primarynodelist = NULL;
-				step->exec_nodes->nodelist = NULL;
+				step->exec_nodes->nodeList = NULL;
 				step->exec_nodes->en_expr = eval_expr;
 				step->exec_nodes->en_relid = rel_loc_info->relid;
 				step->exec_nodes->accesstype = RELATION_ACCESS_INSERT;
@@ -710,7 +710,6 @@ get_plan_nodes_insert(PlannerInfo *root, RemoteQuery *step)
 			constExpr = (Const *) checkexpr;
 		}
 	}
-
 	if (constExpr == NULL)
 		step->exec_nodes = GetRelationNodes(rel_loc_info, 0, InvalidOid, RELATION_ACCESS_INSERT);
 	else
@@ -741,12 +740,11 @@ static bool
 examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 {
 	RelationLocInfo *rel_loc_info1,
-			   *rel_loc_info2;
-	Const	   *constant;
-	Expr	   *checkexpr;
+			*rel_loc_info2;
+	Const		*constant;
+	Expr		*checkexpr;
 	bool		result = false;
 	bool		is_and = false;
-
 
 	Assert(context);
 
@@ -840,7 +838,7 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 					TupleDesc slot_meta = slot->tts_tupleDescriptor;
 					Datum ctid = 0;
 					char *ctid_str = NULL;
-					int nodenum = slot->tts_dataNode;
+					int nindex = slot->tts_dataNodeIndex;
 					AttrNumber att;
 					StringInfoData buf;
 					HeapTuple	tp;
@@ -909,7 +907,7 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 									 tableName, ctid_str);
 					step1->sql_statement = pstrdup(buf.data);
 					step1->exec_nodes = makeNode(ExecNodes);
-					step1->exec_nodes->nodelist = list_make1_int(nodenum);
+					step1->exec_nodes->nodeList = list_make1_int(nindex);
 
 					/* Step 2: declare cursor for update target table */
 					step2 = makeRemoteQuery();
@@ -937,7 +935,9 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 					appendStringInfoString(&buf, "FOR UPDATE");
 					step2->sql_statement = pstrdup(buf.data);
 					step2->exec_nodes = makeNode(ExecNodes);
-					step2->exec_nodes->nodelist = list_copy(rel_loc_info1->nodeList);
+
+					step2->exec_nodes->nodeList = list_copy(rel_loc_info1->nodeList);
+
 					innerPlan(step2) = (Plan *) step1;
 					/* Step 3: move cursor to first position */
 					step3 = makeRemoteQuery();
@@ -945,20 +945,23 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 					appendStringInfo(&buf, "MOVE %s", node_cursor);
 					step3->sql_statement = pstrdup(buf.data);
 					step3->exec_nodes = makeNode(ExecNodes);
-					step3->exec_nodes->nodelist = list_copy(rel_loc_info1->nodeList);
+
+					step3->exec_nodes->nodeList = list_copy(rel_loc_info1->nodeList);
+
 					innerPlan(step3) = (Plan *) step2;
 
 					innerPlan(context->query_step) = (Plan *) step3;
 
 					pfree(buf.data);
 				}
-				context->query_step->exec_nodes->nodelist = list_copy(rel_loc_info1->nodeList);
+
+				context->query_step->exec_nodes->nodeList = list_copy(rel_loc_info1->nodeList);
 			}
 			else
 			{
 				/* Take target node from last scan tuple of referenced step */
-				int curr_node = node->ss.ss_ScanTupleSlot->tts_dataNode;
-				context->query_step->exec_nodes->nodelist = lappend_int(context->query_step->exec_nodes->nodelist, curr_node);
+				context->query_step->exec_nodes->nodeList = lappend_int(context->query_step->exec_nodes->nodeList, 
+											node->ss.ss_ScanTupleSlot->tts_dataNodeIndex);
 			}
 			FreeRelationLocInfo(rel_loc_info1);
 
@@ -1348,7 +1351,6 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 
 		/* push onto rtables list before recursing */
 		context->rtables = lappend(context->rtables, current_rtable);
-
 		if (get_plan_nodes_walker(sublink->subselect, context))
 			return true;
 
@@ -1374,8 +1376,8 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 					if (save_exec_nodes->tableusagetype != TABLE_USAGE_TYPE_USER_REPLICATED)
 					{
 						/* See if they run on the same node */
-						if (same_single_node(context->query_step->exec_nodes->nodelist,
-											 save_exec_nodes->nodelist))
+						if (same_single_node(context->query_step->exec_nodes->nodeList,
+											 save_exec_nodes->nodeList))
 							return false;
 					}
 					else
@@ -1518,18 +1520,16 @@ contains_temp_tables(List *rtable)
 static bool
 get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 {
-	Query *query;
-	RangeTblEntry *rte;
-	ListCell   *lc,
-			   *item;
-	RelationLocInfo *rel_loc_info;
-	ExecNodes  *test_exec_nodes = NULL;
-	ExecNodes  *current_nodes = NULL;
-	ExecNodes  *from_query_nodes = NULL;
-	TableUsageType 	table_usage_type = TABLE_USAGE_TYPE_NO_TABLE;
-	TableUsageType 	current_usage_type = TABLE_USAGE_TYPE_NO_TABLE;
-	int 		from_subquery_count = 0;
-
+	Query		*query;
+	RangeTblEntry	*rte;
+	ListCell	*lc, *item;
+	RelationLocInfo	*rel_loc_info;
+	ExecNodes	*test_exec_nodes = NULL;
+	ExecNodes	*current_nodes = NULL;
+	ExecNodes	*from_query_nodes = NULL;
+	TableUsageType	table_usage_type = TABLE_USAGE_TYPE_NO_TABLE;
+	TableUsageType	current_usage_type = TABLE_USAGE_TYPE_NO_TABLE;
+	int		from_subquery_count = 0;
 
 	if (!query_node && !IsA(query_node,Query))
 		return true;
@@ -1625,7 +1625,6 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 				 */
 				context->rtables = lappend(context->rtables, current_rtable);
 				context->conditions = (Special_Conditions *) palloc0(sizeof(Special_Conditions));
-
 				if (get_plan_nodes_walker((Node *) rte->subquery, context))
 					return true;
 
@@ -1662,7 +1661,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 					else
 					{
 						/* Allow if they are both using one node, and the same one */
-						if (!same_single_node(from_query_nodes->nodelist, current_nodes->nodelist))
+						if (!same_single_node(from_query_nodes->nodeList, current_nodes->nodeList))
 							/* Complicated */
 							return true;
 					}
@@ -1797,11 +1796,10 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 
 		if (rel_loc_info->locatorType != LOCATOR_TYPE_HASH &&
 			rel_loc_info->locatorType != LOCATOR_TYPE_MODULO)
+		{
 			/* do not need to determine partitioning expression */
-			context->query_step->exec_nodes = GetRelationNodes(rel_loc_info,
-															   0,
-															   UNKNOWNOID,
-															   context->accessType);
+			context->query_step->exec_nodes = GetRelationNodes(rel_loc_info, 0, UNKNOWNOID, context->accessType);
+		}
 
 		/* Note replicated table usage for determining safe queries */
 		if (context->query_step->exec_nodes)
@@ -1820,12 +1818,10 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 				if (rel_loc_info->relid == expr_comp->relid)
 				{
 					context->query_step->exec_nodes = makeNode(ExecNodes);
-					context->query_step->exec_nodes->baselocatortype =
-						rel_loc_info->locatorType;
-					context->query_step->exec_nodes->tableusagetype =
-						TABLE_USAGE_TYPE_USER;
+					context->query_step->exec_nodes->baselocatortype = rel_loc_info->locatorType;
+					context->query_step->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
 					context->query_step->exec_nodes->primarynodelist = NULL;
-					context->query_step->exec_nodes->nodelist = NULL;
+					context->query_step->exec_nodes->nodeList = NULL;
 					context->query_step->exec_nodes->en_expr = expr_comp->expr;
 					context->query_step->exec_nodes->en_relid = expr_comp->relid;
 					context->query_step->exec_nodes->accesstype = context->accessType;
@@ -1837,13 +1833,10 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 		{
 			/* run query on all nodes */
 			context->query_step->exec_nodes = makeNode(ExecNodes);
-			context->query_step->exec_nodes->baselocatortype =
-				rel_loc_info->locatorType;
-			context->query_step->exec_nodes->tableusagetype =
-				TABLE_USAGE_TYPE_USER;
+			context->query_step->exec_nodes->baselocatortype = rel_loc_info->locatorType;
+			context->query_step->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
 			context->query_step->exec_nodes->primarynodelist = NULL;
-			context->query_step->exec_nodes->nodelist =
-				list_copy(rel_loc_info->nodeList);
+			context->query_step->exec_nodes->nodeList = list_copy(rel_loc_info->nodeList);
 			context->query_step->exec_nodes->en_expr = NULL;
 			context->query_step->exec_nodes->en_relid = InvalidOid;
 			context->query_step->exec_nodes->accesstype = context->accessType;
@@ -1922,8 +1915,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 			{
 				if (context->query_step->exec_nodes == NULL ||
 					!is_single_node_safe ||
-					!same_single_node(context->query_step->exec_nodes->nodelist,
-									  test_exec_nodes->nodelist))
+					!same_single_node(context->query_step->exec_nodes->nodeList, test_exec_nodes->nodeList))
 					return true;
 			}
 		}
@@ -1958,8 +1950,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 		 * same node
 		 */
 		else if (from_query_nodes->tableusagetype == TABLE_USAGE_TYPE_USER_REPLICATED
-					|| (same_single_node(from_query_nodes->nodelist,
-										 context->query_step->exec_nodes->nodelist)))
+					|| (same_single_node(from_query_nodes->nodeList, context->query_step->exec_nodes->nodeList)))
 				return false;
 		else
 		{
@@ -1967,7 +1958,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 			 * but the parent query applies a condition on the from subquery.
 			 */
 			if (list_length(query->jointree->fromlist) == from_subquery_count
-					&& list_length(context->query_step->exec_nodes->nodelist) == 1)
+					&& list_length(context->query_step->exec_nodes->nodeList) == 1)
 				return false;
 		}
 		/* Too complicated, give up */
@@ -2049,7 +2040,6 @@ get_plan_nodes(PlannerInfo *root, RemoteQuery *step, RelationAccessType accessTy
 	context.query_step = step;
 	context.root = root;
 	context.rtables = lappend(context.rtables, query->rtable);
-
 	if ((get_plan_nodes_walker((Node *) query, &context)
 		 || context.exec_on_coord) && context.query_step->exec_nodes)
 	{
@@ -2645,7 +2635,7 @@ handle_limit_offset(RemoteQuery *query_step, Query *query, PlannedStmt *plan_stm
 		return 0;
 
 	if (query_step && query_step->exec_nodes &&
-				list_length(query_step->exec_nodes->nodelist) <= 1)
+				list_length(query_step->exec_nodes->nodeList) <= 1)
 		return 0;
 
 	/* if order by and limit are present, do not optimize yet */
@@ -2958,7 +2948,7 @@ pgxc_fqs_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	/*
 	 * Add sorting to the step
 	 */
-	if (list_length(query_step->exec_nodes->nodelist) > 1 &&
+	if (list_length(query_step->exec_nodes->nodeList) > 1 &&
 			(query->sortClause || query->distinctClause))
 		make_simple_sort_from_sortclauses(query, query_step);
 

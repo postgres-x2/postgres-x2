@@ -357,7 +357,7 @@ extern void hash_redo(XLogRecPtr lsn, XLogRecord *record);
 extern void hash_desc(StringInfo buf, uint8 xl_info, char *rec);
 
 #ifdef PGXC
-extern Datum compute_hash(Oid type, Datum value, int *pErr);
+extern Datum compute_hash(Oid type, Datum value, int *pErr, char locator);
 #endif
 
 #endif   /* HASH_H */

@@ -20,6 +20,9 @@ Complete list of usable sgml source files in this directory.
 <!ENTITY alterIndex         SYSTEM "alter_index.sgml">
 <!ENTITY alterLanguage      SYSTEM "alter_language.sgml">
 <!ENTITY alterLargeObject   SYSTEM "alter_large_object.sgml">
+<!## XC>
+<!entity alterNode          SYSTEM "alter_node.sgml">
+<!## end>
 <!ENTITY alterOperator      SYSTEM "alter_operator.sgml">
 <!ENTITY alterOperatorClass SYSTEM "alter_opclass.sgml">
 <!ENTITY alterOperatorFamily SYSTEM "alter_opfamily.sgml">
@@ -66,6 +69,10 @@ Complete list of usable sgml source files in this directory.
 <!ENTITY createGroup        SYSTEM "create_group.sgml">
 <!ENTITY createIndex        SYSTEM "create_index.sgml">
 <!ENTITY createLanguage     SYSTEM "create_language.sgml">
+<!## XC>
+<!entity createNode         SYSTEM "create_node.sgml">
+<!entity createNodeGroup    SYSTEM "create_nodegroup.sgml">
+<!## end>
 <!ENTITY createOperator     SYSTEM "create_operator.sgml">
 <!ENTITY createOperatorClass SYSTEM "create_opclass.sgml">
 <!ENTITY createOperatorFamily SYSTEM "create_opfamily.sgml">
@@ -104,6 +111,10 @@ Complete list of usable sgml source files in this directory.
 <!ENTITY dropGroup          SYSTEM "drop_group.sgml">
 <!ENTITY dropIndex          SYSTEM "drop_index.sgml">
 <!ENTITY dropLanguage       SYSTEM "drop_language.sgml">
+<!## XC>
+<!entity dropNode           SYSTEM "drop_node.sgml">
+<!entity dropNodeGroup      SYSTEM "drop_nodegroup.sgml">
+<!## end>
 <!ENTITY dropOperator       SYSTEM "drop_operator.sgml">
 <!ENTITY dropOperatorClass  SYSTEM "drop_opclass.sgml">
 <!ENTITY dropOperatorFamily  SYSTEM "drop_opfamily.sgml">

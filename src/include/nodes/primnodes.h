@@ -1291,6 +1291,30 @@ typedef struct DistributeBy
 	DistributionType disttype;		/* Distribution type */
 	char	   	*colname;		/* Distribution column name */
 } DistributeBy;
+
+/*----------
+ * SubClusterType - type of subcluster used
+ *
+ *----------
+ */
+typedef enum PGXCSubClusterType
+{
+	SUBCLUSTER_NONE,
+	SUBCLUSTER_NODE,
+	SUBCLUSTER_GROUP
+} PGXCSubClusterType;
+
+/*----------
+ * PGXCSubCluster - Subcluster on which a table can be created
+ *
+ *----------
+ */
+typedef struct PGXCSubCluster
+{
+	NodeTag				type;
+	PGXCSubClusterType	clustertype;	/* Subcluster type */
+	List				*members;		/* List of nodes or groups */
+} PGXCSubCluster;
 #endif
 
 #endif   /* PRIMNODES_H */

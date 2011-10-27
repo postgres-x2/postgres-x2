@@ -14,6 +14,8 @@
  */
 #ifdef PGXC
 
+#include "storage/lwlock.h"
+
 extern bool isPGXCCoordinator;
 extern bool isPGXCDataNode;
 
@@ -27,7 +29,11 @@ typedef enum
 } RemoteConnTypes;
 
 /* Determine remote connection type for a PGXC backend */
-extern int remoteConnType;
+extern int		remoteConnType;
+
+/* Local node name and numer */
+extern char	*PGXCNodeName;
+extern int	PGXCNodeId;
 
 #define IS_PGXC_COORDINATOR isPGXCCoordinator
 #define IS_PGXC_DATANODE isPGXCDataNode

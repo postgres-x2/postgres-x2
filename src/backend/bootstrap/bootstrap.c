@@ -48,6 +48,7 @@
 #include "utils/tqual.h"
 
 #ifdef PGXC
+#include "nodes/nodes.h"
 #include "pgxc/poolmgr.h"
 #endif
 

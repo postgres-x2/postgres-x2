@@ -85,7 +85,7 @@ CREATE DATABASE <replaceable class="PARAMETER">name</replaceable>
     If there's any live connection to any of the template database in
     coordinator or datanode, you will have an error message.  In this
     case, you should clean these connections using <command>CLEAN
-    CONNECITON</> statement.
+    CONNECTION</> statement.
    </para>
 <!## end>
  </refsect1>

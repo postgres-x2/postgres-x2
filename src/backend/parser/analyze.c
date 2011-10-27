@@ -45,9 +45,12 @@
 #include "miscadmin.h"
 #include "pgxc/pgxc.h"
 #include "access/gtm.h"
+#include "utils/lsyscache.h"
 #include "pgxc/planner.h"
 #include "tcop/tcopprot.h"
+#include "nodes/nodes.h"
 #include "pgxc/poolmgr.h"
+#include "catalog/pgxc_node.h"
 #endif
 #include "utils/rel.h"
 
@@ -2292,15 +2295,15 @@ transformExplainStmt(ParseState *pstate, ExplainStmt *stmt)
 static Query *
 transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 {
-	Query	   *result = makeNode(Query);
+	Query		*result = makeNode(Query);
 	bool		is_coordinator = stmt->coordinator;
-	char	   *query = stmt->query;
-	List	   *nodelist = stmt->nodes;
-	ListCell   *nodeitem;
-	RemoteQuery *step = makeNode(RemoteQuery);
+	char		*query = stmt->query;
+	List		*nodelist = stmt->node_names;
+	ListCell	*nodeitem;
+	RemoteQuery	*step = makeNode(RemoteQuery);
 	bool		is_local = false;
-	List	   *raw_parsetree_list;
-	ListCell   *raw_parsetree_item;
+	List		*raw_parsetree_list;
+	ListCell	*raw_parsetree_item;
 
 	if (list_length(nodelist) > 1)
 		ereport(ERROR,
@@ -2315,16 +2318,19 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 	/* Check if execute direct is local and if node number is correct*/
 	foreach(nodeitem, nodelist)
 	{
-		int nodenum = intVal(lfirst(nodeitem));
+		int	nodeIndex;
+		char *node_name = strVal(lfirst(nodeitem));
+		Oid nodeoid = get_pgxc_nodeoid(node_name);
 
-		if (nodenum < 1 ||
-			(!is_coordinator && nodenum > NumDataNodes) ||
-			(is_coordinator && nodenum > NumCoords))
+		if (!OidIsValid(nodeoid))
 			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("Node Number %d is incorrect", nodenum)));
+					(errcode(ERRCODE_UNDEFINED_OBJECT),
+					 errmsg("PGXC Node %s: object not defined",
+							node_name)));
 
-		if (nodenum == PGXCNodeId && is_coordinator)
+		nodeIndex = PGXCNodeGetNodeId(nodeoid, get_pgxc_nodetype(nodeoid));
+
+		if (nodeIndex == PGXCNodeId && is_coordinator)
 			is_local = true;
 	}
 
@@ -2423,8 +2429,12 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 	/* Build Execute Node list */
 	foreach(nodeitem, nodelist)
 	{
-		int nodenum = intVal(lfirst(nodeitem));
-		step->exec_nodes->nodelist = lappend_int(step->exec_nodes->nodelist, nodenum);
+		int		nodeIndex;
+		Oid		nodeoid = get_pgxc_nodeoid(strVal(lfirst(nodeitem)));
+
+		nodeIndex = PGXCNodeGetNodeId(nodeoid, get_pgxc_nodetype(nodeoid));
+		if (nodeIndex >= 0)
+			step->exec_nodes->nodeList = lappend_int(step->exec_nodes->nodeList, nodeIndex);
 	}
 
 	step->sql_statement = pstrdup(query);

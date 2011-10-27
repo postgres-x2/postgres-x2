@@ -534,35 +534,53 @@ hash_uint32(uint32 k)
  * compute_hash() -- Generaic hash function for all datatypes
  *
  */
-
 Datum
-compute_hash(Oid type, Datum value, int *pErr)
+compute_hash(Oid type, Datum value, int *pErr, char locator)
 {
+	int16	tmp16;
+	int32	tmp32;
+	int64	tmp64;
+	Oid		tmpoid;
+	char	tmpch;
+
 	Assert(pErr);
 
 	*pErr = 0;
 
-	if (!value)
+	if (!value && type != BOOLOID)
 	{
 		*pErr = 1;
 		return 0;
 	}
 
-	switch(type)
+	switch (type)
 	{
 		case INT8OID:
 			/* This gives added advantage that
 			 *	a = 8446744073709551359
 			 * and	a = 8446744073709551359::int8 both work*/
-			return DatumGetInt64(value);
+			tmp64 = DatumGetInt64(value);
+			return DirectFunctionCall1(hashint8, tmp64);
 		case INT2OID:
-			return DatumGetInt16(value);
+			tmp16 = DatumGetInt16(value);
+			if (locator == LOCATOR_TYPE_HASH)
+				return DirectFunctionCall1(hashint2, tmp16);
+			return tmp16;
 		case OIDOID:
-			return DatumGetObjectId(value);
+			tmpoid = DatumGetObjectId(value);
+			if (locator == LOCATOR_TYPE_HASH)
+				return DirectFunctionCall1(hashoid, tmpoid);
+			return tmpoid;
 		case INT4OID:
-			return DatumGetInt32(value);
+			tmp32 = DatumGetInt32(value);
+			if (locator == LOCATOR_TYPE_HASH)
+				return DirectFunctionCall1(hashint4, tmp32);
+			return tmp32;
 		case BOOLOID:
-			return DatumGetBool(value);
+			tmpch = DatumGetBool(value);
+			if (locator == LOCATOR_TYPE_HASH)
+				return DirectFunctionCall1(hashchar, tmpch);
+			return tmpch;
 
 		case CHAROID:
 			return DirectFunctionCall1(hashchar, value);
@@ -583,9 +601,15 @@ compute_hash(Oid type, Datum value, int *pErr)
 			return DirectFunctionCall1(hashfloat8, value);
 
 		case ABSTIMEOID:
-			return DatumGetAbsoluteTime(value);
+			tmp32 = DatumGetAbsoluteTime(value);
+			if (locator == LOCATOR_TYPE_HASH)
+				return DirectFunctionCall1(hashint4, tmp32);
+			return tmp32;
 		case RELTIMEOID:
-			return DatumGetRelativeTime(value);
+			tmp32 = DatumGetRelativeTime(value);
+			if (locator == LOCATOR_TYPE_HASH)
+				return DirectFunctionCall1(hashint4, tmp32);
+			return tmp32;
 		case CASHOID:
 			return DirectFunctionCall1(hashint8, value);
 
@@ -595,7 +619,10 @@ compute_hash(Oid type, Datum value, int *pErr)
 			return DirectFunctionCall1(hashvarlena, value);
 
 		case DATEOID:
-			return DatumGetDateADT(value);
+			tmp32 = DatumGetDateADT(value);
+			if (locator == LOCATOR_TYPE_HASH)
+				return DirectFunctionCall1(hashint4, tmp32);
+			return tmp32;
 		case TIMEOID:
 			return DirectFunctionCall1(time_hash, value);
 		case TIMESTAMPOID:

@@ -31,7 +31,7 @@ test01()
 
 	SETUP();
 
-	sprintf(connect_string, "host=localhost port=6666 pgxc_node_id=1 remote_type=%d",
+	sprintf(connect_string, "host=localhost port=6666 node_name=one remote_type=%d",
 		PGXC_NODE_GTM_PROXY);
 
 	conn = PQconnectGTM(connect_string);
@@ -55,7 +55,7 @@ test02()
 
 	SETUP();
 
-	sprintf(connect_string, "host=localhost port=6666 pgxc_node_id=1 remote_type=%d",
+	sprintf(connect_string, "host=localhost port=6666 node_name=one remote_type=%d",
 		PGXC_NODE_GTM_PROXY_POSTMASTER);
 
 	conn = PQconnectGTM(connect_string);
@@ -79,7 +79,7 @@ test03()
 
 	SETUP();
 
-	sprintf(connect_string, "host=localhost port=6666 pgxc_node_id=1 remote_type=%d",
+	sprintf(connect_string, "host=localhost port=6666 node_name=one remote_type=%d",
 		PGXC_NODE_COORDINATOR);
 
 	conn = PQconnectGTM(connect_string);
@@ -103,7 +103,7 @@ test04()
 
 	SETUP();
 
-	sprintf(connect_string, "host=localhost port=6666 pgxc_node_id=1 remote_type=%d",
+	sprintf(connect_string, "host=localhost port=6666 node_name=one remote_type=%d",
 	        PGXC_NODE_DATANODE);
 
 	conn = PQconnectGTM(connect_string);
@@ -127,7 +127,7 @@ test05()
 
 	SETUP();
 
-	sprintf(connect_string, "host=localhost port=6666 pgxc_node_id=1 remote_type=%d",
+	sprintf(connect_string, "host=localhost port=6666 node_name=one remote_type=%d",
 		PGXC_NODE_GTM);
 
 	conn = PQconnectGTM(connect_string);
@@ -151,7 +151,7 @@ test06()
 
 	SETUP();
 
-	sprintf(connect_string, "host=localhost port=6666 pgxc_node_id=1 remote_type=%d",
+	sprintf(connect_string, "host=localhost port=6666 node_name=one remote_type=%d",
 	        PGXC_NODE_DEFAULT);
 
 	conn = PQconnectGTM(connect_string);
@@ -175,7 +175,7 @@ test07()
 
 	SETUP();
 
-	sprintf(connect_string, "host=localhost port=6666 pgxc_node_id=1 remote_type=%d",
+	sprintf(connect_string, "host=localhost port=6666 node_name=one remote_type=%d",
 		12);
 
 	conn = PQconnectGTM(connect_string);
@@ -199,7 +199,7 @@ test08()
 
 	SETUP();
 
-	sprintf(connect_string, "host=localhost port=6668 pgxc_node_id=1 remote_type=%d",
+	sprintf(connect_string, "host=localhost port=6668 node_name=one remote_type=%d",
 		12);
 
 	conn = PQconnectGTM(connect_string);

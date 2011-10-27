@@ -30,8 +30,11 @@
 #include "access/xact.h"
 #include "commands/prepare.h"
 #include "gtm/gtm_c.h"
+#include "nodes/nodes.h"
 #include "pgxc/pgxcnode.h"
 #include "pgxc/execRemote.h"
+#include "catalog/pgxc_node.h"
+#include "catalog/pg_collation.h"
 #include "pgxc/locator.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/poolmgr.h"
@@ -40,24 +43,35 @@
 #include "utils/elog.h"
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
+#include "utils/tqual.h"
+#include "utils/fmgroids.h"
+#include "utils/syscache.h"
+#include "utils/lsyscache.h"
 #include "../interfaces/libpq/libpq-fe.h"
 
 
 static int	datanode_count = 0;
 static int	coord_count = 0;
+static int	datanode_slave_count = 0;
+static int	coord_slave_count = 0;
+
 /*
- * Datanode handles, saved in Transaction memory context when PostgresMain is launched
- * Those handles are used inside a transaction by a coordinator to Datanodes
+ * Datanode handles of masters and slaves, saved in Transaction memory context
+ * when PostgresMain is launched.
+ * Those handles are used inside a transaction by Coordinator to Datanodes.
  */
 static PGXCNodeHandle *dn_handles = NULL;
+static PGXCNodeHandle *dn_slave_handles = NULL;
+
 /*
- * Coordinator handles, saved in Transaction memory context
+ * Coordinator handles of masters and slaves, saved in Transaction memory context
  * when PostgresMain is launched.
- * Those handles are used inside a transaction by a coordinator to other coordinators.
+ * Those handles are used inside a transaction by Coordinator to Coordinators
  */
 static PGXCNodeHandle *co_handles = NULL;
+static PGXCNodeHandle *co_slave_handles = NULL;
 
-static void pgxc_node_init(PGXCNodeHandle *handle, int sock, int nodenum);
+static void pgxc_node_init(PGXCNodeHandle *handle, int sock);
 static void pgxc_node_free(PGXCNodeHandle *handle);
 
 static int	get_int(PGXCNodeHandle * conn, size_t len, int *out);
@@ -83,6 +97,11 @@ init_pgxc_handle(PGXCNodeHandle *pgxc_handle)
 	pgxc_handle->inSize = 16 * 1024;
 	pgxc_handle->inBuffer = (char *) palloc(pgxc_handle->inSize);
 	pgxc_handle->combiner = NULL;
+	pgxc_handle->inStart = 0;
+	pgxc_handle->inEnd = 0;
+	pgxc_handle->inCursor = 0;
+	pgxc_handle->outEnd = 0;
+	pgxc_handle->barrier_id = NULL;
 
 	if (pgxc_handle->outBuffer == NULL || pgxc_handle->inBuffer == NULL)
 	{
@@ -99,54 +118,268 @@ init_pgxc_handle(PGXCNodeHandle *pgxc_handle)
 void
 InitMultinodeExecutor(void)
 {
-	int			i;
+	Relation		rel;
+	HeapScanDesc	scan;
+	HeapTuple		tuple;
+	int				count;
+	int				loc_co = 0;
+	int				loc_dn = 0;
+	int				loc_co_slave = 0;
+	int				loc_dn_slave = 0;
 
 	/* This function could get called multiple times because of sigjmp */
-	if (dn_handles != NULL && co_handles != NULL)
+	if (dn_handles != NULL &&
+		co_handles != NULL &&
+		dn_slave_handles != NULL &&
+		co_slave_handles != NULL)
 		return;
 
+	/* Reinitialize counts */
+	NumCoords = 0;
+	NumDataNodes = 0;
+	NumCoordSlaves = 0;
+	NumDataNodeSlaves = 0;
+
 	/*
-	 * Should be in TopMemoryContext.
-	 * Assume the caller takes care of context switching
-	 * Initialize Datanode handles.
+	 * Node information initialization is made in two phases:
+	 * 1) Scan pgxc_node catalog to find the number of nodes for
+	 *        each node type and make proper allocations
+	 * 2) Classify node information by alphabetical order
+	 *        and save node Oid information properly.
 	 */
-	if (dn_handles == NULL)
+	rel = heap_open(PgxcNodeRelationId, AccessShareLock);
+	scan = heap_beginscan(rel, SnapshotNow, 0, NULL);
+	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
-		dn_handles = (PGXCNodeHandle *) palloc(NumDataNodes * sizeof(PGXCNodeHandle));
+		Form_pgxc_node  nodeForm = (Form_pgxc_node) GETSTRUCT(tuple);
 
-		if (!dn_handles)
-			ereport(ERROR,
-					(errcode(ERRCODE_OUT_OF_MEMORY),
-					 errmsg("out of memory")));
-
-		/* initialize storage then */
-		for (i = 0; i < NumDataNodes; i++)
-			init_pgxc_handle(&dn_handles[i]);
+		/* Take data for given node type */
+		switch (nodeForm->node_type)
+		{
+			case PGXC_NODE_COORD_MASTER:
+				NumCoords++;
+				break;
+			case PGXC_NODE_DATANODE_MASTER:
+				NumDataNodes++;
+				break;
+			case PGXC_NODE_COORD_SLAVE:
+				NumCoordSlaves++;
+				break;
+			case PGXC_NODE_DATANODE_SLAVE:
+				NumDataNodeSlaves++;
+				break;
+			default:
+				continue;
+		}
 	}
+	heap_endscan(scan);
+	heap_close(rel, AccessShareLock);
 
-	/* Same but for Coordinators */
-	if (co_handles == NULL)
+	/* Do proper initialization of handles */
+	if (NumDataNodes > 0)
+		dn_handles = (PGXCNodeHandle *)
+			palloc(NumDataNodes * sizeof(PGXCNodeHandle));
+	if (NumCoords > 0)
+		co_handles = (PGXCNodeHandle *)
+			palloc(NumCoords * sizeof(PGXCNodeHandle));
+	if (NumDataNodeSlaves > 0)
+		dn_slave_handles = (PGXCNodeHandle *)
+			palloc(NumDataNodeSlaves * sizeof(PGXCNodeHandle));
+	if (NumCoordSlaves > 0)
+		co_slave_handles = (PGXCNodeHandle *)
+			palloc(NumCoordSlaves * sizeof(PGXCNodeHandle));
+
+	if ((!dn_handles && NumDataNodes > 0) ||
+		(!co_handles && NumCoords > 0) ||
+		(!dn_slave_handles && NumDataNodeSlaves > 0) ||
+		(!co_slave_handles && NumCoordSlaves > 0))
+		ereport(ERROR,
+				(errcode(ERRCODE_OUT_OF_MEMORY),
+				 errmsg("out of memory for node handles")));
+
+	/* Initialize new empty slots */
+	for (count = 0; count < NumDataNodes; count++)
+		init_pgxc_handle(&dn_handles[count]);
+	for (count = 0; count < NumCoords; count++)
+		init_pgxc_handle(&co_handles[count]);
+	for (count = 0; count < NumDataNodeSlaves; count++)
+		init_pgxc_handle(&dn_slave_handles[count]);
+	for (count = 0; count < NumCoordSlaves; count++)
+		init_pgxc_handle(&co_slave_handles[count]);
+
+	/* Now begin second phase and fill in slots with classified node information */
+	rel = heap_open(PgxcNodeRelationId, AccessShareLock);
+	scan = heap_beginscan(rel, SnapshotNow, 0, NULL);
+	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
-		co_handles = (PGXCNodeHandle *) palloc(NumCoords * sizeof(PGXCNodeHandle));
+		Form_pgxc_node  nodeForm = (Form_pgxc_node) GETSTRUCT(tuple);
+		PGXCNodeHandle *curr_nodes;
+		int				curr_nodenum, i;
+		int				position = 1;
 
-		if (!co_handles)
-			ereport(ERROR,
-					(errcode(ERRCODE_OUT_OF_MEMORY),
-					 errmsg("out of memory")));
+		/* Take data for given node type */
+		switch (nodeForm->node_type)
+		{
+			case PGXC_NODE_COORD_MASTER:
+				curr_nodes = co_handles;
+				curr_nodenum = loc_co;
+				break;
+			case PGXC_NODE_DATANODE_MASTER:
+				curr_nodes = dn_handles;
+				curr_nodenum = loc_dn;
+				break;
+			case PGXC_NODE_COORD_SLAVE:
+				curr_nodes = co_slave_handles;
+				curr_nodenum = loc_co_slave;
+				break;
+			case PGXC_NODE_DATANODE_SLAVE:
+				curr_nodes = dn_slave_handles;
+				curr_nodenum = loc_dn_slave;
+				break;
+			default:
+				continue;
+		}
 
-		for (i = 0; i < NumCoords; i++)
-			init_pgxc_handle(&co_handles[i]);
+		/*
+		 * Classify by alphabetical order current array.
+		 * Find at which position current node should be placed.
+		 */
+		if (curr_nodenum == 1)
+		{
+			/* Special case when only one node is present */
+			int res = strcmp(NameStr(nodeForm->node_name),
+							 get_pgxc_nodename(curr_nodes[0].nodeoid));
+			if (res < 0)
+				position = 0;
+			else
+				position = 1;
+		}
+		else if (curr_nodenum > 1)
+		{
+			/* Case with more than 2 nodes in current array */
+			for (i = 0; i < curr_nodenum - 1; i++)
+			{
+				/* New slot is first? */
+				if (i == 0 &&
+					strcmp(NameStr(nodeForm->node_name),
+						   get_pgxc_nodename(curr_nodes[i].nodeoid)) < 0)
+					position = 0;
+
+				/* Intermediate case */
+				if (strcmp(NameStr(nodeForm->node_name),
+						   get_pgxc_nodename(curr_nodes[i].nodeoid)) > 0 &&
+					strcmp(NameStr(nodeForm->node_name),
+						   get_pgxc_nodename(curr_nodes[i + 1].nodeoid)) < 0)
+				{
+					position = i + 1;
+					break;
+				}
+
+				/* New slot is last? */
+				if (i == curr_nodenum - 2 &&
+					strcmp(NameStr(nodeForm->node_name),
+						   get_pgxc_nodename(curr_nodes[i + 1].nodeoid)) > 0)
+					position = i + 2;
+			}
+		}
+		/* Increment node count */
+		curr_nodenum++;
+
+		/* Rebuild current array */
+		if (curr_nodenum == 1)
+		{
+			/* All slots are empty, fill in first one */
+			curr_nodes[0].nodeoid = get_pgxc_nodeoid(NameStr(nodeForm->node_name));
+		}
+		else
+		{
+			/*
+			 * Move slots at the end of array to the right to let place
+			 * for the new slot entry.
+			 * Nothing should be done if position is the last one.
+			 */
+			if (position != curr_nodenum - 1)
+			{
+				for (i = curr_nodenum - 2; i > position - 1; i--)
+				{
+					/* Move intermediate slot data */
+					curr_nodes[i + 1].nodeoid = curr_nodes[i].nodeoid;
+				}
+			}
+			/* Fill in new slot */
+			curr_nodes[position].nodeoid =
+				get_pgxc_nodeoid(NameStr(nodeForm->node_name));
+		}
+
+		/*
+		 * Save data related to preferred and primary node
+		 * Preferred and primaries use node Oids
+		 */
+		if (nodeForm->nodeis_primary)
+			primary_data_node = get_pgxc_nodeoid(NameStr(nodeForm->node_name));
+		if (nodeForm->nodeis_preferred)
+		{
+			preferred_data_node[num_preferred_data_nodes] =
+				get_pgxc_nodeoid(NameStr(nodeForm->node_name));
+			num_preferred_data_nodes++;
+		}
+
+		/* Save new data */
+		switch (nodeForm->node_type)
+		{
+			case PGXC_NODE_COORD_MASTER:
+				co_handles = curr_nodes;
+				loc_co = curr_nodenum;
+				break;
+			case PGXC_NODE_DATANODE_MASTER:
+				dn_handles = curr_nodes;
+				loc_dn = curr_nodenum;
+				break;
+			case PGXC_NODE_COORD_SLAVE:
+				co_slave_handles = curr_nodes;
+				loc_co_slave = curr_nodenum;
+				break;
+			case PGXC_NODE_DATANODE_SLAVE:
+				dn_slave_handles = curr_nodes;
+				loc_dn_slave = curr_nodenum;
+				break;
+			default:
+				continue;
+		}
 	}
+	heap_endscan(scan);
+	heap_close(rel, AccessShareLock);
 
 	datanode_count = 0;
 	coord_count = 0;
+	datanode_slave_count = 0;
+	coord_slave_count = 0;
+	PGXCNodeId = 0;
+
+	/* Finally determine which is the node-self */
+	for (count = 0; count < NumCoords; count++)
+	{
+		if (strcmp(PGXCNodeName,
+				   get_pgxc_nodename(co_handles[count].nodeoid)) == 0)
+			PGXCNodeId = count + 1;
+	}
+
+	/*
+	 * No node-self?
+	 * PGXCTODO: Change error code
+	 */
+	if (PGXCNodeId == 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_DATA_EXCEPTION),
+				 errmsg("Coordinator cannot identify himself")));
 }
+
 
 /*
  * Builds up a connection string
  */
 char *
-PGXCNodeConnStr(char *host, char *port, char *dbname,
+PGXCNodeConnStr(char *host, int port, char *dbname,
 				char *user, char *remote_type)
 {
 	char	   *out,
@@ -158,7 +391,7 @@ PGXCNodeConnStr(char *host, char *port, char *dbname,
 	 * remote type can be coordinator, datanode or application.
 	 */
 	num = snprintf(connstr, sizeof(connstr),
-				   "host=%s port=%s dbname=%s user=%s options='-c remotetype=%s'",
+				   "host=%s port=%d dbname=%s user=%s options='-c remotetype=%s'",
 				   host, port, dbname, user, remote_type);
 
 	/* Check for overflow */
@@ -260,9 +493,8 @@ pgxc_node_free(PGXCNodeHandle *handle)
  * Structure stores state info and I/O buffers
  */
 static void
-pgxc_node_init(PGXCNodeHandle *handle, int sock, int nodenum)
+pgxc_node_init(PGXCNodeHandle *handle, int sock)
 {
-	handle->nodenum = nodenum;
 	handle->sock = sock;
 	handle->transaction_status = 'I';
 	handle->state = DN_CONNECTION_STATE_IDLE;
@@ -672,7 +904,7 @@ release_handles(void)
 		{
 			if (handle->state != DN_CONNECTION_STATE_IDLE)
 				elog(DEBUG1, "Connection to Datanode %d has unexpected state %d and will be dropped",
-					 handle->nodenum, handle->state);
+					 handle->nodeoid, handle->state);
 			pgxc_node_free(handle);
 		}
 	}
@@ -686,7 +918,7 @@ release_handles(void)
 		{
 			if (handle->state != DN_CONNECTION_STATE_IDLE)
 				elog(DEBUG1, "Connection to Coordinator %d has unexpected state %d and will be dropped",
-					 handle->nodenum, handle->state);
+					 handle->nodeoid, handle->state);
 			pgxc_node_free(handle);
 		}
 	}
@@ -705,7 +937,7 @@ void
 cancel_query(void)
 {
 	int			i;
-	int 			dn_cancel[NumDataNodes];
+	int 		dn_cancel[NumDataNodes];
 	int			co_cancel[NumCoords];
 	int			dn_count = 0;
 	int			co_count = 0;
@@ -729,7 +961,8 @@ cancel_query(void)
 			{
 				if (handle->state != DN_CONNECTION_STATE_IDLE)
 				{
-					dn_cancel[dn_count++] = handle->nodenum;
+					dn_cancel[dn_count++] = PGXCNodeGetNodeId(handle->nodeoid,
+															  PGXC_NODE_DATANODE_MASTER);
 				}
 			}
 		}
@@ -751,12 +984,12 @@ cancel_query(void)
 			{
 				if (handle->state != DN_CONNECTION_STATE_IDLE)
 				{
-					co_cancel[dn_count++] = handle->nodenum;
+					co_cancel[dn_count++] = PGXCNodeGetNodeId(handle->nodeoid,
+															  PGXC_NODE_COORD_MASTER);
 				}
 			}
 		}
 	}
-	
 	PoolManagerCancelQuery(dn_count, dn_cancel, co_count, co_cancel);
 }
 
@@ -1614,11 +1847,12 @@ add_error_message(PGXCNodeHandle *handle, const char *message)
 PGXCNodeAllHandles *
 get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 {
-	PGXCNodeAllHandles *result;
-	ListCell   *node_list_item;
-	List	   *dn_allocate = NIL;
-	List	   *co_allocate = NIL;
-	MemoryContext old_context;
+	PGXCNodeAllHandles	*result;
+	ListCell		*node_list_item;
+	List			*dn_allocate = NIL;
+	List			*co_allocate = NIL;
+	MemoryContext		old_context;
+	PGXCNodeHandle		*node_handle;
 
 	/* index of the result array */
 	int			i = 0;
@@ -1664,9 +1898,10 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 
 			for (i = 0; i < NumDataNodes; i++)
 			{
-				result->datanode_handles[i] = &dn_handles[i];
-				if (dn_handles[i].sock == NO_SOCKET)
-					dn_allocate = lappend_int(dn_allocate, i + 1);
+				node_handle = &dn_handles[i];
+				result->datanode_handles[i] = node_handle;
+				if (node_handle->sock == NO_SOCKET)
+					dn_allocate = lappend_int(dn_allocate, i);
 			}
 		}
 		else
@@ -1675,8 +1910,9 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 			 * We do not have to zero the array - on success all items will be set
 			 * to correct pointers, on error the array will be freed
 			 */
+
 			result->datanode_handles = (PGXCNodeHandle **)
-									   palloc(list_length(datanodelist) * sizeof(PGXCNodeHandle *));
+				palloc(list_length(datanodelist) * sizeof(PGXCNodeHandle *));
 			if (!result->datanode_handles)
 			{
 				ereport(ERROR,
@@ -1687,17 +1923,18 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 			i = 0;
 			foreach(node_list_item, datanodelist)
 			{
-				int			node = lfirst_int(node_list_item);
+				int	node = lfirst_int(node_list_item);
 
-				if (node <= 0 || node > NumDataNodes)
+				if (node < 0 || node >= NumDataNodes)
 				{
 					ereport(ERROR,
 							(errcode(ERRCODE_OUT_OF_MEMORY),
 							errmsg("Invalid data node number")));
 				}
 
-				result->datanode_handles[i++] = &dn_handles[node - 1];
-				if (dn_handles[node - 1].sock == NO_SOCKET)
+				node_handle = &dn_handles[node];
+				result->datanode_handles[i++] = node_handle;
+				if (node_handle->sock == NO_SOCKET)
 					dn_allocate = lappend_int(dn_allocate, node);
 			}
 		}
@@ -1708,6 +1945,7 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 	 * If node list is empty execute request on current nodes
 	 * There are transactions where the coordinator list is NULL Ex:COPY
 	 */
+
 	if (coordlist)
 	{
 		if (list_length(coordlist) == 0)
@@ -1716,8 +1954,7 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 			 * We do not have to zero the array - on success all items will be set
 			 * to correct pointers, on error the array will be freed
 			 */
-			result->coord_handles = (PGXCNodeHandle **)
-									palloc(NumCoords * sizeof(PGXCNodeHandle *));
+			result->coord_handles = (PGXCNodeHandle **)palloc(NumCoords * sizeof(PGXCNodeHandle *));
 			if (!result->coord_handles)
 			{
 				ereport(ERROR,
@@ -1727,9 +1964,10 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 
 			for (i = 0; i < NumCoords; i++)
 			{
-				result->coord_handles[i] = &co_handles[i];
-				if (co_handles[i].sock == NO_SOCKET)
-					co_allocate = lappend_int(co_allocate, i + 1);
+				node_handle = &co_handles[i];
+				result->coord_handles[i] = node_handle;
+				if (node_handle->sock == NO_SOCKET)
+					co_allocate = lappend_int(co_allocate, i);
 			}
 		}
 		else
@@ -1753,15 +1991,17 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 			{
 				int			node = lfirst_int(node_list_item);
 
-				if (node <= 0 || node > NumCoords)
+				if (node < 0 || node >= NumCoords)
 				{
 					ereport(ERROR,
 							(errcode(ERRCODE_OUT_OF_MEMORY),
 							errmsg("Invalid coordinator number")));
 				}
 
-				result->coord_handles[i++] = &co_handles[node - 1];
-				if (co_handles[node - 1].sock == NO_SOCKET)
+				node_handle = &co_handles[node];
+
+				result->coord_handles[i++] = node_handle;
+				if (node_handle->sock == NO_SOCKET)
 					co_allocate = lappend_int(co_allocate, node);
 			}
 		}
@@ -1773,8 +2013,8 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 	 */
 	if (dn_allocate || co_allocate)
 	{
-		int			j = 0;
-		int		   *fds = PoolManagerGetConnections(dn_allocate, co_allocate);
+		int	j = 0;
+		int	*fds = PoolManagerGetConnections(dn_allocate, co_allocate);
 
 		if (!fds)
 		{
@@ -1802,14 +2042,16 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 				int			node = lfirst_int(node_list_item);
 				int			fdsock = fds[j++];
 
-				if (node <= 0 || node > NumDataNodes)
+				if (node < 0 || node >= NumDataNodes)
 				{
 					ereport(ERROR,
 							(errcode(ERRCODE_OUT_OF_MEMORY),
 							errmsg("Invalid data node number")));
 				}
 
-				pgxc_node_init(&dn_handles[node - 1], fdsock, node);
+				node_handle = &dn_handles[node];
+				pgxc_node_init(node_handle, fdsock);
+				dn_handles[node] = *node_handle;
 				datanode_count++;
 			}
 		}
@@ -1821,14 +2063,16 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 				int			node = lfirst_int(node_list_item);
 				int			fdsock = fds[j++];
 
-				if (node <= 0 || node > NumCoords)
+				if (node < 0 || node >= NumCoords)
 				{
 					ereport(ERROR,
 							(errcode(ERRCODE_OUT_OF_MEMORY),
 							errmsg("Invalid coordinator number")));
 				}
 
-				pgxc_node_init(&co_handles[node - 1], fdsock, node);
+				node_handle = &co_handles[node];
+				pgxc_node_init(node_handle, fdsock);
+				co_handles[node] = *node_handle;
 				coord_count++;
 			}
 		}
@@ -1874,21 +2118,24 @@ get_transaction_nodes(PGXCNodeHandle **connections, char client_conn_type,
 {
 	int			tran_count = 0;
 	int			i;
+	PGXCNodeHandle		*node_handle;
 
 	if (datanode_count && client_conn_type == REMOTE_CONN_DATANODE)
 	{
 		for (i = 0; i < NumDataNodes; i++)
 		{
-			if (dn_handles[i].sock != NO_SOCKET &&
-				(dn_handles[i].state != DN_CONNECTION_STATE_ERROR_FATAL ||
+			node_handle = &dn_handles[i];
+
+			if (node_handle->sock != NO_SOCKET &&
+				(node_handle->state != DN_CONNECTION_STATE_ERROR_FATAL ||
 				 status_requested == HANDLE_ERROR))
 			{
-				if (status_requested == HANDLE_IDLE && dn_handles[i].transaction_status == 'I')
-					connections[tran_count++] = &dn_handles[i];
-				else if (status_requested == HANDLE_ERROR && dn_handles[i].transaction_status == 'E')
-					connections[tran_count++] = &dn_handles[i];
-				else if (dn_handles[i].transaction_status != 'I')
-					connections[tran_count++] = &dn_handles[i];
+				if (status_requested == HANDLE_IDLE && node_handle->transaction_status == 'I')
+					connections[tran_count++] = node_handle;
+				else if (status_requested == HANDLE_ERROR && node_handle->transaction_status == 'E')
+					connections[tran_count++] = node_handle;
+				else if (node_handle->transaction_status != 'I')
+					connections[tran_count++] = node_handle;
 			}
 		}
 	}
@@ -1897,16 +2144,18 @@ get_transaction_nodes(PGXCNodeHandle **connections, char client_conn_type,
 	{
 		for (i = 0; i < NumCoords; i++)
 		{
-			if (co_handles[i].sock != NO_SOCKET &&
-				(co_handles[i].state != DN_CONNECTION_STATE_ERROR_FATAL ||
+			node_handle = &co_handles[i];
+
+			if (node_handle->sock != NO_SOCKET &&
+				(node_handle->state != DN_CONNECTION_STATE_ERROR_FATAL ||
 				 status_requested == HANDLE_ERROR))
 			{
-				if (status_requested == HANDLE_IDLE && co_handles[i].transaction_status == 'I')
-					connections[tran_count++] = &co_handles[i];
-				else if (status_requested == HANDLE_ERROR && co_handles[i].transaction_status == 'E')
-					connections[tran_count++] = &co_handles[i];
-				else if (co_handles[i].transaction_status != 'I')
-					connections[tran_count++] = &co_handles[i];
+				if (status_requested == HANDLE_IDLE && node_handle->transaction_status == 'I')
+					connections[tran_count++] = node_handle;
+				else if (status_requested == HANDLE_ERROR && node_handle->transaction_status == 'E')
+					connections[tran_count++] = node_handle;
+				else if (node_handle->transaction_status != 'I')
+					connections[tran_count++] = node_handle;
 			}
 		}
 	}
@@ -1915,34 +2164,68 @@ get_transaction_nodes(PGXCNodeHandle **connections, char client_conn_type,
 }
 
 /*
- * Collect node numbers for the given Datanode and Coordinator connections
- * and return it for prepared transactions
+ * Collect node name for the given Datanode and Coordinator connections
+ * and return it for prepared transactions.
+ * String has format node1,node2,...,nodeN
  */
-PGXC_NodeId*
-collect_pgxcnode_numbers(int conn_count, PGXCNodeHandle **connections, char client_conn_type)
+char *
+collect_pgxcnode_names(char *nodestring,
+					   int conn_count,
+					   PGXCNodeHandle **connections,
+					   char client_conn_type)
 {
-	PGXC_NodeId *pgxcnodes = NULL;
 	int i;
 
-	/* It is also necessary to save in GTM the local Coordinator that is being prepared */
-	if (client_conn_type == REMOTE_CONN_COORD)
-		pgxcnodes = (PGXC_NodeId *) palloc((conn_count + 1) * sizeof(PGXC_NodeId));
-	else
-		pgxcnodes = (PGXC_NodeId *) palloc(conn_count * sizeof(PGXC_NodeId));
-
-	if (!pgxcnodes)
-		ereport(ERROR,
-				(errcode(ERRCODE_OUT_OF_MEMORY),
-				 errmsg("out of memory")));
-
 	for (i = 0; i < conn_count; i++)
-		pgxcnodes[i] = connections[i]->nodenum;
+	{
+		char *nodename = get_pgxc_nodename(connections[i]->nodeoid);
 
-	/* Save here the Coordinator number where we are */
+		if (!nodestring)
+		{
+			nodestring = (char *) palloc(strlen(nodename) + 1);
+			sprintf(nodestring, "%s", nodename);
+		}
+		else
+		{
+			nodestring = (char *) repalloc(nodestring,
+										   strlen(nodename) + strlen(nodestring) + 2);
+			sprintf(nodestring, "%s,%s", nodestring, nodename);
+		}
+	}
+
+	/* Save here local Coordinator name also */
 	if (client_conn_type == REMOTE_CONN_COORD)
-		pgxcnodes[coord_count] = PGXCNodeId;
+	{
+		if (!nodestring)
+		{
+			nodestring = (char *) palloc(strlen(PGXCNodeName) + 1);
+			sprintf(nodestring, "%s", PGXCNodeName);
+		}
+		else
+		{
+			nodestring = (char *) repalloc(nodestring,
+										   strlen(PGXCNodeName) + strlen(nodestring) + 2);
+			sprintf(nodestring, "%s,%s", nodestring, PGXCNodeName);
+		}
+	}
 
-	return pgxcnodes;
+	return nodestring;
+}
+
+/*
+ * Add local node name to ths string list
+ */
+char *
+collect_localnode_name(char *nodestring)
+{
+	if (!nodestring)
+		nodestring = (char *) palloc(strlen(PGXCNodeName) + 2);
+	else
+		nodestring = (char *) repalloc(nodestring,
+									   strlen(PGXCNodeName) + strlen(nodestring) + 2);
+
+	sprintf(nodestring, "%s,%s", nodestring, PGXCNodeName);
+	return nodestring;
 }
 
 /* Determine if the connection is active */
@@ -1963,13 +2246,16 @@ get_active_nodes(PGXCNodeHandle **connections)
 {
 	int			active_count = 0;
 	int			i;
+	PGXCNodeHandle		*node_handle;
 
 	if (datanode_count)
 	{
 		for (i = 0; i < NumDataNodes; i++)
 		{
-			if (is_active_connection(&dn_handles[i]))
-				connections[active_count++] = &dn_handles[i];
+			node_handle = &dn_handles[i];
+
+			if (is_active_connection(node_handle))
+				connections[active_count++] = node_handle;
 		}
 	}
 
@@ -1977,8 +2263,10 @@ get_active_nodes(PGXCNodeHandle **connections)
 	{
 		for (i = 0; i < NumCoords; i++)
 		{
-			if (is_active_connection(&co_handles[i]))
-				connections[active_count++] = &co_handles[i];
+			node_handle = &co_handles[i];
+
+			if (is_active_connection(node_handle))
+				connections[active_count++] = node_handle;
 		}
 	}
 
@@ -2070,4 +2358,83 @@ pgxc_all_handles_send_query(PGXCNodeAllHandles *pgxc_handles, const char *buffer
 
 finish:
 	return result;
+}
+
+/*
+ * PGXCNode_getNodeId
+ *		Look at the data cached for handles and return node position
+ */
+int
+PGXCNodeGetNodeId(Oid nodeoid, char node_type)
+{
+	PGXCNodeHandle *handles;
+	int				num_nodes, i;
+	int				res = 0;
+
+	switch (node_type)
+	{
+		case PGXC_NODE_COORD_MASTER:
+			num_nodes = NumCoords;
+			handles = co_handles;
+			break;
+		case PGXC_NODE_DATANODE_MASTER:
+			num_nodes = NumDataNodes;
+			handles = dn_handles;
+			break;
+		case PGXC_NODE_COORD_SLAVE:
+			num_nodes = NumCoordSlaves;
+			handles = co_slave_handles;
+			break;
+		case PGXC_NODE_DATANODE_SLAVE:
+			num_nodes = NumDataNodeSlaves;
+			handles = dn_slave_handles;
+			break;
+		default:
+			/* Should not happen */
+			Assert(0);
+			return res;
+	}
+
+	/* Look into the handles and return correct position in array */
+	for (i = 0; i < num_nodes; i++)
+	{
+		if (handles[i].nodeoid == nodeoid)
+		{
+			res = i;
+			break;
+		}
+	}
+	return res;
+}
+
+/*
+ * PGXCNode_getNodeOid
+ *		Look at the data cached for handles and return node Oid
+ */
+Oid
+PGXCNodeGetNodeOid(int nodeid, char node_type)
+{
+	PGXCNodeHandle *handles;
+
+	switch (node_type)
+	{
+		case PGXC_NODE_COORD_MASTER:
+			handles = co_handles;
+			break;
+		case PGXC_NODE_DATANODE_MASTER:
+			handles = dn_handles;
+			break;
+		case PGXC_NODE_COORD_SLAVE:
+			handles = co_slave_handles;
+			break;
+		case PGXC_NODE_DATANODE_SLAVE:
+			handles = dn_slave_handles;
+			break;
+		default:
+			/* Should not happen */
+			Assert(0);
+			return InvalidOid;
+	}
+
+	return handles[nodeid - 1].nodeoid;
 }

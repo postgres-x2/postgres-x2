@@ -52,15 +52,13 @@ static int NodeEndMagic = 0xefefefef;
 
 static GTM_PGXCNodeInfoHashBucket GTM_PGXCNodes[NODE_HASH_TABLE_SIZE];
 
-static GTM_PGXCNodeInfo *pgxcnode_find_info(GTM_PGXCNodeType	type,
-											GTM_PGXCNodeId		nodenum);
-static uint32 pgxcnode_gethash(GTM_PGXCNodeId nodenum);
+static GTM_PGXCNodeInfo *pgxcnode_find_info(GTM_PGXCNodeType type, char *node_name);
+static uint32 pgxcnode_gethash(char *nodename);
 static int pgxcnode_remove_info(GTM_PGXCNodeInfo *node);
 static int pgxcnode_add_info(GTM_PGXCNodeInfo *node);
 static char *pgxcnode_copy_char(const char *str);
 
 #define pgxcnode_type_equal(type1,type2) (type1 == type2)
-#define pgxcnode_nodenum_equal(num1,num2) (num1 == num2)
 #define pgxcnode_port_equal(port1,port2) (port1 == port2)
 
 size_t
@@ -139,10 +137,9 @@ pgxcnode_find_by_type(GTM_PGXCNodeType type, GTM_PGXCNodeInfo **data, size_t max
  * Find the pgxcnode info structure for the given node type and number key.
  */
 static GTM_PGXCNodeInfo *
-pgxcnode_find_info(GTM_PGXCNodeType	type,
-				   GTM_PGXCNodeId	nodenum)
+pgxcnode_find_info(GTM_PGXCNodeType type, char *node_name)
 {
-	uint32 hash = pgxcnode_gethash(nodenum);
+	uint32 hash = pgxcnode_gethash(node_name);
 	GTM_PGXCNodeInfoHashBucket *bucket;
 	gtm_ListCell *elem;
 	GTM_PGXCNodeInfo *curr_nodeinfo = NULL;
@@ -155,7 +152,7 @@ pgxcnode_find_info(GTM_PGXCNodeType	type,
 	{
 		curr_nodeinfo = (GTM_PGXCNodeInfo *) gtm_lfirst(elem);
 		if (pgxcnode_type_equal(curr_nodeinfo->type, type) &&
-			pgxcnode_nodenum_equal(curr_nodeinfo->nodenum, nodenum))
+			(strcmp(curr_nodeinfo->nodename, node_name) == 0))
 			break;
 		curr_nodeinfo = NULL;
 	}
@@ -166,17 +163,34 @@ pgxcnode_find_info(GTM_PGXCNodeType	type,
 }
 
 /*
- * Get the Hash Key depending on the node number
+ * Get the Hash Key depending on the node name
  * We do not except to have hundreds of nodes yet,
  * This function could be replaced by a better one
- * such as a double hash function indexed on type and Node Number
+ * such as a double hash function indexed on type and Node Name
  */
 static uint32
-pgxcnode_gethash(GTM_PGXCNodeId nodenum)
+pgxcnode_gethash(char *nodename)
 {
-    uint32 hash = 0;
+	int			i;
+	int			length;
+	int			value;
+	uint32			hash = 0;
 
-	hash = (uint32) nodenum;
+	if (nodename == NULL || nodename == '\0')
+	{
+		return 0;
+	}
+
+	length = strlen(nodename);
+
+	value = 0x238F13AF * length;
+
+	for (i = 0; i < length; i++)
+	{
+		value = value + ((nodename[i] << i * 5 % 24) & 0x7fffffff);
+	}
+
+	hash = (1103515243 * value + 12345) % 65537 & 0x00000FFF;
 
 	return (hash % NODE_HASH_TABLE_SIZE);
 }
@@ -187,7 +201,7 @@ pgxcnode_gethash(GTM_PGXCNodeId nodenum)
 static int
 pgxcnode_remove_info(GTM_PGXCNodeInfo *nodeinfo)
 {
-	uint32 hash = pgxcnode_gethash(nodeinfo->nodenum);
+	uint32 hash = pgxcnode_gethash(nodeinfo->nodename);
 	GTM_PGXCNodeInfoHashBucket   *bucket;
 
 	bucket = &GTM_PGXCNodes[hash];
@@ -209,7 +223,7 @@ pgxcnode_remove_info(GTM_PGXCNodeInfo *nodeinfo)
 static int
 pgxcnode_add_info(GTM_PGXCNodeInfo *nodeinfo)
 {
-	uint32 hash = pgxcnode_gethash(nodeinfo->nodenum);
+	uint32 hash = pgxcnode_gethash(nodeinfo->nodename);
 	GTM_PGXCNodeInfoHashBucket   *bucket;
 	gtm_ListCell *elem;
 
@@ -224,7 +238,7 @@ pgxcnode_add_info(GTM_PGXCNodeInfo *nodeinfo)
 
 		/* GTM Proxy are always registered as they do not have Identification numbers yet */
 		if (pgxcnode_type_equal(curr_nodeinfo->type, nodeinfo->type) &&
-			pgxcnode_nodenum_equal(curr_nodeinfo->nodenum, nodeinfo->nodenum))
+			(strcmp(curr_nodeinfo->nodename, nodeinfo->nodename) == 0))
 		{
 			if (curr_nodeinfo->status == NODE_CONNECTED)
 			{
@@ -317,9 +331,9 @@ pgxcnode_copy_char(const char *str)
  * Unregister the given node
  */
 int
-Recovery_PGXCNodeUnregister(GTM_PGXCNodeType type, GTM_PGXCNodeId nodenum, bool in_recovery, int socket)
+Recovery_PGXCNodeUnregister(GTM_PGXCNodeType type, char *node_name, bool in_recovery, int socket)
 {
-	GTM_PGXCNodeInfo *nodeinfo = pgxcnode_find_info(type, nodenum);
+	GTM_PGXCNodeInfo *nodeinfo = pgxcnode_find_info(type, node_name);
 
 	if (nodeinfo != NULL)
 	{
@@ -333,6 +347,7 @@ Recovery_PGXCNodeUnregister(GTM_PGXCNodeType type, GTM_PGXCNodeId nodenum, bool 
 		if (!in_recovery)
 			Recovery_RecordRegisterInfo(nodeinfo, false);
 
+		pfree(nodeinfo->nodename);
 		pfree(nodeinfo->ipaddress);
 		pfree(nodeinfo->datafolder);
 		pfree(nodeinfo);
@@ -345,14 +360,14 @@ Recovery_PGXCNodeUnregister(GTM_PGXCNodeType type, GTM_PGXCNodeId nodenum, bool 
 
 int
 Recovery_PGXCNodeRegister(GTM_PGXCNodeType	type,
-						  GTM_PGXCNodeId	nodenum,
+						  char			*nodename,
 						  GTM_PGXCNodePort	port,
-						  GTM_PGXCNodeId	proxynum,
-						  GTM_PGXCNodeStatus status,
-						  char			   *ipaddress,
-						  char			   *datafolder,
-						  bool				in_recovery,
-						  int				socket)
+						  char			*proxyname,
+						  GTM_PGXCNodeStatus	status,
+						  char			*ipaddress,
+						  char			*datafolder,
+						  bool			in_recovery,
+						  int			socket)
 {
 	GTM_PGXCNodeInfo *nodeinfo = NULL;
 	int errcode = 0;
@@ -366,20 +381,20 @@ Recovery_PGXCNodeRegister(GTM_PGXCNodeType	type,
 
 	/* Fill in structure */
 	nodeinfo->type = type;
-	nodeinfo->nodenum = nodenum;
+	nodeinfo->nodename = pgxcnode_copy_char(nodename);
 	nodeinfo->port = port;
-	nodeinfo->proxynum = proxynum;
+	nodeinfo->proxyname = pgxcnode_copy_char(proxyname);
 	nodeinfo->datafolder = pgxcnode_copy_char(datafolder);
 	nodeinfo->ipaddress = pgxcnode_copy_char(ipaddress);
 	nodeinfo->status = status;
 	nodeinfo->socket = socket;
 
-	elog(LOG, "Recovery_PGXCNodeRegister Request info: type=%d, nodenum=%d, port=%d," \
+	elog(LOG, "Recovery_PGXCNodeRegister Request info: type=%d, nodename=%s, port=%d," \
 			  "datafolder=%s, ipaddress=%s, status=%d",
-			  type, nodenum, port, datafolder, ipaddress, status);
-	elog(LOG, "Recovery_PGXCNodeRegister Node info: type=%d, nodenum=%d, port=%d, "\
+			  type, nodename, port, datafolder, ipaddress, status);
+	elog(LOG, "Recovery_PGXCNodeRegister Node info: type=%d, nodename=%s, port=%d, "\
 			  "datafolder=%s, ipaddress=%s, status=%d",
-			  nodeinfo->type, nodeinfo->nodenum, nodeinfo->port,
+			  nodeinfo->type, nodeinfo->nodename, nodeinfo->port,
 			  nodeinfo->datafolder, nodeinfo->ipaddress, nodeinfo->status);
 
 	/* Add PGXC Node Info to the global hash table */
@@ -403,22 +418,30 @@ void
 ProcessPGXCNodeRegister(Port *myport, StringInfo message)
 {
 	GTM_PGXCNodeType	type;
-	GTM_PGXCNodeId		nodenum, proxynum;
 	GTM_PGXCNodePort	port;
-	char				remote_host[NI_MAXHOST];
-	char			    datafolder[NI_MAXHOST];
-	char			   *ipaddress;
+	char			remote_host[NI_MAXHOST];
+	char			datafolder[NI_MAXHOST];
+	char			node_name[NI_MAXHOST];
+	char			proxyname[NI_MAXHOST];
+	char			*ipaddress;
 	MemoryContext		oldContext;
-	int					len;
+	int			len;
 	StringInfoData		buf;
 	GTM_PGXCNodeStatus	status;
 
 	/* Read Node Type */
 	memcpy(&type, pq_getmsgbytes(message, sizeof (GTM_PGXCNodeType)),
 			sizeof (GTM_PGXCNodeType));
-	/* Node Number */
-	memcpy(&nodenum, pq_getmsgbytes(message, sizeof (GTM_PGXCNodeId)),
-			sizeof (GTM_PGXCNodeId));
+
+	 /* Read Node name */
+	len = pq_getmsgint(message, sizeof (int));
+	if (len >= NI_MAXHOST)
+		ereport(ERROR,
+				(EINVAL,
+				 errmsg("Invalid name length.")));
+
+	memcpy(node_name, (char *)pq_getmsgbytes(message, len), len);
+	node_name[len] = '\0';
 
 	 /* Read Host name */
 	len = pq_getmsgint(message, sizeof (int));
@@ -430,9 +453,15 @@ ProcessPGXCNodeRegister(Port *myport, StringInfo message)
 	memcpy(&port, pq_getmsgbytes(message, sizeof (GTM_PGXCNodePort)),
 			sizeof (GTM_PGXCNodePort));
 
-	/* Read Proxy ID number (0 if no proxy used) */
-	memcpy(&proxynum, pq_getmsgbytes(message, sizeof (GTM_PGXCNodeId)),
-			sizeof (GTM_PGXCNodeId));
+	/* Read Proxy name (empty string if no proxy used) */
+	len = pq_getmsgint(message, sizeof (GTM_StrLen));
+	if (len >= NI_MAXHOST)
+		ereport(ERROR,
+				(EINVAL,
+				 errmsg("Invalid proxy name length.")));
+	memcpy(proxyname, (char *)pq_getmsgbytes(message, len), len);
+	proxyname[len] = '\0';
+
 	elog(LOG, "ProcessPGXCNodeRegister: ipaddress = %s", ipaddress);
 
 	/*
@@ -462,8 +491,8 @@ ProcessPGXCNodeRegister(Port *myport, StringInfo message)
 	 */
 	oldContext = MemoryContextSwitchTo(TopMostMemoryContext);
 
-	if (Recovery_PGXCNodeRegister(type, nodenum, port,
-								  proxynum, NODE_CONNECTED,
+	if (Recovery_PGXCNodeRegister(type, node_name, port,
+								  proxyname, NODE_CONNECTED,
 								  ipaddress, datafolder, false, myport->sock))
 	{
 		ereport(ERROR,
@@ -487,7 +516,10 @@ ProcessPGXCNodeRegister(Port *myport, StringInfo message)
 		pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
 	}
 	pq_sendbytes(&buf, (char *)&type, sizeof(GTM_PGXCNodeType));
-	pq_sendbytes(&buf, (char *)&nodenum, sizeof(GTM_PGXCNodeId));
+	/* Node name length */
+	pq_sendint(&buf, strlen(node_name), 4);
+	/* Node name (var-len) */
+	pq_sendbytes(&buf, node_name, strlen(node_name));
 	pq_endmessage(myport, &buf);
 
 	if (myport->remote_type != PGXC_NODE_GTM_PROXY)
@@ -507,7 +539,7 @@ retry:
 									 type,
 									 ipaddress,
 									 port,
-									 nodenum,
+									 node_name,
 									 datafolder,
 									 status);
 
@@ -525,15 +557,23 @@ void
 ProcessPGXCNodeUnregister(Port *myport, StringInfo message)
 {
 	GTM_PGXCNodeType	type;
-	GTM_PGXCNodeId		nodenum;
 	MemoryContext		oldContext;
 	StringInfoData		buf;
+	int			len;
+	char			node_name[NI_MAXHOST];
 
 	/* Read Node Type and number */
 	memcpy(&type, pq_getmsgbytes(message, sizeof (GTM_PGXCNodeType)),
 			sizeof (GTM_PGXCNodeType));
-	memcpy(&nodenum, pq_getmsgbytes(message, sizeof (GTM_PGXCNodeId)),
-			sizeof (GTM_PGXCNodeId));
+
+	 /* Read Node name */
+	len = pq_getmsgint(message, sizeof (int));
+	if (len >= NI_MAXHOST)
+		ereport(ERROR,
+				(EINVAL,
+				 errmsg("Invalid node name length")));
+	memcpy(node_name, (char *)pq_getmsgbytes(message, len), len);
+	node_name[len] = '\0';
 
 	/*
 	 * We must use the TopMostMemoryContext because the Node ID information is
@@ -542,7 +582,7 @@ ProcessPGXCNodeUnregister(Port *myport, StringInfo message)
 	 */
 	oldContext = MemoryContextSwitchTo(TopMostMemoryContext);
 
-	if (Recovery_PGXCNodeUnregister(type, nodenum, false, myport->sock))
+	if (Recovery_PGXCNodeUnregister(type, node_name, false, myport->sock))
 	{
 		ereport(ERROR,
 				(EINVAL,
@@ -565,7 +605,11 @@ ProcessPGXCNodeUnregister(Port *myport, StringInfo message)
 		pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
 	}
 	pq_sendbytes(&buf, (char *)&type, sizeof(GTM_PGXCNodeType));
-	pq_sendbytes(&buf, (char *)&nodenum, sizeof(GTM_PGXCNodeId));
+	/* Node name length */
+	pq_sendint(&buf, strlen(node_name), 4);
+	/* Node name (var-len) */
+	pq_sendbytes(&buf, node_name, strlen(node_name));
+
 	pq_endmessage(myport, &buf);
 
 	if (myport->remote_type != PGXC_NODE_GTM_PROXY)
@@ -583,7 +627,7 @@ ProcessPGXCNodeUnregister(Port *myport, StringInfo message)
 retry:
 		_rc = node_unregister(GetMyThreadInfo->thr_conn->standby,
 							  type,
-							  nodenum);
+							  node_name);
 		
 		if (gtm_standby_check_communication_error(&count, oldconn))
 			goto retry;
@@ -725,10 +769,15 @@ for (hash = 0; hash < NODE_HASH_TABLE_SIZE; hash++)
 			write(ctlfd, &NodeRegisterMagic, sizeof (NodeRegisterMagic));
 
 			write(ctlfd, &nodeinfo->type, sizeof (GTM_PGXCNodeType));
-			write(ctlfd, &nodeinfo->nodenum, sizeof (GTM_PGXCNodeId));
-
+			len = strlen(nodeinfo->nodename);
+			write(ctlfd, &len, sizeof(uint32));
+			write(ctlfd, nodeinfo->nodename, len);
 			write(ctlfd, &nodeinfo->port, sizeof (GTM_PGXCNodePort));
-			write(ctlfd, &nodeinfo->proxynum, sizeof (GTM_PGXCNodeId));
+
+			len = strlen(nodeinfo->proxyname);
+			write(ctlfd, &len, sizeof(uint32));
+			write(ctlfd, nodeinfo->proxyname, len);
+
 			write(ctlfd, &nodeinfo->status, sizeof (GTM_PGXCNodeStatus));
 
 			len = strlen(nodeinfo->ipaddress);
@@ -765,6 +814,7 @@ void
 Recovery_RecordRegisterInfo(GTM_PGXCNodeInfo *nodeinfo, bool is_register)
 {
 	int ctlfd;
+	int len;
 
 	GTM_RWLockAcquire(&RegisterFileLock, GTM_LOCKMODE_WRITE);
 
@@ -785,14 +835,20 @@ Recovery_RecordRegisterInfo(GTM_PGXCNodeInfo *nodeinfo, bool is_register)
 		write(ctlfd, &NodeUnregisterMagic, sizeof (NodeUnregisterMagic));
 
 	write(ctlfd, &nodeinfo->type, sizeof (GTM_PGXCNodeType));
-	write(ctlfd, &nodeinfo->nodenum, sizeof (GTM_PGXCNodeId));
+	len = strlen(nodeinfo->nodename);
+	write(ctlfd, &len, sizeof(uint32));
+	write(ctlfd, nodeinfo->nodename, len);
 
 	if (is_register)
 	{
 		int len;
 
 		write(ctlfd, &nodeinfo->port, sizeof (GTM_PGXCNodePort));
-		write(ctlfd, &nodeinfo->proxynum, sizeof (GTM_PGXCNodeId));
+
+		len = strlen(nodeinfo->proxyname);
+		write(ctlfd, &len, sizeof(uint32));
+		write(ctlfd, nodeinfo->proxyname, len);
+
 		write(ctlfd, &nodeinfo->status, sizeof (GTM_PGXCNodeStatus));
 
 		len = strlen(nodeinfo->ipaddress);
@@ -827,11 +883,10 @@ Recovery_RestoreRegisterInfo(void)
 	while (read(ctlfd, &magic, sizeof (NodeRegisterMagic)) == sizeof (NodeRegisterMagic))
 	{
 		GTM_PGXCNodeType	type;
-		GTM_PGXCNodeId		nodenum, proxynum;
 		GTM_PGXCNodePort	port;
 		GTM_PGXCNodeStatus	status;
-		char			   *ipaddress, *datafolder;
-		int					len;
+		char			*ipaddress, *datafolder, *nodename, *proxyname;
+		int			len;
 
 		if (magic != NodeRegisterMagic && magic != NodeUnregisterMagic)
 		{
@@ -840,12 +895,20 @@ Recovery_RestoreRegisterInfo(void)
 		}
 
 		read(ctlfd, &type, sizeof (GTM_PGXCNodeType));
-		read(ctlfd, &nodenum, sizeof (GTM_PGXCNodeId));
+		/* Read size of nodename string */
+		read(ctlfd, &len, sizeof (uint32));
+		nodename = (char *) palloc(len);
+		read(ctlfd, nodename, len);
 
 		if (magic == NodeRegisterMagic)
 		{
 			read(ctlfd, &port, sizeof (GTM_PGXCNodePort));
-			read(ctlfd, &proxynum, sizeof (GTM_PGXCNodeId));
+
+			/* Read size of proxyname string */
+			read(ctlfd, &len, sizeof (uint32));
+			proxyname = (char *) palloc(len);
+			read(ctlfd, proxyname, len);
+
 			read(ctlfd, &status, sizeof (GTM_PGXCNodeStatus));
 
 			/* Read size of ipaddress string */
@@ -861,10 +924,10 @@ Recovery_RestoreRegisterInfo(void)
 
 		/* Rebuild based on the records */
 		if (magic == NodeRegisterMagic)
-			Recovery_PGXCNodeRegister(type, nodenum, port, proxynum, status,
+			Recovery_PGXCNodeRegister(type, nodename, port, proxyname, status,
 									  ipaddress, datafolder, true, 0);
 		else
-			Recovery_PGXCNodeUnregister(type, nodenum, true, 0);
+			Recovery_PGXCNodeUnregister(type, nodename, true, 0);
 
 		read(ctlfd, &magic, sizeof(NodeEndMagic));
 
@@ -894,8 +957,8 @@ void
 Recovery_PGXCNodeDisconnect(Port *myport)
 {
 	GTM_PGXCNodeType	type = myport->remote_type;
-	GTM_PGXCNodeId		nodenum = myport->pgxc_node_id;
-	GTM_PGXCNodeInfo   *nodeinfo = NULL;
+	char			*nodename = myport->node_name;
+	GTM_PGXCNodeInfo	*nodeinfo = NULL;
 	MemoryContext		oldContext;
 
 	/* Only a master connection can disconnect a node */
@@ -909,7 +972,7 @@ Recovery_PGXCNodeDisconnect(Port *myport)
 	 */
 	oldContext = MemoryContextSwitchTo(TopMostMemoryContext);
 
-	nodeinfo = pgxcnode_find_info(type, nodenum);
+	nodeinfo = pgxcnode_find_info(type, nodename);
 
 	if (nodeinfo != NULL)
 	{
@@ -932,9 +995,9 @@ Recovery_PGXCNodeDisconnect(Port *myport)
 }
 
 int
-Recovery_PGXCNodeBackendDisconnect(GTM_PGXCNodeType type, GTM_PGXCNodeId nodenum, int socket)
+Recovery_PGXCNodeBackendDisconnect(GTM_PGXCNodeType type, char *nodename, int socket)
 {
-	GTM_PGXCNodeInfo *nodeinfo = pgxcnode_find_info(type, nodenum);
+	GTM_PGXCNodeInfo *nodeinfo = pgxcnode_find_info(type, nodename);
 	int errcode = 0;
 
 
@@ -970,19 +1033,27 @@ void
 ProcessPGXCNodeBackendDisconnect(Port *myport, StringInfo message)
 {
 	MemoryContext		oldContext;
-	GTM_PGXCNodeId		nodenum;
 	GTM_PGXCNodeType	type;
-	bool				is_postmaster;
+	bool			is_postmaster;
+	char			node_name[NI_MAXHOST];
+	int			len;
 
 	is_postmaster = pq_getmsgbyte(message);
 
 	if (is_postmaster)
 	{
-		/* Read Node Type and number */
-		memcpy(&type, pq_getmsgbytes(message, sizeof (GTM_PGXCNodeType)),
-				sizeof (GTM_PGXCNodeType));
-		memcpy(&nodenum, pq_getmsgbytes(message, sizeof (GTM_PGXCNodeId)),
-				sizeof (GTM_PGXCNodeId));
+		/* Read Node Type and name */
+		memcpy(&type, pq_getmsgbytes(message, sizeof (GTM_PGXCNodeType)), sizeof (GTM_PGXCNodeType));
+
+		/* Read Node name */
+		len = pq_getmsgint(message, sizeof (int));
+		if (len >= NI_MAXHOST)
+		{
+			elog(LOG, "Invalid node name length %d", len);
+			return;
+		}
+		memcpy(node_name, (char *)pq_getmsgbytes(message, len), len);
+		node_name[len] = '\0';
 	}
 
 	pq_getmsgend(message);
@@ -997,7 +1068,7 @@ ProcessPGXCNodeBackendDisconnect(Port *myport, StringInfo message)
 	 */
 	oldContext = MemoryContextSwitchTo(TopMostMemoryContext);
 
-	if (Recovery_PGXCNodeBackendDisconnect(type, nodenum, myport->sock) < 0)
+	if (Recovery_PGXCNodeBackendDisconnect(type, node_name, myport->sock) < 0)
 	{
 		elog(LOG, "Cannot disconnect Unregistered node");
 	}
@@ -1021,7 +1092,7 @@ retry:
 		_rc = backend_disconnect(GetMyThreadInfo->thr_conn->standby,
 					 is_postmaster,
 					 type,
-					 nodenum);
+					 node_name);
 
 		if (gtm_standby_check_communication_error(&count, oldconn))
 			goto retry;

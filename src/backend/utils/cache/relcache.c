@@ -63,6 +63,7 @@
 #include "optimizer/var.h"
 #ifdef PGXC
 #include "pgxc/pgxc.h"
+#include "postmaster/autovacuum.h"
 #endif
 #include "rewrite/rewriteDefine.h"
 #include "storage/fd.h"
@@ -902,7 +903,9 @@ RelationBuildDesc(Oid targetRelId, bool insertIt)
 		relation->trigdesc = NULL;
 
 #ifdef PGXC
-	if (IS_PGXC_COORDINATOR && relation->rd_id >= FirstNormalObjectId)
+	if (IS_PGXC_COORDINATOR &&
+		relation->rd_id >= FirstNormalObjectId &&
+		!IsAutoVacuumWorkerProcess())
 		RelationBuildLocator(relation);
 #endif
 	/*
@@ -2892,7 +2895,6 @@ RelationCacheInitializePhase3(void)
 							TriggerRelationId);
 
 #define NUM_CRITICAL_LOCAL_INDEXES	7	/* fix if you change list above */
-
 		criticalRelcachesBuilt = true;
 	}
 

@@ -61,6 +61,9 @@
    &alterIndex;
    &alterLanguage;
    &alterLargeObject;
+<!## XC>
+   &alterNode;
+<!## end>
    &alterOperator;
    &alterOperatorClass;
    &alterOperatorFamily;
@@ -107,6 +110,10 @@
    &createGroup;
    &createIndex;
    &createLanguage;
+<!## XC>
+   &createNode;
+   &createNodeGroup;
+<!## end>
    &createOperator;
    &createOperatorClass;
    &createOperatorFamily;
@@ -145,6 +152,10 @@
    &dropGroup;
    &dropIndex;
    &dropLanguage;
+<!## XC>
+   &dropNode;
+   &dropNodeGroup;
+<!## end>
    &dropOperator;
    &dropOperatorClass;
    &dropOperatorFamily;

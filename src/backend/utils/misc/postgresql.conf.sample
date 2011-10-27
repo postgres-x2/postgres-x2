@@ -544,11 +544,6 @@
 
 #pooler_port = 6667			# Pool Manager TCP port
 					# (change requires restart)
-#num_data_nodes = 2			# Number of Data Nodes
-					# (change requires restart)
-#preferred_data_nodes = ''		# List of preferred Data Nodes to read from 
-					# replicated tables. If empty use all the data nodes
-					# (change requires restart)
 #min_pool_size = 1			# Initial pool size
 					# (change requires restart)
 #max_pool_size = 100			# Maximum pool size
@@ -556,28 +551,6 @@
 #persistent_datanode_connections = off	# Set persistent connection mode for pooler
 					# if set at on, connections taken for coordinator
 					# are not put back to pool
-#data_node_hosts = 'localhost'		# Host names or addresses of data nodes
-					# (change requires restart)
-#data_node_ports = '15432,25432'	# Port numbers of data nodes
-					# (change requires restart)
-
-#primary_data_node = 1			# Which data node to use first for 
-					# replicated writes
-# Note each adata_node_... value should be either a single value if respective 
-# parameter is the same on all nodes or a comma-separated list, with number of 
-# entries not less then number of nodes end each entry is a value for node with 
-# respective number between 1 and num_data_nodes. If list is longer then 
-# num_data_nodes extra values are ignored.  
-
-#------------------------------------------------------------------------------
-# COORDINATORS
-#------------------------------------------------------------------------------
-#num_coordinators = 1			# Number of Coordinators
-					# (change require restart)
-#coordinator_hosts = 'localhost'	# Host names or addresses of Coordinators
-					# (change require restart)
-#coordinator_ports = '5432'		# Port numbers of Coordinators
-					# (change require restart)
 
 #------------------------------------------------------------------------------
 # GTM CONNECTION
@@ -587,7 +560,7 @@
 					# (change requires restart)
 #gtm_port = 6666			# Port of GTM
 					# (change requires restart)
-#pgxc_node_id = 1			# Coordinator or Datanode identifier
+#pgxc_node_name = ''			# Coordinator or Datanode name
 					# (change requires restart)
 
 ##------------------------------------------------------------------------------

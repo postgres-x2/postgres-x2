@@ -129,14 +129,4 @@ extern GTM_ThreadID						TopMostThreadID;
 		    Assert(CritSectionCount > 0); \
 		    CritSectionCount--; \
 	} while(0)
-
-
-#if 0
-
-/* Coordinator registration */
-int GTM_RegisterCoordinator(GTM_CoordInfo *cinfo);
-int GTM_UnregisterCoordinator(GTM_PGXCNodeId cid);
-
-#endif
-
 #endif

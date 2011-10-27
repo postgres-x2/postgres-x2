@@ -56,7 +56,7 @@ main(int argc, char *argv[])
 	int kk;
 	char connect_string[100];
 	int gtmport;
-	PGXCNodeId pgxc_node_id;
+	char *tmp_name;
 	int nclients;
 	int ntxns_per_cli;
 	int nstmts_per_txn;
@@ -119,10 +119,10 @@ main(int argc, char *argv[])
 				break;
 
 			case 'i':
-				pgxc_node_id = atoi(optarg);
-				sprintf(test_output, "TEST_OUTPUT_%d\0", pgxc_node_id);
-				sprintf(test_end, "TEST_END_%d\0", pgxc_node_id);
-				sprintf(test_output_csv, "TEST_OUTPUT_%d.CSV\0", pgxc_node_id);
+				tmp_name = strdup(optarg);
+				sprintf(test_output, "TEST_OUTPUT_%s\0", tmp_name);
+				sprintf(test_end, "TEST_END_%s\0", tmp_name);
+				sprintf(test_output_csv, "TEST_OUTPUT_%s.CSV\0", tmp_name);
 				break;
 
 			default:
@@ -132,7 +132,7 @@ main(int argc, char *argv[])
 		}
 	}
 		
-	sprintf(connect_string, "host=%s port=%d pgxc_node_id=%d remote_type=%d", gtmhost, gtmport, pgxc_node_id, PGXC_NODE_COORDINATOR);
+	sprintf(connect_string, "host=%s port=%d node_name=%s remote_type=%d", gtmhost, gtmport, tmp_name, PGXC_NODE_COORDINATOR);
 
 	sprintf(system_cmd, "echo -------------------------------------------------------- >> %s", test_output);
 	system(system_cmd);
@@ -195,8 +195,6 @@ main(int argc, char *argv[])
 	{
 		for (ii = 0; ii < TXN_COUNT; ii++)
 		{
-			PGXC_NodeId nodes[5];
-
 			if ((jj * TXN_COUNT) + ii >= ntxns_per_cli)
 				break;
 
@@ -212,10 +210,7 @@ main(int argc, char *argv[])
 				snapsize += snapshot->sn_xcnt;
 			}
 
-			nodes[0] = 1;
-			nodes[1] = 1;
-
-			if (!prepare_transaction(conn, gxid[ii], 2, nodes))
+			if (!prepare_transaction(conn, gxid[ii]))
 				client_log(("PREPARE successful (GXID:%u)\n", gxid[ii]));
 			else
 				client_log(("PREPARE failed (GXID:%u)\n", gxid[ii]));

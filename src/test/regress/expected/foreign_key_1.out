@@ -930,20 +930,16 @@ create table pktable(ptest1 int, ptest2 int, primary key(base1, ptest1), foreign
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
 insert into pktable (base1, ptest1, base2, ptest2) values (1, 1, 1, 1);
 insert into pktable (base1, ptest1, base2, ptest2) values (2, 1, 1, 1);
-ERROR:  insert or update on table "pktable" violates foreign key constraint "pktable_base2_fkey"
-DETAIL:  Key (base2, ptest2)=(1, 1) is not present in table "pktable".
 insert into pktable (base1, ptest1, base2, ptest2) values (2, 2, 2, 1);
-ERROR:  insert or update on table "pktable" violates foreign key constraint "pktable_base2_fkey"
-DETAIL:  Key (base2, ptest2)=(2, 1) is not present in table "pktable".
 insert into pktable (base1, ptest1, base2, ptest2) values (1, 3, 2, 2);
-ERROR:  insert or update on table "pktable" violates foreign key constraint "pktable_base2_fkey"
-DETAIL:  Key (base2, ptest2)=(2, 2) is not present in table "pktable".
 -- fails (3,2) isn't in base1, ptest1
 insert into pktable (base1, ptest1, base2, ptest2) values (2, 3, 3, 2);
 ERROR:  insert or update on table "pktable" violates foreign key constraint "pktable_base2_fkey"
 DETAIL:  Key (base2, ptest2)=(3, 2) is not present in table "pktable".
 -- fails (2,2) is being referenced
 delete from pktable where base1=2;
+ERROR:  update or delete on table "pktable" violates foreign key constraint "pktable_base2_fkey" on table "pktable"
+DETAIL:  Key (base1, ptest1)=(2, 2) is still referenced from table "pktable".
 -- fails (1,1) is being referenced (twice)
 update pktable set base1=3 where base1=1;
 ERROR:  Partition column can't be updated in current version

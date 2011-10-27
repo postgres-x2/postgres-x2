@@ -56,6 +56,8 @@
 #include "catalog/pg_user_mapping.h"
 #ifdef PGXC
 #include "catalog/pgxc_class.h"
+#include "catalog/pgxc_node.h"
+#include "catalog/pgxc_group.h"
 #endif
 #include "utils/rel.h"
 #include "utils/syscache.h"
@@ -547,6 +549,50 @@ static const struct cachedesc cacheinfo[] = {
 			0
 		},
 		1024
+	},
+	{PgxcGroupRelationId,	/* PGXCGROUPNAME */
+		PgxcGroupGroupNameIndexId,
+		1,
+		{
+			Anum_pgxc_group_name,
+			0,
+			0,
+			0
+		},
+		256
+	},
+	{PgxcGroupRelationId,	/* PGXCGROUPOID */
+		PgxcGroupOidIndexId,
+		1,
+		{
+			ObjectIdAttributeNumber,
+			0,
+			0,
+			0
+		},
+		256
+	},
+	{PgxcNodeRelationId,	/* PGXCNODENAME */
+		PgxcNodeNodeNameIndexId,
+		1,
+		{
+			Anum_pgxc_node_name,
+			0,
+			0,
+			0
+		},
+		256
+	},
+	{PgxcNodeRelationId,	/* PGXCNODEOID */
+		PgxcNodeOidIndexId,
+		1,
+		{
+			ObjectIdAttributeNumber,
+			0,
+			0,
+			0
+		},
+		256
 	},
 #endif
 	{ProcedureRelationId,		/* PROCNAMEARGSNSP */

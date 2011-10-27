@@ -36,6 +36,8 @@
 #include "catalog/pg_shdescription.h"
 #include "catalog/pg_tablespace.h"
 #include "catalog/toasting.h"
+#include "catalog/pgxc_node.h"
+#include "catalog/pgxc_group.h"
 #include "miscadmin.h"
 #include "storage/fd.h"
 #include "utils/fmgroids.h"
@@ -381,6 +383,10 @@ IsSharedRelation(Oid relationId)
 		relationId == SharedDescriptionRelationId ||
 		relationId == SharedDependRelationId ||
 		relationId == TableSpaceRelationId ||
+#ifdef PGXC
+		relationId == PgxcGroupRelationId ||
+		relationId == PgxcNodeRelationId ||
+#endif
 		relationId == DbRoleSettingRelationId)
 		return true;
 	/* These are their indexes (see indexing.h) */
@@ -396,6 +402,12 @@ IsSharedRelation(Oid relationId)
 		relationId == SharedDependReferenceIndexId ||
 		relationId == TablespaceOidIndexId ||
 		relationId == TablespaceNameIndexId ||
+#ifdef PGXC
+		relationId == PgxcNodeNodeNameIndexId ||
+		relationId == PgxcNodeOidIndexId ||
+		relationId == PgxcGroupGroupNameIndexId ||
+		relationId == PgxcGroupOidIndexId ||
+#endif
 		relationId == DbRoleSettingDatidRolidIndexId)
 		return true;
 	/* These are their toast tables and toast indexes (see toasting.h) */

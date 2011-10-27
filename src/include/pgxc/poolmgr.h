@@ -17,6 +17,7 @@
 #ifndef POOLMGR_H
 #define POOLMGR_H
 #include <sys/time.h>
+#include "nodes/nodes.h"
 #include "pgxcnode.h"
 #include "poolcomm.h"
 #include "storage/pmsignal.h"
@@ -48,8 +49,8 @@ typedef enum
 /* TODO move? */
 typedef struct
 {
-	char	   *host;
-	char	   *port;
+	char	*host;
+	int	port;
 } PGXCNodeConnectionInfo;
 
 /* Connection pool entry */
@@ -107,17 +108,13 @@ typedef struct
 
 extern int	NumDataNodes;
 extern int	NumCoords;
+extern int	NumCoordSlaves;
+extern int	NumDataNodeSlaves;
 extern int	MinPoolSize;
 extern int	MaxPoolSize;
 extern int	PoolerPort;
 
 extern bool PersistentConnections;
-
-extern char *DataNodeHosts;
-extern char *DataNodePorts;
-
-extern char *CoordinatorHosts;
-extern char *CoordinatorPorts;
 
 /* Initialize internal structures */
 extern int	PoolManagerInit(void);
@@ -176,4 +173,6 @@ extern void PoolManagerReleaseConnections(void);
 /* Cancel a running query on data nodes as well as on other coordinators */
 extern void PoolManagerCancelQuery(int dn_count, int* dn_list, int co_count, int* co_list);
 
+/* Check if pool has a handle */
+extern bool IsPoolHandle(void);
 #endif

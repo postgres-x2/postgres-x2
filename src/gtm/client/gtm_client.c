@@ -174,9 +174,6 @@ get_node_list(GTM_Conn *conn, GTM_PGXCNodeInfo *data, size_t maxlen)
 	size_t num_node;
 	int i;
 
-	for (i = 0; i < maxlen; i++)
-		data[i].nodenum = i;
-
 	 /* Start the message. */
 	if (gtmpqPutMsgStart('C', true, conn) ||
 	    gtmpqPutInt(MSG_NODE_LIST, sizeof (GTM_MessageType), conn))
@@ -208,9 +205,6 @@ get_node_list(GTM_Conn *conn, GTM_PGXCNodeInfo *data, size_t maxlen)
 	for (i = 0; i < num_node; i++)
 	{
 		memcpy(&data[i], res->gr_resdata.grd_node_list.nodeinfo[i], sizeof(GTM_PGXCNodeInfo));
-
-		fprintf(stderr, "get_node_list: nodetype=%d, nodenum=%d, datafolder=%s\n",
-			data[i].type, data[i].nodenum, data[i].datafolder);
 	}
 				
 	if (res->gr_status == GTM_RESULT_OK)
@@ -607,11 +601,12 @@ send_failed:
 
 int
 start_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, char *gid,
-					int datanodecnt, PGXC_NodeId datanodes[], int coordcnt,
-					PGXC_NodeId coordinators[])
+						   char *nodestring)
 {
 	GTM_Result *res = NULL;
 	time_t finish_time;
+
+	Assert(nodestring);
 
 	 /* Start the message. */
 	if (gtmpqPutMsgStart('C', true, conn) ||
@@ -621,17 +616,10 @@ start_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, char *gid,
 		/* Send also GID for an explicit prepared transaction */
 		gtmpqPutInt(strlen(gid), sizeof (GTM_StrLen), conn) ||
 		gtmpqPutnchar((char *) gid, strlen(gid), conn) ||
-		gtmpqPutInt(datanodecnt, sizeof (int), conn) ||
-		gtmpqPutInt(coordcnt, sizeof (int), conn))
+		gtmpqPutInt(strlen(nodestring), sizeof (GTM_StrLen), conn) ||
+		gtmpqPutnchar((char *) nodestring, strlen(nodestring), conn))
 		goto send_failed;
 
-	/* Datanode connections are not always involved in a transaction (SEQUENCE DDL) */
-	if (datanodecnt != 0 && gtmpqPutnchar((char *)datanodes, sizeof (PGXC_NodeId) * datanodecnt, conn))
-		goto send_failed;
-
-	/* Coordinator connections are not always involved in a transaction */
-	if (coordcnt != 0 && gtmpqPutnchar((char *)coordinators, sizeof (PGXC_NodeId) * coordcnt, conn))
-		goto send_failed;
 
 	/* Finish the message. */
 	if (gtmpqPutMsgEnd(conn))
@@ -715,10 +703,7 @@ get_gid_data(GTM_Conn *conn,
 			 char *gid,
 			 GlobalTransactionId *gxid,
 			 GlobalTransactionId *prepared_gxid,
-			 int *datanodecnt,
-			 PGXC_NodeId **datanodes,
-			 int *coordcnt,
-			 PGXC_NodeId **coordinators)
+			 char **nodestring)
 {
 	bool txn_read_only = false;
 	GTM_Result *res = NULL;
@@ -754,12 +739,7 @@ get_gid_data(GTM_Conn *conn,
 	{
 		*gxid = res->gr_resdata.grd_txn_get_gid_data.gxid;
 		*prepared_gxid = res->gr_resdata.grd_txn_get_gid_data.prepared_gxid;
-		*datanodecnt = res->gr_resdata.grd_txn_get_gid_data.datanodecnt;
-		*coordcnt = res->gr_resdata.grd_txn_get_gid_data.coordcnt;
-		if (res->gr_resdata.grd_txn_get_gid_data.datanodecnt != 0)
-			*datanodes = res->gr_resdata.grd_txn_get_gid_data.datanodes;
-		if (res->gr_resdata.grd_txn_get_gid_data.coordcnt != 0)
-			*coordinators = res->gr_resdata.grd_txn_get_gid_data.coordinators;
+		*nodestring = res->gr_resdata.grd_txn_get_gid_data.nodestring;
 	}
 
 	return res->gr_status;
@@ -1199,83 +1179,102 @@ node_get_local_addr(GTM_Conn *conn, char *buf, size_t buflen, int *rc)
  * node_register() returns 0 on success, -1 on failure.
  */
 int node_register(GTM_Conn *conn,
-				  GTM_PGXCNodeType type,
-				  GTM_PGXCNodePort port,
-				  GTM_PGXCNodeId nodenum,
-				  char *datafolder)
+			GTM_PGXCNodeType type,
+			GTM_PGXCNodePort port,
+			char *node_name,
+			char *datafolder)
 {
 	char host[1024];
 	int rc;
 
 	node_get_local_addr(conn, host, sizeof(host), &rc);
 	if (rc != 0)
+	{
 		return -1;
+	}
 
-	return node_register_internal(conn, type, host, port, nodenum, datafolder, NODE_CONNECTED);
+	return node_register_internal(conn, type, host, port, node_name, datafolder, NODE_CONNECTED);
 }
 
 int node_register_internal(GTM_Conn *conn,
 						   GTM_PGXCNodeType type,
 						   const char *host,
 						   GTM_PGXCNodePort port,
-						   GTM_PGXCNodeId nodenum,
+						   char *node_name,
 						   char *datafolder,
 						   GTM_PGXCNodeStatus status)
 {
 	GTM_Result *res = NULL;
 	time_t finish_time;
-	GTM_PGXCNodeId proxynum = 0;
+	char proxy_name[] = "";
 
 	/*
 	 * We should be very careful about the format of the message.
 	 * Host name and its length is needed only when registering
 	 * GTM Proxy.
 	 * In other case, they must not be included in the message.
+	 * PGXCTODO: FIXME How would this work in the new scenario
+	 * Fix that for GTM and GTM-proxy
 	 */
 	if (gtmpqPutMsgStart('C', true, conn) ||
 		/* Message Type */
 		gtmpqPutInt(MSG_NODE_REGISTER, sizeof (GTM_MessageType), conn) ||
 		/* Node Type to Register */
 		gtmpqPutnchar((char *)&type, sizeof(GTM_PGXCNodeType), conn) ||
-		/* Node Number to Register */
-		gtmpqPutnchar((char *)&nodenum, sizeof(GTM_PGXCNodeId), conn) ||
+		/* Node name length */
+		gtmpqPutInt(strlen(node_name), sizeof (GTM_StrLen), conn) ||
+		/* Node name (var-len) */
+		gtmpqPutnchar(node_name, strlen(node_name), conn) ||
 		/* Host name length */
 		gtmpqPutInt(strlen(host), sizeof (GTM_StrLen), conn) ||
 		/* Host name (var-len) */
 		gtmpqPutnchar(host, strlen(host), conn) ||
 		/* Port number */
 		gtmpqPutnchar((char *)&port, sizeof(GTM_PGXCNodePort), conn) ||
+		/* Proxy name length (zero if connected to GTM directly) */
+		gtmpqPutInt(strlen(proxy_name), sizeof (GTM_StrLen), conn) ||
+		/* Proxy name (var-len) */
+		gtmpqPutnchar(proxy_name, strlen(proxy_name), conn) ||
 		/* Proxy ID (zero if connected to GTM directly) */
-		gtmpqPutnchar((char *)&proxynum, sizeof(GTM_PGXCNodeId), conn) ||
 		/* Data Folder length */
 		gtmpqPutInt(strlen(datafolder), sizeof (GTM_StrLen), conn) ||
 		/* Data Folder (var-len) */
 		gtmpqPutnchar(datafolder, strlen(datafolder), conn) ||
 		/* Node Status */
 		gtmpqPutInt(status, sizeof(GTM_PGXCNodeStatus), conn))
+	{
 		goto send_failed;
+	}
 
 	/* Finish the message. */
 	if (gtmpqPutMsgEnd(conn))
+	{
 		goto send_failed;
+	}
 
 	/* Flush to ensure backend gets it. */
 	if (gtmpqFlush(conn))
+	{
 		goto send_failed;
+	}
 
 	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
 	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
 		gtmpqReadData(conn) < 0)
+	{
 		goto receive_failed;
+	}
 
 	if ((res = GTMPQgetResult(conn)) == NULL)
+	{
 		goto receive_failed;
+	}
 
-	/* Check on node type and node number */
+	/* Check on node type and node name */
 	if (res->gr_status == GTM_RESULT_OK)
 	{
 		Assert(res->gr_resdata.grd_node.type == type);
-		Assert(res->gr_resdata.grd_node.nodenum == nodenum);
+		Assert((strcmp(res->gr_resdata.grd_node.node_name,node_name) == 0));
 	}
 
 	return res->gr_status;
@@ -1287,7 +1286,7 @@ send_failed:
 	return -1;
 }
 
-int node_unregister(GTM_Conn *conn, GTM_PGXCNodeType type, GTM_PGXCNodeId nodenum)
+int node_unregister(GTM_Conn *conn, GTM_PGXCNodeType type, const char * node_name)
 {
 	GTM_Result *res = NULL;
 	time_t finish_time;
@@ -1295,7 +1294,10 @@ int node_unregister(GTM_Conn *conn, GTM_PGXCNodeType type, GTM_PGXCNodeId nodenu
 	if (gtmpqPutMsgStart('C', true, conn) ||
 		gtmpqPutInt(MSG_NODE_UNREGISTER, sizeof (GTM_MessageType), conn) ||
 		gtmpqPutnchar((char *)&type, sizeof(GTM_PGXCNodeType), conn) ||
-		gtmpqPutnchar((char *)&nodenum, sizeof(GTM_PGXCNodeId), conn))
+		/* Node name length */
+		gtmpqPutInt(strlen(node_name), sizeof (GTM_StrLen), conn) ||
+		/* Node name (var-len) */
+		gtmpqPutnchar(node_name, strlen(node_name), conn) )
 		goto send_failed;
 
 	/* Finish the message. */
@@ -1314,11 +1316,11 @@ int node_unregister(GTM_Conn *conn, GTM_PGXCNodeType type, GTM_PGXCNodeId nodenu
 	if ((res = GTMPQgetResult(conn)) == NULL)
 		goto receive_failed;
 
-	/* Check on node type and node number */
+	/* Check on node type and node name */
 	if (res->gr_status == GTM_RESULT_OK)
 	{
 		Assert(res->gr_resdata.grd_node.type == type);
-		Assert(res->gr_resdata.grd_node.nodenum == nodenum);
+		Assert( (strcmp(res->gr_resdata.grd_node.node_name, node_name) == 0) );
 	}
 
 	return res->gr_status;
@@ -1340,7 +1342,7 @@ GTM_FreeResult(GTM_Result *result, GTM_PGXCNodeType remote_type)
 }
 
 int
-backend_disconnect(GTM_Conn *conn, bool is_postmaster, GTM_PGXCNodeType type, GTM_PGXCNodeId nodenum)
+backend_disconnect(GTM_Conn *conn, bool is_postmaster, GTM_PGXCNodeType type, char *node_name)
 {
 	/* Start the message. */
 	if (gtmpqPutMsgStart('C', true, conn) ||
@@ -1349,15 +1351,16 @@ backend_disconnect(GTM_Conn *conn, bool is_postmaster, GTM_PGXCNodeType type, GT
 		goto send_failed;
 
 	/*
-	 * Then send node type and node number if backend is a postmaster to
+	 * Then send node type and node name if backend is a postmaster to
 	 * disconnect the correct node.
 	 */
 	if (is_postmaster)
 	{
-		if (gtmpqPutnchar((char *)&type,
-				  sizeof(GTM_PGXCNodeType), conn) ||
-			gtmpqPutnchar((char *)&nodenum,
-				  sizeof(GTM_PGXCNodeId), conn))
+		if (gtmpqPutnchar((char *)&type, sizeof(GTM_PGXCNodeType), conn) ||
+			/* Node name length */
+			gtmpqPutInt(strlen(node_name), sizeof (GTM_StrLen), conn) ||
+			/* Node name (var-len) */
+			gtmpqPutnchar(node_name, strlen(node_name), conn))
 			goto send_failed;
 	}
 

@@ -37,7 +37,7 @@ test_startup_01()
 	system("./start_a.sh");
 	sleep(1);
 
-	sprintf(connect_string, "host=localhost port=6666 pgxc_node_id=101 remote_type=%d",
+	sprintf(connect_string, "host=localhost port=6666 node_name=one_zero_one remote_type=%d",
 		PGXC_NODE_DEFAULT);
 
 	conn = PQconnectGTM(connect_string);
@@ -72,7 +72,7 @@ test_startup_01()
 	/*
 	 * connecting to the standby
 	 */
-	sprintf(connect_string, "host=localhost port=6667 pgxc_node_id=102 remote_type=%d",
+	sprintf(connect_string, "host=localhost port=6667 node_name=one_zero_two remote_type=%d",
 		PGXC_NODE_DEFAULT);
 
 	conn = PQconnectGTM(connect_string);

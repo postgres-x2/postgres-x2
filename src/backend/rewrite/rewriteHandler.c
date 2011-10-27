@@ -30,6 +30,7 @@
 
 #ifdef PGXC
 #include "pgxc/pgxc.h"
+#include "nodes/nodes.h"
 #include "pgxc/poolmgr.h"
 #include "optimizer/planner.h"
 #endif
@@ -71,8 +72,8 @@ static int GetRelPartColPos(const Query *query, const char *partColName);
 static void ProcessHashValue(List **valuesList, const List *subList, const int node);
 static void InitValuesList(List **valuesList[], int size);
 static void DestroyValuesList(List **valuesList[]);
-static void ProcessRobinValue(Oid relid, List **valuesList, 
-								int size, const RangeTblEntry *values_rte);
+static void ProcessRobinValue(RelationLocInfo *rel_loc_info, Oid relid, List **valuesList, 
+								const RangeTblEntry *values_rte);
 static List *RewriteInsertStmt(Query *parsetree, RangeTblEntry *values_rte);
 #endif
 
@@ -2478,7 +2479,7 @@ GetRelPartColPos(const Query *query, const char *partColName)
 static void
 ProcessHashValue(List **valuesList, const List *subList, const int node)
 {
-	valuesList[node - 1] = lappend(valuesList[node - 1], (List *) subList);
+	valuesList[node] = lappend(valuesList[node], (List *) subList);
 }
 
 /*
@@ -2513,13 +2514,14 @@ DestroyValuesList(List **valuesList[])
  *	assign insert values list to each node averagely
  *
  * Input parameters: 
+ *	rel_loc_info is the information about relation distribution
+ *	relid is relation Oid
  *	valuesList is an array of lists used to assign value list to specified nodes
- *	size is number of assigned nodes
  *	values_rte is the values list
  */
 static void
-ProcessRobinValue(Oid relid, List **valuesList, 
-				  int size, const RangeTblEntry *values_rte)
+ProcessRobinValue(RelationLocInfo *rel_loc_info, Oid relid, List **valuesList, 
+				  const RangeTblEntry *values_rte)
 {
 	List *values = values_rte->values_lists;
 	int length = values->length;
@@ -2527,6 +2529,7 @@ ProcessRobinValue(Oid relid, List **valuesList,
 	int i, j;
 	int processNum = 0;
 	int node;
+	int size = list_length(rel_loc_info->nodeList);
 
 	/* Get average insert value number of each node */
 	if (length > size)
@@ -2541,19 +2544,18 @@ ProcessRobinValue(Oid relid, List **valuesList,
 		/* Assign insert value */
 		for(j = 0; j < dist; j++)
 		{
-			processNum += 1;
-			valuesList[node - 1] = lappend(valuesList[node - 1], 
-									list_nth(values, processNum - 1));
+			valuesList[node] = lappend(valuesList[node], list_nth(values, processNum));
+			processNum ++;
 		}
 	}
 
 	/* Assign remained value */
 	while(processNum < length)
 	{
-		processNum += 1;
 		node = GetRoundRobinNode(relid);
-		valuesList[node - 1] = lappend(valuesList[node - 1],
-									   list_nth(values, processNum - 1));
+
+		valuesList[node] = lappend(valuesList[node], list_nth(values, processNum));
+		processNum ++;
 	}
 }
 
@@ -2627,10 +2629,10 @@ RewriteInsertStmt(Query *query, RangeTblEntry *values_rte)
 				GetHashExecNodes(rte_loc_info, &exec_nodes,
 						(Expr *)list_nth(sublist, partColno));
 
-				Assert(exec_nodes->nodelist->length == 1);
+				Assert(exec_nodes->nodeList->length == 1);
 
 				/* Assign valueList to specified execution node */
-				ProcessHashValue(valuesList, sublist, list_nth_int(exec_nodes->nodelist, 0));
+				ProcessHashValue(valuesList, sublist, list_nth_int(exec_nodes->nodeList, 0));
 			}
 		}
 
@@ -2640,7 +2642,7 @@ RewriteInsertStmt(Query *query, RangeTblEntry *values_rte)
 
 			InitValuesList(&valuesList, NumDataNodes);
 			/* Assign valueList to specified execution node */
-			ProcessRobinValue(rte->relid, valuesList, NumDataNodes, values_rte);
+			ProcessRobinValue(rte_loc_info, rte->relid, valuesList, values_rte);
 
 collect:
 			/* Produce query for relative Datanodes */
@@ -2650,8 +2652,7 @@ collect:
 				{
 					ExecNodes *execNodes = makeNode(ExecNodes);
 					execNodes->baselocatortype = rte_loc_info->locatorType;
-					execNodes->nodelist = lappend_int(execNodes->nodelist, i + 1);
-
+					execNodes->nodeList = lappend_int(execNodes->nodeList, i);
 					element = copyObject(query);
 
 					rte = (RangeTblEntry *)list_nth(element->rtable, rtr->rtindex - 1);

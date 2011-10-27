@@ -38,7 +38,7 @@ POSTGRES_BKI_SRCS = $(addprefix $(top_srcdir)/src/include/catalog/,\
 	pg_ts_config.h pg_ts_config_map.h pg_ts_dict.h \
 	pg_ts_parser.h pg_ts_template.h pg_extension.h \
 	pg_foreign_data_wrapper.h pg_foreign_server.h pg_user_mapping.h \
-	pgxc_class.h \
+	pgxc_class.h pgxc_node.h pgxc_group.h \
 	pg_foreign_table.h \
 	pg_default_acl.h pg_seclabel.h pg_collation.h \
 	toasting.h indexing.h \
@@ -68,13 +68,14 @@ install-data: $(BKIFILES) installdirs
 	$(INSTALL_DATA) $(srcdir)/system_views.sql '$(DESTDIR)$(datadir)/system_views.sql'
 	$(INSTALL_DATA) $(srcdir)/information_schema.sql '$(DESTDIR)$(datadir)/information_schema.sql'
 	$(INSTALL_DATA) $(srcdir)/sql_features.txt '$(DESTDIR)$(datadir)/sql_features.txt'
+	$(INSTALL_DATA) $(srcdir)/cluster_nodes.sql '$(DESTDIR)$(datadir)/cluster_nodes.sql'
 
 installdirs:
 	$(MKDIR_P) '$(DESTDIR)$(datadir)'
 
 .PHONY: uninstall-data
 uninstall-data:
-	rm -f $(addprefix '$(DESTDIR)$(datadir)'/, $(BKIFILES) system_views.sql information_schema.sql sql_features.txt)
+	rm -f $(addprefix '$(DESTDIR)$(datadir)'/, $(BKIFILES) system_views.sql information_schema.sql sql_features.txt cluster_nodes.sql)
 
 # postgres.bki, postgres.description, postgres.shdescription, and schemapg.h
 # are in the distribution tarball, so they are not cleaned here.

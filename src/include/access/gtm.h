@@ -15,7 +15,6 @@
 /* Configuration variables */
 extern char *GtmHost;
 extern int GtmPort;
-extern int PGXCNodeId;
 
 extern bool IsGTMConnected(void);
 extern void InitGTM(void);
@@ -26,18 +25,12 @@ extern int CommitTranGTM(GlobalTransactionId gxid);
 extern int RollbackTranGTM(GlobalTransactionId gxid);
 extern int StartPreparedTranGTM(GlobalTransactionId gxid,
 								char *gid,
-								int datanodecnt,
-								PGXC_NodeId datanodes[],
-								int coordcount,
-								PGXC_NodeId coordinators[]);
+								char *nodestring);
 extern int PrepareTranGTM(GlobalTransactionId gxid);
 extern int GetGIDDataGTM(char *gid,
 						 GlobalTransactionId *gxid,
 						 GlobalTransactionId *prepared_gxid,
-						 int *datanodecnt,
-						 PGXC_NodeId **datanodes,
-						 int *coordcnt,
-						 PGXC_NodeId **coordinators);
+						 char **nodestring);
 extern int CommitPreparedTranGTM(GlobalTransactionId gxid,
 								 GlobalTransactionId prepared_gxid);
 

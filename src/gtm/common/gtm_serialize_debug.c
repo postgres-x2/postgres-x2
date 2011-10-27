@@ -40,13 +40,12 @@ dump_transactioninfo_elog(GTM_TransactionInfo *txn)
 	elog(LOG, "gti_in_use: %d", txn->gti_in_use);
 	elog(LOG, "gti_gxid: %d", txn->gti_gxid);
 	elog(LOG, "gti_state: %d", txn->gti_state);
-	elog(LOG, "gti_coordid: %d", txn->gti_coordid);
+	elog(LOG, "gti_coordname: %s", txn->gti_coordname);
 	elog(LOG, "gti_xmin: %d", txn->gti_xmin);
 	elog(LOG, "gti_isolevel: %d", txn->gti_isolevel);
 	elog(LOG, "gti_readonly: %d", txn->gti_readonly);
 	elog(LOG, "gti_backend_id: %d", txn->gti_backend_id);
-	elog(LOG, "gti_datanodecount: %d", txn->gti_datanodecount);
-	elog(LOG, "gti_coordcount: %d", txn->gti_coordcount);
+	elog(LOG, "gti_nodestring: %s", txn->nodestring);
 	elog(LOG, "gti_gid: %s", txn->gti_gid);
 	
 	elog(LOG, "  sn_xmin: %d", txn->gti_current_snapshot.sn_xmin);

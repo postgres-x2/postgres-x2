@@ -18,7 +18,8 @@ main(int argc, char *argv[])
 	GTM_Conn *conn = NULL;
 	char connect_string[100];
 
-	sprintf(connect_string, "host=%s port=%d pgxc_node_id=1 remote_type=%d", PGXC_NODE_COORDINATOR);
+	//FIXME This statement is wrong
+	sprintf(connect_string, "host=%s port=%d node_name=one remote_type=%d", PGXC_NODE_COORDINATOR);
 
 	conn = PQconnectGTM(connect_string);
 	if (conn == NULL)

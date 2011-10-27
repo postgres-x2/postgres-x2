@@ -57,9 +57,10 @@ typedef enum
 
 struct pgxc_node_handle
 {
-	int 		nodenum; /* node identifier 1..NumDataNodes or 1..NumCoords */
+	Oid			nodeoid;
+
 	/* fd of the connection */
-	int			sock;
+	int		sock;
 	/* Connection state */
 	char		transaction_status;
 	DNConnectionState state;
@@ -67,14 +68,14 @@ struct pgxc_node_handle
 #ifdef DN_CONNECTION_DEBUG
 	bool		have_row_desc;
 #endif
-	char	   *barrier_id;
-	char	   *error;
+	char		*barrier_id;
+	char		*error;
 	/* Output buffer */
-	char	   *outBuffer;
+	char		*outBuffer;
 	size_t		outSize;
 	size_t		outEnd;
 	/* Input buffer */
-	char	   *inBuffer;
+	char		*inBuffer;
 	size_t		inSize;
 	size_t		inStart;
 	size_t		inEnd;
@@ -95,14 +96,18 @@ typedef struct
 extern void InitMultinodeExecutor(void);
 
 /* Open/close connection routines (invoked from Pool Manager) */
-extern char *PGXCNodeConnStr(char *host, char *port, char *dbname, char *user,
+extern char *PGXCNodeConnStr(char *host, int port, char *dbname, char *user,
 							 char *remote_type);
 extern NODE_CONNECTION *PGXCNodeConnect(char *connstr);
 extern int PGXCNodeSendSetQuery(NODE_CONNECTION *conn, const char *sql_command);
 extern void PGXCNodeClose(NODE_CONNECTION * conn);
-extern int	PGXCNodeConnected(NODE_CONNECTION * conn);
-extern int	PGXCNodeConnClean(NODE_CONNECTION * conn);
+extern int PGXCNodeConnected(NODE_CONNECTION * conn);
+extern int PGXCNodeConnClean(NODE_CONNECTION * conn);
 extern void PGXCNodeCleanAndRelease(int code, Datum arg);
+
+/* Look at information cached in node handles */
+extern int PGXCNodeGetNodeId(Oid nodeoid, char node_type);
+extern Oid PGXCNodeGetNodeOid(int nodeid, char node_type);
 
 extern PGXCNodeAllHandles *get_handles(List *datanodelist, List *coordlist, bool is_query_coord_only);
 extern void release_handles(void);
@@ -110,10 +115,11 @@ extern void cancel_query(void);
 extern void clear_all_data(void);
 
 
-extern int	get_transaction_nodes(PGXCNodeHandle ** connections,
+extern int get_transaction_nodes(PGXCNodeHandle ** connections,
 								  char client_conn_type,
 								  PGXCNode_HandleRequested type_requested);
-extern PGXC_NodeId* collect_pgxcnode_numbers(int conn_count, PGXCNodeHandle ** connections, char client_conn_type);
+extern char* collect_pgxcnode_names(char *nodestring, int conn_count, PGXCNodeHandle ** connections, char client_conn_type);
+extern char* collect_localnode_name(char *nodestring);
 extern int	get_active_nodes(PGXCNodeHandle ** connections);
 
 extern int	ensure_in_buffer_capacity(size_t bytes_needed, PGXCNodeHandle * handle);

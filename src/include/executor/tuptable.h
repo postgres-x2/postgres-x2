@@ -122,11 +122,11 @@ typedef struct TupleTableSlot
 	/*
 	 * PGXC extension to support tuples sent from remote data node.
 	 */
-	char	   *tts_dataRow;	/* Tuple data in DataRow format */
-	int			tts_dataLen;	/* Actual length of the data row */
-	int			tts_dataNode;	/* Originating node of the data row */
-	bool		tts_shouldFreeRow;		/* should pfree tts_dataRow? */
-	struct AttInMetadata *tts_attinmeta;		/* store here info to extract values from the DataRow */
+	char		*tts_dataRow;		/* Tuple data in DataRow format */
+	int		tts_dataLen;		/* Actual length of the data row */
+	int		tts_dataNodeIndex;	/* Originating node of the data row */
+	bool		tts_shouldFreeRow;	/* should pfree tts_dataRow? */
+	struct AttInMetadata *tts_attinmeta;	/* store here info to extract values from the DataRow */
 #endif
 	TupleDesc	tts_tupleDescriptor;	/* slot's tuple descriptor */
 	MemoryContext tts_mcxt;		/* slot itself is in this context */

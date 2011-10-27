@@ -1,0 +1,188 @@
+<!--
+$PostgreSQL: pgsql/doc/src/sgml/ref/alter_node.sgml,v 1.54 2010/04/03 07:22:58 petere Exp $
+PostgreSQL documentation
+-->
+<!## XC>
+<refentry id="SQL-ALTERNODE">
+ <refmeta>
+  <refentrytitle>ALTER NODE</refentrytitle>
+  <manvolnum>7</manvolnum>
+  <refmiscinfo>SQL - Language Statements</refmiscinfo>
+ </refmeta>
+
+ <refnamediv>
+  <refname>ALTER NODE</refname>
+  <refpurpose>alter a cluster node</refpurpose>
+ </refnamediv>
+
+ <indexterm zone="sql-alternode">
+  <primary>ALTER NODE</primary>
+ </indexterm>
+
+ <refsynopsisdiv>
+<synopsis>
+ALTER NODE <replaceable class="parameter">nodename</replaceable> SET
+  [ NODEPORT = <replaceable class="parameter">nodenum</replaceable>, ]
+  [ HOSTIP = <replaceable class="parameter">hostname</replaceable>, ]
+  [ RELATED ( TO <replaceable class="parameter">nodename</replaceable> | NONE ), ]
+  [ (COORDINATOR | NODE) (MASTER | SLAVE) ]
+
+</synopsis>
+ </refsynopsisdiv>
+
+ <refsect1>
+  <title>Description</title>
+
+&xconly;
+
+  <para>
+   <command>ALTER NODE</command> is new SQL query specific
+   to <productname>Postgres-XC</productname> since 0.9.6 that modifies
+   cluster node information in catalog pgxc_node.
+  </para>
+  <para>
+   Node connection that has been modified does not guarranty that connection
+   information cached in pooler is updated accordingly.
+  </para>
+
+ </refsect1>
+
+ <refsect1>
+  <title>Parameters</title>
+
+    <variablelist>
+     <varlistentry>
+      <term><replaceable class="parameter">nodename</replaceable></term>
+      <listitem>
+       <para>
+        The name of the selected cluster node.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><literal>COORDINATOR</literal></term>
+      <term><literal>NODE</literal></term>
+      <listitem>
+       <para>
+        The type of the cluster node. <literal>COORDINATOR</literal> for
+        a Coordinator node, <literal>NODE</literal> for a Datanode.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><literal>SLAVE</literal></term>
+      <term><literal>MASTER</literal></term>
+      <listitem>
+       <para>
+        The standby status of the node. <literal>MASTER</literal> for
+        a master node, <literal>SLAVE</literal> for a standby/slave node.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><literal>PRIMARY</literal></term>
+      <listitem>
+       <para>
+        Defines if the cluster node is used as a primary for replicated
+        write operations.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><literal>PREFERRED</literal></term>
+      <listitem>
+       <para>
+        Defines if the cluster node is used as a preferely for replicated
+        read operations.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><literal>RELATED TO</literal></term>
+      <term><literal>RELATED NONE</literal></term>
+      <listitem>
+       <para>
+        Defines for a slave node on which master/slave node this node is
+        dependant by replication. <literal>RELATED NONE</literal> is used
+        in the case where node is modified such as to be not dependant to another one.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><replaceable class="parameter">hostname</replaceable></term>
+      <listitem>
+       <para>
+        The hostname or IP used to connect to the cluster node.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><replaceable class="parameter">portnum</replaceable></term>
+      <listitem>
+       <para>
+        The port number used to connect to the cluster node.
+       </para>
+      </listitem>
+     </varlistentry>
+
+    </variablelist>
+ </refsect1>
+
+ <refsect1>
+  <title>Notes</title>
+  <para>
+    A slave Datanode cannot be modified as <literal>PRIMARY</literal> but
+    it can be modified as <literal>PREFERRED</literal>.
+  </para>
+
+  <para>
+    A master node cannot have a related node defined with <literal>
+    RELATED TO</literal>. Defining a related node on a slave is mandatory.
+  </para>
+
+  <para>
+    A slave node can be promoted to a master node with <literal>RELATED NONE
+    </literal>, but in this case the node type has to be changed from
+    <literal>SLAVE</literal> to <literal>MASTER</literal>.
+  </para>
+
+  <para>
+    A node type cannot be modified.
+  </para>
+ </refsect1>
+
+ <refsect1>
+  <title>Examples</title>
+  <para>
+   Modify a Coordinator node located on local machine to use port 6543.
+<programlisting>
+ALTER NODE coord_node SET PORTNUM = 6543;
+</programlisting>
+  </para>
+
+  <para>
+   Promote a slave datanode to master.
+<programlisting>
+ALTER NODE data_node SET DATANODE MASTER, RELATED TO NONE;
+</programlisting>
+  </para>
+
+ </refsect1>
+
+ <refsect1>
+  <title>Compatibility</title>
+  <para>
+   <command>ALTER NODE</command> does not conform to the <acronym>
+   SQL</acronym> standards, it is a Postgres-XC specific command.
+  </para>
+ </refsect1>
+
+</refentry>
+<!## end>

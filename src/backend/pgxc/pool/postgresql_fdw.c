@@ -240,8 +240,6 @@ deparseSql(RemoteQueryState *scanstate)
 	TupleDesc		tupdesc;
 	bool			first;
 
-elog(DEBUG2, "%s(%u) called", __FUNCTION__, __LINE__);
-
 	/* extract RemoteQuery and RangeTblEntry */
 	scan = (RemoteQuery *)scanstate->ss.ps.plan;
 	rte = list_nth(estate->es_range_table, scan->scan.scanrelid - 1);

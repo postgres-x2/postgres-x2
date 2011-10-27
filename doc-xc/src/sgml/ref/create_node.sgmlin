@@ -1,0 +1,191 @@
+<!--
+$PostgreSQL: pgsql/doc/src/sgml/ref/create_node.sgml,v 1.54 2010/04/03 07:22:58 petere Exp $
+PostgreSQL documentation
+-->
+<!## XC>
+<refentry id="SQL-CREATENODE">
+ <refmeta>
+  <refentrytitle>CREATE NODE</refentrytitle>
+  <manvolnum>7</manvolnum>
+  <refmiscinfo>SQL - Language Statements</refmiscinfo>
+ </refmeta>
+
+ <refnamediv>
+  <refname>CREATE NODE</refname>
+  <refpurpose>create a new cluster node</refpurpose>
+ </refnamediv>
+
+ <indexterm zone="sql-createnode">
+  <primary>CREATE NODE</primary>
+ </indexterm>
+
+ <refsynopsisdiv>
+<synopsis>
+CREATE NODE <replaceable class="parameter">nodename</replaceable> WITH
+  (
+    [ (COORDINATOR | NODE) (SLAVE | MASTER),]
+    [ HOSTIP = <replaceable class="parameter">hostname</replaceable>,]
+    [ NODEPORT = <replaceable class="parameter">portnum</replaceable>,]
+    [ RELATED TO <replaceable class="parameter">nodename</replaceable>,]
+    [ PRIMARY,]
+    [ PREFERRED ]
+  )
+
+</synopsis>
+ </refsynopsisdiv>
+
+ <refsect1>
+  <title>Description</title>
+
+&xconly;
+
+  <para>
+   <command>CREATE NODE</command> is new SQL query specific
+   to <productname>Postgres-XC</productname> since 0.9.6 that creates
+   a new entry in catalog table pgxc_node with node data.
+  </para>
+  <para>
+   This node data is directly used by a Coordinator session when connecting
+   to build connection data to cluster nodes through <productname>Postgres-XC
+   </productname> pooler.
+  </para>
+  <para>
+   Node connection information is created on pooler only if it has not been
+   the case yet on Coordinator connected at the moment of connection.
+  </para>
+
+ </refsect1>
+
+ <refsect1>
+  <title>Parameters</title>
+
+    <variablelist>
+     <varlistentry>
+      <term><replaceable class="parameter">nodename</replaceable></term>
+      <listitem>
+       <para>
+        The name of the selected cluster node.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><literal>COORDINATOR</literal></term>
+      <term><literal>NODE</literal></term>
+      <listitem>
+       <para>
+        The type of the cluster node. <literal>COORDINATOR</literal> for
+        a Coordinator node, <literal>NODE</literal> for a Datanode.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><literal>SLAVE</literal></term>
+      <term><literal>MASTER</literal></term>
+      <listitem>
+       <para>
+        The standby status of the node. <literal>MASTER</literal> for
+        a master node, <literal>SLAVE</literal> for a standby/slave node.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><literal>PRIMARY</literal></term>
+      <listitem>
+       <para>
+        Defines if the cluster node is used as a primary for replicated
+        write operations.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><literal>PREFERRED</literal></term>
+      <listitem>
+       <para>
+        Defines if the cluster node is used as a preferely for replicated
+        read operations.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><literal>RELATED TO</literal></term>
+      <listitem>
+       <para>
+        Defines for a slave node on which master/slave node this node is
+        dependant by replication.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><replaceable class="parameter">hostname</replaceable></term>
+      <listitem>
+       <para>
+        The hostname or IP used to connect to the cluster node.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><replaceable class="parameter">portnum</replaceable></term>
+      <listitem>
+       <para>
+        The port number used to connect to the cluster node.
+       </para>
+      </listitem>
+     </varlistentry>
+
+    </variablelist>
+ </refsect1>
+
+ <refsect1>
+  <title>Notes</title>
+  <para>
+    <replaceable class="parameter">nodename</replaceable> remains constant
+    as long as it is in use.
+  </para>
+
+  <para>
+    A slave Datanode cannot be defined as <literal>PRIMARY</literal> but
+    it can be defined as <literal>PREFERRED</literal>.
+  </para>
+
+  <para>
+    A master node cannot have a related node defined with <literal>
+    RELATED TO</literal>. Defining a related node on a slave is mandatory.
+  </para>
+ </refsect1>
+
+ <refsect1>
+  <title>Examples</title>
+  <para>
+   Create a Coordinator node located on local machine using port 6543
+<programlisting>
+CREATE NODE node2 WITH (COORDINATOR MASTER, HOSTIP = 'localhost', PORTNUM = 6543);
+</programlisting>
+  </para>
+
+  <para>
+   Create a Datanode master which is a preferred and primary node
+   located on remote machine with IP '192.168.0.3' on port 8888.
+<programlisting>
+CREATE NODE node2 WITH (DATANODE MASTER, HOSTIP = '192.168.0.3', PORTNUM = 8888, PRIMARY, PREFERRED);
+</programlisting>
+  </para>
+
+ </refsect1>
+
+ <refsect1>
+  <title>Compatibility</title>
+  <para>
+   <command>CREATE NODE</command> does not conform to the <acronym>
+   SQL</acronym> standards, it is a Postgres-XC specific command.
+  </para>
+ </refsect1>
+
+</refentry>
+<!## end>

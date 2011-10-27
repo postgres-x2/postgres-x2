@@ -17,7 +17,7 @@ pthread_key_t     threadinfo_key;
 void
 setUp()
 {
-	sprintf(connect_string, "host=localhost port=6666 pgxc_node_id=1 remote_type=%d",
+	sprintf(connect_string, "host=localhost port=6666 node_name=one remote_type=%d",
 		PGXC_NODE_GTM);
 	
 	conn = PQconnectGTM(connect_string);
@@ -47,12 +47,12 @@ test01()
 	/*
 	 * starting
 	 */
-	rc = node_register_internal(conn, PGXC_NODE_GTM, host, 6667, 102, "/tmp/pgxc/data/gtm_standby", NODE_DISCONNECTED);
+	rc = node_register_internal(conn, PGXC_NODE_GTM, host, 6667, "One zero two", "/tmp/pgxc/data/gtm_standby", NODE_DISCONNECTED);
 	_ASSERT(rc == 0);
-	rc = node_unregister(conn, PGXC_NODE_GTM, 102);
+	rc = node_unregister(conn, PGXC_NODE_GTM, "One zero two");
 	_ASSERT(rc == 0);
 
-	rc = node_register_internal(conn, PGXC_NODE_GTM, host, 6667, 102, "/tmp/pgxc/data/gtm_standby", NODE_CONNECTED);
+	rc = node_register_internal(conn, PGXC_NODE_GTM, host, 6667, "One zero two", "/tmp/pgxc/data/gtm_standby", NODE_CONNECTED);
 	_ASSERT(rc == 0);
 
 	sleep(10);
@@ -71,7 +71,7 @@ test01()
 	/*
 	 * closing
 	 */
-	rc = node_unregister(conn, PGXC_NODE_GTM, 102);
+	rc = node_unregister(conn, PGXC_NODE_GTM, "One zero two");
 	_ASSERT( rc==0 );
 
 	tearDown();

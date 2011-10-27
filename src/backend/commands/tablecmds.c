@@ -616,13 +616,13 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId)
 	 */
 	if (IS_PGXC_COORDINATOR && relkind == RELKIND_RELATION)
 	{
-		AddRelationDistribution (relationId, stmt->distributeby, inheritOids, descriptor);
+		AddRelationDistribution(relationId, stmt->distributeby,
+								stmt->subcluster, inheritOids, descriptor);
 		CommandCounterIncrement();
 		/* Make sure locator info gets rebuilt */
 		RelationCacheInvalidateEntry(relationId);
 	}
 #endif
-
 	/*
 	 * Open the new relation and acquire exclusive lock on it.	This isn't
 	 * really necessary for locking out other backends (since they can't see

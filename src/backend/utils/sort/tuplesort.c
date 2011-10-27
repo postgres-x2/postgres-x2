@@ -111,6 +111,7 @@
 #include "pg_trace.h"
 #ifdef PGXC
 #include "pgxc/execRemote.h"
+#include "catalog/pgxc_node.h"
 #endif
 #include "utils/datum.h"
 #include "utils/logtape.h"
@@ -3022,10 +3023,10 @@ getlen_datanode(Tuplesortstate *state, int tapenum, bool eofOK)
 	 * the node number is stored in combiner->tapenodes[tapenum].
 	 * If connection is inactive and no buffered data we have EOF condition
 	 */
-	int				nodenum;
+	int		nid;
 	unsigned int 	len = 0;
-	ListCell	   *lc;
-	ListCell	   *prev = NULL;
+	ListCell	*lc;
+	ListCell	*prev = NULL;
 
 	/* May it ever happen ?! */
 	if (!conn && !combiner->tapenodes)
@@ -3033,7 +3034,12 @@ getlen_datanode(Tuplesortstate *state, int tapenum, bool eofOK)
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("Failed to fetch from data node cursor")));
 
-	nodenum = conn ? conn->nodenum : combiner->tapenodes[tapenum];
+	nid = conn ? PGXCNodeGetNodeId(conn->nodeoid, PGXC_NODE_DATANODE_MASTER) : combiner->tapenodes[tapenum];
+
+	if (nid < 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Node id %d is incorrect", nid)));
 
 	/*
 	 * If there are buffered rows iterate over them and get first from
@@ -3042,7 +3048,7 @@ getlen_datanode(Tuplesortstate *state, int tapenum, bool eofOK)
 	foreach (lc, combiner->rowBuffer)
 	{
 		RemoteDataRow dataRow = (RemoteDataRow) lfirst(lc);
-		if (dataRow->msgnode == nodenum)
+		if (dataRow->msgnode == nid)
 		{
 			combiner->currentRow = *dataRow;
 			combiner->rowBuffer = list_delete_cell(combiner->rowBuffer, lc, prev);

@@ -78,6 +78,7 @@
 
 #ifdef PGXC
 #include "catalog/pgxc_class.h"
+#include "catalog/pgxc_node.h"
 #include "pgxc/locator.h"
 #endif
 
@@ -113,6 +114,9 @@ static Node *cookConstraint(ParseState *pstate,
 			   Node *raw_constraint,
 			   char *relname);
 static List *insert_ordered_unique_oid(List *list, Oid datum);
+#ifdef PGXC
+static Oid *build_subcluster_data(PGXCSubCluster *subcluster, int *numnodes);
+#endif
 
 
 /* ----------------------------------------------------------------
@@ -891,6 +895,29 @@ AddNewRelationTuple(Relation pg_class_desc,
 }
 
 #ifdef PGXC
+
+/* --------------------------------
+ *		cmp_nodes
+ *
+ *		Compare the Oids of two XC nodes
+ *		to sort them in ascending order by their names
+ * --------------------------------
+ */
+static int
+cmp_nodes(const void *p1, const void *p2)
+{
+	Oid n1 = *((Oid *)p1);
+	Oid n2 = *((Oid *)p2);
+
+	if (strcmp(get_pgxc_nodename(n1), get_pgxc_nodename(n2)) < 0)
+		return -1;
+
+	if (strcmp(get_pgxc_nodename(n1), get_pgxc_nodename(n2)) == 0)
+		return 0;
+
+	return 1;
+}
+
 /* --------------------------------
  *		AddRelationDistribution 
  *
@@ -898,8 +925,9 @@ AddNewRelationTuple(Relation pg_class_desc,
  * --------------------------------
  */
 void 
-AddRelationDistribution (Oid relid, 
+AddRelationDistribution(Oid relid, 
 				DistributeBy *distributeby,
+				PGXCSubCluster *subcluster,
 				List 		 *parentOids,
 				TupleDesc	 descriptor)
 {
@@ -907,9 +935,9 @@ AddRelationDistribution (Oid relid,
 	int hashalgorithm 	= 0;
 	int hashbuckets 	= 0;
 	AttrNumber attnum 	= 0;
-	ObjectAddress myself,
-				referenced;
-
+	ObjectAddress myself, referenced;
+	int	numnodes;
+	Oid	*nodeoids;
 
 	if (!distributeby)
 	{
@@ -1060,7 +1088,19 @@ AddRelationDistribution (Oid relid,
 			break;
 	}
 
-	PgxcClassCreate (relid, locatortype, attnum, hashalgorithm, hashbuckets);
+	/* Check and build list of nodes related to table */
+	nodeoids = build_subcluster_data(subcluster, &numnodes);
+
+	/*
+	 * Sort the list of nodes in ascending order before storing them 
+	 * This is required so that indices are stored in ascending order
+	 * and later when node number is found by modulo, it points to the right node 
+	 */
+	qsort(nodeoids, numnodes, sizeof(Oid), cmp_nodes);
+
+	/* Now OK to insert data in catalog */
+	PgxcClassCreate(relid, locatortype, attnum, hashalgorithm,
+					hashbuckets, numnodes, nodeoids);
 
 	/* Make dependency entries */
 	myself.classId = PgxcClassRelationId;
@@ -1072,6 +1112,145 @@ AddRelationDistribution (Oid relid,
 	referenced.objectId = relid;
 	referenced.objectSubId = 0;
 	recordDependencyOn(&myself, &referenced, DEPENDENCY_INTERNAL);
+}
+
+/*
+ * Build list of node Oids for subcluster.
+ * In case pgxc_node is empty return an error
+ */
+static Oid *
+build_subcluster_data(PGXCSubCluster *subcluster, int *numnodes)
+{
+	ListCell *lc;
+	Oid *nodes = NULL;
+
+	*numnodes = 0;
+
+	if (!subcluster)
+	{
+		/*
+		 * If no subcluster is defined, all the Datanode masters are associated
+		 * to the table. So scan pgxc_node and pick up all the necessary stuff.
+		 */
+		Relation		rel;
+		HeapScanDesc	scan;
+		HeapTuple		tuple;
+
+		rel = heap_open(PgxcNodeRelationId, AccessShareLock);
+		scan = heap_beginscan(rel, SnapshotNow, 0, NULL);
+
+		while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
+		{
+			Form_pgxc_node  pgxc_node = (Form_pgxc_node) GETSTRUCT(tuple);
+
+			/* Add only Datanode masters */
+			if (pgxc_node->node_type != PGXC_NODE_DATANODE_MASTER)
+				continue;
+
+			(*numnodes)++;
+			if (!nodes)
+				nodes = (Oid *) palloc(*numnodes * sizeof(Oid));
+			else
+				nodes = (Oid *) repalloc(nodes, *numnodes * sizeof(Oid));
+
+			nodes[*numnodes - 1] = get_pgxc_nodeoid(NameStr(pgxc_node->node_name));
+		}
+		heap_endscan(scan);
+		heap_close(rel, AccessShareLock);
+
+		/* No nodes found ?? */
+		if (*numnodes == 0)
+			ereport(ERROR,
+					(errcode(ERRCODE_UNDEFINED_OBJECT),
+					 errmsg("No PGXC Datanode master defined")));
+
+		return nodes;
+	}
+
+	/*
+	 * For the time being, if a sub-cluster is defined, just block it.
+	 * PGXCTODO: We need to work on node mapping for subclusters and
+	 * remote node joins for queries on multiple tables.
+	 */
+	if (subcluster)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("Postgres-XC does not support subset of nodes yet"),
+						 errdetail("The feature is not currently supported")));
+
+	/* Build list of nodes from given group */
+	if (subcluster->clustertype == SUBCLUSTER_GROUP)
+	{
+		Assert(list_length(subcluster->members) == 1);
+
+		foreach(lc, subcluster->members)
+		{
+			const char	*group_name = strVal(lfirst(lc));
+			Oid		group_oid = get_pgxc_groupoid(group_name);
+
+			if (!OidIsValid(group_oid))
+				ereport(ERROR,
+						(errcode(ERRCODE_UNDEFINED_OBJECT),
+						 errmsg("PGXC Group %s: group not defined",
+								group_name)));
+
+			*numnodes = get_pgxc_groupmembers(group_oid, &nodes);
+		}
+	}
+	else
+	{
+		/* This is the case of a list of nodes */
+		foreach(lc, subcluster->members)
+		{
+			char   *node_name = strVal(lfirst(lc));
+			Oid	noid = get_pgxc_nodeoid(node_name);
+
+			/* Check existence of node */
+			if (!OidIsValid(noid))
+				ereport(ERROR,
+						(errcode(ERRCODE_DUPLICATE_OBJECT),
+						 errmsg("PGXC Node %s: object not defined",
+								node_name)));
+
+			if (get_pgxc_nodetype(noid) != PGXC_NODE_DATANODE_MASTER)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("PGXC node %s: not a Datanode master",
+								node_name)));
+
+			/* Can be added if necessary */
+			if (*numnodes != 0)
+			{
+				bool	is_listed = false;
+				int		i;
+
+				/* Id Oid already listed? */
+				for (i = 0; i < *numnodes; i++)
+				{
+					if (nodes[i] == noid)
+					{
+						is_listed = true;
+						break;
+					}
+				}
+
+				if (!is_listed)
+				{
+					(*numnodes)++;
+					nodes = (Oid *) repalloc(nodes, *numnodes * sizeof(Oid));
+					nodes[*numnodes - 1] = noid;
+				}
+			}
+			else
+			{
+				(*numnodes)++;
+				nodes = (Oid *) palloc(*numnodes * sizeof(Oid));
+				nodes[*numnodes - 1] = noid;
+			}
+		}
+	}
+
+	return nodes;
 }
 #endif
 

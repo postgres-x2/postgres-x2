@@ -361,7 +361,7 @@ test_gtm_connection()
 	 * so its value doesn't really matter here.
 	 */
 	snprintf(connstr, sizeof(connstr),
-			 "host=localhost port=%s connect_timeout=5 pgxc_node_id=1", portstr);
+			 "host=localhost port=%s connect_timeout=5 node_name=one", portstr);
 
 	for (i = 0; i < wait_seconds; i++)
 	{

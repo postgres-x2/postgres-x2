@@ -861,9 +861,9 @@ ExplainNode(PlanState *planstate, List *ancestors,
 						pnc = list_length(remote_query->exec_nodes->primarynodelist);
 						appendStringInfo(es->str, " (Primary Node Count [%d])", pnc);
 					}
-					if (remote_query->exec_nodes->nodelist)
+					if (remote_query->exec_nodes->nodeList)
 					{
-						nc = list_length(remote_query->exec_nodes->nodelist);
+						nc = list_length(remote_query->exec_nodes->nodeList);
 						appendStringInfo(es->str, " (Node Count [%d])", nc);
 					}
 				}

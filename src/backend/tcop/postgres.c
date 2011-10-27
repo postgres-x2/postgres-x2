@@ -86,6 +86,8 @@
 #include "pgxc/execRemote.h"
 #include "pgxc/barrier.h"
 #include "pgxc/planner.h"
+#include "nodes/nodes.h"
+#include "pgxc/poolmgr.h"
 #include "pgxc/pgxcnode.h"
 #include "commands/copy.h"
 /* PGXC_DATANODE */
@@ -1006,7 +1008,7 @@ exec_simple_query(const char *query_string)
 
 		querytree_list = pg_analyze_and_rewrite(parsetree, query_string,
 												NULL, 0);
-		
+
 		plantree_list = pg_plan_queries(querytree_list, 0, NULL);
 
 		/* Done with the snapshot used for parsing/planning */
@@ -3604,10 +3606,11 @@ PostgresMain(int argc, char *argv[], const char *username)
 	/* Snapshot info */
 	int 			xmin;
 	int 			xmax;
-	int				xcnt;
-	int 		   *xip;
+	int			xcnt;
+	int 			*xip;
 	/* Timestamp info */
 	TimestampTz		timestamp;
+	PoolHandle		*pool_handle;
 
 	remoteConnType = REMOTE_CONN_APP;
 #endif
@@ -3874,9 +3877,28 @@ PostgresMain(int argc, char *argv[], const char *username)
 
 #ifdef PGXC /* PGXC_COORD */
 	/* If this postmaster is launched from another Coord, do not initialize handles. skip it */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	if (IS_PGXC_COORDINATOR && !IsPoolHandle())
 	{
+		CurrentResourceOwner = ResourceOwnerCreate(NULL, "ForPGXCNodes");
+
 		InitMultinodeExecutor();
+
+		pool_handle = GetPoolManagerHandle();
+		if (pool_handle == NULL)
+		{
+			ereport(ERROR,
+				(errcode(ERRCODE_IO_ERROR),
+				 errmsg("Can not connect to pool manager")));
+			return STATUS_ERROR;
+		}
+		/* Pooler initialization has to be made before ressource is released */
+		PoolManagerConnect(pool_handle, dbname, username);
+
+		ResourceOwnerRelease(CurrentResourceOwner, RESOURCE_RELEASE_BEFORE_LOCKS, true, true);
+		ResourceOwnerRelease(CurrentResourceOwner, RESOURCE_RELEASE_LOCKS, true, true);
+		ResourceOwnerRelease(CurrentResourceOwner, RESOURCE_RELEASE_AFTER_LOCKS, true, true);
+		CurrentResourceOwner = NULL;
+
 		/* If we exit, first try and clean connections and send to pool */
 		on_proc_exit (PGXCNodeCleanAndRelease, 0);
 	}
@@ -3885,6 +3907,7 @@ PostgresMain(int argc, char *argv[], const char *username)
 		/* If we exit, first try and clean connection to GTM */
 		on_proc_exit (DataNodeShutdown, 0);
 	}
+
 #endif
 
 	/*

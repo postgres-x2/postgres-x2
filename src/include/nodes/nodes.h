@@ -79,12 +79,19 @@ typedef enum NodeTag
 	T_Limit,
 #ifdef PGXC
 	/*
-	 * TAGS FOR PGXC NODES (planner.h, locator.h)
+	 * TAGS FOR PGXC NODES
+	 * (planner.h, locator.h, nodemgr.h, groupmgr.h)
 	 */
 	T_ExecNodes,
 	T_SimpleSort,
 	T_SimpleDistinct,
 	T_RemoteQuery,
+	T_PGXCNodeHandle,
+	T_AlterNodeStmt,
+	T_CreateNodeStmt,
+	T_DropNodeStmt,
+	T_CreateGroupStmt,
+	T_DropGroupStmt,
 #endif
 	/* these aren't subclasses of Plan: */
 	T_NestLoopParam,
@@ -185,6 +192,7 @@ typedef enum NodeTag
 	T_IntoClause,
 #ifdef PGXC
 	T_DistributeBy,
+	T_PGXCSubCluster,
 #endif
 
 	/*

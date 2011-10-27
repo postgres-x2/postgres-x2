@@ -42,14 +42,14 @@ typedef enum GTM_PGXCNodeStatus
 typedef struct GTM_PGXCNodeInfo
 {
 	GTM_PGXCNodeType	type;		/* Type of node */
-	GTM_PGXCNodeId		nodenum;	/* Node number */
-	GTM_PGXCNodeId		proxynum;	/* Proxy number the node goes through */
+	char			*nodename;	/* Node Name */
+	char			*proxyname;	/* Proxy name the node goes through */
 	GTM_PGXCNodePort	port;		/* Port number of the node */
-	char			   *ipaddress;	/* IP address of the nodes */
-	char			   *datafolder;	/* Data folder of the node */
+	char			*ipaddress;	/* IP address of the nodes */
+	char			*datafolder;	/* Data folder of the node */
 	GTM_PGXCNodeStatus	status;		/* Node status */
-	GTM_RWLock			node_lock;	/* Lock on this structure */
-	int					socket;		/* socket number used for registration */
+	GTM_RWLock		node_lock;	/* Lock on this structure */
+	int			socket;		/* socket number used for registration */
 } GTM_PGXCNodeInfo;
 
 /* Maximum number of nodes that can be registered */
@@ -59,19 +59,19 @@ size_t pgxcnode_get_all(GTM_PGXCNodeInfo **data, size_t maxlen);
 size_t pgxcnode_find_by_type(GTM_PGXCNodeType type, GTM_PGXCNodeInfo **data, size_t maxlen);
 
 int Recovery_PGXCNodeRegister(GTM_PGXCNodeType	type,
-							  GTM_PGXCNodeId	nodenum,
-							  GTM_PGXCNodePort	port,
-							  GTM_PGXCNodeId	proxynum,
-							  GTM_PGXCNodeStatus status,
-							  char			   *ipaddress,
-							  char			   *datafolder,
-							  bool				in_recovery,
-							  int				socket);
+				char			*nodename,
+				GTM_PGXCNodePort	port,
+				char			*proxyname,
+				GTM_PGXCNodeStatus	status,
+				char			*ipaddress,
+				char			*datafolder,
+				bool			in_recovery,
+				int			socket);
 int Recovery_PGXCNodeUnregister(GTM_PGXCNodeType type,
-								GTM_PGXCNodeId nodenum,
+								char *node_name,
 								bool in_recovery,
 								int socket);
-int Recovery_PGXCNodeBackendDisconnect(GTM_PGXCNodeType type, GTM_PGXCNodeId nodenum, int socket);
+int Recovery_PGXCNodeBackendDisconnect(GTM_PGXCNodeType type, char *nodename, int socket);
 
 void Recovery_RecordRegisterInfo(GTM_PGXCNodeInfo *nodeinfo, bool is_register);
 void Recovery_RestoreRegisterInfo(void);

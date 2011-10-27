@@ -103,8 +103,21 @@ test_transactioninfo_1(void)
   char *buf;
   int buflen;
 
-  PGXC_NodeId datanode[3];
-  PGXC_NodeId coordnode[5];
+  int k;
+  char datanode[3][NI_MAXHOST];
+  char coordnode[5][NI_MAXHOST];
+
+  k = 0;
+  strcpy(datanode[k++], "DN_1");
+  strcpy(datanode[k++], "DN_2");
+  strcpy(datanode[k++], "DN_3");
+
+  k = 0;
+  strcpy(coordnode[k++], "CN_1");
+  strcpy(coordnode[k++], "CN_2");
+  strcpy(coordnode[k++], "CN_3");
+  strcpy(coordnode[k++], "CN_4");
+  strcpy(coordnode[k++], "CN_5");
 
   SETUP();
 
@@ -152,8 +165,21 @@ test_transactions_1(void)
   GTM_TransactionInfo *d;
   char *buf;
   int buflen;
-  PGXC_NodeId datanode[3];
-  PGXC_NodeId coordnode[5];
+  int k;
+  char datanode[3][NI_MAXHOST];
+  char coordnode[5][NI_MAXHOST];
+
+  k = 0;
+  strcpy(datanode[k++], "DN_1");
+  strcpy(datanode[k++], "DN_2");
+  strcpy(datanode[k++], "DN_3");
+
+  k = 0;
+  strcpy(coordnode[k++], "CN_1");
+  strcpy(coordnode[k++], "CN_2");
+  strcpy(coordnode[k++], "CN_3");
+  strcpy(coordnode[k++], "CN_4");
+  strcpy(coordnode[k++], "CN_5");
 
   SETUP();
 
@@ -216,13 +242,13 @@ test_pgxcnodeinfo_1()
 
   data = (GTM_PGXCNodeInfo *)malloc( sizeof(GTM_PGXCNodeInfo) );
   data->type = 2;
-  data->nodenum = 3;
+  data->nodename = "three";
   data->port = 7;
   data->ipaddress = "foo";
   data->datafolder = "bar";
 
-  printf("type=%d, nodenum=%d, port=%d, ipaddress=%s, datafolder=%s\n",
-	 data->type, data->nodenum, data->port,
+  printf("type=%d, nodename=%s, port=%d, ipaddress=%s, datafolder=%s\n",
+	 data->type, data->nodename, data->port,
 	 data->ipaddress, data->datafolder);
 
   /* serialize */
@@ -245,8 +271,8 @@ test_pgxcnodeinfo_1()
 
   printf("deserialized.\n");
 
-  printf("type=%d, nodenum=%d, port=%d, ipaddress=%s, datafolder=%s\n",
-	 data2->type, data2->nodenum, data2->port,
+  printf("type=%d, nodename=%s, port=%d, ipaddress=%s, datafolder=%s\n",
+	 data2->type, data2->nodename, data2->port,
 	 data2->ipaddress, data2->datafolder);
 
   TEARDOWN();

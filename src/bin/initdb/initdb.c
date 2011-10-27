@@ -105,6 +105,9 @@ static char *dictionary_file;
 static char *info_schema_file;
 static char *features_file;
 static char *system_views_file;
+#ifdef PGXC
+static char *cluster_nodes_file;
+#endif
 static bool made_new_pgdata = false;
 static bool found_existing_pgdata = false;
 static bool made_new_xlogdir = false;
@@ -169,6 +172,9 @@ static void setup_auth(void);
 static void get_set_pwd(void);
 static void setup_depend(void);
 static void setup_sysviews(void);
+#ifdef PGXC
+static void setup_clusternodes(void);
+#endif
 static void setup_description(void);
 static void setup_collation(void);
 static void setup_conversion(void);
@@ -1462,6 +1468,46 @@ setup_sysviews(void)
 
 	check_ok();
 }
+
+#ifdef PGXC
+/*
+ * set up Postgres-XC cluster node catalog data
+ */
+static void
+setup_clusternodes(void)
+{
+	PG_CMD_DECL;
+	char	  **line;
+	char	  **nodes_setup;
+
+	fputs(_("creating cluster information ... "), stdout);
+	fflush(stdout);
+
+	nodes_setup = readfile(cluster_nodes_file);
+
+	/*
+	 * We use -j here to avoid backslashing stuff in system_views.sql
+	 */
+	snprintf(cmd, sizeof(cmd),
+			 "\"%s\" %s -j template1 >%s",
+			 backend_exec, backend_options,
+			 DEVNULL);
+
+	PG_CMD_OPEN;
+
+	for (line = nodes_setup; *line != NULL; line++)
+	{
+		PG_CMD_PUTS(*line);
+		free(*line);
+	}
+
+	PG_CMD_CLOSE;
+
+	free(nodes_setup);
+
+	check_ok();
+}
+#endif
 
 /*
  * load description data
@@ -2919,6 +2965,9 @@ main(int argc, char *argv[])
 	set_input(&info_schema_file, "information_schema.sql");
 	set_input(&features_file, "sql_features.txt");
 	set_input(&system_views_file, "system_views.sql");
+#ifdef PGXC
+	set_input(&cluster_nodes_file, "cluster_nodes.sql");
+#endif
 
 	set_info_version();
 
@@ -2952,6 +3001,9 @@ main(int argc, char *argv[])
 	check_input(info_schema_file);
 	check_input(features_file);
 	check_input(system_views_file);
+#ifdef PGXC
+	check_input(cluster_nodes_file);
+#endif
 
 	setlocales();
 
@@ -3274,6 +3326,10 @@ main(int argc, char *argv[])
 	setup_depend();
 
 	setup_sysviews();
+
+#ifdef PGXC
+	setup_clusternodes();
+#endif
 
 	setup_description();
 

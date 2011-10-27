@@ -18,15 +18,16 @@
 #include "libpq/pqsignal.h"
 
 #include "pgxc/pgxc.h"
+#include "nodes/nodes.h"
 #include "pgxc/poolmgr.h"
 #include "pgxc/locator.h"
 #include "pgxc/poolutils.h"
+#include "pgxc/pgxcnode.h"
 #include "access/gtm.h"
 #include "commands/dbcommands.h"
 #include "utils/lsyscache.h"
 #include "utils/acl.h"
 
-#include "nodes/parsenodes.h"
 
 /*
  * CleanConnection()
@@ -51,10 +52,10 @@
  * if no database name is specified.
  *
  * It is also possible to clean connections of several Coordinators or Datanodes
- * Ex:	CLEAN CONNECTION TO DATANODE 1,5,7 FOR DATABASE template1
- *		CLEAN CONNECTION TO COORDINATOR 2,4,6 FOR DATABASE template1
- *		CLEAN CONNECTION TO DATANODE 3,5 TO USER postgres
- *		CLEAN CONNECTION TO COORDINATOR 6,1 FOR DATABASE template1 TO USER postgres
+ * Ex:	CLEAN CONNECTION TO DATANODE dn1,dn2,dn3 FOR DATABASE template1
+ *		CLEAN CONNECTION TO COORDINATOR co2,co4,co3 FOR DATABASE template1
+ *		CLEAN CONNECTION TO DATANODE dn2,dn5 TO USER postgres
+ *		CLEAN CONNECTION TO COORDINATOR co6,co1 FOR DATABASE template1 TO USER postgres
  *
  * Or even to all Coordinators/Datanodes at the same time
  * Ex:	CLEAN CONNECTION TO DATANODE * FOR DATABASE template1
@@ -174,14 +175,17 @@ CleanConnection(CleanConnStmt *stmt)
 
 	foreach(nodelist_item, stmt->nodes)
 	{
-		int node_num = intVal(lfirst(nodelist_item));
-		stmt_nodes = lappend_int(stmt_nodes, node_num);
+		char *node_name = strVal(lfirst(nodelist_item));
+		Oid nodeoid = get_pgxc_nodeoid(node_name);
 
-		if (node_num > max_node_number ||
-			node_num < 1)
+		if (!OidIsValid(nodeoid))
 			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("Node Number %d is incorrect", node_num)));
+					(errcode(ERRCODE_SYNTAX_ERROR),
+							 errmsg("PGXC Node %s: object not defined",
+									node_name)));
+
+		stmt_nodes = lappend_int(stmt_nodes,
+								 PGXCNodeGetNodeId(nodeoid, get_pgxc_nodetype(nodeoid)));
 	}
 
 	/* Build lists to be sent to Pooler Manager */

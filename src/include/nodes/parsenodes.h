@@ -1467,6 +1467,7 @@ typedef struct CreateStmt
 	bool		if_not_exists;	/* just do nothing if it already exists? */
 #ifdef PGXC
 	DistributeBy *distributeby; 	/* distribution to use, or NULL */
+	PGXCSubCluster *subcluster;		/* subcluster of table */
 #endif
 } CreateStmt;
 
@@ -2461,6 +2462,59 @@ typedef struct BarrierStmt
 	NodeTag		type;
 	const char	*id;			/* User supplied barrier id, if any */
 } BarrierStmt;
+
+/*
+ * ----------------------
+ *      Create Node statement
+ */
+typedef struct CreateNodeStmt
+{
+	NodeTag		type;
+	char		*node_name;
+	List		*options;
+} CreateNodeStmt;
+
+/*
+ * ----------------------
+ *     Alter Node statement
+ */
+typedef struct AlterNodeStmt
+{
+	NodeTag		type;
+	char		*node_name;
+	List		*options;
+} AlterNodeStmt;
+
+/*
+ * ----------------------
+ *      Drop Node statement
+ */
+typedef struct DropNodeStmt
+{
+	NodeTag		type;
+	char		*node_name;
+} DropNodeStmt;
+
+/*
+ * ----------------------
+ *      Create Group statement
+ */
+typedef struct CreateGroupStmt
+{
+	NodeTag		type;
+	char		*group_name;
+	List		*nodes;
+} CreateGroupStmt;
+
+/*
+ * ----------------------
+ *      Drop Group statement
+ */
+typedef struct DropGroupStmt
+{
+	NodeTag		type;
+	char		*group_name;
+} DropGroupStmt;
 #endif
 
 /* ----------------------
@@ -2679,8 +2733,8 @@ typedef struct ExecDirectStmt
 {
 	NodeTag		type;
 	bool		coordinator;
-	List	   *nodes;
-	char	   *query;
+	List		*node_names;
+	char		*query;
 } ExecDirectStmt;
 
 /*
@@ -2689,9 +2743,9 @@ typedef struct ExecDirectStmt
 typedef struct CleanConnStmt
 {
 	NodeTag		type;
-	List	   *nodes;		/* list of nodes dropped */
-	char	   *dbname;		/* name of database to drop connections */
-	char	   *username;	/* name of user whose connections are dropped */
+	List		*nodes;		/* list of nodes dropped */
+	char		*dbname;	/* name of database to drop connections */
+	char		*username;	/* name of user whose connections are dropped */
 	bool		is_coord;	/* type of connections dropped */
 	bool		is_force;	/* option force  */
 } CleanConnStmt;

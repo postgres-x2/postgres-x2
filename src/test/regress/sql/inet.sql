@@ -29,7 +29,7 @@ INSERT INTO INET_TBL (c, i) VALUES ('1234::1234::1234', '::1.2.3.4');
 -- check that CIDR rejects invalid input when converting from text:
 INSERT INTO INET_TBL (c, i) VALUES (cidr('192.168.1.2/30'), '192.168.1.226');
 INSERT INTO INET_TBL (c, i) VALUES (cidr('ffff:ffff:ffff:ffff::/24'), '::192.168.1.226');
-SELECT '' AS ten, c AS cidr, i AS inet FROM INET_TBL ORDER BY cidr;
+SELECT '' AS ten, c AS cidr, i AS inet FROM INET_TBL ORDER BY cidr, inet;
 
 -- now test some support functions
 

@@ -21,7 +21,7 @@ main(int argc, char *argv[])
 	for (ii = 0; ii < 3; ii++)
 		fork();
 
-	sprintf(connect_string, "host=localhost port=6666 pgxc_node_id=1 remote_type=%d", PGXC_NODE_COORDINATOR);
+	sprintf(connect_string, "host=localhost port=6666 node_name=one remote_type=%d", PGXC_NODE_COORDINATOR);
 
 	conn = PQconnectGTM(connect_string);
 	if (conn == NULL)
@@ -58,11 +58,7 @@ main(int argc, char *argv[])
 
 	for (ii = 0; ii < 20; ii++)
 	{
-		PGXC_NodeId nodes[5];
-		nodes[0] = 1;
-		nodes[1] = 1;
-
-		if (!prepare_transaction(conn, gxid[ii], 2, nodes))
+		if (!prepare_transaction(conn, gxid[ii]))
 			client_log(("PREPARE successful (GXID:%u)\n", gxid[ii]));
 		else
 			client_log(("PREPARE failed (GXID:%u)\n", gxid[ii]));

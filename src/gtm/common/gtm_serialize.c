@@ -168,35 +168,34 @@ gtm_get_transactioninfo_size(GTM_TransactionInfo *data)
 	if (data == NULL)
 		return len;
 
-	len += sizeof(GTM_TransactionHandle);  /* gti_handle */
-	len += sizeof(GTM_ThreadID);   /* gti_thread_id */
-	len += sizeof(bool);   /* gti_in_use */
-	len += sizeof(GlobalTransactionId);/* gti_gxid */
-	len += sizeof(GTM_TransactionStates);  /* gti_state */
-	len += sizeof(PGXC_NodeId);/* gti_coordid */
-	len += sizeof(GlobalTransactionId);/* gti_xmin */
-	len += sizeof(GTM_IsolationLevel); /* gti_isolevel */
-	len += sizeof(bool);   /* gti_readonly */
-	len += sizeof(GTMProxy_ConnID);/* gti_backend_id */
-	len += sizeof(uint32); /* gti_datanodecount */
-	len += sizeof(PGXC_NodeId) * data->gti_datanodecount;
-	/* gti_datanodes */
-	len += sizeof(uint32); /* gti_coordcount */
-	len += sizeof(PGXC_NodeId) * data->gti_coordcount;
-	/* gti_coordinators */
+	len += sizeof(GTM_TransactionHandle);		/* gti_handle */
+	len += sizeof(GTM_ThreadID);			/* gti_thread_id */
+	len += sizeof(bool);				/* gti_in_use */
+	len += sizeof(GlobalTransactionId);		/* gti_gxid */
+	len += sizeof(GTM_TransactionStates);		/* gti_state */
+	len += sizeof(uint32);				/* used to store length of gti_coordname*/
+	if (data->gti_coordname != NULL)
+		len += strlen(data->gti_coordname);	/* gti_coordname */
+	len += sizeof(GlobalTransactionId);		/* gti_xmin */
+	len += sizeof(GTM_IsolationLevel);		/* gti_isolevel */
+	len += sizeof(bool);				/* gti_readonly */
+	len += sizeof(GTMProxy_ConnID);			/* gti_backend_id */
+	len += sizeof(uint32);				/* gti_nodestring length */
+	if (data->nodestring != NULL)
+		len += strlen(data->nodestring);
+
 	len += sizeof(uint32);
 	if (data->gti_gid != NULL)
-		len += strlen(data->gti_gid);	/* gti_gid */
+		len += strlen(data->gti_gid);		/* gti_gid */
 
 	len += gtm_get_snapshotdata_size(&(data->gti_current_snapshot));
 	/* gti_current_snapshot */
-	len += sizeof(bool);   /* gti_snapshot_set */
+	len += sizeof(bool);				/* gti_snapshot_set */
 	/* NOTE: nothing to be done for gti_lock */
-	len += sizeof(bool);   /* gti_vacuum */
+	len += sizeof(bool);				/* gti_vacuum */
 
 	return len;
 }
-
 
 /* -----------------------------------------------------
  * Serialize a GTM_TransactionInfo structure
@@ -208,6 +207,7 @@ gtm_serialize_transactioninfo(GTM_TransactionInfo *data, char *buf, size_t bufle
 	int len = 0;
 	char *buf2;
 	int i;
+	int namelen;
 
 	/* size check */
 	if (gtm_get_transactioninfo_size(data) > buflen)
@@ -235,9 +235,37 @@ gtm_serialize_transactioninfo(GTM_TransactionInfo *data, char *buf, size_t bufle
 	memcpy(buf + len, &(data->gti_state), sizeof(GTM_TransactionStates));
 	len += sizeof(GTM_TransactionStates);
 
-	/* GTM_TransactionInfo.gti_coordid */
-	memcpy(buf + len, &(data->gti_coordid), sizeof(PGXC_NodeId));
-	len += sizeof(PGXC_NodeId);
+	/* GTM_TransactionInfo.gti_coordname */
+	if (data->gti_coordname != NULL)
+	{
+		namelen = (uint32)strlen(data->gti_coordname);
+		memcpy(buf + len, &namelen, sizeof(uint32));
+		len += sizeof(uint32);
+		memcpy(buf + len, data->gti_coordname, namelen);
+		len += namelen;
+	}
+	else
+	{
+		namelen = 0;
+		memcpy(buf + len, &namelen, sizeof(uint32));
+		len += sizeof(uint32);
+	}
+
+	/* GTM_TransactionInfo.gti_coordname */
+	if (data->gti_coordname != NULL)
+	{
+		namelen = (uint32)strlen(data->gti_coordname);
+		memcpy(buf + len, &namelen, sizeof(uint32));
+		len += sizeof(uint32);
+		memcpy(buf + len, data->gti_coordname, namelen);
+		len += namelen;
+	}
+	else
+	{
+		namelen = 0;
+		memcpy(buf + len, &namelen, sizeof(uint32));
+		len += sizeof(uint32);
+	}
 
 	/* GTM_TransactionInfo.gti_xmin */
 	memcpy(buf + len, &(data->gti_xmin), sizeof(GlobalTransactionId));
@@ -255,26 +283,23 @@ gtm_serialize_transactioninfo(GTM_TransactionInfo *data, char *buf, size_t bufle
 	memcpy(buf + len, &(data->gti_backend_id), sizeof(GTMProxy_ConnID));
 	len += sizeof(GTMProxy_ConnID);
 
-	/* GTM_TransactionInfo.gti_datanodecount */
-	memcpy(buf + len, &(data->gti_datanodecount), sizeof(uint32));
-	len += sizeof(uint32);
-
-	/* GTM_TransactionInfo.gti_datanodes */
-	for (i = 0; i < data->gti_datanodecount; i++)
+	/* GTM_TransactionInfo.nodestring */
+	if (data->nodestring != NULL)
 	{
-	  memcpy(buf + len, &(data->gti_datanodes[i]), sizeof(PGXC_NodeId));
-	  len += sizeof(PGXC_NodeId);
+		uint32 gidlen;
+
+		gidlen = (uint32)strlen(data->nodestring);
+		memcpy(buf + len, &gidlen, sizeof(uint32));
+		len += sizeof(uint32);
+		memcpy(buf + len, data->nodestring, gidlen);
+		len += gidlen;
 	}
-
-	/* GTM_TransactionInfo.gti_coordcount */
-	memcpy(buf + len, &(data->gti_coordcount), sizeof(uint32));
-	len += sizeof(uint32);
-
-	/* GTM_TransactionInfo.gti_coordinators */
-	for (i = 0; i < data->gti_coordcount; i++)
+	else
 	{
-	  memcpy(buf + len, &(data->gti_coordinators[i]), sizeof(PGXC_NodeId));
-	  len += sizeof(PGXC_NodeId);
+		uint32 gidlen = 0;
+
+		memcpy(buf + len, &gidlen, sizeof(uint32));
+		len += sizeof(uint32);
 	}
 
 	/* GTM_TransactionInfo.gti_gid */
@@ -327,6 +352,8 @@ gtm_deserialize_transactioninfo(GTM_TransactionInfo *data, const char *buf, size
 {
 	int len = 0;
 	int i;
+	int namelen;
+	uint32 string_len;
 
 	memset(data, 0, sizeof(GTM_TransactionInfo));
 
@@ -350,9 +377,21 @@ gtm_deserialize_transactioninfo(GTM_TransactionInfo *data, const char *buf, size
 	memcpy(&(data->gti_state), buf + len, sizeof(GTM_TransactionStates));
 	len += sizeof(GTM_TransactionStates);
 
-	/* GTM_TransactionInfo.gti_coordid */
-	memcpy(&(data->gti_coordid), buf + len, sizeof(PGXC_NodeId));
-	len += sizeof(PGXC_NodeId);
+	/* GTM_TransactionInfo.gti_coordname */
+	if (data->gti_coordname != NULL)
+	{
+		namelen = (uint32)strlen(data->gti_coordname);
+		memcpy((char *)buf + len, &namelen, sizeof(uint32));
+		len += sizeof(uint32);
+		memcpy((char *)buf + len, data->gti_coordname, namelen);
+		len += namelen;
+	}
+	else
+	{
+		namelen = 0;
+		memcpy((char *)buf + len, &namelen, sizeof(uint32));
+		len += sizeof(uint32);
+	}
 
 	/* GTM_TransactionInfo.gti_xmin */
 	memcpy(&(data->gti_xmin), buf + len, sizeof(GlobalTransactionId));
@@ -370,60 +409,31 @@ gtm_deserialize_transactioninfo(GTM_TransactionInfo *data, const char *buf, size
 	memcpy(&(data->gti_backend_id), buf + len, sizeof(GTMProxy_ConnID));
 	len += sizeof(GTMProxy_ConnID);
 
-	/* GTM_TransactionInfo.gti_datanodecount */
-	memcpy(&(data->gti_datanodecount), buf + len, sizeof(uint32));
+	/* GTM_TransactionInfo.gti_nodestring */
+	memcpy(&string_len, buf + len, sizeof(uint32));
 	len += sizeof(uint32);
-
-	/* GTM_TransactionInfo.gti_datanodes */
-	if (data->gti_datanodes > 0)
-		data->gti_datanodes = (PGXC_NodeId *)genAlloc(sizeof(PGXC_NodeId) * data->gti_datanodecount);
-	else
-		data->gti_datanodes = NULL;
-
-	for (i = 0; i < data->gti_datanodecount; i++)
+	if (string_len > 0)
 	{
-		memcpy(&(data->gti_datanodes[i]), buf + len, sizeof(PGXC_NodeId));
-		len += sizeof(PGXC_NodeId);
+		data->nodestring = (char *)genAlloc(string_len + 1);
+		memcpy(data->nodestring, buf + len, string_len);
+		data->gti_gid[string_len] = 0;		/* null-terminated */
+		len += string_len;
 	}
-
-	/* GTM_TransactionInfo.gti_coordcount */
-	memcpy(&(data->gti_coordcount), buf + len, sizeof(uint32));
-	len += sizeof(uint32);
-
-	/* GTM_TransactionInfo.gti_coordinators */
-	if (data->gti_coordinators > 0)
-		data->gti_coordinators = (PGXC_NodeId *)genAlloc(sizeof(PGXC_NodeId) * data->gti_coordcount);
 	else
-		data->gti_coordinators = NULL;
-
-	for (i = 0; i < data->gti_coordcount; i++)
-	{
-		PGXC_NodeId *cur = data->gti_coordinators;
-
-		memcpy(cur, buf + len, sizeof(PGXC_NodeId));
-
-		len += sizeof(PGXC_NodeId);
-		cur++;
-	}
+		data->nodestring = NULL;
 
 	/* GTM_TransactionInfo.gti_gid */
+	memcpy(&string_len, buf + len, sizeof(uint32));
+	len += sizeof(uint32);
+	if (string_len > 0)
 	{
-		uint32 gti_len;
-
-		memcpy(&gti_len, buf + len, sizeof(uint32));
-		len += sizeof(uint32);
-		if (gti_len > 0)
-		{
-			data->gti_gid = (char *)genAlloc(gti_len+1);
-			memcpy(data->gti_gid, buf + len, gti_len);
-			data->gti_gid[gti_len] = 0;				/* null-terminated */
-			len += gti_len;
-		}
-		else
-		{
-			data->gti_gid = NULL;
-		}
+		data->gti_gid = (char *)genAlloc(string_len+1);
+		memcpy(data->gti_gid, buf + len, string_len);
+		data->gti_gid[string_len] = 0;				/* null-terminated */
+		len += string_len;
 	}
+	else
+		data->gti_gid = NULL;
 
 	/* GTM_TransactionInfo.gti_current_snapshot */
 	i = gtm_deserialize_snapshotdata(&(data->gti_current_snapshot),
@@ -687,11 +697,18 @@ gtm_get_pgxcnodeinfo_size(GTM_PGXCNodeInfo *data)
 	size_t len = 0;
 
 	len += sizeof(GTM_PGXCNodeType); /* type */
-	len += sizeof(GTM_PGXCNodeId);   /* nodenum */
-	len += sizeof(GTM_PGXCNodeId);   /* proxynum */
+
+	len += sizeof(uint32);		/* proxy name length */
+	if (data->proxyname != NULL)	/* proxy name */
+		len += strlen(data->proxyname);
+
 	len += sizeof(GTM_PGXCNodePort); /* port */
 
-	len += sizeof(uint32);			/* ipaddress length */
+	len += sizeof(uint32);		/* node name length */
+	if (data->nodename != NULL)	/* node name */
+		len += strlen(data->nodename);
+
+	len += sizeof(uint32);		/* ipaddress length */
 	if (data->ipaddress != NULL)	/* ipaddress */
 		len += strlen(data->ipaddress);
 
@@ -723,13 +740,33 @@ gtm_serialize_pgxcnodeinfo(GTM_PGXCNodeInfo *data, char *buf, size_t buflen)
 	memcpy(buf + len, &(data->type), sizeof(GTM_PGXCNodeType));
 	len += sizeof(GTM_PGXCNodeType);
 
-	/* GTM_PGXCNodeInfo.nodenum */
-	memcpy(buf + len, &(data->nodenum), sizeof(GTM_PGXCNodeId));
-	len += sizeof(GTM_PGXCNodeId);
+	/* GTM_PGXCNodeInfo.nodename */
+	if (data->nodename == NULL)
+		len_wk = 0;
+	else
+		len_wk = (uint32)strlen(data->nodename);
 
-	/* GTM_PGXCNodeInfo.proxynum */
-	memcpy(buf + len, &(data->proxynum), sizeof(GTM_PGXCNodeId));
-	len += sizeof(GTM_PGXCNodeId);
+	memcpy(buf + len, &len_wk, sizeof(uint32));
+	len += sizeof(uint32);
+	if (len_wk > 0)
+	{
+		memcpy(buf + len, data->nodename, len_wk);
+		len += len_wk;
+	}
+
+	/* GTM_PGXCNodeInfo.proxyname */
+	if (data->proxyname == NULL)
+		len_wk = 0;
+	else
+		len_wk = (uint32)strlen(data->proxyname);
+
+	memcpy(buf + len, &len_wk, sizeof(uint32));
+	len += sizeof(uint32);
+	if (len_wk > 0)
+	{
+		memcpy(buf + len, data->proxyname, len_wk);
+		len += len_wk;
+	}
 
 	/* GTM_PGXCNodeInfo.port */
 	memcpy(buf + len, &(data->port), sizeof(GTM_PGXCNodePort));
@@ -785,13 +822,37 @@ gtm_deserialize_pgxcnodeinfo(GTM_PGXCNodeInfo *data, const char *buf, size_t buf
 	memcpy(&(data->type), buf + len, sizeof(GTM_PGXCNodeType));
 	len += sizeof(GTM_PGXCNodeType);
 
-	/* GTM_PGXCNodeInfo.nodenum */
-	memcpy(&(data->nodenum), buf + len, sizeof(GTM_PGXCNodeId));
-	len += sizeof(GTM_PGXCNodeId);
+	/* GTM_PGXCNodeInfo.nodename*/
+	memcpy(&len_wk, buf + len, sizeof(uint32));
+	len += sizeof(uint32);
+	if (len_wk == 0)
+	{
+		data->nodename = NULL;
+	}
+	else
+	{
+		/* PGXCTODO: free memory */
+		data->nodename = (char *)genAlloc(len_wk + 1);
+		memcpy(data->nodename, buf + len, (size_t)len_wk);
+		data->nodename[len_wk] = 0;	/* null_terminate */
+		len += len_wk;
+	}
 
-	/* GTM_PGXCNodeInfo.proxynum */
-	memcpy(&(data->proxynum), buf + len, sizeof(GTM_PGXCNodeId));
-	len += sizeof(GTM_PGXCNodeId);
+	/* GTM_PGXCNodeInfo.proxyname*/
+	memcpy(&len_wk, buf + len, sizeof(uint32));
+	len += sizeof(uint32);
+	if (len_wk == 0)
+	{
+		data->proxyname = NULL;
+	}
+	else
+	{
+		/* PGXCTODO: free memory */
+		data->proxyname = (char *)genAlloc(len_wk + 1);
+		memcpy(data->proxyname, buf + len, (size_t)len_wk);
+		data->proxyname[len_wk] = 0;	/* null_terminate */
+		len += len_wk;
+	}
 
 	/* GTM_PGXCNodeInfo.port */
 	memcpy(&(data->port), buf + len, sizeof(GTM_PGXCNodePort));
