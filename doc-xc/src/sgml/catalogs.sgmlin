@@ -298,7 +298,15 @@
 <!## XC>
      <row>
       <entry><link linkend="catalog-pgxc-class"><structname>pgxc_class</structname></link></entry>
-      <entry>defines replication or distribution of tables (Postgres-XC only)</entry>
+      <entry>replication or distribution information of tables (Postgres-XC only)</entry>
+     </row>
+     <row>
+      <entry><link linkend="catalog-pgxc-node"><structname>pgxc_node</structname></link></entry>
+      <entry>Postgres-XC cluster nodes (Postgres-XC only)</entry>
+     </row>
+     <row>
+      <entry><link linkend="catalog-pgxc-group"><structname>pgxc_group</structname></link></entry>
+      <entry>Postgres-XC cluster node groups (Postgres-XC only)</entry>
      </row>
 <!## end>
     </tbody>
@@ -6431,7 +6439,7 @@
      <row>
       <entry><structfield>pcrelid</structfield></entry>
       <entry><type>oid</type></entry>
-      <entry>><link linkend="catalog-pg-class"><structname>pg_class</structname></link><literal>.oid</literal></entry>
+      <entry><link linkend="catalog-pg-class"><structname>pg_class</structname></link><literal>.oid</literal></entry>
       <entry>OID of the table</entry>
      </row>
 
@@ -6463,12 +6471,164 @@
      </row>
 
      <row>
-      <entry><structfield>pxhashbuckets</structfield></entry>
+      <entry><structfield>pchashbuckets</structfield></entry>
       <entry><type>int2</type></entry>
       <entry></entry>
       <entry>
-       Indicates the umber of hash buckets used to distribute duple.
+       Indicates the number of hash buckets used to distribute duple.
       </entry>
+     </row>
+
+     <row>
+      <entry><structfield>nodeoids</structfield></entry>
+      <entry><type>oidvector</type></entry>
+      <entry><literal><link linkend="catalog-pgxc-node"><structname>pgxc_node</structname></link>.oid</literal></entry>
+      <entry>
+       List of node OIDs where table is located.
+       This list is ordered by <literal><link linkend="catalog-pgxc-node"><structname>
+       pgxc_node</structname></link>.node_name</literal>. This list is then
+       indexed in information in user session cache and reused as a node target list
+       when doing SQL operations on cluster tables.
+      </entry>
+     </row>
+
+    </tbody>
+   </tgroup>
+  </table>
+ </sect1>
+
+ <sect1 id="catalog-pgxc-node">
+  <title><structname>pgxc_node</structname></title>
+
+  <indexterm zone="catalog-pgxc-node">
+   <primary>pgxc_node</primary>
+  </indexterm>
+
+&xconly;
+  <para>
+   The catalog <structname>pgxc_node</structname> stores information
+   about cluster node information, such as connection information with
+   node port and host, node name, primary and preferred nodes.
+  </para>
+
+  <table>
+   <title><structname>pgxc_node</> Columns</title>
+
+   <tgroup cols="4">
+    <thead>
+     <row>
+      <entry>Name</entry>
+      <entry>Type</entry>
+      <entry>References</entry>
+      <entry>Description</entry>
+     </row>
+    </thead>
+
+    <tbody>
+     <row>
+      <entry><structfield>node_name</structfield></entry>
+      <entry><type>name</type></entry>
+      <entry></entry>
+      <entry>Name of cluster node</entry>
+     </row>
+
+     <row>
+      <entry><structfield>node_type</structfield></entry>
+      <entry><type>char</type></entry>
+      <entry></entry>
+      <entry>Type of cluster node.
+       It is <literal>C</literal> for a Coordinator master.
+       It is <literal>D</literal> for a Datanode master.
+       It is <literal>S</literal> for a Coordinator master.
+       It is <literal>X</literal> for a Datanode master.
+      </entry>
+     </row>
+
+     <row>
+      <entry><structfield>node_related</structfield></entry>
+      <entry><type>oid</type></entry>
+      <entry><literal><link linkend="catalog-pgxc-node"><structname>pgxc_node</structname></link>.oid</literal></entry>
+      <entry>Oid of related cluster node.
+       Only Slave nodes can have related nodes from which they synchronize.
+      </entry>
+     </row>
+
+     <row>
+      <entry><structfield>node_port</structfield></entry>
+      <entry><type>int4</type></entry>
+      <entry></entry>
+      <entry>Port number of cluster node</entry>
+     </row>
+
+     <row>
+      <entry><structfield>node_host</structfield></entry>
+      <entry><type>name</type></entry>
+      <entry></entry>
+      <entry>Host name or IP number of cluster node</entry>
+     </row>
+
+     <row>
+      <entry><structfield>nodeis_primary</structfield></entry>
+      <entry><type>bool</type></entry>
+      <entry></entry>
+      <entry>Defines if node is a primary node.
+       Only Datanode master can be a primary node.
+      </entry>
+     </row>
+
+     <row>
+      <entry><structfield>nodeis_preferred</structfield></entry>
+      <entry><type>bool</type></entry>
+      <entry></entry>
+      <entry>Defines if node is a preferred node.
+       Only a Datanode can be a preferred node.
+      </entry>
+     </row>
+    </tbody>
+   </tgroup>
+  </table>
+ </sect1>
+
+ <sect1 id="catalog-pgxc-group">
+  <title><structname>pgxc_group</structname></title>
+
+  <indexterm zone="catalog-pgxc-group">
+   <primary>pgxc_group</primary>
+  </indexterm>
+
+&xconly;
+  <para>
+   The catalog <structname>pgxc_group</structname> stores information
+   about cluster node group information, which is a list of cluster node
+   OIDs. Groups can be used as aliases.
+  </para>
+
+  <table>
+   <title><structname>pgxc_group</> Columns</title>
+
+   <tgroup cols="4">
+    <thead>
+     <row>
+      <entry>Name</entry>
+      <entry>Type</entry>
+      <entry>References</entry>
+      <entry>Description</entry>
+     </row>
+    </thead>
+
+    <tbody>
+     <row>
+      <entry><structfield>group_name</structfield></entry>
+      <entry><type>name</type></entry>
+      <entry></entry>
+      <entry>Name of cluster node group</entry>
+     </row>
+
+     <row>
+      <entry><structfield>group_members</structfield></entry>
+      <entry><type>oidvector</type></entry>
+      <entry><literal><link linkend="catalog-pgxc-node"><structname>pgxc_node</structname></link>.oid</literal></entry>
+      <entry>List of node OIDs of the node group</entry>
      </row>
 
     </tbody>
