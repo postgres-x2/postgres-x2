@@ -45,7 +45,7 @@ typedef enum
 	PROMOTE_COMMAND,
 	RESTART_COMMAND,
 	STATUS_COMMAND,
-	RECONNECT_COMMAND	/* gtm_ctl -S gtm_proxy reconnect */
+	RECONNECT_COMMAND
 } CtlCommand;
 
 #define DEFAULT_WAIT	60
@@ -878,7 +878,7 @@ do_help(void)
 	printf(_("  %s restart -S STARTUP_MODE [-w] [-t SECS] [-D DATADIR] [-m SHUTDOWN-MODE]\n"
 		 "                 [-o \"OPTIONS\"]\n"), progname);
 	printf(_("  %s status  -S STARTUP_MODE [-w] [-t SECS] [-D DATADIR]\n"), progname);
-	printf(_("  %s reconnect  [-D DATADIR] -o \"OPTIONS\"]\n"), progname);
+	printf(_("  %s reconnect -S STARTUP_MODE [-D DATADIR] -o \"OPTIONS\"]\n"), progname);
 
 	printf(_("\nCommon options:\n"));
 	printf(_("  -D DATADIR             location of the database storage area\n"));
