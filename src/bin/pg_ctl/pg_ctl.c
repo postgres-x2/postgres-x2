@@ -1762,8 +1762,8 @@ do_help(void)
 	printf(_("Usage:\n"));
 	printf(_("  %s init[db]               [-D DATADIR] [-s] [-o \"OPTIONS\"]\n"), progname);
 #ifdef PGXC
-	printf(_("  %s start   [-w] [-t SECS] [-S NODE-TYPE] [-D DATADIR] [-s] [-l FILENAME] [-o \"OPTIONS\"]\n"), progname);
-	printf(_("  %s restart [-w] [-t SECS] [-S NODE-TYPE] [-D DATADIR] [-s] [-m SHUTDOWN-MODE]\n"
+	printf(_("  %s start   [-w] [-t SECS] [-Z NODE-TYPE] [-D DATADIR] [-s] [-l FILENAME] [-o \"OPTIONS\"]\n"), progname);
+	printf(_("  %s restart [-w] [-t SECS] [-Z NODE-TYPE] [-D DATADIR] [-s] [-m SHUTDOWN-MODE]\n"
 		 	 "                 [-o \"OPTIONS\"]\n"), progname);
 #else
 	printf(_("  %s start   [-w] [-t SECS] [-D DATADIR] [-s] [-l FILENAME] [-o \"OPTIONS\"]\n"), progname);
