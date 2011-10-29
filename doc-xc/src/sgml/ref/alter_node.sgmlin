@@ -37,7 +37,7 @@ ALTER NODE <replaceable class="parameter">nodename</replaceable> SET
 
   <para>
    <command>ALTER NODE</command> is new SQL query specific
-   to <productname>Postgres-XC</productname> since 0.9.6 that modifies
+   to <productname>Postgres-XC</productname> since 0.9.7 that modifies
    cluster node information in catalog pgxc_node.
   </para>
   <para>

@@ -33,7 +33,7 @@ DROP NODE GROUP <replaceable class="parameter">groupname</replaceable>
 
   <para>
    <command>DROP NODE GROUP</command> is new SQL query specific
-   to <productname>Postgres-XC</productname> since 0.9.6 that deletes
+   to <productname>Postgres-XC</productname> since 0.9.7 that deletes
    node group information in catalog pgxc_group.
   </para>
   <para>
@@ -55,6 +55,7 @@ DROP NODE GROUP <replaceable class="parameter">groupname</replaceable>
        </para>
       </listitem>
      </varlistentry>
+    </variablelist>
 
  </refsect1>
 

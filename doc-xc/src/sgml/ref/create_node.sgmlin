@@ -41,7 +41,7 @@ CREATE NODE <replaceable class="parameter">nodename</replaceable> WITH
 
   <para>
    <command>CREATE NODE</command> is new SQL query specific
-   to <productname>Postgres-XC</productname> since 0.9.6 that creates
+   to <productname>Postgres-XC</productname> since 0.9.7 that creates
    a new entry in catalog table pgxc_node with node data.
   </para>
   <para>

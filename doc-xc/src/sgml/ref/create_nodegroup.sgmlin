@@ -34,7 +34,7 @@ WITH <replaceable class="parameter">nodename</replaceable> [, ... ]
 
   <para>
    <command>CREATE NODE GROUP</command> is new SQL query specific
-   to <productname>Postgres-XC</productname> since 0.9.6 that creates
+   to <productname>Postgres-XC</productname> since 0.9.7 that creates
    node group information in catalog pgxc_group.
   </para>
 
@@ -53,7 +53,6 @@ WITH <replaceable class="parameter">nodename</replaceable> [, ... ]
       </listitem>
      </varlistentry>
 
-    <variablelist>
      <varlistentry>
       <term><replaceable class="parameter">nodename</replaceable></term>
       <listitem>
@@ -62,6 +61,7 @@ WITH <replaceable class="parameter">nodename</replaceable> [, ... ]
        </para>
       </listitem>
      </varlistentry>
+    </variablelist>
  </refsect1>
 
  <refsect1>
