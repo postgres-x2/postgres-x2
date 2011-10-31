@@ -6858,95 +6858,16 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
       </listitem>
      </varlistentry>
 
-     <varlistentry id="guc-pgxc-node-id" xreflabel="pgxc_node_id">
-      <term><varname>pgxc_node_id</varname> (<type>integer</type>)</term>
+     <varlistentry id="guc-pgxc-node-name" xreflabel="pgxc_node_name">
+      <term><varname>pgxc_node_name</varname> (<type>integer</type>)</term>
       <indexterm>
-       <primary><varname>pgxc_node_id</> configuration parameter</primary>
+       <primary><varname>pgxc_node_name</> configuration parameter</primary>
       </indexterm>
       <listitem>
        <para>
-        Specifies the node id.   Coordinators and datanodes with same
-		<varname>pgxc_node_id</> are distinguished.
-		This id starts with 1.
-       </para>
-      </listitem>
-     </varlistentry>
-
-     <varlistentry id="guc-num-data-nodes" xreflabel="num_data_nodes">
-      <term><varname>num_data_nodes</varname> (<type>integer</type>)</term>
-      <indexterm>
-       <primary><varname>num_data_nodes</> configuration parameter</primary>
-      </indexterm>
-      <listitem>
-       <para>
-        Reports the total number of datanodes in the cluster.
-       </para>
-      </listitem>
-     </varlistentry>
-
-     <varlistentry id="guc-data-node-hosts" xreflabel="data_node_hosts">
-      <term><varname>data_node_hosts</varname> (<type>string</type>)</term>
-      <indexterm>
-       <primary><varname>data_node_hosts</> configuration parameter</primary>
-      </indexterm>
-      <listitem>
-       <para>
-        Reports address of all the datanodes network address.
-        Addresses can be specified by IP address or host name.
-		To report multiple datanodes, use comma to separate them.
-        <varname>pgxc_data_id</> of the first entry is assumed 1.
-       </para>
-      </listitem>
-     </varlistentry>
-
-     <varlistentry id="guc-data-node-ports" xreflabel="data_node_ports">
-      <term><varname>data_node_ports</varname> (<type>string</type>)</term>
-      <indexterm>
-       <primary><varname>data_node_ports</> configuration parameter</primary>
-      </indexterm>
-      <listitem>
-       <para>
-        Reports the node number of each datanode as specified by
-        <varname>data_node_hosts</>
-		Use comma to separate port number.
-       </para>
-      </listitem>
-     </varlistentry>
-
-     <varlistentry id="guc-num-coordinators" xreflabel="num_coordinators">
-      <term><varname>num_coordinators</varname> (<type>integer</type>)</term>
-      <indexterm>
-       <primary><varname>num_coordinators</> configuration parameter</primary>
-      </indexterm>
-      <listitem>
-       <para>
-        Reports the number of coordinators in the cluster.
-       </para>
-      </listitem>
-     </varlistentry>
-
-     <varlistentry id="guc-coordinator-hosts" xreflabel="coordinator_hosts">
-      <term><varname>coordinator_hosts</varname> (<type>string</type>)</term>
-      <indexterm>
-       <primary><varname>coordinator_hosts</> configuration parameter</primary>
-      </indexterm>
-      <listitem>
-       <para>
-        Reports the host name or IP address of all the coordinator in the cluster.
-        Use comma to separate entries.
-       </para>
-      </listitem>
-     </varlistentry>
-
-     <varlistentry id="guc-coordinator-ports" xreflabel="coordinator_ports">
-      <term><varname>coordinator_ports</varname> (<type>string</type>)</term>
-      <indexterm>
-       <primary><varname>coordinator_ports</> configuration parameter</primary>
-      </indexterm>
-      <indexterm><primary>character set</></>
-      <listitem>
-       <para>
-        Reports the port number of all the coordinators as listed in <varname>coordinator_ports</>.
+        Specifies the node name. A node uses this parameter to identify itself
+        with <link linkend="catalog-pgxc-node"><structname>pgxc_node</structname>
+        </link>.nodename
        </para>
       </listitem>
      </varlistentry>
@@ -6983,37 +6904,6 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
       <listitem>
        <para>
         Reports the port number of GTM.
-       </para>
-      </listitem>
-     </varlistentry>
-
-     <varlistentry id="guc-primary-data-node" xreflabel="primary_data_node">
-      <term><varname>primary_data_node</varname> (<type>integer</type>)</term>
-      <indexterm>
-       <primary><varname>primary_data_node</> configuration parameter</primary>
-      </indexterm>
-      <listitem>
-       <para>
-        Reports the <varname>pgxc_node_id</> of the primary datanode.
-		To update replicated table, coordinator will update this
-		datanode first to avoid update conflicts.  All the
-		coordinators should specify the same value for this parameter.
-       </para>
-      </listitem>
-     </varlistentry>
-
-     <varlistentry id="guc-preferred-data-nodes" xreflabel="preferred_data_nodes">
-      <term><varname>preferred_data_nodes</varname> (<type>string</type>)</term>
-      <indexterm>
-       <primary><varname>preferred_data_nodes</> configuration parameter</primary>
-      </indexterm>
-      <listitem>
-       <para>
-        Reports the list of the preferred data node.  Coordinator will
-        choose preferred data node to read replicated tables.
-        Choosing local datanode will save the network workload and
-        shorten the response time.
-        Different parameter can be chosen in different coordinator.
        </para>
       </listitem>
      </varlistentry>

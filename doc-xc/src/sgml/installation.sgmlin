@@ -2409,114 +2409,13 @@ postgres$ <userinput>/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data</>
     </varlistentry>
 
     <varlistentry>
-     <term><envar>num_data_nodes</envar></term>
+     <term><envar>pgxc_node_name</envar></term>
      <listitem>
 &xconly;
       <para>
-       This parameter specifies how many datanodes the coordinator
-       connects to.
-       You should specify the same value to all the
-       coordinators.
-      </para>
-     </listitem>
-    </varlistentry>
-
-    <varlistentry>
-     <term><envar>data_node_hosts</envar></term>
-     <listitem>
-&xconly;
-      <para>
-       Specify the list of IP address or host name of each data node
-       as character string.
-       You should specify the same value to all the
-       coordinators.
-      </para>
-     </listitem>
-    </varlistentry>
-
-    <varlistentry>
-     <term><envar>data_node_ports</envar></term>
-     <listitem>
-&xconly;
-      <para>
-       Specify the list of port number of each data node
-       as character string in the order of <option>data_node_hosts</>.
-       You should specify the same value to all the
-       coordinators.
-      </para>
-     </listitem>
-    </varlistentry>
-
-    <varlistentry>
-     <term><envar>data_node_users</envar></term>
-     <listitem>
-&xconly;
-      <para>
-       Specify the name of user (role) you use to connect to
-       datanodes. This option may be removed in future releases.
-      </para>
-     </listitem>
-    </varlistentry>
-
-    <varlistentry>
-     <term><envar>num_coordinators</envar></term>
-     <listitem>
-      <para>
-&xconly;
-       Specify the list of IP address or host name of each coordinator
-       as character string.
-       You should specify the same value to all the
-       coordinators.
-      </para>
-     </listitem>
-    </varlistentry>
-
-    <varlistentry>
-     <term><envar>coordinator_hosts</envar></term>
-     <listitem>
-&xconly;
-      <para>
-       Specify the list of IP address or host name of each coordinator
-       as character string.
-       You should specify the same value to all the
-       coordinators.
-      </para>
-     </listitem>
-    </varlistentry>
-
-
-    <varlistentry>
-     <term><envar>coordinator_ports</envar></term>
-     <listitem>
-&xconly;
-      <para>
-       Specify the list of port number of each coordinator
-       as character string in the order of <option>coordinator_hosts</>.
-       You should specify the same value to all the
-       coordinators.
-      </para>
-     </listitem>
-    </varlistentry>
-
-    <varlistentry>
-     <term><envar>coordinator_users</envar></term>
-     <listitem>
-&xconly;
-      <para>
-       Specify the name of user (role) you use to connect to
-       coordinators. This option may be removed in future releases.
-      </para>
-     </listitem>
-    </varlistentry>
-
-    <varlistentry>
-     <term><envar>pgxc_node_id</envar></term>
-     <listitem>
-&xconly;
-      <para>
-       Specify the index of this coordinator. The index refers to the
-       element of <option>coordinator_hosts</> parameter, which begins
-       with 1.
+       Specify the name of this cluster node. This name index refers to the
+       element of <link linkend="catalog-pgxc-node"><structname>pgxc_node
+       </structname></link>.node_name value, to identify the node self.
       </para>
      </listitem>
     </varlistentry>
@@ -2603,20 +2502,6 @@ postgres$ <userinput>/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data</>
 &xconly;
       <para>
        Specify the port number listened to by the datanode.
-      </para>
-     </listitem>
-    </varlistentry>
-
-    <varlistentry>
-    <varlistentry>
-     <term><envar>pgxc_node_id</envar></term>
-     <listitem>
-&xconly;
-      <para>
-       Specify the index of the datanode. The index refers to the
-       element of <option>data_node_hosts</> parameter specified in
-       the coordinator <filename>postgresql.conf</>, which begins
-       with 1.
       </para>
      </listitem>
     </varlistentry>
