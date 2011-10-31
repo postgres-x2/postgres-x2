@@ -371,7 +371,7 @@ InitMultinodeExecutor(void)
 	if (PGXCNodeId == 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_EXCEPTION),
-				 errmsg("Coordinator cannot identify himself")));
+				 errmsg("Coordinator cannot identify itself")));
 }
 
 
