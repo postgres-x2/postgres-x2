@@ -391,7 +391,7 @@ PGXCNodeConnStr(char *host, int port, char *dbname,
 	 * remote type can be coordinator, datanode or application.
 	 */
 	num = snprintf(connstr, sizeof(connstr),
-				   "host=%s port=%d dbname=%s user=%s options='-c remotetype=%s'",
+				   "host=%s port=%d dbname=%s user=%s application_name=pgxc options='-c remotetype=%s'",
 				   host, port, dbname, user, remote_type);
 
 	/* Check for overflow */

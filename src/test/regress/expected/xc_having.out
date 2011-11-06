@@ -24,7 +24,7 @@ explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), 
    Output: pg_catalog.count(*), pg_catalog.sum((sum(xc_having_tab1.val))), pg_catalog.avg((avg(xc_having_tab1.val))), ((pg_catalog.sum((sum(xc_having_tab1.val))))::double precision / (pg_catalog.count(*))::double precision), xc_having_tab1.val2
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: (count(*)), (sum(xc_having_tab1.val)), (avg(xc_having_tab1.val)), xc_having_tab1.val2
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [2]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: count(*), sum(xc_having_tab1.val), avg(xc_having_tab1.val), xc_having_tab1.val2
 (6 rows)
 
@@ -43,7 +43,7 @@ explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), 
    Filter: (pg_catalog.avg((avg(xc_having_tab1.val))) > 3.75)
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: (count(*)), (sum(xc_having_tab1.val)), (avg(xc_having_tab1.val)), xc_having_tab1.val2
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [2]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: count(*), sum(xc_having_tab1.val), avg(xc_having_tab1.val), xc_having_tab1.val2
 (7 rows)
 
@@ -62,7 +62,7 @@ explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), 
    Filter: ((pg_catalog.avg((avg(xc_having_tab1.val))) > 3.75) OR (xc_having_tab1.val2 > 2))
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: (count(*)), (sum(xc_having_tab1.val)), (avg(xc_having_tab1.val)), xc_having_tab1.val2
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [2]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: count(*), sum(xc_having_tab1.val), avg(xc_having_tab1.val), xc_having_tab1.val2
 (7 rows)
 
@@ -79,7 +79,7 @@ explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), 
    Filter: (pg_catalog.avg((avg(xc_having_tab1.val))) > 3.75)
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: (count(*)), (sum(xc_having_tab1.val)), (avg(xc_having_tab1.val)), xc_having_tab1.val2
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [2]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: count(*), sum(xc_having_tab1.val), avg(xc_having_tab1.val), xc_having_tab1.val2
 (7 rows)
 
@@ -116,14 +116,14 @@ select val2 from xc_having_tab1 group by val2 having sum(val) > 8;
 (1 row)
 
 explain verbose select val2 from xc_having_tab1 group by val2 having sum(val) > 8;
-                                    QUERY PLAN                                    
-----------------------------------------------------------------------------------
+                                               QUERY PLAN                                                
+---------------------------------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=8)
    Output: xc_having_tab1.val2
    Filter: (pg_catalog.sum((sum(xc_having_tab1.val))) > 8)
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: xc_having_tab1.val2, (sum(xc_having_tab1.val))
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [2]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: xc_having_tab1.val2, sum(xc_having_tab1.val)
 (7 rows)
 
@@ -136,14 +136,14 @@ select val + val2 from xc_having_tab1 group by val + val2 having sum(val) > 5;
 (3 rows)
 
 explain verbose select val + val2 from xc_having_tab1 group by val + val2 having sum(val) > 5;
-                                        QUERY PLAN                                         
--------------------------------------------------------------------------------------------
+                                               QUERY PLAN                                                
+---------------------------------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.04 rows=1 width=8)
    Output: ((xc_having_tab1.val + xc_having_tab1.val2))
    Filter: (pg_catalog.sum((sum(xc_having_tab1.val))) > 5)
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: ((xc_having_tab1.val + xc_having_tab1.val2)), (sum(xc_having_tab1.val))
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [2]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: (xc_having_tab1.val + xc_having_tab1.val2), sum(xc_having_tab1.val)
 (7 rows)
 
@@ -162,7 +162,7 @@ explain verbose select count(*) + sum(val) + avg(val), val2 from xc_having_tab1 
    Filter: (min((min(xc_having_tab1.val))) < xc_having_tab1.val2)
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: (count(*)), (sum(xc_having_tab1.val)), (avg(xc_having_tab1.val)), xc_having_tab1.val2, (min(xc_having_tab1.val))
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [2]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: count(*), sum(xc_having_tab1.val), avg(xc_having_tab1.val), xc_having_tab1.val2, min(xc_having_tab1.val)
 (7 rows)
 
@@ -189,7 +189,7 @@ explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), 
    Output: pg_catalog.count(*), pg_catalog.sum((sum(xc_having_tab1.val))), pg_catalog.avg((avg(xc_having_tab1.val))), ((pg_catalog.sum((sum(xc_having_tab1.val))))::double precision / (pg_catalog.count(*))::double precision), xc_having_tab1.val2
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: (count(*)), (sum(xc_having_tab1.val)), (avg(xc_having_tab1.val)), xc_having_tab1.val2
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [1]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: count(*), sum(xc_having_tab1.val), avg(xc_having_tab1.val), xc_having_tab1.val2
 (6 rows)
 
@@ -208,7 +208,7 @@ explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), 
    Filter: (pg_catalog.avg((avg(xc_having_tab1.val))) > 3.75)
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: (count(*)), (sum(xc_having_tab1.val)), (avg(xc_having_tab1.val)), xc_having_tab1.val2
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [1]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: count(*), sum(xc_having_tab1.val), avg(xc_having_tab1.val), xc_having_tab1.val2
 (7 rows)
 
@@ -227,7 +227,7 @@ explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), 
    Filter: ((pg_catalog.avg((avg(xc_having_tab1.val))) > 3.75) OR (xc_having_tab1.val2 > 2))
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: (count(*)), (sum(xc_having_tab1.val)), (avg(xc_having_tab1.val)), xc_having_tab1.val2
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [1]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: count(*), sum(xc_having_tab1.val), avg(xc_having_tab1.val), xc_having_tab1.val2
 (7 rows)
 
@@ -244,7 +244,7 @@ explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), 
    Filter: (pg_catalog.avg((avg(xc_having_tab1.val))) > 3.75)
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: (count(*)), (sum(xc_having_tab1.val)), (avg(xc_having_tab1.val)), xc_having_tab1.val2
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [1]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: count(*), sum(xc_having_tab1.val), avg(xc_having_tab1.val), xc_having_tab1.val2
 (7 rows)
 
@@ -281,14 +281,14 @@ select val2 from xc_having_tab1 group by val2 having sum(val) > 8;
 (1 row)
 
 explain verbose select val2 from xc_having_tab1 group by val2 having sum(val) > 8;
-                                    QUERY PLAN                                    
-----------------------------------------------------------------------------------
+                                               QUERY PLAN                                                
+---------------------------------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.03 rows=1 width=8)
    Output: xc_having_tab1.val2
    Filter: (pg_catalog.sum((sum(xc_having_tab1.val))) > 8)
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: xc_having_tab1.val2, (sum(xc_having_tab1.val))
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [1]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: xc_having_tab1.val2, sum(xc_having_tab1.val)
 (7 rows)
 
@@ -301,14 +301,14 @@ select val + val2 from xc_having_tab1 group by val + val2 having sum(val) > 5;
 (3 rows)
 
 explain verbose select val + val2 from xc_having_tab1 group by val + val2 having sum(val) > 5;
-                                        QUERY PLAN                                         
--------------------------------------------------------------------------------------------
+                                               QUERY PLAN                                                
+---------------------------------------------------------------------------------------------------------
  HashAggregate  (cost=1.02..1.04 rows=1 width=8)
    Output: ((xc_having_tab1.val + xc_having_tab1.val2))
    Filter: (pg_catalog.sum((sum(xc_having_tab1.val))) > 5)
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: ((xc_having_tab1.val + xc_having_tab1.val2)), (sum(xc_having_tab1.val))
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [1]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: (xc_having_tab1.val + xc_having_tab1.val2), sum(xc_having_tab1.val)
 (7 rows)
 
@@ -327,7 +327,7 @@ explain verbose select count(*) + sum(val) + avg(val), val2 from xc_having_tab1 
    Filter: (min((min(xc_having_tab1.val))) < xc_having_tab1.val2)
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: (count(*)), (sum(xc_having_tab1.val)), (avg(xc_having_tab1.val)), xc_having_tab1.val2, (min(xc_having_tab1.val))
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [1]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: count(*), sum(xc_having_tab1.val), avg(xc_having_tab1.val), xc_having_tab1.val2, min(xc_having_tab1.val)
 (7 rows)
 
@@ -354,7 +354,7 @@ explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), 
    Output: pg_catalog.count(*), pg_catalog.sum((sum(xc_having_tab1.val))), pg_catalog.avg((avg(xc_having_tab1.val))), ((pg_catalog.sum((sum(xc_having_tab1.val))))::double precision / (pg_catalog.count(*))::double precision), xc_having_tab1.val2
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: (count(*)), (sum(xc_having_tab1.val)), (avg(xc_having_tab1.val)), xc_having_tab1.val2
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [2]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: count(*), sum(xc_having_tab1.val), avg(xc_having_tab1.val), xc_having_tab1.val2
 (6 rows)
 
@@ -373,7 +373,7 @@ explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), 
    Filter: (pg_catalog.avg((avg(xc_having_tab1.val))) > 3.75)
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: (count(*)), (sum(xc_having_tab1.val)), (avg(xc_having_tab1.val)), xc_having_tab1.val2
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [2]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: count(*), sum(xc_having_tab1.val), avg(xc_having_tab1.val), xc_having_tab1.val2
 (7 rows)
 
@@ -392,7 +392,7 @@ explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), 
    Filter: ((pg_catalog.avg((avg(xc_having_tab1.val))) > 3.75) OR (xc_having_tab1.val2 > 2))
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: (count(*)), (sum(xc_having_tab1.val)), (avg(xc_having_tab1.val)), xc_having_tab1.val2
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [2]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: count(*), sum(xc_having_tab1.val), avg(xc_having_tab1.val), xc_having_tab1.val2
 (7 rows)
 
@@ -409,7 +409,7 @@ explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), 
    Filter: (pg_catalog.avg((avg(xc_having_tab1.val))) > 3.75)
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: (count(*)), (sum(xc_having_tab1.val)), (avg(xc_having_tab1.val)), xc_having_tab1.val2
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [2]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: count(*), sum(xc_having_tab1.val), avg(xc_having_tab1.val), xc_having_tab1.val2
 (7 rows)
 
@@ -449,14 +449,14 @@ select val2 from xc_having_tab1 group by val2 having sum(val) > 8;
 (1 row)
 
 explain verbose select val2 from xc_having_tab1 group by val2 having sum(val) > 8;
-                                    QUERY PLAN                                    
-----------------------------------------------------------------------------------
+                                               QUERY PLAN                                                
+---------------------------------------------------------------------------------------------------------
  GroupAggregate  (cost=1.02..1.05 rows=1 width=8)
    Output: xc_having_tab1.val2
    Filter: (pg_catalog.sum((sum(xc_having_tab1.val))) > 8)
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: xc_having_tab1.val2, (sum(xc_having_tab1.val))
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [2]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: xc_having_tab1.val2, sum(xc_having_tab1.val)
 (7 rows)
 
@@ -469,14 +469,14 @@ select val + val2 from xc_having_tab1 group by val + val2 having sum(val) > 5;
 (3 rows)
 
 explain verbose select val + val2 from xc_having_tab1 group by val + val2 having sum(val) > 5;
-                                        QUERY PLAN                                         
--------------------------------------------------------------------------------------------
+                                               QUERY PLAN                                                
+---------------------------------------------------------------------------------------------------------
  GroupAggregate  (cost=1.03..1.05 rows=1 width=8)
    Output: ((xc_having_tab1.val + xc_having_tab1.val2))
    Filter: (pg_catalog.sum((sum(xc_having_tab1.val))) > 5)
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: ((xc_having_tab1.val + xc_having_tab1.val2)), (sum(xc_having_tab1.val))
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [2]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: (xc_having_tab1.val + xc_having_tab1.val2), sum(xc_having_tab1.val)
 (7 rows)
 
@@ -495,7 +495,7 @@ explain verbose select count(*) + sum(val) + avg(val), val2 from xc_having_tab1 
    Filter: (min((min(xc_having_tab1.val))) < xc_having_tab1.val2)
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: (count(*)), (sum(xc_having_tab1.val)), (avg(xc_having_tab1.val)), xc_having_tab1.val2, (min(xc_having_tab1.val))
-         ->  Data Node Scan (Node Count [2])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [2]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: count(*), sum(xc_having_tab1.val), avg(xc_having_tab1.val), xc_having_tab1.val2, min(xc_having_tab1.val)
 (7 rows)
 
@@ -522,7 +522,7 @@ explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), 
    Output: pg_catalog.count(*), pg_catalog.sum((sum(xc_having_tab1.val))), pg_catalog.avg((avg(xc_having_tab1.val))), ((pg_catalog.sum((sum(xc_having_tab1.val))))::double precision / (pg_catalog.count(*))::double precision), xc_having_tab1.val2
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: (count(*)), (sum(xc_having_tab1.val)), (avg(xc_having_tab1.val)), xc_having_tab1.val2
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [1]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: count(*), sum(xc_having_tab1.val), avg(xc_having_tab1.val), xc_having_tab1.val2
 (6 rows)
 
@@ -541,7 +541,7 @@ explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), 
    Filter: (pg_catalog.avg((avg(xc_having_tab1.val))) > 3.75)
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: (count(*)), (sum(xc_having_tab1.val)), (avg(xc_having_tab1.val)), xc_having_tab1.val2
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [1]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: count(*), sum(xc_having_tab1.val), avg(xc_having_tab1.val), xc_having_tab1.val2
 (7 rows)
 
@@ -560,7 +560,7 @@ explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), 
    Filter: ((pg_catalog.avg((avg(xc_having_tab1.val))) > 3.75) OR (xc_having_tab1.val2 > 2))
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: (count(*)), (sum(xc_having_tab1.val)), (avg(xc_having_tab1.val)), xc_having_tab1.val2
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [1]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: count(*), sum(xc_having_tab1.val), avg(xc_having_tab1.val), xc_having_tab1.val2
 (7 rows)
 
@@ -577,7 +577,7 @@ explain verbose select count(*), sum(val), avg(val), sum(val)::float8/count(*), 
    Filter: (pg_catalog.avg((avg(xc_having_tab1.val))) > 3.75)
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: (count(*)), (sum(xc_having_tab1.val)), (avg(xc_having_tab1.val)), xc_having_tab1.val2
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [1]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: count(*), sum(xc_having_tab1.val), avg(xc_having_tab1.val), xc_having_tab1.val2
 (7 rows)
 
@@ -617,14 +617,14 @@ select val2 from xc_having_tab1 group by val2 having sum(val) > 8;
 (1 row)
 
 explain verbose select val2 from xc_having_tab1 group by val2 having sum(val) > 8;
-                                    QUERY PLAN                                    
-----------------------------------------------------------------------------------
+                                               QUERY PLAN                                                
+---------------------------------------------------------------------------------------------------------
  GroupAggregate  (cost=1.02..1.05 rows=1 width=8)
    Output: xc_having_tab1.val2
    Filter: (pg_catalog.sum((sum(xc_having_tab1.val))) > 8)
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: xc_having_tab1.val2, (sum(xc_having_tab1.val))
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [1]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: xc_having_tab1.val2, sum(xc_having_tab1.val)
 (7 rows)
 
@@ -637,14 +637,14 @@ select val + val2 from xc_having_tab1 group by val + val2 having sum(val) > 5;
 (3 rows)
 
 explain verbose select val + val2 from xc_having_tab1 group by val + val2 having sum(val) > 5;
-                                        QUERY PLAN                                         
--------------------------------------------------------------------------------------------
+                                               QUERY PLAN                                                
+---------------------------------------------------------------------------------------------------------
  GroupAggregate  (cost=1.03..1.05 rows=1 width=8)
    Output: ((xc_having_tab1.val + xc_having_tab1.val2))
    Filter: (pg_catalog.sum((sum(xc_having_tab1.val))) > 5)
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: ((xc_having_tab1.val + xc_having_tab1.val2)), (sum(xc_having_tab1.val))
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [1]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: (xc_having_tab1.val + xc_having_tab1.val2), sum(xc_having_tab1.val)
 (7 rows)
 
@@ -663,7 +663,7 @@ explain verbose select count(*) + sum(val) + avg(val), val2 from xc_having_tab1 
    Filter: (min((min(xc_having_tab1.val))) < xc_having_tab1.val2)
    ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
          Output: (count(*)), (sum(xc_having_tab1.val)), (avg(xc_having_tab1.val)), xc_having_tab1.val2, (min(xc_having_tab1.val))
-         ->  Data Node Scan (Node Count [1])  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan (Node Count [1]) on "__FOREIGN_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
                Output: count(*), sum(xc_having_tab1.val), avg(xc_having_tab1.val), xc_having_tab1.val2, min(xc_having_tab1.val)
 (7 rows)
 

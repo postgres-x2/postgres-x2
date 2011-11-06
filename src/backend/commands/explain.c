@@ -1593,8 +1593,7 @@ ExplainScanTarget(Scan *plan, ExplainState *es)
 #ifdef PGXC
 	if (plan->scanrelid <= 0 ||
 		es->rtable == NULL ||
-		plan->scanrelid >= es->rtable->length ||
-		plan->scanrelid < 0)
+		plan->scanrelid > es->rtable->length)
 		return;
 #endif
 
