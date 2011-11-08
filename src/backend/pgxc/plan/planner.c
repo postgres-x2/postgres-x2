@@ -1865,6 +1865,10 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 			{
 				RangeTblEntry *rte = lfirst(lc);
 
+				/* This check is not necessary if rte is not a relation */
+				if (rte->rtekind != RTE_RELATION)
+					continue;
+
 				if (!save_rte)
 				{
 					save_rte = rte;
