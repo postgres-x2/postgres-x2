@@ -88,8 +88,6 @@ static int	pgxc_node_receive_and_validate(const int conn_count,
 										   bool reset_combiner);
 static void clear_write_node_list(void);
 
-static void pfree_pgxc_all_handles(PGXCNodeAllHandles *pgxc_handles);
-
 static void close_node_cursors(PGXCNodeHandle **connections, int conn_count, char *cursor);
 
 static PGXCNodeAllHandles *pgxc_get_all_transaction_nodes(PGXCNode_HandleRequested status_requested);
@@ -1325,7 +1323,6 @@ handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner)
 #ifdef PGXC
 			case 'b':
 				{
-					Assert((strncmp(msg, conn->barrier_id, msg_len) == 0));
 					conn->state = DN_CONNECTION_STATE_IDLE;
 					return RESPONSE_BARRIER_OK;
 				}
@@ -2473,7 +2470,7 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_
 
 	if (!GlobalTransactionIdIsValid(gxid))
 	{
-		pfree(connections);
+		pfree_pgxc_all_handles(pgxc_handles);
 		pfree(copy_connections);
 		return NULL;
 	}
@@ -2482,7 +2479,7 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_
 		/* Start transaction on connections where it is not started */
 		if (pgxc_node_begin(new_count, newConnections, gxid))
 		{
-			pfree(connections);
+			pfree_pgxc_all_handles(pgxc_handles);
 			pfree(copy_connections);
 			return NULL;
 		}
@@ -2497,7 +2494,7 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_
 		if (!need_tran && pgxc_node_send_gxid(connections[i], gxid))
 		{
 			add_error_message(connections[i], "Can not send request");
-			pfree(connections);
+			pfree_pgxc_all_handles(pgxc_handles);
 			pfree(copy_connections);
 			return NULL;
 		}
@@ -2510,21 +2507,21 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_
 			 * so handle this case here.
 			 */
 			add_error_message(connections[i], "Can not send request");
-			pfree(connections);
+			pfree_pgxc_all_handles(pgxc_handles);
 			pfree(copy_connections);
 			return NULL;
 		}
 		if (snapshot && pgxc_node_send_snapshot(connections[i], snapshot))
 		{
 			add_error_message(connections[i], "Can not send request");
-			pfree(connections);
+			pfree_pgxc_all_handles(pgxc_handles);
 			pfree(copy_connections);
 			return NULL;
 		}
 		if (pgxc_node_send_query(connections[i], query) != 0)
 		{
 			add_error_message(connections[i], "Can not send request");
-			pfree(connections);
+			pfree_pgxc_all_handles(pgxc_handles);
 			pfree(copy_connections);
 			return NULL;
 		}
@@ -4476,24 +4473,6 @@ pgxc_get_all_transaction_nodes(PGXCNode_HandleRequested status_requested)
 
 	return pgxc_connections;
 }
-
-/* Free PGXCNodeAllHandles structure */
-static void
-pfree_pgxc_all_handles(PGXCNodeAllHandles *pgxc_handles)
-{
-	if (!pgxc_handles)
-		return;
-
-	if (pgxc_handles->primary_handle)
-		pfree(pgxc_handles->primary_handle);
-	if (pgxc_handles->datanode_handles && pgxc_handles->dn_conn_count != 0)
-		pfree(pgxc_handles->datanode_handles);
-	if (pgxc_handles->coord_handles && pgxc_handles->co_conn_count != 0)
-		pfree(pgxc_handles->coord_handles);
-
-	pfree(pgxc_handles);
-}
-
 
 void
 ExecCloseRemoteStatement(const char *stmt_name, List *nodelist)

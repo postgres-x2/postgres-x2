@@ -206,9 +206,6 @@ SendBarrierPrepareRequest(List *coords, const char *id)
 		handle->state = DN_CONNECTION_STATE_QUERY;
 
 		pgxc_node_flush(handle);
-
-		/* FIXME Use the right context */
-		handle->barrier_id = strdup(id);
 	}
 
 	return coord_handles;
@@ -294,9 +291,6 @@ SendBarrierEndRequest(PGXCNodeAllHandles *coord_handles, const char *id)
 
 		handle->state = DN_CONNECTION_STATE_QUERY;
 		pgxc_node_flush(handle);
-
-		/* FIXME Use the right context */
-		handle->barrier_id = strdup(id);
 	}
 
 }
@@ -409,12 +403,11 @@ ExecuteBarrier(const char *id)
 
 		handle->state = DN_CONNECTION_STATE_QUERY;
 		pgxc_node_flush(handle);
-
-		/* FIXME Use the right context */
-		handle->barrier_id = strdup(id);
 	}
 
 	CheckBarrierCommandStatus(conn_handles, id, "EXECUTE");
+
+	pfree_pgxc_all_handles(conn_handles);
 
 	/*
 	 * Also WAL log the BARRIER locally and flush the WAL buffers to disk
@@ -490,6 +483,9 @@ RequestBarrier(const char *id, char *completionTag)
 	 * Step three. Inform coordinators about a successfully completed barrier
 	 */
 	EndBarrier(prepared_handles, barrier_id);
+
+	/* Free the handles */
+	pfree_pgxc_all_handles(prepared_handles);
 
 	if (completionTag)
 		snprintf(completionTag, COMPLETION_TAG_BUFSIZE, "BARRIER %s", barrier_id);
