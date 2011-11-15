@@ -1167,17 +1167,6 @@ build_subcluster_data(PGXCSubCluster *subcluster, int *numnodes)
 		return nodes;
 	}
 
-	/*
-	 * For the time being, if a sub-cluster is defined, just block it.
-	 * PGXCTODO: We need to work on node mapping for subclusters and
-	 * remote node joins for queries on multiple tables.
-	 */
-	if (subcluster)
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("Postgres-XC does not support subset of nodes yet"),
-						 errdetail("The feature is not currently supported")));
-
 	/* Build list of nodes from given group */
 	if (subcluster->clustertype == SUBCLUSTER_GROUP)
 	{

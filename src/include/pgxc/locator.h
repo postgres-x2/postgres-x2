@@ -22,6 +22,7 @@
 #define LOCATOR_TYPE_RROBIN 'N'
 #define LOCATOR_TYPE_CUSTOM 'C'
 #define LOCATOR_TYPE_MODULO 'M'
+#define LOCATOR_TYPE_NONE 'O'
 
 /* Maximum number of preferred datanodes that can be defined in cluster */
 #define MAX_PREFERRED_NODES 64
@@ -29,8 +30,12 @@
 #define HASH_SIZE 4096
 #define HASH_MASK 0x00000FFF;
 
-#define IsReplicated(x) (x->locatorType == LOCATOR_TYPE_REPLICATED)
-
+#define IsLocatorReplicated(x) (x == LOCATOR_TYPE_REPLICATED)
+#define IsLocatorNone(x) (x == LOCATOR_TYPE_NONE)
+#define IsLocatorReplicated(x) (x == LOCATOR_TYPE_REPLICATED)
+#define IsLocatorColumnDistributed(x) (x == LOCATOR_TYPE_HASH || \
+									   x == LOCATOR_TYPE_RROBIN || \
+									   x == LOCATOR_TYPE_MODULO)
 
 #include "nodes/primnodes.h"
 #include "utils/relcache.h"

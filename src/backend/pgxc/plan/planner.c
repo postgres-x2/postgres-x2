@@ -37,6 +37,7 @@
 #include "pgxc/locator.h"
 #include "pgxc/planner.h"
 #include "pgxc/postgresql_fdw.h"
+#include "pgxc/poolmgr.h"
 #include "tcop/pquery.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
@@ -173,6 +174,7 @@ static RemoteQuery *makeRemoteQuery(void);
 static void validate_part_col_updatable(const Query *query);
 static bool contains_temp_tables(List *rtable);
 static bool contains_only_pg_catalog(List *rtable);
+static bool is_subcluster_mapping(List *rtable);
 static void pgxc_handle_unsupported_stmts(Query *query);
 static PlannedStmt *pgxc_fqs_planner(Query *query, int cursorOptions,
 										ParamListInfo boundParams);
@@ -1484,6 +1486,7 @@ contains_only_pg_catalog(List *rtable)
 	return true;
 }
 
+
 /*
  * Returns true if at least one temporary table is in use
  * in query (and its subqueries)
@@ -1509,6 +1512,143 @@ contains_temp_tables(List *rtable)
 
 	return false;
 }
+
+
+/*
+ * Returns true if tables in this list have their node list mapping.
+ * The node list determines on which subset of nodes table data is located.
+ */
+static bool
+is_subcluster_mapping(List *rtable)
+{
+	ListCell *item;
+	char	 global_locator_type = LOCATOR_TYPE_NONE;
+	List	 *inter_nodelist = NIL;
+
+	/* Single table, so do not matter */
+	if (list_length(rtable) == 1)
+		return true;
+
+	/*
+	 * Successive lists of node lists of rtables are checked by taking
+	 * their successive intersections for mapping.
+	 * As a global rule, distributed table mapping has to be at least
+	 * in reference mapping.
+	 *
+	 * The following cases are considered:
+	 * - replicated/replicated mapping
+	 *	 Intersection of node lists cannot be disjointed.
+	 * - replicated/distributed mapping
+	 *	 Distributed mapping has to be included in replicated mapping
+	 * - distributed/distributed mapping
+	 *	 Node lists have to include each other, so they are equal.
+	 */
+	foreach(item, rtable)
+	{
+		RangeTblEntry *rte = (RangeTblEntry *) lfirst(item);
+		RelationLocInfo *rel_loc_info;
+
+		/* Don't mind if it is not a relation */
+		if (rte->rtekind != RTE_RELATION)
+			continue;
+
+		/* Time to get the necessary location data */
+		rel_loc_info = GetRelationLocInfo(rte->relid);
+
+		/*
+		 * If no location info is found it means that relation is
+		 * local like a catalog, this does not impact mapping check.
+		 */
+		if (!rel_loc_info)
+			continue;
+
+		/* Initialize location information to be checked */
+		if (IsLocatorNone(global_locator_type))
+		{
+			global_locator_type = rel_loc_info->locatorType;
+			inter_nodelist = list_copy(rel_loc_info->nodeList);
+			continue;
+		}
+
+		/* Time for the real checking */
+		if (IsLocatorReplicated(global_locator_type) &&
+			IsLocatorReplicated(rel_loc_info->locatorType))
+		{
+			/*
+			 * Replicated/replicated join case
+			 * Check that replicated relation is not disjoint
+			 * with initial relation which is also replicated.
+			 * If there is a common portion of the node list between
+			 * the two relations, other rtables have to be checked on
+			 * this restricted list.
+			 */
+			inter_nodelist = list_intersection_int(inter_nodelist,
+												   rel_loc_info->nodeList);
+			/* No intersection, so has to go though standard planner... */
+			if (!inter_nodelist)
+				return false;
+		}
+		else if ((IsLocatorReplicated(global_locator_type) &&
+				  IsLocatorColumnDistributed(rel_loc_info->locatorType)) ||
+				 (IsLocatorColumnDistributed(global_locator_type) &&
+				  IsLocatorReplicated(rel_loc_info->locatorType)))
+		{
+			/*
+			 * Replicated/distributed join case.
+			 * Node list of distributed table has to be included
+			 * in node list of replicated table.
+			 */
+			List *diff_nodelist = NIL;
+
+			/*
+			 * In both cases, check that replicated table node list maps entirely
+			 * distributed table node list.
+			 */
+			if (IsLocatorReplicated(global_locator_type))
+			{
+				diff_nodelist = list_difference_int(rel_loc_info->nodeList, inter_nodelist);
+
+				/* Save new comparison info */
+				inter_nodelist = list_copy(rel_loc_info->nodeList);
+				global_locator_type = rel_loc_info->locatorType;
+			}
+			else
+				diff_nodelist = list_difference_int(inter_nodelist, rel_loc_info->nodeList);
+
+			/*
+			 * If the difference list is not empty, this means that node list of
+			 * distributed table is not completely mapped by node list of replicated
+			 * table, so go through standard planner.
+			 */
+			if (diff_nodelist)
+				return false;
+		}
+		else if (IsLocatorColumnDistributed(global_locator_type) &&
+				 IsLocatorColumnDistributed(rel_loc_info->locatorType))
+		{
+			/*
+			 * Distributed/distributed case.
+			 * Tables have to map perfectly.
+			 */
+			List *diff_left = list_difference_int(inter_nodelist, rel_loc_info->nodeList);
+			List *diff_right = list_difference_int(rel_loc_info->nodeList, inter_nodelist);
+
+			/* Mapping is disjointed, so this goes through standard planner */
+			if (diff_left || diff_right)
+				return false;
+		}
+		else
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("Postgres-XC does not support this distribution type yet"),
+					 errdetail("The feature is not currently supported")));
+		}
+	}
+
+	return true;
+}
+
 
 /*
  * get_plan_nodes - determine the nodes to execute the command on.
@@ -1546,7 +1686,16 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 
 	/* Look for special conditions */
 
-	/* Examine projection list, to handle cases like
+	/*
+	 * Check node list for each table specified.
+	 * Nodes where is located data have to map in case of queries
+	 * involving multiple tables.
+	 */
+	if (!is_subcluster_mapping(query->rtable))
+		return true; /* Run through standard planner */
+
+	/*
+	 * Examine projection list, to handle cases like
 	 * SELECT col1, (SELECT col2 FROM non_replicated_table...), ...
 	 * PGXCTODO: Improve this to allow for partitioned tables
 	 * where all subqueries and the main query use the same single node
@@ -1804,7 +1953,8 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 		/* Note replicated table usage for determining safe queries */
 		if (context->query_step->exec_nodes)
 		{
-			if (table_usage_type == TABLE_USAGE_TYPE_USER && IsReplicated(rel_loc_info))
+			if (table_usage_type == TABLE_USAGE_TYPE_USER &&
+				IsLocatorReplicated(rel_loc_info->locatorType))
 				table_usage_type = TABLE_USAGE_TYPE_USER_REPLICATED;
 
 			context->query_step->exec_nodes->tableusagetype = table_usage_type;
@@ -3141,11 +3291,17 @@ IsJoinReducible(RemoteQuery *innernode, RemoteQuery *outernode,
 	join_info->partitioned_replicated = false;
 	join_info->exec_nodes = NULL;
 
+	/*
+	 * Before examining such conditions, we need to be sure that node lists
+	 * of tables are mapping.
+	 */
+	if (!is_subcluster_mapping(rtable_list))
+		return false;
+
 	InitXCWalkerContext(&context);
 	context.accessType = RELATION_ACCESS_READ; /* PGXCTODO - determine */
 	context.rtables = NIL;
 	context.rtables = lappend(context.rtables, rtable_list); /* add to list of lists */
-
 
 	foreach(cell, join_path->joinrestrictinfo)
 	{
