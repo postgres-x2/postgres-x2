@@ -29,6 +29,7 @@
 #include "miscadmin.h"
 #include "pgxc/execRemote.h"
 #include "nodes/nodes.h"
+#include "nodes/nodeFuncs.h"
 #include "pgxc/poolmgr.h"
 #include "storage/ipc.h"
 #include "utils/datum.h"
@@ -3094,8 +3095,10 @@ get_exec_connections(RemoteQueryState *planstate,
 				if (!isnull)
 				{
 					RelationLocInfo *rel_loc_info = GetRelationLocInfo(exec_nodes->en_relid);
-					/* PGXCTODO what is the type of partvalue here*/
-					ExecNodes *nodes = GetRelationNodes(rel_loc_info, partvalue, UNKNOWNOID, exec_nodes->accesstype);
+					ExecNodes  *nodes = GetRelationNodes(rel_loc_info,
+														 partvalue,
+														 exprType((Node *) exec_nodes->en_expr),
+														 exec_nodes->accesstype);
 					if (nodes)
 					{
 						nodelist = nodes->nodeList;
