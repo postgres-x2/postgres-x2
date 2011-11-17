@@ -127,6 +127,15 @@ typedef struct GTM_StartupPacket {
 
 #define InvalidGlobalTransactionId		((GlobalTransactionId) 0)
 
+/*
+ * Initial GXID value to start with, when -x option is not specified at the first run.
+ *
+ * This value is supposed to be safe enough.   If initdb involves huge amount of initial
+ * statements/transactions, users should consider to tweak this value with explicit
+ * -x option.
+ */
+#define InitialGXIDValue_Default		((GlobalTransactionId) 10000)
+
 #define GlobalTransactionIdIsValid(gxid) ((GlobalTransactionId) (gxid)) != InvalidGlobalTransactionId
 
 #define _(x) gettext(x)

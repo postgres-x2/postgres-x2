@@ -2213,10 +2213,12 @@ GTM_RestoreTxnInfo(int ctlfd, GlobalTransactionId next_gxid)
 	{
 		if ((read(ctlfd, &saved_gxid, sizeof (saved_gxid)) != sizeof (saved_gxid)) &&
 			(!GlobalTransactionIdIsValid(next_gxid)))
-			return;
-		if (!GlobalTransactionIdIsValid(next_gxid))
+			next_gxid = InitialGXIDValue_Default;
+		else if (!GlobalTransactionIdIsValid(next_gxid))
 			next_gxid = saved_gxid;
 	}
+	else if (!GlobalTransactionIdIsValid(next_gxid))
+		next_gxid = InitialGXIDValue_Default;
 
 	elog(LOG, "Restoring last GXID to %u\n", next_gxid);
 

@@ -86,6 +86,21 @@ PostgreSQL documentation
        been shut down gracefully, then this value will be taken from
        the last run.
       </para>
+      <para>
+       If <literal>-x</literal> option is not specified at the first
+       run, initial global transaction ID value will be set to a
+       default initial value which is considered to be safe enough (in
+       version &version;, it is 10000).  If many statements are
+       involved in initdb, you should consider to specify larger
+       value.
+      </para>
+      <para>
+       To find the precise value to start with, you should
+       run <application>pg_controldata</application> to
+       find <literal>Latest checkpoint's NextXID</literal> of all the
+       coordinators and datanodes and choose the value larger than or
+       equals to the maximum value found.
+      </para>
      </listitem>
     </varlistentry>
 
