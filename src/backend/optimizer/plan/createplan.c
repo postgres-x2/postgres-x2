@@ -916,6 +916,7 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 			 * may need this information later if more entries are added to it
 			 * as part of the remote expression optimization
 			 */
+			result->read_only		   = true;
 			result->remotejoin		   = true;
 			result->inner_alias		   = pstrdup(in_alias);
 			result->outer_alias		   = pstrdup(out_alias);
