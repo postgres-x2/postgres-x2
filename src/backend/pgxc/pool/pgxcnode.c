@@ -358,7 +358,7 @@ InitMultinodeExecutor(void)
 	/* Finally determine which is the node-self */
 	for (count = 0; count < NumCoords; count++)
 	{
-		if (strcmp(PGXCNodeName,
+		if (pg_strcasecmp(PGXCNodeName,
 				   get_pgxc_nodename(co_handles[count].nodeoid)) == 0)
 			PGXCNodeId = count + 1;
 	}
