@@ -21,9 +21,9 @@ INSERT INTO empsalary VALUES
 ('develop', 8, 6000, '2006-10-01'),
 ('develop', 11, 5200, '2007-08-15');
 
-SELECT depname, empno, salary, sum(salary) OVER (PARTITION BY depname) FROM empsalary ORDER BY depname, salary;
+SELECT depname, empno, salary, sum(salary) OVER (PARTITION BY depname) FROM empsalary ORDER BY 1, 2, 3, 4;
 
-SELECT depname, empno, salary, rank() OVER (PARTITION BY depname ORDER BY salary) FROM empsalary ORDER BY empno,salary;
+SELECT depname, empno, salary, rank() OVER (PARTITION BY depname ORDER BY salary) FROM empsalary ORDER BY 1, 2, 3, 4;
 
 -- with GROUP BY
 SELECT four, ten, SUM(SUM(four)) OVER (PARTITION BY four), AVG(ten) FROM tenk1
@@ -73,7 +73,7 @@ SELECT lead(ten * 2, 1, -1) OVER (PARTITION BY four ORDER BY ten), ten, four FRO
 SELECT first_value(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10 ORDER BY 1, 2, 3;
 
 -- last_value returns the last row of the frame, which is CURRENT ROW in ORDER BY window.
-SELECT last_value(four) OVER (ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10 ORDER BY 1, 2, 3; 
+SELECT last_value(four) OVER (ORDER BY ten, four), ten, four FROM tenk1 WHERE unique2 < 10 ORDER BY 1, 2, 3;
 
 SELECT last_value(ten) OVER (PARTITION BY four), ten, four FROM
 	(SELECT * FROM tenk1 WHERE unique2 < 10 ORDER BY four, ten)s
@@ -163,36 +163,36 @@ SELECT four, ten/4 as two,
 	last_value(ten/4) over (partition by four order by ten/4 rows between unbounded preceding and current row)
 FROM (select distinct ten, four from tenk1) ss ORDER BY 1, 2, 3, 4;
 
-SELECT sum(unique1) over (order by four range between current row and unbounded following),
+SELECT sum(unique1) over (order by four, unique1 range between current row and unbounded following),
 	unique1, four
 FROM tenk1 WHERE unique1 < 10;
 
 SELECT sum(unique1) over (rows between current row and unbounded following),
 	unique1, four
-FROM tenk1 WHERE unique1 < 10;
+FROM (SELECT unique1, four FROM tenk1 WHERE unique1 < 10 ORDER BY 1, 2) stenk1;
 
 SELECT sum(unique1) over (rows between 2 preceding and 2 following),
 	unique1, four
-FROM tenk1 WHERE unique1 < 10;
+FROM (SELECT unique1, four FROM tenk1 WHERE unique1 < 10 ORDER BY 1, 2) stenk1;
 
 SELECT sum(unique1) over (rows between 2 preceding and 1 preceding),
 	unique1, four
-FROM tenk1 WHERE unique1 < 10;
+FROM (SELECT unique1, four FROM tenk1 WHERE unique1 < 10 ORDER BY 1, 2) stenk1;
 
 SELECT sum(unique1) over (rows between 1 following and 3 following),
 	unique1, four
-FROM tenk1 WHERE unique1 < 10;
+FROM (SELECT unique1, four FROM tenk1 WHERE unique1 < 10 ORDER BY 1, 2) stenk1;
 
 SELECT sum(unique1) over (rows between unbounded preceding and 1 following),
 	unique1, four
-FROM tenk1 WHERE unique1 < 10;
+FROM (SELECT unique1, four FROM tenk1 WHERE unique1 < 10 ORDER BY 1, 2) stenk1;
 
 SELECT sum(unique1) over (w range between current row and unbounded following),
 	unique1, four
-FROM tenk1 WHERE unique1 < 10 WINDOW w AS (order by four);
+FROM tenk1 WHERE unique1 < 10 WINDOW w AS (order by four, unique1);
 
 -- fail: not implemented yet
-SELECT sum(unique1) over (order by four range between 2::int8 preceding and 1::int2 preceding),
+SELECT sum(unique1) over (order by four, ten, unique1 range between 2::int8 preceding and 1::int2 preceding),
 	unique1, four
 FROM tenk1 WHERE unique1 < 10;
 
@@ -200,12 +200,12 @@ SELECT first_value(unique1) over w,
 	nth_value(unique1, 2) over w AS nth_2,
 	last_value(unique1) over w, unique1, four
 FROM tenk1 WHERE unique1 < 10
-WINDOW w AS (order by four range between current row and unbounded following);
+WINDOW w AS (order by four, ten, unique1 range between current row and unbounded following);
 
 SELECT sum(unique1) over
 	(rows (SELECT unique1 FROM tenk1 ORDER BY unique1 LIMIT 1) + 1 PRECEDING),
 	unique1
-FROM tenk1 WHERE unique1 < 10;
+FROM (SELECT unique1, four FROM tenk1 WHERE unique1 < 10 ORDER BY 1, 2) stenk1;
 
 CREATE TEMP VIEW v_window AS
 	SELECT i, sum(i) over (order by i rows between 1 preceding and 1 following) as sum_rows
