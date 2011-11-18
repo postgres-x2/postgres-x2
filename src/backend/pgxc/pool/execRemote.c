@@ -4391,6 +4391,10 @@ PGXCNodeCleanAndRelease(int code, Datum arg)
 		/* Rollback on GTM if transaction id opened. */
 		RollbackTranGTM((GlobalTransactionId) GetCurrentTransactionIdIfAny());
 	}
+
+	/* Clean up prepared transactions before releasing connections */
+	DropAllPreparedStatements();
+
 	/* Release data node connections */
 	release_handles();
 
