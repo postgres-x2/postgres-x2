@@ -1219,7 +1219,39 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 							context->multilevel_join = true;
 
 						if (rel_loc_info2->locatorType == LOCATOR_TYPE_REPLICATED)
+						{
+							/*
+							 * This is a replicated/replicated join case
+							 * and node lists are mapping so node selection for remote join
+							 * is made based on the intersection list of the two node lists.
+							 */
+							int len1 = NumDataNodes;
+							int len2 = NumDataNodes;
+
+							if (rel_loc_info1)
+								len1 = list_length(rel_loc_info1->nodeList);
+							if (rel_loc_info2)
+								len2 = list_length(rel_loc_info2->nodeList);
+
 							pgxc_join->join_type = JOIN_REPLICATED_ONLY;
+
+							/* Be sure that intersection list can be built */
+							if ((len1 != NumDataNodes ||
+								 len2 != NumDataNodes) &&
+								rel_loc_info1 &&
+								rel_loc_info2)
+							{
+								List *join_node_list = list_intersection_int(rel_loc_info1->nodeList,
+																			 rel_loc_info2->nodeList);
+								context->conditions->base_rel_name = column_base2->relname;
+								context->conditions->base_rel_loc_info = rel_loc_info2;
+								/* Set a modified node list holding the intersection node list */
+								context->conditions->base_rel_loc_info->nodeList =
+									list_copy(join_node_list);
+								if (rel_loc_info1)
+									FreeRelationLocInfo(rel_loc_info1);
+							}
+						}
 						else
 						{
 							pgxc_join->join_type = JOIN_REPLICATED_PARTITIONED;
@@ -1260,13 +1292,9 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 						return false;
 					}
 					/* Now check for a partitioned join */
-					/*
-					 * PGXCTODO - for the prototype, we assume all partitioned
-					 * tables are on the same nodes.
-					 */
-					if ( ( (IsHashColumn(rel_loc_info1, column_base->colname)) &&
-						(IsHashColumn(rel_loc_info2, column_base2->colname))) ||
-					     ( (IsModuloColumn(rel_loc_info1, column_base->colname)) &&
+					if (((IsHashColumn(rel_loc_info1, column_base->colname)) &&
+						 (IsHashColumn(rel_loc_info2, column_base2->colname))) ||
+						((IsModuloColumn(rel_loc_info1, column_base->colname)) &&
 						(IsModuloColumn(rel_loc_info2, column_base2->colname))))
 					{
 						/* We found a partitioned join */

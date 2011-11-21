@@ -586,8 +586,16 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, Datum valueForDistCol, Oid typeO
 					}
 				}
 
+				/*
+				 * In case there are nodes defined here,
+				 * Enforce the use of one.
+				 */
+				if (rel_loc_info->nodeList)
+					exec_nodes->nodeList = lappend_int(NULL,
+													   linitial_int(rel_loc_info->nodeList));
+
+				/* read from just one of them. Use round robin mechanism */
 				if (exec_nodes->nodeList == NULL)
-					/* read from just one of them. Use round robin mechanism */
 					exec_nodes->nodeList = lappend_int(NULL,
 													   GetRoundRobinNode(rel_loc_info->relid));
 			}
