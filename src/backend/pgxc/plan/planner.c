@@ -162,9 +162,6 @@ typedef struct XCWalkerContext
 /* Forbid unsafe SQL statements */
 bool		StrictStatementChecking = true;
 
-/* Forbid multi-node SELECT statements with an ORDER BY clause */
-bool		StrictSelectChecking = false;
-
 static void get_plan_nodes(PlannerInfo *root, RemoteQuery *step, RelationAccessType accessType);
 static bool get_plan_nodes_walker(Node *query_node, XCWalkerContext *context);
 static bool examine_conditions_walker(Node *expr_node, XCWalkerContext *context);

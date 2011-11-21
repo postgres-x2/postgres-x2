@@ -1470,20 +1470,6 @@ static struct config_bool ConfigureNamesBool[] =
 		true,
 		NULL, NULL, NULL
 	},
-	{
-		/*
-		 * This is temporary work-around until we allow for a merge-sort of
-		 * ORDER BY.
-		 */
-		{"strict_select_checking", PGC_USERSET, DEVELOPER_OPTIONS,
-			gettext_noop("Forbid if SELECT has ORDER BY"),
-			gettext_noop("and is not safe for the cluster"),
-			GUC_NOT_IN_SAMPLE
-		},
-		&StrictSelectChecking,
-		false,
-		NULL, NULL, NULL
-	},
 #endif
 
 	{

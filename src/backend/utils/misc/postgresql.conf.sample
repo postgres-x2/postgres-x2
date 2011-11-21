@@ -568,8 +568,6 @@
 #------------------------------------------------------------------------------
 #strict_statement_checking = on		# Forbid PG-XC-unsafe SQL
 					# Enabling is useful for development
-#strict_select_checking = off		# Temporary; be strict about allowing 
-					# multi-node ORDER BY
 
 #------------------------------------------------------------------------------
 # CUSTOMIZED OPTIONS
