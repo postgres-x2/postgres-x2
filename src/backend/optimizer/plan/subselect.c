@@ -2112,7 +2112,7 @@ finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params,
 #ifdef PGXC
 		case T_RemoteQuery:
 			//PGXCTODO
-			context.paramids = bms_add_members(context.paramids, valid_params);
+			context.paramids = bms_add_members(context.paramids, scan_params);
 			break;
 #endif
 
