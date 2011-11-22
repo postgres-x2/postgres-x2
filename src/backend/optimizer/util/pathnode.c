@@ -1439,14 +1439,6 @@ create_remotequery_path(PlannerInfo *root, RelOptInfo *rel)
 	/* PGXCTODO - set cost properly */
 	cost_seqscan(pathnode, root, rel);
 
-	/*
-	 * ReScan of RemoteQuery is not implemented so we have to materialize
-	 * results. Anyway, it may be more effective to materialize results then
-	 * execute query against remote query multiple times.
-	 * Subject for future optimization
-	 */
-	pathnode = (Path *) create_material_path(rel, pathnode);
-
 	return pathnode;
 }
 #endif

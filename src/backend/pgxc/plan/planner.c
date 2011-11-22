@@ -2190,7 +2190,6 @@ makeRemoteQuery(void)
 	result->remotejoin = false;
 	result->partitioned_replicated = false;
 	result->reduce_level = 0;
-	result->base_tlist = NIL;
 	result->outer_alias = NULL;
 	result->inner_alias = NULL;
 	result->outer_reduce_level = 0;

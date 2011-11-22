@@ -118,6 +118,10 @@ typedef struct RemoteQueryState
 	char	   *paramval_data;		/* parameter data, format is like in BIND */
 	int			paramval_len;		/* length of parameter values data */
 
+	int			eflags;			/* capability flags to pass to tuplestore */
+	bool		eof_underlying; /* reached end of underlying plan? */
+	Tuplestorestate *tuplestorestate;
+
 }	RemoteQueryState;
 
 /* Multinode Executor */

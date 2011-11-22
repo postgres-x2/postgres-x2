@@ -96,6 +96,7 @@ static bool pgxc_start_command_on_connection(PGXCNodeHandle *connection,
 					bool need_tran, GlobalTransactionId gxid, TimestampTz timestamp,
 					RemoteQueryState *remotestate, int total_conn_count, Snapshot snapshot);
 static bool ExecRemoteQueryInnerPlan(RemoteQueryState *node);
+static TupleTableSlot * RemoteQueryNext(RemoteQueryState *node);
 
 #define MAX_STATEMENTS_PER_TRAN 10
 
@@ -2878,6 +2879,18 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 		ExecInitExpr((Expr *) node->scan.plan.qual,
 					 (PlanState *) remotestate);
 
+	/* check for unsupported flags */
+	Assert(!(eflags & (EXEC_FLAG_MARK)));
+
+	/* Extract the eflags bits that are relevant for tuplestorestate */
+	remotestate->eflags = (eflags & (EXEC_FLAG_REWIND | EXEC_FLAG_BACKWARD));
+
+	/* We anyways have to support REWIND for ReScan */
+	remotestate->eflags |= EXEC_FLAG_REWIND;
+
+	remotestate->eof_underlying = false;
+	remotestate->tuplestorestate = NULL;
+
 	ExecInitResultTupleSlot(estate, &remotestate->ss.ps);
 	if (node->scan.plan.targetlist)
 	{
@@ -3590,6 +3603,142 @@ ExecRemoteQueryInnerPlan(RemoteQueryState *node)
 }
 
 /*
+ * apply_qual
+ * Applies the qual of the query, and returns the same slot if
+ * the qual returns true, else returns NULL
+ */
+static TupleTableSlot *
+apply_qual(TupleTableSlot *slot, RemoteQueryState *node)
+{
+   List *qual = node->ss.ps.qual;
+   if (qual)
+   {
+	   ExprContext *econtext = node->ss.ps.ps_ExprContext;
+	   econtext->ecxt_scantuple = slot;
+	   if (!ExecQual(qual, econtext, false))
+		   return NULL;
+   }
+
+   return slot;
+}
+
+/*
+ * ExecRemoteQuery
+ * Wrapper around the main RemoteQueryNext() function. This
+ * wrapper provides materialization of the result returned by
+ * RemoteQueryNext
+ */
+
+TupleTableSlot *
+ExecRemoteQuery(RemoteQueryState *node)
+{
+	TupleTableSlot *resultslot = node->ss.ps.ps_ResultTupleSlot;
+	Tuplestorestate *tuplestorestate;
+	bool		eof_tuplestore;
+	bool forward = ScanDirectionIsForward(node->ss.ps.state->es_direction);
+	TupleTableSlot *slot;
+
+	/*
+	 * If sorting is needed, then tuplesortstate takes care of
+	 * materialization
+	 */
+	if (((RemoteQuery *) node->ss.ps.plan)->sort)
+		return RemoteQueryNext(node);
+
+
+	tuplestorestate = node->tuplestorestate;
+
+	if (tuplestorestate == NULL)
+	{
+		tuplestorestate = tuplestore_begin_heap(true, false, work_mem);
+		tuplestore_set_eflags(tuplestorestate, node->eflags);
+		node->tuplestorestate = tuplestorestate;
+	}
+
+	/*
+	 * If we are not at the end of the tuplestore, or are going backwards, try
+	 * to fetch a tuple from tuplestore.
+	 */
+	eof_tuplestore = (tuplestorestate == NULL) ||
+		tuplestore_ateof(tuplestorestate);
+
+	if (!forward && eof_tuplestore)
+	{
+		if (!node->eof_underlying)
+		{
+			/*
+			 * When reversing direction at tuplestore EOF, the first
+			 * gettupleslot call will fetch the last-added tuple; but we want
+			 * to return the one before that, if possible. So do an extra
+			 * fetch.
+			 */
+			if (!tuplestore_advance(tuplestorestate, forward))
+				return NULL;	/* the tuplestore must be empty */
+		}
+		eof_tuplestore = false;
+	}
+
+	/*
+	 * If we can fetch another tuple from the tuplestore, return it.
+	 */
+	slot = node->ss.ps.ps_ResultTupleSlot;
+	if (!eof_tuplestore)
+	{
+		/* Look for the first tuple that matches qual */
+		while (tuplestore_gettupleslot(tuplestorestate, forward, false, slot))
+		{
+			if (apply_qual(slot, node))
+				return slot;
+		}
+		/* Not found */
+		if (forward)
+			eof_tuplestore = true;
+	}
+
+
+	/*
+	 * If tuplestore has reached its end but the underlying RemoteQueryNext() hasn't
+	 * finished yet, try to fetch another row.
+	 */
+	if (eof_tuplestore && !node->eof_underlying)
+	{
+		TupleTableSlot *outerslot;
+
+		while (1)
+		{
+			/*
+			 * We can only get here with forward==true, so no need to worry about
+			 * which direction the subplan will go.
+			 */
+			outerslot = RemoteQueryNext(node);
+			if (TupIsNull(outerslot))
+			{
+				node->eof_underlying = true;
+				return NULL;
+			}
+
+			/*
+			 * Append a copy of the returned tuple to tuplestore.  NOTE: because
+			 * the tuplestore is certainly in EOF state, its read position will
+			 * move forward over the added tuple.  This is what we want.
+			 */
+			if (tuplestorestate)
+				tuplestore_puttupleslot(tuplestorestate, outerslot);
+
+			/*
+			 * If qual returns true, return the fetched tuple, else continue for
+			 * next tuple
+			 */
+			if (apply_qual(outerslot, node))
+				return outerslot;
+		}
+
+	}
+
+	return ExecClearTuple(resultslot);
+}
+
+/*
  * Execute step of PGXC plan.
  * The step specifies a command to be executed on specified nodes.
  * On first invocation connections to the data nodes are initialized and
@@ -3599,8 +3748,8 @@ ExecRemoteQueryInnerPlan(RemoteQueryState *node)
  * from the function indicates completed step.
  * The function returns at most one tuple per invocation.
  */
-TupleTableSlot *
-ExecRemoteQuery(RemoteQueryState *node)
+static TupleTableSlot *
+RemoteQueryNext(RemoteQueryState *node)
 {
 	RemoteQuery    *step = (RemoteQuery *) node->ss.ps.plan;
 	TupleTableSlot *resultslot = node->ss.ps.ps_ResultTupleSlot;
@@ -3689,25 +3838,13 @@ handle_results:
 	}
 	else
 	{
-		while (FetchTuple(node, scanslot) && !TupIsNull(scanslot))
+		if (FetchTuple(node, scanslot) && !TupIsNull(scanslot))
 		{
 			if (qual)
 				econtext->ecxt_scantuple = scanslot;
-			if (!qual || ExecQual(qual, econtext, false))
-			{
-				/*
-				 * Receive current slot and read up next data row
-				 * message before exiting the loop. Next time when this
-				 * function is invoked we will have either data row
-				 * message ready or EOF
-				 */
-				copy_slot(node, scanslot, resultslot);
-				have_tuple = true;
-				break;
-			}
+			copy_slot(node, scanslot, resultslot);
 		}
-
-		if (!have_tuple) /* report end of scan */
+		else
 			ExecClearTuple(resultslot);
 	}
 
@@ -3823,20 +3960,20 @@ ExecEndRemoteQuery(RemoteQueryState *node)
 		}
 	}
 
+	if (node->tuplesortstate != NULL || node->tuplestorestate != NULL)
+		ExecClearTuple(node->ss.ss_ScanTupleSlot);
 	/*
 	 * Release tuplesort resources
 	 */
 	if (node->tuplesortstate != NULL)
-	{
-		/*
-		 * tuplesort_end invalidates minimal tuple if it is in the slot because
-		 * deletes the TupleSort memory context, causing seg fault later when
-		 * releasing tuple table
-		 */
-		ExecClearTuple(node->ss.ss_ScanTupleSlot);
 		tuplesort_end((Tuplesortstate *) node->tuplesortstate);
-	}
 	node->tuplesortstate = NULL;
+	/*
+	 * Release tuplestore resources
+	 */
+	if (node->tuplestorestate != NULL)
+		tuplestore_end(node->tuplestorestate);
+	node->tuplestorestate = NULL;
 
 	/*
 	 * If there are active cursors close them
@@ -4063,13 +4200,26 @@ ParamListToDataRow(ParamListInfo params, char** result)
 void
 ExecRemoteQueryReScan(RemoteQueryState *node, ExprContext *exprCtxt)
 {
-	/* At the moment we materialize results for multi-step queries,
-	 * so no need to support rescan.
-	// PGXCTODO - rerun Init?
-	//node->routine->ReOpen(node);
+	/*
+	 * If the materialized store is not empty, just rewind the stored output.
+	 */
+	ExecClearTuple(node->ss.ps.ps_ResultTupleSlot);
 
-	//ExecScanReScan((ScanState *) node);
-	*/
+	if (((RemoteQuery *) node->ss.ps.plan)->sort)
+	{
+		if (!node->tuplesortstate)
+			return;
+
+		tuplesort_rescan(node->tuplesortstate);
+	}
+	else
+	{
+		if (!node->tuplestorestate)
+			return;
+
+		tuplestore_rescan(node->tuplestorestate);
+	}
+
 }
 
 

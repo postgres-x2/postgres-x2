@@ -985,7 +985,7 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 			result_plan = &result->scan.plan;
 
 			/* the join targetlist becomes this node's tlist */
-			result_plan->targetlist = parent->targetlist;
+			result_plan->targetlist = base_tlist;
 			result_plan->lefttree 	= NULL;
 			result_plan->righttree 	= NULL;
 			result->scan.scanrelid 	= dummy_rtindex;
@@ -1019,7 +1019,6 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 
 
 			/* set_plan_refs needs this later */
-			result->base_tlist		= base_tlist;
 			result->relname			= "__FOREIGN_QUERY__";
 			result->partitioned_replicated = join_info.partitioned_replicated;
 
@@ -5297,6 +5296,9 @@ is_projection_capable_plan(Plan *plan)
 		case T_Append:
 		case T_MergeAppend:
 		case T_RecursiveUnion:
+#ifdef PGXC
+		case T_RemoteQuery:
+#endif
 			return false;
 		default:
 			break;
@@ -5928,7 +5930,6 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	remote_group->sql_statement = remote_sql_stmt->data;
 
 	/* set_plan_refs needs this later */
-	remote_group->base_tlist		= base_tlist;
 	remote_group->relname			= "__FOREIGN_QUERY__";
 	remote_group->partitioned_replicated = remote_scan->partitioned_replicated;
 	remote_group->read_only = query->commandType == CMD_SELECT;
