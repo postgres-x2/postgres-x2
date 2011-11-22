@@ -197,6 +197,7 @@ foreign_qual_walker(Node *node, foreign_qual_context *context)
 		case T_PlaceHolderVar:
 		case T_AppendRelInfo:
 		case T_PlaceHolderInfo:
+		case T_SubPlan:
 			/* TODO: research whether those complex nodes are evaluatable. */
 			return true;
 		default:
