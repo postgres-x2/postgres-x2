@@ -157,6 +157,9 @@ extern int *PoolManagerGetConnections(List *datanodelist, List *coordlist);
 /* Clean pool connections */
 extern void PoolManagerCleanConnection(List *datanodelist, List *coordlist, char *dbname, char *username);
 
+/* Check consistency of connection information cached in pooler with catalogs */
+extern bool PoolManagerCheckConnectionInfo(void);
+
 /* Send Abort signal to transactions being run */
 extern int	PoolManagerAbortTransactions(char *dbname, char *username, int **proc_pids);
 

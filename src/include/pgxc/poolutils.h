@@ -26,6 +26,10 @@
 #define CLEAN_CONNECTION_TX_REMAIN			2
 #define	CLEAN_CONNECTION_EOF				-1
 
+/* Results for pooler connection info check */
+#define POOL_CHECK_SUCCESS					0
+#define POOL_CHECK_FAILED					1
+
 void CleanConnection(CleanConnStmt *stmt);
 void DropDBCleanConnection(char *dbname);
 #endif

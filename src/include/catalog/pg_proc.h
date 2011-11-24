@@ -4341,6 +4341,10 @@ DESCR("fetch the last row value");
 DATA(insert OID = 3114 (  nth_value		PGNSP PGUID 12 1 0 0 f t f t f i 2 0 2283 "2283 23" _null_ _null_ _null_ _null_ window_nth_value _null_ _null_ _null_ ));
 DESCR("fetch the Nth row value");
 
+#ifdef PGXC
+DATA(insert OID = 3200 ( pgxc_pool_check	PGNSP PGUID 12 1 0 0 f f f t f v 0 0 16 "" _null_ _null_ _null_ _null_ pgxc_pool_check _null_ _null_ _null_ ));
+DESCR("check connection information consistency in pooler");
+#endif
 
 /*
  * Symbolic values for provolatile column: these indicate whether the result

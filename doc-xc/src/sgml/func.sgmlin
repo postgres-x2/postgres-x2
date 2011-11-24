@@ -15325,7 +15325,46 @@ SELECT (pg_stat_file('filename')).modification;
     locks held by the current session.  (This function is implicitly invoked
     at session end, even if the client disconnects ungracefully.)
    </para>
+
 <!## XC>
+&xconly;
+   <para>
+    The functions shown in <xref linkend="functions-pgxc-pooler"> manage
+    Postgres-XC pooler.  For details about Postgres-XC pooler, see
+    <xref linkend="xc-overview-pooler">.
+   </para>
+   <table id="functions-pgxc-pooler">
+    <title>Postgres-XC pooler functions</title>
+    <tgroup cols="3">
+     <thead>
+      <row><entry>Name</entry> <entry>Return Type</entry> <entry>Description</entry>
+      </row>
+     </thead>
+     <tbody>
+      <row>
+       <entry>
+        <literal><function>pgxc_pool_check()</function></literal>
+       </entry>
+       <entry><type>boolean</type></entry>
+       <entry>Check if connection data cached in pooler is consistent with
+              <link linkend="catalog-pgxc-node"><structname>pgxc_node</structname></link>.
+       </entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+
+   <indexterm>
+    <primary>pgxc_pool_check</primary>
+   </indexterm>
+   <para>
+    <function>pgxc_pool_check</> verifies if connection data cached in Postgres-XC pooler
+    is consistent with <link linkend="catalog-pgxc-node"><structname>pgxc_node</structname></link>
+    catalog. Data checked for consistency is Node Oid (<literal><link linkend="catalog-pgxc-node"><structname>pgxc_node</structname></link>.oid</literal>),
+    node port (<literal><link linkend="catalog-pgxc-node"><structname>pgxc_node</structname></link>.node_port</literal>)
+    and node host (<literal><link linkend="catalog-pgxc-node"><structname>pgxc_node</structname></link>.node_host</literal>).
+   </para>
+
 &xconly;
    <para>
     Please note that these functions works just locally.  

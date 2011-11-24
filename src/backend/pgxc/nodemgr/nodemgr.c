@@ -132,17 +132,17 @@ cmp_nodes(const void *p1, const void *p2)
  * an ordered list of node Oids for each PGXC node type.
  */
 void
-PgxcNodeListAndCount(Oid **coOids, Oid **dnOids, Oid **coslaveOids, Oid **dnslaveOids)
+PgxcNodeListAndCount(Oid **coOids, Oid **dnOids, Oid **coslaveOids, Oid **dnslaveOids,
+					 int *num_coords, int *num_dns, int *num_co_slaves, int *num_dn_slaves)
 {
 	Relation rel;
 	HeapScanDesc scan;
 	HeapTuple   tuple;
 
-	/* Reinitialize counts */
-	NumCoords = 0;
-	NumDataNodes = 0;
-	NumCoordSlaves = 0;
-	NumDataNodeSlaves = 0;
+	*num_coords = 0;
+	*num_dns = 0;
+	*num_co_slaves = 0;
+	*num_dn_slaves = 0;
 
 	/* 
 	 * Node information initialization is made in one scan:
@@ -163,23 +163,23 @@ PgxcNodeListAndCount(Oid **coOids, Oid **dnOids, Oid **coslaveOids, Oid **dnslav
 		switch (nodeForm->node_type)
 		{
 			case PGXC_NODE_COORD_MASTER:
-				NumCoords++;
-				numnodes = NumCoords;
+				(*num_coords)++;
+				numnodes = *num_coords;
 				nodes = coOids;
 				break;
 			case PGXC_NODE_DATANODE_MASTER:
-				NumDataNodes++;
-				numnodes = NumDataNodes;
+				(*num_dns)++;
+				numnodes = *num_dns;
 				nodes = dnOids;
 				break;
 			case PGXC_NODE_COORD_SLAVE:
-				NumCoordSlaves++;
-				numnodes = NumCoordSlaves;
+				(*num_co_slaves)++;
+				numnodes = *num_co_slaves;
 				nodes = coslaveOids;
 				break;
 			case PGXC_NODE_DATANODE_SLAVE:
-				NumDataNodeSlaves++;
-				numnodes = NumDataNodeSlaves;
+				(*num_dn_slaves)++;
+				numnodes = *num_dn_slaves;
 				nodes = dnslaveOids;
 				break;
 			default:
@@ -211,13 +211,13 @@ PgxcNodeListAndCount(Oid **coOids, Oid **dnOids, Oid **coslaveOids, Oid **dnslav
 
 	/* Finally sort the lists to be sent back */
 	if (NumCoords != 0)
-		qsort(*coOids, NumCoords, sizeof(Oid), cmp_nodes);
+		qsort(*coOids, *num_coords, sizeof(Oid), cmp_nodes);
 	if (NumDataNodes != 0)
-		qsort(*dnOids, NumDataNodes, sizeof(Oid), cmp_nodes);
+		qsort(*dnOids, *num_dns, sizeof(Oid), cmp_nodes);
 	if (NumDataNodeSlaves != 0)
-		qsort(*coslaveOids, NumCoordSlaves, sizeof(Oid), cmp_nodes);
+		qsort(*coslaveOids, *num_co_slaves, sizeof(Oid), cmp_nodes);
 	if (NumDataNodeSlaves != 0)
-		qsort(*dnslaveOids, NumDataNodeSlaves, sizeof(Oid), cmp_nodes);
+		qsort(*dnslaveOids, *num_dn_slaves, sizeof(Oid), cmp_nodes);
 }
 
 /*

@@ -127,7 +127,8 @@ InitMultinodeExecutor(void)
 		return;
 
 	/* Get classified list of node Oids */
-	PgxcNodeListAndCount(&coOids, &dnOids, &coslaveOids, &dnslaveOids);
+	PgxcNodeListAndCount(&coOids, &dnOids, &coslaveOids, &dnslaveOids,
+						 &NumCoords, &NumDataNodes, &NumCoordSlaves, &NumDataNodeSlaves);
 
 	/* Do proper initialization of handles */
 	if (NumDataNodes > 0)

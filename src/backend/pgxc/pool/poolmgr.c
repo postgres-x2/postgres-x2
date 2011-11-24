@@ -99,6 +99,7 @@ static int	is_pool_cleaning = false;
 static int	server_fd = -1;
 
 static void node_info_load(void);
+static int	node_info_check(void);
 static void agent_init(PoolAgent *agent, const char *database, const char *user_name);
 static void agent_destroy(PoolAgent *agent);
 static void agent_create(void);
@@ -245,7 +246,8 @@ node_info_load(void)
 	Oid *dnslaveOids = NULL;
 
 	/* Update number of PGXC nodes saved in cache */
-	PgxcNodeListAndCount(&coOids, &dnOids, &coslaveOids, &dnslaveOids);
+	PgxcNodeListAndCount(&coOids, &dnOids, &coslaveOids, &dnslaveOids,
+						 &NumCoords, &NumDataNodes, &NumCoordSlaves, &NumDataNodeSlaves);
 
 	/* Then initialize the node informations */
 	if (NumDataNodes != 0)
@@ -296,6 +298,94 @@ node_info_load(void)
 		pfree(coslaveOids);
 	if (dnslaveOids)
 		pfree(dnslaveOids);
+}
+
+/*
+ * Check connection info consistency with system catalogs
+ */
+static int
+node_info_check(void)
+{
+	int res = POOL_CHECK_SUCCESS;
+	int	num_coord, num_dn,
+		num_coord_slave, num_dn_slave, i, j;
+	Oid *coOids = NULL;
+	Oid *dnOids = NULL;
+	Oid *coslaveOids = NULL;
+	Oid *dnslaveOids = NULL;
+
+	/* Update number of PGXC nodes saved in cache */
+	PgxcNodeListAndCount(&coOids, &dnOids, &coslaveOids, &dnslaveOids,
+						 &num_coord, &num_dn, &num_coord_slave, &num_dn_slave);
+
+	/* Check first if node numbers are consistent */
+	if (NumCoords != num_coord ||
+		NumDataNodes != num_dn ||
+		NumCoordSlaves != num_coord_slave ||
+		NumDataNodeSlaves != num_dn_slave)
+	{
+		res = POOL_CHECK_FAILED;
+		goto finish;
+	}
+
+	/* Now do a check element by element */
+	for (i = 0; i < 4; i++)
+	{
+		int numnodes;
+		PGXCNodeConnectionInfo *conninfo;
+		Oid *oid_vector;
+
+		/* Take all the elements necessary for check */
+		switch(i)
+		{
+			case 0:
+				numnodes = NumCoords;
+				oid_vector = coOids;
+				conninfo = coord_connInfos;
+				break;
+			case 1:
+				numnodes = NumDataNodes;
+				oid_vector = dnOids;
+				conninfo = datanode_connInfos;
+				break;
+			case 2:
+				numnodes = NumCoordSlaves;
+				oid_vector = coslaveOids;
+				conninfo = coord_slave_connInfos;
+				break;
+			case 3:
+				numnodes = NumDataNodeSlaves;
+				oid_vector = dnslaveOids;
+				conninfo = datanode_slave_connInfos;
+				break;
+			default:
+				Assert(0);
+		}
+
+		/* Then check data consistency for port, host and node Oid */
+		for (j = 0; j < numnodes; j++)
+		{
+			if (conninfo[j].nodeoid != oid_vector[j] ||
+				conninfo[j].port != get_pgxc_nodeport(oid_vector[j]) ||
+				strcmp(conninfo[j].host, get_pgxc_nodehost(oid_vector[j])))
+			{
+				res = POOL_CHECK_FAILED;
+				goto finish;
+			}
+		}
+	}
+
+finish:
+	/* Clean everything */
+	if (coOids)
+		pfree(coOids);
+	if (dnOids)
+		pfree(dnOids);
+	if (coslaveOids)
+		pfree(coslaveOids);
+	if (dnslaveOids)
+		pfree(dnslaveOids);
+	return res;
 }
 
 /*
@@ -802,6 +892,27 @@ PoolManagerCleanConnection(List *datanodelist, List *coordlist, char *dbname, ch
 
 
 /*
+ * Check connection information consistency cached in pooler with catalog information
+ */
+bool
+PoolManagerCheckConnectionInfo(void)
+{
+	int res;
+
+	Assert(poolHandle);
+	pool_putmessage(&poolHandle->port, 'q', NULL, 0);
+	pool_flush(&poolHandle->port);
+
+	res = pool_recvres(&poolHandle->port);
+
+	if (res == POOL_CHECK_SUCCESS)
+		return true;
+
+	return false;
+}
+
+
+/*
  * Handle messages to agent
  */
 static void
@@ -960,9 +1071,17 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 				cancel_query_on_connections(agent, datanodelist, coordlist);
 				list_free(datanodelist);
 				list_free(coordlist);
-
 				break;
+			case 'q':			/* Check connection info consistency */
+				pool_getmessage(&agent->port, s, 4);
+				pq_getmsgend(s);
 
+				/* Check cached info consistency */
+				res = node_info_check();
+
+				/* Send result */
+				pool_sendres(&agent->port, res);
+				break;
 			case 'r':			/* RELEASE CONNECTIONS */
 				pool_getmessage(&agent->port, s, 4);
 				pq_getmsgend(s);

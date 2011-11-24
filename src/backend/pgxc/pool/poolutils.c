@@ -26,9 +26,27 @@
 #include "pgxc/pgxcnode.h"
 #include "access/gtm.h"
 #include "commands/dbcommands.h"
-#include "utils/lsyscache.h"
 #include "utils/acl.h"
+#include "utils/builtins.h"
+#include "utils/lsyscache.h"
 
+/*
+ * pgxc_pool_check
+ *
+ * Check if Pooler information in catalog is consistent
+ * with information cached.
+ */
+Datum
+pgxc_pool_check(PG_FUNCTION_ARGS)
+{
+	if (!superuser())
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 (errmsg("must be superuser to manage pooler"))));
+
+	/* Simply check with pooler */
+	PG_RETURN_BOOL(PoolManagerCheckConnectionInfo());
+}
 
 /*
  * CleanConnection()
