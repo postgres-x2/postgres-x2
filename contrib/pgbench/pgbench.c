@@ -2204,8 +2204,6 @@ main(int argc, char **argv)
 		exit(1);
 	}
 
-#ifndef PGXC
-	/* temporarily use the scale passed in until we support aggregates properly */
 	if (ttype != 3)
 	{
 		/*
@@ -2232,7 +2230,6 @@ main(int argc, char **argv)
 			"Scale option ignored, using pgbench_branches table count = %d\n",
 					scale);
 	}
-#endif
 
 	/*
 	 * :scale variables normally get -s or database scale, but don't override
