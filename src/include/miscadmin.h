@@ -317,6 +317,7 @@ typedef enum ProcessingMode
 
 extern ProcessingMode Mode;
 
+
 #define IsBootstrapProcessingMode() ((bool)(Mode == BootstrapProcessing))
 #define IsInitProcessingMode() ((bool)(Mode == InitProcessing))
 #define IsNormalProcessingMode() ((bool)(Mode == NormalProcessing))

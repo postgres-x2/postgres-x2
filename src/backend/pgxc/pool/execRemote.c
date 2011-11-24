@@ -30,6 +30,7 @@
 #include "pgxc/execRemote.h"
 #include "nodes/nodes.h"
 #include "nodes/nodeFuncs.h"
+#include "pgxc/nodemgr.h"
 #include "pgxc/poolmgr.h"
 #include "storage/ipc.h"
 #include "utils/datum.h"

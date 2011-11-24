@@ -838,8 +838,8 @@ list_intersection_int(List *list1, List *list2)
 	result = NIL;
 	foreach(cell, list1)
 	{
-		if (list_member_int(list2, lfirst(cell)))
-			result = lappend_int(result, lfirst(cell));
+		if (list_member_int(list2, lfirst_int(cell)))
+			result = lappend_int(result, lfirst_int(cell));
 	}
 
 	check_list_invariants(result);

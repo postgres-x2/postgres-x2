@@ -36,14 +36,13 @@
 #include "catalog/pgxc_node.h"
 #include "catalog/pg_collation.h"
 #include "pgxc/locator.h"
+#include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/poolmgr.h"
 #include "tcop/dest.h"
 #include "utils/builtins.h"
 #include "utils/elog.h"
 #include "utils/memutils.h"
-#include "utils/snapmgr.h"
-#include "utils/tqual.h"
 #include "utils/fmgroids.h"
 #include "utils/syscache.h"
 #include "utils/lsyscache.h"
@@ -117,14 +116,8 @@ init_pgxc_handle(PGXCNodeHandle *pgxc_handle)
 void
 InitMultinodeExecutor(void)
 {
-	Relation		rel;
-	HeapScanDesc	scan;
-	HeapTuple		tuple;
 	int				count;
-	int				loc_co = 0;
-	int				loc_dn = 0;
-	int				loc_co_slave = 0;
-	int				loc_dn_slave = 0;
+	Oid				*coOids, *dnOids, *coslaveOids, *dnslaveOids;
 
 	/* This function could get called multiple times because of sigjmp */
 	if (dn_handles != NULL &&
@@ -133,46 +126,8 @@ InitMultinodeExecutor(void)
 		co_slave_handles != NULL)
 		return;
 
-	/* Reinitialize counts */
-	NumCoords = 0;
-	NumDataNodes = 0;
-	NumCoordSlaves = 0;
-	NumDataNodeSlaves = 0;
-
-	/*
-	 * Node information initialization is made in two phases:
-	 * 1) Scan pgxc_node catalog to find the number of nodes for
-	 *        each node type and make proper allocations
-	 * 2) Classify node information by alphabetical order
-	 *        and save node Oid information properly.
-	 */
-	rel = heap_open(PgxcNodeRelationId, AccessShareLock);
-	scan = heap_beginscan(rel, SnapshotNow, 0, NULL);
-	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
-	{
-		Form_pgxc_node  nodeForm = (Form_pgxc_node) GETSTRUCT(tuple);
-
-		/* Take data for given node type */
-		switch (nodeForm->node_type)
-		{
-			case PGXC_NODE_COORD_MASTER:
-				NumCoords++;
-				break;
-			case PGXC_NODE_DATANODE_MASTER:
-				NumDataNodes++;
-				break;
-			case PGXC_NODE_COORD_SLAVE:
-				NumCoordSlaves++;
-				break;
-			case PGXC_NODE_DATANODE_SLAVE:
-				NumDataNodeSlaves++;
-				break;
-			default:
-				continue;
-		}
-	}
-	heap_endscan(scan);
-	heap_close(rel, AccessShareLock);
+	/* Get classified list of node Oids */
+	PgxcNodeListAndCount(&coOids, &dnOids, &coslaveOids, &dnslaveOids);
 
 	/* Do proper initialization of handles */
 	if (NumDataNodes > 0)
@@ -198,156 +153,25 @@ InitMultinodeExecutor(void)
 
 	/* Initialize new empty slots */
 	for (count = 0; count < NumDataNodes; count++)
-		init_pgxc_handle(&dn_handles[count]);
-	for (count = 0; count < NumCoords; count++)
-		init_pgxc_handle(&co_handles[count]);
-	for (count = 0; count < NumDataNodeSlaves; count++)
-		init_pgxc_handle(&dn_slave_handles[count]);
-	for (count = 0; count < NumCoordSlaves; count++)
-		init_pgxc_handle(&co_slave_handles[count]);
-
-	/* Now begin second phase and fill in slots with classified node information */
-	rel = heap_open(PgxcNodeRelationId, AccessShareLock);
-	scan = heap_beginscan(rel, SnapshotNow, 0, NULL);
-	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
-		Form_pgxc_node  nodeForm = (Form_pgxc_node) GETSTRUCT(tuple);
-		PGXCNodeHandle *curr_nodes;
-		int				curr_nodenum, i;
-		int				position = 1;
-
-		/* Take data for given node type */
-		switch (nodeForm->node_type)
-		{
-			case PGXC_NODE_COORD_MASTER:
-				curr_nodes = co_handles;
-				curr_nodenum = loc_co;
-				break;
-			case PGXC_NODE_DATANODE_MASTER:
-				curr_nodes = dn_handles;
-				curr_nodenum = loc_dn;
-				break;
-			case PGXC_NODE_COORD_SLAVE:
-				curr_nodes = co_slave_handles;
-				curr_nodenum = loc_co_slave;
-				break;
-			case PGXC_NODE_DATANODE_SLAVE:
-				curr_nodes = dn_slave_handles;
-				curr_nodenum = loc_dn_slave;
-				break;
-			default:
-				continue;
-		}
-
-		/*
-		 * Classify by alphabetical order current array.
-		 * Find at which position current node should be placed.
-		 */
-		if (curr_nodenum == 1)
-		{
-			/* Special case when only one node is present */
-			int res = strcmp(NameStr(nodeForm->node_name),
-							 get_pgxc_nodename(curr_nodes[0].nodeoid));
-			if (res < 0)
-				position = 0;
-			else
-				position = 1;
-		}
-		else if (curr_nodenum > 1)
-		{
-			/* Case with more than 2 nodes in current array */
-			for (i = 0; i < curr_nodenum - 1; i++)
-			{
-				/* New slot is first? */
-				if (i == 0 &&
-					strcmp(NameStr(nodeForm->node_name),
-						   get_pgxc_nodename(curr_nodes[i].nodeoid)) < 0)
-					position = 0;
-
-				/* Intermediate case */
-				if (strcmp(NameStr(nodeForm->node_name),
-						   get_pgxc_nodename(curr_nodes[i].nodeoid)) > 0 &&
-					strcmp(NameStr(nodeForm->node_name),
-						   get_pgxc_nodename(curr_nodes[i + 1].nodeoid)) < 0)
-				{
-					position = i + 1;
-					break;
-				}
-
-				/* New slot is last? */
-				if (i == curr_nodenum - 2 &&
-					strcmp(NameStr(nodeForm->node_name),
-						   get_pgxc_nodename(curr_nodes[i + 1].nodeoid)) > 0)
-					position = i + 2;
-			}
-		}
-		/* Increment node count */
-		curr_nodenum++;
-
-		/* Rebuild current array */
-		if (curr_nodenum == 1)
-		{
-			/* All slots are empty, fill in first one */
-			curr_nodes[0].nodeoid = get_pgxc_nodeoid(NameStr(nodeForm->node_name));
-		}
-		else
-		{
-			/*
-			 * Move slots at the end of array to the right to let place
-			 * for the new slot entry.
-			 * Nothing should be done if position is the last one.
-			 */
-			if (position != curr_nodenum - 1)
-			{
-				for (i = curr_nodenum - 2; i > position - 1; i--)
-				{
-					/* Move intermediate slot data */
-					curr_nodes[i + 1].nodeoid = curr_nodes[i].nodeoid;
-				}
-			}
-			/* Fill in new slot */
-			curr_nodes[position].nodeoid =
-				get_pgxc_nodeoid(NameStr(nodeForm->node_name));
-		}
-
-		/*
-		 * Save data related to preferred and primary node
-		 * Preferred and primaries use node Oids
-		 */
-		if (nodeForm->nodeis_primary)
-			primary_data_node = get_pgxc_nodeoid(NameStr(nodeForm->node_name));
-		if (nodeForm->nodeis_preferred)
-		{
-			preferred_data_node[num_preferred_data_nodes] =
-				get_pgxc_nodeoid(NameStr(nodeForm->node_name));
-			num_preferred_data_nodes++;
-		}
-
-		/* Save new data */
-		switch (nodeForm->node_type)
-		{
-			case PGXC_NODE_COORD_MASTER:
-				co_handles = curr_nodes;
-				loc_co = curr_nodenum;
-				break;
-			case PGXC_NODE_DATANODE_MASTER:
-				dn_handles = curr_nodes;
-				loc_dn = curr_nodenum;
-				break;
-			case PGXC_NODE_COORD_SLAVE:
-				co_slave_handles = curr_nodes;
-				loc_co_slave = curr_nodenum;
-				break;
-			case PGXC_NODE_DATANODE_SLAVE:
-				dn_slave_handles = curr_nodes;
-				loc_dn_slave = curr_nodenum;
-				break;
-			default:
-				continue;
-		}
+		init_pgxc_handle(&dn_handles[count]);
+		dn_handles[count].nodeoid = dnOids[count];
 	}
-	heap_endscan(scan);
-	heap_close(rel, AccessShareLock);
+	for (count = 0; count < NumCoords; count++)
+	{
+		init_pgxc_handle(&co_handles[count]);
+		co_handles[count].nodeoid = coOids[count];
+	}
+	for (count = 0; count < NumCoordSlaves; count++)
+	{
+		init_pgxc_handle(&co_slave_handles[count]);
+		co_slave_handles[count].nodeoid = coslaveOids[count];
+	}
+	for (count = 0; count < NumDataNodeSlaves; count++)
+	{
+		init_pgxc_handle(&dn_slave_handles[count]);
+		dn_slave_handles[count].nodeoid = dnslaveOids[count];
+	}
 
 	datanode_count = 0;
 	coord_count = 0;

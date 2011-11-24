@@ -37,7 +37,7 @@
 #include "utils/tqual.h"
 #include "utils/syscache.h"
 #include "nodes/nodes.h"
-#include "pgxc/poolmgr.h"
+#include "pgxc/nodemgr.h"
 #include "pgxc/locator.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/pgxcnode.h"

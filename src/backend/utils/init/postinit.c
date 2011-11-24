@@ -464,7 +464,15 @@ void
 InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 			 char *out_dbname)
 {
+#ifdef PGXC
+	/*
+	 * Postgres-XC pooler behaves more or less like a bootstrap process
+	 * it doesn't do anything to the database and only reads XC-specific catalog data.
+	 */
+	bool		bootstrap = IsBootstrapProcessingMode() || IsPGXCPoolerProcess();
+#else
 	bool		bootstrap = IsBootstrapProcessingMode();
+#endif
 	bool		am_superuser;
 	char	   *fullpath;
 	char		dbname[NAMEDATALEN];

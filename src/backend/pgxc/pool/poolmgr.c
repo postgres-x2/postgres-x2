@@ -44,10 +44,12 @@
 #include "utils/builtins.h"
 #include "utils/memutils.h"
 #include "utils/lsyscache.h"
+#include "utils/resowner.h"
 #include "lib/stringinfo.h"
 #include "libpq/pqformat.h"
 #include "pgxc/locator.h"
 #include "pgxc/pgxc.h"
+#include "pgxc/nodemgr.h"
 #include "pgxc/poolutils.h"
 #include "../interfaces/libpq/libpq-fe.h"
 #include "../interfaces/libpq/libpq-int.h"
@@ -58,15 +60,22 @@
 #include <sys/socket.h>
 
 /* Configuration options */
-int			NumDataNodes = 2;
-int			NumCoords = 1;
-int			NumCoordSlaves = 0;
-int			NumDataNodeSlaves = 0;
 int			MinPoolSize = 1;
 int			MaxPoolSize = 100;
 int			PoolerPort = 6667;
 
 bool		PersistentConnections = false;
+
+/* Flag to tell if we are Postgres-XC pooler process */
+static bool am_pgxc_pooler = false;
+
+/* Connection information cached */
+typedef struct
+{
+	Oid		nodeoid;
+    char   *host;
+    int		port;
+} PGXCNodeConnectionInfo;
 
 /* The memory context */
 static MemoryContext PoolerMemoryContext = NULL;
@@ -74,6 +83,8 @@ static MemoryContext PoolerMemoryContext = NULL;
 /* PGXC Nodes info list */
 static PGXCNodeConnectionInfo *datanode_connInfos;
 static PGXCNodeConnectionInfo *coord_connInfos;
+static PGXCNodeConnectionInfo *datanode_slave_connInfos;
+static PGXCNodeConnectionInfo *coord_slave_connInfos;
 
 /* Pool to all the databases (linked list) */
 static DatabasePool *databasePools = NULL;
@@ -87,7 +98,7 @@ static PoolHandle *poolHandle = NULL;
 static int	is_pool_cleaning = false;
 static int	server_fd = -1;
 
-static void node_info_init(StringInfo s);
+static void node_info_load(void);
 static void agent_init(PoolAgent *agent, const char *database, const char *user_name);
 static void agent_destroy(PoolAgent *agent);
 static void agent_create(void);
@@ -137,6 +148,17 @@ static void pooler_quickdie(SIGNAL_ARGS);
  */
 static volatile sig_atomic_t shutdown_requested = false;
 
+void
+PGXCPoolerProcessIam(void)
+{
+	am_pgxc_pooler = true;
+}
+
+bool
+IsPGXCPoolerProcess(void)
+{
+    return am_pgxc_pooler;
+}
 
 /*
  * Initialize internal structures
@@ -144,8 +166,6 @@ static volatile sig_atomic_t shutdown_requested = false;
 int
 PoolManagerInit()
 {
-	MemoryContext old_context;
-
 	elog(DEBUG1, "Pooler process is started: %d", getpid());
 
 	/*
@@ -189,7 +209,7 @@ PoolManagerInit()
 	PG_SETMASK(&UnBlockSig);
 
 	/* Allocate pooler structures in the Pooler context */
-	old_context = MemoryContextSwitchTo(PoolerMemoryContext);
+	MemoryContextSwitchTo(PoolerMemoryContext);
 
 	poolAgents = (PoolAgent **) palloc(MaxConnections * sizeof(PoolAgent *));
 	if (poolAgents == NULL)
@@ -199,10 +219,84 @@ PoolManagerInit()
 				 errmsg("out of memory")));
 	}
 
+	/* Initialize process ressources */
+	CurrentResourceOwner = ResourceOwnerCreate(NULL, "ForPoolerInfo");
+
+	/* Initialize pooler in Postgres-way */
+	InitPostgres(NULL, InvalidOid, NULL, NULL);
+
+	/* Initialize pooler connection info */
+	node_info_load();
+
 	PoolerLoop();
 	return 0;
 }
 
+/*
+ * Load node info cached by scanning PGXC node catalog
+ */
+static void
+node_info_load(void)
+{
+	int	count;
+	Oid *coOids = NULL;
+	Oid *dnOids = NULL;
+	Oid *coslaveOids = NULL;
+	Oid *dnslaveOids = NULL;
+
+	/* Update number of PGXC nodes saved in cache */
+	PgxcNodeListAndCount(&coOids, &dnOids, &coslaveOids, &dnslaveOids);
+
+	/* Then initialize the node informations */
+	if (NumDataNodes != 0)
+	datanode_connInfos = (PGXCNodeConnectionInfo *)
+				palloc(NumDataNodes * sizeof(PGXCNodeConnectionInfo));
+	if (NumCoords != 0)
+		coord_connInfos = (PGXCNodeConnectionInfo *)
+			palloc(NumCoords * sizeof(PGXCNodeConnectionInfo));
+	if (NumCoordSlaves != 0)
+		coord_slave_connInfos = (PGXCNodeConnectionInfo *)
+			palloc(NumCoordSlaves * sizeof(PGXCNodeConnectionInfo));
+	if (NumDataNodeSlaves != 0)
+		coord_slave_connInfos = (PGXCNodeConnectionInfo *)
+			palloc(NumDataNodeSlaves * sizeof(PGXCNodeConnectionInfo));
+
+	/* Fill in connection info structures */
+	for (count = 0; count < NumCoords; count++)
+	{
+		coord_connInfos[count].nodeoid = coOids[count];
+		coord_connInfos[count].port = get_pgxc_nodeport(coOids[count]);
+		coord_connInfos[count].host = get_pgxc_nodehost(coOids[count]);
+	}
+	for (count = 0; count < NumDataNodes; count++)
+	{
+		datanode_connInfos[count].nodeoid = dnOids[count];
+		datanode_connInfos[count].port = get_pgxc_nodeport(dnOids[count]);
+		datanode_connInfos[count].host = get_pgxc_nodehost(dnOids[count]);
+	}
+	for (count = 0; count < NumCoordSlaves; count++)
+	{
+		coord_slave_connInfos[count].nodeoid = coslaveOids[count];
+		coord_slave_connInfos[count].port = get_pgxc_nodeport(coslaveOids[count]);
+		coord_slave_connInfos[count].host = get_pgxc_nodehost(coslaveOids[count]);
+	}
+	for (count = 0; count < NumDataNodeSlaves; count++)
+	{
+		datanode_slave_connInfos[count].nodeoid = dnOids[count];
+		datanode_slave_connInfos[count].port = get_pgxc_nodeport(dnslaveOids[count]);
+		datanode_slave_connInfos[count].host = get_pgxc_nodehost(dnslaveOids[count]);
+	}
+
+	/* Clean up resources */
+	if (coOids)
+		pfree(coOids);
+	if (dnOids)
+		pfree(dnOids);
+	if (coslaveOids)
+		pfree(coslaveOids);
+	if (dnslaveOids)
+		pfree(dnslaveOids);
+}
 
 /*
  * Destroy internal structures
@@ -340,9 +434,8 @@ agent_create(void)
 void
 PoolManagerConnect(PoolHandle *handle, const char *database, const char *user_name)
 {
-	int n32, i, j;
+	int n32;
 	char msgtype = 'c';
-	int msg_len;
 
 	Assert(handle);
 	Assert(database);
@@ -355,43 +448,7 @@ PoolManagerConnect(PoolHandle *handle, const char *database, const char *user_na
 	pool_putbytes(&handle->port, &msgtype, 1);
 
 	/* Message length */
-	msg_len = 4 +					/* length itself */
-		  4 +					/* PID number */
-		  4 +					/* length of database name */
-		  strlen(database) + 1 +
-		  4 +					/* length of user name */
-		  strlen(user_name) + 1 +
-		  4 +					/* number of data nodes */
-		  4 +					/* number of coordinators */
-		  (NumDataNodes * 4) + 	/* port for each data node */
-		  (NumCoords * 4) + 	/* port for each coordinator */
-		  (NumDataNodes * 4) + 	/* host name length for each data node */
-		  (NumCoords * 4);	 	/* host name length for each coordinator */
-
-	/* Length of host names needs to be added to message length */
-	for (j = 0; j < 2; j++)
-	{
-		int nodenum;
-		char nodetype;
-		if (j == 0)
-		{
-			nodenum = NumCoords;
-			nodetype = PGXC_NODE_COORD_MASTER;
-		}
-		else
-		{
-			nodenum = NumDataNodes;
-			nodetype = PGXC_NODE_DATANODE_MASTER;
-		}
-
-		for (i = 0; i < nodenum; i++)
-		{
-			Oid	nodeoid = PGXCNodeGetNodeOid(i + 1, nodetype);
-			msg_len += strlen(get_pgxc_nodehost(nodeoid)) + 1;
-		}
-	}
-
-	n32 = htonl(msg_len);
+	n32 = htonl(strlen(database) + strlen(user_name) + 18);
 	pool_putbytes(&handle->port, (char *) &n32, 4);
 
 	/* PID number */
@@ -412,51 +469,6 @@ PoolManagerConnect(PoolHandle *handle, const char *database, const char *user_na
 
 	/* Send user name followed by \0 terminator */
 	pool_putbytes(&handle->port, user_name, strlen(user_name) + 1);
-	pool_flush(&handle->port);
-
-	/* Send number of data nodes */
-	n32 = htonl(NumDataNodes);
-	pool_putbytes(&handle->port, (char *) &n32, 4);
-
-	/* Send number of coordinators */
-	n32 = htonl(NumCoords);
-	pool_putbytes(&handle->port, (char *) &n32, 4);
-
-	for (j = 0; j < 2; j++)
-	{
-		int nodenum;
-		char nodetype;
-		if (j == 0)
-		{
-			nodenum = NumCoords;
-			nodetype = PGXC_NODE_COORD_MASTER;
-		}
-		else
-		{
-			nodenum = NumDataNodes;
-			nodetype = PGXC_NODE_DATANODE_MASTER;
-		}
-
-		/* Send ports and hosts */
-		for (i = 0; i < nodenum; i++)
-		{
-			Oid nodeoid = PGXCNodeGetNodeOid(i + 1, nodetype);
-			int port_num = get_pgxc_nodeport(nodeoid);
-			char *nodehost = get_pgxc_nodehost(nodeoid);
-
-			/* send port */
-			port_num = htonl(port_num);
-			pool_putbytes(&handle->port, (char *) &port_num, 4);
-
-			/* Length of host info */
-			n32 = htonl(strlen(nodehost) + 1);
-			pool_putbytes(&handle->port, (char *) &n32, 4);
-		
-			/* Send host info followed by \0 terminator */
-			pool_putbytes(&handle->port, nodehost, strlen(nodehost) + 1);
-			pool_flush(&handle->port);
-		}
-	}
 	pool_flush(&handle->port);
 }
 
@@ -507,69 +519,6 @@ PoolManagerSetCommand(PoolCommandType command_type, const char *set_command)
 	return res;
 }
 
-/*
- * Use incoming message to set up node information cached in pooler
- */
-static void
-node_info_init(StringInfo s)
-{
-	int i, j, len;
-
-	if (coord_connInfos == NULL)
-	{
-		NumDataNodes = pq_getmsgint(s, 4);
-		NumCoords = pq_getmsgint(s, 4);
-
-		datanode_connInfos = (PGXCNodeConnectionInfo *)
-			palloc(NumDataNodes * sizeof(PGXCNodeConnectionInfo));
-		coord_connInfos = (PGXCNodeConnectionInfo *)
-			palloc(NumCoords * sizeof(PGXCNodeConnectionInfo));
-		if (coord_connInfos == NULL || datanode_connInfos == NULL)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_OUT_OF_MEMORY),
-					errmsg("out of memory")));
-		}
-	
-		/* Get Host and port data for Coordinators and Datanodes */
-		for (j = 0; j < 2; j++)
-		{
-			PGXCNodeConnectionInfo	*connectionInfos;
-			int			num_nodes;
-
-			if (j == 0)
-			{
-				connectionInfos = coord_connInfos;
-				num_nodes = NumCoords;
-			}
-			else
-			{
-				connectionInfos = datanode_connInfos;
-				num_nodes = NumDataNodes;
-			}
-
-			for (i = 0; i < num_nodes; i++)
-			{
-				connectionInfos[i].port = pq_getmsgint(s, 4);
-
-				len = pq_getmsgint(s, 4);
-				connectionInfos[i].host = pstrdup(pq_getmsgbytes(s, len));
-				if (connectionInfos[i].host == NULL)
-				{
-					ereport(ERROR,
-							(errcode(ERRCODE_OUT_OF_MEMORY),
-							errmsg("out of memory")));
-				}
-			}
-		}
-		/* End of Getting for Datanode and Coordinator Data */
-	}
-	else
-	{
-		/* waste data*/
-		s->cursor = s->len;
-	}
-}
 
 /*
  * Init PoolAgent
@@ -919,7 +868,6 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 				 * Coordinator pool is not initialized.
 				 * With that it would be impossible to create a Database by default.
 				 */
-				node_info_init(s);
 				agent_init(agent, database, user_name);
 				pq_getmsgend(s);
 				break;

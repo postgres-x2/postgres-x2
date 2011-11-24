@@ -2227,6 +2227,14 @@ CountOtherDBBackends(Oid databaseId, int *nbackends, int *nprepared)
 				continue;
 			if (proc == MyProc)
 				continue;
+#ifdef PGXC
+			/*
+			 * PGXC pooler just refers to XC-specific catalogs,
+			 * it does not create any consistency issues.
+			 */
+			if (proc->isPooler)
+				continue;
+#endif
 
 			found = true;
 

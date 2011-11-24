@@ -19,6 +19,14 @@
 
 #include "nodes/parsenodes.h"
 
+/* Global number of nodes */
+extern int  NumDataNodes;
+extern int  NumCoords;
+extern int  NumCoordSlaves;
+extern int  NumDataNodeSlaves;
+
+extern void PgxcNodeListAndCount(Oid **coOids, Oid **dnOids,
+								 Oid **coslaveOids, Oid **dnslaveOids);
 extern void PgxcNodeAlter(AlterNodeStmt *stmt);
 extern void PgxcNodeCreate(CreateNodeStmt *stmt);
 extern void PgxcNodeRemove(DropNodeStmt *stmt);

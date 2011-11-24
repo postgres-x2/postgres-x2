@@ -36,7 +36,7 @@
 #ifdef PGXC
 #include "pgxc/pgxc.h"
 #include "nodes/nodes.h"
-#include "pgxc/poolmgr.h"
+#include "pgxc/nodemgr.h"
 #include "pgxc/execRemote.h"
 #include "catalog/pgxc_node.h"
 #endif

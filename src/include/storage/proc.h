@@ -105,6 +105,11 @@ struct PGPROC
 	 */
 	bool		recoveryConflictPending;
 
+#ifdef PGXC
+	/* Postgres-XC flags */
+	bool		isPooler;		/* true if process is Postgres-XC pooler */
+#endif
+
 	/* Info about LWLock the process is currently waiting for, if any. */
 	bool		lwWaiting;		/* true if waiting for an LW lock */
 	bool		lwExclusive;	/* true if waiting for exclusive access */

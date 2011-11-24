@@ -22,8 +22,15 @@
 #include "utils/rel.h"
 #include "utils/syscache.h"
 #include "utils/lsyscache.h"
+#include "utils/tqual.h"
+#include "pgxc/locator.h"
 #include "pgxc/nodemgr.h"
 
+/* Global number of nodes */
+int         NumDataNodes = 2;
+int         NumCoords = 1;
+int         NumCoordSlaves = 0;
+int         NumDataNodeSlaves = 0;
 
 /*
  * Check list of options and return things filled
@@ -94,6 +101,123 @@ check_options(List *options, DefElem **dhost,
 			*is_preferred = defel;
 		}
 	}
+}
+
+/* --------------------------------
+ *  cmp_nodes
+ * 
+ *  Compare the Oids of two XC nodes
+ *  to sort them in ascending order by their names
+ * --------------------------------
+ */
+static int
+cmp_nodes(const void *p1, const void *p2)
+{
+	Oid n1 = *((Oid *)p1);
+	Oid n2 = *((Oid *)p2);
+
+	if (strcmp(get_pgxc_nodename(n1), get_pgxc_nodename(n2)) < 0)
+		return -1;
+
+	if (strcmp(get_pgxc_nodename(n1), get_pgxc_nodename(n2)) == 0)
+		return 0;
+
+	return 1;
+}
+
+/*
+ * PgxcNodeCount
+ *
+ * Count number of PGXC nodes based on catalog information and return
+ * an ordered list of node Oids for each PGXC node type.
+ */
+void
+PgxcNodeListAndCount(Oid **coOids, Oid **dnOids, Oid **coslaveOids, Oid **dnslaveOids)
+{
+	Relation rel;
+	HeapScanDesc scan;
+	HeapTuple   tuple;
+
+	/* Reinitialize counts */
+	NumCoords = 0;
+	NumDataNodes = 0;
+	NumCoordSlaves = 0;
+	NumDataNodeSlaves = 0;
+
+	/* 
+	 * Node information initialization is made in one scan:
+	 * 1) Scan pgxc_node catalog to find the number of nodes for
+	 *	each node type and make proper allocations
+	 * 2) Then extract the node Oid
+	 * 3) Complete primary/preferred node information
+	 */
+	rel = heap_open(PgxcNodeRelationId, AccessShareLock);
+	scan = heap_beginscan(rel, SnapshotNow, 0, NULL);
+	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
+	{
+		int numnodes;
+		Oid **nodes;
+		Form_pgxc_node  nodeForm = (Form_pgxc_node) GETSTRUCT(tuple);
+
+		/* Take data for given node type */
+		switch (nodeForm->node_type)
+		{
+			case PGXC_NODE_COORD_MASTER:
+				NumCoords++;
+				numnodes = NumCoords;
+				nodes = coOids;
+				break;
+			case PGXC_NODE_DATANODE_MASTER:
+				NumDataNodes++;
+				numnodes = NumDataNodes;
+				nodes = dnOids;
+				break;
+			case PGXC_NODE_COORD_SLAVE:
+				NumCoordSlaves++;
+				numnodes = NumCoordSlaves;
+				nodes = coslaveOids;
+				break;
+			case PGXC_NODE_DATANODE_SLAVE:
+				NumDataNodeSlaves++;
+				numnodes = NumDataNodeSlaves;
+				nodes = dnslaveOids;
+				break;
+			default:
+				break;
+		}
+
+		if (numnodes == 1)
+			*nodes = (Oid *) palloc(numnodes * sizeof(Oid));
+		else
+			*nodes = (Oid *) repalloc(*nodes, numnodes * sizeof(Oid));
+
+		(*nodes)[numnodes - 1] = get_pgxc_nodeoid(NameStr(nodeForm->node_name));
+
+		/*
+		 * Save data related to preferred and primary node
+		 * Preferred and primaries use node Oids
+		 */
+		if (nodeForm->nodeis_primary)
+			primary_data_node = get_pgxc_nodeoid(NameStr(nodeForm->node_name));
+		if (nodeForm->nodeis_preferred)
+		{
+			preferred_data_node[num_preferred_data_nodes] =
+				get_pgxc_nodeoid(NameStr(nodeForm->node_name));
+			num_preferred_data_nodes++;
+		}
+	}
+	heap_endscan(scan);
+	heap_close(rel, AccessShareLock);
+
+	/* Finally sort the lists to be sent back */
+	if (NumCoords != 0)
+		qsort(*coOids, NumCoords, sizeof(Oid), cmp_nodes);
+	if (NumDataNodes != 0)
+		qsort(*dnOids, NumDataNodes, sizeof(Oid), cmp_nodes);
+	if (NumDataNodeSlaves != 0)
+		qsort(*coslaveOids, NumCoordSlaves, sizeof(Oid), cmp_nodes);
+	if (NumDataNodeSlaves != 0)
+		qsort(*dnslaveOids, NumDataNodeSlaves, sizeof(Oid), cmp_nodes);
 }
 
 /*
@@ -478,13 +602,13 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 	if (node_port > 0)
 	{
 		new_record[Anum_pgxc_node_port - 1] = Int32GetDatum(node_port);
-        new_record_repl[Anum_pgxc_node_port - 1] = true;
+		new_record_repl[Anum_pgxc_node_port - 1] = true;
 	}
 	if (node_host)
 	{
 		new_record[Anum_pgxc_node_host - 1] = 
 			DirectFunctionCall1(namein, CStringGetDatum(node_host));
-        new_record_repl[Anum_pgxc_node_host - 1] = true;
+		new_record_repl[Anum_pgxc_node_host - 1] = true;
 	}
 	if (drelated ||
 		node_type == PGXC_NODE_COORD_MASTER ||
@@ -492,22 +616,22 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 	{
 		/* Force update of related node to InvalidOid if node is changed to master */
 		new_record[Anum_pgxc_node_related - 1] = ObjectIdGetDatum(relatedOid);
-        new_record_repl[Anum_pgxc_node_related - 1] = true;
+		new_record_repl[Anum_pgxc_node_related - 1] = true;
 	}
 	if (node_type != PGXC_NODE_NONE)
 	{
 		new_record[Anum_pgxc_node_type - 1] = CharGetDatum(node_type);
-        new_record_repl[Anum_pgxc_node_type - 1] = true;
+		new_record_repl[Anum_pgxc_node_type - 1] = true;
 	}
 	if (is_primary)
 	{
 		new_record[Anum_pgxc_node_is_primary - 1] = BoolGetDatum(nodeis_primary);
-        new_record_repl[Anum_pgxc_node_is_primary - 1] = true;
+		new_record_repl[Anum_pgxc_node_is_primary - 1] = true;
 	}
 	if (is_preferred)
 	{
 		new_record[Anum_pgxc_node_is_preferred - 1] = BoolGetDatum(nodeis_preferred);
-        new_record_repl[Anum_pgxc_node_is_preferred - 1] = true;
+		new_record_repl[Anum_pgxc_node_is_preferred - 1] = true;
 	}
 
 	/* Update relation */

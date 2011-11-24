@@ -31,7 +31,7 @@
 #ifdef PGXC
 #include "pgxc/pgxc.h"
 #include "nodes/nodes.h"
-#include "pgxc/poolmgr.h"
+#include "pgxc/nodemgr.h"
 #include "optimizer/planner.h"
 #endif
 

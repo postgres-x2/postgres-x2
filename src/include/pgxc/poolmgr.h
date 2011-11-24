@@ -46,13 +46,6 @@ typedef enum
 	POOL_CMD_GLOBAL_SET /* Global SET flag */
 } PoolCommandType;
 
-/* TODO move? */
-typedef struct
-{
-	char	*host;
-	int	port;
-} PGXCNodeConnectionInfo;
-
 /* Connection pool entry */
 typedef struct
 {
@@ -106,15 +99,15 @@ typedef struct
 	PoolPort	port;
 } PoolHandle;
 
-extern int	NumDataNodes;
-extern int	NumCoords;
-extern int	NumCoordSlaves;
-extern int	NumDataNodeSlaves;
 extern int	MinPoolSize;
 extern int	MaxPoolSize;
 extern int	PoolerPort;
 
 extern bool PersistentConnections;
+
+/* Status inquiry functions */
+extern void PGXCPoolerProcessIam(void);
+extern bool IsPGXCPoolerProcess(void);
 
 /* Initialize internal structures */
 extern int	PoolManagerInit(void);

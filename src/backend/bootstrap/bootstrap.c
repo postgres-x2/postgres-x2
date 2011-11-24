@@ -377,6 +377,12 @@ AuxiliaryProcessMain(int argc, char *argv[])
 	 */
 	if (IsUnderPostmaster)
 	{
+#ifdef PGXC
+		/* Initialize pooler flag before creating PGPROC structure */
+		if (auxType == PoolerProcess)
+				PGXCPoolerProcessIam();			
+#endif
+
 		/*
 		 * Create a PGPROC so we can use LWLocks.  In the EXEC_BACKEND case,
 		 * this was already done by SubPostmasterMain().

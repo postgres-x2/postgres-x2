@@ -41,6 +41,7 @@
 #include "postmaster/autovacuum.h"
 #ifdef PGXC
 #include "pgxc/pgxc.h"
+#include "pgxc/poolmgr.h"
 #endif
 #include "replication/syncrep.h"
 #include "storage/ipc.h"
@@ -324,6 +325,9 @@ InitProcess(void)
 	/* NB -- autovac launcher intentionally does not set IS_AUTOVACUUM */
 	if (IsAutoVacuumWorkerProcess())
 		MyProc->vacuumFlags |= PROC_IS_AUTOVACUUM;
+#ifdef PGXC
+	MyProc->isPooler = false;
+#endif
 	MyProc->lwWaiting = false;
 	MyProc->lwExclusive = false;
 	MyProc->lwWaitLink = NULL;
@@ -465,6 +469,11 @@ InitAuxiliaryProcess(void)
 	MyProc->backendId = InvalidBackendId;
 	MyProc->databaseId = InvalidOid;
 	MyProc->roleId = InvalidOid;
+#ifdef PGXC
+	MyProc->isPooler = false;
+	if (IsPGXCPoolerProcess())
+		MyProc->isPooler = true;
+#endif
 	MyProc->inCommit = false;
 	MyProc->vacuumFlags = 0;
 	MyProc->lwWaiting = false;
