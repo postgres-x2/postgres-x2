@@ -1,11 +1,11 @@
 # Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
 
-top_build_dir=../..
-include $(top_build_dir)/gtm/Makefile.global
+top_builddir=../../..
+include $(top_builddir)/src/Makefile.global
 
 OBJS=proxy_main.o proxy_thread.o proxy_utils.o ../libpq/libpqcomm.a ../path/libgtmpath.a ../recovery/libgtmrecovery.a ../client/libgtmclient.a ../common/libgtm.a
 
-LDFLAGS=-L$(top_build_dir)/common -L$(top_build_dir)/libpq
+LDFLAGS=-L$(top_builddir)/common -L$(top_builddir)/libpq
 
 LIBS=-lpthread
 

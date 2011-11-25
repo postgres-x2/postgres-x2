@@ -1,7 +1,7 @@
 # Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
 
-top_build_dir=../..
-include $(top_build_dir)/gtm/Makefile.global
+top_builddir=../../..
+include $(top_builddir)/src/Makefile.global
 
 
 NAME=gtmclient
@@ -15,7 +15,7 @@ LIBS=-lpthread
 
 all:all-lib
 
-include $(top_build_dir)/Makefile.shlib
+include $(top_builddir)/src/Makefile.shlib
 
 clean:
 	rm -f $(OBJS)

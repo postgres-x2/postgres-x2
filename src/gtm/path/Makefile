@@ -1,5 +1,6 @@
-top_build_dir=../..
-include $(top_build_dir)/gtm/Makefile.global
+top_builddir=../../..
+include $(top_builddir)/src/Makefile.global
+subdir=src/gtm/path
 
 NAME=gtmpath
 SO_MAJOR_VERSION= 1
@@ -9,7 +10,7 @@ OBJS=path.o
 
 all:all-lib
 
-include $(top_build_dir)/Makefile.shlib
+include $(top_builddir)/src/Makefile.shlib
 
 clean:
 	rm -f $(OBJS)
