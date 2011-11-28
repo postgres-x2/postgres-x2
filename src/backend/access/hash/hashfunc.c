@@ -560,7 +560,9 @@ compute_hash(Oid type, Datum value, int *pErr, char locator)
 			 *	a = 8446744073709551359
 			 * and	a = 8446744073709551359::int8 both work*/
 			tmp64 = DatumGetInt64(value);
-			return DirectFunctionCall1(hashint8, tmp64);
+			if (locator == LOCATOR_TYPE_HASH)
+				return DirectFunctionCall1(hashint8, value);
+			return tmp64;
 		case INT2OID:
 			tmp16 = DatumGetInt16(value);
 			if (locator == LOCATOR_TYPE_HASH)
