@@ -129,6 +129,18 @@ canonicalize_path(char *path)
 }
 
 /*
+ * get_parent_directory
+ *
+ * Modify the given string in-place to name the parent directory of the
+ * named file.
+ */
+void
+get_parent_directory(char *path)
+{
+    trim_directory(path);
+}
+
+/*
  *	trim_directory
  *
  *	Trim trailing directory from path, that is, remove any trailing slashes,
@@ -238,3 +250,53 @@ make_absolute_path(const char *path)
 
 	return new;
 }
+
+
+/*
+ * join_path_components - join two path components, inserting a slash
+ *
+ * ret_path is the output area (must be of size MAXPGPATH)
+ *
+ * ret_path can be the same as head, but not the same as tail.
+ */
+void
+join_path_components(char *ret_path,
+                     const char *head, const char *tail)
+{
+    if (ret_path != head)
+        strlcpy(ret_path, head, MAXPGPATH);
+
+    /*
+     * Remove any leading "." and ".." in the tail component, adjusting head
+     * as needed.
+     */
+    for (;;)
+    {
+        if (tail[0] == '.' && IS_DIR_SEP(tail[1]))
+        {
+			tail += 2;
+        }
+        else if (tail[0] == '.' && tail[1] == '\0')
+        {
+            tail += 1;
+            break;
+        }
+        else if (tail[0] == '.' && tail[1] == '.' && IS_DIR_SEP(tail[2]))
+        {
+            trim_directory(ret_path);
+            tail += 3;
+        }
+        else if (tail[0] == '.' && tail[1] == '.' && tail[2] == '\0')
+		{
+            trim_directory(ret_path);
+            tail += 2;
+            break;
+        }
+        else
+            break;
+    }
+    if (*tail)
+        snprintf(ret_path + strlen(ret_path), MAXPGPATH - strlen(ret_path),
+                 "/%s", tail);
+}
+

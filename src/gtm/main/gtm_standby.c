@@ -33,6 +33,8 @@ static char *standbyDataDir;
 
 static GTM_Conn *gtm_standby_connect_to_standby_int(int *);
 
+extern char *NodeName;		/* Defined in main.c */
+
 int
 gtm_standby_start_startup(void)
 {
@@ -42,8 +44,8 @@ gtm_standby_start_startup(void)
 
 	elog(LOG, "Connecting the GTM active on %s:%d...", active_address, active_port);
 
-	sprintf(connect_string, "host=%s port=%d node_name=one remote_type=%d",
-			active_address, active_port, PGXC_NODE_GTM);
+	sprintf(connect_string, "host=%s port=%d node_name=%s remote_type=%d",
+			active_address, active_port, NodeName, PGXC_NODE_GTM);
 	
 	GTM_ActiveConn = PQconnectGTM(connect_string);
 	if (GTM_ActiveConn == NULL)
@@ -336,7 +338,7 @@ find_standby_node_info(void)
 			 node[i]->port,
 			 node[i]->status);
 
-		if ( (strcmp(standbyNodeName, node[i]->nodename) == 0) && 
+		if ( (strcmp(standbyNodeName, node[i]->nodename) != 0) && 
 			node[i]->status == NODE_CONNECTED)
 			return node[i];
 	}
@@ -396,8 +398,8 @@ gtm_standby_connect_to_standby_int(int *report_needed)
 	*report_needed = 1;
 
 	snprintf(conn_string, sizeof(conn_string),
-		 "host=%s port=%d node_name=one remote_type=4",
-		 n->ipaddress, n->port);
+		 "host=%s port=%d node_name=%s remote_type=4",
+			 n->ipaddress, n->port, NodeName);
 
 	standby = PQconnectGTM(conn_string);
 		

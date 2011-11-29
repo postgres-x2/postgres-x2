@@ -42,4 +42,10 @@ void gtm_standby_disconnect_from_standby(GTM_Conn *conn);
 GTM_Conn *gtm_standby_reconnect_to_standby(GTM_Conn *old_conn, int retry_max);
 bool gtm_standby_check_communication_error(int *retry_count, GTM_Conn *oldconn);
 
+/*
+ * Startup mode
+ */
+#define GTM_ACT_MODE 0
+#define GTM_STANDBY_MODE 1
+
 #endif /* GTM_STANDBY_H */

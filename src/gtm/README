@@ -59,3 +59,43 @@ This would build various test clients, statically linking to the libgtmclient.a
 library in the client directory. You may need to change the connect string
 appropriately connect to the GTM server.
 
+============================================================
+Additional Information for NODE_NAME, GTM_CONFIGURATION and GTM-Standby
+
+Nov. 25, 2011
+============================================================
+
+1. NODE_NAME project
+
+Now XC changed its naming convention of each component from number to string
+name.   According to this, all the "id" is now changed to "name".
+
+2. GTM_CONFIGURATION
+
+Because GTM and GTM-Proxy has more options, it is not convenient to specify all
+of these in command line options.   Instaead, as in PostgreSQL, GTM/GTM-Proxy
+now need their configuration file placed on their working directries.
+
+Details will be available in the documentation, gtm.conf.sample and gtm_proxy.conf.sample.
+Sample files will be installed in the "share" directory at the installation directory.
+
+3. GTM-Standby
+
+To prevent GTM from SPOF, GTM-Standby feature is now under the development.
+At present, only a basic feature is available.   GTM-Standby can backup GTM.
+When GTM fails, GTM-Standby can fail-over.   GTM-Proxy can reconnect to the
+new GTM without sacrificing running transactions.   However, please note that
+GTM-Standby has to connect to GTM before any GTM-Proxy connects to it.
+
+Peple who modify GTM code should be careful to test this feature works.
+The test will be:
+
+1) Start GTM in ACT mode, and the another GTM as Standby mode.
+2) Start more than one GTM-Proxies.
+3) Start datanode/coordinator
+4) Run psql
+5) While psql is in a transaction block, promote GTM-Standby and then
+   reconnect GTM-Proxy to the promoted GTM.
+6) See if transaction keeps running.
+
+The test sequence will be expanded as GTM-Standby feature improves.

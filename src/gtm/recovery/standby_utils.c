@@ -21,9 +21,9 @@
 /*
  * Variables to interact with GTM active under GTM standby mode.
  */
-static bool GTM_StandbyMode = false;
-static char *GTM_ActiveAddress;
-static int  GTM_ActivePort;
+bool GTM_StandbyMode = false;
+char *GTM_ActiveAddress;
+int  GTM_ActivePort;
 
 /* For thread safety, values above are protected by a lock */
 static GTM_RWLock StandbyLock;

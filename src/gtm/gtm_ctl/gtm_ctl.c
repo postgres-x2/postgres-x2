@@ -646,11 +646,7 @@ do_reconnect(void)
 	fprintf(reconnect_point_file, "%s\n", gtm_opts);
 	fclose(reconnect_point_file);
 	free(reconnect_point_file_nam);
-#if 0 /* GTM_SBY_DEBUG */
-	write_stderr("Now about to send SIGUSR1 to pid %ld.\n", pid);
-	write_stderr("Returning.  This is the debug. Don't send signal actually.\n");
-	return;
-#endif
+
 	if (kill((pid_t) pid, SIGUSR1) != 0)
 	{
 		write_stderr(_("%s: could not send promote signal (PID: %ld): %s\n"), progname, pid,
@@ -882,7 +878,7 @@ do_help(void)
 
 	printf(_("\nCommon options:\n"));
 	printf(_("  -D DATADIR             location of the database storage area\n"));
-	printf(_("  -i NODE_ID             set gtm_proxy ID registered on GTM\n"));
+	printf(_("  -i nodename            set gtm_proxy nodename registered on GTM\n"));
 	printf(_("                         (option ignored if used with GTM)\n"));
 	printf(_("  -t SECS                seconds to wait when using -w option\n"));
 	printf(_("  -w                     wait until operation completes\n"));
@@ -940,7 +936,7 @@ int
 main(int argc, char **argv)
 {
 	int			c;
-	int			node_id = 0; /* GTM Proxy ID */
+	char		*nodename = NULL; /* GTM Proxy nodename */
 
 	progname = "gtm_ctl";
 
@@ -1014,7 +1010,7 @@ main(int argc, char **argv)
 						break;
 					}
 				case 'i':
-					node_id = atoi(optarg);
+					nodename = strdup(optarg);
 					break;
 				case 'l':
 					log_file = xstrdup(optarg);
@@ -1128,6 +1124,7 @@ main(int argc, char **argv)
 	}
 
 	if (strcmp(gtm_app,"gtm_proxy") != 0 &&
+		strcmp(gtm_app, "gtm_standby") != 0 &&
 		strcmp(gtm_app,"gtm") != 0)
 	{
 		write_stderr(_("%s: launch option incorrect\n"),
@@ -1140,18 +1137,14 @@ main(int argc, char **argv)
 	if (ctl_command == START_COMMAND ||
 		ctl_command == RESTART_COMMAND)
 	{
-		if (node_id == 0 && strcmp(gtm_app, "gtm_proxy") == 0)
-		{
-			write_stderr("%s: GTM Proxy ID not specified\n",
-						 progname);
-			do_advice();
-			exit(1);
-		}
 		/* Rebuild option string to include Proxy ID */
 		if (strcmp(gtm_app, "gtm_proxy") == 0)
 		{
 			gtmdata_opt = (char *) pg_realloc(gtmdata_opt, strlen(gtmdata_opt) + 9);
-			sprintf(gtmdata_opt, "%s -i %d ", gtmdata_opt, node_id);
+			if (nodename)
+				sprintf(gtmdata_opt, "%s -i %s ", gtmdata_opt, nodename);
+			else
+				sprintf(gtmdata_opt, "%s ", gtmdata_opt);
 		}
 	}
 
@@ -1173,26 +1166,6 @@ main(int argc, char **argv)
 		}
 	}
 
-#if 0
-	if (gtm_data)
-	{
-		if (strcmp(gtm_app,"gtm_proxy") == 0)
-		{
-			snprintf(pid_file, MAXPGPATH, "%s/gtm_proxy.pid", gtm_data);
-			snprintf(gtmopts_file, MAXPGPATH, "%s/gtm_proxy.opts", gtm_data);
-		}
-		else if (strcmp(gtm_app,"gtm") == 0)
-		{
-			snprintf(pid_file, MAXPGPATH, "%s/gtm.pid", gtm_data);
-			snprintf(gtmopts_file, MAXPGPATH, "%s/gtm.opts", gtm_data);
-		}
-		else if (strcmp(gtm_app,"gtm_standby") == 0)
-		{
-			snprintf(pid_file, MAXPGPATH, "%s/gtm.pid", gtm_data);
-			snprintf(gtmopts_file, MAXPGPATH, "%s/gtm.opts", gtm_data);
-		}
-	}
-#else
 	/* Build strings for pid file and option file */
 	if (strcmp(gtm_app,"gtm_proxy") == 0)
 	{
@@ -1209,7 +1182,6 @@ main(int argc, char **argv)
 		snprintf(pid_file, MAXPGPATH, "%s/gtm.pid", gtm_data);
 		snprintf(gtmopts_file, MAXPGPATH, "%s/gtm.opts", gtm_data);
 	}
-#endif
 
 	if (ctl_command==STATUS_COMMAND)
 		gtm_opts = xstrdup("-c");

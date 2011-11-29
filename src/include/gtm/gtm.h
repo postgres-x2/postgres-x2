@@ -36,7 +36,7 @@ typedef enum GTM_ThreadStatus
 
 struct GTM_ConnectionInfo;
 
-#define ERRORDATA_STACK_SIZE  5
+#define ERRORDATA_STACK_SIZE  20
 
 typedef struct GTM_ThreadInfo
 {

@@ -18,4 +18,7 @@
 
 extern void canonicalize_path(char *path);
 extern char *make_absolute_path(const char *path);
+extern void get_parent_directory(char *path);
+extern void join_path_components(char *ret_path, const char *head, const char *tail);
+
 #endif

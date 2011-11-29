@@ -3,13 +3,13 @@
 top_builddir=../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS=main.o gtm_thread.o gtm_txn.o gtm_seq.o gtm_snap.o gtm_time.o gtm_standby.o ../libpq/libpqcomm.a ../path/libgtmpath.a ../recovery/libgtmrecovery.a ../client/libgtmclient.a ../common/libgtm.a
+OBJS=main.o gtm_thread.o gtm_txn.o gtm_seq.o gtm_snap.o gtm_time.o gtm_standby.o gtm_opt.o ../libpq/libpqcomm.a ../path/libgtmpath.a ../recovery/libgtmrecovery.a ../client/libgtmclient.a ../common/libgtm.a
 LDFLAGS=-L$(top_builddir)/common -L$(top_builddir)/libpq
 
 LIBS=-lpthread
 
 gtm:$(OBJS)
-	$(CC) $(CFLAGS) $(LDFLAGS) $(LIBS) $^ -o gtm
+	$(CC) $(CFLAGS) $(LDFLAGS) $(LIBS) $^ ../../port/libpgport.a -o gtm
 
 all:gtm
 

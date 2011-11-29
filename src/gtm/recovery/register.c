@@ -381,11 +381,15 @@ Recovery_PGXCNodeRegister(GTM_PGXCNodeType	type,
 
 	/* Fill in structure */
 	nodeinfo->type = type;
-	nodeinfo->nodename = pgxcnode_copy_char(nodename);
+	if (nodename)
+		nodeinfo->nodename = pgxcnode_copy_char(nodename);
 	nodeinfo->port = port;
-	nodeinfo->proxyname = pgxcnode_copy_char(proxyname);
-	nodeinfo->datafolder = pgxcnode_copy_char(datafolder);
-	nodeinfo->ipaddress = pgxcnode_copy_char(ipaddress);
+	if (proxyname)
+		nodeinfo->proxyname = pgxcnode_copy_char(proxyname);
+	if (datafolder)
+		nodeinfo->datafolder = pgxcnode_copy_char(datafolder);
+	if (ipaddress)
+		nodeinfo->ipaddress = pgxcnode_copy_char(ipaddress);
 	nodeinfo->status = status;
 	nodeinfo->socket = socket;
 
@@ -462,8 +466,6 @@ ProcessPGXCNodeRegister(Port *myport, StringInfo message)
 	memcpy(proxyname, (char *)pq_getmsgbytes(message, len), len);
 	proxyname[len] = '\0';
 
-	elog(LOG, "ProcessPGXCNodeRegister: ipaddress = %s", ipaddress);
-
 	/*
 	 * Finish by reading Data Folder (length and then string)
 	 */
@@ -471,6 +473,11 @@ ProcessPGXCNodeRegister(Port *myport, StringInfo message)
 
 	memcpy(datafolder, (char *)pq_getmsgbytes(message, len), len);
 	datafolder[len] = '\0';
+
+	elog(LOG, 
+		 "ProcessPGXCNodeRegister: ipaddress = \"%s\", node name = \"%s\", proxy name = \"%s\", "
+		 "datafolder \"%s\"",
+		 ipaddress, node_name, proxyname, datafolder);
 
 	status = pq_getmsgint(message, sizeof (GTM_PGXCNodeStatus));
 
@@ -483,6 +490,7 @@ ProcessPGXCNodeRegister(Port *myport, StringInfo message)
 		ereport(ERROR,
 				(EINVAL,
 				 errmsg("Unknown node type.")));
+	elog(LOG, "Node type = %d", type);
 
 	/*
 	 * We must use the TopMostMemoryContext because the Node ID information is
@@ -729,10 +737,10 @@ ProcessPGXCNodeList(Port *myport, StringInfo message)
 void
 Recovery_SaveRegisterInfo(void)
 {
-GTM_PGXCNodeInfoHashBucket *bucket;
-gtm_ListCell *elem;
-GTM_PGXCNodeInfo *nodeinfo = NULL;
-int hash, ctlfd;
+	GTM_PGXCNodeInfoHashBucket *bucket;
+	gtm_ListCell *elem;
+	GTM_PGXCNodeInfo *nodeinfo = NULL;
+	int hash, ctlfd;
 	char filebkp[GTM_NODE_FILE_MAX_PATH];
 
 	GTM_RWLockAcquire(&RegisterFileLock, GTM_LOCKMODE_WRITE);
@@ -749,7 +757,7 @@ int hash, ctlfd;
 		return;
 	}
 
-for (hash = 0; hash < NODE_HASH_TABLE_SIZE; hash++)
+	for (hash = 0; hash < NODE_HASH_TABLE_SIZE; hash++)
 	{
 		bucket = &GTM_PGXCNodes[hash];
 
@@ -769,24 +777,57 @@ for (hash = 0; hash < NODE_HASH_TABLE_SIZE; hash++)
 			write(ctlfd, &NodeRegisterMagic, sizeof (NodeRegisterMagic));
 
 			write(ctlfd, &nodeinfo->type, sizeof (GTM_PGXCNodeType));
-			len = strlen(nodeinfo->nodename);
-			write(ctlfd, &len, sizeof(uint32));
-			write(ctlfd, nodeinfo->nodename, len);
+			if (nodeinfo->nodename)
+			{
+				len = strlen(nodeinfo->nodename);
+				write(ctlfd, &len, sizeof(uint32));
+				write(ctlfd, nodeinfo->nodename, len);
+			}
+			else
+			{
+				len = 0;
+				write(ctlfd, &len, sizeof(uint32));
+			}
+
 			write(ctlfd, &nodeinfo->port, sizeof (GTM_PGXCNodePort));
 
-			len = strlen(nodeinfo->proxyname);
-			write(ctlfd, &len, sizeof(uint32));
-			write(ctlfd, nodeinfo->proxyname, len);
+			if (nodeinfo->proxyname)
+			{
+				len = strlen(nodeinfo->proxyname);
+				write(ctlfd, &len, sizeof(uint32));
+				write(ctlfd, nodeinfo->proxyname, len);
+			}
+			else
+			{
+				len = 0;
+				write(ctlfd, &len, sizeof(uint32));
+			}
 
 			write(ctlfd, &nodeinfo->status, sizeof (GTM_PGXCNodeStatus));
 
-			len = strlen(nodeinfo->ipaddress);
-			write(ctlfd, &len, sizeof(uint32));
-			write(ctlfd, nodeinfo->ipaddress, len);
+			if (nodeinfo->ipaddress)
+			{
+				len = strlen(nodeinfo->ipaddress);
+				write(ctlfd, &len, sizeof(uint32));
+				write(ctlfd, nodeinfo->ipaddress, len);
+			}
+			else
+			{
+				len = 0;
+				write(ctlfd, &len, sizeof(uint32));
+			}
 
-			len = strlen(nodeinfo->datafolder);
-			write(ctlfd, &len, sizeof(uint32));
-			write(ctlfd, nodeinfo->datafolder, len);
+			if (nodeinfo->datafolder)
+			{
+				len = strlen(nodeinfo->datafolder);
+				write(ctlfd, &len, sizeof(uint32));
+				write(ctlfd, nodeinfo->datafolder, len);
+			}
+			else
+			{
+				len = 0;
+				write(ctlfd, &len, sizeof(uint32));
+			}
 
 			write(ctlfd, &NodeEndMagic, sizeof(NodeEndMagic));
 
@@ -835,9 +876,18 @@ Recovery_RecordRegisterInfo(GTM_PGXCNodeInfo *nodeinfo, bool is_register)
 		write(ctlfd, &NodeUnregisterMagic, sizeof (NodeUnregisterMagic));
 
 	write(ctlfd, &nodeinfo->type, sizeof (GTM_PGXCNodeType));
-	len = strlen(nodeinfo->nodename);
-	write(ctlfd, &len, sizeof(uint32));
-	write(ctlfd, nodeinfo->nodename, len);
+
+	if (nodeinfo->nodename)
+	{
+		len = strlen(nodeinfo->nodename);
+		write(ctlfd, &len, sizeof(uint32));
+		write(ctlfd, nodeinfo->nodename, len);
+	}
+	else
+	{
+		len = 0;
+		write(ctlfd, &len, sizeof(uint32));
+	}
 
 	if (is_register)
 	{
@@ -845,19 +895,43 @@ Recovery_RecordRegisterInfo(GTM_PGXCNodeInfo *nodeinfo, bool is_register)
 
 		write(ctlfd, &nodeinfo->port, sizeof (GTM_PGXCNodePort));
 
-		len = strlen(nodeinfo->proxyname);
-		write(ctlfd, &len, sizeof(uint32));
-		write(ctlfd, nodeinfo->proxyname, len);
+		if (nodeinfo->proxyname)
+		{
+			len = strlen(nodeinfo->proxyname);
+			write(ctlfd, &len, sizeof(uint32));
+			write(ctlfd, nodeinfo->proxyname, len);
+		}
+		else
+		{
+			len = 0;
+			write(ctlfd, &len, sizeof(uint32));
+		}
 
 		write(ctlfd, &nodeinfo->status, sizeof (GTM_PGXCNodeStatus));
 
-		len = strlen(nodeinfo->ipaddress);
-		write(ctlfd, &len, sizeof(uint32));
-		write(ctlfd, nodeinfo->ipaddress, len);
+		if (nodeinfo->ipaddress)
+		{
+			len = strlen(nodeinfo->ipaddress);
+			write(ctlfd, &len, sizeof(uint32));
+			write(ctlfd, nodeinfo->ipaddress, len);
+		}
+		else
+		{
+			len = 0;
+			write(ctlfd, &len, sizeof(uint32));
+		}
 
-		len = strlen(nodeinfo->datafolder);
-		write(ctlfd, &len, sizeof(uint32));
-		write(ctlfd, nodeinfo->datafolder, len);
+		if (nodeinfo->datafolder)
+		{
+			len = strlen(nodeinfo->datafolder);
+			write(ctlfd, &len, sizeof(uint32));
+			write(ctlfd, nodeinfo->datafolder, len);
+		}
+		else
+		{
+			len = 0;
+			write(ctlfd, &len, sizeof(uint32));
+		}
 	}
 
 	write(ctlfd, &NodeEndMagic, sizeof(NodeEndMagic));

@@ -44,6 +44,7 @@
 #include "gtm/gtm_standby.h"
 /* For reconnect control lock */
 #include "gtm/gtm_lock.h"
+#include "gtm/gtm_opt.h"
 
 extern int	optind;
 extern char *optarg;
@@ -61,14 +62,23 @@ char	   *ListenAddresses;
 int			GTMProxyPortNumber;
 int			GTMProxyWorkerThreads;
 char		*GTMProxyDataDir;
+char		*GTMProxyConfigFileName;
+char		*GTMConfigFileName;
 
 /* GTM communication error handling options */
-int			GTMErrorWaitOpt = FALSE;		/* Wait and assume XCM if TRUE */
+bool		GTMErrorWaitOpt = FALSE;		/* Wait and assume XCM if TRUE */
 int			GTMErrorWaitSecs = 0;			/* Duration of each wait */
 int			GTMErrorWaitCount = 0;			/* How many durations to wait */
 
 char		*GTMServerHost;
 int			GTMServerPortNumber;
+
+/*
+ * Keepalives setup for the connection with GTM server
+ */
+int	GTMServerKeepalivesIdle = 0;
+int	GTMServerKeepalivesInterval = 0;
+int GTMServerKeepalivesCount = 0;
 
 char *GTMProxyNodeName = NULL;
 GTM_ThreadID	TopMostThreadID;
@@ -78,6 +88,13 @@ GTMProxy_ThreadInfo **Proxy_ThreadInfo;
 short	ReadyToReconnect = FALSE;
 char	*NewGTMServerHost;
 int		NewGTMServerPortNumber;
+
+/* Status reader/reporter */
+char	*error_reporter;
+char	*status_reader;
+
+/* Mode */
+bool	isStartUp = false;
 
 /* Reconnect Control Lock */
 GTM_RWLock 	ReconnectControlLock;
@@ -92,6 +109,16 @@ pthread_key_t	threadinfo_key;
 static bool		GTMProxyAbortPending = false;
 static GTM_Conn *master_conn;
 
+
+/*
+ * External Routines
+ */
+extern void InitializeGTMOptions(void);
+
+
+/*
+ * Internal Routines
+ */
 static Port *ConnCreate(int serverFd);
 static void ConnFree(Port *conn);
 static int ServerLoop(void);
@@ -502,7 +529,7 @@ help(const char *progname)
 	printf(_("  -p port			GTM proxy port number\n"));
 	printf(_("  -s hostname		GTM server hostname/IP \n"));
 	printf(_("  -t port			GTM server port number\n"));
-	printf(_("  -i ID number	GTM proxy ID number\n"));
+	printf(_("  -i nodename 	GTM proxy nodename\n"));
 	printf(_("  -n count		Number of worker threads\n"));
 	printf(_("  -D directory	GTM proxy working directory\n"));
 	printf(_("  -l filename		GTM proxy log file name \n"));
@@ -518,6 +545,27 @@ main(int argc, char *argv[])
 	int			i;
 
 	/*
+	 * Variable to store option parameters
+	 */
+	char	*listen_addresses = NULL;
+	char	*node_name = NULL;
+	char   	*proxy_port_number = NULL;
+	char	*proxy_worker_threads = NULL;
+	char	*data_dir = NULL;
+	char	*log_file = NULL;
+	char	*gtm_host = NULL;
+	char	*gtm_port = NULL;
+	char	*gtm_err_wait_secs = NULL;
+	char   	*gtm_err_wait_count = NULL;
+
+	isStartUp = true;
+
+	/*
+	 * At first, initialize options.   Also moved something from BaseInit() here.
+	 */
+	InitializeGTMOptions();
+
+	/*
 	 * Catch standard options before doing much else
 	 */
 	if (argc > 1)
@@ -529,7 +577,9 @@ main(int argc, char *argv[])
 		}
 	}
 
-	ListenAddresses = GTM_PROXY_DEFAULT_HOSTNAME;
+/*
+	ListenAddresses = strdup(GTM_PROXY_DEFAULT_HOSTNAME);
+*/
 	GTMProxyPortNumber = GTM_PROXY_DEFAULT_PORT;
 	GTMProxyWorkerThreads = GTM_PROXY_DEFAULT_WORKERS;
 
@@ -544,52 +594,72 @@ main(int argc, char *argv[])
 		{
 			case 'h':
 				/* Listen address of the proxy */
-				ListenAddresses = strdup(optarg);
+				if (listen_addresses)
+					free(listen_addresses);
+				listen_addresses = strdup(optarg);
 				break;
 
 			case 'i':
 				/* GTM Proxy identification name */
-				GTMProxyNodeName = strdup(optarg);
+				if (node_name)
+					free(node_name);
+				node_name = strdup(optarg);
 				break;
 
 			case 'p':
 				/* Port number for the proxy to listen on */
-				GTMProxyPortNumber = atoi(optarg);
+				if (proxy_port_number)
+					free(proxy_port_number);
+				proxy_port_number = strdup(optarg);
 				break;
 
 			case 'n':
 				/* Number of worker threads */
-				GTMProxyWorkerThreads = atoi(optarg);
+				if (proxy_worker_threads)
+					free(proxy_worker_threads);
+				proxy_worker_threads = strdup(optarg);
 				break;
 
 			case 'D':
-				GTMProxyDataDir = strdup(optarg);
-				canonicalize_path(GTMProxyDataDir);
+				if (data_dir)
+					free(data_dir);
+				data_dir = strdup(optarg);
+				canonicalize_path(data_dir);
 				break;
 
 			case 'l':
 				/* The log file */
-				GTMLogFile = strdup(optarg);
+				if (log_file)
+					free(log_file);
+				log_file = strdup(optarg);
 				break;
 
 			case 's':
 				/* GTM server host name */
-				GTMServerHost = strdup(optarg);
+				if (gtm_host)
+					free(gtm_host);
+				gtm_host = strdup(optarg);
 				break;
 
 			case 't':
 				/* GTM server port number */
-				GTMServerPortNumber = atoi(optarg);
+				if (gtm_port)
+					free(gtm_port);
+				gtm_port = strdup(optarg);
 				break;
 
 			case 'w':
 				/* Duration to wait at GTM communication error */
-				GTMErrorWaitSecs = atoi(optarg);
+				if (gtm_err_wait_secs)
+					free(gtm_err_wait_secs);
+				gtm_err_wait_secs = strdup(optarg);
 				break;
 
 			case 'z':
 				/* How many durations to wait */
-				GTMErrorWaitCount = atoi(optarg);
+				if (gtm_err_wait_count)
+					free(gtm_err_wait_count);
+				gtm_err_wait_count = strdup(optarg);
 				break;
 
 			default:
@@ -598,6 +668,85 @@ main(int argc, char *argv[])
 		}
 	}
 
+	/*
+	 * Setup working directory
+	 */
+	if (data_dir)
+		SetConfigOption("data_dir", data_dir, GTMC_STARTUP, GTMC_S_OVERRIDE);
+
+	/*
+	 * Setup configuration file
+	 */
+	if (!SelectConfigFiles(data_dir, progname))
+		exit(1); 
+
+	/*
+	 * Parse config file
+	 */
+	ProcessConfigFile(GTMC_STARTUP);
+
+	/*
+	 * Override with command line options.   "data_dir" was handled in the privious line.
+	 */
+	if (listen_addresses)
+	{
+		SetConfigOption("listen_addresses", listen_addresses, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		free(listen_addresses);
+		listen_addresses = NULL;
+	}
+	if (node_name)
+	{
+		SetConfigOption("nodename", node_name, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		free(node_name);
+		node_name = NULL;
+	}
+	if (proxy_port_number)
+	{
+		SetConfigOption("port", proxy_port_number, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		free(proxy_port_number);
+		proxy_port_number = NULL;
+	}
+	if (proxy_worker_threads)
+	{
+		SetConfigOption("worker_threads", proxy_worker_threads, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		free(proxy_worker_threads);
+		proxy_worker_threads = NULL;
+	}
+	if (log_file)
+	{
+		SetConfigOption("log_file", log_file, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		free(log_file);
+		log_file = NULL;
+	}
+	if (gtm_host)
+	{
+		SetConfigOption("gtm_host", gtm_host, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		free(gtm_host);
+		gtm_host = NULL;
+	}
+	if (gtm_port)
+	{
+		SetConfigOption("gtm_port", gtm_port, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		free(gtm_port);
+		gtm_port = NULL;
+	}
+	if (gtm_err_wait_secs)
+	{
+		SetConfigOption("err_wait_interval", gtm_err_wait_secs, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		free(gtm_err_wait_secs);
+		gtm_err_wait_secs = NULL;
+	}
+	if (gtm_err_wait_count)
+	{
+		SetConfigOption("err_wait_count", gtm_err_wait_count, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		free(gtm_err_wait_count);
+		gtm_err_wait_count = NULL;
+	}
+
+
+	/*
+	 * Check Options
+	 */
 	if (GTMProxyDataDir == NULL)
 	{
 		write_stderr("GTM Proxy data directory must be specified\n");
@@ -618,11 +767,15 @@ main(int argc, char *argv[])
 	 */
 	if (GTMErrorWaitSecs > 0 && GTMErrorWaitCount > 0)
 	{
-		GTMErrorWaitOpt = TRUE;
+		if (GTMErrorWaitOpt == false)
+		{
+			GTMErrorWaitSecs = 0;
+			GTMErrorWaitCount = 0;
+		}
 	}
 	else
 	{
-		GTMErrorWaitOpt = FALSE;
+		GTMErrorWaitOpt = false;
 		GTMErrorWaitSecs = 0;
 		GTMErrorWaitCount = 0;
 	}
@@ -796,7 +949,9 @@ ServerLoop(void)
 			 * the resource but this may not happen so many times.
 			 */
 
+			elog(LOG, "Main Thread reconnecting to new GTM.");
 			RegisterProxy(TRUE);
+			elog(LOG, "Reconnected.");
 
 			/* If it is done, then release the lock for worker threads. */
 			GTM_RWLockRelease(&ReconnectControlLock);
@@ -1808,14 +1963,18 @@ ProcessPGXCNodeCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 
 			/* Then obtain the node name */
 			len = pq_getmsgint(message, sizeof(GTM_StrLen));
-			cmd_data.cd_reg.nodename = (char *)pq_getmsgbytes(message, len);
+			cmd_data.cd_reg.nodename = palloc(len + 1);
+			memcpy(cmd_data.cd_reg.nodename, (char *)pq_getmsgbytes(message, len), len);
+			cmd_data.cd_reg.nodename[len] = '\0';
 
 			/*
 			 * Now we have to waste the following host information. It is taken from
 			 * the address field in the conn.
 			 */
 			len = pq_getmsgint(message, sizeof(GTM_StrLen));
-			cmd_data.cd_reg.ipaddress = (char *)pq_getmsgbytes(message, len);
+			cmd_data.cd_reg.ipaddress = palloc(len + 1);
+			memcpy(cmd_data.cd_reg.ipaddress, (char *)pq_getmsgbytes(message, len), len);
+			cmd_data.cd_reg.ipaddress[len] = '\0';
 
 			/* Then the next is the port number */
 			memcpy(&cmd_data.cd_reg.port,
@@ -1825,19 +1984,24 @@ ProcessPGXCNodeCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 
 			/* Proxy name */
 			len = pq_getmsgint(message, sizeof(GTM_StrLen));
-			cmd_data.cd_reg.gtm_proxy_nodename = (char *)pq_getmsgbytes(message, len);
+			cmd_data.cd_reg.gtm_proxy_nodename = palloc(len + 1);
+			memcpy(cmd_data.cd_reg.gtm_proxy_nodename, (char *)pq_getmsgbytes(message, len), len);
+			cmd_data.cd_reg.gtm_proxy_nodename[len] = '\0';
 
 			/* get data folder data */
 			len = pq_getmsgint(message, sizeof (int));
-			cmd_data.cd_reg.datafolder = (char *)pq_getmsgbytes(message, len);
+			cmd_data.cd_reg.datafolder = palloc(len + 1);
+			memcpy(cmd_data.cd_reg.datafolder, (char *)pq_getmsgbytes(message, len), len);
+			cmd_data.cd_reg.datafolder[len] = '\0';
 
 			/* Now we have one more data to waste, "status" */
 			cmd_data.cd_reg.status = pq_getmsgint(message, sizeof(GTM_PGXCNodeStatus));
 			pq_getmsgend(message);
 
 			/* Copy also remote host address in data to be proxied */
-			cmd_data.cd_reg.ipaddress = (char *) palloc(strlen(remote_host));
+			cmd_data.cd_reg.ipaddress = (char *) palloc(strlen(remote_host) + 1);
 			memcpy(cmd_data.cd_reg.ipaddress, remote_host, strlen(remote_host));
+			cmd_data.cd_reg.ipaddress[strlen(remote_host)] = '\0';
 
 			/* Registering has to be saved where it can be seen by all the threads */
 			oldContext = MemoryContextSwitchTo(TopMostMemoryContext);
@@ -1867,10 +2031,14 @@ ProcessPGXCNodeCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 		{
 			int len;
 			MemoryContext	oldContext;
+			char *nodename;
 
 			memcpy(&cmd_data.cd_reg.type, pq_getmsgbytes(message, sizeof (GTM_PGXCNodeType)), sizeof (GTM_PGXCNodeType));
 			len = pq_getmsgint(message, sizeof(GTM_StrLen));
-			memcpy(&cmd_data.cd_reg.nodename, pq_getmsgbytes(message, len), len);
+			nodename = palloc(len + 1);
+			memcpy(nodename, pq_getmsgbytes(message, len), len);
+			nodename[len] = '\0';		/* Need null-terminate */
+			cmd_data.cd_reg.nodename = nodename;
 			pq_getmsgend(message);
 
 			/* Unregistering has to be saved in a place where it can be seen by all the threads */
@@ -3002,12 +3170,14 @@ workerThreadReconnectToGTMstandby(void)
 
 	/* Disconnect the current connection and re-connect to the new GTM */
 	GTMPQfinish(GetMyThreadInfo->thr_gtm_conn);
-	sprintf(gtm_connect_string, "host=%s port=%d node name=%s remote_type=%d",
+	sprintf(gtm_connect_string, "host=%s port=%d node_name=%s remote_type=%d",
 			NewGTMServerHost, NewGTMServerPortNumber, GTMProxyNodeName, PGXC_NODE_GTM_PROXY);
+	elog(LOG, "Worker thread connecting to %s", gtm_connect_string);
 	GetMyThreadInfo->thr_gtm_conn = PQconnectGTM(gtm_connect_string);
 
 	if (GetMyThreadInfo->thr_gtm_conn == NULL)
-		elog(FATAL, "GTM connection failed.");
+		elog(FATAL, "Worker thread GTM connection failed.");
+	elog(LOG, "Worker thread connection done.");
 
 	/* Set GTM communication error handling option */
 	GetMyThreadInfo->thr_gtm_conn->gtmErrorWaitOpt = GTMErrorWaitOpt;
