@@ -1026,6 +1026,7 @@ _copyRemoteQuery(RemoteQuery *from)
 	COPY_STRING_FIELD(relname);
 	COPY_SCALAR_FIELD(remotejoin);
 	COPY_SCALAR_FIELD(reduce_level);
+	COPY_NODE_FIELD(base_tlist);
 	COPY_STRING_FIELD(outer_alias);
 	COPY_STRING_FIELD(inner_alias);
 	COPY_SCALAR_FIELD(outer_reduce_level);

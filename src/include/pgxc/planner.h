@@ -112,6 +112,7 @@ typedef struct
 	bool	   remotejoin;			/* True if this is a reduced remote join  */
 	bool	   partitioned_replicated;	/* True if reduced and contains replicated-partitioned join */
 	int		   reduce_level;		/* in case of reduced JOIN, it's level    */
+	List	  *base_tlist;			/* in case of isReduced, the base tlist   */
 	char	  *outer_alias;
 	char	  *inner_alias;
 	int		   outer_reduce_level;

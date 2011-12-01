@@ -984,7 +984,7 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 
 			result_plan = &result->scan.plan;
 
-			/* the join targetlist becomes this node's tlist */
+			/* Set the join targetlist to the new base_tlist */
 			result_plan->targetlist = base_tlist;
 			result_plan->lefttree 	= NULL;
 			result_plan->righttree 	= NULL;
@@ -1019,6 +1019,7 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 
 
 			/* set_plan_refs needs this later */
+			result->base_tlist		= base_tlist;
 			result->relname			= "__FOREIGN_QUERY__";
 			result->partitioned_replicated = join_info.partitioned_replicated;
 

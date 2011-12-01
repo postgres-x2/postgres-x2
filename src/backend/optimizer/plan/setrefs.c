@@ -69,6 +69,14 @@ typedef struct
 	int			rtoffset;
 } fix_upper_expr_context;
 
+typedef struct
+{
+	PlannerGlobal *glob;
+	indexed_tlist *base_itlist;
+	int			   rtoffset;
+	Index		   relid;
+} fix_remote_expr_context;
+
 /*
  * Check if a Const node is a regclass value.  We accept plain OID too,
  * since a regclass Const will get folded to that type if it's an argument
@@ -122,6 +130,14 @@ static Node *fix_upper_expr_mutator(Node *node,
 static bool fix_opfuncids_walker(Node *node, void *context);
 static bool extract_query_dependencies_walker(Node *node,
 								  PlannerGlobal *context);
+static List * fix_remote_expr(PlannerGlobal *glob,
+			  List *clauses,
+			  indexed_tlist *base_itlist,
+			  Index	newrelid,
+			  int rtoffset);
+static Node *fix_remote_expr_mutator(Node *node,
+			  fix_remote_expr_context *context);
+static void set_remote_references(PlannerGlobal *glob, RemoteQuery *rscan, int rtoffset);
 
 
 /*****************************************************************************
@@ -410,12 +426,25 @@ set_plan_refs(PlannerGlobal *glob, Plan *plan, int rtoffset)
 #ifdef PGXC
 		case T_RemoteQuery:
 			{
-				RemoteQuery    *splan = (RemoteQuery *) plan;
+				RemoteQuery	   *splan = (RemoteQuery *) plan;
+
 				splan->scan.scanrelid += rtoffset;
-				splan->scan.plan.targetlist =
-					fix_scan_list(glob, splan->scan.plan.targetlist, rtoffset);
-				splan->scan.plan.qual =
-					fix_scan_list(glob, splan->scan.plan.qual, rtoffset);
+
+				/*
+				 * If base_tlist is set, it means that we have a reduced remote
+				 * query plan. So need to set the var references accordingly.
+				 */
+				if (splan->base_tlist)
+				{
+					set_remote_references(glob, splan, rtoffset);
+				}
+				else
+				{
+					splan->scan.plan.targetlist =
+						fix_scan_list(glob, splan->scan.plan.targetlist, rtoffset);
+					splan->scan.plan.qual =
+						fix_scan_list(glob, splan->scan.plan.qual, rtoffset);
+				}
 			}
 			break;
 #endif
@@ -1883,4 +1912,110 @@ extract_query_dependencies_walker(Node *node, PlannerGlobal *context)
 	}
 	return expression_tree_walker(node, extract_query_dependencies_walker,
 								  (void *) context);
+}
+/*
+ * fix_remote_expr
+ *	   Create a new set of targetlist entries or qual clauses by
+ *	   changing the varno/varattno values of variables in the clauses
+ *	   to reference target list values from the base
+ *	   relation target lists.  Also perform opcode lookup and add
+ *	   regclass OIDs to glob->relationOids.
+ *
+ * 'clauses' is the targetlist or list of clauses
+ * 'base_itlist' is the indexed target list of the base referenced relations
+ *
+ * Returns the new expression tree.  The original clause structure is
+ * not modified.
+ */
+static List *
+fix_remote_expr(PlannerGlobal *glob,
+			  List *clauses,
+			  indexed_tlist *base_itlist,
+			  Index	newrelid,
+			  int rtoffset)
+{
+	fix_remote_expr_context context;
+
+	context.glob		= glob;
+	context.base_itlist = base_itlist;
+	context.relid		= newrelid;
+	context.rtoffset	= rtoffset;
+
+	return (List *) fix_remote_expr_mutator((Node *) clauses, &context);
+}
+
+static Node *
+fix_remote_expr_mutator(Node *node, fix_remote_expr_context *context)
+{
+	Var		   *newvar;
+
+	if (node == NULL)
+		return NULL;
+
+	if (IsA(node, Var))
+	{
+		Var	*var = (Var *) node;
+
+		/* First look for the var in the input base tlists */
+		newvar = search_indexed_tlist_for_var(var,
+											  context->base_itlist,
+											  context->relid,
+											  context->rtoffset);
+		if (newvar)
+			return (Node *) newvar;
+
+		/* No reference found for Var */
+		elog(ERROR, "variable not found in base remote scan target lists");
+	}
+	/* Try matching more complex expressions too, if tlists have any */
+	if (context->base_itlist->has_non_vars)
+	{
+		newvar = search_indexed_tlist_for_non_var(node,
+												  context->base_itlist,
+												  context->relid);
+		if (newvar)
+			return (Node *) newvar;
+	}
+
+	fix_expr_common(context->glob, node);
+
+	return expression_tree_mutator(node, fix_remote_expr_mutator, context);
+}
+
+/*
+ * set_remote_references
+ *
+ *	  Modify the target list and quals of a remote scan node to reference its
+ *	  base rels, by setting the varnos to DUMMY (even OUTER is fine) setting attno
+ *	  values to the result domain number of the base rels.
+ *	  Also perform opcode lookup for these expressions. and add regclass
+ *	  OIDs to glob->relationOids.
+ */
+static void
+set_remote_references(PlannerGlobal *glob, RemoteQuery *rscan, int rtoffset)
+{
+	indexed_tlist *base_itlist;
+
+	if (!rscan->base_tlist)
+		return;
+
+	/* We have incremented reduce_level wherever we created reduced plans. */
+	Assert(rscan->reduce_level > 0);
+
+	base_itlist = build_tlist_index(rscan->base_tlist);
+
+	/* All remotescan plans have tlist, and quals */
+	rscan->scan.plan.targetlist = fix_remote_expr(glob,
+										  rscan->scan.plan.targetlist,
+										  base_itlist,
+										  rscan->scan.scanrelid,
+										  rtoffset);
+
+	rscan->scan.plan.qual = fix_remote_expr(glob,
+										  rscan->scan.plan.qual,
+										  base_itlist,
+										  rscan->scan.scanrelid,
+										  rtoffset);
+
+	pfree(base_itlist);
 }
