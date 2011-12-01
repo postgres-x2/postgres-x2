@@ -32,4 +32,7 @@
 
 void CleanConnection(CleanConnStmt *stmt);
 void DropDBCleanConnection(char *dbname);
+
+/* Handle pooler connection reload when signaled by SIGUSR1 */
+void HandlePoolerReload(void);
 #endif

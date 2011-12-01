@@ -92,7 +92,7 @@ typedef struct
 	PGXCNodeHandle	  **coord_handles;	/* an array of Coordinator handles */
 } PGXCNodeAllHandles;
 
-extern void InitMultinodeExecutor(void);
+extern void InitMultinodeExecutor(bool is_force);
 
 /* Open/close connection routines (invoked from Pool Manager) */
 extern char *PGXCNodeConnStr(char *host, int port, char *dbname, char *user,

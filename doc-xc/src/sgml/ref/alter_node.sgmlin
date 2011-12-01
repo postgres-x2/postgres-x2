@@ -44,6 +44,9 @@ ALTER NODE <replaceable class="parameter">nodename</replaceable> SET
    Node connection that has been modified does not guarranty that connection
    information cached in pooler is updated accordingly.
   </para>
+  <para>
+   <command>ALTER NODE</command> only runs on the local node where it is launched.
+  </para>
 
  </refsect1>
 

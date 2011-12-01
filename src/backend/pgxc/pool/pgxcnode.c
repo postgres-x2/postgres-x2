@@ -72,6 +72,7 @@ static PGXCNodeHandle *co_slave_handles = NULL;
 
 static void pgxc_node_init(PGXCNodeHandle *handle, int sock);
 static void pgxc_node_free(PGXCNodeHandle *handle);
+static void pgxc_node_all_free(void);
 
 static int	get_int(PGXCNodeHandle * conn, size_t len, int *out);
 static int	get_char(PGXCNodeHandle * conn, char *out);
@@ -114,10 +115,14 @@ init_pgxc_handle(PGXCNodeHandle *pgxc_handle)
  * Allocate and initialize memory to store Datanode and Coordinator handles.
  */
 void
-InitMultinodeExecutor(void)
+InitMultinodeExecutor(bool is_force)
 {
 	int				count;
 	Oid				*coOids, *dnOids, *coslaveOids, *dnslaveOids;
+
+	/* Free all the existing information first */
+	if (is_force)
+		pgxc_node_all_free();
 
 	/* This function could get called multiple times because of sigjmp */
 	if (dn_handles != NULL &&
@@ -310,6 +315,55 @@ pgxc_node_free(PGXCNodeHandle *handle)
 	handle->sock = NO_SOCKET;
 }
 
+/*
+ * Free all the node handles cached
+ */
+static void
+pgxc_node_all_free(void)
+{
+	int i, j;
+
+	for (i = 0; i < 4; i++)
+	{
+		int num_nodes;
+		PGXCNodeHandle *array_handles;
+
+		switch (i)
+		{
+			case 0:
+				num_nodes = NumCoords;
+				array_handles = co_handles;
+				break;
+			case 1:
+				num_nodes = NumDataNodes;
+				array_handles = dn_handles;
+				break;
+			case 2:
+				num_nodes = NumCoordSlaves;
+				array_handles = co_slave_handles;
+				break;
+			case 3:
+				num_nodes = NumDataNodeSlaves;
+				array_handles = dn_slave_handles;
+				break;
+			default:
+				Assert(0);
+		}
+		/* Coordinator masters */
+		for (j = 0; j < num_nodes; j++)
+		{
+			PGXCNodeHandle *handle = &array_handles[j];
+			pgxc_node_free(handle);
+		}
+		if (array_handles)
+			pfree(array_handles);
+	}
+
+	co_handles = NULL;
+	dn_handles = NULL;
+	co_slave_handles = NULL;
+	dn_slave_handles = NULL;
+}
 
 /*
  * Create and initialise internal structure to communicate to

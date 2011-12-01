@@ -39,6 +39,7 @@
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
 #include "catalog/pgxc_node.h"
+#include "commands/dbcommands.h"
 #include "nodes/nodes.h"
 #include "pgxc/poolmgr.h"
 #include "utils/builtins.h"
@@ -95,9 +96,10 @@ static PoolAgent **poolAgents;
 
 static PoolHandle *poolHandle = NULL;
 
-static int	is_pool_cleaning = false;
+static int	is_pool_locked = false;
 static int	server_fd = -1;
 
+static void node_info_free(void);
 static void node_info_load(void);
 static int	node_info_check(void);
 static void agent_init(PoolAgent *agent, const char *database, const char *user_name);
@@ -114,6 +116,7 @@ static int agent_temp_command(PoolAgent *agent);
 static DatabasePool *create_database_pool(const char *database, const char *user_name);
 static void insert_database_pool(DatabasePool *pool);
 static int	destroy_database_pool(const char *database, const char *user_name);
+static void reload_database_pools(void);
 static DatabasePool *find_database_pool(const char *database, const char *user_name);
 static DatabasePool *find_database_pool_to_clean(const char *database,
 												 const char *user_name,
@@ -234,6 +237,42 @@ PoolManagerInit()
 }
 
 /*
+ * Free connection info cached
+ */
+static void
+node_info_free(void)
+{
+	int count;
+
+	for (count = 0; count < NumCoords; count++)
+		pfree(coord_connInfos[count].host);
+	for (count = 0; count < NumCoordSlaves; count++)
+		pfree(coord_slave_connInfos[count].host);
+	for (count = 0; count < NumDataNodes; count++)
+		pfree(datanode_connInfos[count].host);
+	for (count = 0; count < NumDataNodeSlaves; count++)
+		pfree(datanode_slave_connInfos[count].host);
+
+	if (datanode_connInfos)
+		pfree(datanode_connInfos);
+	if (coord_connInfos)
+		pfree(coord_connInfos);
+	if (coord_slave_connInfos)
+		pfree(coord_slave_connInfos);
+	if (datanode_slave_connInfos)
+		pfree(datanode_slave_connInfos);
+
+	NumCoords = 0;
+	NumDataNodes = 0;
+	NumDataNodeSlaves = 0;
+	NumCoordSlaves = 0;
+	datanode_slave_connInfos = NULL;
+	coord_slave_connInfos = NULL;
+	coord_connInfos = NULL;
+	datanode_connInfos = NULL;
+}
+
+/*
  * Load node info cached by scanning PGXC node catalog
  */
 static void
@@ -251,8 +290,8 @@ node_info_load(void)
 
 	/* Then initialize the node informations */
 	if (NumDataNodes != 0)
-	datanode_connInfos = (PGXCNodeConnectionInfo *)
-				palloc(NumDataNodes * sizeof(PGXCNodeConnectionInfo));
+		datanode_connInfos = (PGXCNodeConnectionInfo *)
+			palloc(NumDataNodes * sizeof(PGXCNodeConnectionInfo));
 	if (NumCoords != 0)
 		coord_connInfos = (PGXCNodeConnectionInfo *)
 			palloc(NumCoords * sizeof(PGXCNodeConnectionInfo));
@@ -260,7 +299,7 @@ node_info_load(void)
 		coord_slave_connInfos = (PGXCNodeConnectionInfo *)
 			palloc(NumCoordSlaves * sizeof(PGXCNodeConnectionInfo));
 	if (NumDataNodeSlaves != 0)
-		coord_slave_connInfos = (PGXCNodeConnectionInfo *)
+		datanode_slave_connInfos = (PGXCNodeConnectionInfo *)
 			palloc(NumDataNodeSlaves * sizeof(PGXCNodeConnectionInfo));
 
 	/* Fill in connection info structures */
@@ -505,6 +544,8 @@ agent_create(void)
 	agent->port.RecvPointer = 0;
 	agent->port.SendPointer = 0;
 	agent->pool = NULL;
+	agent->num_dn_connections = NumDataNodes;
+	agent->num_coord_connections = NumCoords;
 	agent->dn_connections = NULL;
 	agent->coord_connections = NULL;
 	agent->session_params = NULL;
@@ -562,6 +603,24 @@ PoolManagerConnect(PoolHandle *handle, const char *database, const char *user_na
 	pool_flush(&handle->port);
 }
 
+/*
+ * Reconnect to pool manager
+ * It simply does a disconnection and a reconnection.
+ */
+void
+PoolManagerReconnect(void)
+{
+	PoolHandle *handle;
+
+	Assert(poolHandle);
+
+	PoolManagerDisconnect();
+	handle = GetPoolManagerHandle();
+	PoolManagerConnect(handle,
+					   get_database_name(MyDatabaseId),
+					   GetUserNameFromId(GetUserId()));
+}
+
 int
 PoolManagerSetCommand(PoolCommandType command_type, const char *set_command)
 {
@@ -609,6 +668,31 @@ PoolManagerSetCommand(PoolCommandType command_type, const char *set_command)
 	return res;
 }
 
+/*
+ * Lock/unlock pool manager
+ * During locking, the only operations not permitted are abort, connection and
+ * connection obtention.
+ */
+void
+PoolManagerLock(bool is_lock)
+{
+	char msgtype = 'o';
+	int n32;
+	int msglen = 8;
+	Assert(poolHandle);
+
+	/* Message type */
+	pool_putbytes(&poolHandle->port, &msgtype, 1);
+
+	/* Message length */
+	n32 = htonl(msglen);
+	pool_putbytes(&poolHandle->port, (char *) &n32, 4);
+
+	/* Lock information */
+	n32 = htonl((int) is_lock);
+	pool_putbytes(&poolHandle->port, (char *) &n32, 4);
+	pool_flush(&poolHandle->port);
+}
 
 /*
  * Init PoolAgent
@@ -711,6 +795,7 @@ PoolManagerDisconnect(void)
 	pool_flush(&poolHandle->port);
 
 	close(Socket(poolHandle->port));
+	poolHandle = NULL;
 }
 
 
@@ -913,6 +998,18 @@ PoolManagerCheckConnectionInfo(void)
 
 
 /*
+ * Reload connection data in pooler and drop all the existing connections of pooler
+ */
+void
+PoolManagerReloadConnectionInfo(void)
+{
+	Assert(poolHandle);
+	pool_putmessage(&poolHandle->port, 'p', NULL, 0);
+	pool_flush(&poolHandle->port);
+}
+
+
+/*
  * Handle messages to agent
  */
 static void
@@ -945,8 +1042,8 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 		 * while remaining transactions are aborted during FORCE and then
 		 * Pools are being shrinked.
 		 */
-		if (is_pool_cleaning && (qtype == 'a' || qtype == 'c' || qtype == 'g'))
-			elog(WARNING,"Pool operation cannot run during Pool cleaning");
+		if (is_pool_locked && (qtype == 'a' || qtype == 'c' || qtype == 'g'))
+			elog(WARNING,"Pool operation cannot run during pool lock");
 
 		switch (qtype)
 		{
@@ -1071,6 +1168,44 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 				cancel_query_on_connections(agent, datanodelist, coordlist);
 				list_free(datanodelist);
 				list_free(coordlist);
+				break;
+			case 'o':			/* Lock/unlock pooler */
+				pool_getmessage(&agent->port, s, 8);
+				is_pool_locked = pq_getmsgint(s, 4);
+				pq_getmsgend(s);
+				break;
+			case 'p':			/* Reload connection info */
+				/*
+				 * Connection information reloaded concerns all the database pools.
+				 * A database pool is reloaded as follows for each remote node:
+				 * - node pool is deleted if the node has been deleted from catalog.
+				 *   Subsequently all its connections are dropped.
+				 * - node pool is deleted if its port or host information is changed.
+				 *   Subsequently all its connections are dropped.
+				 * - node pool is kept unchanged with existing connection information
+				 *   is not changed. However its index position in node pool is changed
+				 *   according to the alphabetical order of the node name in new
+				 *   cluster configuration.
+				 * Backend sessions are responsible to reconnect to the pooler to update
+				 * their agent with newest connection information.
+				 * The session invocating connection information reload is reconnected
+				 * and uploaded automatically after database pool reload.
+				 * Other server sessions are signaled to reconnect to pooler and update
+				 * their connection information separately.
+				 * During reload process done internally on pooler, pooler is locked
+				 * to forbid new connection requests.
+				 */
+				pool_getmessage(&agent->port, s, 4);
+				pq_getmsgend(s);
+
+				/* Free all the node info before reloading */
+				node_info_free();
+
+				/* Reload node information */
+				node_info_load();
+
+				/* First update all the pools */
+				reload_database_pools();
 				break;
 			case 'q':			/* Check connection info consistency */
 				pool_getmessage(&agent->port, s, 4);
@@ -1201,7 +1336,7 @@ agent_set_command(PoolAgent *agent, const char *set_command, PoolCommandType com
 	/* Launch the new command to all the connections already hold by the agent */
 	if (agent->dn_connections)
 	{
-		for (i = 0; i < NumDataNodes; i++)
+		for (i = 0; i < agent->num_dn_connections; i++)
 		{
 			if (agent->dn_connections[i])
 				res = PGXCNodeSendSetQuery(agent->dn_connections[i]->conn, set_command);
@@ -1210,7 +1345,7 @@ agent_set_command(PoolAgent *agent, const char *set_command, PoolCommandType com
 
 	if (agent->coord_connections)
 	{
-		for (i = 0; i < NumCoords; i++)
+		for (i = 0; i < agent->num_coord_connections; i++)
 		{
 			if (agent->coord_connections[i])
 				res |= PGXCNodeSendSetQuery(agent->coord_connections[i]->conn, set_command);
@@ -1238,6 +1373,11 @@ agent_acquire_connections(PoolAgent *agent, List *datanodelist, List *coordlist)
 
 	Assert(agent);
 
+	/* Check if pooler can accept those requests */
+	if (list_length(datanodelist) > NumDataNodes ||
+		list_length(coordlist) > NumCoords)
+		return NULL;
+
 	/*
 	 * Allocate memory
 	 * File descriptors of Datanodes and Coordinators are saved in the same array,
@@ -1261,7 +1401,7 @@ agent_acquire_connections(PoolAgent *agent, List *datanodelist, List *coordlist)
 	if (!agent->dn_connections)
 	{
 		agent->dn_connections = (PGXCNodePoolSlot **)
-								palloc(NumDataNodes * sizeof(PGXCNodePoolSlot *));
+			palloc(agent->num_dn_connections * sizeof(PGXCNodePoolSlot *));
 		if (!agent->dn_connections)
 		{
 			pfree(result);
@@ -1271,14 +1411,15 @@ agent_acquire_connections(PoolAgent *agent, List *datanodelist, List *coordlist)
 			return NULL;
 		}
 
-		for (i = 0; i < NumDataNodes; i++)
+		for (i = 0; i < agent->num_dn_connections; i++)
 			agent->dn_connections[i] = NULL;
 	}
 
 	/* Then for the Coordinators */
 	if (!agent->coord_connections)
 	{
-		agent->coord_connections = (PGXCNodePoolSlot **)palloc(NumCoords * sizeof(PGXCNodePoolSlot *));
+		agent->coord_connections = (PGXCNodePoolSlot **)
+			palloc(agent->num_coord_connections * sizeof(PGXCNodePoolSlot *));
 		if (!agent->coord_connections)
 		{
 			pfree(result);
@@ -1288,7 +1429,7 @@ agent_acquire_connections(PoolAgent *agent, List *datanodelist, List *coordlist)
 			return NULL;
 		}
 
-		for (i = 0; i < NumCoords; i++)
+		for (i = 0; i < agent->num_coord_connections; i++)
 			agent->coord_connections[i] = NULL;
 	}
 
@@ -1502,7 +1643,7 @@ agent_release_connections(PoolAgent *agent, bool force_destroy)
 	 * Remaining connections are assumed to be clean.
 	 * First clean up for Datanodes
 	 */
-	for (i = 0; i < NumDataNodes; i++)
+	for (i = 0; i < agent->num_dn_connections; i++)
 	{
 		PGXCNodePoolSlot *slot = agent->dn_connections[i];
 
@@ -1515,7 +1656,7 @@ agent_release_connections(PoolAgent *agent, bool force_destroy)
 		agent->dn_connections[i] = NULL;
 	}
 	/* Then clean up for Coordinator connections */
-	for (i = 0; i < NumCoords; i++)
+	for (i = 0; i < agent->num_coord_connections; i++)
 	{
 		PGXCNodePoolSlot *slot = agent->coord_connections[i];
 
@@ -1551,7 +1692,7 @@ agent_reset_session(PoolAgent *agent)
 		/* Check agent slot for each Datanode */
 		if (agent->dn_connections)
 		{
-			for (i = 0; i < NumDataNodes; i++)
+			for (i = 0; i < agent->num_dn_connections; i++)
 			{
 				PGXCNodePoolSlot *slot = agent->dn_connections[i];
 
@@ -1564,7 +1705,7 @@ agent_reset_session(PoolAgent *agent)
 		if (agent->coord_connections)
 		{
 			/* Check agent slot for each Coordinator */
-			for (i = 0; i < NumCoords; i++)
+			for (i = 0; i < agent->num_coord_connections; i++)
 			{
 				PGXCNodePoolSlot *slot = agent->coord_connections[i];
 
@@ -1640,38 +1781,55 @@ create_database_pool(const char *database, const char *user_name)
 	databasePool->next = NULL;
 
 	/* Init Datanode pools */
-	databasePool->dataNodePools = (PGXCNodePool **) palloc(NumDataNodes * sizeof(PGXCNodePool **));
-	if (!databasePool->dataNodePools)
+	if (NumDataNodes != 0)
 	{
-		/* out of memory */
-		ereport(ERROR,
-				(errcode(ERRCODE_OUT_OF_MEMORY),
-				 errmsg("out of memory")));
-		pfree(databasePool->database);
-		pfree(databasePool->user_name);
-		pfree(databasePool);
-		return NULL;
-	}
+		databasePool->dataNodePools =
+			(PGXCNodePool **) palloc(NumDataNodes * sizeof(PGXCNodePool **));
+		if (!databasePool->dataNodePools)
+		{
+			/* out of memory */
+			ereport(ERROR,
+					(errcode(ERRCODE_OUT_OF_MEMORY),
+					 errmsg("out of memory")));
+			pfree(databasePool->database);
+			pfree(databasePool->user_name);
+			pfree(databasePool);
+			return NULL;
+		}
 
-	for (i = 0; i < NumDataNodes; i++)
-		databasePool->dataNodePools[i] = NULL;
+		for (i = 0; i < NumDataNodes; i++)
+			databasePool->dataNodePools[i] = NULL;
+	}
+	else
+		databasePool->dataNodePools = NULL;
+
 
 	/* Init Coordinator pools */
-	databasePool->coordNodePools = (PGXCNodePool **) palloc(NumCoords * sizeof(PGXCNodePool **));
-	if (!databasePool->coordNodePools)
+	if (NumCoords != 0)
 	{
-		/* out of memory */
-		ereport(ERROR,
-				(errcode(ERRCODE_OUT_OF_MEMORY),
-				 errmsg("out of memory")));
-		pfree(databasePool->database);
-		pfree(databasePool->user_name);
-		pfree(databasePool);
-		return NULL;
-	}
+		databasePool->coordNodePools = (PGXCNodePool **) palloc(NumCoords * sizeof(PGXCNodePool **));
+		if (!databasePool->coordNodePools)
+		{
+			/* out of memory */
+			ereport(ERROR,
+					(errcode(ERRCODE_OUT_OF_MEMORY),
+					 errmsg("out of memory")));
+			pfree(databasePool->database);
+			pfree(databasePool->user_name);
+			pfree(databasePool);
+			return NULL;
+		}
 
-	for (i = 0; i < NumCoords; i++)
-		databasePool->coordNodePools[i] = NULL;
+
+		for (i = 0; i < NumCoords; i++)
+			databasePool->coordNodePools[i] = NULL;
+	}
+	else
+		databasePool->coordNodePools = NULL;
+
+	/* Save number of node pool */
+	databasePool->num_dn_pools = NumDataNodes;
+	databasePool->num_co_pools = NumCoords;
 
 	/* Insert into the list */
 	insert_database_pool(databasePool);
@@ -1733,6 +1891,145 @@ insert_database_pool(DatabasePool *databasePool)
 
 	/* Update head pointer */
 	databasePools = databasePool;
+}
+
+/*
+ * Rebuild information of database pools
+ */
+static void
+reload_database_pools(void)
+{
+	DatabasePool *databasePool;
+
+	/* Scan the list and reload each pool */
+	databasePool = databasePools;
+	while (databasePool)
+	{
+		/* Update each database pool slot with new connection information */
+		int i;
+		bool co_slot_used[databasePool->num_co_pools];
+		bool dn_slot_used[databasePool->num_dn_pools];
+		int new_co_num = NumCoords;
+		int new_dn_num = NumDataNodes;
+		PGXCNodePool **new_co_pools = NULL;
+		PGXCNodePool **new_dn_pools = NULL;
+
+		new_co_pools = (PGXCNodePool **) palloc(new_co_num * sizeof(PGXCNodePool **));
+		new_dn_pools = (PGXCNodePool **) palloc(new_dn_num * sizeof(PGXCNodePool **));
+
+		/* Check on the database pools that have been reused */
+		for (i = 0; i < databasePool->num_co_pools; i++)
+			co_slot_used[i] = false;
+		for (i = 0; i < databasePool->num_dn_pools; i++)
+			dn_slot_used[i] = false;
+
+		for (i = 0; i < new_co_num; i++)
+		{
+			int j;
+			Oid nodeoid_check = coord_connInfos[i].nodeoid;
+			bool is_found = false;
+			int index_id = 0;
+			char *connstr_chk = PGXCNodeConnStr(coord_connInfos[i].host,
+												coord_connInfos[i].port,
+												databasePool->database,
+												databasePool->user_name,
+												"coordinator");
+
+			/* Scan for pool existence */
+			for (j = 0; j < databasePool->num_co_pools; j++)
+			{
+				PGXCNodePool *pool = databasePool->coordNodePools[j];
+				if (!pool)
+					continue;
+
+				/*
+				 * Node Oid and connection string has to be the same
+				 * to ensure consistency.
+				 */
+				if (pool->nodeoid == nodeoid_check &&
+					strcmp(pool->connstr, connstr_chk) == 0)
+				{
+					co_slot_used[j] = true;
+					is_found = true;
+					index_id = j;
+					break;
+				}
+			}
+
+			if (co_slot_used[index_id] &&
+				databasePool->coordNodePools &&
+				is_found)
+			{
+				new_co_pools[i] = databasePool->coordNodePools[index_id];
+			}
+			else
+				new_co_pools[i] = NULL;
+			pfree(connstr_chk);
+		}
+		for (i = 0; i < new_dn_num; i++)
+		{
+			int j;
+			Oid nodeoid_check = datanode_connInfos[i].nodeoid;
+			int index_id = 0;
+			bool is_found = false;
+			char *connstr_chk = PGXCNodeConnStr(datanode_connInfos[i].host,
+												datanode_connInfos[i].port,
+												databasePool->database,
+												databasePool->user_name,
+												"coordinator");
+
+			/* Scan for pool existence */
+			for (j = 0; j < databasePool->num_dn_pools; j++)
+			{
+				PGXCNodePool *pool = databasePool->dataNodePools[j];
+
+				if (!pool)
+					continue;
+
+				if (pool->nodeoid == nodeoid_check &&
+					strcmp(pool->connstr, connstr_chk) == 0)
+				{
+					dn_slot_used[j] = true;
+					is_found = true;
+					index_id = j;
+					break;
+				}
+			}
+
+			if (dn_slot_used[index_id] &&
+				databasePool->dataNodePools &&
+				is_found)
+			{
+				new_dn_pools[i] = databasePool->dataNodePools[index_id];
+			}
+			else
+				new_dn_pools[i] = NULL;
+			pfree(connstr_chk);
+		}
+
+		/* Clean up node pools that are not necessary anymore */
+		for (i = 0; i < databasePool->num_co_pools; i++)
+		{
+			if (!co_slot_used[i])
+				destroy_node_pool(databasePool->coordNodePools[i]);
+		}
+		for (i = 0; i < databasePool->num_dn_pools; i++)
+		{
+			if (!dn_slot_used[i])
+				destroy_node_pool(databasePool->dataNodePools[i]);
+		}
+		if (databasePool->coordNodePools)
+			pfree(databasePool->coordNodePools);
+		if (databasePool->dataNodePools)
+			pfree(databasePool->dataNodePools);
+
+		/* Update new database pool */
+		databasePool->num_co_pools = new_co_num;
+		databasePool->num_dn_pools = new_dn_num;
+		databasePool->coordNodePools = new_co_pools;
+		databasePool->dataNodePools = new_dn_pools;
+		databasePool = databasePool->next;
+	}
 }
 
 
@@ -1865,6 +2162,18 @@ acquire_connection(DatabasePool *dbPool, int node, char client_conn_type)
 
 	Assert(dbPool);
 
+	/* Manage the case where pool is not ready */
+	if (node >= NumCoords && client_conn_type == REMOTE_CONN_COORD)
+	{
+		elog(WARNING, "can not connect to coordinator %d", node);
+		return NULL;
+	}
+	if (node >= NumDataNodes && client_conn_type == REMOTE_CONN_DATANODE)
+	{
+		elog(WARNING, "can not connect to datanode %d", node);
+		return NULL;
+	}
+
 	if (client_conn_type == REMOTE_CONN_DATANODE)
 		Assert(0 <= node && node < NumDataNodes);
 	else if (client_conn_type == REMOTE_CONN_COORD)
@@ -1929,7 +2238,7 @@ acquire_connection(DatabasePool *dbPool, int node, char client_conn_type)
 	if (slot == NULL)
 	{
 		if (client_conn_type == REMOTE_CONN_DATANODE)
-			elog(WARNING, "can not connect to data node %d", node);
+			elog(WARNING, "can not connect to datanode %d", node);
 		else if (client_conn_type == REMOTE_CONN_COORD)
 			elog(WARNING, "can not connect to coordinator %d", node);
 	}
@@ -2025,13 +2334,9 @@ grow_pool(DatabasePool * dbPool, int index, char client_conn_type)
 		 * but Dn->Dn Connections could be used for other purposes.
 		 */
 		if (IS_PGXC_COORDINATOR)
-		{
 			remote_type = pstrdup("coordinator");
-		}
 		else if (IS_PGXC_DATANODE)
-		{
 			remote_type = pstrdup("datanode");
-		}
 
 		if (client_conn_type == REMOTE_CONN_DATANODE)
 			/* initialize it */
@@ -2070,9 +2375,15 @@ grow_pool(DatabasePool * dbPool, int index, char client_conn_type)
 
 		/* and insert into the array */
 		if (client_conn_type == REMOTE_CONN_DATANODE)
+		{
+			nodePool->nodeoid = datanode_connInfos[index].nodeoid;
 			dbPool->dataNodePools[index] = nodePool;
+		}
 		else if (client_conn_type == REMOTE_CONN_COORD)
+		{
+			nodePool->nodeoid = coord_connInfos[index].nodeoid;
 			dbPool->coordNodePools[index] = nodePool;
+		}
 	}
 
 	while (nodePool->size < MinPoolSize || (nodePool->freeSize == 0 && nodePool->size < MaxPoolSize))
@@ -2122,6 +2433,9 @@ grow_pool(DatabasePool * dbPool, int index, char client_conn_type)
 static void
 destroy_slot(PGXCNodePoolSlot *slot)
 {
+	if (!slot)
+		return;
+
 	PQfreeCancel((PGcancel *)slot->xc_cancelConn);
 	PGXCNodeClose(slot->conn);
 	pfree(slot);
@@ -2135,6 +2449,9 @@ static void
 destroy_node_pool(PGXCNodePool *node_pool)
 {
 	int			i;
+
+	if (!node_pool)
+		return;
 
 	/*
 	 * At this point all agents using connections from this pool should be already closed
@@ -2345,7 +2662,7 @@ clean_connection(List *dn_discard, List *co_discard, const char *database, const
 	}
 
 	/* Release lock on Pooler, to allow transactions to connect again. */
-	is_pool_cleaning = false;
+	is_pool_locked = false;
 	return res;
 }
 
@@ -2361,10 +2678,10 @@ abort_pids(int *len, int pid, const char *database, const char *user_name)
 	int i = 0;
 	int count;
 
-	Assert(!is_pool_cleaning);
+	Assert(!is_pool_locked);
 	Assert(agentCount > 0);
 
-	is_pool_cleaning = true;
+	is_pool_locked = true;
 
 	pids = (int *) palloc((agentCount - 1) * sizeof(int));
 

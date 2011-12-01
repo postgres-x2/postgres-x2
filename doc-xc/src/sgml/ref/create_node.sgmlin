@@ -53,6 +53,9 @@ CREATE NODE <replaceable class="parameter">nodename</replaceable> WITH
    Node connection information is created on pooler only if it has not been
    the case yet on Coordinator connected at the moment of connection.
   </para>
+  <para>
+   <command>CREATE NODE</command> only runs on the local node where it is launched.
+  </para>
 
  </refsect1>
 

@@ -3882,7 +3882,7 @@ PostgresMain(int argc, char *argv[], const char *username)
 	{
 		CurrentResourceOwner = ResourceOwnerCreate(NULL, "ForPGXCNodes");
 
-		InitMultinodeExecutor();
+		InitMultinodeExecutor(false);
 
 		pool_handle = GetPoolManagerHandle();
 		if (pool_handle == NULL)
@@ -3978,7 +3978,7 @@ PostgresMain(int argc, char *argv[], const char *username)
 		/*
 		 * Temporarily do not abort if we are already in an abort state.
 		 * This change tries to handle the case where the error data stack fills up.
-		*/
+		 */
 		AbortCurrentTransactionOnce();
 #else
 		AbortCurrentTransaction();

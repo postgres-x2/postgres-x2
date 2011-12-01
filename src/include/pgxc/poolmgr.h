@@ -58,6 +58,7 @@ typedef struct
 typedef struct
 {
 	char	   *connstr;
+	Oid			nodeoid;	/* Node Oid related to this pool */
 	int			freeSize;	/* available connections */
 	int			size;  		/* total pool size */
 	PGXCNodePoolSlot **slot;
@@ -68,6 +69,8 @@ typedef struct databasepool
 {
 	char	   *database;
 	char	   *user_name;
+	int			num_dn_pools;
+	int			num_co_pools;
 	PGXCNodePool **dataNodePools;	/* one for each Datanode */
 	PGXCNodePool **coordNodePools;	/* one for each Coordinator */
 	struct databasepool *next;
@@ -85,6 +88,8 @@ typedef struct
 	/* communication channel */
 	PoolPort	port;
 	DatabasePool *pool;
+	int			num_dn_connections;
+	int			num_coord_connections;
 	PGXCNodePoolSlot **dn_connections; /* one for each Datanode */
 	PGXCNodePoolSlot **coord_connections; /* one for each Coordinator */
 	char	   *session_params;
@@ -144,6 +149,12 @@ extern void PoolManagerDisconnect(void);
 extern void PoolManagerConnect(PoolHandle *handle, const char *database, const char *user_name);
 
 /*
+ * Reconnect to pool manager
+ * This simply does a disconnection followed by a reconnection.
+ */
+extern void PoolManagerReconnect(void);
+
+/*
  * Save a SET command in Pooler.
  * This command is run on existent agent connections
  * and stored in pooler agent to be replayed when new connections
@@ -160,6 +171,9 @@ extern void PoolManagerCleanConnection(List *datanodelist, List *coordlist, char
 /* Check consistency of connection information cached in pooler with catalogs */
 extern bool PoolManagerCheckConnectionInfo(void);
 
+/* Reload connection data in pooler and drop all the existing connections of pooler */
+extern void PoolManagerReloadConnectionInfo(void);
+
 /* Send Abort signal to transactions being run */
 extern int	PoolManagerAbortTransactions(char *dbname, char *username, int **proc_pids);
 
@@ -168,6 +182,9 @@ extern void PoolManagerReleaseConnections(void);
 
 /* Cancel a running query on data nodes as well as on other coordinators */
 extern void PoolManagerCancelQuery(int dn_count, int* dn_list, int co_count, int* co_list);
+
+/* Lock/unlock pool manager */
+extern void PoolManagerLock(bool is_lock);
 
 /* Check if pool has a handle */
 extern bool IsPoolHandle(void);

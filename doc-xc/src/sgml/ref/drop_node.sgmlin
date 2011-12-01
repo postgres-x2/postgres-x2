@@ -40,6 +40,9 @@ DROP NODE <replaceable class="parameter">nodename</replaceable>
    Node connection that has been deleted does not guarranty that connection
    information cached in pooler is updated accordingly.
   </para>
+  <para>
+   <command>DROP NODE</command> only runs on the local node where it is launched.
+  </para>
 
  </refsect1>
 

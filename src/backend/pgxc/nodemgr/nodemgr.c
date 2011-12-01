@@ -25,6 +25,7 @@
 #include "utils/tqual.h"
 #include "pgxc/locator.h"
 #include "pgxc/nodemgr.h"
+#include "pgxc/pgxc.h"
 
 /* Global number of nodes */
 int         NumDataNodes = 2;
@@ -143,6 +144,10 @@ PgxcNodeListAndCount(Oid **coOids, Oid **dnOids, Oid **coslaveOids, Oid **dnslav
 	*num_dns = 0;
 	*num_co_slaves = 0;
 	*num_dn_slaves = 0;
+
+	/* Don't forget to reinitialize primary and preferred nodes also */
+	primary_data_node = InvalidOid;
+	num_preferred_data_nodes = 0;
 
 	/* 
 	 * Node information initialization is made in one scan:
@@ -672,6 +677,12 @@ PgxcNodeRemove(DropNodeStmt *stmt)
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
 				 errmsg("PGXC Node %s: object not defined",
+						node_name)));
+
+	if (strcmp(node_name, PGXCNodeName) == 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("PGXC Node %s: cannot drop local node",
 						node_name)));
 
 	/* PGXCTODO:

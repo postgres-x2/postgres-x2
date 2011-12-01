@@ -15350,6 +15350,13 @@ SELECT (pg_stat_file('filename')).modification;
               <link linkend="catalog-pgxc-node"><structname>pgxc_node</structname></link>.
        </entry>
       </row>
+      <row>
+       <entry>
+        <literal><function>pgxc_pool_reload()</function></literal>
+       </entry>
+       <entry><type>boolean</type></entry>
+       <entry>Reload connection data cached in pooler and reload sessions in server</entry>
+      </row>
      </tbody>
     </tgroup>
    </table>
@@ -15363,6 +15370,16 @@ SELECT (pg_stat_file('filename')).modification;
     catalog. Data checked for consistency is Node Oid (<literal><link linkend="catalog-pgxc-node"><structname>pgxc_node</structname></link>.oid</literal>),
     node port (<literal><link linkend="catalog-pgxc-node"><structname>pgxc_node</structname></link>.node_port</literal>)
     and node host (<literal><link linkend="catalog-pgxc-node"><structname>pgxc_node</structname></link>.node_host</literal>).
+   </para>
+   <indexterm>
+    <primary>pgxc_pool_reload</primary>
+   </indexterm>
+   <para>
+    <function>pgxc_pool_reload</> reloads connection data cached in pooler from
+    <link linkend="catalog-pgxc-node"><structname>pgxc_node</structname></link> catalog
+    and reloads all the information info cached in pooler. All the active transactions
+    are aborted and all existing pooler connections are dropped. This results in having
+    all the temporary and prepared objects dropped on remote and local node for session.
    </para>
 
 &xconly;

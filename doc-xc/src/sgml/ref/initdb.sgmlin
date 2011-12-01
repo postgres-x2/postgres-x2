@@ -28,6 +28,7 @@ PostgreSQL documentation
   <cmdsynopsis>
    <command>initdb</command>
    <arg rep="repeat"><replaceable>option</replaceable></arg>
+   <arg>--nodename <replaceable>nodename</replaceable></arg>
    <group choice="plain">
     <arg>--pgdata</arg>
     <arg>-D </arg>
@@ -160,6 +161,20 @@ PostgreSQL documentation
        </para>
       </listitem>
      </varlistentry>
+
+<!## XC>
+     <varlistentry>
+       <term><option>--nodename=<replaceable class="parameter">nodename</replaceable></option></term>
+       <listitem>
+       <para>
+       Set the name of Postgres-XC node initialized. This option is mandatory when setting a node.
+       It permits to define the node itself in cluster node catalog
+       <link linkend="catalog-pgxc-node"><structname>pgxc_node</structname></link>. The node name
+       specified is also added in <filename>postgresql.conf</> as value of <varname>pgxc_node_name</>.
+       </para>
+       </listitem>
+     </varlistentry>
+<!## end>
 
      <varlistentry>
       <term><option>-E <replaceable class="parameter">encoding</replaceable></option></term>

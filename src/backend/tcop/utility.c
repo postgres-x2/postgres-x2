@@ -1950,25 +1950,21 @@ standard_ProcessUtility(Node *parsetree,
 			RequestBarrier(((BarrierStmt *) parsetree)->id, completionTag);
 			break;
 
+		/*
+		 * Node DDL is an operation local to Coordinator.
+		 * In case of a new node being created in the cluster,
+		 * it is necessary to create this node on all the Coordinators independently.
+		 */
 		case T_AlterNodeStmt:
 			PgxcNodeAlter((AlterNodeStmt *) parsetree);
-
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, true, EXEC_ON_ALL_NODES, false);
 			break;
 
 		case T_CreateNodeStmt:
 			PgxcNodeCreate((CreateNodeStmt *) parsetree);
-
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, true, EXEC_ON_ALL_NODES, false);
 			break;
 
 		case T_DropNodeStmt:
 			PgxcNodeRemove((DropNodeStmt *) parsetree);
-
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, true, EXEC_ON_ALL_NODES, false);
 			break;
 
 		case T_CreateGroupStmt:
@@ -2146,6 +2142,14 @@ ExecUtilityStmtOnNodes(const char *queryString, ExecNodes *nodes,
 	/* Return if query is launched on no nodes */
 	if (exec_type == EXEC_ON_NONE)
 		return;
+
+	/* If no Datanodes defined, the query cannot be launched */
+	if (NumDataNodes == 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+				 errmsg("No PGXC Datanode master defined in cluster"),
+				 errhint("You need to define at least 1 Datanode master with "
+						 "CREATE NODE.")));
 
 	if (!IsConnFromCoord())
 	{

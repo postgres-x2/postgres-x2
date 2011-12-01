@@ -89,7 +89,10 @@ static bool debug = false;
 static bool noclean = false;
 static bool show_setting = false;
 static char *xlog_dir = "";
-
+#ifdef PGXC
+/* Name of the PGXC node initialized */
+static char *nodename = NULL;
+#endif
 
 /* internal vars */
 static const char *progname;
@@ -105,9 +108,6 @@ static char *dictionary_file;
 static char *info_schema_file;
 static char *features_file;
 static char *system_views_file;
-#ifdef PGXC
-static char *cluster_nodes_file;
-#endif
 static bool made_new_pgdata = false;
 static bool found_existing_pgdata = false;
 static bool made_new_xlogdir = false;
@@ -173,7 +173,7 @@ static void get_set_pwd(void);
 static void setup_depend(void);
 static void setup_sysviews(void);
 #ifdef PGXC
-static void setup_clusternodes(void);
+static void setup_nodeself(void);
 #endif
 static void setup_description(void);
 static void setup_collation(void);
@@ -1019,6 +1019,13 @@ setup_config(void)
 	conflines = replace_token(conflines,
 						 "#default_text_search_config = 'pg_catalog.simple'",
 							  repltok);
+#ifdef PGXC
+	/* Add Postgres-XC node name to configuration file */
+	snprintf(repltok, sizeof(repltok),
+			 "pgxc_node_name = '%s'",
+			 escape_quotes(nodename));
+	conflines = replace_token(conflines, "#pgxc_node_name = ''", repltok);	
+#endif
 
 	snprintf(path, sizeof(path), "%s/postgresql.conf", pg_data);
 
@@ -1471,39 +1478,28 @@ setup_sysviews(void)
 
 #ifdef PGXC
 /*
- * set up Postgres-XC cluster node catalog data
+ * set up Postgres-XC cluster node catalog data with node self
+ * which is the node currently initialized.
  */
 static void
-setup_clusternodes(void)
+setup_nodeself(void)
 {
 	PG_CMD_DECL;
-	char	  **line;
-	char	  **nodes_setup;
 
 	fputs(_("creating cluster information ... "), stdout);
 	fflush(stdout);
 
-	nodes_setup = readfile(cluster_nodes_file);
-
-	/*
-	 * We use -j here to avoid backslashing stuff in system_views.sql
-	 */
 	snprintf(cmd, sizeof(cmd),
-			 "\"%s\" %s -j template1 >%s",
+			 "\"%s\" %s template1 >%s",
 			 backend_exec, backend_options,
 			 DEVNULL);
 
 	PG_CMD_OPEN;
 
-	for (line = nodes_setup; *line != NULL; line++)
-	{
-		PG_CMD_PUTS(*line);
-		free(*line);
-	}
+	PG_CMD_PRINTF1("CREATE NODE %s WITH (COORDINATOR MASTER);\n",
+				   nodename);
 
 	PG_CMD_CLOSE;
-
-	free(nodes_setup);
 
 	check_ok();
 }
@@ -2561,10 +2557,13 @@ usage(const char *progname)
 {
 	printf(_("%s initializes a PostgreSQL database cluster.\n\n"), progname);
 	printf(_("Usage:\n"));
-	printf(_("  %s [OPTION]... [DATADIR]\n"), progname);
+	printf(_("  %s [OPTION]... [DATADIR] [NODENAME]\n"), progname);
 	printf(_("\nOptions:\n"));
 	printf(_("  -A, --auth=METHOD         default authentication method for local connections\n"));
 	printf(_(" [-D, --pgdata=]DATADIR     location for this database cluster\n"));
+#ifdef PGXC
+	printf(_("      --nodename=NODENAME   name of Postgres-XC node initialized\n"));
+#endif
 	printf(_("  -E, --encoding=ENCODING   set default encoding for new databases\n"));
 	printf(_("      --locale=LOCALE       set default locale for new databases\n"));
 	printf(_("      --lc-collate=, --lc-ctype=, --lc-messages=LOCALE\n"
@@ -2620,6 +2619,9 @@ main(int argc, char *argv[])
 		{"show", no_argument, NULL, 's'},
 		{"noclean", no_argument, NULL, 'n'},
 		{"xlogdir", required_argument, NULL, 'X'},
+#ifdef PGXC
+		{"nodename", required_argument, NULL, 10},
+#endif
 		{NULL, 0, NULL, 0}
 	};
 
@@ -2739,6 +2741,11 @@ main(int argc, char *argv[])
 			case 'X':
 				xlog_dir = xstrdup(optarg);
 				break;
+#ifdef PGXC
+			case 10:
+				nodename = xstrdup(optarg);
+				break;
+#endif
 			default:
 				/* getopt_long already emitted a complaint */
 				fprintf(stderr, _("Try \"%s --help\" for more information.\n"),
@@ -2769,6 +2776,16 @@ main(int argc, char *argv[])
 		fprintf(stderr, _("%s: password prompt and password file cannot be specified together\n"), progname);
 		exit(1);
 	}
+
+#ifdef PGXC
+	if (!nodename)
+	{
+		fprintf(stderr, _("%s: Postgres-XC node name is mandatory\n"), progname);
+		fprintf(stderr, _("Try \"%s --help\" for more information.\n"),
+				progname);
+		exit(1);
+	}
+#endif
 
 	if (authmethod == NULL || !strlen(authmethod))
 	{
@@ -2965,9 +2982,6 @@ main(int argc, char *argv[])
 	set_input(&info_schema_file, "information_schema.sql");
 	set_input(&features_file, "sql_features.txt");
 	set_input(&system_views_file, "system_views.sql");
-#ifdef PGXC
-	set_input(&cluster_nodes_file, "cluster_nodes.sql");
-#endif
 
 	set_info_version();
 
@@ -3001,9 +3015,6 @@ main(int argc, char *argv[])
 	check_input(info_schema_file);
 	check_input(features_file);
 	check_input(system_views_file);
-#ifdef PGXC
-	check_input(cluster_nodes_file);
-#endif
 
 	setlocales();
 
@@ -3328,7 +3339,8 @@ main(int argc, char *argv[])
 	setup_sysviews();
 
 #ifdef PGXC
-	setup_clusternodes();
+	/* Initialize catalog information about the node self */
+	setup_nodeself();
 #endif
 
 	setup_description();

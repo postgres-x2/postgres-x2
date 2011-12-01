@@ -1123,6 +1123,7 @@ extern Datum pg_cursor(PG_FUNCTION_ARGS);
 #ifdef PGXC
 /* backend/pgxc/pool/poolutils.c */
 extern Datum pgxc_pool_check(PG_FUNCTION_ARGS);
+extern Datum pgxc_pool_reload(PG_FUNCTION_ARGS);
 #endif
 
 #endif   /* BUILTINS_H */
