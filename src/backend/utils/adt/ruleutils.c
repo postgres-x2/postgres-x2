@@ -6835,6 +6835,22 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 							 quote_identifier(rte->eref->aliasname));
 			gavealias = true;
 		}
+#ifdef PGXC
+		else if (rte->rtekind == RTE_SUBQUERY && rte->eref->aliasname)
+		{
+			/*
+			 *
+			 * This condition arises when the from clause is a view. The
+			 * corresponding subquery RTE has its eref set to view name.
+			 * The remote query generated has this subquery of which the
+			 * columns can be referred to as view_name.col1, so it should
+			 * be possible to refer to this subquery object.
+			 */
+			appendStringInfo(buf, " %s",
+							 quote_identifier(rte->eref->aliasname));
+			gavealias = true;
+		}
+#endif
 		else if (rte->rtekind == RTE_FUNCTION)
 		{
 			/*
