@@ -125,6 +125,7 @@ static int	port = -1;
 static int	port_coord2 = 5433;
 static int	port_dn1 = 5434;
 static int	port_dn2 = 5435;
+static int	port_gtm = 6666;
 /*
  * Poolers of coordinators 1 and 2 need an additional port value
  * taken as the default value and the next value.
@@ -137,6 +138,11 @@ const char *data_co2 = "data_co2"; /* Coordinator 2 */
 const char *data_dn1 = "data_dn1"; /* Datanode 1 */
 const char *data_dn2 = "data_dn2"; /* Datanode 2 */
 const char *data_gtm = "data_gtm"; /* GTM */
+/* Node names */
+const char *name_co1 = "coord1"; /* Coordinator 1 */
+const char *name_co2 = "coord2"; /* Coordinator 2 */
+const char *name_dn1 = "dn1"; /* Datanode 1 */
+const char *name_dn2 = "dn2"; /* Datanode 2 */
 #endif
 static bool port_specified_by_user = false;
 static char *dlpath = PKGLIBDIR;
@@ -489,9 +495,34 @@ get_port_number(PGXCNodeTypeNum node)
 			return port_dn1;
 		case PGXC_DATANODE_2:
 			return port_dn2;
+		case PGXC_GTM:
+			return port_gtm;
 		default:
 			/* Should not happen */
 			return -1;
+	}
+}
+
+/*
+ * Get node name of associated node
+ */
+static const char *
+get_node_name(PGXCNodeTypeNum node)
+{
+	switch (node)
+	{
+		case PGXC_COORD_1:
+			return name_co1;
+		case PGXC_COORD_2:
+			return name_co2;
+		case PGXC_DATANODE_1:
+			return name_dn1;
+		case PGXC_DATANODE_2:
+			return name_dn2;
+		case PGXC_GTM:
+		default:
+			/* Should not happen */
+			return NULL;
 	}
 }
 
@@ -534,6 +565,9 @@ set_port_number(PGXCNodeTypeNum node, int port_number)
 			break;
 		case PGXC_DATANODE_2:
 			port_dn2 = port_number;
+			break;
+		case PGXC_GTM:
+			port_gtm = port_number;
 			break;
 		default:
 			/* Should not happen */
@@ -675,11 +709,34 @@ start_gtm(void)
 	char		buf[MAXPGPATH * 4];
 	const char *data_folder = find_data_folder(PGXC_GTM);
 	PID_TYPE	node_pid;
+	FILE	   *gtm_conf_file;
+
+	/*
+	 * Before starting GTM, set up an empty configuration file as
+	 * all the necessary parameters are provided in command.
+	 */
+	snprintf(buf, sizeof(buf), "%s/%s", temp_install, data_folder);
+	make_directory(buf);
+
+	snprintf(buf, sizeof(buf), "%s/%s/gtm.conf", temp_install, data_folder);
+	gtm_conf_file = fopen(buf, PG_BINARY_W);
+    if (gtm_conf_file == NULL)
+	{
+		fprintf(stderr, _("%s: could not open file \"%s\" for writing: %s\n"),
+				progname, buf, strerror(errno));
+		exit_nicely(2);
+	}
+    if (fclose(gtm_conf_file))
+	{
+		fprintf(stderr, _("%s: could not write file \"%s\": %s\n"),
+				progname, buf, strerror(errno));
+		exit_nicely(2);
+	}
 
 	header(_("starting GTM process"));
 	snprintf(buf, sizeof(buf),
-			 SYSTEMQUOTE "\"%s/gtm\" -D \"%s/%s\" -x 10000 > \"%s/log/gtm.log\" 2>&1" SYSTEMQUOTE,
-			 bindir, temp_install, data_folder,
+			 SYSTEMQUOTE "\"%s/gtm\" -D \"%s/%s\" -p %d -x 10000 > \"%s/log/gtm.log\" 2>&1" SYSTEMQUOTE,
+			 bindir, temp_install, data_folder, get_port_number(PGXC_GTM),
 			 outputdir);
 
 	/* Start process */
@@ -754,8 +811,8 @@ initdb_node(PGXCNodeTypeNum node)
 	char		buf[MAXPGPATH * 4];
 
 	snprintf(buf, sizeof(buf),
-			 SYSTEMQUOTE "\"%s/initdb\" -D \"%s/%s\" -L \"%s\" --noclean%s%s > \"%s/log/initdb.log\" 2>&1" SYSTEMQUOTE,
-			 bindir, temp_install, data_folder, datadir,
+			 SYSTEMQUOTE "\"%s/initdb\" --nodename %s -D \"%s/%s\" -L \"%s\" --noclean%s%s > \"%s/log/initdb.log\" 2>&1" SYSTEMQUOTE,
+			 bindir, (char *)get_node_name(node), temp_install, data_folder, datadir,
 			 debug ? " --debug" : "",
 			 nolocale ? " --no-locale" : "",
 			 outputdir);
@@ -789,9 +846,18 @@ set_node_config_file(PGXCNodeTypeNum node)
 	 */
 	fputs("max_prepared_transactions = 50\n", pg_conf);
 
-	/* Insert unique node ID, not 0 */
-	snprintf(buf, sizeof(buf), "pgxc_node_id = %d\n", node + 1);
+	/* Set GTM connection information */
+	fputs("gtm_host = 'localhost'\n", pg_conf);
+	snprintf(buf, sizeof(buf), "gtm_port = %d\n", get_port_number(PGXC_GTM));
 	fputs(buf, pg_conf);
+
+	/* Set pooler port for Coordinators */
+	if (node == PGXC_COORD_1 ||
+		node == PGXC_COORD_2)
+	{
+		snprintf(buf, sizeof(buf), "pooler_port = %d\n", get_pooler_port(node));
+		fputs(buf, pg_conf);
+	}
 
 	if (temp_config != NULL)
 	{
@@ -813,52 +879,92 @@ set_node_config_file(PGXCNodeTypeNum node)
 }
 
 /*
- * Set configuration file of given node
- * depending on port numbers calculated.
+ * Issue a command via psql, connecting to the specified database on wanted node
+ * Since we use system(), this doesn't return until the operation finishes
+ * This code is duplicated with psql_command but this way code impact is limited.
  */
 static void
-set_node_connection_config(PGXCNodeTypeNum node)
+psql_command_node(const char *database, PGXCNodeTypeNum node, const char *query,...)
 {
-	const char *data_folder = find_data_folder(node);
-	FILE	   *pg_conf;
-	char		buf[MAXPGPATH * 4];
+	char		query_formatted[1024];
+	char		query_escaped[2048];
+	char		psql_cmd[MAXPGPATH + 2048];
+	va_list		args;
+	char	   *s;
+	char	   *d;
 
-	/*
-	 * Default connection is used for GTM (localhost:6666)
-	 * PGXCTODO: Calculate GTM port dynamically.
-	 */
-	snprintf(buf, sizeof(buf), "%s/%s/postgresql.conf", temp_install, data_folder);
-	pg_conf = fopen(buf, "a");
-	if (pg_conf == NULL)
+	/* Generate the query with insertion of sprintf arguments */
+	va_start(args, query);
+	vsnprintf(query_formatted, sizeof(query_formatted), query, args);
+	va_end(args);
+
+	/* Now escape any shell double-quote metacharacters */
+	d = query_escaped;
+	for (s = query_formatted; *s; s++)
 	{
-		fprintf(stderr, _("\n%s: could not open \"%s\" for adding connection config: %s\n"), progname, buf, strerror(errno));
+		if (strchr("\\\"$`", *s))
+			*d++ = '\\';
+		*d++ = *s;
+	}
+	*d = '\0';
+
+	/* And now we can build and execute the shell command */
+	snprintf(psql_cmd, sizeof(psql_cmd),
+			 SYSTEMQUOTE "\"%s%spsql\" -X -p %d -c \"%s\" \"%s\"" SYSTEMQUOTE,
+			 psqldir ? psqldir : "",
+			 psqldir ? "/" : "",
+			 get_port_number(node),
+			 query_escaped,
+			 database);
+
+	if (system(psql_cmd) != 0)
+	{
+		/* psql probably already reported the error */
+		fprintf(stderr, _("command failed: %s\n"), psql_cmd);
 		exit_nicely(2);
 	}
+}
 
-	fputs("#Connection parameters related to PGXC nodes\n", pg_conf);
-	fputs("num_data_nodes = 2\n", pg_conf);
-	fputs("num_coordinators = 2\n", pg_conf);
+/*
+ * Setup connection information to remote nodes for coordinator running regression
+ */
+static void
+setup_connection_information(void)
+{
+	header(_("setting connection information"));
+	/* Datanodes on Coordinator 1*/
+	psql_command_node("postgres", PGXC_COORD_1, "CREATE NODE %s WITH (HOSTIP = 'localhost',"
+					  "NODE MASTER, NODEPORT = %d);",
+					  (char *)get_node_name(PGXC_DATANODE_1),
+					  get_port_number(PGXC_DATANODE_1));
+	psql_command_node("postgres", PGXC_COORD_1, "CREATE NODE %s WITH (HOSTIP = 'localhost',"
+					  "NODE MASTER, NODEPORT = %d);",
+					  (char *)get_node_name(PGXC_DATANODE_2),
+					  get_port_number(PGXC_DATANODE_2));
+	/* Datanodes on Coordinator 2 */
+	psql_command_node("postgres", PGXC_COORD_2, "CREATE NODE %s WITH (HOSTIP = 'localhost',"
+					  "NODE MASTER, NODEPORT = %d);",
+					  (char *)get_node_name(PGXC_DATANODE_1),
+					  get_port_number(PGXC_DATANODE_1));
+	psql_command_node("postgres", PGXC_COORD_2, "CREATE NODE %s WITH (HOSTIP = 'localhost',"
+					  "NODE MASTER, NODEPORT = %d);",
+					  (char *)get_node_name(PGXC_DATANODE_2),
+					  get_port_number(PGXC_DATANODE_2));
 
-	/* Coordinator connection parameters */
-	fputs("coordinator_hosts = 'localhost,localhost'\n", pg_conf);
-	snprintf(buf, sizeof(buf), "coordinator_ports = '%d,%d'\n",
-		  get_port_number(PGXC_COORD_1),
-		  get_port_number(PGXC_COORD_2));
-	fputs(buf, pg_conf);
+	/* Remote Coordinator on Coordinator 1 */
+	psql_command_node("postgres", PGXC_COORD_1, "CREATE NODE %s WITH (HOSTIP = 'localhost',"
+					  " COORDINATOR MASTER, NODEPORT = %d);",
+					  (char *)get_node_name(PGXC_COORD_2),
+					  get_port_number(PGXC_COORD_2));
+	/* Remote Coordinator on Coordinator 2 */
+	psql_command_node("postgres", PGXC_COORD_2, "CREATE NODE %s WITH (HOSTIP = 'localhost',"
+					  " COORDINATOR MASTER, NODEPORT = %d);",
+					  (char *)get_node_name(PGXC_COORD_1),
+					  get_port_number(PGXC_COORD_1));
 
-	/* Datanode connection parameters */
-	fputs("data_node_hosts = 'localhost,localhost'\n", pg_conf);
-	snprintf(buf, sizeof(buf), "data_node_ports = '%d,%d'\n",
-		  get_port_number(PGXC_DATANODE_1),
-		  get_port_number(PGXC_DATANODE_2));
-	fputs(buf, pg_conf);
-
-	/* Pooler port number */
-	snprintf(buf, sizeof(buf), "pooler_port = %d\n",
-			 get_pooler_port(node));
-	fputs(buf, pg_conf);
-
-	fclose(pg_conf);
+	/* Then reload the connection data */
+	psql_command_node("postgres", PGXC_COORD_1, "SELECT pgxc_pool_reload();");
+	psql_command_node("postgres", PGXC_COORD_2, "SELECT pgxc_pool_reload();");
 }
 
 /*
@@ -2788,6 +2894,7 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 		/*
 		 * Update configuration file of each node with user-defined options
 		 * and 2PC related information.
+		 * PGXCTODO: calculate port of GTM before setting configuration files
 		 */
 		set_node_config_file(PGXC_COORD_1);
 		set_node_config_file(PGXC_COORD_2);
@@ -2860,17 +2967,6 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 			else
 				break;
 		}
-#endif
-
-#ifdef PGXC
-		/*
-		 * Add extra connection information for Coordinator 1
-		 * Readjust conf file of Coordinator 1 with correct connection parameters.
-		 * This is not necessary for Coordinator 2 as only the 1st one is used as remote for
-		 * regression tests.
-		 */
-		set_node_connection_config(PGXC_COORD_1);
-		set_node_connection_config(PGXC_COORD_2);
 #endif
 
 		/*
@@ -2987,6 +3083,9 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 			   get_port_number(PGXC_DATANODE_1), ULONGPID(get_node_pid(PGXC_DATANODE_1)));
 		printf(_("running on port %d with pid %lu for Datanode 2\n"),
 			   get_port_number(PGXC_DATANODE_2), ULONGPID(get_node_pid(PGXC_DATANODE_2)));
+
+		/* Postmaster is finally running, so set up connection information on Coordinators */
+		setup_connection_information();
 #else
 		printf(_("running on port %d with pid %lu\n"),
 			   port, ULONGPID(postmaster_pid));
