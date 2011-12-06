@@ -1897,6 +1897,13 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 		return false;
 	}
 
+	/*
+	 * From this point onwards, opfuncids should be filled to determine
+	 * immuability of functions. View RTE does not have function oids populated
+	 * in its quals at this point.
+	 */
+	fix_opfuncids((Node *) query->jointree->quals);
+
 	/* Examine the WHERE clause, too */
 	if (examine_conditions_walker(query->jointree->quals, context) ||
 		!is_foreign_expr(query->jointree->quals, NULL))
