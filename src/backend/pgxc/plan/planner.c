@@ -1092,9 +1092,10 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 	if (!context->within_or && !context->within_not && IsA(expr_node, OpExpr))
 	{
 		OpExpr	   *opexpr = (OpExpr *) expr_node;
+		Node       *leftarg = linitial(opexpr->args);
 
 		/* See if we can equijoin these */
-		if (op_mergejoinable(opexpr->opno, opexpr->inputcollid) &&
+		if (op_mergejoinable(opexpr->opno, exprType(leftarg)) &&
 			opexpr->args->length == 2)
 		{
 			Expr	   *arg1 = linitial(opexpr->args);
