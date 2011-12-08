@@ -1058,7 +1058,7 @@ ProcessCommand(Port *myport, StringInfo input_message)
 	GTM_MessageType mtype;
 	GTM_ProxyMsgHeader proxyhdr;
 
-	if (myport->remote_type == PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type == GTM_NODE_GTM_PROXY)
 		pq_copymsgbytes(input_message, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
 	else
 		proxyhdr.ph_conid = InvalidGTMProxyConnID;

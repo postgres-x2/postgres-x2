@@ -24,7 +24,7 @@ main(int argc, char *argv[])
 	GTM_Conn *conn;
 	char connect_string[100];
 
-	sprintf(connect_string, "host=localhost port=6666 node_name=one remote_type=%d", PGXC_NODE_COORDINATOR);
+	sprintf(connect_string, "host=localhost port=6666 node_name=one remote_type=%d", GTM_NODE_COORDINATOR);
 
 	conn = PQconnectGTM(connect_string);
 	if (conn == NULL)

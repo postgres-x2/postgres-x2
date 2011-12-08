@@ -132,7 +132,7 @@ main(int argc, char *argv[])
 		}
 	}
 		
-	sprintf(connect_string, "host=%s port=%d node_name=%s remote_type=%d", gtmhost, gtmport, tmp_name, PGXC_NODE_COORDINATOR);
+	sprintf(connect_string, "host=%s port=%d node_name=%s remote_type=%d", gtmhost, gtmport, tmp_name, GTM_NODE_COORDINATOR);
 
 	sprintf(system_cmd, "echo -------------------------------------------------------- >> %s", test_output);
 	system(system_cmd);

@@ -481,12 +481,12 @@ ProcessPGXCNodeRegister(Port *myport, StringInfo message)
 
 	status = pq_getmsgint(message, sizeof (GTM_PGXCNodeStatus));
 
-	if ((type!=PGXC_NODE_GTM_PROXY) &&
-		(type!=PGXC_NODE_GTM_PROXY_POSTMASTER) &&
-		(type!=PGXC_NODE_COORDINATOR) &&
-		(type!=PGXC_NODE_DATANODE) &&
-		(type!=PGXC_NODE_GTM) &&
-		(type!=PGXC_NODE_DEFAULT))
+	if ((type!=GTM_NODE_GTM_PROXY) &&
+		(type!=GTM_NODE_GTM_PROXY_POSTMASTER) &&
+		(type!=GTM_NODE_COORDINATOR) &&
+		(type!=GTM_NODE_DATANODE) &&
+		(type!=GTM_NODE_GTM) &&
+		(type!=GTM_NODE_DEFAULT))
 		ereport(ERROR,
 				(EINVAL,
 				 errmsg("Unknown node type.")));
@@ -517,7 +517,7 @@ ProcessPGXCNodeRegister(Port *myport, StringInfo message)
 	 */
 	pq_beginmessage(&buf, 'S');
 	pq_sendint(&buf, NODE_REGISTER_RESULT, 4);
-	if (myport->remote_type == PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type == GTM_NODE_GTM_PROXY)
 	{
 		GTM_ProxyMsgHeader proxyhdr;
 		proxyhdr.ph_conid = myport->conn_id;
@@ -530,7 +530,7 @@ ProcessPGXCNodeRegister(Port *myport, StringInfo message)
 	pq_sendbytes(&buf, node_name, strlen(node_name));
 	pq_endmessage(myport, &buf);
 
-	if (myport->remote_type != PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type != GTM_NODE_GTM_PROXY)
 		pq_flush(myport);
 
 	if (GetMyThreadInfo->thr_conn->standby)
@@ -606,7 +606,7 @@ ProcessPGXCNodeUnregister(Port *myport, StringInfo message)
 	 */
 	pq_beginmessage(&buf, 'S');
 	pq_sendint(&buf, NODE_UNREGISTER_RESULT, 4);
-	if (myport->remote_type == PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type == GTM_NODE_GTM_PROXY)
 	{
 		GTM_ProxyMsgHeader proxyhdr;
 		proxyhdr.ph_conid = myport->conn_id;
@@ -620,7 +620,7 @@ ProcessPGXCNodeUnregister(Port *myport, StringInfo message)
 
 	pq_endmessage(myport, &buf);
 
-	if (myport->remote_type != PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type != GTM_NODE_GTM_PROXY)
 		pq_flush(myport);
 
 	if (GetMyThreadInfo->thr_conn->standby)
@@ -697,7 +697,7 @@ ProcessPGXCNodeList(Port *myport, StringInfo message)
 	 */
 	pq_beginmessage(&buf, 'S');
 	pq_sendint(&buf, NODE_LIST_RESULT, 4);
-	if (myport->remote_type == PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type == GTM_NODE_GTM_PROXY)
 	{
 		GTM_ProxyMsgHeader proxyhdr;
 		proxyhdr.ph_conid = myport->conn_id;
@@ -716,7 +716,7 @@ ProcessPGXCNodeList(Port *myport, StringInfo message)
 
 	pq_endmessage(myport, &buf);
 
-	if (myport->remote_type != PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type != GTM_NODE_GTM_PROXY)
 		pq_flush(myport);
 
 	/*

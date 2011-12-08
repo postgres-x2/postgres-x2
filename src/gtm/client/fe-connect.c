@@ -179,7 +179,7 @@ connectOptions1(GTM_Conn *conn, const char *conninfo)
 	tmp = conninfo_getval(connOptions, "postmaster");
 	conn->is_postmaster = tmp ? atoi(tmp) : 0;
 	tmp = conninfo_getval(connOptions, "remote_type");
-	conn->remote_type = tmp ? atoi(tmp) : PGXC_NODE_DEFAULT;
+	conn->remote_type = tmp ? atoi(tmp) : GTM_NODE_DEFAULT;
 
 	/*
 	 * Free the option info - all is in conn now

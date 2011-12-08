@@ -55,12 +55,12 @@ InitGTM(void)
 	/* If this thread is postmaster itself, it contacts gtm identifying itself */
 	if (!IsUnderPostmaster)
 	{
-		GTM_PGXCNodeType remote_type = PGXC_NODE_DEFAULT;
+		GTM_PGXCNodeType remote_type = GTM_NODE_DEFAULT;
 
 		if (IS_PGXC_COORDINATOR)
-			remote_type = PGXC_NODE_COORDINATOR;
+			remote_type = GTM_NODE_COORDINATOR;
 		else if (IS_PGXC_DATANODE)
-			remote_type = PGXC_NODE_DATANODE;
+			remote_type = GTM_NODE_DATANODE;
 
 		sprintf(conn_str, "host=%s port=%d node_name=%s remote_type=%d postmaster=1",
 								GtmHost, GtmPort, PGXCNodeName, remote_type);

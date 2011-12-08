@@ -139,7 +139,6 @@ extern Oid	get_pgxc_nodeoid(const char *nodename);
 extern char	get_pgxc_nodetype(Oid nodeid);
 extern int	get_pgxc_nodeport(Oid nodeid);
 extern char *get_pgxc_nodehost(Oid nodeid);
-extern Oid	get_pgxc_noderelated(Oid nodeid);
 extern bool	is_pgxc_nodepreferred(Oid nodeid);
 extern bool	is_pgxc_nodeprimary(Oid nodeid);
 extern Oid	get_pgxc_groupoid(const char *groupname);

@@ -19,7 +19,7 @@ main(int argc, char *argv[])
 	char connect_string[100];
 
 	//FIXME This statement is wrong
-	sprintf(connect_string, "host=%s port=%d node_name=one remote_type=%d", PGXC_NODE_COORDINATOR);
+	sprintf(connect_string, "host=%s port=%d node_name=one remote_type=%d", GTM_NODE_COORDINATOR);
 
 	conn = PQconnectGTM(connect_string);
 	if (conn == NULL)

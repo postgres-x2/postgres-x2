@@ -51,24 +51,20 @@
 
 static int	datanode_count = 0;
 static int	coord_count = 0;
-static int	datanode_slave_count = 0;
-static int	coord_slave_count = 0;
 
 /*
- * Datanode handles of masters and slaves, saved in Transaction memory context
+ * Datanode handles saved in Transaction memory context
  * when PostgresMain is launched.
  * Those handles are used inside a transaction by Coordinator to Datanodes.
  */
 static PGXCNodeHandle *dn_handles = NULL;
-static PGXCNodeHandle *dn_slave_handles = NULL;
 
 /*
- * Coordinator handles of masters and slaves, saved in Transaction memory context
+ * Coordinator handles saved in Transaction memory context
  * when PostgresMain is launched.
  * Those handles are used inside a transaction by Coordinator to Coordinators
  */
 static PGXCNodeHandle *co_handles = NULL;
-static PGXCNodeHandle *co_slave_handles = NULL;
 
 static void pgxc_node_init(PGXCNodeHandle *handle, int sock);
 static void pgxc_node_free(PGXCNodeHandle *handle);
@@ -118,7 +114,7 @@ void
 InitMultinodeExecutor(bool is_force)
 {
 	int				count;
-	Oid				*coOids, *dnOids, *coslaveOids, *dnslaveOids;
+	Oid				*coOids, *dnOids;
 
 	/* Free all the existing information first */
 	if (is_force)
@@ -126,14 +122,11 @@ InitMultinodeExecutor(bool is_force)
 
 	/* This function could get called multiple times because of sigjmp */
 	if (dn_handles != NULL &&
-		co_handles != NULL &&
-		dn_slave_handles != NULL &&
-		co_slave_handles != NULL)
+		co_handles != NULL)
 		return;
 
 	/* Get classified list of node Oids */
-	PgxcNodeListAndCount(&coOids, &dnOids, &coslaveOids, &dnslaveOids,
-						 &NumCoords, &NumDataNodes, &NumCoordSlaves, &NumDataNodeSlaves);
+	PgxcNodeListAndCount(&coOids, &dnOids, &NumCoords, &NumDataNodes);
 
 	/* Do proper initialization of handles */
 	if (NumDataNodes > 0)
@@ -142,17 +135,9 @@ InitMultinodeExecutor(bool is_force)
 	if (NumCoords > 0)
 		co_handles = (PGXCNodeHandle *)
 			palloc(NumCoords * sizeof(PGXCNodeHandle));
-	if (NumDataNodeSlaves > 0)
-		dn_slave_handles = (PGXCNodeHandle *)
-			palloc(NumDataNodeSlaves * sizeof(PGXCNodeHandle));
-	if (NumCoordSlaves > 0)
-		co_slave_handles = (PGXCNodeHandle *)
-			palloc(NumCoordSlaves * sizeof(PGXCNodeHandle));
 
 	if ((!dn_handles && NumDataNodes > 0) ||
-		(!co_handles && NumCoords > 0) ||
-		(!dn_slave_handles && NumDataNodeSlaves > 0) ||
-		(!co_slave_handles && NumCoordSlaves > 0))
+		(!co_handles && NumCoords > 0))
 		ereport(ERROR,
 				(errcode(ERRCODE_OUT_OF_MEMORY),
 				 errmsg("out of memory for node handles")));
@@ -168,21 +153,9 @@ InitMultinodeExecutor(bool is_force)
 		init_pgxc_handle(&co_handles[count]);
 		co_handles[count].nodeoid = coOids[count];
 	}
-	for (count = 0; count < NumCoordSlaves; count++)
-	{
-		init_pgxc_handle(&co_slave_handles[count]);
-		co_slave_handles[count].nodeoid = coslaveOids[count];
-	}
-	for (count = 0; count < NumDataNodeSlaves; count++)
-	{
-		init_pgxc_handle(&dn_slave_handles[count]);
-		dn_slave_handles[count].nodeoid = dnslaveOids[count];
-	}
 
 	datanode_count = 0;
 	coord_count = 0;
-	datanode_slave_count = 0;
-	coord_slave_count = 0;
 	PGXCNodeId = 0;
 
 	/* Finally determine which is the node-self */
@@ -338,14 +311,6 @@ pgxc_node_all_free(void)
 				num_nodes = NumDataNodes;
 				array_handles = dn_handles;
 				break;
-			case 2:
-				num_nodes = NumCoordSlaves;
-				array_handles = co_slave_handles;
-				break;
-			case 3:
-				num_nodes = NumDataNodeSlaves;
-				array_handles = dn_slave_handles;
-				break;
 			default:
 				Assert(0);
 		}
@@ -361,8 +326,6 @@ pgxc_node_all_free(void)
 
 	co_handles = NULL;
 	dn_handles = NULL;
-	co_slave_handles = NULL;
-	dn_slave_handles = NULL;
 }
 
 /*
@@ -840,7 +803,7 @@ cancel_query(void)
 				if (handle->state != DN_CONNECTION_STATE_IDLE)
 				{
 					dn_cancel[dn_count++] = PGXCNodeGetNodeId(handle->nodeoid,
-															  PGXC_NODE_DATANODE_MASTER);
+															  PGXC_NODE_DATANODE);
 				}
 			}
 		}
@@ -863,7 +826,7 @@ cancel_query(void)
 				if (handle->state != DN_CONNECTION_STATE_IDLE)
 				{
 					co_cancel[dn_count++] = PGXCNodeGetNodeId(handle->nodeoid,
-															  PGXC_NODE_COORD_MASTER);
+															  PGXC_NODE_COORDINATOR);
 				}
 			}
 		}
@@ -2262,21 +2225,13 @@ PGXCNodeGetNodeId(Oid nodeoid, char node_type)
 
 	switch (node_type)
 	{
-		case PGXC_NODE_COORD_MASTER:
+		case PGXC_NODE_COORDINATOR:
 			num_nodes = NumCoords;
 			handles = co_handles;
 			break;
-		case PGXC_NODE_DATANODE_MASTER:
+		case PGXC_NODE_DATANODE:
 			num_nodes = NumDataNodes;
 			handles = dn_handles;
-			break;
-		case PGXC_NODE_COORD_SLAVE:
-			num_nodes = NumCoordSlaves;
-			handles = co_slave_handles;
-			break;
-		case PGXC_NODE_DATANODE_SLAVE:
-			num_nodes = NumDataNodeSlaves;
-			handles = dn_slave_handles;
 			break;
 		default:
 			/* Should not happen */
@@ -2307,17 +2262,11 @@ PGXCNodeGetNodeOid(int nodeid, char node_type)
 
 	switch (node_type)
 	{
-		case PGXC_NODE_COORD_MASTER:
+		case PGXC_NODE_COORDINATOR:
 			handles = co_handles;
 			break;
-		case PGXC_NODE_DATANODE_MASTER:
+		case PGXC_NODE_DATANODE:
 			handles = dn_handles;
-			break;
-		case PGXC_NODE_COORD_SLAVE:
-			handles = co_slave_handles;
-			break;
-		case PGXC_NODE_DATANODE_SLAVE:
-			handles = dn_slave_handles;
 			break;
 		default:
 			/* Should not happen */

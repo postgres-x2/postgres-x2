@@ -1144,7 +1144,7 @@ build_subcluster_data(PGXCSubCluster *subcluster, int *numnodes)
 			Form_pgxc_node  pgxc_node = (Form_pgxc_node) GETSTRUCT(tuple);
 
 			/* Add only Datanode masters */
-			if (pgxc_node->node_type != PGXC_NODE_DATANODE_MASTER)
+			if (pgxc_node->node_type != PGXC_NODE_DATANODE)
 				continue;
 
 			(*numnodes)++;
@@ -1201,7 +1201,7 @@ build_subcluster_data(PGXCSubCluster *subcluster, int *numnodes)
 						 errmsg("PGXC Node %s: object not defined",
 								node_name)));
 
-			if (get_pgxc_nodetype(noid) != PGXC_NODE_DATANODE_MASTER)
+			if (get_pgxc_nodetype(noid) != PGXC_NODE_DATANODE)
 				ereport(ERROR,
 						(errcode(ERRCODE_SYNTAX_ERROR),
 						 errmsg("PGXC node %s: not a Datanode master",

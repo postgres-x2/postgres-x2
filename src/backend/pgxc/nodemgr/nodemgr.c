@@ -30,15 +30,14 @@
 /* Global number of nodes */
 int         NumDataNodes = 2;
 int         NumCoords = 1;
-int         NumCoordSlaves = 0;
-int         NumDataNodeSlaves = 0;
 
 /*
- * Check list of options and return things filled
+ * Check list of options and return things filled.
+ * This includes check on option values.
  */
 static void
 check_options(List *options, DefElem **dhost,
-			DefElem **drelated, DefElem **dport, DefElem **dtype, 
+			DefElem **dport, DefElem **dtype, 
 			DefElem **is_primary, DefElem **is_preferred)
 {
 	ListCell   *option;
@@ -55,19 +54,27 @@ check_options(List *options, DefElem **dhost,
 
 		if (strcmp(defel->defname, "port") == 0)
 		{
+			int port_value;
+
 			if (*dport)
 				ereport(ERROR,
 						(errcode(ERRCODE_SYNTAX_ERROR),
 						 errmsg("conflicting or redundant options")));
-			*dport = defel;
-		}
-		else if (strcmp(defel->defname, "related") == 0)
-		{
-			if (*drelated)
+
+			/* Value is mandatory */
+			if (!defel->arg)
 				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("conflicting or redundant options")));
-			*drelated = defel;
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("port value is not specified")));
+
+			*dport = defel;
+
+			port_value = intVal(defel->arg);
+			if (port_value < 1 || port_value > 65535)
+				ereport(ERROR,
+						(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
+						 errmsg("port value is out of range")));
+
 		}
 		else if (strcmp(defel->defname, "host") == 0)
 		{
@@ -75,15 +82,38 @@ check_options(List *options, DefElem **dhost,
 				ereport(ERROR,
 						(errcode(ERRCODE_SYNTAX_ERROR),
 						 errmsg("conflicting or redundant options")));
+
+			/* Value is mandatory */
+			if (!defel->arg)
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("host value is not specified")));
+
 			*dhost = defel;
 		}
 		else if (strcmp(defel->defname, "type") == 0)
 		{
+			char *nodetype;
+
 			if (*dtype)
 				ereport(ERROR,
 						(errcode(ERRCODE_SYNTAX_ERROR),
 						 errmsg("conflicting or redundant options")));
+
 			*dtype = defel;
+
+			/* Value is mandatory */
+			if (!defel->arg)
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("type value is not specified")));
+
+			nodetype = strVal(defel->arg);
+			if (strcmp(nodetype, "coordinator") != 0 &&
+				strcmp(nodetype, "datanode") != 0)
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("type value is incorrect, specify 'coordinator or 'datanode'")));
 		}
 		else if (strcmp(defel->defname, "primary") == 0)
 		{
@@ -91,6 +121,12 @@ check_options(List *options, DefElem **dhost,
 				ereport(ERROR,
 						(errcode(ERRCODE_SYNTAX_ERROR),
 						 errmsg("conflicting or redundant options")));
+
+			if (defel->arg)
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("a value cannot be specified with primary")));
+
 			*is_primary = defel;
 		}
 		else if (strcmp(defel->defname, "preferred") == 0)
@@ -99,7 +135,18 @@ check_options(List *options, DefElem **dhost,
 				ereport(ERROR,
 						(errcode(ERRCODE_SYNTAX_ERROR),
 						 errmsg("conflicting or redundant options")));
+			if (defel->arg)
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("a value cannot be specified with preferred")));
+
 			*is_preferred = defel;
+		}
+		else
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("incorrect option: %s", defel->defname)));
 		}
 	}
 }
@@ -133,8 +180,7 @@ cmp_nodes(const void *p1, const void *p2)
  * an ordered list of node Oids for each PGXC node type.
  */
 void
-PgxcNodeListAndCount(Oid **coOids, Oid **dnOids, Oid **coslaveOids, Oid **dnslaveOids,
-					 int *num_coords, int *num_dns, int *num_co_slaves, int *num_dn_slaves)
+PgxcNodeListAndCount(Oid **coOids, Oid **dnOids, int *num_coords, int *num_dns)
 {
 	Relation rel;
 	HeapScanDesc scan;
@@ -142,8 +188,6 @@ PgxcNodeListAndCount(Oid **coOids, Oid **dnOids, Oid **coslaveOids, Oid **dnslav
 
 	*num_coords = 0;
 	*num_dns = 0;
-	*num_co_slaves = 0;
-	*num_dn_slaves = 0;
 
 	/* Don't forget to reinitialize primary and preferred nodes also */
 	primary_data_node = InvalidOid;
@@ -167,25 +211,15 @@ PgxcNodeListAndCount(Oid **coOids, Oid **dnOids, Oid **coslaveOids, Oid **dnslav
 		/* Take data for given node type */
 		switch (nodeForm->node_type)
 		{
-			case PGXC_NODE_COORD_MASTER:
+			case PGXC_NODE_COORDINATOR:
 				(*num_coords)++;
 				numnodes = *num_coords;
 				nodes = coOids;
 				break;
-			case PGXC_NODE_DATANODE_MASTER:
+			case PGXC_NODE_DATANODE:
 				(*num_dns)++;
 				numnodes = *num_dns;
 				nodes = dnOids;
-				break;
-			case PGXC_NODE_COORD_SLAVE:
-				(*num_co_slaves)++;
-				numnodes = *num_co_slaves;
-				nodes = coslaveOids;
-				break;
-			case PGXC_NODE_DATANODE_SLAVE:
-				(*num_dn_slaves)++;
-				numnodes = *num_dn_slaves;
-				nodes = dnslaveOids;
 				break;
 			default:
 				break;
@@ -219,10 +253,6 @@ PgxcNodeListAndCount(Oid **coOids, Oid **dnOids, Oid **coslaveOids, Oid **dnslav
 		qsort(*coOids, *num_coords, sizeof(Oid), cmp_nodes);
 	if (NumDataNodes != 0)
 		qsort(*dnOids, *num_dns, sizeof(Oid), cmp_nodes);
-	if (NumDataNodeSlaves != 0)
-		qsort(*coslaveOids, *num_co_slaves, sizeof(Oid), cmp_nodes);
-	if (NumDataNodeSlaves != 0)
-		qsort(*dnslaveOids, *num_dn_slaves, sizeof(Oid), cmp_nodes);
 }
 
 /*
@@ -234,7 +264,6 @@ void
 PgxcNodeCreate(CreateNodeStmt *stmt)
 {
 	Relation	pgxcnodesrel;
-	Oid		node_relatedoid;
 	HeapTuple	htup;
 	bool		nulls[Natts_pgxc_node];
 	Datum		values[Natts_pgxc_node];
@@ -242,13 +271,11 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 	int		i;
 	/* Options */
 	DefElem		*dhost = NULL;
-	DefElem		*drelated = NULL;
 	DefElem		*dport = NULL;
 	DefElem		*dtype = NULL;
 	DefElem		*is_primary = NULL;
 	DefElem		*is_preferred = NULL;
 	const char	*node_host = NULL;
-	const char	*node_related = NULL;
 	char		node_type;
 	int			node_port;
 	bool		nodeis_primary = false;
@@ -269,11 +296,11 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 
 	/* Filter options */
 	check_options(stmt->options, &dhost,
-				&drelated, &dport, &dtype,
+				&dport, &dtype,
 				&is_primary, &is_preferred);
 
 	/* Then assign default values if necessary */
-	if (dport && dport->arg)
+	if (dport)
 	{
 		node_port = intVal(dport->arg);
 	}
@@ -286,7 +313,7 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 	}
 
 	/* For host */
-	if (dhost && dhost->arg)
+	if (dhost)
 	{
 		node_host = strVal(dhost->arg);
 	}
@@ -299,15 +326,14 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 	}
 
 	/* For node type */
-	if (dtype && dtype->arg)
+	if (dtype)
 	{
 		char *loc;
 		loc = strVal(dtype->arg);
-		node_type = *loc;
-		Assert(node_type == PGXC_NODE_COORD_MASTER ||
-			   node_type == PGXC_NODE_COORD_SLAVE ||
-			   node_type == PGXC_NODE_DATANODE_MASTER ||
-			   node_type == PGXC_NODE_DATANODE_SLAVE);
+		if (strcmp(loc, "coordinator") == 0)
+			node_type = PGXC_NODE_COORDINATOR;
+		else
+			node_type = PGXC_NODE_DATANODE;
 	}
 	else
 	{
@@ -315,60 +341,6 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 		ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
 				 errmsg("PGXC node %s: Node type not specified",
-						node_name)));
-	}
-
-	/* For node related */
-	if (drelated && drelated->arg &&
-		(node_type == PGXC_NODE_COORD_SLAVE ||
-		 node_type == PGXC_NODE_DATANODE_SLAVE))
-	{
-		/* Check if this related node exists for given name and get Oid */
-		node_related = strVal(drelated->arg);
-		node_relatedoid = get_pgxc_nodeoid(node_related);
-		if (!OidIsValid(node_relatedoid))
-			ereport(ERROR,
-					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("PGXC node %s: related node not existing",
-							node_name)));
-	}
-	else
-	{
-		/* Apply default */
-		node_relatedoid = InvalidOid;
-		elog(LOG, "PGXC node %s: Applying default related value",
-			 node_name);
-	}
-
-	/*
-	 * A master node cannot have a related node specified
-	 * this would mean that this master is under another master.
-	 */
-	if ((node_type == PGXC_NODE_COORD_MASTER ||
-		 node_type == PGXC_NODE_DATANODE_MASTER) &&
-		OidIsValid(node_relatedoid))
-		ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("PGXC node %s: Related node specified for master",
-						node_name)));
-
-	/*
-	 * If a slave node is defined, a related node is mandatory
-	 * It doesn't matter if related node is master or slave.
-	 */
-	if ((node_type == PGXC_NODE_COORD_SLAVE ||
-		 node_type == PGXC_NODE_DATANODE_SLAVE) &&
-		!OidIsValid(node_relatedoid))
-		ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("PGXC node %s: Related node not specified for slave",
-						node_name)));
-
-	if (node_port < 1 || node_port > 65535)
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
-				 errmsg("PGXC node %s: port value out of range",
 						node_name)));
 	}
 
@@ -381,7 +353,7 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 
 	if (is_primary)
 	{
-		if (node_type != PGXC_NODE_DATANODE_MASTER)
+		if (node_type != PGXC_NODE_DATANODE)
 			ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
 					errmsg("PGXC node %s: cannot be a primary node, it has to be a master Datanode",
@@ -397,7 +369,7 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 
 	if (is_preferred)
 	{
-		if (node_type != PGXC_NODE_DATANODE_MASTER)
+		if (node_type != PGXC_NODE_DATANODE)
 			ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
 					errmsg("PGXC node %s: cannot be a preferred node, it has to be a master Datanode",
@@ -416,7 +388,6 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 	/* Build entry tuple */
 	values[Anum_pgxc_node_name - 1] = DirectFunctionCall1(namein, CStringGetDatum(node_name));
 	values[Anum_pgxc_node_type - 1] = CharGetDatum(node_type);
-	values[Anum_pgxc_node_related - 1] = ObjectIdGetDatum(node_relatedoid);
 	values[Anum_pgxc_node_port - 1] = Int32GetDatum(node_port);
 	values[Anum_pgxc_node_host - 1] = DirectFunctionCall1(namein, CStringGetDatum(node_host));
 	values[Anum_pgxc_node_is_primary - 1] = BoolGetDatum(nodeis_primary);
@@ -441,20 +412,17 @@ void
 PgxcNodeAlter(AlterNodeStmt *stmt)
 {
 	DefElem		*dhost = NULL;
-	DefElem		*drelated = NULL;
 	DefElem		*dport = NULL;
 	DefElem		*dtype = NULL;
 	DefElem		*is_primary = NULL;
 	DefElem		*is_preferred = NULL;
 	const char	*node_name = stmt->node_name;
 	const char	*node_host = NULL;
-	const char	*node_related = NULL;
 	char		node_type = PGXC_NODE_NONE;
 	int			node_port = 0;
 	bool		nodeis_preferred = false;
 	bool		nodeis_primary = false;
 	HeapTuple	oldtup, newtup;
-	Oid			relatedOid = InvalidOid;
 	Oid			nodeOid = get_pgxc_nodeoid(node_name);
 	Relation	rel;
 	Datum		new_record[Natts_pgxc_node];
@@ -484,30 +452,21 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 
 	/* Filter options */
 	check_options(stmt->options, &dhost,
-				&drelated, &dport, &dtype,
+				&dport, &dtype,
 				&is_primary, &is_preferred);
 
 	/* Host value */
-	if (dhost && dhost->arg)
+	if (dhost)
 		node_host = strVal(dhost->arg);
 
 	/* Port value */
-	if (dport && dport->arg)
-	{
+	if (dport)
 		node_port = intVal(dport->arg);
-		if (node_port < 1 || node_port > 65535)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
-					 errmsg("PGXC node %s: port value out of range",
-							node_name)));
-		}
-	}
 
 	/* Primary node */
 	if (is_primary)
 	{
-		if (get_pgxc_nodetype(nodeOid) != PGXC_NODE_DATANODE_MASTER)
+		if (get_pgxc_nodetype(nodeOid) != PGXC_NODE_DATANODE)
 			ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
 					errmsg("PGXC node %s: cannot be a primary node, it has to be a master Datanode",
@@ -524,7 +483,7 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 	/* Preferred node */
 	if (is_preferred)
 	{
-		if (get_pgxc_nodetype(nodeOid) != PGXC_NODE_DATANODE_MASTER)
+		if (get_pgxc_nodetype(nodeOid) != PGXC_NODE_DATANODE)
 			ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
 					errmsg("PGXC node %s: cannot be a preferred node, it has to be a master Datanode",
@@ -532,71 +491,31 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 		nodeis_preferred = true;
 	}
 
-	/* Related node */
-	if (drelated && drelated->arg)
-	{
-		node_related = strVal(drelated->arg);
-		relatedOid = get_pgxc_nodeoid(node_related);
-		if (!OidIsValid(relatedOid))
-			ereport(ERROR,
-					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("PGXC node %s: related node not existing",
-							node_name)));
-
-		/* Just in case... */
-		if (relatedOid == nodeOid)
-			ereport(ERROR,
-					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("PGXC node %s: node referencing to itself",
-							node_name)));
-	}
-
 	/* For node type */
-	if (dtype && dtype->arg)
+	if (dtype)
 	{
 		char *loc;
 		Form_pgxc_node loctup = (Form_pgxc_node) GETSTRUCT(oldtup);
 		char node_type_old = loctup->node_type;
 
 		loc = strVal(dtype->arg);
-		node_type = *loc;
-		Assert(node_type == PGXC_NODE_COORD_MASTER ||
-			   node_type == PGXC_NODE_COORD_SLAVE ||
-			   node_type == PGXC_NODE_DATANODE_MASTER ||
-			   node_type == PGXC_NODE_DATANODE_SLAVE);
+		if (strcmp(loc, "coordinator") == 0)
+			node_type = PGXC_NODE_COORDINATOR;
+		else
+			node_type = PGXC_NODE_DATANODE;
 
 		/* Check type dependency */
-		if ((node_type_old == PGXC_NODE_COORD_MASTER ||
-			 node_type_old == PGXC_NODE_COORD_SLAVE) &&
-			(node_type == PGXC_NODE_DATANODE_MASTER ||
-			 node_type == PGXC_NODE_DATANODE_SLAVE))
+		if (node_type_old == PGXC_NODE_COORDINATOR &&
+			node_type == PGXC_NODE_DATANODE)
 			ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("PGXC node %s: cannot promote Coordinator to Datanode",
+					 errmsg("PGXC node %s: cannot alter Coordinator to Datanode",
 							node_name)));
-		else if ((node_type_old == PGXC_NODE_DATANODE_MASTER ||
-			 node_type_old == PGXC_NODE_DATANODE_SLAVE) &&
-			(node_type == PGXC_NODE_COORD_MASTER ||
-			 node_type == PGXC_NODE_COORD_SLAVE))
+		else if (node_type_old == PGXC_NODE_DATANODE &&
+				 node_type == PGXC_NODE_COORDINATOR)
 			ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("PGXC node %s: cannot promote Datanode to Coordinator",
-							node_name)));
-
-		/* Check related/type dependency */
-		if ((node_type == PGXC_NODE_COORD_SLAVE ||
-			 node_type == PGXC_NODE_DATANODE_SLAVE) &&
-			!OidIsValid(relatedOid))
-			ereport(ERROR,
-					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("PGXC node %s: undefined related node for slave node",
-							node_name)));
-		if ((node_type == PGXC_NODE_COORD_MASTER ||
-			 node_type == PGXC_NODE_DATANODE_MASTER) &&
-			OidIsValid(relatedOid))
-			ereport(ERROR,
-					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("PGXC node %s: defined related node for master node",
+					 errmsg("PGXC node %s: cannot alter Datanode to Coordinator",
 							node_name)));
 	}
 
@@ -614,14 +533,6 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 		new_record[Anum_pgxc_node_host - 1] = 
 			DirectFunctionCall1(namein, CStringGetDatum(node_host));
 		new_record_repl[Anum_pgxc_node_host - 1] = true;
-	}
-	if (drelated ||
-		node_type == PGXC_NODE_COORD_MASTER ||
-		node_type == PGXC_NODE_DATANODE_MASTER)
-	{
-		/* Force update of related node to InvalidOid if node is changed to master */
-		new_record[Anum_pgxc_node_related - 1] = ObjectIdGetDatum(relatedOid);
-		new_record_repl[Anum_pgxc_node_related - 1] = true;
 	}
 	if (node_type != PGXC_NODE_NONE)
 	{

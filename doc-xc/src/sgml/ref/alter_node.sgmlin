@@ -21,11 +21,14 @@ PostgreSQL documentation
 
  <refsynopsisdiv>
 <synopsis>
-ALTER NODE <replaceable class="parameter">nodename</replaceable> SET
-  [ NODEPORT = <replaceable class="parameter">nodenum</replaceable>, ]
-  [ HOSTIP = <replaceable class="parameter">hostname</replaceable>, ]
-  [ RELATED ( TO <replaceable class="parameter">nodename</replaceable> | NONE ), ]
-  [ (COORDINATOR | NODE) (MASTER | SLAVE) ]
+ALTER NODE <replaceable class="parameter">nodename</replaceable> WITH
+  (
+    [ TYPE = <replaceable class="parameter">nodetype</replaceable>,]
+    [ HOST = <replaceable class="parameter">hostname</replaceable>,]
+    [ PORT = <replaceable class="parameter">portnum</replaceable>,]
+    [ PRIMARY,]
+    [ PREFERRED ]
+  )
 
 </synopsis>
  </refsynopsisdiv>
@@ -64,23 +67,11 @@ ALTER NODE <replaceable class="parameter">nodename</replaceable> SET
      </varlistentry>
 
      <varlistentry>
-      <term><literal>COORDINATOR</literal></term>
-      <term><literal>NODE</literal></term>
+      <term><literal>TYPE</literal></term>
       <listitem>
        <para>
-        The type of the cluster node. <literal>COORDINATOR</literal> for
-        a Coordinator node, <literal>NODE</literal> for a Datanode.
-       </para>
-      </listitem>
-     </varlistentry>
-
-     <varlistentry>
-      <term><literal>SLAVE</literal></term>
-      <term><literal>MASTER</literal></term>
-      <listitem>
-       <para>
-        The standby status of the node. <literal>MASTER</literal> for
-        a master node, <literal>SLAVE</literal> for a standby/slave node.
+        The type of the cluster node. It is possible to specify
+        a Coordinator node or a Datanode node.
        </para>
       </listitem>
      </varlistentry>
@@ -106,13 +97,12 @@ ALTER NODE <replaceable class="parameter">nodename</replaceable> SET
      </varlistentry>
 
      <varlistentry>
-      <term><literal>RELATED TO</literal></term>
-      <term><literal>RELATED NONE</literal></term>
+      <term><replaceable class="parameter">nodetype</replaceable></term>
       <listitem>
        <para>
-        Defines for a slave node on which master/slave node this node is
-        dependant by replication. <literal>RELATED NONE</literal> is used
-        in the case where node is modified such as to be not dependant to another one.
+        The node type for given cluster node. Possible values are:
+        'coordinator' for a Coordinator node and 'datanode' for a
+        Datanode node.
        </para>
       </listitem>
      </varlistentry>
@@ -141,19 +131,8 @@ ALTER NODE <replaceable class="parameter">nodename</replaceable> SET
  <refsect1>
   <title>Notes</title>
   <para>
-    A slave Datanode cannot be modified as <literal>PRIMARY</literal> but
-    it can be modified as <literal>PREFERRED</literal>.
-  </para>
-
-  <para>
-    A master node cannot have a related node defined with <literal>
-    RELATED TO</literal>. Defining a related node on a slave is mandatory.
-  </para>
-
-  <para>
-    A slave node can be promoted to a master node with <literal>RELATED NONE
-    </literal>, but in this case the node type has to be changed from
-    <literal>SLAVE</literal> to <literal>MASTER</literal>.
+    A Datanode can be modified as <literal>PRIMARY</literal> and
+    as <literal>PREFERRED</literal> as many times as necessary.
   </para>
 
   <para>
@@ -166,14 +145,7 @@ ALTER NODE <replaceable class="parameter">nodename</replaceable> SET
   <para>
    Modify a Coordinator node located on local machine to use port 6543.
 <programlisting>
-ALTER NODE coord_node SET PORTNUM = 6543;
-</programlisting>
-  </para>
-
-  <para>
-   Promote a slave datanode to master.
-<programlisting>
-ALTER NODE data_node SET DATANODE MASTER, RELATED TO NONE;
+ALTER NODE coord_node WITH (PORT = 6543, HOST = 'localhost');
 </programlisting>
   </para>
 

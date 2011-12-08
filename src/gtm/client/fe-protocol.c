@@ -189,7 +189,7 @@ gtmpqGetError(GTM_Conn *conn, GTM_Result *result)
 	 * If we are a GTM proxy, expect an additional proxy header in the incoming
 	 * message.
 	 */
-	if (conn->remote_type == PGXC_NODE_GTM_PROXY)
+	if (conn->remote_type == GTM_NODE_GTM_PROXY)
 	{
 		if (gtmpqGetnchar((char *)&result->gr_proxyhdr,
 					sizeof (GTM_ProxyMsgHeader), conn))
@@ -306,7 +306,7 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 		return 1;
 	result->gr_msglen -= 4;
 
-	if (conn->remote_type == PGXC_NODE_GTM_PROXY)
+	if (conn->remote_type == GTM_NODE_GTM_PROXY)
 	{
 		if (gtmpqGetnchar((char *)&result->gr_proxyhdr,
 					sizeof (GTM_ProxyMsgHeader), conn))
@@ -780,7 +780,7 @@ gtmpqFreeResultData(GTM_Result *result, GTM_PGXCNodeType remote_type)
 	 * change though as we add more message types below and some of them may
 	 * need cleanup even at the proxy level
 	 */
-	if (remote_type == PGXC_NODE_GTM_PROXY)
+	if (remote_type == GTM_NODE_GTM_PROXY)
 		return;
 
 	switch (result->gr_type)

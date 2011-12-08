@@ -1150,7 +1150,7 @@ node_get_local_addr(GTM_Conn *conn, char *buf, size_t buflen, int *rc)
 	memset(local_port, 0, sizeof(local_port));
 	memset(buf, 0, buflen);
 
-	if (conn->remote_type != PGXC_NODE_GTM_PROXY)
+	if (conn->remote_type != GTM_NODE_GTM_PROXY)
 	{
 		if (gtm_getnameinfo_all(&conn->laddr.addr, conn->laddr.salen,
 					local_host, sizeof(local_host),

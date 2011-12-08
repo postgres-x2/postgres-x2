@@ -6537,19 +6537,8 @@
       <entry><type>char</type></entry>
       <entry></entry>
       <entry>Type of cluster node.
-       It is <literal>C</literal> for a Coordinator master.
-       It is <literal>D</literal> for a Datanode master.
-       It is <literal>S</literal> for a Coordinator master.
-       It is <literal>X</literal> for a Datanode master.
-      </entry>
-     </row>
-
-     <row>
-      <entry><structfield>node_related</structfield></entry>
-      <entry><type>oid</type></entry>
-      <entry><literal><link linkend="catalog-pgxc-node"><structname>pgxc_node</structname></link>.oid</literal></entry>
-      <entry>Oid of related cluster node.
-       Only Slave nodes can have related nodes from which they synchronize.
+       It is <literal>C</literal> for a Coordinator.
+       It is <literal>D</literal> for a Datanode.
       </entry>
      </row>
 
@@ -6572,7 +6561,7 @@
       <entry><type>bool</type></entry>
       <entry></entry>
       <entry>Defines if node is a primary node.
-       Only Datanode master can be a primary node.
+       Only Datanode can be a primary node.
       </entry>
      </row>
 

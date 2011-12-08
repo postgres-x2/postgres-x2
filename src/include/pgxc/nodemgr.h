@@ -26,9 +26,7 @@ extern int  NumCoordSlaves;
 extern int  NumDataNodeSlaves;
 
 extern void PgxcNodeListAndCount(Oid **coOids, Oid **dnOids,
-								 Oid **coslaveOids, Oid **dnslaveOids,
-								 int *num_coords, int *num_dns,
-								 int *num_co_slaves, int *num_dn_slaves);
+								 int *num_coords, int *num_dns);
 extern void PgxcNodeAlter(AlterNodeStmt *stmt);
 extern void PgxcNodeCreate(CreateNodeStmt *stmt);
 extern void PgxcNodeRemove(DropNodeStmt *stmt);

@@ -241,11 +241,10 @@ static void SplitColQualList(List *qualList,
 %type <list>	createdb_opt_list alterdb_opt_list copy_opt_list
 				transaction_mode_list
 				create_extension_opt_list alter_extension_opt_list
-				pgxcnode_list pgxcnode_opt_list
+				pgxcnode_list
 %type <defelt>	createdb_opt_item alterdb_opt_item copy_opt_item
 				transaction_mode_item
 				create_extension_opt_item alter_extension_opt_item
-				pgxcnode_opt_item pgxcnode_type
 
 %type <ival>	opt_lock lock_type cast_context
 %type <ival>	vacuum_option_list vacuum_option_elem
@@ -532,7 +531,7 @@ static void SplitColQualList(List *qualList,
 	GLOBAL GRANT GRANTED GREATEST GROUP_P
 
 /* PGXC_BEGIN */
-	HANDLER HASH HAVING HEADER_P HOLD HOSTIP HOUR_P
+	HANDLER HASH HAVING HEADER_P HOLD HOUR_P
 /* PGXC_END */
 
 	IDENTITY_P IF_P ILIKE IMMEDIATE IMMUTABLE IMPLICIT_P IN_P
@@ -548,9 +547,9 @@ static void SplitColQualList(List *qualList,
 	LEAST LEFT LEVEL LIKE LIMIT LISTEN LOAD LOCAL LOCALTIME LOCALTIMESTAMP
 	LOCATION LOCK_P
 /* PGXC_BEGIN */
-	MAPPING MASTER MATCH MAXVALUE MINUTE_P MINVALUE MODE MODULO MONTH_P MOVE
-	NAME_P NAMES NATIONAL NATURAL NCHAR NEXT NO NODE NODEPORT NONE
+	MAPPING MATCH MAXVALUE MINUTE_P MINVALUE MODE MODULO MONTH_P MOVE
 /* PGXC_END */
+	NAME_P NAMES NATIONAL NATURAL NCHAR NEXT NO NODE NONE
 	NOT NOTHING NOTIFY NOTNULL NOWAIT NULL_P NULLIF NULLS_P NUMERIC
 
 	OBJECT_P OF OFF OFFSET OIDS ON ONLY OPERATOR OPTION OPTIONS OR
@@ -566,7 +565,7 @@ static void SplitColQualList(List *qualList,
 
 	RANGE READ REAL REASSIGN RECHECK RECURSIVE REF REFERENCES REINDEX
 /* PGXC_BEGIN */
-	RELATED RELATIVE_P RELEASE RENAME REPEATABLE REPLACE REPLICA REPLICATION
+	RELATIVE_P RELEASE RENAME REPEATABLE REPLACE REPLICA REPLICATION
 	RESET RESTART RESTRICT RETURNING RETURNS REVOKE RIGHT ROBIN ROLE ROLLBACK
 	ROUND ROW ROWS RULE
 /* PGXC_END */
@@ -574,7 +573,7 @@ static void SplitColQualList(List *qualList,
 	SAVEPOINT SCHEMA SCROLL SEARCH SECOND_P SECURITY SELECT SEQUENCE SEQUENCES
 	SERIALIZABLE SERVER SESSION SESSION_USER SET SETOF SHARE
 /* PGXC_BEGIN */
-	SHOW SIMILAR SIMPLE SLAVE SMALLINT SOME STABLE STANDALONE_P START STATEMENT
+	SHOW SIMILAR SIMPLE SMALLINT SOME STABLE STANDALONE_P START STATEMENT
 	STATISTICS STDIN STDOUT STORAGE STRICT_P STRIP_P SUBSTRING
 /* PGXC_END */
 	SYMMETRIC SYSID SYSTEM_P
@@ -8026,21 +8025,20 @@ opt_barrier_id:
  *
  *		CREATE NODE nodename WITH
  *				(
- *					[ (COORDINATOR | NODE) (SLAVE | MASTER),]
- *					[ HOSTIP = 'hostname'],
- *					[ NODEPORT = portnum ],
- *					[ RELATED TO nodename ],
+ *					[ TYPE = ('datanode' | 'coordinator') ],
+ *					[ HOST = 'hostname'],
+ *					[ PORT = portnum ],
  *					[ PRIMARY ],
  *					[ PREFERRED ]
  *				)
  *
  *****************************************************************************/
 
-CreateNodeStmt: CREATE NODE pgxcnode_name WITH '(' pgxcnode_opt_list ')'
+CreateNodeStmt: CREATE NODE pgxcnode_name OptWith
 				{
 					CreateNodeStmt *n = makeNode(CreateNodeStmt);
 					n->node_name = $3;
-					n->options = $6;
+					n->options = $4;
 					$$ = (Node *)n;
 				}
 		;
@@ -8056,80 +8054,25 @@ pgxcnode_list:
 			| pgxcnode_name						{ $$ = list_make1(makeString($1)); }
 		;
 
-pgxcnode_opt_list:
-			pgxcnode_opt_list ',' pgxcnode_opt_item			{ $$ = lappend($1, $3); }
-			| pgxcnode_opt_item					{ $$ = list_make1($1); }
-		;
-
-pgxcnode_opt_item:
-			NODEPORT '=' Iconst
-				{
-					$$ = makeDefElem("port", (Node *)makeInteger($3));
-				}
-			| HOSTIP '=' Sconst
-				{
-					$$ = makeDefElem("host", (Node *)makeString($3));
-				}
-			| RELATED TO pgxcnode_name
-				{
-					$$ = makeDefElem("related", (Node *)makeString($3));
-				}
-			| RELATED NONE
-				{
-					$$ = makeDefElem("related", NULL);
-				}
-			| pgxcnode_type
-				{
-					$$ = $1;
-				}
-			| PRIMARY
-				{
-					$$ = makeDefElem("primary", NULL);
-				}
-			| PREFERRED
-				{
-					$$ = makeDefElem("preferred", NULL);
-				}
-		;
-
-/* Types listed here should correspond to the ones in pgxc_node.h */
-pgxcnode_type:
-			COORDINATOR MASTER
-				{
-					$$ = makeDefElem("type", (Node *)makeString("C"));
-				}
-			| COORDINATOR SLAVE
-				{
-					$$ = makeDefElem("type", (Node *)makeString("S"));
-				}
-			| NODE MASTER
-				{
-					$$ = makeDefElem("type", (Node *)makeString("D"));
-				}
-			| NODE SLAVE
-				{
-					$$ = makeDefElem("type", (Node *)makeString("X"));
-				}
-		;
-
 /*****************************************************************************
  *
  *		QUERY:
- *	Modification of parameters
- *				ALTER NODE nodename SET NODEPORT = nodenum
- *				ALTER NODE nodename SET HOSTIP = hostname
- *				ALTER NODE nodename SET RELATED TO nodename
- *				ALTER NODE nodename SET RELATED NONE
- *	Node Promotion
- *				ALTER NODE nodename SET (COORDINATOR | SLAVE) (MASTER | SLAVE)
+ *		ALTER NODE nodename WITH
+ *				(
+ *					[ TYPE = ('datanode' | 'coordinator') ],
+ *					[ HOST = 'hostname'],
+ *					[ PORT = portnum ],
+ *					[ PRIMARY ],
+ *					[ PREFERRED ]
+ *				)
  *
  *****************************************************************************/
 
-AlterNodeStmt: ALTER NODE pgxcnode_name SET pgxcnode_opt_list
+AlterNodeStmt: ALTER NODE pgxcnode_name OptWith
 				{
 					AlterNodeStmt *n = makeNode(AlterNodeStmt);
 					n->node_name = $3;
-					n->options = $5;
+					n->options = $4;
 					$$ = (Node *)n;
 				}
 		;
@@ -12338,9 +12281,6 @@ unreserved_keyword:
 /* PGXC_END */
 			| HEADER_P
 			| HOLD
-/* PGXC_BEGIN */
-			| HOSTIP
-/* PGXC_END */
 			| HOUR_P
 			| IDENTITY_P
 			| IF_P
@@ -12389,9 +12329,6 @@ unreserved_keyword:
 			| NEXT
 			| NO
 			| NODE
-/* PGXC_BEGIN */
-			| NODEPORT
-/* PGXC_END */
 			| NOTHING
 			| NOTIFY
 			| NOWAIT
@@ -12430,9 +12367,6 @@ unreserved_keyword:
 			| RECURSIVE
 			| REF
 			| REINDEX
-/* PGXC_BEGIN */
-			| RELATED
-/* PGXC_END */
 			| RELATIVE_P
 			| RELEASE
 			| RENAME

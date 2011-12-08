@@ -1104,7 +1104,7 @@ GTMProxy_ThreadMain(void *argp)
 	 * Set up connection with the GTM server
 	 */
 	sprintf(gtm_connect_string, "host=%s port=%d node_name=%s remote_type=%d",
-			GTMServerHost, GTMServerPortNumber, GTMProxyNodeName, PGXC_NODE_GTM_PROXY);
+			GTMServerHost, GTMServerPortNumber, GTMProxyNodeName, GTM_NODE_GTM_PROXY);
 
 	thrinfo->thr_gtm_conn = PQconnectGTM(gtm_connect_string);
 
@@ -2977,7 +2977,7 @@ DeleteLockFile(const char *filename)
 static void
 UnregisterProxy(void)
 {
-	GTM_PGXCNodeType type = PGXC_NODE_GTM_PROXY;
+	GTM_PGXCNodeType type = GTM_NODE_GTM_PROXY;
 	GTM_Result *res = NULL;
 	time_t finish_time;
 
@@ -3037,7 +3037,7 @@ failed:
 static void
 RegisterProxy(bool is_reconnect)
 {
-	GTM_PGXCNodeType type = PGXC_NODE_GTM_PROXY;
+	GTM_PGXCNodeType type = GTM_NODE_GTM_PROXY;
 	GTM_PGXCNodePort port = (GTM_PGXCNodePort) GTMProxyPortNumber;
 	GTM_Result *res = NULL;
 	char proxyname[] = "";
@@ -3125,7 +3125,7 @@ ConnectGTM(void)
 	GTM_Conn *conn;
 
 	sprintf(conn_str, "host=%s port=%d node_name=%s remote_type=%d postmaster=1",
-			GTMServerHost, GTMServerPortNumber, GTMProxyNodeName, PGXC_NODE_GTM_PROXY_POSTMASTER);
+			GTMServerHost, GTMServerPortNumber, GTMProxyNodeName, GTM_NODE_GTM_PROXY_POSTMASTER);
 
 	conn = PQconnectGTM(conn_str);
 	if (GTMPQstatus(conn) != CONNECTION_OK)
@@ -3171,7 +3171,7 @@ workerThreadReconnectToGTMstandby(void)
 	/* Disconnect the current connection and re-connect to the new GTM */
 	GTMPQfinish(GetMyThreadInfo->thr_gtm_conn);
 	sprintf(gtm_connect_string, "host=%s port=%d node_name=%s remote_type=%d",
-			NewGTMServerHost, NewGTMServerPortNumber, GTMProxyNodeName, PGXC_NODE_GTM_PROXY);
+			NewGTMServerHost, NewGTMServerPortNumber, GTMProxyNodeName, GTM_NODE_GTM_PROXY);
 	elog(LOG, "Worker thread connecting to %s", gtm_connect_string);
 	GetMyThreadInfo->thr_gtm_conn = PQconnectGTM(gtm_connect_string);
 

@@ -933,32 +933,32 @@ setup_connection_information(void)
 {
 	header(_("setting connection information"));
 	/* Datanodes on Coordinator 1*/
-	psql_command_node("postgres", PGXC_COORD_1, "CREATE NODE %s WITH (HOSTIP = 'localhost',"
-					  "NODE MASTER, NODEPORT = %d);",
+	psql_command_node("postgres", PGXC_COORD_1, "CREATE NODE %s WITH (HOST = 'localhost',"
+					  " type = 'datanode', PORT = %d);",
 					  (char *)get_node_name(PGXC_DATANODE_1),
 					  get_port_number(PGXC_DATANODE_1));
-	psql_command_node("postgres", PGXC_COORD_1, "CREATE NODE %s WITH (HOSTIP = 'localhost',"
-					  "NODE MASTER, NODEPORT = %d);",
+	psql_command_node("postgres", PGXC_COORD_1, "CREATE NODE %s WITH (HOST = 'localhost',"
+					  " type = 'datanode', PORT = %d);",
 					  (char *)get_node_name(PGXC_DATANODE_2),
 					  get_port_number(PGXC_DATANODE_2));
 	/* Datanodes on Coordinator 2 */
-	psql_command_node("postgres", PGXC_COORD_2, "CREATE NODE %s WITH (HOSTIP = 'localhost',"
-					  "NODE MASTER, NODEPORT = %d);",
+	psql_command_node("postgres", PGXC_COORD_2, "CREATE NODE %s WITH (HOST = 'localhost',"
+					  " type = 'datanode', PORT = %d);",
 					  (char *)get_node_name(PGXC_DATANODE_1),
 					  get_port_number(PGXC_DATANODE_1));
-	psql_command_node("postgres", PGXC_COORD_2, "CREATE NODE %s WITH (HOSTIP = 'localhost',"
-					  "NODE MASTER, NODEPORT = %d);",
+	psql_command_node("postgres", PGXC_COORD_2, "CREATE NODE %s WITH (HOST = 'localhost',"
+					  " type = 'datanode', PORT = %d);",
 					  (char *)get_node_name(PGXC_DATANODE_2),
 					  get_port_number(PGXC_DATANODE_2));
 
 	/* Remote Coordinator on Coordinator 1 */
-	psql_command_node("postgres", PGXC_COORD_1, "CREATE NODE %s WITH (HOSTIP = 'localhost',"
-					  " COORDINATOR MASTER, NODEPORT = %d);",
+	psql_command_node("postgres", PGXC_COORD_1, "CREATE NODE %s WITH (HOST = 'localhost',"
+					  " type = 'coordinator', PORT = %d);",
 					  (char *)get_node_name(PGXC_COORD_2),
 					  get_port_number(PGXC_COORD_2));
 	/* Remote Coordinator on Coordinator 2 */
-	psql_command_node("postgres", PGXC_COORD_2, "CREATE NODE %s WITH (HOSTIP = 'localhost',"
-					  " COORDINATOR MASTER, NODEPORT = %d);",
+	psql_command_node("postgres", PGXC_COORD_2, "CREATE NODE %s WITH (HOST = 'localhost',"
+					  " type = 'coordinator', PORT = %d);",
 					  (char *)get_node_name(PGXC_COORD_1),
 					  get_port_number(PGXC_COORD_1));
 

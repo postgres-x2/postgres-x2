@@ -1130,14 +1130,14 @@ PostmasterMain(int argc, char *argv[])
 	/* Register node on GTM during Postmaster Startup. */
 	if (IS_PGXC_COORDINATOR)
 	{
-		if (RegisterGTM(PGXC_NODE_COORDINATOR, PostPortNumber, userDoption) < 0)
+		if (RegisterGTM(GTM_NODE_COORDINATOR, PostPortNumber, userDoption) < 0)
 			ereport(FATAL,
 				(errcode(ERRCODE_IO_ERROR),
 				 errmsg("Can not register Coordinator on GTM")));
 	}
 	if (IS_PGXC_DATANODE)
 	{
-		if (RegisterGTM(PGXC_NODE_DATANODE, PostPortNumber, userDoption) < 0)
+		if (RegisterGTM(GTM_NODE_DATANODE, PostPortNumber, userDoption) < 0)
 			ereport(FATAL,
 				(errcode(ERRCODE_IO_ERROR),
 				 errmsg("Can not register Datanode on GTM")));
@@ -2315,9 +2315,9 @@ pmdie(SIGNAL_ARGS)
 
 				/* Unregister Node on GTM */
 				if (IS_PGXC_COORDINATOR)
-					UnregisterGTM(PGXC_NODE_COORDINATOR);
+					UnregisterGTM(GTM_NODE_COORDINATOR);
 				else if (IS_PGXC_DATANODE)
-					UnregisterGTM(PGXC_NODE_DATANODE);
+					UnregisterGTM(GTM_NODE_DATANODE);
 #endif
 
 				/*
@@ -2388,9 +2388,9 @@ pmdie(SIGNAL_ARGS)
 
 				/* Unregister Node on GTM */
 				if (IS_PGXC_COORDINATOR)
-					UnregisterGTM(PGXC_NODE_COORDINATOR);
+					UnregisterGTM(GTM_NODE_COORDINATOR);
 				else if (IS_PGXC_DATANODE)
-					UnregisterGTM(PGXC_NODE_DATANODE);
+					UnregisterGTM(GTM_NODE_DATANODE);
 #endif
 				pmState = PM_WAIT_BACKENDS;
 			}

@@ -38,7 +38,7 @@ test_startup_01()
 	sleep(1);
 
 	sprintf(connect_string, "host=localhost port=6666 node_name=one_zero_one remote_type=%d",
-		PGXC_NODE_DEFAULT);
+		GTM_NODE_DEFAULT);
 
 	conn = PQconnectGTM(connect_string);
 	_ASSERT(conn != NULL);
@@ -73,7 +73,7 @@ test_startup_01()
 	 * connecting to the standby
 	 */
 	sprintf(connect_string, "host=localhost port=6667 node_name=one_zero_two remote_type=%d",
-		PGXC_NODE_DEFAULT);
+		GTM_NODE_DEFAULT);
 
 	conn = PQconnectGTM(connect_string);
 	_ASSERT(conn != NULL);

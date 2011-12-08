@@ -34,12 +34,6 @@ CATALOG(pgxc_node,9015) BKI_SHARED_RELATION
 	char		node_type;
 
 	/*
-	 * If this node is a slave, identify its master.
-	 * For master nodes this is InvalidOid
-	 */
-	Oid 		node_related;
-
-	/*
 	 * Port number of the node to connect to
 	 */
 	int4 		node_port;
@@ -62,21 +56,18 @@ CATALOG(pgxc_node,9015) BKI_SHARED_RELATION
 
 typedef FormData_pgxc_node *Form_pgxc_node;
 
-#define Natts_pgxc_node				7
+#define Natts_pgxc_node				6
 
 #define Anum_pgxc_node_name			1
 #define Anum_pgxc_node_type			2
-#define Anum_pgxc_node_related		3
-#define Anum_pgxc_node_port			4
-#define Anum_pgxc_node_host			5
-#define Anum_pgxc_node_is_primary	6
-#define Anum_pgxc_node_is_preferred	7
+#define Anum_pgxc_node_port			3
+#define Anum_pgxc_node_host			4
+#define Anum_pgxc_node_is_primary	5
+#define Anum_pgxc_node_is_preferred	6
 
 /* Possible types of nodes */
-#define PGXC_NODE_COORD_MASTER		'C'
-#define PGXC_NODE_DATANODE_MASTER	'D'
-#define PGXC_NODE_COORD_SLAVE		'S'
-#define PGXC_NODE_DATANODE_SLAVE	'X'
+#define PGXC_NODE_COORDINATOR		'C'
+#define PGXC_NODE_DATANODE			'D'
 #define PGXC_NODE_NONE				'N'
 
 #endif   /* PGXC_NODE_H */

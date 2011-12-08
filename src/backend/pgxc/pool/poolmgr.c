@@ -84,8 +84,6 @@ static MemoryContext PoolerMemoryContext = NULL;
 /* PGXC Nodes info list */
 static PGXCNodeConnectionInfo *datanode_connInfos;
 static PGXCNodeConnectionInfo *coord_connInfos;
-static PGXCNodeConnectionInfo *datanode_slave_connInfos;
-static PGXCNodeConnectionInfo *coord_slave_connInfos;
 
 /* Pool to all the databases (linked list) */
 static DatabasePool *databasePools = NULL;
@@ -246,28 +244,16 @@ node_info_free(void)
 
 	for (count = 0; count < NumCoords; count++)
 		pfree(coord_connInfos[count].host);
-	for (count = 0; count < NumCoordSlaves; count++)
-		pfree(coord_slave_connInfos[count].host);
 	for (count = 0; count < NumDataNodes; count++)
 		pfree(datanode_connInfos[count].host);
-	for (count = 0; count < NumDataNodeSlaves; count++)
-		pfree(datanode_slave_connInfos[count].host);
 
 	if (datanode_connInfos)
 		pfree(datanode_connInfos);
 	if (coord_connInfos)
 		pfree(coord_connInfos);
-	if (coord_slave_connInfos)
-		pfree(coord_slave_connInfos);
-	if (datanode_slave_connInfos)
-		pfree(datanode_slave_connInfos);
 
 	NumCoords = 0;
 	NumDataNodes = 0;
-	NumDataNodeSlaves = 0;
-	NumCoordSlaves = 0;
-	datanode_slave_connInfos = NULL;
-	coord_slave_connInfos = NULL;
 	coord_connInfos = NULL;
 	datanode_connInfos = NULL;
 }
@@ -281,12 +267,9 @@ node_info_load(void)
 	int	count;
 	Oid *coOids = NULL;
 	Oid *dnOids = NULL;
-	Oid *coslaveOids = NULL;
-	Oid *dnslaveOids = NULL;
 
 	/* Update number of PGXC nodes saved in cache */
-	PgxcNodeListAndCount(&coOids, &dnOids, &coslaveOids, &dnslaveOids,
-						 &NumCoords, &NumDataNodes, &NumCoordSlaves, &NumDataNodeSlaves);
+	PgxcNodeListAndCount(&coOids, &dnOids, &NumCoords, &NumDataNodes);
 
 	/* Then initialize the node informations */
 	if (NumDataNodes != 0)
@@ -295,12 +278,6 @@ node_info_load(void)
 	if (NumCoords != 0)
 		coord_connInfos = (PGXCNodeConnectionInfo *)
 			palloc(NumCoords * sizeof(PGXCNodeConnectionInfo));
-	if (NumCoordSlaves != 0)
-		coord_slave_connInfos = (PGXCNodeConnectionInfo *)
-			palloc(NumCoordSlaves * sizeof(PGXCNodeConnectionInfo));
-	if (NumDataNodeSlaves != 0)
-		datanode_slave_connInfos = (PGXCNodeConnectionInfo *)
-			palloc(NumDataNodeSlaves * sizeof(PGXCNodeConnectionInfo));
 
 	/* Fill in connection info structures */
 	for (count = 0; count < NumCoords; count++)
@@ -315,28 +292,12 @@ node_info_load(void)
 		datanode_connInfos[count].port = get_pgxc_nodeport(dnOids[count]);
 		datanode_connInfos[count].host = get_pgxc_nodehost(dnOids[count]);
 	}
-	for (count = 0; count < NumCoordSlaves; count++)
-	{
-		coord_slave_connInfos[count].nodeoid = coslaveOids[count];
-		coord_slave_connInfos[count].port = get_pgxc_nodeport(coslaveOids[count]);
-		coord_slave_connInfos[count].host = get_pgxc_nodehost(coslaveOids[count]);
-	}
-	for (count = 0; count < NumDataNodeSlaves; count++)
-	{
-		datanode_slave_connInfos[count].nodeoid = dnOids[count];
-		datanode_slave_connInfos[count].port = get_pgxc_nodeport(dnslaveOids[count]);
-		datanode_slave_connInfos[count].host = get_pgxc_nodehost(dnslaveOids[count]);
-	}
 
 	/* Clean up resources */
 	if (coOids)
 		pfree(coOids);
 	if (dnOids)
 		pfree(dnOids);
-	if (coslaveOids)
-		pfree(coslaveOids);
-	if (dnslaveOids)
-		pfree(dnslaveOids);
 }
 
 /*
@@ -346,22 +307,17 @@ static int
 node_info_check(void)
 {
 	int res = POOL_CHECK_SUCCESS;
-	int	num_coord, num_dn,
-		num_coord_slave, num_dn_slave, i, j;
+	int	num_coord, num_dn, i, j;
 	Oid *coOids = NULL;
 	Oid *dnOids = NULL;
-	Oid *coslaveOids = NULL;
-	Oid *dnslaveOids = NULL;
 
 	/* Update number of PGXC nodes saved in cache */
-	PgxcNodeListAndCount(&coOids, &dnOids, &coslaveOids, &dnslaveOids,
-						 &num_coord, &num_dn, &num_coord_slave, &num_dn_slave);
+	PgxcNodeListAndCount(&coOids, &dnOids,
+						 &num_coord, &num_dn);
 
 	/* Check first if node numbers are consistent */
 	if (NumCoords != num_coord ||
-		NumDataNodes != num_dn ||
-		NumCoordSlaves != num_coord_slave ||
-		NumDataNodeSlaves != num_dn_slave)
+		NumDataNodes != num_dn)
 	{
 		res = POOL_CHECK_FAILED;
 		goto finish;
@@ -387,16 +343,6 @@ node_info_check(void)
 				oid_vector = dnOids;
 				conninfo = datanode_connInfos;
 				break;
-			case 2:
-				numnodes = NumCoordSlaves;
-				oid_vector = coslaveOids;
-				conninfo = coord_slave_connInfos;
-				break;
-			case 3:
-				numnodes = NumDataNodeSlaves;
-				oid_vector = dnslaveOids;
-				conninfo = datanode_slave_connInfos;
-				break;
 			default:
 				Assert(0);
 		}
@@ -420,10 +366,6 @@ finish:
 		pfree(coOids);
 	if (dnOids)
 		pfree(dnOids);
-	if (coslaveOids)
-		pfree(coslaveOids);
-	if (dnslaveOids)
-		pfree(dnslaveOids);
 	return res;
 }
 

@@ -953,7 +953,7 @@ BufferConnection(PGXCNodeHandle *conn)
 					combiner->tapenodes = (int*) palloc0(NumDataNodes * sizeof(int));
 				combiner->tapenodes[combiner->current_conn] =
 						PGXCNodeGetNodeId(conn->nodeoid,
-										  PGXC_NODE_DATANODE_MASTER);
+										  PGXC_NODE_DATANODE);
 			}
 			else
 				/* Remove current connection, move last in-place, adjust current_conn */
@@ -1266,7 +1266,7 @@ handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner)
 				Assert(conn->have_row_desc);
 #endif
 				HandleDataRow(combiner, msg, msg_len, PGXCNodeGetNodeId(conn->nodeoid,
-																		PGXC_NODE_DATANODE_MASTER));
+																		PGXC_NODE_DATANODE));
 				return RESPONSE_DATAROW;
 			case 's':			/* PortalSuspended */
 				suspended = true;
@@ -1440,14 +1440,14 @@ analyze_node_string(char *nodestring,
 					 errmsg("PGXC Node %s: object not defined",
 							nodename)));
 
-		if (get_pgxc_nodetype(nodeoid) == PGXC_NODE_DATANODE_MASTER)
+		if (get_pgxc_nodetype(nodeoid) == PGXC_NODE_DATANODE)
 		{
-			int nodeid = PGXCNodeGetNodeId(nodeoid, PGXC_NODE_DATANODE_MASTER);
+			int nodeid = PGXCNodeGetNodeId(nodeoid, PGXC_NODE_DATANODE);
 			*datanodelist = lappend_int(*datanodelist, nodeid);
 		}
-		else if (get_pgxc_nodetype(nodeoid) == PGXC_NODE_COORD_MASTER)
+		else if (get_pgxc_nodetype(nodeoid) == PGXC_NODE_COORDINATOR)
 		{
-			int nodeid = PGXCNodeGetNodeId(nodeoid, PGXC_NODE_COORD_MASTER);
+			int nodeid = PGXCNodeGetNodeId(nodeoid, PGXC_NODE_COORDINATOR);
 			/* Local Coordinator has been found, so commit it */
 			if (nodeid == PGXCNodeId - 1)
 				is_local_coord = true;
@@ -3257,7 +3257,7 @@ pgxc_start_command_on_connection(PGXCNodeHandle *connection, bool need_tran,
 		if (step->statement)
 			prepared = ActivateDatanodeStatementOnNode(step->statement,
 													   PGXCNodeGetNodeId(connection->nodeoid,
-																		 PGXC_NODE_DATANODE_MASTER));
+																		 PGXC_NODE_DATANODE));
 		/*
 		 * execute and fetch rows only if they will be consumed
 		 * immediately by the sorter

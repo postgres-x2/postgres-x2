@@ -343,7 +343,7 @@ ProcessGetSnapshotCommand(Port *myport, StringInfo message, bool get_gxid)
 
 	pq_beginmessage(&buf, 'S');
 	pq_sendint(&buf, get_gxid ? SNAPSHOT_GXID_GET_RESULT : SNAPSHOT_GET_RESULT, 4);
-	if (myport->remote_type == PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type == GTM_NODE_GTM_PROXY)
 	{
 		GTM_ProxyMsgHeader proxyhdr;
 		proxyhdr.ph_conid = myport->conn_id;
@@ -360,7 +360,7 @@ ProcessGetSnapshotCommand(Port *myport, StringInfo message, bool get_gxid)
 				 sizeof(GlobalTransactionId) * snapshot->sn_xcnt);
 	pq_endmessage(myport, &buf);
 
-	if (myport->remote_type != PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type != GTM_NODE_GTM_PROXY)
 		pq_flush(myport);
 
 	return;
@@ -424,7 +424,7 @@ ProcessGetSnapshotCommandMulti(Port *myport, StringInfo message)
 
 	pq_beginmessage(&buf, 'S');
 	pq_sendint(&buf, SNAPSHOT_GET_MULTI_RESULT, 4);
-	if (myport->remote_type == PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type == GTM_NODE_GTM_PROXY)
 	{
 		GTM_ProxyMsgHeader proxyhdr;
 		proxyhdr.ph_conid = myport->conn_id;
@@ -440,7 +440,7 @@ ProcessGetSnapshotCommandMulti(Port *myport, StringInfo message)
 				 sizeof(GlobalTransactionId) * snapshot->sn_xcnt);
 	pq_endmessage(myport, &buf);
 
-	if (myport->remote_type != PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type != GTM_NODE_GTM_PROXY)
 		pq_flush(myport);
 
 	if (GetMyThreadInfo->thr_conn->standby)

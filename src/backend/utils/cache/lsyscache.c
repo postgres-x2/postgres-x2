@@ -2262,29 +2262,6 @@ get_pgxc_nodehost(Oid nodeid)
 }
 
 /*
- * get_pgxc_noderelated
- *		Get node related for given Oid
- */
-Oid
-get_pgxc_noderelated(Oid nodeid)
-{
-	HeapTuple		tuple;
-	Form_pgxc_node	nodeForm;
-	Oid				result;
-
-	tuple = SearchSysCache1(PGXCNODEOID, ObjectIdGetDatum(nodeid));
-
-	if (!HeapTupleIsValid(tuple))
-			elog(ERROR, "cache lookup failed for node %u", nodeid);
-
-	nodeForm = (Form_pgxc_node) GETSTRUCT(tuple);
-	result = nodeForm->node_related;
-	ReleaseSysCache(tuple);
-
-	return result;
-}
-
-/*
  * is_pgxc_nodepreferred
  *		Determine if node is a preferred one
  */

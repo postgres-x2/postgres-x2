@@ -32,7 +32,7 @@ test_node_01()
 
 	SETUP();
 
-	rc = node_register(conn, PGXC_NODE_DATANODE,  6666, "one", "/tmp/pgxc/data/gtm");
+	rc = node_register(conn, GTM_NODE_DATANODE,  6666, "one", "/tmp/pgxc/data/gtm");
 	_ASSERT( rc >= 0 );
 
 	TEARDOWN();
@@ -45,7 +45,7 @@ test_node_02()
 
 	SETUP();
 
-	rc = node_unregister(conn, PGXC_NODE_DATANODE, "One");
+	rc = node_unregister(conn, GTM_NODE_DATANODE, "One");
 	_ASSERT( rc >= 0 );
 
 	TEARDOWN();
@@ -86,7 +86,7 @@ test_node_04()
 	data = (GTM_PGXCNodeInfo *)malloc( sizeof(GTM_PGXCNodeInfo)*128 );
 	memset(data, 0, sizeof(GTM_PGXCNodeInfo)*128);
 
-	rc = node_register(conn, PGXC_NODE_DATANODE, 6666, "one", "/tmp/pgxc/data/gtm");
+	rc = node_register(conn, GTM_NODE_DATANODE, 6666, "one", "/tmp/pgxc/data/gtm");
 	_ASSERT( rc>=0 );
 
 	rc = get_node_list(conn, data, 128);
@@ -110,17 +110,17 @@ test_node_05()
 
 	SETUP();
 
-	rc = node_unregister(conn, PGXC_NODE_DATANODE, "One zero one");
+	rc = node_unregister(conn, GTM_NODE_DATANODE, "One zero one");
 
-	rc = node_register(conn, PGXC_NODE_DATANODE, 6666, "One zero one", "/tmp/pgxc/data/gtm");
+	rc = node_register(conn, GTM_NODE_DATANODE, 6666, "One zero one", "/tmp/pgxc/data/gtm");
 	_ASSERT( rc>=0 );
 
 	sleep(5);
 
-	rc = backend_disconnect(conn, true, PGXC_NODE_DATANODE, "One Zero one");
+	rc = backend_disconnect(conn, true, GTM_NODE_DATANODE, "One Zero one");
 	_ASSERT( rc>=0 );
 
-	rc = node_unregister(conn, PGXC_NODE_DATANODE, "One zero one");
+	rc = node_unregister(conn, GTM_NODE_DATANODE, "One zero one");
 	_ASSERT( rc>=0 );
 
 	TEARDOWN();

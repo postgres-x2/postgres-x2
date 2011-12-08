@@ -2880,7 +2880,7 @@ EndCopyFrom(CopyState cstate)
 		bool replicated = cstate->rel_loc->locatorType == LOCATOR_TYPE_REPLICATED;
 		DataNodeCopyFinish(
 				cstate->connections,
-				replicated ? PGXCNodeGetNodeId(primary_data_node, PGXC_NODE_DATANODE_MASTER) : -1,
+				replicated ? PGXCNodeGetNodeId(primary_data_node, PGXC_NODE_DATANODE) : -1,
 				replicated ? COMBINE_TYPE_SAME : COMBINE_TYPE_SUM);
 		pfree(cstate->connections);
 		pfree(cstate->query_buf.data);

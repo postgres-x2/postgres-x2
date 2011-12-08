@@ -45,7 +45,7 @@ gtm_standby_start_startup(void)
 	elog(LOG, "Connecting the GTM active on %s:%d...", active_address, active_port);
 
 	sprintf(connect_string, "host=%s port=%d node_name=%s remote_type=%d",
-			active_address, active_port, NodeName, PGXC_NODE_GTM);
+			active_address, active_port, NodeName, GTM_NODE_GTM);
 	
 	GTM_ActiveConn = PQconnectGTM(connect_string);
 	if (GTM_ActiveConn == NULL)
@@ -267,7 +267,7 @@ gtm_standby_register_self(const char *node_name, int port, const char *datadir)
 	standbyPortNumber = port;
 	standbyDataDir= (char *)datadir;
 
-	rc = node_register_internal(GTM_ActiveConn, PGXC_NODE_GTM, standbyHostName, standbyPortNumber,
+	rc = node_register_internal(GTM_ActiveConn, GTM_NODE_GTM, standbyHostName, standbyPortNumber,
 			standbyNodeName, standbyDataDir, NODE_DISCONNECTED);
 	if (rc < 0)
 	{
@@ -292,14 +292,14 @@ gtm_standby_activate_self(void)
 
 	elog(LOG, "Updating the standby-GTM status to \"CONNECTED\"...");
 
-	rc = node_unregister(GTM_ActiveConn, PGXC_NODE_GTM, standbyNodeName);
+	rc = node_unregister(GTM_ActiveConn, GTM_NODE_GTM, standbyNodeName);
 	if (rc < 0)
 	{
 		elog(LOG, "Failed to unregister old standby-GTM status.");
 		return 0;
 	}
 
-	rc = node_register_internal(GTM_ActiveConn, PGXC_NODE_GTM, standbyHostName, standbyPortNumber,
+	rc = node_register_internal(GTM_ActiveConn, GTM_NODE_GTM, standbyHostName, standbyPortNumber,
 			standbyNodeName, standbyDataDir, NODE_CONNECTED);
 
 	if (rc < 0)
@@ -327,7 +327,7 @@ find_standby_node_info(void)
 	size_t n;
 	int i;
 
-	n = pgxcnode_find_by_type(PGXC_NODE_GTM, node, 1024);
+	n = pgxcnode_find_by_type(GTM_NODE_GTM, node, 1024);
 
 	for (i = 0 ; i < n ; i++)
 	{

@@ -3034,7 +3034,7 @@ getlen_datanode(Tuplesortstate *state, int tapenum, bool eofOK)
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("Failed to fetch from data node cursor")));
 
-	nid = conn ? PGXCNodeGetNodeId(conn->nodeoid, PGXC_NODE_DATANODE_MASTER) : combiner->tapenodes[tapenum];
+	nid = conn ? PGXCNodeGetNodeId(conn->nodeoid, PGXC_NODE_DATANODE) : combiner->tapenodes[tapenum];
 
 	if (nid < 0)
 		ereport(ERROR,

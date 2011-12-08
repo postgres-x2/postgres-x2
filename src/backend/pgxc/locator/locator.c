@@ -135,7 +135,7 @@ GetAnyDataNode(List *relNodes)
 			int		i;
 			for (i = 0; i < num_preferred_data_nodes; i++)
 			{
-				int nodeid = PGXCNodeGetNodeId(preferred_data_node[i], PGXC_NODE_DATANODE_MASTER);
+				int nodeid = PGXCNodeGetNodeId(preferred_data_node[i], PGXC_NODE_DATANODE);
 
 				/* OK, found one */
 				if (nodeid == relation_nodeid)
@@ -491,7 +491,7 @@ IsTableDistOnPrimary(RelationLocInfo *rel_loc_info)
 
 	foreach(item, rel_loc_info->nodeList)
 	{
-		if (PGXCNodeGetNodeId(primary_data_node, PGXC_NODE_DATANODE_MASTER) == lfirst_int(item))
+		if (PGXCNodeGetNodeId(primary_data_node, PGXC_NODE_DATANODE) == lfirst_int(item))
 			return true;
 	}
 	return false;
@@ -549,9 +549,9 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, Datum valueForDistCol, Oid typeO
 						&& list_length(exec_nodes->nodeList) > 1) /* make sure more than 1 */
 				{
 					exec_nodes->primarynodelist = lappend_int(NULL,
-							  PGXCNodeGetNodeId(primary_data_node, PGXC_NODE_DATANODE_MASTER));
+							  PGXCNodeGetNodeId(primary_data_node, PGXC_NODE_DATANODE));
 					list_delete_int(exec_nodes->nodeList,
-									PGXCNodeGetNodeId(primary_data_node, PGXC_NODE_DATANODE_MASTER));
+									PGXCNodeGetNodeId(primary_data_node, PGXC_NODE_DATANODE));
 				}
 			}
 			else
@@ -565,7 +565,7 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, Datum valueForDistCol, Oid typeO
 					 * concurrently
 					 */
 					exec_nodes->nodeList = lappend_int(NULL,
-						   PGXCNodeGetNodeId(primary_data_node, PGXC_NODE_DATANODE_MASTER));
+						   PGXCNodeGetNodeId(primary_data_node, PGXC_NODE_DATANODE));
 				}
 				else if (num_preferred_data_nodes >= 0)
 				{
@@ -576,7 +576,7 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, Datum valueForDistCol, Oid typeO
 						for (k = 0; k < num_preferred_data_nodes; k++)
 						{
 							if (PGXCNodeGetNodeId(preferred_data_node[k],
-												  PGXC_NODE_DATANODE_MASTER) == lfirst_int(item))
+												  PGXC_NODE_DATANODE) == lfirst_int(item))
 							{
 								exec_nodes->nodeList = lappend_int(NULL,
 																   lfirst_int(item));
@@ -802,7 +802,7 @@ RelationBuildLocator(Relation rel)
 	for (j = 0; j < pgxc_class->nodeoids.dim1; j++)
 		relationLocInfo->nodeList = lappend_int(relationLocInfo->nodeList,
 												PGXCNodeGetNodeId(pgxc_class->nodeoids.values[j],
-																  PGXC_NODE_DATANODE_MASTER));
+																  PGXC_NODE_DATANODE));
 
 	/*
 	 * If the locator type is round robin, we set a node to

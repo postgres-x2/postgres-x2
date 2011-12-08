@@ -39,7 +39,7 @@ test_node5_01()
 	 */
 	connect1();
 
-	rc = node_register(conn, PGXC_NODE_DATANODE,  16666, "One zero zero one", "/tmp/pgxc/data/gtm");
+	rc = node_register(conn, GTM_NODE_DATANODE,  16666, "One zero zero one", "/tmp/pgxc/data/gtm");
 	_ASSERT( rc >= 0 );
 
 	GTMPQfinish(conn);
@@ -50,7 +50,7 @@ test_node5_01()
 	 */
 	connect2();
 
-	rc = node_unregister(conn, PGXC_NODE_DATANODE, "One zero zero one");
+	rc = node_unregister(conn, GTM_NODE_DATANODE, "One zero zero one");
 	_ASSERT( rc >= 0 );
 
 	GTMPQfinish(conn);
@@ -70,10 +70,10 @@ test_node5_02()
 	 */
 	connect1();
 
-	rc = node_register(conn, PGXC_NODE_DATANODE,  16666, "One zero zero one", "/tmp/pgxc/data/gtm");
+	rc = node_register(conn, GTM_NODE_DATANODE,  16666, "One zero zero one", "/tmp/pgxc/data/gtm");
 	_ASSERT( rc >= 0 );
 
-	rc = node_unregister(conn, PGXC_NODE_DATANODE, "One zero zero one");
+	rc = node_unregister(conn, GTM_NODE_DATANODE, "One zero zero one");
 	_ASSERT( rc >= 0 );
 
 	GTMPQfinish(conn);
@@ -84,7 +84,7 @@ test_node5_02()
 	 */
 	connect2();
 
-	rc = node_unregister(conn, PGXC_NODE_DATANODE, "One zero zero one");
+	rc = node_unregister(conn, GTM_NODE_DATANODE, "One zero zero one");
 	_ASSERT( rc<0 );
 
 	GTMPQfinish(conn);
@@ -104,7 +104,7 @@ test_node5_03()
 	 */
 	connect1();
 
-	rc = node_register(conn, PGXC_NODE_DATANODE,  16666, "One zero zero one", "/tmp/pgxc/data/gtm");
+	rc = node_register(conn, GTM_NODE_DATANODE,  16666, "One zero zero one", "/tmp/pgxc/data/gtm");
 	_ASSERT( rc >= 0 );
 
 	system("killall -9 gtm");
@@ -114,7 +114,7 @@ test_node5_03()
 	GTMPQfinish(conn);
 	connect2();
 
-	rc = node_unregister(conn, PGXC_NODE_DATANODE, "One zero zero one");
+	rc = node_unregister(conn, GTM_NODE_DATANODE, "One zero zero one");
 	_ASSERT( rc >= 0 );
 
 	GTMPQfinish(conn);

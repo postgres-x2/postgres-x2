@@ -183,7 +183,7 @@ int
 main(int argc, char *argv[])
 {
 	sprintf(connect_string, "host=localhost port=6666 node_name=one remote_type=%d",
-		PGXC_NODE_GTM);
+		GTM_NODE_GTM);
 	
 	test_txn_01();
 	test_txn_02();
@@ -195,7 +195,7 @@ main(int argc, char *argv[])
 	 * connect to standby. must be prevented.
 	 */
 	sprintf(connect_string, "host=localhost port=6667 node_name=one remote_type=%d",
-		PGXC_NODE_GTM);
+		GTM_NODE_GTM);
 	
 	test_txn_51();
 	test_txn_52();

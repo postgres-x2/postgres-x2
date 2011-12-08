@@ -887,7 +887,7 @@ ProcessSequenceInitCommand(Port *myport, StringInfo message)
 	 */
 	pq_beginmessage(&buf, 'S');
 	pq_sendint(&buf, SEQUENCE_INIT_RESULT, 4);
-	if (myport->remote_type == PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type == GTM_NODE_GTM_PROXY)
 	{
 		GTM_ProxyMsgHeader proxyhdr;
 		proxyhdr.ph_conid = myport->conn_id;
@@ -897,7 +897,7 @@ ProcessSequenceInitCommand(Port *myport, StringInfo message)
 	pq_sendbytes(&buf, seqkey.gsk_key, seqkey.gsk_keylen);
 	pq_endmessage(myport, &buf);
 
-	if (myport->remote_type != PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type != GTM_NODE_GTM_PROXY)
 		pq_flush(myport);
 
 	if (GetMyThreadInfo->thr_conn->standby)
@@ -982,7 +982,7 @@ ProcessSequenceAlterCommand(Port *myport, StringInfo message)
 
 	pq_beginmessage(&buf, 'S');
 	pq_sendint(&buf, SEQUENCE_ALTER_RESULT, 4);
-	if (myport->remote_type == PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type == GTM_NODE_GTM_PROXY)
 	{
 		GTM_ProxyMsgHeader proxyhdr;
 		proxyhdr.ph_conid = myport->conn_id;
@@ -992,7 +992,7 @@ ProcessSequenceAlterCommand(Port *myport, StringInfo message)
 	pq_sendbytes(&buf, seqkey.gsk_key, seqkey.gsk_keylen);
 	pq_endmessage(myport, &buf);
 
-	if (myport->remote_type != PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type != GTM_NODE_GTM_PROXY)
 		pq_flush(myport);
 
 	if ( GetMyThreadInfo->thr_conn->standby )
@@ -1080,7 +1080,7 @@ ProcessSequenceListCommand(Port *myport, StringInfo message)
 	pq_beginmessage(&buf, 'S');
 	pq_sendint(&buf, SEQUENCE_LIST_RESULT, 4);
 
-	if (myport->remote_type == PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type == GTM_NODE_GTM_PROXY)
 	{
 		GTM_ProxyMsgHeader proxyhdr;
 		proxyhdr.ph_conid = myport->conn_id;
@@ -1112,7 +1112,7 @@ ProcessSequenceListCommand(Port *myport, StringInfo message)
 
 	elog(LOG, "ProcessSequenceListCommand() done.");
 
-	if (myport->remote_type != PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type != GTM_NODE_GTM_PROXY)
 		pq_flush(myport);
 }
 
@@ -1140,7 +1140,7 @@ ProcessSequenceGetCurrentCommand(Port *myport, StringInfo message)
 
 	pq_beginmessage(&buf, 'S');
 	pq_sendint(&buf, SEQUENCE_GET_CURRENT_RESULT, 4);
-	if (myport->remote_type == PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type == GTM_NODE_GTM_PROXY)
 	{
 		GTM_ProxyMsgHeader proxyhdr;
 		proxyhdr.ph_conid = myport->conn_id;
@@ -1151,7 +1151,7 @@ ProcessSequenceGetCurrentCommand(Port *myport, StringInfo message)
 	pq_sendbytes(&buf, (char *)&seqval, sizeof (GTM_Sequence));
 	pq_endmessage(myport, &buf);
 
-	if (myport->remote_type != PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type != GTM_NODE_GTM_PROXY)
 		pq_flush(myport);
 
 	if (GetMyThreadInfo->thr_conn->standby)
@@ -1197,7 +1197,7 @@ ProcessSequenceGetNextCommand(Port *myport, StringInfo message)
 
 	pq_beginmessage(&buf, 'S');
 	pq_sendint(&buf, SEQUENCE_GET_NEXT_RESULT, 4);
-	if (myport->remote_type == PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type == GTM_NODE_GTM_PROXY)
 	{
 		GTM_ProxyMsgHeader proxyhdr;
 		proxyhdr.ph_conid = myport->conn_id;
@@ -1208,7 +1208,7 @@ ProcessSequenceGetNextCommand(Port *myport, StringInfo message)
 	pq_sendbytes(&buf, (char *)&seqval, sizeof (GTM_Sequence));
 	pq_endmessage(myport, &buf);
 
-	if (myport->remote_type != PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type != GTM_NODE_GTM_PROXY)
 		pq_flush(myport);
 
 	if (GetMyThreadInfo->thr_conn->standby)
@@ -1275,7 +1275,7 @@ ProcessSequenceSetValCommand(Port *myport, StringInfo message)
 
 	pq_beginmessage(&buf, 'S');
 	pq_sendint(&buf, SEQUENCE_SET_VAL_RESULT, 4);
-	if (myport->remote_type == PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type == GTM_NODE_GTM_PROXY)
 	{
 		GTM_ProxyMsgHeader proxyhdr;
 		proxyhdr.ph_conid = myport->conn_id;
@@ -1285,7 +1285,7 @@ ProcessSequenceSetValCommand(Port *myport, StringInfo message)
 	pq_sendbytes(&buf, seqkey.gsk_key, seqkey.gsk_keylen);
 	pq_endmessage(myport, &buf);
 
-	if (myport->remote_type != PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type != GTM_NODE_GTM_PROXY)
 		pq_flush(myport);
 
 	if (GetMyThreadInfo->thr_conn->standby)
@@ -1332,7 +1332,7 @@ ProcessSequenceResetCommand(Port *myport, StringInfo message)
 
 	pq_beginmessage(&buf, 'S');
 	pq_sendint(&buf, SEQUENCE_RESET_RESULT, 4);
-	if (myport->remote_type == PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type == GTM_NODE_GTM_PROXY)
 	{
 		GTM_ProxyMsgHeader proxyhdr;
 		proxyhdr.ph_conid = myport->conn_id;
@@ -1342,7 +1342,7 @@ ProcessSequenceResetCommand(Port *myport, StringInfo message)
 	pq_sendbytes(&buf, seqkey.gsk_key, seqkey.gsk_keylen);
 	pq_endmessage(myport, &buf);
 
-	if (myport->remote_type != PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type != GTM_NODE_GTM_PROXY)
 		pq_flush(myport);
 
 	if (GetMyThreadInfo->thr_conn->standby)
@@ -1388,7 +1388,7 @@ ProcessSequenceCloseCommand(Port *myport, StringInfo message)
 
 	pq_beginmessage(&buf, 'S');
 	pq_sendint(&buf, SEQUENCE_CLOSE_RESULT, 4);
-	if (myport->remote_type == PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type == GTM_NODE_GTM_PROXY)
 	{
 		GTM_ProxyMsgHeader proxyhdr;
 		proxyhdr.ph_conid = myport->conn_id;
@@ -1398,7 +1398,7 @@ ProcessSequenceCloseCommand(Port *myport, StringInfo message)
 	pq_sendbytes(&buf, seqkey.gsk_key, seqkey.gsk_keylen);
 	pq_endmessage(myport, &buf);
 
-	if (myport->remote_type != PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type != GTM_NODE_GTM_PROXY)
 		pq_flush(myport);
 
 	if (GetMyThreadInfo->thr_conn->standby)
@@ -1460,7 +1460,7 @@ ProcessSequenceRenameCommand(Port *myport, StringInfo message)
 	/* Send a SUCCESS message back to the client */
 	pq_beginmessage(&buf, 'S');
 	pq_sendint(&buf, SEQUENCE_RENAME_RESULT, 4);
-	if (myport->remote_type == PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type == GTM_NODE_GTM_PROXY)
 	{
 		GTM_ProxyMsgHeader proxyhdr;
 		proxyhdr.ph_conid = myport->conn_id;
@@ -1470,7 +1470,7 @@ ProcessSequenceRenameCommand(Port *myport, StringInfo message)
 	pq_sendbytes(&buf, newseqkey.gsk_key, newseqkey.gsk_keylen);
 	pq_endmessage(myport, &buf);
 
-	if (myport->remote_type != PGXC_NODE_GTM_PROXY)
+	if (myport->remote_type != GTM_NODE_GTM_PROXY)
 		pq_flush(myport);
 
 	if (GetMyThreadInfo->thr_conn->standby)

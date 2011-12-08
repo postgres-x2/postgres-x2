@@ -23,10 +23,9 @@ PostgreSQL documentation
 <synopsis>
 CREATE NODE <replaceable class="parameter">nodename</replaceable> WITH
   (
-    [ (COORDINATOR | NODE) (SLAVE | MASTER),]
-    [ HOSTIP = <replaceable class="parameter">hostname</replaceable>,]
-    [ NODEPORT = <replaceable class="parameter">portnum</replaceable>,]
-    [ RELATED TO <replaceable class="parameter">nodename</replaceable>,]
+    [ TYPE = <replaceable class="parameter">nodetype</replaceable>,]
+    [ HOST = <replaceable class="parameter">hostname</replaceable>,]
+    [ PORT = <replaceable class="parameter">portnum</replaceable>,]
     [ PRIMARY,]
     [ PREFERRED ]
   )
@@ -73,23 +72,11 @@ CREATE NODE <replaceable class="parameter">nodename</replaceable> WITH
      </varlistentry>
 
      <varlistentry>
-      <term><literal>COORDINATOR</literal></term>
-      <term><literal>NODE</literal></term>
+      <term><literal>TYPE</literal></term>
       <listitem>
        <para>
-        The type of the cluster node. <literal>COORDINATOR</literal> for
-        a Coordinator node, <literal>NODE</literal> for a Datanode.
-       </para>
-      </listitem>
-     </varlistentry>
-
-     <varlistentry>
-      <term><literal>SLAVE</literal></term>
-      <term><literal>MASTER</literal></term>
-      <listitem>
-       <para>
-        The standby status of the node. <literal>MASTER</literal> for
-        a master node, <literal>SLAVE</literal> for a standby/slave node.
+        The type of the cluster node. It is possible to specify
+        a Coordinator node or a Datanode node.
        </para>
       </listitem>
      </varlistentry>
@@ -115,11 +102,12 @@ CREATE NODE <replaceable class="parameter">nodename</replaceable> WITH
      </varlistentry>
 
      <varlistentry>
-      <term><literal>RELATED TO</literal></term>
+      <term><replaceable class="parameter">nodetype</replaceable></term>
       <listitem>
        <para>
-        Defines for a slave node on which master/slave node this node is
-        dependant by replication.
+        The node type for given cluster node. Possible values are:
+        'coordinator' for a Coordinator node and 'datanode' for a
+        Datanode node.
        </para>
       </listitem>
      </varlistentry>
@@ -156,11 +144,6 @@ CREATE NODE <replaceable class="parameter">nodename</replaceable> WITH
     A slave Datanode cannot be defined as <literal>PRIMARY</literal> but
     it can be defined as <literal>PREFERRED</literal>.
   </para>
-
-  <para>
-    A master node cannot have a related node defined with <literal>
-    RELATED TO</literal>. Defining a related node on a slave is mandatory.
-  </para>
  </refsect1>
 
  <refsect1>
@@ -168,7 +151,7 @@ CREATE NODE <replaceable class="parameter">nodename</replaceable> WITH
   <para>
    Create a Coordinator node located on local machine using port 6543
 <programlisting>
-CREATE NODE node2 WITH (COORDINATOR MASTER, HOSTIP = 'localhost', PORTNUM = 6543);
+CREATE NODE node2 WITH (TYPE = 'coordinator', HOST = 'localhost', PORT = 6543);
 </programlisting>
   </para>
 
@@ -176,7 +159,7 @@ CREATE NODE node2 WITH (COORDINATOR MASTER, HOSTIP = 'localhost', PORTNUM = 6543
    Create a Datanode master which is a preferred and primary node
    located on remote machine with IP '192.168.0.3' on port 8888.
 <programlisting>
-CREATE NODE node2 WITH (DATANODE MASTER, HOSTIP = '192.168.0.3', PORTNUM = 8888, PRIMARY, PREFERRED);
+CREATE NODE node2 WITH (TYPE = 'datanode', HOST = '192.168.0.3', PORT = 8888, PRIMARY, PREFERRED);
 </programlisting>
   </para>
 
