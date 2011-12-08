@@ -324,7 +324,7 @@ node_info_check(void)
 	}
 
 	/* Now do a check element by element */
-	for (i = 0; i < 4; i++)
+	for (i = 0; i < 2; i++)
 	{
 		int numnodes;
 		PGXCNodeConnectionInfo *conninfo;

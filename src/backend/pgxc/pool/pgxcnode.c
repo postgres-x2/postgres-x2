@@ -296,7 +296,7 @@ pgxc_node_all_free(void)
 {
 	int i, j;
 
-	for (i = 0; i < 4; i++)
+	for (i = 0; i < 2; i++)
 	{
 		int num_nodes;
 		PGXCNodeHandle *array_handles;
