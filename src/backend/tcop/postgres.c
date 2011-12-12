@@ -3909,6 +3909,25 @@ PostgresMain(int argc, char *argv[], const char *username)
 		on_proc_exit (DataNodeShutdown, 0);
 	}
 
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	{
+		/*
+		 * Do not authorize connection to Coordinator if
+		 * connection data to remote nodes is inconsistent.
+		 */
+		bool is_pool_chk = PoolManagerCheckConnectionInfo();
+
+		if (!is_pool_chk && !superuser())
+			ereport(ERROR,
+					(errcode(ERRCODE_OPERATOR_INTERVENTION),
+					 errmsg("Remote node information on pool manager inconsistent "
+							"with catalogs")));
+
+		if (!is_pool_chk && superuser())
+			elog(WARNING, "Remote connection information on pooler is inconsistent "
+						  "with catalogs. You should run pgxc_pool_reload() to reload "
+						  "new cluster configuration");
+	}
 #endif
 
 	/*
