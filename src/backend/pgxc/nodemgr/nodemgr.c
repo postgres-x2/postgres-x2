@@ -69,6 +69,12 @@ check_options(List *options, DefElem **dhost,
 
 			*dport = defel;
 
+			/* Value type check */
+			if (!IsA(defel->arg, Integer))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("port value is not an integer")));
+
 			port_value = intVal(defel->arg);
 			if (port_value < 1 || port_value > 65535)
 				ereport(ERROR,
@@ -89,6 +95,12 @@ check_options(List *options, DefElem **dhost,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						 errmsg("host value is not specified")));
 
+			/* Value type check */
+			if (!IsA(defel->arg, String))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("host value is not a string")));
+
 			*dhost = defel;
 		}
 		else if (strcmp(defel->defname, "type") == 0)
@@ -107,6 +119,12 @@ check_options(List *options, DefElem **dhost,
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						 errmsg("type value is not specified")));
+
+			/* Value type check */
+			if (!IsA(defel->arg, String))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("type value is not a string")));
 
 			nodetype = strVal(defel->arg);
 			if (strcmp(nodetype, "coordinator") != 0 &&
