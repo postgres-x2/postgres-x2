@@ -59,8 +59,10 @@
 #include "catalog/pg_user_mapping.h"
 #ifdef PGXC
 #include "catalog/pgxc_class.h"
+#include "pgxc/execRemote.h"
 #include "pgxc/pgxc.h"
 #include "commands/sequence.h"
+#include "commands/tablecmds.h"
 #include "gtm/gtm_c.h"
 #include "access/gtm.h"
 #endif
@@ -1164,35 +1166,65 @@ doDeletion(const ObjectAddress *object)
 
 #ifdef PGXC
 				/*
-				 * Drop the sequence on GTM.
-				 * Sequence is dropped on GTM by a remote Coordinator only
-				 * for a non temporary sequence.
+				 * Do not do extra process if this session is connected to a remote
+				 * Coordinator.
 				 */
-				if (relKind == RELKIND_SEQUENCE &&
-					IS_PGXC_COORDINATOR &&
-					!IsConnFromCoord() &&
-					!IsTempSequence(object->objectId))
+				if (IsConnFromCoord())
+					break;
+
+				/*
+				 * This session is connected directly to application, so extra
+				 * process related to remote nodes and GTM is needed.
+				 */
+				switch (relKind)
 				{
-					/*
-					 * The sequence has already been removed from coordinator,
-					 * finish the stuff on GTM too
-					 */
-					/* PGXCTODO: allow the ability to rollback or abort dropping sequences. */
+					case RELKIND_SEQUENCE:
+						/*
+						 * Drop the sequence on GTM.
+						 * Sequence is dropped on GTM by a remote Coordinator only
+						 * for a non temporary sequence.
+						 */
+						if (!IsTempSequence(object->objectId))
+						{
+							/*
+							 * The sequence has already been removed from coordinator,
+							 * finish the stuff on GTM too
+							 */
+							/*
+							 * PGXCTODO: allow the ability to rollback or abort dropping
+							 * sequences.
+							 */
 
-					Relation relseq;
-					char *seqname;
-					/*
-					 * A relation is opened to get the schema and database name as
-					 * such data is not available before when dropping a function.
-					 */
-					relseq = relation_open(object->objectId, AccessShareLock);
-					seqname = GetGlobalSeqName(relseq, NULL, NULL);
+							Relation relseq;
+							char *seqname;
+							/*
+							 * A relation is opened to get the schema and database name as
+							 * such data is not available before when dropping a function.
+							 */
+							relseq = relation_open(object->objectId, AccessShareLock);
+							seqname = GetGlobalSeqName(relseq, NULL, NULL);
 
-					DropSequenceGTM(seqname, GTM_SEQ_FULL_NAME);
-					pfree(seqname);
+							DropSequenceGTM(seqname, GTM_SEQ_FULL_NAME);
+							pfree(seqname);
 
-					/* Then close the relation opened previously */
-					relation_close(relseq, AccessShareLock);
+							/* Then close the relation opened previously */
+							relation_close(relseq, AccessShareLock);
+						}
+						break;
+					case RELKIND_RELATION:
+					case RELKIND_VIEW:
+						/*
+						 * Flag temporary objects in use in case a temporary table or view
+						 * is dropped by dependency. This check is particularly useful with
+						 * CASCADE when temporary objects are removed by dependency in order
+						 * to avoid implicit 2PC would result in an error as temporary
+						 * objects cannot be prepared.
+						 */
+						if (IsTempTable(object->objectId))
+							ExecSetTempObjectIncluded();
+						break;
+					default:
+						break;
 				}
 #endif /* PGXC */
 				break;
