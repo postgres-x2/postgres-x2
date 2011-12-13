@@ -4854,3 +4854,14 @@ ExecSetTempObjectIncluded(void)
 {
 	temp_object_included = true;
 }
+
+/*
+ * ExecIsTempObjectIncluded
+ *
+ * Check if a temporary object has been found
+ */
+bool
+ExecIsTempObjectIncluded(void)
+{
+	return temp_object_included;
+}

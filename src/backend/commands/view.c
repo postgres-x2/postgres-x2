@@ -32,6 +32,9 @@
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
+#ifdef PGXC
+#include "pgxc/execRemote.h"
+#endif
 
 
 static void checkViewTupleDesc(TupleDesc newdesc, TupleDesc olddesc);
@@ -496,6 +499,12 @@ DefineView(ViewStmt *stmt, const char *queryString)
 				(errmsg("view \"%s\" will be a temporary view",
 						view->relname)));
 	}
+
+#ifdef PGXC
+	/* In case view is temporary, be sure not to use 2PC on such relations */
+	if (view->relpersistence == RELPERSISTENCE_TEMP)
+		ExecSetTempObjectIncluded();
+#endif
 
 	/* Unlogged views are not sensible. */
 	if (view->relpersistence == RELPERSISTENCE_UNLOGGED)
