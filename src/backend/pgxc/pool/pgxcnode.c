@@ -314,7 +314,7 @@ pgxc_node_all_free(void)
 			default:
 				Assert(0);
 		}
-		/* Coordinator masters */
+
 		for (j = 0; j < num_nodes; j++)
 		{
 			PGXCNodeHandle *handle = &array_handles[j];

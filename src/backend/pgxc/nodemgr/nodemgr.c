@@ -374,7 +374,7 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 		if (node_type != PGXC_NODE_DATANODE)
 			ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
-					errmsg("PGXC node %s: cannot be a primary node, it has to be a master Datanode",
+					errmsg("PGXC node %s: cannot be a primary node, it has to be a Datanode",
 							node_name)));
 
 		if (OidIsValid(primary_data_node))
@@ -390,7 +390,7 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 		if (node_type != PGXC_NODE_DATANODE)
 			ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
-					errmsg("PGXC node %s: cannot be a preferred node, it has to be a master Datanode",
+					errmsg("PGXC node %s: cannot be a preferred node, it has to be a Datanode",
 							node_name)));
 		nodeis_preferred = true;
 	}
@@ -487,7 +487,7 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 		if (get_pgxc_nodetype(nodeOid) != PGXC_NODE_DATANODE)
 			ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
-					errmsg("PGXC node %s: cannot be a primary node, it has to be a master Datanode",
+					errmsg("PGXC node %s: cannot be a primary node, it has to be a Datanode",
 							node_name)));
 
 		if (OidIsValid(primary_data_node))
@@ -504,7 +504,7 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 		if (get_pgxc_nodetype(nodeOid) != PGXC_NODE_DATANODE)
 			ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
-					errmsg("PGXC node %s: cannot be a preferred node, it has to be a master Datanode",
+					errmsg("PGXC node %s: cannot be a preferred node, it has to be a Datanode",
 							node_name)));
 		nodeis_preferred = true;
 	}

@@ -1129,8 +1129,8 @@ build_subcluster_data(PGXCSubCluster *subcluster, int *numnodes)
 	if (!subcluster)
 	{
 		/*
-		 * If no subcluster is defined, all the Datanode masters are associated
-		 * to the table. So scan pgxc_node and pick up all the necessary stuff.
+		 * If no subcluster is defined, all the Datanode are associated to the
+		 * table. So scan pgxc_node and pick up all the necessary stuff.
 		 */
 		Relation		rel;
 		HeapScanDesc	scan;
@@ -1143,7 +1143,7 @@ build_subcluster_data(PGXCSubCluster *subcluster, int *numnodes)
 		{
 			Form_pgxc_node  pgxc_node = (Form_pgxc_node) GETSTRUCT(tuple);
 
-			/* Add only Datanode masters */
+			/* Add only Datanodes */
 			if (pgxc_node->node_type != PGXC_NODE_DATANODE)
 				continue;
 
@@ -1162,7 +1162,7 @@ build_subcluster_data(PGXCSubCluster *subcluster, int *numnodes)
 		if (*numnodes == 0)
 			ereport(ERROR,
 					(errcode(ERRCODE_UNDEFINED_OBJECT),
-					 errmsg("No PGXC Datanode master defined")));
+					 errmsg("No Datanode defined in cluster")));
 
 		return nodes;
 	}
@@ -1204,7 +1204,7 @@ build_subcluster_data(PGXCSubCluster *subcluster, int *numnodes)
 			if (get_pgxc_nodetype(noid) != PGXC_NODE_DATANODE)
 				ereport(ERROR,
 						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("PGXC node %s: not a Datanode master",
+						 errmsg("PGXC node %s: not a Datanode",
 								node_name)));
 
 			/* Can be added if necessary */

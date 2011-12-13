@@ -2147,8 +2147,8 @@ ExecUtilityStmtOnNodes(const char *queryString, ExecNodes *nodes,
 	if (NumDataNodes == 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
-				 errmsg("No PGXC Datanode master defined in cluster"),
-				 errhint("You need to define at least 1 Datanode master with "
+				 errmsg("No Datanode defined in cluster"),
+				 errhint("You need to define at least 1 Datanode with "
 						 "CREATE NODE.")));
 
 	if (!IsConnFromCoord())

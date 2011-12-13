@@ -68,7 +68,7 @@ WITH <replaceable class="parameter">nodename</replaceable> [, ... ]
   <title>Notes</title>
   <para>
    A group of nodes works as an alias for node lists when defining tables
-   on sub-clusters. Only Datanode masters can be included in node groups.
+   on sub-clusters. Only Datanode can be included in node groups.
   </para>
  </refsect1>
 

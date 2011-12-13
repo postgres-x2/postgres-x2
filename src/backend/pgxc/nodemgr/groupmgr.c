@@ -77,7 +77,7 @@ PgxcGroupCreate(CreateGroupStmt *stmt)
 		if (get_pgxc_nodetype(noid) != PGXC_NODE_DATANODE)
 			ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("PGXC node %s: only Datanode master can be a group member",
+					 errmsg("PGXC node %s: only Datanodes can be group members",
 							node_name)));
 
 		/* OK to pick up Oid of this node */

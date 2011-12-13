@@ -156,7 +156,7 @@ CREATE NODE node2 WITH (TYPE = 'coordinator', HOST = 'localhost', PORT = 6543);
   </para>
 
   <para>
-   Create a Datanode master which is a preferred and primary node
+   Create a Datanode which is a preferred and primary node
    located on remote machine with IP '192.168.0.3' on port 8888.
 <programlisting>
 CREATE NODE node2 WITH (TYPE = 'datanode', HOST = '192.168.0.3', PORT = 8888, PRIMARY, PREFERRED);
