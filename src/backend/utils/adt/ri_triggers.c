@@ -263,6 +263,15 @@ RI_FKey_check(PG_FUNCTION_ARGS)
 	SPIPlanPtr	qplan;
 	int			i;
 
+#ifdef PGXC
+	/* 
+	 * XXX Referential integrity is not yet supported. We just come out of the
+	 * function without actually performing any integrity checks. This must be
+	 * fixed when we support local/global referential integrities.
+	 */
+	return PointerGetDatum(NULL);
+#endif
+
 	/*
 	 * Check that this is a valid trigger call on the right time and event.
 	 */

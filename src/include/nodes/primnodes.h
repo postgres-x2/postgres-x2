@@ -92,6 +92,9 @@ typedef struct IntoClause
 	List	   *options;		/* options from WITH clause */
 	OnCommitAction onCommit;	/* what do we do at COMMIT? */
 	char	   *tableSpaceName; /* table space to use, or NULL */
+#ifdef PGXC         
+	struct DistributeBy *distributeby;     /* distribution to use, or NULL */
+#endif    
 } IntoClause;
 
 

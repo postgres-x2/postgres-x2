@@ -21,4 +21,8 @@ extern List *QueryRewrite(Query *parsetree);
 extern void AcquireRewriteLocks(Query *parsetree, bool forUpdatePushedDown);
 extern Node *build_column_default(Relation rel, int attrno);
 
+#ifdef PGXC
+extern List *QueryRewriteCTAS(Query *parsetree);
+#endif
+
 #endif   /* REWRITEHANDLER_H */

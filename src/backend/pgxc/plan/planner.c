@@ -2940,12 +2940,6 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 static void
 pgxc_handle_unsupported_stmts(Query *query)
 {
-	/* we don't support SELECT INTO yet */
-	if (query->commandType == CMD_SELECT && query->intoClause)
-		ereport(ERROR,
-				(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-				 (errmsg("INTO clause not yet supported"))));
-
 	/*
 	 * PGXCTODO: This validation will not be removed
 	 * until we support moving tuples from one node to another
@@ -3239,8 +3233,31 @@ pgxc_query_needs_coord(Query *query)
 						query->groupClause ||
 						query->havingQual ||
 						query->hasWindowFuncs ||
-						query->hasRecursive))
+						query->hasRecursive ||
+						query->intoClause))
 		return true;
+
+	/*
+	 * Handle INSERT INTO .. SELECT through standard planner. There might be
+	 * some cases where we should be able to push down these queries to the
+	 * data node, but that needs to be thouroughly tested. For example, if the
+	 * source and target tables are distributed on the same column, then we
+	 * should be able to push that down. Similarly, if both the tables are
+	 * replicated, we should be able to push down the queries. And we have some
+	 * of these checks in the pgxc_planner. But I am not sure if its well
+	 * tested and hence closing that path for now
+	 */
+	if (query->commandType == CMD_INSERT)
+	{
+		ListCell *l;
+
+		foreach (l, query->rtable)
+		{
+			RangeTblEntry *rte = (RangeTblEntry *) lfirst(l);
+			if (rte->rtekind == RTE_SUBQUERY || rte->rtekind == RTE_VALUES)
+				return true;
+		}
+	}
 
 	/* Allow for override */
 	if (query->commandType != CMD_SELECT &&

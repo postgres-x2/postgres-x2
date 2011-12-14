@@ -30,6 +30,7 @@ SELECT * FROM vactst;
 
 VACUUM FULL vactst;
 UPDATE vactst SET i = i + 1;
+ERROR:  Partition column can't be updated in current version
 INSERT INTO vactst SELECT * FROM vactst;
 INSERT INTO vactst SELECT * FROM vactst;
 INSERT INTO vactst SELECT * FROM vactst;

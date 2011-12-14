@@ -792,6 +792,9 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 		estate->es_num_result_relations = numResultRelations;
 		/* es_result_relation_info is NULL except when within ModifyTable */
 		estate->es_result_relation_info = NULL;
+#ifdef PGXC		
+		estate->es_result_remoterel = NULL;
+#endif		
 	}
 	else
 	{
@@ -801,6 +804,9 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 		estate->es_result_relations = NULL;
 		estate->es_num_result_relations = 0;
 		estate->es_result_relation_info = NULL;
+#ifdef PGXC		
+		estate->es_result_remoterel = NULL;
+#endif
 	}
 
 	/*
@@ -2215,6 +2221,12 @@ EvalPlanQualStart(EPQState *epqstate, EState *parentestate, Plan *planTree)
 	estate->es_result_relations = parentestate->es_result_relations;
 	estate->es_num_result_relations = parentestate->es_num_result_relations;
 	estate->es_result_relation_info = parentestate->es_result_relation_info;
+
+#ifdef PGXC		
+	/* XXX Check if this is OK */
+	estate->es_result_remoterel = parentestate->es_result_remoterel;
+#endif	
+
 	/* es_trig_target_relations must NOT be copied */
 	estate->es_rowMarks = parentestate->es_rowMarks;
 	estate->es_top_eflags = parentestate->es_top_eflags;

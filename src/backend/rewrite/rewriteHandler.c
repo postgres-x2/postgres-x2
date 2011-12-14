@@ -74,7 +74,6 @@ static void InitValuesList(List **valuesList[], int size);
 static void DestroyValuesList(List **valuesList[]);
 static void ProcessRobinValue(RelationLocInfo *rel_loc_info, Oid relid, List **valuesList, 
 								const RangeTblEntry *values_rte);
-static List *RewriteInsertStmt(Query *parsetree, RangeTblEntry *values_rte);
 #endif
 
 /*
@@ -1986,10 +1985,6 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 				rewriteTargetListIU(parsetree, rt_entry_relation, &attrnos);
 				/* ... and the VALUES expression lists */
 				rewriteValuesRTE(values_rte, rt_entry_relation, attrnos);
-#ifdef PGXC
-				if (IS_PGXC_COORDINATOR) 
-					parsetree_list = RewriteInsertStmt(parsetree, values_rte);
-#endif
 			}
 			else
 			{
@@ -2560,126 +2555,138 @@ ProcessRobinValue(RelationLocInfo *rel_loc_info, Oid relid, List **valuesList,
 }
 
 /*
- * Part of handling INSERT queries with multiple values
- *
- * RewriteInsertStmt -
- *	Rewrite INSERT statement.
- *	Split the INSERT statement with mutiple values into mutiple insert statements
- *	according to its distribution key. Distribution rule is as follows:
- *		1.LOCATOR_TYPE_HASH: associates correct node with its distribution key
- *		2.LOCATOR_TYPE_RROBIN: assign value lists to each datanodes averagely
- *		3.DEFAULT: no need to process (replicate case)
- *
- *	values_rte is the values list range table.
- *
- * note: sql_statement of query with mutiple values must be assigned in this function. 
- * 	  It will not be assigned in pgxc_planner again.
+ * Rewrite the CREATE TABLE AS and SELECT INTO queries as a
+ * INSERT INTO .. SELECT query. The target table must be created first using
+ * utility command processing. This takes care of creating the target table on
+ * all the coordinators and the data nodes.
  */
-static List *
-RewriteInsertStmt(Query *query, RangeTblEntry *values_rte)
+List *
+QueryRewriteCTAS(Query *parsetree)
 {
-	ListCell *values_lc;
-	List *rwInsertList = NIL;
-	Query *element = NULL;
-	StringInfoData buf;
-	RangeTblRef *rtr = (RangeTblRef *) linitial(query->jointree->fromlist);
-	RangeTblEntry *rte;
-	RelationLocInfo *rte_loc_info;
-	char locatorType; 
-	char *partColName;
-	List **valuesList;
-	int i;
+	RangeVar *relation;
+	CreateStmt *create_stmt;
+	List *tableElts = NIL;
+	StringInfoData cquery;
+	ListCell *col;
+	Query *cparsetree;
+	List *raw_parsetree_list;
+	char *selectstr;
 
-	rte = (RangeTblEntry *) list_nth(query->rtable, query->resultRelation - 1);
-	rte_loc_info = GetRelationLocInfo(rte->relid);
-	if (!rte_loc_info)
-		return NULL;
+	if (parsetree->commandType != CMD_SELECT ||
+		(parsetree->intoClause == NULL))
+		elog(ERROR, "Unexpected commandType or intoClause is not set properly");
 
-	locatorType = rte_loc_info->locatorType;
-	partColName = rte_loc_info->partAttrName;
+	/* Get the target table */
+	relation = parsetree->intoClause->rel;
 
-	/*
-	 * Do this first so that string is alloc'd in outer context not SPI's.
+	/* Start building a CreateStmt for creating the target table */
+   	create_stmt = makeNode(CreateStmt);
+	create_stmt->relation = relation;
+
+	/* 
+	 * Based on the targetList, populate the column information for the target
+	 * table.
 	 */
-	initStringInfo(&buf);
-
-	switch(locatorType)
+	foreach(col, parsetree->targetList)
 	{
-		case LOCATOR_TYPE_MODULO:
-		case LOCATOR_TYPE_HASH:
-		{
-			bool first = true;
-			int partColno;
-			ExecNodes  *exec_nodes;
+		TargetEntry *tle = (TargetEntry *)lfirst(col);
+		ColumnDef   *coldef;
+		TypeName    *typename;
 
-			InitValuesList(&valuesList, NumDataNodes);
+		/* Ignore junk columns from the targetlist */
+		if (tle->resjunk)
+			continue;
 
-			foreach(values_lc, values_rte->values_lists)
-			{
-				List *sublist = (List *)lfirst(values_lc);
+		coldef = makeNode(ColumnDef);
+		typename = makeNode(TypeName);
 
-				if (first)
-				{
-					/* Get the partition column number in the targetList */
-					partColno = GetRelPartColPos(query, partColName);
-					first = false;
-				}
+		coldef->inhcount = 0;
+		coldef->is_local = true;
+		coldef->is_not_null = true;
+		coldef->raw_default = NULL;
+		coldef->cooked_default = NULL;
+		coldef->constraints = NIL;
 
-				/* Get the exec node according to partition column value */
-				GetHashExecNodes(rte_loc_info, &exec_nodes,
-						(Expr *)list_nth(sublist, partColno));
+		/* 
+		 * Set typeOid and typemod. The name of the type is derived while
+		 * generating query
+		 */
+		typename->typeOid = exprType((Node *)tle->expr);
+		typename->typemod = exprTypmod((Node *)tle->expr);
 
-				Assert(exec_nodes->nodeList->length == 1);
+		coldef->typeName = typename;
 
-				/* Assign valueList to specified execution node */
-				ProcessHashValue(valuesList, sublist, list_nth_int(exec_nodes->nodeList, 0));
-			}
-		}
-
-		goto collect;
-
-		case LOCATOR_TYPE_RROBIN:
-
-			InitValuesList(&valuesList, NumDataNodes);
-			/* Assign valueList to specified execution node */
-			ProcessRobinValue(rte_loc_info, rte->relid, valuesList, values_rte);
-
-collect:
-			/* Produce query for relative Datanodes */
-			for (i = 0; i < NumDataNodes; i++)
-			{
-				if (valuesList[i] != NIL)
-				{
-					ExecNodes *execNodes = makeNode(ExecNodes);
-					execNodes->baselocatortype = rte_loc_info->locatorType;
-					execNodes->nodeList = lappend_int(execNodes->nodeList, i);
-					element = copyObject(query);
-
-					rte = (RangeTblEntry *)list_nth(element->rtable, rtr->rtindex - 1);
-					rte->values_lists = valuesList[i];
-
-					get_query_def_from_valuesList(element, &buf);
-					element->sql_statement = pstrdup(buf.data);
-					element->execNodes = execNodes;
-					elog(DEBUG1, "deparsed sql statement is %s\n", element->sql_statement);
-
-					resetStringInfo(&buf);
-
-					rwInsertList = lappend(rwInsertList, element);
-				}
-			}
-
-			DestroyValuesList(&valuesList);
-			break;
-
-		default:
-			get_query_def_from_valuesList(query, &buf);
-			query->sql_statement = pstrdup(buf.data);
-			rwInsertList = lappend(rwInsertList, query);
-			break;
+		/* 
+		 * XXX Should we look at the column specifications in the intoClause
+		 * instead of the target entry ?
+		 */
+		coldef->colname = pstrdup(tle->resname);
+		tableElts = lappend(tableElts, coldef);
 	}
 
-	return rwInsertList;
+	/* 
+	 * Set column information and the distribution mechanism (which will be
+	 * NULL for SELECT INTO and the default mechanism will be picked)
+	 */
+	create_stmt->tableElts = tableElts;
+	create_stmt->distributeby = parsetree->intoClause->distributeby;
+
+	create_stmt->tablespacename = parsetree->intoClause->tableSpaceName;
+	create_stmt->oncommit = parsetree->intoClause->onCommit;
+	create_stmt->options = parsetree->intoClause->options;
+
+	/*
+	 * Check consistency of arguments
+	 */
+	if (create_stmt->oncommit != ONCOMMIT_NOOP
+			&& create_stmt->relation->relpersistence != RELPERSISTENCE_TEMP)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+				 errmsg("ON COMMIT can only be used on temporary tables")));
+
+	/* Get a copy of the parsetree which we can freely modify  */
+	cparsetree = copyObject(parsetree);
+
+	/* 
+	 * Now build a utility statement in order to run the CREATE TABLE DDL on
+	 * the local and remote nodes. We keep others fields as it is since they
+	 * are ignored anyways by deparse_query.
+	 */
+	cparsetree->commandType = CMD_UTILITY;
+	cparsetree->utilityStmt = (Node *) create_stmt;
+
+	initStringInfo(&cquery);
+	deparse_query(cparsetree, &cquery, NIL);
+
+	/* Finally, fire off the query to run the DDL */
+	ProcessUtility(cparsetree->utilityStmt, cquery.data, NULL, true, NULL, NULL);
+
+	/*
+	 * Now fold the SELECT statement into an INSERT INTO statement. The
+	 * intoClause is no more required.
+	 */
+	parsetree->intoClause = NULL;
+
+	/* Get the SELECT query string */
+	initStringInfo(&cquery);
+	deparse_query(parsetree, &cquery, NIL);
+	selectstr = pstrdup(cquery.data);
+
+	/* Now, finally build the INSERT INTO statement */
+	initStringInfo(&cquery);
+
+	if (relation->schemaname)
+		appendStringInfo(&cquery, "INSERT INTO %s.%s",
+				relation->schemaname, relation->relname);
+	else
+		appendStringInfo(&cquery, "INSERT INTO %s", relation->relname);
+
+	appendStringInfo(&cquery, " %s", selectstr);
+
+	raw_parsetree_list = pg_parse_query(cquery.data);
+	parsetree = parse_analyze(linitial(raw_parsetree_list), cquery.data,
+			NULL, 0);
+	return(list_make1(parsetree));
 }
 #endif
 

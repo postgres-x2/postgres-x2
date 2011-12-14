@@ -7,30 +7,8 @@
 --
 
 INSERT INTO tenk2 SELECT * FROM tenk1;
-COPY tenk2 FROM '@abs_srcdir@/data/tenk.data';
 
 SELECT * INTO TABLE onek2 FROM onek;
-
-CREATE TABLE onek2 (
-	unique1		int4,
-	unique2		int4,
-	two			int4,
-	four		int4,
-	ten			int4,
-	twenty		int4,
-	hundred		int4,
-	thousand	int4,
-	twothousand	int4,
-	fivethous	int4,
-	tenthous	int4,
-	odd			int4,
-	even		int4,
-	stringu1	name,
-	stringu2	name,
-	string4		name
-);
-
-COPY onek2 FROM '@abs_srcdir@/data/onek.data';
 
 INSERT INTO fast_emp4000 SELECT * FROM slow_emp4000;
 

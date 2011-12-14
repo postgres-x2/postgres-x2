@@ -725,6 +725,17 @@ pg_rewrite_query(Query *query)
 		/* don't rewrite utilities, just dump 'em into result list */
 		querytree_list = list_make1(query);
 	}
+#ifdef PGXC
+	else if ((query->commandType == CMD_SELECT) && (query->intoClause != NULL))
+	{
+		/* 
+		 * CREATE TABLE AS SELECT and SELECT INTO are rewritten so that the
+		 * target table is created first. The SELECT query is then transformed
+		 * into an INSERT INTO statement
+		 */
+		querytree_list = QueryRewriteCTAS(query);
+	}
+#endif
 	else
 	{
 		/* rewrite regular queries */

@@ -187,6 +187,9 @@ _copyModifyTable(ModifyTable *from)
 	COPY_NODE_FIELD(returningLists);
 	COPY_NODE_FIELD(rowMarks);
 	COPY_SCALAR_FIELD(epqParam);
+#ifdef PGXC	
+	COPY_NODE_FIELD(remote_plans);
+#endif	
 
 	return newnode;
 }

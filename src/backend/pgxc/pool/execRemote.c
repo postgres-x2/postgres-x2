@@ -3109,10 +3109,8 @@ get_exec_connections(RemoteQueryState *planstate,
 				if (!isnull)
 				{
 					RelationLocInfo *rel_loc_info = GetRelationLocInfo(exec_nodes->en_relid);
-					ExecNodes  *nodes = GetRelationNodes(rel_loc_info,
-														 partvalue,
-														 exprType((Node *) exec_nodes->en_expr),
-														 exec_nodes->accesstype);
+					/* PGXCTODO what is the type of partvalue here*/
+					ExecNodes *nodes = GetRelationNodes(rel_loc_info, partvalue, exprType(exec_nodes->en_expr), exec_nodes->accesstype);
 					if (nodes)
 					{
 						nodelist = nodes->nodeList;
@@ -3122,6 +3120,25 @@ get_exec_connections(RemoteQueryState *planstate,
 					FreeRelationLocInfo(rel_loc_info);
 				}
 			}
+		}
+		else if (OidIsValid(exec_nodes->en_relid))
+		{
+			/*
+			 * Special handling for ROUND ROBIN distributed tables. The target
+			 * node must be determined at the execution time
+			 */
+			RelationLocInfo *rel_loc_info = GetRelationLocInfo(exec_nodes->en_relid);
+			if (rel_loc_info->locatorType == LOCATOR_TYPE_RROBIN)
+			{
+				ExecNodes *nodes = GetRelationNodes(rel_loc_info, NULL, InvalidOid, exec_nodes->accesstype);
+				if (nodes)
+				{
+					nodelist = nodes->nodeList;
+					primarynode = nodes->primarynodelist;
+					pfree(nodes);
+				}
+			}
+			FreeRelationLocInfo(rel_loc_info);
 		}
 		else
 		{
@@ -4855,8 +4872,7 @@ ExecSetTempObjectIncluded(void)
 	temp_object_included = true;
 }
 
-/*
- * ExecIsTempObjectIncluded
+/* ExecIsTempObjectIncluded
  *
  * Check if a temporary object has been found
  */
@@ -4864,4 +4880,35 @@ bool
 ExecIsTempObjectIncluded(void)
 {
 	return temp_object_included;
+}
+
+/*
+ * Insert given tuple in the remote relation. We use extended query protocol
+ * to avoid repeated planning of the query. So we must pass the column values
+ * as parameters while executing the query.
+ */
+void
+ExecRemoteInsert(Relation resultRelationDesc,
+				 RemoteQueryState *resultRemoteRel,
+				 TupleTableSlot *slot)
+{
+	ExprContext		*econtext = resultRemoteRel->ss.ps.ps_ExprContext;
+
+	/*
+	 * Use data row returned by the previus step as a parameters for
+	 * the main query.
+	 */
+	if (!TupIsNull(slot))
+	{
+		resultRemoteRel->paramval_len = ExecCopySlotDatarow(slot,
+												 &resultRemoteRel->paramval_data);
+
+		/*
+		 * The econtext is set only when en_expr is set for execution time
+		 * evalulation of the target node.
+		 */
+		if (econtext)
+			econtext->ecxt_scantuple = slot;
+		do_query(resultRemoteRel);
+	}
 }

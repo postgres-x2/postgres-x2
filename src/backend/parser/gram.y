@@ -3163,7 +3163,10 @@ CreateAsStmt:
 		;
 
 create_as_target:
-			qualified_name OptCreateAs OptWith OnCommitOption OptTableSpace
+			qualified_name OptCreateAs OptWith OnCommitOption OptTableSpace 
+/* PGXC_BEGIN */
+			OptDistributeBy
+/* PGXC_END */
 				{
 					$$ = makeNode(IntoClause);
 					$$->rel = $1;
@@ -3171,6 +3174,9 @@ create_as_target:
 					$$->options = $3;
 					$$->onCommit = $4;
 					$$->tableSpaceName = $5;
+/* PGXC_BEGIN */
+					$$->distributeby = $6;
+/* PGXC_END */
 				}
 		;
 

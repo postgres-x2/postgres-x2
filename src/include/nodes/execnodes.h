@@ -350,6 +350,9 @@ typedef struct EState
 	ResultRelInfo *es_result_relations; /* array of ResultRelInfos */
 	int			es_num_result_relations;		/* length of array */
 	ResultRelInfo *es_result_relation_info;		/* currently active array elt */
+#ifdef PGXC	
+	struct PlanState	*es_result_remoterel;			/* currently active remote rel */
+#endif	
 
 	/* Stuff used for firing triggers: */
 	List	   *es_trig_target_relations;		/* trigger-only ResultRelInfos */
@@ -1050,6 +1053,9 @@ typedef struct ModifyTableState
 	bool		canSetTag;		/* do we set the command tag/es_processed? */
 	bool		mt_done;		/* are we done? */
 	PlanState **mt_plans;		/* subplans (one per target rel) */
+#ifdef PGXC	
+	PlanState **mt_remoterels;	/* per-target remote query node */
+#endif	
 	int			mt_nplans;		/* number of plans in the array */
 	int			mt_whichplan;	/* which one is being executed (0..n-1) */
 	ResultRelInfo *resultRelInfo;		/* per-subplan target relations */

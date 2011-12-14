@@ -171,4 +171,5 @@ extern void ExecCloseRemoteStatement(const char *stmt_name, List *nodelist);
 /* Flags related to temporary objects included in query */
 extern void ExecSetTempObjectIncluded(void);
 extern bool ExecIsTempObjectIncluded(void);
+extern void ExecRemoteInsert(Relation resultRelationDesc, RemoteQueryState *resultRemoteRel, TupleTableSlot *slot);
 #endif

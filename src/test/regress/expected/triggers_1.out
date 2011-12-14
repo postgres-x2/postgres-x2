@@ -689,7 +689,8 @@ COMMIT;
 SELECT description FROM serializable_update_tab WHERE id = 1;
  description 
 -------------
-(0 rows)
+ new
+(1 row)
 
 DROP TABLE serializable_update_tab;
 -- minimal update trigger

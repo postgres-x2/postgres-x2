@@ -103,7 +103,8 @@ SELECT * FROM atest1 FOR UPDATE; -- ok
  a |  b  
 ---+-----
  2 | two
-(1 row)
+ 1 | two
+(2 rows)
 
 SELECT * FROM atest2 FOR UPDATE; -- fail
 ERROR:  permission denied for relation atest2
@@ -141,7 +142,8 @@ SELECT * FROM atest1; -- ok
  a |  b  
 ---+-----
  2 | two
-(1 row)
+ 1 | two
+(2 rows)
 
 SELECT * FROM atest2; -- fail
 ERROR:  permission denied for relation atest2
@@ -182,7 +184,8 @@ SELECT * FROM atest1; -- ok
  a |  b  
 ---+-----
  2 | two
-(1 row)
+ 1 | two
+(2 rows)
 
 -- groups
 SET SESSION AUTHORIZATION regressuser3;
@@ -202,7 +205,8 @@ SELECT * FROM atestv1; -- ok
  a |  b  
 ---+-----
  2 | two
-(1 row)
+ 1 | two
+(2 rows)
 
 SELECT * FROM atestv2; -- fail
 ERROR:  permission denied for relation atest2
@@ -213,7 +217,8 @@ SELECT * FROM atestv1; -- ok
  a |  b  
 ---+-----
  2 | two
-(1 row)
+ 1 | two
+(2 rows)
 
 SELECT * FROM atestv2; -- fail
 ERROR:  permission denied for relation atestv2
@@ -292,9 +297,10 @@ ERROR:  permission denied for relation atest5
 SELECT atest1.*,atest5.one FROM atest1 JOIN atest5 ON (atest1.a = atest5.two); -- fail
 ERROR:  permission denied for relation atest5
 SELECT atest1.*,atest5.one FROM atest1 JOIN atest5 ON (atest1.a = atest5.one); -- ok
- a | b | one 
----+---+-----
-(0 rows)
+ a |  b  | one 
+---+-----+-----
+ 1 | two |   1
+(1 row)
 
 SELECT one, two FROM atest5; -- fail
 ERROR:  permission denied for relation atest5

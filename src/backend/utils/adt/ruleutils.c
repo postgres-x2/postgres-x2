@@ -49,6 +49,7 @@
 #include "parser/keywords.h"
 #include "parser/parse_func.h"
 #include "parser/parse_oper.h"
+#include "parser/parse_type.h"
 #include "parser/parser.h"
 #include "parser/parsetree.h"
 #include "rewrite/rewriteHandler.h"
@@ -4055,6 +4056,115 @@ get_utility_query_def(Query *query, deparse_context *context)
 			simple_quote_literal(buf, stmt->payload);
 		}
 	}
+#ifdef PGXC	
+	else if (query->utilityStmt && IsA(query->utilityStmt, CreateStmt))
+	{
+		CreateStmt *stmt = (CreateStmt *) query->utilityStmt;
+		ListCell   *column;
+		const char *delimiter = "";
+		RangeVar   *relation = stmt->relation;
+		bool		istemp = (relation->relpersistence == RELPERSISTENCE_TEMP);
+		bool		isunlogged = (relation->relpersistence == RELPERSISTENCE_UNLOGGED);
+
+		if (istemp && relation->schemaname)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+					 errmsg("temporary tables cannot specify a schema name")));
+
+		appendStringInfo(buf, "CREATE %s %s TABLE ",
+				istemp ? "TEMP" : "",
+				isunlogged ? "UNLOGGED" : "");
+
+		if (relation->schemaname && relation->schemaname[0])
+			appendStringInfo(buf, "%s.", relation->schemaname);
+		appendStringInfo(buf, "%s", relation->relname);
+
+		appendStringInfo(buf, "(");
+		foreach(column, stmt->tableElts)
+		{
+			Node *node = (Node *) lfirst(column);
+
+			appendStringInfo(buf, "%s", delimiter);
+			delimiter = ", ";
+
+			if (IsA(node, ColumnDef))
+			{
+				ColumnDef *coldef = (ColumnDef *) node;
+				TypeName *typename = coldef->typeName;
+				Type type;
+
+				/* error out if we have no recourse at all */
+				if (!OidIsValid(typename->typeOid))
+					ereport(ERROR,
+							(errcode(ERRCODE_SYNTAX_ERROR),
+							 errmsg("improper type oid: \"%u\"", typename->typeOid)));
+
+				/* get typename from the oid */
+				type = typeidType(typename->typeOid);
+
+				if (!HeapTupleIsValid(type))
+					ereport(ERROR,
+							(errcode(ERRCODE_UNDEFINED_OBJECT),
+							 errmsg("type \"%u\" does not exist",
+								 typename->typeOid)));
+				appendStringInfo(buf, "%s %s", quote_identifier(coldef->colname),
+						typeTypeName(type));
+				ReleaseSysCache(type);
+			}
+			else
+				elog(ERROR, "Invalid table column definition.");
+		}
+		appendStringInfo(buf, ")");
+
+		/* add the on commit clauses for temporary tables */
+		switch (stmt->oncommit)
+		{
+			case ONCOMMIT_NOOP:
+				/* do nothing */
+				break;
+
+			case ONCOMMIT_PRESERVE_ROWS:
+				appendStringInfo(buf, " ON COMMIT PRESERVE ROWS");
+				break;
+
+			case ONCOMMIT_DELETE_ROWS:
+				appendStringInfo(buf, " ON COMMIT DELETE ROWS");
+				break;
+
+			case ONCOMMIT_DROP:
+				appendStringInfo(buf, " ON COMMIT DROP");
+				break;
+		}
+
+		if (stmt->distributeby)
+		{
+			/* add the on commit clauses for temporary tables */
+			switch (stmt->distributeby->disttype)
+			{
+				case DISTTYPE_REPLICATION:
+					appendStringInfo(buf, " DISTRIBUTE BY REPLICATION");
+					break;
+
+				case DISTTYPE_HASH:
+					appendStringInfo(buf, " DISTRIBUTE BY HASH(%s)", stmt->distributeby->colname);
+					break;
+
+				case DISTTYPE_ROUNDROBIN:
+					appendStringInfo(buf, " DISTRIBUTE BY ROUND ROBIN");
+					break;
+
+				case DISTTYPE_MODULO:
+					appendStringInfo(buf, " DISTRIBUTE BY MODULO(%s)", stmt->distributeby->colname);
+					break;
+
+				default:
+					ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR),
+								errmsg("Invalid distribution type")));
+
+			}
+		}
+	}
+#endif	
 	else
 	{
 		/* Currently only NOTIFY utility commands can appear in rules */
