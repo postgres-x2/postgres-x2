@@ -233,4 +233,10 @@ GTM_Sequence get_next(GTM_Conn *conn, GTM_SequenceKey key);
 int set_val(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence nextval, bool is_called);
 int reset_sequence(GTM_Conn *conn, GTM_SequenceKey key);
 
+/*
+ * GTM-Standby
+ */
+int set_begin_end_backup(GTM_Conn *conn, bool begin);
+
+
 #endif

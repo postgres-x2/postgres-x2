@@ -1602,3 +1602,41 @@ send_failed:
 	conn->result->gr_status = GTM_RESULT_COMM_ERROR;
 	return -1;
 }
+
+int
+set_begin_end_backup(GTM_Conn *conn, bool begin)
+{
+	GTM_Result *res = NULL;
+	time_t finish_time;
+	int ii;
+
+	if (gtmpqPutMsgStart('C', true, conn))
+		goto send_failed;
+
+	if(gtmpqPutInt(begin ? MSG_BEGIN_BACKUP : MSG_END_BACKUP, 
+				   sizeof(GTM_MessageType), conn))
+		goto send_failed;
+
+	if (gtmpqPutMsgEnd(conn))
+		goto send_failed;
+
+	if (gtmpqFlush(conn))
+		goto send_failed;
+
+	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
+	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
+		gtmpqReadData(conn) < 0)
+		goto receive_failed;
+
+	if ((res = GTMPQgetResult(conn)) == NULL)
+		goto receive_failed;
+
+	return res->gr_status;
+
+receive_failed:
+send_failed:
+	conn->result = makeEmptyResultIfIsNull(conn->result);
+	conn->result->gr_status = GTM_RESULT_COMM_ERROR;
+	return -1;
+}
+		

@@ -126,7 +126,6 @@ MainThreadInit()
 	 * use malloc
 	 */
 	thrinfo = (GTM_ThreadInfo *)malloc(sizeof (GTM_ThreadInfo));
-	memset(thrinfo, 0, sizeof(GTM_ThreadInfo));
 
 	if (thrinfo == NULL)
 	{
@@ -135,6 +134,12 @@ MainThreadInit()
 		fflush(stderr);
 		exit(1);
 	}
+
+	memset(thrinfo, 0, sizeof(GTM_ThreadInfo));
+
+	thrinfo->is_main_thread = true;
+	GTM_RWLockInit(&thrinfo->thr_lock);
+	GTM_RWLockAcquire(&thrinfo->thr_lock, GTM_LOCKMODE_WRITE);
 
 	if (SetMyThreadInfo(thrinfo))
 	{
@@ -407,7 +412,7 @@ main(int argc, char *argv[])
 	 * Setup work directory
 	 */
 	if (data_dir)
-		SetConfigOption("data_dir", data_dir, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		SetConfigOption(GTM_OPTNAME_DATA_DIR, data_dir, GTMC_STARTUP, GTMC_S_OVERRIDE);
 
 	/*
 	 * Setup configuration file
@@ -424,43 +429,44 @@ main(int argc, char *argv[])
 	 */
 	if (log_file)
 	{
-		SetConfigOption("log_file", log_file, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		SetConfigOption(GTM_OPTNAME_LOG_FILE, log_file, GTMC_STARTUP, GTMC_S_OVERRIDE);
 		free(log_file);
 		log_file = NULL;
 	}
 	if (listen_addresses)
 	{
-		SetConfigOption("listen_addreses", listen_addresses, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		SetConfigOption(GTM_OPTNAME_LISTEN_ADDRESSES, 
+						listen_addresses, GTMC_STARTUP, GTMC_S_OVERRIDE);
 		free(listen_addresses);
 		listen_addresses = NULL;
 	}
 	if (node_name)
 	{
-		SetConfigOption("nodename", node_name, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		SetConfigOption(GTM_OPTNAME_NODENAME, node_name, GTMC_STARTUP, GTMC_S_OVERRIDE);
 		free(node_name);
 		node_name = NULL;
 	}
 	if (port_number)
 	{
-		SetConfigOption("port", port_number, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		SetConfigOption(GTM_OPTNAME_PORT, port_number, GTMC_STARTUP, GTMC_S_OVERRIDE);
 		free(port_number);
 		port_number = NULL;
 	}
 	if (is_standby_mode)
 	{
-		SetConfigOption("startup", is_standby_mode, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		SetConfigOption(GTM_OPTNAME_STARTUP, is_standby_mode, GTMC_STARTUP, GTMC_S_OVERRIDE);
 		free(is_standby_mode);
 		is_standby_mode = NULL;
 	}
 	if (dest_addr)
 	{
-		SetConfigOption("active_host", dest_addr, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		SetConfigOption(GTM_OPTNAME_ACTIVE_HOST, dest_addr, GTMC_STARTUP, GTMC_S_OVERRIDE);
 		free(dest_addr);
 		dest_addr = NULL;
 	}
 	if (dest_port)
 	{
-		SetConfigOption("active_port", dest_port, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		SetConfigOption(GTM_OPTNAME_ACTIVE_PORT, dest_port, GTMC_STARTUP, GTMC_S_OVERRIDE);
 		free(dest_port);
 		dest_port = NULL;
 	}
@@ -484,6 +490,23 @@ main(int argc, char *argv[])
 					 progname);
 		exit(1);
 	}
+
+	if (NodeName == NULL || NodeName[0] == 0)
+	{
+		write_stderr("Nodename must be specified\n");
+		write_stderr("Try \"%s --help\" for more information.\n",
+					 progname);
+		exit(1);
+	}
+
+	if (ListenAddresses == NULL || ListenAddresses[0] == 0)
+	{
+		write_stderr("Listen_addresses must be specified\n");
+		write_stderr("Try \"%s --help\" for more information.\n",
+					 progname);
+		exit(1);
+	}
+
 	/*
 	 * GTM accepts no non-option switch arguments.
 	 */
@@ -522,6 +545,11 @@ main(int argc, char *argv[])
 	 */
 	if (Recovery_IsStandby())
 	{
+		if (!gtm_standby_begin_backup())
+		{
+			elog(ERROR, "Failed to set begin_backup satatus to the active-GTM.");
+			exit(1);
+		}
 		if (!gtm_standby_restore_next_gxid())
 		{
 			elog(ERROR, "Failed to restore next/last gxid from the active-GTM.");
@@ -570,11 +598,19 @@ main(int argc, char *argv[])
 			exit(1);
 		}
 		elog(LOG, "Restoring node information from the active-GTM succeeded.");
+
+		if (!gtm_standby_end_backup())
+		{
+			elog(ERROR, "Failed to setup normal standby mode to the active-GTM.");
+			exit(1);
+		}
+		elog(LOG, "Started to run as GTM-Standby.");
 	}
 	else
 	{
 		/* Recover Data of Registered nodes. */
 		Recovery_RestoreRegisterInfo();
+		elog(LOG, "Started to run as GTM-Active.");
 	}
 
 	/*
@@ -729,6 +765,7 @@ ServerLoop(void)
 			 * gracefully
 			 */
 
+			elog(LOG, "GTM shutting down.");
 			/*
 			 * Tell GTM that we are shutting down so that no new GXIDs are
 			 * issued this point onwards
@@ -746,6 +783,20 @@ ServerLoop(void)
 			GTM_SaveTxnInfo(ctlfd);
 			GTM_SaveSeqInfo(ctlfd);
 
+#if 0
+			/*
+			 * This causes another problem.
+			 * Active GTM tries to establish a connection to the standby,
+			 * causing deadlock.
+			 *
+			 * Maybe before this, we should close listening port.
+			 */
+			if (Recovery_IsStandby())
+			{
+				gtm_standby_finishActiveConn();
+			}
+#endif
+
 			close(ctlfd);
 
 			exit(1);
@@ -754,11 +805,23 @@ ServerLoop(void)
 		{
 			/* must set timeout each time; some OSes change it! */
 			struct timeval timeout;
+			GTM_ThreadInfo *my_threadinfo = GetMyThreadInfo;
 
 			timeout.tv_sec = 60;
 			timeout.tv_usec = 0;
 
+			/* 
+			 * Now GTM-Standby can backup current status during this region
+			 */
+			GTM_RWLockRelease(&my_threadinfo->thr_lock);
+
 			selres = select(nSockets, &rmask, NULL, NULL, &timeout);
+
+			/*
+			 * Prohibit GTM-Standby backup from here.
+			 */
+			GTM_RWLockAcquire(&my_threadinfo->thr_lock, GTM_LOCKMODE_WRITE);
+
 		}
 
 		/*
@@ -872,7 +935,12 @@ GTM_ThreadMain(void *argp)
 										   ALLOCSET_DEFAULT_INITSIZE,
 										   ALLOCSET_DEFAULT_MAXSIZE,
 										   false);
-	
+
+	/*
+	 * Acquire the thread lock to prevent connection from GTM-Standby to update
+	 * GTM-Standby registration.
+	 */
+	GTM_RWLockAcquire(&thrinfo->thr_lock, GTM_LOCKMODE_WRITE);
 
 	{
 		/*
@@ -995,9 +1063,36 @@ GTM_ThreadMain(void *argp)
 		resetStringInfo(&input_message);
 
 		/*
+		 * GTM-Standby registration information can be updated during ReadCommand
+		 * operation.
+		 */
+		GTM_RWLockRelease(&thrinfo->thr_lock);
+		/*
 		 * (3) read a command (loop blocks here)
 		 */
 		qtype = ReadCommand(thrinfo->thr_conn->con_port, &input_message);
+
+		GTM_RWLockAcquire(&thrinfo->thr_lock, GTM_LOCKMODE_WRITE);
+		/*
+		 * Check if GTM Standby info is upadted
+		 * Maybe the following lines can be a separate function.   At present, this is done only here so
+		 * I'll leave them here.   K.Suzuki, Nov.29, 2011
+		 * Please note that we don't check if it is not in the standby mode to allow cascased standby.
+		 */
+		if (GTMThreads->gt_standby_ready && thrinfo->thr_conn->standby == NULL)
+		{
+			/* Connect to GTM-Standby */
+			thrinfo->thr_conn->standby = gtm_standby_connect_to_standby();
+			if (thrinfo->thr_conn->standby == NULL)
+				GTMThreads->gt_standby_ready = false;	/* This will make other threads to disconnect from
+														 * the standby, if needed.*/
+		}
+		else if (GTMThreads->gt_standby_ready == false && thrinfo->thr_conn->standby)
+		{
+			/* Disconnect from GTM-Standby */
+			gtm_standby_disconnect_from_standby(thrinfo->thr_conn->standby);
+			thrinfo->thr_conn->standby = NULL;
+		}
 
 		switch(qtype)
 		{
@@ -1073,7 +1168,11 @@ ProcessCommand(Port *myport, StringInfo input_message)
 		case MSG_NODE_LIST:
 			ProcessPGXCNodeCommand(myport, mtype, input_message);
 			break;
-
+		case MSG_BEGIN_BACKUP:
+			ProcessGTMBeginBackup(myport, input_message);
+			break;
+		case MSG_END_BACKUP:
+			ProcessGTMEndBackup(myport, input_message);
 		case MSG_NODE_BEGIN_REPLICATION_INIT:
 		case MSG_NODE_END_REPLICATION_INIT:
 		case MSG_TXN_BEGIN:

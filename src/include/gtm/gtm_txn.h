@@ -106,25 +106,25 @@ typedef enum GTM_TransactionStates
 
 typedef struct GTM_TransactionInfo
 {
-	GTM_TransactionHandle		gti_handle;
+	GTM_TransactionHandle	gti_handle;
 	GTM_ThreadID			gti_thread_id;
 
-	bool				gti_in_use;
+	bool					gti_in_use;
 	GlobalTransactionId		gti_gxid;
-	GTM_TransactionStates		gti_state;
-	char				*gti_coordname;
+	GTM_TransactionStates	gti_state;
+	char					*gti_coordname;
 	GlobalTransactionId		gti_xmin;
 	GTM_IsolationLevel		gti_isolevel;
-	bool				gti_readonly;
+	bool					gti_readonly;
 	GTMProxy_ConnID			gti_backend_id;
-	char				*nodestring; /* List of nodes prepared */
-	char				*gti_gid;
+	char					*nodestring; /* List of nodes prepared */
+	char					*gti_gid;
 
 	GTM_SnapshotData		gti_current_snapshot;
-	bool				gti_snapshot_set;
+	bool					gti_snapshot_set;
 
-	GTM_RWLock			gti_lock;
-	bool				gti_vacuum;
+	GTM_RWLock				gti_lock;
+	bool					gti_vacuum;
 } GTM_TransactionInfo;
 
 #define GTM_MAX_2PC_NODES				16
@@ -162,7 +162,7 @@ typedef struct GTM_Transactions
 
 	int32				gt_lastslot;
 	GTM_TransactionInfo	gt_transactions_array[GTM_MAX_GLOBAL_TRANSACTIONS];
-	gtm_List				*gt_open_transactions;
+	gtm_List			*gt_open_transactions;
 	
 	GTM_RWLock			gt_TransArrayLock;
 } GTM_Transactions;

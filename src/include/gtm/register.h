@@ -84,4 +84,7 @@ void ProcessPGXCNodeUnregister(Port *myport, StringInfo message);
 void ProcessPGXCNodeBackendDisconnect(Port *myport, StringInfo message);
 void ProcessPGXCNodeList(Port *myport, StringInfo message);
 
+void ProcessGTMBeginBackup(Port *myport, StringInfo message);
+void ProcessGTMEndBackup(Port *myport, StringInfo message);
+
 #endif /* GTM_NODE_H */

@@ -136,13 +136,18 @@ Config_Type_Names();
  *	  it is not single quoted at dump time.
  */
 
+/*
+ * Definition of option name strings are given in gtm_opt.h, both for gtm.conf
+ * and gtm_proxy.conf.   They will be used in command line option handling too.
+ */
+
 
 /******** option records follow ********/
 
 struct config_bool ConfigureNamesBool[] =
 {
 	{
-		{"err_wait_opt", GTMC_SIGHUP,
+		{GTM_OPTNAME_ERR_WAIT_OPT, GTMC_SIGHUP,
 		 gettext_noop("If GTM_Proxy waits for reconnect when GTM communication error is encountered."),
 		 NULL,
 		 0
@@ -160,7 +165,7 @@ struct config_bool ConfigureNamesBool[] =
 struct config_int ConfigureNamesInt[] =
 {
 	{
-		{"port", GTMC_STARTUP,
+		{GTM_OPTNAME_PORT, GTMC_STARTUP,
 			gettext_noop("Listen Port of GTM_Proxy server."),
 			NULL,
 			0
@@ -170,7 +175,7 @@ struct config_int ConfigureNamesInt[] =
 		0, NULL
 	},
 	{
-		{"gtm_port", GTMC_SIGHUP,
+		{GTM_OPTNAME_GTM_PORT, GTMC_SIGHUP,
 			gettext_noop("GTM server port number."),
 			NULL,
 			0
@@ -180,7 +185,7 @@ struct config_int ConfigureNamesInt[] =
 	    0, NULL
 	},
 	{
-		{"keepalives_idle", GTMC_STARTUP,
+		{GTM_OPTNAME_KEEPALIVES_IDLE, GTMC_STARTUP,
 			gettext_noop("Sets \"keepalives_idle\" option for the connection to GTM."),
 		    NULL,
 			GTMOPT_UNIT_TIME
@@ -190,7 +195,7 @@ struct config_int ConfigureNamesInt[] =
 		0, NULL
 	},
 	{
-		{"keepalives_interval", GTMC_STARTUP,
+		{GTM_OPTNAME_KEEPALIVES_INTERVAL, GTMC_STARTUP,
 			gettext_noop("Sets \"keepalives_interval\" option fo the connetion to GTM."),
 		 	NULL,
 			GTMOPT_UNIT_TIME
@@ -200,7 +205,7 @@ struct config_int ConfigureNamesInt[] =
 		0, NULL
 	},
 	{
-		{"keepalives_count", GTMC_STARTUP,
+		{GTM_OPTNAME_KEEPALIVES_COUNT, GTMC_STARTUP,
 			gettext_noop("Sets \"keepalives_count\" option to the connection to GTM."),
 			NULL, 
 			0
@@ -210,7 +215,7 @@ struct config_int ConfigureNamesInt[] =
 		0, NULL
 	},
 	{
-		{"err_wait_interval", GTMC_SIGHUP,
+		{GTM_OPTNAME_ERR_WAIT_INTERVAL, GTMC_SIGHUP,
 		 gettext_noop("Wait interval to wait for reconnect."),
 		 gettext_noop("This parameter determines GTM Proxy behavior when GTM communication error is encountered."),
 		 0
@@ -220,7 +225,7 @@ struct config_int ConfigureNamesInt[] =
 		0, NULL
 	},
 	{
-		{"err_wait_count", GTMC_SIGHUP,
+		{GTM_OPTNAME_ERR_WAIT_COUNT, GTMC_SIGHUP,
 		 gettext_noop("Number of err_wait_interval to wait for reconnect."),
 		 gettext_noop("This parameter determines GTM Prox behavior when GTM communication error is encountered."),
 		 0
@@ -230,7 +235,7 @@ struct config_int ConfigureNamesInt[] =
 		0, NULL
 	},
 	{
-		{"worker_threads", GTMC_STARTUP,
+		{GTM_OPTNAME_WORKER_THREADS, GTMC_STARTUP,
 		 gettext_noop("Number of worker thread."),
 		 NULL,
 		 0
@@ -257,7 +262,7 @@ struct config_real ConfigureNamesReal[] =
 struct config_string ConfigureNamesString[] =
 {
 	{
-		{"data_dir", GTMC_STARTUP,
+		{GTM_OPTNAME_DATA_DIR, GTMC_STARTUP,
 			gettext_noop("Work directory."),
 			NULL,
 			0
@@ -269,7 +274,7 @@ struct config_string ConfigureNamesString[] =
 	},
 
 	{
-		{"config_file", GTMC_SIGHUP,
+		{GTM_OPTNAME_CONFIG_FILE, GTMC_SIGHUP,
 		 	gettext_noop("Configuration file name."),
 		 	NULL,
 		 	0
@@ -281,7 +286,7 @@ struct config_string ConfigureNamesString[] =
 	},
 
 	{
-		{"listen_addresses", GTMC_STARTUP,
+		{GTM_OPTNAME_LISTEN_ADDRESSES, GTMC_STARTUP,
 			gettext_noop("Listen address."),
 			NULL,
 			0
@@ -292,7 +297,7 @@ struct config_string ConfigureNamesString[] =
 	},
 
 	{
-		{"nodename", GTMC_STARTUP,
+		{GTM_OPTNAME_NODENAME, GTMC_STARTUP,
 		 	gettext_noop("My node name."),
 			NULL,
 		 	0,
@@ -303,7 +308,7 @@ struct config_string ConfigureNamesString[] =
 	},
 
 	{
-		{"gtm_host", GTMC_SIGHUP,
+		{GTM_OPTNAME_GTM_HOST, GTMC_SIGHUP,
 			gettext_noop("Address of target GTM ACT."),
 			NULL,
 			0
@@ -314,7 +319,7 @@ struct config_string ConfigureNamesString[] =
 	},
 
 	{
-		{"log_file", GTMC_SIGHUP,
+		{GTM_OPTNAME_LOG_FILE, GTMC_SIGHUP,
 			gettext_noop("Log file name."),
 			NULL,
 			0
@@ -325,7 +330,7 @@ struct config_string ConfigureNamesString[] =
 	},
 
 	{
-		{"error_reporter", GTMC_SIGHUP,
+		{GTM_OPTNAME_ERROR_REPORTER, GTMC_SIGHUP,
 			gettext_noop("Command to report various errors."),
 			NULL,
 			0
@@ -336,7 +341,7 @@ struct config_string ConfigureNamesString[] =
 	},
 
 	{
-		{"status_reader", GTMC_SIGHUP,
+		{GTM_OPTNAME_STATUS_READER, GTMC_SIGHUP,
 			gettext_noop("Command to get status of global XC node status."),
 			gettext_noop("Runs when configuration file is read by SIGHUP"),
 			0
@@ -356,7 +361,7 @@ struct config_string ConfigureNamesString[] =
 struct config_enum ConfigureNamesEnum[] =
 {
 	{
-		{"log_min_messages", GTMC_SIGHUP,
+		{GTM_OPTNAME_LOG_MIN_MESSAGES, GTMC_SIGHUP,
 			gettext_noop("Minimum message level to write to the log file."),
 			NULL,
 		 	0

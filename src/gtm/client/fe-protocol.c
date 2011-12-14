@@ -357,6 +357,12 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 		case NODE_END_REPLICATION_INIT_RESULT:
 			break;
 
+		case BEGIN_BACKUP_RESULT:
+			break;
+
+		case END_BACKUP_RESULT:
+			break;
+
 		case TXN_BEGIN_RESULT:
 			if (gtmpqGetnchar((char *)&result->gr_resdata.grd_txnhandle,
 						   sizeof (GTM_TransactionHandle), conn))
@@ -648,6 +654,9 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 				break;
 			}
 
+			/*
+			 * I don't understand why malloc() here?  Should be palloc()?
+			 */
 			result->gr_resdata.grd_txn_gid_list.ptr =
 					(char *)malloc(result->gr_resdata.grd_txn_gid_list.len);
 

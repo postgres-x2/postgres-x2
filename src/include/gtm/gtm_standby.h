@@ -18,6 +18,7 @@
 #include "c.h"
 #include "gtm/gtm_c.h"
 #include "gtm/libpq-fe.h"
+#include "gtm/register.h"
 
 /*
  * Variables to interact with GTM active under GTM standby mode.
@@ -41,6 +42,13 @@ GTM_Conn *gtm_standby_connect_to_standby(void);
 void gtm_standby_disconnect_from_standby(GTM_Conn *conn);
 GTM_Conn *gtm_standby_reconnect_to_standby(GTM_Conn *old_conn, int retry_max);
 bool gtm_standby_check_communication_error(int *retry_count, GTM_Conn *oldconn);
+
+GTM_PGXCNodeInfo *find_standby_node_info(void);
+
+int gtm_standby_begin_backup(void);
+int gtm_standby_end_backup(void);
+void gtm_standby_closeActiveConn(void);
+
 
 /*
  * Startup mode

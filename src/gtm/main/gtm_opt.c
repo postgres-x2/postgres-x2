@@ -112,6 +112,11 @@ Config_Type_Names();
  *	  it is not single quoted at dump time.
  */
 
+/*
+ * Definition of option name strings are given in gtm_opt.h, which are shared
+ * with command line option handling.  Naming is GTM_OPTNAME_*.
+ */
+
 
 /******** option records follow ********/
 
@@ -127,7 +132,7 @@ struct config_bool ConfigureNamesBool[] =
 struct config_int ConfigureNamesInt[] =
 {
 	{
-		{"port", GTMC_STARTUP,
+		{GTM_OPTNAME_PORT, GTMC_STARTUP,
 			gettext_noop("Listen Port of GTM or GTM standby server."),
 			NULL,
 			0
@@ -137,7 +142,7 @@ struct config_int ConfigureNamesInt[] =
 		0, NULL
 	},
 	{
-		{"active_port", GTMC_SIGHUP,
+		{GTM_OPTNAME_ACTIVE_PORT, GTMC_SIGHUP,
 			gettext_noop("GTM server port number when it works as GTM-Standby."),
 			NULL,
 			0
@@ -147,7 +152,7 @@ struct config_int ConfigureNamesInt[] =
 	    0, NULL
 	},
 	{
-		{"keepalives_idle", GTMC_STARTUP,
+		{GTM_OPTNAME_KEEPALIVES_IDLE, GTMC_STARTUP,
 			gettext_noop("Sets \"keepalives_idle\" option for the connection to GTM."),
 		 	gettext_noop("This option is effective only when it runs as GTM-Standby."),
 			GTMOPT_UNIT_TIME
@@ -157,7 +162,7 @@ struct config_int ConfigureNamesInt[] =
 		0, NULL
 	},
 	{
-		{"keepalives_interval", GTMC_STARTUP,
+		{GTM_OPTNAME_KEEPALIVES_INTERVAL, GTMC_STARTUP,
 			gettext_noop("Sets \"keepalives_interval\" option fo the connetion to GTM."),
 			gettext_noop("This option is effective only when it runs as GTM-Standby."),
 			GTMOPT_UNIT_TIME
@@ -167,7 +172,7 @@ struct config_int ConfigureNamesInt[] =
 		0, NULL
 	},
 	{
-		{"keepalives_count", GTMC_STARTUP,
+		{GTM_OPTNAME_KEEPALIVES_COUNT, GTMC_STARTUP,
 			gettext_noop("Sets \"keepalives_count\" option to the connection to GTM."),
 			gettext_noop("This option is effective only when it runs as GTM-Standby."),
 			0
@@ -194,7 +199,7 @@ struct config_real ConfigureNamesReal[] =
 struct config_string ConfigureNamesString[] =
 {
 	{
-		{"data_dir", GTMC_STARTUP,
+		{GTM_OPTNAME_DATA_DIR, GTMC_STARTUP,
 			gettext_noop("Work directory."),
 			NULL,
 			0
@@ -206,7 +211,7 @@ struct config_string ConfigureNamesString[] =
 	},
 
 	{
-		{"config_file", GTMC_SIGHUP,
+		{GTM_OPTNAME_CONFIG_FILE, GTMC_SIGHUP,
 		 	gettext_noop("Configuration file name."),
 		 	NULL,
 		 	0
@@ -218,7 +223,7 @@ struct config_string ConfigureNamesString[] =
 	},
 
 	{
-		{"nodename", GTMC_STARTUP,
+		{GTM_OPTNAME_NODENAME, GTMC_STARTUP,
 			gettext_noop("Name of this GTM/GTM-Standby."),
 			NULL,
 			0
@@ -230,7 +235,7 @@ struct config_string ConfigureNamesString[] =
 	},
 
 	{
-		{"listen_addresses", GTMC_STARTUP,
+		{GTM_OPTNAME_LISTEN_ADDRESSES, GTMC_STARTUP,
 			gettext_noop("Listen address."),
 			NULL,
 			0
@@ -241,7 +246,7 @@ struct config_string ConfigureNamesString[] =
 	},
 
 	{
-		{"active_host", GTMC_SIGHUP,
+		{GTM_OPTNAME_ACTIVE_HOST, GTMC_SIGHUP,
 			gettext_noop("Address of target GTM ACT."),
 			gettext_noop("This parameter is effective only when it runs as GTM-Standby"),
 			0
@@ -252,7 +257,7 @@ struct config_string ConfigureNamesString[] =
 	},
 
 	{
-		{"log_file", GTMC_SIGHUP,
+		{GTM_OPTNAME_LOG_FILE, GTMC_SIGHUP,
 			gettext_noop("Log file name."),
 			NULL,
 			0
@@ -263,7 +268,7 @@ struct config_string ConfigureNamesString[] =
 	},
 
 	{
-		{"error_reporter", GTMC_SIGHUP,
+		{GTM_OPTNAME_ERROR_REPORTER, GTMC_SIGHUP,
 			gettext_noop("Command to report various errors."),
 			NULL,
 			0
@@ -274,7 +279,7 @@ struct config_string ConfigureNamesString[] =
 	},
 
 	{
-		{"status_reader", GTMC_SIGHUP,
+		{GTM_OPTNAME_STATUS_READER, GTMC_SIGHUP,
 			gettext_noop("Command to get status of global XC node status."),
 			gettext_noop("Runs when configuration file is read by SIGHUP"),
 			0
@@ -294,7 +299,7 @@ struct config_string ConfigureNamesString[] =
 struct config_enum ConfigureNamesEnum[] =
 {
 	{
-		{"log_min_messages", GTMC_SIGHUP,
+		{GTM_OPTNAME_LOG_MIN_MESSAGES, GTMC_SIGHUP,
 			gettext_noop("Minimum message level to write to the log file."),
 			NULL,
 		 	0
@@ -306,7 +311,7 @@ struct config_enum ConfigureNamesEnum[] =
 	},
 
 	{
-		{"startup", GTMC_SIGHUP,
+		{GTM_OPTNAME_STARTUP, GTMC_SIGHUP,
 			gettext_noop("Specifies startup mode, act or standby."),
 			NULL,
 			0

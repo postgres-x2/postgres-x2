@@ -378,6 +378,22 @@ gtm_deserialize_transactioninfo(GTM_TransactionInfo *data, const char *buf, size
 	len += sizeof(GTM_TransactionStates);
 
 	/* GTM_TransactionInfo.gti_coordname */
+#if 1
+	{
+		uint32 ll;
+
+		memcpy(&ll, buf+len, sizeof(uint32));
+		len += sizeof(uint32);
+		if (ll > 0)
+		{
+			data->gti_coordname = genAllocTop(sizeof(ll+1));	/* Should be allocated at TopMostContext */
+			memcpy(data->gti_coordname, buf+len, ll);
+			data->gti_coordname[ll] = 0;
+		}
+		else
+			data->gti_coordname = NULL;
+	}
+#else
 	if (data->gti_coordname != NULL)
 	{
 		namelen = (uint32)strlen(data->gti_coordname);
@@ -392,6 +408,7 @@ gtm_deserialize_transactioninfo(GTM_TransactionInfo *data, const char *buf, size
 		memcpy((char *)buf + len, &namelen, sizeof(uint32));
 		len += sizeof(uint32);
 	}
+#endif
 
 	/* GTM_TransactionInfo.gti_xmin */
 	memcpy(&(data->gti_xmin), buf + len, sizeof(GlobalTransactionId));
@@ -414,7 +431,7 @@ gtm_deserialize_transactioninfo(GTM_TransactionInfo *data, const char *buf, size
 	len += sizeof(uint32);
 	if (string_len > 0)
 	{
-		data->nodestring = (char *)genAlloc(string_len + 1);
+		data->nodestring = (char *)genAllocTop(string_len + 1);	/* Should allocate at TopMostMemoryContext */
 		memcpy(data->nodestring, buf + len, string_len);
 		data->gti_gid[string_len] = 0;		/* null-terminated */
 		len += string_len;
@@ -427,7 +444,7 @@ gtm_deserialize_transactioninfo(GTM_TransactionInfo *data, const char *buf, size
 	len += sizeof(uint32);
 	if (string_len > 0)
 	{
-		data->gti_gid = (char *)genAlloc(string_len+1);
+		data->gti_gid = (char *)genAllocTop(string_len+1);	/* Should allocate at TopMostMemoryContext */
 		memcpy(data->gti_gid, buf + len, string_len);
 		data->gti_gid[string_len] = 0;				/* null-terminated */
 		len += string_len;
@@ -578,7 +595,7 @@ gtm_serialize_transactions(GTM_Transactions *data, char *buf, size_t buflen)
 		/*
 		 * Not to include invalid global transactions.
 		 */
-		if (data->gt_transactions_array[i].gti_gxid == InvalidGlobalTransactionId)
+		if (data->gt_transactions_array[i].gti_in_use != TRUE)
 			continue;
 
 		buflen2 = gtm_get_transactioninfo_size(&data->gt_transactions_array[i]);

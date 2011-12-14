@@ -48,12 +48,13 @@ typedef uint32		GTM_PGXCNodePort;
 /* Possible type of nodes for registration */
 typedef enum GTM_PGXCNodeType
 {
-	GTM_NODE_GTM_PROXY,
-	GTM_NODE_GTM_PROXY_POSTMASTER,	/* Used by Proxy to communicate with GTM and not use Proxy headers */
-	GTM_NODE_COORDINATOR,
-	GTM_NODE_DATANODE,
-	GTM_NODE_GTM,
-	GTM_NODE_DEFAULT	/* In case nothing is associated to connection */
+	GTM_NODE_GTM_PROXY = 1,
+	GTM_NODE_GTM_PROXY_POSTMASTER = 2,
+				/* Used by Proxy to communicate with GTM and not use Proxy headers */
+	GTM_NODE_COORDINATOR = 3,
+	GTM_NODE_DATANODE = 4,
+	GTM_NODE_GTM = 5,
+	GTM_NODE_DEFAULT = 6	/* In case nothing is associated to connection */
 } GTM_PGXCNodeType;
 
 /*

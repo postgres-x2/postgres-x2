@@ -322,7 +322,33 @@ const char *const config_type_names[] =\
 }
 
 
+/*
+ * Option name defintion --- common to gtm.conf and gtm_proxy.conf
+ *
+ * This will be used both in *.conf and command line option override.
+ */
 
+#define GTM_OPTNAME_ACTIVE_HOST			"active_host"
+#define GTM_OPTNAME_ACTIVE_PORT 		"active_port"
+#define GTM_OPTNAME_CONFIG_FILE			"config_file"
+#define GTM_OPTNAME_DATA_DIR			"data_dir"
+#define GTM_OPTNAME_ERR_WAIT_COUNT		"err_wait_count"
+#define GTM_OPTNAME_ERR_WAIT_INTERVAL	"err_wait_interval"
+#define GTM_OPTNAME_ERR_WAIT_OPT		"err_wait_opt"
+#define GTM_OPTNAME_ERROR_REPORTER		"error_reporter"
+#define GTM_OPTNAME_GTM_HOST			"gtm_host"
+#define GTM_OPTNAME_GTM_PORT			"gtm_port"
+#define GTM_OPTNAME_KEEPALIVES_IDLE		"keepalives_idle"
+#define GTM_OPTNAME_KEEPALIVES_INTERVAL	"keepalives_interval"
+#define GTM_OPTNAME_KEEPALIVES_COUNT	"keepalives_count"
+#define GTM_OPTNAME_LISTEN_ADDRESSES	"listen_addresses"
+#define GTM_OPTNAME_LOG_FILE			"log_file"
+#define GTM_OPTNAME_LOG_MIN_MESSAGES	"log_min_messages"
+#define GTM_OPTNAME_NODENAME			"nodename"
+#define GTM_OPTNAME_PORT				"port"
+#define GTM_OPTNAME_STARTUP				"startup"
+#define GTM_OPTNAME_STATUS_READER		"status_reader"
+#define GTM_OPTNAME_WORKER_THREADS		"worker_threads"
 
 
 #endif   /* GTM_OPT_H */

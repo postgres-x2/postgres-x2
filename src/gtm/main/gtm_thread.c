@@ -345,3 +345,43 @@ GTM_ThreadMainWrapper(void *argp)
 
 	return thrinfo;
 }
+
+void
+GTM_LockAllOtherThreads(void)
+{
+	GTM_ThreadInfo *my_threadinfo = GetMyThreadInfo;
+	int ii;
+
+	for (ii = 0; ii < GTMThreads->gt_array_size; ii++)
+	{
+		if (GTMThreads->gt_threads[ii] && GTMThreads->gt_threads[ii] != my_threadinfo)
+			GTM_RWLockAcquire(&GTMThreads->gt_threads[ii]->thr_lock, GTM_LOCKMODE_WRITE);
+	}
+}
+
+void
+GTM_UnlockAllOtherThreads(void)
+{
+	GTM_ThreadInfo *my_threadinfo = GetMyThreadInfo;
+	int ii;
+
+	for (ii = 0; ii < GTMThreads->gt_array_size; ii++)
+	{
+		if (GTMThreads->gt_threads[ii] && GTMThreads->gt_threads[ii] != my_threadinfo)
+			GTM_RWLockRelease(&GTMThreads->gt_threads[ii]->thr_lock);
+	}
+}	
+
+void
+GTM_DoForAllOtherThreads(void (* process_routine)(GTM_ThreadInfo *))
+{
+	GTM_ThreadInfo *my_threadinfo = GetMyThreadInfo;
+	int ii;
+
+	for (ii = 0; ii < GTMThreads->gt_array_size; ii++)
+	{
+		if (GTMThreads->gt_threads[ii] && GTMThreads->gt_threads[ii] != my_threadinfo)
+			(process_routine)(GTMThreads->gt_threads[ii]);
+	}
+}
+	

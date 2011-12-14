@@ -22,6 +22,8 @@ typedef enum GTM_MessageType
 	MSG_NODE_LIST,
 	MSG_NODE_BEGIN_REPLICATION_INIT,
 	MSG_NODE_END_REPLICATION_INIT,
+	MSG_BEGIN_BACKUP,		/* Start backup by Standby */
+	MSG_END_BACKUP,			/* End backup preparation by Standby */
 	MSG_TXN_BEGIN,			/* Start a new transaction */
 	MSG_TXN_BEGIN_GETGXID,	/* Start a new transaction and get GXID */
 	MSG_TXN_BEGIN_GETGXID_MULTI,	/* Start multiple new transactions and get GXIDs */
@@ -69,6 +71,8 @@ typedef enum GTM_ResultType
 	NODE_LIST_RESULT,
 	NODE_BEGIN_REPLICATION_INIT_RESULT,
 	NODE_END_REPLICATION_INIT_RESULT,
+	BEGIN_BACKUP_RESULT,
+	END_BACKUP_RESULT,
 	TXN_BEGIN_RESULT,
 	TXN_BEGIN_GETGXID_RESULT,
 	TXN_BEGIN_GETGXID_MULTI_RESULT,

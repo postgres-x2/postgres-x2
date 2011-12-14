@@ -25,29 +25,21 @@
 #include "gtm/gtm_utils.h"
 #include "gtm/register.h"
 
-static GTM_Conn *GTM_ActiveConn = NULL;
+GTM_Conn *GTM_ActiveConn = NULL;
 static char standbyHostName[NI_MAXHOST];
 static char standbyNodeName[NI_MAXHOST];
 static int standbyPortNumber;
 static char *standbyDataDir;
 
-static GTM_Conn *gtm_standby_connect_to_standby_int(int *);
+static GTM_Conn * gtm_standby_connect_to_standby_int(int *report_needed);
+static GTM_Conn *gtm_standby_connectToActiveGTM(void);
 
 extern char *NodeName;		/* Defined in main.c */
 
 int
 gtm_standby_start_startup(void)
 {
-	char connect_string[1024];
-	int active_port = Recovery_StandbyGetActivePort();
-	char *active_address = Recovery_StandbyGetActiveAddress();
-
-	elog(LOG, "Connecting the GTM active on %s:%d...", active_address, active_port);
-
-	sprintf(connect_string, "host=%s port=%d node_name=%s remote_type=%d",
-			active_address, active_port, NodeName, GTM_NODE_GTM);
-	
-	GTM_ActiveConn = PQconnectGTM(connect_string);
+	GTM_ActiveConn = gtm_standby_connectToActiveGTM();
 	if (GTM_ActiveConn == NULL)
 	{
 		elog(DEBUG3, "Error in connection");
@@ -67,6 +59,7 @@ gtm_standby_finish_startup(void)
 	elog(LOG, "Closing a startup connection...");
 
 	GTMPQfinish(GTM_ActiveConn);
+	GTM_ActiveConn = NULL;
 
 	elog(LOG, "A startup connection closed.");
 	return 1;
@@ -320,7 +313,7 @@ gtm_standby_activate_self(void)
  * Returns a pointer to GTM_PGXCNodeInfo on success,
  * or returns NULL on failure.
  */
-static GTM_PGXCNodeInfo *
+GTM_PGXCNodeInfo *
 find_standby_node_info(void)
 {
 	GTM_PGXCNodeInfo *node[1024];
@@ -492,4 +485,54 @@ gtm_standby_check_communication_error(int *retry_count, GTM_Conn *oldconn)
 #endif
 	}
 	return false;
+}
+
+int
+gtm_standby_begin_backup(void)
+{
+	int rc = set_begin_end_backup(GTM_ActiveConn, true);
+	return (rc ? 0 : 1);
+}
+
+int
+gtm_standby_end_backup(void)
+{
+	int rc = set_begin_end_backup(GTM_ActiveConn, false);
+	return (rc ? 0 : 1);
+}
+
+extern char *NodeName;		/* Defined in main.c */
+
+/* ---WIP, Dec.1st, 2011, K.Suzuki --- */
+void
+gtm_standby_finishActiveConn(void)
+{
+	GTM_ActiveConn = gtm_standby_connectToActiveGTM();
+	if (GTM_ActiveConn == NULL)
+	{
+		elog(DEBUG3, "Error in connection");
+		return 0;
+	}
+	elog(LOG, "Connection established to the GTM active.");
+
+	/* Unregister self from Active-GTM */
+	node_unregister(GTM_ActiveConn, GTM_NODE_GTM, NodeName);
+	/* Disconnect form Active */
+	GTMPQfinish(GTM_ActiveConn);
+}
+
+static GTM_Conn *
+gtm_standby_connectToActiveGTM(void)
+{
+	char connect_string[1024];
+	int active_port = Recovery_StandbyGetActivePort();
+	char *active_address = Recovery_StandbyGetActiveAddress();
+
+	/* Need to connect to Active-GTM again here */
+	elog(LOG, "Connecting the GTM active on %s:%d...", active_address, active_port);
+
+	sprintf(connect_string, "host=%s port=%d node_name=%s remote_type=%d",
+			active_address, active_port, NodeName, GTM_NODE_GTM);
+	
+	return PQconnectGTM(connect_string);
 }

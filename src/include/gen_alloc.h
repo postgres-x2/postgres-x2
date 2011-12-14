@@ -26,13 +26,15 @@ typedef struct Gen_Alloc
 	void * (* realloc) (void *, size_t);
 	void   (* free) (void *);
 	void * (* current_memcontext) (void);
+	void * (* allocTop) (size_t);
 } Gen_Alloc;
 
 extern Gen_Alloc genAlloc_class;
 
 #define genAlloc(x)			genAlloc_class.alloc(genAlloc_class.current_memcontext(), x)
-#define genRealloc(x, y)	genAlloc_class.realloc(x, y);
-#define genFree(x)			genAlloc_class.free(x);
+#define genRealloc(x, y)	genAlloc_class.realloc(x, y)
+#define genFree(x)			genAlloc_class.free(x)
 #define genAlloc0(x)		genAlloc_class.alloc0(genAlloc_class.current_memcontext(), x)
+#define genAllocTop(x)		genAlloc_class.allocTop(x)
 
 #endif /* GEN_ALLOC_H */

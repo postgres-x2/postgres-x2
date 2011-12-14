@@ -45,6 +45,7 @@ typedef struct GTM_ThreadInfo
 	 */
 	GTM_ThreadID		thr_id;
 	uint32				thr_localid;
+	bool				is_main_thread;
 	void * (* thr_startroutine)(void *);
 	
 	MemoryContext	thr_thread_context;
@@ -72,6 +73,7 @@ typedef struct GTM_Threads
 {
 	uint32				gt_thread_count;
 	uint32				gt_array_size;
+	bool				gt_standby_ready;
 	GTM_ThreadInfo		**gt_threads;
 	GTM_RWLock			gt_lock;
 } GTM_Threads;
@@ -83,6 +85,9 @@ int GTM_ThreadRemove(GTM_ThreadInfo *thrinfo);
 int GTM_ThreadJoin(GTM_ThreadInfo *thrinfo);
 void GTM_ThreadExit(void);
 void ConnFree(Port *port);
+void GTM_LockAllOtherThreads(void);
+void GTM_UnlockAllOtherThreads(void);
+void GTM_DoForAllOtherThreads(void (* process_routine)(GTM_ThreadInfo *));
 
 GTM_ThreadInfo *GTM_ThreadCreate(GTM_ConnectionInfo *conninfo,
 				  void *(* startroutine)(void *));
