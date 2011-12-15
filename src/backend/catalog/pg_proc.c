@@ -36,6 +36,11 @@
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
+#ifdef PGXC
+#include "pgxc/execRemote.h"
+#include "pgxc/pgxc.h"
+#include "pgxc/planner.h"
+#endif
 
 
 Datum		fmgr_internal_validator(PG_FUNCTION_ARGS);
@@ -856,6 +861,16 @@ fmgr_sql_validator(PG_FUNCTION_ARGS)
 																  prosrc,
 									   (ParserSetupHook) sql_fn_parser_setup,
 																  pinfo);
+
+#ifdef PGXC
+				/* Check if the list of queries contains temporary objects */
+				if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+				{
+					if (pgxc_query_contains_temp_tables(querytree_sublist))
+						ExecSetTempObjectIncluded();
+				}
+#endif
+
 				querytree_list = list_concat(querytree_list,
 											 querytree_sublist);
 			}

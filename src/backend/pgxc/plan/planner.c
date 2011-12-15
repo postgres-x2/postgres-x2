@@ -3560,3 +3560,36 @@ AddRemoteQueryNode(List *stmts, const char *queryString, RemoteQueryExecType rem
 
 	return result;
 }
+
+/*
+ * pgxc_query_contains_temp_tables
+ *
+ * Check if there is any temporary object used in given list of queries.
+ */
+bool
+pgxc_query_contains_temp_tables(List *queries)
+{
+	ListCell   *elt;
+
+	foreach(elt, queries)
+	{
+		Query *query = (Query *) lfirst(elt);
+
+		if (!query)
+			continue;
+
+		switch(query->commandType)
+		{
+			case CMD_SELECT:
+			case CMD_UPDATE:
+			case CMD_INSERT:
+			case CMD_DELETE:
+				if (contains_temp_tables(query->rtable))
+					return true;
+			default:
+				break;
+		}
+	}
+
+	return false;
+}

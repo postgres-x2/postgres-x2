@@ -145,5 +145,6 @@ extern bool IsJoinReducible(RemoteQuery *innernode, RemoteQuery *outernode,
 
 extern List *AddRemoteQueryNode(List *stmts, const char *queryString,
 								RemoteQueryExecType remoteExecType, bool is_temp);
+extern bool pgxc_query_contains_temp_tables(List *queries);
 
 #endif   /* PGXCPLANNER_H */
