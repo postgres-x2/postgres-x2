@@ -503,7 +503,6 @@ gtm_standby_end_backup(void)
 
 extern char *NodeName;		/* Defined in main.c */
 
-/* ---WIP, Dec.1st, 2011, K.Suzuki --- */
 void
 gtm_standby_finishActiveConn(void)
 {
@@ -511,7 +510,7 @@ gtm_standby_finishActiveConn(void)
 	if (GTM_ActiveConn == NULL)
 	{
 		elog(DEBUG3, "Error in connection");
-		return 0;
+		return;
 	}
 	elog(LOG, "Connection established to the GTM active.");
 

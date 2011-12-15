@@ -39,6 +39,7 @@
 
 static void MemoryContextStatsInternal(MemoryContext context, int level);
 static void MemoryContextDeleteInternal(MemoryContext context, bool parent_locked);
+void *allocTopMemCxt(size_t s);
 
 MemoryContext	TopMostMemoryContext;
 

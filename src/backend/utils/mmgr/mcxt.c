@@ -50,6 +50,9 @@ MemoryContext CurTransactionContext = NULL;
 MemoryContext PortalContext = NULL;
 
 static void MemoryContextStatsInternal(MemoryContext context, int level);
+#ifdef PGXC
+void *allocTopCxt(size_t s);
+#endif
 
 
 /*****************************************************************************

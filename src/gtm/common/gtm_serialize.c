@@ -352,7 +352,6 @@ gtm_deserialize_transactioninfo(GTM_TransactionInfo *data, const char *buf, size
 {
 	int len = 0;
 	int i;
-	int namelen;
 	uint32 string_len;
 
 	memset(data, 0, sizeof(GTM_TransactionInfo));
@@ -378,7 +377,6 @@ gtm_deserialize_transactioninfo(GTM_TransactionInfo *data, const char *buf, size
 	len += sizeof(GTM_TransactionStates);
 
 	/* GTM_TransactionInfo.gti_coordname */
-#if 1
 	{
 		uint32 ll;
 
@@ -393,22 +391,6 @@ gtm_deserialize_transactioninfo(GTM_TransactionInfo *data, const char *buf, size
 		else
 			data->gti_coordname = NULL;
 	}
-#else
-	if (data->gti_coordname != NULL)
-	{
-		namelen = (uint32)strlen(data->gti_coordname);
-		memcpy((char *)buf + len, &namelen, sizeof(uint32));
-		len += sizeof(uint32);
-		memcpy((char *)buf + len, data->gti_coordname, namelen);
-		len += namelen;
-	}
-	else
-	{
-		namelen = 0;
-		memcpy((char *)buf + len, &namelen, sizeof(uint32));
-		len += sizeof(uint32);
-	}
-#endif
 
 	/* GTM_TransactionInfo.gti_xmin */
 	memcpy(&(data->gti_xmin), buf + len, sizeof(GlobalTransactionId));

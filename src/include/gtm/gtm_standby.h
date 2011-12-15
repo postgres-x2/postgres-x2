@@ -49,6 +49,10 @@ int gtm_standby_begin_backup(void);
 int gtm_standby_end_backup(void);
 void gtm_standby_closeActiveConn(void);
 
+void gtm_standby_finishActiveConn(void);
+
+
+
 
 /*
  * Startup mode

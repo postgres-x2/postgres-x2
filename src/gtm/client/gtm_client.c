@@ -1608,7 +1608,6 @@ set_begin_end_backup(GTM_Conn *conn, bool begin)
 {
 	GTM_Result *res = NULL;
 	time_t finish_time;
-	int ii;
 
 	if (gtmpqPutMsgStart('C', true, conn))
 		goto send_failed;
