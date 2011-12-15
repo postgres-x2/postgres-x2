@@ -29,10 +29,12 @@
 #include "commands/trigger.h"
 
 #ifdef PGXC
+#include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
 #include "nodes/nodes.h"
-#include "pgxc/nodemgr.h"
 #include "optimizer/planner.h"
+#include "tcop/tcopprot.h"
+#include "tcop/utility.h"
 #endif
 
 
@@ -67,14 +69,6 @@ static List *matchLocks(CmdType event, RuleLock *rulelocks,
 		   int varno, Query *parsetree);
 static Query *fireRIRrules(Query *parsetree, List *activeRIRs,
 			 bool forUpdatePushedDown);
-#ifdef PGXC
-static int GetRelPartColPos(const Query *query, const char *partColName);
-static void ProcessHashValue(List **valuesList, const List *subList, const int node);
-static void InitValuesList(List **valuesList[], int size);
-static void DestroyValuesList(List **valuesList[]);
-static void ProcessRobinValue(RelationLocInfo *rel_loc_info, Oid relid, List **valuesList, 
-								const RangeTblEntry *values_rte);
-#endif
 
 /*
  * AcquireRewriteLocks -
@@ -2425,136 +2419,6 @@ QueryRewrite(Query *parsetree)
 
 #ifdef PGXC
 /*
- * Part of handling INSERT queries with multiple values
- *
- * GetRelPartColPos -
- *	Get the partition column position in targetList
- */
-static int
-GetRelPartColPos(const Query *query, const char *partColName)
-{
-		ListCell *lc;
-		int rescol = -1;
-
-		foreach(lc, query->targetList)
-		{
-			TargetEntry *tle = (TargetEntry *) lfirst(lc);
-
-			if (tle->resjunk)
-				continue;
-
-			rescol += 1;
-
-			/*
-			 * See if we have a constant expression comparing against the
-			 * designated partitioned column
-			 */
-			if (strcmp(tle->resname, partColName) == 0)
-				break;
-		}
-
-		if (rescol == -1)
-			ereport(ERROR, 
-					(errcode(ERRCODE_UNDEFINED_COLUMN),
-					 errmsg("Can't find partition column")));
-
-		return rescol;
-}
-
-/*
- * Part of handling INSERT queries with multiple values
- *
- * ProcessHashValue -
- *	associates the inserted row to the specified datanode 
- *
- * Input parameters: 
- *	subList is the inserted row
- *	node is the node number
- */
-static void
-ProcessHashValue(List **valuesList, const List *subList, const int node)
-{
-	valuesList[node] = lappend(valuesList[node], (List *) subList);
-}
-
-/*
- * Part of handling INSERT queries with multiple values
- *
- * InitValuesList -
- *	Allocate and initialize the list of values
- */
-static void
-InitValuesList(List **valuesList[], int size)
-{
-	*valuesList = palloc0(size * sizeof(List *));
-}
-
-/*
- * Part of handling INSERT queries with multiple values
- *
- * InitValuesList -
- *	free all the list of values
- */
-static void
-DestroyValuesList(List **valuesList[])
-{
-	pfree(*valuesList);
-	*valuesList = NULL;
-}
-
-/*
- * Part of handling INSERT queries with multiple values
- *
- * ProcessRobinValue -
- *	assign insert values list to each node averagely
- *
- * Input parameters: 
- *	rel_loc_info is the information about relation distribution
- *	relid is relation Oid
- *	valuesList is an array of lists used to assign value list to specified nodes
- *	values_rte is the values list
- */
-static void
-ProcessRobinValue(RelationLocInfo *rel_loc_info, Oid relid, List **valuesList, 
-				  const RangeTblEntry *values_rte)
-{
-	List *values = values_rte->values_lists;
-	int length = values->length;
-	int dist;
-	int i, j;
-	int processNum = 0;
-	int node;
-	int size = list_length(rel_loc_info->nodeList);
-
-	/* Get average insert value number of each node */
-	if (length > size)
-		dist = length/size;
-	else
-		dist = 1;
-
-	for(i = 0; i < size && processNum < length; i++)
-	{
-		node = GetRoundRobinNode(relid);
-
-		/* Assign insert value */
-		for(j = 0; j < dist; j++)
-		{
-			valuesList[node] = lappend(valuesList[node], list_nth(values, processNum));
-			processNum ++;
-		}
-	}
-
-	/* Assign remained value */
-	while(processNum < length)
-	{
-		node = GetRoundRobinNode(relid);
-
-		valuesList[node] = lappend(valuesList[node], list_nth(values, processNum));
-		processNum ++;
-	}
-}
-
-/*
  * Rewrite the CREATE TABLE AS and SELECT INTO queries as a
  * INSERT INTO .. SELECT query. The target table must be created first using
  * utility command processing. This takes care of creating the target table on
@@ -2630,6 +2494,7 @@ QueryRewriteCTAS(Query *parsetree)
 	 */
 	create_stmt->tableElts = tableElts;
 	create_stmt->distributeby = parsetree->intoClause->distributeby;
+	create_stmt->subcluster = parsetree->intoClause->subcluster;
 
 	create_stmt->tablespacename = parsetree->intoClause->tableSpaceName;
 	create_stmt->oncommit = parsetree->intoClause->onCommit;

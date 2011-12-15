@@ -1151,6 +1151,10 @@ _copyIntoClause(IntoClause *from)
 	COPY_NODE_FIELD(options);
 	COPY_SCALAR_FIELD(onCommit);
 	COPY_STRING_FIELD(tableSpaceName);
+#ifdef PGXC
+	COPY_NODE_FIELD(distributeby);
+	COPY_NODE_FIELD(subcluster);
+#endif
 
 	return newnode;
 }

@@ -48,6 +48,7 @@
 #include "catalog/pg_type.h"
 #include "executor/executor.h"
 #include "rewrite/rewriteManip.h"
+#include "commands/prepare.h"
 #include "commands/tablecmds.h"
 #endif
 #include "utils/lsyscache.h"
@@ -5533,7 +5534,7 @@ create_remoteinsert_plan(PlannerInfo *root, Plan *topplan)
 			fstep->exec_nodes->en_expr = (Expr *) var;
 		}
 
-		SetRemoteStatementName(fstep, NULL, natts, att_types, 0);
+		SetRemoteStatementName((Plan *) fstep, NULL, natts, att_types, 0);
 
 		pfree(buf->data);
 		pfree(buf);
@@ -5745,7 +5746,7 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		xstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
 		xstep->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
 		xstep->exec_nodes->primarynodelist = NULL;
-		xstep->exec_nodes->nodeList = NULL;
+		xstep->exec_nodes->nodeList = rel_loc_info->nodeList;
 		xstep->exec_nodes->en_relid = ttab->relid;
 		xstep->exec_nodes->accesstype = RELATION_ACCESS_READ;
 

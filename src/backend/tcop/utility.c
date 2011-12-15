@@ -1415,12 +1415,6 @@ standard_ProcessUtility(Node *parsetree,
 #ifdef PGXC
 			if (IS_PGXC_COORDINATOR)
 			{
-				/*
-				 * If view is temporary or works on temporary tables, no need to
-				 * send this query to other remote Coordinators.
-				 */
-				ViewStmt *stmt = (ViewStmt *) parsetree;
-
 				if (!ExecIsTempObjectIncluded())
 					ExecUtilityStmtOnNodes(queryString, NULL, false, EXEC_ON_COORDS, false);
 			}

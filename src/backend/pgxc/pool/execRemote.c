@@ -3109,8 +3109,11 @@ get_exec_connections(RemoteQueryState *planstate,
 				if (!isnull)
 				{
 					RelationLocInfo *rel_loc_info = GetRelationLocInfo(exec_nodes->en_relid);
-					/* PGXCTODO what is the type of partvalue here*/
-					ExecNodes *nodes = GetRelationNodes(rel_loc_info, partvalue, exprType(exec_nodes->en_expr), exec_nodes->accesstype);
+					/* PGXCTODO what is the type of partvalue here */
+					ExecNodes *nodes = GetRelationNodes(rel_loc_info,
+														partvalue,
+														exprType((Node *) exec_nodes->en_expr),
+														exec_nodes->accesstype);
 					if (nodes)
 					{
 						nodelist = nodes->nodeList;
@@ -3123,21 +3126,30 @@ get_exec_connections(RemoteQueryState *planstate,
 		}
 		else if (OidIsValid(exec_nodes->en_relid))
 		{
+			RelationLocInfo *rel_loc_info = GetRelationLocInfo(exec_nodes->en_relid);
+			ExecNodes *nodes = GetRelationNodes(rel_loc_info, 0, InvalidOid, exec_nodes->accesstype);
+
+			/* Use the obtained list for given table */
+			if (nodes)
+				nodelist = nodes->nodeList;
+
 			/*
 			 * Special handling for ROUND ROBIN distributed tables. The target
 			 * node must be determined at the execution time
 			 */
-			RelationLocInfo *rel_loc_info = GetRelationLocInfo(exec_nodes->en_relid);
-			if (rel_loc_info->locatorType == LOCATOR_TYPE_RROBIN)
+			if (rel_loc_info->locatorType == LOCATOR_TYPE_RROBIN && nodes)
 			{
-				ExecNodes *nodes = GetRelationNodes(rel_loc_info, NULL, InvalidOid, exec_nodes->accesstype);
-				if (nodes)
-				{
-					nodelist = nodes->nodeList;
-					primarynode = nodes->primarynodelist;
-					pfree(nodes);
-				}
+				nodelist = nodes->nodeList;
+				primarynode = nodes->primarynodelist;
 			}
+			else if (nodes)
+			{
+				if (exec_type == EXEC_ON_DATANODES || exec_type == EXEC_ON_ALL_NODES)
+					nodelist = exec_nodes->nodeList;
+			}
+
+			if (nodes)
+				pfree(nodes);
 			FreeRelationLocInfo(rel_loc_info);
 		}
 		else
@@ -3150,6 +3162,7 @@ get_exec_connections(RemoteQueryState *planstate,
 			primarynode = exec_nodes->primarynodelist;
 		}
 	}
+
 
 	/* Set node list and DN number */
 	if (list_length(nodelist) == 0 &&

@@ -4163,6 +4163,45 @@ get_utility_query_def(Query *query, deparse_context *context)
 
 			}
 		}
+
+		if (stmt->subcluster)
+		{
+			ListCell   *cell;
+
+			switch (stmt->subcluster->clustertype)
+			{
+				case SUBCLUSTER_NODE:
+					appendStringInfo(buf, " TO NODE");
+
+					/* Add node members */
+					Assert(stmt->subcluster->members);
+					foreach(cell, stmt->subcluster->members)
+					{
+						appendStringInfo(buf, " %s", strVal(lfirst(cell)));
+						if (cell->next)
+							appendStringInfo(buf, ",");
+					}
+					break;
+
+				case SUBCLUSTER_GROUP:
+					appendStringInfo(buf, " TO GROUP");
+
+					/* Add group members */
+					Assert(stmt->subcluster->members);
+					foreach(cell, stmt->subcluster->members)
+					{
+						appendStringInfo(buf, " %s", strVal(lfirst(cell)));
+						if (cell->next)
+							appendStringInfo(buf, ",");
+					}
+					break;
+
+				case SUBCLUSTER_NONE:
+				default:
+					/* Nothing to do */
+					break;
+			}
+		}
 	}
 #endif	
 	else

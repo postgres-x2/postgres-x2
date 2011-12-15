@@ -555,7 +555,7 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
 &xconly;
      <para>
       In <productname>Postgres-XC</>, if <command>DISTRIBUTE BY
-      REPLCIATION</> is not specified, only the distribution key is
+      REPLICATION</> is not specified, only the distribution key is
       allowed to have this constraint.
      </para>
 
