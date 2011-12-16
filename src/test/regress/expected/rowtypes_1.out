@@ -117,10 +117,11 @@ create temp table pp (f1 text);
 insert into pp values (repeat('abcdefghijkl', 100000));
 insert into people select ('Jim', f1, null)::fullname, current_date from pp;
 select (fn).first, substr((fn).last, 1, 20), length((fn).last) from people order by 1, 2;
- first | substr | length 
--------+--------+--------
- Joe   | Blow   |      4
-(1 row)
+ first |        substr        | length  
+-------+----------------------+---------
+ Jim   | abcdefghijklabcdefgh | 1200000
+ Joe   | Blow                 |       4
+(2 rows)
 
 -- Test row comparison semantics.  Prior to PG 8.2 we did this in a totally
 -- non-spec-compliant way.

@@ -29,19 +29,13 @@ DROP FOREIGN DATA WRAPPER [ IF EXISTS ] <replaceable class="parameter">name</rep
   <title>Description</title>
 <!## XC>
 &xconly;
- <para>
-  <literal>Foreign Data Wrapper</> has not been tested
-  with <productname>Postges-XC</> yet.  Although there're no reason
-  that <literal>Foreign Data Wrapper</> does not run
-  in <productname>Postgres-XC</>, the development team leaves the test
-  and the use of this entirely to users.
- </para>
- <para>
-  This section is identical to the
-  corresponding <productname>PostgreSQL</> reference manual.
- </para>
+  <para>
+   <command>FOREIGN DATA WRAPPER</> has not been supported
+   by <productname>Postgres-XC</> yet.  This command may be supported
+   in the future releases.
+  </para>
 <!## end>
-
+<!## PG>
 &pgonly;
 
   <para>
@@ -105,6 +99,8 @@ DROP FOREIGN DATA WRAPPER [ IF EXISTS ] <replaceable class="parameter">name</rep
 DROP FOREIGN DATA WRAPPER dbi;
 </programlisting>
   </para>
+
+<!## end>
  </refsect1>
 
  <refsect1>

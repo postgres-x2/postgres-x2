@@ -29,21 +29,15 @@ ALTER SERVER <replaceable class="PARAMETER">server_name</replaceable> OWNER TO <
 
  <refsect1>
   <title>Description</title>
-
 <!## XC>
 &xconly;
- <para>
-  <literal>Foreign Data Wrapper</> has not been tested
-  with <productname>Postges-XC</> yet.  Although there're no reason
-  that <literal>Foreign Data Wrapper</> does not run
-  in <productname>Postgres-XC</>, the development team leaves the test
-  and the use of this entirely to users.
- </para>
- <para>
-  This section is identical to the
-  corresponding <productname>PostgreSQL</> reference manual.
- </para>
+  <para>
+   <command>SERVER</> has not been supported
+   by <productname>Postgres-XC</> yet.  This command may be supported
+   in the future releases.
+  </para>
 <!## end>
+<!## PG>
 &pgonly;
 
   <para>
@@ -118,6 +112,8 @@ ALTER SERVER foo OPTIONS (host 'foo', dbname 'foodb');
 ALTER SERVER foo VERSION '8.4' OPTIONS (SET host 'baz');
 </programlisting>
   </para>
+
+<!## end>
  </refsect1>
 
  <refsect1>
