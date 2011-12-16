@@ -60,7 +60,6 @@ static bool implicit_force_autocommit = false;
 static bool temp_object_included = false;
 static PGXCNodeHandle **write_node_list = NULL;
 static int	write_node_count = 0;
-static char *begin_string = NULL;
 
 static bool analyze_node_string(char *nodestring,
 								List **datanodelist,
@@ -98,6 +97,7 @@ static bool pgxc_start_command_on_connection(PGXCNodeHandle *connection,
 					RemoteQueryState *remotestate, int total_conn_count, Snapshot snapshot);
 static bool ExecRemoteQueryInnerPlan(RemoteQueryState *node);
 static TupleTableSlot * RemoteQueryNext(RemoteQueryState *node);
+static char *GenerateBeginCommand(void);
 
 #define MAX_STATEMENTS_PER_TRAN 10
 
@@ -1460,12 +1460,44 @@ analyze_node_string(char *nodestring,
 	return is_local_coord;
 }
 
+/* 
+ * Construct a BEGIN TRANSACTION command after taking into account the
+ * current options. The returned string is not palloced and is valid only until
+ * the next call to the function.
+ */
+static char *
+GenerateBeginCommand(void)
+{
+	static char begin_cmd[1024];
+	const char *read_only;
+	const char *isolation_level;
+
+	/* 
+	 * First get the READ ONLY status because the next call to GetConfigOption
+	 * will overwrite the return buffer
+	 */
+	if (strcmp(GetConfigOption("transaction_read_only", false), "on") == 0)
+		read_only = "READ ONLY";
+	else
+		read_only = "READ WRITE";
+
+	/* Now get the isolation_level for the transaction */
+	isolation_level = GetConfigOption("transaction_isolation", false);
+	if (strcmp(isolation_level, "default") == 0)
+		isolation_level = GetConfigOption("default_transaction_isolation", false);
+   	
+	/* Finally build a START TRANSACTION command */
+	sprintf(begin_cmd, "START TRANSACTION ISOLATION LEVEL %s %s", isolation_level, read_only);
+
+	return begin_cmd;
+}
 
 /*
- * Send BEGIN command to the Datanodes or Coordinators and receive responses
+ * Send BEGIN command to the Datanodes or Coordinators and receive responses.
+ * Also send the GXID for the transaction.
  */
 static int
-pgxc_node_begin(int conn_count, PGXCNodeHandle ** connections,
+pgxc_node_begin(int conn_count, PGXCNodeHandle **connections,
 				GlobalTransactionId gxid)
 {
 	int			i;
@@ -1476,25 +1508,23 @@ pgxc_node_begin(int conn_count, PGXCNodeHandle ** connections,
 	/* Send BEGIN */
 	for (i = 0; i < conn_count; i++)
 	{
-		if (connections[i]->state == DN_CONNECTION_STATE_QUERY)
-			BufferConnection(connections[i]);
+		/*
+		 * We better not be sending a BEGIN after already executing one or more
+		 * commands from this transaction.
+		 */
+		Assert(connections[i]->state != DN_CONNECTION_STATE_QUERY);
 
+		/* Send GXID and check for errors */
 		if (GlobalTransactionIdIsValid(gxid) && pgxc_node_send_gxid(connections[i], gxid))
 			return EOF;
 
+		/* Send timestamp and check for errors */
 		if (GlobalTimestampIsValid(timestamp) && pgxc_node_send_timestamp(connections[i], timestamp))
 			return EOF;
 
-		if (begin_string)
-		{
-			if (pgxc_node_send_query(connections[i], begin_string))
-				return EOF;
-		}
-		else
-		{
-			if (pgxc_node_send_query(connections[i], "BEGIN"))
-				return EOF;
-		}
+		/* Send the BEGIN TRANSACTION command and check for errors */
+		if (pgxc_node_send_query(connections[i], GenerateBeginCommand()))
+			return EOF;
 	}
 
 	combiner = CreateResponseCombiner(conn_count, COMBINE_TYPE_NONE);
@@ -1528,23 +1558,6 @@ PGXCNodeBegin(void)
 {
 	autocommit = false;
 	clear_write_node_list();
-}
-
-void
-PGXCNodeSetBeginQuery(char *query_string)
-{
-	int len;
-
-	if (!query_string)
-		return;
-
-	len = strlen(query_string);
-	/*
-	 * This query string is sent to backend nodes,
-	 * it contains serializable and read options
-	 */
-	begin_string = (char *)malloc(len + 1);
-	begin_string = memcpy(begin_string, query_string, len + 1);
 }
 
 /*
@@ -1603,11 +1616,6 @@ finish:
 	if (!PersistentConnections)
 		release_handles();
 	autocommit = true;
-	if (begin_string)
-	{
-		free(begin_string);
-		begin_string = NULL;
-	}
 	is_ddl = false;
 	clear_write_node_list();
 
@@ -1898,11 +1906,6 @@ finish:
 	if (!PersistentConnections && res == 0)
 		release_handles();
 	autocommit = true;
-	if (begin_string)
-	{
-		free(begin_string);
-		begin_string = NULL;
-	}
 	is_ddl = false;
 	clear_write_node_list();
 
@@ -2038,11 +2041,6 @@ finish:
 	if (!PersistentConnections)
 		release_handles();
 	autocommit = true;
-	if (begin_string)
-	{
-		free(begin_string);
-		begin_string = NULL;
-	}
 	is_ddl = false;
 	clear_write_node_list();
 
@@ -2171,11 +2169,6 @@ finish:
 	if (!PersistentConnections)
 		release_handles();
 	autocommit = true;
-	if (begin_string)
-	{
-		free(begin_string);
-		begin_string = NULL;
-	}
 	is_ddl = false;
 	clear_write_node_list();
 
@@ -2268,11 +2261,6 @@ finish:
 	if (!PersistentConnections && bReleaseHandles)
 		release_handles();
 	autocommit = true;
-	if (begin_string)
-	{
-		free(begin_string);
-		begin_string = NULL;
-	}
 	is_ddl = false;
 	clear_write_node_list();
 
@@ -2345,11 +2333,6 @@ finish:
 	if (!PersistentConnections)
 		release_handles();
 	autocommit = true;
-	if (begin_string)
-	{
-		free(begin_string);
-		begin_string = NULL;
-	}
 	is_ddl = false;
 	clear_write_node_list();
 
