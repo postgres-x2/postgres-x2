@@ -31,19 +31,13 @@ CREATE USER MAPPING FOR { <replaceable class="parameter">user_name</replaceable>
   <title>Description</title>
 <!## XC>
 &xconly;
- <para>
-  <literal>Foreign Data Wrapper</> has not been tested
-  with <productname>Postges-XC</> yet.  Although there're no reason
-  that <literal>Foreign Data Wrapper</> does not run
-  in <productname>Postgres-XC</>, the development team leaves the test
-  and the use of this entirely to users.
- </para>
- <para>
-  This section is identical to the
-  corresponding <productname>PostgreSQL</> reference manual.
- </para>
+  <para>
+   <command>USER MAPPING</> has not been supported
+   by <productname>Postgres-XC</> yet.  This command may be supported
+   in the future releases.
+  </para>
 <!## end>
-
+<!## XC>
 &pgonly;
 
   <para>
@@ -113,6 +107,7 @@ CREATE USER MAPPING FOR bob SERVER foo OPTIONS (user 'bob', password 'secret');
 </programlisting>
   </para>
 
+<!## end>
  </refsect1>
 
  <refsect1>

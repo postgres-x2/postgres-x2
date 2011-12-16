@@ -31,22 +31,15 @@ ALTER FOREIGN DATA WRAPPER <replaceable class="parameter">name</replaceable> OWN
 
  <refsect1>
   <title>Description</title>
-
 <!## XC>
 &xconly;
- <para>
-  <literal>Foreign Data Wrapper</> has not been tested
-  with <productname>Postges-XC</> yet.  Although there're no reason
-  that <literal>Foreign Data Wrapper</> does not run
-  in <productname>Postgres-XC</>, the development team leaves the test
-  and the use of this entirely to users.
- </para>
- <para>
-  This section is identical to the
-  corresponding <productname>PostgreSQL</> reference manual.
- </para>
+  <para>
+   <command>FOREIGN DATA WRAPPER</> has not been supported
+   by <productname>Postgres-XC</> yet.  This command may be supported
+   in the future releases.
+  </para>
 <!## end>
-
+<!## PG>
 &pgonly;
 
   <para>
@@ -160,6 +153,8 @@ ALTER FOREIGN DATA WRAPPER dbi OPTIONS (ADD foo '1', DROP 'bar');
 ALTER FOREIGN DATA WRAPPER dbi VALIDATOR bob.myvalidator;
 </programlisting>
   </para>
+
+<!## end>
  </refsect1>
 
  <refsect1>

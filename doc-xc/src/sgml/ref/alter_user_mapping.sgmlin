@@ -31,19 +31,13 @@ ALTER USER MAPPING FOR { <replaceable class="parameter">user_name</replaceable> 
   <title>Description</title>
 <!## XC>
 &xconly;
- <para>
-  <literal>Foreign Data Wrapper</> has not been tested
-  with <productname>Postges-XC</> yet.  Although there're no reason
-  that <literal>Foreign Data Wrapper</> does not run
-  in <productname>Postgres-XC</>, the development team leaves the test
-  and the use of this entirely to users.
- </para>
- <para>
-  This section is identical to the
-  corresponding <productname>PostgreSQL</> reference manual.
- </para>
+  <para>
+   <command>USER MAPPING</> has not been supported
+   by <productname>Postgres-XC</> yet.  This command may be supported
+   in the future releases.
+  </para>
 <!## end>
-
+<!## PG>
 &pgonly;
 
   <para>
@@ -111,6 +105,7 @@ ALTER USER MAPPING FOR bob SERVER foo OPTIONS (user 'bob', password 'public');
 </programlisting>
   </para>
 
+<!## end>
  </refsect1>
 
  <refsect1>
@@ -127,6 +122,7 @@ ALTER USER MAPPING FOR bob SERVER foo OPTIONS (user 'bob', password 'public');
    the standard here in the interest of consistency and
    interoperability.
   </para>
+
  </refsect1>
 
  <refsect1>
