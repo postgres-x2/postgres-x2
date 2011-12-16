@@ -42,15 +42,6 @@ SELECT [ ALL | DISTINCT [ ON ( <replaceable class="parameter">expression</replac
  <refsect1>
   <title>Description</title>
 
-<!## XC>
-&xconly;
-  <para>
-   <command>SELECT INTO</> has not been supported
-   by <productname>Postgres-XC</> yet.  This command may be supported
-   in the future releases.
-  </para>
-<!## end>
-<!## PG>
   <para>
    <command>SELECT INTO</command> creates a new table and fills it
    with data computed by a query.  The data is not returned to the
@@ -123,6 +114,17 @@ SELECT [ ALL | DISTINCT [ ON ( <replaceable class="parameter">expression</replac
    enabled. Alternatively, <command>CREATE TABLE AS</command> can be
    used with the <literal>WITH OIDS</literal> clause.
   </para>
+
+<!## XC>
+&xconly;
+   <para>
+    In Postgres-XC, <command>SELECT INTO</command> distributes data
+    of the newly-created table on all the node respecting the default
+    distribution which is <literal>HASH</literal> on the first column
+    having a type that can be distributed. If no columns are found,
+    distribution is done by <literal>ROUND ROBIN</literal>.
+   </para>
+<!## end>
  </refsect1>
 
  <refsect1>
@@ -152,7 +154,6 @@ SELECT * INTO films_recent FROM films WHERE date_prod &gt;= '2002-01-01';
    best to use <command>CREATE TABLE AS</command> for this purpose in
    new code.
   </para>
-<!## end>
  </refsect1>
 
  <refsect1>
