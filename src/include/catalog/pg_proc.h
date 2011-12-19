@@ -4346,6 +4346,8 @@ DATA(insert OID = 3200 ( pgxc_pool_check	PGNSP PGUID 12 1 0 0 f f f t f v 0 0 16
 DESCR("check connection information consistency in pooler");
 DATA(insert OID = 3201 ( pgxc_pool_reload	PGNSP PGUID 12 1 0 0 f f f t f v 0 0 16 "" _null_ _null_ _null_ _null_ pgxc_pool_reload _null_ _null_ _null_ ));
 DESCR("reload connection information in pooler and reload server sessions");
+DATA(insert OID = 3122 ( pgxc_node_str		PGNSP PGUID 12 1 0 0 f f f t f s 0 0 19 "" _null_ _null_ _null_ _null_ pgxc_node_str _null_ _null_ _null_ ));
+DESCR("get the name of the node");
 #endif
 
 /*

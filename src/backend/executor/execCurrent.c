@@ -19,10 +19,15 @@
 #include "utils/lsyscache.h"
 #include "utils/portal.h"
 
+#ifdef PGXC
+#include "pgxc/execRemote.h"
+#endif
 
 static char *fetch_cursor_param_value(ExprContext *econtext, int paramId);
-static ScanState *search_plan_tree(PlanState *node, Oid table_oid);
 
+#ifndef PGXC
+static ScanState *search_plan_tree(PlanState *node, Oid table_oid);
+#endif
 
 /*
  * execCurrentOf
@@ -249,13 +254,26 @@ fetch_cursor_param_value(ExprContext *econtext, int paramId)
  * Search through a PlanState tree for a scan node on the specified table.
  * Return NULL if not found or multiple candidates.
  */
+#ifdef PGXC
+ScanState *
+search_plan_tree(PlanState *node, Oid table_oid)
+#else
 static ScanState *
 search_plan_tree(PlanState *node, Oid table_oid)
+#endif
 {
 	if (node == NULL)
 		return NULL;
 	switch (nodeTag(node))
 	{
+#ifdef PGXC
+		case T_RemoteQueryState:
+			{
+				RemoteQueryState *rqs = (RemoteQueryState *) node;
+				ScanState  *sstate = &(rqs->ss);
+				return sstate;
+			}
+#endif
 			/*
 			 * scan nodes can all be treated alike
 			 */
@@ -322,6 +340,9 @@ search_plan_tree(PlanState *node, Oid table_oid)
 			 * Result and Limit can be descended through (these are safe
 			 * because they always return their input's current row)
 			 */
+#ifdef PGXC
+		case T_MaterialState:
+#endif
 		case T_ResultState:
 		case T_LimitState:
 			return search_plan_tree(node->lefttree, table_oid);

@@ -46,8 +46,9 @@ static void expandTupleDesc(TupleDesc tupdesc, Alias *eref,
 				int rtindex, int sublevels_up,
 				int location, bool include_dropped,
 				List **colnames, List **colvars);
+#ifndef PGXC
 static int	specialAttNum(const char *attname);
-
+#endif
 
 /*
  * refnameRangeTblEntry
@@ -2363,8 +2364,13 @@ attnameAttNum(Relation rd, const char *attname, bool sysColOK)
  * Caller needs to verify that it really is an attribute of the rel,
  * at least in the case of "oid", which is now optional.
  */
+#ifdef PGXC
+int
+specialAttNum(const char *attname)
+#else
 static int
 specialAttNum(const char *attname)
+#endif
 {
 	Form_pg_attribute sysatt;
 

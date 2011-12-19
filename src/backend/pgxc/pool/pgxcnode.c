@@ -2276,3 +2276,38 @@ PGXCNodeGetNodeOid(int nodeid, char node_type)
 
 	return handles[nodeid - 1].nodeoid;
 }
+
+/*
+ * pgxc_node_str
+ *
+ * get the name of the node
+ */
+Datum
+pgxc_node_str(PG_FUNCTION_ARGS)
+{
+	PG_RETURN_NAME(PGXCNodeName);
+}
+
+/*
+ * PGXCNodeGetNodeIdFromName
+ *		Return node position in handles array
+ */
+int
+PGXCNodeGetNodeIdFromName(char *node_name, char node_type)
+{
+	char *nm;
+	Oid nodeoid;
+
+	if (node_name == NULL)
+		return -1;
+
+	nm = str_tolower(node_name, strlen(node_name), DEFAULT_COLLATION_OID);
+
+	nodeoid = get_pgxc_nodeoid(nm);
+	pfree(nm);
+	if (!OidIsValid(nodeoid))
+		return -1;
+
+	return PGXCNodeGetNodeId(nodeoid, node_type);
+}
+

@@ -20,6 +20,7 @@
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
+#include "catalog/pgxc_node.h"
 #include "executor/executor.h"
 #include "lib/stringinfo.h"
 #include "nodes/makefuncs.h"
@@ -32,6 +33,10 @@
 #include "optimizer/tlist.h"
 #include "parser/parse_agg.h"
 #include "parser/parse_coerce.h"
+#include "parser/parse_func.h"
+#include "parser/parse_relation.h"
+#include "parser/parsetree.h"
+#include "parser/parse_oper.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/locator.h"
@@ -46,6 +51,7 @@
 #include "utils/portal.h"
 #include "utils/syscache.h"
 #include "utils/numeric.h"
+#include "utils/memutils.h"
 #include "access/hash.h"
 #include "commands/tablecmds.h"
 #include "utils/timestamp.h"
@@ -144,18 +150,18 @@ typedef struct ColumnBase
  */
 typedef struct XCWalkerContext
 {
-	Query				   *query;
-	RelationAccessType		accessType;
-	RemoteQuery			   *query_step;	/* remote query step being analized */
-	PlannerInfo			   *root;		/* planner data for the subquery */
-	Special_Conditions 	   *conditions;
-	bool					multilevel_join;
-	List 				   *rtables;	/* a pointer to a list of rtables */
-	int					    varno;
-	bool				    within_or;
-	bool				    within_not;
-	bool					exec_on_coord; /* fallback to standard planner to have plan executed on coordinator only */
-	List				   *join_list;   /* A list of List*'s, one for each relation. */
+	Query			*query;
+	RelationAccessType	accessType;
+	RemoteQuery		*query_step;	/* remote query step being analized */
+	PlannerInfo		*root;		/* planner data for the subquery */
+	Special_Conditions	*conditions;
+	bool			multilevel_join;
+	List 			*rtables;	/* a pointer to a list of rtables */
+	int			varno;
+	bool			within_or;
+	bool			within_not;
+	bool			exec_on_coord;	/* fallback to standard planner to have plan executed on coordinator only */
+	List			*join_list;	/* A list of List*'s, one for each relation. */
 } XCWalkerContext;
 
 
@@ -718,6 +724,356 @@ get_plan_nodes_insert(PlannerInfo *root, RemoteQuery *step)
 		pfree(eval_expr);
 }
 
+/*
+ * make_ctid_col_ref
+ *
+ * creates a Var for a column referring to ctid
+ */
+
+static Var *
+make_ctid_col_ref(Query *qry)
+{
+	ListCell		*lc1, *lc2;
+	RangeTblEntry		*rte1, *rte2;
+	int			tableRTEs, firstTableRTENumber;
+	RangeTblEntry		*rte_in_query;
+	AttrNumber		attnum;
+	Oid			vartypeid;
+	int32			type_mod;
+	Oid			varcollid;
+
+	/* If the query has more than 1 table RTEs where both are different, we can not add ctid to the query target list 
+	 * We should in this case skip adding it to the target list and a WHERE CURRENT OF should then 
+	 * fail saying the query is not a simply update able scan of table
+	 */
+
+	tableRTEs = 0;
+	foreach(lc1, qry->rtable)
+	{
+		rte1 = (RangeTblEntry *) lfirst(lc1);
+
+		if (rte1->rtekind == RTE_RELATION)
+		{
+			tableRTEs++;
+			if (tableRTEs > 1)
+			{
+				/* See if we get two RTEs in case we have two references 
+				* to the same table with different aliases
+				*/
+				foreach(lc2, qry->rtable)
+				{
+					rte2 = (RangeTblEntry *) lfirst(lc2);
+		
+					if (rte2->rtekind == RTE_RELATION)
+					{
+						if (rte2->relid != rte1->relid)
+						{
+							return NULL;
+						}
+					}
+				}
+				continue;
+			}
+			rte_in_query = rte1;
+		}
+	}
+
+	if (tableRTEs > 1)
+	{
+		firstTableRTENumber = 0;
+		foreach(lc1, qry->rtable)
+		{
+			rte1 = (RangeTblEntry *) lfirst(lc1);
+			firstTableRTENumber++;
+			if (rte1->rtekind == RTE_RELATION)
+			{
+				break;
+			}
+		}
+	}
+	else
+	{
+		firstTableRTENumber = 1;
+	}
+
+	attnum = specialAttNum("ctid");
+	get_rte_attribute_type(rte_in_query, attnum, &vartypeid, &type_mod, &varcollid);
+	return makeVar(firstTableRTENumber, attnum, vartypeid, type_mod, varcollid, 0);
+}
+
+/*
+ * make_ctid_const
+ *
+ * creates a Const expression representing a ctid value (?,?)
+ */
+
+static Const *
+make_ctid_const(char *ctid_string)
+{
+	Datum			val;
+	Const			*ctid_const;
+
+	val = PointerGetDatum(ctid_string);
+
+	ctid_const = makeConst(UNKNOWNOID,
+				-1,
+				InvalidOid,
+				-2,
+				val,
+				false,
+				false);
+	ctid_const->location = -1;
+	return ctid_const;
+}
+
+/*
+ * IsRelSame
+ *
+ * Does the two query trees have a common relation
+ */
+
+static bool
+IsRelSame(List *upd_qry_rte, List *sel_qry_rte)
+{
+	ListCell		*lc1, *lc2;
+	RangeTblEntry		*rte1, *rte2;
+
+	foreach(lc1, upd_qry_rte)
+	{
+		rte1 = (RangeTblEntry *) lfirst(lc1);
+
+		if (rte1->rtekind == RTE_RELATION)
+		{
+			foreach(lc2, sel_qry_rte)
+			{
+				rte2 = (RangeTblEntry *) lfirst(lc2);
+	
+				if (rte2->rtekind == RTE_RELATION)
+				{
+					if (rte2->relid == rte1->relid)
+					{
+						return true;
+					}
+				}
+			}
+		}
+	}
+	return false;
+}
+
+/*
+ * pgxc_handle_current_of
+ *
+ * Handles UPDATE/DELETE WHERE CURRENT OF
+ */
+
+static bool
+pgxc_handle_current_of(Node *expr_node, XCWalkerContext *context)
+{
+	/* Find referenced portal and figure out what was the last fetch node */
+	Portal			portal;
+	QueryDesc		*queryDesc;
+	CurrentOfExpr		*cexpr = (CurrentOfExpr *) expr_node;
+	char			*cursor_name = cexpr->cursor_name;
+	PlanState		*ps;
+	TupleTableSlot		*slot;
+	RangeTblEntry		*table = (RangeTblEntry *) linitial(context->query->rtable);
+	ScanState		*ss;
+
+	/* Find the cursor's portal */
+	portal = GetPortalByName(cursor_name);
+	if (!PortalIsValid(portal))
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_CURSOR),
+					errmsg("cursor \"%s\" does not exist", cursor_name)));
+
+	queryDesc = PortalGetQueryDesc(portal);
+	if (queryDesc == NULL || queryDesc->estate == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_CURSOR_STATE),
+					errmsg("cursor \"%s\" is held from a previous transaction",
+						cursor_name)));
+
+	/*
+		* The cursor must have a current result row: per the SQL spec, it's
+		* an error if not.
+		*/
+	if (portal->atStart || portal->atEnd)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_CURSOR_STATE),
+					errmsg("cursor \"%s\" is not positioned on a row",
+						cursor_name)));
+
+	ps = queryDesc->planstate;
+	slot = NULL;
+
+	ss = search_plan_tree(ps, table->relid);
+	if (ss != NULL)
+	{
+		slot = ss->ss_ScanTupleSlot;
+	}
+
+	if (slot != NULL)
+	{
+		MemoryContext		oldcontext;
+		MemoryContext		tmpcontext;
+		RelationLocInfo		*loc_info;
+
+		tmpcontext = AllocSetContextCreate(CurrentMemoryContext,
+							"Temp Context",
+							ALLOCSET_DEFAULT_MINSIZE,
+							ALLOCSET_DEFAULT_INITSIZE,
+							ALLOCSET_DEFAULT_MAXSIZE);
+		oldcontext = MemoryContextSwitchTo(tmpcontext);
+
+		loc_info = GetRelationLocInfo(table->relid);
+		if (!loc_info)
+		{
+			MemoryContextSwitchTo(oldcontext);
+			MemoryContextDelete(tmpcontext);
+			return true;
+		}
+
+		switch (loc_info->locatorType)
+		{
+			case LOCATOR_TYPE_HASH:
+			case LOCATOR_TYPE_RROBIN:
+			case LOCATOR_TYPE_MODULO:
+			{
+				Query			*temp_qry;
+				Var			*ctid_expr;
+				bool			ctid_found, node_str_found;
+				StringInfoData		qry;
+				TupleDesc		slot_meta = slot->tts_tupleDescriptor;
+				char			*ctid_str = NULL;
+				int			node_index = -1;
+				int			i;
+				Const			*cons_ctid;
+
+				/* make a copy of the query so as not to touch the original query tree */
+				temp_qry = copyObject(context->query);
+
+				/* Make sure the relation referenced in cursor query and UPDATE/DELETE query is the same */
+				if ( ! IsRelSame(temp_qry->rtable, queryDesc->plannedstmt->rtable ) )
+				{
+					char *tableName = get_rel_name(table->relid);
+					ereport(ERROR,
+							(errcode(ERRCODE_INVALID_CURSOR_STATE),
+							errmsg("cursor \"%s\" does not have a FOR UPDATE/SHARE reference to table \"%s\"",
+									cursor_name, tableName)));
+				}
+
+				/* Delete existing WHERE CURRENT OF qual from the query tree*/
+				pfree(((CurrentOfExpr *)(temp_qry->jointree->quals))->cursor_name);
+				pfree((CurrentOfExpr *)temp_qry->jointree->quals);
+
+				/* Make a ctid column ref expr for LHS of the operator */
+				ctid_expr = make_ctid_col_ref(temp_qry);
+				if (ctid_expr == NULL)
+				{
+					MemoryContextSwitchTo(oldcontext);
+					MemoryContextDelete(tmpcontext);
+					return true;	/* Bail out */
+				}
+
+				/*
+				* Iterate over attributes and find ctid and node index. 
+				* These attributes are most likely at the end of the list, 
+				* so iterate in reverse order to find them quickly.
+				* If not found target table is not updatable through
+				* the cursor, report problem to client
+				*/
+				ctid_found = false;
+				node_str_found = false;
+				for (i = slot_meta->natts - 1; i >= 0; i--)
+				{
+					Form_pg_attribute attr = slot_meta->attrs[i];
+
+					if (ctid_found == false)
+					{
+						if (strcmp(attr->attname.data, "ctid") == 0)
+						{
+							Datum		ctid = 0;
+
+							ctid = slot->tts_values[i];
+							ctid_str = (char *) DirectFunctionCall1(tidout, ctid);
+							ctid_found = true;
+						}
+					}
+					if (node_str_found == false)
+					{
+						if (strcmp(attr->attname.data, "pgxc_node_str") == 0)
+						{
+							Datum		data_node = 0;
+							char		*data_node_str = NULL;
+
+							data_node = slot->tts_values[i];
+							data_node_str = (char *) DirectFunctionCall1(nameout, data_node);
+							node_index = PGXCNodeGetNodeIdFromName(data_node_str, PGXC_NODE_DATANODE_MASTER);
+							node_str_found = true;
+						}
+					}
+					if (ctid_found && node_str_found)
+						break;
+				}
+
+				if (ctid_str == NULL || node_index < 0)
+				{
+					char *tableName = get_rel_name(table->relid);
+					ereport(ERROR,
+							(errcode(ERRCODE_INVALID_CURSOR_STATE),
+							errmsg("cursor \"%s\" is not a simply updatable scan of table \"%s\"",
+									cursor_name, tableName)));
+				}
+
+				/* Make the ctid value constant expr for RHS of the operator */
+				cons_ctid = make_ctid_const(ctid_str);
+
+				/* Make the new qual ctid = (?,?) */
+				temp_qry->jointree->quals = (Node *)make_op(NULL, list_make1(makeString("=")), (Node *)ctid_expr, (Node *)cons_ctid, -1);
+
+				/* Now deparse the query tree */
+				initStringInfo(&qry);
+				deparse_query(temp_qry, &qry, NIL);
+
+				MemoryContextSwitchTo(oldcontext);
+
+				if ( context->query_step->sql_statement != NULL )
+					pfree(context->query_step->sql_statement);
+				context->query_step->sql_statement = pstrdup(qry.data);
+
+				MemoryContextDelete(tmpcontext);
+
+				context->query_step->exec_nodes = makeNode(ExecNodes);
+				context->query_step->exec_nodes->nodeList = list_make1_int(node_index);
+				context->query_step->read_only = false;
+				context->query_step->force_autocommit = false;
+
+				return false;
+			}
+			case LOCATOR_TYPE_REPLICATED:
+				MemoryContextSwitchTo(oldcontext);
+				MemoryContextDelete(tmpcontext);
+
+				return false;
+
+			default:
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						errmsg("the distribution type is not supported")));
+				return false; // or true
+		}
+	}
+	else
+	{
+		char *tableName = get_rel_name(table->relid);
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_CURSOR_STATE),
+				errmsg("cursor \"%s\" is not a simply updatable scan of table \"%s\"",
+						cursor_name, tableName)));
+	}
+	return false; // or true
+}
 
 /*
  * examine_conditions_walker
@@ -759,269 +1115,7 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 	/* Handle UPDATE/DELETE ... WHERE CURRENT OF ... */
 	if (IsA(expr_node, CurrentOfExpr))
 	{
-		/* Find referenced portal and figure out what was the last fetch node */
-		Portal		portal;
-		QueryDesc  *queryDesc;
-		CurrentOfExpr *cexpr = (CurrentOfExpr *) expr_node;
-		char	   *cursor_name = cexpr->cursor_name;
-		char	   *node_cursor;
-
-		/* Find the cursor's portal */
-		portal = GetPortalByName(cursor_name);
-		if (!PortalIsValid(portal))
-			ereport(ERROR,
-					(errcode(ERRCODE_UNDEFINED_CURSOR),
-					 errmsg("cursor \"%s\" does not exist", cursor_name)));
-
-		queryDesc = PortalGetQueryDesc(portal);
-		if (queryDesc == NULL || queryDesc->estate == NULL)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_CURSOR_STATE),
-					 errmsg("cursor \"%s\" is held from a previous transaction",
-							cursor_name)));
-
-		/*
-		 * The cursor must have a current result row: per the SQL spec, it's
-		 * an error if not.
-		 */
-		if (portal->atStart || portal->atEnd)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_CURSOR_STATE),
-					 errmsg("cursor \"%s\" is not positioned on a row",
-							cursor_name)));
-
-		if (IsA(queryDesc->planstate, RemoteQueryState))
-		{
-			RemoteQueryState *node = (RemoteQueryState *) queryDesc->planstate;
-			RemoteQuery *step = (RemoteQuery *) queryDesc->planstate->plan;
-
-			/*
-			 *   1. step query: SELECT * FROM <table> WHERE ctid = <cur_ctid>,
-			 *          <cur_ctid> is taken from the scantuple ot the target step
-			 *      step node list: current node of the target step.
-			 *   2. step query: DECLARE <xxx> CURSOR FOR SELECT * FROM <table>
-			 *          WHERE <col1> = <val1> AND <col2> = <val2> ... FOR UPDATE
-			 *          <xxx> is generated from cursor name of the target step,
-			 *          <col> and <val> pairs are taken from the step 1.
-			 *      step node list: all nodes of <table>
-			 *   3. step query: MOVE <xxx>
-			 *      step node list: all nodes of <table>
-			 */
-			RangeTblEntry *table = (RangeTblEntry *) linitial(context->query->rtable);
-			node_cursor = step->cursor;
-			rel_loc_info1 = GetRelationLocInfo(table->relid);
-			if (!rel_loc_info1)
-				return true;
-
-			context->query_step->exec_nodes = makeNode(ExecNodes);
-			context->query_step->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
-			context->query_step->exec_nodes->baselocatortype = rel_loc_info1->locatorType;
-			if (rel_loc_info1->locatorType == LOCATOR_TYPE_REPLICATED)
-			{
-				RemoteQuery *step1, *step2, *step3;
-				/*
-				 * We do not need first three steps if cursor already exists and
-				 * positioned.
-				 */
-				if (node->update_cursor)
-				{
-					step3 = NULL;
-					node_cursor = node->update_cursor;
-				}
-				else
-				{
-					char *tableName = get_rel_name(table->relid);
-					int natts = get_relnatts(table->relid);
-					char *attnames[natts];
-					TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
-					TupleDesc slot_meta = slot->tts_tupleDescriptor;
-					Datum ctid = 0;
-					char *ctid_str = NULL;
-					int nindex = slot->tts_dataNodeIndex;
-					AttrNumber att;
-					StringInfoData buf;
-					HeapTuple	tp;
-					int i;
-					MemoryContext context_save;
-
-					/*
-					 * Iterate over attributes and find CTID. This attribute is
-					 * most likely at the end of the list, so iterate in
-					 * reverse order to find it quickly.
-					 * If not found, target table is not updatable through
-					 * the cursor, report problem to client
-					 */
-					for (i = slot_meta->natts - 1; i >= 0; i--)
-					{
-						Form_pg_attribute attr = slot_meta->attrs[i];
-						if (strcmp(attr->attname.data, "ctid") == 0)
-						{
-							ctid = slot->tts_values[i];
-							ctid_str = (char *) DirectFunctionCall1(tidout, ctid);
-							break;
-						}
-					}
-
-					if (ctid_str == NULL)
-						ereport(ERROR,
-								(errcode(ERRCODE_INVALID_CURSOR_STATE),
-								 errmsg("cursor \"%s\" is not a simply updatable scan of table \"%s\"",
-										cexpr->cursor_name, tableName)));
-
-					initStringInfo(&buf);
-
-					/* Step 1: select tuple values by ctid */
-					step1 = makeRemoteQuery();
-					appendStringInfoString(&buf, "SELECT ");
-					for (att = 1; att <= natts; att++)
-					{
-						TargetEntry *tle;
-						Var *expr;
-
-						tp = SearchSysCache(ATTNUM,
-											ObjectIdGetDatum(table->relid),
-											Int16GetDatum(att),
-											0, 0);
-						if (HeapTupleIsValid(tp))
-						{
-							Form_pg_attribute att_tup = (Form_pg_attribute) GETSTRUCT(tp);
-
-							/* add comma before all except first attributes */
-							if (att > 1)
-								appendStringInfoString(&buf, ", ");
-							attnames[att-1] = pstrdup(NameStr(att_tup->attname));
-							appendStringInfoString(&buf, attnames[att - 1]);
-							expr = makeVar(att, att, att_tup->atttypid,
-										   att_tup->atttypmod, InvalidOid, 0);
-							tle = makeTargetEntry((Expr *) expr, att,
-												  attnames[att - 1], false);
-							step1->scan.plan.targetlist = lappend(step1->scan.plan.targetlist, tle);
-							ReleaseSysCache(tp);
-						}
-						else
-							elog(ERROR, "cache lookup failed for attribute %d of relation %u",
-								 att, table->relid);
-					}
-					appendStringInfo(&buf, " FROM %s WHERE ctid = '%s'",
-									 tableName, ctid_str);
-					step1->sql_statement = pstrdup(buf.data);
-					step1->exec_nodes = makeNode(ExecNodes);
-					step1->exec_nodes->nodeList = list_make1_int(nindex);
-
-					/* Step 2: declare cursor for update target table */
-					step2 = makeRemoteQuery();
-					resetStringInfo(&buf);
-
-					appendStringInfoString(&buf, step->cursor);
-					appendStringInfoString(&buf, "upd");
-					/* This need to survive while the target Portal is alive */
-					context_save = MemoryContextSwitchTo(PortalGetHeapMemory(portal));
-					node_cursor = pstrdup(buf.data);
-					node->update_cursor = node_cursor;
-					MemoryContextSwitchTo(context_save);
-					resetStringInfo(&buf);
-
-					appendStringInfo(&buf,
-									 "DECLARE %s CURSOR FOR SELECT * FROM %s WHERE ",
-									 node_cursor, tableName);
-					for (i = 0; i < natts; i++)
-					{
-						/* add comma before all except first attributes */
-						if (i)
-							appendStringInfoString(&buf, "AND ");
-						appendStringInfo(&buf, "%s = $%d ", attnames[i], i+1);
-					}
-					appendStringInfoString(&buf, "FOR UPDATE");
-					step2->sql_statement = pstrdup(buf.data);
-					step2->exec_nodes = makeNode(ExecNodes);
-
-					step2->exec_nodes->nodeList = list_copy(rel_loc_info1->nodeList);
-
-					innerPlan(step2) = (Plan *) step1;
-					/* Step 3: move cursor to first position */
-					step3 = makeRemoteQuery();
-					resetStringInfo(&buf);
-					appendStringInfo(&buf, "MOVE %s", node_cursor);
-					step3->sql_statement = pstrdup(buf.data);
-					step3->exec_nodes = makeNode(ExecNodes);
-
-					step3->exec_nodes->nodeList = list_copy(rel_loc_info1->nodeList);
-
-					innerPlan(step3) = (Plan *) step2;
-
-					innerPlan(context->query_step) = (Plan *) step3;
-
-					pfree(buf.data);
-				}
-
-				context->query_step->exec_nodes->nodeList = list_copy(rel_loc_info1->nodeList);
-			}
-			else
-			{
-				/* Take target node from last scan tuple of referenced step */
-				context->query_step->exec_nodes->nodeList = lappend_int(context->query_step->exec_nodes->nodeList, 
-											node->ss.ss_ScanTupleSlot->tts_dataNodeIndex);
-			}
-			FreeRelationLocInfo(rel_loc_info1);
-
-			/*
-			 * replace cursor name in the query if differs
-			 */
-			if (strcmp(cursor_name, node_cursor))
-			{
-				StringInfoData buf;
-				char *str = context->query->sql_statement;
-				/*
-				 * Find last occurence of cursor_name
-				 */
-				for (;;)
-				{
-					char *next = strstr(str + 1, cursor_name);
-					if (next)
-						str = next;
-					else
-						break;
-				}
-
-				/*
-				 * now str points to cursor name truncate string here
-				 * do not care the string is modified - we will pfree it
-				 * soon anyway
-				 */
-				*str = '\0';
-
-				/* and move str at the beginning of the reminder */
-				str += strlen(cursor_name);
-
-				/* build up new statement */
-				initStringInfo(&buf);
-				appendStringInfoString(&buf, context->query->sql_statement);
-				appendStringInfoString(&buf, node_cursor);
-				appendStringInfoString(&buf, str);
-
-				/* take the result */
-				pfree(context->query->sql_statement);
-				context->query->sql_statement = buf.data;
-			}
-			return false;
-		}
-
-		/* Even with a catalog table EXECUTE direct in launched on dedicated nodes */
-		if (context->query_step->exec_direct_type == EXEC_DIRECT_LOCAL
-			|| context->query_step->exec_direct_type == EXEC_DIRECT_NONE
-			|| context->query_step->exec_direct_type == EXEC_DIRECT_LOCAL_UTILITY)
-		{
-			context->query_step->exec_nodes = makeNode(ExecNodes);
-			context->query_step->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_PGCATALOG;
-			context->exec_on_coord = true;
-		}
-		else
-		{
-			context->query_step->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
-			context->exec_on_coord = false;
-		}
-
-		return false;
+		return pgxc_handle_current_of(expr_node, context);
 	}
 
 	if (IsA(expr_node, Var))
@@ -2208,6 +2302,7 @@ makeRemoteQuery(void)
 	result->inner_statement = NULL;
 	result->outer_statement = NULL;
 	result->join_condition = NULL;
+	result->sql_statement = NULL;
 	return result;
 }
 
@@ -2519,41 +2614,134 @@ set_cursor_name(Plan *subtree, char *cursor, int step_no)
 	return step_no;
 }
 
+
+/*
+ * get oid of the function whose name is passed as argument
+ */
+
+static Oid
+get_fn_oid(char *fn_name, Oid *p_rettype)
+{
+	Value		*fn_nm;
+	List		*fn_name_list;
+	FuncDetailCode	fdc;
+	bool		retset;
+	int		nvargs;
+	Oid		*true_typeids;
+	Oid		func_oid;
+
+	fn_nm = makeString(fn_name);
+	fn_name_list = list_make1(fn_nm);
+	
+	fdc = func_get_detail(fn_name_list,
+				NULL,			/* argument expressions */
+				NULL,			/* argument names */
+				0,			/* argument numbers */
+				NULL,			/* argument types */
+				false,			/* expand variable number or args */
+				false,			/* expand defaults */
+				&func_oid,		/* oid of the function - returned detail*/
+				p_rettype,		/* function return type - returned detail */
+				&retset,		/*  - returned detail*/
+				&nvargs,		/*  - returned detail*/
+				&true_typeids,		/*  - returned detail */
+				NULL			/* arguemnt defaults returned*/
+				);
+
+	pfree(fn_name_list);
+	if (fdc == FUNCDETAIL_NORMAL)
+	{
+		return func_oid;
+	}
+	return InvalidOid;
+}
+
 /*
  * Append ctid to the field list of step queries to support update
  * WHERE CURRENT OF. The ctid is not sent down to client but used as a key
  * to find target tuple
  */
 static void
-fetch_ctid_of(Plan *subtree, RowMarkClause *rmc)
+fetch_ctid_of(Plan *subtree, Query *query)
 {
 	/* recursively process subnodes */
 	if (innerPlan(subtree))
-		fetch_ctid_of(innerPlan(subtree), rmc);
+		fetch_ctid_of(innerPlan(subtree), query);
 	if (outerPlan(subtree))
-		fetch_ctid_of(outerPlan(subtree), rmc);
+		fetch_ctid_of(outerPlan(subtree), query);
 
 	/* we are only interested in RemoteQueries */
 	if (IsA(subtree, RemoteQuery))
 	{
-		RemoteQuery *step = (RemoteQuery *) subtree;
-		/*
-		 * TODO Find if the table is referenced by the step query
-		 */
+		RemoteQuery		*step = (RemoteQuery *) subtree;
+		TargetEntry		*te1;
+		Query			*temp_qry;
+		FuncExpr		*func_expr;
+		AttrNumber		resno;
+		Oid			funcid;
+		Oid			rettype;
+		Var			*ctid_expr;
+		MemoryContext		oldcontext;
+		MemoryContext		tmpcontext;
 
-		char *from_sql = strpos(step->sql_statement, " FROM ", 1);
-		if (from_sql)
+		tmpcontext = AllocSetContextCreate(CurrentMemoryContext,
+							"Temp Context",
+							ALLOCSET_DEFAULT_MINSIZE,
+							ALLOCSET_DEFAULT_INITSIZE,
+							ALLOCSET_DEFAULT_MAXSIZE);
+		oldcontext = MemoryContextSwitchTo(tmpcontext);
+
+		/* Copy the query tree to make changes to the target list */
+		temp_qry = copyObject(query);
+		/* Get the number of entries in the target list */
+		resno = list_length(temp_qry->targetList);
+
+		/* Make a ctid column ref expr to add in target list */
+		ctid_expr = make_ctid_col_ref(temp_qry);
+		if (ctid_expr == NULL)
 		{
-			StringInfoData buf;
+			MemoryContextSwitchTo(oldcontext);
+			MemoryContextDelete(tmpcontext);
+			return;
+		}
 
-			initStringInfo(&buf);
-			appendBinaryStringInfo(&buf, step->sql_statement,
-								   (int) (from_sql - step->sql_statement));
-			/* TODO qualify with the table name */
-			appendStringInfoString(&buf, ", ctid");
-			appendStringInfoString(&buf, from_sql);
-			pfree(step->sql_statement);
-			step->sql_statement = buf.data;
+		te1 = makeTargetEntry((Expr *)ctid_expr, resno+1, NULL, false);
+
+		/* add the target entry to the query target list */
+		temp_qry->targetList = lappend(temp_qry->targetList, te1);
+
+		/* PGXCTODO We can take this call in initialization rather than getting it always */
+
+		/* Get the Oid of the function */
+		funcid = get_fn_oid("pgxc_node_str", &rettype);
+		if (OidIsValid(funcid))
+		{
+			StringInfoData		deparsed_qry;
+			TargetEntry		*te2;
+
+			/* create a function expression */
+			func_expr = makeFuncExpr(funcid, rettype, NULL, InvalidOid, InvalidOid, COERCE_DONTCARE);
+			/* make a target entry for function call */
+			te2 = makeTargetEntry((Expr *)func_expr, resno+2, NULL, false);
+			/* add the target entry to the query target list */
+			temp_qry->targetList = lappend(temp_qry->targetList, te2);
+
+			initStringInfo(&deparsed_qry);
+			deparse_query(temp_qry, &deparsed_qry, NIL);
+
+			MemoryContextSwitchTo(oldcontext);
+
+			if (step->sql_statement != NULL)
+				pfree(step->sql_statement);
+
+			step->sql_statement = pstrdup(deparsed_qry.data);
+
+			MemoryContextDelete(tmpcontext);
+		}
+		else
+		{
+			MemoryContextSwitchTo(oldcontext);
+			MemoryContextDelete(tmpcontext);
 		}
 	}
 }
@@ -3067,7 +3255,6 @@ pgxc_fqs_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 
 	result->planTree = (Plan *) query_step;
 
-
 	/* Set result relations */
 	if (query->commandType != CMD_SELECT)
 		result->resultRelations = list_make1_int(query->resultRelation);
@@ -3079,7 +3266,6 @@ pgxc_fqs_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	if (query_step->exec_nodes == NULL)
 		get_plan_nodes_command(query_step, root);
 
-
 	if (query_step->exec_nodes == NULL)
 	{
 		/*
@@ -3088,17 +3274,19 @@ pgxc_fqs_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 		 */
 		return NULL;
 	}
-
 	/* Datanodes should finalise the results of this query */
 	query->qry_finalise_aggs = true;
 
 	/*
 	 * Deparse query tree to get step query. It may be modified later on
 	 */
-	initStringInfo(&buf);
-	deparse_query(query, &buf, NIL);
-	query_step->sql_statement = pstrdup(buf.data);
-	pfree(buf.data);
+	if ( query_step->sql_statement == NULL )
+	{
+		initStringInfo(&buf);
+		deparse_query(query, &buf, NIL);
+		query_step->sql_statement = pstrdup(buf.data);
+		pfree(buf.data);
+	}
 	/*
 	 * PGXCTODO: we may route this same Query structure through
 	 * standard_planner, where we don't want datanodes to finalise the results.
@@ -3106,7 +3294,6 @@ pgxc_fqs_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	 * structure through the standard_planner
 	 */
 	query->qry_finalise_aggs = false;
-
 	/*
 	 * PGXCTODO
 	 * When Postgres runs insert into t (a) values (1); against table
@@ -3125,7 +3312,6 @@ pgxc_fqs_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	if (query_step->exec_nodes)
 		query_step->combine_type = get_plan_combine_type(
 				query, query_step->exec_nodes->baselocatortype);
-
 	/*
 	 * Add sorting to the step
 	 */
@@ -3160,19 +3346,13 @@ pgxc_fqs_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	}
 
 	/*
-	 * If query is FOR UPDATE fetch CTIDs from the remote node
-	 * Use CTID as a key to update tuples on remote nodes when handling
+	 * If query is DECLARE CURSOR fetch CTIDs and node names from the remote node
+	 * Use CTID as a key to update/delete tuples on remote nodes when handling
 	 * WHERE CURRENT OF
 	 */
-	if (query->rowMarks)
+	if ( query->utilityStmt && IsA(query->utilityStmt, DeclareCursorStmt) )
 	{
-		ListCell *lc;
-		foreach(lc, query->rowMarks)
-		{
-			RowMarkClause *rmc = (RowMarkClause *) lfirst(lc);
-
-			fetch_ctid_of(result->planTree, rmc);
-		}
+		fetch_ctid_of(result->planTree, query);
 	}
 
 	return result;

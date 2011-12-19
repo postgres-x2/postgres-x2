@@ -92,4 +92,8 @@ extern Name attnumAttName(Relation rd, int attid);
 extern Oid	attnumTypeId(Relation rd, int attid);
 extern Oid	attnumCollationId(Relation rd, int attid);
 
+#ifdef PGXC
+extern int	specialAttNum(const char *attname);
+#endif
+
 #endif   /* PARSE_RELATION_H */
