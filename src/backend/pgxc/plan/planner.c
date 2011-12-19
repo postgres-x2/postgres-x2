@@ -1009,7 +1009,7 @@ pgxc_handle_current_of(Node *expr_node, XCWalkerContext *context)
 
 							data_node = slot->tts_values[i];
 							data_node_str = (char *) DirectFunctionCall1(nameout, data_node);
-							node_index = PGXCNodeGetNodeIdFromName(data_node_str, PGXC_NODE_DATANODE_MASTER);
+							node_index = PGXCNodeGetNodeIdFromName(data_node_str, PGXC_NODE_DATANODE);
 							node_str_found = true;
 						}
 					}

@@ -46,6 +46,7 @@
 #include "utils/fmgroids.h"
 #include "utils/syscache.h"
 #include "utils/lsyscache.h"
+#include "utils/formatting.h"
 #include "../interfaces/libpq/libpq-fe.h"
 
 
