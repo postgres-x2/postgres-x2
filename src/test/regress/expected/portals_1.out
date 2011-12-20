@@ -833,11 +833,12 @@ insert into tt1 values(1);
 declare c2 cursor with hold for select count_tt1_v(), count_tt1_s();
 insert into tt1 values(2);
 commit;
+ERROR:  Could not commit prepared transaction implicitly
 delete from tt1;
 fetch all from c2;
  count_tt1_v | count_tt1_s 
 -------------+-------------
-             |            
+           0 |           0
 (1 row)
 
 drop function count_tt1_v();
@@ -864,11 +865,12 @@ ROLLBACK;
 -- implement EXECUTE in pg_cursors
 PREPARE cprep AS
   SELECT name, statement, is_holdable, is_binary, is_scrollable FROM pg_cursors;
-ERROR:  Postgres-XC does not support PREPARE yet
-DETAIL:  The feature is not currently supported
 EXECUTE cprep;
-ERROR:  Postgres-XC does not support EXECUTE yet
-DETAIL:  The feature is not currently supported
+ name |                              statement                               | is_holdable | is_binary | is_scrollable 
+------+----------------------------------------------------------------------+-------------+-----------+---------------
+ c2   | declare c2 cursor with hold for select count_tt1_v(), count_tt1_s(); | t           | f         | f
+(1 row)
+
 -- test CLOSE ALL;
 SELECT name FROM pg_cursors ORDER BY 1;
  name 
@@ -914,7 +916,7 @@ SELECT f1,f2 FROM uctest ORDER BY f1;
 
 -- Check DELETE WHERE CURRENT
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT f1,f2 FROM uctest ORDER BY f1;
+DECLARE c1 SCROLL CURSOR FOR SELECT f1,f2 FROM uctest ORDER BY f1;
 FETCH 2 FROM c1;
  f1 | f2  
 ----+-----
@@ -923,135 +925,189 @@ FETCH 2 FROM c1;
 (2 rows)
 
 DELETE FROM uctest WHERE CURRENT OF c1;
-ERROR:  WHERE CURRENT OF clause not yet supported
 -- should show deletion
 SELECT f1,f2 FROM uctest ORDER BY f1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ f1 |  f2   
+----+-------
+  1 | one
+  3 | three
+(2 rows)
+
 -- cursor did not move
 FETCH ALL FROM c1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ f1 |  f2   
+----+-------
+  3 | three
+(1 row)
+
 -- cursor is insensitive
 MOVE BACKWARD ALL IN c1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
 FETCH ALL FROM c1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ f1 |  f2   
+----+-------
+  1 | one
+  2 | two
+  3 | three
+(3 rows)
+
 COMMIT;
 -- should still see deletion
 SELECT f1,f2 FROM uctest ORDER BY f1;
  f1 |  f2   
 ----+-------
   1 | one
-  2 | two
   3 | three
-(3 rows)
+(2 rows)
 
 -- Check UPDATE WHERE CURRENT; this time use FOR UPDATE
 BEGIN;
 DECLARE c1 CURSOR FOR SELECT f1,f2 FROM uctest FOR UPDATE;
-FETCH c1;
- f1 |  f2   
-----+-------
-  3 | three
-(1 row)
-
-UPDATE uctest SET f1 = 8 WHERE CURRENT OF c1;
-ERROR:  WHERE CURRENT OF clause not yet supported
-SELECT f1,f2 FROM uctest ORDER BY f1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
-COMMIT;
-SELECT f1,f2 FROM uctest ORDER BY f1;
- f1 |  f2   
-----+-------
-  1 | one
-  2 | two
-  3 | three
-(3 rows)
-
--- Check repeated-update and update-then-delete cases
-BEGIN;
-DECLARE c1 CURSOR FOR SELECT f1,f2 FROM uctest;
-FETCH c1;
- f1 |  f2   
-----+-------
-  3 | three
-(1 row)
-
-UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
-ERROR:  WHERE CURRENT OF clause not yet supported
-SELECT f1,f2 FROM uctest ORDER BY 1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
-UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
-SELECT f1,f2 FROM uctest ORDER BY 1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
--- insensitive cursor should not show effects of updates or deletes
-FETCH RELATIVE 0 FROM c1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
-DELETE FROM uctest WHERE CURRENT OF c1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
-SELECT f1,f2 FROM uctest ORDER BY f1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
-DELETE FROM uctest WHERE CURRENT OF c1; -- no-op
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
-SELECT f1,f2 FROM uctest ORDER BY f1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
-UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1; -- no-op
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
-SELECT f1,f2 FROM uctest ORDER BY f1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
-FETCH RELATIVE 0 FROM c1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
-ROLLBACK;
-SELECT f1,f2 FROM uctest ORDER BY f1;
- f1 |  f2   
-----+-------
-  1 | one
-  2 | two
-  3 | three
-(3 rows)
-
-BEGIN;
-DECLARE c1 CURSOR FOR SELECT f1,f2 FROM uctest ORDER BY 1 FOR UPDATE;
 FETCH c1;
  f1 | f2  
 ----+-----
   1 | one
 (1 row)
 
+UPDATE uctest SET f1 = 8 WHERE CURRENT OF c1;
+SELECT f1,f2 FROM uctest ORDER BY f1;
+ f1 |  f2   
+----+-------
+  3 | three
+  8 | one
+(2 rows)
+
+COMMIT;
+SELECT f1,f2 FROM uctest ORDER BY f1;
+ f1 |  f2   
+----+-------
+  3 | three
+  8 | one
+(2 rows)
+
+-- Check repeated-update and update-then-delete cases
+BEGIN;
+DECLARE c1 SCROLL CURSOR FOR SELECT f1,f2 FROM uctest;
+FETCH c1;
+ f1 |  f2   
+----+-------
+  3 | three
+(1 row)
+
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
-ERROR:  WHERE CURRENT OF clause not yet supported
-SELECT f1,f2 FROM uctest ORDER BY f1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
+SELECT f1,f2 FROM uctest ORDER BY 1;
+ f1 |  f2   
+----+-------
+  8 | one
+ 13 | three
+(2 rows)
+
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
-SELECT f1,f2 FROM uctest ORDER BY f1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
-DELETE FROM uctest WHERE CURRENT OF c1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
-SELECT f1,f2 FROM uctest ORDER BY f1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
-DELETE FROM uctest WHERE CURRENT OF c1; -- no-op
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
-SELECT f1,f2 FROM uctest ORDER BY f1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
-UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1; -- no-op
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
-SELECT f1,f2 FROM uctest ORDER BY f1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
---- sensitive cursors can't currently scroll back, so this is an error:
+SELECT f1,f2 FROM uctest ORDER BY 1;
+ f1 |  f2   
+----+-------
+  8 | one
+ 23 | three
+(2 rows)
+
+-- insensitive cursor should not show effects of updates or deletes
 FETCH RELATIVE 0 FROM c1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ f1 |  f2   
+----+-------
+  3 | three
+(1 row)
+
+DELETE FROM uctest WHERE CURRENT OF c1;
+SELECT f1,f2 FROM uctest ORDER BY f1;
+ f1 | f2  
+----+-----
+  8 | one
+(1 row)
+
+DELETE FROM uctest WHERE CURRENT OF c1; -- no-op
+SELECT f1,f2 FROM uctest ORDER BY f1;
+ f1 |  f2   
+----+-------
+  8 | one
+(1 row)
+
+UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1; -- no-op
+SELECT f1,f2 FROM uctest ORDER BY f1;
+ f1 | f2  
+----+-----
+  8 | one
+(1 row)
+
+FETCH RELATIVE 0 FROM c1;
+ f1 |  f2   
+----+-------
+  3 | three
+(1 row)
+
 ROLLBACK;
 SELECT f1,f2 FROM uctest ORDER BY f1;
  f1 |  f2   
 ----+-------
-  1 | one
-  2 | two
   3 | three
-(3 rows)
+  8 | one
+(2 rows)
 
-DELETE FROM uctest WHERE f1 = 2;
-UPDATE uctest SET f1 = 8 WHERE f1=1;
+BEGIN;
+DECLARE c1 CURSOR FOR SELECT f1,f2 FROM uctest ORDER BY 1 FOR UPDATE;
+FETCH c1;
+ f1 |  f2   
+----+-------
+  3 | three
+(1 row)
+
+UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
+SELECT f1,f2 FROM uctest ORDER BY f1;
+ f1 |  f2   
+----+-------
+  8 | one
+ 13 | three
+(2 rows)
+
+UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
+SELECT f1,f2 FROM uctest ORDER BY f1;
+ f1 |  f2   
+----+-------
+  8 | one
+ 23 | three
+(2 rows)
+
+DELETE FROM uctest WHERE CURRENT OF c1;
+SELECT f1,f2 FROM uctest ORDER BY f1;
+ f1 | f2  
+----+-----
+  8 | one
+(1 row)
+
+DELETE FROM uctest WHERE CURRENT OF c1; -- no-op
+SELECT f1,f2 FROM uctest ORDER BY f1;
+ f1 | f2  
+----+-----
+  8 | one
+(1 row)
+
+UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1; -- no-op
+SELECT f1,f2 FROM uctest ORDER BY f1;
+ f1 | f2  
+----+-----
+  8 | one
+(1 row)
+
+--- sensitive cursors can't currently scroll back, so this is an error:
+FETCH RELATIVE 0 FROM c1;
+ERROR:  cursor can only scan forward
+HINT:  Declare it with SCROLL option to enable backward scan.
+ROLLBACK;
+SELECT f1,f2 FROM uctest ORDER BY f1;
+ f1 |  f2   
+----+-------
+  3 | three
+  8 | one
+(2 rows)
+
 -- Check inheritance cases
 CREATE TABLE ucchild () inherits (uctest);
 INSERT INTO ucchild values(0, 100, 'hundred');
@@ -1072,94 +1128,129 @@ FETCH 1 FROM c1;
 (1 row)
 
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
-ERROR:  WHERE CURRENT OF clause not yet supported
 FETCH 1 FROM c1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ f1 | f2  
+----+-----
+  8 | one
+(1 row)
+
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
 FETCH 1 FROM c1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ f1  |   f2    
+-----+---------
+ 100 | hundred
+(1 row)
+
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
 FETCH 1 FROM c1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ f1 | f2 
+----+----
+(0 rows)
+
 COMMIT;
 SELECT f1,f2 FROM uctest ORDER BY f1;
  f1  |   f2    
 -----+---------
-   3 | three
-   8 | one
- 100 | hundred
+  13 | three
+  18 | one
+ 110 | hundred
 (3 rows)
 
 -- Can update from a self-join, but only if FOR UPDATE says which to use
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT a.f1,a.f2 FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 ORDER BY 1;
+DECLARE c1 CURSOR FOR SELECT a.f1,a.f2,b.f1,b.f2 FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 ORDER BY 1;
 FETCH 1 FROM c1;
- f1 | f2  
-----+-----
-  8 | one
+ f1 | f2  | f1 |  f2   
+----+-----+----+-------
+ 18 | one | 13 | three
 (1 row)
 
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;  -- fail
-ERROR:  WHERE CURRENT OF clause not yet supported
+ERROR:  cursor "c1" is not a simply updatable scan of table "uctest"
 ROLLBACK;
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT a.f1,a.f2 FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 ORDER BY 1 FOR UPDATE;
+DECLARE c1 CURSOR FOR SELECT a.f1,a.f2, b.f1, b.f2 FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 ORDER BY 1 FOR UPDATE;
 FETCH 1 FROM c1;
- f1 | f2  
-----+-----
-  8 | one
+ f1 | f2  | f1 |  f2   
+----+-----+----+-------
+ 18 | one | 13 | three
 (1 row)
 
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;  -- fail
-ERROR:  WHERE CURRENT OF clause not yet supported
+ERROR:  cursor "c1" is not a simply updatable scan of table "uctest"
 ROLLBACK;
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT a.f1,a.f2 FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 ORDER BY 1 FOR SHARE OF a;
+DECLARE c1 CURSOR FOR SELECT a.f1,a.f2,b.f1,b.f2 FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 ORDER BY 1 FOR SHARE OF a;
 FETCH 1 FROM c1;
- f1 | f2  
-----+-----
-  8 | one
+ f1 | f2  | f1 |  f2   
+----+-----+----+-------
+ 18 | one | 13 | three
 (1 row)
 
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
-ERROR:  WHERE CURRENT OF clause not yet supported
-SELECT f1,f2 FROM uctest ORDER BY f1;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
+SELECT * FROM uctest;
+ f1  |   f2    
+-----+---------
+  13 | three
+  28 | one
+ 110 | hundred
+(3 rows)
+
 ROLLBACK;
 -- Check various error cases
 DELETE FROM uctest WHERE CURRENT OF c1;  -- fail, no such cursor
-ERROR:  WHERE CURRENT OF clause not yet supported
-DECLARE cx CURSOR WITH HOLD FOR SELECT f1,f2 FROM uctest ORDER BY 1;
-ERROR:  portal "cx" does not exist
+ERROR:  cursor "c1" does not exist
+DECLARE cx CURSOR WITH HOLD FOR SELECT f1,f2 FROM uctest;
 DELETE FROM uctest WHERE CURRENT OF cx;  -- fail, can't use held cursor
-ERROR:  WHERE CURRENT OF clause not yet supported
+ERROR:  cursor "cx" is held from a previous transaction
 BEGIN;
 DECLARE c CURSOR FOR SELECT * FROM tenk2 ORDER BY unique2;
+FETCH 1 FROM c;
+ unique1 | unique2 | two | four | ten | twenty | hundred | thousand | twothousand | fivethous | tenthous | odd | even | stringu1 | stringu2 | string4 
+---------+---------+-----+------+-----+--------+---------+----------+-------------+-----------+----------+-----+------+----------+----------+---------
+    8800 |       0 |   0 |    0 |   0 |      0 |       0 |      800 |         800 |      3800 |     8800 |   0 |    1 | MAAAAA   | AAAAAA   | AAAAxx
+(1 row)
+
 DELETE FROM uctest WHERE CURRENT OF c;  -- fail, cursor on wrong table
-ERROR:  WHERE CURRENT OF clause not yet supported
+ERROR:  cursor "c" does not have a FOR UPDATE/SHARE reference to table "uctest"
 ROLLBACK;
 BEGIN;
-DECLARE c CURSOR FOR SELECT * FROM tenk2 ORDER BY unique2 FOR SHARE;
+DECLARE c CURSOR FOR SELECT * FROM tenk2 FOR SHARE;
+FETCH 1 FROM c;
+ unique1 | unique2 | two | four | ten | twenty | hundred | thousand | twothousand | fivethous | tenthous | odd | even | stringu1 | stringu2 | string4 
+---------+---------+-----+------+-----+--------+---------+----------+-------------+-----------+----------+-----+------+----------+----------+---------
+    8800 |       0 |   0 |    0 |   0 |      0 |       0 |      800 |         800 |      3800 |     8800 |   0 |    1 | MAAAAA   | AAAAAA   | AAAAxx
+(1 row)
+
 DELETE FROM uctest WHERE CURRENT OF c;  -- fail, cursor on wrong table
-ERROR:  WHERE CURRENT OF clause not yet supported
+ERROR:  cursor "c" does not have a FOR UPDATE/SHARE reference to table "uctest"
 ROLLBACK;
 BEGIN;
 DECLARE c CURSOR FOR SELECT * FROM tenk1 JOIN tenk2 USING (unique1);
+FETCH 1 FROM c;
+ unique1 | unique2 | two | four | ten | twenty | hundred | thousand | twothousand | fivethous | tenthous | odd | even | stringu1 | stringu2 | string4 | unique2 | two | four | ten | twenty | hundred | thousand | twothousand | fivethous | tenthous | odd | even | stringu1 | stringu2 | string4 
+---------+---------+-----+------+-----+--------+---------+----------+-------------+-----------+----------+-----+------+----------+----------+---------+---------+-----+------+-----+--------+---------+----------+-------------+-----------+----------+-----+------+----------+----------+---------
+    8800 |       0 |   0 |    0 |   0 |      0 |       0 |      800 |         800 |      3800 |     8800 |   0 |    1 | MAAAAA   | AAAAAA   | AAAAxx  |       0 |   0 |    0 |   0 |      0 |       0 |      800 |         800 |      3800 |     8800 |   0 |    1 | MAAAAA   | AAAAAA   | AAAAxx
+(1 row)
+
 DELETE FROM tenk1 WHERE CURRENT OF c;  -- fail, cursor is on a join
-ERROR:  WHERE CURRENT OF clause not yet supported
+ERROR:  cursor "c" is not a simply updatable scan of table "tenk1"
 ROLLBACK;
 BEGIN;
 DECLARE c CURSOR FOR SELECT f1,count(*) FROM uctest GROUP BY f1;
-ERROR:  GROUP BY clause is not yet supported
+FETCH 1 FROM c;
+ f1 | count 
+----+-------
+ 13 |     1
+(1 row)
+
 DELETE FROM uctest WHERE CURRENT OF c;  -- fail, cursor is on aggregation
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  cursor "c" is not a simply updatable scan of table "uctest"
 ROLLBACK;
 BEGIN;
 DECLARE c1 CURSOR FOR SELECT f1,f2 FROM uctest;
 DELETE FROM uctest WHERE CURRENT OF c1; -- fail, no current row
-ERROR:  WHERE CURRENT OF clause not yet supported
+ERROR:  cursor "c1" is not positioned on a row
 ROLLBACK;
 -- WHERE CURRENT OF may someday work with views, but today is not that day.
 -- For now, just make sure it errors out cleanly.
@@ -1171,27 +1262,26 @@ DECLARE c1 CURSOR FOR SELECT * FROM ucview;
 FETCH FROM c1;
  f1 |  f2   
 ----+-------
-  3 | three
+ 13 | three
 (1 row)
 
 DELETE FROM ucview WHERE CURRENT OF c1; -- fail, views not supported
-ERROR:  WHERE CURRENT OF clause not yet supported
+ERROR:  WHERE CURRENT OF on a view is not implemented
 ROLLBACK;
 -- Make sure snapshot management works okay, per bug report in
 -- 235395b90909301035v7228ce63q392931f15aa74b31@mail.gmail.com
-BEGIN; 
-SET TRANSACTION ISOLATION LEVEL SERIALIZABLE; 
-CREATE TABLE cursor (a int, b int); 
-INSERT INTO cursor VALUES (1, 0); 
-DECLARE c1 NO SCROLL CURSOR FOR SELECT * FROM cursor FOR UPDATE; 
-UPDATE cursor SET b = 2; 
-FETCH ALL FROM c1; 
- a | b 
----+---
- 1 | 2
-(1 row)
+BEGIN;
+SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+CREATE TABLE cursor (a int, b int) distribute by hash(b);
+INSERT INTO cursor VALUES (1);
+DECLARE c1 NO SCROLL CURSOR FOR SELECT * FROM cursor FOR UPDATE;
+UPDATE cursor SET a = 2;
+FETCH ALL FROM c1;
+ a 
+---
+(0 rows)
 
-COMMIT; 
+COMMIT;
 DROP TABLE cursor;
 DROP VIEW ucview;
 DROP TABLE ucchild;
