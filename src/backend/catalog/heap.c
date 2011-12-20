@@ -80,6 +80,8 @@
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node.h"
 #include "pgxc/locator.h"
+#include "pgxc/pgxc.h"
+#include "pgxc/postgresql_fdw.h"
 #endif
 
 
@@ -2728,28 +2730,6 @@ cookDefault(ParseState *pstate,
 	Node	   *expr;
 
 	Assert(raw_default != NULL);
-
-#ifdef PGXC
-		/*
-		 * Block use of non-immutable functions as DEFAULT.
-		 *
-		 * Support of nextval(), currval(), now() as DEFAULT value in XC needs a special support
-		 * like SERIAL, so block it for the time being
-		 *
-		 * PGXCTODO: As possible implementation, a constraint with non-immutable functions
-		 * is just created on Coordinator and when an INSERT query needs a default value
-		 * Coordinator feeds it, rewrite the query, and distributes it to Datanodes
-		 *
-		 * Sequence (currval, nextval) and timestamp values (now()...) have
-		 * to be taken from GTM.
-		 */
-		if (IsA(raw_default,FuncCall))
-			if (!IsFuncImmutable(pstate, (FuncCall *) raw_default))
-				ereport(ERROR,
-						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						 errmsg("Postgres-XC does not support DEFAULT with non-immutable functions yet"),
-						 errdetail("The feature is not currently supported")));
-#endif
 
 	/*
 	 * Transform raw parsetree to executable expression.

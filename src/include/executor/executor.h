@@ -107,6 +107,10 @@ extern bool execCurrentOf(CurrentOfExpr *cexpr,
 			  Oid table_oid,
 			  ItemPointer current_tid);
 
+#ifdef PGXC
+ScanState *search_plan_tree(PlanState *node, Oid table_oid);
+#endif
+
 /*
  * prototypes from functions in execGrouping.c
  */

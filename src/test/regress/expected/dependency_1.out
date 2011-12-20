@@ -102,8 +102,6 @@ CREATE TABLE deptest2 (f1 int);
 -- make a serial column the hard way
 CREATE SEQUENCE ss1;
 ALTER TABLE deptest2 ALTER f1 SET DEFAULT nextval('ss1');
-ERROR:  Postgres-XC does not support DEFAULT with non-immutable functions yet
-DETAIL:  The feature is not currently supported
 ALTER SEQUENCE ss1 OWNED BY deptest2.f1;
 RESET SESSION AUTHORIZATION;
 REASSIGN OWNED BY regression_user1 TO regression_user2;

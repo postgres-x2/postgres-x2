@@ -327,7 +327,7 @@ SELECT f1,f2 FROM uctest ORDER BY f1;
 
 -- Check DELETE WHERE CURRENT
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT f1,f2 FROM uctest ORDER BY f1;
+DECLARE c1 SCROLL CURSOR FOR SELECT f1,f2 FROM uctest ORDER BY f1;
 FETCH 2 FROM c1;
 DELETE FROM uctest WHERE CURRENT OF c1;
 -- should show deletion
@@ -352,7 +352,7 @@ SELECT f1,f2 FROM uctest ORDER BY f1;
 
 -- Check repeated-update and update-then-delete cases
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT f1,f2 FROM uctest;
+DECLARE c1 SCROLL CURSOR FOR SELECT f1,f2 FROM uctest;
 FETCH c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
 SELECT f1,f2 FROM uctest ORDER BY 1;
@@ -408,17 +408,17 @@ SELECT f1,f2 FROM uctest ORDER BY f1;
 
 -- Can update from a self-join, but only if FOR UPDATE says which to use
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT a.f1,a.f2 FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 ORDER BY 1;
+DECLARE c1 CURSOR FOR SELECT a.f1,a.f2,b.f1,b.f2 FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 ORDER BY 1;
 FETCH 1 FROM c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;  -- fail
 ROLLBACK;
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT a.f1,a.f2 FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 ORDER BY 1 FOR UPDATE;
+DECLARE c1 CURSOR FOR SELECT a.f1,a.f2, b.f1, b.f2 FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 ORDER BY 1 FOR UPDATE;
 FETCH 1 FROM c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;  -- fail
 ROLLBACK;
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT a.f1,a.f2 FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 ORDER BY 1 FOR SHARE OF a;
+DECLARE c1 CURSOR FOR SELECT a.f1,a.f2,b.f1,b.f2 FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 ORDER BY 1 FOR SHARE OF a;
 FETCH 1 FROM c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
 SELECT f1,f2 FROM uctest ORDER BY f1;
@@ -427,22 +427,26 @@ ROLLBACK;
 -- Check various error cases
 
 DELETE FROM uctest WHERE CURRENT OF c1;  -- fail, no such cursor
-DECLARE cx CURSOR WITH HOLD FOR SELECT f1,f2 FROM uctest ORDER BY 1;
+DECLARE cx CURSOR WITH HOLD FOR SELECT f1,f2 FROM uctest;
 DELETE FROM uctest WHERE CURRENT OF cx;  -- fail, can't use held cursor
 BEGIN;
 DECLARE c CURSOR FOR SELECT * FROM tenk2 ORDER BY unique2;
+FETCH 1 FROM c;
 DELETE FROM uctest WHERE CURRENT OF c;  -- fail, cursor on wrong table
 ROLLBACK;
 BEGIN;
-DECLARE c CURSOR FOR SELECT * FROM tenk2 ORDER BY unique2 FOR SHARE;
+DECLARE c CURSOR FOR SELECT * FROM tenk2 FOR SHARE;
+FETCH 1 FROM c;
 DELETE FROM uctest WHERE CURRENT OF c;  -- fail, cursor on wrong table
 ROLLBACK;
 BEGIN;
 DECLARE c CURSOR FOR SELECT * FROM tenk1 JOIN tenk2 USING (unique1);
+FETCH 1 FROM c;
 DELETE FROM tenk1 WHERE CURRENT OF c;  -- fail, cursor is on a join
 ROLLBACK;
 BEGIN;
 DECLARE c CURSOR FOR SELECT f1,count(*) FROM uctest GROUP BY f1;
+FETCH 1 FROM c;
 DELETE FROM uctest WHERE CURRENT OF c;  -- fail, cursor is on aggregation
 ROLLBACK;
 BEGIN;
@@ -465,7 +469,7 @@ ROLLBACK;
 -- 235395b90909301035v7228ce63q392931f15aa74b31@mail.gmail.com
 BEGIN;
 SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
-CREATE TABLE cursor (a int);
+CREATE TABLE cursor (a int, b int) distribute by hash(b);
 INSERT INTO cursor VALUES (1);
 DECLARE c1 NO SCROLL CURSOR FOR SELECT * FROM cursor FOR UPDATE;
 UPDATE cursor SET a = 2;
