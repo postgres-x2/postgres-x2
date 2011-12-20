@@ -560,6 +560,38 @@ get_plan_nodes_insert(PlannerInfo *root, RemoteQuery *step)
 				(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
 				(errmsg("Could not find relation for oid = %d", rte->relid))));
 
+	/*
+	 * Evaluate expressions in target list before trying any optimisations.
+	 * The following flow is respected depending on table distribution,
+	 * target column (distribution column or not) and expression shippability.
+	 * For a hash-distributed table:
+	 * - Non-shippable expression whatever the target column, return exec_nodes
+	 *	 as NULL and go through standard planner
+	 * - Shippable expression on a distribution column, go through optimization
+	 *   In this case if target column is distributable, node is determined
+	 *   from expression if constant can be obtained. An expression can be used
+	 *   also to determine a safe node list a execution time.
+	 * For replicated or round robin tables (no distribution column):
+	 * - Non-shippable expression, return exec_nodes as NULL and go through
+	 *   standard planner
+	 * - Shippable expression, go through the optimization process
+	 * PGXCTODO: for the time being query goes through standard planner if at least
+	 * one non-shippable expression is found, we should be able to partially push
+	 * down foreign expressions.
+	 */
+	foreach(lc, query->targetList)
+	{
+		TargetEntry *tle = (TargetEntry *) lfirst(lc);
+		Expr *expr = tle->expr;
+
+		/* If expression is not shippable, go through standard planner */
+		if (!is_foreign_expr((Node *) expr, NULL))
+		{
+			step->exec_nodes = NULL;
+			return;
+		}
+	}
+
 	/* Optimization is only done for distributed tables */
 	if (query->jointree != NULL
 		&& query->jointree->fromlist != NULL
@@ -604,10 +636,13 @@ get_plan_nodes_insert(PlannerInfo *root, RemoteQuery *step)
 		 */
 	}
 
-
-	if ( (rel_loc_info->partAttrName != NULL) &&
-		( (rel_loc_info->locatorType == LOCATOR_TYPE_HASH) ||
-		  (rel_loc_info->locatorType == LOCATOR_TYPE_MODULO) ))
+	/*
+	 * Search for an expression value that can be used for
+	 * distribute table optimisation.
+	 */
+	if ((rel_loc_info->partAttrName != NULL) &&
+		((rel_loc_info->locatorType == LOCATOR_TYPE_HASH) ||
+		 (rel_loc_info->locatorType == LOCATOR_TYPE_MODULO)))
 	{
 		Expr		*checkexpr;
 		TargetEntry *tle = NULL;
@@ -667,14 +702,11 @@ get_plan_nodes_insert(PlannerInfo *root, RemoteQuery *step)
 							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
 							(errmsg("Could not find relation for oid = %d", rte->relid))));
 
-				if (	col_base->colname != NULL &&
+				if (col_base->colname != NULL &&
 					source_rel_loc_info->partAttrName != NULL &&
 					strcmp(col_base->colname, source_rel_loc_info->partAttrName) == 0 &&
-					(
-					  source_rel_loc_info->locatorType == LOCATOR_TYPE_HASH ||
-					  source_rel_loc_info->locatorType == LOCATOR_TYPE_MODULO
-					)
-				   )
+					(source_rel_loc_info->locatorType == LOCATOR_TYPE_HASH ||
+					 source_rel_loc_info->locatorType == LOCATOR_TYPE_MODULO))
 				{
 					/*
 					 * Partition columns match, we have a "single-step INSERT SELECT".
