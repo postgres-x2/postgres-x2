@@ -12,13 +12,9 @@
 -->
 &xconly;
    <para>
-    Current implementation of large object is based
-    upon <literal>OID</>.  Because <productname>Postgres-XC</>
-    (<productname>XC</> in short) inherits all this background and OID
-    is kept consisitent only locally in each datanode and
-    coordinators, <productname>XC</> does not provide consisitent
-    means to handle the large object.  This may be improved in the
-    future releases.
+    Large objects are not supported by <productname>Postgres-XC</>.
+    <productname>Postgres-XC</> does not provide consistent means
+    to handle the large object as OID is inconsistent among cluster nodes.
    </para>
 <!## end>
 

@@ -27,7 +27,15 @@ ALTER LARGE OBJECT <replaceable class="PARAMETER">large_object_oid</replaceable>
 
  <refsect1>
   <title>Description</title>
-
+<!## XC>
+&xconly;
+  <para>
+   <command>LARGE OBJECT</> has not been supported
+   by <productname>Postgres-XC</> yet. This command may be supported
+   in the future releases.
+  </para>
+<!## end>
+<!## PG>
 &pgnotice;
 
   <para>
@@ -60,6 +68,8 @@ ALTER LARGE OBJECT <replaceable class="PARAMETER">large_object_oid</replaceable>
     </listitem>
    </varlistentry>
   </variablelist>
+
+<!## end>
  </refsect1>
 
  <refsect1>
