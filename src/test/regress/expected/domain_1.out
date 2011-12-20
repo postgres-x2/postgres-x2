@@ -246,8 +246,6 @@ create domain ddef2 oid DEFAULT '12';
 create domain ddef3 text DEFAULT 5;
 create sequence ddef4_seq;
 create domain ddef4 int4 DEFAULT nextval('ddef4_seq');
-ERROR:  Postgres-XC does not support DEFAULT with non-immutable functions yet
-DETAIL:  The feature is not currently supported
 create domain ddef5 numeric(8,2) NOT NULL DEFAULT '12.12';
 create table defaulttest
             ( col1 ddef1
@@ -259,9 +257,7 @@ create table defaulttest
             , col7 ddef4 DEFAULT 8000
             , col8 ddef5
             );
-ERROR:  type "ddef4" does not exist
-LINE 5:             , col4 ddef4 PRIMARY KEY
-                           ^
+ERROR:  Column col4 is not a hash distributable data type
 insert into defaulttest(col4) values(0); -- fails, col5 defaults to null
 ERROR:  relation "defaulttest" does not exist
 LINE 1: insert into defaulttest(col4) values(0);
@@ -410,7 +406,6 @@ drop domain ddef1 restrict;
 drop domain ddef2 restrict;
 drop domain ddef3 restrict;
 drop domain ddef4 restrict;
-ERROR:  type "ddef4" does not exist
 drop domain ddef5 restrict;
 drop sequence ddef4_seq;
 -- Test domains over domains

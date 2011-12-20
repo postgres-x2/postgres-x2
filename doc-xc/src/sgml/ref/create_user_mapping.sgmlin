@@ -37,7 +37,7 @@ CREATE USER MAPPING FOR { <replaceable class="parameter">user_name</replaceable>
    in the future releases.
   </para>
 <!## end>
-<!## XC>
+<!## PG>
 &pgonly;
 
   <para>

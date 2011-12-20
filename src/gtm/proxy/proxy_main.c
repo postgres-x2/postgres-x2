@@ -200,6 +200,8 @@ MainThreadInit()
 		exit(1);
 	}
 
+	memset((char *)thrinfo, 0, sizeof(GTMProxy_ThreadInfo));
+
 	if (SetMyThreadInfo(thrinfo))
 	{
 		fprintf(stderr, "SetMyThreadInfo failed: %d", errno);

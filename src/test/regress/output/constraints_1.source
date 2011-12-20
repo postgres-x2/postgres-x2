@@ -30,28 +30,19 @@ SELECT '' AS five, * FROM DEFAULT_TBL ORDER BY i,x,f;
 CREATE SEQUENCE DEFAULT_SEQ;
 CREATE TABLE DEFAULTEXPR_TBL (i1 int DEFAULT 100 + (200-199) * 2,
 	i2 int DEFAULT nextval('default_seq'));
-ERROR:  Postgres-XC does not support DEFAULT with non-immutable functions yet
-DETAIL:  The feature is not currently supported
 INSERT INTO DEFAULTEXPR_TBL VALUES (-1, -2);
-ERROR:  relation "defaultexpr_tbl" does not exist
-LINE 1: INSERT INTO DEFAULTEXPR_TBL VALUES (-1, -2);
-                    ^
 INSERT INTO DEFAULTEXPR_TBL (i1) VALUES (-3);
-ERROR:  relation "defaultexpr_tbl" does not exist
-LINE 1: INSERT INTO DEFAULTEXPR_TBL (i1) VALUES (-3);
-                    ^
 INSERT INTO DEFAULTEXPR_TBL (i2) VALUES (-4);
-ERROR:  relation "defaultexpr_tbl" does not exist
-LINE 1: INSERT INTO DEFAULTEXPR_TBL (i2) VALUES (-4);
-                    ^
 INSERT INTO DEFAULTEXPR_TBL (i2) VALUES (NULL);
-ERROR:  relation "defaultexpr_tbl" does not exist
-LINE 1: INSERT INTO DEFAULTEXPR_TBL (i2) VALUES (NULL);
-                    ^
 SELECT '' AS four, * FROM DEFAULTEXPR_TBL ORDER BY i1,i2;
-ERROR:  relation "defaultexpr_tbl" does not exist
-LINE 1: SELECT '' AS four, * FROM DEFAULTEXPR_TBL ORDER BY i1,i2;
-                                  ^
+ four | i1  | i2 
+------+-----+----
+      |  -3 |  1
+      |  -1 | -2
+      | 102 | -4
+      | 102 |   
+(4 rows)
+
 -- syntax errors
 --  test for extraneous comma
 CREATE TABLE error_tbl (i int DEFAULT (100, ));
@@ -120,16 +111,13 @@ CREATE TABLE INSERT_TBL (x INT DEFAULT nextval('insert_seq'),
 	z INT DEFAULT -1 * currval('insert_seq'),
 	CONSTRAINT INSERT_CON CHECK (x >= 3 AND y <> 'check failed' AND x < 8),
 	CHECK (x + z = 0));
-ERROR:  Postgres-XC does not support DEFAULT with non-immutable functions yet
-DETAIL:  The feature is not currently supported
 INSERT INTO INSERT_TBL(x,z) VALUES (2, -2);
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: INSERT INTO INSERT_TBL(x,z) VALUES (2, -2);
-                    ^
+ERROR:  new row for relation "insert_tbl" violates check constraint "insert_con"
 SELECT '' AS zero, * FROM INSERT_TBL order by x,y,z;
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: SELECT '' AS zero, * FROM INSERT_TBL order by x,y,z;
-                                  ^
+ zero | x | y | z 
+------+---+---+---
+(0 rows)
+
 SELECT 'one' AS one, nextval('insert_seq');
  one | nextval 
 -----+---------
@@ -137,173 +125,147 @@ SELECT 'one' AS one, nextval('insert_seq');
 (1 row)
 
 INSERT INTO INSERT_TBL(y) VALUES ('Y');
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: INSERT INTO INSERT_TBL(y) VALUES ('Y');
-                    ^
+ERROR:  new row for relation "insert_tbl" violates check constraint "insert_con"
 INSERT INTO INSERT_TBL(y) VALUES ('Y');
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: INSERT INTO INSERT_TBL(y) VALUES ('Y');
-                    ^
 INSERT INTO INSERT_TBL(x,z) VALUES (1, -2);
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: INSERT INTO INSERT_TBL(x,z) VALUES (1, -2);
-                    ^
+ERROR:  new row for relation "insert_tbl" violates check constraint "insert_tbl_check"
 INSERT INTO INSERT_TBL(z,x) VALUES (-7,  7);
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: INSERT INTO INSERT_TBL(z,x) VALUES (-7,  7);
-                    ^
 INSERT INTO INSERT_TBL VALUES (5, 'check failed', -5);
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: INSERT INTO INSERT_TBL VALUES (5, 'check failed', -5);
-                    ^
+ERROR:  new row for relation "insert_tbl" violates check constraint "insert_con"
 INSERT INTO INSERT_TBL VALUES (7, '!check failed', -7);
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: INSERT INTO INSERT_TBL VALUES (7, '!check failed', -7);
-                    ^
 INSERT INTO INSERT_TBL(y) VALUES ('-!NULL-');
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: INSERT INTO INSERT_TBL(y) VALUES ('-!NULL-');
-                    ^
 SELECT '' AS four, * FROM INSERT_TBL order by x,y,z;
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: SELECT '' AS four, * FROM INSERT_TBL order by x,y,z;
-                                  ^
+ four | x |       y       | z  
+------+---+---------------+----
+      | 3 | Y             | -3
+      | 4 | -!NULL-       | -4
+      | 7 | !check failed | -7
+      | 7 | -NULL-        | -7
+(4 rows)
+
 INSERT INTO INSERT_TBL(y,z) VALUES ('check failed', 4);
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: INSERT INTO INSERT_TBL(y,z) VALUES ('check failed', 4);
-                    ^
+ERROR:  new row for relation "insert_tbl" violates check constraint "insert_tbl_check"
 INSERT INTO INSERT_TBL(x,y) VALUES (5, 'check failed');
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: INSERT INTO INSERT_TBL(x,y) VALUES (5, 'check failed');
-                    ^
+ERROR:  new row for relation "insert_tbl" violates check constraint "insert_con"
 INSERT INTO INSERT_TBL(x,y) VALUES (5, '!check failed');
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: INSERT INTO INSERT_TBL(x,y) VALUES (5, '!check failed');
-                    ^
 INSERT INTO INSERT_TBL(y) VALUES ('-!NULL-');
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: INSERT INTO INSERT_TBL(y) VALUES ('-!NULL-');
-                    ^
 SELECT '' AS six, * FROM INSERT_TBL order by x,y,z;
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: SELECT '' AS six, * FROM INSERT_TBL order by x,y,z;
-                                 ^
+ six | x |       y       | z  
+-----+---+---------------+----
+     | 3 | Y             | -3
+     | 4 | -!NULL-       | -4
+     | 5 | !check failed | -5
+     | 6 | -!NULL-       | -6
+     | 7 | !check failed | -7
+     | 7 | -NULL-        | -7
+(6 rows)
+
 SELECT 'seven' AS one, nextval('insert_seq');
   one  | nextval 
 -------+---------
- seven |       2
+ seven |       7
 (1 row)
 
 INSERT INTO INSERT_TBL(y) VALUES ('Y');
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: INSERT INTO INSERT_TBL(y) VALUES ('Y');
-                    ^
+ERROR:  new row for relation "insert_tbl" violates check constraint "insert_con"
 SELECT 'eight' AS one, currval('insert_seq');
   one  | currval 
 -------+---------
- eight |       2
+ eight |       8
 (1 row)
 
 -- According to SQL92, it is OK to insert a record that gives rise to NULL
 -- constraint-condition results.  Postgres used to reject this, but it
 -- was wrong:
 INSERT INTO INSERT_TBL VALUES (null, null, null);
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: INSERT INTO INSERT_TBL VALUES (null, null, null);
-                    ^
 SELECT '' AS nine, * FROM INSERT_TBL order by x,y,z;
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: SELECT '' AS nine, * FROM INSERT_TBL order by x,y,z;
-                                  ^
+ nine | x |       y       | z  
+------+---+---------------+----
+      | 3 | Y             | -3
+      | 4 | -!NULL-       | -4
+      | 5 | !check failed | -5
+      | 6 | -!NULL-       | -6
+      | 7 | !check failed | -7
+      | 7 | -NULL-        | -7
+      |   |               |   
+(7 rows)
+
 --
 -- Check inheritance of defaults and constraints
 --
 CREATE TABLE INSERT_CHILD (cx INT default 42,
 	cy INT CHECK (cy > x))
 	INHERITS (INSERT_TBL);
-ERROR:  relation "insert_tbl" does not exist
 INSERT INTO INSERT_CHILD(x,z,cy) VALUES (7,-7,11);
-ERROR:  relation "insert_child" does not exist
-LINE 1: INSERT INTO INSERT_CHILD(x,z,cy) VALUES (7,-7,11);
-                    ^
 INSERT INTO INSERT_CHILD(x,z,cy) VALUES (7,-7,6);
-ERROR:  relation "insert_child" does not exist
-LINE 1: INSERT INTO INSERT_CHILD(x,z,cy) VALUES (7,-7,6);
-                    ^
+ERROR:  new row for relation "insert_child" violates check constraint "insert_child_check"
 INSERT INTO INSERT_CHILD(x,z,cy) VALUES (6,-7,7);
-ERROR:  relation "insert_child" does not exist
-LINE 1: INSERT INTO INSERT_CHILD(x,z,cy) VALUES (6,-7,7);
-                    ^
+ERROR:  new row for relation "insert_child" violates check constraint "insert_tbl_check"
 INSERT INTO INSERT_CHILD(x,y,z,cy) VALUES (6,'check failed',-6,7);
-ERROR:  relation "insert_child" does not exist
-LINE 1: INSERT INTO INSERT_CHILD(x,y,z,cy) VALUES (6,'check failed',...
-                    ^
+ERROR:  new row for relation "insert_child" violates check constraint "insert_con"
 SELECT * FROM INSERT_CHILD order by 1,2,3;
-ERROR:  relation "insert_child" does not exist
-LINE 1: SELECT * FROM INSERT_CHILD order by 1,2,3;
-                      ^
+ x |   y    | z  | cx | cy 
+---+--------+----+----+----
+ 7 | -NULL- | -7 | 42 | 11
+(1 row)
+
 DROP TABLE INSERT_CHILD;
-ERROR:  table "insert_child" does not exist
 --
 -- Check constraints on INSERT INTO
 --
 DELETE FROM INSERT_TBL;
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: DELETE FROM INSERT_TBL;
-                    ^
 ALTER SEQUENCE INSERT_SEQ RESTART WITH 4;
 CREATE TABLE tmp (xd INT, yd TEXT, zd INT);
 INSERT INTO tmp VALUES (null, 'Y', null);
 INSERT INTO tmp VALUES (5, '!check failed', null);
 INSERT INTO tmp VALUES (null, 'try again', null);
 INSERT INTO INSERT_TBL(y) select yd from tmp;
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: INSERT INTO INSERT_TBL(y) select yd from tmp;
-                    ^
 SELECT '' AS three, * FROM INSERT_TBL order by x,y,z;
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: SELECT '' AS three, * FROM INSERT_TBL order by x,y,z;
-                                   ^
+ three | x |       y       | z  
+-------+---+---------------+----
+       | 4 | Y             | -4
+       | 5 | !check failed | -5
+       | 6 | try again     | -6
+(3 rows)
+
 INSERT INTO INSERT_TBL SELECT * FROM tmp WHERE yd = 'try again';
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: INSERT INTO INSERT_TBL SELECT * FROM tmp WHERE yd = 'try aga...
-                    ^
 INSERT INTO INSERT_TBL(y,z) SELECT yd, -7 FROM tmp WHERE yd = 'try again';
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: INSERT INTO INSERT_TBL(y,z) SELECT yd, -7 FROM tmp WHERE yd ...
-                    ^
 INSERT INTO INSERT_TBL(y,z) SELECT yd, -8 FROM tmp WHERE yd = 'try again';
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: INSERT INTO INSERT_TBL(y,z) SELECT yd, -8 FROM tmp WHERE yd ...
-                    ^
+ERROR:  new row for relation "insert_tbl" violates check constraint "insert_con"
 SELECT '' AS four, * FROM INSERT_TBL order by x,y,z;
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: SELECT '' AS four, * FROM INSERT_TBL order by x,y,z;
-                                  ^
+ four | x |       y       | z  
+------+---+---------------+----
+      | 4 | Y             | -4
+      | 5 | !check failed | -5
+      | 6 | try again     | -6
+      | 7 | try again     | -7
+      |   | try again     |   
+      |   | try again     |   
+(6 rows)
+
 DROP TABLE tmp;
 --
 -- Check constraints on UPDATE
 --
 UPDATE INSERT_TBL SET x = NULL WHERE x = 5;
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: UPDATE INSERT_TBL SET x = NULL WHERE x = 5;
-               ^
+ERROR:  Partition column can't be updated in current version
 UPDATE INSERT_TBL SET x = 6 WHERE x = 6;
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: UPDATE INSERT_TBL SET x = 6 WHERE x = 6;
-               ^
+ERROR:  Partition column can't be updated in current version
 UPDATE INSERT_TBL SET x = -z, z = -x;
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: UPDATE INSERT_TBL SET x = -z, z = -x;
-               ^
+ERROR:  Partition column can't be updated in current version
 UPDATE INSERT_TBL SET x = z, z = x;
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: UPDATE INSERT_TBL SET x = z, z = x;
-               ^
+ERROR:  Partition column can't be updated in current version
 SELECT * FROM INSERT_TBL order by x,y,z;
-ERROR:  relation "insert_tbl" does not exist
-LINE 1: SELECT * FROM INSERT_TBL order by x,y,z;
-                      ^
+ x |       y       | z  
+---+---------------+----
+ 4 | Y             | -4
+ 5 | !check failed | -5
+ 6 | try again     | -6
+ 7 | try again     | -7
+   | try again     |   
+   | try again     |   
+(6 rows)
+
 -- DROP TABLE INSERT_TBL;
 --
 -- Check constraints on COPY FROM

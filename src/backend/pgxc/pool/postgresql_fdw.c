@@ -20,6 +20,7 @@
 #include "nodes/nodeFuncs.h"
 #include "nodes/makefuncs.h"
 #include "optimizer/clauses.h"
+#include "optimizer/planmain.h"
 #include "parser/scansup.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
@@ -143,7 +144,11 @@ foreign_qual_walker(Node *node, foreign_qual_context *context)
 			 * foreign server . It is not necessary to worry about oprrest
 			 * and oprjoin here because they are invoked by planner but not
 			 * executor. DistinctExpr is a typedef of OpExpr.
+			 * We need also to be sure that function id is correctly set
+			 * before evaluation.
 			 */
+			set_opfuncid((OpExpr *) node);
+
 			if (!is_immutable_func(((OpExpr*) node)->opfuncid))
 				return true;
 			break;
