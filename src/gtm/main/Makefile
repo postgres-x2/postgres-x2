@@ -3,6 +3,10 @@
 top_builddir=../../..
 include $(top_builddir)/src/Makefile.global
 
+ifneq ($(PORTNAME), win32)
+override CFLAGS += $(PTHREAD_CFLAGS)
+endif
+
 OBJS=main.o gtm_thread.o gtm_txn.o gtm_seq.o gtm_snap.o gtm_time.o gtm_standby.o gtm_opt.o
 
 OTHERS= ../libpq/libpqcomm.a ../path/libgtmpath.a ../recovery/libgtmrecovery.a ../client/libgtmclient.a ../common/libgtm.a ../../port/libpgport.a 
