@@ -5840,6 +5840,9 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	List		*remote_qual;
 	List 		*local_qual;
 
+	/* Remote grouping is not enabled, don't do anything */
+	if (!enable_remotegroup)
+		return local_plan;
 	/*
 	 * We don't push aggregation and grouping to datanodes, in case there are
 	 * windowing aggregates, distinct, having clause or sort clauses.

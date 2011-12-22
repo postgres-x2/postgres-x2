@@ -120,6 +120,7 @@ bool		enable_mergejoin = true;
 bool		enable_hashjoin = true;
 #ifdef PGXC
 bool		enable_remotejoin = true;
+bool		enable_remotegroup = true;
 #endif
 
 typedef struct

@@ -130,6 +130,8 @@ typedef struct
 	ExecNodes *exec_nodes;
 } JoinReduceInfo;
 
+/* global variable corresponding to the GUC with same name */
+extern bool enable_fast_query_shipping;
 /* forbid SQL if unsafe, useful to turn off for development */
 extern bool StrictStatementChecking;
 

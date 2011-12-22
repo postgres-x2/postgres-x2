@@ -167,6 +167,8 @@ typedef struct XCWalkerContext
 
 /* Forbid unsafe SQL statements */
 bool		StrictStatementChecking = true;
+/* fast query shipping is enabled by default */
+bool		enable_fast_query_shipping = true;
 
 static void get_plan_nodes(PlannerInfo *root, RemoteQuery *step, RelationAccessType accessType);
 static bool get_plan_nodes_walker(Node *query_node, XCWalkerContext *context);
@@ -3207,6 +3209,9 @@ pgxc_fqs_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	RemoteQuery *query_step;
 	StringInfoData buf;
 
+	/* Try by-passing standard planner, if fast query shipping is enabled */
+	if (!enable_fast_query_shipping)
+		return NULL;
 	/*
 	 * If the query needs coordinator for evaluation or the query can be
 	 * completed on coordinator itself, we plan it through standard_planner()

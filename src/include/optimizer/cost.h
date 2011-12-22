@@ -62,6 +62,7 @@ extern bool enable_mergejoin;
 extern bool enable_hashjoin;
 #ifdef PGXC
 extern bool enable_remotejoin;
+extern bool enable_remotegroup;
 #endif
 extern int	constraint_exclusion;
 

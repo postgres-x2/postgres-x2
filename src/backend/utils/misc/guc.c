@@ -778,15 +778,33 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 #ifdef PGXC
-	{       
+	{
 		{"enable_remotejoin", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Enables the planner's use of remote join plans."),
 			NULL
-		},  
+		},
 		&enable_remotejoin,
 		true,
 		NULL, NULL, NULL
-	},      
+	},
+	{
+		{"enable_fast_query_shipping", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables the planner's use of fast query shipping to ship query directly to datanode."),
+			NULL
+		},
+		&enable_fast_query_shipping,
+		true,
+		NULL, NULL, NULL
+	},
+	{
+		{"enable_remotegroup", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables the planner's use of remote group plans."),
+			NULL
+		},
+		&enable_remotegroup,
+		true,
+		NULL, NULL, NULL
+	},
 #endif
 	{
 		{"geqo", PGC_USERSET, QUERY_TUNING_GEQO,
