@@ -509,9 +509,11 @@ pq_recvbuf(Port *myport)
 
 		r = recv(myport->sock, myport->PqRecvBuffer + myport->PqRecvLength,
 						PQ_BUFFER_SIZE - myport->PqRecvLength, 0);
+		myport->last_call = GTM_LastCall_RECV;
 
 		if (r < 0)
 		{
+			myport->last_errno = errno;
 			if (errno == EINTR)
 				continue;		/* Ok if interrupted */
 
@@ -525,6 +527,8 @@ pq_recvbuf(Port *myport)
 					 errmsg("could not receive data from client: %m")));
 			return EOF;
 		}
+		else
+			myport->last_errno = 0;
 		if (r == 0)
 		{
 			/*
@@ -820,9 +824,11 @@ internal_flush(Port *myport)
 		int			r;
 
 		r = send(myport->sock, bufptr, bufend - bufptr, 0);
+		myport->last_call = GTM_LastCall_SEND;
 
 		if (r <= 0)
 		{
+			myport->last_errno = errno;
 			if (errno == EINTR)
 				continue;		/* Ok if we were interrupted */
 
@@ -850,6 +856,8 @@ internal_flush(Port *myport)
 			myport->PqSendPointer = 0;
 			return EOF;
 		}
+		else
+			myport->last_errno = 0;
 
 		last_reported_send_errno = 0;	/* reset after any successful send */
 		bufptr += r;

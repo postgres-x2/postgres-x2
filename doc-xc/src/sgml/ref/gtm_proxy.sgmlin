@@ -48,11 +48,11 @@ PostgreSQL documentation
    You must provide gtm configuration
    file <filename>gtm_proxy.conf</filename> placed at gtm working directory
    as specified by <literal>-D</literal> command line option.  The
-   configuration file specifies gtm running envinment and resources.
+   configuration file specifies gtm running environment and resources.
   </para>
 
   <para>
-   Some of the parameters specified in the control file can be overriden by 
+   Some of the parameters specified in the control file can be overridden by 
    command line options.
   </para>
 
@@ -92,6 +92,98 @@ PostgreSQL documentation
    5. err_wait_interval
 -->
   <variablelist>
+
+   <varlistentry id="gtm-proxy-opt-err-wait-count" xreflabel="gtm_proxy_opt_err_wait_count">
+    <term><varname>err_wait_count</varname> (<type>integer</type>)</term>
+    <indexterm>
+     <primary><varname>err_wait_count</varname> configuration parameter</primary>
+    </indexterm>
+    <listitem>
+     <para>
+      Specifies how many times GTM-Proxy detects reconnect command from <application>gtm_ctl</application>
+      when communication error with GTM is detected.
+      Default value is zero.
+      Refer to <varname>err_wait_idle</varname> and <varname>err_wait_interval</varname>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry id="gtm-proxy-opt-err-wait-idle" xreflabel="gtm_proxy_opt_err_wait_count">
+    <term><varname>err_wait_idle</varname> (<type>integer</type>)</term>
+    <indexterm>
+     <primary><varname>err_wait_idle</varname> configuration parameter</primary>
+    </indexterm>
+    <listitem>
+     <para>
+      Specifies how long in second GTM-Proxy waits before it begin to detect reconnect
+      from <application>gtm_ctl</application>
+      when communication error with GTM is detected.
+      Default value is zero.
+      Refer to <varname>err_wait_count</varname> and <varname>err_wait_interval</varname>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry id="gtm-proxy-opt-err-wait-interval" xreflabel="gtm_proxy_opt_err_wait_interval">
+    <term><varname>err_wait_interval</varname> (<type>integer</type>)</term>
+    <indexterm>
+     <primary><varname>err_wait_interval</varname> configuration parameter</primary>
+    </indexterm>
+    <listitem>
+     <para>
+      Specifies how long in second GTM-Proxy waits between each detection of reconnect
+      from <application>gtm_ctl</application>
+      when communication error with GTM is detected.
+      Default value is zero.
+      Refer to <varname>err_wait_count</varname> and <varname>err_wait_idle</varname>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry id="gtm-proxy-opt-gtm-connect-retry-count" xreflabel="gtm_proxy_opt_gtm_connect_retry_count">
+    <term><varname>gtm_connect_retry_count</varname> (<type>integer</type>)</term>
+    <indexterm>
+     <primary><varname>gtm_connect_retry_count</varname> configuration parameter</primary>
+    </indexterm>
+    <listitem>
+     <para>
+      Specifies how many times GTM-Proxy retries to connect to GTM
+      when communication error with GTM is detected.
+      Default value is zero.
+      Refer to <varname>gtm_connect_retry_idle</varname> and <varname>gtm_connect_retry_interval</varname>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry id="gtm-proxy-opt-gtm-connect-retry-idle" xreflabel="gtm_proxy_opt_gtm_connect_retry_idle">
+    <term><varname>gtm_connect_retry_idle</varname> (<type>integer</type>)</term>
+    <indexterm>
+     <primary><varname>gtm_connect_retry_idle</varname> configuration parameter</primary>
+    </indexterm>
+    <listitem>
+     <para>
+      Specifies how long in second GTM-Proxy waits before it retries to connect to GTM when
+      communication error with GTM is detected.
+      Default value is zero.
+      Refer to <varname>gtm_connect_retry_count</varname> and <varname>gtm_connect_retry_interval</varname>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry id="gtm-proxy-opt-gtm-connect-retry-interval" xreflabel="gtm_proxy_opt_gtm_connect_retry_interval">
+    <term><varname>gtm_connect_retry_interval</varname> (<type>integer</type>)</term>
+    <indexterm>
+     <primary><varname>gtm_connect_retry_interval</varname> configuration parameter</primary>
+    </indexterm>
+    <listitem>
+     <para>
+      Specifies how log in second GTM-Proxy waits between each retry to connect to GTM when
+      communication error with GTM is detected.
+      Default value is zero.
+      Refer to <varname>gtm_connect_retry_count</varname> and <varname>gtm_connect_retry_idle</varname>.
+     </para>
+    </listitem>
+   </varlistentry>
 
    <varlistentry id="gtm-proxy-opt-gtm-host" xreflabel="gtm_proxy_opt_gtm_host">
     <term><varname>gtm_host</varname> (<type>string</type>)</term>

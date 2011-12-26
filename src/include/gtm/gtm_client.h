@@ -23,63 +23,63 @@
 
 typedef union GTM_ResultData
 {
-	GTM_TransactionHandle			grd_txnhandle;		/* TXN_BEGIN */
+	GTM_TransactionHandle		grd_txnhandle;	/* TXN_BEGIN */
 
 	struct
 	{
 		GlobalTransactionId		gxid;
 		GTM_Timestamp			timestamp;
-	} grd_gxid_tp;							/* TXN_BEGIN_GETGXID */
+	} grd_gxid_tp;								/* TXN_BEGIN_GETGXID */
 
 	GlobalTransactionId			grd_gxid;		/* TXN_PREPARE
-									 * TXN_START_PREPARED
-									 * TXN_COMMIT
-									 * TXN_COMMIT_PREPARED
-									 * TXN_ROLLBACK
-									 */
+												 * TXN_START_PREPARED
+												 * TXN_COMMIT
+												 * TXN_COMMIT_PREPARED
+												 * TXN_ROLLBACK
+												 */
 	
 	GlobalTransactionId			grd_next_gxid;
 
 	struct
 	{
-		GTM_TransactionHandle		txnhandle;
+		GTM_TransactionHandle	txnhandle;
 		GlobalTransactionId		gxid;
-	} grd_txn;							/* TXN_GET_GXID */
+	} grd_txn;									/* TXN_GET_GXID */
 
 	GTM_SequenceKeyData			grd_seqkey;		/* SEQUENCE_INIT
-									 * SEQUENCE_RESET
-									 * SEQUENCE_CLOSE */
+												 * SEQUENCE_RESET
+												 * SEQUENCE_CLOSE */
 	struct
 	{
 		GTM_SequenceKeyData		seqkey;
 		GTM_Sequence			seqval;
-	} grd_seq;							/* SEQUENCE_GET_CURRENT
-									   SEQUENCE_GET_NEXT */
+	} grd_seq;									/* SEQUENCE_GET_CURRENT
+												 * SEQUENCE_GET_NEXT */
 	struct
 	{
 		int				seq_count;
 		GTM_SeqInfo			**seq;
-	} grd_seq_list;							/* SEQUENCE_GET_LIST */
+	} grd_seq_list;								/* SEQUENCE_GET_LIST */
 
 	struct
 	{
-		int				txn_count; 		/* TXN_BEGIN_GETGXID_MULTI */
+		int				txn_count; 				/* TXN_BEGIN_GETGXID_MULTI */
 		GlobalTransactionId		start_gxid;
 		GTM_Timestamp			timestamp;
 	} grd_txn_get_multi;
 
 	struct
 	{
-		int				txn_count;		/* TXN_COMMIT_MULTI */
+		int				txn_count;				/* TXN_COMMIT_MULTI */
 		int				status[GTM_MAX_GLOBAL_TRANSACTIONS];
 	} grd_txn_rc_multi;
 
 	struct
 	{
-		GTM_TransactionHandle		txnhandle;		/* SNAPSHOT_GXID_GET */
+		GTM_TransactionHandle	txnhandle;		/* SNAPSHOT_GXID_GET */
 		GlobalTransactionId		gxid;			/* SNAPSHOT_GET */
-		int				txn_count;		/* SNAPSHOT_GET_MULTI */
-		int				status[GTM_MAX_GLOBAL_TRANSACTIONS];
+		int						txn_count;		/* SNAPSHOT_GET_MULTI */
+		int						status[GTM_MAX_GLOBAL_TRANSACTIONS];
 	} grd_txn_snap_multi;
 
 	struct
@@ -88,7 +88,7 @@ typedef union GTM_ResultData
 		GlobalTransactionId		prepared_gxid;
 		int				nodelen;
 		char			*nodestring;
-	} grd_txn_get_gid_data;						/* TXN_GET_GID_DATA_RESULT */
+	} grd_txn_get_gid_data;					/* TXN_GET_GID_DATA_RESULT */
 
 	struct
 	{
@@ -98,7 +98,7 @@ typedef union GTM_ResultData
 
 	struct
 	{
-		GTM_PGXCNodeType		type;			/* NODE_REGISTER */
+		GTM_PGXCNodeType	type;			/* NODE_REGISTER */
 		size_t				len;
 		char				*node_name;		/* NODE_UNREGISTER */
 	} grd_node;
@@ -129,8 +129,8 @@ typedef union GTM_ResultData
 typedef struct GTM_Result
 {
 	GTM_ResultType		gr_type;
-	int			gr_msglen;
-	int			gr_status;
+	int					gr_msglen;
+	int					gr_status;
 	GTM_ProxyMsgHeader	gr_proxyhdr;
 	GTM_ResultData		gr_resdata;
 	/*
@@ -138,13 +138,13 @@ typedef struct GTM_Result
 	 * of the xip array. If these items are pushed inside the union, they may
 	 * get overwritten by other members in the union
 	 */
-	int			gr_xip_size;
+	int					gr_xip_size;
 	GTM_SnapshotData	gr_snapshot;
 
 	/*
 	 * Similarly, keep the buffer for proxying data outside the union
 	 */
-	char			*gr_proxy_data;
+	char		*gr_proxy_data;
 	int			gr_proxy_datalen;
 } GTM_Result;
 

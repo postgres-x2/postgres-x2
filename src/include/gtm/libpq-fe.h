@@ -54,15 +54,15 @@ typedef enum
 	 * The existence of these should never be relied upon - they should only
 	 * be used for user feedback or similar purposes.
 	 */
-	CONNECTION_STARTED,			/* Waiting for connection to be made.  */
-	CONNECTION_MADE,			/* Connection OK; waiting to send.	   */
-	CONNECTION_AWAITING_RESPONSE,		/* Waiting for a response from the
-										 * postmaster.		  */
-	CONNECTION_AUTH_OK,			/* Received authentication; waiting for
-								 * backend startup. */
-	CONNECTION_SETENV,			/* Negotiating environment. */
-	CONNECTION_SSL_STARTUP,		/* Negotiating SSL. */
-	CONNECTION_NEEDED			/* Internal state: connect() needed */
+	CONNECTION_STARTED,				/* Waiting for connection to be made.  */
+	CONNECTION_MADE,				/* Connection OK; waiting to send.	   */
+	CONNECTION_AWAITING_RESPONSE,	/* Waiting for a response from the
+									 * postmaster.		  */
+	CONNECTION_AUTH_OK,				/* Received authentication; waiting for
+									 * backend startup. */
+	CONNECTION_SETENV,				/* Negotiating environment. */
+	CONNECTION_SSL_STARTUP,			/* Negotiating SSL. */
+	CONNECTION_NEEDED				/* Internal state: connect() needed */
 } ConnStatusType;
 
 typedef enum

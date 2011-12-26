@@ -36,16 +36,16 @@
 struct gtm_conn
 {
 	/* Saved values of connection options */
-	char		*pghost;		/* the machine on which the server is running */
+	char		*pghost;			/* the machine on which the server is running */
 	char		*pghostaddr;		/* the IPv4 address of the machine on which
-					 	* the server is running, in IPv4
-					 	* numbers-and-dots notation. Takes precedence
-					 	* over above. */
-	char		*pgport;		/* the server's communication port */
+									 * the server is running, in IPv4
+									 * numbers-and-dots notation. Takes precedence
+									 * over above. */
+	char		*pgport;			/* the server's communication port */
 	char		*connect_timeout;	/* connection timeout (numeric string) */
 	char		*gc_node_name;		/* PGXC Node Name */
-	int		remote_type;		/* is this a connection to/from a proxy ? */
-	int		is_postmaster;		/* is this connection to/from a postmaster instance */
+	int			remote_type;		/* is this a connection to/from a proxy ? */
+	int			is_postmaster;		/* is this connection to/from a postmaster instance */
 
 	/* Optional file to write trace info to */
 	FILE		*Pfdebug;
@@ -54,30 +54,34 @@ struct gtm_conn
 	ConnStatusType	status;
 
 	/* Connection data */
-	int		sock;			/* Unix FD for socket, -1 if not connected */
+	int			sock;			/* Unix FD for socket, -1 if not connected */
 	SockAddr	laddr;			/* Local address */
 	SockAddr	raddr;			/* Remote address */
 
+	/* Error info for GTM communication */
+	GTM_PortLastCall	last_call;	/* Last syscall to this sock. */
+	int					last_errno;	/* Last errno.  zero if the last call succeeds. */
+
 	/* Transient state needed while establishing connection */
-	struct addrinfo	*addrlist;		/* list of possible backend addresses */
-	struct addrinfo	*addr_cur;		/* the one currently being tried */
+	struct addrinfo	*addrlist;	/* list of possible backend addresses */
+	struct addrinfo	*addr_cur;	/* the one currently being tried */
 	int		addrlist_family;	/* needed to know how to free addrlist */
 
 	/* Buffer for data received from backend and not yet processed */
-	char		*inBuffer;		/* currently allocated buffer */
+	char	*inBuffer;		/* currently allocated buffer */
 	int		inBufSize;		/* allocated size of buffer */
 	int		inStart;		/* offset to first unconsumed data in buffer */
 	int		inCursor;		/* next byte to tentatively consume */
 	int		inEnd;			/* offset to first position after avail data */
 
 	/* Buffer for data not yet sent to backend */
-	char		*outBuffer;		/* currently allocated buffer */
+	char	*outBuffer;		/* currently allocated buffer */
 	int		outBufSize;		/* allocated size of buffer */
 	int		outCount;		/* number of chars waiting in buffer */
 
 	/* State for constructing messages in outBuffer */
-	int		outMsgStart;		/* offset to msg start (length word); if -1,
-						 * msg has no length word */
+	int		outMsgStart;	/* offset to msg start (length word); if -1,
+							 * msg has no length word */
 	int		outMsgEnd;		/* offset to msg end (so far) */
 
 	/* Buffer for current error message */
@@ -87,9 +91,9 @@ struct gtm_conn
 	PQExpBufferData	workBuffer; /* expansible string */
 
 	/* Options to handle GTM communication error */
-	int		gtmErrorWaitOpt;	/* If true, wait reconnect signal. */
-	int		gtmErrorWaitSecs;	/* Duration of the wait time in second */
-	int		gtmErrorWaitCount;	/* How many durations to wait */
+	int		gtmErrorWaitIdle;		/* If true, wait reconnect signal. */
+	int		gtmErrorWaitInterval;	/* Duration of the wait time in second */
+	int		gtmErrorWaitCount;		/* How many durations to wait */
 
 	/* Pointer to the result of last operation */
 	GTM_Result	*result;

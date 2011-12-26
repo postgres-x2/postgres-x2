@@ -85,7 +85,9 @@ typedef struct GTMProxy_ThreadInfo
 	int				thr_criticalsec_count;
 
 	GTMProxy_ThreadStatus	thr_status;
-	GTMProxy_ConnectionInfo	*thr_conn;	/* Current active */
+	GTMProxy_ConnectionInfo	*thr_conn;		/* Current set of connections from clients */
+	uint32					thr_conn_count;	/* number of connections served by this thread */
+
 
 	/* 
 	 * The structure member type/sequence upto this point must match the
@@ -104,9 +106,6 @@ typedef struct GTMProxy_ThreadInfo
 	 */
 	int32					thr_seqno;
 
-	/* number of connections served by this thread */
-	uint32					thr_conn_count;
-
 	/* connection array */
 	GTMProxy_ConnectionInfo	*thr_all_conns[GTM_PROXY_MAX_CONNECTIONS];
 	struct pollfd			thr_poll_fds[GTM_PROXY_MAX_CONNECTIONS];
@@ -119,7 +118,7 @@ typedef struct GTMProxy_ThreadInfo
 	gtm_List 					*thr_processed_commands;
 	gtm_List 					*thr_pending_commands[MSG_TYPE_COUNT];
 
-	GTM_Conn				*thr_gtm_conn;
+	GTM_Conn				*thr_gtm_conn;		/* Connection to GTM */
 
 	/* Reconnect Info */
 	int						can_accept_SIGUSR2;

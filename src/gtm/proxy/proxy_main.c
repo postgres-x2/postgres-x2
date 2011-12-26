@@ -66,12 +66,17 @@ char		*GTMProxyConfigFileName;
 char		*GTMConfigFileName;
 
 /* GTM communication error handling options */
-bool		GTMErrorWaitOpt = FALSE;		/* Wait and assume XCM if TRUE */
-int			GTMErrorWaitSecs = 0;			/* Duration of each wait */
+int			GTMErrorWaitIdle = 0;
+int			GTMErrorWaitInterval = 0;		/* Duration of each wait */
 int			GTMErrorWaitCount = 0;			/* How many durations to wait */
 
 char		*GTMServerHost;
 int			GTMServerPortNumber;
+
+/* GTM connection retry info */
+int			GTMConnectRetryIdle = 0;
+int			GTMConnectRetryCount = 0;
+int			GTMConnectRetryInterval = 0;
 
 /*
  * Keepalives setup for the connection with GTM server
@@ -136,6 +141,8 @@ static void GTMProxy_ProxyPGXCNodeCommand(GTMProxy_ConnectionInfo *conninfo,
 
 static void ProcessCommand(GTMProxy_ConnectionInfo *conninfo,
 		GTM_Conn *gtm_conn, StringInfo input_message);
+static GTM_Conn *HandleGTMError(GTM_Conn *gtm_conn);
+static GTM_Conn *HandlePostCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn);
 static void ProcessPGXCNodeCommand(GTMProxy_ConnectionInfo *conninfo,
 		GTM_Conn *gtm_conn, GTM_MessageType mtype, StringInfo message);
 static void ProcessTransactionCommand(GTMProxy_ConnectionInfo *conninfo,
@@ -168,7 +175,7 @@ static void RegisterProxy(bool is_reconnect);
 static void UnregisterProxy(void);
 static GTM_Conn *ConnectGTM(void);
 static void ReleaseCmdBackup(GTMProxy_CommandInfo *cmdinfo);
-static void workerThreadReconnectToGTMstandby(void);
+static void workerThreadReconnectToGTM(void);
 
 /*
  * One-time initialization. It's called immediately after the main process
@@ -199,6 +206,8 @@ MainThreadInit()
 		fflush(stderr);
 		exit(1);
 	}
+
+	memset((char *)thrinfo, 0, sizeof(GTMProxy_ThreadInfo));
 
 	memset((char *)thrinfo, 0, sizeof(GTMProxy_ThreadInfo));
 
@@ -290,6 +299,7 @@ read_token(char *line, char **next)
 			return(tok);
 		}
 		if (*next_token == ' ' || *next_token == '\t')
+
 		{
 			*next_token = 0;
 			*next = next_token + 1;
@@ -692,55 +702,55 @@ main(int argc, char *argv[])
 	 */
 	if (listen_addresses)
 	{
-		SetConfigOption("listen_addresses", listen_addresses, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		SetConfigOption(GTM_OPTNAME_LISTEN_ADDRESSES, listen_addresses, GTMC_STARTUP, GTMC_S_OVERRIDE);
 		free(listen_addresses);
 		listen_addresses = NULL;
 	}
 	if (node_name)
 	{
-		SetConfigOption("nodename", node_name, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		SetConfigOption(GTM_OPTNAME_NODENAME, node_name, GTMC_STARTUP, GTMC_S_OVERRIDE);
 		free(node_name);
 		node_name = NULL;
 	}
 	if (proxy_port_number)
 	{
-		SetConfigOption("port", proxy_port_number, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		SetConfigOption(GTM_OPTNAME_PORT, proxy_port_number, GTMC_STARTUP, GTMC_S_OVERRIDE);
 		free(proxy_port_number);
 		proxy_port_number = NULL;
 	}
 	if (proxy_worker_threads)
 	{
-		SetConfigOption("worker_threads", proxy_worker_threads, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		SetConfigOption(GTM_OPTNAME_WORKER_THREADS, proxy_worker_threads, GTMC_STARTUP, GTMC_S_OVERRIDE);
 		free(proxy_worker_threads);
 		proxy_worker_threads = NULL;
 	}
 	if (log_file)
 	{
-		SetConfigOption("log_file", log_file, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		SetConfigOption(GTM_OPTNAME_LOG_FILE, log_file, GTMC_STARTUP, GTMC_S_OVERRIDE);
 		free(log_file);
 		log_file = NULL;
 	}
 	if (gtm_host)
 	{
-		SetConfigOption("gtm_host", gtm_host, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		SetConfigOption(GTM_OPTNAME_GTM_HOST, gtm_host, GTMC_STARTUP, GTMC_S_OVERRIDE);
 		free(gtm_host);
 		gtm_host = NULL;
 	}
 	if (gtm_port)
 	{
-		SetConfigOption("gtm_port", gtm_port, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		SetConfigOption(GTM_OPTNAME_GTM_PORT, gtm_port, GTMC_STARTUP, GTMC_S_OVERRIDE);
 		free(gtm_port);
 		gtm_port = NULL;
 	}
 	if (gtm_err_wait_secs)
 	{
-		SetConfigOption("err_wait_interval", gtm_err_wait_secs, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		SetConfigOption(GTM_OPTNAME_ERR_WAIT_INTERVAL, gtm_err_wait_secs, GTMC_STARTUP, GTMC_S_OVERRIDE);
 		free(gtm_err_wait_secs);
 		gtm_err_wait_secs = NULL;
 	}
 	if (gtm_err_wait_count)
 	{
-		SetConfigOption("err_wait_count", gtm_err_wait_count, GTMC_STARTUP, GTMC_S_OVERRIDE);
+		SetConfigOption(GTM_OPTNAME_ERR_WAIT_COUNT, gtm_err_wait_count, GTMC_STARTUP, GTMC_S_OVERRIDE);
 		free(gtm_err_wait_count);
 		gtm_err_wait_count = NULL;
 	}
@@ -764,23 +774,6 @@ main(int argc, char *argv[])
 		exit(1);
 	}
 
-	/*
-	 * Validate GTM communication error handling option
-	 */
-	if (GTMErrorWaitSecs > 0 && GTMErrorWaitCount > 0)
-	{
-		if (GTMErrorWaitOpt == false)
-		{
-			GTMErrorWaitSecs = 0;
-			GTMErrorWaitCount = 0;
-		}
-	}
-	else
-	{
-		GTMErrorWaitOpt = false;
-		GTMErrorWaitSecs = 0;
-		GTMErrorWaitCount = 0;
-	}
 	/*
 	 * GTM accepts no non-option switch arguments.
 	 */
@@ -1124,8 +1117,8 @@ GTMProxy_ThreadMain(void *argp)
 	/*
 	 * Set GTM communication error handling options.
 	 */
-	thrinfo->thr_gtm_conn->gtmErrorWaitOpt = GTMErrorWaitOpt;
-	thrinfo->thr_gtm_conn->gtmErrorWaitSecs = GTMErrorWaitSecs;
+	thrinfo->thr_gtm_conn->gtmErrorWaitIdle = GTMErrorWaitIdle;
+	thrinfo->thr_gtm_conn->gtmErrorWaitInterval = GTMErrorWaitInterval;
 	thrinfo->thr_gtm_conn->gtmErrorWaitCount = GTMErrorWaitCount;
 
 	thrinfo->reconnect_issued = FALSE;
@@ -1260,7 +1253,7 @@ GTMProxy_ThreadMain(void *argp)
 					else
 					{
 						/* SIGUSR2 here */
-						workerThreadReconnectToGTMstandby();
+						workerThreadReconnectToGTM();
 					}
 				}
 
@@ -1340,7 +1333,7 @@ setjmp_again:
 			 * SIGUSR2 is detected and jumped here
 			 * Reconnection phase
 			 */
-			workerThreadReconnectToGTMstandby();
+			workerThreadReconnectToGTM();
 
 			/*
 			 * Correction of pending works.
@@ -1403,6 +1396,7 @@ setjmp_again:
 					case 'C':
 						ProcessCommand(thrinfo->thr_conn, thrinfo->thr_gtm_conn,
 								&input_message);
+						HandlePostCommand(thrinfo->thr_conn, thrinfo->thr_gtm_conn);
 						break;
 
 					case 'X':
@@ -1472,7 +1466,24 @@ setjmp_again:
 			{
 				Enable_Longjmp();
 				if ((res = GTMPQgetResult(thrinfo->thr_gtm_conn)) == NULL)
+				{
+					/*
+					 * Here's another place to check GTM communication error.
+					 * In this case, backup of each command will be taken care of
+					 * by ProcessResponse() so if socket read/write error is recorded,
+					 * disconnect GTM connection, retry connection and then if it faile,
+					 * wait for reconnect from gtm_ctl.
+					 */
+					if ((thrinfo->thr_gtm_conn->last_errno != 0) || (thrinfo->thr_gtm_conn->status == CONNECTION_BAD))
+					{
+						/*
+						 * Please note that error handling can end up with longjmp() and
+						 * may not return here.
+						 */
+						HandleGTMError(thrinfo->thr_gtm_conn);
+					}
 					elog(ERROR, "GTMPQgetResult failed");
+				}
 				Disable_Longjmp();
 			}
 
@@ -1585,6 +1596,153 @@ ProcessCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 	}
 
 	conninfo->con_pending_msg = mtype;
+
+}
+
+/*
+ * This funciton mainly takes care of GTM communcation error.
+ *
+ * Communication error was stored in last_errno chaned from GTMProxy_ConnectionInfo.
+ * Note that it is set to zero if the last send/receive/read/write succeeds.
+ *
+ * If error is detected, then it tries to connect to GTM again, if it is
+ * specified by configuration parameters.
+ *
+ * Relevant configuration parameters are: gtm_connect_retry_idle, gtm_connect_retry_count
+ * and gtm_connect_retry_interval.
+ *
+ * If it is not successfull or configuration parameter does not specify it,
+ * then, according to another confugration parameters, it waits "reconnect"
+ * command from gtm_proxy.
+ *
+ * Relevant configuration parameters are: err_wait_idle, err_wait_count, and
+ * err_wait_interval.
+ */
+
+static GTM_Conn *
+HandleGTMError(GTM_Conn *gtm_conn)
+{
+	GTM_Conn *new_gtm_conn;
+	int		 ii;
+
+	Assert(gtm_conn && gtm_conn->last_errno != 0);
+
+	if (GTMConnectRetryCount > 0)
+	{
+		int ii;
+		char gtm_connect_string[1024];
+
+		elog(NOTICE, 
+			 "GTM communication error was detected.  Retrying connection. idle: %d, count = %d, interval = %d.",
+			 GTMConnectRetryIdle, GTMConnectRetryCount, GTMConnectRetryInterval);
+		GTMPQfinish(gtm_conn);
+		sprintf(gtm_connect_string, "host=%s port=%d node_name=%s remote_type=%d",
+				GTMServerHost, GTMServerPortNumber, GTMProxyNodeName, GTM_NODE_GTM_PROXY);
+		/* Wait and retry reconnect */
+		if (GTMConnectRetryIdle > 0) {
+			elog(DEBUG1, "Waiting %d secs.", GTMConnectRetryIdle);
+			pg_usleep((long)GTMConnectRetryIdle * 1000000L);
+		}
+		/* GTM connection retry */
+		for (ii = 0; ii < GTMConnectRetryCount; ii++)
+		{
+			/* 
+			 * Connect retry 
+			 * Because this proxy has been registered to current
+			 * GTM, we don't re-register it.
+			 *
+			 * Please note that GTM-Proxy accepts "reconnect" from gtm_ctl
+			 * even while it is retrying to connect to GTM.
+			 */
+			elog(DEBUG1, "Try to reconnect to GTM, count %d.", ii);
+			Disable_Longjmp();
+			new_gtm_conn = PQconnectGTM(gtm_connect_string);
+			Enable_Longjmp();
+			if (new_gtm_conn != NULL) {
+				elog(NOTICE, "GTM connection retry succeeded, count %d.", ii);
+				break;
+			}
+			/* Wait if not successful */
+			elog(DEBUG1, "Reconnect failed.  Sleeping %d secs.", GTMConnectRetryInterval);
+			Disable_Longjmp();
+			pg_usleep((long)GTMConnectRetryInterval * 1000000L);
+			Enable_Longjmp();
+		}
+		if (new_gtm_conn != NULL)
+		{
+			GetMyThreadInfo->thr_gtm_conn = new_gtm_conn;
+			return(new_gtm_conn);
+		}
+		elog(NOTICE, "GTM connection retry failed.");
+	}
+	if (GTMErrorWaitIdle == 0 && GTMErrorWaitInterval == 0 && GTMErrorWaitCount == 0)
+	{
+		/*
+		 * GTM communication error detected, retry failed
+		 * but cannot wait for reconnect.
+		 */
+		elog(FATAL, 
+			 "No action specified to wait for reconnect.");
+		exit(1);		/* Just in case */
+	}
+	/*
+	 * Now wait for reconnect, SIGUSR2.
+	 *
+	 * All the controls are done by Disable_Logjmp() and Enable_Longjmp().
+	 * No longjump occurs after Disable_longjmp() and before Enable_longjmp().
+	 * Longjmp occurs inside Enable_longjmp(), only when SIGUSR2 was handled
+	 * correctly.
+	 *
+	 * For details, see gtm_proxy.h.
+	 */
+	elog(NOTICE, 
+		 "Waiting for reconnect action from gtm_ctl. idie: %d, count: %d, interval:%d", 
+		 GTMErrorWaitIdle, GTMErrorWaitCount, GTMErrorWaitInterval);
+	Disable_Longjmp();
+	elog(DEBUG1, "Witing %d secs.", GTMErrorWaitIdle);
+	pg_usleep((long)GTMErrorWaitIdle * 1000000L);
+	Enable_Longjmp();
+
+	for (ii = 0; ii < GTMErrorWaitCount; ii++)
+	{
+		Disable_Longjmp();
+		elog(DEBUG1, "Waiting %d secs, count %d.", GTMErrorWaitInterval, ii);
+		pg_usleep((long)GTMErrorWaitInterval * 1000000L);
+		Enable_Longjmp();
+	}
+	/*
+	 * No reconnect received.
+	 */
+	elog(FATAL,
+		 "No reconnect command recdeived frm gtm_ctl.");
+	exit(1);		/* Just in case */
+}
+
+static GTM_Conn *
+HandlePostCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn)
+{
+	int		connIdx = conninfo->con_id;
+
+	Assert(conninfo && gtm_conn);
+	/*
+	 * Check if the response was handled without error.
+	 * In this case, use last_errno to detect the error
+	 * because system call error is only one case to detect GTM error.
+	 */
+	if (gtm_conn->last_errno != 0)
+	{
+		return(HandleGTMError(gtm_conn));
+	}
+	else
+	{
+		/*
+		 * Command handled without error.  Clear the backup.
+		 */
+		resetStringInfo(&GetMyThreadInfo->thr_inBufData[connIdx]);
+		GetMyThreadInfo->thr_any_backup[connIdx] = FALSE;
+		return(gtm_conn);
+	}
+
 }
 
 static void
@@ -1907,11 +2065,11 @@ ReadCommand(GTMProxy_ConnectionInfo *conninfo, StringInfo inBuf)
 
 		copyStringInfo(&(GetMyThreadInfo->thr_inBufData[connIdx]), inBuf);
 
-		/* The next line should be added when we add the code to clear backup
-		 * when the response is processed. */
-#if 0
+		/* 
+		 * The next line is added because we added the code to clear backup
+		 * when the response is processed. 
+		 */
 		GetMyThreadInfo->thr_any_backup[connIdx] = TRUE;
-#endif
 	}
 	else
 	{
@@ -3157,8 +3315,9 @@ static void ReleaseCmdBackup(GTMProxy_CommandInfo *cmdinfo)
 	resetStringInfo(&(GetMyThreadInfo->thr_inBufData[connIdx]));
 }
 
+
 static void
-workerThreadReconnectToGTMstandby(void)
+workerThreadReconnectToGTM(void)
 {
 	char gtm_connect_string[1024];
 
@@ -3171,9 +3330,10 @@ workerThreadReconnectToGTMstandby(void)
 	PG_SETMASK(&UnBlockSig);
 
 	/* Disconnect the current connection and re-connect to the new GTM */
-	GTMPQfinish(GetMyThreadInfo->thr_gtm_conn);
+	if (GetMyThreadInfo->thr_gtm_conn)
+		GTMPQfinish(GetMyThreadInfo->thr_gtm_conn);
 	sprintf(gtm_connect_string, "host=%s port=%d node_name=%s remote_type=%d",
-			NewGTMServerHost, NewGTMServerPortNumber, GTMProxyNodeName, GTM_NODE_GTM_PROXY);
+			GTMServerHost, GTMServerPortNumber, GTMProxyNodeName, GTM_NODE_GTM_PROXY);
 	elog(LOG, "Worker thread connecting to %s", gtm_connect_string);
 	GetMyThreadInfo->thr_gtm_conn = PQconnectGTM(gtm_connect_string);
 
@@ -3182,8 +3342,8 @@ workerThreadReconnectToGTMstandby(void)
 	elog(LOG, "Worker thread connection done.");
 
 	/* Set GTM communication error handling option */
-	GetMyThreadInfo->thr_gtm_conn->gtmErrorWaitOpt = GTMErrorWaitOpt;
-	GetMyThreadInfo->thr_gtm_conn->gtmErrorWaitSecs = GTMErrorWaitSecs;
+	GetMyThreadInfo->thr_gtm_conn->gtmErrorWaitIdle = GTMErrorWaitIdle;
+	GetMyThreadInfo->thr_gtm_conn->gtmErrorWaitInterval = GTMErrorWaitInterval;
 	GetMyThreadInfo->thr_gtm_conn->gtmErrorWaitCount = GTMErrorWaitCount;
 
 	/* Initialize the command processing */

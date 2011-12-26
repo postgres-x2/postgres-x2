@@ -126,6 +126,15 @@ typedef struct GTM_StartupPacket {
 	bool					sp_ispostmaster;
 } GTM_StartupPacket;
 
+typedef enum GTM_PortLastCall
+{
+	GTM_LastCall_NONE = 0,
+	GTM_LastCall_SEND,
+	GTM_LastCall_RECV,
+	GTM_LastCall_READ,
+	GTM_LastCall_WRITE
+} GTM_PortLastCall;
+
 #define InvalidGlobalTransactionId		((GlobalTransactionId) 0)
 
 /*

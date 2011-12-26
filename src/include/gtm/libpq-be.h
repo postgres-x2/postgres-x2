@@ -40,23 +40,25 @@
 
 typedef struct Port
 {
-	int			sock;			/* File descriptor */
-	SockAddr		laddr;			/* local addr (postmaster) */
-	SockAddr		raddr;			/* remote addr (client) */
-	char			*remote_host;		/* name (or ip addr) of remote host */
-	char			*remote_port;		/* text rep of remote port */
+	int			sock;				/* File descriptor */
+	SockAddr	laddr;				/* local addr (postmaster) */
+	SockAddr	raddr;				/* remote addr (client) */
+	char		*remote_host;		/* name (or ip addr) of remote host */
+	char		*remote_port;		/* text rep of remote port */
+	GTM_PortLastCall last_call;		/* Last syscall to this port */
+	int			last_errno;			/* Last errno. zero if the last call succeeds */
 
-	GTMProxy_ConnID		conn_id;		/* RequestID of this command */
+	GTMProxy_ConnID	conn_id;		/* RequestID of this command */
 
-	GTM_PGXCNodeType	remote_type;		/* Type of remote connection */
-	char			*node_name;
-	bool			is_postmaster;		/* Is remote a node postmaster? */
+	GTM_PGXCNodeType	remote_type;	/* Type of remote connection */
+	char		*node_name;
+	bool		is_postmaster;		/* Is remote a node postmaster? */
 #define PQ_BUFFER_SIZE 8192
 
-	char			PqSendBuffer[PQ_BUFFER_SIZE];
+	char		PqSendBuffer[PQ_BUFFER_SIZE];
 	int			PqSendPointer;		/* Next index to store a byte in PqSendBuffer */
 
-	char 			PqRecvBuffer[PQ_BUFFER_SIZE];
+	char 		PqRecvBuffer[PQ_BUFFER_SIZE];
 	int			PqRecvPointer;		/* Next index to read a byte from PqRecvBuffer */
 	int			PqRecvLength;		/* End of data available in PqRecvBuffer */
 
@@ -78,7 +80,7 @@ typedef struct Port
 	 * GTM communication error handling.  See libpq-int.h for details.
 	 */
 	int			connErr_WaitOpt;
-	int			connErr_WaitSecs;
+	int			connErr_WaitInterval;
 	int			connErr_WaitCount;
 } Port;
 
