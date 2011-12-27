@@ -52,12 +52,11 @@ DROP TABLE stuff;
 
 
 -- implicit casting
--- 2011/07/05 PGXCTODO: This test case crashes the server
--- CREATE TYPE person_type AS (id int, name text);
--- CREATE TABLE persons OF person_type;
--- INSERT INTO persons VALUES (1, 'test');
+CREATE TYPE person_type AS (id int, name text);
+CREATE TABLE persons OF person_type;
+INSERT INTO persons VALUES (1, 'test');
 
--- CREATE FUNCTION namelen(person_type) RETURNS int LANGUAGE SQL AS $$ SELECT length($1.name) $$;
--- SELECT id, namelen(persons) FROM persons;
+CREATE FUNCTION namelen(person_type) RETURNS int LANGUAGE SQL AS $$ SELECT length($1.name) $$;
+SELECT id, namelen(persons) FROM persons;
 
--- DROP TYPE person_type CASCADE;
+DROP TYPE person_type CASCADE;

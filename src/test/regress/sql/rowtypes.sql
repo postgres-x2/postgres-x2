@@ -58,8 +58,7 @@ update people set fn.suffix = 'Jr';
 
 select * from people;
 
--- PGXCTODO: This test case makes a server crash due to query deparsing in planner
--- insert into quadtable (f1, q.c1.r, q.c2.i) values(44,55,66);
+insert into quadtable (f1, q.c1.r, q.c2.i) values(44,55,66);
 
 select * from quadtable order by f1, q;
 
