@@ -965,8 +965,8 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 			dummy_rte->rtekind = RTE_RELATION;
 
 			/* use a dummy relname... */
-			dummy_rte->relname	   = "__FOREIGN_QUERY__";
-			dummy_rte->eref		   = makeAlias("__FOREIGN_QUERY__", NIL);
+			dummy_rte->relname	   = "__REMOTE_JOIN_QUERY__";
+			dummy_rte->eref		   = makeAlias("__REMOTE_JOIN_QUERY__", NIL);
 			/* not sure if we need to set the below explicitly.. */
 			dummy_rte->inh			 = false;
 			dummy_rte->inFromCl		 = false;
@@ -1022,7 +1022,7 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 
 			/* set_plan_refs needs this later */
 			result->base_tlist		= base_tlist;
-			result->relname			= "__FOREIGN_QUERY__";
+			result->relname			= "__REMOTE_JOIN_QUERY__";
 			result->partitioned_replicated = join_info.partitioned_replicated;
 
 			/*
@@ -6090,8 +6090,8 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	dummy_rte->rtekind = RTE_RELATION;
 
 	/* Use a dummy relname... */
-	dummy_rte->relname	   = "__FOREIGN_QUERY__";
-	dummy_rte->eref		   = makeAlias("__FOREIGN_QUERY__", NIL);
+	dummy_rte->relname	   = "__REMOTE_GROUP_QUERY__";
+	dummy_rte->eref		   = makeAlias("__REMOTE_GROUP_QUERY__", NIL);
 
 	/* Rest will be zeroed out in makeNode() */
 	root->parse->rtable = lappend(root->parse->rtable, dummy_rte);
@@ -6108,7 +6108,7 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	remote_group->sql_statement = remote_sql_stmt->data;
 
 	/* set_plan_refs needs this later */
-	remote_group->relname			= "__FOREIGN_QUERY__";
+	remote_group->relname			= "__REMOTE_GROUP_QUERY__";
 	remote_group->partitioned_replicated = remote_scan->partitioned_replicated;
 	remote_group->read_only = query->commandType == CMD_SELECT;
 

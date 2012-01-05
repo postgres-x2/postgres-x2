@@ -16,6 +16,7 @@
 #include "access/xact.h"
 #include "catalog/pg_constraint.h"
 #include "catalog/pg_type.h"
+#include "catalog/pgxc_node.h"
 #include "commands/defrem.h"
 #include "commands/explain.h"
 #include "commands/prepare.h"
@@ -135,6 +136,12 @@ ExplainQuery(ExplainStmt *stmt, const char *queryString,
 			es.costs = defGetBoolean(opt);
 		else if (strcmp(opt->defname, "buffers") == 0)
 			es.buffers = defGetBoolean(opt);
+#ifdef PGXC
+		else if (strcmp(opt->defname, "nodes") == 0)
+			es.nodes = defGetBoolean(opt);
+		else if (strcmp(opt->defname, "num_nodes") == 0)
+			es.num_nodes = defGetBoolean(opt);
+#endif /* PGXC */
 		else if (strcmp(opt->defname, "format") == 0)
 		{
 			char	   *p = defGetString(opt);
@@ -231,6 +238,9 @@ ExplainInitState(ExplainState *es)
 	/* Set default options. */
 	memset(es, 0, sizeof(ExplainState));
 	es->costs = true;
+#ifdef PGXC
+	es->nodes = true;
+#endif /* PGXC */
 	/* Prepare output buffer. */
 	es->str = makeStringInfo();
 }
@@ -848,29 +858,23 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			break;
 #ifdef PGXC
 		case T_RemoteQuery:
+			if (es->num_nodes)
 			{
-				RemoteQuery *remote_query = (RemoteQuery *) plan;
-				int pnc, nc;
-	
-				pnc = 0;
-				nc = 0;
-				if (remote_query->exec_nodes != NULL)
+				ExecNodes *en = ((RemoteQuery *)plan)->exec_nodes;
+				int primary_node_count = en ? list_length(en->primarynodelist) : 0;
+				int node_count = en ? list_length(en->nodeList) : 0;
+				if (es->format == EXPLAIN_FORMAT_TEXT)
+					appendStringInfo(es->str, " (primary node count=%d, node count=%d)",
+										primary_node_count, node_count);
+				else
 				{
-					if (remote_query->exec_nodes->primarynodelist != NULL)
-					{
-						pnc = list_length(remote_query->exec_nodes->primarynodelist);
-						appendStringInfo(es->str, " (Primary Node Count [%d])", pnc);
-					}
-					if (remote_query->exec_nodes->nodeList)
-					{
-						nc = list_length(remote_query->exec_nodes->nodeList);
-						appendStringInfo(es->str, " (Node Count [%d])", nc);
-					}
+					ExplainPropertyInteger("Primary node count", primary_node_count, es);
+					ExplainPropertyInteger("Node count", node_count, es);
 				}
-#endif
-				ExplainScanTarget((Scan *) plan, es);
 			}
+			ExplainScanTarget((Scan *) plan, es);
 			break;
+#endif
 		case T_BitmapIndexScan:
 			{
 				BitmapIndexScan *bitmapindexscan = (BitmapIndexScan *) plan;
@@ -1043,6 +1047,50 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			show_scan_qual(((BitmapIndexScan *) plan)->indexqualorig,
 						   "Index Cond", planstate, ancestors, es);
 			break;
+#ifdef PGXC
+		case T_RemoteQuery:
+			{
+				RemoteQuery *remote_query = (RemoteQuery *) plan;
+				/* add names of the nodes if they exist */
+				if (remote_query->exec_nodes && es->nodes)
+				{
+					StringInfo node_names = makeStringInfo();
+					ListCell *lcell;
+					char	*sep;
+					int		node_no;
+					if (remote_query->exec_nodes->primarynodelist)
+					{
+						sep = "";
+						foreach(lcell, remote_query->exec_nodes->primarynodelist)
+						{
+							node_no = lfirst_int(lcell);
+							appendStringInfo(node_names, "%s%s", sep,
+												get_pgxc_nodename(PGXCNodeGetNodeOid(node_no, PGXC_NODE_DATANODE)));
+							sep = ", ";
+						}
+						ExplainPropertyText("Primary node/s", node_names->data, es);
+					}
+					if (remote_query->exec_nodes->nodeList)
+					{
+						resetStringInfo(node_names);
+						sep = "";
+						foreach(lcell, remote_query->exec_nodes->nodeList)
+						{
+							node_no = lfirst_int(lcell);
+							appendStringInfo(node_names, "%s%s", sep,
+												get_pgxc_nodename(PGXCNodeGetNodeOid(node_no, PGXC_NODE_DATANODE)));
+							sep = ", ";
+						}
+						ExplainPropertyText("Node/s", node_names->data, es);
+					}
+				}
+			}
+			if (es->verbose)
+				ExplainPropertyText("Remote query",
+									((RemoteQuery *)plan)->sql_statement, es);
+			show_scan_qual(plan->qual, "Coordinator quals", planstate, ancestors, es);
+			break;
+#endif
 		case T_BitmapHeapScan:
 			show_scan_qual(((BitmapHeapScan *) plan)->bitmapqualorig,
 						   "Recheck Cond", planstate, ancestors, es);
@@ -1051,9 +1099,6 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		case T_ValuesScan:
 		case T_CteScan:
 		case T_WorkTableScan:
-#ifdef PGXC
-		case T_RemoteQuery:
-#endif
 		case T_SubqueryScan:
 			show_scan_qual(plan->qual, "Filter", planstate, ancestors, es);
 			break;

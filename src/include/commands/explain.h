@@ -31,6 +31,10 @@ typedef struct ExplainState
 	bool		analyze;		/* print actual times */
 	bool		costs;			/* print costs */
 	bool		buffers;		/* print buffer usage */
+#ifdef PGXC
+	bool		nodes;			/* print nodes in RemoteQuery node */
+	bool		num_nodes;		/* print number of nodes in RemoteQuery node */
+#endif /* PGXC */
 	ExplainFormat format;		/* output format */
 	/* other states */
 	PlannedStmt *pstmt;			/* top of plan */

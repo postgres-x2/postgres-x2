@@ -2275,7 +2275,7 @@ PGXCNodeGetNodeOid(int nodeid, char node_type)
 			return InvalidOid;
 	}
 
-	return handles[nodeid - 1].nodeoid;
+	return handles[nodeid].nodeoid;
 }
 
 /*

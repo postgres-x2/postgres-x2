@@ -40,6 +40,8 @@ EXPLAIN [ ANALYZE ] [ VERBOSE ] <replaceable class="parameter">statement</replac
     VERBOSE [ <replaceable class="parameter">boolean</replaceable> ]
     COSTS [ <replaceable class="parameter">boolean</replaceable> ]
     BUFFERS [ <replaceable class="parameter">boolean</replaceable> ]
+    NODES [ <replaceable class="parameter">boolean</replaceable> ]
+    NUM_NODES [ <replaceable class="parameter">boolean</replaceable> ]
     FORMAT { TEXT | XML | JSON | YAML }
 </synopsis>
  </refsynopsisdiv>
@@ -174,6 +176,28 @@ ROLLBACK;
       format, only non-zero values are printed.  This parameter may only be
       used with <literal>ANALYZE</literal> parameter.  It defaults to
       <literal>FALSE</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>NODES</literal></term>
+    <listitem>
+     <para>
+      Include information on the datanodes involved in the execution of Data
+	  Scan Node. This parameter defaults to <literal>TRUE</literal>. This option
+	  is available in <productname>Postgres-XC</productname>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>NUM_NODES</literal></term>
+    <listitem>
+     <para>
+      Include information on the number of nodes involved in the execution of
+	  Data Node Scan node.  This parameter defaults to <literal>FALSE</literal>.
+	  This option is available in <productname>Postgres-XC</productname>.
      </para>
     </listitem>
    </varlistentry>

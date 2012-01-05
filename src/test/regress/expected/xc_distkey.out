@@ -38,16 +38,16 @@ select * from nu_tab where 789.412 = a;
  789.41200
 (1 row)
 
-explain select * from nu_tab where a = 123.456;
-                            QUERY PLAN                             
--------------------------------------------------------------------
- Data Node Scan (Node Count [1])  (cost=0.00..0.00 rows=0 width=0)
+explain (costs false, num_nodes true, nodes false) select * from nu_tab where a = 123.456;
+                     QUERY PLAN                      
+-----------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1)
 (1 row)
 
-explain select * from nu_tab where 789.412 = a;
-                            QUERY PLAN                             
--------------------------------------------------------------------
- Data Node Scan (Node Count [1])  (cost=0.00..0.00 rows=0 width=0)
+explain (costs false, num_nodes true, nodes false) select * from nu_tab where 789.412 = a;
+                     QUERY PLAN                      
+-----------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1)
 (1 row)
 
 create table tx_tab(a text) distribute by modulo(a);
@@ -84,16 +84,16 @@ select * from tx_tab where 'Did the quick brown fox jump over the lazy dog?' = a
  Did the quick brown fox jump over the lazy dog?
 (1 row)
 
-explain select * from tx_tab where a = 'hello world';
-                            QUERY PLAN                             
--------------------------------------------------------------------
- Data Node Scan (Node Count [1])  (cost=0.00..0.00 rows=0 width=0)
+explain (costs false, num_nodes true, nodes false) select * from tx_tab where a = 'hello world';
+                     QUERY PLAN                      
+-----------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1)
 (1 row)
 
-explain select * from tx_tab where a = 'Did the quick brown fox jump over the lazy dog?';
-                            QUERY PLAN                             
--------------------------------------------------------------------
- Data Node Scan (Node Count [1])  (cost=0.00..0.00 rows=0 width=0)
+explain (costs false, num_nodes true, nodes false) select * from tx_tab where a = 'Did the quick brown fox jump over the lazy dog?';
+                     QUERY PLAN                      
+-----------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1)
 (1 row)
 
 create table vc_tab(a varchar(255)) distribute by modulo(a);
@@ -127,23 +127,23 @@ select * from vc_tab where 'A quick brown fox' = a;
  A quick brown fox
 (1 row)
 
-explain select * from vc_tab where a = 'abcdefghijklmnopqrstuvwxyz';
-                            QUERY PLAN                             
--------------------------------------------------------------------
- Data Node Scan (Node Count [1])  (cost=0.00..0.00 rows=0 width=0)
+explain (costs false, num_nodes true, nodes false) select * from vc_tab where a = 'abcdefghijklmnopqrstuvwxyz';
+                     QUERY PLAN                      
+-----------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1)
 (1 row)
 
-explain select * from vc_tab where a = 'A quick brown fox';
-                            QUERY PLAN                             
--------------------------------------------------------------------
- Data Node Scan (Node Count [1])  (cost=0.00..0.00 rows=0 width=0)
+explain (costs false, num_nodes true, nodes false) select * from vc_tab where a = 'A quick brown fox';
+                     QUERY PLAN                      
+-----------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1)
 (1 row)
 
 -- This test a bug in examine_conditions_walker where a = constant is optimized but constant = a was not
-explain select * from vc_tab where 'A quick brown fox' = a;
-                            QUERY PLAN                             
--------------------------------------------------------------------
- Data Node Scan (Node Count [1])  (cost=0.00..0.00 rows=0 width=0)
+explain (costs false, num_nodes true, nodes false) select * from vc_tab where 'A quick brown fox' = a;
+                     QUERY PLAN                      
+-----------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1)
 (1 row)
 
 create table f8_tab(a float8) distribute by modulo(a);
@@ -328,16 +328,16 @@ select * from i4_tab where 2147483647 = a;
  2147483647
 (1 row)
 
-explain select * from i4_tab where 65530 = a;
-                            QUERY PLAN                             
--------------------------------------------------------------------
- Data Node Scan (Node Count [1])  (cost=0.00..0.00 rows=0 width=0)
+explain (costs false, num_nodes true, nodes false) select * from i4_tab where 65530 = a;
+                     QUERY PLAN                      
+-----------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1)
 (1 row)
 
-explain select * from i4_tab where a = 2147483647;
-                            QUERY PLAN                             
--------------------------------------------------------------------
- Data Node Scan (Node Count [1])  (cost=0.00..0.00 rows=0 width=0)
+explain (costs false, num_nodes true, nodes false) select * from i4_tab where a = 2147483647;
+                     QUERY PLAN                      
+-----------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1)
 (1 row)
 
 create table bo_tab(a bool) distribute by modulo(a);
