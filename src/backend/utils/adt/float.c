@@ -2761,7 +2761,7 @@ float8_collect(PG_FUNCTION_ARGS)
 	N += transvalues[0];
 	sumX += transvalues[1];
 	CHECKFLOATVAL(sumX, isinf(collectvalues[1]) || isinf(transvalues[1]), true);
-	sumX2 += transvalues[2] * transvalues[2];
+	sumX2 += transvalues[2];
 	CHECKFLOATVAL(sumX2, isinf(collectvalues[2]) || isinf(transvalues[2]), true);
 
 	/*
