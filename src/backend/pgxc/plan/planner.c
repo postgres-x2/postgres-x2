@@ -1146,6 +1146,11 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 	if (!context->conditions)
 		context->conditions = new_special_conditions();
 
+	/* Check if expression is foreign-safe for UPDATE/DELETE */
+	if (context->accessType == RELATION_ACCESS_UPDATE &&
+		!is_foreign_expr(expr_node, NULL))
+		return true;
+
 	/* Handle UPDATE/DELETE ... WHERE CURRENT OF ... */
 	if (IsA(expr_node, CurrentOfExpr))
 	{

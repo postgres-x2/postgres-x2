@@ -243,7 +243,7 @@ ExecInsert(TupleTableSlot *slot,
 #ifdef PGXC
 		if (IS_PGXC_COORDINATOR && resultRemoteRel)
 		{
-			ExecRemoteInsert(resultRelationDesc, (RemoteQueryState *)resultRemoteRel, slot);
+			ExecRemoteQueryStandard(resultRelationDesc, (RemoteQueryState *)resultRemoteRel, slot);
 		}
 		else
 #endif		
@@ -501,6 +501,9 @@ ExecUpdate(ItemPointer tupleid,
 	ItemPointerData update_ctid;
 	TransactionId update_xmax;
 	List	   *recheckIndexes = NIL;
+#ifdef PGXC
+	PlanState  *resultRemoteRel = NULL;
+#endif
 
 	/*
 	 * abort the operation if not running transactions
@@ -519,6 +522,9 @@ ExecUpdate(ItemPointer tupleid,
 	 */
 	resultRelInfo = estate->es_result_relation_info;
 	resultRelationDesc = resultRelInfo->ri_RelationDesc;
+#ifdef PGXC
+	resultRemoteRel = estate->es_result_remoterel;
+#endif
 
 	/* BEFORE ROW UPDATE Triggers */
 	if (resultRelInfo->ri_TrigDesc &&
@@ -570,6 +576,14 @@ lreplace:;
 		if (resultRelationDesc->rd_att->constr)
 			ExecConstraints(resultRelInfo, slot, estate);
 
+#ifdef PGXC
+		if (IS_PGXC_COORDINATOR && resultRemoteRel)
+		{
+			ExecRemoteQueryStandard(resultRelationDesc, (RemoteQueryState *)resultRemoteRel, slot);
+		}
+		else
+		{
+#endif
 		/*
 		 * replace the heap tuple
 		 *
@@ -643,6 +657,9 @@ lreplace:;
 		if (resultRelInfo->ri_NumIndices > 0 && !HeapTupleIsHeapOnly(tuple))
 			recheckIndexes = ExecInsertIndexTuples(slot, &(tuple->t_self),
 												   estate);
+#ifdef PGXC
+		}
+#endif
 	}
 
 	if (canSetTag)

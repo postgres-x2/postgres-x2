@@ -3397,10 +3397,13 @@ do_query(RemoteQueryState *node)
 		PGXCNodeHandle *new_connections[total_conn_count];
 		int 		new_count = 0;
 
-		if (primaryconnection && primaryconnection->transaction_status != 'T')
+		if (primaryconnection &&
+			primaryconnection->transaction_status != 'T' &&
+			primaryconnection->state != DN_CONNECTION_STATE_QUERY)
 			new_connections[new_count++] = primaryconnection;
 		for (i = 0; i < regular_conn_count; i++)
-			if (connections[i]->transaction_status != 'T')
+			if (connections[i]->transaction_status != 'T' &&
+				connections[i]->state != DN_CONNECTION_STATE_QUERY)
 				new_connections[new_count++] = connections[i];
 
 		if (new_count && pgxc_node_begin(new_count, new_connections, gxid))
@@ -4879,19 +4882,20 @@ ExecIsTempObjectIncluded(void)
 }
 
 /*
- * Insert given tuple in the remote relation. We use extended query protocol
+ * Execute given tuple in the remote relation. We use extended query protocol
  * to avoid repeated planning of the query. So we must pass the column values
  * as parameters while executing the query.
+ * This is used by queries using a remote query planning of standard planner.
  */
 void
-ExecRemoteInsert(Relation resultRelationDesc,
-				 RemoteQueryState *resultRemoteRel,
-				 TupleTableSlot *slot)
+ExecRemoteQueryStandard(Relation resultRelationDesc,
+						RemoteQueryState *resultRemoteRel,
+						TupleTableSlot *slot)
 {
 	ExprContext		*econtext = resultRemoteRel->ss.ps.ps_ExprContext;
 
 	/*
-	 * Use data row returned by the previus step as a parameters for
+	 * Use data row returned by the previous step as a parameters for
 	 * the main query.
 	 */
 	if (!TupIsNull(slot))
