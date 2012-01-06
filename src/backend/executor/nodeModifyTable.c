@@ -313,12 +313,18 @@ ExecDelete(ItemPointer tupleid,
 	HTSU_Result result;
 	ItemPointerData update_ctid;
 	TransactionId update_xmax;
+#ifdef PGXC
+	PlanState  *resultRemoteRel = NULL;
+#endif
 
 	/*
 	 * get information on the (current) result relation
 	 */
 	resultRelInfo = estate->es_result_relation_info;
 	resultRelationDesc = resultRelInfo->ri_RelationDesc;
+#ifdef PGXC
+	resultRemoteRel = estate->es_result_remoterel;
+#endif
 
 	/* BEFORE ROW DELETE Triggers */
 	if (resultRelInfo->ri_TrigDesc &&
@@ -363,6 +369,14 @@ ExecDelete(ItemPointer tupleid,
 		 * mode transactions.
 		 */
 ldelete:;
+#ifdef PGXC
+		if (IS_PGXC_COORDINATOR && resultRemoteRel)
+		{
+			ExecRemoteQueryStandard(resultRelationDesc, (RemoteQueryState *)resultRemoteRel, planSlot);
+		}
+		else
+		{
+#endif
 		result = heap_delete(resultRelationDesc, tupleid,
 							 &update_ctid, &update_xmax,
 							 estate->es_output_cid,
@@ -414,6 +428,10 @@ ldelete:;
 		 * take care of it later.  We can't delete index tuples immediately
 		 * anyway, since the tuple is still visible to other transactions.
 		 */
+
+#ifdef PGXC
+		}
+#endif
 	}
 
 	if (canSetTag)
@@ -579,7 +597,7 @@ lreplace:;
 #ifdef PGXC
 		if (IS_PGXC_COORDINATOR && resultRemoteRel)
 		{
-			ExecRemoteQueryStandard(resultRelationDesc, (RemoteQueryState *)resultRemoteRel, slot);
+			ExecRemoteQueryStandard(resultRelationDesc, (RemoteQueryState *)resultRemoteRel, planSlot);
 		}
 		else
 		{

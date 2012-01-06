@@ -5367,12 +5367,6 @@ findReferencedVars(List *parent_vars, Plan *plan, List **out_tlist, Relids *out_
  *
  * For every target relation, add a remote query node to carry out remote
  * operations.
- *
- * !!PGXCTODO We should also fix the create_remotedelete_plan to work on similar
- * lines. Right now, it seems to assume only one result relation, which
- * certainly does not look true for inherited tables. But then, we can work on
- * this (and fix this comment) when we test and add support for inherited
- * tables
  */
 Plan *
 create_remoteinsert_plan(PlannerInfo *root, Plan *topplan)
@@ -5584,6 +5578,8 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		bool			is_set_printed = false;	/* Control of SET generation */
 		bool			is_where_printed = false;	/* Control of WHERE generation */
 		RemoteQuery	   *fstep;		/* Plan step generated */
+		ListCell	   *elt;
+		TargetEntry	   *tle_saved;
 
 		ttab = rt_fetch(resultRelationIndex, parse->rtable);
 
@@ -5598,22 +5594,6 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 
 		/* Get number of arrtibutes */
 		natts = get_relnatts(ttab->relid);
-
-		/*
-		 * PGXCTODO: Allow use of remote UPDATE in case all the columns are
-		 * updated at once. In this case, create_remotequery_plan refers to
-		 * remote tuples with only the ctid which is not used by this part of
-		 * planning. CTID needs to be coupled with the node name of where
-		 * the tuple is located to avoid inconsistency due to similar CTIDs
-		 * among PGXC remote nodes.
-		 * This has no impact on distributed table as distribution column
-		 * cannot be updated yet, so only replicated tables are impacted now.
-		 */
-		if (list_length(parse->targetList) == natts + 1)
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("Postgres-XC does not support remote UPDATE on all columns"),
-					 errdetail("At least one column reference to a remote value is necessary")));
 
 		/* Create query buffers */
 		buf = makeStringInfo();		/* For SET clause */
@@ -5633,11 +5613,9 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		else
 			appendStringInfo(buf, "UPDATE %s.%s SET ", quote_identifier(nspname),
 							 quote_identifier(ttab->relname));
-		fstep = make_remotequery(NIL, ttab, NIL, ttab->relid);
-		fstep->is_temp = IsTempTable(ttab->relid);
 
-		/* All the parameters are the tuple attributes */
-		att_types = (Oid *) palloc0 (sizeof (Oid) * natts);
+		/* All the parameters are the tuple attributes and tuple CTID */
+		att_types = (Oid *) palloc0 (sizeof (Oid) * (natts + 1));
 
 		/*
 		 * Populate the SET and WHERE clauses with parameters.
@@ -5658,9 +5636,7 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 			if (HeapTupleIsValid(tp))
 			{
 				Form_pg_attribute att_tup = (Form_pg_attribute) GETSTRUCT(tp);
-				ListCell *elt;
 				bool is_found = false;
-				TargetEntry *tle_saved;
 
 				/*
 				 * Attributes in the target list are inserted in the SET clause directly
@@ -5670,13 +5646,16 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 				foreach(elt, parse->targetList)
 				{
 					TargetEntry *tle = lfirst(elt);
-					tle_saved = tle;
 					if (strcmp(tle->resname, NameStr(att_tup->attname)) == 0)
 					{
+						tle_saved = tle;
 						is_found = true;
 						break;
 					}
 				}
+
+				/* We need a target entry here */
+				Assert(tle_saved);
 
 				/*
 				 * If attribute is found in target list, add it to SET clause and
@@ -5742,6 +5721,32 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 					 att, ttab->relid);
 		}
 
+		/* Now have a look at target list and find CTID in list */
+		tle_saved = NULL;
+		foreach(elt, parse->targetList)
+		{
+			TargetEntry *tle = lfirst(elt);
+			if (strcmp(tle->resname, "ctid") == 0)
+			{
+				tle_saved = tle;
+				break;
+			}
+		}
+
+		/* CTID has to be in target list */
+		Assert(tle_saved);
+
+		/* Add CTID as last parameter in query... */
+		if (!is_where_printed)
+			appendStringInfo(buf2, " WHERE ctid = $%d ", natts + 1);
+		else
+			appendStringInfo(buf2, "AND ctid = $%d ", natts + 1);
+		/* ... And in target list for remote query */
+		att_types[natts] = TIDOID;
+		tle_saved = makeTargetEntry(tle_saved->expr, natts + 1,
+									"ctid", false);
+		tlist = lappend(tlist, tle_saved);
+
 		/* Finish building the query by gathering SET and WHERE clauses */
 		appendStringInfo(buf, "%s", buf2->data);
 
@@ -5760,7 +5765,7 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		fstep->exec_nodes->nodeList = NULL;
 		fstep->exec_nodes->en_relid = ttab->relid;
 		fstep->exec_nodes->accesstype = RELATION_ACCESS_UPDATE;
-		SetRemoteStatementName((Plan *) fstep, NULL, natts, att_types, 0);
+		SetRemoteStatementName((Plan *) fstep, NULL, natts + 1, att_types, 0);
 		pfree(buf->data);
 		pfree(buf2->data);
 		pfree(buf);
@@ -5775,234 +5780,118 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 /*
  * create_remotedelete_plan()
  *
- * Builds up a final node of the plan executing DELETE command.
- *
- * If target table is on coordinator (like catalog tables) the plan is left
- * unchanged and delete will be handled using standard postgres procedure.
- *
- * If topmost node of the plan is a RemoteQuery the step query looks like
- * SELECT ctid FROM target_table WHERE condition, and we should convert it to
- * DELETE FROM target_table WHERE condition.
- *
- * In correlated case the step query looks like
- * SELECT target_table.ctid FROM target_table, other_tables WHERE condition, and
- * we should convert it to DELETE FROM target_table USING other_tables WHERE condition.
- *
- * XXX Is it ever possible if the topmost node is not a RemoteQuery?
+ * For every target relation, add a remote query node to carry out remote
+ * operations. The tuple to be deleted is selected depending on the target
+ * list of given plan, generating parametrized WHERE clause in consequence.
  */
 Plan *
 create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 {
-	Query 		   *parse = root->parse;
-	RangeTblEntry  *ttab;
-	RelationLocInfo *rel_loc_info;
-	RemoteQuery	   *fstep;
-	StringInfo		buf;
-	Oid				nspid;
-	char		   *nspname;
-	Var 		   *ctid;
+	ModifyTable *mt = (ModifyTable *)topplan;
+	ListCell	*l;
 
-	/* Get target table */
-	ttab = (RangeTblEntry *) list_nth(parse->rtable, parse->resultRelation - 1);
-	/* Bad relation ? */
-	if (ttab == NULL || ttab->rtekind != RTE_RELATION)
-		return topplan;
-
-	/* Get location info of the target table */
-	rel_loc_info = GetRelationLocInfo(ttab->relid);
-	if (rel_loc_info == NULL)
-		return topplan;
-
-	buf = makeStringInfo();
-
-	/* Compose DELETE FROM target_table */
-	nspid = get_rel_namespace(ttab->relid);
-	nspname = get_namespace_name(nspid);
-
-	appendStringInfo(buf, "DELETE FROM %s.%s", quote_identifier(nspname),
-					 quote_identifier(ttab->relname));
-
-	/* See if we can push down DELETE */
-	if (IsA(topplan, RemoteQuery))
-	{
-		char *query;
-
-		fstep = (RemoteQuery *) topplan;
-		query = fstep->sql_statement;
-
-		if (strncmp(query, "SELECT ctid", 11) == 0)
-		{
-			/*
-			 * Single table case
-			 * We need to find position of the WHERE keyword in the string and
-			 * append to the buffer part of original string starting from the
-			 * position found. It is possible WHERE clause is absent (DELETE ALL)
-			 * In this case buffer already has new step query
-			 */
-			char *where = strstr(query, " WHERE ");
-			if (where)
-				appendStringInfoString(buf, where);
-		}
-		else
-		{
-			/*
-			 * Multi table case
-			 * Assuming the RemoteQuery is created in create_remotejoin_plan().
-			 * If the final RemoteQuery is for correlated delete outer_statement
-			 * is just a SELECT FROM target_table, outer_statement is correlated
-			 * part and we can put it into USING clause.
-			 * Join type should be plain jon (comma-separated list) and all
-			 * conditions are in WHERE clause.
-			 * No GROUP BY or ORDER BY clauses expected.
-			 * If create_remotejoin_plan is modified the code below should be
-			 * revisited.
-			 */
-			/*
-			 * In expressions target table is referenced as outer_alias, append
-			 * alias name before USING clause
-			 */
-			appendStringInfo(buf, " %s USING ", fstep->outer_alias);
-
-			/* Make up USING clause */
-			appendStringInfo(buf, "(%s) %s ", fstep->inner_statement, fstep->inner_alias);
-
-			/* Append WHERE clause */
-			appendStringInfoString(buf, fstep->join_condition);
-		}
-
-		/* Replace step query */
-		pfree(fstep->sql_statement);
-		fstep->sql_statement = pstrdup(buf->data);
-
-		/* Set combine_type, it is COMBINE_TYPE_NONE for SELECT */
-		fstep->combine_type = rel_loc_info->locatorType == LOCATOR_TYPE_REPLICATED ?
-								  COMBINE_TYPE_SAME : COMBINE_TYPE_SUM;
-		fstep->read_only = false;
-
-		pfree(buf->data);
-		pfree(buf);
-
-		return topplan;
-	}
+	/* We expect to work only on ModifyTable node */
+	if (!IsA(topplan, ModifyTable))
+		elog(ERROR, "Unexpected node type: %d", topplan->type);
 
 	/*
-	 * Top plan will return CTIDs and we should delete tuples with these CTIDs
-	 * on the nodes. To determine target node
+	 * For every result relation, build a remote plan to execute remote delete.
 	 */
-	fstep = make_remotequery(NIL, ttab, NIL, ttab->relid);
-
-	if (rel_loc_info->locatorType == LOCATOR_TYPE_REPLICATED)
+	foreach(l, mt->resultRelations)
 	{
-		/*
-		 * For replicated case we need two extra steps. One is to determine
-		 * all values by CTID on the node from which the tuple has come, next
-		 * is to remove all rows with these values on all nodes
-		 */
-		RemoteQuery	   *xstep;
-		List 		   *xtlist = NIL;
-		StringInfo 		xbuf = makeStringInfo();
-		int 			natts = get_relnatts(ttab->relid);
-		int 			att;
+		Index			resultRelationIndex = lfirst_int(l);
+		Query			*parse = root->parse;
+		RangeTblEntry   *ttab;
+		RelationLocInfo *rel_loc_info;
+		StringInfo		buf;
+		Oid			    nspid;		/* Relation namespace Oid */
+		char		   *nspname;	/* Relation namespace name */
+		int				nparams;	/* Attribute used is CTID */
+		Oid			   *param_types;	/* Types of query parameters */
+		RemoteQuery	   *fstep;		/* Plan step generated */
+		bool			is_where_created = false;
+		ListCell	   *elt;
+		int				count = 1;
 
-		appendStringInfoString(xbuf, "SELECT ");
-		appendStringInfoString(buf, " WHERE");
+		ttab = rt_fetch(resultRelationIndex, parse->rtable);
+
+		/* Bad relation ? */
+		if (ttab == NULL || ttab->rtekind != RTE_RELATION)
+			continue;
+
+		/* Get location info of the target table */
+		rel_loc_info = GetRelationLocInfo(ttab->relid);
+		if (rel_loc_info == NULL)
+			continue;
+
+		/* Create query buffers */
+		buf = makeStringInfo();
+
+		/* Compose UPDATE target_table */
+		nspid = get_rel_namespace(ttab->relid);
+		nspname = get_namespace_name(nspid);
+
+		/* Parameters are defined by target list */
+		nparams = list_length(parse->targetList);
+		param_types = (Oid *) palloc0(sizeof(Oid) * nparams);
 
 		/*
-		 * Populate projections of the extra SELECT step and WHERE clause of
-		 * the final DELETE step
+		 * Do not qualify with namespace for TEMP tables. The schema name may
+		 * vary on each node.
 		 */
-		for (att = 1; att <= natts; att++)
+		if (IsTempTable(ttab->relid))
+			appendStringInfo(buf, "DELETE FROM %s ",
+							 quote_identifier(ttab->relname));
+		else
+			appendStringInfo(buf, "DELETE FROM %s.%s ", quote_identifier(nspname),
+							 quote_identifier(ttab->relname));
+
+		/* Generate WHERE clause for each target list item */
+		foreach(elt, parse->targetList)
 		{
-			TargetEntry *tle;
-			Var *expr;
-			HeapTuple tp;
+			TargetEntry *tle = lfirst(elt);
 
-			tp = SearchSysCache(ATTNUM,
-								ObjectIdGetDatum(ttab->relid),
-								Int16GetDatum(att),
-								0, 0);
-			if (HeapTupleIsValid(tp))
+			/* Set the clause if necessary */
+			if (!is_where_created)
 			{
-				Form_pg_attribute att_tup = (Form_pg_attribute) GETSTRUCT(tp);
-
-				/* Add comma before all except first attributes */
-				if (att > 1)
-				{
-					appendStringInfoString(xbuf, ", ");
-					appendStringInfoString(buf, " AND");
-				}
-				appendStringInfoString(xbuf, NameStr(att_tup->attname));
-				appendStringInfo(buf, " %s = $%d", NameStr(att_tup->attname), att);
-
-				expr = makeVar(att, att, att_tup->atttypid,
-							   att_tup->atttypmod, InvalidOid, 0);
-				tle = makeTargetEntry((Expr *) expr, att,
-									  NameStr(att_tup->attname), false);
-				xtlist = lappend(xtlist, tle);
-				ReleaseSysCache(tp);
+				is_where_created = true;
+				appendStringInfoString(buf, "WHERE ");
 			}
 			else
-				elog(ERROR, "cache lookup failed for attribute %d of relation %u",
-					 att, ttab->relid);
+				appendStringInfoString(buf, "AND ");
+
+			appendStringInfo(buf, "%s = $%d ",
+							 quote_identifier(tle->resname),
+							 count);
+
+			/* Associate type of parameter */
+			param_types[count - 1] = exprType((Node *) tle->expr);
+			count++;
 		}
 
-		/* Complete SELECT command */
-		appendStringInfo(xbuf, " FROM %s.%s WHERE ctid = $1",
-						 quote_identifier(nspname),
-						 quote_identifier(ttab->relname));
-
-		/* Build up the extra select step */
-		xstep = make_remotequery(xtlist, ttab, NIL, ttab->relid);
-		innerPlan(xstep) = topplan;
-		xstep->sql_statement = pstrdup(xbuf->data);
-		xstep->read_only = true;
-		xstep->exec_nodes = makeNode(ExecNodes);
-		xstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
-		xstep->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
-		xstep->exec_nodes->primarynodelist = NULL;
-		xstep->exec_nodes->nodeList = rel_loc_info->nodeList;
-		xstep->exec_nodes->en_relid = ttab->relid;
-		xstep->exec_nodes->accesstype = RELATION_ACCESS_READ;
-
-		/* First and only target entry of topplan is ctid, reference it */
-		ctid = makeVar(INNER, 1, TIDOID, -1, InvalidOid, 0);
-		xstep->exec_nodes->en_expr = (Expr *) ctid;
-
-		pfree(xbuf->data);
-		pfree(xbuf);
-
-		/* Build up the final delete step */
-		innerPlan(fstep) = (Plan *) xstep;
+		/* Finish by building the plan step */
+		fstep = make_remotequery(parse->targetList, ttab, NIL, ttab->relid);
+		fstep->is_temp = IsTempTable(ttab->relid);
 		fstep->sql_statement = pstrdup(buf->data);
-		fstep->combine_type = COMBINE_TYPE_SAME;
-		fstep->read_only = false;
-		fstep->exec_nodes = GetRelationNodes(rel_loc_info, 0, UNKNOWNOID, RELATION_ACCESS_UPDATE);
-	}
-	else
-	{
-		/* Build up the final delete step */
-		innerPlan(fstep) = topplan;
-		appendStringInfoString(buf, " WHERE ctid = $1");
-		fstep->sql_statement = pstrdup(buf->data);
-		fstep->combine_type = COMBINE_TYPE_SUM;
+		fstep->combine_type = COMBINE_TYPE_NONE;
+
 		fstep->read_only = false;
 		fstep->exec_nodes = makeNode(ExecNodes);
+		fstep->exec_nodes = GetRelationNodes(rel_loc_info, 0, UNKNOWNOID, RELATION_ACCESS_UPDATE);
 		fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
 		fstep->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
 		fstep->exec_nodes->primarynodelist = NULL;
 		fstep->exec_nodes->nodeList = NULL;
 		fstep->exec_nodes->en_relid = ttab->relid;
 		fstep->exec_nodes->accesstype = RELATION_ACCESS_UPDATE;
+		SetRemoteStatementName((Plan *) fstep, NULL, nparams, param_types, 0);
+		pfree(buf->data);
+		pfree(buf);
 
-		/* First and only target entry of topplan is ctid, reference it */
-		ctid = makeVar(INNER, 1, TIDOID, -1, InvalidOid, 0);
-		fstep->exec_nodes->en_expr = (Expr *) ctid;
+		mt->remote_plans = lappend(mt->remote_plans, fstep);
 	}
 
-	pfree(buf->data);
-	pfree(buf);
-
-	return (Plan *) fstep;
+	return topplan;
 }
 
 /*
