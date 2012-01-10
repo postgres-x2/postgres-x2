@@ -5394,7 +5394,6 @@ create_remoteinsert_plan(PlannerInfo *root, Plan *topplan)
 		Var			   *var;
 		Oid 		   *att_types;
 
-		
 		ttab = rt_fetch(resultRelationIndex, root->parse->rtable);
 
 		/* Bad relation ? */
@@ -5423,7 +5422,7 @@ create_remoteinsert_plan(PlannerInfo *root, Plan *topplan)
 			appendStringInfo(buf, "INSERT INTO %s.%s (", quote_identifier(nspname),
 					quote_identifier(ttab->relname));
 
-		fstep = make_remotequery(NIL, ttab, NIL, ttab->relid);
+		fstep = make_remotequery(NIL, ttab, NIL, resultRelationIndex);
 		fstep->is_temp = IsTempTable(ttab->relid);
 
 		natts = get_relnatts(ttab->relid);
@@ -5751,7 +5750,7 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		appendStringInfo(buf, "%s", buf2->data);
 
 		/* Finally build the final UPDATE step */
-		fstep = make_remotequery(tlist, ttab, NIL, ttab->relid);
+		fstep = make_remotequery(tlist, ttab, NIL, resultRelationIndex);
 		fstep->is_temp = IsTempTable(ttab->relid);
 		fstep->sql_statement = pstrdup(buf->data);
 		fstep->combine_type = COMBINE_TYPE_NONE;
@@ -5761,8 +5760,6 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		fstep->exec_nodes = GetRelationNodes(rel_loc_info, 0, UNKNOWNOID, RELATION_ACCESS_UPDATE);
 		fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
 		fstep->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
-		fstep->exec_nodes->primarynodelist = NULL;
-		fstep->exec_nodes->nodeList = NULL;
 		fstep->exec_nodes->en_relid = ttab->relid;
 		fstep->exec_nodes->accesstype = RELATION_ACCESS_UPDATE;
 		SetRemoteStatementName((Plan *) fstep, NULL, natts + 1, att_types, 0);
@@ -5870,7 +5867,7 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		}
 
 		/* Finish by building the plan step */
-		fstep = make_remotequery(parse->targetList, ttab, NIL, ttab->relid);
+		fstep = make_remotequery(parse->targetList, ttab, NIL, resultRelationIndex);
 		fstep->is_temp = IsTempTable(ttab->relid);
 		fstep->sql_statement = pstrdup(buf->data);
 		fstep->combine_type = COMBINE_TYPE_NONE;
@@ -5880,8 +5877,6 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		fstep->exec_nodes = GetRelationNodes(rel_loc_info, 0, UNKNOWNOID, RELATION_ACCESS_UPDATE);
 		fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
 		fstep->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
-		fstep->exec_nodes->primarynodelist = NULL;
-		fstep->exec_nodes->nodeList = NULL;
 		fstep->exec_nodes->en_relid = ttab->relid;
 		fstep->exec_nodes->accesstype = RELATION_ACCESS_UPDATE;
 		SetRemoteStatementName((Plan *) fstep, NULL, nparams, param_types, 0);
