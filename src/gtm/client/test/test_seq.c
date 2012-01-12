@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
+ * Copyright (c) 2010-2012 Nippon Telegraph and Telephone Corporation
  */
 #include <sys/types.h>
 #include <unistd.h>

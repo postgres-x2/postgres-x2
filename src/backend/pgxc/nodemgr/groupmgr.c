@@ -5,7 +5,7 @@
  *	  This includes support for DDL on objects NODE GROUP
  *
  * Copyright (c) 1996-2010, PostgreSQL Global Development Group
- * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
+ * Portions Copyright (c) 2010-2012 Nippon Telegraph and Telephone Corporation
  *
  *-------------------------------------------------------------------------
  */

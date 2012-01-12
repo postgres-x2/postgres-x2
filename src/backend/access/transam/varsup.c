@@ -4,7 +4,7 @@
  *	  postgres OID & XID variables support routines
  *
  * Copyright (c) 2000-2011, PostgreSQL Global Development Group
- * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
+ * Portions Copyright (c) 2010-2012 Nippon Telegraph and Telephone Corporation
  *
  * IDENTIFICATION
  *	  src/backend/access/transam/varsup.c

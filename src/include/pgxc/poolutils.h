@@ -5,7 +5,7 @@
  *		Utilities for Postgres-XC Pooler
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
- * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
+ * Portions Copyright (c) 2010-2012 Nippon Telegraph and Telephone Corporation
  *
  * IDENTIFICATION
  *	$$

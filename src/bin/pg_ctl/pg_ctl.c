@@ -3,7 +3,7 @@
  * pg_ctl --- start/stops/restarts the PostgreSQL server
  *
  * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
- * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
+ * Portions Copyright (c) 2010-2012 Nippon Telegraph and Telephone Corporation
  *
  * src/bin/pg_ctl/pg_ctl.c
  *

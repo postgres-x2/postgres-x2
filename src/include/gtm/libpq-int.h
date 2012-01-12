@@ -11,7 +11,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
- * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
+ * Portions Copyright (c) 2010-2012 Nippon Telegraph and Telephone Corporation
  *
  * $PostgreSQL: pgsql/src/interfaces/libpq/libpq-int.h,v 1.139 2009/01/01 17:24:03 momjian Exp $
  *

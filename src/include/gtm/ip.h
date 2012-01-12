@@ -7,7 +7,7 @@
  * what you include here!
  *
  * Copyright (c) 2003-2009, PostgreSQL Global Development Group
- * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
+ * Portions Copyright (c) 2010-2012 Nippon Telegraph and Telephone Corporation
  *
  * $PostgreSQL: pgsql/src/include/libpq/ip.h,v 1.20 2008/01/01 19:45:58 momjian Exp $
  *

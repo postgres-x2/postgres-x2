@@ -17,7 +17,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
- * Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
+ * Portions Copyright (c) 2010-2012 Nippon Telegraph and Telephone Corporation
  *
  * $PostgreSQL: pgsql/src/interfaces/libpq/pqexpbuffer.h,v 1.21 2008/11/26 16:23:11 tgl Exp $
  *
