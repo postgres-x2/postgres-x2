@@ -151,8 +151,8 @@ static CteScan *make_ctescan(List *qptlist, List *qpqual,
 static WorkTableScan *make_worktablescan(List *qptlist, List *qpqual,
 				   Index scanrelid, int wtParam);
 #ifdef PGXC
-static RemoteQuery *make_remotequery(List *qptlist, RangeTblEntry *rte,
-				   List *qpqual, Index scanrelid);
+static RemoteQuery *make_remotequery(List *qptlist, List *qpqual,
+										Index scanrelid);
 #endif
 static ForeignScan *make_foreignscan(List *qptlist, List *qpqual,
 				 Index scanrelid, bool fsSystemCol, FdwPlan *fdwplan);
@@ -2475,34 +2475,20 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 						  List *tlist, List *scan_clauses)
 {
 	RemoteQuery *scan_plan;
-	bool			prefix;
 	Index		scan_relid = best_path->parent->relid;
 	RangeTblEntry *rte;
-	char	   *wherestr			= NULL;
 	List	   *remote_scan_clauses = NIL;
 	List	   *local_scan_clauses  = NIL;
-	Oid				nspid;
-	char		   *nspname;
-	char		   *relname;
-	const char	   *nspname_q;
-	const char	   *relname_q;
-	const char	   *aliasname_q;
-	ListCell	   *lc;
-	List 		   *deparse_context;
-	bool			first;
 	StringInfoData	sql;
 	RelationLocInfo *rel_loc_info;
+	Query			*query;
+	RangeTblRef		*rtr;
 
 	Assert(scan_relid > 0);
-	rte = planner_rt_fetch(scan_relid, root);
 	Assert(best_path->parent->rtekind == RTE_RELATION);
-	Assert(rte->rtekind == RTE_RELATION);
-
-	deparse_context = deparse_context_for_remotequery(rte->eref, rte->relid);
 
 	/* Sort clauses into best execution order */
 	scan_clauses = order_qual_clauses(root, scan_clauses);
-
 	/* Reduce RestrictInfo list to bare expressions; ignore pseudoconstants */
 	scan_clauses = extract_actual_clauses(scan_clauses, false);
 
@@ -2522,120 +2508,44 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	}
 
 	/*
-	 * Incorporate any remote_scan_clauses into the WHERE clause that
-	 * we intend to push to the remote server.
+	 * Construct a Query structure for the query to be fired on the datanodes
+	 * and deparse it. Fields not set remain memzero'ed as set by makeNode.
 	 */
-	if (remote_scan_clauses)
-	{
-		char 		   *sep = "";
-		ListCell	   *l;
-		StringInfoData	buf;
+	rtr = makeNode(RangeTblRef);
+	rtr->rtindex = scan_relid;
+	query = makeNode(Query);
+	query->commandType = CMD_SELECT;
+	/* We will modify the RTE, so make a copy */
+	query->rtable = copyObject(root->parse->rtable);
+	query->jointree = makeNode(FromExpr);
+	/* There can be only one table */
+	query->jointree->fromlist = list_make1(rtr);
+	query->jointree->quals = (Node *)make_ands_explicit(remote_scan_clauses);
+	query->targetList = tlist;
 
-		initStringInfo(&buf);
-
-		/*
-		 * remote_scan_clauses is a list of scan clauses (restrictions) that we
-		 * can push to the remote server. We want to deparse each of those
-		 * expressions (that is, each member of the List) and AND them together
-		 * into a WHERE clause.
-		 */
-
-		foreach(l, (List *)remote_scan_clauses)
-		{
-			Node *clause = lfirst(l);
-
-			appendStringInfo(&buf, "%s", sep );
-			appendStringInfo(&buf, "%s", deparse_expression(clause, deparse_context, false, false));
-			sep = " AND ";
-		}
-
-		wherestr = buf.data;
-	}
-
+	rte = rt_fetch(scan_relid, query->rtable);
+	Assert(rte->rtekind == RTE_RELATION);
 	/*
-	 * Scanning multiple relations in a RemoteQuery node is not supported.
+	 * If this is RTE for an inherited table, we will have rte->eref->aliasname
+	 * set to the name of the parent table. Query deparsing logic fully
+	 * qualifies such relation names while generating strings for Var nodes. To
+	 * avoid this, set the alias node to the eref node temporarily. See code in
+	 * get_variable() for reference.
+	 * PGXCTODO: if get_variable() starts correctly using the aliasname set in
+	 * inherited tables, we don't need this hack here.
 	 */
-	prefix = false;
-#if 0
-	prefix = list_length(estate->es_range_table) > 1;
-#endif
-
-	/* Get quoted names of schema, table and alias */
-	nspid = get_rel_namespace(rte->relid);
-	nspname = get_namespace_name(nspid);
-	relname = get_rel_name(rte->relid);
-	nspname_q = quote_identifier(nspname);
-	relname_q = quote_identifier(relname);
-	aliasname_q = quote_identifier(rte->eref->aliasname);
+	if (!rte->alias && rte->eref && rte->eref->aliasname &&
+		strcmp(rte->eref->aliasname, get_rel_name(rte->relid)) != 0)
+		rte->alias = rte->eref;
+	/* This RTE should appear in FROM clause of the SQL statement constructed */
+	rte->inFromCl = true;
 
 	initStringInfo(&sql);
+	deparse_query(query, &sql, NIL);
 
-	/* deparse SELECT clause */
-	appendStringInfo(&sql, "SELECT ");
-
-	/*
-	 * TODO: omit (deparse to "NULL") columns which are not used in the
-	 * original SQL.
-	 *
-	 * We must parse nodes parents of this RemoteQuery node to determine unused
-	 * columns because some columns may be used only in parent Sort/Agg/Limit
-	 * nodes.
-	 */
-	first = true;
-	foreach (lc, tlist)
-	{
-		TargetEntry *tle = (TargetEntry *) lfirst(lc);
-
-		if (!first)
-			appendStringInfoString(&sql, ", ");
-
-		appendStringInfo(&sql, "%s", deparse_expression((Node *) tle->expr,
-														deparse_context,
-														false,
-														false));
-		first = false;
-	}
-
-	/* if target list is composed only of system attributes, add dummy column */
-	if (first)
-		appendStringInfo(&sql, "NULL");
-
-	/* deparse FROM clause */
-	appendStringInfo(&sql, " FROM ");
-	/*
-	 * XXX: should use GENERIC OPTIONS like 'foreign_relname' or something for
-	 * the foreign table name instead of the local name ?
-	 *
-	 * A temporary table does not use namespace as it may not be
-	 * consistent among nodes cluster. Relation name is sufficient.
-	 */
-	if (IsTempTable(rte->relid))
-		appendStringInfo(&sql, "%s %s", relname_q, aliasname_q);
-	else
-		appendStringInfo(&sql, "%s.%s %s", nspname_q, relname_q, aliasname_q);
-
-	pfree(nspname);
-	pfree(relname);
-	if (nspname_q != nspname_q)
-		pfree((char *) nspname_q);
-	if (relname_q != relname_q)
-		pfree((char *) relname_q);
-	if (aliasname_q != rte->eref->aliasname)
-		pfree((char *) aliasname_q);
-
-	if (wherestr)
-	{
-		appendStringInfo(&sql, " WHERE %s", wherestr);
-		pfree(wherestr);
-	}
-
-	scan_plan = make_remotequery(tlist,
-							 rte,
-							 local_scan_clauses,
-							 scan_relid);
-
+	rel_loc_info = GetRelationLocInfo(rte->relid);
+	scan_plan = make_remotequery(tlist, local_scan_clauses, scan_relid);
 	scan_plan->sql_statement = sql.data;
-
 	/*
 	 * Populate what nodes we execute on.
 	 * This is still basic, and was done to make sure we do not select
@@ -2644,7 +2554,6 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	 * that could reduce to one node. To do that, we need to move general
 	 * planning earlier.
 	 */
-	rel_loc_info = GetRelationLocInfo(rte->relid);
 	scan_plan->exec_nodes = makeNode(ExecNodes);
 	scan_plan->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
 	if (rel_loc_info)
@@ -3939,10 +3848,7 @@ make_worktablescan(List *qptlist,
 
 #ifdef PGXC
 static RemoteQuery *
-make_remotequery(List *qptlist,
-				 RangeTblEntry *rte,
-				 List *qpqual,
-				 Index scanrelid)
+make_remotequery(List *qptlist, List *qpqual, Index scanrelid)
 {
 	RemoteQuery *node = makeNode(RemoteQuery);
 	Plan	   *plan = &node->scan.plan;
@@ -5422,7 +5328,7 @@ create_remoteinsert_plan(PlannerInfo *root, Plan *topplan)
 			appendStringInfo(buf, "INSERT INTO %s.%s (", quote_identifier(nspname),
 					quote_identifier(ttab->relname));
 
-		fstep = make_remotequery(NIL, ttab, NIL, resultRelationIndex);
+		fstep = make_remotequery(NIL, NIL, resultRelationIndex);
 		fstep->is_temp = IsTempTable(ttab->relid);
 
 		natts = get_relnatts(ttab->relid);
@@ -5750,7 +5656,7 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		appendStringInfo(buf, "%s", buf2->data);
 
 		/* Finally build the final UPDATE step */
-		fstep = make_remotequery(tlist, ttab, NIL, resultRelationIndex);
+		fstep = make_remotequery(tlist, NIL, resultRelationIndex);
 		fstep->is_temp = IsTempTable(ttab->relid);
 		fstep->sql_statement = pstrdup(buf->data);
 		fstep->combine_type = COMBINE_TYPE_NONE;
@@ -5867,7 +5773,7 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		}
 
 		/* Finish by building the plan step */
-		fstep = make_remotequery(parse->targetList, ttab, NIL, resultRelationIndex);
+		fstep = make_remotequery(parse->targetList, NIL, resultRelationIndex);
 		fstep->is_temp = IsTempTable(ttab->relid);
 		fstep->sql_statement = pstrdup(buf->data);
 		fstep->combine_type = COMBINE_TYPE_NONE;
