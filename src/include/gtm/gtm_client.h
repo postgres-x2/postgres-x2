@@ -166,13 +166,26 @@ size_t get_sequence_list(GTM_Conn *, GTM_SeqInfo **, size_t);
  * Transaction Management API
  */
 GlobalTransactionId begin_transaction(GTM_Conn *conn, GTM_IsolationLevel isolevel, GTM_Timestamp *timestamp);
+int bkup_begin_transaction(GTM_Conn *conn, GTM_TransactionHandle txn, GTM_IsolationLevel isolevel, 
+						   bool read_only, GTM_Timestamp timestamp);
+int bkup_begin_transaction_gxid(GTM_Conn *conn, GTM_TransactionHandle txn, GlobalTransactionId gxid,
+								GTM_IsolationLevel isolevel, bool read_only, GTM_Timestamp timestamp);
+
 GlobalTransactionId begin_transaction_autovacuum(GTM_Conn *conn, GTM_IsolationLevel isolevel);
+int bkup_begin_transaction_autovacuum(GTM_Conn *conn, GTM_TransactionHandle txn, GlobalTransactionId gxid, 
+									  GTM_IsolationLevel isolevel);
 int commit_transaction(GTM_Conn *conn, GlobalTransactionId gxid);
+int bkup_commit_transaction(GTM_Conn *conn, GlobalTransactionId gxid);
 int commit_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, GlobalTransactionId prepared_gxid);
+int bkup_commit_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, GlobalTransactionId prepared_gxid);
 int abort_transaction(GTM_Conn *conn, GlobalTransactionId gxid);
+int bkup_abort_transaction(GTM_Conn *conn, GlobalTransactionId gxid);
 int start_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, char *gid,
 							   char *nodestring);
+int backup_start_prepared_transaction(GTM_Conn *conn, GTM_TransactionHandle txn, char *gid,
+									  char *nodestring);
 int prepare_transaction(GTM_Conn *conn, GlobalTransactionId gxid);
+int bkup_prepare_transaction(GTM_Conn *conn, GlobalTransactionId gxid);
 int get_gid_data(GTM_Conn *conn, GTM_IsolationLevel isolevel, char *gid,
 				 GlobalTransactionId *gxid, GlobalTransactionId *prepared_gxid,
 				 char **nodestring);
@@ -185,11 +198,19 @@ begin_transaction_multi(GTM_Conn *conn, int txn_count, GTM_IsolationLevel *txn_i
 			bool *txn_read_only, GTMProxy_ConnID *txn_connid,
 			int *txn_count_out, GlobalTransactionId *gxid_out, GTM_Timestamp *ts_out);
 int
+bkup_begin_transaction_multi(GTM_Conn *conn, int txn_count, 
+							 GTM_TransactionHandle *txn, GlobalTransactionId start_gxid, GTM_IsolationLevel *isolevel, 
+							 bool *read_only, GTMProxy_ConnID *txn_connid);
+int
 commit_transaction_multi(GTM_Conn *conn, int txn_count, GlobalTransactionId *gxid,
-			 int *txn_count_out, int *status_out);
+						 int *txn_count_out, int *status_out);
+int
+bkup_commit_transaction_multi(GTM_Conn *conn, int txn_count, GTM_TransactionHandle *txn);
 int
 abort_transaction_multi(GTM_Conn *conn, int txn_count, GlobalTransactionId *gxid,
 			int *txn_count_out, int *status_out);
+int
+bkup_abort_transaction_multi(GTM_Conn *conn, int txn_count, GlobalTransactionId *gxid);
 int
 snapshot_get_multi(GTM_Conn *conn, int txn_count, GlobalTransactionId *gxid,
 		   int *txn_count_out, int *status_out,
@@ -206,14 +227,24 @@ GTM_SnapshotData *get_snapshot(GTM_Conn *conn, GlobalTransactionId gxid,
  * Node Registering management API
  */
 int node_register(GTM_Conn *conn,
-			GTM_PGXCNodeType type,
-			GTM_PGXCNodePort port,
-			char *node_name,
-			char *datafolder);
-int node_register_internal(GTM_Conn *conn, GTM_PGXCNodeType type, const char *host,
-						   GTM_PGXCNodePort port, char *node_name, char *datafolder,
-						   GTM_PGXCNodeStatus status);
+				  GTM_PGXCNodeType type,
+				  GTM_PGXCNodePort port,
+				  char *node_name,
+				  char *datafolder);
+int bkup_node_register(GTM_Conn *conn,
+					   GTM_PGXCNodeType type,
+					   GTM_PGXCNodePort port,
+					   char *node_name,
+					   char *datafolder);
+int node_register(GTM_Conn *conn, GTM_PGXCNodeType type, GTM_PGXCNodePort port,	char *node_name, char *datafolder);
+int node_register_internal(GTM_Conn *conn, GTM_PGXCNodeType type, const char *host,	GTM_PGXCNodePort port, char *node_name,
+						   char *datafolder, GTM_PGXCNodeStatus status);
+int bkup_node_register(GTM_Conn *conn, GTM_PGXCNodeType type, GTM_PGXCNodePort port, char *node_name, char *datafolder);
+int bkup_node_register_internal(GTM_Conn *conn, GTM_PGXCNodeType type, const char *host, GTM_PGXCNodePort port,
+								char *node_name, char *datafolder, GTM_PGXCNodeStatus status);
+
 int node_unregister(GTM_Conn *conn, GTM_PGXCNodeType type, const char *node_name);
+int bkup_node_unregister(GTM_Conn *conn, GTM_PGXCNodeType type, const char * node_name);
 int backend_disconnect(GTM_Conn *conn, bool is_postmaster, GTM_PGXCNodeType type, char *node_name);
 char *node_get_local_addr(GTM_Conn *conn, char *buf, size_t buflen, int *rc);
 
@@ -223,20 +254,32 @@ char *node_get_local_addr(GTM_Conn *conn, char *buf, size_t buflen, int *rc);
 int open_sequence(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence increment,
 				  GTM_Sequence minval, GTM_Sequence maxval,
 				  GTM_Sequence startval, bool cycle);
+int bkup_open_sequence(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence increment,
+					   GTM_Sequence minval, GTM_Sequence maxval,
+					   GTM_Sequence startval, bool cycle);
 int alter_sequence(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence increment,
 				   GTM_Sequence minval, GTM_Sequence maxval,
 				   GTM_Sequence startval, GTM_Sequence lastval, bool cycle, bool is_restart);
+int bkup_alter_sequence(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence increment,
+						GTM_Sequence minval, GTM_Sequence maxval,
+						GTM_Sequence startval, GTM_Sequence lastval, bool cycle, bool is_restart);
 int close_sequence(GTM_Conn *conn, GTM_SequenceKey key);
+int bkup_close_sequence(GTM_Conn *conn, GTM_SequenceKey key);
 int rename_sequence(GTM_Conn *conn, GTM_SequenceKey key, GTM_SequenceKey newkey);
+int bkup_rename_sequence(GTM_Conn *conn, GTM_SequenceKey key, GTM_SequenceKey newkey);
 GTM_Sequence get_current(GTM_Conn *conn, GTM_SequenceKey key);
 GTM_Sequence get_next(GTM_Conn *conn, GTM_SequenceKey key);
+GTM_Sequence bkup_get_next(GTM_Conn *conn, GTM_SequenceKey key);
 int set_val(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence nextval, bool is_called);
+int bkup_set_val(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence nextval, bool is_called);
 int reset_sequence(GTM_Conn *conn, GTM_SequenceKey key);
+int bkup_reset_sequence(GTM_Conn *conn, GTM_SequenceKey key);
 
 /*
  * GTM-Standby
  */
 int set_begin_end_backup(GTM_Conn *conn, bool begin);
+int gtm_sync_standby(GTM_Conn *conn);
 
 
 #endif

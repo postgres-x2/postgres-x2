@@ -41,6 +41,7 @@ const char *config_filename = CONFIG_FILENAME;
 
 extern char *NodeName;
 extern char *ListenAddresses;
+extern bool Backup_synchronously;
 extern int GTMPortNumber;
 extern char *active_addr;
 extern int active_port;
@@ -48,9 +49,9 @@ extern int GTM_StandbyMode;
 extern char *error_reporter;
 extern char *status_reader;
 extern int log_min_messages;
-extern int keepalives_idle;
-extern int keepalives_count;
-extern int keepalives_interval;
+extern int tcp_keepalives_idle;
+extern int tcp_keepalives_count;
+extern int tcp_keepalives_interval;
 extern char *GTMDataDir;
 
 
@@ -122,6 +123,15 @@ Config_Type_Names();
 
 struct config_bool ConfigureNamesBool[] =
 {
+	{
+		{GTM_OPTNAME_SYNCHRONOUS_BACKUP, GTMC_STARTUP,
+		   gettext_noop("Specifies if backup to GTM-Standby is taken in synchronous manner."),
+		   gettext_noop("Default value is off."),
+		   0
+		},
+		&Backup_synchronously,
+		false, false, NULL
+	},
 	/* End-of-list marker */
 	{
 		{NULL, 0, NULL, NULL, 0}, NULL, false, false, NULL
@@ -157,7 +167,7 @@ struct config_int ConfigureNamesInt[] =
 		 	gettext_noop("This option is effective only when it runs as GTM-Standby."),
 			GTMOPT_UNIT_TIME
 		},
-		&keepalives_idle,
+		&tcp_keepalives_idle,
 		0, 0, INT_MAX,
 		0, NULL
 	},
@@ -167,7 +177,7 @@ struct config_int ConfigureNamesInt[] =
 			gettext_noop("This option is effective only when it runs as GTM-Standby."),
 			GTMOPT_UNIT_TIME
 		},
-		&keepalives_interval,
+		&tcp_keepalives_interval,
 		0, 0, INT_MAX,
 		0, NULL
 	},
@@ -177,7 +187,7 @@ struct config_int ConfigureNamesInt[] =
 			gettext_noop("This option is effective only when it runs as GTM-Standby."),
 			0
 		},
-		&keepalives_count,
+		&tcp_keepalives_count,
 		0, 0, INT_MAX,
 		0, NULL
 	},

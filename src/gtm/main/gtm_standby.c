@@ -261,7 +261,7 @@ gtm_standby_register_self(const char *node_name, int port, const char *datadir)
 	standbyDataDir= (char *)datadir;
 
 	rc = node_register_internal(GTM_ActiveConn, GTM_NODE_GTM, standbyHostName, standbyPortNumber,
-			standbyNodeName, standbyDataDir, NODE_DISCONNECTED);
+								standbyNodeName, standbyDataDir, NODE_DISCONNECTED);
 	if (rc < 0)
 	{
 		elog(LOG, "Failed to register a standby-GTM status.");
@@ -293,7 +293,7 @@ gtm_standby_activate_self(void)
 	}
 
 	rc = node_register_internal(GTM_ActiveConn, GTM_NODE_GTM, standbyHostName, standbyPortNumber,
-			standbyNodeName, standbyDataDir, NODE_CONNECTED);
+								standbyNodeName, standbyDataDir, NODE_CONNECTED);
 
 	if (rc < 0)
 	{
@@ -460,7 +460,13 @@ gtm_standby_reconnect_to_standby(GTM_Conn *old_conn, int retry_max)
 bool
 gtm_standby_check_communication_error(int *retry_count, GTM_Conn *oldconn)
 {
-	if (GetMyThreadInfo->thr_conn->standby->result->gr_status == GTM_RESULT_COMM_ERROR)
+	GTM_ThreadInfo *my_threadInfo = GetMyThreadInfo;
+
+	/*
+	 * This function may be called without result from standby.
+	 */
+	if (my_threadInfo->thr_conn->standby->result 
+		&& my_threadInfo->thr_conn->standby->result->gr_status == GTM_RESULT_COMM_ERROR)
 	{
 		if (*retry_count == 0)
 		{

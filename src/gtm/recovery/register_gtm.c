@@ -33,12 +33,15 @@
 #include "gtm/gtm_ip.h"
 
 static void finishStandbyConn(GTM_ThreadInfo *thrinfo);
+extern bool Backup_synchronously;
 
 /*
- * Process MSG_NODE_REGISTER
+ * Process MSG_NODE_REGISTER/MSG_BKUP_NODE_REGISTER message.
+ *
+ * is_backup indicates the message is MSG_BKUP_NODE_REGISTER.
  */
 void
-ProcessPGXCNodeRegister(Port *myport, StringInfo message)
+ProcessPGXCNodeRegister(Port *myport, StringInfo message, bool is_backup)
 {
 	GTM_PGXCNodeType	type;
 	GTM_PGXCNodePort	port;
@@ -172,64 +175,79 @@ ProcessPGXCNodeRegister(Port *myport, StringInfo message)
 
 	pq_getmsgend(message);
 
-	/*
-	 * Send a SUCCESS message back to the client
-	 */
-	pq_beginmessage(&buf, 'S');
-	pq_sendint(&buf, NODE_REGISTER_RESULT, 4);
-	if (myport->remote_type == GTM_NODE_GTM_PROXY)
+	if (!is_backup)
 	{
-		GTM_ProxyMsgHeader proxyhdr;
-		proxyhdr.ph_conid = myport->conn_id;
-		pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
-	}
-	pq_sendbytes(&buf, (char *)&type, sizeof(GTM_PGXCNodeType));
-	/* Node name length */
-	pq_sendint(&buf, strlen(node_name), 4);
-	/* Node name (var-len) */
-	pq_sendbytes(&buf, node_name, strlen(node_name));
-	pq_endmessage(myport, &buf);
+		/*
+		 * Backup first
+		 */
+		if (GetMyThreadInfo->thr_conn->standby)
+		{
+			int _rc;
+			GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
+			int count = 0;
+			GTM_PGXCNodeInfo *standbynode;
 
-	if (myport->remote_type != GTM_NODE_GTM_PROXY)
-		pq_flush(myport);
+			elog(LOG, "calling node_register_internal() for standby GTM %p.",
+				 GetMyThreadInfo->thr_conn->standby);
 
-	if (GetMyThreadInfo->thr_conn->standby)
-	{
-		int _rc;
-		GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
-		int count = 0;
-		GTM_PGXCNodeInfo *standbynode;
+		retry:
+			_rc = bkup_node_register_internal(GetMyThreadInfo->thr_conn->standby,
+											  type,
+											  ipaddress,
+											  port,
+											  node_name,
+											  datafolder,
+											  status);
 
-		elog(LOG, "calling node_register_internal() for standby GTM %p.",
-		 GetMyThreadInfo->thr_conn->standby);
+			elog(LOG, "node_register_internal() returns rc %d.", _rc);
 
-retry:
-		_rc = node_register_internal(GetMyThreadInfo->thr_conn->standby,
-									 type,
-									 ipaddress,
-									 port,
-									 node_name,
-									 datafolder,
-									 status);
+			if (gtm_standby_check_communication_error(&count, oldconn))
+				goto retry;
 
-		if (gtm_standby_check_communication_error(&count, oldconn))
-			goto retry;
+			/* Now check if there're other standby registered. */
+			standbynode = find_standby_node_info();
+			if (!standbynode)
+				GTMThreads->gt_standby_ready = false;
 
-		/* Now check if there're other standby registered. */
-		standbynode = find_standby_node_info();
-		if (!standbynode)
-			GTMThreads->gt_standby_ready = false;
+			if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
+				gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
 
-		elog(LOG, "node_register_internal() returns rc %d.", _rc);
+		}
+		/*
+		 * Then, send a SUCCESS message back to the client
+		 */
+		pq_beginmessage(&buf, 'S');
+		pq_sendint(&buf, NODE_REGISTER_RESULT, 4);
+		if (myport->remote_type == GTM_NODE_GTM_PROXY)
+		{
+			GTM_ProxyMsgHeader proxyhdr;
+			proxyhdr.ph_conid = myport->conn_id;
+			pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
+		}
+		pq_sendbytes(&buf, (char *)&type, sizeof(GTM_PGXCNodeType));
+		/* Node name length */
+		pq_sendint(&buf, strlen(node_name), 4);
+		/* Node name (var-len) */
+		pq_sendbytes(&buf, node_name, strlen(node_name));
+		pq_endmessage(myport, &buf);
+
+		if (myport->remote_type != GTM_NODE_GTM_PROXY)
+		{
+			if (GetMyThreadInfo->thr_conn->standby)
+				gtmpqFlush(GetMyThreadInfo->thr_conn->standby);
+			pq_flush(myport);
+		}
 	}
 }
 
 
 /*
- * Process MSG_NODE_UNREGISTER
+ * Process MSG_NODE_UNREGISTER/MSG_BKUP_NODE_UNREGISTER
+ *
+ * is_backup indiccates MSG_BKUP_NODE_UNREGISTER
  */
 void
-ProcessPGXCNodeUnregister(Port *myport, StringInfo message)
+ProcessPGXCNodeUnregister(Port *myport, StringInfo message, bool is_backup)
 {
 	GTM_PGXCNodeType	type;
 	MemoryContext		oldContext;
@@ -268,47 +286,61 @@ ProcessPGXCNodeUnregister(Port *myport, StringInfo message)
 
 	pq_getmsgend(message);
 
-	/*
-	 * Send a SUCCESS message back to the client
-	 */
-	pq_beginmessage(&buf, 'S');
-	pq_sendint(&buf, NODE_UNREGISTER_RESULT, 4);
-	if (myport->remote_type == GTM_NODE_GTM_PROXY)
+
+	if (!is_backup)
 	{
-		GTM_ProxyMsgHeader proxyhdr;
-		proxyhdr.ph_conid = myport->conn_id;
-		pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
-	}
-	pq_sendbytes(&buf, (char *)&type, sizeof(GTM_PGXCNodeType));
-	/* Node name length */
-	pq_sendint(&buf, strlen(node_name), 4);
-	/* Node name (var-len) */
-	pq_sendbytes(&buf, node_name, strlen(node_name));
+		/*
+		 * Backup first
+		 */
+		if (GetMyThreadInfo->thr_conn->standby)
+		{
+			int _rc;
+			GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
+			int count = 0;
 
-	pq_endmessage(myport, &buf);
-
-	if (myport->remote_type != GTM_NODE_GTM_PROXY)
-		pq_flush(myport);
-
-	if (GetMyThreadInfo->thr_conn->standby)
-	{
-		int _rc;
-		GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
-		int count = 0;
-
-		elog(LOG, "calling node_unregister() for standby GTM %p.",
-		 GetMyThreadInfo->thr_conn->standby);
+			elog(LOG, "calling node_unregister() for standby GTM %p.",
+				 GetMyThreadInfo->thr_conn->standby);
 		
-retry:
-		_rc = node_unregister(GetMyThreadInfo->thr_conn->standby,
-							  type,
-							  node_name);
+		retry:
+			_rc = bkup_node_unregister(GetMyThreadInfo->thr_conn->standby,
+									   type,
+									   node_name);
 
 		
-		if (gtm_standby_check_communication_error(&count, oldconn))
-			goto retry;
+			if (gtm_standby_check_communication_error(&count, oldconn))
+				goto retry;
 
-		elog(LOG, "node_unregister() returns rc %d.", _rc);
+			if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
+				gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
+
+			elog(LOG, "node_unregister() returns rc %d.", _rc);
+		}
+		/*
+		 * Send a SUCCESS message back to the client
+		 */
+		pq_beginmessage(&buf, 'S');
+		pq_sendint(&buf, NODE_UNREGISTER_RESULT, 4);
+		if (myport->remote_type == GTM_NODE_GTM_PROXY)
+		{
+			GTM_ProxyMsgHeader proxyhdr;
+			proxyhdr.ph_conid = myport->conn_id;
+			pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
+		}
+		pq_sendbytes(&buf, (char *)&type, sizeof(GTM_PGXCNodeType));
+		/* Node name length */
+		pq_sendint(&buf, strlen(node_name), 4);
+		/* Node name (var-len) */
+		pq_sendbytes(&buf, node_name, strlen(node_name));
+
+		pq_endmessage(myport, &buf);
+
+		/* Flush standby before flush to the client */
+		if (myport->remote_type != GTM_NODE_GTM_PROXY)
+		{
+			if (GetMyThreadInfo->thr_conn->standby)
+				gtmpqFlush(GetMyThreadInfo->thr_conn->standby);
+			pq_flush(myport);
+		}
 	}
 }
 

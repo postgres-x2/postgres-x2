@@ -97,9 +97,9 @@
 /* Where the Unix socket file is */
 static char sock_path[MAXGTMPATH];
 
-static int         tcp_keepalives_idle;
-static int         tcp_keepalives_interval;
-static int         tcp_keepalives_count;
+extern int         tcp_keepalives_idle;
+extern int         tcp_keepalives_interval;
+extern int         tcp_keepalives_count;
 
 
 /*

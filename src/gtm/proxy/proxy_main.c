@@ -55,7 +55,13 @@ extern char *optarg;
 #define GTM_PROXY_DEFAULT_WORKERS	2
 #define GTM_PID_FILE			"gtm_proxy.pid"
 #define GTM_LOG_FILE			"gtm_proxy.log"
-#define PROXY_CLIENT_TIMEOUT		20
+#ifndef PROXY_CLIENT_TIMEOUT
+#ifdef  GTM_DEBUG
+#define PROXY_CLIENT_TIMEOUT	3600
+#else
+#define PROXY_CLIENT_TIMEOUT	20
+#endif
+#endif
 
 static char *progname = "gtm_proxy";
 char	   *ListenAddresses;
@@ -81,9 +87,9 @@ int			GTMConnectRetryInterval = 0;
 /*
  * Keepalives setup for the connection with GTM server
  */
-int	GTMServerKeepalivesIdle = 0;
-int	GTMServerKeepalivesInterval = 0;
-int GTMServerKeepalivesCount = 0;
+int	tcp_keepalives_idle = 0;
+int	tcp_keepalives_interval = 0;
+int tcp_keepalives_count = 0;
 
 char *GTMProxyNodeName = NULL;
 GTM_ThreadID	TopMostThreadID;
@@ -105,6 +111,14 @@ bool	isStartUp = false;
 GTM_RWLock 	ReconnectControlLock;
 jmp_buf     mainThreadSIGUSR1_buf;
 int			SIGUSR1Accepted = FALSE;
+
+/* If this is GTM or not */
+/*
+ * Used to determine if given Port is in GTM or in GT_Proxy.
+ * If it is in GTM, we should consider to flush GTM_Conn before
+ * writing anything to Port.
+ */
+bool isGTM = false;
 
 /* The socket(s) we're listening to. */
 #define MAXLISTEN	64
@@ -345,9 +359,9 @@ GTMProxy_ReadReconnectInfo(void)
 		return(-1);
 	}
 	fclose(optarg_file);
-#ifdef GTM_SBY_DEBUG
+
 	elog(LOG, "reconnect option = \"%s\"\n", optstr);
-#endif
+
 	next_token = optstr;
 	while ((option = read_token(next_token, &next_token)))
 	{
@@ -389,7 +403,7 @@ GTMProxy_SigleHandler(int signal)
 {
 	int ii;
 
-	elog(LOG, "Received signal %d", signal);
+	elog(LOG, "Received signal %d\n", signal);
 
 	switch (signal)
 	{
@@ -408,14 +422,12 @@ GTMProxy_SigleHandler(int signal)
 			 * The mask is set to block signals.  They're blocked until all the
 			 * threads reconnect to the new GTM.
 			 */
-#ifdef GTM_SBY_DEBUG
 			elog(LOG, "Accepted SIGUSR1\n");
-#endif
 			if (MyThreadID != TopMostThreadID)
 			{
-#ifdef GTM_SBY_DEBUG
+
 				elog(LOG, "Not on main thread, proxy the signal to the main thread.");
-#endif
+
 				pthread_kill(TopMostThreadID, SIGUSR1);
 				return;
 			}
@@ -423,9 +435,9 @@ GTMProxy_SigleHandler(int signal)
 			 * Then this is the main thread.
 			 */
 			PG_SETMASK(&BlockSig);
-#ifdef GTM_SBY_DEBUG
+
 			elog(LOG, "I'm the main thread. Accepted SIGUSR1.");
-#endif
+
 			/*
 			 * Set Reconnect Info
 			 */
@@ -485,15 +497,15 @@ GTMProxy_SigleHandler(int signal)
 		case SIGUSR2:  /* Reconnect from the main thread */
 			/* Main thread has nothing to do twith this signal and should not receive this. */
 			PG_SETMASK(&BlockSig);
-#ifdef GTM_SBY_DEBUG
+
 			elog(LOG, "Detected SIGUSR2, thread:%ld", MyThreadID);
-#endif
+
 			if (MyThreadID == TopMostThreadID)
 			{
 				/* This should not be reached. Just in case. */
-#ifdef GTM_SBY_DEBUG
+
 				elog(LOG, "SIGUSR2 received by the main thread.  Ignoring.");
-#endif
+
 				PG_SETMASK(&UnBlockSig);
 				return;
 			}
@@ -792,7 +804,7 @@ main(int argc, char *argv[])
 	 */
 	BaseInit();
 
-	elog(DEBUG3, "Starting GTM proxy at (%s:%d)", ListenAddresses, GTMProxyPortNumber);
+	elog(LOG, "Starting GTM proxy at (%s:%d)", ListenAddresses, GTMProxyPortNumber);
 
 	/* Recover Data of Registered nodes. */
 	Recovery_RestoreRegisterInfo();
@@ -3258,10 +3270,16 @@ RegisterProxy(bool is_reconnect)
 	finish_time = time(NULL) + PROXY_CLIENT_TIMEOUT;
 	if (gtmpqWaitTimed(true, false, master_conn, finish_time) ||
 		gtmpqReadData(master_conn) < 0)
+	{
+		elog(ERROR, "Cannot read data.");
 		goto failed;
+	}
 
 	if ((res = GTMPQgetResult(master_conn)) == NULL)
+	{
+		elog(ERROR, "Cannot get result.");
 		goto failed;
+	}
 
 	if (res->gr_status == GTM_RESULT_OK)
 	{

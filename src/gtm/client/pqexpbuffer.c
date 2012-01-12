@@ -139,7 +139,7 @@ resetGTMPQExpBuffer(PQExpBuffer str)
 {
 	if (str)
 	{
-		if (str->data != oom_buffer)
+		if (str->data && str->data != oom_buffer)
 		{
 			str->len = 0;
 			str->data[0] = '\0';

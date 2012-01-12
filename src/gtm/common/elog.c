@@ -853,6 +853,15 @@ send_message_to_server_log(ErrorData *edata)
 
 /*
  * Write error report to client
+ *
+ * At present, this function is not used within GTM.   Because this flushes
+ * message back to the client, GTM should consider to flush backup to the
+ * standby.  However, we cannot simply refer to isGTM because this module
+ * can be included in coordinator backends.  If this can really be called
+ * from any GTM module, we need a solution to determine that the Port is
+ * in GTM or not, without direct reference to isGTM.
+ *
+ * K.Suzuki, Jan, 2012
  */
 static void
 send_message_to_frontend(Port *myport, ErrorData *edata)

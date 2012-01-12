@@ -14,7 +14,13 @@
  */
 /* Time in seconds to wait for a response from GTM */
 /* We should consider making this a GUC */
+#ifndef CLIENT_GTM_TIMEOUT
+#ifdef  GTM_DEBUG
+#define CLIENT_GTM_TIMEOUT 3600
+#else
 #define CLIENT_GTM_TIMEOUT 20
+#endif
+#endif
 
 #include <time.h>
 
@@ -31,10 +37,33 @@
 #include "gtm/register.h"
 #include "gtm/assert.h"
 
+extern bool Backup_synchronously;
+
 void GTM_FreeResult(GTM_Result *result, GTM_PGXCNodeType remote_type);
 
 static GTM_Result *makeEmptyResultIfIsNull(GTM_Result *oldres);
-
+static int commit_prepared_transaction_internal(GTM_Conn *conn, 
+												GlobalTransactionId gxid, GlobalTransactionId prepared_gxid,
+												bool is_backup);
+static int prepare_transaction_internal(GTM_Conn *conn, GlobalTransactionId gxid, bool is_backup);
+static int abort_transaction_internal(GTM_Conn *conn, GlobalTransactionId gxid, bool is_backup);
+static int abort_transaction_multi_internal(GTM_Conn *conn, int txn_count, GlobalTransactionId *gxid,
+											int *txn_count_out, int *status_out, bool is_backup);
+static int open_sequence_internal(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence increment,
+								  GTM_Sequence minval, GTM_Sequence maxval,
+								  GTM_Sequence startval, bool cycle, bool is_backup);
+static GTM_Sequence get_next_internal(GTM_Conn *conn, GTM_SequenceKey key, bool is_backup);
+static int set_val_internal(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence nextval, bool iscalled, bool is_backup);
+static int reset_sequence_internal(GTM_Conn *conn, GTM_SequenceKey key, bool is_backup);
+static int commit_transaction_internal(GTM_Conn *conn, GlobalTransactionId gxid, bool is_backup);
+static int close_sequence_internal(GTM_Conn *conn, GTM_SequenceKey key, bool is_backup);
+static int rename_sequence_internal(GTM_Conn *conn, GTM_SequenceKey key, GTM_SequenceKey newkey, bool is_backup);
+static int alter_sequence_internal(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence increment,
+								   GTM_Sequence minval, GTM_Sequence maxval,
+								   GTM_Sequence startval, GTM_Sequence lastval, bool cycle, bool is_restart, bool is_backup);
+static int node_register_worker(GTM_Conn *conn, GTM_PGXCNodeType type, const char *host, GTM_PGXCNodePort port,
+								char *node_name, char *datafolder, GTM_PGXCNodeStatus status, bool is_backup);
+static int node_unregister_worker(GTM_Conn *conn, GTM_PGXCNodeType type, const char * node_name, bool is_backup);
 /*
  * Make an empty result if old one is null.
  */
@@ -371,6 +400,63 @@ send_failed:
 /*
  * Transaction Management API
  */
+
+int
+bkup_begin_transaction(GTM_Conn *conn, GTM_TransactionHandle txn, GTM_IsolationLevel isolevel, 
+					   bool read_only, GTM_Timestamp timestamp)
+{
+	 /* Start the message. */
+	if (gtmpqPutMsgStart('C', true, conn) ||
+		gtmpqPutInt(MSG_BKUP_TXN_BEGIN, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutInt(txn, sizeof(GTM_TransactionHandle), conn) ||
+		gtmpqPutInt(isolevel, sizeof (GTM_IsolationLevel), conn) ||
+		gtmpqPutc(read_only, conn) ||
+		gtmpqPutnchar((char *)&timestamp, sizeof(GTM_Timestamp), conn))
+		goto send_failed;
+
+	/* Finish the message. */
+	if (gtmpqPutMsgEnd(conn))
+		goto send_failed;
+
+	/* Flush to ensure backend gets it. */
+	if (gtmpqFlush(conn))
+		goto send_failed;
+
+	return 0;
+
+send_failed:
+	return -1;
+
+}
+
+int
+bkup_begin_transaction_gxid(GTM_Conn *conn, GTM_TransactionHandle txn, GlobalTransactionId gxid,
+							GTM_IsolationLevel isolevel, bool read_only, GTM_Timestamp timestamp)
+{
+	 /* Start the message. */
+	if (gtmpqPutMsgStart('C', true, conn) ||
+		gtmpqPutInt(MSG_BKUP_TXN_BEGIN_GETGXID, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutInt(txn, sizeof(GTM_TransactionHandle), conn) ||
+		gtmpqPutInt(gxid, sizeof(GlobalTransactionId), conn) ||
+		gtmpqPutInt(isolevel, sizeof (GTM_IsolationLevel), conn) ||
+		gtmpqPutc(read_only, conn) ||
+		gtmpqPutnchar((char *)&timestamp, sizeof(GTM_Timestamp), conn))
+		goto send_failed;
+
+	/* Finish the message. */
+	if (gtmpqPutMsgEnd(conn))
+		goto send_failed;
+
+	/* Flush to ensure backend gets it. */
+	if (gtmpqFlush(conn))
+		goto send_failed;
+
+	return 0;
+
+send_failed:
+	return -1;
+}	
+
 GlobalTransactionId
 begin_transaction(GTM_Conn *conn, GTM_IsolationLevel isolevel, GTM_Timestamp *timestamp)
 {
@@ -418,6 +504,32 @@ send_failed:
 	return InvalidGlobalTransactionId;
 }
 
+
+int
+bkup_begin_transaction_autovacuum(GTM_Conn *conn, GTM_TransactionHandle txn, GlobalTransactionId gxid, 
+								  GTM_IsolationLevel isolevel)
+{
+	 /* Start the message. */
+	if (gtmpqPutMsgStart('C', true, conn) ||
+		gtmpqPutInt(MSG_BKUP_TXN_BEGIN_GETGXID_AUTOVACUUM, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutInt(txn, sizeof(GTM_TransactionHandle), conn) ||
+		gtmpqPutInt(gxid, sizeof(GlobalTransactionId), conn) ||
+		gtmpqPutInt(isolevel, sizeof (GTM_IsolationLevel), conn))
+		goto send_failed;
+
+	/* Finish the message. */
+	if (gtmpqPutMsgEnd(conn))
+		goto send_failed;
+
+	/* Flush to ensure backend gets it. */
+	if (gtmpqFlush(conn))
+		goto send_failed;
+
+	return 0;
+
+send_failed:
+	return -1;
+}	
 /*
  * Transaction Management API
  * Begin a transaction for an autovacuum worker process
@@ -465,14 +577,28 @@ send_failed:
 }
 
 int
+bkup_commit_transaction(GTM_Conn *conn, GlobalTransactionId gxid)
+{
+	return commit_transaction_internal(conn, gxid, true);
+}
+
+
+int
 commit_transaction(GTM_Conn *conn, GlobalTransactionId gxid)
+{
+	return commit_transaction_internal(conn, gxid, false);
+}
+
+
+static int
+commit_transaction_internal(GTM_Conn *conn, GlobalTransactionId gxid, bool is_backup)
 {
 	GTM_Result *res = NULL;
 	time_t finish_time;
 
 	 /* Start the message. */
 	if (gtmpqPutMsgStart('C', true, conn) ||
-		gtmpqPutInt(MSG_TXN_COMMIT, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutInt(is_backup ? MSG_BKUP_TXN_COMMIT : MSG_TXN_COMMIT, sizeof (GTM_MessageType), conn) ||
 		gtmpqPutc(true, conn) ||
 		gtmpqPutnchar((char *)&gxid, sizeof (GlobalTransactionId), conn))
 		goto send_failed;
@@ -485,21 +611,25 @@ commit_transaction(GTM_Conn *conn, GlobalTransactionId gxid)
 	if (gtmpqFlush(conn))
 		goto send_failed;
 
-	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
-	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
-		gtmpqReadData(conn) < 0)
-		goto receive_failed;
-
-	if ((res = GTMPQgetResult(conn)) == NULL)
-		goto receive_failed;
-
-	if (res->gr_status == GTM_RESULT_OK)
+	if (!is_backup)
 	{
-		Assert(res->gr_type == TXN_COMMIT_RESULT);
-		Assert(res->gr_resdata.grd_gxid == gxid);
-	}
+		finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
+		if (gtmpqWaitTimed(true, false, conn, finish_time) ||
+			gtmpqReadData(conn) < 0)
+			goto receive_failed;
 
-	return res->gr_status;
+		if ((res = GTMPQgetResult(conn)) == NULL)
+			goto receive_failed;
+
+		if (res->gr_status == GTM_RESULT_OK)
+		{
+			Assert(res->gr_type == TXN_COMMIT_RESULT);
+			Assert(res->gr_resdata.grd_gxid == gxid);
+		}
+
+		return res->gr_status;
+	}
+	return GTM_RESULT_OK;
 
 receive_failed:
 send_failed:
@@ -511,12 +641,24 @@ send_failed:
 int
 commit_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, GlobalTransactionId prepared_gxid)
 {
+	return commit_prepared_transaction_internal(conn, gxid, prepared_gxid, false);
+}
+
+int
+bkup_commit_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, GlobalTransactionId prepared_gxid)
+{
+	return commit_prepared_transaction_internal(conn, gxid, prepared_gxid, true);
+}
+
+static int
+commit_prepared_transaction_internal(GTM_Conn *conn, GlobalTransactionId gxid, GlobalTransactionId prepared_gxid, bool is_backup)
+{
 	GTM_Result *res = NULL;
 	time_t finish_time;
 
 	/* Start the message */
 	if (gtmpqPutMsgStart('C', true, conn) ||
-		gtmpqPutInt(MSG_TXN_COMMIT_PREPARED, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutInt(is_backup ? MSG_BKUP_TXN_COMMIT_PREPARED : MSG_TXN_COMMIT_PREPARED, sizeof (GTM_MessageType), conn) ||
 		gtmpqPutc(true, conn) ||
 		gtmpqPutnchar((char *)&gxid, sizeof (GlobalTransactionId), conn) ||
 		gtmpqPutc(true, conn) ||
@@ -531,21 +673,25 @@ commit_prepared_transaction(GTM_Conn *conn, GlobalTransactionId gxid, GlobalTran
 	if (gtmpqFlush(conn))
 		goto send_failed;
 
-	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
-	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
-		gtmpqReadData(conn) < 0)
-		goto receive_failed;
-
-	if ((res = GTMPQgetResult(conn)) == NULL)
-		goto receive_failed;
-
-	if (res->gr_status == GTM_RESULT_OK)
+	if (!is_backup)
 	{
-		Assert(res->gr_type == TXN_COMMIT_PREPARED_RESULT);
-		Assert(res->gr_resdata.grd_gxid == gxid);
-	}
+		finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
+		if (gtmpqWaitTimed(true, false, conn, finish_time) ||
+			gtmpqReadData(conn) < 0)
+			goto receive_failed;
 
-	return res->gr_status;
+		if ((res = GTMPQgetResult(conn)) == NULL)
+			goto receive_failed;
+
+		if (res->gr_status == GTM_RESULT_OK)
+		{
+			Assert(res->gr_type == TXN_COMMIT_PREPARED_RESULT);
+			Assert(res->gr_resdata.grd_gxid == gxid);
+		}
+
+		return res->gr_status;
+	}
+	return GTM_RESULT_OK;
 
 send_failed:
 receive_failed:
@@ -557,12 +703,24 @@ receive_failed:
 int 
 abort_transaction(GTM_Conn *conn, GlobalTransactionId gxid)
 {
+	return abort_transaction_internal(conn, gxid, false);
+}
+	
+int 
+bkup_abort_transaction(GTM_Conn *conn, GlobalTransactionId gxid)
+{
+	return abort_transaction_internal(conn, gxid, true);
+}
+
+static int 
+abort_transaction_internal(GTM_Conn *conn, GlobalTransactionId gxid, bool is_backup)
+{
 	GTM_Result *res = NULL;
 	time_t finish_time;
 
 	 /* Start the message. */
 	if (gtmpqPutMsgStart('C', true, conn) ||
-		gtmpqPutInt(MSG_TXN_ROLLBACK, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutInt(is_backup ? MSG_BKUP_TXN_ROLLBACK : MSG_TXN_ROLLBACK, sizeof (GTM_MessageType), conn) ||
 		gtmpqPutc(true, conn) ||
 		gtmpqPutnchar((char *)&gxid, sizeof (GlobalTransactionId), conn))
 		goto send_failed;
@@ -575,21 +733,25 @@ abort_transaction(GTM_Conn *conn, GlobalTransactionId gxid)
 	if (gtmpqFlush(conn))
 		goto send_failed;
 
-	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
-	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
-		gtmpqReadData(conn) < 0)
-		goto receive_failed;
-
-	if ((res = GTMPQgetResult(conn)) == NULL)
-		goto receive_failed;
-
-	if (res->gr_status == GTM_RESULT_OK)
+	if (!is_backup)
 	{
-		Assert(res->gr_type == TXN_ROLLBACK_RESULT);
-		Assert(res->gr_resdata.grd_gxid == gxid);
-	}
+		finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
+		if (gtmpqWaitTimed(true, false, conn, finish_time) ||
+			gtmpqReadData(conn) < 0)
+			goto receive_failed;
 
-	return res->gr_status;
+		if ((res = GTMPQgetResult(conn)) == NULL)
+			goto receive_failed;
+
+		if (res->gr_status == GTM_RESULT_OK)
+		{
+			Assert(res->gr_type == TXN_ROLLBACK_RESULT);
+			Assert(res->gr_resdata.grd_gxid == gxid);
+		}
+
+		return res->gr_status;
+	}
+	return GTM_RESULT_OK;
 
 receive_failed:
 send_failed:
@@ -597,6 +759,31 @@ send_failed:
 	conn->result->gr_status = GTM_RESULT_COMM_ERROR;
 	return -1;
 
+}
+
+int
+backup_start_prepared_transaction(GTM_Conn *conn, GTM_TransactionHandle txn, char *gid,
+								  char *nodestring)
+{
+	Assert(nodestring && gid && conn);
+
+	if (gtmpqPutMsgStart('C', true, conn) ||
+		gtmpqPutInt(MSG_BKUP_TXN_START_PREPARED, sizeof(GTM_MessageType), conn) ||
+		gtmpqPutc(false, conn) ||
+		gtmpqPutInt(txn, sizeof(GTM_TransactionHandle), conn) ||
+		gtmpqPutInt(strlen(gid), sizeof(GTM_StrLen), conn) ||
+		gtmpqPutnchar(gid, strlen(gid), conn) ||
+		gtmpqPutInt(strlen(nodestring), sizeof(GTM_StrLen), conn) ||
+		gtmpqPutnchar(nodestring, strlen(nodestring), conn))
+		goto send_failed;
+
+	if (gtmpqPutMsgEnd(conn))
+		goto send_failed;
+
+	return GTM_RESULT_OK;
+
+send_failed:
+	return -1;
 }
 
 int
@@ -652,16 +839,27 @@ send_failed:
 	return -1;
 }
 
-
 int
 prepare_transaction(GTM_Conn *conn, GlobalTransactionId gxid)
+{
+	return prepare_transaction_internal(conn, gxid, false);
+}
+
+int
+bkup_prepare_transaction(GTM_Conn *conn, GlobalTransactionId gxid)
+{
+	return prepare_transaction_internal(conn, gxid, true);
+}
+
+static int
+prepare_transaction_internal(GTM_Conn *conn, GlobalTransactionId gxid, bool is_backup)
 {
 	GTM_Result *res = NULL;
 	time_t finish_time;
 
 	 /* Start the message. */
 	if (gtmpqPutMsgStart('C', true, conn) ||
-		gtmpqPutInt(MSG_TXN_PREPARE, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutInt(is_backup ? MSG_BKUP_TXN_PREPARE : MSG_TXN_PREPARE, sizeof (GTM_MessageType), conn) ||
 		gtmpqPutc(true, conn) ||
 		gtmpqPutnchar((char *)&gxid, sizeof (GlobalTransactionId), conn))
 		goto send_failed;
@@ -674,21 +872,25 @@ prepare_transaction(GTM_Conn *conn, GlobalTransactionId gxid)
 	if (gtmpqFlush(conn))
 		goto send_failed;
 
-	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
-	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
-		gtmpqReadData(conn) < 0)
-		goto receive_failed;
-
-	if ((res = GTMPQgetResult(conn)) == NULL)
-		goto receive_failed;
-
-	if (res->gr_status == GTM_RESULT_OK)
+	if (!is_backup)
 	{
-		Assert(res->gr_type == TXN_PREPARE_RESULT);
-		Assert(res->gr_resdata.grd_gxid == gxid);
-	}
+		finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
+		if (gtmpqWaitTimed(true, false, conn, finish_time) ||
+			gtmpqReadData(conn) < 0)
+			goto receive_failed;
 
-	return res->gr_status;
+		if ((res = GTMPQgetResult(conn)) == NULL)
+			goto receive_failed;
+
+		if (res->gr_status == GTM_RESULT_OK)
+		{
+			Assert(res->gr_type == TXN_PREPARE_RESULT);
+			Assert(res->gr_resdata.grd_gxid == gxid);
+		}
+
+		return res->gr_status;
+	}
+	return GTM_RESULT_OK;
 
 receive_failed:
 send_failed:
@@ -809,12 +1011,28 @@ open_sequence(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence increment,
 			  GTM_Sequence minval, GTM_Sequence maxval,
 			  GTM_Sequence startval, bool cycle)
 {
+	return open_sequence_internal(conn, key, increment, minval, maxval, startval, cycle, false);
+}
+
+int
+bkup_open_sequence(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence increment,
+				   GTM_Sequence minval, GTM_Sequence maxval,
+				   GTM_Sequence startval, bool cycle)
+{
+	return open_sequence_internal(conn, key, increment, minval, maxval, startval, cycle, true);
+}
+
+static int
+open_sequence_internal(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence increment,
+					   GTM_Sequence minval, GTM_Sequence maxval,
+					   GTM_Sequence startval, bool cycle, bool is_backup)
+{
 	GTM_Result *res = NULL;
 	time_t finish_time;
 
 	 /* Start the message. */
 	if (gtmpqPutMsgStart('C', true, conn) ||
-		gtmpqPutInt(MSG_SEQUENCE_INIT, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutInt(is_backup ? MSG_BKUP_SEQUENCE_INIT : MSG_SEQUENCE_INIT, sizeof (GTM_MessageType), conn) ||
 		gtmpqPutInt(key->gsk_keylen, 4, conn) ||
 		gtmpqPutnchar(key->gsk_key, key->gsk_keylen, conn) ||
 		gtmpqPutnchar((char *)&increment, sizeof (GTM_Sequence), conn) ||
@@ -824,23 +1042,27 @@ open_sequence(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence increment,
 		gtmpqPutc(cycle, conn))
 		goto send_failed;
 
-	/* Finish the message. */
-	if (gtmpqPutMsgEnd(conn))
-		goto send_failed;
+	if (!is_backup)
+	{
+		/* Finish the message. */
+		if (gtmpqPutMsgEnd(conn))
+			goto send_failed;
 
-	/* Flush to ensure backend gets it. */
-	if (gtmpqFlush(conn))
-		goto send_failed;
+		/* Flush to ensure backend gets it. */
+		if (gtmpqFlush(conn))
+			goto send_failed;
 
-	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
-	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
-		gtmpqReadData(conn) < 0)
-		goto receive_failed;
+		finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
+		if (gtmpqWaitTimed(true, false, conn, finish_time) ||
+			gtmpqReadData(conn) < 0)
+			goto receive_failed;
 
-	if ((res = GTMPQgetResult(conn)) == NULL)
-		goto receive_failed;
+		if ((res = GTMPQgetResult(conn)) == NULL)
+			goto receive_failed;
 
-	return res->gr_status;
+		return res->gr_status;
+	}
+	return GTM_RESULT_OK;
 
 receive_failed:
 send_failed:
@@ -854,12 +1076,28 @@ alter_sequence(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence increment,
 			   GTM_Sequence minval, GTM_Sequence maxval,
 			   GTM_Sequence startval, GTM_Sequence lastval, bool cycle, bool is_restart)
 {
+	return alter_sequence_internal(conn, key, increment, minval, maxval, startval, lastval, cycle, is_restart, false);
+}
+
+int
+bkup_alter_sequence(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence increment,
+					GTM_Sequence minval, GTM_Sequence maxval,
+					GTM_Sequence startval, GTM_Sequence lastval, bool cycle, bool is_restart)
+{
+	return alter_sequence_internal(conn, key, increment, minval, maxval, startval, lastval, cycle, is_restart, true);
+}
+
+static int
+alter_sequence_internal(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence increment,
+						GTM_Sequence minval, GTM_Sequence maxval,
+						GTM_Sequence startval, GTM_Sequence lastval, bool cycle, bool is_restart, bool is_backup)
+{
 	GTM_Result *res = NULL;
 	time_t finish_time;
 
 	/* Start the message. */
 	if (gtmpqPutMsgStart('C', true, conn) ||
-		gtmpqPutInt(MSG_SEQUENCE_ALTER, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutInt(is_backup ? MSG_BKUP_SEQUENCE_ALTER : MSG_SEQUENCE_ALTER, sizeof (GTM_MessageType), conn) ||
 		gtmpqPutInt(key->gsk_keylen, 4, conn) ||
 		gtmpqPutnchar(key->gsk_key, key->gsk_keylen, conn) ||
 		gtmpqPutnchar((char *)&increment, sizeof (GTM_Sequence), conn) ||
@@ -879,15 +1117,19 @@ alter_sequence(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence increment,
 	if (gtmpqFlush(conn))
 		goto send_failed;
 
-	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
-	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
-		gtmpqReadData(conn) < 0)
-		goto receive_failed;
+	if (!is_backup)
+	{
+		finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
+		if (gtmpqWaitTimed(true, false, conn, finish_time) ||
+			gtmpqReadData(conn) < 0)
+			goto receive_failed;
 
-	if ((res = GTMPQgetResult(conn)) == NULL)
-		goto receive_failed;
+		if ((res = GTMPQgetResult(conn)) == NULL)
+			goto receive_failed;
 
-	return res->gr_status;
+		return res->gr_status;
+	}
+	return GTM_RESULT_OK;
 
 receive_failed:
 send_failed:
@@ -899,12 +1141,24 @@ send_failed:
 int
 close_sequence(GTM_Conn *conn, GTM_SequenceKey key)
 {
+	return close_sequence_internal(conn, key, false);
+}
+
+int
+bkup_close_sequence(GTM_Conn *conn, GTM_SequenceKey key)
+{
+	return close_sequence_internal(conn, key, true);
+}
+
+static int
+close_sequence_internal(GTM_Conn *conn, GTM_SequenceKey key, bool is_backup)
+{
 	GTM_Result *res = NULL;
 	time_t finish_time;
 
 	 /* Start the message. */
 	if (gtmpqPutMsgStart('C', true, conn) ||
-		gtmpqPutInt(MSG_SEQUENCE_CLOSE, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutInt(is_backup ? MSG_BKUP_SEQUENCE_CLOSE : MSG_SEQUENCE_CLOSE, sizeof (GTM_MessageType), conn) ||
 		gtmpqPutInt(key->gsk_keylen, 4, conn) ||
 		gtmpqPutnchar(key->gsk_key, key->gsk_keylen, conn) ||
 		gtmpqPutnchar((char *)&key->gsk_type, sizeof(GTM_SequenceKeyType), conn))
@@ -918,15 +1172,19 @@ close_sequence(GTM_Conn *conn, GTM_SequenceKey key)
 	if (gtmpqFlush(conn))
 		goto send_failed;
 
-	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
-	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
-		gtmpqReadData(conn) < 0)
-		goto receive_failed;
+	if (!is_backup)
+	{
+		finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
+		if (gtmpqWaitTimed(true, false, conn, finish_time) ||
+			gtmpqReadData(conn) < 0)
+			goto receive_failed;
 
-	if ((res = GTMPQgetResult(conn)) == NULL)
-		goto receive_failed;
+		if ((res = GTMPQgetResult(conn)) == NULL)
+			goto receive_failed;
 
-	return res->gr_status;
+		return res->gr_status;
+	}
+	return GTM_RESULT_OK;
 
 receive_failed:
 send_failed:
@@ -938,12 +1196,24 @@ send_failed:
 int
 rename_sequence(GTM_Conn *conn, GTM_SequenceKey key, GTM_SequenceKey newkey)
 {
+	return rename_sequence_internal(conn, key, newkey, false);
+}
+
+int
+bkup_rename_sequence(GTM_Conn *conn, GTM_SequenceKey key, GTM_SequenceKey newkey)
+{
+	return rename_sequence_internal(conn, key, newkey, true);
+}
+
+static int
+rename_sequence_internal(GTM_Conn *conn, GTM_SequenceKey key, GTM_SequenceKey newkey, bool is_backup)
+{
 	GTM_Result *res = NULL;
 	time_t finish_time;
 
 	/* Start the message. */
 	if (gtmpqPutMsgStart('C', true, conn) ||
-		gtmpqPutInt(MSG_SEQUENCE_RENAME, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutInt(is_backup ? MSG_BKUP_SEQUENCE_RENAME : MSG_SEQUENCE_RENAME, sizeof (GTM_MessageType), conn) ||
 		gtmpqPutInt(key->gsk_keylen, 4, conn) ||
 		gtmpqPutnchar(key->gsk_key, key->gsk_keylen, conn)||
 		gtmpqPutInt(newkey->gsk_keylen, 4, conn) ||
@@ -958,15 +1228,19 @@ rename_sequence(GTM_Conn *conn, GTM_SequenceKey key, GTM_SequenceKey newkey)
 	if (gtmpqFlush(conn))
 		goto send_failed;
 
-	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
-	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
-		gtmpqReadData(conn) < 0)
-		goto receive_failed;
+	if (!is_backup)
+	{
+		finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
+		if (gtmpqWaitTimed(true, false, conn, finish_time) ||
+			gtmpqReadData(conn) < 0)
+			goto receive_failed;
 
-	if ((res = GTMPQgetResult(conn)) == NULL)
-		goto receive_failed;
+		if ((res = GTMPQgetResult(conn)) == NULL)
+			goto receive_failed;
 
-	return res->gr_status;
+		return res->gr_status;
+	}
+	return GTM_RESULT_OK;
 
 receive_failed:
 send_failed:
@@ -1019,12 +1293,24 @@ send_failed:
 int
 set_val(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence nextval, bool iscalled)
 {
+	return set_val_internal(conn, key, nextval, iscalled, false);
+}
+
+int
+bkup_set_val(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence nextval, bool iscalled)
+{
+	return set_val_internal(conn, key, nextval, iscalled, true);
+}
+
+static int
+set_val_internal(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence nextval, bool iscalled, bool is_backup)
+{
 	GTM_Result *res = NULL;
     time_t finish_time;
 
 	/* Start the message. */
 	if (gtmpqPutMsgStart('C', true, conn) ||
-		gtmpqPutInt(MSG_SEQUENCE_SET_VAL, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutInt(is_backup ? MSG_BKUP_SEQUENCE_SET_VAL : MSG_SEQUENCE_SET_VAL, sizeof (GTM_MessageType), conn) ||
 		gtmpqPutInt(key->gsk_keylen, 4, conn) ||
 		gtmpqPutnchar(key->gsk_key, key->gsk_keylen, conn) ||
 		gtmpqPutnchar((char *)&nextval, sizeof (GTM_Sequence), conn) ||
@@ -1039,15 +1325,19 @@ set_val(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence nextval, bool iscalled
 	if (gtmpqFlush(conn))
 		goto send_failed;
 
-	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
-	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
-		gtmpqReadData(conn) < 0)
-		goto receive_failed;
+	if (!is_backup)
+	{
+		finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
+		if (gtmpqWaitTimed(true, false, conn, finish_time) ||
+			gtmpqReadData(conn) < 0)
+			goto receive_failed;
 
-	if ((res = GTMPQgetResult(conn)) == NULL)
-		goto receive_failed;
+		if ((res = GTMPQgetResult(conn)) == NULL)
+			goto receive_failed;
 
-	return res->gr_status;
+		return res->gr_status;
+	}
+	return GTM_RESULT_OK;
 
 receive_failed:
 send_failed:
@@ -1059,12 +1349,24 @@ send_failed:
 GTM_Sequence
 get_next(GTM_Conn *conn, GTM_SequenceKey key)
 {
+	return get_next_internal(conn, key, false);
+}
+
+GTM_Sequence
+bkup_get_next(GTM_Conn *conn, GTM_SequenceKey key)
+{
+	return get_next_internal(conn, key, true);
+}
+
+static GTM_Sequence
+get_next_internal(GTM_Conn *conn, GTM_SequenceKey key, bool is_backup)
+{
 	GTM_Result *res = NULL;
 	time_t finish_time;
 
 	/* Start the message. */
 	if (gtmpqPutMsgStart('C', true, conn) ||
-		gtmpqPutInt(MSG_SEQUENCE_GET_NEXT, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutInt(is_backup ? MSG_BKUP_SEQUENCE_GET_NEXT : MSG_SEQUENCE_GET_NEXT, sizeof (GTM_MessageType), conn) ||
 		gtmpqPutInt(key->gsk_keylen, 4, conn) ||
 		gtmpqPutnchar(key->gsk_key, key->gsk_keylen, conn))
 		goto send_failed;
@@ -1077,18 +1379,22 @@ get_next(GTM_Conn *conn, GTM_SequenceKey key)
 	if (gtmpqFlush(conn))
 		goto send_failed;
 
-	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
-	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
-		gtmpqReadData(conn) < 0)
-		goto receive_failed;
+	if (!is_backup)
+	{
+		finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
+		if (gtmpqWaitTimed(true, false, conn, finish_time) ||
+			gtmpqReadData(conn) < 0)
+			goto receive_failed;
 
-	if ((res = GTMPQgetResult(conn)) == NULL)
-		goto receive_failed;
+		if ((res = GTMPQgetResult(conn)) == NULL)
+			goto receive_failed;
 
-	if (res->gr_status == GTM_RESULT_OK)
-		return res->gr_resdata.grd_seq.seqval;
-	else
-		return InvalidSequenceValue;
+		if (res->gr_status == GTM_RESULT_OK)
+			return res->gr_resdata.grd_seq.seqval;
+		else
+			return InvalidSequenceValue;
+	}
+	return GTM_RESULT_OK;
 
 receive_failed:
 send_failed:
@@ -1100,12 +1406,24 @@ send_failed:
 int
 reset_sequence(GTM_Conn *conn, GTM_SequenceKey key)
 {
+	return reset_sequence_internal(conn, key, false);
+}
+
+int
+bkup_reset_sequence(GTM_Conn *conn, GTM_SequenceKey key)
+{
+	return reset_sequence_internal(conn, key, true);
+}
+
+static int
+reset_sequence_internal(GTM_Conn *conn, GTM_SequenceKey key, bool is_backup)
+{
 	GTM_Result *res = NULL;
 	time_t finish_time;
 
 	 /* Start the message. */
 	if (gtmpqPutMsgStart('C', true, conn) ||
-		gtmpqPutInt(MSG_SEQUENCE_RESET, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutInt(is_backup ? MSG_BKUP_SEQUENCE_RESET : MSG_SEQUENCE_RESET, sizeof (GTM_MessageType), conn) ||
 		gtmpqPutInt(key->gsk_keylen, 4, conn) ||
 		gtmpqPutnchar(key->gsk_key, key->gsk_keylen, conn))
 		goto send_failed;
@@ -1118,15 +1436,19 @@ reset_sequence(GTM_Conn *conn, GTM_SequenceKey key)
 	if (gtmpqFlush(conn))
 		goto send_failed;
 
-	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
-	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
-		gtmpqReadData(conn) < 0)
-		goto receive_failed;
+	if (!is_backup)
+	{
+		finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
+		if (gtmpqWaitTimed(true, false, conn, finish_time) ||
+			gtmpqReadData(conn) < 0)
+			goto receive_failed;
 
-	if ((res = GTMPQgetResult(conn)) == NULL)
-		goto receive_failed;
+		if ((res = GTMPQgetResult(conn)) == NULL)
+			goto receive_failed;
 
-	return res->gr_status;
+		return res->gr_status;
+	}
+	return GTM_RESULT_OK;
 
 receive_failed:
 send_failed:
@@ -1177,6 +1499,8 @@ node_get_local_addr(GTM_Conn *conn, char *buf, size_t buflen, int *rc)
  * This number is modified at proxy level automatically.
  *
  * node_register() returns 0 on success, -1 on failure.
+ *
+ * is_backup indicates the message should be *_BKUP_* message
  */
 int node_register(GTM_Conn *conn,
 			GTM_PGXCNodeType type,
@@ -1193,7 +1517,7 @@ int node_register(GTM_Conn *conn,
 		return -1;
 	}
 
-	return node_register_internal(conn, type, host, port, node_name, datafolder, NODE_CONNECTED);
+	return node_register_worker(conn, type, host, port, node_name, datafolder, NODE_CONNECTED, false);
 }
 
 int node_register_internal(GTM_Conn *conn,
@@ -1203,6 +1527,47 @@ int node_register_internal(GTM_Conn *conn,
 						   char *node_name,
 						   char *datafolder,
 						   GTM_PGXCNodeStatus status)
+{
+	return node_register_worker(conn, type, host, port, node_name, datafolder, status, false);
+}
+
+int bkup_node_register(GTM_Conn *conn,
+					   GTM_PGXCNodeType type,
+					   GTM_PGXCNodePort port,
+					   char *node_name,
+					   char *datafolder)
+{
+	char host[1024];
+	int rc;
+
+	node_get_local_addr(conn, host, sizeof(host), &rc);
+	if (rc != 0)
+	{
+		return -1;
+	}
+
+	return node_register_worker(conn, type, host, port, node_name, datafolder, NODE_CONNECTED, true);
+}
+
+int bkup_node_register_internal(GTM_Conn *conn,
+								GTM_PGXCNodeType type,
+								const char *host,
+								GTM_PGXCNodePort port,
+								char *node_name,
+								char *datafolder,
+								GTM_PGXCNodeStatus status)
+{
+	return node_register_worker(conn, type, host, port, node_name, datafolder, status, true);
+}
+
+static int node_register_worker(GTM_Conn *conn,
+								GTM_PGXCNodeType type,
+								const char *host,
+								GTM_PGXCNodePort port,
+								char *node_name,
+								char *datafolder,
+								GTM_PGXCNodeStatus status,
+								bool is_backup)
 {
 	GTM_Result *res = NULL;
 	time_t finish_time;
@@ -1218,7 +1583,7 @@ int node_register_internal(GTM_Conn *conn,
 	 */
 	if (gtmpqPutMsgStart('C', true, conn) ||
 		/* Message Type */
-		gtmpqPutInt(MSG_NODE_REGISTER, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutInt(is_backup? MSG_BKUP_NODE_REGISTER : MSG_NODE_REGISTER, sizeof (GTM_MessageType), conn) ||
 		/* Node Type to Register */
 		gtmpqPutnchar((char *)&type, sizeof(GTM_PGXCNodeType), conn) ||
 		/* Node name length */
@@ -1258,26 +1623,30 @@ int node_register_internal(GTM_Conn *conn,
 		goto send_failed;
 	}
 
-	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
-	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
-		gtmpqReadData(conn) < 0)
+	if (!is_backup)
 	{
-		goto receive_failed;
-	}
+		finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
+		if (gtmpqWaitTimed(true, false, conn, finish_time) ||
+			gtmpqReadData(conn) < 0)
+		{
+			goto receive_failed;
+		}
 
-	if ((res = GTMPQgetResult(conn)) == NULL)
-	{
-		goto receive_failed;
-	}
+		if ((res = GTMPQgetResult(conn)) == NULL)
+		{
+			goto receive_failed;
+		}
 
-	/* Check on node type and node name */
-	if (res->gr_status == GTM_RESULT_OK)
-	{
-		Assert(res->gr_resdata.grd_node.type == type);
-		Assert((strcmp(res->gr_resdata.grd_node.node_name,node_name) == 0));
-	}
+		/* Check on node type and node name */
+		if (res->gr_status == GTM_RESULT_OK)
+		{
+			Assert(res->gr_resdata.grd_node.type == type);
+			Assert((strcmp(res->gr_resdata.grd_node.node_name,node_name) == 0));
+		}
 
-	return res->gr_status;
+		return res->gr_status;
+	}
+	return GTM_RESULT_OK;
 
 receive_failed:
 send_failed:
@@ -1288,11 +1657,21 @@ send_failed:
 
 int node_unregister(GTM_Conn *conn, GTM_PGXCNodeType type, const char * node_name)
 {
+	return node_unregister_worker(conn, type, node_name, false);
+}
+
+int bkup_node_unregister(GTM_Conn *conn, GTM_PGXCNodeType type, const char * node_name)
+{
+	return node_unregister_worker(conn, type, node_name, true);
+}
+
+static int node_unregister_worker(GTM_Conn *conn, GTM_PGXCNodeType type, const char * node_name, bool is_backup)
+{
 	GTM_Result *res = NULL;
 	time_t finish_time;
 
 	if (gtmpqPutMsgStart('C', true, conn) ||
-		gtmpqPutInt(MSG_NODE_UNREGISTER, sizeof (GTM_MessageType), conn) ||
+		gtmpqPutInt(is_backup ? MSG_BKUP_NODE_UNREGISTER : MSG_NODE_UNREGISTER, sizeof (GTM_MessageType), conn) ||
 		gtmpqPutnchar((char *)&type, sizeof(GTM_PGXCNodeType), conn) ||
 		/* Node name length */
 		gtmpqPutInt(strlen(node_name), sizeof (GTM_StrLen), conn) ||
@@ -1308,22 +1687,26 @@ int node_unregister(GTM_Conn *conn, GTM_PGXCNodeType type, const char * node_nam
 	if (gtmpqFlush(conn))
 		goto send_failed;
 
-	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
-	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
-		gtmpqReadData(conn) < 0)
-		goto receive_failed;
-
-	if ((res = GTMPQgetResult(conn)) == NULL)
-		goto receive_failed;
-
-	/* Check on node type and node name */
-	if (res->gr_status == GTM_RESULT_OK)
+	if (!is_backup)
 	{
-		Assert(res->gr_resdata.grd_node.type == type);
-		Assert( (strcmp(res->gr_resdata.grd_node.node_name, node_name) == 0) );
-	}
+		finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
+		if (gtmpqWaitTimed(true, false, conn, finish_time) ||
+			gtmpqReadData(conn) < 0)
+			goto receive_failed;
 
-	return res->gr_status;
+		if ((res = GTMPQgetResult(conn)) == NULL)
+			goto receive_failed;
+
+		/* Check on node type and node name */
+		if (res->gr_status == GTM_RESULT_OK)
+		{
+			Assert(res->gr_resdata.grd_node.type == type);
+			Assert( (strcmp(res->gr_resdata.grd_node.node_name, node_name) == 0) );
+		}
+
+		return res->gr_status;
+	}
+	return GTM_RESULT_OK;
 
 receive_failed:
 send_failed:
@@ -1331,6 +1714,7 @@ send_failed:
 	conn->result->gr_status = GTM_RESULT_COMM_ERROR;
 	return -1;
 }
+
 
 void
 GTM_FreeResult(GTM_Result *result, GTM_PGXCNodeType remote_type)
@@ -1432,6 +1816,85 @@ send_failed:
 	return -1;
 }
 
+
+int
+bkup_begin_transaction_multi(GTM_Conn *conn, int txn_count, 
+							 GTM_TransactionHandle *txn, GlobalTransactionId start_gxid, GTM_IsolationLevel *isolevel, 
+							 bool *read_only, GTMProxy_ConnID *txn_connid)
+{
+	int ii;
+	GlobalTransactionId gxid = start_gxid;
+
+	/* Start the message. */
+	if (gtmpqPutMsgStart('C', true, conn)) /* FIXME: no proxy header */
+		goto send_failed;
+
+	if (gtmpqPutInt(MSG_BKUP_TXN_BEGIN_GETGXID_MULTI, sizeof (GTM_MessageType), conn) ||
+	    gtmpqPutInt(txn_count, sizeof(int), conn))
+		goto send_failed;
+
+	for (ii = 0; ii < txn_count; ii++, gxid++)
+	{
+		if (gxid == InvalidGlobalTransactionId)
+			gxid = FirstNormalGlobalTransactionId;
+		if (gtmpqPutInt(txn[ii], sizeof(GTM_TransactionHandle), conn) ||
+			gtmpqPutInt(gxid, sizeof(GlobalTransactionId), conn) ||
+			gtmpqPutInt(isolevel[ii], sizeof(int), conn) ||
+			gtmpqPutc(read_only[ii], conn) ||
+			gtmpqPutInt(txn_connid[ii], sizeof(int), conn))
+			goto send_failed;
+	}
+
+	/* Finish the message. */
+	if (gtmpqPutMsgEnd(conn))
+		goto send_failed;
+
+	/* Flush to ensure backend gets it. */
+	if (gtmpqFlush(conn))
+		goto send_failed;
+
+	return 0;
+
+send_failed:
+	return -1;
+	
+}
+
+int
+bkup_commit_transaction_multi(GTM_Conn *conn, int txn_count, GTM_TransactionHandle *txn)
+{
+	int ii;
+
+	if (gtmpqPutMsgStart('C', true, conn)) /* FIXME: no proxy header */
+		goto send_failed;
+
+	if (gtmpqPutInt(MSG_BKUP_TXN_COMMIT_MULTI, sizeof (GTM_MessageType), conn) ||
+	    gtmpqPutInt(txn_count, sizeof(int), conn))
+		goto send_failed;
+
+	for (ii = 0; ii < txn_count; ii++)
+	{
+		if (gtmpqPutc(false, conn) ||
+		    gtmpqPutnchar((char *)&txn[ii],
+				  sizeof (GTM_TransactionHandle), conn))
+			  goto send_failed;
+	}
+
+	/* Finish the message. */
+	if (gtmpqPutMsgEnd(conn))
+		goto send_failed;
+
+	/* Flush to ensure backend gets it. */
+	if (gtmpqFlush(conn))
+		goto send_failed;
+
+	return GTM_RESULT_OK;
+
+send_failed:
+	return -1;
+}
+
+
 int
 commit_transaction_multi(GTM_Conn *conn, int txn_count, GlobalTransactionId *gxid,
 			 int *txn_count_out, int *status_out)
@@ -1489,7 +1952,23 @@ send_failed:
 
 int
 abort_transaction_multi(GTM_Conn *conn, int txn_count, GlobalTransactionId *gxid,
-			int *txn_count_out, int *status_out)
+						int *txn_count_out, int *status_out)
+{
+	return abort_transaction_multi_internal(conn, txn_count, gxid, txn_count_out, status_out, false);
+}
+
+int
+bkup_abort_transaction_multi(GTM_Conn *conn, int txn_count, GlobalTransactionId *gxid)
+{
+	int txn_count_out;
+	int status_out[GTM_MAX_GLOBAL_TRANSACTIONS];
+
+	return abort_transaction_multi_internal(conn, txn_count, gxid, &txn_count_out, status_out, true);
+}
+
+static int
+abort_transaction_multi_internal(GTM_Conn *conn, int txn_count, GlobalTransactionId *gxid,
+								 int *txn_count_out, int *status_out, bool is_backup)
 {
 	GTM_Result *res = NULL;
 	time_t finish_time;
@@ -1499,7 +1978,7 @@ abort_transaction_multi(GTM_Conn *conn, int txn_count, GlobalTransactionId *gxid
 	if (gtmpqPutMsgStart('C', true, conn)) /* FIXME: no proxy header */
 		goto send_failed;
 
-	if (gtmpqPutInt(MSG_TXN_ROLLBACK_MULTI, sizeof (GTM_MessageType), conn) ||
+	if (gtmpqPutInt(is_backup ? MSG_BKUP_TXN_ROLLBACK_MULTI : MSG_TXN_ROLLBACK_MULTI, sizeof (GTM_MessageType), conn) ||
 	    gtmpqPutInt(txn_count, sizeof(int), conn))
 		goto send_failed;
 
@@ -1519,21 +1998,25 @@ abort_transaction_multi(GTM_Conn *conn, int txn_count, GlobalTransactionId *gxid
 	if (gtmpqFlush(conn))
 		goto send_failed;
 
-	finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
-	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
-		gtmpqReadData(conn) < 0)
-		goto receive_failed;
-
-	if ((res = GTMPQgetResult(conn)) == NULL)
-		goto receive_failed;
-
-	if (res->gr_status == GTM_RESULT_OK)
+	if (!is_backup)
 	{
-		memcpy(txn_count_out, &res->gr_resdata.grd_txn_get_multi.txn_count, sizeof(int));
-		memcpy(status_out, &res->gr_resdata.grd_txn_rc_multi.status, sizeof(int) * (*txn_count_out));
-	}
+		finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
+		if (gtmpqWaitTimed(true, false, conn, finish_time) ||
+			gtmpqReadData(conn) < 0)
+			goto receive_failed;
 
-	return res->gr_status;
+		if ((res = GTMPQgetResult(conn)) == NULL)
+			goto receive_failed;
+
+		if (res->gr_status == GTM_RESULT_OK)
+		{
+			memcpy(txn_count_out, &res->gr_resdata.grd_txn_get_multi.txn_count, sizeof(int));
+			memcpy(status_out, &res->gr_resdata.grd_txn_rc_multi.status, sizeof(int) * (*txn_count_out));
+		}
+
+		return res->gr_status;
+	}
+	return GTM_RESULT_OK;
 
 receive_failed:
 send_failed:
@@ -1638,4 +2121,43 @@ send_failed:
 	conn->result->gr_status = GTM_RESULT_COMM_ERROR;
 	return -1;
 }
-		
+
+/*
+ * Sync with standby
+ */
+int
+gtm_sync_standby(GTM_Conn *conn)
+{
+	GTM_Result *res = NULL;
+	time_t finish_time;
+
+	elog(DEBUG3, "Synchronizing with standby");
+
+	if (gtmpqPutMsgStart('C', true, conn))
+		goto send_failed;
+
+	if (gtmpqPutInt(MSG_SYNC_STANDBY, sizeof(GTM_MessageType), conn))
+		goto send_failed;
+
+	if (gtmpqPutMsgEnd(conn))
+		goto send_failed;
+
+	if (gtmpqFlush(conn))
+		goto send_failed;
+
+		finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
+	if (gtmpqWaitTimed(true, false, conn, finish_time) ||
+		gtmpqReadData(conn) < 0)
+		goto receive_failed;
+
+	if ((res = GTMPQgetResult(conn)) == NULL)
+		goto receive_failed;
+
+	return res->gr_status;
+
+receive_failed:
+send_failed:
+	conn->result = makeEmptyResultIfIsNull(conn->result);
+	conn->result->gr_status = GTM_RESULT_COMM_ERROR;
+	return -1;
+}

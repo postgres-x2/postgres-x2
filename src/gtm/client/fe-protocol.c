@@ -351,6 +351,9 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 
 	switch (result->gr_type)
 	{
+		case SYNC_STANDBY_RESULT:
+			break;
+
 		case NODE_BEGIN_REPLICATION_INIT_RESULT:
 			break;
 

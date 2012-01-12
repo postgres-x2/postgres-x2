@@ -220,25 +220,42 @@ GTM_Snapshot GTM_GetTransactionSnapshot(GTM_TransactionHandle handle[],
 void GTM_FreeCachedTransInfo(void);
 
 void ProcessBeginTransactionCommand(Port *myport, StringInfo message);
+void ProcessBkupBeginTransactionCommand(Port *myport, StringInfo message);
+void GTM_BkupBeginTransactionMulti(char *coord_name,
+								   GTM_TransactionHandle *txn,
+								   GTM_IsolationLevel *isolevel,
+								   bool *readonly,
+								   GTMProxy_ConnID *connid,
+								   int	txn_count);
+
 void ProcessBeginTransactionCommandMulti(Port *myport, StringInfo message);
 void ProcessBeginTransactionGetGXIDCommand(Port *myport, StringInfo message);
-void ProcessCommitTransactionCommand(Port *myport, StringInfo message);
-void ProcessCommitPreparedTransactionCommand(Port *myport, StringInfo message);
-void ProcessRollbackTransactionCommand(Port *myport, StringInfo message);
-void ProcessStartPreparedTransactionCommand(Port *myport, StringInfo message);
-void ProcessPrepareTransactionCommand(Port *myport, StringInfo message);
+void ProcessCommitTransactionCommand(Port *myport, StringInfo message, bool is_backup);
+void ProcessCommitPreparedTransactionCommand(Port *myport, StringInfo message, bool is_backup);
+void ProcessRollbackTransactionCommand(Port *myport, StringInfo message, bool is_backup);
+void ProcessStartPreparedTransactionCommand(Port *myport, StringInfo message, bool is_backup);
+void ProcessPrepareTransactionCommand(Port *myport, StringInfo message, bool is_backup);
 void ProcessGetGIDDataTransactionCommand(Port *myport, StringInfo message);
 void ProcessGetGXIDTransactionCommand(Port *myport, StringInfo message);
 void ProcessGXIDListCommand(Port *myport, StringInfo message);
 void ProcessGetNextGXIDTransactionCommand(Port *myport, StringInfo message);
 
 void ProcessBeginTransactionGetGXIDAutovacuumCommand(Port *myport, StringInfo message);
+void ProcessBkupBeginTransactionGetGXIDAutovacuumCommand(Port *myport, StringInfo message);
+
 void ProcessBeginTransactionGetGXIDCommandMulti(Port *myport, StringInfo message);
-void ProcessCommitTransactionCommandMulti(Port *myport, StringInfo message);
-void ProcessRollbackTransactionCommandMulti(Port *myport, StringInfo message) ;
+void ProcessCommitTransactionCommandMulti(Port *myport, StringInfo message, bool is_backup);
+void ProcessRollbackTransactionCommandMulti(Port *myport, StringInfo message, bool is_backup) ;
 
 void GTM_SaveTxnInfo(int ctlfd);
 void GTM_RestoreTxnInfo(int ctlfd, GlobalTransactionId next_gxid);
+void GTM_BkupBeginTransaction(char *coord_name,
+							  GTM_TransactionHandle txn,
+							  GTM_IsolationLevel isolevel,
+							  bool readonly);
+void ProcessBkupBeginTransactionGetGXIDCommand(Port *myport, StringInfo message);
+void ProcessBkupBeginTransactionGetGXIDCommandMulti(Port *myport, StringInfo message);
+
 
 /*
  * In gtm_snap.c

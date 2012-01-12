@@ -27,6 +27,8 @@
 #include "gtm/libpq-int.h"
 #include "gtm/pqformat.h"
 
+extern bool Backup_synchronously;
+
 typedef struct GTM_SeqInfoHashBucket
 {
 	gtm_List   *shb_list;
@@ -831,10 +833,12 @@ GTM_InitSeqManager(void)
 }
 
 /*
- * Process MSG_SEQUENCE_INIT message
+ * Process MSG_SEQUENCE_INIT/MSG_BKUP_SEQUENCE_INIT message
+ *
+ * is_backup indicates the message is MSG_BKUP_SEQUENCE_INIT
  */
 void
-ProcessSequenceInitCommand(Port *myport, StringInfo message)
+ProcessSequenceInitCommand(Port *myport, StringInfo message, bool is_backup)
 {
 	GTM_SequenceKeyData seqkey;
 	GTM_Sequence increment, minval, maxval, startval;
@@ -882,55 +886,69 @@ ProcessSequenceInitCommand(Port *myport, StringInfo message)
 
 	pq_getmsgend(message);
 
-	/*
-	 * Send a SUCCESS message back to the client
-	 */
-	pq_beginmessage(&buf, 'S');
-	pq_sendint(&buf, SEQUENCE_INIT_RESULT, 4);
-	if (myport->remote_type == GTM_NODE_GTM_PROXY)
+	if (!is_backup)
 	{
-		GTM_ProxyMsgHeader proxyhdr;
-		proxyhdr.ph_conid = myport->conn_id;
-		pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
-	}
-	pq_sendint(&buf, seqkey.gsk_keylen, 4);
-	pq_sendbytes(&buf, seqkey.gsk_key, seqkey.gsk_keylen);
-	pq_endmessage(myport, &buf);
+		/* Backup first */
+		if (GetMyThreadInfo->thr_conn->standby)
+		{
+			int rc;
+			GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
+			int count = 0;
 
-	if (myport->remote_type != GTM_NODE_GTM_PROXY)
-		pq_flush(myport);
+			elog(LOG, "calling open_sequence() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
 
-	if (GetMyThreadInfo->thr_conn->standby)
-	{
-		int rc;
-		GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
-		int count = 0;
-
-		elog(LOG, "calling open_sequence() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
-
-	retry:
-		rc = open_sequence(GetMyThreadInfo->thr_conn->standby,
-				   &seqkey,
-				   increment,
-				   minval,
-				   maxval,
-				   startval,
-				   cycle);
+		retry:
+			rc = bkup_open_sequence(GetMyThreadInfo->thr_conn->standby,
+									&seqkey,
+									increment,
+									minval,
+									maxval,
+									startval,
+									cycle);
 		
-		if (gtm_standby_check_communication_error(&count, oldconn))
-			goto retry;
+			if (gtm_standby_check_communication_error(&count, oldconn))
+				goto retry;
 
-		elog(LOG, "open_sequence() returns rc %d.", rc);
-	  }
+			/* Sync */
+			if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
+				gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
 
+			elog(LOG, "open_sequence() returns rc %d.", rc);
+		}
+		/*
+		 * Send a SUCCESS message back to the client
+		 */
+		pq_beginmessage(&buf, 'S');
+		pq_sendint(&buf, SEQUENCE_INIT_RESULT, 4);
+		if (myport->remote_type == GTM_NODE_GTM_PROXY)
+		{
+			GTM_ProxyMsgHeader proxyhdr;
+			proxyhdr.ph_conid = myport->conn_id;
+			pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
+		}
+		pq_sendint(&buf, seqkey.gsk_keylen, 4);
+		pq_sendbytes(&buf, seqkey.gsk_key, seqkey.gsk_keylen);
+		pq_endmessage(myport, &buf);
+
+		if (myport->remote_type != GTM_NODE_GTM_PROXY)
+		{
+			/* Flush standby first */
+			if (GetMyThreadInfo->thr_conn->standby)
+				gtmpqFlush(GetMyThreadInfo->thr_conn->standby);
+			pq_flush(myport);
+		}
+	}
 	/* FIXME: need to check errors */
 }
 
+
 /*
- * Process MSG_SEQUENCE_ALTER message
+ * Process MSG_SEQUENCE_ALTER/MSG_BKUP_SEQUENCE_ALTER message
+ *
+ * is_backup indicates the message is MSG_BKUP_SEQUENCE_ALTER
  */
 void
-ProcessSequenceAlterCommand(Port *myport, StringInfo message)
+ProcessSequenceAlterCommand(Port *myport, StringInfo message, bool is_backup)
 {
 	GTM_SequenceKeyData seqkey;
 	GTM_Sequence increment, minval, maxval, startval, lastval;
@@ -980,47 +998,58 @@ ProcessSequenceAlterCommand(Port *myport, StringInfo message)
 
 	pq_getmsgend(message);
 
-	pq_beginmessage(&buf, 'S');
-	pq_sendint(&buf, SEQUENCE_ALTER_RESULT, 4);
-	if (myport->remote_type == GTM_NODE_GTM_PROXY)
+	if (!is_backup)
 	{
-		GTM_ProxyMsgHeader proxyhdr;
-		proxyhdr.ph_conid = myport->conn_id;
-		pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
+		/* Backup first */
+		if ( GetMyThreadInfo->thr_conn->standby )
+		{
+			int rc;
+			GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
+			int count = 0;
+
+			elog(LOG, "calling alter_sequence() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
+		
+		retry:
+			rc = bkup_alter_sequence(GetMyThreadInfo->thr_conn->standby,
+									 &seqkey,
+									 increment,
+									 minval,
+									 maxval,
+									 startval,
+									 lastval,
+									 cycle,
+									 is_restart);
+		
+			if (gtm_standby_check_communication_error(&count, oldconn))
+				goto retry;
+
+			/* Sync */
+			if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
+				gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
+			
+			elog(LOG, "alter_sequence() returns rc %d.", rc);
+		}
+		pq_beginmessage(&buf, 'S');
+		pq_sendint(&buf, SEQUENCE_ALTER_RESULT, 4);
+		if (myport->remote_type == GTM_NODE_GTM_PROXY)
+		{
+			GTM_ProxyMsgHeader proxyhdr;
+			proxyhdr.ph_conid = myport->conn_id;
+			pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
+		}
+		pq_sendint(&buf, seqkey.gsk_keylen, 4);
+		pq_sendbytes(&buf, seqkey.gsk_key, seqkey.gsk_keylen);
+		pq_endmessage(myport, &buf);
+
+		if (myport->remote_type != GTM_NODE_GTM_PROXY)
+		{
+			if (GetMyThreadInfo->thr_conn->standby)
+				gtmpqFlush(GetMyThreadInfo->thr_conn->standby);
+			pq_flush(myport);
+		}
+
+		/* FIXME: need to check errors */
 	}
-	pq_sendint(&buf, seqkey.gsk_keylen, 4);
-	pq_sendbytes(&buf, seqkey.gsk_key, seqkey.gsk_keylen);
-	pq_endmessage(myport, &buf);
-
-	if (myport->remote_type != GTM_NODE_GTM_PROXY)
-		pq_flush(myport);
-
-	if ( GetMyThreadInfo->thr_conn->standby )
-	{
-		int rc;
-		GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
-		int count = 0;
-
-		elog(LOG, "calling alter_sequence() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
-		
-	retry:
-		rc = alter_sequence(GetMyThreadInfo->thr_conn->standby,
-				    &seqkey,
-				    increment,
-				    minval,
-				    maxval,
-				    startval,
-				    lastval,
-				    cycle,
-				    is_restart);
-		
-		if (gtm_standby_check_communication_error(&count, oldconn))
-			goto retry;
-
-		elog(LOG, "alter_sequence() returns rc %d.", rc);
-	  }
-
-	/* FIXME: need to check errors */
 }
 
 
@@ -1113,6 +1142,7 @@ ProcessSequenceListCommand(Port *myport, StringInfo message)
 	elog(LOG, "ProcessSequenceListCommand() done.");
 
 	if (myport->remote_type != GTM_NODE_GTM_PROXY)
+		/* Don't flush to the backup because this does not change the internal status */
 		pq_flush(myport);
 }
 
@@ -1152,8 +1182,14 @@ ProcessSequenceGetCurrentCommand(Port *myport, StringInfo message)
 	pq_endmessage(myport, &buf);
 
 	if (myport->remote_type != GTM_NODE_GTM_PROXY)
+		/* Don't flush to the standby because this does not change the status */
 		pq_flush(myport);
 
+	/* 
+	 * I don't think backup is needed here. It does not change internal state.
+	 * 27th Dec., 2011, K.Suzuki
+	 */
+#if 0
 	if (GetMyThreadInfo->thr_conn->standby)
 	{
 		GTM_Sequence loc_seq;
@@ -1170,15 +1206,18 @@ retry:
 
 		elog(LOG, "get_current() returns GTM_Sequence %ld.", loc_seq);
 	}
+#endif
 
 	/* FIXME: need to check errors */
 }
 
 /*
- * Process MSG_SEQUENCE_GET_NEXT message
+ * Process MSG_SEQUENCE_GET_NEXT/MSG_BKUP_SEQUENCE_GET_NEXT message
+ *
+ * is_backup indicates the message is MSG_BKUP_SEQUENCE_GET_NEXT
  */
 void
-ProcessSequenceGetNextCommand(Port *myport, StringInfo message)
+ProcessSequenceGetNextCommand(Port *myport, StringInfo message, bool is_backup)
 {
 	GTM_SequenceKeyData seqkey;
 	StringInfoData buf;
@@ -1195,46 +1234,62 @@ ProcessSequenceGetNextCommand(Port *myport, StringInfo message)
 
 	elog(LOG, "Getting next value %ld for sequence %s", seqval, seqkey.gsk_key);
 
-	pq_beginmessage(&buf, 'S');
-	pq_sendint(&buf, SEQUENCE_GET_NEXT_RESULT, 4);
-	if (myport->remote_type == GTM_NODE_GTM_PROXY)
+	if (!is_backup)
 	{
-		GTM_ProxyMsgHeader proxyhdr;
-		proxyhdr.ph_conid = myport->conn_id;
-		pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
-	}
-	pq_sendint(&buf, seqkey.gsk_keylen, 4);
-	pq_sendbytes(&buf, seqkey.gsk_key, seqkey.gsk_keylen);
-	pq_sendbytes(&buf, (char *)&seqval, sizeof (GTM_Sequence));
-	pq_endmessage(myport, &buf);
+		/* Backup first */
+		if (GetMyThreadInfo->thr_conn->standby)
+		{
+			GTM_Sequence loc_seq;
+			GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
+			int count = 0;
 
-	if (myport->remote_type != GTM_NODE_GTM_PROXY)
-		pq_flush(myport);
+			elog(LOG, "calling get_next() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
 
-	if (GetMyThreadInfo->thr_conn->standby)
-	{
-		GTM_Sequence loc_seq;
-		GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
-		int count = 0;
-
-		elog(LOG, "calling get_next() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
-
-	retry:
-		loc_seq = get_next(GetMyThreadInfo->thr_conn->standby, &seqkey);
+		retry:
+			loc_seq = bkup_get_next(GetMyThreadInfo->thr_conn->standby, &seqkey);
 		
-		if (gtm_standby_check_communication_error(&count, oldconn))
-			goto retry;
+			if (gtm_standby_check_communication_error(&count, oldconn))
+				goto retry;
 
-		elog(LOG, "get_next() returns GTM_Sequence %ld.", loc_seq);
+			/* Sync */
+			if (Backup_synchronously &&(myport->remote_type != GTM_NODE_GTM_PROXY))
+				gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
+
+			elog(LOG, "get_next() returns GTM_Sequence %ld.", loc_seq);
+		}
+		/* Respond to the client */
+		pq_beginmessage(&buf, 'S');
+		pq_sendint(&buf, SEQUENCE_GET_NEXT_RESULT, 4);
+		if (myport->remote_type == GTM_NODE_GTM_PROXY)
+		{
+			GTM_ProxyMsgHeader proxyhdr;
+			proxyhdr.ph_conid = myport->conn_id;
+			pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
+		}
+		pq_sendint(&buf, seqkey.gsk_keylen, 4);
+		pq_sendbytes(&buf, seqkey.gsk_key, seqkey.gsk_keylen);
+		pq_sendbytes(&buf, (char *)&seqval, sizeof (GTM_Sequence));
+		pq_endmessage(myport, &buf);
+
+		if (myport->remote_type != GTM_NODE_GTM_PROXY)
+		{
+			/* Flush to the standby first */
+			if (GetMyThreadInfo->thr_conn->standby)
+				gtmpqFlush(GetMyThreadInfo->thr_conn->standby);
+			pq_flush(myport);
+		}
+
+		/* FIXME: need to check errors */
 	}
-	/* FIXME: need to check errors */
 }
 
 /*
- * Process MSG_SEQUENCE_SET_VAL message
+ * Process MSG_SEQUENCE_SET_VAL/MSG_BKUP_SEQUENCE_SET_VAL message
+ *
+ * is_backup indicates the message is MSG_BKUP_SEQUENCE_SET_VAL
  */
 void
-ProcessSequenceSetValCommand(Port *myport, StringInfo message)
+ProcessSequenceSetValCommand(Port *myport, StringInfo message, bool is_backup)
 {
 	GTM_SequenceKeyData seqkey;
 	GTM_Sequence nextval;
@@ -1273,48 +1328,64 @@ ProcessSequenceSetValCommand(Port *myport, StringInfo message)
 
 	pq_getmsgend(message);
 
-	pq_beginmessage(&buf, 'S');
-	pq_sendint(&buf, SEQUENCE_SET_VAL_RESULT, 4);
-	if (myport->remote_type == GTM_NODE_GTM_PROXY)
+	if (!is_backup)
 	{
-		GTM_ProxyMsgHeader proxyhdr;
-		proxyhdr.ph_conid = myport->conn_id;
-		pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
+		/* Backup first */
+		if (GetMyThreadInfo->thr_conn->standby)
+		{
+			int rc;
+			GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
+			int count = 0;
+
+			elog(LOG, "calling set_val() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
+		
+		retry:
+			rc = bkup_set_val(GetMyThreadInfo->thr_conn->standby,
+							  &seqkey,
+							  nextval,
+							  iscalled);
+		
+			if (gtm_standby_check_communication_error(&count, oldconn))
+				goto retry;
+
+			/* Sync */
+			if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
+				gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
+
+			elog(LOG, "set_val() returns rc %d.", rc);
+		}
+		/* Respond to the client */
+		pq_beginmessage(&buf, 'S');
+		pq_sendint(&buf, SEQUENCE_SET_VAL_RESULT, 4);
+		if (myport->remote_type == GTM_NODE_GTM_PROXY)
+		{
+			GTM_ProxyMsgHeader proxyhdr;
+			proxyhdr.ph_conid = myport->conn_id;
+			pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
+		}
+		pq_sendint(&buf, seqkey.gsk_keylen, 4);
+		pq_sendbytes(&buf, seqkey.gsk_key, seqkey.gsk_keylen);
+		pq_endmessage(myport, &buf);
+
+		if (myport->remote_type != GTM_NODE_GTM_PROXY)
+		{
+			/* Flush the standby first */
+			if (GetMyThreadInfo->thr_conn->standby)
+				gtmpqFlush(GetMyThreadInfo->thr_conn->standby);
+			pq_flush(myport);
+		}
+
 	}
-	pq_sendint(&buf, seqkey.gsk_keylen, 4);
-	pq_sendbytes(&buf, seqkey.gsk_key, seqkey.gsk_keylen);
-	pq_endmessage(myport, &buf);
-
-	if (myport->remote_type != GTM_NODE_GTM_PROXY)
-		pq_flush(myport);
-
-	if (GetMyThreadInfo->thr_conn->standby)
-	{
-		int rc;
-		GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
-		int count = 0;
-
-		elog(LOG, "calling set_val() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
-		
-retry:
-		rc = set_val(GetMyThreadInfo->thr_conn->standby,
-					 &seqkey,
-					 nextval,
-					 iscalled);
-		
-		if (gtm_standby_check_communication_error(&count, oldconn))
-			goto retry;
-
-		elog(LOG, "set_val() returns rc %d.", rc);
-	  }
 	/* FIXME: need to check errors */
 }
 
 /*
- * Process MSG_SEQUENCE_RESET message
+ * Process MSG_SEQUENCE_RESET/MSG_BKUP_SEQUENCE_RESET message
+ *
+ * is_backup indicates the cmessage is MSG_BKUP_SEQUENCE_RESULT
  */
 void
-ProcessSequenceResetCommand(Port *myport, StringInfo message)
+ProcessSequenceResetCommand(Port *myport, StringInfo message, bool is_backup)
 {
 	GTM_SequenceKeyData seqkey;
 	StringInfoData buf;
@@ -1330,45 +1401,61 @@ ProcessSequenceResetCommand(Port *myport, StringInfo message)
 				(errcode,
 				 errmsg("Can not reset the sequence")));
 
-	pq_beginmessage(&buf, 'S');
-	pq_sendint(&buf, SEQUENCE_RESET_RESULT, 4);
-	if (myport->remote_type == GTM_NODE_GTM_PROXY)
+	if (!is_backup)
 	{
-		GTM_ProxyMsgHeader proxyhdr;
-		proxyhdr.ph_conid = myport->conn_id;
-		pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
-	}
-	pq_sendint(&buf, seqkey.gsk_keylen, 4);
-	pq_sendbytes(&buf, seqkey.gsk_key, seqkey.gsk_keylen);
-	pq_endmessage(myport, &buf);
+		/* Backup first */
+		if (GetMyThreadInfo->thr_conn->standby)
+		{
+			int rc;
+			GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
+			int count = 0;
 
-	if (myport->remote_type != GTM_NODE_GTM_PROXY)
-		pq_flush(myport);
-
-	if (GetMyThreadInfo->thr_conn->standby)
-	{
-		int rc;
-		GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
-		int count = 0;
-
-		elog(LOG, "calling reset_sequence() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
+			elog(LOG, "calling reset_sequence() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
 		
-retry:
-		rc = reset_sequence(GetMyThreadInfo->thr_conn->standby, &seqkey);
+		retry:
+			rc = bkup_reset_sequence(GetMyThreadInfo->thr_conn->standby, &seqkey);
 
-		if (gtm_standby_check_communication_error(&count, oldconn))
-			goto retry;
+			if (gtm_standby_check_communication_error(&count, oldconn))
+				goto retry;
 
-		elog(LOG, "reset_sequence() returns rc %d.", rc);
+			/* Sync */
+			if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
+				gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
+
+			elog(LOG, "reset_sequence() returns rc %d.", rc);
+		}
+		/* Respond to the client */
+		pq_beginmessage(&buf, 'S');
+		pq_sendint(&buf, SEQUENCE_RESET_RESULT, 4);
+		if (myport->remote_type == GTM_NODE_GTM_PROXY)
+		{
+			GTM_ProxyMsgHeader proxyhdr;
+			proxyhdr.ph_conid = myport->conn_id;
+			pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
+		}
+		pq_sendint(&buf, seqkey.gsk_keylen, 4);
+		pq_sendbytes(&buf, seqkey.gsk_key, seqkey.gsk_keylen);
+		pq_endmessage(myport, &buf);
+
+		if (myport->remote_type != GTM_NODE_GTM_PROXY)
+		{
+			/* Flush the standby first */
+			if (GetMyThreadInfo->thr_conn->standby)
+				gtmpqFlush(GetMyThreadInfo->thr_conn->standby);
+			pq_flush(myport);
+		}
+
 	}
 	/* FIXME: need to check errors */
 }
 
 /*
- * Process MSG_SEQUENCE_CLOSE message
+ * Process MSG_SEQUENCE_CLOSE/MSG_BKUP_SEQUENCE_CLOSE message
+ *
+ * is_backup indicates the message is MSG_BKUP_SEQUENCE_CLOSE
  */
 void
-ProcessSequenceCloseCommand(Port *myport, StringInfo message)
+ProcessSequenceCloseCommand(Port *myport, StringInfo message, bool is_backup)
 {
 	GTM_SequenceKeyData seqkey;
 	StringInfoData buf;
@@ -1386,45 +1473,61 @@ ProcessSequenceCloseCommand(Port *myport, StringInfo message)
 				(errcode,
 				 errmsg("Can not close the sequence")));
 
-	pq_beginmessage(&buf, 'S');
-	pq_sendint(&buf, SEQUENCE_CLOSE_RESULT, 4);
-	if (myport->remote_type == GTM_NODE_GTM_PROXY)
+	if (!is_backup)
 	{
-		GTM_ProxyMsgHeader proxyhdr;
-		proxyhdr.ph_conid = myport->conn_id;
-		pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
+		/* Backup first */
+		if (GetMyThreadInfo->thr_conn->standby)
+		{
+			int rc;
+			GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
+			int count = 0;
+
+			elog(LOG, "calling close_sequence() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
+
+		retry:
+			rc = bkup_close_sequence(GetMyThreadInfo->thr_conn->standby, &seqkey);
+
+			if (gtm_standby_check_communication_error(&count, oldconn))
+				goto retry;
+
+			/* Sync */
+			if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
+				gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
+
+			elog(LOG, "close_sequence() returns rc %d.", rc);
+		}
+		/* Respond to the client */
+		pq_beginmessage(&buf, 'S');
+		pq_sendint(&buf, SEQUENCE_CLOSE_RESULT, 4);
+		if (myport->remote_type == GTM_NODE_GTM_PROXY)
+		{
+			GTM_ProxyMsgHeader proxyhdr;
+			proxyhdr.ph_conid = myport->conn_id;
+			pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
+		}
+		pq_sendint(&buf, seqkey.gsk_keylen, 4);
+		pq_sendbytes(&buf, seqkey.gsk_key, seqkey.gsk_keylen);
+		pq_endmessage(myport, &buf);
+
+		if (myport->remote_type != GTM_NODE_GTM_PROXY)
+		{
+			/* Flush the standby first */
+			if (GetMyThreadInfo->thr_conn->standby)
+				gtmpqFlush(GetMyThreadInfo->thr_conn->standby);
+			pq_flush(myport);
+		}
+
+		/* FIXME: need to check errors */
 	}
-	pq_sendint(&buf, seqkey.gsk_keylen, 4);
-	pq_sendbytes(&buf, seqkey.gsk_key, seqkey.gsk_keylen);
-	pq_endmessage(myport, &buf);
-
-	if (myport->remote_type != GTM_NODE_GTM_PROXY)
-		pq_flush(myport);
-
-	if (GetMyThreadInfo->thr_conn->standby)
-	{
-		int rc;
-		GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
-		int count = 0;
-
-		elog(LOG, "calling close_sequence() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
-
-retry:
-		rc = close_sequence(GetMyThreadInfo->thr_conn->standby, &seqkey);
-
-		if (gtm_standby_check_communication_error(&count, oldconn))
-			goto retry;
-
-		elog(LOG, "close_sequence() returns rc %d.", rc);
-	}
-	/* FIXME: need to check errors */
 }
 
 /*
- * Process MSG_SEQUENCE_RENAME message
+ * Process MSG_SEQUENCE_RENAME/MSG_BKUP_SEQUENCE_RENAME message
+ *
+ * is_backup indicates the message is MSG_BKUP_SEQUENCE_RENAME
  */
 void
-ProcessSequenceRenameCommand(Port *myport, StringInfo message)
+ProcessSequenceRenameCommand(Port *myport, StringInfo message, bool is_backup)
 {
 	GTM_SequenceKeyData seqkey, newseqkey;
 	StringInfoData buf;
@@ -1457,39 +1560,51 @@ ProcessSequenceRenameCommand(Port *myport, StringInfo message)
 
 	pq_getmsgend(message);
 
-	/* Send a SUCCESS message back to the client */
-	pq_beginmessage(&buf, 'S');
-	pq_sendint(&buf, SEQUENCE_RENAME_RESULT, 4);
-	if (myport->remote_type == GTM_NODE_GTM_PROXY)
+	if (!is_backup)
 	{
-		GTM_ProxyMsgHeader proxyhdr;
-		proxyhdr.ph_conid = myport->conn_id;
-		pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
+		/* Backup first */
+		if (GetMyThreadInfo->thr_conn->standby)
+		{
+			int rc;
+			GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
+			int count = 0;
+
+			elog(LOG, "calling rename_sequence() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
+
+		retry:
+			rc = bkup_rename_sequence(GetMyThreadInfo->thr_conn->standby, &seqkey, &newseqkey);
+
+			if (gtm_standby_check_communication_error(&count, oldconn))
+				goto retry;
+
+			/* Sync */
+			if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
+				gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
+
+			elog(LOG, "rename_sequence() returns rc %d.", rc);
+		}
+		/* Send a SUCCESS message back to the client */
+		pq_beginmessage(&buf, 'S');
+		pq_sendint(&buf, SEQUENCE_RENAME_RESULT, 4);
+		if (myport->remote_type == GTM_NODE_GTM_PROXY)
+		{
+			GTM_ProxyMsgHeader proxyhdr;
+			proxyhdr.ph_conid = myport->conn_id;
+			pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
+		}
+		pq_sendint(&buf, newseqkey.gsk_keylen, 4);
+		pq_sendbytes(&buf, newseqkey.gsk_key, newseqkey.gsk_keylen);
+		pq_endmessage(myport, &buf);
+
+		if (myport->remote_type != GTM_NODE_GTM_PROXY)
+		{
+			/* Flush the standby first */
+			if (GetMyThreadInfo->thr_conn->standby)
+				gtmpqFlush(GetMyThreadInfo->thr_conn->standby);
+			pq_flush(myport);
+		}
+
 	}
-	pq_sendint(&buf, newseqkey.gsk_keylen, 4);
-	pq_sendbytes(&buf, newseqkey.gsk_key, newseqkey.gsk_keylen);
-	pq_endmessage(myport, &buf);
-
-	if (myport->remote_type != GTM_NODE_GTM_PROXY)
-		pq_flush(myport);
-
-	if (GetMyThreadInfo->thr_conn->standby)
-	{
-		int rc;
-		GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
-		int count = 0;
-
-		elog(LOG, "calling rename_sequence() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
-
-retry:
-		rc = rename_sequence(GetMyThreadInfo->thr_conn->standby, &seqkey, &newseqkey);
-
-		if (gtm_standby_check_communication_error(&count, oldconn))
-			goto retry;
-
-		elog(LOG, "rename_sequence() returns rc %d.", rc);
-	}
-
 	/* FIXME: need to check errors */
 }
 

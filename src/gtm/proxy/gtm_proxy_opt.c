@@ -44,9 +44,9 @@ extern int GTMPortNumber;
 extern char *error_reporter;
 extern char *status_reader;
 extern int log_min_messages;
-extern int keepalives_idle;
-extern int keepalives_count;
-extern int keepalives_interval;
+extern int tcp_keepalives_idle;
+extern int tcp_keepalives_count;
+extern int tcp_keepalives_interval;
 extern char *GTMServerHost;
 extern int GTMProxyPortNumber;
 extern bool IsGTMConnectRetryRequired;
@@ -54,9 +54,11 @@ extern int GTMConnectRetryIdle;
 extern int GTMConnectRetryCount;
 extern int GTMConnectRetryInterval;
 extern int GTMServerPortNumber;
+/*
 extern int GTMServerKeepalivesIdle;
 extern int GTMServerKeepalivesInterval;
 extern int GTMServerKeepalivesCount;
+*/
 extern int GTMErrorWaitIdle;
 extern int GTMErrorWaitInterval;
 extern int GTMErrorWaitCount;
@@ -222,7 +224,7 @@ struct config_int ConfigureNamesInt[] =
 		    NULL,
 			GTMOPT_UNIT_TIME
 		},
-		&GTMServerKeepalivesIdle,
+		&tcp_keepalives_idle,
 		0, 0, INT_MAX,
 		0, NULL
 	},
@@ -233,7 +235,7 @@ struct config_int ConfigureNamesInt[] =
 		 	NULL,
 			GTMOPT_UNIT_TIME
 		},
-		&GTMServerKeepalivesInterval,
+		&tcp_keepalives_interval,
 		0, 0, INT_MAX,
 		0, NULL
 	},
@@ -244,7 +246,7 @@ struct config_int ConfigureNamesInt[] =
 			NULL, 
 			0
 		},
-		&GTMServerKeepalivesCount,
+		&tcp_keepalives_count,
 		0, 0, INT_MAX,
 		0, NULL
 	},

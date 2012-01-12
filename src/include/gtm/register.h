@@ -79,8 +79,8 @@ void Recovery_SaveRegisterInfo(void);
 void Recovery_PGXCNodeDisconnect(Port *myport);
 void Recovery_SaveRegisterFileName(char *dir);
 
-void ProcessPGXCNodeRegister(Port *myport, StringInfo message);
-void ProcessPGXCNodeUnregister(Port *myport, StringInfo message);
+void ProcessPGXCNodeRegister(Port *myport, StringInfo message, bool is_backup);
+void ProcessPGXCNodeUnregister(Port *myport, StringInfo message, bool is_backup);
 void ProcessPGXCNodeBackendDisconnect(Port *myport, StringInfo message);
 void ProcessPGXCNodeList(Port *myport, StringInfo message);
 

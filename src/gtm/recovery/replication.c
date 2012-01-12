@@ -67,6 +67,10 @@ ProcessBeginReplicationInitialSyncRequest(Port *myport, StringInfo message)
 	}
 	pq_endmessage(myport, &buf);
 
+	/*
+	 * Beause this command comes from the standby, we don't have to flush
+	 * messages to the standby here.
+	 */
 	if (myport->remote_type != GTM_NODE_GTM_PROXY)
 		pq_flush(myport);
 
@@ -112,6 +116,10 @@ ProcessEndReplicationInitialSyncRequest(Port *myport, StringInfo message)
 	}
 	pq_endmessage(myport, &buf);
 
+	/*
+	 * Beause this command comes from the standby, we don't have to flush
+	 * messages to the standby here.
+	 */
 	if (myport->remote_type != GTM_NODE_GTM_PROXY)
 		pq_flush(myport);
 

@@ -259,6 +259,27 @@ PostgreSQL documentation
     </listitem>
    </varlistentry>
 
+   <varlistentry id="gtm-opt-synchronous-backup" xreflabel="gtm_opt_synchronous_backup">
+    <term><varname>synchronous-backup</varname> (<type>boolean</type>)</term>
+    <indexterm>
+     <primary><varname>synchronous-backup</varname> configuration parameter</primary>
+    </indexterm>
+    <listitem>
+     <para>
+      Specifies if backup to GTM-Standby is taken synchronously.   If this is turned on,
+      GTM will send and receive synchronize message to make sure that all the backups
+      reached to the standby.
+     </para>
+     <para>
+      If it is turned off, all the backup information will be sent without checking they
+      reached to GTM-Standby.
+     </para>
+     <para>
+      Default value is off.
+     </para>
+    </listitem>
+   </varlistentry>
+
 
   </variablelist>
 

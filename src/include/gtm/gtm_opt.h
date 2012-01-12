@@ -351,6 +351,7 @@ const char *const config_type_names[] =\
 #define GTM_OPTNAME_PORT				"port"
 #define GTM_OPTNAME_STARTUP				"startup"
 #define GTM_OPTNAME_STATUS_READER		"status_reader"
+#define GTM_OPTNAME_SYNCHRONOUS_BACKUP	"synchronous_backup"
 #define GTM_OPTNAME_WORKER_THREADS		"worker_threads"
 
 

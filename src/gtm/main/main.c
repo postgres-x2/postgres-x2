@@ -45,6 +45,7 @@
 #include "gtm/gtm_seq.h"
 #include "gtm/gtm_msg.h"
 #include "gtm/gtm_opt.h"
+#include "gtm/gtm_utils.h"
 
 extern int	optind;
 extern char *optarg;
@@ -62,14 +63,23 @@ int			GTMPortNumber;
 char		GTMControlFile[GTM_MAX_PATH];
 char		*GTMDataDir;
 char		*NodeName;
+bool		Backup_synchronously = false;
 char 		*active_addr;
 int 		active_port;
-int			keepalives_idle;
-int			keepalives_interval;
-int			keepalives_count;
+int			tcp_keepalives_idle;
+int			tcp_keepalives_interval;
+int			tcp_keepalives_count;
 char		*error_reporter;
 char		*status_reader;
 bool		isStartUp;
+
+/* If this is GTM or not */
+/*
+ * Used to determine if given Port is in GTM or in GT_Proxy.
+ * If it is in GTM, we should consider to flush GTM_Conn before
+ * writing anything to Port.
+ */
+bool		isGTM = true;
 
 GTM_ThreadID	TopMostThreadID;
 
@@ -104,6 +114,7 @@ static void ChangeToDataDir(void);
 static void checkDataDir(void);
 static void DeleteLockFile(const char *filename);
 static void PromoteToActive(void);
+static void ProcessSyncStandbyCommand(Port *myport, GTM_MessageType mtype, StringInfo message);
 
 /*
  * One-time initialization. It's called immediately after the main process
@@ -200,7 +211,7 @@ BaseInit()
 static void
 GTM_SigleHandler(int signal)
 {
-	fprintf(stderr, "Received signal %d", signal);
+	fprintf(stderr, "Received signal %d\n", signal);
 
 	switch (signal)
 	{
@@ -538,7 +549,7 @@ main(int argc, char *argv[])
 		elog(LOG, "Startup connection established with active-GTM.");
 	}
 
-	elog(DEBUG3, "Starting GTM server at (%s:%d) -- control file %s", ListenAddresses, GTMPortNumber, GTMControlFile);
+	elog(LOG, "Starting GTM server at (%s:%d) -- control file %s", ListenAddresses, GTMPortNumber, GTMControlFile);
 
 	/*
 	 * Read the last GXID and start from there
@@ -864,6 +875,7 @@ ServerLoop(void)
 						GTM_Conn *standby = NULL;
 
 						standby = gtm_standby_connect_to_standby();
+						
 
 						if (GTMAddConnection(port, standby) != STATUS_OK)
 						{
@@ -1118,6 +1130,14 @@ GTM_ThreadMain(void *argp)
 				 * Flush all the outgoing data on the wire. Consume the message
 				 * type field for sanity
 				 */
+				/* Sync with standby first */
+				if (thrinfo->thr_conn->standby)
+				{
+					if (Backup_synchronously)
+						gtm_sync_standby(thrinfo->thr_conn->standby);
+					else
+						gtmpqFlush(thrinfo->thr_conn->standby);
+				}
 				pq_getmsgint(&input_message, sizeof (GTM_MessageType));
 				pq_getmsgend(&input_message);
 				pq_flush(thrinfo->thr_conn->con_port);
@@ -1161,10 +1181,23 @@ ProcessCommand(Port *myport, StringInfo input_message)
 	myport->conn_id = proxyhdr.ph_conid;
 	mtype = pq_getmsgint(input_message, sizeof (GTM_MessageType));
 
+	/* 
+	 * The next line will have some overhead.  Better to be in
+	 * compile option.
+	 */
+#ifdef GTM_DEBUG
+	elog(DEBUG3, "mtype = %s (%d).", gtm_util_message_name(mtype), (int)mtype);
+#endif
+
 	switch (mtype)
 	{
+		case MSG_SYNC_STANDBY:
+			ProcessSyncStandbyCommand(myport, mtype, input_message);
+			break;
 		case MSG_NODE_REGISTER:
+		case MSG_BKUP_NODE_REGISTER:
 		case MSG_NODE_UNREGISTER:
+		case MSG_BKUP_NODE_UNREGISTER:
 		case MSG_NODE_LIST:
 			ProcessPGXCNodeCommand(myport, mtype, input_message);
 			break;
@@ -1176,17 +1209,29 @@ ProcessCommand(Port *myport, StringInfo input_message)
 		case MSG_NODE_BEGIN_REPLICATION_INIT:
 		case MSG_NODE_END_REPLICATION_INIT:
 		case MSG_TXN_BEGIN:
+		case MSG_BKUP_TXN_BEGIN:
 		case MSG_TXN_BEGIN_GETGXID:
+		case MSG_BKUP_TXN_BEGIN_GETGXID:
 		case MSG_TXN_BEGIN_GETGXID_AUTOVACUUM:
+		case MSG_BKUP_TXN_BEGIN_GETGXID_AUTOVACUUM:
 		case MSG_TXN_PREPARE:
+		case MSG_BKUP_TXN_PREPARE:
 		case MSG_TXN_START_PREPARED:
+		case MSG_BKUP_TXN_START_PREPARED:
 		case MSG_TXN_COMMIT:
+		case MSG_BKUP_TXN_COMMIT:
 		case MSG_TXN_COMMIT_PREPARED:
+		case MSG_BKUP_TXN_COMMIT_PREPARED:
 		case MSG_TXN_ROLLBACK:
+		case MSG_BKUP_TXN_ROLLBACK:
 		case MSG_TXN_GET_GXID:
+		case MSG_BKUP_TXN_GET_GXID:
 		case MSG_TXN_BEGIN_GETGXID_MULTI:
+		case MSG_BKUP_TXN_BEGIN_GETGXID_MULTI:
 		case MSG_TXN_COMMIT_MULTI:
+		case MSG_BKUP_TXN_COMMIT_MULTI:
 		case MSG_TXN_ROLLBACK_MULTI:
+		case MSG_BKUP_TXN_ROLLBACK_MULTI:
 		case MSG_TXN_GET_GID_DATA:
 		case MSG_TXN_GET_NEXT_GXID:
 		case MSG_TXN_GXID_LIST:
@@ -1200,14 +1245,21 @@ ProcessCommand(Port *myport, StringInfo input_message)
 			break;
 
 		case MSG_SEQUENCE_INIT:
+		case MSG_BKUP_SEQUENCE_INIT:
 		case MSG_SEQUENCE_GET_CURRENT:
 		case MSG_SEQUENCE_GET_NEXT:
+		case MSG_BKUP_SEQUENCE_GET_NEXT:
 		case MSG_SEQUENCE_GET_LAST:
 		case MSG_SEQUENCE_SET_VAL:
+		case MSG_BKUP_SEQUENCE_SET_VAL:
 		case MSG_SEQUENCE_RESET:
+		case MSG_BKUP_SEQUENCE_RESET:
 		case MSG_SEQUENCE_CLOSE:
+		case MSG_BKUP_SEQUENCE_CLOSE:
 		case MSG_SEQUENCE_RENAME:
+		case MSG_BKUP_SEQUENCE_RENAME:
 		case MSG_SEQUENCE_ALTER:
+		case MSG_BKUP_SEQUENCE_ALTER:
 		case MSG_SEQUENCE_LIST:
 			ProcessSequenceCommand(myport, mtype, input_message);
 			break;
@@ -1247,7 +1299,7 @@ GTMAddConnection(Port *port, GTM_Conn *standby)
 				 	errmsg("Out of memory")));
 		return STATUS_ERROR;
 	}
-		
+
 	elog(DEBUG3, "Started new connection");
 	conninfo->con_port = port;
 
@@ -1338,17 +1390,46 @@ ReadCommand(Port *myport, StringInfo inBuf)
 	return qtype;
 }
 
+/*
+ * Process MSG_SYNC_STANDBY message
+ */
+static void
+ProcessSyncStandbyCommand(Port *myport, GTM_MessageType mtype, StringInfo message)
+{
+	StringInfoData	buf;
+
+	pq_getmsgend(message);
+
+	pq_beginmessage(&buf, 'S');
+	pq_sendint(&buf, SYNC_STANDBY_RESULT, 4);
+	pq_endmessage(myport, &buf);
+	/* Sync standby first */
+	if (GetMyThreadInfo->thr_conn->standby)
+		gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
+	pq_flush(myport);
+}
+
+
+
 static void
 ProcessPGXCNodeCommand(Port *myport, GTM_MessageType mtype, StringInfo message)
 {
 	switch (mtype)
 	{
 		case MSG_NODE_REGISTER:
-			ProcessPGXCNodeRegister(myport, message);
+			ProcessPGXCNodeRegister(myport, message, false);
+			break;
+
+		case MSG_BKUP_NODE_REGISTER:
+			ProcessPGXCNodeRegister(myport, message, true);
 			break;
 
 		case MSG_NODE_UNREGISTER:
-			ProcessPGXCNodeUnregister(myport, message);
+			ProcessPGXCNodeUnregister(myport, message, false);
+			break;
+
+		case MSG_BKUP_NODE_UNREGISTER:
+			ProcessPGXCNodeUnregister(myport, message, true);
 			break;
 
 		case MSG_NODE_LIST:
@@ -1379,47 +1460,96 @@ ProcessTransactionCommand(Port *myport, GTM_MessageType mtype, StringInfo messag
 			ProcessBeginTransactionCommand(myport, message);
 			break;
 
+		case MSG_BKUP_TXN_BEGIN:
+			ProcessBkupBeginTransactionCommand(myport, message);
+			break;
+
 		case MSG_TXN_BEGIN_GETGXID:
 			ProcessBeginTransactionGetGXIDCommand(myport, message);
 			break;
 
+		case MSG_BKUP_TXN_BEGIN_GETGXID:
+			ProcessBkupBeginTransactionGetGXIDCommand(myport, message);
+
 		case MSG_TXN_BEGIN_GETGXID_AUTOVACUUM:
 			ProcessBeginTransactionGetGXIDAutovacuumCommand(myport, message);
+			break;
+
+		case MSG_BKUP_TXN_BEGIN_GETGXID_AUTOVACUUM:
+			ProcessBkupBeginTransactionGetGXIDAutovacuumCommand(myport, message);
 			break;
 
 		case MSG_TXN_BEGIN_GETGXID_MULTI:
 			ProcessBeginTransactionGetGXIDCommandMulti(myport, message);
 			break;
 
+		case MSG_BKUP_TXN_BEGIN_GETGXID_MULTI:
+			ProcessBkupBeginTransactionGetGXIDCommandMulti(myport, message);
+			break;
+
 		case MSG_TXN_START_PREPARED:
-			ProcessStartPreparedTransactionCommand(myport, message);
+			ProcessStartPreparedTransactionCommand(myport, message, false);
+			break;
+
+		case MSG_BKUP_TXN_START_PREPARED:
+			ProcessStartPreparedTransactionCommand(myport, message, true);
 			break;
 
 		case MSG_TXN_PREPARE:
-			ProcessPrepareTransactionCommand(myport, message);
+			ProcessPrepareTransactionCommand(myport, message, false);
+			break;
+
+		case MSG_BKUP_TXN_PREPARE:
+			ProcessPrepareTransactionCommand(myport, message, true);
 			break;
 
 		case MSG_TXN_COMMIT:
-			ProcessCommitTransactionCommand(myport, message);
+			ProcessCommitTransactionCommand(myport, message, false);
+			break;
+
+		case MSG_BKUP_TXN_COMMIT:
+			ProcessCommitTransactionCommand(myport, message, true);
 			break;
 
 		case MSG_TXN_COMMIT_PREPARED:
-			ProcessCommitPreparedTransactionCommand(myport, message);
+			ProcessCommitPreparedTransactionCommand(myport, message, false);
+			break;
+
+		case MSG_BKUP_TXN_COMMIT_PREPARED:
+			ProcessCommitPreparedTransactionCommand(myport, message, true);
 			break;
 
 		case MSG_TXN_ROLLBACK:
-			ProcessRollbackTransactionCommand(myport, message);
+			ProcessRollbackTransactionCommand(myport, message, false);
+			break;
+
+		case MSG_BKUP_TXN_ROLLBACK:
+			ProcessRollbackTransactionCommand(myport, message, true);
 			break;
 
 		case MSG_TXN_COMMIT_MULTI:
-			ProcessCommitTransactionCommandMulti(myport, message);
+			ProcessCommitTransactionCommandMulti(myport, message, false);
+			break;
+
+		case MSG_BKUP_TXN_COMMIT_MULTI:
+			ProcessCommitTransactionCommandMulti(myport, message, true);
 			break;
 
 		case MSG_TXN_ROLLBACK_MULTI:
-			ProcessRollbackTransactionCommandMulti(myport, message);
+			ProcessRollbackTransactionCommandMulti(myport, message, false);
+			break;
+
+		case MSG_BKUP_TXN_ROLLBACK_MULTI:
+			ProcessRollbackTransactionCommandMulti(myport, message, true);
 			break;
 
 		case MSG_TXN_GET_GXID:
+			/*
+			 * Notice: we don't have corresponding functions in gtm_client.c
+			 *
+			 * Because this function is not used, GTM-standby extension is not
+			 * included in this function.
+			 */
 			ProcessGetGXIDTransactionCommand(myport, message);
 			break;
 
@@ -1469,11 +1599,19 @@ ProcessSequenceCommand(Port *myport, GTM_MessageType mtype, StringInfo message)
 	switch (mtype)
 	{
 		case MSG_SEQUENCE_INIT:
-			ProcessSequenceInitCommand(myport, message);
+			ProcessSequenceInitCommand(myport, message, false);
+			break;
+
+		case MSG_BKUP_SEQUENCE_INIT:
+			ProcessSequenceInitCommand(myport, message, true);
 			break;
 
 		case MSG_SEQUENCE_ALTER:
-			ProcessSequenceAlterCommand(myport, message);
+			ProcessSequenceAlterCommand(myport, message, false);
+			break;
+
+		case MSG_BKUP_SEQUENCE_ALTER:
+			ProcessSequenceAlterCommand(myport, message, true);
 			break;
 
 		case MSG_SEQUENCE_GET_CURRENT:
@@ -1481,23 +1619,43 @@ ProcessSequenceCommand(Port *myport, GTM_MessageType mtype, StringInfo message)
 			break;
 
 		case MSG_SEQUENCE_GET_NEXT:
-			ProcessSequenceGetNextCommand(myport, message);
+			ProcessSequenceGetNextCommand(myport, message, false);
+			break;
+
+		case MSG_BKUP_SEQUENCE_GET_NEXT:
+			ProcessSequenceGetNextCommand(myport, message, true);
 			break;
 
 		case MSG_SEQUENCE_SET_VAL:
-			ProcessSequenceSetValCommand(myport, message);
+			ProcessSequenceSetValCommand(myport, message, false);
+			break;
+
+		case MSG_BKUP_SEQUENCE_SET_VAL:
+			ProcessSequenceSetValCommand(myport, message, true);
 			break;
 
 		case MSG_SEQUENCE_RESET:
-			ProcessSequenceResetCommand(myport, message);
+			ProcessSequenceResetCommand(myport, message, false);
+			break;
+
+		case MSG_BKUP_SEQUENCE_RESET:
+			ProcessSequenceResetCommand(myport, message, true);
 			break;
 
 		case MSG_SEQUENCE_CLOSE:
-			ProcessSequenceCloseCommand(myport, message);
+			ProcessSequenceCloseCommand(myport, message, false);
+			break;
+
+		case MSG_BKUP_SEQUENCE_CLOSE:
+			ProcessSequenceCloseCommand(myport, message, true);
 			break;
 
 		case MSG_SEQUENCE_RENAME:
-			ProcessSequenceRenameCommand(myport, message);
+			ProcessSequenceRenameCommand(myport, message, false);
+			break;
+
+		case MSG_BKUP_SEQUENCE_RENAME:
+			ProcessSequenceRenameCommand(myport, message, true);
 			break;
 
 		case MSG_SEQUENCE_LIST:

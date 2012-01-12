@@ -443,6 +443,10 @@ ProcessGetSnapshotCommandMulti(Port *myport, StringInfo message)
 	if (myport->remote_type != GTM_NODE_GTM_PROXY)
 		pq_flush(myport);
 
+#if 0
+	/* Do not need this portion because this command does not change
+	 * internal status.
+	 */
 	if (GetMyThreadInfo->thr_conn->standby)
 	{
 		int _rc;
@@ -468,6 +472,7 @@ retry:
 
 		elog(LOG, "snapshot_get_multi() rc=%d done.", _rc);
 	}
+#endif
 
 	return;
 }
