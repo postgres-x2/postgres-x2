@@ -501,10 +501,10 @@ $ <userinput>gtm_ctl start -S gtm_proxy -i 1 -D /usr/local/pgsql/gtm_proxy -i 1 
   </varlistentry>
 
   <varlistentry>
-   <term>pgxc_node_id</term>
+   <term>pgxc_node_name</term>
    <listitem>
     <para>
-     <filename>GTM</> need to identify each datanode, as specified by
+     <filename>GTM</> needs to identify each datanode, as specified by
      this parameter.
      The value should be unique and start with one.
     </para>
@@ -579,14 +579,11 @@ $ <userinput>gtm_ctl start -S gtm_proxy -i 1 -D /usr/local/pgsql/gtm_proxy -i 1 
   </varlistentry>
 
   <varlistentry>
-   <term>pgxc_node_id</term>
+   <term>pgxc_node_name</term>
    <listitem>
     <para>
-     <filename>GTM</> need to identify each datanode, as specified by
+     <filename>GTM</> needs to identify each datanode, as specified by
      this parameter.
-     The value should be unique and start with one.
-	 Please note that coordinator's ID is separate from datanode ID.
-	 This value should be unique only among the coordinators.
     </para>
    </listitem>
   </varlistentry>
