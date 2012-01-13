@@ -133,3 +133,4 @@ test: xc_groupby
 test: xc_distkey
 test: xc_having
 test: xc_temp
+test: xc_remote

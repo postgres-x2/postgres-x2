@@ -31,8 +31,10 @@
 #ifdef PGXC
 #include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
+#include "pgxc/postgresql_fdw.h"
 #include "nodes/nodes.h"
 #include "optimizer/planner.h"
+#include "optimizer/var.h"
 #include "tcop/tcopprot.h"
 #include "tcop/utility.h"
 #endif
@@ -1173,6 +1175,43 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 	Var		   *var;
 	const char *attrname;
 	TargetEntry *tle;
+
+#ifdef PGXC
+	List *var_list = NIL;
+	ListCell *elt;
+
+	/*
+	 * In Postgres-XC, we need to evaluate quals of the parse tree and determine
+	 * if they are Coordinator quals. If they are, their attribute need to be
+	 * added to target list for evaluation. In case some are found, add them as
+	 * junks in the target list. The junk status will be used by remote UPDATE
+	 * planning to associate correct element to a clause.
+	 * For DELETE, having such columns in target list helps to evaluate Quals
+	 * correctly on Coordinator.
+	 * PGXCTODO: This list could be reduced to keep only in target list the
+	 * vars using Coordinator Quals.
+	 */
+	if (IS_PGXC_COORDINATOR && parsetree->jointree)
+		var_list = pull_var_clause((Node *) parsetree->jointree, PVC_REJECT_PLACEHOLDERS);
+
+	foreach(elt, var_list)
+	{
+		Form_pg_attribute att_tup;
+		int numattrs = RelationGetNumberOfAttributes(target_relation);
+
+		var = (Var *) lfirst(elt);
+		/* Bypass in case of extra target items like ctid */
+		if (var->varattno < 1 || var->varattno > numattrs)
+			continue;
+
+		att_tup = target_relation->rd_att->attrs[var->varattno - 1];
+		tle = makeTargetEntry((Expr *) var,
+							  list_length(parsetree->targetList) + 1,
+							  pstrdup(NameStr(att_tup->attname)),
+							  true);
+		parsetree->targetList = lappend(parsetree->targetList, tle);
+	}
+#endif
 
 	if (target_relation->rd_rel->relkind == RELKIND_RELATION)
 	{

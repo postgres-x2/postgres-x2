@@ -337,8 +337,8 @@ IsHashColumnForRelId(Oid relid, char *part_col_name)
 bool
 IsDistColumnForRelId(Oid relid, char *part_col_name)
 {
-bool bRet;
-RelationLocInfo *rel_loc_info;
+	bool bRet;
+	RelationLocInfo *rel_loc_info;
 
 	rel_loc_info = GetRelationLocInfo(relid);
 	bRet = false;
