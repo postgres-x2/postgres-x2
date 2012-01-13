@@ -14711,44 +14711,20 @@ postgres=# SELECT * FROM pg_xlogfile_name_offset(pg_stop_backup());
         <literal><function>pg_relation_size(<parameter>relation</parameter> <type>regclass</type>, <parameter>fork</parameter> <type>text</type>)</function></literal>
         </entry>
        <entry><type>bigint</type></entry>
-<!## PG>
        <entry>
         Disk space used by the specified fork (<literal>'main'</literal>,
         <literal>'fsm'</literal> or <literal>'vm'</>)
         of the specified table or index
        </entry>
-<!## end>
-<!## XC>
-<!-- NOTICE:
-     Does not work correctly.
--->
-       <entry>
-        Disk space used by the specified fork (<literal>'main'</literal>,
-        <literal>'fsm'</literal> or <literal>'vm'</>)
-        of the table or index with the specified OID or name.
-        At present, does not work correctly (Postgres-XC).
-       </entry>
-<!## end>
       </row>
       <row>
        <entry>
         <literal><function>pg_relation_size(<parameter>relation</parameter> <type>regclass</type>)</function></literal>
         </entry>
        <entry><type>bigint</type></entry>
-<!## PG>
        <entry>
         Shorthand for <literal>pg_relation_size(..., 'main')</literal>
        </entry>
-<!## end>
-<!## XC>
-<!-- NOTICE:
-     Does not work correctly.
--->
-        <entry>
-         Shorthand for <literal>pg_relation_size(..., 'main')</literal>
-         At present, does not work correctly (Postgres-XC).
-        </entry>
-<!## end>
       </row>
       <row>
        <entry>
@@ -14776,7 +14752,7 @@ postgres=# SELECT * FROM pg_xlogfile_name_offset(pg_stop_backup());
        <entry>Disk space used by the tablespace with the specified OID</entry>
 <!## end>
 <!## XC>
-       <entry>Disk space used by the tablespace with the specified OID.  Testing now (Postgres-XC)</entry>
+       <entry>Disk space used by the tablespace with the specified OID. (Postgres-XC: Not supported yet)</entry>
 <!## end>
       </row>
       <row>
@@ -14867,9 +14843,16 @@ postgres=# SELECT * FROM pg_xlogfile_name_offset(pg_stop_backup());
 <!## XC>
 &xconly;
    <para>
-    Please note that these functions works just locally.  To issue
-    these functions to another coordinators or datanodes, you should
-    issue these functions through <type>EXECUTE DIRECT</> statement.
+    The object size functions pg_database_size, pg_indexes_size, pg_relation_size,
+    pg_table_size, and pg_total_relation_size return the cumulative size
+    from all the data nodes. For e.g., pg_relation_size returns the sum of disk
+    space used up by the specified fork at all the data nodes where the table is
+    distributed or replicated. If the table is replicated on 3 tables, the size
+    will be  3 times that of individual nodes. If you need to retrieve the local
+    results from a particular coordinator or data node, you should issue these
+    function calls explicitly through <type>EXECUTE DIRECT</> statement. All other
+    system functions run locally at the coordinator, unless explicitly specified
+    otherwise in this document.
    </para>
 <!## end>
 

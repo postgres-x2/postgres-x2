@@ -2311,4 +2311,3 @@ PGXCNodeGetNodeIdFromName(char *node_name, char node_type)
 
 	return PGXCNodeGetNodeId(nodeoid, node_type);
 }
-
