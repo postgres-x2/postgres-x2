@@ -240,8 +240,7 @@ SELECT '' AS four, * FROM INSERT_TBL order by x,y,z;
       | 6 | try again     | -6
       | 7 | try again     | -7
       |   | try again     |   
-      |   | try again     |   
-(6 rows)
+(5 rows)
 
 DROP TABLE tmp;
 --
@@ -263,8 +262,7 @@ SELECT * FROM INSERT_TBL order by x,y,z;
  6 | try again     | -6
  7 | try again     | -7
    | try again     |   
-   | try again     |   
-(6 rows)
+(5 rows)
 
 -- DROP TABLE INSERT_TBL;
 --

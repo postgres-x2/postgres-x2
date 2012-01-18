@@ -1786,8 +1786,12 @@ CopyTo(CopyState cstate)
 #ifdef PGXC
 	if (IS_PGXC_COORDINATOR && cstate->rel_loc)
 	{
+		/*
+		 * We don't know the value of the distribution column value, so need to
+		 * read from all nodes. Hence indicate that the value is NULL.
+		 */
 		processed = DataNodeCopyOut(
-				GetRelationNodes(cstate->rel_loc, 0, UNKNOWNOID, RELATION_ACCESS_READ),
+				GetRelationNodes(cstate->rel_loc, 0, true, UNKNOWNOID, RELATION_ACCESS_READ),
 				cstate->connections,
 				cstate->copy_file);
 	}
@@ -2213,18 +2217,28 @@ CopyFrom(CopyState cstate)
 		{
 			Form_pg_attribute *attr = tupDesc->attrs;
 			Datum	dist_col_value;
-			Oid	dist_col_type = UNKNOWNOID;
+			bool	dist_col_is_null;
+			Oid		dist_col_type;
 
-			if (cstate->idx_dist_by_col >= 0 && !nulls[cstate->idx_dist_by_col])
+			if (cstate->idx_dist_by_col >= 0)
 			{
 				dist_col_value = values[cstate->idx_dist_by_col];
+				dist_col_is_null =  nulls[cstate->idx_dist_by_col];
 				dist_col_type = attr[cstate->idx_dist_by_col]->atttypid;
+			}
+			else
+			{
+				/* We really don't care, since the table is not distributed */
+				dist_col_value = (Datum) 0;
+				dist_col_is_null = true;
+				dist_col_type = UNKNOWNOID;
 			}
 
 			if (DataNodeCopyIn(cstate->line_buf.data,
 					       cstate->line_buf.len,
 						   GetRelationNodes(cstate->rel_loc,
 											dist_col_value,
+											dist_col_is_null,
 											dist_col_type,
 											RELATION_ACCESS_INSERT),
 						   cstate->connections))

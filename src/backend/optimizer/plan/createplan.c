@@ -2545,6 +2545,8 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	deparse_query(query, &sql, NIL);
 
 	rel_loc_info = GetRelationLocInfo(rte->relid);
+	if (!rel_loc_info)
+		elog(ERROR, "No distribution information found for relid %d", rte->relid);
 	scan_plan = make_remotequery(tlist, local_scan_clauses, scan_relid);
 	scan_plan->sql_statement = sql.data;
 	/*
@@ -2552,17 +2554,18 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	 * This is still basic, and was done to make sure we do not select
 	 * a replicated table from all nodes.
 	 * It does not take into account conditions on partitioned relations
-	 * that could reduce to one node. To do that, we need to move general
-	 * planning earlier.
+	 * that could reduce to the number of nodes. So, pass a NULL value for
+	 * distribution column, so that all the nodes are returned.
 	 */
-	scan_plan->exec_nodes = makeNode(ExecNodes);
+
+	scan_plan->exec_nodes = GetRelationNodes(rel_loc_info, 0, true, UNKNOWNOID,
+												RELATION_ACCESS_READ);
+	Assert(scan_plan->exec_nodes);
 	scan_plan->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
 	if (rel_loc_info)
 		scan_plan->exec_nodes->baselocatortype = rel_loc_info->locatorType;
 	else
 		scan_plan->exec_nodes->baselocatortype = '\0';
-
-	scan_plan->exec_nodes = GetRelationNodes(rel_loc_info, 0, UNKNOWNOID, RELATION_ACCESS_READ);
 	copy_path_costsize(&scan_plan->scan.plan, best_path);
 
 	/* PGXCTODO - get better estimates */
@@ -5612,8 +5615,12 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		fstep->combine_type = COMBINE_TYPE_NONE;
 
 		fstep->read_only = false;
-		fstep->exec_nodes = makeNode(ExecNodes);
-		fstep->exec_nodes = GetRelationNodes(rel_loc_info, 0, UNKNOWNOID, RELATION_ACCESS_UPDATE);
+		/*
+		 * Get the nodes to execute the query on. We will execute this query on
+		 * all nodes. The WHERE condition will take care of updating the columns
+		 * accordingly.
+		 */
+		fstep->exec_nodes = GetRelationNodes(rel_loc_info, 0, true, UNKNOWNOID, RELATION_ACCESS_UPDATE);
 		fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
 		fstep->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
 		fstep->exec_nodes->en_relid = ttab->relid;
@@ -5730,8 +5737,13 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		fstep->combine_type = COMBINE_TYPE_NONE;
 
 		fstep->read_only = false;
-		fstep->exec_nodes = makeNode(ExecNodes);
-		fstep->exec_nodes = GetRelationNodes(rel_loc_info, 0, UNKNOWNOID, RELATION_ACCESS_UPDATE);
+		/*
+		 * Get the nodes to execute the query on. We will execute this query on
+		 * all nodes. The WHERE condition will take care of updating the columns
+		 * accordingly.
+		 */
+		fstep->exec_nodes = GetRelationNodes(rel_loc_info, 0, true, UNKNOWNOID,
+												RELATION_ACCESS_UPDATE);
 		fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
 		fstep->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
 		fstep->exec_nodes->en_relid = ttab->relid;

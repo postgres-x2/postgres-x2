@@ -68,6 +68,7 @@ typedef struct
 	char		*col_name;
 	Datum		constValue;
 	Oid		constType;
+	bool	constisnull;
 } Literal_Comparison;
 
 /*
@@ -668,7 +669,8 @@ get_plan_nodes_insert(PlannerInfo *root, RemoteQuery *step)
 		if (!lc)
 		{
 			/* Skip rest, handle NULL */
-			step->exec_nodes = GetRelationNodes(rel_loc_info, 0, UNKNOWNOID, RELATION_ACCESS_INSERT);
+			step->exec_nodes = GetRelationNodes(rel_loc_info, 0, true, UNKNOWNOID,
+													RELATION_ACCESS_INSERT);
 			return;
 		}
 
@@ -750,9 +752,13 @@ get_plan_nodes_insert(PlannerInfo *root, RemoteQuery *step)
 		}
 	}
 	if (constExpr == NULL)
-		step->exec_nodes = GetRelationNodes(rel_loc_info, 0, InvalidOid, RELATION_ACCESS_INSERT);
+		step->exec_nodes = GetRelationNodes(rel_loc_info, 0, true, InvalidOid,
+												RELATION_ACCESS_INSERT);
 	else
-		step->exec_nodes = GetRelationNodes(rel_loc_info, constExpr->constvalue, constExpr->consttype, RELATION_ACCESS_INSERT);
+		step->exec_nodes = GetRelationNodes(rel_loc_info, constExpr->constvalue,
+											constExpr->constisnull,
+											constExpr->consttype,
+											RELATION_ACCESS_INSERT);
 
 	if (eval_expr)
 		pfree(eval_expr);
@@ -1304,6 +1310,7 @@ examine_conditions_walker(Node *expr_node, XCWalkerContext *context)
 						lit_comp->col_name = column_base->colname;
 						lit_comp->constValue = constant->constvalue;
 						lit_comp->constType = constant->consttype;
+						lit_comp->constisnull = constant->constisnull;
 
 						context->conditions->partitioned_literal_comps = lappend(
 									   context->conditions->partitioned_literal_comps,
@@ -2113,7 +2120,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 			rel_loc_info->locatorType != LOCATOR_TYPE_MODULO)
 		{
 			/* do not need to determine partitioning expression */
-			context->query_step->exec_nodes = GetRelationNodes(rel_loc_info, 0, UNKNOWNOID, context->accessType);
+			context->query_step->exec_nodes = GetRelationNodes(rel_loc_info, 0, true, UNKNOWNOID, context->accessType);
 		}
 
 		/* Note replicated table usage for determining safe queries */
@@ -2225,6 +2232,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 			test_exec_nodes = GetRelationNodes(lit_comp->rel_loc_info,
 											   lit_comp->constValue,
 											   lit_comp->constType,
+											   lit_comp->constisnull,
 											   RELATION_ACCESS_READ);
 
 			test_exec_nodes->tableusagetype = table_usage_type;
@@ -2254,6 +2262,7 @@ get_plan_nodes_walker(Node *query_node, XCWalkerContext *context)
 
 		context->query_step->exec_nodes = GetRelationNodes(parent_child->rel_loc_info1,
 														   0,
+														   true,
 														   UNKNOWNOID,
 														   context->accessType);
 		context->query_step->exec_nodes->tableusagetype = table_usage_type;
@@ -3747,6 +3756,7 @@ GetHashExecNodes(RelationLocInfo *rel_loc_info, ExecNodes **exec_nodes, const Ex
 	*exec_nodes = GetRelationNodes(rel_loc_info,
 								   constant->constvalue,
 								   constant->consttype,
+								   constant->constisnull,
 								   RELATION_ACCESS_INSERT);
 	if (eval_expr)
 		pfree(eval_expr);

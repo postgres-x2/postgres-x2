@@ -3089,28 +3089,26 @@ get_exec_connections(RemoteQueryState *planstate,
 											   planstate->ss.ps.ps_ExprContext,
 											   &isnull,
 											   NULL);
-				if (!isnull)
+				RelationLocInfo *rel_loc_info = GetRelationLocInfo(exec_nodes->en_relid);
+				/* PGXCTODO what is the type of partvalue here */
+				ExecNodes *nodes = GetRelationNodes(rel_loc_info,
+													partvalue,
+													isnull,
+													exprType((Node *) exec_nodes->en_expr),
+													exec_nodes->accesstype);
+				if (nodes)
 				{
-					RelationLocInfo *rel_loc_info = GetRelationLocInfo(exec_nodes->en_relid);
-					/* PGXCTODO what is the type of partvalue here */
-					ExecNodes *nodes = GetRelationNodes(rel_loc_info,
-														partvalue,
-														exprType((Node *) exec_nodes->en_expr),
-														exec_nodes->accesstype);
-					if (nodes)
-					{
-						nodelist = nodes->nodeList;
-						primarynode = nodes->primarynodelist;
-						pfree(nodes);
-					}
-					FreeRelationLocInfo(rel_loc_info);
+					nodelist = nodes->nodeList;
+					primarynode = nodes->primarynodelist;
+					pfree(nodes);
 				}
+				FreeRelationLocInfo(rel_loc_info);
 			}
 		}
 		else if (OidIsValid(exec_nodes->en_relid))
 		{
 			RelationLocInfo *rel_loc_info = GetRelationLocInfo(exec_nodes->en_relid);
-			ExecNodes *nodes = GetRelationNodes(rel_loc_info, 0, InvalidOid, exec_nodes->accesstype);
+			ExecNodes *nodes = GetRelationNodes(rel_loc_info, 0, true, InvalidOid, exec_nodes->accesstype);
 
 			/* Use the obtained list for given table */
 			if (nodes)

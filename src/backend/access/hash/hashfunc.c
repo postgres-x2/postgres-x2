@@ -535,23 +535,13 @@ hash_uint32(uint32 k)
  *
  */
 Datum
-compute_hash(Oid type, Datum value, int *pErr, char locator)
+compute_hash(Oid type, Datum value, char locator)
 {
 	int16	tmp16;
 	int32	tmp32;
 	int64	tmp64;
 	Oid		tmpoid;
 	char	tmpch;
-
-	Assert(pErr);
-
-	*pErr = 0;
-
-	if (!value && type != BOOLOID)
-	{
-		*pErr = 1;
-		return 0;
-	}
 
 	switch (type)
 	{
@@ -639,8 +629,7 @@ compute_hash(Oid type, Datum value, int *pErr, char locator)
 		case NUMERICOID:
 			return DirectFunctionCall1(hash_numeric, value);
 		default:
-			*pErr = 1;
-			return 0;
+			ereport(ERROR,(errmsg("Unhandled datatype for modulo or hash distribution\n")));
 	}
 }
 

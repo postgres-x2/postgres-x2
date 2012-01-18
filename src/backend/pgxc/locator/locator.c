@@ -516,11 +516,12 @@ IsTableDistOnPrimary(RelationLocInfo *rel_loc_info)
  * The returned List is a copy, so it should be freed when finished.
  */
 ExecNodes *
-GetRelationNodes(RelationLocInfo *rel_loc_info, Datum valueForDistCol, Oid typeOfValueForDistCol, RelationAccessType accessType)
+GetRelationNodes(RelationLocInfo *rel_loc_info, Datum valueForDistCol,
+				bool isValueNull, Oid typeOfValueForDistCol,
+				RelationAccessType accessType)
 {
 	ExecNodes	*exec_nodes;
 	long		hashValue;
-	int		nError;
 	int		modulo;
 	int		nodeIndex;
 	int		k;
@@ -603,21 +604,22 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, Datum valueForDistCol, Oid typeO
 
 		case LOCATOR_TYPE_HASH:
 		case LOCATOR_TYPE_MODULO:
-			hashValue = compute_hash(typeOfValueForDistCol, valueForDistCol,
-									 &nError, rel_loc_info->locatorType);
-			if (nError == 0)
+			if (!isValueNull)
 			{
+				hashValue = compute_hash(typeOfValueForDistCol, valueForDistCol,
+										 rel_loc_info->locatorType);
 				modulo = compute_modulo(abs(hashValue), list_length(rel_loc_info->nodeList));
 				nodeIndex = get_node_from_modulo(modulo, rel_loc_info->nodeList);
 				exec_nodes->nodeList = lappend_int(NULL, nodeIndex);
 			}
 			else
+			{
 				if (accessType == RELATION_ACCESS_INSERT)
 					/* Insert NULL to first node*/
 					exec_nodes->nodeList = lappend_int(NULL, linitial_int(rel_loc_info->nodeList));
 				else
 					exec_nodes->nodeList = list_concat(exec_nodes->nodeList, rel_loc_info->nodeList);
-
+			}
 			break;
 
 		case LOCATOR_TYPE_SINGLE:
