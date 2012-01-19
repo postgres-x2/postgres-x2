@@ -557,6 +557,15 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, Datum valueForDistCol,
 			}
 			else
 			{
+				/*
+				 * In case there are nodes defined in location info, initialize node list
+				 * with a default node being the first node in list.
+				 * This node list may be changed if a better one is found afterwards.
+				 */
+				if (rel_loc_info->nodeList)
+					exec_nodes->nodeList = lappend_int(NULL,
+													   linitial_int(rel_loc_info->nodeList));
+
 				if (accessType == RELATION_ACCESS_READ_FOR_UPDATE &&
 					IsTableDistOnPrimary(rel_loc_info))
 				{
@@ -568,7 +577,7 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, Datum valueForDistCol,
 					exec_nodes->nodeList = lappend_int(NULL,
 						   PGXCNodeGetNodeId(primary_data_node, PGXC_NODE_DATANODE));
 				}
-				else if (num_preferred_data_nodes >= 0)
+				else if (num_preferred_data_nodes > 0)
 				{
 					ListCell *item;
 
@@ -587,15 +596,7 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, Datum valueForDistCol,
 					}
 				}
 
-				/*
-				 * In case there are nodes defined here,
-				 * Enforce the use of one.
-				 */
-				if (rel_loc_info->nodeList)
-					exec_nodes->nodeList = lappend_int(NULL,
-													   linitial_int(rel_loc_info->nodeList));
-
-				/* read from just one of them. Use round robin mechanism */
+				/* If nothing found just read from one of them. Use round robin mechanism */
 				if (exec_nodes->nodeList == NULL)
 					exec_nodes->nodeList = lappend_int(NULL,
 													   GetRoundRobinNode(rel_loc_info->relid));
