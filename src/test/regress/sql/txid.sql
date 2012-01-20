@@ -25,7 +25,7 @@ select snap from snapshot_test order by nr;
 select  txid_snapshot_xmin(snap),
 	txid_snapshot_xmax(snap),
 	txid_snapshot_xip(snap)
-from snapshot_test order by nr;
+from snapshot_test order by nr, 1, 2, 3;
 
 select id, txid_visible_in_snapshot(id, snap)
 from snapshot_test, generate_series(11, 21) id

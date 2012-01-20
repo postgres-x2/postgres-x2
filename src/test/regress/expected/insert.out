@@ -50,33 +50,33 @@ select * from inserttest;
 --
 insert into inserttest values(10, 20, '40'), (-1, 2, DEFAULT),
     ((select 2), (select i from (values(3)) as foo (i)), 'values are fun!');
-select * from inserttest;
+select * from inserttest order by 1,2,3;
  col1 | col2 |      col3       
 ------+------+-----------------
-      |    3 | testing
-      |    5 | testing
-      |    5 | test
-      |    7 | testing
-   10 |   20 | 40
    -1 |    2 | testing
     2 |    3 | values are fun!
+   10 |   20 | 40
+      |    3 | testing
+      |    5 | test
+      |    5 | testing
+      |    7 | testing
 (7 rows)
 
 --
 -- TOASTed value test
 --
 insert into inserttest values(30, 50, repeat('x', 10000));
-select col1, col2, char_length(col3) from inserttest;
+select col1, col2, char_length(col3) from inserttest order by 1,2,3;
  col1 | col2 | char_length 
 ------+------+-------------
-      |    3 |           7
-      |    5 |           7
-      |    5 |           4
-      |    7 |           7
-   10 |   20 |           2
    -1 |    2 |           7
     2 |    3 |          15
+   10 |   20 |           2
    30 |   50 |       10000
+      |    3 |           7
+      |    5 |           4
+      |    5 |           7
+      |    7 |           7
 (8 rows)
 
 drop table inserttest;
