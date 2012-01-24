@@ -19,6 +19,8 @@
 
 #include "nodes/parsenodes.h"
 
+#define PGXC_NODENAME_LENGTH	64
+
 /* Global number of nodes */
 extern int  NumDataNodes;
 extern int  NumCoords;

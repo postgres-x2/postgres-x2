@@ -312,6 +312,13 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 				 errmsg("PGXC Node %s: object already defined",
 						node_name)));
 
+	/* Check length of node name */
+	if (strlen(node_name) > PGXC_NODENAME_LENGTH)
+		ereport(ERROR,
+                (errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+                 errmsg("Node name \"%s\" is too long",
+                        node_name)));
+
 	/* Filter options */
 	check_options(stmt->options, &dhost,
 				&dport, &dtype,

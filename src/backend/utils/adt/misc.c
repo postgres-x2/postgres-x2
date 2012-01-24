@@ -33,6 +33,9 @@
 #include "storage/procarray.h"
 #include "utils/builtins.h"
 #include "tcop/tcopprot.h"
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#endif
 
 #define atooid(x)  ((Oid) strtoul((x), NULL, 10))
 
@@ -186,8 +189,15 @@ pg_tablespace_databases(PG_FUNCTION_ARGS)
 		/*
 		 * size = tablespace dirname length + dir sep char + oid + terminator
 		 */
+#ifdef PGXC
+		/* Postgres-XC tablespaces also include node name in path */
+		fctx->location = (char *) palloc(9 + 1 + OIDCHARS + 1 +
+										 strlen(PGXCNodeName) + 1 +
+								   strlen(TABLESPACE_VERSION_DIRECTORY) + 1);
+#else
 		fctx->location = (char *) palloc(9 + 1 + OIDCHARS + 1 +
 								   strlen(TABLESPACE_VERSION_DIRECTORY) + 1);
+#endif
 		if (tablespaceOid == GLOBALTABLESPACE_OID)
 		{
 			fctx->dirdesc = NULL;
@@ -199,8 +209,14 @@ pg_tablespace_databases(PG_FUNCTION_ARGS)
 			if (tablespaceOid == DEFAULTTABLESPACE_OID)
 				sprintf(fctx->location, "base");
 			else
+#ifdef PGXC
+				/* Postgres-XC tablespaces also include node name in path */
+				sprintf(fctx->location, "pg_tblspc/%u/%s_%s", tablespaceOid,
+						TABLESPACE_VERSION_DIRECTORY, PGXCNodeName);
+#else
 				sprintf(fctx->location, "pg_tblspc/%u/%s", tablespaceOid,
 						TABLESPACE_VERSION_DIRECTORY);
+#endif
 
 			fctx->dirdesc = AllocateDir(fctx->location);
 

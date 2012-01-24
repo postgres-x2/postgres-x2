@@ -112,9 +112,9 @@ CREATE TABLESPACE <replaceable class="parameter">tablespace_name</replaceable> [
 &xconly;
    <para>
     <productname>Postgres-XC</> assigns the same path to a tablespace
-    for all the coordinators and datanodes.  If you run these
-    components on the same server or VM, there could be serious
-    conflict on the file names.
+    for all the coordinators and datanodes.  So when creating a tablespace,
+    user needs to have permission to the same location path on all the servers
+    involved in the cluster.
    </para>
 <!## end>
  </refsect1>

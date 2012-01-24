@@ -22,6 +22,9 @@
 #include "storage/reinit.h"
 #include "utils/hsearch.h"
 #include "utils/memutils.h"
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#endif
 
 static void ResetUnloggedRelationsInTablespaceDir(const char *tsdirname,
 									  int op);
@@ -86,8 +89,14 @@ ResetUnloggedRelations(int op)
 			strcmp(spc_de->d_name, "..") == 0)
 			continue;
 
+#ifdef PGXC
+		/* Postgres-XC tablespaces include the node name in path */
+		snprintf(temp_path, sizeof(temp_path), "pg_tblspc/%s/%s_%s",
+				 spc_de->d_name, TABLESPACE_VERSION_DIRECTORY, PGXCNodeName);
+#else
 		snprintf(temp_path, sizeof(temp_path), "pg_tblspc/%s/%s",
 				 spc_de->d_name, TABLESPACE_VERSION_DIRECTORY);
+#endif
 		ResetUnloggedRelationsInTablespaceDir(temp_path, op);
 	}
 

@@ -78,6 +78,10 @@
 #include "utils/rel.h"
 #include "utils/syscache.h"
 #include "utils/tqual.h"
+#ifdef PGXC
+#include "pgxc/nodemgr.h"
+#include "pgxc/pgxc.h"
+#endif
 
 
 /* GUC variables */
@@ -277,6 +281,14 @@ CreateTableSpace(CreateTableSpaceStmt *stmt)
 	 * whole path, but mkdir() uses the first two parts.
 	 */
 	if (strlen(location) + 1 + strlen(TABLESPACE_VERSION_DIRECTORY) + 1 +
+#ifdef PGXC
+		/*
+		 * In Postgres-XC, node name is added in the tablespace folder name to
+		 * insure unique names for nodes sharing the same server.
+		 * So real format is PG_XXX_<nodename>/<dboid>/<relid>.<nnn>''
+		 */
+		strlen(PGXCNodeName) + 1 +
+#endif
 		OIDCHARS + 1 + OIDCHARS + 1 + OIDCHARS > MAXPGPATH)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
@@ -541,12 +553,29 @@ static void
 create_tablespace_directories(const char *location, const Oid tablespaceoid)
 {
 	char	   *linkloc = palloc(OIDCHARS + OIDCHARS + 1);
+#ifdef PGXC
+	char	   *location_with_version_dir = palloc(strlen(location) + 1 +
+								   strlen(TABLESPACE_VERSION_DIRECTORY) + 1 +
+												   PGXC_NODENAME_LENGTH + 1);
+#else
 	char	   *location_with_version_dir = palloc(strlen(location) + 1 +
 								   strlen(TABLESPACE_VERSION_DIRECTORY) + 1);
+#endif
 
 	sprintf(linkloc, "pg_tblspc/%u", tablespaceoid);
+#ifdef PGXC
+	/*
+	 * In Postgres-XC a suffix based on node name is added at the end
+	 * of TABLESPACE_VERSION_DIRECTORY. Node name unicity in Postgres-XC
+	 * cluster insures unicity of tablespace.
+	 */
+	sprintf(location_with_version_dir, "%s/%s_%s", location,
+			TABLESPACE_VERSION_DIRECTORY,
+			PGXCNodeName);
+#else
 	sprintf(location_with_version_dir, "%s/%s", location,
 			TABLESPACE_VERSION_DIRECTORY);
+#endif
 
 	/*
 	 * Attempt to coerce target directory to safe permissions.	If this fails,
@@ -647,10 +676,19 @@ destroy_tablespace_directories(Oid tablespaceoid, bool redo)
 	char	   *subfile;
 	struct stat st;
 
+#ifdef PGXC
+	linkloc_with_version_dir = palloc(9 + 1 + OIDCHARS + 1 +
+									  strlen(PGXCNodeName) + 1 +
+									  strlen(TABLESPACE_VERSION_DIRECTORY));
+	sprintf(linkloc_with_version_dir, "pg_tblspc/%u/%s_%s", tablespaceoid,
+			TABLESPACE_VERSION_DIRECTORY,
+			PGXCNodeName);
+#else
 	linkloc_with_version_dir = palloc(9 + 1 + OIDCHARS + 1 +
 									  strlen(TABLESPACE_VERSION_DIRECTORY));
 	sprintf(linkloc_with_version_dir, "pg_tblspc/%u/%s", tablespaceoid,
 			TABLESPACE_VERSION_DIRECTORY);
+#endif
 
 	/*
 	 * Check if the tablespace still contains any files.  We try to rmdir each

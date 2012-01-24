@@ -136,8 +136,14 @@ calculate_database_size(Oid dbOid)
 			strcmp(direntry->d_name, "..") == 0)
 			continue;
 
+#ifdef PGXC
+		/* Postgres-XC tablespaces include node name in path */
+		snprintf(pathname, MAXPGPATH, "pg_tblspc/%s/%s_%s/%u",
+				 direntry->d_name, TABLESPACE_VERSION_DIRECTORY, PGXCNodeName, dbOid);
+#else
 		snprintf(pathname, MAXPGPATH, "pg_tblspc/%s/%s/%u",
 				 direntry->d_name, TABLESPACE_VERSION_DIRECTORY, dbOid);
+#endif
 		totalsize += db_dir_size(pathname);
 	}
 
@@ -211,8 +217,14 @@ calculate_tablespace_size(Oid tblspcOid)
 	else if (tblspcOid == GLOBALTABLESPACE_OID)
 		snprintf(tblspcPath, MAXPGPATH, "global");
 	else
+#ifdef PGXC
+		/* Postgres-XC tablespaces include node name in path */
+		snprintf(tblspcPath, MAXPGPATH, "pg_tblspc/%u/%s_%s", tblspcOid,
+				 TABLESPACE_VERSION_DIRECTORY, PGXCNodeName);
+#else
 		snprintf(tblspcPath, MAXPGPATH, "pg_tblspc/%u/%s", tblspcOid,
 				 TABLESPACE_VERSION_DIRECTORY);
+#endif
 
 	dirdesc = AllocateDir(tblspcPath);
 
