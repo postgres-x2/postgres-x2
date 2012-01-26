@@ -44,6 +44,7 @@
 #ifdef PGXC
 #include "miscadmin.h"
 #include "pgxc/pgxc.h"
+#include "pgxc/pgxcnode.h"
 #include "access/gtm.h"
 #include "utils/lsyscache.h"
 #include "pgxc/planner.h"
@@ -76,6 +77,7 @@ static Query *transformExplainStmt(ParseState *pstate,
 					 ExplainStmt *stmt);
 #ifdef PGXC
 static Query *transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt);
+static bool IsExecDirectUtilityStmt(Node *node);
 #endif
 
 static void transformLockingClause(ParseState *pstate, Query *qry,
@@ -2296,14 +2298,16 @@ static Query *
 transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 {
 	Query		*result = makeNode(Query);
-	bool		is_coordinator = stmt->coordinator;
 	char		*query = stmt->query;
 	List		*nodelist = stmt->node_names;
-	ListCell	*nodeitem;
 	RemoteQuery	*step = makeNode(RemoteQuery);
 	bool		is_local = false;
 	List		*raw_parsetree_list;
 	ListCell	*raw_parsetree_item;
+	char		*nodename;
+	Oid			nodeoid;
+	int			nodeIndex;
+	char		nodetype;
 
 	if (list_length(nodelist) > 1)
 		ereport(ERROR,
@@ -2315,24 +2319,26 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 errmsg("must be superuser to use EXECUTE DIRECT")));
 
-	/* Check if execute direct is local and if node number is correct*/
-	foreach(nodeitem, nodelist)
-	{
-		int	nodeIndex;
-		char *node_name = strVal(lfirst(nodeitem));
-		Oid nodeoid = get_pgxc_nodeoid(node_name);
+	Assert(list_length(nodelist) == 1);
+	Assert(IS_PGXC_COORDINATOR);
 
-		if (!OidIsValid(nodeoid))
-			ereport(ERROR,
-					(errcode(ERRCODE_UNDEFINED_OBJECT),
-					 errmsg("PGXC Node %s: object not defined",
-							node_name)));
+	/* There is a single element here */
+	nodename = strVal(linitial(nodelist));
+	nodeoid = get_pgxc_nodeoid(nodename);
 
-		nodeIndex = PGXCNodeGetNodeId(nodeoid, get_pgxc_nodetype(nodeoid));
+	if (!OidIsValid(nodeoid))
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+				 errmsg("PGXC Node %s: object not defined",
+						nodename)));
 
-		if (nodeIndex == PGXCNodeId && is_coordinator)
-			is_local = true;
-	}
+	/* Get node type and index */
+	nodetype = get_pgxc_nodetype(nodeoid);
+	nodeIndex = PGXCNodeGetNodeId(nodeoid, get_pgxc_nodetype(nodeoid));
+
+	/* Check if node is requested is the self-node or not */
+	if (nodetype == PGXC_NODE_COORDINATOR && nodeIndex == PGXCNodeId - 1)
+		is_local = true;
 
 	/* Transform the query into a raw parse list */
 	raw_parsetree_list = pg_parse_query(query);
@@ -2365,7 +2371,13 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 	step->read_only = true;
 	step->force_autocommit = false;
 	step->cursor = NULL;
-	step->exec_type = EXEC_ON_DATANODES;
+
+	/* This is needed by executor */
+	step->sql_statement = pstrdup(query);
+	if (nodetype == PGXC_NODE_COORDINATOR)
+		step->exec_type = EXEC_ON_COORDS;
+	else
+		step->exec_type = EXEC_ON_DATANODES;
 
 	step->relname = NULL;
 	step->remotejoin = false;
@@ -2398,16 +2410,26 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 	}
 	else
 	{
-		if (result->commandType == CMD_UTILITY)
-			step->exec_direct_type = EXEC_DIRECT_UTILITY;
-		else if (result->commandType == CMD_SELECT)
-			step->exec_direct_type = EXEC_DIRECT_SELECT;
-		else if (result->commandType == CMD_INSERT)
-			step->exec_direct_type = EXEC_DIRECT_INSERT;
-		else if (result->commandType == CMD_UPDATE)
-			step->exec_direct_type = EXEC_DIRECT_UPDATE;
-		else if (result->commandType == CMD_DELETE)
-			step->exec_direct_type = EXEC_DIRECT_DELETE;
+		switch(result->commandType)
+		{
+			case CMD_UTILITY:
+				step->exec_direct_type = EXEC_DIRECT_UTILITY;
+				break;
+			case CMD_SELECT:
+				step->exec_direct_type = EXEC_DIRECT_SELECT;
+				break;
+			case CMD_INSERT:
+				step->exec_direct_type = EXEC_DIRECT_INSERT;
+				break;
+			case CMD_UPDATE:
+				step->exec_direct_type = EXEC_DIRECT_UPDATE;
+				break;
+			case CMD_DELETE:
+				step->exec_direct_type = EXEC_DIRECT_DELETE;
+				break;
+			default:
+				Assert(0);
+		}
 	}
 
 	/*
@@ -2421,33 +2443,59 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("EXECUTE DIRECT cannot execute DML queries")));
-	if (step->exec_direct_type == EXEC_DIRECT_LOCAL_UTILITY)
+	else if (step->exec_direct_type == EXEC_DIRECT_UTILITY &&
+			 !IsExecDirectUtilityStmt(result->utilityStmt))
+	{
+		/* In case this statement is an utility, check if it is authorized */
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("EXECUTE DIRECT cannot execute locally utility queries")));
-
-	/* Build Execute Node list */
-	foreach(nodeitem, nodelist)
+				 errmsg("EXECUTE DIRECT cannot execute this utility query")));
+	}
+	else if (step->exec_direct_type == EXEC_DIRECT_LOCAL_UTILITY)
 	{
-		int		nodeIndex;
-		Oid		nodeoid = get_pgxc_nodeoid(strVal(lfirst(nodeitem)));
-
-		nodeIndex = PGXCNodeGetNodeId(nodeoid, get_pgxc_nodetype(nodeoid));
-		if (nodeIndex >= 0)
-			step->exec_nodes->nodeList = lappend_int(step->exec_nodes->nodeList, nodeIndex);
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("EXECUTE DIRECT cannot execute locally this utility query")));
 	}
 
-	step->sql_statement = pstrdup(query);
-
-	if (is_coordinator)
-		step->exec_type = EXEC_ON_COORDS;
-	else
-		step->exec_type = EXEC_ON_DATANODES;
+	/* Build Execute Node list, there is a unique node for the time being */
+	step->exec_nodes->nodeList = lappend_int(step->exec_nodes->nodeList, nodeIndex);
 
 	/* Associate newly-created RemoteQuery node to the returned Query result */
-	result->utilityStmt = (Node *) step;
+	result->is_local = is_local;
+	if (!is_local)
+		result->utilityStmt = (Node *) step;
 
 	return result;
+}
+
+/*
+ * Check if given node is authorized to go through EXECUTE DURECT
+ */
+static bool
+IsExecDirectUtilityStmt(Node *node)
+{
+	bool res = true;
+
+	if (!node)
+		return res;
+
+	switch(nodeTag(node))
+	{
+		/*
+		 * CREATE/DROP TABLESPACE are authorized to control
+		 * tablespace at single node level.
+		 */
+		case T_CreateTableSpaceStmt:
+		case T_DropTableSpaceStmt:
+			res = true;
+			break;
+		default:
+			res = false;
+			break;
+	}
+
+	return res;
 }
 #endif
 

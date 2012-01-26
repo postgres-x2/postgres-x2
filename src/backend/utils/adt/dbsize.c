@@ -774,7 +774,7 @@ pgxc_execute_on_nodes(int numnodes, Oid *nodelist, char *query)
 	{
 		nodename = get_pgxc_nodename(nodelist[i]);
 		resetStringInfo(&buf);
-		appendStringInfo(&buf, "EXECUTE DIRECT ON NODE %s %s",
+		appendStringInfo(&buf, "EXECUTE DIRECT ON %s %s",
 		                 nodename, quote_literal_cstr(query));
 
 		ret = SPI_execute(buf.data, false, 0);

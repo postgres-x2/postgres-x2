@@ -3418,6 +3418,13 @@ static bool
 pgxc_query_needs_coord(Query *query)
 {
 	/*
+	 * In case query is local, just return here, it will be launched on
+	 * local Coordinator by the way.
+	 */
+	if (query->is_local)
+		return true;
+
+	/*
 	 * if the query has its utility set, it could be an EXEC_DIRECT statement,
 	 * check if it needs to be executed on coordinator
 	 */

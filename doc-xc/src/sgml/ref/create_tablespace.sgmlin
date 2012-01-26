@@ -116,6 +116,13 @@ CREATE TABLESPACE <replaceable class="parameter">tablespace_name</replaceable> [
     user needs to have permission to the same location path on all the servers
     involved in the cluster.
    </para>
+
+   <para>
+    <command>CREATE TABLESPACE</> can be run with EXECUTE DIRECT to control
+    tablespace existence on remote nodes. This works for both remote Coordinators
+    and Datanodes but not on this operation is not authorized on node where
+    application client is connected.
+   </para>
 <!## end>
  </refsect1>
 

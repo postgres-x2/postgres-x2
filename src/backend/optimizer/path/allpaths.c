@@ -285,7 +285,8 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 	if (IS_PGXC_COORDINATOR &&
 		!IsConnFromCoord() &&
 		get_rel_namespace(rte->relid) != PG_CATALOG_NAMESPACE &&
-		get_rel_relkind(rte->relid) != RELKIND_SEQUENCE)
+		get_rel_relkind(rte->relid) != RELKIND_SEQUENCE &&
+		!root->parse->is_local)
 		add_path(rel, create_remotequery_path(root, rel));
 	else
 	{

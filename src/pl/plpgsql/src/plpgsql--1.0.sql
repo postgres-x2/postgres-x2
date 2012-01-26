@@ -24,7 +24,7 @@ DECLARE
 		--Get all the node names
 		query_str_nodes := 'SELECT node_name FROM pgxc_node WHERE node_type = ''D''';
 		FOR row_name IN EXECUTE(query_str_nodes) LOOP
-			query_str := 'EXECUTE DIRECT ON NODE ' || row_name.node_name || ' ''SELECT gid FROM pg_prepared_xact()''';
+			query_str := 'EXECUTE DIRECT ON ' || row_name.node_name || ' ''SELECT gid FROM pg_prepared_xact()''';
 			FOR row_data IN EXECUTE(query_str) LOOP
 				return next row_data.gid;
 			END LOOP;

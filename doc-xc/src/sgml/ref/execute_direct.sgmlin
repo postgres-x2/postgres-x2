@@ -21,8 +21,7 @@ PostgreSQL documentation
 
  <refsynopsisdiv>
 <synopsis>
-EXECUTE DIRECT ON
-( COORDINATOR <replaceable class="parameter">nodename</replaceable> [, ... ] | NODE <replaceable class="parameter">nodename</replaceable> [, ... ] )
+EXECUTE DIRECT ON <replaceable class="parameter">nodename</replaceable> [, ... ]
     <replaceable class="parameter">query</replaceable>
 </synopsis>
  </refsynopsisdiv>
@@ -50,10 +49,12 @@ EXECUTE DIRECT ON
   </para>
 
   <para>
-   The user may use <literal>COORDINATOR</literal> to launch the wanted
-   <replaceable class="parameter">query</replaceable> on a Postgres-XC
-   Coordinator and <literal>NODE</literal> to do the same on a Postgres-XC
-   Datanode.
+    Either Coordinator or Datanode can be selected by its node name.
+  </para>
+
+  <para>
+   <command>EXECUTE DIRECT</> allows the usage of the following utility commands
+   on remote nodes: <command>CREATE TABLESPACE</>, <command>DROP TABLESPACE</>.
   </para>
 
  </refsect1>
@@ -62,26 +63,6 @@ EXECUTE DIRECT ON
   <title>Parameters</title>
 
   <variablelist>
-   <varlistentry>
-    <term><literal>COORDINATOR</literal></term>
-    <listitem>
-     <para>
-      This option is mandatory when designing a Coordinator node. <literal>
-      NODE</literal> can be used instead, it is not necessary to specify it.
-     </para>
-    </listitem>
-   </varlistentry>
-
-   <varlistentry>
-    <term><literal>NODE</literal></term>
-    <listitem>
-     <para>
-      This option is mandatory when designing a Datanode node. <literal>
-      COORDINATOR</literal> can be used instead, it is not necessary to specify it.
-     </para>
-    </listitem>
-   </varlistentry>
-
    <varlistentry>
     <term><replaceable class="parameter">nodename</replaceable></term>
     <listitem>
@@ -116,16 +97,16 @@ EXECUTE DIRECT ON NODE dn1 'SELECT * FROM tenk1 WHERE col_char = ''foo''';
   </para>
 
   <para>
-   Select local timestamp of a remote Coordinator named coord2:
+   Select local timestamp of a remote node named coord2:
 <programlisting>
-EXECUTE DIRECT ON COORDINATOR coord2 'select clock_timestamp()';
+EXECUTE DIRECT ON coord2 'select clock_timestamp()';
 </programlisting>
   </para>
 
   <para>
-   Select list of tables of a remote Datanode named dn50:
+   Select list of tables of a remote node named dn50:
 <programlisting>
-EXECUTE DIRECT ON NODE dn50 'select tablename from pg_tables';
+EXECUTE DIRECT ON dn50 'select tablename from pg_tables';
 </programlisting>
   </para>
  </refsect1>

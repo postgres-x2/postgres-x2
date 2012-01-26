@@ -8217,24 +8217,15 @@ explain_option_arg:
 /*****************************************************************************
  *
  *		QUERY:
- *				EXECUTE DIRECT ON (COORDINATOR nodename, ... | NODE nodename, ...) query
+ *				EXECUTE DIRECT ON (nodename, ...) query
  *
  *****************************************************************************/
 
-ExecDirectStmt: EXECUTE DIRECT ON COORDINATOR pgxcnode_list DirectStmt
+ExecDirectStmt: EXECUTE DIRECT ON pgxcnode_list DirectStmt
 				{
 					ExecDirectStmt *n = makeNode(ExecDirectStmt);
-					n->coordinator = TRUE;
-					n->node_names = $5;
-					n->query = $6;
-					$$ = (Node *)n;
-				}
-				| EXECUTE DIRECT ON NODE pgxcnode_list DirectStmt
-				{
-					ExecDirectStmt *n = makeNode(ExecDirectStmt);
-					n->coordinator = FALSE;
-					n->node_names = $5;
-					n->query = $6;
+					n->node_names = $4;
+					n->query = $5;
 					$$ = (Node *)n;
 				}
 		;

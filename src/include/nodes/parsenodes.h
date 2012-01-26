@@ -158,10 +158,11 @@ typedef struct Query
 #ifdef PGXC
 	/* need this info for PGXC Planner, may be temporary */
 	char	   *sql_statement;	/* original query */
-	ExecNodes  *execNodes;	/* execute nodes */
+	ExecNodes  *execNodes;		/* execute nodes */
 	bool		qry_finalise_aggs;	/* used for queries intended for datanodes,
-									 * should datanode finalise the aggregagtes?
-									 */
+									 * should datanode finalise the aggregates? */
+	bool		is_local;		/* enforce query execution on local node
+								 * this is used by EXECUTE DIRECT especially. */
 #endif
 } Query;
 
@@ -2732,7 +2733,6 @@ typedef struct AlterTSConfigurationStmt
 typedef struct ExecDirectStmt
 {
 	NodeTag		type;
-	bool		coordinator;
 	List		*node_names;
 	char		*query;
 } ExecDirectStmt;

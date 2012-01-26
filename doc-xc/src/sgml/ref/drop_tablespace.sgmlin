@@ -78,6 +78,15 @@ DROP TABLESPACE [ IF EXISTS ] <replaceable class="PARAMETER">tablespace_name</re
    <para>
     <command>DROP TABLESPACE</> cannot be executed inside a transaction block.
    </para>
+
+<!## XC>
+   <para>
+    <command>DROP TABLESPACE</> can be run with EXECUTE DIRECT to control
+    tablespace existence on remote nodes. This works for both remote Coordinators
+    and	Datanodes but not on this operation is not authorized on node where
+    application client is connected.
+   </para>
+<!## end>
  </refsect1>
 
 

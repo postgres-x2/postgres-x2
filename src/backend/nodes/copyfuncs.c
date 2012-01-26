@@ -987,7 +987,6 @@ _copyExecDirect(ExecDirectStmt *from)
 {
 	ExecDirectStmt *newnode = makeNode(ExecDirectStmt);
 
-	COPY_SCALAR_FIELD(coordinator);
 	COPY_NODE_FIELD(node_names);
 	COPY_STRING_FIELD(query);
 
