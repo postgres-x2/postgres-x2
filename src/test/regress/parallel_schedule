@@ -105,3 +105,6 @@ test: stats
 
 #Postgres-XC additional tests, they can be run in parallel
 test: xc_groupby xc_distkey xc_having xc_temp xc_remote
+
+#Cluster setting related test is independant
+test: xc_node

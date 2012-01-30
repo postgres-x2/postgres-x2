@@ -134,3 +134,4 @@ test: xc_distkey
 test: xc_having
 test: xc_temp
 test: xc_remote
+test: xc_node
