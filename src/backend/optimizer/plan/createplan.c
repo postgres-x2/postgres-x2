@@ -92,7 +92,7 @@ static RemoteQuery *create_remotequery_plan(PlannerInfo *root, Path *best_path,
 						  List *tlist, List *scan_clauses);
 static Plan *create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path,
 					Plan *parent, Plan *outer_plan, Plan *inner_plan);
-static void create_remote_target_list(PlannerInfo *root,
+static List *create_remote_target_list(PlannerInfo *root,
 					StringInfo targets, List *out_tlist, List *in_tlist,
 					char *out_alias, int out_index,
 					char *in_alias, int in_index);
@@ -804,6 +804,7 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 			RangeTblEntry  *dummy_rte;
 			List	 	   *local_scan_clauses = NIL, *remote_scan_clauses = NIL;
 			char		   *pname;
+			List		   *colnames;
 
 
 			/* KISS! As long as distinct aliases are provided for all the objects in
@@ -874,7 +875,7 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 
 			/* generate the tlist for the new RemoteScan node using out_tlist, in_tlist */
 			initStringInfo(&targets);
-			create_remote_target_list(root, &targets, out_tlist, in_tlist,
+			colnames = create_remote_target_list(root, &targets, out_tlist, in_tlist,
 						 out_alias, outer->reduce_level, in_alias, inner->reduce_level);
 
 			/*
@@ -963,11 +964,11 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 			/* cook up the reltupdesc using this base_tlist */
 			dummy_rte = makeNode(RangeTblEntry);
 			dummy_rte->reltupdesc = ExecTypeFromTL(base_tlist, false);
-			dummy_rte->rtekind = RTE_RELATION;
+			dummy_rte->rtekind = RTE_REMOTE_DUMMY;
 
 			/* use a dummy relname... */
 			dummy_rte->relname	   = "__REMOTE_JOIN_QUERY__";
-			dummy_rte->eref		   = makeAlias("__REMOTE_JOIN_QUERY__", NIL);
+			dummy_rte->eref		   = makeAlias("__REMOTE_JOIN_QUERY__", colnames);
 			/* not sure if we need to set the below explicitly.. */
 			dummy_rte->inh			 = false;
 			dummy_rte->inFromCl		 = false;
@@ -1108,7 +1109,7 @@ generate_remote_rte_alias(RangeTblEntry *rte, int varno, char *aliasname, int re
  *  level is 0, then normal column names can be used because they will never
  *  clash at the join level
  */
-static void
+static List *
 create_remote_target_list(PlannerInfo *root, StringInfo targets, List *out_tlist, List *in_tlist,
 				  char *out_alias, int out_index, char *in_alias, int in_index)
 {
@@ -1116,6 +1117,7 @@ create_remote_target_list(PlannerInfo *root, StringInfo targets, List *out_tlist
 	ListCell  	*l;
 	StringInfo 	 attrname = makeStringInfo();
 	bool		 add_null_target = true;
+	List		*colnames = NIL;
 
 	foreach(l, out_tlist)
 	{
@@ -1147,6 +1149,7 @@ create_remote_target_list(PlannerInfo *root, StringInfo targets, List *out_tlist
 		appendStringInfo(attrname, "%s_%d_%d_%d",
 						 attname, var->varno, abs(var->varattno), root->rs_alias_index);
 		appendStringInfo(targets, " AS %s", quote_identifier(attrname->data));
+		colnames = lappend(colnames, makeString(pstrdup(attrname->data)));
 		add_null_target = false;
 	}
 
@@ -1179,6 +1182,7 @@ create_remote_target_list(PlannerInfo *root, StringInfo targets, List *out_tlist
 		appendStringInfo(attrname, "%s_%d_%d_%d",
 						 attname, var->varno, abs(var->varattno), root->rs_alias_index);
 		appendStringInfo(targets, " AS %s", quote_identifier(attrname->data));
+		colnames = lappend(colnames, makeString(pstrdup(attrname->data)));
 		add_null_target = false;
 	}
 
@@ -1190,6 +1194,7 @@ create_remote_target_list(PlannerInfo *root, StringInfo targets, List *out_tlist
 	 */
 	if (add_null_target)
 		appendStringInfo(targets, " NULL ");
+	return colnames;
 }
 
 /*
@@ -6054,7 +6059,7 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	 */
 	dummy_rte = makeNode(RangeTblEntry);
 	dummy_rte->reltupdesc = ExecTypeFromTL(base_tlist, false);
-	dummy_rte->rtekind = RTE_RELATION;
+	dummy_rte->rtekind = RTE_REMOTE_DUMMY;
 
 	/* Use a dummy relname... */
 	dummy_rte->relname	   = "__REMOTE_GROUP_QUERY__";

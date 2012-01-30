@@ -695,6 +695,9 @@ typedef enum RTEKind
 	RTE_FUNCTION,				/* function in FROM */
 	RTE_VALUES,					/* VALUES (<exprlist>), (<exprlist>), ... */
 	RTE_CTE						/* common table expr (WITH list element) */
+#ifdef PGXC
+	,RTE_REMOTE_DUMMY			/* RTEs created by remote plan reduction */
+#endif /* PGXC */
 } RTEKind;
 
 typedef struct RangeTblEntry

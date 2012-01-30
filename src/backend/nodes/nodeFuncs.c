@@ -1916,6 +1916,11 @@ range_table_walker(List *rtable,
 				if (walker(rte->values_lists, context))
 					return true;
 				break;
+#ifdef PGXC
+			case RTE_REMOTE_DUMMY:
+				elog(ERROR, "Invalid RTE found.");
+				break;
+#endif /* PGXC */
 		}
 	}
 	return false;
@@ -2598,6 +2603,9 @@ range_table_mutator(List *rtable,
 		{
 			case RTE_RELATION:
 			case RTE_CTE:
+#ifdef PGXC
+			case RTE_REMOTE_DUMMY:
+#endif /* PGXC */
 				/* we don't bother to copy eref, aliases, etc; OK? */
 				break;
 			case RTE_SUBQUERY:

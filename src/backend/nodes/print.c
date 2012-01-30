@@ -265,6 +265,9 @@ print_rt(List *rtable)
 		switch (rte->rtekind)
 		{
 			case RTE_RELATION:
+#ifdef PGXC
+			case RTE_REMOTE_DUMMY:
+#endif /* PGXC */
 				printf("%d\t%s\t%u\t%c",
 					   i, rte->eref->aliasname, rte->relid, rte->relkind);
 				break;
