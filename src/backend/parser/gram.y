@@ -8032,11 +8032,11 @@ opt_barrier_id:
  *
  *		CREATE NODE nodename WITH
  *				(
- *					[ TYPE = ('datanode' | 'coordinator') ],
- *					[ HOST = 'hostname'],
- *					[ PORT = portnum ],
- *					[ PRIMARY ],
- *					[ PREFERRED ]
+ *					[ TYPE = ('datanode' | 'coordinator'), ]
+ *					[ HOST = 'hostname', ]
+ *					[ PORT = portnum, ]
+ *					[ PRIMARY [ = boolean ], ]
+ *					[ PREFERRED [ = boolean ] ]
  *				)
  *
  *****************************************************************************/
@@ -8066,11 +8066,11 @@ pgxcnode_list:
  *		QUERY:
  *		ALTER NODE nodename WITH
  *				(
- *					[ TYPE = ('datanode' | 'coordinator') ],
- *					[ HOST = 'hostname'],
- *					[ PORT = portnum ],
- *					[ PRIMARY ],
- *					[ PREFERRED ]
+ *					[ TYPE = ('datanode' | 'coordinator'), ]
+ *					[ HOST = 'hostname', ]
+ *					[ PORT = portnum, ]
+ *					[ PRIMARY [ = boolean ], ]
+ *					[ PREFERRED [ = boolean ], ]
  *				)
  *
  *****************************************************************************/
