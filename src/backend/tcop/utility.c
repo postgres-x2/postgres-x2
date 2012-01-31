@@ -341,6 +341,9 @@ ProcessUtility(Node *parsetree,
 			   ParamListInfo params,
 			   bool isTopLevel,
 			   DestReceiver *dest,
+#ifdef PGXC
+			   bool	sentToRemote,
+#endif /* PGXC */
 			   char *completionTag)
 {
 	Assert(queryString != NULL);	/* required as of 8.4 */
@@ -352,10 +355,18 @@ ProcessUtility(Node *parsetree,
 	 */
 	if (ProcessUtility_hook)
 		(*ProcessUtility_hook) (parsetree, queryString, params,
-								isTopLevel, dest, completionTag);
+								isTopLevel, dest,
+#ifdef PGXC
+								sentToRemote,
+#endif /* PGXC */
+								completionTag);
 	else
 		standard_ProcessUtility(parsetree, queryString, params,
-								isTopLevel, dest, completionTag);
+								isTopLevel, dest,
+#ifdef PGXC
+								sentToRemote,
+#endif /* PGXC */
+								completionTag);
 }
 
 void
@@ -364,6 +375,9 @@ standard_ProcessUtility(Node *parsetree,
 						ParamListInfo params,
 						bool isTopLevel,
 						DestReceiver *dest,
+#ifdef PGXC
+						bool sentToRemote,
+#endif /* PGXC */
 						char *completionTag)
 {
 	bool operation_local = false;
@@ -620,7 +634,7 @@ standard_ProcessUtility(Node *parsetree,
 		case T_CreateSchemaStmt:
 #ifdef PGXC
 			CreateSchemaCommand((CreateSchemaStmt *) parsetree,
-								queryString, isTopLevel);
+								queryString, sentToRemote);
 #else
 			CreateSchemaCommand((CreateSchemaStmt *) parsetree,
 								queryString);
@@ -695,9 +709,10 @@ standard_ProcessUtility(Node *parsetree,
 				}
 
 				/*
-				 * Add a RemoteQuery node for a query at top level on a remote Coordinator
+				 * Add a RemoteQuery node for a query at top level on a remote
+				 * Coordinator, if not already done so
 				 */
-				if (isTopLevel)
+				if (!sentToRemote)
 					stmts = AddRemoteQueryNode(stmts, queryString, EXEC_ON_ALL_NODES, is_temp);
 #endif
 
@@ -756,6 +771,9 @@ standard_ProcessUtility(Node *parsetree,
 									   params,
 									   false,
 									   None_Receiver,
+#ifdef PGXC
+									   true,
+#endif /* PGXC */
 									   NULL);
 					}
 
@@ -1163,9 +1181,10 @@ standard_ProcessUtility(Node *parsetree,
 												queryString);
 #ifdef PGXC
 				/*
-				 * Add a RemoteQuery node for a query at top level on a remote Coordinator
+				 * Add a RemoteQuery node for a query at top level on a remote
+				 * Coordinator, if not already done so
 				 */
-				if (isTopLevel)
+				if (!sentToRemote)
 				{
 					bool is_temp = false;
 					AlterTableStmt *stmt = (AlterTableStmt *) parsetree;
@@ -1196,6 +1215,9 @@ standard_ProcessUtility(Node *parsetree,
 									   params,
 									   false,
 									   None_Receiver,
+#ifdef PGXC
+									   true,
+#endif /* PGXC */
 									   NULL);
 					}
 

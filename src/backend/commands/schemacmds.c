@@ -43,7 +43,7 @@ static void AlterSchemaOwner_internal(HeapTuple tup, Relation rel, Oid newOwnerI
  */
 void
 #ifdef PGXC
-CreateSchemaCommand(CreateSchemaStmt *stmt, const char *queryString, bool is_top_level)
+CreateSchemaCommand(CreateSchemaStmt *stmt, const char *queryString, bool sentToRemote)
 #else
 CreateSchemaCommand(CreateSchemaStmt *stmt, const char *queryString)
 #endif
@@ -129,9 +129,10 @@ CreateSchemaCommand(CreateSchemaStmt *stmt, const char *queryString)
 
 #ifdef PGXC
 	/*
-	 * Add a RemoteQuery node for a query at top level on a remote Coordinator
+	 * Add a RemoteQuery node for a query at top level on a remote Coordinator,
+	 * if not done already.
 	 */
-	if (is_top_level)
+	if (!sentToRemote)
 		parsetree_list = AddRemoteQueryNode(parsetree_list, queryString,
 											EXEC_ON_ALL_NODES, false);
 #endif
@@ -152,6 +153,9 @@ CreateSchemaCommand(CreateSchemaStmt *stmt, const char *queryString)
 					   NULL,
 					   false,	/* not top level */
 					   None_Receiver,
+#ifdef PGXC
+					   true,
+#endif /* PGXC */
 					   NULL);
 		/* make sure later steps can see the object created here */
 		CommandCounterIncrement();

@@ -312,11 +312,18 @@ sepgsql_utility_command(Node *parsetree,
 						ParamListInfo params,
 						bool isTopLevel,
 						DestReceiver *dest,
+#ifdef PGXC
+						bool sentToRemote,
+#endif /* PGXC */
 						char *completionTag)
 {
 	if (next_ProcessUtility_hook)
 		(*next_ProcessUtility_hook) (parsetree, queryString, params,
-									 isTopLevel, dest, completionTag);
+									 isTopLevel, dest,
+#ifdef PGXC
+									 sentToRemote,
+#endif /* PGXC */
+									 completionTag);
 
 	/*
 	 * Check command tag to avoid nefarious operations
@@ -351,7 +358,11 @@ sepgsql_utility_command(Node *parsetree,
 	 * Original implementation
 	 */
 	standard_ProcessUtility(parsetree, queryString, params,
-							isTopLevel, dest, completionTag);
+							isTopLevel, dest,
+#ifdef PGXC
+							sentToRemote,
+#endif /* PGXC */
+							completionTag);
 }
 
 /*

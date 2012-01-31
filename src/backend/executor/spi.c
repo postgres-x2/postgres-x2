@@ -1930,6 +1930,9 @@ _SPI_execute_plan(SPIPlanPtr plan, ParamListInfo paramLI,
 							   paramLI,
 							   false,	/* not top level */
 							   dest,
+#ifdef PGXC
+							   false,
+#endif /* PGXC */
 							   NULL);
 				/* Update "processed" if stmt returned tuples */
 				if (_SPI_current->tuptable)

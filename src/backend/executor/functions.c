@@ -620,6 +620,9 @@ postquel_getnext(execution_state *es, SQLFunctionCachePtr fcache)
 					   es->qd->params,
 					   false,	/* not top level */
 					   es->qd->dest,
+#ifdef PGXC
+					   false,
+#endif /* PGXC */
 					   NULL);
 		result = true;			/* never stops early */
 	}

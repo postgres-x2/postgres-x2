@@ -1220,6 +1220,9 @@ PortalRunUtility(Portal portal, Node *utilityStmt, bool isTopLevel,
 				   portal->portalParams,
 				   isTopLevel,
 				   dest,
+#ifdef PGXC
+				   false,
+#endif /* PGXC */
 				   completionTag);
 
 	/* Some utility statements may change context on us */

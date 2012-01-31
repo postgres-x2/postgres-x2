@@ -178,7 +178,11 @@ static void pgss_ExecutorFinish(QueryDesc *queryDesc);
 static void pgss_ExecutorEnd(QueryDesc *queryDesc);
 static void pgss_ProcessUtility(Node *parsetree,
 			  const char *queryString, ParamListInfo params, bool isTopLevel,
-					DestReceiver *dest, char *completionTag);
+					DestReceiver *dest,
+#ifdef PGXC
+					bool sentToRemote,
+#endif /* PGXC */
+					char *completionTag);
 static uint32 pgss_hash_fn(const void *key, Size keysize);
 static int	pgss_match_fn(const void *key1, const void *key2, Size keysize);
 static void pgss_store(const char *query, double total_time, uint64 rows,
@@ -613,7 +617,11 @@ pgss_ExecutorEnd(QueryDesc *queryDesc)
 static void
 pgss_ProcessUtility(Node *parsetree, const char *queryString,
 					ParamListInfo params, bool isTopLevel,
-					DestReceiver *dest, char *completionTag)
+					DestReceiver *dest,
+#ifdef PGXC
+					bool sentToRemote,
+#endif /* PGXC */
+					char *completionTag)
 {
 	if (pgss_track_utility && pgss_enabled())
 	{
@@ -630,10 +638,18 @@ pgss_ProcessUtility(Node *parsetree, const char *queryString,
 		{
 			if (prev_ProcessUtility)
 				prev_ProcessUtility(parsetree, queryString, params,
-									isTopLevel, dest, completionTag);
+									isTopLevel, dest,
+#ifdef PGXC
+									sentToRemote,
+#endif /* PGXC */
+									completionTag);
 			else
 				standard_ProcessUtility(parsetree, queryString, params,
-										isTopLevel, dest, completionTag);
+										isTopLevel, dest,
+#ifdef PGXC
+										sentToRemote,
+#endif /* PGXC */
+										completionTag);
 			nested_level--;
 		}
 		PG_CATCH();
@@ -676,10 +692,18 @@ pgss_ProcessUtility(Node *parsetree, const char *queryString,
 	{
 		if (prev_ProcessUtility)
 			prev_ProcessUtility(parsetree, queryString, params,
-								isTopLevel, dest, completionTag);
+								isTopLevel, dest,
+#ifdef PGXC
+								sentToRemote,
+#endif /* PGXC */
+								completionTag);
 		else
 			standard_ProcessUtility(parsetree, queryString, params,
-									isTopLevel, dest, completionTag);
+									isTopLevel, dest,
+#ifdef PGXC
+									sentToRemote,
+#endif /* PGXC */
+									completionTag);
 	}
 }
 

@@ -751,6 +751,9 @@ execute_sql_string(const char *sql, const char *filename)
 							   NULL,
 							   false,	/* not top level */
 							   dest,
+#ifdef PGXC
+							   false,
+#endif /* PGXC */
 							   NULL);
 			}
 
