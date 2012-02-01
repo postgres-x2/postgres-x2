@@ -37,8 +37,7 @@
 #include "utils/syscache.h"
 
 #ifdef PGXC
-static int64 pgxc_database_size(Oid dbOid);
-static int64 pgxc_execute_on_nodes(int numnodes, Oid *nodelist, char *query);
+static Datum pgxc_database_size(Oid dbOid);
 static int64 pgxc_exec_sizefunc(Oid relOid, char *funcname, char *extra_arg);
 
 /*
@@ -165,7 +164,7 @@ pg_database_size_oid(PG_FUNCTION_ARGS)
 
 #ifdef PGXC
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-		PG_RETURN_INT64(pgxc_database_size(dbOid));
+		PG_RETURN_DATUM(pgxc_database_size(dbOid));
 #endif
 
 	PG_RETURN_INT64(calculate_database_size(dbOid));
@@ -179,7 +178,7 @@ pg_database_size_name(PG_FUNCTION_ARGS)
 
 #ifdef PGXC
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-		PG_RETURN_INT64(pgxc_database_size(dbOid));
+		PG_RETURN_DATUM(pgxc_database_size(dbOid));
 #endif
 
 	PG_RETURN_INT64(calculate_database_size(dbOid));
@@ -720,7 +719,7 @@ pg_relation_filepath(PG_FUNCTION_ARGS)
  * pgxc_database_size
  * Given a dboid, return sum of pg_database_size() executed on all the datanodes
  */
-static int64
+static Datum
 pgxc_database_size(Oid dbOid)
 {
 	StringInfoData  buf;
@@ -744,11 +743,13 @@ pgxc_database_size(Oid dbOid)
 
 /*
  * pgxc_execute_on_nodes
- * Execute 'query' on all the nodes in 'nodelist', and return
- * sum of all the results.
- * 'query' *must* be of the form: 'select pg_***_size()'
+ * Execute 'query' on all the nodes in 'nodelist', and returns int64 datum
+ * which has the sum of all the results. If multiples nodes are involved, it
+ * assumes that the query returns exactly one row with one attribute of type
+ * int64. If there is a single node, it just returns the datum as-is without
+ * checking the type of the returned value.
  */
-static int64
+Datum
 pgxc_execute_on_nodes(int numnodes, Oid *nodelist, char *query)
 {
 	StringInfoData  buf;
@@ -759,6 +760,7 @@ pgxc_execute_on_nodes(int numnodes, Oid *nodelist, char *query)
 	int64           size = 0;
 	bool            isnull;
 	char           *nodename;
+	Datum           datum;
 
 	/*
 	 * Connect to SPI manager
@@ -793,14 +795,22 @@ pgxc_execute_on_nodes(int numnodes, Oid *nodelist, char *query)
 		 */
 		Assert(SPI_processed == 1 && spi_tupdesc->natts == 1);
 
-		size = DatumGetInt64(SPI_getbinval(SPI_tuptable->vals[0], spi_tupdesc, 1, &isnull));
+		datum = SPI_getbinval(SPI_tuptable->vals[0], spi_tupdesc, 1, &isnull);
 
+		/* For single node, don't assume the type of datum. It can be bool also. */
+		if (numnodes == 1)
+			break;
+
+		size = DatumGetInt64(datum);
 		total_size += size;
 	}
 
 	SPI_finish();
 
-	return total_size;
+	if (numnodes == 1)
+		PG_RETURN_DATUM(datum);
+	else
+		PG_RETURN_INT64(total_size);
 }
 
 
@@ -845,7 +855,7 @@ pgxc_exec_sizefunc(Oid relOid, char *funcname, char *extra_arg)
 
 	relation_close(rel, AccessShareLock);
 
-	return pgxc_execute_on_nodes(numnodes, nodelist, buf.data);
+	return DatumGetInt64(pgxc_execute_on_nodes(numnodes, nodelist, buf.data));
 }
 
 #endif /* PGXC */

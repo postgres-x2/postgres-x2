@@ -173,6 +173,10 @@ static HTAB *LockMethodLocalHash;
 static LOCALLOCK *awaitedLock;
 static ResourceOwner awaitedOwner;
 
+static LockAcquireResult LockAcquireExtendedXC(const LOCKTAG *locktag,
+LOCKMODE lockmode, bool sessionLock, bool dontWait, bool reportMemoryError,
+bool only_increment);
+
 
 #ifdef LOCK_DEBUG
 
@@ -470,6 +474,28 @@ LockAcquire(const LOCKTAG *locktag,
 	return LockAcquireExtended(locktag, lockmode, sessionLock, dontWait, true);
 }
 
+#ifdef PGXC
+/*
+ * LockIncrementIfExists - Special purpose case of LockAcquire().
+ * This checks if there is already a reference to the lock. If yes,
+ * increments it, and returns true. If not, just returns back false.
+ * Effectively, it never creates a new lock.
+ */
+bool
+LockIncrementIfExists(const LOCKTAG *locktag,
+			LOCKMODE lockmode)
+{
+	int ret;
+
+	ret = LockAcquireExtendedXC(locktag, lockmode,
+	                            true, /* always session level lock */
+	                            true, /* never wait */
+								true, true);
+
+	return (ret == LOCKACQUIRE_ALREADY_HELD);
+}
+#endif
+
 /*
  * LockAcquireExtended - allows us to specify additional options
  *
@@ -485,6 +511,22 @@ LockAcquireExtended(const LOCKTAG *locktag,
 					bool sessionLock,
 					bool dontWait,
 					bool reportMemoryError)
+{
+	return LockAcquireExtendedXC(locktag, lockmode, sessionLock, dontWait,
+	                             reportMemoryError, false);
+}
+
+/*
+ * LockAcquireExtendedXC - additional parameter only_increment. This is XC
+ * specific. Check comments for the function LockIncrementIfExists()
+ */
+static LockAcquireResult
+LockAcquireExtendedXC(const LOCKTAG *locktag,
+					LOCKMODE lockmode,
+					bool sessionLock,
+					bool dontWait,
+					bool reportMemoryError,
+					bool only_increment)
 {
 	LOCKMETHODID lockmethodid = locktag->locktag_lockmethodid;
 	LockMethod	lockMethodTable;
@@ -580,7 +622,13 @@ LockAcquireExtended(const LOCKTAG *locktag,
 		GrantLockLocal(locallock, owner);
 		return LOCKACQUIRE_ALREADY_HELD;
 	}
-
+#ifdef PGXC
+	else if (only_increment)
+	{
+		/* User does not want to create new lock if it does not already exist */
+		return LOCKACQUIRE_NOT_AVAIL;
+	}
+#endif
 	/*
 	 * Emit a WAL record if acquisition of this lock needs to be replayed in a
 	 * standby server. Only AccessExclusiveLocks can conflict with lock types

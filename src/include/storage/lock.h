@@ -477,6 +477,7 @@ extern LockAcquireResult LockAcquire(const LOCKTAG *locktag,
 			LOCKMODE lockmode,
 			bool sessionLock,
 			bool dontWait);
+extern bool LockIncrementIfExists(const LOCKTAG *locktag, LOCKMODE lockmode);
 extern LockAcquireResult LockAcquireExtended(const LOCKTAG *locktag,
 					LOCKMODE lockmode,
 					bool sessionLock,

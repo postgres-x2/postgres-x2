@@ -15,6 +15,11 @@
 #include "catalog/pg_type.h"
 #include "funcapi.h"
 #include "miscadmin.h"
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#include "pgxc/pgxcnode.h"
+#include "pgxc/nodemgr.h"
+#endif
 #include "storage/predicate_internals.h"
 #include "storage/proc.h"
 #include "utils/builtins.h"
@@ -49,6 +54,13 @@ typedef struct
 	int			predLockIdx;	/* current index for pred lock */
 } PG_Lock_Status;
 
+#ifdef PGXC
+static bool
+pgxc_advisory_lock(int64 key64, int32 key1, int32 key2, bool iskeybig,
+			LOCKMODE lockmode,
+			bool sessionLock,
+			bool dontWait);
+#endif
 
 /*
  * VXIDGetDatum - Construct a text representation of a VXID
@@ -408,6 +420,141 @@ pg_lock_status(PG_FUNCTION_ARGS)
 #define SET_LOCKTAG_INT32(tag, key1, key2) \
 	SET_LOCKTAG_ADVISORY(tag, MyDatabaseId, key1, key2, 2)
 
+#ifdef PGXC
+
+#define MAXINT8LEN 25
+
+/*
+ * pgxc_advisory_lock - Core function that implements the algorithm needed to
+ * propogate the advisory lock function calls to all coordinators.
+ * The idea is to make the advisory locks cluster-aware, so that a user having
+ * a lock from coordinator 1 will make the user from coordinator 2 to wait for
+ * the same lock.
+ *
+ * Return true if all locks are returned successfully. False otherwise.
+ * Effectively this function returns false only if dontWait is true. Otherwise
+ * it either returns true, or waits on a resource, or throws an exception
+ * returned by the lock function calls in case of unexpected or fatal errors.
+ *
+ * Currently used only for session level locks; not used for transaction level
+ * locks.
+ */
+static bool
+pgxc_advisory_lock(int64 key64, int32 key1, int32 key2, bool iskeybig,
+			LOCKMODE lockmode,
+			bool sessionLock,
+			bool dontWait)
+{
+	LOCKTAG		locktag;
+	Oid				*coOids, *dnOids;
+	int numdnodes, numcoords;
+	StringInfoData  lock_cmd, unlock_cmd, lock_funcname, unlock_funcname, args;
+	char		str_key[MAXINT8LEN + 1];
+	int i, prev;
+	bool abort_locking = false;
+	Datum lock_status;
+
+	if (iskeybig)
+		SET_LOCKTAG_INT64(locktag, key64);
+	else
+		SET_LOCKTAG_INT32(locktag, key1, key2);
+
+	PgxcNodeListAndCount(&coOids, &dnOids, &numcoords, &numdnodes);
+
+	/* Skip everything XC specific if there's only one coordinator running */
+	if (numcoords <= 1)
+	{
+		(void) LockAcquire(&locktag, lockmode, sessionLock, dontWait);
+		return true;
+	}
+
+	/*
+	 * If there is already a lock held by us, just increment and return; we
+	 * already did all necessary steps when we locked for the first time.
+	 */
+	if (LockIncrementIfExists(&locktag, lockmode) == true)
+		return true;
+
+	initStringInfo(&lock_funcname);
+	appendStringInfo(&lock_funcname, "pg_%sadvisory_%slock%s",
+	                                 (dontWait ? "try_" : ""),
+									 (sessionLock ? "" : "xact_"),
+									 (lockmode == ShareLock ? "_shared": ""));
+
+	initStringInfo(&unlock_funcname);
+	appendStringInfo(&unlock_funcname, "pg_advisory_unlock%s",
+									 (lockmode == ShareLock ? "_shared": ""));
+
+	initStringInfo(&args);
+
+	if (iskeybig)
+	{
+		pg_lltoa(key64, str_key);
+		appendStringInfo(&args, "%s", str_key);
+	}
+	else
+	{
+		pg_ltoa(key1, str_key);
+		appendStringInfo(&args, "%s, ", str_key);
+		pg_ltoa(key2, str_key);
+		appendStringInfo(&args, "%s", str_key);
+	}
+
+	initStringInfo(&lock_cmd);
+	appendStringInfo(&lock_cmd, "SELECT pg_catalog.%s(%s)", lock_funcname.data, args.data);
+	initStringInfo(&unlock_cmd);
+	appendStringInfo(&unlock_cmd, "SELECT pg_catalog.%s(%s)", unlock_funcname.data, args.data);
+
+	/*
+	 * Go on locking on each coordinator. Keep on unlocking the previous one
+	 * after a lock is held on next coordinator. Don't unlock the local
+	 * coordinator. After finishing all coordinators, ultimately only the local
+	 * coordinator would be locked, but still we will have scanned all
+	 * coordinators to make sure no one else has already grabbed the lock. The
+	 * reason for unlocking all remote locks is because the session level locks
+	 * don't get unlocked until explicitly unlocked or the session quits. After
+	 * the user session quits without explicitly unlocking, the coord-to-coord
+	 * pooler connection stays and so does the remote coordinator lock.
+	 */
+	prev = -1;
+	for (i = 0; i <= numcoords && !abort_locking; i++, prev++)
+	{
+		if (i < numcoords)
+		{
+			/* If this coordinator is myself, execute native lock calls */
+			if (i == PGXCNodeId - 1)
+				lock_status = LockAcquire(&locktag, lockmode, sessionLock, dontWait);
+			else
+				lock_status = pgxc_execute_on_nodes(1, &coOids[i], lock_cmd.data);
+
+			if (dontWait == true && DatumGetBool(lock_status) == false)
+			{
+				abort_locking = true;
+				/*
+				 * If we have gone past the local coordinator node, it implies
+				 * that we have obtained a local lock. But now that we are
+				 * aborting, we need to release the local lock first.
+				 */
+				if (i > PGXCNodeId - 1)
+					(void) LockRelease(&locktag, lockmode, sessionLock);
+			}
+		}
+
+		/*
+		 * Unlock the previous lock, but only if it is a remote coordinator. If
+		 * it is a local one, we want to keep that lock. Remember, the final
+		 * status should be that there is only *one* lock held, and that is the
+		 * local lock.
+		 */
+		if (prev >= 0 && prev != PGXCNodeId - 1)
+			pgxc_execute_on_nodes(1, &coOids[prev], unlock_cmd.data);
+	}
+
+	return (!abort_locking);
+}
+
+#endif /* PGXC */
+
 /*
  * pg_advisory_lock(int8) - acquire exclusive lock on an int8 key
  */
@@ -416,6 +563,14 @@ pg_advisory_lock_int8(PG_FUNCTION_ARGS)
 {
 	int64		key = PG_GETARG_INT64(0);
 	LOCKTAG		tag;
+
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	{
+		pgxc_advisory_lock(key, 0, 0, true, ExclusiveLock, true, false);
+		PG_RETURN_VOID();
+	}
+#endif
 
 	SET_LOCKTAG_INT64(tag, key);
 
@@ -449,6 +604,14 @@ pg_advisory_lock_shared_int8(PG_FUNCTION_ARGS)
 {
 	int64		key = PG_GETARG_INT64(0);
 	LOCKTAG		tag;
+
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	{
+		pgxc_advisory_lock(key, 0, 0, true, ShareLock, true, false);
+		PG_RETURN_VOID();
+	}
+#endif
 
 	SET_LOCKTAG_INT64(tag, key);
 
@@ -485,6 +648,11 @@ pg_try_advisory_lock_int8(PG_FUNCTION_ARGS)
 	int64		key = PG_GETARG_INT64(0);
 	LOCKTAG		tag;
 	LockAcquireResult res;
+
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		PG_RETURN_BOOL(pgxc_advisory_lock(key, 0, 0, true, ExclusiveLock, true, true));
+#endif
 
 	SET_LOCKTAG_INT64(tag, key);
 
@@ -524,6 +692,11 @@ pg_try_advisory_lock_shared_int8(PG_FUNCTION_ARGS)
 	int64		key = PG_GETARG_INT64(0);
 	LOCKTAG		tag;
 	LockAcquireResult res;
+
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		PG_RETURN_BOOL(pgxc_advisory_lock(key, 0, 0, true, ShareLock, true, true));
+#endif
 
 	SET_LOCKTAG_INT64(tag, key);
 
@@ -600,6 +773,14 @@ pg_advisory_lock_int4(PG_FUNCTION_ARGS)
 	int32		key2 = PG_GETARG_INT32(1);
 	LOCKTAG		tag;
 
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	{
+		pgxc_advisory_lock(0, key1, key2, false, ExclusiveLock, true, false);
+		PG_RETURN_VOID();
+	}
+#endif
+
 	SET_LOCKTAG_INT32(tag, key1, key2);
 
 	(void) LockAcquire(&tag, ExclusiveLock, true, false);
@@ -634,6 +815,14 @@ pg_advisory_lock_shared_int4(PG_FUNCTION_ARGS)
 	int32		key1 = PG_GETARG_INT32(0);
 	int32		key2 = PG_GETARG_INT32(1);
 	LOCKTAG		tag;
+
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	{
+		pgxc_advisory_lock(0, key1, key2, false, ShareLock, true, false);
+		PG_RETURN_VOID();
+	}
+#endif
 
 	SET_LOCKTAG_INT32(tag, key1, key2);
 
@@ -672,6 +861,11 @@ pg_try_advisory_lock_int4(PG_FUNCTION_ARGS)
 	int32		key2 = PG_GETARG_INT32(1);
 	LOCKTAG		tag;
 	LockAcquireResult res;
+
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		PG_RETURN_BOOL(pgxc_advisory_lock(0, key1, key2, false, ExclusiveLock, true, true));
+#endif
 
 	SET_LOCKTAG_INT32(tag, key1, key2);
 
@@ -713,6 +907,11 @@ pg_try_advisory_lock_shared_int4(PG_FUNCTION_ARGS)
 	int32		key2 = PG_GETARG_INT32(1);
 	LOCKTAG		tag;
 	LockAcquireResult res;
+
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		PG_RETURN_BOOL(pgxc_advisory_lock(0, key1, key2, false, ShareLock, true, true));
+#endif
 
 	SET_LOCKTAG_INT32(tag, key1, key2);
 
