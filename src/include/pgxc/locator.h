@@ -23,6 +23,9 @@
 #define LOCATOR_TYPE_CUSTOM 'C'
 #define LOCATOR_TYPE_MODULO 'M'
 #define LOCATOR_TYPE_NONE 'O'
+#define LOCATOR_TYPE_DISTRIBUTED 'D'	/* for distributed table without specific
+										 * scheme, e.g. result of JOIN of
+										 * replicated and distributed table */
 
 /* Maximum number of preferred datanodes that can be defined in cluster */
 #define MAX_PREFERRED_NODES 64
@@ -35,7 +38,11 @@
 #define IsLocatorReplicated(x) (x == LOCATOR_TYPE_REPLICATED)
 #define IsLocatorColumnDistributed(x) (x == LOCATOR_TYPE_HASH || \
 									   x == LOCATOR_TYPE_RROBIN || \
-									   x == LOCATOR_TYPE_MODULO)
+									   x == LOCATOR_TYPE_MODULO || \
+									   x == LOCATOR_TYPE_DISTRIBUTED)
+#define IsLocatorDistributedByValue(x) (x == LOCATOR_TYPE_HASH || \
+										x == LOCATOR_TYPE_MODULO || \
+										x == LOCATOR_TYPE_RANGE)
 
 #include "nodes/primnodes.h"
 #include "utils/relcache.h"
@@ -126,5 +133,6 @@ extern bool IsModuloColumn(RelationLocInfo *rel_loc_info, char *part_col_name);
 extern bool IsModuloColumnForRelId(Oid relid, char *part_col_name);
 extern char *GetRelationDistColumn(RelationLocInfo * rel_loc_info);
 extern bool IsDistColumnForRelId(Oid relid, char *part_col_name);
+extern void FreeExecNodes(ExecNodes **exec_nodes);
 
 #endif   /* LOCATOR_H */
