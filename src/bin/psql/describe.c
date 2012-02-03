@@ -70,12 +70,7 @@ describeAggregates(const char *pattern, bool verbose, bool showSystem)
 					  gettext_noop("Name"),
 					  gettext_noop("Result data type"));
 
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion >= 10000)
-#else
 	if (pset.sversion >= 80200)
-#endif
 		appendPQExpBuffer(&buf,
 						  "  CASE WHEN p.pronargs = 0\n"
 						  "    THEN CAST('*' AS pg_catalog.text)\n"
@@ -135,12 +130,7 @@ describeTablespaces(const char *pattern, bool verbose)
 	PGresult   *res;
 	printQueryOpt myopt = pset.popt;
 
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion < 10000)
-#else
 	if (pset.sversion < 80000)
-#endif
 	{
 		fprintf(stderr, _("The server (version %d.%d) does not support tablespaces.\n"),
 				pset.sversion / 10000, (pset.sversion / 100) % 100);
@@ -163,12 +153,7 @@ describeTablespaces(const char *pattern, bool verbose)
 		printACLColumn(&buf, "spcacl");
 	}
 
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (verbose && pset.sversion >= 10000)
-#else
 	if (verbose && pset.sversion >= 80200)
-#endif
 		appendPQExpBuffer(&buf,
 		 ",\n  pg_catalog.shobj_description(oid, 'pg_tablespace') AS \"%s\"",
 						  gettext_noop("Description"));
@@ -229,12 +214,7 @@ describeFunctions(const char *functypes, const char *pattern, bool verbose, bool
 		return true;
 	}
 
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (showWindow && pset.sversion < 10000)
-#else
 	if (showWindow && pset.sversion < 80400)
-#endif
 	{
 		fprintf(stderr, _("\\df does not take a \"w\" option with server version %d.%d\n"),
 				pset.sversion / 10000, (pset.sversion / 100) % 100);
@@ -244,12 +224,7 @@ describeFunctions(const char *functypes, const char *pattern, bool verbose, bool
 	if (!showAggregate && !showNormal && !showTrigger && !showWindow)
 	{
 		showAggregate = showNormal = showTrigger = true;
-#ifdef PGXC
-		/* psql client respects PGXC server version */
-		if (pset.sversion >= 10000)
-#else
 		if (pset.sversion >= 80400)
-#endif
 			showWindow = true;
 	}
 
@@ -261,12 +236,7 @@ describeFunctions(const char *functypes, const char *pattern, bool verbose, bool
 					  gettext_noop("Schema"),
 					  gettext_noop("Name"));
 
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion >= 10000)
-#else
 	if (pset.sversion >= 80400)
-#endif
 		appendPQExpBuffer(&buf,
 					"  pg_catalog.pg_get_function_result(p.oid) as \"%s\",\n"
 				 "  pg_catalog.pg_get_function_arguments(p.oid) as \"%s\",\n"
@@ -404,12 +374,7 @@ describeFunctions(const char *functypes, const char *pattern, bool verbose, bool
 			}
 			appendPQExpBuffer(&buf, "p.prorettype <> 'pg_catalog.trigger'::pg_catalog.regtype\n");
 		}
-#ifdef PGXC
-		/* psql client respects PGXC server version */
-		if (!showWindow && pset.sversion >= 10000)
-#else
 		if (!showWindow && pset.sversion >= 80400)
-#endif
 		{
 			if (have_where)
 				appendPQExpBuffer(&buf, "      AND ");
@@ -508,12 +473,7 @@ describeTypes(const char *pattern, bool verbose, bool showSystem)
 						  "  END AS \"%s\",\n",
 						  gettext_noop("Internal name"),
 						  gettext_noop("Size"));
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (verbose && pset.sversion >= 10000)
-#else
 	if (verbose && pset.sversion >= 80300)
-#endif
 	{
 		appendPQExpBuffer(&buf,
 						  "  pg_catalog.array_to_string(\n"
@@ -522,12 +482,7 @@ describeTypes(const char *pattern, bool verbose, bool showSystem)
 						  "          FROM pg_catalog.pg_enum e\n"
 						  "          WHERE e.enumtypid = t.oid\n");
 
-#ifdef PGXC
-		/* psql client respects PGXC server version */
-		if (pset.sversion >= 10000)
-#else
 		if (pset.sversion >= 90100)
-#endif
 			appendPQExpBuffer(&buf,
 							  "          ORDER BY e.enumsortorder\n");
 		else
@@ -560,12 +515,7 @@ describeTypes(const char *pattern, bool verbose, bool showSystem)
 	 * do not include array types (before 8.3 we have to use the assumption
 	 * that their names start with underscore)
 	 */
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion >= 10000)
-#else
 	if (pset.sversion >= 80300)
-#endif
 		appendPQExpBuffer(&buf, "  AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_type el WHERE el.oid = t.typelem AND el.typarray = t.oid)\n");
 	else
 		appendPQExpBuffer(&buf, "  AND t.typname !~ '^_'\n");
@@ -686,12 +636,7 @@ listAllDbs(bool verbose)
 					  gettext_noop("Name"),
 					  gettext_noop("Owner"),
 					  gettext_noop("Encoding"));
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion >= 10000)
-#else
 	if (pset.sversion >= 80400)
-#endif
 		appendPQExpBuffer(&buf,
 						  "       d.datcollate as \"%s\",\n"
 						  "       d.datctype as \"%s\",\n",
@@ -699,24 +644,14 @@ listAllDbs(bool verbose)
 						  gettext_noop("Ctype"));
 	appendPQExpBuffer(&buf, "       ");
 	printACLColumn(&buf, "d.datacl");
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (verbose && pset.sversion >= 10000)
-#else
 	if (verbose && pset.sversion >= 80200)
-#endif
 		appendPQExpBuffer(&buf,
 						  ",\n       CASE WHEN pg_catalog.has_database_privilege(d.datname, 'CONNECT')\n"
 						  "            THEN pg_catalog.pg_size_pretty(pg_catalog.pg_database_size(d.datname))\n"
 						  "            ELSE 'No Access'\n"
 						  "       END as \"%s\"",
 						  gettext_noop("Size"));
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (verbose && pset.sversion >= 10000)
-#else
 	if (verbose && pset.sversion >= 80000)
-#endif
 		appendPQExpBuffer(&buf,
 						  ",\n       t.spcname as \"%s\"",
 						  gettext_noop("Tablespace"));
@@ -726,12 +661,7 @@ listAllDbs(bool verbose)
 						  gettext_noop("Description"));
 	appendPQExpBuffer(&buf,
 					  "\nFROM pg_catalog.pg_database d\n");
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (verbose && pset.sversion >= 10000)
-#else
 	if (verbose && pset.sversion >= 80000)
-#endif
 		appendPQExpBuffer(&buf,
 		   "  JOIN pg_catalog.pg_tablespace t on d.dattablespace = t.oid\n");
 	appendPQExpBuffer(&buf, "ORDER BY 1;");
@@ -781,12 +711,7 @@ permissionsList(const char *pattern)
 
 	printACLColumn(&buf, "c.relacl");
 
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion >= 10000)
-#else
 	if (pset.sversion >= 80400)
-#endif
 		appendPQExpBuffer(&buf,
 						  ",\n  pg_catalog.array_to_string(ARRAY(\n"
 						  "    SELECT attname || E':\\n  ' || pg_catalog.array_to_string(attacl, E'\\n  ')\n"
@@ -845,12 +770,7 @@ listDefaultACLs(const char *pattern)
 	printQueryOpt myopt = pset.popt;
 	static const bool translate_columns[] = {false, false, true, false};
 
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion < 10000)
-#else
 	if (pset.sversion < 90000)
-#endif
 	{
 		fprintf(stderr, _("The server (version %d.%d) does not support altering default privileges.\n"),
 				pset.sversion / 10000, (pset.sversion / 100) % 100);
@@ -1229,12 +1149,7 @@ describeOneTableDetails(const char *schemaname,
 	initPQExpBuffer(&tmpbuf);
 
 	/* Get general table info */
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion >= 10000)
-#else
 	if (pset.sversion >= 90100)
-#endif
 	{
 		printfPQExpBuffer(&buf,
 			  "SELECT c.relchecks, c.relkind, c.relhasindex, c.relhasrules, "
@@ -1331,17 +1246,6 @@ describeOneTableDetails(const char *schemaname,
 	tableinfo.hasrules = strcmp(PQgetvalue(res, 0, 3), "t") == 0;
 	tableinfo.hastriggers = strcmp(PQgetvalue(res, 0, 4), "t") == 0;
 	tableinfo.hasoids = strcmp(PQgetvalue(res, 0, 5), "t") == 0;
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	tableinfo.reloptions = (pset.sversion >= 10000) ?
-		strdup(PQgetvalue(res, 0, 6)) : 0;
-	tableinfo.tablespace = (pset.sversion >= 10000) ?
-		atooid(PQgetvalue(res, 0, 7)) : 0;
-	tableinfo.reloftype = (pset.sversion >= 10000 && strcmp(PQgetvalue(res, 0, 8), "") != 0) ?
-		strdup(PQgetvalue(res, 0, 8)) : 0;
-	tableinfo.relpersistence = (pset.sversion >= 10000 && strcmp(PQgetvalue(res, 0, 9), "") != 0) ?
-		PQgetvalue(res, 0, 9)[0] : 0;
-#else
 	tableinfo.reloptions = (pset.sversion >= 80200) ?
 		strdup(PQgetvalue(res, 0, 6)) : 0;
 	tableinfo.tablespace = (pset.sversion >= 80000) ?
@@ -1350,7 +1254,6 @@ describeOneTableDetails(const char *schemaname,
 		strdup(PQgetvalue(res, 0, 8)) : 0;
 	tableinfo.relpersistence = (pset.sversion >= 90100 && strcmp(PQgetvalue(res, 0, 9), "") != 0) ?
 		PQgetvalue(res, 0, 9)[0] : 0;
-#endif
 	PQclear(res);
 	res = NULL;
 
@@ -1385,12 +1288,7 @@ describeOneTableDetails(const char *schemaname,
 					  "\n   FROM pg_catalog.pg_attrdef d"
 					  "\n   WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef),"
 					  "\n  a.attnotnull, a.attnum,");
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion >= 10000)
-#else
 	if (pset.sversion >= 90100)
-#endif
 		appendPQExpBuffer(&buf, "\n  (SELECT c.collname FROM pg_catalog.pg_collation c, pg_catalog.pg_type t\n"
 						  "   WHERE c.oid = a.attcollation AND t.oid = a.atttypid AND a.attcollation <> t.typcollation) AS attcollation");
 	else
@@ -1586,21 +1484,11 @@ describeOneTableDetails(const char *schemaname,
 
 		printfPQExpBuffer(&buf,
 				 "SELECT i.indisunique, i.indisprimary, i.indisclustered, ");
-#ifdef PGXC
-		/* psql client respects PGXC server version */
-		if (pset.sversion >= 10000)
-#else
 		if (pset.sversion >= 80200)
-#endif
 			appendPQExpBuffer(&buf, "i.indisvalid,\n");
 		else
 			appendPQExpBuffer(&buf, "true AS indisvalid,\n");
-#ifdef PGXC
-		/* psql client respects PGXC server version */
-		if (pset.sversion >= 10000)
-#else
 		if (pset.sversion >= 90000)
-#endif
 			appendPQExpBuffer(&buf,
 							  "  (NOT i.indimmediate) AND "
 							"EXISTS (SELECT 1 FROM pg_catalog.pg_constraint "
@@ -1727,22 +1615,12 @@ describeOneTableDetails(const char *schemaname,
 		{
 			printfPQExpBuffer(&buf,
 							  "SELECT c2.relname, i.indisprimary, i.indisunique, i.indisclustered, ");
-#ifdef PGXC
-			/* psql client respects PGXC server version */
-			if (pset.sversion >= 10000)
-#else
 			if (pset.sversion >= 80200)
-#endif
 				appendPQExpBuffer(&buf, "i.indisvalid, ");
 			else
 				appendPQExpBuffer(&buf, "true as indisvalid, ");
 			appendPQExpBuffer(&buf, "pg_catalog.pg_get_indexdef(i.indexrelid, 0, true),\n  ");
-#ifdef PGXC
-			/* psql client respects PGXC server version */
-			if (pset.sversion >= 10000)
-#else
 			if (pset.sversion >= 90000)
-#endif
 				appendPQExpBuffer(&buf,
 						   "pg_catalog.pg_get_constraintdef(con.oid, true), "
 								  "contype, condeferrable, condeferred");
@@ -1750,21 +1628,11 @@ describeOneTableDetails(const char *schemaname,
 				appendPQExpBuffer(&buf,
 								  "null AS constraintdef, null AS contype, "
 							 "false AS condeferrable, false AS condeferred");
-#ifdef PGXC
-			/* psql client respects PGXC server version */
-			if (pset.sversion >= 10000)
-#else
 			if (pset.sversion >= 80000)
-#endif
 				appendPQExpBuffer(&buf, ", c2.reltablespace");
 			appendPQExpBuffer(&buf,
 							  "\nFROM pg_catalog.pg_class c, pg_catalog.pg_class c2, pg_catalog.pg_index i\n");
-#ifdef PGXC
-			/* psql client respects PGXC server version */
-			if (pset.sversion >= 10000)
-#else
 			if (pset.sversion >= 90000)
-#endif
 				appendPQExpBuffer(&buf,
 								  "  LEFT JOIN pg_catalog.pg_constraint con ON (conrelid = i.indrelid AND conindid = i.indexrelid AND contype IN ('p','u','x'))\n");
 			appendPQExpBuffer(&buf,
@@ -1833,12 +1701,7 @@ describeOneTableDetails(const char *schemaname,
 					printTableAddFooter(&cont, buf.data);
 
 					/* Print tablespace of the index on the same line */
-#ifdef PGXC
-					/* psql client respects PGXC server version */
-					if (pset.sversion >= 10000)
-#else
 					if (pset.sversion >= 80000)
-#endif
 						add_tablespace_footer(&cont, 'i',
 										   atooid(PQgetvalue(result, i, 10)),
 											  false);
@@ -1943,12 +1806,7 @@ describeOneTableDetails(const char *schemaname,
 		/* print rules */
 		if (tableinfo.hasrules)
 		{
-#ifdef PGXC
-			/* psql client respects PGXC server version */
-			if (pset.sversion >= 10000)
-#else
 			if (pset.sversion >= 80300)
-#endif
 			{
 				printfPQExpBuffer(&buf,
 								  "SELECT r.rulename, trim(trailing ';' from pg_catalog.pg_get_ruledef(r.oid, true)), "
@@ -2056,18 +1914,9 @@ describeOneTableDetails(const char *schemaname,
 						  "t.tgenabled\n"
 						  "FROM pg_catalog.pg_trigger t\n"
 						  "WHERE t.tgrelid = '%s' AND ",
-#ifdef PGXC
-						  (pset.sversion >= 10000 ? ", true" : ""),
-#else
 						  (pset.sversion >= 90000 ? ", true" : ""),
-#endif
 						  oid);
-#ifdef PGXC
-		/* psql client respects PGXC server version */
-		if (pset.sversion >= 10000)
-#else
 		if (pset.sversion >= 90000)
-#endif
 			appendPQExpBuffer(&buf, "NOT t.tgisinternal");
 		else if (pset.sversion >= 80300)
 			appendPQExpBuffer(&buf, "t.tgconstraint = 0");
@@ -2228,12 +2077,7 @@ describeOneTableDetails(const char *schemaname,
 		PQclear(result);
 
 		/* print child tables */
-#ifdef PGXC
-		/* psql client respects PGXC server version */
-		if (pset.sversion >= 10000)
-#else
 		if (pset.sversion >= 80300)
-#endif
 			printfPQExpBuffer(&buf, "SELECT c.oid::pg_catalog.regclass FROM pg_catalog.pg_class c, pg_catalog.pg_inherits i WHERE c.oid=i.inhrelid AND i.inhparent = '%s' ORDER BY c.oid::pg_catalog.regclass::pg_catalog.text;", oid);
 		else
 			printfPQExpBuffer(&buf, "SELECT c.oid::pg_catalog.regclass FROM pg_catalog.pg_class c, pg_catalog.pg_inherits i WHERE c.oid=i.inhrelid AND i.inhparent = '%s' ORDER BY c.relname;", oid);
@@ -2292,12 +2136,7 @@ describeOneTableDetails(const char *schemaname,
 			printTableAddFooter(&cont, buf.data);
 
 			/* print reloptions */
-#ifdef PGXC
-			/* psql client respects PGXC server version */
-			if (pset.sversion >= 10000)
-#else
 			if (pset.sversion >= 80200)
-#endif
 			{
 				if (tableinfo.reloptions && tableinfo.reloptions[0] != '\0')
 				{
@@ -2431,12 +2270,7 @@ describeRoles(const char *pattern, bool verbose)
 
 	initPQExpBuffer(&buf);
 
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion >= 10000)
-#else
 	if (pset.sversion >= 80100)
-#endif
 	{
 		printfPQExpBuffer(&buf,
 						  "SELECT r.rolname, r.rolsuper, r.rolinherit,\n"
@@ -2447,22 +2281,12 @@ describeRoles(const char *pattern, bool verbose)
 				 "        JOIN pg_catalog.pg_roles b ON (m.roleid = b.oid)\n"
 						  "        WHERE m.member = r.oid) as memberof");
 
-#ifdef PGXC
-		/* psql client respects PGXC server version */
-		if (verbose && pset.sversion >= 10000)
-#else
 		if (verbose && pset.sversion >= 80200)
-#endif
 		{
 			appendPQExpBufferStr(&buf, "\n, pg_catalog.shobj_description(r.oid, 'pg_authid') AS description");
 			ncols++;
 		}
-#ifdef PGXC
-		/* psql client respects PGXC server version */
-		if (pset.sversion >= 10000)
-#else
 		if (pset.sversion >= 90100)
-#endif
 		{
 			appendPQExpBufferStr(&buf, "\n, r.rolreplication");
 		}
@@ -2502,12 +2326,7 @@ describeRoles(const char *pattern, bool verbose)
 	printTableAddHeader(&cont, gettext_noop("Attributes"), true, align);
 	printTableAddHeader(&cont, gettext_noop("Member of"), true, align);
 
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (verbose && pset.sversion >= 10000)
-#else
 	if (verbose && pset.sversion >= 80200)
-#endif
 		printTableAddHeader(&cont, gettext_noop("Description"), true, align);
 
 	for (i = 0; i < nrows; i++)
@@ -2530,12 +2349,7 @@ describeRoles(const char *pattern, bool verbose)
 		if (strcmp(PQgetvalue(res, i, 5), "t") != 0)
 			add_role_attribute(&buf, _("Cannot login"));
 
-#ifdef PGXC
-		/* psql client respects PGXC server version */
-		if (pset.sversion >= 10000)
-#else
 		if (pset.sversion >= 90100)
-#endif
 			if (strcmp(PQgetvalue(res, i, (verbose ? 9 : 8)), "t") == 0)
 				add_role_attribute(&buf, _("Replication"));
 
@@ -2560,12 +2374,7 @@ describeRoles(const char *pattern, bool verbose)
 
 		printTableAddCell(&cont, PQgetvalue(res, i, 7), false, false);
 
-#ifdef PGXC
-		/* psql client respects PGXC server version */
-		if (verbose && pset.sversion >= 10000)
-#else
 		if (verbose && pset.sversion >= 80200)
-#endif
 			printTableAddCell(&cont, PQgetvalue(res, i, 8), false, false);
 	}
 	termPQExpBuffer(&buf);
@@ -2602,12 +2411,7 @@ listDbRoleSettings(const char *pattern, const char *pattern2)
 
 	initPQExpBuffer(&buf);
 
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion >= 10000)
-#else
 	if (pset.sversion >= 90000)
-#endif
 	{
 		bool		havewhere;
 
@@ -2719,12 +2523,7 @@ listTables(const char *tabtypes, const char *pattern, bool verbose, bool showSys
 		 * As of PostgreSQL 9.0, use pg_table_size() to show a more acurate
 		 * size of a table, including FSM, VM and TOAST tables.
 		 */
-#ifdef PGXC
-		/* psql client respects PGXC server version */
-		if (pset.sversion >= 10000)
-#else
 		if (pset.sversion >= 90000)
-#endif
 			appendPQExpBuffer(&buf,
 							  ",\n  pg_catalog.pg_size_pretty(pg_catalog.pg_table_size(c.oid)) as \"%s\"",
 							  gettext_noop("Size"));
@@ -2826,12 +2625,7 @@ listLanguages(const char *pattern, bool verbose, bool showSystem)
 	printfPQExpBuffer(&buf,
 					  "SELECT l.lanname AS \"%s\",\n",
 					  gettext_noop("Name"));
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion >= 10000)
-#else
 	if (pset.sversion >= 80300)
-#endif
 		appendPQExpBuffer(&buf,
 				"       pg_catalog.pg_get_userbyid(l.lanowner) as \"%s\",\n",
 						  gettext_noop("Owner"));
@@ -2849,12 +2643,7 @@ listLanguages(const char *pattern, bool verbose, bool showSystem)
 						  gettext_noop("Internal Language"),
 						  gettext_noop("Call Handler"),
 						  gettext_noop("Validator"));
-#ifdef PGXC
-		/* psql client respects PGXC server version */
-		if (pset.sversion >= 10000)
-#else
 		if (pset.sversion >= 90000)
-#endif
 			appendPQExpBuffer(&buf, "l.laninline::regprocedure AS \"%s\",\n       ",
 							  gettext_noop("Inline Handler"));
 		printACLColumn(&buf, "l.lanacl");
@@ -2909,12 +2698,7 @@ listDomains(const char *pattern, bool showSystem)
 					  gettext_noop("Schema"),
 					  gettext_noop("Name"),
 					  gettext_noop("Type"));
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion >= 10000)
-#else
 	if (pset.sversion >= 90100)
-#endif
 		appendPQExpBuffer(&buf,
 						  "            COALESCE((SELECT ' collate ' || c.collname FROM pg_catalog.pg_collation c, pg_catalog.pg_type bt\n"
 						  "                      WHERE c.oid = t.typcollation AND bt.oid = t.typbasetype AND t.typcollation <> bt.typcollation), '') ||\n");
@@ -3233,12 +3017,7 @@ listTSParsers(const char *pattern, bool verbose)
 	PGresult   *res;
 	printQueryOpt myopt = pset.popt;
 
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion < 10000)
-#else
 	if (pset.sversion < 80300)
-#endif
 	{
 		fprintf(stderr, _("The server (version %d.%d) does not support full text search.\n"),
 				pset.sversion / 10000, (pset.sversion / 100) % 100);
@@ -3471,12 +3250,7 @@ listTSDictionaries(const char *pattern, bool verbose)
 	PGresult   *res;
 	printQueryOpt myopt = pset.popt;
 
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion < 10000)
-#else
 	if (pset.sversion < 80300)
-#endif
 	{
 		fprintf(stderr, _("The server (version %d.%d) does not support full text search.\n"),
 				pset.sversion / 10000, (pset.sversion / 100) % 100);
@@ -3544,12 +3318,7 @@ listTSTemplates(const char *pattern, bool verbose)
 	PGresult   *res;
 	printQueryOpt myopt = pset.popt;
 
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion < 10000)
-#else
 	if (pset.sversion < 80300)
-#endif
 	{
 		fprintf(stderr, _("The server (version %d.%d) does not support full text search.\n"),
 				pset.sversion / 10000, (pset.sversion / 100) % 100);
@@ -3617,12 +3386,7 @@ listTSConfigs(const char *pattern, bool verbose)
 	PGresult   *res;
 	printQueryOpt myopt = pset.popt;
 
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion < 10000)
-#else
 	if (pset.sversion < 80300)
-#endif
 	{
 		fprintf(stderr, _("The server (version %d.%d) does not support full text search.\n"),
 				pset.sversion / 10000, (pset.sversion / 100) % 100);
@@ -3820,12 +3584,7 @@ listForeignDataWrappers(const char *pattern, bool verbose)
 	PGresult   *res;
 	printQueryOpt myopt = pset.popt;
 
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion < 10000)
-#else
 	if (pset.sversion < 80400)
-#endif
 	{
 		fprintf(stderr, _("The server (version %d.%d) does not support foreign-data wrappers.\n"),
 				pset.sversion / 10000, (pset.sversion / 100) % 100);
@@ -3838,12 +3597,7 @@ listForeignDataWrappers(const char *pattern, bool verbose)
 					  "  pg_catalog.pg_get_userbyid(fdwowner) AS \"%s\",\n",
 					  gettext_noop("Name"),
 					  gettext_noop("Owner"));
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion >= 10000)
-#else
 	if (pset.sversion >= 90100)
-#endif
 		appendPQExpBuffer(&buf,
 						  "  fdwhandler::pg_catalog.regproc AS \"%s\",\n",
 						  gettext_noop("Handler"));
@@ -3894,12 +3648,7 @@ listForeignServers(const char *pattern, bool verbose)
 	PGresult   *res;
 	printQueryOpt myopt = pset.popt;
 
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion < 10000)
-#else
 	if (pset.sversion < 80400)
-#endif
 	{
 		fprintf(stderr, _("The server (version %d.%d) does not support foreign servers.\n"),
 				pset.sversion / 10000, (pset.sversion / 100) % 100);
@@ -3965,12 +3714,7 @@ listUserMappings(const char *pattern, bool verbose)
 	PGresult   *res;
 	printQueryOpt myopt = pset.popt;
 
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion < 10000)
-#else
 	if (pset.sversion < 80400)
-#endif
 	{
 		fprintf(stderr, _("The server (version %d.%d) does not support user mappings.\n"),
 				pset.sversion / 10000, (pset.sversion / 100) % 100);
@@ -4023,12 +3767,7 @@ listForeignTables(const char *pattern, bool verbose)
 	PGresult   *res;
 	printQueryOpt myopt = pset.popt;
 
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion < 10000)
-#else
 	if (pset.sversion < 90100)
-#endif
 	{
 		fprintf(stderr, _("The server (version %d.%d) does not support foreign tables.\n"),
 				pset.sversion / 10000, (pset.sversion / 100) % 100);
@@ -4089,12 +3828,7 @@ listExtensions(const char *pattern)
 	PGresult   *res;
 	printQueryOpt myopt = pset.popt;
 
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion < 10000)
-#else
 	if (pset.sversion < 90100)
-#endif
 	{
 		fprintf(stderr, _("The server (version %d.%d) does not support extensions.\n"),
 				pset.sversion / 10000, (pset.sversion / 100) % 100);
@@ -4148,12 +3882,7 @@ listExtensionContents(const char *pattern)
 	PGresult   *res;
 	int			i;
 
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion < 10000)
-#else
 	if (pset.sversion < 90100)
-#endif
 	{
 		fprintf(stderr, _("The server (version %d.%d) does not support extensions.\n"),
 				pset.sversion / 10000, (pset.sversion / 100) % 100);
@@ -4258,12 +3987,7 @@ listOneExtensionContents(const char *extname, const char *oid)
 static void
 printACLColumn(PQExpBuffer buf, const char *colname)
 {
-#ifdef PGXC
-	/* psql client respects PGXC server version */
-	if (pset.sversion >= 10000)
-#else
 	if (pset.sversion >= 80100)
-#endif
 		appendPQExpBuffer(buf,
 						  "pg_catalog.array_to_string(%s, E'\\n') AS \"%s\"",
 						  colname, gettext_noop("Access privileges"));
