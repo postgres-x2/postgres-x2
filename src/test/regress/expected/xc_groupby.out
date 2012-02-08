@@ -53,12 +53,12 @@ explain (verbose true, costs false, nodes false) select count(*), sum(xc_groupby
          Hash Cond: (xc_groupby_tab1.val2 = xc_groupby_tab2.val2)
          ->  Data Node Scan on xc_groupby_tab1
                Output: xc_groupby_tab1.val, xc_groupby_tab1.val2
-               Remote query: SELECT xc_groupby_tab1.val, xc_groupby_tab1.val2 FROM ONLY xc_groupby_tab1 WHERE true
+               Remote query: SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true
          ->  Hash
                Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
                ->  Data Node Scan on xc_groupby_tab2
                      Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
-                     Remote query: SELECT xc_groupby_tab2.val, xc_groupby_tab2.val2 FROM ONLY xc_groupby_tab2 WHERE true
+                     Remote query: SELECT val, val2 FROM ONLY xc_groupby_tab2 WHERE true
 (13 rows)
 
 -- aggregates over aggregates
@@ -164,15 +164,15 @@ select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_group
 (6 rows)
 
 explain (verbose true, costs false, nodes false) select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val, xc_groupby_tab2.val2;
-                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
    ->  Materialize
          Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: (xc_groupby_tab1.val + xc_groupby_tab2.val2), xc_groupby_tab1.val, xc_groupby_tab2.val2
-               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1), group_2.val_1_1_1, group_2.val2_2_2_1  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT xc_groupby_tab1.val, xc_groupby_tab1.val2 FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT xc_groupby_tab2.val, xc_groupby_tab2.val2 FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 2, 3  
+               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1), group_2.val_1_1_1, group_2.val2_2_2_1  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT val, val2 FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 2, 3  
 (7 rows)
 
 select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
@@ -185,15 +185,15 @@ select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_group
 (4 rows)
 
 explain (verbose true, costs false, nodes false) select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
-                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                              QUERY PLAN                                                                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
    ->  Materialize
          Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: (xc_groupby_tab1.val + xc_groupby_tab2.val2)
-               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1)  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT xc_groupby_tab1.val, xc_groupby_tab1.val2 FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT xc_groupby_tab2.val, xc_groupby_tab2.val2 FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 1  
+               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1)  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT val, val2 FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 1  
 (7 rows)
 
 -- group by with aggregates in expression
@@ -647,12 +647,12 @@ explain (verbose true, costs false, nodes false) select count(*), sum(xc_groupby
          Hash Cond: (xc_groupby_tab1.val2 = xc_groupby_tab2.val2)
          ->  Data Node Scan on xc_groupby_tab1
                Output: xc_groupby_tab1.val, xc_groupby_tab1.val2
-               Remote query: SELECT xc_groupby_tab1.val, xc_groupby_tab1.val2 FROM ONLY xc_groupby_tab1 WHERE true
+               Remote query: SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true
          ->  Hash
                Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
                ->  Data Node Scan on xc_groupby_tab2
                      Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
-                     Remote query: SELECT xc_groupby_tab2.val, xc_groupby_tab2.val2 FROM ONLY xc_groupby_tab2 WHERE true
+                     Remote query: SELECT val, val2 FROM ONLY xc_groupby_tab2 WHERE true
 (13 rows)
 
 -- aggregates over aggregates
@@ -758,15 +758,15 @@ select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_group
 (6 rows)
 
 explain (verbose true, costs false, nodes false) select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val, xc_groupby_tab2.val2;
-                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
    ->  Materialize
          Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: (xc_groupby_tab1.val + xc_groupby_tab2.val2), xc_groupby_tab1.val, xc_groupby_tab2.val2
-               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1), group_2.val_1_1_1, group_2.val2_2_2_1  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT xc_groupby_tab1.val, xc_groupby_tab1.val2 FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT xc_groupby_tab2.val, xc_groupby_tab2.val2 FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 2, 3  
+               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1), group_2.val_1_1_1, group_2.val2_2_2_1  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT val, val2 FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 2, 3  
 (7 rows)
 
 select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
@@ -779,15 +779,15 @@ select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_group
 (4 rows)
 
 explain (verbose true, costs false, nodes false) select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
-                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                              QUERY PLAN                                                                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
    ->  Materialize
          Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: (xc_groupby_tab1.val + xc_groupby_tab2.val2)
-               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1)  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT xc_groupby_tab1.val, xc_groupby_tab1.val2 FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT xc_groupby_tab2.val, xc_groupby_tab2.val2 FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 1  
+               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1)  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT val, val2 FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 1  
 (7 rows)
 
 -- group by with aggregates in expression
@@ -1257,12 +1257,12 @@ explain (verbose true, costs false, nodes false) select count(*), sum(xc_groupby
                Hash Cond: (xc_groupby_tab1.val2 = xc_groupby_tab2.val2)
                ->  Data Node Scan on xc_groupby_tab1
                      Output: xc_groupby_tab1.val, xc_groupby_tab1.val2
-                     Remote query: SELECT xc_groupby_tab1.val, xc_groupby_tab1.val2 FROM ONLY xc_groupby_tab1 WHERE true
+                     Remote query: SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true
                ->  Hash
                      Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
                      ->  Data Node Scan on xc_groupby_tab2
                            Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
-                           Remote query: SELECT xc_groupby_tab2.val, xc_groupby_tab2.val2 FROM ONLY xc_groupby_tab2 WHERE true
+                           Remote query: SELECT val, val2 FROM ONLY xc_groupby_tab2 WHERE true
 (16 rows)
 
 -- aggregates over aggregates
@@ -1373,15 +1373,15 @@ select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_group
 (6 rows)
 
 explain (verbose true, costs false, nodes false) select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val, xc_groupby_tab2.val2;
-                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Group
    Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
    ->  Materialize
          Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: (xc_groupby_tab1.val + xc_groupby_tab2.val2), xc_groupby_tab1.val, xc_groupby_tab2.val2
-               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1), group_2.val_1_1_1, group_2.val2_2_2_1  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT xc_groupby_tab1.val, xc_groupby_tab1.val2 FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT xc_groupby_tab2.val, xc_groupby_tab2.val2 FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 2, 3 ORDER BY 2, 3 
+               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1), group_2.val_1_1_1, group_2.val2_2_2_1  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT val, val2 FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 2, 3 ORDER BY 2, 3 
 (7 rows)
 
 select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
@@ -1394,15 +1394,15 @@ select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_group
 (4 rows)
 
 explain (verbose true, costs false, nodes false) select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
-                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                   
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                   QUERY PLAN                                                                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Group
    Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
    ->  Materialize
          Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: (xc_groupby_tab1.val + xc_groupby_tab2.val2)
-               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1)  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT xc_groupby_tab1.val, xc_groupby_tab1.val2 FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT xc_groupby_tab2.val, xc_groupby_tab2.val2 FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 1 ORDER BY 1 
+               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1)  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT val, val2 FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 1 ORDER BY 1 
 (7 rows)
 
 -- group by with aggregates in expression
@@ -1859,12 +1859,12 @@ explain (verbose true, costs false, nodes false) select count(*), sum(xc_groupby
                Hash Cond: (xc_groupby_tab1.val2 = xc_groupby_tab2.val2)
                ->  Data Node Scan on xc_groupby_tab1
                      Output: xc_groupby_tab1.val, xc_groupby_tab1.val2
-                     Remote query: SELECT xc_groupby_tab1.val, xc_groupby_tab1.val2 FROM ONLY xc_groupby_tab1 WHERE true
+                     Remote query: SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true
                ->  Hash
                      Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
                      ->  Data Node Scan on xc_groupby_tab2
                            Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
-                           Remote query: SELECT xc_groupby_tab2.val, xc_groupby_tab2.val2 FROM ONLY xc_groupby_tab2 WHERE true
+                           Remote query: SELECT val, val2 FROM ONLY xc_groupby_tab2 WHERE true
 (16 rows)
 
 -- aggregates over aggregates
@@ -1975,15 +1975,15 @@ select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_group
 (6 rows)
 
 explain (verbose true, costs false, nodes false) select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val, xc_groupby_tab2.val2;
-                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Group
    Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
    ->  Materialize
          Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: (xc_groupby_tab1.val + xc_groupby_tab2.val2), xc_groupby_tab1.val, xc_groupby_tab2.val2
-               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1), group_2.val_1_1_1, group_2.val2_2_2_1  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT xc_groupby_tab1.val, xc_groupby_tab1.val2 FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT xc_groupby_tab2.val, xc_groupby_tab2.val2 FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 2, 3 ORDER BY 2, 3 
+               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1), group_2.val_1_1_1, group_2.val2_2_2_1  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT val, val2 FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 2, 3 ORDER BY 2, 3 
 (7 rows)
 
 select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
@@ -1996,15 +1996,15 @@ select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_group
 (4 rows)
 
 explain (verbose true, costs false, nodes false) select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
-                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                   
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                   QUERY PLAN                                                                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Group
    Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
    ->  Materialize
          Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: (xc_groupby_tab1.val + xc_groupby_tab2.val2)
-               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1)  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT xc_groupby_tab1.val, xc_groupby_tab1.val2 FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT xc_groupby_tab2.val, xc_groupby_tab2.val2 FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 1 ORDER BY 1 
+               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1)  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT val, val2 FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 1 ORDER BY 1 
 (7 rows)
 
 -- group by with aggregates in expression

@@ -2489,6 +2489,8 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	RelationLocInfo *rel_loc_info;
 	Query			*query;
 	RangeTblRef		*rtr;
+	List			*varlist;
+	ListCell		*varcell;
 
 	Assert(scan_relid > 0);
 	Assert(best_path->parent->rtekind == RTE_RELATION);
@@ -2517,34 +2519,44 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	 * Construct a Query structure for the query to be fired on the datanodes
 	 * and deparse it. Fields not set remain memzero'ed as set by makeNode.
 	 */
-	rtr = makeNode(RangeTblRef);
-	rtr->rtindex = scan_relid;
-	query = makeNode(Query);
-	query->commandType = CMD_SELECT;
-	/* We will modify the RTE, so make a copy */
-	query->rtable = copyObject(root->parse->rtable);
-	query->jointree = makeNode(FromExpr);
-	/* There can be only one table */
-	query->jointree->fromlist = list_make1(rtr);
-	query->jointree->quals = (Node *)make_ands_explicit(remote_scan_clauses);
-	query->targetList = tlist;
-
-	rte = rt_fetch(scan_relid, query->rtable);
+	rte = rt_fetch(scan_relid, root->parse->rtable);
 	Assert(rte->rtekind == RTE_RELATION);
-	/*
-	 * If this is RTE for an inherited table, we will have rte->eref->aliasname
-	 * set to the name of the parent table. Query deparsing logic fully
-	 * qualifies such relation names while generating strings for Var nodes. To
-	 * avoid this, set the alias node to the eref node temporarily. See code in
-	 * get_variable() for reference.
-	 * PGXCTODO: if get_variable() starts correctly using the aliasname set in
-	 * inherited tables, we don't need this hack here.
-	 */
-	if (!rte->alias && rte->eref && rte->eref->aliasname &&
-		strcmp(rte->eref->aliasname, get_rel_name(rte->relid)) != 0)
-		rte->alias = rte->eref;
+	/* Make a copy of RTE to be included in the new query structure */
+	rte = copyObject(rte);
 	/* This RTE should appear in FROM clause of the SQL statement constructed */
 	rte->inFromCl = true;
+
+	query = makeNode(Query);
+	query->commandType = CMD_SELECT;
+	query->rtable = list_make1(rte);
+	query->jointree = makeNode(FromExpr);
+
+	rtr = makeNode(RangeTblRef);
+	rtr->rtindex = list_length(query->rtable);
+	/* There can be only one table */
+	Assert(rtr->rtindex == 1);
+
+	query->jointree->fromlist = list_make1(rtr);
+	query->jointree->quals = (Node *)make_ands_explicit(copyObject(remote_scan_clauses));
+	query->targetList = copyObject(tlist);
+
+	/*
+	 * Change the varno in Var nodes in the targetlist of the query to be shipped to the
+	 * datanode to 1, to match the rtable in the query. Do the same for Var
+	 * nodes in quals.
+	 */
+	varlist = list_concat(pull_var_clause((Node *)query->targetList, PVC_RECURSE_PLACEHOLDERS),
+							pull_var_clause((Node *)query->jointree->quals,
+												PVC_RECURSE_PLACEHOLDERS));
+
+	foreach(varcell, varlist)
+	{
+		Var *var = lfirst(varcell);
+		if (var->varno != scan_relid)
+			elog(ERROR, "Single table scan can not handle vars from more than one relation");
+		var->varno = rtr->rtindex;
+	}
+	list_free(varlist);
 
 	initStringInfo(&sql);
 	deparse_query(query, &sql, NIL);
