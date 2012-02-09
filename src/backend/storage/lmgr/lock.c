@@ -483,12 +483,12 @@ LockAcquire(const LOCKTAG *locktag,
  */
 bool
 LockIncrementIfExists(const LOCKTAG *locktag,
-			LOCKMODE lockmode)
+			LOCKMODE lockmode, bool sessionLock)
 {
 	int ret;
 
 	ret = LockAcquireExtendedXC(locktag, lockmode,
-	                            true, /* always session level lock */
+	                            sessionLock,
 	                            true, /* never wait */
 								true, true);
 
