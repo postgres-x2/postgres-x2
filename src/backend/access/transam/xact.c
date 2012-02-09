@@ -146,10 +146,12 @@ typedef struct TransactionStateData
 {
 	TransactionId transactionId;	/* my XID, or Invalid if none */
 #ifdef PGXC  /* PGXC_COORD */
-	GlobalTransactionId globalTransactionId; /* my GXID, or Invalid if none */
-	GlobalTransactionId globalCommitTransactionId; /* Commit GXID used by implicit 2PC */
-	bool				ArePGXCNodesPrepared; /* Checks if PGXC Nodes are prepared and
-											  * rollbacks then in case of an Abort */
+	GlobalTransactionId	globalTransactionId;		/* my GXID, or Invalid if none */
+	GlobalTransactionId	globalCommitTransactionId;	/* Commit GXID used by implicit 2PC */
+	bool				ArePGXCNodesPrepared;		/* Checks if PGXC Nodes are prepared and
+													 * rollbacks then in case of an Abort */
+	bool				isLocalParameterUsed;		/* Check if a local parameter is active
+													 * in transaction block (SET LOCAL, DEFERRED) */
 #endif
 	SubTransactionId subTransactionId;	/* my subxact ID */
 	char	   *name;			/* savepoint name, if any */
@@ -485,6 +487,30 @@ GetCurrentTransactionIdIfAny(void)
 	return CurrentTransactionState->transactionId;
 }
 
+#ifdef PGXC
+/*
+ *	GetCurrentLocalParamStatus
+ *
+ * This will return if current sub xact is using local parameters
+ * that may involve pooler session related parameters (SET LOCAL).
+ */
+bool
+GetCurrentLocalParamStatus(void)
+{
+	return CurrentTransactionState->isLocalParameterUsed;
+}
+
+/*
+ *	SetCurrentLocalParamStatus
+ *
+ * This sets local parameter usage for current sub xact.
+ */
+void
+SetCurrentLocalParamStatus(bool status)
+{
+	CurrentTransactionState->isLocalParameterUsed = status;
+}
+#endif
 
 /*
  * AssignTransactionId
@@ -1830,6 +1856,7 @@ StartTransaction(void)
 		/* Until assigned by implicit 2PC */
 		s->globalCommitTransactionId = InvalidGlobalTransactionId;
 		s->ArePGXCNodesPrepared = false;
+		s->isLocalParameterUsed = false;
 	}
 #endif
 	s->transactionId = InvalidTransactionId;	/* until assigned */
@@ -2295,6 +2322,7 @@ CommitTransaction(bool contact_gtm)
 		s->globalTransactionId = InvalidGlobalTransactionId;
 		s->globalCommitTransactionId = InvalidGlobalTransactionId;
 		s->ArePGXCNodesPrepared = false;
+		s->isLocalParameterUsed = false;
 	}
 	else if (IS_PGXC_DATANODE || IsConnFromCoord())
 		SetNextTransactionId(InvalidTransactionId);

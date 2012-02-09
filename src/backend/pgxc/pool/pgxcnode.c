@@ -779,7 +779,7 @@ void
 cancel_query(void)
 {
 	int			i;
-	int 		dn_cancel[NumDataNodes];
+	int 			dn_cancel[NumDataNodes];
 	int			co_cancel[NumCoords];
 	int			dn_count = 0;
 	int			co_count = 0;

@@ -183,6 +183,9 @@ extern void AfterTriggerBeginXact(void);
 extern void AfterTriggerBeginQuery(void);
 extern void AfterTriggerEndQuery(EState *estate);
 extern void AfterTriggerFireDeferred(void);
+#ifdef PGXC
+extern bool IsAnyAfterTriggerDeferred(void);
+#endif
 extern void AfterTriggerEndXact(bool isCommit);
 extern void AfterTriggerBeginSubXact(void);
 extern void AfterTriggerEndSubXact(bool isCommit);

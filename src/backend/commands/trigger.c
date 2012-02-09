@@ -3676,6 +3676,33 @@ AfterTriggerBeginQuery(void)
 	events->tailfree = NULL;
 }
 
+#ifdef PGXC
+
+/* ----------
+ * IsAnyAfterTriggerDeferred()
+ *
+ * Check if there is any deferred trigger to fire.
+ * This is used to preserve snapshot data in case an
+ * error occurred in a transaction block.
+ * ----------
+ */
+bool
+IsAnyAfterTriggerDeferred(void)
+{
+	AfterTriggerEventList *events;
+
+	if (afterTriggers == NULL)
+		return false;
+
+	/* Is there are any deferred trigger to fire */
+	events = &afterTriggers->events;
+	if (events->head != NULL)
+		return true;
+
+	return false;
+}
+#endif
+
 
 /* ----------
  * AfterTriggerEndQuery()
@@ -4093,14 +4120,6 @@ AfterTriggerSetState(ConstraintsSetStmt *stmt)
 	 */
 	if (afterTriggers == NULL)
 		return;
-
-#ifdef PGXC
-	if (stmt->deferred)
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("Postgres-XC does not support DEFERRED constraints yet"),
-				 errdetail("The feature is not currently supported")));
-#endif
 
 	/*
 	 * If in a subtransaction, and we didn't save the current state already,

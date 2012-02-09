@@ -46,6 +46,9 @@
 #include "catalog/pg_type.h"
 #include "commands/async.h"
 #include "commands/prepare.h"
+#ifdef PGXC
+#include "commands/trigger.h"
+#endif
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
 #include "libpq/pqsignal.h"
@@ -4100,9 +4103,10 @@ PostgresMain(int argc, char *argv[], const char *username)
 #ifdef PGXC
 			/*
 			 * Helps us catch any problems where we did not send down a snapshot
-			 * when it was expected.
+			 * when it was expected. However if any deferred trigger is supposed 
+			 * to be fired at commit time we need to preserve the snapshot sent previously
 			 */
-			if (IS_PGXC_DATANODE || IsConnFromCoord())
+			if ((IS_PGXC_DATANODE || IsConnFromCoord()) && !IsAnyAfterTriggerDeferred())
 				UnsetGlobalSnapshotData();
 #endif
 

@@ -1030,10 +1030,10 @@ LINE 1: INSERT INTO fktable VALUES (5, 10);
 -- explicitly defer the constraint
 BEGIN;
 SET CONSTRAINTS ALL DEFERRED;
-ERROR:  Postgres-XC does not support DEFERRED constraints yet
-DETAIL:  The feature is not currently supported
 INSERT INTO fktable VALUES (10, 15);
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  relation "fktable" does not exist
+LINE 1: INSERT INTO fktable VALUES (10, 15);
+                    ^
 INSERT INTO pktable VALUES (15, 0); -- make the FK insert valid
 ERROR:  current transaction is aborted, commands ignored until end of transaction block
 COMMIT;
@@ -1050,8 +1050,7 @@ CREATE TABLE fktable (
 	id		INT4 PRIMARY KEY,
 	fk		INT4 REFERENCES pktable DEFERRABLE INITIALLY DEFERRED
 );
-ERROR:  Postgres-XC does not support DEFERRED constraints yet
-DETAIL:  The feature is not currently supported
+ERROR:  Hash/Modulo distributed table must include distribution column in index
 -- default to deferred, should succeed
 BEGIN;
 INSERT INTO fktable VALUES (100, 200);
@@ -1089,11 +1088,11 @@ CREATE TABLE fktable (
 ERROR:  Hash/Modulo distributed table must include distribution column in index
 BEGIN;
 SET CONSTRAINTS ALL DEFERRED;
-ERROR:  Postgres-XC does not support DEFERRED constraints yet
-DETAIL:  The feature is not currently supported
 -- should succeed, for now
 INSERT INTO fktable VALUES (1000, 2000);
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  relation "fktable" does not exist
+LINE 1: INSERT INTO fktable VALUES (1000, 2000);
+                    ^
 -- should cause transaction abort, due to preceding error
 SET CONSTRAINTS ALL IMMEDIATE;
 ERROR:  current transaction is aborted, commands ignored until end of transaction block
@@ -1113,8 +1112,7 @@ CREATE TABLE fktable (
 	id		INT4 PRIMARY KEY,
 	fk		INT4 REFERENCES pktable DEFERRABLE INITIALLY DEFERRED
 );
-ERROR:  Postgres-XC does not support DEFERRED constraints yet
-DETAIL:  The feature is not currently supported
+ERROR:  Hash/Modulo distributed table must include distribution column in index
 BEGIN;
 -- no error here
 INSERT INTO fktable VALUES (100, 200);
@@ -1212,8 +1210,7 @@ CREATE TEMP TABLE fktable (
     id int primary key,
     fk int references pktable deferrable initially deferred
 );
-ERROR:  Postgres-XC does not support DEFERRED constraints yet
-DETAIL:  The feature is not currently supported
+ERROR:  Hash/Modulo distributed table must include distribution column in index
 INSERT INTO pktable VALUES (5, 10);
 BEGIN;
 -- doesn't match PK, but no error yet

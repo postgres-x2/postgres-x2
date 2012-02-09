@@ -38,6 +38,7 @@
 #include <signal.h>
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
+#include "access/xact.h"
 #include "catalog/pgxc_node.h"
 #include "commands/dbcommands.h"
 #include "nodes/nodes.h"
@@ -65,7 +66,7 @@ int			MinPoolSize = 1;
 int			MaxPoolSize = 100;
 int			PoolerPort = 6667;
 
-bool		PersistentConnections = false;
+bool			PersistentConnections = false;
 
 /* Flag to tell if we are Postgres-XC pooler process */
 static bool am_pgxc_pooler = false;
@@ -73,9 +74,9 @@ static bool am_pgxc_pooler = false;
 /* Connection information cached */
 typedef struct
 {
-	Oid		nodeoid;
-    char   *host;
-    int		port;
+	Oid	nodeoid;
+	char	*host;
+	int	port;
 } PGXCNodeConnectionInfo;
 
 /* The memory context */
@@ -122,6 +123,7 @@ static DatabasePool *find_database_pool_to_clean(const char *database,
 												 List *co_list);
 static DatabasePool *remove_database_pool(const char *database, const char *user_name);
 static int *agent_acquire_connections(PoolAgent *agent, List *datanodelist, List *coordlist);
+static int send_local_commands(PoolAgent *agent, List *datanodelist, List *coordlist);
 static int cancel_query_on_connections(PoolAgent *agent, List *datanodelist, List *coordlist);
 static PGXCNodePoolSlot *acquire_connection(DatabasePool *dbPool, int node, char client_conn_type);
 static void agent_release_connections(PoolAgent *agent, bool force_destroy);
@@ -571,6 +573,13 @@ PoolManagerSetCommand(PoolCommandType command_type, const char *set_command)
 
 	Assert(poolHandle);
 
+	/*
+	 * If SET LOCAL is in use, flag current transaction as using
+	 * transaction-block related parameters with pooler agent.
+	 */
+	if (command_type == POOL_CMD_LOCAL_SET)
+		SetCurrentLocalParamStatus(true);
+
 	/* Message type */
 	pool_putbytes(&poolHandle->port, &msgtype, 1);
 
@@ -608,6 +617,63 @@ PoolManagerSetCommand(PoolCommandType command_type, const char *set_command)
 	res = pool_recvres(&poolHandle->port);
 
 	return res;
+}
+
+/*
+ * Send commands to alter the behavior of current transaction and update begin sent status
+ */
+
+int
+PoolManagerSendLocalCommand(int dn_count, int* dn_list, int co_count, int* co_list)
+{
+	uint32		n32;
+	/*
+	 * Buffer contains the list of both Coordinator and Datanodes, as well
+	 * as the number of connections
+	 */
+	uint32 		buf[2 + dn_count + co_count];
+	int 		i;
+
+	if (poolHandle == NULL)
+		return EOF;
+
+	if (dn_count == 0 && co_count == 0)
+		return EOF;
+
+	if (dn_count != 0 && dn_list == NULL)
+		return EOF;
+
+	if (co_count != 0 && co_list == NULL)
+		return EOF;
+
+	/* Insert the list of Datanodes in buffer */
+	n32 = htonl((uint32) dn_count);
+	buf[0] = n32;
+
+	for (i = 0; i < dn_count;)
+	{
+		n32 = htonl((uint32) dn_list[i++]);
+		buf[i] = n32;
+	}
+
+	/* Insert the list of Coordinators in buffer */
+	n32 = htonl((uint32) co_count);
+	buf[dn_count + 1] = n32;
+
+	/* Not necessary to send to pooler a request if there is no Coordinator */
+	if (co_count != 0)
+	{
+		for (i = dn_count + 1; i < (dn_count + co_count + 1);)
+		{
+			n32 = htonl((uint32) co_list[i - (dn_count + 1)]);
+			buf[++i] = n32;
+		}
+	}
+	pool_putmessage(&poolHandle->port, 'b', (char *) buf, (2 + dn_count + co_count) * sizeof(uint32));
+	pool_flush(&poolHandle->port);
+
+	/* Get result */
+	return pool_recvres(&poolHandle->port);
 }
 
 /*
@@ -1007,6 +1073,32 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 				if (pids)
 					pfree(pids);
 				break;
+			case 'b':		/* Fire transaction-block commands on given nodes */
+				/*
+				 * Length of message is caused by:
+				 * - Message header = 4bytes
+				 * - Number of Datanodes sent = 4bytes
+				 * - List of datanodes = NumDataNodes * 4bytes (max)
+				 * - Number of Coordinators sent = 4bytes
+				 * - List of coordinators = NumCoords * 4bytes (max)
+				 */
+				pool_getmessage(&agent->port, s, 4 * NumDataNodes + 4 * NumCoords + 12);
+				datanodecount = pq_getmsgint(s, 4);
+				for (i = 0; i < datanodecount; i++)
+					datanodelist = lappend_int(datanodelist, pq_getmsgint(s, 4));
+				coordcount = pq_getmsgint(s, 4);
+				/* It is possible that no Coordinators are involved in the transaction */
+				for (i = 0; i < coordcount; i++)
+					coordlist = lappend_int(coordlist, pq_getmsgint(s, 4));
+				pq_getmsgend(s);
+				/* Send local commands if any to the nodes involved in the transaction */
+				res = send_local_commands(agent, datanodelist, coordlist);
+				/* Send result */
+				pool_sendres(&agent->port, res);
+
+				list_free(datanodelist);
+				list_free(coordlist);
+				break;
 			case 'c':			/* CONNECT */
 				pool_getmessage(&agent->port, s, 0);
 				agent->pid = pq_getmsgint(s, 4);
@@ -1275,7 +1367,13 @@ agent_set_command(PoolAgent *agent, const char *set_command, PoolCommandType com
 		sprintf(params_string, "%s;%s", params_string, set_command);
 	}
 
-	/* Launch the new command to all the connections already hold by the agent */
+	/*
+	 * Launch the new command to all the connections already hold by the agent
+	 * It does not matter if command is local or global as this has explicitely been sent
+	 * by client. PostgreSQL backend also cannot send to its pooler agent SET LOCAL if current
+	 * transaction is not in a transaction block. This has also no effect on local Coordinator
+	 * session.
+	 */
 	if (agent->dn_connections)
 	{
 		for (i = 0; i < agent->num_dn_connections; i++)
@@ -1398,11 +1496,13 @@ agent_acquire_connections(PoolAgent *agent, List *datanodelist, List *coordlist)
 			/* Store in the descriptor */
 			agent->dn_connections[node] = slot;
 
-			/* Update newly-acquired slot with session parameters */
+			/*
+			 * Update newly-acquired slot with session parameters.
+			 * Local parameters are fired only once BEGIN has been launched on
+			 * remote nodes.
+			 */
 			if (agent->session_params)
 				PGXCNodeSendSetQuery(slot->conn, agent->session_params);
-			if (agent->local_params)
-				PGXCNodeSendSetQuery(slot->conn, agent->local_params);
 		}
 
 		result[i++] = PQsocket((PGconn *) agent->dn_connections[node]->conn);
@@ -1428,17 +1528,91 @@ agent_acquire_connections(PoolAgent *agent, List *datanodelist, List *coordlist)
 			/* Store in the descriptor */
 			agent->coord_connections[node] = slot;
 
-			/* Update newly-acquired slot with session parameters */
+			/*
+			 * Update newly-acquired slot with session parameters.
+			 * Local parameters are fired only once BEGIN has been launched on
+			 * remote nodes.
+			 */
 			if (agent->session_params)
 				PGXCNodeSendSetQuery(slot->conn, agent->session_params);
-			if (agent->local_params)
-				PGXCNodeSendSetQuery(slot->conn, agent->local_params);
 		}
 
 		result[i++] = PQsocket((PGconn *) agent->coord_connections[node]->conn);
 	}
 
 	return result;
+}
+
+/*
+ * send transaction local commands if any, set the begin sent status in any case
+ */
+static int
+send_local_commands(PoolAgent *agent, List *datanodelist, List *coordlist)
+{
+	int			tmp;
+	int			res;
+	ListCell		*nodelist_item;
+	PGXCNodePoolSlot	*slot;
+
+	Assert(agent);
+
+	res = 0;
+
+	if (datanodelist != NULL)
+	{
+		res = list_length(datanodelist);
+		if (res > 0 && agent->dn_connections == NULL)
+			return 0;
+
+		foreach(nodelist_item, datanodelist)
+		{
+			int	node = lfirst_int(nodelist_item);
+
+			if(node < 0 || node >= NumDataNodes)
+				continue;
+
+			slot = agent->dn_connections[node];
+
+			if (slot == NULL)
+				continue;
+
+			if (agent->local_params != NULL)
+			{
+				tmp = PGXCNodeSendSetQuery(slot->conn, agent->local_params);
+				res = res + tmp;
+			}
+		}
+	}
+
+	if (coordlist != NULL)
+	{
+		res = list_length(coordlist);
+		if (res > 0 && agent->coord_connections == NULL)
+			return 0;
+
+		foreach(nodelist_item, coordlist)
+		{
+			int	node = lfirst_int(nodelist_item);
+
+			if(node < 0 || node >= NumCoords)
+				continue;
+
+			slot = agent->coord_connections[node];
+
+			if (slot == NULL)
+				continue;
+
+			if (agent->local_params != NULL)
+			{
+				tmp = PGXCNodeSendSetQuery(slot->conn, agent->local_params);
+				res = res + tmp;
+			}
+		}
+	}
+
+	if (res < 0)
+		return -res;
+	return 0;
 }
 
 /*
@@ -1480,7 +1654,7 @@ cancel_query_on_connections(PoolAgent *agent, List *datanodelist, List *coordlis
 	{
 		int	node = lfirst_int(nodelist_item);
 
-		if(node < 0 || node >= NumDataNodes)
+		if(node < 0 || node >= NumCoords)
 			continue;
 
 		if (agent->coord_connections == NULL)
@@ -1521,10 +1695,16 @@ PoolManagerCancelQuery(int dn_count, int* dn_list, int co_count, int* co_list)
 	uint32 		buf[2 + dn_count + co_count];
 	int 		i;
 
-	if (poolHandle == NULL || dn_list == NULL || co_list == NULL)
+	if (poolHandle == NULL)
 		return;
 
 	if (dn_count == 0 && co_count == 0)
+		return;
+
+	if (dn_count != 0 && dn_list == NULL)
+		return;
+
+	if (co_count != 0 && co_list == NULL)
 		return;
 
 	/* Insert the list of Datanodes in buffer */

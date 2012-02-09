@@ -38,12 +38,24 @@
  * a session.
  * At the end of a transaction, a session using either temporary objects
  * or global session parameters has its connections not sent back to pool.
+ *
+ * Local parameters are used to change within current transaction block.
+ * They are sent to remote nodes invloved in the transaction after sending
+ * BEGIN TRANSACTION using a special firing protocol.
+ * They cannot be sent when connections are obtained, making them having no
+ * effect as BEGIN is sent by backend after connections are obtained and 
+ * obtention confirmation has been sent back to backend.
+ * SET CONSTRAINT, SET LOCAL commands are in this category.
+ *
+ * Global parmeters are used to change the behavior of current session.
+ * They are sent to the nodes when the connections are obtained.
+ * SET GLOBAL, general SET commands are in this category.
  */
 typedef enum
 {
-	POOL_CMD_TEMP, /* Temporary object flag */
-	POOL_CMD_LOCAL_SET, /* Local SET flag */
-	POOL_CMD_GLOBAL_SET /* Global SET flag */
+	POOL_CMD_TEMP,		/* Temporary object flag */
+	POOL_CMD_LOCAL_SET,	/* Local SET flag, current transaction block only */
+	POOL_CMD_GLOBAL_SET	/* Global SET flag */
 } PoolCommandType;
 
 /* Connection pool entry */
@@ -86,15 +98,15 @@ typedef struct
 	/* Process ID of postmaster child process associated to pool agent */
 	int			pid;
 	/* communication channel */
-	PoolPort	port;
-	DatabasePool *pool;
+	PoolPort		port;
+	DatabasePool		*pool;
 	int			num_dn_connections;
 	int			num_coord_connections;
-	PGXCNodePoolSlot **dn_connections; /* one for each Datanode */
-	PGXCNodePoolSlot **coord_connections; /* one for each Coordinator */
-	char	   *session_params;
-	char	   *local_params;
-	bool		is_temp; /* Temporary objects used for this pool session? */
+	PGXCNodePoolSlot	**dn_connections; /* one for each Datanode */
+	PGXCNodePoolSlot	**coord_connections; /* one for each Coordinator */
+	char			*session_params;
+	char			*local_params;
+	bool			is_temp; /* Temporary objects used for this pool session? */
 } PoolAgent;
 
 /* Handle to the pool manager (Session's side) */
@@ -188,4 +200,8 @@ extern void PoolManagerLock(bool is_lock);
 
 /* Check if pool has a handle */
 extern bool IsPoolHandle(void);
+
+/* Send commands to alter the behavior of current transaction */
+extern int PoolManagerSendLocalCommand(int dn_count, int* dn_list, int co_count, int* co_list);
+
 #endif
