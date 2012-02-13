@@ -231,7 +231,7 @@ InitProcGlobal(void)
 	{
 		AuxiliaryProcs[i].pid = 0;		/* marks auxiliary proc as not in use */
 		PGSemaphoreCreate(&(AuxiliaryProcs[i].sem));
-		InitSharedLatch(&procs[i].waitLatch);
+		InitSharedLatch(&AuxiliaryProcs[i].waitLatch);
 	}
 
 	/* Create ProcStructLock spinlock, too */

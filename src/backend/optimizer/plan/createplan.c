@@ -935,6 +935,7 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 			result->outer_statement	   = pstrdup(outer->sql_statement);
 			result->join_condition	   = NULL;
 			result->exec_nodes         = join_exec_nodes;
+			result->is_temp			   = inner->is_temp || outer->is_temp;
 
 			appendStringInfo(&fromlist, " %s (%s) %s",
 							 pname, inner->sql_statement, quote_identifier(in_alias));
@@ -2574,6 +2575,9 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	if (!rel_loc_info)
 		elog(ERROR, "No distribution information found for relid %d", rte->relid);
 	scan_plan = make_remotequery(tlist, local_scan_clauses, scan_relid);
+	/* Track if the remote query involves a temporary object */
+	scan_plan->is_temp = IsTempTable(rte->relid);
+
 	scan_plan->sql_statement = sql.data;
 	/*
 	 * If the table distributed by value, check if we can reduce the datanodes
@@ -2633,6 +2637,7 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 		scan_plan->exec_nodes->baselocatortype = rel_loc_info->locatorType;
 	else
 		scan_plan->exec_nodes->baselocatortype = '\0';
+
 	copy_path_costsize(&scan_plan->scan.plan, best_path);
 
 	/* PGXCTODO - get better estimates */
@@ -6028,6 +6033,8 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	remote_group->exec_nodes			= remote_scan->exec_nodes;
 	/* Don't forget to increment the index for the next time around! */
 	remote_group->reduce_level			= root->rs_alias_index++;
+	/* Remember if the remote query is accessing a temporary object */
+	remote_group->is_temp				= remote_scan->is_temp;
 
 	/* Generate the select clause of the remote query */
 	appendStringInfoString(remote_targetlist, "SELECT");

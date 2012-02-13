@@ -788,9 +788,16 @@ AtCleanup_Portals(void)
 		if (portal->portalPinned)
 			portal->portalPinned = false;
 
-		/* We had better not be calling any user-defined code here */
-		Assert(portal->cleanup == NULL);
+#ifdef PGXC		
+		/* XXX This is a PostgreSQL bug (already reported on the list by
+		 * Pavan). We comment out the assertion until the bug is fixed
+		 * upstream.
+		 */ 
 
+		/* We had better not be calling any user-defined code here */
+		/* Assert(portal->cleanup == NULL); */
+#endif
+		
 		/* Zap it. */
 		PortalDrop(portal, false);
 	}
