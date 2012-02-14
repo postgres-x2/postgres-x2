@@ -132,15 +132,6 @@ extern int	PGXCNodeRollback(void);
 extern bool	PGXCNodePrepare(char *gid);
 extern bool	PGXCNodeRollbackPrepared(char *gid);
 extern void PGXCNodeCommitPrepared(char *gid);
-extern bool	PGXCNodeIsImplicit2PC(bool *prepare_local_coord);
-extern int	PGXCNodeImplicitPrepare(GlobalTransactionId prepare_xid, char *gid);
-extern void	PGXCNodeImplicitCommitPrepared(GlobalTransactionId prepare_xid,
-										   GlobalTransactionId commit_xid,
-										   char *gid,
-										   bool is_commit);
-
-/* Get list of nodes */
-extern char *PGXCNodeGetNodeList(char *nodestring);
 
 /* Copy command just involves Datanodes */
 extern PGXCNodeHandle** DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_from);
@@ -167,6 +158,11 @@ extern void ExecRemoteQueryReScan(RemoteQueryState *node, ExprContext *exprCtxt)
 extern int ParamListToDataRow(ParamListInfo params, char** result);
 
 extern void ExecCloseRemoteStatement(const char *stmt_name, List *nodelist);
+extern void PreCommit_Remote(char *prepareGID, bool preparedLocalNode);
+extern void AtPrepare_Remote(char *prepareGID, bool preparedLocalNode);
+extern bool	PreAbort_Remote(void);
+extern void AtEOXact_Remote(void);
+extern bool IsTwoPhaseCommitRequired(bool localWrite);
 
 /* Flags related to temporary objects included in query */
 extern void ExecSetTempObjectIncluded(void);

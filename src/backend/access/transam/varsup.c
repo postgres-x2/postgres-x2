@@ -163,17 +163,6 @@ GetNewTransactionId(bool isSubXact)
 	{
 		if (IsAutoVacuumWorkerProcess())
 		{
-			if (MyProc->vacuumFlags & PROC_IN_VACUUM)
-				elog (DEBUG1, "Getting XID for autovacuum");
-			else
-			{
-				elog (DEBUG1, "Getting XID for autovacuum worker (analyze)");
-				/*
-				 * Acquire the Analyze array lock.
-				 * We track ANALYZE XIDs separately and add them only to local snapshots.
-				 */
-				LWLockAcquire(AnalyzeProcArrayLock, LW_EXCLUSIVE);
-			}
 			/*
 			 * Get gxid directly from GTM.
 			 * We use a separate function so that GTM knows to exclude it from
@@ -384,15 +373,6 @@ GetNewTransactionId(bool isSubXact)
 				myproc->subxids.overflowed = true;
 		}
 	}
-
-#ifdef PGXC
-	/* If it is auto-analyze, we need to add it to the array and unlock */
-	if(IS_PGXC_DATANODE && IsAutoVacuumAnalyzeWorker())
-	{
-		AnalyzeProcArrayAdd(MyProc);
-		LWLockRelease(AnalyzeProcArrayLock);
-	}
-#endif
 
 	LWLockRelease(XidGenLock);
 	return xid;

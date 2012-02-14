@@ -406,11 +406,6 @@ standard_ProcessUtility(Node *parsetree,
 					case TRANS_STMT_START:
 						{
 							ListCell   *lc;
-#ifdef PGXC
-							if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-								PGXCNodeBegin();
-#endif
-
 							BeginTransactionBlock();
 							foreach(lc, stmt->options)
 							{
@@ -433,11 +428,7 @@ standard_ProcessUtility(Node *parsetree,
 						break;
 
 					case TRANS_STMT_COMMIT:
-#ifdef PGXC
-						if (!EndTransactionBlock(true))
-#else
 						if (!EndTransactionBlock())
-#endif
 						{
 							/* report unsuccessful commit in completionTag */
 							if (completionTag)
@@ -447,25 +438,18 @@ standard_ProcessUtility(Node *parsetree,
 
 					case TRANS_STMT_PREPARE:
 						PreventCommandDuringRecovery("PREPARE TRANSACTION");
-#ifdef PGXC
+#ifdef PGXC						
 						/*
-						 * If 2PC is invoked from application, transaction is first prepared on Datanodes.
-						 * 2PC file is not written for Coordinators to keep the possiblity
-						 * of a COMMIT PREPARED on a separate Coordinator.
+						 * We don't support explicit two-phase commits yet.
+						 * Throw an error if PREPARE TRANSACTION is received
+						 * directly from the application or the client. XC can
+						 * internally send these commands to support implicit
+						 * two-phase commit protocol.
 						 */
 						if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-							operation_local = PGXCNodePrepare(stmt->gid);
-
-						/*
-						 * On a Postgres-XC Datanode, a prepare command coming from Coordinator
-						 * has always to be executed.
-						 * On a Coordinator also when a DDL has been involved in the prepared transaction
-						 */
-						if (IsConnFromCoord())
-							operation_local = true;
-
-						if (operation_local)
-						{
+							ereport(ERROR,
+									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+									 errmsg("Two-phase commit protocol not supported")));
 #endif
 						if (!PrepareTransactionBlock(stmt->gid))
 						{
@@ -473,78 +457,44 @@ standard_ProcessUtility(Node *parsetree,
 							if (completionTag)
 								strcpy(completionTag, "ROLLBACK");
 						}
-#ifdef PGXC
-						}
-						else
-						{
-							/*
-							 * In this case commit locally to erase the transaction traces
-							 * but do not contact GTM
-							 */
-							if (!EndTransactionBlock(false))
-							{
-								/* report unsuccessful commit in completionTag */
-								if (completionTag)
-									strcpy(completionTag, "ROLLBACK");
-							}
-						}
-#endif
 						break;
 
 					case TRANS_STMT_COMMIT_PREPARED:
 						PreventTransactionChain(isTopLevel, "COMMIT PREPARED");
 						PreventCommandDuringRecovery("COMMIT PREPARED");
-#ifdef PGXC
+#ifdef PGXC						
 						/*
-						 * If a COMMIT PREPARED message is received from another Coordinator,
-						 * Don't send it down to Datanodes.
-						 *
-						 * XXX We call FinishPreparedTransaction inside
-						 * PGXCNodeCommitPrepared if we are doing a local
-						 * operation. This is convenient because we want to
-						 * hold on to the BarrierLock until local transaction
-						 * is committed too.
-						 *  
+						 * We don't support explicit two-phase commits yet.
+						 * Throw an error if PREPARE TRANSACTION is received
+						 * directly from the application or the client. XC can
+						 * internally send these commands to support implicit
+						 * two-phase commit protocol.
 						 */
 						if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-							PGXCNodeCommitPrepared(stmt->gid);
-						else if (IsConnFromCoord())
-						{
-							/*
-							 * A local Coordinator always commits if involved in Prepare.
-							 * 2PC file is created and flushed if a DDL has been involved in the transaction.
-							 * If remote connection is a Coordinator type, the commit prepared has to be done locally
-							 * if and only if the Coordinator number was in the node list received from GTM.
-							 */
+							ereport(ERROR,
+									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+									 errmsg("Two-phase commit protocol not supported")));
 #endif
 						FinishPreparedTransaction(stmt->gid, true);
-#ifdef PGXC
-						}
-#endif
 						break;
 
 					case TRANS_STMT_ROLLBACK_PREPARED:
 						PreventTransactionChain(isTopLevel, "ROLLBACK PREPARED");
 						PreventCommandDuringRecovery("ROLLBACK PREPARED");
-#ifdef PGXC
+#ifdef PGXC						
 						/*
-						 * If a ROLLBACK PREPARED message is received from another Coordinator,
-						 * Don't send it down to Datanodes.
+						 * We don't support explicit two-phase commits yet.
+						 * Throw an error if PREPARE TRANSACTION is received
+						 * directly from the application or the client. XC can
+						 * internally send these commands to support implicit
+						 * two-phase commit protocol.
 						 */
 						if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-							operation_local = PGXCNodeRollbackPrepared(stmt->gid);
-						/*
-						 * Local coordinator rollbacks if involved in PREPARE
-						 * If remote connection is a Coordinator type, the commit prepared has to be done locally also.
-						 * This works for both Datanodes and Coordinators.
-						 */
-						if (operation_local || IsConnFromCoord())
-						{
+							ereport(ERROR,
+									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+									 errmsg("Two-phase commit protocol not supported")));
 #endif
 						FinishPreparedTransaction(stmt->gid, false);
-#ifdef PGXC
-						}
-#endif
 						break;
 
 					case TRANS_STMT_ROLLBACK:

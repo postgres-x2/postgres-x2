@@ -204,7 +204,8 @@ extern TransactionId GetCurrentTransactionIdIfAny(void);
 #ifdef PGXC  /* PGXC_COORD */
 extern bool GetCurrentLocalParamStatus(void);
 extern void SetCurrentLocalParamStatus(bool status);
-extern GlobalTransactionId GetCurrentGlobalTransactionId(void);
+extern GlobalTransactionId GetAuxilliaryTransactionId(void);
+extern GlobalTransactionId GetTopGlobalTransactionId(void);
 #endif
 extern SubTransactionId GetCurrentSubTransactionId(void);
 extern CommandId GetCurrentCommandId(bool used);
@@ -227,11 +228,7 @@ extern void AbortCurrentTransactionOnce(void);
 #endif
 extern void AbortCurrentTransaction(void);
 extern void BeginTransactionBlock(void);
-#ifdef PGXC
-extern bool EndTransactionBlock(bool contact_gtm);
-#else
 extern bool EndTransactionBlock(void);
-#endif
 extern bool PrepareTransactionBlock(char *gid);
 extern void UserAbortTransactionBlock(void);
 extern void ReleaseSavepoint(List *options);
@@ -252,6 +249,14 @@ extern void RegisterXactCallback(XactCallback callback, void *arg);
 extern void UnregisterXactCallback(XactCallback callback, void *arg);
 extern void RegisterSubXactCallback(SubXactCallback callback, void *arg);
 extern void UnregisterSubXactCallback(SubXactCallback callback, void *arg);
+
+#ifdef PGXC
+extern void RegisterTransactionNodes(int count, void **connections, bool write);
+extern void ForgetTransactionNodes(void);
+extern void RegisterTransactionLocalNode(bool write);
+extern bool IsTransactionLocalNode(bool write);
+extern void ForgetTransactionLocalNode(void);
+#endif
 
 extern int	xactGetCommittedChildren(TransactionId **ptr);
 

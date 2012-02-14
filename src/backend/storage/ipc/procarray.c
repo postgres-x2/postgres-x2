@@ -2662,7 +2662,7 @@ GetSnapshotDataCoordinator(Snapshot snapshot)
  	Assert (IS_PGXC_COORDINATOR);
 
 	canbe_grouped = (!FirstSnapshotSet) || (!IsolationUsesXactSnapshot());
-	gtm_snapshot = GetSnapshotGTM(GetCurrentGlobalTransactionId(), canbe_grouped);
+	gtm_snapshot = GetSnapshotGTM(GetCurrentTransactionId(), canbe_grouped);
 
 	if (!gtm_snapshot) 
 			ereport(ERROR,

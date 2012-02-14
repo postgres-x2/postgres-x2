@@ -383,7 +383,7 @@ HandlePoolerReload(void)
 		return;
 
 	/* Abort existing xact if any */
-	AbortCurrentTransactionOnce();
+	AbortCurrentTransaction();
 
 	/* Session is being reloaded, drop prepared and temporary objects */
 	DropAllPreparedStatements();
