@@ -5609,7 +5609,7 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 						appendStringInfoString(buf2, "AND ");
 
 					/* Complete string */
-					appendStringInfo(buf2, "%s = $%d",
+					appendStringInfo(buf2, "%s = $%d ",
 									 NameStr(att_saved->attname),
 									 count);
 
