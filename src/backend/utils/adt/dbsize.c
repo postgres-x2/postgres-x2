@@ -38,6 +38,7 @@
 
 #ifdef PGXC
 static Datum pgxc_database_size(Oid dbOid);
+static Datum pgxc_tablespace_size(Oid tbOid);
 static int64 pgxc_exec_sizefunc(Oid relOid, char *funcname, char *extra_arg);
 
 /*
@@ -271,6 +272,11 @@ pg_tablespace_size_oid(PG_FUNCTION_ARGS)
 {
 	Oid			tblspcOid = PG_GETARG_OID(0);
 
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		PG_RETURN_DATUM(pgxc_tablespace_size(tblspcOid));
+#endif
+
 	PG_RETURN_INT64(calculate_tablespace_size(tblspcOid));
 }
 
@@ -279,6 +285,11 @@ pg_tablespace_size_name(PG_FUNCTION_ARGS)
 {
 	Name		tblspcName = PG_GETARG_NAME(0);
 	Oid			tblspcOid = get_tablespace_oid(NameStr(*tblspcName), false);
+
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		PG_RETURN_DATUM(pgxc_tablespace_size(tblspcOid));
+#endif
 
 	PG_RETURN_INT64(calculate_tablespace_size(tblspcOid));
 }
@@ -714,6 +725,31 @@ pg_relation_filepath(PG_FUNCTION_ARGS)
 
 
 #ifdef PGXC
+
+/*
+ * pgxc_tablespace_size
+ * Given a tablespace oid, return sum of pg_tablespace_size() executed on all the datanodes
+ */
+static Datum
+pgxc_tablespace_size(Oid tsOid)
+{
+	StringInfoData  buf;
+	char           *tsname = get_tablespace_name(tsOid);
+	Oid				*coOids, *dnOids;
+	int numdnodes, numcoords;
+
+	if (!tsname)
+		ereport(ERROR,
+			(ERRCODE_UNDEFINED_OBJECT,
+			 errmsg("tablespace with OID %u does not exist", tsOid)));
+
+	initStringInfo(&buf);
+	appendStringInfo(&buf, "SELECT pg_catalog.pg_tablespace_size('%s')", tsname);
+
+	PgxcNodeListAndCount(&coOids, &dnOids, &numcoords, &numdnodes);
+
+	return pgxc_execute_on_nodes(numdnodes, dnOids, buf.data);
+}
 
 /*
  * pgxc_database_size
