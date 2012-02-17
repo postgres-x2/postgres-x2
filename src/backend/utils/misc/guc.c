@@ -6400,6 +6400,31 @@ set_config_by_name(PG_FUNCTION_ARGS)
 	/* get the new current value */
 	new_value = GetConfigOptionByName(name, NULL);
 
+
+#ifdef PGXC
+	/*
+	 * Convert this to SET statement and pass it to pooler.
+	 * If command is local and we are not in a transaction block do NOT
+	 * send this query to backend nodes, it is just bypassed by the backend.
+	 */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord()
+		&& (!is_local || IsTransactionBlock()))
+	{
+		PoolCommandType poolcmdType = (is_local ? POOL_CMD_LOCAL_SET : POOL_CMD_GLOBAL_SET);
+		StringInfoData poolcmd;
+
+		initStringInfo(&poolcmd);
+		appendStringInfo(&poolcmd, "SET %s %s TO %s",
+		                            (is_local ? "LOCAL" : ""),
+		                            name,
+		                            (value ? value : "DEFAULT"));
+
+		if (PoolManagerSetCommand(poolcmdType, poolcmd.data) < 0)
+			elog(ERROR, "Postgres-XC: ERROR SET query");
+
+	}
+#endif
+
 	/* Convert return string to text */
 	PG_RETURN_TEXT_P(cstring_to_text(new_value));
 }
