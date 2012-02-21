@@ -468,11 +468,10 @@ ERROR:  current transaction is aborted, commands ignored until end of transactio
 rollback;
 -- Test enable/disable triggers
 create table trigtest (i serial primary key);
-ERROR:  Postgres-XC does not support SERIAL yet
-DETAIL:  The feature is not currently supported
+NOTICE:  CREATE TABLE will create implicit sequence "trigtest_i_seq" for serial column "trigtest.i"
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "trigtest_pkey" for table "trigtest"
 -- test that disabling RI triggers works
 create table trigtest2 (i int references trigtest(i) on delete cascade);
-ERROR:  relation "trigtest" does not exist
 create function trigtest() returns trigger as $$
 begin
 	raise notice '% % % %', TG_RELNAME, TG_OP, TG_WHEN, TG_LEVEL;
@@ -480,77 +479,58 @@ begin
 end;$$ language plpgsql;
 create trigger trigtest_b_row_tg before insert or update or delete on trigtest
 for each row execute procedure trigtest();
-ERROR:  relation "trigtest" does not exist
+ERROR:  Postgres-XC does not support TRIGGER yet
+DETAIL:  The feature is not currently supported
 create trigger trigtest_a_row_tg after insert or update or delete on trigtest
 for each row execute procedure trigtest();
-ERROR:  relation "trigtest" does not exist
+ERROR:  Postgres-XC does not support TRIGGER yet
+DETAIL:  The feature is not currently supported
 create trigger trigtest_b_stmt_tg before insert or update or delete on trigtest
 for each statement execute procedure trigtest();
-ERROR:  relation "trigtest" does not exist
+ERROR:  Postgres-XC does not support TRIGGER yet
+DETAIL:  The feature is not currently supported
 create trigger trigtest_a_stmt_tg after insert or update or delete on trigtest
 for each statement execute procedure trigtest();
-ERROR:  relation "trigtest" does not exist
+ERROR:  Postgres-XC does not support TRIGGER yet
+DETAIL:  The feature is not currently supported
 insert into trigtest default values;
-ERROR:  relation "trigtest" does not exist
-LINE 1: insert into trigtest default values;
-                    ^
 alter table trigtest disable trigger trigtest_b_row_tg;
-ERROR:  relation "trigtest" does not exist
+ERROR:  trigger "trigtest_b_row_tg" for table "trigtest" does not exist
 insert into trigtest default values;
-ERROR:  relation "trigtest" does not exist
-LINE 1: insert into trigtest default values;
-                    ^
 alter table trigtest disable trigger user;
-ERROR:  relation "trigtest" does not exist
 insert into trigtest default values;
-ERROR:  relation "trigtest" does not exist
-LINE 1: insert into trigtest default values;
-                    ^
 alter table trigtest enable trigger trigtest_a_stmt_tg;
-ERROR:  relation "trigtest" does not exist
+ERROR:  trigger "trigtest_a_stmt_tg" for table "trigtest" does not exist
 insert into trigtest default values;
-ERROR:  relation "trigtest" does not exist
-LINE 1: insert into trigtest default values;
-                    ^
 insert into trigtest2 values(1);
-ERROR:  relation "trigtest2" does not exist
-LINE 1: insert into trigtest2 values(1);
-                    ^
 insert into trigtest2 values(2);
-ERROR:  relation "trigtest2" does not exist
-LINE 1: insert into trigtest2 values(2);
-                    ^
 delete from trigtest where i=2;
-ERROR:  relation "trigtest" does not exist
-LINE 1: delete from trigtest where i=2;
-                    ^
 select * from trigtest2 order by 1;
-ERROR:  relation "trigtest2" does not exist
-LINE 1: select * from trigtest2 order by 1;
-                      ^
+ i 
+---
+ 1
+(1 row)
+
 alter table trigtest disable trigger all;
-ERROR:  relation "trigtest" does not exist
 delete from trigtest where i=1;
-ERROR:  relation "trigtest" does not exist
-LINE 1: delete from trigtest where i=1;
-                    ^
 select * from trigtest2 order by 1;
-ERROR:  relation "trigtest2" does not exist
-LINE 1: select * from trigtest2 order by 1;
-                      ^
+ i 
+---
+ 1
+(1 row)
+
 -- ensure we still insert, even when all triggers are disabled
 insert into trigtest default values;
-ERROR:  relation "trigtest" does not exist
-LINE 1: insert into trigtest default values;
-                    ^
 select *  from trigtest order by 1;
-ERROR:  relation "trigtest" does not exist
-LINE 1: select *  from trigtest order by 1;
-                       ^
+ i 
+---
+ 3
+ 4
+ 5
+(3 rows)
+
 drop table trigtest2;
-ERROR:  table "trigtest2" does not exist
 drop table trigtest;
-ERROR:  table "trigtest" does not exist
 -- dump trigger data
 CREATE TABLE trigger_test (
         i int,
@@ -954,8 +934,9 @@ CREATE TABLE country_table (
     country_name    text unique not null,
     continent        text not null
 );
-ERROR:  Postgres-XC does not support SERIAL yet
-DETAIL:  The feature is not currently supported
+NOTICE:  CREATE TABLE will create implicit sequence "country_table_country_id_seq" for serial column "country_table.country_id"
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "country_table_pkey" for table "country_table"
+ERROR:  Unique index of partitioned table must contain the hash/modulo distribution column.
 INSERT INTO country_table (country_name, continent)
     VALUES ('Japan', 'Asia'),
            ('UK', 'Europe'),
@@ -970,8 +951,8 @@ CREATE TABLE city_table (
     population    bigint,
     country_id    int references country_table
 );
-ERROR:  Postgres-XC does not support SERIAL yet
-DETAIL:  The feature is not currently supported
+NOTICE:  CREATE TABLE will create implicit sequence "city_table_city_id_seq" for serial column "city_table.city_id"
+ERROR:  relation "country_table" does not exist
 CREATE VIEW city_view AS
     SELECT city_id, city_name, population, country_name, continent
     FROM city_table ci

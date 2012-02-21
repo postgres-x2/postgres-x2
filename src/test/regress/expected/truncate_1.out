@@ -33,65 +33,70 @@ SELECT * FROM truncate_a ORDER BY 1;
 -- Test foreign-key checks
 CREATE TABLE trunc_b (a int REFERENCES truncate_a);
 CREATE TABLE trunc_c (a serial PRIMARY KEY);
-ERROR:  Postgres-XC does not support SERIAL yet
-DETAIL:  The feature is not currently supported
+NOTICE:  CREATE TABLE will create implicit sequence "trunc_c_a_seq" for serial column "trunc_c.a"
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "trunc_c_pkey" for table "trunc_c"
 CREATE TABLE trunc_d (a int REFERENCES trunc_c);
-ERROR:  relation "trunc_c" does not exist
 CREATE TABLE trunc_e (a int REFERENCES truncate_a, b int REFERENCES trunc_c);
-ERROR:  relation "trunc_c" does not exist
 TRUNCATE TABLE truncate_a;		-- fail
 ERROR:  cannot truncate a table referenced in a foreign key constraint
 DETAIL:  Table "trunc_b" references "truncate_a".
 HINT:  Truncate table "trunc_b" at the same time, or use TRUNCATE ... CASCADE.
 TRUNCATE TABLE truncate_a,trunc_b;		-- fail
+ERROR:  cannot truncate a table referenced in a foreign key constraint
+DETAIL:  Table "trunc_e" references "truncate_a".
+HINT:  Truncate table "trunc_e" at the same time, or use TRUNCATE ... CASCADE.
 TRUNCATE TABLE truncate_a,trunc_b,trunc_e;	-- ok
-ERROR:  relation "trunc_e" does not exist
 TRUNCATE TABLE truncate_a,trunc_e;		-- fail
-ERROR:  relation "trunc_e" does not exist
+ERROR:  cannot truncate a table referenced in a foreign key constraint
+DETAIL:  Table "trunc_b" references "truncate_a".
+HINT:  Truncate table "trunc_b" at the same time, or use TRUNCATE ... CASCADE.
 TRUNCATE TABLE trunc_c;		-- fail
-ERROR:  relation "trunc_c" does not exist
+ERROR:  cannot truncate a table referenced in a foreign key constraint
+DETAIL:  Table "trunc_d" references "trunc_c".
+HINT:  Truncate table "trunc_d" at the same time, or use TRUNCATE ... CASCADE.
 TRUNCATE TABLE trunc_c,trunc_d;		-- fail
-ERROR:  relation "trunc_c" does not exist
+ERROR:  cannot truncate a table referenced in a foreign key constraint
+DETAIL:  Table "trunc_e" references "trunc_c".
+HINT:  Truncate table "trunc_e" at the same time, or use TRUNCATE ... CASCADE.
 TRUNCATE TABLE trunc_c,trunc_d,trunc_e;	-- ok
-ERROR:  relation "trunc_c" does not exist
 TRUNCATE TABLE trunc_c,trunc_d,trunc_e,truncate_a;	-- fail
-ERROR:  relation "trunc_c" does not exist
+ERROR:  cannot truncate a table referenced in a foreign key constraint
+DETAIL:  Table "trunc_b" references "truncate_a".
+HINT:  Truncate table "trunc_b" at the same time, or use TRUNCATE ... CASCADE.
 TRUNCATE TABLE trunc_c,trunc_d,trunc_e,truncate_a,trunc_b;	-- ok
-ERROR:  relation "trunc_c" does not exist
 TRUNCATE TABLE truncate_a RESTRICT; -- fail
 ERROR:  cannot truncate a table referenced in a foreign key constraint
 DETAIL:  Table "trunc_b" references "truncate_a".
 HINT:  Truncate table "trunc_b" at the same time, or use TRUNCATE ... CASCADE.
 TRUNCATE TABLE truncate_a CASCADE;  -- ok
 NOTICE:  truncate cascades to table "trunc_b"
+NOTICE:  truncate cascades to table "trunc_e"
 -- circular references
 ALTER TABLE truncate_a ADD FOREIGN KEY (col1) REFERENCES trunc_c;
-ERROR:  relation "trunc_c" does not exist
+ERROR:  Hash/Modulo distribution column list of attributes is empty
 -- Add some data to verify that truncating actually works ...
 INSERT INTO trunc_c VALUES (1);
-ERROR:  relation "trunc_c" does not exist
-LINE 1: INSERT INTO trunc_c VALUES (1);
-                    ^
 INSERT INTO truncate_a VALUES (1);
 INSERT INTO trunc_b VALUES (1);
 INSERT INTO trunc_d VALUES (1);
-ERROR:  relation "trunc_d" does not exist
-LINE 1: INSERT INTO trunc_d VALUES (1);
-                    ^
 INSERT INTO trunc_e VALUES (1,1);
-ERROR:  relation "trunc_e" does not exist
-LINE 1: INSERT INTO trunc_e VALUES (1,1);
-                    ^
 TRUNCATE TABLE trunc_c;
-ERROR:  relation "trunc_c" does not exist
+ERROR:  cannot truncate a table referenced in a foreign key constraint
+DETAIL:  Table "trunc_d" references "trunc_c".
+HINT:  Truncate table "trunc_d" at the same time, or use TRUNCATE ... CASCADE.
 TRUNCATE TABLE trunc_c,truncate_a;
-ERROR:  relation "trunc_c" does not exist
+ERROR:  cannot truncate a table referenced in a foreign key constraint
+DETAIL:  Table "trunc_d" references "trunc_c".
+HINT:  Truncate table "trunc_d" at the same time, or use TRUNCATE ... CASCADE.
 TRUNCATE TABLE trunc_c,truncate_a,trunc_d;
-ERROR:  relation "trunc_c" does not exist
+ERROR:  cannot truncate a table referenced in a foreign key constraint
+DETAIL:  Table "trunc_e" references "trunc_c".
+HINT:  Truncate table "trunc_e" at the same time, or use TRUNCATE ... CASCADE.
 TRUNCATE TABLE trunc_c,truncate_a,trunc_d,trunc_e;
-ERROR:  relation "trunc_c" does not exist
+ERROR:  cannot truncate a table referenced in a foreign key constraint
+DETAIL:  Table "trunc_b" references "truncate_a".
+HINT:  Truncate table "trunc_b" at the same time, or use TRUNCATE ... CASCADE.
 TRUNCATE TABLE trunc_c,truncate_a,trunc_d,trunc_e,trunc_b;
-ERROR:  relation "trunc_c" does not exist
 -- Verify that truncating did actually work
 SELECT * FROM truncate_a
    UNION ALL
@@ -100,32 +105,24 @@ SELECT * FROM truncate_a
  SELECT * FROM trunc_b
    UNION ALL
  SELECT * FROM trunc_d;
-ERROR:  relation "trunc_c" does not exist
-LINE 3:  SELECT * FROM trunc_c
-                       ^
+ col1 
+------
+(0 rows)
+
 SELECT * FROM trunc_e;
-ERROR:  relation "trunc_e" does not exist
-LINE 1: SELECT * FROM trunc_e;
-                      ^
+ a | b 
+---+---
+(0 rows)
+
 -- Add data again to test TRUNCATE ... CASCADE
 INSERT INTO trunc_c VALUES (1);
-ERROR:  relation "trunc_c" does not exist
-LINE 1: INSERT INTO trunc_c VALUES (1);
-                    ^
 INSERT INTO truncate_a VALUES (1);
-ERROR:  duplicate key value violates unique constraint "truncate_a_pkey"
-DETAIL:  Key (col1)=(1) already exists.
 INSERT INTO trunc_b VALUES (1);
 INSERT INTO trunc_d VALUES (1);
-ERROR:  relation "trunc_d" does not exist
-LINE 1: INSERT INTO trunc_d VALUES (1);
-                    ^
 INSERT INTO trunc_e VALUES (1,1);
-ERROR:  relation "trunc_e" does not exist
-LINE 1: INSERT INTO trunc_e VALUES (1,1);
-                    ^
 TRUNCATE TABLE trunc_c CASCADE;  -- ok
-ERROR:  relation "trunc_c" does not exist
+NOTICE:  truncate cascades to table "trunc_d"
+NOTICE:  truncate cascades to table "trunc_e"
 SELECT * FROM truncate_a
    UNION ALL
  SELECT * FROM trunc_c
@@ -133,15 +130,18 @@ SELECT * FROM truncate_a
  SELECT * FROM trunc_b
    UNION ALL
  SELECT * FROM trunc_d;
-ERROR:  relation "trunc_c" does not exist
-LINE 3:  SELECT * FROM trunc_c
-                       ^
+ col1 
+------
+    1
+    1
+(2 rows)
+
 SELECT * FROM trunc_e;
-ERROR:  relation "trunc_e" does not exist
-LINE 1: SELECT * FROM trunc_e;
-                      ^
+ a | b 
+---+---
+(0 rows)
+
 DROP TABLE truncate_a,trunc_c,trunc_b,trunc_d,trunc_e CASCADE;
-ERROR:  table "trunc_c" does not exist
 -- Test TRUNCATE with inheritance
 CREATE TABLE trunc_f (col1 integer primary key);
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "trunc_f_pkey" for table "trunc_f"
@@ -371,70 +371,61 @@ DROP FUNCTION trunctrigger();
 CREATE SEQUENCE truncate_a_id1 START WITH 33;
 CREATE TABLE truncate_a (id serial,
                          id1 integer default nextval('truncate_a_id1'));
-ERROR:  Postgres-XC does not support SERIAL yet
-DETAIL:  The feature is not currently supported
+NOTICE:  CREATE TABLE will create implicit sequence "truncate_a_id_seq" for serial column "truncate_a.id"
 ALTER SEQUENCE truncate_a_id1 OWNED BY truncate_a.id1;
-ERROR:  column "id1" of relation "truncate_a" does not exist
 INSERT INTO truncate_a DEFAULT VALUES;
-ERROR:  null value in column "col1" violates not-null constraint
 INSERT INTO truncate_a DEFAULT VALUES;
-ERROR:  null value in column "col1" violates not-null constraint
 SELECT * FROM truncate_a ORDER BY id;
-ERROR:  column "id" does not exist
-LINE 1: SELECT * FROM truncate_a ORDER BY id;
-                                          ^
+ id | id1 
+----+-----
+  1 |  33
+  2 |  34
+(2 rows)
+
 TRUNCATE truncate_a;
-ERROR:  cannot truncate a table referenced in a foreign key constraint
-DETAIL:  Table "trunc_b" references "truncate_a".
-HINT:  Truncate table "trunc_b" at the same time, or use TRUNCATE ... CASCADE.
 INSERT INTO truncate_a DEFAULT VALUES;
-ERROR:  null value in column "col1" violates not-null constraint
 INSERT INTO truncate_a DEFAULT VALUES;
-ERROR:  null value in column "col1" violates not-null constraint
 SELECT * FROM truncate_a ORDER BY id;
-ERROR:  column "id" does not exist
-LINE 1: SELECT * FROM truncate_a ORDER BY id;
-                                          ^
+ id | id1 
+----+-----
+  3 |  35
+  4 |  36
+(2 rows)
+
 TRUNCATE truncate_a RESTART IDENTITY;
-ERROR:  cannot truncate a table referenced in a foreign key constraint
-DETAIL:  Table "trunc_b" references "truncate_a".
-HINT:  Truncate table "trunc_b" at the same time, or use TRUNCATE ... CASCADE.
 INSERT INTO truncate_a DEFAULT VALUES;
-ERROR:  null value in column "col1" violates not-null constraint
 INSERT INTO truncate_a DEFAULT VALUES;
-ERROR:  null value in column "col1" violates not-null constraint
 SELECT * FROM truncate_a ORDER BY id;
-ERROR:  column "id" does not exist
-LINE 1: SELECT * FROM truncate_a ORDER BY id;
-                                          ^
+ id | id1 
+----+-----
+  5 |  37
+  6 |  38
+(2 rows)
+
 -- check rollback of a RESTART IDENTITY operation
 BEGIN;
 TRUNCATE truncate_a RESTART IDENTITY;
-ERROR:  cannot truncate a table referenced in a foreign key constraint
-DETAIL:  Table "trunc_b" references "truncate_a".
-HINT:  Truncate table "trunc_b" at the same time, or use TRUNCATE ... CASCADE.
 INSERT INTO truncate_a DEFAULT VALUES;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
 SELECT * FROM truncate_a;
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ id | id1 
+----+-----
+  7 |  39
+(1 row)
+
 ROLLBACK;
 INSERT INTO truncate_a DEFAULT VALUES;
-ERROR:  null value in column "col1" violates not-null constraint
 INSERT INTO truncate_a DEFAULT VALUES;
-ERROR:  null value in column "col1" violates not-null constraint
 SELECT * FROM truncate_a;
- col1 
-------
-    1
-(1 row)
+ id | id1 
+----+-----
+  5 |  37
+  6 |  38
+  8 |  40
+  9 |  41
+(4 rows)
 
 DROP TABLE truncate_a;
-ERROR:  cannot drop table truncate_a because other objects depend on it
-DETAIL:  constraint trunc_b_a_fkey on table trunc_b depends on table truncate_a
-HINT:  Use DROP ... CASCADE to drop the dependent objects too.
 SELECT nextval('truncate_a_id1'); -- fail, seq should have been dropped
- nextval 
----------
-      33
-(1 row)
-
+ERROR:  relation "truncate_a_id1" does not exist
+LINE 1: SELECT nextval('truncate_a_id1');
+                       ^

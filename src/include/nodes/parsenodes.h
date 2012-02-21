@@ -1840,6 +1840,9 @@ typedef struct CreateSeqStmt
 	RangeVar   *sequence;		/* the sequence to create */
 	List	   *options;
 	Oid			ownerId;		/* ID of owner, or InvalidOid for default */
+#ifdef PGXC
+	bool		is_serial;		/* Indicates if this sequence is part of SERIAL process */
+#endif
 } CreateSeqStmt;
 
 typedef struct AlterSeqStmt
@@ -1847,6 +1850,9 @@ typedef struct AlterSeqStmt
 	NodeTag		type;
 	RangeVar   *sequence;		/* the sequence to alter */
 	List	   *options;
+#ifdef PGXC
+	bool		is_serial;		/* Indicates if this sequence is part of SERIAL process */
+#endif
 } AlterSeqStmt;
 
 /* ----------------------

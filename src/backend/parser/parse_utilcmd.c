@@ -383,13 +383,6 @@ transformColumnDefinition(CreateStmtContext *cxt, ColumnDef *column)
 		AlterSeqStmt *altseqstmt;
 		List	   *attnamelist;
 
-#ifdef PGXC
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("Postgres-XC does not support SERIAL yet"),
-				 errdetail("The feature is not currently supported")));
-#endif
-
 		/*
 		 * Determine namespace and name to use for the sequence.
 		 *
@@ -424,6 +417,9 @@ transformColumnDefinition(CreateStmtContext *cxt, ColumnDef *column)
 		seqstmt = makeNode(CreateSeqStmt);
 		seqstmt->sequence = makeRangeVar(snamespace, sname, -1);
 		seqstmt->options = NIL;
+#ifdef PGXC
+		seqstmt->is_serial = true;
+#endif
 
 		/*
 		 * If this is ALTER ADD COLUMN, make sure the sequence will be owned
@@ -446,6 +442,9 @@ transformColumnDefinition(CreateStmtContext *cxt, ColumnDef *column)
 		 */
 		altseqstmt = makeNode(AlterSeqStmt);
 		altseqstmt->sequence = makeRangeVar(snamespace, sname, -1);
+#ifdef PGXC
+		altseqstmt->is_serial = true;
+#endif
 		attnamelist = list_make3(makeString(snamespace),
 								 makeString(cxt->relation->relname),
 								 makeString(column->colname));

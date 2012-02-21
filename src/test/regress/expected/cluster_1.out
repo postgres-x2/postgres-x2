@@ -3,15 +3,15 @@
 --
 CREATE TABLE clstr_tst_s (rf_a SERIAL PRIMARY KEY,
 	b INT);
-ERROR:  Postgres-XC does not support SERIAL yet
-DETAIL:  The feature is not currently supported
+NOTICE:  CREATE TABLE will create implicit sequence "clstr_tst_s_rf_a_seq" for serial column "clstr_tst_s.rf_a"
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "clstr_tst_s_pkey" for table "clstr_tst_s"
 CREATE TABLE clstr_tst (a SERIAL PRIMARY KEY,
 	b INT,
 	c TEXT,
 	d TEXT,
 	CONSTRAINT clstr_tst_con FOREIGN KEY (b) REFERENCES clstr_tst_s);
-ERROR:  Postgres-XC does not support SERIAL yet
-DETAIL:  The feature is not currently supported
+NOTICE:  CREATE TABLE will create implicit sequence "clstr_tst_a_seq" for serial column "clstr_tst.a"
+ERROR:  Hash/Modulo distributed table must include distribution column in index
 CREATE INDEX clstr_tst_b ON clstr_tst (b);
 ERROR:  relation "clstr_tst" does not exist
 CREATE INDEX clstr_tst_c ON clstr_tst (c);
@@ -21,29 +21,11 @@ ERROR:  relation "clstr_tst" does not exist
 CREATE INDEX clstr_tst_b_c ON clstr_tst (b,c);
 ERROR:  relation "clstr_tst" does not exist
 INSERT INTO clstr_tst_s (b) VALUES (0);
-ERROR:  relation "clstr_tst_s" does not exist
-LINE 1: INSERT INTO clstr_tst_s (b) VALUES (0);
-                    ^
 INSERT INTO clstr_tst_s (b) SELECT b FROM clstr_tst_s;
-ERROR:  relation "clstr_tst_s" does not exist
-LINE 1: INSERT INTO clstr_tst_s (b) SELECT b FROM clstr_tst_s;
-                    ^
 INSERT INTO clstr_tst_s (b) SELECT b FROM clstr_tst_s;
-ERROR:  relation "clstr_tst_s" does not exist
-LINE 1: INSERT INTO clstr_tst_s (b) SELECT b FROM clstr_tst_s;
-                    ^
 INSERT INTO clstr_tst_s (b) SELECT b FROM clstr_tst_s;
-ERROR:  relation "clstr_tst_s" does not exist
-LINE 1: INSERT INTO clstr_tst_s (b) SELECT b FROM clstr_tst_s;
-                    ^
 INSERT INTO clstr_tst_s (b) SELECT b FROM clstr_tst_s;
-ERROR:  relation "clstr_tst_s" does not exist
-LINE 1: INSERT INTO clstr_tst_s (b) SELECT b FROM clstr_tst_s;
-                    ^
 INSERT INTO clstr_tst_s (b) SELECT b FROM clstr_tst_s;
-ERROR:  relation "clstr_tst_s" does not exist
-LINE 1: INSERT INTO clstr_tst_s (b) SELECT b FROM clstr_tst_s;
-                    ^
 CREATE TABLE clstr_tst_inh () INHERITS (clstr_tst);
 ERROR:  relation "clstr_tst" does not exist
 INSERT INTO clstr_tst (b, c) VALUES (11, 'once');
@@ -215,9 +197,12 @@ LINE 1: ...ELECT conname FROM pg_constraint WHERE conrelid = 'clstr_tst...
 SELECT relname, relkind,
     EXISTS(SELECT 1 FROM pg_class WHERE oid = c.reltoastrelid) AS hastoast
 FROM pg_class c WHERE relname LIKE 'clstr_tst%' ORDER BY relname;
- relname | relkind | hastoast 
----------+---------+----------
-(0 rows)
+       relname        | relkind | hastoast 
+----------------------+---------+----------
+ clstr_tst_s          | r       | f
+ clstr_tst_s_pkey     | i       | f
+ clstr_tst_s_rf_a_seq | S       | f
+(3 rows)
 
 -- Verify that indisclustered is correctly set
 SELECT pg_class.relname FROM pg_index, pg_class, pg_class AS pg_class_2

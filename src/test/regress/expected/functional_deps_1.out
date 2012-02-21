@@ -132,8 +132,8 @@ CREATE TEMP TABLE node (
     -- snip
     PRIMARY KEY (nid, vid)
 );
-ERROR:  Postgres-XC does not support SERIAL yet
-DETAIL:  The feature is not currently supported
+NOTICE:  CREATE TABLE will create implicit sequence "node_nid_seq" for serial column "node.nid"
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "node_pkey" for table "node"
 CREATE TEMP TABLE users (
     uid integer NOT NULL default '0',
     name varchar(60) NOT NULL default '',
@@ -149,17 +149,17 @@ SELECT u.uid, u.name FROM node n
 INNER JOIN users u ON u.uid = n.uid
 WHERE n.type = 'blog' AND n.status = 1
 GROUP BY u.uid, u.name;
-ERROR:  relation "node" does not exist
-LINE 1: SELECT u.uid, u.name FROM node n
-                                  ^
+ERROR:  relation "users" does not exist
+LINE 2: INNER JOIN users u ON u.uid = n.uid
+                   ^
 -- OK
 SELECT u.uid, u.name FROM node n
 INNER JOIN users u ON u.uid = n.uid
 WHERE n.type = 'blog' AND n.status = 1
 GROUP BY u.uid;
-ERROR:  relation "node" does not exist
-LINE 1: SELECT u.uid, u.name FROM node n
-                                  ^
+ERROR:  relation "users" does not exist
+LINE 2: INNER JOIN users u ON u.uid = n.uid
+                   ^
 -- Check views and dependencies
 -- fail
 CREATE TEMP VIEW fdv1 AS

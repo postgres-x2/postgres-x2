@@ -1369,11 +1369,20 @@ BeginCopy(bool is_from,
 			elog(ERROR, "unexpected rewrite result");
 
 		query = (Query *) linitial(rewritten);
+#ifdef PGXC
+		/* Postgres-XC uses a SELECT INSERT to process SELECT INTO */
+		Assert(query->commandType == CMD_SELECT || query->commandType == CMD_INSERT);
+#else
 		Assert(query->commandType == CMD_SELECT);
+#endif
 		Assert(query->utilityStmt == NULL);
 
 		/* Query mustn't use INTO, either */
+#ifdef PGXC
+		if (query->intoClause || query->commandType == CMD_INSERT)
+#else
 		if (query->intoClause)
+#endif
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 					 errmsg("COPY (SELECT INTO) is not supported")));
