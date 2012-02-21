@@ -286,10 +286,6 @@ CREATE TABLE products (
 </programlisting>
   </para>
 
-<!## PG>
-<!-- NOTICE:
-  XC does not support DEFAULT with non-immutable functions or SERIAL yet
--->
   <para>
 
    The default value can be an expression, which will be
@@ -319,17 +315,6 @@ CREATE TABLE products (
    The <literal>SERIAL</> shorthand is discussed further in <xref
    linkend="datatype-serial">.
   </para>
-<!## end>
-<!## XC>
-&xconly;
-  <para>
-   The default value can be an expression, which will be evaluated
-   whenever the default value is inserted (<emphasis>not</emphasis>
-   when the table is created).  You cannot
-   use <literal>STABLE</literal> or <literal>VOLATILE</literal>
-   functions in this expression.
-  </para>
-<!## end>
  </sect1>
 
  <sect1 id="ddl-constraints">

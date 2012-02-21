@@ -13619,17 +13619,12 @@ SELECT pg_type_is_visible('myschema.widget'::regtype);
        <entry>get <command>CREATE RULE</> command for rule.  Testing now (Postgres-XC)</entry>
 <!## end>
       </row>
-<!## PG>
-<!-- NOTICE:
-     No SERIAL support yet
--->
       <row>
        <entry><literal><function>pg_get_serial_sequence(<parameter>table_name</parameter>, <parameter>column_name</parameter>)</function></literal></entry>
        <entry><type>text</type></entry>
        <entry>get name of the sequence that a <type>serial</type> or <type>bigserial</type> column
        uses</entry>
       </row>
-<!## end>
       <row>
        <entry><function>pg_get_triggerdef</function>(<parameter>trigger_oid</parameter>)</entry>
        <entry><type>text</type></entry>
