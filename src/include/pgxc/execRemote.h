@@ -159,10 +159,12 @@ extern int ParamListToDataRow(ParamListInfo params, char** result);
 
 extern void ExecCloseRemoteStatement(const char *stmt_name, List *nodelist);
 extern void PreCommit_Remote(char *prepareGID, bool preparedLocalNode);
-extern void AtPrepare_Remote(char *prepareGID, bool preparedLocalNode);
+extern char *PrePrepare_Remote(char *prepareGID, bool localNode, bool implicit);
+extern void PostPrepare_Remote(char *prepareGID, char *nodestring, bool implicit);
 extern bool	PreAbort_Remote(void);
 extern void AtEOXact_Remote(void);
 extern bool IsTwoPhaseCommitRequired(bool localWrite);
+extern bool FinishRemotePreparedTransaction(char *prepareGID, bool commit);
 
 /* Flags related to temporary objects included in query */
 extern void ExecSetTempObjectIncluded(void);

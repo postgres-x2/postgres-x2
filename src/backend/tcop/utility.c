@@ -438,19 +438,6 @@ standard_ProcessUtility(Node *parsetree,
 
 					case TRANS_STMT_PREPARE:
 						PreventCommandDuringRecovery("PREPARE TRANSACTION");
-#ifdef PGXC						
-						/*
-						 * We don't support explicit two-phase commits yet.
-						 * Throw an error if PREPARE TRANSACTION is received
-						 * directly from the application or the client. XC can
-						 * internally send these commands to support implicit
-						 * two-phase commit protocol.
-						 */
-						if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-							ereport(ERROR,
-									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-									 errmsg("Two-phase commit protocol not supported")));
-#endif
 						if (!PrepareTransactionBlock(stmt->gid))
 						{
 							/* report unsuccessful commit in completionTag */
@@ -464,16 +451,15 @@ standard_ProcessUtility(Node *parsetree,
 						PreventCommandDuringRecovery("COMMIT PREPARED");
 #ifdef PGXC						
 						/*
-						 * We don't support explicit two-phase commits yet.
-						 * Throw an error if PREPARE TRANSACTION is received
-						 * directly from the application or the client. XC can
-						 * internally send these commands to support implicit
-						 * two-phase commit protocol.
+						 * Commit a transaction which was explicitely prepared
+						 * before
 						 */
 						if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-							ereport(ERROR,
-									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-									 errmsg("Two-phase commit protocol not supported")));
+						{
+							if (FinishRemotePreparedTransaction(stmt->gid, true))
+								FinishPreparedTransaction(stmt->gid, true);
+						}
+						else
 #endif
 						FinishPreparedTransaction(stmt->gid, true);
 						break;
@@ -483,16 +469,15 @@ standard_ProcessUtility(Node *parsetree,
 						PreventCommandDuringRecovery("ROLLBACK PREPARED");
 #ifdef PGXC						
 						/*
-						 * We don't support explicit two-phase commits yet.
-						 * Throw an error if PREPARE TRANSACTION is received
-						 * directly from the application or the client. XC can
-						 * internally send these commands to support implicit
-						 * two-phase commit protocol.
+						 * Abort a transaction which was explicitely prepared
+						 * before
 						 */
 						if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-							ereport(ERROR,
-									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-									 errmsg("Two-phase commit protocol not supported")));
+						{
+							if (FinishRemotePreparedTransaction(stmt->gid, false))
+								FinishPreparedTransaction(stmt->gid, false);
+						}
+						else
 #endif
 						FinishPreparedTransaction(stmt->gid, false);
 						break;

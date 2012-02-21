@@ -187,7 +187,8 @@ int backup_start_prepared_transaction(GTM_Conn *conn, GTM_TransactionHandle txn,
 int prepare_transaction(GTM_Conn *conn, GlobalTransactionId gxid);
 int bkup_prepare_transaction(GTM_Conn *conn, GlobalTransactionId gxid);
 int get_gid_data(GTM_Conn *conn, GTM_IsolationLevel isolevel, char *gid,
-				 GlobalTransactionId *gxid, GlobalTransactionId *prepared_gxid,
+				 GlobalTransactionId *gxid,
+				 GlobalTransactionId *prepared_gxid,
 				 char **nodestring);
 
 /*

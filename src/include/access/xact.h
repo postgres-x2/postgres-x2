@@ -206,6 +206,8 @@ extern bool GetCurrentLocalParamStatus(void);
 extern void SetCurrentLocalParamStatus(bool status);
 extern GlobalTransactionId GetAuxilliaryTransactionId(void);
 extern GlobalTransactionId GetTopGlobalTransactionId(void);
+extern void SetAuxilliaryTransactionId(GlobalTransactionId gxid);
+extern void SetTopGlobalTransactionId(GlobalTransactionId gxid);
 #endif
 extern SubTransactionId GetCurrentSubTransactionId(void);
 extern CommandId GetCurrentCommandId(bool used);

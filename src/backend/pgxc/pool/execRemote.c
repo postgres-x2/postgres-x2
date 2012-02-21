@@ -90,7 +90,8 @@ typedef struct RemoteXactState
 	PGXCNodeHandle			**remoteNodeHandles;
 	RemoteXactNodeStatus	*remoteNodeStatus;
 
-	/* Track if we prepared the local node */
+	GlobalTransactionId		commitXid;
+
 	bool					preparedLocalNode;
 
 	char					prepareGID[256]; /* GID used for internal 2PC */
@@ -111,6 +112,7 @@ static RemoteXactState remoteXactState;
  */
 static List *XactWriteNodes;
 static List *XactReadNodes;
+static char *preparedNodes;
 
 /*
  * Flag to track if a temporary object is accessed by the current transaction
@@ -144,7 +146,7 @@ static char *generate_begin_command(void);
 static bool pgxc_node_remote_prepare(char *prepareGID);
 static void pgxc_node_remote_commit(void);
 static void pgxc_node_remote_abort(void);
-static char *pgxc_node_get_nodelist(void);
+static char *pgxc_node_get_nodelist(bool localNode);
 
 static void ExecClearTempObjectIncluded(void);
 static void init_RemoteXactState(bool preparedLocalNode);
@@ -1795,7 +1797,6 @@ pgxc_node_remote_commit(void)
 	PGXCNodeHandle  *new_connections[write_conn_count + read_conn_count];
 	int				new_conn_count = 0;
 	int				i;
-	GlobalTransactionId	commitXid = InvalidGlobalTransactionId;
 
 	/* 
 	 * We must handle reader and writer connections both since the transaction
@@ -1834,7 +1835,8 @@ pgxc_node_remote_commit(void)
 		 * So get an auxilliary GXID only if the local node is not involved
 		 */
 
-		commitXid = GetAuxilliaryTransactionId();
+		if (!GlobalTransactionIdIsValid(remoteXactState.commitXid))
+			remoteXactState.commitXid = GetAuxilliaryTransactionId();
 	}
 
 	/* 
@@ -1846,8 +1848,8 @@ pgxc_node_remote_commit(void)
 	{
 		if (remoteXactState.remoteNodeStatus[i] == RXACT_NODE_PREPARED)
 		{
-			Assert(GlobalTransactionIdIsValid(commitXid));
-			if (pgxc_node_send_gxid(connections[i], commitXid))
+			Assert(GlobalTransactionIdIsValid(remoteXactState.commitXid));
+			if (pgxc_node_send_gxid(connections[i], remoteXactState.commitXid))
 			{
 				remoteXactState.status = RXACT_COMMIT_FAILED;
 				ereport(ERROR,
@@ -1986,7 +1988,6 @@ pgxc_node_remote_abort(void)
 	PGXCNodeHandle	**connections = remoteXactState.remoteNodeHandles;
 	PGXCNodeHandle  *new_connections[remoteXactState.numWriteRemoteNodes + remoteXactState.numReadRemoteNodes];
 	int				new_conn_count = 0;
-	GlobalTransactionId	commitXid = InvalidGlobalTransactionId;
 
 
 	/* Send COMMIT/ROLLBACK PREPARED TRANSACTION to the remote nodes */
@@ -2000,9 +2001,10 @@ pgxc_node_remote_abort(void)
 		{
 			sprintf(rollbackPrepCmd, "ROLLBACK PREPARED '%s'", remoteXactState.prepareGID);
 
-			commitXid = GetAuxilliaryTransactionId();
+			if (!GlobalTransactionIdIsValid(remoteXactState.commitXid))
+				remoteXactState.commitXid = GetAuxilliaryTransactionId();
 
-			if (pgxc_node_send_gxid(connections[i], commitXid))
+			if (pgxc_node_send_gxid(connections[i], remoteXactState.commitXid))
 			{
 				add_error_message(connections[i], "failed to send GXID for "
 						"ROLLBACK PREPARED command");
@@ -4452,7 +4454,7 @@ void
 PreCommit_Remote(char *prepareGID, bool preparedLocalNode)
 {
 	if (!preparedLocalNode)
-		AtPrepare_Remote(prepareGID, preparedLocalNode);
+		PrePrepare_Remote(prepareGID, preparedLocalNode, false);
 
 	/*
 	 * OK, everything went fine. At least one remote node is in PREPARED state
@@ -4506,7 +4508,7 @@ bool
 PreAbort_Remote(void)
 {
 	if (remoteXactState.status == RXACT_COMMITTED)
-		return true;
+		return false;
 
 	if (remoteXactState.status == RXACT_PART_COMMITTED)
 	{
@@ -4518,17 +4520,21 @@ PreAbort_Remote(void)
 		 */
 		char	*nodestring = NULL;
 
-		/* Get the list of nodes in error state */
-		nodestring = pgxc_node_get_nodelist();
+		/* 
+		 * Get the list of nodes in prepared state; such nodes have not
+		 * committed successfully
+		 */
+		nodestring = pgxc_node_get_nodelist(remoteXactState.preparedLocalNode);
 		Assert(nodestring);
 
 		/* Save the node list and gid on GTM. */
 		StartPreparedTranGTM(GetTopGlobalTransactionId(),
-				GetAuxilliaryTransactionId(),
+				remoteXactState.prepareGID,
 				nodestring);
 
 		/* Finish to prepare the transaction. */
 		PrepareTranGTM(GetTopGlobalTransactionId());
+		clear_RemoteXactState();
 		return false;
 	}
 	else
@@ -4549,16 +4555,47 @@ PreAbort_Remote(void)
 	return true;
 }
 
-void
-AtPrepare_Remote(char *prepareGID, bool preparedLocalNode)
+char *
+PrePrepare_Remote(char *prepareGID, bool localNode, bool implicit)
 {
-	init_RemoteXactState(preparedLocalNode);
+	init_RemoteXactState(false);
 	/*
 	 * PREPARE the transaction on all nodes including remote nodes as well as
 	 * local node. Any errors will be reported via ereport and the transaction
 	 * will be aborted accordingly.
 	 */
 	pgxc_node_remote_prepare(prepareGID);
+
+	if (preparedNodes)
+		pfree(preparedNodes);
+	preparedNodes = NULL;
+
+	if (!implicit)
+		preparedNodes = pgxc_node_get_nodelist(true);
+
+	return preparedNodes;
+}
+
+void
+PostPrepare_Remote(char *prepareGID, char *nodestring, bool implicit)
+{
+	remoteXactState.preparedLocalNode = true;
+
+	/*
+	 * If this is an explicit PREPARE request by the client, we must also save
+	 * the list of nodes involved in this transaction on the GTM for later use
+	 */
+	if (!implicit)
+	{
+		/* Save the node list and gid on GTM. */
+		StartPreparedTranGTM(GetTopGlobalTransactionId(),
+				prepareGID,
+				nodestring);
+
+		/* Finish to prepare the transaction. */
+		PrepareTranGTM(GetTopGlobalTransactionId());
+		clear_RemoteXactState();
+	}
 
 	/* Now forget the transaction nodes */
 	ForgetTransactionNodes();
@@ -4568,10 +4605,10 @@ AtPrepare_Remote(char *prepareGID, bool preparedLocalNode)
  * Return the list of nodes where the prepared transaction is not yet committed
  */
 static char *
-pgxc_node_get_nodelist(void)
+pgxc_node_get_nodelist(bool localNode)
 {
 	int i;
-	char *nodestring, *nodename;
+	char *nodestring = NULL, *nodename;
 
 	for (i = 0; i < remoteXactState.numWriteRemoteNodes; i++)
 	{
@@ -4583,7 +4620,7 @@ pgxc_node_get_nodelist(void)
 			nodename = get_pgxc_nodename(conn->nodeoid);
 			if (!nodestring)
 			{
-				nodestring = (char *) palloc(strlen(nodename) + 1);
+				nodestring = (char *) MemoryContextAlloc(TopMemoryContext, strlen(nodename) + 1);
 				sprintf(nodestring, "%s", nodename);
 			}
 			else
@@ -4596,19 +4633,18 @@ pgxc_node_get_nodelist(void)
 	}
 
 	/* Case of a single Coordinator */
-	if (IsTransactionLocalNode(true) && PGXCNodeId >= 0)
+	if (localNode && PGXCNodeId >= 0)
 	{
-		nodename = get_pgxc_nodename(PGXCNodeId);
 		if (!nodestring)
 		{
-			nodestring = (char *) palloc(strlen(nodename) + 1);
-			sprintf(nodestring, "%s", nodename);
+			nodestring = (char *) MemoryContextAlloc(TopMemoryContext, strlen(PGXCNodeName) + 1);
+			sprintf(nodestring, "%s", PGXCNodeName);
 		}
 		else
 		{
 			nodestring = (char *) repalloc(nodestring,
-					strlen(nodename) + strlen(nodestring) + 2);
-			sprintf(nodestring, "%s,%s", nodestring, nodename);
+					strlen(PGXCNodeName) + strlen(nodestring) + 2);
+			sprintf(nodestring, "%s,%s", nodestring, PGXCNodeName);
 		}
 	}
 
@@ -4641,7 +4677,7 @@ clear_RemoteXactState(void)
 	remoteXactState.numWriteRemoteNodes = 0;
 	remoteXactState.numReadRemoteNodes = 0;
 	remoteXactState.status = RXACT_NONE;
-	remoteXactState.preparedLocalNode = false;
+	remoteXactState.commitXid = InvalidGlobalTransactionId;
 
 	if (remoteXactState.remoteNodeHandles == NULL)
 	{
@@ -4682,5 +4718,134 @@ init_RemoteXactState(bool preparedLocalNode)
 	read_conn_count = pgxc_get_transaction_nodes(connections + write_conn_count,
 			NumDataNodes + NumCoords - write_conn_count, false);
 	remoteXactState.numReadRemoteNodes = read_conn_count;
+
 }
 
+bool
+FinishRemotePreparedTransaction(char *prepareGID, bool commit)
+{
+	char					*nodename, *nodestring;
+	List					*nodelist = NIL, *coordlist = NIL;
+	GlobalTransactionId		gxid, prepare_gxid;
+	PGXCNodeAllHandles 		*pgxc_handles;
+	bool					prepared_local = false;
+	int						i;
+
+	/*
+	 * Get the list of nodes involved in this transaction.
+	 *
+	 * This function returns the GXID of the prepared transaction. It also
+	 * returns a fresh GXID which can be used for running COMMIT PREPARED
+	 * commands on the remote nodes. Both these GXIDs can then be either
+	 * committed or aborted together.
+	 *
+	 * XXX While I understand that we get the prepared and a new GXID with a
+	 * single call, it doesn't look nicer and create confusion. We should
+	 * probably split them into two parts. This is used only for explicit 2PC
+	 * which should not be very common in XC
+	 */
+	if (GetGIDDataGTM(prepareGID, &gxid, &prepare_gxid, &nodestring) < 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("could not find information about prepared "
+					 "transaction %s", prepareGID)));
+
+	/*
+	 * Now based on the nodestring, run COMMIT/ROLLBACK PREPARED command on the
+	 * remote nodes and also finish the transaction locally is required
+	 */
+	nodename = strtok(nodestring, ",");
+	while (nodename != NULL)
+	{
+		Oid		nodeoid;
+		int		nodeIndex;
+		char	nodetype;
+
+		nodeoid = get_pgxc_nodeoid(nodename);
+
+		if (!OidIsValid(nodeoid))
+			ereport(ERROR,
+					(errcode(ERRCODE_UNDEFINED_OBJECT),
+					 errmsg("PGXC Node %s: object not defined",
+						 nodename)));
+
+		/* Get node type and index */
+		nodetype = get_pgxc_nodetype(nodeoid);
+		nodeIndex = PGXCNodeGetNodeId(nodeoid, get_pgxc_nodetype(nodeoid));
+
+		/* Check if node is requested is the self-node or not */
+		if (nodetype == PGXC_NODE_COORDINATOR)
+		{
+			if (nodeIndex == PGXCNodeId - 1)
+				prepared_local = true;
+			else
+				coordlist = lappend_int(coordlist, nodeIndex);
+		}
+		else
+			nodelist = lappend_int(nodelist, nodeIndex);
+
+		nodename = strtok(NULL, ",");
+	}
+
+	/*
+	 * Now get handles for all the involved data nodes and the coordinators
+	 */
+	pgxc_handles = get_handles(nodelist, coordlist, false);
+
+	/*
+	 * Send GXID (as received above) to the remote nodes.
+	if (pgxc_node_begin(pgxc_handles->dn_conn_count,
+				pgxc_handles->datanode_handles,
+				gxid, false, false))
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Could not begin transaction on data nodes")));
+	 */
+	RegisterTransactionNodes(pgxc_handles->dn_conn_count,
+			pgxc_handles->datanode_handles, true);
+
+	/*
+	if (pgxc_node_begin(pgxc_handles->co_conn_count,
+				pgxc_handles->coord_handles,
+				gxid, false, false))
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Could not begin transaction on coordinators")));
+				 */
+	RegisterTransactionNodes(pgxc_handles->co_conn_count,
+			pgxc_handles->coord_handles, true);
+
+	/*
+	 * Initialize the remoteXactState so that we can use the APIs to take care
+	 * of commit/abort.
+	 */
+	init_RemoteXactState(prepared_local);
+	remoteXactState.commitXid = gxid;
+
+	/*
+	 * At this point, most of the things are set up in remoteXactState except
+	 * the state information for all the involved nodes. Force that now and we
+	 * are ready to call the commit/abort API
+	 */
+	strcpy(remoteXactState.prepareGID, prepareGID);
+	for (i = 0; i < remoteXactState.numWriteRemoteNodes; i++)
+		remoteXactState.remoteNodeStatus[i] = RXACT_NODE_PREPARED;
+	remoteXactState.status = RXACT_PREPARED;
+
+	if (commit)
+	{
+		pgxc_node_remote_commit();
+		CommitPreparedTranGTM(prepare_gxid, gxid);
+	}
+	else
+	{
+		pgxc_node_remote_abort();
+		RollbackTranGTM(prepare_gxid);
+		RollbackTranGTM(gxid);
+	}
+
+	clear_RemoteXactState();
+	ForgetTransactionNodes();
+
+	return prepared_local;
+}

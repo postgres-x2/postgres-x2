@@ -633,6 +633,20 @@ GetAuxilliaryTransactionId()
 	return s->auxilliaryTransactionId;
 }
 
+void
+SetTopGlobalTransactionId(GlobalTransactionId gxid)
+{
+	TransactionState s = CurrentTransactionState;
+	s->topGlobalTransansactionId = gxid;
+}
+
+void
+SetAuxilliaryTransactionId(GlobalTransactionId gxid)
+{
+	TransactionState s = CurrentTransactionState;
+	s->auxilliaryTransactionId = gxid;
+}
+
 /*
  *	GetCurrentSubTransactionId
  */
@@ -2251,11 +2265,14 @@ AtEOXact_GlobalTxn(bool commit)
 	{
 		if (commit) 
 		{
-			if (GlobalTransactionIdIsValid(s->auxilliaryTransactionId))
+			if (GlobalTransactionIdIsValid(s->auxilliaryTransactionId) &&
+				GlobalTransactionIdIsValid(s->topGlobalTransansactionId))
 				CommitPreparedTranGTM(s->topGlobalTransansactionId,
 						s->auxilliaryTransactionId);
-			else
+			else if (GlobalTransactionIdIsValid(s->topGlobalTransansactionId))
 				CommitTranGTM(s->topGlobalTransansactionId);
+			else if (GlobalTransactionIdIsValid(s->auxilliaryTransactionId))
+				CommitTranGTM(s->auxilliaryTransactionId);
 		}
 		else
 		{
@@ -2265,7 +2282,8 @@ AtEOXact_GlobalTxn(bool commit)
 			 */
 			if (GlobalTransactionIdIsValid(s->auxilliaryTransactionId))
 				RollbackTranGTM(s->auxilliaryTransactionId);
-			RollbackTranGTM(s->topGlobalTransansactionId);
+			if (GlobalTransactionIdIsValid(s->topGlobalTransansactionId))
+				RollbackTranGTM(s->topGlobalTransansactionId);
 		}
 	}
 	else if (IS_PGXC_DATANODE || IsConnFromCoord())
@@ -2305,17 +2323,12 @@ PrepareTransaction(void)
 	TransactionId xid = GetCurrentTransactionId();
 	GlobalTransaction gxact;
 	TimestampTz prepared_at;
+#ifdef PGXC
+	bool		isImplicit = !(s->blockState == TBLOCK_PREPARE);
+	char		*nodestring;
+#endif	
 
 	ShowTransactionState("PrepareTransaction");
-
-#ifdef PGXC
-	/*
-	 * Check if there are any On Commit actions and force temporary object flag.
-	 * This is possible in the case of a session using ON COMMIT DELETE ROWS.
-	 */
-	if (IsOnCommitActions())
-		ExecSetTempObjectIncluded();
-#endif
 
 	/*
 	 * check the current transaction state
@@ -2324,6 +2337,23 @@ PrepareTransaction(void)
 		elog(WARNING, "PrepareTransaction while in %s state",
 			 TransStateAsString(s->state));
 	Assert(s->parent == NULL);
+
+#ifdef PGXC
+	/*
+	 * Check if there are any On Commit actions and force temporary object flag.
+	 * This is possible in the case of a session using ON COMMIT DELETE ROWS.
+	 */
+	if (IsOnCommitActions())
+		ExecSetTempObjectIncluded();
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	{
+		if (savePrepareGID)
+			pfree(savePrepareGID);
+		savePrepareGID = MemoryContextStrdup(TopMemoryContext, prepareGID);
+		nodestring = PrePrepare_Remote(savePrepareGID, XactWriteLocalNode, isImplicit);
+		s->topGlobalTransansactionId = s->transactionId;
+	}
+#endif
 
 	/*
 	 * Do pre-commit processing that involves calling user-defined code, such
@@ -2409,14 +2439,6 @@ PrepareTransaction(void)
 	/* Tell bufmgr and smgr to prepare for commit */
 	BufmgrCommit();
 
-#ifdef PGXC
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-	{
-		if (savePrepareGID)
-			pfree(savePrepareGID);
-		savePrepareGID = MemoryContextStrdup(TopMemoryContext, prepareGID);
-	}
-#endif
 
 	/*
 	 * Reserve the GID for this transaction. This could fail if the requested
@@ -2567,7 +2589,9 @@ PrepareTransaction(void)
 	 */
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 	{
-		AtPrepare_Remote(savePrepareGID, true);
+		PostPrepare_Remote(savePrepareGID, nodestring, isImplicit);
+		if (!isImplicit)
+			s->topGlobalTransansactionId = InvalidGlobalTransactionId;
 		ForgetTransactionLocalNode();
 	}
 	SetNextTransactionId(InvalidTransactionId);
@@ -2593,7 +2617,7 @@ AbortTransaction(void)
 	/*
 	 * Handle remote abort first.
 	 */
-	if (!PreAbort_Remote())
+	if (PreAbort_Remote())
 	{
 		if (XactLocalNodePrepared)
 		{
@@ -2602,6 +2626,8 @@ AbortTransaction(void)
 			XactLocalNodePrepared = false;
 		}
 	}
+	else
+		s->topGlobalTransansactionId = InvalidTransactionId;
 #endif
 
 	/* Prevent cancel/die interrupt while cleaning up */
