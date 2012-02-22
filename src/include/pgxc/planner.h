@@ -130,28 +130,6 @@ typedef struct
 	ExecNodes *exec_nodes;
 } JoinReduceInfo;
 
-/*
- * FQS_context
- * This context structure is used by the Fast Query Shipping walker, to gather
- * information during analysing query for Fast Query Shipping.
- */
-typedef struct
-{
-	bool	fqsc_canShip;			/* if true, we need to check other members
-									 * to see if the query is shippable. If
-									 * false, the query is definitely not
-									 * shippable
-									 */
-	bool	fqsc_need_coord;		/* needs coordinator for query evaluation */
-	Query	*fqsc_query;			/* the query being analysed for FQS */
-	int		fqsc_max_varlevelsup;	/* maximum upper level referred to by any
-									 * variable reference in the query. If this
-									 * value is greater than 0, the query is not
-									 * shippable, if shipped alone.
-									 */
-	ExecNodes	*fqsc_exec_nodes;	/* nodes where the query should be executed */
-} FQS_context;
-
 /* global variable corresponding to the GUC with same name */
 extern bool enable_fast_query_shipping;
 /* forbid SQL if unsafe, useful to turn off for development */

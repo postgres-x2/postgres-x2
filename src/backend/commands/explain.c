@@ -101,8 +101,7 @@ static void ExplainDummyGroup(const char *objtype, const char *labelname,
 				  ExplainState *es);
 #ifdef PGXC
 static void ExplainExecNodes(ExecNodes *en, ExplainState *es);
-static void ExplainRemoteQuery(RemoteQuery *plan, PlanState *planstate,
-								List *ancestors, ExplainState *es);
+static void ExplainRemoteQuery(RemoteQuery *plan, ExplainState *es);
 #endif
 static void ExplainXMLTag(const char *tagname, int flags, ExplainState *es);
 static void ExplainJSONLineEnding(ExplainState *es);
@@ -1047,12 +1046,12 @@ ExplainNode(PlanState *planstate, List *ancestors,
 				ModifyTable *mt = (ModifyTable *)plan;
 				ListCell *elt;
 				foreach(elt, mt->remote_plans)
-					ExplainRemoteQuery((RemoteQuery *) lfirst(elt), planstate, ancestors, es);
+					ExplainRemoteQuery((RemoteQuery *) lfirst(elt), es);
 			}
 			break;
 		case T_RemoteQuery:
 			/* Remote query */
-			ExplainRemoteQuery((RemoteQuery *)plan, planstate, ancestors, es);
+			ExplainRemoteQuery((RemoteQuery *)plan, es);
 			show_scan_qual(plan->qual, "Coordinator quals", planstate, ancestors, es);
 			break;
 #endif
@@ -1600,6 +1599,12 @@ explain_get_index_name(Oid indexId)
 static void
 ExplainScanTarget(Scan *plan, ExplainState *es)
 {
+#ifdef PGXC
+	if (plan->scanrelid <= 0 ||
+		list_length(es->rtable) == 0)
+		return;
+#endif
+
 	ExplainTargetRel((Plan *) plan, plan->scanrelid, es);
 }
 
@@ -2197,50 +2202,52 @@ ExplainExecNodes(ExecNodes *en, ExplainState *es)
  * Emit remote query planning details
  */
 static void
-ExplainRemoteQuery(RemoteQuery *plan, PlanState *planstate, List *ancestors, ExplainState *es)
+ExplainRemoteQuery(RemoteQuery *plan, ExplainState *es)
 {
-	ExecNodes	*en = plan->exec_nodes;
-	/* add names of the nodes if they exist */
-	if (en && es->nodes)
+	/* Add names of the nodes if they exist */
+	if (plan->exec_nodes && es->nodes)
 	{
 		StringInfo node_names = makeStringInfo();
 		ListCell *lcell;
 		char	*sep;
 		int		node_no;
-		if (en->primarynodelist)
+
+		/* Primary node(s) name(s) */
+		if (plan->exec_nodes->primarynodelist)
 		{
 			sep = "";
-			foreach(lcell, en->primarynodelist)
+			foreach(lcell, plan->exec_nodes->primarynodelist)
 			{
 				node_no = lfirst_int(lcell);
 				appendStringInfo(node_names, "%s%s", sep,
-									get_pgxc_nodename(PGXCNodeGetNodeOid(node_no, PGXC_NODE_DATANODE)));
+									get_pgxc_nodename(PGXCNodeGetNodeOid(node_no,
+																		 PGXC_NODE_DATANODE)));
 				sep = ", ";
 			}
 			ExplainPropertyText("Primary node/s", node_names->data, es);
 		}
-		if (en->nodeList)
+
+		/* Other node(s) name(s) */
+		if (plan->exec_nodes->nodeList)
 		{
 			resetStringInfo(node_names);
 			sep = "";
-			foreach(lcell, en->nodeList)
+			foreach(lcell, plan->exec_nodes->nodeList)
 			{
 				node_no = lfirst_int(lcell);
 				appendStringInfo(node_names, "%s%s", sep,
-									get_pgxc_nodename(PGXCNodeGetNodeOid(node_no, PGXC_NODE_DATANODE)));
+									get_pgxc_nodename(PGXCNodeGetNodeOid(node_no,
+																		 PGXC_NODE_DATANODE)));
 				sep = ", ";
 			}
 			ExplainPropertyText("Node/s", node_names->data, es);
 		}
 	}
 
-	if (en && en->en_expr)
-		show_expression((Node *)en->en_expr, "Node expr", planstate, ancestors,
-						es->verbose, es);
-
 	/* Remote query statement */
 	if (es->verbose)
-		ExplainPropertyText("Remote query", plan->sql_statement, es);
+		ExplainPropertyText("Remote query",
+							plan->sql_statement, es);
 }
 #endif
 

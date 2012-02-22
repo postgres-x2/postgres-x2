@@ -4,10 +4,6 @@
 -- If a testcase is added to any of the combinations, please check if it's
 -- applicable in other combinations as well.
 
--- Since we are testing, the plan reduction of GROUP and AGG nodes, we should
--- disable fast query shipping
-set enable_fast_query_shipping to off;
-
 -- Combination 1: enable_hashagg on and distributed tables
 set enable_hashagg to on;
 -- create required tables and fill them with data
@@ -133,4 +129,3 @@ drop table xc_having_tab1;
 drop table xc_having_tab2;
 
 reset enable_hashagg;
-reset enable_fast_query_shipping;

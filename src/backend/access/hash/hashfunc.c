@@ -631,10 +631,6 @@ compute_hash(Oid type, Datum value, char locator)
 		default:
 			ereport(ERROR,(errmsg("Unhandled datatype for modulo or hash distribution\n")));
 	}
-	/* Control should not come here. */
-	ereport(ERROR,(errmsg("Unhandled datatype for modulo or hash distribution\n")));
-	/* Keep compiler silent */
-	return (Datum)0;
 }
 
 #endif

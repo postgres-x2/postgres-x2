@@ -104,7 +104,7 @@ test: plancache limit plpgsql copy2 temp domain rangefuncs prepare without_oid c
 test: stats
 
 #Postgres-XC additional tests, they can be run in parallel
-test: xc_groupby xc_distkey xc_having xc_temp xc_remote xc_FQS xc_FQS_join
+test: xc_groupby xc_distkey xc_having xc_temp xc_remote
 
 #Cluster setting related test is independant
 test: xc_node

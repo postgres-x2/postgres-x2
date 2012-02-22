@@ -4,10 +4,6 @@
 -- If a testcase is added to any of the combinations, please check if it's
 -- applicable in other combinations as well.
 
--- Since we want to test the plan reduction of GROUP and AGG nodes, disable fast
--- query shipping
-set enable_fast_query_shipping to off;
-
 -- Combination 1: enable_hashagg on and distributed tables
 set enable_hashagg to on;
 -- create required tables and fill them with data
@@ -386,6 +382,4 @@ explain (verbose true, costs false, nodes false) select avg(c) from xc_groupby_g
 
 drop table xc_groupby_def;
 drop table xc_groupby_g;
-
 reset enable_hashagg;
-reset enable_fast_query_shipping;
