@@ -1758,7 +1758,10 @@ pgxc_node_remote_prepare(char *prepareGID)
 	 * the normal abort processing take charge of aborting the transaction
 	 */
 	if (result || remoteXactState.status == RXACT_PREPARE_FAILED)
+	{
+		remoteXactState.status = RXACT_PREPARE_FAILED;
 		elog(ERROR, "failed to PREPARE transaction on one or more nodes");
+	}
 
 	/* Everything went OK. */
 	remoteXactState.status = RXACT_PREPARED;
@@ -3063,7 +3066,8 @@ do_query(RemoteQueryState *node)
 
 	for (i = 0; i < regular_conn_count; i++)
 	{
-		if (pgxc_node_begin(1, &connections[i], gxid, need_tran_block, is_read_only))
+		if (pgxc_node_begin(1, &connections[i], gxid, need_tran_block,
+					is_read_only, PGXC_NODE_DATANODE))
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
 					 errmsg("Could not begin transaction on data nodes.")));
@@ -3941,7 +3945,7 @@ ExecRemoteUtility(RemoteQuery *node)
 	if (exec_type == EXEC_ON_ALL_NODES || exec_type == EXEC_ON_DATANODES)
 	{
 		if (pgxc_node_begin(dn_conn_count, pgxc_connections->datanode_handles,
-					gxid, need_tran_block, false))
+					gxid, need_tran_block, false, PGXC_NODE_DATANODE))
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
 					 errmsg("Could not begin transaction on data nodes")));
@@ -4802,7 +4806,7 @@ FinishRemotePreparedTransaction(char *prepareGID, bool commit)
 				 errmsg("Could not begin transaction on data nodes")));
 	 */
 	RegisterTransactionNodes(pgxc_handles->dn_conn_count,
-			pgxc_handles->datanode_handles, true);
+			(void **) pgxc_handles->datanode_handles, true);
 
 	/*
 	if (pgxc_node_begin(pgxc_handles->co_conn_count,
@@ -4813,7 +4817,7 @@ FinishRemotePreparedTransaction(char *prepareGID, bool commit)
 				 errmsg("Could not begin transaction on coordinators")));
 				 */
 	RegisterTransactionNodes(pgxc_handles->co_conn_count,
-			pgxc_handles->coord_handles, true);
+			(void **) pgxc_handles->coord_handles, true);
 
 	/*
 	 * Initialize the remoteXactState so that we can use the APIs to take care
