@@ -30,10 +30,6 @@ extern void ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid);
 extern void ProcArrayClearTransaction(PGPROC *proc);
 
 #ifdef PGXC  /* PGXC_DATANODE */
-extern Size AnalyzeProcArrayShmemSize(void);
-extern void AnalyzeProcArrayAdd(PGPROC *proc);
-extern void CreateSharedAnalyzeProcArray(void);
-extern void AnalyzeProcArrayRemove(PGPROC *proc, TransactionId latestXid);
 extern void SetGlobalSnapshotData(int xmin, int xmax, int xcnt, int *xip);
 extern void UnsetGlobalSnapshotData(void);
 extern void ReloadConnInfoOnBackends(void);

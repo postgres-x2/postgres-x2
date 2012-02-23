@@ -72,7 +72,6 @@ typedef enum LWLockId
 	AutovacuumScheduleLock,
 	SyncScanLock,
 #ifdef PGXC
-	AnalyzeProcArrayLock,
 	BarrierLock,
 #endif
 	RelationMappingLock,

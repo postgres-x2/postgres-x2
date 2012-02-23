@@ -677,15 +677,6 @@ RemoveProcFromArray(int code, Datum arg)
 {
 	Assert(MyProc != NULL);
 	ProcArrayRemove(MyProc, InvalidTransactionId);
-#ifdef PGXC
-	/* Remove from the analyze array */
-	if (IS_PGXC_DATANODE && IsAutoVacuumAnalyzeWorker())
-	{
- 		LWLockAcquire(AnalyzeProcArrayLock, LW_EXCLUSIVE);
-		AnalyzeProcArrayRemove(MyProc, InvalidTransactionId);
-		LWLockRelease(AnalyzeProcArrayLock);
-	}
-#endif
 }
 
 /*
