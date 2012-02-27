@@ -3898,15 +3898,7 @@ ExecRemoteUtility(RemoteQuery *node)
 	pgxc_connections = get_exec_connections(NULL, node->exec_nodes, exec_type);
 
 	dn_conn_count = pgxc_connections->dn_conn_count;
-
-	/*
-	 * EXECUTE DIRECT can only be launched on a single node
-	 * but we have to count local node also here.
-	 */
-	if (exec_direct_type != EXEC_DIRECT_NONE && exec_type == EXEC_ON_COORDS)
-		co_conn_count = 2;
-	else
-		co_conn_count = pgxc_connections->co_conn_count;
+	co_conn_count = pgxc_connections->co_conn_count;
 
 	/* Registering new connections needs the sum of Connections to Datanodes AND to Coordinators */
 	total_conn_count = dn_conn_count + co_conn_count;
@@ -3978,7 +3970,7 @@ ExecRemoteUtility(RemoteQuery *node)
 					(errcode(ERRCODE_INTERNAL_ERROR),
 					 errmsg("Could not begin transaction on coordinators")));
 		/* Now send it to Coordinators if necessary */
-		for (i = 0; i < co_conn_count - 1; i++)
+		for (i = 0; i < co_conn_count; i++)
 		{
 			if (snapshot && pgxc_node_send_snapshot(pgxc_connections->coord_handles[i], snapshot))
 			{
@@ -4049,8 +4041,6 @@ ExecRemoteUtility(RemoteQuery *node)
 	if (exec_type == EXEC_ON_ALL_NODES ||
 		exec_type == EXEC_ON_COORDS)
 	{
-		/* For local Coordinator */
-		co_conn_count--;
 		while (co_conn_count > 0)
 		{
 			int i = 0;
