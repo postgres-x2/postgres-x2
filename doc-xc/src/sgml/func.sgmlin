@@ -14158,9 +14158,10 @@ SELECT set_config('log_statement_stats', 'off', false);
 <!## XC>
 &xconly;
    <para>
-    Please note that these functions works just locally.  To issue
-    these functions to another coordinators or datanodes, you should
-    issue these functions through <type>EXECUTE DIRECT</> statement.
+    Similar to the SET command, the set_config() function makes sure
+    that as long as the session/transaction is active, the new parameter
+    value is set across all the nodes on which the SQL queries are being run
+    as part of that particular session or transaction.
    </para>
 <!## end>
 
@@ -15307,6 +15308,18 @@ SELECT (pg_stat_file('filename')).modification;
 <!## XC>
 &xconly;
    <para>
+    The advisory lock functions are aware of the Postgres XC cluster. Hence,
+    if you use a function like pg_advisory_lock() from a particular coordinator,
+	the resource will be locked across the complete cluster, so another
+	application calling the same function from a different coordinator will see
+	this lock, and will wait on the resource until the lock is released.
+	This applies to both transaction and session level advisory locks.
+   </para>
+<!## end>
+
+<!## XC>
+&xconly;
+   <para>
     The functions shown in <xref linkend="functions-pgxc-pooler"> manage
     Postgres-XC pooler.  For details about Postgres-XC pooler, see
     <xref linkend="xc-overview-pooler">.
@@ -15360,16 +15373,6 @@ SELECT (pg_stat_file('filename')).modification;
     all the temporary and prepared objects dropped on remote and local node for session.
    </para>
 
-&xconly;
-   <para>
-    Please note that these functions works just locally.  
-    The lock obtained in a coordinator is effective only in the coordinator.
-    Transaction started at different coordinator can obtain the lock with the same
-    value in its coordinator.
-    To issue
-    these functions to another coordinators or datanodes, you should
-    issue these functions through <type>EXECUTE DIRECT</> statement.
-   </para>
 <!## end>
 
   </sect1>
