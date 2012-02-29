@@ -28,7 +28,9 @@
 #include "nodes/plannodes.h"
 #include "nodes/relation.h"
 #include "utils/datum.h"
+#ifdef PGXC
 #include "pgxc/planner.h"
+#endif
 
 
 /*
@@ -456,6 +458,7 @@ _outIndexScan(StringInfo str, IndexScan *node)
 	WRITE_ENUM_FIELD(indexorderdir, ScanDirection);
 }
 
+#ifdef PGXC
 static void
 _outRemoteQuery(StringInfo str, RemoteQuery *node)
 {
@@ -491,6 +494,7 @@ _outExecNodes(StringInfo str, ExecNodes *node)
 	WRITE_OID_FIELD(en_relid);
 	WRITE_ENUM_FIELD(accesstype, RelationAccessType);
 }
+#endif
 
 static void
 _outBitmapIndexScan(StringInfo str, BitmapIndexScan *node)
@@ -2785,9 +2789,11 @@ _outNode(StringInfo str, void *obj)
 			case T_SeqScan:
 				_outSeqScan(str, obj);
 				break;
+#ifdef PGXC
 			case T_RemoteQuery:
 				_outRemoteQuery(str, obj);
 				break;
+#endif
 			case T_IndexScan:
 				_outIndexScan(str, obj);
 				break;
@@ -3213,9 +3219,12 @@ _outNode(StringInfo str, void *obj)
 			case T_XmlSerialize:
 				_outXmlSerialize(str, obj);
 				break;
+#ifdef PGXC
 			case T_ExecNodes:
 				_outExecNodes(str, obj);
 				break;
+#endif
+
 			default:
 
 				/*
