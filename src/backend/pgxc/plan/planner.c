@@ -3406,6 +3406,18 @@ pgxc_fqs_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 		fetch_ctid_of(result->planTree, query);
 	}
 
+	/*
+	 * We need to save plan dependencies, so that dropping objects will
+	 * invalidate the cached plan if it depends on those objects. Table
+	 * dependencies are available in glob->relationOids and all other
+	 * dependencies are in glob->invalItems. These fields can be retrieved
+	 * through set_plan_references().
+	 */
+	result->planTree = set_plan_references(glob, result->planTree,
+	                                       root->parse->rtable, root->rowMarks);
+	result->relationOids = glob->relationOids;
+	result->invalItems = glob->invalItems;
+
 	return result;
 }
 
