@@ -87,6 +87,7 @@ typedef struct RemoteXactState
 	 */
 	int 					numWriteRemoteNodes;
 	int 					numReadRemoteNodes;
+	int						maxRemoteNodes;
 	PGXCNodeHandle			**remoteNodeHandles;
 	RemoteXactNodeStatus	*remoteNodeStatus;
 
@@ -4791,12 +4792,16 @@ clear_RemoteXactState(void)
 	remoteXactState.status = RXACT_NONE;
 	remoteXactState.commitXid = InvalidGlobalTransactionId;
 
-	if (remoteXactState.remoteNodeHandles == NULL)
+	if ((remoteXactState.remoteNodeHandles == NULL) ||
+		(remoteXactState.maxRemoteNodes < (NumDataNodes + NumCoords)))
 	{
 		remoteXactState.remoteNodeHandles = (PGXCNodeHandle **)
-			malloc (sizeof (PGXCNodeHandle *) * (NumDataNodes + NumCoords));
+			realloc (remoteXactState.remoteNodeHandles,
+					sizeof (PGXCNodeHandle *) * (NumDataNodes + NumCoords));
 		remoteXactState.remoteNodeStatus = (RemoteXactNodeStatus *)
-			malloc (sizeof (RemoteXactNodeStatus) * (NumDataNodes + NumCoords));
+			realloc (remoteXactState.remoteNodeStatus,
+					sizeof (RemoteXactNodeStatus) * (NumDataNodes + NumCoords));
+		remoteXactState.maxRemoteNodes = NumDataNodes + NumCoords;
 	}
 
 	if (remoteXactState.remoteNodeHandles)
