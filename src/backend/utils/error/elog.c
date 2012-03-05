@@ -231,13 +231,6 @@ errstart(int elevel, const char *filename, int lineno,
 	 */
 	if (elevel >= ERROR)
 	{
-#ifdef PGXC
-		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-		{
-			cancel_query();
-			clear_all_data();
-		}
-#endif
 		/*
 		 * If we are inside a critical section, all errors become PANIC
 		 * errors.	See miscadmin.h.
@@ -1141,14 +1134,6 @@ elog_finish(int elevel, const char *fmt,...)
 	MemoryContext oldcontext;
 
 	CHECK_STACK_DEPTH();
-
-#ifdef PGXC
-	if (elevel >= ERROR && IS_PGXC_COORDINATOR && !IsConnFromCoord())
-	{
-		cancel_query();
-		clear_all_data();
-	}
-#endif
 
 	/*
 	 * Do errstart() to see if we actually want to report the message.

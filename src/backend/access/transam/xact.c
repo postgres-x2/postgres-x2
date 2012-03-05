@@ -1842,6 +1842,14 @@ StartTransaction(void)
 		XactReadOnly = DefaultXactReadOnly;
 	}
 	XactDeferrable = DefaultXactDeferrable;
+#ifdef PGXC
+	/* PGXCTODO - PGXC doesn't support 9.1 serializable transactions. They are
+	 * silently turned into repeatable-reads which is same as pre 9.1
+	 * serializable isolation level
+	 */
+	if (DefaultXactIsoLevel == XACT_SERIALIZABLE)
+		DefaultXactIsoLevel = XACT_REPEATABLE_READ;
+#endif	
 	XactIsoLevel = DefaultXactIsoLevel;
 	forceSyncCommit = false;
 	MyXactAccessedTempRel = false;

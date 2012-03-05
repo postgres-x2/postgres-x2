@@ -1237,7 +1237,7 @@ pgxc_node_receive_responses(const int conn_count, PGXCNodeHandle ** connections,
 				default:
 					/* Inconsistent responses */
 					add_error_message(to_receive[i], "Unexpected response from the data nodes");
-					elog(WARNING, "Unexpected response from the data nodes, result = %d, request type %d", result, combiner->request_type);
+					elog(ERROR, "Unexpected response from the data nodes, result = %d, request type %d", result, combiner->request_type);
 					/* Stop tracking and move last connection in place */
 					count--;
 					if (i < count)
@@ -1344,6 +1344,7 @@ handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner)
 				break;
 			case 'E':			/* ErrorResponse */
 				HandleError(combiner, msg, msg_len);
+				add_error_message(conn, combiner->errorMessage);
 				/*
 				 * Do not return with an error, we still need to consume Z,
 				 * ready-for-query
@@ -1680,6 +1681,7 @@ pgxc_node_remote_prepare(char *prepareGID)
 	char			prepare_cmd[256];
 	int				i;
 	PGXCNodeHandle	**connections = remoteXactState.remoteNodeHandles;
+	RemoteQueryState *combiner = NULL;
 
 	/*
 	 * If there is NO write activity or the caller does not want us to run a
@@ -1704,6 +1706,9 @@ pgxc_node_remote_prepare(char *prepareGID)
 		 */
 		if (connections[i]->state != DN_CONNECTION_STATE_IDLE)
 			BufferConnection(connections[i]);
+
+		/* Clean the previous errors, if any */
+		connections[i]->error = NULL;
 
 		/*
 		 * Now we are ready to PREPARE the transaction. Any error at this point
@@ -1736,20 +1741,30 @@ pgxc_node_remote_prepare(char *prepareGID)
 	 * mechanism to track connection status
 	 */
 	if (write_conn_count)
-		/* Receive and Combine results from Datanodes and Coordinators */
-		result = pgxc_node_receive_and_validate(write_conn_count, connections, false);
-
-	for (i = 0; i < write_conn_count; i++)
 	{
-		if (remoteXactState.remoteNodeStatus[i] == RXACT_NODE_PREPARE_SENT)
+		combiner = CreateResponseCombiner(write_conn_count, COMBINE_TYPE_NONE);
+		/* Receive responses */
+		result = pgxc_node_receive_responses(write_conn_count, connections, NULL, combiner);
+		if (result || !validate_combiner(combiner))
+			result = EOF;
+		else
 		{
-			if (connections[i]->transaction_status == 'E')
+			CloseCombiner(combiner);
+			combiner = NULL;
+		}
+
+		for (i = 0; i < write_conn_count; i++)
+		{
+			if (remoteXactState.remoteNodeStatus[i] == RXACT_NODE_PREPARE_SENT)
 			{
-				remoteXactState.remoteNodeStatus[i] = RXACT_NODE_PREPARE_FAILED;
-				remoteXactState.status = RXACT_PREPARE_FAILED;
+				if (connections[i]->error)
+				{
+					remoteXactState.remoteNodeStatus[i] = RXACT_NODE_PREPARE_FAILED;
+					remoteXactState.status = RXACT_PREPARE_FAILED;
+				}
+				else
+					remoteXactState.remoteNodeStatus[i] = RXACT_NODE_PREPARED;
 			}
-			else
-				remoteXactState.remoteNodeStatus[i] = RXACT_NODE_PREPARED;
 		}
 	}
 
@@ -1757,11 +1772,29 @@ pgxc_node_remote_prepare(char *prepareGID)
 	 * If we failed to PREPARE on one or more nodes, report an error and let
 	 * the normal abort processing take charge of aborting the transaction
 	 */
-	if (result || remoteXactState.status == RXACT_PREPARE_FAILED)
+	if (result)
 	{
 		remoteXactState.status = RXACT_PREPARE_FAILED;
-		elog(ERROR, "failed to PREPARE transaction on one or more nodes");
+		if (combiner && combiner->errorMessage)
+		{
+			char *code = combiner->errorCode;
+			if (combiner->errorDetail != NULL)
+				ereport(ERROR,
+						(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
+						errmsg("%s", combiner->errorMessage), errdetail("%s", combiner->errorDetail) ));
+			else
+				ereport(ERROR,
+						(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
+						errmsg("%s", combiner->errorMessage)));
+		}
+		else
+			elog(ERROR, "failed to PREPARE transaction on one or more nodes");
 	}
+	
+	if (remoteXactState.status == RXACT_PREPARE_FAILED)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Failed to PREPARE the transaction on one or more nodes")));
 
 	/* Everything went OK. */
 	remoteXactState.status = RXACT_PREPARED;
@@ -1800,6 +1833,7 @@ pgxc_node_remote_commit(void)
 	PGXCNodeHandle  *new_connections[write_conn_count + read_conn_count];
 	int				new_conn_count = 0;
 	int				i;
+	RemoteQueryState *combiner = NULL;
 
 	/* 
 	 * We must handle reader and writer connections both since the transaction
@@ -1878,6 +1912,9 @@ pgxc_node_remote_commit(void)
 		else
 			command = commitCmd;
 
+		/* Clean the previous errors, if any */
+		connections[i]->error = NULL;
+
 		if (pgxc_node_send_query(connections[i], command))
 		{
 			remoteXactState.remoteNodeStatus[i] = RXACT_NODE_COMMIT_FAILED;
@@ -1914,9 +1951,16 @@ pgxc_node_remote_commit(void)
 
 	if (new_conn_count)
 	{
-		/* Receive and Combine results from Datanodes and Coordinators */
-		result = pgxc_node_receive_and_validate(new_conn_count, new_connections, false);
-
+		combiner = CreateResponseCombiner(new_conn_count, COMBINE_TYPE_NONE);
+		/* Receive responses */
+		result = pgxc_node_receive_responses(new_conn_count, new_connections, NULL, combiner);
+		if (result || !validate_combiner(combiner))
+			result = EOF;
+		else
+		{
+			CloseCombiner(combiner);
+			combiner = NULL;
+		}
 		/* 
 		 * Even if the command failed on some node, don't throw an error just
 		 * yet. That gives a chance to look for individual connection status
@@ -1927,42 +1971,61 @@ pgxc_node_remote_commit(void)
 		 * the node went down. Even if one node commits, the transaction must be
 		 * eventually committed on all the nodes.
 		 */
-	}
 
-	/* At this point, we must be in one the following state */
-	Assert(remoteXactState.status == RXACT_COMMIT_FAILED ||
-		   remoteXactState.status == RXACT_PREPARED ||
-		   remoteXactState.status == RXACT_NONE);
+		/* At this point, we must be in one the following state */
+		Assert(remoteXactState.status == RXACT_COMMIT_FAILED ||
+				remoteXactState.status == RXACT_PREPARED ||
+				remoteXactState.status == RXACT_NONE);
 
-	/*
-	 * Go through every connection and check if COMMIT succeeded or failed on
-	 * that connection. If the COMMIT has failed on one node, but succeeded on
-	 * some other, such transactions need special attention (by the
-	 * administrator for now)
-	 */
-	for (i = 0; i < write_conn_count + read_conn_count; i++)
-	{
-		if (remoteXactState.remoteNodeStatus[i] == RXACT_NODE_COMMIT_SENT)
+		/*
+		 * Go through every connection and check if COMMIT succeeded or failed on
+		 * that connection. If the COMMIT has failed on one node, but succeeded on
+		 * some other, such transactions need special attention (by the
+		 * administrator for now)
+		 */
+		for (i = 0; i < write_conn_count + read_conn_count; i++)
 		{
-			if (connections[i]->transaction_status == 'E')
+			if (remoteXactState.remoteNodeStatus[i] == RXACT_NODE_COMMIT_SENT)
 			{
-				remoteXactState.remoteNodeStatus[i] = RXACT_NODE_COMMIT_FAILED;
-				if (remoteXactState.status != RXACT_PART_COMMITTED)
-					remoteXactState.status = RXACT_COMMIT_FAILED;
-			}
-			else
-			{
-				remoteXactState.remoteNodeStatus[i] = RXACT_NODE_COMMITTED;
-				if (remoteXactState.status == RXACT_COMMIT_FAILED)
-					remoteXactState.status = RXACT_PART_COMMITTED;
+				if (connections[i]->error)
+				{
+					remoteXactState.remoteNodeStatus[i] = RXACT_NODE_COMMIT_FAILED;
+					if (remoteXactState.status != RXACT_PART_COMMITTED)
+						remoteXactState.status = RXACT_COMMIT_FAILED;
+				}
+				else
+				{
+					remoteXactState.remoteNodeStatus[i] = RXACT_NODE_COMMITTED;
+					if (remoteXactState.status == RXACT_COMMIT_FAILED)
+						remoteXactState.status = RXACT_PART_COMMITTED;
+				}
 			}
 		}
 	}
 
 	stat_transaction(write_conn_count + read_conn_count);
 
-	if (result ||
-		remoteXactState.status == RXACT_COMMIT_FAILED ||
+	if (result)
+	{
+		if (combiner && combiner->errorMessage)
+		{
+			char *code = combiner->errorCode;
+			if (combiner->errorDetail != NULL)
+				ereport(ERROR,
+						(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
+						errmsg("%s", combiner->errorMessage), errdetail("%s", combiner->errorDetail) ));
+			else
+				ereport(ERROR,
+						(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
+						errmsg("%s", combiner->errorMessage)));
+		}
+		else
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Failed to COMMIT the transaction on one or more nodes")));
+	}
+
+	if (remoteXactState.status == RXACT_COMMIT_FAILED ||
 		remoteXactState.status == RXACT_PART_COMMITTED)
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
@@ -1991,12 +2054,16 @@ pgxc_node_remote_abort(void)
 	PGXCNodeHandle	**connections = remoteXactState.remoteNodeHandles;
 	PGXCNodeHandle  *new_connections[remoteXactState.numWriteRemoteNodes + remoteXactState.numReadRemoteNodes];
 	int				new_conn_count = 0;
+	RemoteQueryState *combiner = NULL;
 
 
 	/* Send COMMIT/ROLLBACK PREPARED TRANSACTION to the remote nodes */
 	for (i = 0; i < write_conn_count + read_conn_count; i++)
 	{
 		RemoteXactNodeStatus status = remoteXactState.remoteNodeStatus[i];
+
+		/* Clean the previous errors, if any */
+		connections[i]->error = NULL;
 
 		if ((status == RXACT_NODE_PREPARED) ||
 			(status == RXACT_NODE_PREPARE_SENT) ||
@@ -2046,39 +2113,66 @@ pgxc_node_remote_abort(void)
 	}
 
 	if (new_conn_count)
-		/* Receive and Combine results from Datanodes and Coordinators */
-		result = pgxc_node_receive_and_validate(new_conn_count, new_connections, false);
-
-	for (i = 0; i < write_conn_count + read_conn_count; i++)
 	{
-		if (remoteXactState.remoteNodeStatus[i] == RXACT_NODE_ABORT_SENT)
+		combiner = CreateResponseCombiner(new_conn_count, COMBINE_TYPE_NONE);
+		/* Receive responses */
+		result = pgxc_node_receive_responses(new_conn_count, new_connections, NULL, combiner);
+		if (result || !validate_combiner(combiner))
+			result = EOF;
+		else
 		{
-			if (connections[i]->transaction_status == 'E')
+			CloseCombiner(combiner);
+			combiner = NULL;
+		}
+
+		for (i = 0; i < write_conn_count + read_conn_count; i++)
+		{
+			if (remoteXactState.remoteNodeStatus[i] == RXACT_NODE_ABORT_SENT)
 			{
-				remoteXactState.remoteNodeStatus[i] = RXACT_NODE_ABORT_FAILED;
-				if (remoteXactState.status != RXACT_PART_ABORTED)
-					remoteXactState.status = RXACT_ABORT_FAILED;
-			}
-			else
-			{
-				remoteXactState.remoteNodeStatus[i] = RXACT_NODE_ABORTED;
-				if (remoteXactState.status == RXACT_ABORT_FAILED)
-					remoteXactState.status = RXACT_PART_ABORTED;
+				if (connections[i]->error)
+				{
+					remoteXactState.remoteNodeStatus[i] = RXACT_NODE_ABORT_FAILED;
+					if (remoteXactState.status != RXACT_PART_ABORTED)
+						remoteXactState.status = RXACT_ABORT_FAILED;
+					elog(LOG, "Failed to ABORT at node %d\nDetail: %s",
+							connections[i]->nodeoid, connections[i]->error);
+				}
+				else
+				{
+					remoteXactState.remoteNodeStatus[i] = RXACT_NODE_ABORTED;
+					if (remoteXactState.status == RXACT_ABORT_FAILED)
+						remoteXactState.status = RXACT_PART_ABORTED;
+				}
 			}
 		}
 	}
 
+	if (result)
+	{
+		if (combiner && combiner->errorMessage)
+		{
+			char *code = combiner->errorCode;
+			if (combiner->errorDetail != NULL)
+				elog(LOG, "%s %s", combiner->errorMessage, combiner->errorDetail);
+			else
+				elog(LOG, "%s", combiner->errorMessage);
+		}
+		else
+			elog(LOG, "Failed to ABORT an implicitly PREPARED "
+					"transaction - result %d", result);
+	}
+
 	/*
 	 * Don't ereport because we might already been abort processing and any
-	 * error at this point can lead to infinite recursion
+	  * error at this point can lead to infinite recursion
 	 *
 	 * XXX How do we handle errors reported by internal functions used to
 	 * communicate with remote nodes ?
 	 */
-	if (result ||
-		remoteXactState.status == RXACT_ABORT_FAILED ||
+	if (remoteXactState.status == RXACT_ABORT_FAILED ||
 		remoteXactState.status == RXACT_PART_ABORTED)
-		elog(LOG, "Failed to COMMIT an implicitly PREPARED transaction");
+		elog(LOG, "Failed to ABORT an implicitly PREPARED transaction "
+				"status - %d", remoteXactState.status);
 	else
 		remoteXactState.status = RXACT_ABORTED;
 
@@ -3187,6 +3281,19 @@ do_query(RemoteQueryState *node)
 				ereport(ERROR,
 						(errcode(ERRCODE_INTERNAL_ERROR),
 						 errmsg("Unexpected response from data node")));
+		}
+
+		if (node->errorMessage)
+		{
+			char *code = node->errorCode;
+			if (node->errorDetail != NULL)
+				ereport(ERROR,
+						(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
+						errmsg("%s", node->errorMessage), errdetail("%s", node->errorDetail) ));
+			else
+				ereport(ERROR,
+						(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
+						errmsg("%s", node->errorMessage)));
 		}
 	}
 
@@ -4476,6 +4583,9 @@ PreCommit_Remote(char *prepareGID, bool preparedLocalNode)
 
 	Assert(remoteXactState.status == RXACT_COMMITTED ||
 		   remoteXactState.status == RXACT_NONE);
+
+	clear_RemoteXactState();
+
 	/*
 	 * The transaction is now successfully committed on all the remote nodes.
 	 * (XXX How about the local node ?). It can now be cleaned up from the GTM
@@ -4501,6 +4611,12 @@ PreCommit_Remote(char *prepareGID, bool preparedLocalNode)
 bool
 PreAbort_Remote(void)
 {
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	{
+		cancel_query();
+		clear_all_data();
+	}
+
 	if (remoteXactState.status == RXACT_COMMITTED)
 		return false;
 
@@ -4542,6 +4658,8 @@ PreAbort_Remote(void)
 
 		pgxc_node_remote_abort();
 	}
+
+	clear_RemoteXactState();
 
 	if (!PersistentConnections)
 		release_handles();

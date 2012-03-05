@@ -832,9 +832,35 @@ cancel_query(void)
 			}
 		}
 	}
-	PoolManagerCancelQuery(dn_count, dn_cancel, co_count, co_cancel);
-}
 
+	PoolManagerCancelQuery(dn_count, dn_cancel, co_count, co_cancel);
+
+	/*
+	 * Read responses from the nodes to whom we sent the cancel command. This
+	 * ensures that there are no pending messages left on the connection
+	 */
+	for (i = 0; i < NumDataNodes; i++)
+	{
+		PGXCNodeHandle *handle = &dn_handles[i];
+
+		if ((handle->sock != NO_SOCKET) && (handle->state != DN_CONNECTION_STATE_IDLE))
+		{
+			pgxc_node_flush_read(handle);
+			handle->state = DN_CONNECTION_STATE_IDLE;
+		}
+	}
+
+	for (i = 0; i < NumCoords; i++)
+	{
+		PGXCNodeHandle *handle = &co_handles[i];
+
+		if (handle->sock != NO_SOCKET && handle->state != DN_CONNECTION_STATE_IDLE)
+		{
+			pgxc_node_flush_read(handle);
+			handle->state = DN_CONNECTION_STATE_IDLE;
+		}
+	}
+}
 /*
  * This method won't return until all network buffers are empty
  * To ensure all data in all network buffers is read and wasted
@@ -857,6 +883,8 @@ clear_all_data(void)
 			pgxc_node_flush_read(handle);
 			handle->state = DN_CONNECTION_STATE_IDLE;
 		}
+		/* Clear any previous error messages */
+		handle->error = NULL;
 	}
 
 	/* Collect Coordinator handles */
@@ -869,6 +897,8 @@ clear_all_data(void)
 			pgxc_node_flush_read(handle);
 			handle->state = DN_CONNECTION_STATE_IDLE;
 		}
+		/* Clear any previous error messages */
+		handle->error = NULL;
 	}
 }
 
@@ -1479,13 +1509,14 @@ pgxc_node_flush_read(PGXCNodeHandle *handle)
 
 	while(true)
 	{
+		read_result = pgxc_node_read_data(handle, false);
+		if (read_result < 0)
+			break;
+
 		is_ready = is_data_node_ready(handle);
 		if (is_ready == true)
 			break;
 
-		read_result = pgxc_node_read_data(handle, false);
-		if (read_result < 0)
-			break;
 	}
 }
 

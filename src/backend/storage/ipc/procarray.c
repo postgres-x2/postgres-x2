@@ -469,12 +469,13 @@ ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid)
 		 */
 #ifdef PGXC
 		/*
-		 * Removed this assertion check for PGXC on the Coordinator
-		 * We could abort before the Coordinator has obtained a GXID
+		 * We are seeing this assertion failure every once in a while. We have
+		 * a theory about how this can happen also on vanilla PostgreSQL, we
+		 * don't have a reproducible case yet (see email of hackers with
+		 * subject "Canceling ROLLBACK statement". 
 		 */
-	if (IS_PGXC_DATANODE)
-#endif
 		Assert(!TransactionIdIsValid(proc->xid));
+#endif
 
 		proc->lxid = InvalidLocalTransactionId;
 		proc->xmin = InvalidTransactionId;
@@ -1246,7 +1247,6 @@ GetSnapshotData(Snapshot snapshot)
 	int			count = 0;
 	int			subcount = 0;
 	bool		suboverflowed = false;
-
 
 #ifdef PGXC  /* PGXC_DATANODE */
 	/*
