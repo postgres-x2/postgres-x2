@@ -2081,8 +2081,6 @@ _copyRangeTblEntry(RangeTblEntry *from)
 
 #ifdef PGXC
 	COPY_STRING_FIELD(relname);
-	if (from->reltupdesc)
-		newnode->reltupdesc = CreateTupleDescCopy(from->reltupdesc);
 #endif
 
 	COPY_SCALAR_FIELD(relid);

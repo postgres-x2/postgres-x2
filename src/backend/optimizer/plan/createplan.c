@@ -964,9 +964,7 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 			 */
 			base_tlist = add_to_flat_tlist(NIL, list_concat(out_tlist, in_tlist));
 
-			/* cook up the reltupdesc using this base_tlist */
 			dummy_rte = makeNode(RangeTblEntry);
-			dummy_rte->reltupdesc = ExecTypeFromTL(base_tlist, false);
 			dummy_rte->rtekind = RTE_REMOTE_DUMMY;
 
 			/* use a dummy relname... */
@@ -1066,6 +1064,7 @@ generate_remote_rte_alias(RangeTblEntry *rte, int varno, char *aliasname, int re
 	int			varattno;
 	List	   *colnames = NIL;
 	StringInfo	attr = makeStringInfo();
+	Relation	relation;
 
 	if (rte->rtekind != RTE_RELATION)
 		elog(ERROR, "called in improper context");
@@ -1073,8 +1072,10 @@ generate_remote_rte_alias(RangeTblEntry *rte, int varno, char *aliasname, int re
 	if (reduce_level == 0)
 		return makeAlias(aliasname, NIL);
 
-	tupdesc  = rte->reltupdesc;
-	maxattrs = tupdesc->natts;
+	relation = heap_open(rte->relid, AccessShareLock);
+
+	tupdesc = RelationGetDescr(relation);
+	maxattrs = RelationGetNumberOfAttributes(relation);
 
 	for (varattno = 0; varattno < maxattrs; varattno++)
 	{
@@ -1089,6 +1090,8 @@ generate_remote_rte_alias(RangeTblEntry *rte, int varno, char *aliasname, int re
 
 		colnames = lappend(colnames, attrname);
 	}
+
+	heap_close(relation, AccessShareLock);
 
 	return makeAlias(aliasname, colnames);
 }
@@ -5592,8 +5595,8 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 				/* We need first to find the position of this element in attribute list */
 				for (i = 0; i < natts; i++)
 				{
-					Form_pg_attribute  att = ttab->reltupdesc->attrs[i];
-					if (strcmp(tle->resname, NameStr(att->attname)) == 0)
+					if (strcmp(tle->resname,
+					    get_relid_attribute_name(ttab->relid, i + 1)) == 0)
 					{
 						attno = i + 1;
 						break;
@@ -6117,7 +6120,6 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	 * we used to generate the remote node query).
 	 */
 	dummy_rte = makeNode(RangeTblEntry);
-	dummy_rte->reltupdesc = ExecTypeFromTL(base_tlist, false);
 	dummy_rte->rtekind = RTE_REMOTE_DUMMY;
 
 	/* Use a dummy relname... */

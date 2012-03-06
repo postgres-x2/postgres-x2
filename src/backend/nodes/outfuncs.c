@@ -2364,22 +2364,6 @@ _outRangeTblEntry(StringInfo str, RangeTblEntry *node)
 	switch (node->rtekind)
 	{
 		case RTE_RELATION:
-#ifdef PGXC
-			/* write tuple descriptor */
-			appendStringInfo(str, " :tupdesc_natts %d (", node->reltupdesc->natts);
-
-			for (i = 0 ; i < node->reltupdesc->natts ; i++)
-			{
-				appendStringInfo(str, ":colname ");
-				_outToken(str, NameStr(node->reltupdesc->attrs[i]->attname));
-				appendStringInfo(str, " :coltypid %u ",
-						node->reltupdesc->attrs[i]->atttypid);
-				appendStringInfo(str, ":coltypmod %d ",
-						node->reltupdesc->attrs[i]->atttypmod);
-			}
-
-			appendStringInfo(str, ") ");
-#endif
 			WRITE_OID_FIELD(relid);
 			WRITE_CHAR_FIELD(relkind);
 			break;

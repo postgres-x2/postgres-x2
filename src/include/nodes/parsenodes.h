@@ -714,7 +714,6 @@ typedef struct RangeTblEntry
 
 #ifdef PGXC
 	char		*relname;
-	TupleDesc	reltupdesc;
 #endif
 
 	/*
