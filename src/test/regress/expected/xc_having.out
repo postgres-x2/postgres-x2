@@ -3,6 +3,9 @@
 -- 2. distributed or replicated tables across the datanodes
 -- If a testcase is added to any of the combinations, please check if it's
 -- applicable in other combinations as well.
+-- Since we are testing, the plan reduction of GROUP and AGG nodes, we should
+-- disable fast query shipping
+set enable_fast_query_shipping to off;
 -- Combination 1: enable_hashagg on and distributed tables
 set enable_hashagg to on;
 -- create required tables and fill them with data
@@ -265,20 +268,16 @@ select count(*), sum(xc_having_tab1.val * xc_having_tab2.val), avg(xc_having_tab
 (1 row)
 
 explain (verbose true, costs false, nodes false) select count(*), sum(xc_having_tab1.val * xc_having_tab2.val), avg(xc_having_tab1.val*xc_having_tab2.val), sum(xc_having_tab1.val*xc_having_tab2.val)::float8/count(*), xc_having_tab1.val2, xc_having_tab2.val2 from xc_having_tab1 full outer join xc_having_tab2 on xc_having_tab1.val2 = xc_having_tab2.val2 group by xc_having_tab1.val2, xc_having_tab2.val2 having xc_having_tab1.val2 + xc_having_tab2.val2 > 2;
-                                                                                                                            QUERY PLAN                                                                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
-   Output: count(*), sum((xc_having_tab1.val * xc_having_tab2.val)), avg((xc_having_tab1.val * xc_having_tab2.val)), ((sum((xc_having_tab1.val * xc_having_tab2.val)))::double precision / (count(*))::double precision), xc_having_tab1.val2, xc_having_tab2.val2
-   ->  Nested Loop
-         Output: xc_having_tab1.val, xc_having_tab1.val2, xc_having_tab2.val, xc_having_tab2.val2
-         Join Filter: ((xc_having_tab1.val2 = xc_having_tab2.val2) AND ((xc_having_tab1.val2 + xc_having_tab2.val2) > 2))
-         ->  Data Node Scan on xc_having_tab1
-               Output: xc_having_tab1.val, xc_having_tab1.val2
-               Remote query: SELECT val, val2 FROM ONLY xc_having_tab1 WHERE true
-         ->  Data Node Scan on xc_having_tab2
-               Output: xc_having_tab2.val, xc_having_tab2.val2
-               Remote query: SELECT val, val2 FROM ONLY xc_having_tab2 WHERE true
-(11 rows)
+   Output: pg_catalog.count(*), pg_catalog.sum((sum((xc_having_tab1.val * xc_having_tab2.val)))), pg_catalog.avg((avg((xc_having_tab1.val * xc_having_tab2.val)))), ((pg_catalog.sum((sum((xc_having_tab1.val * xc_having_tab2.val)))))::double precision / (pg_catalog.count(*))::double precision), xc_having_tab1.val2, xc_having_tab2.val2
+   ->  Materialize
+         Output: (count(*)), (sum((xc_having_tab1.val * xc_having_tab2.val))), (avg((xc_having_tab1.val * xc_having_tab2.val))), xc_having_tab1.val2, xc_having_tab2.val2
+         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+               Output: count(*), sum((xc_having_tab1.val * xc_having_tab2.val)), avg((xc_having_tab1.val * xc_having_tab2.val)), xc_having_tab1.val2, xc_having_tab2.val2
+               Remote query: SELECT count(*), sum((group_2.val_1_1_1 * group_2.val_2_1_1)), avg((group_2.val_1_1_1 * group_2.val_2_1_1)), group_2.val2_1_2_1, group_2.val2_2_2_1  FROM (SELECT in_1.val AS val_1_1_1, in_1.val2 AS val2_1_2_1, out_1.val AS val_2_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val, val2 FROM ONLY xc_having_tab1 WHERE true) in_1  ,  (SELECT val, val2 FROM ONLY xc_having_tab2 WHERE true) out_1  WHERE   ((in_1.val2 = out_1.val2) AND ((in_1.val2 + out_1.val2) > 2))) group_2 GROUP BY 4, 5  
+(7 rows)
 
 -- group by and having, without aggregate in the target list
 select val2 from xc_having_tab1 group by val2 having sum(val) > 8;
@@ -608,23 +607,16 @@ select count(*), sum(xc_having_tab1.val * xc_having_tab2.val), avg(xc_having_tab
 (1 row)
 
 explain (verbose true, costs false, nodes false) select count(*), sum(xc_having_tab1.val * xc_having_tab2.val), avg(xc_having_tab1.val*xc_having_tab2.val), sum(xc_having_tab1.val*xc_having_tab2.val)::float8/count(*), xc_having_tab1.val2, xc_having_tab2.val2 from xc_having_tab1 full outer join xc_having_tab2 on xc_having_tab1.val2 = xc_having_tab2.val2 group by xc_having_tab1.val2, xc_having_tab2.val2 having xc_having_tab1.val2 + xc_having_tab2.val2 > 2;
-                                                                                                                            QUERY PLAN                                                                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
-   Output: count(*), sum((xc_having_tab1.val * xc_having_tab2.val)), avg((xc_having_tab1.val * xc_having_tab2.val)), ((sum((xc_having_tab1.val * xc_having_tab2.val)))::double precision / (count(*))::double precision), xc_having_tab1.val2, xc_having_tab2.val2
-   ->  Sort
-         Output: xc_having_tab1.val, xc_having_tab2.val, xc_having_tab1.val2, xc_having_tab2.val2
-         Sort Key: xc_having_tab1.val2, xc_having_tab2.val2
-         ->  Nested Loop
-               Output: xc_having_tab1.val, xc_having_tab2.val, xc_having_tab1.val2, xc_having_tab2.val2
-               Join Filter: ((xc_having_tab1.val2 = xc_having_tab2.val2) AND ((xc_having_tab1.val2 + xc_having_tab2.val2) > 2))
-               ->  Data Node Scan on xc_having_tab1
-                     Output: xc_having_tab1.val, xc_having_tab1.val2
-                     Remote query: SELECT val, val2 FROM ONLY xc_having_tab1 WHERE true
-               ->  Data Node Scan on xc_having_tab2
-                     Output: xc_having_tab2.val, xc_having_tab2.val2
-                     Remote query: SELECT val, val2 FROM ONLY xc_having_tab2 WHERE true
-(14 rows)
+   Output: pg_catalog.count(*), pg_catalog.sum((sum((xc_having_tab1.val * xc_having_tab2.val)))), pg_catalog.avg((avg((xc_having_tab1.val * xc_having_tab2.val)))), ((pg_catalog.sum((sum((xc_having_tab1.val * xc_having_tab2.val)))))::double precision / (pg_catalog.count(*))::double precision), xc_having_tab1.val2, xc_having_tab2.val2
+   ->  Materialize
+         Output: (count(*)), (sum((xc_having_tab1.val * xc_having_tab2.val))), (avg((xc_having_tab1.val * xc_having_tab2.val))), xc_having_tab1.val2, xc_having_tab2.val2
+         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+               Output: count(*), sum((xc_having_tab1.val * xc_having_tab2.val)), avg((xc_having_tab1.val * xc_having_tab2.val)), xc_having_tab1.val2, xc_having_tab2.val2
+               Remote query: SELECT count(*), sum((group_2.val_1_1_1 * group_2.val_2_1_1)), avg((group_2.val_1_1_1 * group_2.val_2_1_1)), group_2.val2_1_2_1, group_2.val2_2_2_1  FROM (SELECT in_1.val AS val_1_1_1, in_1.val2 AS val2_1_2_1, out_1.val AS val_2_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val, val2 FROM ONLY xc_having_tab1 WHERE true) in_1  ,  (SELECT val, val2 FROM ONLY xc_having_tab2 WHERE true) out_1  WHERE   ((in_1.val2 = out_1.val2) AND ((in_1.val2 + out_1.val2) > 2))) group_2 GROUP BY 4, 5 ORDER BY 4, 5 
+(7 rows)
 
 -- group by and having, without aggregate in the target list
 select val2 from xc_having_tab1 group by val2 having sum(val) > 8;
@@ -690,3 +682,4 @@ explain (verbose true, costs false, nodes false) select count(*) + sum(val) + av
 drop table xc_having_tab1;
 drop table xc_having_tab2;
 reset enable_hashagg;
+reset enable_fast_query_shipping;

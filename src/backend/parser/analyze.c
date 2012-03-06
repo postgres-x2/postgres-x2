@@ -2381,7 +2381,6 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 
 	step->relname = NULL;
 	step->remotejoin = false;
-	step->partitioned_replicated = false;
 	step->reduce_level = 0;
 	step->base_tlist = NIL;
 	step->outer_alias = NULL;

@@ -38,6 +38,7 @@
 #include "parser/parsetree.h"
 #ifdef PGXC
 #include "access/gtm.h"
+#include "parser/parse_coerce.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/planner.h"
 #include "pgxc/postgresql_fdw.h"
@@ -724,9 +725,9 @@ static Plan *
 create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Plan *outer_plan, Plan *inner_plan)
 {
 	NestLoop   *nest_parent;
-	JoinReduceInfo  join_info;
 	RemoteQuery	*outer = NULL;
 	RemoteQuery	*inner = NULL;
+	ExecNodes	*join_exec_nodes;
 
 	if (!enable_remotejoin)
 		return parent;
@@ -764,10 +765,12 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 
 
 	/* check if both the nodes qualify for reduction */
-	if (outer && inner)
+	if (outer && inner && !outer->scan.plan.qual && !inner->scan.plan.qual)
 	{
-		int i;
-		List *rtable_list = NIL;
+		int		i;
+		List	*rtable_list = NIL;
+		List	*parent_vars, *out_tlist = NIL, *in_tlist = NIL, *base_tlist;
+		Relids	out_relids = NULL, in_relids = NULL;
 
 		/*
 		 * Check if both these plans are from the same remote node. If yes,
@@ -787,18 +790,30 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 			if (rte)
 				rtable_list = lappend(rtable_list, root->simple_rte_array[i]);
 		}
+		/*
+		 * Walk the left, right trees and identify which vars appear in the
+		 * parent targetlist, only those need to be selected. Note that
+		 * depending on whether the parent targetlist is top-level or
+		 * intermediate, the children vars may or may not be referenced
+		 * multiple times in it.
+		 */
+		parent_vars = pull_var_clause((Node *)parent->targetlist, PVC_REJECT_PLACEHOLDERS);
 
+		findReferencedVars(parent_vars, outer_plan, &out_tlist, &out_relids);
+		findReferencedVars(parent_vars, inner_plan, &in_tlist, &in_relids);
+
+		join_exec_nodes = IsJoinReducible(inner, outer, in_relids, out_relids,
+											&(nest_parent->join),
+											best_path, root->parse->rtable);
 		/* XXX Check if the join optimization is possible */
-		if (IsJoinReducible(inner, outer, rtable_list, best_path, &join_info))
+		if (join_exec_nodes)
 		{
 			RemoteQuery	   *result;
 			Plan		   *result_plan;
 			StringInfoData 	targets, clauses, scan_clauses, fromlist, join_condition;
 			StringInfoData 	squery;
-			List		   *parent_vars, *out_tlist = NIL, *in_tlist = NIL, *base_tlist;
 			ListCell	   *l;
 			char		    in_alias[15], out_alias[15];
-			Relids			out_relids = NULL, in_relids = NULL;
 			bool			use_where = false;
 			Index			dummy_rtindex;
 			RangeTblEntry  *dummy_rte;
@@ -811,18 +826,6 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 			 * involved in query, remote server should not crib!  */
 			sprintf(in_alias,  "out_%d", root->rs_alias_index);
 			sprintf(out_alias, "in_%d",  root->rs_alias_index);
-
-			/*
-			 * Walk the left, right trees and identify which vars appear in the
-			 * parent targetlist, only those need to be selected. Note that
-			 * depending on whether the parent targetlist is top-level or
-			 * intermediate, the children vars may or may not be referenced
-			 * multiple times in it.
-			 */
-			parent_vars = pull_var_clause((Node *)parent->targetlist, PVC_REJECT_PLACEHOLDERS);
-
-			findReferencedVars(parent_vars, outer_plan, &out_tlist, &out_relids);
-			findReferencedVars(parent_vars, inner_plan, &in_tlist, &in_relids);
 
 			/*
 			 * If the JOIN ON clause has a local dependency then we cannot ship
@@ -931,7 +934,7 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 			result->inner_statement	   = pstrdup(inner->sql_statement);
 			result->outer_statement	   = pstrdup(outer->sql_statement);
 			result->join_condition	   = NULL;
-			result->exec_nodes         = copyObject(join_info.exec_nodes);
+			result->exec_nodes         = join_exec_nodes;
 
 			appendStringInfo(&fromlist, " %s (%s) %s",
 							 pname, inner->sql_statement, quote_identifier(in_alias));
@@ -1025,7 +1028,6 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 			/* set_plan_refs needs this later */
 			result->base_tlist		= base_tlist;
 			result->relname			= "__REMOTE_JOIN_QUERY__";
-			result->partitioned_replicated = join_info.partitioned_replicated;
 
 			/*
 			 * if there were any local scan clauses stick them up here. They
@@ -2491,6 +2493,10 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	RangeTblRef		*rtr;
 	List			*varlist;
 	ListCell		*varcell;
+	Expr			*distcol_expr;
+	Datum			distcol_value;
+	bool			distcol_isnull;
+	Oid				distcol_type;
 
 	Assert(scan_relid > 0);
 	Assert(best_path->parent->rtekind == RTE_RELATION);
@@ -2567,15 +2573,56 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	scan_plan = make_remotequery(tlist, local_scan_clauses, scan_relid);
 	scan_plan->sql_statement = sql.data;
 	/*
-	 * Populate what nodes we execute on.
-	 * This is still basic, and was done to make sure we do not select
-	 * a replicated table from all nodes.
-	 * It does not take into account conditions on partitioned relations
-	 * that could reduce to the number of nodes. So, pass a NULL value for
-	 * distribution column, so that all the nodes are returned.
+	 * If the table distributed by value, check if we can reduce the datanodes
+	 * by looking at the qualifiers for this relation
 	 */
+	if (IsLocatorDistributedByValue(rel_loc_info->locatorType))
+	{
+		Oid		disttype = get_atttype(rte->relid, rel_loc_info->partAttrNum);
+		int32	disttypmod = get_atttypmod(rte->relid, rel_loc_info->partAttrNum);
+		distcol_expr = pgxc_find_distcol_expr(rtr->rtindex, rel_loc_info->partAttrNum,
+													query->jointree->quals);
+		/*
+		 * If the type of expression used to find the datanode, is not same as
+		 * the distribution column type, try casting it. This is same as what
+		 * will happen in case of inserting that type of expression value as the
+		 * distribution column value.
+		 */
+		if (distcol_expr)
+		{
+			distcol_expr = (Expr *)coerce_to_target_type(NULL,
+													(Node *)distcol_expr,
+													exprType((Node *)distcol_expr),
+													disttype, disttypmod,
+													COERCION_ASSIGNMENT,
+													COERCE_IMPLICIT_CAST, -1);
+			/*
+			 * PGXC_FQS_TODO: We should set the bound parameters here, but we don't have
+			 * PlannerInfo struct and we don't handle them right now.
+			 * Even if constant expression mutator changes the expression, it will
+			 * only simplify it, keeping the semantics same
+			 */
+			distcol_expr = (Expr *)eval_const_expressions(NULL,
+															(Node *)distcol_expr);
+		}
+	}
 
-	scan_plan->exec_nodes = GetRelationNodes(rel_loc_info, 0, true, UNKNOWNOID,
+	if (distcol_expr && IsA(distcol_expr, Const))
+	{
+		Const *const_expr = (Const *)distcol_expr;
+		distcol_value = const_expr->constvalue;
+		distcol_isnull = const_expr->constisnull;
+		distcol_type = const_expr->consttype;
+	}
+	else
+	{
+		distcol_value = (Datum) 0;
+		distcol_isnull = true;
+		distcol_type = InvalidOid;
+	}
+
+	scan_plan->exec_nodes = GetRelationNodes(rel_loc_info, distcol_value,
+												distcol_isnull, distcol_type,
 												RELATION_ACCESS_READ);
 	Assert(scan_plan->exec_nodes);
 	scan_plan->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
@@ -6093,7 +6140,6 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 
 	/* set_plan_refs needs this later */
 	remote_group->relname			= "__REMOTE_GROUP_QUERY__";
-	remote_group->partitioned_replicated = remote_scan->partitioned_replicated;
 	remote_group->read_only = query->commandType == CMD_SELECT;
 
 	/* we actually need not worry about costs since this is the final plan */

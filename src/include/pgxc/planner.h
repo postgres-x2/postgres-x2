@@ -110,7 +110,6 @@ typedef struct
 
 	char	  *relname;
 	bool	   remotejoin;			/* True if this is a reduced remote join  */
-	bool	   partitioned_replicated;	/* True if reduced and contains replicated-partitioned join */
 	int		   reduce_level;		/* in case of reduced JOIN, it's level    */
 	List	  *base_tlist;			/* in case of isReduced, the base tlist   */
 	char	  *outer_alias;
@@ -124,11 +123,32 @@ typedef struct
 	char	  *join_condition;
 } RemoteQuery;
 
+/*
+ * FQS_context
+ * This context structure is used by the Fast Query Shipping walker, to gather
+ * information during analysing query for Fast Query Shipping.
+ */
 typedef struct
 {
-	bool partitioned_replicated;
-	ExecNodes *exec_nodes;
-} JoinReduceInfo;
+	bool	fqsc_canShip;			/* if true, we need to check other members
+									 * to see if the query is shippable. If
+									 * false, the query is definitely not
+									 * shippable
+									 */
+	bool	fqsc_need_coord;		/* needs coordinator for query evaluation */
+	Query	*fqsc_query;			/* the query being analysed for FQS */
+	int		fqsc_query_level;		/* level of the query */
+	int		fqsc_max_varlevelsup;	/* maximum upper level referred to by any
+									 * variable reference in the query. If this
+									 * value is greater than 0, the query is not
+									 * shippable, if shipped alone.
+									 */
+	ExecNodes	*fqsc_exec_nodes;	/* nodes where the query should be executed */
+	ExecNodes	*fqsc_subquery_en;	/* ExecNodes produced by merging the ExecNodes
+									 * for individual subqueries. This gets
+									 * ultimately merged with fqsc_exec_nodes.
+									 */
+} FQS_context;
 
 /* global variable corresponding to the GUC with same name */
 extern bool enable_fast_query_shipping;
@@ -142,11 +162,14 @@ extern PlannedStmt *pgxc_planner(Query *query, int cursorOptions,
 								 ParamListInfo boundParams);
 extern bool IsHashDistributable(Oid col_type);
 
-extern bool IsJoinReducible(RemoteQuery *innernode, RemoteQuery *outernode,
-					List *rtable_list, JoinPath *join_path, JoinReduceInfo *join_info);
+extern ExecNodes *IsJoinReducible(RemoteQuery *innernode, RemoteQuery *outernode,
+									Relids in_relids, Relids out_relids,
+									Join *join, JoinPath *join_path, List *rtable);
 
 extern List *AddRemoteQueryNode(List *stmts, const char *queryString,
 								RemoteQueryExecType remoteExecType, bool is_temp);
 extern bool pgxc_query_contains_temp_tables(List *queries);
+extern Expr *pgxc_find_distcol_expr(Index varno, PartAttrNumber partAttrNum,
+												Node *quals);
 
 #endif   /* PGXCPLANNER_H */
