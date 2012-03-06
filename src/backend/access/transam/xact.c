@@ -182,6 +182,7 @@ static TransactionStateData TopTransactionStateData = {
 	0,							/* global transaction id */
 	0,							/* prepared global transaction id */
 	0,							/* commit prepared global transaction id */
+	false,						/* isLocalParameterUsed */
 #else	
 	0,							/* transaction id */
 #endif

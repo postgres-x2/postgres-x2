@@ -1454,66 +1454,6 @@ is_data_node_ready(PGXCNodeHandle * conn)
 	return false;
 }
 
-/*
- * Deparse the node string list obtained from GTM
- * and fill in Datanode and Coordinator lists.
- */
-static bool
-analyze_node_string(char *nodestring,
-					List **datanodelist,
-					List **coordlist)
-{
-	char *rawstring;
-	List *elemlist;
-	ListCell *item;
-	bool	is_local_coord = false;
-
-	*datanodelist = NIL;
-	*coordlist = NIL;
-
-	if (!nodestring)
-		return is_local_coord;
-
-	rawstring = pstrdup(nodestring);
-
-	if (!SplitIdentifierString(rawstring, ',', &elemlist))
-		/* syntax error in list */
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("invalid list syntax for \"data_node_hosts\"")));
-
-	/* Fill in Coordinator and Datanode list */
-	foreach(item, elemlist)
-	{
-		char *nodename = (char *) lfirst(item);
-		Oid nodeoid = get_pgxc_nodeoid((const char *) nodename);
-
-		if (!OidIsValid(nodeoid))
-			ereport(ERROR,
-					(errcode(ERRCODE_UNDEFINED_OBJECT),
-					 errmsg("PGXC Node %s: object not defined",
-							nodename)));
-
-		if (get_pgxc_nodetype(nodeoid) == PGXC_NODE_DATANODE)
-		{
-			int nodeid = PGXCNodeGetNodeId(nodeoid, PGXC_NODE_DATANODE);
-			*datanodelist = lappend_int(*datanodelist, nodeid);
-		}
-		else if (get_pgxc_nodetype(nodeoid) == PGXC_NODE_COORDINATOR)
-		{
-			int nodeid = PGXCNodeGetNodeId(nodeoid, PGXC_NODE_COORDINATOR);
-			/* Local Coordinator has been found, so commit it */
-			if (nodeid == PGXCNodeId - 1)
-				is_local_coord = true;
-			else
-				*coordlist = lappend_int(*coordlist, nodeid);
-		}
-	}
-	pfree(rawstring);
-
-	return is_local_coord;
-}
-
 /* 
  * Construct a BEGIN TRANSACTION command after taking into account the
  * current options. The returned string is not palloced and is valid only until
@@ -2152,7 +2092,6 @@ pgxc_node_remote_abort(void)
 	{
 		if (combiner && combiner->errorMessage)
 		{
-			char *code = combiner->errorCode;
 			if (combiner->errorDetail != NULL)
 				elog(LOG, "%s %s", combiner->errorMessage, combiner->errorDetail);
 			else
@@ -4224,38 +4163,6 @@ PGXCNodeCleanAndRelease(int code, Datum arg)
 
 	/* Dump collected statistics to the log */
 	stat_log();
-}
-
-
-/*
- * Create combiner, receive results from connections and validate combiner.
- * Works for Coordinator or Datanodes.
- */
-static int
-pgxc_node_receive_and_validate(const int conn_count, PGXCNodeHandle ** handles, bool reset_combiner)
-{
-	struct timeval *timeout = NULL;
-	int result = 0;	
-	RemoteQueryState *combiner = NULL;
-
-	if (conn_count == 0)
-		return result;
-
-	combiner = CreateResponseCombiner(conn_count, COMBINE_TYPE_NONE);
-
-	/* Receive responses */
-	result = pgxc_node_receive_responses(conn_count, handles, timeout, combiner);
-
-	if (result)
-		goto finish;
-
-	if (reset_combiner)
-		result = ValidateAndResetCombiner(combiner) ? result : EOF;
-	else
-		result = ValidateAndCloseCombiner(combiner) ? result : EOF;
-
-finish:
-	return result;
 }
 
 static int

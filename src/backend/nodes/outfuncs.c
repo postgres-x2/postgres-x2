@@ -2347,10 +2347,6 @@ _outSetOperationStmt(StringInfo str, SetOperationStmt *node)
 static void
 _outRangeTblEntry(StringInfo str, RangeTblEntry *node)
 {
-#ifdef PGXC
-	int i;
-#endif
-
 	WRITE_NODE_TYPE("RTE");
 
 	/* put alias + eref first to make dump more legible */

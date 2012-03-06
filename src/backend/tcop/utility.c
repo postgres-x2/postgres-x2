@@ -380,8 +380,6 @@ standard_ProcessUtility(Node *parsetree,
 #endif /* PGXC */
 						char *completionTag)
 {
-	bool operation_local = false;
-
 	check_xact_readonly(parsetree);
 
 	if (completionTag)
