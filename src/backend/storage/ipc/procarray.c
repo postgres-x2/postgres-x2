@@ -431,13 +431,15 @@ ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid)
 		 */
 #ifdef PGXC
 		/*
-		 * Remove this assertion check for PGXC on Coordinator
-		 * We could abort even after a Coordinator has committed
-		 * for a 2PC transaction if Datanodes have failed committed the transaction
+		 * Remove this assertion. We have seen this failing because a ROLLBACK
+		 * statement may get canceled by a coordinator, leading to recursive
+		 * abort of a transaction. This must be a PostgreSQL issue, highlighted
+		 * by XC. See thread on hackers with subject "Canceling ROLLBACK
+		 * statement"
 		 */
-		if (IS_PGXC_DATANODE)
-#endif
+#else		
 		Assert(TransactionIdIsValid(proc->xid));
+#endif
 
 		LWLockAcquire(ProcArrayLock, LW_EXCLUSIVE);
 
