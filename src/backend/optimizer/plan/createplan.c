@@ -2497,7 +2497,7 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	RangeTblRef		*rtr;
 	List			*varlist;
 	ListCell		*varcell;
-	Expr			*distcol_expr;
+	Expr			*distcol_expr = NULL;
 	Datum			distcol_value;
 	bool			distcol_isnull;
 	Oid				distcol_type;
