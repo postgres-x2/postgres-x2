@@ -436,7 +436,16 @@ SELECT * FROM table_hash RIGHT OUTER JOIN temptable_hash USING (a) ORDER BY 1,2,
 (5 rows)
 
 SELECT * FROM table_hash FULL OUTER JOIN temptable_hash USING (a) ORDER BY 1,2,3; --Fails for the time being
-ERROR:  FULL JOIN clause not yet supported
+ a | b_hash | b_tphash 
+---+--------+----------
+ 1 | a      | A
+ 2 | b      | B
+ 3 | c      | 
+ 4 |        | D
+   | e      | 
+   |        | E
+(6 rows)
+
 SELECT * FROM table_hash LEFT JOIN temptable_hash USING (a) ORDER BY 1,2,3;
  a | b_hash | b_tphash 
 ---+--------+----------
@@ -458,7 +467,16 @@ SELECT * FROM table_hash RIGHT JOIN temptable_hash USING (a) ORDER BY 1,2,3;
 (5 rows)
 
 SELECT * FROM table_hash FULL JOIN temptable_hash USING (a) ORDER BY 1,2,3; --Fails for the time being
-ERROR:  FULL JOIN clause not yet supported
+ a | b_hash | b_tphash 
+---+--------+----------
+ 1 | a      | A
+ 2 | b      | B
+ 3 | c      | 
+ 4 |        | D
+   | e      | 
+   |        | E
+(6 rows)
+
 -- Hash and temp Replication
 SELECT * FROM table_hash NATURAL JOIN temptable_rep ORDER BY 1,2,3;
  a | b_hash | b_tprep 
@@ -522,19 +540,23 @@ SELECT * FROM table_hash RIGHT OUTER JOIN temptable_rep USING (a) ORDER BY 1,2,3
  a | b_hash | b_tprep 
 ---+--------+---------
  1 | a      | A
- 1 |        | A
  2 | b      | 
- 2 |        | 
  3 | c      | C
- 3 |        | C
- 4 |        | D
  4 |        | D
    |        | E
-   |        | E
-(10 rows)
+(5 rows)
 
 SELECT * FROM table_hash FULL OUTER JOIN temptable_rep USING (a) ORDER BY 1,2,3; --Fails for the time being                                                                                                   
-ERROR:  FULL JOIN clause not yet supported
+ a | b_hash | b_tprep 
+---+--------+---------
+ 1 | a      | A
+ 2 | b      | 
+ 3 | c      | C
+ 4 |        | D
+   | e      | 
+   |        | E
+(6 rows)
+
 SELECT * FROM table_hash LEFT JOIN temptable_rep USING (a) ORDER BY 1,2,3;
  a | b_hash | b_tprep 
 ---+--------+---------
@@ -549,19 +571,23 @@ SELECT * FROM table_hash RIGHT JOIN temptable_rep USING (a) ORDER BY 1,2,3;
  a | b_hash | b_tprep 
 ---+--------+---------
  1 | a      | A
- 1 |        | A
  2 | b      | 
- 2 |        | 
  3 | c      | C
- 3 |        | C
- 4 |        | D
  4 |        | D
    |        | E
-   |        | E
-(10 rows)
+(5 rows)
 
 SELECT * FROM table_hash FULL JOIN temptable_rep USING (a) ORDER BY 1,2,3; --Fails for the time being
-ERROR:  FULL JOIN clause not yet supported
+ a | b_hash | b_tprep 
+---+--------+---------
+ 1 | a      | A
+ 2 | b      | 
+ 3 | c      | C
+ 4 |        | D
+   | e      | 
+   |        | E
+(6 rows)
+
 -- Hash and temp Round Robin
 SELECT * FROM table_hash NATURAL JOIN temptable_rb ORDER BY 1,2,3;
  a | b_hash | b_tprb 
@@ -632,7 +658,16 @@ SELECT * FROM table_hash RIGHT OUTER JOIN temptable_rb USING (a) ORDER BY 1,2,3;
 (5 rows)
 
 SELECT * FROM table_hash FULL OUTER JOIN temptable_rb USING (a) ORDER BY 1,2,3; --Fails for the time being                                                                                                   
-ERROR:  FULL JOIN clause not yet supported
+ a | b_hash | b_tprb 
+---+--------+--------
+ 1 | a      | A
+ 2 | b      | B
+ 3 | c      | C
+ 4 |        | 
+   | e      | 
+   |        | E
+(6 rows)
+
 SELECT * FROM table_hash LEFT JOIN temptable_rb USING (a) ORDER BY 1,2,3;
  a | b_hash | b_tprb 
 ---+--------+--------
@@ -654,7 +689,16 @@ SELECT * FROM table_hash RIGHT JOIN temptable_rb USING (a) ORDER BY 1,2,3;
 (5 rows)
 
 SELECT * FROM table_hash FULL JOIN temptable_rb USING (a) ORDER BY 1,2,3; --Fails for the time being
-ERROR:  FULL JOIN clause not yet supported
+ a | b_hash | b_tprb 
+---+--------+--------
+ 1 | a      | A
+ 2 | b      | B
+ 3 | c      | C
+ 4 |        | 
+   | e      | 
+   |        | E
+(6 rows)
+
 -- Replication and temp Replication
 SELECT * FROM table_rep NATURAL JOIN temptable_rep ORDER BY 1,2,3;
  a | b_rep | b_tprep 
@@ -725,7 +769,16 @@ SELECT * FROM table_rep RIGHT OUTER JOIN temptable_rep USING (a) ORDER BY 1,2,3;
 (5 rows)
 
 SELECT * FROM table_rep FULL OUTER JOIN temptable_rep USING (a) ORDER BY 1,2,3; --Fails for the time being                                                                                                   
-ERROR:  FULL JOIN clause not yet supported
+ a | b_rep | b_tprep 
+---+-------+---------
+ 1 | a     | A
+ 2 | b     | 
+ 3 | c     | C
+ 4 |       | D
+   | e     | 
+   |       | E
+(6 rows)
+
 SELECT * FROM table_rep LEFT JOIN temptable_rep USING (a) ORDER BY 1,2,3;
  a | b_rep | b_tprep 
 ---+-------+---------
@@ -747,7 +800,16 @@ SELECT * FROM table_rep RIGHT JOIN temptable_rep USING (a) ORDER BY 1,2,3;
 (5 rows)
 
 SELECT * FROM table_rep FULL JOIN temptable_rep USING (a) ORDER BY 1,2,3; --Fails for the time being
-ERROR:  FULL JOIN clause not yet supported
+ a | b_rep | b_tprep 
+---+-------+---------
+ 1 | a     | A
+ 2 | b     | 
+ 3 | c     | C
+ 4 |       | D
+   | e     | 
+   |       | E
+(6 rows)
+
 -- Replication and temp Round Robin
 SELECT * FROM table_rep NATURAL JOIN temptable_rb ORDER BY 1,2,3;
  a | b_rep | b_tprb 
@@ -801,16 +863,11 @@ SELECT * FROM table_rep LEFT OUTER JOIN temptable_rb USING (a) ORDER BY 1,2,3;
  a | b_rep | b_tprb 
 ---+-------+--------
  1 | a     | A
- 1 | a     | 
  2 | b     | B
- 2 | b     | 
  3 | c     | C
- 3 | c     | 
- 4 |       | 
  4 |       | 
    | e     | 
-   | e     | 
-(10 rows)
+(5 rows)
 
 SELECT * FROM table_rep RIGHT OUTER JOIN temptable_rb USING (a) ORDER BY 1,2,3;
  a | b_rep | b_tprb 
@@ -823,21 +880,25 @@ SELECT * FROM table_rep RIGHT OUTER JOIN temptable_rb USING (a) ORDER BY 1,2,3;
 (5 rows)
 
 SELECT * FROM table_rep FULL OUTER JOIN temptable_rb USING (a) ORDER BY 1,2,3; --Fails for the time being                                                                                                   
-ERROR:  FULL JOIN clause not yet supported
+ a | b_rep | b_tprb 
+---+-------+--------
+ 1 | a     | A
+ 2 | b     | B
+ 3 | c     | C
+ 4 |       | 
+   | e     | 
+   |       | E
+(6 rows)
+
 SELECT * FROM table_rep LEFT JOIN temptable_rb USING (a) ORDER BY 1,2,3;
  a | b_rep | b_tprb 
 ---+-------+--------
  1 | a     | A
- 1 | a     | 
  2 | b     | B
- 2 | b     | 
  3 | c     | C
- 3 | c     | 
- 4 |       | 
  4 |       | 
    | e     | 
-   | e     | 
-(10 rows)
+(5 rows)
 
 SELECT * FROM table_rep RIGHT JOIN temptable_rb USING (a) ORDER BY 1,2,3;
  a | b_rep | b_tprb 
@@ -850,7 +911,16 @@ SELECT * FROM table_rep RIGHT JOIN temptable_rb USING (a) ORDER BY 1,2,3;
 (5 rows)
 
 SELECT * FROM table_rep FULL JOIN temptable_rb USING (a) ORDER BY 1,2,3; --Fails for the time being
-ERROR:  FULL JOIN clause not yet supported
+ a | b_rep | b_tprb 
+---+-------+--------
+ 1 | a     | A
+ 2 | b     | B
+ 3 | c     | C
+ 4 |       | 
+   | e     | 
+   |       | E
+(6 rows)
+
 -- Round Robin and temp Round Robin
 SELECT * FROM table_rb NATURAL JOIN temptable_rb ORDER BY 1,2,3;
  a | b_rb | b_tprb 
@@ -921,7 +991,16 @@ SELECT * FROM table_rb RIGHT OUTER JOIN temptable_rb USING (a) ORDER BY 1,2,3;
 (5 rows)
 
 SELECT * FROM table_rb FULL OUTER JOIN temptable_rb USING (a) ORDER BY 1,2,3; --Fails for the time being                                                                                                   
-ERROR:  FULL JOIN clause not yet supported
+ a | b_rb | b_tprb 
+---+------+--------
+ 1 | a    | A
+ 2 | b    | B
+ 3 | c    | C
+ 4 |      | 
+   | e    | 
+   |      | E
+(6 rows)
+
 SELECT * FROM table_rb LEFT JOIN temptable_rb USING (a) ORDER BY 1,2,3;
  a | b_rb | b_tprb 
 ---+------+--------
@@ -943,7 +1022,16 @@ SELECT * FROM table_rb RIGHT JOIN temptable_rb USING (a) ORDER BY 1,2,3;
 (5 rows)
 
 SELECT * FROM table_rb FULL JOIN temptable_rb USING (a) ORDER BY 1,2,3; --Fails for the time being
-ERROR:  FULL JOIN clause not yet supported
+ a | b_rb | b_tprb 
+---+------+--------
+ 1 | a    | A
+ 2 | b    | B
+ 3 | c    | C
+ 4 |      | 
+   | e    | 
+   |      | E
+(6 rows)
+
 -- Check that DROP with TEMP and non-TEMP tables fails correctly
 DROP TABLE temptable_rep,table_rep;
 ERROR:  DROP not supported for TEMP and non-TEMP objects
