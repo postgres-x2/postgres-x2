@@ -4771,8 +4771,8 @@ FinishRemotePreparedTransaction(char *prepareGID, bool commit)
 	if (GetGIDDataGTM(prepareGID, &gxid, &prepare_gxid, &nodestring) < 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
-				 errmsg("could not find information about prepared "
-					 "transaction %s", prepareGID)));
+				 errmsg("prepared transaction with identifier \"%s\" does not exist",
+						prepareGID)));
 
 	/*
 	 * Now based on the nodestring, run COMMIT/ROLLBACK PREPARED command on the
