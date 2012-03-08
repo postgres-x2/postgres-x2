@@ -37,7 +37,9 @@
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
-
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#endif
 
 /* GUC parameter */
 int			constraint_exclusion = CONSTRAINT_EXCLUSION_PARTITION;
@@ -378,6 +380,30 @@ estimate_rel_size(Relation rel, int32 *attr_widths,
 	switch (rel->rd_rel->relkind)
 	{
 		case RELKIND_RELATION:
+#ifdef PGXC
+			/* 
+			 * This is a remote table... we have no idea how many pages/rows
+			 * we may get from a scan of this table. However, we should set the
+			 * costs in such a manner that cheapest paths should pick up the
+			 * ones involving these remote rels
+			 *
+			 * These allow for maximum query shipping to the remote
+			 * side later during the planning phase
+			 *
+			 * This has to be set on a remote Coordinator only
+			 * as it hugely penalizes performance on backend Nodes.
+			 *
+			 * Override the estimates only for remote tables (currently
+			 * identified by non-NULL rd_locator_info)
+			 */
+			if (IS_PGXC_COORDINATOR && !IsConnFromCoord() &&
+				rel->rd_locator_info)
+			{
+				relpages   = 1;
+				reltuples  = 1;
+				break;
+			}
+#endif
 		case RELKIND_INDEX:
 		case RELKIND_TOASTVALUE:
 			/* it has storage, ok to call the smgr */
