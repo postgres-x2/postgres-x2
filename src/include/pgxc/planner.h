@@ -46,15 +46,6 @@ typedef struct
 	bool	   *nullsFirst;		/* NULLS FIRST/LAST directions */
 } SimpleSort;
 
-/* For returning distinct results from the RemoteQuery*/
-typedef struct
-{
-	NodeTag		type;
-	int			numCols;		/* number of sort-key columns */
-	AttrNumber *uniqColIdx;		/* their indexes in the target list */
-	Oid		   *eqOperators;	/* OIDs of operators to equate them by */
-} SimpleDistinct;
-
 /*
  * Determines if query has to be launched
  * on Coordinators only (SEQUENCE DDL),
@@ -94,7 +85,6 @@ typedef struct
 	ExecNodes  *exec_nodes;			/* List of Datanodes where to launch query */
 	CombineType combine_type;
 	SimpleSort *sort;
-	SimpleDistinct *distinct;
 	bool		read_only;          /* do not use 2PC when committing read only steps */
 	bool		force_autocommit;	/* some commands like VACUUM require autocommit mode */
 	char	   *statement;			/* if specified use it as a PreparedStatement name on data nodes */
@@ -108,8 +98,6 @@ typedef struct
 	bool					is_temp; /* determine if this remote node is based
 									  * on a temporary objects (no 2PC) */
 
-	char	  *relname;
-	bool	   remotejoin;			/* True if this is a reduced remote join  */
 	int		   reduce_level;		/* in case of reduced JOIN, it's level    */
 	List	  *base_tlist;			/* in case of isReduced, the base tlist   */
 	char	  *outer_alias;

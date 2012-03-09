@@ -2367,7 +2367,6 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 	step->exec_nodes = makeNode(ExecNodes);
 	step->combine_type = COMBINE_TYPE_NONE;
 	step->sort = NULL;
-	step->distinct = NULL;
 	step->read_only = true;
 	step->force_autocommit = false;
 	step->cursor = NULL;
@@ -2379,8 +2378,6 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 	else
 		step->exec_type = EXEC_ON_DATANODES;
 
-	step->relname = NULL;
-	step->remotejoin = false;
 	step->reduce_level = 0;
 	step->base_tlist = NIL;
 	step->outer_alias = NULL;

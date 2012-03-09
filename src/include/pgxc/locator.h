@@ -49,17 +49,6 @@
 
 typedef int PartAttrNumber;
 
-/* track if tables use pg_catalog */
-typedef enum
-{
-	TABLE_USAGE_TYPE_NO_TABLE,
-	TABLE_USAGE_TYPE_PGCATALOG,
-	TABLE_USAGE_TYPE_SEQUENCE,
-	TABLE_USAGE_TYPE_USER,
-	TABLE_USAGE_TYPE_USER_REPLICATED,  /* based on a replicated table */
-	TABLE_USAGE_TYPE_MIXED
-} TableUsageType;
-
 /*
  * How relation is accessed in the query
  */
@@ -93,7 +82,6 @@ typedef struct
 	List		*primarynodelist;
 	List		*nodeList;
 	char		baselocatortype;
-	TableUsageType	tableusagetype;		/* track pg_catalog usage */
 	Expr		*en_expr;		/* expression to evaluate at execution time if planner
 						 * can not determine execution nodes */
 	Oid		en_relid;		/* Relation to determine execution nodes */

@@ -924,7 +924,6 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 			 * as part of the remote expression optimization
 			 */
 			result->read_only		   = true;
-			result->remotejoin		   = true;
 			result->inner_alias		   = pstrdup(in_alias);
 			result->outer_alias		   = pstrdup(out_alias);
 			result->inner_reduce_level = inner->reduce_level;
@@ -1026,7 +1025,6 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 
 			/* set_plan_refs needs this later */
 			result->base_tlist		= base_tlist;
-			result->relname			= "__REMOTE_JOIN_QUERY__";
 
 			/*
 			 * if there were any local scan clauses stick them up here. They
@@ -2632,7 +2630,6 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 												distcol_isnull, distcol_type,
 												RELATION_ACCESS_READ);
 	Assert(scan_plan->exec_nodes);
-	scan_plan->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
 	if (rel_loc_info)
 		scan_plan->exec_nodes->baselocatortype = rel_loc_info->locatorType;
 	else
@@ -5462,7 +5459,6 @@ create_remoteinsert_plan(PlannerInfo *root, Plan *topplan)
 		fstep->read_only = false;
 		fstep->exec_nodes = makeNode(ExecNodes);
 		fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
-		fstep->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
 		fstep->exec_nodes->primarynodelist = NULL;
 		fstep->exec_nodes->nodeList = NULL;
 		fstep->exec_nodes->en_relid = ttab->relid;
@@ -5694,7 +5690,6 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		 */
 		fstep->exec_nodes = GetRelationNodes(rel_loc_info, 0, true, UNKNOWNOID, RELATION_ACCESS_UPDATE);
 		fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
-		fstep->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
 		fstep->exec_nodes->en_relid = ttab->relid;
 		fstep->exec_nodes->accesstype = RELATION_ACCESS_UPDATE;
 		fstep->exec_nodes->en_expr = pgxc_set_en_expr(ttab->relid, resultRelationIndex);
@@ -5817,7 +5812,6 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		fstep->exec_nodes = GetRelationNodes(rel_loc_info, 0, true, UNKNOWNOID,
 												RELATION_ACCESS_UPDATE);
 		fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
-		fstep->exec_nodes->tableusagetype = TABLE_USAGE_TYPE_USER;
 		fstep->exec_nodes->en_relid = ttab->relid;
 		fstep->exec_nodes->accesstype = RELATION_ACCESS_UPDATE;
 		SetRemoteStatementName((Plan *) fstep, NULL, nparams, param_types, 0);
@@ -6025,7 +6019,6 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	 * We may need this information later if more entries are added to it
 	 * as part of the remote expression optimization.
 	 */
-	remote_group->remotejoin			= false;
 	remote_group->inner_alias			= pstrdup(in_alias->data);
 	remote_group->inner_reduce_level	= remote_scan->reduce_level;
 	remote_group->inner_relids			= in_relids;
@@ -6148,7 +6141,6 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	remote_group->sql_statement = remote_sql_stmt->data;
 
 	/* set_plan_refs needs this later */
-	remote_group->relname			= "__REMOTE_GROUP_QUERY__";
 	remote_group->read_only = query->commandType == CMD_SELECT;
 
 	/* we actually need not worry about costs since this is the final plan */

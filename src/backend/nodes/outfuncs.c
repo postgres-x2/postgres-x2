@@ -477,8 +477,6 @@ _outRemoteQuery(StringInfo str, RemoteQuery *node)
 	WRITE_INT_FIELD(num_params);
 	WRITE_ENUM_FIELD(exec_type, RemoteQueryExecType);
 	WRITE_BOOL_FIELD(is_temp);
-	WRITE_STRING_FIELD(relname);
-	WRITE_BOOL_FIELD(remotejoin);
 }
 
 static void
@@ -489,7 +487,6 @@ _outExecNodes(StringInfo str, ExecNodes *node)
 	WRITE_NODE_FIELD(primarynodelist);
 	WRITE_NODE_FIELD(nodeList);
 	WRITE_CHAR_FIELD(baselocatortype);
-	WRITE_ENUM_FIELD(tableusagetype, TableUsageType);
 	WRITE_NODE_FIELD(en_expr);
 	WRITE_OID_FIELD(en_relid);
 	WRITE_ENUM_FIELD(accesstype, RelationAccessType);

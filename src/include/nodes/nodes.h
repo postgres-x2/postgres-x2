@@ -84,7 +84,6 @@ typedef enum NodeTag
 	 */
 	T_ExecNodes,
 	T_SimpleSort,
-	T_SimpleDistinct,
 	T_RemoteQuery,
 	T_PGXCNodeHandle,
 	T_AlterNodeStmt,

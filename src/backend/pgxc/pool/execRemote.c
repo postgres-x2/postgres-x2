@@ -2576,26 +2576,6 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 	remotestate->ss.ps.ps_TupFromTlist = false;
 
 	/*
-	 * Tuple description for the scan slot will be set on runtime from
-	 * a RowDescription message
-	 */
-
-	if (node->distinct)
-	{
-		/* prepare equate functions */
-		remotestate->eqfunctions =
-			execTuplesMatchPrepare(node->distinct->numCols,
-								   node->distinct->eqOperators);
-		/* create memory context for execTuplesMatch */
-		remotestate->tmp_ctx =
-			AllocSetContextCreate(CurrentMemoryContext,
-								  "RemoteUnique",
-								  ALLOCSET_DEFAULT_MINSIZE,
-								  ALLOCSET_DEFAULT_INITSIZE,
-								  ALLOCSET_DEFAULT_MAXSIZE);
-	}
-
-	/*
 	 * If there are parameters supplied, get them into a form to be sent to the
 	 * datanodes with bind message. We should not have had done this before.
 	 */
@@ -3431,7 +3411,6 @@ ExecRemoteQuery(RemoteQueryState *node)
 static TupleTableSlot *
 RemoteQueryNext(RemoteQueryState *node)
 {
-	RemoteQuery    *step = (RemoteQuery *) node->ss.ps.plan;
 	TupleTableSlot *resultslot = node->ss.ps.ps_ResultTupleSlot;
 	TupleTableSlot *scanslot = node->ss.ss_ScanTupleSlot;
 	bool have_tuple = false;
@@ -3486,29 +3465,6 @@ handle_results:
 			{
 				have_tuple = false;
 				continue;
-			}
-			/*
-			 * If DISTINCT is specified and current tuple matches to
-			 * previous skip it and get next one.
-			 * Othervise return current tuple
-			 */
-			if (step->distinct)
-			{
-				/*
-				 * Always receive very first tuple and
-				 * skip to next if scan slot match to previous (result slot)
-				 */
-				if (!TupIsNull(resultslot) &&
-						execTuplesMatch(scanslot,
-										resultslot,
-										step->distinct->numCols,
-										step->distinct->uniqColIdx,
-										node->eqfunctions,
-										node->tmp_ctx))
-				{
-					have_tuple = false;
-					continue;
-				}
 			}
 			copy_slot(node, scanslot, resultslot);
 			break;

@@ -1014,7 +1014,6 @@ _copyRemoteQuery(RemoteQuery *from)
 	COPY_NODE_FIELD(exec_nodes);
 	COPY_SCALAR_FIELD(combine_type);
 	COPY_NODE_FIELD(sort);
-	COPY_NODE_FIELD(distinct);
 	COPY_SCALAR_FIELD(read_only);
 	COPY_SCALAR_FIELD(force_autocommit);
 	COPY_STRING_FIELD(statement);
@@ -1025,8 +1024,6 @@ _copyRemoteQuery(RemoteQuery *from)
 	COPY_SCALAR_FIELD(exec_type);
 	COPY_SCALAR_FIELD(is_temp);
 
-	COPY_STRING_FIELD(relname);
-	COPY_SCALAR_FIELD(remotejoin);
 	COPY_SCALAR_FIELD(reduce_level);
 	COPY_NODE_FIELD(base_tlist);
 	COPY_STRING_FIELD(outer_alias);
@@ -1053,7 +1050,6 @@ _copyExecNodes(ExecNodes *from)
 	COPY_NODE_FIELD(primarynodelist);
 	COPY_NODE_FIELD(nodeList);
 	COPY_SCALAR_FIELD(baselocatortype);
-	COPY_SCALAR_FIELD(tableusagetype);
 	COPY_NODE_FIELD(en_expr);
 	COPY_SCALAR_FIELD(en_relid);
 	COPY_SCALAR_FIELD(accesstype);
@@ -1075,24 +1071,6 @@ _copySimpleSort(SimpleSort *from)
 		COPY_POINTER_FIELD(sortColIdx, from->numCols * sizeof(AttrNumber));
 		COPY_POINTER_FIELD(sortOperators, from->numCols * sizeof(Oid));
 		COPY_POINTER_FIELD(nullsFirst, from->numCols * sizeof(bool));
-	}
-
-	return newnode;
-}
-
-/*
- * _copySimpleDistinct
- */
-static SimpleDistinct *
-_copySimpleDistinct(SimpleDistinct *from)
-{
-	SimpleDistinct *newnode = makeNode(SimpleDistinct);
-
-	COPY_SCALAR_FIELD(numCols);
-	if (from->numCols > 0)
-	{
-		COPY_POINTER_FIELD(uniqColIdx, from->numCols * sizeof(AttrNumber));
-		COPY_POINTER_FIELD(eqOperators, from->numCols * sizeof(Oid));
 	}
 
 	return newnode;
@@ -4154,9 +4132,6 @@ copyObject(void *from)
 			break;
 		case T_SimpleSort:
 			retval = _copySimpleSort(from);
-			break;
-		case T_SimpleDistinct:
-			retval = _copySimpleDistinct(from);
 			break;
 #endif
 			/*
