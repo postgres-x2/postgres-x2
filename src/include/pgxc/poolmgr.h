@@ -21,6 +21,7 @@
 #include "pgxcnode.h"
 #include "poolcomm.h"
 #include "storage/pmsignal.h"
+#include "utils/hsearch.h"
 
 #define MAX_IDLE_TIME 60
 
@@ -69,8 +70,8 @@ typedef struct
 /* Pool of connections to specified pgxc node */
 typedef struct
 {
-	char	   *connstr;
 	Oid			nodeoid;	/* Node Oid related to this pool */
+	char	   *connstr;
 	int			freeSize;	/* available connections */
 	int			size;  		/* total pool size */
 	PGXCNodePoolSlot **slot;
@@ -81,11 +82,10 @@ typedef struct databasepool
 {
 	char	   *database;
 	char	   *user_name;
-	int			num_dn_pools;
-	int			num_co_pools;
-	PGXCNodePool **dataNodePools;	/* one for each Datanode */
-	PGXCNodePool **coordNodePools;	/* one for each Coordinator */
-	struct databasepool *next;
+	HTAB	   *nodePools; 		/* Hashtable of PGXCNodePool, one entry for each
+								 * Coordinator or DataNode */
+	MemoryContext mcxt;
+	struct databasepool *next; 	/* Reference to next to organize linked list */
 } DatabasePool;
 
 /*
@@ -96,16 +96,19 @@ typedef struct databasepool
 typedef struct
 {
 	/* Process ID of postmaster child process associated to pool agent */
-	int			pid;
+	int				pid;
 	/* communication channel */
 	PoolPort		port;
-	DatabasePool		*pool;
-	int			num_dn_connections;
-	int			num_coord_connections;
-	PGXCNodePoolSlot	**dn_connections; /* one for each Datanode */
-	PGXCNodePoolSlot	**coord_connections; /* one for each Coordinator */
-	char			*session_params;
-	char			*local_params;
+	DatabasePool   *pool;
+	MemoryContext	mcxt;
+	int				num_dn_connections;
+	int				num_coord_connections;
+	Oid		   	   *dn_conn_oids;		/* one for each Datanode */
+	Oid		   	   *coord_conn_oids;	/* one for each Coordinator */
+	PGXCNodePoolSlot **dn_connections; /* one for each Datanode */
+	PGXCNodePoolSlot **coord_connections; /* one for each Coordinator */
+	char		   *session_params;
+	char		   *local_params;
 	bool			is_temp; /* Temporary objects used for this pool session? */
 } PoolAgent;
 

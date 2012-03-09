@@ -61,6 +61,7 @@
 #include "pgxc/planner.h"
 #include "nodes/nodes.h"
 #include "pgxc/poolmgr.h"
+#include "pgxc/nodemgr.h"
 #endif
 #include "postmaster/autovacuum.h"
 #include "postmaster/bgwriter.h"
@@ -632,7 +633,7 @@ const char *const config_group_names[] =
 	gettext_noop("Developer Options"),
 #ifdef PGXC
 	/* DATA_NODES */
-	gettext_noop("Data Nodes and Connection Pooling"),
+	gettext_noop("Datanodes and Connection Pooling"),
 	/* GTM */
 	gettext_noop("GTM Connection"),
 #endif
@@ -2489,6 +2490,28 @@ static struct config_int ConfigureNamesInt[] =
 		6666, 1, 65535,
 		NULL, NULL, NULL
 	},
+
+	{
+		{"max_datanodes", PGC_POSTMASTER, DATA_NODES,
+			gettext_noop("Maximum number of Datanodes in the cluster."),
+			gettext_noop("It is not possible to create more Datanodes in the cluster than "
+						 "this maximum number.")
+		},
+		&MaxDataNodes,
+		16, 2, 65535,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"max_coordinators", PGC_POSTMASTER, DATA_NODES,
+			gettext_noop("Maximum number of Coordinators in the cluster."),
+			gettext_noop("It is not possible to create more Coordinators in the cluster than "
+						 "this maximum number.")
+		},
+		&MaxCoords,
+		16, 2, 65535,
+		NULL, NULL, NULL
+	},
 #endif
 	/* End-of-list marker */
 	{
@@ -3377,7 +3400,7 @@ static struct config_enum ConfigureNamesEnum[] =
 
 #ifdef PGXC
 	{
-		{"remotetype", PGC_BACKEND, CONN_AUTH, 
+		{"remotetype", PGC_BACKEND, CONN_AUTH,
 			gettext_noop("Sets the type of Postgres-XC remote connection"),
 			NULL
 		},

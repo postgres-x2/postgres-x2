@@ -549,8 +549,14 @@
 #max_pool_size = 100			# Maximum pool size
 					# (change requires restart)
 #persistent_datanode_connections = off	# Set persistent connection mode for pooler
-					# if set at on, connections taken for coordinator
+					# if set at on, connections taken for session
 					# are not put back to pool
+#max_coordinators = 16			# Maximum number of Coordinators
+					# that can be defined in cluster
+					# (change requires restart)
+#max_datanodes = 16			# Maximum number of Datanodes
+					# that can be defined in cluster
+					# (change requires restart)
 
 #------------------------------------------------------------------------------
 # GTM CONNECTION

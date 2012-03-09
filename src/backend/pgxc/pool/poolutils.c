@@ -138,11 +138,11 @@ pgxc_pool_reload(PG_FUNCTION_ARGS)
 	/* Now session information is reset in correct memory context */
 	old_context = MemoryContextSwitchTo(TopMemoryContext);
 
-	/* Reconnect to pool manager */
-	PoolManagerReconnect();
-
-	/* And reinitialize session */
+	/* Reinitialize session, while old pooler connection is active */
 	InitMultinodeExecutor(true);
+
+	/* And reconnect to pool manager */
+	PoolManagerReconnect();
 
 	MemoryContextSwitchTo(old_context);
 
@@ -394,11 +394,11 @@ HandlePoolerReload(void)
 	/* Need to be able to look into catalogs */
 	CurrentResourceOwner = ResourceOwnerCreate(NULL, "ForPoolerReload");
 
-	/* Reconnect to pool manager */
-	PoolManagerReconnect();
-
-	/* And reinitialize session */
+	/* Reinitialize session, while old pooler connection is active */
 	InitMultinodeExecutor(true);
+
+	/* And reconnect to pool manager */
+	PoolManagerReconnect();
 
 	/* Send a message back to client regarding session being reloaded */
     ereport(WARNING,

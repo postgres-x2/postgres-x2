@@ -50,6 +50,7 @@
 #include "../interfaces/libpq/libpq-fe.h"
 
 
+/* Number of connections held */
 static int	datanode_count = 0;
 static int	coord_count = 0;
 
@@ -66,6 +67,10 @@ static PGXCNodeHandle *dn_handles = NULL;
  * Those handles are used inside a transaction by Coordinator to Coordinators
  */
 static PGXCNodeHandle *co_handles = NULL;
+
+/* Current size of dn_handles and co_handles */
+int			NumDataNodes;
+int 		NumCoords;
 
 static void pgxc_node_init(PGXCNodeHandle *handle, int sock);
 static void pgxc_node_free(PGXCNodeHandle *handle);
@@ -126,8 +131,11 @@ InitMultinodeExecutor(bool is_force)
 		co_handles != NULL)
 		return;
 
+	/* Update node table in the shared memory */
+	PgxcNodeListAndCount();
+
 	/* Get classified list of node Oids */
-	PgxcNodeListAndCount(&coOids, &dnOids, &NumCoords, &NumDataNodes);
+	PgxcNodeGetOids(&coOids, &dnOids, &NumCoords, &NumDataNodes, true);
 
 	/* Do proper initialization of handles */
 	if (NumDataNodes > 0)
@@ -212,7 +220,7 @@ PGXCNodeConnStr(char *host, int port, char *dbname,
 
 
 /*
- * Connect to a Data Node using a connection string
+ * Connect to a Datanode using a connection string
  */
 NODE_CONNECTION *
 PGXCNodeConnect(char *connstr)
@@ -331,7 +339,7 @@ pgxc_node_all_free(void)
 
 /*
  * Create and initialise internal structure to communicate to
- * Data Node via supplied socket descriptor.
+ * Datanode via supplied socket descriptor.
  * Structure stores state info and I/O buffers
  */
 static void
@@ -566,8 +574,8 @@ retry:
 			if (close_if_error)
 			{
 				add_error_message(conn,
-								"data node closed the connection unexpectedly\n"
-					"\tThis probably means the data node terminated abnormally\n"
+								"Datanode closed the connection unexpectedly\n"
+					"\tThis probably means the Datanode terminated abnormally\n"
 								"\tbefore or while processing the request.\n");
 				conn->state = DN_CONNECTION_STATE_ERROR_FATAL;	/* No more connection to
 															* backend */
@@ -787,7 +795,7 @@ cancel_query(void)
 	if (datanode_count == 0 && coord_count == 0)
 		return;
 
-	/* Collect Data Nodes handles */
+	/* Collect Datanodes handles */
 	for (i = 0; i < NumDataNodes; i++)
 	{
 		PGXCNodeHandle *handle = &dn_handles[i];
@@ -873,7 +881,7 @@ clear_all_data(void)
 	if (datanode_count == 0 && coord_count == 0)
 		return;
 
-	/* Collect Data Nodes handles */
+	/* Collect Datanodes handles */
 	for (i = 0; i < NumDataNodes; i++)
 	{
 		PGXCNodeHandle *handle = &dn_handles[i];
@@ -1105,7 +1113,7 @@ send_some(PGXCNodeHandle *handle, int len)
 }
 
 /*
- * Send PARSE message with specified statement down to the Data node
+ * Send PARSE message with specified statement down to the Datanode
  */
 int
 pgxc_node_send_parse(PGXCNodeHandle * handle, const char* statement,
@@ -1184,7 +1192,7 @@ pgxc_node_send_parse(PGXCNodeHandle * handle, const char* statement,
 
 
 /*
- * Send BIND message down to the Data node
+ * Send BIND message down to the Datanode
  */
 int
 pgxc_node_send_bind(PGXCNodeHandle * handle, const char *portal,
@@ -1265,7 +1273,7 @@ pgxc_node_send_bind(PGXCNodeHandle * handle, const char *portal,
 
 
 /*
- * Send DESCRIBE message (portal or statement) down to the Data node
+ * Send DESCRIBE message (portal or statement) down to the Datanode
  */
 int
 pgxc_node_send_describe(PGXCNodeHandle * handle, bool is_statement,
@@ -1312,7 +1320,7 @@ pgxc_node_send_describe(PGXCNodeHandle * handle, bool is_statement,
 
 
 /*
- * Send CLOSE message (portal or statement) down to the Data node
+ * Send CLOSE message (portal or statement) down to the Datanode
  */
 int
 pgxc_node_send_close(PGXCNodeHandle * handle, bool is_statement,
@@ -1353,7 +1361,7 @@ pgxc_node_send_close(PGXCNodeHandle * handle, bool is_statement,
 }
 
 /*
- * Send EXECUTE message down to the Data node
+ * Send EXECUTE message down to the Datanode
  */
 int
 pgxc_node_send_execute(PGXCNodeHandle * handle, const char *portal, int fetch)
@@ -1397,7 +1405,7 @@ pgxc_node_send_execute(PGXCNodeHandle * handle, const char *portal, int fetch)
 
 
 /*
- * Send FLUSH message down to the Data node
+ * Send FLUSH message down to the Datanode
  */
 int
 pgxc_node_send_flush(PGXCNodeHandle * handle)
@@ -1423,7 +1431,7 @@ pgxc_node_send_flush(PGXCNodeHandle * handle)
 
 
 /*
- * Send SYNC message down to the Data node
+ * Send SYNC message down to the Datanode
  */
 int
 pgxc_node_send_sync(PGXCNodeHandle * handle)
@@ -1449,7 +1457,7 @@ pgxc_node_send_sync(PGXCNodeHandle * handle)
 
 
 /*
- * Send the GXID down to the Data node
+ * Send the GXID down to the Datanode
  */
 int
 pgxc_node_send_query_extended(PGXCNodeHandle *handle, const char *query,
@@ -1798,7 +1806,7 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 				{
 					ereport(ERROR,
 							(errcode(ERRCODE_OUT_OF_MEMORY),
-							errmsg("Invalid data node number")));
+							errmsg("Invalid Datanode number")));
 				}
 
 				node_handle = &dn_handles[node];
@@ -1915,7 +1923,7 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 				{
 					ereport(ERROR,
 							(errcode(ERRCODE_OUT_OF_MEMORY),
-							errmsg("Invalid data node number")));
+							errmsg("Invalid Datanode number")));
 				}
 
 				node_handle = &dn_handles[node];

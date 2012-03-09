@@ -6858,6 +6858,30 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
       </listitem>
      </varlistentry>
 
+     <varlistentry id="guc-max-coordinators" xreflabel="max_coordinators">
+      <term><varname>max_coordinators</varname> (<type>integer</type>)</term>
+      <indexterm>
+       <primary><varname>max_coordinators</> configuration parameter</primary>
+      </indexterm>
+      <listitem>
+       <para>
+        Maximum number of Coordinators that can be configured in the cluster.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry id="guc-max-datanodes" xreflabel="max_datanodes">
+      <term><varname>max_datanodes</varname> (<type>integer</type>)</term>
+      <indexterm>
+       <primary><varname>max_datanodes</> configuration parameter</primary>
+      </indexterm>
+      <listitem>
+       <para>
+        Maximum number of Datanodes that can be configured in the cluster.
+       </para>
+      </listitem>
+     </varlistentry>
+
      <varlistentry id="guc-pgxc-node-name" xreflabel="pgxc_node_name">
       <term><varname>pgxc_node_name</varname> (<type>integer</type>)</term>
       <indexterm>

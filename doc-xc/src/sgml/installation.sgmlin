@@ -2409,6 +2409,30 @@ postgres$ <userinput>/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data</>
     </varlistentry>
 
     <varlistentry>
+     <term><envar>max_coordinators</envar></term>
+     <listitem>
+&xconly;
+      <para>
+       This parameter specifies maximum number of the Coordinators that can
+       be added to the cluster. Cluster would have to be restarted to increase
+       the value.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><envar>max_datanodes</envar></term>
+     <listitem>
+&xconly;
+      <para>
+       This parameter specifies maximum number of the Datanodes that can
+       be added to the cluster. Cluster would have to be restarted to increase
+       the value.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
      <term><envar>pgxc_node_name</envar></term>
      <listitem>
 &xconly;

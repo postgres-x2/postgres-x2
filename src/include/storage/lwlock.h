@@ -73,6 +73,7 @@ typedef enum LWLockId
 	SyncScanLock,
 #ifdef PGXC
 	BarrierLock,
+	NodeTableLock,
 #endif
 	RelationMappingLock,
 	AsyncCtlLock,

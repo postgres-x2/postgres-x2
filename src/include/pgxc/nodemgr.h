@@ -21,14 +21,32 @@
 
 #define PGXC_NODENAME_LENGTH	64
 
+/* GUC parameters, limit for number of nodes */
+extern int 	MaxDataNodes;
+extern int 	MaxCoords;
 /* Global number of nodes */
-extern int  NumDataNodes;
-extern int  NumCoords;
-extern int  NumCoordSlaves;
-extern int  NumDataNodeSlaves;
+extern int 	NumDataNodes;
+extern int 	NumCoords;
 
-extern void PgxcNodeListAndCount(Oid **coOids, Oid **dnOids,
-								 int *num_coords, int *num_dns);
+/* Node definition */
+typedef struct
+{
+	Oid 		nodeoid;
+	NameData	nodename;
+	NameData	nodehost;
+	int			nodeport;
+	bool		nodeisprimary;
+	bool 		nodeispreferred;
+} NodeDefinition;
+
+extern void NodeTablesShmemInit(void);
+extern Size NodeTablesShmemSize(void);
+
+extern void PgxcNodeListAndCount(void);
+extern void PgxcNodeGetOids(Oid **coOids, Oid **dnOids,
+							int *num_coords, int *num_dns,
+							bool update_preferred);
+extern NodeDefinition *PgxcNodeGetDefinition(Oid node);
 extern void PgxcNodeAlter(AlterNodeStmt *stmt);
 extern void PgxcNodeCreate(CreateNodeStmt *stmt);
 extern void PgxcNodeRemove(DropNodeStmt *stmt);

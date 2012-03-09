@@ -626,10 +626,10 @@ $ <userinput>gtm_ctl start -S gtm_proxy -i 1 -D /usr/local/pgsql/gtm_proxy -i 1 
    <term>max_pool_size</term>
    <listitem>
     <para>
-     Coordinator maintains connections to datanode as a pool.
+     Coordinator maintains connections to Datanode as a pool.
      This parameter specifies max number of connections the
-     coordinator maintains.
-     Specify <option>max_connection</> value of datanodes as this
+     Coordinator maintains.
+     Specify <option>max_connection</> value of remote nodes as this
      parameter value.
     </para>
    </listitem>
@@ -639,9 +639,33 @@ $ <userinput>gtm_ctl start -S gtm_proxy -i 1 -D /usr/local/pgsql/gtm_proxy -i 1 
    <term>min_pool_size</term>
    <listitem>
     <para>
-     This is the minimum number of coordinator to datanode connections
+     This is the minimum number of Coordinator to remote node connections
      maintained by the pooler.
      Typically specify 1.
+    </para>
+   </listitem>
+  </varlistentry>
+
+  <varlistentry>
+   <term>max_coordinators</term>
+   <listitem>
+    <para>
+     This is the maximum number of Coordinators that can be configured in the cluster.
+     Specify exact number if it is not planned to add more Coordinators
+     while cluster is running, or greater, if it is desired to dynamically
+     resize cluster. It costs about 140 bytes of shared memory per slot.
+    </para>
+   </listitem>
+  </varlistentry>
+
+  <varlistentry>
+   <term>max_datanodes</term>
+   <listitem>
+    <para>
+     This is the maximum number of Datanodes configured in the cluster.
+     Specify exact number if it is not planned to add more Datanodes
+     while cluster is running, or greater, if it is desired to dynamically
+     resize cluster. It costs about 140 bytes of shared memory per slot.
     </para>
    </listitem>
   </varlistentry>

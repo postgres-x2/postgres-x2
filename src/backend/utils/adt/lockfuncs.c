@@ -474,7 +474,7 @@ pgxc_advisory_lock(int64 key64, int32 key1, int32 key2, bool iskeybig,
 	else
 		SET_LOCKTAG_INT32(locktag, key1, key2);
 
-	PgxcNodeListAndCount(&coOids, &dnOids, &numcoords, &numdnodes);
+	PgxcNodeGetOids(&coOids, &dnOids, &numcoords, &numdnodes, false);
 
 	/* Skip everything XC specific if there's only one coordinator running */
 	if (numcoords <= 1)
