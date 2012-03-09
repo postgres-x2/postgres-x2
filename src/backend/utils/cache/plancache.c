@@ -62,9 +62,10 @@
 #ifdef PGXC
 #include "commands/prepare.h"
 #include "pgxc/execRemote.h"
+#include "pgxc/pgxc.h"
 
 
-static void release_datanode_statements(Plan *plannode);
+static void drop_datanode_statements(Plan *plannode);
 #endif
 
 
@@ -122,7 +123,8 @@ CreateCachedPlan(Node *raw_parse_tree,
 				 int cursor_options,
 				 List *stmt_list,
 				 bool fully_planned,
-				 bool fixed_result)
+				 bool fixed_result,
+				 const char *stmt_name)
 {
 	CachedPlanSource *plansource;
 	OverrideSearchPath *search_path;
@@ -175,6 +177,9 @@ CreateCachedPlan(Node *raw_parse_tree,
 	plansource->plan = NULL;
 	plansource->context = source_context;
 	plansource->orig_plan = NULL;
+#ifdef PGXC
+	plansource->stmt_name = (stmt_name ? pstrdup(stmt_name) : NULL);
+#endif
 
 	/*
 	 * Copy the current output plans into the plancache entry.
@@ -347,6 +352,33 @@ StoreCachedPlan(CachedPlanSource *plansource,
 		oldcxt = MemoryContextSwitchTo(plan_context);
 	}
 
+#ifdef PGXC
+	/*
+	 * If this plansource belongs to a named prepared statement, store the stmt
+	 * name for the datanode queries.
+	 */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord()
+	    && plansource->stmt_name)
+	{
+		ListCell	*lc;
+		int 		n;
+
+		/*
+		 * Scan the plans and set the statement field for all found RemoteQuery
+		 * nodes so they use data node statements
+		 */
+		n = 0;
+		foreach(lc, stmt_list)
+		{
+			PlannedStmt *ps = (PlannedStmt *) lfirst(lc);
+			n = SetRemoteStatementName(ps->planTree, plansource->stmt_name,
+			                           plansource->num_params,
+			                           plansource->param_types, n);
+		}
+	}
+#endif
+
+
 	/*
 	 * Create and fill the CachedPlan struct within the new context.
 	 */
@@ -416,7 +448,29 @@ DropCachedPlan(CachedPlanSource *plansource)
 
 	/* Decrement child CachePlan's refcount and drop if no longer needed */
 	if (plansource->plan)
+	{
+#ifdef PGXC
+		CachedPlan *plan = plansource->plan;
+
+		if (plan->fully_planned)
+		{
+			ListCell *lc;
+
+			/* Close any active planned datanode statements */
+			foreach (lc, plan->stmt_list)
+			{
+				Node *node = lfirst(lc);
+
+				if (IsA(node, PlannedStmt))
+				{
+					PlannedStmt *ps = (PlannedStmt *)node;
+					drop_datanode_statements(ps->planTree);
+				}
+			}
+		}
+#endif
 		ReleaseCachedPlan(plansource->plan, false);
+	}
 
 	/*
 	 * If CachedPlanSource has independent storage, just drop it.  Otherwise
@@ -636,7 +690,7 @@ RevalidateCachedPlan(CachedPlanSource *plansource, bool useResOwner)
  */
 #ifdef PGXC
 static void
-release_datanode_statements(Plan *plannode)
+drop_datanode_statements(Plan *plannode)
 {
 	if (IsA(plannode, RemoteQuery))
 	{
@@ -647,10 +701,10 @@ release_datanode_statements(Plan *plannode)
 	}
 
 	if (innerPlan(plannode))
-		release_datanode_statements(innerPlan(plannode));
+		drop_datanode_statements(innerPlan(plannode));
 
 	if (outerPlan(plannode))
-		release_datanode_statements(outerPlan(plannode));
+		drop_datanode_statements(outerPlan(plannode));
 }
 #endif
 
@@ -674,24 +728,6 @@ ReleaseCachedPlan(CachedPlan *plan, bool useResOwner)
 	plan->refcount--;
 	if (plan->refcount == 0)
 	{
-#ifdef PGXC
-		if (plan->fully_planned)
-		{
-			ListCell *lc;
-
-			/* Close any active planned datanode statements */
-			foreach (lc, plan->stmt_list)
-			{
-				Node *node = lfirst(lc);
-
-				if (IsA(node, PlannedStmt))
-				{
-					PlannedStmt *ps = (PlannedStmt *)node;
-					release_datanode_statements(ps->planTree);
-				}
-			}
-		}
-#endif
 		MemoryContextDelete(plan->context);
 	}
 }

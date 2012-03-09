@@ -62,6 +62,7 @@ typedef struct CachedPlanSource
 	struct CachedPlan *plan;	/* link to plan, or NULL if not valid */
 	MemoryContext context;		/* context containing this CachedPlanSource */
 	struct CachedPlan *orig_plan;		/* link to plan owning my context */
+	char	   *stmt_name;		/* If set, this is a copy of prepared stmt name */
 } CachedPlanSource;
 
 /*
@@ -97,7 +98,8 @@ extern CachedPlanSource *CreateCachedPlan(Node *raw_parse_tree,
 				 int cursor_options,
 				 List *stmt_list,
 				 bool fully_planned,
-				 bool fixed_result);
+				 bool fixed_result,
+				 const char *stmt_name);
 extern CachedPlanSource *FastCreateCachedPlan(Node *raw_parse_tree,
 					 char *query_string,
 					 const char *commandTag,

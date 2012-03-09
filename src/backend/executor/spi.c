@@ -2423,7 +2423,8 @@ _SPI_save_plan(SPIPlanPtr plan)
 									 newplan->cursor_options,
 									 cplan->stmt_list,
 									 true,
-									 false);
+									 false,
+									 NULL);
 		if (newplan->parserSetup != NULL)
 			CachedPlanSetParserHook(newsource,
 									newplan->parserSetup,
