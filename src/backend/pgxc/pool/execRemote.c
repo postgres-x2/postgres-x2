@@ -140,7 +140,6 @@ static int pgxc_get_connections(PGXCNodeHandle *connections[], int size, List *c
 
 static bool pgxc_start_command_on_connection(PGXCNodeHandle *connection,
 					RemoteQueryState *remotestate, Snapshot snapshot);
-static bool ExecRemoteQueryInnerPlan(RemoteQueryState *node);
 static TupleTableSlot * RemoteQueryNext(RemoteQueryState *node);
 
 static char *generate_begin_command(void);
@@ -1038,7 +1037,7 @@ CopyDataRowTupleToSlot(RemoteQueryState *combiner, TupleTableSlot *slot)
 	oldcontext = MemoryContextSwitchTo(slot->tts_mcxt);
 	msg = (char *)palloc(combiner->currentRow.msglen);
 	memcpy(msg, combiner->currentRow.msg, combiner->currentRow.msglen);
-	ExecStoreDataRowTuple(msg, combiner->currentRow.msglen, combiner->currentRow.msgnode, slot, true);
+	ExecStoreDataRowTuple(msg, combiner->currentRow.msglen, slot, true);
 	pfree(combiner->currentRow.msg);
 	combiner->currentRow.msg = NULL;
 	combiner->currentRow.msglen = 0;
@@ -1088,7 +1087,7 @@ FetchTuple(RemoteQueryState *combiner, TupleTableSlot *slot)
 	{
 		RemoteDataRow dataRow = (RemoteDataRow) linitial(combiner->rowBuffer);
 		combiner->rowBuffer = list_delete_first(combiner->rowBuffer);
-		ExecStoreDataRowTuple(dataRow->msg, dataRow->msglen, dataRow->msgnode, slot, true);
+		ExecStoreDataRowTuple(dataRow->msg, dataRow->msglen, slot, true);
 		pfree(dataRow);
 		return true;
 	}
@@ -2539,6 +2538,10 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 {
 	RemoteQueryState   *remotestate;
 
+	/* RemoteQuery node is the leaf node in the plan tree, just like seqscan */
+	Assert(innerPlan(node) == NULL);
+	Assert(outerPlan(node) == NULL);
+
 	remotestate = CreateResponseCombiner(0, node->combine_type);
 	remotestate->ss.ps.plan = (Plan *) node;
 	remotestate->ss.ps.state = estate;
@@ -2588,39 +2591,9 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 
 	/* We need expression context to evaluate */
 	if (node->exec_nodes && node->exec_nodes->en_expr)
-	{
-		Expr *expr = node->exec_nodes->en_expr;
-
-		if (IsA(expr, Var) && ((Var *) expr)->vartype == TIDOID)
-		{
-			/* Special case if expression does not need to be evaluated */
-		}
-		else
-		{
-			/*
-			 * Inner plan provides parameter values and may be needed
-			 * to determine target nodes. In this case expression is evaluated
-			 * and we should made values available for evaluator.
-			 * So allocate storage for the values.
-			 */
-			if (innerPlan(node))
-			{
-				int nParams = list_length(node->scan.plan.targetlist);
-				estate->es_param_exec_vals = (ParamExecData *) palloc0(
-						nParams * sizeof(ParamExecData));
-			}
-			/* prepare expression evaluation */
-			ExecAssignExprContext(estate, &remotestate->ss.ps);
-		}
-	}
+		ExecAssignExprContext(estate, &remotestate->ss.ps);
 	else if (remotestate->ss.ps.qual)
 		ExecAssignExprContext(estate, &remotestate->ss.ps);
-
-	if (innerPlan(node))
-		innerPlanState(remotestate) = ExecInitNode(innerPlan(node), estate, eflags);
-
-	if (outerPlan(node))
-		outerPlanState(remotestate) = ExecInitNode(outerPlan(node), estate, eflags);
 
 	return remotestate;
 }
@@ -2635,8 +2608,7 @@ copy_slot(RemoteQueryState *node, TupleTableSlot *src, TupleTableSlot *dst)
 		if (src->tts_mcxt == dst->tts_mcxt)
 		{
 			/* now dst slot controls the backing message */
-			ExecStoreDataRowTuple(src->tts_dataRow, src->tts_dataLen,
-								  src->tts_dataNodeIndex, dst,
+			ExecStoreDataRowTuple(src->tts_dataRow, src->tts_dataLen, dst,
 								  src->tts_shouldFreeRow);
 			src->tts_shouldFreeRow = false;
 		}
@@ -2648,7 +2620,7 @@ copy_slot(RemoteQueryState *node, TupleTableSlot *src, TupleTableSlot *dst)
 			char		*msg = (char *) palloc(len);
 
 			memcpy(msg, src->tts_dataRow, len);
-			ExecStoreDataRowTuple(msg, len, src->tts_dataNodeIndex, dst, true);
+			ExecStoreDataRowTuple(msg, len, dst, true);
 			MemoryContextSwitchTo(oldcontext);
 		}
 	}
@@ -2703,71 +2675,28 @@ get_exec_connections(RemoteQueryState *planstate,
 	{
 		if (exec_nodes->en_expr)
 		{
-			/*
-			 * Special case (argh, another one): if expression data type is TID
-			 * the ctid value is specific to the node from which it has been
-			 * returned.
-			 * So try and determine originating node and execute command on
-			 * that node only
-			 */
-			if (IsA(exec_nodes->en_expr, Var) && ((Var *) exec_nodes->en_expr)->vartype == TIDOID)
+			/* execution time determining of target data nodes */
+			bool isnull;
+			ExprState *estate = ExecInitExpr(exec_nodes->en_expr,
+											 (PlanState *) planstate);
+			Datum partvalue = ExecEvalExpr(estate,
+										   planstate->ss.ps.ps_ExprContext,
+										   &isnull,
+										   NULL);
+			RelationLocInfo *rel_loc_info = GetRelationLocInfo(exec_nodes->en_relid);
+			/* PGXCTODO what is the type of partvalue here */
+			ExecNodes *nodes = GetRelationNodes(rel_loc_info,
+												partvalue,
+												isnull,
+												exprType((Node *) exec_nodes->en_expr),
+												exec_nodes->accesstype);
+			if (nodes)
 			{
-				Var 	   *ctid = (Var *) exec_nodes->en_expr;
-				PlanState  *source = (PlanState *) planstate;
-				TupleTableSlot *slot;
-
-				/* Find originating RemoteQueryState */
-				if (ctid->varno == INNER)
-					source = innerPlanState(source);
-				else if (ctid->varno == OUTER)
-					source = outerPlanState(source);
-
-				while (!IsA(source, RemoteQueryState))
-				{
-					TargetEntry *tle = list_nth(source->plan->targetlist,
-												ctid->varattno - 1);
-					Assert(IsA(tle->expr, Var));
-					ctid = (Var *) tle->expr;
-					if (ctid->varno == INNER)
-						source = innerPlanState(source);
-					else if (ctid->varno == OUTER)
-						source = outerPlanState(source);
-					else
-						elog(ERROR, "failed to determine target node");
-				}
-
-				slot = source->ps_ResultTupleSlot;
-				/* The slot should be of type DataRow */
-				Assert(!TupIsNull(slot) && slot->tts_dataRow);
-
-				nodelist = list_make1_int(slot->tts_dataNodeIndex);
-				primarynode = NIL;
+				nodelist = nodes->nodeList;
+				primarynode = nodes->primarynodelist;
+				pfree(nodes);
 			}
-			else
-			{
-				/* execution time determining of target data nodes */
-				bool isnull;
-				ExprState *estate = ExecInitExpr(exec_nodes->en_expr,
-												 (PlanState *) planstate);
-				Datum partvalue = ExecEvalExpr(estate,
-											   planstate->ss.ps.ps_ExprContext,
-											   &isnull,
-											   NULL);
-				RelationLocInfo *rel_loc_info = GetRelationLocInfo(exec_nodes->en_relid);
-				/* PGXCTODO what is the type of partvalue here */
-				ExecNodes *nodes = GetRelationNodes(rel_loc_info,
-													partvalue,
-													isnull,
-													exprType((Node *) exec_nodes->en_expr),
-													exec_nodes->accesstype);
-				if (nodes)
-				{
-					nodelist = nodes->nodeList;
-					primarynode = nodes->primarynodelist;
-					pfree(nodes);
-				}
-				FreeRelationLocInfo(rel_loc_info);
-			}
+			FreeRelationLocInfo(rel_loc_info);
 		}
 		else if (OidIsValid(exec_nodes->en_relid))
 		{
@@ -2807,7 +2736,6 @@ get_exec_connections(RemoteQueryState *planstate,
 			primarynode = exec_nodes->primarynodelist;
 		}
 	}
-
 
 	/* Set node list and DN number */
 	if (list_length(nodelist) == 0 &&
@@ -3226,43 +3154,6 @@ do_query(RemoteQueryState *node)
 }
 
 /*
- * ExecRemoteQueryInnerPlan
- * Executes the inner plan of a RemoteQuery. It returns false if the inner plan
- * does not return any row, otherwise it returns true.
- */
-static bool
-ExecRemoteQueryInnerPlan(RemoteQueryState *node)
-{
-	EState		   *estate = node->ss.ps.state;
-	TupleTableSlot *innerSlot = ExecProcNode(innerPlanState(node));
-	/*
-	 * Use data row returned by the previus step as a parameters for
-	 * the main query.
-	 */
-	if (!TupIsNull(innerSlot))
-	{
-		node->paramval_len = ExecCopySlotDatarow(innerSlot,
-												 &node->paramval_data);
-
-		/* Needed for expression evaluation */
-		if (estate->es_param_exec_vals)
-		{
-			int i;
-			int natts = innerSlot->tts_tupleDescriptor->natts;
-
-			slot_getallattrs(innerSlot);
-			for (i = 0; i < natts; i++)
-				estate->es_param_exec_vals[i].value = slot_getattr(
-						innerSlot,
-						i+1,
-						&estate->es_param_exec_vals[i].isnull);
-		}
-		return true;
-	}
-	return false;
-}
-
-/*
  * apply_qual
  * Applies the qual of the query, and returns the same slot if
  * the qual returns true, else returns NULL
@@ -3419,24 +3310,7 @@ RemoteQueryNext(RemoteQueryState *node)
 
 	if (!node->query_Done)
 	{
-		/*
-		 * Inner plan for RemoteQuery supplies parameters.
-		 * We execute inner plan to get a tuple and use values of the tuple as
-		 * parameter values when executing this remote query.
-		 * If returned slot contains NULL tuple break execution.
-		 * TODO there is a problem how to handle the case if both inner and
-		 * outer plans exist. We can decide later, since it is never used now.
-		 */
-		if (innerPlanState(node))
-		{
-			if (!ExecRemoteQueryInnerPlan(node))
-			{
-				/* no parameters, exit */
-				return NULL;
-			}
-		}
 		do_query(node);
-
 		node->query_Done = true;
 	}
 
@@ -3451,7 +3325,6 @@ RemoteQueryNext(RemoteQueryState *node)
 		pfree_pgxc_all_handles(all_dn_handles);
 	}
 
-handle_results:
 	if (node->tuplesortstate)
 	{
 		while (tuplesort_gettupleslot((Tuplesortstate *) node->tuplesortstate,
@@ -3504,30 +3377,6 @@ handle_results:
 		return resultslot;
 
 	/*
-	 * We can not use recursion here. We can run out of the stack memory if
-	 * inner node returns long result set and this node does not returns rows
-	 * (like INSERT ... SELECT)
-	 */
-	if (innerPlanState(node))
-	{
-		if (ExecRemoteQueryInnerPlan(node))
-		{
-			do_query(node);
-			goto handle_results;
-		}
-	}
-
-	/*
-	 * Execute outer plan if specified
-	 */
-	if (outerPlanState(node))
-	{
-		TupleTableSlot *slot = ExecProcNode(outerPlanState(node));
-		if (!TupIsNull(slot))
-			return slot;
-	}
-
-	/*
 	 * OK, we have nothing to return, so return NULL
 	 */
 	return NULL;
@@ -3540,12 +3389,6 @@ void
 ExecEndRemoteQuery(RemoteQueryState *node)
 {
 	ListCell *lc;
-
-	/*
-	 * shut down the subplan
-	 */
-	if (innerPlanState(node))
-		ExecEndNode(innerPlanState(node));
 
 	/* clean up the buffer */
 	foreach(lc, node->rowBuffer)
@@ -3664,12 +3507,6 @@ ExecEndRemoteQuery(RemoteQueryState *node)
 		node->paramval_data = NULL;
 		node->paramval_len = 0;
 	}
-
-	/*
-	 * shut down the subplan
-	 */
-	if (outerPlanState(node))
-		ExecEndNode(outerPlanState(node));
 
 	if (node->ss.ss_currentRelation)
 		ExecCloseScanRelation(node->ss.ss_currentRelation);

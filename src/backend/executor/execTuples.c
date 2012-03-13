@@ -126,7 +126,6 @@ MakeTupleTableSlot(void)
 	slot->tts_shouldFreeRow = false;
 	slot->tts_dataRow = NULL;
 	slot->tts_dataLen = -1;
-	slot->tts_dataNodeIndex = 0;
 	slot->tts_attinmeta = NULL;
 #endif
 	slot->tts_mcxt = CurrentMemoryContext;
@@ -366,7 +365,6 @@ ExecStoreTuple(HeapTuple tuple,
 	slot->tts_shouldFreeRow = false;
 	slot->tts_dataRow = NULL;
 	slot->tts_dataLen = -1;
-	slot->tts_dataNodeIndex = 0;
 #endif
 
 	/*
@@ -436,7 +434,6 @@ ExecStoreMinimalTuple(MinimalTuple mtup,
 	slot->tts_shouldFreeRow = false;
 	slot->tts_dataRow = NULL;
 	slot->tts_dataLen = -1;
-	slot->tts_dataNodeIndex = 0;
 #endif
 
 	/*
@@ -496,7 +493,6 @@ ExecClearTuple(TupleTableSlot *slot)	/* slot in which to store tuple */
 	slot->tts_shouldFreeRow = false;
 	slot->tts_dataRow = NULL;
 	slot->tts_dataLen = -1;
-	slot->tts_dataNodeIndex = 0;
 #endif
 
 	slot->tts_tuple = NULL;
@@ -933,7 +929,6 @@ ExecMaterializeSlot(TupleTableSlot *slot)
 	{
 		slot->tts_dataRow = NULL;
 		slot->tts_dataLen = -1;
-		slot->tts_dataNodeIndex = 0;
 	}
 #endif
 
@@ -1376,7 +1371,7 @@ end_tup_output(TupOutputState *tstate)
  * --------------------------------
  */
 TupleTableSlot *
-ExecStoreDataRowTuple(char *msg, size_t len, int nindex, TupleTableSlot *slot,
+ExecStoreDataRowTuple(char *msg, size_t len, TupleTableSlot *slot,
 					  bool shouldFree)
 {
 	/*
@@ -1423,7 +1418,6 @@ ExecStoreDataRowTuple(char *msg, size_t len, int nindex, TupleTableSlot *slot,
 	slot->tts_mintuple = NULL;
 	slot->tts_dataRow = msg;
 	slot->tts_dataLen = len;
-	slot->tts_dataNodeIndex = nindex;
 
 	/* Mark extracted state invalid */
 	slot->tts_nvalid = 0;
