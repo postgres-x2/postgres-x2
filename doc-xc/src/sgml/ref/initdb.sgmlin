@@ -16,7 +16,7 @@ PostgreSQL documentation
   <refpurpose>create a new <productname>PostgreSQL</productname> database cluster</refpurpose>
 <!## end>
 <!## XC>
-  <refpurpose>create a new <productname>Postgres-XC</productname> coorinator or datanode database cluster</refpurpose>
+  <refpurpose>create a new <productname>Postgres-XC</productname> Coordinator or Datanode database cluster</refpurpose>
 <!## end>
  </refnamediv>
 
@@ -48,7 +48,7 @@ PostgreSQL documentation
    <productname>PostgreSQL</productname> database cluster.  A database
 <!## end>
 <!## XC>
-   <productname>Postgres-XC</productname> database cluster for coordinator or datanode.  A database
+   <productname>Postgres-XC</productname> database cluster for Coordinator or Datanode.  A database
 <!## end>
    cluster is a collection of databases that are managed by a single
    server instance.
@@ -122,7 +122,7 @@ PostgreSQL documentation
 &xconly;
   <para>
    <command>initdb</> will be performed locally.  This has to be
-   performed for each coordinators and datanodes manually.
+   performed for each Coordinators and Datanodes manually.
   </para>
 <!## end>
 
@@ -382,7 +382,7 @@ PostgreSQL documentation
 &xconly;
   <para>
    <command>initdb</> runs only locally.  You should
-   run <command>initdb</> for each coordinator and datanode.
+   run <command>initdb</> for each Coordinator and Datanode.
   </para>
 <!## end>
 &common;
