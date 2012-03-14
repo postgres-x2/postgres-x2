@@ -698,17 +698,17 @@ pgxc_FQS_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	PlannedStmt		*result;
 	PlannerGlobal	*glob;
 	PlannerInfo		*root;
-	ExecNodes	*exec_nodes;
+	ExecNodes		*exec_nodes;
+	Plan			*top_plan;
 
 	/* Try by-passing standard planner, if fast query shipping is enabled */
 	if (!enable_fast_query_shipping)
 		return NULL;
-	/*
-	 * PGXC_FQS_TODO: work out how to handle boundParams and cursorOptions in
-	 * the FQS planner. For now if those are passed, we don't use FQS planner
-	 */
-	if (boundParams || cursorOptions)
-		return NULL;
+
+	/* Cursor options may come from caller or from DECLARE CURSOR stmt */
+	if (query->utilityStmt &&
+		IsA(query->utilityStmt, DeclareCursorStmt))
+		cursorOptions |= ((DeclareCursorStmt *) query->utilityStmt)->options;
 	/*
 	 * If the query can not be or need not be shipped to the datanodes, don't
 	 * create any plan here. standard_planner() will take care of it.
@@ -725,6 +725,32 @@ pgxc_FQS_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	root->glob = glob;
 	root->query_level = 1;
 	root->planner_cxt = CurrentMemoryContext;
+
+	/*
+	 * We decided to ship the query to the datanode/s, create a RemoteQuery node
+	 * for the same.
+	 */
+	top_plan = (Plan *)pgxc_FQS_create_remote_plan(query, exec_nodes, false);
+	/*
+	 * If creating a plan for a scrollable cursor, make sure it can run
+	 * backwards on demand.  Add a Material node at the top at need.
+	 */
+	if (cursorOptions & CURSOR_OPT_SCROLL)
+	{
+		if (!ExecSupportsBackwardScan(top_plan))
+			top_plan = materialize_finished_plan(top_plan);
+	}
+
+	/*
+	 * Just before creating the PlannedStmt, do some final cleanup
+	 * We need to save plan dependencies, so that dropping objects will
+	 * invalidate the cached plan if it depends on those objects. Table
+	 * dependencies are available in glob->relationOids and all other
+	 * dependencies are in glob->invalItems. These fields can be retrieved
+	 * through set_plan_references().
+	 */
+	top_plan = set_plan_references(glob, top_plan, query->rtable,
+									root->rowMarks);
 	/* build the PlannedStmt result */
 	result = makeNode(PlannedStmt);
 	/* Try and set what we can, rest must have been zeroed out by makeNode() */
@@ -735,21 +761,8 @@ pgxc_FQS_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	/* Set result relations */
 	if (query->commandType != CMD_SELECT)
 		result->resultRelations = list_make1_int(query->resultRelation);
-	/*
-	 * We decided to ship the query to the datanode/s, create a RemoteQuery node
-	 * for the same.
-	 */
-	result->planTree = (Plan *)pgxc_FQS_create_remote_plan(query, exec_nodes, false);
+	result->planTree = top_plan;
 	result->rtable = query->rtable;
-	/*
-	 * We need to save plan dependencies, so that dropping objects will
-	 * invalidate the cached plan if it depends on those objects. Table
-	 * dependencies are available in glob->relationOids and all other
-	 * dependencies are in glob->invalItems. These fields can be retrieved
-	 * through set_plan_references().
-	 */
-	result->planTree = set_plan_references(glob, result->planTree,
-	                                       query->rtable, root->rowMarks);
 	result->relationOids = glob->relationOids;
 	result->invalItems = glob->invalItems;
 
