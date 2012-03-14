@@ -2006,8 +2006,7 @@ pgxc_node_remote_abort(void)
 		connections[i]->error = NULL;
 
 		if ((status == RXACT_NODE_PREPARED) ||
-			(status == RXACT_NODE_PREPARE_SENT) ||
-			(status == RXACT_NODE_COMMIT_FAILED))
+			(status == RXACT_NODE_PREPARE_SENT))
 		{
 			sprintf(rollbackPrepCmd, "ROLLBACK PREPARED '%s'", remoteXactState.prepareGID);
 
@@ -4491,6 +4490,7 @@ clear_RemoteXactState(void)
 	remoteXactState.numReadRemoteNodes = 0;
 	remoteXactState.status = RXACT_NONE;
 	remoteXactState.commitXid = InvalidGlobalTransactionId;
+	remoteXactState.prepareGID[0] = '\0';
 
 	if ((remoteXactState.remoteNodeHandles == NULL) ||
 		(remoteXactState.maxRemoteNodes < (NumDataNodes + NumCoords)))
