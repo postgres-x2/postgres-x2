@@ -157,12 +157,11 @@ typedef struct Query
 								 * depends on to be semantically valid */
 #ifdef PGXC
 	/* need this info for PGXC Planner, may be temporary */
-	char	   *sql_statement;	/* original query */
-	ExecNodes  *execNodes;		/* execute nodes */
+	char		*sql_statement;		/* original query */
 	bool		qry_finalise_aggs;	/* used for queries intended for datanodes,
-									 * should datanode finalise the aggregates? */
+						 * should datanode finalise the aggregates? */
 	bool		is_local;		/* enforce query execution on local node
-								 * this is used by EXECUTE DIRECT especially. */
+						 * this is used by EXECUTE DIRECT especially. */
 #endif
 } Query;
 
