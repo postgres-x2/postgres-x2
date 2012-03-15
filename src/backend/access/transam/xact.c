@@ -2028,42 +2028,8 @@ CommitTransaction(void)
 			else
 				s->auxilliaryTransactionId = InvalidGlobalTransactionId;
 		}
-
-		/*
-		 * Now run 2PC on the remote nodes. Any errors will be reported via
-		 * ereport and we will run error recovery as part of AbortTransaction
-		 */
-		PreCommit_Remote(savePrepareGID, XactLocalNodePrepared);
-
-		/*
-		 * Now that all the remote nodes have successfully prepared and
-		 * commited, commit the local transaction as well. Remember, any errors
-		 * before this point would have been reported via ereport. The fact
-		 * that we are here shows that the transaction has been committed
-		 * successfully on the remote nodes
-		 */
-		if (XactLocalNodePrepared)
-		{
-			XactLocalNodePrepared = false;
-			PreventTransactionChain(true, "COMMIT IMPLICIT PREPARED");
-			FinishPreparedTransaction(savePrepareGID, true);
-		}
-
-		/*
-		 * The current transaction may have been ended and we might have
-		 * started a new transaction. Re-initialize with
-		 * CurrentTransactionState
-		 */
-		s = CurrentTransactionState;
-
-		/*
-		 * Let the normal commit processing now handle the main transaction if
-		 * the local node was not involved. Otherwise, we are in an
-		 * auxilliary transaction and that will be closed along with the main
-		 * transaction
-		 */
 	}
-#endif
+#endif	
 
 	/*
 	 * Do pre-commit processing that involves calling user-defined code, such
@@ -2119,6 +2085,45 @@ CommitTransaction(void)
 	 * holding the notify-insertion lock.
 	 */
 	PreCommit_Notify();
+
+#ifdef PGXC	
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	{
+		/*
+		 * Now run 2PC on the remote nodes. Any errors will be reported via
+		 * ereport and we will run error recovery as part of AbortTransaction
+		 */
+		PreCommit_Remote(savePrepareGID, XactLocalNodePrepared);
+
+		/*
+		 * Now that all the remote nodes have successfully prepared and
+		 * commited, commit the local transaction as well. Remember, any errors
+		 * before this point would have been reported via ereport. The fact
+		 * that we are here shows that the transaction has been committed
+		 * successfully on the remote nodes
+		 */
+		if (XactLocalNodePrepared)
+		{
+			XactLocalNodePrepared = false;
+			PreventTransactionChain(true, "COMMIT IMPLICIT PREPARED");
+			FinishPreparedTransaction(savePrepareGID, true);
+		}
+
+		/*
+		 * The current transaction may have been ended and we might have
+		 * started a new transaction. Re-initialize with
+		 * CurrentTransactionState
+		 */
+		s = CurrentTransactionState;
+
+		/*
+		 * Let the normal commit processing now handle the main transaction if
+		 * the local node was not involved. Otherwise, we are in an
+		 * auxilliary transaction and that will be closed along with the main
+		 * transaction
+		 */
+	}
+#endif
 
 	/* Prevent cancel/die interrupt while cleaning up */
 	HOLD_INTERRUPTS();
