@@ -3589,6 +3589,14 @@
   </primaryie>
 </indexentry>
 
+<!## XC>
+<indexentry>
+  <primaryie>initgtm,
+    <ulink url="app-initgtm.html" role="app-initgtm">initgtm</ulink>
+  </primaryie>
+</indexentry>
+<!## end>
+
 <indexentry>
   <primaryie>input function,
     <ulink url="xtypes.html" role="AEN47475">User-Defined Types</ulink>

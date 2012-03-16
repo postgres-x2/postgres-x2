@@ -292,6 +292,9 @@
    &pgxcDdl;
 <!## end>
    &initdb;
+<!## XC>
+   &initgtm;
+<!## end>
    &pgControldata;
    &pgCtl;
    &pgResetxlog;
