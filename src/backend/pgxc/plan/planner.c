@@ -2127,7 +2127,7 @@ validate_part_col_updatable(const Query *query)
 	rte = (RangeTblEntry *) list_nth(query->rtable, query->resultRelation - 1);
 
 
-	if (rte != NULL && rte->rtekind != RTE_RELATION)
+	if (rte != NULL && rte->relkind != RELKIND_RELATION)
 		/* Bad relation type */
 		return;
 
