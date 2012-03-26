@@ -1129,4 +1129,9 @@ extern Datum pgxc_pool_check(PG_FUNCTION_ARGS);
 extern Datum pgxc_pool_reload(PG_FUNCTION_ARGS);
 #endif
 
+/* backend/access/transam/transam.c */
+#ifdef PGXC
+extern Datum pgxc_is_committed(PG_FUNCTION_ARGS);
+#endif
+
 #endif   /* BUILTINS_H */
