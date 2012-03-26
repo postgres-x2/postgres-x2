@@ -1757,7 +1757,6 @@ pgxc_FQS_walker(Node *node, FQS_context *fqs_context)
 			 * do we handle DDLs here?
 			 */
 		case T_FieldSelect:
-		case T_FieldStore:
 		case T_ArrayRef:
 		case T_RangeTblRef:
 		case T_NamedArgExpr:
@@ -1782,6 +1781,16 @@ pgxc_FQS_walker(Node *node, FQS_context *fqs_context)
 		case T_CoerceToDomain:
 			break;
 
+		case T_FieldStore:
+			/*
+			 * PostgreSQL deparsing logic does not handle the FieldStore
+			 * for more than one fields (see processIndirection()). So, let's
+			 * handle it through standard planner, where whole row will be
+			 * constructed.
+			 */
+			fqs_context->fqsc_canShip = false;
+			break;
+
 		case T_SetToDefault:
 			/*
 			 * PGXCTODO: we should actually check whether the default value to
@@ -1789,7 +1798,7 @@ pgxc_FQS_walker(Node *node, FQS_context *fqs_context)
 			 * nextval() of a sequence can not be shipped to the datanode, hence
 			 * for now default values can not be shipped to the datanodes
 			 */
-			fqs_context->fqsc_need_coord = true;
+			fqs_context->fqsc_canShip = false;
 			break;
 
 		case T_Var:
