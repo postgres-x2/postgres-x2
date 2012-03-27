@@ -3047,6 +3047,7 @@ do_query(RemoteQueryState *node)
 										   sort->numCols,
 										   sort->sortColIdx,
 										   sort->sortOperators,
+										   sort->sortCollations,
 										   sort->nullsFirst,
 										   node,
 										   work_mem);

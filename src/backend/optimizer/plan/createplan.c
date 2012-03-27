@@ -6086,6 +6086,7 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 			remote_sort->numCols = sort_plan->numCols;
 			remote_sort->sortColIdx = sort_plan->sortColIdx;
 			remote_sort->sortOperators = sort_plan->sortOperators;
+			remote_sort->sortCollations = sort_plan->collations;
 			remote_sort->nullsFirst = sort_plan->nullsFirst;
 			appendStringInfoString(orderby_clause, "ORDER BY ");
 			sep = "";

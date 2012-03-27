@@ -43,6 +43,7 @@ typedef struct
 	int			numCols;		/* number of sort-key columns */
 	AttrNumber *sortColIdx;		/* their indexes in the target list */
 	Oid		   *sortOperators;	/* OIDs of operators to sort them by */
+	Oid		   *sortCollations;
 	bool	   *nullsFirst;		/* NULLS FIRST/LAST directions */
 } SimpleSort;
 
