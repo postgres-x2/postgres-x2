@@ -120,18 +120,12 @@ static char *preparedNodes;
  */
 static bool temp_object_included = false;
 
-static bool analyze_node_string(char *nodestring,
-								List **datanodelist,
-								List **coordlist);
 static int	pgxc_node_begin(int conn_count, PGXCNodeHandle ** connections,
 				GlobalTransactionId gxid, bool need_tran_block,
 				bool readOnly, char node_type);
 static PGXCNodeAllHandles * get_exec_connections(RemoteQueryState *planstate,
 					 ExecNodes *exec_nodes,
 					 RemoteQueryExecType exec_type);
-static int	pgxc_node_receive_and_validate(const int conn_count,
-										   PGXCNodeHandle ** connections,
-										   bool reset_combiner);
 
 static void close_node_cursors(PGXCNodeHandle **connections, int conn_count, char *cursor);
 
@@ -858,55 +852,6 @@ ValidateAndCloseCombiner(RemoteQueryState *combiner)
 	bool		valid = validate_combiner(combiner);
 
 	CloseCombiner(combiner);
-
-	return valid;
-}
-
-/*
- * Validate combiner and reset storage
- */
-static bool
-ValidateAndResetCombiner(RemoteQueryState *combiner)
-{
-	bool		valid = validate_combiner(combiner);
-	ListCell   *lc;
-
-	if (combiner->connections)
-		pfree(combiner->connections);
-	if (combiner->tuple_desc)
-		FreeTupleDesc(combiner->tuple_desc);
-	if (combiner->currentRow.msg)
-		pfree(combiner->currentRow.msg);
-	foreach(lc, combiner->rowBuffer)
-	{
-		RemoteDataRow dataRow = (RemoteDataRow) lfirst(lc);
-		pfree(dataRow->msg);
-	}
-	list_free_deep(combiner->rowBuffer);
-	if (combiner->errorMessage)
-		pfree(combiner->errorMessage);
-	if (combiner->errorDetail)
-		pfree(combiner->errorDetail);
-	if (combiner->tapenodes)
-		pfree(combiner->tapenodes);
-
-	combiner->command_complete_count = 0;
-	combiner->connections = NULL;
-	combiner->conn_count = 0;
-	combiner->request_type = REQUEST_TYPE_NOT_DEFINED;
-	combiner->tuple_desc = NULL;
-	combiner->description_count = 0;
-	combiner->copy_in_count = 0;
-	combiner->copy_out_count = 0;
-	combiner->errorMessage = NULL;
-	combiner->errorDetail = NULL;
-	combiner->query_Done = false;
-	combiner->currentRow.msg = NULL;
-	combiner->currentRow.msglen = 0;
-	combiner->currentRow.msgnode = 0;
-	combiner->rowBuffer = NIL;
-	combiner->tapenodes = NULL;
-	combiner->copy_file = NULL;
 
 	return valid;
 }
