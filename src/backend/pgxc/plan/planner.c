@@ -58,115 +58,6 @@
 #include "utils/timestamp.h"
 #include "utils/date.h"
 
-/*
- * Convenient format for literal comparisons
- */
-typedef struct
-{
-	Oid		relid;
-	RelationLocInfo	*rel_loc_info;
-	Oid		attrnum;
-	char		*col_name;
-	Datum		constValue;
-	Oid		constType;
-	bool	constisnull;
-} Literal_Comparison;
-
-/*
- * Comparison of partitioned column and expression
- * Expression can be evaluated at execution time to determine target nodes
- */
-typedef struct
-{
-	Oid			relid;
-	RelationLocInfo *rel_loc_info;
-	Oid			attrnum;
-	char	   *col_name;
-	Expr	   *expr;		/* assume long PGXCTODO - should be Datum */
-} Expr_Comparison;
-
-/* Parent-Child joins for relations being joined on
- * their respective hash distribuion columns
- */
-typedef struct
-{
-	RelationLocInfo *rel_loc_info1;
-	RelationLocInfo *rel_loc_info2;
-	OpExpr			*opexpr;
-} Parent_Child_Join;
-
-/*
- * This struct helps us detect special conditions to determine what nodes
- * to execute on.
- */
-typedef struct
-{
-	List	   *partitioned_literal_comps;		/* List of Literal_Comparison */
-	List	   *partitioned_expressions;		/* List of Expr_Comparison */
-	List	   *partitioned_parent_child;		/* List of Parent_Child_Join */
-	List	   *replicated_joins;
-
-	/*
-	 * Used when joining a single replicated or non-replicated table with
-	 * other replicated tables. Use as a basis for partitioning determination.
-	 */
-	char	   *base_rel_name;
-	RelationLocInfo *base_rel_loc_info;
-
-} Special_Conditions;
-
-/* If two relations are joined based on special location information */
-typedef enum PGXCJoinType
-{
-	JOIN_REPLICATED_ONLY,
-	JOIN_REPLICATED_PARTITIONED,
-	JOIN_COLOCATED_PARTITIONED,
-	JOIN_OTHER
-} PGXCJoinType;
-
-/* used to track which tables are joined */
-typedef struct
-{
-	int			relid1;			/* the first relation */
-	char	   *aliasname1;
-	int			relid2;			/* the second relation */
-	char	   *aliasname2;
-
-	PGXCJoinType join_type;
-} PGXC_Join;
-
-/* used for base column in an expression */
-typedef struct ColumnBase
-{
-	int 	relid;
-	char	*relname;
-	char	*relalias;
-	char	*colname;
-} ColumnBase;
-
-/* Used for looking for XC-safe queries
- *
- * rtables is a pointer to List, each item of which is
- * the rtable for the particular query. This way we can use
- * varlevelsup to resolve Vars in nested queries
- */
-typedef struct XCWalkerContext
-{
-	Query			*query;
-	RelationAccessType	accessType;
-	RemoteQuery		*query_step;	/* remote query step being analized */
-	PlannerInfo		*root;		/* planner data for the subquery */
-	Special_Conditions	*conditions;
-	bool			multilevel_join;
-	List 			*rtables;	/* a pointer to a list of rtables */
-	int			varno;
-	bool			within_or;
-	bool			within_not;
-	bool			exec_on_coord;	/* fallback to standard planner to have plan executed on coordinator only */
-	List			*join_list;	/* A list of List*'s, one for each relation. */
-} XCWalkerContext;
-
-
 /* Forbid unsafe SQL statements */
 bool		StrictStatementChecking = true;
 /* fast query shipping is enabled by default */
@@ -198,38 +89,6 @@ static bool pgxc_qual_hash_dist_equijoin(Relids varnos_1, Relids varnos_2,
 											Oid distcol_type, Node *quals,
 											List *rtable);
 static bool VarAttrIsPartAttr(Var *var, List *rtable);
-
-/*
- * get_numeric_constant - extract casted constant
- *
- * Searches an expression to see if it is a Constant that is being cast
- * to numeric.  Return a pointer to the Constant, or NULL.
- * We need this because of casting.
- */
-static Expr *
-get_numeric_constant(Expr *expr)
-{
-	if (expr == NULL)
-		return NULL;
-
-	if (IsA(expr, Const))
-		return expr;
-
-	/* We may have a cast, represented by a function */
-	if (IsA(expr, FuncExpr))
-	{
-		FuncExpr   *funcexpr = (FuncExpr *) expr;
-
-		/* try and get at what is being cast  */
-		/* We may have an implicit double-cast, so we do this recurisvely */
-		if (funcexpr->funcid == F_NUMERIC || funcexpr->funcid == F_INT4_NUMERIC)
-		{
-			return get_numeric_constant(linitial(funcexpr->args));
-		}
-	}
-
-	return NULL;
-}
 
 /*
  * make_ctid_col_ref
@@ -368,28 +227,10 @@ static RemoteQuery *
 makeRemoteQuery(void)
 {
 	RemoteQuery *result = makeNode(RemoteQuery);
-	result->exec_nodes = NULL;
 	result->combine_type = COMBINE_TYPE_NONE;
-	result->sort = NULL;
-	result->read_only = true;
-	result->force_autocommit = false;
-	result->cursor = NULL;
 	result->exec_type = EXEC_ON_DATANODES;
 	result->exec_direct_type = EXEC_DIRECT_NONE;
-	result->is_temp = false;
 
-	result->reduce_level = 0;
-	result->base_tlist = NIL;
-	result->outer_alias = NULL;
-	result->inner_alias = NULL;
-	result->outer_reduce_level = 0;
-	result->inner_reduce_level = 0;
-	result->outer_relids = NULL;
-	result->inner_relids = NULL;
-	result->inner_statement = NULL;
-	result->outer_statement = NULL;
-	result->join_condition = NULL;
-	result->sql_statement = NULL;
 	return result;
 }
 
@@ -2171,43 +2012,6 @@ validate_part_col_updatable(const Query *query)
 			  			(errmsg("Partition column can't be updated in current version"))));
 		}
 	}
-}
-
-
-/*
- * GetHashExecNodes -
- *	Get hash key of execution nodes according to the expression value
- *
- * Input parameters: 
- *	rel_loc_info is a locator function. It contains distribution information.
- *	exec_nodes is the list of nodes to be executed
- *	expr is the partition column value
- */
-void
-GetHashExecNodes(RelationLocInfo *rel_loc_info, ExecNodes **exec_nodes, const Expr *expr)
-{
-	/* We may have a cast, try and handle it */
-	Expr	   *checkexpr;
-	Expr	   *eval_expr = NULL;
-	Const	   *constant;
-
-	eval_expr = (Expr *) eval_const_expressions(NULL, (Node *)expr);
-	checkexpr = get_numeric_constant(eval_expr);
-
-	if (checkexpr == NULL)
-		return;
-
-	constant = (Const *) checkexpr;
-
-	/* single call handles both replicated and partitioned types */
-	*exec_nodes = GetRelationNodes(rel_loc_info,
-								   constant->constvalue,
-								   constant->consttype,
-								   constant->constisnull,
-								   RELATION_ACCESS_INSERT);
-	if (eval_expr)
-		pfree(eval_expr);
-
 }
 
 /*
