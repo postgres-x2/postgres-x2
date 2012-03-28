@@ -119,12 +119,9 @@ typedef struct
  */
 typedef struct
 {
-	bool	fqsc_canShip;			/* if true, we need to check other members
-									 * to see if the query is shippable. If
-									 * false, the query is definitely not
-									 * shippable
+	Bitmapset	*fqsc_shippability;	/* The conditions for (un)shippability of the
+									 * query.
 									 */
-	bool	fqsc_need_coord;		/* needs coordinator for query evaluation */
 	Query	*fqsc_query;			/* the query being analysed for FQS */
 	int		fqsc_query_level;		/* level of the query */
 	int		fqsc_max_varlevelsup;	/* maximum upper level referred to by any
@@ -138,6 +135,23 @@ typedef struct
 									 * ultimately merged with fqsc_exec_nodes.
 									 */
 } FQS_context;
+
+/* enum for reasons as to why a query is not FQSable */
+typedef enum
+{
+	FQS_UNSHIPPABLE_EXPR = 0,		/* it has unshippable expression */
+	FQS_SINGLENODE_EXPR,			/* it has single node expression, like
+									 * aggregates, ORDER BY etc. */
+	FQS_NEEDS_COORD,				/* the query needs coordinator */
+	FQS_VARLEVEL,					/* one of its subqueries has a VAR
+									 * referencing an upper level query
+									 * relation */
+	FQS_NO_NODES,					/* no suitable nodes can be found to ship
+									 * the query */
+	FQS_UNSUPPORTED_EXPR			/* it has expressions currently unsupported
+									 * by FQS, but such expressions might be
+									 * supported by FQS in future */
+} FQS_shippability;
 
 /* global variable corresponding to the GUC with same name */
 extern bool enable_fast_query_shipping;

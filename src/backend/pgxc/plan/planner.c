@@ -89,6 +89,8 @@ static bool pgxc_qual_hash_dist_equijoin(Relids varnos_1, Relids varnos_2,
 											Oid distcol_type, Node *quals,
 											List *rtable);
 static bool VarAttrIsPartAttr(Var *var, List *rtable);
+static void pgxc_FQS_set_reason(FQS_context *context, FQS_shippability reason);
+static bool pgxc_FQS_test_reason(FQS_context *context, FQS_shippability reason);
 
 /*
  * make_ctid_col_ref
@@ -757,6 +759,26 @@ pgxc_query_needs_coord(Query *query)
 }
 
 /*
+ * Set the given reason in FQS_context indicating why the query can not be
+ * shipped directly to the datanodes.
+ */
+static void
+pgxc_FQS_set_reason(FQS_context *context, FQS_shippability reason)
+{
+	context->fqsc_shippability = bms_add_member(context->fqsc_shippability, reason);
+}
+
+/*
+ * See if a given reason is why the query can not be shipped directly
+ * to the datanodes.
+ */
+static bool
+pgxc_FQS_test_reason(FQS_context *context, FQS_shippability reason)
+{
+	return bms_is_member(reason, context->fqsc_shippability);
+}
+
+/*
  * pgxc_is_query_shippable
  * This function calls the query walker to analyse the query to gather
  * information like  Constraints under which the query can be shippable, nodes
@@ -771,35 +793,13 @@ pgxc_is_query_shippable(Query *query, int query_level)
 {
 	FQS_context fqs_context;
 	ExecNodes	*exec_nodes;
-	bool		needs_single_datanode = false;
+	bool		canShip = true;
+	Bitmapset	*shippability;
+
 	memset(&fqs_context, 0, sizeof(fqs_context));
 	/* let's assume that by default query is shippable */
-	fqs_context.fqsc_canShip = true;
 	fqs_context.fqsc_query = query;
 	fqs_context.fqsc_query_level = query_level;
-
-	if (query->hasRecursive || 	query->intoClause)
-		fqs_context.fqsc_canShip = false;
-	/*
-	 * If the query needs coordinator for evaluation or the query can be
-	 * completed on coordinator itself, we don't ship it to the datanode
-	 */
-	if (pgxc_query_needs_coord(query))
-	{
-		fqs_context.fqsc_need_coord = true;
-		fqs_context.fqsc_canShip = false;
-	}
-
-	/* PGXC_FQS_TODO: It should be possible to look at the Query and find out
-	 * whether it can be completely evaluated on the datanode just like SELECT
-	 * queries. But we need to be careful while finding out the datanodes to
-	 * execute the query on, esp. for the result relations. If one happens to
-	 * remove/change this restriction, make sure you change
-	 * pgxc_FQS_get_relation_nodes appropriately.
-	 * For now DMLs with single rtable entry are candidates for FQS
-	 */
-	if (query->commandType != CMD_SELECT && list_length(query->rtable) > 1)
-		fqs_context.fqsc_canShip = false;
 
 	/*
 	 * We might have already decided not to ship the query to the datanodes, but
@@ -835,44 +835,41 @@ pgxc_is_query_shippable(Query *query, int query_level)
 	if (!exec_nodes)
 		return NULL;
 
-	/*
-	 * PGXC_FQS_TODO:
-	 * There is a subquery in this query, which references Vars in the upper
-	 * query. For now stop shipping such queries. We should get rid of this
-	 * condition.
-	 */
-	if (fqs_context.fqsc_max_varlevelsup != 0)
-		fqs_context.fqsc_canShip = false;
+	/* Copy the shippability reasons. We modify the copy for easier handling.
+	 * The original can be saved away */
+	shippability = bms_copy(fqs_context.fqsc_shippability);
 
 	/*
-	 * In following conditions query is shippable when there is only one
-	 * datanode involved
-	 * 1. the query has aggregagtes
-	 * 2. the query has window functions
-	 * 3. the query has ORDER BY clause
-	 * 4. the query has Distinct clause
-	 * 5. the query has limit and offset clause
-	 *
-	 * PGXC_FQS_TODO: Condition 1 above is really dependent upon the GROUP BY clause. If
-	 * all rows in each group reside on the same datanode, aggregates can be
-	 * evaluated on that datanode, thus condition 1 is has aggregates & the rows
-	 * in any group reside on multiple datanodes.
-	 * PGXC_FQS_TODO: Condition 2 above is really dependent upon whether the distinct
-	 * clause has distribution column in it. If the distinct clause has
-	 * distribution column in it, we can ship DISTINCT clause to the datanodes.
+	 * If the query has an expression which renders the shippability to single
+	 * node, and query needs to be shipped to more than one node, it can not be
+	 * shipped
 	 */
-	if (query->hasAggs || query->hasWindowFuncs || query->sortClause ||
-		query->distinctClause || query->groupClause || query->havingQual ||
-		query->limitOffset || query->limitCount)
-		needs_single_datanode = true;
-	if (needs_single_datanode && list_length(exec_nodes->nodeList) > 1)
-		fqs_context.fqsc_canShip = false;
+	if (bms_is_member(FQS_SINGLENODE_EXPR, shippability))
+	{
+		/* We handled the reason here, reset it */
+		shippability = bms_del_member(shippability, FQS_SINGLENODE_EXPR);
+		/* if nodeList has no nodes, it ExecNodes will have other means to know
+		 * the nodes where to execute like distribution column expression. We
+		 * can't tell how many nodes the query will be executed on, hence treat
+		 * that as multiple nodes.
+		 */
+		if (list_length(exec_nodes->nodeList) != 1)
+			canShip = false;
+	}
+
+	/* Can not ship the query for some reason */
+	if (!bms_is_empty(shippability))
+		canShip = false;
 
 	/* Always keep this at the end before checking canShip and return */
-	if (!fqs_context.fqsc_canShip && exec_nodes)
+	if (!canShip && exec_nodes)
 		FreeExecNodes(&exec_nodes);
 	/* If query is to be shipped, we should know where to execute the query */
-	Assert (!fqs_context.fqsc_canShip || exec_nodes);
+	Assert (!canShip || exec_nodes);
+
+	bms_free(shippability);
+	shippability = NULL;
+
 	return exec_nodes;
 }
 
@@ -1629,7 +1626,7 @@ pgxc_FQS_walker(Node *node, FQS_context *fqs_context)
 			 * handle it through standard planner, where whole row will be
 			 * constructed.
 			 */
-			fqs_context->fqsc_canShip = false;
+			pgxc_FQS_set_reason(fqs_context, FQS_UNSUPPORTED_EXPR);
 			break;
 
 		case T_SetToDefault:
@@ -1639,7 +1636,7 @@ pgxc_FQS_walker(Node *node, FQS_context *fqs_context)
 			 * nextval() of a sequence can not be shipped to the datanode, hence
 			 * for now default values can not be shipped to the datanodes
 			 */
-			fqs_context->fqsc_canShip = false;
+			pgxc_FQS_set_reason(fqs_context, FQS_UNSUPPORTED_EXPR);
 			break;
 
 		case T_Var:
@@ -1664,7 +1661,7 @@ pgxc_FQS_walker(Node *node, FQS_context *fqs_context)
 			 * remote side.
 			 */
 			if (param->paramkind == PARAM_EXEC)
-				fqs_context->fqsc_canShip = false;
+				pgxc_FQS_set_reason(fqs_context, FQS_UNSUPPORTED_EXPR);
 		}
 		break;
 
@@ -1702,7 +1699,7 @@ pgxc_FQS_walker(Node *node, FQS_context *fqs_context)
 			 * can be shipped to the datanode and what can not be.
 			 */
 			if (!is_immutable_func(funcexpr->funcid))
-				fqs_context->fqsc_canShip = false;
+				pgxc_FQS_set_reason(fqs_context, FQS_UNSHIPPABLE_EXPR);
 		}
 		break;
 
@@ -1719,7 +1716,7 @@ pgxc_FQS_walker(Node *node, FQS_context *fqs_context)
 			Oid		opfuncid = OidIsValid(op_expr->opfuncid) ?
 								op_expr->opfuncid : get_opcode(op_expr->opno);
 			if (!OidIsValid(opfuncid) || !is_immutable_func(opfuncid))
-				fqs_context->fqsc_canShip = false;
+				pgxc_FQS_set_reason(fqs_context, FQS_UNSHIPPABLE_EXPR);
 		}
 		break;
 
@@ -1733,7 +1730,7 @@ pgxc_FQS_walker(Node *node, FQS_context *fqs_context)
 			Oid		opfuncid = OidIsValid(sao_expr->opfuncid) ?
 								sao_expr->opfuncid : get_opcode(sao_expr->opno);
 			if (!OidIsValid(opfuncid) || !is_immutable_func(opfuncid))
-				fqs_context->fqsc_canShip = false;
+				pgxc_FQS_set_reason(fqs_context, FQS_UNSHIPPABLE_EXPR);
 		}
 		break;
 
@@ -1754,9 +1751,60 @@ pgxc_FQS_walker(Node *node, FQS_context *fqs_context)
 		{
 			Query *query = (Query *)node;
 
+			if (query->hasRecursive || 	query->intoClause)
+				pgxc_FQS_set_reason(fqs_context, FQS_UNSUPPORTED_EXPR);
+			/*
+			 * If the query needs coordinator for evaluation or the query can be
+			 * completed on coordinator itself, we don't ship it to the datanode
+			 */
+			if (pgxc_query_needs_coord(query))
+				pgxc_FQS_set_reason(fqs_context, FQS_NEEDS_COORD);
+
+			/* PGXC_FQS_TODO: It should be possible to look at the Query and find out
+			 * whether it can be completely evaluated on the datanode just like SELECT
+			 * queries. But we need to be careful while finding out the datanodes to
+			 * execute the query on, esp. for the result relations. If one happens to
+			 * remove/change this restriction, make sure you change
+			 * pgxc_FQS_get_relation_nodes appropriately.
+			 * For now DMLs with single rtable entry are candidates for FQS
+			 */
+			if (query->commandType != CMD_SELECT && list_length(query->rtable) > 1)
+				pgxc_FQS_set_reason(fqs_context, FQS_UNSUPPORTED_EXPR);
+
+			/*
+			 * In following conditions query is shippable when there is only one
+			 * datanode involved
+			 * 1. the query has aggregagtes
+			 * 2. the query has window functions
+			 * 3. the query has ORDER BY clause
+			 * 4. the query has Distinct clause
+			 * 5. the query has limit and offset clause
+			 *
+			 * PGXC_FQS_TODO: Condition 1 above is really dependent upon the GROUP BY clause. If
+			 * all rows in each group reside on the same datanode, aggregates can be
+			 * evaluated on that datanode, thus condition 1 is has aggregates & the rows
+			 * in any group reside on multiple datanodes.
+			 * PGXC_FQS_TODO: Condition 2 above is really dependent upon whether the distinct
+			 * clause has distribution column in it. If the distinct clause has
+			 * distribution column in it, we can ship DISTINCT clause to the datanodes.
+			 */
+			if (query->hasAggs || query->hasWindowFuncs || query->sortClause ||
+				query->distinctClause || query->groupClause || query->havingQual ||
+				query->limitOffset || query->limitCount)
+				pgxc_FQS_set_reason(fqs_context, FQS_SINGLENODE_EXPR);
+
 			/* walk the entire query tree to analyse the query */
 			if (query_tree_walker(query, pgxc_FQS_walker, fqs_context, 0))
 				return true;
+
+			/*
+			 * PGXC_FQS_TODO:
+			 * There is a subquery in this query, which references Vars in the upper
+			 * query. For now stop shipping such queries. We should get rid of this
+			 * condition.
+			 */
+			if (fqs_context->fqsc_max_varlevelsup != 0)
+				pgxc_FQS_set_reason(fqs_context, FQS_VARLEVEL);
 
 			/*
 			 * Walk the RangeTableEntries of the query and find the
@@ -1785,7 +1833,7 @@ pgxc_FQS_walker(Node *node, FQS_context *fqs_context)
 			 * walker by looking at Query::hasWindowFuncs.
 			 */
 			if (!is_immutable_func(winf->winfnoid))
-				fqs_context->fqsc_canShip = false;
+				pgxc_FQS_set_reason(fqs_context, FQS_UNSHIPPABLE_EXPR);
 		}
 		break;
 
@@ -1820,14 +1868,19 @@ pgxc_FQS_walker(Node *node, FQS_context *fqs_context)
 			else
 				sublink_en = NULL;
 
-			/* TODO free the old fqsc_subquery_en. */
-			if (fqs_context->fqsc_canShip)
+			/* PGXCTODO free the old fqsc_subquery_en. */
+			/* If we already know that this query does not have a set of nodes
+			 * to evaluate on, don't bother to merge again.
+			 */
+			if (!pgxc_FQS_test_reason(fqs_context, FQS_NO_NODES))
+			{
 				fqs_context->fqsc_subquery_en = pgxc_merge_exec_nodes(sublink_en,
 																	fqs_context->fqsc_subquery_en,
 																	false,
 																	true);
-			if (!fqs_context->fqsc_subquery_en)
-				fqs_context->fqsc_canShip = false;
+				if (!fqs_context->fqsc_subquery_en)
+					pgxc_FQS_set_reason(fqs_context, FQS_NO_NODES);
+			}
 		}
 		break;
 
@@ -1840,7 +1893,7 @@ pgxc_FQS_walker(Node *node, FQS_context *fqs_context)
 		case T_PlaceHolderInfo:
 		{
 			/* PGXCTODO: till we exhaust this list */
-			fqs_context->fqsc_canShip = false;
+			pgxc_FQS_set_reason(fqs_context, FQS_UNSUPPORTED_EXPR);
 		}
 		break;
 
