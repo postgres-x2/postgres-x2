@@ -1209,6 +1209,10 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 							  list_length(parsetree->targetList) + 1,
 							  pstrdup(NameStr(att_tup->attname)),
 							  true);
+
+		/* This is needed in remote planning to confirm that TLE is for this relation */
+		tle->resorigtbl = RelationGetRelid(target_relation);
+
 		parsetree->targetList = lappend(parsetree->targetList, tle);
 	}
 #endif
@@ -1244,6 +1248,11 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 						  list_length(parsetree->targetList) + 1,
 						  pstrdup(attrname),
 						  true);
+
+#ifdef PGXC
+	/* This is needed in remote planning to confirm that TLE is for this relation */
+	tle->resorigtbl = RelationGetRelid(target_relation);
+#endif
 
 	parsetree->targetList = lappend(parsetree->targetList, tle);
 }

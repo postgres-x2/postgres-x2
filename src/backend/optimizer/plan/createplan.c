@@ -5788,9 +5788,16 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 			else
 				appendStringInfoString(buf, "AND ");
 
-			appendStringInfo(buf, "%s = $%d ",
-							 quote_identifier(tle->resname),
-							 count);
+			/* Nullify TLEs that are not from this relation */
+			if (tle->resorigtbl != ttab->relid)
+				appendStringInfo(buf, "$%d = $%d ",
+								 count,
+								 count);
+           else
+			   appendStringInfo(buf, "%s = $%d ",
+								quote_identifier(tle->resname),
+								count);
+
 
 			/* Associate type of parameter */
 			param_types[count - 1] = exprType((Node *) tle->expr);
