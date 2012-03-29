@@ -65,6 +65,9 @@
 #include "storage/smgr.h"
 #include "utils/builtins.h"
 #include "utils/memutils.h"
+#ifdef PGXC
+#include "pgxc/xc_maintenance_mode.h"
+#endif
 
 
 /*
@@ -456,10 +459,21 @@ LockGXact(const char *gid, Oid user)
 
 	LWLockRelease(TwoPhaseStateLock);
 
-	ereport(ERROR,
-			(errcode(ERRCODE_UNDEFINED_OBJECT),
-		 errmsg("prepared transaction with identifier \"%s\" does not exist",
-				gid)));
+#ifdef PGXC
+	/*
+	 * In PGXC, if xc_maintenance_mode is on, COMMIT/ROLLBACK PREPARED may be issued to the 
+	 * node where the given xid does not exist.
+	 */
+	if (!xc_maintenance_mode)
+	{
+#endif
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+				 errmsg("prepared transaction with identifier \"%s\" does not exist",
+						gid)));
+#ifdef PGXC
+	}
+#endif
 
 	/* NOTREACHED */
 	return NULL;
@@ -1243,6 +1257,15 @@ StandbyTransactionIdIsPrepared(TransactionId xid)
 
 /*
  * FinishPreparedTransaction: execute COMMIT PREPARED or ROLLBACK PREPARED
+ *
+ *(The following comment is only for Postgres-XC)
+ *
+ * With regard to xc_maintenance_mode related to pgxc_clean, COMMIT/ROLLBACK PREPARED
+ * might be called in the node where the transaction with given gid does not exist.
+ * This may happen at the originating coordinator.   In this case, we should
+ * skip to handle two-phase file.
+ *
+ * Please note that we don't have to write commit/abort log to WAL in this case.
  */
 void
 FinishPreparedTransaction(const char *gid, bool isCommit)
@@ -1266,6 +1289,20 @@ FinishPreparedTransaction(const char *gid, bool isCommit)
 	 * try to commit the same GID at once.
 	 */
 	gxact = LockGXact(gid, GetUserId());
+#ifdef PGXC
+	/*
+	 * LockGXact returns NULL if this node does not contain given two-phase
+	 * TXN.  This can happen when COMMIT/ROLLBACK PREPARED is issued at
+	 * the originating coordinator for cleanup.
+	 * In this case, no local handling is needed.   Only report to GTM
+	 * is needed and this has already been handled in 
+	 * FinishRemotePreparedTransaction().
+	 *
+	 * Second predicate may not be necessary.   It is just in case.
+	 */
+	if (gxact == NULL && xc_maintenance_mode)
+		return;
+#endif
 	xid = gxact->proc.xid;
 
 	/*

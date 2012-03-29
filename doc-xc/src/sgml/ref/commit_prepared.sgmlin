@@ -76,6 +76,10 @@ COMMIT PREPARED <replaceable class="PARAMETER">transaction_id</replaceable>
    transaction, <command>COMMIT PREPARED</> command will propagate to
    all these nodes.
   </para>
+&xconly;
+  <para>
+   If <literal>xc_maintenance_mode</literal> GUC parameter is set to <literal>ON</literal>, <command>COMMIT PREPARED</command> will not propagate to other nodes.   It just runs locally and report the result to <literal>GTM</literal>.
+  </para>
 <!## end>
  </refsect1>
 
@@ -98,6 +102,9 @@ COMMIT PREPARED 'foobar';
   <simplelist type="inline">
    <member><xref linkend="sql-prepare-transaction"></member>
    <member><xref linkend="sql-rollback-prepared"></member>
+<!## XC>
+   <member><xref linkend="guc-xc-maintenance-mode"></member>
+<!## end>
   </simplelist>
  </refsect1>
 

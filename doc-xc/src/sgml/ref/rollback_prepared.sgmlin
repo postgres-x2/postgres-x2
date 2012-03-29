@@ -74,6 +74,19 @@ ROLLBACK PREPARED <replaceable class="PARAMETER">transaction_id</replaceable>
    <link linkend="view-pg-prepared-xacts"><structname>pg_prepared_xacts</structname></link>
    system view.
   </para>
+
+<!## XC>
+&xconly;
+  <para>
+   If more than one datanode and/or coordinator are involved in the
+   transaction, <command>ROLLBACK PREPARED</> command will propagate to
+   all these nodes.
+  </para>
+&xconly;
+  <para>
+   If <literal>xc_maintenance_mode</literal> GUC parameter is set to <literal>ON</literal>, <command>ROLLBACK PREPARED</command> will not propagate to other nodes.   It just runs locally and report the result to <literal>GTM</literal>.
+  </para>
+<!## end>
  </refsect1>
 
  <refsect1 id="sql-rollback-prepared-examples">
@@ -95,6 +108,9 @@ ROLLBACK PREPARED 'foobar';
   <simplelist type="inline">
    <member><xref linkend="sql-prepare-transaction"></member>
    <member><xref linkend="sql-commit-prepared"></member>
+<!## XC>
+   <member><xref linkend="guc-xc-maintenance-mode"></member>
+<!## end>
   </simplelist>
  </refsect1>
 

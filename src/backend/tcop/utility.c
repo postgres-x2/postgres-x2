@@ -467,7 +467,7 @@ standard_ProcessUtility(Node *parsetree,
 						 */
 						if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 						{
-							if (FinishRemotePreparedTransaction(stmt->gid, true))
+							if (FinishRemotePreparedTransaction(stmt->gid, true) || xc_maintenance_mode)
 								FinishPreparedTransaction(stmt->gid, true);
 						}
 						else
@@ -485,7 +485,7 @@ standard_ProcessUtility(Node *parsetree,
 						 */
 						if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 						{
-							if (FinishRemotePreparedTransaction(stmt->gid, false))
+							if (FinishRemotePreparedTransaction(stmt->gid, false) || xc_maintenance_mode)
 								FinishPreparedTransaction(stmt->gid, false);
 						}
 						else

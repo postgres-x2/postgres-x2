@@ -52,6 +52,7 @@
 #include "nodes/nodes.h"
 #include "pgxc/poolmgr.h"
 #include "catalog/pgxc_node.h"
+#include "pgxc/xc_maintenance_mode.h"
 #endif
 #include "utils/rel.h"
 
@@ -2440,14 +2441,14 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("EXECUTE DIRECT cannot execute DML queries")));
 	else if (step->exec_direct_type == EXEC_DIRECT_UTILITY &&
-			 !IsExecDirectUtilityStmt(result->utilityStmt))
+			 !IsExecDirectUtilityStmt(result->utilityStmt) && !xc_maintenance_mode)
 	{
 		/* In case this statement is an utility, check if it is authorized */
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("EXECUTE DIRECT cannot execute this utility query")));
 	}
-	else if (step->exec_direct_type == EXEC_DIRECT_LOCAL_UTILITY)
+	else if (step->exec_direct_type == EXEC_DIRECT_LOCAL_UTILITY && !xc_maintenance_mode)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),

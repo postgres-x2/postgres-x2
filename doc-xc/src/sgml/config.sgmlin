@@ -6932,17 +6932,36 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
       </listitem>
      </varlistentry>
 
-     <varlistentry id="guc-xc-maintenance-ode" xreflabel="xc_maintenance_mode">
+     <varlistentry id="guc-xc-maintenance-mode" xreflabel="xc_maintenance_mode">
       <term><varname>xc_maintenance_mode</varname> (<type>bool</type>)</term>
       <indexterm>
        <primary><varname>xc_maintenance_mode</> configuration parameter</primary>
       </indexterm>
       <listitem>
        <para>
-        Specify to enter into maintenance mode.   Turning this on will change behavior of several statements.
+        Specify to enter into maintenance mode.  Turning this on will
+        change behavior of several statements.  Each statement
+        behavior may not be incompatible in future releases.  Users
+        must be extremely careful when they attempt to set this
+        value <literal>on</literal>.
        </para>
        <para>
-        This parameter can only be set by superuser with <literal>SET</literal> command.   Otherwise, the setting will be ignored.
+        So far, behavior of <xref linkend="sql-commit-prepared"> and <xref linkend="sql-rollback-prepared"> statements are affected by this parameter.
+       </para>
+       <para>
+        This parameter can only be set by superuser
+        with <literal>SET</literal> command.  Otherwise, the setting
+        will be ignored.
+       </para>
+       <para>
+        Developers should notice that this parameter is shared in all
+        the connections of the session, begween the originating
+        coordinator and target nodes and affects the behavior of
+        following statements of the session.
+       </para>
+       <para><literal>NITICE</literal></para>
+       <para>
+        This parameter is for housekeeping utilities.  Behavior when this parameter is set to <literal>ON</literal> may not be upward compatibile from version to version.
        </para>
       </listitem>
      </varlistentry>

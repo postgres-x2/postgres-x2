@@ -43,6 +43,7 @@
 #include "pgxc/locator.h"
 #include "pgxc/pgxc.h"
 #include "parser/parse_type.h"
+#include "pgxc/xc_maintenance_mode.h"
 
 #define END_QUERY_TIMEOUT	20
 #define DATA_NODE_FETCH_SIZE 1
@@ -4495,6 +4496,26 @@ FinishRemotePreparedTransaction(char *prepareGID, bool commit)
 	int						i;
 
 	/*
+	 * Please note that with xc_maintenance_mode = on, COMMIT/ROLLBACK PREPARED will not
+	 * propagate to remote nodes.  Only GTM status is cleaned up.  Prepared transaction
+	 * on remote nodes will be cleaned up by pgxc_clean using EXECUTE DIRECT.
+	 */
+	if (xc_maintenance_mode)
+	{
+		if (commit)
+		{
+			pgxc_node_remote_commit();
+			CommitPreparedTranGTM(prepare_gxid, gxid);
+		}
+		else
+		{
+			pgxc_node_remote_abort();
+			RollbackTranGTM(prepare_gxid);
+			RollbackTranGTM(gxid);
+		}
+		return false;
+	}
+	/*
 	 * Get the list of nodes involved in this transaction.
 	 *
 	 * This function returns the GXID of the prepared transaction. It also
@@ -4530,7 +4551,7 @@ FinishRemotePreparedTransaction(char *prepareGID, bool commit)
 			ereport(ERROR,
 					(errcode(ERRCODE_UNDEFINED_OBJECT),
 					 errmsg("PGXC Node %s: object not defined",
-						 nodename)));
+							nodename)));
 
 		/* Get node type and index */
 		nodetype = get_pgxc_nodetype(nodeoid);
@@ -4557,26 +4578,26 @@ FinishRemotePreparedTransaction(char *prepareGID, bool commit)
 
 	/*
 	 * Send GXID (as received above) to the remote nodes.
-	if (pgxc_node_begin(pgxc_handles->dn_conn_count,
-				pgxc_handles->datanode_handles,
-				gxid, false, false))
-		ereport(ERROR,
-				(errcode(ERRCODE_INTERNAL_ERROR),
-				 errmsg("Could not begin transaction on data nodes")));
-	 */
+	 if (pgxc_node_begin(pgxc_handles->dn_conn_count,
+	 pgxc_handles->datanode_handles,
+	 gxid, false, false))
+	 ereport(ERROR,
+	 (errcode(ERRCODE_INTERNAL_ERROR),
+	 errmsg("Could not begin transaction on data nodes")));
+	*/
 	RegisterTransactionNodes(pgxc_handles->dn_conn_count,
-			(void **) pgxc_handles->datanode_handles, true);
+							 (void **) pgxc_handles->datanode_handles, true);
 
 	/*
-	if (pgxc_node_begin(pgxc_handles->co_conn_count,
-				pgxc_handles->coord_handles,
-				gxid, false, false))
-		ereport(ERROR,
-				(errcode(ERRCODE_INTERNAL_ERROR),
-				 errmsg("Could not begin transaction on coordinators")));
-				 */
+	  if (pgxc_node_begin(pgxc_handles->co_conn_count,
+	  pgxc_handles->coord_handles,
+	  gxid, false, false))
+	  ereport(ERROR,
+	  (errcode(ERRCODE_INTERNAL_ERROR),
+	  errmsg("Could not begin transaction on coordinators")));
+	*/
 	RegisterTransactionNodes(pgxc_handles->co_conn_count,
-			(void **) pgxc_handles->coord_handles, true);
+							 (void **) pgxc_handles->coord_handles, true);
 
 	/*
 	 * Initialize the remoteXactState so that we can use the APIs to take care
@@ -4607,6 +4628,10 @@ FinishRemotePreparedTransaction(char *prepareGID, bool commit)
 		RollbackTranGTM(gxid);
 	}
 
+	/*
+	 * The following is also only for usual operation.  With xc_maintenance_mode = on,
+	 * no remote operation will be done here and no post-operation work is needed.
+	 */
 	clear_RemoteXactState();
 	ForgetTransactionNodes();
 
