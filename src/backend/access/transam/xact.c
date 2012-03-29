@@ -5459,4 +5459,18 @@ IsTransactionLocalNode(bool write)
 	else
 		return false;
 }
+
+/*
+ * Check if the given xid is form implicit 2PC
+ */
+bool
+IsXidImplicit(const char *xid)
+{
+#define implicit2PC_head "_$XC$"
+	static size_t implicit2PC_head_len = strlen(implicit2PC_head);
+
+	if (strncmp(xid, implicit2PC_head, implicit2PC_head_len))
+		return false;
+	return true;
+}
 #endif

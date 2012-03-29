@@ -273,6 +273,7 @@ extern void ForgetTransactionNodes(void);
 extern void RegisterTransactionLocalNode(bool write);
 extern bool IsTransactionLocalNode(bool write);
 extern void ForgetTransactionLocalNode(void);
+extern bool IsXidImplicit(const char *xid);
 #endif
 
 extern int	xactGetCommittedChildren(TransactionId **ptr);

@@ -130,6 +130,12 @@ PREPARE TRANSACTION <replaceable class="PARAMETER">transaction_id</replaceable>
    coordinator, <command>COMMIT PREPARED</> will be propagated to
    these nodes.
   </para>
+
+&xconly;
+  <para>
+   Transaction id beginning with <literal>_$XC$</literal> is reserved by COORDINATOR for
+   internal use.   You cannot use this form of transaction_id externaly.
+  </para>
 <!## end>
 
 &common;

@@ -62,6 +62,7 @@
 #include "nodes/nodes.h"
 #include "pgxc/poolmgr.h"
 #include "pgxc/nodemgr.h"
+#include "pgxc/xc_maintenance_mode.h"
 #endif
 #include "postmaster/autovacuum.h"
 #include "postmaster/bgwriter.h"
@@ -197,6 +198,9 @@ static bool check_bonjour(bool *newval, void **extra, GucSource source);
 static bool check_ssl(bool *newval, void **extra, GucSource source);
 static bool check_stage_log_stats(bool *newval, void **extra, GucSource source);
 static bool check_log_stats(bool *newval, void **extra, GucSource source);
+#ifdef PGXC
+static bool check_pgxc_maintenance_mode(bool *newval, void **extra, GucSource source);
+#endif
 static bool check_canonical_path(char **newval, void **extra, GucSource source);
 static bool check_timezone_abbreviations(char **newval, void **extra, GucSource source);
 static void assign_timezone_abbreviations(const char *newval, void *extra);
@@ -636,6 +640,10 @@ const char *const config_group_names[] =
 	gettext_noop("Datanodes and Connection Pooling"),
 	/* GTM */
 	gettext_noop("GTM Connection"),
+	/* COORDINATORS */
+	gettext_noop("Coordinator Options"),
+	/* XC_HOUSEKEEPING_OPTIONS */
+	gettext_noop("XC Housekeeping Options"),
 #endif
 	/* help_config wants this array to be null-terminated */
 	NULL
@@ -1488,6 +1496,15 @@ static struct config_bool ConfigureNamesBool[] =
 		&StrictStatementChecking,
 		true,
 		NULL, NULL, NULL
+	},
+	{
+		{"xc_maintenance_mode", PGC_SUSET, XC_HOUSEKEEPING_OPTIONS,
+		    gettext_noop("Turn on XC maintenance mode."),
+		 	gettext_noop("Can set ON by SET command by superuser.")
+		},
+		&xc_maintenance_mode,
+		false,
+		check_pgxc_maintenance_mode, NULL, NULL
 	},
 #endif
 
@@ -5257,6 +5274,14 @@ set_config_option(const char *name, const char *value,
 	bool		prohibitValueChange = false;
 	bool		makeDefault;
 
+#ifdef PGXC
+	/*
+	 * Current GucContest value is needed to check if xc_maintenance_mode parameter
+	 * is specified in valid contests.   It is allowed only by SET command or
+	 * libpq connect parameters so that setting this ON is just temporary.
+	 */
+	currentGucContext = context;
+#endif
 	if (context == PGC_SIGHUP || source == PGC_S_DEFAULT)
 	{
 		/*
@@ -8586,6 +8611,55 @@ check_log_stats(bool *newval, void **extra, GucSource source)
 	}
 	return true;
 }
+
+#ifdef PGXC
+/*
+ * K.Suzuki, March, 2012.
+ *
+ * Here, only a warning will be printed to log.   Returning false will cause FATAL error and it
+ * will not be good.
+ */
+static bool
+check_pgxc_maintenance_mode(bool *newval, void **extra, GucSource source)
+{
+
+	switch(source)
+	{
+		case PGC_S_DYNAMIC_DEFAULT:
+		case PGC_S_ENV_VAR:
+		case PGC_S_ARGV:
+			GUC_check_errmsg("pgxc_maintenance_mode is not allowed here.");
+			return false;
+		case PGC_S_FILE:
+			switch (currentGucContext)
+			{
+				case PGC_SIGHUP:
+					elog(WARNING, "pgxc_maintenance_mode is not allowed in  postgresql.conf.  Set to default (false).");
+					*newval = false;
+					return true;
+				default:
+					GUC_check_errmsg("pgxc_maintenance_mode is not allowed in postgresql.conf.");
+					return false;
+			}
+			return false;	/* Should not come here */
+		case PGC_S_DATABASE:
+		case PGC_S_USER:
+		case PGC_S_DATABASE_USER:
+		case PGC_S_INTERACTIVE:
+		case PGC_S_TEST:
+			elog(WARNING, "pgxc_maintenance_mode is not allowed here.  Set to default (false).");
+			*newval = false;
+			return true;
+		case PGC_S_DEFAULT:
+		case PGC_S_CLIENT:
+		case PGC_S_SESSION:
+			return true;
+		default:
+			GUC_check_errmsg("Unknown source");
+			return false;
+	}
+}
+#endif
 
 static bool
 check_canonical_path(char **newval, void **extra, GucSource source)

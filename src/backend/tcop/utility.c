@@ -73,6 +73,7 @@
 #include "pgxc/nodemgr.h"
 #include "pgxc/groupmgr.h"
 #include "utils/lsyscache.h"
+#include "pgxc/xc_maintenance_mode.h"
 
 static void ExecUtilityStmtOnNodes(const char *queryString, ExecNodes *nodes,
 								   bool force_autocommit, RemoteQueryExecType exec_type,
@@ -436,6 +437,18 @@ standard_ProcessUtility(Node *parsetree,
 
 					case TRANS_STMT_PREPARE:
 						PreventCommandDuringRecovery("PREPARE TRANSACTION");
+#ifdef PGXC
+						/* Add check if xid is valid */
+						if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && !xc_maintenance_mode)
+						{
+							if (IsXidImplicit((const char *)stmt->gid))
+							{
+								elog(ERROR, "Invalid transaciton_id to prepare.");
+								break;
+							}
+						}
+#endif
+
 						if (!PrepareTransactionBlock(stmt->gid))
 						{
 							/* report unsuccessful commit in completionTag */

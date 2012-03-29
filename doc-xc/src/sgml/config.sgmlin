@@ -6932,6 +6932,21 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
       </listitem>
      </varlistentry>
 
+     <varlistentry id="guc-xc-maintenance-ode" xreflabel="xc_maintenance_mode">
+      <term><varname>xc_maintenance_mode</varname> (<type>bool</type>)</term>
+      <indexterm>
+       <primary><varname>xc_maintenance_mode</> configuration parameter</primary>
+      </indexterm>
+      <listitem>
+       <para>
+        Specify to enter into maintenance mode.   Turning this on will change behavior of several statements.
+       </para>
+       <para>
+        This parameter can only be set by superuser with <literal>SET</literal> command.   Otherwise, the setting will be ignored.
+       </para>
+      </listitem>
+     </varlistentry>
+
     </variablelist>
 
   </sect1>
