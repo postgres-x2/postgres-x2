@@ -42,8 +42,8 @@
 #ifdef PGXC
 #include "pgxc/pgxc.h"
 /* PGXC_COORD */
-#include "gtm/gtm_c.h"
 #include "access/gtm.h"
+#include "utils/memutils.h"
 #endif
 
 /*
@@ -90,6 +90,18 @@ typedef struct SeqTableData
 typedef SeqTableData *SeqTable;
 
 static SeqTable seqtab = NULL;	/* Head of list of SeqTable items */
+
+#ifdef PGXC
+/*
+ * Arguments for callback of sequence drop on GTM
+ */
+typedef struct drop_sequence_callback_arg
+{
+	char *seqname;
+	GTM_SequenceDropType type;
+	GTM_SequenceKeyType key;
+} drop_sequence_callback_arg;
+#endif
 
 /*
  * last_used_seq is updated by nextval() to point to the last used
@@ -293,6 +305,10 @@ DefineSequence(CreateSeqStmt *seq)
 					(errcode(ERRCODE_CONNECTION_FAILURE),
 					 errmsg("GTM error, could not create sequence")));
 		}
+
+		/* Define a callback to drop sequence on GTM in case transaction fails  */
+		register_sequence_cb(seqname, GTM_SEQ_FULL_NAME, GTM_CREATE_SEQ);
+
 		pfree(seqname);
 	}
 #endif
@@ -1883,3 +1899,69 @@ seq_desc(StringInfo buf, uint8 xl_info, char *rec)
 	appendStringInfo(buf, "rel %u/%u/%u",
 			   xlrec->node.spcNode, xlrec->node.dbNode, xlrec->node.relNode);
 }
+
+#ifdef PGXC
+/*
+ * Register a callback for a sequence drop on GTM
+ */
+void
+register_sequence_cb(char *seqname, GTM_SequenceKeyType key, GTM_SequenceDropType type)
+{
+	drop_sequence_callback_arg *args;
+	char *seqnamearg = NULL;
+
+	/* All the arguments are transaction-dependent, so save them in TopTransactionContext */
+	args = (drop_sequence_callback_arg *)
+		MemoryContextAlloc(TopTransactionContext, sizeof(drop_sequence_callback_arg));
+
+	seqnamearg = MemoryContextAlloc(TopTransactionContext, strlen(seqname) + 1);
+	sprintf(seqnamearg, "%s", seqname);
+	args->seqname = seqnamearg;
+	args->key = key;
+	args->type = type;
+
+	RegisterGTMCallback(drop_sequence_cb, (void *) args);
+}
+
+/*
+ * Callback of sequence drop
+ */
+void
+drop_sequence_cb(GTMEvent event, void *args)
+{
+	drop_sequence_callback_arg *cbargs = (drop_sequence_callback_arg *) args;
+	char *seqname = cbargs->seqname;
+	GTM_SequenceKeyType key = cbargs->key;
+	GTM_SequenceDropType type = cbargs->type;
+	int err = 0;
+
+	/*
+	 * A sequence is dropped on GTM if the transaction that created sequence
+	 * aborts or if the transaction that dropped the sequence commits. This mechanism
+	 * insures that sequence information is consistent on all the cluster nodes including
+	 * GTM. This callback is done before transaction really commits so it can still fail
+	 * if an error occurs.
+	 */
+	switch (event)
+	{
+		case GTM_EVENT_COMMIT:
+		case GTM_EVENT_PREPARE:
+			if (type == GTM_DROP_SEQ)
+				err = DropSequenceGTM(seqname, key);
+			break;
+		case GTM_EVENT_ABORT:
+			if (type == GTM_CREATE_SEQ)
+				err = DropSequenceGTM(seqname, key);
+			break;
+		default:
+			/* Should not come here */
+			Assert(0);
+	}
+
+	/* Report error if necessary */
+	if (err < 0 && event != GTM_EVENT_ABORT)
+		ereport(ERROR,
+				(errcode(ERRCODE_CONNECTION_FAILURE),
+				 errmsg("GTM error, could not drop sequence")));
+}
+#endif

@@ -93,6 +93,19 @@ typedef enum
 typedef void (*SubXactCallback) (SubXactEvent event, SubTransactionId mySubid,
 									SubTransactionId parentSubid, void *arg);
 
+#ifdef PGXC
+/*
+ * GTM callback events
+ */
+typedef enum
+{
+	GTM_EVENT_COMMIT,
+	GTM_EVENT_ABORT,
+	GTM_EVENT_PREPARE
+} GTMEvent;
+
+typedef void (*GTMCallback) (GTMEvent event, void *arg);
+#endif
 
 /* ----------------
  *		transaction-related XLOG entries
@@ -253,6 +266,8 @@ extern void RegisterSubXactCallback(SubXactCallback callback, void *arg);
 extern void UnregisterSubXactCallback(SubXactCallback callback, void *arg);
 
 #ifdef PGXC
+extern void RegisterGTMCallback(GTMCallback callback, void *arg);
+extern void UnregisterGTMCallback(GTMCallback callback, void *arg);
 extern void RegisterTransactionNodes(int count, void **connections, bool write);
 extern void ForgetTransactionNodes(void);
 extern void RegisterTransactionLocalNode(bool write);

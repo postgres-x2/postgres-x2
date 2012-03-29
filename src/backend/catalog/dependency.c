@@ -1190,10 +1190,6 @@ doDeletion(const ObjectAddress *object)
 							 * The sequence has already been removed from coordinator,
 							 * finish the stuff on GTM too
 							 */
-							/*
-							 * PGXCTODO: allow the ability to rollback or abort dropping
-							 * sequences.
-							 */
 
 							Relation relseq;
 							char *seqname;
@@ -1204,7 +1200,13 @@ doDeletion(const ObjectAddress *object)
 							relseq = relation_open(object->objectId, AccessShareLock);
 							seqname = GetGlobalSeqName(relseq, NULL, NULL);
 
-							DropSequenceGTM(seqname, GTM_SEQ_FULL_NAME);
+							/*
+							 * Sequence is not immediately removed on GTM, but at the end
+							 * of the transaction block. In case this transaction fails,
+							 * all the data remains intact on GTM.
+							 */
+							register_sequence_cb(seqname, GTM_SEQ_FULL_NAME, GTM_DROP_SEQ);
+
 							pfree(seqname);
 
 							/* Then close the relation opened previously */

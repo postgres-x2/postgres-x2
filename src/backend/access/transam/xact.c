@@ -293,6 +293,21 @@ typedef struct SubXactCallbackItem
 
 static SubXactCallbackItem *SubXact_callbacks = NULL;
 
+#ifdef PGXC
+/*
+ * List of callback items for GTM.
+ * Those are called at transaction commit/abort to perform actions
+ * on GTM in order to maintain data consistency on GTM with other cluster nodes.
+ */
+typedef struct GTMCallbackItem
+{
+	struct GTMCallbackItem *next;
+	GTMCallback callback;
+	void	   *arg;
+} GTMCallbackItem;
+
+static GTMCallbackItem *GTM_callbacks = NULL;
+#endif
 
 /* local function prototypes */
 static void AssignTransactionId(TransactionState s);
@@ -309,6 +324,10 @@ static void CallXactCallbacks(XactEvent event);
 static void CallSubXactCallbacks(SubXactEvent event,
 					 SubTransactionId mySubid,
 					 SubTransactionId parentSubid);
+#ifdef PGXC
+static void CleanGTMCallbacks(void);
+static void CallGTMCallbacks(GTMEvent event);
+#endif
 static void CleanupTransaction(void);
 static void CommitTransaction(void);
 static TransactionId RecordTransactionAbort(bool isSubXact);
@@ -1369,6 +1388,21 @@ AtCommit_Memory(void)
 	CurrentTransactionState->curTransactionContext = NULL;
 }
 
+#ifdef PGXC
+/*
+ *	CleanGTMCallbacks
+ */
+static void
+CleanGTMCallbacks(void)
+{
+	/*
+	 * The transaction is done, TopTransactionContext as well as the GTM callback items
+	 * are already cleaned, so we need here only to reset the GTM callback pointer properly.
+	 */
+	GTM_callbacks = NULL;
+}
+#endif
+
 /* ----------------------------------------------------------------
  *						CommitSubTransaction stuff
  * ----------------------------------------------------------------
@@ -2117,6 +2151,12 @@ CommitTransaction(void)
 		s = CurrentTransactionState;
 
 		/*
+		 * Callback on GTM if necessary, this needs to be done before HOLD_INTERRUPTS
+		 * as this is not a part of the end of transaction processing involving clean up.
+		 */
+		CallGTMCallbacks(GTM_EVENT_COMMIT);
+
+		/*
 		 * Let the normal commit processing now handle the main transaction if
 		 * the local node was not involved. Otherwise, we are in an
 		 * auxilliary transaction and that will be closed along with the main
@@ -2231,6 +2271,10 @@ CommitTransaction(void)
 	TopTransactionResourceOwner = NULL;
 
 	AtCommit_Memory();
+#ifdef PGXC
+	/* Clean up GTM callbacks at the end of transaction */
+	CleanGTMCallbacks();
+#endif
 
 	s->transactionId = InvalidTransactionId;
 	s->subTransactionId = InvalidSubTransactionId;
@@ -2366,6 +2410,12 @@ PrepareTransaction(void)
 		savePrepareGID = MemoryContextStrdup(TopMemoryContext, prepareGID);
 		nodestring = PrePrepare_Remote(savePrepareGID, XactWriteLocalNode, isImplicit);
 		s->topGlobalTransansactionId = s->transactionId;
+
+		/*
+		 * Callback on GTM if necessary, this needs to be done before HOLD_INTERRUPTS
+		 * as this is not a part of the end of transaction processing involving clean up.
+		 */
+		CallGTMCallbacks(GTM_EVENT_PREPARE);
 	}
 #endif
 
@@ -2573,6 +2623,10 @@ PrepareTransaction(void)
 	TopTransactionResourceOwner = NULL;
 
 	AtCommit_Memory();
+#ifdef PGXC
+	/* Clean up GTM callbacks */
+	CleanGTMCallbacks();
+#endif
 
 	s->transactionId = InvalidTransactionId;
 	s->subTransactionId = InvalidSubTransactionId;
@@ -2642,6 +2696,15 @@ AbortTransaction(void)
 	}
 	else
 		s->topGlobalTransansactionId = InvalidTransactionId;
+
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	{
+		/*
+		 * Callback on GTM if necessary, this needs to be done before HOLD_INTERRUPTS
+		 * as this is not a part of the end of transaction procesing involving clean up.
+		 */
+		CallGTMCallbacks(GTM_EVENT_ABORT);
+	}
 #endif
 
 	/* Prevent cancel/die interrupt while cleaning up */
@@ -2650,6 +2713,11 @@ AbortTransaction(void)
 	/* Make sure we have a valid memory context and resource owner */
 	AtAbort_Memory();
 	AtAbort_ResourceOwner();
+
+#ifdef PGXC
+	/* Clean up GTM callbacks */
+	CleanGTMCallbacks();
+#endif
 
 	/*
 	 * Release any LW locks we might be holding as quickly as possible.
@@ -3501,6 +3569,60 @@ CallSubXactCallbacks(SubXactEvent event,
 		(*item->callback) (event, mySubid, parentSubid, item->arg);
 }
 
+
+#ifdef PGXC
+/*
+ * Register or deregister callback functions for GTM at xact start or stop.
+ * Those operations are more or less the xact callbacks but we need to perform
+ * them before HOLD_INTERRUPTS as it is a part of transaction management and
+ * is not included in xact cleaning.
+ *
+ * The callback is called when xact finishes and may be initialized by events
+ * related to GTM that need to be taken care of at the end of a transaction block.
+ */
+void
+RegisterGTMCallback(GTMCallback callback, void *arg)
+{
+	GTMCallbackItem *item;
+
+	item = (GTMCallbackItem *)
+		MemoryContextAlloc(TopTransactionContext, sizeof(GTMCallbackItem));
+	item->callback = callback;
+	item->arg = arg;
+	item->next = GTM_callbacks;
+	GTM_callbacks = item;
+}
+
+void
+UnregisterGTMCallback(GTMCallback callback, void *arg)
+{
+	GTMCallbackItem *item;
+	GTMCallbackItem *prev;
+
+	prev = NULL;
+	for (item = GTM_callbacks; item; prev = item, item = item->next)
+	{
+		if (item->callback == callback && item->arg == arg)
+		{
+			if (prev)
+				prev->next = item->next;
+			else
+				GTM_callbacks = item->next;
+			pfree(item);
+			break;
+		}
+	}
+}
+
+static void
+CallGTMCallbacks(GTMEvent event)
+{
+	GTMCallbackItem *item;
+
+	for (item = GTM_callbacks; item; item = item->next)
+		(*item->callback) (event, item->arg);
+}
+#endif
 
 /* ----------------------------------------------------------------
  *					   transaction block support

@@ -20,6 +20,8 @@
 
 #ifdef PGXC
 #include "utils/relcache.h"
+#include "gtm/gtm_c.h"
+#include "access/xact.h"
 #endif
 
 typedef struct FormData_pg_sequence
@@ -82,6 +84,21 @@ extern void seq_redo(XLogRecPtr lsn, XLogRecord *rptr);
 extern void seq_desc(StringInfo buf, uint8 xl_info, char *rec);
 
 #ifdef PGXC
+/*
+ * List of actions that registered the callback.
+ * This is listed here and not in sequence.c because callback can also
+ * be registered in dependency.c as sequences can be dropped in cascade.
+ */
+typedef enum
+{
+	GTM_CREATE_SEQ,
+	GTM_DROP_SEQ
+} GTM_SequenceDropType;
+
+/* Sequence callbacks on GTM */
+extern void register_sequence_cb(char *seqname, GTM_SequenceKeyType key, GTM_SequenceDropType type);
+extern void drop_sequence_cb(GTMEvent event, void *args);
+
 extern bool IsTempSequence(Oid relid);
 extern char *GetGlobalSeqName(Relation rel, const char *new_seqname, const char *new_schemaname);
 #endif
