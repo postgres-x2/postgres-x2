@@ -2019,3 +2019,11 @@ set_remote_references(PlannerGlobal *glob, RemoteQuery *rscan, int rtoffset)
 
 	pfree(base_itlist);
 }
+
+#ifdef PGXC
+Node *
+pgxc_fix_scan_expr(PlannerGlobal *glob, Node *node, int rtoffset)
+{
+	return fix_scan_expr(glob, node, rtoffset);
+}
+#endif /* PGXC */

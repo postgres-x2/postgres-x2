@@ -2499,6 +2499,7 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	Datum			distcol_value;
 	bool			distcol_isnull;
 	Oid				distcol_type;
+	Node			*tmp_node;
 
 	Assert(scan_relid > 0);
 	Assert(best_path->parent->rtekind == RTE_RELATION);
@@ -2566,6 +2567,15 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	}
 	list_free(varlist);
 
+	/*
+	 * Call fix_scan_expr to fix the PlaceHolderVars. This step is not needed if
+	 * we construct the query at the time of execution.
+	 */
+	tmp_node = pgxc_fix_scan_expr(root->glob, (Node *)query->targetList, 0);
+	Assert(IsA(tmp_node, List));
+	query->targetList = (List *)tmp_node;
+	tmp_node = pgxc_fix_scan_expr(root->glob, (Node *)query->jointree->quals, 0);
+	query->jointree->quals = tmp_node;
 	initStringInfo(&sql);
 	deparse_query(query, &sql, NIL);
 
