@@ -44,6 +44,7 @@
 #include "nodes/nodes.h"
 #include "pgxc/poolmgr.h"
 #include "utils/builtins.h"
+#include "utils/guc.h"
 #include "utils/memutils.h"
 #include "utils/lsyscache.h"
 #include "utils/resowner.h"
@@ -104,7 +105,8 @@ static int	is_pool_locked = false;
 static int	server_fd = -1;
 
 static int	node_info_check(PoolAgent *agent);
-static void agent_init(PoolAgent *agent, const char *database, const char *user_name);
+static void agent_init(PoolAgent *agent, const char *database, const char *user_name,
+	                   const char *pgoptions);
 static void agent_destroy(PoolAgent *agent);
 static void agent_create(void);
 static void agent_handle_input(PoolAgent *agent, StringInfo s);
@@ -115,11 +117,11 @@ static int agent_set_command(PoolAgent *agent,
 							 const char *set_command,
 							 PoolCommandType command_type);
 static int agent_temp_command(PoolAgent *agent);
-static DatabasePool *create_database_pool(const char *database, const char *user_name);
+static DatabasePool *create_database_pool(const char *database, const char *user_name, const char *pgoptions);
 static void insert_database_pool(DatabasePool *pool);
 static int	destroy_database_pool(const char *database, const char *user_name);
 static void reload_database_pools(PoolAgent *agent);
-static DatabasePool *find_database_pool(const char *database, const char *user_name);
+static DatabasePool *find_database_pool(const char *database, const char *user_name, const char *pgoptions);
 static DatabasePool *remove_database_pool(const char *database, const char *user_name);
 static int *agent_acquire_connections(PoolAgent *agent, List *datanodelist, List *coordlist);
 static int send_local_commands(PoolAgent *agent, List *datanodelist, List *coordlist);
@@ -140,7 +142,7 @@ static int *abort_pids(int *count,
 					   int pid,
 					   const char *database,
 					   const char *user_name);
-static char *build_node_conn_str(Oid node, char* dbname, char*user_name);
+static char *build_node_conn_str(Oid node, DatabasePool *dbPool);
 
 /* Signal handlers */
 static void pooler_die(SIGNAL_ARGS);
@@ -286,9 +288,7 @@ node_info_check(PoolAgent *agent)
 				continue;
 			checked = lappend_oid(checked, nodePool->nodeoid);
 
-			connstr_chk = build_node_conn_str(nodePool->nodeoid,
-											  dbPool->database,
-											  dbPool->user_name);
+			connstr_chk = build_node_conn_str(nodePool->nodeoid, dbPool);
 			if (connstr_chk == NULL)
 			{
 				/* Problem of constructing connection string */
@@ -455,13 +455,59 @@ agent_create(void)
 	MemoryContextSwitchTo(oldcontext);
 }
 
+/*
+ * session_options
+ * Returns the pgoptions string generated using a particular
+ * list of parameters that are required to be propagated to datanodes.
+ * These parameters then become default values for the pooler sessions.
+ * For e.g., a psql user sets PGDATESTYLE. This value should be set
+ * as the default connection parameter in the pooler session that is
+ * connected to the datanodes. There are various parameters which need to
+ * be analysed individually to determine whether these should be set on
+ * datanodes.
+ *
+ * Note: These parameters values are the default values of the particular
+ * coordinator backend session, and not the new values set by SET command.
+ *
+ */
+
+char *session_options(void)
+{
+	int				 i;
+	char			*pgoptions[] = {"DateStyle", "timezone", "geqo"};
+	StringInfoData	 options;
+	List			*value_list;
+	const char		*value;
+	ListCell		*l;
+
+	initStringInfo(&options);
+
+	for (i = 0; i < sizeof(pgoptions)/sizeof(char*); i++)
+	{
+		appendStringInfo(&options, " -c %s=", pgoptions[i]);
+
+		value = GetConfigOptionResetString(pgoptions[i]);
+		SplitIdentifierString(strdup(value), ',', &value_list);
+		foreach(l, value_list)
+		{
+			char *value = (char *) lfirst(l);
+			appendStringInfoString(&options, value);
+			if (lnext(l))
+				appendStringInfoChar(&options, ',');
+		}
+	}
+
+	return options.data;
+}
 
 /*
  * Associate session with specified database and respective connection pool
  * Invoked from Session process
  */
 void
-PoolManagerConnect(PoolHandle *handle, const char *database, const char *user_name)
+PoolManagerConnect(PoolHandle *handle,
+	               const char *database, const char *user_name,
+	               char *pgoptions)
 {
 	int n32;
 	char msgtype = 'c';
@@ -477,7 +523,7 @@ PoolManagerConnect(PoolHandle *handle, const char *database, const char *user_na
 	pool_putbytes(&handle->port, &msgtype, 1);
 
 	/* Message length */
-	n32 = htonl(strlen(database) + strlen(user_name) + 18);
+	n32 = htonl(strlen(database) + strlen(user_name) + strlen(pgoptions) + 23);
 	pool_putbytes(&handle->port, (char *) &n32, 4);
 
 	/* PID number */
@@ -499,6 +545,15 @@ PoolManagerConnect(PoolHandle *handle, const char *database, const char *user_na
 	/* Send user name followed by \0 terminator */
 	pool_putbytes(&handle->port, user_name, strlen(user_name) + 1);
 	pool_flush(&handle->port);
+
+	/* Length of pgoptions string */
+	n32 = htonl(strlen(pgoptions) + 1);
+	pool_putbytes(&handle->port, (char *) &n32, 4);
+
+	/* Send pgoptions followed by \0 terminator */
+	pool_putbytes(&handle->port, pgoptions, strlen(pgoptions) + 1);
+	pool_flush(&handle->port);
+
 }
 
 /*
@@ -516,7 +571,8 @@ PoolManagerReconnect(void)
 	handle = GetPoolManagerHandle();
 	PoolManagerConnect(handle,
 					   get_database_name(MyDatabaseId),
-					   GetUserNameFromId(GetUserId()));
+					   GetUserNameFromId(GetUserId()),
+					   session_options());
 }
 
 int
@@ -660,7 +716,8 @@ PoolManagerLock(bool is_lock)
  * Init PoolAgent
  */
 static void
-agent_init(PoolAgent *agent, const char *database, const char *user_name)
+agent_init(PoolAgent *agent, const char *database, const char *user_name,
+           const char *pgoptions)
 {
 	MemoryContext oldcontext;
 
@@ -683,11 +740,11 @@ agent_init(PoolAgent *agent, const char *database, const char *user_name)
 	agent->dn_connections = (PGXCNodePoolSlot **)
 			palloc0(agent->num_dn_connections * sizeof(PGXCNodePoolSlot *));
 	/* find database */
-	agent->pool = find_database_pool(database, user_name);
+	agent->pool = find_database_pool(database, user_name, pgoptions);
 
 	/* create if not found */
 	if (agent->pool == NULL)
-		agent->pool = create_database_pool(database, user_name);
+		agent->pool = create_database_pool(database, user_name, pgoptions);
 
 	MemoryContextSwitchTo(oldcontext);
 
@@ -985,6 +1042,7 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 	{
 		const char *database = NULL;
 		const char *user_name = NULL;
+		const char *pgoptions = NULL;
 		const char *set_command = NULL;
 		PoolCommandType	command_type;
 		int			datanodecount;
@@ -1059,11 +1117,13 @@ agent_handle_input(PoolAgent * agent, StringInfo s)
 				database = pq_getmsgbytes(s, len);
 				len = pq_getmsgint(s, 4);
 				user_name = pq_getmsgbytes(s, len);
+				len = pq_getmsgint(s, 4);
+				pgoptions = pq_getmsgbytes(s, len);
 				/*
 				 * Coordinator pool is not initialized.
 				 * With that it would be impossible to create a Database by default.
 				 */
-				agent_init(agent, database, user_name);
+				agent_init(agent, database, user_name, pgoptions);
 				pq_getmsgend(s);
 				break;
 			case 'd':			/* DISCONNECT */
@@ -1785,21 +1845,13 @@ agent_reset_session(PoolAgent *agent)
  * error and POOL_WEXIST if poll for this database already exist.
  */
 static DatabasePool *
-create_database_pool(const char *database, const char *user_name)
+create_database_pool(const char *database, const char *user_name, const char *pgoptions)
 {
 	MemoryContext	oldcontext;
 	MemoryContext	dbcontext;
 	DatabasePool   *databasePool;
 	HASHCTL			hinfo;
 	int				hflags;
-
-	/* check if exist */
-	databasePool = find_database_pool(database, user_name);
-	if (databasePool)
-	{
-		/* already exist */
-		return databasePool;
-	}
 
 	dbcontext = AllocSetContextCreate(PoolerCoreContext,
 									  "DB Context",
@@ -1823,6 +1875,9 @@ create_database_pool(const char *database, const char *user_name)
 	databasePool->database = pstrdup(database);
 	 /* Copy the user name */
 	databasePool->user_name = pstrdup(user_name);
+	 /* Copy the pgoptions */
+	databasePool->pgoptions = pstrdup(pgoptions);
+
 	if (!databasePool->database)
 	{
 		/* out of memory */
@@ -1945,9 +2000,7 @@ reload_database_pools(PoolAgent *agent)
 		hash_seq_init(&hseq_status, databasePool->nodePools);
 		while ((nodePool = (PGXCNodePool *) hash_seq_search(&hseq_status)))
 		{
-			char *connstr_chk = build_node_conn_str(nodePool->nodeoid,
-													databasePool->database,
-													databasePool->user_name);
+			char *connstr_chk = build_node_conn_str(nodePool->nodeoid, databasePool);
 
 			if (connstr_chk == NULL || strcmp(connstr_chk, nodePool->connstr))
 			{
@@ -1970,7 +2023,7 @@ reload_database_pools(PoolAgent *agent)
  * Find pool for specified database and username in the list
  */
 static DatabasePool *
-find_database_pool(const char *database, const char *user_name)
+find_database_pool(const char *database, const char *user_name, const char *pgoptions)
 {
 	DatabasePool *databasePool;
 
@@ -1979,7 +2032,8 @@ find_database_pool(const char *database, const char *user_name)
 	while (databasePool)
 	{
 		if (strcmp(database, databasePool->database) == 0 &&
-			strcmp(user_name, databasePool->user_name) == 0)
+			strcmp(user_name, databasePool->user_name) == 0 &&
+			strcmp(pgoptions, databasePool->pgoptions) == 0)
 			break;
 
 		databasePool = databasePool->next;
@@ -2151,8 +2205,7 @@ grow_pool(DatabasePool *dbPool, Oid node)
 
 	if (!found)
 	{
-		nodePool->connstr = build_node_conn_str(node, dbPool->database,
-												dbPool->user_name);
+		nodePool->connstr = build_node_conn_str(node, dbPool);
 		if (!nodePool->connstr)
 		{
 			ereport(ERROR,
@@ -2484,7 +2537,7 @@ IsPoolHandle(void)
  * Get node connection details from the shared memory node table
  */
 static char *
-build_node_conn_str(Oid node, char *dbname, char *user_name)
+build_node_conn_str(Oid node, DatabasePool *dbPool)
 {
 	NodeDefinition *nodeDef;
 	char 		   *connstr;
@@ -2498,8 +2551,9 @@ build_node_conn_str(Oid node, char *dbname, char *user_name)
 
 	connstr = PGXCNodeConnStr(NameStr(nodeDef->nodehost),
 							  nodeDef->nodeport,
-							  dbname,
-							  user_name,
+							  dbPool->database,
+							  dbPool->user_name,
+							  dbPool->pgoptions,
 							  IS_PGXC_COORDINATOR ? "coordinator" : "datanode");
 	pfree(nodeDef);
 

@@ -191,7 +191,7 @@ InitMultinodeExecutor(bool is_force)
  */
 char *
 PGXCNodeConnStr(char *host, int port, char *dbname,
-				char *user, char *remote_type)
+				char *user, char *pgoptions, char *remote_type)
 {
 	char	   *out,
 				connstr[256];
@@ -202,8 +202,8 @@ PGXCNodeConnStr(char *host, int port, char *dbname,
 	 * remote type can be coordinator, datanode or application.
 	 */
 	num = snprintf(connstr, sizeof(connstr),
-				   "host=%s port=%d dbname=%s user=%s application_name=pgxc options='-c remotetype=%s'",
-				   host, port, dbname, user, remote_type);
+				   "host=%s port=%d dbname=%s user=%s application_name=pgxc options='-c remotetype=%s %s'",
+				   host, port, dbname, user, remote_type, pgoptions);
 
 	/* Check for overflow */
 	if (num > 0 && num < sizeof(connstr))

@@ -3907,7 +3907,7 @@ PostgresMain(int argc, char *argv[], const char *username)
 			return STATUS_ERROR;
 		}
 		/* Pooler initialization has to be made before ressource is released */
-		PoolManagerConnect(pool_handle, dbname, username);
+		PoolManagerConnect(pool_handle, dbname, username, session_options());
 
 		ResourceOwnerRelease(CurrentResourceOwner, RESOURCE_RELEASE_BEFORE_LOCKS, true, true);
 		ResourceOwnerRelease(CurrentResourceOwner, RESOURCE_RELEASE_LOCKS, true, true);
