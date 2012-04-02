@@ -76,9 +76,9 @@ SELECT max(student.gpa) AS max_3_7 FROM student;
 (1 row)
 
 SELECT stddev_pop(b) FROM aggtest;
-   stddev_pop    
------------------
- 131.10703231895
+    stddev_pop    
+------------------
+ 131.107032318951
 (1 row)
 
 SELECT stddev_samp(b) FROM aggtest;
@@ -90,13 +90,13 @@ SELECT stddev_samp(b) FROM aggtest;
 SELECT var_pop(b) FROM aggtest;
      var_pop      
 ------------------
- 17189.0539234823
+ 17189.0539234824
 (1 row)
 
 SELECT var_samp(b) FROM aggtest;
      var_samp     
 ------------------
- 22918.7385646431
+ 22918.7385646432
 (1 row)
 
 SELECT stddev_pop(b::numeric) FROM aggtest;
@@ -153,13 +153,13 @@ SELECT regr_sxx(b, a) FROM aggtest;
 SELECT regr_syy(b, a) FROM aggtest;
      regr_syy     
 ------------------
- 68756.2156939293
+ 68756.2156939297
 (1 row)
 
 SELECT regr_sxy(b, a) FROM aggtest;
      regr_sxy     
 ------------------
- 2614.51582155004
+ 2614.51582155001
 (1 row)
 
 SELECT regr_avgx(b, a), regr_avgy(b, a) FROM aggtest;
@@ -171,25 +171,25 @@ SELECT regr_avgx(b, a), regr_avgy(b, a) FROM aggtest;
 SELECT regr_r2(b, a) FROM aggtest;
       regr_r2       
 --------------------
- 0.0194977982031803
+ 0.0194977982031797
 (1 row)
 
 SELECT regr_slope(b, a), regr_intercept(b, a) FROM aggtest;
     regr_slope     |  regr_intercept  
 -------------------+------------------
- 0.512750700441271 | 82.5619926012309
+ 0.512750700441265 | 82.5619926012313
 (1 row)
 
 SELECT covar_pop(b, a), covar_samp(b, a) FROM aggtest;
-    covar_pop    |    covar_samp    
------------------+------------------
- 653.62895538751 | 871.505273850014
+    covar_pop     |    covar_samp    
+------------------+------------------
+ 653.628955387502 | 871.505273850003
 (1 row)
 
 SELECT corr(b, a) FROM aggtest;
        corr        
 -------------------
- 0.139634516517873
+ 0.139634516517871
 (1 row)
 
 SELECT count(four) AS cnt_1000 FROM onek;
