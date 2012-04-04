@@ -160,7 +160,7 @@ SELECT 'Wed Jul 11 10:51:14 GMT+4 2001'::timestamptz;
 SELECT 'Wed Jul 11 10:51:14 PST-03:00 2001'::timestamptz;
 SELECT 'Wed Jul 11 10:51:14 PST+03:00 2001'::timestamptz;
 
-SELECT '' AS "64", d1 FROM TIMESTAMPTZ_TBL;
+SELECT '' AS "64", d1 FROM TIMESTAMPTZ_TBL ORDER BY d1;
 
 -- Demonstrate functions and operators
 SELECT '' AS "48", d1 FROM TIMESTAMPTZ_TBL
