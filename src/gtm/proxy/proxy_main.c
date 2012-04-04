@@ -785,6 +785,37 @@ main(int argc, char *argv[])
 					 progname);
 		exit(1);
 	}
+	if (ListenAddresses == NULL || *ListenAddresses == '\0')
+	{
+		write_stderr("GTM Proxy listen addresses must be specified\n");
+		write_stderr("Try \"%s --help\" for more information.\n",
+					 progname);
+		exit(1);
+	}
+	if (GTMProxyPortNumber == 0)
+	{
+		write_stderr("GTM Proxy port number must be specified\n");
+		write_stderr("Try \"%s --help\" for more information.\n",
+					 progname);
+		exit(1);
+
+	}
+	if (GTMServerHost == NULL || *GTMServerHost == '\0')
+	{
+		write_stderr("GTM server listen address must be specified\n");
+		write_stderr("Try \"%s --help\" for more information.\n",
+					 progname);
+		exit(1);
+
+	}
+	if (GTMServerPortNumber == 0)
+	{
+		write_stderr("GTM server port number must be specified\n");
+		write_stderr("Try \"%s --help\" for more information.\n",
+					 progname);
+		exit(1);
+
+	}
 
 	/*
 	 * GTM accepts no non-option switch arguments.
