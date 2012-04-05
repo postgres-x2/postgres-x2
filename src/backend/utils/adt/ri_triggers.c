@@ -51,6 +51,9 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #include "utils/tqual.h"
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#endif
 
 
 /* ----------
@@ -265,11 +268,11 @@ RI_FKey_check(PG_FUNCTION_ARGS)
 
 #ifdef PGXC
 	/* 
-	 * XXX Referential integrity is not yet supported. We just come out of the
-	 * function without actually performing any integrity checks. This must be
-	 * fixed when we support local/global referential integrities.
+	 * Referential integrity is not supported on Coordinator as it has no data, so
+	 * we just come out of the function without actually performing any integrity checks.
 	 */
-	return PointerGetDatum(NULL);
+	if (IS_PGXC_COORDINATOR)
+		return PointerGetDatum(NULL);
 #endif
 
 	/*
