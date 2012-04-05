@@ -3,6 +3,9 @@
 -- Test temp relations and indexes
 --
 
+-- Enforce use of COMMIT instead of 2PC for temporary objects
+SET enforce_two_phase_commit TO off;
+
 -- test temp table/index masking
 
 CREATE TABLE temptest(col int);
@@ -48,6 +51,9 @@ DROP TABLE temptest;
 CREATE TEMP TABLE temptest(col int);
 
 \c
+
+-- Enforce use of COMMIT instead of 2PC for temporary objects
+SET enforce_two_phase_commit TO off;
 
 SELECT * FROM temptest;
 

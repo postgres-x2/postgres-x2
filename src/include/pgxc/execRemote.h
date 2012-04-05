@@ -30,6 +30,9 @@
 #include "tcop/pquery.h"
 #endif
 
+/* GUC parameters */
+extern bool EnforceTwoPhaseCommit;
+
 /* Outputs of handle_response() */
 #define RESPONSE_EOF EOF
 #define RESPONSE_COMPLETE 0

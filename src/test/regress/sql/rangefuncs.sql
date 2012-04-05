@@ -290,6 +290,9 @@ DROP FUNCTION foo(int);
 -- some tests on SQL functions with RETURNING
 --
 
+-- Enforce use of COMMIT instead of 2PC for temporary objects
+SET enforce_two_phase_commit TO off;
+
 create temp table tt(f1 serial, data text);
 
 create function insert_tt(text) returns int as

@@ -670,6 +670,17 @@ $ <userinput>gtm_ctl start -S gtm_proxy -i 1 -D /usr/local/pgsql/gtm_proxy -i 1 
    </listitem>
   </varlistentry>
 
+  <varlistentry>
+   <term>enforce_two_phase_commit</term>
+   <listitem>
+    <para>
+     Enforce the usage of two-phase commit on transactions involving ON COMMIT actions
+     or temporary objects. Usage of autocommit instead of two-phase commit may break data
+     consistency so use at your own risk.
+    </para>
+   </listitem>
+  </varlistentry>
+
   </variablelist>
 
   </sect2>

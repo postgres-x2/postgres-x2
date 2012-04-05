@@ -109,6 +109,9 @@ select count(distinct ss.ten) from
 -- Luca Pireddu and Michael Fuhr.
 --
 
+-- Enforce use of COMMIT instead of 2PC for temporary objects
+SET enforce_two_phase_commit TO off;
+
 CREATE TEMP TABLE foo (id integer);
 CREATE TEMP TABLE bar (id1 integer, id2 integer);
 

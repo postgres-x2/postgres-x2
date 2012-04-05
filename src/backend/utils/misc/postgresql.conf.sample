@@ -574,10 +574,14 @@
 #------------------------------------------------------------------------------
 #strict_statement_checking = on		# Forbid PG-XC-unsafe SQL
 					# Enabling is useful for development
+#enforce_two_phase_commit = on		# Enforce the usage of two-phase commit on transactions
+					# where temporary objects are used or ON COMMIT actions
+					# are pending.
+					# Usage of commit instead of two-phase commit may break
+					# data consistency so use at your own risk.
 
 #------------------------------------------------------------------------------
 # CUSTOMIZED OPTIONS
 #------------------------------------------------------------------------------
 
 #custom_variable_classes = ''		# list of custom variable class names
-

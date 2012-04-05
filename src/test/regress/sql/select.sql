@@ -2,6 +2,7 @@
 -- SELECT
 --
 
+
 -- btree index
 -- awk '{if($1<10){print;}else{next;}}' onek.data | sort +0n -1
 --
@@ -156,6 +157,9 @@ ORDER BY column1,column2;
 --
 -- Test ORDER BY options
 --
+
+-- Enforce use of COMMIT instead of 2PC for temporary objects
+SET enforce_two_phase_commit TO off;
 
 CREATE TEMP TABLE foo (f1 int);
 

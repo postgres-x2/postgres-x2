@@ -45,6 +45,9 @@
 #include "parser/parse_type.h"
 #include "pgxc/xc_maintenance_mode.h"
 
+/* Enforce the use of two-phase commit when temporary objects are used */
+bool EnforceTwoPhaseCommit = true;
+
 #define END_QUERY_TIMEOUT	20
 #define DATA_NODE_FETCH_SIZE 1
 
