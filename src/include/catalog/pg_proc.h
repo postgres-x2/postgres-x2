@@ -4348,7 +4348,7 @@ DATA(insert OID = 3201 ( pgxc_pool_reload	PGNSP PGUID 12 1 0 0 f f f t f v 0 0 1
 DESCR("reload connection information in pooler and reload server sessions");
 DATA(insert OID = 3122 ( pgxc_node_str		PGNSP PGUID 12 1 0 0 f f f t f s 0 0 19 "" _null_ _null_ _null_ _null_ pgxc_node_str _null_ _null_ _null_ ));
 DESCR("get the name of the node");
-DATA(insert OID = 3202 (  pgxc_is_committed	PGNSP PGUID 12 1 0 0 f f f t t s 1 0 16 "28" _null_ _null_ _null_ _null_ pgxc_is_committed _null_ _null_ _null_ ));
+DATA(insert OID = 3202 (  pgxc_is_committed	PGNSP PGUID 12 1 1 0 f f f t t s 1 0 16 "28" _null_ _null_ _null_ _null_ pgxc_is_committed _null_ _null_ _null_ ));
 DESCR("is given GXID committed or aborted?");
 #endif
 
