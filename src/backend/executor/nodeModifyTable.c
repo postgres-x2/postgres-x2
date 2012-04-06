@@ -437,6 +437,12 @@ ldelete:;
 	if (canSetTag)
 		(estate->es_processed)++;
 
+#ifdef PGXC
+	/*
+	 * Do not fire triggers on remote relation, it would not find old tuple
+	 */
+	if (resultRemoteRel == NULL)
+#endif
 	/* AFTER ROW DELETE Triggers */
 	ExecARDeleteTriggers(estate, resultRelInfo, tupleid);
 
@@ -683,6 +689,12 @@ lreplace:;
 	if (canSetTag)
 		(estate->es_processed)++;
 
+#ifdef PGXC
+	/*
+	 * Do not fire triggers on remote relation, it would not find old tuple
+	 */
+	if (resultRemoteRel == NULL)
+#endif
 	/* AFTER ROW UPDATE Triggers */
 	ExecARUpdateTriggers(estate, resultRelInfo, tupleid, tuple,
 						 recheckIndexes);

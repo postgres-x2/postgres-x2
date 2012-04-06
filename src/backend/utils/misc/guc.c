@@ -56,10 +56,11 @@
 #include "parser/scansup.h"
 #include "pgstat.h"
 #ifdef PGXC
+#include "commands/tablecmds.h"
+#include "nodes/nodes.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/locator.h"
 #include "pgxc/planner.h"
-#include "nodes/nodes.h"
 #include "pgxc/poolmgr.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/xc_maintenance_mode.h"
@@ -1494,6 +1495,16 @@ static struct config_bool ConfigureNamesBool[] =
 			NULL
 		},
 		&StrictStatementChecking,
+		true,
+		NULL, NULL, NULL
+	},
+	{
+		{"enforce_two_phase_commit", PGC_SUSET, XC_HOUSEKEEPING_OPTIONS,
+			gettext_noop("Enforce the use of two-phase commit on transactions that"
+					"made use of temporary objects"),
+			NULL
+		},
+		&EnforceTwoPhaseCommit,
 		true,
 		NULL, NULL, NULL
 	},
@@ -8614,10 +8625,8 @@ check_log_stats(bool *newval, void **extra, GucSource source)
 
 #ifdef PGXC
 /*
- * K.Suzuki, March, 2012.
- *
- * Here, only a warning will be printed to log.   Returning false will cause FATAL error and it
- * will not be good.
+ * Only a warning is printed to log.
+ * Returning false will cause FATAL error and it will not be good.
  */
 static bool
 check_pgxc_maintenance_mode(bool *newval, void **extra, GucSource source)

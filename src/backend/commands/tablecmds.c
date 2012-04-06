@@ -9506,11 +9506,9 @@ IsIndexUsingTempTable(Oid relid)
 }
 
 /*
- * IsOnCommitDeleteRows
+ * IsOnCommitActions
  *
- * Check if there are any on-commit actions activated
- * This is possible in the case of ON COMMIT DELETE ROWS for example.
- * In this case 2PC cannot be used.
+ * Check if there are any on-commit actions activated.
  */
 bool
 IsOnCommitActions(void)

@@ -191,6 +191,11 @@ COMMIT;
 SELECT * FROM clustertest ORDER BY 1;
 
 -- check that temp tables can be clustered
+-- Enforce use of COMMIT instead of 2PC for temporary objects
+RESET SESSION AUTHORIZATION;
+SET enforce_two_phase_commit TO off; -- Done by a superuser
+SET SESSION AUTHORIZATION clstr_user;
+
 create temp table clstr_temp (col1 int primary key, col2 text);
 insert into clstr_temp values (2, 'two'), (1, 'one');
 cluster clstr_temp using clstr_temp_pkey;

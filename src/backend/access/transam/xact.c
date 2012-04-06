@@ -2025,6 +2025,22 @@ CommitTransaction(void)
 		}
 
 		/*
+		 * Check if there are any ON COMMIT actions or if temporary objects are in use.
+		 * If session is set-up to enforce 2PC for such transactions, return an error.
+		 * If not, simply enforce autocommit on each remote node.
+		 */
+		if (IsOnCommitActions() || ExecIsTempObjectIncluded())
+		{
+			if (!EnforceTwoPhaseCommit)
+				ExecSetTempObjectIncluded();
+			else
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("cannot PREPARE a transaction that has operated on temporary tables"),
+						 errdetail("Disabling enforce_two_phase_commit is recommended to enforce COMMIT")));
+		}
+
+		/*
 		 * If the local node has done some write activity, prepare the local node
 		 * first. If that fails, the transaction is aborted on all the remote
 		 * nodes
@@ -2397,12 +2413,6 @@ PrepareTransaction(void)
 	Assert(s->parent == NULL);
 
 #ifdef PGXC
-	/*
-	 * Check if there are any On Commit actions and force temporary object flag.
-	 * This is possible in the case of a session using ON COMMIT DELETE ROWS.
-	 */
-	if (IsOnCommitActions())
-		ExecSetTempObjectIncluded();
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 	{
 		if (savePrepareGID)

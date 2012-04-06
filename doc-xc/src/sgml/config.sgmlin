@@ -6908,7 +6908,7 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
       </listitem>
      </varlistentry>
 
-     <varlistentry id="gun-gtm-host" xreflabel="gtm_host">
+     <varlistentry id="guc-gtm-host" xreflabel="gtm_host">
       <term><varname>gtm_host</varname> (<type>string</type>)</term>
       <indexterm>
        <primary><varname>gtm_host</> configuration parameter</primary>
@@ -6928,6 +6928,19 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
       <listitem>
        <para>
         Reports the port number of GTM.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry id="guc-enforce-two-phase-commit" xreflabel="enforce_two_phase_commit">
+      <term><varname>enforce_two_phase_commit</varname> (<type>boolean</type>)</term>
+      <indexterm>
+       <primary><varname>enforce_two_phase_commit</varname> configuration parameter</primary>
+      </indexterm>
+      <listitem>
+       <para>
+        Enforce the usage of two-phase commit instead for transactions involving temporary
+        objects or ON COMMIT actions.
        </para>
       </listitem>
      </varlistentry>
