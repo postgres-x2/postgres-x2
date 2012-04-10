@@ -29,6 +29,7 @@
 #include "commands/trigger.h"
 
 #ifdef PGXC
+#include "pgxc/locator.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/postgresql_fdw.h"
@@ -1204,14 +1205,15 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 		if (var->varattno < 1 || var->varattno > numattrs)
 			continue;
 
+		/* Bypass if this var does not use this relation */
+		if (var->varno != parsetree->resultRelation)
+			continue;
+
 		att_tup = target_relation->rd_att->attrs[var->varattno - 1];
 		tle = makeTargetEntry((Expr *) var,
 							  list_length(parsetree->targetList) + 1,
 							  pstrdup(NameStr(att_tup->attname)),
 							  true);
-
-		/* This is needed in remote planning to confirm that TLE is for this relation */
-		tle->resorigtbl = RelationGetRelid(target_relation);
 
 		parsetree->targetList = lappend(parsetree->targetList, tle);
 	}
@@ -1249,12 +1251,34 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 						  pstrdup(attrname),
 						  true);
 
-#ifdef PGXC
-	/* This is needed in remote planning to confirm that TLE is for this relation */
-	tle->resorigtbl = RelationGetRelid(target_relation);
-#endif
-
 	parsetree->targetList = lappend(parsetree->targetList, tle);
+
+#ifdef PGXC
+	/*
+	 * If relation is non-replicated, we need also to identify the Datanode
+	 * from where tuple is fetched.
+	 */
+	if (IS_PGXC_COORDINATOR &&
+		!IsConnFromCoord() &&
+		!IsLocatorReplicated(GetRelationLocType(RelationGetRelid(target_relation))))
+	{
+		var = makeVar(parsetree->resultRelation,
+					  XC_NodeIdAttributeNumber,
+					  INT4OID,
+					  -1,
+					  InvalidOid,
+					  0);
+
+		attrname = "xc_node_id";
+
+		tle = makeTargetEntry((Expr *) var,
+							  list_length(parsetree->targetList) + 1,
+							  pstrdup(attrname),
+							  true);
+
+		parsetree->targetList = lappend(parsetree->targetList, tle);		
+	}
+#endif
 }
 
 

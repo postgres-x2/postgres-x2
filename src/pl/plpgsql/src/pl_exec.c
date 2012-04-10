@@ -281,6 +281,9 @@ plpgsql_exec_function(PLpgSQL_function *func, FunctionCallInfo fcinfo)
 						tmptup.t_len = HeapTupleHeaderGetDatumLength(td);
 						ItemPointerSetInvalid(&(tmptup.t_self));
 						tmptup.t_tableOid = InvalidOid;
+#ifdef PGXC
+						tmptup.t_xc_node_id = 0;
+#endif
 						tmptup.t_data = td;
 						exec_move_row(&estate, NULL, row, &tmptup, tupdesc);
 						ReleaseTupleDesc(tupdesc);
@@ -3768,6 +3771,9 @@ exec_assign_value(PLpgSQL_execstate *estate,
 					tmptup.t_len = HeapTupleHeaderGetDatumLength(td);
 					ItemPointerSetInvalid(&(tmptup.t_self));
 					tmptup.t_tableOid = InvalidOid;
+#ifdef PGXC
+					tmptup.t_xc_node_id = 0;
+#endif
 					tmptup.t_data = td;
 					exec_move_row(estate, NULL, row, &tmptup, tupdesc);
 					ReleaseTupleDesc(tupdesc);
@@ -3811,6 +3817,9 @@ exec_assign_value(PLpgSQL_execstate *estate,
 					tmptup.t_len = HeapTupleHeaderGetDatumLength(td);
 					ItemPointerSetInvalid(&(tmptup.t_self));
 					tmptup.t_tableOid = InvalidOid;
+#ifdef PGXC
+					tmptup.t_xc_node_id = 0;
+#endif
 					tmptup.t_data = td;
 					exec_move_row(estate, rec, NULL, &tmptup, tupdesc);
 					ReleaseTupleDesc(tupdesc);

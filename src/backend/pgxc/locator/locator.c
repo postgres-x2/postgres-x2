@@ -837,7 +837,6 @@ RelationBuildLocator(Relation rel)
 /*
  * GetLocatorRelationInfo - Returns the locator information for relation,
  * in a copy of the RelationLocatorInfo struct in relcache
- *
  */
 RelationLocInfo *
 GetRelationLocInfo(Oid relid)
@@ -852,6 +851,19 @@ GetRelationLocInfo(Oid relid)
 	relation_close(rel, AccessShareLock);
 
 	return ret_loc_info;
+}
+
+/*
+ * Get the distribution type of relation.
+ */
+char
+GetRelationLocType(Oid relid)
+{
+	RelationLocInfo *locinfo = GetRelationLocInfo(relid);
+	if (!locinfo)
+		return LOCATOR_TYPE_NONE;
+
+	return locinfo->locatorType;
 }
 
 /*

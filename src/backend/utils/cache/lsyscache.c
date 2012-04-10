@@ -2171,7 +2171,7 @@ get_pgxc_nodeoid(const char *nodename)
 
 /*
  * get_pgxc_nodename
- *		Get node type for given Oid
+ *		Get node name for given Oid
  */
 char *
 get_pgxc_nodename(Oid nodeid)
@@ -2187,6 +2187,32 @@ get_pgxc_nodename(Oid nodeid)
 
 	nodeForm = (Form_pgxc_node) GETSTRUCT(tuple);
 	result = pstrdup(NameStr(nodeForm->node_name));
+	ReleaseSysCache(tuple);
+
+	return result;
+}
+
+ /*
+ * get_pgxc_node_id
+ *		Get node identifier for a given Oid
+ */
+uint32
+get_pgxc_node_id(Oid nodeid)
+{
+	HeapTuple	tuple;
+	Form_pgxc_node	nodeForm;
+	uint32		result;
+
+	if (nodeid == InvalidOid)
+		return 0;
+
+	tuple = SearchSysCache1(PGXCNODEOID, ObjectIdGetDatum(nodeid));
+
+	if (!HeapTupleIsValid(tuple))
+			elog(ERROR, "cache lookup failed for node %u", nodeid);
+
+	nodeForm = (Form_pgxc_node) GETSTRUCT(tuple);
+	result = nodeForm->node_id;
 	ReleaseSysCache(tuple);
 
 	return result;

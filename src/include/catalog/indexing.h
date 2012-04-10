@@ -285,7 +285,7 @@ DECLARE_UNIQUE_INDEX(pg_user_mapping_user_server_index, 175, on pg_user_mapping 
 DECLARE_UNIQUE_INDEX(pgxc_class_pcrelid_index, 9002, on pgxc_class using btree(pcrelid oid_ops));
 #define PgxcClassPgxcRelIdIndexId 	9002
 
-DECLARE_UNIQUE_INDEX(pgxc_node_id_index, 9010, on pgxc_node using btree(oid oid_ops));
+DECLARE_UNIQUE_INDEX(pgxc_node_oid_index, 9010, on pgxc_node using btree(oid oid_ops));
 #define PgxcNodeOidIndexId			9010
 
 DECLARE_UNIQUE_INDEX(pgxc_node_name_index, 9011, on pgxc_node using btree(node_name name_ops));
@@ -296,6 +296,9 @@ DECLARE_UNIQUE_INDEX(pgxc_group_name_index, 9012, on pgxc_group using btree(grou
 
 DECLARE_UNIQUE_INDEX(pgxc_group_oid, 9013, on pgxc_group using btree(oid oid_ops));
 #define PgxcGroupOidIndexId			9013
+
+DECLARE_UNIQUE_INDEX(pgxc_node_id_index, 9003, on pgxc_node using btree(node_id int4_ops));
+#define PgxcNodeNodeIdIndexId 	9003
 
 #endif
 

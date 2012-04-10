@@ -25,6 +25,14 @@
 #include "utils/builtins.h"
 #include "utils/memutils.h"
 
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#include "access/hash.h"
+#include "catalog/pg_collation.h"
+#include "utils/formatting.h"
+#include "utils/lsyscache.h"
+#endif
+
 /*
  * Estimate of the maximum number of open portals a user would have,
  * used in initially sizing the PortalHashTable in EnablePortalManager().
@@ -240,6 +248,16 @@ CreatePortal(const char *name, bool allowDup, bool dupSilent)
 
 	/* put portal in table (sets portal->name) */
 	PortalHashTableInsert(portal, name);
+
+#ifdef PGXC
+	if (PGXCNodeIdentifier == 0)
+	{
+		char *node_name;
+		node_name = str_tolower(PGXCNodeName, strlen(PGXCNodeName), DEFAULT_COLLATION_OID);
+		PGXCNodeIdentifier = get_pgxc_node_id(get_pgxc_nodeoid(node_name));
+		pfree(node_name);
+	}
+#endif
 
 	return portal;
 }

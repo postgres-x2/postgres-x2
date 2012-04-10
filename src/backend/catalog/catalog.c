@@ -451,6 +451,7 @@ IsSharedRelation(Oid relationId)
 		relationId == TablespaceNameIndexId ||
 #ifdef PGXC
 		relationId == PgxcNodeNodeNameIndexId ||
+		relationId == PgxcNodeNodeIdIndexId ||
 		relationId == PgxcNodeOidIndexId ||
 		relationId == PgxcGroupGroupNameIndexId ||
 		relationId == PgxcGroupOidIndexId ||

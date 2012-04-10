@@ -108,3 +108,4 @@ test: xc_groupby xc_distkey xc_having xc_temp xc_remote xc_FQS xc_FQS_join
 
 #Cluster setting related test is independant
 test: xc_node
+test: xc_misc

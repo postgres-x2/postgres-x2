@@ -193,7 +193,24 @@ static FormData_pg_attribute a7 = {
 	true, 'p', 'i', true, false, false, true, 0
 };
 
+#ifdef PGXC
+/*
+ * In XC we need some sort of node identification for each tuple
+ * We are adding another system column that would serve as node identifier.
+ * This is not only required by WHERE CURRENT OF but it can be used any
+ * where we want to know the originating Datanode of a tuple received
+ * at the Coordinator
+ */
+static FormData_pg_attribute a8 = {
+	0, {"xc_node_id"}, INT4OID, 0, sizeof(int4),
+	XC_NodeIdAttributeNumber, 0, -1, -1,
+	true, 'p', 'i', true, false, false, true, 0
+};
+
+static const Form_pg_attribute SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a7, &a8};
+#else
 static const Form_pg_attribute SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a7};
+#endif
 
 /*
  * This function returns a Form_pg_attribute pointer for a system attribute.

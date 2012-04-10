@@ -518,6 +518,9 @@ typedef struct HeapTupleData
 	uint32		t_len;			/* length of *t_data */
 	ItemPointerData t_self;		/* SelfItemPointer */
 	Oid			t_tableOid;		/* table the tuple came from */
+#ifdef PGXC
+	uint32		t_xc_node_id;	/* Data node the tuple came from */
+#endif
 	HeapTupleHeader t_data;		/* -> tuple header and data */
 } HeapTupleData;
 

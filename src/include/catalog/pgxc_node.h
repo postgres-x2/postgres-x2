@@ -52,11 +52,16 @@ CATALOG(pgxc_node,9015) BKI_SHARED_RELATION
 	 * Is this node preferred
 	 */
 	bool		nodeis_preferred;
+
+	/*
+	 * Node identifier to be used at places where a fixed length node identification is required
+	 */
+	int4		node_id;
 } FormData_pgxc_node;
 
 typedef FormData_pgxc_node *Form_pgxc_node;
 
-#define Natts_pgxc_node				6
+#define Natts_pgxc_node				7
 
 #define Anum_pgxc_node_name			1
 #define Anum_pgxc_node_type			2
@@ -64,6 +69,7 @@ typedef FormData_pgxc_node *Form_pgxc_node;
 #define Anum_pgxc_node_host			4
 #define Anum_pgxc_node_is_primary	5
 #define Anum_pgxc_node_is_preferred	6
+#define Anum_pgxc_node_id		7
 
 /* Possible types of nodes */
 #define PGXC_NODE_COORDINATOR		'C'

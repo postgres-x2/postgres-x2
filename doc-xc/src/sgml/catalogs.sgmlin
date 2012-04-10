@@ -6573,6 +6573,15 @@
        Only a Datanode can be a preferred node.
       </entry>
      </row>
+
+     <row>
+      <entry><structfield>node_id</structfield></entry>
+      <entry><type>int4</type></entry>
+      <entry></entry>
+      <entry>Integer node identifier of node.
+       It is generated when node is created.
+      </entry>
+     </row>
     </tbody>
    </tgroup>
   </table>

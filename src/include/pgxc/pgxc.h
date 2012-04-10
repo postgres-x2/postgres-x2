@@ -34,6 +34,7 @@ extern int		remoteConnType;
 /* Local node name and numer */
 extern char	*PGXCNodeName;
 extern int	PGXCNodeId;
+extern uint32	PGXCNodeIdentifier;
 
 #define IS_PGXC_COORDINATOR isPGXCCoordinator
 #define IS_PGXC_DATANODE isPGXCDataNode

@@ -73,6 +73,10 @@
 #include "utils/relcache.h"
 #include "utils/snapmgr.h"
 #include "utils/tqual.h"
+#ifdef PGXC
+#include "utils/lsyscache.h"
+#include "pgxc/pgxc.h"
+#endif
 
 
 /* ----------------------------------------------------------------
@@ -575,6 +579,10 @@ index_getnext(IndexScanDesc scan, ScanDirection direction)
 			heapTuple->t_len = ItemIdGetLength(lp);
 			ItemPointerSetOffsetNumber(tid, offnum);
 			heapTuple->t_tableOid = RelationGetRelid(scan->heapRelation);
+#ifdef PGXC
+			heapTuple->t_xc_node_id = PGXCNodeIdentifier;
+#endif
+
 			ctid = &heapTuple->t_data->t_ctid;
 
 			/*

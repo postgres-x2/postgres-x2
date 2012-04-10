@@ -204,28 +204,57 @@ SELECT a FROM rel_rep  WHERE c = true ORDER BY 1;
 DROP SEQUENCE seqtest3;
 -- UPDATE cases for round robin table
 -- Plain cases change it completely
--- PGXCTODO: For Round robin tuple selection is still incorrect
--- It is necessary to incorporate all the columns in qual list
--- to insure SQL consistency
 CREATE TABLE rel_rr (a int, b timestamp DEFAULT NULL, c boolean DEFAULT NULL) DISTRIBUTE BY ROUND ROBIN;
 CREATE SEQUENCE seqtest4 START 1;
 INSERT INTO rel_rr VALUES (1),(2),(3),(4),(5);
--- UPDATE rel_rr SET a = nextval('seqtest4'), b = now(), c = false;
--- SELECT a FROM rel_rr ORDER BY 1,2;
+UPDATE rel_rr SET a = nextval('seqtest4'), b = now(), c = false;
+SELECT a FROM rel_rr ORDER BY 1;
+ a 
+---
+ 1
+ 2
+ 3
+ 4
+ 5
+(5 rows)
+
 -- Non-Coordinator quals
--- UPDATE rel_rr SET b = now(), c = true WHERE a < func_volatile(2);
--- SELECT a FROM rel_rr WHERE c = true ORDER BY 1;
--- UPDATE rel_rr SET c = false;
--- UPDATE rel_rr SET b = now(), c = true WHERE a < func_stable(3);
--- SELECT a FROM rel_rr WHERE c = true ORDER BY 1;
--- UPDATE rel_rr SET c = false WHERE c = true;
--- UPDATE rel_rr SET b = now(), c = true WHERE a < func_immutable(4);
--- SELECT a FROM rel_rr WHERE c = true ORDER BY 1;
--- UPDATE rel_rr SET c = false;
+UPDATE rel_rr SET b = now(), c = true WHERE a < func_volatile(2);
+SELECT a FROM rel_rr WHERE c = true ORDER BY 1;
+ a 
+---
+ 1
+(1 row)
+
+UPDATE rel_rr SET c = false;
+UPDATE rel_rr SET b = now(), c = true WHERE a < func_stable(3);
+SELECT a FROM rel_rr WHERE c = true ORDER BY 1;
+ a 
+---
+ 1
+ 2
+(2 rows)
+
+UPDATE rel_rr SET c = false WHERE c = true;
+UPDATE rel_rr SET b = now(), c = true WHERE a < func_immutable(4);
+SELECT a FROM rel_rr WHERE c = true ORDER BY 1;
+ a 
+---
+ 1
+ 2
+ 3
+(3 rows)
+
+UPDATE rel_rr SET c = false;
 -- Coordinator qual
--- UPDATE rel_rr SET b = now(), c = true WHERE a < currval('seqtest4') - 3 AND b < now();
--- SELECT a FROM rel_rr WHERE c = true ORDER BY 1;
--- DROP SEQUENCE seqtest4;
+UPDATE rel_rr SET b = now(), c = true WHERE a < currval('seqtest4') - 3 AND b < now();
+SELECT a FROM rel_rr WHERE c = true ORDER BY 1;
+ a 
+---
+ 1
+(1 row)
+
+DROP SEQUENCE seqtest4;
 -- UPDATE cases for hash table
 -- Hash tables cannot be updated on distribution keys so insert fresh rows
 CREATE TABLE rel_hash (a int, b timestamp DEFAULT now(), c boolean DEFAULT false) DISTRIBUTE BY HASH(a);

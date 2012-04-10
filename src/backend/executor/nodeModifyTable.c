@@ -351,6 +351,9 @@ ExecDelete(ItemPointer tupleid,
 		tuple.t_len = HeapTupleHeaderGetDatumLength(oldtuple);
 		ItemPointerSetInvalid(&(tuple.t_self));
 		tuple.t_tableOid = InvalidOid;
+#ifdef PGXC
+		tuple.t_xc_node_id = 0;
+#endif
 
 		dodelete = ExecIRDeleteTriggers(estate, resultRelInfo, &tuple);
 
@@ -464,6 +467,9 @@ ldelete:;
 			deltuple.t_len = HeapTupleHeaderGetDatumLength(oldtuple);
 			ItemPointerSetInvalid(&(deltuple.t_self));
 			deltuple.t_tableOid = InvalidOid;
+#ifdef PGXC
+			deltuple.t_xc_node_id = 0;
+#endif
 			delbuffer = InvalidBuffer;
 		}
 		else
@@ -575,6 +581,9 @@ ExecUpdate(ItemPointer tupleid,
 		oldtup.t_len = HeapTupleHeaderGetDatumLength(oldtuple);
 		ItemPointerSetInvalid(&(oldtup.t_self));
 		oldtup.t_tableOid = InvalidOid;
+#ifdef PGXC
+		oldtup.t_xc_node_id = 0;
+#endif
 
 		slot = ExecIRUpdateTriggers(estate, resultRelInfo,
 									&oldtup, slot);

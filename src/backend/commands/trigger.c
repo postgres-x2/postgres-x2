@@ -54,6 +54,9 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #include "utils/tqual.h"
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#endif
 
 
 /* GUC variables */
@@ -2645,6 +2648,9 @@ ltrmark:;
 		tuple.t_len = ItemIdGetLength(lp);
 		tuple.t_self = *tid;
 		tuple.t_tableOid = RelationGetRelid(relation);
+#ifdef PGXC
+		tuple.t_xc_node_id = PGXCNodeIdentifier;
+#endif
 	}
 
 	result = heap_copytuple(&tuple);

@@ -4360,6 +4360,11 @@ get_variable_numdistinct(VariableStatData *vardata)
 				case TableOidAttributeNumber:
 					stadistinct = 1.0;	/* only 1 value */
 					break;
+#ifdef PGXC
+				case XC_NodeIdAttributeNumber:
+					stadistinct = 1.0;	/* only 1 value */
+					break;
+#endif
 				default:
 					stadistinct = 0.0;	/* means "unknown" */
 					break;

@@ -14,6 +14,15 @@ ORDER BY 1;
  dummy_node_datanode    | D         |      5432 | localhost
 (2 rows)
 
+-- test to make sure that node_id is generated correctly for the added nodes
+select hashname(node_name) = node_id from pgxc_node
+WHERE node_name IN ('dummy_node_coordinator',  'dummy_node_datanode');
+ ?column? 
+----------
+ t
+ t
+(2 rows)
+
 -- Some modifications
 ALTER NODE dummy_node_coordinator WITH (PORT = 5466, HOST = 'target_host_1');
 ALTER NODE dummy_node_datanode WITH (PORT = 5689, HOST = 'target_host_2', PREFERRED);

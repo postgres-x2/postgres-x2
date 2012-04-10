@@ -290,6 +290,9 @@ heap_attisnull(HeapTuple tup, int attnum)
 		case MinCommandIdAttributeNumber:
 		case MaxTransactionIdAttributeNumber:
 		case MaxCommandIdAttributeNumber:
+#ifdef PGXC
+		case XC_NodeIdAttributeNumber:
+#endif
 			/* these are never null */
 			break;
 
@@ -562,6 +565,11 @@ heap_getsysattr(HeapTuple tup, int attnum, TupleDesc tupleDesc, bool *isnull)
 		case TableOidAttributeNumber:
 			result = ObjectIdGetDatum(tup->t_tableOid);
 			break;
+#ifdef PGXC
+		case XC_NodeIdAttributeNumber:
+			result = UInt32GetDatum(tup->t_xc_node_id);
+			break;
+#endif
 		default:
 			elog(ERROR, "invalid attnum: %d", attnum);
 			result = 0;			/* keep compiler quiet */
@@ -591,6 +599,9 @@ heap_copytuple(HeapTuple tuple)
 	newTuple->t_len = tuple->t_len;
 	newTuple->t_self = tuple->t_self;
 	newTuple->t_tableOid = tuple->t_tableOid;
+#ifdef PGXC
+	newTuple->t_xc_node_id = tuple->t_xc_node_id;
+#endif
 	newTuple->t_data = (HeapTupleHeader) ((char *) newTuple + HEAPTUPLESIZE);
 	memcpy((char *) newTuple->t_data, (char *) tuple->t_data, tuple->t_len);
 	return newTuple;
@@ -617,6 +628,9 @@ heap_copytuple_with_tuple(HeapTuple src, HeapTuple dest)
 	dest->t_len = src->t_len;
 	dest->t_self = src->t_self;
 	dest->t_tableOid = src->t_tableOid;
+#ifdef PGXC
+	dest->t_xc_node_id = src->t_xc_node_id;
+#endif
 	dest->t_data = (HeapTupleHeader) palloc(src->t_len);
 	memcpy((char *) dest->t_data, (char *) src->t_data, src->t_len);
 }
@@ -706,6 +720,9 @@ heap_form_tuple(TupleDesc tupleDescriptor,
 	tuple->t_len = len;
 	ItemPointerSetInvalid(&(tuple->t_self));
 	tuple->t_tableOid = InvalidOid;
+#ifdef PGXC
+	tuple->t_xc_node_id = 0;
+#endif
 
 	HeapTupleHeaderSetDatumLength(td, len);
 	HeapTupleHeaderSetTypeId(td, tupleDescriptor->tdtypeid);
@@ -825,6 +842,9 @@ heap_modify_tuple(HeapTuple tuple,
 	newTuple->t_data->t_ctid = tuple->t_data->t_ctid;
 	newTuple->t_self = tuple->t_self;
 	newTuple->t_tableOid = tuple->t_tableOid;
+#ifdef PGXC
+	newTuple->t_xc_node_id = tuple->t_xc_node_id;
+#endif
 	if (tupleDesc->tdhasoid)
 		HeapTupleSetOid(newTuple, HeapTupleGetOid(tuple));
 
@@ -1638,6 +1658,9 @@ heap_tuple_from_minimal_tuple(MinimalTuple mtup)
 	result->t_len = len;
 	ItemPointerSetInvalid(&(result->t_self));
 	result->t_tableOid = InvalidOid;
+#ifdef PGXC
+	result->t_xc_node_id = 0;
+#endif
 	result->t_data = (HeapTupleHeader) ((char *) result + HEAPTUPLESIZE);
 	memcpy((char *) result->t_data + MINIMAL_TUPLE_OFFSET, mtup, mtup->t_len);
 	memset(result->t_data, 0, offsetof(HeapTupleHeaderData, t_infomask2));

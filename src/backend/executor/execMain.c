@@ -2111,6 +2111,9 @@ EvalPlanQualFetchRowMarks(EPQState *epqstate)
 			tuple.t_len = HeapTupleHeaderGetDatumLength(td);
 			ItemPointerSetInvalid(&(tuple.t_self));
 			tuple.t_tableOid = InvalidOid;
+#ifdef PGXC
+			tuple.t_xc_node_id = 0;
+#endif
 			tuple.t_data = td;
 
 			/* copy and store tuple */

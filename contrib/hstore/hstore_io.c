@@ -814,6 +814,9 @@ hstore_from_record(PG_FUNCTION_ARGS)
 		tuple.t_len = HeapTupleHeaderGetDatumLength(rec);
 		ItemPointerSetInvalid(&(tuple.t_self));
 		tuple.t_tableOid = InvalidOid;
+#ifdef PGXC
+		tuple.t_xc_node_id = 0;
+#endif
 		tuple.t_data = rec;
 
 		values = (Datum *) palloc(ncolumns * sizeof(Datum));
@@ -960,6 +963,9 @@ hstore_populate_record(PG_FUNCTION_ARGS)
 		tuple.t_len = HeapTupleHeaderGetDatumLength(rec);
 		ItemPointerSetInvalid(&(tuple.t_self));
 		tuple.t_tableOid = InvalidOid;
+#ifdef PGXC
+		tuple.t_xc_node_id = 0;
+#endif
 		tuple.t_data = rec;
 	}
 

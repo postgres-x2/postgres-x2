@@ -10,6 +10,9 @@ CREATE NODE dummy_node_datanode WITH (TYPE = 'datanode');
 SELECT node_name, node_type, node_port, node_host FROM pgxc_node
 WHERE node_name IN ('dummy_node_coordinator',  'dummy_node_datanode')
 ORDER BY 1;
+-- test to make sure that node_id is generated correctly for the added nodes
+select hashname(node_name) = node_id from pgxc_node
+WHERE node_name IN ('dummy_node_coordinator',  'dummy_node_datanode');
 -- Some modifications
 ALTER NODE dummy_node_coordinator WITH (PORT = 5466, HOST = 'target_host_1');
 ALTER NODE dummy_node_datanode WITH (PORT = 5689, HOST = 'target_host_2', PREFERRED);

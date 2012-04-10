@@ -13,6 +13,7 @@
 #include "postgres.h"
 #include "miscadmin.h"
 
+#include "access/hash.h"
 #include "access/heapam.h"
 #include "catalog/catalog.h"
 #include "catalog/indexing.h"
@@ -28,6 +29,14 @@
 #include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
 
+/*
+ * How many times should we try to find a unique indetifier
+ * in case hash of the node name comes out to be duplicate
+ */
+
+#define MAX_TRIES_FOR_NID	200
+
+static Datum generate_node_id(const char *node_name);
 
 /*
  * GUC parameters.
@@ -200,6 +209,70 @@ check_node_options(const char *node_name, List *options, char **node_host,
 				(errcode(ERRCODE_SYNTAX_ERROR),
 				 errmsg("PGXC node %s: Node type not specified",
 						node_name)));
+}
+
+/*
+ * generate_node_id
+ *
+ * Given a node name compute its hash to generate the identifier
+ * If the hash comes out to be duplicate , try some other values
+ * Give up after a few tries
+ */
+static Datum
+generate_node_id(const char *node_name)
+{
+	Datum		node_id;
+	uint32		n;
+	bool		inc;
+	int		i;
+
+	/* Compute node identifier by computing hash of node name */
+	node_id = hash_any((unsigned char *)node_name, strlen(node_name));
+
+	/*
+	 * Check if the hash is near the overflow limit, then we will
+	 * decrement it , otherwise we will increment
+	 */
+	inc = true;
+	n = DatumGetUInt32(node_id);
+	if (n >= UINT_MAX - MAX_TRIES_FOR_NID)
+		inc = false;
+
+	/*
+	 * Check if the identifier is clashing with an existing one,
+	 * and if it is try some other
+	 */
+	for (i = 0; i < MAX_TRIES_FOR_NID; i++)
+	{
+		HeapTuple	tup;
+
+		tup = SearchSysCache1(PGXCNODEIDENTIFIER, node_id);
+		if (tup == NULL)
+			break;
+
+		ReleaseSysCache(tup);
+
+		n = DatumGetUInt32(node_id);
+		if (inc)
+			n++;
+		else
+			n--;
+
+		node_id = UInt32GetDatum(n);
+	}
+
+	/*
+	 * This has really few chances to happen, but inform backend that node
+	 * has not been registered correctly in this case.
+	 */
+	if (i >= MAX_TRIES_FOR_NID)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+				 errmsg("Please choose different node name."),
+				 errdetail("Name \"%s\" produces a duplicate identifier node_name",
+						   node_name)));
+
+	return node_id;
 }
 
 /* --------------------------------
@@ -422,6 +495,7 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 	int			node_port = 0;
 	bool		is_primary = false;
 	bool		is_preferred = false;
+	Datum		node_id;
 
 	/* Only a DB administrator can add nodes */
 	if (!superuser())
@@ -447,6 +521,9 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 	check_node_options(node_name, stmt->options, &node_host,
 				&node_port, &node_type,
 				&is_primary, &is_preferred);
+
+	/* Compute node identifier */
+	node_id = generate_node_id(node_name);
 
 	/*
 	 * Then assign default values if necessary
@@ -489,6 +566,7 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 	values[Anum_pgxc_node_host - 1] = DirectFunctionCall1(namein, CStringGetDatum(node_host));
 	values[Anum_pgxc_node_is_primary - 1] = BoolGetDatum(is_primary);
 	values[Anum_pgxc_node_is_preferred - 1] = BoolGetDatum(is_preferred);
+	values[Anum_pgxc_node_id - 1] = node_id;
 
 	htup = heap_form_tuple(pgxcnodesrel->rd_att, values, nulls);
 
@@ -520,6 +598,7 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 	Datum		new_record[Natts_pgxc_node];
 	bool		new_record_nulls[Natts_pgxc_node];
 	bool		new_record_repl[Natts_pgxc_node];
+	uint32		node_id;
 
 	/* Only a DB administrator can alter cluster nodes */
 	if (!superuser())
@@ -552,6 +631,7 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 	is_primary = is_pgxc_nodeprimary(nodeOid);
 	node_type = get_pgxc_nodetype(nodeOid);
 	node_type_old = node_type;
+	node_id = get_pgxc_node_id(nodeOid);
 
 	/* Filter options */
 	check_node_options(node_name, stmt->options, &node_host,
@@ -587,6 +667,8 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 	new_record_repl[Anum_pgxc_node_is_primary - 1] = true;
 	new_record[Anum_pgxc_node_is_preferred - 1] = BoolGetDatum(is_preferred);
 	new_record_repl[Anum_pgxc_node_is_preferred - 1] = true;
+	new_record[Anum_pgxc_node_id - 1] = UInt32GetDatum(node_id);
+	new_record_repl[Anum_pgxc_node_id - 1] = true;
 
 	/* Update relation */
 	newtup = heap_modify_tuple(oldtup, RelationGetDescr(rel),

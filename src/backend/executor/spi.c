@@ -765,6 +765,10 @@ SPI_modifytuple(Relation rel, HeapTuple tuple, int natts, int *attnum,
 		mtuple->t_data->t_ctid = tuple->t_data->t_ctid;
 		mtuple->t_self = tuple->t_self;
 		mtuple->t_tableOid = tuple->t_tableOid;
+#ifdef PGXC
+		mtuple->t_xc_node_id = tuple->t_xc_node_id;
+#endif
+
 		if (rel->rd_att->tdhasoid)
 			HeapTupleSetOid(mtuple, HeapTupleGetOid(tuple));
 	}

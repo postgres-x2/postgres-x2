@@ -594,6 +594,17 @@ static const struct cachedesc cacheinfo[] = {
 		},
 		256
 	},
+	{PgxcNodeRelationId,	/* PGXCNODEIDENTIFIER */
+		PgxcNodeNodeIdIndexId,
+		1,
+		{
+			Anum_pgxc_node_id,
+			0,
+			0,
+			0
+		},
+		256
+	},
 #endif
 	{ProcedureRelationId,		/* PROCNAMEARGSNSP */
 		ProcedureNameArgsNspIndexId,
