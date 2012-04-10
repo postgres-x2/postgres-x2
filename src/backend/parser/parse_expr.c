@@ -1995,6 +1995,12 @@ transformCurrentOfExpr(ParseState *pstate, CurrentOfExpr *cexpr)
 {
 	int			sublevels_up;
 
+#ifdef PGXC
+	ereport(ERROR,
+			(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+				(errmsg("WHERE CURRENT OF clause not yet supported"))));
+#endif
+
 	/* CURRENT OF can only appear at top level of UPDATE/DELETE */
 	Assert(pstate->p_target_rangetblentry != NULL);
 	cexpr->cvarno = RTERangeTablePosn(pstate,
