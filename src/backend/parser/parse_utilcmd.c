@@ -2156,11 +2156,10 @@ transformRuleStmt(RuleStmt *stmt, const char *queryString,
 						has_new;
 
 #ifdef PGXC
-			if(IsA(action, NotifyStmt))
+			if (IsA(action, NotifyStmt))
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
 						 errmsg("Rule may not use NOTIFY, it is not yet supported")));
-
 #endif
 			/*
 			 * Since outer ParseState isn't parent of inner, have to pass down

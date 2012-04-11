@@ -26,7 +26,7 @@
 #define MaxCommandIdAttributeNumber				(-6)
 #define TableOidAttributeNumber					(-7)
 #ifdef PGXC
-#define XC_NodeIdAttributeNumber			(-8)
+#define XC_NodeIdAttributeNumber				(-8)
 #define FirstLowInvalidHeapAttributeNumber		(-9)
 #else
 #define FirstLowInvalidHeapAttributeNumber		(-8)

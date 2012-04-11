@@ -5528,7 +5528,7 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		RemoteQuery	   *fstep;		/* Plan step generated */
 		ListCell	   *elt;
 		int				count = 1, where_count = 1;
-		int				natts;
+		int				natts, count_prepparams, tot_prepparams;
 
 		ttab = rt_fetch(resultRelationIndex, parse->rtable);
 
@@ -5573,8 +5573,19 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 			if (tle->resjunk)
 				count++;
 		}
+		count_prepparams = natts + count;
+
+		/* Add any non-parent relations if necessary */
+		foreach (elt, root->rowMarks)
+		{
+			PlanRowMark *rc = (PlanRowMark *) lfirst(elt);
+			if (!rc->isParent)
+				count++;
+		}
+		tot_prepparams = natts + count;
+
 		/* Then allocate the array for this purpose */
-		param_types = (Oid *) palloc0(sizeof (Oid) * (natts + count));
+		param_types = (Oid *) palloc0(sizeof (Oid) * tot_prepparams);
 
 		/*
 		 * Now build the query based on the target list. SET clause is completed
@@ -5683,6 +5694,93 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 			}
 		}
 
+		/*
+		 * The query needs to be completed by nullifying the non-parent entries
+		 * defined in RowMarks. This is essential for UPDATE queries running with child
+		 * entries as we need to bypass them correctly at executor level.
+		 */
+		elt = list_head(root->rowMarks);
+		while (elt != NULL)
+		{
+			PlanRowMark *rc = (PlanRowMark *) lfirst(elt);
+
+			if (rc->isParent)
+			{
+				elt = lnext(elt);
+				continue;
+			}
+
+			count_prepparams++;
+
+			/* Nullify non-parent entry here */
+			if (!is_where_printed)
+			{
+				is_where_printed = true;
+				appendStringInfoString(buf2, " WHERE ");
+			}
+			else
+				appendStringInfoString(buf2, "AND ");
+
+			/* Complete string */
+			appendStringInfo(buf2, "$%d = $%d ",
+							 count_prepparams,
+							 count_prepparams);
+
+			/* Determine the correct parameter type */
+			switch (rc->markType)
+			{
+				case ROW_MARK_COPY:
+					{
+						RangeTblEntry *rte = rt_fetch(rc->prti, parse->rtable);
+
+						/*
+						 * PGXCTODO: We still need to determine the rowtype
+						 * in case relation involved here is a view (see inherit.sql).
+						 */
+						if (!OidIsValid(rte->relid))
+							ereport(ERROR,
+									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+									 errmsg("Cannot generate remote UPDATE plan"),
+									 errdetail("This relation rowtype cannot be fetched")));
+
+						/*
+						 * This is the complete copy of a row, so it is necessary
+						 * to set parameter as a rowtype
+						 */
+						param_types[count_prepparams - 1] = get_rel_type_id(rte->relid);
+					}
+					break;
+
+				case ROW_MARK_REFERENCE:
+					/* Here we have a ctid for sure */
+					param_types[count_prepparams - 1] = TIDOID;
+
+					if (rc->isParent)
+					{
+						/* For a child table, tableoid is also necessary */
+						count_prepparams++;
+						appendStringInfoString(buf2, "AND ");
+
+						/* Complete string */
+						appendStringInfo(buf2, "$%d = $%d ",
+										 count_prepparams,
+										 count_prepparams);
+
+						param_types[count_prepparams - 1] = OIDOID;
+						elt = lnext(elt);
+					}
+					break;
+
+				/* Ignore other entries */
+				case ROW_MARK_SHARE:
+				case ROW_MARK_EXCLUSIVE:
+				default:
+					break;
+			}
+				
+			elt = lnext(elt);
+		}
+
 		/* Finish building the query by gathering SET and WHERE clauses */
 		appendStringInfo(buf, "%s", buf2->data);
 
@@ -5703,7 +5801,7 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		fstep->exec_nodes->en_relid = ttab->relid;
 		fstep->exec_nodes->accesstype = RELATION_ACCESS_UPDATE;
 		fstep->exec_nodes->en_expr = pgxc_set_en_expr(ttab->relid, resultRelationIndex);
-		SetRemoteStatementName((Plan *) fstep, NULL, list_length(parse->targetList), param_types, 0);
+		SetRemoteStatementName((Plan *) fstep, NULL, tot_prepparams, param_types, 0);
 		pfree(buf->data);
 		pfree(buf2->data);
 		pfree(buf);
@@ -5765,7 +5863,7 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		/* Create query buffers */
 		buf = makeStringInfo();
 
-		/* Compose UPDATE target_table */
+		/* Compose DELETE target_table */
 		nspid = get_rel_namespace(ttab->relid);
 		nspname = get_namespace_name(nspid);
 
