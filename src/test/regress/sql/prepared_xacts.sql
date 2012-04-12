@@ -65,8 +65,6 @@ SELECT * FROM pxtest1  ORDER BY foobar;
 
 -- This should fail, because the gid foo3 is already in use
 PREPARE TRANSACTION 'foo3';
--- Rollback on all the nodes
-ROLLBACK;
 
 SELECT * FROM pxtest1  ORDER BY foobar;
 

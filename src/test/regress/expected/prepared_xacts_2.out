@@ -26,9 +26,10 @@ SELECT * FROM pxtest1 ORDER BY foobar;
 
 -- Test pg_prepared_xacts system view
 SELECT gid FROM pg_prepared_xacts ORDER BY gid;
- gid 
------
-(0 rows)
+ gid  
+------
+ foo1
+(1 row)
 
 -- Test pgxc_prepared_xacts system view
 SELECT pgxc_prepared_xact FROM pgxc_prepared_xacts ORDER by 1;
@@ -95,9 +96,10 @@ SELECT * FROM pxtest1  ORDER BY foobar;
 PREPARE TRANSACTION 'foo3';
 -- Check prepared transactions on Coordinator
 SELECT gid FROM pg_prepared_xacts ORDER BY gid;
- gid 
------
-(0 rows)
+ gid  
+------
+ foo3
+(1 row)
 
 -- Check prepared transactions in the cluster
 SELECT pgxc_prepared_xact FROM pgxc_prepared_xacts ORDER by 1;
@@ -119,8 +121,6 @@ SELECT * FROM pxtest1  ORDER BY foobar;
 -- This should fail, because the gid foo3 is already in use
 PREPARE TRANSACTION 'foo3';
 ERROR:  transaction identifier "foo3" is already in use
--- Rollback on all the nodes
-ROLLBACK;
 SELECT * FROM pxtest1  ORDER BY foobar;
  foobar 
 --------
