@@ -519,6 +519,18 @@ SetRemoteStatementName(Plan *plan, const char *stmt_name, int num_params,
 		((RemoteQuery *) plan)->num_params = num_params;
 		((RemoteQuery *) plan)->param_types = param_types;
 	}
+	else if (IsA(plan, ModifyTable))
+	{
+		ModifyTable	*mt_plan = (ModifyTable *)plan;
+		/* For ModifyTable plan recurse into each of the plans underneath */
+		ListCell	*l;
+		foreach(l, mt_plan->plans)
+		{
+			Plan *plan = lfirst(l);
+			n = SetRemoteStatementName(plan, stmt_name, num_params,
+										param_types, n);
+		}
+	}
 
 	if (innerPlan(plan))
 		n = SetRemoteStatementName(innerPlan(plan), stmt_name, num_params,
