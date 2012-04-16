@@ -21,6 +21,9 @@ subdir = doc/src/sgml
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
+MAKESGMLDIR = ../../tools/makesgml
+MAKESGML = $(MAKESGMLDIR)/makesgml
+
 
 all: html man
 
@@ -78,6 +81,12 @@ endif
 # in particular < and & that haven't been made into entities.  It's far too
 # noisy to turn on by default, unfortunately.
 override SPFLAGS += -wall -wno-unused-param -wno-empty -wfully-tagged
+
+##
+## SGML files
+##
+
+sgml-files: $(ALLSGMLIN:%sgmlin=%sgml)
 
 ##
 ## Man pages
@@ -206,7 +215,7 @@ INC_LIST = -I PG -I EN
 #INC_LIST = -I PGXC -I EN
 
 .sgmlin.sgml:
-	makesgml -i $< -o $@ $(INC_LIST) $(EXC_LIST)
+	$(MAKESGML) -i $< -o $@ $(INC_LIST) $(EXC_LIST)
 
 
 # This generates an XML version of the flow-object tree.  It's useful

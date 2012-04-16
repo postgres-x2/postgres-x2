@@ -1,17 +1,18 @@
 #----------------------------------------------------------------------------
 #
-# Postgres-XC documentation top-level makefile
+# Postgres-XC documentation tool makefile
 #
-# Copyright (c) 1994, Regents of the University of California
+# Copyright (c) 2010-2012 Nippon Telegraph and Telephone Corporation
 #
-# doc/Makefile
+# doc-xc/Makefile
 #
 #----------------------------------------------------------------------------
 
-subdir = doc-xc
-top_builddir = ..
+subdir = doc-xc/tools
+top_builddir = ../..
 include $(top_builddir)/src/Makefile.global
 
+SUBDIRS = makesgml
+
 all distprep html man install installdirs uninstall clean distclean maintainer-clean maintainer-check:
-	$(MAKE) -C tools $@
-	$(MAKE) -C src $@
+	$(MAKE) -C $(SUBDIRS) $@

@@ -16,7 +16,10 @@ subdir = src/bin/psql
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
-REFDOCDIR= $(top_srcdir)/doc/src/sgml/ref
+REFDOCDIR= $(top_srcdir)/doc-xc/src/sgml/ref
+
+MAKESGMLDIR = $(top_srcdir)/doc-xc/tools/makesgml
+SGMLDIR= $(top_srcdir)/doc-xc/src/sgml
 
 override CPPFLAGS := -I. -I$(srcdir) -I$(libpq_srcdir) -I$(top_srcdir)/src/bin/pg_dump $(CPPFLAGS)
 
@@ -44,6 +47,8 @@ kwlookup.c: % : $(top_srcdir)/src/backend/parser/%
 
 sql_help.c: sql_help.h ;
 sql_help.h: create_help.pl $(wildcard $(REFDOCDIR)/*.sgml)
+	$(MAKE) -C $(MAKESGMLDIR)
+	$(MAKE) -C $(SGMLDIR) sgml-files
 	$(PERL) $< $(REFDOCDIR) $*
 
 # psqlscan is compiled as part of mainloop
