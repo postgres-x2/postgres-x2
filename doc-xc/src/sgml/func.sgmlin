@@ -13972,6 +13972,7 @@ SELECT typlen FROM pg_type WHERE oid = pg_typeof(33);
        <entry><literal><function>pgxc_is_committed(transaction_id)</function></literal></entry>
        <entry><type>bool</type></entry>
        <entry>If given xid (gxid) is commited or aborted.  NULL indicates the status is unknown (running, not yet started, prepared, frozen, etc).</entry>
+      </row>
 <!## end>
 
       <row>
