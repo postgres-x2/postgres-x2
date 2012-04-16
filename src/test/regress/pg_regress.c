@@ -709,37 +709,14 @@ start_gtm(void)
 	char		buf[MAXPGPATH * 4];
 	const char *data_folder = find_data_folder(PGXC_GTM);
 	PID_TYPE	node_pid;
-	FILE	   *gtm_conf_file;
 
-	/*
-	 * Before starting GTM, set up an empty configuration file as
-	 * all the necessary parameters are provided in command.
-	 */
-	snprintf(buf, sizeof(buf), "%s/%s", temp_install, data_folder);
-	make_directory(buf);
-
-	snprintf(buf, sizeof(buf), "%s/%s/gtm.conf", temp_install, data_folder);
-	gtm_conf_file = fopen(buf, PG_BINARY_W);
-    if (gtm_conf_file == NULL)
-	{
-		fprintf(stderr, _("%s: could not open file \"%s\" for writing: %s\n"),
-				progname, buf, strerror(errno));
-		exit_nicely(2);
-	}
-    if (fclose(gtm_conf_file))
-	{
-		fprintf(stderr, _("%s: could not write file \"%s\": %s\n"),
-				progname, buf, strerror(errno));
-		exit_nicely(2);
-	}
-
+	/* Start process */
 	header(_("starting GTM process"));
 	snprintf(buf, sizeof(buf),
 			 SYSTEMQUOTE "\"%s/gtm\" -D \"%s/%s\" -p %d -x 10000 > \"%s/log/gtm.log\" 2>&1" SYSTEMQUOTE,
 			 bindir, temp_install, data_folder, get_port_number(PGXC_GTM),
 			 outputdir);
 
-	/* Start process */
 	node_pid = spawn_process(buf);
 	if (node_pid == INVALID_PID)
 	{
@@ -802,7 +779,7 @@ start_node(PGXCNodeTypeNum node, bool is_coord, bool is_main)
 }
 
 /*
- * Inistialize given node with initdb
+ * Initialize given node with initdb
  */
 static void
 initdb_node(PGXCNodeTypeNum node)
@@ -819,6 +796,27 @@ initdb_node(PGXCNodeTypeNum node)
 	if (system(buf))
 	{
 		fprintf(stderr, _("\n%s: initdb failed\nExamine %s/log/initdb.log for the reason.\nCommand was: %s\n"), progname, outputdir, buf);
+		exit_nicely(2);
+	}
+}
+
+/*
+ * Initialize GTM
+ */
+static void
+init_gtm(void)
+{
+	const char *data_folder = find_data_folder(PGXC_GTM);
+	char		buf[MAXPGPATH * 4];
+
+	snprintf(buf, sizeof(buf),
+			 SYSTEMQUOTE "\"%s/initgtm\" -Z gtm -D \"%s/%s\" --noclean%s > \"%s/log/initgtm.log\" 2>&1" SYSTEMQUOTE,
+			 bindir, temp_install, data_folder,
+			 debug ? " --debug" : "",
+			 outputdir);
+	if (system(buf))
+	{
+		fprintf(stderr, _("\n%s: initgtm failed\nExamine %s/log/initgtm.log for the reason.\nCommand was: %s\n"), progname, outputdir, buf);
 		exit_nicely(2);
 	}
 }
@@ -2862,7 +2860,8 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 		/* initdb */
 		header(_("initializing database system"));
 #ifdef PGXC
-		/* Initialize nodes */
+		/* Initialize nodes and GTM */
+		init_gtm();
 		initdb_node(PGXC_COORD_1);
 		initdb_node(PGXC_COORD_2);
 		initdb_node(PGXC_DATANODE_1);
