@@ -41,6 +41,7 @@
 #include "pgxc/locator.h"
 #include "nodes/nodes.h"
 #include "pgxc/poolmgr.h"
+#include "pgxc/postgresql_fdw.h"
 #include "catalog/pgxc_node.h"
 #endif
 #include "rewrite/rewriteHandler.h"
@@ -341,6 +342,7 @@ static bool CopyGetInt16(CopyState cstate, int16 *val);
 #ifdef PGXC
 static ExecNodes *build_copy_statement(CopyState cstate, List *attnamelist,
 				TupleDesc tupDesc, bool is_from, List *force_quote, List *force_notnull);
+static void append_defvals(Datum *values, CopyState cstate);
 #endif
 
 /*
@@ -2222,6 +2224,11 @@ CopyFrom(CopyState cstate)
 			break;
 
 #ifdef PGXC
+		/*
+		 * Send the data row as-is to the datanodes. If default values
+		 * are to be inserted, append them onto the data row.
+		 */
+
 		if (IS_PGXC_COORDINATOR && cstate->rel_loc)
 		{
 			Form_pg_attribute *attr = tupDesc->attrs;
@@ -2416,6 +2423,11 @@ BeginCopyFrom(Relation rel,
 	defmap = (int *) palloc(num_phys_attrs * sizeof(int));
 	defexprs = (ExprState **) palloc(num_phys_attrs * sizeof(ExprState *));
 
+#ifdef PGXC
+	/* Output functions are required to convert default values to output form */
+	cstate->out_functions = (FmgrInfo *) palloc(num_phys_attrs * sizeof(FmgrInfo));
+#endif
+
 	for (attnum = 1; attnum <= num_phys_attrs; attnum++)
 	{
 		/* We don't need info for dropped attributes */
@@ -2440,11 +2452,48 @@ BeginCopyFrom(Relation rel,
 
 			if (defexpr != NULL)
 			{
+#ifdef PGXC
+				if (IS_PGXC_COORDINATOR)
+				{
+					/*
+					 * If default expr is shippable to datanode, don't include
+					 * default values in the data row sent to the datanode; let
+					 * the datanode insert the default values.
+					 */
+					Expr *planned_defexpr = expression_planner((Expr *) defexpr);
+					if (!is_foreign_expr((Node*)planned_defexpr, NULL))
+					{
+						Oid    out_func_oid;
+						bool   isvarlena;
+						/* Initialize expressions in copycontext. */
+						defexprs[num_defaults] = ExecInitExpr(planned_defexpr, NULL);
+						defmap[num_defaults] = attnum - 1;
+						num_defaults++;
+
+						/*
+						 * Initialize output functions needed to convert default
+						 * values into output form before appending to data row.
+						 */
+						if (cstate->binary)
+							getTypeBinaryOutputInfo(attr[attnum - 1]->atttypid,
+													&out_func_oid, &isvarlena);
+						else
+							getTypeOutputInfo(attr[attnum - 1]->atttypid,
+											  &out_func_oid, &isvarlena);
+						fmgr_info(out_func_oid, &cstate->out_functions[attnum - 1]);
+					}
+				}
+				else
+				{
+#endif /* PGXC */
 				/* Initialize expressions in copycontext. */
 				defexprs[num_defaults] = ExecInitExpr(
 								 expression_planner((Expr *) defexpr), NULL);
 				defmap[num_defaults] = attnum - 1;
 				num_defaults++;
+#ifdef PGXC
+				}
+#endif
 			}
 		}
 	}
@@ -2821,12 +2870,17 @@ NextCopyFrom(CopyState cstate, ExprContext *econtext,
 #ifdef PGXC
 		if (IS_PGXC_COORDINATOR)
 		{
+			/*
+			 * Include the default value count also, because we are going to
+			 * append default values to the user-supplied attributes.
+			 */
+			int16 total_fld_count = fld_count + num_defaults;
 			/* Empty buffer */
 			resetStringInfo(&cstate->line_buf);
 
 			enlargeStringInfo(&cstate->line_buf, sizeof(uint16));
-			fld_count = htons(fld_count);
-			appendBinaryStringInfo(&cstate->line_buf, (char *) &fld_count, sizeof(uint16));
+			total_fld_count = htons(total_fld_count);
+			appendBinaryStringInfo(&cstate->line_buf, (char *) &total_fld_count, sizeof(uint16));
 		}
 #endif
 
@@ -2887,8 +2941,93 @@ NextCopyFrom(CopyState cstate, ExprContext *econtext,
 										 &nulls[defmap[i]], NULL);
 	}
 
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR)
+	{
+		/* Append default values to the data-row in output format. */
+		append_defvals(values, cstate);
+	}
+#endif
+
 	return true;
 }
+
+#ifdef PGXC
+/*
+ * append_defvals:
+ * Append default values in output form onto the data-row.
+ * 1. scans the default values with the help of defmap,
+ * 2. converts each default value into its output form,
+ * 3. then appends it into cstate->defval_buf buffer.
+ * This buffer would later be appended into the final data row that is sent to
+ * the datanodes.
+ * So for e.g., for a table :
+ * tab (id1 int, v varchar, id2 default nextval('tab_id2_seq'::regclass), id3 )
+ * with the user-supplied data  : "2 | abcd",
+ * and the COPY command such as:
+ * copy tab (id1, v) FROM '/tmp/a.txt' (delimiter '|');
+ * Here, cstate->defval_buf will be populated with something like : "| 1"
+ * and the final data row will be : "2 | abcd | 1"
+ */
+static void
+append_defvals(Datum *values, CopyState cstate)
+{
+	CopyStateData new_cstate = *cstate;
+	int i;
+
+	new_cstate.fe_msgbuf = makeStringInfo();
+
+	for (i = 0; i < cstate->num_defaults; i++)
+	{
+		int attindex = cstate->defmap[i];
+		Datum defvalue = values[attindex];
+
+		if (!cstate->binary)
+			CopySendChar(&new_cstate, new_cstate.delim[0]);
+
+		/*
+		 * For using the values in their output form, it is not sufficient
+		 * to just call its output function. The format should match
+		 * that of COPY because after all we are going to send this value as
+		 * an input data row to the datanode using COPY FROM syntax. So we call
+		 * exactly those functions that are used to output the values in case
+		 * of COPY TO. For instace, CopyAttributeOutText() takes care of
+		 * escaping, CopySendInt32 take care of byte ordering, etc. All these
+		 * functions use cstate->fe_msgbuf to copy the data. But this field
+		 * already has the input data row. So, we need to use a separate
+		 * temporary cstate for this purpose. All the COPY options remain the
+		 * same, so new cstate will have all the fields copied from the original
+		 * cstate, except fe_msgbuf.
+		 */
+		if (cstate->binary)
+		{
+			bytea	   *outputbytes;
+
+			outputbytes = SendFunctionCall(&cstate->out_functions[attindex], defvalue);
+			CopySendInt32(&new_cstate, VARSIZE(outputbytes) - VARHDRSZ);
+			CopySendData(&new_cstate, VARDATA(outputbytes),
+						 VARSIZE(outputbytes) - VARHDRSZ);
+		}
+		else
+		{
+			char *string;
+
+			string = OutputFunctionCall(&cstate->out_functions[attindex], defvalue);
+			if (cstate->csv_mode)
+				CopyAttributeOutCSV(&new_cstate, string,
+				                    false /* don't force quote */,
+									false /* there's at least one user-supplied attribute */ );
+			else
+				CopyAttributeOutText(&new_cstate, string);
+		}
+	}
+
+	/* Append the generated default values to the user-supplied data-row */
+	appendBinaryStringInfo(&cstate->line_buf, new_cstate.fe_msgbuf->data,
+	                                          new_cstate.fe_msgbuf->len);
+}
+#endif
+
 
 /*
  * Clean up storage and release resources for COPY FROM.
@@ -3796,6 +3935,20 @@ CopyReadBinaryAttribute(CopyState cstate,
 		ereport(ERROR,
 				(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
 				 errmsg("unexpected EOF in COPY data")));
+
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR)
+	{
+		/* Add field size to the data row, unless it is invalid. */
+		if (fld_size >= -1) /* -1 is valid; it means NULL value */
+		{
+			nSize = htonl(fld_size);
+			appendBinaryStringInfo(&cstate->line_buf,
+			                       (char *) &nSize, sizeof(int32));
+		}
+	}
+#endif
+
 	if (fld_size == -1)
 	{
 		*isnull = true;
@@ -3805,15 +3958,6 @@ CopyReadBinaryAttribute(CopyState cstate,
 		ereport(ERROR,
 				(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
 				 errmsg("invalid field size")));
-#ifdef PGXC
-	if (IS_PGXC_COORDINATOR)
-	{
-		/* Get the field size from Datanode */
-		enlargeStringInfo(&cstate->line_buf, sizeof(int32));
-		nSize = htonl(fld_size);
-		appendBinaryStringInfo(&cstate->line_buf, (char *) &nSize, sizeof(int32));
-	}
-#endif
 
 	/* reset attribute_buf to empty, and load raw data in it */
 	resetStringInfo(&cstate->attribute_buf);
@@ -3830,8 +3974,7 @@ CopyReadBinaryAttribute(CopyState cstate,
 #ifdef PGXC
 	if (IS_PGXC_COORDINATOR)
 	{
-		/* Get binary message from Datanode */
-		enlargeStringInfo(&cstate->line_buf, fld_size);
+		/* add the binary attribute value to the data row */
 		appendBinaryStringInfo(&cstate->line_buf, cstate->attribute_buf.data, fld_size);
 	}
 #endif
@@ -4244,8 +4387,11 @@ static ExecNodes*
 build_copy_statement(CopyState cstate, List *attnamelist,
 				TupleDesc tupDesc, bool is_from, List *force_quote, List *force_notnull)
 {
-	char *pPartByCol;
+	char      *pPartByCol;
 	ExecNodes *exec_nodes = makeNode(ExecNodes);
+	int        attnum;
+	List      *attnums = CopyGetAttnums(tupDesc, cstate->rel, attnamelist);
+
 
 	/*
 	 * If target table does not exists on nodes (e.g. system table)
@@ -4274,13 +4420,10 @@ build_copy_statement(CopyState cstate, List *attnamelist,
 	cstate->idx_dist_by_col = -1;
 	if (pPartByCol)
 	{
-		List	   *attnums;
 		ListCell   *cur;
-
-		attnums = CopyGetAttnums(tupDesc, cstate->rel, attnamelist);
 		foreach(cur, attnums)
 		{
-			int 		attnum = lfirst_int(cur);
+			attnum = lfirst_int(cur);
 			if (namestrcmp(&(tupDesc->attrs[attnum - 1]->attname), pPartByCol) == 0)
 			{
 				cstate->idx_dist_by_col = attnum - 1;
@@ -4311,6 +4454,34 @@ build_copy_statement(CopyState cstate, List *attnamelist,
 			CopyQuoteIdentifier(&cstate->query_buf, strVal(lfirst(cell)));
 			prev = cell;
 		}
+
+		/*
+		 * For COPY FROM, we need to append unspecified attributes that have
+		 * default expressions associated.
+		 */
+		if (is_from)
+		{
+			for (attnum = 1; attnum <= tupDesc->natts; attnum++)
+			{
+				/* Don't let dropped attributes go into the column list */
+				if (tupDesc->attrs[attnum - 1]->attisdropped)
+					continue;
+
+				if (!list_member_int(attnums, attnum))
+				{
+					/* Append only if the default expression is not shippable. */
+					Expr *defexpr = (Expr*) build_column_default(cstate->rel, attnum);
+					if (defexpr &&
+					    !is_foreign_expr((Node*)expression_planner(defexpr), NULL))
+					{
+						appendStringInfoString(&cstate->query_buf, ", ");
+						CopyQuoteIdentifier(&cstate->query_buf,
+							NameStr(tupDesc->attrs[attnum - 1]->attname));
+					}
+				}
+			}
+		}
+
 		appendStringInfoChar(&cstate->query_buf, ')');
 	}
 
