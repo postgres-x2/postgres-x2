@@ -38,7 +38,7 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE <replaceable
     [ WITH ( <replaceable class="PARAMETER">storage_parameter</replaceable> [= <replaceable class="PARAMETER">value</replaceable>] [, ... ] ) | WITH OIDS | WITHOUT OIDS ]
     [ ON COMMIT { PRESERVE ROWS | DELETE ROWS | DROP } ]
     [ TABLESPACE <replaceable class="PARAMETER">tablespace</replaceable> ]
-    [ DISTRIBUTE BY { REPLICATION | ROUND ROBIN | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</> ) } } ]
+    [ DISTRIBUTE BY { REPLICATION | ROUND ROBIN | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</replaceable> ) } } ]
     [ TO ( GROUP <replaceable class="PARAMETER">groupname</replaceable> | NODE <replaceable class="PARAMETER">nodename</replaceable> [, ... ] ) ]
     AS <replaceable>query</replaceable>
     [ WITH [ NO ] DATA ]
