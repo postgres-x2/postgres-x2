@@ -74,9 +74,7 @@ test: select_having
 test: subselect
 test: union
 test: case
-#aggregates with join, order by are crashing server, hence commented out for
-#now. Bug ID 3284321 tracks this crash.
-#test: join
+test: join
 test: aggregates
 test: transactions
 ignore: random
