@@ -1327,6 +1327,20 @@ pgxc_find_distcol_expr(Index varno, PartAttrNumber partAttrNum,
 
 		lexpr = linitial(op->args);
 		rexpr = lsecond(op->args);
+
+		/*
+		 * If either of the operands is a RelabelType, extract the Var in the RelabelType.
+		 * A RelabelType represents a "dummy" type coercion between two binary compatible datatypes.
+		 * If we do not handle these then our optimization does not work in case of varchar
+		 * For example if col is of type varchar and is the dist key then
+		 * select * from vc_tab where col = 'abcdefghijklmnopqrstuvwxyz';
+		 * should be shipped to one of the nodes only
+		 */
+		if (IsA(lexpr, RelabelType))
+			lexpr = ((RelabelType*)lexpr)->arg;
+		if (IsA(rexpr, RelabelType))
+			rexpr = ((RelabelType*)rexpr)->arg;
+
 		/*
 		 * If either of the operands is a Var expression, assume the other
 		 * one is distribution column expression. If none is Var check next
