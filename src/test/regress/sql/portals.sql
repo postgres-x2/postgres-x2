@@ -144,28 +144,27 @@ FETCH backward 23 in foo1;
 
 CLOSE foo1;
 
---PGXCTODO: Some assertions are failing at this point when closing cursors
---CLOSE foo2;
+CLOSE foo2;
 
 CLOSE foo3;
 
---CLOSE foo4;
+CLOSE foo4;
 
 CLOSE foo5;
 
---CLOSE foo6;
+CLOSE foo6;
 
 CLOSE foo7;
 
---CLOSE foo8;
+CLOSE foo8;
 
 CLOSE foo9;
 
---CLOSE foo10;
+CLOSE foo10;
 
 CLOSE foo11;
 
---CLOSE foo12;
+CLOSE foo12;
 
 -- leave some cursors open, to test that auto-close works.
 
@@ -290,7 +289,6 @@ fetch all from c2;
 
 drop function count_tt1_v();
 drop function count_tt1_s();
-
 drop table tt1;
 
 -- Create a cursor with the BINARY option and check the pg_cursors view
@@ -322,17 +320,17 @@ COMMIT;
 -- Tests for updatable cursors
 --
 
-CREATE TABLE uctest(a int, f1 int, f2 text);
-INSERT INTO uctest VALUES (11, 1, 'one'), (22, 2, 'two'), (33, 3, 'three');
-SELECT f1,f2 FROM uctest ORDER BY f1;
+CREATE TABLE uctest(f1 int, f2 text);
+INSERT INTO uctest VALUES (1, 'one'), (2, 'two'), (3, 'three');
+SELECT * FROM uctest ORDER BY f1;
 
 -- Check DELETE WHERE CURRENT
 BEGIN;
-DECLARE c1 SCROLL CURSOR FOR SELECT f1,f2 FROM uctest ORDER BY f1;
+DECLARE c1 CURSOR FOR SELECT * FROM uctest ORDER BY f1;
 FETCH 2 FROM c1;
 DELETE FROM uctest WHERE CURRENT OF c1;
 -- should show deletion
-SELECT f1,f2 FROM uctest ORDER BY f1;
+SELECT * FROM uctest ORDER BY f1;
 -- cursor did not move
 FETCH ALL FROM c1;
 -- cursor is insensitive
@@ -340,64 +338,66 @@ MOVE BACKWARD ALL IN c1;
 FETCH ALL FROM c1;
 COMMIT;
 -- should still see deletion
-SELECT f1,f2 FROM uctest ORDER BY f1;
+SELECT * FROM uctest ORDER BY f1;
 
 -- Check UPDATE WHERE CURRENT; this time use FOR UPDATE
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT f1,f2 FROM uctest FOR UPDATE;
-FETCH c1;
+DECLARE c1 CURSOR FOR SELECT * FROM uctest FOR UPDATE;
+--PGXCTODO : Uncomment this fetch once we have implemented FOR UPDATE
+--FETCH c1;
 UPDATE uctest SET f1 = 8 WHERE CURRENT OF c1;
-SELECT f1,f2 FROM uctest ORDER BY f1;
+SELECT * FROM uctest ORDER BY f1;
 COMMIT;
-SELECT f1,f2 FROM uctest ORDER BY f1;
+SELECT * FROM uctest ORDER BY f1;
 
 -- Check repeated-update and update-then-delete cases
 BEGIN;
-DECLARE c1 SCROLL CURSOR FOR SELECT f1,f2 FROM uctest;
+DECLARE c1 CURSOR FOR SELECT * FROM uctest ORDER BY 1;
 FETCH c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
-SELECT f1,f2 FROM uctest ORDER BY 1;
+SELECT * FROM uctest ORDER BY 1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
-SELECT f1,f2 FROM uctest ORDER BY 1;
+SELECT * FROM uctest ORDER BY 1;
 -- insensitive cursor should not show effects of updates or deletes
 FETCH RELATIVE 0 FROM c1;
 DELETE FROM uctest WHERE CURRENT OF c1;
-SELECT f1,f2 FROM uctest ORDER BY f1;
+SELECT * FROM uctest ORDER BY f1;
 DELETE FROM uctest WHERE CURRENT OF c1; -- no-op
-SELECT f1,f2 FROM uctest ORDER BY f1;
+SELECT * FROM uctest ORDER BY f1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1; -- no-op
-SELECT f1,f2 FROM uctest ORDER BY f1;
+SELECT * FROM uctest ORDER BY f1;
 FETCH RELATIVE 0 FROM c1;
 ROLLBACK;
-SELECT f1,f2 FROM uctest ORDER BY f1;
+SELECT * FROM uctest ORDER BY f1;
 
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT f1,f2 FROM uctest ORDER BY 1 FOR UPDATE;
-FETCH c1;
+DECLARE c1 CURSOR FOR SELECT * FROM uctest FOR UPDATE;
+--PGXCTODO : Uncomment this fetch once we have implemented FOR UPDATE
+--FETCH c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
-SELECT f1,f2 FROM uctest ORDER BY f1;
+SELECT * FROM uctest ORDER BY f1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
-SELECT f1,f2 FROM uctest ORDER BY f1;
+SELECT * FROM uctest ORDER BY f1;
 DELETE FROM uctest WHERE CURRENT OF c1;
-SELECT f1,f2 FROM uctest ORDER BY f1;
+SELECT * FROM uctest ORDER BY f1;
 DELETE FROM uctest WHERE CURRENT OF c1; -- no-op
-SELECT f1,f2 FROM uctest ORDER BY f1;
+SELECT * FROM uctest ORDER BY f1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1; -- no-op
-SELECT f1,f2 FROM uctest ORDER BY f1;
+SELECT * FROM uctest ORDER BY f1;
 --- sensitive cursors can't currently scroll back, so this is an error:
 FETCH RELATIVE 0 FROM c1;
 ROLLBACK;
-SELECT f1,f2 FROM uctest ORDER BY f1;
-DELETE FROM uctest WHERE f1 = 2;
-UPDATE uctest SET f1 = 8 WHERE f1=1;
+SELECT * FROM uctest ORDER BY f1;
+
 -- Check inheritance cases
 CREATE TABLE ucchild () inherits (uctest);
-INSERT INTO ucchild values(0, 100, 'hundred');
-SELECT f1,f2 FROM uctest ORDER BY f1;
+INSERT INTO ucchild values(100, 'hundred');
+SELECT * FROM uctest ORDER BY f1;
 
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT f1,f2 FROM uctest ORDER BY 1 FOR UPDATE;
-FETCH 1 FROM c1;
+DECLARE c1 CURSOR FOR SELECT * FROM uctest FOR UPDATE;
+--PGXCTODO : Uncomment this fetch once we have implemented FOR UPDATE
+--FETCH 1 FROM c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
 FETCH 1 FROM c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
@@ -405,59 +405,57 @@ FETCH 1 FROM c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
 FETCH 1 FROM c1;
 COMMIT;
-SELECT f1,f2 FROM uctest ORDER BY f1;
+SELECT * FROM uctest ORDER BY f1;
 
 -- Can update from a self-join, but only if FOR UPDATE says which to use
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT a.f1,a.f2,b.f1,b.f2 FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 ORDER BY 1;
+DECLARE c1 CURSOR FOR SELECT * FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 ORDER BY 1;
 FETCH 1 FROM c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;  -- fail
 ROLLBACK;
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT a.f1,a.f2, b.f1, b.f2 FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 ORDER BY 1 FOR UPDATE;
-FETCH 1 FROM c1;
+DECLARE c1 CURSOR FOR SELECT * FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 FOR UPDATE;
+--PGXCTODO : Uncomment this fetch once we have implemented FOR UPDATE
+--FETCH 1 FROM c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;  -- fail
 ROLLBACK;
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT a.f1,a.f2,b.f1,b.f2 FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 ORDER BY 1 FOR SHARE OF a;
-FETCH 1 FROM c1;
+DECLARE c1 CURSOR FOR SELECT * FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 FOR SHARE OF a;
+--PGXCTODO : Uncomment this fetch once we have implemented FOR UPDATE
+--FETCH 1 FROM c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
-SELECT f1,f2 FROM uctest ORDER BY f1;
+SELECT * FROM uctest ORDER BY f1;
 ROLLBACK;
 
 -- Check various error cases
 
 DELETE FROM uctest WHERE CURRENT OF c1;  -- fail, no such cursor
-DECLARE cx CURSOR WITH HOLD FOR SELECT f1,f2 FROM uctest;
+DECLARE cx CURSOR WITH HOLD FOR SELECT * FROM uctest;
 DELETE FROM uctest WHERE CURRENT OF cx;  -- fail, can't use held cursor
 BEGIN;
 DECLARE c CURSOR FOR SELECT * FROM tenk2 ORDER BY unique2;
-FETCH 1 FROM c;
 DELETE FROM uctest WHERE CURRENT OF c;  -- fail, cursor on wrong table
 ROLLBACK;
 BEGIN;
 DECLARE c CURSOR FOR SELECT * FROM tenk2 FOR SHARE;
-FETCH 1 FROM c;
 DELETE FROM uctest WHERE CURRENT OF c;  -- fail, cursor on wrong table
 ROLLBACK;
 BEGIN;
 DECLARE c CURSOR FOR SELECT * FROM tenk1 JOIN tenk2 USING (unique1);
-FETCH 1 FROM c;
 DELETE FROM tenk1 WHERE CURRENT OF c;  -- fail, cursor is on a join
 ROLLBACK;
 BEGIN;
 DECLARE c CURSOR FOR SELECT f1,count(*) FROM uctest GROUP BY f1;
-FETCH 1 FROM c;
 DELETE FROM uctest WHERE CURRENT OF c;  -- fail, cursor is on aggregation
 ROLLBACK;
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT f1,f2 FROM uctest;
+DECLARE c1 CURSOR FOR SELECT * FROM uctest;
 DELETE FROM uctest WHERE CURRENT OF c1; -- fail, no current row
 ROLLBACK;
 
 -- WHERE CURRENT OF may someday work with views, but today is not that day.
 -- For now, just make sure it errors out cleanly.
-CREATE VIEW ucview AS SELECT f1,f2 FROM uctest ORDER BY 1;
+CREATE VIEW ucview AS SELECT * FROM uctest ORDER BY 1;
 CREATE RULE ucrule AS ON DELETE TO ucview DO INSTEAD
   DELETE FROM uctest WHERE f1 = OLD.f1;
 BEGIN;
