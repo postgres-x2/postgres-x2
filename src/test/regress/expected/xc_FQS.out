@@ -48,10 +48,10 @@ insert into tab1_rr values (2, 4);
 insert into tab1_rr values (5, 3);
 insert into tab1_rr values (7, 8);
 insert into tab1_rr values (9, 2);
-explain (verbose on, nodes off, num_nodes on) insert into tab1_rr values (9, 2);
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, verbose on, nodes off, num_nodes on) insert into tab1_rr values (9, 2);
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
    Output: 9, 2
    Remote query: INSERT INTO tab1_rr (val, val2) VALUES (9, 2)
 (3 rows)
@@ -64,10 +64,10 @@ select val, val2 + 2, case val when val2 then 'val and val2 are same' else 'val 
    2 |        6 | val and val2 are not same
 (1 row)
 
-explain (verbose on, nodes off) select val, val2 + 2, case val when val2 then 'val and val2 are same' else 'val and val2 are not same' end from tab1_rr where val2 = 4;
+explain (costs off, verbose on, nodes off) select val, val2 + 2, case val when val2 then 'val and val2 are same' else 'val and val2 are not same' end from tab1_rr where val2 = 4;
                                                                                     QUERY PLAN                                                                                    
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Data Node Scan on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+ Data Node Scan on "__REMOTE_FQS_QUERY__"
    Output: tab1_rr.val, (tab1_rr.val2 + 2), CASE tab1_rr.val WHEN tab1_rr.val2 THEN 'val and val2 are same'::text ELSE 'val and val2 are not same'::text END
    Remote query: SELECT val, (val2 + 2), CASE val WHEN val2 THEN 'val and val2 are same'::text ELSE 'val and val2 are not same'::text END AS "case" FROM tab1_rr WHERE (val2 = 4)
 (3 rows)
@@ -79,14 +79,14 @@ select sum(val), avg(val), count(*) from tab1_rr;
   24 | 4.8000000000000000 |     5
 (1 row)
 
-explain (verbose on, nodes off) select sum(val), avg(val), count(*) from tab1_rr;
+explain (costs off, verbose on, nodes off) select sum(val), avg(val), count(*) from tab1_rr;
                                                                     QUERY PLAN                                                                    
 --------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate  (cost=8.51..8.52 rows=1 width=4)
+ Aggregate
    Output: pg_catalog.sum((sum(tab1_rr.val))), pg_catalog.avg((avg(tab1_rr.val))), pg_catalog.count(*)
-   ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
+   ->  Materialize
          Output: (sum(tab1_rr.val)), (avg(tab1_rr.val)), (count(*))
-         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"  (cost=0.00..1.01 rows=1000 width=4)
+         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: sum(tab1_rr.val), avg(tab1_rr.val), count(*)
                Remote query: SELECT sum(group_1.val), avg(group_1.val), count(*)  FROM (SELECT val, val2 FROM ONLY tab1_rr WHERE true) group_1   
 (7 rows)
@@ -102,17 +102,17 @@ select first_value(val) over (partition by val2 order by val) from tab1_rr;
            7
 (5 rows)
 
-explain (verbose on, nodes off) select first_value(val) over (partition by val2 order by val) from tab1_rr;
-                                    QUERY PLAN                                    
-----------------------------------------------------------------------------------
- WindowAgg  (cost=50.84..70.84 rows=1000 width=8)
+explain (costs off, verbose on, nodes off) select first_value(val) over (partition by val2 order by val) from tab1_rr;
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ WindowAgg
    Output: first_value(val) OVER (?), val, val2
-   ->  Sort  (cost=50.84..53.34 rows=1000 width=8)
+   ->  Sort
          Output: val, val2
          Sort Key: tab1_rr.val2, tab1_rr.val
-         ->  Result  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Result
                Output: val, val2
-               ->  Data Node Scan on tab1_rr  (cost=0.00..1.01 rows=1000 width=8)
+               ->  Data Node Scan on tab1_rr
                      Output: val, val2
                      Remote query: SELECT val, val2 FROM ONLY tab1_rr WHERE true
 (10 rows)
@@ -124,14 +124,14 @@ select * from tab1_rr where val2 = 3 limit 1;
    5 |    3
 (1 row)
 
-explain (verbose on, nodes off) select * from tab1_rr where val2 = 3 limit 1;
+explain (costs off, verbose on, nodes off) select * from tab1_rr where val2 = 3 limit 1;
                                    QUERY PLAN                                    
 ---------------------------------------------------------------------------------
- Limit  (cost=0.00..0.00 rows=1 width=8)
+ Limit
    Output: val, val2
-   ->  Result  (cost=0.00..1.01 rows=1000 width=8)
+   ->  Result
          Output: val, val2
-         ->  Data Node Scan on tab1_rr  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan on tab1_rr
                Output: val, val2
                Remote query: SELECT val, val2 FROM ONLY tab1_rr WHERE (val2 = 3)
 (7 rows)
@@ -142,14 +142,14 @@ select * from tab1_rr where val2 = 4 offset 1;
 -----+------
 (0 rows)
 
-explain (verbose on, nodes off) select * from tab1_rr where val2 = 4 offset 1;
+explain (costs off, verbose on, nodes off) select * from tab1_rr where val2 = 4 offset 1;
                                    QUERY PLAN                                    
 ---------------------------------------------------------------------------------
- Limit  (cost=0.00..1.01 rows=999 width=8)
+ Limit
    Output: val, val2
-   ->  Result  (cost=0.00..1.01 rows=1000 width=8)
+   ->  Result
          Output: val, val2
-         ->  Data Node Scan on tab1_rr  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan on tab1_rr
                Output: val, val2
                Remote query: SELECT val, val2 FROM ONLY tab1_rr WHERE (val2 = 4)
 (7 rows)
@@ -165,15 +165,15 @@ select * from tab1_rr order by val;
    9 |    2
 (5 rows)
 
-explain (verbose on, nodes off) select * from tab1_rr order by val;
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
- Sort  (cost=50.84..53.34 rows=1000 width=8)
+explain (costs off, verbose on, nodes off) select * from tab1_rr order by val;
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Sort
    Output: val, val2
    Sort Key: tab1_rr.val
-   ->  Result  (cost=0.00..1.01 rows=1000 width=8)
+   ->  Result
          Output: val, val2
-         ->  Data Node Scan on tab1_rr  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan on tab1_rr
                Output: val, val2
                Remote query: SELECT val, val2 FROM ONLY tab1_rr WHERE true
 (8 rows)
@@ -185,14 +185,14 @@ select distinct val, val2 from tab1_rr where val2 = 8;
    7 |    8
 (1 row)
 
-explain (verbose on, nodes off) select distinct val, val2 from tab1_rr where val2 = 8;
+explain (costs off, verbose on, nodes off) select distinct val, val2 from tab1_rr where val2 = 8;
                                    QUERY PLAN                                    
 ---------------------------------------------------------------------------------
- HashAggregate  (cost=6.01..6.02 rows=1 width=8)
+ HashAggregate
    Output: val, val2
-   ->  Result  (cost=0.00..1.01 rows=1000 width=8)
+   ->  Result
          Output: val, val2
-         ->  Data Node Scan on tab1_rr  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan on tab1_rr
                Output: val, val2
                Remote query: SELECT val, val2 FROM ONLY tab1_rr WHERE (val2 = 8)
 (7 rows)
@@ -204,14 +204,14 @@ select val, val2 from tab1_rr where val2 = 8 group by val, val2;
    7 |    8
 (1 row)
 
-explain (verbose on, nodes off) select val, val2 from tab1_rr where val2 = 8 group by val, val2;
+explain (costs off, verbose on, nodes off) select val, val2 from tab1_rr where val2 = 8 group by val, val2;
                                                                     QUERY PLAN                                                                    
 --------------------------------------------------------------------------------------------------------------------------------------------------
- HashAggregate  (cost=6.01..6.02 rows=1 width=8)
+ HashAggregate
    Output: tab1_rr.val, tab1_rr.val2
-   ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
+   ->  Materialize
          Output: tab1_rr.val, tab1_rr.val2
-         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: tab1_rr.val, tab1_rr.val2
                Remote query: SELECT group_1.val, group_1.val2  FROM (SELECT val, val2 FROM ONLY tab1_rr WHERE (val2 = 8)) group_1 GROUP BY 1, 2  
 (7 rows)
@@ -223,15 +223,15 @@ select sum(val) from tab1_rr where val2 = 2 group by val2 having sum(val) > 1;
   10
 (1 row)
 
-explain (verbose on, nodes off) select sum(val) from tab1_rr where val2 = 2 group by val2 having sum(val) > 1;
+explain (costs off, verbose on, nodes off) select sum(val) from tab1_rr where val2 = 2 group by val2 having sum(val) > 1;
                                                                      QUERY PLAN                                                                     
 ----------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate  (cost=0.00..8.52 rows=1 width=8)
+ GroupAggregate
    Output: pg_catalog.sum((sum(tab1_rr.val))), tab1_rr.val2
    Filter: (pg_catalog.sum((sum(tab1_rr.val))) > 1)
-   ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
+   ->  Materialize
          Output: (sum(tab1_rr.val)), tab1_rr.val2
-         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: sum(tab1_rr.val), tab1_rr.val2
                Remote query: SELECT sum(group_1.val), group_1.val2  FROM (SELECT val, val2 FROM ONLY tab1_rr WHERE (val2 = 2)) group_1 GROUP BY 2  
 (8 rows)
@@ -245,10 +245,10 @@ select * from tab1_rr where val = 7;
    7 |    8
 (1 row)
 
-explain (verbose on, nodes off) select * from tab1_rr where val = 7;
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
- Data Node Scan on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, verbose on, nodes off) select * from tab1_rr where val = 7;
+                          QUERY PLAN                           
+---------------------------------------------------------------
+ Data Node Scan on "__REMOTE_FQS_QUERY__"
    Output: tab1_rr.val, tab1_rr.val2
    Remote query: SELECT val, val2 FROM tab1_rr WHERE (val = 7)
 (3 rows)
@@ -260,15 +260,15 @@ select * from tab1_rr where val = 7 or val = 2 order by val;
    7 |    8
 (2 rows)
 
-explain (verbose on, nodes off) select * from tab1_rr where val = 7 or val = 2 order by val;
+explain (costs off, verbose on, nodes off) select * from tab1_rr where val = 7 or val = 2 order by val;
                                           QUERY PLAN                                           
 -----------------------------------------------------------------------------------------------
- Sort  (cost=50.84..53.34 rows=1000 width=8)
+ Sort
    Output: val, val2
    Sort Key: tab1_rr.val
-   ->  Result  (cost=0.00..1.01 rows=1000 width=8)
+   ->  Result
          Output: val, val2
-         ->  Data Node Scan on tab1_rr  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan on tab1_rr
                Output: val, val2
                Remote query: SELECT val, val2 FROM ONLY tab1_rr WHERE ((val = 7) OR (val = 2))
 (8 rows)
@@ -279,12 +279,12 @@ select * from tab1_rr where val = 7 and val2 = 8;
    7 |    8
 (1 row)
 
-explain (verbose on, nodes off) select * from tab1_rr where val = 7 and val2 = 8 order by val;
+explain (costs off, verbose on, nodes off) select * from tab1_rr where val = 7 and val2 = 8 order by val;
                                         QUERY PLAN                                         
 -------------------------------------------------------------------------------------------
- Result  (cost=0.00..1.01 rows=1000 width=8)
+ Result
    Output: val, val2
-   ->  Data Node Scan on tab1_rr  (cost=0.00..1.01 rows=1000 width=8)
+   ->  Data Node Scan on tab1_rr
          Output: val, val2
          Remote query: SELECT val, val2 FROM ONLY tab1_rr WHERE ((val = 7) AND (val2 = 8))
 (5 rows)
@@ -295,12 +295,12 @@ select * from tab1_rr where val = 3 + 4 and val2 = 8 order by val;
    7 |    8
 (1 row)
 
-explain (verbose on, nodes off) select * from tab1_rr where val = 3 + 4 order by val;
+explain (costs off, verbose on, nodes off) select * from tab1_rr where val = 3 + 4 order by val;
                                 QUERY PLAN                                
 --------------------------------------------------------------------------
- Result  (cost=0.00..1.01 rows=1000 width=8)
+ Result
    Output: val, val2
-   ->  Data Node Scan on tab1_rr  (cost=0.00..1.01 rows=1000 width=8)
+   ->  Data Node Scan on tab1_rr
          Output: val, val2
          Remote query: SELECT val, val2 FROM ONLY tab1_rr WHERE (val = 7)
 (5 rows)
@@ -311,12 +311,12 @@ select * from tab1_rr where val = char_length('len')+4 order by val;
    7 |    8
 (1 row)
 
-explain (verbose on, nodes off) select * from tab1_rr where val = char_length('len')+4 order by val;
+explain (costs off, verbose on, nodes off) select * from tab1_rr where val = char_length('len')+4 order by val;
                                 QUERY PLAN                                
 --------------------------------------------------------------------------
- Result  (cost=0.00..1.01 rows=1000 width=8)
+ Result
    Output: val, val2
-   ->  Data Node Scan on tab1_rr  (cost=0.00..1.01 rows=1000 width=8)
+   ->  Data Node Scan on tab1_rr
          Output: val, val2
          Remote query: SELECT val, val2 FROM ONLY tab1_rr WHERE (val = 7)
 (5 rows)
@@ -329,14 +329,14 @@ select avg(val) from tab1_rr where val = 7;
  7.0000000000000000
 (1 row)
 
-explain (verbose on, nodes off) select avg(val) from tab1_rr where val = 7;
+explain (costs off, verbose on, nodes off) select avg(val) from tab1_rr where val = 7;
                                                         QUERY PLAN                                                         
 ---------------------------------------------------------------------------------------------------------------------------
- Aggregate  (cost=3.52..3.52 rows=1 width=4)
+ Aggregate
    Output: pg_catalog.avg((avg(tab1_rr.val)))
-   ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
+   ->  Materialize
          Output: (avg(tab1_rr.val))
-         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"  (cost=0.00..1.01 rows=1000 width=4)
+         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: avg(tab1_rr.val)
                Remote query: SELECT avg(group_1.val)  FROM (SELECT val, val2 FROM ONLY tab1_rr WHERE (val = 7)) group_1   
 (7 rows)
@@ -348,15 +348,15 @@ select val, val2 from tab1_rr where val = 7 order by val2;
    7 |    8
 (2 rows)
 
-explain (verbose on, nodes off) select val, val2 from tab1_rr where val = 7 order by val2;
+explain (costs off, verbose on, nodes off) select val, val2 from tab1_rr where val = 7 order by val2;
                                    QUERY PLAN                                   
 --------------------------------------------------------------------------------
- Sort  (cost=50.84..53.34 rows=1000 width=8)
+ Sort
    Output: val, val2
    Sort Key: tab1_rr.val2
-   ->  Result  (cost=0.00..1.01 rows=1000 width=8)
+   ->  Result
          Output: val, val2
-         ->  Data Node Scan on tab1_rr  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan on tab1_rr
                Output: val, val2
                Remote query: SELECT val, val2 FROM ONLY tab1_rr WHERE (val = 7)
 (8 rows)
@@ -368,25 +368,25 @@ select distinct val2 from tab1_rr where val = 7;
     2
 (2 rows)
 
-explain (verbose on, nodes off) select distinct val2 from tab1_rr where val = 7;
+explain (costs off, verbose on, nodes off) select distinct val2 from tab1_rr where val = 7;
                                    QUERY PLAN                                   
 --------------------------------------------------------------------------------
- HashAggregate  (cost=3.51..3.52 rows=1 width=4)
+ HashAggregate
    Output: val2
-   ->  Result  (cost=0.00..1.01 rows=1000 width=4)
+   ->  Result
          Output: val2
-         ->  Data Node Scan on tab1_rr  (cost=0.00..1.01 rows=1000 width=4)
+         ->  Data Node Scan on tab1_rr
                Output: val, val2
                Remote query: SELECT val, val2 FROM ONLY tab1_rr WHERE (val = 7)
 (7 rows)
 
 -- DMLs
 update tab1_rr set val2 = 1000 where val = 7; 
-explain (verbose on, nodes off) update tab1_rr set val2 = 1000 where val = 7; 
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
- Data Node Scan on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
-   Output: 1000, tab1_rr.val, tab1_rr.ctid
+explain (costs off, verbose on, nodes off) update tab1_rr set val2 = 1000 where val = 7; 
+                           QUERY PLAN                           
+----------------------------------------------------------------
+ Data Node Scan on "__REMOTE_FQS_QUERY__"
+   Output: 1000, tab1_rr.val, tab1_rr.ctid, tab1_rr.xc_node_id
    Remote query: UPDATE tab1_rr SET val2 = 1000 WHERE (val = 7)
 (3 rows)
 
@@ -398,14 +398,13 @@ select * from tab1_rr where val = 7;
 (2 rows)
 
 delete from tab1_rr where val = 7; 
-explain verbose delete from tab1_rr where val = 7; 
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
- Data Node Scan on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
-   Output: tab1_rr.val, tab1_rr.ctid
-   Node/s: datanode_1, datanode_2, datanode_3
+explain (costs off, verbose on, nodes off) delete from tab1_rr where val = 7; 
+                       QUERY PLAN                        
+---------------------------------------------------------
+ Data Node Scan on "__REMOTE_FQS_QUERY__"
+   Output: tab1_rr.val, tab1_rr.ctid, tab1_rr.xc_node_id
    Remote query: DELETE FROM tab1_rr WHERE (val = 7)
-(4 rows)
+(3 rows)
 
 select * from tab1_rr where val = 7;
  val | val2 
@@ -424,10 +423,10 @@ insert into tab1_hash values (2, 4);
 insert into tab1_hash values (5, 3);
 insert into tab1_hash values (7, 8);
 insert into tab1_hash values (9, 2);
-explain verbose insert into tab1_hash values (9, 2);
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
- Data Node Scan on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, verbose on, nodes off) insert into tab1_hash values (9, 2);
+                           QUERY PLAN                            
+-----------------------------------------------------------------
+ Data Node Scan on "__REMOTE_FQS_QUERY__"
    Output: 9, 2
    Node expr: 9
    Remote query: INSERT INTO tab1_hash (val, val2) VALUES (9, 2)
@@ -441,10 +440,10 @@ select val, val2 + 2, case val when val2 then 'val and val2 are same' else 'val 
    2 |        6 | val and val2 are not same
 (1 row)
 
-explain (verbose on, nodes off) select val, val2 + 2, case val when val2 then 'val and val2 are same' else 'val and val2 are not same' end from tab1_hash where val2 = 2;
+explain (costs off, verbose on, nodes off) select val, val2 + 2, case val when val2 then 'val and val2 are same' else 'val and val2 are not same' end from tab1_hash where val2 = 2;
                                                                                      QUERY PLAN                                                                                     
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Data Node Scan on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+ Data Node Scan on "__REMOTE_FQS_QUERY__"
    Output: tab1_hash.val, (tab1_hash.val2 + 2), CASE tab1_hash.val WHEN tab1_hash.val2 THEN 'val and val2 are same'::text ELSE 'val and val2 are not same'::text END
    Remote query: SELECT val, (val2 + 2), CASE val WHEN val2 THEN 'val and val2 are same'::text ELSE 'val and val2 are not same'::text END AS "case" FROM tab1_hash WHERE (val2 = 2)
 (3 rows)
@@ -456,14 +455,14 @@ select sum(val), avg(val), count(*) from tab1_hash;
   24 | 4.8000000000000000 |     5
 (1 row)
 
-explain (verbose on, nodes off) select sum(val), avg(val), count(*) from tab1_hash;
+explain (costs off, verbose on, nodes off) select sum(val), avg(val), count(*) from tab1_hash;
                                                                      QUERY PLAN                                                                     
 ----------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate  (cost=8.51..8.52 rows=1 width=4)
+ Aggregate
    Output: pg_catalog.sum((sum(tab1_hash.val))), pg_catalog.avg((avg(tab1_hash.val))), pg_catalog.count(*)
-   ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
+   ->  Materialize
          Output: (sum(tab1_hash.val)), (avg(tab1_hash.val)), (count(*))
-         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"  (cost=0.00..1.01 rows=1000 width=4)
+         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: sum(tab1_hash.val), avg(tab1_hash.val), count(*)
                Remote query: SELECT sum(group_1.val), avg(group_1.val), count(*)  FROM (SELECT val, val2 FROM ONLY tab1_hash WHERE true) group_1   
 (7 rows)
@@ -479,17 +478,17 @@ select first_value(val) over (partition by val2 order by val) from tab1_hash;
            7
 (5 rows)
 
-explain (verbose on, nodes off) select first_value(val) over (partition by val2 order by val) from tab1_hash;
-                                     QUERY PLAN                                     
-------------------------------------------------------------------------------------
- WindowAgg  (cost=50.84..70.84 rows=1000 width=8)
+explain (costs off, verbose on, nodes off) select first_value(val) over (partition by val2 order by val) from tab1_hash;
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
+ WindowAgg
    Output: first_value(val) OVER (?), val, val2
-   ->  Sort  (cost=50.84..53.34 rows=1000 width=8)
+   ->  Sort
          Output: val, val2
          Sort Key: tab1_hash.val2, tab1_hash.val
-         ->  Result  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Result
                Output: val, val2
-               ->  Data Node Scan on tab1_hash  (cost=0.00..1.01 rows=1000 width=8)
+               ->  Data Node Scan on tab1_hash
                      Output: val, val2
                      Remote query: SELECT val, val2 FROM ONLY tab1_hash WHERE true
 (10 rows)
@@ -501,14 +500,14 @@ select * from tab1_hash where val2 = 3 limit 1;
    5 |    3
 (1 row)
 
-explain (verbose on, nodes off) select * from tab1_hash where val2 = 3 limit 1;
+explain (costs off, verbose on, nodes off) select * from tab1_hash where val2 = 3 limit 1;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- Limit  (cost=0.00..0.00 rows=1 width=8)
+ Limit
    Output: val, val2
-   ->  Result  (cost=0.00..1.01 rows=1000 width=8)
+   ->  Result
          Output: val, val2
-         ->  Data Node Scan on tab1_hash  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan on tab1_hash
                Output: val, val2
                Remote query: SELECT val, val2 FROM ONLY tab1_hash WHERE (val2 = 3)
 (7 rows)
@@ -519,14 +518,14 @@ select * from tab1_hash where val2 = 4 offset 1;
 -----+------
 (0 rows)
 
-explain (verbose on, nodes off) select * from tab1_hash where val2 = 4 offset 1;
+explain (costs off, verbose on, nodes off) select * from tab1_hash where val2 = 4 offset 1;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- Limit  (cost=0.00..1.01 rows=999 width=8)
+ Limit
    Output: val, val2
-   ->  Result  (cost=0.00..1.01 rows=1000 width=8)
+   ->  Result
          Output: val, val2
-         ->  Data Node Scan on tab1_hash  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan on tab1_hash
                Output: val, val2
                Remote query: SELECT val, val2 FROM ONLY tab1_hash WHERE (val2 = 4)
 (7 rows)
@@ -542,15 +541,15 @@ select * from tab1_hash order by val;
    9 |    2
 (5 rows)
 
-explain (verbose on, nodes off) select * from tab1_hash order by val;
-                                  QUERY PLAN                                  
-------------------------------------------------------------------------------
- Sort  (cost=50.84..53.34 rows=1000 width=8)
+explain (costs off, verbose on, nodes off) select * from tab1_hash order by val;
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
+ Sort
    Output: val, val2
    Sort Key: tab1_hash.val
-   ->  Result  (cost=0.00..1.01 rows=1000 width=8)
+   ->  Result
          Output: val, val2
-         ->  Data Node Scan on tab1_hash  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan on tab1_hash
                Output: val, val2
                Remote query: SELECT val, val2 FROM ONLY tab1_hash WHERE true
 (8 rows)
@@ -562,14 +561,14 @@ select distinct val, val2 from tab1_hash where val2 = 8;
    7 |    8
 (1 row)
 
-explain (verbose on, nodes off) select distinct val, val2 from tab1_hash where val2 = 8;
+explain (costs off, verbose on, nodes off) select distinct val, val2 from tab1_hash where val2 = 8;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- HashAggregate  (cost=6.01..6.02 rows=1 width=8)
+ HashAggregate
    Output: val, val2
-   ->  Result  (cost=0.00..1.01 rows=1000 width=8)
+   ->  Result
          Output: val, val2
-         ->  Data Node Scan on tab1_hash  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan on tab1_hash
                Output: val, val2
                Remote query: SELECT val, val2 FROM ONLY tab1_hash WHERE (val2 = 8)
 (7 rows)
@@ -581,14 +580,14 @@ select val, val2 from tab1_hash where val2 = 8 group by val, val2;
    7 |    8
 (1 row)
 
-explain (verbose on, nodes off) select val, val2 from tab1_hash where val2 = 8 group by val, val2;
+explain (costs off, verbose on, nodes off) select val, val2 from tab1_hash where val2 = 8 group by val, val2;
                                                                      QUERY PLAN                                                                     
 ----------------------------------------------------------------------------------------------------------------------------------------------------
- HashAggregate  (cost=6.01..6.02 rows=1 width=8)
+ HashAggregate
    Output: tab1_hash.val, tab1_hash.val2
-   ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
+   ->  Materialize
          Output: tab1_hash.val, tab1_hash.val2
-         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: tab1_hash.val, tab1_hash.val2
                Remote query: SELECT group_1.val, group_1.val2  FROM (SELECT val, val2 FROM ONLY tab1_hash WHERE (val2 = 8)) group_1 GROUP BY 1, 2  
 (7 rows)
@@ -600,15 +599,15 @@ select sum(val) from tab1_hash where val2 = 2 group by val2 having sum(val) > 1;
   10
 (1 row)
 
-explain (verbose on, nodes off) select sum(val) from tab1_hash where val2 = 2 group by val2 having sum(val) > 1;
+explain (costs off, verbose on, nodes off) select sum(val) from tab1_hash where val2 = 2 group by val2 having sum(val) > 1;
                                                                       QUERY PLAN                                                                      
 ------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate  (cost=0.00..8.52 rows=1 width=8)
+ GroupAggregate
    Output: pg_catalog.sum((sum(tab1_hash.val))), tab1_hash.val2
    Filter: (pg_catalog.sum((sum(tab1_hash.val))) > 1)
-   ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
+   ->  Materialize
          Output: (sum(tab1_hash.val)), tab1_hash.val2
-         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: sum(tab1_hash.val), tab1_hash.val2
                Remote query: SELECT sum(group_1.val), group_1.val2  FROM (SELECT val, val2 FROM ONLY tab1_hash WHERE (val2 = 2)) group_1 GROUP BY 2  
 (8 rows)
@@ -621,10 +620,10 @@ select * from tab1_hash where val = 7;
    7 |    8
 (1 row)
 
-explain (verbose on, nodes off, num_nodes on) select * from tab1_hash where val = 7;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, verbose on, nodes off, num_nodes on) select * from tab1_hash where val = 7;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
    Output: tab1_hash.val, tab1_hash.val2
    Remote query: SELECT val, val2 FROM tab1_hash WHERE (val = 7)
 (3 rows)
@@ -636,15 +635,15 @@ select * from tab1_hash where val = 7 or val = 2 order by val;
    7 |    8
 (2 rows)
 
-explain (verbose on, nodes off) select * from tab1_hash where val = 7 or val = 2 order by val;
+explain (costs off, verbose on, nodes off) select * from tab1_hash where val = 7 or val = 2 order by val;
                                            QUERY PLAN                                            
 -------------------------------------------------------------------------------------------------
- Sort  (cost=50.84..53.34 rows=1000 width=8)
+ Sort
    Output: val, val2
    Sort Key: tab1_hash.val
-   ->  Result  (cost=0.00..1.01 rows=1000 width=8)
+   ->  Result
          Output: val, val2
-         ->  Data Node Scan on tab1_hash  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan on tab1_hash
                Output: val, val2
                Remote query: SELECT val, val2 FROM ONLY tab1_hash WHERE ((val = 7) OR (val = 2))
 (8 rows)
@@ -655,10 +654,10 @@ select * from tab1_hash where val = 7 and val2 = 8;
    7 |    8
 (1 row)
 
-explain (verbose on, nodes off, num_nodes on) select * from tab1_hash where val = 7 and val2 = 8;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, verbose on, nodes off, num_nodes on) select * from tab1_hash where val = 7 and val2 = 8;
+                                    QUERY PLAN                                    
+----------------------------------------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
    Output: tab1_hash.val, tab1_hash.val2
    Remote query: SELECT val, val2 FROM tab1_hash WHERE ((val = 7) AND (val2 = 8))
 (3 rows)
@@ -669,10 +668,10 @@ select * from tab1_hash where val = 3 + 4 and val2 = 8;
    7 |    8
 (1 row)
 
-explain (verbose on, nodes off, num_nodes on) select * from tab1_hash where val = 3 + 4;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, verbose on, nodes off, num_nodes on) select * from tab1_hash where val = 3 + 4;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
    Output: tab1_hash.val, tab1_hash.val2
    Remote query: SELECT val, val2 FROM tab1_hash WHERE (val = (3 + 4))
 (3 rows)
@@ -683,10 +682,10 @@ select * from tab1_hash where val = char_length('len')+4;
    7 |    8
 (1 row)
 
-explain (verbose on, nodes off, num_nodes on) select * from tab1_hash where val = char_length('len')+4;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, verbose on, nodes off, num_nodes on) select * from tab1_hash where val = char_length('len')+4;
+                                          QUERY PLAN                                          
+----------------------------------------------------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
    Output: tab1_hash.val, tab1_hash.val2
    Remote query: SELECT val, val2 FROM tab1_hash WHERE (val = (char_length('len'::text) + 4))
 (3 rows)
@@ -699,10 +698,10 @@ select avg(val) from tab1_hash where val = 7;
  7.0000000000000000
 (1 row)
 
-explain (verbose on, nodes off, num_nodes on) select avg(val) from tab1_hash where val = 7;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, verbose on, nodes off, num_nodes on) select avg(val) from tab1_hash where val = 7;
+                                         QUERY PLAN                                         
+--------------------------------------------------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
    Output: avg(tab1_hash.val)
    Remote query: SELECT pg_catalog.int8_avg(avg(val)) AS avg FROM tab1_hash WHERE (val = 7)
 (3 rows)
@@ -714,10 +713,10 @@ select val, val2 from tab1_hash where val = 7 order by val2;
    7 |    8
 (2 rows)
 
-explain (verbose on, nodes off, num_nodes on) select val, val2 from tab1_hash where val = 7 order by val2;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, verbose on, nodes off, num_nodes on) select val, val2 from tab1_hash where val = 7 order by val2;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
    Output: tab1_hash.val, tab1_hash.val2
    Remote query: SELECT val, val2 FROM tab1_hash WHERE (val = 7) ORDER BY val2
 (3 rows)
@@ -729,21 +728,21 @@ select distinct val2 from tab1_hash where val = 7;
     2
 (2 rows)
 
-explain (verbose on, nodes off, num_nodes on) select distinct val2 from tab1_hash where val = 7;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, verbose on, nodes off, num_nodes on) select distinct val2 from tab1_hash where val = 7;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
    Output: tab1_hash.val2
    Remote query: SELECT DISTINCT val2 FROM tab1_hash WHERE (val = 7)
 (3 rows)
 
 -- DMLs
 update tab1_hash set val2 = 1000 where val = 7; 
-explain (verbose on, nodes off) update tab1_hash set val2 = 1000 where val = 7; 
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
- Data Node Scan on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
-   Output: 1000, tab1_hash.val, tab1_hash.ctid
+explain (costs off, verbose on, nodes off) update tab1_hash set val2 = 1000 where val = 7; 
+                             QUERY PLAN                              
+---------------------------------------------------------------------
+ Data Node Scan on "__REMOTE_FQS_QUERY__"
+   Output: 1000, tab1_hash.val, tab1_hash.ctid, tab1_hash.xc_node_id
    Remote query: UPDATE tab1_hash SET val2 = 1000 WHERE (val = 7)
 (3 rows)
 
@@ -755,14 +754,13 @@ select * from tab1_hash where val = 7;
 (2 rows)
 
 delete from tab1_hash where val = 7; 
-explain verbose delete from tab1_hash where val = 7; 
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
- Data Node Scan on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
-   Output: tab1_hash.val, tab1_hash.ctid
-   Node/s: datanode_1
+explain (costs off, verbose on, nodes off) delete from tab1_hash where val = 7; 
+                          QUERY PLAN                           
+---------------------------------------------------------------
+ Data Node Scan on "__REMOTE_FQS_QUERY__"
+   Output: tab1_hash.val, tab1_hash.ctid, tab1_hash.xc_node_id
    Remote query: DELETE FROM tab1_hash WHERE (val = 7)
-(4 rows)
+(3 rows)
 
 select * from tab1_hash where val = 7;
  val | val2 
@@ -781,10 +779,10 @@ insert into tab1_modulo values (2, 4);
 insert into tab1_modulo values (5, 3);
 insert into tab1_modulo values (7, 8);
 insert into tab1_modulo values (9, 2);
-explain verbose insert into tab1_modulo values (9, 2);
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
- Data Node Scan on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, verbose on, nodes off) insert into tab1_modulo values (9, 2);
+                            QUERY PLAN                             
+-------------------------------------------------------------------
+ Data Node Scan on "__REMOTE_FQS_QUERY__"
    Output: 9, 2
    Node expr: 9
    Remote query: INSERT INTO tab1_modulo (val, val2) VALUES (9, 2)
@@ -798,10 +796,10 @@ select val, val2 + 2, case val when val2 then 'val and val2 are same' else 'val 
    2 |        6 | val and val2 are not same
 (1 row)
 
-explain (verbose on, nodes off) select val, val2 + 2, case val when val2 then 'val and val2 are same' else 'val and val2 are not same' end from tab1_modulo where val2 = 4;
+explain (costs off, verbose on, nodes off) select val, val2 + 2, case val when val2 then 'val and val2 are same' else 'val and val2 are not same' end from tab1_modulo where val2 = 4;
                                                                                       QUERY PLAN                                                                                      
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Data Node Scan on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+ Data Node Scan on "__REMOTE_FQS_QUERY__"
    Output: tab1_modulo.val, (tab1_modulo.val2 + 2), CASE tab1_modulo.val WHEN tab1_modulo.val2 THEN 'val and val2 are same'::text ELSE 'val and val2 are not same'::text END
    Remote query: SELECT val, (val2 + 2), CASE val WHEN val2 THEN 'val and val2 are same'::text ELSE 'val and val2 are not same'::text END AS "case" FROM tab1_modulo WHERE (val2 = 4)
 (3 rows)
@@ -813,14 +811,14 @@ select sum(val), avg(val), count(*) from tab1_modulo;
   24 | 4.8000000000000000 |     5
 (1 row)
 
-explain (verbose on, nodes off) select sum(val), avg(val), count(*) from tab1_modulo;
+explain (costs off, verbose on, nodes off) select sum(val), avg(val), count(*) from tab1_modulo;
                                                                       QUERY PLAN                                                                      
 ------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate  (cost=8.51..8.52 rows=1 width=4)
+ Aggregate
    Output: pg_catalog.sum((sum(tab1_modulo.val))), pg_catalog.avg((avg(tab1_modulo.val))), pg_catalog.count(*)
-   ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
+   ->  Materialize
          Output: (sum(tab1_modulo.val)), (avg(tab1_modulo.val)), (count(*))
-         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"  (cost=0.00..1.01 rows=1000 width=4)
+         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: sum(tab1_modulo.val), avg(tab1_modulo.val), count(*)
                Remote query: SELECT sum(group_1.val), avg(group_1.val), count(*)  FROM (SELECT val, val2 FROM ONLY tab1_modulo WHERE true) group_1   
 (7 rows)
@@ -836,17 +834,17 @@ select first_value(val) over (partition by val2 order by val) from tab1_modulo;
            7
 (5 rows)
 
-explain (verbose on, nodes off) select first_value(val) over (partition by val2 order by val) from tab1_modulo;
-                                      QUERY PLAN                                      
---------------------------------------------------------------------------------------
- WindowAgg  (cost=50.84..70.84 rows=1000 width=8)
+explain (costs off, verbose on, nodes off) select first_value(val) over (partition by val2 order by val) from tab1_modulo;
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
+ WindowAgg
    Output: first_value(val) OVER (?), val, val2
-   ->  Sort  (cost=50.84..53.34 rows=1000 width=8)
+   ->  Sort
          Output: val, val2
          Sort Key: tab1_modulo.val2, tab1_modulo.val
-         ->  Result  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Result
                Output: val, val2
-               ->  Data Node Scan on tab1_modulo  (cost=0.00..1.01 rows=1000 width=8)
+               ->  Data Node Scan on tab1_modulo
                      Output: val, val2
                      Remote query: SELECT val, val2 FROM ONLY tab1_modulo WHERE true
 (10 rows)
@@ -858,14 +856,14 @@ select * from tab1_modulo where val2 = 3 limit 1;
    5 |    3
 (1 row)
 
-explain (verbose on, nodes off) select * from tab1_modulo where val2 = 3 limit 1;
+explain (costs off, verbose on, nodes off) select * from tab1_modulo where val2 = 3 limit 1;
                                      QUERY PLAN                                      
 -------------------------------------------------------------------------------------
- Limit  (cost=0.00..0.00 rows=1 width=8)
+ Limit
    Output: val, val2
-   ->  Result  (cost=0.00..1.01 rows=1000 width=8)
+   ->  Result
          Output: val, val2
-         ->  Data Node Scan on tab1_modulo  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan on tab1_modulo
                Output: val, val2
                Remote query: SELECT val, val2 FROM ONLY tab1_modulo WHERE (val2 = 3)
 (7 rows)
@@ -876,14 +874,14 @@ select * from tab1_modulo where val2 = 4 offset 1;
 -----+------
 (0 rows)
 
-explain (verbose on, nodes off) select * from tab1_modulo where val2 = 4 offset 1;
+explain (costs off, verbose on, nodes off) select * from tab1_modulo where val2 = 4 offset 1;
                                      QUERY PLAN                                      
 -------------------------------------------------------------------------------------
- Limit  (cost=0.00..1.01 rows=999 width=8)
+ Limit
    Output: val, val2
-   ->  Result  (cost=0.00..1.01 rows=1000 width=8)
+   ->  Result
          Output: val, val2
-         ->  Data Node Scan on tab1_modulo  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan on tab1_modulo
                Output: val, val2
                Remote query: SELECT val, val2 FROM ONLY tab1_modulo WHERE (val2 = 4)
 (7 rows)
@@ -899,15 +897,15 @@ select * from tab1_modulo order by val;
    9 |    2
 (5 rows)
 
-explain (verbose on, nodes off) select * from tab1_modulo order by val;
-                                   QUERY PLAN                                   
---------------------------------------------------------------------------------
- Sort  (cost=50.84..53.34 rows=1000 width=8)
+explain (costs off, verbose on, nodes off) select * from tab1_modulo order by val;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Sort
    Output: val, val2
    Sort Key: tab1_modulo.val
-   ->  Result  (cost=0.00..1.01 rows=1000 width=8)
+   ->  Result
          Output: val, val2
-         ->  Data Node Scan on tab1_modulo  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan on tab1_modulo
                Output: val, val2
                Remote query: SELECT val, val2 FROM ONLY tab1_modulo WHERE true
 (8 rows)
@@ -919,14 +917,14 @@ select distinct val, val2 from tab1_modulo where val2 = 8;
    7 |    8
 (1 row)
 
-explain (verbose on, nodes off) select distinct val, val2 from tab1_modulo where val2 = 8;
+explain (costs off, verbose on, nodes off) select distinct val, val2 from tab1_modulo where val2 = 8;
                                      QUERY PLAN                                      
 -------------------------------------------------------------------------------------
- HashAggregate  (cost=6.01..6.02 rows=1 width=8)
+ HashAggregate
    Output: val, val2
-   ->  Result  (cost=0.00..1.01 rows=1000 width=8)
+   ->  Result
          Output: val, val2
-         ->  Data Node Scan on tab1_modulo  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan on tab1_modulo
                Output: val, val2
                Remote query: SELECT val, val2 FROM ONLY tab1_modulo WHERE (val2 = 8)
 (7 rows)
@@ -938,14 +936,14 @@ select val, val2 from tab1_modulo where val2 = 8 group by val, val2;
    7 |    8
 (1 row)
 
-explain (verbose on, nodes off) select val, val2 from tab1_modulo where val2 = 8 group by val, val2;
+explain (costs off, verbose on, nodes off) select val, val2 from tab1_modulo where val2 = 8 group by val, val2;
                                                                       QUERY PLAN                                                                      
 ------------------------------------------------------------------------------------------------------------------------------------------------------
- HashAggregate  (cost=6.01..6.02 rows=1 width=8)
+ HashAggregate
    Output: tab1_modulo.val, tab1_modulo.val2
-   ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
+   ->  Materialize
          Output: tab1_modulo.val, tab1_modulo.val2
-         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: tab1_modulo.val, tab1_modulo.val2
                Remote query: SELECT group_1.val, group_1.val2  FROM (SELECT val, val2 FROM ONLY tab1_modulo WHERE (val2 = 8)) group_1 GROUP BY 1, 2  
 (7 rows)
@@ -957,15 +955,15 @@ select sum(val) from tab1_modulo where val2 = 2 group by val2 having sum(val) > 
   10
 (1 row)
 
-explain (verbose on, nodes off) select sum(val) from tab1_modulo where val2 = 2 group by val2 having sum(val) > 1;
+explain (costs off, verbose on, nodes off) select sum(val) from tab1_modulo where val2 = 2 group by val2 having sum(val) > 1;
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate  (cost=0.00..8.52 rows=1 width=8)
+ GroupAggregate
    Output: pg_catalog.sum((sum(tab1_modulo.val))), tab1_modulo.val2
    Filter: (pg_catalog.sum((sum(tab1_modulo.val))) > 1)
-   ->  Materialize  (cost=0.00..0.00 rows=0 width=0)
+   ->  Materialize
          Output: (sum(tab1_modulo.val)), tab1_modulo.val2
-         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: sum(tab1_modulo.val), tab1_modulo.val2
                Remote query: SELECT sum(group_1.val), group_1.val2  FROM (SELECT val, val2 FROM ONLY tab1_modulo WHERE (val2 = 2)) group_1 GROUP BY 2  
 (8 rows)
@@ -978,10 +976,10 @@ select * from tab1_modulo where val = 7;
    7 |    8
 (1 row)
 
-explain (verbose on, nodes off, num_nodes on) select * from tab1_modulo where val = 7;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, verbose on, nodes off, num_nodes on) select * from tab1_modulo where val = 7;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
    Output: tab1_modulo.val, tab1_modulo.val2
    Remote query: SELECT val, val2 FROM tab1_modulo WHERE (val = 7)
 (3 rows)
@@ -993,15 +991,15 @@ select * from tab1_modulo where val = 7 or val = 2 order by val;
    7 |    8
 (2 rows)
 
-explain (verbose on, nodes off) select * from tab1_modulo where val = 7 or val = 2 order by val;
+explain (costs off, verbose on, nodes off) select * from tab1_modulo where val = 7 or val = 2 order by val;
                                             QUERY PLAN                                             
 ---------------------------------------------------------------------------------------------------
- Sort  (cost=50.84..53.34 rows=1000 width=8)
+ Sort
    Output: val, val2
    Sort Key: tab1_modulo.val
-   ->  Result  (cost=0.00..1.01 rows=1000 width=8)
+   ->  Result
          Output: val, val2
-         ->  Data Node Scan on tab1_modulo  (cost=0.00..1.01 rows=1000 width=8)
+         ->  Data Node Scan on tab1_modulo
                Output: val, val2
                Remote query: SELECT val, val2 FROM ONLY tab1_modulo WHERE ((val = 7) OR (val = 2))
 (8 rows)
@@ -1012,10 +1010,10 @@ select * from tab1_modulo where val = 7 and val2 = 8;
    7 |    8
 (1 row)
 
-explain (verbose on, nodes off, num_nodes on) select * from tab1_modulo where val = 7 and val2 = 8;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, verbose on, nodes off, num_nodes on) select * from tab1_modulo where val = 7 and val2 = 8;
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
    Output: tab1_modulo.val, tab1_modulo.val2
    Remote query: SELECT val, val2 FROM tab1_modulo WHERE ((val = 7) AND (val2 = 8))
 (3 rows)
@@ -1026,10 +1024,10 @@ select * from tab1_modulo where val = 3 + 4 and val2 = 8;
    7 |    8
 (1 row)
 
-explain (verbose on, nodes off, num_nodes on) select * from tab1_modulo where val = 3 + 4;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, verbose on, nodes off, num_nodes on) select * from tab1_modulo where val = 3 + 4;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
    Output: tab1_modulo.val, tab1_modulo.val2
    Remote query: SELECT val, val2 FROM tab1_modulo WHERE (val = (3 + 4))
 (3 rows)
@@ -1040,10 +1038,10 @@ select * from tab1_modulo where val = char_length('len')+4;
    7 |    8
 (1 row)
 
-explain (verbose on, nodes off, num_nodes on) select * from tab1_modulo where val = char_length('len')+4;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, verbose on, nodes off, num_nodes on) select * from tab1_modulo where val = char_length('len')+4;
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
    Output: tab1_modulo.val, tab1_modulo.val2
    Remote query: SELECT val, val2 FROM tab1_modulo WHERE (val = (char_length('len'::text) + 4))
 (3 rows)
@@ -1056,10 +1054,10 @@ select avg(val) from tab1_modulo where val = 7;
  7.0000000000000000
 (1 row)
 
-explain (verbose on, nodes off, num_nodes on) select avg(val) from tab1_modulo where val = 7;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, verbose on, nodes off, num_nodes on) select avg(val) from tab1_modulo where val = 7;
+                                          QUERY PLAN                                          
+----------------------------------------------------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
    Output: avg(tab1_modulo.val)
    Remote query: SELECT pg_catalog.int8_avg(avg(val)) AS avg FROM tab1_modulo WHERE (val = 7)
 (3 rows)
@@ -1071,10 +1069,10 @@ select val, val2 from tab1_modulo where val = 7 order by val2;
    7 |    8
 (2 rows)
 
-explain (verbose on, nodes off, num_nodes on) select val, val2 from tab1_modulo where val = 7 order by val2;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, verbose on, nodes off, num_nodes on) select val, val2 from tab1_modulo where val = 7 order by val2;
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
    Output: tab1_modulo.val, tab1_modulo.val2
    Remote query: SELECT val, val2 FROM tab1_modulo WHERE (val = 7) ORDER BY val2
 (3 rows)
@@ -1086,21 +1084,21 @@ select distinct val2 from tab1_modulo where val = 7;
     2
 (2 rows)
 
-explain (verbose on, nodes off, num_nodes on) select distinct val2 from tab1_modulo where val = 7;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, verbose on, nodes off, num_nodes on) select distinct val2 from tab1_modulo where val = 7;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
    Output: tab1_modulo.val2
    Remote query: SELECT DISTINCT val2 FROM tab1_modulo WHERE (val = 7)
 (3 rows)
 
 -- DMLs
 update tab1_modulo set val2 = 1000 where val = 7; 
-explain (verbose on, nodes off) update tab1_modulo set val2 = 1000 where val = 7; 
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
- Data Node Scan on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
-   Output: 1000, tab1_modulo.val, tab1_modulo.ctid
+explain (costs off, verbose on, nodes off) update tab1_modulo set val2 = 1000 where val = 7; 
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Data Node Scan on "__REMOTE_FQS_QUERY__"
+   Output: 1000, tab1_modulo.val, tab1_modulo.ctid, tab1_modulo.xc_node_id
    Remote query: UPDATE tab1_modulo SET val2 = 1000 WHERE (val = 7)
 (3 rows)
 
@@ -1112,14 +1110,13 @@ select * from tab1_modulo where val = 7;
 (2 rows)
 
 delete from tab1_modulo where val = 7; 
-explain verbose delete from tab1_modulo where val = 7; 
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
- Data Node Scan on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
-   Output: tab1_modulo.val, tab1_modulo.ctid
-   Node/s: datanode_2
+explain (costs off, verbose on, nodes off) delete from tab1_modulo where val = 7; 
+                             QUERY PLAN                              
+---------------------------------------------------------------------
+ Data Node Scan on "__REMOTE_FQS_QUERY__"
+   Output: tab1_modulo.val, tab1_modulo.ctid, tab1_modulo.xc_node_id
    Remote query: DELETE FROM tab1_modulo WHERE (val = 7)
-(4 rows)
+(3 rows)
 
 select * from tab1_modulo where val = 7;
  val | val2 
@@ -1139,10 +1136,10 @@ insert into tab1_replicated values (2, 4);
 insert into tab1_replicated values (5, 3);
 insert into tab1_replicated values (7, 8);
 insert into tab1_replicated values (9, 2);
-explain (verbose on, nodes off) insert into tab1_replicated values (9, 2);
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
- Data Node Scan on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, verbose on, nodes off) insert into tab1_replicated values (9, 2);
+                              QUERY PLAN                               
+-----------------------------------------------------------------------
+ Data Node Scan on "__REMOTE_FQS_QUERY__"
    Output: 9, 2
    Remote query: INSERT INTO tab1_replicated (val, val2) VALUES (9, 2)
 (3 rows)
@@ -1158,10 +1155,10 @@ select * from tab1_replicated;
    9 |    2
 (5 rows)
 
-explain (num_nodes on, verbose on, nodes off) select * from tab1_replicated;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, num_nodes on, verbose on, nodes off) select * from tab1_replicated;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
    Output: tab1_replicated.val, tab1_replicated.val2
    Remote query: SELECT val, val2 FROM tab1_replicated
 (3 rows)
@@ -1172,10 +1169,10 @@ select sum(val), avg(val), count(*) from tab1_replicated;
   24 | 4.8000000000000000 |     5
 (1 row)
 
-explain (num_nodes on, verbose on, nodes off) select sum(val), avg(val), count(*) from tab1_replicated;
+explain (costs off, num_nodes on, verbose on, nodes off) select sum(val), avg(val), count(*) from tab1_replicated;
                                                       QUERY PLAN                                                      
 ----------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
    Output: sum(tab1_replicated.val), avg(tab1_replicated.val), count(*)
    Remote query: SELECT sum(val) AS sum, pg_catalog.int8_avg(avg(val)) AS avg, count(*) AS count FROM tab1_replicated
 (3 rows)
@@ -1190,10 +1187,10 @@ select first_value(val) over (partition by val2 order by val) from tab1_replicat
            7
 (5 rows)
 
-explain (num_nodes on, verbose on, nodes off) select first_value(val) over (partition by val2 order by val) from tab1_replicated;
+explain (costs off, num_nodes on, verbose on, nodes off) select first_value(val) over (partition by val2 order by val) from tab1_replicated;
                                                     QUERY PLAN                                                     
 -------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
    Output: first_value(tab1_replicated.val) OVER (?), tab1_replicated.val, tab1_replicated.val2
    Remote query: SELECT first_value(val) OVER (PARTITION BY val2 ORDER BY val) AS first_value FROM tab1_replicated
 (3 rows)
@@ -1205,10 +1202,10 @@ select * from tab1_replicated where val2 = 2 limit 2;
    9 |    2
 (2 rows)
 
-explain (num_nodes on, verbose on, nodes off) select * from tab1_replicated where val2 = 2 limit 2;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, num_nodes on, verbose on, nodes off) select * from tab1_replicated where val2 = 2 limit 2;
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
    Output: tab1_replicated.val, tab1_replicated.val2
    Remote query: SELECT val, val2 FROM tab1_replicated WHERE (val2 = 2) LIMIT 2
 (3 rows)
@@ -1218,10 +1215,10 @@ select * from tab1_replicated where val2 = 4 offset 1;
 -----+------
 (0 rows)
 
-explain (num_nodes on, verbose on, nodes off) select * from tab1_replicated where val2 = 4 offset 1;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, num_nodes on, verbose on, nodes off) select * from tab1_replicated where val2 = 4 offset 1;
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
    Output: tab1_replicated.val, tab1_replicated.val2
    Remote query: SELECT val, val2 FROM tab1_replicated WHERE (val2 = 4) OFFSET 1
 (3 rows)
@@ -1236,10 +1233,10 @@ select * from tab1_replicated order by val;
    9 |    2
 (5 rows)
 
-explain (num_nodes on, verbose on, nodes off) select * from tab1_replicated order by val;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, num_nodes on, verbose on, nodes off) select * from tab1_replicated order by val;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
    Output: tab1_replicated.val, tab1_replicated.val2
    Remote query: SELECT val, val2 FROM tab1_replicated ORDER BY val
 (3 rows)
@@ -1254,10 +1251,10 @@ select distinct val, val2 from tab1_replicated;
    7 |    8
 (5 rows)
 
-explain (num_nodes on, verbose on, nodes off) select distinct val, val2 from tab1_replicated;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, num_nodes on, verbose on, nodes off) select distinct val, val2 from tab1_replicated;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
    Output: tab1_replicated.val, tab1_replicated.val2
    Remote query: SELECT DISTINCT val, val2 FROM tab1_replicated
 (3 rows)
@@ -1272,10 +1269,10 @@ select val, val2 from tab1_replicated group by val, val2;
    7 |    8
 (5 rows)
 
-explain (num_nodes on, verbose on, nodes off) select val, val2 from tab1_replicated group by val, val2;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, num_nodes on, verbose on, nodes off) select val, val2 from tab1_replicated group by val, val2;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
    Output: tab1_replicated.val, tab1_replicated.val2
    Remote query: SELECT val, val2 FROM tab1_replicated GROUP BY val, val2
 (3 rows)
@@ -1289,20 +1286,20 @@ select sum(val) from tab1_replicated group by val2 having sum(val) > 1;
   10
 (4 rows)
 
-explain (num_nodes on, verbose on, nodes off) select sum(val) from tab1_replicated group by val2 having sum(val) > 1;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, num_nodes on, verbose on, nodes off) select sum(val) from tab1_replicated group by val2 having sum(val) > 1;
+                                           QUERY PLAN                                            
+-------------------------------------------------------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
    Output: sum(tab1_replicated.val), tab1_replicated.val2
    Remote query: SELECT sum(val) AS sum FROM tab1_replicated GROUP BY val2 HAVING (sum(val) > 1)
 (3 rows)
 
 -- DMLs
 update tab1_replicated set val2 = 1000 where val = 7; 
-explain (verbose on, nodes off) update tab1_replicated set val2 = 1000 where val = 7; 
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
- Data Node Scan on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, verbose on, nodes off) update tab1_replicated set val2 = 1000 where val = 7; 
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Data Node Scan on "__REMOTE_FQS_QUERY__"
    Output: 1000, tab1_replicated.val, tab1_replicated.ctid
    Remote query: UPDATE tab1_replicated SET val2 = 1000 WHERE (val = 7)
 (3 rows)
@@ -1314,14 +1311,13 @@ select * from tab1_replicated where val = 7;
 (1 row)
 
 delete from tab1_replicated where val = 7; 
-explain verbose delete from tab1_replicated where val = 7; 
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
- Data Node Scan on "__REMOTE_FQS_QUERY__"  (cost=0.00..0.00 rows=0 width=0)
+explain (costs off, verbose on, nodes off) delete from tab1_replicated where val = 7; 
+                         QUERY PLAN                          
+-------------------------------------------------------------
+ Data Node Scan on "__REMOTE_FQS_QUERY__"
    Output: tab1_replicated.val, tab1_replicated.ctid
-   Node/s: datanode_1, datanode_2, datanode_3
    Remote query: DELETE FROM tab1_replicated WHERE (val = 7)
-(4 rows)
+(3 rows)
 
 select * from tab1_replicated where val = 7;
  val | val2 
