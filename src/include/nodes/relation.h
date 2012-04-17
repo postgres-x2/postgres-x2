@@ -227,6 +227,16 @@ typedef struct PlannerInfo
 #ifdef PGXC
 	/* This field is used only when RemoteScan nodes are involved */
 	int         rs_alias_index; /* used to build the alias reference */
+
+	/*
+	 * In XC coordinators are supposed to skip the handling of 
+	 * row marks of type ROW_MARK_EXCLUSIVE & ROW_MARK_SHARE.
+	 * In order to do that we simply remove such type 
+	 * of row marks from the list rowMarks. Instead they are saved 
+	 * in xc_rowMarks list that is then handeled to add
+	 * FOR UPDATE/SHARE in the remote query
+	 */
+	List	   *xc_rowMarks;		/* list of PlanRowMarks of type ROW_MARK_EXCLUSIVE & ROW_MARK_SHARE */
 #endif
 
 	/* These fields are used only when hasRecursion is true: */

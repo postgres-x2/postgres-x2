@@ -89,6 +89,8 @@ static CteScan *create_ctescan_plan(PlannerInfo *root, Path *best_path,
 static WorkTableScan *create_worktablescan_plan(PlannerInfo *root, Path *best_path,
 						  List *tlist, List *scan_clauses);
 #ifdef PGXC
+static RowMarkClause *mk_row_mark_clause(PlanRowMark *prm);
+static bool compare_alias(Alias *a1, Alias *a2);
 static RemoteQuery *create_remotequery_plan(PlannerInfo *root, Path *best_path,
 						  List *tlist, List *scan_clauses);
 static Plan *create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path,
@@ -2475,6 +2477,64 @@ create_worktablescan_plan(PlannerInfo *root, Path *best_path,
 
 
 #ifdef PGXC
+
+/*
+ * mk_row_mark_clause
+ *	 Given a PlanRowMark, create a corresponding RowMarkClause
+ */
+static RowMarkClause *
+mk_row_mark_clause(PlanRowMark *prm)
+{
+	RowMarkClause *rmc;
+
+	if (prm == NULL)
+		return NULL;
+
+	/* We are intrested in either FOR UPDATE or FOR SHARE */
+	if (prm->markType != ROW_MARK_EXCLUSIVE && prm->markType != ROW_MARK_SHARE)
+		return NULL;
+
+	rmc = makeNode(RowMarkClause);
+
+	/* Copy rti as is form the PlanRowMark */
+	rmc->rti = prm->rti;
+	
+	/* Assume FOR SHARE unless compelled FOR UPDATE */
+	rmc->forUpdate = false;
+	if (prm->markType == ROW_MARK_EXCLUSIVE)
+		rmc->forUpdate = true;
+	
+	/* Copy noWait as is form the PlanRowMark */
+	rmc->noWait = prm->noWait;
+	
+	/* true or false does not matter since we will use the result only while deparsing */
+	rmc->pushedDown = false;
+
+	return rmc;
+}
+
+/*
+ * compare_alias
+ *	 Compare two aliases
+ */
+static bool
+compare_alias(Alias *a1, Alias *a2)
+{
+	if (a1 == NULL && a2 == NULL)
+		return true;
+
+	if (a1 == NULL && a2 != NULL)
+		return false;
+
+	if (a2 == NULL && a1 != NULL)
+		return false;
+
+	if (strcmp(a1->aliasname, a2->aliasname) == 0)
+		return true;
+
+	return false;
+}
+
 /*
  * create_remotequery_plan
  *	 Returns a remotequery plan for the base relation scanned by 'best_path'
@@ -2500,6 +2560,7 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	bool			distcol_isnull;
 	Oid				distcol_type;
 	Node			*tmp_node;
+	List			*rmlist;
 
 	Assert(scan_relid > 0);
 	Assert(best_path->parent->rtekind == RTE_RELATION);
@@ -2514,7 +2575,7 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 		ListCell	  *l;
 
 		foreach(l, (List *)scan_clauses)
-	    {
+		{
 			Node *clause = lfirst(l);
 
 			if (is_foreign_expr(clause, NULL))
@@ -2576,8 +2637,69 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	query->targetList = (List *)tmp_node;
 	tmp_node = pgxc_fix_scan_expr(root->glob, (Node *)query->jointree->quals, 0);
 	query->jointree->quals = tmp_node;
+
+	/*
+	 * Before deparsing the query we need to check whether there are any FOR UPDATE/SHARE clauses
+	 * in the query that we need to propagate to data nodes
+	 */
+	rmlist = NULL;
+	if (root->xc_rowMarks != NULL)
+	{
+		ListCell		*rmcell;
+
+		foreach(rmcell, root->xc_rowMarks)
+		{
+			PlanRowMark *prm = lfirst(rmcell);
+			RangeTblEntry *rte_in_rm;
+
+			/*
+			 * One remote query node contains one table only, check to make sure that
+			 * this row mark clause is referring to the same table that this remote
+			 * query node is targeting.
+			 */
+			rte_in_rm = rt_fetch(prm->rti, root->parse->rtable);
+			if (rte_in_rm->relid == rte->relid && compare_alias(rte->alias, rte_in_rm->alias))
+			{
+				RowMarkClause *rmc;
+
+				/*
+				 * Change the range table index in the row mark clause to 1
+				 * to match the rtable in the query
+				 */
+				prm->rti = 1;
+
+				/* Come up with a Row Mark Clause given a Plan Row Mark */
+				rmc = mk_row_mark_clause(prm);
+
+				if (rmc != NULL)
+				{
+					/* Add this row mark clause to the list to be added in the query to deparse */
+					rmlist = lappend(rmlist, rmc);
+
+					/*
+					 * Although we can have mutiple row mark clauses even for a single table 
+					 * but here we will have only one plan row mark clause per table 
+					 * The reason is that here we are talking about only FOR UPDATE & FOR SHARE
+					 * If we have both FOR SHARE and FOR UPDATE mentioned for the same table
+					 * FOR UPDATE takes priority over FOR SHARE and in effect we will have only one clause.
+					 */
+					break;
+				}
+			}
+		}
+		
+		/* copy the row mark clause list in the query to deparse */
+		query->rowMarks = rmlist;
+
+		/* If there is a row mark clause, set the flag for deprasing of the row mark clause */
+		if (rmlist != NULL)
+			query->hasForUpdate = true;
+	}
 	initStringInfo(&sql);
 	deparse_query(query, &sql, NIL);
+
+	if (rmlist != NULL)
+		list_free_deep(rmlist);
 
 	rel_loc_info = GetRelationLocInfo(rte->relid);
 	if (!rel_loc_info)

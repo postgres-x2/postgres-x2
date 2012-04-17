@@ -110,7 +110,9 @@ static void get_column_info_for_window(PlannerInfo *root, WindowClause *wc,
 						   int *ordNumCols,
 						   AttrNumber **ordColIdx,
 						   Oid **ordOperators);
-
+#ifdef PGXC
+static void separate_rowmarks(PlannerInfo *root);
+#endif
 
 /*****************************************************************************
  *
@@ -445,6 +447,25 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 	 */
 	preprocess_rowmarks(root);
 
+#ifdef PGXC
+	/*
+	 * In coordinators we separate row marks in two groups
+	 * one comprises of row marks of types ROW_MARK_EXCLUSIVE & ROW_MARK_SHARE
+	 * and the other contains the rest of the types of row marks
+	 * The former is handeled on coordinator in such a way that 
+	 * FOR UPDATE/SHARE gets added in the remote query, whereas
+	 * the later needs to be handeled the way pg does
+	 *
+	 * PGXCTODO : This is not a very efficient way of handling row marks
+	 * Consider this join query
+	 * select * from t1, t2 where t1.val = t2.val for update
+	 * It results in this query to be fired at the data nodes
+	 * SELECT val, val2, ctid FROM ONLY t2 WHERE true FOR UPDATE OF t2
+	 * We are locking the complete table where as we should have locked 
+	 * only the rows where t1.val = t2.val is met
+	 */
+	separate_rowmarks(root);
+#endif
 	/*
 	 * Expand any rangetable entries that are inheritance sets into "append
 	 * relations".  This can add entries to the rangetable, but they must be
@@ -1990,6 +2011,44 @@ preprocess_rowmarks(PlannerInfo *root)
 
 	root->rowMarks = prowmarks;
 }
+
+#ifdef PGXC
+/*
+ * separate_rowmarks - In XC coordinators are supposed to skip handling
+ *                of type ROW_MARK_EXCLUSIVE & ROW_MARK_SHARE.
+ *                In order to do that we simply remove such type 
+ *                of row marks from the list. Instead they are saved 
+ *                in another list that is then handeled to add
+ *                FOR UPDATE/SHARE in the remote query
+ *                in the function create_remotequery_plan
+ */
+static void
+separate_rowmarks(PlannerInfo *root)
+{
+	List		*rml_1, *rml_2;
+	ListCell	*rm;
+
+	if (IS_PGXC_DATANODE || IsConnFromCoord() || root->rowMarks == NULL)
+		return;
+
+	rml_1 = NULL;
+	rml_2 = NULL;
+
+	foreach(rm, root->rowMarks)
+	{
+		PlanRowMark *prm = (PlanRowMark *) lfirst(rm);
+
+		if (prm->markType == ROW_MARK_EXCLUSIVE || prm->markType == ROW_MARK_SHARE)
+			rml_1 = lappend(rml_1, prm);
+		else
+			rml_2 = lappend(rml_2, prm);
+	}
+	list_free(root->rowMarks);
+	root->rowMarks = rml_2;
+	root->xc_rowMarks = rml_1;
+}
+
+#endif /*PGXC*/
 
 /*
  * preprocess_limit - do pre-estimation for LIMIT and/or OFFSET clauses

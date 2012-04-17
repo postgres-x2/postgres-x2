@@ -1757,6 +1757,7 @@ _outPlannerInfo(StringInfo str, PlannerInfo *node)
 	WRITE_BOOL_FIELD(hasRecursion);
 #ifdef PGXC
 	WRITE_INT_FIELD(rs_alias_index);
+	WRITE_NODE_FIELD(xc_rowMarks);
 #endif
 	WRITE_INT_FIELD(wt_param_id);
 	WRITE_BITMAPSET_FIELD(curOuterRels);
