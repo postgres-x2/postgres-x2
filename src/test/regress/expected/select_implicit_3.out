@@ -22,11 +22,11 @@ SELECT c, count(*) FROM test_missing_target GROUP BY test_missing_target.c ORDER
     c     | count 
 ----------+-------
  ABAB     |     2
+ bbbb     |     1
  BBBB     |     2
+ cccc     |     2
  CCCC     |     2
  XXXX     |     1
- bbbb     |     1
- cccc     |     2
 (6 rows)
 
 --   w/o existing GROUP BY target using a relation name in GROUP BY clause
@@ -34,11 +34,11 @@ SELECT count(*) FROM test_missing_target GROUP BY test_missing_target.c ORDER BY
  count 
 -------
      2
+     1
+     2
      2
      2
      1
-     1
-     2
 (6 rows)
 
 --   w/o existing GROUP BY target and w/o existing a different ORDER BY target
@@ -69,19 +69,19 @@ SELECT test_missing_target.b, count(*)
 (4 rows)
 
 --   w/o existing GROUP BY target
-SELECT c FROM test_missing_target ORDER BY c;
+SELECT c FROM test_missing_target ORDER BY a;
     c     
 ----------
- ABAB    
- ABAB    
- BBBB    
- BBBB    
- CCCC    
- CCCC    
  XXXX    
+ ABAB    
+ ABAB    
+ BBBB    
+ BBBB    
  bbbb    
  cccc    
  cccc    
+ CCCC    
+ CCCC    
 (10 rows)
 
 --   w/o existing ORDER BY target
@@ -106,11 +106,11 @@ SELECT c, count(*) FROM test_missing_target GROUP BY 1 ORDER BY 1;
     c     | count 
 ----------+-------
  ABAB     |     2
+ bbbb     |     1
  BBBB     |     2
+ cccc     |     2
  CCCC     |     2
  XXXX     |     1
- bbbb     |     1
- cccc     |     2
 (6 rows)
 
 --   group using reference number out of range
@@ -206,11 +206,15 @@ SELECT count(*) INTO TABLE test_missing_target2
 FROM test_missing_target x, test_missing_target y
 	WHERE x.a = y.a
 	GROUP BY x.b ORDER BY x.b;
-ERROR:  INTO clause not yet supported
 SELECT * FROM test_missing_target2 ORDER BY 1;
-ERROR:  relation "test_missing_target2" does not exist
-LINE 1: SELECT * FROM test_missing_target2 ORDER BY 1;
-                      ^
+ count 
+-------
+     1
+     2
+     3
+     4
+(4 rows)
+
 --  Functions and expressions
 --   w/ existing GROUP BY target
 SELECT a%2, count(b) FROM test_missing_target
@@ -318,14 +322,15 @@ SELECT count(x.b) INTO TABLE test_missing_target3
 FROM test_missing_target x, test_missing_target y
 	WHERE x.a = y.a
 	GROUP BY x.b/2 ORDER BY x.b/2;
-ERROR:  INTO clause not yet supported
 SELECT * FROM test_missing_target3 ORDER BY 1;
-ERROR:  relation "test_missing_target3" does not exist
-LINE 1: SELECT * FROM test_missing_target3 ORDER BY 1;
-                      ^
+ count 
+-------
+     1
+     4
+     5
+(3 rows)
+
 --   Cleanup
 DROP TABLE test_missing_target;
 DROP TABLE test_missing_target2;
-ERROR:  table "test_missing_target2" does not exist
 DROP TABLE test_missing_target3;
-ERROR:  table "test_missing_target3" does not exist

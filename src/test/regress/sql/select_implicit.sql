@@ -38,7 +38,7 @@ SELECT test_missing_target.b, count(*)
   FROM test_missing_target GROUP BY b ORDER BY b;
 
 --   w/o existing GROUP BY target
-SELECT c FROM test_missing_target ORDER BY c;
+SELECT c FROM test_missing_target ORDER BY a;
 
 --   w/o existing ORDER BY target
 SELECT count(*) FROM test_missing_target GROUP BY b ORDER BY b desc;
