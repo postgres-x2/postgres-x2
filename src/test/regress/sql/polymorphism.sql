@@ -357,26 +357,26 @@ insert into t values(3,array[3],'b');
 select f3, myaggp01a(*) from t group by f3 order by f3;
 select f3, myaggp03a(*) from t group by f3 order by f3;
 select f3, myaggp03b(*) from t group by f3 order by f3;
-select f3, myaggp05a(f1) from t group by f3 order by f3;
+select f3, myaggp05a(f1 order by f1) from t group by f3 order by f3;
 select f3, myaggp06a(f1) from t group by f3 order by f3;
 select f3, myaggp08a(f1) from t group by f3 order by f3;
 select f3, myaggp09a(f1) from t group by f3 order by f3;
 select f3, myaggp09b(f1) from t group by f3 order by f3;
-select f3, myaggp10a(f1) from t group by f3 order by f3;
-select f3, myaggp10b(f1) from t group by f3 order by f3;
-select f3, myaggp20a(f1) from t group by f3 order by f3;
-select f3, myaggp20b(f1) from t group by f3 order by f3;
+select f3, myaggp10a(f1 order by f1) from t group by f3 order by f3;
+select f3, myaggp10b(f1 order by f1) from t group by f3 order by f3;
+select f3, myaggp20a(f1 order by f1) from t group by f3 order by f3;
+select f3, myaggp20b(f1 order by f1) from t group by f3 order by f3;
 select f3, myaggn01a(*) from t group by f3 order by f3;
 select f3, myaggn01b(*) from t group by f3 order by f3;
 select f3, myaggn03a(*) from t group by f3 order by f3;
-select f3, myaggn05a(f1) from t group by f3 order by f3;
-select f3, myaggn05b(f1) from t group by f3 order by f3;
+select f3, myaggn05a(f1 order by f1) from t group by f3 order by f3;
+select f3, myaggn05b(f1 order by f1) from t group by f3 order by f3;
 select f3, myaggn06a(f1) from t group by f3 order by f3;
 select f3, myaggn06b(f1) from t group by f3 order by f3;
 select f3, myaggn08a(f1) from t group by f3 order by f3;
 select f3, myaggn08b(f1) from t group by f3 order by f3;
 select f3, myaggn09a(f1) from t group by f3 order by f3;
-select f3, myaggn10a(f1) from t group by f3 order by f3;
+select f3, myaggn10a(f1 order by f1) from t group by f3 order by f3;
 select mysum2(f1, f1 + 1) from t;
 
 -- test inlining of polymorphic SQL functions
@@ -391,7 +391,7 @@ select case when $1 then $2 else $3 end $$ language sql;
 
 -- Note this would fail with integer overflow, never mind wrong bleat() output,
 -- if the CASE expression were not successfully inlined
-select f1, sql_if(f1 > 0, bleat(f1), bleat(f1 + 1)) from int4_tbl order by 1, 2;
+select f1, sql_if(f1 > 0, bleat(f1), bleat(f1 + 1)) from (select * from int4_tbl order by f1) q order by 1, 2;
 
 select q2, sql_if(q2 > 0, q2, q2 + 1) from int8_tbl order by 1, 2;
 
@@ -417,7 +417,7 @@ create aggregate build_group(anyelement, integer) (
   STYPE = anyarray
 );
 
-select build_group(q1,3) from int8_tbl;
+select build_group(q1,3 order by q1) from int8_tbl;
 
 -- this should fail because stype isn't compatible with arg
 create aggregate build_group(int8, integer) (

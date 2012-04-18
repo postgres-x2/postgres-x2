@@ -379,7 +379,7 @@ select f3, myaggp03b(*) from t group by f3 order by f3;
  c  | {}
 (3 rows)
 
-select f3, myaggp05a(f1) from t group by f3 order by f3;
+select f3, myaggp05a(f1 order by f1) from t group by f3 order by f3;
  f3 | myaggp05a 
 ----+-----------
  a  | {1,2,3}
@@ -419,7 +419,7 @@ select f3, myaggp09b(f1) from t group by f3 order by f3;
  c  | {}
 (3 rows)
 
-select f3, myaggp10a(f1) from t group by f3 order by f3;
+select f3, myaggp10a(f1 order by f1) from t group by f3 order by f3;
  f3 | myaggp10a 
 ----+-----------
  a  | {1,2,3}
@@ -427,7 +427,7 @@ select f3, myaggp10a(f1) from t group by f3 order by f3;
  c  | {1,2}
 (3 rows)
 
-select f3, myaggp10b(f1) from t group by f3 order by f3;
+select f3, myaggp10b(f1 order by f1) from t group by f3 order by f3;
  f3 | myaggp10b 
 ----+-----------
  a  | {1,2,3}
@@ -435,7 +435,7 @@ select f3, myaggp10b(f1) from t group by f3 order by f3;
  c  | {1,2}
 (3 rows)
 
-select f3, myaggp20a(f1) from t group by f3 order by f3;
+select f3, myaggp20a(f1 order by f1) from t group by f3 order by f3;
  f3 | myaggp20a 
 ----+-----------
  a  | {1,2,3}
@@ -443,7 +443,7 @@ select f3, myaggp20a(f1) from t group by f3 order by f3;
  c  | {1,2}
 (3 rows)
 
-select f3, myaggp20b(f1) from t group by f3 order by f3;
+select f3, myaggp20b(f1 order by f1) from t group by f3 order by f3;
  f3 | myaggp20b 
 ----+-----------
  a  | {1,2,3}
@@ -475,7 +475,7 @@ select f3, myaggn03a(*) from t group by f3 order by f3;
  c  | {}
 (3 rows)
 
-select f3, myaggn05a(f1) from t group by f3 order by f3;
+select f3, myaggn05a(f1 order by f1) from t group by f3 order by f3;
  f3 | myaggn05a 
 ----+-----------
  a  | {1,2,3}
@@ -483,7 +483,7 @@ select f3, myaggn05a(f1) from t group by f3 order by f3;
  c  | {1,2}
 (3 rows)
 
-select f3, myaggn05b(f1) from t group by f3 order by f3;
+select f3, myaggn05b(f1 order by f1) from t group by f3 order by f3;
  f3 | myaggn05b 
 ----+-----------
  a  | {1,2,3}
@@ -531,7 +531,7 @@ select f3, myaggn09a(f1) from t group by f3 order by f3;
  c  | {}
 (3 rows)
 
-select f3, myaggn10a(f1) from t group by f3 order by f3;
+select f3, myaggn10a(f1 order by f1) from t group by f3 order by f3;
  f3 | myaggn10a 
 ----+-----------
  a  | {1,2,3}
@@ -555,12 +555,12 @@ create function sql_if(bool, anyelement, anyelement) returns anyelement as $$
 select case when $1 then $2 else $3 end $$ language sql;
 -- Note this would fail with integer overflow, never mind wrong bleat() output,
 -- if the CASE expression were not successfully inlined
-select f1, sql_if(f1 > 0, bleat(f1), bleat(f1 + 1)) from int4_tbl order by 1, 2;
+select f1, sql_if(f1 > 0, bleat(f1), bleat(f1 + 1)) from (select * from int4_tbl order by f1) q order by 1, 2;
+NOTICE:  bleat -2147483646
+NOTICE:  bleat -123455
 NOTICE:  bleat 1
 NOTICE:  bleat 123456
-NOTICE:  bleat -123455
 NOTICE:  bleat 2147483647
-NOTICE:  bleat -2147483646
      f1      |   sql_if    
 -------------+-------------
  -2147483647 | -2147483646
@@ -599,7 +599,7 @@ create aggregate build_group(anyelement, integer) (
   SFUNC = add_group,
   STYPE = anyarray
 );
-select build_group(q1,3) from int8_tbl;
+select build_group(q1,3 order by q1) from int8_tbl;
         build_group         
 ----------------------------
  {123,123,4567890123456789}
@@ -1343,14 +1343,14 @@ CREATE VIEW dfview AS
      dfunc(q1,q2, flag := q1>q2) as c3,
      dfunc(q1, flag := q1<q2, b := q2) as c4
      FROM int8_tbl;
-select * from dfview;
+select * from dfview order by 1,2,3,4;
         q1        |        q2         |        c3        |        c4         
 ------------------+-------------------+------------------+-------------------
               123 |               456 |              456 |               123
               123 |  4567890123456789 | 4567890123456789 |               123
+ 4567890123456789 | -4567890123456789 | 4567890123456789 | -4567890123456789
  4567890123456789 |               123 | 4567890123456789 |               123
  4567890123456789 |  4567890123456789 | 4567890123456789 |  4567890123456789
- 4567890123456789 | -4567890123456789 | 4567890123456789 | -4567890123456789
 (5 rows)
 
 \d+ dfview
