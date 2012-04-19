@@ -2034,11 +2034,8 @@ ReadCommand(GTMProxy_ConnectionInfo *conninfo, StringInfo inBuf)
 	int 			qtype;
 	int				connIdx = conninfo->con_id;
 	int				anyBackup;
-	int				myLocalId;
 
-	myLocalId = GetMyThreadInfo->thr_localid;
 	anyBackup = (GetMyThreadInfo->thr_any_backup[connIdx] ? TRUE : FALSE);
-	
 	
 	/*
 	 * Get message type code from the frontend.

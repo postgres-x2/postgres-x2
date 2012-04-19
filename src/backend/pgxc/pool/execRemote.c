@@ -613,18 +613,9 @@ static void
 HandleError(RemoteQueryState *combiner, char *msg_body, size_t len)
 {
 	/* parse error message */
-	char *severity = NULL;
 	char *code = NULL;
 	char *message = NULL;
 	char *detail = NULL;
-	char *hint = NULL;
-	char *position = NULL;
-	char *int_position = NULL;
-	char *int_query = NULL;
-	char *where = NULL;
-	char *file = NULL;
-	char *line = NULL;
-	char *routine = NULL;
 	int   offset = 0;
 
 	/*
@@ -637,41 +628,27 @@ HandleError(RemoteQueryState *combiner, char *msg_body, size_t len)
 
 		switch (msg_body[offset])
 		{
-			case 'S':
-				severity = str;
-				break;
-			case 'C':
+			case 'C':	/* code */
 				code = str;
 				break;
-			case 'M':
+			case 'M':	/* message */
 				message = str;
 				break;
-			case 'D':
+			case 'D':	/* details */
 				detail = str;
 				break;
-			case 'H':
-				hint = str;
-				break;
-			case 'P':
-				position = str;
-				break;
-			case 'p':
-				int_position = str;
-				break;
-			case 'q':
-				int_query = str;
-				break;
-			case 'W':
-				where = str;
-				break;
-			case 'F':
-				file = str;
-				break;
-			case 'L':
-				line = str;
-				break;
-			case 'R':
-				routine = str;
+
+			/* Fields not yet in use */
+			case 'S':	/* severity */
+			case 'R':	/* routine */
+			case 'H':	/* hint */
+			case 'P':	/* position string */
+			case 'p':	/* position int */
+			case 'q':	/* int query */
+			case 'W':	/* where */
+			case 'F':	/* file */
+			case 'L':	/* line */
+			default:
 				break;
 		}
 
@@ -1357,7 +1334,6 @@ is_data_node_ready(PGXCNodeHandle * conn)
 	char		*msg;
 	int		msg_len;
 	char		msg_type;
-	bool		suspended = false;
 
 	for (;;)
 	{
@@ -1382,7 +1358,6 @@ is_data_node_ready(PGXCNodeHandle * conn)
 		switch (msg_type)
 		{
 			case 's':			/* PortalSuspended */
-				suspended = true;
 				break;
 
 			case 'Z':			/* ReadyForQuery */
@@ -2337,11 +2312,8 @@ DataNodeCopyOut(ExecNodes *exec_nodes, PGXCNodeHandle** copy_connections, FILE* 
 	RemoteQueryState *combiner;
 	int 		conn_count = list_length(exec_nodes->nodeList) == 0 ? NumDataNodes : list_length(exec_nodes->nodeList);
 	int 		count = 0;
-	List		*nodelist;
 	ListCell	*nodeitem;
 	uint64		processed;
-
-	nodelist = exec_nodes->nodeList;
 
 	combiner = CreateResponseCombiner(conn_count, COMBINE_TYPE_SUM);
 	combiner->processed = 0;
@@ -3665,7 +3637,6 @@ ExecRemoteUtility(RemoteQuery *node)
 	GlobalTransactionId gxid = InvalidGlobalTransactionId;
 	Snapshot snapshot = GetActiveSnapshot();
 	PGXCNodeAllHandles *pgxc_connections;
-	int			total_conn_count;
 	int			co_conn_count;
 	int			dn_conn_count;
 	bool		need_tran_block;
@@ -3689,21 +3660,10 @@ ExecRemoteUtility(RemoteQuery *node)
 	dn_conn_count = pgxc_connections->dn_conn_count;
 	co_conn_count = pgxc_connections->co_conn_count;
 
-	/* Registering new connections needs the sum of Connections to Datanodes AND to Coordinators */
-	total_conn_count = dn_conn_count + co_conn_count;
-
 	if (force_autocommit)
 		need_tran_block = false;
 	else
 		need_tran_block = true;
-	/*
-	else if (exec_type == EXEC_ON_ALL_NODES ||
-			 exec_type == EXEC_ON_COORDS)
-		need_tran_block = true;
-	else
-		need_tran_block = (total_conn_count > 1) ||
-						  (TransactionBlockStatusCode() == 'T');
-						  */
 
 	/* Commands launched through EXECUTE DIRECT do not need start a transaction */
 	if (exec_direct_type == EXEC_DIRECT_UTILITY)

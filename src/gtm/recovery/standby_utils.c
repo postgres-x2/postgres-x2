@@ -35,7 +35,7 @@ Recovery_IsStandby(void)
 	GTM_RWLockAcquire(&StandbyLock, GTM_LOCKMODE_READ);
 	res = GTM_StandbyMode;
 	GTM_RWLockRelease(&StandbyLock);
-	return GTM_StandbyMode;
+	return res;
 }
 
 void

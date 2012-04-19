@@ -204,7 +204,6 @@ CleanConnection(CleanConnStmt *stmt)
 	char	   *username = stmt->username;
 	bool		is_coord = stmt->is_coord;
 	bool		is_force = stmt->is_force;
-	int			max_node_number = 0;
 
 	/* Only a DB administrator can clean pooler connections */
 	if (!superuser())
@@ -286,12 +285,6 @@ CleanConnection(CleanConnStmt *stmt)
 					(errcode(ERRCODE_INTERNAL_ERROR),
 					 errmsg("All Transactions have not been aborted")));
 	}
-
-	/* Check node list */
-	if (stmt->nodes && is_coord)
-		max_node_number = NumCoords;
-	else
-		max_node_number = NumDataNodes;
 
 	foreach(nodelist_item, stmt->nodes)
 	{

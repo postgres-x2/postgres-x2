@@ -1656,7 +1656,7 @@ ProcessCommitPreparedTransactionCommand(Port *myport, StringInfo message, bool i
 	MemoryContext oldContext;
 	int status[txn_count];
 	int isgxid[txn_count];
-	int ii, count;
+	int ii;
 
 	for (ii = 0; ii < txn_count; ii++)
 	{
@@ -1693,7 +1693,7 @@ ProcessCommitPreparedTransactionCommand(Port *myport, StringInfo message, bool i
 	/*
 	 * Commit the prepared transaction.
 	 */
-	count = GTM_CommitTransactionMulti(txn, txn_count, status);
+	GTM_CommitTransactionMulti(txn, txn_count, status);
 
 	MemoryContextSwitchTo(oldContext);
 
@@ -2048,7 +2048,7 @@ ProcessCommitTransactionCommandMulti(Port *myport, StringInfo message, bool is_b
 	int isgxid[GTM_MAX_GLOBAL_TRANSACTIONS];
 	MemoryContext oldContext;
 	int status[GTM_MAX_GLOBAL_TRANSACTIONS];
-	int txn_count, count;
+	int txn_count;
 	int ii;
 
 	txn_count = pq_getmsgint(message, sizeof (int));
@@ -2086,7 +2086,7 @@ ProcessCommitTransactionCommandMulti(Port *myport, StringInfo message, bool is_b
 	/*
 	 * Commit the transaction
 	 */
-	count = GTM_CommitTransactionMulti(txn, txn_count, status);
+	GTM_CommitTransactionMulti(txn, txn_count, status);
 
 	MemoryContextSwitchTo(oldContext);
 
@@ -2151,7 +2151,7 @@ ProcessRollbackTransactionCommandMulti(Port *myport, StringInfo message, bool is
 	int isgxid[GTM_MAX_GLOBAL_TRANSACTIONS];
 	MemoryContext oldContext;
 	int status[GTM_MAX_GLOBAL_TRANSACTIONS];
-	int txn_count, count;
+	int txn_count;
 	int ii;
 
 	txn_count = pq_getmsgint(message, sizeof (int));
@@ -2189,7 +2189,7 @@ ProcessRollbackTransactionCommandMulti(Port *myport, StringInfo message, bool is
 	/*
 	 * Commit the transaction
 	 */
-	count = GTM_RollbackTransactionMulti(txn, txn_count, status);
+	GTM_RollbackTransactionMulti(txn, txn_count, status);
 
 	MemoryContextSwitchTo(oldContext);
 
@@ -2369,7 +2369,6 @@ ProcessPrepareTransactionCommand(Port *myport, StringInfo message, bool is_backu
 	GlobalTransactionId gxid;
 	int isgxid = 0;
 	MemoryContext oldContext;
-	int status = STATUS_OK;
 
 	isgxid = pq_getmsgbyte(message);
 
@@ -2400,7 +2399,7 @@ ProcessPrepareTransactionCommand(Port *myport, StringInfo message, bool is_backu
 	/*
 	 * Commit the transaction
 	 */
-	status = GTM_PrepareTransaction(txn);
+	GTM_PrepareTransaction(txn);
 
 	MemoryContextSwitchTo(oldContext);
 
