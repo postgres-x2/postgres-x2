@@ -20,7 +20,7 @@ LINE 1: INSERT INTO xmltest VALUES (3, '<wrong');
                                        ^
 DETAIL:  This functionality requires the server to be built with libxml support.
 HINT:  You need to rebuild PostgreSQL using --with-libxml.
-SELECT * FROM xmltest;
+SELECT * FROM xmltest ORDER BY 1;
  id | data 
 ----+------
 (0 rows)
@@ -106,7 +106,7 @@ SELECT xmlelement(name element, xmlelement(name nested, 'stuff'));
 ERROR:  unsupported XML feature
 DETAIL:  This functionality requires the server to be built with libxml support.
 HINT:  You need to rebuild PostgreSQL using --with-libxml.
-SELECT xmlelement(name employee, xmlforest(name, age, salary as pay)) FROM emp;
+SELECT xmlelement(name employee, xmlforest(name, age, salary as pay)) FROM emp ORDER BY name;
 ERROR:  unsupported XML feature
 DETAIL:  This functionality requires the server to be built with libxml support.
 HINT:  You need to rebuild PostgreSQL using --with-libxml.
@@ -286,7 +286,7 @@ SELECT xmlroot (
 ERROR:  unsupported XML feature
 DETAIL:  This functionality requires the server to be built with libxml support.
 HINT:  You need to rebuild PostgreSQL using --with-libxml.
-SELECT xmlserialize(content data as character varying(20)) FROM xmltest;
+SELECT xmlserialize(content data as character varying(20)) FROM xmltest ORDER BY id;
  xmlserialize 
 --------------
 (0 rows)
@@ -345,7 +345,7 @@ SELECT xmlagg(data) FROM xmltest WHERE id > 10;
  
 (1 row)
 
-SELECT xmlelement(name employees, xmlagg(xmlelement(name name, name))) FROM emp;
+SELECT xmlelement(name employees, xmlagg(xmlelement(name name, name) ORDER BY name)) FROM emp;
 ERROR:  unsupported XML feature
 DETAIL:  This functionality requires the server to be built with libxml support.
 HINT:  You need to rebuild PostgreSQL using --with-libxml.
@@ -422,7 +422,7 @@ SELECT table_name, view_definition FROM information_schema.views
 (2 rows)
 
 -- Text XPath expressions evaluation
-SELECT xpath('/value', data) FROM xmltest;
+SELECT xpath('/value', data) FROM xmltest ORDER BY id;
  xpath 
 -------
 (0 rows)

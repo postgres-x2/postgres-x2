@@ -11,7 +11,7 @@ LINE 1: INSERT INTO xmltest VALUES (3, '<wrong');
 DETAIL:  Entity: line 1: parser error : Couldn't find end of Start Tag wrong line 1
 <wrong
       ^
-SELECT * FROM xmltest;
+SELECT * FROM xmltest ORDER BY 1;
  id |        data        
 ----+--------------------
   1 | <value>one</value>
@@ -108,15 +108,15 @@ SELECT xmlelement(name element, xmlelement(name nested, 'stuff'));
  <element><nested>stuff</nested></element>
 (1 row)
 
-SELECT xmlelement(name employee, xmlforest(name, age, salary as pay)) FROM emp;
+SELECT xmlelement(name employee, xmlforest(name, age, salary as pay)) FROM emp ORDER BY name;
                               xmlelement                              
 ----------------------------------------------------------------------
- <employee><name>sharon</name><age>25</age><pay>1000</pay></employee>
- <employee><name>sam</name><age>30</age><pay>2000</pay></employee>
  <employee><name>bill</name><age>20</age><pay>1000</pay></employee>
- <employee><name>jeff</name><age>23</age><pay>600</pay></employee>
  <employee><name>cim</name><age>30</age><pay>400</pay></employee>
+ <employee><name>jeff</name><age>23</age><pay>600</pay></employee>
  <employee><name>linda</name><age>19</age><pay>100</pay></employee>
+ <employee><name>sam</name><age>30</age><pay>2000</pay></employee>
+ <employee><name>sharon</name><age>25</age><pay>1000</pay></employee>
 (6 rows)
 
 SELECT xmlelement(name duplicate, xmlattributes(1 as a, 2 as b, 3 as a));
@@ -336,7 +336,7 @@ SELECT xmlroot (
  <?xml version="1.0" standalone="yes"?><gazonk name="val" num="2"><qux>foo</qux></gazonk>
 (1 row)
 
-SELECT xmlserialize(content data as character varying(20)) FROM xmltest;
+SELECT xmlserialize(content data as character varying(20)) FROM xmltest ORDER BY id;
     xmlserialize    
 --------------------
  <value>one</value>
@@ -394,10 +394,10 @@ SELECT xmlagg(data) FROM xmltest WHERE id > 10;
  
 (1 row)
 
-SELECT xmlelement(name employees, xmlagg(xmlelement(name name, name))) FROM emp;
+SELECT xmlelement(name employees, xmlagg(xmlelement(name name, name) ORDER BY name)) FROM emp;
                                                            xmlelement                                                           
 --------------------------------------------------------------------------------------------------------------------------------
- <employees><name>sharon</name><name>sam</name><name>bill</name><name>jeff</name><name>cim</name><name>linda</name></employees>
+ <employees><name>bill</name><name>cim</name><name>jeff</name><name>linda</name><name>sam</name><name>sharon</name></employees>
 (1 row)
 
 -- Check mapping SQL identifier to XML name
@@ -467,7 +467,7 @@ SELECT table_name, view_definition FROM information_schema.views
 (9 rows)
 
 -- Text XPath expressions evaluation
-SELECT xpath('/value', data) FROM xmltest;
+SELECT xpath('/value', data) FROM xmltest ORDER BY id;
         xpath         
 ----------------------
  {<value>one</value>}

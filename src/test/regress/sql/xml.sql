@@ -7,7 +7,7 @@ INSERT INTO xmltest VALUES (1, '<value>one</value>');
 INSERT INTO xmltest VALUES (2, '<value>two</value>');
 INSERT INTO xmltest VALUES (3, '<wrong');
 
-SELECT * FROM xmltest;
+SELECT * FROM xmltest ORDER BY 1;
 
 
 SELECT xmlcomment('test');
@@ -39,7 +39,7 @@ SELECT xmlelement(name element,
 
 SELECT xmlelement(name element, xmlelement(name nested, 'stuff'));
 
-SELECT xmlelement(name employee, xmlforest(name, age, salary as pay)) FROM emp;
+SELECT xmlelement(name employee, xmlforest(name, age, salary as pay)) FROM emp ORDER BY name;
 
 SELECT xmlelement(name duplicate, xmlattributes(1 as a, 2 as b, 3 as a));
 
@@ -106,7 +106,7 @@ SELECT xmlroot (
 );
 
 
-SELECT xmlserialize(content data as character varying(20)) FROM xmltest;
+SELECT xmlserialize(content data as character varying(20)) FROM xmltest ORDER BY id;
 SELECT xmlserialize(content 'good' as char(10));
 SELECT xmlserialize(document 'bad' as text);
 
@@ -120,7 +120,7 @@ SELECT '<>' IS NOT DOCUMENT;
 
 SELECT xmlagg(data) FROM xmltest;
 SELECT xmlagg(data) FROM xmltest WHERE id > 10;
-SELECT xmlelement(name employees, xmlagg(xmlelement(name name, name))) FROM emp;
+SELECT xmlelement(name employees, xmlagg(xmlelement(name name, name) ORDER BY name)) FROM emp;
 
 
 -- Check mapping SQL identifier to XML name
@@ -157,7 +157,7 @@ SELECT table_name, view_definition FROM information_schema.views
 
 -- Text XPath expressions evaluation
 
-SELECT xpath('/value', data) FROM xmltest;
+SELECT xpath('/value', data) FROM xmltest ORDER BY id;
 SELECT xpath(NULL, NULL) IS NULL FROM xmltest;
 SELECT xpath('', '<!-- error -->');
 SELECT xpath('//text()', '<local:data xmlns:local="http://127.0.0.1"><local:piece id="1">number one</local:piece><local:piece id="2" /></local:data>');
