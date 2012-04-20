@@ -82,6 +82,8 @@ static RemoteQueryExecType ExecUtilityFindNodes(ObjectType objectType,
 												Oid relid,
 												bool *is_temp);
 static RemoteQueryExecType ExecUtilityFindNodesRelkind(Oid relid, bool *is_temp);
+static RemoteQueryExecType GetNodesForCommentUtility(CommentStmt *stmt, bool *is_temp);
+
 #endif
 
 
@@ -1009,17 +1011,8 @@ standard_ProcessUtility(Node *parsetree,
 			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 			{
 				bool is_temp = false;
-				RemoteQueryExecType exec_type = EXEC_ON_ALL_NODES;
 				CommentStmt *stmt = (CommentStmt *) parsetree;
-				Oid relid = GetCommentObjectId(stmt);
-
-				/* Commented object may not have a valid object ID, so move to default */
-				if (OidIsValid(relid))
-				{
-					exec_type = ExecUtilityFindNodes(stmt->objtype,
-													 relid,
-													 &is_temp);
-				}
+				RemoteQueryExecType exec_type = GetNodesForCommentUtility(stmt, &is_temp);
 				ExecUtilityStmtOnNodes(queryString, NULL, false, exec_type, is_temp);
 			}
 #endif
@@ -2146,10 +2139,13 @@ ExecUtilityStmtOnNodes(const char *queryString, ExecNodes *nodes,
  * Determine the list of nodes to launch query on.
  * This depends on temporary nature of object and object type.
  * Return also a flag indicating if relation is temporary.
+ *
+ * If object is a RULE, the object id sent is that of the object to which the
+ * rule is applicable.
  */
 static RemoteQueryExecType
 ExecUtilityFindNodes(ObjectType object_type,
-					 Oid relid,
+					 Oid object_id,
 					 bool *is_temp)
 {
 	RemoteQueryExecType exec_type;
@@ -2157,18 +2153,23 @@ ExecUtilityFindNodes(ObjectType object_type,
 	switch (object_type)
 	{
 		case OBJECT_SEQUENCE:
-			*is_temp = IsTempTable(relid);
+			*is_temp = IsTempTable(object_id);
 			exec_type = EXEC_ON_ALL_NODES;
 			break;
 
+		/*
+		 * For RULEs, we get the object id of the relation to which the rule is
+		 * applicable.
+		 */
+		case OBJECT_RULE:
 		case OBJECT_TABLE:
 			/* Do the check on relation kind */
-			exec_type = ExecUtilityFindNodesRelkind(relid, is_temp);
+			exec_type = ExecUtilityFindNodesRelkind(object_id, is_temp);
 			break;
 
 		case OBJECT_VIEW:
 			/* Check if object is a temporary view */
-			if ((*is_temp = IsTempTable(relid)))
+			if ((*is_temp = IsTempTable(object_id)))
 				exec_type = EXEC_ON_NONE;
 			else
 				exec_type = EXEC_ON_COORDS;
@@ -2176,7 +2177,7 @@ ExecUtilityFindNodes(ObjectType object_type,
 
 		case OBJECT_INDEX:
 			/* Check if given index uses temporary tables */
-			if ((*is_temp = IsTempTable(relid)))
+			if ((*is_temp = IsTempTable(object_id)))
 				exec_type = EXEC_ON_DATANODES;
 			else
 				exec_type = EXEC_ON_ALL_NODES;
@@ -3704,3 +3705,67 @@ GetCommandLogLevel(Node *parsetree)
 
 	return lev;
 }
+
+#ifdef PGXC
+/*
+ * GetCommentObjectId
+ * TODO Change to return the nodes to execute the utility on
+ *
+ * Return Object ID of object commented
+ * Note: This function uses portions of the code of CommentObject,
+ * even if this code is duplicated this is done like this to facilitate
+ * merges with PostgreSQL head.
+ */
+static RemoteQueryExecType
+GetNodesForCommentUtility(CommentStmt *stmt, bool *is_temp)
+{
+	ObjectAddress		address;
+	Relation			relation;
+	RemoteQueryExecType	exec_type = EXEC_ON_ALL_NODES;	/* By default execute on all nodes */
+	Oid					object_id;
+
+	if (stmt->objtype == OBJECT_DATABASE && list_length(stmt->objname) == 1)
+	{
+		char	   *database = strVal(linitial(stmt->objname));
+		if (!OidIsValid(get_database_oid(database, true)))
+			ereport(WARNING,
+					(errcode(ERRCODE_UNDEFINED_DATABASE),
+					 errmsg("database \"%s\" does not exist", database)));
+		/* No clue, return the default one */
+		return exec_type;
+	}
+
+	address = get_object_address(stmt->objtype, stmt->objname, stmt->objargs,
+								 &relation, ShareUpdateExclusiveLock);
+	object_id = address.objectId;
+
+	/*
+	 * If the object being commented is a rule, the nodes are decided by the
+	 * object to which rule is applicable, so get the that object's oid
+	 */
+	if (stmt->objtype == OBJECT_RULE)
+	{
+		if (!relation && !OidIsValid(relation->rd_id))
+		{
+			/* This should not happen, but prepare for the worst */
+			char *rulename = strVal(llast(stmt->objname));
+			ereport(WARNING,
+					(errcode(ERRCODE_UNDEFINED_OBJECT),
+					 errmsg("can not find relation for rule \"%s\" does not exist", rulename)));
+			object_id = InvalidOid;
+		}
+		else
+			object_id = relation->rd_id;
+	}
+
+	if (relation != NULL)
+		relation_close(relation, NoLock);
+
+	/* Commented object may not have a valid object ID, so move to default */
+	if (OidIsValid(object_id))
+		exec_type = ExecUtilityFindNodes(stmt->objtype,
+										 object_id,
+										 is_temp);
+	return exec_type;
+}
+#endif

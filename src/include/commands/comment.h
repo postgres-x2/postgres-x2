@@ -41,8 +41,4 @@ extern void CreateSharedComments(Oid oid, Oid classoid, char *comment);
 
 extern char *GetComment(Oid oid, Oid classoid, int32 subid);
 
-#ifdef PGXC
-extern Oid GetCommentObjectId(CommentStmt *stmt);
-#endif
-
 #endif   /* COMMENT_H */
