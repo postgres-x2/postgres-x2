@@ -282,17 +282,15 @@ ProcessGetSnapshotCommand(Port *myport, StringInfo message, bool get_gxid)
 	int isgxid = 0;
 	GTM_Snapshot snapshot;
 	MemoryContext oldContext;
-	bool canbe_grouped;
 	int status;
 	int txn_count = 1;
 
 	/*
-	 * This is used by the GTM proxy to decide whether to group this snapshot
-	 * request with some other snapshot request from some other backend.
-	 *
-	 * This is mostly useless for the GTM server.
-	 */ 
-	canbe_grouped = pq_getmsgbyte(message);
+	 * Here we consume a byte which is a boolean to determine if snapshot can
+	 * be grouped or not. This is used only by GTM-Proxy and it is useless for GTM
+	 * so consume data.
+	 */
+	pq_getmsgbyte(message);
 
 	isgxid = pq_getmsgbyte(message);
 
