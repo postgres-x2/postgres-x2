@@ -19,6 +19,7 @@ SELECT pg_sleep(2.0);
  
 (1 row)
 
+SET enforce_two_phase_commit TO off;
 -- save counters
 CREATE TEMP TABLE prevstats AS
 SELECT t.seq_scan, t.seq_tup_read, t.idx_scan, t.idx_tup_fetch,
@@ -27,7 +28,6 @@ SELECT t.seq_scan, t.seq_tup_read, t.idx_scan, t.idx_tup_fetch,
   FROM pg_catalog.pg_stat_user_tables AS t,
        pg_catalog.pg_statio_user_tables AS b
  WHERE t.relname='tenk2' AND b.relname='tenk2';
-ERROR:  INTO clause not yet supported
 -- function to wait for counters to advance
 create function wait_for_stats() returns void as $$
 declare
@@ -81,12 +81,11 @@ SELECT pg_sleep(1.0);
 
 -- wait for stats collector to update
 SELECT wait_for_stats();
-ERROR:  relation "prevstats" does not exist
-LINE 1: ...  FROM pg_stat_user_tables AS st, pg_class AS cl, prevstats ...
-                                                             ^
-QUERY:  SELECT (st.idx_scan >= pr.idx_scan + 1)                    FROM pg_stat_user_tables AS st, pg_class AS cl, prevstats AS pr
-     WHERE st.relname='tenk2' AND cl.relname='tenk2'
-CONTEXT:  PL/pgSQL function "wait_for_stats" line 10 at SQL statement
+ wait_for_stats 
+----------------
+ 
+(1 row)
+
 -- check effects
 SELECT st.seq_scan >= pr.seq_scan + 1,
        st.seq_tup_read >= pr.seq_tup_read + cl.reltuples,
@@ -94,14 +93,18 @@ SELECT st.seq_scan >= pr.seq_scan + 1,
        st.idx_tup_fetch >= pr.idx_tup_fetch + 1
   FROM pg_stat_user_tables AS st, pg_class AS cl, prevstats AS pr
  WHERE st.relname='tenk2' AND cl.relname='tenk2';
-ERROR:  relation "prevstats" does not exist
-LINE 5:   FROM pg_stat_user_tables AS st, pg_class AS cl, prevstats ...
-                                                          ^
+ ?column? | ?column? | ?column? | ?column? 
+----------+----------+----------+----------
+ f        | t        | f        | f
+(1 row)
+
 SELECT st.heap_blks_read + st.heap_blks_hit >= pr.heap_blks + cl.relpages,
        st.idx_blks_read + st.idx_blks_hit >= pr.idx_blks + 1
   FROM pg_statio_user_tables AS st, pg_class AS cl, prevstats AS pr
  WHERE st.relname='tenk2' AND cl.relname='tenk2';
-ERROR:  relation "prevstats" does not exist
-LINE 3: ...FROM pg_statio_user_tables AS st, pg_class AS cl, prevstats ...
-                                                             ^
+ ?column? | ?column? 
+----------+----------
+ t        | f
+(1 row)
+
 -- End of Stats Test
