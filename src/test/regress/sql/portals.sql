@@ -342,9 +342,8 @@ SELECT * FROM uctest ORDER BY f1;
 
 -- Check UPDATE WHERE CURRENT; this time use FOR UPDATE
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT * FROM uctest FOR UPDATE;
---PGXCTODO : Uncomment this fetch once we have implemented FOR UPDATE
---FETCH c1;
+DECLARE c1 CURSOR FOR SELECT * FROM uctest ORDER BY 1 FOR UPDATE;
+FETCH c1;
 UPDATE uctest SET f1 = 8 WHERE CURRENT OF c1;
 SELECT * FROM uctest ORDER BY f1;
 COMMIT;
@@ -371,9 +370,8 @@ ROLLBACK;
 SELECT * FROM uctest ORDER BY f1;
 
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT * FROM uctest FOR UPDATE;
---PGXCTODO : Uncomment this fetch once we have implemented FOR UPDATE
---FETCH c1;
+DECLARE c1 CURSOR FOR SELECT * FROM uctest ORDER BY 1 FOR UPDATE;
+FETCH c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
 SELECT * FROM uctest ORDER BY f1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
@@ -395,9 +393,8 @@ INSERT INTO ucchild values(100, 'hundred');
 SELECT * FROM uctest ORDER BY f1;
 
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT * FROM uctest FOR UPDATE;
---PGXCTODO : Uncomment this fetch once we have implemented FOR UPDATE
---FETCH 1 FROM c1;
+DECLARE c1 CURSOR FOR SELECT * FROM uctest ORDER BY 1 FOR UPDATE;
+FETCH 1 FROM c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
 FETCH 1 FROM c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
@@ -414,15 +411,13 @@ FETCH 1 FROM c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;  -- fail
 ROLLBACK;
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT * FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 FOR UPDATE;
---PGXCTODO : Uncomment this fetch once we have implemented FOR UPDATE
---FETCH 1 FROM c1;
+DECLARE c1 CURSOR FOR SELECT * FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 ORDER BY 1 FOR UPDATE;
+FETCH 1 FROM c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;  -- fail
 ROLLBACK;
 BEGIN;
-DECLARE c1 CURSOR FOR SELECT * FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 FOR SHARE OF a;
---PGXCTODO : Uncomment this fetch once we have implemented FOR UPDATE
---FETCH 1 FROM c1;
+DECLARE c1 CURSOR FOR SELECT * FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 ORDER BY 1 FOR SHARE OF a;
+FETCH 1 FROM c1;
 UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1;
 SELECT * FROM uctest ORDER BY f1;
 ROLLBACK;
