@@ -1609,7 +1609,6 @@ pgxc_FQS_walker(Node *node, FQS_context *fqs_context)
 			 * do we handle DDLs here?
 			 */
 		case T_FieldSelect:
-		case T_ArrayRef:
 		case T_RangeTblRef:
 		case T_NamedArgExpr:
 		case T_BoolExpr:
@@ -1631,6 +1630,15 @@ pgxc_FQS_walker(Node *node, FQS_context *fqs_context)
 		case T_NullTest:
 		case T_BooleanTest:
 		case T_CoerceToDomain:
+			break;
+
+		case T_ArrayRef:
+			/*
+			 * When multiple values of of an array are updated at once
+			 * FQS planner cannot yet handle SQL representation correctly.
+			 * So disable FQS in this case and let standard planner manage it.
+			 */
+			pgxc_FQS_set_reason(fqs_context, FQS_UNSUPPORTED_EXPR);
 			break;
 
 		case T_FieldStore:

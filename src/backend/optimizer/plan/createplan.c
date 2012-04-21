@@ -5752,7 +5752,17 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 			}
 			else
 			{
-				/* Add target list element to WHERE clause */
+				/* Set parameter type */
+				param_types[natts + where_count - 1] = exprType((Node *) tle->expr);
+				where_count++;
+
+				/*
+				 * ctid and xc_node_id are sufficient to identify
+				 * remote tuple.
+				 */
+				if (strcmp(tle->resname, "xc_node_id") != 0 &&
+					strcmp(tle->resname, "ctid") != 0)
+					continue;
 
 				/* Set the clause if necessary */
 				if (!is_where_printed)
@@ -5763,13 +5773,10 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 				else
 					appendStringInfoString(buf2, "AND ");
 
+				/* Complete string */
 				appendStringInfo(buf2, "%s = $%d ",
 								 tle->resname,
-								 natts + where_count);
-				/* Set parameter type */
-				param_types[natts + where_count - 1] = exprType((Node *) tle->expr);
-
-				where_count++;
+								 natts + where_count - 1);
 			}
 		}
 
@@ -5793,20 +5800,7 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 				{
 					Form_pg_attribute att_saved = (Form_pg_attribute) GETSTRUCT(tp);
 
-					/* Set the clause if necessary */
-					if (!is_where_printed)
-					{
-						is_where_printed = true;
-						appendStringInfoString(buf2, " WHERE ");
-					}
-					else
-						appendStringInfoString(buf2, "AND ");
-
-					/* Complete string */
-					appendStringInfo(buf2, "%s = $%d ",
-									 NameStr(att_saved->attname),
-									 count);
-
+					/* Set parameter type of attribute */
 					param_types[count - 1] = att_saved->atttypid;
 					ReleaseSysCache(tp);
 				}
@@ -5833,20 +5827,6 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 			}
 
 			count_prepparams++;
-
-			/* Nullify non-parent entry here */
-			if (!is_where_printed)
-			{
-				is_where_printed = true;
-				appendStringInfoString(buf2, " WHERE ");
-			}
-			else
-				appendStringInfoString(buf2, "AND ");
-
-			/* Complete string */
-			appendStringInfo(buf2, "$%d = $%d ",
-							 count_prepparams,
-							 count_prepparams);
 
 			/* Determine the correct parameter type */
 			switch (rc->markType)
@@ -5881,13 +5861,7 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 					{
 						/* For a child table, tableoid is also necessary */
 						count_prepparams++;
-						appendStringInfoString(buf2, "AND ");
-
-						/* Complete string */
-						appendStringInfo(buf2, "$%d = $%d ",
-										 count_prepparams,
-										 count_prepparams);
-
+						/* Set parameter type */
 						param_types[count_prepparams - 1] = OIDOID;
 						elt = lnext(elt);
 					}
@@ -6009,34 +5983,40 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		{
 			TargetEntry *tle = lfirst(elt);
 
-			/* Set the clause if necessary */
-			if (!is_where_created)
-			{
-				is_where_created = true;
-				appendStringInfoString(buf, "WHERE ");
-			}
-			else
-				appendStringInfoString(buf, "AND ");
+			/* Set up the parameter type */
+			param_types[count - 1] = exprType((Node *) tle->expr);
+			count++;
+
+			/*
+			 * In WHERE clause, ctid and xc_node_id are
+			 * sufficient to fetch a tuple from remote node.
+			 */
+			if (strcmp(tle->resname, "xc_node_id") != 0 &&
+				strcmp(tle->resname, "ctid") != 0)
+				continue;
 
 			Assert(IsA((Node *)tle->expr, Var));
 			if (IsA((Node *)tle->expr, Var))
 			{
 				Var *var = (Var *) tle->expr;
 
-				/* Nullify TLEs that are not from this relation */
+				/* Target entries from other relations are not necessary */
 				if (var->varno != resultRelationIndex)
-					appendStringInfo(buf, "$%d = $%d ",
-									 count,
-									 count);
-				else
-					appendStringInfo(buf, "%s = $%d ",
-									quote_identifier(tle->resname),
-									count);
-			}
+					continue;
 
-			/* Associate type of parameter */
-			param_types[count - 1] = exprType((Node *) tle->expr);
-			count++;
+				/* Set the clause if necessary */
+				if (!is_where_created)
+				{
+					is_where_created = true;
+					appendStringInfoString(buf, "WHERE ");
+				}
+				else
+					appendStringInfoString(buf, "AND ");
+
+				appendStringInfo(buf, "%s = $%d ",
+								quote_identifier(tle->resname),
+								count - 1);
+			}
 		}
 
 		/* Finish by building the plan step */

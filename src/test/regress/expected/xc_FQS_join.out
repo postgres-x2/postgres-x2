@@ -480,11 +480,11 @@ explain (costs off, verbose on, nodes off) select * from tab1_mod, tab3_mod
 set enable_remotejoin to false;
 explain (costs off, verbose on, nodes off) update tab1_mod set val2 = 1000 from tab2_mod 
 		where tab1_mod.val = tab2_mod.val and tab1_mod. val2 = tab2_mod.val2;
-                                                                  QUERY PLAN                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------
+                                                     QUERY PLAN                                                     
+--------------------------------------------------------------------------------------------------------------------
  Update on public.tab1_mod
    Node expr: tab1_mod.val
-   Remote query: UPDATE public.tab1_mod SET val2 = $2 WHERE val = $3 AND val2 = $4 AND ctid = $5 AND xc_node_id = $6 AND val = $1 AND $7 = $7 
+   Remote query: UPDATE public.tab1_mod SET val2 = $2 WHERE ctid = $5 AND xc_node_id = $6 
    ->  Nested Loop
          Output: tab1_mod.val, 1000, tab1_mod.val, tab1_mod.val2, tab1_mod.ctid, tab1_mod.xc_node_id, tab2_mod.ctid
          Join Filter: ((tab1_mod.val = tab2_mod.val) AND (tab1_mod.val2 = tab2_mod.val2))
@@ -498,10 +498,10 @@ explain (costs off, verbose on, nodes off) update tab1_mod set val2 = 1000 from 
 
 explain (costs off, verbose on, nodes off) delete from tab1_mod using tab2_mod
 		where tab1_mod.val = tab2_mod.val and tab1_mod.val2 = tab2_mod.val2;
-                                                       QUERY PLAN                                                        
--------------------------------------------------------------------------------------------------------------------------
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
  Delete on public.tab1_mod
-   Remote query: DELETE FROM public.tab1_mod WHERE val = $1 AND val2 = $2 AND ctid = $3 AND xc_node_id = $4 AND $5 = $5 
+   Remote query: DELETE FROM public.tab1_mod WHERE ctid = $3 AND xc_node_id = $4 
    ->  Nested Loop
          Output: tab1_mod.val, tab1_mod.val2, tab1_mod.ctid, tab1_mod.xc_node_id, tab2_mod.ctid
          Join Filter: ((tab1_mod.val = tab2_mod.val) AND (tab1_mod.val2 = tab2_mod.val2))
@@ -515,10 +515,10 @@ explain (costs off, verbose on, nodes off) delete from tab1_mod using tab2_mod
 
 explain (costs off, verbose on, nodes off) update tab1_rep set val2 = 1000 from tab2_rep
 		where tab1_rep.val = tab2_rep.val and tab1_rep.val2 = tab2_rep.val2;
-                                                        QUERY PLAN                                                         
----------------------------------------------------------------------------------------------------------------------------
+                                          QUERY PLAN                                           
+-----------------------------------------------------------------------------------------------
  Update on public.tab1_rep
-   Remote query: UPDATE public.tab1_rep SET val2 = $2 WHERE val = $3 AND val2 = $4 AND ctid = $5 AND val = $1 AND $6 = $6 
+   Remote query: UPDATE public.tab1_rep SET val2 = $2 WHERE ctid = $5 
    ->  Nested Loop
          Output: tab1_rep.val, 1000, tab1_rep.val, tab1_rep.val2, tab1_rep.ctid, tab2_rep.ctid
          Join Filter: ((tab1_rep.val = tab2_rep.val) AND (tab1_rep.val2 = tab2_rep.val2))
@@ -532,10 +532,10 @@ explain (costs off, verbose on, nodes off) update tab1_rep set val2 = 1000 from 
 
 explain (costs off, verbose on, nodes off) delete from tab1_rep using tab2_rep 
 		where tab1_rep.val = tab2_rep.val and tab1_rep.val2 = tab2_rep.val2;
-                                             QUERY PLAN                                              
------------------------------------------------------------------------------------------------------
+                                        QUERY PLAN                                        
+------------------------------------------------------------------------------------------
  Delete on public.tab1_rep
-   Remote query: DELETE FROM public.tab1_rep WHERE val = $1 AND val2 = $2 AND ctid = $3 AND $4 = $4 
+   Remote query: DELETE FROM public.tab1_rep WHERE ctid = $3 
    ->  Nested Loop
          Output: tab1_rep.val, tab1_rep.val2, tab1_rep.ctid, tab2_rep.ctid
          Join Filter: ((tab1_rep.val = tab2_rep.val) AND (tab1_rep.val2 = tab2_rep.val2))
