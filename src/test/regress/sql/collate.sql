@@ -105,8 +105,8 @@ SELECT a, coalesce(b, 'foo') FROM collate_test1 ORDER BY 2;
 SELECT a, coalesce(b, 'foo') FROM collate_test2 ORDER BY 2;
 SELECT a, lower(coalesce(x, 'foo')), lower(coalesce(y, 'foo')) FROM collate_test10;
 
-SELECT a, b, greatest(b, 'CCC') FROM collate_test1 ORDER BY 3;
-SELECT a, b, greatest(b, 'CCC') FROM collate_test2 ORDER BY 3;
+SELECT a, b, greatest(b, 'CCC') FROM collate_test1 ORDER BY 3,1;
+SELECT a, b, greatest(b, 'CCC') FROM collate_test2 ORDER BY 3,1;
 SELECT a, x, y, lower(greatest(x, 'foo')), lower(greatest(y, 'foo')) FROM collate_test10;
 
 SELECT a, nullif(b, 'abc') FROM collate_test1 ORDER BY 2;

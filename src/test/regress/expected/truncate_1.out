@@ -73,7 +73,6 @@ NOTICE:  truncate cascades to table "trunc_b"
 NOTICE:  truncate cascades to table "trunc_e"
 -- circular references
 ALTER TABLE truncate_a ADD FOREIGN KEY (col1) REFERENCES trunc_c;
-ERROR:  Hash/Modulo distribution column list of attributes is empty
 -- Add some data to verify that truncating actually works ...
 INSERT INTO trunc_c VALUES (1);
 INSERT INTO truncate_a VALUES (1);
@@ -82,8 +81,8 @@ INSERT INTO trunc_d VALUES (1);
 INSERT INTO trunc_e VALUES (1,1);
 TRUNCATE TABLE trunc_c;
 ERROR:  cannot truncate a table referenced in a foreign key constraint
-DETAIL:  Table "trunc_d" references "trunc_c".
-HINT:  Truncate table "trunc_d" at the same time, or use TRUNCATE ... CASCADE.
+DETAIL:  Table "truncate_a" references "trunc_c".
+HINT:  Truncate table "truncate_a" at the same time, or use TRUNCATE ... CASCADE.
 TRUNCATE TABLE trunc_c,truncate_a;
 ERROR:  cannot truncate a table referenced in a foreign key constraint
 DETAIL:  Table "trunc_d" references "trunc_c".
@@ -121,8 +120,10 @@ INSERT INTO trunc_b VALUES (1);
 INSERT INTO trunc_d VALUES (1);
 INSERT INTO trunc_e VALUES (1,1);
 TRUNCATE TABLE trunc_c CASCADE;  -- ok
+NOTICE:  truncate cascades to table "truncate_a"
 NOTICE:  truncate cascades to table "trunc_d"
 NOTICE:  truncate cascades to table "trunc_e"
+NOTICE:  truncate cascades to table "trunc_b"
 SELECT * FROM truncate_a
    UNION ALL
  SELECT * FROM trunc_c
@@ -132,9 +133,7 @@ SELECT * FROM truncate_a
  SELECT * FROM trunc_d;
  col1 
 ------
-    1
-    1
-(2 rows)
+(0 rows)
 
 SELECT * FROM trunc_e;
  a | b 

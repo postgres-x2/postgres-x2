@@ -2977,17 +2977,27 @@ checkLocalFKConstraints(CreateStmtContext *cxt)
 						(errcode(ERRCODE_SYNTAX_ERROR),
 						 errmsg("Hash/Modulo distributed table must include distribution column in index")));
 
-			/* Manage the error when the list of new constraints is empty */
-			if (!constraint->pk_attrs)
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("Hash/Modulo distribution column list of attributes is empty")));
-
-			/* Verify that the referenced table is partitioned at the same position in the index */
-			if (!IsDistColumnForRelId(pk_rel_id, strVal(list_nth(constraint->pk_attrs,pos))))
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("Hash/Modulo distribution column does not refer to hash/modulo distribution column in referenced table.")));
+			/*
+			 * The check to make sure that the referenced column in pk table is the same
+			 * as the one used to distribute it makes sense only when the user
+			 * supplies the name of the referenced colum while adding the constraint
+			 * because if the user did not specify it the system will choose the pk column
+			 * which will obviously be the one used to distribute it knowing the 
+			 * existing constraints in XC
+			 * This is required to make sure that both
+			 * alter table dtab add foreign key (b) references rtab(a);
+			 * and
+			 * alter table dtab add foreign key (b) references rtab;
+			 * behave similarly
+			 */
+			if (constraint->pk_attrs != NULL)
+			{
+				/* Verify that the referenced table is partitioned at the same position in the index */
+				if (!IsDistColumnForRelId(pk_rel_id, strVal(list_nth(constraint->pk_attrs,pos))))
+					ereport(ERROR,
+							(errcode(ERRCODE_SYNTAX_ERROR),
+							errmsg("Hash/Modulo distribution column does not refer to hash/modulo distribution column in referenced table.")));
+			}
 		}
 	}
 }
