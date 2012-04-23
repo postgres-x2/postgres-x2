@@ -91,8 +91,8 @@ SELECT *
    FROM b_star* x
    WHERE x.b = text 'bumble' or x.a < 3;
 
-SELECT class, a 
-   FROM c_star* x 
+SELECT class, a
+   FROM c_star* x
    WHERE x.c ~ text 'hi' ORDER BY 1,2;
 
 SELECT class, b, c
