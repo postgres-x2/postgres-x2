@@ -266,7 +266,12 @@ select 33 = all ('{1,null,3}');
 select 33 = all ('{33,null,33}');
 
 -- test indexes on arrays
-create temp table arr_tbl (f1 int[] unique);
+-- PGXCTODO: related to feature request 3520520, this distribution type is changed
+-- to replication. As integer arrays are no available distribution types, this table
+-- should use round robin distribution if nothing is specified but round robin
+-- distribution cannot be safely used to check constraints on remote nodes.
+-- When global constraints are supported, this replication distribution should be removed.
+create temp table arr_tbl (f1 int[] unique) distribute by replication;
 insert into arr_tbl values ('{1,2,3}');
 insert into arr_tbl values ('{1,2}');
 -- failure expected:
