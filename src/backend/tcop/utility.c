@@ -83,6 +83,7 @@ static RemoteQueryExecType ExecUtilityFindNodes(ObjectType objectType,
 												bool *is_temp);
 static RemoteQueryExecType ExecUtilityFindNodesRelkind(Oid relid, bool *is_temp);
 static RemoteQueryExecType GetNodesForCommentUtility(CommentStmt *stmt, bool *is_temp);
+static RemoteQueryExecType GetNodesForRulesUtility(RangeVar *relation, bool *is_temp);
 
 #endif
 
@@ -1458,15 +1459,13 @@ standard_ProcessUtility(Node *parsetree,
 		case T_RuleStmt:		/* CREATE RULE */
 			DefineRule((RuleStmt *) parsetree, queryString);
 #ifdef PGXC
-			/* If a rule is created on a view, define it only on Coordinator */
 			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 			{
-				RemoteQueryExecType remoteExecType;
-				bool is_temp;
-				Oid relid = RangeVarGetRelid(((RuleStmt *) parsetree)->relation, false);
-
-				remoteExecType = ExecUtilityFindNodesRelkind(relid, &is_temp);
-				ExecUtilityStmtOnNodes(queryString, NULL, false, remoteExecType, is_temp);
+				RemoteQueryExecType exec_type;
+				bool	is_temp;
+				exec_type = GetNodesForRulesUtility(((RuleStmt *) parsetree)->relation,
+													&is_temp);
+				ExecUtilityStmtOnNodes(queryString, NULL, false, exec_type, is_temp);
 			}
 #endif
 			break;
@@ -1755,15 +1754,13 @@ standard_ProcessUtility(Node *parsetree,
 						RemoveRewriteRule(relId, stmt->property,
 										  stmt->behavior, stmt->missing_ok);
 #ifdef PGXC
-						/* If rule is defined on a view, drop it only on Coordinators */
 						if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 						{
-							RemoteQueryExecType remoteExecType = EXEC_ON_ALL_NODES;
-							bool is_temp = false;
-							Oid relid = RangeVarGetRelid(stmt->relation, false);
-
-							remoteExecType = ExecUtilityFindNodesRelkind(relid, &is_temp);
-							ExecUtilityStmtOnNodes(queryString, NULL, false, remoteExecType, is_temp);
+							RemoteQueryExecType exec_type;
+							bool	is_temp;
+							exec_type = GetNodesForRulesUtility(((RuleStmt *) parsetree)->relation,
+																&is_temp);
+							ExecUtilityStmtOnNodes(queryString, NULL, false, exec_type, is_temp);
 						}
 #endif
 						break;
@@ -2157,16 +2154,16 @@ ExecUtilityFindNodes(ObjectType object_type,
 			exec_type = EXEC_ON_ALL_NODES;
 			break;
 
-		/*
-		 * For RULEs, we get the object id of the relation to which the rule is
-		 * applicable.
-		 */
-		case OBJECT_RULE:
 		case OBJECT_TABLE:
 			/* Do the check on relation kind */
 			exec_type = ExecUtilityFindNodesRelkind(object_id, is_temp);
 			break;
 
+		case OBJECT_RULE:
+			/*
+			 * For RULEs, we get the object id of the relation to which the rule
+			 * is applicable.
+			 */
 		case OBJECT_VIEW:
 			/* Check if object is a temporary view */
 			if ((*is_temp = IsTempTable(object_id)))
@@ -3766,6 +3763,27 @@ GetNodesForCommentUtility(CommentStmt *stmt, bool *is_temp)
 		exec_type = ExecUtilityFindNodes(stmt->objtype,
 										 object_id,
 										 is_temp);
+	return exec_type;
+}
+
+/*
+ * GetNodesForRulesUtility
+ * Get the nodes to execute this RULE related utility statement.
+ * A rule is expanded on coordinator itself, and does not need any
+ * existence on datanode. In fact, if it were to exist on datanode,
+ * there is a possibility that it would expand again
+ */
+static RemoteQueryExecType
+GetNodesForRulesUtility(RangeVar *relation, bool *is_temp)
+{
+	Oid relid = RangeVarGetRelid(relation, false);
+	RemoteQueryExecType exec_type;
+	/*
+	 * PGXCTODO: See if it's a temporary object, do we really need
+	 * to care about temporary objects here? What about the
+	 * temporary objects defined inside the rule?
+	 */
+	exec_type =	ExecUtilityFindNodes(OBJECT_RULE, relid, is_temp);
 	return exec_type;
 }
 #endif
