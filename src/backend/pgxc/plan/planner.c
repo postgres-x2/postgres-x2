@@ -1840,9 +1840,15 @@ pgxc_FQS_walker(Node *node, FQS_context *fqs_context)
 		{
 			/*
 			 * We will be examining the range table entries separately and
-			 * Join expressions are not candidate for FQS, so nothing to be
-			 * done for now
+			 * Join expressions are not candidate for FQS.
+			 * If this is an INSERT query with quals, resulting from say
+			 * conditional rule, we can not handle those in FQS, since there is
+			 * not SQL representation for such quals.
 			 */
+			if (fqs_context->fqsc_query->commandType == CMD_INSERT &&
+				((FromExpr *)node)->quals)
+				pgxc_FQS_set_reason(fqs_context, FQS_UNSUPPORTED_EXPR);
+
 		}
 		break;
 
