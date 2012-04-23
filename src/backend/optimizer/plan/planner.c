@@ -270,8 +270,12 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	 * PGXC should apply INSERT/UPDATE/DELETE to a datanode. We are overriding
 	 * normal Postgres behavior by modifying final plan or by adding a node on
 	 * top of it.
+	 * If the optimizer finds out that there is nothing to UPDATE/INSERT/DELETE
+	 * in the table/s (say using constraint exclusion), it does not add modify
+	 * table plan on the top. We should send queries to the remote nodes only
+	 * when there is something to modify.
 	 */
-	if (IS_PGXC_COORDINATOR)
+	if (IS_PGXC_COORDINATOR && IsA(top_plan, ModifyTable))
 		switch (parse->commandType)
 		{
 			case CMD_INSERT:
