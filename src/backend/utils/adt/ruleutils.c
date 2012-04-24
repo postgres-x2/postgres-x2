@@ -19,6 +19,9 @@
 #include <fcntl.h>
 
 #include "access/genam.h"
+#ifdef PGXC
+#include "access/reloptions.h"
+#endif /* PGXC */
 #include "access/sysattr.h"
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
@@ -4115,6 +4118,25 @@ get_utility_query_def(Query *query, deparse_context *context)
 				elog(ERROR, "Invalid table column definition.");
 		}
 		appendStringInfo(buf, ")");
+
+		/* Append storage parameters, like for instance WITH (OIDS) */
+		if (list_length(stmt->options) > 0)
+		{
+			Datum        reloptions;
+			static char *validnsps[] = HEAP_RELOPT_NAMESPACES;
+
+			reloptions = transformRelOptions((Datum) 0, stmt->options, NULL, validnsps,
+										 false, false);
+
+			if (reloptions)
+			{
+				Datum   sep, txt;
+				/* Below is inspired from flatten_reloptions() */
+				sep = CStringGetTextDatum(", ");
+				txt = OidFunctionCall2(F_ARRAY_TO_TEXT, reloptions, sep);
+				appendStringInfo(buf, " WITH (%s)", TextDatumGetCString(txt));
+			}
+		}
 
 		/* add the on commit clauses for temporary tables */
 		switch (stmt->oncommit)
