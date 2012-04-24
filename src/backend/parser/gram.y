@@ -8344,6 +8344,11 @@ ExecuteStmt: EXECUTE name execute_param_clause
 					n->params = $8;
 					$4->rel->relpersistence = $2;
 					n->into = $4;
+#ifdef PGXC
+					ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							 errmsg("CREATE TABLE AS EXECUTE not yet supported")));
+#endif
 					if ($4->colNames)
 						ereport(ERROR,
 								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
