@@ -49,7 +49,8 @@
 bool EnforceTwoPhaseCommit = true;
 
 #define END_QUERY_TIMEOUT	20
-#define DATA_NODE_FETCH_SIZE 1
+#define DATA_NODE_FETCH_SIZE	1
+#define ROLLBACK_RESP_LEN	9
 
 typedef enum RemoteXactNodeStatus
 {
@@ -403,7 +404,7 @@ HandleCopyOutComplete(RemoteQueryState *combiner)
  * Handle CommandComplete ('C') message from a data node connection
  */
 static void
-HandleCommandComplete(RemoteQueryState *combiner, char *msg_body, size_t len)
+HandleCommandComplete(RemoteQueryState *combiner, char *msg_body, size_t len, PGXCNodeHandle *conn)
 {
 	int 			digits = 0;
 	EState		   *estate = combiner->ss.ps.state;
@@ -440,6 +441,18 @@ HandleCommandComplete(RemoteQueryState *combiner, char *msg_body, size_t len)
 		}
 		else
 			combiner->combine_type = COMBINE_TYPE_NONE;
+	}
+
+	/* If response checking is enable only then do further processing */
+
+	if (conn->ck_resp_rollback == RESP_ROLLBACK_CHECK)
+	{
+		conn->ck_resp_rollback = RESP_ROLLBACK_NOT_RECEIVED;
+		if (len == ROLLBACK_RESP_LEN)	/* No need to do string comparison otherwise */
+		{
+			if (strcmp(msg_body, "ROLLBACK") == 0)
+				conn->ck_resp_rollback = RESP_ROLLBACK_RECEIVED;
+		}
 	}
 
 	combiner->command_complete_count++;
@@ -1229,7 +1242,7 @@ handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner)
 				HandleCopyOutComplete(combiner);
 				break;
 			case 'C':			/* CommandComplete */
-				HandleCommandComplete(combiner, msg, msg_len);
+				HandleCommandComplete(combiner, msg, msg_len, conn);
 				break;
 			case 'T':			/* RowDescription */
 #ifdef DN_CONNECTION_DEBUG
@@ -1588,7 +1601,11 @@ pgxc_node_remote_prepare(char *prepareGID)
 						"the node %u", connections[i]->nodeoid)));
 		}
 		else
+		{
 			remoteXactState.remoteNodeStatus[i] = RXACT_NODE_PREPARE_SENT;
+			/* Let the HandleCommandComplete know response checking is enable */
+			connections[i]->ck_resp_rollback = RESP_ROLLBACK_CHECK;
+		}
 	}
 
 	/*
@@ -1627,7 +1644,20 @@ pgxc_node_remote_prepare(char *prepareGID)
 					remoteXactState.status = RXACT_PREPARE_FAILED;
 				}
 				else
-					remoteXactState.remoteNodeStatus[i] = RXACT_NODE_PREPARED;
+				{
+					/* Did we receive ROLLBACK in response to PREPARE TRANSCATION? */
+					if (connections[i]->ck_resp_rollback == RESP_ROLLBACK_RECEIVED)
+					{
+						/* If yes, it means PREPARE TRANSACTION failed */
+						remoteXactState.remoteNodeStatus[i] = RXACT_NODE_PREPARE_FAILED;
+						remoteXactState.status = RXACT_PREPARE_FAILED;
+						result = 0;
+					}
+					else
+					{
+						remoteXactState.remoteNodeStatus[i] = RXACT_NODE_PREPARED;
+					}
+				}
 			}
 		}
 	}

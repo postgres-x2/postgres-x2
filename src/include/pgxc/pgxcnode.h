@@ -47,6 +47,26 @@ typedef enum
 	HANDLE_DEFAULT
 }	PGXCNode_HandleRequested;
 
+/*
+ * Enumeration for two purposes
+ * 1. To indicate to the HandleCommandComplete function whether response checking is required or not
+ * 2. To enable HandleCommandComplete function to indicate whether the response was a ROLLBACK or not
+ * Response checking is required in case of PREPARE TRANSACTION and should not be done for the rest
+ * of the cases for performance reasons, hence we have an option to ignore response checking.
+ * The problem with PREPARE TRANSACTION is that it can result in a ROLLBACK response
+ * yet coordinator would think it got done on all nodes.
+ * If we ignore ROLLBACK response then we would try to COMMIT a transaction that
+ * never got prepared, which in an incorrect behavior.
+ */
+typedef enum
+{
+	RESP_ROLLBACK_IGNORE,			/* Ignore response checking */
+	RESP_ROLLBACK_CHECK,			/* Check whether response was ROLLBACK */
+	RESP_ROLLBACK_RECEIVED,			/* Response is ROLLBACK */
+	RESP_ROLLBACK_NOT_RECEIVED		/* Response is NOT ROLLBACK */
+}RESP_ROLLBACK;
+
+
 #define DN_CONNECTION_STATE_ERROR(dnconn) \
 		((dnconn)->state == DN_CONNECTION_STATE_ERROR_FATAL \
 			|| (dnconn)->transaction_status == 'E')
@@ -79,6 +99,14 @@ struct pgxc_node_handle
 	size_t		inStart;
 	size_t		inEnd;
 	size_t		inCursor;
+
+	/* 
+	 * Have a variable to enable/disable response checking and 
+	 * if enable then read the result of response checking
+	 *
+	 * For details see comments of RESP_ROLLBACK
+	 */
+	RESP_ROLLBACK	ck_resp_rollback;
 };
 typedef struct pgxc_node_handle PGXCNodeHandle;
 

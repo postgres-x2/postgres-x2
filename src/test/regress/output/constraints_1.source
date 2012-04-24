@@ -106,11 +106,12 @@ SELECT '' AS two, * from CHECK2_TBL ORDER BY x,y,z;
 -- Check constraints on INSERT
 --
 CREATE SEQUENCE INSERT_SEQ;
+-- PGXCTODO : Feature ID 3520518
 CREATE TABLE INSERT_TBL (x INT DEFAULT nextval('insert_seq'),
 	y TEXT DEFAULT '-NULL-',
 	z INT DEFAULT -1 * currval('insert_seq'),
 	CONSTRAINT INSERT_CON CHECK (x >= 3 AND y <> 'check failed' AND x < 8),
-	CHECK (x + z = 0));
+	CHECK (x + z = 0)) DISTRIBUTE BY REPLICATION;
 INSERT INTO INSERT_TBL(x,z) VALUES (2, -2);
 ERROR:  new row for relation "insert_tbl" violates check constraint "insert_con"
 SELECT '' AS zero, * FROM INSERT_TBL order by x,y,z;
@@ -247,18 +248,15 @@ DROP TABLE tmp;
 -- Check constraints on UPDATE
 --
 UPDATE INSERT_TBL SET x = NULL WHERE x = 5;
-ERROR:  Partition column can't be updated in current version
 UPDATE INSERT_TBL SET x = 6 WHERE x = 6;
-ERROR:  Partition column can't be updated in current version
 UPDATE INSERT_TBL SET x = -z, z = -x;
-ERROR:  Partition column can't be updated in current version
 UPDATE INSERT_TBL SET x = z, z = x;
-ERROR:  Partition column can't be updated in current version
+ERROR:  new row for relation "insert_tbl" violates check constraint "insert_con"
 SELECT * FROM INSERT_TBL order by x,y,z;
  x |       y       | z  
 ---+---------------+----
  4 | Y             | -4
- 5 | !check failed | -5
+ 5 | !check failed |   
  6 | try again     | -6
  7 | try again     | -7
    | try again     |   
@@ -384,7 +382,8 @@ DROP TABLE UNIQUE_TBL;
 --
 -- Deferrable unique constraints
 --
-CREATE TABLE unique_tbl (i int UNIQUE DEFERRABLE, t text);
+-- PGXCTODO : Feature ID 3520518
+CREATE TABLE unique_tbl (i int UNIQUE DEFERRABLE, t text) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "unique_tbl_i_key" for table "unique_tbl"
 INSERT INTO unique_tbl VALUES (0, 'one');
 INSERT INTO unique_tbl VALUES (1, 'two');
@@ -394,106 +393,97 @@ INSERT INTO unique_tbl VALUES (4, 'five');
 BEGIN;
 -- default is immediate so this should fail right away
 UPDATE unique_tbl SET i = 1 WHERE i = 0;
-ERROR:  Partition column can't be updated in current version
+ERROR:  duplicate key value violates unique constraint "unique_tbl_i_key"
+DETAIL:  Key (i)=(1) already exists.
 ROLLBACK;
 -- check is done at end of statement, so this should succeed
 UPDATE unique_tbl SET i = i+1;
-ERROR:  Partition column can't be updated in current version
 SELECT * FROM unique_tbl ORDER BY 1,t;
  i |  t   
 ---+------
- 0 | one
- 1 | two
- 2 | tree
- 3 | four
- 4 | five
+ 1 | one
+ 2 | two
+ 3 | tree
+ 4 | four
+ 5 | five
 (5 rows)
 
 -- explicitly defer the constraint
 BEGIN;
 SET CONSTRAINTS unique_tbl_i_key DEFERRED;
-ERROR:  Postgres-XC does not support DEFERRED constraints yet
-DETAIL:  The feature is not currently supported
 INSERT INTO unique_tbl VALUES (3, 'three');
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
 DELETE FROM unique_tbl WHERE t = 'tree'; -- makes constraint valid again
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
 COMMIT; -- should succeed
 SELECT * FROM unique_tbl ORDER BY 1,t;
- i |  t   
----+------
- 0 | one
- 1 | two
- 2 | tree
- 3 | four
- 4 | five
+ i |   t   
+---+-------
+ 1 | one
+ 2 | two
+ 3 | three
+ 4 | four
+ 5 | five
 (5 rows)
 
 -- try adding an initially deferred constraint
 ALTER TABLE unique_tbl DROP CONSTRAINT unique_tbl_i_key;
 ALTER TABLE unique_tbl ADD CONSTRAINT unique_tbl_i_key
 	UNIQUE (i) DEFERRABLE INITIALLY DEFERRED;
-ERROR:  Postgres-XC does not support DEFERRED constraints yet
-DETAIL:  The feature is not currently supported
+NOTICE:  ALTER TABLE / ADD UNIQUE will create implicit index "unique_tbl_i_key" for table "unique_tbl"
 BEGIN;
 INSERT INTO unique_tbl VALUES (1, 'five');
 INSERT INTO unique_tbl VALUES (5, 'one');
 UPDATE unique_tbl SET i = 4 WHERE i = 2;
-ERROR:  Partition column can't be updated in current version
 UPDATE unique_tbl SET i = 2 WHERE i = 4 AND t = 'four';
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
 DELETE FROM unique_tbl WHERE i = 1 AND t = 'one';
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
 DELETE FROM unique_tbl WHERE i = 5 AND t = 'five';
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
 COMMIT;
 SELECT * FROM unique_tbl ORDER BY 1,t;
- i |  t   
----+------
- 0 | one
- 1 | two
- 2 | tree
- 3 | four
- 4 | five
+ i |   t   
+---+-------
+ 1 | five
+ 2 | four
+ 3 | three
+ 4 | two
+ 5 | one
 (5 rows)
 
 -- should fail at commit-time
 BEGIN;
 INSERT INTO unique_tbl VALUES (3, 'Three'); -- should succeed for now
 COMMIT; -- should fail
+ERROR:  duplicate key value violates unique constraint "unique_tbl_i_key"
+DETAIL:  Key (i)=(3) already exists.
 -- make constraint check immediate
 BEGIN;
 SET CONSTRAINTS ALL IMMEDIATE;
 INSERT INTO unique_tbl VALUES (3, 'Three'); -- should fail
+ERROR:  duplicate key value violates unique constraint "unique_tbl_i_key"
+DETAIL:  Key (i)=(3) already exists.
 COMMIT;
 -- forced check when SET CONSTRAINTS is called
 BEGIN;
 SET CONSTRAINTS ALL DEFERRED;
-ERROR:  Postgres-XC does not support DEFERRED constraints yet
-DETAIL:  The feature is not currently supported
 INSERT INTO unique_tbl VALUES (3, 'Three'); -- should succeed for now
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
 SET CONSTRAINTS ALL IMMEDIATE; -- should fail
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
 COMMIT;
+ERROR:  Failed to PREPARE the transaction on one or more nodes
 -- test a HOT update that invalidates the conflicting tuple.
 -- the trigger should still fire and catch the violation
 BEGIN;
 INSERT INTO unique_tbl VALUES (3, 'Three'); -- should succeed for now
 UPDATE unique_tbl SET t = 'THREE' WHERE i = 3 AND t = 'Three';
 COMMIT; -- should fail
+ERROR:  duplicate key value violates unique constraint "unique_tbl_i_key"
+DETAIL:  Key (i)=(3) already exists.
 SELECT * FROM unique_tbl ORDER BY 1,t;
  i |   t   
 ---+-------
- 0 | one
- 1 | two
- 2 | tree
- 3 | THREE
- 3 | THREE
- 3 | THREE
- 3 | four
- 4 | five
-(8 rows)
+ 1 | five
+ 2 | four
+ 3 | three
+ 4 | two
+ 5 | one
+(5 rows)
 
 -- test a HOT update that modifies the newly inserted tuple,
 -- but should succeed because we then remove the other conflicting tuple.
@@ -504,31 +494,23 @@ DELETE FROM unique_tbl WHERE t = 'three';
 SELECT * FROM unique_tbl ORDER BY 1,t;
  i |   t    
 ---+--------
- 0 | one
- 1 | two
- 2 | threex
- 3 | THREE
- 3 | THREE
- 3 | THREE
- 3 | four
+ 1 | five
+ 2 | four
  3 | threex
- 4 | five
-(9 rows)
+ 4 | two
+ 5 | one
+(5 rows)
 
 COMMIT;
 SELECT * FROM unique_tbl ORDER BY 1,t;
  i |   t    
 ---+--------
- 0 | one
- 1 | two
- 2 | threex
- 3 | THREE
- 3 | THREE
- 3 | THREE
- 3 | four
+ 1 | five
+ 2 | four
  3 | threex
- 4 | five
-(9 rows)
+ 4 | two
+ 5 | one
+(5 rows)
 
 DROP TABLE unique_tbl;
 --
@@ -565,46 +547,33 @@ DETAIL:  Key (c1, (c2::circle))=(<(0,0),5>, <(0,0),5>) conflicts with key (c1, (
 REINDEX INDEX circles_c1_c2_excl;
 DROP TABLE circles;
 -- Check deferred exclusion constraint
+-- PGXCTODO : Feature ID 3520518
 CREATE TABLE deferred_excl (
   f1 int,
   CONSTRAINT deferred_excl_con EXCLUDE (f1 WITH =) INITIALLY DEFERRED
-);
-ERROR:  Postgres-XC does not support DEFERRED constraints yet
-DETAIL:  The feature is not currently supported
+) DISTRIBUTE BY REPLICATION;
+NOTICE:  CREATE TABLE / EXCLUDE will create implicit index "deferred_excl_con" for table "deferred_excl"
 INSERT INTO deferred_excl VALUES(1);
-ERROR:  relation "deferred_excl" does not exist
-LINE 1: INSERT INTO deferred_excl VALUES(1);
-                    ^
 INSERT INTO deferred_excl VALUES(2);
-ERROR:  relation "deferred_excl" does not exist
-LINE 1: INSERT INTO deferred_excl VALUES(2);
-                    ^
 INSERT INTO deferred_excl VALUES(1); -- fail
-ERROR:  relation "deferred_excl" does not exist
-LINE 1: INSERT INTO deferred_excl VALUES(1);
-                    ^
+ERROR:  conflicting key value violates exclusion constraint "deferred_excl_con"
+DETAIL:  Key (f1)=(1) conflicts with existing key (f1)=(1).
 BEGIN;
 INSERT INTO deferred_excl VALUES(2); -- no fail here
-ERROR:  relation "deferred_excl" does not exist
-LINE 1: INSERT INTO deferred_excl VALUES(2);
-                    ^
 COMMIT; -- should fail here
+ERROR:  conflicting key value violates exclusion constraint "deferred_excl_con"
+DETAIL:  Key (f1)=(2) conflicts with existing key (f1)=(2).
 BEGIN;
 INSERT INTO deferred_excl VALUES(3);
-ERROR:  relation "deferred_excl" does not exist
-LINE 1: INSERT INTO deferred_excl VALUES(3);
-                    ^
 INSERT INTO deferred_excl VALUES(3); -- no fail here
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
 COMMIT; -- should fail here
+ERROR:  conflicting key value violates exclusion constraint "deferred_excl_con"
+DETAIL:  Key (f1)=(3) conflicts with existing key (f1)=(3).
 ALTER TABLE deferred_excl DROP CONSTRAINT deferred_excl_con;
-ERROR:  relation "deferred_excl" does not exist
 -- This should fail, but worth testing because of HOT updates
 UPDATE deferred_excl SET f1 = 3;
-ERROR:  relation "deferred_excl" does not exist
-LINE 1: UPDATE deferred_excl SET f1 = 3;
-               ^
 ALTER TABLE deferred_excl ADD EXCLUDE (f1 WITH =);
-ERROR:  relation "deferred_excl" does not exist
+NOTICE:  ALTER TABLE / ADD EXCLUDE will create implicit index "deferred_excl_f1_excl" for table "deferred_excl"
+ERROR:  could not create exclusion constraint "deferred_excl_f1_excl"
+DETAIL:  Key (f1)=(3) conflicts with key (f1)=(3).
 DROP TABLE deferred_excl;
-ERROR:  table "deferred_excl" does not exist
