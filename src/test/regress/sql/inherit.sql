@@ -46,15 +46,6 @@ SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid ORDER 
 SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
 SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
 SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
--- In Postgres-XC, Oids are not consistent among nodes, but a cast on relation can be used for global operations on Oid
-SELECT relname, a.* FROM a, pg_class WHERE 'a'::regclass = pg_class.oid ORDER BY relname, a.aa;
-SELECT relname, b.* FROM b, pg_class WHERE 'b'::regclass = pg_class.oid ORDER BY relname, b.aa;
-SELECT relname, c.* FROM c, pg_class WHERE 'c'::regclass = pg_class.oid ORDER BY relname, c.aa;
-SELECT relname, d.* FROM d, pg_class WHERE 'd'::regclass = pg_class.oid ORDER BY relname, d.aa;
-SELECT relname, a.* FROM ONLY a, pg_class where 'a'::regclass = pg_class.oid ORDER BY relname, a.aa;
-SELECT relname, b.* FROM ONLY b, pg_class where 'b'::regclass = pg_class.oid ORDER BY relname, b.aa;
-SELECT relname, c.* FROM ONLY c, pg_class where 'c'::regclass = pg_class.oid ORDER BY relname, c.aa;
-SELECT relname, d.* FROM ONLY d, pg_class where 'd'::regclass = pg_class.oid ORDER BY relname, d.aa;
 
 UPDATE a SET aa='zzzz' WHERE aa='aaaa';
 UPDATE ONLY a SET aa='zzzzz' WHERE aa='aaaaa';
@@ -70,15 +61,6 @@ SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid ORDER 
 SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
 SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
 SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
--- In Postgres-XC, Oids are not consistent among nodes, but a cast on relation can be used for global operations on Oid
-SELECT relname, a.* FROM a, pg_class WHERE 'a'::regclass = pg_class.oid ORDER BY relname, a.aa;
-SELECT relname, b.* FROM b, pg_class WHERE 'b'::regclass = pg_class.oid ORDER BY relname, b.aa;
-SELECT relname, c.* FROM c, pg_class WHERE 'c'::regclass = pg_class.oid ORDER BY relname, c.aa;
-SELECT relname, d.* FROM d, pg_class WHERE 'd'::regclass = pg_class.oid ORDER BY relname, d.aa;
-SELECT relname, a.* FROM ONLY a, pg_class where 'a'::regclass = pg_class.oid ORDER BY relname, a.aa;
-SELECT relname, b.* FROM ONLY b, pg_class where 'b'::regclass = pg_class.oid ORDER BY relname, b.aa;
-SELECT relname, c.* FROM ONLY c, pg_class where 'c'::regclass = pg_class.oid ORDER BY relname, c.aa;
-SELECT relname, d.* FROM ONLY d, pg_class where 'd'::regclass = pg_class.oid ORDER BY relname, d.aa;
 
 UPDATE b SET aa='new';
 
@@ -90,15 +72,6 @@ SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid ORDER 
 SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
 SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
 SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
--- In Postgres-XC, Oids are not consistent among nodes, but a cast on relation can be used for global operations on Oid
-SELECT relname, a.* FROM a, pg_class WHERE 'a'::regclass = pg_class.oid ORDER BY relname, a.aa;
-SELECT relname, b.* FROM b, pg_class WHERE 'b'::regclass = pg_class.oid ORDER BY relname, b.aa;
-SELECT relname, c.* FROM c, pg_class WHERE 'c'::regclass = pg_class.oid ORDER BY relname, c.aa;
-SELECT relname, d.* FROM d, pg_class WHERE 'd'::regclass = pg_class.oid ORDER BY relname, d.aa;
-SELECT relname, a.* FROM ONLY a, pg_class where 'a'::regclass = pg_class.oid ORDER BY relname, a.aa;
-SELECT relname, b.* FROM ONLY b, pg_class where 'b'::regclass = pg_class.oid ORDER BY relname, b.aa;
-SELECT relname, c.* FROM ONLY c, pg_class where 'c'::regclass = pg_class.oid ORDER BY relname, c.aa;
-SELECT relname, d.* FROM ONLY d, pg_class where 'd'::regclass = pg_class.oid ORDER BY relname, d.aa;
 
 UPDATE a SET aa='new';
 
@@ -112,15 +85,6 @@ SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid ORDER 
 SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
 SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
 SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
--- In Postgres-XC, Oids are not consistent among nodes, but a cast on relation can be used for global operations on Oid
-SELECT relname, a.* FROM a, pg_class WHERE 'a'::regclass = pg_class.oid ORDER BY relname, a.aa;
-SELECT relname, b.* FROM b, pg_class WHERE 'b'::regclass = pg_class.oid ORDER BY relname, b.aa;
-SELECT relname, c.* FROM c, pg_class WHERE 'c'::regclass = pg_class.oid ORDER BY relname, c.aa;
-SELECT relname, d.* FROM d, pg_class WHERE 'd'::regclass = pg_class.oid ORDER BY relname, d.aa;
-SELECT relname, a.* FROM ONLY a, pg_class where 'a'::regclass = pg_class.oid ORDER BY relname, a.aa;
-SELECT relname, b.* FROM ONLY b, pg_class where 'b'::regclass = pg_class.oid ORDER BY relname, b.aa;
-SELECT relname, c.* FROM ONLY c, pg_class where 'c'::regclass = pg_class.oid ORDER BY relname, c.aa;
-SELECT relname, d.* FROM ONLY d, pg_class where 'd'::regclass = pg_class.oid ORDER BY relname, d.aa;
 
 DELETE FROM a;
 
@@ -132,15 +96,6 @@ SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid ORDER 
 SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
 SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
 SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
--- In Postgres-XC, Oids are not consistent among nodes, but a cast on relation can be used for global operations on Oid
-SELECT relname, a.* FROM a, pg_class WHERE 'a'::regclass = pg_class.oid ORDER BY relname, a.aa;
-SELECT relname, b.* FROM b, pg_class WHERE 'b'::regclass = pg_class.oid ORDER BY relname, b.aa;
-SELECT relname, c.* FROM c, pg_class WHERE 'c'::regclass = pg_class.oid ORDER BY relname, c.aa;
-SELECT relname, d.* FROM d, pg_class WHERE 'd'::regclass = pg_class.oid ORDER BY relname, d.aa;
-SELECT relname, a.* FROM ONLY a, pg_class where 'a'::regclass = pg_class.oid ORDER BY relname, a.aa;
-SELECT relname, b.* FROM ONLY b, pg_class where 'b'::regclass = pg_class.oid ORDER BY relname, b.aa;
-SELECT relname, c.* FROM ONLY c, pg_class where 'c'::regclass = pg_class.oid ORDER BY relname, c.aa;
-SELECT relname, d.* FROM ONLY d, pg_class where 'd'::regclass = pg_class.oid ORDER BY relname, d.aa;
 
 -- Confirm PRIMARY KEY adds NOT NULL constraint to child table
 CREATE TEMP TABLE z (b TEXT, PRIMARY KEY(aa, b)) inherits (a);
