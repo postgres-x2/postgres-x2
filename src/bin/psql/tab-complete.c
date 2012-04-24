@@ -588,6 +588,23 @@ static const SchemaQuery Query_for_list_of_views = {
 "   FROM pg_catalog.pg_available_extensions "\
 "  WHERE substring(pg_catalog.quote_ident(name),1,%d)='%s' AND installed_version IS NULL"
 
+#ifdef PGXC
+#define Query_for_list_of_available_nodenames \
+" SELECT NODE_NAME "\
+"  FROM PGXC_NODE"
+#define Query_for_list_of_available_coordinators \
+" SELECT NODE_NAME "\
+"  FROM PGXC_NODE" \
+"   WHERE NODE_TYPE = 'C'"
+#define Query_for_list_of_available_datanodes \
+" SELECT NODE_NAME "\
+"  FROM PGXC_NODE" \
+"   WHERE NODE_TYPE = 'D'"
+#define Query_for_list_of_available_nodegroup_names \
+" SELECT GROUP_NAME "\
+"  FROM PGXC_GROUP"
+#endif
+
 /*
  * This is a list of all "things" in Pgsql, which can show up after CREATE or
  * DROP; and there is also a query to get a list of them.
@@ -607,6 +624,9 @@ typedef struct
 
 static const pgsql_thing_t words_after_create[] = {
 	{"AGGREGATE", NULL, &Query_for_list_of_aggregates},
+#ifdef PGXC
+	{"BARRIER", NULL, NULL},	/* Comes barrier name next, so skip it */
+#endif
 	{"CAST", NULL, NULL},		/* Casts have complex structures for names, so
 								 * skip it */
 	{"COLLATION", "SELECT pg_catalog.quote_ident(collname) FROM pg_catalog.pg_collation WHERE collencoding IN (-1, pg_catalog.pg_char_to_encoding(pg_catalog.getdatabaseencoding())) AND substring(pg_catalog.quote_ident(collname),1,%d)='%s'"},
@@ -621,12 +641,18 @@ static const pgsql_thing_t words_after_create[] = {
 	{"DICTIONARY", Query_for_list_of_ts_dictionaries, NULL, THING_NO_SHOW},
 	{"DOMAIN", NULL, &Query_for_list_of_domains},
 	{"EXTENSION", Query_for_list_of_extensions},
+#ifndef PGXC
 	{"FOREIGN DATA WRAPPER", NULL, NULL},
 	{"FOREIGN TABLE", NULL, NULL},
+#endif
 	{"FUNCTION", NULL, &Query_for_list_of_functions},
 	{"GROUP", Query_for_list_of_roles},
 	{"LANGUAGE", Query_for_list_of_languages},
 	{"INDEX", NULL, &Query_for_list_of_indexes},
+#ifdef PGXC
+	{"NODE", Query_for_list_of_available_nodenames},
+	{"NODE GROUP", Query_for_list_of_available_nodegroup_names},
+#endif
 	{"OPERATOR", NULL, NULL},	/* Querying for this is probably not such a
 								 * good idea. */
 	{"OWNED", NULL, NULL, THING_NO_CREATE},		/* for DROP OWNED BY ... */
@@ -635,19 +661,28 @@ static const pgsql_thing_t words_after_create[] = {
 	{"RULE", "SELECT pg_catalog.quote_ident(rulename) FROM pg_catalog.pg_rules WHERE substring(pg_catalog.quote_ident(rulename),1,%d)='%s'"},
 	{"SCHEMA", Query_for_list_of_schemas},
 	{"SEQUENCE", NULL, &Query_for_list_of_sequences},
+#ifndef PGXC
+	/* PGXCTODO: This should be re-enabled once SERVER is supported */
 	{"SERVER", Query_for_list_of_servers},
+#endif
 	{"TABLE", NULL, &Query_for_list_of_tables},
 	{"TABLESPACE", Query_for_list_of_tablespaces},
 	{"TEMP", NULL, NULL, THING_NO_DROP},		/* for CREATE TEMP TABLE ... */
 	{"TEMPLATE", Query_for_list_of_ts_templates, NULL, THING_NO_SHOW},
 	{"TEXT SEARCH", NULL, NULL},
+#ifndef PGXC
+	/* PGXCTODO: This should be re-enabled once TRIGGER is supported */
 	{"TRIGGER", "SELECT pg_catalog.quote_ident(tgname) FROM pg_catalog.pg_trigger WHERE substring(pg_catalog.quote_ident(tgname),1,%d)='%s'"},
+#endif
 	{"TYPE", NULL, &Query_for_list_of_datatypes},
 	{"UNIQUE", NULL, NULL, THING_NO_DROP},		/* for CREATE UNIQUE INDEX ... */
 	{"UNLOGGED", NULL, NULL, THING_NO_DROP},	/* for CREATE UNLOGGED TABLE
 												 * ... */
 	{"USER", Query_for_list_of_roles},
+#ifndef PGXC
+	/* PGXCTODO: This should be re-enabled once USER MAPPING is supported */
 	{"USER MAPPING FOR", NULL, NULL},
+#endif
 	{"VIEW", NULL, &Query_for_list_of_views},
 	{NULL}						/* end of list */
 };
@@ -719,6 +754,19 @@ psql_completion(char *text, int start, int end)
 			   *prev6_wd;
 
 	static const char *const sql_commands[] = {
+#ifdef PGXC
+		/* 
+		 * Added "CLEAN" and "EXECUTE DIRECT"
+		 * Removed LISTEN, NOTIFY, RELEASE, SAVEPOINT and UNLISTEN
+		 */
+		"ABORT", "ALTER", "ANALYZE", "BEGIN", "CHECKPOINT", "CLEAN CONNECTION", "CLOSE", "CLUSTER",
+		"COMMENT", "COMMIT", "COPY", "CREATE", "DEALLOCATE", "DECLARE",
+		"DELETE FROM", "DISCARD", "DO", "DROP", "END", "EXECUTE", "EXECUTE DIRECT", "EXPLAIN", "FETCH",
+		"GRANT", "INSERT",           "LOAD", "LOCK", "MOVE",           "PREPARE",
+		"REASSIGN", "REINDEX",            "RESET", "REVOKE", "ROLLBACK",
+		             "SECURITY LABEL", "SELECT", "SET", "SHOW", "START",
+		"TABLE", "TRUNCATE",             "UPDATE", "VACUUM", "VALUES", "WITH",
+#else
 		"ABORT", "ALTER", "ANALYZE", "BEGIN", "CHECKPOINT", "CLOSE", "CLUSTER",
 		"COMMENT", "COMMIT", "COPY", "CREATE", "DEALLOCATE", "DECLARE",
 		"DELETE FROM", "DISCARD", "DO", "DROP", "END", "EXECUTE", "EXPLAIN", "FETCH",
@@ -726,6 +774,7 @@ psql_completion(char *text, int start, int end)
 		"REASSIGN", "REINDEX", "RELEASE", "RESET", "REVOKE", "ROLLBACK",
 		"SAVEPOINT", "SECURITY LABEL", "SELECT", "SET", "SHOW", "START",
 		"TABLE", "TRUNCATE", "UNLISTEN", "UPDATE", "VACUUM", "VALUES", "WITH",
+#endif
 		NULL
 	};
 
@@ -806,12 +855,26 @@ psql_completion(char *text, int start, int end)
 			 pg_strcasecmp(prev3_wd, "TABLE") != 0)
 	{
 		static const char *const list_ALTER[] =
+#ifdef PGXC
+		/*
+		 * Added: "NODE" (NODE NAME cannot be altered).
+		 * Removed: "FOREIGN DATA WRAPPER", "FOREIGN TABLE", "LARGE OBJECT",
+		 *          "SERVER", "TRIGGER", "USER MAPPING FOR".
+		 */
+		{"AGGREGATE", "COLLATION", "CONVERSION", "DATABASE", "DEFAULT PRIVILEGES", "DOMAIN",
+			"EXTENSION",                                          "FUNCTION",
+		 "GROUP", "INDEX", "LANGUAGE", "NODE", "NODE GROUP", "OPERATOR",
+			"ROLE", "SCHEMA",           "SEQUENCE",  "TABLE",
+			"TABLESPACE", "TEXT SEARCH",           "TYPE",
+		"USER",                     "VIEW", NULL};
+#else
 		{"AGGREGATE", "COLLATION", "CONVERSION", "DATABASE", "DEFAULT PRIVILEGES", "DOMAIN",
 			"EXTENSION", "FOREIGN DATA WRAPPER", "FOREIGN TABLE", "FUNCTION",
 			"GROUP", "INDEX", "LANGUAGE", "LARGE OBJECT", "OPERATOR",
 			"ROLE", "SCHEMA", "SERVER", "SEQUENCE", "TABLE",
 			"TABLESPACE", "TEXT SEARCH", "TRIGGER", "TYPE",
 		"USER", "USER MAPPING FOR", "VIEW", NULL};
+#endif
 
 		COMPLETE_WITH_LIST(list_ALTER);
 	}
@@ -841,7 +904,34 @@ psql_completion(char *text, int start, int end)
 			free(tmp_buf);
 		}
 	}
+#ifdef PGXC
+	/* ALTER NODE */
+	else if (pg_strcasecmp(prev2_wd, "ALTER") == 0 &&
+			 pg_strcasecmp(prev_wd, "NODE") == 0)
+	{
+		COMPLETE_WITH_QUERY(Query_for_list_of_available_nodenames);
+	}
+	else if (pg_strcasecmp(prev3_wd, "ALTER") == 0 &&
+			 pg_strcasecmp(prev2_wd, "NODE") == 0)
+	{
+		COMPLETE_WITH_CONST("WITH");
+	}
+	else if (pg_strcasecmp(prev4_wd, "ALTER") == 0 &&
+			 pg_strcasecmp(prev3_wd, "NODE") == 0 &&
+			 pg_strcasecmp(prev_wd, "WITH") == 0)
+	{
+		COMPLETE_WITH_CONST("(");
+	}
+	else if (pg_strcasecmp(prev5_wd, "ALTER") == 0 &&
+			 pg_strcasecmp(prev4_wd, "NODE") == 0 &&
+			 pg_strcasecmp(prev2_wd, "WITH") == 0)
+	{
+		static const char *const list_NODEOPTIONS[] =
+		{"TYPE", "HOST", "PORT", "PRIMARY", "PREFERRED", NULL};
 
+		COMPLETE_WITH_LIST(list_NODEOPTIONS);
+	}
+#endif
 	/* ALTER SCHEMA <name> */
 	else if (pg_strcasecmp(prev3_wd, "ALTER") == 0 &&
 			 pg_strcasecmp(prev2_wd, "SCHEMA") == 0)
@@ -892,6 +982,8 @@ psql_completion(char *text, int start, int end)
 		COMPLETE_WITH_LIST(list_ALTEREXTENSION);
 	}
 
+#ifndef PGXC
+	/* PGXCTODO: This should be re-enabled once FOREIGN DATA WRAPPER is supported */
 	/* ALTER FOREIGN */
 	else if (pg_strcasecmp(prev2_wd, "ALTER") == 0 &&
 			 pg_strcasecmp(prev_wd, "FOREIGN") == 0)
@@ -924,6 +1016,7 @@ psql_completion(char *text, int start, int end)
 
 		COMPLETE_WITH_LIST(list_ALTER_FOREIGN_TABLE);
 	}
+#endif
 
 	/* ALTER INDEX <name> */
 	else if (pg_strcasecmp(prev3_wd, "ALTER") == 0 &&
@@ -1087,6 +1180,8 @@ psql_completion(char *text, int start, int end)
 
 		COMPLETE_WITH_LIST(list_ALTERSEQUENCE2);
 	}
+#ifndef PGXC
+	/* PGXCTODO: This should be re-enabled once SERVER is supported */
 	/* ALTER SERVER <name> */
 	else if (pg_strcasecmp(prev3_wd, "ALTER") == 0 &&
 			 pg_strcasecmp(prev2_wd, "SERVER") == 0)
@@ -1096,6 +1191,7 @@ psql_completion(char *text, int start, int end)
 
 		COMPLETE_WITH_LIST(list_ALTER_SERVER);
 	}
+#endif
 	/* ALTER VIEW <name> */
 	else if (pg_strcasecmp(prev3_wd, "ALTER") == 0 &&
 			 pg_strcasecmp(prev2_wd, "VIEW") == 0)
@@ -1105,6 +1201,8 @@ psql_completion(char *text, int start, int end)
 
 		COMPLETE_WITH_LIST(list_ALTERVIEW);
 	}
+#ifndef PGXC
+	/* PGXCTODO: This should be re-enabled once TRIGGER is supported */
 	/* ALTER TRIGGER <name>, add ON */
 	else if (pg_strcasecmp(prev3_wd, "ALTER") == 0 &&
 			 pg_strcasecmp(prev2_wd, "TRIGGER") == 0)
@@ -1129,6 +1227,7 @@ psql_completion(char *text, int start, int end)
 	else if (pg_strcasecmp(prev4_wd, "TRIGGER") == 0 &&
 			 pg_strcasecmp(prev2_wd, "ON") == 0)
 		COMPLETE_WITH_CONST("RENAME TO");
+#endif
 
 	/*
 	 * If we detect ALTER TABLE <name>, suggest sub commands
@@ -1521,6 +1620,43 @@ psql_completion(char *text, int start, int end)
 
 		COMPLETE_WITH_LIST(list_TRANS);
 	}
+#ifdef PGXC
+/* CLEAN CONNECTION */
+	else if (pg_strcasecmp(prev2_wd, "CLEAN") == 0 &&
+			 pg_strcasecmp(prev_wd, "CONNECTION") == 0)
+		COMPLETE_WITH_CONST("TO");
+	else if (pg_strcasecmp(prev3_wd, "CLEAN") == 0 &&
+			 pg_strcasecmp(prev2_wd, "CONNECTION") == 0 &&
+			 pg_strcasecmp(prev_wd, "TO") == 0)
+	/* CLEAN CONNECTION TO */
+	{
+		static const char *const list_CLEANCONNECTIONOPT[] =
+			{"ALL", "COORDINATOR", "NODE", NULL};
+
+		COMPLETE_WITH_LIST(list_CLEANCONNECTIONOPT);
+	}
+	else if (pg_strcasecmp(prev4_wd, "CLEAN") == 0 &&
+			 pg_strcasecmp(prev3_wd, "CONNECTION") == 0 &&
+			 pg_strcasecmp(prev2_wd, "TO") == 0 &&
+			 pg_strcasecmp(prev_wd, "ALL") == 0)
+		COMPLETE_WITH_CONST("FORCE");
+	else if (pg_strcasecmp(prev4_wd, "CLEAN") == 0 &&
+			 pg_strcasecmp(prev3_wd, "CONNECTION") == 0 &&
+			 pg_strcasecmp(prev2_wd, "TO") == 0 &&
+			 pg_strcasecmp(prev_wd, "COORDINATOR") == 0)
+		COMPLETE_WITH_QUERY(Query_for_list_of_available_coordinators);
+	else if (pg_strcasecmp(prev4_wd, "CLEAN") == 0 &&
+			 pg_strcasecmp(prev3_wd, "CONNECTION") == 0 &&
+			 pg_strcasecmp(prev2_wd, "TO") == 0 &&
+			 pg_strcasecmp(prev_wd, "NODE") == 0)
+		COMPLETE_WITH_QUERY(Query_for_list_of_available_datanodes);
+	else if (pg_strcasecmp(prev2_wd, "TO") == 0 &&
+			 pg_strcasecmp(prev_wd, "USER") == 0)
+		COMPLETE_WITH_QUERY(Query_for_list_of_roles);
+	else if (pg_strcasecmp(prev2_wd, "FOR") == 0 &&
+			 pg_strcasecmp(prev_wd, "DATABASE") == 0)
+		COMPLETE_WITH_QUERY(Query_for_list_of_databases);
+#endif
 /* CLUSTER */
 
 	/*
@@ -1668,6 +1804,8 @@ psql_completion(char *text, int start, int end)
 			 pg_strcasecmp(prev2_wd, "EXTENSION") == 0)
 		COMPLETE_WITH_CONST("WITH SCHEMA");
 
+#ifndef PGXC
+	/* PGXCTODO: This should be re-enabled once FOREIGN DATA WRAPPER is supported */
 	/* CREATE FOREIGN */
 	else if (pg_strcasecmp(prev2_wd, "CREATE") == 0 &&
 			 pg_strcasecmp(prev_wd, "FOREIGN") == 0)
@@ -1689,6 +1827,7 @@ psql_completion(char *text, int start, int end)
 
 		COMPLETE_WITH_LIST(list_CREATE_FOREIGN_DATA_WRAPPER);
 	}
+#endif
 
 	/* CREATE INDEX */
 	/* First off we complete CREATE UNIQUE with "INDEX" */
@@ -1755,7 +1894,30 @@ psql_completion(char *text, int start, int end)
 	else if (pg_strcasecmp(prev4_wd, "ON") == 0 &&
 			 pg_strcasecmp(prev2_wd, "USING") == 0)
 		COMPLETE_WITH_CONST("(");
+#ifdef PGXC
+/* CREATE NODE */
+	else if (pg_strcasecmp(prev3_wd, "CREATE") == 0 &&
+			 pg_strcasecmp(prev2_wd, "NODE") == 0)
+		COMPLETE_WITH_CONST("WITH");
+	else if (pg_strcasecmp(prev4_wd, "CREATE") == 0 &&
+			 pg_strcasecmp(prev3_wd, "NODE") == 0 &&
+			 pg_strcasecmp(prev_wd, "WITH") == 0)
+		COMPLETE_WITH_CONST("(");
+	else if (pg_strcasecmp(prev5_wd, "CREATE") == 0 &&
+			 pg_strcasecmp(prev4_wd, "NODE") == 0 &&
+			 pg_strcasecmp(prev2_wd, "WITH") == 0)
+	{
+		static const char *const list_NODEOPT[] =
+		{"TYPE", "HOST", "PORT", "PRIMARY", "PREFERRED", NULL};
 
+		COMPLETE_WITH_LIST(list_NODEOPT);
+	}
+/* CREATE NODEGROUP */
+	else if (pg_strcasecmp(prev4_wd, "CREATE") == 0 &&
+			 pg_strcasecmp(prev3_wd, "NODE") == 0 &&
+			 pg_strcasecmp(prev2_wd, "GROUP") == 0)
+		COMPLETE_WITH_CONST("WITH");
+#endif
 /* CREATE RULE */
 	/* Complete "CREATE RULE <sth>" with "AS" */
 	else if (pg_strcasecmp(prev3_wd, "CREATE") == 0 &&
@@ -1788,6 +1950,8 @@ psql_completion(char *text, int start, int end)
 			 pg_strcasecmp(prev_wd, "TO") == 0)
 		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_tables, NULL);
 
+#ifndef PGXC
+	/* PGXCTODO: This should be re-enabled once SERVER is supported */
 /* CREATE SERVER <name> */
 	else if (pg_strcasecmp(prev3_wd, "CREATE") == 0 &&
 			 pg_strcasecmp(prev2_wd, "SERVER") == 0)
@@ -1797,6 +1961,7 @@ psql_completion(char *text, int start, int end)
 
 		COMPLETE_WITH_LIST(list_CREATE_SERVER);
 	}
+#endif
 
 /* CREATE TABLE */
 	/* Complete "CREATE TEMP/TEMPORARY" with the possible temp objects */
@@ -1848,6 +2013,8 @@ psql_completion(char *text, int start, int end)
 			 pg_strcasecmp(prev2_wd, "CONFIGURATION") == 0)
 		COMPLETE_WITH_CONST("(");
 
+#ifndef PGXC
+	/* PGXCTODO: This should be re-enabled once TRIGGER is supported */
 /* CREATE TRIGGER */
 	/* complete CREATE TRIGGER <name> with BEFORE,AFTER */
 	else if (pg_strcasecmp(prev3_wd, "CREATE") == 0 &&
@@ -1913,6 +2080,7 @@ psql_completion(char *text, int start, int end)
 	else if (pg_strcasecmp(prev_wd, "EXECUTE") == 0)
 		COMPLETE_WITH_CONST("PROCEDURE");
 
+#endif
 /* CREATE ROLE,USER,GROUP */
 	else if (pg_strcasecmp(prev3_wd, "CREATE") == 0 &&
 			 !(pg_strcasecmp(prev2_wd, "USER") == 0 && pg_strcasecmp(prev_wd, "MAPPING") == 0) &&
@@ -2055,10 +2223,13 @@ psql_completion(char *text, int start, int end)
 			 (pg_strcasecmp(prev4_wd, "DROP") == 0 &&
 			  pg_strcasecmp(prev3_wd, "AGGREGATE") == 0 &&
 			  prev_wd[strlen(prev_wd) - 1] == ')') ||
+#ifndef PGXC
+			/* PGXCTODO: This should be re-enabled once FOREIGN DATA WRAPPER is supported */
 			 (pg_strcasecmp(prev5_wd, "DROP") == 0 &&
 			  pg_strcasecmp(prev4_wd, "FOREIGN") == 0 &&
 			  pg_strcasecmp(prev3_wd, "DATA") == 0 &&
 			  pg_strcasecmp(prev2_wd, "WRAPPER") == 0) ||
+#endif
 			 (pg_strcasecmp(prev5_wd, "DROP") == 0 &&
 			  pg_strcasecmp(prev4_wd, "TEXT") == 0 &&
 			  pg_strcasecmp(prev3_wd, "SEARCH") == 0 &&
@@ -2081,6 +2252,8 @@ psql_completion(char *text, int start, int end)
 			COMPLETE_WITH_LIST(list_DROPCR);
 		}
 	}
+#ifndef PGXC
+	/* PGXCTODO: This should be re-enabled once FOREIGN DATA WRAPPER is supported */
 	else if (pg_strcasecmp(prev2_wd, "DROP") == 0 &&
 			 pg_strcasecmp(prev_wd, "FOREIGN") == 0)
 	{
@@ -2089,6 +2262,7 @@ psql_completion(char *text, int start, int end)
 
 		COMPLETE_WITH_LIST(drop_CREATE_FOREIGN);
 	}
+#endif
 	else if (pg_strcasecmp(prev4_wd, "DROP") == 0 &&
 			 (pg_strcasecmp(prev3_wd, "AGGREGATE") == 0 ||
 			  pg_strcasecmp(prev3_wd, "FUNCTION") == 0) &&
@@ -2118,7 +2292,27 @@ psql_completion(char *text, int start, int end)
 
 		COMPLETE_WITH_LIST(list_ALTERTEXTSEARCH);
 	}
+#ifdef PGXC
+	/* DROP NODE */
+	else if (pg_strcasecmp(prev2_wd, "DROP") == 0 &&
+			 pg_strcasecmp(prev_wd, "NODE") == 0)
+		COMPLETE_WITH_QUERY(Query_for_list_of_available_nodenames);	/* Should test this code if complesion is not confused with DROP NODE GROUP */
+	/* DROP NODE GROUP */
+	else if (pg_strcasecmp(prev3_wd, "DROP") == 0 &&
+			 pg_strcasecmp(prev2_wd, "NODE") == 0 &&
+			 pg_strcasecmp(prev_wd, "GROUP") == 0)
+		COMPLETE_WITH_QUERY(Query_for_list_of_available_nodegroup_names);
+/* EXECUTE DIRECT */
+	else if (pg_strcasecmp(prev2_wd, "EXECUTE") == 0 &&
+			 pg_strcasecmp(prev_wd, "DIRECT") == 0)
+		COMPLETE_WITH_CONST("ON");
+	else if (pg_strcasecmp(prev3_wd, "EXECUTE") == 0 &&
+			 pg_strcasecmp(prev2_wd, "DIRECT") == 0 &&
+			 pg_strcasecmp(prev_wd, "ON") == 0)
+		COMPLETE_WITH_QUERY(Query_for_list_of_available_nodenames);
+#endif
 
+/* ========= WIP APR20, 2012 =================*/
 /* EXPLAIN */
 
 	/*
@@ -2185,6 +2379,8 @@ psql_completion(char *text, int start, int end)
 		COMPLETE_WITH_LIST(list_FROMIN);
 	}
 
+#ifndef PGXC
+	/* PGXCTODO: This should be re-enabled once FOREIGN DATA WRAPPER is supported */
 /* FOREIGN DATA WRAPPER */
 	/* applies in ALTER/DROP FDW and in CREATE SERVER */
 	else if (pg_strcasecmp(prev4_wd, "CREATE") != 0 &&
@@ -2198,6 +2394,7 @@ psql_completion(char *text, int start, int end)
 			 pg_strcasecmp(prev2_wd, "FOREIGN") == 0 &&
 			 pg_strcasecmp(prev_wd, "TABLE") == 0)
 		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_foreign_tables, NULL);
+#endif
 
 /* GRANT && REVOKE */
 	/* Complete GRANT/REVOKE with a list of privileges */
@@ -2374,9 +2571,12 @@ psql_completion(char *text, int start, int end)
 		COMPLETE_WITH_LIST(lock_modes);
 	}
 
+#ifndef PGXC
+	/* PGXCTODO: This should be re-enabled once NOTIFY is supported */
 /* NOTIFY */
 	else if (pg_strcasecmp(prev_wd, "NOTIFY") == 0)
 		COMPLETE_WITH_QUERY("SELECT pg_catalog.quote_ident(channel) FROM pg_catalog.pg_listening_channels() AS channel WHERE substring(pg_catalog.quote_ident(channel),1,%d)='%s'");
+#endif
 
 /* OPTIONS */
 	else if (pg_strcasecmp(prev_wd, "OPTIONS") == 0)
@@ -2677,6 +2877,8 @@ psql_completion(char *text, int start, int end)
 			 pg_strcasecmp(prev4_wd, "UPDATE") == 0)
 		COMPLETE_WITH_CONST("=");
 
+#ifndef PGXC
+	/* PGXCTODO: This should be re-enabled once USER MAPPING is supported */
 /* USER MAPPING */
 	else if ((pg_strcasecmp(prev3_wd, "ALTER") == 0 ||
 			  pg_strcasecmp(prev3_wd, "CREATE") == 0 ||
@@ -2705,6 +2907,7 @@ psql_completion(char *text, int start, int end)
 			 pg_strcasecmp(prev3_wd, "MAPPING") == 0 &&
 			 pg_strcasecmp(prev2_wd, "FOR") == 0)
 		COMPLETE_WITH_CONST("SERVER");
+#endif
 
 /*
  * VACUUM [ FULL | FREEZE ] [ VERBOSE ] [ table ]
