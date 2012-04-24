@@ -66,7 +66,7 @@ WITH RECURSIVE t(n) AS (
     VALUES (1)
 UNION ALL
     SELECT n+1 FROM t)
-SELECT * FROM t LIMIT 10 ;
+SELECT * FROM t LIMIT 10;
  n  
 ----
   1
@@ -86,7 +86,7 @@ WITH RECURSIVE t(n) AS (
     SELECT 1
 UNION
     SELECT n+1 FROM t)
-SELECT * FROM t  LIMIT 10;
+SELECT * FROM t LIMIT 10;
  n  
 ----
   1
@@ -138,7 +138,7 @@ SELECT n, n IS OF (text) as is_text FROM t ORDER BY n;
 SET enforce_two_phase_commit TO off;
 CREATE TEMP TABLE department (
 	id INTEGER PRIMARY KEY,  -- department ID
-	parent_department INTEGER REFERENCES department, -- upper department ID
+	parent_department INTEGER ,
 	name TEXT -- department name
 );
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "department_pkey" for table "department"
@@ -295,42 +295,42 @@ SELECT pg_get_viewdef('vsubdepartment'::regclass, true);
 (1 row)
 
 -- corner case in which sub-WITH gets initialized first
-with recursive q as (
+select * from (with recursive q as (
       (select * from department order by id)
     union all
       (with x as (select * from q)
        select * from x)
     )
-select * from q limit 24;
+select * from q limit 24) rel_alias order by 1, 2, 3;
  id | parent_department | name 
 ----+-------------------+------
   0 |                   | ROOT
-  1 |                 0 | A
-  2 |                 1 | B
-  3 |                 2 | C
-  4 |                 2 | D
-  5 |                 0 | E
-  6 |                 4 | F
-  7 |                 5 | G
+  0 |                   | ROOT
   0 |                   | ROOT
   1 |                 0 | A
-  2 |                 1 | B
-  3 |                 2 | C
-  4 |                 2 | D
-  5 |                 0 | E
-  6 |                 4 | F
-  7 |                 5 | G
-  0 |                   | ROOT
+  1 |                 0 | A
   1 |                 0 | A
   2 |                 1 | B
+  2 |                 1 | B
+  2 |                 1 | B
+  3 |                 2 | C
+  3 |                 2 | C
   3 |                 2 | C
   4 |                 2 | D
+  4 |                 2 | D
+  4 |                 2 | D
+  5 |                 0 | E
+  5 |                 0 | E
   5 |                 0 | E
   6 |                 4 | F
+  6 |                 4 | F
+  6 |                 4 | F
+  7 |                 5 | G
+  7 |                 5 | G
   7 |                 5 | G
 (24 rows)
 
-with recursive q as (
+select * from (with recursive q as (
       (select * from department order by id)
     union all
       (with recursive x as (
@@ -340,40 +340,40 @@ with recursive q as (
         )
        select * from x)
     )
-select * from q limit 32;
+select * from q limit 32) rel_alias order by 1, 2, 3;
  id | parent_department | name 
 ----+-------------------+------
   0 |                   | ROOT
-  1 |                 0 | A
-  2 |                 1 | B
-  3 |                 2 | C
-  4 |                 2 | D
-  5 |                 0 | E
-  6 |                 4 | F
-  7 |                 5 | G
+  0 |                   | ROOT
+  0 |                   | ROOT
   0 |                   | ROOT
   1 |                 0 | A
-  2 |                 1 | B
-  3 |                 2 | C
-  4 |                 2 | D
-  5 |                 0 | E
-  6 |                 4 | F
-  7 |                 5 | G
-  0 |                   | ROOT
+  1 |                 0 | A
+  1 |                 0 | A
   1 |                 0 | A
   2 |                 1 | B
-  3 |                 2 | C
-  4 |                 2 | D
-  5 |                 0 | E
-  6 |                 4 | F
-  7 |                 5 | G
-  0 |                   | ROOT
-  1 |                 0 | A
+  2 |                 1 | B
+  2 |                 1 | B
   2 |                 1 | B
   3 |                 2 | C
+  3 |                 2 | C
+  3 |                 2 | C
+  3 |                 2 | C
+  4 |                 2 | D
+  4 |                 2 | D
+  4 |                 2 | D
   4 |                 2 | D
   5 |                 0 | E
+  5 |                 0 | E
+  5 |                 0 | E
+  5 |                 0 | E
   6 |                 4 | F
+  6 |                 4 | F
+  6 |                 4 | F
+  6 |                 4 | F
+  7 |                 5 | G
+  7 |                 5 | G
+  7 |                 5 | G
   7 |                 5 | G
 (32 rows)
 
@@ -397,7 +397,7 @@ WITH RECURSIVE t(i,j) AS (
 --
 CREATE TEMPORARY TABLE tree(
     id INTEGER PRIMARY KEY,
-    parent_id INTEGER REFERENCES tree(id)
+    parent_id INTEGER 
 );
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "tree_pkey" for table "tree"
 INSERT INTO tree
@@ -749,21 +749,8 @@ WITH t AS (
 )
 INSERT INTO y
 SELECT a+20 FROM t RETURNING *;
- a  
-----
- 21
- 22
- 23
- 24
- 25
- 26
- 27
- 28
- 29
- 30
-(10 rows)
-
-SELECT * FROM y;
+ERROR:  RETURNING clause not yet supported
+SELECT * FROM y order by 1;
  a  
 ----
   1
@@ -776,37 +763,14 @@ SELECT * FROM y;
   8
   9
  10
- 21
- 22
- 23
- 24
- 25
- 26
- 27
- 28
- 29
- 30
-(20 rows)
+(10 rows)
 
 WITH t AS (
 	SELECT a FROM y
 )
 UPDATE y SET a = y.a-10 FROM t WHERE y.a > 20 AND t.a = y.a RETURNING y.a;
- a  
-----
- 11
- 12
- 13
- 14
- 15
- 16
- 17
- 18
- 19
- 20
-(10 rows)
-
-SELECT * FROM y;
+ERROR:  Partition column can't be updated in current version
+SELECT * FROM y order by 1;
  a  
 ----
   1
@@ -819,17 +783,7 @@ SELECT * FROM y;
   8
   9
  10
- 11
- 12
- 13
- 14
- 15
- 16
- 17
- 18
- 19
- 20
-(20 rows)
+(10 rows)
 
 WITH RECURSIVE t(a) AS (
 	SELECT 11
@@ -837,21 +791,8 @@ WITH RECURSIVE t(a) AS (
 	SELECT a+1 FROM t WHERE a < 50
 )
 DELETE FROM y USING t WHERE t.a = y.a RETURNING y.a;
- a  
-----
- 11
- 12
- 13
- 14
- 15
- 16
- 17
- 18
- 19
- 20
-(10 rows)
-
-SELECT * FROM y;
+ERROR:  RETURNING clause not yet supported
+SELECT * FROM y order by 1;
  a  
 ----
   1
@@ -1066,26 +1007,26 @@ with cte(foo) as ( select 42 ) select * from ((select foo from cte)) q;
 -- signaling still works properly after fixing this bug)
 select ( with cte(foo) as ( values(f1) )
          select (select foo from cte) )
-from int4_tbl;
+from int4_tbl order by 1;
   ?column?   
 -------------
+ -2147483647
+     -123456
            0
       123456
-     -123456
   2147483647
- -2147483647
 (5 rows)
 
 select ( with cte(foo) as ( values(f1) )
           values((select foo from cte)) )
-from int4_tbl;
+from int4_tbl order by 1;
   ?column?   
 -------------
+ -2147483647
+     -123456
            0
       123456
-     -123456
   2147483647
- -2147483647
 (5 rows)
 
 --
@@ -1101,62 +1042,62 @@ WITH RECURSIVE t(j) AS (
     UNION ALL
     SELECT j+1 FROM t WHERE j < 10
 )
-SELECT * FROM t;
+SELECT * FROM t order by 1;
  j  
 ----
   1
   2
-  3
-  4
-  5
-  6
-  7
-  8
-  9
- 10
   2
   3
-  4
-  5
-  6
-  7
-  8
-  9
- 10
+  3
   3
   4
-  5
-  6
-  7
-  8
-  9
- 10
+  4
+  4
   4
   5
-  6
-  7
-  8
-  9
- 10
+  5
+  5
+  5
   5
   6
-  7
-  8
-  9
- 10
+  6
+  6
+  6
+  6
   6
   7
-  8
-  9
- 10
+  7
+  7
+  7
+  7
+  7
   7
   8
-  9
- 10
+  8
+  8
+  8
+  8
+  8
+  8
   8
   9
- 10
   9
+  9
+  9
+  9
+  9
+  9
+  9
+  9
+ 10
+ 10
+ 10
+ 10
+ 10
+ 10
+ 10
+ 10
  10
  10
 (55 rows)
@@ -1181,21 +1122,8 @@ WITH t AS (
     RETURNING *
 )
 SELECT * FROM t;
- a  
-----
- 11
- 12
- 13
- 14
- 15
- 16
- 17
- 18
- 19
- 20
-(10 rows)
-
-SELECT * FROM y;
+ERROR:  RETURNING clause not yet supported
+SELECT * FROM y order by 1;
  a  
 ----
   1
@@ -1208,17 +1136,7 @@ SELECT * FROM y;
   8
   9
  10
- 11
- 12
- 13
- 14
- 15
- 16
- 17
- 18
- 19
- 20
-(20 rows)
+(10 rows)
 
 -- UPDATE ... RETURNING
 WITH t AS (
@@ -1227,8 +1145,11 @@ WITH t AS (
     RETURNING *
 )
 SELECT * FROM t;
+ERROR:  RETURNING clause not yet supported
+SELECT * FROM y order by 1;
  a  
 ----
+  1
   2
   3
   4
@@ -1238,43 +1159,7 @@ SELECT * FROM t;
   8
   9
  10
- 11
- 12
- 13
- 14
- 15
- 16
- 17
- 18
- 19
- 20
- 21
-(20 rows)
-
-SELECT * FROM y;
- a  
-----
-  2
-  3
-  4
-  5
-  6
-  7
-  8
-  9
- 10
- 11
- 12
- 13
- 14
- 15
- 16
- 17
- 18
- 19
- 20
- 21
-(20 rows)
+(10 rows)
 
 -- DELETE ... RETURNING
 WITH t AS (
@@ -1283,8 +1168,11 @@ WITH t AS (
     RETURNING *
 )
 SELECT * FROM t;
+ERROR:  RETURNING clause not yet supported
+SELECT * FROM y order by 1;
  a  
 ----
+  1
   2
   3
   4
@@ -1294,23 +1182,7 @@ SELECT * FROM t;
   8
   9
  10
-(9 rows)
-
-SELECT * FROM y;
- a  
-----
- 11
- 12
- 13
- 14
- 15
- 16
- 17
- 18
- 19
- 20
- 21
-(11 rows)
+(10 rows)
 
 -- forward reference
 WITH RECURSIVE t AS (
@@ -1323,14 +1195,10 @@ WITH RECURSIVE t AS (
 SELECT * FROM t
 UNION ALL
 SELECT * FROM t2;
+ERROR:  RETURNING clause not yet supported
+SELECT * FROM y order by 1;
  a  
 ----
- 11
- 12
- 13
- 14
- 15
-  0
   1
   2
   3
@@ -1341,28 +1209,7 @@ SELECT * FROM t2;
   8
   9
  10
-(16 rows)
-
-SELECT * FROM y;
- a  
-----
-  0
-  1
-  2
-  3
-  4
-  5
-  6
- 11
-  7
- 12
-  8
- 13
-  9
- 14
- 10
- 15
-(16 rows)
+(10 rows)
 
 -- unconditional DO INSTEAD rule
 CREATE RULE y_rule AS ON DELETE TO y DO INSTEAD
@@ -1371,32 +1218,21 @@ WITH t AS (
 	DELETE FROM y RETURNING *
 )
 SELECT * FROM t;
+ERROR:  RETURNING clause not yet supported
+SELECT * FROM y order by 1;
  a  
 ----
- 42
-(1 row)
-
-SELECT * FROM y;
- a  
-----
-  0
   1
   2
   3
   4
   5
   6
- 11
   7
- 12
   8
- 13
   9
- 14
  10
- 15
- 42
-(17 rows)
+(10 rows)
 
 DROP RULE y_rule ON y;
 -- check merging of outer CTE with CTE in a rule action
@@ -1412,6 +1248,7 @@ SELECT * FROM bug6051;
 
 WITH t1 AS ( DELETE FROM bug6051 RETURNING * )
 INSERT INTO bug6051 SELECT * FROM t1;
+ERROR:  RETURNING clause not yet supported
 SELECT * FROM bug6051;
  i 
 ---
@@ -1426,18 +1263,19 @@ CREATE RULE bug6051_ins AS ON INSERT TO bug6051 DO INSTEAD
  SELECT NEW.i;
 WITH t1 AS ( DELETE FROM bug6051 RETURNING * )
 INSERT INTO bug6051 SELECT * FROM t1;
+ERROR:  RETURNING clause not yet supported
 SELECT * FROM bug6051;
- i 
----
-(0 rows)
-
-SELECT * FROM bug6051_2;
  i 
 ---
  1
  2
  3
 (3 rows)
+
+SELECT * FROM bug6051_2;
+ i 
+---
+(0 rows)
 
 -- a truly recursive CTE in the same list
 WITH RECURSIVE t(a) AS (
@@ -1449,41 +1287,21 @@ WITH RECURSIVE t(a) AS (
 		SELECT * FROM t RETURNING *
 )
 SELECT * FROM t2 JOIN y USING (a) ORDER BY a;
- a 
----
- 0
- 1
- 2
- 3
- 4
-(5 rows)
-
-SELECT * FROM y;
+ERROR:  RETURNING clause not yet supported
+SELECT * FROM y order by 1;
  a  
 ----
-  0
   1
   2
   3
   4
   5
   6
- 11
   7
- 12
   8
- 13
   9
- 14
  10
- 15
- 42
-  0
-  1
-  2
-  3
-  4
-(22 rows)
+(10 rows)
 
 -- data-modifying WITH in a modifying statement
 WITH t AS (
@@ -1492,98 +1310,42 @@ WITH t AS (
     RETURNING *
 )
 INSERT INTO y SELECT -a FROM t RETURNING *;
-  a  
------
-   0
-  -1
-  -2
-  -3
-  -4
-  -5
-  -6
-  -7
-  -8
-  -9
- -10
-   0
-  -1
-  -2
-  -3
-  -4
-(16 rows)
-
-SELECT * FROM y;
-  a  
------
-  11
-  12
-  13
-  14
-  15
-  42
-   0
-  -1
-  -2
-  -3
-  -4
-  -5
-  -6
-  -7
-  -8
-  -9
- -10
-   0
-  -1
-  -2
-  -3
-  -4
-(22 rows)
+ERROR:  RETURNING clause not yet supported
+SELECT * FROM y order by 1;
+ a  
+----
+  1
+  2
+  3
+  4
+  5
+  6
+  7
+  8
+  9
+ 10
+(10 rows)
 
 -- check that WITH query is run to completion even if outer query isn't
 WITH t AS (
     UPDATE y SET a = a * 100 RETURNING *
 )
 SELECT * FROM t LIMIT 10;
-  a   
-------
- 1100
- 1200
- 1300
- 1400
- 1500
- 4200
-    0
- -100
- -200
- -300
+ERROR:  RETURNING clause not yet supported
+SELECT * FROM y order by 1;
+ a  
+----
+  1
+  2
+  3
+  4
+  5
+  6
+  7
+  8
+  9
+ 10
 (10 rows)
-
-SELECT * FROM y;
-   a   
--------
-  1100
-  1200
-  1300
-  1400
-  1500
-  4200
-     0
-  -100
-  -200
-  -300
-  -400
-  -500
-  -600
-  -700
-  -800
-  -900
- -1000
-     0
-  -100
-  -200
-  -300
-  -400
-(22 rows)
 
 -- check that run to completion happens in proper ordering
 TRUNCATE TABLE y;
@@ -1595,23 +1357,8 @@ WITH RECURSIVE t1 AS (
   INSERT INTO yy SELECT * FROM t1 RETURNING *
 )
 SELECT 1;
- ?column? 
-----------
-        1
-(1 row)
-
-SELECT * FROM y;
- a 
----
- 1
- 2
- 3
- 1
- 2
- 3
-(6 rows)
-
-SELECT * FROM yy;
+ERROR:  RETURNING clause not yet supported
+SELECT * FROM y order by 1;
  a 
 ---
  1
@@ -1619,47 +1366,30 @@ SELECT * FROM yy;
  3
 (3 rows)
 
+SELECT * FROM yy;
+ a 
+---
+(0 rows)
+
 WITH RECURSIVE t1 AS (
   INSERT INTO yy SELECT * FROM t2 RETURNING *
 ), t2 AS (
   INSERT INTO y SELECT * FROM y RETURNING *
 )
 SELECT 1;
- ?column? 
-----------
-        1
-(1 row)
-
-SELECT * FROM y;
+ERROR:  RETURNING clause not yet supported
+SELECT * FROM y order by 1;
  a 
 ---
  1
  2
  3
- 1
- 2
- 3
- 1
- 2
- 3
- 1
- 2
- 3
-(12 rows)
+(3 rows)
 
-SELECT * FROM yy;
+SELECT * FROM yy order by 1;
  a 
 ---
- 1
- 2
- 3
- 1
- 2
- 3
- 1
- 2
- 3
-(9 rows)
+(0 rows)
 
 -- triggers
 TRUNCATE TABLE y;
@@ -1672,6 +1402,8 @@ end;
 $$ LANGUAGE plpgsql;
 CREATE TRIGGER y_trig BEFORE INSERT ON y FOR EACH ROW
     EXECUTE PROCEDURE y_trigger();
+ERROR:  Postgres-XC does not support TRIGGER yet
+DETAIL:  The feature is not currently supported
 WITH t AS (
     INSERT INTO y
     VALUES
@@ -1681,17 +1413,8 @@ WITH t AS (
     RETURNING *
 )
 SELECT * FROM t;
-NOTICE:  y_trigger: a = 21
-NOTICE:  y_trigger: a = 22
-NOTICE:  y_trigger: a = 23
- a  
-----
- 21
- 22
- 23
-(3 rows)
-
-SELECT * FROM y;
+ERROR:  RETURNING clause not yet supported
+SELECT * FROM y order by 1;
  a  
 ----
   1
@@ -1704,14 +1427,14 @@ SELECT * FROM y;
   8
   9
  10
- 21
- 22
- 23
-(13 rows)
+(10 rows)
 
 DROP TRIGGER y_trig ON y;
+ERROR:  trigger "y_trig" for table "y" does not exist
 CREATE TRIGGER y_trig AFTER INSERT ON y FOR EACH ROW
     EXECUTE PROCEDURE y_trigger();
+ERROR:  Postgres-XC does not support TRIGGER yet
+DETAIL:  The feature is not currently supported
 WITH t AS (
     INSERT INTO y
     VALUES
@@ -1721,15 +1444,8 @@ WITH t AS (
     RETURNING *
 )
 SELECT * FROM t LIMIT 1;
-NOTICE:  y_trigger: a = 31
-NOTICE:  y_trigger: a = 32
-NOTICE:  y_trigger: a = 33
- a  
-----
- 31
-(1 row)
-
-SELECT * FROM y;
+ERROR:  RETURNING clause not yet supported
+SELECT * FROM y order by 1;
  a  
 ----
   1
@@ -1742,15 +1458,10 @@ SELECT * FROM y;
   8
   9
  10
- 21
- 22
- 23
- 31
- 32
- 33
-(16 rows)
+(10 rows)
 
 DROP TRIGGER y_trig ON y;
+ERROR:  trigger "y_trig" for table "y" does not exist
 CREATE OR REPLACE FUNCTION y_trigger() RETURNS trigger AS $$
 begin
   raise notice 'y_trigger';
@@ -1759,6 +1470,8 @@ end;
 $$ LANGUAGE plpgsql;
 CREATE TRIGGER y_trig AFTER INSERT ON y FOR EACH STATEMENT
     EXECUTE PROCEDURE y_trigger();
+ERROR:  Postgres-XC does not support TRIGGER yet
+DETAIL:  The feature is not currently supported
 WITH t AS (
     INSERT INTO y
     VALUES
@@ -1768,15 +1481,8 @@ WITH t AS (
     RETURNING *
 )
 SELECT * FROM t;
-NOTICE:  y_trigger
- a  
-----
- 41
- 42
- 43
-(3 rows)
-
-SELECT * FROM y;
+ERROR:  RETURNING clause not yet supported
+SELECT * FROM y order by 1;
  a  
 ----
   1
@@ -1789,18 +1495,10 @@ SELECT * FROM y;
   8
   9
  10
- 21
- 22
- 23
- 31
- 32
- 33
- 41
- 42
- 43
-(19 rows)
+(10 rows)
 
 DROP TRIGGER y_trig ON y;
+ERROR:  trigger "y_trig" for table "y" does not exist
 DROP FUNCTION y_trigger();
 -- error cases
 -- data-modifying WITH tries to use its own output
