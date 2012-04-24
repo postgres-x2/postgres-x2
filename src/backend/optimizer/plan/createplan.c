@@ -5698,11 +5698,23 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		count_prepparams = natts + count;
 
 		/* Add any non-parent relations if necessary */
-		foreach (elt, root->rowMarks)
+		foreach(elt, root->rowMarks)
 		{
 			PlanRowMark *rc = (PlanRowMark *) lfirst(elt);
+
+			/* RowMarks with different parent are not needed */
+			if (rc->rti != rc->prti)
+				continue;
+
+			/*
+			 * Count the entry and move to next element
+			 * For a non-parent rowmark, only ctid is used.
+			 * For a parent rowmark, ctid and tableoid are used.
+			 */
 			if (!rc->isParent)
 				count++;
+			else
+				count = count + 2;
 		}
 		tot_prepparams = natts + count;
 
@@ -5816,17 +5828,16 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		 * entries as we need to bypass them correctly at executor level.
 		 */
 		elt = list_head(root->rowMarks);
-		while (elt != NULL)
+		foreach(elt, root->rowMarks)
 		{
 			PlanRowMark *rc = (PlanRowMark *) lfirst(elt);
 
-			if (rc->isParent)
+			/* RowMarks with different parent are not needed */
+			if (rc->rti != rc->prti)
 			{
 				elt = lnext(elt);
 				continue;
 			}
-
-			count_prepparams++;
 
 			/* Determine the correct parameter type */
 			switch (rc->markType)
@@ -5849,21 +5860,22 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 						 * This is the complete copy of a row, so it is necessary
 						 * to set parameter as a rowtype
 						 */
+						count_prepparams++;
 						param_types[count_prepparams - 1] = get_rel_type_id(rte->relid);
 					}
 					break;
 
 				case ROW_MARK_REFERENCE:
 					/* Here we have a ctid for sure */
+					count_prepparams++;
 					param_types[count_prepparams - 1] = TIDOID;
 
 					if (rc->isParent)
 					{
-						/* For a child table, tableoid is also necessary */
+						/* For a parent table, tableoid is also necessary */
 						count_prepparams++;
 						/* Set parameter type */
 						param_types[count_prepparams - 1] = OIDOID;
-						elt = lnext(elt);
 					}
 					break;
 
@@ -5873,8 +5885,6 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 				default:
 					break;
 			}
-				
-			elt = lnext(elt);
 		}
 
 		/* Finish building the query by gathering SET and WHERE clauses */
