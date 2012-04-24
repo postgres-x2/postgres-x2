@@ -5834,10 +5834,7 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 
 			/* RowMarks with different parent are not needed */
 			if (rc->rti != rc->prti)
-			{
-				elt = lnext(elt);
 				continue;
-			}
 
 			/* Determine the correct parameter type */
 			switch (rc->markType)
