@@ -7,7 +7,7 @@
 --
 -- Tables and rules for the view test
 --
-create table rtest_t1 (a int4, b int4);
+create table rtest_t1 (a int4, b int4) distribute by round robin;
 create table rtest_t2 (a int4, b int4);
 create table rtest_t3 (a int4, b int4);
 
@@ -31,10 +31,10 @@ COMMENT ON RULE rtest_v1_del ON rtest_v1 IS NULL;
 -- 	both possible syntaxes to define them (The last action
 --  can but must not have a semicolon at the end).
 --
-create table rtest_system (sysname text, sysdesc text);
-create table rtest_interface (sysname text, ifname text);
-create table rtest_person (pname text, pdesc text);
-create table rtest_admin (pname text, sysname text);
+create table rtest_system (sysname text, sysdesc text) distribute by round robin;
+create table rtest_interface (sysname text, ifname text) distribute by round robin;
+create table rtest_person (pname text, pdesc text) distribute by round robin;
+create table rtest_admin (pname text, sysname text) distribute by round robin;
 
 create rule rtest_sys_upd as on update to rtest_system do also (
 	update rtest_interface set sysname = new.sysname
@@ -57,9 +57,9 @@ create rule rtest_pers_del as on delete to rtest_person do also
 --
 -- Tables and rules for the logging test
 --
-create table rtest_emp (ename char(20), salary money);
-create table rtest_emplog (ename char(20), who name, action char(10), newsal money, oldsal money);
-create table rtest_empmass (ename char(20), salary money);
+create table rtest_emp (ename char(20), salary money) distribute by round robin;
+create table rtest_emplog (ename char(20), who name, action char(10), newsal money, oldsal money) distribute by round robin;
+create table rtest_empmass (ename char(20), salary money) distribute by round robin;
 
 create rule rtest_emp_ins as on insert to rtest_emp do
 	insert into rtest_emplog values (new.ename, current_user,
@@ -525,7 +525,7 @@ CREATE TABLE shoe_data (
 	slminlen   float,         -- miminum shoelace length
 	slmaxlen   float,         -- maximum shoelace length
 	slunit     char(8)        -- length unit
-);
+) distribute by round robin;
 
 CREATE TABLE shoelace_data (
 	sl_name    char(10),      -- primary key
@@ -533,12 +533,12 @@ CREATE TABLE shoelace_data (
 	sl_color   char(10),      -- shoelace color
 	sl_len     float,         -- shoelace length
 	sl_unit    char(8)        -- length unit
-);
+) distribute by round robin;
 
 CREATE TABLE unit (
 	un_name    char(8),       -- the primary key
 	un_fact    float          -- factor to transform to cm
-);
+) distribute by round robin;
 
 CREATE VIEW shoe AS
 	SELECT sh.shoename,
@@ -898,7 +898,7 @@ reset client_min_messages;
 -- Enforce use of COMMIT instead of 2PC for temporary objects
 SET enforce_two_phase_commit TO off;
 
-create temp table t1 (a integer primary key);
+create temp table t1 (a integer primary key) distribute by replication;
 
 create temp table t1_1 (check (a >= 0 and a < 10)) inherits (t1);
 create temp table t1_2 (check (a >= 10 and a < 20)) inherits (t1);
