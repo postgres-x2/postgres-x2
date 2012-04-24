@@ -813,9 +813,10 @@ ExecModifyTable(ModifyTableState *node)
 	/* Preload local variables */
 	resultRelInfo = node->resultRelInfo + node->mt_whichplan;
 	subplanstate = node->mt_plans[node->mt_whichplan];
-#ifdef PGXC	
+#ifdef PGXC
+	/* Initialize remote plan state */
 	remoterelstate = node->mt_remoterels[node->mt_whichplan];
-#endif	
+#endif
 	junkfilter = resultRelInfo->ri_junkFilter;
 
 	/*
@@ -826,12 +827,12 @@ ExecModifyTable(ModifyTableState *node)
 	 * CTE).  So we have to save and restore the caller's value.
 	 */
 	saved_resultRelInfo = estate->es_result_relation_info;
-#ifdef PGXC	
+#ifdef PGXC
 	saved_resultRemoteRel = estate->es_result_remoterel;
 #endif
 
 	estate->es_result_relation_info = resultRelInfo;
-#ifdef PGXC	
+#ifdef PGXC
 	estate->es_result_remoterel = remoterelstate;
 #endif
 
@@ -859,9 +860,11 @@ ExecModifyTable(ModifyTableState *node)
 			{
 				resultRelInfo++;
 				subplanstate = node->mt_plans[node->mt_whichplan];
-#ifdef PGXC				
+#ifdef PGXC
+				/* Move to next remote plan */
+				estate->es_result_remoterel = node->mt_remoterels[node->mt_whichplan];
 				remoterelstate = node->mt_plans[node->mt_whichplan];
-#endif				
+#endif
 				junkfilter = resultRelInfo->ri_junkFilter;
 				estate->es_result_relation_info = resultRelInfo;
 				EvalPlanQualSetPlan(&node->mt_epqstate, subplanstate->plan,

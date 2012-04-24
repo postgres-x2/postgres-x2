@@ -5503,6 +5503,7 @@ create_remoteinsert_plan(PlannerInfo *root, Plan *topplan)
 		char		   *nspname;
 		int				natts, att;
 		Oid 		   *att_types;
+		char		   *relname;
 
 		ttab = rt_fetch(resultRelationIndex, root->parse->rtable);
 
@@ -5520,6 +5521,7 @@ create_remoteinsert_plan(PlannerInfo *root, Plan *topplan)
 		/* Compose INSERT FROM target_table */
 		nspid = get_rel_namespace(ttab->relid);
 		nspname = get_namespace_name(nspid);
+		relname = get_rel_name(ttab->relid);
 
 		/*
 		 * Do not qualify with namespace for TEMP tables. The schema name may
@@ -5527,10 +5529,10 @@ create_remoteinsert_plan(PlannerInfo *root, Plan *topplan)
 		 */
 		if (IsTempTable(ttab->relid))
 			appendStringInfo(buf, "INSERT INTO %s (", 
-					quote_identifier(ttab->relname));
+					quote_identifier(relname));
 		else
 			appendStringInfo(buf, "INSERT INTO %s.%s (", quote_identifier(nspname),
-					quote_identifier(ttab->relname));
+					quote_identifier(relname));
 
 		fstep = make_remotequery(NIL, NIL, resultRelationIndex);
 		fstep->is_temp = IsTempTable(ttab->relid);
@@ -5651,12 +5653,15 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		ListCell	   *elt;
 		int				count = 1, where_count = 1;
 		int				natts, count_prepparams, tot_prepparams;
+		char		   *relname;
 
 		ttab = rt_fetch(resultRelationIndex, parse->rtable);
 
 		/* Bad relation ? */
 		if (ttab == NULL || ttab->rtekind != RTE_RELATION)
 			continue;
+
+		relname = get_rel_name(ttab->relid);
 
 		/* Get location info of the target table */
 		rel_loc_info = GetRelationLocInfo(ttab->relid);
@@ -5677,11 +5682,11 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		 * vary on each node
 		 */
 		if (IsTempTable(ttab->relid))
-			appendStringInfo(buf, "UPDATE %s SET ",
-							 quote_identifier(ttab->relname));
+			appendStringInfo(buf, "UPDATE ONLY %s SET ",
+							 quote_identifier(relname));
 		else
-			appendStringInfo(buf, "UPDATE %s.%s SET ", quote_identifier(nspname),
-							 quote_identifier(ttab->relname));
+			appendStringInfo(buf, "UPDATE ONLY %s.%s SET ", quote_identifier(nspname),
+							 quote_identifier(relname));
 
 		/*
 		 * Count the number of junk entries before setting the parameter type list.
@@ -5743,11 +5748,6 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 				else
 					appendStringInfoString(buf, ", ");
 
-				/* Complete string */
-				appendStringInfo(buf, "%s = $%d",
-								 tle->resname,
-								 tle->resno);
-
 				/* We need first to find the position of this element in attribute list */
 				for (i = 0; i < natts; i++)
 				{
@@ -5758,6 +5758,11 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 						break;
 					}
 				}
+
+				/* Complete string */
+				appendStringInfo(buf, "%s = $%d",
+								 tle->resname,
+								 attno);
 
 				/* Set parameter type correctly */
 				param_types[attno - 1] = exprType((Node *) tle->expr);
@@ -5951,6 +5956,7 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		bool			is_where_created = false;
 		ListCell	   *elt;
 		int				count = 1;
+		char		   *relname;
 
 		ttab = rt_fetch(resultRelationIndex, parse->rtable);
 
@@ -5969,6 +5975,7 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		/* Compose DELETE target_table */
 		nspid = get_rel_namespace(ttab->relid);
 		nspname = get_namespace_name(nspid);
+		relname = get_rel_name(ttab->relid);
 
 		/* Parameters are defined by target list */
 		nparams = list_length(parse->targetList);
@@ -5979,11 +5986,11 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		 * vary on each node.
 		 */
 		if (IsTempTable(ttab->relid))
-			appendStringInfo(buf, "DELETE FROM %s ",
-							 quote_identifier(ttab->relname));
+			appendStringInfo(buf, "DELETE FROM ONLY %s ",
+							 quote_identifier(relname));
 		else
-			appendStringInfo(buf, "DELETE FROM %s.%s ", quote_identifier(nspname),
-							 quote_identifier(ttab->relname));
+			appendStringInfo(buf, "DELETE FROM ONLY %s.%s ", quote_identifier(nspname),
+							 quote_identifier(relname));
 
 		/* Generate WHERE clause for each target list item */
 		foreach(elt, parse->targetList)
