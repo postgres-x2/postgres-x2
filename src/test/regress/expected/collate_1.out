@@ -167,14 +167,14 @@ CREATE TABLE collate_test10 (
     y text COLLATE "POSIX"
 );
 INSERT INTO collate_test10 VALUES (1, 'hij', 'hij'), (2, 'HIJ', 'HIJ');
-SELECT a, lower(x), lower(y), upper(x), upper(y), initcap(x), initcap(y) FROM collate_test10;
+SELECT a, lower(x), lower(y), upper(x), upper(y), initcap(x), initcap(y) FROM collate_test10 ORDER BY a;
  a | lower | lower | upper | upper | initcap | initcap 
 ---+-------+-------+-------+-------+---------+---------
  1 | hij   | hij   | HIJ   | HIJ   | Hij     | Hij
  2 | hij   | hij   | HIJ   | HIJ   | Hij     | Hij
 (2 rows)
 
-SELECT a, lower(x COLLATE "C"), lower(y COLLATE "C") FROM collate_test10;
+SELECT a, lower(x COLLATE "C"), lower(y COLLATE "C") FROM collate_test10 ORDER BY a;
  a | lower | lower 
 ---+-------+-------
  1 | hij   | hij
@@ -220,7 +220,7 @@ SELECT a, coalesce(b, 'foo') FROM collate_test2 ORDER BY 2;
  3 | bbc
 (4 rows)
 
-SELECT a, lower(coalesce(x, 'foo')), lower(coalesce(y, 'foo')) FROM collate_test10;
+SELECT a, lower(coalesce(x, 'foo')), lower(coalesce(y, 'foo')) FROM collate_test10 ORDER BY a;
  a | lower | lower 
 ---+-------+-------
  1 | hij   | hij
@@ -245,7 +245,7 @@ SELECT a, b, greatest(b, 'CCC') FROM collate_test2 ORDER BY 3,1;
  3 | bbc | bbc
 (4 rows)
 
-SELECT a, x, y, lower(greatest(x, 'foo')), lower(greatest(y, 'foo')) FROM collate_test10;
+SELECT a, x, y, lower(greatest(x, 'foo')), lower(greatest(y, 'foo')) FROM collate_test10 ORDER BY a;
  a |  x  |  y  | lower | lower 
 ---+-----+-----+-------+-------
  1 | hij | hij | hij   | hij
@@ -270,7 +270,7 @@ SELECT a, nullif(b, 'abc') FROM collate_test2 ORDER BY 2;
  1 | 
 (4 rows)
 
-SELECT a, lower(nullif(x, 'foo')), lower(nullif(y, 'foo')) FROM collate_test10;
+SELECT a, lower(nullif(x, 'foo')), lower(nullif(y, 'foo')) FROM collate_test10 ORDER BY a;
  a | lower | lower 
 ---+-------+-------
  1 | hij   | hij
@@ -323,7 +323,7 @@ SELECT a, b::testdomain_p FROM collate_test2 ORDER BY 2;
  3 | bbc
 (4 rows)
 
-SELECT a, lower(x::testdomain), lower(y::testdomain) FROM collate_test10;
+SELECT a, lower(x::testdomain), lower(y::testdomain) FROM collate_test10 ORDER BY 2;
  a | lower | lower 
 ---+-------+-------
  1 | hij   | hij
@@ -394,7 +394,7 @@ SELECT a, b FROM collate_test2 EXCEPT SELECT a, b FROM collate_test2 WHERE a < 2
 SELECT a, b FROM collate_test1 UNION ALL SELECT a, b FROM collate_test2 ORDER BY 2; -- fail
 ERROR:  could not determine which collation to use for string comparison
 HINT:  Use the COLLATE clause to set the collation explicitly.
-SELECT a, b FROM collate_test1 UNION ALL SELECT a, b FROM collate_test2; -- ok
+(SELECT a, b FROM collate_test1 ORDER BY 1) UNION ALL (SELECT a, b FROM collate_test2 ORDER BY 1); -- ok
  a |  b  
 ---+-----
  1 | abc
@@ -458,7 +458,7 @@ LINE 2:    (SELECT x FROM (VALUES('a' COLLATE "C"),('b')) t(x)
                    ^
 HINT:  Use the COLLATE clause to set the collation of the non-recursive term.
 SELECT a, b, a < b as lt FROM
-  (VALUES ('a', 'B'), ('A', 'b' COLLATE "C")) v(a,b);
+  (VALUES ('a', 'B'), ('A', 'b' COLLATE "C")) v(a,b) ORDER BY a;
  a | b | lt 
 ---+---+----
  a | B | f

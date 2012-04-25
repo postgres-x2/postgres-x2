@@ -84,8 +84,8 @@ CREATE TABLE collate_test10 (
 
 INSERT INTO collate_test10 VALUES (1, 'hij', 'hij'), (2, 'HIJ', 'HIJ');
 
-SELECT a, lower(x), lower(y), upper(x), upper(y), initcap(x), initcap(y) FROM collate_test10;
-SELECT a, lower(x COLLATE "C"), lower(y COLLATE "C") FROM collate_test10;
+SELECT a, lower(x), lower(y), upper(x), upper(y), initcap(x), initcap(y) FROM collate_test10 ORDER BY a;
+SELECT a, lower(x COLLATE "C"), lower(y COLLATE "C") FROM collate_test10 ORDER BY a;
 
 SELECT a, x, y FROM collate_test10 ORDER BY lower(y), a;
 
@@ -103,15 +103,15 @@ SELECT table_name, view_definition FROM information_schema.views
 
 SELECT a, coalesce(b, 'foo') FROM collate_test1 ORDER BY 2;
 SELECT a, coalesce(b, 'foo') FROM collate_test2 ORDER BY 2;
-SELECT a, lower(coalesce(x, 'foo')), lower(coalesce(y, 'foo')) FROM collate_test10;
+SELECT a, lower(coalesce(x, 'foo')), lower(coalesce(y, 'foo')) FROM collate_test10 ORDER BY a;
 
 SELECT a, b, greatest(b, 'CCC') FROM collate_test1 ORDER BY 3,1;
 SELECT a, b, greatest(b, 'CCC') FROM collate_test2 ORDER BY 3,1;
-SELECT a, x, y, lower(greatest(x, 'foo')), lower(greatest(y, 'foo')) FROM collate_test10;
+SELECT a, x, y, lower(greatest(x, 'foo')), lower(greatest(y, 'foo')) FROM collate_test10 ORDER BY a;
 
 SELECT a, nullif(b, 'abc') FROM collate_test1 ORDER BY 2;
 SELECT a, nullif(b, 'abc') FROM collate_test2 ORDER BY 2;
-SELECT a, lower(nullif(x, 'foo')), lower(nullif(y, 'foo')) FROM collate_test10;
+SELECT a, lower(nullif(x, 'foo')), lower(nullif(y, 'foo')) FROM collate_test10 ORDER BY a;
 
 SELECT a, CASE b WHEN 'abc' THEN 'abcd' ELSE b END FROM collate_test1 ORDER BY 2;
 SELECT a, CASE b WHEN 'abc' THEN 'abcd' ELSE b END FROM collate_test2 ORDER BY 2;
@@ -120,7 +120,7 @@ CREATE DOMAIN testdomain AS text;
 SELECT a, b::testdomain FROM collate_test1 ORDER BY 2;
 SELECT a, b::testdomain FROM collate_test2 ORDER BY 2;
 SELECT a, b::testdomain_p FROM collate_test2 ORDER BY 2;
-SELECT a, lower(x::testdomain), lower(y::testdomain) FROM collate_test10;
+SELECT a, lower(x::testdomain), lower(y::testdomain) FROM collate_test10 ORDER BY 2;
 
 SELECT min(b), max(b) FROM collate_test1;
 SELECT min(b), max(b) FROM collate_test2;
@@ -134,7 +134,7 @@ SELECT a, b FROM collate_test2 WHERE a < 4 INTERSECT SELECT a, b FROM collate_te
 SELECT a, b FROM collate_test2 EXCEPT SELECT a, b FROM collate_test2 WHERE a < 2 ORDER BY 2;
 
 SELECT a, b FROM collate_test1 UNION ALL SELECT a, b FROM collate_test2 ORDER BY 2; -- fail
-SELECT a, b FROM collate_test1 UNION ALL SELECT a, b FROM collate_test2; -- ok
+(SELECT a, b FROM collate_test1 ORDER BY 1) UNION ALL (SELECT a, b FROM collate_test2 ORDER BY 1); -- ok
 SELECT a, b FROM collate_test1 UNION SELECT a, b FROM collate_test2 ORDER BY 2; -- fail
 SELECT a, b COLLATE "C" FROM collate_test1 UNION SELECT a, b FROM collate_test2 ORDER BY 2; -- ok
 SELECT a, b FROM collate_test1 INTERSECT SELECT a, b FROM collate_test2 ORDER BY 2; -- fail
@@ -155,7 +155,7 @@ WITH RECURSIVE foo(x) AS
 SELECT * FROM foo;
 
 SELECT a, b, a < b as lt FROM
-  (VALUES ('a', 'B'), ('A', 'b' COLLATE "C")) v(a,b);
+  (VALUES ('a', 'B'), ('A', 'b' COLLATE "C")) v(a,b) ORDER BY a;
 
 
 -- casting
