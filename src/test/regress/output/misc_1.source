@@ -153,6 +153,14 @@ SELECT class, a
 -------+----
  c     |  5
  c     |   
+ d     |  7
+ d     |  8
+ d     | 10
+ d     | 12
+ d     |   
+ d     |   
+ d     |   
+ d     |   
  e     | 15
  e     | 16
  e     |   
@@ -165,7 +173,7 @@ SELECT class, a
  f     |   
  f     |   
  f     |   
-(14 rows)
+(22 rows)
 
 SELECT class, b, c
    FROM d_star* x
@@ -369,6 +377,7 @@ SELECT * FROM e_star* ORDER BY 1,2,3,4;
 (23 rows)
 
 ALTER TABLE a_star* ADD COLUMN a text;
+NOTICE:  merging definition of column "a" for child "d_star"
 -- That ALTER TABLE should have added TOAST tables.
 SELECT relname, reltoastrelid <> 0 AS has_toast_table
    FROM pg_class
@@ -596,6 +605,7 @@ SELECT user_relns() AS user_relns
  circle_tbl
  city
  copy_tbl
+ d
  d_star
  date_tbl
  default_seq
@@ -607,7 +617,6 @@ SELECT user_relns() AS user_relns
  equipment_r
  f_star
  fast_emp4000
- firstparent
  float4_tbl
  float8_tbl
  foobar
@@ -656,7 +665,6 @@ SELECT user_relns() AS user_relns
  real_city
  reltime_tbl
  road
- secondparent
  shighway
  slow_emp4000
  street
@@ -667,7 +675,6 @@ SELECT user_relns() AS user_relns
  tenk2
  test_tsvector
  text_tbl
- thirdparent
  time_tbl
  timestamp_tbl
  timestamptz_tbl
@@ -676,7 +683,7 @@ SELECT user_relns() AS user_relns
  toyemp
  varchar_tbl
  xacttest
-(105 rows)
+(103 rows)
 
 SELECT name(equipment(hobby_construct(text 'skywalking', text 'mer')));
  name 

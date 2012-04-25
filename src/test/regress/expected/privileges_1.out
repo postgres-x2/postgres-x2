@@ -377,10 +377,8 @@ SET SESSION AUTHORIZATION regressuser1;
 CREATE TABLE atestp1 (f1 int, f2 int) WITH OIDS;
 CREATE TABLE atestp2 (fx int, fy int) WITH OIDS;
 CREATE TABLE atestc (fz int) INHERITS (atestp1, atestp2);
-ERROR:  Cannot currently distribute a table with more than one parent.
 GRANT SELECT(fx,fy,oid) ON atestp2 TO regressuser2;
 GRANT SELECT(fx) ON atestc TO regressuser2;
-ERROR:  relation "atestc" does not exist
 SET SESSION AUTHORIZATION regressuser2;
 SELECT fx FROM atestp2; -- ok
  fx 
@@ -388,27 +386,15 @@ SELECT fx FROM atestp2; -- ok
 (0 rows)
 
 SELECT fy FROM atestp2; -- ok
- fy 
-----
-(0 rows)
-
+ERROR:  permission denied for relation atestc
 SELECT atestp2 FROM atestp2; -- ok
- atestp2 
----------
-(0 rows)
-
+ERROR:  permission denied for relation atestc
 SELECT oid FROM atestp2; -- ok
- oid 
------
-(0 rows)
-
+ERROR:  permission denied for relation atestc
 SELECT fy FROM atestc; -- fail
-ERROR:  relation "atestc" does not exist
-LINE 1: SELECT fy FROM atestc;
-                       ^
+ERROR:  permission denied for relation atestc
 SET SESSION AUTHORIZATION regressuser1;
 GRANT SELECT(fy,oid) ON atestc TO regressuser2;
-ERROR:  relation "atestc" does not exist
 SET SESSION AUTHORIZATION regressuser2;
 SELECT fx FROM atestp2; -- still ok
  fx 
@@ -421,10 +407,7 @@ SELECT fy FROM atestp2; -- ok
 (0 rows)
 
 SELECT atestp2 FROM atestp2; -- ok
- atestp2 
----------
-(0 rows)
-
+ERROR:  permission denied for relation atestc
 SELECT oid FROM atestp2; -- ok
  oid 
 -----
@@ -1170,7 +1153,6 @@ DROP TABLE atest4;
 DROP TABLE atest5;
 DROP TABLE atest6;
 DROP TABLE atestc;
-ERROR:  table "atestc" does not exist
 DROP TABLE atestp1;
 DROP TABLE atestp2;
 SELECT lo_unlink(oid) FROM pg_largeobject_metadata;

@@ -963,76 +963,29 @@ AddRelationDistribution(Oid relid,
 	if (!distributeby)
 	{
 		/* 
-		 * No distribution specified.
-		 * See if we are a child table, and get distribution information
-		 * from there.
+		 * If no distribution was specified, and we have not chosen
+		 * one based on primary key or foreign key, use first column with
+		 * a supported data type.
 		 */
-		if (list_length(parentOids) > 1)
-		{
-			ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("Cannot currently distribute a table with more than one parent.")));
-		}
-		else if (list_length(parentOids) == 1)
-		{
-			/* 
-			 * Use parent's distribution
-			 */
-			int parentOid;
-			RelationLocInfo *rel_loc_info;
+		Form_pg_attribute attr;
+		int i;
 
-			parentOid = linitial_oid(parentOids);
-			rel_loc_info = GetRelationLocInfo(parentOid);
-			if (rel_loc_info)
-				locatortype = rel_loc_info->locatorType;
-			else
-				locatortype = LOCATOR_TYPE_REPLICATED;
+		locatortype = LOCATOR_TYPE_HASH;
 
-			switch (locatortype)
+		for (i = 0; i < descriptor->natts; i++)
+		{
+			attr = descriptor->attrs[i];
+			if (IsHashDistributable(attr->atttypid))
 			{
-				case LOCATOR_TYPE_HASH:
-				case LOCATOR_TYPE_MODULO:
-					attnum = rel_loc_info->partAttrNum;
-					break;
-
-				case LOCATOR_TYPE_REPLICATED:
-				case LOCATOR_TYPE_RROBIN:
-					break;
-
-				default:
-					ereport(ERROR,
-						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-						 errmsg("Invalid parent table distribution type")));
-					break;
+				/* distribute on this column */
+				attnum = i + 1;
+				break;
 			}
 		}
-		else
-		{
-			/* 
-			 * If no distribution was specified, and we have not chosen
-			 * one based on primary key or foreign key, use first column with
-			 * a supported data type.
-			 */
-			Form_pg_attribute attr;
-			int i;
 
-			locatortype = LOCATOR_TYPE_HASH;
-
-			for (i = 0; i < descriptor->natts; i++)
-			{
-				attr = descriptor->attrs[i];
-				if (IsHashDistributable(attr->atttypid))
-				{
-					/* distribute on this column */
-					attnum = i + 1;
-					break;
-				}
-			}
-
-			/* If we did not find a usable type, fall back to round robin */
-			if (attnum == 0)
-				locatortype = LOCATOR_TYPE_RROBIN;
-		}
+		/* If we did not find a usable type, fall back to round robin */
+		if (attnum == 0)
+			locatortype = LOCATOR_TYPE_RROBIN;
 	}
 	else 
 	{

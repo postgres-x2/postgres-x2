@@ -84,11 +84,6 @@ CREATE TABLE stud_emp (
 NOTICE:  merging multiple inherited definitions of column "name"
 NOTICE:  merging multiple inherited definitions of column "age"
 NOTICE:  merging multiple inherited definitions of column "location"
-ERROR:  Cannot currently distribute a table with more than one parent.
-CREATE TABLE stud_emp (
-	gpa 		float8,
-	percent 	int4
-) INHERITS (emp);
 CREATE TABLE city (
 	name		name,
 	location 	box,
@@ -142,11 +137,6 @@ CREATE TABLE d_star (
 ) INHERITS (b_star, c_star);
 NOTICE:  merging multiple inherited definitions of column "class"
 NOTICE:  merging multiple inherited definitions of column "a"
-ERROR:  Cannot currently distribute a table with more than one parent.
-CREATE TABLE d_star (
-	c 			name,
-	d 			float8
-) INHERITS (b_star);
 CREATE TABLE e_star (
 	e 			int2
 ) INHERITS (c_star);

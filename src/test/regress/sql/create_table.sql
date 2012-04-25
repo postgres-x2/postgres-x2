@@ -95,11 +95,6 @@ CREATE TABLE stud_emp (
 	percent 	int4
 ) INHERITS (emp, student);
 
-CREATE TABLE stud_emp (
-	gpa 		float8,
-	percent 	int4
-) INHERITS (emp);
-
 CREATE TABLE city (
 	name		name,
 	location 	box,
@@ -162,11 +157,6 @@ CREATE TABLE c_star (
 CREATE TABLE d_star (
 	d 			float8
 ) INHERITS (b_star, c_star);
-
-CREATE TABLE d_star (
-	c 			name,
-	d 			float8
-) INHERITS (b_star);
 
 CREATE TABLE e_star (
 	e 			int2

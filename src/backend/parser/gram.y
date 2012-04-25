@@ -2427,11 +2427,6 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 /* PGXC_BEGIN */
 					n->distributeby = $12;
 					n->subcluster = $13;
-					if (n->inhRelations != NULL && n->distributeby != NULL)
-						ereport(ERROR,
-								(errcode(ERRCODE_SYNTAX_ERROR),
-								 errmsg("CREATE TABLE cannot contains both an INHERITS and a DISTRIBUTE BY clause"),
-								 parser_errposition(exprLocation((Node *) n->distributeby))));
 /* PGXC_END */
 					$$ = (Node *)n;
 				}

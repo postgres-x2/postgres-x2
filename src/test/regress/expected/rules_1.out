@@ -1526,8 +1526,8 @@ reset client_min_messages;
 SET enforce_two_phase_commit TO off;
 create temp table t1 (a integer primary key) distribute by replication;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "t1_pkey" for table "t1"
-create temp table t1_1 (check (a >= 0 and a < 10)) inherits (t1);
-create temp table t1_2 (check (a >= 10 and a < 20)) inherits (t1);
+create temp table t1_1 (check (a >= 0 and a < 10)) inherits (t1) distribute by replication;
+create temp table t1_2 (check (a >= 10 and a < 20)) inherits (t1) distribute by replication;
 create rule t1_ins_1 as on insert to t1
 	where new.a >= 0 and new.a < 10
 	do instead
