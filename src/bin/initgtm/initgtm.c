@@ -60,11 +60,11 @@ static int	output_errno = 0;
 static bool is_gtm = true; /* GTM or proxy */
 
 /* defaults for all nodes */
-static int	n_port = 6667;
+static int	n_port = 6666;
 static char	*n_name = "one";
 
-/* defaults for proxies */
-static int	gtm_port = 6666;
+/* defaults for proxies - connection parameters to GTM */
+static int	gtm_port = 6668;
 static char *gtm_host = "localhost";
 
 /* path to 'initgtm' binary directory */
