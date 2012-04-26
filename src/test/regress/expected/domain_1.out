@@ -622,13 +622,12 @@ insert into op values (array[1,2]);
 insert into op values (array[2,1]);  -- fail
 ERROR:  value for domain orderedpair violates check constraint "orderedpair_check"
 update op set f1[2] = 3;
-ERROR:  syntax error at or near ":="
 update op set f1[2] = 0;  -- fail
-ERROR:  syntax error at or near ":="
+ERROR:  value for domain orderedpair violates check constraint "orderedpair_check"
 select * from op;
   f1   
 -------
- {1,2}
+ {1,3}
 (1 row)
 
 create or replace function array_elem_check(int) returns int as $$
