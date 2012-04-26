@@ -7,8 +7,8 @@ SET enforce_two_phase_commit TO off;
 
 CREATE TABLE a (aa TEXT) distribute by round robin;
 CREATE TABLE b (bb TEXT) INHERITS (a) distribute by round robin;
-CREATE TABLE c (cc TEXT) INHERITS (a);
-CREATE TABLE d (dd TEXT) INHERITS (b,c,a);
+CREATE TABLE c (cc TEXT) INHERITS (a) distribute by round robin;
+CREATE TABLE d (dd TEXT) INHERITS (b,c,a) distribute by round robin;
 
 INSERT INTO a(aa) VALUES('aaa');
 INSERT INTO a(aa) VALUES('aaaa');
@@ -46,6 +46,18 @@ SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid ORDER 
 SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
 SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
 SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
+-- In Postgres-XC OIDs are not consistent across the cluster. Hence above
+-- queries do not show any result. Hence in order to ensure data consistency, we
+-- add following SQLs. In case above set of queries start producing valid
+-- results in XC, we should remove the following set
+SELECT * FROM a ORDER BY a.aa;
+SELECT * from b ORDER BY b.aa;
+SELECT * FROM c ORDER BY c.aa;
+SELECT * from d ORDER BY d.aa;
+SELECT * FROM ONLY a ORDER BY a.aa;
+SELECT * from ONLY b ORDER BY b.aa;
+SELECT * FROM ONLY c ORDER BY c.aa;
+SELECT * from ONLY d ORDER BY d.aa;
 
 UPDATE a SET aa='zzzz' WHERE aa='aaaa';
 UPDATE ONLY a SET aa='zzzzz' WHERE aa='aaaaa';
@@ -61,6 +73,18 @@ SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid ORDER 
 SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
 SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
 SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
+-- In Postgres-XC OIDs are not consistent across the cluster. Hence above
+-- queries do not show any result. Hence in order to ensure data consistency, we
+-- add following SQLs. In case above set of queries start producing valid
+-- results in XC, we should remove the following set
+SELECT * FROM a ORDER BY a.aa;
+SELECT * from b ORDER BY b.aa;
+SELECT * FROM c ORDER BY c.aa;
+SELECT * from d ORDER BY d.aa;
+SELECT * FROM ONLY a ORDER BY a.aa;
+SELECT * from ONLY b ORDER BY b.aa;
+SELECT * FROM ONLY c ORDER BY c.aa;
+SELECT * from ONLY d ORDER BY d.aa;
 
 UPDATE b SET aa='new';
 
@@ -72,6 +96,18 @@ SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid ORDER 
 SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
 SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
 SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
+-- In Postgres-XC OIDs are not consistent across the cluster. Hence above
+-- queries do not show any result. Hence in order to ensure data consistency, we
+-- add following SQLs. In case above set of queries start producing valid
+-- results in XC, we should remove the following set
+SELECT * FROM a ORDER BY a.aa;
+SELECT * from b ORDER BY b.aa;
+SELECT * FROM c ORDER BY c.aa;
+SELECT * from d ORDER BY d.aa;
+SELECT * FROM ONLY a ORDER BY a.aa;
+SELECT * from ONLY b ORDER BY b.aa;
+SELECT * FROM ONLY c ORDER BY c.aa;
+SELECT * from ONLY d ORDER BY d.aa;
 
 UPDATE a SET aa='new';
 
@@ -85,6 +121,18 @@ SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid ORDER 
 SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
 SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
 SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
+-- In Postgres-XC OIDs are not consistent across the cluster. Hence above
+-- queries do not show any result. Hence in order to ensure data consistency, we
+-- add following SQLs. In case above set of queries start producing valid
+-- results in XC, we should remove the following set
+SELECT * FROM a ORDER BY a.aa;
+SELECT * from b ORDER BY b.aa;
+SELECT * FROM c ORDER BY c.aa;
+SELECT * from d ORDER BY d.aa;
+SELECT * FROM ONLY a ORDER BY a.aa;
+SELECT * from ONLY b ORDER BY b.aa;
+SELECT * FROM ONLY c ORDER BY c.aa;
+SELECT * from ONLY d ORDER BY d.aa;
 
 DELETE FROM a;
 
@@ -96,6 +144,18 @@ SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid ORDER 
 SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
 SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
 SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
+-- In Postgres-XC OIDs are not consistent across the cluster. Hence above
+-- queries do not show any result. Hence in order to ensure data consistency, we
+-- add following SQLs. In case above set of queries start producing valid
+-- results in XC, we should remove the following set
+SELECT * FROM a ORDER BY a.aa;
+SELECT * from b ORDER BY b.aa;
+SELECT * FROM c ORDER BY c.aa;
+SELECT * from d ORDER BY d.aa;
+SELECT * FROM ONLY a ORDER BY a.aa;
+SELECT * from ONLY b ORDER BY b.aa;
+SELECT * FROM ONLY c ORDER BY c.aa;
+SELECT * from ONLY d ORDER BY d.aa;
 
 -- Confirm PRIMARY KEY adds NOT NULL constraint to child table
 CREATE TEMP TABLE z (b TEXT, PRIMARY KEY(aa, b)) inherits (a);
@@ -124,6 +184,13 @@ update bar set f2 = f2 + 100 where f1 in (select f1 from foo);
 
 SELECT relname, bar.* FROM bar, pg_class where bar.tableoid = pg_class.oid
 order by 1,2;
+-- In Postgres-XC OIDs are not consistent across the cluster. Hence above
+-- queries do not show any result. Hence in order to ensure data consistency, we
+-- add following SQLs. In case above set of queries start producing valid
+-- results in XC, we should remove the following set
+SELECT * FROM bar ORDER BY f1, f2;
+SELECT * FROM ONLY bar ORDER BY f1, f2;
+SELECT * FROM bar2 ORDER BY f1, f2;
 
 /* Test multiple inheritance of column defaults */
 
@@ -164,23 +231,23 @@ ALTER TABLE inhx ADD PRIMARY KEY (xx);
 CREATE TABLE inhg (LIKE inhx); /* Doesn't copy constraint */
 INSERT INTO inhg VALUES ('foo');
 DROP TABLE inhg;
-CREATE TABLE inhg (x text, LIKE inhx INCLUDING CONSTRAINTS, y text); /* Copies constraints */
+CREATE TABLE inhg (x text, LIKE inhx INCLUDING CONSTRAINTS, y text) distribute by replication; /* Copies constraints */
 INSERT INTO inhg VALUES ('x', 'text', 'y'); /* Succeeds */
 INSERT INTO inhg VALUES ('x', 'text', 'y'); /* Succeeds -- Unique constraints not copied */
 INSERT INTO inhg VALUES ('x', 'foo',  'y');  /* fails due to constraint */
 SELECT * FROM inhg ORDER BY 1,2,3; /* Two records with three columns in order x=x, xx=text, y=y */
 DROP TABLE inhg;
 
-CREATE TABLE inhg (x text, LIKE inhx INCLUDING INDEXES, y text); /* copies indexes */
+CREATE TABLE inhg (x text, LIKE inhx INCLUDING INDEXES, y text) distribute by replication; /* copies indexes */
 INSERT INTO inhg VALUES (5, 10);
 INSERT INTO inhg VALUES (20, 10); -- should fail
 DROP TABLE inhg;
 /* Multiple primary keys creation should fail */
 CREATE TABLE inhg (x text, LIKE inhx INCLUDING INDEXES, PRIMARY KEY(x)); /* fails */
-CREATE TABLE inhz (xx text DEFAULT 'text', yy int UNIQUE);
+CREATE TABLE inhz (xx text DEFAULT 'text', yy int UNIQUE) distribute by replication;
 CREATE UNIQUE INDEX inhz_xx_idx on inhz (xx) WHERE xx <> 'test';
 /* Ok to create multiple unique indexes */
-CREATE TABLE inhg (x text UNIQUE, LIKE inhz INCLUDING INDEXES);
+CREATE TABLE inhg (x text UNIQUE, LIKE inhz INCLUDING INDEXES) distribute by replication;
 INSERT INTO inhg (xx, yy, x) VALUES ('test', 5, 10);
 INSERT INTO inhg (xx, yy, x) VALUES ('test', 10, 15);
 INSERT INTO inhg (xx, yy, x) VALUES ('foo', 10, 15); -- should fail
@@ -337,16 +404,7 @@ SELECT c.relname, objsubid, description FROM pg_description, pg_index i, pg_clas
 CREATE TABLE inh_error1 () INHERITS (t1, t4);
 CREATE TABLE inh_error2 (LIKE t4 INCLUDING STORAGE) INHERITS (t1);
 
-DROP TABLE t1;
-DROP TABLE t2;
-DROP TABLE t3;
-DROP TABLE t4;
-DROP TABLE t12_storage;
-DROP TABLE t12_comments;
-DROP TABLE t1_inh;
-DROP TABLE t13_inh;
-DROP TABLE t13_like;
-DROP TABLE t_all;
+DROP TABLE t1, t2, t3, t4, t12_storage, t12_comments, t1_inh, t13_inh, t13_like, t_all;
 
 -- Test for renaming in simple multiple inheritance
 CREATE TABLE t1 (a int, b int);
@@ -409,12 +467,12 @@ insert into matest3 (name) values ('Test 5');
 insert into matest3 (name) values ('Test 6');
 
 set enable_indexscan = off;  -- force use of seqscan/sort, so no merge
-explain (verbose, costs off) select * from matest0 order by 1-id;
+explain (verbose, costs off, nodes off) select * from matest0 order by 1-id;
 select * from matest0 order by 1-id;
 reset enable_indexscan;
 
 set enable_seqscan = off;  -- plan with fewest seqscans should be merge
-explain (verbose, costs off) select * from matest0 order by 1-id;
+explain (verbose, costs off, nodes off) select * from matest0 order by 1-id;
 select * from matest0 order by 1-id;
 reset enable_seqscan;
 

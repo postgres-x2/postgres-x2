@@ -3,10 +3,10 @@
 --
 -- Enforce use of COMMIT instead of 2PC for temporary objects
 SET enforce_two_phase_commit TO off;
-CREATE TABLE a (aa TEXT);
-CREATE TABLE b (bb TEXT) INHERITS (a);
-CREATE TABLE c (cc TEXT) INHERITS (a);
-CREATE TABLE d (dd TEXT) INHERITS (b,c,a);
+CREATE TABLE a (aa TEXT) distribute by round robin;
+CREATE TABLE b (bb TEXT) INHERITS (a) distribute by round robin;
+CREATE TABLE c (cc TEXT) INHERITS (a) distribute by round robin;
+CREATE TABLE d (dd TEXT) INHERITS (b,c,a) distribute by round robin;
 NOTICE:  merging multiple inherited definitions of column "aa"
 NOTICE:  merging multiple inherited definitions of column "aa"
 INSERT INTO a(aa) VALUES('aaa');
@@ -151,6 +151,128 @@ SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER 
  d       | dddddddd |    |    | 
 (6 rows)
 
+-- In Postgres-XC OIDs are not consistent across the cluster. Hence above
+-- queries do not show any result. Hence in order to ensure data consistency, we
+-- add following SQLs. In case above set of queries start producing valid
+-- results in XC, we should remove the following set
+SELECT * FROM a ORDER BY a.aa;
+    aa    
+----------
+ aaa
+ aaaa
+ aaaaa
+ aaaaaa
+ aaaaaaa
+ aaaaaaaa
+ bbb
+ bbbb
+ bbbbb
+ bbbbbb
+ bbbbbbb
+ bbbbbbbb
+ ccc
+ cccc
+ ccccc
+ cccccc
+ ccccccc
+ cccccccc
+ ddd
+ dddd
+ ddddd
+ dddddd
+ ddddddd
+ dddddddd
+(24 rows)
+
+SELECT * from b ORDER BY b.aa;
+    aa    | bb 
+----------+----
+ bbb      | 
+ bbbb     | 
+ bbbbb    | 
+ bbbbbb   | 
+ bbbbbbb  | 
+ bbbbbbbb | 
+ ddd      | 
+ dddd     | 
+ ddddd    | 
+ dddddd   | 
+ ddddddd  | 
+ dddddddd | 
+(12 rows)
+
+SELECT * FROM c ORDER BY c.aa;
+    aa    | cc 
+----------+----
+ ccc      | 
+ cccc     | 
+ ccccc    | 
+ cccccc   | 
+ ccccccc  | 
+ cccccccc | 
+ ddd      | 
+ dddd     | 
+ ddddd    | 
+ dddddd   | 
+ ddddddd  | 
+ dddddddd | 
+(12 rows)
+
+SELECT * from d ORDER BY d.aa;
+    aa    | bb | cc | dd 
+----------+----+----+----
+ ddd      |    |    | 
+ dddd     |    |    | 
+ ddddd    |    |    | 
+ dddddd   |    |    | 
+ ddddddd  |    |    | 
+ dddddddd |    |    | 
+(6 rows)
+
+SELECT * FROM ONLY a ORDER BY a.aa;
+    aa    
+----------
+ aaa
+ aaaa
+ aaaaa
+ aaaaaa
+ aaaaaaa
+ aaaaaaaa
+(6 rows)
+
+SELECT * from ONLY b ORDER BY b.aa;
+    aa    | bb 
+----------+----
+ bbb      | 
+ bbbb     | 
+ bbbbb    | 
+ bbbbbb   | 
+ bbbbbbb  | 
+ bbbbbbbb | 
+(6 rows)
+
+SELECT * FROM ONLY c ORDER BY c.aa;
+    aa    | cc 
+----------+----
+ ccc      | 
+ cccc     | 
+ ccccc    | 
+ cccccc   | 
+ ccccccc  | 
+ cccccccc | 
+(6 rows)
+
+SELECT * from ONLY d ORDER BY d.aa;
+    aa    | bb | cc | dd 
+----------+----+----+----
+ ddd      |    |    | 
+ dddd     |    |    | 
+ ddddd    |    |    | 
+ dddddd   |    |    | 
+ ddddddd  |    |    | 
+ dddddddd |    |    | 
+(6 rows)
+
 UPDATE a SET aa='zzzz' WHERE aa='aaaa';
 UPDATE ONLY a SET aa='zzzzz' WHERE aa='aaaaa';
 UPDATE b SET aa='zzz' WHERE aa='aaa';
@@ -274,6 +396,128 @@ SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER 
  d       | dddddddd |    |    | 
 (6 rows)
 
+-- In Postgres-XC OIDs are not consistent across the cluster. Hence above
+-- queries do not show any result. Hence in order to ensure data consistency, we
+-- add following SQLs. In case above set of queries start producing valid
+-- results in XC, we should remove the following set
+SELECT * FROM a ORDER BY a.aa;
+    aa    
+----------
+ bbb
+ bbbb
+ bbbbb
+ bbbbbb
+ bbbbbbb
+ bbbbbbbb
+ ccc
+ cccc
+ ccccc
+ cccccc
+ ccccccc
+ cccccccc
+ ddd
+ dddd
+ ddddd
+ dddddd
+ ddddddd
+ dddddddd
+ zzzz
+ zzzzz
+ zzzzzz
+ zzzzzz
+ zzzzzz
+ zzzzzz
+(24 rows)
+
+SELECT * from b ORDER BY b.aa;
+    aa    | bb 
+----------+----
+ bbb      | 
+ bbbb     | 
+ bbbbb    | 
+ bbbbbb   | 
+ bbbbbbb  | 
+ bbbbbbbb | 
+ ddd      | 
+ dddd     | 
+ ddddd    | 
+ dddddd   | 
+ ddddddd  | 
+ dddddddd | 
+(12 rows)
+
+SELECT * FROM c ORDER BY c.aa;
+    aa    | cc 
+----------+----
+ ccc      | 
+ cccc     | 
+ ccccc    | 
+ cccccc   | 
+ ccccccc  | 
+ cccccccc | 
+ ddd      | 
+ dddd     | 
+ ddddd    | 
+ dddddd   | 
+ ddddddd  | 
+ dddddddd | 
+(12 rows)
+
+SELECT * from d ORDER BY d.aa;
+    aa    | bb | cc | dd 
+----------+----+----+----
+ ddd      |    |    | 
+ dddd     |    |    | 
+ ddddd    |    |    | 
+ dddddd   |    |    | 
+ ddddddd  |    |    | 
+ dddddddd |    |    | 
+(6 rows)
+
+SELECT * FROM ONLY a ORDER BY a.aa;
+   aa   
+--------
+ zzzz
+ zzzzz
+ zzzzzz
+ zzzzzz
+ zzzzzz
+ zzzzzz
+(6 rows)
+
+SELECT * from ONLY b ORDER BY b.aa;
+    aa    | bb 
+----------+----
+ bbb      | 
+ bbbb     | 
+ bbbbb    | 
+ bbbbbb   | 
+ bbbbbbb  | 
+ bbbbbbbb | 
+(6 rows)
+
+SELECT * FROM ONLY c ORDER BY c.aa;
+    aa    | cc 
+----------+----
+ ccc      | 
+ cccc     | 
+ ccccc    | 
+ cccccc   | 
+ ccccccc  | 
+ cccccccc | 
+(6 rows)
+
+SELECT * from ONLY d ORDER BY d.aa;
+    aa    | bb | cc | dd 
+----------+----+----+----
+ ddd      |    |    | 
+ dddd     |    |    | 
+ ddddd    |    |    | 
+ dddddd   |    |    | 
+ ddddddd  |    |    | 
+ dddddddd |    |    | 
+(6 rows)
+
 UPDATE b SET aa='new';
 SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid ORDER BY relname, a.aa;
  relname |    aa    
@@ -393,6 +637,128 @@ SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER 
  d       | new |    |    | 
 (6 rows)
 
+-- In Postgres-XC OIDs are not consistent across the cluster. Hence above
+-- queries do not show any result. Hence in order to ensure data consistency, we
+-- add following SQLs. In case above set of queries start producing valid
+-- results in XC, we should remove the following set
+SELECT * FROM a ORDER BY a.aa;
+    aa    
+----------
+ ccc
+ cccc
+ ccccc
+ cccccc
+ ccccccc
+ cccccccc
+ new
+ new
+ new
+ new
+ new
+ new
+ new
+ new
+ new
+ new
+ new
+ new
+ zzzz
+ zzzzz
+ zzzzzz
+ zzzzzz
+ zzzzzz
+ zzzzzz
+(24 rows)
+
+SELECT * from b ORDER BY b.aa;
+ aa  | bb 
+-----+----
+ new | 
+ new | 
+ new | 
+ new | 
+ new | 
+ new | 
+ new | 
+ new | 
+ new | 
+ new | 
+ new | 
+ new | 
+(12 rows)
+
+SELECT * FROM c ORDER BY c.aa;
+    aa    | cc 
+----------+----
+ ccc      | 
+ cccc     | 
+ ccccc    | 
+ cccccc   | 
+ ccccccc  | 
+ cccccccc | 
+ new      | 
+ new      | 
+ new      | 
+ new      | 
+ new      | 
+ new      | 
+(12 rows)
+
+SELECT * from d ORDER BY d.aa;
+ aa  | bb | cc | dd 
+-----+----+----+----
+ new |    |    | 
+ new |    |    | 
+ new |    |    | 
+ new |    |    | 
+ new |    |    | 
+ new |    |    | 
+(6 rows)
+
+SELECT * FROM ONLY a ORDER BY a.aa;
+   aa   
+--------
+ zzzz
+ zzzzz
+ zzzzzz
+ zzzzzz
+ zzzzzz
+ zzzzzz
+(6 rows)
+
+SELECT * from ONLY b ORDER BY b.aa;
+ aa  | bb 
+-----+----
+ new | 
+ new | 
+ new | 
+ new | 
+ new | 
+ new | 
+(6 rows)
+
+SELECT * FROM ONLY c ORDER BY c.aa;
+    aa    | cc 
+----------+----
+ ccc      | 
+ cccc     | 
+ ccccc    | 
+ cccccc   | 
+ ccccccc  | 
+ cccccccc | 
+(6 rows)
+
+SELECT * from ONLY d ORDER BY d.aa;
+ aa  | bb | cc | dd 
+-----+----+----+----
+ new |    |    | 
+ new |    |    | 
+ new |    |    | 
+ new |    |    | 
+ new |    |    | 
+ new |    |    | 
+(6 rows)
+
 UPDATE a SET aa='new';
 DELETE FROM ONLY c WHERE aa='new';
 SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid ORDER BY relname, a.aa;
@@ -495,6 +861,110 @@ SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER 
  d       | new |    |    | 
 (6 rows)
 
+-- In Postgres-XC OIDs are not consistent across the cluster. Hence above
+-- queries do not show any result. Hence in order to ensure data consistency, we
+-- add following SQLs. In case above set of queries start producing valid
+-- results in XC, we should remove the following set
+SELECT * FROM a ORDER BY a.aa;
+ aa  
+-----
+ new
+ new
+ new
+ new
+ new
+ new
+ new
+ new
+ new
+ new
+ new
+ new
+ new
+ new
+ new
+ new
+ new
+ new
+(18 rows)
+
+SELECT * from b ORDER BY b.aa;
+ aa  | bb 
+-----+----
+ new | 
+ new | 
+ new | 
+ new | 
+ new | 
+ new | 
+ new | 
+ new | 
+ new | 
+ new | 
+ new | 
+ new | 
+(12 rows)
+
+SELECT * FROM c ORDER BY c.aa;
+ aa  | cc 
+-----+----
+ new | 
+ new | 
+ new | 
+ new | 
+ new | 
+ new | 
+(6 rows)
+
+SELECT * from d ORDER BY d.aa;
+ aa  | bb | cc | dd 
+-----+----+----+----
+ new |    |    | 
+ new |    |    | 
+ new |    |    | 
+ new |    |    | 
+ new |    |    | 
+ new |    |    | 
+(6 rows)
+
+SELECT * FROM ONLY a ORDER BY a.aa;
+ aa  
+-----
+ new
+ new
+ new
+ new
+ new
+ new
+(6 rows)
+
+SELECT * from ONLY b ORDER BY b.aa;
+ aa  | bb 
+-----+----
+ new | 
+ new | 
+ new | 
+ new | 
+ new | 
+ new | 
+(6 rows)
+
+SELECT * FROM ONLY c ORDER BY c.aa;
+ aa | cc 
+----+----
+(0 rows)
+
+SELECT * from ONLY d ORDER BY d.aa;
+ aa  | bb | cc | dd 
+-----+----+----+----
+ new |    |    | 
+ new |    |    | 
+ new |    |    | 
+ new |    |    | 
+ new |    |    | 
+ new |    |    | 
+(6 rows)
+
 DELETE FROM a;
 SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid ORDER BY relname, a.aa;
  relname | aa 
@@ -536,6 +1006,50 @@ SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER 
 ---------+----+----+----+----
 (0 rows)
 
+-- In Postgres-XC OIDs are not consistent across the cluster. Hence above
+-- queries do not show any result. Hence in order to ensure data consistency, we
+-- add following SQLs. In case above set of queries start producing valid
+-- results in XC, we should remove the following set
+SELECT * FROM a ORDER BY a.aa;
+ aa 
+----
+(0 rows)
+
+SELECT * from b ORDER BY b.aa;
+ aa | bb 
+----+----
+(0 rows)
+
+SELECT * FROM c ORDER BY c.aa;
+ aa | cc 
+----+----
+(0 rows)
+
+SELECT * from d ORDER BY d.aa;
+ aa | bb | cc | dd 
+----+----+----+----
+(0 rows)
+
+SELECT * FROM ONLY a ORDER BY a.aa;
+ aa 
+----
+(0 rows)
+
+SELECT * from ONLY b ORDER BY b.aa;
+ aa | bb 
+----+----
+(0 rows)
+
+SELECT * FROM ONLY c ORDER BY c.aa;
+ aa | cc 
+----+----
+(0 rows)
+
+SELECT * from ONLY d ORDER BY d.aa;
+ aa | bb | cc | dd 
+----+----+----+----
+(0 rows)
+
 -- Confirm PRIMARY KEY adds NOT NULL constraint to child table
 CREATE TEMP TABLE z (b TEXT, PRIMARY KEY(aa, b)) inherits (a);
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "z_pkey" for table "z"
@@ -572,6 +1086,41 @@ order by 1,2;
  bar2    |  3 | 103
  bar2    |  4 |   4
 (8 rows)
+
+-- In Postgres-XC OIDs are not consistent across the cluster. Hence above
+-- queries do not show any result. Hence in order to ensure data consistency, we
+-- add following SQLs. In case above set of queries start producing valid
+-- results in XC, we should remove the following set
+SELECT * FROM bar ORDER BY f1, f2;
+ f1 | f2  
+----+-----
+  1 | 101
+  1 | 101
+  2 | 102
+  2 | 102
+  3 | 103
+  3 | 103
+  4 |   4
+  4 |   4
+(8 rows)
+
+SELECT * FROM ONLY bar ORDER BY f1, f2;
+ f1 | f2  
+----+-----
+  1 | 101
+  2 | 102
+  3 | 103
+  4 |   4
+(4 rows)
+
+SELECT * FROM bar2 ORDER BY f1, f2;
+ f1 | f2  | f3 
+----+-----+----
+  1 | 101 |  1
+  2 | 102 |  2
+  3 | 103 |  3
+  4 |   4 |  4
+(4 rows)
 
 /* Test multiple inheritance of column defaults */
 CREATE TABLE firstparent (tomorrow date default now()::date + 1);
@@ -637,7 +1186,7 @@ NOTICE:  ALTER TABLE / ADD PRIMARY KEY will create implicit index "inhx_pkey" fo
 CREATE TABLE inhg (LIKE inhx); /* Doesn't copy constraint */
 INSERT INTO inhg VALUES ('foo');
 DROP TABLE inhg;
-CREATE TABLE inhg (x text, LIKE inhx INCLUDING CONSTRAINTS, y text); /* Copies constraints */
+CREATE TABLE inhg (x text, LIKE inhx INCLUDING CONSTRAINTS, y text) distribute by replication; /* Copies constraints */
 INSERT INTO inhg VALUES ('x', 'text', 'y'); /* Succeeds */
 INSERT INTO inhg VALUES ('x', 'text', 'y'); /* Succeeds -- Unique constraints not copied */
 INSERT INTO inhg VALUES ('x', 'foo',  'y');  /* fails due to constraint */
@@ -650,7 +1199,7 @@ SELECT * FROM inhg ORDER BY 1,2,3; /* Two records with three columns in order x=
 (2 rows)
 
 DROP TABLE inhg;
-CREATE TABLE inhg (x text, LIKE inhx INCLUDING INDEXES, y text); /* copies indexes */
+CREATE TABLE inhg (x text, LIKE inhx INCLUDING INDEXES, y text) distribute by replication; /* copies indexes */
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "inhg_pkey" for table "inhg"
 INSERT INTO inhg VALUES (5, 10);
 INSERT INTO inhg VALUES (20, 10); -- should fail
@@ -660,11 +1209,11 @@ DROP TABLE inhg;
 /* Multiple primary keys creation should fail */
 CREATE TABLE inhg (x text, LIKE inhx INCLUDING INDEXES, PRIMARY KEY(x)); /* fails */
 ERROR:  multiple primary keys for table "inhg" are not allowed
-CREATE TABLE inhz (xx text DEFAULT 'text', yy int UNIQUE);
+CREATE TABLE inhz (xx text DEFAULT 'text', yy int UNIQUE) distribute by replication;
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "inhz_yy_key" for table "inhz"
 CREATE UNIQUE INDEX inhz_xx_idx on inhz (xx) WHERE xx <> 'test';
 /* Ok to create multiple unique indexes */
-CREATE TABLE inhg (x text UNIQUE, LIKE inhz INCLUDING INDEXES);
+CREATE TABLE inhg (x text UNIQUE, LIKE inhz INCLUDING INDEXES) distribute by replication;
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "inhg_x_key" for table "inhg"
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "inhg_yy_key" for table "inhg"
 INSERT INTO inhg (xx, yy, x) VALUES ('test', 5, 10);
@@ -1175,24 +1724,28 @@ insert into matest2 (name) values ('Test 4');
 insert into matest3 (name) values ('Test 5');
 insert into matest3 (name) values ('Test 6');
 set enable_indexscan = off;  -- force use of seqscan/sort, so no merge
-explain (verbose, costs off) select * from matest0 order by 1-id;
-                                   QUERY PLAN                                    
----------------------------------------------------------------------------------
+explain (verbose, costs off, nodes off) select * from matest0 order by 1-id;
+                                       QUERY PLAN                                       
+----------------------------------------------------------------------------------------
  Sort
    Output: public.matest0.id, public.matest0.name, ((1 - public.matest0.id))
    Sort Key: ((1 - public.matest0.id))
    ->  Result
          Output: public.matest0.id, public.matest0.name, (1 - public.matest0.id)
          ->  Append
-               ->  Seq Scan on public.matest0
+               ->  Data Node Scan on matest0
                      Output: public.matest0.id, public.matest0.name
-               ->  Seq Scan on public.matest1 matest0
+                     Remote query: SELECT id, name FROM ONLY matest0 WHERE true
+               ->  Data Node Scan on matest0
                      Output: public.matest0.id, public.matest0.name
-               ->  Seq Scan on public.matest2 matest0
+                     Remote query: SELECT id, name FROM ONLY matest1 matest0 WHERE true
+               ->  Data Node Scan on matest0
                      Output: public.matest0.id, public.matest0.name
-               ->  Seq Scan on public.matest3 matest0
+                     Remote query: SELECT id, name FROM ONLY matest2 matest0 WHERE true
+               ->  Data Node Scan on matest0
                      Output: public.matest0.id, public.matest0.name
-(14 rows)
+                     Remote query: SELECT id, name FROM ONLY matest3 matest0 WHERE true
+(18 rows)
 
 select * from matest0 order by 1-id;
  id |  name  
@@ -1207,25 +1760,28 @@ select * from matest0 order by 1-id;
 
 reset enable_indexscan;
 set enable_seqscan = off;  -- plan with fewest seqscans should be merge
-explain (verbose, costs off) select * from matest0 order by 1-id;
-                                         QUERY PLAN                                          
----------------------------------------------------------------------------------------------
- Result
+explain (verbose, costs off, nodes off) select * from matest0 order by 1-id;
+                                       QUERY PLAN                                       
+----------------------------------------------------------------------------------------
+ Sort
    Output: public.matest0.id, public.matest0.name, ((1 - public.matest0.id))
-   ->  Merge Append
-         Sort Key: ((1 - public.matest0.id))
-         ->  Index Scan using matest0i on public.matest0
-               Output: public.matest0.id, public.matest0.name, (1 - public.matest0.id)
-         ->  Index Scan using matest1i on public.matest1 matest0
-               Output: public.matest0.id, public.matest0.name, (1 - public.matest0.id)
-         ->  Sort
-               Output: public.matest0.id, public.matest0.name, ((1 - public.matest0.id))
-               Sort Key: ((1 - public.matest0.id))
-               ->  Seq Scan on public.matest2 matest0
-                     Output: public.matest0.id, public.matest0.name, (1 - public.matest0.id)
-         ->  Index Scan using matest3i on public.matest3 matest0
-               Output: public.matest0.id, public.matest0.name, (1 - public.matest0.id)
-(15 rows)
+   Sort Key: ((1 - public.matest0.id))
+   ->  Result
+         Output: public.matest0.id, public.matest0.name, (1 - public.matest0.id)
+         ->  Append
+               ->  Data Node Scan on matest0
+                     Output: public.matest0.id, public.matest0.name
+                     Remote query: SELECT id, name FROM ONLY matest0 WHERE true
+               ->  Data Node Scan on matest0
+                     Output: public.matest0.id, public.matest0.name
+                     Remote query: SELECT id, name FROM ONLY matest1 matest0 WHERE true
+               ->  Data Node Scan on matest0
+                     Output: public.matest0.id, public.matest0.name
+                     Remote query: SELECT id, name FROM ONLY matest2 matest0 WHERE true
+               ->  Data Node Scan on matest0
+                     Output: public.matest0.id, public.matest0.name
+                     Remote query: SELECT id, name FROM ONLY matest3 matest0 WHERE true
+(18 rows)
 
 select * from matest0 order by 1-id;
  id |  name  
