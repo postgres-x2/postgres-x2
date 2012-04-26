@@ -474,7 +474,7 @@ agent_create(void)
 char *session_options(void)
 {
 	int				 i;
-	char			*pgoptions[] = {"DateStyle", "timezone", "geqo"};
+	char			*pgoptions[] = {"DateStyle", "timezone", "geqo", "intervalstyle"};
 	StringInfoData	 options;
 	List			*value_list;
 	const char		*value;
