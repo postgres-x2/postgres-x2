@@ -473,15 +473,15 @@ select * from in_tab order by a;
 (2 rows)
 
 select * from in_tab where a = '1 day 12 hours 59 min 10 sec';
-       a        
-----------------
- 1 day 12:59:10
+                a                 
+----------------------------------
+ @ 1 day 12 hours 59 mins 10 secs
 (1 row)
 
 select * from in_tab where a = '0 day 4 hours 32 min 23 sec';
-    a     
-----------
- 04:32:23
+             a             
+---------------------------
+ @ 4 hours 32 mins 23 secs
 (1 row)
 
 create table cash_tab(a money) distribute by modulo(a);
@@ -539,15 +539,15 @@ select * from rtim_tab order by a;
 (2 rows)
 
 select * from rtim_tab where a = reltime('1 day 12 hours 59 min 10 sec');
-       a        
-----------------
- 1 day 12:59:10
+                a                 
+----------------------------------
+ @ 1 day 12 hours 59 mins 10 secs
 (1 row)
 
 select * from rtim_tab where a = reltime('0 day 5 hours 32 min 23 sec');
-    a     
-----------
- 05:32:23
+             a             
+---------------------------
+ @ 5 hours 32 mins 23 secs
 (1 row)
 
 create table date_tab(a date) distribute by modulo(a);
