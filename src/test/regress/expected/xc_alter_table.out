@@ -1,0 +1,219 @@
+--
+-- XC_ALTER_TABLE
+--
+-- Check on dropped columns
+CREATE TABLE xc_alter_table_1 (id serial, name varchar(80), code varchar(80)) DISTRIBUTE BY HASH(id);
+NOTICE:  CREATE TABLE will create implicit sequence "xc_alter_table_1_id_seq" for serial column "xc_alter_table_1.id"
+EXPLAIN (VERBOSE true, COSTS false, NODES false) INSERT INTO xc_alter_table_1(name) VALUES ('aaa'),('bbb'),('ccc');
+                                                QUERY PLAN                                                 
+-----------------------------------------------------------------------------------------------------------
+ Insert on public.xc_alter_table_1
+   Node expr: xc_alter_table_1.id
+   Remote query: INSERT INTO public.xc_alter_table_1 (id, name, code) VALUES ($1, $2, $3)
+   ->  Values Scan on "*VALUES*"
+         Output: nextval('xc_alter_table_1_id_seq'::regclass), "*VALUES*".column1, NULL::character varying
+(5 rows)
+
+INSERT INTO xc_alter_table_1(name) VALUES ('aaa'),('bbb'),('ccc');
+SELECT id, name, code FROM xc_alter_table_1 ORDER BY 1;
+ id | name | code 
+----+------+------
+  1 | aaa  | 
+  2 | bbb  | 
+  3 | ccc  | 
+(3 rows)
+
+-- Cannot drop distribution column
+ALTER TABLE xc_alter_table_1 DROP COLUMN id;
+ERROR:  Distribution column cannot be dropped
+-- Drop 1st column
+ALTER TABLE xc_alter_table_1 DROP COLUMN code;
+-- Check for query generation of remote INSERT
+INSERT INTO xc_alter_table_1(name) VALUES('ddd'),('eee'),('fff');
+EXPLAIN (VERBOSE true, COSTS false, NODES false) INSERT INTO xc_alter_table_1(name) VALUES('ddd'),('eee'),('fff');
+                                           QUERY PLAN                                            
+-------------------------------------------------------------------------------------------------
+ Insert on public.xc_alter_table_1
+   Node expr: xc_alter_table_1.id
+   Remote query: INSERT INTO public.xc_alter_table_1 (id, name) VALUES ($1, $2)
+   ->  Values Scan on "*VALUES*"
+         Output: nextval('xc_alter_table_1_id_seq'::regclass), "*VALUES*".column1, NULL::integer
+(5 rows)
+
+SELECT id, name FROM xc_alter_table_1 ORDER BY 1;
+ id | name 
+----+------
+  1 | aaa
+  2 | bbb
+  3 | ccc
+  4 | ddd
+  5 | eee
+  6 | fff
+(6 rows)
+
+-- Check for query generation of remote INSERT SELECT
+INSERT INTO xc_alter_table_1(name) SELECT 'ggg';
+EXPLAIN (VERBOSE true, COSTS false, NODES false) INSERT INTO xc_alter_table_1(name) SELECT 'ggg';
+                                                QUERY PLAN                                                 
+-----------------------------------------------------------------------------------------------------------
+ Insert on public.xc_alter_table_1
+   Node expr: xc_alter_table_1.id
+   Remote query: INSERT INTO public.xc_alter_table_1 (id, name) VALUES ($1, $2)
+   ->  Subquery Scan on "*SELECT*"
+         Output: nextval('xc_alter_table_1_id_seq'::regclass), 'ggg'::character varying(80), NULL::integer
+         ->  Result
+               Output: 'ggg'
+(7 rows)
+
+SELECT id, name FROM xc_alter_table_1 ORDER BY 1;
+ id | name 
+----+------
+  1 | aaa
+  2 | bbb
+  3 | ccc
+  4 | ddd
+  5 | eee
+  6 | fff
+  7 | ggg
+(7 rows)
+
+-- Check for query generation of remote UPDATE
+EXPLAIN (VERBOSE true, COSTS false, NODES false) UPDATE xc_alter_table_1 SET name = 'zzz' WHERE id = currval('xc_alter_table_1_id_seq');
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
+ Update on public.xc_alter_table_1
+   Node expr: xc_alter_table_1.id
+   Remote query: UPDATE ONLY public.xc_alter_table_1 SET name = $2 WHERE ctid = $5 AND xc_node_id = $6 
+   ->  Result
+         Output: id, 'zzz'::character varying(80), NULL::integer, id, ctid, xc_node_id
+         ->  Data Node Scan on xc_alter_table_1
+               Output: id, ctid, xc_node_id
+               Remote query: SELECT id, ctid, xc_node_id FROM ONLY xc_alter_table_1 WHERE true
+               Coordinator quals: (xc_alter_table_1.id = currval('xc_alter_table_1_id_seq'::regclass))
+(9 rows)
+
+UPDATE xc_alter_table_1 SET name = 'zzz' WHERE id = currval('xc_alter_table_1_id_seq');
+SELECT id, name FROM xc_alter_table_1 ORDER BY 1;
+ id | name 
+----+------
+  1 | aaa
+  2 | bbb
+  3 | ccc
+  4 | ddd
+  5 | eee
+  6 | fff
+  7 | zzz
+(7 rows)
+
+DROP TABLE xc_alter_table_1;
+-- Check for multiple columns dropped and created
+CREATE TABLE xc_alter_table_2 (a int, b varchar(20), c boolean, d text, e interval) distribute by replication;
+INSERT INTO xc_alter_table_2 VALUES (1, 'John', true, 'Master', '01:00:10');
+INSERT INTO xc_alter_table_2 VALUES (2, 'Neo', true, 'Slave', '02:34:00');
+INSERT INTO xc_alter_table_2 VALUES (3, 'James', false, 'Cascading slave', '00:12:05');
+SELECT a, b, c, d, e FROM xc_alter_table_2 ORDER BY a;
+ a |   b   | c |        d        |         e         
+---+-------+---+-----------------+-------------------
+ 1 | John  | t | Master          | @ 1 hour 10 secs
+ 2 | Neo   | t | Slave           | @ 2 hours 34 mins
+ 3 | James | f | Cascading slave | @ 12 mins 5 secs
+(3 rows)
+
+-- Go through standard planner
+SET enable_fast_query_shipping TO false;
+-- Drop a couple of columns
+ALTER TABLE xc_alter_table_2 DROP COLUMN a;
+ALTER TABLE xc_alter_table_2 DROP COLUMN d;
+ALTER TABLE xc_alter_table_2 DROP COLUMN e;
+-- Check for query generation of remote INSERT
+EXPLAIN (VERBOSE true, COSTS false, NODES false) INSERT INTO xc_alter_table_2 VALUES ('Kodek', false);
+                                             QUERY PLAN                                             
+----------------------------------------------------------------------------------------------------
+ Insert on public.xc_alter_table_2
+   Remote query: INSERT INTO public.xc_alter_table_2 (b, c) VALUES ($2, $3)
+   ->  Result
+         Output: NULL::integer, 'Kodek'::character varying(20), false, NULL::integer, NULL::integer
+(4 rows)
+
+INSERT INTO xc_alter_table_2 VALUES ('Kodek', false);
+SELECT b, c FROM xc_alter_table_2 ORDER BY b;
+   b   | c 
+-------+---
+ James | f
+ John  | t
+ Kodek | f
+ Neo   | t
+(4 rows)
+
+-- Check for query generation of remote UPDATE
+EXPLAIN (VERBOSE true, COSTS false, NODES false) UPDATE xc_alter_table_2 SET b = 'Morphee', c = false WHERE b = 'Neo';
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
+ Update on public.xc_alter_table_2
+   Remote query: UPDATE ONLY public.xc_alter_table_2 SET b = $2, c = $3 WHERE ctid = $7 
+   ->  Result
+         Output: NULL::integer, 'Morphee'::character varying(20), false, NULL::integer, NULL::integer, b, ctid
+         ->  Data Node Scan on xc_alter_table_2
+               Output: b, ctid
+               Remote query: SELECT b, ctid FROM ONLY xc_alter_table_2 WHERE ((b)::text = 'Neo'::text)
+(7 rows)
+
+UPDATE xc_alter_table_2 SET b = 'Morphee', c = false WHERE b = 'Neo';
+SELECT b, c FROM xc_alter_table_2 ORDER BY b;
+    b    | c 
+---------+---
+ James   | f
+ John    | t
+ Kodek   | f
+ Morphee | f
+(4 rows)
+
+-- Add some new columns
+ALTER TABLE xc_alter_table_2 ADD COLUMN a int;
+ALTER TABLE xc_alter_table_2 ADD COLUMN a2 varchar(20);
+-- Check for query generation of remote INSERT
+EXPLAIN (VERBOSE true, COSTS false, NODES false) INSERT INTO xc_alter_table_2 (a, a2, b, c) VALUES (100, 'CEO', 'Gordon', true);
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
+ Insert on public.xc_alter_table_2
+   Remote query: INSERT INTO public.xc_alter_table_2 (b, c, a, a2) VALUES ($2, $3, $6, $7)
+   ->  Result
+         Output: NULL::integer, 'Gordon'::character varying(20), true, NULL::integer, NULL::integer, 100, 'CEO'::character varying(20)
+(4 rows)
+
+INSERT INTO xc_alter_table_2 (a, a2, b, c) VALUES (100, 'CEO', 'Gordon', true);
+SELECT a, a2, b, c FROM xc_alter_table_2 ORDER BY b;
+  a  | a2  |    b    | c 
+-----+-----+---------+---
+ 100 | CEO | Gordon  | t
+     |     | James   | f
+     |     | John    | t
+     |     | Kodek   | f
+     |     | Morphee | f
+(5 rows)
+
+-- Check for query generation of remote UPDATE
+EXPLAIN (VERBOSE true, COSTS false, NODES false) UPDATE xc_alter_table_2 SET a = 200, a2 = 'CTO' WHERE b = 'John';
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
+ Update on public.xc_alter_table_2
+   Remote query: UPDATE ONLY public.xc_alter_table_2 SET a = $6, a2 = $7 WHERE ctid = $9 
+   ->  Result
+         Output: NULL::integer, b, c, NULL::integer, NULL::integer, 200, 'CTO'::character varying(20), b, ctid
+         ->  Data Node Scan on xc_alter_table_2
+               Output: b, c, ctid
+               Remote query: SELECT b, c, ctid FROM ONLY xc_alter_table_2 WHERE ((b)::text = 'John'::text)
+(7 rows)
+
+UPDATE xc_alter_table_2 SET a = 200, a2 = 'CTO' WHERE b = 'John';
+SELECT a, a2, b, c FROM xc_alter_table_2 ORDER BY b;
+  a  | a2  |    b    | c 
+-----+-----+---------+---
+ 100 | CEO | Gordon  | t
+     |     | James   | f
+ 200 | CTO | John    | t
+     |     | Kodek   | f
+     |     | Morphee | f
+(5 rows)
+
+DROP TABLE xc_alter_table_2;

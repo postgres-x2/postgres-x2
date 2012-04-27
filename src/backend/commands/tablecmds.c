@@ -371,6 +371,9 @@ static void drop_parent_dependency(Oid relid, Oid refclassid, Oid refobjid);
 static void ATExecAddOf(Relation rel, const TypeName *ofTypename, LOCKMODE lockmode);
 static void ATExecDropOf(Relation rel, LOCKMODE lockmode);
 static void ATExecGenericOptions(Relation rel, List *options);
+#ifdef PGXC
+static void ATCheckCmd(Relation rel, AlterTableCmd *cmd);
+#endif
 
 static void copy_relation_data(SMgrRelation rel, SMgrRelation dst,
 				   ForkNumber forkNum, char relpersistence);
@@ -2775,6 +2778,11 @@ ATController(Relation rel, List *cmds, bool recurse, LOCKMODE lockmode)
 	foreach(lcmd, cmds)
 	{
 		AlterTableCmd *cmd = (AlterTableCmd *) lfirst(lcmd);
+
+#ifdef PGXC
+		/* Check restrictions of ALTER TABLE in cluster */
+		ATCheckCmd(rel, cmd);
+#endif
 
 		ATPrepCmd(&wqueue, rel, cmd, recurse, false, lockmode);
 	}
@@ -8947,6 +8955,36 @@ ATExecGenericOptions(Relation rel, List *options)
 
 	heap_freetuple(tuple);
 }
+
+
+#ifdef PGXC
+/*
+ * ATCheckCmd
+ * 
+ * Check ALTER TABLE restrictions in Postgres-XC
+ */
+static void
+ATCheckCmd(Relation rel, AlterTableCmd *cmd)
+{
+	/* Do nothing in the case of a remote node */
+	if (IS_PGXC_DATANODE || IsConnFromCoord())
+		return;
+
+	switch (cmd->subtype)
+	{
+		case AT_DropColumn:
+			/* Distribution column cannot be dropped */
+			if (IsDistColumnForRelId(RelationGetRelid(rel), cmd->name))
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("Distribution column cannot be dropped")));
+			break;
+
+		default:
+			break;
+	}
+}
+#endif
 
 
 /*

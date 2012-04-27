@@ -5497,13 +5497,14 @@ create_remoteinsert_plan(PlannerInfo *root, Plan *topplan)
 		Index			resultRelationIndex = lfirst_int(l);
 		RangeTblEntry	*ttab;
 		RelationLocInfo *rel_loc_info;
-		StringInfo		buf;
+		StringInfo		buf, buf2;
 		RemoteQuery	   *fstep;
 		Oid				nspid;
 		char		   *nspname;
 		int				natts, att;
 		Oid 		   *att_types;
 		char		   *relname;
+		bool			first_att_printed = false;
 
 		ttab = rt_fetch(resultRelationIndex, root->parse->rtable);
 
@@ -5516,7 +5517,10 @@ create_remoteinsert_plan(PlannerInfo *root, Plan *topplan)
 		if (rel_loc_info == NULL)
 			continue;
 
+		/* For main string */
 		buf = makeStringInfo();
+		/* For values */
+		buf2 = makeStringInfo();
 
 		/* Compose INSERT FROM target_table */
 		nspid = get_rel_namespace(ttab->relid);
@@ -5555,12 +5559,33 @@ create_remoteinsert_plan(PlannerInfo *root, Plan *topplan)
 			{
 				Form_pg_attribute att_tup = (Form_pg_attribute) GETSTRUCT(tp);
 
-				/* Add comma before all except first attributes */
-				if (att > 1)
-					appendStringInfoString(buf, ", ");
+				/* Bypass dropped attributes in query */
+				if (att_tup->attisdropped)
+				{
+					/* Dropped attributes are casted as int4 in prepared parameters */
+					att_types[att - 1] = INT4OID;
+				}
+				else
+				{
+					/* Add comma before all except first attributes */
+					if (first_att_printed)
+						appendStringInfoString(buf, ", ");
 
-				att_types[att - 1] = att_tup->atttypid;
-				appendStringInfoString(buf, quote_identifier(NameStr(att_tup->attname)));
+					/* Build the value part, parameters are filled at run time */
+					if (first_att_printed)
+						appendStringInfoString(buf2, ", ");
+
+					first_att_printed = true;
+
+					/* Append column name */
+					appendStringInfoString(buf, quote_identifier(NameStr(att_tup->attname)));
+
+					/* Append value in string */
+					appendStringInfo(buf2, "$%d", att);
+
+					/* Assign parameter type */
+					att_types[att - 1] = att_tup->atttypid;
+				}
 
 				ReleaseSysCache(tp);
 			}
@@ -5569,21 +5594,8 @@ create_remoteinsert_plan(PlannerInfo *root, Plan *topplan)
 						att, ttab->relid);
 		}
 
-		appendStringInfoString(buf, ") VALUES (");
-
-		/*
-		 * Create parameterized statement. The values will be filled at the run
-		 * time
-		 */
-		for (att = 1; att <= natts; att++)
-		{
-			if (att > 1)
-				appendStringInfoString(buf, ", ");
-
-			appendStringInfo(buf, "$%d", att);
-		}
-
-		appendStringInfoString(buf, ")");
+		/* Gather the two strings */
+		appendStringInfo(buf, ") VALUES (%s)", buf2->data);
 
 		fstep->sql_statement = pstrdup(buf->data);
 
@@ -5601,8 +5613,11 @@ create_remoteinsert_plan(PlannerInfo *root, Plan *topplan)
 
 		SetRemoteStatementName((Plan *) fstep, NULL, natts, att_types, 0);
 
+		/* Free everything */
 		pfree(buf->data);
 		pfree(buf);
+		pfree(buf2->data);
+		pfree(buf2);
 
 		mt->remote_plans = lappend(mt->remote_plans, fstep);
 	}
@@ -5817,8 +5832,14 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 				{
 					Form_pg_attribute att_saved = (Form_pg_attribute) GETSTRUCT(tp);
 
-					/* Set parameter type of attribute */
-					param_types[count - 1] = att_saved->atttypid;
+					/*
+					 * Set parameter type of attribute
+					 * Dropped columns are casted as int4
+					 */
+					if (att_saved->attisdropped)
+						param_types[count - 1] = INT4OID;
+					else
+						param_types[count - 1] = att_saved->atttypid;
 					ReleaseSysCache(tp);
 				}
 				else
