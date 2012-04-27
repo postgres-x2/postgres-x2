@@ -97,6 +97,8 @@ DROP TABLE tmp;
 -- rename - check on both non-temp and temp tables
 --
 CREATE TABLE tmp (regtable int);
+-- Enforce use of COMMIT instead of 2PC for temporary objects
+SET enforce_two_phase_commit TO off;
 CREATE TEMP TABLE tmp (tmptable int);
 ALTER TABLE tmp RENAME TO tmp_new;
 SELECT * FROM tmp;
@@ -155,9 +157,9 @@ DROP VIEW tmp_view_new;
 alter table stud_emp rename to pg_toast_stud_emp;
 alter table pg_toast_stud_emp rename to stud_emp;
 -- FOREIGN KEY CONSTRAINT adding TEST
-CREATE TABLE tmp2 (a int primary key);
+CREATE TABLE tmp2 (a int primary key) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "tmp2_pkey" for table "tmp2"
-CREATE TABLE tmp3 (a int, b int);
+CREATE TABLE tmp3 (a int, b int) DISTRIBUTE BY REPLICATION;
 CREATE TABLE tmp4 (a int, b int, unique(a,b));
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "tmp4_a_b_key" for table "tmp4"
 CREATE TABLE tmp5 (a int, b int);
@@ -207,10 +209,10 @@ DROP TABLE tmp2;
 -- Foreign key adding test with mixed types
 -- Note: these tables are TEMP to avoid name conflicts when this test
 -- is run in parallel with foreign_key.sql.
-CREATE TEMP TABLE PKTABLE (ptest1 int PRIMARY KEY);
+CREATE TEMP TABLE PKTABLE (ptest1 int PRIMARY KEY) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
 INSERT INTO PKTABLE VALUES(42);
-CREATE TEMP TABLE FKTABLE (ftest1 inet);
+CREATE TEMP TABLE FKTABLE (ftest1 inet) DISTRIBUTE BY REPLICATION;
 -- This next should fail, because int=inet does not exist
 ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1) references pktable;
 ERROR:  foreign key constraint "fktable_ftest1_fkey" cannot be implemented
@@ -223,7 +225,7 @@ DETAIL:  Key columns "ftest1" and "ptest1" are of incompatible types: inet and i
 DROP TABLE FKTABLE;
 -- This should succeed, even though they are different types,
 -- because int=int8 exists and is a member of the integer opfamily
-CREATE TEMP TABLE FKTABLE (ftest1 int8);
+CREATE TEMP TABLE FKTABLE (ftest1 int8) DISTRIBUTE BY REPLICATION;
 ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1) references pktable;
 -- Check it actually works
 INSERT INTO FKTABLE VALUES(42);		-- should succeed
@@ -234,7 +236,7 @@ DROP TABLE FKTABLE;
 -- This should fail, because we'd have to cast numeric to int which is
 -- not an implicit coercion (or use numeric=numeric, but that's not part
 -- of the integer opfamily)
-CREATE TEMP TABLE FKTABLE (ftest1 numeric);
+CREATE TEMP TABLE FKTABLE (ftest1 numeric) DISTRIBUTE BY REPLICATION;
 ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1) references pktable;
 ERROR:  foreign key constraint "fktable_ftest1_fkey" cannot be implemented
 DETAIL:  Key columns "ftest1" and "ptest1" are of incompatible types: numeric and integer.
@@ -242,7 +244,7 @@ DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
 -- On the other hand, this should work because int implicitly promotes to
 -- numeric, and we allow promotion on the FK side
-CREATE TEMP TABLE PKTABLE (ptest1 numeric PRIMARY KEY);
+CREATE TEMP TABLE PKTABLE (ptest1 numeric PRIMARY KEY) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
 INSERT INTO PKTABLE VALUES(42);
 CREATE TEMP TABLE FKTABLE (ftest1 int);
@@ -258,20 +260,20 @@ CREATE TEMP TABLE PKTABLE (ptest1 int, ptest2 inet,
                            PRIMARY KEY(ptest1, ptest2));
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "pktable_pkey" for table "pktable"
 -- This should fail, because we just chose really odd types
-CREATE TEMP TABLE FKTABLE (ftest1 cidr, ftest2 timestamp);
+CREATE TEMP TABLE FKTABLE (ftest1 cidr, ftest2 timestamp) DISTRIBUTE BY REPLICATION;
 ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1, ftest2) references pktable;
 ERROR:  foreign key constraint "fktable_ftest1_fkey" cannot be implemented
 DETAIL:  Key columns "ftest1" and "ptest1" are of incompatible types: cidr and integer.
 DROP TABLE FKTABLE;
 -- Again, so should this...
-CREATE TEMP TABLE FKTABLE (ftest1 cidr, ftest2 timestamp);
+CREATE TEMP TABLE FKTABLE (ftest1 cidr, ftest2 timestamp) DISTRIBUTE BY REPLICATION;
 ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1, ftest2)
      references pktable(ptest1, ptest2);
 ERROR:  foreign key constraint "fktable_ftest1_fkey" cannot be implemented
 DETAIL:  Key columns "ftest1" and "ptest1" are of incompatible types: cidr and integer.
 DROP TABLE FKTABLE;
 -- This fails because we mixed up the column ordering
-CREATE TEMP TABLE FKTABLE (ftest1 int, ftest2 inet);
+CREATE TEMP TABLE FKTABLE (ftest1 int, ftest2 inet) DISTRIBUTE BY REPLICATION;
 ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1, ftest2)
      references pktable(ptest2, ptest1);
 ERROR:  foreign key constraint "fktable_ftest1_fkey" cannot be implemented
@@ -410,7 +412,7 @@ insert into atacc2 (test) values (3);
 drop table atacc2;
 drop table atacc1;
 -- test unique constraint adding
-create table atacc1 ( test int ) with oids;
+create table atacc1 ( test int ) with oids distribute by replication;
 -- add a unique constraint
 alter table atacc1 add constraint atacc_test1 unique (test);
 NOTICE:  ALTER TABLE / ADD UNIQUE will create implicit index "atacc_test1" for table "atacc1"
@@ -431,7 +433,7 @@ ERROR:  could not create unique index "atacc_test1"
 DETAIL:  Key (test)=(0) is duplicated.
 drop table atacc1;
 -- let's do one where the unique constraint fails when added
-create table atacc1 ( test int );
+create table atacc1 ( test int ) distribute by replication;
 -- insert soon to be failing rows
 insert into atacc1 (test) values (2);
 insert into atacc1 (test) values (2);
@@ -444,10 +446,10 @@ insert into atacc1 (test) values (3);
 drop table atacc1;
 -- let's do one where the unique constraint fails
 -- because the column doesn't exist
-create table atacc1 ( test int );
+create table atacc1 ( test int ) distribute by round robin;
 -- add a unique constraint (fails)
 alter table atacc1 add constraint atacc_test1 unique (test1);
-ERROR:  column "test1" named in key does not exist
+ERROR:  Cannot locally enforce a unique index on round robin distributed table.
 drop table atacc1;
 -- something a little more complicated
 create table atacc1 ( test int, test2 int);
@@ -466,7 +468,7 @@ insert into atacc1 (test,test2) values (5,4);
 insert into atacc1 (test,test2) values (5,5);
 drop table atacc1;
 -- lets do some naming tests
-create table atacc1 (test int, test2 int, unique(test));
+create table atacc1 (test int, test2 int, unique(test)) distribute by replication;
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "atacc1_test_key" for table "atacc1"
 alter table atacc1 add unique (test2);
 NOTICE:  ALTER TABLE / ADD UNIQUE will create implicit index "atacc1_test2_key" for table "atacc1"
@@ -477,7 +479,7 @@ ERROR:  duplicate key value violates unique constraint "atacc1_test_key"
 DETAIL:  Key (test)=(3) already exists.
 drop table atacc1;
 -- test primary key constraint adding
-create table atacc1 ( test int ) with oids;
+create table atacc1 ( test int ) with oids distribute by replication;
 -- add a primary key constraint
 alter table atacc1 add constraint atacc_test1 primary key (test);
 NOTICE:  ALTER TABLE / ADD PRIMARY KEY will create implicit index "atacc_test1" for table "atacc1"
@@ -519,19 +521,20 @@ create table atacc1 ( test int );
 insert into atacc1 (test) values (NULL);
 -- add a primary key (fails)
 alter table atacc1 add constraint atacc_test1 primary key (test);
+NOTICE:  ALTER TABLE / ADD PRIMARY KEY will create implicit index "atacc_test1" for table "atacc1"
 ERROR:  column "test" contains null values
 insert into atacc1 (test) values (3);
 drop table atacc1;
 -- let's do one where the primary key constraint fails
 -- because the column doesn't exist
-create table atacc1 ( test int );
+create table atacc1 ( test int ) distribute by replication;
 -- add a primary key constraint (fails)
 alter table atacc1 add constraint atacc_test1 primary key (test1);
 ERROR:  column "test1" named in key does not exist
 drop table atacc1;
 -- adding a new column as primary key to a non-empty table.
 -- should fail unless the column has a non-null default value.
-create table atacc1 ( test int );
+create table atacc1 ( test int ) distribute by replication;
 insert into atacc1 (test) values (0);
 -- add a primary key column without a default (fails).
 alter table atacc1 add column test2 int primary key;
@@ -712,7 +715,7 @@ ERROR:  permission denied: "pg_class" is a system catalog
 alter table nosuchtable drop column bar;
 ERROR:  relation "nosuchtable" does not exist
 -- test dropping columns
-create table atacc1 (a int4 not null, b int4, c int4 not null, d int4) with oids;
+create table atacc1 (a int4 not null, b int4, c int4 not null, d int4) with oids distribute by replication;
 insert into atacc1 values (1, 2, 3, 4);
 alter table atacc1 drop a;
 alter table atacc1 drop a;
@@ -925,7 +928,7 @@ alter table atacc1 add check (a > 3);
 ERROR:  column "a" does not exist
 alter table atacc1 add check ("........pg.dropped.1........" > 3);
 ERROR:  column "........pg.dropped.1........" does not exist
-create table atacc2 (id int4 unique);
+create table atacc2 (id int4 unique) distribute by replication;
 NOTICE:  CREATE TABLE / UNIQUE will create implicit index "atacc2_id_key" for table "atacc2"
 alter table atacc1 add foreign key (a) references atacc2(id);
 ERROR:  column "a" referenced in foreign key constraint does not exist
@@ -968,7 +971,7 @@ select * from atacc1;
 
 drop table atacc1;
 -- test inheritance
-create table parent (a int, b int, c int);
+create table parent (a int, b int, c int) distribute by round robin;
 insert into parent values (1, 2, 3);
 alter table parent drop a;
 create table child (d varchar(255)) inherits (parent);
@@ -1003,7 +1006,7 @@ select * from child;
 drop table child;
 drop table parent;
 -- test copy in/out
-create table test (a int4, b int4, c int4);
+create table test (a int4, b int4, c int4) distribute by round robin;
 insert into test values (1,2,3);
 alter table test drop a;
 copy test to stdout;
@@ -1044,8 +1047,8 @@ select * from test order by b;
 
 drop table test;
 -- test inheritance
-create table dropColumn (a int, b int, e int);
-create table dropColumnChild (c int) inherits (dropColumn);
+create table dropColumn (a int, b int, e int) distribute by replication;
+create table dropColumnChild (c int) inherits (dropColumn) distribute by replication;
 create table dropColumnAnother (d int) inherits (dropColumnChild);
 -- these two should fail
 alter table dropColumnchild drop column a;
@@ -1075,8 +1078,8 @@ alter table renameColumn add column w int;
 alter table only renameColumn add column x int;
 ERROR:  column must be added to child tables too
 -- Test corner cases in dropping of inherited columns
-create table p1 (f1 int, f2 int);
-create table c1 (f1 int not null) inherits(p1);
+create table p1 (f1 int, f2 int) distribute by round robin;
+create table c1 (f1 int not null) inherits(p1) distribute by round robin;
 NOTICE:  merging column "f1" with inherited definition
 -- should be rejected since c1.f1 is inherited
 alter table c1 drop column f1;
@@ -1096,8 +1099,8 @@ LINE 1: select f1 from c1;
                ^
 drop table p1 cascade;
 NOTICE:  drop cascades to table c1
-create table p1 (f1 int, f2 int);
-create table c1 () inherits(p1);
+create table p1 (f1 int, f2 int) distribute by round robin;
+create table c1 () inherits(p1) distribute by round robin;
 -- should be rejected since c1.f1 is inherited
 alter table c1 drop column f1;
 ERROR:  cannot drop inherited column "f1"
@@ -1109,8 +1112,8 @@ LINE 1: select f1 from c1;
                ^
 drop table p1 cascade;
 NOTICE:  drop cascades to table c1
-create table p1 (f1 int, f2 int);
-create table c1 () inherits(p1);
+create table p1 (f1 int, f2 int) distribute by round robin;
+create table c1 () inherits(p1) distribute by round robin;
 -- should be rejected since c1.f1 is inherited
 alter table c1 drop column f1;
 ERROR:  cannot drop inherited column "f1"
@@ -1119,8 +1122,8 @@ alter table only p1 drop column f1;
 alter table c1 drop column f1;
 drop table p1 cascade;
 NOTICE:  drop cascades to table c1
-create table p1 (f1 int, f2 int);
-create table c1 (f1 int not null) inherits(p1);
+create table p1 (f1 int, f2 int) distribute by round robin;
+create table c1 (f1 int not null) inherits(p1) distribute by round robin;
 NOTICE:  merging column "f1" with inherited definition
 -- should be rejected since c1.f1 is inherited
 alter table c1 drop column f1;
@@ -1931,7 +1934,6 @@ Typed table of type: test_type2
 
 ALTER TYPE test_type2 RENAME ATTRIBUTE a TO aa; -- fails
 ERROR:  cannot alter type "test_type2" because it is the type of a typed table
-HINT:  Use ALTER ... CASCADE to alter the typed tables too.
 ALTER TYPE test_type2 RENAME ATTRIBUTE a TO aa CASCADE;
 \d test_type2
 Composite type "public.test_type2"
