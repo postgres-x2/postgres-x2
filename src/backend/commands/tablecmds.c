@@ -9282,6 +9282,26 @@ AlterSeqNamespaces(Relation classRel, Relation rel,
 		AlterTypeNamespaceInternal(RelationGetForm(seqRel)->reltype,
 								   newNspOid, false, false);
 
+#ifdef PGXC
+		/* Change also this sequence name on GTM */
+		if (IS_PGXC_COORDINATOR &&
+			!IsConnFromCoord() &&
+			!IsTempSequence(RelationGetRelid(seqRel)))
+		{
+			char *seqname = GetGlobalSeqName(seqRel, NULL, NULL);
+			char *newseqname = GetGlobalSeqName(seqRel, NULL, newNspName);
+
+			/* We also need to rename it on the GTM */
+			if (RenameSequenceGTM(seqname, newseqname) < 0)
+				ereport(ERROR,
+						(errcode(ERRCODE_CONNECTION_FAILURE),
+						 errmsg("GTM error, could not rename sequence")));
+
+			pfree(seqname);
+			pfree(newseqname);
+		}
+#endif
+
 		/* Now we can close it.  Keep the lock till end of transaction. */
 		relation_close(seqRel, NoLock);
 	}
