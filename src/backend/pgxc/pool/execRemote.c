@@ -19,6 +19,7 @@
 #include "postgres.h"
 #include "access/twophase.h"
 #include "access/gtm.h"
+#include "access/sysattr.h"
 #include "access/transam.h"
 #include "access/xact.h"
 #include "catalog/pg_type.h"
@@ -31,6 +32,7 @@
 #include "pgxc/execRemote.h"
 #include "nodes/nodes.h"
 #include "nodes/nodeFuncs.h"
+#include "optimizer/var.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/poolmgr.h"
 #include "storage/ipc.h"
@@ -43,6 +45,7 @@
 #include "pgxc/locator.h"
 #include "pgxc/pgxc.h"
 #include "parser/parse_type.h"
+#include "parser/parsetree.h"
 #include "pgxc/xc_maintenance_mode.h"
 
 /* Enforce the use of two-phase commit when temporary objects are used */
@@ -2526,6 +2529,24 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 
 	ExecInitScanTupleSlot(estate, &remotestate->ss);
 
+	/*
+	 * Is it a single table scan ? If yes, collect the varattnos of the
+	 * targetlist, needed later for applying quals.
+	 */
+	if (getrelid(node->scan.scanrelid, estate->es_range_table) != InvalidOid)
+	{
+		Relation rel = ExecOpenScanRelation(estate, node->scan.scanrelid);
+		remotestate->fulltupleslot = ExecInitExtraTupleSlot(estate);
+		ExecSetSlotDescriptor(remotestate->fulltupleslot,
+		                      CreateTupleDescCopy(RelationGetDescr(rel)));
+		ExecCloseScanRelation(rel);
+
+		if (node->scan.plan.targetlist)
+			remotestate->tlist_vars =
+				pull_var_clause((Node*)node->scan.plan.targetlist, PVC_REJECT_PLACEHOLDERS);
+
+	}
+
 	remotestate->ss.ps.ps_TupFromTlist = false;
 
 	/*
@@ -3106,22 +3127,96 @@ do_query(RemoteQueryState *node)
 
 /*
  * apply_qual
- * Applies the qual of the query, and returns the same slot if
- * the qual returns true, else returns NULL
+ * Applies the qual of the query, and returns the same slot if the qual returns
+ * true, else returns NULL.
+ *
+ * If it is a single relation scan, the quals attnos refer to the
+ * attribute no. of the actual table descriptor. So when they are applied
+ * to a tuple slot, the tuple slot descriptor also should match the table desc.
+ * But the result slot corresponds to the order of target list which need not
+ * coincide with the order of table attributes. So we need to rearrange the
+ * values from result slot into an intermediate slot
+ * (RemoteQueryState->fulltupleslot) and then apply the quals on
+ * fulltupleslot. And to rearrange the values, we need to save the
+ * targetlist vars to be stored (in RemoteQueryState->tlist_vars).
+ *
+ * If it is not a single table scan, it should be a reduced scan, for e.g.
+ * reduced remote join. In this case, the qual references are already
+ * adjusted (set_remote_references) according to their position in
+ * targetlist, so they can be safely applied to the resultslot without the
+ * need of an intermediate slot. So in this scenario, fulltupslot is NULL.
  */
 static TupleTableSlot *
 apply_qual(TupleTableSlot *slot, RemoteQueryState *node)
 {
-   List *qual = node->ss.ps.qual;
-   if (qual)
-   {
-	   ExprContext *econtext = node->ss.ps.ps_ExprContext;
-	   econtext->ecxt_scantuple = slot;
-	   if (!ExecQual(qual, econtext, false))
-		   return NULL;
-   }
+	List             *qual = node->ss.ps.qual;
+	TupleTableSlot   *fulltupslot = node->fulltupleslot;
+	ExprContext      *econtext = node->ss.ps.ps_ExprContext;
 
-   return slot;
+	if (!qual)
+		return slot;
+
+	if (fulltupslot && node->tlist_vars)
+	{
+		int attindex;
+		int attno;
+		List *tlist_vars = node->tlist_vars;
+		ListCell *l;
+
+		ExecClearTuple(fulltupslot);
+
+		/*
+		 * Fill all the columns of the virtual tuple with nulls because the
+		 * tlist_varattnos might be only a subset of all the table attributes,
+		 * so the unassigned attributes should be NULL.
+		 */
+		MemSet(fulltupslot->tts_values, 0,
+			   fulltupslot->tts_tupleDescriptor->natts * sizeof(Datum));
+		memset(fulltupslot->tts_isnull, true,
+			   fulltupslot->tts_tupleDescriptor->natts * sizeof(bool));
+
+		/*
+		 * For each var in the target list, store its value in the
+		 * appropriate position in the intermediate tuple slot.
+		 */
+		attindex = 1;
+		foreach(l, tlist_vars)
+		{
+			Var	*var = lfirst(l);
+			attno = var->varattno;
+			Assert(attno <= fulltupslot->tts_tupleDescriptor->natts);
+
+			/*
+			 * Currently we do not handle sys attributes in quals, so do not
+			 * bother about storing sys attribute values.
+			 * PGXCTODO : Handle sys attributes in quals. Currently
+			 * slot_getattr() returns error when a non-shippable clause
+			 * refers to system column like ctid :
+			 * "cannot extract system attribute from virtual tuple".
+			 */
+			if (attno >= 1)
+			{
+				fulltupslot->tts_values[attno - 1] =
+							 slot_getattr(slot, attindex,
+							 &fulltupslot->tts_isnull[attno - 1]);
+			}
+			attindex++;
+		}
+
+		ExecStoreVirtualTuple(fulltupslot);
+		slot = fulltupslot;
+	}
+
+	econtext->ecxt_scantuple = slot;
+
+	/*
+	 * Now that we have made sure the slot values are in order of table
+	 * descriptor, go ahead and apply the qual.
+	 */
+	if (!ExecQual(qual, econtext, false))
+		return NULL;
+	else
+		return slot;
 }
 
 /*
@@ -3281,9 +3376,7 @@ RemoteQueryNext(RemoteQueryState *node)
 		while (tuplesort_gettupleslot((Tuplesortstate *) node->tuplesortstate,
 									  true, scanslot))
 		{
-			if (qual)
-				econtext->ecxt_scantuple = scanslot;
-			if (!qual || ExecQual(qual, econtext, false))
+			if (apply_qual(scanslot, node))
 				have_tuple = true;
 			else
 			{

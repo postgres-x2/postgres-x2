@@ -124,6 +124,8 @@ typedef struct RemoteQueryState
 	int			eflags;			/* capability flags to pass to tuplestore */
 	bool		eof_underlying; /* reached end of underlying plan? */
 	Tuplestorestate *tuplestorestate;
+	List	   *tlist_vars;				/* Vars extracted from target list */
+	TupleTableSlot *fulltupleslot;		/* intermediate slot for applying quals */
 
 }	RemoteQueryState;
 

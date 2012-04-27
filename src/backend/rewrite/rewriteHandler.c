@@ -73,6 +73,17 @@ static List *matchLocks(CmdType event, RuleLock *rulelocks,
 static Query *fireRIRrules(Query *parsetree, List *activeRIRs,
 			 bool forUpdatePushedDown);
 
+#ifdef PGXC
+typedef struct pull_qual_vars_context
+{
+	List *varlist;
+	int sublevels_up;
+	int resultRelation;
+} pull_qual_vars_context;
+static List * pull_qual_vars(Node *node, int varno);
+static bool pull_qual_vars_walker(Node *node, pull_qual_vars_context *context);
+#endif
+
 /*
  * AcquireRewriteLocks -
  *	  Acquire suitable locks on all the relations mentioned in the Query.
@@ -1157,6 +1168,68 @@ rewriteValuesRTE(RangeTblEntry *rte, Relation target_relation, List *attrnos)
 }
 
 
+#ifdef PGXC
+/*
+ * pull_qual_vars(Node *node, int varno)
+ * Extract vars from quals belonging to resultRelation. This function is mainly
+ * taken from pull_qual_vars_clause(), but since the later does not peek into
+ * subquery, we need to write this walker.
+ */
+static List *
+pull_qual_vars(Node *node, int varno)
+{
+	pull_qual_vars_context context;
+	context.varlist = NIL;
+	context.sublevels_up = 0;
+	context.resultRelation = varno;
+
+	query_or_expression_tree_walker(node,
+									pull_qual_vars_walker,
+									(void *) &context,
+									0);
+	return context.varlist;
+}
+
+static bool
+pull_qual_vars_walker(Node *node, pull_qual_vars_context *context)
+{
+	if (node == NULL)
+		return false;
+	if (IsA(node, Var))
+	{
+		Var *var = (Var *) node;
+
+		/*
+		 * Add only if this var belongs to the resultRelation and refers to the table
+		 * from the same query.
+		 */
+		if (var->varno == context->resultRelation &&
+		    var->varlevelsup == context->sublevels_up)
+		{
+			Var *newvar = palloc(sizeof(Var));
+			*newvar = *var;
+			newvar->varlevelsup = 0;
+			context->varlist = lappend(context->varlist, newvar);
+		}
+		return false;
+	}
+	if (IsA(node, Query))
+	{
+		/* Recurse into RTE subquery or not-yet-planned sublink subquery */
+		bool		result;
+
+		context->sublevels_up++;
+		result = query_tree_walker((Query *) node, pull_qual_vars_walker,
+								   (void *) context, 0);
+		context->sublevels_up--;
+		return result;
+	}
+	return expression_tree_walker(node, pull_qual_vars_walker,
+								  (void *) context);
+}
+
+#endif /* PGXC */
+
 /*
  * rewriteTargetListUD - rewrite UPDATE/DELETE targetlist as needed
  *
@@ -1193,7 +1266,7 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 	 * vars using Coordinator Quals.
 	 */
 	if (IS_PGXC_COORDINATOR && parsetree->jointree)
-		var_list = pull_var_clause((Node *) parsetree->jointree, PVC_REJECT_PLACEHOLDERS);
+		var_list = pull_qual_vars((Node *) parsetree->jointree, parsetree->resultRelation);
 
 	foreach(elt, var_list)
 	{
@@ -1205,9 +1278,6 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 		if (var->varattno < 1 || var->varattno > numattrs)
 			continue;
 
-		/* Bypass if this var does not use this relation */
-		if (var->varno != parsetree->resultRelation)
-			continue;
 
 		att_tup = target_relation->rd_att->attrs[var->varattno - 1];
 		tle = makeTargetEntry((Expr *) var,
