@@ -1060,7 +1060,6 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 static Alias *
 generate_remote_rte_alias(RangeTblEntry *rte, int varno, char *aliasname, int reduce_level)
 {
-	TupleDesc 	tupdesc;
 	int			maxattrs;
 	int			varattno;
 	List	   *colnames = NIL;
@@ -1070,26 +1069,31 @@ generate_remote_rte_alias(RangeTblEntry *rte, int varno, char *aliasname, int re
 	if (rte->rtekind != RTE_RELATION)
 		elog(ERROR, "called in improper context");
 
-	if (reduce_level == 0)
-		return makeAlias(aliasname, NIL);
-
 	relation = heap_open(rte->relid, AccessShareLock);
 
-	tupdesc = RelationGetDescr(relation);
 	maxattrs = RelationGetNumberOfAttributes(relation);
 
 	for (varattno = 0; varattno < maxattrs; varattno++)
 	{
-		Form_pg_attribute  att = tupdesc->attrs[varattno];
-		Value			  *attrname;
+		char *attname = get_rte_attribute_name(rte, varattno + 1);
 
-		resetStringInfo(attr);
-		appendStringInfo(attr, "%s_%d_%d_%d",
-						 NameStr(att->attname), varno, varattno + 1, reduce_level);
+		if (reduce_level == 0)
+		{
+			/*
+			 * Even if reduce level is 0, we still need to copy column aliases
+			 * from rte because we don't want to loose any user-supplied table
+			 * column aliases, in case any.
+			 */
+			colnames = lappend(colnames, makeString(pstrdup((attname))));
+		}
+		else
+		{
+			resetStringInfo(attr);
+			appendStringInfo(attr, "%s_%d_%d_%d",
+		                 attname, varno, varattno + 1, reduce_level);
+			colnames = lappend(colnames, makeString(pstrdup(attr->data)));
+		}
 
-		attrname = makeString(pstrdup(attr->data));
-
-		colnames = lappend(colnames, attrname);
 	}
 
 	heap_close(relation, AccessShareLock);
