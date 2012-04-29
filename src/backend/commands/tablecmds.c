@@ -2311,6 +2311,9 @@ RenameRelation(Oid myrelid, const char *newrelname, ObjectType reltype)
 					(errcode(ERRCODE_CONNECTION_FAILURE),
 					 errmsg("GTM error, could not rename sequence")));
 
+		/* Register a rename callback in case transaction is dropped */
+		register_sequence_rename_cb(seqname, newseqname);
+
 		pfree(seqname);
 		pfree(newseqname);
 	}
@@ -9126,6 +9129,9 @@ AlterTableNamespace(RangeVar *relation, const char *newschema,
 					(errcode(ERRCODE_CONNECTION_FAILURE),
 					 errmsg("GTM error, could not rename sequence")));
 
+		/* Register a rename callback in case transaction is dropped */
+		register_sequence_rename_cb(seqname, newseqname);
+
 		pfree(seqname);
 		pfree(newseqname);
 	}
@@ -9296,6 +9302,9 @@ AlterSeqNamespaces(Relation classRel, Relation rel,
 				ereport(ERROR,
 						(errcode(ERRCODE_CONNECTION_FAILURE),
 						 errmsg("GTM error, could not rename sequence")));
+
+			/* Register a rename callback in case transaction is dropped */
+			register_sequence_rename_cb(seqname, newseqname);
 
 			pfree(seqname);
 			pfree(newseqname);

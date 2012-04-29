@@ -101,6 +101,15 @@ typedef struct drop_sequence_callback_arg
 	GTM_SequenceDropType type;
 	GTM_SequenceKeyType key;
 } drop_sequence_callback_arg;
+
+/*
+ * Arguments for callback of sequence rename on GTM
+ */
+typedef struct rename_sequence_callback_arg
+{
+	char *newseqname;
+	char *oldseqname;
+} rename_sequence_callback_arg;
 #endif
 
 /*
@@ -1901,6 +1910,71 @@ seq_desc(StringInfo buf, uint8 xl_info, char *rec)
 }
 
 #ifdef PGXC
+/*
+ * Register a callback for a sequence rename drop on GTM
+ */
+void
+register_sequence_rename_cb(char *oldseqname, char *newseqname)
+{
+	rename_sequence_callback_arg *args;
+	char *oldseqnamearg = NULL;
+	char *newseqnamearg = NULL;
+
+	/* All the arguments are transaction-dependent, so save them in TopTransactionContext */
+	args = (rename_sequence_callback_arg *)
+		MemoryContextAlloc(TopTransactionContext, sizeof(rename_sequence_callback_arg));
+
+	oldseqnamearg = MemoryContextAlloc(TopTransactionContext, strlen(oldseqname) + 1);
+	newseqnamearg = MemoryContextAlloc(TopTransactionContext, strlen(newseqname) + 1);
+	sprintf(oldseqnamearg, "%s", oldseqname);
+	sprintf(newseqnamearg, "%s", newseqname);
+
+	args->oldseqname = oldseqnamearg;
+	args->newseqname = newseqnamearg;
+
+	RegisterGTMCallback(rename_sequence_cb, (void *) args);
+}
+
+/*
+ * Callback a sequence rename
+ */
+void
+rename_sequence_cb(GTMEvent event, void *args)
+{
+	rename_sequence_callback_arg *cbargs = (rename_sequence_callback_arg *) args;
+	char *newseqname = cbargs->newseqname;
+	char *oldseqname = cbargs->oldseqname;
+	int err = 0;
+
+	/*
+	 * A sequence is here renamed to its former name only when a transaction
+	 * that involved a sequence rename was dropped.
+	 */
+	switch (event)
+	{
+		case GTM_EVENT_ABORT:
+			/*
+			 * Here sequence is renamed to its former name
+			 * so what was new becomes old.
+			 */
+			err = RenameSequenceGTM(newseqname, oldseqname);
+			break;
+		case GTM_EVENT_COMMIT:
+		case GTM_EVENT_PREPARE:
+			/* Nothing to do */
+			break;
+		default:
+			Assert(0);
+	}
+
+	/* Report error if necessary */
+	if (err < 0 && event != GTM_EVENT_ABORT)
+		ereport(ERROR,
+				(errcode(ERRCODE_CONNECTION_FAILURE),
+				 errmsg("GTM error, could not rename sequence")));
+}
+
+
 /*
  * Register a callback for a sequence drop on GTM
  */

@@ -392,6 +392,9 @@ doRename(const ObjectAddress *object, const char *oldname, const char *newname)
 							(errcode(ERRCODE_CONNECTION_FAILURE),
 							 errmsg("GTM error, could not rename sequence")));
 
+				/* Register a rename callback in case transaction is dropped */
+				register_sequence_rename_cb(seqname, newseqname);
+
 				pfree(seqname);
 				pfree(newseqname);
 

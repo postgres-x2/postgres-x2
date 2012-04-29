@@ -87,7 +87,8 @@ extern void seq_desc(StringInfo buf, uint8 xl_info, char *rec);
 /*
  * List of actions that registered the callback.
  * This is listed here and not in sequence.c because callback can also
- * be registered in dependency.c as sequences can be dropped in cascade.
+ * be registered in dependency.c and tablecmds.c as sequences can be dropped
+ * or renamed in cascade.
  */
 typedef enum
 {
@@ -96,6 +97,8 @@ typedef enum
 } GTM_SequenceDropType;
 
 /* Sequence callbacks on GTM */
+extern void register_sequence_rename_cb(char *oldseqname, char *newseqname);
+extern void rename_sequence_cb(GTMEvent event, void *args);
 extern void register_sequence_cb(char *seqname, GTM_SequenceKeyType key, GTM_SequenceDropType type);
 extern void drop_sequence_cb(GTMEvent event, void *args);
 
