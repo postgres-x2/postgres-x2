@@ -99,14 +99,14 @@ UPDATE atest1 SET a = 1 WHERE a = 2; -- ok
 ERROR:  Partition column can't be updated in current version
 UPDATE atest2 SET col2 = NOT col2; -- fail
 ERROR:  permission denied for relation atest2
-SELECT * FROM atest1 FOR UPDATE; -- ok
+SELECT * FROM atest1 ORDER BY 1 FOR UPDATE; -- ok
  a |  b  
 ---+-----
- 2 | two
  1 | two
+ 2 | two
 (2 rows)
 
-SELECT * FROM atest2 FOR UPDATE; -- fail
+SELECT * FROM atest2 ORDER BY 1 FOR UPDATE; -- fail
 ERROR:  permission denied for relation atest2
 DELETE FROM atest2; -- fail
 ERROR:  permission denied for relation atest2
@@ -138,11 +138,11 @@ SELECT session_user, current_user;
  regressuser3 | regressuser3
 (1 row)
 
-SELECT * FROM atest1; -- ok
+SELECT * FROM atest1 ORDER BY 1; -- ok
  a |  b  
 ---+-----
- 2 | two
  1 | two
+ 2 | two
 (2 rows)
 
 SELECT * FROM atest2; -- fail
@@ -158,6 +158,9 @@ ERROR:  Partition column can't be updated in current version
 UPDATE atest2 SET col2 = NULL; -- ok
 UPDATE atest2 SET col2 = NOT col2; -- fails; requires SELECT on atest2
 ERROR:  permission denied for relation atest2
+-- PGXCTODO: Related to issue 3520503, target list on a remote query scan needs to be
+-- reduced to necessary columns only. Now all the columns are fetched, including ones
+-- user has no permission to.
 UPDATE atest2 SET col2 = true FROM atest1 WHERE atest1.a = 5; -- ok
 ERROR:  permission denied for relation atest2
 SELECT * FROM atest1 FOR UPDATE; -- fail
@@ -180,11 +183,11 @@ SELECT * FROM atest2 WHERE ( col1 IN ( SELECT b FROM atest1 ) );
 ERROR:  permission denied for relation atest2
 SET SESSION AUTHORIZATION regressuser4;
 COPY atest2 FROM stdin; -- ok
-SELECT * FROM atest1; -- ok
+SELECT * FROM atest1 ORDER BY 1; -- ok
  a |  b  
 ---+-----
- 2 | two
  1 | two
+ 2 | two
 (2 rows)
 
 -- groups
@@ -222,16 +225,17 @@ SELECT * FROM atestv1; -- ok
 
 SELECT * FROM atestv2; -- fail
 ERROR:  permission denied for relation atestv2
-SELECT * FROM atestv3; -- ok
+SELECT * FROM atestv3; -- fail due to issue 3520503, see above
 ERROR:  permission denied for relation atest3
 CREATE VIEW atestv4 AS SELECT * FROM atestv3; -- nested view
-SELECT * FROM atestv4; -- ok
+SELECT * FROM atestv4; -- fail due to issue 3520503, see above
 ERROR:  permission denied for relation atest3
 GRANT SELECT ON atestv4 TO regressuser2;
 SET SESSION AUTHORIZATION regressuser2;
 -- Two complex cases:
 SELECT * FROM atestv3; -- fail
 ERROR:  permission denied for relation atestv3
+-- fail due to issue 3520503, see above
 SELECT * FROM atestv4; -- ok (even though regressuser2 cannot access underlying atestv3)
 ERROR:  permission denied for relation atest3
 SELECT * FROM atest2; -- ok
@@ -274,10 +278,7 @@ SELECT 1 FROM atest5; -- ok
         1
 (1 row)
 
--- PGXCTODO: Related to issue 3520503, target list on a remote query scan needs to be
--- reduced to necessary columns only. Now all the columns are fetched, including ones
--- user has no permission to.
-SELECT 1 FROM atest5 a JOIN atest5 b USING (one); -- fail
+SELECT 1 FROM atest5 a JOIN atest5 b USING (one); -- fail due to issue 3520503, see above
 ERROR:  permission denied for relation atest5
 SELECT 1 FROM atest5 a JOIN atest5 b USING (two); -- fail
 ERROR:  permission denied for relation atest5
@@ -291,7 +292,7 @@ SELECT * FROM atest1, atest5; -- fail
 ERROR:  permission denied for relation atest5
 SELECT atest1.* FROM atest1, atest5; -- ok
 ERROR:  permission denied for relation atest5
-SELECT atest1.*,atest5.one FROM atest1, atest5; -- ok
+SELECT atest1.*,atest5.one FROM atest1, atest5; -- fail due to issue 3520503, see above
 ERROR:  permission denied for relation atest5
 SELECT atest1.*,atest5.one FROM atest1 JOIN atest5 ON (atest1.a = atest5.two); -- fail
 ERROR:  permission denied for relation atest5
@@ -385,11 +386,11 @@ SELECT fx FROM atestp2; -- ok
 ----
 (0 rows)
 
-SELECT fy FROM atestp2; -- ok
+SELECT fy FROM atestp2; -- fail due to issue 3520503, see above
 ERROR:  permission denied for relation atestc
-SELECT atestp2 FROM atestp2; -- ok
+SELECT atestp2 FROM atestp2; -- fail due to issue 3520503, see above
 ERROR:  permission denied for relation atestc
-SELECT oid FROM atestp2; -- ok
+SELECT oid FROM atestp2; -- fail due to issue 3520503, see above
 ERROR:  permission denied for relation atestc
 SELECT fy FROM atestc; -- fail
 ERROR:  permission denied for relation atestc
@@ -406,7 +407,7 @@ SELECT fy FROM atestp2; -- ok
 ----
 (0 rows)
 
-SELECT atestp2 FROM atestp2; -- ok
+SELECT atestp2 FROM atestp2; -- fail due to issue 3520503, see above
 ERROR:  permission denied for relation atestc
 SELECT oid FROM atestp2; -- ok
  oid 
@@ -424,57 +425,46 @@ SET SESSION AUTHORIZATION regressuser1;
 GRANT USAGE ON LANGUAGE sql TO regressuser2; -- fail
 WARNING:  no privileges were granted for "sql"
 CREATE FUNCTION testfunc1(int) RETURNS int AS 'select 2 * $1;' LANGUAGE sql;
-ERROR:  stable and volatile not yet supported, function volatility has to be immutable
 CREATE FUNCTION testfunc2(int) RETURNS int AS 'select 3 * $1;' LANGUAGE sql;
-ERROR:  stable and volatile not yet supported, function volatility has to be immutable
 REVOKE ALL ON FUNCTION testfunc1(int), testfunc2(int) FROM PUBLIC;
-ERROR:  function testfunc1(integer) does not exist
 GRANT EXECUTE ON FUNCTION testfunc1(int), testfunc2(int) TO regressuser2;
-ERROR:  function testfunc1(integer) does not exist
 GRANT USAGE ON FUNCTION testfunc1(int) TO regressuser3; -- semantic error
-ERROR:  function testfunc1(integer) does not exist
+ERROR:  invalid privilege type USAGE for function
 GRANT ALL PRIVILEGES ON FUNCTION testfunc1(int) TO regressuser4;
-ERROR:  function testfunc1(integer) does not exist
 GRANT ALL PRIVILEGES ON FUNCTION testfunc_nosuch(int) TO regressuser4;
 ERROR:  function testfunc_nosuch(integer) does not exist
 CREATE FUNCTION testfunc4(boolean) RETURNS text
   AS 'select col1 from atest2 where col2 = $1;'
   LANGUAGE sql SECURITY DEFINER;
-ERROR:  stable and volatile not yet supported, function volatility has to be immutable
 GRANT EXECUTE ON FUNCTION testfunc4(boolean) TO regressuser3;
-ERROR:  function testfunc4(boolean) does not exist
 SET SESSION AUTHORIZATION regressuser2;
 SELECT testfunc1(5), testfunc2(5); -- ok
-ERROR:  function testfunc1(integer) does not exist
-LINE 1: SELECT testfunc1(5), testfunc2(5);
-               ^
-HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+ testfunc1 | testfunc2 
+-----------+-----------
+        10 |        15
+(1 row)
+
 CREATE FUNCTION testfunc3(int) RETURNS int AS 'select 2 * $1;' LANGUAGE sql; -- fail
 ERROR:  permission denied for language sql
 SET SESSION AUTHORIZATION regressuser3;
 SELECT testfunc1(5); -- fail
-ERROR:  function testfunc1(integer) does not exist
-LINE 1: SELECT testfunc1(5);
-               ^
-HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+ERROR:  permission denied for function testfunc1
 SELECT col1 FROM atest2 WHERE col2 = true; -- fail
 ERROR:  permission denied for relation atest2
-SELECT testfunc4(true); -- ok
-ERROR:  function testfunc4(boolean) does not exist
-LINE 1: SELECT testfunc4(true);
-               ^
-HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+SELECT testfunc4(true); -- fail due to issue 3520503, see above
+ERROR:  permission denied for relation atest2
+CONTEXT:  SQL function "testfunc4" statement 1
 SET SESSION AUTHORIZATION regressuser4;
 SELECT testfunc1(5); -- ok
-ERROR:  function testfunc1(integer) does not exist
-LINE 1: SELECT testfunc1(5);
-               ^
-HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+ testfunc1 
+-----------
+        10
+(1 row)
+
 DROP FUNCTION testfunc1(int); -- fail
-ERROR:  function testfunc1(integer) does not exist
+ERROR:  must be owner of function testfunc1
 \c -
 DROP FUNCTION testfunc1(int); -- ok
-ERROR:  function testfunc1(integer) does not exist
 -- restore to sanity
 GRANT ALL PRIVILEGES ON LANGUAGE sql TO PUBLIC;
 -- truncate
@@ -1047,18 +1037,22 @@ SELECT has_table_privilege('regressuser1', 'testns.acltest1', 'INSERT'); -- no
 ALTER DEFAULT PRIVILEGES FOR ROLE regressuser1 REVOKE EXECUTE ON FUNCTIONS FROM public;
 SET ROLE regressuser1;
 CREATE FUNCTION testns.foo() RETURNS int AS 'select 1' LANGUAGE sql;
-ERROR:  stable and volatile not yet supported, function volatility has to be immutable
 SELECT has_function_privilege('regressuser2', 'testns.foo()', 'EXECUTE'); -- no
-ERROR:  function "testns.foo()" does not exist
+ has_function_privilege 
+------------------------
+ f
+(1 row)
+
 ALTER DEFAULT PRIVILEGES IN SCHEMA testns GRANT EXECUTE ON FUNCTIONS to public;
 DROP FUNCTION testns.foo();
-ERROR:  function testns.foo() does not exist
 CREATE FUNCTION testns.foo() RETURNS int AS 'select 1' LANGUAGE sql;
-ERROR:  stable and volatile not yet supported, function volatility has to be immutable
 SELECT has_function_privilege('regressuser2', 'testns.foo()', 'EXECUTE'); -- yes
-ERROR:  function "testns.foo()" does not exist
+ has_function_privilege 
+------------------------
+ t
+(1 row)
+
 DROP FUNCTION testns.foo();
-ERROR:  function testns.foo() does not exist
 RESET ROLE;
 SELECT count(*)
   FROM pg_default_acl d LEFT JOIN pg_namespace n ON defaclnamespace = n.oid
@@ -1135,9 +1129,7 @@ RESET client_min_messages;
 \c
 drop sequence x_seq;
 DROP FUNCTION testfunc2(int);
-ERROR:  function testfunc2(integer) does not exist
 DROP FUNCTION testfunc4(boolean);
-ERROR:  function testfunc4(boolean) does not exist
 DROP VIEW atestv1;
 DROP VIEW atestv2;
 -- this should cascade to drop atestv4

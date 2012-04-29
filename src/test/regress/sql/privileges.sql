@@ -80,8 +80,8 @@ INSERT INTO atest2 VALUES ('foo', true); -- fail
 INSERT INTO atest1 SELECT 1, b FROM atest1; -- ok
 UPDATE atest1 SET a = 1 WHERE a = 2; -- ok
 UPDATE atest2 SET col2 = NOT col2; -- fail
-SELECT * FROM atest1 FOR UPDATE; -- ok
-SELECT * FROM atest2 FOR UPDATE; -- fail
+SELECT * FROM atest1 ORDER BY 1 FOR UPDATE; -- ok
+SELECT * FROM atest2 ORDER BY 1 FOR UPDATE; -- fail
 DELETE FROM atest2; -- fail
 TRUNCATE atest2; -- fail
 BEGIN;
@@ -98,7 +98,7 @@ SELECT * FROM atest2 WHERE ( col1 IN ( SELECT b FROM atest1 ) );
 SET SESSION AUTHORIZATION regressuser3;
 SELECT session_user, current_user;
 
-SELECT * FROM atest1; -- ok
+SELECT * FROM atest1 ORDER BY 1; -- ok
 SELECT * FROM atest2; -- fail
 INSERT INTO atest1 VALUES (2, 'two'); -- fail
 INSERT INTO atest2 VALUES ('foo', true); -- fail
@@ -106,6 +106,9 @@ INSERT INTO atest1 SELECT 1, b FROM atest1; -- fail
 UPDATE atest1 SET a = 1 WHERE a = 2; -- fail
 UPDATE atest2 SET col2 = NULL; -- ok
 UPDATE atest2 SET col2 = NOT col2; -- fails; requires SELECT on atest2
+-- PGXCTODO: Related to issue 3520503, target list on a remote query scan needs to be
+-- reduced to necessary columns only. Now all the columns are fetched, including ones
+-- user has no permission to.
 UPDATE atest2 SET col2 = true FROM atest1 WHERE atest1.a = 5; -- ok
 SELECT * FROM atest1 FOR UPDATE; -- fail
 SELECT * FROM atest2 FOR UPDATE; -- fail
@@ -124,7 +127,7 @@ SET SESSION AUTHORIZATION regressuser4;
 COPY atest2 FROM stdin; -- ok
 bar	true
 \.
-SELECT * FROM atest1; -- ok
+SELECT * FROM atest1 ORDER BY 1; -- ok
 
 
 -- groups
@@ -157,10 +160,10 @@ SET SESSION AUTHORIZATION regressuser4;
 
 SELECT * FROM atestv1; -- ok
 SELECT * FROM atestv2; -- fail
-SELECT * FROM atestv3; -- ok
+SELECT * FROM atestv3; -- fail due to issue 3520503, see above
 
 CREATE VIEW atestv4 AS SELECT * FROM atestv3; -- nested view
-SELECT * FROM atestv4; -- ok
+SELECT * FROM atestv4; -- fail due to issue 3520503, see above
 GRANT SELECT ON atestv4 TO regressuser2;
 
 SET SESSION AUTHORIZATION regressuser2;
@@ -168,6 +171,7 @@ SET SESSION AUTHORIZATION regressuser2;
 -- Two complex cases:
 
 SELECT * FROM atestv3; -- fail
+-- fail due to issue 3520503, see above
 SELECT * FROM atestv4; -- ok (even though regressuser2 cannot access underlying atestv3)
 
 SELECT * FROM atest2; -- ok
@@ -192,17 +196,14 @@ COPY atest5 (two) TO stdout; -- fail
 SELECT atest5 FROM atest5; -- fail
 COPY atest5 (one,two) TO stdout; -- fail
 SELECT 1 FROM atest5; -- ok
--- PGXCTODO: Related to issue 3520503, target list on a remote query scan needs to be
--- reduced to necessary columns only. Now all the columns are fetched, including ones
--- user has no permission to.
-SELECT 1 FROM atest5 a JOIN atest5 b USING (one); -- fail
+SELECT 1 FROM atest5 a JOIN atest5 b USING (one); -- fail due to issue 3520503, see above
 SELECT 1 FROM atest5 a JOIN atest5 b USING (two); -- fail
 SELECT 1 FROM atest5 a NATURAL JOIN atest5 b; -- fail
 SELECT (j.*) IS NULL FROM (atest5 a JOIN atest5 b USING (one)) j; -- fail
 SELECT 1 FROM atest5 WHERE two = 2; -- fail
 SELECT * FROM atest1, atest5; -- fail
 SELECT atest1.* FROM atest1, atest5; -- ok
-SELECT atest1.*,atest5.one FROM atest1, atest5; -- ok
+SELECT atest1.*,atest5.one FROM atest1, atest5; -- fail due to issue 3520503, see above
 SELECT atest1.*,atest5.one FROM atest1 JOIN atest5 ON (atest1.a = atest5.two); -- fail
 SELECT atest1.*,atest5.one FROM atest1 JOIN atest5 ON (atest1.a = atest5.one); -- fail due to issue 3520503, see above
 SELECT one, two FROM atest5; -- fail
@@ -282,9 +283,9 @@ GRANT SELECT(fx) ON atestc TO regressuser2;
 
 SET SESSION AUTHORIZATION regressuser2;
 SELECT fx FROM atestp2; -- ok
-SELECT fy FROM atestp2; -- ok
-SELECT atestp2 FROM atestp2; -- ok
-SELECT oid FROM atestp2; -- ok
+SELECT fy FROM atestp2; -- fail due to issue 3520503, see above
+SELECT atestp2 FROM atestp2; -- fail due to issue 3520503, see above
+SELECT oid FROM atestp2; -- fail due to issue 3520503, see above
 SELECT fy FROM atestc; -- fail
 
 SET SESSION AUTHORIZATION regressuser1;
@@ -293,7 +294,7 @@ GRANT SELECT(fy,oid) ON atestc TO regressuser2;
 SET SESSION AUTHORIZATION regressuser2;
 SELECT fx FROM atestp2; -- still ok
 SELECT fy FROM atestp2; -- ok
-SELECT atestp2 FROM atestp2; -- ok
+SELECT atestp2 FROM atestp2; -- fail due to issue 3520503, see above
 SELECT oid FROM atestp2; -- ok
 
 -- privileges on functions, languages
@@ -328,7 +329,7 @@ CREATE FUNCTION testfunc3(int) RETURNS int AS 'select 2 * $1;' LANGUAGE sql; -- 
 SET SESSION AUTHORIZATION regressuser3;
 SELECT testfunc1(5); -- fail
 SELECT col1 FROM atest2 WHERE col2 = true; -- fail
-SELECT testfunc4(true); -- ok
+SELECT testfunc4(true); -- fail due to issue 3520503, see above
 
 SET SESSION AUTHORIZATION regressuser4;
 SELECT testfunc1(5); -- ok
