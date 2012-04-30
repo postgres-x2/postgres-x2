@@ -141,4 +141,8 @@ extern void SPI_cursor_close(Portal portal);
 extern void AtEOXact_SPI(bool isCommit);
 extern void AtEOSubXact_SPI(bool isCommit, SubTransactionId mySubid);
 
+#ifdef PGXC
+extern int SPI_execute_direct(const char *src, char *nodename);
+#endif
+
 #endif   /* SPI_H */

@@ -811,11 +811,8 @@ pgxc_execute_on_nodes(int numnodes, Oid *nodelist, char *query)
 	for (i = 0; i < numnodes; i++)
 	{
 		nodename = get_pgxc_nodename(nodelist[i]);
-		resetStringInfo(&buf);
-		appendStringInfo(&buf, "EXECUTE DIRECT ON %s %s",
-		                 nodename, quote_literal_cstr(query));
 
-		ret = SPI_execute(buf.data, false, 0);
+		ret = SPI_execute_direct(query, nodename);
 		spi_tupdesc = SPI_tuptable->tupdesc;
 
 		if (ret != SPI_OK_SELECT)

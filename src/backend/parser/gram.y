@@ -56,6 +56,7 @@
 #include "catalog/namespace.h"
 #include "catalog/pg_trigger.h"
 #include "commands/defrem.h"
+#include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "parser/gramparse.h"
@@ -8228,6 +8229,11 @@ ExecDirectStmt: EXECUTE DIRECT ON pgxcnode_list DirectStmt
 					n->node_names = $4;
 					n->query = $5;
 					$$ = (Node *)n;
+
+					if (!superuser())
+						ereport(ERROR,
+						       (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+						        errmsg("must be superuser to use EXECUTE DIRECT")));
 				}
 		;
 

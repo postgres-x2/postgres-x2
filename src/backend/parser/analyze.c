@@ -2315,11 +2315,6 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("Support for EXECUTE DIRECT on multiple nodes is not available yet")));
 
-	if (!superuser())
-		ereport(ERROR,
-				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-				 errmsg("must be superuser to use EXECUTE DIRECT")));
-
 	Assert(list_length(nodelist) == 1);
 	Assert(IS_PGXC_COORDINATOR);
 
