@@ -866,6 +866,11 @@ fmgr_sql_validator(PG_FUNCTION_ARGS)
 				/* Check if the list of queries contains temporary objects */
 				if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 				{
+					if (pgxc_query_contains_utility(querytree_sublist))
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								errmsg("In XC, SQL functions cannot contain utility statements")));
+
 					if (pgxc_query_contains_temp_tables(querytree_sublist))
 						ExecSetTempObjectIncluded();
 				}

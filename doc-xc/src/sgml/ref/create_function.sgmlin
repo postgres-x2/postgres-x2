@@ -42,7 +42,20 @@ CREATE [ OR REPLACE ] FUNCTION
  <refsect1 id="sql-createfunction-description">
   <title>Description</title>
 
-&common
+<!## XC>
+  <note>
+   <para>
+    <productname>Postgres-XC</> currently does not support creation of SQL functions 
+    containing utility statemets. This limitation is however enforced only when the 
+    GUC <varname>check_function_bodies</varname> is <literal>on</>. 
+    If SQL functions are created after setting <varname>check_function_bodies</varname> to <literal>off</>, 
+    the behaviour of the function when executed is un-defined. 
+    Other than this limitation the following description applies both to 
+    <productname>Postgres-XC</> and <productname>PostgreSQL</> if not described explicitly.
+   </para>
+  </note>
+<!## end>
+
 
   <para>
    <command>CREATE FUNCTION</command> defines a new function.

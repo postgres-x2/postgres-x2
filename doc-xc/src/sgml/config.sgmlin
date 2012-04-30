@@ -4855,6 +4855,17 @@ COPY postgres_log FROM '/full/path/to/logfile.csv' WITH csv;
         linkend="sql-createfunction">. Disabling validation is
         occasionally useful to avoid problems such as forward references
         when restoring function definitions from a dump.
+<!## XC>
+        <note>
+         <para>
+          In <productname>Postgres-XC</> setting <varname>check_function_bodies</varname> 
+          to <literal>off</> is not recomended. If SQL functions are created after setting 
+          <varname>check_function_bodies</varname> to <literal>off</>, the behaviour of the 
+          function when executed is un-defined.
+         </para>
+        </note>
+<!## end>
+
        </para>
       </listitem>
      </varlistentry>

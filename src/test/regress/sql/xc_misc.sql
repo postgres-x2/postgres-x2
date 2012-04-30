@@ -72,3 +72,48 @@ create table t2(a int , b int) distribute by modulo(xc_node_id);
 
 drop table t1;
 
+-- Test an SQL function with multiple statements in it including a utility statement.
+
+create table my_tab1 (a int);
+
+insert into my_tab1 values(1);
+
+create function f1 () returns setof my_tab1 as $$ create table my_tab2 (a int); select * from my_tab1; $$ language sql;
+
+SET check_function_bodies = false;
+
+create function f1 () returns setof my_tab1 as $$ create table my_tab2 (a int); select * from my_tab1; $$ language sql;
+
+select f1();
+
+SET check_function_bodies = true;
+
+drop function f1();
+
+-- Test pl-pgsql functions containing utility statements
+
+CREATE OR REPLACE FUNCTION test_fun_2() RETURNS SETOF my_tab1 AS '
+DECLARE
+   t1 my_tab1;
+   occ RECORD;
+BEGIN
+   CREATE TABLE tab4(a int);
+   CREATE TABLE tab5(a int);
+
+   FOR occ IN SELECT * FROM my_tab1
+   LOOP
+     t1.a := occ.a;
+     RETURN NEXT t1;
+   END LOOP;
+
+   RETURN;
+END;' LANGUAGE 'plpgsql';
+
+select test_fun_2();
+
+drop function test_fun_2();
+
+drop table tab4;
+drop table tab5;
+drop table my_tab1;
+

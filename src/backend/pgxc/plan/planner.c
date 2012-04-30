@@ -2157,3 +2157,27 @@ pgxc_query_contains_temp_tables(List *queries)
 
 	return false;
 }
+
+/*
+ * pgxc_query_contains_utility
+ *
+ * Check if there is any utility statement in given list of queries.
+ */
+bool
+pgxc_query_contains_utility(List *queries)
+{
+	ListCell   *elt;
+
+	foreach(elt, queries)
+	{
+		Query *query = (Query *) lfirst(elt);
+
+		if (!query)
+			continue;
+
+		if (query->commandType == CMD_UTILITY)
+			return true;
+	}
+
+	return false;
+}
