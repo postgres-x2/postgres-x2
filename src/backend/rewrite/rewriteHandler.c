@@ -2608,7 +2608,7 @@ QueryRewriteCTAS(Query *parsetree)
 
 		coldef->inhcount = 0;
 		coldef->is_local = true;
-		coldef->is_not_null = true;
+		coldef->is_not_null = false;
 		coldef->raw_default = NULL;
 		coldef->cooked_default = NULL;
 		coldef->constraints = NIL;
