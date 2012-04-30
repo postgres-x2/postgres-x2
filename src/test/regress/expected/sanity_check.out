@@ -46,7 +46,7 @@ SELECT relname, relhasindex
  fast_emp4000            | t
  float4_tbl              | f
  float8_tbl              | f
- func_index_heap         | t
+ func_index_heap         | f
  hash_f8_heap            | t
  hash_i4_heap            | t
  hash_name_heap          | t
@@ -130,6 +130,9 @@ SELECT relname, relhasindex
  pg_ts_template          | t
  pg_type                 | t
  pg_user_mapping         | t
+ pgxc_class              | t
+ pgxc_group              | t
+ pgxc_node               | t
  point_tbl               | t
  polygon_tbl             | t
  ramp                    | f
@@ -157,7 +160,7 @@ SELECT relname, relhasindex
  timetz_tbl              | f
  tinterval_tbl           | f
  varchar_tbl             | f
-(146 rows)
+(149 rows)
 
 --
 -- another sanity check: every system catalog that has OIDs should have
