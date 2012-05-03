@@ -91,7 +91,7 @@ static WorkTableScan *create_worktablescan_plan(PlannerInfo *root, Path *best_pa
 #ifdef PGXC
 static RowMarkClause *mk_row_mark_clause(PlanRowMark *prm);
 static bool compare_alias(Alias *a1, Alias *a2);
-static RemoteQuery *create_remotequery_plan(PlannerInfo *root, Path *best_path,
+static Plan *create_remotequery_plan(PlannerInfo *root, Path *best_path,
 						  List *tlist, List *scan_clauses);
 static Plan *create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path,
 					Plan *parent, Plan *outer_plan, Plan *inner_plan);
@@ -799,7 +799,7 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 		 * intermediate, the children vars may or may not be referenced
 		 * multiple times in it.
 		 */
-		parent_vars = pull_var_clause((Node *)parent->targetlist, PVC_REJECT_PLACEHOLDERS);
+		parent_vars = pull_var_clause((Node *)parent->targetlist, PVC_RECURSE_PLACEHOLDERS);
 
 		findReferencedVars(parent_vars, outer_plan, &out_tlist, &out_relids);
 		findReferencedVars(parent_vars, inner_plan, &in_tlist, &in_relids);
@@ -2540,14 +2540,40 @@ compare_alias(Alias *a1, Alias *a2)
 }
 
 /*
+ * contains_only_vars(tlist)
+ * Return true only if each element of tlist is a target entry having Var node
+ * as its containing expression.
+ */
+static bool
+contains_only_vars(List *tlist)
+{
+	ListCell	  *l;
+
+	foreach(l, (List *) tlist)
+	{
+		Node *tle = lfirst(l);
+		if (nodeTag(tle) != T_TargetEntry)
+			return false;
+		else
+		{
+			Expr *expr = ((TargetEntry *) tle)->expr;
+			if (nodeTag(expr) != T_Var)
+				return false;
+		}
+	}
+	return true;
+}
+
+/*
  * create_remotequery_plan
  *	 Returns a remotequery plan for the base relation scanned by 'best_path'
  *	 with restriction clauses 'scan_clauses' and targetlist 'tlist'.
  */
-static RemoteQuery *
+static Plan *
 create_remotequery_plan(PlannerInfo *root, Path *best_path,
 						  List *tlist, List *scan_clauses)
 {
+	Plan		*result_node ;
 	RemoteQuery *scan_plan;
 	Index		scan_relid = best_path->parent->relid;
 	RangeTblEntry *rte;
@@ -2565,6 +2591,8 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	Oid				distcol_type;
 	Node			*tmp_node;
 	List			*rmlist;
+	List			*tvarlist;
+	bool			tlist_is_simple = contains_only_vars(tlist);
 
 	Assert(scan_relid > 0);
 	Assert(best_path->parent->rtekind == RTE_RELATION);
@@ -2612,7 +2640,22 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 
 	query->jointree->fromlist = list_make1(rtr);
 	query->jointree->quals = (Node *)make_ands_explicit(copyObject(remote_scan_clauses));
-	query->targetList = copyObject(tlist);
+
+	/*
+	 * RemoteQuery node cannot handle arbitrary expressions in the target list.
+	 * So if the target list has any elements that are not plain Vars, we need
+	 * to create a Result node above RemoteQuery, and assign a plain var tlist
+	 * in RemoteQuery node, and Result node will handle the expressions. So if
+	 * the passed-in tlist is not a simple vars tlist, derive one out of the
+	 * tlist.
+	 */
+	if (tlist_is_simple)
+		query->targetList = copyObject(tlist);
+	else
+	{
+		tvarlist = copyObject(pull_var_clause((Node *)tlist, PVC_RECURSE_PLACEHOLDERS));
+		query->targetList = add_to_flat_tlist(NIL, copyObject(tvarlist));
+	}
 
 	/*
 	 * Change the varno in Var nodes in the targetlist of the query to be shipped to the
@@ -2708,7 +2751,23 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	rel_loc_info = GetRelationLocInfo(rte->relid);
 	if (!rel_loc_info)
 		elog(ERROR, "No distribution information found for relid %d", rte->relid);
-	scan_plan = make_remotequery(tlist, local_scan_clauses, scan_relid);
+
+	if (tlist_is_simple)
+	{
+		scan_plan = make_remotequery(tlist, local_scan_clauses, scan_relid);
+		result_node = (Plan *) scan_plan;
+	}
+	else
+	{
+		/*
+		 * Use simple tlist for RemoteQuery, and let Result plan handle
+		 * non-simple target list.
+		 */
+		scan_plan = make_remotequery(add_to_flat_tlist(NIL, copyObject(tvarlist)),
+		                             local_scan_clauses, scan_relid);
+		result_node = (Plan *) make_result(root, tlist, NULL, (Plan*) scan_plan);
+	}
+
 	/* Track if the remote query involves a temporary object */
 	scan_plan->is_temp = IsTempTable(rte->relid);
 
@@ -2776,7 +2835,7 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	/* PGXCTODO - get better estimates */
  	scan_plan->scan.plan.plan_rows = 1000;
 
-	return scan_plan;
+	return result_node;
 }
 #endif
 
