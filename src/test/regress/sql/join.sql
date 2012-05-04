@@ -324,6 +324,8 @@ NATURAL FULL JOIN
 
 -- Test for propagation of nullability constraints into sub-joins
 
+SET enforce_two_phase_commit TO off;
+
 create temp table x (x1 int, x2 int);
 insert into x values (1,11);
 insert into x values (2,22);
@@ -431,7 +433,7 @@ create temp table t2a () inherits (t2);
 
 insert into t2a values (200, 2001);
 
-select * from t1 left join t2 on (t1.a = t2.a);
+select * from t1 left join t2 on (t1.a = t2.a) order by 1,2,3,4;
 
 --
 -- regression test for 8.1 merge right join bug
@@ -647,8 +649,8 @@ rollback;
 --
 -- test the corner cases FULL JOIN ON TRUE and FULL JOIN ON FALSE
 --
-select * from int4_tbl a full join int4_tbl b on true;
-select * from int4_tbl a full join int4_tbl b on false;
+select * from int4_tbl a full join int4_tbl b on true order by 1,2;
+select * from int4_tbl a full join int4_tbl b on false order by 1,2;
 
 --
 -- test join removal
@@ -664,14 +666,14 @@ INSERT INTO b VALUES (0, 0), (1, NULL);
 INSERT INTO c VALUES (0), (1);
 
 -- all three cases should be optimizable into a simple seqscan
-explain (costs off) SELECT a.* FROM a LEFT JOIN b ON a.b_id = b.id;
-explain (costs off) SELECT b.* FROM b LEFT JOIN c ON b.c_id = c.id;
-explain (costs off)
+explain (verbose true, costs false, nodes false) SELECT a.* FROM a LEFT JOIN b ON a.b_id = b.id;
+explain (verbose true, costs false, nodes false) SELECT b.* FROM b LEFT JOIN c ON b.c_id = c.id;
+explain (verbose true, costs false, nodes false)
   SELECT a.* FROM a LEFT JOIN (b left join c on b.c_id = c.id)
   ON (a.b_id = b.id);
 
 -- check optimization of outer join within another special join
-explain (costs off)
+explain (verbose true, costs false, nodes false)
 select id from a where id in (
 	select b.id from b left join c on b.id = c.id
 );
@@ -684,15 +686,15 @@ insert into parent values (1, 10), (2, 20), (3, 30);
 insert into child values (1, 100), (4, 400);
 
 -- this case is optimizable
-select p.* from parent p left join child c on (p.k = c.k);
-explain (costs off)
-  select p.* from parent p left join child c on (p.k = c.k);
+select p.* from parent p left join child c on (p.k = c.k) order by 1,2;
+explain (verbose true, costs false, nodes false)
+  select p.* from parent p left join child c on (p.k = c.k) order by 1,2;
 
 -- this case is not
 select p.*, linked from parent p
   left join (select c.*, true as linked from child c) as ss
   on (p.k = ss.k);
-explain (costs off)
+explain (verbose true, costs false, nodes false)
   select p.*, linked from parent p
     left join (select c.*, true as linked from child c) as ss
     on (p.k = ss.k);
@@ -701,7 +703,7 @@ explain (costs off)
 select p.* from
   parent p left join child c on (p.k = c.k)
   where p.k = 1 and p.k = 2;
-explain (costs off)
+explain (verbose true, costs false, nodes false)
 select p.* from
   parent p left join child c on (p.k = c.k)
   where p.k = 1 and p.k = 2;
@@ -709,7 +711,7 @@ select p.* from
 select p.* from
   (parent p left join child c on (p.k = c.k)) join parent x on p.k = x.k
   where p.k = 1 and p.k = 2;
-explain (costs off)
+explain (verbose true, costs false, nodes false)
 select p.* from
   (parent p left join child c on (p.k = c.k)) join parent x on p.k = x.k
   where p.k = 1 and p.k = 2;
@@ -738,6 +740,6 @@ SELECT * FROM
   LEFT JOIN
     (SELECT q1, q2, COALESCE(dat1, q1) AS y
      FROM int8_tbl LEFT JOIN innertab ON q2 = id) ss2
-  ON true;
+  ON true order by 1, 2, 3, 4;
 
 rollback;

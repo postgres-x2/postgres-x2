@@ -2411,11 +2411,7 @@ prepare foo(bool) as
     on (a.unique2 = b.unique1 and exists
         (select 1 from tenk1 c where c.thousand = b.unique2 and $1));
 execute foo(true);
- count 
--------
- 10000
-(1 row)
-
+ERROR:  bind message supplies 1 parameters, but prepared statement "" requires 0
 execute foo(false);
  count 
 -------
