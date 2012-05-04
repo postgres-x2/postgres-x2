@@ -1,72 +1,109 @@
 --
 -- Tests to exercise the plan caching/invalidation mechanism
 --
+-- Enforce use of COMMIT instead of 2PC for temporary objects
+SET enforce_two_phase_commit TO off;
 CREATE TEMP TABLE pcachetest AS SELECT * FROM int8_tbl;
-ERROR:  INTO clause not yet supported
 -- create and use a cached plan
 PREPARE prepstmt AS SELECT * FROM pcachetest ORDER BY q1, q2;
-ERROR:  relation "pcachetest" does not exist
-LINE 1: PREPARE prepstmt AS SELECT * FROM pcachetest ORDER BY q1, q2...
-                                          ^
 EXECUTE prepstmt;
-ERROR:  prepared statement "prepstmt" does not exist
+        q1        |        q2         
+------------------+-------------------
+              123 |               456
+              123 |  4567890123456789
+ 4567890123456789 | -4567890123456789
+ 4567890123456789 |               123
+ 4567890123456789 |  4567890123456789
+(5 rows)
+
 -- and one with parameters
 PREPARE prepstmt2(bigint) AS SELECT * FROM pcachetest WHERE q1 = $1 ORDER BY q1, q2;
-ERROR:  relation "pcachetest" does not exist
-LINE 1: PREPARE prepstmt2(bigint) AS SELECT * FROM pcachetest WHERE ...
-                                                   ^
 EXECUTE prepstmt2(123);
-ERROR:  prepared statement "prepstmt2" does not exist
+ q1  |        q2        
+-----+------------------
+ 123 |              456
+ 123 | 4567890123456789
+(2 rows)
+
 -- invalidate the plans and see what happens
 DROP TABLE pcachetest;
-ERROR:  table "pcachetest" does not exist
 EXECUTE prepstmt;
-ERROR:  prepared statement "prepstmt" does not exist
+ERROR:  relation "pcachetest" does not exist
 EXECUTE prepstmt2(123);
-ERROR:  prepared statement "prepstmt2" does not exist
+ERROR:  relation "pcachetest" does not exist
 -- recreate the temp table (this demonstrates that the raw plan is
 -- purely textual and doesn't depend on OIDs, for instance)
 CREATE TEMP TABLE pcachetest AS SELECT * FROM int8_tbl ORDER BY q1, q2;
-ERROR:  INTO clause not yet supported
 EXECUTE prepstmt;
-ERROR:  prepared statement "prepstmt" does not exist
+        q1        |        q2         
+------------------+-------------------
+              123 |               456
+              123 |  4567890123456789
+ 4567890123456789 | -4567890123456789
+ 4567890123456789 |               123
+ 4567890123456789 |  4567890123456789
+(5 rows)
+
 EXECUTE prepstmt2(123);
-ERROR:  prepared statement "prepstmt2" does not exist
+ q1  |        q2        
+-----+------------------
+ 123 |              456
+ 123 | 4567890123456789
+(2 rows)
+
 -- prepared statements should prevent change in output tupdesc,
 -- since clients probably aren't expecting that to change on the fly
 ALTER TABLE pcachetest ADD COLUMN q3 bigint;
-ERROR:  relation "pcachetest" does not exist
 EXECUTE prepstmt;
-ERROR:  prepared statement "prepstmt" does not exist
+ERROR:  cached plan must not change result type
 EXECUTE prepstmt2(123);
-ERROR:  prepared statement "prepstmt2" does not exist
+ERROR:  cached plan must not change result type
 -- but we're nice guys and will let you undo your mistake
 ALTER TABLE pcachetest DROP COLUMN q3;
-ERROR:  relation "pcachetest" does not exist
 EXECUTE prepstmt;
-ERROR:  prepared statement "prepstmt" does not exist
+        q1        |        q2         
+------------------+-------------------
+              123 |               456
+              123 |  4567890123456789
+ 4567890123456789 | -4567890123456789
+ 4567890123456789 |               123
+ 4567890123456789 |  4567890123456789
+(5 rows)
+
 EXECUTE prepstmt2(123);
-ERROR:  prepared statement "prepstmt2" does not exist
+ q1  |        q2        
+-----+------------------
+ 123 |              456
+ 123 | 4567890123456789
+(2 rows)
+
 -- Try it with a view, which isn't directly used in the resulting plan
 -- but should trigger invalidation anyway
 CREATE TEMP VIEW pcacheview AS
   SELECT * FROM pcachetest;
-ERROR:  relation "pcachetest" does not exist
-LINE 2:   SELECT * FROM pcachetest;
-                        ^
 PREPARE vprep AS SELECT * FROM pcacheview ORDER BY q1, q2;
-ERROR:  relation "pcacheview" does not exist
-LINE 1: PREPARE vprep AS SELECT * FROM pcacheview ORDER BY q1, q2;
-                                       ^
 EXECUTE vprep;
-ERROR:  prepared statement "vprep" does not exist
+        q1        |        q2         
+------------------+-------------------
+              123 |               456
+              123 |  4567890123456789
+ 4567890123456789 | -4567890123456789
+ 4567890123456789 |               123
+ 4567890123456789 |  4567890123456789
+(5 rows)
+
 CREATE OR REPLACE TEMP VIEW pcacheview AS
   SELECT q1, q2/2 AS q2 FROM pcachetest ORDER BY q1, q2;
-ERROR:  relation "pcachetest" does not exist
-LINE 2:   SELECT q1, q2/2 AS q2 FROM pcachetest ORDER BY q1, q2;
-                                     ^
 EXECUTE vprep;
-ERROR:  prepared statement "vprep" does not exist
+        q1        |        q2         
+------------------+-------------------
+              123 |               228
+              123 |  2283945061728394
+ 4567890123456789 | -2283945061728394
+ 4567890123456789 |                61
+ 4567890123456789 |  2283945061728394
+(5 rows)
+
 -- Check basic SPI plan invalidation
 create function cache_test(int) returns int as $$
 declare total int;
@@ -82,49 +119,43 @@ begin
 end
 $$ language plpgsql;
 select cache_test(1);
-ERROR:  PG-XC does not yet support temporary tables
-CONTEXT:  SQL statement "create temp table t1(f1 int)"
-PL/pgSQL function "cache_test" line 4 at SQL statement
+ERROR:  Postgres-XC does not support DML queries in PL/pgSQL
+CONTEXT:  PL/pgSQL function "cache_test" line 5 at SQL statement
 select cache_test(2);
-ERROR:  PG-XC does not yet support temporary tables
-CONTEXT:  SQL statement "create temp table t1(f1 int)"
-PL/pgSQL function "cache_test" line 4 at SQL statement
+ERROR:  Postgres-XC does not support DML queries in PL/pgSQL
+CONTEXT:  PL/pgSQL function "cache_test" line 6 at SQL statement
 select cache_test(3);
-ERROR:  PG-XC does not yet support temporary tables
-CONTEXT:  SQL statement "create temp table t1(f1 int)"
-PL/pgSQL function "cache_test" line 4 at SQL statement
+ERROR:  Postgres-XC does not support DML queries in PL/pgSQL
+CONTEXT:  PL/pgSQL function "cache_test" line 7 at SQL statement
 -- Check invalidation of plpgsql "simple expression"
 create temp view v1 as
   select 2+2 as f1;
-ERROR:  PG-XC does not yet support temporary tables
 create function cache_test_2() returns int as $$
 begin
 	return f1 from v1;
 end$$ language plpgsql;
 select cache_test_2();
-ERROR:  relation "v1" does not exist
-LINE 1: SELECT f1 from v1
-                       ^
-QUERY:  SELECT f1 from v1
-CONTEXT:  PL/pgSQL function "cache_test_2" line 3 at RETURN
+ cache_test_2 
+--------------
+            4
+(1 row)
+
 create or replace temp view v1 as
   select 2+2+4 as f1;
-ERROR:  PG-XC does not yet support temporary tables
 select cache_test_2();
-ERROR:  relation "v1" does not exist
-LINE 1: SELECT f1 from v1
-                       ^
-QUERY:  SELECT f1 from v1
-CONTEXT:  PL/pgSQL function "cache_test_2" line 3 at RETURN
+ cache_test_2 
+--------------
+            8
+(1 row)
+
 create or replace temp view v1 as
   select 2+2+4+(select max(unique1) from tenk1) as f1;
-ERROR:  PG-XC does not yet support temporary tables
 select cache_test_2();
-ERROR:  relation "v1" does not exist
-LINE 1: SELECT f1 from v1
-                       ^
-QUERY:  SELECT f1 from v1
-CONTEXT:  PL/pgSQL function "cache_test_2" line 3 at RETURN
+ cache_test_2 
+--------------
+        10007
+(1 row)
+
 --- Check that change of search_path is ignored by replans
 create schema s1
   create table abc (f1 int);
@@ -190,7 +221,7 @@ begin
   drop table if exists temptable cascade;
   create temp table temptable as select * from generate_series(1,3) as f1;
   create temp view vv as select * from temptable;
-  for r in select * from vv loop
+  for r in select * from vv order by 1 loop
     raise notice '%', r;
   end loop;
 end$$ language plpgsql;
@@ -198,13 +229,17 @@ select cachebug();
 NOTICE:  table "temptable" does not exist, skipping
 CONTEXT:  SQL statement "drop table if exists temptable cascade"
 PL/pgSQL function "cachebug" line 4 at SQL statement
-ERROR:  INTO clause not yet supported
-CONTEXT:  SQL statement "create temp table temptable as select * from generate_series(1,3) as f1"
-PL/pgSQL function "cachebug" line 5 at SQL statement
+ERROR:  Postgres-XC does not support DML queries in PL/pgSQL
+CONTEXT:  PL/pgSQL function "cachebug" line 5 at SQL statement
 select cachebug();
 NOTICE:  table "temptable" does not exist, skipping
 CONTEXT:  SQL statement "drop table if exists temptable cascade"
 PL/pgSQL function "cachebug" line 4 at SQL statement
-ERROR:  INTO clause not yet supported
-CONTEXT:  SQL statement "create temp table temptable as select * from generate_series(1,3) as f1"
-PL/pgSQL function "cachebug" line 5 at SQL statement
+NOTICE:  1
+NOTICE:  2
+NOTICE:  3
+ cachebug 
+----------
+ 
+(1 row)
+
