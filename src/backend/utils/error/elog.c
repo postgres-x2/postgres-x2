@@ -109,11 +109,12 @@ int			Log_destination = LOG_DESTINATION_STDERR;
 /*
  * Max string length to send to syslog().  Note that this doesn't count the
  * sequence-number prefix we add, and of course it doesn't count the prefix
- * added by syslog itself.	On many implementations it seems that the hard
- * limit is approximately 2K bytes including both those prefixes.
+ * added by syslog itself.  Solaris and sysklogd truncate the final message
+ * at 1024 bytes, so this value leaves 124 bytes for those prefixes.  (Most
+ * other syslog implementations seem to have limits of 2KB or so.)
  */
 #ifndef PG_SYSLOG_LIMIT
-#define PG_SYSLOG_LIMIT 1024
+#define PG_SYSLOG_LIMIT 900
 #endif
 
 static bool openlog_done = false;
@@ -345,6 +346,15 @@ errstart(int elevel, const char *filename, int lineno,
 	edata->elevel = elevel;
 	edata->output_to_server = output_to_server;
 	edata->output_to_client = output_to_client;
+	if (filename)
+	{
+		const char *slash;
+
+		/* keep only base name, useful especially for vpath builds */
+		slash = strrchr(filename, '/');
+		if (slash)
+			filename = slash + 1;
+	}
 	edata->filename = filename;
 	edata->lineno = lineno;
 	edata->funcname = funcname;
@@ -847,6 +857,33 @@ errdetail(const char *fmt,...)
 
 
 /*
+ * errdetail_internal --- add a detail error message text to the current error
+ *
+ * This is exactly like errdetail() except that strings passed to
+ * errdetail_internal are not translated, and are customarily left out of the
+ * internationalization message dictionary.  This should be used for detail
+ * messages that seem not worth translating for one reason or another
+ * (typically, that they don't seem to be useful to average users).
+ */
+int
+errdetail_internal(const char *fmt,...)
+{
+	ErrorData  *edata = &errordata[errordata_stack_depth];
+	MemoryContext oldcontext;
+
+	recursion_depth++;
+	CHECK_STACK_DEPTH();
+	oldcontext = MemoryContextSwitchTo(ErrorContext);
+
+	EVALUATE_MESSAGE(detail, false, false);
+
+	MemoryContextSwitchTo(oldcontext);
+	recursion_depth--;
+	return 0;					/* return value does not matter */
+}
+
+
+/*
  * errdetail_log --- add a detail_log error message text to the current error
  */
 int
@@ -1117,6 +1154,15 @@ elog_start(const char *filename, int lineno, const char *funcname)
 	}
 
 	edata = &errordata[errordata_stack_depth];
+	if (filename)
+	{
+		const char *slash;
+
+		/* keep only base name, useful especially for vpath builds */
+		slash = strrchr(filename, '/');
+		if (slash)
+			filename = slash + 1;
+	}
 	edata->filename = filename;
 	edata->lineno = lineno;
 	edata->funcname = funcname;

@@ -396,6 +396,14 @@ cost_index(IndexPath *path, PlannerInfo *root,
 	 * some of the indexquals are join clauses and shouldn't be subtracted.
 	 * Rather than work out exactly how much to subtract, we don't subtract
 	 * anything.
+	 *
+	 * XXX actually, this calculation is almost completely bogus, because
+	 * indexquals will contain derived indexable conditions which might be
+	 * quite different from the "original" quals in baserestrictinfo.  We
+	 * ought to determine the actual qpqual list and cost that, rather than
+	 * using this shortcut.  But that's too invasive a change to consider
+	 * back-patching, so for the moment we just mask the worst aspects of the
+	 * problem by clamping the subtracted amount.
 	 */
 	startup_cost += baserel->baserestrictcost.startup;
 	cpu_per_tuple = cpu_tuple_cost + baserel->baserestrictcost.per_tuple;
@@ -406,7 +414,8 @@ cost_index(IndexPath *path, PlannerInfo *root,
 
 		cost_qual_eval(&index_qual_cost, indexQuals, root);
 		/* any startup cost still has to be paid ... */
-		cpu_per_tuple -= index_qual_cost.per_tuple;
+		cpu_per_tuple -= Min(index_qual_cost.per_tuple,
+							 baserel->baserestrictcost.per_tuple);
 	}
 
 	run_cost += cpu_per_tuple * tuples_fetched;
@@ -3242,14 +3251,14 @@ set_subquery_size_estimates(PlannerInfo *root, RelOptInfo *rel,
 	/*
 	 * Compute per-output-column width estimates by examining the subquery's
 	 * targetlist.	For any output that is a plain Var, get the width estimate
-	 * that was made while planning the subquery.  Otherwise, fall back on a
-	 * datatype-based estimate.
+	 * that was made while planning the subquery.  Otherwise, we leave it to
+	 * set_rel_width to fill in a datatype-based default estimate.
 	 */
 	foreach(lc, subroot->parse->targetList)
 	{
 		TargetEntry *te = (TargetEntry *) lfirst(lc);
 		Node	   *texpr = (Node *) te->expr;
-		int32		item_width;
+		int32		item_width = 0;
 
 		Assert(IsA(te, TargetEntry));
 		/* junk columns aren't visible to upper query */
@@ -3260,8 +3269,14 @@ set_subquery_size_estimates(PlannerInfo *root, RelOptInfo *rel,
 		 * XXX This currently doesn't work for subqueries containing set
 		 * operations, because the Vars in their tlists are bogus references
 		 * to the first leaf subquery, which wouldn't give the right answer
-		 * even if we could still get to its PlannerInfo.  So fall back on
-		 * datatype in that case.
+		 * even if we could still get to its PlannerInfo.
+		 *
+		 * Also, the subquery could be an appendrel for which all branches are
+		 * known empty due to constraint exclusion, in which case
+		 * set_append_rel_pathlist will have left the attr_widths set to zero.
+		 *
+		 * In either case, we just leave the width estimate zero until
+		 * set_rel_width fixes it.
 		 */
 		if (IsA(texpr, Var) &&
 			subroot->parse->setOperations == NULL)
@@ -3271,11 +3286,6 @@ set_subquery_size_estimates(PlannerInfo *root, RelOptInfo *rel,
 
 			item_width = subrel->attr_widths[var->varattno - subrel->min_attr];
 		}
-		else
-		{
-			item_width = get_typavgwidth(exprType(texpr), exprTypmod(texpr));
-		}
-		Assert(item_width > 0);
 		Assert(te->resno >= rel->min_attr && te->resno <= rel->max_attr);
 		rel->attr_widths[te->resno - rel->min_attr] = item_width;
 	}
@@ -3495,7 +3505,7 @@ set_rel_width(PlannerInfo *root, RelOptInfo *rel)
 		else if (IsA(node, PlaceHolderVar))
 		{
 			PlaceHolderVar *phv = (PlaceHolderVar *) node;
-			PlaceHolderInfo *phinfo = find_placeholder_info(root, phv);
+			PlaceHolderInfo *phinfo = find_placeholder_info(root, phv, false);
 
 			tuple_width += phinfo->ph_width;
 		}

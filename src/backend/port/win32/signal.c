@@ -83,18 +83,18 @@ pgwin32_signal_initialize(void)
 	pgwin32_signal_event = CreateEvent(NULL, TRUE, FALSE, NULL);
 	if (pgwin32_signal_event == NULL)
 		ereport(FATAL,
-				(errmsg_internal("failed to create signal event: %d", (int) GetLastError())));
+				(errmsg_internal("could not create signal event: %d", (int) GetLastError())));
 
 	/* Create thread for handling signals */
 	signal_thread_handle = CreateThread(NULL, 0, pg_signal_thread, NULL, 0, NULL);
 	if (signal_thread_handle == NULL)
 		ereport(FATAL,
-				(errmsg_internal("failed to create signal handler thread")));
+				(errmsg_internal("could not create signal handler thread")));
 
 	/* Create console control handle to pick up Ctrl-C etc */
 	if (!SetConsoleCtrlHandler(pg_console_handler, TRUE))
 		ereport(FATAL,
-				(errmsg_internal("failed to set console control handler")));
+				(errmsg_internal("could not set console control handler")));
 }
 
 /*
@@ -171,7 +171,7 @@ pqsignal(int signum, pqsigfunc handler)
 	return prevfunc;
 }
 
-/* Create the signal listener pipe for specified pid */
+/* Create the signal listener pipe for specified PID */
 HANDLE
 pgwin32_create_signal_listener(pid_t pid)
 {
@@ -186,7 +186,7 @@ pgwin32_create_signal_listener(pid_t pid)
 
 	if (pipe == INVALID_HANDLE_VALUE)
 		ereport(ERROR,
-				(errmsg("could not create signal listener pipe for pid %d: error code %d",
+				(errmsg("could not create signal listener pipe for PID %d: error code %d",
 						(int) pid, (int) GetLastError())));
 
 	return pipe;

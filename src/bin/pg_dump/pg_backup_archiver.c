@@ -97,6 +97,7 @@ static ArchiveHandle *_allocAH(const char *FileSpec, const ArchiveFormat fmt,
 static void _getObjectDescription(PQExpBuffer buf, TocEntry *te,
 					  ArchiveHandle *AH);
 static void _printTocEntry(ArchiveHandle *AH, TocEntry *te, RestoreOptions *ropt, bool isData, bool acl_pass);
+static char *replace_line_endings(const char *str);
 
 
 static void _doSetFixedOutputState(ArchiveHandle *AH);
@@ -117,6 +118,7 @@ static TocEntry *getTocEntryByDumpId(ArchiveHandle *AH, DumpId id);
 static void _moveBefore(ArchiveHandle *AH, TocEntry *pos, TocEntry *te);
 static int	_discoverArchiveFormat(ArchiveHandle *AH);
 
+static int	RestoringToDB(ArchiveHandle *AH);
 static void dump_lo_buf(ArchiveHandle *AH);
 static void _write_msg(const char *modulename, const char *fmt, va_list ap);
 static void _die_horribly(ArchiveHandle *AH, const char *modulename, const char *fmt, va_list ap);
@@ -212,6 +214,7 @@ void
 RestoreArchive(Archive *AHX, RestoreOptions *ropt)
 {
 	ArchiveHandle *AH = (ArchiveHandle *) AHX;
+	bool		parallel_mode;
 	TocEntry   *te;
 	teReqs		reqs;
 	OutputContext sav;
@@ -236,6 +239,27 @@ RestoreArchive(Archive *AHX, RestoreOptions *ropt)
 	 */
 	if (ropt->createDB && ropt->single_txn)
 		die_horribly(AH, modulename, "-C and -1 are incompatible options\n");
+
+	/*
+	 * If we're going to do parallel restore, there are some restrictions.
+	 */
+	parallel_mode = (ropt->number_of_jobs > 1 && ropt->useDB);
+	if (parallel_mode)
+	{
+		/* We haven't got round to making this work for all archive formats */
+		if (AH->ClonePtr == NULL || AH->ReopenPtr == NULL)
+			die_horribly(AH, modulename, "parallel restore is not supported with this archive file format\n");
+
+		/* Doesn't work if the archive represents dependencies as OIDs */
+		if (AH->version < K_VERS_1_8)
+			die_horribly(AH, modulename, "parallel restore is not supported with archives made by pre-8.0 pg_dump\n");
+
+		/*
+		 * It's also not gonna work if we can't reopen the input file, so
+		 * let's try that immediately.
+		 */
+		(AH->ReopenPtr) (AH);
+	}
 
 	/*
 	 * Make sure we won't need (de)compression we haven't got
@@ -384,7 +408,7 @@ RestoreArchive(Archive *AHX, RestoreOptions *ropt)
 	 *
 	 * In parallel mode, turn control over to the parallel-restore logic.
 	 */
-	if (ropt->number_of_jobs > 1 && ropt->useDB)
+	if (parallel_mode)
 		restore_toc_entries_parallel(AH);
 	else
 	{
@@ -589,23 +613,25 @@ restore_toc_entry(ArchiveHandle *AH, TocEntry *te,
 					}
 
 					/*
-					 * If we have a copy statement, use it. As of V1.3, these
-					 * are separate to allow easy import from withing a
-					 * database connection. Pre 1.3 archives can not use DB
-					 * connections and are sent to output only.
-					 *
-					 * For V1.3+, the table data MUST have a copy statement so
-					 * that we can go into appropriate mode with libpq.
+					 * If we have a copy statement, use it.
 					 */
 					if (te->copyStmt && strlen(te->copyStmt) > 0)
 					{
 						ahprintf(AH, "%s", te->copyStmt);
-						AH->writingCopyData = true;
+						AH->outputKind = OUTPUT_COPYDATA;
 					}
+					else
+						AH->outputKind = OUTPUT_OTHERDATA;
 
 					(*AH->PrintTocDataPtr) (AH, te, ropt);
 
-					AH->writingCopyData = false;
+					/*
+					 * Terminate COPY if needed.
+					 */
+					if (AH->outputKind == OUTPUT_COPYDATA &&
+						RestoringToDB(AH))
+						EndDBCopyMode(AH, te);
+					AH->outputKind = OUTPUT_SQLCMDS;
 
 					/* close out the transaction started above */
 					if (is_parallel && te->created)
@@ -1248,17 +1274,13 @@ ahprintf(ArchiveHandle *AH, const char *fmt,...)
 {
 	char	   *p = NULL;
 	va_list		ap;
-	int			bSize = strlen(fmt) + 256;		/* Should be enough */
+	int			bSize = strlen(fmt) + 256;		/* Usually enough */
 	int			cnt = -1;
 
 	/*
 	 * This is paranoid: deal with the possibility that vsnprintf is willing
-	 * to ignore trailing null
-	 */
-
-	/*
-	 * or returns > 0 even if string does not fit. It may be the case that it
-	 * returns cnt = bufsize
+	 * to ignore trailing null or returns > 0 even if string does not fit.
+	 * It may be the case that it returns cnt = bufsize.
 	 */
 	while (cnt < 0 || cnt >= (bSize - 1))
 	{
@@ -1340,7 +1362,7 @@ dump_lo_buf(ArchiveHandle *AH)
 
 
 /*
- *	Write buffer to the output file (usually stdout). This is user for
+ *	Write buffer to the output file (usually stdout). This is used for
  *	outputting 'restore' scripts etc. It is even possible for an archive
  *	format to create a custom output routine to 'fake' a restore if it
  *	wants to generate a script (see TAR output).
@@ -1392,7 +1414,7 @@ ahwrite(const void *ptr, size_t size, size_t nmemb, ArchiveHandle *AH)
 		 * connected then send it to the DB.
 		 */
 		if (RestoringToDB(AH))
-			return ExecuteSqlCommandBuf(AH, (void *) ptr, size * nmemb);		/* Always 1, currently */
+			return ExecuteSqlCommandBuf(AH, (const char *) ptr, size * nmemb);
 		else
 		{
 			res = fwrite((void *) ptr, size, nmemb, AH->OF);
@@ -1985,8 +2007,7 @@ _allocAH(const char *FileSpec, const ArchiveFormat fmt,
 	AH->mode = mode;
 	AH->compression = compression;
 
-	AH->pgCopyBuf = createPQExpBuffer();
-	AH->sqlBuf = createPQExpBuffer();
+	memset(&(AH->sqlparse), 0, sizeof(AH->sqlparse));
 
 	/* Open stdout with no compression for AH output handle */
 	AH->gzOut = 0;
@@ -2919,6 +2940,9 @@ _printTocEntry(ArchiveHandle *AH, TocEntry *te, RestoreOptions *ropt, bool isDat
 	if (!AH->noTocComments)
 	{
 		const char *pfx;
+		char	   *sanitized_name;
+		char	   *sanitized_schema;
+		char	   *sanitized_owner;
 
 		if (isData)
 			pfx = "Data for ";
@@ -2940,12 +2964,39 @@ _printTocEntry(ArchiveHandle *AH, TocEntry *te, RestoreOptions *ropt, bool isDat
 				ahprintf(AH, "\n");
 			}
 		}
+
+		/*
+		 * Zap any line endings embedded in user-supplied fields, to prevent
+		 * corruption of the dump (which could, in the worst case, present an
+		 * SQL injection vulnerability if someone were to incautiously load a
+		 * dump containing objects with maliciously crafted names).
+		 */
+		sanitized_name = replace_line_endings(te->tag);
+		if (te->namespace)
+			sanitized_schema = replace_line_endings(te->namespace);
+		else
+			sanitized_schema = strdup("-");
+		if (!ropt->noOwner)
+			sanitized_owner = replace_line_endings(te->owner);
+		else
+			sanitized_owner = strdup("-");
+
 		ahprintf(AH, "-- %sName: %s; Type: %s; Schema: %s; Owner: %s",
-				 pfx, te->tag, te->desc,
-				 te->namespace ? te->namespace : "-",
-				 ropt->noOwner ? "-" : te->owner);
+				 pfx, sanitized_name, te->desc, sanitized_schema,
+				 sanitized_owner);
+
+		free(sanitized_name);
+		free(sanitized_schema);
+		free(sanitized_owner);
+
 		if (te->tablespace && !ropt->noTablespace)
-			ahprintf(AH, "; Tablespace: %s", te->tablespace);
+		{
+			char   *sanitized_tablespace;
+
+			sanitized_tablespace = replace_line_endings(te->tablespace);
+			ahprintf(AH, "; Tablespace: %s", sanitized_tablespace);
+			free(sanitized_tablespace);
+		}
 		ahprintf(AH, "\n");
 
 		if (AH->PrintExtraTocPtr !=NULL)
@@ -3038,6 +3089,27 @@ _printTocEntry(ArchiveHandle *AH, TocEntry *te, RestoreOptions *ropt, bool isDat
 			free(AH->currUser);
 		AH->currUser = NULL;
 	}
+}
+
+/*
+ * Sanitize a string to be included in an SQL comment, by replacing any
+ * newlines with spaces.
+ */
+static char *
+replace_line_endings(const char *str)
+{
+	char   *result;
+	char   *s;
+
+	result = strdup(str);
+
+	for (s = result; *s != '\0'; s++)
+	{
+		if (*s == '\n' || *s == '\r')
+			*s = ' ';
+	}
+
+	return result;
 }
 
 void
@@ -3260,14 +3332,6 @@ restore_toc_entries_parallel(ArchiveHandle *AH)
 	TocEntry   *te;
 
 	ahlog(AH, 2, "entering restore_toc_entries_parallel\n");
-
-	/* we haven't got round to making this work for all archive formats */
-	if (AH->ClonePtr == NULL || AH->ReopenPtr == NULL)
-		die_horribly(AH, modulename, "parallel restore is not supported with this archive file format\n");
-
-	/* doesn't work if the archive represents dependencies as OIDs, either */
-	if (AH->version < K_VERS_1_8)
-		die_horribly(AH, modulename, "parallel restore is not supported with archives made by pre-8.0 pg_dump\n");
 
 	slots = (ParallelSlot *) calloc(sizeof(ParallelSlot), n_slots);
 
@@ -4200,9 +4264,7 @@ CloneArchive(ArchiveHandle *AH)
 	memcpy(clone, AH, sizeof(ArchiveHandle));
 
 	/* Handle format-independent fields */
-	clone->pgCopyBuf = createPQExpBuffer();
-	clone->sqlBuf = createPQExpBuffer();
-	clone->sqlparse.tagBuf = NULL;
+	memset(&(clone->sqlparse), 0, sizeof(clone->sqlparse));
 
 	/* The clone will have its own connection, so disregard connection state */
 	clone->connection = NULL;
@@ -4236,10 +4298,8 @@ DeCloneArchive(ArchiveHandle *AH)
 	(AH->DeClonePtr) (AH);
 
 	/* Clear state allocated by CloneArchive */
-	destroyPQExpBuffer(AH->pgCopyBuf);
-	destroyPQExpBuffer(AH->sqlBuf);
-	if (AH->sqlparse.tagBuf)
-		destroyPQExpBuffer(AH->sqlparse.tagBuf);
+	if (AH->sqlparse.curCmd)
+		destroyPQExpBuffer(AH->sqlparse.curCmd);
 
 	/* Clear any connection-local state */
 	if (AH->currUser)

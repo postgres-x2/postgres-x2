@@ -135,23 +135,15 @@ typedef size_t (*CustomOutPtr) (struct _archiveHandle * AH, const void *buf, siz
 typedef enum
 {
 	SQL_SCAN = 0,				/* normal */
-	SQL_IN_SQL_COMMENT,			/* -- comment */
-	SQL_IN_EXT_COMMENT,			/* slash-star comment */
 	SQL_IN_SINGLE_QUOTE,		/* '...' literal */
-	SQL_IN_E_QUOTE,				/* E'...' literal */
-	SQL_IN_DOUBLE_QUOTE,		/* "..." identifier */
-	SQL_IN_DOLLAR_TAG,			/* possible dollar-quote starting tag */
-	SQL_IN_DOLLAR_QUOTE			/* body of dollar quote */
+	SQL_IN_DOUBLE_QUOTE			/* "..." identifier */
 } sqlparseState;
 
 typedef struct
 {
 	sqlparseState state;		/* see above */
-	char		lastChar;		/* preceding char, or '\0' initially */
 	bool		backSlash;		/* next char is backslash quoted? */
-	int			braceDepth;		/* parenthesis nesting depth */
-	PQExpBuffer tagBuf;			/* dollar quote tag (NULL if not created) */
-	int			minTagEndPos;	/* first possible end position of $-quote */
+	PQExpBuffer curCmd;			/* incomplete line (NULL if not created) */
 } sqlparseInfo;
 
 typedef enum
@@ -161,6 +153,13 @@ typedef enum
 	STAGE_PROCESSING,
 	STAGE_FINALIZING
 } ArchiverStage;
+
+typedef enum
+{
+	OUTPUT_SQLCMDS = 0,			/* emitting general SQL commands */
+	OUTPUT_COPYDATA,			/* writing COPY data */
+	OUTPUT_OTHERDATA			/* writing data as INSERT commands */
+} ArchiverOutput;
 
 typedef enum
 {
@@ -189,8 +188,7 @@ typedef struct _archiveHandle
 								 * Added V1.7 */
 	ArchiveFormat format;		/* Archive format */
 
-	sqlparseInfo sqlparse;
-	PQExpBuffer sqlBuf;
+	sqlparseInfo sqlparse;		/* state for parsing INSERT data */
 
 	time_t		createDate;		/* Date archive created */
 
@@ -242,10 +240,8 @@ typedef struct _archiveHandle
 	PGconn	   *connection;
 	int			connectToDB;	/* Flag to indicate if direct DB connection is
 								 * required */
-	bool		writingCopyData;	/* True when we are sending COPY data */
+	ArchiverOutput outputKind;	/* Flag for what we're currently writing */
 	bool		pgCopyIn;		/* Currently in libpq 'COPY IN' mode. */
-	PQExpBuffer pgCopyBuf;		/* Left-over data from incomplete lines in
-								 * COPY IN */
 
 	int			loFd;			/* BLOB fd */
 	int			writingBlob;	/* Flag */

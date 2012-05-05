@@ -277,7 +277,8 @@ heapgetpage(HeapScanDesc scan, BlockNumber page)
 			else
 				valid = HeapTupleSatisfiesVisibility(&loctup, snapshot, buffer);
 
-			CheckForSerializableConflictOut(valid, scan->rs_rd, &loctup, buffer);
+			CheckForSerializableConflictOut(valid, scan->rs_rd, &loctup,
+											buffer, snapshot);
 
 			if (valid)
 				scan->rs_vistuples[ntup++] = lineoff;
@@ -472,7 +473,8 @@ heapgettup(HeapScanDesc scan,
 													 snapshot,
 													 scan->rs_cbuf);
 
-				CheckForSerializableConflictOut(valid, scan->rs_rd, tuple, scan->rs_cbuf);
+				CheckForSerializableConflictOut(valid, scan->rs_rd, tuple,
+												scan->rs_cbuf, snapshot);
 
 				if (valid && key != NULL)
 					HeapKeyTest(tuple, RelationGetDescr(scan->rs_rd),
@@ -480,8 +482,6 @@ heapgettup(HeapScanDesc scan,
 
 				if (valid)
 				{
-					if (!scan->rs_relpredicatelocked)
-						PredicateLockTuple(scan->rs_rd, tuple);
 					LockBuffer(scan->rs_cbuf, BUFFER_LOCK_UNLOCK);
 					return;
 				}
@@ -749,16 +749,12 @@ heapgettup_pagemode(HeapScanDesc scan,
 							nkeys, key, valid);
 				if (valid)
 				{
-					if (!scan->rs_relpredicatelocked)
-						PredicateLockTuple(scan->rs_rd, tuple);
 					scan->rs_cindex = lineindex;
 					return;
 				}
 			}
 			else
 			{
-				if (!scan->rs_relpredicatelocked)
-					PredicateLockTuple(scan->rs_rd, tuple);
 				scan->rs_cindex = lineindex;
 				return;
 			}
@@ -1225,12 +1221,25 @@ heap_beginscan_internal(Relation relation, Snapshot snapshot,
 	scan->rs_strategy = NULL;	/* set in initscan */
 	scan->rs_allow_strat = allow_strat;
 	scan->rs_allow_sync = allow_sync;
-	scan->rs_relpredicatelocked = false;
 
 	/*
 	 * we can use page-at-a-time mode if it's an MVCC-safe snapshot
 	 */
 	scan->rs_pageatatime = IsMVCCSnapshot(snapshot);
+
+	/*
+	 * For a seqscan in a serializable transaction, acquire a predicate lock
+	 * on the entire relation. This is required not only to lock all the
+	 * matching tuples, but also to conflict with new insertions into the
+	 * table. In an indexscan, we take page locks on the index pages covering
+	 * the range specified in the scan qual, but in a heap scan there is
+	 * nothing more fine-grained to lock. A bitmap scan is a different story,
+	 * there we have already scanned the index and locked the index pages
+	 * covering the predicate. But in that case we still have to lock any
+	 * matching heap tuples.
+	 */
+	if (!is_bitmapscan)
+		PredicateLockRelation(relation, snapshot);
 
 	/* we only need to set this up once */
 	scan->rs_ctup.t_tableOid = RelationGetRelid(relation);
@@ -1480,9 +1489,9 @@ heap_fetch(Relation relation,
 	valid = HeapTupleSatisfiesVisibility(tuple, snapshot, buffer);
 
 	if (valid)
-		PredicateLockTuple(relation, tuple);
+		PredicateLockTuple(relation, tuple, snapshot);
 
-	CheckForSerializableConflictOut(valid, relation, tuple, buffer);
+	CheckForSerializableConflictOut(valid, relation, tuple, buffer, snapshot);
 
 	LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
 
@@ -1601,11 +1610,12 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 
 		/* If it's visible per the snapshot, we must return it */
 		valid = HeapTupleSatisfiesVisibility(&heapTuple, snapshot, buffer);
-		CheckForSerializableConflictOut(valid, relation, &heapTuple, buffer);
+		CheckForSerializableConflictOut(valid, relation, &heapTuple, buffer,
+										snapshot);
 		if (valid)
 		{
 			ItemPointerSetOffsetNumber(tid, offnum);
-			PredicateLockTuple(relation, &heapTuple);
+			PredicateLockTuple(relation, &heapTuple, snapshot);
 			if (all_dead)
 				*all_dead = false;
 			return true;
@@ -1763,7 +1773,7 @@ heap_get_latest_tid(Relation relation,
 		 * result candidate.
 		 */
 		valid = HeapTupleSatisfiesVisibility(&tp, snapshot, buffer);
-		CheckForSerializableConflictOut(valid, relation, &tp, buffer);
+		CheckForSerializableConflictOut(valid, relation, &tp, buffer, snapshot);
 		if (valid)
 			*tid = ctid;
 
@@ -1927,16 +1937,21 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 	else
 		heaptup = tup;
 
+	/*
+	 * We're about to do the actual insert -- but check for conflict first,
+	 * to avoid possibly having to roll back work we've just done.
+	 *
+	 * For a heap insert, we only need to check for table-level SSI locks.
+	 * Our new tuple can't possibly conflict with existing tuple locks, and
+	 * heap page locks are only consolidated versions of tuple locks; they do
+	 * not lock "gaps" as index page locks do.  So we don't need to identify
+	 * a buffer before making the call.
+	 */
+	CheckForSerializableConflictIn(relation, NULL, InvalidBuffer);
+
 	/* Find buffer to insert this tuple into */
 	buffer = RelationGetBufferForTuple(relation, heaptup->t_len,
 									   InvalidBuffer, options, bistate);
-
-	/*
-	 * We're about to do the actual insert -- check for conflict at the
-	 * relation or buffer level first, to avoid possibly having to roll back
-	 * work we've just done.
-	 */
-	CheckForSerializableConflictIn(relation, NULL, buffer);
 
 	/* NO EREPORT(ERROR) from here till changes are logged */
 	START_CRIT_SECTION();

@@ -1142,7 +1142,7 @@
   </sect2>
 
   <sect2>
-   <title>Cancelling Requests in Progress</title>
+   <title>Canceling Requests in Progress</title>
 
    <para>
     During the processing of a query, the frontend might request
@@ -1740,6 +1740,11 @@ The commands accepted in walsender mode are:
        <listitem>
         <para>
          <filename>postmaster.pid</>
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         <filename>postmaster.opts</>
         </para>
        </listitem>
        <listitem>

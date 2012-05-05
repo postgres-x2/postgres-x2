@@ -1409,15 +1409,15 @@ generate_begin_command(void)
 	 * First get the READ ONLY status because the next call to GetConfigOption
 	 * will overwrite the return buffer
 	 */
-	if (strcmp(GetConfigOption("transaction_read_only", false), "on") == 0)
+	if (strcmp(GetConfigOption("transaction_read_only", false, false), "on") == 0)
 		read_only = "READ ONLY";
 	else
 		read_only = "READ WRITE";
 
 	/* Now get the isolation_level for the transaction */
-	isolation_level = GetConfigOption("transaction_isolation", false);
+	isolation_level = GetConfigOption("transaction_isolation", false, false);
 	if (strcmp(isolation_level, "default") == 0)
-		isolation_level = GetConfigOption("default_transaction_isolation", false);
+		isolation_level = GetConfigOption("default_transaction_isolation", false, false);
    	
 	/* Finally build a START TRANSACTION command */
 	sprintf(begin_cmd, "START TRANSACTION ISOLATION LEVEL %s %s", isolation_level, read_only);
@@ -2543,7 +2543,9 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 
 		if (node->scan.plan.targetlist)
 			remotestate->tlist_vars =
-				pull_var_clause((Node*)node->scan.plan.targetlist, PVC_REJECT_PLACEHOLDERS);
+				pull_var_clause((Node*)node->scan.plan.targetlist,
+								PVC_RECURSE_AGGREGATES,
+								PVC_REJECT_PLACEHOLDERS);
 
 	}
 

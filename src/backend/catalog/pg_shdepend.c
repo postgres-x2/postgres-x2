@@ -25,6 +25,8 @@
 #include "catalog/pg_conversion.h"
 #include "catalog/pg_database.h"
 #include "catalog/pg_default_acl.h"
+#include "catalog/pg_foreign_data_wrapper.h"
+#include "catalog/pg_foreign_server.h"
 #include "catalog/pg_language.h"
 #include "catalog/pg_largeobject.h"
 #include "catalog/pg_namespace.h"
@@ -1284,8 +1286,7 @@ shdepReassignOwned(List *roleids, Oid newrole)
 
 			ereport(ERROR,
 					(errcode(ERRCODE_DEPENDENT_OBJECTS_STILL_EXIST),
-				   errmsg("cannot drop objects owned by %s because they are "
-						  "required by the database system",
+					 errmsg("cannot reassign ownership of objects owned by %s because they are required by the database system",
 						  getObjectDescription(&obj))));
 
 			/*
@@ -1381,6 +1382,14 @@ shdepReassignOwned(List *roleids, Oid newrole)
 
 				case OperatorFamilyRelationId:
 					AlterOpFamilyOwner_oid(sdepForm->objid, newrole);
+					break;
+
+				case ForeignServerRelationId:
+					AlterForeignServerOwner_oid(sdepForm->objid, newrole);
+					break;
+
+				case ForeignDataWrapperRelationId:
+					AlterForeignDataWrapperOwner_oid(sdepForm->objid, newrole);
 					break;
 
 				default:

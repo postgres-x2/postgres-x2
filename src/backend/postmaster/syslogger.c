@@ -34,6 +34,7 @@
 #include "lib/stringinfo.h"
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
+#include "nodes/pg_list.h"
 #include "pgtime.h"
 #include "postmaster/fork_process.h"
 #include "postmaster/postmaster.h"
@@ -87,17 +88,21 @@ extern bool redirection_done;
  */
 static pg_time_t next_rotation_time;
 static bool pipe_eof_seen = false;
+static bool rotation_disabled = false;
 static FILE *syslogFile = NULL;
 static FILE *csvlogFile = NULL;
 static char *last_file_name = NULL;
 static char *last_csv_file_name = NULL;
 
 /*
- * Buffers for saving partial messages from different backends. We don't expect
- * that there will be very many outstanding at one time, so 20 seems plenty of
- * leeway. If this array gets full we won't lose messages, but we will lose
- * the protocol protection against them being partially written or interleaved.
+ * Buffers for saving partial messages from different backends.
  *
+ * Keep NBUFFER_LISTS lists of these, with the entry for a given source pid
+ * being in the list numbered (pid % NBUFFER_LISTS), so as to cut down on
+ * the number of entries we have to examine for any one incoming message.
+ * There must never be more than one entry for the same source pid.
+ *
+ * An inactive buffer is not removed from its list, just held for re-use.
  * An inactive buffer has pid == 0 and undefined contents of data.
  */
 typedef struct
@@ -106,8 +111,8 @@ typedef struct
 	StringInfoData data;		/* accumulated data, as a StringInfo */
 } save_buffer;
 
-#define CHUNK_SLOTS 20
-static save_buffer saved_chunks[CHUNK_SLOTS];
+#define NBUFFER_LISTS 256
+static List *buffer_lists[NBUFFER_LISTS];
 
 /* These must be exported for EXEC_BACKEND case ... annoying */
 #ifndef WIN32
@@ -314,6 +319,11 @@ SysLoggerMain(int argc, char *argv[])
 				pfree(currentLogDir);
 				currentLogDir = pstrdup(Log_directory);
 				rotation_requested = true;
+
+				/*
+				 * Also, create new directory if not present; ignore errors
+				 */
+				mkdir(Log_directory, S_IRWXU);
 			}
 			if (strcmp(Log_filename, currentLogFilename) != 0)
 			{
@@ -331,9 +341,19 @@ SysLoggerMain(int argc, char *argv[])
 				currentLogRotationAge = Log_RotationAge;
 				set_next_rotation_time();
 			}
+
+			/*
+			 * If we had a rotation-disabling failure, re-enable rotation
+			 * attempts after SIGHUP, and force one immediately.
+			 */
+			if (rotation_disabled)
+			{
+				rotation_disabled = false;
+				rotation_requested = true;
+			}
 		}
 
-		if (!rotation_requested && Log_RotationAge > 0)
+		if (!rotation_requested && Log_RotationAge > 0 && !rotation_disabled)
 		{
 			/* Do a logfile rotation if it's time */
 			pg_time_t	now = (pg_time_t) time(NULL);
@@ -342,7 +362,7 @@ SysLoggerMain(int argc, char *argv[])
 				rotation_requested = time_based_rotation = true;
 		}
 
-		if (!rotation_requested && Log_RotationSize > 0)
+		if (!rotation_requested && Log_RotationSize > 0 && !rotation_disabled)
 		{
 			/* Do a rotation if file is too big */
 			if (ftell(syslogFile) >= Log_RotationSize * 1024L)
@@ -588,8 +608,11 @@ SysLogger_Start(void)
 							 errmsg("could not redirect stderr: %m")));
 				close(fd);
 				_setmode(_fileno(stderr), _O_BINARY);
-				/* Now we are done with the write end of the pipe. */
-				CloseHandle(syslogPipe[1]);
+				/*
+				 * Now we are done with the write end of the pipe.
+				 * CloseHandle() must not be called because the preceding
+				 * close() closes the underlying handle.
+				 */
 				syslogPipe[1] = 0;
 #endif
 				redirection_done = true;
@@ -731,6 +754,12 @@ process_pipe_input(char *logbuffer, int *bytes_in_logbuffer)
 			(p.is_last == 't' || p.is_last == 'f' ||
 			 p.is_last == 'T' || p.is_last == 'F'))
 		{
+			List	   *buffer_list;
+			ListCell   *cell;
+			save_buffer *existing_slot = NULL,
+					   *free_slot = NULL;
+			StringInfo	str;
+
 			chunklen = PIPE_HEADER_SIZE + p.len;
 
 			/* Fall out of loop if we don't have the whole chunk yet */
@@ -740,52 +769,53 @@ process_pipe_input(char *logbuffer, int *bytes_in_logbuffer)
 			dest = (p.is_last == 'T' || p.is_last == 'F') ?
 				LOG_DESTINATION_CSVLOG : LOG_DESTINATION_STDERR;
 
+			/* Locate any existing buffer for this source pid */
+			buffer_list = buffer_lists[p.pid % NBUFFER_LISTS];
+			foreach(cell, buffer_list)
+			{
+				save_buffer *buf = (save_buffer *) lfirst(cell);
+
+				if (buf->pid == p.pid)
+				{
+					existing_slot = buf;
+					break;
+				}
+				if (buf->pid == 0 && free_slot == NULL)
+					free_slot = buf;
+			}
+
 			if (p.is_last == 'f' || p.is_last == 'F')
 			{
 				/*
-				 * Save a complete non-final chunk in the per-pid buffer if
-				 * possible - if not just write it out.
+				 * Save a complete non-final chunk in a per-pid buffer
 				 */
-				int			free_slot = -1,
-							existing_slot = -1;
-				int			i;
-				StringInfo	str;
-
-				for (i = 0; i < CHUNK_SLOTS; i++)
+				if (existing_slot != NULL)
 				{
-					if (saved_chunks[i].pid == p.pid)
-					{
-						existing_slot = i;
-						break;
-					}
-					if (free_slot < 0 && saved_chunks[i].pid == 0)
-						free_slot = i;
-				}
-				if (existing_slot >= 0)
-				{
-					str = &(saved_chunks[existing_slot].data);
-					appendBinaryStringInfo(str,
-										   cursor + PIPE_HEADER_SIZE,
-										   p.len);
-				}
-				else if (free_slot >= 0)
-				{
-					saved_chunks[free_slot].pid = p.pid;
-					str = &(saved_chunks[free_slot].data);
-					initStringInfo(str);
+					/* Add chunk to data from preceding chunks */
+					str = &(existing_slot->data);
 					appendBinaryStringInfo(str,
 										   cursor + PIPE_HEADER_SIZE,
 										   p.len);
 				}
 				else
 				{
-					/*
-					 * If there is no free slot we'll just have to take our
-					 * chances and write out a partial message and hope that
-					 * it's not followed by something from another pid.
-					 */
-					write_syslogger_file(cursor + PIPE_HEADER_SIZE, p.len,
-										 dest);
+					/* First chunk of message, save in a new buffer */
+					if (free_slot == NULL)
+					{
+						/*
+						 * Need a free slot, but there isn't one in the list,
+						 * so create a new one and extend the list with it.
+						 */
+						free_slot = palloc(sizeof(save_buffer));
+						buffer_list = lappend(buffer_list, free_slot);
+						buffer_lists[p.pid % NBUFFER_LISTS] = buffer_list;
+					}
+					free_slot->pid = p.pid;
+					str = &(free_slot->data);
+					initStringInfo(str);
+					appendBinaryStringInfo(str,
+										   cursor + PIPE_HEADER_SIZE,
+										   p.len);
 				}
 			}
 			else
@@ -794,26 +824,15 @@ process_pipe_input(char *logbuffer, int *bytes_in_logbuffer)
 				 * Final chunk --- add it to anything saved for that pid, and
 				 * either way write the whole thing out.
 				 */
-				int			existing_slot = -1;
-				int			i;
-				StringInfo	str;
-
-				for (i = 0; i < CHUNK_SLOTS; i++)
+				if (existing_slot != NULL)
 				{
-					if (saved_chunks[i].pid == p.pid)
-					{
-						existing_slot = i;
-						break;
-					}
-				}
-				if (existing_slot >= 0)
-				{
-					str = &(saved_chunks[existing_slot].data);
+					str = &(existing_slot->data);
 					appendBinaryStringInfo(str,
 										   cursor + PIPE_HEADER_SIZE,
 										   p.len);
 					write_syslogger_file(str->data, str->len, dest);
-					saved_chunks[existing_slot].pid = 0;
+					/* Mark the buffer unused, and reclaim string storage */
+					existing_slot->pid = 0;
 					pfree(str->data);
 				}
 				else
@@ -869,17 +888,27 @@ static void
 flush_pipe_input(char *logbuffer, int *bytes_in_logbuffer)
 {
 	int			i;
-	StringInfo	str;
 
 	/* Dump any incomplete protocol messages */
-	for (i = 0; i < CHUNK_SLOTS; i++)
+	for (i = 0; i < NBUFFER_LISTS; i++)
 	{
-		if (saved_chunks[i].pid != 0)
+		List	   *list = buffer_lists[i];
+		ListCell   *cell;
+
+		foreach(cell, list)
 		{
-			str = &(saved_chunks[i].data);
-			write_syslogger_file(str->data, str->len, LOG_DESTINATION_STDERR);
-			saved_chunks[i].pid = 0;
-			pfree(str->data);
+			save_buffer *buf = (save_buffer *) lfirst(cell);
+
+			if (buf->pid != 0)
+			{
+				StringInfo	str = &(buf->data);
+
+				write_syslogger_file(str->data, str->len,
+									 LOG_DESTINATION_STDERR);
+				/* Mark the buffer unused, and reclaim string storage */
+				buf->pid = 0;
+				pfree(str->data);
+			}
 		}
 	}
 
@@ -1109,8 +1138,7 @@ logfile_rotate(bool time_based_rotation, int size_rotation_for)
 			{
 				ereport(LOG,
 						(errmsg("disabling automatic rotation (use SIGHUP to re-enable)")));
-				Log_RotationAge = 0;
-				Log_RotationSize = 0;
+				rotation_disabled = true;
 			}
 
 			if (filename)
@@ -1154,8 +1182,7 @@ logfile_rotate(bool time_based_rotation, int size_rotation_for)
 			{
 				ereport(LOG,
 						(errmsg("disabling automatic rotation (use SIGHUP to re-enable)")));
-				Log_RotationAge = 0;
-				Log_RotationSize = 0;
+				rotation_disabled = true;
 			}
 
 			if (filename)

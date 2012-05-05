@@ -310,7 +310,7 @@ CreateOpFamily(char *amname, char *opfname, Oid namespaceoid, Oid amoid)
 	recordDependencyOnOwner(OperatorFamilyRelationId, opfamilyoid, GetUserId());
 
 	/* dependency on extension */
-	recordDependencyOnCurrentExtension(&myself);
+	recordDependencyOnCurrentExtension(&myself, false);
 
 	/* Post creation hook for new operator family */
 	InvokeObjectAccessHook(OAT_POST_CREATE,
@@ -713,7 +713,7 @@ DefineOpClass(CreateOpClassStmt *stmt)
 	recordDependencyOnOwner(OperatorClassRelationId, opclassoid, GetUserId());
 
 	/* dependency on extension */
-	recordDependencyOnCurrentExtension(&myself);
+	recordDependencyOnCurrentExtension(&myself, false);
 
 	/* Post creation hook for new operator class */
 	InvokeObjectAccessHook(OAT_POST_CREATE,
@@ -1614,10 +1614,9 @@ RemoveOpFamily(RemoveOpFamilyStmt *stmt)
 	tuple = OpFamilyCacheLookup(amID, stmt->opfamilyname, stmt->missing_ok);
 	if (!HeapTupleIsValid(tuple))
 	{
-		ereport(ERROR,
-				(errcode(ERRCODE_UNDEFINED_OBJECT),
-				 errmsg("operator family \"%s\" does not exist for access method \"%s\"",
-						NameListToString(stmt->opfamilyname), stmt->amname)));
+		ereport(NOTICE,
+				(errmsg("operator family \"%s\" does not exist for access method \"%s\", skipping",
+				   NameListToString(stmt->opfamilyname), stmt->amname)));
 		return;
 	}
 

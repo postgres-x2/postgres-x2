@@ -33,6 +33,7 @@
 #include "catalog/indexing.h"
 #include "catalog/namespace.h"
 #include "catalog/objectaccess.h"
+#include "catalog/pg_collation.h"
 #include "catalog/pg_depend.h"
 #include "catalog/pg_extension.h"
 #include "catalog/pg_namespace.h"
@@ -40,6 +41,7 @@
 #include "commands/alter.h"
 #include "commands/comment.h"
 #include "commands/extension.h"
+#include "commands/schemacmds.h"
 #include "commands/trigger.h"
 #include "executor/executor.h"
 #include "funcapi.h"
@@ -626,7 +628,7 @@ read_extension_aux_control_file(const ExtensionControlFile *pcontrol,
 }
 
 /*
- * Read a SQL script file into a string, and convert to database encoding
+ * Read an SQL script file into a string, and convert to database encoding
  */
 static char *
 read_extension_script_file(const ExtensionControlFile *control,
@@ -778,9 +780,7 @@ execute_extension_script(Oid extensionOid, ExtensionControlFile *control,
 						 const char *schemaName, Oid schemaOid)
 {
 	char	   *filename;
-	char	   *save_client_min_messages,
-			   *save_log_min_messages,
-			   *save_search_path;
+	int			save_nestlevel;
 	StringInfoData pathbuf;
 	ListCell   *lc;
 
@@ -812,22 +812,20 @@ execute_extension_script(Oid extensionOid, ExtensionControlFile *control,
 	 * so that we won't spam the user with useless NOTICE messages from common
 	 * script actions like creating shell types.
 	 *
-	 * We use the equivalent of SET LOCAL to ensure the setting is undone upon
-	 * error.
+	 * We use the equivalent of a function SET option to allow the setting to
+	 * persist for exactly the duration of the script execution.  guc.c also
+	 * takes care of undoing the setting on error.
 	 */
-	save_client_min_messages =
-		pstrdup(GetConfigOption("client_min_messages", false));
+	save_nestlevel = NewGUCNestLevel();
+
 	if (client_min_messages < WARNING)
 		(void) set_config_option("client_min_messages", "warning",
 								 PGC_USERSET, PGC_S_SESSION,
-								 GUC_ACTION_LOCAL, true);
-
-	save_log_min_messages =
-		pstrdup(GetConfigOption("log_min_messages", false));
+								 GUC_ACTION_SAVE, true);
 	if (log_min_messages < WARNING)
 		(void) set_config_option("log_min_messages", "warning",
 								 PGC_SUSET, PGC_S_SESSION,
-								 GUC_ACTION_LOCAL, true);
+								 GUC_ACTION_SAVE, true);
 
 	/*
 	 * Set up the search path to contain the target schema, then the schemas
@@ -836,10 +834,9 @@ execute_extension_script(Oid extensionOid, ExtensionControlFile *control,
 	 *
 	 * Note: it might look tempting to use PushOverrideSearchPath for this,
 	 * but we cannot do that.  We have to actually set the search_path GUC in
-	 * case the extension script examines or changes it.
+	 * case the extension script examines or changes it.  In any case, the
+	 * GUC_ACTION_SAVE method is just as convenient.
 	 */
-	save_search_path = pstrdup(GetConfigOption("search_path", false));
-
 	initStringInfo(&pathbuf);
 	appendStringInfoString(&pathbuf, quote_identifier(schemaName));
 	foreach(lc, requiredSchemas)
@@ -853,7 +850,7 @@ execute_extension_script(Oid extensionOid, ExtensionControlFile *control,
 
 	(void) set_config_option("search_path", pathbuf.data,
 							 PGC_USERSET, PGC_S_SESSION,
-							 GUC_ACTION_LOCAL, true);
+							 GUC_ACTION_SAVE, true);
 
 	/*
 	 * Set creating_extension and related variables so that
@@ -864,26 +861,39 @@ execute_extension_script(Oid extensionOid, ExtensionControlFile *control,
 	CurrentExtensionObject = extensionOid;
 	PG_TRY();
 	{
-		char	   *sql = read_extension_script_file(control, filename);
+		char	   *c_sql = read_extension_script_file(control, filename);
+		Datum		t_sql;
+
+		/* We use various functions that want to operate on text datums */
+		t_sql = CStringGetTextDatum(c_sql);
+
+		/*
+		 * Reduce any lines beginning with "\echo" to empty.  This allows
+		 * scripts to contain messages telling people not to run them via
+		 * psql, which has been found to be necessary due to old habits.
+		 */
+		t_sql = DirectFunctionCall4Coll(textregexreplace,
+										C_COLLATION_OID,
+										t_sql,
+										CStringGetTextDatum("^\\\\echo.*$"),
+										CStringGetTextDatum(""),
+										CStringGetTextDatum("ng"));
 
 		/*
 		 * If it's not relocatable, substitute the target schema name for
 		 * occcurrences of @extschema@.
 		 *
-		 * For a relocatable extension, we just run the script as-is. There
-		 * cannot be any need for @extschema@, else it wouldn't be
-		 * relocatable.
+		 * For a relocatable extension, we needn't do this.  There cannot be
+		 * any need for @extschema@, else it wouldn't be relocatable.
 		 */
 		if (!control->relocatable)
 		{
 			const char *qSchemaName = quote_identifier(schemaName);
 
-			sql = text_to_cstring(
-								  DatumGetTextPP(
-											DirectFunctionCall3(replace_text,
-													CStringGetTextDatum(sql),
-										  CStringGetTextDatum("@extschema@"),
-										 CStringGetTextDatum(qSchemaName))));
+			t_sql = DirectFunctionCall3(replace_text,
+										t_sql,
+										CStringGetTextDatum("@extschema@"),
+										CStringGetTextDatum(qSchemaName));
 		}
 
 		/*
@@ -892,15 +902,16 @@ execute_extension_script(Oid extensionOid, ExtensionControlFile *control,
 		 */
 		if (control->module_pathname)
 		{
-			sql = text_to_cstring(
-								  DatumGetTextPP(
-											DirectFunctionCall3(replace_text,
-													CStringGetTextDatum(sql),
-									  CStringGetTextDatum("MODULE_PATHNAME"),
-							CStringGetTextDatum(control->module_pathname))));
+			t_sql = DirectFunctionCall3(replace_text,
+										t_sql,
+										CStringGetTextDatum("MODULE_PATHNAME"),
+							CStringGetTextDatum(control->module_pathname));
 		}
 
-		execute_sql_string(sql, filename);
+		/* And now back to C string */
+		c_sql = text_to_cstring(DatumGetTextPP(t_sql));
+
+		execute_sql_string(c_sql, filename);
 	}
 	PG_CATCH();
 	{
@@ -914,18 +925,9 @@ execute_extension_script(Oid extensionOid, ExtensionControlFile *control,
 	CurrentExtensionObject = InvalidOid;
 
 	/*
-	 * Restore GUC variables for the remainder of the current transaction.
-	 * Again use SET LOCAL, so we won't affect the session value.
+	 * Restore the GUC variables we set above.
 	 */
-	(void) set_config_option("search_path", save_search_path,
-							 PGC_USERSET, PGC_S_SESSION,
-							 GUC_ACTION_LOCAL, true);
-	(void) set_config_option("client_min_messages", save_client_min_messages,
-							 PGC_USERSET, PGC_S_SESSION,
-							 GUC_ACTION_LOCAL, true);
-	(void) set_config_option("log_min_messages", save_log_min_messages,
-							 PGC_SUSET, PGC_S_SESSION,
-							 GUC_ACTION_LOCAL, true);
+	AtEOXact_GUC(true, save_nestlevel);
 }
 
 /*
@@ -1372,9 +1374,22 @@ CreateExtension(CreateExtensionStmt *stmt)
 
 		if (schemaOid == InvalidOid)
 		{
-			schemaOid = NamespaceCreate(schemaName, extowner);
-			/* Advance cmd counter to make the namespace visible */
-			CommandCounterIncrement();
+			CreateSchemaStmt *csstmt = makeNode(CreateSchemaStmt);
+
+			csstmt->schemaname = schemaName;
+			csstmt->authid = NULL;		/* will be created by current user */
+			csstmt->schemaElts = NIL;
+#ifdef PGXC
+			CreateSchemaCommand(csstmt, NULL, true);
+#else
+			CreateSchemaCommand(csstmt, NULL);
+#endif
+
+			/*
+			 * CreateSchemaCommand includes CommandCounterIncrement, so new
+			 * schema is now visible
+			 */
+			schemaOid = get_namespace_oid(schemaName, false);
 		}
 	}
 	else
@@ -1633,6 +1648,23 @@ RemoveExtensionById(Oid extId)
 	SysScanDesc scandesc;
 	HeapTuple	tuple;
 	ScanKeyData entry[1];
+
+	/*
+	 * Disallow deletion of any extension that's currently open for insertion;
+	 * else subsequent executions of recordDependencyOnCurrentExtension()
+	 * could create dangling pg_depend records that refer to a no-longer-valid
+	 * pg_extension OID.  This is needed not so much because we think people
+	 * might write "DROP EXTENSION foo" in foo's own script files, as because
+	 * errors in dependency management in extension script files could give
+	 * rise to cases where an extension is dropped as a result of recursing
+	 * from some contained object.  Because of that, we must test for the case
+	 * here, not at some higher level of the DROP EXTENSION command.
+	 */
+	if (extId == CurrentExtensionObject)
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("cannot drop extension \"%s\" because it is being modified",
+						get_extension_name(extId))));
 
 	rel = heap_open(ExtensionRelationId, RowExclusiveLock);
 
@@ -2102,7 +2134,7 @@ pg_extension_config_dump(PG_FUNCTION_ARGS)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("pg_extension_config_dump() can only be called "
-						"from a SQL script executed by CREATE EXTENSION")));
+						"from an SQL script executed by CREATE EXTENSION")));
 
 	/*
 	 * Check that the table exists and is a member of the extension being

@@ -130,7 +130,7 @@ do { \
 } while(0)
 
 static IndexScanDesc index_beginscan_internal(Relation indexRelation,
-						 int nkeys, int norderbys);
+						 int nkeys, int norderbys, Snapshot snapshot);
 
 
 /* ----------------------------------------------------------------
@@ -238,7 +238,7 @@ index_beginscan(Relation heapRelation,
 {
 	IndexScanDesc scan;
 
-	scan = index_beginscan_internal(indexRelation, nkeys, norderbys);
+	scan = index_beginscan_internal(indexRelation, nkeys, norderbys, snapshot);
 
 	/*
 	 * Save additional parameters into the scandesc.  Everything else was set
@@ -263,7 +263,7 @@ index_beginscan_bitmap(Relation indexRelation,
 {
 	IndexScanDesc scan;
 
-	scan = index_beginscan_internal(indexRelation, nkeys, 0);
+	scan = index_beginscan_internal(indexRelation, nkeys, 0, snapshot);
 
 	/*
 	 * Save additional parameters into the scandesc.  Everything else was set
@@ -279,7 +279,7 @@ index_beginscan_bitmap(Relation indexRelation,
  */
 static IndexScanDesc
 index_beginscan_internal(Relation indexRelation,
-						 int nkeys, int norderbys)
+						 int nkeys, int norderbys, Snapshot snapshot)
 {
 	IndexScanDesc scan;
 	FmgrInfo   *procedure;
@@ -288,7 +288,7 @@ index_beginscan_internal(Relation indexRelation,
 	GET_REL_PROCEDURE(ambeginscan);
 
 	if (!(indexRelation->rd_am->ampredlocks))
-		PredicateLockRelation(indexRelation);
+		PredicateLockRelation(indexRelation, snapshot);
 
 	/*
 	 * We hold a reference count to the relcache entry throughout the scan.
@@ -610,7 +610,8 @@ index_getnext(IndexScanDesc scan, ScanDirection direction)
 												 scan->xs_cbuf);
 
 			CheckForSerializableConflictOut(valid, scan->heapRelation,
-											heapTuple, scan->xs_cbuf);
+											heapTuple, scan->xs_cbuf,
+											scan->xs_snapshot);
 
 			if (valid)
 			{
@@ -632,7 +633,7 @@ index_getnext(IndexScanDesc scan, ScanDirection direction)
 				else
 					scan->xs_next_hot = InvalidOffsetNumber;
 
-				PredicateLockTuple(scan->heapRelation, heapTuple);
+				PredicateLockTuple(scan->heapRelation, heapTuple, scan->xs_snapshot);
 
 				LockBuffer(scan->xs_cbuf, BUFFER_LOCK_UNLOCK);
 

@@ -16,8 +16,10 @@ static void check_old_cluster_has_new_cluster_dbs(void);
 static void check_locale_and_encoding(ControlData *oldctrl,
 						  ControlData *newctrl);
 static void check_is_super_user(ClusterInfo *cluster);
+static void check_for_prepared_transactions(ClusterInfo *cluster);
 static void check_for_isn_and_int8_passing_mismatch(ClusterInfo *cluster);
 static void check_for_reg_data_type_usage(ClusterInfo *cluster);
+static void get_bin_version(ClusterInfo *cluster);
 
 
 void
@@ -29,7 +31,7 @@ output_check_banner(bool *live_check)
 		if (old_cluster.port == new_cluster.port)
 			pg_log(PG_FATAL, "When checking a live server, "
 				   "the old and new port numbers must be different.\n");
-		pg_log(PG_REPORT, "PerForming Consistency Checks on Old Live Server\n");
+		pg_log(PG_REPORT, "Performing Consistency Checks on Old Live Server\n");
 		pg_log(PG_REPORT, "------------------------------------------------\n");
 	}
 	else
@@ -65,6 +67,7 @@ check_old_cluster(bool live_check,
 	 * Check for various failure cases
 	 */
 	check_is_super_user(&old_cluster);
+	check_for_prepared_transactions(&old_cluster);
 	check_for_reg_data_type_usage(&old_cluster);
 	check_for_isn_and_int8_passing_mismatch(&old_cluster);
 
@@ -73,6 +76,7 @@ check_old_cluster(bool live_check,
 	{
 		old_8_3_check_for_name_data_type_usage(&old_cluster);
 		old_8_3_check_for_tsquery_usage(&old_cluster);
+		old_8_3_check_ltree_usage(&old_cluster);
 		if (user_opts.check)
 		{
 			old_8_3_rebuild_tsvector_tables(&old_cluster, true);
@@ -117,6 +121,7 @@ check_new_cluster(void)
 	get_db_and_rel_infos(&new_cluster);
 
 	check_new_cluster_is_empty();
+	check_for_prepared_transactions(&new_cluster);
 	check_old_cluster_has_new_cluster_dbs();
 
 	check_loadable_libraries();
@@ -213,6 +218,8 @@ output_completion_banner(char *deletion_script_file_name)
 void
 check_cluster_versions(void)
 {
+	prep_status("Checking cluster versions");
+
 	/* get old and new cluster versions */
 	old_cluster.major_version = get_major_server_version(&old_cluster);
 	new_cluster.major_version = get_major_server_version(&new_cluster);
@@ -232,32 +239,32 @@ check_cluster_versions(void)
 
 	/*
 	 * We can't allow downgrading because we use the target pg_dumpall, and
-	 * pg_dumpall cannot operate on new datbase versions, only older versions.
+	 * pg_dumpall cannot operate on new database versions, only older versions.
 	 */
 	if (old_cluster.major_version > new_cluster.major_version)
 		pg_log(PG_FATAL, "This utility cannot be used to downgrade to older major PostgreSQL versions.\n");
+
+	/* get old and new binary versions */
+	get_bin_version(&old_cluster);
+	get_bin_version(&new_cluster);
+
+	/* Ensure binaries match the designated data directories */
+	if (GET_MAJOR_VERSION(old_cluster.major_version) !=
+		GET_MAJOR_VERSION(old_cluster.bin_version))
+		pg_log(PG_FATAL,
+			   "Old cluster data and binary directories are from different major versions.\n");
+	if (GET_MAJOR_VERSION(new_cluster.major_version) !=
+		GET_MAJOR_VERSION(new_cluster.bin_version))
+		pg_log(PG_FATAL,
+			   "New cluster data and binary directories are from different major versions.\n");
+
+	check_ok();
 }
 
 
 void
 check_cluster_compatibility(bool live_check)
 {
-	char		libfile[MAXPGPATH];
-	FILE	   *lib_test;
-
-	/*
-	 * Test pg_upgrade_support.so is in the proper place.	 We cannot copy it
-	 * ourselves because install directories are typically root-owned.
-	 */
-	snprintf(libfile, sizeof(libfile), "%s/pg_upgrade_support%s", new_cluster.libpath,
-			 DLSUFFIX);
-
-	if ((lib_test = fopen(libfile, "r")) == NULL)
-		pg_log(PG_FATAL,
-			   "pg_upgrade_support%s must be created and installed in %s\n", DLSUFFIX, libfile);
-	else
-		fclose(lib_test);
-
 	/* get/check pg_control data of servers */
 	get_control_data(&old_cluster, live_check);
 	get_control_data(&new_cluster, false);
@@ -507,6 +514,36 @@ check_is_super_user(ClusterInfo *cluster)
 
 
 /*
+ *	check_for_prepared_transactions()
+ *
+ *	Make sure there are no prepared transactions because the storage format
+ *	might have changed.
+ */
+static void
+check_for_prepared_transactions(ClusterInfo *cluster)
+{
+	PGresult   *res;
+	PGconn	   *conn = connectToServer(cluster, "template1");
+
+	prep_status("Checking for prepared transactions");
+
+	res = executeQueryOrDie(conn,
+							"SELECT * "
+							"FROM pg_catalog.pg_prepared_xacts");
+
+	if (PQntuples(res) != 0)
+		pg_log(PG_FATAL, "The %s cluster contains prepared transactions\n",
+			   CLUSTER_NAME(cluster));
+
+	PQclear(res);
+
+	PQfinish(conn);
+
+	check_ok();
+}
+
+
+/*
  *	check_for_isn_and_int8_passing_mismatch()
  *
  *	contrib/isn relies on data type int8, and in 8.4 int8 can now be passed
@@ -646,7 +683,7 @@ check_for_reg_data_type_usage(ClusterInfo *cluster)
 								"			'pg_catalog.regprocedure'::pg_catalog.regtype, "
 		  "			'pg_catalog.regoper'::pg_catalog.regtype, "
 								"			'pg_catalog.regoperator'::pg_catalog.regtype, "
-		 "			'pg_catalog.regclass'::pg_catalog.regtype, "
+/*	allow	 "			'pg_catalog.regclass'::pg_catalog.regtype, "*/
 		/* regtype.oid is preserved, so 'regtype' is OK */
 		"			'pg_catalog.regconfig'::pg_catalog.regtype, "
 								"			'pg_catalog.regdictionary'::pg_catalog.regtype) AND "
@@ -697,3 +734,32 @@ check_for_reg_data_type_usage(ClusterInfo *cluster)
 	else
 		check_ok();
 }
+
+
+static void
+get_bin_version(ClusterInfo *cluster)
+{
+	char		cmd[MAXPGPATH], cmd_output[MAX_STRING];
+	FILE	   *output;
+	int			pre_dot, post_dot;
+
+	snprintf(cmd, sizeof(cmd), "\"%s/pg_ctl\" --version", cluster->bindir);
+
+	if ((output = popen(cmd, "r")) == NULL)
+		pg_log(PG_FATAL, "Could not get pg_ctl version data: %s\n",
+			   getErrorText(errno));
+
+	fgets(cmd_output, sizeof(cmd_output), output);
+
+	pclose(output);
+
+	/* Remove trailing newline */
+	if (strchr(cmd_output, '\n') != NULL)
+		*strchr(cmd_output, '\n') = '\0';
+
+	if (sscanf(cmd_output, "%*s %*s %d.%d", &pre_dot, &post_dot) != 2)
+		pg_log(PG_FATAL, "could not get version from %s\n", cmd);
+
+	cluster->bin_version = (pre_dot * 100 + post_dot) * 100;
+}
+

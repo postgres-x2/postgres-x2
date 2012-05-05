@@ -259,7 +259,7 @@ SET ENABLE_SEQSCAN TO OFF;
       </indexterm>
       <listitem>
        <para>
-        Specifies the name of an additional process-id (PID) file that the
+        Specifies the name of an additional process-ID (PID) file that the
         server should create for use by server administration programs.
         This parameter can only be set at server start.
        </para>
@@ -1420,11 +1420,18 @@ SET ENABLE_SEQSCAN TO OFF;
         This parameter can only be set at server start.
        </para>
        <para>
-        In <literal>minimal</> level, WAL-logging of some bulk operations, like
-        <command>CREATE INDEX</>, <command>CLUSTER</> and <command>COPY</> on
-        a table that was created or truncated in the same transaction can be
-        safely skipped, which can make those operations much faster (see
-        <xref linkend="populate-pitr">). But minimal WAL does not contain
+        In <literal>minimal</> level, WAL-logging of some bulk
+        operations can be safely skipped, which can make those
+        operations much faster (see <xref linkend="populate-pitr">).
+        Operations in which this optimization can be applied include:
+        <simplelist>
+         <member><command>CREATE TABLE AS</></member>
+         <member><command>CREATE INDEX</></member>
+         <member><command>CLUSTER</></member>
+         <member><command>COPY</> into tables that were created or truncated in the same
+         transaction</member>
+        </simplelist>
+        But minimal WAL does not contain
         enough information to reconstruct the data from a base backup and the
         WAL logs, so either <literal>archive</> or <literal>hot_standby</>
         level must be used to enable
@@ -1499,7 +1506,7 @@ SET ENABLE_SEQSCAN TO OFF;
      </varlistentry>
 
      <varlistentry id="guc-synchronous-commit" xreflabel="synchronous_commit">
-      <term><varname>synchronous_commit</varname> (<type>boolean</type>)</term>
+      <term><varname>synchronous_commit</varname> (<type>enum</type>)</term>
       <indexterm>
        <primary><varname>synchronous_commit</> configuration parameter</primary>
       </indexterm>
@@ -1844,9 +1851,9 @@ SET ENABLE_SEQSCAN TO OFF;
         <varname>archive_mode</> and <varname>archive_command</> are
         separate variables so that <varname>archive_command</> can be
         changed without leaving archiving mode.
-        This parameter can only be set at server start. <varname>wal_level</>
-        must be set to <literal>archive</> or <literal>hot_standby</> to
-        enable <varname>archive_mode</>.
+        This parameter can only be set at server start.
+        <varname>archive_mode</> cannot be enabled when
+        <varname>wal_level</> is set to <literal>minimal</>.
        </para>
       </listitem>
      </varlistentry>
@@ -1911,7 +1918,10 @@ SET ENABLE_SEQSCAN TO OFF;
         files.  Therefore, it is unwise to use a very short
         <varname>archive_timeout</> &mdash; it will bloat your archive
         storage.  <varname>archive_timeout</> settings of a minute or so are
-        usually reasonable.  This parameter can only be set in the
+        usually reasonable.  You should consider using streaming replication,
+        instead of archiving, if you want data to be copied off the master
+        server more quickly than that.
+        This parameter can only be set in the
         <filename>postgresql.conf</> file or on the server command line.
        </para>
       </listitem>
@@ -1920,14 +1930,32 @@ SET ENABLE_SEQSCAN TO OFF;
      </variablelist>
     </sect2>
 
-    <sect2 id="runtime-config-replication">
-     <title>Streaming Replication</title>
+   </sect1>
+
+   <sect1 id="runtime-config-replication">
+    <title>Replication</title>
+
+    <para>
+     These settings control the behavior of the built-in
+     <firstterm>streaming replication</> feature (see
+     <xref linkend="streaming-replication">).
+     Some parameters must be set on the master server, while others must be
+     set on the standby server(s) that will receive replication data.
+    </para>
+
+    <sect2 id="runtime-config-replication-master">
+     <title>Master Server</title>
 
      <para>
-      These settings control the behavior of the built-in
-      <firstterm>streaming replication</> feature.
-      These parameters would be set on the primary server that is
+      These parameters can be set on the primary server that is
       to send replication data to one or more standby servers.
+      Note that in addition to these parameters,
+      <xref linkend="guc-wal-level"> must be set appropriately on the master
+      server, and you will typically want to enable WAL archiving as
+      well (see <xref linkend="runtime-config-wal-archiving">).
+      The values of these parameters on standby servers are irrelevant,
+      although you may wish to set them there in preparation for the
+      possibility of a standby becoming the master.
      </para>
 
      <variablelist>
@@ -1995,7 +2023,7 @@ SET ENABLE_SEQSCAN TO OFF;
         <filename>pg_xlog</>; the system might need to retain more segments
         for WAL archival or to recover from a checkpoint. If
         <varname>wal_keep_segments</> is zero (the default), the system
-        doesn't keep any extra segments for standby purposes, and the number
+        doesn't keep any extra segments for standby purposes, so the number
         of old WAL segments available to standby servers is a function of
         the location of the previous checkpoint and status of WAL
         archiving.  This parameter has no effect on restartpoints.
@@ -2057,20 +2085,7 @@ SET ENABLE_SEQSCAN TO OFF;
        </para>
       </listitem>
      </varlistentry>
-     </variablelist>
-    </sect2>
 
-    <sect2 id="runtime-config-sync-rep">
-     <title>Synchronous Replication</title>
-
-     <para>
-      These settings control the behavior of the built-in
-      <firstterm>synchronous replication</> feature.
-      These parameters would be set on the primary server that is
-      to send replication data to one or more standby servers.
-     </para>
-
-     <variablelist>
      <varlistentry id="guc-synchronous-standby-names" xreflabel="synchronous_standby_names">
       <term><varname>synchronous_standby_names</varname> (<type>string</type>)</term>
       <indexterm>
@@ -2078,34 +2093,46 @@ SET ENABLE_SEQSCAN TO OFF;
       </indexterm>
       <listitem>
        <para>
-        Specifies a priority ordered list of standby names that can offer
-        synchronous replication.  At any one time there will be at most one
-        synchronous standby that will wake sleeping users following commit.
-        The synchronous standby will be the first named standby that is
-        both currently connected and streaming in real-time to the standby
-        (as shown by a state of "STREAMING").  Other standby servers
-        with listed later will become potential synchronous standbys.
-        If the current synchronous standby disconnects for whatever reason
-        it will be replaced immediately with the next highest priority standby.
+        Specifies a comma-separated list of standby names that can support
+        <firstterm>synchronous replication</>, as described in
+        <xref linkend="synchronous-replication">.
+        At any one time there will be at most one active synchronous standby;
+        transactions waiting for commit will be allowed to proceed after
+        this standby server confirms receipt of their data.
+        The synchronous standby will be the first standby named in this list
+        that is both currently connected and streaming data in real-time
+        (as shown by a state of <literal>streaming</literal> in the
+        <link linkend="monitoring-stats-views-table">
+        <literal>pg_stat_replication</></link> view).
+        Other standby servers appearing later in this list represent potential
+        synchronous standbys.
+        If the current synchronous standby disconnects for whatever reason,
+        it will be replaced immediately with the next-highest-priority standby.
         Specifying more than one standby name can allow very high availability.
        </para>
        <para>
-        The standby name is currently taken as the application_name of the
-        standby, as set in the primary_conninfo on the standby. Names are
-        not enforced for uniqueness. In case of duplicates one of the standbys
-        will be chosen to be the synchronous standby, though exactly which
-        one is indeterminate.
-        The special entry <literal>*</> matches any application_name, including
-        the default application name of <literal>walreceiver</>.
+        The name of a standby server for this purpose is the
+        <varname>application_name</> setting of the standby, as set in the
+        <varname>primary_conninfo</> of the standby's walreceiver.  There is
+        no mechanism to enforce uniqueness. In case of duplicates one of the
+        matching standbys will be chosen to be the synchronous standby, though
+        exactly which one is indeterminate.
+        The special entry <literal>*</> matches any
+        <varname>application_name</>, including the default application name
+        of <literal>walreceiver</>.
        </para>
        <para>
-        If no synchronous standby names are specified, then synchronous
-        replication is not enabled and transaction commit will never wait for
+        If no synchronous standby names are specified here, then synchronous
+        replication is not enabled and transaction commits will not wait for
         replication.  This is the default configuration.  Even when
         synchronous replication is enabled, individual transactions can be
         configured not to wait for replication by setting the
         <xref linkend="guc-synchronous-commit"> parameter to
         <literal>local</> or <literal>off</>.
+       </para>
+       <para>
+        This parameter can only be set in the <filename>postgresql.conf</>
+        file or on the server command line.
        </para>
       </listitem>
      </varlistentry>
@@ -2113,12 +2140,13 @@ SET ENABLE_SEQSCAN TO OFF;
      </variablelist>
     </sect2>
 
-    <sect2 id="runtime-config-standby">
-    <title>Standby Servers</title>
+    <sect2 id="runtime-config-replication-standby">
+     <title>Standby Servers</title>
 
      <para>
       These settings control the behavior of a standby server that is
-      to receive replication data.
+      to receive replication data.  Their values on the master server
+      are irrelevant.
      </para>
 
     <variablelist>
@@ -2207,13 +2235,16 @@ SET ENABLE_SEQSCAN TO OFF;
       </indexterm>
       <listitem>
       <para>
-       Specifies the minimum frequency, in seconds, for the WAL receiver
+       Specifies the minimum frequency for the WAL receiver
        process on the standby to send information about replication progress
-       to the primary, where they can be seen using the
-       <literal>pg_stat_replication</literal> view.  The standby will report
+       to the primary, where it can be seen using the
+       <link linkend="monitoring-stats-views-table">
+       <literal>pg_stat_replication</></link> view.  The standby will report
        the last transaction log position it has written, the last position it
-       has flushed to disk, and the last position it has applied.  Updates are
-       sent each time the write or flush positions changed, or at least as
+       has flushed to disk, and the last position it has applied.
+       This parameter's
+       value is the maximum interval, in seconds, between reports.  Updates are
+       sent each time the write or flush positions change, or at least as
        often as specified by this parameter.  Thus, the apply position may
        lag slightly behind the true position.  Setting this parameter to zero
        disables status updates completely.  This parameter can only be set in
@@ -2239,8 +2270,10 @@ SET ENABLE_SEQSCAN TO OFF;
         about queries currently executing on the standby. This parameter can
         be used to eliminate query cancels caused by cleanup records, but
         can cause database bloat on the primary for some workloads.
-        The default value is <literal>off</literal>.  Feedback messages will not
-        be sent more frequently than once per <varname>wal_receiver_status_interval</>.
+        Feedback messages will not be sent more frequently than once per
+        <varname>wal_receiver_status_interval</>. The default value is
+        <literal>off</literal>. This parameter can only be set in the
+        <filename>postgresql.conf</> file or on the server command line.
        </para>
       </listitem>
      </varlistentry>
@@ -2589,8 +2622,7 @@ SET ENABLE_SEQSCAN TO OFF;
       planning using heuristic searching.  This reduces planning time for
       complex queries (those joining many relations), at the cost of producing
       plans that are sometimes inferior to those found by the normal
-      exhaustive-search algorithm.  Also, GEQO's searching is randomized and
-      therefore its plans may vary nondeterministically.
+      exhaustive-search algorithm.
       For more information see <xref linkend="geqo">.
      </para>
 
@@ -2629,9 +2661,11 @@ SET ENABLE_SEQSCAN TO OFF;
         this many <literal>FROM</> items involved. (Note that a
         <literal>FULL OUTER JOIN</> construct counts as only one <literal>FROM</>
         item.) The default is 12. For simpler queries it is usually best
-        to use the deterministic, exhaustive planner, but for queries with
-        many tables the deterministic planner takes too long, often
-        longer than the penalty of executing a suboptimal plan.
+        to use the regular, exhaustive-search planner, but for queries with
+        many tables the exhaustive search takes too long, often
+        longer than the penalty of executing a suboptimal plan.  Thus,
+        a threshold on the size of the query is a convenient way to manage
+        use of GEQO.
        </para>
       </listitem>
      </varlistentry>
@@ -2843,7 +2877,7 @@ SELECT * FROM parent WHERE key = 2400;
 
        <para>
         Setting this value to <xref linkend="guc-geqo-threshold"> or more
-        may trigger use of the GEQO planner, resulting in nondeterministic
+        may trigger use of the GEQO planner, resulting in non-optimal
         plans.  See <xref linkend="runtime-config-query-geqo">.
        </para>
       </listitem>
@@ -2878,7 +2912,7 @@ SELECT * FROM parent WHERE key = 2400;
 
        <para>
         Setting this value to <xref linkend="guc-geqo-threshold"> or more
-        may trigger use of the GEQO planner, resulting in nondeterministic
+        may trigger use of the GEQO planner, resulting in non-optimal
         plans.  See <xref linkend="runtime-config-query-geqo">.
        </para>
       </listitem>
@@ -2928,7 +2962,7 @@ SELECT * FROM parent WHERE key = 2400;
         value</> (<acronym>CSV</>) format, which is convenient for
         loading logs into programs.
         See <xref linkend="runtime-config-logging-csvlog"> for details.
-        <varname>logging_collector</varname> must be enabled to generate
+        <xref linkend="guc-logging-collector"> must be enabled to generate
         CSV-format log output.
        </para>
 
@@ -2960,24 +2994,39 @@ local0.*    /var/log/postgresql
       </indexterm>
       <listitem>
        <para>
-         This parameter captures plain and CSV-format log messages
-         sent to <application>stderr</> and redirects them into log files.
+         This parameter enables the <firstterm>logging collector</>, which
+         is a background process that captures log messages
+         sent to <systemitem>stderr</> and redirects them into log files.
          This approach is often more useful than
          logging to <application>syslog</>, since some types of messages
-         might not appear in <application>syslog</> output (a common example
-         is dynamic-linker failure messages).
+         might not appear in <application>syslog</> output.  (One common
+         example is dynamic-linker failure messages; another is error messages
+         produced by scripts such as <varname>archive_command</>.)
          This parameter can only be set at server start.
        </para>
 
        <note>
         <para>
+         It is possible to log to <systemitem>stderr</> without using the
+         logging collector; the log messages will just go to wherever the
+         server's <systemitem>stderr</> is directed.  However, that method is
+         only suitable for low log volumes, since it provides no convenient
+         way to rotate log files.  Also, on some platforms not using the
+         logging collector can result in lost or garbled log output, because
+         multiple processes writing concurrently to the same log file can
+         overwrite each other's output.
+        </para>
+       </note>
+
+       <note>
+        <para>
           The logging collector is designed to never lose messages.  This means
           that in case of extremely high load, server processes could be
-          blocked due to trying to send additional log messages when the
+          blocked while trying to send additional log messages when the
           collector has fallen behind.  In contrast, <application>syslog</>
-          prefers to drop messages if it cannot write them, which means it's
-          less reliable in those cases but it will not block the rest of the
-          system.
+          prefers to drop messages if it cannot write them, which means it
+          may fail to log some messages in such cases but it will not block
+          the rest of the system.
         </para>
        </note>
 
@@ -3016,6 +3065,10 @@ local0.*    /var/log/postgresql
         any time-zone-dependent <literal>%</literal>-escapes, the computation
         is done in the zone specified
         by <xref linkend="guc-log-timezone">.)
+        The supported <literal>%</literal>-escapes are similar to those
+        listed in the Open Group's <ulink
+        url="http://pubs.opengroup.org/onlinepubs/009695399/functions/strftime.html">strftime
+        </ulink> specification.
         Note that the system's <systemitem>strftime</systemitem> is not used
         directly, so platform-specific (nonstandard) extensions do not work.
        </para>
@@ -4485,9 +4538,11 @@ COPY postgres_log FROM '/full/path/to/logfile.csv' WITH csv;
        <para>
         The current effective value of the search path can be examined
         via the <acronym>SQL</acronym> function
-        <function>current_schemas()</>.  This is not quite the same as
+        <function>current_schemas</>
+        (see <xref linkend="functions-info">).
+        This is not quite the same as
         examining the value of <varname>search_path</varname>, since
-        <function>current_schemas()</> shows how the items
+        <function>current_schemas</> shows how the items
         appearing in <varname>search_path</varname> were resolved.
        </para>
 
@@ -5196,7 +5251,7 @@ dynamic_library_path = 'C:\tools\postgresql;H:\my_project\lib;$libdir'
        </para>
 
        <para>
-        Unlike <varname>local_preload_libraries</>, there is no
+        Unlike <xref linkend="guc-shared-preload-libraries">, there is no
         performance advantage to loading a library at session
         start rather than when it is first used.  Rather, the intent of
         this feature is to allow debugging or performance-measurement
@@ -6166,11 +6221,7 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
       <listitem>
        <para>
         If on, emit information about user lock usage.  Output is the same
-        as for <symbol>trace_locks</symbol>, only for user locks.
-       </para>
-       <para>
-        User locks were removed as of PostgreSQL version 8.2.  This option
-        currently has no effect.
+        as for <symbol>trace_locks</symbol>, only for advisory locks.
        </para>
        <para>
         This parameter is only available if the <symbol>LOCK_DEBUG</symbol>

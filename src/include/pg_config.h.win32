@@ -214,9 +214,6 @@
 /* Define to 1 if you have the `crypto' library (-lcrypto). */
 /* #undef HAVE_LIBCRYPTO */
 
-/* Define to 1 if you have the `eay32' library (-leay32). */
-/* #undef HAVE_LIBEAY32 */
-
 /* Define to 1 if you have the `ldap' library (-lldap). */
 /* #undef HAVE_LIBLDAP */
 
@@ -228,9 +225,6 @@
 
 /* Define to 1 if you have the `ssl' library (-lssl). */
 /* #undef HAVE_LIBSSL */
-
-/* Define to 1 if you have the `ssleay32' library (-lssleay32). */
-/* #undef HAVE_LIBSSLEAY32 */
 
 /* Define to 1 if you have the `wldap32' library (-lwldap32). */
 /* #undef HAVE_LIBWLDAP32 */
@@ -572,13 +566,13 @@
 #define PACKAGE_STRING "Postgres-XC 1.0beta1"
 
 /* Define to the version of this package. */
-#define PACKAGE_VERSION "9.1beta2"
+#define PACKAGE_VERSION "9.1.3"
 
 /* PostgreSQL version as a string */
-#define PG_VERSION "9.1beta2"
+#define PG_VERSION "9.1.3"
 
 /* PostgreSQL version as a number */
-#define PG_VERSION_NUM 90100
+#define PG_VERSION_NUM 90103
 
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME "postgres-xc"

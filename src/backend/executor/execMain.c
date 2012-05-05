@@ -43,6 +43,7 @@
 #include "access/xact.h"
 #include "catalog/heap.h"
 #include "catalog/namespace.h"
+#include "catalog/pg_tablespace.h"
 #include "catalog/toasting.h"
 #include "commands/tablespace.h"
 #include "commands/trigger.h"
@@ -880,6 +881,7 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 	estate->es_tupleTable = NIL;
 	estate->es_trig_tuple_slot = NULL;
 	estate->es_trig_oldtup_slot = NULL;
+	estate->es_trig_newtup_slot = NULL;
 
 	/* mark EvalPlanQual not active */
 	estate->es_epqTuple = NULL;
@@ -2291,11 +2293,7 @@ EvalPlanQualStart(EPQState *epqstate, EState *parentestate, Plan *planTree)
 	 * ExecInitSubPlan expects to be able to find these entries. Some of the
 	 * SubPlans might not be used in the part of the plan tree we intend to
 	 * run, but since it's not easy to tell which, we just initialize them
-	 * all.  (However, if the subplan is headed by a ModifyTable node, then it
-	 * must be a data-modifying CTE, which we will certainly not need to
-	 * re-run, so we can skip initializing it.	This is just an efficiency
-	 * hack; it won't skip data-modifying CTEs for which the ModifyTable node
-	 * is not at the top.)
+	 * all.
 	 */
 	Assert(estate->es_subplanstates == NIL);
 	foreach(l, parentestate->es_plannedstmt->subplans)
@@ -2303,12 +2301,7 @@ EvalPlanQualStart(EPQState *epqstate, EState *parentestate, Plan *planTree)
 		Plan	   *subplan = (Plan *) lfirst(l);
 		PlanState  *subplanstate;
 
-		/* Don't initialize ModifyTable subplans, per comment above */
-		if (IsA(subplan, ModifyTable))
-			subplanstate = NULL;
-		else
-			subplanstate = ExecInitNode(subplan, estate, 0);
-
+		subplanstate = ExecInitNode(subplan, estate, 0);
 		estate->es_subplanstates = lappend(estate->es_subplanstates,
 										   subplanstate);
 	}
@@ -2389,6 +2382,7 @@ typedef struct
 {
 	DestReceiver pub;			/* publicly-known function pointers */
 	EState	   *estate;			/* EState we are working with */
+	DestReceiver *origdest;		/* QueryDesc's original receiver */
 	Relation	rel;			/* Relation to write to */
 	int			hi_options;		/* heap_insert performance options */
 	BulkInsertState bistate;	/* bulk insert state */
@@ -2433,6 +2427,13 @@ OpenIntoRel(QueryDesc *queryDesc)
 				 errmsg("ON COMMIT can only be used on temporary tables")));
 
 	/*
+	 * Find namespace to create in, check its permissions
+	 */
+	intoName = into->rel->relname;
+	namespaceId = RangeVarGetAndCheckCreationNamespace(into->rel);
+	RangeVarAdjustRelationPersistence(into->rel, namespaceId);
+
+	/*
 	 * Security check: disallow creating temp tables from security-restricted
 	 * code.  This is needed because calling code might not expect untrusted
 	 * tables to appear in pg_temp at the front of its search path.
@@ -2442,12 +2443,6 @@ OpenIntoRel(QueryDesc *queryDesc)
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 errmsg("cannot create temporary table within security-restricted operation")));
-
-	/*
-	 * Find namespace to create in, check its permissions
-	 */
-	intoName = into->rel->relname;
-	namespaceId = RangeVarGetAndCheckCreationNamespace(into->rel);
 
 	/*
 	 * Select tablespace to use.  If not specified, use default tablespace
@@ -2475,6 +2470,12 @@ OpenIntoRel(QueryDesc *queryDesc)
 			aclcheck_error(aclresult, ACL_KIND_TABLESPACE,
 						   get_tablespace_name(tablespaceId));
 	}
+
+	/* In all cases disallow placing user relations in pg_global */
+	if (tablespaceId == GLOBALTABLESPACE_OID)
+		ereport(ERROR,
+		        (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+		         errmsg("only shared relations can be placed in pg_global tablespace")));
 
 	/* Parse and validate any reloptions */
 	reloptions = transformRelOptions((Datum) 0,
@@ -2542,11 +2543,13 @@ OpenIntoRel(QueryDesc *queryDesc)
 	/*
 	 * Now replace the query's DestReceiver with one for SELECT INTO
 	 */
-	queryDesc->dest = CreateDestReceiver(DestIntoRel);
-	myState = (DR_intorel *) queryDesc->dest;
+	myState = (DR_intorel *) CreateDestReceiver(DestIntoRel);
 	Assert(myState->pub.mydest == DestIntoRel);
 	myState->estate = estate;
+	myState->origdest = queryDesc->dest;
 	myState->rel = intoRelationDesc;
+
+	queryDesc->dest = (DestReceiver *) myState;
 
 	/*
 	 * We can skip WAL-logging the insertions, unless PITR or streaming
@@ -2568,8 +2571,11 @@ CloseIntoRel(QueryDesc *queryDesc)
 {
 	DR_intorel *myState = (DR_intorel *) queryDesc->dest;
 
-	/* OpenIntoRel might never have gotten called */
-	if (myState && myState->pub.mydest == DestIntoRel && myState->rel)
+	/*
+	 * OpenIntoRel might never have gotten called, and we also want to guard
+	 * against double destruction.
+	 */
+	if (myState && myState->pub.mydest == DestIntoRel)
 	{
 		FreeBulkInsertState(myState->bistate);
 
@@ -2580,7 +2586,11 @@ CloseIntoRel(QueryDesc *queryDesc)
 		/* close rel, but keep lock until commit */
 		heap_close(myState->rel, NoLock);
 
-		myState->rel = NULL;
+		/* restore the receiver belonging to executor's caller */
+		queryDesc->dest = myState->origdest;
+
+		/* might as well invoke my destructor */
+		intorel_destroy((DestReceiver *) myState);
 	}
 }
 

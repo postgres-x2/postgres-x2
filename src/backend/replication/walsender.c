@@ -37,16 +37,16 @@
 #include <signal.h>
 #include <unistd.h>
 
-#include "funcapi.h"
-#include "access/xlog_internal.h"
 #include "access/transam.h"
+#include "access/xlog_internal.h"
 #include "catalog/pg_type.h"
+#include "funcapi.h"
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
+#include "nodes/replnodes.h"
 #include "replication/basebackup.h"
-#include "replication/replnodes.h"
 #include "replication/walprotocol.h"
 #include "replication/walsender.h"
 #include "storage/fd.h"
@@ -476,7 +476,7 @@ ProcessRepliesIfAny(void)
 {
 	unsigned char firstchar;
 	int			r;
-	int			received = false;
+	bool		received = false;
 
 	for (;;)
 	{
@@ -515,7 +515,7 @@ ProcessRepliesIfAny(void)
 			default:
 				ereport(FATAL,
 						(errcode(ERRCODE_PROTOCOL_VIOLATION),
-						 errmsg("invalid standby message type %d",
+						 errmsg("invalid standby message type \"%c\"",
 								firstchar)));
 		}
 	}
@@ -566,7 +566,7 @@ ProcessStandbyMessage(void)
 		default:
 			ereport(COMMERROR,
 					(errcode(ERRCODE_PROTOCOL_VIOLATION),
-					 errmsg("unexpected message type %c", msgtype)));
+					 errmsg("unexpected message type \"%c\"", msgtype)));
 			proc_exit(0);
 	}
 }
@@ -611,76 +611,67 @@ static void
 ProcessStandbyHSFeedbackMessage(void)
 {
 	StandbyHSFeedbackMessage reply;
-	TransactionId newxmin = InvalidTransactionId;
+	TransactionId nextXid;
+	uint32		nextEpoch;
 
-	pq_copymsgbytes(&reply_message, (char *) &reply, sizeof(StandbyHSFeedbackMessage));
+	/* Decipher the reply message */
+	pq_copymsgbytes(&reply_message, (char *) &reply,
+					sizeof(StandbyHSFeedbackMessage));
 
 	elog(DEBUG2, "hot standby feedback xmin %u epoch %u",
 		 reply.xmin,
 		 reply.epoch);
 
-	/*
-	 * Update the WalSender's proc xmin to allow it to be visible to
-	 * snapshots. This will hold back the removal of dead rows and thereby
-	 * prevent the generation of cleanup conflicts on the standby server.
-	 */
-	if (TransactionIdIsValid(reply.xmin))
-	{
-		TransactionId nextXid;
-		uint32		nextEpoch;
-		bool		epochOK = false;
-
-		GetNextXidAndEpoch(&nextXid, &nextEpoch);
-
-		/*
-		 * Epoch of oldestXmin should be same as standby or if the counter has
-		 * wrapped, then one less than reply.
-		 */
-		if (reply.xmin <= nextXid)
-		{
-			if (reply.epoch == nextEpoch)
-				epochOK = true;
-		}
-		else
-		{
-			if (nextEpoch > 0 && reply.epoch == nextEpoch - 1)
-				epochOK = true;
-		}
-
-		/*
-		 * Feedback from standby must not go backwards, nor should it go
-		 * forwards further than our most recent xid.
-		 */
-		if (epochOK && TransactionIdPrecedesOrEquals(reply.xmin, nextXid))
-		{
-			if (!TransactionIdIsValid(MyProc->xmin))
-			{
-				TransactionId oldestXmin = GetOldestXmin(true, true);
-
-				if (TransactionIdPrecedes(oldestXmin, reply.xmin))
-					newxmin = reply.xmin;
-				else
-					newxmin = oldestXmin;
-			}
-			else
-			{
-				if (TransactionIdPrecedes(MyProc->xmin, reply.xmin))
-					newxmin = reply.xmin;
-				else
-					newxmin = MyProc->xmin;		/* stay the same */
-			}
-		}
-	}
+	/* Ignore invalid xmin (can't actually happen with current walreceiver) */
+	if (!TransactionIdIsNormal(reply.xmin))
+		return;
 
 	/*
-	 * Grab the ProcArrayLock to set xmin, or invalidate for bad reply
+	 * Check that the provided xmin/epoch are sane, that is, not in the future
+	 * and not so far back as to be already wrapped around.  Ignore if not.
+	 *
+	 * Epoch of nextXid should be same as standby, or if the counter has
+	 * wrapped, then one greater than standby.
 	 */
-	if (MyProc->xmin != newxmin)
+	GetNextXidAndEpoch(&nextXid, &nextEpoch);
+
+	if (reply.xmin <= nextXid)
 	{
-		LWLockAcquire(ProcArrayLock, LW_SHARED);
-		MyProc->xmin = newxmin;
-		LWLockRelease(ProcArrayLock);
+		if (reply.epoch != nextEpoch)
+			return;
 	}
+	else
+	{
+		if (reply.epoch + 1 != nextEpoch)
+			return;
+	}
+
+	if (!TransactionIdPrecedesOrEquals(reply.xmin, nextXid))
+		return;					/* epoch OK, but it's wrapped around */
+
+	/*
+	 * Set the WalSender's xmin equal to the standby's requested xmin, so that
+	 * the xmin will be taken into account by GetOldestXmin.  This will hold
+	 * back the removal of dead rows and thereby prevent the generation of
+	 * cleanup conflicts on the standby server.
+	 *
+	 * There is a small window for a race condition here: although we just
+	 * checked that reply.xmin precedes nextXid, the nextXid could have gotten
+	 * advanced between our fetching it and applying the xmin below, perhaps
+	 * far enough to make reply.xmin wrap around.  In that case the xmin we
+	 * set here would be "in the future" and have no effect.  No point in
+	 * worrying about this since it's too late to save the desired data
+	 * anyway.  Assuming that the standby sends us an increasing sequence of
+	 * xmins, this could only happen during the first reply cycle, else our
+	 * own xmin would prevent nextXid from advancing so far.
+	 *
+	 * We don't bother taking the ProcArrayLock here.  Setting the xmin field
+	 * is assumed atomic, and there's no real need to prevent a concurrent
+	 * GetOldestXmin.  (If we're moving our xmin forward, this is obviously
+	 * safe, and if we're moving it backwards, well, the data is at risk
+	 * already since a VACUUM could have just finished calling GetOldestXmin.)
+	 */
+	MyProc->xmin = reply.xmin;
 }
 
 /* Main loop of walsender process */
@@ -709,6 +700,9 @@ WalSndLoop(void)
 	/* Loop forever, unless we get an error */
 	for (;;)
 	{
+		/* Clear any already-pending wakeups */
+		ResetLatch(&MyWalSnd->latch);
+
 		/*
 		 * Emergency bailout if postmaster has died.  This is to avoid the
 		 * necessity for manual cleanup of all postmaster children.
@@ -727,60 +721,81 @@ WalSndLoop(void)
 		/* Normal exit from the walsender is here */
 		if (walsender_shutdown_requested)
 		{
-			/* Inform the standby that XLOG streaming was done */
+			/* Inform the standby that XLOG streaming is done */
 			pq_puttextmessage('C', "COPY 0");
 			pq_flush();
 
 			proc_exit(0);
 		}
 
+		/* Check for input from the client */
+		ProcessRepliesIfAny();
+
 		/*
 		 * If we don't have any pending data in the output buffer, try to send
-		 * some more.
+		 * some more.  If there is some, we don't bother to call XLogSend
+		 * again until we've flushed it ... but we'd better assume we are not
+		 * caught up.
 		 */
 		if (!pq_is_send_pending())
-		{
 			XLogSend(output_message, &caughtup);
+		else
+			caughtup = false;
 
-			/*
-			 * Even if we wrote all the WAL that was available when we started
-			 * sending, more might have arrived while we were sending this
-			 * batch. We had the latch set while sending, so we have not
-			 * received any signals from that time. Let's arm the latch again,
-			 * and after that check that we're still up-to-date.
-			 */
-			if (caughtup && !pq_is_send_pending())
-			{
-				ResetLatch(&MyWalSnd->latch);
-
-				XLogSend(output_message, &caughtup);
-			}
-		}
-
-		/* Flush pending output to the client */
+		/* Try to flush pending output to the client */
 		if (pq_flush_if_writable() != 0)
 			break;
 
-		/*
-		 * When SIGUSR2 arrives, we send any outstanding logs up to the
-		 * shutdown checkpoint record (i.e., the latest record) and exit.
-		 */
-		if (walsender_ready_to_stop && !pq_is_send_pending())
+		/* If nothing remains to be sent right now ... */
+		if (caughtup && !pq_is_send_pending())
 		{
-			XLogSend(output_message, &caughtup);
-			ProcessRepliesIfAny();
-			if (caughtup && !pq_is_send_pending())
-				walsender_shutdown_requested = true;
+			/*
+			 * If we're in catchup state, move to streaming.  This is an
+			 * important state change for users to know about, since before
+			 * this point data loss might occur if the primary dies and we
+			 * need to failover to the standby. The state change is also
+			 * important for synchronous replication, since commits that
+			 * started to wait at that point might wait for some time.
+			 */
+			if (MyWalSnd->state == WALSNDSTATE_CATCHUP)
+			{
+				ereport(DEBUG1,
+						(errmsg("standby \"%s\" has now caught up with primary",
+								application_name)));
+				WalSndSetState(WALSNDSTATE_STREAMING);
+			}
+
+			/*
+			 * When SIGUSR2 arrives, we send any outstanding logs up to the
+			 * shutdown checkpoint record (i.e., the latest record) and exit.
+			 * This may be a normal termination at shutdown, or a promotion,
+			 * the walsender is not sure which.
+			 */
+			if (walsender_ready_to_stop)
+			{
+				/* ... let's just be real sure we're caught up ... */
+				XLogSend(output_message, &caughtup);
+				if (caughtup && !pq_is_send_pending())
+				{
+					walsender_shutdown_requested = true;
+					continue;		/* don't want to wait more */
+				}
+			}
 		}
 
-		if ((caughtup || pq_is_send_pending()) &&
-			!got_SIGHUP &&
-			!walsender_shutdown_requested)
+		/*
+		 * We don't block if not caught up, unless there is unsent data
+		 * pending in which case we'd better block until the socket is
+		 * write-ready.  This test is only needed for the case where XLogSend
+		 * loaded a subset of the available data but then pq_flush_if_writable
+		 * flushed it all --- we should immediately try to send more.
+		 */
+		if (caughtup || pq_is_send_pending())
 		{
 			TimestampTz finish_time = 0;
-			long		sleeptime;
+			long		sleeptime = -1;
 
-			/* Reschedule replication timeout */
+			/* Determine time until replication timeout */
 			if (replication_timeout > 0)
 			{
 				long		secs;
@@ -804,12 +819,16 @@ WalSndLoop(void)
 				sleeptime = WalSndDelay;
 			}
 
-			/* Sleep */
+			/* Sleep until something happens or replication timeout */
 			WaitLatchOrSocket(&MyWalSnd->latch, MyProcPort->sock,
 							  true, pq_is_send_pending(),
-							  sleeptime * 1000L);
+							  sleeptime);
 
-			/* Check for replication timeout */
+			/*
+			 * Check for replication timeout.  Note we ignore the corner case
+			 * possibility that the client replied just as we reached the
+			 * timeout ... he's supposed to reply *before* that.
+			 */
 			if (replication_timeout > 0 &&
 				GetCurrentTimestamp() >= finish_time)
 			{
@@ -823,24 +842,6 @@ WalSndLoop(void)
 				break;
 			}
 		}
-
-		/*
-		 * If we're in catchup state, see if its time to move to streaming.
-		 * This is an important state change for users, since before this
-		 * point data loss might occur if the primary dies and we need to
-		 * failover to the standby. The state change is also important for
-		 * synchronous replication, since commits that started to wait at that
-		 * point might wait for some time.
-		 */
-		if (MyWalSnd->state == WALSNDSTATE_CATCHUP && caughtup)
-		{
-			ereport(DEBUG1,
-					(errmsg("standby \"%s\" has now caught up with primary",
-							application_name)));
-			WalSndSetState(WALSNDSTATE_STREAMING);
-		}
-
-		ProcessRepliesIfAny();
 	}
 
 	/*
@@ -1188,18 +1189,33 @@ XLogSend(char *msgbuf, bool *caughtup)
 static void
 WalSndSigHupHandler(SIGNAL_ARGS)
 {
+	int			save_errno = errno;
+
 	got_SIGHUP = true;
 	if (MyWalSnd)
 		SetLatch(&MyWalSnd->latch);
+
+	errno = save_errno;
 }
 
 /* SIGTERM: set flag to shut down */
 static void
 WalSndShutdownHandler(SIGNAL_ARGS)
 {
+	int			save_errno = errno;
+
 	walsender_shutdown_requested = true;
 	if (MyWalSnd)
 		SetLatch(&MyWalSnd->latch);
+
+	/*
+	 * Set the standard (non-walsender) state as well, so that we can
+	 * abort things like do_pg_stop_backup().
+	 */
+	InterruptPending = true;
+	ProcDiePending = true;
+
+	errno = save_errno;
 }
 
 /*
@@ -1238,16 +1254,24 @@ WalSndQuickDieHandler(SIGNAL_ARGS)
 static void
 WalSndXLogSendHandler(SIGNAL_ARGS)
 {
+	int			save_errno = errno;
+
 	latch_sigusr1_handler();
+
+	errno = save_errno;
 }
 
 /* SIGUSR2: set flag to do a last cycle and shut down afterwards */
 static void
 WalSndLastCycleHandler(SIGNAL_ARGS)
 {
+	int			save_errno = errno;
+
 	walsender_ready_to_stop = true;
 	if (MyWalSnd)
 		SetLatch(&MyWalSnd->latch);
+
+	errno = save_errno;
 }
 
 /* Set up signal handlers */

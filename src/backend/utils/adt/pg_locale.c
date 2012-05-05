@@ -239,7 +239,9 @@ check_locale(int category, const char *value)
 	/* set the locale with setlocale, to see if it accepts it. */
 	ret = (setlocale(category, value) != NULL);
 
-	setlocale(category, save);	/* assume this won't fail */
+	/* restore old value. */
+	if (!setlocale(category, save))
+		elog(WARNING, "failed to restore old locale");
 	pfree(save);
 
 	return ret;
@@ -499,13 +501,15 @@ PGLC_localeconv(void)
 	/* Try to restore internal settings */
 	if (save_lc_monetary)
 	{
-		setlocale(LC_MONETARY, save_lc_monetary);
+		if (!setlocale(LC_MONETARY, save_lc_monetary))
+			elog(WARNING, "failed to restore old locale");
 		pfree(save_lc_monetary);
 	}
 
 	if (save_lc_numeric)
 	{
-		setlocale(LC_NUMERIC, save_lc_numeric);
+		if (!setlocale(LC_NUMERIC, save_lc_numeric))
+			elog(WARNING, "failed to restore old locale");
 		pfree(save_lc_numeric);
 	}
 
@@ -513,7 +517,8 @@ PGLC_localeconv(void)
 	/* Try to restore internal ctype settings */
 	if (save_lc_ctype)
 	{
-		setlocale(LC_CTYPE, save_lc_ctype);
+		if (!setlocale(LC_CTYPE, save_lc_ctype))
+			elog(WARNING, "failed to restore old locale");
 		pfree(save_lc_ctype);
 	}
 #endif
@@ -674,7 +679,8 @@ cache_locale_time(void)
 	/* try to restore internal settings */
 	if (save_lc_time)
 	{
-		setlocale(LC_TIME, save_lc_time);
+		if (!setlocale(LC_TIME, save_lc_time))
+			elog(WARNING, "failed to restore old locale");
 		pfree(save_lc_time);
 	}
 
@@ -682,7 +688,8 @@ cache_locale_time(void)
 	/* try to restore internal ctype settings */
 	if (save_lc_ctype)
 	{
-		setlocale(LC_CTYPE, save_lc_ctype);
+		if (!setlocale(LC_CTYPE, save_lc_ctype))
+			elog(WARNING, "failed to restore old locale");
 		pfree(save_lc_ctype);
 	}
 #endif
@@ -700,8 +707,7 @@ cache_locale_time(void)
  *	otherwise returns the pointer to a static area which
  *	contains the iso formatted locale name.
  */
-static
-char *
+static char *
 IsoLocaleName(const char *winlocname)
 {
 #if (_MSC_VER >= 1400)			/* VC8.0 or later */
@@ -930,6 +936,29 @@ lc_ctype_is_c(Oid collation)
 }
 
 
+/* simple subroutine for reporting errors from newlocale() */
+#ifdef HAVE_LOCALE_T
+static void
+report_newlocale_failure(const char *localename)
+{
+	/* copy errno in case one of the ereport auxiliary functions changes it */
+	int			save_errno = errno;
+
+	/*
+	 * ENOENT means "no such locale", not "no such file", so clarify that
+	 * errno with an errdetail message.
+	 */
+	ereport(ERROR,
+			(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+			 errmsg("could not create locale \"%s\": %m",
+					localename),
+			 (save_errno == ENOENT ?
+			  errdetail("The operating system could not find any locale data for the locale name \"%s\".",
+						localename) : 0)));
+}
+#endif /* HAVE_LOCALE_T */
+
+
 /*
  * Create a locale_t from a collation OID.	Results are cached for the
  * lifetime of the backend.  Thus, do not free the result with freelocale().
@@ -988,10 +1017,7 @@ pg_newlocale_from_collation(Oid collid)
 			result = _create_locale(LC_ALL, collcollate);
 #endif
 			if (!result)
-				ereport(ERROR,
-						(errcode_for_file_access(),
-						 errmsg("could not create locale \"%s\": %m",
-								collcollate)));
+				report_newlocale_failure(collcollate);
 		}
 		else
 		{
@@ -1001,16 +1027,10 @@ pg_newlocale_from_collation(Oid collid)
 
 			loc1 = newlocale(LC_COLLATE_MASK, collcollate, NULL);
 			if (!loc1)
-				ereport(ERROR,
-						(errcode_for_file_access(),
-						 errmsg("could not create locale \"%s\": %m",
-								collcollate)));
+				report_newlocale_failure(collcollate);
 			result = newlocale(LC_CTYPE_MASK, collctype, loc1);
 			if (!result)
-				ereport(ERROR,
-						(errcode_for_file_access(),
-						 errmsg("could not create locale \"%s\": %m",
-								collctype)));
+				report_newlocale_failure(collctype);
 #else
 
 			/*

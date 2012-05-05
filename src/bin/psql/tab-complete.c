@@ -369,11 +369,11 @@ static const SchemaQuery Query_for_list_of_updatables = {
 	NULL
 };
 
-static const SchemaQuery Query_for_list_of_tisvf = {
+static const SchemaQuery Query_for_list_of_relations = {
 	/* catname */
 	"pg_catalog.pg_class c",
 	/* selcondition */
-	"c.relkind IN ('r', 'i', 'S', 'v', 'f')",
+	NULL,
 	/* viscondition */
 	"pg_catalog.pg_table_is_visible(c.oid)",
 	/* namespace */
@@ -804,7 +804,7 @@ psql_completion(char *text, int start, int end)
 	completion_info_charp2 = NULL;
 
 	/*
-	 * Scan the input line before our current position for the last five
+	 * Scan the input line before our current position for the last six
 	 * words. According to those we'll make some smart decisions on what the
 	 * user is probably intending to type. TODO: Use strtokx() to do this.
 	 */
@@ -1689,9 +1689,10 @@ psql_completion(char *text, int start, int end)
 			 pg_strcasecmp(prev_wd, "ON") == 0)
 	{
 		static const char *const list_COMMENT[] =
-		{"CAST", "COLLATION", "CONVERSION", "DATABASE", "FOREIGN DATA WRAPPER",
-			"SERVER", "FOREIGN TABLE", "INDEX", "LANGUAGE", "RULE", "SCHEMA",
-			"SEQUENCE", "TABLE", "TYPE", "VIEW", "COLUMN", "AGGREGATE", "FUNCTION",
+		{"CAST", "COLLATION", "CONVERSION", "DATABASE", "EXTENSION",
+			"FOREIGN DATA WRAPPER", "FOREIGN TABLE",
+			"SERVER", "INDEX", "LANGUAGE", "RULE", "SCHEMA", "SEQUENCE",
+			"TABLE", "TYPE", "VIEW", "COLUMN", "AGGREGATE", "FUNCTION",
 			"OPERATOR", "TRIGGER", "CONSTRAINT", "DOMAIN", "LARGE OBJECT",
 		"TABLESPACE", "TEXT SEARCH", "ROLE", NULL};
 
@@ -1718,11 +1719,10 @@ psql_completion(char *text, int start, int end)
 	}
 	else if ((pg_strcasecmp(prev4_wd, "COMMENT") == 0 &&
 			  pg_strcasecmp(prev3_wd, "ON") == 0) ||
+			 (pg_strcasecmp(prev5_wd, "COMMENT") == 0 &&
+			  pg_strcasecmp(prev4_wd, "ON") == 0) ||
 			 (pg_strcasecmp(prev6_wd, "COMMENT") == 0 &&
-			  pg_strcasecmp(prev5_wd, "ON") == 0) ||
-			 (pg_strcasecmp(prev5_wd, "ON") == 0 &&
-			  pg_strcasecmp(prev4_wd, "TEXT") == 0 &&
-			  pg_strcasecmp(prev3_wd, "SEARCH") == 0))
+			  pg_strcasecmp(prev5_wd, "ON") == 0))
 		COMPLETE_WITH_CONST("IS");
 
 /* COPY */
@@ -3029,7 +3029,7 @@ psql_completion(char *text, int start, int end)
 
 	/* must be at end of \d list */
 	else if (strncmp(prev_wd, "\\d", strlen("\\d")) == 0)
-		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_tisvf, NULL);
+		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_relations, NULL);
 
 	else if (strcmp(prev_wd, "\\ef") == 0)
 		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_functions, NULL);
@@ -3125,6 +3125,7 @@ psql_completion(char *text, int start, int end)
 	free(prev3_wd);
 	free(prev4_wd);
 	free(prev5_wd);
+	free(prev6_wd);
 
 	/* Return our Grand List O' Matches */
 	return matches;

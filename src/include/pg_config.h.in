@@ -173,6 +173,9 @@
 /* Define to 1 if your compiler understands __FUNCTION__. */
 #undef HAVE_FUNCNAME__FUNCTION
 
+/* Define to 1 if you have __sync_lock_test_and_set(int *) and friends. */
+#undef HAVE_GCC_INT_ATOMICS
+
 /* Define to 1 if you have the `getaddrinfo' function. */
 #undef HAVE_GETADDRINFO
 
@@ -287,9 +290,6 @@
 /* Define to 1 if you have the `crypto' library (-lcrypto). */
 #undef HAVE_LIBCRYPTO
 
-/* Define to 1 if you have the `eay32' library (-leay32). */
-#undef HAVE_LIBEAY32
-
 /* Define to 1 if you have the `ldap' library (-lldap). */
 #undef HAVE_LIBLDAP
 
@@ -310,9 +310,6 @@
 
 /* Define to 1 if you have the `ssl' library (-lssl). */
 #undef HAVE_LIBSSL
-
-/* Define to 1 if you have the `ssleay32' library (-lssleay32). */
-#undef HAVE_LIBSSLEAY32
 
 /* Define to 1 if you have the `wldap32' library (-lwldap32). */
 #undef HAVE_LIBWLDAP32

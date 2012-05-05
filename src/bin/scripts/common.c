@@ -289,10 +289,9 @@ yesno_prompt(const char *question)
 {
 	char		prompt[256];
 
-	/*
-	 * translator: This is a question followed by the translated options for
-	 * "yes" and "no".
-	 */
+	/*------
+	   translator: This is a question followed by the translated options for
+	   "yes" and "no". */
 	snprintf(prompt, sizeof(prompt), _("%s (%s/%s) "),
 			 _(question), _(PG_YESLETTER), _(PG_NOLETTER));
 
@@ -378,7 +377,7 @@ ResetCancelConn(void)
 
 #ifndef WIN32
 /*
- * Handle interrupt signals by cancelling the current command,
+ * Handle interrupt signals by canceling the current command,
  * if it's being executed through executeMaintenanceCommand(),
  * and thus has a cancelConn set.
  */

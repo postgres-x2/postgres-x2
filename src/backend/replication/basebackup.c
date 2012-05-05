@@ -46,7 +46,7 @@ static int64 sendDir(char *path, int basepathlen, bool sizeonly);
 static void sendFile(char *readfilename, char *tarfilename,
 		 struct stat * statbuf);
 static void sendFileWithContent(const char *filename, const char *content);
-static void _tarWriteHeader(const char *filename, char *linktarget,
+static void _tarWriteHeader(const char *filename, const char *linktarget,
 				struct stat * statbuf);
 static void send_int8_string(StringInfoData *buf, int64 intval);
 static void SendBackupHeader(List *tablespaces);
@@ -108,6 +108,7 @@ perform_base_backup(basebackup_options *opt, DIR *tblspcdir)
 		{
 			char		fullpath[MAXPGPATH];
 			char		linkpath[MAXPGPATH];
+			int			rllen;
 
 			/* Skip special stuff */
 			if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0)
@@ -115,19 +116,39 @@ perform_base_backup(basebackup_options *opt, DIR *tblspcdir)
 
 			snprintf(fullpath, sizeof(fullpath), "pg_tblspc/%s", de->d_name);
 
-			MemSet(linkpath, 0, sizeof(linkpath));
-			if (readlink(fullpath, linkpath, sizeof(linkpath) - 1) == -1)
+#if defined(HAVE_READLINK) || defined(WIN32)
+			rllen = readlink(fullpath, linkpath, sizeof(linkpath));
+			if (rllen < 0)
 			{
 				ereport(WARNING,
-				  (errmsg("unable to read symbolic link %s: %m", fullpath)));
+						(errmsg("could not read symbolic link \"%s\": %m",
+								fullpath)));
 				continue;
 			}
+			else if (rllen >= sizeof(linkpath))
+			{
+				ereport(WARNING,
+						(errmsg("symbolic link \"%s\" target is too long",
+								fullpath)));
+				continue;
+			}
+			linkpath[rllen] = '\0';
 
 			ti = palloc(sizeof(tablespaceinfo));
 			ti->oid = pstrdup(de->d_name);
 			ti->path = pstrdup(linkpath);
 			ti->size = opt->progress ? sendDir(linkpath, strlen(linkpath), true) : -1;
 			tablespaces = lappend(tablespaces, ti);
+#else
+			/*
+			 * If the platform does not have symbolic links, it should not be
+			 * possible to have tablespaces - clearly somebody else created
+			 * them. Warn about it and ignore.
+			 */
+			ereport(WARNING,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("tablespaces are not supported on this platform")));
+#endif
 		}
 
 		/* Add a node for the base directory at the end */
@@ -363,7 +384,7 @@ SendBaseBackup(BaseBackupCmd *cmd)
 	dir = AllocateDir("pg_tblspc");
 	if (!dir)
 		ereport(ERROR,
-				(errmsg("unable to open directory pg_tblspc: %m")));
+				(errmsg("could not open directory \"pg_tblspc\": %m")));
 
 	perform_base_backup(&opt, dir);
 
@@ -577,15 +598,16 @@ sendDir(char *path, int basepathlen, bool sizeonly)
 
 		snprintf(pathbuf, MAXPGPATH, "%s/%s", path, de->d_name);
 
-		/* Skip postmaster.pid in the data directory */
-		if (strcmp(pathbuf, "./postmaster.pid") == 0)
+		/* Skip postmaster.pid and postmaster.opts in the data directory */
+		if (strcmp(pathbuf, "./postmaster.pid") == 0 ||
+			strcmp(pathbuf, "./postmaster.opts") == 0)
 			continue;
 
 		if (lstat(pathbuf, &statbuf) != 0)
 		{
 			if (errno != ENOENT)
 				ereport(ERROR,
-						(errcode(errcode_for_file_access()),
+						(errcode_for_file_access(),
 						 errmsg("could not stat file or directory \"%s\": %m",
 								pathbuf)));
 
@@ -615,24 +637,45 @@ sendDir(char *path, int basepathlen, bool sizeonly)
 			continue;			/* don't recurse into pg_xlog */
 		}
 
+		/* Allow symbolic links in pg_tblspc only */
+		if (strcmp(path, "./pg_tblspc") == 0 &&
 #ifndef WIN32
-		if (S_ISLNK(statbuf.st_mode) && strcmp(path, "./pg_tblspc") == 0)
+				 S_ISLNK(statbuf.st_mode)
 #else
-		if (pgwin32_is_junction(pathbuf) && strcmp(path, "./pg_tblspc") == 0)
+				 pgwin32_is_junction(pathbuf)
 #endif
+			)
 		{
-			/* Allow symbolic links in pg_tblspc */
+#if defined(HAVE_READLINK) || defined(WIN32)
 			char		linkpath[MAXPGPATH];
+			int			rllen;
 
-			MemSet(linkpath, 0, sizeof(linkpath));
-			if (readlink(pathbuf, linkpath, sizeof(linkpath) - 1) == -1)
+			rllen = readlink(pathbuf, linkpath, sizeof(linkpath));
+			if (rllen < 0)
 				ereport(ERROR,
-						(errcode(errcode_for_file_access()),
+						(errcode_for_file_access(),
 						 errmsg("could not read symbolic link \"%s\": %m",
 								pathbuf)));
+			if (rllen >= sizeof(linkpath))
+				ereport(ERROR,
+						(errmsg("symbolic link \"%s\" target is too long",
+								pathbuf)));
+			linkpath[rllen] = '\0';
+
 			if (!sizeonly)
 				_tarWriteHeader(pathbuf + basepathlen + 1, linkpath, &statbuf);
 			size += 512;		/* Size of the header just added */
+#else
+			/*
+			 * If the platform does not have symbolic links, it should not be
+			 * possible to have tablespaces - clearly somebody else created
+			 * them. Warn about it and ignore.
+			 */
+			ereport(WARNING,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("tablespaces are not supported on this platform")));
+			continue;
+#endif /* HAVE_READLINK */
 		}
 		else if (S_ISDIR(statbuf.st_mode))
 		{
@@ -721,7 +764,7 @@ sendFile(char *readfilename, char *tarfilename, struct stat * statbuf)
 	fp = AllocateFile(readfilename, "rb");
 	if (fp == NULL)
 		ereport(ERROR,
-				(errcode(errcode_for_file_access()),
+				(errcode_for_file_access(),
 				 errmsg("could not open file \"%s\": %m", readfilename)));
 
 	/*
@@ -780,7 +823,8 @@ sendFile(char *readfilename, char *tarfilename, struct stat * statbuf)
 
 
 static void
-_tarWriteHeader(const char *filename, char *linktarget, struct stat * statbuf)
+_tarWriteHeader(const char *filename, const char *linktarget,
+				struct stat * statbuf)
 {
 	char		h[512];
 	int			lastSum = 0;
@@ -802,7 +846,7 @@ _tarWriteHeader(const char *filename, char *linktarget, struct stat * statbuf)
 	}
 
 	/* Mode 8 */
-	sprintf(&h[100], "%07o ", statbuf->st_mode);
+	sprintf(&h[100], "%07o ", (int) statbuf->st_mode);
 
 	/* User ID 8 */
 	sprintf(&h[108], "%07o ", statbuf->st_uid);
@@ -828,7 +872,7 @@ _tarWriteHeader(const char *filename, char *linktarget, struct stat * statbuf)
 	{
 		/* Type - Symbolic link */
 		sprintf(&h[156], "2");
-		strcpy(&h[157], linktarget);
+		sprintf(&h[157], "%.99s", linktarget);
 	}
 	else if (S_ISDIR(statbuf->st_mode))
 		/* Type - directory */

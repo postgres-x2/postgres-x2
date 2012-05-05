@@ -249,6 +249,7 @@ pull_up_sublinks_jointree_recurse(PlannerInfo *root, Node *jtnode,
 		 * as a sublink that is executed only for row pairs that meet the
 		 * other join conditions.  Fixing this seems to require considerable
 		 * restructuring of the executor, but maybe someday it can happen.
+		 * (See also the comparable case in pull_up_sublinks_qual_recurse.)
 		 *
 		 * We don't expect to see any pre-existing JOIN_SEMI or JOIN_ANTI
 		 * nodes here.
@@ -334,9 +335,7 @@ pull_up_sublinks_qual_recurse(PlannerInfo *root, Node *node,
 				j->rarg = pull_up_sublinks_jointree_recurse(root,
 															j->rarg,
 															&child_rels);
-				/* Pulled-up ANY/EXISTS quals can use those rels too */
-				child_rels = bms_add_members(child_rels, available_rels);
-				/* ... and any inserted joins get stacked onto j->rarg */
+				/* Any inserted joins get stacked onto j->rarg */
 				j->quals = pull_up_sublinks_qual_recurse(root,
 														 j->quals,
 														 child_rels,
@@ -358,9 +357,7 @@ pull_up_sublinks_qual_recurse(PlannerInfo *root, Node *node,
 				j->rarg = pull_up_sublinks_jointree_recurse(root,
 															j->rarg,
 															&child_rels);
-				/* Pulled-up ANY/EXISTS quals can use those rels too */
-				child_rels = bms_add_members(child_rels, available_rels);
-				/* ... and any inserted joins get stacked onto j->rarg */
+				/* Any inserted joins get stacked onto j->rarg */
 				j->quals = pull_up_sublinks_qual_recurse(root,
 														 j->quals,
 														 child_rels,
@@ -380,7 +377,6 @@ pull_up_sublinks_qual_recurse(PlannerInfo *root, Node *node,
 		/* If the immediate argument of NOT is EXISTS, try to convert */
 		SubLink    *sublink = (SubLink *) get_notclausearg((Expr *) node);
 		JoinExpr   *j;
-		Relids		child_rels;
 
 		if (sublink && IsA(sublink, SubLink))
 		{
@@ -390,17 +386,27 @@ pull_up_sublinks_qual_recurse(PlannerInfo *root, Node *node,
 												   available_rels);
 				if (j)
 				{
+					/*
+					 * For the moment, refrain from recursing underneath NOT.
+					 * As in pull_up_sublinks_jointree_recurse, recursing here
+					 * would result in inserting a join underneath an ANTI
+					 * join with which it could not commute, and that could
+					 * easily lead to a worse plan than what we've
+					 * historically generated.
+					 */
+#ifdef NOT_USED
 					/* Yes; recursively process what we pulled up */
+					Relids		child_rels;
+
 					j->rarg = pull_up_sublinks_jointree_recurse(root,
 																j->rarg,
 																&child_rels);
-					/* Pulled-up ANY/EXISTS quals can use those rels too */
-					child_rels = bms_add_members(child_rels, available_rels);
-					/* ... and any inserted joins get stacked onto j->rarg */
+					/* Any inserted joins get stacked onto j->rarg */
 					j->quals = pull_up_sublinks_qual_recurse(root,
 															 j->quals,
 															 child_rels,
 															 &j->rarg);
+#endif
 					/* Now insert the new join node into the join tree */
 					j->larg = *jtlink;
 					*jtlink = (Node *) j;
@@ -1415,6 +1421,12 @@ pullup_replace_vars_callback(Var *var,
 				/* Simple Vars always escape being wrapped */
 				wrap = false;
 			}
+			else if (newnode && IsA(newnode, PlaceHolderVar) &&
+					 ((PlaceHolderVar *) newnode)->phlevelsup == 0)
+			{
+				/* No need to wrap a PlaceHolderVar with another one, either */
+				wrap = false;
+			}
 			else if (rcon->wrap_non_vars)
 			{
 				/* Wrap all non-Vars in a PlaceHolderVar */
@@ -1982,8 +1994,6 @@ reduce_outer_joins_pass2(Node *jtnode,
  *
  * Find any PlaceHolderVar nodes in the given tree that reference the
  * pulled-up relid, and change them to reference the replacement relid(s).
- * We do not need to recurse into subqueries, since no subquery of the current
- * top query could (yet) contain such a reference.
  *
  * NOTE: although this has the form of a walker, we cheat and modify the
  * nodes in-place.	This should be OK since the tree was copied by
@@ -1994,6 +2004,7 @@ reduce_outer_joins_pass2(Node *jtnode,
 typedef struct
 {
 	int			varno;
+	int			sublevels_up;
 	Relids		subrelids;
 } substitute_multiple_relids_context;
 
@@ -2007,7 +2018,8 @@ substitute_multiple_relids_walker(Node *node,
 	{
 		PlaceHolderVar *phv = (PlaceHolderVar *) node;
 
-		if (bms_is_member(context->varno, phv->phrels))
+		if (phv->phlevelsup == context->sublevels_up &&
+			bms_is_member(context->varno, phv->phrels))
 		{
 			phv->phrels = bms_union(phv->phrels,
 									context->subrelids);
@@ -2015,6 +2027,18 @@ substitute_multiple_relids_walker(Node *node,
 										 context->varno);
 		}
 		/* fall through to examine children */
+	}
+	if (IsA(node, Query))
+	{
+		/* Recurse into subselects */
+		bool		result;
+
+		context->sublevels_up++;
+		result = query_tree_walker((Query *) node,
+								   substitute_multiple_relids_walker,
+								   (void *) context, 0);
+		context->sublevels_up--;
+		return result;
 	}
 	/* Shouldn't need to handle planner auxiliary nodes here */
 	Assert(!IsA(node, SpecialJoinInfo));
@@ -2032,6 +2056,7 @@ substitute_multiple_relids(Node *node, int varno, Relids subrelids)
 	substitute_multiple_relids_context context;
 
 	context.varno = varno;
+	context.sublevels_up = 0;
 	context.subrelids = subrelids;
 
 	/*

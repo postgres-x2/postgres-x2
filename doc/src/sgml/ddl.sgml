@@ -2332,8 +2332,9 @@ VALUES ('New York', NULL, NULL, 'NY');
      <para>
       Bulk loads and deletes can be accomplished by adding or removing
       partitions, if that requirement is planned into the partitioning design.
-      <command>ALTER TABLE</> is far faster than a bulk operation.
-      It also entirely avoids the <command>VACUUM</command>
+      <command>ALTER TABLE NO INHERIT</> and <command>DROP TABLE</> are
+      both far faster than a bulk operation.
+      These commands also entirely avoid the <command>VACUUM</command>
       overhead caused by a bulk <command>DELETE</>.
      </para>
     </listitem>
@@ -3007,6 +3008,9 @@ ANALYZE measurement;
    <indexterm>
     <primary>foreign table</primary>
    </indexterm>
+   <indexterm>
+    <primary>user mapping</primary>
+   </indexterm>
 
    <para>
     <productname>PostgreSQL</productname> implements portions of the SQL/MED
@@ -3021,10 +3025,11 @@ ANALYZE measurement;
     <firstterm>foreign data wrapper</firstterm>. A foreign data wrapper is a
     library that can communicate with an external data source, hiding the
     details of connecting to the data source and fetching data from it. There
-    are several foreign data wrappers available, which can for example read
-    plain data files residing on the server, or connect to another PostgreSQL
-    instance. If none of the existing foreign data wrappers suit your needs,
-    you can write your own; see <xref linkend="fdwhandler">.
+    is a foreign data wrapper available as a <filename>contrib</> module,
+    which can read plain data files residing on the server.  Other kind of
+    foreign data wrappers might be found as third party products.  If none of
+    the existing foreign data wrappers suit your needs, you can write your
+    own; see <xref linkend="fdwhandler">.
    </para>
 
    <para>
@@ -3035,8 +3040,15 @@ ANALYZE measurement;
     tables</firstterm>, which define the structure of the remote data. A
     foreign table can be used in queries just like a normal table, but a
     foreign table has no storage in the PostgreSQL server.  Whenever it is
-    used, PostgreSQL asks the foreign data wrapper to fetch the data from the
-    external source.
+    used, <productname>PostgreSQL</productname> asks the foreign data wrapper
+    to fetch the data from the external source.
+   </para>
+
+   <para>
+    Accessing remote data may require authentication at the external
+    data source.  This information can be provided by a
+    <firstterm>user mapping</>, which can provide additional options based
+    on the current <productname>PostgreSQL</productname> role.
    </para>
 
    <para>

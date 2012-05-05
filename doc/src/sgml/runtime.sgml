@@ -282,7 +282,7 @@ pg_ctl start -l logfile
    Different systems have different conventions for starting up daemons
    at boot time. Many systems have a file
    <filename>/etc/rc.local</filename> or
-   <filename>/etc/rc.d/rc.local</filename>. Others use
+   <filename>/etc/rc.d/rc.local</filename>. Others use <filename>init.d</filename> or
    <filename>rc.d</> directories. Whatever you do, the server must be
    run by the <productname>PostgreSQL</productname> user account
    <emphasis>and not by root</emphasis> or any other user. Therefore you
@@ -329,7 +329,8 @@ fi
 <programlisting>
 /usr/local/pgsql/bin/pg_ctl start -l logfile -D /usr/local/pgsql/data
 </programlisting>
-      to <filename>/etc/rc.d/rc.local</filename> or look at the file
+      to <filename>/etc/rc.d/rc.local</filename>
+      or <filename>/etc/rc.local</filename> or look at the file
       <filename>contrib/start-scripts/linux</filename> in the
       <productname>PostgreSQL</productname> source distribution.
      </para>
@@ -337,10 +338,11 @@ fi
 
     <listitem>
      <para>
-      On <productname>NetBSD</productname>, either use the
+      On <productname>NetBSD</productname>, use either the
       <productname>FreeBSD</productname> or
       <productname>Linux</productname> start scripts, depending on
-      preference. <indexterm><primary>NetBSD</><secondary>start script</secondary></>
+      preference.
+      <indexterm><primary>NetBSD</><secondary>start script</secondary></>
      </para>
     </listitem>
 
@@ -603,13 +605,13 @@ psql: could not connect to server: No such file or directory
        <row>
         <entry><varname>SEMMNI</></>
         <entry>Maximum number of semaphore identifiers (i.e., sets)</>
-        <entry>at least <literal>ceil((max_connections + autovacuum_max_workers) / 16)</literal></>
+        <entry>at least <literal>ceil((max_connections + autovacuum_max_workers + 4) / 16)</literal></>
        </row>
 
        <row>
         <entry><varname>SEMMNS</></>
         <entry>Maximum number of semaphores system-wide</>
-        <entry><literal>ceil((max_connections + autovacuum_max_workers) / 16) * 17</literal> plus room for other applications</>
+        <entry><literal>ceil((max_connections + autovacuum_max_workers + 4) / 16) * 17</literal> plus room for other applications</>
        </row>
 
        <row>
@@ -684,7 +686,7 @@ psql: could not connect to server: No such file or directory
     linkend="sysvipc-parameters">).  The parameter <varname>SEMMNI</>
     determines the limit on the number of semaphore sets that can
     exist on the system at one time.  Hence this parameter must be at
-    least <literal>ceil((max_connections + autovacuum_max_workers) / 16)</>.
+    least <literal>ceil((max_connections + autovacuum_max_workers + 4) / 16)</>.
     Lowering the number
     of allowed connections is a temporary workaround for failures,
     which are usually confusingly worded <quote>No space
@@ -834,16 +836,44 @@ options "SEMMNS=240"
 
        <para>
         <systemitem class="osname">FreeBSD</> versions before 4.0 work like
-        <systemitem class="osname">NetBSD</> and <systemitem class="osname">
-        OpenBSD</> (see below).
+        <systemitem class="osname">OpenBSD</> (see below).
        </para>
       </listitem>
      </varlistentry>
 
      <varlistentry>
       <term><systemitem class="osname">NetBSD</></term>
-      <term><systemitem class="osname">OpenBSD</></term>
       <indexterm><primary>NetBSD</><secondary>IPC configuration</></>
+      <listitem>
+       <para>
+        In <systemitem class="osname">NetBSD</> 5.0 and later,
+        IPC parameters can be adjusted using <command>sysctl</command>,
+        for example:
+<screen>
+<prompt>$</prompt> <userinput>sysctl -w kern.ipc.shmmax=16777216</userinput>
+</screen>
+        To have these settings persist over reboots, modify
+        <filename>/etc/sysctl.conf</filename>.
+       </para>
+
+       <para>
+        You might also want to configure your kernel to lock shared
+        memory into RAM and prevent it from being paged out to swap.
+        This can be accomplished using the <command>sysctl</command>
+        setting <literal>kern.ipc.shm_use_phys</literal>.
+       </para>
+
+       <para>
+        <systemitem class="osname">NetBSD</> versions before 5.0 work like
+        <systemitem class="osname">OpenBSD</> (see below), except that
+        parameters should be set with the keyword <literal>options</> not
+        <literal>option</>.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><systemitem class="osname">OpenBSD</></term>
       <indexterm><primary>OpenBSD</><secondary>IPC configuration</></>
       <listitem>
        <para>
@@ -851,19 +881,17 @@ options "SEMMNS=240"
         to be enabled when the kernel is compiled. (They are by
         default.) The maximum size of shared memory is determined by
         the option <varname>SHMMAXPGS</> (in pages). The following
-        shows an example of how to set the various parameters on
-        <systemitem class="osname">NetBSD</>
-        (<systemitem class="osname">OpenBSD</> uses <literal>option</> instead):
+        shows an example of how to set the various parameters:
 <programlisting>
-options        SYSVSHM
-options        SHMMAXPGS=4096
-options        SHMSEG=256
+option        SYSVSHM
+option        SHMMAXPGS=4096
+option        SHMSEG=256
 
-options        SYSVSEM
-options        SEMMNI=256
-options        SEMMNS=512
-options        SEMMNU=256
-options        SEMMAP=256
+option        SYSVSEM
+option        SEMMNI=256
+option        SEMMNS=512
+option        SEMMNU=256
+option        SEMMAP=256
 </programlisting>
        </para>
 
@@ -875,7 +903,6 @@ options        SEMMAP=256
        </para>
       </listitem>
      </varlistentry>
-
 
      <varlistentry>
       <term><systemitem class="osname">HP-UX</></term>
@@ -944,8 +971,8 @@ options        SEMMAP=256
 
 
      <varlistentry>
-      <term><systemitem class="osname">MacOS X</></term>
-      <indexterm><primary>MacOS X</><secondary>IPC configuration</></>
+      <term><systemitem class="osname">Mac OS X</></term>
+      <indexterm><primary>Mac OS X</><secondary>IPC configuration</></>
       <listitem>
        <para>
         The recommended method for configuring shared memory in OS X
@@ -1341,7 +1368,7 @@ echo -17 > /proc/self/oom_adj
     Note that this action must be done as root, or it will have no effect;
     so a root-owned startup script is the easiest place to do it.  If you
     do this, you may also wish to build <productname>PostgreSQL</>
-    with <literal>-DLINUX_OOM_ADJ=0</> added to <varname>CFLAGS</>.
+    with <literal>-DLINUX_OOM_ADJ=0</> added to <varname>CPPFLAGS</>.
     That will cause postmaster child processes to run with the normal
     <varname>oom_adj</> value of zero, so that the OOM killer can still
     target them at need.

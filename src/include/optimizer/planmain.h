@@ -92,7 +92,7 @@ extern int	join_collapse_limit;
 extern void add_base_rels_to_query(PlannerInfo *root, Node *jtnode);
 extern void build_base_rel_tlists(PlannerInfo *root, List *final_tlist);
 extern void add_vars_to_targetlist(PlannerInfo *root, List *vars,
-					   Relids where_needed);
+					   Relids where_needed, bool create_new_ph);
 extern List *deconstruct_jointree(PlannerInfo *root);
 extern void distribute_restrictinfo_to_rels(PlannerInfo *root,
 								RestrictInfo *restrictinfo);
@@ -122,10 +122,6 @@ extern Plan *set_plan_references(PlannerGlobal *glob,
 					Plan *plan,
 					List *rtable,
 					List *rowmarks);
-extern List *set_returning_clause_references(PlannerGlobal *glob,
-								List *rlist,
-								Plan *topplan,
-								Index resultRelation);
 extern void fix_opfuncids(Node *node);
 extern void set_opfuncid(OpExpr *opexpr);
 extern void set_sa_opfuncid(ScalarArrayOpExpr *opexpr);

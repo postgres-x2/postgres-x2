@@ -105,7 +105,7 @@
      <varlistentry>
       <term><option>-k</option></term>
       <term><option>--link</option></term>
-      <listitem><para>link instead of copying files to new cluster</para></listitem>
+      <listitem><para>use hard links instead of copying files to the new cluster</para></listitem>
      </varlistentry>
 
      <varlistentry>
@@ -292,12 +292,18 @@ NET STOP pgsql-8.3  (<productname>PostgreSQL</> 8.3 and older used a different s
     <para>
      Always run the <application>pg_upgrade</> binary of the new server, not the old one.
      <application>pg_upgrade</> requires the specification of the old and new cluster's
-     data and executable (<filename>bin</>) directories. You can also specify separate
+     data and executable (<filename>bin</>) directories. You can also specify
      user and port values, and whether you want the data linked instead of
-     copied (the default). If you use linking, the upgrade will be much
-     faster (no data copying), but you will no longer be able to access your
-     old cluster once you start the new cluster after the upgrade. See
-     <literal>pg_upgrade --help</> for a full list of options.
+     copied (the default).
+    </para>
+
+    <para>
+     If you use link mode, the upgrade will be much faster (no file
+     copying), but you will not be able to access your old cluster
+     once you start the new cluster after the upgrade.  Link mode also
+     requires that the old and new cluster data directories be in the
+     same file system.  See <literal>pg_upgrade --help</> for a full
+     list of options.
     </para>
 
     <para>
@@ -329,6 +335,9 @@ pg_upgrade.exe
 
     <para>
      Obviously, no one should be accessing the clusters during the upgrade.
+     Consider using a non-default port number, e.g.  50432, for old
+     and new clusters to avoid unintended client connections during
+     the upgrade.
     </para>
 
     <para>
@@ -477,6 +486,11 @@ psql --username postgres --file script.sql postgres
   </para>
 
   <para>
+   pg_upgrade will not work if the <filename>ltree</>
+   contrib module is installed in a database.
+  </para>
+
+  <para>
    pg_upgrade will require a table rebuild if:
    <itemizedlist>
     <listitem>
@@ -527,7 +541,7 @@ psql --username postgres --file script.sql postgres
    <application>pg_upgrade</> does not support upgrading of databases
    containing these <type>reg*</> OID-referencing system data types:
    <type>regproc</>, <type>regprocedure</>, <type>regoper</>,
-   <type>regoperator</>, <type>regclass</>, <type>regconfig</>, and
+   <type>regoperator</>, <type>regconfig</>, and
    <type>regdictionary</>.  (<type>regtype</> can be upgraded.)
   </para>
 

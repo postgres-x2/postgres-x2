@@ -1387,8 +1387,7 @@ FinishPreparedTransaction(const char *gid, bool isCommit)
 
 		for (fork = 0; fork <= MAX_FORKNUM; fork++)
 		{
-			if (smgrexists(srel, fork))
-				smgrdounlink(srel, fork, false);
+			smgrdounlink(srel, fork, false);
 		}
 		smgrclose(srel);
 	}
@@ -1400,10 +1399,10 @@ FinishPreparedTransaction(const char *gid, bool isCommit)
 	 * after we send the SI messages. See AtEOXact_Inval()
 	 */
 	if (hdr->initfileinval)
-		RelationCacheInitFileInvalidate(true);
+		RelationCacheInitFilePreInvalidate();
 	SendSharedInvalidMessages(invalmsgs, hdr->ninvalmsgs);
 	if (hdr->initfileinval)
-		RelationCacheInitFileInvalidate(false);
+		RelationCacheInitFilePostInvalidate();
 
 	/* And now do the callbacks */
 	if (isCommit)

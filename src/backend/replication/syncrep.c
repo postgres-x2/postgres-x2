@@ -111,9 +111,6 @@ SyncRepWaitForLSN(XLogRecPtr XactCommitLSN)
 	Assert(SHMQueueIsDetached(&(MyProc->syncRepLinks)));
 	Assert(WalSndCtl != NULL);
 
-	/* Reset the latch before adding ourselves to the queue. */
-	ResetLatch(&MyProc->waitLatch);
-
 	LWLockAcquire(SyncRepLock, LW_EXCLUSIVE);
 	Assert(MyProc->syncRepState == SYNC_REP_NOT_WAITING);
 
@@ -166,15 +163,8 @@ SyncRepWaitForLSN(XLogRecPtr XactCommitLSN)
 	{
 		int			syncRepState;
 
-		/*
-		 * Wait on latch for up to 60 seconds. This allows us to check for
-		 * postmaster death regularly while waiting. Note that timeout here
-		 * does not necessarily release from loop.
-		 */
-		WaitLatch(&MyProc->waitLatch, 60000000L);
-
 		/* Must reset the latch before testing state. */
-		ResetLatch(&MyProc->waitLatch);
+		ResetLatch(&MyProc->procLatch);
 
 		/*
 		 * Try checking the state without the lock first.  There's no
@@ -184,6 +174,12 @@ SyncRepWaitForLSN(XLogRecPtr XactCommitLSN)
 		 * walsender changes the state to SYNC_REP_WAIT_COMPLETE, it will
 		 * never update it again, so we can't be seeing a stale value in that
 		 * case.
+		 *
+		 * Note: on machines with weak memory ordering, the acquisition of
+		 * the lock is essential to avoid race conditions: we cannot be sure
+		 * the sender's state update has reached main memory until we acquire
+		 * the lock.  We could get rid of this dance if SetLatch/ResetLatch
+		 * contained memory barriers.
 		 */
 		syncRepState = MyProc->syncRepState;
 		if (syncRepState == SYNC_REP_WAITING)
@@ -202,7 +198,7 @@ SyncRepWaitForLSN(XLogRecPtr XactCommitLSN)
 		 * is not true: it's already committed locally. The former is no good
 		 * either: the client has requested synchronous replication, and is
 		 * entitled to assume that an acknowledged commit is also replicated,
-		 * which may not be true. So in this case we issue a WARNING (which
+		 * which might not be true. So in this case we issue a WARNING (which
 		 * some clients may be able to interpret) and shut off further output.
 		 * We do NOT reset ProcDiePending, so that the process will die after
 		 * the commit is cleaned up.
@@ -212,7 +208,7 @@ SyncRepWaitForLSN(XLogRecPtr XactCommitLSN)
 			ereport(WARNING,
 					(errcode(ERRCODE_ADMIN_SHUTDOWN),
 					 errmsg("canceling the wait for synchronous replication and terminating connection due to administrator command"),
-					 errdetail("The transaction has already committed locally, but may not have been replicated to the standby.")));
+					 errdetail("The transaction has already committed locally, but might not have been replicated to the standby.")));
 			whereToSendOutput = DestNone;
 			SyncRepCancelWait();
 			break;
@@ -229,7 +225,7 @@ SyncRepWaitForLSN(XLogRecPtr XactCommitLSN)
 			QueryCancelPending = false;
 			ereport(WARNING,
 					(errmsg("canceling wait for synchronous replication due to user request"),
-					 errdetail("The transaction has already committed locally, but may not have been replicated to the standby.")));
+					 errdetail("The transaction has already committed locally, but might not have been replicated to the standby.")));
 			SyncRepCancelWait();
 			break;
 		}
@@ -246,6 +242,13 @@ SyncRepWaitForLSN(XLogRecPtr XactCommitLSN)
 			SyncRepCancelWait();
 			break;
 		}
+
+		/*
+		 * Wait on latch for up to 10 seconds. This allows us to check for
+		 * cancel/die signal or postmaster death regularly while waiting. Note
+		 * that timeout here does not necessarily release from loop.
+		 */
+		WaitLatch(&MyProc->procLatch, 10000L);
 	}
 
 	/*
@@ -316,7 +319,7 @@ SyncRepCancelWait(void)
 }
 
 void
-SyncRepCleanupAtProcExit(int code, Datum arg)
+SyncRepCleanupAtProcExit(void)
 {
 	if (!SHMQueueIsDetached(&(MyProc->syncRepLinks)))
 	{
@@ -324,8 +327,6 @@ SyncRepCleanupAtProcExit(int code, Datum arg)
 		SHMQueueDelete(&(MyProc->syncRepLinks));
 		LWLockRelease(SyncRepLock);
 	}
-
-	DisownLatch(&MyProc->waitLatch);
 }
 
 /*
@@ -554,9 +555,7 @@ SyncRepWakeQueue(bool all)
 		/*
 		 * Wake only when we have set state and removed from queue.
 		 */
-		Assert(SHMQueueIsDetached(&(thisproc->syncRepLinks)));
-		Assert(thisproc->syncRepState == SYNC_REP_WAIT_COMPLETE);
-		SetLatch(&(thisproc->waitLatch));
+		SetLatch(&(thisproc->procLatch));
 
 		numprocs++;
 	}

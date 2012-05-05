@@ -103,23 +103,16 @@
      </row>
 
      <row>
-      <entry>ODBCng</entry>
-      <entry>ODBC</entry>
-      <entry>An alternative ODBC driver</entry>
-      <entry><ulink url="http://projects.commandprompt.com/public/odbcng/">http://projects.commandprompt.com/public/odbcng/</ulink></entry>
-     </row>
-
-     <row>
       <entry>pgtclng</entry>
       <entry>Tcl</entry>
       <entry></entry>
-      <entry><ulink url="http://pgfoundry.org/projects/pgtclng/">http://pgfoundry.org/projects/pgtclng/</ulink></entry>
+      <entry><ulink url="http://sourceforge.net/projects/pgtclng/">http://sourceforge.net/projects/pgtclng/</ulink></entry>
      </row>
 
      <row>
       <entry>psqlODBC</entry>
       <entry>ODBC</entry>
-      <entry>The most commonly-used ODBC driver</entry>
+      <entry>ODBC driver</entry>
       <entry><ulink url="http://psqlodbc.projects.postgresql.org/">http://psqlodbc.projects.postgresql.org/</ulink></entry>
      </row>
 

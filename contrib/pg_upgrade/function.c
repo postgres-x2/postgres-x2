@@ -11,6 +11,7 @@
 
 #include "access/transam.h"
 
+#define PG_UPGRADE_SUPPORT	"$libdir/pg_upgrade_support"
 
 /*
  * install_support_functions_in_new_db()
@@ -153,17 +154,17 @@ get_loadable_libraries(void)
 		PQfinish(conn);
 	}
 
+	totaltups++;	/* reserve for pg_upgrade_support */
+
 	/* Allocate what's certainly enough space */
-	if (totaltups > 0)
-		os_info.libraries = (char **) pg_malloc(totaltups * sizeof(char *));
-	else
-		os_info.libraries = NULL;
+	os_info.libraries = (char **) pg_malloc(totaltups * sizeof(char *));
 
 	/*
 	 * Now remove duplicates across DBs.  This is pretty inefficient code, but
 	 * there probably aren't enough entries to matter.
 	 */
 	totaltups = 0;
+	os_info.libraries[totaltups++] = pg_strdup(PG_UPGRADE_SUPPORT);
 
 	for (dbnum = 0; dbnum < old_cluster.dbarr.ndbs; dbnum++)
 	{
@@ -224,11 +225,27 @@ check_loadable_libraries(void)
 	{
 		char	   *lib = os_info.libraries[libnum];
 		int			llen = strlen(lib);
-		char	   *cmd = (char *) pg_malloc(8 + 2 * llen + 1);
+		char		cmd[7 + 2 * MAXPGPATH + 1];
 		PGresult   *res;
 
+		/*
+		 *	In Postgres 9.0, Python 3 support was added, and to do that, a
+		 *	plpython2u language was created with library name plpython2.so
+		 *	as a symbolic link to plpython.so.  In Postgres 9.1, only the
+		 *	plpython2.so library was created, and both plpythonu and
+		 *	plpython2u pointing to it.  For this reason, any reference to
+		 *	library name "plpython" in an old PG <= 9.1 cluster must look
+		 *	for "plpython2" in the new cluster.
+		 */
+		if (GET_MAJOR_VERSION(old_cluster.major_version) < 901 &&
+			strcmp(lib, "$libdir/plpython") == 0)
+		{
+			lib = "$libdir/plpython2";
+			llen = strlen(lib);
+		}
+
 		strcpy(cmd, "LOAD '");
-		PQescapeStringConn(conn, cmd + 6, lib, llen, NULL);
+		PQescapeStringConn(conn, cmd + strlen(cmd), lib, llen, NULL);
 		strcat(cmd, "'");
 
 		res = PQexec(conn, cmd);
@@ -236,6 +253,12 @@ check_loadable_libraries(void)
 		if (PQresultStatus(res) != PGRES_COMMAND_OK)
 		{
 			found = true;
+
+			/* exit and report missing support library with special message */
+			if (strcmp(lib, PG_UPGRADE_SUPPORT) == 0)
+				pg_log(PG_FATAL,
+				   "The pg_upgrade_support module must be created and installed in the new cluster.\n");
+
 			if (script == NULL && (script = fopen(output_path, "w")) == NULL)
 				pg_log(PG_FATAL, "Could not create necessary file:  %s\n",
 					   output_path);
@@ -245,7 +268,6 @@ check_loadable_libraries(void)
 		}
 
 		PQclear(res);
-		pg_free(cmd);
 	}
 
 	PQfinish(conn);

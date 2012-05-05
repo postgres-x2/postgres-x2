@@ -71,7 +71,8 @@ typedef struct
 	char		relname[NAMEDATALEN];	/* relation name */
 	Oid			reloid;			/* relation oid */
 	Oid			relfilenode;	/* relation relfile node */
-	char		tablespace[MAXPGPATH];	/* relations tablespace path */
+	/* relation tablespace path, or "" for the cluster default */
+	char		tablespace[MAXPGPATH];	
 } RelInfo;
 
 typedef struct
@@ -184,8 +185,8 @@ typedef struct
 	unsigned short port;		/* port number where postmaster is waiting */
 	uint32		major_version;	/* PG_VERSION of cluster */
 	char		major_version_str[64];	/* string PG_VERSION of cluster */
+	uint32		bin_version;	/* version returned from pg_ctl */
 	Oid			pg_database_oid;	/* OID of pg_database relation */
-	char	   *libpath;		/* pathname for cluster's pkglibdir */
 	char	   *tablespace_suffix;		/* directory specification */
 } ClusterInfo;
 
@@ -390,6 +391,7 @@ void new_9_0_populate_pg_largeobject_metadata(ClusterInfo *cluster,
 
 void		old_8_3_check_for_name_data_type_usage(ClusterInfo *cluster);
 void		old_8_3_check_for_tsquery_usage(ClusterInfo *cluster);
+void		old_8_3_check_ltree_usage(ClusterInfo *cluster);
 void		old_8_3_rebuild_tsvector_tables(ClusterInfo *cluster, bool check_mode);
 void		old_8_3_invalidate_hash_gin_indexes(ClusterInfo *cluster, bool check_mode);
 void old_8_3_invalidate_bpchar_pattern_ops_indexes(ClusterInfo *cluster,

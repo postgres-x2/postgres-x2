@@ -183,15 +183,6 @@ extern unsigned char pg_ascii_tolower(unsigned char ch);
 #ifdef printf
 #undef printf
 #endif
-/*
- * Versions of libintl >= 0.18? try to replace setlocale() with a macro
- * to their own versions.  Remove the macro, if it exists, because it
- * ends up calling the wrong version when the backend and libintl use
- * different versions of msvcrt.
- */
-#if defined(setlocale) && defined(WIN32)
-#undef setlocale
-#endif
 
 extern int	pg_vsnprintf(char *str, size_t count, const char *fmt, va_list args);
 extern int
@@ -233,6 +224,27 @@ __attribute__((format(PG_PRINTF_ATTRIBUTE, 1, 2)));
 #define printf			pg_printf
 #endif
 #endif   /* USE_REPL_SNPRINTF */
+
+#if defined(WIN32)
+/*
+ * Versions of libintl >= 0.18? try to replace setlocale() with a macro
+ * to their own versions.  Remove the macro, if it exists, because it
+ * ends up calling the wrong version when the backend and libintl use
+ * different versions of msvcrt.
+ */
+#if defined(setlocale)
+#undef setlocale
+#endif
+
+/*
+ * Define our own wrapper macro around setlocale() to work around bugs in
+ * Windows' native setlocale() function.
+ */
+extern char *pgwin32_setlocale(int category, const char *locale);
+
+#define setlocale(a,b) pgwin32_setlocale(a,b)
+
+#endif   /* WIN32 */
 
 /* Portable prompt handling */
 extern char *simple_prompt(const char *prompt, int maxlen, bool echo);

@@ -443,6 +443,17 @@ ClientAuthentication(Port *port)
 								   NULL, 0,
 								   NI_NUMERICHOST);
 
+#define HOSTNAME_LOOKUP_DETAIL(port) \
+				(port->remote_hostname				  \
+				 ? (port->remote_hostname_resolv == +1					\
+					? errdetail_log("Client IP address resolved to \"%s\", forward lookup matches.", port->remote_hostname) \
+					: (port->remote_hostname_resolv == 0				\
+					   ? errdetail_log("Client IP address resolved to \"%s\", forward lookup not checked.", port->remote_hostname) \
+					   : (port->remote_hostname_resolv == -1			\
+						  ? errdetail_log("Client IP address resolved to \"%s\", forward lookup does not match.", port->remote_hostname) \
+						  : 0)))										\
+				 : 0)
+
 				if (am_walsender)
 				{
 #ifdef USE_SSL
@@ -450,12 +461,14 @@ ClientAuthentication(Port *port)
 					   (errcode(ERRCODE_INVALID_AUTHORIZATION_SPECIFICATION),
 						errmsg("no pg_hba.conf entry for replication connection from host \"%s\", user \"%s\", %s",
 							   hostinfo, port->user_name,
-							   port->ssl ? _("SSL on") : _("SSL off"))));
+							   port->ssl ? _("SSL on") : _("SSL off")),
+						HOSTNAME_LOOKUP_DETAIL(port)));
 #else
 					ereport(FATAL,
 					   (errcode(ERRCODE_INVALID_AUTHORIZATION_SPECIFICATION),
 						errmsg("no pg_hba.conf entry for replication connection from host \"%s\", user \"%s\"",
-							   hostinfo, port->user_name)));
+							   hostinfo, port->user_name),
+						HOSTNAME_LOOKUP_DETAIL(port)));
 #endif
 				}
 				else
@@ -466,13 +479,15 @@ ClientAuthentication(Port *port)
 						errmsg("no pg_hba.conf entry for host \"%s\", user \"%s\", database \"%s\", %s",
 							   hostinfo, port->user_name,
 							   port->database_name,
-							   port->ssl ? _("SSL on") : _("SSL off"))));
+							   port->ssl ? _("SSL on") : _("SSL off")),
+						HOSTNAME_LOOKUP_DETAIL(port)));
 #else
 					ereport(FATAL,
 					   (errcode(ERRCODE_INVALID_AUTHORIZATION_SPECIFICATION),
 						errmsg("no pg_hba.conf entry for host \"%s\", user \"%s\", database \"%s\"",
 							   hostinfo, port->user_name,
-							   port->database_name)));
+							   port->database_name),
+						HOSTNAME_LOOKUP_DETAIL(port)));
 #endif
 				}
 				break;
@@ -959,7 +974,7 @@ pg_GSS_error(int severity, char *errmsg, OM_uint32 maj_stat, OM_uint32 min_stat)
 	 */
 	ereport(severity,
 			(errmsg_internal("%s", errmsg),
-			 errdetail("%s: %s", msg_major, msg_minor)));
+			 errdetail_internal("%s: %s", msg_major, msg_minor)));
 }
 
 static int
@@ -1202,11 +1217,11 @@ pg_SSPI_error(int severity, const char *errmsg, SECURITY_STATUS r)
 					  sysmsg, sizeof(sysmsg), NULL) == 0)
 		ereport(severity,
 				(errmsg_internal("%s", errmsg),
-				 errdetail("SSPI error %x", (unsigned int) r)));
+				 errdetail_internal("SSPI error %x", (unsigned int) r)));
 	else
 		ereport(severity,
 				(errmsg_internal("%s", errmsg),
-				 errdetail("%s (%x)", sysmsg, (unsigned int) r)));
+				 errdetail_internal("%s (%x)", sysmsg, (unsigned int) r)));
 }
 
 static int
@@ -1353,15 +1368,21 @@ pg_SSPI_recvauth(Port *port)
 						  _("could not accept SSPI security context"), r);
 		}
 
+		/*
+		 * Overwrite the current context with the one we just received.
+		 * If sspictx is NULL it was the first loop and we need to allocate
+		 * a buffer for it. On subsequent runs, we can just overwrite the
+		 * buffer contents since the size does not change.
+		 */
 		if (sspictx == NULL)
 		{
 			sspictx = malloc(sizeof(CtxtHandle));
 			if (sspictx == NULL)
 				ereport(ERROR,
 						(errmsg("out of memory")));
-
-			memcpy(sspictx, &newctx, sizeof(CtxtHandle));
 		}
+
+		memcpy(sspictx, &newctx, sizeof(CtxtHandle));
 
 		if (r == SEC_I_CONTINUE_NEEDED)
 			elog(DEBUG4, "SSPI continue needed");
@@ -1436,7 +1457,7 @@ pg_SSPI_recvauth(Port *port)
 	if (!LookupAccountSid(NULL, tokenuser->User.Sid, accountname, &accountnamesize,
 						  domainname, &domainnamesize, &accountnameuse))
 		ereport(ERROR,
-			  (errmsg_internal("could not lookup acconut sid: error code %d",
+			  (errmsg_internal("could not look up account SID: error code %d",
 							   (int) GetLastError())));
 
 	free(tokenuser);

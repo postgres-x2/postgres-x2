@@ -83,8 +83,7 @@ PostgreSQL documentation
       (<filename>psqlrc</filename> and <filename>~/.psqlrc</filename>) are
       ignored with this option.
       </para>
-      <para>
-      <replaceable class="parameter">command</replaceable> must be either
+      <para><replaceable class="parameter">command</replaceable> must be either
       a command string that is completely parsable by the server (i.e.,
       it contains no <application>psql</application>-specific features),
       or a single backslash command. Thus you cannot mix
@@ -839,8 +838,7 @@ testdb=&gt;
         backslash escapes do not apply.
         </para>
 
-        <para>
-        <literal>\copy ... from stdin | to stdout</literal>
+        <para><literal>\copy ... from stdin | to stdout</literal>
         reads/writes based on the command input and output respectively.
         All rows are read from the same source that issued the command,
         continuing until <literal>\.</literal> is read or the stream
@@ -878,8 +876,8 @@ testdb=&gt;
 
         <listitem>
         <para>
-        For each relation (table, view, index, sequence or foreign table)
-        matching the
+        For each relation (table, view, index, sequence, or foreign table)
+        or composite type matching the
         <replaceable class="parameter">pattern</replaceable>, show all
         columns, their types, the tablespace (if not the default) and any
         special attributes such as <literal>NOT NULL</literal> or defaults.
@@ -1440,25 +1438,21 @@ testdb=&gt;
         <literal>\r</> to cancel.
         </para>
 
-        <tip>
-        <para>
-        <application>psql</application> checks the environment
-        variables <envar>PSQL_EDITOR</envar>, <envar>EDITOR</envar>, and
-        <envar>VISUAL</envar> (in that order) for an editor to use. If
-        all of them are unset, <filename>vi</filename> is used on Unix
-        systems, <filename>notepad.exe</filename> on Windows systems.
-        </para>
-        </tip>
-
         <para>
         If a line number is specified, <application>psql</application> will
         position the cursor on the specified line of the file or query buffer.
-        This feature requires the <varname>EDITOR_LINENUMBER_SWITCH</varname>
-        variable to be set, so that <application>psql</application> knows how
-        to specify the line number to the editor.  Note that if a single
-        all-digits argument is given, <application>psql</application> assumes
-        it is a line number not a file name.
+        Note that if a single all-digits argument is given,
+        <application>psql</application> assumes it is a line number,
+        not a file name.
         </para>
+
+        <tip>
+        <para>
+        See under <xref linkend="app-psql-environment"
+        endterm="app-psql-environment-title"> for how to configure and
+        customize your editor.
+        </para>
+        </tip>
         </listitem>
       </varlistentry>
 
@@ -1514,13 +1508,18 @@ Tue Oct 26 21:40:57 CEST 1999
 
         <para>
         If a line number is specified, <application>psql</application> will
-        position the cursor on the specified line of the function body
-        (note that the function body typically does not begin on the
-        first line of the file).
-        This feature requires the <varname>EDITOR_LINENUMBER_SWITCH</varname>
-        variable to be set, so that <application>psql</application> knows how
-        to specify the line number to the editor.
+        position the cursor on the specified line of the function body.
+        (Note that the function body typically does not begin on the first
+        line of the file.)
         </para>
+
+        <tip>
+        <para>
+        See under <xref linkend="app-psql-environment"
+        endterm="app-psql-environment-title"> for how to configure and
+        customize your editor.
+        </para>
+        </tip>
         </listitem>
       </varlistentry>
 
@@ -1737,8 +1736,7 @@ lo_import 152801
         specified, the query output will be reset to the standard output.
         </para>
 
-        <para>
-        <quote>Query results</quote> includes all tables, command
+        <para><quote>Query results</quote> includes all tables, command
         responses, and notices obtained from the database server, as
         well as output of various backslash commands that query the
         database (such as <command>\d</command>), but not error
@@ -1906,21 +1904,18 @@ lo_import 152801
           is enough.)
           </para>
 
-          <para>
-          <literal>unaligned</> format writes all columns of a row on one
+          <para><literal>unaligned</> format writes all columns of a row on one
           line, separated by the currently active field separator. This
           is useful for creating output that might be intended to be read
           in by other programs (for example, tab-separated or comma-separated
           format).
           </para>
 
-          <para>
-          <literal>aligned</literal> format is the standard, human-readable,
+          <para><literal>aligned</literal> format is the standard, human-readable,
           nicely formatted text output;  this is the default.
           </para>
 
-          <para>
-          <literal>wrapped</> format is like <literal>aligned</> but wraps
+          <para><literal>wrapped</> format is like <literal>aligned</> but wraps
           wide data values across lines to make the output fit in the target
           column width.  The target width is determined as described under
           the <literal>columns</> option.  Note that <application>psql</> will
@@ -1954,8 +1949,7 @@ lo_import 152801
           <literal>wrapped</> output formats.
           </para>
 
-          <para>
-          <literal>ascii</literal> style uses plain <acronym>ASCII</acronym>
+          <para><literal>ascii</literal> style uses plain <acronym>ASCII</acronym>
           characters.  Newlines in data are shown using
           a <literal>+</literal> symbol in the right-hand margin.
           When the <literal>wrapped</literal> format wraps data from
@@ -1964,8 +1958,7 @@ lo_import 152801
           and again in the left-hand margin of the following line.
           </para>
 
-          <para>
-          <literal>old-ascii</literal> style uses plain <acronym>ASCII</>
+          <para><literal>old-ascii</literal> style uses plain <acronym>ASCII</>
           characters, using the formatting style used
           in <productname>PostgreSQL</productname> 8.4 and earlier.
           Newlines in data are shown using a <literal>:</literal>
@@ -1975,8 +1968,7 @@ lo_import 152801
           symbol is used in place of the left-hand column separator.
           </para>
 
-          <para>
-          <literal>unicode</literal> style uses Unicode box-drawing characters.
+          <para><literal>unicode</literal> style uses Unicode box-drawing characters.
           Newlines in data are shown using a carriage return symbol
           in the right-hand margin.  When the data is wrapped from one line
           to the next without a newline character, an ellipsis symbol
@@ -2130,10 +2122,11 @@ lo_import 152801
 
 
       <varlistentry>
-        <term><literal>\q</literal></term>
+        <term><literal>\q</literal> or <literal>\quit</literal></term>
         <listitem>
         <para>
         Quits the <application>psql</application> program.
+        In a script file, only execution of that script is terminated.
         </para>
         </listitem>
       </varlistentry>
@@ -2458,8 +2451,7 @@ testdb=&gt; <userinput>\set foo bar</userinput>
 <programlisting>
 testdb=&gt; <userinput>\echo :foo</userinput>
 bar
-</programlisting>
-    </para>
+</programlisting></para>
 
     <note>
     <para>
@@ -2579,27 +2571,6 @@ bar
         on program start-up, use the switch <option>-E</option>.)  If you set
         the variable to the value <literal>noexec</literal>, the queries are
         just shown but are not actually sent to the server and executed.
-        </para>
-        </listitem>
-      </varlistentry>
-
-      <varlistentry>
-        <term><varname>EDITOR_LINENUMBER_SWITCH</varname></term>
-        <listitem>
-        <para>
-        When <command>\edit</command> or <command>\ef</command> is used with a
-        line number argument, this variable specifies the command-line switch
-        used to pass the line number to the user's editor.  For editors such
-        as <productname>emacs</> or <productname>vi</>, you can simply set
-        this variable to a plus sign.  Include a trailing space in the value
-        of the variable if there needs to be space between the switch name and
-        the line number.
-        Examples:
-
-<programlisting>
-\set EDITOR_LINENUMBER_SWITCH +
-\set EDITOR_LINENUMBER_SWITCH '--line '
-</programlisting>
         </para>
         </listitem>
       </varlistentry>
@@ -2770,18 +2741,16 @@ bar
         <term><varname>ON_ERROR_STOP</varname></term>
         <listitem>
         <para>
-        By default, if non-interactive scripts encounter an error, such
-        as a malformed <acronym>SQL</acronym> command or internal
-        meta-command, processing continues. This has been the
-        traditional behavior of <application>psql</application> but it
-        is sometimes not desirable. If this variable is set, script
-        processing will immediately terminate. If the script was called
-        from another script it will terminate in the same fashion. If
-        the outermost script was not called from an interactive
-        <application>psql</application> session but rather using the
-        <option>-f</option> option, <application>psql</application> will
-        return error code 3, to distinguish this case from fatal error
-        conditions (error code 1).
+        By default, command processing continues after an error.  When this
+        variable is set, it will instead stop immediately.  In interactive mode,
+        <application>psql</application> will return to the command prompt;
+        otherwise, <application>psql</application> will exit, returning
+        error code 3 to distinguish this case from fatal error
+        conditions, which are reported using error code 1.  In either case,
+        any currently running scripts (the top-level script, if any, and any
+        other scripts which it may have in invoked) will be terminated
+        immediately.  If the top-level command string contained multiple SQL
+        commands, processing will stop with the current command.
         </para>
         </listitem>
       </varlistentry>
@@ -3154,8 +3123,8 @@ $endif
  </refsect1>
 
 
- <refsect1>
-  <title>Environment</title>
+ <refsect1 id="app-psql-environment">
+  <title id="app-psql-environment-title">Environment</title>
 
   <variablelist>
 
@@ -3205,8 +3174,41 @@ $endif
 
     <listitem>
      <para>
-      Editor used by the <command>\e</command> command.  The variables
-      are examined in the order listed; the first that is set is used.
+      Editor used by the <command>\e</command> and
+      <command>\ef</command> commands.  The variables are examined in
+      the order listed; the first that is set is used.
+     </para>
+
+     <para>
+      The built-in default editors are <filename>vi</filename> on Unix
+      systems and <filename>notepad.exe</filename> on Windows systems.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><envar>PSQL_EDITOR_LINENUMBER_ARG</envar></term>
+
+    <listitem>
+     <para>
+      When <command>\e</command> or <command>\ef</command> is used
+      with a line number argument, this variable specifies the
+      command-line argument used to pass the starting line number to
+      the user's editor.  For editors such as <productname>Emacs</> or
+      <productname>vi</>, this is a plus sign.  Include a trailing
+      space in the value of the variable if there needs to be space
+      between the option name and the line number.  Examples:
+<programlisting>
+PSQL_EDITOR_LINENUMBER_ARG='+'
+PSQL_EDITOR_LINENUMBER_ARG='--line '
+</programlisting>
+     </para>
+
+     <para>
+      The default is <literal>+</literal> on Unix systems
+      (corresponding to the default editor <filename>vi</filename>,
+      and useful for many other common editors); but there is no
+      default on Windows systems.
      </para>
     </listitem>
    </varlistentry>
@@ -3300,8 +3302,7 @@ $endif
       </listitem>
 
       <listitem>
-      <para>
-       <application>psql</application> is only guaranteed to work smoothly
+      <para><application>psql</application> is only guaranteed to work smoothly
        with servers of the same version. That does not mean other combinations
        will fail outright, but subtle and not-so-subtle problems might come
        up.  Backslash commands are particularly likely to fail if the
@@ -3344,8 +3345,7 @@ $endif
       raster font does not work with the ANSI code page.
      </para>
     </listitem>
-   </itemizedlist>
- </para>
+   </itemizedlist></para>
 
  </refsect1>
 
@@ -3451,8 +3451,7 @@ second | three
 -[ RECORD 4 ]-
 first  | 4
 second | four
-</programlisting>
-  </para>
+</programlisting></para>
 
  </refsect1>
 

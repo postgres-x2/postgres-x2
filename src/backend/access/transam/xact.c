@@ -1333,7 +1333,8 @@ RecordTransactionCommit(void)
 	 * Note that at this stage we have marked clog, but still show as running
 	 * in the procarray and continue to hold locks.
 	 */
-	SyncRepWaitForLSN(XactLastRecEnd);
+	if (wrote_xlog)
+		SyncRepWaitForLSN(XactLastRecEnd);
 
 	/* Reset XactLastRecEnd until the next transaction writes something */
 	XactLastRecEnd.xrecoff = 0;
@@ -5113,11 +5114,8 @@ xact_redo_commit(xl_xact_commit *xlrec, TransactionId xid, XLogRecPtr lsn)
 
 		for (fork = 0; fork <= MAX_FORKNUM; fork++)
 		{
-			if (smgrexists(srel, fork))
-			{
-				XLogDropRelation(xlrec->xnodes[i], fork);
-				smgrdounlink(srel, fork, true);
-			}
+			XLogDropRelation(xlrec->xnodes[i], fork);
+			smgrdounlink(srel, fork, true);
 		}
 		smgrclose(srel);
 	}
@@ -5218,11 +5216,8 @@ xact_redo_abort(xl_xact_abort *xlrec, TransactionId xid)
 
 		for (fork = 0; fork <= MAX_FORKNUM; fork++)
 		{
-			if (smgrexists(srel, fork))
-			{
-				XLogDropRelation(xlrec->xnodes[i], fork);
-				smgrdounlink(srel, fork, true);
-			}
+			XLogDropRelation(xlrec->xnodes[i], fork);
+			smgrdounlink(srel, fork, true);
 		}
 		smgrclose(srel);
 	}

@@ -35,7 +35,7 @@ extern void ResolveRecoveryConflictWithDatabase(Oid dbid);
 
 extern void ResolveRecoveryConflictWithBufferPin(void);
 extern void SendRecoveryConflictWithBufferPin(ProcSignalReason reason);
-extern void CheckRecoveryConflictDeadlock(LWLockId partitionLock);
+extern void CheckRecoveryConflictDeadlock(void);
 
 /*
  * Standby Rmgr (RM_STANDBY_ID)
@@ -48,7 +48,7 @@ extern void StandbyAcquireAccessExclusiveLock(TransactionId xid, Oid dbOid, Oid 
 extern void StandbyReleaseLockTree(TransactionId xid,
 					   int nsubxids, TransactionId *subxids);
 extern void StandbyReleaseAllLocks(void);
-extern void StandbyReleaseOldLocks(TransactionId removeXid);
+extern void StandbyReleaseOldLocks(int nxids, TransactionId *xids);
 
 /*
  * XLOG message types
@@ -111,6 +111,6 @@ typedef RunningTransactionsData *RunningTransactions;
 extern void LogAccessExclusiveLock(Oid dbOid, Oid relOid);
 extern void LogAccessExclusiveLockPrepare(void);
 
-extern void LogStandbySnapshot(TransactionId *oldestActiveXid, TransactionId *nextXid);
+extern void LogStandbySnapshot(TransactionId *nextXid);
 
 #endif   /* STANDBY_H */

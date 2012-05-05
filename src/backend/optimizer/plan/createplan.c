@@ -27,6 +27,7 @@
 #include "optimizer/clauses.h"
 #include "optimizer/cost.h"
 #include "optimizer/paths.h"
+#include "optimizer/placeholder.h"
 #include "optimizer/plancat.h"
 #include "optimizer/planmain.h"
 #include "optimizer/predtest.h"
@@ -192,12 +193,17 @@ static Sort *make_sort(PlannerInfo *root, Plan *lefttree, int numCols,
 		  double limit_tuples);
 static Plan *prepare_sort_from_pathkeys(PlannerInfo *root,
 						   Plan *lefttree, List *pathkeys,
+						   Relids relids,
+						   const AttrNumber *reqColIdx,
 						   bool adjust_tlist_in_place,
 						   int *p_numsortkeys,
 						   AttrNumber **p_sortColIdx,
 						   Oid **p_sortOperators,
 						   Oid **p_collations,
 						   bool **p_nullsFirst);
+static EquivalenceMember *find_ec_member_for_tle(EquivalenceClass *ec,
+					   TargetEntry *tle,
+					   Relids relids);
 static Material *make_material(Plan *lefttree);
 
 #ifdef PGXC
@@ -799,7 +805,9 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 		 * intermediate, the children vars may or may not be referenced
 		 * multiple times in it.
 		 */
-		parent_vars = pull_var_clause((Node *)parent->targetlist, PVC_RECURSE_PLACEHOLDERS);
+		parent_vars = pull_var_clause((Node *)parent->targetlist,
+									  PVC_RECURSE_AGGREGATES,
+									  PVC_RECURSE_PLACEHOLDERS);
 
 		findReferencedVars(parent_vars, outer_plan, &out_tlist, &out_relids);
 		findReferencedVars(parent_vars, inner_plan, &in_tlist, &in_relids);
@@ -1391,6 +1399,8 @@ create_merge_append_plan(PlannerInfo *root, MergeAppendPath *best_path)
 
 	/* Compute sort column info, and adjust MergeAppend's tlist as needed */
 	(void) prepare_sort_from_pathkeys(root, plan, pathkeys,
+									  NULL,
+									  NULL,
 									  true,
 									  &node->numCols,
 									  &node->sortColIdx,
@@ -1418,6 +1428,8 @@ create_merge_append_plan(PlannerInfo *root, MergeAppendPath *best_path)
 
 		/* Compute sort column info, and adjust subplan's tlist as needed */
 		subplan = prepare_sort_from_pathkeys(root, subplan, pathkeys,
+											 subpath->parent->relids,
+											 node->sortColIdx,
 											 false,
 											 &numsortkeys,
 											 &sortColIdx,
@@ -2653,7 +2665,9 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 		query->targetList = copyObject(tlist);
 	else
 	{
-		tvarlist = copyObject(pull_var_clause((Node *)tlist, PVC_RECURSE_PLACEHOLDERS));
+		tvarlist = copyObject(pull_var_clause((Node *)tlist,
+											  PVC_RECURSE_AGGREGATES,
+											  PVC_RECURSE_PLACEHOLDERS));
 		query->targetList = add_to_flat_tlist(NIL, copyObject(tvarlist));
 	}
 
@@ -2662,9 +2676,12 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	 * datanode to 1, to match the rtable in the query. Do the same for Var
 	 * nodes in quals.
 	 */
-	varlist = list_concat(pull_var_clause((Node *)query->targetList, PVC_RECURSE_PLACEHOLDERS),
-							pull_var_clause((Node *)query->jointree->quals,
-												PVC_RECURSE_PLACEHOLDERS));
+	varlist = list_concat(pull_var_clause((Node *)query->targetList,
+										  PVC_RECURSE_AGGREGATES,
+										  PVC_RECURSE_PLACEHOLDERS),
+						  pull_var_clause((Node *)query->jointree->quals,
+										  PVC_RECURSE_AGGREGATES,
+										  PVC_RECURSE_PLACEHOLDERS));
 
 	foreach(varcell, varlist)
 	{
@@ -2951,7 +2968,20 @@ create_nestloop_plan(PlannerInfo *root,
 		NestLoopParam *nlp = (NestLoopParam *) lfirst(cell);
 
 		next = lnext(cell);
-		if (bms_is_member(nlp->paramval->varno, outerrelids))
+		if (IsA(nlp->paramval, Var) &&
+			bms_is_member(nlp->paramval->varno, outerrelids))
+		{
+			root->curOuterParams = list_delete_cell(root->curOuterParams,
+													cell, prev);
+			nestParams = lappend(nestParams, nlp);
+		}
+		else if (IsA(nlp->paramval, PlaceHolderVar) &&
+				 bms_overlap(((PlaceHolderVar *) nlp->paramval)->phrels,
+							 outerrelids) &&
+				 bms_is_subset(find_placeholder_info(root,
+													 (PlaceHolderVar *) nlp->paramval,
+													 false)->ph_eval_at,
+							   outerrelids))
 		{
 			root->curOuterParams = list_delete_cell(root->curOuterParams,
 													cell, prev);
@@ -3379,11 +3409,12 @@ create_hashjoin_plan(PlannerInfo *root,
 
 /*
  * replace_nestloop_params
- *	  Replace outer-relation Vars in the given expression with nestloop Params
+ *	  Replace outer-relation Vars and PlaceHolderVars in the given expression
+ *	  with nestloop Params
  *
- * All Vars belonging to the relation(s) identified by root->curOuterRels
- * are replaced by Params, and entries are added to root->curOuterParams if
- * not already present.
+ * All Vars and PlaceHolderVars belonging to the relation(s) identified by
+ * root->curOuterRels are replaced by Params, and entries are added to
+ * root->curOuterParams if not already present.
  */
 static Node *
 replace_nestloop_params(PlannerInfo *root, Node *expr)
@@ -3410,7 +3441,7 @@ replace_nestloop_params_mutator(Node *node, PlannerInfo *root)
 		if (!bms_is_member(var->varno, root->curOuterRels))
 			return node;
 		/* Create a Param representing the Var */
-		param = assign_nestloop_param(root, var);
+		param = assign_nestloop_param_var(root, var);
 		/* Is this param already listed in root->curOuterParams? */
 		foreach(lc, root->curOuterParams)
 		{
@@ -3430,6 +3461,48 @@ replace_nestloop_params_mutator(Node *node, PlannerInfo *root)
 		/* And return the replacement Param */
 		return (Node *) param;
 	}
+	if (IsA(node, PlaceHolderVar))
+	{
+		PlaceHolderVar *phv = (PlaceHolderVar *) node;
+		Param	   *param;
+		NestLoopParam *nlp;
+		ListCell   *lc;
+
+		/* Upper-level PlaceHolderVars should be long gone at this point */
+		Assert(phv->phlevelsup == 0);
+
+		/*
+		 * If not to be replaced, just return the PlaceHolderVar unmodified.
+		 * We use bms_overlap as a cheap/quick test to see if the PHV might
+		 * be evaluated in the outer rels, and then grab its PlaceHolderInfo
+		 * to tell for sure.
+		 */
+		if (!bms_overlap(phv->phrels, root->curOuterRels))
+			return node;
+		if (!bms_is_subset(find_placeholder_info(root, phv, false)->ph_eval_at,
+						   root->curOuterRels))
+			return node;
+		/* Create a Param representing the PlaceHolderVar */
+		param = assign_nestloop_param_placeholdervar(root, phv);
+		/* Is this param already listed in root->curOuterParams? */
+		foreach(lc, root->curOuterParams)
+		{
+			nlp = (NestLoopParam *) lfirst(lc);
+			if (nlp->paramno == param->paramid)
+			{
+				Assert(equal(phv, nlp->paramval));
+				/* Present, so we can just return the Param */
+				return (Node *) param;
+			}
+		}
+		/* No, so add it */
+		nlp = makeNode(NestLoopParam);
+		nlp->paramno = param->paramid;
+		nlp->paramval = (Var *) phv;
+		root->curOuterParams = lappend(root->curOuterParams, nlp);
+		/* And return the replacement Param */
+		return (Node *) param;
+	}
 	return expression_tree_mutator(node,
 								   replace_nestloop_params_mutator,
 								   (void *) root);
@@ -3442,7 +3515,7 @@ replace_nestloop_params_mutator(Node *node, PlannerInfo *root)
  *
  * We have four tasks here:
  *	* Remove RestrictInfo nodes from the input clauses.
- *	* Replace any outer-relation Var nodes with nestloop Params.
+ *	* Replace any outer-relation Var or PHV nodes with nestloop Params.
  *	  (XXX eventually, that responsibility should go elsewhere?)
  *	* Index keys must be represented by Var nodes with varattno set to the
  *	  index's attribute number, not the attribute number in the original rel.
@@ -4443,55 +4516,6 @@ make_sort(PlannerInfo *root, Plan *lefttree, int numCols,
 }
 
 /*
- * add_sort_column --- utility subroutine for building sort info arrays
- *
- * We need this routine because the same column might be selected more than
- * once as a sort key column; if so, the extra mentions are redundant.
- *
- * Caller is assumed to have allocated the arrays large enough for the
- * max possible number of columns.	Return value is the new column count.
- */
-static int
-add_sort_column(AttrNumber colIdx, Oid sortOp, Oid coll, bool nulls_first,
-				int numCols, AttrNumber *sortColIdx,
-				Oid *sortOperators, Oid *collations, bool *nullsFirst)
-{
-	int			i;
-
-	Assert(OidIsValid(sortOp));
-
-	for (i = 0; i < numCols; i++)
-	{
-		/*
-		 * Note: we check sortOp because it's conceivable that "ORDER BY foo
-		 * USING <, foo USING <<<" is not redundant, if <<< distinguishes
-		 * values that < considers equal.  We need not check nulls_first
-		 * however because a lower-order column with the same sortop but
-		 * opposite nulls direction is redundant.
-		 *
-		 * We could probably consider sort keys with the same sortop and
-		 * different collations to be redundant too, but for the moment treat
-		 * them as not redundant.  This will be needed if we ever support
-		 * collations with different notions of equality.
-		 */
-		if (sortColIdx[i] == colIdx &&
-			sortOperators[numCols] == sortOp &&
-			collations[numCols] == coll)
-		{
-			/* Already sorting by this col, so extra sort key is useless */
-			return numCols;
-		}
-	}
-
-	/* Add the column */
-	sortColIdx[numCols] = colIdx;
-	sortOperators[numCols] = sortOp;
-	collations[numCols] = coll;
-	nullsFirst[numCols] = nulls_first;
-	return numCols + 1;
-}
-
-/*
  * prepare_sort_from_pathkeys
  *	  Prepare to sort according to given pathkeys
  *
@@ -4500,14 +4524,24 @@ add_sort_column(AttrNumber colIdx, Oid sortOp, Oid coll, bool nulls_first,
  * plan targetlist if needed to add resjunk sort columns.
  *
  * Input parameters:
- *	  'lefttree' is the node which yields input tuples
+ *	  'lefttree' is the plan node which yields input tuples
  *	  'pathkeys' is the list of pathkeys by which the result is to be sorted
+ *	  'relids' identifies the child relation being sorted, if any
+ *	  'reqColIdx' is NULL or an array of required sort key column numbers
  *	  'adjust_tlist_in_place' is TRUE if lefttree must be modified in-place
  *
  * We must convert the pathkey information into arrays of sort key column
  * numbers, sort operator OIDs, collation OIDs, and nulls-first flags,
  * which is the representation the executor wants.	These are returned into
  * the output parameters *p_numsortkeys etc.
+ *
+ * When looking for matches to an EquivalenceClass's members, we will only
+ * consider child EC members if they match 'relids'.  This protects against
+ * possible incorrect matches to child expressions that contain no Vars.
+ *
+ * If reqColIdx isn't NULL then it contains sort key column numbers that
+ * we should match.  This is used when making child plans for a MergeAppend;
+ * it's an error if we can't match the columns.
  *
  * If the pathkeys include expressions that aren't simple Vars, we will
  * usually need to add resjunk items to the input plan's targetlist to
@@ -4523,6 +4557,8 @@ add_sort_column(AttrNumber colIdx, Oid sortOp, Oid coll, bool nulls_first,
  */
 static Plan *
 prepare_sort_from_pathkeys(PlannerInfo *root, Plan *lefttree, List *pathkeys,
+						   Relids relids,
+						   const AttrNumber *reqColIdx,
 						   bool adjust_tlist_in_place,
 						   int *p_numsortkeys,
 						   AttrNumber **p_sortColIdx,
@@ -4553,6 +4589,7 @@ prepare_sort_from_pathkeys(PlannerInfo *root, Plan *lefttree, List *pathkeys,
 	{
 		PathKey    *pathkey = (PathKey *) lfirst(i);
 		EquivalenceClass *ec = pathkey->pk_eclass;
+		EquivalenceMember *em;
 		TargetEntry *tle = NULL;
 		Oid			pk_datatype = InvalidOid;
 		Oid			sortop;
@@ -4572,16 +4609,41 @@ prepare_sort_from_pathkeys(PlannerInfo *root, Plan *lefttree, List *pathkeys,
 			Assert(list_length(ec->ec_members) == 1);
 			pk_datatype = ((EquivalenceMember *) linitial(ec->ec_members))->em_datatype;
 		}
+		else if (reqColIdx != NULL)
+		{
+			/*
+			 * If we are given a sort column number to match, only consider
+			 * the single TLE at that position.  It's possible that there
+			 * is no such TLE, in which case fall through and generate a
+			 * resjunk targetentry (we assume this must have happened in the
+			 * parent plan as well).  If there is a TLE but it doesn't match
+			 * the pathkey's EC, we do the same, which is probably the wrong
+			 * thing but we'll leave it to caller to complain about the
+			 * mismatch.
+			 */
+			tle = get_tle_by_resno(tlist, reqColIdx[numsortkeys]);
+			if (tle)
+			{
+				em = find_ec_member_for_tle(ec, tle, relids);
+				if (em)
+				{
+					/* found expr at right place in tlist */
+					pk_datatype = em->em_datatype;
+				}
+				else
+					tle = NULL;
+			}
+		}
 		else
 		{
 			/*
 			 * Otherwise, we can sort by any non-constant expression listed in
-			 * the pathkey's EquivalenceClass.  For now, we take the first one
-			 * that corresponds to an available item in the tlist.	If there
-			 * isn't any, use the first one that is an expression in the
-			 * input's vars.  (The non-const restriction only matters if the
-			 * EC is below_outer_join; but if it isn't, it won't contain
-			 * consts anyway, else we'd have discarded the pathkey as
+			 * the pathkey's EquivalenceClass.  For now, we take the first
+			 * tlist item found in the EC. If there's no match, we'll generate
+			 * a resjunk entry using the first EC member that is an expression
+			 * in the input's vars.  (The non-const restriction only matters
+			 * if the EC is below_outer_join; but if it isn't, it won't
+			 * contain consts anyway, else we'd have discarded the pathkey as
 			 * redundant.)
 			 *
 			 * XXX if we have a choice, is there any way of figuring out which
@@ -4590,9 +4652,36 @@ prepare_sort_from_pathkeys(PlannerInfo *root, Plan *lefttree, List *pathkeys,
 			 * in the same equivalence class...)  Not clear that we ever will
 			 * have an interesting choice in practice, so it may not matter.
 			 */
+			foreach(j, tlist)
+			{
+				tle = (TargetEntry *) lfirst(j);
+				em = find_ec_member_for_tle(ec, tle, relids);
+				if (em)
+				{
+					/* found expr already in tlist */
+					pk_datatype = em->em_datatype;
+					break;
+				}
+				tle = NULL;
+			}
+		}
+
+		if (!tle)
+		{
+			/*
+			 * No matching tlist item; look for a computable expression.
+			 * Note that we treat Aggrefs as if they were variables; this
+			 * is necessary when attempting to sort the output from an Agg
+			 * node for use in a WindowFunc (since grouping_planner will
+			 * have treated the Aggrefs as variables, too).
+			 */
+			Expr	   *sortexpr = NULL;
+
 			foreach(j, ec->ec_members)
 			{
 				EquivalenceMember *em = (EquivalenceMember *) lfirst(j);
+				List	   *exprvars;
+				ListCell   *k;
 
 				/*
 				 * We shouldn't be trying to sort by an equivalence class that
@@ -4602,84 +4691,56 @@ prepare_sort_from_pathkeys(PlannerInfo *root, Plan *lefttree, List *pathkeys,
 				if (em->em_is_const)
 					continue;
 
-				tle = tlist_member((Node *) em->em_expr, tlist);
-				if (tle)
-				{
-					pk_datatype = em->em_datatype;
-					break;		/* found expr already in tlist */
-				}
-
 				/*
-				 * We can also use it if the pathkey expression is a relabel
-				 * of the tlist entry, or vice versa.  This is needed for
-				 * binary-compatible cases (cf. make_pathkey_from_sortinfo).
-				 * We prefer an exact match, though, so we do the basic search
-				 * first.
+				 * Ignore child members unless they match the rel being sorted.
 				 */
-				tle = tlist_member_ignore_relabel((Node *) em->em_expr, tlist);
-				if (tle)
+				if (em->em_is_child &&
+					!bms_equal(em->em_relids, relids))
+					continue;
+
+				sortexpr = em->em_expr;
+				exprvars = pull_var_clause((Node *) sortexpr,
+										   PVC_INCLUDE_AGGREGATES,
+										   PVC_INCLUDE_PLACEHOLDERS);
+				foreach(k, exprvars)
+				{
+					if (!tlist_member_ignore_relabel(lfirst(k), tlist))
+						break;
+				}
+				list_free(exprvars);
+				if (!k)
 				{
 					pk_datatype = em->em_datatype;
-					break;		/* found expr already in tlist */
+					break;		/* found usable expression */
 				}
 			}
+			if (!j)
+				elog(ERROR, "could not find pathkey item to sort");
 
-			if (!tle)
+			/*
+			 * Do we need to insert a Result node?
+			 */
+			if (!adjust_tlist_in_place &&
+				!is_projection_capable_plan(lefttree))
 			{
-				/* No matching tlist item; look for a computable expression */
-				Expr	   *sortexpr = NULL;
-
-				foreach(j, ec->ec_members)
-				{
-					EquivalenceMember *em = (EquivalenceMember *) lfirst(j);
-					List	   *exprvars;
-					ListCell   *k;
-
-					if (em->em_is_const)
-						continue;
-					sortexpr = em->em_expr;
-					exprvars = pull_var_clause((Node *) sortexpr,
-											   PVC_INCLUDE_PLACEHOLDERS);
-					foreach(k, exprvars)
-					{
-						if (!tlist_member_ignore_relabel(lfirst(k), tlist))
-							break;
-					}
-					list_free(exprvars);
-					if (!k)
-					{
-						pk_datatype = em->em_datatype;
-						break;	/* found usable expression */
-					}
-				}
-				if (!j)
-					elog(ERROR, "could not find pathkey item to sort");
-
-				/*
-				 * Do we need to insert a Result node?
-				 */
-				if (!adjust_tlist_in_place &&
-					!is_projection_capable_plan(lefttree))
-				{
-					/* copy needed so we don't modify input's tlist below */
-					tlist = copyObject(tlist);
-					lefttree = (Plan *) make_result(root, tlist, NULL,
-													lefttree);
-				}
-
-				/* Don't bother testing is_projection_capable_plan again */
-				adjust_tlist_in_place = true;
-
-				/*
-				 * Add resjunk entry to input's tlist
-				 */
-				tle = makeTargetEntry(sortexpr,
-									  list_length(tlist) + 1,
-									  NULL,
-									  true);
-				tlist = lappend(tlist, tle);
-				lefttree->targetlist = tlist;	/* just in case NIL before */
+				/* copy needed so we don't modify input's tlist below */
+				tlist = copyObject(tlist);
+				lefttree = (Plan *) make_result(root, tlist, NULL,
+												lefttree);
 			}
+
+			/* Don't bother testing is_projection_capable_plan again */
+			adjust_tlist_in_place = true;
+
+			/*
+			 * Add resjunk entry to input's tlist
+			 */
+			tle = makeTargetEntry(sortexpr,
+								  list_length(tlist) + 1,
+								  NULL,
+								  true);
+			tlist = lappend(tlist, tle);
+			lefttree->targetlist = tlist;	/* just in case NIL before */
 		}
 
 		/*
@@ -4695,22 +4756,13 @@ prepare_sort_from_pathkeys(PlannerInfo *root, Plan *lefttree, List *pathkeys,
 				 pathkey->pk_strategy, pk_datatype, pk_datatype,
 				 pathkey->pk_opfamily);
 
-		/*
-		 * The column might already be selected as a sort key, if the pathkeys
-		 * contain duplicate entries.  (This can happen in scenarios where
-		 * multiple mergejoinable clauses mention the same var, for example.)
-		 * So enter it only once in the sort arrays.
-		 */
-		numsortkeys = add_sort_column(tle->resno,
-									  sortop,
-									  pathkey->pk_eclass->ec_collation,
-									  pathkey->pk_nulls_first,
-									  numsortkeys,
-									  sortColIdx, sortOperators,
-									  collations, nullsFirst);
+		/* Add the column to the sort arrays */
+		sortColIdx[numsortkeys] = tle->resno;
+		sortOperators[numsortkeys] = sortop;
+		collations[numsortkeys] = ec->ec_collation;
+		nullsFirst[numsortkeys] = pathkey->pk_nulls_first;
+		numsortkeys++;
 	}
-
-	Assert(numsortkeys > 0);
 
 	/* Return results */
 	*p_numsortkeys = numsortkeys;
@@ -4720,6 +4772,57 @@ prepare_sort_from_pathkeys(PlannerInfo *root, Plan *lefttree, List *pathkeys,
 	*p_nullsFirst = nullsFirst;
 
 	return lefttree;
+}
+
+/*
+ * find_ec_member_for_tle
+ *		Locate an EquivalenceClass member matching the given TLE, if any
+ *
+ * Child EC members are ignored unless they match 'relids'.
+ */
+static EquivalenceMember *
+find_ec_member_for_tle(EquivalenceClass *ec,
+					   TargetEntry *tle,
+					   Relids relids)
+{
+	Expr	   *tlexpr;
+	ListCell   *lc;
+
+	/* We ignore binary-compatible relabeling on both ends */
+	tlexpr = tle->expr;
+	while (tlexpr && IsA(tlexpr, RelabelType))
+		tlexpr = ((RelabelType *) tlexpr)->arg;
+
+	foreach(lc, ec->ec_members)
+	{
+		EquivalenceMember *em = (EquivalenceMember *) lfirst(lc);
+		Expr	   *emexpr;
+
+		/*
+		 * We shouldn't be trying to sort by an equivalence class that
+		 * contains a constant, so no need to consider such cases any
+		 * further.
+		 */
+		if (em->em_is_const)
+			continue;
+
+		/*
+		 * Ignore child members unless they match the rel being sorted.
+		 */
+		if (em->em_is_child &&
+			!bms_equal(em->em_relids, relids))
+			continue;
+
+		/* Match if same expression (after stripping relabel) */
+		emexpr = em->em_expr;
+		while (emexpr && IsA(emexpr, RelabelType))
+			emexpr = ((RelabelType *) emexpr)->arg;
+
+		if (equal(emexpr, tlexpr))
+			return em;
+	}
+
+	return NULL;
 }
 
 /*
@@ -4743,6 +4846,8 @@ make_sort_from_pathkeys(PlannerInfo *root, Plan *lefttree, List *pathkeys,
 
 	/* Compute sort column info, and adjust lefttree as needed */
 	lefttree = prepare_sort_from_pathkeys(root, lefttree, pathkeys,
+										  NULL,
+										  NULL,
 										  false,
 										  &numsortkeys,
 										  &sortColIdx,
@@ -4774,9 +4879,7 @@ make_sort_from_sortclauses(PlannerInfo *root, List *sortcls, Plan *lefttree)
 	Oid		   *collations;
 	bool	   *nullsFirst;
 
-	/*
-	 * We will need at most list_length(sortcls) sort columns; possibly less
-	 */
+	/* Convert list-ish representation to arrays wanted by executor */
 	numsortkeys = list_length(sortcls);
 	sortColIdx = (AttrNumber *) palloc(numsortkeys * sizeof(AttrNumber));
 	sortOperators = (Oid *) palloc(numsortkeys * sizeof(Oid));
@@ -4784,26 +4887,17 @@ make_sort_from_sortclauses(PlannerInfo *root, List *sortcls, Plan *lefttree)
 	nullsFirst = (bool *) palloc(numsortkeys * sizeof(bool));
 
 	numsortkeys = 0;
-
 	foreach(l, sortcls)
 	{
 		SortGroupClause *sortcl = (SortGroupClause *) lfirst(l);
 		TargetEntry *tle = get_sortgroupclause_tle(sortcl, sub_tlist);
 
-		/*
-		 * Check for the possibility of duplicate order-by clauses --- the
-		 * parser should have removed 'em, but no point in sorting
-		 * redundantly.
-		 */
-		numsortkeys = add_sort_column(tle->resno, sortcl->sortop,
-									  exprCollation((Node *) tle->expr),
-									  sortcl->nulls_first,
-									  numsortkeys,
-									  sortColIdx, sortOperators,
-									  collations, nullsFirst);
+		sortColIdx[numsortkeys] = tle->resno;
+		sortOperators[numsortkeys] = sortcl->sortop;
+		collations[numsortkeys] = exprCollation((Node *) tle->expr);
+		nullsFirst[numsortkeys] = sortcl->nulls_first;
+		numsortkeys++;
 	}
-
-	Assert(numsortkeys > 0);
 
 	return make_sort(root, lefttree, numsortkeys,
 					 sortColIdx, sortOperators, collations,
@@ -4830,7 +4924,6 @@ make_sort_from_groupcols(PlannerInfo *root,
 						 Plan *lefttree)
 {
 	List	   *sub_tlist = lefttree->targetlist;
-	int			grpno = 0;
 	ListCell   *l;
 	int			numsortkeys;
 	AttrNumber *sortColIdx;
@@ -4838,9 +4931,7 @@ make_sort_from_groupcols(PlannerInfo *root,
 	Oid		   *collations;
 	bool	   *nullsFirst;
 
-	/*
-	 * We will need at most list_length(groupcls) sort columns; possibly less
-	 */
+	/* Convert list-ish representation to arrays wanted by executor */
 	numsortkeys = list_length(groupcls);
 	sortColIdx = (AttrNumber *) palloc(numsortkeys * sizeof(AttrNumber));
 	sortOperators = (Oid *) palloc(numsortkeys * sizeof(Oid));
@@ -4848,27 +4939,17 @@ make_sort_from_groupcols(PlannerInfo *root,
 	nullsFirst = (bool *) palloc(numsortkeys * sizeof(bool));
 
 	numsortkeys = 0;
-
 	foreach(l, groupcls)
 	{
 		SortGroupClause *grpcl = (SortGroupClause *) lfirst(l);
-		TargetEntry *tle = get_tle_by_resno(sub_tlist, grpColIdx[grpno]);
+		TargetEntry *tle = get_tle_by_resno(sub_tlist, grpColIdx[numsortkeys]);
 
-		/*
-		 * Check for the possibility of duplicate group-by clauses --- the
-		 * parser should have removed 'em, but no point in sorting
-		 * redundantly.
-		 */
-		numsortkeys = add_sort_column(tle->resno, grpcl->sortop,
-									  exprCollation((Node *) tle->expr),
-									  grpcl->nulls_first,
-									  numsortkeys,
-									  sortColIdx, sortOperators,
-									  collations, nullsFirst);
-		grpno++;
+		sortColIdx[numsortkeys] = tle->resno;
+		sortOperators[numsortkeys] = grpcl->sortop;
+		collations[numsortkeys] = exprCollation((Node *) tle->expr);
+		nullsFirst[numsortkeys] = grpcl->nulls_first;
+		numsortkeys++;
 	}
-
-	Assert(numsortkeys > 0);
 
 	return make_sort(root, lefttree, numsortkeys,
 					 sortColIdx, sortOperators, collations,
@@ -5429,16 +5510,8 @@ make_modifytable(CmdType operation, bool canSetTag,
 	node->plan.lefttree = NULL;
 	node->plan.righttree = NULL;
 	node->plan.qual = NIL;
-
-	/*
-	 * Set up the visible plan targetlist as being the same as the first
-	 * RETURNING list.	This is for the use of EXPLAIN; the executor won't pay
-	 * any attention to the targetlist.
-	 */
-	if (returningLists)
-		node->plan.targetlist = copyObject(linitial(returningLists));
-	else
-		node->plan.targetlist = NIL;
+	/* setrefs.c will fill in the targetlist, if needed */
+	node->plan.targetlist = NIL;
 
 	node->operation = operation;
 	node->canSetTag = canSetTag;
@@ -5504,7 +5577,9 @@ findReferencedVars(List *parent_vars, Plan *plan, List **out_tlist, Relids *out_
 	ListCell *l;
 
 	/* Pull vars from both the targetlist and the clauses attached to this plan */
-	vars = pull_var_clause((Node *)plan->targetlist, PVC_REJECT_PLACEHOLDERS);
+	vars = pull_var_clause((Node *)plan->targetlist,
+						   PVC_RECURSE_AGGREGATES,
+						   PVC_REJECT_PLACEHOLDERS);
 
 	foreach(l, vars)
 	{
@@ -5518,7 +5593,9 @@ findReferencedVars(List *parent_vars, Plan *plan, List **out_tlist, Relids *out_
 	}
 
 	/* Now consider the local quals */
-	vars = pull_var_clause((Node *)plan->qual, PVC_REJECT_PLACEHOLDERS);
+	vars = pull_var_clause((Node *)plan->qual,
+						   PVC_RECURSE_AGGREGATES,
+						   PVC_REJECT_PLACEHOLDERS);
 
 	foreach(l, vars)
 	{
@@ -6285,7 +6362,8 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 
 	/* find all the relations referenced by targetlist of Grouping node */
 	temp_vars = pull_var_clause((Node *)local_plan->targetlist,
-									PVC_REJECT_PLACEHOLDERS);
+								PVC_RECURSE_AGGREGATES,
+								PVC_REJECT_PLACEHOLDERS);
 	findReferencedVars(temp_vars, (Plan *)remote_scan, &temp_vartlist, &in_relids);
 
 	/*

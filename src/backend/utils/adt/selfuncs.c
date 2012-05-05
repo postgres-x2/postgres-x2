@@ -143,7 +143,8 @@ static double ineq_histogram_selectivity(PlannerInfo *root,
 static double eqjoinsel_inner(Oid operator,
 				VariableStatData *vardata1, VariableStatData *vardata2);
 static double eqjoinsel_semi(Oid operator,
-			   VariableStatData *vardata1, VariableStatData *vardata2);
+			   VariableStatData *vardata1, VariableStatData *vardata2,
+			   RelOptInfo *inner_rel);
 static bool convert_to_scalar(Datum value, Oid valuetypid, double *scaledvalue,
 				  Datum lobound, Datum hibound, Oid boundstypid,
 				  double *scaledlobound, double *scaledhibound);
@@ -172,6 +173,7 @@ static bool get_actual_variable_range(PlannerInfo *root,
 						  VariableStatData *vardata,
 						  Oid sortop,
 						  Datum *min, Datum *max);
+static RelOptInfo *find_join_input_rel(PlannerInfo *root, Relids relids);
 static Selectivity prefix_selectivity(PlannerInfo *root,
 				   VariableStatData *vardata,
 				   Oid vartype, Oid opfamily, Const *prefixcon);
@@ -2007,6 +2009,7 @@ eqjoinsel(PG_FUNCTION_ARGS)
 	VariableStatData vardata1;
 	VariableStatData vardata2;
 	bool		join_is_reversed;
+	RelOptInfo *inner_rel;
 
 	get_join_variables(root, args, sjinfo,
 					   &vardata1, &vardata2, &join_is_reversed);
@@ -2020,11 +2023,21 @@ eqjoinsel(PG_FUNCTION_ARGS)
 			break;
 		case JOIN_SEMI:
 		case JOIN_ANTI:
+			/*
+			 * Look up the join's inner relation.  min_righthand is sufficient
+			 * information because neither SEMI nor ANTI joins permit any
+			 * reassociation into or out of their RHS, so the righthand will
+			 * always be exactly that set of rels.
+			 */
+			inner_rel = find_join_input_rel(root, sjinfo->min_righthand);
+
 			if (!join_is_reversed)
-				selec = eqjoinsel_semi(operator, &vardata1, &vardata2);
+				selec = eqjoinsel_semi(operator, &vardata1, &vardata2,
+									   inner_rel);
 			else
 				selec = eqjoinsel_semi(get_commutator(operator),
-									   &vardata2, &vardata1);
+									   &vardata2, &vardata1,
+									   inner_rel);
 			break;
 		default:
 			/* other values not expected here */
@@ -2245,21 +2258,9 @@ eqjoinsel_inner(Oid operator,
 		 * XXX Can we be smarter if we have an MCV list for just one side? It
 		 * seems that if we assume equal distribution for the other side, we
 		 * end up with the same answer anyway.
-		 *
-		 * An additional hack we use here is to clamp the nd1 and nd2 values
-		 * to not more than what we are estimating the input relation sizes to
-		 * be, providing a crude correction for the selectivity of restriction
-		 * clauses on those relations.	(We don't do that in the other path
-		 * since there we are comparing the nd values to stats for the whole
-		 * relations.)
 		 */
 		double		nullfrac1 = stats1 ? stats1->stanullfrac : 0.0;
 		double		nullfrac2 = stats2 ? stats2->stanullfrac : 0.0;
-
-		if (vardata1->rel)
-			nd1 = Min(nd1, vardata1->rel->rows);
-		if (vardata2->rel)
-			nd2 = Min(nd2, vardata2->rel->rows);
 
 		selec = (1.0 - nullfrac1) * (1.0 - nullfrac2);
 		if (nd1 > nd2)
@@ -2286,7 +2287,8 @@ eqjoinsel_inner(Oid operator,
  */
 static double
 eqjoinsel_semi(Oid operator,
-			   VariableStatData *vardata1, VariableStatData *vardata2)
+			   VariableStatData *vardata1, VariableStatData *vardata2,
+			   RelOptInfo *inner_rel)
 {
 	double		selec;
 	double		nd1;
@@ -2305,6 +2307,25 @@ eqjoinsel_semi(Oid operator,
 
 	nd1 = get_variable_numdistinct(vardata1);
 	nd2 = get_variable_numdistinct(vardata2);
+
+	/*
+	 * We clamp nd2 to be not more than what we estimate the inner relation's
+	 * size to be.  This is intuitively somewhat reasonable since obviously
+	 * there can't be more than that many distinct values coming from the
+	 * inner rel.  The reason for the asymmetry (ie, that we don't clamp nd1
+	 * likewise) is that this is the only pathway by which restriction clauses
+	 * applied to the inner rel will affect the join result size estimate,
+	 * since set_joinrel_size_estimates will multiply SEMI/ANTI selectivity by
+	 * only the outer rel's size.  If we clamped nd1 we'd be double-counting
+	 * the selectivity of outer-rel restrictions.
+	 *
+	 * We can apply this clamping both with respect to the base relation from
+	 * which the join variable comes (if there is just one), and to the
+	 * immediate inner input relation of the current join.
+	 */
+	if (vardata2->rel)
+		nd2 = Min(nd2, vardata2->rel->rows);
+	nd2 = Min(nd2, inner_rel->rows);
 
 	if (HeapTupleIsValid(vardata1->statsTuple))
 	{
@@ -2349,11 +2370,21 @@ eqjoinsel_semi(Oid operator,
 					uncertainfrac,
 					uncertain;
 		int			i,
-					nmatches;
+					nmatches,
+					clamped_nvalues2;
+
+		/*
+		 * The clamping above could have resulted in nd2 being less than
+		 * nvalues2; in which case, we assume that precisely the nd2 most
+		 * common values in the relation will appear in the join input, and so
+		 * compare to only the first nd2 members of the MCV list.  Of course
+		 * this is frequently wrong, but it's the best bet we can make.
+		 */
+		clamped_nvalues2 = Min(nvalues2, nd2);
 
 		fmgr_info(get_opcode(operator), &eqproc);
 		hasmatch1 = (bool *) palloc0(nvalues1 * sizeof(bool));
-		hasmatch2 = (bool *) palloc0(nvalues2 * sizeof(bool));
+		hasmatch2 = (bool *) palloc0(clamped_nvalues2 * sizeof(bool));
 
 		/*
 		 * Note we assume that each MCV will match at most one member of the
@@ -2366,7 +2397,7 @@ eqjoinsel_semi(Oid operator,
 		{
 			int			j;
 
-			for (j = 0; j < nvalues2; j++)
+			for (j = 0; j < clamped_nvalues2; j++)
 			{
 				if (hasmatch2[j])
 					continue;
@@ -2411,7 +2442,7 @@ eqjoinsel_semi(Oid operator,
 		{
 			nd1 -= nmatches;
 			nd2 -= nmatches;
-			if (nd1 <= nd2 || nd2 <= 0)
+			if (nd1 <= nd2 || nd2 < 0)
 				uncertainfrac = 1.0;
 			else
 				uncertainfrac = nd2 / nd1;
@@ -2432,12 +2463,7 @@ eqjoinsel_semi(Oid operator,
 
 		if (nd1 != DEFAULT_NUM_DISTINCT && nd2 != DEFAULT_NUM_DISTINCT)
 		{
-			if (vardata1->rel)
-				nd1 = Min(nd1, vardata1->rel->rows);
-			if (vardata2->rel)
-				nd2 = Min(nd2, vardata2->rel->rows);
-
-			if (nd1 <= nd2 || nd2 <= 0)
+			if (nd1 <= nd2 || nd2 < 0)
 				selec = 1.0 - nullfrac1;
 			else
 				selec = (nd2 / nd1) * (1.0 - nullfrac1);
@@ -3042,8 +3068,13 @@ estimate_num_groups(PlannerInfo *root, List *groupExprs, double input_rows)
 	double		numdistinct;
 	ListCell   *l;
 
-	/* We should not be called unless query has GROUP BY (or DISTINCT) */
-	Assert(groupExprs != NIL);
+	/*
+	 * If no grouping columns, there's exactly one group.  (This can't happen
+	 * for normal cases with GROUP BY or DISTINCT, but it is possible for
+	 * corner cases with set operations.)
+	 */
+	if (groupExprs == NIL)
+		return 1.0;
 
 	/*
 	 * Count groups derived from boolean grouping expressions.	For other
@@ -3089,7 +3120,9 @@ estimate_num_groups(PlannerInfo *root, List *groupExprs, double input_rows)
 		 * PlaceHolderVar doesn't change the number of groups, which boils
 		 * down to ignoring the possible addition of nulls to the result set).
 		 */
-		varshere = pull_var_clause(groupexpr, PVC_RECURSE_PLACEHOLDERS);
+		varshere = pull_var_clause(groupexpr,
+								   PVC_RECURSE_AGGREGATES,
+								   PVC_RECURSE_PLACEHOLDERS);
 
 		/*
 		 * If we find any variable-free GROUP BY item, then either it is a
@@ -4093,7 +4126,9 @@ get_join_variables(PlannerInfo *root, List *args, SpecialJoinInfo *sjinfo,
  *		commonly the same as the exposed type of the variable argument,
  *		but can be different in binary-compatible-type cases.
  *	isunique: TRUE if we were able to match the var to a unique index,
- *		implying its values are unique for this query.
+ *		implying its values are unique for this query.  (Caution: this
+ *		should be trusted for statistical purposes only, since we do not
+ *		check indimmediate.)
  *
  * Caller is responsible for doing ReleaseVariableStats() before exiting.
  */
@@ -4759,6 +4794,37 @@ get_actual_variable_range(PlannerInfo *root, VariableStatData *vardata,
 	}
 
 	return have_data;
+}
+
+/*
+ * find_join_input_rel
+ *		Look up the input relation for a join.
+ *
+ * We assume that the input relation's RelOptInfo must have been constructed
+ * already.
+ */
+static RelOptInfo *
+find_join_input_rel(PlannerInfo *root, Relids relids)
+{
+	RelOptInfo *rel = NULL;
+
+	switch (bms_membership(relids))
+	{
+		case BMS_EMPTY_SET:
+			/* should not happen */
+			break;
+		case BMS_SINGLETON:
+			rel = find_base_rel(root, bms_singleton_member(relids));
+			break;
+		case BMS_MULTIPLE:
+			rel = find_join_rel(root, relids);
+			break;
+	}
+
+	if (rel == NULL)
+		elog(ERROR, "could not find RelOptInfo for given relids");
+
+	return rel;
 }
 
 
@@ -6374,6 +6440,20 @@ gistcostestimate(PG_FUNCTION_ARGS)
 	PG_RETURN_VOID();
 }
 
+
+/*
+ * Support routines for gincostestimate
+ */
+
+typedef struct
+{
+	bool		haveFullScan;
+	double		partialEntries;
+	double		exactEntries;
+	double		searchEntries;
+	double		arrayScans;
+} GinQualCounts;
+
 /* Find the index column matching "op"; return its index, or -1 if no match */
 static int
 find_index_column(Node *op, IndexOptInfo *index)
@@ -6387,6 +6467,277 @@ find_index_column(Node *op, IndexOptInfo *index)
 	}
 
 	return -1;
+}
+
+/*
+ * Estimate the number of index terms that need to be searched for while
+ * testing the given GIN query, and increment the counts in *counts
+ * appropriately.  If the query is unsatisfiable, return false.
+ */
+static bool
+gincost_pattern(IndexOptInfo *index, int indexcol,
+				Oid clause_op, Datum query,
+				GinQualCounts *counts)
+{
+	Oid			extractProcOid;
+	int			strategy_op;
+	Oid			lefttype,
+				righttype;
+	int32		nentries = 0;
+	bool	   *partial_matches = NULL;
+	Pointer    *extra_data = NULL;
+	bool	   *nullFlags = NULL;
+	int32		searchMode = GIN_SEARCH_MODE_DEFAULT;
+	int32		i;
+
+	/*
+	 * Get the operator's strategy number and declared input data types
+	 * within the index opfamily.  (We don't need the latter, but we use
+	 * get_op_opfamily_properties because it will throw error if it fails
+	 * to find a matching pg_amop entry.)
+	 */
+	get_op_opfamily_properties(clause_op, index->opfamily[indexcol], false,
+							   &strategy_op, &lefttype, &righttype);
+
+	/*
+	 * GIN always uses the "default" support functions, which are those
+	 * with lefttype == righttype == the opclass' opcintype (see
+	 * IndexSupportInitialize in relcache.c).
+	 */
+	extractProcOid = get_opfamily_proc(index->opfamily[indexcol],
+									   index->opcintype[indexcol],
+									   index->opcintype[indexcol],
+									   GIN_EXTRACTQUERY_PROC);
+
+	if (!OidIsValid(extractProcOid))
+	{
+		/* should not happen; throw same error as index_getprocinfo */
+		elog(ERROR, "missing support function %d for attribute %d of index \"%s\"",
+			 GIN_EXTRACTQUERY_PROC, indexcol + 1,
+			 get_rel_name(index->indexoid));
+	}
+
+	OidFunctionCall7(extractProcOid,
+					 query,
+					 PointerGetDatum(&nentries),
+					 UInt16GetDatum(strategy_op),
+					 PointerGetDatum(&partial_matches),
+					 PointerGetDatum(&extra_data),
+					 PointerGetDatum(&nullFlags),
+					 PointerGetDatum(&searchMode));
+
+	if (nentries <= 0 && searchMode == GIN_SEARCH_MODE_DEFAULT)
+	{
+		/* No match is possible */
+		return false;
+	}
+
+	for (i = 0; i < nentries; i++)
+	{
+		/*
+		 * For partial match we haven't any information to estimate number of
+		 * matched entries in index, so, we just estimate it as 100
+		 */
+		if (partial_matches && partial_matches[i])
+			counts->partialEntries += 100;
+		else
+			counts->exactEntries++;
+
+		counts->searchEntries++;
+	}
+
+	if (searchMode == GIN_SEARCH_MODE_INCLUDE_EMPTY)
+	{
+		/* Treat "include empty" like an exact-match item */
+		counts->exactEntries++;
+		counts->searchEntries++;
+	}
+	else if (searchMode != GIN_SEARCH_MODE_DEFAULT)
+	{
+		/* It's GIN_SEARCH_MODE_ALL */
+		counts->haveFullScan = true;
+	}
+
+	return true;
+}
+
+/*
+ * Estimate the number of index terms that need to be searched for while
+ * testing the given GIN index clause, and increment the counts in *counts
+ * appropriately.  If the query is unsatisfiable, return false.
+ */
+static bool
+gincost_opexpr(IndexOptInfo *index, OpExpr *clause, GinQualCounts *counts)
+{
+	Node	   *leftop = get_leftop((Expr *) clause);
+	Node	   *rightop = get_rightop((Expr *) clause);
+	Oid			clause_op = clause->opno;
+	int			indexcol;
+	Node	   *operand;
+
+	/* Locate the operand being compared to the index column */
+	if ((indexcol = find_index_column(leftop, index)) >= 0)
+	{
+		operand = rightop;
+	}
+	else if ((indexcol = find_index_column(rightop, index)) >= 0)
+	{
+		operand = leftop;
+		clause_op = get_commutator(clause_op);
+	}
+	else
+	{
+		elog(ERROR, "could not match index to operand");
+		operand = NULL;		/* keep compiler quiet */
+	}
+
+	if (IsA(operand, RelabelType))
+		operand = (Node *) ((RelabelType *) operand)->arg;
+
+	/*
+	 * It's impossible to call extractQuery method for unknown operand. So
+	 * unless operand is a Const we can't do much; just assume there will
+	 * be one ordinary search entry from the operand at runtime.
+	 */
+	if (!IsA(operand, Const))
+	{
+		counts->exactEntries++;
+		counts->searchEntries++;
+		return true;
+	}
+
+	/* If Const is null, there can be no matches */
+	if (((Const *) operand)->constisnull)
+		return false;
+
+	/* Otherwise, apply extractQuery and get the actual term counts */
+	return gincost_pattern(index, indexcol, clause_op,
+						   ((Const *) operand)->constvalue,
+						   counts);
+}
+
+/*
+ * Estimate the number of index terms that need to be searched for while
+ * testing the given GIN index clause, and increment the counts in *counts
+ * appropriately.  If the query is unsatisfiable, return false.
+ *
+ * A ScalarArrayOpExpr will give rise to N separate indexscans at runtime,
+ * each of which involves one value from the RHS array, plus all the
+ * non-array quals (if any).  To model this, we average the counts across
+ * the RHS elements, and add the averages to the counts in *counts (which
+ * correspond to per-indexscan costs).  We also multiply counts->arrayScans
+ * by N, causing gincostestimate to scale up its estimates accordingly.
+ */
+static bool
+gincost_scalararrayopexpr(IndexOptInfo *index, ScalarArrayOpExpr *clause,
+						  double numIndexEntries,
+						  GinQualCounts *counts)
+{
+	Node	   *leftop = (Node *) linitial(clause->args);
+	Node	   *rightop = (Node *) lsecond(clause->args);
+	Oid			clause_op = clause->opno;
+	int			indexcol;
+	ArrayType  *arrayval;
+	int16		elmlen;
+	bool		elmbyval;
+	char		elmalign;
+	int			numElems;
+	Datum	   *elemValues;
+	bool	   *elemNulls;
+	GinQualCounts arraycounts;
+	int			numPossible = 0;
+	int			i;
+
+	Assert(clause->useOr);
+
+	/* index column must be on the left */
+	if ((indexcol = find_index_column(leftop, index)) < 0)
+		elog(ERROR, "could not match index to operand");
+
+	if (IsA(rightop, RelabelType))
+		rightop = (Node *) ((RelabelType *) rightop)->arg;
+
+	/*
+	 * It's impossible to call extractQuery method for unknown operand. So
+	 * unless operand is a Const we can't do much; just assume there will
+	 * be one ordinary search entry from each array entry at runtime, and
+	 * fall back on a probably-bad estimate of the number of array entries.
+	 */
+	if (!IsA(rightop, Const))
+	{
+		counts->exactEntries++;
+		counts->searchEntries++;
+		counts->arrayScans *= estimate_array_length(rightop);
+		return true;
+	}
+
+	/* If Const is null, there can be no matches */
+	if (((Const *) rightop)->constisnull)
+		return false;
+
+	/* Otherwise, extract the array elements and iterate over them */
+	arrayval = DatumGetArrayTypeP(((Const *) rightop)->constvalue);
+	get_typlenbyvalalign(ARR_ELEMTYPE(arrayval),
+						 &elmlen, &elmbyval, &elmalign);
+	deconstruct_array(arrayval,
+					  ARR_ELEMTYPE(arrayval),
+					  elmlen, elmbyval, elmalign,
+					  &elemValues, &elemNulls, &numElems);
+
+	memset(&arraycounts, 0, sizeof(arraycounts));
+
+	for (i = 0; i < numElems; i++)
+	{
+		GinQualCounts elemcounts;
+
+		/* NULL can't match anything, so ignore, as the executor will */
+		if (elemNulls[i])
+			continue;
+
+		/* Otherwise, apply extractQuery and get the actual term counts */
+		memset(&elemcounts, 0, sizeof(elemcounts));
+
+		if (gincost_pattern(index, indexcol, clause_op, elemValues[i],
+							&elemcounts))
+		{
+			/* We ignore array elements that are unsatisfiable patterns */
+			numPossible++;
+
+			if (elemcounts.haveFullScan)
+			{
+				/*
+				 * Full index scan will be required.  We treat this as if
+				 * every key in the index had been listed in the query; is
+				 * that reasonable?
+				 */
+				elemcounts.partialEntries = 0;
+				elemcounts.exactEntries = numIndexEntries;
+				elemcounts.searchEntries = numIndexEntries;
+			}
+			arraycounts.partialEntries += elemcounts.partialEntries;
+			arraycounts.exactEntries += elemcounts.exactEntries;
+			arraycounts.searchEntries += elemcounts.searchEntries;
+		}
+	}
+
+	if (numPossible == 0)
+	{
+		/* No satisfiable patterns in the array */
+		return false;
+	}
+
+	/*
+	 * Now add the averages to the global counts.  This will give us an
+	 * estimate of the average number of terms searched for in each indexscan,
+	 * including contributions from both array and non-array quals.
+	 */
+	counts->partialEntries += arraycounts.partialEntries / numPossible;
+	counts->exactEntries += arraycounts.exactEntries / numPossible;
+	counts->searchEntries += arraycounts.searchEntries / numPossible;
+
+	counts->arrayScans *= numPossible;
+
+	return true;
 }
 
 /*
@@ -6412,17 +6763,15 @@ gincostestimate(PG_FUNCTION_ARGS)
 				numDataPages,
 				numPendingPages,
 				numEntries;
-	bool		haveFullScan = false;
-	double		partialEntriesInQuals = 0.0;
-	double		searchEntriesInQuals = 0.0;
-	double		exactEntriesInQuals = 0.0;
+	GinQualCounts counts;
+	bool		matchPossible;
 	double		entryPagesFetched,
 				dataPagesFetched,
 				dataPagesFetchedBySel;
 	double		qual_op_cost,
 				qual_arg_cost,
 				spc_random_page_cost,
-				num_scans;
+				outer_scans;
 	QualCost	index_qual_cost;
 	Relation	indexRel;
 	GinStatsData ginStats;
@@ -6508,199 +6857,113 @@ gincostestimate(PG_FUNCTION_ARGS)
 	/*
 	 * Examine quals to estimate number of search entries & partial matches
 	 */
+	memset(&counts, 0, sizeof(counts));
+	counts.arrayScans = 1;
+	matchPossible = true;
+
 	foreach(l, indexQuals)
 	{
 		RestrictInfo *rinfo = (RestrictInfo *) lfirst(l);
 		Expr	   *clause;
-		Node	   *leftop,
-				   *rightop,
-				   *operand;
-		Oid			extractProcOid;
-		Oid			clause_op;
-		int			strategy_op;
-		Oid			lefttype,
-					righttype;
-		int32		nentries = 0;
-		bool	   *partial_matches = NULL;
-		Pointer    *extra_data = NULL;
-		bool	   *nullFlags = NULL;
-		int32		searchMode = GIN_SEARCH_MODE_DEFAULT;
-		int			indexcol;
 
 		Assert(IsA(rinfo, RestrictInfo));
 		clause = rinfo->clause;
-		Assert(IsA(clause, OpExpr));
-		leftop = get_leftop(clause);
-		rightop = get_rightop(clause);
-		clause_op = ((OpExpr *) clause)->opno;
-
-		if ((indexcol = find_index_column(leftop, index)) >= 0)
+		if (IsA(clause, OpExpr))
 		{
-			operand = rightop;
+			matchPossible = gincost_opexpr(index,
+										   (OpExpr *) clause,
+										   &counts);
+			if (!matchPossible)
+				break;
 		}
-		else if ((indexcol = find_index_column(rightop, index)) >= 0)
+		else if (IsA(clause, ScalarArrayOpExpr))
 		{
-			operand = leftop;
-			clause_op = get_commutator(clause_op);
-		}
-		else
-		{
-			elog(ERROR, "could not match index to operand");
-			operand = NULL;		/* keep compiler quiet */
-		}
-
-		if (IsA(operand, RelabelType))
-			operand = (Node *) ((RelabelType *) operand)->arg;
-
-		/*
-		 * It's impossible to call extractQuery method for unknown operand. So
-		 * unless operand is a Const we can't do much; just assume there will
-		 * be one ordinary search entry from the operand at runtime.
-		 */
-		if (!IsA(operand, Const))
-		{
-			searchEntriesInQuals++;
-			continue;
-		}
-
-		/* If Const is null, there can be no matches */
-		if (((Const *) operand)->constisnull)
-		{
-			*indexStartupCost = 0;
-			*indexTotalCost = 0;
-			*indexSelectivity = 0;
-			PG_RETURN_VOID();
-		}
-
-		/*
-		 * Get the operator's strategy number and declared input data types
-		 * within the index opfamily.  (We don't need the latter, but we use
-		 * get_op_opfamily_properties because it will throw error if it fails
-		 * to find a matching pg_amop entry.)
-		 */
-		get_op_opfamily_properties(clause_op, index->opfamily[indexcol], false,
-								   &strategy_op, &lefttype, &righttype);
-
-		/*
-		 * GIN always uses the "default" support functions, which are those
-		 * with lefttype == righttype == the opclass' opcintype (see
-		 * IndexSupportInitialize in relcache.c).
-		 */
-		extractProcOid = get_opfamily_proc(index->opfamily[indexcol],
-										   index->opcintype[indexcol],
-										   index->opcintype[indexcol],
-										   GIN_EXTRACTQUERY_PROC);
-
-		if (!OidIsValid(extractProcOid))
-		{
-			/* should not happen; throw same error as index_getprocinfo */
-			elog(ERROR, "missing support function %d for attribute %d of index \"%s\"",
-				 GIN_EXTRACTQUERY_PROC, indexcol + 1,
-				 get_rel_name(index->indexoid));
-		}
-
-		OidFunctionCall7(extractProcOid,
-						 ((Const *) operand)->constvalue,
-						 PointerGetDatum(&nentries),
-						 UInt16GetDatum(strategy_op),
-						 PointerGetDatum(&partial_matches),
-						 PointerGetDatum(&extra_data),
-						 PointerGetDatum(&nullFlags),
-						 PointerGetDatum(&searchMode));
-
-		if (nentries <= 0 && searchMode == GIN_SEARCH_MODE_DEFAULT)
-		{
-			/* No match is possible */
-			*indexStartupCost = 0;
-			*indexTotalCost = 0;
-			*indexSelectivity = 0;
-			PG_RETURN_VOID();
+			matchPossible = gincost_scalararrayopexpr(index,
+													  (ScalarArrayOpExpr *) clause,
+													  numEntries,
+													  &counts);
+			if (!matchPossible)
+				break;
 		}
 		else
 		{
-			int32		i;
-
-			for (i = 0; i < nentries; i++)
-			{
-				/*
-				 * For partial match we haven't any information to estimate
-				 * number of matched entries in index, so, we just estimate it
-				 * as 100
-				 */
-				if (partial_matches && partial_matches[i])
-					partialEntriesInQuals += 100;
-				else
-					exactEntriesInQuals++;
-
-				searchEntriesInQuals++;
-			}
-		}
-
-		if (searchMode == GIN_SEARCH_MODE_INCLUDE_EMPTY)
-		{
-			/* Treat "include empty" like an exact-match item */
-			exactEntriesInQuals++;
-			searchEntriesInQuals++;
-		}
-		else if (searchMode != GIN_SEARCH_MODE_DEFAULT)
-		{
-			/* It's GIN_SEARCH_MODE_ALL */
-			haveFullScan = true;
+			/* shouldn't be anything else for a GIN index */
+			elog(ERROR, "unsupported GIN indexqual type: %d",
+				 (int) nodeTag(clause));
 		}
 	}
 
-	if (haveFullScan || indexQuals == NIL)
+	/* Fall out if there were any provably-unsatisfiable quals */
+	if (!matchPossible)
+	{
+		*indexStartupCost = 0;
+		*indexTotalCost = 0;
+		*indexSelectivity = 0;
+		PG_RETURN_VOID();
+	}
+
+	if (counts.haveFullScan || indexQuals == NIL)
 	{
 		/*
 		 * Full index scan will be required.  We treat this as if every key in
 		 * the index had been listed in the query; is that reasonable?
 		 */
-		searchEntriesInQuals = numEntries;
+		counts.partialEntries = 0;
+		counts.exactEntries = numEntries;
+		counts.searchEntries = numEntries;
 	}
 
 	/* Will we have more than one iteration of a nestloop scan? */
 	if (outer_rel != NULL && outer_rel->rows > 1)
-		num_scans = outer_rel->rows;
+		outer_scans = outer_rel->rows;
 	else
-		num_scans = 1;
+		outer_scans = 1;
 
 	/*
-	 * cost to begin scan, first of all, pay attention to pending list.
+	 * Compute cost to begin scan, first of all, pay attention to pending list.
 	 */
 	entryPagesFetched = numPendingPages;
 
 	/*
 	 * Estimate number of entry pages read.  We need to do
-	 * searchEntriesInQuals searches.  Use a power function as it should be,
+	 * counts.searchEntries searches.  Use a power function as it should be,
 	 * but tuples on leaf pages usually is much greater. Here we include all
 	 * searches in entry tree, including search of first entry in partial
 	 * match algorithm
 	 */
-	entryPagesFetched += ceil(searchEntriesInQuals * rint(pow(numEntryPages, 0.15)));
+	entryPagesFetched += ceil(counts.searchEntries * rint(pow(numEntryPages, 0.15)));
 
 	/*
 	 * Add an estimate of entry pages read by partial match algorithm. It's a
 	 * scan over leaf pages in entry tree.	We haven't any useful stats here,
 	 * so estimate it as proportion.
 	 */
-	entryPagesFetched += ceil(numEntryPages * partialEntriesInQuals / numEntries);
+	entryPagesFetched += ceil(numEntryPages * counts.partialEntries / numEntries);
 
 	/*
 	 * Partial match algorithm reads all data pages before doing actual scan,
-	 * so it's a startup cost. Again, we havn't any useful stats here, so,
+	 * so it's a startup cost. Again, we haven't any useful stats here, so,
 	 * estimate it as proportion
 	 */
-	dataPagesFetched = ceil(numDataPages * partialEntriesInQuals / numEntries);
+	dataPagesFetched = ceil(numDataPages * counts.partialEntries / numEntries);
 
-	/* calculate cache effects */
-	if (num_scans > 1 || searchEntriesInQuals > 1)
+	/*
+	 * Calculate cache effects if more than one scan due to nestloops or array
+	 * quals.  The result is pro-rated per nestloop scan, but the array qual
+	 * factor shouldn't be pro-rated (compare genericcostestimate).
+	 */
+	if (outer_scans > 1 || counts.arrayScans > 1)
 	{
+		entryPagesFetched *= outer_scans * counts.arrayScans;
 		entryPagesFetched = index_pages_fetched(entryPagesFetched,
 												(BlockNumber) numEntryPages,
 												numEntryPages, root);
+		entryPagesFetched /= outer_scans;
+		dataPagesFetched *= outer_scans * counts.arrayScans;
 		dataPagesFetched = index_pages_fetched(dataPagesFetched,
 											   (BlockNumber) numDataPages,
 											   numDataPages, root);
+		dataPagesFetched /= outer_scans;
 	}
 
 	/*
@@ -6709,8 +6972,12 @@ gincostestimate(PG_FUNCTION_ARGS)
 	 */
 	*indexStartupCost = (entryPagesFetched + dataPagesFetched) * spc_random_page_cost;
 
-	/* cost to scan data pages for each exact (non-partial) matched entry */
-	dataPagesFetched = ceil(numDataPages * exactEntriesInQuals / numEntries);
+	/*
+	 * Now we compute the number of data pages fetched while the scan proceeds.
+	 */
+
+	/* data pages scanned for each exact (non-partial) matched entry */
+	dataPagesFetched = ceil(numDataPages * counts.exactEntries / numEntries);
 
 	/*
 	 * Estimate number of data pages read, using selectivity estimation and
@@ -6731,10 +6998,17 @@ gincostestimate(PG_FUNCTION_ARGS)
 		dataPagesFetched = dataPagesFetchedBySel;
 	}
 
-	if (num_scans > 1)
+	/* Account for cache effects, the same as above */
+	if (outer_scans > 1 || counts.arrayScans > 1)
+	{
+		dataPagesFetched *= outer_scans * counts.arrayScans;
 		dataPagesFetched = index_pages_fetched(dataPagesFetched,
 											   (BlockNumber) numDataPages,
 											   numDataPages, root);
+		dataPagesFetched /= outer_scans;
+	}
+
+	/* And apply random_page_cost as the cost per page */
 	*indexTotalCost = *indexStartupCost +
 		dataPagesFetched * spc_random_page_cost;
 

@@ -175,6 +175,7 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString)
 	 * possible.
 	 */
 	namespaceid = RangeVarGetAndCheckCreationNamespace(stmt->relation);
+	RangeVarAdjustRelationPersistence(stmt->relation, namespaceid);
 
 	/*
 	 * If the relation already exists and the user specified "IF NOT EXISTS",
@@ -397,7 +398,10 @@ transformColumnDefinition(CreateStmtContext *cxt, ColumnDef *column)
 		if (cxt->rel)
 			snamespaceid = RelationGetNamespace(cxt->rel);
 		else
+		{
 			snamespaceid = RangeVarGetCreationNamespace(cxt->relation);
+			RangeVarAdjustRelationPersistence(cxt->relation, snamespaceid);
+		}
 		snamespace = get_namespace_name(snamespaceid);
 		sname = ChooseRelationName(cxt->relation->relname,
 								   column->colname,
@@ -891,7 +895,6 @@ static void
 transformOfType(CreateStmtContext *cxt, TypeName *ofTypename)
 {
 	HeapTuple	tuple;
-	Form_pg_type typ;
 	TupleDesc	tupdesc;
 	int			i;
 	Oid			ofTypeId;
@@ -900,7 +903,6 @@ transformOfType(CreateStmtContext *cxt, TypeName *ofTypename)
 
 	tuple = typenameType(NULL, ofTypename, NULL);
 	check_of_type(tuple);
-	typ = (Form_pg_type) GETSTRUCT(tuple);
 	ofTypeId = HeapTupleGetOid(tuple);
 	ofTypename->typeOid = ofTypeId;		/* cached for later */
 
@@ -1533,21 +1535,21 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 			ereport(ERROR,
 					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 					 errmsg("\"%s\" is not a unique index", index_name),
-					 errdetail("Cannot create a PRIMARY KEY or UNIQUE constraint using such an index."),
+					 errdetail("Cannot create a primary key or unique constraint using such an index."),
 					 parser_errposition(cxt->pstate, constraint->location)));
 
 		if (RelationGetIndexExpressions(index_rel) != NIL)
 			ereport(ERROR,
 					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 					 errmsg("index \"%s\" contains expressions", index_name),
-					 errdetail("Cannot create a PRIMARY KEY or UNIQUE constraint using such an index."),
+					 errdetail("Cannot create a primary key or unique constraint using such an index."),
 					 parser_errposition(cxt->pstate, constraint->location)));
 
 		if (RelationGetIndexPredicate(index_rel) != NIL)
 			ereport(ERROR,
 					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 					 errmsg("\"%s\" is a partial index", index_name),
-					 errdetail("Cannot create a PRIMARY KEY or UNIQUE constraint using such an index."),
+					 errdetail("Cannot create a primary key or unique constraint using such an index."),
 					 parser_errposition(cxt->pstate, constraint->location)));
 
 		/*
@@ -1572,7 +1574,7 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 		if (index_rel->rd_rel->relam != get_am_oid(DEFAULT_INDEX_TYPE, false))
 			ereport(ERROR,
 					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-					 errmsg("index \"%s\" is not a b-tree", index_name),
+					 errmsg("index \"%s\" is not a btree", index_name),
 					 parser_errposition(cxt->pstate, constraint->location)));
 
 		/* Must get indclass the hard way */
@@ -1617,7 +1619,7 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 				ereport(ERROR,
 						(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 						 errmsg("index \"%s\" does not have default sorting behavior", index_name),
-						 errdetail("Cannot create a PRIMARY KEY or UNIQUE constraint using such an index."),
+						 errdetail("Cannot create a primary key or unique constraint using such an index."),
 					 parser_errposition(cxt->pstate, constraint->location)));
 
 			constraint->keys = lappend(constraint->keys, makeString(attname));
@@ -1849,7 +1851,8 @@ transformFKConstraints(CreateStmtContext *cxt,
 
 	/*
 	 * If CREATE TABLE or adding a column with NULL default, we can safely
-	 * skip validation of the constraint.
+	 * skip validation of FK constraints, and nonetheless mark them valid.
+	 * (This will override any user-supplied NOT VALID flag.)
 	 */
 	if (skipValidation)
 	{

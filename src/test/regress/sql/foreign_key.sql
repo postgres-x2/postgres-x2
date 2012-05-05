@@ -923,3 +923,25 @@ SELECT * FROM tasks ORDER BY 1, 2, 3,4;
 DELETE FROM users WHERE id = 2;
 SELECT * FROM tasks ORDER BY 1, 2, 3,4;
 COMMIT;
+
+--
+-- Test self-referential FK with CASCADE (bug #6268)
+--
+create temp table selfref (
+    a int primary key,
+    b int,
+    foreign key (b) references selfref (a)
+        on update cascade on delete cascade
+);
+
+insert into selfref (a, b)
+values
+    (0, 0),
+    (1, 1);
+
+begin;
+    update selfref set a = 123 where a = 0;
+    select a, b from selfref;
+    update selfref set a = 456 where a = 123;
+    select a, b from selfref;
+commit;

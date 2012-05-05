@@ -287,14 +287,14 @@ pg_scandir_internal(const char *dirname,
 	size_t		entrysize;
 
 	if ((dirdesc = opendir(dirname)) == NULL)
-		pg_log(PG_FATAL, "could not open directory \"%s\": %m\n", dirname);
+		pg_log(PG_FATAL, "could not open directory \"%s\": %s\n", dirname, getErrorText(errno));
 
 	*namelist = NULL;
 
 	while ((direntry = readdir(dirdesc)) != NULL)
 	{
 		/* Invoke the selector function to see if the direntry matches */
-		if ((*selector) (direntry))
+		if (!selector || (*selector) (direntry))
 		{
 			count++;
 

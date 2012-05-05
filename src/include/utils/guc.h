@@ -155,7 +155,7 @@ typedef enum
 	/* Types of set_config_option actions */
 	GUC_ACTION_SET,				/* regular SET command */
 	GUC_ACTION_LOCAL,			/* SET LOCAL command */
-	GUC_ACTION_SAVE				/* function SET option */
+	GUC_ACTION_SAVE				/* function SET option, or temp assignment */
 } GucAction;
 
 #define GUC_QUALIFIER_SEPARATOR '.'
@@ -296,7 +296,8 @@ extern void DefineCustomEnumVariable(
 
 extern void EmitWarningsOnPlaceholders(const char *className);
 
-extern const char *GetConfigOption(const char *name, bool restrict_superuser);
+extern const char *GetConfigOption(const char *name, bool missing_ok,
+				bool restrict_superuser);
 extern const char *GetConfigOptionResetString(const char *name);
 extern void ProcessConfigFile(GucContext context);
 extern void InitializeGUCOptions(void);

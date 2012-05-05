@@ -549,7 +549,7 @@ NUMERIC
      type is more akin to <type>varchar(<replaceable>n</>)</type>
      than to <type>char(<replaceable>n</>)</type>.)  The actual storage
      requirement is two bytes for each group of four decimal digits,
-     plus five to eight bytes overhead.
+     plus three to eight bytes overhead.
     </para>
 
     <indexterm>
@@ -3875,7 +3875,7 @@ SELECT to_tsvector( 'postgraduate' ) @@ to_tsquery( 'postgres:*' );
  t
 (1 row)
 </programlisting>
-     because <literal>postgres</> gets stemmed to <literal>postgr</>: 
+     because <literal>postgres</> gets stemmed to <literal>postgr</>:
 <programlisting>
 SELECT to_tsquery('postgres:*');
  to_tsquery 

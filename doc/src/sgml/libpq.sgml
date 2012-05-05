@@ -62,7 +62,7 @@
    return a non-null object pointer, unless perhaps there is too
    little memory even to allocate the <structname>PGconn</> object.
    The <function>PQstatus</> function should be called to check
-   whether a connection was successfully made before queries are sent
+   the return value for a successful connection before queries are sent
    via the connection object.
 
    <warning>
@@ -363,7 +363,7 @@ PGconn *PQconnectdbParams(const char **keywords, const char **values, int expand
            client's connection to the server is considered dead.  A value of
            zero uses the system default. This parameter is ignored for
            connections made via a Unix-domain socket, or if keepalives are disabled.
-           It is only supported on systems where the <symbol>TCP_KEEPINTVL</>
+           It is only supported on systems where the <symbol>TCP_KEEPCNT</>
            socket option is available; on other systems, it has no effect.
           </para>
          </listitem>
@@ -420,7 +420,9 @@ PGconn *PQconnectdbParams(const char **keywords, const char **values, int expand
              <term><literal>require</literal></term>
              <listitem>
               <para>
-               only try an <acronym>SSL</> connection
+               only try an <acronym>SSL</> connection. If a root CA
+               file is present, verify the certificate in the same way as
+               if <literal>verify-ca</literal> was specified
               </para>
              </listitem>
             </varlistentry>
@@ -1748,8 +1750,10 @@ PGresult *PQexec(PGconn *conn, const char *command);
         Returns a <structname>PGresult</structname> pointer or possibly a null
         pointer.  A non-null pointer will generally be returned except in
         out-of-memory conditions or serious errors such as inability to send
-        the command to the server.  If a null pointer is returned, it should
-        be treated like a <symbol>PGRES_FATAL_ERROR</symbol> result.  Use
+        the command to the server.  The <function>PQresultStatus</> function
+        should be called to check the return value for any errors (including
+        the value of a null pointer, in which case it will return
+        <symbol>PGRES_FATAL_ERROR</symbol>).  Use
         <function>PQerrorMessage</function> to get more information about such
         errors.
        </para>
@@ -4088,7 +4092,7 @@ int PQflush(PGconn *conn);
  </sect1>
 
  <sect1 id="libpq-cancel">
-  <title>Cancelling Queries in Progress</title>
+  <title>Canceling Queries in Progress</title>
 
   <indexterm zone="libpq-cancel">
    <primary>canceling</primary>
@@ -6116,7 +6120,7 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
             break;
         }
 
-        /* unknown event id, just return TRUE. */
+        /* unknown event ID, just return TRUE. */
         default:
             break;
     }
@@ -6494,6 +6498,8 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
 <synopsis>
 <replaceable>hostname</replaceable>:<replaceable>port</replaceable>:<replaceable>database</replaceable>:<replaceable>username</replaceable>:<replaceable>password</replaceable>
 </synopsis>
+   (You can add a reminder comment to the file by copying the line above and
+   preceding it with <literal>#</>.)
    Each of the first four fields can be a literal value, or
    <literal>*</literal>, which matches anything.  The password field from
    the first line that matches the current connection parameters will be
@@ -6730,6 +6736,18 @@ ldap://ldap.acme.com/cn=dbserver,cn=hosts?pgconnectinfo?base?(objectclass=*)
    the connection parameters <literal>sslrootcert</> and <literal>sslcrl</>
    or the environment variables <envar>PGSSLROOTCERT</> and <envar>PGSSLCRL</>.
   </para>
+
+  <note>
+   <para>
+    For backwards compatibility with earlier versions of PostgreSQL, if a
+    root CA file exists, the behavior of
+    <literal>sslmode</literal>=<literal>require</literal> will be the same
+    as that of <literal>verify-ca</literal>, meaning the sever certificate
+    is validated against the CA. Relying on this behavior is discouraged,
+    and applications that need certificate validation should always use
+    <literal>verify-ca</literal> or <literal>verify-full</literal>.
+   </para>
+  </note>
  </sect2>
 
  <sect2 id="libpq-ssl-clientcert">
@@ -6866,7 +6884,7 @@ ldap://ldap.acme.com/cn=dbserver,cn=hosts?pgconnectinfo?base?(objectclass=*)
 
     <tbody>
      <row>
-      <entry><literal>disabled</></entry>
+      <entry><literal>disable</></entry>
       <entry>No</entry>
       <entry>No</entry>
       <entry>I don't care about security, and I don't want to pay the overhead
@@ -7143,8 +7161,12 @@ int PQisthreadsafe();
   </para>
 
   <para>
-   <structname>PGresult</> objects are read-only after creation, and so
-   can be passed around freely between threads.
+   <structname>PGresult</> objects are normally read-only after creation,
+   and so can be passed around freely between threads.  However, if you use
+   any of the <structname>PGresult</>-modifying functions described in
+   <xref linkend="libpq-misc"> or <xref linkend="libpq-events">, it's up
+   to you to avoid concurrent operations on the same <structname>PGresult</>,
+   too.
   </para>
 
   <para>
@@ -7553,7 +7575,7 @@ main(int argc, char **argv)
         while ((notify = PQnotifies(conn)) != NULL)
         {
             fprintf(stderr,
-                    "ASYNC NOTIFY of '%s' received from backend pid %d\n",
+                    "ASYNC NOTIFY of '%s' received from backend PID %d\n",
                     notify->relname, notify->be_pid);
             PQfreemem(notify);
             nnotifies++;

@@ -82,7 +82,7 @@ static bool vacuum_rel(Oid relid, VacuumStmt *vacstmt, bool do_toast,
  * tables separately.
  *
  * for_wraparound is used by autovacuum to let us know when it's forcing
- * a vacuum for wraparound, which should not be auto-cancelled.
+ * a vacuum for wraparound, which should not be auto-canceled.
  *
  * bstrategy is normally given as NULL, but in autovacuum it can be passed
  * in to use the same buffer strategy object across multiple vacuum() calls.
@@ -488,7 +488,9 @@ vac_estimate_reltuples(Relation relation, bool is_analyze,
 
 	/*
 	 * If scanned_pages is zero but total_pages isn't, keep the existing value
-	 * of reltuples.
+	 * of reltuples.  (Note: callers should avoid updating the pg_class
+	 * statistics in this situation, since no new information has been
+	 * provided.)
 	 */
 	if (scanned_pages == 0)
 		return old_rel_tuples;
@@ -889,7 +891,7 @@ vacuum_rel(Oid relid, VacuumStmt *vacstmt, bool do_toast, bool for_wraparound)
 		 * here by violating transaction semantics.)
 		 *
 		 * We also set the VACUUM_FOR_WRAPAROUND flag, which is passed down by
-		 * autovacuum; it's used to avoid cancelling a vacuum that was invoked
+		 * autovacuum; it's used to avoid canceling a vacuum that was invoked
 		 * in an emergency.
 		 *
 		 * Note: these flags remain set until CommitTransaction or

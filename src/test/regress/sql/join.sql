@@ -368,6 +368,8 @@ ORDER BY x1, x2, y1, y2;
 -- regression test: check for bug with propagation of implied equality
 -- to outside an IN
 --
+analyze tenk1;		-- ensure we get consistent plans here
+
 select count(*) from tenk1 a where unique1 in
   (select unique1 from tenk1 b join tenk1 c using (unique1)
    where b.unique2 = 42);
@@ -645,6 +647,85 @@ from c left join
 order by c.name;
 
 rollback;
+
+--
+-- test incorrect handling of placeholders that only appear in targetlists,
+-- per bug #6154
+--
+SELECT * FROM
+( SELECT 1 as key1 ) sub1
+LEFT JOIN
+( SELECT sub3.key3, sub4.value2, COALESCE(sub4.value2, 66) as value3 FROM
+    ( SELECT 1 as key3 ) sub3
+    LEFT JOIN
+    ( SELECT sub5.key5, COALESCE(sub6.value1, 1) as value2 FROM
+        ( SELECT 1 as key5 ) sub5
+        LEFT JOIN
+        ( SELECT 2 as key6, 42 as value1 ) sub6
+        ON sub5.key5 = sub6.key6
+    ) sub4
+    ON sub4.key5 = sub3.key3
+) sub2
+ON sub1.key1 = sub2.key3;
+
+-- test the path using join aliases, too
+SELECT * FROM
+( SELECT 1 as key1 ) sub1
+LEFT JOIN
+( SELECT sub3.key3, value2, COALESCE(value2, 66) as value3 FROM
+    ( SELECT 1 as key3 ) sub3
+    LEFT JOIN
+    ( SELECT sub5.key5, COALESCE(sub6.value1, 1) as value2 FROM
+        ( SELECT 1 as key5 ) sub5
+        LEFT JOIN
+        ( SELECT 2 as key6, 42 as value1 ) sub6
+        ON sub5.key5 = sub6.key6
+    ) sub4
+    ON sub4.key5 = sub3.key3
+) sub2
+ON sub1.key1 = sub2.key3;
+
+--
+-- test case where a PlaceHolderVar is used as a nestloop parameter
+--
+
+EXPLAIN (COSTS OFF)
+SELECT qq, unique1
+  FROM
+  ( SELECT COALESCE(q1, 0) AS qq FROM int8_tbl a ) AS ss1
+  FULL OUTER JOIN
+  ( SELECT COALESCE(q2, -1) AS qq FROM int8_tbl b ) AS ss2
+  USING (qq)
+  INNER JOIN tenk1 c ON qq = unique2;
+
+SELECT qq, unique1
+  FROM
+  ( SELECT COALESCE(q1, 0) AS qq FROM int8_tbl a ) AS ss1
+  FULL OUTER JOIN
+  ( SELECT COALESCE(q2, -1) AS qq FROM int8_tbl b ) AS ss2
+  USING (qq)
+  INNER JOIN tenk1 c ON qq = unique2;
+
+--
+-- test case where a PlaceHolderVar is propagated into a subquery
+--
+
+explain (costs off)
+select * from
+  int8_tbl t1 left join
+  (select q1 as x, 42 as y from int8_tbl t2) ss
+  on t1.q2 = ss.x
+where
+  1 = (select 1 from int8_tbl t3 where ss.y is not null limit 1)
+order by 1,2;
+
+select * from
+  int8_tbl t1 left join
+  (select q1 as x, 42 as y from int8_tbl t2) ss
+  on t1.q2 = ss.x
+where
+  1 = (select 1 from int8_tbl t3 where ss.y is not null limit 1)
+order by 1,2;
 
 --
 -- test the corner cases FULL JOIN ON TRUE and FULL JOIN ON FALSE

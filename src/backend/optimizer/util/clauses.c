@@ -26,6 +26,7 @@
 #include "catalog/pg_type.h"
 #include "executor/executor.h"
 #include "executor/functions.h"
+#include "funcapi.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
@@ -84,7 +85,6 @@ typedef struct
 } inline_error_callback_arg;
 
 static bool contain_agg_clause_walker(Node *node, void *context);
-static bool pull_agg_clause_walker(Node *node, List **context);
 static bool count_agg_clauses_walker(Node *node,
 						 count_agg_clauses_context *context);
 static bool find_window_functions_walker(Node *node, WindowFuncLists *lists);
@@ -416,41 +416,6 @@ contain_agg_clause_walker(Node *node, void *context)
 	}
 	Assert(!IsA(node, SubLink));
 	return expression_tree_walker(node, contain_agg_clause_walker, context);
-}
-
-/*
- * pull_agg_clause
- *	  Recursively search for Aggref nodes within a clause.
- *
- *	  Returns a List of all Aggrefs found.
- *
- * This does not descend into subqueries, and so should be used only after
- * reduction of sublinks to subplans, or in contexts where it's known there
- * are no subqueries.  There mustn't be outer-aggregate references either.
- */
-List *
-pull_agg_clause(Node *clause)
-{
-	List	   *result = NIL;
-
-	(void) pull_agg_clause_walker(clause, &result);
-	return result;
-}
-
-static bool
-pull_agg_clause_walker(Node *node, List **context)
-{
-	if (node == NULL)
-		return false;
-	if (IsA(node, Aggref))
-	{
-		Assert(((Aggref *) node)->agglevelsup == 0);
-		*context = lappend(*context, node);
-		return false;			/* no need to descend into arguments */
-	}
-	Assert(!IsA(node, SubLink));
-	return expression_tree_walker(node, pull_agg_clause_walker,
-								  (void *) context);
 }
 
 /*
@@ -4512,9 +4477,12 @@ inline_set_returning_function(PlannerInfo *root, RangeTblEntry *rte)
 	 * If it returns RECORD, we have to check against the column type list
 	 * provided in the RTE; check_sql_fn_retval can't do that.  (If no match,
 	 * we just fail to inline, rather than complaining; see notes for
-	 * tlist_matches_coltypelist.)
+	 * tlist_matches_coltypelist.)  We don't have to do this for functions
+	 * with declared OUT parameters, even though their funcresulttype is
+	 * RECORDOID, so check get_func_result_type too.
 	 */
 	if (fexpr->funcresulttype == RECORDOID &&
+		get_func_result_type(func_oid, NULL, NULL) == TYPEFUNC_RECORD &&
 		!tlist_matches_coltypelist(querytree->targetList, rte->funccoltypes))
 		goto fail;
 

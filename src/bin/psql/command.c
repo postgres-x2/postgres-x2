@@ -583,7 +583,13 @@ exec_command(const char *cmd,
 	{
 		int			lineno = -1;
 
-		if (!query_buf)
+		if (pset.sversion < 80400)
+		{
+			psql_error("The server (version %d.%d) does not support editing function source.\n",
+					   pset.sversion / 10000, (pset.sversion / 100) % 100);
+			status = PSQL_CMD_ERROR;
+		}
+		else if (!query_buf)
 		{
 			psql_error("no query buffer\n");
 			status = PSQL_CMD_ERROR;
@@ -1110,7 +1116,13 @@ exec_command(const char *cmd,
 		func_buf = createPQExpBuffer();
 		func = psql_scan_slash_option(scan_state,
 									  OT_WHOLE_LINE, NULL, true);
-		if (!func)
+		if (pset.sversion < 80400)
+		{
+			psql_error("The server (version %d.%d) does not support showing function source.\n",
+					   pset.sversion / 10000, (pset.sversion / 100) % 100);
+			status = PSQL_CMD_ERROR;
+		}
+		else if (!func)
 		{
 			psql_error("function name is required\n");
 			status = PSQL_CMD_ERROR;
@@ -1748,7 +1760,7 @@ static bool
 editFile(const char *fname, int lineno)
 {
 	const char *editorName;
-	const char *editor_lineno_switch = NULL;
+	const char *editor_lineno_arg = NULL;
 	char	   *sys;
 	int			result;
 
@@ -1763,14 +1775,17 @@ editFile(const char *fname, int lineno)
 	if (!editorName)
 		editorName = DEFAULT_EDITOR;
 
-	/* Get line number switch, if we need it. */
+	/* Get line number argument, if we need it. */
 	if (lineno > 0)
 	{
-		editor_lineno_switch = GetVariable(pset.vars,
-										   "EDITOR_LINENUMBER_SWITCH");
-		if (editor_lineno_switch == NULL)
+		editor_lineno_arg = getenv("PSQL_EDITOR_LINENUMBER_ARG");
+#ifdef DEFAULT_EDITOR_LINENUMBER_ARG
+		if (!editor_lineno_arg)
+			editor_lineno_arg = DEFAULT_EDITOR_LINENUMBER_ARG;
+#endif
+		if (!editor_lineno_arg)
 		{
-			psql_error("EDITOR_LINENUMBER_SWITCH variable must be set to specify a line number\n");
+			psql_error("environment variable PSQL_EDITOR_LINENUMBER_ARG must be set to specify a line number\n");
 			return false;
 		}
 	}
@@ -1778,7 +1793,7 @@ editFile(const char *fname, int lineno)
 	/* Allocate sufficient memory for command line. */
 	if (lineno > 0)
 		sys = pg_malloc(strlen(editorName)
-						+ strlen(editor_lineno_switch) + 10		/* for integer */
+						+ strlen(editor_lineno_arg) + 10		/* for integer */
 						+ 1 + strlen(fname) + 10 + 1);
 	else
 		sys = pg_malloc(strlen(editorName) + strlen(fname) + 10 + 1);
@@ -1793,14 +1808,14 @@ editFile(const char *fname, int lineno)
 #ifndef WIN32
 	if (lineno > 0)
 		sprintf(sys, "exec %s %s%d '%s'",
-				editorName, editor_lineno_switch, lineno, fname);
+				editorName, editor_lineno_arg, lineno, fname);
 	else
 		sprintf(sys, "exec %s '%s'",
 				editorName, fname);
 #else
 	if (lineno > 0)
 		sprintf(sys, SYSTEMQUOTE "\"%s\" %s%d \"%s\"" SYSTEMQUOTE,
-				editorName, editor_lineno_switch, lineno, fname);
+				editorName, editor_lineno_arg, lineno, fname);
 	else
 		sprintf(sys, SYSTEMQUOTE "\"%s\" \"%s\"" SYSTEMQUOTE,
 				editorName, fname);
@@ -1847,7 +1862,7 @@ do_edit(const char *filename_arg, PQExpBuffer query_buf,
 		ret = GetTempPath(MAXPGPATH, tmpdir);
 		if (ret == 0 || ret > MAXPGPATH)
 		{
-			psql_error("cannot locate temporary directory: %s",
+			psql_error("could not locate temporary directory: %s\n",
 					   !ret ? strerror(errno) : "");
 			return false;
 		}

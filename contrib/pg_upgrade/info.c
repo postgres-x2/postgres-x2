@@ -55,12 +55,15 @@ gen_db_file_maps(DbInfo *old_db, DbInfo *new_db,
 				   old_db->db_name, old_rel->reloid, new_rel->reloid);
 
 		/*
-		 * In pre-8.4, TOAST table names change during CLUSTER;  in >= 8.4
-		 * TOAST relation names always use heap table oids, hence we cannot
-		 * check relation names when upgrading from pre-8.4.
+		 * TOAST table names initially match the heap pg_class oid.
+		 * In pre-8.4, TOAST table names change during CLUSTER; in pre-9.0,
+		 * TOAST table names change during ALTER TABLE ALTER COLUMN SET TYPE.
+		 * In >= 9.0, TOAST relation names always use heap table oids, hence
+		 * we cannot check relation names when upgrading from pre-9.0.
+		 * Clusters upgraded to 9.0 will get matching TOAST names.
 		 */
 		if (strcmp(old_rel->nspname, new_rel->nspname) != 0 ||
-			((GET_MAJOR_VERSION(old_cluster.major_version) >= 804 ||
+			((GET_MAJOR_VERSION(old_cluster.major_version) >= 900 ||
 			  strcmp(old_rel->nspname, "pg_toast") != 0) &&
 			 strcmp(old_rel->relname, new_rel->relname) != 0))
 			pg_log(PG_FATAL, "Mismatch of relation names: database \"%s\", "
@@ -247,7 +250,8 @@ get_rel_infos(ClusterInfo *cluster, DbInfo *dbinfo)
 				i_nspname,
 				i_relname,
 				i_oid,
-				i_relfilenode;
+				i_relfilenode,
+				i_reltablespace;
 	char		query[QUERY_ALLOC];
 
 	/*
@@ -260,13 +264,16 @@ get_rel_infos(ClusterInfo *cluster, DbInfo *dbinfo)
 
 	snprintf(query, sizeof(query),
 			 "SELECT c.oid, n.nspname, c.relname, "
-			 "	c.relfilenode, t.spclocation "
+			 "	c.relfilenode, c.reltablespace, t.spclocation "
 			 "FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n "
 			 "	   ON c.relnamespace = n.oid "
 			 "  LEFT OUTER JOIN pg_catalog.pg_tablespace t "
 			 "	   ON c.reltablespace = t.oid "
 			 "WHERE relkind IN ('r','t', 'i'%s) AND "
-			 "  ((n.nspname NOT IN ('pg_catalog', 'information_schema', 'binary_upgrade') AND "
+			 /* exclude possible orphaned temp tables */
+			 "  ((n.nspname !~ '^pg_temp_' AND "
+			 "    n.nspname !~ '^pg_toast_temp_' AND "
+			 "    n.nspname NOT IN ('pg_catalog', 'information_schema', 'binary_upgrade') AND "
 			 "	  c.oid >= %u) "
 			 "  OR (n.nspname = 'pg_catalog' AND "
 	"    relname IN ('pg_largeobject', 'pg_largeobject_loid_pn_index'%s) )) "
@@ -291,6 +298,7 @@ get_rel_infos(ClusterInfo *cluster, DbInfo *dbinfo)
 	i_nspname = PQfnumber(res, "nspname");
 	i_relname = PQfnumber(res, "relname");
 	i_relfilenode = PQfnumber(res, "relfilenode");
+	i_reltablespace = PQfnumber(res, "reltablespace");
 	i_spclocation = PQfnumber(res, "spclocation");
 
 	for (relnum = 0; relnum < ntups; relnum++)
@@ -308,10 +316,13 @@ get_rel_infos(ClusterInfo *cluster, DbInfo *dbinfo)
 
 		curr->relfilenode = atooid(PQgetvalue(res, relnum, i_relfilenode));
 
-		tblspace = PQgetvalue(res, relnum, i_spclocation);
-		/* if no table tablespace, use the database tablespace */
-		if (strlen(tblspace) == 0)
+		if (atooid(PQgetvalue(res, relnum, i_reltablespace)) != 0)
+			/* Might be "", meaning the cluster default location. */
+			tblspace = PQgetvalue(res, relnum, i_spclocation);
+		else
+			/* A zero reltablespace indicates the database tablespace. */
 			tblspace = dbinfo->db_tblspace;
+
 		strlcpy(curr->tablespace, tblspace, sizeof(curr->tablespace));
 	}
 	PQclear(res);

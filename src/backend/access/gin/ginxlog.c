@@ -59,9 +59,12 @@ forgetIncompleteSplit(RelFileNode node, BlockNumber leftBlkno, BlockNumber updat
 	{
 		ginIncompleteSplit *split = (ginIncompleteSplit *) lfirst(l);
 
-		if (RelFileNodeEquals(node, split->node) && leftBlkno == split->leftBlkno && updateBlkno == split->rightBlkno)
+		if (RelFileNodeEquals(node, split->node) &&
+			leftBlkno == split->leftBlkno &&
+			updateBlkno == split->rightBlkno)
 		{
 			incomplete_splits = list_delete_ptr(incomplete_splits, split);
+			pfree(split);
 			break;
 		}
 	}
@@ -487,7 +490,7 @@ ginRedoUpdateMetapage(XLogRecPtr lsn, XLogRecord *record)
 
 	metabuffer = XLogReadBuffer(data->node, GIN_METAPAGE_BLKNO, false);
 	if (!BufferIsValid(metabuffer))
-		elog(PANIC, "GIN metapage disappeared");
+		return;					/* assume index was deleted, nothing to do */
 	metapage = BufferGetPage(metabuffer);
 
 	if (!XLByteLE(lsn, PageGetLSN(metapage)))
@@ -529,6 +532,8 @@ ginRedoUpdateMetapage(XLogRecPtr lsn, XLogRecord *record)
 							elog(ERROR, "failed to add item to index page");
 
 						tuples = (IndexTuple) (((char *) tuples) + tupsize);
+
+						off++;
 					}
 
 					/*
@@ -630,7 +635,7 @@ ginRedoDeleteListPages(XLogRecPtr lsn, XLogRecord *record)
 
 	metabuffer = XLogReadBuffer(data->node, GIN_METAPAGE_BLKNO, false);
 	if (!BufferIsValid(metabuffer))
-		elog(PANIC, "GIN metapage disappeared");
+		return;					/* assume index was deleted, nothing to do */
 	metapage = BufferGetPage(metabuffer);
 
 	if (!XLByteLE(lsn, PageGetLSN(metapage)))
@@ -743,9 +748,7 @@ gin_desc(StringInfo buf, uint8 xl_info, char *rec)
 							 (((ginxlogInsert *) rec)->isData) ? 'T' : 'F',
 							 (((ginxlogInsert *) rec)->isLeaf) ? 'T' : 'F',
 							 (((ginxlogInsert *) rec)->isDelete) ? 'T' : 'F',
-							 ((ginxlogInsert *) rec)->updateBlkno
-				);
-
+							 ((ginxlogInsert *) rec)->updateBlkno);
 			break;
 		case XLOG_GIN_SPLIT:
 			appendStringInfo(buf, "Page split, ");
@@ -762,7 +765,7 @@ gin_desc(StringInfo buf, uint8 xl_info, char *rec)
 			break;
 		case XLOG_GIN_UPDATE_META_PAGE:
 			appendStringInfo(buf, "Update metapage, ");
-			desc_node(buf, ((ginxlogUpdateMeta *) rec)->node, ((ginxlogUpdateMeta *) rec)->metadata.tail);
+			desc_node(buf, ((ginxlogUpdateMeta *) rec)->node, GIN_METAPAGE_BLKNO);
 			break;
 		case XLOG_GIN_INSERT_LISTPAGE:
 			appendStringInfo(buf, "Insert new list page, ");
@@ -770,7 +773,7 @@ gin_desc(StringInfo buf, uint8 xl_info, char *rec)
 			break;
 		case XLOG_GIN_DELETE_LISTPAGE:
 			appendStringInfo(buf, "Delete list pages (%d), ", ((ginxlogDeleteListPages *) rec)->ndeleted);
-			desc_node(buf, ((ginxlogDeleteListPages *) rec)->node, ((ginxlogDeleteListPages *) rec)->metadata.head);
+			desc_node(buf, ((ginxlogDeleteListPages *) rec)->node, GIN_METAPAGE_BLKNO);
 			break;
 		default:
 			elog(PANIC, "gin_desc: unknown op code %u", info);

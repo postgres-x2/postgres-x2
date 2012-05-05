@@ -555,7 +555,7 @@ ProcArrayApplyRecoveryInfo(RunningTransactions running)
 	 * Remove stale transactions, if any.
 	 */
 	ExpireOldKnownAssignedTransactionIds(running->oldestRunningXid);
-	StandbyReleaseOldLocks(running->oldestRunningXid);
+	StandbyReleaseOldLocks(running->xcnt, running->xids);
 
 	/*
 	 * If our snapshot is already valid, nothing else to do...
@@ -565,8 +565,9 @@ ProcArrayApplyRecoveryInfo(RunningTransactions running)
 
 	/*
 	 * If our initial RunningTransactionsData had an overflowed snapshot then
-	 * we knew we were missing some subxids from our snapshot. We can use this
-	 * data as an initial snapshot, but we cannot yet mark it valid. We know
+	 * we knew we were missing some subxids from our snapshot. If we continue
+	 * to see overflowed snapshots then we might never be able to start up,
+	 * so we make another test to see if our snapshot is now valid. We know
 	 * that the missing subxids are equal to or earlier than nextXid. After we
 	 * initialise we continue to apply changes during recovery, so once the
 	 * oldestRunningXid is later than the nextXid from the initial snapshot we
@@ -575,21 +576,31 @@ ProcArrayApplyRecoveryInfo(RunningTransactions running)
 	 */
 	if (standbyState == STANDBY_SNAPSHOT_PENDING)
 	{
-		if (TransactionIdPrecedes(standbySnapshotPendingXmin,
-								  running->oldestRunningXid))
+		/*
+		 * If the snapshot isn't overflowed or if its empty we can
+		 * reset our pending state and use this snapshot instead.
+		 */
+		if (!running->subxid_overflow || running->xcnt == 0)
 		{
-			standbyState = STANDBY_SNAPSHOT_READY;
-			elog(trace_recovery(DEBUG2),
-				 "running xact data now proven complete");
-			elog(trace_recovery(DEBUG2),
-				 "recovery snapshots are now enabled");
+			standbyState = STANDBY_INITIALIZED;
 		}
 		else
-			elog(trace_recovery(DEBUG2),
-				 "recovery snapshot waiting for %u oldest active xid on standby is %u",
-				 standbySnapshotPendingXmin,
-				 running->oldestRunningXid);
-		return;
+		{
+			if (TransactionIdPrecedes(standbySnapshotPendingXmin,
+									  running->oldestRunningXid))
+			{
+				standbyState = STANDBY_SNAPSHOT_READY;
+				elog(trace_recovery(DEBUG1),
+					 "recovery snapshots are now enabled");
+			}
+			else
+				elog(trace_recovery(DEBUG1),
+					 "recovery snapshot waiting for non-overflowed snapshot or "
+					 "until oldest active xid on standby is at least %u (now %u)",
+					 standbySnapshotPendingXmin,
+					 running->oldestRunningXid);
+			return;
+		}
 	}
 
 	Assert(standbyState == STANDBY_INITIALIZED);
@@ -597,12 +608,6 @@ ProcArrayApplyRecoveryInfo(RunningTransactions running)
 	/*
 	 * OK, we need to initialise from the RunningTransactionsData record
 	 */
-
-	/*
-	 * Release any locks belonging to old transactions that are not running
-	 * according to the running-xacts record.
-	 */
-	StandbyReleaseOldLocks(running->nextXid);
 
 	/*
 	 * Nobody else is running yet, but take locks anyhow
@@ -694,7 +699,6 @@ ProcArrayApplyRecoveryInfo(RunningTransactions running)
 		standbyState = STANDBY_SNAPSHOT_READY;
 
 		standbySnapshotPendingXmin = InvalidTransactionId;
-		procArray->lastOverflowedXid = InvalidTransactionId;
 	}
 
 	/*
@@ -717,13 +721,15 @@ ProcArrayApplyRecoveryInfo(RunningTransactions running)
 
 	LWLockRelease(ProcArrayLock);
 
-	elog(trace_recovery(DEBUG2), "running transaction data initialized");
 	KnownAssignedXidsDisplay(trace_recovery(DEBUG3));
 	if (standbyState == STANDBY_SNAPSHOT_READY)
-		elog(trace_recovery(DEBUG2), "recovery snapshots are now enabled");
+		elog(trace_recovery(DEBUG1), "recovery snapshots are now enabled");
 	else
-		ereport(LOG,
-				(errmsg("consistent state delayed because recovery snapshot incomplete")));
+		elog(trace_recovery(DEBUG1),
+			 "recovery snapshot waiting for non-overflowed snapshot or "
+			 "until oldest active xid on standby is at least %u (now %u)",
+			 standbySnapshotPendingXmin,
+			 running->oldestRunningXid);
 }
 
 /*
@@ -1087,22 +1093,32 @@ TransactionIdIsActive(TransactionId xid)
  * This is also used to determine where to truncate pg_subtrans.  allDbs
  * must be TRUE for that case, and ignoreVacuum FALSE.
  *
- * Note: it's possible for the calculated value to move backwards on repeated
- * calls. The calculated value is conservative, so that anything older is
- * definitely not considered as running by anyone anymore, but the exact
- * value calculated depends on a number of things. For example, if allDbs is
- * TRUE and there are no transactions running in the current database,
- * GetOldestXmin() returns latestCompletedXid. If a transaction begins after
- * that, its xmin will include in-progress transactions in other databases
- * that started earlier, so another call will return an lower value. The
- * return value is also adjusted with vacuum_defer_cleanup_age, so increasing
- * that setting on the fly is an easy way to have GetOldestXmin() move
- * backwards.
- *
  * Note: we include all currently running xids in the set of considered xids.
  * This ensures that if a just-started xact has not yet set its snapshot,
  * when it does set the snapshot it cannot set xmin less than what we compute.
  * See notes in src/backend/access/transam/README.
+ *
+ * Note: despite the above, it's possible for the calculated value to move
+ * backwards on repeated calls. The calculated value is conservative, so that
+ * anything older is definitely not considered as running by anyone anymore,
+ * but the exact value calculated depends on a number of things. For example,
+ * if allDbs is FALSE and there are no transactions running in the current
+ * database, GetOldestXmin() returns latestCompletedXid. If a transaction
+ * begins after that, its xmin will include in-progress transactions in other
+ * databases that started earlier, so another call will return a lower value.
+ * Nonetheless it is safe to vacuum a table in the current database with the
+ * first result.  There are also replication-related effects: a walsender
+ * process can set its xmin based on transactions that are no longer running
+ * in the master but are still being replayed on the standby, thus possibly
+ * making the GetOldestXmin reading go backwards.  In this case there is a
+ * possibility that we lose data that the standby would like to have, but
+ * there is little we can do about that --- data is only protected if the
+ * walsender runs continuously while queries are executed on the standby.
+ * (The Hot Standby code deals with such cases by failing standby queries
+ * that needed to access already-removed data, so there's no integrity bug.)
+ * The return value is also adjusted with vacuum_defer_cleanup_age, so
+ * increasing that setting on the fly is another easy way to make
+ * GetOldestXmin() move backwards, with no consequences for data integrity.
  */
 TransactionId
 GetOldestXmin(bool allDbs, bool ignoreVacuum)
@@ -1140,7 +1156,7 @@ GetOldestXmin(bool allDbs, bool ignoreVacuum)
 
 		if (allDbs ||
 			proc->databaseId == MyDatabaseId ||
-			proc->databaseId == 0)		/* include WalSender */
+			proc->databaseId == 0)		/* always include WalSender */
 		{
 			/* Fetch xid just once - see GetNewTransactionId */
 			TransactionId xid = proc->xid;
@@ -1186,16 +1202,18 @@ GetOldestXmin(bool allDbs, bool ignoreVacuum)
 		LWLockRelease(ProcArrayLock);
 
 		/*
-		 * Compute the cutoff XID, being careful not to generate a "permanent"
-		 * XID. We need do this only on the primary, never on standby.
+		 * Compute the cutoff XID by subtracting vacuum_defer_cleanup_age,
+		 * being careful not to generate a "permanent" XID.
 		 *
 		 * vacuum_defer_cleanup_age provides some additional "slop" for the
 		 * benefit of hot standby queries on slave servers.  This is quick and
 		 * dirty, and perhaps not all that useful unless the master has a
-		 * predictable transaction rate, but it's what we've got.  Note that
-		 * we are assuming vacuum_defer_cleanup_age isn't large enough to
-		 * cause wraparound --- so guc.c should limit it to no more than the
-		 * xidStopLimit threshold in varsup.c.
+		 * predictable transaction rate, but it offers some protection when
+		 * there's no walsender connection.  Note that we are assuming
+		 * vacuum_defer_cleanup_age isn't large enough to cause wraparound ---
+		 * so guc.c should limit it to no more than the xidStopLimit threshold
+		 * in varsup.c.  Also note that we intentionally don't apply
+		 * vacuum_defer_cleanup_age on standby servers.
 		 */
 		result -= vacuum_defer_cleanup_age;
 		if (!TransactionIdIsNormal(result))
@@ -1647,6 +1665,63 @@ GetRunningTransactionData(void)
 	Assert(TransactionIdIsNormal(CurrentRunningXacts->latestCompletedXid));
 
 	return CurrentRunningXacts;
+}
+
+/*
+ * GetOldestActiveTransactionId()
+ *
+ * Similar to GetSnapshotData but returns just oldestActiveXid. We include
+ * all PGPROCs with an assigned TransactionId, even VACUUM processes.
+ * We look at all databases, though there is no need to include WALSender
+ * since this has no effect on hot standby conflicts.
+ *
+ * This is never executed during recovery so there is no need to look at
+ * KnownAssignedXids.
+ *
+ * We don't worry about updating other counters, we want to keep this as
+ * simple as possible and leave GetSnapshotData() as the primary code for
+ * that bookkeeping.
+ */
+TransactionId
+GetOldestActiveTransactionId(void)
+{
+	ProcArrayStruct *arrayP = procArray;
+	TransactionId oldestRunningXid;
+	int			index;
+
+	Assert(!RecoveryInProgress());
+
+	LWLockAcquire(ProcArrayLock, LW_SHARED);
+
+	oldestRunningXid = ShmemVariableCache->nextXid;
+
+	/*
+	 * Spin over procArray collecting all xids and subxids.
+	 */
+	for (index = 0; index < arrayP->numProcs; index++)
+	{
+		volatile PGPROC *proc = arrayP->procs[index];
+		TransactionId xid;
+
+		/* Fetch xid just once - see GetNewTransactionId */
+		xid = proc->xid;
+
+		if (!TransactionIdIsNormal(xid))
+			continue;
+
+		if (TransactionIdPrecedes(xid, oldestRunningXid))
+			oldestRunningXid = xid;
+
+		/*
+		 * Top-level XID of a transaction is always less than any of its
+		 * subxids, so we don't need to check if any of the subxids are
+		 * smaller than oldestRunningXid
+		 */
+	}
+
+	LWLockRelease(ProcArrayLock);
+
+	return oldestRunningXid;
 }
 
 /*

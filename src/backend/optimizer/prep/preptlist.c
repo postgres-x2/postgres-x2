@@ -131,7 +131,8 @@ preprocess_targetlist(PlannerInfo *root, List *tlist)
 			/* Not a table, so we need the whole row as a junk var */
 			var = makeWholeRowVar(rt_fetch(rc->rti, range_table),
 								  rc->rti,
-								  0);
+								  0,
+								  false);
 			snprintf(resname, sizeof(resname), "wholerow%u", rc->rowmarkId);
 			tle = makeTargetEntry((Expr *) var,
 								  list_length(tlist) + 1,
@@ -154,6 +155,7 @@ preprocess_targetlist(PlannerInfo *root, List *tlist)
 		ListCell   *l;
 
 		vars = pull_var_clause((Node *) parse->returningList,
+							   PVC_RECURSE_AGGREGATES,
 							   PVC_INCLUDE_PLACEHOLDERS);
 		foreach(l, vars)
 		{

@@ -1264,10 +1264,12 @@ AddNewRelationType(const char *typeName,
  *	reltablespace: OID of tablespace it goes in
  *	relid: OID to assign to new rel, or InvalidOid to select a new OID
  *	reltypeid: OID to assign to rel's rowtype, or InvalidOid to select one
+ *	reloftypeid: if a typed table, OID of underlying type; else InvalidOid
  *	ownerid: OID of new rel's owner
  *	tupdesc: tuple descriptor (source of column definitions)
  *	cooked_constraints: list of precooked check constraints and defaults
  *	relkind: relkind for new rel
+ *	relpersistence: rel's persistence status (permanent, temp, or unlogged)
  *	shared_relation: TRUE if it's to be a shared relation
  *	mapped_relation: TRUE if the relation will use the relfilenode map
  *	oidislocal: TRUE if oid column (if any) should be marked attislocal
@@ -1541,6 +1543,10 @@ heap_create_with_catalog(const char *relname,
 	 * should they have any ACL entries.  The same applies for extension
 	 * dependencies.
 	 *
+	 * If it's a temp table, we do not make it an extension member; this
+	 * prevents the unintuitive result that deletion of the temp table at
+	 * session end would make the whole extension go away.
+	 *
 	 * Also, skip this in bootstrap mode, since we don't make dependencies
 	 * while bootstrapping.
 	 */
@@ -1561,7 +1567,8 @@ heap_create_with_catalog(const char *relname,
 
 		recordDependencyOnOwner(RelationRelationId, relid, ownerid);
 
-		recordDependencyOnCurrentExtension(&myself);
+		if (relpersistence != RELPERSISTENCE_TEMP)
+			recordDependencyOnCurrentExtension(&myself, false);
 
 		if (reloftypeid)
 		{
@@ -1605,7 +1612,7 @@ heap_create_with_catalog(const char *relname,
 	/*
 	 * If this is an unlogged relation, it needs an init fork so that it can
 	 * be correctly reinitialized on restart.  Since we're going to do an
-	 * immediate sync, we ony need to xlog this if archiving or streaming is
+	 * immediate sync, we only need to xlog this if archiving or streaming is
 	 * enabled.  And the immediate sync is required, because otherwise there's
 	 * no guarantee that this will hit the disk before the next checkpoint
 	 * moves the redo pointer.
@@ -1614,6 +1621,7 @@ heap_create_with_catalog(const char *relname,
 	{
 		Assert(relkind == RELKIND_RELATION || relkind == RELKIND_TOASTVALUE);
 
+		RelationOpenSmgr(new_rel_desc);
 		smgrcreate(new_rel_desc->rd_smgr, INIT_FORKNUM, false);
 		if (XLogIsNeeded())
 			log_smgrcreate(&new_rel_desc->rd_smgr->smgr_rnode.node,
@@ -2192,7 +2200,9 @@ StoreRelCheck(Relation rel, char *ccname, Node *expr,
 	 * in check constraints; it would fail to examine the contents of
 	 * subselects.
 	 */
-	varList = pull_var_clause(expr, PVC_REJECT_PLACEHOLDERS);
+	varList = pull_var_clause(expr,
+							  PVC_REJECT_AGGREGATES,
+							  PVC_REJECT_PLACEHOLDERS);
 	keycount = list_length(varList);
 
 	if (keycount > 0)
@@ -2488,7 +2498,9 @@ AddRelationNewConstraints(Relation rel,
 			List	   *vars;
 			char	   *colname;
 
-			vars = pull_var_clause(expr, PVC_REJECT_PLACEHOLDERS);
+			vars = pull_var_clause(expr,
+								   PVC_REJECT_AGGREGATES,
+								   PVC_REJECT_PLACEHOLDERS);
 
 			/* eliminate duplicates */
 			vars = list_union(NIL, vars);

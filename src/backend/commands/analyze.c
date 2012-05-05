@@ -266,7 +266,6 @@ do_analyze_rel(Relation onerel, VacuumStmt *vacstmt, bool inh)
 	Relation   *Irel;
 	int			nindexes;
 	bool		hasindex;
-	bool		analyzableindex;
 	VacAttrStats **vacattrstats;
 	AnlIndexData *indexdata;
 	int			targrows,
@@ -380,7 +379,6 @@ do_analyze_rel(Relation onerel, VacuumStmt *vacstmt, bool inh)
 	}
 	hasindex = (nindexes > 0);
 	indexdata = NULL;
-	analyzableindex = false;
 	if (hasindex)
 	{
 		indexdata = (AnlIndexData *) palloc0(nindexes * sizeof(AnlIndexData));
@@ -414,10 +412,7 @@ do_analyze_rel(Relation onerel, VacuumStmt *vacstmt, bool inh)
 						thisdata->vacattrstats[tcnt] =
 							examine_attribute(Irel[ind], i + 1, indexkey);
 						if (thisdata->vacattrstats[tcnt] != NULL)
-						{
 							tcnt++;
-							analyzableindex = true;
-						}
 					}
 				}
 				thisdata->attr_cnt = tcnt;
@@ -426,15 +421,10 @@ do_analyze_rel(Relation onerel, VacuumStmt *vacstmt, bool inh)
 	}
 
 	/*
-	 * Quit if no analyzable columns.
-	 */
-	if (attr_cnt <= 0 && !analyzableindex)
-		goto cleanup;
-
-	/*
 	 * Determine how many rows we need to sample, using the worst case from
 	 * all analyzable columns.	We use a lower bound of 100 rows to avoid
-	 * possible overflow in Vitter's algorithm.
+	 * possible overflow in Vitter's algorithm.  (Note: that will also be
+	 * the target in the corner case where there are no analyzable columns.)
 	 */
 	targrows = 100;
 	for (i = 0; i < attr_cnt; i++)
@@ -572,9 +562,6 @@ do_analyze_rel(Relation onerel, VacuumStmt *vacstmt, bool inh)
 	 */
 	if (!inh)
 		pgstat_report_analyze(onerel, totalrows, totaldeadrows);
-
-	/* We skip to here if there were no analyzable columns */
-cleanup:
 
 	/* If this isn't part of VACUUM ANALYZE, let index AMs do cleanup */
 	if (!(vacstmt->options & VACOPT_VACUUM))
@@ -858,12 +845,11 @@ examine_attribute(Relation onerel, int attnum, Node *index_expr)
 		stats->attrtypmod = attr->atttypmod;
 	}
 
-	typtuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(stats->attrtypid));
+	typtuple = SearchSysCacheCopy1(TYPEOID,
+								   ObjectIdGetDatum(stats->attrtypid));
 	if (!HeapTupleIsValid(typtuple))
 		elog(ERROR, "cache lookup failed for type %u", stats->attrtypid);
-	stats->attrtype = (Form_pg_type) palloc(sizeof(FormData_pg_type));
-	memcpy(stats->attrtype, GETSTRUCT(typtuple), sizeof(FormData_pg_type));
-	ReleaseSysCache(typtuple);
+	stats->attrtype = (Form_pg_type) GETSTRUCT(typtuple);
 	stats->anl_context = anl_context;
 	stats->tupattnum = attnum;
 
@@ -892,7 +878,7 @@ examine_attribute(Relation onerel, int attnum, Node *index_expr)
 
 	if (!ok || stats->compute_stats == NULL || stats->minrows <= 0)
 	{
-		pfree(stats->attrtype);
+		heap_freetuple(typtuple);
 		pfree(stats->attr);
 		pfree(stats);
 		return NULL;

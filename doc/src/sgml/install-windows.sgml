@@ -20,7 +20,7 @@
   There are several different ways of building PostgreSQL on
   <productname>Windows</productname>. The simplest way to build with
   Microsoft tools is to install a supported version of the
-  <productname>Microsoft Platform SDK</productname> and use use the included
+  <productname>Microsoft Platform SDK</productname> and use the included
   compiler. It is also possible to build with the full
   <productname>Microsoft Visual C++ 2005 or 2008</productname>. In some cases
   that requires the installation of the <productname>Platform SDK</productname>
@@ -49,8 +49,8 @@
   <xref linkend="installation-notes-mingw"> and <xref linkend="installation-notes-cygwin">.
   To produce native 64 bit binaries in these environments, use the tools from
   <productname>MinGW-w64</productname>. These tools can also be used to
-  cross-compile for 32 bit and 64 bit <productname>Windows</productname> 
-  targets on other hosts, such as <productname>Linux</productname> and 
+  cross-compile for 32 bit and 64 bit <productname>Windows</productname>
+  targets on other hosts, such as <productname>Linux</productname> and
   <productname>Darwin</productname>.
   <productname>Cygwin</productname> is not recommended for running a
   production server, and it should only be used for running on
@@ -61,7 +61,7 @@
  </para>
 
  <para>
-  Native builds of <application>psql</application> don't support command 
+  Native builds of <application>psql</application> don't support command
   line editing. The <productname>Cygwin</productname> build does support
   command line editing, so it should be used where psql is needed for
   interactive use on  <productname>Windows</productname>.
@@ -170,7 +170,7 @@ $ENV{PATH}=$ENV{PATH} . ';c:\some\where\bison\bin';
       ActiveState Perl is required to run the build generation scripts. MinGW
       or Cygwin Perl will not work. It must also be present in the PATH.
       Binaries can be downloaded from
-      <ulink url="http://www.activestate.com"></> (Note: version 5.8 is required,
+      <ulink url="http://www.activestate.com"></> (Note: version 5.8 or later is required,
       the free Standard Distribution is sufficient).
      </para></listitem>
     </varlistentry>

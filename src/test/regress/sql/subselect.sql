@@ -147,7 +147,7 @@ SELECT * FROM foo WHERE id IN
 CREATE TABLE orderstest (
     approver_ref integer,
     po_ref integer,
-    ordercancelled boolean
+    ordercanceled boolean
 );
 
 INSERT INTO orderstest VALUES (1, 1, false);
@@ -168,8 +168,8 @@ SELECT *,
    WHEN ord.approver_ref=1 THEN '---' ELSE 'Approved'
  END) AS "Approved",
 (SELECT CASE
- WHEN ord.ordercancelled
- THEN 'Cancelled'
+ WHEN ord.ordercanceled
+ THEN 'Canceled'
  ELSE
   (SELECT CASE
 		WHEN ord.po_ref=1
@@ -183,8 +183,8 @@ SELECT *,
 	END)
 END) AS "Status",
 (CASE
- WHEN ord.ordercancelled
- THEN 'Cancelled'
+ WHEN ord.ordercanceled
+ THEN 'Canceled'
  ELSE
   (CASE
 		WHEN ord.po_ref=1
@@ -357,3 +357,12 @@ from
 --
 
 select '1'::text in (select '1'::name union all select '1'::name);
+
+--
+-- Test case for planner bug with nested EXISTS handling
+--
+select a.thousand from tenk1 a, tenk1 b
+where a.thousand = b.thousand
+  and exists ( select 1 from tenk1 c where b.hundred = c.hundred
+                   and not exists ( select 1 from tenk1 d
+                                    where a.thousand = d.thousand ) );

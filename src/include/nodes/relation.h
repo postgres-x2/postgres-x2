@@ -506,6 +506,9 @@ typedef struct IndexOptInfo
 	bool		amsearchnulls;	/* can AM search for NULL/NOT NULL entries? */
 	bool		amhasgettuple;	/* does AM have amgettuple interface? */
 	bool		amhasgetbitmap; /* does AM have amgetbitmap interface? */
+
+	/* Added at end of struct to avoid ABI breakage in released branches */
+	bool		immediate;		/* is uniqueness enforced immediately? */
 } IndexOptInfo;
 
 
@@ -578,12 +581,18 @@ typedef struct EquivalenceClass
  * EquivalenceMember - one member expression of an EquivalenceClass
  *
  * em_is_child signifies that this element was built by transposing a member
- * for an inheritance parent relation to represent the corresponding expression
- * on an inheritance child.  These elements are used for constructing
- * inner-indexscan paths for the child relation (other types of join are
- * driven from transposed joininfo-list entries) and for constructing
- * MergeAppend paths for the whole inheritance tree.  Note that the EC's
- * ec_relids field does NOT include the child relation.
+ * for an appendrel parent relation to represent the corresponding expression
+ * for an appendrel child.  These members are used for determining the
+ * pathkeys of scans on the child relation and for explicitly sorting the
+ * child when necessary to build a MergeAppend path for the whole appendrel
+ * tree.  An em_is_child member has no impact on the properties of the EC as a
+ * whole; in particular the EC's ec_relids field does NOT include the child
+ * relation.  An em_is_child member should never be marked em_is_const nor
+ * cause ec_has_const or ec_has_volatile to be set, either.  Thus, em_is_child
+ * members are not really full-fledged members of the EC, but just reflections
+ * or doppelgangers of real members.  Most operations on EquivalenceClasses
+ * should ignore em_is_child members, and those that don't should test
+ * em_relids to make sure they only consider relevant members.
  *
  * em_datatype is usually the same as exprType(em_expr), but can be
  * different when dealing with a binary-compatible opfamily; in particular
@@ -1444,12 +1453,17 @@ typedef struct MinMaxAggInfo
  *
  * Each paramlist item shows the absolute query level it is associated with,
  * where the outermost query is level 1 and nested subqueries have higher
- * numbers.  The item the parameter slot represents can be one of three kinds:
+ * numbers.  The item the parameter slot represents can be one of four kinds:
  *
  * A Var: the slot represents a variable of that level that must be passed
  * down because subqueries have outer references to it, or must be passed
  * from a NestLoop node of that level to its inner scan.  The varlevelsup
  * value in the Var will always be zero.
+ *
+ * A PlaceHolderVar: this works much like the Var case, except that the
+ * entry is a PlaceHolderVar node with a contained expression.  The PHV
+ * will have phlevelsup = 0, and the contained expression is adjusted
+ * to match in level.
  *
  * An Aggref (with an expression tree representing its argument): the slot
  * represents an aggregate expression that is an outer reference for some
@@ -1460,20 +1474,20 @@ typedef struct MinMaxAggInfo
  * for that subplan).  The absolute level shown for such items corresponds
  * to the parent query of the subplan.
  *
- * Note: we detect duplicate Var parameters and coalesce them into one slot,
- * but we do not bother to do this for Aggrefs, and it would be incorrect
- * to do so for Param slots.  Duplicate detection is actually *necessary*
- * in the case of NestLoop parameters since it serves to match up the usage
- * of a Param (in the inner scan) with the assignment of the value (in the
- * NestLoop node).	This might result in the same PARAM_EXEC slot being used
- * by multiple NestLoop nodes or SubPlan nodes, but no harm is done since
+ * Note: we detect duplicate Var and PlaceHolderVar parameters and coalesce
+ * them into one slot, but we do not bother to do this for Aggrefs, and it
+ * would be incorrect to do so for Param slots.  Duplicate detection is
+ * actually *necessary* for NestLoop parameters since it serves to match up
+ * the usage of a Param (in the inner scan) with the assignment of the value
+ * (in the NestLoop node). This might result in the same PARAM_EXEC slot being
+ * used by multiple NestLoop nodes or SubPlan nodes, but no harm is done since
  * the same value would be assigned anyway.
  */
 typedef struct PlannerParamItem
 {
 	NodeTag		type;
 
-	Node	   *item;			/* the Var, Aggref, or Param */
+	Node	   *item;			/* the Var, PlaceHolderVar, Aggref, or Param */
 	Index		abslevel;		/* its absolute query level */
 } PlannerParamItem;
 

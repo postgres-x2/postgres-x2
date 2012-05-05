@@ -15,7 +15,6 @@
 #define _PROC_H_
 
 #include "access/xlog.h"
-#include "replication/syncrep.h"
 #include "storage/latch.h"
 #include "storage/lock.h"
 #include "storage/pg_sema.h"
@@ -123,13 +122,14 @@ struct PGPROC
 	LOCKMASK	heldLocks;		/* bitmask for lock types already held on this
 								 * lock object by this backend */
 
+	Latch		procLatch;		/* generic latch for process */
+
 	/*
 	 * Info to allow us to wait for synchronous replication, if needed.
 	 * waitLSN is InvalidXLogRecPtr if not waiting; set only by user backend.
 	 * syncRepState must not be touched except by owning process or WALSender.
 	 * syncRepLinks used only while holding SyncRepLock.
 	 */
-	Latch		waitLatch;		/* allow us to wait for sync rep */
 	XLogRecPtr	waitLSN;		/* waiting for this LSN or higher */
 	int			syncRepState;	/* wait state for sync rep */
 	SHM_QUEUE	syncRepLinks;	/* list link if process is in syncrep queue */
@@ -164,7 +164,7 @@ typedef struct PROC_HDR
 	/* The proc of the Startup process, since not in ProcArray */
 	PGPROC	   *startupProc;
 	int			startupProcPid;
-	/* Buffer id of the buffer that Startup process waits for pin on */
+	/* Buffer id of the buffer that Startup process waits for pin on, or -1 */
 	int			startupBufferPinWaitBufId;
 } PROC_HDR;
 

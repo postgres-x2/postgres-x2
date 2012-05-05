@@ -463,6 +463,7 @@ typedef struct
 	TimestampTz PgStartTime;
 	TimestampTz PgReloadTime;
 	bool		redirection_done;
+	bool		IsBinaryUpgrade;
 #ifdef WIN32
 	HANDLE		PostmasterHandle;
 	HANDLE		initial_signal_pipe;
@@ -825,7 +826,7 @@ PostmasterMain(int argc, char *argv[])
 		char	  **p;
 
 		ereport(DEBUG3,
-				(errmsg_internal("%s: PostmasterMain: initial environ dump:",
+				(errmsg_internal("%s: PostmasterMain: initial environment dump:",
 								 progname)));
 		ereport(DEBUG3,
 			 (errmsg_internal("-----------------------------------------")));
@@ -1027,6 +1028,11 @@ PostmasterMain(int argc, char *argv[])
 	 * semaphores, because on some platforms semaphores count as open files.
 	 */
 	set_max_safe_fds();
+
+	/*
+	 * Set reference point for stack-depth checking.
+	 */
+	set_stack_base();
 
 	/*
 	 * Initialize the list of active backends.
@@ -2517,13 +2523,18 @@ reaper(SIGNAL_ARGS)
 			}
 
 			/*
-			 * Any unexpected exit (including FATAL exit) of the startup
-			 * process is treated as a crash, except that we don't want to
-			 * reinitialize.
+			 * After PM_STARTUP, any unexpected exit (including FATAL exit) of
+			 * the startup process is catastrophic, so kill other children,
+			 * and set RecoveryError so we don't try to reinitialize after
+			 * they're gone.  Exception: if FatalError is already set, that
+			 * implies we previously sent the startup process a SIGQUIT, so
+			 * that's probably the reason it died, and we do want to try to
+			 * restart in that case.
 			 */
 			if (!EXIT_STATUS_0(exitstatus))
 			{
-				RecoveryError = true;
+				if (!FatalError)
+					RecoveryError = true;
 				HandleChildCrash(pid, exitstatus,
 								 _("startup process"));
 				continue;
@@ -4154,6 +4165,11 @@ SubPostmasterMain(int argc, char *argv[])
 	read_backend_variables(argv[2], &port);
 
 	/*
+	 * Set reference point for stack-depth checking
+	 */
+	set_stack_base();
+
+	/*
 	 * Set up memory area for GSS information. Mirrors the code in ConnCreate
 	 * for the non-exec case.
 	 */
@@ -4917,6 +4933,7 @@ save_backend_variables(BackendParameters *param, Port *port,
 	param->PgReloadTime = PgReloadTime;
 
 	param->redirection_done = redirection_done;
+	param->IsBinaryUpgrade = IsBinaryUpgrade;
 
 #ifdef WIN32
 	param->PostmasterHandle = PostmasterHandle;
@@ -5135,6 +5152,7 @@ restore_backend_variables(BackendParameters *param, Port *port)
 	PgReloadTime = param->PgReloadTime;
 
 	redirection_done = param->redirection_done;
+	IsBinaryUpgrade = param->IsBinaryUpgrade;
 
 #ifdef WIN32
 	PostmasterHandle = param->PostmasterHandle;

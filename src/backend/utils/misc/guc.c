@@ -582,10 +582,12 @@ const char *const config_group_names[] =
 	gettext_noop("Write-Ahead Log / Checkpoints"),
 	/* WAL_ARCHIVING */
 	gettext_noop("Write-Ahead Log / Archiving"),
-	/* WAL_REPLICATION */
-	gettext_noop("Write-Ahead Log / Streaming Replication"),
-	/* WAL_STANDBY_SERVERS */
-	gettext_noop("Write-Ahead Log / Standby Servers"),
+	/* REPLICATION */
+	gettext_noop("Replication"),
+	/* REPLICATION_MASTER */
+	gettext_noop("Replication / Master Server"),
+	/* REPLICATION_STANDBY */
+	gettext_noop("Replication / Standby Servers"),
 	/* QUERY_TUNING */
 	gettext_noop("Query Tuning"),
 	/* QUERY_TUNING_METHOD */
@@ -957,7 +959,7 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 	{
 		{"restart_after_crash", PGC_SIGHUP, ERROR_HANDLING_OPTIONS,
-			gettext_noop("Reinitialize after backend crash."),
+			gettext_noop("Reinitialize server after backend crash."),
 			NULL
 		},
 		&restart_after_crash,
@@ -1437,7 +1439,7 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
-		{"hot_standby", PGC_POSTMASTER, WAL_STANDBY_SERVERS,
+		{"hot_standby", PGC_POSTMASTER, REPLICATION_STANDBY,
 			gettext_noop("Allows connections and queries during recovery."),
 			NULL
 		},
@@ -1447,8 +1449,8 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
-		{"hot_standby_feedback", PGC_SIGHUP, WAL_STANDBY_SERVERS,
-			gettext_noop("Allows feedback from a hot standby primary that will avoid query conflicts."),
+		{"hot_standby_feedback", PGC_SIGHUP, REPLICATION_STANDBY,
+			gettext_noop("Allows feedback from a hot standby to the primary that will avoid query conflicts."),
 			NULL
 		},
 		&hot_standby_feedback,
@@ -1654,7 +1656,7 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
-		{"max_standby_archive_delay", PGC_SIGHUP, WAL_STANDBY_SERVERS,
+		{"max_standby_archive_delay", PGC_SIGHUP, REPLICATION_STANDBY,
 			gettext_noop("Sets the maximum delay before canceling queries when a hot standby server is processing archived WAL data."),
 			NULL,
 			GUC_UNIT_MS
@@ -1665,7 +1667,7 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
-		{"max_standby_streaming_delay", PGC_SIGHUP, WAL_STANDBY_SERVERS,
+		{"max_standby_streaming_delay", PGC_SIGHUP, REPLICATION_STANDBY,
 			gettext_noop("Sets the maximum delay before canceling queries when a hot standby server is processing streamed WAL data."),
 			NULL,
 			GUC_UNIT_MS
@@ -1676,8 +1678,8 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
-		{"wal_receiver_status_interval", PGC_SIGHUP, WAL_STANDBY_SERVERS,
-			gettext_noop("Sets the maximum interval between WAL receiver status reports to the master."),
+		{"wal_receiver_status_interval", PGC_SIGHUP, REPLICATION_STANDBY,
+			gettext_noop("Sets the maximum interval between WAL receiver status reports to the primary."),
 			NULL,
 			GUC_UNIT_S
 		},
@@ -1966,7 +1968,7 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
-		{"vacuum_defer_cleanup_age", PGC_SIGHUP, WAL_REPLICATION,
+		{"vacuum_defer_cleanup_age", PGC_SIGHUP, REPLICATION_MASTER,
 			gettext_noop("Number of transactions by which VACUUM and HOT cleanup should be deferred, if any."),
 			NULL
 		},
@@ -2026,7 +2028,7 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
-		{"wal_keep_segments", PGC_SIGHUP, WAL_REPLICATION,
+		{"wal_keep_segments", PGC_SIGHUP, REPLICATION_MASTER,
 			gettext_noop("Sets the number of WAL files held for standby servers."),
 			NULL
 		},
@@ -2094,7 +2096,7 @@ static struct config_int ConfigureNamesInt[] =
 
 	{
 		/* see max_connections */
-		{"max_wal_senders", PGC_POSTMASTER, WAL_REPLICATION,
+		{"max_wal_senders", PGC_POSTMASTER, REPLICATION_MASTER,
 			gettext_noop("Sets the maximum number of simultaneously running WAL sender processes."),
 			NULL
 		},
@@ -2104,7 +2106,7 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
-		{"wal_sender_delay", PGC_SIGHUP, WAL_REPLICATION,
+		{"wal_sender_delay", PGC_SIGHUP, REPLICATION_MASTER,
 			gettext_noop("WAL sender sleep time between WAL replications."),
 			NULL,
 			GUC_UNIT_MS
@@ -2115,7 +2117,7 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
-		{"replication_timeout", PGC_SIGHUP, WAL_REPLICATION,
+		{"replication_timeout", PGC_SIGHUP, REPLICATION_MASTER,
 			gettext_noop("Sets the maximum time to wait for WAL replication."),
 			NULL,
 			GUC_UNIT_MS
@@ -3142,8 +3144,8 @@ static struct config_string ConfigureNamesString[] =
 	},
 
 	{
-		{"synchronous_standby_names", PGC_SIGHUP, WAL_REPLICATION,
-			gettext_noop("List of potential standby names to synchronise with."),
+		{"synchronous_standby_names", PGC_SIGHUP, REPLICATION_MASTER,
+			gettext_noop("List of names of potential synchronous standbys."),
 			NULL,
 			GUC_LIST_INPUT
 		},
@@ -4576,8 +4578,9 @@ AtStart_GUC(void)
 
 /*
  * Enter a new nesting level for GUC values.  This is called at subtransaction
- * start and when entering a function that has proconfig settings.	NOTE that
- * we must not risk error here, else subtransaction start will be unhappy.
+ * start, and when entering a function that has proconfig settings, and in
+ * some other places where we want to set GUC variables transiently.
+ * NOTE we must not risk error here, else subtransaction start will be unhappy.
  */
 int
 NewGUCNestLevel(void)
@@ -4587,8 +4590,9 @@ NewGUCNestLevel(void)
 
 /*
  * Do GUC processing at transaction or subtransaction commit or abort, or
- * when exiting a function that has proconfig settings.  (The name is thus
- * a bit of a misnomer; perhaps it should be ExitGUCNestLevel or some such.)
+ * when exiting a function that has proconfig settings, or when undoing a
+ * transient assignment to some GUC variables.  (The name is thus a bit of
+ * a misnomer; perhaps it should be ExitGUCNestLevel or some such.)
  * During abort, we discard all GUC settings that were applied at nesting
  * levels >= nestLevel.  nestLevel == 1 corresponds to the main transaction.
  */
@@ -4621,11 +4625,11 @@ AtEOXact_GUC(bool isCommit, int nestLevel)
 		GucStack   *stack;
 
 		/*
-		 * Process and pop each stack entry within the nest level.	To
-		 * simplify fmgr_security_definer(), we allow failure exit from a
-		 * function-with-SET-options to be recovered at the surrounding
-		 * transaction or subtransaction abort; so there could be more than
-		 * one stack entry to pop.
+		 * Process and pop each stack entry within the nest level. To simplify
+		 * fmgr_security_definer() and other places that use GUC_ACTION_SAVE,
+		 * we allow failure exit from code that uses a local nest level to be
+		 * recovered at the surrounding transaction or subtransaction abort;
+		 * so there could be more than one stack entry to pop.
 		 */
 		while ((stack = gconf->stack) != NULL &&
 			   stack->nest_level >= nestLevel)
@@ -6055,8 +6059,11 @@ SetConfigOption(const char *name, const char *value,
 
 
 /*
- * Fetch the current value of the option `name'. If the option doesn't exist,
- * throw an ereport and don't return.
+ * Fetch the current value of the option `name', as a string.
+ *
+ * If the option doesn't exist, return NULL if missing_ok is true (NOTE that
+ * this cannot be distinguished from a string variable with a NULL value!),
+ * otherwise throw an ereport and don't return.
  *
  * If restrict_superuser is true, we also enforce that only superusers can
  * see GUC_SUPERUSER_ONLY variables.  This should only be passed as true
@@ -6066,16 +6073,21 @@ SetConfigOption(const char *name, const char *value,
  * valid until the next call to configuration related functions.
  */
 const char *
-GetConfigOption(const char *name, bool restrict_superuser)
+GetConfigOption(const char *name, bool missing_ok, bool restrict_superuser)
 {
 	struct config_generic *record;
 	static char buffer[256];
 
 	record = find_option(name, false, ERROR);
 	if (record == NULL)
+	{
+		if (missing_ok)
+			return NULL;
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
-			   errmsg("unrecognized configuration parameter \"%s\"", name)));
+				 errmsg("unrecognized configuration parameter \"%s\"",
+						name)));
+	}
 	if (restrict_superuser &&
 		(record->flags & GUC_SUPERUSER_ONLY) &&
 		!superuser())
@@ -7571,6 +7583,8 @@ _ShowOption(struct config_generic * record, bool use_units)
  *
  *		variable name, string, null terminated
  *		variable value, string, null terminated
+ *		variable sourcefile, string, null terminated (empty if none)
+ *		variable sourceline, integer
  *		variable source, integer
  */
 static void
@@ -7607,8 +7621,7 @@ write_one_nondefault_variable(FILE *fp, struct config_generic * gconf)
 			{
 				struct config_real *conf = (struct config_real *) gconf;
 
-				/* Could lose precision here? */
-				fprintf(fp, "%f", *conf->variable);
+				fprintf(fp, "%.17g", *conf->variable);
 			}
 			break;
 
@@ -7632,7 +7645,12 @@ write_one_nondefault_variable(FILE *fp, struct config_generic * gconf)
 
 	fputc(0, fp);
 
-	fwrite(&gconf->source, sizeof(gconf->source), 1, fp);
+	if (gconf->sourcefile)
+		fprintf(fp, "%s", gconf->sourcefile);
+	fputc(0, fp);
+
+	fwrite(&gconf->sourceline, 1, sizeof(gconf->sourceline), fp);
+	fwrite(&gconf->source, 1, sizeof(gconf->source), fp);
 }
 
 void
@@ -7735,8 +7753,10 @@ read_nondefault_variables(void)
 {
 	FILE	   *fp;
 	char	   *varname,
-			   *varvalue;
-	int			varsource;
+			   *varvalue,
+			   *varsourcefile;
+	int			varsourceline;
+	GucSource	varsource;
 
 	/*
 	 * Open file
@@ -7761,16 +7781,26 @@ read_nondefault_variables(void)
 			break;
 
 		if ((record = find_option(varname, true, FATAL)) == NULL)
-			elog(FATAL, "failed to locate variable %s in exec config params file", varname);
+			elog(FATAL, "failed to locate variable \"%s\" in exec config params file", varname);
+
 		if ((varvalue = read_string_with_null(fp)) == NULL)
 			elog(FATAL, "invalid format of exec config params file");
-		if (fread(&varsource, sizeof(varsource), 1, fp) == 0)
+		if ((varsourcefile = read_string_with_null(fp)) == NULL)
+			elog(FATAL, "invalid format of exec config params file");
+		if (fread(&varsourceline, 1, sizeof(varsourceline), fp) != sizeof(varsourceline))
+			elog(FATAL, "invalid format of exec config params file");
+		if (fread(&varsource, 1, sizeof(varsource), fp) != sizeof(varsource))
 			elog(FATAL, "invalid format of exec config params file");
 
-		(void) set_config_option(varname, varvalue, record->context,
-								 varsource, GUC_ACTION_SET, true);
+		(void) set_config_option(varname, varvalue,
+								 record->context, varsource,
+								 GUC_ACTION_SET, true);
+		if (varsourcefile[0])
+			set_config_sourcefile(varname, varsourcefile, varsourceline);
+
 		free(varname);
 		free(varvalue);
+		free(varsourcefile);
 	}
 
 	FreeFile(fp);
@@ -8219,11 +8249,11 @@ call_bool_check_hook(struct config_bool * conf, bool *newval, void **extra,
 		ereport(elevel,
 				(errcode(GUC_check_errcode_value),
 				 GUC_check_errmsg_string ?
-				 errmsg("%s", GUC_check_errmsg_string) :
+				 errmsg_internal("%s", GUC_check_errmsg_string) :
 				 errmsg("invalid value for parameter \"%s\": %d",
 						conf->gen.name, (int) *newval),
 				 GUC_check_errdetail_string ?
-				 errdetail("%s", GUC_check_errdetail_string) : 0,
+				 errdetail_internal("%s", GUC_check_errdetail_string) : 0,
 				 GUC_check_errhint_string ?
 				 errhint("%s", GUC_check_errhint_string) : 0));
 		/* Flush any strings created in ErrorContext */
@@ -8253,11 +8283,11 @@ call_int_check_hook(struct config_int * conf, int *newval, void **extra,
 		ereport(elevel,
 				(errcode(GUC_check_errcode_value),
 				 GUC_check_errmsg_string ?
-				 errmsg("%s", GUC_check_errmsg_string) :
+				 errmsg_internal("%s", GUC_check_errmsg_string) :
 				 errmsg("invalid value for parameter \"%s\": %d",
 						conf->gen.name, *newval),
 				 GUC_check_errdetail_string ?
-				 errdetail("%s", GUC_check_errdetail_string) : 0,
+				 errdetail_internal("%s", GUC_check_errdetail_string) : 0,
 				 GUC_check_errhint_string ?
 				 errhint("%s", GUC_check_errhint_string) : 0));
 		/* Flush any strings created in ErrorContext */
@@ -8287,11 +8317,11 @@ call_real_check_hook(struct config_real * conf, double *newval, void **extra,
 		ereport(elevel,
 				(errcode(GUC_check_errcode_value),
 				 GUC_check_errmsg_string ?
-				 errmsg("%s", GUC_check_errmsg_string) :
+				 errmsg_internal("%s", GUC_check_errmsg_string) :
 				 errmsg("invalid value for parameter \"%s\": %g",
 						conf->gen.name, *newval),
 				 GUC_check_errdetail_string ?
-				 errdetail("%s", GUC_check_errdetail_string) : 0,
+				 errdetail_internal("%s", GUC_check_errdetail_string) : 0,
 				 GUC_check_errhint_string ?
 				 errhint("%s", GUC_check_errhint_string) : 0));
 		/* Flush any strings created in ErrorContext */
@@ -8321,11 +8351,11 @@ call_string_check_hook(struct config_string * conf, char **newval, void **extra,
 		ereport(elevel,
 				(errcode(GUC_check_errcode_value),
 				 GUC_check_errmsg_string ?
-				 errmsg("%s", GUC_check_errmsg_string) :
+				 errmsg_internal("%s", GUC_check_errmsg_string) :
 				 errmsg("invalid value for parameter \"%s\": \"%s\"",
 						conf->gen.name, *newval ? *newval : ""),
 				 GUC_check_errdetail_string ?
-				 errdetail("%s", GUC_check_errdetail_string) : 0,
+				 errdetail_internal("%s", GUC_check_errdetail_string) : 0,
 				 GUC_check_errhint_string ?
 				 errhint("%s", GUC_check_errhint_string) : 0));
 		/* Flush any strings created in ErrorContext */
@@ -8355,12 +8385,12 @@ call_enum_check_hook(struct config_enum * conf, int *newval, void **extra,
 		ereport(elevel,
 				(errcode(GUC_check_errcode_value),
 				 GUC_check_errmsg_string ?
-				 errmsg("%s", GUC_check_errmsg_string) :
+				 errmsg_internal("%s", GUC_check_errmsg_string) :
 				 errmsg("invalid value for parameter \"%s\": \"%s\"",
 						conf->gen.name,
 						config_enum_lookup_by_value(conf, *newval)),
 				 GUC_check_errdetail_string ?
-				 errdetail("%s", GUC_check_errdetail_string) : 0,
+				 errdetail_internal("%s", GUC_check_errdetail_string) : 0,
 				 GUC_check_errhint_string ?
 				 errhint("%s", GUC_check_errhint_string) : 0));
 		/* Flush any strings created in ErrorContext */
@@ -8478,7 +8508,7 @@ check_temp_buffers(int *newval, void **extra, GucSource source)
 	 */
 	if (NLocBuffer && NLocBuffer != *newval)
 	{
-		GUC_check_errdetail("\"temp_buffers\" cannot be changed after any temp tables have been accessed in the session.");
+		GUC_check_errdetail("\"temp_buffers\" cannot be changed after any temporary tables have been accessed in the session.");
 		return false;
 	}
 	return true;

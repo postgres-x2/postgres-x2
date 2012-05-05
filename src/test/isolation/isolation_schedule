@@ -9,3 +9,4 @@ test: ri-trigger
 test: partial-index
 test: two-ids
 test: multiple-row-versions
+test: prepared-transactions

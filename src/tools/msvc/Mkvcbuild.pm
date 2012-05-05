@@ -13,6 +13,8 @@ use Project;
 use Solution;
 use Cwd;
 use File::Copy;
+use Config;
+use List::Util qw(first);
 
 use Exporter;
 our (@ISA, @EXPORT_OK);
@@ -53,7 +55,7 @@ sub mkvcbuild
       snprintf.c strlcat.c strlcpy.c dirmod.c exec.c noblock.c path.c
       pgcheckdir.c pgmkdirp.c pgsleep.c pgstrcasecmp.c qsort.c qsort_arg.c
       sprompt.c thread.c getopt.c getopt_long.c dirent.c rint.c win32env.c
-      win32error.c);
+      win32error.c win32setlocale.c);
 
     $libpgport = $solution->AddProject('libpgport','lib','misc');
     $libpgport->AddDefine('FRONTEND');
@@ -106,11 +108,11 @@ sub mkvcbuild
             (my $xsc = $xs) =~ s/\.xs/.c/;
             if (Solution::IsNewer("$plperlsrc$xsc","$plperlsrc$xs"))
             {
+                my $xsubppdir = first { -e "$_\\ExtUtils\\xsubpp" } @INC;
                 print "Building $plperlsrc$xsc...\n";
                 system( $solution->{options}->{perl}
                       . '/bin/perl '
-                      . $solution->{options}->{perl}
-                      . '/lib/ExtUtils/xsubpp -typemap '
+                      . "$xsubppdir/ExtUtils/xsubpp -typemap "
                       . $solution->{options}->{perl}
                       . '/lib/ExtUtils/typemap '
                       . "$plperlsrc$xs "

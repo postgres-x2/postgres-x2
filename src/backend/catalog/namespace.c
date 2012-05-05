@@ -225,7 +225,6 @@ Datum		pg_is_other_temp_schema(PG_FUNCTION_ARGS);
 Oid
 RangeVarGetRelid(const RangeVar *relation, bool failOK)
 {
-	Oid			namespaceId;
 	Oid			relId;
 
 	/*
@@ -251,17 +250,27 @@ RangeVarGetRelid(const RangeVar *relation, bool failOK)
 	 */
 	if (relation->relpersistence == RELPERSISTENCE_TEMP)
 	{
-		if (relation->schemaname)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-				   errmsg("temporary tables cannot specify a schema name")));
-		if (OidIsValid(myTempNamespace))
+		if (!OidIsValid(myTempNamespace))
+			relId = InvalidOid;	/* this probably can't happen? */
+		else
+		{
+			if (relation->schemaname)
+			{
+				Oid		namespaceId;
+				namespaceId = LookupExplicitNamespace(relation->schemaname);
+				if (namespaceId != myTempNamespace)
+					ereport(ERROR,
+							(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+						   errmsg("temporary tables cannot specify a schema name")));
+			}
+
 			relId = get_relname_relid(relation->relname, myTempNamespace);
-		else	/* this probably can't happen? */
-			relId = InvalidOid;
+		}
 	}
 	else if (relation->schemaname)
 	{
+		Oid		namespaceId;
+
 		/* use exact schema given */
 		namespaceId = LookupExplicitNamespace(relation->schemaname);
 		relId = get_relname_relid(relation->relname, namespaceId);
@@ -315,19 +324,6 @@ RangeVarGetCreationNamespace(const RangeVar *newRelation)
 							newRelation->relname)));
 	}
 
-	if (newRelation->relpersistence == RELPERSISTENCE_TEMP)
-	{
-		/* TEMP tables are created in our backend-local temp namespace */
-		if (newRelation->schemaname)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-				   errmsg("temporary tables cannot specify a schema name")));
-		/* Initialize temp namespace if first time through */
-		if (!OidIsValid(myTempNamespace))
-			InitTempTableNamespace();
-		return myTempNamespace;
-	}
-
 	if (newRelation->schemaname)
 	{
 		/* check for pg_temp alias */
@@ -341,6 +337,13 @@ RangeVarGetCreationNamespace(const RangeVar *newRelation)
 		/* use exact schema given */
 		namespaceId = get_namespace_oid(newRelation->schemaname, false);
 		/* we do not check for USAGE rights here! */
+	}
+	else if (newRelation->relpersistence == RELPERSISTENCE_TEMP)
+	{
+		/* Initialize temp namespace if first time through */
+		if (!OidIsValid(myTempNamespace))
+			InitTempTableNamespace();
+		return myTempNamespace;
 	}
 	else
 	{
@@ -391,6 +394,44 @@ RangeVarGetAndCheckCreationNamespace(const RangeVar *newRelation)
 	}
 
 	return namespaceId;
+}
+
+/*
+ * Adjust the relpersistence for an about-to-be-created relation based on the
+ * creation namespace, and throw an error for invalid combinations.
+ */
+void
+RangeVarAdjustRelationPersistence(RangeVar *newRelation, Oid nspid)
+{
+	switch (newRelation->relpersistence)
+	{
+		case RELPERSISTENCE_TEMP:
+			if (!isTempOrToastNamespace(nspid))
+			{
+				if (isAnyTempNamespace(nspid))
+					ereport(ERROR,
+							(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+							 errmsg("cannot create relations in temporary schemas of other sessions")));
+				else
+					ereport(ERROR,
+							(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+							 errmsg("cannot create temporary relation in non-temporary schema")));
+			}
+			break;
+		case RELPERSISTENCE_PERMANENT:
+			if (isTempOrToastNamespace(nspid))
+				newRelation->relpersistence = RELPERSISTENCE_TEMP;
+			else if (isAnyTempNamespace(nspid))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+						 errmsg("cannot create relations in temporary schemas of other sessions")));
+			break;
+		default:
+			if (isAnyTempNamespace(nspid))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+						 errmsg("only temporary relations may be created in temporary schemas")));
+	}
 }
 
 /*
@@ -3288,7 +3329,8 @@ InitTempTableNamespace(void)
 		 * temp tables.  This works because the places that access the temp
 		 * namespace for my own backend skip permissions checks on it.
 		 */
-		namespaceId = NamespaceCreate(namespaceName, BOOTSTRAP_SUPERUSERID);
+		namespaceId = NamespaceCreate(namespaceName, BOOTSTRAP_SUPERUSERID,
+									  true);
 		/* Advance command counter to make namespace visible */
 		CommandCounterIncrement();
 	}
@@ -3312,7 +3354,8 @@ InitTempTableNamespace(void)
 	toastspaceId = get_namespace_oid(namespaceName, true);
 	if (!OidIsValid(toastspaceId))
 	{
-		toastspaceId = NamespaceCreate(namespaceName, BOOTSTRAP_SUPERUSERID);
+		toastspaceId = NamespaceCreate(namespaceName, BOOTSTRAP_SUPERUSERID,
+									   true);
 		/* Advance command counter to make namespace visible */
 		CommandCounterIncrement();
 	}
@@ -3538,8 +3581,10 @@ check_search_path(char **newval, void **extra, GucSource source)
 	/*
 	 * If we aren't inside a transaction, we cannot do database access so
 	 * cannot verify the individual names.	Must accept the list on faith.
+	 * Also, if the value is coming from a noninteractive source, accept it
+	 * anyway.
 	 */
-	if (IsTransactionState())
+	if (IsTransactionState() && source >= PGC_S_INTERACTIVE)
 	{
 		/*
 		 * Verify that all the names are either valid namespace names or
