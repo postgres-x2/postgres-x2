@@ -155,8 +155,7 @@ ERROR:  foreign-data wrapper "foo" does not exist
 (0 rows)
 
 ALTER FOREIGN DATA WRAPPER foo OWNER TO regress_test_role;  -- ERROR
-ERROR:  permission denied to change owner of foreign-data wrapper "foo"
-HINT:  The owner of a foreign-data wrapper must be a superuser.
+ERROR:  foreign-data wrapper "foo" does not exist
 ALTER FOREIGN DATA WRAPPER foo OWNER TO regress_test_role_super;
 ERROR:  foreign-data wrapper "foo" does not exist
 ALTER ROLE regress_test_role_super NOSUPERUSER;
@@ -574,7 +573,7 @@ List of user mappings
 
 -- CREATE FOREIGN TABLE
 CREATE SCHEMA foreign_schema;
-CREATE SERVER sc FOREIGN DATA WRAPPER dummy;
+CREATE SERVER s0 FOREIGN DATA WRAPPER dummy;
 ERROR:  Postgres-XC does not support SERVER yet
 DETAIL:  The feature is not currently supported
 CREATE FOREIGN TABLE ft1 ();                                    -- ERROR
@@ -583,19 +582,19 @@ LINE 1: CREATE FOREIGN TABLE ft1 ();
                                    ^
 CREATE FOREIGN TABLE ft1 () SERVER no_server;                   -- ERROR
 ERROR:  server "no_server" does not exist
-CREATE FOREIGN TABLE ft1 (c1 serial) SERVER sc;                 -- ERROR
+CREATE FOREIGN TABLE ft1 (c1 serial) SERVER s0;                 -- ERROR
 NOTICE:  CREATE FOREIGN TABLE will create implicit sequence "ft1_c1_seq" for serial column "ft1.c1"
 ERROR:  default values on foreign tables are not supported
-CREATE FOREIGN TABLE ft1 () SERVER sc WITH OIDS;                -- ERROR
+CREATE FOREIGN TABLE ft1 () SERVER s0 WITH OIDS;                -- ERROR
 ERROR:  syntax error at or near "WITH OIDS"
-LINE 1: CREATE FOREIGN TABLE ft1 () SERVER sc WITH OIDS;
+LINE 1: CREATE FOREIGN TABLE ft1 () SERVER s0 WITH OIDS;
                                               ^
 CREATE FOREIGN TABLE ft1 (
 	c1 integer NOT NULL,
 	c2 text,
 	c3 date
-) SERVER sc OPTIONS (delimiter ',', quote '"');
-ERROR:  server "sc" does not exist
+) SERVER s0 OPTIONS (delimiter ',', quote '"');
+ERROR:  server "s0" does not exist
 COMMENT ON FOREIGN TABLE ft1 IS 'ft1';
 ERROR:  relation "ft1" does not exist
 COMMENT ON COLUMN ft1.c1 IS 'ft1.c1';
@@ -648,7 +647,7 @@ ALTER FOREIGN TABLE ft1 ALTER COLUMN c6 SET NOT NULL;
 ERROR:  relation "ft1" does not exist
 ALTER FOREIGN TABLE ft1 ALTER COLUMN c7 DROP NOT NULL;
 ERROR:  relation "ft1" does not exist
-ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE char(10) using '0'; -- ERROR
+ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE char(10) USING '0'; -- ERROR
 ERROR:  relation "ft1" does not exist
 ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE char(10);
 ERROR:  relation "ft1" does not exist
@@ -857,8 +856,7 @@ ALTER FOREIGN DATA WRAPPER foo OPTIONS (gotcha 'true');         -- ERROR
 ERROR:  permission denied to alter foreign-data wrapper "foo"
 HINT:  Must be superuser to alter a foreign-data wrapper.
 ALTER FOREIGN DATA WRAPPER foo OWNER TO unprivileged_role;      -- ERROR
-ERROR:  permission denied to change owner of foreign-data wrapper "foo"
-HINT:  Must be superuser to change owner of a foreign-data wrapper.
+ERROR:  foreign-data wrapper "foo" does not exist
 DROP FOREIGN DATA WRAPPER foo;                                  -- ERROR
 ERROR:  permission denied to drop foreign-data wrapper "foo"
 HINT:  Must be superuser to drop a foreign-data wrapper.
