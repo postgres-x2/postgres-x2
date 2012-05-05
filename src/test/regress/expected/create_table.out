@@ -211,6 +211,8 @@ CREATE UNLOGGED TABLE public.unlogged2 (a int primary key);		-- also OK
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "unlogged2_pkey" for table "unlogged2"
 CREATE UNLOGGED TABLE pg_temp.unlogged3 (a int primary key);	-- not OK
 ERROR:  only temporary relations may be created in temporary schemas
+-- Enforce use of COMMIT instead of 2PC for temporary objects
+SET enforce_two_phase_commit TO off;
 CREATE TABLE pg_temp.implicitly_temp (a int primary key);		-- OK
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "implicitly_temp_pkey" for table "implicitly_temp"
 CREATE TEMP TABLE explicitly_temp (a int primary key);			-- also OK

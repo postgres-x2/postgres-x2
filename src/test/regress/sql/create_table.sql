@@ -244,6 +244,8 @@ CREATE UNLOGGED TABLE unlogged1 (a int primary key);			-- OK
 INSERT INTO unlogged1 VALUES (42);
 CREATE UNLOGGED TABLE public.unlogged2 (a int primary key);		-- also OK
 CREATE UNLOGGED TABLE pg_temp.unlogged3 (a int primary key);	-- not OK
+-- Enforce use of COMMIT instead of 2PC for temporary objects
+SET enforce_two_phase_commit TO off;
 CREATE TABLE pg_temp.implicitly_temp (a int primary key);		-- OK
 CREATE TEMP TABLE explicitly_temp (a int primary key);			-- also OK
 CREATE TEMP TABLE pg_temp.doubly_temp (a int primary key);		-- also OK
