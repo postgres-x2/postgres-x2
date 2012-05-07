@@ -327,7 +327,7 @@ UPDATE price
     SET active = true, price = input_prices.price
     FROM unnest(ARRAY[(10, 123.00), (11, 99.99)]::price_input[]) input_prices
     WHERE price_key_from_table(price.*) = price_key_from_input(input_prices.*);
-ERROR:  Cannot generate remote UPDATE plan
+ERROR:  Cannot generate remote query plan
 DETAIL:  This relation rowtype cannot be fetched
 select * from price;
 ERROR:  current transaction is aborted, commands ignored until end of transaction block

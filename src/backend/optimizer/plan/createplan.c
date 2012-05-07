@@ -110,6 +110,8 @@ static List *pgxc_process_having_clause(PlannerInfo *root, List *remote_tlist,
 												Node *havingQual, List **local_qual,
 												List **remote_qual, bool *reduce_plan);
 static Expr *pgxc_set_en_expr(Oid tableoid, Index resultRelationIndex);
+static int pgxc_count_rowmarks_entries(List *rowMarks);
+static Oid *pgxc_build_rowmark_entries(List *rowMarks, List *rtable, Oid *types, int prepparams, int totparams);
 #endif
 static ForeignScan *create_foreignscan_plan(PlannerInfo *root, ForeignPath *best_path,
 						List *tlist, List *scan_clauses);
@@ -5806,7 +5808,7 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		bool			is_where_printed = false;	/* Control of WHERE generation */
 		RemoteQuery	   *fstep;		/* Plan step generated */
 		ListCell	   *elt;
-		int				count = 1, where_count = 1;
+		int				count = 0, where_count = 1;
 		int				natts, count_prepparams, tot_prepparams;
 		char		   *relname;
 
@@ -5848,7 +5850,6 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		 * This helps to know how many parameters part of the WHERE clause need to
 		 * be sent down by extended query protocol.
 		 */
-		count = 0;
 		foreach(elt, parse->targetList)
 		{
 			TargetEntry *tle = lfirst(elt);
@@ -5856,27 +5857,8 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 				count++;
 		}
 		count_prepparams = natts + count;
-
-		/* Add any non-parent relations if necessary */
-		foreach(elt, root->rowMarks)
-		{
-			PlanRowMark *rc = (PlanRowMark *) lfirst(elt);
-
-			/* RowMarks with different parent are not needed */
-			if (rc->rti != rc->prti)
-				continue;
-
-			/*
-			 * Count the entry and move to next element
-			 * For a non-parent rowmark, only ctid is used.
-			 * For a parent rowmark, ctid and tableoid are used.
-			 */
-			if (!rc->isParent)
-				count++;
-			else
-				count = count + 2;
-		}
-		tot_prepparams = natts + count;
+		/* Count entries related to Rowmarks */
+		tot_prepparams = count_prepparams + pgxc_count_rowmarks_entries(root->rowMarks);
 
 		/* Then allocate the array for this purpose */
 		param_types = (Oid *) palloc0(sizeof (Oid) * tot_prepparams);
@@ -5993,62 +5975,8 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		 * defined in RowMarks. This is essential for UPDATE queries running with child
 		 * entries as we need to bypass them correctly at executor level.
 		 */
-		elt = list_head(root->rowMarks);
-		foreach(elt, root->rowMarks)
-		{
-			PlanRowMark *rc = (PlanRowMark *) lfirst(elt);
-
-			/* RowMarks with different parent are not needed */
-			if (rc->rti != rc->prti)
-				continue;
-
-			/* Determine the correct parameter type */
-			switch (rc->markType)
-			{
-				case ROW_MARK_COPY:
-					{
-						RangeTblEntry *rte = rt_fetch(rc->prti, parse->rtable);
-
-						/*
-						 * PGXCTODO: We still need to determine the rowtype
-						 * in case relation involved here is a view (see inherit.sql).
-						 */
-						if (!OidIsValid(rte->relid))
-							ereport(ERROR,
-									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-									 errmsg("Cannot generate remote UPDATE plan"),
-									 errdetail("This relation rowtype cannot be fetched")));
-
-						/*
-						 * This is the complete copy of a row, so it is necessary
-						 * to set parameter as a rowtype
-						 */
-						count_prepparams++;
-						param_types[count_prepparams - 1] = get_rel_type_id(rte->relid);
-					}
-					break;
-
-				case ROW_MARK_REFERENCE:
-					/* Here we have a ctid for sure */
-					count_prepparams++;
-					param_types[count_prepparams - 1] = TIDOID;
-
-					if (rc->isParent)
-					{
-						/* For a parent table, tableoid is also necessary */
-						count_prepparams++;
-						/* Set parameter type */
-						param_types[count_prepparams - 1] = OIDOID;
-					}
-					break;
-
-				/* Ignore other entries */
-				case ROW_MARK_SHARE:
-				case ROW_MARK_EXCLUSIVE:
-				default:
-					break;
-			}
-		}
+		param_types = pgxc_build_rowmark_entries(root->rowMarks, parse->rtable, param_types,
+												count_prepparams, tot_prepparams);
 
 		/* Finish building the query by gathering SET and WHERE clauses */
 		appendStringInfo(buf, "%s", buf2->data);
@@ -6111,7 +6039,7 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		StringInfo		buf;
 		Oid			    nspid;		/* Relation namespace Oid */
 		char		   *nspname;	/* Relation namespace name */
-		int				nparams;	/* Attribute used is CTID */
+		int				count_prepparams, tot_prepparams;	/* Attribute used is CTID */
 		Oid			   *param_types;	/* Types of query parameters */
 		RemoteQuery	   *fstep;		/* Plan step generated */
 		bool			is_where_created = false;
@@ -6139,8 +6067,15 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		relname = get_rel_name(ttab->relid);
 
 		/* Parameters are defined by target list */
-		nparams = list_length(parse->targetList);
-		param_types = (Oid *) palloc0(sizeof(Oid) * nparams);
+		count_prepparams = list_length(parse->targetList);
+
+		/* Count entries related to Rowmarks only if there are child relations here */
+		if (list_length(mt->resultRelations) != 1)
+			tot_prepparams = count_prepparams + pgxc_count_rowmarks_entries(root->rowMarks);
+		else
+			tot_prepparams = count_prepparams;
+
+		param_types = (Oid *) palloc0(sizeof(Oid) * tot_prepparams);
 
 		/*
 		 * Do not qualify with namespace for TEMP tables. The schema name may
@@ -6170,29 +6105,27 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 				strcmp(tle->resname, "ctid") != 0)
 				continue;
 
-			Assert(IsA((Node *)tle->expr, Var));
-			if (IsA((Node *)tle->expr, Var))
+			/* Set the clause if necessary */
+			if (!is_where_created)
 			{
-				Var *var = (Var *) tle->expr;
-
-				/* Target entries from other relations are not necessary */
-				if (var->varno != resultRelationIndex)
-					continue;
-
-				/* Set the clause if necessary */
-				if (!is_where_created)
-				{
-					is_where_created = true;
-					appendStringInfoString(buf, "WHERE ");
-				}
-				else
-					appendStringInfoString(buf, "AND ");
-
-				appendStringInfo(buf, "%s = $%d ",
-								quote_identifier(tle->resname),
-								count - 1);
+				is_where_created = true;
+				appendStringInfoString(buf, "WHERE ");
 			}
+			else
+				appendStringInfoString(buf, "AND ");
+
+			appendStringInfo(buf, "%s = $%d ",
+							quote_identifier(tle->resname),
+							count - 1);
 		}
+
+		/*
+		 * The query needs to be completed by nullifying the non-parent entries
+		 * defined in RowMarks. This is essential for UPDATE queries running with child
+		 * entries as we need to bypass them correctly at executor level.
+		 */
+		param_types = pgxc_build_rowmark_entries(root->rowMarks, parse->rtable, param_types,
+												count_prepparams, tot_prepparams);
 
 		/* Finish by building the plan step */
 		fstep = make_remotequery(parse->targetList, NIL, resultRelationIndex);
@@ -6211,7 +6144,7 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
 		fstep->exec_nodes->en_relid = ttab->relid;
 		fstep->exec_nodes->accesstype = RELATION_ACCESS_UPDATE;
-		SetRemoteStatementName((Plan *) fstep, NULL, nparams, param_types, 0);
+		SetRemoteStatementName((Plan *) fstep, NULL, tot_prepparams, param_types, 0);
 		pfree(buf->data);
 		pfree(buf);
 
@@ -6965,5 +6898,135 @@ pgxc_set_en_expr(Oid tableoid, Index resultRelationIndex)
 	ReleaseSysCache(tp);
 
 	return (Expr *) var;
+}
+
+/*
+ * pgxc_count_rowmarks_entries
+ * Count the number of rowmarks that need to be added as prepared parameters
+ * for remote DML plan
+ */
+static int
+pgxc_count_rowmarks_entries(List *rowMarks)
+{
+	int res = 0;
+	ListCell *elt;
+
+	foreach(elt, rowMarks)
+	{
+		PlanRowMark *rc = (PlanRowMark *) lfirst(elt);
+
+		/* RowMarks with different parent are not needed */
+		if (rc->rti != rc->prti)
+			continue;
+
+		/*
+		 * Count the entry and move to next element
+		 * For a non-parent rowmark, only ctid is used.
+		 * For a parent rowmark, ctid and tableoid are used.
+		 */
+		if (!rc->isParent)
+			res++;
+		else
+			res = res + 2;
+	}
+
+	return res;
+}
+
+/*
+ * pgxc_build_rowmark_entries
+ * Complete type array for SetRemoteStatementName based on given RowMarks list
+ * The list of total parameters is calculated based on the current number of prepared
+ * parameters and the rowmark list.
+ */
+static Oid *
+pgxc_build_rowmark_entries(List *rowMarks, List *rtable, Oid *types, int prepparams, int totparams)
+{
+	Oid *newtypes = types;
+	int rowmark_entry_num;
+	int count = prepparams;
+	ListCell *elt;
+
+	/* No modifications is list is empty */
+	if (rowMarks == NIL)
+		return newtypes;
+
+	/* Nothing to do, total number of parameters is already correct */
+	if (prepparams == totparams)
+		return newtypes;		
+
+	/* Fetch number of extra entries related to Rowmarks */
+	rowmark_entry_num = pgxc_count_rowmarks_entries(rowMarks);
+
+	/* Nothing to do */
+	if (rowmark_entry_num == 0)
+		return newtypes;
+
+	/* This needs to be absolutely verified */
+	Assert(totparams == (prepparams + rowmark_entry_num));
+
+	foreach(elt, rowMarks)
+	{
+		PlanRowMark *rc = (PlanRowMark *) lfirst(elt);
+
+		/* RowMarks with different parent are not needed */
+		if (rc->rti != rc->prti)
+			continue;
+
+		/* Determine the correct parameter type */
+		switch (rc->markType)
+		{
+			case ROW_MARK_COPY:
+			{
+				RangeTblEntry *rte = rt_fetch(rc->prti, rtable);
+
+				/*
+				 * PGXCTODO: We still need to determine the rowtype
+				 * in case relation involved here is a view (see inherit.sql).
+				 */
+				if (!OidIsValid(rte->relid))
+					ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							 errmsg("Cannot generate remote query plan"),
+							 errdetail("This relation rowtype cannot be fetched")));
+
+				/*
+				 * This is the complete copy of a row, so it is necessary
+				 * to set parameter as a rowtype
+				 */
+				count++;
+				newtypes[count - 1] = get_rel_type_id(rte->relid);
+			}
+			break;
+
+			case ROW_MARK_REFERENCE:
+				/* Here we have a ctid for sure */
+				count++;
+				newtypes[count - 1] = TIDOID;
+
+				if (rc->isParent)
+				{
+					/* For a parent table, tableoid is also necessary */
+					count++;
+					/* Set parameter type */
+					newtypes[count - 1] = OIDOID;
+				}
+				break;
+
+			/* Ignore other entries */
+			case ROW_MARK_SHARE:
+			case ROW_MARK_EXCLUSIVE:
+				default:
+				break;
+		}
+	}
+
+	/* This should not happen */
+	if (count != totparams)
+		ereport(ERROR,
+				(errcode(ERRCODE_DATA_EXCEPTION),
+				 errmsg("Error when generating remote query plan")));
+
+	return newtypes;
 }
 #endif
