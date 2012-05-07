@@ -214,6 +214,9 @@ RESET enable_seqscan;
 RESET enable_hashjoin;
 RESET enable_nestloop;
 
+-- Enforce use of COMMIT instead of 2PC for temporary objects
+SET enforce_two_phase_commit TO off;
+
 -- 9.1 bug with useless COLLATE in an expression subject to length coercion
 
 CREATE TEMP TABLE vctable (f1 varchar(25));
