@@ -5,13 +5,30 @@ SELECT *
    INTO TABLE tmp1
    FROM onek
    WHERE onek.unique1 < 2;
-ERROR:  INTO clause not yet supported
 DROP TABLE tmp1;
-ERROR:  table "tmp1" does not exist
 SELECT *
    INTO TABLE tmp1
    FROM onek2
    WHERE onek2.unique1 < 2;
-ERROR:  INTO clause not yet supported
 DROP TABLE tmp1;
-ERROR:  table "tmp1" does not exist
+--
+-- CREATE TABLE AS/SELECT INTO as last command in a SQL function
+-- have been known to cause problems
+--
+CREATE FUNCTION make_table() RETURNS VOID
+AS $$
+  CREATE TABLE created_table AS SELECT * FROM int8_tbl;
+$$ LANGUAGE SQL;
+ERROR:  In XC, SQL functions cannot contain utility statements
+CONTEXT:  SQL function "make_table"
+SELECT make_table();
+ERROR:  function make_table() does not exist
+LINE 1: SELECT make_table();
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+SELECT * FROM created_table;
+ERROR:  relation "created_table" does not exist
+LINE 1: SELECT * FROM created_table;
+                      ^
+DROP TABLE created_table;
+ERROR:  table "created_table" does not exist
