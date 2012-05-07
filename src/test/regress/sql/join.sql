@@ -689,7 +689,7 @@ ON sub1.key1 = sub2.key3;
 -- test case where a PlaceHolderVar is used as a nestloop parameter
 --
 
-EXPLAIN (COSTS OFF)
+EXPLAIN (COSTS OFF, NUM_NODES OFF, NODES FALSE)
 SELECT qq, unique1
   FROM
   ( SELECT COALESCE(q1, 0) AS qq FROM int8_tbl a ) AS ss1
@@ -710,7 +710,7 @@ SELECT qq, unique1
 -- test case where a PlaceHolderVar is propagated into a subquery
 --
 
-explain (costs off)
+explain (costs off, num_nodes off, nodes off)
 select * from
   int8_tbl t1 left join
   (select q1 as x, 42 as y from int8_tbl t2) ss
