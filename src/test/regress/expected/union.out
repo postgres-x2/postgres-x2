@@ -417,11 +417,11 @@ ERROR:  column "q2" does not exist
 LINE 1: ... int8_tbl EXCEPT SELECT q2 FROM int8_tbl ORDER BY q2 LIMIT 1...
                                                              ^
 -- But this should work:
-SELECT q1 FROM int8_tbl EXCEPT (((SELECT q2 FROM int8_tbl ORDER BY q2 LIMIT 1)));
+SELECT q1 FROM int8_tbl EXCEPT (((SELECT q2 FROM int8_tbl ORDER BY q2 LIMIT 1))) ORDER BY q1;
         q1        
 ------------------
- 4567890123456789
               123
+ 4567890123456789
 (2 rows)
 
 --
@@ -463,6 +463,8 @@ LINE 1: SELECT '3.4'::numeric UNION SELECT 'foo';
 -- Test that expression-index constraints can be pushed down through
 -- UNION or UNION ALL
 --
+-- Enforce use of COMMIT instead of 2PC for temporary objects
+SET enforce_two_phase_commit TO off;
 CREATE TEMP TABLE t1 (a text, b text);
 CREATE INDEX t1_ab_idx on t1 ((a || b));
 CREATE TEMP TABLE t2 (ab text primary key);
@@ -472,52 +474,52 @@ INSERT INTO t2 VALUES ('ab'), ('xy');
 set enable_seqscan = off;
 set enable_indexscan = on;
 set enable_bitmapscan = off;
-explain (costs off)
+explain (num_nodes off, nodes off, costs off)
  SELECT * FROM
  (SELECT a || b AS ab FROM t1
   UNION ALL
   SELECT * FROM t2) t
  WHERE ab = 'ab';
-                    QUERY PLAN                     
----------------------------------------------------
+               QUERY PLAN               
+----------------------------------------
  Result
    ->  Append
-         ->  Index Scan using t1_ab_idx on t1
-               Index Cond: ((a || b) = 'ab'::text)
-         ->  Index Scan using t2_pkey on t2
-               Index Cond: (ab = 'ab'::text)
-(6 rows)
+         ->  Result
+               ->  Data Node Scan on t1
+         ->  Data Node Scan on t2
+(5 rows)
 
-explain (costs off)
+explain (num_nodes off, nodes off, costs off)
  SELECT * FROM
  (SELECT a || b AS ab FROM t1
   UNION
   SELECT * FROM t2) t
  WHERE ab = 'ab';
-                    QUERY PLAN                     
----------------------------------------------------
+               QUERY PLAN               
+----------------------------------------
  HashAggregate
    ->  Append
-         ->  Index Scan using t1_ab_idx on t1
-               Index Cond: ((a || b) = 'ab'::text)
-         ->  Index Scan using t2_pkey on t2
-               Index Cond: (ab = 'ab'::text)
+         ->  Result
+               ->  Data Node Scan on t1
+         ->  Result
+               ->  Data Node Scan on t2
 (6 rows)
 
 reset enable_seqscan;
 reset enable_indexscan;
 reset enable_bitmapscan;
 -- Test constraint exclusion of UNION ALL subqueries
-explain (costs off)
+explain (num_nodes off, nodes off, costs off)
  SELECT * FROM
   (SELECT 1 AS t, * FROM tenk1 a
    UNION ALL
    SELECT 2 AS t, * FROM tenk1 b) c
  WHERE t = 2;
-           QUERY PLAN            
----------------------------------
+              QUERY PLAN               
+---------------------------------------
  Result
    ->  Append
-         ->  Seq Scan on tenk1 b
-(3 rows)
+         ->  Result
+               ->  Data Node Scan on b
+(4 rows)
 

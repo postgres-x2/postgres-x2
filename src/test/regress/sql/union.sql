@@ -175,7 +175,8 @@ SELECT '3.4'::numeric UNION SELECT 'foo';
 -- Test that expression-index constraints can be pushed down through
 -- UNION or UNION ALL
 --
-
+-- Enforce use of COMMIT instead of 2PC for temporary objects
+SET enforce_two_phase_commit TO off;
 CREATE TEMP TABLE t1 (a text, b text);
 CREATE INDEX t1_ab_idx on t1 ((a || b));
 CREATE TEMP TABLE t2 (ab text primary key);
@@ -186,14 +187,14 @@ set enable_seqscan = off;
 set enable_indexscan = on;
 set enable_bitmapscan = off;
 
-explain (costs off)
+explain (num_nodes off, nodes off, costs off)
  SELECT * FROM
  (SELECT a || b AS ab FROM t1
   UNION ALL
   SELECT * FROM t2) t
  WHERE ab = 'ab';
 
-explain (costs off)
+explain (num_nodes off, nodes off, costs off)
  SELECT * FROM
  (SELECT a || b AS ab FROM t1
   UNION
@@ -205,7 +206,7 @@ reset enable_indexscan;
 reset enable_bitmapscan;
 
 -- Test constraint exclusion of UNION ALL subqueries
-explain (costs off)
+explain (num_nodes off, nodes off, costs off)
  SELECT * FROM
   (SELECT 1 AS t, * FROM tenk1 a
    UNION ALL
