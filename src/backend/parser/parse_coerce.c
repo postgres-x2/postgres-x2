@@ -28,6 +28,9 @@
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
 #include "utils/typcache.h"
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#endif
 
 
 static Node *coerce_type_typmod(Node *node,
@@ -112,6 +115,10 @@ coerce_to_target_type(ParseState *pstate, Node *expr, Oid exprtype,
 								(cformat != COERCE_IMPLICIT_CAST),
 								(result != expr && !IsA(result, Const)));
 
+#ifdef PGXC
+	/* Do not need to do that on local Coordinator */
+	if (IsConnFromCoord())
+#endif
 	if (expr != origexpr)
 	{
 		/* Reinstall top CollateExpr */
