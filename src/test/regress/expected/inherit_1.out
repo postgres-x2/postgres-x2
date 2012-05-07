@@ -1498,3 +1498,139 @@ NOTICE:  drop cascades to 3 other objects
 DETAIL:  drop cascades to table matest1
 drop cascades to table matest2
 drop cascades to table matest3
+--
+-- Test merge-append for UNION ALL append relations
+--
+set enable_seqscan = off;
+set enable_indexscan = on;
+set enable_bitmapscan = off;
+-- Check handling of duplicated, constant, or volatile targetlist items
+explain (num_nodes off, nodes off, verbose on, costs off)
+SELECT thousand, tenthous FROM tenk1
+UNION ALL
+SELECT thousand, thousand FROM tenk1
+ORDER BY thousand, tenthous;
+                                       QUERY PLAN                                       
+----------------------------------------------------------------------------------------
+ Sort
+   Output: public.tenk1.thousand, public.tenk1.tenthous
+   Sort Key: public.tenk1.thousand, public.tenk1.tenthous
+   ->  Result
+         Output: public.tenk1.thousand, public.tenk1.tenthous
+         ->  Append
+               ->  Data Node Scan on tenk1
+                     Output: public.tenk1.thousand, public.tenk1.tenthous
+                     Remote query: SELECT thousand, tenthous FROM ONLY tenk1 WHERE true
+               ->  Data Node Scan on tenk1
+                     Output: public.tenk1.thousand, public.tenk1.thousand
+                     Remote query: SELECT thousand, thousand FROM ONLY tenk1 WHERE true
+(12 rows)
+
+explain (num_nodes off, nodes off, verbose on, costs off)
+SELECT thousand, tenthous FROM tenk1
+UNION ALL
+SELECT 42, 42 FROM tenk1
+ORDER BY thousand, tenthous;
+                                       QUERY PLAN                                       
+----------------------------------------------------------------------------------------
+ Sort
+   Output: public.tenk1.thousand, public.tenk1.tenthous
+   Sort Key: public.tenk1.thousand, public.tenk1.tenthous
+   ->  Result
+         Output: public.tenk1.thousand, public.tenk1.tenthous
+         ->  Append
+               ->  Data Node Scan on tenk1
+                     Output: public.tenk1.thousand, public.tenk1.tenthous
+                     Remote query: SELECT thousand, tenthous FROM ONLY tenk1 WHERE true
+               ->  Result
+                     Output: 42, 42
+                     ->  Data Node Scan on tenk1
+                           Remote query: SELECT * FROM ONLY tenk1 WHERE true
+(13 rows)
+
+explain (num_nodes off, nodes off, verbose on, costs off)
+SELECT thousand, tenthous FROM tenk1
+UNION ALL
+SELECT thousand, random()::integer FROM tenk1
+ORDER BY thousand, tenthous;
+                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: public.tenk1.thousand, public.tenk1.tenthous
+   Sort Key: public.tenk1.thousand, public.tenk1.tenthous
+   ->  Result
+         Output: public.tenk1.thousand, public.tenk1.tenthous
+         ->  Append
+               ->  Data Node Scan on tenk1
+                     Output: public.tenk1.thousand, public.tenk1.tenthous
+                     Remote query: SELECT thousand, tenthous FROM ONLY tenk1 WHERE true
+               ->  Result
+                     Output: public.tenk1.thousand, (random())::integer
+                     ->  Data Node Scan on tenk1
+                           Output: public.tenk1.unique1, public.tenk1.unique2, public.tenk1.two, public.tenk1.four, public.tenk1.ten, public.tenk1.twenty, public.tenk1.hundred, public.tenk1.thousand, public.tenk1.twothousand, public.tenk1.fivethous, public.tenk1.tenthous, public.tenk1.odd, public.tenk1.even, public.tenk1.stringu1, public.tenk1.stringu2, public.tenk1.string4
+                           Remote query: SELECT unique1, unique2, two, four, ten, twenty, hundred, thousand, twothousand, fivethous, tenthous, odd, even, stringu1, stringu2, string4 FROM ONLY tenk1 WHERE true
+(14 rows)
+
+-- Check min/max aggregate optimization
+explain (num_nodes off, nodes off, verbose on, costs off)
+SELECT min(x) FROM
+  (SELECT unique1 AS x FROM tenk1 a
+   UNION ALL
+   SELECT unique2 AS x FROM tenk1 b) s;
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
+ Aggregate
+   Output: min(a.unique1)
+   ->  Append
+         ->  Data Node Scan on a
+               Output: a.unique1
+               Remote query: SELECT unique1 FROM ONLY tenk1 a WHERE true
+         ->  Data Node Scan on b
+               Output: b.unique2
+               Remote query: SELECT unique2 FROM ONLY tenk1 b WHERE true
+(9 rows)
+
+explain (num_nodes off, nodes off, verbose on, costs off)
+SELECT min(y) FROM
+  (SELECT unique1 AS x, unique1 AS y FROM tenk1 a
+   UNION ALL
+   SELECT unique2 AS x, unique2 AS y FROM tenk1 b) s;
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
+ Aggregate
+   Output: min(a.unique1)
+   ->  Append
+         ->  Data Node Scan on a
+               Output: a.unique1
+               Remote query: SELECT unique1 FROM ONLY tenk1 a WHERE true
+         ->  Data Node Scan on b
+               Output: b.unique2
+               Remote query: SELECT unique2 FROM ONLY tenk1 b WHERE true
+(9 rows)
+
+-- XXX planner doesn't recognize that index on unique2 is sufficiently sorted
+explain (num_nodes off, nodes off, verbose on, costs off)
+SELECT x, y FROM
+  (SELECT thousand AS x, tenthous AS y FROM tenk1 a
+   UNION ALL
+   SELECT unique2 AS x, unique2 AS y FROM tenk1 b) s
+ORDER BY x, y;
+                                        QUERY PLAN                                        
+------------------------------------------------------------------------------------------
+ Sort
+   Output: a.thousand, a.tenthous
+   Sort Key: a.thousand, a.tenthous
+   ->  Result
+         Output: a.thousand, a.tenthous
+         ->  Append
+               ->  Data Node Scan on a
+                     Output: a.thousand, a.tenthous
+                     Remote query: SELECT thousand, tenthous FROM ONLY tenk1 a WHERE true
+               ->  Data Node Scan on b
+                     Output: b.unique2, b.unique2
+                     Remote query: SELECT unique2, unique2 FROM ONLY tenk1 b WHERE true
+(12 rows)
+
+reset enable_seqscan;
+reset enable_indexscan;
+reset enable_bitmapscan;
