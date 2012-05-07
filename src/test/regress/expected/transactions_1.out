@@ -589,28 +589,11 @@ ERROR:  no such savepoint
 fetch from foo;
 ERROR:  current transaction is aborted, commands ignored until end of transaction block
 abort;
--- tests for the "tid" type
-SELECT '(3, 3)'::tid = '(3, 4)'::tid;
- ?column? 
-----------
- f
-(1 row)
-
-SELECT '(3, 3)'::tid = '(3, 3)'::tid;
- ?column? 
-----------
- t
-(1 row)
-
-SELECT '(3, 3)'::tid <> '(3, 3)'::tid;
- ?column? 
-----------
- f
-(1 row)
-
-SELECT '(3, 3)'::tid <> '(3, 4)'::tid;
- ?column? 
-----------
- t
-(1 row)
-
+-- Test for successful cleanup of an aborted transaction at session exit.
+-- THIS MUST BE THE LAST TEST IN THIS FILE.
+begin;
+select 1/0;
+ERROR:  division by zero
+rollback to X;
+ERROR:  no such savepoint
+-- DO NOT ADD ANYTHING HERE.
