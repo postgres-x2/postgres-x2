@@ -2667,9 +2667,7 @@ QueryRewriteCTAS(Query *parsetree)
 
 	/* Finally, fire off the query to run the DDL */
 	ProcessUtility(cparsetree->utilityStmt, cquery.data, NULL, true, NULL,
-#ifdef PGXC
 					false,
-#endif /* PGXC */
 					NULL);
 
 	/*

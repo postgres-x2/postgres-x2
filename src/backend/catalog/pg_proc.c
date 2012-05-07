@@ -857,6 +857,18 @@ fmgr_sql_validator(PG_FUNCTION_ARGS)
 				Node	   *parsetree = (Node *) lfirst(lc);
 				List	   *querytree_sublist;
 
+#ifdef PGXC
+				/* Block CTAS in SQL functions */
+				if (IsA(parsetree, SelectStmt))
+				{
+					SelectStmt *stmt = (SelectStmt *) parsetree;
+					if (stmt->intoClause)
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								errmsg("In XC, SQL functions cannot contain utility statements")));
+				}
+#endif
+
 				querytree_sublist = pg_analyze_and_rewrite_params(parsetree,
 																  prosrc,
 									   (ParserSetupHook) sql_fn_parser_setup,
