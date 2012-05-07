@@ -2697,7 +2697,7 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	 * we construct the query at the time of execution.
 	 */
 	tmp_node = pgxc_fix_scan_expr(root->glob, (Node *)query->targetList, 0);
-	Assert(IsA(tmp_node, List));
+	Assert(!tmp_node || IsA(tmp_node, List));
 	query->targetList = (List *)tmp_node;
 	tmp_node = pgxc_fix_scan_expr(root->glob, (Node *)query->jointree->quals, 0);
 	query->jointree->quals = tmp_node;
