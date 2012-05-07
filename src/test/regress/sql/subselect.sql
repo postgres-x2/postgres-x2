@@ -200,7 +200,7 @@ END) AS "Status_OK"
 FROM orderstest ord;
 
 SELECT * FROM orders_view 
-ORDER BY approver_ref, po_ref, ordercancelled;
+ORDER BY approver_ref, po_ref, ordercanceled;
 
 DROP TABLE orderstest cascade;
 

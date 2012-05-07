@@ -326,20 +326,20 @@ END) AS "Status",
 END) AS "Status_OK"
 FROM orderstest ord;
 SELECT * FROM orders_view 
-ORDER BY approver_ref, po_ref, ordercancelled;
- approver_ref | po_ref | ordercancelled | Approved |  Status   | Status_OK 
---------------+--------+----------------+----------+-----------+-----------
-            1 |      1 | f              | ---      | ---       | ---
-            1 |      1 | f              | ---      | ---       | ---
-            1 |      1 | f              | ---      | ---       | ---
-           66 |      1 | f              | Approved | Approved  | Approved
-           66 |      1 | f              | Approved | Approved  | Approved
-           66 |      1 | t              | Approved | Cancelled | Cancelled
-           66 |      5 | f              | Approved | PO        | PO
-           66 |      6 | f              | Approved | PO        | PO
-           66 |      7 | f              | Approved | PO        | PO
-           66 |      8 | f              | Approved | PO        | PO
-           77 |      1 | f              | Approved | Approved  | Approved
+ORDER BY approver_ref, po_ref, ordercanceled;
+ approver_ref | po_ref | ordercanceled | Approved |  Status  | Status_OK 
+--------------+--------+---------------+----------+----------+-----------
+            1 |      1 | f             | ---      | ---      | ---
+            1 |      1 | f             | ---      | ---      | ---
+            1 |      1 | f             | ---      | ---      | ---
+           66 |      1 | f             | Approved | Approved | Approved
+           66 |      1 | f             | Approved | Approved | Approved
+           66 |      1 | t             | Approved | Canceled | Canceled
+           66 |      5 | f             | Approved | PO       | PO
+           66 |      6 | f             | Approved | PO       | PO
+           66 |      7 | f             | Approved | PO       | PO
+           66 |      8 | f             | Approved | PO       | PO
+           77 |      1 | f             | Approved | Approved | Approved
 (11 rows)
 
 DROP TABLE orderstest cascade;
