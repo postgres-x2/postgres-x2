@@ -359,9 +359,7 @@
   &datetime;
   &keywords;
   &features;
-<!## PG>
   &release;
-<!## end>
   &contrib;
   &external-projects;
   &sourcerepo;
