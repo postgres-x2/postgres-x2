@@ -25,6 +25,13 @@
 #include "postgres.h"
 
 #include "access/sysattr.h"
+#ifdef PGXC
+#include "catalog/pg_inherits.h"
+#include "catalog/pg_inherits_fn.h"
+#include "catalog/indexing.h"
+#include "utils/fmgroids.h"
+#include "utils/tqual.h"
+#endif
 #include "catalog/pg_type.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
@@ -79,6 +86,8 @@ static Query *transformExplainStmt(ParseState *pstate,
 #ifdef PGXC
 static Query *transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt);
 static bool IsExecDirectUtilityStmt(Node *node);
+static bool is_relation_child(RangeTblEntry *child_rte, List *rtable);
+static bool is_rel_child_of_rel(RangeTblEntry *child_rte, RangeTblEntry *parent_rte);
 #endif
 
 static void transformLockingClause(ParseState *pstate, Query *qry,
@@ -478,6 +487,9 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 		 */
 		ParseState *sub_pstate = make_parsestate(pstate);
 		Query	   *selectQuery;
+#ifdef PGXC
+		RangeTblEntry	*target_rte;
+#endif
 
 		/*
 		 * Process the source SELECT.
@@ -516,6 +528,13 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 											selectQuery,
 											makeAlias("*SELECT*", NIL),
 											false);
+#ifdef PGXC
+		target_rte = rt_fetch(qry->resultRelation, pstate->p_rtable);
+		if (is_relation_child(target_rte, selectQuery->rtable))
+			ereport(ERROR,
+					(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+						(errmsg("INSERT SELECT is not supported when inserts are done in a child by selecting from its parent"))));
+#endif
 		rtr = makeNode(RangeTblRef);
 		/* assume new rte is at end */
 		rtr->rtindex = list_length(pstate->p_rtable);
@@ -2489,6 +2508,92 @@ IsExecDirectUtilityStmt(Node *node)
 
 	return res;
 }
+
+/*
+ * Returns whether or not the rtable (and its subqueries)
+ * contain any relation who is the parent of
+ * the passed relation
+ */
+static bool
+is_relation_child(RangeTblEntry *child_rte, List *rtable)
+{
+	ListCell *item;
+
+	if (child_rte == NULL || rtable == NULL)
+		return false;
+
+	if (child_rte->rtekind != RTE_RELATION)
+		return false;
+
+	foreach(item, rtable)
+	{
+		RangeTblEntry *rte = (RangeTblEntry *) lfirst(item);
+
+		if (rte->rtekind == RTE_RELATION)
+		{
+			if (is_rel_child_of_rel(child_rte, rte))
+				return true;
+		}
+		else if (rte->rtekind == RTE_SUBQUERY)
+		{
+			return is_relation_child(child_rte, rte->subquery->rtable);
+		}
+	}
+	return false;
+}
+
+/*
+ * Returns whether the passed RTEs have a parent child relationship
+ */
+static bool
+is_rel_child_of_rel(RangeTblEntry *child_rte, RangeTblEntry *parent_rte)
+{
+	Oid		parentOID;
+	bool		res;
+	Relation	relation;
+	SysScanDesc	scan;
+	ScanKeyData	key[1];
+	HeapTuple	inheritsTuple;
+	Oid		inhrelid;
+
+	/* Does parent RT entry allow inheritance? */
+	if (!parent_rte->inh)
+		return false;
+
+	/* Ignore any already-expanded UNION ALL nodes */
+	if (parent_rte->rtekind != RTE_RELATION)
+		return false;
+
+	/* Fast path for common case of childless table */
+	parentOID = parent_rte->relid;
+	if (!has_subclass(parentOID))
+		return false;
+
+	/* Assume we did not find any match */
+	res = false;
+
+	/* Scan pg_inherits and get all the subclass OIDs one by one. */
+	relation = heap_open(InheritsRelationId, AccessShareLock);
+	ScanKeyInit(&key[0], Anum_pg_inherits_inhparent, BTEqualStrategyNumber, F_OIDEQ, ObjectIdGetDatum(parentOID));
+	scan = systable_beginscan(relation, InheritsParentIndexId, true, SnapshotNow, 1, key);
+
+	while ((inheritsTuple = systable_getnext(scan)) != NULL)
+	{
+		inhrelid = ((Form_pg_inherits) GETSTRUCT(inheritsTuple))->inhrelid;
+
+		/* Did we find the Oid of the passed RTE in one of the children? */
+		if (child_rte->relid == inhrelid)
+		{
+			res = true;
+			break;
+		}
+	}
+
+	systable_endscan(scan);
+	heap_close(relation, AccessShareLock);
+	return res;
+}
+
 #endif
 
 /*
