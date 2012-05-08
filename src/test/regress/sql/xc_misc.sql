@@ -117,3 +117,44 @@ drop table tab4;
 drop table tab5;
 drop table my_tab1;
 
+-- Test to make sure that the block of
+-- INSERT SELECT in case of inserts into a child by selecting from
+-- a parent works fine
+
+create table t_11 ( a int, b int);
+create table t_22 ( a int, b int);
+insert into t_11 values(1,2),(3,4);
+insert into t_22 select * from t_11; -- should pass
+
+CREATE TABLE c_11 () INHERITS (t_11);
+insert into c_11 select * from t_22; -- should pass
+insert into c_11 select * from t_11; -- should fail
+insert into c_11 (select * from t_11 union all select * from t_22); -- should fail
+insert into c_11 (select * from t_11,t_22); -- should fail
+insert into c_11 (select * from t_22 where a in (select a from t_11)); -- should pass
+insert into c_11 (select * from t_11 where a in (select a from t_22)); -- should fail
+insert into t_11 select * from c_11; -- should pass
+
+-- test to make sure count from a parent table works fine
+select count(*) from t_11;
+
+CREATE TABLE grand_parent (code int, population float, altitude int);
+INSERT INTO grand_parent VALUES (0, 1.1, 63);
+CREATE TABLE my_parent (code int, population float, altitude int);
+INSERT INTO my_parent VALUES (1, 2.1, 73);
+CREATE TABLE child_11 () INHERITS (my_parent);
+CREATE TABLE grand_child () INHERITS (child_11);
+
+INSERT INTO child_11 SELECT * FROM grand_parent; -- should pass
+INSERT INTO child_11 SELECT * FROM my_parent; -- should fail
+INSERT INTO grand_child SELECT * FROM my_parent; -- should pass
+INSERT INTO grand_child SELECT * FROM grand_parent; -- should pass
+
+drop table grand_child;
+drop table child_11;
+drop table my_parent;
+drop table grand_parent;
+drop table c_11;
+drop table t_22;
+drop table t_11;
+
