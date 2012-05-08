@@ -766,9 +766,9 @@ DROP FUNCTION y_trigger();
 
 -- WITH attached to inherited UPDATE or DELETE
 
-CREATE TEMP TABLE parent ( id int, val text );
-CREATE TEMP TABLE child1 ( ) INHERITS ( parent );
-CREATE TEMP TABLE child2 ( ) INHERITS ( parent );
+CREATE TEMP TABLE parent ( id int, val text ) DISTRIBUTE BY ROUND ROBIN;
+CREATE TEMP TABLE child1 ( ) INHERITS ( parent ) DISTRIBUTE BY ROUND ROBIN;
+CREATE TEMP TABLE child2 ( ) INHERITS ( parent ) DISTRIBUTE BY ROUND ROBIN;
 
 INSERT INTO parent VALUES ( 1, 'p1' );
 INSERT INTO child1 VALUES ( 11, 'c11' ),( 12, 'c12' );
@@ -777,26 +777,26 @@ INSERT INTO child2 VALUES ( 23, 'c21' ),( 24, 'c22' );
 WITH rcte AS ( SELECT sum(id) AS totalid FROM parent )
 UPDATE parent SET id = id + totalid FROM rcte;
 
-SELECT * FROM parent;
+SELECT * FROM parent ORDER BY id;
 
 WITH wcte AS ( INSERT INTO child1 VALUES ( 42, 'new' ) RETURNING id AS newid )
 UPDATE parent SET id = id + newid FROM wcte;
 
-SELECT * FROM parent;
+SELECT * FROM parent ORDER BY id;
 
 WITH rcte AS ( SELECT max(id) AS maxid FROM parent )
 DELETE FROM parent USING rcte WHERE id = maxid;
 
-SELECT * FROM parent;
+SELECT * FROM parent ORDER BY id;
 
 WITH wcte AS ( INSERT INTO child2 VALUES ( 42, 'new2' ) RETURNING id AS newid )
 DELETE FROM parent USING wcte WHERE id = newid;
 
-SELECT * FROM parent;
+SELECT * FROM parent ORDER BY id;
 
 -- check EXPLAIN VERBOSE for a wCTE with RETURNING
 
-EXPLAIN (VERBOSE, COSTS OFF)
+EXPLAIN (VERBOSE, COSTS OFF, NUM_NODES true, NODES OFF)
 WITH wcte AS ( INSERT INTO int8_tbl VALUES ( 42, 47 ) RETURNING q2 )
 DELETE FROM a USING wcte WHERE aa = q2;
 
