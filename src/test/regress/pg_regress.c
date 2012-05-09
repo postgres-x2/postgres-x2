@@ -122,16 +122,17 @@ static int	port = -1;
  * Additional port numbers for Coordinator 2 and Datanode 1&2
  * Ports are chosen up to the default value which is 5432.
  */
-static int	port_coord2 = 5433;
-static int	port_dn1 = 5434;
-static int	port_dn2 = 5435;
-static int	port_gtm = 6666;
+static int	port_coord2 = -1;
+static int	port_dn1 = -1;
+static int	port_dn2 = -1;
+static int	port_gtm = -1;
 /*
  * Poolers of coordinators 1 and 2 need an additional port value
  * taken as the default value and the next value.
  */
-static int	co1_pooler_port = 6667;
-static int	co2_pooler_port = 6668;
+static int	co1_pooler_port = -1;
+static int	co2_pooler_port = -1;
+
 /* Data folder of each node */
 const char *data_co1 = "data_co1"; /* Coordinator 1 */
 const char *data_co2 = "data_co2"; /* Coordinator 2 */
@@ -143,6 +144,9 @@ const char *name_co1 = "coord1"; /* Coordinator 1 */
 const char *name_co2 = "coord2"; /* Coordinator 2 */
 const char *name_dn1 = "dn1"; /* Datanode 1 */
 const char *name_dn2 = "dn2"; /* Datanode 2 */
+
+/* 7 port numbers are needed */
+#define PORT_NUM_INTERVAL 7
 #endif
 static bool port_specified_by_user = false;
 static char *dlpath = PKGLIBDIR;
@@ -629,7 +633,12 @@ calculate_node_port(PGXCNodeTypeNum node, bool is_main)
 
 			fprintf(stderr, _("port %d apparently in use, trying %d\n"),
 					port_number, port_number + 1);
-			port_number++;
+
+			/*
+			 * If port is already in use, jump to a value that is not covered by
+			 * other nodes (Coordinator, Datanode, GTM and poolers)
+			 */
+			port_number += PORT_NUM_INTERVAL;
 
 			if (is_main)
 			{
@@ -2776,6 +2785,16 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 		 */
 		port = 0xC000 | (PG_VERSION_NUM & 0x3FFF);
 
+#ifdef PGXC
+	/* Initialize the other port numbers, user has no control on them */
+	port_coord2 = (0xC000 | (PG_VERSION_NUM & 0x3FFF)) + 1;
+	port_dn1 = (0xC000 | (PG_VERSION_NUM & 0x3FFF)) + 2;
+	port_dn2 = (0xC000 | (PG_VERSION_NUM & 0x3FFF)) + 3;
+	port_gtm = (0xC000 | (PG_VERSION_NUM & 0x3FFF)) + 4;
+	co1_pooler_port = (0xC000 | (PG_VERSION_NUM & 0x3FFF)) + 5;
+	co2_pooler_port = (0xC000 | (PG_VERSION_NUM & 0x3FFF)) + 6;
+#endif
+
 	inputdir = make_absolute_path(inputdir);
 	outputdir = make_absolute_path(outputdir);
 	dlpath = make_absolute_path(dlpath);
@@ -3074,14 +3093,16 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 
 #ifdef PGXC
 		/* Print info for each node */
-		printf(_("running on port %d with pid %lu for Coordinator 1\n"),
-			   get_port_number(PGXC_COORD_1), ULONGPID(get_node_pid(PGXC_COORD_1)));
-		printf(_("running on port %d with pid %lu for Coordinator 2\n"),
-			   get_port_number(PGXC_COORD_2), ULONGPID(get_node_pid(PGXC_COORD_2)));
+		printf(_("running on port %d, pooler port %d with pid %lu for Coordinator 1\n"),
+			   get_port_number(PGXC_COORD_1), get_pooler_port(PGXC_COORD_1), ULONGPID(get_node_pid(PGXC_COORD_1)));       
+		printf(_("running on port %d, pooler port %d with pid %lu for Coordinator 2\n"),
+			   get_port_number(PGXC_COORD_2), get_pooler_port(PGXC_COORD_2), ULONGPID(get_node_pid(PGXC_COORD_2)));
 		printf(_("running on port %d with pid %lu for Datanode 1\n"),
 			   get_port_number(PGXC_DATANODE_1), ULONGPID(get_node_pid(PGXC_DATANODE_1)));
 		printf(_("running on port %d with pid %lu for Datanode 2\n"),
 			   get_port_number(PGXC_DATANODE_2), ULONGPID(get_node_pid(PGXC_DATANODE_2)));
+		printf(_("running on port %d with pid %lu for GTM\n"),
+			   get_port_number(PGXC_GTM), ULONGPID(get_node_pid(PGXC_GTM)));
 
 		/* Postmaster is finally running, so set up connection information on Coordinators */
 		setup_connection_information();
