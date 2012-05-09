@@ -278,7 +278,7 @@ SELECT '' AS two, * FROM COPY_TBL order by x,y,z;
 (2 rows)
 
 COPY COPY_TBL FROM '@abs_srcdir@/data/constrf.data';
-ERROR:  Error while running COPY
+ERROR:  new row for relation "copy_tbl" violates check constraint "copy_con"
 SELECT * FROM COPY_TBL order by x,y,z;
  x |       y       | z 
 ---+---------------+---

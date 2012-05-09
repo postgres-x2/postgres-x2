@@ -208,13 +208,13 @@ ERROR:  null value in column "col3" violates not-null constraint
 INSERT INTO nulltest values ('a', 'b', 'c', NULL, 'd'); -- Good
 -- Test copy
 COPY nulltest FROM stdin; --fail
-ERROR:  Error while running COPY
+ERROR:  null value in column "col3" violates not-null constraint
 COPY nulltest FROM stdin; --fail
 ERROR:  domain dcheck does not allow null values
 CONTEXT:  COPY nulltest, line 1, column col5: null input
 -- Last row is bad
 COPY nulltest FROM stdin;
-ERROR:  Error while running COPY
+ERROR:  new row for relation "nulltest" violates check constraint "nulltest_col5_check"
 select * from nulltest order by 1, 2, 3, 4, 5;
  col1 | col2 | col3 | col4 | col5 
 ------+------+------+------+------
