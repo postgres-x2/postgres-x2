@@ -153,6 +153,7 @@ static char *pgxc_node_get_nodelist(bool localNode);
 static void ExecClearTempObjectIncluded(void);
 static void init_RemoteXactState(bool preparedLocalNode);
 static void clear_RemoteXactState(void);
+static void pgxc_node_report_error(RemoteQueryState *combiner);
 
 #define MAX_STATEMENTS_PER_TRAN 10
 
@@ -1187,6 +1188,7 @@ pgxc_node_receive_responses(const int conn_count, PGXCNodeHandle ** connections,
 			}
 		}
 	}
+	pgxc_node_report_error(combiner);
 
 	return 0;
 }
@@ -1672,18 +1674,8 @@ pgxc_node_remote_prepare(char *prepareGID)
 	if (result)
 	{
 		remoteXactState.status = RXACT_PREPARE_FAILED;
-		if (combiner && combiner->errorMessage)
-		{
-			char *code = combiner->errorCode;
-			if (combiner->errorDetail != NULL)
-				ereport(ERROR,
-						(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
-						errmsg("%s", combiner->errorMessage), errdetail("%s", combiner->errorDetail) ));
-			else
-				ereport(ERROR,
-						(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
-						errmsg("%s", combiner->errorMessage)));
-		}
+		if (combiner)
+			pgxc_node_report_error(combiner);
 		else
 			elog(ERROR, "failed to PREPARE transaction on one or more nodes");
 	}
@@ -1904,18 +1896,8 @@ pgxc_node_remote_commit(void)
 
 	if (result)
 	{
-		if (combiner && combiner->errorMessage)
-		{
-			char *code = combiner->errorCode;
-			if (combiner->errorDetail != NULL)
-				ereport(ERROR,
-						(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
-						errmsg("%s", combiner->errorMessage), errdetail("%s", combiner->errorDetail) ));
-			else
-				ereport(ERROR,
-						(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
-						errmsg("%s", combiner->errorMessage)));
-		}
+		if (combiner)
+			pgxc_node_report_error(combiner);
 		else
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
@@ -2045,13 +2027,8 @@ pgxc_node_remote_abort(void)
 
 	if (result)
 	{
-		if (combiner && combiner->errorMessage)
-		{
-			if (combiner->errorDetail != NULL)
-				elog(LOG, "%s %s", combiner->errorMessage, combiner->errorDetail);
-			else
-				elog(LOG, "%s", combiner->errorMessage);
-		}
+		if (combiner)
+			pgxc_node_report_error(combiner);
 		else
 			elog(LOG, "Failed to ABORT an implicitly PREPARED "
 					"transaction - result %d", result);
@@ -2965,18 +2942,8 @@ do_query(RemoteQueryState *node)
 						(errcode(ERRCODE_INTERNAL_ERROR),
 						 errmsg("Unexpected response from data node")));
 		}
-		if (node->errorMessage)
-		{
-			char *code = node->errorCode;
-			if (node->errorDetail != NULL)
-				ereport(ERROR,
-						(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
-						errmsg("%s", node->errorMessage), errdetail("%s", node->errorDetail) ));
-			else
-				ereport(ERROR,
-						(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
-						errmsg("%s", node->errorMessage)));
-		}
+		/* report error if any */
+		pgxc_node_report_error(node);
 	}
 
 	for (i = 0; i < regular_conn_count; i++)
@@ -3104,19 +3071,8 @@ do_query(RemoteQueryState *node)
 						(errcode(ERRCODE_INTERNAL_ERROR),
 						 errmsg("Unexpected response from data node")));
 		}
-
-		if (node->errorMessage)
-		{
-			char *code = node->errorCode;
-			if (node->errorDetail != NULL)
-				ereport(ERROR,
-						(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
-						errmsg("%s", node->errorMessage), errdetail("%s", node->errorDetail) ));
-			else
-				ereport(ERROR,
-						(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
-						errmsg("%s", node->errorMessage)));
-		}
+		/* report error if any */
+		pgxc_node_report_error(node);
 	}
 
 	if (node->cursor_count)
@@ -3402,20 +3358,8 @@ RemoteQueryNext(RemoteQueryState *node)
 		else
 			ExecClearTuple(resultslot);
 	}
-
-	if (node->errorMessage)
-	{
-		char *code = node->errorCode;
-		if (node->errorDetail != NULL)
-			ereport(ERROR,
-					(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
-						errmsg("%s", node->errorMessage), errdetail("%s", node->errorDetail) ));
-		else
-			ereport(ERROR,
-					(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
-						errmsg("%s", node->errorMessage)));
-	}
-
+	/* report error if any */
+	pgxc_node_report_error(node);
 	/*
 	 * While we are emitting rows we ignore outer plan
 	 */
@@ -3955,18 +3899,7 @@ ExecRemoteUtility(RemoteQuery *node)
 	 * error message pending we can report it. All connections should be in
 	 * consistent state now and so they can be released to the pool after ROLLBACK.
 	 */
-	if (remotestate->errorMessage)
-	{
-		char *code = remotestate->errorCode;
-		if (remotestate->errorDetail != NULL)
-			ereport(ERROR,
-					(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
-						errmsg("%s", remotestate->errorMessage), errdetail("%s", remotestate->errorDetail) ));
-		else
-			ereport(ERROR,
-					(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
-						errmsg("%s", remotestate->errorMessage)));
-	}
+	pgxc_node_report_error(remotestate);
 }
 
 
@@ -4724,4 +4657,28 @@ FinishRemotePreparedTransaction(char *prepareGID, bool commit)
 	ForgetTransactionNodes();
 
 	return prepared_local;
+}
+
+/*
+ * pgxc_node_report_error
+ * Throw error from datanode if any.
+ */
+static void
+pgxc_node_report_error(RemoteQueryState *combiner)
+{
+	/* If no combiner, nothing to do */
+	if (!combiner)
+		return;
+	if (combiner->errorMessage)
+	{
+		char *code = combiner->errorCode;
+		if (combiner->errorDetail != NULL)
+			ereport(ERROR,
+					(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
+					errmsg("%s", combiner->errorMessage), errdetail("%s", combiner->errorDetail) ));
+		else
+			ereport(ERROR,
+					(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
+					errmsg("%s", combiner->errorMessage)));
+	}
 }
