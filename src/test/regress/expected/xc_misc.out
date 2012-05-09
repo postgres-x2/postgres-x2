@@ -99,7 +99,7 @@ select get_unified_node_name(xc_node_id),* from t1 order by xc_node_id;
 create table t2(a int , xc_node_id int) distribute by modulo(a);
 ERROR:  column name "xc_node_id" conflicts with a system column name
 create table t2(a int , b int) distribute by modulo(xc_node_id);
-ERROR:  Column xc_node_id is not modulo distributable data type
+ERROR:  Invalid distribution column specified
 drop table t1;
 -- Test an SQL function with multiple statements in it including a utility statement.
 create table my_tab1 (a int);

@@ -995,9 +995,12 @@ AddRelationDistribution(Oid relid,
 		switch (distributeby->disttype)
 		{
 			case DISTTYPE_HASH:
-				/* User specified hash column, validate */
+				/*
+				 * Validate user-specified hash column.
+				 * System columns cannot be used.
+				 */
 				attnum = get_attnum(relid, distributeby->colname);
-				if (!attnum)
+				if (attnum <= 0 && attnum >= -(int) lengthof(SysAtt))
 				{
 					ereport(ERROR,
 						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
@@ -1015,9 +1018,12 @@ AddRelationDistribution(Oid relid,
 				break;
 
 			case DISTTYPE_MODULO:
-				/* User specified modulo column, validate */
+				/*
+				 * Validate user specified modulo column.
+				 * System columns cannot be used.
+				 */
 				attnum = get_attnum(relid, distributeby->colname);
-				if (!attnum)
+				if (attnum <= 0 && attnum >= -(int) lengthof(SysAtt))
 				{
 					ereport(ERROR,
 						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
