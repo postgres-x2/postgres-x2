@@ -474,19 +474,28 @@ agent_create(void)
 char *session_options(void)
 {
 	int				 i;
-	char			*pgoptions[] = {"DateStyle", "timezone", "geqo", "intervalstyle"};
+	char			*pgoptions[] = {"DateStyle", "timezone", "geqo", "intervalstyle", "lc_monetary"};
 	StringInfoData	 options;
 	List			*value_list;
-	const char		*value;
 	ListCell		*l;
 
 	initStringInfo(&options);
 
 	for (i = 0; i < sizeof(pgoptions)/sizeof(char*); i++)
 	{
+		const char		*value;
+
 		appendStringInfo(&options, " -c %s=", pgoptions[i]);
 
 		value = GetConfigOptionResetString(pgoptions[i]);
+
+		/* lc_monetary does not accept lower case values */
+		if (strcmp(pgoptions[i], "lc_monetary") == 0)
+		{
+			appendStringInfoString(&options, value);
+			continue;
+		}
+
 		SplitIdentifierString(strdup(value), ',', &value_list);
 		foreach(l, value_list)
 		{
