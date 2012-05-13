@@ -1003,6 +1003,9 @@ toast_flatten_tuple(HeapTuple tup, TupleDesc tupleDesc)
 
 	new_tuple->t_self = tup->t_self;
 	new_tuple->t_tableOid = tup->t_tableOid;
+#ifdef PGXC
+	new_tuple->t_xc_node_id = tup->t_xc_node_id;
+#endif
 
 	new_tuple->t_data->t_choice = tup->t_data->t_choice;
 	new_tuple->t_data->t_ctid = tup->t_data->t_ctid;

@@ -46,6 +46,9 @@
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
 #include "utils/tqual.h"
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#endif
 
 
 static TupleTableSlot *BitmapHeapNext(BitmapHeapScanState *node);
@@ -378,6 +381,9 @@ bitgetpage(HeapScanDesc scan, TBMIterateResult *tbmres)
 			loctup.t_data = (HeapTupleHeader) PageGetItem((Page) dp, lp);
 			loctup.t_len = ItemIdGetLength(lp);
 			loctup.t_tableOid = scan->rs_rd->rd_id;
+#ifdef PGXC
+			loctup.t_xc_node_id = PGXCNodeIdentifier;
+#endif
 			ItemPointerSet(&loctup.t_self, page, offnum);
 			valid = HeapTupleSatisfiesVisibility(&loctup, snapshot, buffer);
 			if (valid)
