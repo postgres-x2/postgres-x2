@@ -10,7 +10,7 @@ OBJS=path.o
 
 all:all-lib
 
-include $(top_builddir)/src/Makefile.shlib
+include $(top_srcdir)/src/Makefile.shlib
 
 clean:
 	rm -f $(OBJS)

@@ -21,31 +21,18 @@
 #include "gtm/gtm_opt.h"
 #include "gtm/gtm_opt_tables.h"
 #include "gtm/elog.h"
-#include "./gtm_opt_scanner.h"
-
+#include "gtm_opt_scanner.c"
 
 /* Avoid exit() on fatal scanner errors (a bit ugly -- see yy_fatal_error) */
 #undef fprintf
 #define fprintf(file, fmt, msg)  ereport(ERROR, (errmsg_internal("%s", msg)))
-
-enum {
-	GTMOPT_ID = 1,
-	GTMOPT_STRING = 2,
-	GTMOPT_INTEGER = 3,
-	GTMOPT_REAL = 4,
-	GTMOPT_EQUALS = 5,
-	GTMOPT_UNQUOTED_STRING = 6,
-	GTMOPT_QUALIFIED_ID = 7,
-	GTMOPT_EOL = 99,
-	GTMOPT_ERROR = 100
-};
 
 static unsigned int ConfigFileLineno;
 
 /* flex fails to supply a prototype for GTMOPT_yylex, so provide one */
 int GTMOPT_GTMOPT_yylex(void);
 
-/* Functions defeined in this file */
+/* Functions defined in this file */
 static char *GTMOPT_scanstr(const char *s);
 static struct config_generic *find_option(const char *name, bool create_placeholders, int elevel);
 static char *gtm_opt_strdup(int elevel, const char *src);

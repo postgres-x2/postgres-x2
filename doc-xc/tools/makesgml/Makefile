@@ -34,4 +34,3 @@ uninstall:
 clean distclean maintenance-clean maintainer-clean:
 	rm -rf makesgml$(X) $(OBJS)
 
-makesgml.o: makesgml.c $(top_builddir)/src/Makefile.global
