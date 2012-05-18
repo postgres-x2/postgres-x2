@@ -31,3 +31,6 @@
 /postgres-A4.aux
 /postgres-A4.log
 /postgres-A4.out
+# sgml files generated from sgmlin
+/*.sgml
+/ref/*.sgml

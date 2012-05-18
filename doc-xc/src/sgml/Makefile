@@ -17,11 +17,11 @@
 # to want to use.
 html:
 
-subdir = doc/src/sgml
+subdir = doc-xc/src/sgml
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
-MAKESGMLDIR = $(top_srcdir)/src/pgxc/tools/makesgml
+MAKESGMLDIR = $(top_builddir)/src/pgxc/tools/makesgml
 MAKESGML = $(MAKESGMLDIR)/makesgml
 
 
@@ -215,6 +215,7 @@ INC_LIST = -I PG -I EN
 #INC_LIST = -I PGXC -I EN
 
 .sgmlin.sgml:
+	$(MAKE) -C $(MAKESGMLDIR)
 	$(MAKESGML) -i $< -o $@ $(INC_LIST) $(EXC_LIST)
 
 
