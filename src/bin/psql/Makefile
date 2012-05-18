@@ -18,8 +18,8 @@ include $(top_builddir)/src/Makefile.global
 
 REFDOCDIR= $(top_srcdir)/doc-xc/src/sgml/ref
 
-MAKESGMLDIR = $(top_srcdir)/doc-xc/tools/makesgml
-SGMLDIR= $(top_srcdir)/doc-xc/src/sgml
+MAKESGMLDIR = $(top_builddir)/src/pgxc/tools/makesgml
+SGMLDIR= $(top_builddir)/doc-xc/src/sgml
 
 override CPPFLAGS := -I. -I$(srcdir) -I$(libpq_srcdir) -I$(top_srcdir)/src/bin/pg_dump $(CPPFLAGS)
 

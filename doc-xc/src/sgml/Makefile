@@ -21,7 +21,7 @@ subdir = doc/src/sgml
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
-MAKESGMLDIR = ../../tools/makesgml
+MAKESGMLDIR = $(top_srcdir)/src/pgxc/tools/makesgml
 MAKESGML = $(MAKESGMLDIR)/makesgml
 
 
