@@ -47,7 +47,7 @@ PostgreSQL documentation
   </para>
 
   <para>
-   Some of the parameters specified in the control file can be overriden by 
+   Some of the parameters specified in the control file can be overridden by 
    command line options.
   </para>
 
