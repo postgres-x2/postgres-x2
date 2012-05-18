@@ -168,7 +168,7 @@ PostgreSQL documentation
        <listitem>
        <para>
        Set the name of Postgres-XC node initialized. This option is mandatory when setting a node.
-       It permits to define the node itself in cluster node catalog
+       It permits one to define the node itself in cluster node catalog
        <link linkend="catalog-pgxc-node"><structname>pgxc_node</structname></link>. The node name
        specified is also added in <filename>postgresql.conf</> as value of <varname>pgxc_node_name</>.
        </para>
