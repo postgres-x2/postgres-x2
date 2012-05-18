@@ -2,6 +2,7 @@
 
 top_builddir=../../..
 include $(top_builddir)/src/Makefile.global
+subdir=src/gtm/gtm_ctl
 
 OBJS=gtm_ctl.o 
 

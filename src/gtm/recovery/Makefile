@@ -2,7 +2,7 @@
 
 top_builddir=../../..
 include $(top_builddir)/src/Makefile.global
-
+subdir=src/gtm/recovery
 
 NAME=gtmrecovery
 SO_MAJOR_VERSION= 1
@@ -14,7 +14,7 @@ OTHERS=../client/libgtmclient.a
 
 all:all-lib
 
-include $(top_builddir)/src/Makefile.shlib
+include $(top_srcdir)/src/Makefile.shlib
 
 clean:
 	rm -f $(OBJS)

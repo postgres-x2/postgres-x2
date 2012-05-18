@@ -2,6 +2,7 @@
 
 top_builddir=../../..
 include $(top_builddir)/src/Makefile.global
+subdir=src/gtm/proxy
 
 ifneq ($(PORTNAME), win32)
 override CFLAGS += $(PTHREAD_CFLAGS)
