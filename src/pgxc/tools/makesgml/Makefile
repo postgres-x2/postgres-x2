@@ -11,16 +11,18 @@
 PGFILEDESC = "makesgml - convert .sgmlin to .sgml"
 PGAPPICON=win32
 
-subdir = doc-xc/tools/makesgml
-top_builddir = ../../..
+subdir = src/pgxc/tools/makesgml
+top_builddir = ../../../..
 include $(top_builddir)/src/Makefile.global
+
+override CPPFLAGS := -I. -I$(srcdir) $(CPPFLAGS)
 
 OBJS = makesgml.o
 
-all distprep html man: makesgml
-
 makesgml: $(OBJS)
-	$(CC) $(CFLAGS) $(OBJS) $(LDFLAGS) $(LDFLAGS_EX) -o $@$(X)
+	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@$(X)
+
+all distprep html man: makesgml
 
 install: all installdirs
 	$(INSTALL_PROGRAM) makesgml$(X) '$(DESTDIR)$(bindir)/makesgml$(X)'
@@ -33,4 +35,3 @@ uninstall:
 
 clean distclean maintenance-clean maintainer-clean:
 	rm -rf makesgml$(X) $(OBJS)
-

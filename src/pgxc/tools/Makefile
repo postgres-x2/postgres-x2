@@ -8,8 +8,8 @@
 #
 #----------------------------------------------------------------------------
 
-subdir = doc-xc/tools
-top_builddir = ../..
+subdir = src/pgxc/tools
+top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
 SUBDIRS = makesgml

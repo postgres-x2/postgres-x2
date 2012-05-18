@@ -17,6 +17,7 @@ SUBDIRS = \
 	timezone \
 	gtm \
 	interfaces \
+	pgxc \
 	backend \
 	backend/utils/mb/conversion_procs \
 	backend/snowball \
@@ -25,8 +26,7 @@ SUBDIRS = \
 	bin \
 	pl \
 	makefiles \
-	test/regress \
-	pgxc/bin/pgxc_clean
+	test/regress
 
 # There are too many interdependencies between the subdirectories, so
 # don't attempt parallel make here.
