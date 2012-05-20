@@ -625,8 +625,7 @@ explain (num_nodes off, nodes off, verbose on)  select * from c1 for update;
 
 -- drop objects created
 drop table c1;
-drop table c1;
-ERROR:  table "c1" does not exist
+drop table p1;
 drop view v1;
 drop table t1;
 drop table t2;
