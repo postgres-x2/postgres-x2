@@ -110,6 +110,7 @@ typedef struct
 	char			*inner_statement;
 	char			*outer_statement;
 	char			*join_condition;
+	bool			has_row_marks;		/* Did SELECT had FOR UPDATE/SHARE? */
 } RemoteQuery;
 
 /*
