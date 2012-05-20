@@ -2773,6 +2773,8 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	/* Track if the remote query involves a temporary object */
 	scan_plan->is_temp = IsTempTable(rte->relid);
 
+	scan_plan->read_only = query->commandType == CMD_SELECT;
+
 	scan_plan->sql_statement = sql.data;
 	/*
 	 * If the table distributed by value, check if we can reduce the datanodes

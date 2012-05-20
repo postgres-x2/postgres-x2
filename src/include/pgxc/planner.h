@@ -80,36 +80,36 @@ typedef enum
  */
 typedef struct
 {
-	Scan		scan;
-	ExecDirectType	exec_direct_type;	/* track if remote query is execute direct and what type it is */
-	char	   *sql_statement;
-	ExecNodes  *exec_nodes;			/* List of Datanodes where to launch query */
-	CombineType combine_type;
-	SimpleSort *sort;
-	bool		read_only;          /* do not use 2PC when committing read only steps */
-	bool		force_autocommit;	/* some commands like VACUUM require autocommit mode */
-	char	   *statement;			/* if specified use it as a PreparedStatement name on data nodes */
-	char	   *cursor;				/* if specified use it as a Portal name on data nodes */
-	int			num_params;			/* number of parameters specified for Prepared statement */
-	Oid		   *param_types;		/* parameter types, this pointer is shared
-									 * across all the RemoteQuery nodes in the
-									 * plan. So, don't change this once set.
-									 */
-	RemoteQueryExecType		exec_type;
-	bool					is_temp; /* determine if this remote node is based
-									  * on a temporary objects (no 2PC) */
+	Scan			scan;
+	ExecDirectType		exec_direct_type;	/* track if remote query is execute direct and what type it is */
+	char			*sql_statement;
+	ExecNodes		*exec_nodes;		/* List of Datanodes where to launch query */
+	CombineType		combine_type;
+	SimpleSort		*sort;
+	bool			read_only;		/* do not use 2PC when committing read only steps */
+	bool			force_autocommit;	/* some commands like VACUUM require autocommit mode */
+	char			*statement;		/* if specified use it as a PreparedStatement name on data nodes */
+	char			*cursor;		/* if specified use it as a Portal name on data nodes */
+	int			num_params;		/* number of parameters specified for Prepared statement */
+	Oid			*param_types;		/* parameter types, this pointer is shared
+							 * across all the RemoteQuery nodes in the
+							 * plan. So, don't change this once set.
+							 */
+	RemoteQueryExecType	exec_type;
+	bool			is_temp;		/* determine if this remote node is based
+							 * on a temporary objects (no 2PC) */
 
-	int		   reduce_level;		/* in case of reduced JOIN, it's level    */
-	List	  *base_tlist;			/* in case of isReduced, the base tlist   */
-	char	  *outer_alias;
-	char	  *inner_alias;
-	int		   outer_reduce_level;
-	int		   inner_reduce_level;
-	Relids	   outer_relids;
-	Relids	   inner_relids;
-	char 	  *inner_statement;
-	char	  *outer_statement;
-	char	  *join_condition;
+	int			reduce_level;		/* in case of reduced JOIN, it's level    */
+	List			*base_tlist;		/* in case of isReduced, the base tlist   */
+	char			*outer_alias;
+	char			*inner_alias;
+	int			outer_reduce_level;
+	int			inner_reduce_level;
+	Relids			outer_relids;
+	Relids			inner_relids;
+	char			*inner_statement;
+	char			*outer_statement;
+	char			*join_condition;
 } RemoteQuery;
 
 /*
