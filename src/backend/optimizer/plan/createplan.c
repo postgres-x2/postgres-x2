@@ -2773,7 +2773,8 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	/* Track if the remote query involves a temporary object */
 	scan_plan->is_temp = IsTempTable(rte->relid);
 
-	scan_plan->read_only = query->commandType == CMD_SELECT;
+	scan_plan->read_only = (query->commandType == CMD_SELECT && !query->hasForUpdate);
+	scan_plan->has_row_marks = query->hasForUpdate;
 
 	scan_plan->sql_statement = sql.data;
 	/*
@@ -4132,6 +4133,7 @@ make_remotequery(List *qptlist, List *qpqual, Index scanrelid)
 	plan->righttree = NULL;
 	node->scan.scanrelid = scanrelid;
 	node->read_only = true;
+	node->has_row_marks = false;
 
 	return node;
 }
@@ -6397,7 +6399,8 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	remote_group->sql_statement = remote_sql_stmt->data;
 
 	/* set_plan_refs needs this later */
-	remote_group->read_only = query->commandType == CMD_SELECT;
+	remote_group->read_only = (query->commandType == CMD_SELECT && !query->hasForUpdate);
+	remote_group->has_row_marks = query->hasForUpdate;
 
 	/* we actually need not worry about costs since this is the final plan */
 	remote_group_plan->startup_cost	= remote_scan->scan.plan.startup_cost;

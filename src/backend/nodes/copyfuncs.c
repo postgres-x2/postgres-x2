@@ -1035,6 +1035,7 @@ _copyRemoteQuery(RemoteQuery *from)
 	COPY_STRING_FIELD(inner_statement);
 	COPY_STRING_FIELD(outer_statement);
 	COPY_STRING_FIELD(join_condition);
+	COPY_SCALAR_FIELD(has_row_marks);
 
 	return newnode;
 }

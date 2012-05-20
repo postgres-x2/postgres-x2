@@ -2849,7 +2849,7 @@ pgxc_start_command_on_connection(PGXCNodeHandle *connection,
 							step->param_types,
 							remotestate->paramval_len,
 							remotestate->paramval_data,
-							step->read_only,
+							step->has_row_marks ? true : step->read_only,
 							fetch) != 0)
 			return false;
 	}

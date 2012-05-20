@@ -477,6 +477,7 @@ _outRemoteQuery(StringInfo str, RemoteQuery *node)
 	WRITE_INT_FIELD(num_params);
 	WRITE_ENUM_FIELD(exec_type, RemoteQueryExecType);
 	WRITE_BOOL_FIELD(is_temp);
+	WRITE_BOOL_FIELD(has_row_marks);
 }
 
 static void

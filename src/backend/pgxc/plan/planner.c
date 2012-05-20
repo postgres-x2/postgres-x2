@@ -661,7 +661,9 @@ pgxc_FQS_create_remote_plan(Query *query, ExecNodes *exec_nodes, bool is_exec_di
 	 */
 	query->qry_finalise_aggs = false;
 	/* Optimize multi-node handling */
-	query_step->read_only = query->commandType == CMD_SELECT;
+	query_step->read_only = (query->commandType == CMD_SELECT && !query->hasForUpdate);
+	query_step->has_row_marks = query->hasForUpdate;
+
 	/* Check if temporary tables are in use in query */
 	/* PGXC_FQS_TODO: scanning the rtable again for the queries should not be
 	 * needed. We should be able to find out if the query has a temporary object
