@@ -69,6 +69,7 @@ static char *gtm_host = "localhost";
 
 /* path to 'initgtm' binary directory */
 static char bin_path[MAXPGPATH];
+static char backend_exec[MAXPGPATH];
 
 static void *pg_malloc(size_t size);
 static char *xstrdup(const char *s);
@@ -803,11 +804,10 @@ main(int argc, char *argv[])
 		{NULL, 0, NULL, 0}
 	};
 
-	int			c;
+	int			c, ret;
 	int			option_index;
 	char	   *effective_user;
 	char		bin_dir[MAXPGPATH];
-	char		full_path[MAXPGPATH];
 	char	   *pg_data_native;
 	bool		node_type_specified = false;
 
@@ -955,19 +955,40 @@ main(int argc, char *argv[])
 	}
 #endif
 
-	/* Find full path name */
-	if (find_my_exec(argv[0], full_path) < 0)
-		strlcpy(full_path, progname, sizeof(full_path));
+	/* Like for initdb, check if a valid version of Postgres is running */
+	if ((ret = find_other_exec(argv[0], "postgres", PG_BACKEND_VERSIONSTR,
+							   backend_exec)) < 0)
+	{
+		char        full_path[MAXPGPATH];
+
+		if (find_my_exec(argv[0], full_path) < 0)
+			strlcpy(full_path, progname, sizeof(full_path));
+
+		if (ret == -1)
+			fprintf(stderr,
+					_("The program \"postgres\" is needed by %s "
+					  "but was not found in the\n"
+					  "same directory as \"%s\".\n"
+					  "Check your installation.\n"),
+					progname, full_path);
+		else
+			fprintf(stderr,
+					_("The program \"postgres\" was found by \"%s\"\n"
+					  "but was not the same version as %s.\n"
+					  "Check your installation.\n"),
+					full_path, progname);
+		exit(1);
+	}
 
 	/* store binary directory */
-	strcpy(bin_path, full_path);
+	strcpy(bin_path, backend_exec);
 	*last_dir_separator(bin_path) = '\0';
 	canonicalize_path(bin_path);
 
 	if (!share_path)
 	{
 		share_path = pg_malloc(MAXPGPATH);
-		get_share_path(bin_path, share_path);
+		get_share_path(backend_exec, share_path);
 	}
 	else if (!is_absolute_path(share_path))
 	{
@@ -978,7 +999,8 @@ main(int argc, char *argv[])
 	canonicalize_path(share_path);
 
 	effective_user = get_id();
-	/* TODO: separate the case of GTM and GTM-Proxy depending on options specified */
+
+	/* Take into account GTM and GTM-proxy cases */
 	if (is_gtm)
 		set_input(&conf_file, "gtm.conf.sample");
 	else
