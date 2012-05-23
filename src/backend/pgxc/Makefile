@@ -1,12 +1,12 @@
+#----------------------------------------------------------------------------
 #
-# Makefile for the access methods module
+# Postgres-XC backend method makefile
 #
+# Copyright(c) 2010-2012 Nippon Telegraph and Telephone Corporation
 #
-# Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
+# src/backend/pgxc/Makefile
 #
-# $PostgreSQL$
-#
-
+#-----------------------------------------------------------------------------
 subdir = src/backend/pgxc
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global

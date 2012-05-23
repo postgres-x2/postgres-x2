@@ -5,7 +5,7 @@
  * Copyright (c) 2010-2012, Nippon Telegraph and Telephone Corporation
  *
  * IDENTIFICATION
- *		doc-xc/tools/makesgml/makesgml.c
+ *		src/pgxc/tools/makesgml/makesgml.c
  *
  * This tools converts .sgmlin files into .sgml files to be handled by
  * many tools to generate Postgres-XC documants.

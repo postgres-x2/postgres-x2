@@ -1,5 +1,12 @@
-# Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
-
+#----------------------------------------------------------------------------
+#
+# Postgres-XC GTM libpq makefile
+#
+# Copyright(c) 2010-2012 Nippon Telegraph and Telephone Corporation
+#
+# src/gtm/libpq/Makefile
+#
+#-----------------------------------------------------------------------------
 top_builddir=../../..
 include $(top_builddir)/src/Makefile.global
 subdir=src/gtm/libpq

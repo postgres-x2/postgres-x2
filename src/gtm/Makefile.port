@@ -1,5 +1,12 @@
-# Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
-
+#----------------------------------------------------------------------------
+#
+# Postgres-XC port makefile
+#
+# Copyright(c) 2010-2012 Nippon Telegraph and Telephone Corporation
+#
+# src/pgxc/tools/makesgml/Makefile.port
+#
+#-----------------------------------------------------------------------------
 AROPT = crs
 export_dynamic = -Wl,-E
 rpath = -Wl,-rpath,'$(rpathdir)'
