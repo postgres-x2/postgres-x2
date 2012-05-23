@@ -3,7 +3,7 @@
 # Makefile--
 #    Makefile for node management routines
 #
-#  Portions Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
+#  Portions Copyright (c) 2010-2012 Nippon Telegraph and Telephone Corporation
 #
 # IDENTIFICATION
 #    $PostgreSQL$

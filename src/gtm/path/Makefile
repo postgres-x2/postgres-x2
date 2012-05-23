@@ -1,3 +1,12 @@
+#----------------------------------------------------------------------------
+#
+# Postgres-XC GTM path makefile
+#
+# Copyright(c) 2010-2012 Nippon Telegraph and Telephone Corporation
+#
+# src/gtm/path/Makefile
+#
+#-----------------------------------------------------------------------------
 top_builddir=../../..
 include $(top_builddir)/src/Makefile.global
 subdir=src/gtm/path

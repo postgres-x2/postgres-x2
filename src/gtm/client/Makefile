@@ -1,5 +1,12 @@
-# Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
-
+#----------------------------------------------------------------------------
+#
+# Postgres-XC GTM client makefile
+#
+# Copyright(c) 2010-2012 Nippon Telegraph and Telephone Corporation
+#
+# src/gtm/client/Makefile
+#
+#-----------------------------------------------------------------------------
 top_builddir=../../..
 include $(top_builddir)/src/Makefile.global
 subdir=src/gtm/client

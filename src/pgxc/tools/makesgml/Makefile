@@ -4,7 +4,7 @@
 #
 # Copyright(c) 2010-2012 Nippon Telegraph and Telephone Corporation
 #
-# doc-xc/tools/makesgml/Makefile
+# src/pgxc/tools/makesgml/Makefile
 #
 #-----------------------------------------------------------------------------
 

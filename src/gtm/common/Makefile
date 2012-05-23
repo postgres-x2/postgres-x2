@@ -1,5 +1,12 @@
-# Copyright (c) 2010-2011 Nippon Telegraph and Telephone Corporation
-
+#----------------------------------------------------------------------------
+#
+# Postgres-XC GTM common makefile
+#
+# Copyright(c) 2010-2012 Nippon Telegraph and Telephone Corporation
+#
+# src/gtm/common/Makefile
+#
+#-----------------------------------------------------------------------------
 top_builddir=../../..
 subdir=src/gtm/common
 
