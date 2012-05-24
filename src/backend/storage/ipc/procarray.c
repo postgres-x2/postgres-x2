@@ -1252,12 +1252,15 @@ GetSnapshotData(Snapshot snapshot)
 
 #ifdef PGXC  /* PGXC_DATANODE */
 	/*
- 	 * The typical case is that the coordinator passes down the snapshot to the
- 	 * data nodes to use, while it itselfs obtains them from GTM.
- 	 * The data nodes may however connect directly to GTM themselves to obtain
- 	 * XID and snapshot information for autovacuum worker threads.
+ 	 * The typical case is that the local Coordinator passes down the snapshot to the
+ 	 * remote nodes to use, while it itself obtains it from GTM. Autovacuum processes
+	 * need however to connect directly to GTM themselves to obtain XID and snapshot
+	 * information for autovacuum worker threads.
+	 * A vacuum analyze uses a special function to get a transaction ID and signal
+	 * GTM not to include this transaction ID in snapshot.
+	 * A vacuum worker starts as a normal transaction would.
  	 */
-	if (IS_PGXC_DATANODE || IsConnFromCoord())
+	if (IS_PGXC_DATANODE || IsConnFromCoord() || IsAutoVacuumWorkerProcess())
 	{
 		if (GetSnapshotDataDataNode(snapshot))
 			return snapshot;
@@ -2487,8 +2490,7 @@ UnsetGlobalSnapshotData(void)
 static bool 
 GetSnapshotDataDataNode(Snapshot snapshot)
 {
-	Assert(IS_PGXC_DATANODE || IsConnFromCoord());
-
+	Assert(IS_PGXC_DATANODE || IsConnFromCoord() || IsAutoVacuumWorkerProcess());
 
 	if (IsAutoVacuumWorkerProcess() || GetForceXidFromGTM())
 	{
