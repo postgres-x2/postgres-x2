@@ -3,7 +3,7 @@
  * txninfo.h
  *	  Prepared transaction info
  *
- * Portions Copyright (c) 2012 Nippon Telegraph and Telephone Corporation
+ * Portions Copyright (c) 2012 Postgres-XC Development Group
  *
  * $Postgres-XC$
  *

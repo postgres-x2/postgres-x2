@@ -3,7 +3,7 @@
 # Makefile--
 #    Makefile for locator
 #
-# Copyright(C) 2010-2012 Nippon Telegraph and Telephone Corporation
+# Copyright(C) 2010-2012 Postgres-XC Development Group
 #
 # IDENTIFICATION
 #    $PostgreSQL$

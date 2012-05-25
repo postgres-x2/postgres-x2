@@ -2,7 +2,7 @@
 #
 # Makefile for src/pgxc/bin/pgxc_clean
 #
-# Portions Copyright (c) 2011 Nippon Telegraph and Telephone Corporation
+# Portions Copyright (c) 2011 Postgres-XC Development Group
 #
 # $PostgreSQL$
 #

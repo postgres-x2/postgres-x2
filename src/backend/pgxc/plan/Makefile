@@ -3,7 +3,7 @@
 # Makefile--
 #    Makefile for rewrite
 #
-# Portions Copyright(C) 2010-2012 Nippon Telegraph and Telephone Corporation
+# Portions Copyright(C) 2010-2012 Postgres-XC Development Group
 #
 # IDENTIFICATION
 #    $PostgreSQL$

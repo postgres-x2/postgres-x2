@@ -3,7 +3,7 @@
 # Makefile--
 #    Makefile for pool
 #
-#  Portions Copyright (c) 2010-2012 Nippon Telegraph and Telephone Corporation
+#  Portions Copyright (c) 2010-2012 Postgres-XC Development Group
 #
 # IDENTIFICATION
 #    $PostgreSQL$

@@ -2,7 +2,7 @@
 #
 # Postgres-XC GTM test2 makefile
 #
-# Copyright(c) 2010-2012 Nippon Telegraph and Telephone Corporation
+# Copyright(c) 2010-2012 Postgres-XC Development Group
 #
 # src/gtm/test2/Makefile
 #

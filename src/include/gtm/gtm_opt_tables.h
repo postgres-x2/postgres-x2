@@ -3,7 +3,7 @@
  * gtm_opt_tables.h
  *		Declarations of tables used by GTM configuration file.
  *
- * Portions Copyright (c) 2011, Nippon Telegraph and Telephone Corporation
+ * Portions Copyright (c) 2011, Postgres-XC Development Group
  * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  *
  *	  src/include/gtm/gtm_opt_tables.h
