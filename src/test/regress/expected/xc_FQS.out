@@ -80,15 +80,15 @@ select sum(val), avg(val), count(*) from tab1_rr;
 (1 row)
 
 explain (costs off, verbose on, nodes off) select sum(val), avg(val), count(*) from tab1_rr;
-                                                                    QUERY PLAN                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    Output: pg_catalog.sum((sum(tab1_rr.val))), pg_catalog.avg((avg(tab1_rr.val))), pg_catalog.count(*)
    ->  Materialize
          Output: (sum(tab1_rr.val)), (avg(tab1_rr.val)), (count(*))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: sum(tab1_rr.val), avg(tab1_rr.val), count(*)
-               Remote query: SELECT sum(group_1.val), avg(group_1.val), count(*)  FROM (SELECT val, val2 FROM ONLY tab1_rr WHERE true) group_1   
+               Remote query: SELECT sum(group_1.val), avg(group_1.val), count(*)  FROM (SELECT val FROM ONLY tab1_rr WHERE true) group_1   
 (7 rows)
 
 -- should not get FQSed because of window functions
@@ -330,15 +330,15 @@ select avg(val) from tab1_rr where val = 7;
 (1 row)
 
 explain (costs off, verbose on, nodes off) select avg(val) from tab1_rr where val = 7;
-                                                        QUERY PLAN                                                         
----------------------------------------------------------------------------------------------------------------------------
+                                                     QUERY PLAN                                                      
+---------------------------------------------------------------------------------------------------------------------
  Aggregate
    Output: pg_catalog.avg((avg(tab1_rr.val)))
    ->  Materialize
          Output: (avg(tab1_rr.val))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: avg(tab1_rr.val)
-               Remote query: SELECT avg(group_1.val)  FROM (SELECT val, val2 FROM ONLY tab1_rr WHERE (val = 7)) group_1   
+               Remote query: SELECT avg(group_1.val)  FROM (SELECT val FROM ONLY tab1_rr WHERE (val = 7)) group_1   
 (7 rows)
 
 select val, val2 from tab1_rr where val = 7 order by val2;
@@ -369,15 +369,15 @@ select distinct val2 from tab1_rr where val = 7;
 (2 rows)
 
 explain (costs off, verbose on, nodes off) select distinct val2 from tab1_rr where val = 7;
-                                   QUERY PLAN                                   
---------------------------------------------------------------------------------
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
  HashAggregate
    Output: val2
    ->  Result
          Output: val2
          ->  Data Node Scan on tab1_rr
-               Output: val, val2
-               Remote query: SELECT val, val2 FROM ONLY tab1_rr WHERE (val = 7)
+               Output: val2
+               Remote query: SELECT val2 FROM ONLY tab1_rr WHERE (val = 7)
 (7 rows)
 
 -- DMLs
@@ -456,15 +456,15 @@ select sum(val), avg(val), count(*) from tab1_hash;
 (1 row)
 
 explain (costs off, verbose on, nodes off) select sum(val), avg(val), count(*) from tab1_hash;
-                                                                     QUERY PLAN                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    Output: pg_catalog.sum((sum(tab1_hash.val))), pg_catalog.avg((avg(tab1_hash.val))), pg_catalog.count(*)
    ->  Materialize
          Output: (sum(tab1_hash.val)), (avg(tab1_hash.val)), (count(*))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: sum(tab1_hash.val), avg(tab1_hash.val), count(*)
-               Remote query: SELECT sum(group_1.val), avg(group_1.val), count(*)  FROM (SELECT val, val2 FROM ONLY tab1_hash WHERE true) group_1   
+               Remote query: SELECT sum(group_1.val), avg(group_1.val), count(*)  FROM (SELECT val FROM ONLY tab1_hash WHERE true) group_1   
 (7 rows)
 
 -- should not get FQSed because of window functions
@@ -812,15 +812,15 @@ select sum(val), avg(val), count(*) from tab1_modulo;
 (1 row)
 
 explain (costs off, verbose on, nodes off) select sum(val), avg(val), count(*) from tab1_modulo;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    Output: pg_catalog.sum((sum(tab1_modulo.val))), pg_catalog.avg((avg(tab1_modulo.val))), pg_catalog.count(*)
    ->  Materialize
          Output: (sum(tab1_modulo.val)), (avg(tab1_modulo.val)), (count(*))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: sum(tab1_modulo.val), avg(tab1_modulo.val), count(*)
-               Remote query: SELECT sum(group_1.val), avg(group_1.val), count(*)  FROM (SELECT val, val2 FROM ONLY tab1_modulo WHERE true) group_1   
+               Remote query: SELECT sum(group_1.val), avg(group_1.val), count(*)  FROM (SELECT val FROM ONLY tab1_modulo WHERE true) group_1   
 (7 rows)
 
 -- should not get FQSed because of window functions

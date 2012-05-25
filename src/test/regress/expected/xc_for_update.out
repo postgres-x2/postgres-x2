@@ -433,8 +433,8 @@ explain (num_nodes off, nodes off, verbose on)  select * from (select * from t1 
 (7 rows)
 
 explain (num_nodes off, nodes off, verbose on)  select * from t1 where val in (select val from t2 for update of t2 nowait) for update;
-                                                      QUERY PLAN                                                      
-----------------------------------------------------------------------------------------------------------------------
+                                                   QUERY PLAN                                                   
+----------------------------------------------------------------------------------------------------------------
  LockRows  (cost=22.51..25.32 rows=1 width=36)
    Output: t1.val, t1.val2, "ANY_subquery".*
    ->  Hash Join  (cost=22.51..25.31 rows=1 width=36)
@@ -449,8 +449,8 @@ explain (num_nodes off, nodes off, verbose on)  select * from t1 where val in (s
                            ->  Result  (cost=0.00..0.00 rows=1000 width=4)
                                  Output: t2.val
                                  ->  Data Node Scan on t2  (cost=0.00..0.00 rows=1000 width=4)
-                                       Output: t2.val, t2.val2
-                                       Remote query: SELECT val, val2 FROM ONLY t2 WHERE true FOR UPDATE OF t2 NOWAIT
+                                       Output: t2.val
+                                       Remote query: SELECT val FROM ONLY t2 WHERE true FOR UPDATE OF t2 NOWAIT
          ->  Hash  (cost=0.00..0.00 rows=1000 width=8)
                Output: t1.val, t1.val2
                ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=8)
@@ -459,8 +459,8 @@ explain (num_nodes off, nodes off, verbose on)  select * from t1 where val in (s
 (21 rows)
 
 explain (num_nodes off, nodes off, verbose on)  select * from t1 where val in (select val from t2 for update of t2 nowait);
-                                                QUERY PLAN                                                
-----------------------------------------------------------------------------------------------------------
+                                             QUERY PLAN                                             
+----------------------------------------------------------------------------------------------------
  Hash Join  (cost=22.51..25.31 rows=1 width=8)
    Output: t1.val, t1.val2
    Hash Cond: (t2.val = t1.val)
@@ -471,8 +471,8 @@ explain (num_nodes off, nodes off, verbose on)  select * from t1 where val in (s
                ->  Result  (cost=0.00..0.00 rows=1000 width=4)
                      Output: t2.val
                      ->  Data Node Scan on t2  (cost=0.00..0.00 rows=1000 width=4)
-                           Output: t2.val, t2.val2
-                           Remote query: SELECT val, val2 FROM ONLY t2 WHERE true FOR UPDATE OF t2 NOWAIT
+                           Output: t2.val
+                           Remote query: SELECT val FROM ONLY t2 WHERE true FOR UPDATE OF t2 NOWAIT
    ->  Hash  (cost=0.00..0.00 rows=1000 width=8)
          Output: t1.val, t1.val2
          ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=8)

@@ -426,10 +426,10 @@ explain (costs off, verbose on, nodes off, num_nodes on) select * from tab1_mod 
  Result
    Output: "__REMOTE_JOIN_QUERY__".val2_1_2_1, "__REMOTE_JOIN_QUERY__".val_1_1_1, "__REMOTE_JOIN_QUERY__".val_2_1_1, "__REMOTE_JOIN_QUERY__".val_1_1_1
    ->  Materialize
-         Output: "__REMOTE_JOIN_QUERY__".val_1_1_1, "__REMOTE_JOIN_QUERY__".val2_1_2_1, "__REMOTE_JOIN_QUERY__".val_2_1_1
+         Output: "__REMOTE_JOIN_QUERY__".val2_1_2_1, "__REMOTE_JOIN_QUERY__".val_1_1_1, "__REMOTE_JOIN_QUERY__".val_2_1_1
          ->  Data Node Scan (primary node count=0, node count=1) on "__REMOTE_JOIN_QUERY__"
-               Output: "__REMOTE_JOIN_QUERY__".val_1_1_1, "__REMOTE_JOIN_QUERY__".val2_1_2_1, "__REMOTE_JOIN_QUERY__".val_2_1_1
-               Remote query: SELECT in_1.val AS val_1_1_1, in_1.val2 AS val2_1_2_1, out_1.val AS val_2_1_1 FROM  (SELECT val, val2 FROM ONLY tab1_mod WHERE (val = 1)) in_1  ,  (SELECT val, val2 FROM ONLY tab2_mod WHERE (val = 2)) out_1  WHERE   (in_1.val2 = out_1.val2)
+               Output: "__REMOTE_JOIN_QUERY__".val2_1_2_1, "__REMOTE_JOIN_QUERY__".val_1_1_1, "__REMOTE_JOIN_QUERY__".val_2_1_1
+               Remote query: SELECT in_1.val2 AS val2_1_2_1, in_1.val AS val_1_1_1, out_1.val AS val_2_1_1 FROM  (SELECT val2, val FROM ONLY tab1_mod WHERE (val = 1)) in_1  ,  (SELECT val, val2 FROM ONLY tab2_mod WHERE (val = 2)) out_1  WHERE   (in_1.val2 = out_1.val2)
 (7 rows)
 
 -- JOIN involving the distributed table with equi-JOIN on the distributed column

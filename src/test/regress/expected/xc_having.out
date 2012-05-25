@@ -130,7 +130,7 @@ explain (verbose true, costs false, nodes false) select val2 from xc_having_tab1
          Output: xc_having_tab1.val2, (sum(xc_having_tab1.val))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: xc_having_tab1.val2, sum(xc_having_tab1.val)
-               Remote query: SELECT group_1.val2, sum(group_1.val)  FROM (SELECT val, val2 FROM ONLY xc_having_tab1 WHERE true) group_1 GROUP BY 1  
+               Remote query: SELECT group_1.val2, sum(group_1.val)  FROM (SELECT val2, val FROM ONLY xc_having_tab1 WHERE true) group_1 GROUP BY 1  
 (8 rows)
 
 select val + val2 from xc_having_tab1 group by val + val2 having sum(val) > 5;
@@ -296,7 +296,7 @@ explain (verbose true, costs false, nodes false) select val2 from xc_having_tab1
          Output: xc_having_tab1.val2, (sum(xc_having_tab1.val))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: xc_having_tab1.val2, sum(xc_having_tab1.val)
-               Remote query: SELECT group_1.val2, sum(group_1.val)  FROM (SELECT val, val2 FROM ONLY xc_having_tab1 WHERE true) group_1 GROUP BY 1  
+               Remote query: SELECT group_1.val2, sum(group_1.val)  FROM (SELECT val2, val FROM ONLY xc_having_tab1 WHERE true) group_1 GROUP BY 1  
 (8 rows)
 
 select val + val2 from xc_having_tab1 group by val + val2 having sum(val) > 5;
@@ -469,7 +469,7 @@ explain (verbose true, costs false, nodes false) select val2 from xc_having_tab1
          Output: xc_having_tab1.val2, (sum(xc_having_tab1.val))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: xc_having_tab1.val2, sum(xc_having_tab1.val)
-               Remote query: SELECT group_1.val2, sum(group_1.val)  FROM (SELECT val, val2 FROM ONLY xc_having_tab1 WHERE true) group_1 GROUP BY 1 ORDER BY 1 
+               Remote query: SELECT group_1.val2, sum(group_1.val)  FROM (SELECT val2, val FROM ONLY xc_having_tab1 WHERE true) group_1 GROUP BY 1 ORDER BY 1 
 (8 rows)
 
 select val + val2 from xc_having_tab1 group by val + val2 having sum(val) > 5;
@@ -635,7 +635,7 @@ explain (verbose true, costs false, nodes false) select val2 from xc_having_tab1
          Output: xc_having_tab1.val2, (sum(xc_having_tab1.val))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: xc_having_tab1.val2, sum(xc_having_tab1.val)
-               Remote query: SELECT group_1.val2, sum(group_1.val)  FROM (SELECT val, val2 FROM ONLY xc_having_tab1 WHERE true) group_1 GROUP BY 1 ORDER BY 1 
+               Remote query: SELECT group_1.val2, sum(group_1.val)  FROM (SELECT val2, val FROM ONLY xc_having_tab1 WHERE true) group_1 GROUP BY 1 ORDER BY 1 
 (8 rows)
 
 select val + val2 from xc_having_tab1 group by val + val2 having sum(val) > 5;

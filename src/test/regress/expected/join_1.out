@@ -2626,17 +2626,17 @@ explain (verbose true, costs false, nodes false)
 select id from a where id in (
 	select b.id from b left join c on b.id = c.id
 );
-                          QUERY PLAN                          
---------------------------------------------------------------
+                       QUERY PLAN                       
+--------------------------------------------------------
  Nested Loop Semi Join
    Output: a.id
    Join Filter: (a.id = b.id)
    ->  Data Node Scan on a
-         Output: a.id, a.b_id
-         Remote query: SELECT id, b_id FROM ONLY a WHERE true
+         Output: a.id
+         Remote query: SELECT id FROM ONLY a WHERE true
    ->  Data Node Scan on b
-         Output: b.id, b.c_id
-         Remote query: SELECT id, c_id FROM ONLY b WHERE true
+         Output: b.id
+         Remote query: SELECT id FROM ONLY b WHERE true
 (9 rows)
 
 rollback;

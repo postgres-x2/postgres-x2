@@ -106,9 +106,6 @@ INSERT INTO atest1 SELECT 1, b FROM atest1; -- fail
 UPDATE atest1 SET a = 1 WHERE a = 2; -- fail
 UPDATE atest2 SET col2 = NULL; -- ok
 UPDATE atest2 SET col2 = NOT col2; -- fails; requires SELECT on atest2
--- PGXCTODO: Related to issue 3520503, target list on a remote query scan needs to be
--- reduced to necessary columns only. Now all the columns are fetched, including ones
--- user has no permission to.
 UPDATE atest2 SET col2 = true FROM atest1 WHERE atest1.a = 5; -- ok
 SELECT * FROM atest1 FOR UPDATE; -- fail
 SELECT * FROM atest2 FOR UPDATE; -- fail
@@ -196,16 +193,16 @@ COPY atest5 (two) TO stdout; -- fail
 SELECT atest5 FROM atest5; -- fail
 COPY atest5 (one,two) TO stdout; -- fail
 SELECT 1 FROM atest5; -- ok
-SELECT 1 FROM atest5 a JOIN atest5 b USING (one); -- fail due to issue 3520503, see above
+SELECT 1 FROM atest5 a JOIN atest5 b USING (one); -- ok 
 SELECT 1 FROM atest5 a JOIN atest5 b USING (two); -- fail
 SELECT 1 FROM atest5 a NATURAL JOIN atest5 b; -- fail
 SELECT (j.*) IS NULL FROM (atest5 a JOIN atest5 b USING (one)) j; -- fail
 SELECT 1 FROM atest5 WHERE two = 2; -- fail
 SELECT * FROM atest1, atest5; -- fail
 SELECT atest1.* FROM atest1, atest5; -- ok
-SELECT atest1.*,atest5.one FROM atest1, atest5; -- fail due to issue 3520503, see above
+SELECT atest1.*,atest5.one FROM atest1, atest5; -- ok 
 SELECT atest1.*,atest5.one FROM atest1 JOIN atest5 ON (atest1.a = atest5.two); -- fail
-SELECT atest1.*,atest5.one FROM atest1 JOIN atest5 ON (atest1.a = atest5.one); -- fail due to issue 3520503, see above
+SELECT atest1.*,atest5.one FROM atest1 JOIN atest5 ON (atest1.a = atest5.one); -- ok 
 SELECT one, two FROM atest5; -- fail
 
 SET SESSION AUTHORIZATION regressuser1;
@@ -218,7 +215,7 @@ SET SESSION AUTHORIZATION regressuser1;
 GRANT SELECT (two) ON atest5 TO regressuser4;
 
 SET SESSION AUTHORIZATION regressuser4;
-SELECT one, two FROM atest5 NATURAL JOIN atest6; -- fail due to issue 3520503, see above
+SELECT one, two FROM atest5 NATURAL JOIN atest6; -- ok now 
 
 -- test column-level privileges for INSERT and UPDATE
 INSERT INTO atest5 (two) VALUES (3); -- fail due to issue 3520503, see above
@@ -259,7 +256,7 @@ ALTER TABLE atest6 DROP COLUMN three;
 
 SET SESSION AUTHORIZATION regressuser4;
 SELECT atest6 FROM atest6; -- ok
-SELECT one FROM atest5 NATURAL JOIN atest6; -- fail due to issue 3520503, see above
+SELECT one FROM atest5 NATURAL JOIN atest6; -- ok 
 
 SET SESSION AUTHORIZATION regressuser1;
 ALTER TABLE atest6 DROP COLUMN two;

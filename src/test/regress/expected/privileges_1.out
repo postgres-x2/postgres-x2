@@ -158,9 +158,6 @@ ERROR:  Partition column can't be updated in current version
 UPDATE atest2 SET col2 = NULL; -- ok
 UPDATE atest2 SET col2 = NOT col2; -- fails; requires SELECT on atest2
 ERROR:  permission denied for relation atest2
--- PGXCTODO: Related to issue 3520503, target list on a remote query scan needs to be
--- reduced to necessary columns only. Now all the columns are fetched, including ones
--- user has no permission to.
 UPDATE atest2 SET col2 = true FROM atest1 WHERE atest1.a = 5; -- ok
 ERROR:  permission denied for relation atest2
 SELECT * FROM atest1 FOR UPDATE; -- fail
@@ -278,8 +275,12 @@ SELECT 1 FROM atest5; -- ok
         1
 (1 row)
 
-SELECT 1 FROM atest5 a JOIN atest5 b USING (one); -- fail due to issue 3520503, see above
-ERROR:  permission denied for relation atest5
+SELECT 1 FROM atest5 a JOIN atest5 b USING (one); -- ok 
+ ?column? 
+----------
+        1
+(1 row)
+
 SELECT 1 FROM atest5 a JOIN atest5 b USING (two); -- fail
 ERROR:  permission denied for relation atest5
 SELECT 1 FROM atest5 a NATURAL JOIN atest5 b; -- fail
@@ -292,12 +293,21 @@ SELECT * FROM atest1, atest5; -- fail
 ERROR:  permission denied for relation atest5
 SELECT atest1.* FROM atest1, atest5; -- ok
 ERROR:  permission denied for relation atest5
-SELECT atest1.*,atest5.one FROM atest1, atest5; -- fail due to issue 3520503, see above
-ERROR:  permission denied for relation atest5
+SELECT atest1.*,atest5.one FROM atest1, atest5; -- ok 
+ a |  b  | one 
+---+-----+-----
+ 2 | two |   1
+ 1 | two |   1
+(2 rows)
+
 SELECT atest1.*,atest5.one FROM atest1 JOIN atest5 ON (atest1.a = atest5.two); -- fail
 ERROR:  permission denied for relation atest5
-SELECT atest1.*,atest5.one FROM atest1 JOIN atest5 ON (atest1.a = atest5.one); -- fail due to issue 3520503, see above
-ERROR:  permission denied for relation atest5
+SELECT atest1.*,atest5.one FROM atest1 JOIN atest5 ON (atest1.a = atest5.one); -- ok 
+ a |  b  | one 
+---+-----+-----
+ 1 | two |   1
+(1 row)
+
 SELECT one, two FROM atest5; -- fail
 ERROR:  permission denied for relation atest5
 SET SESSION AUTHORIZATION regressuser1;
@@ -308,8 +318,11 @@ ERROR:  permission denied for relation atest5
 SET SESSION AUTHORIZATION regressuser1;
 GRANT SELECT (two) ON atest5 TO regressuser4;
 SET SESSION AUTHORIZATION regressuser4;
-SELECT one, two FROM atest5 NATURAL JOIN atest6; -- fail due to issue 3520503, see above
-ERROR:  permission denied for relation atest5
+SELECT one, two FROM atest5 NATURAL JOIN atest6; -- ok now 
+ one | two 
+-----+-----
+(0 rows)
+
 -- test column-level privileges for INSERT and UPDATE
 INSERT INTO atest5 (two) VALUES (3); -- fail due to issue 3520503, see above
 ERROR:  permission denied for relation atest5
@@ -359,8 +372,11 @@ SELECT atest6 FROM atest6; -- ok
 --------
 (0 rows)
 
-SELECT one FROM atest5 NATURAL JOIN atest6; -- fail due to issue 3520503, see above
-ERROR:  permission denied for relation atest5
+SELECT one FROM atest5 NATURAL JOIN atest6; -- ok 
+ one 
+-----
+(0 rows)
+
 SET SESSION AUTHORIZATION regressuser1;
 ALTER TABLE atest6 DROP COLUMN two;
 REVOKE SELECT (one,blue) ON atest6 FROM regressuser4;

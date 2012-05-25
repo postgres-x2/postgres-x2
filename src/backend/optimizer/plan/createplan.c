@@ -410,6 +410,8 @@ create_scan_plan(PlannerInfo *root, Path *best_path)
 
 #ifdef PGXC
 		case T_RemoteQuery:
+			/* For RemoteQuery path always use relation tlist */
+			tlist = build_relation_tlist(rel);
 			plan = (Plan *) create_remotequery_plan(root,
 													  best_path,
 													  tlist,
@@ -2594,7 +2596,7 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	Node			*tmp_node;
 	List			*rmlist;
 	List			*tvarlist;
-	bool			tlist_is_simple = contains_only_vars(tlist);
+	bool			tlist_is_simple;
 
 	Assert(scan_relid > 0);
 	Assert(best_path->parent->rtekind == RTE_RELATION);
@@ -2618,6 +2620,14 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 				local_scan_clauses = lappend(local_scan_clauses, clause);
 		}
 	}
+
+	/*
+	 * The target list passed in may not contain the Vars required for
+	 * evaluating the quals. Add those quals in the targetlist
+	 */
+	tlist = add_to_flat_tlist(tlist, copyObject(pull_var_clause((Node *)local_scan_clauses,
+																PVC_RECURSE_PLACEHOLDERS)));
+	tlist_is_simple = contains_only_vars(tlist);
 
 	/*
 	 * Construct a Query structure for the query to be fired on the datanodes

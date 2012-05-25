@@ -104,8 +104,8 @@ select * from (select val2 from xc_groupby_tab1 group by val2) q order by q.val2
 (3 rows)
 
 explain (verbose true, costs false, nodes false) select * from (select val2 from xc_groupby_tab1 group by val2) q order by q.val2;
-                                                                QUERY PLAN                                                                
-------------------------------------------------------------------------------------------------------------------------------------------
+                                                             QUERY PLAN                                                              
+-------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: xc_groupby_tab1.val2
    Sort Key: xc_groupby_tab1.val2
@@ -115,7 +115,7 @@ explain (verbose true, costs false, nodes false) select * from (select val2 from
                Output: xc_groupby_tab1.val2
                ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                      Output: xc_groupby_tab1.val2
-                     Remote query: SELECT group_1.val2  FROM (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 1  
+                     Remote query: SELECT group_1.val2  FROM (SELECT val2 FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 1  
 (10 rows)
 
 select * from (select val + val2 from xc_groupby_tab1 group by val + val2) q order by 1;
@@ -184,8 +184,8 @@ select * from (select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab
 (6 rows)
 
 explain (verbose true, costs false, nodes false) select * from (select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val gt1_val, xc_groupby_tab2.val2 gt2_val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val, xc_groupby_tab2.val2) q order by q.gt1_val, q.gt2_val2;
-                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                      
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
    Sort Key: xc_groupby_tab1.val, xc_groupby_tab2.val2
@@ -195,7 +195,7 @@ explain (verbose true, costs false, nodes false) select * from (select xc_groupb
                Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
                ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                      Output: (xc_groupby_tab1.val + xc_groupby_tab2.val2), xc_groupby_tab1.val, xc_groupby_tab2.val2
-                     Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1), group_2.val_1_1_1, group_2.val2_2_2_1  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT val, val2 FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 2, 3  
+                     Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1), group_2.val_1_1_1, group_2.val2_2_2_1  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT val2, val FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 2, 3  
 (10 rows)
 
 select * from (select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2) q order by 1;
@@ -208,8 +208,8 @@ select * from (select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby
 (4 rows)
 
 explain (verbose true, costs false, nodes false) select * from (select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2) q order by 1;
-                                                                                                                                                                 QUERY PLAN                                                                                                                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                              QUERY PLAN                                                                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
    Sort Key: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
@@ -219,7 +219,7 @@ explain (verbose true, costs false, nodes false) select * from (select xc_groupb
                Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
                ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                      Output: (xc_groupby_tab1.val + xc_groupby_tab2.val2)
-                     Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1)  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT val, val2 FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 1  
+                     Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1)  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT val2, val FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 1  
 (10 rows)
 
 -- group by with aggregates in expression
@@ -321,15 +321,15 @@ select b from xc_groupby_def group by b;
 (4 rows)
 
 explain (verbose true, costs false, nodes false) select b from xc_groupby_def group by b;
-                                                        QUERY PLAN                                                         
----------------------------------------------------------------------------------------------------------------------------
+                                                       QUERY PLAN                                                       
+------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: xc_groupby_def.b
    ->  Materialize
          Output: xc_groupby_def.b
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: xc_groupby_def.b
-               Remote query: SELECT group_1.b  FROM (SELECT a, b FROM ONLY xc_groupby_def WHERE true) group_1 GROUP BY 1  
+               Remote query: SELECT group_1.b  FROM (SELECT b FROM ONLY xc_groupby_def WHERE true) group_1 GROUP BY 1  
 (7 rows)
 
 select b,count(b) from xc_groupby_def group by b;
@@ -342,15 +342,15 @@ select b,count(b) from xc_groupby_def group by b;
 (4 rows)
 
 explain (verbose true, costs false, nodes false) select b,count(b) from xc_groupby_def group by b;
-                                                                 QUERY PLAN                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: xc_groupby_def.b, count((count(xc_groupby_def.b)))
    ->  Materialize
          Output: xc_groupby_def.b, (count(xc_groupby_def.b))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: xc_groupby_def.b, count(xc_groupby_def.b)
-               Remote query: SELECT group_1.b, count(group_1.b)  FROM (SELECT a, b FROM ONLY xc_groupby_def WHERE true) group_1 GROUP BY 1  
+               Remote query: SELECT group_1.b, count(group_1.b)  FROM (SELECT b FROM ONLY xc_groupby_def WHERE true) group_1 GROUP BY 1  
 (7 rows)
 
 select count(*) from xc_groupby_def where b is null group by b;
@@ -360,15 +360,15 @@ select count(*) from xc_groupby_def where b is null group by b;
 (1 row)
 
 explain (verbose true, costs false, nodes false) select count(*) from xc_groupby_def where b is null group by b;
-                                                                 QUERY PLAN                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: pg_catalog.count(*), xc_groupby_def.b
    ->  Materialize
          Output: (count(*)), xc_groupby_def.b
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: count(*), xc_groupby_def.b
-               Remote query: SELECT count(*), group_1.b  FROM (SELECT a, b FROM ONLY xc_groupby_def WHERE (b IS NULL)) group_1 GROUP BY 2  
+               Remote query: SELECT count(*), group_1.b  FROM (SELECT b FROM ONLY xc_groupby_def WHERE (b IS NULL)) group_1 GROUP BY 2  
 (7 rows)
 
 create table xc_groupby_g(a int, b float, c numeric);
@@ -383,15 +383,15 @@ select sum(a) from xc_groupby_g group by a;
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select sum(a) from xc_groupby_g group by a;
-                                                                 QUERY PLAN                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: pg_catalog.sum((sum(xc_groupby_g.a))), xc_groupby_g.a
    ->  Materialize
          Output: (sum(xc_groupby_g.a)), xc_groupby_g.a
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: sum(xc_groupby_g.a), xc_groupby_g.a
-               Remote query: SELECT sum(group_1.a), group_1.a  FROM (SELECT a, b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
+               Remote query: SELECT sum(group_1.a), group_1.a  FROM (SELECT a FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
 (7 rows)
 
 select sum(b) from xc_groupby_g group by b;
@@ -402,15 +402,15 @@ select sum(b) from xc_groupby_g group by b;
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select sum(b) from xc_groupby_g group by b;
-                                                                 QUERY PLAN                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: sum((sum(xc_groupby_g.b))), xc_groupby_g.b
    ->  Materialize
          Output: (sum(xc_groupby_g.b)), xc_groupby_g.b
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: sum(xc_groupby_g.b), xc_groupby_g.b
-               Remote query: SELECT sum(group_1.b), group_1.b  FROM (SELECT a, b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
+               Remote query: SELECT sum(group_1.b), group_1.b  FROM (SELECT b FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
 (7 rows)
 
 select sum(c) from xc_groupby_g group by b;
@@ -421,15 +421,15 @@ select sum(c) from xc_groupby_g group by b;
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select sum(c) from xc_groupby_g group by b;
-                                                                 QUERY PLAN                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: sum((sum(xc_groupby_g.c))), xc_groupby_g.b
    ->  Materialize
          Output: (sum(xc_groupby_g.c)), xc_groupby_g.b
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: sum(xc_groupby_g.c), xc_groupby_g.b
-               Remote query: SELECT sum(group_1.c), group_1.b  FROM (SELECT a, b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
+               Remote query: SELECT sum(group_1.c), group_1.b  FROM (SELECT c, b FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
 (7 rows)
 
 select avg(a) from xc_groupby_g group by b;
@@ -440,15 +440,15 @@ select avg(a) from xc_groupby_g group by b;
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select avg(a) from xc_groupby_g group by b;
-                                                                 QUERY PLAN                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: pg_catalog.avg((avg(xc_groupby_g.a))), xc_groupby_g.b
    ->  Materialize
          Output: (avg(xc_groupby_g.a)), xc_groupby_g.b
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: avg(xc_groupby_g.a), xc_groupby_g.b
-               Remote query: SELECT avg(group_1.a), group_1.b  FROM (SELECT a, b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
+               Remote query: SELECT avg(group_1.a), group_1.b  FROM (SELECT a, b FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
 (7 rows)
 
 select avg(b) from xc_groupby_g group by c;
@@ -459,15 +459,15 @@ select avg(b) from xc_groupby_g group by c;
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select avg(b) from xc_groupby_g group by c;
-                                                                 QUERY PLAN                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: pg_catalog.avg((avg(xc_groupby_g.b))), xc_groupby_g.c
    ->  Materialize
          Output: (avg(xc_groupby_g.b)), xc_groupby_g.c
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: avg(xc_groupby_g.b), xc_groupby_g.c
-               Remote query: SELECT avg(group_1.b), group_1.c  FROM (SELECT a, b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
+               Remote query: SELECT avg(group_1.b), group_1.c  FROM (SELECT b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
 (7 rows)
 
 select avg(c) from xc_groupby_g group by c;
@@ -478,15 +478,15 @@ select avg(c) from xc_groupby_g group by c;
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select avg(c) from xc_groupby_g group by c;
-                                                                 QUERY PLAN                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: pg_catalog.avg((avg(xc_groupby_g.c))), xc_groupby_g.c
    ->  Materialize
          Output: (avg(xc_groupby_g.c)), xc_groupby_g.c
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: avg(xc_groupby_g.c), xc_groupby_g.c
-               Remote query: SELECT avg(group_1.c), group_1.c  FROM (SELECT a, b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
+               Remote query: SELECT avg(group_1.c), group_1.c  FROM (SELECT c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
 (7 rows)
 
 drop table xc_groupby_def;
@@ -578,15 +578,15 @@ select val2 from xc_groupby_tab1 group by val2;
 (3 rows)
 
 explain (verbose true, costs false, nodes false) select val2 from xc_groupby_tab1 group by val2;
-                                                             QUERY PLAN                                                             
-------------------------------------------------------------------------------------------------------------------------------------
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: xc_groupby_tab1.val2
    ->  Materialize
          Output: xc_groupby_tab1.val2
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: xc_groupby_tab1.val2
-               Remote query: SELECT group_1.val2  FROM (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 1  
+               Remote query: SELECT group_1.val2  FROM (SELECT val2 FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 1  
 (7 rows)
 
 select val + val2 from xc_groupby_tab1 group by val + val2;
@@ -649,15 +649,15 @@ select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_group
 (6 rows)
 
 explain (verbose true, costs false, nodes false) select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val, xc_groupby_tab2.val2;
-                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
    ->  Materialize
          Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: (xc_groupby_tab1.val + xc_groupby_tab2.val2), xc_groupby_tab1.val, xc_groupby_tab2.val2
-               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1), group_2.val_1_1_1, group_2.val2_2_2_1  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT val, val2 FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 2, 3  
+               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1), group_2.val_1_1_1, group_2.val2_2_2_1  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT val2, val FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 2, 3  
 (7 rows)
 
 select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
@@ -670,15 +670,15 @@ select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_group
 (4 rows)
 
 explain (verbose true, costs false, nodes false) select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
-                                                                                                                                                              QUERY PLAN                                                                                                                                                              
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                           QUERY PLAN                                                                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
    ->  Materialize
          Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: (xc_groupby_tab1.val + xc_groupby_tab2.val2)
-               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1)  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT val, val2 FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 1  
+               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1)  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT val2, val FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 1  
 (7 rows)
 
 -- group by with aggregates in expression
@@ -774,15 +774,15 @@ select b from xc_groupby_def group by b;
 (4 rows)
 
 explain (verbose true, costs false, nodes false) select b from xc_groupby_def group by b;
-                                                        QUERY PLAN                                                         
----------------------------------------------------------------------------------------------------------------------------
+                                                       QUERY PLAN                                                       
+------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: xc_groupby_def.b
    ->  Materialize
          Output: xc_groupby_def.b
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: xc_groupby_def.b
-               Remote query: SELECT group_1.b  FROM (SELECT a, b FROM ONLY xc_groupby_def WHERE true) group_1 GROUP BY 1  
+               Remote query: SELECT group_1.b  FROM (SELECT b FROM ONLY xc_groupby_def WHERE true) group_1 GROUP BY 1  
 (7 rows)
 
 select b,count(b) from xc_groupby_def group by b;
@@ -795,15 +795,15 @@ select b,count(b) from xc_groupby_def group by b;
 (4 rows)
 
 explain (verbose true, costs false, nodes false) select b,count(b) from xc_groupby_def group by b;
-                                                                 QUERY PLAN                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: xc_groupby_def.b, count((count(xc_groupby_def.b)))
    ->  Materialize
          Output: xc_groupby_def.b, (count(xc_groupby_def.b))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: xc_groupby_def.b, count(xc_groupby_def.b)
-               Remote query: SELECT group_1.b, count(group_1.b)  FROM (SELECT a, b FROM ONLY xc_groupby_def WHERE true) group_1 GROUP BY 1  
+               Remote query: SELECT group_1.b, count(group_1.b)  FROM (SELECT b FROM ONLY xc_groupby_def WHERE true) group_1 GROUP BY 1  
 (7 rows)
 
 select count(*) from xc_groupby_def where b is null group by b;
@@ -813,15 +813,15 @@ select count(*) from xc_groupby_def where b is null group by b;
 (1 row)
 
 explain (verbose true, costs false, nodes false) select count(*) from xc_groupby_def where b is null group by b;
-                                                                 QUERY PLAN                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: pg_catalog.count(*), xc_groupby_def.b
    ->  Materialize
          Output: (count(*)), xc_groupby_def.b
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: count(*), xc_groupby_def.b
-               Remote query: SELECT count(*), group_1.b  FROM (SELECT a, b FROM ONLY xc_groupby_def WHERE (b IS NULL)) group_1 GROUP BY 2  
+               Remote query: SELECT count(*), group_1.b  FROM (SELECT b FROM ONLY xc_groupby_def WHERE (b IS NULL)) group_1 GROUP BY 2  
 (7 rows)
 
 create table xc_groupby_g(a int, b float, c numeric) distribute by replication;
@@ -836,15 +836,15 @@ select sum(a) from xc_groupby_g group by a;
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select sum(a) from xc_groupby_g group by a;
-                                                                 QUERY PLAN                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: pg_catalog.sum((sum(xc_groupby_g.a))), xc_groupby_g.a
    ->  Materialize
          Output: (sum(xc_groupby_g.a)), xc_groupby_g.a
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: sum(xc_groupby_g.a), xc_groupby_g.a
-               Remote query: SELECT sum(group_1.a), group_1.a  FROM (SELECT a, b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
+               Remote query: SELECT sum(group_1.a), group_1.a  FROM (SELECT a FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
 (7 rows)
 
 select sum(b) from xc_groupby_g group by b;
@@ -855,15 +855,15 @@ select sum(b) from xc_groupby_g group by b;
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select sum(b) from xc_groupby_g group by b;
-                                                                 QUERY PLAN                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: sum((sum(xc_groupby_g.b))), xc_groupby_g.b
    ->  Materialize
          Output: (sum(xc_groupby_g.b)), xc_groupby_g.b
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: sum(xc_groupby_g.b), xc_groupby_g.b
-               Remote query: SELECT sum(group_1.b), group_1.b  FROM (SELECT a, b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
+               Remote query: SELECT sum(group_1.b), group_1.b  FROM (SELECT b FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
 (7 rows)
 
 select sum(c) from xc_groupby_g group by b;
@@ -874,15 +874,15 @@ select sum(c) from xc_groupby_g group by b;
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select sum(c) from xc_groupby_g group by b;
-                                                                 QUERY PLAN                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: sum((sum(xc_groupby_g.c))), xc_groupby_g.b
    ->  Materialize
          Output: (sum(xc_groupby_g.c)), xc_groupby_g.b
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: sum(xc_groupby_g.c), xc_groupby_g.b
-               Remote query: SELECT sum(group_1.c), group_1.b  FROM (SELECT a, b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
+               Remote query: SELECT sum(group_1.c), group_1.b  FROM (SELECT c, b FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
 (7 rows)
 
 select avg(a) from xc_groupby_g group by b;
@@ -893,15 +893,15 @@ select avg(a) from xc_groupby_g group by b;
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select avg(a) from xc_groupby_g group by b;
-                                                                 QUERY PLAN                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: pg_catalog.avg((avg(xc_groupby_g.a))), xc_groupby_g.b
    ->  Materialize
          Output: (avg(xc_groupby_g.a)), xc_groupby_g.b
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: avg(xc_groupby_g.a), xc_groupby_g.b
-               Remote query: SELECT avg(group_1.a), group_1.b  FROM (SELECT a, b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
+               Remote query: SELECT avg(group_1.a), group_1.b  FROM (SELECT a, b FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
 (7 rows)
 
 select avg(b) from xc_groupby_g group by c;
@@ -912,15 +912,15 @@ select avg(b) from xc_groupby_g group by c;
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select avg(b) from xc_groupby_g group by c;
-                                                                 QUERY PLAN                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: pg_catalog.avg((avg(xc_groupby_g.b))), xc_groupby_g.c
    ->  Materialize
          Output: (avg(xc_groupby_g.b)), xc_groupby_g.c
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: avg(xc_groupby_g.b), xc_groupby_g.c
-               Remote query: SELECT avg(group_1.b), group_1.c  FROM (SELECT a, b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
+               Remote query: SELECT avg(group_1.b), group_1.c  FROM (SELECT b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
 (7 rows)
 
 select avg(c) from xc_groupby_g group by c;
@@ -931,15 +931,15 @@ select avg(c) from xc_groupby_g group by c;
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select avg(c) from xc_groupby_g group by c;
-                                                                 QUERY PLAN                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: pg_catalog.avg((avg(xc_groupby_g.c))), xc_groupby_g.c
    ->  Materialize
          Output: (avg(xc_groupby_g.c)), xc_groupby_g.c
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: avg(xc_groupby_g.c), xc_groupby_g.c
-               Remote query: SELECT avg(group_1.c), group_1.c  FROM (SELECT a, b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
+               Remote query: SELECT avg(group_1.c), group_1.c  FROM (SELECT c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
 (7 rows)
 
 drop table xc_groupby_def;
@@ -1040,15 +1040,15 @@ select val2 from xc_groupby_tab1 group by val2;
 (3 rows)
 
 explain (verbose true, costs false, nodes false) select val2 from xc_groupby_tab1 group by val2;
-                                                                  QUERY PLAN                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
  Group
    Output: xc_groupby_tab1.val2
    ->  Materialize
          Output: xc_groupby_tab1.val2
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: xc_groupby_tab1.val2
-               Remote query: SELECT group_1.val2  FROM (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 1 ORDER BY 1 
+               Remote query: SELECT group_1.val2  FROM (SELECT val2 FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 1 ORDER BY 1 
 (7 rows)
 
 select val + val2 from xc_groupby_tab1 group by val + val2;
@@ -1111,15 +1111,15 @@ select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_group
 (6 rows)
 
 explain (verbose true, costs false, nodes false) select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val, xc_groupby_tab2.val2;
-                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                          
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Group
    Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
    ->  Materialize
          Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: (xc_groupby_tab1.val + xc_groupby_tab2.val2), xc_groupby_tab1.val, xc_groupby_tab2.val2
-               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1), group_2.val_1_1_1, group_2.val2_2_2_1  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT val, val2 FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 2, 3 ORDER BY 2, 3 
+               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1), group_2.val_1_1_1, group_2.val2_2_2_1  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT val2, val FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 2, 3 ORDER BY 2, 3 
 (7 rows)
 
 select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
@@ -1132,15 +1132,15 @@ select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_group
 (4 rows)
 
 explain (verbose true, costs false, nodes false) select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
-                                                                                                                                                                   QUERY PLAN                                                                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                QUERY PLAN                                                                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Group
    Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
    ->  Materialize
          Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: (xc_groupby_tab1.val + xc_groupby_tab2.val2)
-               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1)  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT val, val2 FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 1 ORDER BY 1 
+               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1)  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT val2, val FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 1 ORDER BY 1 
 (7 rows)
 
 -- group by with aggregates in expression
@@ -1233,15 +1233,15 @@ select b from xc_groupby_def group by b;
 (4 rows)
 
 explain (verbose true, costs false, nodes false) select b from xc_groupby_def group by b;
-                                                             QUERY PLAN                                                              
--------------------------------------------------------------------------------------------------------------------------------------
+                                                            QUERY PLAN                                                            
+----------------------------------------------------------------------------------------------------------------------------------
  Group
    Output: xc_groupby_def.b
    ->  Materialize
          Output: xc_groupby_def.b
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: xc_groupby_def.b
-               Remote query: SELECT group_1.b  FROM (SELECT a, b FROM ONLY xc_groupby_def WHERE true) group_1 GROUP BY 1 ORDER BY 1 
+               Remote query: SELECT group_1.b  FROM (SELECT b FROM ONLY xc_groupby_def WHERE true) group_1 GROUP BY 1 ORDER BY 1 
 (7 rows)
 
 select b,count(b) from xc_groupby_def group by b;
@@ -1254,15 +1254,15 @@ select b,count(b) from xc_groupby_def group by b;
 (4 rows)
 
 explain (verbose true, costs false, nodes false) select b,count(b) from xc_groupby_def group by b;
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                     QUERY PLAN                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    Output: xc_groupby_def.b, count((count(xc_groupby_def.b)))
    ->  Materialize
          Output: xc_groupby_def.b, (count(xc_groupby_def.b))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: xc_groupby_def.b, count(xc_groupby_def.b)
-               Remote query: SELECT group_1.b, count(group_1.b)  FROM (SELECT a, b FROM ONLY xc_groupby_def WHERE true) group_1 GROUP BY 1 ORDER BY 1 
+               Remote query: SELECT group_1.b, count(group_1.b)  FROM (SELECT b FROM ONLY xc_groupby_def WHERE true) group_1 GROUP BY 1 ORDER BY 1 
 (7 rows)
 
 select count(*) from xc_groupby_def where b is null group by b;
@@ -1272,15 +1272,15 @@ select count(*) from xc_groupby_def where b is null group by b;
 (1 row)
 
 explain (verbose true, costs false, nodes false) select count(*) from xc_groupby_def where b is null group by b;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    Output: pg_catalog.count(*), xc_groupby_def.b
    ->  Materialize
          Output: (count(*)), xc_groupby_def.b
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: count(*), xc_groupby_def.b
-               Remote query: SELECT count(*), group_1.b  FROM (SELECT a, b FROM ONLY xc_groupby_def WHERE (b IS NULL)) group_1 GROUP BY 2 ORDER BY 2 
+               Remote query: SELECT count(*), group_1.b  FROM (SELECT b FROM ONLY xc_groupby_def WHERE (b IS NULL)) group_1 GROUP BY 2 ORDER BY 2 
 (7 rows)
 
 create table xc_groupby_g(a int, b float, c numeric);
@@ -1295,15 +1295,15 @@ select sum(a) from xc_groupby_g group by a;
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select sum(a) from xc_groupby_g group by a;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    Output: pg_catalog.sum((sum(xc_groupby_g.a))), xc_groupby_g.a
    ->  Materialize
          Output: (sum(xc_groupby_g.a)), xc_groupby_g.a
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: sum(xc_groupby_g.a), xc_groupby_g.a
-               Remote query: SELECT sum(group_1.a), group_1.a  FROM (SELECT a, b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
+               Remote query: SELECT sum(group_1.a), group_1.a  FROM (SELECT a FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
 (7 rows)
 
 select sum(b) from xc_groupby_g group by b;
@@ -1314,15 +1314,15 @@ select sum(b) from xc_groupby_g group by b;
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select sum(b) from xc_groupby_g group by b;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    Output: sum((sum(xc_groupby_g.b))), xc_groupby_g.b
    ->  Materialize
          Output: (sum(xc_groupby_g.b)), xc_groupby_g.b
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: sum(xc_groupby_g.b), xc_groupby_g.b
-               Remote query: SELECT sum(group_1.b), group_1.b  FROM (SELECT a, b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
+               Remote query: SELECT sum(group_1.b), group_1.b  FROM (SELECT b FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
 (7 rows)
 
 select sum(c) from xc_groupby_g group by b;
@@ -1333,15 +1333,15 @@ select sum(c) from xc_groupby_g group by b;
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select sum(c) from xc_groupby_g group by b;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    Output: sum((sum(xc_groupby_g.c))), xc_groupby_g.b
    ->  Materialize
          Output: (sum(xc_groupby_g.c)), xc_groupby_g.b
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: sum(xc_groupby_g.c), xc_groupby_g.b
-               Remote query: SELECT sum(group_1.c), group_1.b  FROM (SELECT a, b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
+               Remote query: SELECT sum(group_1.c), group_1.b  FROM (SELECT c, b FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
 (7 rows)
 
 select avg(a) from xc_groupby_g group by b;
@@ -1352,15 +1352,15 @@ select avg(a) from xc_groupby_g group by b;
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select avg(a) from xc_groupby_g group by b;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    Output: pg_catalog.avg((avg(xc_groupby_g.a))), xc_groupby_g.b
    ->  Materialize
          Output: (avg(xc_groupby_g.a)), xc_groupby_g.b
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: avg(xc_groupby_g.a), xc_groupby_g.b
-               Remote query: SELECT avg(group_1.a), group_1.b  FROM (SELECT a, b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
+               Remote query: SELECT avg(group_1.a), group_1.b  FROM (SELECT a, b FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
 (7 rows)
 
 select avg(b) from xc_groupby_g group by c;
@@ -1371,15 +1371,15 @@ select avg(b) from xc_groupby_g group by c;
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select avg(b) from xc_groupby_g group by c;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    Output: pg_catalog.avg((avg(xc_groupby_g.b))), xc_groupby_g.c
    ->  Materialize
          Output: (avg(xc_groupby_g.b)), xc_groupby_g.c
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: avg(xc_groupby_g.b), xc_groupby_g.c
-               Remote query: SELECT avg(group_1.b), group_1.c  FROM (SELECT a, b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
+               Remote query: SELECT avg(group_1.b), group_1.c  FROM (SELECT b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
 (7 rows)
 
 select avg(c) from xc_groupby_g group by c;
@@ -1390,15 +1390,15 @@ select avg(c) from xc_groupby_g group by c;
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select avg(c) from xc_groupby_g group by c;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    Output: pg_catalog.avg((avg(xc_groupby_g.c))), xc_groupby_g.c
    ->  Materialize
          Output: (avg(xc_groupby_g.c)), xc_groupby_g.c
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: avg(xc_groupby_g.c), xc_groupby_g.c
-               Remote query: SELECT avg(group_1.c), group_1.c  FROM (SELECT a, b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
+               Remote query: SELECT avg(group_1.c), group_1.c  FROM (SELECT c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
 (7 rows)
 
 drop table xc_groupby_def;
@@ -1498,15 +1498,15 @@ select val2 from xc_groupby_tab1 group by val2;
 (3 rows)
 
 explain (verbose true, costs false, nodes false) select val2 from xc_groupby_tab1 group by val2;
-                                                                  QUERY PLAN                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
  Group
    Output: xc_groupby_tab1.val2
    ->  Materialize
          Output: xc_groupby_tab1.val2
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: xc_groupby_tab1.val2
-               Remote query: SELECT group_1.val2  FROM (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 1 ORDER BY 1 
+               Remote query: SELECT group_1.val2  FROM (SELECT val2 FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 1 ORDER BY 1 
 (7 rows)
 
 select val + val2 from xc_groupby_tab1 group by val + val2;
@@ -1569,15 +1569,15 @@ select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_group
 (6 rows)
 
 explain (verbose true, costs false, nodes false) select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val, xc_groupby_tab2.val2;
-                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                          
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Group
    Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
    ->  Materialize
          Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: (xc_groupby_tab1.val + xc_groupby_tab2.val2), xc_groupby_tab1.val, xc_groupby_tab2.val2
-               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1), group_2.val_1_1_1, group_2.val2_2_2_1  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT val, val2 FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 2, 3 ORDER BY 2, 3 
+               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1), group_2.val_1_1_1, group_2.val2_2_2_1  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT val2, val FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 2, 3 ORDER BY 2, 3 
 (7 rows)
 
 select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
@@ -1590,15 +1590,15 @@ select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_group
 (4 rows)
 
 explain (verbose true, costs false, nodes false) select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
-                                                                                                                                                                   QUERY PLAN                                                                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                QUERY PLAN                                                                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Group
    Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
    ->  Materialize
          Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: (xc_groupby_tab1.val + xc_groupby_tab2.val2)
-               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1)  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT val, val2 FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 1 ORDER BY 1 
+               Remote query: SELECT (group_2.val_1_1_1 + group_2.val2_2_2_1)  FROM (SELECT in_1.val AS val_1_1_1, out_1.val2 AS val2_2_2_1 FROM  (SELECT val FROM ONLY xc_groupby_tab1 WHERE true) in_1  ,  (SELECT val2, val FROM ONLY xc_groupby_tab2 WHERE true) out_1  WHERE   (in_1.val = out_1.val)) group_2 GROUP BY 1 ORDER BY 1 
 (7 rows)
 
 -- group by with aggregates in expression
@@ -1691,15 +1691,15 @@ select b from xc_groupby_def group by b;
 (4 rows)
 
 explain (verbose true, costs false, nodes false) select b from xc_groupby_def group by b;
-                                                             QUERY PLAN                                                              
--------------------------------------------------------------------------------------------------------------------------------------
+                                                            QUERY PLAN                                                            
+----------------------------------------------------------------------------------------------------------------------------------
  Group
    Output: xc_groupby_def.b
    ->  Materialize
          Output: xc_groupby_def.b
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: xc_groupby_def.b
-               Remote query: SELECT group_1.b  FROM (SELECT a, b FROM ONLY xc_groupby_def WHERE true) group_1 GROUP BY 1 ORDER BY 1 
+               Remote query: SELECT group_1.b  FROM (SELECT b FROM ONLY xc_groupby_def WHERE true) group_1 GROUP BY 1 ORDER BY 1 
 (7 rows)
 
 select b,count(b) from xc_groupby_def group by b;
@@ -1712,15 +1712,15 @@ select b,count(b) from xc_groupby_def group by b;
 (4 rows)
 
 explain (verbose true, costs false, nodes false) select b,count(b) from xc_groupby_def group by b;
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                     QUERY PLAN                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    Output: xc_groupby_def.b, count((count(xc_groupby_def.b)))
    ->  Materialize
          Output: xc_groupby_def.b, (count(xc_groupby_def.b))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: xc_groupby_def.b, count(xc_groupby_def.b)
-               Remote query: SELECT group_1.b, count(group_1.b)  FROM (SELECT a, b FROM ONLY xc_groupby_def WHERE true) group_1 GROUP BY 1 ORDER BY 1 
+               Remote query: SELECT group_1.b, count(group_1.b)  FROM (SELECT b FROM ONLY xc_groupby_def WHERE true) group_1 GROUP BY 1 ORDER BY 1 
 (7 rows)
 
 select count(*) from xc_groupby_def where b is null group by b;
@@ -1730,15 +1730,15 @@ select count(*) from xc_groupby_def where b is null group by b;
 (1 row)
 
 explain (verbose true, costs false, nodes false) select count(*) from xc_groupby_def where b is null group by b;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    Output: pg_catalog.count(*), xc_groupby_def.b
    ->  Materialize
          Output: (count(*)), xc_groupby_def.b
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: count(*), xc_groupby_def.b
-               Remote query: SELECT count(*), group_1.b  FROM (SELECT a, b FROM ONLY xc_groupby_def WHERE (b IS NULL)) group_1 GROUP BY 2 ORDER BY 2 
+               Remote query: SELECT count(*), group_1.b  FROM (SELECT b FROM ONLY xc_groupby_def WHERE (b IS NULL)) group_1 GROUP BY 2 ORDER BY 2 
 (7 rows)
 
 create table xc_groupby_g(a int, b float, c numeric) distribute by replication;
@@ -1753,15 +1753,15 @@ select sum(a) from xc_groupby_g group by a;
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select sum(a) from xc_groupby_g group by a;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    Output: pg_catalog.sum((sum(xc_groupby_g.a))), xc_groupby_g.a
    ->  Materialize
          Output: (sum(xc_groupby_g.a)), xc_groupby_g.a
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: sum(xc_groupby_g.a), xc_groupby_g.a
-               Remote query: SELECT sum(group_1.a), group_1.a  FROM (SELECT a, b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
+               Remote query: SELECT sum(group_1.a), group_1.a  FROM (SELECT a FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
 (7 rows)
 
 select sum(b) from xc_groupby_g group by b;
@@ -1772,15 +1772,15 @@ select sum(b) from xc_groupby_g group by b;
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select sum(b) from xc_groupby_g group by b;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    Output: sum((sum(xc_groupby_g.b))), xc_groupby_g.b
    ->  Materialize
          Output: (sum(xc_groupby_g.b)), xc_groupby_g.b
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: sum(xc_groupby_g.b), xc_groupby_g.b
-               Remote query: SELECT sum(group_1.b), group_1.b  FROM (SELECT a, b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
+               Remote query: SELECT sum(group_1.b), group_1.b  FROM (SELECT b FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
 (7 rows)
 
 select sum(c) from xc_groupby_g group by b;
@@ -1791,15 +1791,15 @@ select sum(c) from xc_groupby_g group by b;
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select sum(c) from xc_groupby_g group by b;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    Output: sum((sum(xc_groupby_g.c))), xc_groupby_g.b
    ->  Materialize
          Output: (sum(xc_groupby_g.c)), xc_groupby_g.b
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: sum(xc_groupby_g.c), xc_groupby_g.b
-               Remote query: SELECT sum(group_1.c), group_1.b  FROM (SELECT a, b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
+               Remote query: SELECT sum(group_1.c), group_1.b  FROM (SELECT c, b FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
 (7 rows)
 
 select avg(a) from xc_groupby_g group by b;
@@ -1810,15 +1810,15 @@ select avg(a) from xc_groupby_g group by b;
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select avg(a) from xc_groupby_g group by b;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    Output: pg_catalog.avg((avg(xc_groupby_g.a))), xc_groupby_g.b
    ->  Materialize
          Output: (avg(xc_groupby_g.a)), xc_groupby_g.b
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: avg(xc_groupby_g.a), xc_groupby_g.b
-               Remote query: SELECT avg(group_1.a), group_1.b  FROM (SELECT a, b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
+               Remote query: SELECT avg(group_1.a), group_1.b  FROM (SELECT a, b FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
 (7 rows)
 
 select avg(b) from xc_groupby_g group by c;
@@ -1829,15 +1829,15 @@ select avg(b) from xc_groupby_g group by c;
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select avg(b) from xc_groupby_g group by c;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    Output: pg_catalog.avg((avg(xc_groupby_g.b))), xc_groupby_g.c
    ->  Materialize
          Output: (avg(xc_groupby_g.b)), xc_groupby_g.c
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: avg(xc_groupby_g.b), xc_groupby_g.c
-               Remote query: SELECT avg(group_1.b), group_1.c  FROM (SELECT a, b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
+               Remote query: SELECT avg(group_1.b), group_1.c  FROM (SELECT b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
 (7 rows)
 
 select avg(c) from xc_groupby_g group by c;
@@ -1848,15 +1848,15 @@ select avg(c) from xc_groupby_g group by c;
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select avg(c) from xc_groupby_g group by c;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    Output: pg_catalog.avg((avg(xc_groupby_g.c))), xc_groupby_g.c
    ->  Materialize
          Output: (avg(xc_groupby_g.c)), xc_groupby_g.c
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: avg(xc_groupby_g.c), xc_groupby_g.c
-               Remote query: SELECT avg(group_1.c), group_1.c  FROM (SELECT a, b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
+               Remote query: SELECT avg(group_1.c), group_1.c  FROM (SELECT c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
 (7 rows)
 
 drop table xc_groupby_def;

@@ -238,15 +238,15 @@ SELECT * FROM fast_emp4000
 
 EXPLAIN (num_nodes off, nodes off, verbose on, COSTS OFF)
 SELECT count(*) FROM fast_emp4000 WHERE home_base && '(1000,1000,0,0)'::box;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    Output: pg_catalog.count(*)
    ->  Materialize
          Output: (count(*))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: count(*)
-               Remote query: SELECT count(*)  FROM (SELECT home_base FROM ONLY fast_emp4000 WHERE (home_base && '(1000,1000),(0,0)'::box)) group_1   
+               Remote query: SELECT count(*)  FROM (SELECT * FROM ONLY fast_emp4000 WHERE (home_base && '(1000,1000),(0,0)'::box)) group_1   
 (7 rows)
 
 SELECT count(*) FROM fast_emp4000 WHERE home_base && '(1000,1000,0,0)'::box;
@@ -257,15 +257,15 @@ SELECT count(*) FROM fast_emp4000 WHERE home_base && '(1000,1000,0,0)'::box;
 
 EXPLAIN (num_nodes off, nodes off, verbose on, COSTS OFF)
 SELECT count(*) FROM fast_emp4000 WHERE home_base IS NULL;
-                                                            QUERY PLAN                                                            
-----------------------------------------------------------------------------------------------------------------------------------
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
  Aggregate
    Output: pg_catalog.count(*)
    ->  Materialize
          Output: (count(*))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: count(*)
-               Remote query: SELECT count(*)  FROM (SELECT home_base FROM ONLY fast_emp4000 WHERE (home_base IS NULL)) group_1   
+               Remote query: SELECT count(*)  FROM (SELECT * FROM ONLY fast_emp4000 WHERE (home_base IS NULL)) group_1   
 (7 rows)
 
 SELECT count(*) FROM fast_emp4000 WHERE home_base IS NULL;
@@ -323,15 +323,15 @@ SELECT * FROM circle_tbl WHERE f1 && circle(point(1,-2), 1)
 
 EXPLAIN (num_nodes off, nodes off, verbose on, COSTS OFF)
 SELECT count(*) FROM gpolygon_tbl WHERE f1 && '(1000,1000,0,0)'::polygon;
-                                                                  QUERY PLAN                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------
+                                                                 QUERY PLAN                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    Output: pg_catalog.count(*)
    ->  Materialize
          Output: (count(*))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: count(*)
-               Remote query: SELECT count(*)  FROM (SELECT f1 FROM ONLY gpolygon_tbl WHERE (f1 && '((1000,1000),(0,0))'::polygon)) group_1   
+               Remote query: SELECT count(*)  FROM (SELECT * FROM ONLY gpolygon_tbl WHERE (f1 && '((1000,1000),(0,0))'::polygon)) group_1   
 (7 rows)
 
 SELECT count(*) FROM gpolygon_tbl WHERE f1 && '(1000,1000,0,0)'::polygon;
@@ -342,15 +342,15 @@ SELECT count(*) FROM gpolygon_tbl WHERE f1 && '(1000,1000,0,0)'::polygon;
 
 EXPLAIN (num_nodes off, nodes off, verbose on, COSTS OFF)
 SELECT count(*) FROM gcircle_tbl WHERE f1 && '<(500,500),500>'::circle;
-                                                               QUERY PLAN                                                               
-----------------------------------------------------------------------------------------------------------------------------------------
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    Output: pg_catalog.count(*)
    ->  Materialize
          Output: (count(*))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: count(*)
-               Remote query: SELECT count(*)  FROM (SELECT f1 FROM ONLY gcircle_tbl WHERE (f1 && '<(500,500),500>'::circle)) group_1   
+               Remote query: SELECT count(*)  FROM (SELECT * FROM ONLY gcircle_tbl WHERE (f1 && '<(500,500),500>'::circle)) group_1   
 (7 rows)
 
 SELECT count(*) FROM gcircle_tbl WHERE f1 && '<(500,500),500>'::circle;
