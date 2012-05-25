@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright (c) 2010-2012 Nippon Telegraph and Telephone Corporation
+# Copyright (c) 2010-2012 Postgres-XC Development Group
 
 #Scripts to launch DDL in PGXC cluster using a cold_backup method
 #Be sure to have set a correct ssl environment in all the servers of the cluster

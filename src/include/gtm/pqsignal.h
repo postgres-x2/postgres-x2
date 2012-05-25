@@ -6,7 +6,7 @@
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
- * Portions Copyright (c) 2010-2012 Nippon Telegraph and Telephone Corporation
+ * Portions Copyright (c) 2010-2012 Postgres-XC Development Group
  *
  * $PostgreSQL: pgsql/src/include/libpq/pqsignal.h,v 1.32 2008/01/01 19:45:58 momjian Exp $
  *

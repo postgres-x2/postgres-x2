@@ -4,7 +4,7 @@
  * External declarations pertaining to gtm/main/gtm_opt.c, gtm/proxy/gtm_proxy_opt.c and
  * gtm/common/gtm_opt_file.l
  *
- * Portions Copyright (c) 2011, Nippon Telegraph and Telephone Corporation
+ * Portions Copyright (c) 2011, Postgres-XC Development Group
  * Portions Copyright (c) 2000-2011, PostgreSQL Global Development Group
  * Written by Peter Eisentraut <peter_e@gmx.net>.
  * Modified by Koichi Suzuki <koichi.szk@gmail.com>

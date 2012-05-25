@@ -5,7 +5,7 @@
  *	  Support concerns CREATE/ALTER/DROP on NODE object.
  *
  * Copyright (c) 1996-2010, PostgreSQL Global Development Group
- * Portions Copyright (c) 2010-2012 Nippon Telegraph and Telephone Corporation
+ * Portions Copyright (c) 2010-2012 Postgres-XC Development Group
  *
  *-------------------------------------------------------------------------
  */

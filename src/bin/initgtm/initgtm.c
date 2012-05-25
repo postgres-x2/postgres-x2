@@ -11,7 +11,7 @@
  * This code is released under the terms of the PostgreSQL License.
  *
  * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
- * Portions Copyright (c) 2010-2012 Nippon Telegraph and Telephone Corporation
+ * Portions Copyright (c) 2010-2012 Postgres-XC Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/bin/initgtm/initgtm.c

@@ -2,7 +2,7 @@
 #
 # Postgres-XC GTM proxy Makefile
 #
-# Copyright(c) 2010-2012 Nippon Telegraph and Telephone Corporation
+# Copyright(c) 2010-2012 Postgres-XC Development Group
 #
 # src/gtm/proxy/Makefile
 #
