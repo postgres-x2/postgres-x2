@@ -23,7 +23,7 @@ include $(top_srcdir)/src/Makefile.shlib
 
 clean:
 	rm -f $(OBJS)
-	rm -f libgtmpath.so libgtmpath.so.1 libgtmpath.so.1.0 
+	rm -f libgtmpath.a libgtmpath.so libgtmpath.so.1 libgtmpath.so.1.0
 
 distclean: clean
 
