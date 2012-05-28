@@ -485,9 +485,8 @@ For manual setup, please see the following sections.
 &xconly;
   <para>
    The <productname>Postgres-XC</> &version; sources can be obtained from
-   its Web site<ulink
-   url="http://postgres-xc.sourceforge.net/"></ulink> or development site
-   <ulink url="http://sourceforge.net/projects/postgres-xc/"></ulink>.
+   its <ulink url="http://postgres-xc.sourceforge.net/">Web site</ulink> or 
+   <ulink url="http://sourceforge.net/projects/postgres-xc/">development site</ulink>.
    After you have obtained the file, unpack it:
 <screen>
 <userinput>gunzip pgxc-v&version;.tar.gz</userinput>
