@@ -149,6 +149,15 @@ int main(int argc, char *argv[])
 	parse_pgxc_clean_options(argc, argv);
 
 	/*
+	 * Check missing arguments
+	 */
+	if (clean_all_databases == false && head_database_names == NULL)
+	{
+		fprintf(stderr, "%s: you must specify -a or -d option.\n", progname);
+		exit(1);
+	}
+
+	/*
 	 * Arrange my environment
 	 */
 	if (output_filename)
@@ -177,6 +186,7 @@ int main(int argc, char *argv[])
 	{
 		/* Default coordinator port */
 		char *pgport;
+
 		if ((pgport = getenv("PGPORT")) == NULL)
 			coordinator_port = DEF_PGPORT;		/* pg_config.h */
 		else
