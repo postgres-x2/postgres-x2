@@ -83,19 +83,6 @@ select get_unified_node_name(xc_node_id),* from t1 where xc_node_id > 0 order by
  NODE_2                | 7 | 44
 (4 rows)
 
-select get_unified_node_name(xc_node_id),* from t1 order by xc_node_id;
- get_unified_node_name | a | b  
------------------------+---+----
- NODE_1                | 2 | 11
- NODE_1                | 4 | 22
- NODE_1                | 6 | 33
- NODE_1                | 8 | 44
- NODE_2                | 1 | 11
- NODE_2                | 3 | 11
- NODE_2                | 5 | 22
- NODE_2                | 7 | 44
-(8 rows)
-
 create table t2(a int , xc_node_id int) distribute by modulo(a);
 ERROR:  column name "xc_node_id" conflicts with a system column name
 create table t2(a int , b int) distribute by modulo(xc_node_id);
