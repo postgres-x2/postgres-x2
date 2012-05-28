@@ -64,8 +64,6 @@ select get_unified_node_name(xc_node_id),* from t1 order by a;
 
 select get_unified_node_name(xc_node_id),* from t1 where xc_node_id > 0 order by a;
 
-select get_unified_node_name(xc_node_id),* from t1 order by xc_node_id;
-
 create table t2(a int , xc_node_id int) distribute by modulo(a);
 
 create table t2(a int , b int) distribute by modulo(xc_node_id);
