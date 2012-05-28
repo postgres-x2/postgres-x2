@@ -2865,12 +2865,12 @@ do_query(RemoteQueryState *node)
 	 */
 	node->node_count = regular_conn_count;
 
-	if (force_autocommit)
+	if (force_autocommit || is_read_only)
 		need_tran_block = false;
 	else
 		need_tran_block = true;
 	/*
-	 * XXX We are forcing a transaction block for every remote query. We can
+	 * XXX We are forcing a transaction block for non-read-only every remote query. We can
 	 * get smarter here and avoid a transaction block if all of the following
 	 * conditions are true:
 	 *
