@@ -752,7 +752,7 @@ execute_sql_string(const char *sql, const char *filename)
 							   false,	/* not top level */
 							   dest,
 #ifdef PGXC
-							   false,
+							   true,	/* this is created at remote node level */
 #endif /* PGXC */
 							   NULL);
 			}
