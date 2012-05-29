@@ -371,7 +371,6 @@ int GTM_SeqAlter(GTM_SequenceKey seqkey,
 	GTM_RWLockAcquire(&seqinfo->gs_lock, GTM_LOCKMODE_WRITE);
 
 	/* Modify the data if necessary */
-
 	if (seqinfo->gs_cycle != cycle)
 		seqinfo->gs_cycle = cycle;
 	if (seqinfo->gs_min_value != minval)
@@ -381,19 +380,22 @@ int GTM_SeqAlter(GTM_SequenceKey seqkey,
 	if (seqinfo->gs_increment_by != increment_by)
 		seqinfo->gs_increment_by = increment_by;
 
-	/* Here Restart has been used with a value, reinitialize last_value to a new value */
-	if (seqinfo->gs_last_value != lastval)
-		seqinfo->gs_last_value = lastval;
-
-	/* Start has been used, reinitialize init value */
-	if (seqinfo->gs_init_value != startval)
-		seqinfo->gs_last_value = seqinfo->gs_init_value = startval;
-
-	/* Restart command has been used, reset the sequence */
+	/*
+	 * Check start/restart processes.
+	 * Check first if restart is necessary and reset sequence in that case.
+	 * If not, check if a simple start is necessary and update sequence.
+	 */
 	if (is_restart)
 	{
+		/* Restart command has been used, reset the sequence */
 		seqinfo->gs_called = false;
-		seqinfo->gs_init_value = seqinfo->gs_last_value;
+		seqinfo->gs_init_value = seqinfo->gs_last_value = lastval;
+	}
+	else
+	{
+		/* Start has been used, reinitialize init value */
+		if (seqinfo->gs_init_value != startval)
+			seqinfo->gs_init_value = seqinfo->gs_last_value = startval;
 	}
 
 	/* Remove the old key with the old name */
