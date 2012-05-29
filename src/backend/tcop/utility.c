@@ -761,14 +761,26 @@ standard_ProcessUtility(Node *parsetree,
 
 		case T_CreateExtensionStmt:
 			CreateExtension((CreateExtensionStmt *) parsetree);
+#ifdef PGXC
+			if (IS_PGXC_COORDINATOR)
+				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+#endif
 			break;
 
 		case T_AlterExtensionStmt:
 			ExecAlterExtensionStmt((AlterExtensionStmt *) parsetree);
+#ifdef PGXC
+			if (IS_PGXC_COORDINATOR)
+				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+#endif
 			break;
 
 		case T_AlterExtensionContentsStmt:
 			ExecAlterExtensionContentsStmt((AlterExtensionContentsStmt *) parsetree);
+#ifdef PGXC
+			if (IS_PGXC_COORDINATOR)
+				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+#endif
 			break;
 
 		case T_CreateFdwStmt:
