@@ -67,26 +67,41 @@ su - postgres
   </para>
 <!## end>
 <!## XC>
-&xconly;
+  <para>
+    The following short installation allows to install a simple cluster on a local machine with
+    1 Coordinator, 2 Datanodes and 1 GTM. When installing a more complex cluster, you might
+    change the number of Coordinators and Datanodes, and might have to start nodes on different
+    servers.
+  </para>
 <synopsis>
 ./configure
 gmake
 su
 gmake install
 adduser postgres
-mkdir /usr/local/pgsql/data
-chown postgres /usr/local/pgsql/data
+mkdir /usr/local/pgsql/data_coord1
+mkdir /usr/local/pgsql/data_datanode1
+mkdir /usr/local/pgsql/data_datanode2
+mkdir /usr/local/pgsql/data_gtm
+chown postgres /usr/local/pgsql/data_coord1
+chown postgres /usr/local/pgsql/data_datanode1
+chown postgres /usr/local/pgsql/data_datanode2
+chown postgres /usr/local/pgsql/data_gtm
 su - postgres
-/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data
-/usr/local/pgsql/bin/postgres -D /usr/local/pgsql/data &gt;logfile 2&gt;&amp;1 &amp;
+/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data_coord1 --nodename coord1
+/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data_datanode1 --nodename datanode1
+/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data_datanode2 --nodename datanode2
+/usr/local/pgsql/bin/initgtm -D /usr/local/pgsql/data_gtm -Z gtm
+/usr/local/pgsql/bin/gtm -D /usr/local/pgsql/data_gtm &gt;logfile 2&gt;&amp;1 &amp;
+/usr/local/pgsql/bin/postgres -X -p 15432 -D /usr/local/pgsql/data_datanode1 &gt;logfile 2&gt;&amp;1 &amp;
+/usr/local/pgsql/bin/postgres -X -p 15433 -D /usr/local/pgsql/data_datanode2 &gt;logfile 2&gt;&amp;1 &amp;
+/usr/local/pgsql/bin/postgres -C -D /usr/local/pgsql/data_coord1 &gt;logfile 2&gt;&amp;1 &amp;
+/usr/local/pgsql/bin/psql -c "CREATE NODE datanode1 WITH (TYPE = 'datanode', PORT = 15432)" postgres
+/usr/local/pgsql/bin/psql -c "CREATE NODE datanode2 WITH (TYPE = 'datanode', PORT = 15433)" postgres
+/usr/local/pgsql/bin/psql -c "SELECT pgxc_pool_reload()" postgres
 /usr/local/pgsql/bin/createdb test
 /usr/local/pgsql/bin/psql test
 </synopsis>
-<para>
-Because <productname>Postgres-XC</> is composed of multiple database
-component which runs on different servers, the stop after this has to
-be done in each server involved manually.
-</para>
 <!## end>
 <para>
 
@@ -114,10 +129,7 @@ be done in each server involved manually.
 <!## XC>
 &xconly;
   <para>
-   In general, a Linux platform  based upon Intel x86_64 CPU should be able to run
-   <productname>Postgres-XC</>.
-   At the time of release, it runs on 64bit CentOS-5.4 or later
-   and 64bit RHEL 5 or later.
+   In general, a Linux-Unix platform should be able to run <productname>Postgres-XC</>.
   </para>
 <!## end>
 
@@ -2769,8 +2781,8 @@ kill `cat /usr/local/pgsql/gtm-proxy/gtm_proxy.pid
 <!## XC>
 &xconly;
   <para>
-   In general, <productname>Postgres-XC</> can be expected to work on
-   these CPU architectures of x86_64.
+   <productname>Postgres-XC</> has been tested on Intel-based CPU mainly. Other CPU
+    architectures may also work but are not currently being tested.
   </para>
 <!## end>
 
@@ -2790,8 +2802,9 @@ kill `cat /usr/local/pgsql/gtm-proxy/gtm_proxy.pid
 <!## XC>
 &xconly;
   <para>
-   <productname>Postgres-XC</> can be expected to work on 64bit-based
-   recent Linux.
+   <productname>Postgres-XC</> can be expected to work on these operating systems:
+   Linux (all recent distributions), FreeBSD and Mac OS X. Other Unix-like systems may
+   also work but are not currently being tested.
   </para>
 <!## end>
 &xconly;
