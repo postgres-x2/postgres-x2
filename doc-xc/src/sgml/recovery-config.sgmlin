@@ -208,7 +208,7 @@ restore_command = 'copy "C:\\server\\archivedir\\%f" "%p"'  # Windows
         At most one of <varname>recovery_target_time</>,
         <xref linkend="recovery-target-name">,
         <xref linkend="recovery-target-xid"> or
-        <varname>recovery_target_barrier</> can be specified.
+        <xref linkend="recovery-target-barrier"> can be specified.
 <!## end>
         The default is to recover to the end of the WAL log.
         The precise stopping point is also influenced by
@@ -240,7 +240,7 @@ restore_command = 'copy "C:\\server\\archivedir\\%f" "%p"'  # Windows
         At most one of <varname>recovery_target_xid</>,
         <xref linkend="recovery-target-name">,
         <xref linkend="recovery-target-time"> or
-        <varname>recovery_target_barrier</> can be specified.
+        <xref linkend="recovery-target-barrier"> can be specified.
 
         The default is to recover to the end of the WAL log.
         The precise stopping point is also influenced by
@@ -267,6 +267,11 @@ restore_command = 'copy "C:\\server\\archivedir\\%f" "%p"'  # Windows
         The default is to recover to the end of the WAL log.
         The precise stopping point is also influenced by
         <xref linkend="recovery-target-inclusive">.
+       </para>
+
+       <para>
+        A barrier ID, to which recovery will proceed, has to be specified with
+        <xref linkend="SQL-CREATEBARRIER">. Refer to this command for syntax details.
        </para>
       </listitem>
      </varlistentry>
@@ -347,24 +352,6 @@ restore_command = 'copy "C:\\server\\archivedir\\%f" "%p"'  # Windows
 <!## end>
       </listitem>
      </varlistentry>
-
-<!## XC>
-     <varlistentry id="recover-target-barrier"
-                   xreflabel="recover_target_barrier">
-      <term><varname>recovery_target_barrier</varname> (<type>string</type>)</term>
-      <indexterm>
-       <primary><varname>recovery_target_barrier</> recovery parameter</primary>
-      </indexterm>
-      <listitem>
-&xconly;
-       <para>
-        Specifies barrier ID to which recovery will proceed.
-        See <xref linkend="SQL-CREATEBARRIER"> for syntax details of
-        this command.
-       </para>
-      </listitem>
-     </varlistentry>
-<!## end>
 
      </variablelist>
    </sect1>
