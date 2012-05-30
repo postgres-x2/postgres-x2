@@ -15,7 +15,7 @@
    <productname>PostgreSQL</productname>, in narrative, tutorial, or
 <!## end>
 <!## XC>
-   <productname>Postgre-XC</productname>, in narrative, tutorial, or
+   <productname>Postgres-XC</productname>, in narrative, tutorial, or
 <!## end>
    example form, can be found in other parts of this book.  See the
    cross-references listed on each reference page.
@@ -38,7 +38,7 @@
     <productname>PostgreSQL</productname>.  By <quote>SQL</quote> the
 <!## end>
 <!## XC>
-    <productname>Postgre-XC</productname>.  By <quote>SQL</quote> the
+    <productname>Postgres-XC</productname>.  By <quote>SQL</quote> the
 <!## end>
     language in general is meant; information about the standards
     conformance and compatibility of each command can be found on the
@@ -224,7 +224,7 @@
   <title>PostgreSQL Client Applications</title>
 <!## end>
 <!## XC>
-  <title>Postgre-XC Client Applications</title>
+  <title>Postgres-XC Client Applications</title>
 <!## end>
 
   <partintro>
@@ -234,7 +234,7 @@
     <productname>PostgreSQL</productname> client applications and
 <!## end>
 <!## XC>
-    <productname>Postgre-XC</productname> client applications and
+    <productname>Postgres-XC</productname> client applications and
 <!## end>
     utilities.  Not all of these commands are of general utility; some
     might require special privileges.  The common feature of these
