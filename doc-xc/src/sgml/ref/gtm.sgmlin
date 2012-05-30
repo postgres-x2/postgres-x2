@@ -59,7 +59,7 @@ PostgreSQL documentation
 &xconly
   <para>
    <literal>GTM</literal> configuration parameters are specified in the configuration file 
-   <filename>gtm.conf</filename> placed in the working directory
+   <filename>gtm.conf</filename><indexterm><primary>gtm.conf</></> placed in the working directory
    specified as <literal>-D</literal> option
    of <application>gtm</application> command line option as described
    in the next section.
