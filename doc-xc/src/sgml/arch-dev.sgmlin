@@ -834,7 +834,7 @@
      local network.  We encourage to install Postgres-XC with local
      Gigabit network with minimum latency, that is, use as fewer
      switches involved in the connection among GTM, Coordinator and
-     data nodes.
+     Datanodes.
     </para>
 
     <sect3>
@@ -1054,10 +1054,10 @@
     <title>Coordinator And Datanode Connection</title>
 
     <para>
-     The number of connection between Coordinator and data node may
+     The number of connection between Coordinator and Datanode may
      increase from time to time. This may leave unused connection and
      waste system resources. Repeating real connect and disconnect
-     requires data node backend initialization which increases latency
+     requires Datanode backend initialization which increases latency
      and also wastes system resources.
     </para>
 
@@ -1074,19 +1074,19 @@
      Because we consume much more resources for locks and other
      control information per backend and only a few of such connection
      is active at a given time, it is not a good idea to hold such
-     unused connection between Coordinator and data node.
+     unused connection between Coordinator and Datanode.
     </para>
 
     <para>
      To improve this, Postgres-XC is equipped with connection pooler
-     between Coordinator and data node. When a Coordinator backend
-     requires connection to a data node, the pooler looks for
+     between Coordinator and Datanode. When a Coordinator backend
+     requires connection to a Datanode, the pooler looks for
      appropriate connection from the pool. If there's an available
      one, the pooler assigns it to the Coordinator backend. When the
      connection is no longer needed, the Coordinator backend returns
      the connection to the pooler. Pooler does not disconnect the
      connection.  It keeps the connection to the pool for later reuse,
-     keeping data node backend running.
+     keeping Datanode backend running.
     </para>
 
    </sect2>

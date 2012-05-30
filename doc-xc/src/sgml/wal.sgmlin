@@ -769,7 +769,7 @@
    other Coordinators to ensure that there are no in-progress two-phase
    commits in the cluster. At that point, a barrier <acronym>WAL</acronym>
    record along with the user-given or system-generated BARRIER identifier
-   is writtent to the <acronym>WAL</acronym> stream of all data nodes and
+   is writtent to the <acronym>WAL</acronym> stream of all Datanodes and
    the Coordinators.
   </para>
 
@@ -777,7 +777,7 @@
    User can create as many barriers as she wants to. At the time of
    point-in-time-recovery, same barrier id must be specified in the
    <filename>recovery.conf</filename> files of all the Coordinators and
-   data nodes. When every node in the cluster recovers to the same barrier
+   Datanodes. When every node in the cluster recovers to the same barrier
    id, a cluster-wide consistent state is reached. Its important that
    the recovery must be started from a backup taken before the barrier
    was generated. If no matching barrier record is found, either because

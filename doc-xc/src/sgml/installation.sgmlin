@@ -2550,8 +2550,8 @@ postgres -X -D /usr/local/pgsql/Datanode
 </programlisting>
      This will start the Datanode.   <option>-X</>
      specifies <command>postgres</> to start as a
-     Datanode.   <option>-D</> specifies the data directory of the
-     data node.  You can specify other options of standalone <command>postgres</>.
+     Datanode. <option>-D</> specifies the data directory of the
+     Datanode. You can specify other options of standalone <command>postgres</>.
     </para>
     <para>
      Please note that you should issue <command>postgres</> command at

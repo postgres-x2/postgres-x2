@@ -124,7 +124,7 @@ SELECT sum(a) FROM test_complex;
   In <productname>Postgres-XC</productname>, a user can provide collection
   function if distributed aggregation is expected for improving performance. The
   collection function essentially combines the state transition results produced
-  at different data nodes. Without a final function the result produced by the
+  at different Datanodes. Without a final function the result produced by the
   collection function is the result of aggregate. Above definition of aggregate
   <function>sum</> for complex number data type can be modified to have a
   collection function as follows
