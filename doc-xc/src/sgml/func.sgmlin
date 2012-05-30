@@ -14850,11 +14850,11 @@ postgres=# SELECT * FROM pg_xlogfile_name_offset(pg_stop_backup());
    <para>
     The object size functions pg_database_size, pg_indexes_size, pg_relation_size,
     pg_table_size, and pg_total_relation_size return the cumulative size
-    from all the data nodes. For e.g., pg_relation_size returns the sum of disk
-    space used up by the specified fork at all the data nodes where the table is
+    from all the Datanodes. For e.g., pg_relation_size returns the sum of disk
+    space used up by the specified fork at all the Datanodes where the table is
     distributed or replicated. If the table is replicated on 3 tables, the size
     will be  3 times that of individual nodes. If you need to retrieve the local
-    results from a particular Coordinator or data node, you should issue these
+    results from a particular Coordinator or Datanode, you should issue these
     function calls explicitly through <type>EXECUTE DIRECT</> statement. All other
     system functions run locally at the Coordinator, unless explicitly specified
     otherwise in this document.
