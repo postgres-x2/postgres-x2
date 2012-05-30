@@ -493,7 +493,7 @@ CREATE [ OR REPLACE ] FUNCTION
 &xconly;
       <para>
        It is user's responsibility to deploy the file to all the
-       servers where coordinator or datanode may run.
+       servers where Coordinator or Datanode may run.
       </para>
 <!## end>
 

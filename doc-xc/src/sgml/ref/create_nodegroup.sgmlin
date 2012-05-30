@@ -76,9 +76,9 @@ WITH <replaceable class="parameter">nodename</replaceable> [, ... ]
   <title>Examples</title>
 
   <para>
-   Create a cluster node group made of nodes called datanode1, datanode2.
+   Create a cluster node group made of nodes called Datanode1, Datanode2.
 <programlisting>
-CREATE NODE GROUP cluster_group WITH datanode1, datanode2;
+CREATE NODE GROUP cluster_group WITH Datanode1, Datanode2;
 </programlisting>
   </para>
 

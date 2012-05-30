@@ -1326,8 +1326,8 @@ if (!triggered)
       Streaming replication has not been tested
       with <productname>Postgres-XC</productname> yet.  Because this
       version of streaming replication is based upon asynchronous log shipping,
-      there could be a risk to have the status of coordinators and
-      datanodes inconsistent.  The development team leaves the test
+      there could be a risk to have the status of Coordinators and
+      Datanodes inconsistent.  The development team leaves the test
       and the use of this entirely to users.
      </para>
 <!## end>

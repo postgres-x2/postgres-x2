@@ -41,7 +41,7 @@ PostgreSQL documentation
      with other nodes.   <application>pgxc_clean</application> checks transaction commit status and corrects them.
     </para>
     <para>
-     You should run this utility against one of the available coordinators.   THe tool cleans up transaction status
+     You should run this utility against one of the available Coordinators.   THe tool cleans up transaction status
      of all the nodes automatically.
     </para>
  </refsect1>
@@ -76,7 +76,7 @@ PostgreSQL documentation
       <term><option>--command=<replaceable class="parameter">hostname</replaceable></></term>
       <listitem>
       <para>
-      Hostname of the coordinator to connect to.
+      Hostname of the Coordinator to connect to.
       </para>
       </listitem>
     </varlistentry>
@@ -108,7 +108,7 @@ PostgreSQL documentation
       <term><option>--port=<replaceable class="parameter">port_number</replaceable></></term>
       <listitem>
       <para>
-       Specifies the port number of the coordinator.
+       Specifies the port number of the Coordinator.
       </para>
       </listitem>
     </varlistentry>

@@ -38,7 +38,7 @@ int4 pg_catalog.pg_logfile_rotate()
 
   <note>
    <para>
-    Functions of this module run only on the coordinator you're connecting.
+    Functions of this module run only on the Coordinator you're connecting.
    </para>
   </note>
 

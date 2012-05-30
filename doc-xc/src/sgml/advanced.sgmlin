@@ -161,7 +161,7 @@ DETAIL:  Key (city)=(Berkeley) is not present in table "cities".
     distributes each row of tables based upon the value of the first
     column of the table.  You can choose any column as a basis of
     table distribution, or you can have copies of a table in all the
-    datanodes.
+    Datanodes.
    </para>
    <para>
     Please refer to <xref linkend="sql-select"> for details.

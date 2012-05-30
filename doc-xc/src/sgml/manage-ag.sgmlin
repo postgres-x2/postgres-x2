@@ -304,7 +304,7 @@ createdb -T template0 <replaceable>dbname</>
    </para>
    <para>
     In <productname>Postgres-XC</>, template databases are hold in
-    each coordinator and datanode.  They are locally copied when new
+    each Coordinator and Datanode.  They are locally copied when new
     database is created.
    </para>
 <!## end>

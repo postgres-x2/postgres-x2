@@ -72,7 +72,7 @@ COMMIT PREPARED <replaceable class="PARAMETER">transaction_id</replaceable>
 <!## XC>
 &xconly;
   <para>
-   If more than one datanode and/or coordinator are involved in the
+   If more than one Datanode and/or Coordinator are involved in the
    transaction, <command>COMMIT PREPARED</> command will propagate to
    all these nodes.
   </para>

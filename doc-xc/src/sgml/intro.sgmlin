@@ -14,7 +14,6 @@
   <productname>PostgreSQL</productname> officially supports.
 <!## end>
 <!## XC>
-<!## EN>
   This book is the official documentation of
   <productname>Postgres-XC</productname>.  It has been written by the
   <productname>Postgres-XC</productname> developers and other
@@ -26,23 +25,13 @@
   <para>
    <productname>Postgres-XC</> is essentially a collection of multiple
    <productname>PostgreSQL</> database to provide both read and write
-   performance scalability.   It also provides full-featured transaction
-   consistency as <productname>PostgreSQL</> provides.
+   performance scalability. It also provides full-featured transaction
+   consistency as <productname>PostgreSQL</> provides, at the exception
+   of SSI which is incomplete.
   </para>
   <para>
-   <productname>Postgres-XC</> inherits almost all features from <productname>PostgreSQL</>.
+   <productname>Postgres-XC</> inherits almost all major features from <productname>PostgreSQL</>.
    This document is also based upon <productname>PostgreSQL</> reference manual.
-<!## end>
-<!## JP>
-  本マニュアルは
-  <productname>Postgres-XC</productname> の公式文書です。
-  本マニュアルは
-  <productname>Postgres-XC</productname> 開発者及びその他のボランティアが
-  <productname>Postgres-XC</productname> ソフトウェア開発と平行して書いてきたものです。
-  本書では、
-  the functionality that the current version of
-  <productname>Postgres-XC</productname> の現行バージョンが正式にサポートしている機能を記述しています。
-<!## end>
 <!## end>
  </para>
 
@@ -156,7 +145,7 @@
 
    <para>
     Postgres-XC is an open source project to provide write-scalable,
-    synchronous multi-master, transparent PostgreSQL cluster
+    synchronous symmetric, transparent PostgreSQL cluster
     solution. It is a collection if tightly coupled database
     components which can be installed in more than one hardware or
     virtual machines.
@@ -166,7 +155,7 @@
     Write-scalable means Postgres-XC can be configured with as many
     database servers as you want and handle much more writes (updating
     SQL statements) which single database server cannot
-    do. Multi-master means you can have more than one data base
+    do. Symmetric means you can have more than one data base
     servers which provide single database view. Synchronous means any
     database update from any database server is immediately visible to
     any other transactions running in different masters.  Transparent
@@ -224,7 +213,7 @@
      <listitem>
       <para>
        Postgres-XC should provide multiple servers to accept transactions and statements
-from applications, which is known as "master" server in general in general. In Postgres-XC, this is called "coordinator".
+from applications, which is known as "master" server in general. In Postgres-XC, this is called "Coordinator".
       </para>
      </listitem>
      <listitem>
@@ -305,16 +294,15 @@ from applications, which is known as "master" server in general in general. In P
 
     <para>
      Coordinator is an interface to applications. It acts like
-     conventional PostgreSQL backend process. However, because tables
-     may be replicated or distributed, coordinator does not store any
-     actual data. Actual data is stored by datanode as described
-     below. Coordinator receives SQL statements, get Global
+     conventional PostgreSQL backend process. However, Coordinator
+     does not store any actual data. Actual data is stored by Datanode
+     as described below. Coordinator receives SQL statements, get Global
      Transaction Id and Global Snapshot as needed, determine which
-     datanode is involved and ask them to execute (a part of)
-     statement.  When issuing statement to datanodes, it is
-     associated with GXID and Global Snapshot so that datanode is not
+     Datanode is involved and ask them to execute (a part of)
+     statement.  When issuing statement to Datanodes, it is
+     associated with GXID and Global Snapshot so that Datanode is not
      confused if it receives another statement from another
-     transaction originated by another coordinator.
+     transaction originated by another Coordinator.
     </para>
    </sect3>
 
@@ -323,17 +311,16 @@ from applications, which is known as "master" server in general in general. In P
 
     <para>
      Datanode actually stores your data. Tables may be distributed
-     among datanodes, or replicated to all the datanodes. Because
-     datanode does not have global view of the whole database, it
+     among Datanodes, or replicated to all the Datanodes.
+     Datanode does not have global view of the whole database, it
      just takes care of locally stored data. Incoming statement is
-     examined by the coordinator as described next, and rebuilt to
-     execute at each datanode involved. It is then transferred to
-     each datanodes involved together with GXID and Global Snapshot
+     examined by the Coordinator as described next, and rebuilt to
+     execute at each Datanode involved. It is then transferred to
+     each Datanodes involved together with GXID and Global Snapshot
      as needed. Datanode may receive request from various
-     coordinators. However, because each the transaction is identified
+     Coordinators. However, because each the transaction is identified
      uniquely and associated with consistent (global) snapshot, data
-     node doesn't have to worry what coordinator each transaction or
-     
+     node doesn't have to worry what Coordinator each transaction or
      statement came from.
     </para>
 
@@ -383,9 +370,16 @@ from applications, which is known as "master" server in general in general. In P
      <listitem>
       <simpara>views</simpara>
      </listitem>
+<!## PG>
      <listitem>
       <simpara>transactional integrity</simpara>
      </listitem>
+<!## end>
+<!## XC>
+     <listitem>
+      <simpara>transactional integrity, at the exception of SSI whose support is incomplete</simpara>
+     </listitem>
+<!## end>
      <listitem>
       <simpara>multiversion concurrency control</simpara>
      </listitem>

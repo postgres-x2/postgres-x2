@@ -89,8 +89,8 @@ CREATE [ UNIQUE ] INDEX [ <replaceable class="parameter">name</replaceable> ] ON
 &xconly;
   <para>
    Please note that indexes are maintained only locally in each
-   coordinator and/or datanodes.  They do not have any information on
-   the column value outside coordinator or datanode.
+   Coordinator and/or Datanodes.  They do not have any information on
+   the column value outside Coordinator or Datanode.
   </para>
 <!## end>
 

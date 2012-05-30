@@ -91,7 +91,7 @@ CLUSTER [VERBOSE]
 &xconly;
   <para>
    In <productname>Postgres-XC</>, <command>CLUSTER</> will be
-   executed on all the datanodes as well.
+   executed on all the Datanodes as well.
   </para>
 <!## end>
  </refsect1>

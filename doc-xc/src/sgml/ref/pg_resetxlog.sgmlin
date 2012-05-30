@@ -208,8 +208,8 @@ PostgreSQL documentation
 <!## XC>
   <para>
    In <productname>Postgres-XC</>, <command>pg_resetxlog</command>
-   will run only for local coordinator or datanode.  You should run it
-   for each coordinator or datanode manually.
+   will run only for local Coordinator or Datanode.  You should run it
+   for each Coordinator or Datanode manually.
   </para>
 <!## end>
 

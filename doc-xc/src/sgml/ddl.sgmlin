@@ -152,9 +152,9 @@ CREATE TABLE products (
 
   <para>
    In <productname>Postgres-XC</>, each table can be distributed or replicated
-   among datanodes.  By distributing tables, each query, if the target is
+   among Datanodes.  By distributing tables, each query, if the target is
    determined from the incoming statement, can be handled by single or small
-   number of datanodes and more transactions can be handled in parallel.
+   number of Datanodes and more transactions can be handled in parallel.
    If you replicate tables, and if they're more read than written, transactions
    reading such tables can be handled in parallel.
   </para>
@@ -167,7 +167,7 @@ CREATE TABLE products (
    column.   
     By default, distribution column is the first column you specified in
    <type>CREATE TABLE</type> statement and the column value is used to
-   generate hash value as an index for datanode which accommodate the
+   generate hash value as an index for Datanode which accommodate the
    row.  
    You can choose another distribution method such as <type>MODULO</> and
    <type>ROUND ROBIN</>.
@@ -181,26 +181,26 @@ CREATE TABLE products (
 ) DISTRIBUTE BY HASH(product_no);
 </programlisting>
    In this case, the column <type>product_no</> is chosen as the distribute column and
-   the target datanode of each row is determined based upon the hash value of the column.
-   You can use <type>MODULO</> to specify modulo to test and determine the target datanode.
-   You can also specify <type>ROUND ROBIN</> to determine the datanode by the order each
+   the target Datanode of each row is determined based upon the hash value of the column.
+   You can use <type>MODULO</> to specify modulo to test and determine the target Datanode.
+   You can also specify <type>ROUND ROBIN</> to determine the Datanode by the order each
    row is inserted.
   </para>
 
   <para>
-   Please note that with <type>HASH</> and <type>MODULO</>, coordinator have a chance to determine the
-   location of target row from incoming statement.   This reduces the number of involved datanodes
+   Please note that with <type>HASH</> and <type>MODULO</>, Coordinator have a chance to determine the
+   location of target row from incoming statement.   This reduces the number of involved Datanodes
    and can increase the number of transaction handled in parallel.
   </para>
 
   <para>
    On the other hand, if exact value cannot be obtained from incoming statement, for example,
    in the case of floating point number, <productname>Postgres-XC</> may fail to find precise
-   target datanode and it is not recommended to use such column as a distribution column.
+   target Datanode and it is not recommended to use such column as a distribution column.
   </para>
 
   <para>
-   To replicate a table into all the datanodes, specify <type>DISTRIBUTE BY REPLICATION</> as
+   To replicate a table into all the Datanodes, specify <type>DISTRIBUTE BY REPLICATION</> as
    follows:
 <programlisting>
 CREATE TABLE products (
@@ -826,7 +826,7 @@ CREATE TABLE orders (
     Please note that column with <type>REFERENCE</> must be the distribution column.
     In this case, we cannot add <type>PRIMARY KEY</> to <type>order_id</>
     because <type>PRIMARY KEY</type> must be the distribution column as well.
-    This limitation is introduced because constraints are enforced only locally in each datanode,
+    This limitation is introduced because constraints are enforced only locally in each Datanode,
     which will be resolved in the future.
    </para>
    <para>
@@ -1160,7 +1160,7 @@ CREATE TABLE circles (
      <para>
       Please note that <productname>Postgres-XC</> does not enforce
       OID integrity among the cluster.  OID is assigned locally in
-      each coordinator and datanode.  You can use this in expressions
+      each Coordinator and Datanode.  You can use this in expressions
       but you should not expect OID value is the same throughout the
       <productname>XC</> cluster.
      </para>
@@ -1189,7 +1189,7 @@ CREATE TABLE circles (
      <para>
       Please note that <productname>Postgres-XC</> does not enforce
       OID integrity among the cluster.  OID is assigned locally in
-      each coordinator and datanode.  You can use this in expressions
+      each Coordinator and Datanode.  You can use this in expressions
       but you should not expect OID value is the same throughout the
       <productname>XC</> cluster.
      </para>
@@ -1277,11 +1277,11 @@ CREATE TABLE circles (
 <!## XC>
 &xconly;
      <para>
-      In <productname>Postgres-XC</>, ctid is local to coordinators
-      and datanodes.  It is not a good practice to use this value in
+      In <productname>Postgres-XC</>, ctid is local to Coordinators
+      and Datanodes.  It is not a good practice to use this value in
       SQL statements.  In very restricted situation, for example, when
-      you query the database specifying the target coordinator or
-      datanode using <type>EXECUTE DIRECT</> statement, you may use
+      you query the database specifying the target Coordinator or
+      Datanode using <type>EXECUTE DIRECT</> statement, you may use
       this value.
      </para>
 <!## end>
@@ -1343,7 +1343,7 @@ CREATE TABLE circles (
    <para>
       Again, <productname>Postgres-XC</> does not enforce
       OID integrity among the cluster.  OID is assigned locally in
-      each coordinator and datanode.  You can use this in expressions
+      each Coordinator and Datanode.  You can use this in expressions
       but you should not expect OID value is the same throughout the
       <productname>XC</> cluster.
    </para>

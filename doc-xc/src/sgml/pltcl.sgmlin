@@ -489,8 +489,8 @@ $$ LANGUAGE pltcl;
 <!## XC>
 &xconly;
        <para>
-        Please note that OID is maintained locally at each datanode
-        and coordinator.
+        Please note that OID is maintained locally at each Datanode
+        and Coordinator.
        </para>
 <!## end>
       </listitem>

@@ -247,7 +247,7 @@ PostgreSQL documentation
       Valied values are <literal>act</literal> or <literal>standby</literal>.
       <literal>act</literal> means to start up
       this <application>gtm</application> as usual so
-      that <application>gtm</application> clients (coordinators, data
+      that <application>gtm</application> clients (Coordinators, data
       nodes or gtm-proxies) can connect for transaction
       management.  <literal>standby</literal> means
       this <application>gtm</application> starts up as a backup
@@ -348,7 +348,7 @@ PostgreSQL documentation
        To find the precise value to start with, you should
        run <application>pg_controldata</application> to
        find <literal>Latest checkpoint's NextXID</literal> of all the
-       coordinators and datanodes and choose the value larger than or
+       Coordinators and Datanodes and choose the value larger than or
        equals to the maximum value found.
       </para>
      </listitem>

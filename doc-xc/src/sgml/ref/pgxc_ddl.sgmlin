@@ -34,12 +34,12 @@ PostgreSQL documentation
   </title>
 &xconly
   <para>
-   pgxc_ddl is used to synchronize all coordinator catalog tables from
+   pgxc_ddl is used to synchronize all Coordinator catalog tables from
 one chosen by a user. It is also possible to launch a DDL on one
-coordinator, and then to synchronize all the coordinator catalog
-tables from the catalog table of the coordinator having received the
-DDL.  Copy method is cold-based. All the coordinators are stopped,
-catalog files are copied, then all the coordinators are restarted.
+Coordinator, and then to synchronize all the Coordinator catalog
+tables from the catalog table of the Coordinator having received the
+DDL.  Copy method is cold-based. All the Coordinators are stopped,
+catalog files are copied, then all the Coordinators are restarted.
   </para>
 
   <para>
@@ -76,7 +76,7 @@ catalog files are copied, then all the coordinators are restarted.
      <listitem>
       <para>
        Specify <filename>pgxc.conf</filename> folder, for
-       characteristics of all the coordinators.
+       characteristics of all the Coordinators.
       </para>
      </listitem>
     </varlistentry>
@@ -123,7 +123,7 @@ catalog files are copied, then all the coordinators are restarted.
      <listitem>
       <para>
        Specify temporary folder where to copy the configuration files
-       postgresql.conf and pg_hba.conf for each coordinator.
+       postgresql.conf and pg_hba.conf for each Coordinator.
       </para>
      </listitem>
     </varlistentry>
@@ -240,7 +240,7 @@ gtm_ctl status -S gtm -D datafolder
   </title>
 &xconly
   <para>
-   Because <command>pgxc_ddl</command> requires access to coordinator
+   Because <command>pgxc_ddl</command> requires access to Coordinator
    configuration file and data folders, the following parameters have
    to be set in <filename>pgxc.conf</filename>:
   </para>
@@ -259,32 +259,32 @@ gtm_ctl status -S gtm -D datafolder
 
     <tbody>
      <row>
-      <entry><varname>coordinator_ports</varname></entry>
+      <entry><varname>Coordinator_ports</varname></entry>
       <entry>string</entry>
       <entry>
-       Specify the port number of all the coordinators. Maintain the
-       order of the value same as those in coordinator_hosts. It is
+       Specify the port number of all the Coordinators. Maintain the
+       order of the value same as those in Coordinator_hosts. It is
        necessary to specify a number of ports equal to the number of
        hosts. A comma separator is also necessary.
       </entry>
      </row>
 
      <row>
-      <entry><varname>coordinator_folders</varname></entry>
+      <entry><varname>Coordinator_folders</varname></entry>
       <entry>string</entry>
       <entry>
-       Specify the data folders of all the coordinators. Maintain the
-       order of the value same as those in coordinator_hosts. It is
+       Specify the data folders of all the Coordinators. Maintain the
+       order of the value same as those in Coordinator_hosts. It is
        necessary to specify a number of data folders equal to the
        number of hosts. A comma separator is also necessary.
       </entry>
      </row>
 
      <row>
-      <entry><varname>coordinator_hosts</varname></entry>
+      <entry><varname>Coordinator_hosts</varname></entry>
       <entry>string</entry>
       <entry>
-       Specify the host name or IP address of coordinator. Separate
+       Specify the host name or IP address of Coordinator. Separate
        each value with comma.
       </entry>
      </row>
@@ -303,9 +303,9 @@ gtm_ctl status -S gtm -D datafolder
 
   <note>
    <para>
-    Configuration files of coordinators that have their catalog files
+    Configuration files of Coordinators that have their catalog files
     changed are defined with an extension name postgresql.conf.number,
-    "number" being the number of t coordinator in the order defined
+    "number" being the number of t Coordinator in the order defined
     in <filename>pgxc.conf</filename>.
    </para>
   </note>

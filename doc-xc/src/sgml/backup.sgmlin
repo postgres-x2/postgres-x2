@@ -110,7 +110,7 @@ pg_dump <replaceable class="parameter">dbname</replaceable> &gt; <replaceable cl
    <para>
     In <productname>Postgres-XC</>, <application>pg_dump</>
     and <application>pg_dumpall</> backs up all the information stored
-    both in coordinators and datanodes.
+    both in Coordinators and Datanodes.
    </para>
   </important>
 <!## end>
@@ -336,9 +336,9 @@ pg_restore -d <replaceable class="parameter">dbname</replaceable> <replaceable c
 <!## XC>
 &xconly;
   <para>
-   File system level backup covers only each coordinator or datanode.
+   File system level backup covers only each Coordinator or Datanode.
    To make file system level backup, you should backup each
-   coordinator and datanode manually.
+   Coordinator and Datanode manually.
   </para>
 <!## end>
 
@@ -473,9 +473,9 @@ tar -cf backup.tar /usr/local/pgsql/data
 &xconly;
   <para>
    This section describes PITR for <productname>PostgreSQL</>.
-   Because coordinator and datanode of <productname>Postgres-XC</> are
+   Because Coordinator and Datanode of <productname>Postgres-XC</> are
    essentially <productname>PostgreSQL</productname>server, you can do
-   PITR for each coordinator and datanode manually.
+   PITR for each Coordinator and Datanode manually.
   </para>
 <!## end>
 
@@ -570,9 +570,9 @@ tar -cf backup.tar /usr/local/pgsql/data
 &xconly;
   <para>
    This section describes PITR for <productname>PostgreSQL</>.
-   Because coordinator and datanode of <productname>Postgres-XC</> are
+   Because Coordinator and Datanode of <productname>Postgres-XC</> are
    essentially <productname>PostgreSQL</productname>server, you can
-   set up WAL archiving for each coordinator and datanode manually.
+   set up WAL archiving for each Coordinator and Datanode manually.
   </para>
 <!## end>
 
@@ -773,10 +773,10 @@ archive_command = 'test ! -f /mnt/server/archivedir/%f &amp;&amp; cp %p /mnt/ser
 &xconly;
    <para>
     This section describes how to make a base backup of single
-    datanode or coordinator.  Please note that you should take base
-    backup of all the datanodes and coordinators.  Also please note
+    Datanode or Coordinator.  Please note that you should take base
+    backup of all the Datanodes and Coordinators.  Also please note
     that you don't have to take base backups at exactly the same time.
-    You may take base backup of each datanode or coordinator one after
+    You may take base backup of each Datanode or Coordinator one after
     another, or you may take some of them at the same time.  You don't
     have to do it at exactly the same time.
    </para>
@@ -1001,10 +1001,10 @@ SELECT pg_stop_backup();
 &xconly;
   <para>
    This section describes recovering with continuous archive backup
-   for <productname>PostgreSQL</>.  Because coordinator and datanode
+   for <productname>PostgreSQL</>.  Because Coordinator and Datanode
    of <productname>Postgres-XC</> are
    essentially <productname>PostgreSQL</productname>server, you can do
-   this for each coordinator and datanode manually.
+   this for each Coordinator and Datanode manually.
   </para>
 <!## end>
 
@@ -1200,9 +1200,9 @@ restore_command = 'cp /mnt/server/archivedir/%f %p'
 <!## XC> 
 &xconly;
   <para>
-   Because coordinator and datanode of <productname>Postgres-XC</> are
+   Because Coordinator and Datanode of <productname>Postgres-XC</> are
    essentially <productname>PostgreSQL</productname>server, you can 
-   apply timelines for each coordinator and datanode manually.
+   apply timelines for each Coordinator and Datanode manually.
   </para>
 <!## end>
 

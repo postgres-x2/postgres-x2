@@ -112,7 +112,7 @@ CREATE TABLESPACE <replaceable class="parameter">tablespace_name</replaceable> [
 &xconly;
    <para>
     <productname>Postgres-XC</> assigns the same path to a tablespace
-    for all the coordinators and datanodes.  So when creating a tablespace,
+    for all the Coordinators and Datanodes.  So when creating a tablespace,
     user needs to have permission to the same location path on all the servers
     involved in the cluster.
    </para>

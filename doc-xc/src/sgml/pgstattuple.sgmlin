@@ -18,8 +18,8 @@
 <!## XC>
  <para>
   Functions of this module returns information about connecting
-  coordinators locally.  To get information of a datanode, you can
-  connect to the datanode using psql directly.  In this case,
+  Coordinators locally.  To get information of a Datanode, you can
+  connect to the Datanode using psql directly.  In this case,
   statements will be handled by local transaction control without GTM,
   you will have warnings and the visibility could be somewhat
   inconsistent.

@@ -64,10 +64,10 @@ LOAD '<replaceable class="PARAMETER">filename</replaceable>'
 <!## XC>
   <para>
    Please note that <command>LOAD</command> command loads library only
-   locally.  You should load library manually in each datanode and
-   coordinator (you can use psql directly to datanodes for this
+   locally.  You should load library manually in each Datanode and
+   Coordinator (you can use psql directly to Datanodes for this
    puupose), or <filename>edit postgresql.conf</filename> for all the
-   datanodes and coordinators.
+   Datanodes and Coordinators.
   </para>
 <!## end>
 

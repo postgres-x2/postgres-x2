@@ -276,11 +276,11 @@
  <para>
   In 2010, <productname>Rita-DB</productname> was carried over to
   NTT's Open Source Software Center as Postgres-XC project.
-  EnterpriseDB Inc., joined the project.    After six month effort,
+  EnterpriseDB Inc., joined the project. After six month effort,
   they were successful to show
   that multiple <productname>PostgreSQL</productname> can be
   integrated into database cluster and they can provide transparent
-  global transaction management feature.  Benchmark showed both read and
+  global transaction management feature. Benchmark showed both read and
   write scalability.
  </para>
 
@@ -290,16 +290,22 @@
  </para>
 
  <para>
-  After then, the development team decided to expand statement
+  After then, the development and core teams decided to expand statement
   capability of <productname>Postgres-XC</productname> to
   full <productname>PostgreSQL</productname> as much as possible.
   They're working hard to this goal.
  </para>
 
+ <para>
+  <productname>Postgres-XC</productname> is under copyright of Postgres-XC Development
+  Group since 2012. More details about this legal entity can be found
+  <ulink url="https://sourceforge.net/apps/mediawiki/postgres-xc/index.php?title=Charter">here.</ulink>
+ </para>
+
 <!## omitted>
  <para>
   On the other hand, it is very important to provide high availability
-  feature to database clusters.   Especially, GTM was pointed out to
+  feature to database clusters. Especially, GTM was pointed out to
   become single point of failure.
   High availability feature was also added
   to <productname>Postgres-XC</productname>.

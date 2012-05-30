@@ -874,8 +874,8 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
 &xconly;
      <para>
       In <productname>Postgres-XC</>, OID is kept locally in each
-      datanode and coordinator.  The OID value may inconsistent for
-      rows stored in different datanodes.
+      Datanode and Coordinator.  The OID value may inconsistent for
+      rows stored in different Datanodes.
      </para>
 <!## end>
     </listitem>
@@ -959,7 +959,7 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
     <listitem>
 &xconly;
      <para>
-      This clause specifies how the table is distributed or replicated among datanodes.
+      This clause specifies how the table is distributed or replicated among Datanodes.
      </para>
 
       <variablelist>
@@ -969,7 +969,7 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
         <listitem>
          <para>
           Each row of the table will be replicated into all the
-          datanode of the <productname>Postgres-XC</> database
+          Datanode of the <productname>Postgres-XC</> database
           cluster.
          </para>
         </listitem>
@@ -979,9 +979,9 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
         <term><literal>ROUND ROBIN</literal></term>
         <listitem>
          <para>
-          Each row of the table will be placed in one of the datanodes
+          Each row of the table will be placed in one of the Datanodes
           by round-robin manner.  The value of the row will not be
-          needed to determine what datanode to go.
+          needed to determine what Datanode to go.
          </para>
         </listitem>
        </varlistentry>
@@ -1783,8 +1783,8 @@ CREATE TABLE employees OF employee_type (
    </para>
    <para>
     In <productname>Postgres-XC</>, OID is kept locally in each
-    datanode and coordinator.  The OID value may inconsistent for rows
-    stored in different datanodes.
+    Datanode and Coordinator.  The OID value may inconsistent for rows
+    stored in different Datanodes.
    </para>
 
   </refsect2>

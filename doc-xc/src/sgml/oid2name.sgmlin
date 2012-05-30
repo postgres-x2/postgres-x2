@@ -29,9 +29,9 @@
 &xconly;
 <!## XC>
   <para>
-   Please note that you can issue this command to each datanode or
-   coordinator.  The result is the information local to datanode or
-   coordinator specified.
+   Please note that you can issue this command to each Datanode or
+   Coordinator.  The result is the information local to Datanode or
+   Coordinator specified.
   </para>
 <!## end>
 

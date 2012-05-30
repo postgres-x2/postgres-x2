@@ -480,18 +480,18 @@
           <para>Maximum number of connections in pool</para>
          </listitem>
          <listitem>
-          <para><varname>persistent_datanode_connections</></para>
+          <para><varname>persistent_Datanode_connections</></para>
           <para>On/off switch to make sessions keep the same connections when used.
           This may be useful in lower concurrency environments with many session
           parameters set.
           </para>
          </listitem>
          <listitem>
-          <para><varname>max_coordinators</></para>
+          <para><varname>max_Coordinators</></para>
           <para>Maximum number of Coordinators that can be defined in local node</para>
          </listitem>
          <listitem>
-          <para><varname>max_datanodes</></para>
+          <para><varname>max_Datanodes</></para>
           <para>Maximum number of Datanodes that can be defined in local node</para>
          </listitem>
          <listitem>
