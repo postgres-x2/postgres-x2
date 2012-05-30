@@ -2564,7 +2564,7 @@ QueryRewrite(Query *parsetree)
  * Rewrite the CREATE TABLE AS and SELECT INTO queries as a
  * INSERT INTO .. SELECT query. The target table must be created first using
  * utility command processing. This takes care of creating the target table on
- * all the coordinators and the data nodes.
+ * all the Coordinators and the Datanodes.
  */
 List *
 QueryRewriteCTAS(Query *parsetree)

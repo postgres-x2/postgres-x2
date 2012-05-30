@@ -2000,12 +2000,12 @@ CommitTransaction(void)
 
 #ifdef PGXC	
 	/*
-	 * If we are a coordinator and currently serving the client, 
+	 * If we are a Coordinator and currently serving the client, 
 	 * we must run a 2PC if more than one nodes are involved in this
 	 * transaction. We first prepare on the remote nodes and if everything goes
 	 * right, we commit locally and then commit on the remote nodes. We must
-	 * also be careful to prepare locally on this coordinator only if the
-	 * local coordinator has done some write activity.
+	 * also be careful to prepare locally on this Coordinator only if the
+	 * local Coordinator has done some write activity.
 	 *
 	 * If there are any errors, they will be reported via ereport and the
 	 * transaction will be aborted.

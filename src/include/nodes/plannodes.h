@@ -607,7 +607,7 @@ typedef struct Agg
 	long		numGroups;		/* estimated number of groups in input */
 #ifdef PGXC
 	bool		skip_trans;		/* apply collection directly on the data received
-								 * from remote data nodes
+								 * from remote Datanodes
 								 */
 #endif /* PGXC */
 } Agg;

@@ -97,7 +97,7 @@ CONTEXT:  SQL function "f1"
 SET check_function_bodies = false;
 create function f1 () returns setof my_tab1 as $$ create table my_tab2 (a int); select * from my_tab1; $$ language sql;
 select f1();
-ERROR:  Unexpected response from the data nodes for 'T' message, current request type 1
+ERROR:  Unexpected response from the Datanodes for 'T' message, current request type 1
 CONTEXT:  SQL function "f1" statement 1
 SET check_function_bodies = true;
 drop function f1();

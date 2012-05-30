@@ -1262,7 +1262,7 @@ StandbyTransactionIdIsPrepared(TransactionId xid)
  *
  * With regard to xc_maintenance_mode related to pgxc_clean, COMMIT/ROLLBACK PREPARED
  * might be called in the node where the transaction with given gid does not exist.
- * This may happen at the originating coordinator.   In this case, we should
+ * This may happen at the originating Coordinator. In this case, we should
  * skip to handle two-phase file.
  *
  * Please note that we don't have to write commit/abort log to WAL in this case.
@@ -1293,7 +1293,7 @@ FinishPreparedTransaction(const char *gid, bool isCommit)
 	/*
 	 * LockGXact returns NULL if this node does not contain given two-phase
 	 * TXN.  This can happen when COMMIT/ROLLBACK PREPARED is issued at
-	 * the originating coordinator for cleanup.
+	 * the originating Coordinator for cleanup.
 	 * In this case, no local handling is needed.   Only report to GTM
 	 * is needed and this has already been handled in 
 	 * FinishRemotePreparedTransaction().

@@ -26,11 +26,11 @@
 #define NO_SOCKET -1
 
 
-/* Connection to data node maintained by Pool Manager */
+/* Connection to Datanode maintained by Pool Manager */
 typedef struct PGconn NODE_CONNECTION;
 typedef struct PGcancel NODE_CANCEL;
 
-/* Helper structure to access data node from Session */
+/* Helper structure to access Datanode from Session */
 typedef enum
 {
 	DN_CONNECTION_STATE_IDLE,			/* idle, ready for query */
@@ -54,7 +54,7 @@ typedef enum
  * Response checking is required in case of PREPARE TRANSACTION and should not be done for the rest
  * of the cases for performance reasons, hence we have an option to ignore response checking.
  * The problem with PREPARE TRANSACTION is that it can result in a ROLLBACK response
- * yet coordinator would think it got done on all nodes.
+ * yet Coordinator would think it got done on all nodes.
  * If we ignore ROLLBACK response then we would try to COMMIT a transaction that
  * never got prepared, which in an incorrect behavior.
  */

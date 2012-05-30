@@ -23,10 +23,10 @@
  *  -a, --all				cleanup all the database avilable
  *  -d, --dbname=DBNAME		database name to clean up.   Multiple -d option
  *                          can be specified.
- *  -h, --host=HOSTNAME		coordinator hostname to connect to.
+ *  -h, --host=HOSTNAME		Coordinator hostname to connect to.
  *  -N, --no-clean			only test.  no cleanup actually.
  *  -o, --output=FILENAME	output file name.
- *  -p, --port=PORT			coordinator port number.
+ *  -p, --port=PORT			Coordinator port number.
  *  -q, --quiet				do not print messages except for error, default.
  *  -s, --status			prints out 2PC status.
  *  -U, --username=USERNAME	database user name
@@ -119,7 +119,7 @@ static void do_commit_abort(PGconn *conn, txn_info *txn, bool is_commit);
 static bool setMaintenanceMode(PGconn *conn);
 
 /*
- * Connection to the coordinator
+ * Connection to the Coordinator
  */
 PGconn *coord_conn;
 
@@ -178,13 +178,13 @@ int main(int argc, char *argv[])
 	}
 	if (coordinator_host == NULL)
 	{
-		/* Default coordinator host */
+		/* Default Coordinator host */
 		if ((coordinator_host = getenv("PGHOST")) == NULL)
 			coordinator_host = "localhost";
 	}
 	if (coordinator_port == -1)
 	{
-		/* Default coordinator port */
+		/* Default Coordinator port */
 		char *pgport;
 
 		if ((pgport = getenv("PGPORT")) == NULL)
@@ -240,7 +240,7 @@ int main(int argc, char *argv[])
 	}
 
 	/*
-	 * Get my nodename (connected coordinator)
+	 * Get my nodename (connected Coordinator)
 	 */
 	getMyNodename(coord_conn);
 	if (verbose_opt)
@@ -249,12 +249,12 @@ int main(int argc, char *argv[])
 	}
 
 	/*
-	 * Get availabel databases
+	 * Get available databases
 	 *
-	 * pgxc_clean assumes that all the database are avilable from the connecting coordinator.
+	 * pgxc_clean assumes that all the database are available from the connecting Coordinator.
 	 * Some (expert) DBA can create a database local to subset of the node by EXECUTE DIRECT.
 	 * In this case, DBA may have to clean outstanding 2PC transactions manually or clean
-	 * 2PC transactions by connecting pgxc_clean to different coordinators.
+	 * 2PC transactions by connecting pgxc_clean to different Coordinators.
 	 *
 	 * If such node-subset database is found to be used widely, pgxc_clean may need
 	 * an extension to deal with this case.
@@ -274,12 +274,12 @@ int main(int argc, char *argv[])
 	}
 
 	/*
-	 * Get list of coordinators
+	 * Get list of Coordinators
 	 *
 	 * As in the case of database, we clean transactions in visible nodes from the
-	 * connecting coordinator.  DBA can also setup different node configuration
-	 * at different coordinatos.  In this case, DBA should be careful to choose
-	 * appropriate coordinator to clean up transactions.
+	 * connecting Coordinator. DBA can also setup different node configuration
+	 * at different Coordinators. In this case, DBA should be careful to choose
+	 * appropriate Coordinator to clean up transactions.
 	 */
 	getNodeList(coord_conn);
 	if (verbose_opt)
@@ -351,7 +351,7 @@ int main(int argc, char *argv[])
 	 * Then disconnect from the database.
 	 * I need to login to specified databases which 2PC is issued for.  Again, we assume
 	 * that all the prepare is issued against the same database in each node, which
-	 * current coordinator does and there seems to be no way to violate this assumption.
+	 * current Coordinator does and there seems to be no way to violate this assumption.
 	 */
 	if (verbose_opt)
 	{
@@ -817,7 +817,7 @@ getNodeList(PGconn *conn)
 		switch (node_type_c[0])
 		{
 			case 'C':
-				/* pgxc_clean has to connect to the coordinator */
+				/* pgxc_clean has to connect to the Coordinator */
 				node_type = NODE_TYPE_COORD;
 				if (strcmp(node_name, my_nodename) == 0)
 					my_nodeidx = ii;
@@ -836,10 +836,10 @@ getNodeList(PGconn *conn)
 		free(node_type_c);
 		free(host);
 	}
-	/* Check if local coordinator has been found */
+	/* Check if local Coordinator has been found */
 	if (my_nodeidx == -1)
 	{
-		fprintf(stderr, "Failed to identify the coordintor which %s is connecting to.  ", progname);
+		fprintf(stderr, "Failed to identify the coordinator which %s is connecting to.  ", progname);
 		fprintf(stderr, "Connecting to a wrong node.\n");
 		exit(1);
 	}

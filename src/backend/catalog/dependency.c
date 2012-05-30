@@ -1190,7 +1190,7 @@ doDeletion(const ObjectAddress *object)
 						if (!IsTempSequence(object->objectId))
 						{
 							/*
-							 * The sequence has already been removed from coordinator,
+							 * The sequence has already been removed from Coordinator,
 							 * finish the stuff on GTM too
 							 */
 

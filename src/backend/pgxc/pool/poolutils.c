@@ -49,7 +49,7 @@ pgxc_pool_check(PG_FUNCTION_ARGS)
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 (errmsg("must be superuser to manage pooler"))));
 
-	/* A datanode has no pooler active, so do not bother about that */
+	/* A Datanode has no pooler active, so do not bother about that */
 	if (IS_PGXC_DATANODE)
 		PG_RETURN_BOOL(true);
 
@@ -100,7 +100,7 @@ pgxc_pool_reload(PG_FUNCTION_ARGS)
 				(errcode(ERRCODE_ACTIVE_SQL_TRANSACTION),
 				 errmsg("pgxc_pool_reload cannot run inside a transaction block")));
 
-	/* A datanode has no pooler active, so do not bother about that */
+	/* A Datanode has no pooler active, so do not bother about that */
 	if (IS_PGXC_DATANODE)
 		PG_RETURN_BOOL(true);
 

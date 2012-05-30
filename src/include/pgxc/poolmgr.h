@@ -2,7 +2,7 @@
  *
  * poolmgr.h
  *
- *	  Definitions for the data nodes connection pool.
+ *	  Definitions for the Datanode connection pool.
  *
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
@@ -200,7 +200,7 @@ extern int	PoolManagerAbortTransactions(char *dbname, char *username, int **proc
 /* Return connections back to the pool, for both Coordinator and Datanode connections */
 extern void PoolManagerReleaseConnections(void);
 
-/* Cancel a running query on data nodes as well as on other coordinators */
+/* Cancel a running query on Datanodes as well as on other Coordinators */
 extern void PoolManagerCancelQuery(int dn_count, int* dn_list, int co_count, int* co_list);
 
 /* Lock/unlock pool manager */

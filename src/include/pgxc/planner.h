@@ -88,8 +88,8 @@ typedef struct
 	SimpleSort		*sort;
 	bool			read_only;		/* do not use 2PC when committing read only steps */
 	bool			force_autocommit;	/* some commands like VACUUM require autocommit mode */
-	char			*statement;		/* if specified use it as a PreparedStatement name on data nodes */
-	char			*cursor;		/* if specified use it as a Portal name on data nodes */
+	char			*statement;		/* if specified use it as a PreparedStatement name on Datanodes */
+	char			*cursor;		/* if specified use it as a Portal name on Datanodes */
 	int			num_params;		/* number of parameters specified for Prepared statement */
 	Oid			*param_types;		/* parameter types, this pointer is shared
 							 * across all the RemoteQuery nodes in the
@@ -143,7 +143,7 @@ typedef enum
 	FQS_UNSHIPPABLE_EXPR = 0,		/* it has unshippable expression */
 	FQS_SINGLENODE_EXPR,			/* it has single node expression, like
 									 * aggregates, ORDER BY etc. */
-	FQS_NEEDS_COORD,				/* the query needs coordinator */
+	FQS_NEEDS_COORD,				/* the query needs Coordinator */
 	FQS_VARLEVEL,					/* one of its subqueries has a VAR
 									 * referencing an upper level query
 									 * relation */

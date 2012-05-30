@@ -117,7 +117,7 @@ static const unsigned int xc_mod_r[][6] =
 
 /*
  * GetAnyDataNode
- * Pick any data node from given list, but try a preferred node
+ * Pick any Datanode from given list, but try a preferred node
  */
 List *
 GetAnyDataNode(List *relNodes)
@@ -741,7 +741,7 @@ GetAllCoordNodes(void)
 	{
 		/*
 		 * Do not put in list the Coordinator we are on,
-		 * it doesn't make sense to connect to the local coordinator.
+		 * it doesn't make sense to connect to the local Coordinator.
 		 */
 
 		if (i != PGXCNodeId - 1)

@@ -158,8 +158,8 @@ typedef struct Query
 #ifdef PGXC
 	/* need this info for PGXC Planner, may be temporary */
 	char		*sql_statement;		/* original query */
-	bool		qry_finalise_aggs;	/* used for queries intended for datanodes,
-						 * should datanode finalise the aggregates? */
+	bool		qry_finalise_aggs;	/* used for queries intended for Datanodes,
+						 * should Datanode finalise the aggregates? */
 	bool		is_local;		/* enforce query execution on local node
 						 * this is used by EXECUTE DIRECT especially. */
 #endif

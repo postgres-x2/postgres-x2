@@ -357,7 +357,7 @@ StoreCachedPlan(CachedPlanSource *plansource,
 #ifdef PGXC
 	/*
 	 * If this plansource belongs to a named prepared statement, store the stmt
-	 * name for the datanode queries.
+	 * name for the Datanode queries.
 	 */
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord()
 	    && plansource->stmt_name)
@@ -367,7 +367,7 @@ StoreCachedPlan(CachedPlanSource *plansource,
 
 		/*
 		 * Scan the plans and set the statement field for all found RemoteQuery
-		 * nodes so they use data node statements
+		 * nodes so they use Datanode statements
 		 */
 		n = 0;
 		foreach(lc, stmt_list)
@@ -467,7 +467,7 @@ DropCachedPlan(CachedPlanSource *plansource)
 		{
 			ListCell *lc;
 
-			/* Close any active planned datanode statements */
+			/* Close any active planned Datanode statements */
 			foreach (lc, plan->stmt_list)
 			{
 				Node *node = lfirst(lc);
@@ -697,7 +697,7 @@ RevalidateCachedPlan(CachedPlanSource *plansource, bool useResOwner)
 }
 
 /*
- * Find and release all datanode statements referenced by the plan node and subnodes
+ * Find and release all Datanode statements referenced by the plan node and subnodes
  */
 #ifdef PGXC
 static void

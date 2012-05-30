@@ -199,9 +199,9 @@ typedef struct CopyStateData
 	int			raw_buf_len;	/* total # of bytes stored */
 #ifdef PGXC
 	/*
-	 * On coordinator we need to rewrite query.
-	 * While client may submit a copy command dealing with file, data nodes
-	 * always send/receive data to/from the coordinator. So we can not use
+	 * On Coordinator we need to rewrite query.
+	 * While client may submit a copy command dealing with file, Datanodes
+	 * always send/receive data to/from the Coordinator. So we can not use
 	 * original statement and should rewrite statement, specifing STDIN/STDOUT
 	 * as copy source or destination
 	 */
@@ -214,7 +214,7 @@ typedef struct CopyStateData
 	RelationLocInfo *rel_loc;	/* the locator key */
 	int		idx_dist_by_col;		/* index of the distributed by column */
 
-	PGXCNodeHandle **connections; /* Involved data node connections */
+	PGXCNodeHandle **connections; /* Involved Datanode connections */
 	TupleDesc	tupDesc;		/* for INSERT SELECT */
 #endif
 } CopyStateData;
@@ -772,9 +772,9 @@ CopyLoadRawBuf(CopyState cstate)
  * When rewriting query to be sent down to nodes we should escape special
  * characters, that may present in the value. The characters are backslash(\)
  * and single quote ('). These characters are escaped by doubling. We do not
- * have to escape characters like \t, \v, \b, etc. because datanode interprets
+ * have to escape characters like \t, \v, \b, etc. because Datanode interprets
  * them properly.
- * We use E'...' syntax for litherals containing backslashes.
+ * We use E'...' syntax for literals containing backslashes.
  */
 static void
 CopyQuoteStr(StringInfo query_buf, char *value)
@@ -1512,7 +1512,7 @@ BeginCopy(bool is_from,
 			if (!cstate->connections)
 				ereport(ERROR,
 						(errcode(ERRCODE_CONNECTION_EXCEPTION),
-						 errmsg("Failed to initialize data nodes for COPY")));
+						 errmsg("Failed to initialize Datanodes for COPY")));
 		}
 	}
 #endif
@@ -1853,7 +1853,7 @@ CopyTo(CopyState cstate)
 
 #ifdef PGXC
 	/*
-	 * In PGXC, it is not necessary for a datanode to generate
+	 * In PGXC, it is not necessary for a Datanode to generate
 	 * the trailer as Coordinator is in charge of it
 	 */
 	if (cstate->binary && IS_PGXC_COORDINATOR)
@@ -2225,7 +2225,7 @@ CopyFrom(CopyState cstate)
 
 #ifdef PGXC
 		/*
-		 * Send the data row as-is to the datanodes. If default values
+		 * Send the data row as-is to the Datanodes. If default values
 		 * are to be inserted, append them onto the data row.
 		 */
 
@@ -2260,7 +2260,7 @@ CopyFrom(CopyState cstate)
 						   cstate->connections))
 				ereport(ERROR,
 						(errcode(ERRCODE_CONNECTION_EXCEPTION),
-						 errmsg("Copy failed on a data node")));
+						 errmsg("Copy failed on a Datanode")));
 			processed++;
 		}
 		else
@@ -2456,9 +2456,9 @@ BeginCopyFrom(Relation rel,
 				if (IS_PGXC_COORDINATOR)
 				{
 					/*
-					 * If default expr is shippable to datanode, don't include
-					 * default values in the data row sent to the datanode; let
-					 * the datanode insert the default values.
+					 * If default expr is shippable to Datanode, don't include
+					 * default values in the data row sent to the Datanode; let
+					 * the Datanode insert the default values.
 					 */
 					Expr *planned_defexpr = expression_planner((Expr *) defexpr);
 					if (!is_foreign_expr((Node*)planned_defexpr, NULL))
@@ -2814,7 +2814,7 @@ NextCopyFrom(CopyState cstate, ExprContext *econtext,
 				resetStringInfo(&cstate->line_buf);
 
 				enlargeStringInfo(&cstate->line_buf, sizeof(uint16));
-				/* Receive field count directly from datanodes */
+				/* Receive field count directly from Datanodes */
 				fld_count = htons(fld_count);
 				appendBinaryStringInfo(&cstate->line_buf, (char *) &fld_count, sizeof(uint16));
 			}
@@ -2847,7 +2847,7 @@ NextCopyFrom(CopyState cstate, ExprContext *econtext,
 				resetStringInfo(&cstate->line_buf);
 
 				enlargeStringInfo(&cstate->line_buf, sizeof(uint16));
-				/* Receive field count directly from datanodes */
+				/* Receive field count directly from Datanodes */
 				fld_count = htons(fld_count);
 				appendBinaryStringInfo(&cstate->line_buf, (char *) &fld_count, sizeof(uint16));
 			}
@@ -2960,7 +2960,7 @@ NextCopyFrom(CopyState cstate, ExprContext *econtext,
  * 2. converts each default value into its output form,
  * 3. then appends it into cstate->defval_buf buffer.
  * This buffer would later be appended into the final data row that is sent to
- * the datanodes.
+ * the Datanodes.
  * So for e.g., for a table :
  * tab (id1 int, v varchar, id2 default nextval('tab_id2_seq'::regclass), id3 )
  * with the user-supplied data  : "2 | abcd",
@@ -2989,7 +2989,7 @@ append_defvals(Datum *values, CopyState cstate)
 		 * For using the values in their output form, it is not sufficient
 		 * to just call its output function. The format should match
 		 * that of COPY because after all we are going to send this value as
-		 * an input data row to the datanode using COPY FROM syntax. So we call
+		 * an input data row to the Datanode using COPY FROM syntax. So we call
 		 * exactly those functions that are used to output the values in case
 		 * of COPY TO. For instace, CopyAttributeOutText() takes care of
 		 * escaping, CopySendInt32 take care of byte ordering, etc. All these
@@ -4396,7 +4396,7 @@ build_copy_statement(CopyState cstate, List *attnamelist,
 	/*
 	 * If target table does not exists on nodes (e.g. system table)
 	 * the location info returned is NULL. This is the criteria, when
-	 * we need to run Copy on coordinator
+	 * we need to run COPY on Coordinator
 	 */
 	cstate->rel_loc = GetRelationLocInfo(RelationGetRelid(cstate->rel));
 
@@ -4433,7 +4433,7 @@ build_copy_statement(CopyState cstate, List *attnamelist,
 	}
 
 	/*
-	 * Build up query string for the data nodes, it should match
+	 * Build up query string for the Datanodes, it should match
 	 * to original string, but should have STDIN/STDOUT instead
 	 * of filename.
 	 */

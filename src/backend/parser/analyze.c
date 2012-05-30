@@ -2308,10 +2308,10 @@ transformExplainStmt(ParseState *pstate, ExplainStmt *stmt)
  * transformExecDirectStmt -
  *	transform an EXECUTE DIRECT Statement
  *
- * Handling is depends if we should execute on nodes or on coordinator.
+ * Handling is depends if we should execute on nodes or on Coordinator.
  * To execute on nodes we return CMD_UTILITY query having one T_RemoteQuery node
  * with the inner statement as a sql_command.
- * If statement is to run on coordinator we should parse inner statement and
+ * If statement is to run on Coordinator we should parse inner statement and
  * analyze resulting query tree.
  */
 static Query *

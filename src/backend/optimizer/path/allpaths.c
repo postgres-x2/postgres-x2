@@ -278,7 +278,7 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 #ifdef PGXC
 	/*
-	 * If we are on the coordinator, we always want to use
+	 * If we are on the Coordinator, we always want to use
 	 * the remote query path unless it is a pg_catalog table
 	 * or a sequence relation.
 	 */

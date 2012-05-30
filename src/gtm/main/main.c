@@ -957,7 +957,7 @@ GTM_ThreadMain(void *argp)
 	{
 		/*
 		 * We expect a startup message at the very start. The message type is
-		 * REGISTER_COORD, followed by the 4 byte coordinator ID
+		 * REGISTER_COORD, followed by the 4 byte Coordinator ID
 		 */
 		char startup_type;
 		GTM_StartupPacket sp;
