@@ -6963,29 +6963,24 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
       </indexterm>
       <listitem>
        <para>
-        Specify to enter into maintenance mode.  Turning this on will
-        change behavior of several statements.  Each statement
-        behavior may not be incompatible in future releases.  Users
+        Specify to enter into maintenance mode. Turning this parameter to on will
+        change behavior of several statements. Each statement
+        behavior may not be compatible in future releases, so users
         must be extremely careful when they attempt to set this
-        value <literal>on</literal>.
+        value to <literal>on</literal>.
        </para>
        <para>
         So far, behavior of <xref linkend="sql-commit-prepared"> and <xref linkend="sql-rollback-prepared"> statements are affected by this parameter.
        </para>
        <para>
         This parameter can only be set by superuser
-        with <literal>SET</literal> command.  Otherwise, the setting
+        with <literal>SET</literal> command. Otherwise, the setting
         will be ignored.
        </para>
        <para>
-        Developers should notice that this parameter is shared in all
-        the connections of the session, begween the originating
-        coordinator and target nodes and affects the behavior of
-        following statements of the session.
-       </para>
-       <para><literal>NITICE</literal></para>
-       <para>
-        This parameter is for housekeeping utilities.  Behavior when this parameter is set to <literal>ON</literal> may not be upward compatibile from version to version.
+        As a session parameter, this parameter is shared among all
+        the connections of the session. It affects originating coordinator as
+        well as remote nodes involved in session.
        </para>
       </listitem>
      </varlistentry>
