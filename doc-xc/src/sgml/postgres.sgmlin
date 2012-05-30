@@ -69,17 +69,6 @@
 <!## end>
    </para>
 
-<!## XC>
-&xconly;
-   <para>
-    Please note that this document is not completed yet.  Sections not
-    reviewed and needs revision for Postgres-XC is explicitly noted.
-    Description for Postgres-XC specific applications, such
-    as <command>gtm</command>, <command>gtm_ctl</command>, <command>gtm_proxy</command>
-    and <command>pgxc_config</command> will be supplied later.
-   </para>
-<!## end>
-
    <para>
 <!## PG>
     After you have worked through this tutorial you might want to move
