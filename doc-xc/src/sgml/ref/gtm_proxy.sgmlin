@@ -64,7 +64,7 @@ PostgreSQL documentation
 &xconly
   <para>
    <literal>GTM-Proxy</literal> configuration parameters are specified in the configuration file
-   <filename>gtm_proxy.conf</filename> placed in the working directory
+   <filename>gtm_proxy.conf</filename><indexterm><primary>gtm_proxy.conf</></> placed in the working directory
    specified as <literal>-D</literal> option
    of <application>gtm_proxy</application> command line option as described
    in the next section.
