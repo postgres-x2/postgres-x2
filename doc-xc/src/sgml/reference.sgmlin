@@ -270,7 +270,7 @@
   <title>PostgreSQL Server Applications</title>
 <!## end>
 <!## XC>
-  <title>Postgre-XC Server Applications</title>
+  <title>Postgres-XC Server Applications</title>
 <!## end>
 
   <partintro>
@@ -280,7 +280,7 @@
     <productname>PostgreSQL</productname> server applications and
 <!## end>
 <!## XC>
-    <productname>Postgre-XC</productname> server applications and
+    <productname>Postgres-XC</productname> server applications and
 <!## end>
     support utilities.  These commands can only be run usefully on the
     host where the database server resides.  Other utility programs
@@ -303,13 +303,9 @@
    &pgResetxlog;
 <!## notYet>
    &pgxcClean;
-   &pgxcConfig;
 <!## end>
    &postgres;
    &postmaster;
-<!## notYet>
-   &xcWatcher;
-<!## end>
 
  </reference>
 

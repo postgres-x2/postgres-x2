@@ -287,9 +287,7 @@ postgres$ <userinput>initdb -D /usr/local/pgsql/data</userinput>
    Datanode.
    You must configure and start each of them.
    Following sections will give you how to configure and start them.   
-   Other components such
-   as <filename>pgxc_config</>, <filename>XCM</>, <filename>pgxc_clean</>, <filename>xc_watcher</>
-   and <filename>GTM-Standby</> will be described in high-availability
+   <filename>pgxc_clean</> and <filename>GTM-Standby</> are described in high-availability
    sections.
   </para>
 

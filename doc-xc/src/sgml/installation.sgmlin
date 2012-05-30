@@ -85,9 +85,7 @@ su - postgres
 <para>
 Because <productname>Postgres-XC</> is composed of multiple database
 component which runs on different servers, the stop after this has to
-be done in each server involved manually.  For more automated
-installation step, please see the section on <filename>pgxc_config</>.
-For manual setup, please see the following sections.
+be done in each server involved manually.
 </para>
 <!## end>
 <para>
@@ -1798,53 +1796,6 @@ Postgres-XC, contrib and HTML documentation successfully made. Ready to install.
        </para>
       </listitem>
      </varlistentry>
-     <varlistentry>
-      <term><envar>XCM</envar></term>
-      <listitem>
-       <para>
-        <filename>XCM</> module maintains configuration of
-        global <productname>Postgres-XC</> configuration and status.
-        XCM's status is initialized and maintained
-        by <filename>xc_watcher</> module which can be refereed by any
-        other components.   Occasionally other components may update
-        <filename>XCM</> status when it detects error, which is passed
-        to <filename>xc_watcher</>, which distributes the status
-        change to all the other servers.
-       </para>
-      </listitem>
-     </varlistentry>
-     <varlistentry>
-      <term><envar>xc_watcher</envar></term>
-      <listitem>
-      <para>
-       <filename>xc_watcher</> provides cluster-wide operations such
-       as starting, stopping, monitoring and controlling
-       failover/failback.
-       <filename>xc_watcher</> composed of central operation utility
-       and other utilities which should run on servers where at least one of GTM,
-       GTM-Proxy, GTM-Standby, coordinator or datanode funs.   You may
-       want to run <filename>xc_watcher</> on a separate server.
-      </para>
-     </listitem>
-     </varlistentry>
-     <varlistentry>
-      <term><envar>pgxc_config</envar></term>
-      <listitem>
-      <para>
-       <filename>pgxc_config</> is <productname>Postgres-XC</>'s
-       configuration utility.   It reads <productname>XC</>'s global
-       configuration, help to initialize its owner and to install
-       binaries into servers, generate each component's configuration
-       file and generate scripts used by <filename>xc_watcher</>.
-      </para>
-      <para>
-       <filename>pgxc_config</> simplifies <productname>XC</>'s
-       installation and maintenance work, which will be covered in the
-       section of server program chapter.   This section covers only
-       manual installation and configuration.
-      </para>
-     </listitem>
-     </varlistentry>
     </variablelist>
    </para>
 <!## end>
@@ -2249,17 +2200,6 @@ bin/  include/  lib/  share/
      For the server to run GTM-Proxy (the server you run coordinator and/or datanode),
      you need to copy the following files to your path: <filename>bin/gtm_proxy</filename>
      and <filename>bin/gtm_ctl</>.
-    </para>
-
-    <para>
-     For servers to run <filename>XCM</>, you should copy the
-     following files to your path:
-     <filename>bin/xcm_*</>.  Please note that they don't require any
-     shared library built.  You should install <filename>XCM</> to all
-     the servers which runs
-     <filename>GTM</>, <filename>GTM-Standby</>, <filename>GTM-Proxy</>, 
-     <filename>Coordinator</>, <filename>Datanode</>,
-     or <filename>xc_watcher</>.
     </para>
 
     <para>
