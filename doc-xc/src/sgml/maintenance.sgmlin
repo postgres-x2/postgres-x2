@@ -15,7 +15,7 @@
 &xconly;
   <para>
    Please note that this chapter describes database maintenance task
-   of individual coordinator and datanode.  Please remember that these
+   of individual Coordinator and Datanode.  Please remember that these
    tasks should be done for each of them.
   </para>
 <!## end>
@@ -108,7 +108,7 @@
 &xconly;
   <para>
    Please note that this section describes the task of individual
-   coordinator and datanode.  It should be done for each of them.
+   Coordinator and Datanode.  It should be done for each of them.
   </para>
 <!## end>
 
@@ -141,7 +141,7 @@
 &xconly;
   <para>
    Please note that this section describes the task of individual
-   coordinator and datanode.  It should be done for each of them.
+   Coordinator and Datanode.  It should be done for each of them.
   </para>
 <!## end>
 
@@ -219,7 +219,7 @@
 &xconly;
   <para>
    Please note that this section describes the task of individual
-   coordinator and datanode.  It should be done for each of them.
+   Coordinator and Datanode.  It should be done for each of them.
   </para>
 <!## end>
 
@@ -347,7 +347,7 @@
 &xconly;
   <para>
    Please note that this section describes the task of individual
-   coordinator and datanode.  It should be done for each of them.
+   Coordinator and Datanode.  It should be done for each of them.
   </para>
 <!## end>
 
@@ -440,7 +440,7 @@
 &xconly;
   <para>
    Please note that this section describes the task of individual
-   coordinator and datanode.  It should be done for each of them.
+   Coordinator and Datanode.  It should be done for each of them.
   </para>
 <!## end>
 
@@ -694,7 +694,7 @@ HINT:  Stop the postmaster and use a standalone backend to VACUUM in "mydb".
 &xconly;
   <para>
    Please note that this section describes the task of individual
-   coordinator and datanode.  It should be done for each of them.
+   Coordinator and Datanode.  It should be done for each of them.
   </para>
 <!## end>
 
@@ -846,7 +846,7 @@ analyze threshold = analyze base threshold + analyze scale factor * number of tu
 &xconly;
   <para>
    Please note that this section describes the task of individual
-   coordinator and datanode.  It should be done for each of them.
+   Coordinator and Datanode.  It should be done for each of them.
   </para>
 <!## end>
 
@@ -895,7 +895,7 @@ analyze threshold = analyze base threshold + analyze scale factor * number of tu
 &xconly;
   <para>
    Please note that this section describes the task of individual
-   coordinator and datanode.  It should be done for each of them.
+   Coordinator and Datanode.  It should be done for each of them.
   </para>
 <!## end>
 

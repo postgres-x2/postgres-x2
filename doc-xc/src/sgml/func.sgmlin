@@ -13428,8 +13428,8 @@ SELECT pg_type_is_visible('myschema.widget'::regtype);
 <!## XC>
 &xconly;
    <para>
-    Because value of OID is enforced unique only in each coordinator
-    or datanode in <productname>Postgres-XC</>, you should use these
+    Because value of OID is enforced unique only in each Coordinator
+    or Datanode in <productname>Postgres-XC</>, you should use these
     functions locally, typically through <type>EXECUTE DIRECT</>
     statement.
    </para>
@@ -13813,9 +13813,9 @@ SELECT typlen FROM pg_type WHERE oid = pg_typeof(33);
 <!## XC>
 &xconly;
   <para>
-   Please note that OID is valid locally in each coordinator and
-   datanode.  You should use specific OID value in statements
-   targetted to specific coordinator or datanode by <type>EXECUTE
+   Please note that OID is valid locally in each Coordinator and
+   Datanode.  You should use specific OID value in statements
+   targetted to specific Coordinator or Datanode by <type>EXECUTE
    DIRECT</> statement.
   </para>
 <!## end>
@@ -13921,9 +13921,9 @@ SELECT typlen FROM pg_type WHERE oid = pg_typeof(33);
 <!## XC>
 &xconly;
    <para>
-    In <productname>Postgres-XC</>, OID is maitain locally in each coordinator and datanode.
+    In <productname>Postgres-XC</>, OID is maitain locally in each Coordinator and Datanode.
     If you specify specific OID value, you should do it in SQL stataements targetted to specif
-    coordinator or datanode by <type>EXECUTE DIRECT</> statement.
+    Coordinator or Datanode by <type>EXECUTE DIRECT</> statement.
    </para>
 <!## end>
 
@@ -14274,7 +14274,7 @@ SELECT set_config('log_statement_stats', 'off', false);
 &xconly;
    <para>
     Please note that these functions works just locally.  To issue
-    these functions to another coordinators or datanodes, you should
+    these functions to another Coordinators or Datanodes, you should
     issue these functions through <type>EXECUTE DIRECT</> statement.
    </para>
 <!## end>
@@ -14479,7 +14479,7 @@ postgres=# SELECT * FROM pg_xlogfile_name_offset(pg_stop_backup());
 &xconly;
    <para>
     Please note that these functions works just locally.  To issue
-    these functions to another coordinators or datanodes, you should
+    these functions to another Coordinators or Datanodes, you should
     issue these functions through <type>EXECUTE DIRECT</> statement.
    </para>
 <!## end>
@@ -14624,7 +14624,7 @@ postgres=# SELECT * FROM pg_xlogfile_name_offset(pg_stop_backup());
 &xconly;
    <para>
     Please note that these functions works just locally.  To issue
-    these functions to another coordinators or datanodes, you should
+    these functions to another Coordinators or Datanodes, you should
     issue these functions through <type>EXECUTE DIRECT</> statement.
    </para>
 <!## end>
@@ -14854,9 +14854,9 @@ postgres=# SELECT * FROM pg_xlogfile_name_offset(pg_stop_backup());
     space used up by the specified fork at all the data nodes where the table is
     distributed or replicated. If the table is replicated on 3 tables, the size
     will be  3 times that of individual nodes. If you need to retrieve the local
-    results from a particular coordinator or data node, you should issue these
+    results from a particular Coordinator or data node, you should issue these
     function calls explicitly through <type>EXECUTE DIRECT</> statement. All other
-    system functions run locally at the coordinator, unless explicitly specified
+    system functions run locally at the Coordinator, unless explicitly specified
     otherwise in this document.
    </para>
 <!## end>
@@ -14927,7 +14927,7 @@ postgres=# SELECT * FROM pg_xlogfile_name_offset(pg_stop_backup());
 &xconly;
    <para>
     Please note that these functions works just locally.  To issue
-    these functions to another coordinators or datanodes, you should
+    these functions to another Coordinators or Datanodes, you should
     issue these functions through <type>EXECUTE DIRECT</> statement.
    </para>
 <!## end>
@@ -15318,9 +15318,9 @@ SELECT (pg_stat_file('filename')).modification;
 &xconly;
    <para>
     The advisory lock functions are aware of the Postgres XC cluster. Hence,
-    if you use a function like pg_advisory_lock() from a particular coordinator,
+    if you use a function like pg_advisory_lock() from a particular Coordinator,
 	the resource will be locked across the complete cluster, so another
-	application calling the same function from a different coordinator will see
+	application calling the same function from a different Coordinator will see
 	this lock, and will wait on the resource until the lock is released.
 	This applies to both transaction and session level advisory locks.
    </para>

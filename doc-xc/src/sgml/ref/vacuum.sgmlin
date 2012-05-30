@@ -86,7 +86,7 @@ VACUUM [ FULL ] [ FREEZE ] [ VERBOSE ] ANALYZE [ <replaceable class="PARAMETER">
 &xconly;
   <para>
    In <productname>Postgres-XC</>, <command>VACUUM</> will be performed
-   on all the datanodes as well.
+   on all the Datanodes as well.
   </para>
 <!## end>
  </refsect1>

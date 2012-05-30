@@ -77,7 +77,7 @@ PostgreSQL documentation
 &xconly;
   <para>
    In <productname>Postgres-XC</>, <command>VACUUM</> will be
-   performed in all the datanodes as well.
+   performed in all the Datanodes as well.
   </para>
 <!## end>
 

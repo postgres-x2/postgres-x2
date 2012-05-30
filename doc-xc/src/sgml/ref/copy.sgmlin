@@ -193,7 +193,7 @@ COPY { <replaceable class="parameter">table_name</replaceable> [ ( <replaceable 
 &xconly;
      <para>
       In <productname>Postgres-XC</>, OIDs are only maintained locally
-      in coordinators and datanodes.  The value of <literal>OIDs</>
+      in Coordinators and Datanodes.  The value of <literal>OIDs</>
       may conflict if you copy this value to another table.
      </para>
 <!## end>

@@ -34,8 +34,8 @@ PostgreSQL documentation
   </title>
 &xconly
   <para>
-   Gtm proxy provides proxy feature from Postgres-XC coordinator and
-   datanode to gtm. Gtm proxy groups connections and interactions
+   Gtm proxy provides proxy feature from Postgres-XC Coordinator and
+   Datanode to gtm. Gtm proxy groups connections and interactions
    between gtm and other Postgres-XC components to reduce both the
    number of interactions and the size of messages.
   </para>

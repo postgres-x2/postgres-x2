@@ -222,7 +222,7 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE <replaceable
     <listitem>
 &xconly;
      <para>
-      This clause specifies how the table is distributed or replicated among datanodes.
+      This clause specifies how the table is distributed or replicated among Datanodes.
      </para>
 
       <variablelist>
@@ -232,7 +232,7 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE <replaceable
         <listitem>
          <para>
           Each row of the table will be replicated into all the
-          datanode of the <productname>Postgres-XC</> database
+          Datanode of the <productname>Postgres-XC</> database
           cluster.
          </para>
         </listitem>
@@ -242,9 +242,9 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE <replaceable
         <term><literal>ROUND ROBIN</literal></term>
         <listitem>
          <para>
-          Each row of the table will be placed in one of the datanodes
+          Each row of the table will be placed in one of the Datanodes
           by round-robin manner.  The value of the row will not be
-          needed to determine what datanode to go.
+          needed to determine what Datanode to go.
          </para>
         </listitem>
        </varlistentry>

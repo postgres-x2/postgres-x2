@@ -30,7 +30,7 @@
 <!## XC>
  <para>
   <filename>pg_buffercache</filename> returns information local to the
-  connecting coordinator.  To inquire information local to other node,
+  connecting Coordinator.  To inquire information local to other node,
   use <command>EXECUTE DIRECT</command>.
  </para>
 <!## end>

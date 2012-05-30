@@ -18,9 +18,9 @@
 <!## XC>
 &xconly;
    <para>
-    Each index is maintained locally in coordinator and datanode
+    Each index is maintained locally in Coordinator and Datanode
     in <productname>Postgres-XC</>.
-    Cross validation of index entries among coordinators and datanodes is
+    Cross validation of index entries among Coordinators and Datanodes is
     not performed in the current implementation.
    </para>
 <!## end>

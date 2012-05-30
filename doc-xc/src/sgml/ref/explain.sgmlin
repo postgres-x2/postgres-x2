@@ -87,8 +87,8 @@ EXPLAIN [ ANALYZE ] [ VERBOSE ] <replaceable class="parameter">statement</replac
 <!## XC>
   <para>
    Please note that <command>explain</command> explains local plan at
-   the coordinator only.  If you'd like to see remote plan at
-   datanodes, use <filename>auto_explain</filename> package
+   the Coordinator only.  If you'd like to see remote plan at
+   Datanodes, use <filename>auto_explain</filename> package
    at <xref linkend="auto-explain">
   </para>
 <!## end>
@@ -184,7 +184,7 @@ ROLLBACK;
     <term><literal>NODES</literal></term>
     <listitem>
      <para>
-      Include information on the datanodes involved in the execution of Data
+      Include information on the Datanodes involved in the execution of Data
 	  Scan Node. This parameter defaults to <literal>TRUE</literal>. This option
 	  is available in <productname>Postgres-XC</productname>.
      </para>

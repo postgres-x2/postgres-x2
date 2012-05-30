@@ -16,7 +16,7 @@ PostgreSQL documentation
   <refpurpose><productname>PostgreSQL</productname> database server</refpurpose>
 <!## end>
 <!## XC>
-  <refpurpose><productname>Postgres-XC</productname> database server for coordinator or datanode</refpurpose>
+  <refpurpose><productname>Postgres-XC</productname> database server for Coordinator or Datanode</refpurpose>
 <!## end>
  </refnamediv>
 

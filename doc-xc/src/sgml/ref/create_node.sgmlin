@@ -110,7 +110,7 @@ CREATE NODE <replaceable class="parameter">nodename</replaceable> WITH
       <listitem>
        <para>
         The node type for given cluster node. Possible values are:
-        'coordinator' for a Coordinator node and 'datanode' for a
+        'Coordinator' for a Coordinator node and 'Datanode' for a
         Datanode node.
        </para>
       </listitem>
@@ -155,7 +155,7 @@ CREATE NODE <replaceable class="parameter">nodename</replaceable> WITH
   <para>
    Create a Coordinator node located on local machine using port 6543
 <programlisting>
-CREATE NODE node2 WITH (TYPE = 'coordinator', HOST = 'localhost', PORT = 6543);
+CREATE NODE node2 WITH (TYPE = 'Coordinator', HOST = 'localhost', PORT = 6543);
 </programlisting>
   </para>
 
@@ -163,7 +163,7 @@ CREATE NODE node2 WITH (TYPE = 'coordinator', HOST = 'localhost', PORT = 6543);
    Create a Datanode which is a preferred and primary node
    located on remote machine with IP '192.168.0.3' on port 8888.
 <programlisting>
-CREATE NODE node2 WITH (TYPE = 'datanode', HOST = '192.168.0.3', PORT = 8888, PRIMARY, PREFERRED);
+CREATE NODE node2 WITH (TYPE = 'Datanode', HOST = '192.168.0.3', PORT = 8888, PRIMARY, PREFERRED);
 </programlisting>
   </para>
 

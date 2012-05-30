@@ -105,7 +105,7 @@ ALTER NODE <replaceable class="parameter">nodename</replaceable> WITH
       <listitem>
        <para>
         The node type for given cluster node. Possible values are:
-        'coordinator' for a Coordinator node and 'datanode' for a
+        'Coordinator' for a Coordinator node and 'Datanode' for a
         Datanode node.
        </para>
       </listitem>

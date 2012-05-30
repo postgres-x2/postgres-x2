@@ -32,8 +32,8 @@
   <para>
    <productname>Postgres-XC</> inherited concurrency control
    of <productname>PostgreSQL</> and extended it globally to whole
-   coordinators and datanodes involved.  Regardless of what
-   coordinator to connect to, all the transactions
+   Coordinators and Datanodes involved.  Regardless of what
+   Coordinator to connect to, all the transactions
    in <productname>Postgres-XC</> database cluster behaves in
    consistent way as if they are running in single database.
   </para>
@@ -1260,8 +1260,8 @@ UPDATE accounts SET balance = balance - 100.00 WHERE acctnum = 22222;
 &xconly;
     <para>
      Please note that <productname>Postgres-XC</> does not detect
-     deadlocks which spreads among multiple coordinators and/or
-     datanodes, know as global deadlocks.  There are many discussions
+     deadlocks which spreads among multiple Coordinators and/or
+     Datanodes, know as global deadlocks.  There are many discussions
      whether global deadlocks should be detected or not, mainly
      because of the cost of the detection.  So
      far, <productname>Postgres-XC</> leave global deadlock detection
@@ -1352,8 +1352,8 @@ UPDATE accounts SET balance = balance - 100.00 WHERE acctnum = 22222;
 &xconly;
     <para>
      Please note that <productname>Postgres-XC</>'s advisory lock is
-     local to coordinator or datanode.  If you wish to acquire
-     advisory locks on different coordinator, you should do it manually
+     local to Coordinator or Datanode.  If you wish to acquire
+     advisory locks on different Coordinator, you should do it manually
      using <type>EXECUTE DIRECT</> statement.
     </para>
 <!## end>
@@ -1639,7 +1639,7 @@ SELECT pg_advisory_lock(q.id) FROM
     control and MVCC common to <productname>PostgreSQL</productname>.
     This section describes how <productname>Postgres-XC</productname>
     implements global concurrency control and MVCC among multiple
-    coordinators and datanodes.
+    Coordinators and Datanodes.
    </para>
 
    <para>
@@ -1660,25 +1660,25 @@ SELECT pg_advisory_lock(q.id) FROM
    <para>
     As described
     in <xref linkend="intro-whatis">, <productname>Postgres-XC</productname>
-    is composed of GTM (Global Transaction Manager), coordinators and
-    datanodes.
+    is composed of GTM (Global Transaction Manager), Coordinators and
+    Datanodes.
    </para>
 
    <para>
-    In <productname>Postgres-XC</productname>, any coordinator can
+    In <productname>Postgres-XC</productname>, any Coordinator can
     accept any transaction, regardless whether it is read only or
     read/write.  Transaction integrity is enforced by GTM (global
-    transaction manager).  Because we have multiple coordinators, each
+    transaction manager).  Because we have multiple Coordinators, each
     of them can handle incoming transactions and statements in
     parallel.
    </para>
 
    <para>
     Analyzed statements are converted into internal plans, which
-    include SQL statements targeted to datanodes.  They're proxied to
-    each target datanode, handled and the result will be sent back to
-    originating coordinator where all the results from target
-    datanodes will be combined into the result to be sent back to the
+    include SQL statements targeted to Datanodes.  They're proxied to
+    each target Datanode, handled and the result will be sent back to
+    originating Coordinator where all the results from target
+    Datanodes will be combined into the result to be sent back to the
     application.
    </para>
 
@@ -1686,7 +1686,7 @@ SELECT pg_advisory_lock(q.id) FROM
     Each table can be distributed or replicated as described
     in <xref linkend="intro-whatis">.  If you design each table's
     distribution carefully, most of the statements may need to target
-    to just one datanode.  In this way, coordinators and datanodes
+    to just one Datanode.  In this way, Coordinators and Datanodes
     runs transactions in parallel which scales out both read and write
     operations.
    </para>

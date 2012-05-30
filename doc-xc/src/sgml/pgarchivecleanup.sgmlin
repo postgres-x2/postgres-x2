@@ -24,8 +24,8 @@
 
 <!## XC>
  <para>
-  Please note that this command takes care of each datanode or
-  coordinator.  You should configure each of them manually.
+  Please note that this command takes care of each Datanode or
+  Coordinator.  You should configure each of them manually.
  </para>
 <!## end>
 

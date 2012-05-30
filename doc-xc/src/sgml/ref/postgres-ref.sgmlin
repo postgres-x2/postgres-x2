@@ -153,7 +153,7 @@ PostgreSQL documentation
       <listitem>
 &xconly;
        <para>
-        Specifies postgres server should run as a coordinator.
+        Specifies postgres server should run as a Coordinator.
        </para>
       </listitem>
      </varlistentry>
@@ -373,7 +373,7 @@ PostgreSQL documentation
       <listitem>
 &xconly;
        <para>
-        Specifies postgres server should run as a datanode.
+        Specifies postgres server should run as a Datanode.
        </para>
       </listitem>
      </varlistentry>
@@ -833,7 +833,7 @@ PostgreSQL documentation
    To start <command>postgres</command> in the background
 <!## end>
 <!## XC>
-   To start <command>postgres</command> as a datanode in the background
+   To start <command>postgres</command> as a Datanode in the background
 <!## end>
    using default values, type:
 
@@ -854,7 +854,7 @@ PostgreSQL documentation
    To start <command>postgres</command> with a specific
 <!## end>
 <!## XC>
-   To start <command>postgres</command> as a coordinator with a specific
+   To start <command>postgres</command> as a Coordinator with a specific
 <!## end>
    port, e.g. 1234:
 <!## PG>

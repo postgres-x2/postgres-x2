@@ -124,46 +124,46 @@
     Datanode.  GTM is responsible to provide ACID property of
     transactions. Datanode stores table data and handle SQL statements
     locally.  Coordinator handles each SQL statements from
-    applications, determines which datanode to go, and decomposes it
-    into local SQL statements for each datanode.
+    applications, determines which Datanode to go, and decomposes it
+    into local SQL statements for each Datanode.
    </para>
 
    <para>
     You should run GTM in a separate server because GTM has to take
-    care of transaction requirements from all the coordinators and
-    datanodes.  To group multiple requirements and responses from
-    coordinator and datanode running on the same server, you can
+    care of transaction requirements from all the Coordinators and
+    Datanodes.  To group multiple requirements and responses from
+    Coordinator and Datanode running on the same server, you can
     configure GTM-Proxy.  GTM-Proxy reduces the number of interaction
     and the amount of data to GTM.  GTM-Proxy also helps to take care
     of GTM failure.
    </para>
 
    <para>
-    It is a good convention to run both coordinator and datanode in a
+    It is a good convention to run both Coordinator and Datanode in a
     same server because we don't have to worry about workload balance
     between the two.  You can have any number of servers where these
-    two components are running.  Because both coordinator and datanode
+    two components are running.  Because both Coordinator and Datanode
     are essentially PostgreSQL database, you should configure them to
     avoid resource conflict.  It is very important to assign them
     different working directory and port number.
    </para>
 
    <para>
-    Postgres-XC allow multiple coordinators which accept statments
+    Postgres-XC allow multiple Coordinators which accept statments
     from applications independently but in an integrated way.  Any
-    writes from any coordinator is available from any other
-    coordinators.  They acts as if they are single database.
-    Coordinator's role is to accept statments, find what datanodes are
-    involved, Ode-compose incoming statements for each datanode if
-    needed, proxy statements to target datanode, collect the results
+    writes from any Coordinator is available from any other
+    Coordinators.  They acts as if they are single database.
+    Coordinator's role is to accept statments, find what Datanodes are
+    involved, Ode-compose incoming statements for each Datanode if
+    needed, proxy statements to target Datanode, collect the results
     and write them back to applications.
    </para>
 
    <para>
     Coordinator does not store any user data.  It stores only catalog
     data to determine how to decompose the statement, where the target
-    datanodes are, among others.  Therefore, you don't have to worry
-    about coordinator failure much.  When the coordinator fails, you
+    Datanodes are, among others.  Therefore, you don't have to worry
+    about Coordinator failure much.  When the Coordinator fails, you
     can just switch to the other one.
    </para>
 
@@ -182,7 +182,7 @@
     (programs):
 <!## end>
 <!## XC>
-    As described above, coordinator and datanode
+    As described above, Coordinator and Datanode
     of <productname>Postgres-XC</> are
     essentially <productname>PostgreSQL</> database servers. In database
     jargon, <productname>PostgreSQL</productname> uses a client/server
@@ -287,7 +287,7 @@
 <!## XC>
     The first test to see whether you can access the database server
     is to try to create a database.  Running
-    <productname>Postgres-XC</productname> servers (coordinators and datanodes)  can manage many
+    <productname>Postgres-XC</productname> servers (Coordinators and Datanodes)  can manage many
     databases.  Typically, a separate database is used for each
     project or for each user.
 <!## end>
@@ -414,7 +414,7 @@ createdb: database creation failed: ERROR:  permission denied to create database
 createdb: database creation failed: ERROR:  source database "template1" is being accessed by other users
 DETAIL:  There are 1 other session(s) using the database.
 </screen>
-    This means that at least one of the coordinator pooler still holds a connection to template1 database to one of the datanodes.  To release them, you should do the following as the database superuser.
+    This means that at least one of the Coordinator pooler still holds a connection to template1 database to one of the Datanodes.  To release them, you should do the following as the database superuser.
 <screen>
 <prompt>$</prompt> <userinput>psql</userinput>
 ...

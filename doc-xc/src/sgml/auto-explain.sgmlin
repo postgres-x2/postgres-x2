@@ -36,10 +36,10 @@ LOAD 'auto_explain';
 &xconly;
 <!## XC>
  <para>
-  To log plans on datanodes, you must preload this module in each
-  datanode.  This module will log local plans of each node.  For
-  example, coordinator log will include the plan for coordinator only.
-  Corresponding plan in datanodes will be found in each datanode's
+  To log plans on Datanodes, you must preload this module in each
+  Datanode.  This module will log local plans of each node.  For
+  example, Coordinator log will include the plan for Coordinator only.
+  Corresponding plan in Datanodes will be found in each Datanode's
   log.
  </para>
 <!## end>

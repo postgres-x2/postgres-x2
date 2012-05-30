@@ -137,7 +137,7 @@
    </para>
    <para>
 &xconly;
-    In <productname>Postgres-XC</> these databases can be distributed into more than one datanodes.
+    In <productname>Postgres-XC</> these databases can be distributed into more than one Datanodes.
     This will not affect how tables and rows are seen from applications point of view, but will be
     important for Database Administrator (DBA).
     Table distribution will be described later.

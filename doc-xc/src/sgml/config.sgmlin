@@ -26,8 +26,8 @@
   <para>
    There are many configuration parameters that affect the behavior of
    the database system. In the first section of this chapter, we
-   describe how to set configuration parameters for coordinator and
-   datanodes. The subsequent sections discuss each parameter in
+   describe how to set configuration parameters for Coordinator and
+   Datanodes. The subsequent sections discuss each parameter in
    detail.
   </para>
 <!## end>
@@ -123,9 +123,9 @@ include 'filename'
     until the server is restarted.
 <!## end>
 <!## XC>
-    The configuration file is reread whenever the main coordinator/datanode process receives a
+    The configuration file is reread whenever the main Coordinator/Datanode process receives a
     <systemitem>SIGHUP</> signal (which is most easily sent by means
-    of <literal>pg_ctl reload</>). The main coordinator/datanode process
+    of <literal>pg_ctl reload</>). The main Coordinator/Datanode process
     also propagates this signal to all currently running server
     processes so that existing sessions also get the new
     value. Alternatively, you can send the signal to a single server
@@ -423,13 +423,13 @@ SET ENABLE_SEQSCAN TO OFF;
 
 <!## XC>
        <para>
-        In the case of the coordinator, this parameter determines how many 
-        connections can each coordinator accept.
+        In the case of the Coordinator, this parameter determines how many 
+        connections can each Coordinator accept.
        </para>
        <para>
-        In the case of the datanode, number of connection to each
-        datanode may become as large as <varname>max_connections</>
-        multiplied by the number of coordinators.
+        In the case of the Datanode, number of connection to each
+        Datanode may become as large as <varname>max_connections</>
+        multiplied by the number of Coordinators.
        </para>
 <!## end>
 
@@ -442,7 +442,7 @@ SET ENABLE_SEQSCAN TO OFF;
         adjust those parameters, if necessary.
 <!## end>
 <!## XC>
-        Increasing this parameter might cause <filename>coordinator</> or <filename>datanode</>
+        Increasing this parameter might cause <filename>Coordinator</> or <filename>Datanode</>
         to request more <systemitem class="osname">System V</> shared
         memory or semaphores than your operating system's default configuration
         allows. See <xref linkend="sysvipc"> for information on how to
@@ -480,7 +480,7 @@ SET ENABLE_SEQSCAN TO OFF;
 <!## end>
 <!## XC>
         Determines the number of connection <quote>slots</quote> that
-        are reserved for connections by <filename>coordinator</> or <filename>datanode</>
+        are reserved for connections by <filename>Coordinator</> or <filename>Datanode</>
         superusers.  At most <xref linkend="guc-max-connections">
         connections can ever be active simultaneously.  Whenever the
         number of active concurrent connections is at least
@@ -1039,11 +1039,11 @@ SET ENABLE_SEQSCAN TO OFF;
        <para>
 
         Even though your application does not issue <command>PREPARE
-        TRANSACTION</> explicitly, coordinator may generate this
+        TRANSACTION</> explicitly, Coordinator may generate this
         command when an updating transaction involves more than one
-        coordinators and datanodes.
+        Coordinators and Datanodes.
 
-	    For datanodes, you should specify this value as the same value
+	    For Datanodes, you should specify this value as the same value
 	    as <varname>max_connections</>.
 
        </para>
@@ -2084,8 +2084,8 @@ SET ENABLE_SEQSCAN TO OFF;
       Streaming replication has not been tested
       with <productname>Postgres-XC</productname> yet.  Because this
       version of streaming replication is based upon asynchronous log shipping,
-      there could be a risk to have the status of coordinators and
-      datanodes inconsistent.  The development team leaves the test
+      there could be a risk to have the status of Coordinators and
+      Datanodes inconsistent.  The development team leaves the test
       and the use of this entirely to users.
      </para>
 <!## end>
@@ -5563,7 +5563,7 @@ dynamic_library_path = 'C:\tools\postgresql;H:\my_project\lib;$libdir'
 &xconly;
        <para>
         <productname>Postgres-XC</> does not detect global deadlocks
-        where multiple node (coordinators and/or datanodes) are
+        where multiple node (Coordinators and/or Datanodes) are
         involved.
        </para>
 <!## end>
@@ -6626,7 +6626,7 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
 &xconly;
        <para>
         <productname>Postgres-XC</> does not detect global deadlocks
-        where multiple node (coordinators and/or datanodes) are
+        where multiple node (Coordinators and/or Datanodes) are
         involved.
        </para>
 <!## end>
@@ -6833,9 +6833,9 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
 &xconly;
    <para>
     Because <productname>Postgres-XC</> distribute data into multiple
-    datanodes and multiple coordinators can accept transactions in
-    parallel, specific coordinator must know what coordinators and
-    datanodes to connect.  Coordinator and datanode also must know
+    Datanodes and multiple Coordinators can accept transactions in
+    parallel, specific Coordinator must know what Coordinators and
+    Datanodes to connect.  Coordinator and Datanode also must know
     where they can request transaction information.  The following
     describes these additional GUC parameters.
    </para>
@@ -6849,10 +6849,10 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
       </indexterm>
       <listitem>
        <para>
-        Specify the maximum connection pool of the coordinator to datanodes.
-        Because each transaction can be involved by all the datanodes,
+        Specify the maximum connection pool of the Coordinator to Datanodes.
+        Because each transaction can be involved by all the Datanodes,
         this parameter should at least be <varname>max_connections</> 
-		multiplied by number of datanodes.
+		multiplied by number of Datanodes.
        </para>
       </listitem>
      </varlistentry>
@@ -6864,15 +6864,15 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
       </indexterm>
       <listitem>
        <para>
-        Minumum number of the connection from the coordinator to datanodes.
+        Minumum number of the connection from the Coordinator to Datanodes.
        </para>
       </listitem>
      </varlistentry>
 
-     <varlistentry id="guc-max-coordinators" xreflabel="max_coordinators">
-      <term><varname>max_coordinators</varname> (<type>integer</type>)</term>
+     <varlistentry id="guc-max-Coordinators" xreflabel="max_Coordinators">
+      <term><varname>max_Coordinators</varname> (<type>integer</type>)</term>
       <indexterm>
-       <primary><varname>max_coordinators</> configuration parameter</primary>
+       <primary><varname>max_Coordinators</> configuration parameter</primary>
       </indexterm>
       <listitem>
        <para>
@@ -6881,10 +6881,10 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
       </listitem>
      </varlistentry>
 
-     <varlistentry id="guc-max-datanodes" xreflabel="max_datanodes">
-      <term><varname>max_datanodes</varname> (<type>integer</type>)</term>
+     <varlistentry id="guc-max-Datanodes" xreflabel="max_Datanodes">
+      <term><varname>max_Datanodes</varname> (<type>integer</type>)</term>
       <indexterm>
-       <primary><varname>max_datanodes</> configuration parameter</primary>
+       <primary><varname>max_Datanodes</> configuration parameter</primary>
       </indexterm>
       <listitem>
        <para>
@@ -6979,7 +6979,7 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
        </para>
        <para>
         As a session parameter, this parameter is shared among all
-        the connections of the session. It affects originating coordinator as
+        the connections of the session. It affects originating Coordinator as
         well as remote nodes involved in session.
        </para>
       </listitem>

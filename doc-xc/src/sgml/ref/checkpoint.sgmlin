@@ -57,7 +57,7 @@ CHECKPOINT
 &xconly;
   <para>
    In <productname>Postrgres-XC</>, <command>CHECKPOINT</> is
-   performed at local coordinator and allthe underlying datanodes.
+   performed at local Coordinator and allthe underlying Datanodes.
   </para>
 <!## end>
  </refsect1>

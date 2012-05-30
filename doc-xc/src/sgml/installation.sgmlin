@@ -80,24 +80,24 @@ su
 gmake install
 adduser postgres
 mkdir /usr/local/pgsql/data_coord1
-mkdir /usr/local/pgsql/data_datanode1
-mkdir /usr/local/pgsql/data_datanode2
+mkdir /usr/local/pgsql/data_Datanode1
+mkdir /usr/local/pgsql/data_Datanode2
 mkdir /usr/local/pgsql/data_gtm
 chown postgres /usr/local/pgsql/data_coord1
-chown postgres /usr/local/pgsql/data_datanode1
-chown postgres /usr/local/pgsql/data_datanode2
+chown postgres /usr/local/pgsql/data_Datanode1
+chown postgres /usr/local/pgsql/data_Datanode2
 chown postgres /usr/local/pgsql/data_gtm
 su - postgres
 /usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data_coord1 --nodename coord1
-/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data_datanode1 --nodename datanode1
-/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data_datanode2 --nodename datanode2
+/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data_Datanode1 --nodename Datanode1
+/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data_Datanode2 --nodename Datanode2
 /usr/local/pgsql/bin/initgtm -D /usr/local/pgsql/data_gtm -Z gtm
 /usr/local/pgsql/bin/gtm -D /usr/local/pgsql/data_gtm &gt;logfile 2&gt;&amp;1 &amp;
-/usr/local/pgsql/bin/postgres -X -p 15432 -D /usr/local/pgsql/data_datanode1 &gt;logfile 2&gt;&amp;1 &amp;
-/usr/local/pgsql/bin/postgres -X -p 15433 -D /usr/local/pgsql/data_datanode2 &gt;logfile 2&gt;&amp;1 &amp;
+/usr/local/pgsql/bin/postgres -X -p 15432 -D /usr/local/pgsql/data_Datanode1 &gt;logfile 2&gt;&amp;1 &amp;
+/usr/local/pgsql/bin/postgres -X -p 15433 -D /usr/local/pgsql/data_Datanode2 &gt;logfile 2&gt;&amp;1 &amp;
 /usr/local/pgsql/bin/postgres -C -D /usr/local/pgsql/data_coord1 &gt;logfile 2&gt;&amp;1 &amp;
-/usr/local/pgsql/bin/psql -c "CREATE NODE datanode1 WITH (TYPE = 'datanode', PORT = 15432)" postgres
-/usr/local/pgsql/bin/psql -c "CREATE NODE datanode2 WITH (TYPE = 'datanode', PORT = 15433)" postgres
+/usr/local/pgsql/bin/psql -c "CREATE NODE Datanode1 WITH (TYPE = 'Datanode', PORT = 15432)" postgres
+/usr/local/pgsql/bin/psql -c "CREATE NODE Datanode2 WITH (TYPE = 'Datanode', PORT = 15433)" postgres
 /usr/local/pgsql/bin/psql -c "SELECT pgxc_pool_reload()" postgres
 /usr/local/pgsql/bin/createdb test
 /usr/local/pgsql/bin/psql test
@@ -1778,14 +1778,14 @@ Postgres-XC, contrib and HTML documentation successfully made. Ready to install.
       <listitem>
        <para>
         Coordinator is an entry point to <productname>Postgres-XC</> from applications.
-        You can run more than one coordinator in parallel.   Each coordinator behaves
-        as just <productname>PostgreSQL</> database server, while all the coordinators
+        You can run more than one Coordinator in parallel.   Each Coordinator behaves
+        as just <productname>PostgreSQL</> database server, while all the Coordinators
         handles transactions in harmonized way so that any transaction coming into one
-        coordinator is protected against any other transactions coming into others.
+        Coordinator is protected against any other transactions coming into others.
         Updates by a transaction is visible immediately to others running in other
-        coordinators.
-        To simplify the load balance of coordinators and datanodes, as mentioned
-        below, it is highly advised to install same number of coordinator and datanode
+        Coordinators.
+        To simplify the load balance of Coordinators and Datanodes, as mentioned
+        below, it is highly advised to install same number of Coordinator and Datanode
         in a server.
        </para>
       </listitem>
@@ -1797,9 +1797,9 @@ Postgres-XC, contrib and HTML documentation successfully made. Ready to install.
         Datanode 
        </para>
        <para>
-        Coordinator and datanode shares the same binary but their behavior is a little
+        Coordinator and Datanode shares the same binary but their behavior is a little
         different.   Coordinator decomposes incoming statements into those handled by
-        datanodes.   If necessary, coordinator materializes response from datanodes
+        Datanodes.   If necessary, Coordinator materializes response from Datanodes
         to calculate final response to applications.
        </para>
        <para>
@@ -2113,8 +2113,8 @@ export MANPATH
 <!## XC>
 &xconly;
    <para>
-    When, as typical case, you're configuring both coordinator and
-    datanode in a same server, please be careful not to assign same
+    When, as typical case, you're configuring both Coordinator and
+    Datanode in a same server, please be careful not to assign same
     resource, such as listening point (IP address and port number) to
     different component.  If you apply single set of environment
     described here to different components, they will conflict
@@ -2209,13 +2209,13 @@ bin/  include/  lib/  share/
     </para>
 
     <para>
-     For the server to run GTM-Proxy (the server you run coordinator and/or datanode),
+     For the server to run GTM-Proxy (the server you run Coordinator and/or Datanode),
      you need to copy the following files to your path: <filename>bin/gtm_proxy</filename>
      and <filename>bin/gtm_ctl</>.
     </para>
 
     <para>
-     For server to run coordinator or datanode, or both, you should
+     For server to run Coordinator or Datanode, or both, you should
      copy the following files to your
      path: <filename>bin/initdb</>, <filename>bin/pgxc_ddl</>, <filename>pgxc_clean</>.
      You should also copy everything in <filename>path</> directory to
@@ -2257,7 +2257,7 @@ postgres$ <userinput>/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data</>
     </para>
 <!## XC>
     <para>
-     If you're configuring both datanode and coordinator on the same
+     If you're configuring both Datanode and Coordinator on the same
      server, you should specify different <option>-D</> option for
      each of them.
     </para>
@@ -2295,17 +2295,17 @@ postgres$ <userinput>/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data</>
    <step>
 &xconly;
     <para>
-    Now you should configure each coordinator and datanode.  Because
+    Now you should configure each Coordinator and Datanode.  Because
     they have to communicate each other and number of servers,
-    datanodes and coordinators depend upon configurations, we don't
+    Datanodes and Coordinators depend upon configurations, we don't
     provide default configuration file for them.
     </para>
     <para>
-     You can configure datanode and coordinator by
+     You can configure Datanode and Coordinator by
      editing <filename>postgresql.conf</> file located under the
      directory you specified with <option>-D</> option
      of <command>initdb</>.   The following paragraphs describe what
-     parameter to edit at least for coordinators.   You can specify
+     parameter to edit at least for Coordinators.   You can specify
      any other <filename>postgresql.conf</> parameters as
      standalone <productname>PostgreSQL</>.
     </para>
@@ -2318,9 +2318,9 @@ postgres$ <userinput>/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data</>
       <para>
        <option>max_prepared_transactions</> specifies maximum number
        of two-phase commit transactions.   Even if you don't use
-       explicit two phase commit operation, coordinator may issue
+       explicit two phase commit operation, Coordinator may issue
        two-phase commit operation implicitly if a transaction is
-       involved with multiple datanodes and/or coordinators. You should
+       involved with multiple Datanodes and/or Coordinators. You should
        specify <option>max_prepared_transactions</> value at 
        least the number of <option>max_connection</>.
       </para>
@@ -2333,11 +2333,11 @@ postgres$ <userinput>/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data</>
 &xconly;
       <par>
        Coordinator is associated with a connection pooler which takes
-       care of connection with other coordinators and datanodes.  This
+       care of connection with other Coordinators and Datanodes.  This
        parameter specifies minimum number of connection to pool.
        If you're not configuring <productname>XC</> cluster in
        unballanced way, you should specify the same value to all the
-       coordinators.
+       Coordinators.
       </par>
      </listitem>
     </varlistentry>
@@ -2349,18 +2349,18 @@ postgres$ <userinput>/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data</>
       <para>
        This parameter specifies maximum number of the pooled
        connection.  This value should be at least more than the number
-       of all the coordinators and datanodes.   If you specify less
+       of all the Coordinators and Datanodes.   If you specify less
        value, you will see very frequent close and ope connection
        which leads to serious performance problem.
        If you're not configuring <productname>XC</> cluster in
        unballanced way, you should specify the same value to all the
-       coordinators.
+       Coordinators.
       </para>
      </listitem>
     </varlistentry>
 
     <varlistentry>
-     <term><envar>max_coordinators</envar></term>
+     <term><envar>max_Coordinators</envar></term>
      <listitem>
 &xconly;
       <para>
@@ -2372,7 +2372,7 @@ postgres$ <userinput>/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data</>
     </varlistentry>
 
     <varlistentry>
-     <term><envar>max_datanodes</envar></term>
+     <term><envar>max_Datanodes</envar></term>
      <listitem>
 &xconly;
       <para>
@@ -2400,7 +2400,7 @@ postgres$ <userinput>/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data</>
      <listitem>
 &xconly;
       <para>
-       Specify the port number listened to by this coordinator.
+       Specify the port number listened to by this Coordinator.
       </para>
      </listitem>
     </varlistentry>
@@ -2422,7 +2422,7 @@ postgres$ <userinput>/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data</>
       <para>
        Specify the port number of gtm you're connecting to.  This is
        local to the server and you should specify the port assigned to
-       the GTM-Proxy local to the coordinator.
+       the GTM-Proxy local to the Coordinator.
       </para>
      </listitem>
     </varlistentry>
@@ -2433,7 +2433,7 @@ postgres$ <userinput>/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data</>
 &xconly;
     <para>
      Now you should configure <filename>postgresql.conf</> for each
-     datanodes.  Please note, as in the case of coordinator, you can
+     Datanodes.  Please note, as in the case of Coordinator, you can
      specify other <filename>postgresql.conf</> parameters as in
      standalone <productname>PostgreSQL</>.
     </para>
@@ -2446,11 +2446,11 @@ postgres$ <userinput>/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data</>
 &xconly;
       <para>
        <option>max_connections</> is, in short, a maximum number of
-       background processes of the datanode.   You should be careful
+       background processes of the Datanode.   You should be careful
        to specify reasonable value to this parameter because each
-       coordinator backend may have connections to all the datanodes.
+       Coordinator backend may have connections to all the Datanodes.
        You should specify this value as <option>max_connections</> of
-       coordinator multiplied by the number of coordinators.
+       Coordinator multiplied by the number of Coordinators.
       </para>
      </listitem>
     </varlistentry>
@@ -2462,11 +2462,11 @@ postgres$ <userinput>/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data</>
       <para>
        <option>max_prepared_transactions</> specifies maximum number
        of two-phase commit transactions.   Even if you don't use
-       explicit two phase commit operation, coordinator may issue
+       explicit two phase commit operation, Coordinator may issue
        two-phase commit operation implicitly if a transaction is
-       involved with multiple datanodes and/or coordinators.   The value
+       involved with multiple Datanodes and/or Coordinators.   The value
        of this parameter should be at least the value
-       of <option>max_connections</> multiplied by the number of coordinators.
+       of <option>max_connections</> multiplied by the number of Coordinators.
       </para>
      </listitem>
     </varlistentry>
@@ -2476,7 +2476,7 @@ postgres$ <userinput>/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data</>
      <listitem>
 &xconly;
       <para>
-       Specify the port number listened to by the datanode.
+       Specify the port number listened to by the Datanode.
       </para>
      </listitem>
     </varlistentry>
@@ -2487,7 +2487,7 @@ postgres$ <userinput>/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data</>
       <para>
        Specify the port number of gtm you're connecting to.  This is
        local to the server and you should specify the port assigned to
-       the GTM-Proxy local to the datanode.
+       the GTM-Proxy local to the Datanode.
       </para>
      </listitem>
     </varlistentry>
@@ -2521,7 +2521,7 @@ gtm -D /usr/local/pgsql/gtm -h localhost -p 20001 -n 1 -x 1000
 &xconly;
     <para>
      Next, you should start GTM-Proxy on each server you're running
-     coordinator and/or datanode like:
+     Coordinator and/or Datanode like:
 <programlisting>
 gtm_proxy -h localhost -p 20002 -s localhost -t 20001 -i 1 -n 2 -D /usr/local/pgsql/gtm_proxy
 </programlisting>
@@ -2537,41 +2537,41 @@ gtm_proxy -h localhost -p 20002 -s localhost -t 20001 -i 1 -n 2 -D /usr/local/pg
     </para>
     <para>
      Please note that you should start GTM-Proxy on all the servers
-     you run coordinator/datanode.
+     you run Coordinator/Datanode.
     </para>
    </step>
 
    <step>
 &xconly;
     <para>
-     Now you can start datanode on each server like:
+     Now you can start Datanode on each server like:
 <programlisting>
-postgres -X -D /usr/local/pgsql/datanode
+postgres -X -D /usr/local/pgsql/Datanode
 </programlisting>
-     This will start the datanode.   <option>-X</>
+     This will start the Datanode.   <option>-X</>
      specifies <command>postgres</> to start as a
-     datanode.   <option>-D</> specifies the data directory of the
+     Datanode.   <option>-D</> specifies the data directory of the
      data node.  You can specify other options of standalone <command>postgres</>.
     </para>
     <para>
      Please note that you should issue <command>postgres</> command at
-     all the servers you're running datanode.
+     all the servers you're running Datanode.
     </para>
    </step>
 
    <para>
-    Finally, you can start coordinator like:
+    Finally, you can start Coordinator like:
 <programlisting>
-postgres -C -D /usr/local/pgsql/coordinator
+postgres -C -D /usr/local/pgsql/Coordinator
 </programlisting>
-    This will start the coordinator.  <option>-C</>
+    This will start the Coordinator.  <option>-C</>
     specifies <command>postgres</> to start as a
-    coordinator.  <option>-D</> specifies the data directory of the
-    coordinator.  You can specify other options of standalone <command>postgres</>.
+    Coordinator.  <option>-D</> specifies the data directory of the
+    Coordinator.  You can specify other options of standalone <command>postgres</>.
    </para>
    <para>
     Please note that you should issue <command>postgres</> command at
-    all the servers you're running coordinators.
+    all the servers you're running Coordinators.
    </para>
 <!## end>
 
@@ -2607,24 +2607,24 @@ kill `cat /usr/local/pgsql/data/postmaster.pid`
      start up the whole database cluster. Do so now. The command should look
      something like:
 <programlisting>
-postgres -X -D /usr/local/pgsql/datanode
+postgres -X -D /usr/local/pgsql/Datanode
 </programlisting>
-     This will start the datanode in the foreground. To put the datanode
+     This will start the Datanode in the foreground. To put the Datanode
      in the background use something like:
 <programlisting>
 nohup postgres -X -D /usr/local/pgsql/data \
     &lt;/dev/null &gt;&gt;server.log 2&gt;&amp;1 &lt;/dev/null &amp;
 </programlisting>
      You can apply this to all the other components, GTM, GTM-Proxies,
-     and coordinators.
+     and Coordinators.
     </para>
 
     <para>
-     To stop a datanode running in the background you can type:
+     To stop a Datanode running in the background you can type:
 <programlisting>
-kill `cat /usr/local/pgsql/datanode/postmaster.pid`
+kill `cat /usr/local/pgsql/Datanode/postmaster.pid`
 </programlisting>
-     You can apply this to stop a coordinator too.
+     You can apply this to stop a Coordinator too.
     </para>
     <para>
      To stop the GTM running in the background you can type
@@ -2662,7 +2662,7 @@ kill `cat /usr/local/pgsql/gtm-proxy/gtm_proxy.pid
 <!## end>
 <!## XC>
      Please do not forget to give the port number of one of the
-     coordinators.   Then you are connected to a coordinator listening
+     Coordinators.   Then you are connected to a Coordinator listening
      to the port you specified.
 <!## end>
 <!## PG>

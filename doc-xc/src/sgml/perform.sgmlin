@@ -691,13 +691,13 @@ SELECT * FROM a, b, c WHERE a.id = b.id AND b.ref = c.id;
   <para>
    <productname>Postgres-XC</> stores table data in a distributed or
    replicated fashion.  To leverage this, the planner tries to find
-   the best way to use as much of datanode power as possible.  If the
+   the best way to use as much of Datanode power as possible.  If the
    equi-join is done by distribution columns and they share the
-   distribution method (hash/modulo), the coordinator can tell
-   datanode to perform join.  If not, the coordinator collects rows to
-   join from datanodes and perform the join locally.  In this case,
-   the coordinator tries to push other predicate as much as possible
-   to the datanode to reduce the amount of rows to receive.
+   distribution method (hash/modulo), the Coordinator can tell
+   Datanode to perform join.  If not, the Coordinator collects rows to
+   join from Datanodes and perform the join locally.  In this case,
+   the Coordinator tries to push other predicate as much as possible
+   to the Datanode to reduce the amount of rows to receive.
   </para>
 <!## end>
 &common;
@@ -1030,7 +1030,7 @@ SELECT * FROM x, y, a, b, c WHERE something AND somethingelse;
    <para>
     Please note that you should tune the configuration variables in
     all the nodes involved.  Maybe you need to tune this just for
-    datanodes.  Coordinator's database will be updated almost only
+    Datanodes.  Coordinator's database will be updated almost only
     by <acronym>DDL</>s.
    </para>
 <!## end>
@@ -1122,8 +1122,8 @@ SELECT * FROM x, y, a, b, c WHERE something AND somethingelse;
 &xconly;
    <para>
     In <productname>Postgres-XC</>, manual <command>VACUUM</> will be
-    populated to all the datanodes as well.  However, you should
-    configure autovacuum for each coordinator and datanodes.
+    populated to all the Datanodes as well.  However, you should
+    configure autovacuum for each Coordinator and Datanodes.
    </para>
 <!## end>
   </sect2>

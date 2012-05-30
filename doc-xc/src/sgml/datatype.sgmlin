@@ -4694,7 +4694,7 @@ SELECT * FROM pg_attribute
 <!## XC>
    <para>
     Please note that <productname>Postgres-XC</> enforces OID identity only locally.
-    Different object at different coordinator or datanode may be assigned the same
+    Different object at different Coordinator or Datanode may be assigned the same
     OID value.
    </para>
 <!## end>

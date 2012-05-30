@@ -141,7 +141,7 @@ CREATE AGGREGATE <replaceable class="PARAMETER">name</replaceable> (
    <listitem>
    <para>
    Two phased aggregation - is used when the entire aggregation takes place on
-   the coordinator node. In first phase called transition phase,
+   the Coordinator node. In first phase called transition phase,
    <productname>Postgres-XC</productname> creates a temporary variable
 <!## end>
    of data type <replaceable class="PARAMETER">stype</replaceable>
@@ -165,14 +165,14 @@ CREATE AGGREGATE <replaceable class="PARAMETER">name</replaceable> (
    <listitem>
    <para>
    Three phased aggregation - is used when the process of aggregation is divided
-   between coordinator and data nodes. In this mode, each 
+   between Coordinator and data nodes. In this mode, each 
    <productname>Postgres-XC</productname> data node involved in the query carries
    out the first phase named transition phase. This phase is similar to the first
    phase in the two phased aggregation mode discussed above, except that, every
    data node applies this phase on the rows available at the data node. The
-   result of transition phase is then transferred to the coordinator node.
-   Second phase called collection phase takes place on the coordinator.
-   <productname>Postgres-XC</productname> coordinator node creates a temporary variable
+   result of transition phase is then transferred to the Coordinator node.
+   Second phase called collection phase takes place on the Coordinator.
+   <productname>Postgres-XC</productname> Coordinator node creates a temporary variable
    of data type <replaceable class="PARAMETER">stype</replaceable>
    to hold the current internal state of the collection phase.  For every input
    from the data node (result of transition phase on that node), the collection

@@ -251,7 +251,7 @@ PostgreSQL documentation
       <term><option>-C</option></term>
       <listitem>
        <para>
-        Specifies to run as a coordinator.  Only for Postgres-XC.
+        Specifies to run as a Coordinator.  Only for Postgres-XC.
        </para>
       </listitem>
      </varlistentry>
@@ -358,8 +358,8 @@ PostgreSQL documentation
       <term><option>-Z<replaceable class="parameter">nodeopt</replaceable></option></term>
       <listitem>
        <para>
-        Specifies to run as coordinator or as datanode.  You should
-        specify coordinator or datanode as <replaceable>nodeopt</replaceable>.  Only for Postgres-XC.
+        Specifies to run as Coordinator or as Datanode.  You should
+        specify Coordinator or Datanode as <replaceable>nodeopt</replaceable>.  Only for Postgres-XC.
        </para>
       </listitem>
      </varlistentry>
@@ -415,7 +415,7 @@ PostgreSQL documentation
       <term><option>-X</option></term>
       <listitem>
        <para>
-        Specifies to run as a datanode.  Only for Postgres-XC.
+        Specifies to run as a Datanode.  Only for Postgres-XC.
        </para>
       </listitem>
      </varlistentry>
@@ -504,7 +504,7 @@ PostgreSQL documentation
 
 <!## XC>
   <para>
-   This command controls individual coordinator or datanode.
+   This command controls individual Coordinator or Datanode.
   </para>
 <!## end>
  </refsect1>

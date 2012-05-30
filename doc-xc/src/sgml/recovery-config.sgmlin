@@ -67,11 +67,11 @@
         <footnote>
          <para>
          Although <productname>Postgres-XC</productname> does not
-          prohibit to use warm-standby, in either coordinators or
-          datanodes (see <xref linkend="xc-overview">), there's no
+          prohibit to use warm-standby, in either Coordinators or
+          Datanodes (see <xref linkend="xc-overview">), there's no
           guarantee that warm-standbys are synchronized.  If you use
           warm standby for high availability feature, there's a risk
-          that data in coordinators and datanodes are inconsistent.
+          that data in Coordinators and Datanodes are inconsistent.
           It is highly recommended to use <command>BARRIER</command>.
          </para>
         </footnote>
