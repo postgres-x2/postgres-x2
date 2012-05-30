@@ -312,7 +312,7 @@ printtup(TupleTableSlot *slot, DestReceiver *self)
 	/*
 	 * If we are having DataRow-based tuple we do not have to encode attribute
 	 * values, just send over the DataRow message as we received it from the
-	 * data node
+	 * Datanode
 	 */
 	if (slot->tts_dataRow)
 	{

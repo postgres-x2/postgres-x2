@@ -313,7 +313,7 @@ init_execution_state(List *queryTree_list,
 				{
 					/*
 					* The parameterised queries in RemoteQuery nodes will be prepared
-					* on the datanode, and need parameter types for the same. Set the
+					* on the Datanode, and need parameter types for the same. Set the
 					* parameter types and their number in all RemoteQuery nodes in the
 					* plan
 					*/

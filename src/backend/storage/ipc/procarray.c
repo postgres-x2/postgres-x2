@@ -166,9 +166,9 @@ static void DisplayXidCache(void);
 typedef enum
 {
 	SNAPSHOT_UNDEFINED,   /* Coordinator has not sent snapshot or not yet connected */
-	SNAPSHOT_LOCAL,       /* Coordinator has instructed data node to build up snapshot from the local procarray */
+	SNAPSHOT_LOCAL,       /* Coordinator has instructed Datanode to build up snapshot from the local procarray */
 	SNAPSHOT_COORDINATOR, /* Coordinator has sent snapshot data */
-	SNAPSHOT_DIRECT       /* Data Node obtained directly from GTM */
+	SNAPSHOT_DIRECT       /* Datanode obtained directly from GTM */
 } SnapshotSource;
 
 void SetGlobalSnapshotData(int xmin, int xmax, int xcnt, int *xip);
@@ -432,7 +432,7 @@ ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid)
 #ifdef PGXC
 		/*
 		 * Remove this assertion. We have seen this failing because a ROLLBACK
-		 * statement may get canceled by a coordinator, leading to recursive
+		 * statement may get canceled by a Coordinator, leading to recursive
 		 * abort of a transaction. This must be a PostgreSQL issue, highlighted
 		 * by XC. See thread on hackers with subject "Canceling ROLLBACK
 		 * statement"
@@ -2525,7 +2525,7 @@ DisplayXidCache(void)
 
 #ifdef PGXC  
 /*
- * Store snapshot data received from the coordinator
+ * Store snapshot data received from the Coordinator
  */
 void 
 SetGlobalSnapshotData(int xmin, int xmax, int xcnt, int *xip)
@@ -2541,7 +2541,7 @@ SetGlobalSnapshotData(int xmin, int xmax, int xcnt, int *xip)
 }
 
 /*
- * Force datanode to use local snapshot data
+ * Force Datanode to use local snapshot data
  */
 void
 UnsetGlobalSnapshotData(void)
@@ -2557,8 +2557,8 @@ UnsetGlobalSnapshotData(void)
 }
 
 /*
- * Get snapshot data for data node
- * This is usually passed down from the coordinator
+ * Get snapshot data for Datanode
+ * This is usually passed down from the Coordinator
  *
  * returns whether or not to return immediately with snapshot
  */
@@ -2752,8 +2752,8 @@ GetSnapshotDataDataNode(Snapshot snapshot)
 }
 
 /*
- * Get snapshot data for coordinator
- * It will later be passed down to data nodes
+ * Get snapshot data for Coordinator
+ * It will later be passed down to Datanodes
  *
  * returns whether or not to return immediately with snapshot
  */

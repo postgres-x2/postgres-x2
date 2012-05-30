@@ -199,7 +199,7 @@ PGXCNodeConnStr(char *host, int port, char *dbname,
 
 	/*
 	 * Build up connection string
-	 * remote type can be coordinator, datanode or application.
+	 * remote type can be Coordinator, Datanode or application.
 	 */
 	num = snprintf(connstr, sizeof(connstr),
 				   "host=%s port=%d dbname=%s user=%s application_name=pgxc options='-c remotetype=%s %s'",
@@ -1175,7 +1175,7 @@ pgxc_node_send_parse(PGXCNodeHandle * handle, const char* statement,
 	/*
 	 * instead of parameter ids we should send parameter names (qualified by
 	 * schema name if required). The OIDs of types can be different on
-	 * datanodes.
+	 * Datanodes.
 	 */
 	for (cnt_params = 0; cnt_params < num_params; cnt_params++)
 	{
@@ -1820,7 +1820,7 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 	/*
 	 * Get Handles for Coordinators
 	 * If node list is empty execute request on current nodes
-	 * There are transactions where the coordinator list is NULL Ex:COPY
+	 * There are transactions where the Coordinator list is NULL Ex:COPY
 	 */
 
 	if (coordlist)

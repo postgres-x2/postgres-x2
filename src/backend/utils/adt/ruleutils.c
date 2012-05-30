@@ -106,7 +106,7 @@ typedef struct
 	int			indentLevel;	/* current indent level for prettyprint */
 	bool		varprefix;		/* TRUE to print prefixes on Vars */
 #ifdef PGXC
-	bool		finalise_aggs;	/* should datanode finalise the aggregates? */
+	bool		finalise_aggs;	/* should Datanode finalise the aggregates? */
 #endif /* PGXC */
 } deparse_context;
 
@@ -3404,7 +3404,7 @@ get_target_list(List *targetList, deparse_context *context,
 	/* 
 	 * Because the empty target list can generate invalid SQL
 	 * clause. Here, just fill a '*' to process a table without
-	 * any columns, this statement will be sent to data nodes
+	 * any columns, this statement will be sent to Datanodes
 	 * and treated correctly on remote nodes.
 	 */
 	if (no_targetlist)
@@ -6518,7 +6518,7 @@ get_agg_expr(Aggref *aggref, deparse_context *context)
 	 * Datanode should send finalised aggregate results. Datanodes evaluate only
 	 * transition results. In order to get the finalised aggregate, we enclose
 	 * the aggregate call inside final function call, so as to get finalised
-	 * results at the coordinator
+	 * results at the Coordinator
 	 */
 	if (context->finalise_aggs)
 	{

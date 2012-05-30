@@ -27,7 +27,7 @@
 										 * scheme, e.g. result of JOIN of
 										 * replicated and distributed table */
 
-/* Maximum number of preferred datanodes that can be defined in cluster */
+/* Maximum number of preferred Datanodes that can be defined in cluster */
 #define MAX_PREFERRED_NODES 64
 
 #define HASH_SIZE 4096

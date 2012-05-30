@@ -85,7 +85,7 @@ NodeTablesShmemInit(void)
 	if (!found)
 		*shmemNumCoords = 0;
 
-	/* Same for datanodes */
+	/* Same for Datanodes */
 	shmemNumDataNodes = ShmemInitStruct("Datanode Table",
 								   sizeof(int) +
 									   sizeof(NodeDefinition) * MaxDataNodes,
@@ -439,7 +439,7 @@ PgxcNodeGetDefinition(Oid node)
 
 	LWLockAcquire(NodeTableLock, LW_SHARED);
 
-	/* search through the data nodes first */
+	/* search through the Datanodes first */
 	for (i = 0; i < *shmemNumDataNodes; i++)
 	{
 		if (dnDefs[i].nodeoid == node)

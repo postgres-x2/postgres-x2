@@ -2,7 +2,7 @@
  *
  * execRemote.c
  *
- *	  Functions to execute commands on remote data nodes
+ *	  Functions to execute commands on remote Datanodes
  *
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
@@ -388,7 +388,7 @@ create_tuple_desc(char *msg_body, size_t len)
 }
 
 /*
- * Handle CopyOutCommandComplete ('c') message from a data node connection
+ * Handle CopyOutCommandComplete ('c') message from a Datanode connection
  */
 static void
 HandleCopyOutComplete(RemoteQueryState *combiner)
@@ -399,13 +399,13 @@ HandleCopyOutComplete(RemoteQueryState *combiner)
 		/* Inconsistent responses */
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg("Unexpected response from the data nodes for 'c' message, current request type %d", combiner->request_type)));
-	/* Just do nothing, close message is managed by the coordinator */
+				 errmsg("Unexpected response from the Datanodes for 'c' message, current request type %d", combiner->request_type)));
+	/* Just do nothing, close message is managed by the Coordinator */
 	combiner->copy_out_count++;
 }
 
 /*
- * Handle CommandComplete ('C') message from a data node connection
+ * Handle CommandComplete ('C') message from a Datanode connection
  */
 static void
 HandleCommandComplete(RemoteQueryState *combiner, char *msg_body, size_t len, PGXCNodeHandle *conn)
@@ -434,7 +434,7 @@ HandleCommandComplete(RemoteQueryState *combiner, char *msg_body, size_t len, PG
 						/* There is a consistency issue in the database with the replicated table */
 						ereport(ERROR,
 								(errcode(ERRCODE_DATA_CORRUPTED),
-								 errmsg("Write to replicated table returned different results from the data nodes")));
+								 errmsg("Write to replicated table returned different results from the Datanodes")));
 				}
 				else
 					/* first result */
@@ -463,7 +463,7 @@ HandleCommandComplete(RemoteQueryState *combiner, char *msg_body, size_t len, PG
 }
 
 /*
- * Handle RowDescription ('T') message from a data node connection
+ * Handle RowDescription ('T') message from a Datanode connection
  */
 static bool
 HandleRowDescription(RemoteQueryState *combiner, char *msg_body, size_t len)
@@ -475,7 +475,7 @@ HandleRowDescription(RemoteQueryState *combiner, char *msg_body, size_t len)
 		/* Inconsistent responses */
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg("Unexpected response from the data nodes for 'T' message, current request type %d", combiner->request_type)));
+				 errmsg("Unexpected response from the Datanodes for 'T' message, current request type %d", combiner->request_type)));
 	}
 	/* Increment counter and check if it was first */
 	if (combiner->description_count++ == 0)
@@ -489,7 +489,7 @@ HandleRowDescription(RemoteQueryState *combiner, char *msg_body, size_t len)
 
 #ifdef NOT_USED
 /*
- * Handle ParameterStatus ('S') message from a data node connection (SET command)
+ * Handle ParameterStatus ('S') message from a Datanode connection (SET command)
  */
 static void
 HandleParameterStatus(RemoteQueryState *combiner, char *msg_body, size_t len)
@@ -501,7 +501,7 @@ HandleParameterStatus(RemoteQueryState *combiner, char *msg_body, size_t len)
 		/* Inconsistent responses */
 		ereport(ERROR,
 			(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg("Unexpected response from the data nodes for 'S' message, current request type %d", combiner->request_type)));
+				 errmsg("Unexpected response from the Datanodes for 'S' message, current request type %d", combiner->request_type)));
 	}
 	/* Proxy last */
 	if (++combiner->description_count == combiner->node_count)
@@ -512,7 +512,7 @@ HandleParameterStatus(RemoteQueryState *combiner, char *msg_body, size_t len)
 #endif
 
 /*
- * Handle CopyInResponse ('G') message from a data node connection
+ * Handle CopyInResponse ('G') message from a Datanode connection
  */
 static void
 HandleCopyIn(RemoteQueryState *combiner)
@@ -524,17 +524,17 @@ HandleCopyIn(RemoteQueryState *combiner)
 		/* Inconsistent responses */
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg("Unexpected response from the data nodes for 'G' message, current request type %d", combiner->request_type)));
+				 errmsg("Unexpected response from the Datanodes for 'G' message, current request type %d", combiner->request_type)));
 	}
 	/*
 	 * The normal PG code will output an G message when it runs in the
-	 * coordinator, so do not proxy message here, just count it.
+	 * Coordinator, so do not proxy message here, just count it.
 	 */
 	combiner->copy_in_count++;
 }
 
 /*
- * Handle CopyOutResponse ('H') message from a data node connection
+ * Handle CopyOutResponse ('H') message from a Datanode connection
  */
 static void
 HandleCopyOut(RemoteQueryState *combiner)
@@ -546,17 +546,17 @@ HandleCopyOut(RemoteQueryState *combiner)
 		/* Inconsistent responses */
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg("Unexpected response from the data nodes for 'H' message, current request type %d", combiner->request_type)));
+				 errmsg("Unexpected response from the Datanodes for 'H' message, current request type %d", combiner->request_type)));
 	}
 	/*
 	 * The normal PG code will output an H message when it runs in the
-	 * coordinator, so do not proxy message here, just count it.
+	 * Coordinator, so do not proxy message here, just count it.
 	 */
 	combiner->copy_out_count++;
 }
 
 /*
- * Handle CopyOutDataRow ('d') message from a data node connection
+ * Handle CopyOutDataRow ('d') message from a Datanode connection
  */
 static void
 HandleCopyDataRow(RemoteQueryState *combiner, char *msg_body, size_t len)
@@ -568,7 +568,7 @@ HandleCopyDataRow(RemoteQueryState *combiner, char *msg_body, size_t len)
 	if (combiner->request_type != REQUEST_TYPE_COPY_OUT)
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg("Unexpected response from the data nodes for 'd' message, current request type %d", combiner->request_type)));
+				 errmsg("Unexpected response from the Datanodes for 'd' message, current request type %d", combiner->request_type)));
 
 	/* count the row */
 	combiner->processed++;
@@ -582,7 +582,7 @@ HandleCopyDataRow(RemoteQueryState *combiner, char *msg_body, size_t len)
 }
 
 /*
- * Handle DataRow ('D') message from a data node connection
+ * Handle DataRow ('D') message from a Datanode connection
  * The function returns true if buffer can accept more data rows.
  * Caller must stop reading if function returns false
  */
@@ -603,7 +603,7 @@ HandleDataRow(RemoteQueryState *combiner, char *msg_body, size_t len, int nid)
 		/* Inconsistent responses */
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg("Unexpected response from the data nodes for 'D' message, current request type %d", combiner->request_type)));
+				 errmsg("Unexpected response from the Datanodes for 'D' message, current request type %d", combiner->request_type)));
 	}
 
 	/*
@@ -624,7 +624,7 @@ HandleDataRow(RemoteQueryState *combiner, char *msg_body, size_t len, int nid)
 }
 
 /*
- * Handle ErrorResponse ('E') message from a data node connection
+ * Handle ErrorResponse ('E') message from a Datanode connection
  */
 static void
 HandleError(RemoteQueryState *combiner, char *msg_body, size_t len)
@@ -694,7 +694,7 @@ HandleError(RemoteQueryState *combiner, char *msg_body, size_t len)
 	}
 
 	/*
-	 * If data node have sent ErrorResponse it will never send CommandComplete.
+	 * If Datanode have sent ErrorResponse it will never send CommandComplete.
 	 * Increment the counter to prevent endless waiting for it.
 	 */
 	combiner->command_complete_count++;
@@ -855,12 +855,12 @@ ValidateAndCloseCombiner(RemoteQueryState *combiner)
 }
 
 /*
- * It is possible if multiple steps share the same data node connection, when
+ * It is possible if multiple steps share the same Datanode connection, when
  * executor is running multi-step query or client is running multiple queries
  * using Extended Query Protocol. After returning next tuple ExecRemoteQuery
  * function passes execution control to the executor and then it can be given
  * to the same RemoteQuery or to different one. It is possible that before
- * returning a tuple the function do not read all data node responses. In this
+ * returning a tuple the function do not read all Datanode responses. In this
  * case pending responses should be read in context of original RemoteQueryState
  * till ReadyForQuery message and data rows should be stored (buffered) to be
  * available when fetch from that RemoteQueryState is requested again.
@@ -897,7 +897,7 @@ BufferConnection(PGXCNodeHandle *conn)
 	Assert(combiner->current_conn < combiner->conn_count);
 
 	/*
-	 * Buffer data rows until data node return number of rows specified by the
+	 * Buffer data rows until Datanode return number of rows specified by the
 	 * fetch_size parameter of last Execute message (PortalSuspended message)
 	 * or end of result set is reached (CommandComplete message)
 	 */
@@ -905,7 +905,7 @@ BufferConnection(PGXCNodeHandle *conn)
 	{
 		int res;
 
-		/* Move to buffer currentRow (received from the data node) */
+		/* Move to buffer currentRow (received from the Datanode) */
 		if (combiner->currentRow.msg)
 		{
 			RemoteDataRow dataRow = (RemoteDataRow) palloc(sizeof(RemoteDataRowData));
@@ -931,7 +931,7 @@ BufferConnection(PGXCNodeHandle *conn)
 			if (pgxc_node_receive(1, &conn, NULL))
 			{
 				conn->state = DN_CONNECTION_STATE_ERROR_FATAL;
-				add_error_message(conn, "Failed to fetch from data node");
+				add_error_message(conn, "Failed to fetch from Datanode");
 			}
 		}
 		else if (res == RESPONSE_COMPLETE)
@@ -1046,7 +1046,7 @@ FetchTuple(RemoteQueryState *combiner, TupleTableSlot *slot)
 			BufferConnection(conn);
 
 		/*
-		 * If current connection is idle it means portal on the data node is
+		 * If current connection is idle it means portal on the Datanode is
 		 * suspended. If we have a tuple do not hurry to request more rows,
 		 * leave connection clean for other RemoteQueries.
 		 * If we do not have, request more and try to get it
@@ -1064,15 +1064,15 @@ FetchTuple(RemoteQueryState *combiner, TupleTableSlot *slot)
 				if (pgxc_node_send_execute(conn, combiner->cursor, 1) != 0)
 					ereport(ERROR,
 							(errcode(ERRCODE_INTERNAL_ERROR),
-							 errmsg("Failed to fetch from data node")));
+							 errmsg("Failed to fetch from Datanode")));
 				if (pgxc_node_send_sync(conn) != 0)
 					ereport(ERROR,
 							(errcode(ERRCODE_INTERNAL_ERROR),
-							 errmsg("Failed to fetch from data node")));
+							 errmsg("Failed to fetch from Datanode")));
 				if (pgxc_node_receive(1, &conn, NULL))
 					ereport(ERROR,
 							(errcode(ERRCODE_INTERNAL_ERROR),
-							 errmsg("Failed to fetch from data node")));
+							 errmsg("Failed to fetch from Datanode")));
 				conn->combiner = combiner;
 			}
 		}
@@ -1085,7 +1085,7 @@ FetchTuple(RemoteQueryState *combiner, TupleTableSlot *slot)
 			if (pgxc_node_receive(1, &conn, NULL))
 				ereport(ERROR,
 						(errcode(ERRCODE_INTERNAL_ERROR),
-						 errmsg("Failed to fetch from data node")));
+						 errmsg("Failed to fetch from Datanode")));
 			continue;
 		}
 		else if (res == RESPONSE_SUSPENDED)
@@ -1137,7 +1137,7 @@ FetchTuple(RemoteQueryState *combiner, TupleTableSlot *slot)
 
 
 /*
- * Handle responses from the Data node connections
+ * Handle responses from the Datanode connections
  */
 static int
 pgxc_node_receive_responses(const int conn_count, PGXCNodeHandle ** connections,
@@ -1151,7 +1151,7 @@ pgxc_node_receive_responses(const int conn_count, PGXCNodeHandle ** connections,
 
 	/*
 	 * Read results.
-	 * Note we try and read from data node connections even if there is an error on one,
+	 * Note we try and read from Datanode connections even if there is an error on one,
 	 * so as to avoid reading incorrect results on the next statement.
 	 * Other safegaurds exist to avoid this, however.
 	 */
@@ -1179,8 +1179,8 @@ pgxc_node_receive_responses(const int conn_count, PGXCNodeHandle ** connections,
 					break;
 				default:
 					/* Inconsistent responses */
-					add_error_message(to_receive[i], "Unexpected response from the data nodes");
-					elog(ERROR, "Unexpected response from the data nodes, result = %d, request type %d", result, combiner->request_type);
+					add_error_message(to_receive[i], "Unexpected response from the Datanodes");
+					elog(ERROR, "Unexpected response from the Datanodes, result = %d, request type %d", result, combiner->request_type);
 					/* Stop tracking and move last connection in place */
 					count--;
 					if (i < count)
@@ -1306,7 +1306,7 @@ handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner)
 			{
 				/*
 				 * Return result depends on previous connection state.
-				 * If it was PORTAL_SUSPENDED coordinator want to send down
+				 * If it was PORTAL_SUSPENDED Coordinator want to send down
 				 * another EXECUTE to fetch more rows, otherwise it is done
 				 * with the connection
 				 */
@@ -1343,7 +1343,7 @@ handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner)
 
 
 /*
- * Has the data node sent Ready For Query
+ * Has the Datanode sent Ready For Query
  */
 
 bool
@@ -1381,7 +1381,7 @@ is_data_node_ready(PGXCNodeHandle * conn)
 			case 'Z':			/* ReadyForQuery */
 				/*
 				 * Return result depends on previous connection state.
-				 * If it was PORTAL_SUSPENDED coordinator want to send down
+				 * If it was PORTAL_SUSPENDED Coordinator want to send down
 				 * another EXECUTE to fetch more rows, otherwise it is done
 				 * with the connection
 				 */
@@ -1498,9 +1498,9 @@ pgxc_node_begin(int conn_count, PGXCNodeHandle **connections,
 			 * caller should tell us if the node may do any write activitiy
 			 *
 			 * XXX This is a bit tricky since it would be difficult to know if
-			 * statement has any side effect on the data node. So a SELECT
-			 * statement may invoke a function on the data node which may end up
-			 * modifying the data at the data node. We can possibly rely on the
+			 * statement has any side effect on the Datanode. So a SELECT
+			 * statement may invoke a function on the Datanode which may end up
+			 * modifying the data at the Datanode. We can possibly rely on the
 			 * function qualification to decide if a statement is a read-only or a
 			 * read-write statement.
 			 */ 
@@ -2072,7 +2072,7 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_
 	if (conn_count == 0)
 		return NULL;
 
-	/* Get needed datanode connections */
+	/* Get needed Datanode connections */
 	pgxc_handles = get_handles(nodelist, NULL, false);
 	connections = pgxc_handles->datanode_handles;
 
@@ -2188,11 +2188,11 @@ DataNodeCopyIn(char *data_row, int len, ExecNodes *exec_nodes, PGXCNodeHandle** 
 			/* flush buffer if it is almost full */
 			if (bytes_needed > COPY_BUFFER_SIZE)
 			{
-				/* First look if data node has sent a error message */
+				/* First look if Datanode has sent a error message */
 				int read_status = pgxc_node_read_data(primary_handle, true);
 				if (read_status == EOF || read_status < 0)
 				{
-					add_error_message(primary_handle, "failed to read data from data node");
+					add_error_message(primary_handle, "failed to read data from Datanode");
 					return EOF;
 				}
 
@@ -2209,7 +2209,7 @@ DataNodeCopyIn(char *data_row, int len, ExecNodes *exec_nodes, PGXCNodeHandle** 
 
 				if (send_some(primary_handle, primary_handle->outEnd) < 0)
 				{
-					add_error_message(primary_handle, "failed to send data to data node");
+					add_error_message(primary_handle, "failed to send data to Datanode");
 					return EOF;
 				}
 			}
@@ -2230,7 +2230,7 @@ DataNodeCopyIn(char *data_row, int len, ExecNodes *exec_nodes, PGXCNodeHandle** 
 		}
 		else
 		{
-			add_error_message(primary_handle, "Invalid data node connection");
+			add_error_message(primary_handle, "Invalid Datanode connection");
 			return EOF;
 		}
 	}
@@ -2249,11 +2249,11 @@ DataNodeCopyIn(char *data_row, int len, ExecNodes *exec_nodes, PGXCNodeHandle** 
 			{
 				int to_send = handle->outEnd;
 
-				/* First look if data node has sent a error message */
+				/* First look if Datanode has sent a error message */
 				int read_status = pgxc_node_read_data(handle, true);
 				if (read_status == EOF || read_status < 0)
 				{
-					add_error_message(handle, "failed to read data from data node");
+					add_error_message(handle, "failed to read data from Datanode");
 					return EOF;
 				}
 
@@ -2288,7 +2288,7 @@ DataNodeCopyIn(char *data_row, int len, ExecNodes *exec_nodes, PGXCNodeHandle** 
 				 */
 				if (to_send && send_some(handle, to_send) < 0)
 				{
-					add_error_message(handle, "failed to send data to data node");
+					add_error_message(handle, "failed to send data to Datanode");
 					return EOF;
 				}
 			}
@@ -2309,7 +2309,7 @@ DataNodeCopyIn(char *data_row, int len, ExecNodes *exec_nodes, PGXCNodeHandle** 
 		}
 		else
 		{
-			add_error_message(handle, "Invalid data node connection");
+			add_error_message(handle, "Invalid Datanode connection");
 			return EOF;
 		}
 	}
@@ -2371,7 +2371,7 @@ DataNodeCopyOut(ExecNodes *exec_nodes, PGXCNodeHandle** copy_connections, FILE* 
 		pfree(copy_connections);
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg("Unexpected response from the data nodes when combining, request type %d", combiner->request_type)));
+				 errmsg("Unexpected response from the Datanodes when combining, request type %d", combiner->request_type)));
 	}
 
 	return processed;
@@ -2530,7 +2530,7 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 
 	/*
 	 * If there are parameters supplied, get them into a form to be sent to the
-	 * datanodes with bind message. We should not have had done this before.
+	 * Datanodes with bind message. We should not have had done this before.
 	 */
 	if (estate->es_param_list_info)
 	{
@@ -2579,7 +2579,7 @@ copy_slot(RemoteQueryState *node, TupleTableSlot *src, TupleTableSlot *dst)
 		int i;
 
 		/*
-		 * Data node may be sending junk columns which are always at the end,
+		 * Datanode may be sending junk columns which are always at the end,
 		 * but it must not be shorter then result slot.
 		 */
 		Assert(dst->tts_tupleDescriptor->natts <= src->tts_tupleDescriptor->natts);
@@ -2625,7 +2625,7 @@ get_exec_connections(RemoteQueryState *planstate,
 	{
 		if (exec_nodes->en_expr)
 		{
-			/* execution time determining of target data nodes */
+			/* execution time determining of target Datanodes */
 			bool isnull;
 			ExprState *estate = ExecInitExpr(exec_nodes->en_expr,
 											 (PlanState *) planstate);
@@ -2708,7 +2708,7 @@ get_exec_connections(RemoteQueryState *planstate,
 			dn_conn_count = 0;
 	}
 
-	/* Set Coordinator list and coordinator number */
+	/* Set Coordinator list and Coordinator number */
 	if ((list_length(nodelist) == 0 && exec_type == EXEC_ON_ALL_NODES) ||
 		(list_length(coordlist) == 0 && exec_type == EXEC_ON_COORDS))
 	{
@@ -2733,7 +2733,7 @@ get_exec_connections(RemoteQueryState *planstate,
 	/* Get connection for primary node, if used */
 	if (primarynode)
 	{
-		/* Let's assume primary connection is always a datanode connection for the moment */
+		/* Let's assume primary connection is always a Datanode connection for the moment */
 		PGXCNodeAllHandles *pgxc_conn_res;
 		pgxc_conn_res = get_handles(primarynode, NULL, false);
 
@@ -2877,7 +2877,7 @@ do_query(RemoteQueryState *node)
 	 * 	- there is only one writer node involved in the transaction (including
 	 * 	the local node)
 	 * 	- the statement being executed on the remote writer node is a single
-	 * 	step statement. IOW, coordinator must not send multiple queries to the
+	 * 	step statement. IOW, Coordinator must not send multiple queries to the
 	 * 	remote node.
 	 *
 	 * 	Once we have leak-proof mechanism to enforce these constraints, we
@@ -2913,7 +2913,7 @@ do_query(RemoteQueryState *node)
 					is_read_only, PGXC_NODE_DATANODE))
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("Could not begin transaction on primary data node.")));
+					 errmsg("Could not begin transaction on primary Datanode.")));
 
 		if (!pgxc_start_command_on_connection(primaryconnection, node, snapshot))
 		{
@@ -2921,7 +2921,7 @@ do_query(RemoteQueryState *node)
 			pfree(primaryconnection);
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("Failed to send command to data nodes")));
+					 errmsg("Failed to send command to Datanodes")));
 		}
 		Assert(node->combine_type == COMBINE_TYPE_SAME);
 
@@ -2940,7 +2940,7 @@ do_query(RemoteQueryState *node)
 			else
 				ereport(ERROR,
 						(errcode(ERRCODE_INTERNAL_ERROR),
-						 errmsg("Unexpected response from data node")));
+						 errmsg("Unexpected response from Datanode")));
 		}
 		/* report error if any */
 		pgxc_node_report_error(node);
@@ -2952,7 +2952,7 @@ do_query(RemoteQueryState *node)
 					is_read_only, PGXC_NODE_DATANODE))
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("Could not begin transaction on data nodes.")));
+					 errmsg("Could not begin transaction on Datanodes.")));
 
 		if (!pgxc_start_command_on_connection(connections[i], node, snapshot))
 		{
@@ -2961,7 +2961,7 @@ do_query(RemoteQueryState *node)
 				pfree(primaryconnection);
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("Failed to send command to data nodes")));
+					 errmsg("Failed to send command to Datanodes")));
 		}
 		connections[i]->combiner = node;
 	}
@@ -2992,10 +2992,10 @@ do_query(RemoteQueryState *node)
 
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("Failed to read response from data nodes")));
+					 errmsg("Failed to read response from Datanodes")));
 		}
 		/*
-		 * Handle input from the data nodes.
+		 * Handle input from the Datanodes.
 		 * If we got a RESPONSE_DATAROW we can break handling to wrap
 		 * it into a tuple and return. Handling will be continued upon
 		 * subsequent invocations.
@@ -3069,7 +3069,7 @@ do_query(RemoteQueryState *node)
 			else
 				ereport(ERROR,
 						(errcode(ERRCODE_INTERNAL_ERROR),
-						 errmsg("Unexpected response from data node")));
+						 errmsg("Unexpected response from Datanode")));
 		}
 		/* report error if any */
 		pgxc_node_report_error(node);
@@ -3296,7 +3296,7 @@ ExecRemoteQuery(RemoteQueryState *node)
 /*
  * Execute step of PGXC plan.
  * The step specifies a command to be executed on specified nodes.
- * On first invocation connections to the data nodes are initialized and
+ * On first invocation connections to the Datanodes are initialized and
  * command is executed. Further, as well as within subsequent invocations,
  * responses are received until step is completed or there is a tuple to emit.
  * If there is a tuple it is returned, otherwise returned NULL. The NULL result
@@ -3425,7 +3425,7 @@ ExecEndRemoteQuery(RemoteQueryState *node)
 			if (pgxc_node_receive(1, &conn, &timeout))
 				ereport(ERROR,
 						(errcode(ERRCODE_INTERNAL_ERROR),
-						 errmsg("Failed to read response from data nodes when ending query")));
+						 errmsg("Failed to read response from Datanodes when ending query")));
 		}
 	}
 
@@ -3520,11 +3520,11 @@ close_node_cursors(PGXCNodeHandle **connections, int conn_count, char *cursor)
 		if (pgxc_node_send_close(connections[i], false, cursor) != 0)
 			ereport(WARNING,
 					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("Failed to close data node cursor")));
+					 errmsg("Failed to close Datanode cursor")));
 		if (pgxc_node_send_sync(connections[i]) != 0)
 			ereport(WARNING,
 					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("Failed to close data node cursor")));
+					 errmsg("Failed to close Datanode cursor")));
 	}
 
 	combiner = CreateResponseCombiner(conn_count, COMBINE_TYPE_NONE);
@@ -3534,7 +3534,7 @@ close_node_cursors(PGXCNodeHandle **connections, int conn_count, char *cursor)
 		if (pgxc_node_receive(conn_count, connections, NULL))
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("Failed to close data node cursor")));
+					 errmsg("Failed to close Datanode cursor")));
 		i = 0;
 		while (i < conn_count)
 		{
@@ -3561,7 +3561,7 @@ close_node_cursors(PGXCNodeHandle **connections, int conn_count, char *cursor)
 
 /*
  * Encode parameter values to format of DataRow message (the same format is
- * used in Bind) to prepare for sending down to data nodes.
+ * used in Bind) to prepare for sending down to Datanodes.
  * The buffer to store encoded value is palloc'ed and returned as the result
  * parameter. Function returns size of the result
  */
@@ -3687,7 +3687,7 @@ ExecRemoteQueryReScan(RemoteQueryState *node, ExprContext *exprCtxt)
 
 
 /*
- * Execute utility statement on multiple data nodes
+ * Execute utility statement on multiple Datanodes
  * It does approximately the same as
  *
  * RemoteQueryState *state = ExecInitRemoteQuery(plan, estate, flags);
@@ -3758,7 +3758,7 @@ ExecRemoteUtility(RemoteQuery *node)
 					gxid, need_tran_block, false, PGXC_NODE_DATANODE))
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("Could not begin transaction on data nodes")));
+					 errmsg("Could not begin transaction on Datanodes")));
 		for (i = 0; i < dn_conn_count; i++)
 		{
 			PGXCNodeHandle *conn = pgxc_connections->datanode_handles[i];
@@ -3769,13 +3769,13 @@ ExecRemoteUtility(RemoteQuery *node)
 			{
 				ereport(ERROR,
 						(errcode(ERRCODE_INTERNAL_ERROR),
-						 errmsg("Failed to send command to data nodes")));
+						 errmsg("Failed to send command to Datanodes")));
 			}
 			if (pgxc_node_send_query(conn, node->sql_statement) != 0)
 			{
 				ereport(ERROR,
 						(errcode(ERRCODE_INTERNAL_ERROR),
-						 errmsg("Failed to send command to data nodes")));
+						 errmsg("Failed to send command to Datanodes")));
 			}
 		}
 	}
@@ -3819,8 +3819,8 @@ ExecRemoteUtility(RemoteQuery *node)
 			if (pgxc_node_receive(dn_conn_count, pgxc_connections->datanode_handles, NULL))
 				break;
 			/*
-			 * Handle input from the data nodes.
-			 * We do not expect data nodes returning tuples when running utility
+			 * Handle input from the Datanodes.
+			 * We do not expect Datanodes returning tuples when running utility
 			 * command.
 			 * If we got EOF, move to the next connection, will receive more
 			 * data on the next iteration.
@@ -3843,13 +3843,13 @@ ExecRemoteUtility(RemoteQuery *node)
 				{
 					ereport(ERROR,
 							(errcode(ERRCODE_INTERNAL_ERROR),
-							 errmsg("Unexpected response from data node")));
+							 errmsg("Unexpected response from Datanode")));
 				}
 				else if (res == RESPONSE_DATAROW)
 				{
 					ereport(ERROR,
 							(errcode(ERRCODE_INTERNAL_ERROR),
-							 errmsg("Unexpected response from data node")));
+							 errmsg("Unexpected response from Datanode")));
 				}
 			}
 		}
@@ -3912,7 +3912,7 @@ PGXCNodeCleanAndRelease(int code, Datum arg)
 	/* Clean up prepared transactions before releasing connections */
 	DropAllPreparedStatements();
 
-	/* Release data node connections */
+	/* Release Datanode connections */
 	release_handles();
 
 	/* Disconnect from Pooler */
@@ -3941,7 +3941,7 @@ pgxc_get_connections(PGXCNodeHandle *connections[], int size, List *connlist)
 }
 /*
  * Get all connections for which we have an open transaction,
- * for both data nodes and coordinators
+ * for both Datanodes and Coordinators
  */
 static int
 pgxc_get_transaction_nodes(PGXCNodeHandle *connections[], int size, bool write)
@@ -3962,7 +3962,7 @@ ExecCloseRemoteStatement(const char *stmt_name, List *nodelist)
 	if (list_length(nodelist) == 0)
 		return;
 
-	/* get needed data node connections */
+	/* get needed Datanode connections */
 	all_handles = get_handles(nodelist, NIL, false);
 	conn_count = all_handles->dn_conn_count;
 	connections = all_handles->datanode_handles;
@@ -3975,20 +3975,20 @@ ExecCloseRemoteStatement(const char *stmt_name, List *nodelist)
 		{
 			/*
 			 * statements are not affected by statement end, so consider
-			 * unclosed statement on the datanode as a fatal issue and
+			 * unclosed statement on the Datanode as a fatal issue and
 			 * force connection is discarded
 			 */
 			connections[i]->state = DN_CONNECTION_STATE_ERROR_FATAL;
 			ereport(WARNING,
 					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("Failed to close data node statemrnt")));
+					 errmsg("Failed to close Datanode statemrnt")));
 		}
 		if (pgxc_node_send_sync(connections[i]) != 0)
 		{
 			connections[i]->state = DN_CONNECTION_STATE_ERROR_FATAL;
 			ereport(WARNING,
 					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("Failed to close data node statement")));
+					 errmsg("Failed to close Datanode statement")));
 		}
 	}
 
@@ -4003,7 +4003,7 @@ ExecCloseRemoteStatement(const char *stmt_name, List *nodelist)
 
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("Failed to close data node statement")));
+					 errmsg("Failed to close Datanode statement")));
 		}
 		i = 0;
 		while (i < conn_count)
@@ -4032,7 +4032,7 @@ ExecCloseRemoteStatement(const char *stmt_name, List *nodelist)
 /*
  * DataNodeCopyInBinaryForAll
  *
- * In a COPY TO, send to all datanodes PG_HEADER for a COPY TO in binary mode.
+ * In a COPY TO, send to all Datanodes PG_HEADER for a COPY TO in binary mode.
  */
 int DataNodeCopyInBinaryForAll(char *msg_buf, int len, PGXCNodeHandle** copy_connections)
 {
@@ -4074,7 +4074,7 @@ int DataNodeCopyInBinaryForAll(char *msg_buf, int len, PGXCNodeHandle** copy_con
 		}
 		else
 		{
-			add_error_message(handle, "Invalid data node connection");
+			add_error_message(handle, "Invalid Datanode connection");
 			return EOF;
 		}
 	}
@@ -4198,8 +4198,8 @@ AtEOXact_Remote(void)
 }
 
 /*
- * Do pre-commit processing for remote nodes which includes data nodes and
- * coordinators. If more than one nodes are involved in the transaction write
+ * Do pre-commit processing for remote nodes which includes Datanodes and
+ * Coordinators. If more than one nodes are involved in the transaction write
  * activity, then we must run 2PC. For 2PC, we do the following steps:
  *
  *  1. PREPARE the transaction locally if the local node is involved in the
@@ -4593,7 +4593,7 @@ FinishRemotePreparedTransaction(char *prepareGID, bool commit)
 	}
 
 	/*
-	 * Now get handles for all the involved data nodes and the coordinators
+	 * Now get handles for all the involved Datanodes and the Coordinators
 	 */
 	pgxc_handles = get_handles(nodelist, coordlist, false);
 
@@ -4604,7 +4604,7 @@ FinishRemotePreparedTransaction(char *prepareGID, bool commit)
 	 gxid, false, false))
 	 ereport(ERROR,
 	 (errcode(ERRCODE_INTERNAL_ERROR),
-	 errmsg("Could not begin transaction on data nodes")));
+	 errmsg("Could not begin transaction on Datanodes")));
 	*/
 	RegisterTransactionNodes(pgxc_handles->dn_conn_count,
 							 (void **) pgxc_handles->datanode_handles, true);
@@ -4661,7 +4661,7 @@ FinishRemotePreparedTransaction(char *prepareGID, bool commit)
 
 /*
  * pgxc_node_report_error
- * Throw error from datanode if any.
+ * Throw error from Datanode if any.
  */
 static void
 pgxc_node_report_error(RemoteQueryState *combiner)

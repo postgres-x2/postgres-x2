@@ -127,7 +127,7 @@ static int	port_dn1 = -1;
 static int	port_dn2 = -1;
 static int	port_gtm = -1;
 /*
- * Poolers of coordinators 1 and 2 need an additional port value
+ * Poolers of Coordinators 1 and 2 need an additional port value
  * taken as the default value and the next value.
  */
 static int	co1_pooler_port = -1;
@@ -933,7 +933,7 @@ psql_command_node(const char *database, PGXCNodeTypeNum node, const char *query,
 }
 
 /*
- * Setup connection information to remote nodes for coordinator running regression
+ * Setup connection information to remote nodes for Coordinator running regression
  */
 static void
 setup_connection_information(void)

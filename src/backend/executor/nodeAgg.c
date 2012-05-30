@@ -250,7 +250,7 @@ typedef struct AggStatePerGroupData
 	 * PGXCTODO: we should be able to reuse the fields above, rather than having
 	 * separate fields here, that can be done once we get rid of different
 	 * collection and transition result types in pg_aggregate.h. Collection at
-	 * coordinator is equivalent to the transition at non-XC PG.
+	 * Coordinator is equivalent to the transition at non-XC PG.
 	 */
 	Datum		collectValue;		/* current collection value */
 	bool		collectValueIsNull;
@@ -542,7 +542,7 @@ advance_collection_function(AggState *aggstate,
 	Assert(OidIsValid(peraggstate->collectfn.fn_oid));
 
 	/*
-	 * numArgument has to be one, since each datanode is going to send a single
+	 * numArgument has to be one, since each Datanode is going to send a single
 	 * transition value
 	 */
 	Assert(numArguments == 1);
@@ -700,7 +700,7 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 			{
 				Assert(IS_PGXC_COORDINATOR);
 				/*
-				 * we are collecting results sent by the datanodes, so advance
+				 * we are collecting results sent by the Datanodes, so advance
 				 * collections instead of transitions
 				 */
 				advance_collection_function(aggstate, peraggstate,
@@ -1816,8 +1816,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 #ifdef PGXC
 		peraggstate->collectfn_oid = collectfn_oid = aggform->aggcollectfn;
 		/*
-		 * For PGXC final and collection functions are used to combine results at coordinator,
-		 * disable those for data node
+		 * For PGXC final and collection functions are used to combine results at Coordinator,
+		 * disable those for Datanode
 		 */
 		if (IS_PGXC_DATANODE)
 		{

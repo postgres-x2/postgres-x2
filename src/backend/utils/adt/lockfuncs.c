@@ -439,9 +439,9 @@ pg_lock_status(PG_FUNCTION_ARGS)
 
 /*
  * pgxc_advisory_lock - Core function that implements the algorithm needed to
- * propogate the advisory lock function calls to all coordinators.
+ * propogate the advisory lock function calls to all Coordinators.
  * The idea is to make the advisory locks cluster-aware, so that a user having
- * a lock from coordinator 1 will make the user from coordinator 2 to wait for
+ * a lock from Coordinator 1 will make the user from Coordinator 2 to wait for
  * the same lock.
  *
  * Return true if all locks are returned successfully. False otherwise.
@@ -476,7 +476,7 @@ pgxc_advisory_lock(int64 key64, int32 key1, int32 key2, bool iskeybig,
 
 	PgxcNodeGetOids(&coOids, &dnOids, &numcoords, &numdnodes, false);
 
-	/* Skip everything XC specific if there's only one coordinator running */
+	/* Skip everything XC specific if there's only one Coordinator running */
 	if (numcoords <= 1)
 	{
 		(void) LockAcquire(&locktag, lockmode, sessionLock, dontWait);
@@ -521,22 +521,22 @@ pgxc_advisory_lock(int64 key64, int32 key1, int32 key2, bool iskeybig,
 	appendStringInfo(&unlock_cmd, "SELECT pg_catalog.%s(%s)", unlock_funcname.data, args.data);
 
 	/*
-	 * Go on locking on each coordinator. Keep on unlocking the previous one
-	 * after a lock is held on next coordinator. Don't unlock the local
-	 * coordinator. After finishing all coordinators, ultimately only the local
-	 * coordinator would be locked, but still we will have scanned all
-	 * coordinators to make sure no one else has already grabbed the lock. The
+	 * Go on locking on each Coordinator. Keep on unlocking the previous one
+	 * after a lock is held on next Coordinator. Don't unlock the local
+	 * Coordinator. After finishing all Coordinators, ultimately only the local
+	 * Coordinator would be locked, but still we will have scanned all
+	 * Coordinators to make sure no one else has already grabbed the lock. The
 	 * reason for unlocking all remote locks is because the session level locks
 	 * don't get unlocked until explicitly unlocked or the session quits. After
 	 * the user session quits without explicitly unlocking, the coord-to-coord
-	 * pooler connection stays and so does the remote coordinator lock.
+	 * pooler connection stays and so does the remote Coordinator lock.
 	 */
 	prev = -1;
 	for (i = 0; i <= numcoords && !abort_locking; i++, prev++)
 	{
 		if (i < numcoords)
 		{
-			/* If this coordinator is myself, execute native lock calls */
+			/* If this Coordinator is myself, execute native lock calls */
 			if (i == PGXCNodeId - 1)
 				lock_status = LockAcquire(&locktag, lockmode, sessionLock, dontWait);
 			else
@@ -546,7 +546,7 @@ pgxc_advisory_lock(int64 key64, int32 key1, int32 key2, bool iskeybig,
 			{
 				abort_locking = true;
 				/*
-				 * If we have gone past the local coordinator node, it implies
+				 * If we have gone past the local Coordinator node, it implies
 				 * that we have obtained a local lock. But now that we are
 				 * aborting, we need to release the local lock first.
 				 */
@@ -557,7 +557,7 @@ pgxc_advisory_lock(int64 key64, int32 key1, int32 key2, bool iskeybig,
 
 		/*
 		 * If we are dealing with session locks, unlock the previous lock, but
-		 * only if it is a remote coordinator. If it is a local one, we want to
+		 * only if it is a remote Coordinator. If it is a local one, we want to
 		 * keep that lock. Remember, the final status should be that there is
 		 * only *one* lock held, and that is the local lock.
 		 */

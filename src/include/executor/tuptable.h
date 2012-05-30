@@ -120,7 +120,7 @@ typedef struct TupleTableSlot
 	HeapTuple	tts_tuple;		/* physical tuple, or NULL if virtual */
 #ifdef PGXC
 	/*
-	 * PGXC extension to support tuples sent from remote data node.
+	 * PGXC extension to support tuples sent from remote Datanode.
 	 */
 	char		*tts_dataRow;		/* Tuple data in DataRow format */
 	int		tts_dataLen;		/* Actual length of the data row */

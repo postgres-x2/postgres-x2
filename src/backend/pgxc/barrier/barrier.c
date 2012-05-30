@@ -36,7 +36,7 @@ static void EndBarrier(PGXCNodeAllHandles *handles, const char *id);
  * Prepare ourselves for an incoming BARRIER. We must disable all new 2PC
  * commits and let the ongoing commits to finish. We then remember the
  * barrier id (so that it can be matched with the final END message) and
- * tell the driving coordinator to proceed with the next step.
+ * tell the driving Coordinator to proceed with the next step.
  *
  * A simple way to implement this is to grab a lock in an exclusive mode
  * while all other backend starting a 2PC will grab the lock in shared
@@ -58,7 +58,7 @@ ProcessCreateBarrierPrepare(const char *id)
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("The CREATE BARRIER PREPARE message is expected to "
-						"arrive at a coordinator from another coordinator")));
+						"arrive at a Coordinator from another Coordinator")));
 
 	LWLockAcquire(BarrierLock, LW_EXCLUSIVE);
 
@@ -86,7 +86,7 @@ ProcessCreateBarrierEnd(const char *id)
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("The CREATE BARRIER END message is expected to "
-						"arrive at a coordinator from another coordinator")));
+						"arrive at a Coordinator from another Coordinator")));
 
 	LWLockRelease(BarrierLock);
 
@@ -114,7 +114,7 @@ ProcessCreateBarrierExecute(const char *id)
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("The CREATE BARRIER EXECUTE message is expected to "
-						"arrive from a coordinator")));
+						"arrive from a Coordinator")));
 	{
 		XLogRecData rdata[1];
 		XLogRecPtr recptr;
@@ -143,7 +143,7 @@ generate_barrier_id(const char *id)
 	/*
 	 * If the caller can passed a NULL value, generate an id which is
 	 * guaranteed to be unique across the cluster. We use a combination of
-	 * the coordinator node id and current timestamp.
+	 * the Coordinator node id and current timestamp.
 	 */
 
 	if (id)
@@ -252,7 +252,7 @@ SendBarrierEndRequest(PGXCNodeAllHandles *coord_handles, const char *id)
 	int msglen;
 	int barrier_idlen;
 
-	elog(DEBUG2, "Sending CREATE BARRIER <%s> END command to all coordinators", id);
+	elog(DEBUG2, "Sending CREATE BARRIER <%s> END command to all Coordinators", id);
 
 	for (conn = 0; conn < coord_handles->co_conn_count; conn++)
 	{
@@ -296,10 +296,10 @@ SendBarrierEndRequest(PGXCNodeAllHandles *coord_handles, const char *id)
 }
 
 /*
- * Prepare all coordinators for barrier. During this step all the coordinators
- * are informed to suspend any new 2PC transactions. The coordinators should
+ * Prepare all Coordinators for barrier. During this step all the Coordinators
+ * are informed to suspend any new 2PC transactions. The Coordinators should
  * disable new 2PC transactions and then wait for the existing transactions to
- * complete. Once all "in-flight" 2PC transactions are over, the coordinators
+ * complete. Once all "in-flight" 2PC transactions are over, the Coordinators
  * respond back.
  *
  * That completes the first step in barrier generation
@@ -311,12 +311,12 @@ PrepareBarrier(const char *id)
 {
 	PGXCNodeAllHandles *coord_handles;
 
-	elog(DEBUG2, "Preparing coordinators for BARRIER");
+	elog(DEBUG2, "Preparing Coordinators for BARRIER");
 
 	/*
-	 * Send a CREATE BARRIER PREPARE message to all the coordinators. We should
+	 * Send a CREATE BARRIER PREPARE message to all the Coordinators. We should
 	 * send an asynchronous request so that we can disable local commits and
-	 * then wait for the remote coordinators to finish the work
+	 * then wait for the remote Coordinators to finish the work
 	 */
 	coord_handles = SendBarrierPrepareRequest(GetAllCoordNodes(), id);
 
@@ -325,7 +325,7 @@ PrepareBarrier(const char *id)
 	 */
 	LWLockAcquire(BarrierLock, LW_EXCLUSIVE);
 
-	elog(DEBUG2, "Disabled 2PC commits originating at the driving coordinator");
+	elog(DEBUG2, "Disabled 2PC commits originating at the driving Coordinator");
 
 	/*
 	 * TODO Start a timer to cancel the barrier request in case of a timeout
@@ -333,7 +333,7 @@ PrepareBarrier(const char *id)
 
 	/*
 	 * Local in-flight commits are now over. Check status of the remote
-	 * coordinators
+	 * Coordinators
 	 */
 	CheckBarrierCommandStatus(coord_handles, id, "PREPARE");
 
@@ -341,8 +341,8 @@ PrepareBarrier(const char *id)
 }
 
 /*
- * Execute the barrier command on all the components, including data nodes and
- * coordinators. 
+ * Execute the barrier command on all the components, including Datanodes and
+ * Coordinators. 
  */
 static void
 ExecuteBarrier(const char *id)
@@ -357,9 +357,9 @@ ExecuteBarrier(const char *id)
 	conn_handles = get_handles(barrierDataNodeList, barrierCoordList, false);
 
 	elog(DEBUG2, "Sending CREATE BARRIER <%s> EXECUTE message to "
-				 "data nodes and coordinator", id);
+				 "Datanodes and Coordinator", id);
 	/* 
-	 * Send a CREATE BARRIER request to all the data nodes and the coordinators
+	 * Send a CREATE BARRIER request to all the Datanodes and the Coordinators
 	 */
 	for (conn = 0; conn < conn_handles->co_conn_count + conn_handles->dn_conn_count; conn++)
 	{
@@ -427,7 +427,7 @@ ExecuteBarrier(const char *id)
 }
 
 /*
- * Resume 2PC commits on the local as well as remote coordinators.
+ * Resume 2PC commits on the local as well as remote Coordinators.
  */
 static void
 EndBarrier(PGXCNodeAllHandles *prepared_handles, const char *id)
@@ -448,18 +448,18 @@ RequestBarrier(const char *id, char *completionTag)
 
 	elog(DEBUG2, "CREATE BARRIER request received");
 	/*
-	 * Ensure that we are a coordinator and the request is not from another
+	 * Ensure that we are a Coordinator and the request is not from another
 	 * coordinator
 	 */
 	if (!IS_PGXC_COORDINATOR)
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
-				 errmsg("CREATE BARRIER command must be sent to a coordinator")));
+				 errmsg("CREATE BARRIER command must be sent to a Coordinator")));
 
 	if (IsConnFromCoord())
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
-				 errmsg("CREATE BARRIER command is not expected from another coordinator")));
+				 errmsg("CREATE BARRIER command is not expected from another Coordinator")));
 
 	/*
 	 * Get a barrier id if the user has not supplied it
@@ -469,18 +469,18 @@ RequestBarrier(const char *id, char *completionTag)
 	elog(DEBUG2, "CREATE BARRIER <%s>", barrier_id);
 
 	/*
-	 * Step One. Prepare all coordinators for upcoming barrier request
+	 * Step One. Prepare all Coordinators for upcoming barrier request
 	 */
 	prepared_handles = PrepareBarrier(barrier_id);
 
 	/*
 	 * Step two. Issue BARRIER command to all involved components, including
-	 * coordinators and data nodes
+	 * Coordinators and Datanodes
 	 */
 	ExecuteBarrier(barrier_id);
 
 	/*
-	 * Step three. Inform coordinators about a successfully completed barrier
+	 * Step three. Inform Coordinators about a successfully completed barrier
 	 */
 	EndBarrier(prepared_handles, barrier_id);
 

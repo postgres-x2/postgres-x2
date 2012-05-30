@@ -1278,7 +1278,7 @@ exec_parse_message(const char *query_string,	/* string to execute */
 #ifdef PGXC
 	/*
 	 * if we have the parameter types passed, which happens only in case of
-	 * connection from coordinators, fill paramTypes with their OIDs for
+	 * connection from Coordinators, fill paramTypes with their OIDs for
 	 * subsequent use. We have to do name to OID conversion, in a transaction
 	 * context.
 	 */
@@ -3594,18 +3594,18 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx)
 
 #ifdef PGXC
 	/*
-	 * Make sure we specified the mode if Coordinator or Data Node.
+	 * Make sure we specified the mode if Coordinator or Datanode.
 	 * Allow for the exception of initdb by checking config option
 	 */
 	if (!IS_PGXC_COORDINATOR && !IS_PGXC_DATANODE && IsUnderPostmaster)
 	{
 		ereport(FATAL,
 				(errcode(ERRCODE_SYNTAX_ERROR),
-			 errmsg("PG-XC: must start as either a Coordinator (-C) or Data Node (-X)\n")));
+			 errmsg("PG-XC: must start as either a Coordinator (-C) or Datanode (-X)\n")));
 	}
 	if (!IsPostmasterEnvironment)
 	{
-		/* Treat it as a data node for initdb to work properly */
+		/* Treat it as a Datanode for initdb to work properly */
 		isPGXCDataNode = true;
 	}
 #endif

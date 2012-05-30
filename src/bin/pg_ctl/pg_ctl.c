@@ -2155,11 +2155,11 @@ main(int argc, char **argv)
 	}
 
 #ifdef PGXC
-	/* stop command does not need to have coordinator or datanode options */
+	/* stop command does not need to have Coordinator or Datanode options */
 	if ((ctl_command == START_COMMAND || ctl_command == RESTART_COMMAND)
 		&& !pgxcCommand)
 	{
-		write_stderr(_("%s: coordinator or datanode option not specified (-Z)\n"),
+		write_stderr(_("%s: Coordinator or Datanode option not specified (-Z)\n"),
 					progname);
 		do_advice();
 		exit(1);

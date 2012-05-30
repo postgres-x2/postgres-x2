@@ -3444,8 +3444,8 @@ ATRewriteTables(List **wqueue, LOCKMODE lockmode)
 	/* 
 	 * In PGXC, do not check the FK constraints on the Coordinator, and just return
 	 * That is because a SELECT is generated whose plan will try and use
-	 * the data nodes. We (currently) do not want to do that on the Coordinator,
-	 * when the command is passed down to the data nodes it will
+	 * the Datanodes. We (currently) do not want to do that on the Coordinator,
+	 * when the command is passed down to the Datanodes it will
 	 * peform the check locally.
 	 * This issue was introduced when we added multi-step handling,
 	 * it caused foreign key constraints to fail.

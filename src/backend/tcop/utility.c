@@ -1674,7 +1674,7 @@ standard_ProcessUtility(Node *parsetree,
 			PreventCommandDuringRecovery("VACUUM");
 #ifdef PGXC
 			/*
-			 * We have to run the command on nodes before coordinator because
+			 * We have to run the command on nodes before Coordinator because
 			 * vacuum() pops active snapshot and we can not send it to nodes
 			 */
 			if (IS_PGXC_COORDINATOR)
@@ -2084,7 +2084,7 @@ standard_ProcessUtility(Node *parsetree,
 		case T_RemoteQuery:
 			Assert(IS_PGXC_COORDINATOR);
 			/*
-			 * Do not launch query on Other Datanodes if remote connection is a coordinator one
+			 * Do not launch query on Other Datanodes if remote connection is a Coordinator one
 			 * it will cause a deadlock in the cluster at Datanode levels.
 			 */
 			if (!IsConnFromCoord())
@@ -3787,8 +3787,8 @@ GetNodesForCommentUtility(CommentStmt *stmt, bool *is_temp)
 /*
  * GetNodesForRulesUtility
  * Get the nodes to execute this RULE related utility statement.
- * A rule is expanded on coordinator itself, and does not need any
- * existence on datanode. In fact, if it were to exist on datanode,
+ * A rule is expanded on Coordinator itself, and does not need any
+ * existence on Datanode. In fact, if it were to exist on Datanode,
  * there is a possibility that it would expand again
  */
 static RemoteQueryExecType

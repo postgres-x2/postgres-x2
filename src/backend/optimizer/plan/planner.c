@@ -137,7 +137,7 @@ planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	else
 #ifdef PGXC
 		/*
-		 * A coordinator receiving a query from another Coordinator
+		 * A Coordinator receiving a query from another Coordinator
 		 * is not allowed to go into PGXC planner.
 		 */
 		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
@@ -267,7 +267,7 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 
 #ifdef PGXC
 	/*
-	 * PGXC should apply INSERT/UPDATE/DELETE to a datanode. We are overriding
+	 * PGXC should apply INSERT/UPDATE/DELETE to a Datanode. We are overriding
 	 * normal Postgres behavior by modifying final plan or by adding a node on
 	 * top of it.
 	 * If the optimizer finds out that there is nothing to UPDATE/INSERT/DELETE
@@ -453,17 +453,17 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 
 #ifdef PGXC
 	/*
-	 * In coordinators we separate row marks in two groups
+	 * In Coordinators we separate row marks in two groups
 	 * one comprises of row marks of types ROW_MARK_EXCLUSIVE & ROW_MARK_SHARE
 	 * and the other contains the rest of the types of row marks
-	 * The former is handeled on coordinator in such a way that 
+	 * The former is handeled on Coordinator in such a way that 
 	 * FOR UPDATE/SHARE gets added in the remote query, whereas
 	 * the later needs to be handeled the way pg does
 	 *
 	 * PGXCTODO : This is not a very efficient way of handling row marks
 	 * Consider this join query
 	 * select * from t1, t2 where t1.val = t2.val for update
-	 * It results in this query to be fired at the data nodes
+	 * It results in this query to be fired at the Datanodes
 	 * SELECT val, val2, ctid FROM ONLY t2 WHERE true FOR UPDATE OF t2
 	 * We are locking the complete table where as we should have locked 
 	 * only the rows where t1.val = t2.val is met
@@ -1489,9 +1489,9 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 #ifdef PGXC
 			/*
 			 * Grouping will certainly not increase the number of rows
-			 * coordinator fetches from datanode, in fact it's expected to
+			 * Coordinator fetches from Datanode, in fact it's expected to
 			 * reduce the number drastically. Hence, try pushing GROUP BY
-			 * clauses and aggregates to the datanode, thus saving bandwidth.
+			 * clauses and aggregates to the Datanode, thus saving bandwidth.
 			 */
 			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 				result_plan = create_remotegrouping_plan(root, result_plan);
@@ -2003,7 +2003,7 @@ preprocess_rowmarks(PlannerInfo *root)
 
 #ifdef PGXC
 /*
- * separate_rowmarks - In XC coordinators are supposed to skip handling
+ * separate_rowmarks - In XC Coordinators are supposed to skip handling
  *                of type ROW_MARK_EXCLUSIVE & ROW_MARK_SHARE.
  *                In order to do that we simply remove such type 
  *                of row marks from the list. Instead they are saved 

@@ -2,7 +2,7 @@
  *
  * execRemote.h
  *
- *	  Functions to execute commands on multiple Data Nodes
+ *	  Functions to execute commands on multiple Datanodes
  *
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group ?
@@ -75,7 +75,7 @@ typedef struct RemoteQueryState
 {
 	ScanState	ss;						/* its first field is NodeTag */
 	int			node_count;				/* total count of participating nodes */
-	PGXCNodeHandle **connections;		/* data node connections being combined */
+	PGXCNodeHandle **connections;		/* Datanode connections being combined */
 	int			conn_count;				/* count of active connections */
 	int			current_conn;			/* used to balance load when reading from connections */
 	CombineType combine_type;			/* see CombineType enum */
@@ -88,7 +88,7 @@ typedef struct RemoteQueryState
 	char		errorCode[5];			/* error code to send back to client */
 	char	   *errorMessage;			/* error message to send back to client */
 	char	   *errorDetail;			/* error detail to send back to client */
-	bool		query_Done;				/* query has been sent down to data nodes */
+	bool		query_Done;				/* query has been sent down to Datanodes */
 	RemoteDataRowData currentRow;		/* next data ro to be wrapped into a tuple */
 	/* TODO use a tuplestore as a rowbuffer */
 	List 	   *rowBuffer;				/* buffer where rows are stored when connection
@@ -116,7 +116,7 @@ typedef struct RemoteQueryState
 	char	   *cursor;					/* cursor name */
 	char	   *update_cursor;			/* throw this cursor current tuple can be updated */
 	int			cursor_count;			/* total count of participating nodes */
-	PGXCNodeHandle **cursor_connections;/* data node connections being combined */
+	PGXCNodeHandle **cursor_connections;/* Datanode connections being combined */
 	/* Support for parameters */
 	char	   *paramval_data;		/* parameter data, format is like in BIND */
 	int			paramval_len;		/* length of parameter values data */

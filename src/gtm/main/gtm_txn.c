@@ -958,7 +958,7 @@ GTM_StartPreparedTransaction(GTM_TransactionHandle txn,
 															 GTM_MAX_NODESTRING_LEN);
 	memcpy(gtm_txninfo->nodestring, nodestring, strlen(nodestring) + 1);
 
-	/* It is possible that no datanode is involved in a transaction (Sequence DDL) */
+	/* It is possible that no Datanode is involved in a transaction */
 	if (gtm_txninfo->gti_gid == NULL)
 		gtm_txninfo->gti_gid = (char *)MemoryContextAlloc(TopMostMemoryContext, GTM_MAX_GID_LEN);
 	memcpy(gtm_txninfo->gti_gid, gid, strlen(gid) + 1);
@@ -1755,7 +1755,7 @@ ProcessCommitPreparedTransactionCommand(Port *myport, StringInfo message, bool i
  * For a given GID the following info is returned:
  * - a fresh GXID,
  * - GXID of the transaction that made the prepare
- * - datanode and coordinator node list involved in the prepare
+ * - Datanode and Coordinator node list involved in the prepare
  */
 void
 ProcessGetGIDDataTransactionCommand(Port *myport, StringInfo message)

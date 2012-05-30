@@ -229,7 +229,7 @@ typedef struct PlannerInfo
 	int         rs_alias_index; /* used to build the alias reference */
 
 	/*
-	 * In XC coordinators are supposed to skip the handling of 
+	 * In Postgres-XC Coordinators are supposed to skip the handling of 
 	 * row marks of type ROW_MARK_EXCLUSIVE & ROW_MARK_SHARE.
 	 * In order to do that we simply remove such type 
 	 * of row marks from the list rowMarks. Instead they are saved 

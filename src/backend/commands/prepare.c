@@ -50,7 +50,7 @@
 static HTAB *prepared_queries = NULL;
 #ifdef PGXC
 /*
- * The hash table where datanode prepared statements are stored.
+ * The hash table where Datanode prepared statements are stored.
  * The keys are statement names referenced from cached RemoteQuery nodes; the
  * entries are DatanodeStatement structs
  */
@@ -460,7 +460,7 @@ InitQueryHashTable(void)
 #ifdef PGXC
 /*
  * Assign the statement name for all the RemoteQueries in the plan tree, so
- * they use datanode statements
+ * they use Datanode statements
  */
 int
 SetRemoteStatementName(Plan *plan, const char *stmt_name, int num_params,
@@ -986,7 +986,7 @@ FetchDatanodeStatement(const char *stmt_name, bool throwError)
 }
 
 /*
- * Drop datanode statement and close it on nodes if active
+ * Drop Datanode statement and close it on nodes if active
  */
 void
 DropDatanodeStatement(const char *stmt_name)
@@ -1012,8 +1012,8 @@ DropDatanodeStatement(const char *stmt_name)
 
 
 /*
- * Return true if there is at least one active datanode statement, so acquired
- * datanode connections should not be released
+ * Return true if there is at least one active Datanode statement, so acquired
+ * Datanode connections should not be released
  */
 bool
 HaveActiveDatanodeStatements(void)
@@ -1042,9 +1042,9 @@ HaveActiveDatanodeStatements(void)
 
 
 /*
- * Mark datanode statement as active on specified node
+ * Mark Datanode statement as active on specified node
  * Return true if statement has already been active on the node and can be used
- * Returns falsee if statement has not been active on the node and should be
+ * Returns false if statement has not been active on the node and should be
  * prepared on the node
  */
 bool

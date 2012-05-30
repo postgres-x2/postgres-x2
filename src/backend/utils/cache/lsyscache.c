@@ -2395,8 +2395,8 @@ get_pgxc_groupmembers(Oid groupid, Oid **members)
 
 /*
  * get_pgxc_classnodes
- *		Obtain PGXC class datanode list for given relation Oid
- *		Return number of datanodes and their list
+ *		Obtain PGXC class Datanode list for given relation Oid
+ *		Return number of Datanodes and their list
  *
  * Node list is returned as a palloc'd array
  */

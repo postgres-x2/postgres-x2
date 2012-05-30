@@ -166,12 +166,12 @@ foreign_qual_walker(Node *node, foreign_qual_context *context)
 				Aggref *aggref = (Aggref *)node;
 				/*
 				 * An aggregate with ORDER BY, DISTINCT directives need to be
-				 * computed at coordinator using all the rows. An aggregate
+				 * computed at Coordinator using all the rows. An aggregate
 				 * without collection function needs to be computed at
-				 * coordinator.
+				 * Coordinator.
 				 * PGXCTODO: polymorphic transition types need to be resolved to
-				 * correctly interpret the transition results from data nodes.
-				 * For now compute such aggregates at coordinator.
+				 * correctly interpret the transition results from Datanodes.
+				 * For now compute such aggregates at Coordinator.
 				 */
 				if (aggref->aggorder ||
 					aggref->aggdistinct ||
@@ -180,7 +180,7 @@ foreign_qual_walker(Node *node, foreign_qual_context *context)
 					IsPolymorphicType(aggref->aggtrantype))
 					return true;
 				/*
-				 * data node can compute transition results, so, add the
+				 * Datanode can compute transition results, so, add the
 				 * aggregate to the context if context is present
 				 */
 				if (context)
