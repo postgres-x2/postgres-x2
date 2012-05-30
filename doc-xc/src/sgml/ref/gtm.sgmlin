@@ -42,8 +42,8 @@ PostgreSQL documentation
   <para>
    You must provide gtm configuration
    file <filename>gtm.conf</filename> placed at gtm working directory
-   as specified by <literal>-D</literal> command line option.  The
-   configuration file specifies gtm running envinment and resources.
+   as specified by <literal>-D</literal> command line option. The
+   configuration file specifies gtm running environment and resources.
   </para>
 
   <para>
