@@ -149,9 +149,6 @@ Complete list of usable sgml source files in this directory.
 <!ENTITY lock               SYSTEM "lock.sgml">
 <!ENTITY move               SYSTEM "move.sgml">
 <!ENTITY notify             SYSTEM "notify.sgml">
-<!## XC>
-<!ENTITY pgxcClean          SYSTEM "pgxc_clean-ref.sgml">
-<!## end>
 <!ENTITY prepare            SYSTEM "prepare.sgml">
 <!ENTITY prepareTransaction SYSTEM "prepare_transaction.sgml">
 <!ENTITY reassignOwned      SYSTEM "reassign_owned.sgml">
@@ -184,7 +181,6 @@ Complete list of usable sgml source files in this directory.
 <!entity gtm                system "gtm.sgml">
 <!entity gtmPxy             system "gtm_proxy.sgml">
 <!entity gtmCtl             system "gtm_ctl.sgml">
-<!entity pgxcDdl            system "pgxc_ddl.sgml">
 <!## end>
 <!ENTITY clusterdb          SYSTEM "clusterdb.sgml">
 <!ENTITY createdb           SYSTEM "createdb.sgml">

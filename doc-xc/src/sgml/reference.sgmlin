@@ -256,9 +256,6 @@
    &pgDump;
    &pgDumpall;
    &pgRestore;
-<!## XC>
-   &pgxcClean;
-<!## end>
    &psqlRef;
    &reindexdb;
    &vacuumdb;
@@ -292,7 +289,6 @@
    &gtm;
    &gtmPxy;
    &gtmCtl;
-   &pgxcDdl;
 <!## end>
    &initdb;
 <!## XC>

@@ -2217,7 +2217,7 @@ bin/  include/  lib/  share/
     <para>
      For server to run Coordinator or Datanode, or both, you should
      copy the following files to your
-     path: <filename>bin/initdb</>, <filename>bin/pgxc_ddl</>, <filename>pgxc_clean</>.
+     path: <filename>bin/initdb</>.
      You should also copy everything in <filename>path</> directory to
      your library search path.
     </para>

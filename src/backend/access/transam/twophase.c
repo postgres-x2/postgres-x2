@@ -1257,15 +1257,6 @@ StandbyTransactionIdIsPrepared(TransactionId xid)
 
 /*
  * FinishPreparedTransaction: execute COMMIT PREPARED or ROLLBACK PREPARED
- *
- *(The following comment is only for Postgres-XC)
- *
- * With regard to xc_maintenance_mode related to pgxc_clean, COMMIT/ROLLBACK PREPARED
- * might be called in the node where the transaction with given gid does not exist.
- * This may happen at the originating Coordinator. In this case, we should
- * skip to handle two-phase file.
- *
- * Please note that we don't have to write commit/abort log to WAL in this case.
  */
 void
 FinishPreparedTransaction(const char *gid, bool isCommit)

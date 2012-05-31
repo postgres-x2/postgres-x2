@@ -125,6 +125,10 @@ CREATE EXTENSION <replaceable>module_name</> FROM unpackaged;
  &pgtestfsync;
  &pgtrgm;
  &pgupgrade;
+<!## XC>
+ &pgxcclean;
+ &pgxcddl;
+<!## end>
  &seg;
  &sepgsql;
  &contrib-spi;

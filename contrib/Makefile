@@ -42,6 +42,7 @@ SUBDIRS = \
 		pgcrypto	\
 		pgrowlocks	\
 		pgstattuple	\
+		pgxc_clean	\
 		seg		\
 		spi		\
 		tablefunc	\
