@@ -4518,8 +4518,7 @@ FinishRemotePreparedTransaction(char *prepareGID, bool commit)
 
 	/*
 	 * Please note that with xc_maintenance_mode = on, COMMIT/ROLLBACK PREPARED will not
-	 * propagate to remote nodes.  Only GTM status is cleaned up.  Prepared transaction
-	 * on remote nodes will be cleaned up by pgxc_clean using EXECUTE DIRECT.
+	 * propagate to remote nodes. Only GTM status is cleaned up.
 	 */
 	if (xc_maintenance_mode)
 	{
@@ -4536,6 +4535,7 @@ FinishRemotePreparedTransaction(char *prepareGID, bool commit)
 		}
 		return false;
 	}
+
 	/*
 	 * Get the list of nodes involved in this transaction.
 	 *

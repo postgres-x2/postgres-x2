@@ -1,52 +1,37 @@
-<!--
-doc/src/sgml/ref/psql-ref.sgml
-PostgreSQL documentation
--->
+<!-- doc/src/sgml/pgxcclean.sgml -->
 
-<refentry id="APP-PGXC-CLEAN">
-  <refmeta>
-    <refentrytitle><application>pgxc_clean</application></refentrytitle>
-    <manvolnum>1</manvolnum>
-    <refmiscinfo>Application</refmiscinfo>
-  </refmeta>
+<sect1 id="pgxcclean" xreflabel="pgxcclean">
 
-  <refnamediv>
-    <refname><application>pgxc_clean</application></refname>
-    <refpurpose>
-      <productname>Postgres-XC</productname> interactive terminal
-    </refpurpose>
-  </refnamediv>
+<title>pgxc_clean</title>
 
- <indexterm zone="app-pgxc-clean">
+ <indexterm zone="pgxcclean">
   <primary>pgxc_clean</primary>
  </indexterm>
 
- <refsynopsisdiv>
-  <cmdsynopsis>
-   <command>pgxc_clean</command>
-   <arg rep="repeat"><replaceable class="parameter">option</replaceable></arg>
-   <arg><replaceable class="parameter">dbname</replaceable>
-   <arg><replaceable class="parameter">username</replaceable></arg></arg>
-  </cmdsynopsis>
- </refsynopsisdiv>
-
- <refsect1>
-  <title>Description</title>
+ <sect2>
+  <title>Overview</title>
 
 &xconly;
+    <para>
+      pgxc_clean has the following synopsis.
+<programlisting>
+pgxc_clean <optional> <replaceable>option</> </optional> <optional><replaceable>dbname</><optional><replaceable>username</></optional></optional>
+</programlisting>
+    </para>
 
     <para>
      <application>pgxc_clean</application> is Postgres-XC utility to maintain transaction status after a crash.
      When some Postgres-XC node crashes and recovers or fails over, commit status of such node may be inconsistent
      with other nodes.   <application>pgxc_clean</application> checks transaction commit status and corrects them.
     </para>
+
     <para>
-     You should run this utility against one of the available Coordinators.   THe tool cleans up transaction status
+     You should run this utility against one of the available Coordinators. The tool cleans up transaction status
      of all the nodes automatically.
     </para>
- </refsect1>
+ </sect2>
 
- <refsect1 id="R1-APP-PGXC-CLEAN-3">
+ <sect2>
   <title>Options</title>
 
   <variablelist>
@@ -221,6 +206,6 @@ PostgreSQL documentation
     </varlistentry>
 
   </variablelist>
- </refsect1>
+ </sect2>
 
-</refentry>
+</sect1>
