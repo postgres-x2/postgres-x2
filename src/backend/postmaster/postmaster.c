@@ -345,6 +345,8 @@ int			PGXCNodeId = -1;
  * This will have minimal impact on performance
  */
 uint32			PGXCNodeIdentifier = 0;
+
+static bool isNodeRegistered = false;
 #endif
 
 /*
@@ -1137,24 +1139,6 @@ PostmasterMain(int argc, char *argv[])
 	 * stderr.
 	 */
 	whereToSendOutput = DestNone;
-
-#ifdef PGXC
-	/* Register node on GTM during Postmaster Startup. */
-	if (IS_PGXC_COORDINATOR)
-	{
-		if (RegisterGTM(GTM_NODE_COORDINATOR, PostPortNumber, userDoption) < 0)
-			ereport(FATAL,
-				(errcode(ERRCODE_IO_ERROR),
-				 errmsg("Can not register Coordinator on GTM")));
-	}
-	if (IS_PGXC_DATANODE)
-	{
-		if (RegisterGTM(GTM_NODE_DATANODE, PostPortNumber, userDoption) < 0)
-			ereport(FATAL,
-				(errcode(ERRCODE_IO_ERROR),
-				 errmsg("Can not register Datanode on GTM")));
-	}
-#endif
 
 	/*
 	 * Initialize stats collection subsystem (this does NOT start the
@@ -2326,10 +2310,13 @@ pmdie(SIGNAL_ARGS)
 					signal_child(PgPoolerPID, SIGTERM);
 
 				/* Unregister Node on GTM */
-				if (IS_PGXC_COORDINATOR)
-					UnregisterGTM(GTM_NODE_COORDINATOR);
-				else if (IS_PGXC_DATANODE)
-					UnregisterGTM(GTM_NODE_DATANODE);
+				if (isNodeRegistered)
+				{
+					if (IS_PGXC_COORDINATOR)
+						UnregisterGTM(GTM_NODE_COORDINATOR);
+					else if (IS_PGXC_DATANODE)
+						UnregisterGTM(GTM_NODE_DATANODE);
+				}
 #endif
 
 				/*
@@ -2399,10 +2386,13 @@ pmdie(SIGNAL_ARGS)
 					signal_child(PgPoolerPID, SIGTERM);
 
 				/* Unregister Node on GTM */
-				if (IS_PGXC_COORDINATOR)
-					UnregisterGTM(GTM_NODE_COORDINATOR);
-				else if (IS_PGXC_DATANODE)
-					UnregisterGTM(GTM_NODE_DATANODE);
+				if (isNodeRegistered)
+				{
+					if (IS_PGXC_COORDINATOR)
+						UnregisterGTM(GTM_NODE_COORDINATOR);
+					else if (IS_PGXC_DATANODE)
+						UnregisterGTM(GTM_NODE_DATANODE);
+				}
 #endif
 				pmState = PM_WAIT_BACKENDS;
 			}
@@ -4432,6 +4422,41 @@ sigusr1_handler(SIGNAL_ARGS)
 
 		pmState = PM_HOT_STANDBY;
 	}
+
+#ifdef PGXC
+	/*
+	 * Register node to GTM.
+	 * A node can only be registered if it has reached a stable recovery state
+	 * and if is a master node.
+	 * A standby node is created from a hot backup of master so master and slave
+	 * nodes will normally share the same node name. Having master and slave share
+	 * the same node name is convenient for slave promotion, and this makes master
+	 * and slave nodes being seen as equal by GTM in cluster. As two nodes cannot
+	 * register on GTM with the same name, it looks normal to let only master
+	 * register and have slave nodes bypass this process.
+	 */
+	if (pmState == PM_RUN &&
+		!isNodeRegistered)
+	{
+		isNodeRegistered = true;
+
+		/* Register node on GTM during Postmaster Startup. */
+		if (IS_PGXC_COORDINATOR)
+		{
+			if (RegisterGTM(GTM_NODE_COORDINATOR, PostPortNumber, data_directory) < 0)
+				ereport(FATAL,
+						(errcode(ERRCODE_IO_ERROR),
+						 errmsg("Can not register Coordinator on GTM")));
+		}
+		if (IS_PGXC_DATANODE)
+		{
+			if (RegisterGTM(GTM_NODE_DATANODE, PostPortNumber, data_directory) < 0)
+				ereport(FATAL,
+						(errcode(ERRCODE_IO_ERROR),
+						 errmsg("Can not register Datanode on GTM")));
+		}
+	}
+#endif
 
 	if (CheckPostmasterSignal(PMSIGNAL_WAKEN_ARCHIVER) &&
 		PgArchPID != 0)
