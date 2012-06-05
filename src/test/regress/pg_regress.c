@@ -386,7 +386,7 @@ stop_gtm(void)
 	fflush(stderr);
 
 	snprintf(buf, sizeof(buf),
-			 SYSTEMQUOTE "\"%s/gtm_ctl\" stop -S gtm -D \"%s/%s\" -m fast" SYSTEMQUOTE,
+			 SYSTEMQUOTE "\"%s/gtm_ctl\" stop -Z gtm -D \"%s/%s\" -m fast" SYSTEMQUOTE,
 			 bindir, temp_install, data_folder);
 	r = system(buf);
 	if (r != 0)

@@ -12,7 +12,7 @@ export PATH=/tmp/pgxc/bin:$PATH
 echo "stopping standby..."
 export DATA=/tmp/pgxc/data/gtm_standby
 
-gtm_ctl -D ${DATA} -S gtm stop
+gtm_ctl -D ${DATA} -Z gtm stop
 
 # -------------------------------
 # starting active...
@@ -20,7 +20,7 @@ gtm_ctl -D ${DATA} -S gtm stop
 echo "stopping active..."
 export DATA=/tmp/pgxc/data/gtm
 
-gtm_ctl -D ${DATA} -S gtm stop
+gtm_ctl -D ${DATA} -Z gtm stop
 
 killall -9 gtm gtm_standby
 
