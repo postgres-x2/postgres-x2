@@ -868,13 +868,13 @@ do_help(void)
 	printf(_("%s is a utility to start, stop or restart,\n"
 			 "a GTM server, a GTM standby or GTM proxy.\n\n"), progname);
 	printf(_("Usage:\n"));
-	printf(_("  %s start   -S STARTUP_MODE [-w] [-t SECS] [-D DATADIR] [-l FILENAME] [-o \"OPTIONS\"]\n"), progname);
-	printf(_("  %s stop    -S STARTUP_MODE [-W] [-t SECS] [-D DATADIR] [-m SHUTDOWN-MODE]\n"), progname);
-	printf(_("  %s promote -S STARTUP_MODE [-w] [-t SECS] [-D DATADIR]\n"), progname);
-	printf(_("  %s restart -S STARTUP_MODE [-w] [-t SECS] [-D DATADIR] [-m SHUTDOWN-MODE]\n"
+	printf(_("  %s start   -Z STARTUP_MODE [-w] [-t SECS] [-D DATADIR] [-l FILENAME] [-o \"OPTIONS\"]\n"), progname);
+	printf(_("  %s stop    -Z STARTUP_MODE [-W] [-t SECS] [-D DATADIR] [-m SHUTDOWN-MODE]\n"), progname);
+	printf(_("  %s promote -Z STARTUP_MODE [-w] [-t SECS] [-D DATADIR]\n"), progname);
+	printf(_("  %s restart -Z STARTUP_MODE [-w] [-t SECS] [-D DATADIR] [-m SHUTDOWN-MODE]\n"
 		 "                 [-o \"OPTIONS\"]\n"), progname);
-	printf(_("  %s status  -S STARTUP_MODE [-w] [-t SECS] [-D DATADIR]\n"), progname);
-	printf(_("  %s reconnect -S STARTUP_MODE [-D DATADIR] -o \"OPTIONS\"]\n"), progname);
+	printf(_("  %s status  -Z STARTUP_MODE [-w] [-t SECS] [-D DATADIR]\n"), progname);
+	printf(_("  %s reconnect -Z STARTUP_MODE [-D DATADIR] -o \"OPTIONS\"]\n"), progname);
 
 	printf(_("\nCommon options:\n"));
 	printf(_("  -D DATADIR             location of the database storage area\n"));
@@ -887,11 +887,11 @@ do_help(void)
 	printf(_("(The default is to wait for shutdown, but not for start or restart.)\n\n"));
 
 	printf(_("\nOptions for start or restart:\n"));
-	printf(_("  -S STARTUP-MODE        can be \"gtm\", \"gtm_standby\" or \"gtm_proxy\"\n"));
 	printf(_("  -l FILENAME            write (or append) server log to FILENAME\n"));
 	printf(_("  -o OPTIONS             command line options to pass to gtm\n"
 			 "                         (GTM server executable)\n"));
 	printf(_("  -p PATH-TO-GTM/PROXY   path to gtm/gtm_proxy executables\n"));
+	printf(_("  -Z STARTUP-MODE        can be \"gtm\", \"gtm_standby\" or \"gtm_proxy\"\n"));
 	printf(_("\nOptions for stop or restart:\n"));
 	printf(_("  -m SHUTDOWN-MODE   can be \"smart\", \"fast\", or \"immediate\"\n"));
 
@@ -983,7 +983,7 @@ main(int argc, char **argv)
 	/* process command-line options */
 	while (optind < argc)
 	{
-		while ((c = getopt(argc, argv, "D:i:l:m:o:p:S:t:wW")) != -1)
+		while ((c = getopt(argc, argv, "D:i:l:m:o:p:t:wWZ:")) != -1)
 		{
 			switch (c)
 			{
@@ -1025,17 +1025,6 @@ main(int argc, char **argv)
 					gtm_path = xstrdup(optarg);
 					canonicalize_path(gtm_path);
 					break;
-				case 'S':
-					gtm_app = xstrdup(optarg);
-					if (strcmp(gtm_app,"gtm_proxy") != 0
-						&& strcmp(gtm_app,"gtm_standby") != 0
-						&& strcmp(gtm_app,"gtm") != 0)
-					{
-						write_stderr(_("%s: %s launch name set not correct\n"), progname, gtm_app);
-						do_advice();
-						exit(1);
-					}
-					break;
 				case 't':
 					wait_seconds = atoi(optarg);
 					break;
@@ -1046,6 +1035,17 @@ main(int argc, char **argv)
 				case 'W':
 					do_wait = false;
 					wait_set = true;
+					break;
+				case 'Z':
+					gtm_app = xstrdup(optarg);
+					if (strcmp(gtm_app,"gtm_proxy") != 0
+						&& strcmp(gtm_app,"gtm_standby") != 0
+						&& strcmp(gtm_app,"gtm") != 0)
+					{
+						write_stderr(_("%s: %s launch name set not correct\n"), progname, gtm_app);
+						do_advice();
+						exit(1);
+					}
 					break;
 				default:
 					/* getopt_long already issued a suitable error message */
@@ -1112,7 +1112,7 @@ main(int argc, char **argv)
 
 	/*
 	 * pid files of gtm and gtm proxy are named differently
-	 * -S option has also to be set for STOP_COMMAND
+	 * -Z option has also to be set for STOP_COMMAND
 	 * or gtm_ctl will not be able to find the correct pid_file
 	 */
 	if (!gtm_app)

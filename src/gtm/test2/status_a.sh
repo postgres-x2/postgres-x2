@@ -8,5 +8,5 @@ export DATA=/tmp/pgxc/data/gtm
 # -------------------------------
 # starting active...
 # -------------------------------
-gtm_ctl -D ${DATA} -S gtm status
+gtm_ctl -D ${DATA} -Z gtm status
 

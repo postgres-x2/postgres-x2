@@ -12,7 +12,7 @@ export PATH=/tmp/pgxc/bin:$PATH
 echo "promoting standby..."
 export DATA=/tmp/pgxc/data/gtm_standby
 
-gtm_ctl -D ${DATA} -S gtm_standby promote
+gtm_ctl -D ${DATA} -Z gtm_standby promote
 
 # -------------------------------
 # process check

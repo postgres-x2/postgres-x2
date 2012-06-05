@@ -205,35 +205,35 @@ PostgreSQL documentation
   <para>
    Typically, you can issue the following command to start <command>gtm</command>/
 <programlisting>
-gtm_ctl start -S gtm -D datafolder
+gtm_ctl start -Z gtm -D datafolder
 </programlisting>
   </para>
 
   <para>
    Or <command>gtm_proxy</command>:
 <programlisting>
-gtm_ctl start -S gtm_proxy -D datafolder_proxy
+gtm_ctl start -Z gtm_proxy -D datafolder_proxy
 </programlisting>
   </para>
 
   <para>
    Promote a GTM as active:
 <programlisting>
-gtm_ctl promote -S gtm -D datafolder
+gtm_ctl promote -Z gtm -D datafolder
 </programlisting>
   </para>
 
   <para>
    Reconnect a GTM proxy to another GTM instance:
 <programlisting>
-gtm_ctl reconnect -S gtm_proxy -D datafolder_proxy -o '-s hostname -t port_number'
+gtm_ctl reconnect -Z gtm_proxy -D datafolder_proxy -o '-s hostname -t port_number'
 </programlisting>
   </para>
 
   <para>
    Look at the status of a GTM server:
 <programlisting>
-gtm_ctl status -S gtm -D datafolder
+gtm_ctl status -Z gtm -D datafolder
 </programlisting>
   </para>
  </refsect1>

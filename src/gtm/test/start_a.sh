@@ -12,10 +12,10 @@ export DATA=/tmp/pgxc/data/gtm
 # -------------------------------
 echo "starting active..."
 
-gtm_ctl -D ${DATA} -S gtm stop
+gtm_ctl -D ${DATA} -Z gtm stop
 rm -rf ${DATA}/gtm.opts ${DATA}/gtm.pid ${DATA}/register.node
 
-gtm_ctl -D ${DATA} -S gtm -o "-n 101" start
+gtm_ctl -D ${DATA} -Z gtm -o "-n 101" start
 
 # -------------------------------
 # process check
