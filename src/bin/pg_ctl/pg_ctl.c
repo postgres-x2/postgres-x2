@@ -1785,11 +1785,11 @@ do_help(void)
 	printf(_("  -D, --pgdata DATADIR   location of the database storage area\n"));
 	printf(_("  -s, --silent           only print errors, no informational messages\n"));
 	printf(_("  -t SECS                seconds to wait when using -w option\n"));
+	printf(_("  -w                     wait until operation completes\n"));
+	printf(_("  -W                     do not wait until operation completes\n"));
 #ifdef PGXC
 	printf(_("  -Z NODE-TYPE           can be \"coordinator\" or \"datanode\" (Postgres-XC)\n"));
 #endif
-	printf(_("  -w                     wait until operation completes\n"));
-	printf(_("  -W                     do not wait until operation completes\n"));
 	printf(_("  --help                 show this help, then exit\n"));
 	printf(_("  --version              output version information, then exit\n"));
 	printf(_("(The default is to wait for shutdown, but not for start or restart.)\n\n"));
@@ -1828,7 +1828,11 @@ do_help(void)
 	printf(_("  demand     start service on demand\n"));
 #endif
 
+#ifdef PGXC
+	printf(_("\nReport bugs to <postgres-xc-bugs@lists.sourceforge.net>.\n"));
+#else
 	printf(_("\nReport bugs to <pgsql-bugs@postgresql.org>.\n"));
+#endif
 }
 
 
