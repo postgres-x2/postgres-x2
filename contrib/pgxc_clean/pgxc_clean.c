@@ -266,11 +266,14 @@ int main(int argc, char *argv[])
 
 		fprintf(outf, "%s: Databases visible from the node \"%s\": ", progname, my_nodename);
 
-		for (cur_database = head_database_info; cur_database; cur_database = cur_database->next)
+		if (head_database_info)
 		{
-			fprintf(outf, " \"%s\"", cur_database->database_name);
+			for (cur_database = head_database_info; cur_database; cur_database = cur_database->next)
+			{
+				fprintf(outf, " \"%s\"", cur_database->database_name);
+			}
+			fputc('\n', outf);
 		}
-		fputc('\n', outf);
 	}
 
 	/*
@@ -404,8 +407,13 @@ getMyNodename(PGconn *conn)
 	PGresult *res;
 
 	res = PQexec(conn, stmt);
+
 	/* Error handling here */
-	my_nodename = strdup(PQgetvalue(res, 0, 0));
+	if (res)
+		my_nodename = strdup(PQgetvalue(res, 0, 0));
+	else
+		my_nodename = strdup("unknown");
+
 	PQclear(res);
 }
 
@@ -575,44 +583,35 @@ loginDatabase(char *host, int port, char *user, char *password, char *dbname, co
 	bool new_pass = false;
 	PGconn *coord_conn;
 	char port_s[32];
+#define PARAMS_ARRAY_SIZE 8
+	const char *keywords[PARAMS_ARRAY_SIZE];
+	const char *values[PARAMS_ARRAY_SIZE];
 
 	sprintf(port_s, "%d", port);
+
+	keywords[0] = "host";
+	values[0] = host;
+	keywords[1] = "port";
+	values[1] = port_s;
+	keywords[2] = "user";
+	values[2] = user;
+	keywords[3] = "password";
+	keywords[4] = "dbname";
+	values[4] = dbname;
+	keywords[5] = "fallback_application_name";
+	values[5] = progname;
+	keywords[6] = "client_encoding";
+	values[6] = encoding;
+	keywords[7] = NULL;
+	values[7] = NULL;
 
 	/* Loop until we have a password if requested by backend */
 	do
 	{
-#define PARAMS_ARRAY_SIZE 8
-		const char **keywords = malloc(PARAMS_ARRAY_SIZE * sizeof(*keywords));
-		const char **values = malloc(PARAMS_ARRAY_SIZE * sizeof(*values));
-
-		if (keywords == NULL || values == NULL)
-		{
-			fprintf(stderr, "No more memory.\n");
-			exit(1);
-		}
-	
-
-		keywords[0] = "host";
-		values[0] = host;
-		keywords[1] = "port";
-		values[1] = port_s;
-		keywords[2] = "user";
-		values[2] = user;
-		keywords[3] = "password";
 		values[3] = password;
-		keywords[4] = "dbname";
-		values[4] = dbname;
-		keywords[5] = "fallback_application_name";
-		values[5] = progname;
-		keywords[6] = "client_encoding";
-		values[6] = encoding;
-		keywords[7] = NULL;
-		values[7] = NULL;
 
 		new_pass = false;
 		coord_conn = PQconnectdbParams(keywords, values, true);
-		free(keywords);
-		free(values);
 
 		if (PQstatus(coord_conn) == CONNECTION_BAD &&
 			PQconnectionNeedsPassword(coord_conn) &&
@@ -736,9 +735,12 @@ getPreparedTxnListOfNode(PGconn *conn, int idx)
 
 		add_txn_info(database_name, pgxc_clean_node_info[idx].node_name, gxid, xid, owner, 
 					 TXN_STATUS_PREPARED);
-		free(xid);
-		free(owner);
-		free(database_name);
+		if(xid)
+			 free(xid);
+		if (owner)
+			free(owner);
+		if (database_name)
+			free(database_name);
 	}
 	PQclear(res);
 }
@@ -797,7 +799,7 @@ getNodeList(PGconn *conn)
 		exit (1);
 	}
 	pgxc_clean_node_count = PQntuples(res);
-	pgxc_clean_node_info = (node_info *)malloc(sizeof(node_info) * pgxc_clean_node_count);
+	pgxc_clean_node_info = (node_info *)calloc(pgxc_clean_node_count, sizeof(node_info));
 	if (pgxc_clean_node_info == NULL)
 	{
 		fprintf(stderr, "No more memory.\n");
@@ -832,9 +834,13 @@ getNodeList(PGconn *conn)
 		port = atoi(PQgetvalue(res, ii, 2));
 		host = strdup(PQgetvalue(res, ii, 3));
 		set_node_info(node_name, port, host, node_type, ii);
-		free(node_name);
-		free(node_type_c);
-		free(host);
+
+		if (node_name)
+			free(node_name);
+		if (node_type_c)
+			free(node_type_c);
+		if (host)
+			free(host);
 	}
 	/* Check if local Coordinator has been found */
 	if (my_nodeidx == -1)
@@ -980,6 +986,12 @@ parse_pgxc_clean_options(int argc, char *argv[])
 			fprintf(stderr, "%s: warning: extra command-line argument \"%s\" ignored\n",
 					progname, argv[optind]);
 		optind++;
+	}
+
+	if (!clean_all_databases && head_database_names == NULL)
+	{
+		fprintf(stderr, "Please specify at least one database or -a for all\n");
+		exit(1);
 	}
 }
 
