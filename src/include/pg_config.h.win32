@@ -563,7 +563,7 @@
 #define PACKAGE_NAME "Postgres-XC"
 
 /* Define to the full name and version of this package. */
-#define PACKAGE_STRING "Postgres-XC 1.0beta2"
+#define PACKAGE_STRING "Postgres-XC 1.0.0"
 
 /* Define to the version of this package. */
 #define PACKAGE_VERSION "9.1.4"
@@ -578,7 +578,7 @@
 #define PACKAGE_TARNAME "postgres-xc"
 
 /* Postgres-XC version as a string */
-#define PGXC_VERSION "1.0beta2"
+#define PGXC_VERSION "1.0.0"
 
 /* Postgres-XC version as a number */
 #define PGXC_VERSION_NUM 10000
