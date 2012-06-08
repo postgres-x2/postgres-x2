@@ -418,14 +418,14 @@ postgres$ <userinput>initdb -D /usr/local/pgsql/data --nodename foo</userinput>
     Then you can start GTM as follows:
 <!-- Check precise parameters -->
 <screen>
-<prompt>$ <userinput>gtm -D /usr/local/pgsql/data_gtm</userinput>
+<prompt>$</> <userinput>gtm -D /usr/local/pgsql/data_gtm</userinput>
 </screen>
     where <option>-D</> option specifies working directory of GTM.
    </para>
    <para>
     Alternatively, GTM can be started using <command>gtm_ctl</>, for example:
 <screen>
-<prompt>$ <userinput>gtm_ctl -Z gtm start -D /usr/local/pgsql/data_gtm</userinput>
+<prompt>$</> <userinput>gtm_ctl -Z gtm start -D /usr/local/pgsql/data_gtm</userinput>
 </screen>
    </para>
 
@@ -464,7 +464,7 @@ postgres$ <userinput>initdb -D /usr/local/pgsql/data --nodename foo</userinput>
    <para>
     Then, you can start <filename>GTM-Proxy</> like:
 <screen>
-<prompt>$ <userinput>gtm_proxy -D /usr/local/pgsql/data_gtm_proxy</userinput>
+<prompt>$</> <userinput>gtm_proxy -D /usr/local/pgsql/data_gtm_proxy</userinput>
 </screen>
     where <option>-D</> specifies <filename>GTM-Proxy</>'s working
     directory.
@@ -474,7 +474,7 @@ postgres$ <userinput>initdb -D /usr/local/pgsql/data --nodename foo</userinput>
    Alternatively, you can start GTM-Proxy using <filename>gtm_ctl</>
    as follows:
 <screen>
-<prompt>$ <userinput>gtm_ctl start -Z gtm_proxy -D /usr/local/pgsql/data_gtm_proxy</userinput>
+<prompt>$</> <userinput>gtm_ctl start -Z gtm_proxy -D /usr/local/pgsql/data_gtm_proxy</userinput>
 </screen>
   </para>
 
@@ -729,7 +729,7 @@ postgres$ <userinput>initdb -D /usr/local/pgsql/data --nodename foo</userinput>
    <para>
     You can start a Datanode as follows:
 <screen>
-<prompt>$ <userinput>postgres -X -D /usr/local/pgsql/data</userinput>
+<prompt>$</> <userinput>postgres -X -D /usr/local/pgsql/data</userinput>
 </screen>
     <option>-X</> specifies <command>postgres</> should run as a
     Datanode. You may need to specify <option>-i</> <command>postgres</> to
@@ -745,7 +745,7 @@ postgres$ <userinput>initdb -D /usr/local/pgsql/data --nodename foo</userinput>
    <para>
     You can start a Coordinator as follows:
 <screen>
-<prompt>$ <userinput>postgres -C -D /usr/local/pgsql/Datanode</userinput>
+<prompt>$</> <userinput>postgres -C -D /usr/local/pgsql/Datanode</userinput>
 </screen>
     <option>-C</> specifies <command>postgres</> should run as a
     Coordinator. You may need to specify <option>-i</> <command>postgres</> to
