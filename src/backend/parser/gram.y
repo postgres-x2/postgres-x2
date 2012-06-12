@@ -8219,7 +8219,7 @@ explain_option_arg:
 /*****************************************************************************
  *
  *		QUERY:
- *				EXECUTE DIRECT ON (nodename, ...) query
+ *				EXECUTE DIRECT ON nodename [, ... ] query
  *
  *****************************************************************************/
 
@@ -8245,7 +8245,7 @@ DirectStmt:
  *
  *		QUERY:
  *
- *		CLEAN CONNECTION TO (COORDINATOR nodename | NODE nodename | ALL {FORCE})
+ *		CLEAN CONNECTION TO { COORDINATOR nodename | NODE nodename | ALL {FORCE} }
  *				[ FOR DATABASE dbname ]
  *				[ TO USER username ]
  *

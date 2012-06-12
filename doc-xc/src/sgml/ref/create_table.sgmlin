@@ -94,7 +94,7 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE [ IF NOT EXI
 [ ON COMMIT { PRESERVE ROWS | DELETE ROWS | DROP } ]
 [ TABLESPACE <replaceable class="PARAMETER">tablespace</replaceable> ]
 [ DISTRIBUTE BY { REPLICATION | ROUND ROBIN | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</replaceable> ) } } ]
-[ TO ( GROUP <replaceable class="PARAMETER">groupname</replaceable> | NODE <replaceable class="PARAMETER">nodename</replaceable> [, ... ] ) ]
+[ TO { GROUP <replaceable class="PARAMETER">groupname</replaceable> | NODE <replaceable class="PARAMETER">nodename</replaceable> [, ... ] } ]
 
 CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
     OF <replaceable class="PARAMETER">type_name</replaceable> [ (
@@ -106,7 +106,7 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
 [ ON COMMIT { PRESERVE ROWS | DELETE ROWS | DROP } ]
 [ TABLESPACE <replaceable class="PARAMETER">tablespace</replaceable> ]
 [ DISTRIBUTE BY { REPLICATION | ROUND ROBIN | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</replaceable> ) } } ]
-[ TO ( GROUP <replaceable class="PARAMETER">groupname</replaceable> | NODE <replaceable class="PARAMETER">nodename</replaceable> [, ... ] ) ]
+[ TO { GROUP <replaceable class="PARAMETER">groupname</replaceable> | NODE <replaceable class="PARAMETER">nodename</replaceable> [, ... ] } ]
 
 <phrase>where <replaceable class="PARAMETER">column_constraint</replaceable> is:</phrase>
 
