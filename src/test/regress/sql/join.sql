@@ -693,11 +693,11 @@ explain (verbose true, costs false, nodes false)
 -- this case is not
 select p.*, linked from parent p
   left join (select c.*, true as linked from child c) as ss
-  on (p.k = ss.k);
+  on (p.k = ss.k) order by p.k;
 explain (verbose true, costs false, nodes false)
   select p.*, linked from parent p
     left join (select c.*, true as linked from child c) as ss
-    on (p.k = ss.k);
+    on (p.k = ss.k) order by p.k;
 
 -- check for a 9.0rc1 bug: join removal breaks pseudoconstant qual handling
 select p.* from
