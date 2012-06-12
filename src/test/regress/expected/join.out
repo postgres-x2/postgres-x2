@@ -2806,7 +2806,7 @@ explain (verbose true, costs false, nodes false)
 -- this case is not
 select p.*, linked from parent p
   left join (select c.*, true as linked from child c) as ss
-  on (p.k = ss.k);
+  on (p.k = ss.k) order by p.k;
  k | pd | linked 
 ---+----+--------
  1 | 10 | t
@@ -2817,7 +2817,7 @@ select p.*, linked from parent p
 explain (verbose true, costs false, nodes false)
   select p.*, linked from parent p
     left join (select c.*, true as linked from child c) as ss
-    on (p.k = ss.k);
+    on (p.k = ss.k) order by p.k;
                             QUERY PLAN                             
 -------------------------------------------------------------------
  Nested Loop Left Join
