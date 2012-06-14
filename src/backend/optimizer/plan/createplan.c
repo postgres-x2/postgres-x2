@@ -2584,15 +2584,10 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	List	   *remote_scan_clauses = NIL;
 	List	   *local_scan_clauses  = NIL;
 	StringInfoData	sql;
-	RelationLocInfo *rel_loc_info;
 	Query			*query;
 	RangeTblRef		*rtr;
 	List			*varlist;
 	ListCell		*varcell;
-	Expr			*distcol_expr = NULL;
-	Datum			distcol_value;
-	bool			distcol_isnull;
-	Oid				distcol_type;
 	Node			*tmp_node;
 	List			*rmlist;
 	List			*tvarlist;
@@ -2760,10 +2755,6 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	if (rmlist != NULL)
 		list_free_deep(rmlist);
 
-	rel_loc_info = GetRelationLocInfo(rte->relid);
-	if (!rel_loc_info)
-		elog(ERROR, "No distribution information found for relid %d", rte->relid);
-
 	if (tlist_is_simple)
 	{
 		scan_plan = make_remotequery(tlist, local_scan_clauses, scan_relid);
@@ -2787,63 +2778,11 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	scan_plan->has_row_marks = query->hasForUpdate;
 
 	scan_plan->sql_statement = sql.data;
-	/*
-	 * If the table distributed by value, check if we can reduce the Datanodes
-	 * by looking at the qualifiers for this relation
-	 */
-	if (IsLocatorDistributedByValue(rel_loc_info->locatorType))
-	{
-		Oid		disttype = get_atttype(rte->relid, rel_loc_info->partAttrNum);
-		int32	disttypmod = get_atttypmod(rte->relid, rel_loc_info->partAttrNum);
-		distcol_expr = pgxc_find_distcol_expr(rtr->rtindex, rel_loc_info->partAttrNum,
-													query->jointree->quals);
-		/*
-		 * If the type of expression used to find the Datanode, is not same as
-		 * the distribution column type, try casting it. This is same as what
-		 * will happen in case of inserting that type of expression value as the
-		 * distribution column value.
-		 */
-		if (distcol_expr)
-		{
-			distcol_expr = (Expr *)coerce_to_target_type(NULL,
-													(Node *)distcol_expr,
-													exprType((Node *)distcol_expr),
-													disttype, disttypmod,
-													COERCION_ASSIGNMENT,
-													COERCE_IMPLICIT_CAST, -1);
-			/*
-			 * PGXC_FQS_TODO: We should set the bound parameters here, but we don't have
-			 * PlannerInfo struct and we don't handle them right now.
-			 * Even if constant expression mutator changes the expression, it will
-			 * only simplify it, keeping the semantics same
-			 */
-			distcol_expr = (Expr *)eval_const_expressions(NULL,
-															(Node *)distcol_expr);
-		}
-	}
-
-	if (distcol_expr && IsA(distcol_expr, Const))
-	{
-		Const *const_expr = (Const *)distcol_expr;
-		distcol_value = const_expr->constvalue;
-		distcol_isnull = const_expr->constisnull;
-		distcol_type = const_expr->consttype;
-	}
-	else
-	{
-		distcol_value = (Datum) 0;
-		distcol_isnull = true;
-		distcol_type = InvalidOid;
-	}
-
-	scan_plan->exec_nodes = GetRelationNodes(rel_loc_info, distcol_value,
-												distcol_isnull, distcol_type,
-												RELATION_ACCESS_READ);
-	Assert(scan_plan->exec_nodes);
-	if (rel_loc_info)
-		scan_plan->exec_nodes->baselocatortype = rel_loc_info->locatorType;
-	else
-		scan_plan->exec_nodes->baselocatortype = '\0';
+	scan_plan->exec_nodes = GetRelationNodesByQuals(rte->relid, rtr->rtindex,
+													query->jointree->quals,
+													RELATION_ACCESS_READ);
+	if (!scan_plan->exec_nodes)
+		elog(ERROR, "No distribution information found for relid %d", rte->relid);
 
 	copy_path_costsize(&scan_plan->scan.plan, best_path);
 

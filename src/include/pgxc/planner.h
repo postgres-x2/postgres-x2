@@ -174,7 +174,5 @@ extern List *AddRemoteQueryNode(List *stmts, const char *queryString,
 								RemoteQueryExecType remoteExecType, bool is_temp);
 extern bool pgxc_query_contains_temp_tables(List *queries);
 extern bool pgxc_query_contains_utility(List *queries);
-extern Expr *pgxc_find_distcol_expr(Index varno, PartAttrNumber partAttrNum,
-												Node *quals);
 
 #endif   /* PGXCPLANNER_H */

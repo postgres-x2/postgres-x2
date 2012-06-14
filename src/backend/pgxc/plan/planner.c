@@ -33,7 +33,6 @@
 #include "optimizer/planner.h"
 #include "optimizer/tlist.h"
 #include "parser/parse_agg.h"
-#include "parser/parse_coerce.h"
 #include "parser/parse_func.h"
 #include "parser/parse_relation.h"
 #include "parser/parsetree.h"
@@ -1288,102 +1287,6 @@ pgxc_qual_hash_dist_equijoin(Relids varnos_1, Relids varnos_2, Oid distcol_type,
 	return false;
 }
 
-/*
- * pgxc_find_distcol_expr
- * Search through the quals provided and find out an expression which will give
- * us value of distribution column if exists in the quals. Say for a table
- * tab1 (val int, val2 int) distributed by hash(val), a query "SELECT * FROM
- * tab1 WHERE val = fn(x, y, z) and val2 = 3", fn(x,y,z) is the expression which
- * decides the distribution column value in the rows qualified by this query.
- * Hence return fn(x, y, z). But for a query "SELECT * FROM tab1 WHERE val =
- * fn(x, y, z) || val2 = 3", there is no expression which decides the values
- * distribution column val can take in the qualified rows. So, in such cases
- * this function returns NULL.
- */
-Expr *
-pgxc_find_distcol_expr(Index varno, PartAttrNumber partAttrNum,
-												Node *quals)
-{
-	/* Convert the qualification into list of arguments of AND */
-	List *lquals = make_ands_implicit((Expr *)quals);
-	ListCell *qual_cell;
-	/*
-	 * For every ANDed expression, check if that expression is of the form
-	 * <distribution_col> = <expr>. If so return expr.
-	 */
-	foreach(qual_cell, lquals)
-	{
-		Expr *qual_expr = (Expr *)lfirst(qual_cell);
-		OpExpr *op;
-		Expr *lexpr;
-		Expr *rexpr;
-		Var *var_expr;
-		Expr *distcol_expr;
-
-		if (!IsA(qual_expr, OpExpr))
-			continue;
-		op = (OpExpr *)qual_expr;
-		/* If not a binary operator, it can not be '='. */
-		if (list_length(op->args) != 2)
-			continue;
-
-		lexpr = linitial(op->args);
-		rexpr = lsecond(op->args);
-
-		/*
-		 * If either of the operands is a RelabelType, extract the Var in the RelabelType.
-		 * A RelabelType represents a "dummy" type coercion between two binary compatible datatypes.
-		 * If we do not handle these then our optimization does not work in case of varchar
-		 * For example if col is of type varchar and is the dist key then
-		 * select * from vc_tab where col = 'abcdefghijklmnopqrstuvwxyz';
-		 * should be shipped to one of the nodes only
-		 */
-		if (IsA(lexpr, RelabelType))
-			lexpr = ((RelabelType*)lexpr)->arg;
-		if (IsA(rexpr, RelabelType))
-			rexpr = ((RelabelType*)rexpr)->arg;
-
-		/*
-		 * If either of the operands is a Var expression, assume the other
-		 * one is distribution column expression. If none is Var check next
-		 * qual.
-		 */
-		if (IsA(lexpr, Var))
-		{
-			var_expr = (Var *)lexpr;
-			distcol_expr = rexpr;
-		}
-		else if (IsA(rexpr, Var))
-		{
-			var_expr = (Var *)rexpr;
-			distcol_expr = lexpr;
-		}
-		else
-			continue;
-		/*
-		 * If Var found is not the distribution column of required relation,
-		 * check next qual
-		 */
-		if (var_expr->varno != varno || var_expr->varattno != partAttrNum)
-			continue;
-		/*
-		 * If the operator is not an assignment operator, check next
-		 * constraint. An operator is an assignment operator if it's
-		 * mergejoinable or hashjoinable. Beware that not every assignment
-		 * operator is mergejoinable or hashjoinable, so we might leave some
-		 * oportunity. But then we have to rely on the opname which may not
-		 * be something we know to be equality operator as well.
-		 */
-		if (!op_mergejoinable(op->opno, exprType((Node *)lexpr)) &&
-			!op_hashjoinable(op->opno, exprType((Node *)lexpr)))
-			continue;
-		/* Found the distribution column expression return it */
-		return distcol_expr;
-	}
-	/* Exhausted all quals, but no distribution column expression */
-	return NULL;
-}
-
 static bool VarAttrIsPartAttr(Var *var, List *rtable)
 {
 	RangeTblEntry   *rte = rt_fetch(var->varno, rtable);
@@ -1414,10 +1317,6 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 	ExecNodes	*rel_exec_nodes;
 	RelationAccessType rel_access;
 	RelationLocInfo *rel_loc_info;
-	Expr			*distcol_expr = NULL;
-	Datum 			distcol_value;
-	bool			distcol_isnull;
-	Oid				distcol_type;
 
 	Assert(rte == rt_fetch(varno, (query->rtable)));
 
@@ -1445,67 +1344,25 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 			break;
 	}
 
+
 	rel_loc_info = GetRelationLocInfo(rte->relid);
 	/* If we don't know about the distribution of relation, bail out */
 	if (!rel_loc_info)
 		return NULL;
 
 	/*
-	 * If the table distributed by value, check if we can reduce the Datanodes
-	 * by looking at the qualifiers for this relation.
+	 * Find out the datanodes to execute this query on.
 	 * PGXC_FQS_TODO: for now, we apply node reduction only when there is only
 	 * one relation involved in the query. If there are multiple distributed
 	 * tables in the query and we apply node reduction here, we may fail to ship
-	 * the entire join. We should some apply node reduction transitively.
+	 * the entire join. We should apply node reduction transitively.
 	 */
-	if (IsLocatorDistributedByValue(rel_loc_info->locatorType) &&
-		list_length(query->rtable) == 1)
-	{
-		Oid		disttype = get_atttype(rte->relid, rel_loc_info->partAttrNum);
-		int32	disttypmod = get_atttypmod(rte->relid, rel_loc_info->partAttrNum);
-		distcol_expr = pgxc_find_distcol_expr(varno, rel_loc_info->partAttrNum,
-												query->jointree->quals);
-		/*
-		 * If the type of expression used to find the Datanode, is not same as
-		 * the distribution column type, try casting it. This is same as what
-		 * will happen in case of inserting that type of expression value as the
-		 * distribution column value.
-		 */
-		if (distcol_expr)
-		{
-			distcol_expr = (Expr *)coerce_to_target_type(NULL,
-													(Node *)distcol_expr,
-													exprType((Node *)distcol_expr),
-													disttype, disttypmod,
-													COERCION_ASSIGNMENT,
-													COERCE_IMPLICIT_CAST, -1);
-			/*
-			 * PGXC_FQS_TODO: We should set the bound parameters here, but we don't have
-			 * PlannerInfo struct and we don't handle them right now.
-			 * Even if constant expression mutator changes the expression, it will
-			 * only simplify it, keeping the semantics same
-			 */
-			distcol_expr = (Expr *)eval_const_expressions(NULL,
-															(Node *)distcol_expr);
-		}
-	}
-
-	if (distcol_expr && IsA(distcol_expr, Const))
-	{
-		Const *const_expr = (Const *)distcol_expr;
-		distcol_value = const_expr->constvalue;
-		distcol_isnull = const_expr->constisnull;
-		distcol_type = const_expr->consttype;
-	}
+	if (list_length(query->rtable) == 1)
+		rel_exec_nodes = GetRelationNodesByQuals(rte->relid, varno,
+												query->jointree->quals, rel_access);
 	else
-	{
-		distcol_value = (Datum) 0;
-		distcol_isnull = true;
-		distcol_type = InvalidOid;
-	}
-
-	rel_exec_nodes = GetRelationNodes(rel_loc_info, distcol_value,
-										distcol_isnull, distcol_type, rel_access);
+		rel_exec_nodes = GetRelationNodes(rel_loc_info, (Datum) 0,
+										true, InvalidOid, rel_access);
 
 	if (!rel_exec_nodes)
 		return NULL;

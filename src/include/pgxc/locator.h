@@ -105,6 +105,8 @@ extern bool IsTableDistOnPrimary(RelationLocInfo *rel_loc_info);
 extern ExecNodes *GetRelationNodes(RelationLocInfo *rel_loc_info, Datum valueForDistCol,
 									bool isValueNull, Oid typeOfValueForDistCol,
 									RelationAccessType accessType);
+extern ExecNodes *GetRelationNodesByQuals(Oid reloid, Index varno, Node *quals,
+											RelationAccessType relaccess);
 extern bool IsHashColumn(RelationLocInfo *rel_loc_info, char *part_col_name);
 extern bool IsHashColumnForRelId(Oid relid, char *part_col_name);
 extern int	GetRoundRobinNode(Oid relid);
