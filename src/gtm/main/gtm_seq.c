@@ -508,11 +508,11 @@ seq_key_dbname_equal(GTM_SequenceKey nsp, GTM_SequenceKey seq)
 	 * Check also if first part of sequence key name has a dot at the right place.
 	 * This accelerates process instead of making numerous memcmp.
 	 */
-	if (seq->gsk_key[nsp->gsk_keylen] != '.')
+	if (seq->gsk_key[nsp->gsk_keylen - 1] != '.')
 		return false;
 
 	/* Then Check the strings */
-	return (memcmp(nsp->gsk_key, seq->gsk_key, nsp->gsk_keylen) == 0);
+	return (memcmp(nsp->gsk_key, seq->gsk_key, nsp->gsk_keylen - 1) == 0);
 }
 
 /*
