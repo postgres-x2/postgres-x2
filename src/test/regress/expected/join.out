@@ -2818,20 +2818,23 @@ explain (verbose true, costs false, nodes false)
   select p.*, linked from parent p
     left join (select c.*, true as linked from child c) as ss
     on (p.k = ss.k) order by p.k;
-                            QUERY PLAN                             
--------------------------------------------------------------------
- Nested Loop Left Join
+                               QUERY PLAN
+-------------------------------------------------------------------------
+ Sort
    Output: p.k, p.pd, (true)
-   Join Filter: (p.k = c.k)
-   ->  Data Node Scan on p
-         Output: p.k, p.pd
-         Remote query: SELECT k, pd FROM ONLY parent p WHERE true
-   ->  Result
-         Output: c.k, true
-         ->  Data Node Scan on c
-               Output: c.k
-               Remote query: SELECT k FROM ONLY child c WHERE true
-(11 rows)
+   Sort Key: p.k
+   ->  Nested Loop Left Join
+         Output: p.k, p.pd, (true)
+         Join Filter: (p.k = c.k)
+         ->  Data Node Scan on p
+               Output: p.k, p.pd
+               Remote query: SELECT k, pd FROM ONLY parent p WHERE true
+         ->  Result
+               Output: c.k, true
+               ->  Data Node Scan on c
+                     Output: c.k
+                     Remote query: SELECT k FROM ONLY child c WHERE true
+(14 rows)
 
 -- check for a 9.0rc1 bug: join removal breaks pseudoconstant qual handling
 select p.* from
