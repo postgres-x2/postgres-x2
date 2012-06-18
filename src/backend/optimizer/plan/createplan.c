@@ -5752,7 +5752,7 @@ create_remoteinsert_plan(PlannerInfo *root, Plan *topplan)
 		fstep->exec_nodes = makeNode(ExecNodes);
 		fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
 		fstep->exec_nodes->primarynodelist = NULL;
-		fstep->exec_nodes->nodeList = NULL;
+		fstep->exec_nodes->nodeList = rel_loc_info->nodeList;
 		fstep->exec_nodes->en_relid = ttab->relid;
 		fstep->exec_nodes->accesstype = RELATION_ACCESS_INSERT;
 		fstep->exec_nodes->en_expr = pgxc_set_en_expr(ttab->relid, resultRelationIndex);
@@ -6000,6 +6000,7 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		fstep->exec_nodes = GetRelationNodes(rel_loc_info, 0, true, UNKNOWNOID, RELATION_ACCESS_UPDATE);
 		fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
 		fstep->exec_nodes->en_relid = ttab->relid;
+		fstep->exec_nodes->nodeList = rel_loc_info->nodeList;
 		fstep->exec_nodes->accesstype = RELATION_ACCESS_UPDATE;
 		fstep->exec_nodes->en_expr = pgxc_set_en_expr(ttab->relid, resultRelationIndex);
 		SetRemoteStatementName((Plan *) fstep, NULL, tot_prepparams, param_types, 0);
@@ -6147,6 +6148,7 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 												RELATION_ACCESS_UPDATE);
 		fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
 		fstep->exec_nodes->en_relid = ttab->relid;
+		fstep->exec_nodes->nodeList = rel_loc_info->nodeList;
 		fstep->exec_nodes->accesstype = RELATION_ACCESS_UPDATE;
 		SetRemoteStatementName((Plan *) fstep, NULL, tot_prepparams, param_types, 0);
 		pfree(buf->data);
