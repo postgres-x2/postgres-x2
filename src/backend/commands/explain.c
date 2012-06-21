@@ -1692,6 +1692,12 @@ ExplainTargetRel(Plan *plan, Index rti, ExplainState *es)
 			objectname = rte->ctename;
 			objecttag = "CTE Name";
 			break;
+		case T_RemoteQuery:
+			/* get the object name from RTE itself */
+			Assert(rte->rtekind == RTE_REMOTE_DUMMY);
+			objectname = rte->relname;
+			objecttag = "RemoteQuery name";
+			break;
 		default:
 			break;
 	}

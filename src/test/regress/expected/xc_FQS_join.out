@@ -200,7 +200,7 @@ explain (costs off, num_nodes on, nodes off, verbose on) select avg(tab1_rep.val
                                                                                       QUERY PLAN                                                                                      
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Data Node Scan (primary node count=0, node count=1) on "__REMOTE_FQS_QUERY__"
-   Output: avg(tab1_rep.val)
+   Output: (avg(tab1_rep.val))
    Remote query: SELECT pg_catalog.int8_avg(avg(tab1_rep.val)) AS avg FROM ((tab1_rep NATURAL JOIN tab2_rep) NATURAL JOIN tab3_rep) WHERE ((tab1_rep.val > 0) AND (tab2_rep.val < 3))
 (3 rows)
 
@@ -224,15 +224,15 @@ select * from tab3_rep natural join tab4_rep
 
 explain (costs off, num_nodes on, nodes off, verbose on) select * from tab3_rep natural join tab4_rep
 			where tab3_rep.val > 2 and tab4_rep.val < 5;
-                                     QUERY PLAN                                     
-------------------------------------------------------------------------------------
+                                          QUERY PLAN                                          
+----------------------------------------------------------------------------------------------
  Nested Loop
    Output: tab3_rep.val, tab3_rep.val2
    Join Filter: ((tab3_rep.val = tab4_rep.val) AND (tab3_rep.val2 = tab4_rep.val2))
-   ->  Data Node Scan (primary node count=0, node count=1) on tab3_rep
+   ->  Data Node Scan (primary node count=0, node count=1) on tab3_rep "_REMOTE_TABLE_QUERY_"
          Output: tab3_rep.val, tab3_rep.val2
          Remote query: SELECT val, val2 FROM ONLY tab3_rep WHERE (val > 2)
-   ->  Data Node Scan (primary node count=0, node count=1) on tab4_rep
+   ->  Data Node Scan (primary node count=0, node count=1) on tab4_rep "_REMOTE_TABLE_QUERY_"
          Output: tab4_rep.val, tab4_rep.val2
          Remote query: SELECT val, val2 FROM ONLY tab4_rep WHERE (val < 5)
 (9 rows)
@@ -281,10 +281,10 @@ explain (costs off, verbose on, nodes off) select * from tab1_mod natural join t
  Nested Loop
    Output: tab1_mod.val, tab1_mod.val2
    Join Filter: ((tab1_mod.val = tab4_rep.val) AND (tab1_mod.val2 = tab4_rep.val2))
-   ->  Data Node Scan on tab1_mod
+   ->  Data Node Scan on tab1_mod "_REMOTE_TABLE_QUERY_"
          Output: tab1_mod.val, tab1_mod.val2
          Remote query: SELECT val, val2 FROM ONLY tab1_mod WHERE (val > 2)
-   ->  Data Node Scan on tab4_rep
+   ->  Data Node Scan on tab4_rep "_REMOTE_TABLE_QUERY_"
          Output: tab4_rep.val, tab4_rep.val2
          Remote query: SELECT val, val2 FROM ONLY tab4_rep WHERE (val < 4)
 (9 rows)
@@ -308,10 +308,10 @@ explain (costs off, verbose on, nodes off) select * from tab1_mod natural join t
  Nested Loop
    Output: tab1_mod.val, tab1_mod.val2
    Join Filter: ((tab1_mod.val = tab2_mod.val) AND (tab1_mod.val2 = tab2_mod.val2))
-   ->  Data Node Scan on tab1_mod
+   ->  Data Node Scan on tab1_mod "_REMOTE_TABLE_QUERY_"
          Output: tab1_mod.val, tab1_mod.val2
          Remote query: SELECT val, val2 FROM ONLY tab1_mod WHERE (val > 2)
-   ->  Data Node Scan on tab2_mod
+   ->  Data Node Scan on tab2_mod "_REMOTE_TABLE_QUERY_"
          Output: tab2_mod.val, tab2_mod.val2
          Remote query: SELECT val, val2 FROM ONLY tab2_mod WHERE (val < 4)
 (9 rows)
@@ -392,19 +392,15 @@ select * from tab1_mod natural join tab4_rep where tab1_mod.val = 1 order by tab
 (5 rows)
 
 explain (costs off, verbose on, nodes off, num_nodes on) select * from tab1_mod natural join tab4_rep where tab1_mod.val = 1 order by tab1_mod.val2;
-                                                                                                                         QUERY PLAN                                                                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: "__REMOTE_JOIN_QUERY__".val_1_1_1, "__REMOTE_JOIN_QUERY__".val2_1_2_1, "__REMOTE_JOIN_QUERY__".val2_1_2_1
    Sort Key: "__REMOTE_JOIN_QUERY__".val2_1_2_1
-   ->  Result
+   ->  Data Node Scan (primary node count=0, node count=1) on "__REMOTE_JOIN_QUERY__"
          Output: "__REMOTE_JOIN_QUERY__".val_1_1_1, "__REMOTE_JOIN_QUERY__".val2_1_2_1, "__REMOTE_JOIN_QUERY__".val2_1_2_1
-         ->  Materialize
-               Output: "__REMOTE_JOIN_QUERY__".val_1_1_1, "__REMOTE_JOIN_QUERY__".val2_1_2_1
-               ->  Data Node Scan (primary node count=0, node count=1) on "__REMOTE_JOIN_QUERY__"
-                     Output: "__REMOTE_JOIN_QUERY__".val_1_1_1, "__REMOTE_JOIN_QUERY__".val2_1_2_1
-                     Remote query: SELECT in_1.val AS val_1_1_1, in_1.val2 AS val2_1_2_1 FROM  (SELECT val, val2 FROM ONLY tab1_mod WHERE (val = 1)) in_1  ,  (SELECT val, val2 FROM ONLY tab4_rep WHERE (val = 1)) out_1  WHERE   (in_1.val2 = out_1.val2)
-(10 rows)
+         Remote query: SELECT in_1.val AS val_1_1_1, in_1.val2 AS val2_1_2_1 FROM  (SELECT val, val2 FROM ONLY tab1_mod WHERE (val = 1)) in_1  ,  (SELECT val, val2 FROM ONLY tab4_rep WHERE (val = 1)) out_1  WHERE   (in_1.val2 = out_1.val2)
+(6 rows)
 
 -- following join between distributed tables should get FQSed because both of
 -- them reduce to a single node
@@ -421,16 +417,12 @@ select * from tab1_mod join tab2_mod using (val2)
 
 explain (costs off, verbose on, nodes off, num_nodes on) select * from tab1_mod join tab2_mod using (val2)
 		where tab1_mod.val = 1 and tab2_mod.val = 2 order by tab1_mod.val;
-                                                                                                                                  QUERY PLAN                                                                                                                                  
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Result
+                                                                                                                            QUERY PLAN                                                                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Data Node Scan (primary node count=0, node count=1) on "__REMOTE_JOIN_QUERY__"
    Output: "__REMOTE_JOIN_QUERY__".val2_1_2_1, "__REMOTE_JOIN_QUERY__".val_1_1_1, "__REMOTE_JOIN_QUERY__".val_2_1_1, "__REMOTE_JOIN_QUERY__".val_1_1_1
-   ->  Materialize
-         Output: "__REMOTE_JOIN_QUERY__".val2_1_2_1, "__REMOTE_JOIN_QUERY__".val_1_1_1, "__REMOTE_JOIN_QUERY__".val_2_1_1
-         ->  Data Node Scan (primary node count=0, node count=1) on "__REMOTE_JOIN_QUERY__"
-               Output: "__REMOTE_JOIN_QUERY__".val2_1_2_1, "__REMOTE_JOIN_QUERY__".val_1_1_1, "__REMOTE_JOIN_QUERY__".val_2_1_1
-               Remote query: SELECT in_1.val2 AS val2_1_2_1, in_1.val AS val_1_1_1, out_1.val AS val_2_1_1 FROM  (SELECT val2, val FROM ONLY tab1_mod WHERE (val = 1)) in_1  ,  (SELECT val, val2 FROM ONLY tab2_mod WHERE (val = 2)) out_1  WHERE   (in_1.val2 = out_1.val2)
-(7 rows)
+   Remote query: SELECT in_1.val2 AS val2_1_2_1, in_1.val AS val_1_1_1, out_1.val AS val_2_1_1 FROM  (SELECT val2, val FROM ONLY tab1_mod WHERE (val = 1)) in_1  ,  (SELECT val, val2 FROM ONLY tab2_mod WHERE (val = 2)) out_1  WHERE   (in_1.val2 = out_1.val2)
+(3 rows)
 
 -- JOIN involving the distributed table with equi-JOIN on the distributed column
 -- with same kind of distribution on same nodes.
@@ -488,10 +480,10 @@ explain (costs off, verbose on, nodes off) update tab1_mod set val2 = 1000 from 
    ->  Nested Loop
          Output: tab1_mod.val, 1000, tab1_mod.val, tab1_mod.val2, tab1_mod.ctid, tab1_mod.xc_node_id, tab2_mod.ctid
          Join Filter: ((tab1_mod.val = tab2_mod.val) AND (tab1_mod.val2 = tab2_mod.val2))
-         ->  Data Node Scan on tab1_mod
+         ->  Data Node Scan on tab1_mod "_REMOTE_TABLE_QUERY_"
                Output: tab1_mod.val, tab1_mod.val2, tab1_mod.ctid, tab1_mod.xc_node_id
                Remote query: SELECT val, val2, ctid, xc_node_id FROM ONLY tab1_mod WHERE true
-         ->  Data Node Scan on tab2_mod
+         ->  Data Node Scan on tab2_mod "_REMOTE_TABLE_QUERY_"
                Output: tab2_mod.ctid, tab2_mod.val, tab2_mod.val2
                Remote query: SELECT ctid, val, val2 FROM ONLY tab2_mod WHERE true
 (12 rows)
@@ -505,10 +497,10 @@ explain (costs off, verbose on, nodes off) delete from tab1_mod using tab2_mod
    ->  Nested Loop
          Output: tab1_mod.val, tab1_mod.val2, tab1_mod.ctid, tab1_mod.xc_node_id, tab2_mod.ctid
          Join Filter: ((tab1_mod.val = tab2_mod.val) AND (tab1_mod.val2 = tab2_mod.val2))
-         ->  Data Node Scan on tab1_mod
+         ->  Data Node Scan on tab1_mod "_REMOTE_TABLE_QUERY_"
                Output: tab1_mod.val, tab1_mod.val2, tab1_mod.ctid, tab1_mod.xc_node_id
                Remote query: SELECT val, val2, ctid, xc_node_id FROM ONLY tab1_mod WHERE true
-         ->  Data Node Scan on tab2_mod
+         ->  Data Node Scan on tab2_mod "_REMOTE_TABLE_QUERY_"
                Output: tab2_mod.ctid, tab2_mod.val, tab2_mod.val2
                Remote query: SELECT ctid, val, val2 FROM ONLY tab2_mod WHERE true
 (11 rows)
@@ -522,10 +514,10 @@ explain (costs off, verbose on, nodes off) update tab1_rep set val2 = 1000 from 
    ->  Nested Loop
          Output: tab1_rep.val, 1000, tab1_rep.val, tab1_rep.val2, tab1_rep.ctid, tab2_rep.ctid
          Join Filter: ((tab1_rep.val = tab2_rep.val) AND (tab1_rep.val2 = tab2_rep.val2))
-         ->  Data Node Scan on tab1_rep
+         ->  Data Node Scan on tab1_rep "_REMOTE_TABLE_QUERY_"
                Output: tab1_rep.val, tab1_rep.val2, tab1_rep.ctid
                Remote query: SELECT val, val2, ctid FROM ONLY tab1_rep WHERE true
-         ->  Data Node Scan on tab2_rep
+         ->  Data Node Scan on tab2_rep "_REMOTE_TABLE_QUERY_"
                Output: tab2_rep.ctid, tab2_rep.val, tab2_rep.val2
                Remote query: SELECT ctid, val, val2 FROM ONLY tab2_rep WHERE true
 (11 rows)
@@ -539,10 +531,10 @@ explain (costs off, verbose on, nodes off) delete from tab1_rep using tab2_rep
    ->  Nested Loop
          Output: tab1_rep.val, tab1_rep.val2, tab1_rep.ctid, tab2_rep.ctid
          Join Filter: ((tab1_rep.val = tab2_rep.val) AND (tab1_rep.val2 = tab2_rep.val2))
-         ->  Data Node Scan on tab1_rep
+         ->  Data Node Scan on tab1_rep "_REMOTE_TABLE_QUERY_"
                Output: tab1_rep.val, tab1_rep.val2, tab1_rep.ctid
                Remote query: SELECT val, val2, ctid FROM ONLY tab1_rep WHERE true
-         ->  Data Node Scan on tab2_rep
+         ->  Data Node Scan on tab2_rep "_REMOTE_TABLE_QUERY_"
                Output: tab2_rep.ctid, tab2_rep.val, tab2_rep.val2
                Remote query: SELECT ctid, val, val2 FROM ONLY tab2_rep WHERE true
 (11 rows)

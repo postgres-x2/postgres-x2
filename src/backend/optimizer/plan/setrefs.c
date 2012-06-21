@@ -428,23 +428,19 @@ set_plan_refs(PlannerGlobal *glob, Plan *plan, int rtoffset)
 			{
 				RemoteQuery	   *splan = (RemoteQuery *) plan;
 
-				splan->scan.scanrelid += rtoffset;
-
 				/*
 				 * If base_tlist is set, it means that we have a reduced remote
 				 * query plan. So need to set the var references accordingly.
 				 */
 				if (splan->base_tlist)
-				{
 					set_remote_references(glob, splan, rtoffset);
-				}
-				else
-				{
-					splan->scan.plan.targetlist =
-						fix_scan_list(glob, splan->scan.plan.targetlist, rtoffset);
-					splan->scan.plan.qual =
-						fix_scan_list(glob, splan->scan.plan.qual, rtoffset);
-				}
+				splan->scan.plan.targetlist =
+					fix_scan_list(glob, splan->scan.plan.targetlist, rtoffset);
+				splan->scan.plan.qual =
+					fix_scan_list(glob, splan->scan.plan.qual, rtoffset);
+				splan->base_tlist =
+					fix_scan_list(glob, splan->base_tlist, rtoffset);
+				splan->scan.scanrelid += rtoffset;
 			}
 			break;
 #endif
@@ -1977,8 +1973,6 @@ fix_remote_expr_mutator(Node *node, fix_remote_expr_context *context)
 			return (Node *) newvar;
 	}
 
-	fix_expr_common(context->glob, node);
-
 	return expression_tree_mutator(node, fix_remote_expr_mutator, context);
 }
 
@@ -1998,9 +1992,6 @@ set_remote_references(PlannerGlobal *glob, RemoteQuery *rscan, int rtoffset)
 
 	if (!rscan->base_tlist)
 		return;
-
-	/* We have incremented reduce_level wherever we created reduced plans. */
-	Assert(rscan->reduce_level > 0);
 
 	base_itlist = build_tlist_index(rscan->base_tlist);
 

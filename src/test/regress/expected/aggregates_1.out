@@ -454,12 +454,11 @@ analyze tenk1;		-- ensure we get consistent plans here
 -- Basic cases
 explain (costs off, nodes off)
   select min(unique1) from tenk1;
-                       QUERY PLAN                       
---------------------------------------------------------
+                    QUERY PLAN                    
+--------------------------------------------------
  Aggregate
-   ->  Materialize
-         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
-(3 rows)
+   ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+(2 rows)
 
 select min(unique1) from tenk1;
  min 
@@ -469,12 +468,11 @@ select min(unique1) from tenk1;
 
 explain (costs off, nodes off)
   select max(unique1) from tenk1;
-                       QUERY PLAN                       
---------------------------------------------------------
+                    QUERY PLAN                    
+--------------------------------------------------
  Aggregate
-   ->  Materialize
-         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
-(3 rows)
+   ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+(2 rows)
 
 select max(unique1) from tenk1;
  max  
@@ -484,12 +482,11 @@ select max(unique1) from tenk1;
 
 explain (costs off, nodes off)
   select max(unique1) from tenk1 where unique1 < 42;
-                       QUERY PLAN                       
---------------------------------------------------------
+                    QUERY PLAN                    
+--------------------------------------------------
  Aggregate
-   ->  Materialize
-         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
-(3 rows)
+   ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+(2 rows)
 
 select max(unique1) from tenk1 where unique1 < 42;
  max 
@@ -499,12 +496,11 @@ select max(unique1) from tenk1 where unique1 < 42;
 
 explain (costs off, nodes off)
   select max(unique1) from tenk1 where unique1 > 42;
-                       QUERY PLAN                       
---------------------------------------------------------
+                    QUERY PLAN                    
+--------------------------------------------------
  Aggregate
-   ->  Materialize
-         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
-(3 rows)
+   ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+(2 rows)
 
 select max(unique1) from tenk1 where unique1 > 42;
  max  
@@ -514,12 +510,11 @@ select max(unique1) from tenk1 where unique1 > 42;
 
 explain (costs off, nodes off)
   select max(unique1) from tenk1 where unique1 > 42000;
-                       QUERY PLAN                       
---------------------------------------------------------
+                    QUERY PLAN                    
+--------------------------------------------------
  Aggregate
-   ->  Materialize
-         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
-(3 rows)
+   ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+(2 rows)
 
 select max(unique1) from tenk1 where unique1 > 42000;
  max 
@@ -530,12 +525,11 @@ select max(unique1) from tenk1 where unique1 > 42000;
 -- multi-column index (uses tenk1_thous_tenthous)
 explain (costs off, nodes off)
   select max(tenthous) from tenk1 where thousand = 33;
-                       QUERY PLAN                       
---------------------------------------------------------
+                    QUERY PLAN                    
+--------------------------------------------------
  Aggregate
-   ->  Materialize
-         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
-(3 rows)
+   ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+(2 rows)
 
 select max(tenthous) from tenk1 where thousand = 33;
  max  
@@ -545,12 +539,11 @@ select max(tenthous) from tenk1 where thousand = 33;
 
 explain (costs off, nodes off)
   select min(tenthous) from tenk1 where thousand = 33;
-                       QUERY PLAN                       
---------------------------------------------------------
+                    QUERY PLAN                    
+--------------------------------------------------
  Aggregate
-   ->  Materialize
-         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
-(3 rows)
+   ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+(2 rows)
 
 select min(tenthous) from tenk1 where thousand = 33;
  min 
@@ -562,15 +555,14 @@ select min(tenthous) from tenk1 where thousand = 33;
 explain (costs off, nodes off)
   select f1, (select min(unique1) from tenk1 where unique1 > f1) AS gt
     from int4_tbl;
-                         QUERY PLAN                         
-------------------------------------------------------------
- Result
-   ->  Data Node Scan on int4_tbl
+                          QUERY PLAN                          
+--------------------------------------------------------------
+ Data Node Scan on int4_tbl "_REMOTE_TABLE_QUERY_"
    SubPlan 1
      ->  Aggregate
-           ->  Data Node Scan on tenk1
+           ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
                  Coordinator quals: (unique1 > int4_tbl.f1)
-(6 rows)
+(5 rows)
 
 select f1, (select min(unique1) from tenk1 where unique1 > f1) AS gt
 from int4_tbl 
@@ -587,11 +579,11 @@ order by f1;
 -- check some cases that were handled incorrectly in 8.3.0
 explain (costs off, nodes off)
   select distinct max(unique2) from tenk1;
-             QUERY PLAN              
--------------------------------------
+                         QUERY PLAN                         
+------------------------------------------------------------
  HashAggregate
    ->  Aggregate
-         ->  Data Node Scan on tenk1
+         ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
 (3 rows)
 
 select distinct max(unique2) from tenk1;
@@ -602,12 +594,12 @@ select distinct max(unique2) from tenk1;
 
 explain (costs off, nodes off)
   select max(unique2) from tenk1 order by 1;
-             QUERY PLAN              
--------------------------------------
+                         QUERY PLAN                         
+------------------------------------------------------------
  Sort
-   Sort Key: (max(unique2))
+   Sort Key: (max(tenk1.unique2))
    ->  Aggregate
-         ->  Data Node Scan on tenk1
+         ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
 (4 rows)
 
 select max(unique2) from tenk1 order by 1;
@@ -618,12 +610,12 @@ select max(unique2) from tenk1 order by 1;
 
 explain (costs off, nodes off)
   select max(unique2) from tenk1 order by max(unique2);
-             QUERY PLAN              
--------------------------------------
+                         QUERY PLAN                         
+------------------------------------------------------------
  Sort
-   Sort Key: (max(unique2))
+   Sort Key: (max(tenk1.unique2))
    ->  Aggregate
-         ->  Data Node Scan on tenk1
+         ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
 (4 rows)
 
 select max(unique2) from tenk1 order by max(unique2);
@@ -634,12 +626,12 @@ select max(unique2) from tenk1 order by max(unique2);
 
 explain (costs off, nodes off)
   select max(unique2) from tenk1 order by max(unique2)+1;
-             QUERY PLAN              
--------------------------------------
+                         QUERY PLAN                         
+------------------------------------------------------------
  Sort
-   Sort Key: ((max(unique2) + 1))
+   Sort Key: ((max(tenk1.unique2) + 1))
    ->  Aggregate
-         ->  Data Node Scan on tenk1
+         ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
 (4 rows)
 
 select max(unique2) from tenk1 order by max(unique2)+1;
@@ -650,12 +642,12 @@ select max(unique2) from tenk1 order by max(unique2)+1;
 
 explain (costs off, nodes off)
   select max(unique2), generate_series(1,3) as g from tenk1 order by g desc;
-             QUERY PLAN              
--------------------------------------
+                         QUERY PLAN                         
+------------------------------------------------------------
  Sort
    Sort Key: (generate_series(1, 3))
    ->  Aggregate
-         ->  Data Node Scan on tenk1
+         ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
 (4 rows)
 
 select max(unique2), generate_series(1,3) as g from tenk1 order by g desc;
@@ -681,14 +673,14 @@ insert into minmaxtest2 values(15), (16);
 insert into minmaxtest3 values(17), (18);
 explain (costs off, nodes off)
   select min(f1), max(f1) from minmaxtest;
-                QUERY PLAN                
-------------------------------------------
+                            QUERY PLAN                            
+------------------------------------------------------------------
  Aggregate
    ->  Append
-         ->  Data Node Scan on minmaxtest
-         ->  Data Node Scan on minmaxtest
-         ->  Data Node Scan on minmaxtest
-         ->  Data Node Scan on minmaxtest
+         ->  Data Node Scan on minmaxtest "_REMOTE_TABLE_QUERY_"
+         ->  Data Node Scan on minmaxtest1 "_REMOTE_TABLE_QUERY_"
+         ->  Data Node Scan on minmaxtest2 "_REMOTE_TABLE_QUERY_"
+         ->  Data Node Scan on minmaxtest3 "_REMOTE_TABLE_QUERY_"
 (6 rows)
 
 select min(f1), max(f1) from minmaxtest;

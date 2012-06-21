@@ -385,20 +385,18 @@ $$begin return 3;end $$ language plpgsql;
  Update on public.xcrem_employee e
    Node expr: e.empno
    Remote query: UPDATE ONLY public.xcrem_employee SET salary = $12 WHERE ctid = $17 AND xc_node_id = $18 
-   ->  Result
+   ->  Data Node Scan on xcrem_employee "_REMOTE_TABLE_QUERY_"
          Output: e.empno, e.firstname, e.midinit, e.lastname, e.workdept, e.phoneno, e.hiredate, e.job, e.edlevel, e.sex, e.birthdate, ((e.salary + e.salary) + (0.3 * e.bonus)), e.bonus, e.comm, e.salary, e.workdept, e.ctid, e.xc_node_id
-         ->  Data Node Scan on e
-               Output: e.empno, e.firstname, e.midinit, e.lastname, e.workdept, e.phoneno, e.hiredate, e.job, e.edlevel, e.sex, e.birthdate, e.salary, e.bonus, e.comm, e.ctid, e.xc_node_id
-               Remote query: SELECT empno, firstname, midinit, lastname, workdept, phoneno, hiredate, job, edlevel, sex, birthdate, salary, bonus, comm, ctid, xc_node_id FROM ONLY xcrem_employee e WHERE true
-               Coordinator quals: (e.salary > (SubPlan 1))
-               SubPlan 1
-                 ->  Aggregate
-                       Output: avg(xcrem_employee.salary)
-                       ->  Data Node Scan on xcrem_employee
-                             Output: xcrem_employee.salary, xcrem_employee.workdept
-                             Remote query: SELECT salary, workdept FROM ONLY xcrem_employee WHERE true
-                             Coordinator quals: ("substring"((e.workdept)::text, 1, 1) = "substring"((xcrem_employee.workdept)::text, 1, 1))
-(16 rows)
+         Remote query: SELECT empno, firstname, midinit, lastname, workdept, phoneno, hiredate, job, edlevel, sex, birthdate, salary, bonus, comm, ctid, xc_node_id FROM ONLY xcrem_employee e WHERE true
+         Coordinator quals: (e.salary > (SubPlan 1))
+         SubPlan 1
+           ->  Aggregate
+                 Output: avg(xcrem_employee.salary)
+                 ->  Data Node Scan on xcrem_employee "_REMOTE_TABLE_QUERY_"
+                       Output: xcrem_employee.salary, xcrem_employee.workdept
+                       Remote query: SELECT salary, workdept FROM ONLY xcrem_employee WHERE true
+                       Coordinator quals: ("substring"((e.workdept)::text, 1, 1) = "substring"((xcrem_employee.workdept)::text, 1, 1))
+(14 rows)
 
 :SEL;
  empno  | edlevel | lastname  |  salary   |  bonus  
@@ -429,20 +427,18 @@ $$begin return 3;end $$ language plpgsql;
  Update on public.xcrem_employee e
    Node expr: e.empno
    Remote query: UPDATE ONLY public.xcrem_employee SET bonus = $13 WHERE ctid = $17 AND xc_node_id = $18 
-   ->  Result
+   ->  Data Node Scan on xcrem_employee "_REMOTE_TABLE_QUERY_"
          Output: e.empno, e.firstname, e.midinit, e.lastname, e.workdept, e.phoneno, e.hiredate, e.job, e.edlevel, e.sex, e.birthdate, e.salary, (e.bonus + (e.salary * 0.3)), e.comm, e.edlevel, e.workdept, e.ctid, e.xc_node_id
-         ->  Data Node Scan on e
-               Output: e.empno, e.firstname, e.midinit, e.lastname, e.workdept, e.phoneno, e.hiredate, e.job, e.edlevel, e.sex, e.birthdate, e.salary, e.bonus, e.comm, e.ctid, e.xc_node_id
-               Remote query: SELECT empno, firstname, midinit, lastname, workdept, phoneno, hiredate, job, edlevel, sex, birthdate, salary, bonus, comm, ctid, xc_node_id FROM ONLY xcrem_employee e WHERE true
-               Coordinator quals: ((e.edlevel)::numeric > (SubPlan 1))
-               SubPlan 1
-                 ->  Aggregate
-                       Output: avg(xcrem_employee.edlevel)
-                       ->  Data Node Scan on xcrem_employee
-                             Output: xcrem_employee.edlevel, xcrem_employee.workdept
-                             Remote query: SELECT edlevel, workdept FROM ONLY xcrem_employee WHERE true
-                             Coordinator quals: (xcrem_employee.workdept = e.workdept)
-(16 rows)
+         Remote query: SELECT empno, firstname, midinit, lastname, workdept, phoneno, hiredate, job, edlevel, sex, birthdate, salary, bonus, comm, ctid, xc_node_id FROM ONLY xcrem_employee e WHERE true
+         Coordinator quals: ((e.edlevel)::numeric > (SubPlan 1))
+         SubPlan 1
+           ->  Aggregate
+                 Output: avg(xcrem_employee.edlevel)
+                 ->  Data Node Scan on xcrem_employee "_REMOTE_TABLE_QUERY_"
+                       Output: xcrem_employee.edlevel, xcrem_employee.workdept
+                       Remote query: SELECT edlevel, workdept FROM ONLY xcrem_employee WHERE true
+                       Coordinator quals: (xcrem_employee.workdept = e.workdept)
+(14 rows)
 
 :SEL;
  empno  | edlevel | lastname  |  salary   |  bonus   
@@ -468,18 +464,16 @@ $$begin return 3;end $$ language plpgsql;
 \set stmt 'update xcrem_employee E set lastname = lastname || ''suf'' WHERE EDLEVEL > volatile_func(2)'
 :stmt;
 :EXP :stmt;
-                                                                                                   QUERY PLAN                                                                                                   
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Update on public.xcrem_employee e
    Node expr: e.empno
    Remote query: UPDATE ONLY public.xcrem_employee SET lastname = $4 WHERE ctid = $16 AND xc_node_id = $17 
-   ->  Result
-         Output: empno, firstname, midinit, ((lastname)::text || 'suf'::text), workdept, phoneno, hiredate, job, edlevel, sex, birthdate, salary, bonus, comm, edlevel, ctid, xc_node_id
-         ->  Data Node Scan on e
-               Output: empno, firstname, midinit, lastname, workdept, phoneno, hiredate, job, edlevel, sex, birthdate, salary, bonus, comm, ctid, xc_node_id
-               Remote query: SELECT empno, firstname, midinit, lastname, workdept, phoneno, hiredate, job, edlevel, sex, birthdate, salary, bonus, comm, ctid, xc_node_id FROM ONLY xcrem_employee e WHERE true
-               Coordinator quals: (e.edlevel > volatile_func(2))
-(9 rows)
+   ->  Data Node Scan on xcrem_employee "_REMOTE_TABLE_QUERY_"
+         Output: e.empno, e.firstname, e.midinit, ((e.lastname)::text || 'suf'::text), e.workdept, e.phoneno, e.hiredate, e.job, e.edlevel, e.sex, e.birthdate, e.salary, e.bonus, e.comm, e.edlevel, e.ctid, e.xc_node_id
+         Remote query: SELECT empno, firstname, midinit, lastname, workdept, phoneno, hiredate, job, edlevel, sex, birthdate, salary, bonus, comm, ctid, xc_node_id FROM ONLY xcrem_employee e WHERE true
+         Coordinator quals: (e.edlevel > volatile_func(2))
+(7 rows)
 
 :SEL;
  empno  | edlevel |   lastname   |  salary   |  bonus   
@@ -505,18 +499,16 @@ $$begin return 3;end $$ language plpgsql;
 \set stmt 'update xcrem_employee E set lastname = lastname || ''suf'', edlevel = edlevel+1  WHERE EDLEVEL > volatile_func(2)'
 :stmt;
 :EXP :stmt;
-                                                                                                   QUERY PLAN                                                                                                   
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Update on public.xcrem_employee e
    Node expr: e.empno
    Remote query: UPDATE ONLY public.xcrem_employee SET lastname = $4, edlevel = $9 WHERE ctid = $16 AND xc_node_id = $17 
-   ->  Result
-         Output: empno, firstname, midinit, ((lastname)::text || 'suf'::text), workdept, phoneno, hiredate, job, (edlevel + 1), sex, birthdate, salary, bonus, comm, edlevel, ctid, xc_node_id
-         ->  Data Node Scan on e
-               Output: empno, firstname, midinit, lastname, workdept, phoneno, hiredate, job, edlevel, sex, birthdate, salary, bonus, comm, ctid, xc_node_id
-               Remote query: SELECT empno, firstname, midinit, lastname, workdept, phoneno, hiredate, job, edlevel, sex, birthdate, salary, bonus, comm, ctid, xc_node_id FROM ONLY xcrem_employee e WHERE true
-               Coordinator quals: (e.edlevel > volatile_func(2))
-(9 rows)
+   ->  Data Node Scan on xcrem_employee "_REMOTE_TABLE_QUERY_"
+         Output: e.empno, e.firstname, e.midinit, ((e.lastname)::text || 'suf'::text), e.workdept, e.phoneno, e.hiredate, e.job, (e.edlevel + 1), e.sex, e.birthdate, e.salary, e.bonus, e.comm, e.edlevel, e.ctid, e.xc_node_id
+         Remote query: SELECT empno, firstname, midinit, lastname, workdept, phoneno, hiredate, job, edlevel, sex, birthdate, salary, bonus, comm, ctid, xc_node_id FROM ONLY xcrem_employee e WHERE true
+         Coordinator quals: (e.edlevel > volatile_func(2))
+(7 rows)
 
 :SEL;
  empno  | edlevel |    lastname     |  salary   |  bonus   
@@ -546,17 +538,15 @@ insert into xcrem_employee select * from xcrem_temptable;
 \set stmt 'DELETE FROM xcrem_employee E WHERE EDLEVEL > volatile_func(2)'
 :stmt;
 :EXP :stmt;
-                                             QUERY PLAN                                             
-----------------------------------------------------------------------------------------------------
+                                          QUERY PLAN                                          
+----------------------------------------------------------------------------------------------
  Delete on public.xcrem_employee e
    Remote query: DELETE FROM ONLY public.xcrem_employee WHERE ctid = $2 AND xc_node_id = $3 
-   ->  Result
-         Output: edlevel, ctid, xc_node_id
-         ->  Data Node Scan on e
-               Output: edlevel, ctid, xc_node_id
-               Remote query: SELECT edlevel, ctid, xc_node_id FROM ONLY xcrem_employee e WHERE true
-               Coordinator quals: (e.edlevel > volatile_func(2))
-(8 rows)
+   ->  Data Node Scan on xcrem_employee "_REMOTE_TABLE_QUERY_"
+         Output: e.edlevel, e.ctid, e.xc_node_id
+         Remote query: SELECT edlevel, ctid, xc_node_id FROM ONLY xcrem_employee e WHERE true
+         Coordinator quals: (e.edlevel > volatile_func(2))
+(6 rows)
 
 :SEL;
  empno | edlevel | lastname | salary | bonus 
@@ -568,24 +558,22 @@ insert into xcrem_employee select * from xcrem_temptable;
 \set stmt 'DELETE FROM xcrem_employee E WHERE EDLEVEL > ( SELECT AVG(EDLEVEL) FROM xcrem_employee WHERE WORKDEPT = E.WORKDEPT )'
 :stmt;
 :EXP :stmt;
-                                                  QUERY PLAN                                                  
---------------------------------------------------------------------------------------------------------------
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
  Delete on public.xcrem_employee e
    Remote query: DELETE FROM ONLY public.xcrem_employee WHERE ctid = $3 AND xc_node_id = $4 
-   ->  Result
+   ->  Data Node Scan on xcrem_employee "_REMOTE_TABLE_QUERY_"
          Output: e.edlevel, e.workdept, e.ctid, e.xc_node_id
-         ->  Data Node Scan on e
-               Output: e.edlevel, e.workdept, e.ctid, e.xc_node_id
-               Remote query: SELECT edlevel, workdept, ctid, xc_node_id FROM ONLY xcrem_employee e WHERE true
-               Coordinator quals: ((e.edlevel)::numeric > (SubPlan 1))
-               SubPlan 1
-                 ->  Aggregate
-                       Output: avg(xcrem_employee.edlevel)
-                       ->  Data Node Scan on xcrem_employee
-                             Output: xcrem_employee.edlevel, xcrem_employee.workdept
-                             Remote query: SELECT edlevel, workdept FROM ONLY xcrem_employee WHERE true
-                             Coordinator quals: (xcrem_employee.workdept = e.workdept)
-(15 rows)
+         Remote query: SELECT edlevel, workdept, ctid, xc_node_id FROM ONLY xcrem_employee e WHERE true
+         Coordinator quals: ((e.edlevel)::numeric > (SubPlan 1))
+         SubPlan 1
+           ->  Aggregate
+                 Output: avg(xcrem_employee.edlevel)
+                 ->  Data Node Scan on xcrem_employee "_REMOTE_TABLE_QUERY_"
+                       Output: xcrem_employee.edlevel, xcrem_employee.workdept
+                       Remote query: SELECT edlevel, workdept FROM ONLY xcrem_employee WHERE true
+                       Coordinator quals: (xcrem_employee.workdept = e.workdept)
+(13 rows)
 
 :SEL;
  empno  | edlevel | lastname  |  salary  | bonus  
@@ -608,24 +596,22 @@ insert into xcrem_employee select * from xcrem_temptable;
 \set stmt 'DELETE FROM xcrem_employee E WHERE SALARY > ( SELECT AVG(SALARY) FROM xcrem_employee WHERE SUBSTRING(E.WORKDEPT,1,1) = SUBSTRING(WORKDEPT, 1,1) )'
 :stmt;
 :EXP :stmt;
-                                                                 QUERY PLAN                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
  Delete on public.xcrem_employee e
    Remote query: DELETE FROM ONLY public.xcrem_employee WHERE ctid = $3 AND xc_node_id = $4 
-   ->  Result
+   ->  Data Node Scan on xcrem_employee "_REMOTE_TABLE_QUERY_"
          Output: e.salary, e.workdept, e.ctid, e.xc_node_id
-         ->  Data Node Scan on e
-               Output: e.salary, e.workdept, e.ctid, e.xc_node_id
-               Remote query: SELECT salary, workdept, ctid, xc_node_id FROM ONLY xcrem_employee e WHERE true
-               Coordinator quals: (e.salary > (SubPlan 1))
-               SubPlan 1
-                 ->  Aggregate
-                       Output: avg(xcrem_employee.salary)
-                       ->  Data Node Scan on xcrem_employee
-                             Output: xcrem_employee.salary, xcrem_employee.workdept
-                             Remote query: SELECT salary, workdept FROM ONLY xcrem_employee WHERE true
-                             Coordinator quals: ("substring"((e.workdept)::text, 1, 1) = "substring"((xcrem_employee.workdept)::text, 1, 1))
-(15 rows)
+         Remote query: SELECT salary, workdept, ctid, xc_node_id FROM ONLY xcrem_employee e WHERE true
+         Coordinator quals: (e.salary > (SubPlan 1))
+         SubPlan 1
+           ->  Aggregate
+                 Output: avg(xcrem_employee.salary)
+                 ->  Data Node Scan on xcrem_employee "_REMOTE_TABLE_QUERY_"
+                       Output: xcrem_employee.salary, xcrem_employee.workdept
+                       Remote query: SELECT salary, workdept FROM ONLY xcrem_employee WHERE true
+                       Coordinator quals: ("substring"((e.workdept)::text, 1, 1) = "substring"((xcrem_employee.workdept)::text, 1, 1))
+(13 rows)
 
 :SEL;
  empno  | edlevel | lastname  |  salary  | bonus  

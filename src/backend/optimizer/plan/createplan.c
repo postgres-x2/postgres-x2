@@ -203,11 +203,12 @@ static Plan *prepare_sort_from_pathkeys(PlannerInfo *root,
 static Material *make_material(Plan *lefttree);
 
 #ifdef PGXC
-static void findReferencedVars(List *parent_vars, Plan *plan, List **out_tlist, Relids *out_relids);
+static void findReferencedVars(List *parent_vars, RemoteQuery *plan, List **out_tlist, Relids *out_relids);
 static void create_remote_clause_expr(PlannerInfo *root, Plan *parent, StringInfo clauses,
 	  List *qual, RemoteQuery *scan);
 static void create_remote_expr(PlannerInfo *root, Plan *parent, StringInfo expr,
 	  Node *node, RemoteQuery *scan);
+static RangeTblEntry *make_dummy_remote_rte(char *relname, Alias *alias);
 #endif
 
 /*
@@ -731,9 +732,9 @@ static Plan *
 create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Plan *outer_plan, Plan *inner_plan)
 {
 	NestLoop   *nest_parent;
-	RemoteQuery	*outer = NULL;
-	RemoteQuery	*inner = NULL;
 	ExecNodes	*join_exec_nodes;
+	RemoteQuery *outer;
+	RemoteQuery *inner;
 
 	if (!enable_remotejoin)
 		return parent;
@@ -756,22 +757,14 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 	else
 		nest_parent = (NestLoop *)parent;
 
-	/*
-	 * Now RemoteQuery subnode is behind Matherial but this may be changed later
-	 */
-	if (IsA(outer_plan, Material) && IsA(outer_plan->lefttree, RemoteQuery))
-		outer = (RemoteQuery *) outer_plan->lefttree;
-	else if (IsA(outer_plan, RemoteQuery))
-		outer = (RemoteQuery *) outer_plan;
+	if (!IsA(outer_plan, RemoteQuery) || !IsA(inner_plan, RemoteQuery))
+		return parent;
 
-	if (IsA(inner_plan, Material) && IsA(inner_plan->lefttree, RemoteQuery))
-		inner = (RemoteQuery *) inner_plan->lefttree;
-	else if (IsA(inner_plan, RemoteQuery))
-		inner = (RemoteQuery *) inner_plan;
-
+	outer = (RemoteQuery *)outer_plan;
+	inner = (RemoteQuery *)inner_plan;
 
 	/* check if both the nodes qualify for reduction */
-	if (outer && inner && !outer->scan.plan.qual && !inner->scan.plan.qual)
+	if (!outer->scan.plan.qual && !inner->scan.plan.qual)
 	{
 		int		i;
 		List	*rtable_list = NIL;
@@ -805,8 +798,8 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 		 */
 		parent_vars = pull_var_clause((Node *)parent->targetlist, PVC_RECURSE_PLACEHOLDERS);
 
-		findReferencedVars(parent_vars, outer_plan, &out_tlist, &out_relids);
-		findReferencedVars(parent_vars, inner_plan, &in_tlist, &in_relids);
+		findReferencedVars(parent_vars, outer, &out_tlist, &out_relids);
+		findReferencedVars(parent_vars, inner, &in_tlist, &in_relids);
 
 		join_exec_nodes = IsJoinReducible(inner, outer, in_relids, out_relids,
 											&(nest_parent->join),
@@ -970,33 +963,21 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 			 */
 			base_tlist = add_to_flat_tlist(NIL, list_concat(out_tlist, in_tlist));
 
-			dummy_rte = makeNode(RangeTblEntry);
-			dummy_rte->rtekind = RTE_REMOTE_DUMMY;
-
-			/* use a dummy relname... */
-			dummy_rte->relname	   = "__REMOTE_JOIN_QUERY__";
-			dummy_rte->eref		   = makeAlias("__REMOTE_JOIN_QUERY__", colnames);
-			/* not sure if we need to set the below explicitly.. */
-			dummy_rte->inh			 = false;
-			dummy_rte->inFromCl		 = false;
-			dummy_rte->requiredPerms = 0;
-			dummy_rte->checkAsUser   = 0;
-			dummy_rte->selectedCols  = NULL;
-			dummy_rte->modifiedCols  = NULL;
-
 			/*
-			 * Append the dummy range table entry to the range table.
+			 * Create and append the dummy range table entry to the range table.
 			 * Note that this modifies the master copy the caller passed us, otherwise
 			 * e.g EXPLAIN VERBOSE will fail to find the rte the Vars built below refer
 			 * to.
 			 */
+			dummy_rte = make_dummy_remote_rte("__REMOTE_JOIN_QUERY__",
+											makeAlias("__REMOTE_JOIN_QUERY__", colnames));
 			root->parse->rtable = lappend(root->parse->rtable, dummy_rte);
 			dummy_rtindex = list_length(root->parse->rtable);
 
 			result_plan = &result->scan.plan;
 
 			/* Set the join targetlist to the new base_tlist */
-			result_plan->targetlist = base_tlist;
+			result_plan->targetlist = parent->targetlist;
 			result_plan->lefttree 	= NULL;
 			result_plan->righttree 	= NULL;
 			result->scan.scanrelid 	= dummy_rtindex;
@@ -1050,7 +1031,7 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 			result_plan->plan_rows 	  = outer_plan->plan_rows;
 			result_plan->plan_width   = outer_plan->plan_width;
 
-			return (Plan *) make_material(result_plan);
+			return (Plan *)result_plan;
 		}
 	}
 
@@ -2577,7 +2558,6 @@ static Plan *
 create_remotequery_plan(PlannerInfo *root, Path *best_path,
 						  List *tlist, List *scan_clauses)
 {
-	Plan		*result_node ;
 	RemoteQuery *scan_plan;
 	Index		scan_relid = best_path->parent->relid;
 	RangeTblEntry *rte;
@@ -2592,6 +2572,13 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	List			*rmlist;
 	List			*tvarlist;
 	bool			tlist_is_simple;
+	List			*base_tlist;		/* the target list representing the
+										 * result obtained from datanode
+										 */
+	RangeTblEntry	*dummy_rte;			/* RTE for the remote query node being
+										 * added.
+										 */
+	Index			dummy_rtindex;
 
 	Assert(scan_relid > 0);
 	Assert(best_path->parent->rtekind == RTE_RELATION);
@@ -2663,6 +2650,14 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 		tvarlist = copyObject(pull_var_clause((Node *)tlist, PVC_RECURSE_PLACEHOLDERS));
 		query->targetList = add_to_flat_tlist(NIL, copyObject(tvarlist));
 	}
+
+	/*
+	 * We are going to change the Var nodes in the target list to be sent to the
+	 * datanode. We need the original tlist to establish the mapping of result
+	 * obtained from the datanode in this plan. It will be saved in
+	 * RemoteQuery->base_tlist. So, copy the target list before modifying it
+	 */
+	base_tlist = copyObject(query->targetList);
 
 	/*
 	 * Change the varno in Var nodes in the targetlist of the query to be shipped to the
@@ -2755,29 +2750,25 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	if (rmlist != NULL)
 		list_free_deep(rmlist);
 
-	if (tlist_is_simple)
-	{
-		scan_plan = make_remotequery(tlist, local_scan_clauses, scan_relid);
-		result_node = (Plan *) scan_plan;
-	}
-	else
-	{
-		/*
-		 * Use simple tlist for RemoteQuery, and let Result plan handle
-		 * non-simple target list.
-		 */
-		scan_plan = make_remotequery(add_to_flat_tlist(NIL, copyObject(tvarlist)),
-		                             local_scan_clauses, scan_relid);
-		result_node = (Plan *) make_result(root, tlist, NULL, (Plan*) scan_plan);
-	}
+	/*
+	 * Create and append the dummy range table entry to the range table.
+	 * Note that this modifies the master copy the caller passed us, otherwise
+	 * e.g EXPLAIN VERBOSE will fail to find the rte the Vars built below refer
+	 * to.
+	 */
+	dummy_rte = make_dummy_remote_rte(get_rel_name(rte->relid),
+										makeAlias("_REMOTE_TABLE_QUERY_", NIL));
+	root->parse->rtable = lappend(root->parse->rtable, dummy_rte);
+	dummy_rtindex = list_length(root->parse->rtable);
+
+	scan_plan = make_remotequery(tlist, local_scan_clauses, dummy_rtindex);
 
 	/* Track if the remote query involves a temporary object */
 	scan_plan->is_temp = IsTempTable(rte->relid);
-
 	scan_plan->read_only = (query->commandType == CMD_SELECT && !query->hasForUpdate);
 	scan_plan->has_row_marks = query->hasForUpdate;
-
 	scan_plan->sql_statement = sql.data;
+	scan_plan->base_tlist = base_tlist;
 	scan_plan->exec_nodes = GetRelationNodesByQuals(rte->relid, rtr->rtindex,
 													query->jointree->quals,
 													RELATION_ACCESS_READ);
@@ -2789,7 +2780,7 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	/* PGXCTODO - get better estimates */
  	scan_plan->scan.plan.plan_rows = 1000;
 
-	return result_node;
+	return (Plan *)scan_plan;
 }
 #endif
 
@@ -5428,9 +5419,6 @@ is_projection_capable_plan(Plan *plan)
 		case T_Append:
 		case T_MergeAppend:
 		case T_RecursiveUnion:
-#ifdef PGXC
-		case T_RemoteQuery:
-#endif
 			return false;
 		default:
 			break;
@@ -5451,7 +5439,7 @@ is_projection_capable_plan(Plan *plan)
  *  also need to be selected..
  */
 static void
-findReferencedVars(List *parent_vars, Plan *plan, List **out_tlist, Relids *out_relids)
+findReferencedVars(List *parent_vars, RemoteQuery *plan, List **out_tlist, Relids *out_relids)
 {
 	List	 *vars;
 	Relids	  relids = NULL;
@@ -5459,7 +5447,7 @@ findReferencedVars(List *parent_vars, Plan *plan, List **out_tlist, Relids *out_
 	ListCell *l;
 
 	/* Pull vars from both the targetlist and the clauses attached to this plan */
-	vars = pull_var_clause((Node *)plan->targetlist, PVC_REJECT_PLACEHOLDERS);
+	vars = pull_var_clause((Node *)plan->base_tlist, PVC_REJECT_PLACEHOLDERS);
 
 	foreach(l, vars)
 	{
@@ -5473,7 +5461,7 @@ findReferencedVars(List *parent_vars, Plan *plan, List **out_tlist, Relids *out_
 	}
 
 	/* Now consider the local quals */
-	vars = pull_var_clause((Node *)plan->qual, PVC_REJECT_PLACEHOLDERS);
+	vars = pull_var_clause((Node *)plan->scan.plan.qual, PVC_REJECT_PLACEHOLDERS);
 
 	foreach(l, vars)
 	{
@@ -6174,7 +6162,7 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	/* find all the relations referenced by targetlist of Grouping node */
 	temp_vars = pull_var_clause((Node *)local_plan->targetlist,
 									PVC_REJECT_PLACEHOLDERS);
-	findReferencedVars(temp_vars, (Plan *)remote_scan, &temp_vartlist, &in_relids);
+	findReferencedVars(temp_vars, remote_scan, &temp_vartlist, &in_relids);
 
 	/*
 	 * process the targetlist of the grouping plan, also construct the
@@ -6328,13 +6316,8 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	 * descriptor for the result of this query from the base_tlist (targetlist
 	 * we used to generate the remote node query).
 	 */
-	dummy_rte = makeNode(RangeTblEntry);
-	dummy_rte->rtekind = RTE_REMOTE_DUMMY;
-
-	/* Use a dummy relname... */
-	dummy_rte->relname	   = "__REMOTE_GROUP_QUERY__";
-	dummy_rte->eref		   = makeAlias("__REMOTE_GROUP_QUERY__", NIL);
-
+	dummy_rte = make_dummy_remote_rte("__REMOTE_GROUP_QUERY__",
+									makeAlias("__REMOTE_GROUP_QUERY__", NIL));
 	/* Rest will be zeroed out in makeNode() */
 	root->parse->rtable = lappend(root->parse->rtable, dummy_rte);
 	dummy_rtindex = list_length(root->parse->rtable);
@@ -6352,6 +6335,7 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	/* set_plan_refs needs this later */
 	remote_group->read_only = (query->commandType == CMD_SELECT && !query->hasForUpdate);
 	remote_group->has_row_marks = query->hasForUpdate;
+	remote_group->base_tlist = base_tlist;
 
 	/* we actually need not worry about costs since this is the final plan */
 	remote_group_plan->startup_cost	= remote_scan->scan.plan.startup_cost;
@@ -6364,7 +6348,7 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	 * Materialization is always needed for RemoteQuery in case we need to restart
 	 * the scan.
 	 */
-	local_plan->lefttree = (Plan *) make_material(remote_group_plan);
+	local_plan->lefttree = remote_group_plan;
 	local_plan->qual = local_qual;
 	/* indicate that we should apply collection function directly */
 	if (IsA(local_plan, Agg))
@@ -6906,5 +6890,18 @@ pgxc_build_rowmark_entries(List *rowMarks, List *rtable, Oid *types, int preppar
 				 errmsg("Error when generating remote query plan")));
 
 	return newtypes;
+}
+
+static RangeTblEntry *
+make_dummy_remote_rte(char *relname, Alias *alias)
+{
+	RangeTblEntry *dummy_rte = makeNode(RangeTblEntry);
+	dummy_rte->rtekind = RTE_REMOTE_DUMMY;
+
+	/* use a dummy relname... */
+	dummy_rte->relname		 = relname;
+	dummy_rte->eref			 = alias;
+
+	return dummy_rte;
 }
 #endif

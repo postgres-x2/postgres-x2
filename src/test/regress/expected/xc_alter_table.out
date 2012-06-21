@@ -79,18 +79,16 @@ SELECT id, name FROM xc_alter_table_1 ORDER BY 1;
 
 -- Check for query generation of remote UPDATE
 EXPLAIN (VERBOSE true, COSTS false, NODES false) UPDATE xc_alter_table_1 SET name = 'zzz' WHERE id = currval('xc_alter_table_1_id_seq');
-                                               QUERY PLAN                                               
---------------------------------------------------------------------------------------------------------
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
  Update on public.xc_alter_table_1
    Node expr: xc_alter_table_1.id
    Remote query: UPDATE ONLY public.xc_alter_table_1 SET name = $2 WHERE ctid = $5 AND xc_node_id = $6 
-   ->  Result
-         Output: id, 'zzz'::character varying(80), NULL::integer, id, ctid, xc_node_id
-         ->  Data Node Scan on xc_alter_table_1
-               Output: id, ctid, xc_node_id
-               Remote query: SELECT id, ctid, xc_node_id FROM ONLY xc_alter_table_1 WHERE true
-               Coordinator quals: (xc_alter_table_1.id = currval('xc_alter_table_1_id_seq'::regclass))
-(9 rows)
+   ->  Data Node Scan on xc_alter_table_1 "_REMOTE_TABLE_QUERY_"
+         Output: xc_alter_table_1.id, 'zzz'::character varying(80), NULL::integer, xc_alter_table_1.id, xc_alter_table_1.ctid, xc_alter_table_1.xc_node_id
+         Remote query: SELECT id, ctid, xc_node_id FROM ONLY xc_alter_table_1 WHERE true
+         Coordinator quals: (xc_alter_table_1.id = currval('xc_alter_table_1_id_seq'::regclass))
+(7 rows)
 
 UPDATE xc_alter_table_1 SET name = 'zzz' WHERE id = currval('xc_alter_table_1_id_seq');
 SELECT id, name FROM xc_alter_table_1 ORDER BY 1;
@@ -147,16 +145,14 @@ SELECT b, c FROM xc_alter_table_2 ORDER BY b;
 
 -- Check for query generation of remote UPDATE
 EXPLAIN (VERBOSE true, COSTS false, NODES false) UPDATE xc_alter_table_2 SET b = 'Morphee', c = false WHERE b = 'Neo';
-                                                  QUERY PLAN                                                   
----------------------------------------------------------------------------------------------------------------
+                                                                   QUERY PLAN                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------
  Update on public.xc_alter_table_2
    Remote query: UPDATE ONLY public.xc_alter_table_2 SET b = $2, c = $3 WHERE ctid = $7 
-   ->  Result
-         Output: NULL::integer, 'Morphee'::character varying(20), false, NULL::integer, NULL::integer, b, ctid
-         ->  Data Node Scan on xc_alter_table_2
-               Output: b, ctid
-               Remote query: SELECT b, ctid FROM ONLY xc_alter_table_2 WHERE ((b)::text = 'Neo'::text)
-(7 rows)
+   ->  Data Node Scan on xc_alter_table_2 "_REMOTE_TABLE_QUERY_"
+         Output: NULL::integer, 'Morphee'::character varying(20), false, NULL::integer, NULL::integer, xc_alter_table_2.b, xc_alter_table_2.ctid
+         Remote query: SELECT b, ctid FROM ONLY xc_alter_table_2 WHERE ((b)::text = 'Neo'::text)
+(5 rows)
 
 UPDATE xc_alter_table_2 SET b = 'Morphee', c = false WHERE b = 'Neo';
 SELECT b, c FROM xc_alter_table_2 ORDER BY b;
@@ -194,16 +190,14 @@ SELECT a, a2, b, c FROM xc_alter_table_2 ORDER BY b;
 
 -- Check for query generation of remote UPDATE
 EXPLAIN (VERBOSE true, COSTS false, NODES false) UPDATE xc_alter_table_2 SET a = 200, a2 = 'CTO' WHERE b = 'John';
-                                                  QUERY PLAN                                                   
----------------------------------------------------------------------------------------------------------------
+                                                                                    QUERY PLAN                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Update on public.xc_alter_table_2
    Remote query: UPDATE ONLY public.xc_alter_table_2 SET a = $6, a2 = $7 WHERE ctid = $9 
-   ->  Result
-         Output: NULL::integer, b, c, NULL::integer, NULL::integer, 200, 'CTO'::character varying(20), b, ctid
-         ->  Data Node Scan on xc_alter_table_2
-               Output: b, c, ctid
-               Remote query: SELECT b, c, ctid FROM ONLY xc_alter_table_2 WHERE ((b)::text = 'John'::text)
-(7 rows)
+   ->  Data Node Scan on xc_alter_table_2 "_REMOTE_TABLE_QUERY_"
+         Output: NULL::integer, xc_alter_table_2.b, xc_alter_table_2.c, NULL::integer, NULL::integer, 200, 'CTO'::character varying(20), xc_alter_table_2.b, xc_alter_table_2.ctid
+         Remote query: SELECT b, c, ctid FROM ONLY xc_alter_table_2 WHERE ((b)::text = 'John'::text)
+(5 rows)
 
 UPDATE xc_alter_table_2 SET a = 200, a2 = 'CTO' WHERE b = 'John';
 SELECT a, a2, b, c FROM xc_alter_table_2 ORDER BY b;

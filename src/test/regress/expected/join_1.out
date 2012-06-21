@@ -2590,36 +2590,30 @@ INSERT INTO b VALUES (0, 0), (1, NULL);
 INSERT INTO c VALUES (0), (1);
 -- all three cases should be optimizable into a simple seqscan
 explain (verbose true, costs false, nodes false) SELECT a.* FROM a LEFT JOIN b ON a.b_id = b.id;
-                          QUERY PLAN                          
---------------------------------------------------------------
- Result
+                       QUERY PLAN                       
+--------------------------------------------------------
+ Data Node Scan on a "_REMOTE_TABLE_QUERY_"
    Output: a.id, a.b_id
-   ->  Data Node Scan on a
-         Output: a.id, a.b_id
-         Remote query: SELECT id, b_id FROM ONLY a WHERE true
-(5 rows)
+   Remote query: SELECT id, b_id FROM ONLY a WHERE true
+(3 rows)
 
 explain (verbose true, costs false, nodes false) SELECT b.* FROM b LEFT JOIN c ON b.c_id = c.id;
-                          QUERY PLAN                          
---------------------------------------------------------------
- Result
+                       QUERY PLAN                       
+--------------------------------------------------------
+ Data Node Scan on b "_REMOTE_TABLE_QUERY_"
    Output: b.id, b.c_id
-   ->  Data Node Scan on b
-         Output: b.id, b.c_id
-         Remote query: SELECT id, c_id FROM ONLY b WHERE true
-(5 rows)
+   Remote query: SELECT id, c_id FROM ONLY b WHERE true
+(3 rows)
 
 explain (verbose true, costs false, nodes false)
   SELECT a.* FROM a LEFT JOIN (b left join c on b.c_id = c.id)
   ON (a.b_id = b.id);
-                          QUERY PLAN                          
---------------------------------------------------------------
- Result
+                       QUERY PLAN                       
+--------------------------------------------------------
+ Data Node Scan on a "_REMOTE_TABLE_QUERY_"
    Output: a.id, a.b_id
-   ->  Data Node Scan on a
-         Output: a.id, a.b_id
-         Remote query: SELECT id, b_id FROM ONLY a WHERE true
-(5 rows)
+   Remote query: SELECT id, b_id FROM ONLY a WHERE true
+(3 rows)
 
 -- check optimization of outer join within another special join
 explain (verbose true, costs false, nodes false)
@@ -2631,10 +2625,10 @@ select id from a where id in (
  Nested Loop Semi Join
    Output: a.id
    Join Filter: (a.id = b.id)
-   ->  Data Node Scan on a
+   ->  Data Node Scan on a "_REMOTE_TABLE_QUERY_"
          Output: a.id
          Remote query: SELECT id FROM ONLY a WHERE true
-   ->  Data Node Scan on b
+   ->  Data Node Scan on b "_REMOTE_TABLE_QUERY_"
          Output: b.id
          Remote query: SELECT id FROM ONLY b WHERE true
 (9 rows)
@@ -2657,17 +2651,15 @@ select p.* from parent p left join child c on (p.k = c.k) order by 1,2;
 
 explain (verbose true, costs false, nodes false)
   select p.* from parent p left join child c on (p.k = c.k) order by 1,2;
-                               QUERY PLAN                               
-------------------------------------------------------------------------
+                            QUERY PLAN                            
+------------------------------------------------------------------
  Sort
    Output: p.k, p.pd
    Sort Key: p.k, p.pd
-   ->  Result
+   ->  Data Node Scan on parent "_REMOTE_TABLE_QUERY_"
          Output: p.k, p.pd
-         ->  Data Node Scan on p
-               Output: p.k, p.pd
-               Remote query: SELECT k, pd FROM ONLY parent p WHERE true
-(8 rows)
+         Remote query: SELECT k, pd FROM ONLY parent p WHERE true
+(6 rows)
 
 -- this case is not
 select p.*, linked from parent p
@@ -2684,23 +2676,21 @@ explain (verbose true, costs false, nodes false)
   select p.*, linked from parent p
     left join (select c.*, true as linked from child c) as ss
     on (p.k = ss.k) order by p.k;
-                               QUERY PLAN                                
--------------------------------------------------------------------------
+                               QUERY PLAN                               
+------------------------------------------------------------------------
  Sort
    Output: p.k, p.pd, (true)
    Sort Key: p.k
    ->  Nested Loop Left Join
          Output: p.k, p.pd, (true)
          Join Filter: (p.k = c.k)
-         ->  Data Node Scan on p
+         ->  Data Node Scan on parent "_REMOTE_TABLE_QUERY_"
                Output: p.k, p.pd
                Remote query: SELECT k, pd FROM ONLY parent p WHERE true
-         ->  Result
+         ->  Data Node Scan on child "_REMOTE_TABLE_QUERY_"
                Output: c.k, true
-               ->  Data Node Scan on c
-                     Output: c.k
-                     Remote query: SELECT k FROM ONLY child c WHERE true
-(14 rows)
+               Remote query: SELECT k FROM ONLY child c WHERE true
+(12 rows)
 
 -- check for a 9.0rc1 bug: join removal breaks pseudoconstant qual handling
 select p.* from
@@ -2719,7 +2709,7 @@ select p.* from
  Result
    Output: p.k, p.pd
    One-Time Filter: false
-   ->  Data Node Scan on p
+   ->  Data Node Scan on parent "_REMOTE_TABLE_QUERY_"
          Output: p.k, p.pd
          Remote query: SELECT k, pd FROM ONLY parent p WHERE (k = 1)
 (6 rows)

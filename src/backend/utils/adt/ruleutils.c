@@ -55,6 +55,10 @@
 #include "parser/parse_type.h"
 #include "parser/parser.h"
 #include "parser/parsetree.h"
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#include "pgxc/planner.h"
+#endif
 #include "rewrite/rewriteHandler.h"
 #include "rewrite/rewriteManip.h"
 #include "rewrite/rewriteSupport.h"
@@ -66,9 +70,6 @@
 #include "utils/syscache.h"
 #include "utils/typcache.h"
 #include "utils/xml.h"
-#ifdef PGXC
-#include "pgxc/pgxc.h"
-#endif
 
 /* ----------
  * Pretty formatting constants
@@ -4378,6 +4379,39 @@ get_variable(Var *var, int levelsup, bool showstar, deparse_context *context)
 		pop_child_plan(dpns, &save_dpns);
 		return NULL;
 	}
+
+#ifdef PGXC
+	if (rte->rtekind == RTE_REMOTE_DUMMY &&
+		attnum > list_length(rte->eref->colnames) &&
+		dpns->planstate)
+	{
+		TargetEntry *tle;
+		RemoteQuery *rqplan;
+		Assert(IsA(dpns->planstate, RemoteQueryState));
+		Assert(netlevelsup == 0);
+
+		/*
+		 * Get the expression representing the given Var from base_tlist of the
+		 * RemoteQuery
+		 */
+		rqplan = (RemoteQuery *)dpns->planstate->plan;
+		Assert(IsA(rqplan, RemoteQuery));
+		tle = get_tle_by_resno(rqplan->base_tlist, var->varattno);
+		if (!tle)
+			elog(ERROR, "bogus varattno for remotequery var: %d", var->varattno);
+		/*
+		 * Force parentheses because our caller probably assumed a Var is a
+		 * simple expression.
+		 */
+		if (!IsA(tle->expr, Var))
+			appendStringInfoChar(buf, '(');
+		get_rule_expr((Node *) tle->expr, context, true);
+		if (!IsA(tle->expr, Var))
+			appendStringInfoChar(buf, ')');
+
+		return NULL;
+	}
+#endif /* PGXC */
 
 	/* Identify names to use */
 	schemaname = NULL;			/* default assumptions */

@@ -715,6 +715,7 @@ pgxc_FQS_create_remote_plan(Query *query, ExecNodes *exec_nodes, bool is_exec_di
 	query->rtable = lappend(query->rtable, dummy_rte);
 	query_step->scan.scanrelid 	= list_length(query->rtable);
 	query_step->scan.plan.targetlist = query->targetList;
+	query_step->base_tlist = query->targetList;
 
 	return query_step;
 }

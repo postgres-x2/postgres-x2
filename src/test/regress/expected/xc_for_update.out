@@ -164,42 +164,42 @@ explain (num_nodes off, nodes off, verbose on)  select * from t1, t2 where t1.va
    ->  Nested Loop  (cost=0.00..0.01 rows=1 width=16)
          Output: t1.val, t1.val2, t2.val, t2.val2
          Join Filter: (t1.val = t2.val)
-         ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: t1.val, t1.val2
                Remote query: SELECT val, val2 FROM ONLY t1 WHERE true FOR UPDATE OF t1 NOWAIT
-         ->  Data Node Scan on t2  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t2 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: t2.val, t2.val2
                Remote query: SELECT val, val2 FROM ONLY t2 WHERE true FOR UPDATE OF t2 NOWAIT
 (11 rows)
 
 explain (num_nodes off, nodes off, verbose on)  select * from t1, t2 where t1.val = t2.val for update;
-                                      QUERY PLAN                                       
----------------------------------------------------------------------------------------
+                                          QUERY PLAN                                          
+----------------------------------------------------------------------------------------------
  LockRows  (cost=0.00..0.02 rows=1 width=16)
    Output: t1.val, t1.val2, t2.val, t2.val2
    ->  Nested Loop  (cost=0.00..0.01 rows=1 width=16)
          Output: t1.val, t1.val2, t2.val, t2.val2
          Join Filter: (t1.val = t2.val)
-         ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: t1.val, t1.val2
                Remote query: SELECT val, val2 FROM ONLY t1 WHERE true FOR UPDATE OF t1
-         ->  Data Node Scan on t2  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t2 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: t2.val, t2.val2
                Remote query: SELECT val, val2 FROM ONLY t2 WHERE true FOR UPDATE OF t2
 (11 rows)
 
 explain (num_nodes off, nodes off, verbose on)  select * from t1, t2 where t1.val = t2.val for share;
-                                      QUERY PLAN                                      
---------------------------------------------------------------------------------------
+                                          QUERY PLAN                                          
+----------------------------------------------------------------------------------------------
  LockRows  (cost=0.00..0.02 rows=1 width=16)
    Output: t1.val, t1.val2, t2.val, t2.val2
    ->  Nested Loop  (cost=0.00..0.01 rows=1 width=16)
          Output: t1.val, t1.val2, t2.val, t2.val2
          Join Filter: (t1.val = t2.val)
-         ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: t1.val, t1.val2
                Remote query: SELECT val, val2 FROM ONLY t1 WHERE true FOR SHARE OF t1
-         ->  Data Node Scan on t2  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t2 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: t2.val, t2.val2
                Remote query: SELECT val, val2 FROM ONLY t2 WHERE true FOR SHARE OF t2
 (11 rows)
@@ -213,29 +213,29 @@ explain (num_nodes off, nodes off, verbose on)  select * from t1, t2 where t1.va
 (3 rows)
 
 explain (num_nodes off, nodes off, verbose on)  select * from t1, t2;
-                           QUERY PLAN                            
------------------------------------------------------------------
+                                       QUERY PLAN                                       
+----------------------------------------------------------------------------------------
  Nested Loop  (cost=0.00..0.01 rows=1 width=16)
    Output: t1.val, t1.val2, t2.val, t2.val2
-   ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=8)
+   ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
          Output: t1.val, t1.val2
          Remote query: SELECT val, val2 FROM ONLY t1 WHERE true
-   ->  Data Node Scan on t2  (cost=0.00..0.00 rows=1000 width=8)
+   ->  Data Node Scan on t2 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
          Output: t2.val, t2.val2
          Remote query: SELECT val, val2 FROM ONLY t2 WHERE true
 (8 rows)
 
 explain (num_nodes off, nodes off, verbose on)  select * from t1, t2 for update;
-                                      QUERY PLAN                                       
----------------------------------------------------------------------------------------
+                                          QUERY PLAN                                          
+----------------------------------------------------------------------------------------------
  LockRows  (cost=0.00..0.02 rows=1 width=16)
    Output: t1.val, t1.val2, t2.val, t2.val2
    ->  Nested Loop  (cost=0.00..0.01 rows=1 width=16)
          Output: t1.val, t1.val2, t2.val, t2.val2
-         ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: t1.val, t1.val2
                Remote query: SELECT val, val2 FROM ONLY t1 WHERE true FOR UPDATE OF t1
-         ->  Data Node Scan on t2  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t2 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: t2.val, t2.val2
                Remote query: SELECT val, val2 FROM ONLY t2 WHERE true FOR UPDATE OF t2
 (10 rows)
@@ -247,190 +247,188 @@ explain (num_nodes off, nodes off, verbose on)  select * from t1, t2 for update 
    Output: t1.val, t1.val2, t2.val, t2.val2
    ->  Nested Loop  (cost=0.00..0.01 rows=1 width=16)
          Output: t1.val, t1.val2, t2.val, t2.val2
-         ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: t1.val, t1.val2
                Remote query: SELECT val, val2 FROM ONLY t1 WHERE true FOR UPDATE OF t1 NOWAIT
-         ->  Data Node Scan on t2  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t2 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: t2.val, t2.val2
                Remote query: SELECT val, val2 FROM ONLY t2 WHERE true FOR UPDATE OF t2 NOWAIT
 (10 rows)
 
 explain (num_nodes off, nodes off, verbose on)  select * from t1, t2 for share nowait;
-                                         QUERY PLAN                                          
----------------------------------------------------------------------------------------------
+                                          QUERY PLAN                                          
+----------------------------------------------------------------------------------------------
  LockRows  (cost=0.00..0.02 rows=1 width=16)
    Output: t1.val, t1.val2, t2.val, t2.val2
    ->  Nested Loop  (cost=0.00..0.01 rows=1 width=16)
          Output: t1.val, t1.val2, t2.val, t2.val2
-         ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: t1.val, t1.val2
                Remote query: SELECT val, val2 FROM ONLY t1 WHERE true FOR SHARE OF t1 NOWAIT
-         ->  Data Node Scan on t2  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t2 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: t2.val, t2.val2
                Remote query: SELECT val, val2 FROM ONLY t2 WHERE true FOR SHARE OF t2 NOWAIT
 (10 rows)
 
 explain (num_nodes off, nodes off, verbose on)  select * from t1, t2 for share;
-                                      QUERY PLAN                                      
---------------------------------------------------------------------------------------
+                                          QUERY PLAN                                          
+----------------------------------------------------------------------------------------------
  LockRows  (cost=0.00..0.02 rows=1 width=16)
    Output: t1.val, t1.val2, t2.val, t2.val2
    ->  Nested Loop  (cost=0.00..0.01 rows=1 width=16)
          Output: t1.val, t1.val2, t2.val, t2.val2
-         ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: t1.val, t1.val2
                Remote query: SELECT val, val2 FROM ONLY t1 WHERE true FOR SHARE OF t1
-         ->  Data Node Scan on t2  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t2 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: t2.val, t2.val2
                Remote query: SELECT val, val2 FROM ONLY t2 WHERE true FOR SHARE OF t2
 (10 rows)
 
 explain (num_nodes off, nodes off, verbose on)  select * from t1, t2 for share of t2;
-                                      QUERY PLAN                                      
---------------------------------------------------------------------------------------
+                                          QUERY PLAN                                           
+-----------------------------------------------------------------------------------------------
  LockRows  (cost=0.00..0.02 rows=1 width=22)
    Output: t1.val, t1.val2, t2.val, t2.val2, t1.ctid
    ->  Nested Loop  (cost=0.00..0.01 rows=1 width=22)
          Output: t1.val, t1.val2, t2.val, t2.val2, t1.ctid
-         ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=14)
+         ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=14)
                Output: t1.val, t1.val2, t1.ctid
                Remote query: SELECT val, val2, ctid FROM ONLY t1 WHERE true
-         ->  Data Node Scan on t2  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t2 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: t2.val, t2.val2
                Remote query: SELECT val, val2 FROM ONLY t2 WHERE true FOR SHARE OF t2
 (10 rows)
 
 -- three table case
 explain (num_nodes off, nodes off, verbose on)  select * from t1, t2, t3;
-                              QUERY PLAN                               
------------------------------------------------------------------------
+                                          QUERY PLAN                                          
+----------------------------------------------------------------------------------------------
  Nested Loop  (cost=0.00..0.02 rows=1 width=24)
    Output: t1.val, t1.val2, t2.val, t2.val2, t3.val, t3.val2
    ->  Nested Loop  (cost=0.00..0.01 rows=1 width=16)
          Output: t1.val, t1.val2, t2.val, t2.val2
-         ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: t1.val, t1.val2
                Remote query: SELECT val, val2 FROM ONLY t1 WHERE true
-         ->  Data Node Scan on t2  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t2 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: t2.val, t2.val2
                Remote query: SELECT val, val2 FROM ONLY t2 WHERE true
-   ->  Data Node Scan on t3  (cost=0.00..0.00 rows=1000 width=8)
+   ->  Data Node Scan on t3 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
          Output: t3.val, t3.val2
          Remote query: SELECT val, val2 FROM ONLY t3 WHERE true
 (13 rows)
 
 explain (num_nodes off, nodes off, verbose on)  select * from t1, t2, t3 for update;
-                                         QUERY PLAN                                          
----------------------------------------------------------------------------------------------
+                                             QUERY PLAN                                             
+----------------------------------------------------------------------------------------------------
  LockRows  (cost=0.00..0.03 rows=1 width=24)
    Output: t1.val, t1.val2, t2.val, t2.val2, t3.val, t3.val2
    ->  Nested Loop  (cost=0.00..0.02 rows=1 width=24)
          Output: t1.val, t1.val2, t2.val, t2.val2, t3.val, t3.val2
          ->  Nested Loop  (cost=0.00..0.01 rows=1 width=16)
                Output: t1.val, t1.val2, t2.val, t2.val2
-               ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=8)
+               ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                      Output: t1.val, t1.val2
                      Remote query: SELECT val, val2 FROM ONLY t1 WHERE true FOR UPDATE OF t1
-               ->  Data Node Scan on t2  (cost=0.00..0.00 rows=1000 width=8)
+               ->  Data Node Scan on t2 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                      Output: t2.val, t2.val2
                      Remote query: SELECT val, val2 FROM ONLY t2 WHERE true FOR UPDATE OF t2
-         ->  Data Node Scan on t3  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t3 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: t3.val, t3.val2
                Remote query: SELECT val, val2 FROM ONLY t3 WHERE true FOR UPDATE OF t3
 (15 rows)
 
 explain (num_nodes off, nodes off, verbose on)  select * from t1, t2, t3 for update of t1;
-                                         QUERY PLAN                                          
----------------------------------------------------------------------------------------------
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
  LockRows  (cost=0.00..0.03 rows=1 width=36)
    Output: t1.val, t1.val2, t2.val, t2.val2, t3.val, t3.val2, t2.ctid, t3.ctid
    ->  Nested Loop  (cost=0.00..0.02 rows=1 width=36)
          Output: t1.val, t1.val2, t2.val, t2.val2, t3.val, t3.val2, t2.ctid, t3.ctid
          ->  Nested Loop  (cost=0.00..0.01 rows=1 width=22)
                Output: t1.val, t1.val2, t2.val, t2.val2, t2.ctid
-               ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=8)
+               ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                      Output: t1.val, t1.val2
                      Remote query: SELECT val, val2 FROM ONLY t1 WHERE true FOR UPDATE OF t1
-               ->  Data Node Scan on t2  (cost=0.00..0.00 rows=1000 width=14)
+               ->  Data Node Scan on t2 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=14)
                      Output: t2.val, t2.val2, t2.ctid
                      Remote query: SELECT val, val2, ctid FROM ONLY t2 WHERE true
-         ->  Data Node Scan on t3  (cost=0.00..0.00 rows=1000 width=14)
+         ->  Data Node Scan on t3 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=14)
                Output: t3.val, t3.val2, t3.ctid
                Remote query: SELECT val, val2, ctid FROM ONLY t3 WHERE true
 (15 rows)
 
 explain (num_nodes off, nodes off, verbose on)  select * from t1, t2, t3 for update of t1,t3;
-                                         QUERY PLAN                                          
----------------------------------------------------------------------------------------------
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
  LockRows  (cost=0.00..0.03 rows=1 width=30)
    Output: t1.val, t1.val2, t2.val, t2.val2, t3.val, t3.val2, t2.ctid
    ->  Nested Loop  (cost=0.00..0.02 rows=1 width=30)
          Output: t1.val, t1.val2, t2.val, t2.val2, t3.val, t3.val2, t2.ctid
          ->  Nested Loop  (cost=0.00..0.01 rows=1 width=22)
                Output: t1.val, t1.val2, t2.val, t2.val2, t2.ctid
-               ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=8)
+               ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                      Output: t1.val, t1.val2
                      Remote query: SELECT val, val2 FROM ONLY t1 WHERE true FOR UPDATE OF t1
-               ->  Data Node Scan on t2  (cost=0.00..0.00 rows=1000 width=14)
+               ->  Data Node Scan on t2 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=14)
                      Output: t2.val, t2.val2, t2.ctid
                      Remote query: SELECT val, val2, ctid FROM ONLY t2 WHERE true
-         ->  Data Node Scan on t3  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t3 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: t3.val, t3.val2
                Remote query: SELECT val, val2 FROM ONLY t3 WHERE true FOR UPDATE OF t3
 (15 rows)
 
 explain (num_nodes off, nodes off, verbose on)  select * from t1, t2, t3 for update of t1,t3 nowait;
-                                             QUERY PLAN                                             
-----------------------------------------------------------------------------------------------------
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
  LockRows  (cost=0.00..0.03 rows=1 width=30)
    Output: t1.val, t1.val2, t2.val, t2.val2, t3.val, t3.val2, t2.ctid
    ->  Nested Loop  (cost=0.00..0.02 rows=1 width=30)
          Output: t1.val, t1.val2, t2.val, t2.val2, t3.val, t3.val2, t2.ctid
          ->  Nested Loop  (cost=0.00..0.01 rows=1 width=22)
                Output: t1.val, t1.val2, t2.val, t2.val2, t2.ctid
-               ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=8)
+               ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                      Output: t1.val, t1.val2
                      Remote query: SELECT val, val2 FROM ONLY t1 WHERE true FOR UPDATE OF t1 NOWAIT
-               ->  Data Node Scan on t2  (cost=0.00..0.00 rows=1000 width=14)
+               ->  Data Node Scan on t2 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=14)
                      Output: t2.val, t2.val2, t2.ctid
                      Remote query: SELECT val, val2, ctid FROM ONLY t2 WHERE true
-         ->  Data Node Scan on t3  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t3 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: t3.val, t3.val2
                Remote query: SELECT val, val2 FROM ONLY t3 WHERE true FOR UPDATE OF t3 NOWAIT
 (15 rows)
 
 explain (num_nodes off, nodes off, verbose on)  select * from t1, t2, t3 for share of t1,t2 nowait;
-                                            QUERY PLAN                                             
----------------------------------------------------------------------------------------------------
+                                             QUERY PLAN                                             
+----------------------------------------------------------------------------------------------------
  LockRows  (cost=0.00..0.03 rows=1 width=30)
    Output: t1.val, t1.val2, t2.val, t2.val2, t3.val, t3.val2, t3.ctid
    ->  Nested Loop  (cost=0.00..0.02 rows=1 width=30)
          Output: t1.val, t1.val2, t2.val, t2.val2, t3.val, t3.val2, t3.ctid
          ->  Nested Loop  (cost=0.00..0.01 rows=1 width=16)
                Output: t1.val, t1.val2, t2.val, t2.val2
-               ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=8)
+               ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                      Output: t1.val, t1.val2
                      Remote query: SELECT val, val2 FROM ONLY t1 WHERE true FOR SHARE OF t1 NOWAIT
-               ->  Data Node Scan on t2  (cost=0.00..0.00 rows=1000 width=8)
+               ->  Data Node Scan on t2 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                      Output: t2.val, t2.val2
                      Remote query: SELECT val, val2 FROM ONLY t2 WHERE true FOR SHARE OF t2 NOWAIT
-         ->  Data Node Scan on t3  (cost=0.00..0.00 rows=1000 width=14)
+         ->  Data Node Scan on t3 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=14)
                Output: t3.val, t3.val2, t3.ctid
                Remote query: SELECT val, val2, ctid FROM ONLY t3 WHERE true
 (15 rows)
 
 -- check a few subquery cases
 explain (num_nodes off, nodes off, verbose on)  select * from (select * from t1 for update of t1 nowait) as foo;
-                                          QUERY PLAN                                          
-----------------------------------------------------------------------------------------------
+                                       QUERY PLAN                                       
+----------------------------------------------------------------------------------------
  LockRows  (cost=0.00..10.00 rows=1000 width=8)
    Output: t1.val, t1.val2
-   ->  Result  (cost=0.00..0.00 rows=1000 width=8)
+   ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
          Output: t1.val, t1.val2
-         ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=8)
-               Output: t1.val, t1.val2
-               Remote query: SELECT val, val2 FROM ONLY t1 WHERE true FOR UPDATE OF t1 NOWAIT
-(7 rows)
+         Remote query: SELECT val, val2 FROM ONLY t1 WHERE true FOR UPDATE OF t1 NOWAIT
+(5 rows)
 
 explain (num_nodes off, nodes off, verbose on)  select * from t1 where val in (select val from t2 for update of t2 nowait) for update;
                                                    QUERY PLAN                                                   
@@ -446,17 +444,15 @@ explain (num_nodes off, nodes off, verbose on)  select * from t1 where val in (s
                      Output: "ANY_subquery".*, "ANY_subquery".val
                      ->  LockRows  (cost=0.00..10.00 rows=1000 width=4)
                            Output: t2.val
-                           ->  Result  (cost=0.00..0.00 rows=1000 width=4)
+                           ->  Data Node Scan on t2 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=4)
                                  Output: t2.val
-                                 ->  Data Node Scan on t2  (cost=0.00..0.00 rows=1000 width=4)
-                                       Output: t2.val
-                                       Remote query: SELECT val FROM ONLY t2 WHERE true FOR UPDATE OF t2 NOWAIT
+                                 Remote query: SELECT val FROM ONLY t2 WHERE true FOR UPDATE OF t2 NOWAIT
          ->  Hash  (cost=0.00..0.00 rows=1000 width=8)
                Output: t1.val, t1.val2
-               ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=8)
+               ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                      Output: t1.val, t1.val2
                      Remote query: SELECT val, val2 FROM ONLY t1 WHERE true FOR UPDATE OF t1
-(21 rows)
+(19 rows)
 
 explain (num_nodes off, nodes off, verbose on)  select * from t1 where val in (select val from t2 for update of t2 nowait);
                                              QUERY PLAN                                             
@@ -468,30 +464,28 @@ explain (num_nodes off, nodes off, verbose on)  select * from t1 where val in (s
          Output: t2.val
          ->  LockRows  (cost=0.00..10.00 rows=1000 width=4)
                Output: t2.val
-               ->  Result  (cost=0.00..0.00 rows=1000 width=4)
+               ->  Data Node Scan on t2 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=4)
                      Output: t2.val
-                     ->  Data Node Scan on t2  (cost=0.00..0.00 rows=1000 width=4)
-                           Output: t2.val
-                           Remote query: SELECT val FROM ONLY t2 WHERE true FOR UPDATE OF t2 NOWAIT
+                     Remote query: SELECT val FROM ONLY t2 WHERE true FOR UPDATE OF t2 NOWAIT
    ->  Hash  (cost=0.00..0.00 rows=1000 width=8)
          Output: t1.val, t1.val2
-         ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: t1.val, t1.val2
                Remote query: SELECT val, val2 FROM ONLY t1 WHERE true
-(17 rows)
+(15 rows)
 
 -- test multiple row marks
 explain (num_nodes off, nodes off, verbose on)  select * from t1, t2 for share of t2 for update of t1;
-                                      QUERY PLAN                                       
----------------------------------------------------------------------------------------
+                                          QUERY PLAN                                          
+----------------------------------------------------------------------------------------------
  LockRows  (cost=0.00..0.02 rows=1 width=16)
    Output: t1.val, t1.val2, t2.val, t2.val2
    ->  Nested Loop  (cost=0.00..0.01 rows=1 width=16)
          Output: t1.val, t1.val2, t2.val, t2.val2
-         ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: t1.val, t1.val2
                Remote query: SELECT val, val2 FROM ONLY t1 WHERE true FOR UPDATE OF t1
-         ->  Data Node Scan on t2  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t2 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: t2.val, t2.val2
                Remote query: SELECT val, val2 FROM ONLY t2 WHERE true FOR SHARE OF t2
 (10 rows)
@@ -540,16 +534,16 @@ explain (num_nodes off, nodes off, verbose on)  select * from t1 for share of t1
 
 -- same table , different aliases and different row marks for different aliases
 explain (num_nodes off, nodes off, verbose on)  select * from t1 a,t1 b for share of a for update of b;
-                                       QUERY PLAN                                       
-----------------------------------------------------------------------------------------
+                                          QUERY PLAN                                          
+----------------------------------------------------------------------------------------------
  LockRows  (cost=0.00..0.02 rows=1 width=16)
    Output: a.val, a.val2, b.val, b.val2
    ->  Nested Loop  (cost=0.00..0.01 rows=1 width=16)
          Output: a.val, a.val2, b.val, b.val2
-         ->  Data Node Scan on a  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: a.val, a.val2
                Remote query: SELECT val, val2 FROM ONLY t1 a WHERE true FOR SHARE OF a
-         ->  Data Node Scan on b  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: b.val, b.val2
                Remote query: SELECT val, val2 FROM ONLY t1 b WHERE true FOR UPDATE OF b
 (10 rows)
@@ -557,68 +551,60 @@ explain (num_nodes off, nodes off, verbose on)  select * from t1 a,t1 b for shar
 -- test WITH queries
 -- join of a WITH table and a normal table
 explain (num_nodes off, nodes off, verbose on)  WITH q1 AS (SELECT * from t1 FOR UPDATE) SELECT * FROM q1,t2 FOR UPDATE;
-                                          QUERY PLAN                                           
------------------------------------------------------------------------------------------------
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
  LockRows  (cost=10.00..50.00 rows=1000 width=48)
    Output: q1.val, q1.val2, t2.val, t2.val2, q1.*
    CTE q1
      ->  LockRows  (cost=0.00..10.00 rows=1000 width=8)
            Output: t1.val, t1.val2
-           ->  Result  (cost=0.00..0.00 rows=1000 width=8)
+           ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                  Output: t1.val, t1.val2
-                 ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=8)
-                       Output: t1.val, t1.val2
-                       Remote query: SELECT val, val2 FROM ONLY t1 WHERE true FOR UPDATE OF t1
+                 Remote query: SELECT val, val2 FROM ONLY t1 WHERE true FOR UPDATE OF t1
    ->  Nested Loop  (cost=0.00..30.00 rows=1000 width=48)
          Output: q1.val, q1.val2, t2.val, t2.val2, q1.*
          ->  CTE Scan on q1  (cost=0.00..20.00 rows=1000 width=40)
                Output: q1.val, q1.val2, q1.*
-         ->  Data Node Scan on t2  (cost=0.00..0.00 rows=1000 width=8)
+         ->  Data Node Scan on t2 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                Output: t2.val, t2.val2
                Remote query: SELECT val, val2 FROM ONLY t2 WHERE true FOR UPDATE OF t2
-(17 rows)
+(15 rows)
 
 explain (num_nodes off, nodes off, verbose on)  WITH q1 AS (SELECT * from t1) SELECT * FROM q1;
-                               QUERY PLAN                                
--------------------------------------------------------------------------
+                                        QUERY PLAN                                        
+------------------------------------------------------------------------------------------
  CTE Scan on q1  (cost=0.00..20.00 rows=1000 width=8)
    Output: q1.val, q1.val2
    CTE q1
-     ->  Result  (cost=0.00..0.00 rows=1000 width=8)
+     ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
            Output: t1.val, t1.val2
-           ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=8)
-                 Output: t1.val, t1.val2
-                 Remote query: SELECT val, val2 FROM ONLY t1 WHERE true
-(8 rows)
+           Remote query: SELECT val, val2 FROM ONLY t1 WHERE true
+(6 rows)
 
 -- make sure row marks are no ops for queries on WITH tables
 explain (num_nodes off, nodes off, verbose on)  WITH q1 AS (SELECT * from t1) SELECT * FROM q1 FOR UPDATE;
-                               QUERY PLAN                                
--------------------------------------------------------------------------
+                                        QUERY PLAN                                        
+------------------------------------------------------------------------------------------
  CTE Scan on q1  (cost=0.00..20.00 rows=1000 width=8)
    Output: q1.val, q1.val2
    CTE q1
-     ->  Result  (cost=0.00..0.00 rows=1000 width=8)
+     ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
            Output: t1.val, t1.val2
-           ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=8)
-                 Output: t1.val, t1.val2
-                 Remote query: SELECT val, val2 FROM ONLY t1 WHERE true
-(8 rows)
+           Remote query: SELECT val, val2 FROM ONLY t1 WHERE true
+(6 rows)
 
 explain (num_nodes off, nodes off, verbose on)  WITH q1 AS (SELECT * from t1 FOR UPDATE) SELECT * FROM q1 FOR UPDATE;
-                                          QUERY PLAN                                           
------------------------------------------------------------------------------------------------
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
  CTE Scan on q1  (cost=10.00..30.00 rows=1000 width=8)
    Output: q1.val, q1.val2
    CTE q1
      ->  LockRows  (cost=0.00..10.00 rows=1000 width=8)
            Output: t1.val, t1.val2
-           ->  Result  (cost=0.00..0.00 rows=1000 width=8)
+           ->  Data Node Scan on t1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                  Output: t1.val, t1.val2
-                 ->  Data Node Scan on t1  (cost=0.00..0.00 rows=1000 width=8)
-                       Output: t1.val, t1.val2
-                       Remote query: SELECT val, val2 FROM ONLY t1 WHERE true FOR UPDATE OF t1
-(10 rows)
+                 Remote query: SELECT val, val2 FROM ONLY t1 WHERE true FOR UPDATE OF t1
+(8 rows)
 
 -- test case of inheried tables
 select * from p1 order by 1 for update;
@@ -631,17 +617,17 @@ select * from p1 order by 1 for update;
 (4 rows)
 
 explain (num_nodes off, nodes off, verbose on)  select * from p1 for update;
-                                       QUERY PLAN                                       
-----------------------------------------------------------------------------------------
+                                             QUERY PLAN                                             
+----------------------------------------------------------------------------------------------------
  LockRows  (cost=0.00..20.00 rows=2000 width=8)
    Output: public.p1.a, public.p1.b
    ->  Result  (cost=0.00..0.00 rows=2000 width=8)
          Output: public.p1.a, public.p1.b
          ->  Append  (cost=0.00..0.00 rows=2000 width=8)
-               ->  Data Node Scan on p1  (cost=0.00..0.00 rows=1000 width=8)
+               ->  Data Node Scan on p1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                      Output: public.p1.a, public.p1.b
                      Remote query: SELECT a, b FROM ONLY p1 WHERE true FOR UPDATE OF p1
-               ->  Data Node Scan on p1  (cost=0.00..0.00 rows=1000 width=8)
+               ->  Data Node Scan on c1 "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
                      Output: public.p1.a, public.p1.b
                      Remote query: SELECT a, b FROM ONLY c1 p1 WHERE true
 (11 rows)
