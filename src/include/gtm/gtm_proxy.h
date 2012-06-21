@@ -69,6 +69,7 @@ typedef struct GTMProxy_ThreadInfo
 	 */
 	GTM_ThreadID			thr_id;
 	uint32					thr_localid;
+	bool					is_main_thread;
 	void * (* thr_startroutine)(void *);
 	
 	MemoryContext	thr_thread_context;
