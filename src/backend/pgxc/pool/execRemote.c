@@ -2056,7 +2056,7 @@ pgxc_node_remote_abort(void)
  * The copy_connections array must have room for NumDataNodes items
  */
 PGXCNodeHandle**
-DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot, bool is_from)
+DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot)
 {
 	int i;
 	int conn_count = list_length(nodelist) == 0 ? NumDataNodes : list_length(nodelist);
