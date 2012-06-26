@@ -1506,9 +1506,8 @@ BeginCopy(bool is_from,
 		if (cstate->rel_loc)
 		{
 			cstate->connections = DataNodeCopyBegin(cstate->query_buf.data,
-								exec_nodes->nodeList,
-								GetActiveSnapshot(),
-								is_from);
+													exec_nodes->nodeList,
+													GetActiveSnapshot());
 			if (!cstate->connections)
 				ereport(ERROR,
 						(errcode(ERRCODE_CONNECTION_EXCEPTION),
