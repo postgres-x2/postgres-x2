@@ -226,12 +226,9 @@ ALTER TABLE tmp3 VALIDATE CONSTRAINT b_le_20;	-- succeeds
 CREATE FUNCTION boo(int) RETURNS int IMMUTABLE STRICT LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'boo: %', $1; RETURN $1; END; $$;
 INSERT INTO tmp7 VALUES (8, 18);
 ALTER TABLE tmp7 ADD CONSTRAINT identity CHECK (b = boo(b));
-NOTICE:  boo: 18
 ALTER TABLE tmp3 ADD CONSTRAINT IDENTITY check (b = boo(b)) NOT VALID;
 NOTICE:  merging constraint "identity" with inherited definition
 ALTER TABLE tmp3 VALIDATE CONSTRAINT identity;
-NOTICE:  boo: 16
-NOTICE:  boo: 20
 -- Try (and fail) to create constraint from tmp5(a) to tmp4(a) - unique constraint on
 -- tmp4 is a,b
 ALTER TABLE tmp5 add constraint tmpconstr foreign key(a) references tmp4(a) match full;
@@ -250,62 +247,49 @@ create table nv_child_2010 () inherits (nv_parent);
 create table nv_child_2011 () inherits (nv_parent);
 alter table nv_child_2010 add check (d between '2010-01-01'::date and '2010-12-31'::date) not valid;
 alter table nv_child_2011 add check (d between '2011-01-01'::date and '2011-12-31'::date) not valid;
-explain (costs off) select * from nv_parent where d between '2011-08-01' and '2011-08-31';
-                                   QUERY PLAN                                    
----------------------------------------------------------------------------------
+explain (costs off, nodes off) select * from nv_parent where d between '2011-08-01' and '2011-08-31';
+                             QUERY PLAN                             
+--------------------------------------------------------------------
  Result
    ->  Append
-         ->  Seq Scan on nv_parent
-               Filter: ((d >= '08-01-2011'::date) AND (d <= '08-31-2011'::date))
-         ->  Seq Scan on nv_child_2010 nv_parent
-               Filter: ((d >= '08-01-2011'::date) AND (d <= '08-31-2011'::date))
-         ->  Seq Scan on nv_child_2011 nv_parent
-               Filter: ((d >= '08-01-2011'::date) AND (d <= '08-31-2011'::date))
-(8 rows)
+         ->  Data Node Scan on nv_parent "_REMOTE_TABLE_QUERY_"
+         ->  Data Node Scan on nv_child_2010 "_REMOTE_TABLE_QUERY_"
+         ->  Data Node Scan on nv_child_2011 "_REMOTE_TABLE_QUERY_"
+(5 rows)
 
 create table nv_child_2009 (check (d between '2009-01-01'::date and '2009-12-31'::date)) inherits (nv_parent);
-explain (costs off) select * from nv_parent where d between '2011-08-01'::date and '2011-08-31'::date;
-                                   QUERY PLAN                                    
----------------------------------------------------------------------------------
+explain (costs off, nodes off) select * from nv_parent where d between '2011-08-01'::date and '2011-08-31'::date;
+                             QUERY PLAN                             
+--------------------------------------------------------------------
  Result
    ->  Append
-         ->  Seq Scan on nv_parent
-               Filter: ((d >= '08-01-2011'::date) AND (d <= '08-31-2011'::date))
-         ->  Seq Scan on nv_child_2010 nv_parent
-               Filter: ((d >= '08-01-2011'::date) AND (d <= '08-31-2011'::date))
-         ->  Seq Scan on nv_child_2011 nv_parent
-               Filter: ((d >= '08-01-2011'::date) AND (d <= '08-31-2011'::date))
-(8 rows)
+         ->  Data Node Scan on nv_parent "_REMOTE_TABLE_QUERY_"
+         ->  Data Node Scan on nv_child_2010 "_REMOTE_TABLE_QUERY_"
+         ->  Data Node Scan on nv_child_2011 "_REMOTE_TABLE_QUERY_"
+(5 rows)
 
-explain (costs off) select * from nv_parent where d between '2009-08-01'::date and '2009-08-31'::date;
-                                   QUERY PLAN                                    
----------------------------------------------------------------------------------
+explain (costs off, nodes off) select * from nv_parent where d between '2009-08-01'::date and '2009-08-31'::date;
+                             QUERY PLAN                             
+--------------------------------------------------------------------
  Result
    ->  Append
-         ->  Seq Scan on nv_parent
-               Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
-         ->  Seq Scan on nv_child_2010 nv_parent
-               Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
-         ->  Seq Scan on nv_child_2011 nv_parent
-               Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
-         ->  Seq Scan on nv_child_2009 nv_parent
-               Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
-(10 rows)
+         ->  Data Node Scan on nv_parent "_REMOTE_TABLE_QUERY_"
+         ->  Data Node Scan on nv_child_2010 "_REMOTE_TABLE_QUERY_"
+         ->  Data Node Scan on nv_child_2011 "_REMOTE_TABLE_QUERY_"
+         ->  Data Node Scan on nv_child_2009 "_REMOTE_TABLE_QUERY_"
+(6 rows)
 
 -- after validation, the constraint should be used
 alter table nv_child_2011 VALIDATE CONSTRAINT nv_child_2011_d_check;
-explain (costs off) select * from nv_parent where d between '2009-08-01'::date and '2009-08-31'::date;
-                                   QUERY PLAN                                    
----------------------------------------------------------------------------------
+explain (costs off, nodes off) select * from nv_parent where d between '2009-08-01'::date and '2009-08-31'::date;
+                             QUERY PLAN                             
+--------------------------------------------------------------------
  Result
    ->  Append
-         ->  Seq Scan on nv_parent
-               Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
-         ->  Seq Scan on nv_child_2010 nv_parent
-               Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
-         ->  Seq Scan on nv_child_2009 nv_parent
-               Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
-(8 rows)
+         ->  Data Node Scan on nv_parent "_REMOTE_TABLE_QUERY_"
+         ->  Data Node Scan on nv_child_2010 "_REMOTE_TABLE_QUERY_"
+         ->  Data Node Scan on nv_child_2009 "_REMOTE_TABLE_QUERY_"
+(5 rows)
 
 -- Foreign key adding test with mixed types
 -- Note: these tables are TEMP to avoid name conflicts when this test
