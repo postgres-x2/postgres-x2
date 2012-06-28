@@ -15,6 +15,9 @@
 
 #include "libpq-fe.h"
 
+/* Use port in the private/dynamic port number range */
+#define DEF_PGUPORT			50432
+
 /* Allocate for null byte */
 #define USER_NAME_SIZE		128
 
@@ -184,8 +187,8 @@ typedef struct
 	unsigned short port;		/* port number where postmaster is waiting */
 	uint32		major_version;	/* PG_VERSION of cluster */
 	char		major_version_str[64];	/* string PG_VERSION of cluster */
+	uint32		bin_version;	/* version returned from pg_ctl */
 	Oid			pg_database_oid;	/* OID of pg_database relation */
-	char	   *libpath;		/* pathname for cluster's pkglibdir */
 	char	   *tablespace_suffix;		/* directory specification */
 } ClusterInfo;
 

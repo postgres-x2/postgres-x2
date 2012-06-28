@@ -44,6 +44,7 @@
 #include "pgxc/postgresql_fdw.h"
 #include "access/sysattr.h"
 #include "utils/builtins.h"
+#include "utils/rel.h"
 #include "utils/syscache.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
@@ -796,7 +797,9 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 		 * intermediate, the children vars may or may not be referenced
 		 * multiple times in it.
 		 */
-		parent_vars = pull_var_clause((Node *)parent->targetlist, PVC_RECURSE_PLACEHOLDERS);
+		parent_vars = pull_var_clause((Node *)parent->targetlist,
+									  PVC_RECURSE_AGGREGATES,
+									  PVC_RECURSE_PLACEHOLDERS);
 
 		findReferencedVars(parent_vars, outer, &out_tlist, &out_relids);
 		findReferencedVars(parent_vars, inner, &in_tlist, &in_relids);
@@ -2608,6 +2611,7 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	 * evaluating the quals. Add those quals in the targetlist
 	 */
 	tlist = add_to_flat_tlist(tlist, copyObject(pull_var_clause((Node *)local_scan_clauses,
+																PVC_RECURSE_AGGREGATES,
 																PVC_RECURSE_PLACEHOLDERS)));
 	tlist_is_simple = contains_only_vars(tlist);
 
@@ -2647,7 +2651,9 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 		query->targetList = copyObject(tlist);
 	else
 	{
-		tvarlist = copyObject(pull_var_clause((Node *)tlist, PVC_RECURSE_PLACEHOLDERS));
+		tvarlist = copyObject(pull_var_clause((Node *)tlist,
+											  PVC_RECURSE_AGGREGATES,
+											  PVC_RECURSE_PLACEHOLDERS));
 		query->targetList = add_to_flat_tlist(NIL, copyObject(tvarlist));
 	}
 
@@ -2664,9 +2670,12 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	 * Datanode to 1, to match the rtable in the query. Do the same for Var
 	 * nodes in quals.
 	 */
-	varlist = list_concat(pull_var_clause((Node *)query->targetList, PVC_RECURSE_PLACEHOLDERS),
+	varlist = list_concat(pull_var_clause((Node *)query->targetList,
+										  PVC_RECURSE_AGGREGATES,
+										  PVC_RECURSE_PLACEHOLDERS),
 							pull_var_clause((Node *)query->jointree->quals,
-												PVC_RECURSE_PLACEHOLDERS));
+											PVC_RECURSE_AGGREGATES,
+											PVC_RECURSE_PLACEHOLDERS));
 
 	foreach(varcell, varlist)
 	{
@@ -4585,6 +4594,7 @@ prepare_sort_from_pathkeys(PlannerInfo *root, Plan *lefttree, List *pathkeys,
 						continue;
 					sortexpr = em->em_expr;
 					exprvars = pull_var_clause((Node *) sortexpr,
+											   PVC_RECURSE_AGGREGATES,
 											   PVC_INCLUDE_PLACEHOLDERS);
 					foreach(k, exprvars)
 					{
@@ -5447,7 +5457,9 @@ findReferencedVars(List *parent_vars, RemoteQuery *plan, List **out_tlist, Relid
 	ListCell *l;
 
 	/* Pull vars from both the targetlist and the clauses attached to this plan */
-	vars = pull_var_clause((Node *)plan->base_tlist, PVC_REJECT_PLACEHOLDERS);
+	vars = pull_var_clause((Node *)plan->base_tlist,
+						   PVC_RECURSE_AGGREGATES,
+						   PVC_REJECT_PLACEHOLDERS);
 
 	foreach(l, vars)
 	{
@@ -5461,7 +5473,9 @@ findReferencedVars(List *parent_vars, RemoteQuery *plan, List **out_tlist, Relid
 	}
 
 	/* Now consider the local quals */
-	vars = pull_var_clause((Node *)plan->scan.plan.qual, PVC_REJECT_PLACEHOLDERS);
+	vars = pull_var_clause((Node *)plan->scan.plan.qual,
+						   PVC_RECURSE_AGGREGATES,
+						   PVC_REJECT_PLACEHOLDERS);
 
 	foreach(l, vars)
 	{
@@ -6161,7 +6175,8 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 
 	/* find all the relations referenced by targetlist of Grouping node */
 	temp_vars = pull_var_clause((Node *)local_plan->targetlist,
-									PVC_REJECT_PLACEHOLDERS);
+								PVC_RECURSE_AGGREGATES,
+								PVC_REJECT_PLACEHOLDERS);
 	findReferencedVars(temp_vars, remote_scan, &temp_vartlist, &in_relids);
 
 	/*

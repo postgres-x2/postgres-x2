@@ -25,6 +25,7 @@
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
+#include "utils/rel.h"
 #include "utils/syscache.h"
 
 #define DEBUG_FDW
@@ -245,6 +246,7 @@ deparseSql(RemoteQueryState *scanstate)
 	int				i;
 	TupleDesc		tupdesc;
 	bool			first;
+	Relation		relation;
 
 	/* extract RemoteQuery and RangeTblEntry */
 	scan = (RemoteQuery *)scanstate->ss.ps.plan;
@@ -282,7 +284,8 @@ deparseSql(RemoteQueryState *scanstate)
 	 * columns because some columns may be used only in parent Sort/Agg/Limit
 	 * nodes.
 	 */
-	tupdesc = scanstate->ss.ss_currentRelation->rd_att;
+	relation = scanstate->ss.ss_currentRelation;
+	tupdesc = RelationGetDescr(relation);
 	first = true;
 	for (i = 0; i < tupdesc->natts; i++)
 	{

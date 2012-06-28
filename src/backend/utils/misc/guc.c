@@ -582,10 +582,12 @@ const char *const config_group_names[] =
 	gettext_noop("Write-Ahead Log / Checkpoints"),
 	/* WAL_ARCHIVING */
 	gettext_noop("Write-Ahead Log / Archiving"),
-	/* WAL_REPLICATION */
-	gettext_noop("Write-Ahead Log / Streaming Replication"),
-	/* WAL_STANDBY_SERVERS */
-	gettext_noop("Write-Ahead Log / Standby Servers"),
+	/* REPLICATION */
+	gettext_noop("Replication"),
+	/* REPLICATION_MASTER */
+	gettext_noop("Replication / Master Server"),
+	/* REPLICATION_STANDBY */
+	gettext_noop("Replication / Standby Servers"),
 	/* QUERY_TUNING */
 	gettext_noop("Query Tuning"),
 	/* QUERY_TUNING_METHOD */
@@ -895,16 +897,6 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 	{
-		{"silent_mode", PGC_POSTMASTER, LOGGING_WHERE,
-			gettext_noop("Runs the server silently."),
-			gettext_noop("If this parameter is set, the server will automatically run in the "
-				 "background and any controlling terminals are dissociated.")
-		},
-		&SilentMode,
-		false,
-		NULL, NULL, NULL
-	},
-	{
 		{"log_checkpoints", PGC_SIGHUP, LOGGING_WHAT,
 			gettext_noop("Logs each checkpoint."),
 			NULL
@@ -957,7 +949,7 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 	{
 		{"restart_after_crash", PGC_SIGHUP, ERROR_HANDLING_OPTIONS,
-			gettext_noop("Reinitialize after backend crash."),
+			gettext_noop("Reinitialize server after backend crash."),
 			NULL
 		},
 		&restart_after_crash,
@@ -1437,7 +1429,7 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
-		{"hot_standby", PGC_POSTMASTER, WAL_STANDBY_SERVERS,
+		{"hot_standby", PGC_POSTMASTER, REPLICATION_STANDBY,
 			gettext_noop("Allows connections and queries during recovery."),
 			NULL
 		},
@@ -1447,8 +1439,8 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
-		{"hot_standby_feedback", PGC_SIGHUP, WAL_STANDBY_SERVERS,
-			gettext_noop("Allows feedback from a hot standby primary that will avoid query conflicts."),
+		{"hot_standby_feedback", PGC_SIGHUP, REPLICATION_STANDBY,
+			gettext_noop("Allows feedback from a hot standby to the primary that will avoid query conflicts."),
 			NULL
 		},
 		&hot_standby_feedback,
@@ -1642,8 +1634,8 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
-		/* This is PGC_SIGHUP so all backends have the same value. */
-		{"deadlock_timeout", PGC_SIGHUP, LOCK_MANAGEMENT,
+		/* This is PGC_SUSET to prevent hiding from log_lock_waits. */
+		{"deadlock_timeout", PGC_SUSET, LOCK_MANAGEMENT,
 			gettext_noop("Sets the time to wait on a lock before checking for deadlock."),
 			NULL,
 			GUC_UNIT_MS
@@ -1654,7 +1646,7 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
-		{"max_standby_archive_delay", PGC_SIGHUP, WAL_STANDBY_SERVERS,
+		{"max_standby_archive_delay", PGC_SIGHUP, REPLICATION_STANDBY,
 			gettext_noop("Sets the maximum delay before canceling queries when a hot standby server is processing archived WAL data."),
 			NULL,
 			GUC_UNIT_MS
@@ -1665,7 +1657,7 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
-		{"max_standby_streaming_delay", PGC_SIGHUP, WAL_STANDBY_SERVERS,
+		{"max_standby_streaming_delay", PGC_SIGHUP, REPLICATION_STANDBY,
 			gettext_noop("Sets the maximum delay before canceling queries when a hot standby server is processing streamed WAL data."),
 			NULL,
 			GUC_UNIT_MS
@@ -1676,8 +1668,8 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
-		{"wal_receiver_status_interval", PGC_SIGHUP, WAL_STANDBY_SERVERS,
-			gettext_noop("Sets the maximum interval between WAL receiver status reports to the master."),
+		{"wal_receiver_status_interval", PGC_SIGHUP, REPLICATION_STANDBY,
+			gettext_noop("Sets the maximum interval between WAL receiver status reports to the primary."),
 			NULL,
 			GUC_UNIT_S
 		},
@@ -1966,7 +1958,7 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
-		{"vacuum_defer_cleanup_age", PGC_SIGHUP, WAL_REPLICATION,
+		{"vacuum_defer_cleanup_age", PGC_SIGHUP, REPLICATION_MASTER,
 			gettext_noop("Number of transactions by which VACUUM and HOT cleanup should be deferred, if any."),
 			NULL
 		},
@@ -2026,7 +2018,7 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
-		{"wal_keep_segments", PGC_SIGHUP, WAL_REPLICATION,
+		{"wal_keep_segments", PGC_SIGHUP, REPLICATION_MASTER,
 			gettext_noop("Sets the number of WAL files held for standby servers."),
 			NULL
 		},
@@ -2094,7 +2086,7 @@ static struct config_int ConfigureNamesInt[] =
 
 	{
 		/* see max_connections */
-		{"max_wal_senders", PGC_POSTMASTER, WAL_REPLICATION,
+		{"max_wal_senders", PGC_POSTMASTER, REPLICATION_MASTER,
 			gettext_noop("Sets the maximum number of simultaneously running WAL sender processes."),
 			NULL
 		},
@@ -2104,7 +2096,7 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
-		{"wal_sender_delay", PGC_SIGHUP, WAL_REPLICATION,
+		{"wal_sender_delay", PGC_SIGHUP, REPLICATION_MASTER,
 			gettext_noop("WAL sender sleep time between WAL replications."),
 			NULL,
 			GUC_UNIT_MS
@@ -2115,7 +2107,7 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
-		{"replication_timeout", PGC_SIGHUP, WAL_REPLICATION,
+		{"replication_timeout", PGC_SIGHUP, REPLICATION_MASTER,
 			gettext_noop("Sets the maximum time to wait for WAL replication."),
 			NULL,
 			GUC_UNIT_MS
@@ -3142,8 +3134,8 @@ static struct config_string ConfigureNamesString[] =
 	},
 
 	{
-		{"synchronous_standby_names", PGC_SIGHUP, WAL_REPLICATION,
-			gettext_noop("List of potential standby names to synchronise with."),
+		{"synchronous_standby_names", PGC_SIGHUP, REPLICATION_MASTER,
+			gettext_noop("List of names of potential synchronous standbys."),
 			NULL,
 			GUC_LIST_INPUT
 		},
@@ -6055,8 +6047,11 @@ SetConfigOption(const char *name, const char *value,
 
 
 /*
- * Fetch the current value of the option `name'. If the option doesn't exist,
- * throw an ereport and don't return.
+ * Fetch the current value of the option `name', as a string.
+ *
+ * If the option doesn't exist, return NULL if missing_ok is true (NOTE that
+ * this cannot be distinguished from a string variable with a NULL value!),
+ * otherwise throw an ereport and don't return.
  *
  * If restrict_superuser is true, we also enforce that only superusers can
  * see GUC_SUPERUSER_ONLY variables.  This should only be passed as true
@@ -6066,16 +6061,21 @@ SetConfigOption(const char *name, const char *value,
  * valid until the next call to configuration related functions.
  */
 const char *
-GetConfigOption(const char *name, bool restrict_superuser)
+GetConfigOption(const char *name, bool missing_ok, bool restrict_superuser)
 {
 	struct config_generic *record;
 	static char buffer[256];
 
 	record = find_option(name, false, ERROR);
 	if (record == NULL)
+	{
+		if (missing_ok)
+			return NULL;
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
-			   errmsg("unrecognized configuration parameter \"%s\"", name)));
+				 errmsg("unrecognized configuration parameter \"%s\"",
+						name)));
+	}
 	if (restrict_superuser &&
 		(record->flags & GUC_SUPERUSER_ONLY) &&
 		!superuser())
@@ -8478,7 +8478,7 @@ check_temp_buffers(int *newval, void **extra, GucSource source)
 	 */
 	if (NLocBuffer && NLocBuffer != *newval)
 	{
-		GUC_check_errdetail("\"temp_buffers\" cannot be changed after any temp tables have been accessed in the session.");
+		GUC_check_errdetail("\"temp_buffers\" cannot be changed after any temporary tables have been accessed in the session.");
 		return false;
 	}
 	return true;

@@ -16,6 +16,7 @@
 #include "access/heapam.h"
 #include "access/sysattr.h"
 #include "catalog/pg_type.h"
+#include "commands/trigger.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "parser/analyze.h"
@@ -26,7 +27,7 @@
 #include "rewrite/rewriteManip.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
-#include "commands/trigger.h"
+#include "utils/rel.h"
 
 #ifdef PGXC
 #include "pgxc/locator.h"

@@ -71,7 +71,7 @@
 #include "utils/fmgroids.h"
 #include "utils/inval.h"
 #include "utils/lsyscache.h"
-#include "utils/relcache.h"
+#include "utils/rel.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #include "utils/tqual.h"
@@ -109,7 +109,7 @@ static Oid AddNewRelationType(const char *typeName,
 				   Oid new_array_type);
 static void RelationRemoveInheritance(Oid relid);
 static void StoreRelCheck(Relation rel, char *ccname, Node *expr,
-			  bool is_local, int inhcount);
+			  bool is_validated, bool is_local, int inhcount);
 static void StoreConstraints(Relation rel, List *cooked_constraints);
 static bool MergeWithExistingConstraint(Relation rel, char *ccname, Node *expr,
 							bool allow_merge, bool is_local);
@@ -1611,7 +1611,7 @@ heap_create_with_catalog(const char *relname,
 	/*
 	 * If this is an unlogged relation, it needs an init fork so that it can
 	 * be correctly reinitialized on restart.  Since we're going to do an
-	 * immediate sync, we ony need to xlog this if archiving or streaming is
+	 * immediate sync, we only need to xlog this if archiving or streaming is
 	 * enabled.  And the immediate sync is required, because otherwise there's
 	 * no guarantee that this will hit the disk before the next checkpoint
 	 * moves the redo pointer.
@@ -1620,6 +1620,7 @@ heap_create_with_catalog(const char *relname,
 	{
 		Assert(relkind == RELKIND_RELATION || relkind == RELKIND_TOASTVALUE);
 
+		RelationOpenSmgr(new_rel_desc);
 		smgrcreate(new_rel_desc->rd_smgr, INIT_FORKNUM, false);
 		if (XLogIsNeeded())
 			log_smgrcreate(&new_rel_desc->rd_smgr->smgr_rnode.node,
@@ -2170,7 +2171,7 @@ StoreAttrDefault(Relation rel, AttrNumber attnum, Node *expr)
  */
 static void
 StoreRelCheck(Relation rel, char *ccname, Node *expr,
-			  bool is_local, int inhcount)
+			  bool is_validated, bool is_local, int inhcount)
 {
 	char	   *ccbin;
 	char	   *ccsrc;
@@ -2198,7 +2199,9 @@ StoreRelCheck(Relation rel, char *ccname, Node *expr,
 	 * in check constraints; it would fail to examine the contents of
 	 * subselects.
 	 */
-	varList = pull_var_clause(expr, PVC_REJECT_PLACEHOLDERS);
+	varList = pull_var_clause(expr,
+							  PVC_REJECT_AGGREGATES,
+							  PVC_REJECT_PLACEHOLDERS);
 	keycount = list_length(varList);
 
 	if (keycount > 0)
@@ -2231,7 +2234,7 @@ StoreRelCheck(Relation rel, char *ccname, Node *expr,
 						  CONSTRAINT_CHECK,		/* Constraint Type */
 						  false,	/* Is Deferrable */
 						  false,	/* Is Deferred */
-						  true, /* Is Validated */
+						  is_validated,
 						  RelationGetRelid(rel),		/* relation */
 						  attNos,		/* attrs in the constraint */
 						  keycount,		/* # attrs in the constraint */
@@ -2291,7 +2294,7 @@ StoreConstraints(Relation rel, List *cooked_constraints)
 				StoreAttrDefault(rel, con->attnum, con->expr);
 				break;
 			case CONSTR_CHECK:
-				StoreRelCheck(rel, con->name, con->expr,
+				StoreRelCheck(rel, con->name, con->expr, !con->skip_validation,
 							  con->is_local, con->inhcount);
 				numchecks++;
 				break;
@@ -2405,6 +2408,7 @@ AddRelationNewConstraints(Relation rel,
 		cooked->name = NULL;
 		cooked->attnum = colDef->attnum;
 		cooked->expr = expr;
+		cooked->skip_validation = false;
 		cooked->is_local = is_local;
 		cooked->inhcount = is_local ? 0 : 1;
 		cookedConstraints = lappend(cookedConstraints, cooked);
@@ -2494,7 +2498,9 @@ AddRelationNewConstraints(Relation rel,
 			List	   *vars;
 			char	   *colname;
 
-			vars = pull_var_clause(expr, PVC_REJECT_PLACEHOLDERS);
+			vars = pull_var_clause(expr,
+								   PVC_REJECT_AGGREGATES,
+								   PVC_REJECT_PLACEHOLDERS);
 
 			/* eliminate duplicates */
 			vars = list_union(NIL, vars);
@@ -2518,7 +2524,8 @@ AddRelationNewConstraints(Relation rel,
 		/*
 		 * OK, store it.
 		 */
-		StoreRelCheck(rel, ccname, expr, is_local, is_local ? 0 : 1);
+		StoreRelCheck(rel, ccname, expr, !cdef->skip_validation, is_local,
+					  is_local ? 0 : 1);
 
 		numchecks++;
 
@@ -2527,6 +2534,7 @@ AddRelationNewConstraints(Relation rel,
 		cooked->name = ccname;
 		cooked->attnum = 0;
 		cooked->expr = expr;
+		cooked->skip_validation = cdef->skip_validation;
 		cooked->is_local = is_local;
 		cooked->inhcount = is_local ? 0 : 1;
 		cookedConstraints = lappend(cookedConstraints, cooked);

@@ -28,6 +28,9 @@
 #include "utils/builtins.h"
 #endif
 
+/* Handy constant for an invalid xlog recptr */
+const XLogRecPtr InvalidXLogRecPtr = {0, 0};
+
 /*
  * Single-item cache for results of TransactionLogFetch.  It's worth having
  * such a cache because we frequently find ourselves repeatedly checking the
@@ -37,9 +40,6 @@
 static TransactionId cachedFetchXid = InvalidTransactionId;
 static XidStatus cachedFetchXidStatus;
 static XLogRecPtr cachedCommitLSN;
-
-/* Handy constant for an invalid xlog recptr */
-static const XLogRecPtr InvalidXLogRecPtr = {0, 0};
 
 /* Local functions */
 static XidStatus TransactionLogFetch(TransactionId transactionId);

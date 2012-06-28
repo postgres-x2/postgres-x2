@@ -93,6 +93,7 @@
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/ps_status.h"
+#include "utils/rel.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #include "utils/tqual.h"
@@ -555,7 +556,7 @@ AutoVacLauncherMain(int argc, char *argv[])
 		 * Emergency bailout if postmaster has died.  This is to avoid the
 		 * necessity for manual cleanup of all postmaster children.
 		 */
-		if (!PostmasterIsAlive(true))
+		if (!PostmasterIsAlive())
 			proc_exit(1);
 
 		launcher_determine_sleep((AutoVacuumShmem->av_freeWorkers != NULL),
@@ -592,7 +593,7 @@ AutoVacLauncherMain(int argc, char *argv[])
 			 * Emergency bailout if postmaster has died.  This is to avoid the
 			 * necessity for manual cleanup of all postmaster children.
 			 */
-			if (!PostmasterIsAlive(true))
+			if (!PostmasterIsAlive())
 				proc_exit(1);
 
 			if (got_SIGTERM || got_SIGHUP || got_SIGUSR2)
@@ -714,7 +715,7 @@ AutoVacLauncherMain(int argc, char *argv[])
 					worker->wi_links.next = (SHM_QUEUE *) AutoVacuumShmem->av_freeWorkers;
 					AutoVacuumShmem->av_freeWorkers = worker;
 					AutoVacuumShmem->av_startingWorker = NULL;
-					elog(WARNING, "worker took too long to start; cancelled");
+					elog(WARNING, "worker took too long to start; canceled");
 				}
 			}
 			else
@@ -1461,7 +1462,7 @@ AutoVacWorkerMain(int argc, char *argv[])
 	pqsignal(SIGHUP, SIG_IGN);
 
 	/*
-	 * SIGINT is used to signal cancelling the current table's vacuum; SIGTERM
+	 * SIGINT is used to signal canceling the current table's vacuum; SIGTERM
 	 * means abort and exit cleanly, and SIGQUIT means abandon ship.
 	 */
 	pqsignal(SIGINT, StatementCancelHandler);

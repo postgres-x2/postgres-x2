@@ -369,11 +369,11 @@ static const SchemaQuery Query_for_list_of_updatables = {
 	NULL
 };
 
-static const SchemaQuery Query_for_list_of_tisvf = {
+static const SchemaQuery Query_for_list_of_relations = {
 	/* catname */
 	"pg_catalog.pg_class c",
 	/* selcondition */
-	"c.relkind IN ('r', 'i', 'S', 'v', 'f')",
+	NULL,
 	/* viscondition */
 	"pg_catalog.pg_table_is_visible(c.oid)",
 	/* namespace */
@@ -784,7 +784,7 @@ psql_completion(char *text, int start, int end)
 		"\\dF", "\\dFd", "\\dFp", "\\dFt", "\\dg", "\\di", "\\dl", "\\dL",
 		"\\dn", "\\do", "\\dp", "\\drds", "\\ds", "\\dS", "\\dt", "\\dT", "\\dv", "\\du",
 		"\\e", "\\echo", "\\ef", "\\encoding",
-		"\\f", "\\g", "\\h", "\\help", "\\H", "\\i", "\\l",
+		"\\f", "\\g", "\\h", "\\help", "\\H", "\\i", "\\ir", "\\l",
 		"\\lo_import", "\\lo_export", "\\lo_list", "\\lo_unlink",
 		"\\o", "\\p", "\\password", "\\prompt", "\\pset", "\\q", "\\qecho", "\\r",
 		"\\set", "\\sf", "\\t", "\\T",
@@ -1689,9 +1689,10 @@ psql_completion(char *text, int start, int end)
 			 pg_strcasecmp(prev_wd, "ON") == 0)
 	{
 		static const char *const list_COMMENT[] =
-		{"CAST", "COLLATION", "CONVERSION", "DATABASE", "FOREIGN DATA WRAPPER",
-			"SERVER", "FOREIGN TABLE", "INDEX", "LANGUAGE", "RULE", "SCHEMA",
-			"SEQUENCE", "TABLE", "TYPE", "VIEW", "COLUMN", "AGGREGATE", "FUNCTION",
+		{"CAST", "COLLATION", "CONVERSION", "DATABASE", "EXTENSION",
+			"FOREIGN DATA WRAPPER", "FOREIGN TABLE",
+			"SERVER", "INDEX", "LANGUAGE", "RULE", "SCHEMA", "SEQUENCE",
+			"TABLE", "TYPE", "VIEW", "COLUMN", "AGGREGATE", "FUNCTION",
 			"OPERATOR", "TRIGGER", "CONSTRAINT", "DOMAIN", "LARGE OBJECT",
 		"TABLESPACE", "TEXT SEARCH", "ROLE", NULL};
 
@@ -1718,11 +1719,10 @@ psql_completion(char *text, int start, int end)
 	}
 	else if ((pg_strcasecmp(prev4_wd, "COMMENT") == 0 &&
 			  pg_strcasecmp(prev3_wd, "ON") == 0) ||
+			 (pg_strcasecmp(prev5_wd, "COMMENT") == 0 &&
+			  pg_strcasecmp(prev4_wd, "ON") == 0) ||
 			 (pg_strcasecmp(prev6_wd, "COMMENT") == 0 &&
-			  pg_strcasecmp(prev5_wd, "ON") == 0) ||
-			 (pg_strcasecmp(prev5_wd, "ON") == 0 &&
-			  pg_strcasecmp(prev4_wd, "TEXT") == 0 &&
-			  pg_strcasecmp(prev3_wd, "SEARCH") == 0))
+			  pg_strcasecmp(prev5_wd, "ON") == 0))
 		COMPLETE_WITH_CONST("IS");
 
 /* COPY */
@@ -3029,7 +3029,7 @@ psql_completion(char *text, int start, int end)
 
 	/* must be at end of \d list */
 	else if (strncmp(prev_wd, "\\d", strlen("\\d")) == 0)
-		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_tisvf, NULL);
+		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_relations, NULL);
 
 	else if (strcmp(prev_wd, "\\ef") == 0)
 		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_functions, NULL);
@@ -3077,6 +3077,7 @@ psql_completion(char *text, int start, int end)
 			 strcmp(prev_wd, "\\e") == 0 || strcmp(prev_wd, "\\edit") == 0 ||
 			 strcmp(prev_wd, "\\g") == 0 ||
 		  strcmp(prev_wd, "\\i") == 0 || strcmp(prev_wd, "\\include") == 0 ||
+		  strcmp(prev_wd, "\\ir") == 0 || strcmp(prev_wd, "\\include_relative") == 0 ||
 			 strcmp(prev_wd, "\\o") == 0 || strcmp(prev_wd, "\\out") == 0 ||
 			 strcmp(prev_wd, "\\s") == 0 ||
 			 strcmp(prev_wd, "\\w") == 0 || strcmp(prev_wd, "\\write") == 0

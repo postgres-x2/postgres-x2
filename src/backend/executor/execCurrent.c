@@ -18,6 +18,7 @@
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/portal.h"
+#include "utils/rel.h"
 
 #ifdef PGXC
 #include "pgxc/execRemote.h"

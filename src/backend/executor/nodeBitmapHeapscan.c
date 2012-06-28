@@ -44,6 +44,7 @@
 #include "storage/bufmgr.h"
 #include "storage/predicate.h"
 #include "utils/memutils.h"
+#include "utils/rel.h"
 #include "utils/snapmgr.h"
 #include "utils/tqual.h"
 
@@ -350,9 +351,11 @@ bitgetpage(HeapScanDesc scan, TBMIterateResult *tbmres)
 		{
 			OffsetNumber offnum = tbmres->offsets[curslot];
 			ItemPointerData tid;
+			HeapTupleData	heapTuple;
 
 			ItemPointerSet(&tid, page, offnum);
-			if (heap_hot_search_buffer(&tid, scan->rs_rd, buffer, snapshot, NULL))
+			if (heap_hot_search_buffer(&tid, scan->rs_rd, buffer, snapshot,
+									   &heapTuple, NULL, true))
 				scan->rs_vistuples[ntup++] = ItemPointerGetOffsetNumber(&tid);
 		}
 	}
@@ -370,14 +373,23 @@ bitgetpage(HeapScanDesc scan, TBMIterateResult *tbmres)
 		{
 			ItemId		lp;
 			HeapTupleData loctup;
+			bool		valid;
 
 			lp = PageGetItemId(dp, offnum);
 			if (!ItemIdIsNormal(lp))
 				continue;
 			loctup.t_data = (HeapTupleHeader) PageGetItem((Page) dp, lp);
 			loctup.t_len = ItemIdGetLength(lp);
-			if (HeapTupleSatisfiesVisibility(&loctup, snapshot, buffer))
+			loctup.t_tableOid = scan->rs_rd->rd_id;
+			ItemPointerSet(&loctup.t_self, page, offnum);
+			valid = HeapTupleSatisfiesVisibility(&loctup, snapshot, buffer);
+			if (valid)
+			{
 				scan->rs_vistuples[ntup++] = offnum;
+				PredicateLockTuple(scan->rs_rd, &loctup, snapshot);
+			}
+			CheckForSerializableConflictOut(valid, scan->rs_rd, &loctup,
+											buffer, snapshot);
 		}
 	}
 

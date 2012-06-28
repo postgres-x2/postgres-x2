@@ -952,7 +952,7 @@ MarkBufferDirty(Buffer buffer)
 	volatile BufferDesc *bufHdr;
 
 	if (!BufferIsValid(buffer))
-		elog(ERROR, "bad buffer id: %d", buffer);
+		elog(ERROR, "bad buffer ID: %d", buffer);
 
 	if (BufferIsLocal(buffer))
 	{
@@ -2198,7 +2198,7 @@ ReleaseBuffer(Buffer buffer)
 	volatile BufferDesc *bufHdr;
 
 	if (!BufferIsValid(buffer))
-		elog(ERROR, "bad buffer id: %d", buffer);
+		elog(ERROR, "bad buffer ID: %d", buffer);
 
 	ResourceOwnerForgetBuffer(CurrentResourceOwner, buffer);
 
@@ -2270,7 +2270,7 @@ SetBufferCommitInfoNeedsSave(Buffer buffer)
 	volatile BufferDesc *bufHdr;
 
 	if (!BufferIsValid(buffer))
-		elog(ERROR, "bad buffer id: %d", buffer);
+		elog(ERROR, "bad buffer ID: %d", buffer);
 
 	if (BufferIsLocal(buffer))
 	{
@@ -2465,7 +2465,7 @@ LockBufferForCleanup(Buffer buffer)
 
 /*
  * Check called from RecoveryConflictInterrupt handler when Startup
- * process requests cancelation of all pin holders that are blocking it.
+ * process requests cancellation of all pin holders that are blocking it.
  */
 bool
 HoldingBufferPinThatDelaysRecovery(void)

@@ -15,6 +15,7 @@
 #define NAMESPACE_H
 
 #include "nodes/primnodes.h"
+#include "storage/lock.h"
 
 
 /*
@@ -47,9 +48,11 @@ typedef struct OverrideSearchPath
 } OverrideSearchPath;
 
 
-extern Oid	RangeVarGetRelid(const RangeVar *relation, bool failOK);
+extern Oid	RangeVarGetRelid(const RangeVar *relation, LOCKMODE lockmode,
+				 bool missing_ok, bool nowait);
 extern Oid	RangeVarGetCreationNamespace(const RangeVar *newRelation);
 extern Oid	RangeVarGetAndCheckCreationNamespace(const RangeVar *newRelation);
+extern void RangeVarAdjustRelationPersistence(RangeVar *newRelation, Oid nspid);
 extern Oid	RelnameGetRelid(const char *relname);
 extern bool RelationIsVisible(Oid relid);
 

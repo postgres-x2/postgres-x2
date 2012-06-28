@@ -2346,7 +2346,7 @@ PoolerLoop(void)
 		 * Emergency bailout if postmaster has died.  This is to avoid the
 		 * necessity for manual cleanup of all postmaster children.
 		 */
-		if (!PostmasterIsAlive(true))
+		if (!PostmasterIsAlive())
 			exit(1);
 
 		/* watch for incoming connections */

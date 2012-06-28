@@ -25,6 +25,7 @@
 #include "executor/executor.h"
 #include "executor/nodeForeignscan.h"
 #include "foreign/fdwapi.h"
+#include "utils/rel.h"
 
 #ifdef PGXC
 #include "utils/lsyscache.h"

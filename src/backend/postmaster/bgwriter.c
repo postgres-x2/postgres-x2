@@ -381,7 +381,7 @@ BackgroundWriterMain(void)
 		 * Emergency bailout if postmaster has died.  This is to avoid the
 		 * necessity for manual cleanup of all postmaster children.
 		 */
-		if (!PostmasterIsAlive(true))
+		if (!PostmasterIsAlive())
 			exit(1);
 
 		/*
@@ -1182,7 +1182,7 @@ CompactBgwriterRequestQueue()
 	 * intervening FORGET_RELATION_FSYNC or FORGET_DATABASE_FSYNC request, so
 	 * we do it this way.  It would be possible to be even smarter if we made
 	 * the code below understand the specific semantics of such requests (it
-	 * could blow away preceding entries that would end up being cancelled
+	 * could blow away preceding entries that would end up being canceled
 	 * anyhow), but it's not clear that the extra complexity would buy us
 	 * anything.
 	 */

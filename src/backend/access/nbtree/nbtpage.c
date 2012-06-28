@@ -560,9 +560,19 @@ _bt_getbuf(Relation rel, BlockNumber blkno, int access)
 					 */
 					if (XLogStandbyInfoActive())
 					{
+						TransactionId latestRemovedXid;
+
 						BTPageOpaque opaque = (BTPageOpaque) PageGetSpecialPointer(page);
 
-						_bt_log_reuse_page(rel, blkno, opaque->btpo.xact);
+						/*
+						 * opaque->btpo.xact is the threshold value not the
+						 * value to measure conflicts against. We must retreat
+						 * by one from it to get the correct conflict xid.
+						 */
+						latestRemovedXid = opaque->btpo.xact;
+						TransactionIdRetreat(latestRemovedXid);
+
+						_bt_log_reuse_page(rel, blkno, latestRemovedXid);
 					}
 
 					/* Okay to use page.  Re-initialize and return it */
@@ -677,6 +687,7 @@ bool
 _bt_page_recyclable(Page page)
 {
 	BTPageOpaque opaque;
+	TransactionId cutoff;
 
 	/*
 	 * It's possible to find an all-zeroes page in an index --- for example, a
@@ -689,11 +700,18 @@ _bt_page_recyclable(Page page)
 
 	/*
 	 * Otherwise, recycle if deleted and too old to have any processes
-	 * interested in it.
+	 * interested in it.  If we are generating records for Hot Standby
+	 * defer page recycling until RecentGlobalXmin to respect user
+	 * controls specified by vacuum_defer_cleanup_age or hot_standby_feedback.
 	 */
+	if (XLogStandbyInfoActive())
+		cutoff = RecentGlobalXmin;
+	else
+		cutoff = RecentXmin;
+
 	opaque = (BTPageOpaque) PageGetSpecialPointer(page);
 	if (P_ISDELETED(opaque) &&
-		TransactionIdPrecedesOrEquals(opaque->btpo.xact, RecentXmin))
+		TransactionIdPrecedesOrEquals(opaque->btpo.xact, cutoff))
 		return true;
 	return false;
 }

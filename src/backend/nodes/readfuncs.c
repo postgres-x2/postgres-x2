@@ -51,7 +51,8 @@
 /* And a few guys need only the pg_strtok support fields */
 #define READ_TEMP_LOCALS()	\
 	char	   *token;		\
-	int			length
+	int			length;		\
+	(void) token /* possibly unused */
 
 /* ... but most need both */
 #define READ_LOCALS(nodeTypeName)			\

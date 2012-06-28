@@ -15,7 +15,6 @@
 
 /* GUC options */
 extern bool EnableSSL;
-extern bool SilentMode;
 extern int	ReservedBackends;
 extern int	PostPortNumber;
 extern int	Unix_socket_permissions;
@@ -33,6 +32,14 @@ extern bool restart_after_crash;
 
 #ifdef WIN32
 extern HANDLE PostmasterHandle;
+#else
+extern int postmaster_alive_fds[2];
+/*
+ * Constants that represent which of postmaster_alive_fds is held by
+ * postmaster, and which is used in children to check for postmaster death.
+ */
+#define POSTMASTER_FD_WATCH		0	/* used in children to check for postmaster death */
+#define POSTMASTER_FD_OWN		1	/* kept open by postmaster only */
 #endif
 
 extern const char *progname;

@@ -23,6 +23,7 @@
 #include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
+#include "utils/rel.h"
 #include "utils/tqual.h"
 
 typedef struct
@@ -88,7 +89,7 @@ ExecSecLabelStmt(SecLabelStmt *stmt)
 	 * guard against concurrent modifications.
 	 */
 	address = get_object_address(stmt->objtype, stmt->objname, stmt->objargs,
-								 &relation, ShareUpdateExclusiveLock);
+								 &relation, ShareUpdateExclusiveLock, false);
 
 	/* Require ownership of the target object. */
 	check_object_ownership(GetUserId(), stmt->objtype, address,

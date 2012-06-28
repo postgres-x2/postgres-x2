@@ -38,6 +38,7 @@
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
+#include "utils/rel.h"
 #include "utils/syscache.h"
 
 
@@ -107,7 +108,12 @@ ExecRenameStmt(RenameStmt *stmt)
 
 				CheckRelationOwnership(stmt->relation, true);
 
-				relid = RangeVarGetRelid(stmt->relation, false);
+				/*
+				 * Lock level used here should match what will be taken later,
+				 * in RenameRelation, renameatt, or renametrig.
+				 */
+				relid = RangeVarGetRelid(stmt->relation, AccessExclusiveLock,
+										 false, false);
 
 				switch (stmt->renameType)
 				{
@@ -420,7 +426,7 @@ AlterObjectNamespace(Relation rel, int oidCacheId, int nameCacheId,
 		if (Anum_owner <= 0)
 			ereport(ERROR,
 					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-					 (errmsg("must be superuser to SET SCHEMA of %s",
+					 (errmsg("must be superuser to set schema of %s",
 							 getObjectDescriptionOids(classId, objid)))));
 
 		/* Otherwise, must be owner of the existing object */

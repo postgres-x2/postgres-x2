@@ -3093,21 +3093,21 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 
 #ifdef PGXC
 		/* Print info for each node */
-		printf(_("running on port %d, pooler port %d with pid %lu for Coordinator 1\n"),
+		printf(_("running on port %d, pooler port %d with PID %lu for Coordinator 1\n"),
 			   get_port_number(PGXC_COORD_1), get_pooler_port(PGXC_COORD_1), ULONGPID(get_node_pid(PGXC_COORD_1)));       
-		printf(_("running on port %d, pooler port %d with pid %lu for Coordinator 2\n"),
+		printf(_("running on port %d, pooler port %d with PID %lu for Coordinator 2\n"),
 			   get_port_number(PGXC_COORD_2), get_pooler_port(PGXC_COORD_2), ULONGPID(get_node_pid(PGXC_COORD_2)));
-		printf(_("running on port %d with pid %lu for Datanode 1\n"),
+		printf(_("running on port %d with PID %lu for Datanode 1\n"),
 			   get_port_number(PGXC_DATANODE_1), ULONGPID(get_node_pid(PGXC_DATANODE_1)));
-		printf(_("running on port %d with pid %lu for Datanode 2\n"),
+		printf(_("running on port %d with PID %lu for Datanode 2\n"),
 			   get_port_number(PGXC_DATANODE_2), ULONGPID(get_node_pid(PGXC_DATANODE_2)));
-		printf(_("running on port %d with pid %lu for GTM\n"),
+		printf(_("running on port %d with PID %lu for GTM\n"),
 			   get_port_number(PGXC_GTM), ULONGPID(get_node_pid(PGXC_GTM)));
 
 		/* Postmaster is finally running, so set up connection information on Coordinators */
 		setup_connection_information();
 #else
-		printf(_("running on port %d with pid %lu\n"),
+		printf(_("running on port %d with PID %lu\n"),
 			   port, ULONGPID(postmaster_pid));
 #endif
 	}

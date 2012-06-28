@@ -29,6 +29,7 @@
 #include "parser/parse_type.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
+#include "utils/rel.h"
 #include "utils/syscache.h"
 
 
@@ -273,11 +274,17 @@ searchRangeTable(ParseState *pstate, RangeVar *relation)
 	 * If it's an unqualified name, check for possible CTE matches. A CTE
 	 * hides any real relation matches.  If no CTE, look for a matching
 	 * relation.
+	 *
+	 * NB: It's not critical that RangeVarGetRelid return the correct answer
+	 * here in the face of concurrent DDL.  If it doesn't, the worst case
+	 * scenario is a less-clear error message.  Also, the tables involved in
+	 * the query are already locked, which reduces the number of cases in
+	 * which surprising behavior can occur.  So we do the name lookup unlocked.
 	 */
 	if (!relation->schemaname)
 		cte = scanNameSpaceForCTE(pstate, refname, &ctelevelsup);
 	if (!cte)
-		relId = RangeVarGetRelid(relation, true);
+		relId = RangeVarGetRelid(relation, NoLock, true, false);
 
 	/* Now look for RTEs matching either the relation/CTE or the alias */
 	for (levelsup = 0;
@@ -827,7 +834,7 @@ parserOpenTable(ParseState *pstate, const RangeVar *relation, int lockmode)
 	ParseCallbackState pcbstate;
 
 	setup_parser_errposition_callback(&pcbstate, pstate, relation->location);
-	rel = try_heap_openrv(relation, lockmode);
+	rel = heap_openrv_extended(relation, lockmode, true);
 	if (rel == NULL)
 	{
 		if (relation->schemaname)

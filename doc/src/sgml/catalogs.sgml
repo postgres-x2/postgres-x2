@@ -1263,7 +1263,7 @@
       <entry><type>bool</type></entry>
       <entry>
        Role can log in. That is, this role can be given as the initial
-       session authorization identifier.
+       session authorization identifier
       </entry>
      </row>
 
@@ -1274,7 +1274,7 @@
        Role is a replication role. That is, this role can initiate streaming
        replication (see <xref linkend="streaming-replication">) and set/unset
        the system backup mode using <function>pg_start_backup</> and
-       <function>pg_stop_backup</>.
+       <function>pg_stop_backup</>
       </entry>
      </row>
 
@@ -1898,7 +1898,8 @@
       <entry><structfield>convalidated</structfield></entry>
       <entry><type>bool</type></entry>
       <entry></entry>
-      <entry>Has the constraint been validated? Can only be false for foreign keys</entry>
+      <entry>Has the constraint been validated?
+       Currently, can only be false for foreign keys and CHECK constraints</entry>
      </row>
 
      <row>
@@ -4334,6 +4335,13 @@
       <entry><literal><link linkend="catalog-pg-type"><structname>pg_type</structname></link>.oid</literal></entry>
       <entry>Data type of the variadic array parameter's elements,
        or zero if the function does not have a variadic parameter</entry>
+     </row>
+
+     <row>
+      <entry><structfield>protransform</structfield></entry>
+      <entry><type>regproc</type></entry>
+      <entry><literal><link linkend="catalog-pg-proc"><structname>pg_proc</structname></link>.oid</literal></entry>
+      <entry>Calls to function can be simplified by this other function</entry>
      </row>
 
      <row>
@@ -7077,13 +7085,18 @@
   </para>
 
   <para>
-   When the <structname>pg_locks</structname> view is accessed, the
-   internal lock manager data structures are momentarily locked, and
-   a copy is made for the view to display.  This ensures that the
-   view produces a consistent set of results, while not blocking
-   normal lock manager operations longer than necessary.  Nonetheless
-   there could be some impact on database performance if this view is
-   frequently accessed.
+   The <structname>pg_locks</structname> view displays data from both the
+   regular lock manager and the predicate lock manager, which are
+   separate systems.  When this view is accessed, the internal data
+   structures of each lock manager are momentarily locked, and copies are
+   made for the view to display.  Each lock manager will therefore
+   produce a consistent set of results, but as we do not lock both lock
+   managers simultaneously, it is possible for locks to be taken or
+   released after we interrogate the regular lock manager and before we
+   interrogate the predicate lock manager.  Each lock manager is only
+   locked for the minimum possible time so as to reduce the performance
+   impact of querying this view, but there could nevertheless be some
+   impact on database performance if it is frequently accessed.
   </para>
 
   <para>
@@ -7364,7 +7377,7 @@
       <entry></entry>
       <entry>
        Role can update system catalogs directly.  (Even a superuser cannot do
-       this unless this column is true.)
+       this unless this column is true)
       </entry>
      </row>
 
@@ -7375,6 +7388,18 @@
       <entry>
        Role can log in. That is, this role can be given as the initial
        session authorization identifier
+      </entry>
+     </row>
+
+     <row>
+      <entry><structfield>rolreplication</structfield></entry>
+      <entry><type>bool</type></entry>
+      <entry></entry>
+      <entry>
+       Role is a replication role. That is, this role can initiate streaming
+       replication (see <xref linkend="streaming-replication">) and set/unset
+       the system backup mode using <function>pg_start_backup</> and
+       <function>pg_stop_backup</>
       </entry>
      </row>
 
@@ -7401,6 +7426,13 @@
       <entry></entry>
       <entry>Password expiry time (only used for password authentication);
        null if no expiration</entry>
+     </row>
+
+     <row>
+      <entry><structfield>rolconfig</structfield></entry>
+      <entry><type>text[]</type></entry>
+      <entry></entry>
+      <entry>Role-specific defaults for run-time configuration variables</entry>
      </row>
 
      <row>

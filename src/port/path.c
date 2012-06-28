@@ -75,6 +75,17 @@ skip_drive(const char *path)
 #endif
 
 /*
+ *	has_drive_prefix
+ *
+ * Return true if the given pathname has a drive prefix.
+ */
+bool
+has_drive_prefix(const char *path)
+{
+	return skip_drive(path) != path;
+}
+
+/*
  *	first_dir_separator
  *
  * Find the location of the first directory separator, return
@@ -304,7 +315,7 @@ canonicalize_path(char *path)
 		}
 		else if (pending_strips > 0 && *spath != '\0')
 		{
-			/* trim a regular directory name cancelled by ".." */
+			/* trim a regular directory name canceled by ".." */
 			trim_directory(path);
 			pending_strips--;
 			/* foo/.. should become ".", not empty */

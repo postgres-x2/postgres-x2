@@ -528,8 +528,8 @@ AlterSequence(AlterSeqStmt *stmt)
 	bool			is_restart;
 #endif
 
-	/* open and AccessShareLock sequence */
-	relid = RangeVarGetRelid(stmt->sequence, false);
+	/* Open and lock sequence. */
+	relid = RangeVarGetRelid(stmt->sequence, AccessShareLock, false, false);
 	init_sequence(relid, &elm, &seqrel);
 
 	/* allow ALTER to sequence owner only */
@@ -648,7 +648,16 @@ nextval(PG_FUNCTION_ARGS)
 	Oid			relid;
 
 	sequence = makeRangeVarFromNameList(textToQualifiedNameList(seqin));
-	relid = RangeVarGetRelid(sequence, false);
+
+	/*
+	 * XXX: This is not safe in the presence of concurrent DDL, but
+	 * acquiring a lock here is more expensive than letting nextval_internal
+	 * do it, since the latter maintains a cache that keeps us from hitting
+	 * the lock manager more than once per transaction.  It's not clear
+	 * whether the performance penalty is material in practice, but for now,
+	 * we do it this way.
+	 */
+	relid = RangeVarGetRelid(sequence, NoLock, false, false);
 
 	PG_RETURN_INT64(nextval_internal(relid));
 }

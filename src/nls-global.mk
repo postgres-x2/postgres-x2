@@ -6,12 +6,15 @@
 # needs to contain a file 'nls.mk' with the following make variable
 # assignments:
 #
-# CATALOG_NAME		-- name of the message catalog (xxx.po); probably
-#			   name of the program
-# AVAIL_LANGUAGES	-- list of languages that are provided/supported
-# GETTEXT_FILES		-- list of source files that contain message strings
-# GETTEXT_TRIGGERS	-- (optional) list of functions that contain
+# CATALOG_NAME          -- name of the message catalog (xxx.po); probably
+#                          name of the program
+# AVAIL_LANGUAGES       -- list of languages that are provided/supported
+# GETTEXT_FILES         -- list of source files that contain message strings
+# GETTEXT_TRIGGERS      -- (optional) list of functions that contain
 #                          translatable strings
+# GETTEXT_FLAGS         -- (optional) list of gettext --flag arguments to mark
+#                          function arguments that contain C format strings
+#                          (functions must be listed in TRIGGERS and FLAGS)
 #
 # That's all, the rest is done here, if --enable-nls was specified.
 #
@@ -39,6 +42,23 @@ ifdef XGETTEXT
 XGETTEXT += -ctranslator --copyright-holder='PostgreSQL Global Development Group' --msgid-bugs-address=pgsql-bugs@postgresql.org
 endif
 
+# _ is defined in c.h, so it's global
+GETTEXT_TRIGGERS += _
+GETTEXT_FLAGS    += _:1:pass-c-format
+
+
+# common settings that apply to backend and all backend modules
+BACKEND_COMMON_GETTEXT_TRIGGERS = \
+    errmsg errmsg_plural:1,2 \
+    errdetail errdetail_log errdetail_plural:1,2 \
+    errhint \
+    errcontext
+BACKEND_COMMON_GETTEXT_FLAGS = \
+    errmsg:1:c-format errmsg_plural:1:c-format errmsg_plural:2:c-format \
+    errdetail:1:c-format errdetail_log:1:c-format errdetail_plural:1:c-format errdetail_plural:2:c-format \
+    errhint:1:c-format \
+    errcontext:1:c-format
+
 
 all-po: $(MO_FILES)
 
@@ -48,7 +68,7 @@ all-po: $(MO_FILES)
 ifeq ($(word 1,$(GETTEXT_FILES)),+)
 po/$(CATALOG_NAME).pot: $(word 2, $(GETTEXT_FILES)) $(MAKEFILE_LIST)
 ifdef XGETTEXT
-	$(XGETTEXT) -D $(srcdir) -n $(addprefix -k, $(GETTEXT_TRIGGERS)) -f $<
+	$(XGETTEXT) -D $(srcdir) -n $(addprefix -k, $(GETTEXT_TRIGGERS)) $(addprefix --flag=, $(GETTEXT_FLAGS)) -f $<
 else
 	@echo "You don't have 'xgettext'."; exit 1
 endif
@@ -57,7 +77,7 @@ po/$(CATALOG_NAME).pot: $(GETTEXT_FILES) $(MAKEFILE_LIST)
 # Change to srcdir explicitly, don't rely on $^.  That way we get
 # consistent #: file references in the po files.
 ifdef XGETTEXT
-	$(XGETTEXT) -D $(srcdir) -n $(addprefix -k, $(GETTEXT_TRIGGERS)) $(GETTEXT_FILES)
+	$(XGETTEXT) -D $(srcdir) -n $(addprefix -k, $(GETTEXT_TRIGGERS)) $(addprefix --flag=, $(GETTEXT_FLAGS)) $(GETTEXT_FILES)
 else
 	@echo "You don't have 'xgettext'."; exit 1
 endif

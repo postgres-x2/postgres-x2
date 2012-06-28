@@ -48,10 +48,11 @@
 #include "executor/nodeWindowAgg.h"
 #include "executor/nodeWorktablescan.h"
 #include "nodes/nodeFuncs.h"
+#include "utils/rel.h"
+#include "utils/syscache.h"
 #ifdef PGXC
 #include "pgxc/execRemote.h"
 #endif
-#include "utils/syscache.h"
 
 
 static bool TargetListSupportsBackwardScan(List *targetlist);

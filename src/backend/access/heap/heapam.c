@@ -277,7 +277,8 @@ heapgetpage(HeapScanDesc scan, BlockNumber page)
 			else
 				valid = HeapTupleSatisfiesVisibility(&loctup, snapshot, buffer);
 
-			CheckForSerializableConflictOut(valid, scan->rs_rd, &loctup, buffer);
+			CheckForSerializableConflictOut(valid, scan->rs_rd, &loctup,
+											buffer, snapshot);
 
 			if (valid)
 				scan->rs_vistuples[ntup++] = lineoff;
@@ -472,7 +473,8 @@ heapgettup(HeapScanDesc scan,
 													 snapshot,
 													 scan->rs_cbuf);
 
-				CheckForSerializableConflictOut(valid, scan->rs_rd, tuple, scan->rs_cbuf);
+				CheckForSerializableConflictOut(valid, scan->rs_rd, tuple,
+												scan->rs_cbuf, snapshot);
 
 				if (valid && key != NULL)
 					HeapKeyTest(tuple, RelationGetDescr(scan->rs_rd),
@@ -480,8 +482,6 @@ heapgettup(HeapScanDesc scan,
 
 				if (valid)
 				{
-					if (!scan->rs_relpredicatelocked)
-						PredicateLockTuple(scan->rs_rd, tuple);
 					LockBuffer(scan->rs_cbuf, BUFFER_LOCK_UNLOCK);
 					return;
 				}
@@ -749,16 +749,12 @@ heapgettup_pagemode(HeapScanDesc scan,
 							nkeys, key, valid);
 				if (valid)
 				{
-					if (!scan->rs_relpredicatelocked)
-						PredicateLockTuple(scan->rs_rd, tuple);
 					scan->rs_cindex = lineindex;
 					return;
 				}
 			}
 			else
 			{
-				if (!scan->rs_relpredicatelocked)
-					PredicateLockTuple(scan->rs_rd, tuple);
 				scan->rs_cindex = lineindex;
 				return;
 			}
@@ -982,65 +978,37 @@ relation_openrv(const RangeVar *relation, LOCKMODE lockmode)
 {
 	Oid			relOid;
 
-	/*
-	 * Check for shared-cache-inval messages before trying to open the
-	 * relation.  This is needed to cover the case where the name identifies a
-	 * rel that has been dropped and recreated since the start of our
-	 * transaction: if we don't flush the old syscache entry then we'll latch
-	 * onto that entry and suffer an error when we do RelationIdGetRelation.
-	 * Note that relation_open does not need to do this, since a relation's
-	 * OID never changes.
-	 *
-	 * We skip this if asked for NoLock, on the assumption that the caller has
-	 * already ensured some appropriate lock is held.
-	 */
-	if (lockmode != NoLock)
-		AcceptInvalidationMessages();
-
-	/* Look up the appropriate relation using namespace search */
-	relOid = RangeVarGetRelid(relation, false);
+	/* Look up and lock the appropriate relation using namespace search */
+	relOid = RangeVarGetRelid(relation, lockmode, false, false);
 
 	/* Let relation_open do the rest */
-	return relation_open(relOid, lockmode);
+	return relation_open(relOid, NoLock);
 }
 
 /* ----------------
- *		try_relation_openrv - open any relation specified by a RangeVar
+ *		relation_openrv_extended - open any relation specified by a RangeVar
  *
- *		Same as relation_openrv, but return NULL instead of failing for
- *		relation-not-found.  (Note that some other causes, such as
- *		permissions problems, will still result in an ereport.)
+ *		Same as relation_openrv, but with an additional missing_ok argument
+ *		allowing a NULL return rather than an error if the relation is not
+ *      found.  (Note that some other causes, such as permissions problems,
+ *      will still result in an ereport.)
  * ----------------
  */
 Relation
-try_relation_openrv(const RangeVar *relation, LOCKMODE lockmode)
+relation_openrv_extended(const RangeVar *relation, LOCKMODE lockmode,
+						 bool missing_ok)
 {
 	Oid			relOid;
 
-	/*
-	 * Check for shared-cache-inval messages before trying to open the
-	 * relation.  This is needed to cover the case where the name identifies a
-	 * rel that has been dropped and recreated since the start of our
-	 * transaction: if we don't flush the old syscache entry then we'll latch
-	 * onto that entry and suffer an error when we do RelationIdGetRelation.
-	 * Note that relation_open does not need to do this, since a relation's
-	 * OID never changes.
-	 *
-	 * We skip this if asked for NoLock, on the assumption that the caller has
-	 * already ensured some appropriate lock is held.
-	 */
-	if (lockmode != NoLock)
-		AcceptInvalidationMessages();
-
-	/* Look up the appropriate relation using namespace search */
-	relOid = RangeVarGetRelid(relation, true);
+	/* Look up and lock the appropriate relation using namespace search */
+	relOid = RangeVarGetRelid(relation, lockmode, missing_ok, false);
 
 	/* Return NULL on not-found */
 	if (!OidIsValid(relOid))
 		return NULL;
 
 	/* Let relation_open do the rest */
-	return relation_open(relOid, lockmode);
+	return relation_open(relOid, NoLock);
 }
 
 /* ----------------
@@ -1126,18 +1094,20 @@ heap_openrv(const RangeVar *relation, LOCKMODE lockmode)
 }
 
 /* ----------------
- *		try_heap_openrv - open a heap relation specified
+ *		heap_openrv_extended - open a heap relation specified
  *		by a RangeVar node
  *
- *		As above, but return NULL instead of failing for relation-not-found.
+ *		As above, but optionally return NULL instead of failing for
+ *      relation-not-found.
  * ----------------
  */
 Relation
-try_heap_openrv(const RangeVar *relation, LOCKMODE lockmode)
+heap_openrv_extended(const RangeVar *relation, LOCKMODE lockmode,
+					 bool missing_ok)
 {
 	Relation	r;
 
-	r = try_relation_openrv(relation, lockmode);
+	r = relation_openrv_extended(relation, lockmode, missing_ok);
 
 	if (r)
 	{
@@ -1225,12 +1195,25 @@ heap_beginscan_internal(Relation relation, Snapshot snapshot,
 	scan->rs_strategy = NULL;	/* set in initscan */
 	scan->rs_allow_strat = allow_strat;
 	scan->rs_allow_sync = allow_sync;
-	scan->rs_relpredicatelocked = false;
 
 	/*
 	 * we can use page-at-a-time mode if it's an MVCC-safe snapshot
 	 */
 	scan->rs_pageatatime = IsMVCCSnapshot(snapshot);
+
+	/*
+	 * For a seqscan in a serializable transaction, acquire a predicate lock
+	 * on the entire relation. This is required not only to lock all the
+	 * matching tuples, but also to conflict with new insertions into the
+	 * table. In an indexscan, we take page locks on the index pages covering
+	 * the range specified in the scan qual, but in a heap scan there is
+	 * nothing more fine-grained to lock. A bitmap scan is a different story,
+	 * there we have already scanned the index and locked the index pages
+	 * covering the predicate. But in that case we still have to lock any
+	 * matching heap tuples.
+	 */
+	if (!is_bitmapscan)
+		PredicateLockRelation(relation, snapshot);
 
 	/* we only need to set this up once */
 	scan->rs_ctup.t_tableOid = RelationGetRelid(relation);
@@ -1480,9 +1463,9 @@ heap_fetch(Relation relation,
 	valid = HeapTupleSatisfiesVisibility(tuple, snapshot, buffer);
 
 	if (valid)
-		PredicateLockTuple(relation, tuple);
+		PredicateLockTuple(relation, tuple, snapshot);
 
-	CheckForSerializableConflictOut(valid, relation, tuple, buffer);
+	CheckForSerializableConflictOut(valid, relation, tuple, buffer, snapshot);
 
 	LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
 
@@ -1522,6 +1505,10 @@ heap_fetch(Relation relation,
  * found, we update *tid to reference that tuple's offset number, and
  * return TRUE.  If no match, return FALSE without modifying *tid.
  *
+ * heapTuple is a caller-supplied buffer.  When a match is found, we return
+ * the tuple here, in addition to updating *tid.  If no match is found, the
+ * contents of this buffer on return are undefined.
+ *
  * If all_dead is not NULL, we check non-visible tuples to see if they are
  * globally dead; *all_dead is set TRUE if all members of the HOT chain
  * are vacuumable, FALSE if not.
@@ -1532,28 +1519,31 @@ heap_fetch(Relation relation,
  */
 bool
 heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
-					   Snapshot snapshot, bool *all_dead)
+					   Snapshot snapshot, HeapTuple heapTuple,
+					   bool *all_dead, bool first_call)
 {
 	Page		dp = (Page) BufferGetPage(buffer);
 	TransactionId prev_xmax = InvalidTransactionId;
 	OffsetNumber offnum;
 	bool		at_chain_start;
 	bool		valid;
+	bool		skip;
 
+	/* If this is not the first call, previous call returned a (live!) tuple */
 	if (all_dead)
-		*all_dead = true;
+		*all_dead = first_call;
 
 	Assert(TransactionIdIsValid(RecentGlobalXmin));
 
 	Assert(ItemPointerGetBlockNumber(tid) == BufferGetBlockNumber(buffer));
 	offnum = ItemPointerGetOffsetNumber(tid);
-	at_chain_start = true;
+	at_chain_start = first_call;
+	skip = !first_call;
 
 	/* Scan through possible multiple members of HOT-chain */
 	for (;;)
 	{
 		ItemId		lp;
-		HeapTupleData heapTuple;
 
 		/* check for bogus TID */
 		if (offnum < FirstOffsetNumber || offnum > PageGetMaxOffsetNumber(dp))
@@ -1576,18 +1566,18 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 			break;
 		}
 
-		heapTuple.t_data = (HeapTupleHeader) PageGetItem(dp, lp);
-		heapTuple.t_len = ItemIdGetLength(lp);
-		heapTuple.t_tableOid = relation->rd_id;
+		heapTuple->t_data = (HeapTupleHeader) PageGetItem(dp, lp);
+		heapTuple->t_len = ItemIdGetLength(lp);
+		heapTuple->t_tableOid = relation->rd_id;
 #ifdef PGXC
-		heapTuple.t_xc_node_id = PGXCNodeIdentifier;
+		heapTuple->t_xc_node_id = PGXCNodeIdentifier;
 #endif
-		heapTuple.t_self = *tid;
+		heapTuple->t_self = *tid;
 
 		/*
 		 * Shouldn't see a HEAP_ONLY tuple at chain start.
 		 */
-		if (at_chain_start && HeapTupleIsHeapOnly(&heapTuple))
+		if (at_chain_start && HeapTupleIsHeapOnly(heapTuple))
 			break;
 
 		/*
@@ -1596,20 +1586,32 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 		 */
 		if (TransactionIdIsValid(prev_xmax) &&
 			!TransactionIdEquals(prev_xmax,
-								 HeapTupleHeaderGetXmin(heapTuple.t_data)))
+								 HeapTupleHeaderGetXmin(heapTuple->t_data)))
 			break;
 
-		/* If it's visible per the snapshot, we must return it */
-		valid = HeapTupleSatisfiesVisibility(&heapTuple, snapshot, buffer);
-		CheckForSerializableConflictOut(valid, relation, &heapTuple, buffer);
-		if (valid)
+		/*
+		 * When first_call is true (and thus, skip is initally false) we'll
+		 * return the first tuple we find.  But on later passes, heapTuple
+		 * will initially be pointing to the tuple we returned last time.
+		 * Returning it again would be incorrect (and would loop forever),
+		 * so we skip it and return the next match we find.
+		 */
+		if (!skip)
 		{
-			ItemPointerSetOffsetNumber(tid, offnum);
-			PredicateLockTuple(relation, &heapTuple);
-			if (all_dead)
-				*all_dead = false;
-			return true;
+			/* If it's visible per the snapshot, we must return it */
+			valid = HeapTupleSatisfiesVisibility(heapTuple, snapshot, buffer);
+			CheckForSerializableConflictOut(valid, relation, heapTuple,
+											buffer, snapshot);
+			if (valid)
+			{
+				ItemPointerSetOffsetNumber(tid, offnum);
+				PredicateLockTuple(relation, heapTuple, snapshot);
+				if (all_dead)
+					*all_dead = false;
+				return true;
+			}
 		}
+		skip = false;
 
 		/*
 		 * If we can't see it, maybe no one else can either.  At caller
@@ -1617,7 +1619,7 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 		 * transactions.
 		 */
 		if (all_dead && *all_dead &&
-			HeapTupleSatisfiesVacuum(heapTuple.t_data, RecentGlobalXmin,
+			HeapTupleSatisfiesVacuum(heapTuple->t_data, RecentGlobalXmin,
 									 buffer) != HEAPTUPLE_DEAD)
 			*all_dead = false;
 
@@ -1625,13 +1627,13 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 		 * Check to see if HOT chain continues past this tuple; if so fetch
 		 * the next offnum and loop around.
 		 */
-		if (HeapTupleIsHotUpdated(&heapTuple))
+		if (HeapTupleIsHotUpdated(heapTuple))
 		{
-			Assert(ItemPointerGetBlockNumber(&heapTuple.t_data->t_ctid) ==
+			Assert(ItemPointerGetBlockNumber(&heapTuple->t_data->t_ctid) ==
 				   ItemPointerGetBlockNumber(tid));
-			offnum = ItemPointerGetOffsetNumber(&heapTuple.t_data->t_ctid);
+			offnum = ItemPointerGetOffsetNumber(&heapTuple->t_data->t_ctid);
 			at_chain_start = false;
-			prev_xmax = HeapTupleHeaderGetXmax(heapTuple.t_data);
+			prev_xmax = HeapTupleHeaderGetXmax(heapTuple->t_data);
 		}
 		else
 			break;				/* end of chain */
@@ -1653,10 +1655,12 @@ heap_hot_search(ItemPointer tid, Relation relation, Snapshot snapshot,
 {
 	bool		result;
 	Buffer		buffer;
+	HeapTupleData	heapTuple;
 
 	buffer = ReadBuffer(relation, ItemPointerGetBlockNumber(tid));
 	LockBuffer(buffer, BUFFER_LOCK_SHARE);
-	result = heap_hot_search_buffer(tid, relation, buffer, snapshot, all_dead);
+	result = heap_hot_search_buffer(tid, relation, buffer, snapshot,
+									&heapTuple, all_dead, true);
 	LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
 	ReleaseBuffer(buffer);
 	return result;
@@ -1763,7 +1767,7 @@ heap_get_latest_tid(Relation relation,
 		 * result candidate.
 		 */
 		valid = HeapTupleSatisfiesVisibility(&tp, snapshot, buffer);
-		CheckForSerializableConflictOut(valid, relation, &tp, buffer);
+		CheckForSerializableConflictOut(valid, relation, &tp, buffer, snapshot);
 		if (valid)
 			*tid = ctid;
 
@@ -1872,6 +1876,7 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 	TransactionId xid = GetCurrentTransactionId();
 	HeapTuple	heaptup;
 	Buffer		buffer;
+	Buffer		vmbuffer = InvalidBuffer;
 	bool		all_visible_cleared = false;
 
 	if (relation->rd_rel->relhasoids)
@@ -1927,9 +1932,13 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 	else
 		heaptup = tup;
 
-	/* Find buffer to insert this tuple into */
+	/*
+	 * Find buffer to insert this tuple into.  If the page is all visible,
+	 * this will also pin the requisite visibility map page.
+	 */
 	buffer = RelationGetBufferForTuple(relation, heaptup->t_len,
-									   InvalidBuffer, options, bistate);
+									   InvalidBuffer, options, bistate,
+									   &vmbuffer, NULL);
 
 	/*
 	 * We're about to do the actual insert -- check for conflict at the
@@ -1947,6 +1956,9 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 	{
 		all_visible_cleared = true;
 		PageClearAllVisible(BufferGetPage(buffer));
+		visibilitymap_clear(relation,
+							ItemPointerGetBlockNumber(&(heaptup->t_self)),
+							vmbuffer);
 	}
 
 	/*
@@ -2023,11 +2035,8 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 	END_CRIT_SECTION();
 
 	UnlockReleaseBuffer(buffer);
-
-	/* Clear the bit in the visibility map if necessary */
-	if (all_visible_cleared)
-		visibilitymap_clear(relation,
-							ItemPointerGetBlockNumber(&(heaptup->t_self)));
+	if (vmbuffer != InvalidBuffer)
+		ReleaseBuffer(vmbuffer);
 
 	/*
 	 * If tuple is cachable, mark it for invalidation from the caches in case
@@ -2102,17 +2111,43 @@ heap_delete(Relation relation, ItemPointer tid,
 	ItemId		lp;
 	HeapTupleData tp;
 	Page		page;
+	BlockNumber	block;
 	Buffer		buffer;
+	Buffer		vmbuffer = InvalidBuffer;
 	bool		have_tuple_lock = false;
 	bool		iscombo;
 	bool		all_visible_cleared = false;
 
 	Assert(ItemPointerIsValid(tid));
 
-	buffer = ReadBuffer(relation, ItemPointerGetBlockNumber(tid));
+	block = ItemPointerGetBlockNumber(tid);
+	buffer = ReadBuffer(relation, block);
+	page = BufferGetPage(buffer);
+
+	/*
+	 * Before locking the buffer, pin the visibility map page if it appears
+	 * to be necessary.  Since we haven't got the lock yet, someone else might
+	 * be in the middle of changing this, so we'll need to recheck after
+	 * we have the lock.
+	 */
+	if (PageIsAllVisible(page))
+		visibilitymap_pin(relation, block, &vmbuffer);
+
 	LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
 
-	page = BufferGetPage(buffer);
+	/*
+	 * If we didn't pin the visibility map page and the page has become all
+	 * visible while we were busy locking the buffer, we'll have to unlock and
+	 * re-lock, to avoid holding the buffer lock across an I/O.  That's a bit
+	 * unfortunate, but hopefully shouldn't happen often.
+	 */
+	if (vmbuffer == InvalidBuffer && PageIsAllVisible(page))
+	{
+		LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
+		visibilitymap_pin(relation, block, &vmbuffer);
+		LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
+	}
+
 	lp = PageGetItemId(page, ItemPointerGetOffsetNumber(tid));
 	Assert(ItemIdIsNormal(lp));
 
@@ -2235,6 +2270,8 @@ l1:
 		UnlockReleaseBuffer(buffer);
 		if (have_tuple_lock)
 			UnlockTuple(relation, &(tp.t_self), ExclusiveLock);
+		if (vmbuffer != InvalidBuffer)
+			ReleaseBuffer(vmbuffer);
 		return result;
 	}
 
@@ -2262,6 +2299,8 @@ l1:
 	{
 		all_visible_cleared = true;
 		PageClearAllVisible(page);
+		visibilitymap_clear(relation, BufferGetBlockNumber(buffer),
+							vmbuffer);
 	}
 
 	/* store transaction information of xact deleting the tuple */
@@ -2309,6 +2348,9 @@ l1:
 
 	LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
 
+	if (vmbuffer != InvalidBuffer)
+		ReleaseBuffer(vmbuffer);
+
 	/*
 	 * If the tuple has toasted out-of-line attributes, we need to delete
 	 * those items too.  We have to do this before releasing the buffer
@@ -2329,10 +2371,6 @@ l1:
 	 * need to look at the contents of the tuple.
 	 */
 	CacheInvalidateHeapTuple(relation, &tp);
-
-	/* Clear the bit in the visibility map if necessary */
-	if (all_visible_cleared)
-		visibilitymap_clear(relation, BufferGetBlockNumber(buffer));
 
 	/* Now we can release the buffer */
 	ReleaseBuffer(buffer);
@@ -2432,8 +2470,11 @@ heap_update(Relation relation, ItemPointer otid, HeapTuple newtup,
 	HeapTupleData oldtup;
 	HeapTuple	heaptup;
 	Page		page;
+	BlockNumber	block;
 	Buffer		buffer,
-				newbuf;
+				newbuf,
+				vmbuffer = InvalidBuffer,
+				vmbuffer_new = InvalidBuffer;
 	bool		need_toast,
 				already_marked;
 	Size		newtupsize,
@@ -2460,10 +2501,21 @@ heap_update(Relation relation, ItemPointer otid, HeapTuple newtup,
 	 */
 	hot_attrs = RelationGetIndexAttrBitmap(relation);
 
-	buffer = ReadBuffer(relation, ItemPointerGetBlockNumber(otid));
+	block = ItemPointerGetBlockNumber(otid);
+	buffer = ReadBuffer(relation, block);
+	page = BufferGetPage(buffer);
+
+	/*
+	 * Before locking the buffer, pin the visibility map page if it appears
+	 * to be necessary.  Since we haven't got the lock yet, someone else might
+	 * be in the middle of changing this, so we'll need to recheck after
+	 * we have the lock.
+	 */
+	if (PageIsAllVisible(page))
+		visibilitymap_pin(relation, block, &vmbuffer);
+
 	LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
 
-	page = BufferGetPage(buffer);
 	lp = PageGetItemId(page, ItemPointerGetOffsetNumber(otid));
 	Assert(ItemIdIsNormal(lp));
 
@@ -2593,8 +2645,24 @@ l2:
 		UnlockReleaseBuffer(buffer);
 		if (have_tuple_lock)
 			UnlockTuple(relation, &(oldtup.t_self), ExclusiveLock);
+		if (vmbuffer != InvalidBuffer)
+			ReleaseBuffer(vmbuffer);
 		bms_free(hot_attrs);
 		return result;
+	}
+
+	/*
+	 * If we didn't pin the visibility map page and the page has become all
+	 * visible while we were busy locking the buffer, or during some subsequent
+	 * window during which we had it unlocked, we'll have to unlock and
+	 * re-lock, to avoid holding the buffer lock across an I/O.  That's a bit
+	 * unfortunate, but hopefully shouldn't happen often.
+	 */
+	if (vmbuffer == InvalidBuffer && PageIsAllVisible(page))
+	{
+		LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
+		visibilitymap_pin(relation, block, &vmbuffer);
+		LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
 	}
 
 	/*
@@ -2716,7 +2784,8 @@ l2:
 		{
 			/* Assume there's no chance to put heaptup on same page. */
 			newbuf = RelationGetBufferForTuple(relation, heaptup->t_len,
-											   buffer, 0, NULL);
+											   buffer, 0, NULL,
+											   &vmbuffer_new, &vmbuffer);
 		}
 		else
 		{
@@ -2733,7 +2802,8 @@ l2:
 				 */
 				LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
 				newbuf = RelationGetBufferForTuple(relation, heaptup->t_len,
-												   buffer, 0, NULL);
+												   buffer, 0, NULL,
+												   &vmbuffer_new, &vmbuffer);
 			}
 			else
 			{
@@ -2839,11 +2909,15 @@ l2:
 	{
 		all_visible_cleared = true;
 		PageClearAllVisible(BufferGetPage(buffer));
+		visibilitymap_clear(relation, BufferGetBlockNumber(buffer),
+							vmbuffer);
 	}
 	if (newbuf != buffer && PageIsAllVisible(BufferGetPage(newbuf)))
 	{
 		all_visible_cleared_new = true;
 		PageClearAllVisible(BufferGetPage(newbuf));
+		visibilitymap_clear(relation, BufferGetBlockNumber(newbuf),
+							vmbuffer_new);
 	}
 
 	if (newbuf != buffer)
@@ -2880,16 +2954,14 @@ l2:
 	 */
 	CacheInvalidateHeapTuple(relation, &oldtup);
 
-	/* Clear bits in visibility map */
-	if (all_visible_cleared)
-		visibilitymap_clear(relation, BufferGetBlockNumber(buffer));
-	if (all_visible_cleared_new)
-		visibilitymap_clear(relation, BufferGetBlockNumber(newbuf));
-
 	/* Now we can release the buffer(s) */
 	if (newbuf != buffer)
 		ReleaseBuffer(newbuf);
 	ReleaseBuffer(buffer);
+	if (BufferIsValid(vmbuffer_new))
+		ReleaseBuffer(vmbuffer_new);
+	if (BufferIsValid(vmbuffer))
+		ReleaseBuffer(vmbuffer);
 
 	/*
 	 * If new tuple is cachable, mark it for invalidation from the caches in
@@ -4058,6 +4130,38 @@ log_heap_freeze(Relation reln, Buffer buffer,
 }
 
 /*
+ * Perform XLogInsert for a heap-visible operation.	 'block' is the block
+ * being marked all-visible, and vm_buffer is the buffer containing the
+ * corresponding visibility map block.  Both should have already been modified
+ * and dirtied.
+ */
+XLogRecPtr
+log_heap_visible(RelFileNode rnode, BlockNumber block, Buffer vm_buffer)
+{
+	xl_heap_visible xlrec;
+	XLogRecPtr	recptr;
+	XLogRecData rdata[2];
+
+	xlrec.node = rnode;
+	xlrec.block = block;
+
+	rdata[0].data = (char *) &xlrec;
+	rdata[0].len = SizeOfHeapVisible;
+	rdata[0].buffer = InvalidBuffer;
+	rdata[0].next = &(rdata[1]);
+
+	rdata[1].data = NULL;
+	rdata[1].len = 0;
+	rdata[1].buffer = vm_buffer;
+	rdata[1].buffer_std = false;
+	rdata[1].next = NULL;
+
+	recptr = XLogInsert(RM_HEAP2_ID, XLOG_HEAP2_VISIBLE, rdata);
+
+	return recptr;
+}
+
+/*
  * Perform XLogInsert for a heap-update operation.	Caller must already
  * have modified the buffer(s) and marked them dirty.
  */
@@ -4345,6 +4449,92 @@ heap_xlog_freeze(XLogRecPtr lsn, XLogRecord *record)
 	UnlockReleaseBuffer(buffer);
 }
 
+/*
+ * Replay XLOG_HEAP2_VISIBLE record.
+ *
+ * The critical integrity requirement here is that we must never end up with
+ * a situation where the visibility map bit is set, and the page-level
+ * PD_ALL_VISIBLE bit is clear.  If that were to occur, then a subsequent
+ * page modification would fail to clear the visibility map bit.
+ */
+static void
+heap_xlog_visible(XLogRecPtr lsn, XLogRecord *record)
+{
+	xl_heap_visible *xlrec = (xl_heap_visible *) XLogRecGetData(record);
+	Buffer		buffer;
+	Page		page;
+
+	/*
+	 * Read the heap page, if it still exists.  If the heap file has been
+	 * dropped or truncated later in recovery, this might fail.  In that case,
+	 * there's no point in doing anything further, since the visibility map
+	 * will have to be cleared out at the same time.
+	 */
+	buffer = XLogReadBufferExtended(xlrec->node, MAIN_FORKNUM, xlrec->block,
+									RBM_NORMAL);
+	if (!BufferIsValid(buffer))
+		return;
+	page = (Page) BufferGetPage(buffer);
+
+	LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
+
+	/*
+	 * We don't bump the LSN of the heap page when setting the visibility
+	 * map bit, because that would generate an unworkable volume of
+	 * full-page writes.  This exposes us to torn page hazards, but since
+	 * we're not inspecting the existing page contents in any way, we
+	 * don't care.
+	 *
+	 * However, all operations that clear the visibility map bit *do* bump
+	 * the LSN, and those operations will only be replayed if the XLOG LSN
+	 * follows the page LSN.  Thus, if the page LSN has advanced past our
+	 * XLOG record's LSN, we mustn't mark the page all-visible, because
+	 * the subsequent update won't be replayed to clear the flag.
+	 */
+	if (!XLByteLE(lsn, PageGetLSN(page)))
+	{
+		PageSetAllVisible(page);
+		MarkBufferDirty(buffer);
+	}
+
+	/* Done with heap page. */
+	UnlockReleaseBuffer(buffer);
+
+	/*
+	 * Even we skipped the heap page update due to the LSN interlock, it's
+	 * still safe to update the visibility map.  Any WAL record that clears
+	 * the visibility map bit does so before checking the page LSN, so any
+	 * bits that need to be cleared will still be cleared.
+	 */
+	if (record->xl_info & XLR_BKP_BLOCK_1)
+		RestoreBkpBlocks(lsn, record, false);
+	else
+	{
+		Relation	reln;
+		Buffer		vmbuffer = InvalidBuffer;
+
+		reln = CreateFakeRelcacheEntry(xlrec->node);
+		visibilitymap_pin(reln, xlrec->block, &vmbuffer);
+
+		/*
+		 * Don't set the bit if replay has already passed this point.
+		 *
+		 * It might be safe to do this unconditionally; if replay has past
+		 * this point, we'll replay at least as far this time as we did before,
+		 * and if this bit needs to be cleared, the record responsible for
+		 * doing so should be again replayed, and clear it.  For right now,
+		 * out of an abundance of conservatism, we use the same test here
+		 * we did for the heap page; if this results in a dropped bit, no real
+		 * harm is done; and the next VACUUM will fix it.
+		 */
+		if (!XLByteLE(lsn, PageGetLSN(BufferGetPage(vmbuffer))))
+			visibilitymap_set(reln, xlrec->block, lsn, vmbuffer);
+
+		ReleaseBuffer(vmbuffer);
+		FreeFakeRelcacheEntry(reln);
+	}
+}
+
 static void
 heap_xlog_newpage(XLogRecPtr lsn, XLogRecord *record)
 {
@@ -4399,8 +4589,11 @@ heap_xlog_delete(XLogRecPtr lsn, XLogRecord *record)
 	if (xlrec->all_visible_cleared)
 	{
 		Relation	reln = CreateFakeRelcacheEntry(xlrec->target.node);
+		Buffer		vmbuffer = InvalidBuffer;
 
-		visibilitymap_clear(reln, blkno);
+		visibilitymap_pin(reln, blkno, &vmbuffer);
+		visibilitymap_clear(reln, blkno, vmbuffer);
+		ReleaseBuffer(vmbuffer);
 		FreeFakeRelcacheEntry(reln);
 	}
 
@@ -4477,8 +4670,11 @@ heap_xlog_insert(XLogRecPtr lsn, XLogRecord *record)
 	if (xlrec->all_visible_cleared)
 	{
 		Relation	reln = CreateFakeRelcacheEntry(xlrec->target.node);
+		Buffer		vmbuffer = InvalidBuffer;
 
-		visibilitymap_clear(reln, blkno);
+		visibilitymap_pin(reln, blkno, &vmbuffer);
+		visibilitymap_clear(reln, blkno, vmbuffer);
+		ReleaseBuffer(vmbuffer);
 		FreeFakeRelcacheEntry(reln);
 	}
 
@@ -4589,9 +4785,12 @@ heap_xlog_update(XLogRecPtr lsn, XLogRecord *record, bool hot_update)
 	if (xlrec->all_visible_cleared)
 	{
 		Relation	reln = CreateFakeRelcacheEntry(xlrec->target.node);
+		BlockNumber	block = ItemPointerGetBlockNumber(&xlrec->target.tid);
+		Buffer		vmbuffer = InvalidBuffer;
 
-		visibilitymap_clear(reln,
-							ItemPointerGetBlockNumber(&xlrec->target.tid));
+		visibilitymap_pin(reln, block, &vmbuffer);
+		visibilitymap_clear(reln, block, vmbuffer);
+		ReleaseBuffer(vmbuffer);
 		FreeFakeRelcacheEntry(reln);
 	}
 
@@ -4670,8 +4869,12 @@ newt:;
 	if (xlrec->new_all_visible_cleared)
 	{
 		Relation	reln = CreateFakeRelcacheEntry(xlrec->target.node);
+		BlockNumber	block = ItemPointerGetBlockNumber(&xlrec->newtid);
+		Buffer		vmbuffer = InvalidBuffer;
 
-		visibilitymap_clear(reln, ItemPointerGetBlockNumber(&xlrec->newtid));
+		visibilitymap_pin(reln, block, &vmbuffer);
+		visibilitymap_clear(reln, block, vmbuffer);
+		ReleaseBuffer(vmbuffer);
 		FreeFakeRelcacheEntry(reln);
 	}
 
@@ -4937,6 +5140,9 @@ heap2_redo(XLogRecPtr lsn, XLogRecord *record)
 		case XLOG_HEAP2_CLEANUP_INFO:
 			heap_xlog_cleanup_info(lsn, record);
 			break;
+		case XLOG_HEAP2_VISIBLE:
+			heap_xlog_visible(lsn, record);
+			break;
 		default:
 			elog(PANIC, "heap2_redo: unknown op code %u", info);
 	}
@@ -5065,6 +5271,14 @@ heap2_desc(StringInfo buf, uint8 xl_info, char *rec)
 
 		appendStringInfo(buf, "cleanup info: remxid %u",
 						 xlrec->latestRemovedXid);
+	}
+	else if (info == XLOG_HEAP2_VISIBLE)
+	{
+		xl_heap_visible *xlrec = (xl_heap_visible *) rec;
+
+		appendStringInfo(buf, "visible: rel %u/%u/%u; blk %u",
+						 xlrec->node.spcNode, xlrec->node.dbNode,
+						 xlrec->node.relNode, xlrec->block);
 	}
 	else
 		appendStringInfo(buf, "UNKNOWN");

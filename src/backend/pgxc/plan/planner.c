@@ -17,6 +17,7 @@
 #include "miscadmin.h"
 #include "access/transam.h"
 #include "catalog/pg_aggregate.h"
+#include "catalog/pg_class.h"
 #include "catalog/pg_inherits_fn.h"
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_proc.h"

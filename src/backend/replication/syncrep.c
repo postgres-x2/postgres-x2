@@ -171,7 +171,7 @@ SyncRepWaitForLSN(XLogRecPtr XactCommitLSN)
 		 * postmaster death regularly while waiting. Note that timeout here
 		 * does not necessarily release from loop.
 		 */
-		WaitLatch(&MyProc->waitLatch, 60000000L);
+		WaitLatch(&MyProc->waitLatch, WL_LATCH_SET | WL_TIMEOUT, 60000000L);
 
 		/* Must reset the latch before testing state. */
 		ResetLatch(&MyProc->waitLatch);
@@ -202,7 +202,7 @@ SyncRepWaitForLSN(XLogRecPtr XactCommitLSN)
 		 * is not true: it's already committed locally. The former is no good
 		 * either: the client has requested synchronous replication, and is
 		 * entitled to assume that an acknowledged commit is also replicated,
-		 * which may not be true. So in this case we issue a WARNING (which
+		 * which might not be true. So in this case we issue a WARNING (which
 		 * some clients may be able to interpret) and shut off further output.
 		 * We do NOT reset ProcDiePending, so that the process will die after
 		 * the commit is cleaned up.
@@ -212,7 +212,7 @@ SyncRepWaitForLSN(XLogRecPtr XactCommitLSN)
 			ereport(WARNING,
 					(errcode(ERRCODE_ADMIN_SHUTDOWN),
 					 errmsg("canceling the wait for synchronous replication and terminating connection due to administrator command"),
-					 errdetail("The transaction has already committed locally, but may not have been replicated to the standby.")));
+					 errdetail("The transaction has already committed locally, but might not have been replicated to the standby.")));
 			whereToSendOutput = DestNone;
 			SyncRepCancelWait();
 			break;
@@ -229,7 +229,7 @@ SyncRepWaitForLSN(XLogRecPtr XactCommitLSN)
 			QueryCancelPending = false;
 			ereport(WARNING,
 					(errmsg("canceling wait for synchronous replication due to user request"),
-					 errdetail("The transaction has already committed locally, but may not have been replicated to the standby.")));
+					 errdetail("The transaction has already committed locally, but might not have been replicated to the standby.")));
 			SyncRepCancelWait();
 			break;
 		}
@@ -239,7 +239,7 @@ SyncRepWaitForLSN(XLogRecPtr XactCommitLSN)
 		 * acknowledgement, because all the wal sender processes will exit. So
 		 * just bail out.
 		 */
-		if (!PostmasterIsAlive(true))
+		if (!PostmasterIsAlive())
 		{
 			ProcDiePending = true;
 			whereToSendOutput = DestNone;

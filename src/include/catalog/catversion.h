@@ -56,7 +56,7 @@
 #ifdef PGXC
 #define CATALOG_VERSION_NO	201106301
 #else
-#define CATALOG_VERSION_NO	201105231
+#define CATALOG_VERSION_NO	201107031
 #endif
 
 #endif

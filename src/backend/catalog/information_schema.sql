@@ -274,7 +274,7 @@ CREATE VIEW attributes AS
            CAST(pg_get_expr(ad.adbin, ad.adrelid) AS character_data) AS attribute_default,
            CAST(CASE WHEN a.attnotnull OR (t.typtype = 'd' AND t.typnotnull) THEN 'NO' ELSE 'YES' END
              AS yes_or_no)
-             AS is_nullable,
+             AS is_nullable, -- This column was apparently removed between SQL:2003 and SQL:2008.
 
            CAST(
              CASE WHEN t.typelem <> 0 AND t.typlen = -1 THEN 'ARRAY'
@@ -297,9 +297,9 @@ CREATE VIEW attributes AS
            CAST(null AS sql_identifier) AS character_set_schema,
            CAST(null AS sql_identifier) AS character_set_name,
 
-           CAST(null AS sql_identifier) AS collation_catalog,
-           CAST(null AS sql_identifier) AS collation_schema,
-           CAST(null AS sql_identifier) AS collation_name,
+           CAST(CASE WHEN nco.nspname IS NOT NULL THEN current_database() END AS sql_identifier) AS collation_catalog,
+           CAST(nco.nspname AS sql_identifier) AS collation_schema,
+           CAST(co.collname AS sql_identifier) AS collation_name,
 
            CAST(
              _pg_numeric_precision(_pg_truetypid(a, t), _pg_truetypmod(a, t))
@@ -322,7 +322,7 @@ CREATE VIEW attributes AS
              AS datetime_precision,
 
            CAST(null AS character_data) AS interval_type, -- FIXME
-           CAST(null AS character_data) AS interval_precision, -- FIXME
+           CAST(null AS cardinal_number) AS interval_precision,
 
            CAST(current_database() AS sql_identifier) AS attribute_udt_catalog,
            CAST(nt.nspname AS sql_identifier) AS attribute_udt_schema,
@@ -336,14 +336,13 @@ CREATE VIEW attributes AS
            CAST(a.attnum AS sql_identifier) AS dtd_identifier,
            CAST('NO' AS yes_or_no) AS is_derived_reference_attribute
 
-    FROM (pg_attribute a LEFT JOIN pg_attrdef ad ON attrelid = adrelid AND attnum = adnum),
-         pg_class c, pg_namespace nc,
-         (pg_type t JOIN pg_namespace nt ON (t.typnamespace = nt.oid))
+    FROM (pg_attribute a LEFT JOIN pg_attrdef ad ON attrelid = adrelid AND attnum = adnum)
+         JOIN (pg_class c JOIN pg_namespace nc ON (c.relnamespace = nc.oid)) ON a.attrelid = c.oid
+         JOIN (pg_type t JOIN pg_namespace nt ON (t.typnamespace = nt.oid)) ON a.atttypid = t.oid
+         LEFT JOIN (pg_collation co JOIN pg_namespace nco ON (co.collnamespace = nco.oid))
+           ON a.attcollation = co.oid AND (nco.nspname, co.collname) <> ('pg_catalog', 'default')
 
-    WHERE a.attrelid = c.oid
-          AND a.atttypid = t.oid
-          AND nc.oid = c.relnamespace
-          AND a.attnum > 0 AND NOT a.attisdropped
+    WHERE a.attnum > 0 AND NOT a.attisdropped
           AND c.relkind in ('c');
 
 GRANT SELECT ON attributes TO PUBLIC;
@@ -672,15 +671,15 @@ CREATE VIEW columns AS
              AS datetime_precision,
 
            CAST(null AS character_data) AS interval_type, -- FIXME
-           CAST(null AS character_data) AS interval_precision, -- FIXME
+           CAST(null AS cardinal_number) AS interval_precision,
 
            CAST(null AS sql_identifier) AS character_set_catalog,
            CAST(null AS sql_identifier) AS character_set_schema,
            CAST(null AS sql_identifier) AS character_set_name,
 
-           CAST(null AS sql_identifier) AS collation_catalog,
-           CAST(null AS sql_identifier) AS collation_schema,
-           CAST(null AS sql_identifier) AS collation_name,
+           CAST(CASE WHEN nco.nspname IS NOT NULL THEN current_database() END AS sql_identifier) AS collation_catalog,
+           CAST(nco.nspname AS sql_identifier) AS collation_schema,
+           CAST(co.collname AS sql_identifier) AS collation_name,
 
            CAST(CASE WHEN t.typtype = 'd' THEN current_database() ELSE null END
              AS sql_identifier) AS domain_catalog,
@@ -718,16 +717,15 @@ CREATE VIEW columns AS
                               AND EXISTS (SELECT 1 FROM pg_rewrite WHERE ev_class = c.oid AND ev_type = '4' AND is_instead))
                 THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_updatable
 
-    FROM (pg_attribute a LEFT JOIN pg_attrdef ad ON attrelid = adrelid AND attnum = adnum),
-         pg_class c, pg_namespace nc,
-         (pg_type t JOIN pg_namespace nt ON (t.typnamespace = nt.oid))
-           LEFT JOIN (pg_type bt JOIN pg_namespace nbt ON (bt.typnamespace = nbt.oid))
+    FROM (pg_attribute a LEFT JOIN pg_attrdef ad ON attrelid = adrelid AND attnum = adnum)
+         JOIN (pg_class c JOIN pg_namespace nc ON (c.relnamespace = nc.oid)) ON a.attrelid = c.oid
+         JOIN (pg_type t JOIN pg_namespace nt ON (t.typnamespace = nt.oid)) ON a.atttypid = t.oid
+         LEFT JOIN (pg_type bt JOIN pg_namespace nbt ON (bt.typnamespace = nbt.oid))
            ON (t.typtype = 'd' AND t.typbasetype = bt.oid)
+         LEFT JOIN (pg_collation co JOIN pg_namespace nco ON (co.collnamespace = nco.oid))
+           ON a.attcollation = co.oid AND (nco.nspname, co.collname) <> ('pg_catalog', 'default')
 
-    WHERE a.attrelid = c.oid
-          AND a.atttypid = t.oid
-          AND nc.oid = c.relnamespace
-          AND (NOT pg_is_other_temp_schema(nc.oid))
+    WHERE (NOT pg_is_other_temp_schema(nc.oid))
 
           AND a.attnum > 0 AND NOT a.attisdropped AND c.relkind in ('r', 'v', 'f')
 
@@ -914,9 +912,9 @@ CREATE VIEW domains AS
            CAST(null AS sql_identifier) AS character_set_schema,
            CAST(null AS sql_identifier) AS character_set_name,
 
-           CAST(null AS sql_identifier) AS collation_catalog,
-           CAST(null AS sql_identifier) AS collation_schema,
-           CAST(null AS sql_identifier) AS collation_name,
+           CAST(CASE WHEN nco.nspname IS NOT NULL THEN current_database() END AS sql_identifier) AS collation_catalog,
+           CAST(nco.nspname AS sql_identifier) AS collation_schema,
+           CAST(co.collname AS sql_identifier) AS collation_name,
 
            CAST(
              _pg_numeric_precision(t.typbasetype, t.typtypmod)
@@ -939,7 +937,7 @@ CREATE VIEW domains AS
              AS datetime_precision,
 
            CAST(null AS character_data) AS interval_type, -- FIXME
-           CAST(null AS character_data) AS interval_precision, -- FIXME
+           CAST(null AS cardinal_number) AS interval_precision,
 
            CAST(t.typdefault AS character_data) AS domain_default,
 
@@ -954,13 +952,13 @@ CREATE VIEW domains AS
            CAST(null AS cardinal_number) AS maximum_cardinality,
            CAST(1 AS sql_identifier) AS dtd_identifier
 
-    FROM pg_type t, pg_namespace nt,
-         pg_type bt, pg_namespace nbt
+    FROM (pg_type t JOIN pg_namespace nt ON t.typnamespace = nt.oid)
+         JOIN (pg_type bt JOIN pg_namespace nbt ON bt.typnamespace = nbt.oid)
+           ON (t.typbasetype = bt.oid AND t.typtype = 'd')
+         LEFT JOIN (pg_collation co JOIN pg_namespace nco ON (co.collnamespace = nco.oid))
+           ON t.typcollation = co.oid AND (nco.nspname, co.collname) <> ('pg_catalog', 'default')
 
-    WHERE t.typnamespace = nt.oid
-          AND t.typbasetype = bt.oid
-          AND bt.typnamespace = nbt.oid
-          AND t.typtype = 'd';
+    ;
 
 GRANT SELECT ON domains TO PUBLIC;
 
@@ -1087,7 +1085,7 @@ CREATE VIEW parameters AS
            CAST(null AS cardinal_number) AS numeric_scale,
            CAST(null AS cardinal_number) AS datetime_precision,
            CAST(null AS character_data) AS interval_type,
-           CAST(null AS character_data) AS interval_precision,
+           CAST(null AS cardinal_number) AS interval_precision,
            CAST(current_database() AS sql_identifier) AS udt_catalog,
            CAST(nt.nspname AS sql_identifier) AS udt_schema,
            CAST(t.typname AS sql_identifier) AS udt_name,
@@ -1215,12 +1213,7 @@ GRANT SELECT ON role_column_grants TO PUBLIC;
 -- 5.42 ROLE_USAGE_GRANTS view is based on 5.71 USAGE_PRIVILEGES and is defined there instead.
 
 
-/*
- * 5.43
- * ROLE_UDT_GRANTS view
- */
-
--- feature not supported
+-- 5.43 ROLE_UDT_GRANTS view is based on 5.70 UDT_PRIVILEGES and is defined there instead.
 
 
 /*
@@ -1360,7 +1353,7 @@ CREATE VIEW routines AS
            CAST(null AS cardinal_number) AS numeric_scale,
            CAST(null AS cardinal_number) AS datetime_precision,
            CAST(null AS character_data) AS interval_type,
-           CAST(null AS character_data) AS interval_precision,
+           CAST(null AS cardinal_number) AS interval_precision,
            CAST(current_database() AS sql_identifier) AS type_udt_catalog,
            CAST(nt.nspname AS sql_identifier) AS type_udt_schema,
            CAST(t.typname AS sql_identifier) AS type_udt_name,
@@ -1414,7 +1407,7 @@ CREATE VIEW routines AS
            CAST(null AS cardinal_number) AS result_cast_numeric_scale,
            CAST(null AS cardinal_number) AS result_cast_datetime_precision,
            CAST(null AS character_data) AS result_cast_interval_type,
-           CAST(null AS character_data) AS result_cast_interval_precision,
+           CAST(null AS cardinal_number) AS result_cast_interval_precision,
            CAST(null AS sql_identifier) AS result_cast_type_udt_catalog,
            CAST(null AS sql_identifier) AS result_cast_type_udt_schema,
            CAST(null AS sql_identifier) AS result_cast_type_udt_name,
@@ -1520,7 +1513,7 @@ CREATE TABLE sql_implementation_info (
 ) WITHOUT OIDS;
 
 INSERT INTO sql_implementation_info VALUES ('10003', 'CATALOG NAME', NULL, 'Y', NULL);
-INSERT INTO sql_implementation_info VALUES ('10004', 'COLLATING SEQUENCE', NULL, '', 'not supported');
+INSERT INTO sql_implementation_info VALUES ('10004', 'COLLATING SEQUENCE', NULL, (SELECT default_collate_name FROM character_sets), NULL);
 INSERT INTO sql_implementation_info VALUES ('23',    'CURSOR COMMIT BEHAVIOR', 1, NULL, 'close cursors and retain prepared statements');
 INSERT INTO sql_implementation_info VALUES ('2',     'DATA SOURCE NAME', NULL, '', NULL);
 INSERT INTO sql_implementation_info VALUES ('17',    'DBMS NAME', NULL, (select trim(trailing ' ' from substring(version() from '^[^0-9]*'))), NULL);
@@ -2009,7 +2002,43 @@ GRANT SELECT ON triggers TO PUBLIC;
  * UDT_PRIVILEGES view
  */
 
--- feature not supported
+CREATE VIEW udt_privileges AS
+    SELECT CAST(null AS sql_identifier) AS grantor,
+           CAST('PUBLIC' AS sql_identifier) AS grantee,
+           CAST(current_database() AS sql_identifier) AS udt_catalog,
+           CAST(n.nspname AS sql_identifier) AS udt_schema,
+           CAST(t.typname AS sql_identifier) AS udt_name,
+           CAST('TYPE USAGE' AS character_data) AS privilege_type, -- sic
+           CAST('NO' AS yes_or_no) AS is_grantable
+
+    FROM pg_authid u, pg_namespace n, pg_type t
+
+    WHERE u.oid = t.typowner
+          AND n.oid = t.typnamespace
+          AND t.typtype <> 'd'
+          AND NOT (t.typelem <> 0 AND t.typlen = -1);
+
+GRANT SELECT ON udt_privileges TO PUBLIC;
+
+
+/*
+ * 5.43
+ * ROLE_UDT_GRANTS view
+ */
+
+CREATE VIEW role_udt_grants AS
+    SELECT grantor,
+           grantee,
+           udt_catalog,
+           udt_schema,
+           udt_name,
+           privilege_type,
+           is_grantable
+    FROM udt_privileges
+    WHERE grantor IN (SELECT role_name FROM enabled_roles)
+          OR grantee IN (SELECT role_name FROM enabled_roles);
+
+GRANT SELECT ON role_udt_grants TO PUBLIC;
 
 
 /*
@@ -2156,7 +2185,43 @@ GRANT SELECT ON role_usage_grants TO PUBLIC;
  * USER_DEFINED_TYPES view
  */
 
--- feature not supported
+CREATE VIEW user_defined_types AS
+    SELECT CAST(current_database() AS sql_identifier) AS user_defined_type_catalog,
+           CAST(n.nspname AS sql_identifier) AS user_defined_type_schema,
+           CAST(c.relname AS sql_identifier) AS user_defined_type_name,
+           CAST('STRUCTURED' AS character_data) AS user_defined_type_category,
+           CAST('YES' AS yes_or_no) AS is_instantiable,
+           CAST(null AS yes_or_no) AS is_final,
+           CAST(null AS character_data) AS ordering_form,
+           CAST(null AS character_data) AS ordering_category,
+           CAST(null AS sql_identifier) AS ordering_routine_catalog,
+           CAST(null AS sql_identifier) AS ordering_routine_schema,
+           CAST(null AS sql_identifier) AS ordering_routine_name,
+           CAST(null AS character_data) AS reference_type,
+           CAST(null AS character_data) AS data_type,
+           CAST(null AS cardinal_number) AS character_maximum_length,
+           CAST(null AS cardinal_number) AS character_octet_length,
+           CAST(null AS sql_identifier) AS character_set_catalog,
+           CAST(null AS sql_identifier) AS character_set_schema,
+           CAST(null AS sql_identifier) AS character_set_name,
+           CAST(null AS sql_identifier) AS collation_catalog,
+           CAST(null AS sql_identifier) AS collation_schema,
+           CAST(null AS sql_identifier) AS collation_name,
+           CAST(null AS cardinal_number) AS numeric_precision,
+           CAST(null AS cardinal_number) AS numeric_precision_radix,
+           CAST(null AS cardinal_number) AS numeric_scale,
+           CAST(null AS cardinal_number) AS datetime_precision,
+           CAST(null AS character_data) AS interval_type,
+           CAST(null AS cardinal_number) AS interval_precision,
+           CAST(null AS sql_identifier) AS source_dtd_identifier,
+           CAST(null AS sql_identifier) AS ref_dtd_identifier
+
+    FROM pg_namespace n, pg_class c
+
+    WHERE n.oid = c.relnamespace
+          AND c.relkind = 'c';
+
+GRANT SELECT ON user_defined_types TO PUBLIC;
 
 
 /*
@@ -2375,15 +2440,15 @@ CREATE VIEW element_types AS
            CAST(null AS sql_identifier) AS character_set_catalog,
            CAST(null AS sql_identifier) AS character_set_schema,
            CAST(null AS sql_identifier) AS character_set_name,
-           CAST(null AS sql_identifier) AS collation_catalog,
-           CAST(null AS sql_identifier) AS collation_schema,
-           CAST(null AS sql_identifier) AS collation_name,
+           CAST(CASE WHEN nco.nspname IS NOT NULL THEN current_database() END AS sql_identifier) AS collation_catalog,
+           CAST(nco.nspname AS sql_identifier) AS collation_schema,
+           CAST(co.collname AS sql_identifier) AS collation_name,
            CAST(null AS cardinal_number) AS numeric_precision,
            CAST(null AS cardinal_number) AS numeric_precision_radix,
            CAST(null AS cardinal_number) AS numeric_scale,
            CAST(null AS cardinal_number) AS datetime_precision,
            CAST(null AS character_data) AS interval_type,
-           CAST(null AS character_data) AS interval_precision,
+           CAST(null AS cardinal_number) AS interval_precision,
 
            CAST(null AS character_data) AS domain_default, -- XXX maybe a bug in the standard
 
@@ -2400,19 +2465,20 @@ CREATE VIEW element_types AS
 
     FROM pg_namespace n, pg_type at, pg_namespace nbt, pg_type bt,
          (
-           /* columns */
+           /* columns, attributes */
            SELECT c.relnamespace, CAST(c.relname AS sql_identifier),
-                  'TABLE'::text, a.attnum, a.atttypid
+                  CASE WHEN c.relkind = 'c' THEN 'USER-DEFINED TYPE'::text ELSE 'TABLE'::text END,
+                  a.attnum, a.atttypid, a.attcollation
            FROM pg_class c, pg_attribute a
            WHERE c.oid = a.attrelid
-                 AND c.relkind IN ('r', 'v', 'f')
+                 AND c.relkind IN ('r', 'v', 'f', 'c')
                  AND attnum > 0 AND NOT attisdropped
 
            UNION ALL
 
            /* domains */
            SELECT t.typnamespace, CAST(t.typname AS sql_identifier),
-                  'DOMAIN'::text, 1, t.typbasetype
+                  'DOMAIN'::text, 1, t.typbasetype, t.typcollation
            FROM pg_type t
            WHERE t.typtype = 'd'
 
@@ -2420,7 +2486,7 @@ CREATE VIEW element_types AS
 
            /* parameters */
            SELECT pronamespace, CAST(proname || '_' || CAST(oid AS text) AS sql_identifier),
-                  'ROUTINE'::text, (ss.x).n, (ss.x).x
+                  'ROUTINE'::text, (ss.x).n, (ss.x).x, 0
            FROM (SELECT p.pronamespace, p.proname, p.oid,
                         _pg_expandarray(coalesce(p.proallargtypes, p.proargtypes::oid[])) AS x
                  FROM pg_proc p) AS ss
@@ -2429,10 +2495,12 @@ CREATE VIEW element_types AS
 
            /* result types */
            SELECT p.pronamespace, CAST(p.proname || '_' || CAST(p.oid AS text) AS sql_identifier),
-                  'ROUTINE'::text, 0, p.prorettype
+                  'ROUTINE'::text, 0, p.prorettype, 0
            FROM pg_proc p
 
-         ) AS x (objschema, objname, objtype, objdtdid, objtypeid)
+         ) AS x (objschema, objname, objtype, objdtdid, objtypeid, objcollation)
+         LEFT JOIN (pg_collation co JOIN pg_namespace nco ON (co.collnamespace = nco.oid))
+           ON x.objcollation = co.oid AND (nco.nspname, co.collname) <> ('pg_catalog', 'default')
 
     WHERE n.oid = x.objschema
           AND at.oid = x.objtypeid

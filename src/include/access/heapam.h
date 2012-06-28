@@ -50,12 +50,14 @@ typedef enum
 extern Relation relation_open(Oid relationId, LOCKMODE lockmode);
 extern Relation try_relation_open(Oid relationId, LOCKMODE lockmode);
 extern Relation relation_openrv(const RangeVar *relation, LOCKMODE lockmode);
-extern Relation try_relation_openrv(const RangeVar *relation, LOCKMODE lockmode);
+extern Relation relation_openrv_extended(const RangeVar *relation,
+						 LOCKMODE lockmode, bool missing_ok);
 extern void relation_close(Relation relation, LOCKMODE lockmode);
 
 extern Relation heap_open(Oid relationId, LOCKMODE lockmode);
 extern Relation heap_openrv(const RangeVar *relation, LOCKMODE lockmode);
-extern Relation try_heap_openrv(const RangeVar *relation, LOCKMODE lockmode);
+extern Relation heap_openrv_extended(const RangeVar *relation,
+					 LOCKMODE lockmode, bool missing_ok);
 
 #define heap_close(r,l)  relation_close(r,l)
 
@@ -83,7 +85,8 @@ extern bool heap_fetch(Relation relation, Snapshot snapshot,
 		   HeapTuple tuple, Buffer *userbuf, bool keep_buf,
 		   Relation stats_relation);
 extern bool heap_hot_search_buffer(ItemPointer tid, Relation relation,
-					   Buffer buffer, Snapshot snapshot, bool *all_dead);
+					   Buffer buffer, Snapshot snapshot, HeapTuple heapTuple,
+					   bool *all_dead, bool first_call);
 extern bool heap_hot_search(ItemPointer tid, Relation relation,
 				Snapshot snapshot, bool *all_dead);
 
@@ -136,6 +139,8 @@ extern XLogRecPtr log_heap_clean(Relation reln, Buffer buffer,
 extern XLogRecPtr log_heap_freeze(Relation reln, Buffer buffer,
 				TransactionId cutoff_xid,
 				OffsetNumber *offsets, int offcnt);
+extern XLogRecPtr log_heap_visible(RelFileNode rnode, BlockNumber block,
+				 Buffer vm_buffer);
 extern XLogRecPtr log_newpage(RelFileNode *rnode, ForkNumber forkNum,
 			BlockNumber blk, Page page);
 

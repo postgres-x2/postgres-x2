@@ -198,14 +198,115 @@ DELETE FROM tmp3 where a=5;
 -- Try (and succeed) and repeat to show it works on already valid constraint
 ALTER TABLE tmp3 validate constraint tmpconstr;
 ALTER TABLE tmp3 validate constraint tmpconstr;
+-- Try a non-verified CHECK constraint
+ALTER TABLE tmp3 ADD CONSTRAINT b_greater_than_ten CHECK (b > 10); -- fail
+ERROR:  check constraint "b_greater_than_ten" is violated by some row
+ALTER TABLE tmp3 ADD CONSTRAINT b_greater_than_ten CHECK (b > 10) NOT VALID; -- succeeds
+ALTER TABLE tmp3 VALIDATE CONSTRAINT b_greater_than_ten; -- fails
+ERROR:  check constraint "b_greater_than_ten" is violated by some row
+DELETE FROM tmp3 WHERE NOT b > 10;
+ALTER TABLE tmp3 VALIDATE CONSTRAINT b_greater_than_ten; -- succeeds
+ALTER TABLE tmp3 VALIDATE CONSTRAINT b_greater_than_ten; -- succeeds
+-- Test inherited NOT VALID CHECK constraints
+select * from tmp3;
+ a | b  
+---+----
+ 1 | 20
+(1 row)
+
+CREATE TABLE tmp6 () INHERITS (tmp3);
+CREATE TABLE tmp7 () INHERITS (tmp3);
+INSERT INTO tmp6 VALUES (6, 30), (7, 16);
+ALTER TABLE tmp3 ADD CONSTRAINT b_le_20 CHECK (b <= 20) NOT VALID;
+ALTER TABLE tmp3 VALIDATE CONSTRAINT b_le_20;	-- fails
+ERROR:  check constraint "b_le_20" is violated by some row
+DELETE FROM tmp6 WHERE b > 20;
+ALTER TABLE tmp3 VALIDATE CONSTRAINT b_le_20;	-- succeeds
+-- An already validated constraint must not be revalidated
+CREATE FUNCTION boo(int) RETURNS int IMMUTABLE STRICT LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'boo: %', $1; RETURN $1; END; $$;
+INSERT INTO tmp7 VALUES (8, 18);
+ALTER TABLE tmp7 ADD CONSTRAINT identity CHECK (b = boo(b));
+NOTICE:  boo: 18
+ALTER TABLE tmp3 ADD CONSTRAINT IDENTITY check (b = boo(b)) NOT VALID;
+NOTICE:  merging constraint "identity" with inherited definition
+ALTER TABLE tmp3 VALIDATE CONSTRAINT identity;
+NOTICE:  boo: 16
+NOTICE:  boo: 20
 -- Try (and fail) to create constraint from tmp5(a) to tmp4(a) - unique constraint on
 -- tmp4 is a,b
 ALTER TABLE tmp5 add constraint tmpconstr foreign key(a) references tmp4(a) match full;
 ERROR:  there is no unique constraint matching given keys for referenced table "tmp4"
+DROP TABLE tmp7;
+DROP TABLE tmp6;
 DROP TABLE tmp5;
 DROP TABLE tmp4;
 DROP TABLE tmp3;
 DROP TABLE tmp2;
+-- NOT VALID with plan invalidation -- ensure we don't use a constraint for
+-- exclusion until validated
+set constraint_exclusion TO 'partition';
+create table nv_parent (d date); 
+create table nv_child_2010 () inherits (nv_parent);
+create table nv_child_2011 () inherits (nv_parent);
+alter table nv_child_2010 add check (d between '2010-01-01'::date and '2010-12-31'::date) not valid;
+alter table nv_child_2011 add check (d between '2011-01-01'::date and '2011-12-31'::date) not valid;
+explain (costs off) select * from nv_parent where d between '2011-08-01' and '2011-08-31';
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Result
+   ->  Append
+         ->  Seq Scan on nv_parent
+               Filter: ((d >= '08-01-2011'::date) AND (d <= '08-31-2011'::date))
+         ->  Seq Scan on nv_child_2010 nv_parent
+               Filter: ((d >= '08-01-2011'::date) AND (d <= '08-31-2011'::date))
+         ->  Seq Scan on nv_child_2011 nv_parent
+               Filter: ((d >= '08-01-2011'::date) AND (d <= '08-31-2011'::date))
+(8 rows)
+
+create table nv_child_2009 (check (d between '2009-01-01'::date and '2009-12-31'::date)) inherits (nv_parent);
+explain (costs off) select * from nv_parent where d between '2011-08-01'::date and '2011-08-31'::date;
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Result
+   ->  Append
+         ->  Seq Scan on nv_parent
+               Filter: ((d >= '08-01-2011'::date) AND (d <= '08-31-2011'::date))
+         ->  Seq Scan on nv_child_2010 nv_parent
+               Filter: ((d >= '08-01-2011'::date) AND (d <= '08-31-2011'::date))
+         ->  Seq Scan on nv_child_2011 nv_parent
+               Filter: ((d >= '08-01-2011'::date) AND (d <= '08-31-2011'::date))
+(8 rows)
+
+explain (costs off) select * from nv_parent where d between '2009-08-01'::date and '2009-08-31'::date;
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Result
+   ->  Append
+         ->  Seq Scan on nv_parent
+               Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
+         ->  Seq Scan on nv_child_2010 nv_parent
+               Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
+         ->  Seq Scan on nv_child_2011 nv_parent
+               Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
+         ->  Seq Scan on nv_child_2009 nv_parent
+               Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
+(10 rows)
+
+-- after validation, the constraint should be used
+alter table nv_child_2011 VALIDATE CONSTRAINT nv_child_2011_d_check;
+explain (costs off) select * from nv_parent where d between '2009-08-01'::date and '2009-08-31'::date;
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Result
+   ->  Append
+         ->  Seq Scan on nv_parent
+               Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
+         ->  Seq Scan on nv_child_2010 nv_parent
+               Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
+         ->  Seq Scan on nv_child_2009 nv_parent
+               Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
+(8 rows)
+
 -- Foreign key adding test with mixed types
 -- Note: these tables are TEMP to avoid name conflicts when this test
 -- is run in parallel with foreign_key.sql.
@@ -1512,7 +1613,7 @@ drop table another;
 create table tab1 (a int, b text);
 create table tab2 (x int, y tab1);
 alter table tab1 alter column b type varchar; -- fails
-ERROR:  cannot alter table "tab1" because column "tab2"."y" uses its rowtype
+ERROR:  cannot alter table "tab1" because column "tab2.y" uses its row type
 -- disallow recursive containment of row types
 create temp table recur1 (f1 int);
 alter table recur1 add column f2 recur1; -- fails
@@ -1571,90 +1672,88 @@ and c.relname != 'my_locks'
 group by c.relname;
 create table alterlock (f1 int primary key, f2 text);
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "alterlock_pkey" for table "alterlock"
--- share update exclusive
 begin; alter table alterlock alter column f2 set statistics 150;
 select * from my_locks order by 1;
-  relname  |       max_lockmode       
------------+--------------------------
- alterlock | ShareUpdateExclusiveLock
+  relname  |    max_lockmode     
+-----------+---------------------
+ alterlock | AccessExclusiveLock
 (1 row)
 
 rollback;
 begin; alter table alterlock cluster on alterlock_pkey;
 select * from my_locks order by 1;
-    relname     |       max_lockmode       
-----------------+--------------------------
- alterlock      | ShareUpdateExclusiveLock
- alterlock_pkey | ShareUpdateExclusiveLock
+    relname     |    max_lockmode     
+----------------+---------------------
+ alterlock      | AccessExclusiveLock
+ alterlock_pkey | AccessExclusiveLock
 (2 rows)
 
 commit;
 begin; alter table alterlock set without cluster;
 select * from my_locks order by 1;
-  relname  |       max_lockmode       
------------+--------------------------
- alterlock | ShareUpdateExclusiveLock
+  relname  |    max_lockmode     
+-----------+---------------------
+ alterlock | AccessExclusiveLock
 (1 row)
 
 commit;
 begin; alter table alterlock set (fillfactor = 100);
 select * from my_locks order by 1;
-  relname  |       max_lockmode       
------------+--------------------------
- alterlock | ShareUpdateExclusiveLock
- pg_toast  | ShareUpdateExclusiveLock
+  relname  |    max_lockmode     
+-----------+---------------------
+ alterlock | AccessExclusiveLock
+ pg_toast  | AccessExclusiveLock
 (2 rows)
 
 commit;
 begin; alter table alterlock reset (fillfactor);
 select * from my_locks order by 1;
-  relname  |       max_lockmode       
------------+--------------------------
- alterlock | ShareUpdateExclusiveLock
- pg_toast  | ShareUpdateExclusiveLock
+  relname  |    max_lockmode     
+-----------+---------------------
+ alterlock | AccessExclusiveLock
+ pg_toast  | AccessExclusiveLock
 (2 rows)
 
 commit;
 begin; alter table alterlock set (toast.autovacuum_enabled = off);
 select * from my_locks order by 1;
-  relname  |       max_lockmode       
------------+--------------------------
- alterlock | ShareUpdateExclusiveLock
- pg_toast  | ShareUpdateExclusiveLock
+  relname  |    max_lockmode     
+-----------+---------------------
+ alterlock | AccessExclusiveLock
+ pg_toast  | AccessExclusiveLock
 (2 rows)
 
 commit;
 begin; alter table alterlock set (autovacuum_enabled = off);
 select * from my_locks order by 1;
-  relname  |       max_lockmode       
------------+--------------------------
- alterlock | ShareUpdateExclusiveLock
- pg_toast  | ShareUpdateExclusiveLock
+  relname  |    max_lockmode     
+-----------+---------------------
+ alterlock | AccessExclusiveLock
+ pg_toast  | AccessExclusiveLock
 (2 rows)
 
 commit;
 begin; alter table alterlock alter column f2 set (n_distinct = 1);
 select * from my_locks order by 1;
-  relname  |       max_lockmode       
------------+--------------------------
- alterlock | ShareUpdateExclusiveLock
+  relname  |    max_lockmode     
+-----------+---------------------
+ alterlock | AccessExclusiveLock
 (1 row)
 
 rollback;
 begin; alter table alterlock alter column f2 set storage extended;
 select * from my_locks order by 1;
-  relname  |       max_lockmode       
------------+--------------------------
- alterlock | ShareUpdateExclusiveLock
+  relname  |    max_lockmode     
+-----------+---------------------
+ alterlock | AccessExclusiveLock
 (1 row)
 
 rollback;
--- share row exclusive
 begin; alter table alterlock alter column f2 set default 'x';
 select * from my_locks order by 1;
-  relname  |     max_lockmode      
------------+-----------------------
- alterlock | ShareRowExclusiveLock
+  relname  |    max_lockmode     
+-----------+---------------------
+ alterlock | AccessExclusiveLock
 (1 row)
 
 rollback;
@@ -1848,7 +1947,7 @@ DROP TYPE test_type;
 CREATE TYPE test_type1 AS (a int, b text);
 CREATE TABLE test_tbl1 (x int, y test_type1);
 ALTER TYPE test_type1 ALTER ATTRIBUTE b TYPE varchar; -- fails
-ERROR:  cannot alter type "test_type1" because column "test_tbl1"."y" uses it
+ERROR:  cannot alter type "test_type1" because column "test_tbl1.y" uses it
 CREATE TYPE test_type2 AS (a int, b text);
 CREATE TABLE test_tbl2 OF test_type2;
 CREATE TABLE test_tbl2_subclass () INHERITS (test_tbl2);

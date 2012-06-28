@@ -2412,7 +2412,6 @@ OpenIntoRel(QueryDesc *queryDesc)
 	Oid			tablespaceId;
 	Datum		reloptions;
 	Oid			intoRelationId;
-	TupleDesc	tupdesc;
 	DR_intorel *myState;
 	static char *validnsps[] = HEAP_RELOPT_NAMESPACES;
 
@@ -2433,6 +2432,13 @@ OpenIntoRel(QueryDesc *queryDesc)
 				 errmsg("ON COMMIT can only be used on temporary tables")));
 
 	/*
+	 * Find namespace to create in, check its permissions
+	 */
+	intoName = into->rel->relname;
+	namespaceId = RangeVarGetAndCheckCreationNamespace(into->rel);
+	RangeVarAdjustRelationPersistence(into->rel, namespaceId);
+
+	/*
 	 * Security check: disallow creating temp tables from security-restricted
 	 * code.  This is needed because calling code might not expect untrusted
 	 * tables to appear in pg_temp at the front of its search path.
@@ -2442,12 +2448,6 @@ OpenIntoRel(QueryDesc *queryDesc)
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 errmsg("cannot create temporary table within security-restricted operation")));
-
-	/*
-	 * Find namespace to create in, check its permissions
-	 */
-	intoName = into->rel->relname;
-	namespaceId = RangeVarGetAndCheckCreationNamespace(into->rel);
 
 	/*
 	 * Select tablespace to use.  If not specified, use default tablespace
@@ -2485,9 +2485,6 @@ OpenIntoRel(QueryDesc *queryDesc)
 									 false);
 	(void) heap_reloptions(RELKIND_RELATION, reloptions, true);
 
-	/* Copy the tupdesc because heap_create_with_catalog modifies it */
-	tupdesc = CreateTupleDescCopy(queryDesc->tupDesc);
-
 	/* Now we can actually create the new relation */
 	intoRelationId = heap_create_with_catalog(intoName,
 											  namespaceId,
@@ -2496,7 +2493,7 @@ OpenIntoRel(QueryDesc *queryDesc)
 											  InvalidOid,
 											  InvalidOid,
 											  GetUserId(),
-											  tupdesc,
+											  queryDesc->tupDesc,
 											  NIL,
 											  RELKIND_RELATION,
 											  into->rel->relpersistence,
@@ -2509,8 +2506,6 @@ OpenIntoRel(QueryDesc *queryDesc)
 											  true,
 											  allowSystemTableMods);
 	Assert(intoRelationId != InvalidOid);
-
-	FreeTupleDesc(tupdesc);
 
 	/*
 	 * Advance command counter so that the newly-created relation's catalog

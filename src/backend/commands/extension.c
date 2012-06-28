@@ -51,6 +51,7 @@
 #include "utils/fmgroids.h"
 #include "utils/guc.h"
 #include "utils/lsyscache.h"
+#include "utils/rel.h"
 #include "utils/snapmgr.h"
 #include "utils/tqual.h"
 
@@ -626,7 +627,7 @@ read_extension_aux_control_file(const ExtensionControlFile *pcontrol,
 }
 
 /*
- * Read a SQL script file into a string, and convert to database encoding
+ * Read an SQL script file into a string, and convert to database encoding
  */
 static char *
 read_extension_script_file(const ExtensionControlFile *control,
@@ -816,14 +817,14 @@ execute_extension_script(Oid extensionOid, ExtensionControlFile *control,
 	 * error.
 	 */
 	save_client_min_messages =
-		pstrdup(GetConfigOption("client_min_messages", false));
+		pstrdup(GetConfigOption("client_min_messages", false, false));
 	if (client_min_messages < WARNING)
 		(void) set_config_option("client_min_messages", "warning",
 								 PGC_USERSET, PGC_S_SESSION,
 								 GUC_ACTION_LOCAL, true);
 
 	save_log_min_messages =
-		pstrdup(GetConfigOption("log_min_messages", false));
+		pstrdup(GetConfigOption("log_min_messages", false, false));
 	if (log_min_messages < WARNING)
 		(void) set_config_option("log_min_messages", "warning",
 								 PGC_SUSET, PGC_S_SESSION,
@@ -838,7 +839,7 @@ execute_extension_script(Oid extensionOid, ExtensionControlFile *control,
 	 * but we cannot do that.  We have to actually set the search_path GUC in
 	 * case the extension script examines or changes it.
 	 */
-	save_search_path = pstrdup(GetConfigOption("search_path", false));
+	save_search_path = pstrdup(GetConfigOption("search_path", false, false));
 
 	initStringInfo(&pathbuf);
 	appendStringInfoString(&pathbuf, quote_identifier(schemaName));
@@ -2102,7 +2103,7 @@ pg_extension_config_dump(PG_FUNCTION_ARGS)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("pg_extension_config_dump() can only be called "
-						"from a SQL script executed by CREATE EXTENSION")));
+						"from an SQL script executed by CREATE EXTENSION")));
 
 	/*
 	 * Check that the table exists and is a member of the extension being
@@ -2706,7 +2707,7 @@ ExecAlterExtensionContentsStmt(AlterExtensionContentsStmt *stmt)
 	 * against concurrent DROP and ALTER EXTENSION ADD/DROP operations.
 	 */
 	object = get_object_address(stmt->objtype, stmt->objname, stmt->objargs,
-								&relation, ShareUpdateExclusiveLock);
+								&relation, ShareUpdateExclusiveLock, false);
 
 	/* Permission check: must own target object, too */
 	check_object_ownership(GetUserId(), stmt->objtype, object,
