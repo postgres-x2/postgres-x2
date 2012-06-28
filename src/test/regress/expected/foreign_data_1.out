@@ -648,7 +648,7 @@ ALTER FOREIGN TABLE ft1 ALTER COLUMN c6 SET NOT NULL;
 ERROR:  relation "ft1" does not exist
 ALTER FOREIGN TABLE ft1 ALTER COLUMN c7 DROP NOT NULL;
 ERROR:  relation "ft1" does not exist
-ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE char(10) using '0'; -- ERROR
+ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE char(10) USING '0'; -- ERROR
 ERROR:  relation "ft1" does not exist
 ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE char(10);
 ERROR:  relation "ft1" does not exist
