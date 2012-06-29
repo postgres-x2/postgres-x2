@@ -52,7 +52,6 @@
 bool EnforceTwoPhaseCommit = true;
 
 #define END_QUERY_TIMEOUT	20
-#define DATA_NODE_FETCH_SIZE	1
 #define ROLLBACK_RESP_LEN	9
 
 typedef enum RemoteXactNodeStatus
