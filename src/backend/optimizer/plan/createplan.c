@@ -833,7 +833,7 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 			 * If the JOIN ON clause has a local dependency then we cannot ship
 			 * the join to the remote side at all, bail out immediately.
 			 */
-			if (!is_foreign_expr((Node *)nest_parent->join.joinqual, NULL))
+			if (!pgxc_is_expr_shippable((Expr *)nest_parent->join.joinqual, NULL))
 			{
 				elog(DEBUG1, "cannot reduce: local dependencies in the joinqual");
 				return parent;
@@ -845,7 +845,7 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 			 * entire list. These local quals will become part of the quals
 			 * list of the reduced remote scan node down later.
 			 */
-			if (!is_foreign_expr((Node *)nest_parent->join.plan.qual, NULL))
+			if (!pgxc_is_expr_shippable((Expr *)nest_parent->join.plan.qual, NULL))
 			{
 				elog(DEBUG1, "local dependencies in the join plan qual");
 
@@ -863,7 +863,7 @@ create_remotejoin_plan(PlannerInfo *root, JoinPath *best_path, Plan *parent, Pla
 					 * is currentof clause, so keep that information intact and
 					 * pass a dummy argument here.
 					 */
-					if (!is_foreign_expr((Node *)clause, NULL))
+					if (!pgxc_is_expr_shippable((Expr *)clause, NULL))
 						local_scan_clauses	= lappend(local_scan_clauses, clause);
 					else
 						remote_scan_clauses = lappend(remote_scan_clauses, clause);
@@ -2599,7 +2599,7 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 		{
 			Node *clause = lfirst(l);
 
-			if (is_foreign_expr(clause, NULL))
+			if (pgxc_is_expr_shippable((Expr *)clause, NULL))
 				remote_scan_clauses = lappend(remote_scan_clauses, clause);
 			else
 				local_scan_clauses = lappend(local_scan_clauses, clause);
@@ -6447,7 +6447,6 @@ pgxc_add_node_to_grouping_tlist(List *remote_tlist, Node *expr, Index ressortgro
 	}
 	else
 	{
-
 		if (remote_tle->ressortgroupref == 0)
 			remote_tle->ressortgroupref = ressortgroupref;
 		else if (ressortgroupref == 0)
@@ -6522,9 +6521,8 @@ pgxc_process_grouping_targetlist(PlannerInfo *root, List **local_tlist)
 	{
 		TargetEntry				*local_tle = lfirst(temp);
 		Node					*expr = (Node *)local_tle->expr;
-		foreign_qual_context	context;
+		bool					has_aggs;
 
-		pgxc_foreign_qual_context_init(&context);
 		/*
 		 * If the expression is not Aggref but involves aggregates (has Aggref
 		 * nodes in the expression tree, we can not push the entire expression
@@ -6542,9 +6540,7 @@ pgxc_process_grouping_targetlist(PlannerInfo *root, List **local_tlist)
 		 * SELECT sum(val), val2 FROM tab1 GROUP BY val2;
 		 * Notice that, if we include val in the query, it will become invalid.
 		 */
-		context.collect_vars = true;
-
-		if (!is_foreign_expr(expr, &context))
+		if (!pgxc_is_expr_shippable((Expr *)expr, &has_aggs))
 		{
 				shippable_remote_tlist = false;
 				break;
@@ -6554,46 +6550,37 @@ pgxc_process_grouping_targetlist(PlannerInfo *root, List **local_tlist)
 		 * We are about to change the local_tlist, check if we have already
 		 * copied original local_tlist, if not take a copy
 		 */
-		if (!orig_local_tlist && (IsA(expr, Aggref) || context.aggs))
+		if (!orig_local_tlist && has_aggs)
 				orig_local_tlist = copyObject(*local_tlist);
 
 		/*
-		 * if there are aggregates involved in the expression, whole expression
+		 * If there are aggregates involved in the expression, whole expression
 		 * can not be pushed to the Datanode. Pick up the aggregates and the
 		 * VAR nodes not covered by aggregates.
 		 */
-		if (context.aggs)
+		if (has_aggs)
 		{
-			ListCell				*lcell;
+			ListCell	*lcell;
+			List		*aggs_n_vars;
 			/*
-			 * if the target list expression is an Aggref, then the context should
-			 * have only one Aggref in the list and no VARs.
-			 */
-			Assert(!IsA(expr, Aggref) ||
-						(list_length(context.aggs) == 1 &&
-						linitial(context.aggs) == expr &&
-						!context.vars));
-			/*
-			 * this expression is not going to be pushed as whole, thus other
+			 * This expression is not going to be pushed as whole, thus other
 			 * clauses won't be able to find out this TLE in the results
 			 * obtained from Datanode. Hence can't optimize this query.
+			 * PGXCTODO: with projection support in RemoteQuery node, this
+			 * condition can be worked around, please check.
 			 */
 			if (local_tle->ressortgroupref > 0)
 			{
 				shippable_remote_tlist = false;
 				break;
 			}
+
+			aggs_n_vars = pull_var_clause(expr, PVC_INCLUDE_AGGREGATES,
+															PVC_RECURSE_PLACEHOLDERS);
 			/* copy the aggregates into the remote target list */
-			foreach (lcell, context.aggs)
+			foreach (lcell, aggs_n_vars)
 			{
-				Assert(IsA(lfirst(lcell), Aggref));
-				remote_tlist = pgxc_add_node_to_grouping_tlist(remote_tlist, lfirst(lcell),
-																0);
-			}
-			/* copy the vars into the remote target list */
-			foreach (lcell, context.vars)
-			{
-				Assert(IsA(lfirst(lcell), Var));
+				Assert(IsA(lfirst(lcell), Aggref) || IsA(lfirst(lcell), Var));
 				remote_tlist = pgxc_add_node_to_grouping_tlist(remote_tlist, lfirst(lcell),
 																0);
 			}
@@ -6602,8 +6589,6 @@ pgxc_process_grouping_targetlist(PlannerInfo *root, List **local_tlist)
 		else
 			remote_tlist = pgxc_add_node_to_grouping_tlist(remote_tlist, expr,
 													local_tle->ressortgroupref);
-
-		pgxc_foreign_qual_context_free(&context);
 	}
 
 	if (!shippable_remote_tlist)
@@ -6648,7 +6633,6 @@ pgxc_process_having_clause(PlannerInfo *root, List *remote_tlist, Node *havingQu
 												List **local_qual, List **remote_qual,
 												bool *reduce_plan)
 {
-	foreign_qual_context	context;
 	List		*qual;
 	ListCell	*temp;
 
@@ -6674,45 +6658,34 @@ pgxc_process_having_clause(PlannerInfo *root, List *remote_tlist, Node *havingQu
 	qual = copyObject(havingQual);
 	foreach(temp, qual)
 	{
-		Node *expr = lfirst(temp);
-		pgxc_foreign_qual_context_init(&context);
-		if (!is_foreign_expr(expr, &context))
+		Node	*expr = lfirst(temp);
+		bool	has_aggs;
+		List	*vars_n_aggs;
+
+		if (!pgxc_is_expr_shippable((Expr *)expr, &has_aggs))
 		{
 			*reduce_plan = false;
 			break;
 		}
 
-		if (context.aggs)
+		if (has_aggs)
 		{
-				ListCell				*lcell;
-				/*
-				 * if the target list havingQual is an Aggref, then the context should
-				 * have only one Aggref in the list and no VARs.
-				 */
-				Assert(!IsA(expr, Aggref) ||
-							(list_length(context.aggs) == 1 &&
-							linitial(context.aggs) == expr &&
-							!context.vars));
-				/* copy the aggregates into the remote target list */
-				foreach (lcell, context.aggs)
-				{
-					Assert(IsA(lfirst(lcell), Aggref));
-					remote_tlist = pgxc_add_node_to_grouping_tlist(remote_tlist, lfirst(lcell),
-																	0);
-				}
-				/* copy the vars into the remote target list */
-				foreach (lcell, context.vars)
-				{
-					Assert(IsA(lfirst(lcell), Var));
-					remote_tlist = pgxc_add_node_to_grouping_tlist(remote_tlist, lfirst(lcell),
-																	0);
-				}
-				*local_qual = lappend(*local_qual, expr);
+			ListCell	*lcell;
+
+			/* Pull the aggregates and var nodes from the quals */
+			vars_n_aggs = pull_var_clause(expr, PVC_INCLUDE_AGGREGATES,
+											PVC_RECURSE_PLACEHOLDERS);
+			/* copy the aggregates into the remote target list */
+			foreach (lcell, vars_n_aggs)
+			{
+				Assert(IsA(lfirst(lcell), Aggref) || IsA(lfirst(lcell), Var));
+				remote_tlist = pgxc_add_node_to_grouping_tlist(remote_tlist, lfirst(lcell),
+																0);
+			}
+			*local_qual = lappend(*local_qual, expr);
 		}
 		else
 			*remote_qual = lappend(*remote_qual, expr);
-
-		pgxc_foreign_qual_context_free(&context);
 	}
 
 	if (!(*reduce_plan))

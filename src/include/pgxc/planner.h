@@ -120,39 +120,51 @@ typedef struct
  */
 typedef struct
 {
-	Bitmapset	*fqsc_shippability;	/* The conditions for (un)shippability of the
+	bool		sc_for_expr;		/* if false, the we are checking shippability
+									 * of the Query, otherwise, we are checking
+									 * shippability of a stand-alone expression.
+									 */
+	Bitmapset	*sc_shippability;	/* The conditions for (un)shippability of the
 									 * query.
 									 */
-	Query	*fqsc_query;			/* the query being analysed for FQS */
-	int		fqsc_query_level;		/* level of the query */
-	int		fqsc_max_varlevelsup;	/* maximum upper level referred to by any
+	Query		*sc_query;			/* the query being analysed for FQS */
+	int			sc_query_level;		/* level of the query */
+	int			sc_max_varlevelsup;	/* maximum upper level referred to by any
 									 * variable reference in the query. If this
 									 * value is greater than 0, the query is not
 									 * shippable, if shipped alone.
 									 */
-	ExecNodes	*fqsc_exec_nodes;	/* nodes where the query should be executed */
-	ExecNodes	*fqsc_subquery_en;	/* ExecNodes produced by merging the ExecNodes
+	ExecNodes	*sc_exec_nodes;		/* nodes where the query should be executed */
+	ExecNodes	*sc_subquery_en;	/* ExecNodes produced by merging the ExecNodes
 									 * for individual subqueries. This gets
-									 * ultimately merged with fqsc_exec_nodes.
+									 * ultimately merged with sc_exec_nodes.
 									 */
-} FQS_context;
+} Shippability_context;
 
-/* enum for reasons as to why a query is not FQSable */
+/* enum for reasons as to why a query/expression is not FQSable */
 typedef enum
 {
-	FQS_UNSHIPPABLE_EXPR = 0,		/* it has unshippable expression */
-	FQS_SINGLENODE_EXPR,			/* it has single node expression, like
-									 * aggregates, ORDER BY etc. */
-	FQS_NEEDS_COORD,				/* the query needs Coordinator */
-	FQS_VARLEVEL,					/* one of its subqueries has a VAR
-									 * referencing an upper level query
-									 * relation */
-	FQS_NO_NODES,					/* no suitable nodes can be found to ship
-									 * the query */
-	FQS_UNSUPPORTED_EXPR			/* it has expressions currently unsupported
-									 * by FQS, but such expressions might be
-									 * supported by FQS in future */
-} FQS_shippability;
+	SS_UNSHIPPABLE_EXPR = 0,	/* it has unshippable expression */
+	SS_NEED_SINGLENODE,			/* Has expressions which can be evaluated when
+								 * there is only a single node involved.
+								 * Athought aggregates too fit in this class, we
+								 * have a separate status to report aggregates,
+								 * see below.
+								 */
+	SS_NEEDS_COORD,				/* the query needs Coordinator */
+	SS_VARLEVEL,				/* one of its subqueries has a VAR
+								 * referencing an upper level query
+								 * relation
+								 */
+	SS_NO_NODES,				/* no suitable nodes can be found to ship
+								 * the query
+								 */
+	SS_UNSUPPORTED_EXPR,		/* it has expressions currently unsupported
+								 * by FQS, but such expressions might be
+								 * supported by FQS in future
+								 */
+	SS_HAS_AGG_EXPR				/* it has aggregate expressions */
+} ShippabilityStat;
 
 /* global variable corresponding to the GUC with same name */
 extern bool enable_fast_query_shipping;
@@ -174,5 +186,8 @@ extern List *AddRemoteQueryNode(List *stmts, const char *queryString,
 								RemoteQueryExecType remoteExecType, bool is_temp);
 extern bool pgxc_query_contains_temp_tables(List *queries);
 extern bool pgxc_query_contains_utility(List *queries);
+extern bool pgxc_shippability_walker(Node *node, Shippability_context *sc_context);
+extern bool pgxc_test_shippability_reason(Shippability_context *context,
+											ShippabilityStat reason);
 
 #endif   /* PGXCPLANNER_H */

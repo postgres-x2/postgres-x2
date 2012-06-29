@@ -31,18 +31,6 @@
 #define DEBUG_FDW
 
 /*
- * WHERE clause optimization level
- */
-#define EVAL_QUAL_LOCAL		0	/* evaluate none in foreign, all in local */
-#define EVAL_QUAL_BOTH		1	/* evaluate some in foreign, all in local */
-#define EVAL_QUAL_FOREIGN	2	/* evaluate some in foreign, rest in local */
-
-#define OPTIMIZE_WHERE_CLAUSE	EVAL_QUAL_FOREIGN
-
-/* deparse SQL from the request */
-static bool foreign_qual_walker(Node *node, foreign_qual_context *context);
-
-/*
  * Check whether the function is IMMUTABLE.
  */
 bool
@@ -96,130 +84,42 @@ is_immutable_func(Oid funcid)
  *  - scalar array operator (ANY/ALL)
  */
 bool
-is_foreign_expr(Node *node, foreign_qual_context *context)
+pgxc_is_expr_shippable(Expr *node, bool *has_aggs)
 {
-	return !foreign_qual_walker(node, context);
-}
+	Shippability_context sc_context;
 
-void
-pgxc_foreign_qual_context_init(foreign_qual_context *context)
-{
-	context->collect_vars = false;
-	context->vars = NIL;
-	context->aggs = NIL;
-}
+	/* Create the FQS context */
+	memset(&sc_context, 0, sizeof(sc_context));
+	sc_context.sc_query = NULL;
+	sc_context.sc_query_level = 0;
+	sc_context.sc_for_expr = true;
 
-void
-pgxc_foreign_qual_context_free(foreign_qual_context *context)
-{
-	list_free(context->vars);
-	context->vars = NIL;
-	list_free(context->aggs);
-	context->aggs = NIL;
-}
-/*
- * return true if node cannot be evaluatated in foreign server.
- */
-static bool
-foreign_qual_walker(Node *node, foreign_qual_context *context)
-{
-	bool	ret_val;
-	bool	saved_collect_vars;
-	if (node == NULL)
-		return false;
-
-	switch (nodeTag(node))
-	{
-		case T_ExprState:
-			return foreign_qual_walker((Node *) ((ExprState *) node)->expr, NULL);
-
-		case T_Param:
-			/* TODO: pass internal parameters to the foreign server */
-			if (((Param *) node)->paramkind != PARAM_EXTERN)
-				return true;
-			break;
-		case T_DistinctExpr:
-		case T_OpExpr:
-			/*
-			 * An operator which uses IMMUTABLE function can be evaluated in
-			 * foreign server . It is not necessary to worry about oprrest
-			 * and oprjoin here because they are invoked by planner but not
-			 * executor. DistinctExpr is a typedef of OpExpr.
-			 * We need also to be sure that function id is correctly set
-			 * before evaluation.
-			 */
-			set_opfuncid((OpExpr *) node);
-
-			if (!is_immutable_func(((OpExpr*) node)->opfuncid))
-				return true;
-			break;
-		case T_ScalarArrayOpExpr:
-			if (!is_immutable_func(((ScalarArrayOpExpr*) node)->opfuncid))
-				return true;
-			break;
-		case T_FuncExpr:
-			/* IMMUTABLE function can be evaluated in foreign server */
-			if (!is_immutable_func(((FuncExpr*) node)->funcid))
-				return true;
-			break;
-		case T_Aggref:
-			{
-				Aggref *aggref = (Aggref *)node;
-				/*
-				 * An aggregate with ORDER BY, DISTINCT directives need to be
-				 * computed at Coordinator using all the rows. An aggregate
-				 * without collection function needs to be computed at
-				 * Coordinator.
-				 * PGXCTODO: polymorphic transition types need to be resolved to
-				 * correctly interpret the transition results from Datanodes.
-				 * For now compute such aggregates at Coordinator.
-				 */
-				if (aggref->aggorder ||
-					aggref->aggdistinct ||
-					aggref->agglevelsup ||
-					!aggref->agghas_collectfn ||
-					IsPolymorphicType(aggref->aggtrantype))
-					return true;
-				/*
-				 * Datanode can compute transition results, so, add the
-				 * aggregate to the context if context is present
-				 */
-				if (context)
-				{
-					/*
-					 * Don't collect VARs under the Aggref node. See
-					 * pgxc_process_grouping_targetlist() for details.
-					 */
-					saved_collect_vars = context->collect_vars;
-					context->collect_vars = false;
-					context->aggs = lappend(context->aggs, aggref);
-				}
-			}
-			break;
-		case T_Var:
-			if (context && context->collect_vars)
-				context->vars = lappend(context->vars, node);
-			break;
-		case T_PlaceHolderVar:
-		case T_AppendRelInfo:
-		case T_PlaceHolderInfo:
-		case T_SubPlan:
-			/* TODO: research whether those complex nodes are evaluatable. */
-			return true;
-		default:
-			break;
-	}
-
-	ret_val = expression_tree_walker(node, foreign_qual_walker, context);
+	/* Walk the expression to check its shippability */
+	pgxc_shippability_walker((Node *)node, &sc_context);
 
 	/*
-	 * restore value of collect_vars in the context, since we have finished
-	 * traversing tree rooted under and Aggref node
+	 * If caller is interested in knowing, whether the expression has aggregets
+	 * let the caller know about it. The caller is capable of handling such
+	 * expressions. Otherwise assume such an expression as unshippable.
 	 */
-	if (context && IsA(node, Aggref))
-		context->collect_vars = saved_collect_vars;
+	if (has_aggs)
+		*has_aggs = pgxc_test_shippability_reason(&sc_context, SS_HAS_AGG_EXPR);
+	else if (pgxc_test_shippability_reason(&sc_context, SS_HAS_AGG_EXPR))
+		return false;
 
-	return ret_val;
+	/*
+	 * If the expression unshippable or unsupported by expression shipping
+	 * algorithm, return false. We don't have information about the number of
+	 * nodes involved in expression evaluation, hence even if the expression can
+	 * be evaluated only on single node, return false.
+	 */
+	if (pgxc_test_shippability_reason(&sc_context, SS_UNSUPPORTED_EXPR) ||
+		pgxc_test_shippability_reason(&sc_context, SS_UNSHIPPABLE_EXPR) ||
+		pgxc_test_shippability_reason(&sc_context, SS_NEED_SINGLENODE))
+		return false;
+
+	/* If nothing wrong found, the expression is shippable */
+	return true;
 }
 
 /*
@@ -350,7 +250,7 @@ deparseSql(RemoteQueryState *scanstate)
 		{
 			ExprState	   *state = lfirst(lc);
 
-			if (is_foreign_expr((Node *) state, NULL))
+			if (pgxc_is_expr_shippable(state->expr, NULL))
 			{
 				elog(DEBUG1, "foreign qual: %s", nodeToString(state->expr));
 				foreign_qual = lappend(foreign_qual, state);

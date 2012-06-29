@@ -2461,7 +2461,7 @@ BeginCopyFrom(Relation rel,
 					 * the Datanode insert the default values.
 					 */
 					Expr *planned_defexpr = expression_planner((Expr *) defexpr);
-					if (!is_foreign_expr((Node*)planned_defexpr, NULL))
+					if (!pgxc_is_expr_shippable(planned_defexpr, NULL))
 					{
 						Oid    out_func_oid;
 						bool   isvarlena;
@@ -4472,7 +4472,7 @@ build_copy_statement(CopyState cstate, List *attnamelist,
 					/* Append only if the default expression is not shippable. */
 					Expr *defexpr = (Expr*) build_column_default(cstate->rel, attnum);
 					if (defexpr &&
-					    !is_foreign_expr((Node*)expression_planner(defexpr), NULL))
+					    !pgxc_is_expr_shippable(expression_planner(defexpr), NULL))
 					{
 						appendStringInfoString(&cstate->query_buf, ", ");
 						CopyQuoteIdentifier(&cstate->query_buf,
