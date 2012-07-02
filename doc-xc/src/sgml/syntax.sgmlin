@@ -1787,9 +1787,6 @@ SELECT string_agg(a ORDER BY a, ',') FROM table;  -- incorrect
    </para>
   </sect2>
 
-<!## PG>
-<!-- Window functions are not supported yet -->
-
   <sect2 id="syntax-window-functions">
    <title>Window Function Calls</title>
 
@@ -1929,8 +1926,6 @@ UNBOUNDED FOLLOWING
     <xref linkend="queries-window">.
    </para>
   </sect2>
-
-<!## end>
 
   <sect2 id="sql-syntax-type-casts">
    <title>Type Casts</title>
