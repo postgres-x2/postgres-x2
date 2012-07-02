@@ -31,11 +31,6 @@ PostgreSQL documentation
  </indexterm>
 
  <refsynopsisdiv>
-<!## PG>
-<!-- NOTICE:
-     No WITH
-     No WINDOW
--->
 <synopsis>
 [ WITH [ RECURSIVE ] <replaceable class="parameter">with_query</replaceable> [, ...] ]
 SELECT [ ALL | DISTINCT [ ON ( <replaceable class="parameter">expression</replaceable> [, ...] ) ] ]
@@ -66,38 +61,6 @@ SELECT [ ALL | DISTINCT [ ON ( <replaceable class="parameter">expression</replac
 
 TABLE { [ ONLY ] <replaceable class="parameter">table_name</replaceable> [ * ] | <replaceable class="parameter">with_query_name</replaceable> }
 </synopsis>
-<!## end>
-<!## XC>
-<synopsis>
-SELECT [ ALL | DISTINCT [ ON ( <replaceable class="parameter">expression</replaceable> [, ...] ) ] ]
-    * | <replaceable class="parameter">expression</replaceable> [ [ AS ] <replaceable class="parameter">output_name</replaceable> ] [, ...]
-    [ FROM <replaceable class="parameter">from_item</replaceable> [, ...] ]
-    [ WHERE <replaceable class="parameter">condition</replaceable> ]
-    [ GROUP BY <replaceable class="parameter">expression</replaceable> [, ...] ]
-    [ HAVING <replaceable class="parameter">condition</replaceable> [, ...] ]
-    [ { UNION | INTERSECT | EXCEPT } [ ALL ] <replaceable class="parameter">select</replaceable> ]
-    [ ORDER BY <replaceable class="parameter">expression</replaceable> [ ASC | DESC | USING <replaceable class="parameter">operator</replaceable> ] [ NULLS { FIRST | LAST } ] [, ...] ]
-    [ LIMIT { <replaceable class="parameter">count</replaceable> | ALL } ]
-    [ OFFSET <replaceable class="parameter">start</replaceable> [ ROW | ROWS ] ]
-    [ FETCH { FIRST | NEXT } [ <replaceable class="parameter">count</replaceable> ] { ROW | ROWS } ONLY ]
-    [ FOR { UPDATE | SHARE } [ OF <replaceable class="parameter">table_name</replaceable> [, ...] ] [ NOWAIT ] [...] ]
-
-<phrase>where <replaceable class="parameter">from_item</replaceable> can be one of:</phrase>
-
-    [ ONLY ] <replaceable class="parameter">table_name</replaceable> [ * ] [ [ AS ] <replaceable class="parameter">alias</replaceable> [ ( <replaceable class="parameter">column_alias</replaceable> [, ...] ) ] ]
-    ( <replaceable class="parameter">select</replaceable> ) [ AS ] <replaceable class="parameter">alias</replaceable> [ ( <replaceable class="parameter">column_alias</replaceable> [, ...] ) ]
-    <replaceable class="parameter">with_query_name</replaceable> [ [ AS ] <replaceable class="parameter">alias</replaceable> [ ( <replaceable class="parameter">column_alias</replaceable> [, ...] ) ] ]
-    <replaceable class="parameter">function_name</replaceable> ( [ <replaceable class="parameter">argument</replaceable> [, ...] ] ) [ AS ] <replaceable class="parameter">alias</replaceable> [ ( <replaceable class="parameter">column_alias</replaceable> [, ...] | <replaceable class="parameter">column_definition</replaceable> [, ...] ) ]
-    <replaceable class="parameter">function_name</replaceable> ( [ <replaceable class="parameter">argument</replaceable> [, ...] ] ) AS ( <replaceable class="parameter">column_definition</replaceable> [, ...] )
-    <replaceable class="parameter">from_item</replaceable> [ NATURAL ] <replaceable class="parameter">join_type</replaceable> <replaceable class="parameter">from_item</replaceable> [ ON <replaceable class="parameter">join_condition</replaceable> | USING ( <replaceable class="parameter">join_column</replaceable> [, ...] ) ]
-
-<phrase>and <replaceable class="parameter">with_query</replaceable> is:</phrase>
-
-    <replaceable class="parameter">with_query_name</replaceable> [ ( <replaceable class="parameter">column_name</replaceable> [, ...] ) ] AS ( <replaceable class="parameter">select</replaceable> | <replaceable class="parameter">insert</replaceable> | <replaceable class="parameter">update</replaceable> | <replaceable class="parameter">delete</replaceable> )
-
-TABLE [ ONLY ] <replaceable class="parameter">table_name</replaceable> [ * ]
-</synopsis>
-<!## end>
 
 </refsynopsisdiv>
 
@@ -112,7 +75,6 @@ TABLE [ ONLY ] <replaceable class="parameter">table_name</replaceable> [ * ]
 
    <orderedlist>
     <listitem>
-&pgonly;
      <para>
       All queries in the <literal>WITH</literal> list are computed.
       These effectively serve as temporary tables that can be referenced
@@ -121,17 +83,9 @@ TABLE [ ONLY ] <replaceable class="parameter">table_name</replaceable> [ * ]
       computed only once.
       (See <xref linkend="sql-with" endterm="sql-with-title"> below.)
      </para>
-<!## XC>
-&xconly
-     <para>
-      <literal>WITH</literal> clause is not supported by the current
-      release of <productname>Postgres-XC</productname>.
-     </para>
-<!## end>
     </listitem>
 
     <listitem>
-&common;
      <para>
       All elements in the <literal>FROM</literal> list are computed.
       (Each element in the <literal>FROM</literal> list is a real or
@@ -152,11 +106,6 @@ TABLE [ ONLY ] <replaceable class="parameter">table_name</replaceable> [ * ]
 
     <listitem>
      <para>
-
-<!-- NOTICE:
-     No HAVING!
--->
-&pgonly;
       If the <literal>GROUP BY</literal> clause is specified, the
       output is combined into groups of rows that match on one or more
       values.  If the <literal>HAVING</literal> clause is present, it
@@ -164,13 +113,6 @@ TABLE [ ONLY ] <replaceable class="parameter">table_name</replaceable> [ * ]
       <xref linkend="sql-groupby" endterm="sql-groupby-title"> and
       <xref linkend="sql-having" endterm="sql-having-title"> below.)
      </para>
-<!## XC>
-&xconly;
-      <para>
-       <literal>HAVING</literal> clause is not supported by the
-       current release of <productname>Postgres-XC</productname>.
-      </para>
-<!## end>
 
     </listitem>
 
@@ -264,13 +206,6 @@ TABLE [ ONLY ] <replaceable class="parameter">table_name</replaceable> [ * ]
   <refsect2 id="SQL-WITH">
    <title id="sql-with-title"><literal>WITH</literal> Clause</title>
 
-<!## XC>
-&xconly;
-   <para>
-    <literal>WITH</literal> clause is not supported by the current release of <productname>Postgres-XC</productname>.
-   </para>
-<!## end>
-<!## PG>
    <para>
     The <literal>WITH</literal> clause allows you to specify one or more
     subqueries that can be referenced by name in the primary query.
@@ -343,12 +278,10 @@ TABLE [ ONLY ] <replaceable class="parameter">table_name</replaceable> [ * ]
    <para>
     See <xref linkend="queries-with"> for additional information.
    </para>
-<!## end>
   </refsect2>
 
   <refsect2 id="SQL-FROM">
    <title id="sql-from-title"><literal>FROM</literal> Clause</title>
-&common;
    <para>
     The <literal>FROM</literal> clause specifies one or more source
     tables for the <command>SELECT</command>.  If multiple sources are
@@ -410,7 +343,6 @@ TABLE [ ONLY ] <replaceable class="parameter">table_name</replaceable> [ * ]
       </listitem>
      </varlistentry>
 
-<!## PG>
      <varlistentry>
       <term><replaceable class="parameter">with_query_name</replaceable></term>
       <listitem>
@@ -425,7 +357,6 @@ TABLE [ ONLY ] <replaceable class="parameter">table_name</replaceable> [ * ]
        </para>
       </listitem>
      </varlistentry>
-<!## end>
 
      <varlistentry>
       <term><replaceable class="parameter">function_name</replaceable></term>
@@ -632,18 +563,7 @@ GROUP BY <replaceable class="parameter">expression</replaceable> [, ...]
 
   <refsect2 id="SQL-HAVING">
    <title id="sql-having-title"><literal>HAVING</literal> Clause</title>
-<!## XC>
-<!-- NOTICE:
-     No HAVING!
--->
-&xconly;
-   <para>
-    <literal>HAVING</literal> clause is not supported by the current
-    version of <productname>Postgres-XC</productname>.
-   </para>
-<!## end>
 
-<!## PG>
    <para>
     The optional <literal>HAVING</literal> clause has the general form
 <synopsis>
@@ -675,22 +595,11 @@ HAVING <replaceable class="parameter">condition</replaceable>
     within aggregate functions.  Such a query will emit a single row if the
     <literal>HAVING</literal> condition is true, zero rows if it is not true.
    </para>
-<!## end>
   </refsect2>
 
   <refsect2 id="SQL-WINDOW">
    <title id="sql-window-title"><literal>WINDOW</literal> Clause</title>
-<!## XC>
-<!-- NOTICE:
-     No WINDOW!
--->
-&xconly;
-   <para>
-    <literal>WINDOW</literal> clause is not supported by the current version of <productname>Postgres-XC</productname>.
-   </para>
-<!## end>
 
-<!## PG>
    <para>
     The optional <literal>WINDOW</literal> clause has the general form
 <synopsis>
@@ -826,7 +735,6 @@ UNBOUNDED FOLLOWING
     <xref linkend="syntax-window-functions">, and
     <xref linkend="queries-window">.
    </para>
-<!## end>
   </refsect2>
 
   <refsect2 id="sql-select-list">
@@ -862,18 +770,10 @@ UNBOUNDED FOLLOWING
    </para>
 
    <para>
-<!## PG>
     An output column's name can be used to refer to the column's value in
     <literal>ORDER BY</> and <literal>GROUP BY</> clauses, but not in the
     <literal>WHERE</> or <literal>HAVING</> clauses; there you must write
     out the expression instead.
-<!## end>
-<!## XC>
-    An output column's name can be used to refer to the column's value in
-    <literal>ORDER BY</> and <literal>GROUP BY</> clauses, but not in the
-    <literal>WHERE</> clause; there you must write
-    out the expression instead.
-<!## end>
    </para>
 
    <para>
@@ -1470,10 +1370,6 @@ SELECT kind, sum(len) AS total FROM films GROUP BY kind;
 </programlisting>
   </para>
 
-<!## PG>
-<!-- NOTICE:
-     No HAVING!
--->
   <para>
    To sum the column <literal>len</literal> of all films, group
    the results by <literal>kind</literal> and show those group totals
@@ -1491,7 +1387,6 @@ SELECT kind, sum(len) AS total
  Romantic | 04:38
 </programlisting>
   </para>
-<!## end>
 
   <para>
    The following two examples are identical ways of sorting the individual
@@ -1580,10 +1475,6 @@ SELECT * FROM distributors_2(111) AS (f1 int, f2 text);
 </programlisting>
   </para>
 
-<!## PG>
-<!-- NOTICE:
-     No WITH!
--->
   <para>
    This example shows how to use a simple <literal>WITH</> clause:
 
@@ -1635,7 +1526,6 @@ SELECT distance, employee_name FROM employee_recursive;
    else the query will loop indefinitely.  (See <xref linkend="queries-with">
    for more examples.)
   </para>
-<!## end>
  </refsect1>
 
  <refsect1>
@@ -1753,10 +1643,6 @@ SELECT distributors.* WHERE distributors.name = 'Westward';
    </para>
   </refsect2>
 
-<!## PG>
-<!-- NOTICE:
-     No WINDOW!
--->
   <refsect2>
    <title><literal>WINDOW</literal> Clause Restrictions</title>
 
@@ -1767,7 +1653,6 @@ SELECT distributors.* WHERE distributors.name = 'Westward';
     options listed above.
    </para>
   </refsect2>
-<!## end>
 
   <refsect2>
    <title><literal>LIMIT</literal> and <literal>OFFSET</literal></title>

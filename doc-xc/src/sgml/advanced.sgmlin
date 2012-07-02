@@ -375,7 +375,6 @@ COMMIT;
 
   </sect1>
 
-<!## PG>
 <!-- Window Functions are not supported yet -->
 
   <sect1 id="tutorial-window">
@@ -620,8 +619,6 @@ SELECT sum(salary) OVER w, avg(salary) OVER w
     <xref linkend="sql-select"> reference page.
    </para>
   </sect1>
-
-<!## end>
 
 
   <sect1 id="tutorial-inheritance">

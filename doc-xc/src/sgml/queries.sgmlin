@@ -27,35 +27,14 @@
    <xref linkend="sql-select"> command is
    used to specify queries.  The general syntax of the
    <command>SELECT</command> command is
-<!## PG>
-<!-- NOTICE:
-     XC does not support WITH clause.
--->
 <synopsis>
 <optional>WITH <replaceable>with_queries</replaceable></optional> SELECT <replaceable>select_list</replaceable> FROM <replaceable>table_expression</replaceable> <optional><replaceable>sort_specification</replaceable></optional>
 </synopsis>
-<!## end>
-<!## XC>
-<synopsis>
-SELECT <replaceable>select_list</replaceable> FROM <replaceable>table_expression</replaceable> <optional><replaceable>sort_specification</replaceable></optional>
-</synopsis>
-<!## end>
-<!## PG>
-<!-- NOTICE:
-     With clause!
--->
    The following sections describe the details of the select list, the
    table expression, and the sort specification.  <literal>WITH</>
    queries are treated last since they are an advanced feature.
-<!## end>
-<!## XC>
-&xconly;
-   The following sections describe the details of the select list, the
-   table expression, and the sort specification.
-   At present <productname>Postgres-XC</> does not support <literal>WITH</> clause.
-<!## end>
   </para>
-&common;
+
   <para>
    A simple kind of query has the form:
 <programlisting>
@@ -107,10 +86,6 @@ SELECT random();
   <indexterm zone="queries-table-expressions">
    <primary>table expression</primary>
   </indexterm>
-<!## PG>
-<!-- NOTICE:
-     No HAVING clause yet
--->
   <para>
    A <firstterm>table expression</firstterm> computes a table.  The
    table expression contains a <literal>FROM</> clause that is
@@ -120,23 +95,7 @@ SELECT random();
    expressions can be used to modify or combine base tables in various
    ways.
   </para>
-<!## end>
-<!## XC>
-  <para>
-   A <firstterm>table expression</firstterm> computes a table.  The
-   table expression contains a <literal>FROM</> clause that is
-   optionally followed by <literal>WHERE</> and <literal>GROUP BY</>
-                    clauses.  Trivial table expressions simply refer
-   to a table on disk, a so-called base table, but more complex
-   expressions can be used to modify or combine base tables in various
-   ways.
-  </para>
-<!## end>
 
-<!## PG>
-<!-- NOTICE:
-     No HAVING clause yet
--->
   <para>
    The optional <literal>WHERE</>, <literal>GROUP BY</>, and
    <literal>HAVING</> clauses in the table expression specify a
@@ -145,23 +104,6 @@ SELECT random();
    produce a virtual table that provides the rows that are passed to
    the select list to compute the output rows of the query.
   </para>
-<!## end>
-<!## XC>
-&xconly;
-  <para>
-   The optional <literal>WHERE</> and <literal>GROUP BY</>
-                      clauses in the table expression specify a
-   pipeline of successive transformations performed on the table
-   derived in the <literal>FROM</> clause.  All these transformations
-   produce a virtual table that provides the rows that are passed to
-   the select list to compute the output rows of the query.
-  </para>
-&xconly;
-  <para>
-   <productname>Postgres-XC</> does not support <literal>HAVING</>
-   clause at present.
-  </para>
-<!## end>
 
   <sect2 id="queries-from">
    <title>The <literal>FROM</literal> Clause</title>
@@ -173,11 +115,6 @@ SELECT random();
 <synopsis>
 FROM <replaceable>table_reference</replaceable> <optional>, <replaceable>table_reference</replaceable> <optional>, ...</optional></optional>
 </synopsis>
-
-<!## PG>
-<!-- NOTICE:
-     No HAVING yet!
--->
     A table reference can be a table name (possibly schema-qualified),
     or a derived table such as a subquery, a table join, or complex
     combinations of these.  If more than one table reference is listed
@@ -186,19 +123,6 @@ FROM <replaceable>table_reference</replaceable> <optional>, <replaceable>table_r
     transformations by the <literal>WHERE</>, <literal>GROUP BY</>,
     and <literal>HAVING</> clauses and is finally the result of the
     overall table expression.
-<!## end>
-<!## XC>
-&xconly;
-    A table reference can be a table name (possibly schema-qualified),
-    or a derived table such as a subquery, a table join, or complex
-    combinations of these.  If more than one table reference is listed
-    in the <literal>FROM</> clause they are cross-joined (see below)
-    to form the intermediate virtual table that can then be subject to
-    transformations by the <literal>WHERE</> and <literal>GROUP BY</>
-                            clauses and is finally the result of the
-    overall table expression.  Please note that <productname>Postgres-XC</> does not support
-    <literal>HAVING</> clause.
-<!## end>
    </para>
 
    <indexterm>
@@ -861,15 +785,7 @@ SELECT ... FROM fdt WHERE EXISTS (SELECT c1 FROM t2 WHERE c2 &gt; fdt.c1)
 
 
   <sect2 id="queries-group">
-<!## PG>
-<!-- NOTICE:
-     No HAVING yet!
--->
    <title>The <literal>GROUP BY</literal> and <literal>HAVING</literal> Clauses</title>
-<!## end>
-<!## XC>
-   <title>The <literal>GROUP BY</literal>                               Clause</title>
-<!## end>
 
    <indexterm zone="queries-group">
     <primary>GROUP BY</primary>
@@ -880,21 +796,10 @@ SELECT ... FROM fdt WHERE EXISTS (SELECT c1 FROM t2 WHERE c2 &gt; fdt.c1)
    </indexterm>
 
    <para>
-<!## PG>
-<!-- NOTICE:
-     No HAVING
--->
     After passing the <literal>WHERE</> filter, the derived input
     table might be subject to grouping, using the <literal>GROUP BY</>
     clause, and elimination of group rows using the <literal>HAVING</>
     clause.
-<!## end>
-<!## XC>
-&xconly;
-    After passing the <literal>WHERE</> filter, the derived input
-    table might be subject to grouping, using the <literal>GROUP BY</>
-    clause.   Please note that <literal>HAVING</> clause is not supported at present.
-<!## end>
    </para>
 
 <synopsis>
@@ -1013,10 +918,6 @@ SELECT product_id, p.name, (sum(s.units) * p.price) AS sales
     column names is also allowed.
    </para>
 
-<!## PG>
-<!-- NOTICE:
-     No HAVING!
--->
    <indexterm>
     <primary>HAVING</primary>
    </indexterm>
@@ -1079,7 +980,6 @@ SELECT product_id, p.name, (sum(s.units) * (p.price - p.cost)) AS profit
     The same is true if it contains a <literal>HAVING</> clause, even
     without any aggregate function calls or <literal>GROUP BY</> clause.
    </para>
-<!## end>
   </sect2>
 
   <sect2 id="queries-window">
@@ -1089,9 +989,6 @@ SELECT product_id, p.name, (sum(s.units) * (p.price - p.cost)) AS profit
     <primary>window function</primary>
     <secondary>order of execution</>
    </indexterm>
-
-<!## PG>
-<!-- Window Functions are not supported yet -->
 
    <para>
     If the query contains any window functions (see
@@ -1126,17 +1023,6 @@ SELECT product_id, p.name, (sum(s.units) * (p.price - p.cost)) AS profit
     top-level <literal>ORDER BY</> clause if you want to be sure the
     results are sorted in a particular way.
    </para>
-<!## end>
-
-<!## XC>
-<!-- NOTICE:
-     No WINDOW function yet!
--->
-&xconly;
-   <para>
-    <productname>Postgres-XC</> does not support window functions at present.
-   </para>
-  </sect2>
 
  </sect1>
 
@@ -1672,11 +1558,6 @@ SELECT <replaceable>select_list</replaceable> FROM <replaceable>table_expression
    <see>WITH</see>
   </indexterm>
 
-<!## PG>
-<!-- NOTICE:
-     No WITH support yet!
--->
-
   <para>
    <literal>WITH</> provides a way to write auxiliary statements for use in a
    larger query.  These statements, which are often referred to as Common
@@ -1689,15 +1570,9 @@ SELECT <replaceable>select_list</replaceable> FROM <replaceable>table_expression
    <command>DELETE</>.
   </para>
 
-<!## end>
-
  <sect2 id="queries-with-select">
    <title><command>SELECT</> in <literal>WITH</></title>
 
-<!## PG>
-<!-- NOTICE:
-     No WITH support yet!
--->
   <para>
    The basic value of <command>SELECT</> in <literal>WITH</> is to
    break down complicated queries into simpler parts.  An example is:
@@ -1976,17 +1851,7 @@ SELECT n FROM t LIMIT 100;
    In each case it effectively provides temporary table(s) that can
    be referred to in the main command.
   </para>
-<!## end>
  
-<!## XC>
-<!-- NOTICE:
-     No WITH clause yet!
--->
-&xconly;
-  <para>
-   <productname>Postgres-XC</> does not support <literal>WITH</> clause at present.
-  </para>
-<!## end>
  </sect2>
 
  <sect2 id="queries-with-modifying">

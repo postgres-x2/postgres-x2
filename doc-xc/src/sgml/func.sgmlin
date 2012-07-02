@@ -11320,9 +11320,6 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
 
  </sect1>
 
-<!## PG>
-<!-- Window Functions are not supported yet -->
-
  <sect1 id="functions-window">
   <title>Window Functions</title>
 
@@ -11608,8 +11605,6 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
   </note>
 
  </sect1>
-
-<!## end>
 
  <sect1 id="functions-subquery">
   <title>Subquery Expressions</title>
@@ -12550,12 +12545,7 @@ postgres=# SELECT * FROM unnest2(ARRAY[[1,2],[3,4]]);
       <row>
        <entry><literal><function>inet_client_addr()</function></literal></entry>
        <entry><type>inet</type></entry>
-<!## PG>
         <entry>address of the remote connection</entry>
-<!## end>
-<!## XC>
-       <entry>address of the remote connection. Now testing (Postgres-XC></entry>
-<!## end>
       </row>
 
       <row>
@@ -12567,12 +12557,7 @@ postgres=# SELECT * FROM unnest2(ARRAY[[1,2],[3,4]]);
       <row>
        <entry><literal><function>inet_server_addr()</function></literal></entry>
        <entry><type>inet</type></entry>
-<!## PG>
         <entry>address of the local connection</entry>
-<!## end>
-<!## XC>
-       <entry>address of the local connection.  Now testing (Postgres-XC></entry>
-<!## end>
       </row>
 
       <row>
@@ -12599,23 +12584,13 @@ postgres=# SELECT * FROM unnest2(ARRAY[[1,2],[3,4]]);
       <row>
        <entry><literal><function>pg_is_other_temp_schema(<type>oid</type>)</function></literal></entry>
        <entry><type>boolean</type></entry>
-<!## PG>
        <entry>is schema another session's temporary schema?</entry>
-<!## end>
-<!## XC>
-       <entry>is schema another session's temporary schema?  Now testing (Postgres-XC)</entry>
-<!## end>
       </row>
 
       <row>
        <entry><literal><function>pg_listening_channels()</function></literal></entry>
        <entry><type>setof text</type></entry>
-<!## PG>
        <entry>channel names that the session is currently listening on</entry>
-<!## end>
-<!## XC>
-       <entry>channel names that the session is currently listening on.  Now testing (Postgres-XC)</entry>
-<!## end>
       </row>
 
       <row>
@@ -12930,12 +12905,7 @@ SET search_path TO <replaceable>schema</> <optional>, <replaceable>schema</>, ..
                                   <parameter>privilege</parameter>)</literal>
        </entry>
        <entry><type>boolean</type></entry>
-<!## PG>
        <entry>does current user have privilege for foreign-data wrapper</entry>
-<!## end>
-<!## XC>
-       <entry>does current user have privilege for foreign-data wrapper.  Now testing (Postgres-XC)</entry>
-<!## end>
       </row>
       <row>
        <entry><literal><function>has_function_privilege</function>(<parameter>user</parameter>,
@@ -12943,12 +12913,7 @@ SET search_path TO <replaceable>schema</> <optional>, <replaceable>schema</>, ..
                                   <parameter>privilege</parameter>)</literal>
        </entry>
        <entry><type>boolean</type></entry>
-<!## PG>
        <entry>does user have privilege for function</entry>
-<!## end>
-<!## XC>
-       <entry>does user have privilege for function.  Now testing (Postgres-XC).</entry>
-<!## end>
       </row>
       <row>
        <entry><literal><function>has_function_privilege</function>(<parameter>function</parameter>,
@@ -13008,12 +12973,7 @@ SET search_path TO <replaceable>schema</> <optional>, <replaceable>schema</>, ..
                                   <parameter>privilege</parameter>)</literal>
        </entry>
        <entry><type>boolean</type></entry>
-<!## PG>
        <entry>does user have privilege for foreign server</entry>
-<!## end>
-<!## XC>
-       <entry>does user have privilege for foreign server.  Now testing (Postgres-XC).</entry>
-<!## end>
       </row>
       <row>
        <entry><literal><function>has_server_privilege</function>(<parameter>server</parameter>,
@@ -13043,12 +13003,7 @@ SET search_path TO <replaceable>schema</> <optional>, <replaceable>schema</>, ..
                                   <parameter>privilege</parameter>)</literal>
        </entry>
        <entry><type>boolean</type></entry>
-<!## PG>
        <entry>does user have privilege for tablespace</entry>
-<!## end>
-<!## XC>
-       <entry>does user have privilege for tablespace.  Now testing (Postgres-XC).</entry>
-<!## end>
       </row>
       <row>
        <entry><literal><function>has_tablespace_privilege</function>(<parameter>tablespace</parameter>,
@@ -13544,23 +13499,13 @@ SELECT pg_type_is_visible('myschema.widget'::regtype);
        <entry><literal><function>pg_get_expr(<parameter>pg_node_tree</parameter>, <parameter>relation_oid</>)</function></literal></entry>
        <entry><type>text</type></entry>
        <entry>decompile internal form of an expression, assuming that any Vars
-<!## PG>
        in it refer to the relation indicated by the second parameter</entry>
-<!## end>
-<!## XC>
-       in it refer to the relation indicated by the second parameter.   Testing now (Postgres-XC)</entry>
-<!## end>
       </row>
       <row>
        <entry><literal><function>pg_get_expr(<parameter>pg_node_tree</parameter>, <parameter>relation_oid</>, <parameter>pretty_bool</>)</function></literal></entry>
        <entry><type>text</type></entry>
        <entry>decompile internal form of an expression, assuming that any Vars
-<!## PG>
        in it refer to the relation indicated by the second parameter</entry>
-<!## end>
-<!## XC>
-       in it refer to the relation indicated by the second parameter.  Testing now (Postgres-XC)</entry>
-<!## end>
       </row>
       <row>
        <entry><literal><function>pg_get_functiondef(<parameter>func_oid</parameter>)</function></literal></entry>
@@ -13602,22 +13547,12 @@ SELECT pg_type_is_visible('myschema.widget'::regtype);
       <row>
        <entry><literal><function>pg_get_ruledef(<parameter>rule_oid</parameter>)</function></literal></entry>
        <entry><type>text</type></entry>
-<!## PG>
-       <entry>get <command>CREATE RULE</> command for rule</entry>
-<!## end>
-<!## XC>
-       <entry>get <command>CREATE RULE</> command for rule.   Testing now (Postgres-XC)</entry>
-<!## end>
+       <entry>get <command>CREATE RULE</> command for rule.</entry>
       </row>
       <row>
        <entry><literal><function>pg_get_ruledef(<parameter>rule_oid</parameter>, <parameter>pretty_bool</>)</function></literal></entry>
        <entry><type>text</type></entry>
-<!## PG>
        <entry>get <command>CREATE RULE</> command for rule</entry>
-<!## end>
-<!## XC>
-       <entry>get <command>CREATE RULE</> command for rule.  Testing now (Postgres-XC)</entry>
-<!## end>
       </row>
       <row>
        <entry><literal><function>pg_get_serial_sequence(<parameter>table_name</parameter>, <parameter>column_name</parameter>)</function></literal></entry>
@@ -13668,12 +13603,7 @@ SELECT pg_type_is_visible('myschema.widget'::regtype);
       <row>
        <entry><literal><function>pg_tablespace_databases(<parameter>tablespace_oid</parameter>)</function></literal></entry>
        <entry><type>setof oid</type></entry>
-<!## PG>
        <entry>get the set of database OIDs that have objects in the tablespace</entry>
-<!## end>
-<!## XC>
-       <entry>get the set of database OIDs that have objects in the tablespace.  Testing now (Postgres-XC)</entry>
-<!## end>
       </row>
       <row>
        <entry><literal><function>pg_typeof(<parameter>any</parameter>)</function></literal></entry>
@@ -13861,32 +13791,17 @@ SELECT typlen FROM pg_type WHERE oid = pg_typeof(33);
       <row>
        <entry><literal><function>obj_description(<parameter>object_oid</parameter>, <parameter>catalog_name</parameter>)</function></literal></entry>
        <entry><type>text</type></entry>
-<!## PG>
        <entry>get comment for a database object</entry>
-<!## end>
-<!## XC>
-       <entry>get comment for a database object. Testing now (Postgres-XC)</entry>
-<!## end>
       </row>
       <row>
        <entry><literal><function>obj_description(<parameter>object_oid</parameter>)</function></literal></entry>
        <entry><type>text</type></entry>
-<!## PG>
        <entry>get comment for a database object (<emphasis>deprecated</emphasis>)</entry>
-<!## end>
-<!## XC>
-       <entry>get comment for a database object (<emphasis>deprecated</emphasis>).  Testing now (Postgres-XC)</entry>
-<!## end>
       </row>
       <row>
        <entry><literal><function>shobj_description(<parameter>object_oid</parameter>, <parameter>catalog_name</parameter>)</function></literal></entry>
        <entry><type>text</type></entry>
-<!## PG>
        <entry>get comment for a shared database object</entry>
-<!## end>
-<!## XC>
-       <entry>get comment for a shared database object.  Testing now (Postgres-XC)</entry>
-<!## end>
       </row>
      </tbody>
     </tgroup>
@@ -14753,12 +14668,7 @@ postgres=# SELECT * FROM pg_xlogfile_name_offset(pg_stop_backup());
         <literal><function>pg_tablespace_size(<type>oid</type>)</function></literal>
         </entry>
        <entry><type>bigint</type></entry>
-<!## PG>
        <entry>Disk space used by the tablespace with the specified OID</entry>
-<!## end>
-<!## XC>
-       <entry>Disk space used by the tablespace with the specified OID. (Postgres-XC: Not supported yet)</entry>
-<!## end>
       </row>
       <row>
        <entry>
