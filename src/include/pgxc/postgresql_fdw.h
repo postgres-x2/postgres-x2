@@ -4,10 +4,10 @@
  *
  *		foreign-data wrapper for PostgreSQL
  *
- * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 2010-2012, Postgres-XC Development Group
  *
- * IDENTIFICATION
- *	$PostgreSQL$
+ * src/include/pgxc/postgresql_fdw.h
  *
  *-------------------------------------------------------------------------
  */
