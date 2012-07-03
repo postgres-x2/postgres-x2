@@ -6,9 +6,7 @@
  *
  * Portions Copyright (c) 2010-2012 Postgres-XC Development Group
  *
- *
- * IDENTIFICATION
- *	  $$
+ * src/include/pgxc/locator.h
  *
  *-------------------------------------------------------------------------
  */

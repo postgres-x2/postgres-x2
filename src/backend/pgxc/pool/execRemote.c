@@ -5,12 +5,12 @@
  *	  Functions to execute commands on remote Datanodes
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
- * Portions Copyright (c) 2010-2012 Nippon Telegraph and Telephone Corporation
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 2010-2012 Postgres-XC Development Group
+ *
  *
  * IDENTIFICATION
- *	  $$
- *
+ *	  src/backend/pgxc/pool/execRemote.c
  *
  *-------------------------------------------------------------------------
  */

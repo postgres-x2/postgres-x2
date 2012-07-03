@@ -5,11 +5,10 @@
  *	  Definitions for the Pooler-Seesion communications.
  *
  *
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 2010-2012 Postgres-XC Development Group
  *
- * IDENTIFICATION
- *	  $$
+ * src/include/pgxc/poolcomm.h
  *
  *-------------------------------------------------------------------------
  */
