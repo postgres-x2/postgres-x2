@@ -777,11 +777,6 @@ do_status(void)
 
 	fclose(pidf);
 
-	printf("pid: %ld\n", pid);
-	printf("data: %s\n", datpath);
-	printf("active: %d\n", mode);
-
-#ifdef NOT_USED
 	pid = get_pgpid();
 
 	if (pid == 0)				/* no pid file */
@@ -803,27 +798,26 @@ do_status(void)
 			exit(1);
 		}
 	}
-
-	if (!gtm_is_alive((pid_t) pid))
+	else
 	{
-		write_stderr(_("%s: old server process (PID: %ld) seems to be gone\n"),
-					 progname, pid);
-		exit(1);
+		if (gtm_is_alive((pid_t) pid))
+		{
+			char      **optlines;
+
+			printf(_("%s: server is running (PID: %ld)\n"),
+				   progname, pid);
+
+			optlines = readfile(gtmopts_file);
+			if (optlines != NULL)
+				for (; *optlines != NULL; optlines++)
+					fputs(*optlines, stdout);
+			return;
+		}
 	}
 
-	/*
-	 * status check stuffs.
-	 */
-	exitcode = check_gtm();
-	if (exitcode != 0)
-	{
-		write_stderr(_("%s: could not get server status: exit code was %d\n"),
-					 progname, exitcode);
-		exit(1);
-	}
-#endif /* NOT_USED */
+	write_stderr(_("%s: no server running\n"), progname);
+	exit(1);
 }
-
 
 
 /*
