@@ -127,6 +127,7 @@ test: largeobject
 test: with
 test: xml
 test: stats
+test: xc_create_function
 test: xc_groupby
 test: xc_distkey
 test: xc_having
