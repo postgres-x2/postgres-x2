@@ -31,7 +31,6 @@
 #define HASH_SIZE 4096
 #define HASH_MASK 0x00000FFF;
 
-#define IsLocatorReplicated(x) (x == LOCATOR_TYPE_REPLICATED)
 #define IsLocatorNone(x) (x == LOCATOR_TYPE_NONE)
 #define IsLocatorReplicated(x) (x == LOCATOR_TYPE_REPLICATED)
 #define IsLocatorColumnDistributed(x) (x == LOCATOR_TYPE_HASH || \
