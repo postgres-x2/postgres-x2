@@ -1,3 +1,42 @@
+--
+-- XC_COPY
+--
+-- COPY tests for a Postgres-XC cluster
+create or replace function cr_table(tab_schema varchar, nodenums int[], distribution varchar) returns void language plpgsql as $$
+declare
+	cr_command	varchar;
+	nodes		varchar[];
+	nodename	varchar;
+	nodenames_query	varchar;
+	nodenames	varchar;
+	node		int;
+	sep		varchar;
+	tmp_node	int;
+	num_nodes	int;
+begin
+	nodenames_query := 'SELECT node_name FROM pgxc_node WHERE node_type = ''D''';
+	cr_command := 'CREATE TABLE ' || tab_schema || ' DISTRIBUTE BY ' || distribution || ' TO NODE ';
+	for nodename in execute nodenames_query loop
+		nodes := array_append(nodes, nodename);
+	end loop;
+	nodenames := '';
+	sep := '';
+	num_nodes := array_length(nodes, 1);
+	foreach node in array nodenums loop
+		tmp_node := node;
+		if (tmp_node < 1 or tmp_node > num_nodes) then
+			tmp_node := tmp_node % num_nodes;
+			if (tmp_node < 1) then
+				tmp_node := num_nodes;
+			end if;
+		end if;
+		nodenames := nodenames || sep || nodes[tmp_node];
+		sep := ', ';
+	end loop;
+	cr_command := cr_command || nodenames;
+	execute cr_command;
+end;
+$$;
 create or replace function pgxc_nodetype() returns varchar as 
 $$
 declare
@@ -81,3 +120,18 @@ drop function deffunc_bytea();
 drop function deffunc_str();
 drop function deffunc_str_i();
 drop function deffunc_nullstring();
+-- Tests related to COPY for a Postgres-XC cluster
+-- Create a table not using the first node of cluster
+SELECT cr_table('xc_copy_1(a int, b int)', '{2}'::int[], 'replication');
+ cr_table 
+----------
+ 
+(1 row)
+
+INSERT INTO xc_copy_1 VALUES (1,23),(34,5),(9,11);
+-- Extract its data
+COPY xc_copy_1 TO STDOUT;
+1	23
+34	5
+9	11
+DROP TABLE xc_copy_1;

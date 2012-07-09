@@ -2320,7 +2320,6 @@ DataNodeCopyOut(ExecNodes *exec_nodes, PGXCNodeHandle** copy_connections, FILE* 
 {
 	RemoteQueryState *combiner;
 	int 		conn_count = list_length(exec_nodes->nodeList) == 0 ? NumDataNodes : list_length(exec_nodes->nodeList);
-	int 		count = 0;
 	ListCell	*nodeitem;
 	uint64		processed;
 
@@ -2332,32 +2331,33 @@ DataNodeCopyOut(ExecNodes *exec_nodes, PGXCNodeHandle** copy_connections, FILE* 
 
 	foreach(nodeitem, exec_nodes->nodeList)
 	{
-		PGXCNodeHandle *handle = copy_connections[count];
-		count++;
+		PGXCNodeHandle *handle = copy_connections[lfirst_int(nodeitem)];
+		int read_status = 0;
 
-		if (handle && handle->state == DN_CONNECTION_STATE_COPY_OUT)
+		Assert(handle && handle->state == DN_CONNECTION_STATE_COPY_OUT);
+
+		/*
+		 * H message has been consumed, continue to manage data row messages.
+		 * Continue to read as long as there is data.
+		 */
+		while (read_status >= 0 && handle->state == DN_CONNECTION_STATE_COPY_OUT)
 		{
-			int read_status = 0;
-			/* H message has been consumed, continue to manage data row messages */
-			while (read_status >= 0 && handle->state == DN_CONNECTION_STATE_COPY_OUT) /* continue to read as long as there is data */
+			if (handle_response(handle,combiner) == RESPONSE_EOF)
 			{
-				if (handle_response(handle,combiner) == RESPONSE_EOF)
-				{
-					/* read some extra-data */
-					read_status = pgxc_node_read_data(handle, true);
-					if (read_status < 0)
-						ereport(ERROR,
-								(errcode(ERRCODE_CONNECTION_FAILURE),
-								 errmsg("unexpected EOF on datanode connection")));
-					else
-						/*
-						 * Set proper connection status - handle_response
-						 * has changed it to DN_CONNECTION_STATE_QUERY
-						 */
-						handle->state = DN_CONNECTION_STATE_COPY_OUT;
-				}
-				/* There is no more data that can be read from connection */
+				/* read some extra-data */
+				read_status = pgxc_node_read_data(handle, true);
+				if (read_status < 0)
+					ereport(ERROR,
+							(errcode(ERRCODE_CONNECTION_FAILURE),
+							 errmsg("unexpected EOF on datanode connection")));
+				else
+					/*
+					 * Set proper connection status - handle_response
+					 * has changed it to DN_CONNECTION_STATE_QUERY
+					 */
+					handle->state = DN_CONNECTION_STATE_COPY_OUT;
 			}
+			/* There is no more data that can be read from connection */
 		}
 	}
 
