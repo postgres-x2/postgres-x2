@@ -149,8 +149,8 @@ GetAnyDataNode(List *relNodes)
 		}
 	}
 
-	/* Nothing found? Return the 1st one */
-	return lappend_int(NULL, 0);
+	/* Nothing found? Return the first one in relation node list */
+	return lappend_int(NULL, linitial_int(relNodes));
 }
 
 /*
