@@ -1,43 +1,6 @@
-
--- A function to return data node name given a node number
-create or replace function get_xc_node_name(node_num int) returns varchar language plpgsql as $$
-declare
-	r pgxc_node%rowtype;
-	node int;
-	nodenames_query varchar;
-begin
-	nodenames_query := 'SELECT * FROM pgxc_node  WHERE node_type = ''D'' ORDER BY xc_node_id';
-
-	node := 1;
-	for r in execute nodenames_query loop
-		if node = node_num THEN
-			RETURN r.node_name;
-		end if;
-		node := node + 1;
-	end loop;
-	RETURN 'NODE_?';
-end;
-$$;
-
-
--- A function to check whether a certain transaction was prepared on a specific data node given its number
-create or replace function is_prepared_on_node(txn_id varchar, nodenum int) returns bool language plpgsql as $$
-declare
-	nodename        varchar;
-	qry             varchar;
-	r               pg_prepared_xacts%rowtype;
-begin
-	nodename := (SELECT get_xc_node_name(nodenum));
-	qry := 'execute direct on ' || nodename || ' ' || chr(39) || 'select * from pg_prepared_xacts' || chr(39);
-
-	for r in execute qry loop
-		if r.gid = txn_id THEN
-			RETURN true;
-		end if;
-	end loop;
-	return false;
-end;
-$$;
+--
+-- XC_FOR_UPDATE
+--
 
 set enable_fast_query_shipping=true;
 

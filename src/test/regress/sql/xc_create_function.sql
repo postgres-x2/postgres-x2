@@ -43,3 +43,42 @@ begin
 	execute cr_command;
 end;
 $$;
+
+-- A function to return data node name given a node number
+CREATE OR REPLACE FUNCTION get_xc_node_name(node_num int) RETURNS varchar LANGUAGE plpgsql AS $$
+DECLARE
+	r		pgxc_node%rowtype;
+	node		int;
+	nodenames_query	varchar;
+BEGIN
+	nodenames_query := 'SELECT * FROM pgxc_node  WHERE node_type = ''D'' ORDER BY xc_node_id';
+
+	node := 1;
+	FOR r IN EXECUTE nodenames_query LOOP
+		IF node = node_num THEN
+			RETURN r.node_name;
+		END IF;
+		node := node + 1;
+	END LOOP;
+	RETURN 'NODE_?';
+END;
+$$;
+
+-- A function to check whether a certain transaction was prepared on a specific data node given its number
+CREATE OR REPLACE FUNCTION is_prepared_on_node(txn_id varchar, nodenum int) RETURNS bool LANGUAGE plpgsql AS $$
+DECLARE
+	nodename	varchar;
+	qry		varchar;
+	r		pg_prepared_xacts%rowtype;
+BEGIN
+	nodename := (SELECT get_xc_node_name(nodenum));
+	qry := 'EXECUTE DIRECT ON ' || nodename || ' ' || chr(39) || 'SELECT * FROM pg_prepared_xacts' || chr(39);
+
+	FOR r IN EXECUTE qry LOOP
+		IF r.gid = txn_id THEN
+			RETURN true;
+		END IF;
+	END LOOP;
+	RETURN false;
+END;
+$$;
