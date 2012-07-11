@@ -505,6 +505,12 @@ GTM_GetGlobalTransactionIdMulti(GTM_TransactionHandle handle[], int txn_count)
 	GTM_TransactionInfo *gtm_txninfo = NULL;
 	int ii;
 
+	if (Recovery_IsStandby())
+	{
+		ereport(ERROR, (EINVAL, errmsg("GTM is running in STANDBY mode -- can not issue new transaction ids")));
+		return InvalidGlobalTransactionId;
+	}
+
 	GTM_RWLockAcquire(&GTMTransactions.gt_XidGenLock, GTM_LOCKMODE_WRITE);
 
 	if (GTMTransactions.gt_gtm_state == GTM_SHUTTING_DOWN)
