@@ -399,7 +399,7 @@ gtm_deserialize_transactioninfo(GTM_TransactionInfo *data, const char *buf, size
 	{
 		data->nodestring = (char *)genAllocTop(string_len + 1);	/* Should allocate at TopMostMemoryContext */
 		memcpy(data->nodestring, buf + len, string_len);
-		data->gti_gid[string_len] = 0;		/* null-terminated */
+		data->nodestring[string_len] = 0;		/* null-terminated */
 		len += string_len;
 	}
 	else
