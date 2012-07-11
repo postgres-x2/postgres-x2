@@ -96,7 +96,7 @@ ProcessPGXCNodeRegister(Port *myport, StringInfo message, bool is_backup)
 	memcpy(datafolder, (char *)pq_getmsgbytes(message, len), len);
 	datafolder[len] = '\0';
 
-	elog(LOG, 
+	elog(LOG,
 		 "ProcessPGXCNodeRegister: ipaddress = \"%s\", node name = \"%s\", proxy name = \"%s\", "
 		 "datafolder \"%s\"",
 		 ipaddress, node_name, proxyname, datafolder);
@@ -131,7 +131,7 @@ ProcessPGXCNodeRegister(Port *myport, StringInfo message, bool is_backup)
 		elog(DEBUG1, "Registering GTM (Standby).  Unregister this first.");
 		/*
 		 * There's another standby.   May be failed one.
-		 * Clean this up.  This means that we allow 
+		 * Clean this up.  This means that we allow
 		 * only one standby at the same time.
 		 *
 		 * This helps to give up failed standby and connect
@@ -139,8 +139,7 @@ ProcessPGXCNodeRegister(Port *myport, StringInfo message, bool is_backup)
 		 *
 		 * Be sure that all ther threads are locked by other
 		 * means, typically by receiving MSG_BEGIN_BACKUP.
-		 */
-		/*
+		 *
 		 * First try to unregister GTM which is now connected.  We don't care
 		 * if it failed.
 		 */
@@ -300,13 +299,13 @@ ProcessPGXCNodeUnregister(Port *myport, StringInfo message, bool is_backup)
 
 			elog(LOG, "calling node_unregister() for standby GTM %p.",
 				 GetMyThreadInfo->thr_conn->standby);
-		
+
 		retry:
 			_rc = bkup_node_unregister(GetMyThreadInfo->thr_conn->standby,
 									   type,
 									   node_name);
 
-		
+
 			if (gtm_standby_check_communication_error(&count, oldconn))
 				goto retry;
 
@@ -445,6 +444,7 @@ ProcessGTMBeginBackup(Port *myport, StringInfo message)
 		if (GTMThreads->gt_threads[ii] && GTMThreads->gt_threads[ii] != my_threadinfo)
 			GTM_RWLockAcquire(&GTMThreads->gt_threads[ii]->thr_lock, GTM_LOCKMODE_WRITE);
 	}
+	my_threadinfo->thr_status = GTM_THREAD_BACKUP;
 	pq_beginmessage(&buf, 'S');
 	pq_sendint(&buf, BEGIN_BACKUP_RESULT, 4);
 	pq_endmessage(myport, &buf);
@@ -466,6 +466,7 @@ ProcessGTMEndBackup(Port *myport, StringInfo message)
 		if (GTMThreads->gt_threads[ii] && GTMThreads->gt_threads[ii] != my_threadinfo)
 			GTM_RWLockRelease(&GTMThreads->gt_threads[ii]->thr_lock);
 	}
+	my_threadinfo->thr_status = GTM_THREAD_RUNNING;
 	pq_beginmessage(&buf, 'S');
 	pq_sendint(&buf, END_BACKUP_RESULT, 4);
 	pq_endmessage(myport, &buf);

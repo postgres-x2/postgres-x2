@@ -27,7 +27,7 @@ GTM_Threads *GTMThreads = &GTMThreadsData;
 
 #define GTM_MIN_THREADS 32			/* Provision for minimum threads */
 #define GTM_MAX_THREADS 1024		/* Max threads allowed in the GTM */
-#define GTMThreadsFull	(GTMThreads->gt_thread_count == GTMThreads->gt_array_size)	
+#define GTMThreadsFull	(GTMThreads->gt_thread_count == GTMThreads->gt_array_size)
 
 /*
  * Add the given thrinfo structure to the global array, expanding it if
@@ -43,10 +43,10 @@ GTM_ThreadAdd(GTM_ThreadInfo *thrinfo)
 	if (GTMThreadsFull)
 	{
 		uint32 newsize;
-	   
+
 		/*
 		 * TODO Optimize lock management by not holding any locks during memory
-		 * allocation 
+		 * allocation.
 		 */
 		if (GTMThreads->gt_array_size == GTM_MAX_THREADS)
 			elog(ERROR, "Too many threads active");
@@ -99,7 +99,7 @@ GTM_ThreadAdd(GTM_ThreadInfo *thrinfo)
 	}
 	GTM_RWLockRelease(&GTMThreads->gt_lock);
 
-	/* 
+	/*
 	 * Track the slot information in the thrinfo. This is useful to quickly
 	 * find the slot given the thrinfo structure.
 	 */
@@ -264,6 +264,17 @@ GTM_ThreadCleanup(void *argp)
 
 	elog(LOG, "Cleaning up thread state");
 
+	if (thrinfo->thr_status == GTM_THREAD_BACKUP)
+	{
+		int 			ii;
+
+		for (ii = 0; ii < GTMThreads->gt_array_size; ii++)
+		{
+			if (GTMThreads->gt_threads[ii] && GTMThreads->gt_threads[ii] != thrinfo)
+				GTM_RWLockRelease(&GTMThreads->gt_threads[ii]->thr_lock);
+		}
+	}
+
 	/*
 	 * Close a connection to GTM standby.
 	 */
@@ -293,7 +304,7 @@ GTM_ThreadCleanup(void *argp)
 	 * our memory contextes easily.
 	 *
 	 * XXX We don't setup cleanup handlers for the main process. So this
-	 * routine would never be called for the main process/thread
+	 * routine would never be called for the main process/thread.
 	 */
 	MemoryContextSwitchTo(thrinfo->thr_parent_context);
 
@@ -314,20 +325,20 @@ GTM_ThreadCleanup(void *argp)
 
 	/*
 	 * Reset the thread-specific information. This should be done only after we
-	 * are sure that memory contextes are not required 
+	 * are sure that memory contextes are not required.
 	 *
 	 * Note: elog calls need memory contextes, so no elog calls beyond this
 	 * point.
 	 */
 	SetMyThreadInfo(NULL);
-	
+
 	return;
 }
 
 /*
  * A wrapper around the start routine of the thread. This helps us doing any
  * initialization and setting up cleanup handlers before the main routine is
- * started
+ * started.
  */
 void *
 GTM_ThreadMainWrapper(void *argp)
@@ -338,7 +349,7 @@ GTM_ThreadMainWrapper(void *argp)
 
 	SetMyThreadInfo(thrinfo);
 	MemoryContextSwitchTo(TopMemoryContext);
-	
+
 	pthread_cleanup_push(GTM_ThreadCleanup, thrinfo);
 	thrinfo->thr_startroutine(thrinfo);
 	pthread_cleanup_pop(1);
@@ -370,7 +381,7 @@ GTM_UnlockAllOtherThreads(void)
 		if (GTMThreads->gt_threads[ii] && GTMThreads->gt_threads[ii] != my_threadinfo)
 			GTM_RWLockRelease(&GTMThreads->gt_threads[ii]->thr_lock);
 	}
-}	
+}
 
 void
 GTM_DoForAllOtherThreads(void (* process_routine)(GTM_ThreadInfo *))
@@ -384,4 +395,4 @@ GTM_DoForAllOtherThreads(void (* process_routine)(GTM_ThreadInfo *))
 			(process_routine)(GTMThreads->gt_threads[ii]);
 	}
 }
-	
+
