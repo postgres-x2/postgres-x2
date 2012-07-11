@@ -4197,7 +4197,7 @@ get_utility_query_def(Query *query, deparse_context *context)
 			switch (stmt->subcluster->clustertype)
 			{
 				case SUBCLUSTER_NODE:
-					appendStringInfo(buf, " TO NODE");
+					appendStringInfo(buf, " TO NODE (");
 
 					/* Add node members */
 					Assert(stmt->subcluster->members);
@@ -4207,6 +4207,7 @@ get_utility_query_def(Query *query, deparse_context *context)
 						if (cell->next)
 							appendStringInfo(buf, ",");
 					}
+					appendStringInfo(buf, ")");
 					break;
 
 				case SUBCLUSTER_GROUP:

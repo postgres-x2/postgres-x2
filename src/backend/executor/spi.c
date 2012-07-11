@@ -363,7 +363,7 @@ SPI_execute_direct(const char *remote_sql, char *nodename)
 	initStringInfo(&execdirect);
 
 	/* This string is never used. It is just passed to fill up spierrcontext.arg */
-	appendStringInfo(&execdirect, "EXECUTE DIRECT ON %s '%s'",
+	appendStringInfo(&execdirect, "EXECUTE DIRECT ON (%s) '%s'",
 	                               nodename, remote_sql);
 
 	stmt->node_names = list_make1(makeString(nodename));

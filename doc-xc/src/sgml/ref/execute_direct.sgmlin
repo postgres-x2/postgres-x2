@@ -21,7 +21,7 @@ PostgreSQL documentation
 
  <refsynopsisdiv>
 <synopsis>
-EXECUTE DIRECT ON <replaceable class="parameter">nodename</replaceable> [, ... ]
+EXECUTE DIRECT ON ( <replaceable class="parameter">nodename</replaceable> [, ... ] )
     <replaceable class="parameter">query</replaceable>
 </synopsis>
  </refsynopsisdiv>

@@ -920,10 +920,12 @@ RelationLocInfo *
 GetRelationLocInfo(Oid relid)
 {
 	RelationLocInfo *ret_loc_info = NULL;
-
 	Relation	rel = relation_open(relid, AccessShareLock);
 
-	if (rel && rel->rd_locator_info)
+	/* Relation needs to be valid */
+	Assert(rel->rd_isvalid);
+
+	if (rel->rd_locator_info)
 		ret_loc_info = CopyRelationLocInfo(rel->rd_locator_info);
 
 	relation_close(rel, AccessShareLock);

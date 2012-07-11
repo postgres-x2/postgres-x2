@@ -22,7 +22,7 @@ PostgreSQL documentation
  <refsynopsisdiv>
 <synopsis>
 CREATE NODE GROUP <replaceable class="parameter">groupname</replaceable>
-WITH <replaceable class="parameter">nodename</replaceable> [, ... ]
+WITH ( <replaceable class="parameter">nodename</replaceable> [, ... ] )
 
 </synopsis>
  </refsynopsisdiv>

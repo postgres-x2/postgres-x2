@@ -252,7 +252,7 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 %type <list>	createdb_opt_list alterdb_opt_list copy_opt_list
 				transaction_mode_list
 				create_extension_opt_list alter_extension_opt_list
-				pgxcnode_list
+				pgxcnode_list pgxcnodes
 %type <defelt>	createdb_opt_item alterdb_opt_item copy_opt_item
 				transaction_mode_item
 				create_extension_opt_item alter_extension_opt_item
@@ -480,8 +480,8 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 %type <str>		opt_existing_window_name
 /* PGXC_BEGIN */
 %type <str>		opt_barrier_id
-%type <distby>	OptDistributeBy
-%type <subclus> OptSubCluster
+%type <distby>	OptDistributeBy OptDistributeByInternal
+%type <subclus> OptSubCluster OptSubClusterInternal
 /* PGXC_END */
 
 
@@ -3070,7 +3070,11 @@ DistributeByHash: DISTRIBUTE BY
 			| DISTRIBUTE BY HASH
 		;
 
-OptDistributeBy: DistributeByHash '(' name ')'
+OptDistributeBy: OptDistributeByInternal			{ $$ = $1; }
+			| /* EMPTY */							{ $$ = NULL; }
+		;
+
+OptDistributeByInternal: DistributeByHash '(' name ')'
 				{
 					DistributeBy *n = makeNode(DistributeBy);
 					n->disttype = DISTTYPE_HASH;
@@ -3098,11 +3102,14 @@ OptDistributeBy: DistributeByHash '(' name ')'
 					n->colname = NULL;
 					$$ = n;
 				}
-			| /*EMPTY*/								{ $$ = NULL; }
 		;
 
-OptSubCluster:
-			TO NODE pgxcnode_list
+OptSubCluster: OptSubClusterInternal				{ $$ = $1; }
+			| /* EMPTY */							{ $$ = NULL; }
+		;
+
+OptSubClusterInternal:
+			TO NODE pgxcnodes
 				{
 					PGXCSubCluster *n = makeNode(PGXCSubCluster);
 					n->clustertype = SUBCLUSTER_NODE;
@@ -3116,7 +3123,6 @@ OptSubCluster:
 					n->members = list_make1(makeString($3));
 					$$ = n;
 				}
-			| /* EMPTY */							{ $$ = NULL; }
 		;
 /* PGXC_END */
 
@@ -8064,8 +8070,12 @@ pgxcnode_name:
 pgxcgroup_name:
 			ColId							{ $$ = $1; };
 
+pgxcnodes:
+			'(' pgxcnode_list ')'			{ $$ = $2; }
+		;
+
 pgxcnode_list:
-			pgxcnode_list ',' pgxcnode_name				{ $$ = lappend($1, makeString($3)); }
+			pgxcnode_list ',' pgxcnode_name		{ $$ = lappend($1, makeString($3)); }
 			| pgxcnode_name						{ $$ = list_make1(makeString($1)); }
 		;
 
@@ -8110,11 +8120,11 @@ DropNodeStmt: DROP NODE pgxcnode_name
 /*****************************************************************************
  *
  *		QUERY:
- *				CREATE NODE GROUP groupname WITH node1,...,nodeN
+ *				CREATE NODE GROUP groupname WITH (node1,...,nodeN)
  *
  *****************************************************************************/
 
-CreateNodeGroupStmt: CREATE NODE GROUP_P pgxcgroup_name WITH pgxcnode_list
+CreateNodeGroupStmt: CREATE NODE GROUP_P pgxcgroup_name WITH pgxcnodes
 				{
 					CreateGroupStmt *n = makeNode(CreateGroupStmt);
 					n->group_name = $4;
@@ -8225,11 +8235,11 @@ explain_option_arg:
 /*****************************************************************************
  *
  *		QUERY:
- *				EXECUTE DIRECT ON nodename [, ... ] query
+ *				EXECUTE DIRECT ON ( nodename [, ... ] ) query
  *
  *****************************************************************************/
 
-ExecDirectStmt: EXECUTE DIRECT ON pgxcnode_list DirectStmt
+ExecDirectStmt: EXECUTE DIRECT ON pgxcnodes DirectStmt
 				{
 					ExecDirectStmt *n = makeNode(ExecDirectStmt);
 					n->node_names = $4;
@@ -8251,13 +8261,13 @@ DirectStmt:
  *
  *		QUERY:
  *
- *		CLEAN CONNECTION TO { COORDINATOR nodename | NODE nodename | ALL {FORCE} }
+ *		CLEAN CONNECTION TO { COORDINATOR ( nodename ) | NODE ( nodename ) | ALL {FORCE} }
  *				[ FOR DATABASE dbname ]
  *				[ TO USER username ]
  *
  *****************************************************************************/
 
-CleanConnStmt: CLEAN CONNECTION TO COORDINATOR pgxcnode_list CleanConnDbName CleanConnUserName
+CleanConnStmt: CLEAN CONNECTION TO COORDINATOR pgxcnodes CleanConnDbName CleanConnUserName
 				{
 					CleanConnStmt *n = makeNode(CleanConnStmt);
 					n->is_coord = true;
@@ -8267,7 +8277,7 @@ CleanConnStmt: CLEAN CONNECTION TO COORDINATOR pgxcnode_list CleanConnDbName Cle
 					n->username = $7;
 					$$ = (Node *)n;
 				}
-				| CLEAN CONNECTION TO NODE pgxcnode_list CleanConnDbName CleanConnUserName
+				| CLEAN CONNECTION TO NODE pgxcnodes CleanConnDbName CleanConnUserName
 				{
 					CleanConnStmt *n = makeNode(CleanConnStmt);
 					n->is_coord = false;

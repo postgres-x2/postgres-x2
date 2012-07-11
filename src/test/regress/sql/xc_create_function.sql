@@ -17,12 +17,12 @@ declare
 	tmp_node	int;
 	num_nodes	int;
 begin
-	nodenames_query := 'SELECT node_name FROM pgxc_node WHERE node_type = ''D'''; 
+	nodenames_query := 'SELECT node_name FROM pgxc_node WHERE node_type = ''D''';
 	cr_command := 'CREATE TABLE ' || tab_schema || ' DISTRIBUTE BY ' || distribution || ' TO NODE ';
 	for nodename in execute nodenames_query loop
 		nodes := array_append(nodes, nodename);
 	end loop;
-	nodenames := '';
+	nodenames := '(';
 	sep := '';
 	num_nodes := array_length(nodes, 1);
 	foreach node in array nodenums loop
@@ -36,6 +36,7 @@ begin
 		nodenames := nodenames || sep || nodes[tmp_node];
 		sep := ', ';
 	end loop;
+	nodenames := nodenames || ')';
 	cr_command := cr_command || nodenames;
 	if (cmd_suffix is not null) then
 		cr_command := cr_command  || ' ' || cmd_suffix;
@@ -72,7 +73,7 @@ DECLARE
 	r		pg_prepared_xacts%rowtype;
 BEGIN
 	nodename := (SELECT get_xc_node_name(nodenum));
-	qry := 'EXECUTE DIRECT ON ' || nodename || ' ' || chr(39) || 'SELECT * FROM pg_prepared_xacts' || chr(39);
+	qry := 'EXECUTE DIRECT ON (' || nodename || ') ' || chr(39) || 'SELECT * FROM pg_prepared_xacts' || chr(39);
 
 	FOR r IN EXECUTE qry LOOP
 		IF r.gid = txn_id THEN

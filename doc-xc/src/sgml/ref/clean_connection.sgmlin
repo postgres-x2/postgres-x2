@@ -21,7 +21,7 @@ PostgreSQL documentation
 
  <refsynopsisdiv>
 <synopsis>
-CLEAN CONNECTION TO { COORDINATOR <replaceable class="parameter">nodename</replaceable> [, ... ] | NODE <replaceable class="parameter">nodename</replaceable> [, ... ] | ALL {FORCE} }
+CLEAN CONNECTION TO { COORDINATOR ( <replaceable class="parameter">nodename</replaceable> [, ... ] ) | NODE ( <replaceable class="parameter">nodename</replaceable> [, ... ] ) | ALL {FORCE} }
     [ FOR DATABASE <replaceable class="parameter">dbname</replaceable> ]
     [ TO USER <replaceable class="parameter">username</replaceable> ]
 </synopsis>
