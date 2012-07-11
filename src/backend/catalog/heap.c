@@ -118,9 +118,6 @@ static Node *cookConstraint(ParseState *pstate,
 			   Node *raw_constraint,
 			   char *relname);
 static List *insert_ordered_unique_oid(List *list, Oid datum);
-#ifdef PGXC
-static Oid *build_subcluster_data(PGXCSubCluster *subcluster, int *numnodes);
-#endif
 
 
 /* ----------------------------------------------------------------
@@ -960,123 +957,17 @@ AddRelationDistribution(Oid relid,
 	int	numnodes;
 	Oid	*nodeoids;
 
-	if (!distributeby)
-	{
-		/* 
-		 * If no distribution was specified, and we have not chosen
-		 * one based on primary key or foreign key, use first column with
-		 * a supported data type.
-		 */
-		Form_pg_attribute attr;
-		int i;
+	/* Obtain details of distribution information */
+	GetRelationDistributionItems(relid,
+								 distributeby,
+								 descriptor,
+								 &locatortype,
+								 &hashalgorithm,
+								 &hashbuckets,
+								 &attnum);
 
-		locatortype = LOCATOR_TYPE_HASH;
-
-		for (i = 0; i < descriptor->natts; i++)
-		{
-			attr = descriptor->attrs[i];
-			if (IsHashDistributable(attr->atttypid))
-			{
-				/* distribute on this column */
-				attnum = i + 1;
-				break;
-			}
-		}
-
-		/* If we did not find a usable type, fall back to round robin */
-		if (attnum == 0)
-			locatortype = LOCATOR_TYPE_RROBIN;
-	}
-	else 
-	{
-		/* 
-		 * User specified distribution type
-		 */
-		switch (distributeby->disttype)
-		{
-			case DISTTYPE_HASH:
-				/*
-				 * Validate user-specified hash column.
-				 * System columns cannot be used.
-				 */
-				attnum = get_attnum(relid, distributeby->colname);
-				if (attnum <= 0 && attnum >= -(int) lengthof(SysAtt))
-				{
-					ereport(ERROR,
-						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-						 errmsg("Invalid distribution column specified")));
-				}
-				
-				if (!IsHashDistributable(descriptor->attrs[attnum-1]->atttypid)) 
-				{
-					ereport(ERROR,
-						(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-						 errmsg("Column %s is not a hash distributable data type", 
-							distributeby->colname)));
-				}
-				locatortype = LOCATOR_TYPE_HASH;
-				break;
-
-			case DISTTYPE_MODULO:
-				/*
-				 * Validate user specified modulo column.
-				 * System columns cannot be used.
-				 */
-				attnum = get_attnum(relid, distributeby->colname);
-				if (attnum <= 0 && attnum >= -(int) lengthof(SysAtt))
-				{
-					ereport(ERROR,
-						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-						 errmsg("Invalid distribution column specified")));
-				}
-
-				if (!IsModuloDistributable(descriptor->attrs[attnum-1]->atttypid))
-				{
-					ereport(ERROR,
-						(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-						 errmsg("Column %s is not modulo distributable data type",
-							distributeby->colname)));
-				}
-				locatortype = LOCATOR_TYPE_MODULO;
-				break;
-
-			case DISTTYPE_REPLICATION:
-				locatortype = LOCATOR_TYPE_REPLICATED;
-				break;
-
-			case DISTTYPE_ROUNDROBIN:
-				locatortype = LOCATOR_TYPE_RROBIN;
-				break;
-
-			default:
-				ereport(ERROR,
-					(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-					 errmsg("Invalid distribution type")));
-		}
-	}
-
-	switch (locatortype)
-	{
-		case LOCATOR_TYPE_HASH:
-			/* PGXCTODO */
-			/* Use these for now until we make allowing different algorithms more flexible */
-			hashalgorithm = 1;
-			hashbuckets = HASH_SIZE;
-			break;
-
-		case LOCATOR_TYPE_MODULO:
-			break;
-	}
-
-	/* Check and build list of nodes related to table */
-	nodeoids = build_subcluster_data(subcluster, &numnodes);
-
-	/*
-	 * Sort the list of nodes in ascending order before storing them 
-	 * This is required so that indices are stored in ascending order
-	 * and later when node number is found by modulo, it points to the right node 
-	 */
-	qsort(nodeoids, numnodes, sizeof(Oid), cmp_nodes);
+	/* Obtain details of nodes and classify them */
+	nodeoids = GetRelationDistributionNodes(subcluster, &numnodes);
 
 	/* Now OK to insert data in catalog */
 	PgxcClassCreate(relid, locatortype, attnum, hashalgorithm,
@@ -1095,11 +986,209 @@ AddRelationDistribution(Oid relid,
 }
 
 /*
- * Build list of node Oids for subcluster.
- * In case pgxc_node is empty return an error
+ * GetRelationDistributionItems
+ * Obtain distribution type and related items based on deparsed information
+ * of clause DISTRIBUTE BY.
+ * Depending on the column types given a fallback to a safe distribution can be done.
  */
-static Oid *
-build_subcluster_data(PGXCSubCluster *subcluster, int *numnodes)
+void
+GetRelationDistributionItems(Oid relid,
+							 DistributeBy *distributeby,
+							 TupleDesc descriptor,
+							 char *locatortype,
+							 int *hashalgorithm,
+							 int *hashbuckets,
+							 AttrNumber *attnum)
+{
+	int local_hashalgorithm = 0;
+	int local_hashbuckets = 0;
+	char local_locatortype = '\0';
+	AttrNumber local_attnum = 0;
+
+	if (!distributeby)
+	{
+		/* 
+		 * If no distribution was specified, and we have not chosen
+		 * one based on primary key or foreign key, use first column with
+		 * a supported data type.
+		 */
+		Form_pg_attribute attr;
+		int i;
+
+		local_locatortype = LOCATOR_TYPE_HASH;
+
+		for (i = 0; i < descriptor->natts; i++)
+		{
+			attr = descriptor->attrs[i];
+			if (IsTypeHashDistributable(attr->atttypid))
+			{
+				/* distribute on this column */
+				local_attnum = i + 1;
+				break;
+			}
+		}
+
+		/* If we did not find a usable type, fall back to round robin */
+		if (local_attnum == 0)
+			local_locatortype = LOCATOR_TYPE_RROBIN;
+	}
+	else 
+	{
+		/* 
+		 * User specified distribution type
+		 */
+		switch (distributeby->disttype)
+		{
+			case DISTTYPE_HASH:
+				/*
+				 * Validate user-specified hash column.
+				 * System columns cannot be used.
+				 */
+				local_attnum = get_attnum(relid, distributeby->colname);
+				if (local_attnum <= 0 && local_attnum >= -(int) lengthof(SysAtt))
+				{
+					ereport(ERROR,
+						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+						 errmsg("Invalid distribution column specified")));
+				}
+				
+				if (!IsTypeHashDistributable(descriptor->attrs[local_attnum - 1]->atttypid))
+				{
+					ereport(ERROR,
+						(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+						 errmsg("Column %s is not a hash distributable data type", 
+							distributeby->colname)));
+				}
+				local_locatortype = LOCATOR_TYPE_HASH;
+				break;
+
+			case DISTTYPE_MODULO:
+				/*
+				 * Validate user specified modulo column.
+				 * System columns cannot be used.
+				 */
+				local_attnum = get_attnum(relid, distributeby->colname);
+				if (local_attnum <= 0 && local_attnum >= -(int) lengthof(SysAtt))
+				{
+					ereport(ERROR,
+						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+						 errmsg("Invalid distribution column specified")));
+				}
+
+				if (!IsTypeModuloDistributable(descriptor->attrs[local_attnum - 1]->atttypid))
+				{
+					ereport(ERROR,
+						(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+						 errmsg("Column %s is not modulo distributable data type",
+							distributeby->colname)));
+				}
+				local_locatortype = LOCATOR_TYPE_MODULO;
+				break;
+
+			case DISTTYPE_REPLICATION:
+				local_locatortype = LOCATOR_TYPE_REPLICATED;
+				break;
+
+			case DISTTYPE_ROUNDROBIN:
+				local_locatortype = LOCATOR_TYPE_RROBIN;
+				break;
+
+			default:
+				ereport(ERROR,
+					(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+					 errmsg("Invalid distribution type")));
+		}
+	}
+
+	/* Use default hash values */
+	if (local_locatortype == LOCATOR_TYPE_HASH)
+	{
+		local_hashalgorithm = 1;
+		local_hashbuckets = HASH_SIZE;
+	}
+
+	/* Save results */
+	*attnum = local_attnum;
+	*hashalgorithm = local_hashalgorithm;
+	*hashbuckets = local_hashbuckets;
+	*locatortype = local_locatortype;
+}
+
+
+/*
+ * BuildRelationDistributionNodes
+ * Build an unsorted node Oid array based on a node name list.
+ */
+Oid *
+BuildRelationDistributionNodes(List *nodes, int *numnodes)
+{
+	Oid *nodeoids;
+	ListCell *item;
+
+	*numnodes = 0;
+
+	/* Allocate once enough space for OID array */
+	nodeoids = (Oid *) palloc0(NumDataNodes * sizeof(Oid));
+
+	/* Do process for each node name */
+	foreach(item, nodes)
+	{
+		char   *node_name = strVal(lfirst(item));
+		Oid		noid = get_pgxc_nodeoid(node_name);
+
+		/* Check existence of node */
+		if (!OidIsValid(noid))
+			ereport(ERROR,
+					(errcode(ERRCODE_DUPLICATE_OBJECT),
+					 errmsg("PGXC Node %s: object not defined",
+							node_name)));
+
+		if (get_pgxc_nodetype(noid) != PGXC_NODE_DATANODE)
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("PGXC node %s: not a Datanode",
+							node_name)));
+
+		/* Can be added if necessary */
+		if (*numnodes != 0)
+		{
+			bool	is_listed = false;
+			int		i;
+
+			/* Id Oid already listed? */
+			for (i = 0; i < *numnodes; i++)
+			{
+				if (nodeoids[i] == noid)
+				{
+					is_listed = true;
+					break;
+				}
+			}
+
+			if (!is_listed)
+			{
+				(*numnodes)++;
+				nodeoids[*numnodes - 1] = noid;
+			}
+		}
+		else
+		{
+			(*numnodes)++;
+			nodeoids[*numnodes - 1] = noid;
+		}
+	}
+
+	return nodeoids;
+}
+
+
+/*
+ * GetRelationDistributionNodes
+ * Transform subcluster information generated by query deparsing of TO NODE or
+ * TO GROUP clause into a sorted array of nodes OIDs.
+ */
+Oid *
+GetRelationDistributionNodes(PGXCSubCluster *subcluster, int *numnodes)
 {
 	ListCell *lc;
 	Oid *nodes = NULL;
@@ -1115,8 +1204,6 @@ build_subcluster_data(PGXCSubCluster *subcluster, int *numnodes)
 		 * There could be a difference between the content of pgxc_node catalog
 		 * table and current session, because someone may change nodes and not
 		 * yet update session data.
-		 * We should use session data because Executor uses it as well to run
-		 * commands on nodes.
 		 */
 		*numnodes = NumDataNodes;
 
@@ -1129,12 +1216,10 @@ build_subcluster_data(PGXCSubCluster *subcluster, int *numnodes)
 		nodes = (Oid *) palloc(NumDataNodes * sizeof(Oid));
 		for (i = 0; i < NumDataNodes; i++)
 			nodes[i] = PGXCNodeGetNodeOid(i, PGXC_NODE_DATANODE);
-
-		return nodes;
 	}
 
 	/* Build list of nodes from given group */
-	if (subcluster->clustertype == SUBCLUSTER_GROUP)
+	if (!nodes && subcluster->clustertype == SUBCLUSTER_GROUP)
 	{
 		Assert(list_length(subcluster->members) == 1);
 
@@ -1152,60 +1237,28 @@ build_subcluster_data(PGXCSubCluster *subcluster, int *numnodes)
 			*numnodes = get_pgxc_groupmembers(group_oid, &nodes);
 		}
 	}
-	else
+	else if (!nodes)
 	{
-		/* This is the case of a list of nodes */
-		foreach(lc, subcluster->members)
-		{
-			char   *node_name = strVal(lfirst(lc));
-			Oid	noid = get_pgxc_nodeoid(node_name);
-
-			/* Check existence of node */
-			if (!OidIsValid(noid))
-				ereport(ERROR,
-						(errcode(ERRCODE_DUPLICATE_OBJECT),
-						 errmsg("PGXC Node %s: object not defined",
-								node_name)));
-
-			if (get_pgxc_nodetype(noid) != PGXC_NODE_DATANODE)
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("PGXC node %s: not a Datanode",
-								node_name)));
-
-			/* Can be added if necessary */
-			if (*numnodes != 0)
-			{
-				bool	is_listed = false;
-				int		i;
-
-				/* Id Oid already listed? */
-				for (i = 0; i < *numnodes; i++)
-				{
-					if (nodes[i] == noid)
-					{
-						is_listed = true;
-						break;
-					}
-				}
-
-				if (!is_listed)
-				{
-					(*numnodes)++;
-					nodes = (Oid *) repalloc(nodes, *numnodes * sizeof(Oid));
-					nodes[*numnodes - 1] = noid;
-				}
-			}
-			else
-			{
-				(*numnodes)++;
-				nodes = (Oid *) palloc(*numnodes * sizeof(Oid));
-				nodes[*numnodes - 1] = noid;
-			}
-		}
+		/*
+		 * This is the case of a list of nodes names.
+		 * Here the result is a sorted array of node Oids
+		 */
+		nodes = BuildRelationDistributionNodes(subcluster->members, numnodes);
 	}
 
-	return nodes;
+	/* Return a sorted array of node OIDs */
+	return SortRelationDistributionNodes(nodes, *numnodes);
+}
+
+/*
+ * SortRelationDistributionNodes
+ * Sort elements in a node array.
+ */
+Oid *
+SortRelationDistributionNodes(Oid *nodeoids, int numnodes)
+{
+	qsort(nodeoids, numnodes, sizeof(Oid), cmp_nodes);
+	return nodeoids;
 }
 #endif
 

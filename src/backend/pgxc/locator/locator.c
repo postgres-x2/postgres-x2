@@ -245,7 +245,7 @@ char *pColName;
  * PGXCTODO - expand support for other data types!
  */
 bool
-IsHashDistributable(Oid col_type)
+IsTypeHashDistributable(Oid col_type)
 {
 	if(col_type == INT8OID
 	|| col_type == INT2OID
@@ -360,7 +360,7 @@ IsDistColumnForRelId(Oid relid, char *part_col_name)
  * PGXCTODO - expand support for other data types!
  */
 bool
-IsModuloDistributable(Oid col_type)
+IsTypeModuloDistributable(Oid col_type)
 {
 	if(col_type == INT8OID
 	|| col_type == INT2OID

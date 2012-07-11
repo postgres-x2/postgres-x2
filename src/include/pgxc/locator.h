@@ -108,14 +108,14 @@ extern bool IsHashColumn(RelationLocInfo *rel_loc_info, char *part_col_name);
 extern bool IsHashColumnForRelId(Oid relid, char *part_col_name);
 extern int	GetRoundRobinNode(Oid relid);
 
-extern bool IsHashDistributable(Oid col_type);
+extern bool IsTypeHashDistributable(Oid col_type);
 extern List *GetAllDataNodes(void);
 extern List *GetAllCoordNodes(void);
 extern List *GetAnyDataNode(List *relNodes);
 extern void RelationBuildLocator(Relation rel);
 extern void FreeRelationLocInfo(RelationLocInfo *relationLocInfo);
 
-extern bool IsModuloDistributable(Oid col_type);
+extern bool IsTypeModuloDistributable(Oid col_type);
 extern char *GetRelationModuloColumn(RelationLocInfo * rel_loc_info);
 extern bool IsModuloColumn(RelationLocInfo *rel_loc_info, char *part_col_name);
 extern bool IsModuloColumnForRelId(Oid relid, char *part_col_name);
