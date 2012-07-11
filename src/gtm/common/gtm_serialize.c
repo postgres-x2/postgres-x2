@@ -251,22 +251,6 @@ gtm_serialize_transactioninfo(GTM_TransactionInfo *data, char *buf, size_t bufle
 		len += sizeof(uint32);
 	}
 
-	/* GTM_TransactionInfo.gti_coordname */
-	if (data->gti_coordname != NULL)
-	{
-		namelen = (uint32)strlen(data->gti_coordname);
-		memcpy(buf + len, &namelen, sizeof(uint32));
-		len += sizeof(uint32);
-		memcpy(buf + len, data->gti_coordname, namelen);
-		len += namelen;
-	}
-	else
-	{
-		namelen = 0;
-		memcpy(buf + len, &namelen, sizeof(uint32));
-		len += sizeof(uint32);
-	}
-
 	/* GTM_TransactionInfo.gti_xmin */
 	memcpy(buf + len, &(data->gti_xmin), sizeof(GlobalTransactionId));
 	len += sizeof(GlobalTransactionId);
