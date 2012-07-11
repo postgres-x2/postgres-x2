@@ -42,7 +42,7 @@ extern bool Backup_synchronously;
 void GTM_FreeResult(GTM_Result *result, GTM_PGXCNodeType remote_type);
 
 static GTM_Result *makeEmptyResultIfIsNull(GTM_Result *oldres);
-static int commit_prepared_transaction_internal(GTM_Conn *conn, 
+static int commit_prepared_transaction_internal(GTM_Conn *conn,
 												GlobalTransactionId gxid, GlobalTransactionId prepared_gxid,
 												bool is_backup);
 static int prepare_transaction_internal(GTM_Conn *conn, GlobalTransactionId gxid, bool is_backup);
@@ -152,7 +152,7 @@ send_failed:
  *
  * returns 1 on success, 0 on failure.
  */
-int 
+int
 end_replication_initial_sync(GTM_Conn *conn)
 {
 	GTM_Result *res = NULL;
@@ -235,7 +235,7 @@ get_node_list(GTM_Conn *conn, GTM_PGXCNodeInfo *data, size_t maxlen)
 	{
 		memcpy(&data[i], res->gr_resdata.grd_node_list.nodeinfo[i], sizeof(GTM_PGXCNodeInfo));
 	}
-				
+
 	if (res->gr_status == GTM_RESULT_OK)
 		Assert(res->gr_type == NODE_LIST_RESULT);
 
@@ -284,7 +284,7 @@ get_next_gxid(GTM_Conn *conn)
 	fflush(stderr);
 
 	next_gxid = res->gr_resdata.grd_next_gxid;
-	
+
 	if (res->gr_status == GTM_RESULT_OK)
 		Assert(res->gr_type == TXN_GET_NEXT_GXID_RESULT);
 
@@ -402,7 +402,7 @@ send_failed:
  */
 
 int
-bkup_begin_transaction(GTM_Conn *conn, GTM_TransactionHandle txn, GTM_IsolationLevel isolevel, 
+bkup_begin_transaction(GTM_Conn *conn, GTM_TransactionHandle txn, GTM_IsolationLevel isolevel,
 					   bool read_only, GTM_Timestamp timestamp)
 {
 	 /* Start the message. */
@@ -455,7 +455,7 @@ bkup_begin_transaction_gxid(GTM_Conn *conn, GTM_TransactionHandle txn, GlobalTra
 
 send_failed:
 	return -1;
-}	
+}
 
 GlobalTransactionId
 begin_transaction(GTM_Conn *conn, GTM_IsolationLevel isolevel, GTM_Timestamp *timestamp)
@@ -506,7 +506,7 @@ send_failed:
 
 
 int
-bkup_begin_transaction_autovacuum(GTM_Conn *conn, GTM_TransactionHandle txn, GlobalTransactionId gxid, 
+bkup_begin_transaction_autovacuum(GTM_Conn *conn, GTM_TransactionHandle txn, GlobalTransactionId gxid,
 								  GTM_IsolationLevel isolevel)
 {
 	 /* Start the message. */
@@ -529,7 +529,7 @@ bkup_begin_transaction_autovacuum(GTM_Conn *conn, GTM_TransactionHandle txn, Glo
 
 send_failed:
 	return -1;
-}	
+}
 /*
  * Transaction Management API
  * Begin a transaction for an autovacuum worker process
@@ -700,19 +700,19 @@ receive_failed:
 	return -1;
 }
 
-int 
+int
 abort_transaction(GTM_Conn *conn, GlobalTransactionId gxid)
 {
 	return abort_transaction_internal(conn, gxid, false);
 }
-	
-int 
+
+int
 bkup_abort_transaction(GTM_Conn *conn, GlobalTransactionId gxid)
 {
 	return abort_transaction_internal(conn, gxid, true);
 }
 
-static int 
+static int
 abort_transaction_internal(GTM_Conn *conn, GlobalTransactionId gxid, bool is_backup)
 {
 	GTM_Result *res = NULL;
@@ -1818,8 +1818,8 @@ send_failed:
 
 
 int
-bkup_begin_transaction_multi(GTM_Conn *conn, int txn_count, 
-							 GTM_TransactionHandle *txn, GlobalTransactionId start_gxid, GTM_IsolationLevel *isolevel, 
+bkup_begin_transaction_multi(GTM_Conn *conn, int txn_count,
+							 GTM_TransactionHandle *txn, GlobalTransactionId start_gxid, GTM_IsolationLevel *isolevel,
 							 bool *read_only, GTMProxy_ConnID *txn_connid)
 {
 	int ii;
@@ -1839,9 +1839,9 @@ bkup_begin_transaction_multi(GTM_Conn *conn, int txn_count,
 			gxid = FirstNormalGlobalTransactionId;
 		if (gtmpqPutInt(txn[ii], sizeof(GTM_TransactionHandle), conn) ||
 			gtmpqPutInt(gxid, sizeof(GlobalTransactionId), conn) ||
-			gtmpqPutInt(isolevel[ii], sizeof(int), conn) ||
+			gtmpqPutInt(isolevel[ii], sizeof(GTM_IsolationLevel), conn) ||
 			gtmpqPutc(read_only[ii], conn) ||
-			gtmpqPutInt(txn_connid[ii], sizeof(int), conn))
+			gtmpqPutInt(txn_connid[ii], sizeof(GTMProxy_ConnID), conn))
 			goto send_failed;
 	}
 
@@ -1857,7 +1857,6 @@ bkup_begin_transaction_multi(GTM_Conn *conn, int txn_count,
 
 send_failed:
 	return -1;
-	
 }
 
 int
@@ -2095,7 +2094,7 @@ set_begin_end_backup(GTM_Conn *conn, bool begin)
 	if (gtmpqPutMsgStart('C', true, conn))
 		goto send_failed;
 
-	if(gtmpqPutInt(begin ? MSG_BEGIN_BACKUP : MSG_END_BACKUP, 
+	if(gtmpqPutInt(begin ? MSG_BEGIN_BACKUP : MSG_END_BACKUP,
 				   sizeof(GTM_MessageType), conn))
 		goto send_failed;
 
