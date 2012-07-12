@@ -282,7 +282,7 @@ TXN_STATUS check_txn_global_status(txn_info *txn)
 
 /*
  * Returns 1 if implicit, 0 otherwise.
- * 
+ *
  * Should this be replaced with regexp calls?
  */
 static int check_xid_is_implicit(char *xid)
