@@ -110,8 +110,9 @@ make_ctid_col_ref(Query *qry)
 	int32			type_mod;
 	Oid			varcollid;
 
-	/* If the query has more than 1 table RTEs where both are different, we can not add ctid to the query target list 
-	 * We should in this case skip adding it to the target list and a WHERE CURRENT OF should then 
+	/*
+	 * If the query has more than 1 table RTEs where both are different, we can not add ctid to the query target list
+	 * We should in this case skip adding it to the target list and a WHERE CURRENT OF should then
 	 * fail saying the query is not a simply update able scan of table
 	 */
 
@@ -125,13 +126,14 @@ make_ctid_col_ref(Query *qry)
 			tableRTEs++;
 			if (tableRTEs > 1)
 			{
-				/* See if we get two RTEs in case we have two references 
-				* to the same table with different aliases
-				*/
+				/*
+				 * See if we get two RTEs in case we have two references
+				 * to the same table with different aliases
+				 */
 				foreach(lc2, qry->rtable)
 				{
 					rte2 = (RangeTblEntry *) lfirst(lc2);
-		
+
 					if (rte2->rtekind == RTE_RELATION)
 					{
 						if (rte2->relid != rte1->relid)
@@ -281,7 +283,7 @@ get_fn_oid(char *fn_name, Oid *p_rettype)
 
 	fn_nm = makeString(fn_name);
 	fn_name_list = list_make1(fn_nm);
-	
+
 	fdc = func_get_detail(fn_name_list,
 				NULL,			/* argument expressions */
 				NULL,			/* argument names */

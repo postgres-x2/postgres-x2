@@ -166,7 +166,7 @@ SendBarrierPrepareRequest(List *coords, const char *id)
 	int msglen;
 	int barrier_idlen;
 
-	coord_handles = get_handles(NIL, coords, true);	
+	coord_handles = get_handles(NIL, coords, true);
 
 	for (conn = 0; conn < coord_handles->co_conn_count; conn++)
 	{
@@ -223,7 +223,7 @@ CheckBarrierCommandStatus(PGXCNodeAllHandles *conn_handles, const char *id,
 	for (conn = 0; conn < count; conn++)
 	{
 		PGXCNodeHandle *handle;
-	   
+
 		if (conn < conn_handles->co_conn_count)
 			handle = conn_handles->coord_handles[conn];
 		else
@@ -305,7 +305,7 @@ SendBarrierEndRequest(PGXCNodeAllHandles *coord_handles, const char *id)
  * That completes the first step in barrier generation
  *
  * Any errors will be reported via ereport.
- */ 
+ */
 static PGXCNodeAllHandles *
 PrepareBarrier(const char *id)
 {
@@ -342,7 +342,7 @@ PrepareBarrier(const char *id)
 
 /*
  * Execute the barrier command on all the components, including Datanodes and
- * Coordinators. 
+ * Coordinators.
  */
 static void
 ExecuteBarrier(const char *id)
@@ -358,13 +358,13 @@ ExecuteBarrier(const char *id)
 
 	elog(DEBUG2, "Sending CREATE BARRIER <%s> EXECUTE message to "
 				 "Datanodes and Coordinator", id);
-	/* 
+	/*
 	 * Send a CREATE BARRIER request to all the Datanodes and the Coordinators
 	 */
 	for (conn = 0; conn < conn_handles->co_conn_count + conn_handles->dn_conn_count; conn++)
 	{
 		PGXCNodeHandle *handle;
-	   
+
 		if (conn < conn_handles->co_conn_count)
 			handle = conn_handles->coord_handles[conn];
 		else
@@ -465,7 +465,7 @@ RequestBarrier(const char *id, char *completionTag)
 	 * Get a barrier id if the user has not supplied it
 	 */
 	barrier_id = generate_barrier_id(id);
-	
+
 	elog(DEBUG2, "CREATE BARRIER <%s>", barrier_id);
 
 	/*

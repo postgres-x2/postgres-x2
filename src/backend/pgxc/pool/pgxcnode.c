@@ -467,7 +467,7 @@ retry:
 }
 
 /*
- * Is there any data enqueued in the TCP input buffer waiting 
+ * Is there any data enqueued in the TCP input buffer waiting
  * to be read sent by the PGXC node connection
  */
 
@@ -1504,7 +1504,7 @@ pgxc_node_flush(PGXCNodeHandle *handle)
 
 /*
  * This method won't return until network buffer is empty or error occurs
- * To ensure all data in network buffers is read and wasted 
+ * To ensure all data in network buffers is read and wasted
  */
 void
 pgxc_node_flush_read(PGXCNodeHandle *handle)

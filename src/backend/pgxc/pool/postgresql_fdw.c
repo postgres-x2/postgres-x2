@@ -87,11 +87,11 @@ is_immutable_func(Oid funcid)
  *  - operator
  *    - IMMUTABLE only
  *    - It is required that the meaning of the operator be the same as the
- *      local server in the foreign server. 
+ *      local server in the foreign server.
  *  - function
  *    - IMMUTABLE only
  *    - It is required that the meaning of the operator be the same as the
- *      local server in the foreign server. 
+ *      local server in the foreign server.
  *  - scalar array operator (ANY/ALL)
  */
 bool
@@ -393,4 +393,3 @@ deparseSql(RemoteQueryState *scanstate)
 
 	return sql.data;
 }
-
