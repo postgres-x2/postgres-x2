@@ -43,7 +43,7 @@
  * They are sent to remote nodes invloved in the transaction after sending
  * BEGIN TRANSACTION using a special firing protocol.
  * They cannot be sent when connections are obtained, making them having no
- * effect as BEGIN is sent by backend after connections are obtained and 
+ * effect as BEGIN is sent by backend after connections are obtained and
  * obtention confirmation has been sent back to backend.
  * SET CONSTRAINT, SET LOCAL commands are in this category.
  *

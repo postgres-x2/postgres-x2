@@ -71,9 +71,9 @@ typedef struct GTMProxy_ThreadInfo
 	uint32					thr_localid;
 	bool					is_main_thread;
 	void * (* thr_startroutine)(void *);
-	
+
 	MemoryContext	thr_thread_context;
-	MemoryContext	thr_message_context;	
+	MemoryContext	thr_message_context;
 	MemoryContext	thr_current_context;
 	MemoryContext	thr_error_context;
 	MemoryContext	thr_parent_context;
@@ -90,15 +90,15 @@ typedef struct GTMProxy_ThreadInfo
 	uint32					thr_conn_count;	/* number of connections served by this thread */
 
 
-	/* 
+	/*
 	 * The structure member type/sequence upto this point must match the
 	 * GTM_ThreadInfo structure in gtm.h since they are shared in some common
 	 * library routines such as elog.c. Keeping them in sync helps us use the
 	 * same library for the proxy as well as the server.
-	 */ 
+	 */
 	GTM_MutexLock			thr_lock;
 	GTM_CV					thr_cv;
-	
+
 	/*
 	 * We use a sequence number to track the state of connection/fd array.
 	 * Whenever a new connection is added or an existing connection is deleted
@@ -176,7 +176,7 @@ typedef union GTMProxy_CommandData
 		GlobalTransactionId	gxid;
 		GTM_TransactionHandle	handle;
 	} cd_snap;
-	
+
 	struct
 	{
 		GTM_PGXCNodeType	type;
@@ -258,8 +258,8 @@ extern GTM_ThreadID						TopMostThreadID;
 		} \
 	} while(0)
 #else
-#define Disable_Longjmp() 
+#define Disable_Longjmp()
 #define Enable_Longjmp()
 #endif
-	
+
 #endif

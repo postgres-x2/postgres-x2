@@ -163,7 +163,7 @@ typedef struct GTM_Transactions
 	int32				gt_lastslot;
 	GTM_TransactionInfo	gt_transactions_array[GTM_MAX_GLOBAL_TRANSACTIONS];
 	gtm_List			*gt_open_transactions;
-	
+
 	GTM_RWLock			gt_TransArrayLock;
 } GTM_Transactions;
 

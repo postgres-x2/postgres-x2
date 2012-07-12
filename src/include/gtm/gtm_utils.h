@@ -17,15 +17,6 @@
 #include "gtm/libpq-int.h"
 #include "gtm/gtm_msg.h"
 
-#if 0
-/*
- * PGXCTODO: This portion of code needs XCM support
- * to be able to report GTM failures to XC watcher and
- * enable a GTM reconnection kick.
- */
-void gtm_report_failure(GTM_Conn *);
-#endif
-
 void gtm_util_init_nametabs(void);
 char *gtm_util_message_name(GTM_MessageType type);
 char *gtm_util_result_name(GTM_ResultType type);

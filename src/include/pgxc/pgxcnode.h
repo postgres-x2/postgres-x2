@@ -99,8 +99,8 @@ struct pgxc_node_handle
 	size_t		inEnd;
 	size_t		inCursor;
 
-	/* 
-	 * Have a variable to enable/disable response checking and 
+	/*
+	 * Have a variable to enable/disable response checking and
 	 * if enable then read the result of response checking
 	 *
 	 * For details see comments of RESP_ROLLBACK

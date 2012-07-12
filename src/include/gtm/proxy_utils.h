@@ -20,4 +20,3 @@
 bool gtm_standby_check_communication_error(int *, GTM_Conn *);
 
 #endif /* PROXY_UTILS_H */
-
