@@ -37,7 +37,7 @@ typedef union GTM_ResultData
 												 * TXN_COMMIT_PREPARED
 												 * TXN_ROLLBACK
 												 */
-	
+
 	GlobalTransactionId			grd_next_gxid;
 
 	struct
@@ -120,7 +120,7 @@ typedef union GTM_ResultData
 #define GTM_RESULT_ERROR      (-1)
 #define GTM_RESULT_OK         (0)
 /*
- * This error is used ion the case where allocated buffer is not large 
+ * This error is used ion the case where allocated buffer is not large
  * enough to store the errors. It may happen of an allocation failed
  * so it's status is considered as unknown.
  */
@@ -166,13 +166,13 @@ size_t get_sequence_list(GTM_Conn *, GTM_SeqInfo **, size_t);
  * Transaction Management API
  */
 GlobalTransactionId begin_transaction(GTM_Conn *conn, GTM_IsolationLevel isolevel, GTM_Timestamp *timestamp);
-int bkup_begin_transaction(GTM_Conn *conn, GTM_TransactionHandle txn, GTM_IsolationLevel isolevel, 
+int bkup_begin_transaction(GTM_Conn *conn, GTM_TransactionHandle txn, GTM_IsolationLevel isolevel,
 						   bool read_only, GTM_Timestamp timestamp);
 int bkup_begin_transaction_gxid(GTM_Conn *conn, GTM_TransactionHandle txn, GlobalTransactionId gxid,
 								GTM_IsolationLevel isolevel, bool read_only, GTM_Timestamp timestamp);
 
 GlobalTransactionId begin_transaction_autovacuum(GTM_Conn *conn, GTM_IsolationLevel isolevel);
-int bkup_begin_transaction_autovacuum(GTM_Conn *conn, GTM_TransactionHandle txn, GlobalTransactionId gxid, 
+int bkup_begin_transaction_autovacuum(GTM_Conn *conn, GTM_TransactionHandle txn, GlobalTransactionId gxid,
 									  GTM_IsolationLevel isolevel);
 int commit_transaction(GTM_Conn *conn, GlobalTransactionId gxid);
 int bkup_commit_transaction(GTM_Conn *conn, GlobalTransactionId gxid);
@@ -199,8 +199,8 @@ begin_transaction_multi(GTM_Conn *conn, int txn_count, GTM_IsolationLevel *txn_i
 			bool *txn_read_only, GTMProxy_ConnID *txn_connid,
 			int *txn_count_out, GlobalTransactionId *gxid_out, GTM_Timestamp *ts_out);
 int
-bkup_begin_transaction_multi(GTM_Conn *conn, int txn_count, 
-							 GTM_TransactionHandle *txn, GlobalTransactionId start_gxid, GTM_IsolationLevel *isolevel, 
+bkup_begin_transaction_multi(GTM_Conn *conn, int txn_count,
+							 GTM_TransactionHandle *txn, GlobalTransactionId start_gxid, GTM_IsolationLevel *isolevel,
 							 bool *read_only, GTMProxy_ConnID *txn_connid);
 int
 commit_transaction_multi(GTM_Conn *conn, int txn_count, GlobalTransactionId *gxid,

@@ -142,7 +142,7 @@ typedef enum GTM_ResultType
  * Special message header for the messgaes exchanged between the GTM server and
  * the proxy.
  *
- * ph_conid: connection identifier which is used to route 
+ * ph_conid: connection identifier which is used to route
  * the messages to the right backend.
  */
 typedef struct GTM_ProxyMsgHeader

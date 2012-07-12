@@ -354,16 +354,6 @@ gtm_standby_connect_to_standby(void)
 
 	conn = gtm_standby_connect_to_standby_int(&report);
 
-#if 0
-	/*
-	 * PGXCTODO: This portion of code needs XCM support
-	 * to be able to report GTM failures to XC watcher and
-	 * enable a GTM reconnection kick.
-	 */
-	if (!conn && report)
-		gtm_report_failure(NULL);
-#endif
-
 	return conn;
 }
 
@@ -441,16 +431,6 @@ gtm_standby_reconnect_to_standby(GTM_Conn *old_conn, int retry_max)
 		elog(LOG, "gtm_standby_reconnect_to_standby(): re-connect failed. retry=%d", i);
 	}
 
-#if 0
-	/*
-	 * PGXCTODO: This portion of code needs XCM support
-	 * to be able to report GTM failures to XC watcher and
-	 * enable a GTM reconnection kick.
-	 */
-	if (newconn)
-		gtm_report_failure(NULL);
-#endif
-
 	return newconn;
 }
 
@@ -481,14 +461,6 @@ gtm_standby_check_communication_error(int *retry_count, GTM_Conn *oldconn)
 		}
 
 		elog(LOG, "communication error with standby.");
-#if 0
-		/*
-		 * PGXCTODO: This portion of code needs XCM support
-		 * to be able to report GTM failures to XC watcher and
-		 * enable a GTM reconnection kick.
-		 */
-		gtm_report_failure(oldconn);
-#endif
 	}
 	return false;
 }

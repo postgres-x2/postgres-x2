@@ -196,24 +196,3 @@ char *gtm_util_result_name(GTM_ResultType type)
 		return "UNKNOWN_RESULT";
 	return result_name[type];
 }
-
-/*
- * gtm_report_failure() is an utility function to report fatal failure
- * which occureed inside GTM to XCM, especially communication errors.
- *
- * failed_conn is null-able when failed to establish a connection
- * with other node.
- */
-#if 0
-/*
- * PGXCTODO: This portion of code needs XCM support
- * to be able to report GTM failures to XC watcher and
- * enable a GTM reconnection kick.
- */
-void
-gtm_report_failure(GTM_Conn *failed_conn)
-{
-	elog(LOG, "Calling report_xcwatch_gtm_failure()...");
-	return;
-}
-#endif

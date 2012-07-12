@@ -65,7 +65,7 @@ typedef enum GTM_PGXCNodeType
  * as a handle because we would never have a transaction state at the
  * GTM without assigned GXID.
  */
-typedef int32	GTM_TransactionHandle; 
+typedef int32	GTM_TransactionHandle;
 
 #define InvalidTransactionHandle	-1
 
