@@ -86,7 +86,7 @@ typedef struct RemoteXactState
 	/* Current status of the remote 2PC */
 	RemoteXactStatus		status;
 
-	/* 
+	/*
 	 * Information about all the nodes involved in the transaction. We track
 	 * the number of writers and readers. The first numWriteRemoteNodes entries
 	 * in the remoteNodeHandles and remoteNodeStatus correspond to the writer
@@ -114,7 +114,7 @@ static RemoteXactState remoteXactState;
 #define COPY_BUFFER_SIZE 8192
 #define PRIMARY_NODE_WRITEAHEAD 1024 * 1024
 
-/* 
+/*
  * List of PGXCNodeHandle to track readers and writers involved in the
  * current transaction
  */
@@ -705,24 +705,24 @@ HandleError(RemoteQueryState *combiner, char *msg_body, size_t len)
  * HandleCmdComplete -
  *	combine deparsed sql statements execution results
  *
- * Input parameters: 
+ * Input parameters:
  *	commandType is dml command type
  *	combineTag is used to combine the completion result
  *	msg_body is execution result needed to combine
  *	len is msg_body size
  */
 void
-HandleCmdComplete(CmdType commandType, CombineTag *combine, 
+HandleCmdComplete(CmdType commandType, CombineTag *combine,
 						const char *msg_body, size_t len)
 {
 	int	digits = 0;
 	uint64	originrowcount = 0;
 	uint64	rowcount = 0;
 	uint64	total = 0;
-	
+
 	if (msg_body == NULL)
 		return;
-	
+
 	/* if there's nothing in combine, just copy the msg_body */
 	if (strlen(combine->data) == 0)
 	{
@@ -735,7 +735,7 @@ HandleCmdComplete(CmdType commandType, CombineTag *combine,
 		/* commandType is conflict */
 		if (combine->cmdType != commandType)
 			return;
-		
+
 		/* get the processed row number from msg_body */
 		digits = parse_row_count(msg_body, len + 1, &rowcount);
 		elog(DEBUG1, "digits is %d\n", digits);
@@ -774,7 +774,7 @@ HandleCmdComplete(CmdType commandType, CombineTag *combine,
 			strcpy(combine->data, "");
 			break;
 	}
-	
+
 }
 
 /*
@@ -1396,7 +1396,7 @@ is_data_node_ready(PGXCNodeHandle * conn)
 	return false;
 }
 
-/* 
+/*
  * Construct a BEGIN TRANSACTION command after taking into account the
  * current options. The returned string is not palloced and is valid only until
  * the next call to the function.
@@ -1408,7 +1408,7 @@ generate_begin_command(void)
 	const char *read_only;
 	const char *isolation_level;
 
-	/* 
+	/*
 	 * First get the READ ONLY status because the next call to GetConfigOption
 	 * will overwrite the return buffer
 	 */
@@ -1421,7 +1421,7 @@ generate_begin_command(void)
 	isolation_level = GetConfigOption("transaction_isolation", false, false);
 	if (strcmp(isolation_level, "default") == 0)
 		isolation_level = GetConfigOption("default_transaction_isolation", false, false);
-   	
+
 	/* Finally build a START TRANSACTION command */
 	sprintf(begin_cmd, "START TRANSACTION ISOLATION LEVEL %s %s", isolation_level, read_only);
 
@@ -1504,7 +1504,7 @@ pgxc_node_begin(int conn_count, PGXCNodeHandle **connections,
 			 * modifying the data at the Datanode. We can possibly rely on the
 			 * function qualification to decide if a statement is a read-only or a
 			 * read-write statement.
-			 */ 
+			 */
 			RegisterTransactionNodes(1, (void **)&connections[i], !readOnly);
 			new_connections[new_count++] = connections[i];
 		}
@@ -1527,8 +1527,8 @@ pgxc_node_begin(int conn_count, PGXCNodeHandle **connections,
 	if (!ValidateAndCloseCombiner(combiner))
 		return EOF;
 
-	/* 
-	 * Ask pooler to send commands (if any) to nodes involved in transaction to alter the 
+	/*
+	 * Ask pooler to send commands (if any) to nodes involved in transaction to alter the
 	 * behavior of current transaction. This fires all transaction level commands before
 	 * issuing any DDL, DML or SELECT within the current transaction block.
 	 */
@@ -1581,7 +1581,7 @@ pgxc_node_remote_prepare(char *prepareGID)
 
 	for (i = 0; i < write_conn_count; i++)
 	{
-		/* 
+		/*
 		 * PGXCTODO - We should actually make sure that the connection state is
 		 * IDLE when we reach here. The executor should have guaranteed that
 		 * before the transaction gets to the commit point. For now, consume
@@ -1680,7 +1680,7 @@ pgxc_node_remote_prepare(char *prepareGID)
 		else
 			elog(ERROR, "failed to PREPARE transaction on one or more nodes");
 	}
-	
+
 	if (remoteXactState.status == RXACT_PREPARE_FAILED)
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
@@ -1725,7 +1725,7 @@ pgxc_node_remote_commit(void)
 	int				i;
 	RemoteQueryState *combiner = NULL;
 
-	/* 
+	/*
 	 * We must handle reader and writer connections both since the transaction
 	 * must be closed even on a read-only node
 	 */
@@ -1766,7 +1766,7 @@ pgxc_node_remote_commit(void)
 			remoteXactState.commitXid = GetAuxilliaryTransactionId();
 	}
 
-	/* 
+	/*
 	 * First send GXID if necessary. If there is an error at this stage, the
 	 * transaction can be aborted safely because we haven't yet sent COMMIT
 	 * command to any participant
@@ -1851,7 +1851,7 @@ pgxc_node_remote_commit(void)
 			CloseCombiner(combiner);
 			combiner = NULL;
 		}
-		/* 
+		/*
 		 * Even if the command failed on some node, don't throw an error just
 		 * yet. That gives a chance to look for individual connection status
 		 * and record appropriate information for later recovery
@@ -1917,8 +1917,8 @@ pgxc_node_remote_commit(void)
 /*
  * Abort the current transaction on the local and remote nodes. If the
  * transaction is prepared on the remote node, we send a ROLLBACK PREPARED
- * command, otherwise a ROLLBACK command is sent. 
- * 
+ * command, otherwise a ROLLBACK command is sent.
+ *
  * Note that if the local node was involved and prepared successfully, we are
  * running in a separate transaction context right now
  */
@@ -2102,7 +2102,7 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot)
 	/* Gather statistics */
 	stat_statement();
 	stat_transaction(conn_count);
-		
+
 	gxid = GetCurrentTransactionId();
 
 	if (!GlobalTransactionIdIsValid(gxid))
@@ -2757,7 +2757,7 @@ do_query(RemoteQueryState *node)
 	bool			need_tran_block;
 	PGXCNodeAllHandles	*pgxc_connections;
 
-	/* 
+	/*
 	 * Remember if the remote query is accessing a temp object
 	 *
 	 * !! PGXC TODO Check if the is_temp flag is propogated correctly when a
@@ -3228,10 +3228,10 @@ ExecEndRemoteQuery(RemoteQueryState *node)
 		bool bFree = false;
 		int nCount;
 		int i;
-	
+
 		cur_handles = node->cursor_connections;
 		nCount = node->cursor_count;
-	
+
 		for(i=0;i<node->cursor_count;i++)
 		{
 			if (node->cursor_connections == NULL || node->cursor_connections[i]->sock == -1)
@@ -3243,21 +3243,21 @@ ExecEndRemoteQuery(RemoteQueryState *node)
 				break;
 			}
 		}
-	
+
 		if (node->cursor)
 		{
 			close_node_cursors(cur_handles, nCount, node->cursor);
 			pfree(node->cursor);
 			node->cursor = NULL;
 		}
-	
+
 		if (node->update_cursor)
 		{
 			close_node_cursors(cur_handles, nCount, node->update_cursor);
 			pfree(node->update_cursor);
 			node->update_cursor = NULL;
 		}
-	
+
 		if (bFree)
 			pfree_pgxc_all_handles(all_handles);
 	}
@@ -4006,7 +4006,7 @@ PreCommit_Remote(char *prepareGID, bool preparedLocalNode)
 	 * down the remote nodes to execute the forthcoming COMMIT PREPARED
 	 * command. So grab one from the GTM and track it. It will be closed along
 	 * with the main transaction at the end.
-	 */ 
+	 */
 	pgxc_node_remote_commit();
 
 	/*
@@ -4049,7 +4049,7 @@ PreCommit_Remote(char *prepareGID, bool preparedLocalNode)
  * global consistency. We handle this case by recording the nodes involved in
  * the transaction at the GTM and keep the transaction open at the GTM so that
  * its reported as "in-progress" on all the nodes until resolved
- */  
+ */
 bool
 PreAbort_Remote(void)
 {
@@ -4072,7 +4072,7 @@ PreAbort_Remote(void)
 		 */
 		char	*nodestring = NULL;
 
-		/* 
+		/*
 		 * Get the list of nodes in prepared state; such nodes have not
 		 * committed successfully
 		 */

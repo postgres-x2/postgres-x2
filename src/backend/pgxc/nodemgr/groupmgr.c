@@ -29,7 +29,7 @@
 
 /*
  * PgxcGroupCreate
- * 
+ *
  * Create a PGXC node group
  */
 void
@@ -106,7 +106,7 @@ PgxcGroupCreate(CreateGroupStmt *stmt)
 
 	/* Do the insertion */
 	(void) simple_heap_insert(rel, tup);
-		
+
 	CatalogUpdateIndexes(rel, tup);
 
 	heap_close(rel, RowExclusiveLock);
@@ -115,7 +115,7 @@ PgxcGroupCreate(CreateGroupStmt *stmt)
 
 /*
  * PgxcNodeGroupsRemove():
- * 
+ *
  * Remove a PGXC node group
  */
 void

@@ -787,7 +787,7 @@ failure:
 }
 
 /*
- * Send a message containing pid numbers to the specified connection 
+ * Send a message containing pid numbers to the specified connection
  */
 int
 pool_sendpids(PoolPort *port, int *pids, int count)
