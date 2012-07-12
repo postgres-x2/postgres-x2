@@ -47,7 +47,7 @@ dump_transactioninfo_elog(GTM_TransactionInfo *txn)
 	elog(LOG, "gti_backend_id: %d", txn->gti_backend_id);
 	elog(LOG, "gti_nodestring: %s", txn->nodestring);
 	elog(LOG, "gti_gid: %s", txn->gti_gid);
-	
+
 	elog(LOG, "  sn_xmin: %d", txn->gti_current_snapshot.sn_xmin);
 	elog(LOG, "  sn_xmax: %d", txn->gti_current_snapshot.sn_xmax);
 	elog(LOG, "  sn_recent_global_xmin: %d", txn->gti_current_snapshot.sn_recent_global_xmin);
@@ -81,7 +81,7 @@ dump_transactions_elog(GTM_Transactions *txn, int num_txn)
 	elog(LOG, "  gt_latestCompletedXid: %d", txn->gt_latestCompletedXid);
 	elog(LOG, "  gt_recent_global_xmin: %d", txn->gt_recent_global_xmin);
 	elog(LOG, "  gt_lastslot: %d", txn->gt_lastslot);
-	
+
 	for (i = 0; i < num_txn; i++)
 	{
 		if (txn->gt_transactions_array[i].gti_gxid != InvalidGlobalTransactionId)

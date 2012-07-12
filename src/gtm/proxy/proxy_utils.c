@@ -40,7 +40,7 @@
  * gtm.h and gtm_proxy.h and depends on the context.
  *
  * This is the reason why this dummy function is needed here.
- * 
+ *
  * The object and module structure of GTM/GTM Proxy needs review, and
  * fix to remove this kind of tricks.
  */

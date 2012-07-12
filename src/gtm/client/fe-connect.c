@@ -139,7 +139,7 @@ PQconnectGTMStart(const char *conninfo)
  *		connectOptions1
  *
  * Internal subroutine to set up connection parameters given an already-
- * created GTM_Conn and a conninfo string. 
+ * created GTM_Conn and a conninfo string.
  *
  * Returns true if OK, false if trouble (in which case errorMessage is set
  * and so is conn->status).

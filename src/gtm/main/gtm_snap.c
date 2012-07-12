@@ -124,7 +124,7 @@ GTM_GetTransactionSnapshot(GTM_TransactionHandle handle[], int txn_count, int *s
 	 * Spin over transaction list checking xid, xmin, and subxids.  The goal is to
 	 * gather all active xids and find the lowest xmin
 	 */
-	gtm_foreach(elem, GTMTransactions.gt_open_transactions) 
+	gtm_foreach(elem, GTMTransactions.gt_open_transactions)
 	{
 		volatile GTM_TransactionInfo *gtm_txninfo = (GTM_TransactionInfo *)gtm_lfirst(elem);
 		GlobalTransactionId xid;
@@ -203,7 +203,7 @@ GTM_GetTransactionSnapshot(GTM_TransactionHandle handle[], int txn_count, int *s
 
 		mygtm_txninfo = GTM_HandleToTransactionInfo(handle[ii]);
 		mysnap = &mygtm_txninfo->gti_current_snapshot;
-		
+
 		if (GTM_IsTransSerializable(mygtm_txninfo))
 		{
 			if ((mygtm_txninfo->gti_snapshot_set) && (txn_count > 1))
@@ -464,7 +464,7 @@ retry:
 		_rc = snapshot_get_multi(GetMyThreadInfo->thr_conn->standby,
 					 txn_count, gxid, &txn_count_out, status_out,
 					 &xmin_out, &xmax_out, &recent_global_xmin_out, &xcnt_out);
-		
+
 		if (gtm_standby_check_communication_error(&count, oldconn))
 			goto retry;
 

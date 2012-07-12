@@ -483,4 +483,3 @@ finishStandbyConn(GTM_ThreadInfo *thrinfo)
 		thrinfo->thr_conn->standby = NULL;
 	}
 }
-

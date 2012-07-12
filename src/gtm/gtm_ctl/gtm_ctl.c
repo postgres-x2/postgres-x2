@@ -270,7 +270,7 @@ start_gtm(void)
 	if (gtm_path != NULL)
 	{
 		strncpy(gtm_app_path, gtm_path, MAXPGPATH - len - 1);
-	
+
 		len = strlen(gtm_app_path);
 		strncat(gtm_app_path, "/", MAXPGPATH - len - 1);
 
@@ -291,7 +291,7 @@ start_gtm(void)
 	else
 		len = snprintf(cmd, MAXPGPATH - 1, SYSTEMQUOTE "\"%s\" %s%s < \"%s\" 2>&1 &" SYSTEMQUOTE,
 				 gtm_app_path, gtmdata_opt, gtm_opts, DEVNULL);
-		
+
 	if (len >= MAXPGPATH - 1)
 	{
 		write_stderr("gtm command exceeds max size");
@@ -653,7 +653,7 @@ do_reconnect(void)
 		exit(1);
 	}
 }
-	
+
 
 /*
  *	restart/reload routines
@@ -1071,7 +1071,7 @@ main(int argc, char **argv)
 				ctl_command = RECONNECT_COMMAND;
 			else
 			{
-				write_stderr(_("%s: unrecognized operation mode \"%s\"\n"), 
+				write_stderr(_("%s: unrecognized operation mode \"%s\"\n"),
 							 progname, argv[optind]);
 				do_advice();
 				exit(1);
@@ -1220,4 +1220,4 @@ pg_realloc(void *ptr, size_t size)
 	if (!tmp)
 		write_stderr("out of memory\n");
 	return tmp;
-} 
+}

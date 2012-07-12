@@ -299,4 +299,3 @@ join_path_components(char *ret_path,
         snprintf(ret_path + strlen(ret_path), MAXPGPATH - strlen(ret_path),
                  "/%s", tail);
 }
-

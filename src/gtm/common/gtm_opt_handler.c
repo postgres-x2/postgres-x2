@@ -1398,7 +1398,7 @@ SelectConfigFiles(const char *userDoption, const char *progname)
 		{
 			if (configdir)
 			{
-				fname = gtm_opt_malloc(FATAL, 
+				fname = gtm_opt_malloc(FATAL,
 									   strlen(configdir) + strlen(GTMConfigFileName) + 2);
 				sprintf(fname, "%s/%s", configdir, GTMConfigFileName);
 			}
@@ -3205,7 +3205,7 @@ _ShowOption(struct config_generic * record, bool use_units)
 				snprintf(buffer, sizeof(buffer), INT64_FORMAT "%s",
 						 result, unit);
 				val = buffer;
-				
+
 			}
 			break;
 

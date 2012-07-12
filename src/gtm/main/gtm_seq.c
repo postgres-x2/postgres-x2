@@ -198,7 +198,7 @@ seq_remove_seqinfo(GTM_SeqInfo *seqinfo)
 {
 	uint32 hash = seq_gethash(seqinfo->gs_key);
 	GTM_SeqInfoHashBucket	*bucket;
-	
+
 	bucket = &GTMSequences[hash];
 
 	GTM_RWLockAcquire(&bucket->shb_lock, GTM_LOCKMODE_WRITE);
@@ -223,7 +223,7 @@ static GTM_SequenceKey
 seq_copy_key(GTM_SequenceKey key)
 {
 	GTM_SequenceKey retkey = NULL;
-   
+
 	/*
 	 * We must use the TopMostMemoryContext because the sequence information is
 	 * not bound to a thread and can outlive any of the thread specific
@@ -291,7 +291,7 @@ GTM_SeqOpen(GTM_SequenceKey seqkey,
 	 * If maxval is specfied, set the maxvalue to the given maxval, otherwise
 	 * set to the defaults depending on whether the seqeunce is ascending or
 	 * descending. Also do some basic contraint checks
-	 */	
+	 */
 	if (SEQVAL_IS_VALID(maxval))
 	{
 		if (maxval < seqinfo->gs_min_value)
@@ -732,7 +732,7 @@ GTM_SeqGetNext(GTM_SequenceKey seqkey)
 	}
 
 	GTM_RWLockAcquire(&seqinfo->gs_lock, GTM_LOCKMODE_WRITE);
-	
+
 	/*
 	 * If the sequence is called for the first time, initialize the value and
 	 * return the start value
@@ -866,7 +866,7 @@ ProcessSequenceInitCommand(Port *myport, StringInfo message, bool is_backup)
 		   sizeof (GTM_Sequence));
 	memcpy(&startval, pq_getmsgbytes(message, sizeof (GTM_Sequence)),
 		   sizeof (GTM_Sequence));
-	
+
 	cycle = pq_getmsgbyte(message);
 
 
@@ -907,7 +907,7 @@ ProcessSequenceInitCommand(Port *myport, StringInfo message, bool is_backup)
 									maxval,
 									startval,
 									cycle);
-		
+
 			if (gtm_standby_check_communication_error(&count, oldconn))
 				goto retry;
 
@@ -1010,7 +1010,7 @@ ProcessSequenceAlterCommand(Port *myport, StringInfo message, bool is_backup)
 			int count = 0;
 
 			elog(LOG, "calling alter_sequence() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
-		
+
 		retry:
 			rc = bkup_alter_sequence(GetMyThreadInfo->thr_conn->standby,
 									 &seqkey,
@@ -1021,14 +1021,14 @@ ProcessSequenceAlterCommand(Port *myport, StringInfo message, bool is_backup)
 									 lastval,
 									 cycle,
 									 is_restart);
-		
+
 			if (gtm_standby_check_communication_error(&count, oldconn))
 				goto retry;
 
 			/* Sync */
 			if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
 				gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
-			
+
 			elog(LOG, "alter_sequence() returns rc %d.", rc);
 		}
 		pq_beginmessage(&buf, 'S');
@@ -1087,7 +1087,7 @@ ProcessSequenceListCommand(Port *myport, StringInfo message)
 	{
 		GTM_SeqInfoHashBucket *b;
 		gtm_ListCell *elem;
-		
+
 		for (i = 0 ; i < SEQ_HASH_TABLE_SIZE ; i++)
 		{
 			b = &GTMSequences[i];
@@ -1120,7 +1120,7 @@ ProcessSequenceListCommand(Port *myport, StringInfo message)
 
 	/* Send a number of sequences */
 	pq_sendint(&buf, seq_count, 4);
-	
+
 	for (i = 0 ; i < seq_count ; i++)
 	{
 		char *seq_buf;
@@ -1187,7 +1187,7 @@ ProcessSequenceGetCurrentCommand(Port *myport, StringInfo message)
 		/* Don't flush to the standby because this does not change the status */
 		pq_flush(myport);
 
-	/* 
+	/*
 	 * I don't think backup is needed here. It does not change internal state.
 	 * 27th Dec., 2011, K.Suzuki
 	 */
@@ -1249,7 +1249,7 @@ ProcessSequenceGetNextCommand(Port *myport, StringInfo message, bool is_backup)
 
 		retry:
 			loc_seq = bkup_get_next(GetMyThreadInfo->thr_conn->standby, &seqkey);
-		
+
 			if (gtm_standby_check_communication_error(&count, oldconn))
 				goto retry;
 
@@ -1340,13 +1340,13 @@ ProcessSequenceSetValCommand(Port *myport, StringInfo message, bool is_backup)
 			int count = 0;
 
 			elog(LOG, "calling set_val() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
-		
+
 		retry:
 			rc = bkup_set_val(GetMyThreadInfo->thr_conn->standby,
 							  &seqkey,
 							  nextval,
 							  iscalled);
-		
+
 			if (gtm_standby_check_communication_error(&count, oldconn))
 				goto retry;
 
@@ -1413,7 +1413,7 @@ ProcessSequenceResetCommand(Port *myport, StringInfo message, bool is_backup)
 			int count = 0;
 
 			elog(LOG, "calling reset_sequence() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
-		
+
 		retry:
 			rc = bkup_reset_sequence(GetMyThreadInfo->thr_conn->standby, &seqkey);
 
@@ -1687,7 +1687,7 @@ GTM_RestoreSeqInfo(int ctlfd)
 			elog(LOG, "Failed to read keylen");
 			break;
 		}
-		
+
 		seqkey.gsk_key = palloc(seqkey.gsk_keylen);
 		read(ctlfd, seqkey.gsk_key, seqkey.gsk_keylen);
 

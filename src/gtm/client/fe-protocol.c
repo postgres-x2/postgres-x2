@@ -129,7 +129,7 @@ pqParseInput(GTM_Conn *conn)
 		case 'E':		/* error return */
 			if (gtmpqGetError(conn, result))
 				return NULL;
-			result->gr_status = GTM_RESULT_ERROR;	
+			result->gr_status = GTM_RESULT_ERROR;
 			break;
 		default:
 			printfGTMPQExpBuffer(&conn->errorMessage,
@@ -517,14 +517,14 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 			xsize = result->gr_xip_size;
 			xcnt = result->gr_snapshot.sn_xcnt;
 			xip = result->gr_snapshot.sn_xip;
-			
+
 			if ((xip == NULL) || (xcnt > xsize))
 			{
 				xip = (GlobalTransactionId *) realloc(xip, sizeof (GlobalTransactionId) * xcnt);
 				result->gr_snapshot.sn_xip = xip;
 				result->gr_xip_size = xcnt;
 			}
-			
+
 			if (gtmpqGetnchar((char *)xip, sizeof (GlobalTransactionId) * xcnt, conn))
 			{
 				result->gr_status = GTM_RESULT_ERROR;
@@ -563,7 +563,7 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 				result->gr_status = GTM_RESULT_ERROR;
 				break;
 			}
-			
+
 			result->gr_resdata.grd_seq_list.seq =
 						(GTM_SeqInfo **)malloc(sizeof(GTM_SeqInfo *) *
 											   result->gr_resdata.grd_seq_list.seq_count);
@@ -622,7 +622,7 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 			if (result->gr_resdata.grd_txn_get_gid_data.nodelen != 0)
 			{
 				/* Do necessary allocation */
-				result->gr_resdata.grd_txn_get_gid_data.nodestring = 
+				result->gr_resdata.grd_txn_get_gid_data.nodestring =
 					(char *)malloc(sizeof(char *) * result->gr_resdata.grd_txn_get_gid_data.nodelen + 1);
 				if (result->gr_resdata.grd_txn_get_gid_data.nodestring == NULL)
 				{
@@ -774,7 +774,7 @@ gtmpqReadSeqKey(GTM_SequenceKey seqkey, GTM_Conn *conn)
 	 */
 	if (seqkey->gsk_keylen <= 0 || seqkey->gsk_keylen > GTM_MAX_SEQKEY_LENGTH)
 		return EINVAL;
-	
+
 	if ((seqkey->gsk_key = (char *) malloc(seqkey->gsk_keylen))	== NULL)
 		return ENOMEM;
 

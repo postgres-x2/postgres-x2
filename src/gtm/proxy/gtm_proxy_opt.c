@@ -243,7 +243,7 @@ struct config_int ConfigureNamesInt[] =
 		{
 			GTM_OPTNAME_KEEPALIVES_COUNT, GTMC_STARTUP,
 			gettext_noop("Sets \"keepalives_count\" option to the connection to GTM."),
-			NULL, 
+			NULL,
 			0
 		},
 		&tcp_keepalives_count,
