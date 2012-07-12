@@ -90,11 +90,6 @@ struct gtm_conn
 	/* Buffer for receiving various parts of messages */
 	PQExpBufferData	workBuffer; /* expansible string */
 
-	/* Options to handle GTM communication error */
-	int		gtmErrorWaitIdle;		/* If true, wait reconnect signal. */
-	int		gtmErrorWaitInterval;	/* Duration of the wait time in second */
-	int		gtmErrorWaitCount;		/* How many durations to wait */
-
 	/* Pointer to the result of last operation */
 	GTM_Result	*result;
 };

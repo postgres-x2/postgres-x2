@@ -53,19 +53,8 @@
 #------------------------------------------------------------------------------
 # Behavior at GTM communication error
 #------------------------------------------------------------------------------
-#gtm_connect_retry_idle = 0		# How long (in secs) to wait before GTM proxy
-			   					# retries to connect to GTM.
-#gtm_connect_retry_count = 0	# How many times GTM proxy retries to connect
-								# to GTM.
 #gtm_connect_retry_interval = 0	# How long (in secs) to wait until the next
 								# retry to connect to GTM.
-#err_wait_idle = 0				# How long (in secs) GTM proxy should wait
-			   	 				# before it detects reconnect from gtm_ctl.
-#err_wait_count = 0				# How many times GTM should detect reconnect
-								# from gtm_ctl.
-#err_wait_interval = 0			# How long (in secs) GTM proxy should wait
-								# until next detection of reconnect from
-								# gtm_ctl.
 #
 #
 #------------------------------------------------------------------------------

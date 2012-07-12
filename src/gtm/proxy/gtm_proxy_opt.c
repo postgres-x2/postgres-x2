@@ -49,19 +49,8 @@ extern int tcp_keepalives_count;
 extern int tcp_keepalives_interval;
 extern char *GTMServerHost;
 extern int GTMProxyPortNumber;
-extern bool IsGTMConnectRetryRequired;
-extern int GTMConnectRetryIdle;
-extern int GTMConnectRetryCount;
 extern int GTMConnectRetryInterval;
 extern int GTMServerPortNumber;
-/*
-extern int GTMServerKeepalivesIdle;
-extern int GTMServerKeepalivesInterval;
-extern int GTMServerKeepalivesCount;
-*/
-extern int GTMErrorWaitIdle;
-extern int GTMErrorWaitInterval;
-extern int GTMErrorWaitCount;
 extern int GTMProxyWorkerThreads;
 extern char *GTMProxyDataDir;
 extern char *GTMProxyConfigFileName;
@@ -185,36 +174,13 @@ struct config_int ConfigureNamesInt[] =
 	},
 	{
 		{
-			GTM_OPTNAME_CONNECT_RETRY_COUNT, GTMC_SIGHUP,
-		 	gettext_noop("Retry count to try to reconnect to GTM."),
-		 	NULL,
-		 	0
-		},
-		&GTMConnectRetryCount,
-		0, 0, INT_MAX,
-		0, NULL
-	},
-	{
-		{
-			GTM_OPTNAME_CONNECT_RETRY_IDLE, GTMC_SIGHUP,
-		 	gettext_noop("Idle time in second before GTM standby retries "
-						 "connection to GTM."),
-		 	NULL,
-		 	GTMOPT_UNIT_TIME
-		},
-		&GTMConnectRetryIdle,
-		0, 0, INT_MAX,
-		0, NULL
-	},
-	{
-		{
 			GTM_OPTNAME_CONNECT_RETRY_INTERVAL, GTMC_SIGHUP,
 			gettext_noop("Interval in second to detect reconnect command."),
 			NULL,
 			GTMOPT_UNIT_TIME
 		},
 		&GTMConnectRetryInterval,
-		0, 0, INT_MAX,
+		60, 0, INT_MAX,
 		0, NULL
 	},
 	{
@@ -247,43 +213,6 @@ struct config_int ConfigureNamesInt[] =
 			0
 		},
 		&tcp_keepalives_count,
-		0, 0, INT_MAX,
-		0, NULL
-	},
-	{
-		{
-			GTM_OPTNAME_ERR_WAIT_IDLE, GTMC_SIGHUP,
-			gettext_noop("Time duration after connection to GTM failed and "
-						 "wait for reconnect command begins."),
-			gettext_noop("This parameter determines GTM Proxy behavior "
-						 "when GTM communication error is encountered."),
-			0
-		},
-		&GTMErrorWaitIdle,
-		0, 0, INT_MAX,
-		0, NULL
-	},
-	{
-		{
-			GTM_OPTNAME_ERR_WAIT_INTERVAL, GTMC_SIGHUP,
-			gettext_noop("Wait interval to wait for reconnect."),
-			gettext_noop("This parameter determines GTM Proxy behavior "
-						 "when GTM communication error is encountered."),
-			0
-		},
-		&GTMErrorWaitInterval,
-		0, 0, INT_MAX,
-		0, NULL
-	},
-	{
-		{
-			GTM_OPTNAME_ERR_WAIT_COUNT, GTMC_SIGHUP,
-			gettext_noop("Number of err_wait_interval to wait for reconnect."),
-			gettext_noop("This parameter determines GTM Prox behavior "
-						 "when GTM communication error is encountered."),
-		 0
-		},
-		&GTMErrorWaitCount,
 		0, 0, INT_MAX,
 		0, NULL
 	},
