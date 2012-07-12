@@ -498,7 +498,7 @@ static void
 do_commit_abort(PGconn *conn, txn_info *txn, bool is_commit)
 {
 	int ii;
-	static const char *EXEC_DIRECT_STMT_FMT = "EXECUTE DIRECT ON %s '%s PREPARED ''%s'';';";
+	static const char *EXEC_DIRECT_STMT_FMT = "EXECUTE DIRECT ON (%s) '%s PREPARED ''%s'';';";
 	static const char *GLOBAL_STMT_FMT = "%s PREPARED '%s';";
 	char stmt[1024];
 	PGresult *res;
@@ -636,7 +636,7 @@ getTxnStatus(PGconn *conn, GlobalTransactionId gxid, int node_idx)
 	PGresult *res;
 	char *res_s;
 
-	static const char *STMT_FORM = "EXECUTE DIRECT ON %s 'SELECT pgxc_is_committed(''%d''::xid);'";
+	static const char *STMT_FORM = "EXECUTE DIRECT ON (%s) 'SELECT pgxc_is_committed(''%d''::xid);'";
 
 	node_name = pgxc_clean_node_info[node_idx].node_name;
 	sprintf(stmt, STMT_FORM, node_name, gxid);
@@ -706,7 +706,7 @@ getPreparedTxnListOfNode(PGconn *conn, int idx)
 
 	/* SQL Statement */
 	static const char *STMT_GET_PREP_TXN_ON_NODE
-		= "EXECUTE DIRECT ON %s 'SELECT TRANSACTION, GID, OWNER, DATABASE FROM PG_PREPARED_XACTS;'";
+		= "EXECUTE DIRECT ON (%s) 'SELECT TRANSACTION, GID, OWNER, DATABASE FROM PG_PREPARED_XACTS;'";
 	char stmt[MAX_STMT_LEN];
 
 	sprintf(stmt, STMT_GET_PREP_TXN_ON_NODE,
