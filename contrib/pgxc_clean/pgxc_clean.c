@@ -3,7 +3,7 @@
  *
  * pgxc_clean utility
  *
- *	Recovers outstanding 2PC when after crashed nodes or entire cluster 
+ *	Recovers outstanding 2PC when after crashed nodes or entire cluster
  *  is recovered.
  *
  *  Depending upon how nodes/XC cluster fail, there could be outstanding
@@ -31,7 +31,7 @@
  *  -s, --status			prints out 2PC status.
  *  -U, --username=USERNAME	database user name
  *  -v, --verbose			same as -s, plus prints result of each cleanup.
- *  -V, --version			prints out the version,	
+ *  -V, --version			prints out the version,
  *  -w, --no-password		never prompt for the password.
  *  -W, --password			prompt for the password,
  *  -?, --help				prints help message
@@ -226,12 +226,12 @@ int main(int argc, char *argv[])
 	/* Connect to XC server */
 	if (verbose_opt)
 	{
-		fprintf(outf, "%s: connecting to database \"%s\", host: \"%s\", port: %d\n", 
-				progname, 
+		fprintf(outf, "%s: connecting to database \"%s\", host: \"%s\", port: %d\n",
+				progname,
 				clean_all_databases ? "postgres" : head_database_names->database_name,
 				coordinator_host, coordinator_port);
 	}
-	coord_conn = loginDatabase(coordinator_host, coordinator_port, username, password, 
+	coord_conn = loginDatabase(coordinator_host, coordinator_port, username, password,
 							   clean_all_databases ? "postgres" : head_database_names->database_name,
 							   progname, "auto", password_prompt);
 	if (verbose_opt)
@@ -511,7 +511,7 @@ do_commit_abort(PGconn *conn, txn_info *txn, bool is_commit)
 		if (txn->txn_stat[ii] == TXN_STATUS_PREPARED && ii != my_nodeidx)
 		{
 
-			sprintf(stmt, EXEC_DIRECT_STMT_FMT, 
+			sprintf(stmt, EXEC_DIRECT_STMT_FMT,
 					pgxc_clean_node_info[ii].node_name,
 					is_commit ? "COMMIT" : "ROLLBACK",
 					txn->xid);
@@ -522,8 +522,8 @@ do_commit_abort(PGconn *conn, txn_info *txn, bool is_commit)
 				if (res_status == PGRES_COMMAND_OK || res_status == PGRES_TUPLES_OK)
 					fprintf(outf, "succeeded (%s), ", pgxc_clean_node_info[ii].node_name);
 				else
-					fprintf(outf, "failed (%s: %s), ", 
-							pgxc_clean_node_info[ii].node_name, 
+					fprintf(outf, "failed (%s: %s), ",
+							pgxc_clean_node_info[ii].node_name,
 							PQresultErrorMessage(res));
 			}
 			else
@@ -623,7 +623,7 @@ loginDatabase(char *host, int port, char *user, char *password, char *dbname, co
 			new_pass = true;
 		}
 	} while (new_pass);
-		
+
 	return(coord_conn);
 }
 
@@ -640,7 +640,7 @@ getTxnStatus(PGconn *conn, GlobalTransactionId gxid, int node_idx)
 
 	node_name = pgxc_clean_node_info[node_idx].node_name;
 	sprintf(stmt, STMT_FORM, node_name, gxid);
-	
+
 	res = PQexec(conn, stmt);
 	if (res == NULL || PQresultStatus(res) != PGRES_TUPLES_OK)
 	{
@@ -709,13 +709,13 @@ getPreparedTxnListOfNode(PGconn *conn, int idx)
 		= "EXECUTE DIRECT ON %s 'SELECT TRANSACTION, GID, OWNER, DATABASE FROM PG_PREPARED_XACTS;'";
 	char stmt[MAX_STMT_LEN];
 
-	sprintf(stmt, STMT_GET_PREP_TXN_ON_NODE, 
+	sprintf(stmt, STMT_GET_PREP_TXN_ON_NODE,
 			pgxc_clean_node_info[idx].node_name);
-	
+
 	res = PQexec(conn, stmt);
 	if (res == NULL || (pq_status = PQresultStatus(res)) != PGRES_TUPLES_OK)
 	{
-		fprintf(stderr, "Could not obtain prepared transaction list for node %s.(%s)\n", 
+		fprintf(stderr, "Could not obtain prepared transaction list for node %s.(%s)\n",
 				pgxc_clean_node_info[idx].node_name, res ? PQresultErrorMessage(res) : "");
 		PQclear(res);
 		exit (1);
@@ -733,7 +733,7 @@ getPreparedTxnListOfNode(PGconn *conn, int idx)
 		owner = strdup(PQgetvalue(res, ii, 2));
 		database_name = strdup(PQgetvalue(res, ii, 3));
 
-		add_txn_info(database_name, pgxc_clean_node_info[idx].node_name, gxid, xid, owner, 
+		add_txn_info(database_name, pgxc_clean_node_info[idx].node_name, gxid, xid, owner,
 					 TXN_STATUS_PREPARED);
 		if(xid)
 			 free(xid);
@@ -850,8 +850,8 @@ getNodeList(PGconn *conn)
 		exit(1);
 	}
 }
-					
-						   
+
+
 
 static void
 showVersion(void)
@@ -975,7 +975,7 @@ parse_pgxc_clean_options(int argc, char *argv[])
 				break;
 		}
 	}
-	
+
 	while (argc - optind >= 1)
 	{
 		if (head_database_names == NULL)
@@ -1034,12 +1034,12 @@ static void usage(void)
 	user = getenv("PGUSER");
 	if (!user)
 		user = GetUserName();
-	
+
 	printf("pgxc_clean cleans up outstanding 2PCs after failed node is recovered.\n"
 		   "Usage:\n"
 		   "pgxc_clean [OPTION ...] [DBNAME [USERNAME]]\n\n"
 		   "Options:\n");
-	
+
 	env = getenv("PGDATABASE");
 	if (!env)
 		env = user;
