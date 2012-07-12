@@ -48,7 +48,7 @@ static char GTMPGXCNodeFile[GTM_NODE_FILE_MAX_PATH];
 static GTM_RWLock RegisterFileLock;
 
 static int NodeRegisterMagic = 0xeaeaeaea;
-static int NodeUnregisterMagic = 0xebebebeb; 
+static int NodeUnregisterMagic = 0xebebebeb;
 static int NodeEndMagic = 0xefefefef;
 
 static GTM_PGXCNodeInfoHashBucket GTM_PGXCNodes[NODE_HASH_TABLE_SIZE];
@@ -862,4 +862,3 @@ retry:
 		elog(LOG, "MSG_BACKEND_DISCONNECT rc=%d done.", _rc);
 	}
 }
-

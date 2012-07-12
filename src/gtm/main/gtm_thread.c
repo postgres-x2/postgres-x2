@@ -395,4 +395,3 @@ GTM_DoForAllOtherThreads(void (* process_routine)(GTM_ThreadInfo *))
 			(process_routine)(GTMThreads->gt_threads[ii]);
 	}
 }
-

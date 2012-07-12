@@ -126,7 +126,7 @@ MemoryContextReset(MemoryContext context)
 
 	if (MemoryContextIsShared(context))
 		MemoryContextLock(context);
-	
+
 	/* save a function call in common case where there are no children */
 	if (context->firstchild != NULL)
 		MemoryContextResetChildren(context);
@@ -782,4 +782,3 @@ Gen_Alloc genAlloc_class = {(void *)MemoryContextAlloc,
                             (void *)pfree,
                             (void *)current_memcontext,
 							(void *)allocTopMemCxt};
-

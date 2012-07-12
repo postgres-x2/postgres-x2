@@ -194,14 +194,14 @@ static void workerThreadReconnectToGTM(void);
 /*
  * One-time initialization. It's called immediately after the main process
  * starts
- */ 
+ */
 static GTMProxy_ThreadInfo *
 MainThreadInit()
 {
 	GTMProxy_ThreadInfo *thrinfo;
 
 	pthread_key_create(&threadinfo_key, NULL);
-	
+
 	/*
 	 * Initialize the lock protecting the global threads info
 	 */
@@ -541,7 +541,7 @@ GTMProxy_SigleHandler(int signal)
 }
 
 /*
- * Help display should match 
+ * Help display should match
  */
 static void
 help(const char *progname)
@@ -702,7 +702,7 @@ main(int argc, char *argv[])
 	 * Setup configuration file
 	 */
 	if (!SelectConfigFiles(data_dir, progname))
-		exit(1); 
+		exit(1);
 
 	/*
 	 * Parse config file
@@ -1014,7 +1014,7 @@ ServerLoop(void)
 		{
 			/*
 			 * Tell everybody that we are shutting down
-			 * 
+			 *
 			 * !! TODO
 			 */
 			exit(1);
@@ -1312,13 +1312,13 @@ GTMProxy_ThreadMain(void *argp)
 
 					/*
 					 * Detect if the connection has been dropped to avoid
-					 * a segmentation fault. 
+					 * a segmentation fault.
 					 */
 					if (conninfo->con_port == NULL)
 					{
 						conninfo->con_disconnected = true;
 						continue;
-					} 
+					}
 
 					/*
 					 * If this is a newly added connection, complete the handshake
@@ -1403,7 +1403,7 @@ setjmp_again:
 		 * handle any memory leaks
 		 */
 		resetStringInfo(&input_message);
-			
+
 		/*
 		 * Now, read command from each of the connections that has some data to
 		 * be read.
@@ -1574,7 +1574,7 @@ GTMProxyAddConnection(Port *port)
 					errmsg("Out of memory")));
 		return STATUS_ERROR;
 	}
-		
+
 	elog(DEBUG3, "Started new connection");
 	conninfo->con_port = port;
 
@@ -1675,7 +1675,7 @@ HandleGTMError(GTM_Conn *gtm_conn)
 		int ii;
 		char gtm_connect_string[1024];
 
-		elog(NOTICE, 
+		elog(NOTICE,
 			 "GTM communication error was detected.  Retrying connection. idle: %d, count = %d, interval = %d.",
 			 GTMConnectRetryIdle, GTMConnectRetryCount, GTMConnectRetryInterval);
 		GTMPQfinish(gtm_conn);
@@ -1689,8 +1689,8 @@ HandleGTMError(GTM_Conn *gtm_conn)
 		/* GTM connection retry */
 		for (ii = 0; ii < GTMConnectRetryCount; ii++)
 		{
-			/* 
-			 * Connect retry 
+			/*
+			 * Connect retry
 			 * Because this proxy has been registered to current
 			 * GTM, we don't re-register it.
 			 *
@@ -1724,7 +1724,7 @@ HandleGTMError(GTM_Conn *gtm_conn)
 		 * GTM communication error detected, retry failed
 		 * but cannot wait for reconnect.
 		 */
-		elog(FATAL, 
+		elog(FATAL,
 			 "No action specified to wait for reconnect.");
 		exit(1);		/* Just in case */
 	}
@@ -1738,8 +1738,8 @@ HandleGTMError(GTM_Conn *gtm_conn)
 	 *
 	 * For details, see gtm_proxy.h.
 	 */
-	elog(NOTICE, 
-		 "Waiting for reconnect action from gtm_ctl. idie: %d, count: %d, interval:%d", 
+	elog(NOTICE,
+		 "Waiting for reconnect action from gtm_ctl. idie: %d, count: %d, interval:%d",
 		 GTMErrorWaitIdle, GTMErrorWaitCount, GTMErrorWaitInterval);
 	Disable_Longjmp();
 	elog(DEBUG1, "Witing %d secs.", GTMErrorWaitIdle);
@@ -1989,7 +1989,7 @@ ProcessResponse(GTMProxy_ThreadInfo *thrinfo, GTMProxy_CommandInfo *cmdinfo,
 			 *
 			 * !!TODO As we start adding support for message grouping for
 			 * messages, those message types would be removed from the above
-			 * and handled separately. 
+			 * and handled separately.
 			 */
 			switch (res->gr_status)
 			{
@@ -2036,7 +2036,7 @@ ReadCommand(GTMProxy_ConnectionInfo *conninfo, StringInfo inBuf)
 	int				anyBackup;
 
 	anyBackup = (GetMyThreadInfo->thr_any_backup[connIdx] ? TRUE : FALSE);
-	
+
 	/*
 	 * Get message type code from the frontend.
 	 */
@@ -2105,9 +2105,9 @@ ReadCommand(GTMProxy_ConnectionInfo *conninfo, StringInfo inBuf)
 
 		copyStringInfo(&(GetMyThreadInfo->thr_inBufData[connIdx]), inBuf);
 
-		/* 
+		/*
 		 * The next line is added because we added the code to clear backup
-		 * when the response is processed. 
+		 * when the response is processed.
 		 */
 		GetMyThreadInfo->thr_any_backup[connIdx] = TRUE;
 	}
@@ -2307,7 +2307,7 @@ ProcessTransactionCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 			GTMProxy_CommandPending(conninfo, mtype, cmd_data);
 			break;
 
-		case MSG_TXN_BEGIN:	
+		case MSG_TXN_BEGIN:
 		case MSG_TXN_GET_GXID:
 			elog(FATAL, "Support not yet added for these message types");
 			break;
@@ -2573,7 +2573,7 @@ GTMProxy_HandshakeConnection(GTMProxy_ConnectionInfo *conninfo)
 					 startup_type)));
 
 	initStringInfo(&inBuf);
-	
+
 	/*
 	 * All frontend messages have a length word next
 	 * after the type code; we can read the message contents independently of
@@ -3231,7 +3231,7 @@ failed:
  * Register Proxy on GTM
  *
  * If reconnect is specified, then existing connection is closed
- * and the target GTM is taken from NewGTMServerHost and 
+ * and the target GTM is taken from NewGTMServerHost and
  * NewGTMServerPortNumber.
  */
 static void

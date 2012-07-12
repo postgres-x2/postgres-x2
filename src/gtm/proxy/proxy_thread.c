@@ -25,7 +25,7 @@ GTMProxy_Threads *GTMProxyThreads = &GTMProxyThreadsData;
 
 #define GTM_PROXY_MIN_THREADS 32			/* Provision for minimum threads */
 #define GTM_PROXY_MAX_THREADS 1024		/* Max threads allowed in the GTMProxy */
-#define GTMProxyThreadsFull	(GTMProxyThreads->gt_thread_count == GTMProxyThreads->gt_array_size)	
+#define GTMProxyThreadsFull	(GTMProxyThreads->gt_thread_count == GTMProxyThreads->gt_array_size)
 
 extern int GTMProxyWorkerThreads;
 extern GTMProxy_ThreadInfo **Proxy_ThreadInfo;
@@ -45,10 +45,10 @@ GTMProxy_ThreadAdd(GTMProxy_ThreadInfo *thrinfo)
 	{
 		GTMProxy_ThreadInfo **threads;
 		uint32 newsize;
-	   
+
 		/*
 		 * TODO Optimize lock management by not holding any locks during memory
-		 * allocation 
+		 * allocation
 		 */
 		if (GTMProxyThreads->gt_array_size == GTM_PROXY_MAX_THREADS)
 			elog(ERROR, "Too many threads active");
@@ -102,7 +102,7 @@ GTMProxy_ThreadAdd(GTMProxy_ThreadInfo *thrinfo)
 	}
 	GTM_RWLockRelease(&GTMProxyThreads->gt_lock);
 
-	/* 
+	/*
 	 * Track the slot information in the thrinfo. This is useful to quickly
 	 * find the slot given the thrinfo structure.
 	 */
@@ -287,13 +287,13 @@ GTMProxy_ThreadCleanup(void *argp)
 
 	/*
 	 * Reset the thread-specific information. This should be done only after we
-	 * are sure that memory contextes are not required 
+	 * are sure that memory contextes are not required
 	 *
 	 * Note: elog calls need memory contextes, so no elog calls beyond this
 	 * point.
 	 */
 	SetMyThreadInfo(NULL);
-	
+
 	return;
 }
 
@@ -311,7 +311,7 @@ GTMProxy_ThreadMainWrapper(void *argp)
 
 	SetMyThreadInfo(thrinfo);
 	MemoryContextSwitchTo(TopMemoryContext);
-	
+
 	pthread_cleanup_push(GTMProxy_ThreadCleanup, thrinfo);
 	thrinfo->thr_startroutine(thrinfo);
 	pthread_cleanup_pop(1);
@@ -353,7 +353,7 @@ GTMProxy_ThreadAddConnection(GTMProxy_ConnectionInfo *conninfo)
 	if (GTMProxyThreads->gt_next_worker == GTMProxyThreads->gt_thread_count)
 	   GTMProxyThreads->gt_next_worker = 1;
 
-	GTM_RWLockRelease(&GTMProxyThreads->gt_lock);	
+	GTM_RWLockRelease(&GTMProxyThreads->gt_lock);
 
 	/*
 	 * Lock the threadninfo structure to safely add the new connection to the
@@ -361,7 +361,7 @@ GTMProxy_ThreadAddConnection(GTMProxy_ConnectionInfo *conninfo)
 	 * socket descriptor in the next cycle
 	 */
 	GTM_MutexLockAcquire(&thrinfo->thr_lock);
-	
+
 	if (thrinfo->thr_conn_count >= GTM_PROXY_MAX_CONNECTIONS)
 	{
 		GTM_MutexLockRelease(&thrinfo->thr_lock);
@@ -412,7 +412,7 @@ GTMProxy_ThreadRemoveConnection(GTMProxy_ThreadInfo *thrinfo, GTMProxy_Connectio
 	 * thread structure.
 	 */
 	GTM_MutexLockAcquire(&thrinfo->thr_lock);
-	
+
 	for (ii = 0; ii < thrinfo->thr_conn_count; ii++)
 	{
 		if (thrinfo->thr_all_conns[ii] == conninfo)
@@ -455,7 +455,7 @@ GTMProxy_ThreadRemoveConnection(GTMProxy_ThreadInfo *thrinfo, GTMProxy_Connectio
 
 	thrinfo->thr_conn_count--;
 
-	/* 
+	/*
 	 * Increment the seqno to ensure that the next time before we poll, the fd
 	 * array is reconstructed.
 	 */

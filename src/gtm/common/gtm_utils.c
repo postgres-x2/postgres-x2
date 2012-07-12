@@ -217,4 +217,3 @@ gtm_report_failure(GTM_Conn *failed_conn)
 	return;
 }
 #endif
-

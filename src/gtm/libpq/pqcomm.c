@@ -912,7 +912,7 @@ pq_putmessage(Port *myport, char msgtype, const char *s, size_t len)
 	n32 = htonl((uint32) (len + 4));
 	if (internal_putbytes(myport, (char *) &n32, 4))
 		goto fail;
-	
+
 	if (internal_putbytes(myport, s, len))
 		goto fail;
 	return 0;

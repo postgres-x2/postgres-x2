@@ -154,7 +154,7 @@ GTM_MutexLockRelease(GTM_MutexLock *lock)
 bool
 GTM_MutexLockConditionalAcquire(GTM_MutexLock *lock)
 {
-	int status = pthread_mutex_trylock(&lock->lk_lock); 
+	int status = pthread_mutex_trylock(&lock->lk_lock);
 	return status ? false : true;
 }
 
@@ -203,4 +203,3 @@ GTM_CVWait(GTM_CV *cv, GTM_MutexLock *lock)
 {
 	return pthread_cond_wait(&cv->cv_condvar, &lock->lk_lock);
 }
-

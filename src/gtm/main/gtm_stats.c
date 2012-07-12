@@ -19,5 +19,3 @@ typedef struct GTM_Stats
 	float	GTM_RecvBytes;
 	float	GTM_SentBytes;
 } GTM_Stats;
-
-
