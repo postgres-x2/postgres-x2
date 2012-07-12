@@ -111,15 +111,15 @@ extern int	GetRoundRobinNode(Oid relid);
 extern bool IsTypeHashDistributable(Oid col_type);
 extern List *GetAllDataNodes(void);
 extern List *GetAllCoordNodes(void);
-extern List *GetAnyDataNode(List *relNodes);
+extern List *GetPreferredReplicationNode(List *relNodes);
 extern void RelationBuildLocator(Relation rel);
 extern void FreeRelationLocInfo(RelationLocInfo *relationLocInfo);
 
 extern bool IsTypeModuloDistributable(Oid col_type);
-extern char *GetRelationModuloColumn(RelationLocInfo * rel_loc_info);
+extern char *GetRelationModuloColumn(RelationLocInfo *rel_loc_info);
 extern bool IsModuloColumn(RelationLocInfo *rel_loc_info, char *part_col_name);
 extern bool IsModuloColumnForRelId(Oid relid, char *part_col_name);
-extern char *GetRelationDistColumn(RelationLocInfo * rel_loc_info);
+extern char *GetRelationDistColumn(RelationLocInfo *rel_loc_info);
 extern bool IsDistColumnForRelId(Oid relid, char *part_col_name);
 extern void FreeExecNodes(ExecNodes **exec_nodes);
 

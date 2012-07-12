@@ -121,11 +121,11 @@ static const unsigned int xc_mod_r[][6] =
 };
 
 /*
- * GetAnyDataNode
- * Pick any Datanode from given list, but try a preferred node
+ * GetPreferredReplicationNode
+ * Pick any Datanode from given list, however fetch a preferred node first.
  */
 List *
-GetAnyDataNode(List *relNodes)
+GetPreferredReplicationNode(List *relNodes)
 {
 	/*
 	 * Try to find the first node in given list relNodes
