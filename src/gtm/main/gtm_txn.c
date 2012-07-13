@@ -2578,13 +2578,13 @@ GTM_SetShuttingDown(void)
 }
 
 void
-GTM_RestoreTxnInfo(int ctlfd, GlobalTransactionId next_gxid)
+GTM_RestoreTxnInfo(FILE *ctlf, GlobalTransactionId next_gxid)
 {
 	GlobalTransactionId saved_gxid;
 
-	if (ctlfd != -1)
+	if (ctlf)
 	{
-		if ((read(ctlfd, &saved_gxid, sizeof (saved_gxid)) != sizeof (saved_gxid)) &&
+		if ((fscanf(ctlf, "%u", &saved_gxid) != 1) &&
 			(!GlobalTransactionIdIsValid(next_gxid)))
 			next_gxid = InitialGXIDValue_Default;
 		else if (!GlobalTransactionIdIsValid(next_gxid))
@@ -2603,7 +2603,7 @@ GTM_RestoreTxnInfo(int ctlfd, GlobalTransactionId next_gxid)
 }
 
 void
-GTM_SaveTxnInfo(int ctlfd)
+GTM_SaveTxnInfo(FILE *ctlf)
 {
 	GlobalTransactionId next_gxid;
 
@@ -2611,7 +2611,7 @@ GTM_SaveTxnInfo(int ctlfd)
 
 	elog(LOG, "Saving transaction info - next_gxid: %u", next_gxid);
 
-	write(ctlfd, &next_gxid, sizeof (next_gxid));
+	fprintf(ctlf, "%u\n", next_gxid);
 }
 /*
  * TODO

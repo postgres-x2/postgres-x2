@@ -247,8 +247,8 @@ void ProcessBeginTransactionGetGXIDCommandMulti(Port *myport, StringInfo message
 void ProcessCommitTransactionCommandMulti(Port *myport, StringInfo message, bool is_backup);
 void ProcessRollbackTransactionCommandMulti(Port *myport, StringInfo message, bool is_backup) ;
 
-void GTM_SaveTxnInfo(int ctlfd);
-void GTM_RestoreTxnInfo(int ctlfd, GlobalTransactionId next_gxid);
+void GTM_SaveTxnInfo(FILE *ctlf);
+void GTM_RestoreTxnInfo(FILE *ctlf, GlobalTransactionId next_gxid);
 void GTM_BkupBeginTransaction(char *coord_name,
 							  GTM_TransactionHandle txn,
 							  GTM_IsolationLevel isolevel,

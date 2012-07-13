@@ -71,7 +71,7 @@ gtm_standby_restore_next_gxid(void)
 	GlobalTransactionId next_gxid = InvalidGlobalTransactionId;
 
 	next_gxid = get_next_gxid(GTM_ActiveConn);
-	GTM_RestoreTxnInfo(-1, next_gxid);
+	GTM_RestoreTxnInfo(NULL, next_gxid);
 
 	elog(LOG, "Restoring the next GXID done.");
 	return 1;

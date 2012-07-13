@@ -286,7 +286,7 @@ main(int argc, char *argv[])
 	int			status;
 	int			i;
 	GlobalTransactionId next_gxid = InvalidGlobalTransactionId;
-	int			ctlfd;
+	FILE	   *ctlf;
 
 	/*
 	 * Local variable to hold command line options.
@@ -584,10 +584,11 @@ main(int argc, char *argv[])
 	}
 	else
 	{
-		ctlfd = open(GTMControlFile, O_RDONLY);
-		GTM_RestoreTxnInfo(ctlfd, next_gxid);
-		GTM_RestoreSeqInfo(ctlfd);
-		close(ctlfd);
+		ctlf = fopen(GTMControlFile, "r");
+		GTM_RestoreTxnInfo(ctlf, next_gxid);
+		GTM_RestoreSeqInfo(ctlf);
+		if (ctlf)
+			fclose(ctlf);
 	}
 
 	if (Recovery_IsStandby())
@@ -768,7 +769,7 @@ ServerLoop(void)
 
 		if (GTMAbortPending)
 		{
-			int ctlfd;
+			FILE *ctlf;
 
 			/*
 			 * XXX We should do a clean shutdown here. For the time being, just
@@ -783,16 +784,15 @@ ServerLoop(void)
 			 */
 			GTM_SetShuttingDown();
 
-			ctlfd = open(GTMControlFile, O_WRONLY | O_TRUNC | O_CREAT,
-						 S_IRUSR | S_IWUSR);
-			if (ctlfd == -1)
+			ctlf = fopen(GTMControlFile, "w");
+			if (ctlf == NULL)
 			{
 				fprintf(stderr, "Failed to create/open the control file\n");
 				exit(2);
 			}
 
-			GTM_SaveTxnInfo(ctlfd);
-			GTM_SaveSeqInfo(ctlfd);
+			GTM_SaveTxnInfo(ctlf);
+			GTM_SaveSeqInfo(ctlf);
 
 #if 0
 			/*
@@ -808,7 +808,7 @@ ServerLoop(void)
 			}
 #endif
 
-			close(ctlfd);
+			fclose(ctlf);
 
 			exit(1);
 		}

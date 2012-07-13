@@ -35,9 +35,6 @@ typedef struct GTM_SeqInfoHashBucket
 	GTM_RWLock	shb_lock;
 } GTM_SeqInfoHashBucket;
 
-static int SeqStartMagic =	0xfafafafa;
-static int SeqEndMagic =	0xfefefefe;
-
 #define SEQ_HASH_TABLE_SIZE		1024
 static GTM_SeqInfoHashBucket GTMSequences[SEQ_HASH_TABLE_SIZE];
 
@@ -1610,13 +1607,129 @@ ProcessSequenceRenameCommand(Port *myport, StringInfo message, bool is_backup)
 	/* FIXME: need to check errors */
 }
 
+
+/*
+ * Escape whitespace and non-printable characters in the sequence name to
+ * store it to the control file.
+ */
+static void
+encode_seq_key(GTM_SequenceKey seqkey, char *buffer)
+{
+	int 	i;
+	char	c;
+	char   *out;
+
+	out = buffer;
+	for (i = 0; i < seqkey->gsk_keylen; i++)
+	{
+		c = seqkey->gsk_key[i];
+
+		if (c == '\\') /* double backslach */
+		{
+			*out++ = '\\';
+			*out++ = '\\';
+		}
+		else if (c > ' ') /* no need to escape */
+		{
+			*out++ = c;
+		}
+		else if (c == '\n') /* below some known non-printable chars */
+		{
+			*out++ = '\\';
+			*out++ = 'n';
+		}
+		else if (c == '\r')
+		{
+			*out++ = '\\';
+			*out++ = 'r';
+		}
+		else if (c == '\t')
+		{
+			*out++ = '\\';
+			*out++ = 't';
+		}
+		else /* other non-printable chars */
+		{
+			*out++ = '\\';
+			if ((int) c < 10)
+			{
+				*out++ = '0';
+				*out++ = (char) ((int) '0' + (int) c);
+			}
+			else
+			{
+				*out++ = (char) ((int) '0' + ((int) c) / 10);
+				*out++ = (char) ((int) '0' + ((int) c) % 10);
+			}
+		}
+	}
+	/* Add NULL terminator */
+	*out++ = '\0';
+}
+
+
+/*
+ * Decode the string encoded by the encode_seq_key function
+ */
+static void
+decode_seq_key(char* value, GTM_SequenceKey seqkey)
+{
+	char   *in;
+	char 	out[1024];
+	int		len = 0;
+
+	in = value;
+	while (*in != '\0')
+	{
+		if (*in == '\\') /* get escaped character */
+		{
+			in++; /* next value */
+			if (*in == '\\')
+				out[len++] = *in++;
+			else if (*in == 'n')
+			{
+				out[len++] = '\n';
+				in++;
+			}
+			else if (*in == 'r')
+			{
+				out[len++] = '\r';
+				in++;
+			}
+			else if (*in == 't')
+			{
+				out[len++] = '\t';
+				in++;
+			}
+			else /* \nn format */
+			{
+				int val;
+				val = ((int) *in++ - (int) '0');
+				val *= 10;
+				val += ((int) *in++ - (int) '0');
+				out[len++] = (char) val;
+			}
+		}
+		else /* get plain character */
+		{
+			out[len++] = *in++;
+		}
+	}
+	/* copy result to palloc'ed memory */
+	seqkey->gsk_keylen = len;
+	seqkey->gsk_key = (char *) palloc(len);
+	memcpy(seqkey->gsk_key, out, len);
+}
+
+
 void
-GTM_SaveSeqInfo(int ctlfd)
+GTM_SaveSeqInfo(FILE *ctlf)
 {
 	GTM_SeqInfoHashBucket *bucket;
 	gtm_ListCell *elem;
 	GTM_SeqInfo *seqinfo = NULL;
 	int hash;
+	char buffer[1024];
 
 	for (hash = 0; hash < SEQ_HASH_TABLE_SIZE; hash++)
 	{
@@ -1635,18 +1748,14 @@ GTM_SaveSeqInfo(int ctlfd)
 
 			GTM_RWLockAcquire(&seqinfo->gs_lock, GTM_LOCKMODE_READ);
 
-			write(ctlfd, &SeqStartMagic, sizeof (SeqStartMagic));
-			write(ctlfd, &seqinfo->gs_key->gsk_keylen, sizeof (uint32));
-			write(ctlfd, seqinfo->gs_key->gsk_key, seqinfo->gs_key->gsk_keylen);
-			write(ctlfd, &seqinfo->gs_value, sizeof (GTM_Sequence));
-			write(ctlfd, &seqinfo->gs_init_value, sizeof (GTM_Sequence));
-			write(ctlfd, &seqinfo->gs_increment_by, sizeof (GTM_Sequence));
-			write(ctlfd, &seqinfo->gs_min_value, sizeof (GTM_Sequence));
-			write(ctlfd, &seqinfo->gs_max_value, sizeof (GTM_Sequence));
-			write(ctlfd, &seqinfo->gs_cycle, sizeof (bool));
-			write(ctlfd, &seqinfo->gs_called, sizeof (bool));
-			write(ctlfd, &seqinfo->gs_state, sizeof (int32));
-			write(ctlfd, &SeqEndMagic, sizeof(SeqEndMagic));
+			encode_seq_key(seqinfo->gs_key, buffer);
+			fprintf(ctlf, "%s\t%ld\t%ld\t%ld\t%ld\t%ld\t%c\t%c\t%x\n",
+					buffer, seqinfo->gs_value,
+					seqinfo->gs_init_value, seqinfo->gs_increment_by,
+					seqinfo->gs_min_value, seqinfo->gs_max_value,
+					(seqinfo->gs_cycle ? 't' : 'f'),
+					(seqinfo->gs_called ? 't' : 'f'),
+					seqinfo->gs_state);
 
 			GTM_RWLockRelease(&seqinfo->gs_lock);
 		}
@@ -1656,15 +1765,16 @@ GTM_SaveSeqInfo(int ctlfd)
 
 }
 
-void
-GTM_RestoreSeqInfo(int ctlfd)
-{
-	int magic;
 
-	if (ctlfd == -1)
+void
+GTM_RestoreSeqInfo(FILE *ctlf)
+{
+	char seqname[1024];
+
+	if (ctlf == NULL)
 		return;
 
-	while (read(ctlfd, &magic, sizeof (SeqStartMagic)) == sizeof (SeqStartMagic))
+	while (fscanf(ctlf, "%s", seqname) == 1)
 	{
 		GTM_SequenceKeyData seqkey;
 		GTM_Sequence increment_by;
@@ -1675,38 +1785,58 @@ GTM_RestoreSeqInfo(int ctlfd)
 		int32 state;
 		bool cycle;
 		bool called;
+		char boolval[16];
 
-		if (magic != SeqStartMagic)
-		{
-			elog(LOG, "Start magic mismatch %x - %x", magic, SeqStartMagic);
-			break;
-		}
+		decode_seq_key(seqname, &seqkey);
 
-		if (read(ctlfd, &seqkey.gsk_keylen, sizeof (uint32)) != sizeof (uint32))
-		{
-			elog(LOG, "Failed to read keylen");
-			break;
-		}
-
-		seqkey.gsk_key = palloc(seqkey.gsk_keylen);
-		read(ctlfd, seqkey.gsk_key, seqkey.gsk_keylen);
-
-		read(ctlfd, &curval, sizeof (GTM_Sequence));
-		read(ctlfd, &startval, sizeof (GTM_Sequence));
-		read(ctlfd, &increment_by, sizeof (GTM_Sequence));
-		read(ctlfd, &minval, sizeof (GTM_Sequence));
-		read(ctlfd, &maxval, sizeof (GTM_Sequence));
-		read(ctlfd, &cycle, sizeof (bool));
-		read(ctlfd, &called, sizeof (bool));
-		read(ctlfd, &state, sizeof (int32));
-		read(ctlfd, &magic, sizeof(SeqEndMagic));
-
-		if (magic != SeqEndMagic)
+		if (fscanf(ctlf, "%ld", &curval) != 1)
 		{
 			elog(WARNING, "Corrupted control file");
 			return;
 		}
-
+		if (fscanf(ctlf, "%ld", &startval) != 1)
+		{
+			elog(WARNING, "Corrupted control file");
+			return;
+		}
+		if (fscanf(ctlf, "%ld", &increment_by) != 1)
+		{
+			elog(WARNING, "Corrupted control file");
+			return;
+		}
+		if (fscanf(ctlf, "%ld", &minval) != 1)
+		{
+			elog(WARNING, "Corrupted control file");
+			return;
+		}
+		if (fscanf(ctlf, "%ld", &maxval) != 1)
+		{
+			elog(WARNING, "Corrupted control file");
+			return;
+		}
+		if (fscanf(ctlf, "%s", boolval) == 1)
+		{
+			cycle = (*boolval == 't');
+		}
+		else
+		{
+			elog(WARNING, "Corrupted control file");
+			return;
+		}
+		if (fscanf(ctlf, "%s", boolval) == 1)
+		{
+			called = (*boolval == 't');
+		}
+		else
+		{
+			elog(WARNING, "Corrupted control file");
+			return;
+		}
+		if (fscanf(ctlf, "%x", &state) != 1)
+		{
+			elog(WARNING, "Corrupted control file");
+			return;
+		}
 		GTM_SeqRestore(&seqkey, increment_by, minval, maxval, startval, curval,
 					   state, cycle, called);
 	}
