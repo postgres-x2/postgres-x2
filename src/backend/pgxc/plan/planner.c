@@ -1984,10 +1984,9 @@ validate_part_col_updatable(const Query *query)
 	/* See if we have the partitioned case. */
 	rel_loc_info = GetRelationLocInfo(rte->relid);
 
+	/* Any column updation on local relations is fine */
 	if (!rel_loc_info)
-		ereport(ERROR,
-				(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-				(errmsg("Could not find relation for oid = %d", rte->relid))));
+		return;
 
 
 	/* Only LOCATOR_TYPE_HASH & LOCATOR_TYPE_MODULO should be checked */
