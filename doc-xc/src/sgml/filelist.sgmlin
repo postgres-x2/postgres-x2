@@ -137,8 +137,11 @@
 <!ENTITY pgtestfsync     SYSTEM "pgtestfsync.sgml">
 <!ENTITY pgtrgm          SYSTEM "pgtrgm.sgml">
 <!ENTITY pgupgrade       SYSTEM "pgupgrade.sgml">
+<!## XC>
 <!ENTITY pgxcclean       SYSTEM "pgxcclean.sgml">
 <!ENTITY pgxcddl         SYSTEM "pgxcddl.sgml">
+<!ENTITY pgxcmonitor	 SYSTEM "pgxcmonitor.sgml">
+<!## end>
 <!ENTITY seg             SYSTEM "seg.sgml">
 <!ENTITY contrib-spi     SYSTEM "contrib-spi.sgml">
 <!ENTITY sepgsql         SYSTEM "sepgsql.sgml">
