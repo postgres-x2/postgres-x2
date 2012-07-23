@@ -530,11 +530,19 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 											makeAlias("*SELECT*", NIL),
 											false);
 #ifdef PGXC
-		target_rte = rt_fetch(qry->resultRelation, pstate->p_rtable);
-		if (is_relation_child(target_rte, selectQuery->rtable))
+		/*
+		 * For an INSERT SELECT involving INSERT on a child after scanning
+		 * the parent, set flag to send command ID communication to remote
+		 * nodes in order to maintain global data visibility.
+		 */
+		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 		{
-			qry->is_ins_child_sel_parent = true;
-			SetSendCommandId(true);
+			target_rte = rt_fetch(qry->resultRelation, pstate->p_rtable);
+			if (is_relation_child(target_rte, selectQuery->rtable))
+			{
+				qry->is_ins_child_sel_parent = true;
+				SetSendCommandId(true);
+			}
 		}
 #endif
 		rtr = makeNode(RangeTblRef);
