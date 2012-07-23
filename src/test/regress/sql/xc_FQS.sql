@@ -1,45 +1,7 @@
 -- This file contains tests for Fast Query Shipping (FQS) for queries involving
 -- a single table
-
--- A function to create table on specified nodes 
-create or replace function cr_table(tab_schema varchar, nodenums int[], distribution varchar) returns void language plpgsql as $$
-declare
-	cr_command	varchar;
-	nodes		varchar[];
-	nodename	varchar;
-	nodenames_query varchar;
-	nodenames 	varchar;
-	node 		int;
-	sep			varchar;
-	tmp_node	int;
-	num_nodes	int;
-begin
-	nodenames_query := 'SELECT node_name FROM pgxc_node WHERE node_type = ''D'''; 
-	cr_command := 'CREATE TABLE ' || tab_schema || ' DISTRIBUTE BY ' || distribution || ' TO NODE ';
-	for nodename in execute nodenames_query loop
-		nodes := array_append(nodes, nodename);
-	end loop;
-	nodenames := '';
-	sep := '';
-	num_nodes := array_length(nodes, 1);
-	foreach node in array nodenums loop
-		tmp_node := node;
-		if (tmp_node < 1 or tmp_node > num_nodes) then
-			tmp_node := tmp_node % num_nodes;
-			if (tmp_node < 1) then
-				tmp_node := num_nodes; 
-			end if;
-		end if;
-		nodenames := nodenames || sep || nodes[tmp_node];
-		sep := ', ';
-	end loop;
-	cr_command := cr_command || nodenames;
-	execute cr_command;
-end;
-$$;
-
 -- Testset 1 for distributed table (by round robin)
-select cr_table('tab1_rr(val int, val2 int)', '{1, 2, 3}'::int[], 'round robin');
+select cr_table('tab1_rr(val int, val2 int)', '{1, 2, 3}'::int[], 'round robin', NULL);
 insert into tab1_rr values (1, 2);
 insert into tab1_rr values (2, 4);
 insert into tab1_rr values (5, 3);
@@ -88,8 +50,8 @@ select * from tab1_rr where val = 3 + 4 and val2 = 8 order by val;
 explain (costs off, verbose on, nodes off) select * from tab1_rr where val = 3 + 4 order by val;
 select * from tab1_rr where val = char_length('len')+4 order by val;
 explain (costs off, verbose on, nodes off) select * from tab1_rr where val = char_length('len')+4 order by val;
--- insert some more values 
-insert into tab1_rr values (7, 2); 
+-- insert some more values
+insert into tab1_rr values (7, 2);
 select avg(val) from tab1_rr where val = 7;
 explain (costs off, verbose on, nodes off) select avg(val) from tab1_rr where val = 7;
 select val, val2 from tab1_rr where val = 7 order by val2;
@@ -97,15 +59,15 @@ explain (costs off, verbose on, nodes off) select val, val2 from tab1_rr where v
 select distinct val2 from tab1_rr where val = 7;
 explain (costs off, verbose on, nodes off) select distinct val2 from tab1_rr where val = 7;
 -- DMLs
-update tab1_rr set val2 = 1000 where val = 7; 
-explain (costs off, verbose on, nodes off) update tab1_rr set val2 = 1000 where val = 7; 
+update tab1_rr set val2 = 1000 where val = 7;
+explain (costs off, verbose on, nodes off) update tab1_rr set val2 = 1000 where val = 7;
 select * from tab1_rr where val = 7;
-delete from tab1_rr where val = 7; 
-explain (costs off, verbose on, nodes off) delete from tab1_rr where val = 7; 
+delete from tab1_rr where val = 7;
+explain (costs off, verbose on, nodes off) delete from tab1_rr where val = 7;
 select * from tab1_rr where val = 7;
 
 -- Testset 2 for distributed tables (by hash)
-select cr_table('tab1_hash(val int, val2 int)', '{1, 2, 3}'::int[], 'hash(val)');
+select cr_table('tab1_hash(val int, val2 int)', '{1, 2, 3}'::int[], 'hash(val)', NULL);
 insert into tab1_hash values (1, 2);
 insert into tab1_hash values (2, 4);
 insert into tab1_hash values (5, 3);
@@ -153,8 +115,8 @@ select * from tab1_hash where val = 3 + 4 and val2 = 8;
 explain (costs off, verbose on, nodes off, num_nodes on) select * from tab1_hash where val = 3 + 4;
 select * from tab1_hash where val = char_length('len')+4;
 explain (costs off, verbose on, nodes off, num_nodes on) select * from tab1_hash where val = char_length('len')+4;
--- insert some more values 
-insert into tab1_hash values (7, 2); 
+-- insert some more values
+insert into tab1_hash values (7, 2);
 select avg(val) from tab1_hash where val = 7;
 explain (costs off, verbose on, nodes off, num_nodes on) select avg(val) from tab1_hash where val = 7;
 select val, val2 from tab1_hash where val = 7 order by val2;
@@ -162,15 +124,15 @@ explain (costs off, verbose on, nodes off, num_nodes on) select val, val2 from t
 select distinct val2 from tab1_hash where val = 7;
 explain (costs off, verbose on, nodes off, num_nodes on) select distinct val2 from tab1_hash where val = 7;
 -- DMLs
-update tab1_hash set val2 = 1000 where val = 7; 
-explain (costs off, verbose on, nodes off) update tab1_hash set val2 = 1000 where val = 7; 
+update tab1_hash set val2 = 1000 where val = 7;
+explain (costs off, verbose on, nodes off) update tab1_hash set val2 = 1000 where val = 7;
 select * from tab1_hash where val = 7;
-delete from tab1_hash where val = 7; 
-explain (costs off, verbose on, nodes off) delete from tab1_hash where val = 7; 
+delete from tab1_hash where val = 7;
+explain (costs off, verbose on, nodes off) delete from tab1_hash where val = 7;
 select * from tab1_hash where val = 7;
 
 -- Testset 3 for distributed tables (by modulo)
-select cr_table('tab1_modulo(val int, val2 int)', '{1, 2, 3}'::int[], 'modulo(val)');
+select cr_table('tab1_modulo(val int, val2 int)', '{1, 2, 3}'::int[], 'modulo(val)', NULL);
 insert into tab1_modulo values (1, 2);
 insert into tab1_modulo values (2, 4);
 insert into tab1_modulo values (5, 3);
@@ -218,8 +180,8 @@ select * from tab1_modulo where val = 3 + 4 and val2 = 8;
 explain (costs off, verbose on, nodes off, num_nodes on) select * from tab1_modulo where val = 3 + 4;
 select * from tab1_modulo where val = char_length('len')+4;
 explain (costs off, verbose on, nodes off, num_nodes on) select * from tab1_modulo where val = char_length('len')+4;
--- insert some more values 
-insert into tab1_modulo values (7, 2); 
+-- insert some more values
+insert into tab1_modulo values (7, 2);
 select avg(val) from tab1_modulo where val = 7;
 explain (costs off, verbose on, nodes off, num_nodes on) select avg(val) from tab1_modulo where val = 7;
 select val, val2 from tab1_modulo where val = 7 order by val2;
@@ -227,16 +189,16 @@ explain (costs off, verbose on, nodes off, num_nodes on) select val, val2 from t
 select distinct val2 from tab1_modulo where val = 7;
 explain (costs off, verbose on, nodes off, num_nodes on) select distinct val2 from tab1_modulo where val = 7;
 -- DMLs
-update tab1_modulo set val2 = 1000 where val = 7; 
-explain (costs off, verbose on, nodes off) update tab1_modulo set val2 = 1000 where val = 7; 
+update tab1_modulo set val2 = 1000 where val = 7;
+explain (costs off, verbose on, nodes off) update tab1_modulo set val2 = 1000 where val = 7;
 select * from tab1_modulo where val = 7;
-delete from tab1_modulo where val = 7; 
-explain (costs off, verbose on, nodes off) delete from tab1_modulo where val = 7; 
+delete from tab1_modulo where val = 7;
+explain (costs off, verbose on, nodes off) delete from tab1_modulo where val = 7;
 select * from tab1_modulo where val = 7;
 
 -- Testset 4 for replicated tables, for replicated tables, unless the expression
 -- is itself unshippable, any query involving a single replicated table is shippable
-select cr_table('tab1_replicated(val int, val2 int)', '{1, 2, 3}'::int[], 'replication');
+select cr_table('tab1_replicated(val int, val2 int)', '{1, 2, 3}'::int[], 'replication', NULL);
 insert into tab1_replicated values (1, 2);
 insert into tab1_replicated values (2, 4);
 insert into tab1_replicated values (5, 3);
@@ -263,15 +225,14 @@ explain (costs off, num_nodes on, verbose on, nodes off) select val, val2 from t
 select sum(val) from tab1_replicated group by val2 having sum(val) > 1;
 explain (costs off, num_nodes on, verbose on, nodes off) select sum(val) from tab1_replicated group by val2 having sum(val) > 1;
 -- DMLs
-update tab1_replicated set val2 = 1000 where val = 7; 
-explain (costs off, verbose on, nodes off) update tab1_replicated set val2 = 1000 where val = 7; 
+update tab1_replicated set val2 = 1000 where val = 7;
+explain (costs off, verbose on, nodes off) update tab1_replicated set val2 = 1000 where val = 7;
 select * from tab1_replicated where val = 7;
-delete from tab1_replicated where val = 7; 
-explain (costs off, verbose on, nodes off) delete from tab1_replicated where val = 7; 
+delete from tab1_replicated where val = 7;
+explain (costs off, verbose on, nodes off) delete from tab1_replicated where val = 7;
 select * from tab1_replicated where val = 7;
 
 drop table tab1_rr;
 drop table tab1_hash;
 drop table tab1_modulo;
 drop table tab1_replicated;
-drop function cr_table(varchar, int[], varchar); 

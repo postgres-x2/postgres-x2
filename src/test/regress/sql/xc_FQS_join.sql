@@ -1,46 +1,5 @@
 -- This file contains testcases for JOINs, it does not test the expressions
 -- create the tables first
--- A function to create table on specified nodes 
-create or replace function cr_table(tab_schema varchar, nodenums int[], distribution varchar, cmd_suffix varchar)
-returns void language plpgsql as $$
-declare
-	cr_command	varchar;
-	nodes		varchar[];
-	nodename	varchar;
-	nodenames_query varchar;
-	nodenames 	varchar;
-	node 		int;
-	sep			varchar;
-	tmp_node	int;
-	num_nodes	int;
-begin
-	nodenames_query := 'SELECT node_name FROM pgxc_node WHERE node_type = ''D'''; 
-	cr_command := 'CREATE TABLE ' || tab_schema || ' DISTRIBUTE BY ' || distribution || ' TO NODE ';
-	for nodename in execute nodenames_query loop
-		nodes := array_append(nodes, nodename);
-	end loop;
-	nodenames := '';
-	sep := '';
-	num_nodes := array_length(nodes, 1);
-	foreach node in array nodenums loop
-		tmp_node := node;
-		if (tmp_node < 1 or tmp_node > num_nodes) then
-			tmp_node := tmp_node % num_nodes;
-			if (tmp_node < 1) then
-				tmp_node := num_nodes; 
-			end if;
-		end if;
-		nodenames := nodenames || sep || nodes[tmp_node];
-		sep := ', ';
-	end loop;
-	cr_command := cr_command || nodenames;
-	if (cmd_suffix is not null) then
-		cr_command := cr_command  || ' ' || cmd_suffix;
-	end if;
-	execute cr_command;
-end;
-$$;
-
 select cr_table('tab1_rep (val int, val2 int)', '{1, 2, 3}'::int[], 'replication', NULL);
 insert into tab1_rep (select * from generate_series(1, 5) a, generate_series(1, 5) b);
 select cr_table('tab2_rep', '{2, 3, 4}'::int[], 'replication', 'as select * from tab1_rep');
@@ -57,14 +16,14 @@ select * from tab1_rep, tab2_rep where tab1_rep.val = tab2_rep.val and
 explain (costs off, num_nodes on, nodes off, verbose on) select * from tab1_rep, tab2_rep where tab1_rep.val = tab2_rep.val and
 										tab1_rep.val2 = tab2_rep.val2 and
 										tab1_rep.val > 3 and tab1_rep.val < 5;
-select * from tab1_rep natural join tab2_rep 
+select * from tab1_rep natural join tab2_rep
 			where tab2_rep.val > 2 and tab2_rep.val < 5;
 explain (costs off, num_nodes on, nodes off, verbose on) select * from tab1_rep natural join tab2_rep
 			where tab2_rep.val > 2 and tab2_rep.val < 5;
 select * from tab1_rep join tab2_rep using (val, val2) join tab3_rep using (val, val2)
-									where tab1_rep.val > 0 and tab2_rep.val < 3; 
+									where tab1_rep.val > 0 and tab2_rep.val < 3;
 explain (costs off, num_nodes on, nodes off, verbose on) select * from tab1_rep join tab2_rep using (val, val2) join tab3_rep using (val, val2)
-							where tab1_rep.val > 0 and tab2_rep.val < 3; 
+							where tab1_rep.val > 0 and tab2_rep.val < 3;
 select * from tab1_rep natural join tab2_rep natural join tab3_rep
 			where tab1_rep.val > 0 and tab2_rep.val < 3;
 explain (costs off, num_nodes on, nodes off, verbose on) select * from tab1_rep natural join tab2_rep natural join tab3_rep
@@ -141,13 +100,13 @@ explain (costs off, verbose on, nodes off) select * from tab1_mod, tab3_mod
 -- be reduced by JOIN reduction optimization. Turn this optimization off so as
 -- to generate plans independent of number of nodes in the cluster.
 set enable_remotejoin to false;
-explain (costs off, verbose on, nodes off) update tab1_mod set val2 = 1000 from tab2_mod 
+explain (costs off, verbose on, nodes off) update tab1_mod set val2 = 1000 from tab2_mod
 		where tab1_mod.val = tab2_mod.val and tab1_mod. val2 = tab2_mod.val2;
 explain (costs off, verbose on, nodes off) delete from tab1_mod using tab2_mod
 		where tab1_mod.val = tab2_mod.val and tab1_mod.val2 = tab2_mod.val2;
 explain (costs off, verbose on, nodes off) update tab1_rep set val2 = 1000 from tab2_rep
 		where tab1_rep.val = tab2_rep.val and tab1_rep.val2 = tab2_rep.val2;
-explain (costs off, verbose on, nodes off) delete from tab1_rep using tab2_rep 
+explain (costs off, verbose on, nodes off) delete from tab1_rep using tab2_rep
 		where tab1_rep.val = tab2_rep.val and tab1_rep.val2 = tab2_rep.val2;
 reset enable_remotejoin;
 
@@ -157,4 +116,3 @@ drop table tab3_rep;
 drop table tab4_rep;
 drop table tab1_mod;
 drop table tab2_mod;
-drop function cr_table(varchar, int[], varchar, varchar);

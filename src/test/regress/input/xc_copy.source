@@ -1,50 +1,13 @@
 --
 -- XC_COPY
 --
-
 -- COPY tests for a Postgres-XC cluster
-create or replace function cr_table(tab_schema varchar, nodenums int[], distribution varchar) returns void language plpgsql as $$
-declare
-	cr_command	varchar;
-	nodes		varchar[];
-	nodename	varchar;
-	nodenames_query	varchar;
-	nodenames	varchar;
-	node		int;
-	sep		varchar;
-	tmp_node	int;
-	num_nodes	int;
-begin
-	nodenames_query := 'SELECT node_name FROM pgxc_node WHERE node_type = ''D''';
-	cr_command := 'CREATE TABLE ' || tab_schema || ' DISTRIBUTE BY ' || distribution || ' TO NODE ';
-	for nodename in execute nodenames_query loop
-		nodes := array_append(nodes, nodename);
-	end loop;
-	nodenames := '';
-	sep := '';
-	num_nodes := array_length(nodes, 1);
-	foreach node in array nodenums loop
-		tmp_node := node;
-		if (tmp_node < 1 or tmp_node > num_nodes) then
-			tmp_node := tmp_node % num_nodes;
-			if (tmp_node < 1) then
-				tmp_node := num_nodes;
-			end if;
-		end if;
-		nodenames := nodenames || sep || nodes[tmp_node];
-		sep := ', ';
-	end loop;
-	cr_command := cr_command || nodenames;
-	execute cr_command;
-end;
-$$;
-
-create or replace function pgxc_nodetype() returns varchar as 
+create or replace function pgxc_nodetype() returns varchar as
 $$
 declare
-	pgxc_class_entries int;        
+	pgxc_class_entries int;
 begin
-	select into pgxc_class_entries count(*) from pgxc_class ;             
+	select into pgxc_class_entries count(*) from pgxc_class ;
 	if pgxc_class_entries > 0 then
 		return ' Node type: C';
 	else
@@ -60,25 +23,25 @@ begin
 end $$ language plpgsql;
 
 
-create or replace function deffunc_bytea() returns bytea as 
+create or replace function deffunc_bytea() returns bytea as
 $$
 begin
 	return E'\0123';
 end $$ language plpgsql;
 
-create or replace function deffunc_str() returns varchar as 
+create or replace function deffunc_str() returns varchar as
 $$
 begin
 	return E'\\.\\000"\\''!|''\\N' || pgxc_nodetype();
 end $$ language plpgsql;
 
-create or replace function deffunc_str_i() returns varchar immutable as 
+create or replace function deffunc_str_i() returns varchar immutable as
 $$
 begin
 	return E'\\.\\000"\\''!|''' || pgxc_nodetype();
 end $$ language plpgsql;
 
-create or replace function deffunc_nullstring() returns varchar as 
+create or replace function deffunc_nullstring() returns varchar as
 $$
 begin
 	return E'\\N';
@@ -129,7 +92,7 @@ drop function deffunc_nullstring();
 
 -- Tests related to COPY for a Postgres-XC cluster
 -- Create a table not using the first node of cluster
-SELECT cr_table('xc_copy_1(a int, b int)', '{2}'::int[], 'replication');
+SELECT cr_table('xc_copy_1(a int, b int)', '{2}'::int[], 'replication', NULL);
 INSERT INTO xc_copy_1 VALUES (1,23),(34,5),(9,11);
 -- Extract its data
 COPY xc_copy_1 TO STDOUT;
