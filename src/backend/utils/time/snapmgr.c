@@ -176,7 +176,7 @@ GetTransactionSnapshot(void)
 		 * The command id should therefore be updated in the
 		 * current snapshot.
 		 */
-		if (IS_PGXC_DATANODE)
+		if (IsConnFromCoord())
 			SnapshotSetCommandId(GetCurrentCommandId(false));
 #endif
 		return CurrentSnapshot;
