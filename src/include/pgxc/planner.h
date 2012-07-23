@@ -110,6 +110,8 @@ typedef struct
 	char			*outer_statement;
 	char			*join_condition;
 	bool			has_row_marks;		/* Did SELECT had FOR UPDATE/SHARE? */
+	bool			has_ins_child_sel_parent;	/* This node is part of an INSERT SELECT that
+								 * inserts into child by selecting from its parent */
 } RemoteQuery;
 
 /*

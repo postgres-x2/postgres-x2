@@ -162,6 +162,8 @@ typedef struct Query
 						 * should Datanode finalise the aggregates? */
 	bool		is_local;		/* enforce query execution on local node
 						 * this is used by EXECUTE DIRECT especially. */
+	bool		is_ins_child_sel_parent;/* true if the query is such an INSERT SELECT that
+						 * inserts into a child by selecting from its parent */
 #endif
 } Query;
 

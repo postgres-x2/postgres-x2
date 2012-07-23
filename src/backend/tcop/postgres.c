@@ -460,6 +460,7 @@ SocketBackend(StringInfo inBuf)
 						 errmsg("invalid frontend message type %d", qtype)));
 			break;
 #ifdef PGXC /* PGXC_DATANODE */
+		case 'M':				/* Command ID */
 		case 'g':				/* GXID */
 		case 's':				/* Snapshot */
 		case 't':				/* Timestamp */
@@ -731,7 +732,7 @@ pg_rewrite_query(Query *query)
 #ifdef PGXC
 	else if ((query->commandType == CMD_SELECT) && (query->intoClause != NULL))
 	{
-		/* 
+		/*
 		 * CREATE TABLE AS SELECT and SELECT INTO are rewritten so that the
 		 * target table is created first. The SELECT query is then transformed
 		 * into an INSERT INTO statement
@@ -4075,7 +4076,7 @@ PostgresMain(int argc, char *argv[], const char *username)
 #ifdef PGXC
 			/*
 			 * Helps us catch any problems where we did not send down a snapshot
-			 * when it was expected. However if any deferred trigger is supposed 
+			 * when it was expected. However if any deferred trigger is supposed
 			 * to be fired at commit time we need to preserve the snapshot sent previously
 			 */
 			if ((IS_PGXC_DATANODE || IsConnFromCoord()) && !IsAnyAfterTriggerDeferred())
@@ -4366,6 +4367,14 @@ PostgresMain(int argc, char *argv[], const char *username)
 				 */
 				break;
 #ifdef PGXC
+			case 'M':			/* Command ID */
+				{
+					CommandId cid = (CommandId) pq_getmsgint(&input_message, 4);
+					elog(DEBUG1, "Received cmd id %u", cid);
+					SaveReceivedCommandId(cid);
+				}
+				break;
+
 			case 'g':			/* gxid */
 				{
 					/* Set the GXID we were passed down */

@@ -31,6 +31,9 @@
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
 
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#endif
 
 /*
  * PerformCursorOpen
@@ -72,6 +75,14 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 	 * Create a portal and copy the plan and queryString into its memory.
 	 */
 	portal = CreatePortal(cstmt->portalname, false, false);
+
+#ifdef PGXC
+	/*
+	 * Consume the command id of the command creating the cursor
+	 */
+	if (IS_PGXC_COORDINATOR&& !IsConnFromCoord())
+		GetCurrentCommandId(true);
+#endif
 
 	oldContext = MemoryContextSwitchTo(PortalGetHeapMemory(portal));
 

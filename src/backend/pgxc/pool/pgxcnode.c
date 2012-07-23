@@ -49,6 +49,7 @@
 #include "utils/formatting.h"
 #include "../interfaces/libpq/libpq-fe.h"
 
+#define CMD_ID_MSG_LEN 8
 
 /* Number of connections held */
 static int	datanode_count = 0;
@@ -1596,6 +1597,40 @@ pgxc_node_send_gxid(PGXCNodeHandle *handle, GlobalTransactionId gxid)
 	return 0;
 }
 
+/*
+ * Send the Command ID down to the PGXC node
+ */
+int
+pgxc_node_send_cmd_id(PGXCNodeHandle *handle, CommandId cid)
+{
+	int			msglen = CMD_ID_MSG_LEN;
+	int			i32;
+
+	/* No need to send command ID if its sending flag is not enabled */
+	if (!IsSendCommandId())
+		return 0;
+
+	/* Invalid connection state, return error */
+	if (handle->state != DN_CONNECTION_STATE_IDLE)
+		return EOF;
+
+	/* msgType + msgLen */
+	if (ensure_out_buffer_capacity(handle->outEnd + 1 + msglen, handle) != 0)
+	{
+		add_error_message(handle, "out of memory");
+		return EOF;
+	}
+
+	handle->outBuffer[handle->outEnd++] = 'M';
+	msglen = htonl(msglen);
+	memcpy(handle->outBuffer + handle->outEnd, &msglen, 4);
+	handle->outEnd += 4;
+	i32 = htonl(cid);
+	memcpy(handle->outBuffer + handle->outEnd, &i32, 4);
+	handle->outEnd += 4;
+
+	return 0;
+}
 
 /*
  * Send the snapshot down to the PGXC node

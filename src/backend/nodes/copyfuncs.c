@@ -1036,6 +1036,7 @@ _copyRemoteQuery(RemoteQuery *from)
 	COPY_STRING_FIELD(outer_statement);
 	COPY_STRING_FIELD(join_condition);
 	COPY_SCALAR_FIELD(has_row_marks);
+	COPY_SCALAR_FIELD(has_ins_child_sel_parent);
 
 	return newnode;
 }
@@ -2541,6 +2542,7 @@ _copyQuery(Query *from)
 	COPY_NODE_FIELD(constraintDeps);
 #ifdef PGXC
 	COPY_STRING_FIELD(sql_statement);
+	COPY_SCALAR_FIELD(is_ins_child_sel_parent);
 #endif
 
 	return newnode;

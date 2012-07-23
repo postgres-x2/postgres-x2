@@ -22,6 +22,7 @@
 #include "access/sysattr.h"
 #include "access/transam.h"
 #include "access/xact.h"
+#include "access/relscan.h"
 #include "catalog/pg_type.h"
 #include "catalog/pgxc_node.h"
 #include "commands/prepare.h"
@@ -293,6 +294,7 @@ CreateResponseCombiner(int node_count, CombineType combine_type)
 	combiner->tapenodes = NULL;
 	combiner->initAggregates = true;
 	combiner->copy_file = NULL;
+	combiner->rqs_cmd_id = FirstCommandId;
 
 	return combiner;
 }
@@ -775,6 +777,27 @@ HandleCmdComplete(CmdType commandType, CombineTag *combine,
 			break;
 	}
 
+}
+
+/*
+ * HandleDatanodeCommandId ('M') message from a Datanode connection
+ */
+static void
+HandleDatanodeCommandId(RemoteQueryState *combiner, char *msg_body, size_t len)
+{
+	uint32		n32;
+	CommandId	cid;
+
+	Assert(msg_body != NULL);
+	Assert(len >= 2);
+
+	/* Get the command Id */
+	memcpy(&n32, &msg_body[0], 4);
+	cid = ntohl(n32);
+
+	/* If received command Id is higher than current one, set it to a new value */
+	if (cid > GetReceivedCommandId())
+		SetReceivedCommandId(cid);
 }
 
 /*
@@ -1320,15 +1343,12 @@ handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner)
 #endif
 				return result;
 			}
-
-#ifdef PGXC
+			case 'M':			/* Command Id */
+				HandleDatanodeCommandId(combiner, msg, msg_len);
+				break;
 			case 'b':
-				{
-					conn->state = DN_CONNECTION_STATE_IDLE;
-					return RESPONSE_BARRIER_OK;
-				}
-#endif
-
+				conn->state = DN_CONNECTION_STATE_IDLE;
+				return RESPONSE_BARRIER_OK;
 			case 'I':			/* EmptyQuery */
 			default:
 				/* sync lost? */
@@ -1573,6 +1593,8 @@ pgxc_node_remote_prepare(char *prepareGID)
 	if ((write_conn_count == 0) || (prepareGID == NULL))
 		return false;
 
+	SetSendCommandId(false);
+
 	/* Save the prepareGID in the global state information */
 	sprintf(remoteXactState.prepareGID, "%s", prepareGID);
 
@@ -1731,6 +1753,8 @@ pgxc_node_remote_commit(void)
 	 */
 	if (read_conn_count + write_conn_count == 0)
 		return;
+
+	SetSendCommandId(false);
 
 	/*
 	 * Barrier:
@@ -1936,6 +1960,7 @@ pgxc_node_remote_abort(void)
 	int				new_conn_count = 0;
 	RemoteQueryState *combiner = NULL;
 
+	SetSendCommandId(false);
 
 	/* Send COMMIT/ROLLBACK PREPARED TRANSACTION to the remote nodes */
 	for (i = 0; i < write_conn_count + read_conn_count; i++)
@@ -2529,6 +2554,12 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 	ExecAssignResultTypeFromTL(&remotestate->ss.ps);
 	ExecAssignScanProjectionInfo(&remotestate->ss);
 
+	if (node->has_ins_child_sel_parent)
+	{
+		/* Save command id of the insert-select query */
+		remotestate->rqs_cmd_id = GetCurrentCommandId(false);
+	}
+
 	return remotestate;
 }
 
@@ -2696,9 +2727,40 @@ pgxc_start_command_on_connection(PGXCNodeHandle *connection,
 									RemoteQueryState *remotestate,
 									Snapshot snapshot)
 {
+	CommandId	cid;
 	RemoteQuery	*step = (RemoteQuery *) remotestate->ss.ps.plan;
 	if (connection->state == DN_CONNECTION_STATE_QUERY)
 		BufferConnection(connection);
+
+	/*
+	 * Scan descriptor would be valid and would contain a valid snapshot
+	 * in cases when we need to send out of order command id to data node
+	 * e.g. in case of a fetch
+	 */
+
+	if (remotestate->cursor != NULL &&
+	    remotestate->cursor[0] != '\0' &&
+	    remotestate->ss.ss_currentScanDesc != NULL &&
+	    remotestate->ss.ss_currentScanDesc->rs_snapshot != NULL)
+		cid = remotestate->ss.ss_currentScanDesc->rs_snapshot->curcid;
+	else
+	{
+		/*
+		 * An insert into a child by selecting form its parent gets translated
+		 * into a multi-statement transaction in which first we select from parent
+		 * and then insert into child, then select form child and insert into child.
+		 * The select from child should not see the just inserted rows.
+		 * The command id of the select from child is therefore set to
+		 * the command id of the insert-select query saved earlier.
+		 */
+		if (step->exec_nodes->accesstype == RELATION_ACCESS_READ && step->has_ins_child_sel_parent)
+			cid = remotestate->rqs_cmd_id;
+		else
+			cid = GetCurrentCommandId(false);
+	}
+
+	if (pgxc_node_send_cmd_id(connection, cid) < 0 )
+		return false;
 
 	if (snapshot && pgxc_node_send_snapshot(connection, snapshot))
 		return false;
@@ -2903,7 +2965,6 @@ do_query(RemoteQueryState *node)
 
 	if (step->cursor)
 	{
-		node->cursor = step->cursor;
 		node->cursor_count = regular_conn_count;
 		node->cursor_connections = (PGXCNodeHandle **) palloc(regular_conn_count * sizeof(PGXCNodeHandle *));
 		memcpy(node->cursor_connections, connections, regular_conn_count * sizeof(PGXCNodeHandle *));

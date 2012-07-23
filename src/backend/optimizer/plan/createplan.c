@@ -2789,6 +2789,8 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	/* PGXCTODO - get better estimates */
  	scan_plan->scan.plan.plan_rows = 1000;
 
+	scan_plan->has_ins_child_sel_parent = root->parse->is_ins_child_sel_parent;
+
 	return (Plan *)scan_plan;
 }
 #endif

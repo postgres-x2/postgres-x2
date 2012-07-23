@@ -1184,8 +1184,7 @@ UPDATE cursor SET a = 2;
 FETCH ALL FROM c1;
  a | b 
 ---+---
- 2 |  
-(1 row)
+(0 rows)
 
 COMMIT;
 DROP TABLE cursor;

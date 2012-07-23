@@ -29,6 +29,8 @@
 #include "pgxc/execRemote.h"
 /* PGXC_DATANODE */
 #include "postmaster/autovacuum.h"
+#include "libpq/pqformat.h"
+#include "libpq/libpq.h"
 #endif
 #include "access/multixact.h"
 #include "access/subtrans.h"
@@ -148,7 +150,7 @@ typedef struct TransactionStateData
 	GlobalTransactionId	auxilliaryTransactionId;
 	bool				isLocalParameterUsed;		/* Check if a local parameter is active
 													 * in transaction block (SET LOCAL, DEFERRED) */
-#else	
+#else
 	TransactionId transactionId;	/* my XID, or Invalid if none */
 #endif
 	SubTransactionId subTransactionId;	/* my subxact ID */
@@ -183,7 +185,7 @@ static TransactionStateData TopTransactionStateData = {
 	0,							/* prepared global transaction id */
 	0,							/* commit prepared global transaction id */
 	false,						/* isLocalParameterUsed */
-#else	
+#else
 	0,							/* transaction id */
 #endif
 	0,							/* subtransaction id */
@@ -222,6 +224,21 @@ static TransactionState CurrentTransactionState = &TopTransactionStateData;
 static SubTransactionId currentSubTransactionId;
 static CommandId currentCommandId;
 static bool currentCommandIdUsed;
+
+#ifdef PGXC
+/*
+ * Parameters for communication control of Command ID between Postgres-XC nodes.
+ * isCommandIdReceived is used to determine of a command ID has been received by a remote
+ * node from a Coordinator.
+ * sendCommandId is used to determine if a Postgres-XC node needs to communicate its command ID.
+ * This is possible for both remote nodes and Coordinators connected to applications.
+ * receivedCommandId is the command ID received on Coordinator from remote node or on remote node
+ * from Coordinator.
+ */
+static bool isCommandIdReceived;
+static bool sendCommandId;
+static CommandId receivedCommandId;
+#endif
 
 /*
  * xactStartTimestamp is the value of transaction_timestamp().
@@ -644,7 +661,7 @@ GetTopGlobalTransactionId()
 	return s->topGlobalTransansactionId;
 }
 
-GlobalTransactionId 
+GlobalTransactionId
 GetAuxilliaryTransactionId()
 {
 	TransactionState s = CurrentTransactionState;
@@ -689,6 +706,32 @@ GetCurrentSubTransactionId(void)
 CommandId
 GetCurrentCommandId(bool used)
 {
+#ifdef PGXC
+	/* If coordinator has sent a command id, remote node should use it */
+	if (IsConnFromCoord() && isCommandIdReceived)
+	{
+		/*
+		 * Indicate to successive calls of this function that the sent command id has
+		 * already been used.
+		 */
+		isCommandIdReceived = false;
+		currentCommandId = GetReceivedCommandId();
+	}
+	else if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	{
+		/*
+		 * If command id reported by remote node is greater that the current
+		 * command id, the coordinator needs to use it. This is required because
+		 * a remote node can increase the command id sent by the coordinator
+		 * e.g. in case a trigger fires at the remote node and inserts some rows
+		 * The coordinator should now send the next command id knowing
+		 * the largest command id either current or received from remote node.
+		 */
+		if (GetReceivedCommandId() > currentCommandId)
+			currentCommandId = GetReceivedCommandId();
+	}
+#endif
+
 	/* this is global to a transaction, not subtransaction-local */
 	if (used)
 		currentCommandIdUsed = true;
@@ -919,6 +962,17 @@ CommandCounterIncrement(void)
 
 		/* Propagate new command ID into static snapshots */
 		SnapshotSetCommandId(currentCommandId);
+
+#ifdef PGXC
+		/*
+		 * Remote node should report local command id changes only if
+		 * required by the Coordinator. The requirement of the
+		 * Coordinator is inferred from the fact that Coordinator
+		 * has itself sent the command id to the remote nodes.
+		 */
+		if (IsConnFromCoord() && IsSendCommandId())
+			ReportCommandIdChange(currentCommandId);
+#endif
 
 		/*
 		 * Make any catalog changes done by the just-completed command visible
@@ -1913,7 +1967,7 @@ StartTransaction(void)
 	 */
 	if (DefaultXactIsoLevel == XACT_SERIALIZABLE)
 		DefaultXactIsoLevel = XACT_REPEATABLE_READ;
-#endif	
+#endif
 	XactIsoLevel = DefaultXactIsoLevel;
 	forceSyncCommit = false;
 	MyXactAccessedTempRel = false;
@@ -1926,7 +1980,18 @@ StartTransaction(void)
 	currentSubTransactionId = TopSubTransactionId;
 	currentCommandId = FirstCommandId;
 	currentCommandIdUsed = false;
-
+#ifdef PGXC
+	/*
+	 * Parameters related to global command ID control for transaction.
+	 * Send the 1st command ID.
+	 */
+	isCommandIdReceived = false;
+	if (IsConnFromCoord())
+	{
+		SetReceivedCommandId(FirstCommandId);
+		SetSendCommandId(false);
+	}
+#endif
 	/*
 	 * initialize reported xid accounting
 	 */
@@ -2027,9 +2092,9 @@ CommitTransaction(void)
 			 TransStateAsString(s->state));
 	Assert(s->parent == NULL);
 
-#ifdef PGXC	
+#ifdef PGXC
 	/*
-	 * If we are a Coordinator and currently serving the client, 
+	 * If we are a Coordinator and currently serving the client,
 	 * we must run a 2PC if more than one nodes are involved in this
 	 * transaction. We first prepare on the remote nodes and if everything goes
 	 * right, we commit locally and then commit on the remote nodes. We must
@@ -2108,7 +2173,7 @@ CommitTransaction(void)
 				s->auxilliaryTransactionId = InvalidGlobalTransactionId;
 		}
 	}
-#endif	
+#endif
 
 	/*
 	 * Do pre-commit processing that involves calling user-defined code, such
@@ -2165,7 +2230,7 @@ CommitTransaction(void)
 	 */
 	PreCommit_Notify();
 
-#ifdef PGXC	
+#ifdef PGXC
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 	{
 		/*
@@ -2332,6 +2397,17 @@ CommitTransaction(void)
 #ifdef PGXC
 	s->isLocalParameterUsed = false;
 	ForgetTransactionLocalNode();
+
+	/*
+	 * Set the command ID of Coordinator to be sent to the remote nodes
+	 * as the 1st one.
+	 * For remote nodes, enforce the command ID sending flag to false to avoid
+	 * sending any command ID by default as now transaction is done.
+	 */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		SetReceivedCommandId(FirstCommandId);
+	else
+		SetSendCommandId(false);
 #endif
 
 	/*
@@ -2366,7 +2442,7 @@ AtEOXact_GlobalTxn(bool commit)
 
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 	{
-		if (commit) 
+		if (commit)
 		{
 			if (GlobalTransactionIdIsValid(s->auxilliaryTransactionId) &&
 				GlobalTransactionIdIsValid(s->topGlobalTransansactionId))
@@ -2379,7 +2455,7 @@ AtEOXact_GlobalTxn(bool commit)
 		}
 		else
 		{
-			/* 
+			/*
 			 * XXX Why don't we have a single API to abort both the GXIDs
 			 * together ?
 			 */
@@ -2401,7 +2477,7 @@ AtEOXact_GlobalTxn(bool commit)
 				RollbackTranGTM(s->topGlobalTransansactionId);
 		}
 	}
-	
+
 	s->topGlobalTransansactionId = InvalidGlobalTransactionId;
 	s->auxilliaryTransactionId = InvalidGlobalTransactionId;
 
@@ -2429,7 +2505,7 @@ PrepareTransaction(void)
 #ifdef PGXC
 	bool		isImplicit = !(s->blockState == TBLOCK_PREPARE);
 	char		*nodestring;
-#endif	
+#endif
 
 	ShowTransactionState("PrepareTransaction");
 
@@ -2702,6 +2778,17 @@ PrepareTransaction(void)
 		ForgetTransactionLocalNode();
 	}
 	SetNextTransactionId(InvalidTransactionId);
+
+	/*
+	 * Set the command ID of Coordinator to be sent to the remote nodes
+	 * as the 1st one.
+	 * For remote nodes, enforce the command ID sending flag to false to avoid
+	 * sending any command ID by default as now transaction is done.
+	 */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		SetReceivedCommandId(FirstCommandId);
+	else
+		SetSendCommandId(false);
 #endif
 }
 
@@ -2715,7 +2802,7 @@ AbortTransaction(void)
 	TransactionState s = CurrentTransactionState;
 	TransactionId latestXid;
 
-#ifdef PGXC	
+#ifdef PGXC
 	/*
 	 * Save the current top transaction ID. We need this to close the
 	 * transaction at the GTM at thr end
@@ -2863,7 +2950,7 @@ AbortTransaction(void)
 		pgstat_report_xact_timestamp(0);
 	}
 
-#ifdef PGXC	
+#ifdef PGXC
 	ForgetTransactionLocalNode();
 #endif
 	/*
@@ -2871,7 +2958,7 @@ AbortTransaction(void)
 	 */
 	RESUME_INTERRUPTS();
 
-#ifdef PGXC	
+#ifdef PGXC
 	AtEOXact_GlobalTxn(false);
 	AtEOXact_Remote();
 #endif
@@ -2920,6 +3007,18 @@ CleanupTransaction(void)
 	 * default
 	 */
 	s->state = TRANS_DEFAULT;
+#ifdef PGXC
+	/*
+	 * Set the command ID of Coordinator to be sent to the remote nodes
+	 * as the 1st one.
+	 * For remote nodes, enforce the command ID sending flag to false to avoid
+	 * sending any command ID by default as now transaction is done.
+	 */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		SetReceivedCommandId(FirstCommandId);
+	else
+		SetSendCommandId(false);
+#endif
 }
 
 /*
@@ -3715,6 +3814,17 @@ BeginTransactionBlock(void)
 				 BlockStateAsString(s->blockState));
 			break;
 	}
+
+#ifdef PGXC
+	/*
+	 * Set command Id sending flag only for a local Coordinator when transaction begins,
+	 * For a remote node this flag is set to true only if a command ID has been received
+	 * from a Coordinator. This may not be always the case depending on the queries being
+	 * run and how command Ids are generated on remote nodes.
+	 */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		SetSendCommandId(true);
+#endif
 }
 
 /*
@@ -3764,6 +3874,11 @@ PrepareTransactionBlock(char *gid)
 			result = false;
 		}
 	}
+
+#ifdef PGXC
+	/* Reset command ID sending flag */
+	SetSendCommandId(false);
+#endif
 
 	return result;
 }
@@ -3884,6 +3999,11 @@ EndTransactionBlock(void)
 			break;
 	}
 
+#ifdef PGXC
+	/* Reset command Id sending flag */
+	SetSendCommandId(false);
+#endif
+
 	return result;
 }
 
@@ -3975,6 +4095,11 @@ UserAbortTransactionBlock(void)
 				 BlockStateAsString(s->blockState));
 			break;
 	}
+
+#ifdef PGXC
+	/* Reset Command Id sending flag */
+	SetSendCommandId(false);
+#endif
 }
 
 /*
@@ -5575,5 +5700,86 @@ IsXidImplicit(const char *xid)
 	if (strncmp(xid, implicit2PC_head, implicit2PC_head_len))
 		return false;
 	return true;
+}
+
+/*
+ * SaveReceivedCommandId
+ * Save a received command ID from another node for future use.
+ */
+void
+SaveReceivedCommandId(CommandId cid)
+{
+	/* Set the new command ID */
+	SetReceivedCommandId(cid);
+
+	/*
+	 * Change command ID information status to report any changes in remote ID
+	 * for a remote node. A new command ID has also been received.
+	 */
+	if (IsConnFromCoord())
+	{
+		SetSendCommandId(true);
+		isCommandIdReceived = true;
+	}
+}
+
+/*
+ * SetReceivedCommandId
+ * Set the command Id received from other nodes
+ */
+void
+SetReceivedCommandId(CommandId cid)
+{
+	receivedCommandId = cid;
+}
+
+/*
+ * GetReceivedCommandId
+ * Get the command id received from other nodes
+ */
+CommandId
+GetReceivedCommandId(void)
+{
+	return receivedCommandId;
+}
+
+
+/*
+ * ReportCommandIdChange
+ * ReportCommandIdChange reports a change in current command id at remote node
+ * to the Coordinator. This is required because a remote node can increment command
+ * Id in case of triggers or constraints.
+ */
+void
+ReportCommandIdChange(CommandId cid)
+{
+	StringInfoData buf;
+
+	/* Send command Id change to Coordinator */
+	pq_beginmessage(&buf, 'M');
+	pq_sendint(&buf, cid, 4);
+	pq_endmessage(&buf);
+	pq_flush();
+}
+
+/*
+ * IsSendCommandId
+ * Get status of command ID sending. If set at true, command ID needs to be communicated
+ * to other nodes.
+ */
+bool
+IsSendCommandId(void)
+{
+	return sendCommandId;
+}
+
+/*
+ * SetSendCommandId
+ * Change status of command ID sending.
+ */
+void
+SetSendCommandId(bool status)
+{
+	sendCommandId = status;
 }
 #endif

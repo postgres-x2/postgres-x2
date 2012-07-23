@@ -285,6 +285,12 @@ extern void RegisterTransactionLocalNode(bool write);
 extern bool IsTransactionLocalNode(bool write);
 extern void ForgetTransactionLocalNode(void);
 extern bool IsXidImplicit(const char *xid);
+extern void SaveReceivedCommandId(CommandId cid);
+extern void SetReceivedCommandId(CommandId cid);
+extern CommandId GetReceivedCommandId(void);
+extern void ReportCommandIdChange(CommandId cid);
+extern bool IsSendCommandId(void);
+extern void SetSendCommandId(bool status);
 #endif
 
 extern int	xactGetCommittedChildren(TransactionId **ptr);

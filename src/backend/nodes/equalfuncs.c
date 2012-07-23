@@ -928,6 +928,10 @@ _equalQuery(Query *a, Query *b)
 	COMPARE_NODE_FIELD(setOperations);
 	COMPARE_NODE_FIELD(constraintDeps);
 
+#ifdef PGXC
+	COMPARE_SCALAR_FIELD(is_ins_child_sel_parent);
+#endif
+
 	return true;
 }
 

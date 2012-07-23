@@ -121,7 +121,7 @@ typedef struct RemoteQueryState
 	int			eflags;			/* capability flags to pass to tuplestore */
 	bool		eof_underlying; /* reached end of underlying plan? */
 	Tuplestorestate *tuplestorestate;
-
+	CommandId	rqs_cmd_id;			/* Cmd id to use in some special cases */
 }	RemoteQueryState;
 
 /* Multinode Executor */

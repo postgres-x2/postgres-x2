@@ -60,6 +60,7 @@
 #include "pgxc/poolmgr.h"
 #include "catalog/pgxc_node.h"
 #include "pgxc/xc_maintenance_mode.h"
+#include "access/xact.h"
 #endif
 #include "utils/rel.h"
 
@@ -531,9 +532,10 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 #ifdef PGXC
 		target_rte = rt_fetch(qry->resultRelation, pstate->p_rtable);
 		if (is_relation_child(target_rte, selectQuery->rtable))
-			ereport(ERROR,
-					(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-						(errmsg("INSERT SELECT is not supported when inserts are done in a child by selecting from its parent"))));
+		{
+			qry->is_ins_child_sel_parent = true;
+			SetSendCommandId(true);
+		}
 #endif
 		rtr = makeNode(RangeTblRef);
 		/* assume new rte is at end */
