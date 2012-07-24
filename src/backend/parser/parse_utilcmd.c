@@ -93,7 +93,8 @@ typedef struct
 	IndexStmt  *pkey;			/* PRIMARY KEY index, if any */
 #ifdef PGXC
 	char	  *fallback_dist_col;	/* suggested column to distribute on */
-	DistributeBy *distributeby; /* original distribute by column in create table */
+	DistributeBy	*distributeby;		/* original distribute by column of CREATE TABLE */
+	PGXCSubCluster	*subcluster;		/* original subcluster option of CREATE TABLE */
 #endif
 } CreateStmtContext;
 
@@ -2415,6 +2416,7 @@ transformAlterTableStmt(AlterTableStmt *stmt, const char *queryString)
 #ifdef PGXC
 	cxt.fallback_dist_col = NULL;
 	cxt.distributeby = NULL;
+	cxt.subcluster = NULL;
 #endif
 
 	/*

@@ -167,7 +167,6 @@ RemoteCopy_BuildStatement(RemoteCopyData *state,
 	else
 		appendStringInfoString(&state->query_buf, " TO STDOUT");
 
-
 	if (options->rco_binary)
 		appendStringInfoString(&state->query_buf, " BINARY");
 
@@ -201,7 +200,6 @@ RemoteCopy_BuildStatement(RemoteCopyData *state,
 	 * It is not necessary to send the HEADER part to Datanodes.
 	 * Sending data is sufficient.
 	 */
-
 	if (options->rco_quote && options->rco_quote[0] != '"')
 	{
 		appendStringInfoString(&state->query_buf, " QUOTE AS ");
@@ -241,6 +239,26 @@ RemoteCopy_BuildStatement(RemoteCopyData *state,
 			prev = cell;
 		}
 	}
+}
+
+
+/*
+ * Build a default set for RemoteCopyOptions
+ */
+RemoteCopyOptions *
+makeRemoteCopyOptions(void)
+{
+	RemoteCopyOptions *res = (RemoteCopyOptions *) palloc(sizeof(RemoteCopyOptions));
+	res->rco_binary = false;
+	res->rco_oids = false;
+	res->rco_csv_mode = false;
+	res->rco_delim = NULL;
+	res->rco_null_print = NULL;
+	res->rco_quote = NULL;
+	res->rco_escape = NULL;
+	res->rco_force_quote = NIL;
+	res->rco_force_notnull = NIL;
+	return res;
 }
 
 

@@ -48,6 +48,17 @@ typedef enum
 	REQUEST_TYPE_COPY_OUT		/* Copy Out response */
 }	RequestType;
 
+/*
+ * Type of requests associated to a remote COPY OUT
+ */
+typedef enum
+{
+	REMOTE_COPY_NONE,		/* Not defined yet */
+	REMOTE_COPY_STDOUT,		/* Send back to client */
+	REMOTE_COPY_FILE,		/* Write in file */
+	REMOTE_COPY_TUPLESTORE	/* Store data in tuplestore */
+} RemoteCopyType;
+
 /* Combines results of INSERT statements using multiple values */
 typedef struct CombineTag
 {
@@ -107,7 +118,8 @@ typedef struct RemoteQueryState
 	/* Simple DISTINCT support */
 	FmgrInfo   *eqfunctions; 			/* functions to compare tuples */
 	MemoryContext tmp_ctx;				/* separate context is needed to compare tuples */
-	FILE	   *copy_file;      		/* used if copy_dest == COPY_FILE */
+	RemoteCopyType remoteCopyType;		/* Type of remote COPY operation */
+	FILE	   *copy_file;      		/* used if remoteCopyType == REMOTE_COPY_FILE */
 	uint64		processed;				/* count of data rows when running CopyOut */
 	/* cursor support */
 	char	   *cursor;					/* cursor name */
@@ -136,7 +148,8 @@ extern void PGXCNodeCommitPrepared(char *gid);
 /* Copy command just involves Datanodes */
 extern PGXCNodeHandle** DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot);
 extern int DataNodeCopyIn(char *data_row, int len, ExecNodes *exec_nodes, PGXCNodeHandle** copy_connections);
-extern uint64 DataNodeCopyOut(ExecNodes *exec_nodes, PGXCNodeHandle** copy_connections, FILE* copy_file);
+extern uint64 DataNodeCopyOut(ExecNodes *exec_nodes, PGXCNodeHandle** copy_connections, TupleDesc tupleDesc,
+							  FILE* copy_file, Tuplestorestate *store, RemoteCopyType remoteCopyType);
 extern void DataNodeCopyFinish(PGXCNodeHandle** copy_connections, int primary_dn_index, CombineType combine_type);
 extern bool DataNodeCopyEnd(PGXCNodeHandle *handle, bool is_error);
 extern int DataNodeCopyInBinaryForAll(char *msg_buf, int len, PGXCNodeHandle** copy_connections);

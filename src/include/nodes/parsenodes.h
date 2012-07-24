@@ -1244,6 +1244,12 @@ typedef enum AlterTableType
 	AT_DropInherit,				/* NO INHERIT parent */
 	AT_AddOf,					/* OF <type_name> */
 	AT_DropOf,					/* NOT OF */
+#ifdef PGXC
+	AT_DistributeBy,			/* DISTRIBUTE BY ... */
+	AT_SubCluster,				/* TO [ NODE nodelist | GROUP groupname ] */
+	AT_AddNodeList,				/* ADD NODE nodelist */
+	AT_DeleteNodeList,			/* DELETE NODE nodelist */
+#endif
 	AT_GenericOptions			/* OPTIONS (...) */
 } AlterTableType;
 

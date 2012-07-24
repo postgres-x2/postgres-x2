@@ -358,6 +358,7 @@ extern void hash_desc(StringInfo buf, uint8 xl_info, char *rec);
 
 #ifdef PGXC
 extern Datum compute_hash(Oid type, Datum value, char locator);
+extern char *get_compute_hash_function(Oid type, char locator);
 #endif
 
 #endif   /* HASH_H */

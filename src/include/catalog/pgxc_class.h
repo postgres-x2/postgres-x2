@@ -22,22 +22,37 @@ CATALOG(pgxc_class,9001) BKI_WITHOUT_OIDS
 
 typedef FormData_pgxc_class *Form_pgxc_class;
 
-#define Natts_pgxc_class			6
+#define Natts_pgxc_class					6
 
-#define Anum_pgxc_class_pcrelid			1
+#define Anum_pgxc_class_pcrelid				1
 #define Anum_pgxc_class_pclocatortype		2
-#define Anum_pgxc_class_pcattnum		3
+#define Anum_pgxc_class_pcattnum			3
 #define Anum_pgxc_class_pchashalgorithm		4
 #define Anum_pgxc_class_pchashbuckets		5
-#define Anum_pgxc_class_nodes			6
+#define Anum_pgxc_class_nodes				6
+
+typedef enum PgxcClassAlterType
+{
+	PGXC_CLASS_ALTER_DISTRIBUTION,
+	PGXC_CLASS_ALTER_NODES,
+	PGXC_CLASS_ALTER_ALL
+} PgxcClassAlterType;
 
 extern void PgxcClassCreate(Oid pcrelid,
-							char  pclocatortype,
+							char pclocatortype,
 							int pcattnum,
 							int pchashalgorithm,
 							int pchashbuckets,
 							int numnodes,
 							Oid *nodes);
+extern void PgxcClassAlter(Oid pcrelid,
+						   char pclocatortype,
+						   int pcattnum,
+						   int pchashalgorithm,
+						   int pchashbuckets,
+						   int numnodes,
+						   Oid *nodes,
+						   PgxcClassAlterType type);
 extern void RemovePgxcClass(Oid pcrelid);
 
 #endif   /* PGXC_CLASS_H */

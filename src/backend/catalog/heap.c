@@ -937,13 +937,13 @@ cmp_nodes(const void *p1, const void *p2)
 }
 
 /* --------------------------------
- *		AddRelationDistribution 
+ *		AddRelationDistribution
  *
  *		Add to pgxc_class table
  * --------------------------------
  */
-void 
-AddRelationDistribution(Oid relid, 
+void
+AddRelationDistribution(Oid relid,
 				DistributeBy *distributeby,
 				PGXCSubCluster *subcluster,
 				List 		 *parentOids,
@@ -1007,7 +1007,7 @@ GetRelationDistributionItems(Oid relid,
 
 	if (!distributeby)
 	{
-		/* 
+		/*
 		 * If no distribution was specified, and we have not chosen
 		 * one based on primary key or foreign key, use first column with
 		 * a supported data type.
@@ -1032,9 +1032,9 @@ GetRelationDistributionItems(Oid relid,
 		if (local_attnum == 0)
 			local_locatortype = LOCATOR_TYPE_RROBIN;
 	}
-	else 
+	else
 	{
-		/* 
+		/*
 		 * User specified distribution type
 		 */
 		switch (distributeby->disttype)
@@ -1051,12 +1051,12 @@ GetRelationDistributionItems(Oid relid,
 						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
 						 errmsg("Invalid distribution column specified")));
 				}
-				
+
 				if (!IsTypeHashDistributable(descriptor->attrs[local_attnum - 1]->atttypid))
 				{
 					ereport(ERROR,
 						(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-						 errmsg("Column %s is not a hash distributable data type", 
+						 errmsg("Column %s is not a hash distributable data type",
 							distributeby->colname)));
 				}
 				local_locatortype = LOCATOR_TYPE_HASH;
@@ -1108,10 +1108,14 @@ GetRelationDistributionItems(Oid relid,
 	}
 
 	/* Save results */
-	*attnum = local_attnum;
-	*hashalgorithm = local_hashalgorithm;
-	*hashbuckets = local_hashbuckets;
-	*locatortype = local_locatortype;
+	if (attnum)
+		*attnum = local_attnum;
+	if (hashalgorithm)
+		*hashalgorithm = local_hashalgorithm;
+	if (hashbuckets)
+		*hashbuckets = local_hashbuckets;
+	if (locatortype)
+		*locatortype = local_locatortype;
 }
 
 

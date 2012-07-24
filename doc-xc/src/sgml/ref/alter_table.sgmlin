@@ -67,6 +67,10 @@ ALTER TABLE <replaceable class="PARAMETER">name</replaceable>
     NOT OF
     OWNER TO <replaceable class="PARAMETER">new_owner</replaceable>
     SET TABLESPACE <replaceable class="PARAMETER">new_tablespace</replaceable>
+    DISTRIBUTE BY { REPLICATION | ROUND ROBIN | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</replaceable> ) } }
+    TO { GROUP <replaceable class="PARAMETER">groupname</replaceable> | NODE ( <replaceable class="PARAMETER">nodename</replaceable> [, ... ] ) }
+    ADD NODE ( <replaceable class="PARAMETER">nodename</replaceable> [, ... ] )
+    DELETE NODE ( <replaceable class="PARAMETER">nodename</replaceable> [, ... ] )
 
 <phrase>and <replaceable class="PARAMETER">table_constraint_using_index</replaceable> is:</phrase>
 
@@ -573,6 +577,111 @@ ALTER TABLE <replaceable class="PARAMETER">name</replaceable>
     </listitem>
    </varlistentry>
 
+<!## XC>
+   <varlistentry>
+    <term><literal>DISTRIBUTE BY</literal></term>
+    <listitem>
+&xconly;
+     <para>
+      This clause specifies how the table is distributed or replicated among Datanodes.
+     </para>
+
+     <variablelist>
+
+      <varlistentry>
+       <term><literal>REPLICATION</literal></term>
+       <listitem>
+        <para>
+         Each row of the table will be replicated into all the
+         Datanode of the <productname>Postgres-XC</> database
+         cluster.
+        </para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term><literal>ROUND ROBIN</literal></term>
+       <listitem>
+        <para>
+         Each row of the table will be placed in one of the Datanodes
+         by round-robin manner.  The value of the row will not be
+         needed to determine what Datanode to go.
+        </para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term><literal>HASH ( <replaceable class="PARAMETER">column_name</> )</literal></term>
+       <listitem>
+        <para>
+         Each row of the table will be placed based on the hash value
+         of the specified column.  Following type is allowed as
+         distribution column: INT8, INT2, OID, INT4, BOOL, INT2VECTOR,
+         OIDVECTOR, CHAR, NAME, TEXT, BPCHAR, BYTEA, VARCHAR, FLOAT4,
+         FLOAT8, NUMERIC, CASH, ABSTIME, RELTIME, DATE, TIME,
+         TIMESTAMP, TIMESTAMPTZ, INTERVAL, and TIMETZ.
+        </para>
+        <para>
+         Please note that floating point is not allowed as a basis of
+         the distribution column.
+        </para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term><literal>MODULO ( <replaceable class="PARAMETER">column_name</> )</literal></term>
+       <listitem>
+        <para>
+         Each row of the table will be placed based on the modulo
+         of the specified column.  Following type is allowed as
+         distribution column: INT8, INT2, OID, INT4, BOOL, INT2VECTOR,
+         OIDVECTOR, CHAR, NAME, TEXT, BPCHAR, BYTEA, VARCHAR, FLOAT4,
+         FLOAT8, NUMERIC, CASH, ABSTIME, RELTIME, DATE, TIME,
+         TIMESTAMP, TIMESTAMPTZ, INTERVAL, and TIMETZ.
+        </para>
+        <para>
+         Please note that floating point is not allowed as a basis of
+         the distribution column.
+        </para>
+       </listitem>
+      </varlistentry>
+     </variablelist>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>TO GROUP</literal></term>
+    <term><literal>TO NODE</literal></term>
+      <listitem>
+       <para>
+        This defines the list of nodes on which table data exists.
+       </para>
+      </listitem>
+   </varlistentry>
+
+   <varlistentry>
+     <term><literal>ADD NODE</literal></term>
+       <listitem>
+        <para>
+         This adds a list of nodes where data of table is distributed
+         to the existing list. If the list of nodes added contains nodes
+         already used by table, an error is returned.
+        </para>
+       </listitem>
+   </varlistentry>
+
+   <varlistentry>
+     <term><literal>DELETE NODE</literal></term>
+       <listitem>
+        <para>
+         This deletes a list of nodes where data of table is distributed
+         to the existing list. If the list of nodes deleted contains nodes
+         not used by table, an error is returned.
+        </para>
+       </listitem>
+   </varlistentry>
+<!## end>
+
   </variablelist>
   </para>
 
@@ -789,7 +898,26 @@ ALTER TABLE <replaceable class="PARAMETER">name</replaceable>
       </listitem>
      </varlistentry>
 
+<!## XC>
+     <varlistentry>
+      <term><replaceable class="PARAMETER">nodename</replaceable></term>
+        <listitem>
+         <para>
+          It defines a <productname>Postgres-XC</productname> node of catalog pgxc_node.
+         </para>
+        </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><replaceable class="PARAMETER">groupname</replaceable></term>
+        <listitem>
+         <para>
+          It defines a <productname>Postgres-XC</productname> node group in catalog pgxc_group.
+         </para>
+        </listitem>
+     </varlistentry>
     </variablelist>
+<!## end>
  </refsect1>
 
  <refsect1>
@@ -904,10 +1032,74 @@ ALTER TABLE <replaceable class="PARAMETER">name</replaceable>
 <!## XC>
 &xconly;
    <para>
-    Please note that except for the column name, you cannot alter
-    attribute of table distribution as specified
-    with <literal>DISTRIBUTE BY</> clause in <literal>CREATE TABLE</>
-    statement.
+    <command>ALTER TABLE</> with clauses <literal>DISTRIBUTE BY</>, <literal>ADD NODE</>,
+    <literal>DELETE NODE</>, <literal>TO NODE</> or <literal>TO GROUP</> is used for data
+    redistribution among nodes specific to <productname>Postgres-XC</>. Those clauses cannot be
+    used with other commands.
+   </para>
+
+   <para>
+    Multiple redistribution scenarios are possible depending on modifications done:
+    <variablelist>
+     <varlistentry>
+      <term>Default redistribution:</term>
+      <listitem>
+       <para>
+        This is the slowest scenario possible. It is done in 3 or 4 steps. Data is firstly
+        saved on Coordinator by fetching all the data with <command>COPY TO</> command. At
+        this point all the tuples are saved using tuple store. The amount of cache allowed for
+        tuple store operation can be controlled with <varname>work_mem</>. Then the table is
+        truncated on all the nodes. Then catalogs are updated. Finally data inside tuple store
+        is redistributed using an internal <command>COPY FROM</> mechanism. <command>REINDEX</>
+        is issued if necessary. The overall performance of this scenario is close to the
+        time necessary to run consecutively <command>COPY TO</> and <command>COPY FROM</>.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>Redistribution from replicated to replicated table:</term>
+      <listitem>
+       <para>
+        The node list of a table can have new nodes as well as removed nodes.
+        If nodes are only removed, <command>TRUNCATE</> is launched to remote nodes that are
+        removed. If new nodes are added, then table data is fetch on Coordinator with <command>
+        COPY TO</> and stored inside a tuplestore controlled with <varname>work_mem</>, then
+        data stored is only sent to the new nodes using <command>COPY FROM</> with data stored
+        inside the tuplestore. <command>REINDEX</> is issued if necessary.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>Redistribution from replicated to distributed table:</term>
+      <listitem>
+       <para>
+        If the relation node list contains new nodes, the default redistribution
+        mechanism is used. However, if the node list of relation after redistribution is
+        included in node list of relation after redistribution, as all the tuples are already
+        located on remote nodes, it is not necessary to fetch any data on Coordinator. Hence,
+        <command>DELETE</> is used to remove on remote nodes only the necessary tuples. This
+        query uses selects tuples to remove with conditions based on the number of nodes in node
+        list of relation after redistribution, the <literal>HASH</> or <literal>MODULO</> value
+        used for new distribution and the remote node itself where <command>DELETE</> is launched..
+        <command>REINDEX</> is issued if necessary.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>Redistribution from distributed to replicated table:</term>
+      <listitem>
+       <para>
+        In this case the default redistribution mechanism is used.
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+   <para>
+
+   <para>
    </para>
 <!## end>
  </refsect1>
@@ -1054,6 +1246,30 @@ ALTER TABLE distributors DROP CONSTRAINT distributors_pkey,
     ADD CONSTRAINT distributors_pkey PRIMARY KEY USING INDEX dist_id_temp_idx;
 </programlisting>
   </para>
+
+<!## XC>
+  <para>
+    To change the distribution type and the list of nodes where table data
+    is located:
+<programlisting>
+ALTER TABLE distributors TO NODE (dn1, dn7), DISTRIBUTE BY HASH(dist_id);
+</programlisting>
+  </para>
+
+  <para>
+    To add a node where data of table is distributed:
+<programlisting>
+ALTER TABLE distributors ADD NODE (dn9, dn14);
+</programlisting>
+  </para>
+
+  <para>
+    To remove a node where data of table is distributed:
+<programlisting>
+ALTER TABLE distributors DELETE NODE (dn4, dn0);
+</programlisting>
+  </para>
+<!## end>
 
  </refsect1>
 

@@ -99,6 +99,7 @@ extern RelationLocInfo *GetRelationLocInfo(Oid relid);
 extern RelationLocInfo *CopyRelationLocInfo(RelationLocInfo *src_info);
 extern char GetRelationLocType(Oid relid);
 extern bool IsTableDistOnPrimary(RelationLocInfo *rel_loc_info);
+extern bool IsLocatorInfoEqual(RelationLocInfo *rel_loc_info1, RelationLocInfo *rel_loc_info2);
 extern ExecNodes *GetRelationNodes(RelationLocInfo *rel_loc_info, Datum valueForDistCol,
 									bool isValueNull, Oid typeOfValueForDistCol,
 									RelationAccessType accessType);

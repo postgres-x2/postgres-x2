@@ -2038,6 +2038,40 @@ alter_table_cmd:
 					n->def = (Node *)$1;
 					$$ = (Node *) n;
 				}
+/* PGXC_BEGIN */
+			/* ALTER TABLE <name> DISTRIBUTE BY ... */
+			| OptDistributeByInternal
+				{
+					AlterTableCmd *n = makeNode(AlterTableCmd);
+					n->subtype = AT_DistributeBy;
+					n->def = (Node *)$1;
+					$$ = (Node *)n;
+				}
+			/* ALTER TABLE <name> TO [ NODE (nodelist) | GROUP groupname ] */
+			| OptSubClusterInternal
+				{
+					AlterTableCmd *n = makeNode(AlterTableCmd);
+					n->subtype = AT_SubCluster;
+					n->def = (Node *)$1;
+					$$ = (Node *)n;
+				}
+			/* ALTER TABLE <name> ADD NODE (nodelist) */
+			| ADD_P NODE pgxcnodes
+				{
+					AlterTableCmd *n = makeNode(AlterTableCmd);
+					n->subtype = AT_AddNodeList;
+					n->def = (Node *)$3;
+					$$ = (Node *)n;
+				}
+			/* ALTER TABLE <name> DELETE NODE (nodelist) */
+			| DELETE_P NODE pgxcnodes
+				{
+					AlterTableCmd *n = makeNode(AlterTableCmd);
+					n->subtype = AT_DeleteNodeList;
+					n->def = (Node *)$3;
+					$$ = (Node *)n;
+				}
+/* PGXC_END */
 		;
 
 alter_column_default:

@@ -440,7 +440,6 @@ IsModuloColumn(RelationLocInfo *rel_loc_info, char *part_col_name)
 
 /*
  * IsModuloColumnForRelId - return whether or not column for relation is used for modulo distribution.
- *
  */
 bool
 IsModuloColumnForRelId(Oid relid, char *part_col_name)
@@ -501,6 +500,42 @@ IsTableDistOnPrimary(RelationLocInfo *rel_loc_info)
 	}
 	return false;
 }
+
+
+/*
+ * IsLocatorInfoEqual
+ * Check equality of given locator information
+ */
+bool
+IsLocatorInfoEqual(RelationLocInfo *rel_loc_info1, RelationLocInfo *rel_loc_info2)
+{
+	List *nodeList1, *nodeList2;
+	Assert(rel_loc_info1 && rel_loc_info2);
+
+	nodeList1 = rel_loc_info1->nodeList;
+	nodeList2 = rel_loc_info2->nodeList;
+
+	/* Same relation? */
+	if (rel_loc_info1->relid != rel_loc_info2->relid)
+		return false;
+
+	/* Same locator type? */
+	if (rel_loc_info1->locatorType != rel_loc_info2->locatorType)
+		return false;
+
+	/* Same attribute number? */
+	if (rel_loc_info1->partAttrNum != rel_loc_info2->partAttrNum)
+		return false;
+
+	/* Same node list? */
+	if (list_difference_int(nodeList1, nodeList2) != NIL ||
+		list_difference_int(nodeList2, nodeList1) != NIL)
+		return false;
+
+	/* Everything is equal */
+	return true;
+}
+
 
 /*
  * GetRelationNodes

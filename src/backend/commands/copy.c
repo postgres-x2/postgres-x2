@@ -1700,15 +1700,26 @@ CopyTo(CopyState cstate)
 		cstate->remoteCopyState->rel_loc)
 	{
 		RemoteCopyData *remoteCopyState = cstate->remoteCopyState;
+		RemoteCopyType remoteCopyType;
+
+		/* Set up remote COPY to correct operation */
+		if (cstate->copy_dest == COPY_FILE)
+			remoteCopyType = REMOTE_COPY_FILE;
+		else
+			remoteCopyType = REMOTE_COPY_STDOUT;
 
 		/*
 		 * We don't know the value of the distribution column value, so need to
 		 * read from all nodes. Hence indicate that the value is NULL.
 		 */
-		processed = DataNodeCopyOut(
-				GetRelationNodes(remoteCopyState->rel_loc, 0, true, UNKNOWNOID, RELATION_ACCESS_READ),
-				remoteCopyState->connections,
-				cstate->copy_file);
+		processed = DataNodeCopyOut(GetRelationNodes(remoteCopyState->rel_loc, 0,
+													 true, UNKNOWNOID,
+													 RELATION_ACCESS_READ),
+									remoteCopyState->connections,
+									NULL,
+									cstate->copy_file,
+									NULL,
+									remoteCopyType);
 	}
 	else
 	{
@@ -4289,9 +4300,8 @@ CreateCopyDestReceiver(void)
 static RemoteCopyOptions *
 GetRemoteCopyOptions(CopyState cstate)
 {
-	RemoteCopyOptions *res;
+	RemoteCopyOptions *res = makeRemoteCopyOptions();
 	Assert(cstate);
-	res = (RemoteCopyOptions *) palloc0(sizeof(RemoteCopyOptions));
 
 	/* Then fill in structure */
 	res->rco_binary = cstate->binary;

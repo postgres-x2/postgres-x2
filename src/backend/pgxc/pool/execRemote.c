@@ -34,6 +34,7 @@
 #include "nodes/nodes.h"
 #include "nodes/nodeFuncs.h"
 #include "optimizer/var.h"
+#include "pgxc/copyops.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/poolmgr.h"
 #include "storage/ipc.h"
@@ -60,7 +61,7 @@ typedef enum RemoteXactNodeStatus
 	RXACT_NODE_NONE,					/* Initial state */
 	RXACT_NODE_PREPARE_SENT,			/* PREPARE request sent */
 	RXACT_NODE_PREPARE_FAILED,		/* PREPARE failed on the node */
-	RXACT_NODE_PREPARED,				/* PREARED successfully on the node */
+	RXACT_NODE_PREPARED,				/* PREPARED successfully on the node */
 	RXACT_NODE_COMMIT_SENT,			/* COMMIT sent successfully */
 	RXACT_NODE_COMMIT_FAILED,		/* failed to COMMIT on the node */
 	RXACT_NODE_COMMITTED,			/* COMMITTed successfully on the node */
@@ -293,6 +294,7 @@ CreateResponseCombiner(int node_count, CombineType combine_type)
 	combiner->rowBuffer = NIL;
 	combiner->tapenodes = NULL;
 	combiner->initAggregates = true;
+	combiner->remoteCopyType = REMOTE_COPY_NONE;
 	combiner->copy_file = NULL;
 	combiner->rqs_cmd_id = FirstCommandId;
 
@@ -576,12 +578,98 @@ HandleCopyDataRow(RemoteQueryState *combiner, char *msg_body, size_t len)
 	/* count the row */
 	combiner->processed++;
 
-	/* If there is a copy file, data has to be sent to the local file */
-	if (combiner->copy_file)
-		/* write data to the copy file */
-		fwrite(msg_body, 1, len, combiner->copy_file);
-	else
-		pq_putmessage('d', msg_body, len);
+	/* Output remote COPY operation to correct location */
+	switch (combiner->remoteCopyType)
+	{
+		case REMOTE_COPY_FILE:
+			/* Write data directly to file */
+			fwrite(msg_body, 1, len, combiner->copy_file);
+			break;
+		case REMOTE_COPY_STDOUT:
+			/* Send back data to client */
+			pq_putmessage('d', msg_body, len);
+			break;
+		case REMOTE_COPY_TUPLESTORE:
+			{
+				Datum  *values;
+				bool   *nulls;
+				TupleDesc   tupdesc = combiner->tuple_desc;
+				int i, dropped;
+				Form_pg_attribute *attr = tupdesc->attrs;
+				FmgrInfo *in_functions;
+				Oid *typioparams;
+				char **fields;
+
+				values = (Datum *) palloc(tupdesc->natts * sizeof(Datum));
+				nulls = (bool *) palloc(tupdesc->natts * sizeof(bool));
+				in_functions = (FmgrInfo *) palloc(tupdesc->natts * sizeof(FmgrInfo));
+				typioparams = (Oid *) palloc(tupdesc->natts * sizeof(Oid));
+
+				/* Calculate the Oids of input functions */
+				for (i = 0; i < tupdesc->natts; i++)
+				{
+					Oid         in_func_oid;
+
+					/* Do not need any information for dropped attributes */
+					if (attr[i]->attisdropped)
+						continue;
+
+					getTypeInputInfo(attr[i]->atttypid,
+									 &in_func_oid, &typioparams[i]);
+					fmgr_info(in_func_oid, &in_functions[i]);
+				}
+
+				/*
+				 * Convert message into an array of fields.
+				 * Last \n is not included in converted message.
+				 */
+				fields = CopyOps_RawDataToArrayField(tupdesc, msg_body, len - 1);
+
+				/* Fill in the array values */
+				dropped = 0;
+				for (i = 0; i < tupdesc->natts; i++)
+				{
+					char	*string = fields[i - dropped];
+					/* Do not need any information for dropped attributes */
+					if (attr[i]->attisdropped)
+					{
+						dropped++;
+						nulls[i] = true; /* Consider dropped parameter as NULL */
+						continue;
+					}
+
+					/* Find value */
+					values[i] = InputFunctionCall(&in_functions[i],
+												  string,
+												  typioparams[i],
+												  attr[i]->atttypmod);
+					/* Setup value with NULL flag if necessary */
+					if (string == NULL)
+						nulls[i] = true;
+					else
+						nulls[i] = false;
+				}
+
+				/* Then insert the values into tuplestore */
+				tuplestore_putvalues(combiner->tuplestorestate,
+									 combiner->tuple_desc,
+									 values,
+									 nulls);
+
+				/* Clean up everything */
+				if (*fields)
+					pfree(*fields);
+				pfree(fields);
+				pfree(values);
+				pfree(nulls);
+				pfree(in_functions);
+				pfree(typioparams);
+			}
+			break;
+		case REMOTE_COPY_NONE:
+		default:
+			Assert(0); /* Should not happen */
+	}
 }
 
 /*
@@ -852,7 +940,15 @@ CloseCombiner(RemoteQueryState *combiner)
 		if (combiner->connections)
 			pfree(combiner->connections);
 		if (combiner->tuple_desc)
-			FreeTupleDesc(combiner->tuple_desc);
+		{
+			/*
+			 * In the case of a remote COPY with tuplestore, combiner is not
+			 * responsible from freeing the tuple store. This is done at an upper
+			 * level once data redistribution is completed.
+			 */
+			if (combiner->remoteCopyType != REMOTE_COPY_TUPLESTORE)
+				FreeTupleDesc(combiner->tuple_desc);
+		}
 		if (combiner->errorMessage)
 			pfree(combiner->errorMessage);
 		if (combiner->errorDetail)
@@ -2343,7 +2439,12 @@ DataNodeCopyIn(char *data_row, int len, ExecNodes *exec_nodes, PGXCNodeHandle** 
 }
 
 uint64
-DataNodeCopyOut(ExecNodes *exec_nodes, PGXCNodeHandle** copy_connections, FILE* copy_file)
+DataNodeCopyOut(ExecNodes *exec_nodes,
+				PGXCNodeHandle** copy_connections,
+				TupleDesc tupleDesc,
+				FILE* copy_file,
+				Tuplestorestate *store,
+				RemoteCopyType remoteCopyType)
 {
 	RemoteQueryState *combiner;
 	int 		conn_count = list_length(exec_nodes->nodeList) == 0 ? NumDataNodes : list_length(exec_nodes->nodeList);
@@ -2352,9 +2453,19 @@ DataNodeCopyOut(ExecNodes *exec_nodes, PGXCNodeHandle** copy_connections, FILE* 
 
 	combiner = CreateResponseCombiner(conn_count, COMBINE_TYPE_SUM);
 	combiner->processed = 0;
-	/* If there is an existing file where to copy data, pass it to combiner */
-	if (copy_file)
+	combiner->remoteCopyType = remoteCopyType;
+
+	/*
+	 * If there is an existing file where to copy data,
+	 * pass it to combiner when remote COPY output is sent back to file.
+	 */
+	if (copy_file && remoteCopyType == REMOTE_COPY_FILE)
 		combiner->copy_file = copy_file;
+	if (store && remoteCopyType == REMOTE_COPY_TUPLESTORE)
+	{
+		combiner->tuplestorestate = store;
+		combiner->tuple_desc = tupleDesc;
+	}
 
 	foreach(nodeitem, exec_nodes->nodeList)
 	{

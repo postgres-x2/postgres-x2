@@ -70,6 +70,7 @@ extern void RemoteCopy_BuildStatement(RemoteCopyData *state,
 extern void RemoteCopy_GetRelationLoc(RemoteCopyData *state,
 									  Relation rel,
 									  List *attnums);
+extern RemoteCopyOptions *makeRemoteCopyOptions(void);
 extern void FreeRemoteCopyData(RemoteCopyData *state);
 extern void FreeRemoteCopyOptions(RemoteCopyOptions *options);
 #endif

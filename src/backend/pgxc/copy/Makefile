@@ -14,6 +14,6 @@ subdir = src/backend/pgxc/copy
 top_builddir = ../../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS = remotecopy.o
+OBJS = copyops.o remotecopy.o
 
 include $(top_srcdir)/src/backend/common.mk

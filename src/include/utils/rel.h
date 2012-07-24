@@ -365,6 +365,14 @@ typedef struct StdRdOptions
 #define RelationUsesTempNamespace(relation) \
 	((relation)->rd_rel->relpersistence == RELPERSISTENCE_TEMP)
 
+#ifdef PGXC
+/*
+ * RelationGetLocInfo
+ *		Return the location info of relation
+ */
+#define RelationGetLocInfo(relation) ((relation)->rd_locator_info)
+#endif
+
 /*
  * RELATION_IS_LOCAL
  *		If a rel is either temp or newly created in the current transaction,

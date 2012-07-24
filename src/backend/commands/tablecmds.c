@@ -89,8 +89,11 @@
 #ifdef PGXC
 #include "pgxc/pgxc.h"
 #include "access/gtm.h"
+#include "catalog/pgxc_class.h"
+#include "catalog/pgxc_node.h"
 #include "commands/sequence.h"
 #include "pgxc/execRemote.h"
+#include "pgxc/redistrib.h"
 #endif
 
 /*
@@ -139,7 +142,12 @@ static List *on_commits = NIL;
 #define AT_PASS_ADD_INDEX		6		/* ADD indexes */
 #define AT_PASS_ADD_CONSTR		7		/* ADD constraints, defaults */
 #define AT_PASS_MISC			8		/* other stuff */
+#ifdef PGXC
+#define AT_PASS_DISTRIB			9		/* Redistribution pass */
+#define AT_NUM_PASSES			10
+#else
 #define AT_NUM_PASSES			9
+#endif
 
 typedef struct AlteredTableInfo
 {
@@ -375,7 +383,14 @@ static void ATExecAddOf(Relation rel, const TypeName *ofTypename, LOCKMODE lockm
 static void ATExecDropOf(Relation rel, LOCKMODE lockmode);
 static void ATExecGenericOptions(Relation rel, List *options);
 #ifdef PGXC
+static void AtExecDistributeBy(Relation rel, DistributeBy *options);
+static void AtExecSubCluster(Relation rel, PGXCSubCluster *options);
+static void AtExecAddNode(Relation rel, List *options);
+static void AtExecDeleteNode(Relation rel, List *options);
 static void ATCheckCmd(Relation rel, AlterTableCmd *cmd);
+static RedistribState *BuildRedistribCommands(Oid relid, List *subCmds);
+static Oid *delete_node_list(Oid *old_oids, int old_num, Oid *del_oids, int del_num, int *new_num);
+static Oid *add_node_list(Oid *old_oids, int old_num, Oid *add_oids, int add_num, int *new_num);
 #endif
 
 static void copy_relation_data(SMgrRelation rel, SMgrRelation dst,
@@ -620,7 +635,7 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId)
 #ifdef PGXC
 	/*
 	 * Add to pgxc_class.
-	 * we need to do this after CommandCounterIncrement 
+	 * we need to do this after CommandCounterIncrement
 	 */
 	if (IS_PGXC_COORDINATOR && relkind == RELKIND_RELATION)
 	{
@@ -2509,7 +2524,17 @@ CheckTableNotInUse(Relation rel, const char *stmt)
  * lock level we want as we recurse may well be higher than required for
  * that specific subcommand. So we pass down the overall lock requirement,
  * rather than reassess it at lower levels.
+ *
  */
+#ifdef PGXC
+/*
+ * In Postgres-XC, an extension is added to ALTER TABLE for modification
+ * of the data distribution. Depending on the old and new distribution type
+ * of the relation redistributed, a list of redistribution subcommands is built.
+ * Data redistribution cannot be done in parallel of operations that need
+ * the table to be rewritten like column addition/deletion.
+ */
+#endif
 void
 AlterTable(AlterTableStmt *stmt)
 {
@@ -2696,6 +2721,15 @@ AlterTableGetLockLevel(List *cmds)
 				cmd_lockmode = AccessExclusiveLock;
 				break;
 
+#ifdef PGXC
+			case AT_DistributeBy:		/* Changes table distribution type */
+			case AT_SubCluster:			/* Changes node list of distribution */
+			case AT_AddNodeList:		/* Adds nodes in distribution */
+			case AT_DeleteNodeList:		/* Deletes nodes in distribution */
+				cmd_lockmode = ExclusiveLock;
+				break;
+#endif
+
 				/*
 				 * These subcommands affect write operations only.
 				 */
@@ -2819,6 +2853,9 @@ ATController(Relation rel, List *cmds, bool recurse, LOCKMODE lockmode)
 {
 	List	   *wqueue = NIL;
 	ListCell   *lcmd;
+#ifdef PGXC
+	RedistribState   *redistribState = NULL;
+#endif
 
 	/* Phase 1: preliminary examination of commands, create work queue */
 	foreach(lcmd, cmds)
@@ -2833,11 +2870,81 @@ ATController(Relation rel, List *cmds, bool recurse, LOCKMODE lockmode)
 		ATPrepCmd(&wqueue, rel, cmd, recurse, false, lockmode);
 	}
 
+#ifdef PGXC
+	/* Only check that on local Coordinator */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	{
+		ListCell   *ltab;
+
+		/*
+		 * Redistribution is only applied to the parent table and not subsequent
+		 * children. It is also not applied in recursion. This needs to be done
+		 * once all the commands have been treated.
+		 */
+		foreach(ltab, wqueue)
+		{
+			AlteredTableInfo *tab = (AlteredTableInfo *) lfirst(ltab);
+
+			if (RelationGetRelid(rel) == tab->relid &&
+				list_length(tab->subcmds[AT_PASS_DISTRIB]) > 0)
+			{
+				/*
+				 * Check if there are any commands incompatible
+				 * with redistribution. For the time being no other commands
+				 * are authorized.
+				 */
+				if (list_length(tab->subcmds[AT_PASS_ADD_COL]) > 0 ||
+					list_length(tab->subcmds[AT_PASS_DROP]) > 0 ||
+					list_length(tab->subcmds[AT_PASS_ALTER_TYPE]) > 0 ||
+					list_length(tab->subcmds[AT_PASS_OLD_CONSTR]) > 0 ||
+					list_length(tab->subcmds[AT_PASS_COL_ATTRS]) > 0 ||
+					list_length(tab->subcmds[AT_PASS_ADD_COL]) > 0 ||
+					list_length(tab->subcmds[AT_PASS_ADD_INDEX]) > 0 ||
+					list_length(tab->subcmds[AT_PASS_ADD_CONSTR]) > 0 ||
+					list_length(tab->subcmds[AT_PASS_MISC]) > 0)
+					ereport(ERROR,
+							(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+							 errmsg("Incompatible operation with data redistribution")));
+
+
+					/* Scan redistribution commands and improve operation */
+					redistribState = BuildRedistribCommands(RelationGetRelid(rel),
+														tab->subcmds[AT_PASS_DISTRIB]);
+					break;
+			}
+		}
+	}
+#endif
+
 	/* Close the relation, but keep lock until commit */
 	relation_close(rel, NoLock);
 
+#ifdef PGXC
+	/* Perform pre-catalog-update redistribution operations */
+	PGXCRedistribTable(redistribState, CATALOG_UPDATE_BEFORE);
+#endif
+
 	/* Phase 2: update system catalogs */
 	ATRewriteCatalogs(&wqueue, lockmode);
+
+#ifdef PGXC
+	/* Invalidate cache for redistributed relation */
+	if (redistribState)
+	{
+		Relation rel2 = relation_open(redistribState->relid, NoLock);
+
+		/* Invalidate all entries related to this relation */
+		CacheInvalidateRelcache(rel2);
+
+		/* Make sure locator info is rebuilt */
+		RelationCacheInvalidateEntry(redistribState->relid);
+		relation_close(rel2, NoLock);
+	}
+
+	/* Perform post-catalog-update redistribution operations */
+	PGXCRedistribTable(redistribState, CATALOG_UPDATE_AFTER);
+	FreeRedistribState(redistribState);
+#endif
 
 	/* Phase 3: scan/rewrite tables as needed */
 	ATRewriteTables(&wqueue, lockmode);
@@ -3060,6 +3167,16 @@ ATPrepCmd(List **wqueue, Relation rel, AlterTableCmd *cmd,
 			/* No command-specific prep needed */
 			pass = AT_PASS_MISC;
 			break;
+#ifdef PGXC
+		case AT_DistributeBy:
+		case AT_SubCluster:
+		case AT_AddNodeList:
+		case AT_DeleteNodeList:
+			ATSimplePermissions(rel, ATT_TABLE);
+			/* No command-specific prep needed */
+			pass = AT_PASS_DISTRIB;
+			break;
+#endif
 		default:				/* oops */
 			elog(ERROR, "unrecognized alter table type: %d",
 				 (int) cmd->subtype);
@@ -3327,6 +3444,20 @@ ATExecCmd(List **wqueue, AlteredTableInfo *tab, Relation rel,
 		case AT_GenericOptions:
 			ATExecGenericOptions(rel, (List *) cmd->def);
 			break;
+#ifdef PGXC
+		case AT_DistributeBy:
+			AtExecDistributeBy(rel, (DistributeBy *) cmd->def);
+			break;
+		case AT_SubCluster:
+			AtExecSubCluster(rel, (PGXCSubCluster *) cmd->def);
+			break;
+		case AT_AddNodeList:
+			AtExecAddNode(rel, (List *) cmd->def);
+			break;
+		case AT_DeleteNodeList:
+			AtExecDeleteNode(rel, (List *) cmd->def);
+			break;
+#endif
 		default:				/* oops */
 			elog(ERROR, "unrecognized alter table type: %d",
 				 (int) cmd->subtype);
@@ -3352,6 +3483,17 @@ ATRewriteTables(List **wqueue, LOCKMODE lockmode)
 	foreach(ltab, *wqueue)
 	{
 		AlteredTableInfo *tab = (AlteredTableInfo *) lfirst(ltab);
+
+#ifdef PGXC
+		/* Forbid table rewrite operations with online data redistribution */
+		if (tab->rewrite &&
+			list_length(tab->subcmds[AT_PASS_DISTRIB]) > 0 &&
+			IS_PGXC_COORDINATOR &&
+			!IsConnFromCoord())
+			ereport(ERROR,
+					(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+					 errmsg("Incompatible operation with data redistribution")));
+#endif
 
 		/* Foreign tables have no storage. */
 		if (tab->relkind == RELKIND_FOREIGN_TABLE)
@@ -3464,7 +3606,7 @@ ATRewriteTables(List **wqueue, LOCKMODE lockmode)
 	}
 
 #ifdef PGXC
-	/* 
+	/*
 	 * In PGXC, do not check the FK constraints on the Coordinator, and just return
 	 * That is because a SELECT is generated whose plan will try and use
 	 * the Datanodes. We (currently) do not want to do that on the Coordinator,
@@ -9180,8 +9322,179 @@ ATExecGenericOptions(Relation rel, List *options)
 
 #ifdef PGXC
 /*
+ * ALTER TABLE <name> DISTRIBUTE BY ...
+ */
+static void
+AtExecDistributeBy(Relation rel, DistributeBy *options)
+{
+	Oid relid;
+	char locatortype;
+	int hashalgorithm, hashbuckets;
+	AttrNumber attnum;
+
+	/* Nothing to do on Datanodes */
+	if (IS_PGXC_DATANODE || options == NULL)
+		return;
+
+	relid = RelationGetRelid(rel);
+
+	/* Get necessary distribution information */
+	GetRelationDistributionItems(relid,
+								 options,
+								 RelationGetDescr(rel),
+								 &locatortype,
+								 &hashalgorithm,
+								 &hashbuckets,
+								 &attnum);
+
+	/*
+	 * It is not checked if the distribution type list is the same as the old one,
+	 * user might define a different sub-cluster at the same time.
+	 */
+
+	/* Update pgxc_class entry */
+	PgxcClassAlter(relid,
+				   locatortype,
+				   (int) attnum,
+				   hashalgorithm,
+				   hashbuckets,
+				   0,
+				   NULL,
+				   PGXC_CLASS_ALTER_DISTRIBUTION);
+
+	/* Make the additional catalog changes visible */
+	CommandCounterIncrement();
+}
+
+
+/*
+ * ALTER TABLE <name> TO [ NODE nodelist | GROUP groupname ]
+ */
+static void
+AtExecSubCluster(Relation rel, PGXCSubCluster *options)
+{
+	Oid *nodeoids;
+	int numnodes;
+
+	/* Nothing to do on Datanodes */
+	if (IS_PGXC_DATANODE || options == NULL)
+		return;
+
+	/*
+	 * It is not checked if the new subcluster list is the same as the old one,
+	 * user might define a different distribution type.
+	 */
+
+	/* Obtain new node information */
+	nodeoids = GetRelationDistributionNodes(options, &numnodes);
+
+	/* Update pgxc_class entry */
+	PgxcClassAlter(RelationGetRelid(rel),
+				   '\0',
+				   0,
+				   0,
+				   0,
+				   numnodes,
+				   nodeoids,
+				   PGXC_CLASS_ALTER_NODES);
+
+	/* Make the additional catalog changes visible */
+	CommandCounterIncrement();
+}
+
+
+/*
+ * ALTER TABLE <name> ADD NODE nodelist
+ */
+static void
+AtExecAddNode(Relation rel, List *options)
+{
+	Oid *add_oids, *old_oids;
+	int add_num, old_num;
+
+	/* Nothing to do on Datanodes */
+	if (IS_PGXC_DATANODE || options == NIL)
+		return;
+
+	/*
+	 * Build a new array of sorted node Oids given the list of name nodes
+	 * to be added.
+	 */
+	add_oids = BuildRelationDistributionNodes(options, &add_num);
+
+	/*
+	 * Then check if nodes to be added are not in existing node
+	 * list and build updated list of nodes.
+	 */
+	old_num = get_pgxc_classnodes(RelationGetRelid(rel), &old_oids);
+
+	/* Add elements to array */
+	old_oids = add_node_list(old_oids, old_num, add_oids, add_num, &old_num);
+
+	/* Sort once again the newly-created array of node Oids to maintain consistency */
+	old_oids = SortRelationDistributionNodes(old_oids, old_num);
+
+	/* Update pgxc_class entry */
+	PgxcClassAlter(RelationGetRelid(rel),
+				   '\0',
+				   0,
+				   0,
+				   0,
+				   old_num,
+				   old_oids,
+				   PGXC_CLASS_ALTER_NODES);
+
+	/* Make the additional catalog changes visible */
+	CommandCounterIncrement();
+}
+
+
+/*
+ * ALTER TABLE <name> DELETE NODE nodelist
+ */
+static void
+AtExecDeleteNode(Relation rel, List *options)
+{
+	Oid *del_oids, *old_oids;
+	int del_num, old_num;
+
+	/* Nothing to do on Datanodes */
+	if (IS_PGXC_DATANODE || options == NIL)
+		return;
+
+	/*
+	 * Build a new array of sorted node Oids given the list of name nodes
+	 * to be deleted.
+	 */
+	del_oids = BuildRelationDistributionNodes(options, &del_num);
+
+	/*
+	 * Check if nodes to be deleted are really included in existing
+	 * node list and get updated list of nodes.
+	 */
+	old_num = get_pgxc_classnodes(RelationGetRelid(rel), &old_oids);
+
+	/* Delete elements on array */
+	old_oids = delete_node_list(old_oids, old_num, del_oids, del_num, &old_num);
+
+	/* Update pgxc_class entry */
+	PgxcClassAlter(RelationGetRelid(rel),
+				   '\0',
+				   0,
+				   0,
+				   0,
+				   old_num,
+				   old_oids,
+				   PGXC_CLASS_ALTER_NODES);
+
+	/* Make the additional catalog changes visible */
+	CommandCounterIncrement();
+}
+
+
+/*
  * ATCheckCmd
- * 
+ *
  * Check ALTER TABLE restrictions in Postgres-XC
  */
 static void
@@ -9204,6 +9517,218 @@ ATCheckCmd(Relation rel, AlterTableCmd *cmd)
 		default:
 			break;
 	}
+}
+
+
+/*
+ * BuildRedistribCommands
+ * Evaluate new and old distribution and build the list of operations
+ * necessary to perform table redistribution.
+ */
+static RedistribState *
+BuildRedistribCommands(Oid relid, List *subCmds)
+{
+	RedistribState   *redistribState = makeRedistribState(relid);
+	RelationLocInfo *oldLocInfo, *newLocInfo; /* Former locator info */
+	Relation	rel;
+	Oid		   *new_oid_array;	/* Modified list of Oids */
+	int			new_num, i;	/* Modified number of Oids */
+	ListCell   *item;
+
+	/* Get necessary information about relation */
+	rel = relation_open(redistribState->relid, NoLock);
+	oldLocInfo = RelationGetLocInfo(rel);
+	Assert(oldLocInfo);
+
+	/*
+	 * Get a copy of the locator information that will be modified by
+	 * successive ALTER TABLE commands.
+	 */
+	newLocInfo = CopyRelationLocInfo(oldLocInfo);
+	/* The node list of this locator information will be rebuilt after command scan */
+	list_free(newLocInfo->nodeList);
+	newLocInfo->nodeList = NULL;
+
+	/* Get the list to be modified */
+	new_num = get_pgxc_classnodes(RelationGetRelid(rel), &new_oid_array);
+
+	foreach(item, subCmds)
+	{
+		AlterTableCmd *cmd = (AlterTableCmd *) lfirst(item);
+		switch (cmd->subtype)
+		{
+			case AT_DistributeBy:
+				/*
+				 * Get necessary distribution information and update to new
+				 * distribution type.
+				 */
+				GetRelationDistributionItems(redistribState->relid,
+											 (DistributeBy *) cmd->def,
+											 RelationGetDescr(rel),
+											 &(newLocInfo->locatorType),
+											 NULL,
+											 NULL,
+											 (AttrNumber *)&(newLocInfo->partAttrNum));
+				break;
+			case AT_SubCluster:
+				/* Update new list of nodes */
+				new_oid_array = GetRelationDistributionNodes((PGXCSubCluster *) cmd->def, &new_num);
+				break;
+			case AT_AddNodeList:
+				{
+					Oid *add_oids;
+					int add_num;
+					add_oids = BuildRelationDistributionNodes((List *) cmd->def, &add_num);
+					/* Add elements to array */
+					new_oid_array = add_node_list(new_oid_array, new_num, add_oids, add_num, &new_num);
+				}
+				break;
+			case AT_DeleteNodeList:
+				{
+					Oid *del_oids;
+					int del_num;
+					del_oids = BuildRelationDistributionNodes((List *) cmd->def, &del_num);
+					/* Delete elements from array */
+					new_oid_array = delete_node_list(new_oid_array, new_num, del_oids, del_num, &new_num);
+				}
+				break;
+			default:
+				Assert(0); /* Should not happen */
+		}
+	}
+
+	/* Build relation node list for new locator info */
+	for (i = 0; i < new_num; i++)
+		newLocInfo->nodeList = lappend_int(newLocInfo->nodeList,
+										   PGXCNodeGetNodeId(new_oid_array[i],
+															 PGXC_NODE_DATANODE));
+
+	/* Build the command tree for table redistribution */
+	PGXCRedistribCreateCommandList(redistribState, newLocInfo);
+
+	/* Clean up */
+	FreeRelationLocInfo(newLocInfo);
+	pfree(new_oid_array);
+	relation_close(rel, NoLock);
+
+	return redistribState;
+}
+
+
+/*
+ * Delete from given Oid array old_oids the given oid list del_oids
+ * and build a new one.
+ */
+Oid *
+delete_node_list(Oid *old_oids, int old_num, Oid *del_oids, int del_num, int *new_num)
+{
+	/* Allocate former array and data */
+	Oid *new_oids = old_oids;
+	int loc_new_num = old_num;
+	int i;
+
+	/*
+	 * Delete from existing node Oid array the elements to be removed.
+	 * An error is returned if an element to be deleted is not in existing array.
+	 * It is not necessary to sort once again the result array of node Oids
+	 * as here only a deletion of elements is done.
+	 */
+	for (i = 0; i < del_num; i++)
+	{
+		Oid nodeoid = del_oids[i];
+		int j, position;
+		bool is_listed = false;
+		position = 0;
+
+		for (j = 0; j < loc_new_num; j++)
+		{
+			/* Check if element can be removed */
+			if (nodeoid == new_oids[j])
+			{
+				is_listed = true;
+				position = j;
+			}
+		}
+
+		/* Move all the elements from [j+1, n-1] to [j, n-2] */
+		if (is_listed)
+		{
+			for (j = position + 1; j < loc_new_num; j++)
+				new_oids[j - 1] = new_oids[j];
+
+			loc_new_num--;
+
+			/* Not possible to have an empty list */
+			if (loc_new_num == 0)
+				ereport(ERROR,
+						(errcode(ERRCODE_DUPLICATE_OBJECT),
+						 errmsg("Node list is empty: one node at least is mandatory")));
+
+			new_oids = (Oid *) repalloc(new_oids, loc_new_num * sizeof(Oid));
+		}
+		else
+			ereport(ERROR,
+					(errcode(ERRCODE_DUPLICATE_OBJECT),
+					 errmsg("PGXC Node %s: object not in relation node list",
+							get_pgxc_nodename(nodeoid))));
+	}
+
+	/* Save new number of nodes */
+	*new_num = loc_new_num;
+	return new_oids;
+}
+
+
+/*
+ * Add to given Oid array old_oids the given oid list add_oids
+ * and build a new one.
+ */
+Oid *
+add_node_list(Oid *old_oids, int old_num, Oid *add_oids, int add_num, int *new_num)
+{
+	/* Allocate former array and data */
+	Oid *new_oids = old_oids;
+	int loc_new_num = old_num;
+	int i;
+
+	/*
+	 * Build new Oid list, both addition and old list are already sorted.
+	 * The idea here is to go through the list of nodes to be added and
+	 * add the elements one-by-one on the existing list.
+	 * An error is returned if an element to be added already exists
+	 * in relation node array.
+	 * Here we do O(n^2) scan to avoid a dependency with the way
+	 * oids are sorted by heap APIs. They are sorted once again once
+	 * the addition operation is completed.
+	 */
+	for (i = 0; i < add_num; i++)
+	{
+		Oid nodeoid = add_oids[i];
+		int j;
+
+		/* Check if element is already a part of array */
+		for (j = 0; j < loc_new_num; j++)
+		{
+			/* Item is already in node list */
+			if (nodeoid == new_oids[j])
+				ereport(ERROR,
+						(errcode(ERRCODE_DUPLICATE_OBJECT),
+						 errmsg("PGXC Node %s: object already in relation node list",
+								get_pgxc_nodename(nodeoid))));
+		}
+
+		/* If we are here, element can be added safely in node array */
+		loc_new_num++;
+		new_oids = (Oid *) repalloc(new_oids, loc_new_num * sizeof(Oid));
+		new_oids[loc_new_num - 1] = nodeoid;
+	}
+
+	/* Sort once again the newly-created array of node Oids to maintain consistency */
+	new_oids = SortRelationDistributionNodes(new_oids, loc_new_num);
+
+	/* Save new number of nodes */
+	*new_num = loc_new_num;
+	return new_oids;
 }
 #endif
 
