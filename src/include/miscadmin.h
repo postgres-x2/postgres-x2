@@ -10,7 +10,7 @@
  *	  Over time, this has also become the preferred place for widely known
  *	  resource-limitation stuff, such as work_mem and check_stack_depth().
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/miscadmin.h
@@ -55,6 +55,11 @@
  * course, only if the interrupt holdoff counter is zero).	See the
  * related code for details.
  *
+ * A lost connection is handled similarly, although the loss of connection
+ * does not raise a signal, but is detected when we fail to write to the
+ * socket. If there was a signal for a broken connection, we could make use of
+ * it by setting ClientConnectionLost in the signal handler.
+ *
  * A related, but conceptually distinct, mechanism is the "critical section"
  * mechanism.  A critical section not only holds off cancel/die interrupts,
  * but causes any ereport(ERROR) or ereport(FATAL) to become ereport(PANIC)
@@ -69,6 +74,8 @@
 extern PGDLLIMPORT volatile bool InterruptPending;
 extern volatile bool QueryCancelPending;
 extern volatile bool ProcDiePending;
+
+extern volatile bool ClientConnectionLost;
 
 /* these are marked volatile because they are examined by signal handlers: */
 extern volatile bool ImmediateInterruptOK;
@@ -230,11 +237,28 @@ extern int	VacuumCostPageDirty;
 extern int	VacuumCostLimit;
 extern int	VacuumCostDelay;
 
+extern int	VacuumPageHit;
+extern int	VacuumPageMiss;
+extern int	VacuumPageDirty;
+
 extern int	VacuumCostBalance;
 extern bool VacuumCostActive;
 
 
 /* in tcop/postgres.c */
+
+#if defined(__ia64__) || defined(__ia64)
+typedef struct
+{
+	char	   *stack_base_ptr;
+	char	   *register_stack_base_ptr;
+} pg_stack_base_t;
+#else
+typedef char *pg_stack_base_t;
+#endif
+
+extern pg_stack_base_t set_stack_base(void);
+extern void restore_stack_base(pg_stack_base_t base);
 extern void check_stack_depth(void);
 
 /* in tcop/utility.c */

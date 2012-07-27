@@ -11,8 +11,8 @@
 #ifndef HBA_H
 #define HBA_H
 
+#include "libpq/pqcomm.h"	/* pgrminclude ignore */	/* needed for NetBSD */
 #include "nodes/pg_list.h"
-#include "libpq/pqcomm.h"
 
 
 typedef enum UserAuth

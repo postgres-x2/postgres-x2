@@ -3,7 +3,7 @@
  * snapshot.h
  *	  POSTGRES snapshot definition
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2012 Postgres-XC Development Group
  *
@@ -47,17 +47,17 @@ typedef struct SnapshotData
 	 */
 	TransactionId xmin;			/* all XID < xmin are visible to me */
 	TransactionId xmax;			/* all XID >= xmax are invisible to me */
-	TransactionId recent_global_xmin;
+	TransactionId *xip;			/* array of xact IDs in progress */
 	uint32		xcnt;			/* # of xact ids in xip[] */
 #ifdef PGXC  /* PGXC_COORD */
 	uint32		max_xcnt;		/* Max # of xact in xip[] */
 #endif
-	TransactionId *xip;			/* array of xact IDs in progress */
 	/* note: all ids in xip[] satisfy xmin <= xip[i] < xmax */
 	int32		subxcnt;		/* # of xact ids in subxip[] */
 	TransactionId *subxip;		/* array of subxact IDs in progress */
 	bool		suboverflowed;	/* has the subxip array overflowed? */
 	bool		takenDuringRecovery;	/* recovery-shaped snapshot? */
+	bool		copied;			/* false if it's a static snapshot */
 
 	/*
 	 * note: all ids in subxip[] are >= xmin, but we don't bother filtering
@@ -66,7 +66,6 @@ typedef struct SnapshotData
 	CommandId	curcid;			/* in my xact, CID < curcid are visible */
 	uint32		active_count;	/* refcount on ActiveSnapshot stack */
 	uint32		regd_count;		/* refcount on RegisteredSnapshotList */
-	bool		copied;			/* false if it's a static snapshot */
 } SnapshotData;
 
 /*

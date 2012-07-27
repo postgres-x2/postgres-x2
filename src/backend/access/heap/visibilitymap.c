@@ -3,7 +3,7 @@
  * visibilitymap.c
  *	  bitmap for tracking visibility of heap tuples
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -16,6 +16,8 @@
  *		visibilitymap_pin_ok - check whether correct map page is already pinned
  *		visibilitymap_set	 - set a bit in a previously pinned page
  *		visibilitymap_test	 - test if a bit is set
+ *		visibilitymap_count  - count number of bits set in visibility map
+ *		visibilitymap_truncate	- truncate the visibility map
  *
  * NOTES
  *
@@ -25,29 +27,45 @@
  * the sense that we make sure that whenever a bit is set, we know the
  * condition is true, but if a bit is not set, it might or might not be true.
  *
- * There's no explicit WAL logging in the functions in this file. The callers
+ * Clearing a visibility map bit is not separately WAL-logged.	The callers
  * must make sure that whenever a bit is cleared, the bit is cleared on WAL
- * replay of the updating operation as well. Setting bits during recovery
- * isn't necessary for correctness.
+ * replay of the updating operation as well.
  *
- * Currently, the visibility map is only used as a hint, to speed up VACUUM.
- * A corrupted visibility map won't cause data corruption, although it can
- * make VACUUM skip pages that need vacuuming, until the next anti-wraparound
- * vacuum. The visibility map is not used for anti-wraparound vacuums, because
+ * When we *set* a visibility map during VACUUM, we must write WAL.  This may
+ * seem counterintuitive, since the bit is basically a hint: if it is clear,
+ * it may still be the case that every tuple on the page is visible to all
+ * transactions; we just don't know that for certain.  The difficulty is that
+ * there are two bits which are typically set together: the PD_ALL_VISIBLE bit
+ * on the page itself, and the visibility map bit.	If a crash occurs after the
+ * visibility map page makes it to disk and before the updated heap page makes
+ * it to disk, redo must set the bit on the heap page.	Otherwise, the next
+ * insert, update, or delete on the heap page will fail to realize that the
+ * visibility map bit must be cleared, possibly causing index-only scans to
+ * return wrong answers.
+ *
+ * VACUUM will normally skip pages for which the visibility map bit is set;
+ * such pages can't contain any dead tuples and therefore don't need vacuuming.
+ * The visibility map is not used for anti-wraparound vacuums, because
  * an anti-wraparound vacuum needs to freeze tuples and observe the latest xid
  * present in the table, even on pages that don't have any dead tuples.
- *
- * Although the visibility map is just a hint at the moment, the PD_ALL_VISIBLE
- * flag on heap pages *must* be correct, because it is used to skip visibility
- * checking.
  *
  * LOCKING
  *
  * In heapam.c, whenever a page is modified so that not all tuples on the
  * page are visible to everyone anymore, the corresponding bit in the
- * visibility map is cleared. The bit in the visibility map is cleared
- * after releasing the lock on the heap page, to avoid holding the lock
- * over possible I/O to read in the visibility map page.
+ * visibility map is cleared. In order to be crash-safe, we need to do this
+ * while still holding a lock on the heap page and in the same critical
+ * section that logs the page modification. However, we don't want to hold
+ * the buffer lock over any I/O that may be required to read in the visibility
+ * map page.  To avoid this, we examine the heap page before locking it;
+ * if the page-level PD_ALL_VISIBLE bit is set, we pin the visibility map
+ * bit.  Then, we lock the buffer.	But this creates a race condition: there
+ * is a possibility that in the time it takes to lock the buffer, the
+ * PD_ALL_VISIBLE bit gets set.  If that happens, we have to unlock the
+ * buffer, pin the visibility map page, and relock the buffer.	This shouldn't
+ * happen often, because only VACUUM currently sets visibility map bits,
+ * and the race will only occur if VACUUM processes a given page at almost
+ * exactly the same time that someone tries to further modify it.
  *
  * To set a bit, you need to hold a lock on the heap page. That prevents
  * the race condition where VACUUM sees that all tuples on the page are
@@ -60,11 +78,6 @@
  * But when a bit is cleared, we don't have to do that because it's always
  * safe to clear a bit in the map from correctness point of view.
  *
- * TODO
- *
- * It would be nice to use the visibility map to skip visibility checks in
- * index scans.
- *
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
@@ -73,9 +86,9 @@
 #include "access/visibilitymap.h"
 #include "miscadmin.h"
 #include "storage/bufmgr.h"
-#include "storage/bufpage.h"
 #include "storage/lmgr.h"
 #include "storage/smgr.h"
+#include "utils/inval.h"
 
 
 /*#define TRACE_VISIBILITYMAP */
@@ -100,6 +113,26 @@
 #define HEAPBLK_TO_MAPBLOCK(x) ((x) / HEAPBLOCKS_PER_PAGE)
 #define HEAPBLK_TO_MAPBYTE(x) (((x) % HEAPBLOCKS_PER_PAGE) / HEAPBLOCKS_PER_BYTE)
 #define HEAPBLK_TO_MAPBIT(x) ((x) % HEAPBLOCKS_PER_BYTE)
+
+/* table for fast counting of set bits */
+static const uint8 number_of_ones[256] = {
+	0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4,
+	1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
+	1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
+	2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+	1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
+	2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+	2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+	3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+	1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
+	2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+	2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+	3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+	2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+	3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+	3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+	4, 5, 5, 6, 5, 6, 6, 7, 5, 6, 6, 7, 6, 7, 7, 8
+};
 
 /* prototypes for internal routines */
 static Buffer vm_readbuf(Relation rel, BlockNumber blkno, bool extend);
@@ -194,9 +227,11 @@ visibilitymap_pin_ok(BlockNumber heapBlk, Buffer buf)
  *	visibilitymap_set - set a bit on a previously pinned page
  *
  * recptr is the LSN of the XLOG record we're replaying, if we're in recovery,
- * or InvalidXLogRecPtr in normal running.  The page LSN is advanced to the
+ * or InvalidXLogRecPtr in normal running.	The page LSN is advanced to the
  * one provided; in normal running, we generate a new XLOG record and set the
- * page LSN to that value.
+ * page LSN to that value.	cutoff_xid is the largest xmin on the page being
+ * marked all-visible; it is needed for Hot Standby, and can be
+ * InvalidTransactionId if the page contains no tuples.
  *
  * You must pass a buffer containing the correct map page to this function.
  * Call visibilitymap_pin first to pin the right one. This function doesn't do
@@ -204,7 +239,7 @@ visibilitymap_pin_ok(BlockNumber heapBlk, Buffer buf)
  */
 void
 visibilitymap_set(Relation rel, BlockNumber heapBlk, XLogRecPtr recptr,
-				  Buffer buf)
+				  Buffer buf, TransactionId cutoff_xid)
 {
 	BlockNumber mapBlock = HEAPBLK_TO_MAPBLOCK(heapBlk);
 	uint32		mapByte = HEAPBLK_TO_MAPBYTE(heapBlk);
@@ -236,7 +271,8 @@ visibilitymap_set(Relation rel, BlockNumber heapBlk, XLogRecPtr recptr,
 		if (RelationNeedsWAL(rel))
 		{
 			if (XLogRecPtrIsInvalid(recptr))
-				recptr = log_heap_visible(rel->rd_node, heapBlk, buf);
+				recptr = log_heap_visible(rel->rd_node, heapBlk, buf,
+										  cutoff_xid);
 			PageSetLSN(page, recptr);
 			PageSetTLI(page, ThisTimeLineID);
 		}
@@ -257,6 +293,13 @@ visibilitymap_set(Relation rel, BlockNumber heapBlk, XLogRecPtr recptr,
  * relation. On return, *buf is a valid buffer with the map page containing
  * the bit for heapBlk, or InvalidBuffer. The caller is responsible for
  * releasing *buf after it's done testing and setting bits.
+ *
+ * NOTE: This function is typically called without a lock on the heap page,
+ * so somebody else could change the bit just after we look at it.	In fact,
+ * since we don't lock the visibility map page either, it's even possible that
+ * someone else could have changed the bit just before we look at it, but yet
+ * we might see the old value.	It is the caller's responsibility to deal with
+ * all concurrency issues!
  */
 bool
 visibilitymap_test(Relation rel, BlockNumber heapBlk, Buffer *buf)
@@ -291,9 +334,57 @@ visibilitymap_test(Relation rel, BlockNumber heapBlk, Buffer *buf)
 	map = PageGetContents(BufferGetPage(*buf));
 
 	/*
-	 * We don't need to lock the page, as we're only looking at a single bit.
+	 * A single-bit read is atomic.  There could be memory-ordering effects
+	 * here, but for performance reasons we make it the caller's job to worry
+	 * about that.
 	 */
 	result = (map[mapByte] & (1 << mapBit)) ? true : false;
+
+	return result;
+}
+
+/*
+ *	visibilitymap_count  - count number of bits set in visibility map
+ *
+ * Note: we ignore the possibility of race conditions when the table is being
+ * extended concurrently with the call.  New pages added to the table aren't
+ * going to be marked all-visible, so they won't affect the result.
+ */
+BlockNumber
+visibilitymap_count(Relation rel)
+{
+	BlockNumber result = 0;
+	BlockNumber mapBlock;
+
+	for (mapBlock = 0;; mapBlock++)
+	{
+		Buffer		mapBuffer;
+		unsigned char *map;
+		int			i;
+
+		/*
+		 * Read till we fall off the end of the map.  We assume that any extra
+		 * bytes in the last page are zeroed, so we don't bother excluding
+		 * them from the count.
+		 */
+		mapBuffer = vm_readbuf(rel, mapBlock, false);
+		if (!BufferIsValid(mapBuffer))
+			break;
+
+		/*
+		 * We choose not to lock the page, since the result is going to be
+		 * immediately stale anyway if anyone is concurrently setting or
+		 * clearing bits, and we only really need an approximate value.
+		 */
+		map = (unsigned char *) PageGetContents(BufferGetPage(mapBuffer));
+
+		for (i = 0; i < MAPSIZE; i++)
+		{
+			result += number_of_ones[map[i]];
+		}
+
+		ReleaseBuffer(mapBuffer);
+	}
 
 	return result;
 }
@@ -404,16 +495,20 @@ vm_readbuf(Relation rel, BlockNumber blkno, bool extend)
 {
 	Buffer		buf;
 
+	/*
+	 * We might not have opened the relation at the smgr level yet, or we
+	 * might have been forced to close it by a sinval message.	The code below
+	 * won't necessarily notice relation extension immediately when extend =
+	 * false, so we rely on sinval messages to ensure that our ideas about the
+	 * size of the map aren't too far out of date.
+	 */
 	RelationOpenSmgr(rel);
 
 	/*
 	 * If we haven't cached the size of the visibility map fork yet, check it
-	 * first.  Also recheck if the requested block seems to be past end, since
-	 * our cached value might be stale.  (We send smgr inval messages on
-	 * truncation, but not on extension.)
+	 * first.
 	 */
-	if (rel->rd_smgr->smgr_vm_nblocks == InvalidBlockNumber ||
-		blkno >= rel->rd_smgr->smgr_vm_nblocks)
+	if (rel->rd_smgr->smgr_vm_nblocks == InvalidBlockNumber)
 	{
 		if (smgrexists(rel->rd_smgr, VISIBILITYMAP_FORKNUM))
 			rel->rd_smgr->smgr_vm_nblocks = smgrnblocks(rel->rd_smgr,
@@ -482,12 +577,22 @@ vm_extend(Relation rel, BlockNumber vm_nblocks)
 
 	vm_nblocks_now = smgrnblocks(rel->rd_smgr, VISIBILITYMAP_FORKNUM);
 
+	/* Now extend the file */
 	while (vm_nblocks_now < vm_nblocks)
 	{
 		smgrextend(rel->rd_smgr, VISIBILITYMAP_FORKNUM, vm_nblocks_now,
 				   (char *) pg, false);
 		vm_nblocks_now++;
 	}
+
+	/*
+	 * Send a shared-inval message to force other backends to close any smgr
+	 * references they may have for this rel, which we are about to change.
+	 * This is a useful optimization because it means that backends don't have
+	 * to keep checking for creation or extension of the file, which happens
+	 * infrequently.
+	 */
+	CacheInvalidateSmgr(rel->rd_smgr->smgr_rnode);
 
 	/* Update local cache with the up-to-date size */
 	rel->rd_smgr->smgr_vm_nblocks = vm_nblocks_now;

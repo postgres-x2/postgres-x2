@@ -3,9 +3,11 @@
  *
  *	database server functions
  *
- *	Copyright (c) 2010-2011, PostgreSQL Global Development Group
+ *	Copyright (c) 2010-2012, PostgreSQL Global Development Group
  *	contrib/pg_upgrade/server.c
  */
+
+#include "postgres.h"
 
 #include "pg_upgrade.h"
 
@@ -78,7 +80,7 @@ executeQueryOrDie(PGconn *conn, const char *fmt,...)
 	vsnprintf(command, sizeof(command), fmt, args);
 	va_end(args);
 
-	pg_log(PG_DEBUG, "executing: %s\n", command);
+	pg_log(PG_VERBOSE, "executing: %s\n", command);
 	result = PQexec(conn, command);
 	status = PQresultStatus(result);
 
@@ -99,27 +101,27 @@ executeQueryOrDie(PGconn *conn, const char *fmt,...)
 /*
  * get_major_server_version()
  *
- * gets the version (in unsigned int form) for the given "datadir". Assumes
+ * gets the version (in unsigned int form) for the given datadir. Assumes
  * that datadir is an absolute path to a valid pgdata directory. The version
  * is retrieved by reading the PG_VERSION file.
  */
 uint32
 get_major_server_version(ClusterInfo *cluster)
 {
-	const char *datadir = cluster->pgdata;
 	FILE	   *version_fd;
 	char		ver_filename[MAXPGPATH];
 	int			integer_version = 0;
 	int			fractional_version = 0;
 
-	snprintf(ver_filename, sizeof(ver_filename), "%s/PG_VERSION", datadir);
+	snprintf(ver_filename, sizeof(ver_filename), "%s/PG_VERSION",
+			 cluster->pgdata);
 	if ((version_fd = fopen(ver_filename, "r")) == NULL)
 		return 0;
 
 	if (fscanf(version_fd, "%63s", cluster->major_version_str) == 0 ||
 		sscanf(cluster->major_version_str, "%d.%d", &integer_version,
 			   &fractional_version) != 2)
-		pg_log(PG_FATAL, "could not get version from %s\n", datadir);
+		pg_log(PG_FATAL, "could not get version from %s\n", cluster->pgdata);
 
 	fclose(version_fd);
 
@@ -128,11 +130,7 @@ get_major_server_version(ClusterInfo *cluster)
 
 
 static void
-#ifdef HAVE_ATEXIT
 stop_postmaster_atexit(void)
-#else
-stop_postmaster_on_exit(int exitstatus, void *arg)
-#endif
 {
 	stop_postmaster(true);
 
@@ -147,26 +145,9 @@ start_postmaster(ClusterInfo *cluster)
 	bool		exit_hook_registered = false;
 	int			pg_ctl_return = 0;
 
-#ifndef WIN32
-	char	   *output_filename = log_opts.filename;
-#else
-
-	/*
-	 * On Win32, we can't send both pg_upgrade output and pg_ctl output to the
-	 * same file because we get the error: "The process cannot access the file
-	 * because it is being used by another process." so we have to send all
-	 * other output to 'nul'.
-	 */
-	char	   *output_filename = DEVNULL;
-#endif
-
 	if (!exit_hook_registered)
 	{
-#ifdef HAVE_ATEXIT
 		atexit(stop_postmaster_atexit);
-#else
-		on_exit(stop_postmaster_on_exit);
-#endif
 		exit_hook_registered = true;
 	}
 
@@ -179,18 +160,23 @@ start_postmaster(ClusterInfo *cluster)
 	 */
 	snprintf(cmd, sizeof(cmd),
 			 SYSTEMQUOTE "\"%s/pg_ctl\" -w -l \"%s\" -D \"%s\" "
-			 "-o \"-p %d %s\" start >> \"%s\" 2>&1" SYSTEMQUOTE,
-			 cluster->bindir, output_filename, cluster->pgdata, cluster->port,
+			 "-o \"-p %d %s %s\" start >> \"%s\" 2>&1" SYSTEMQUOTE,
+		  cluster->bindir, SERVER_LOG_FILE, cluster->pgconfig, cluster->port,
 			 (cluster->controldata.cat_ver >=
 			  BINARY_UPGRADE_SERVER_FLAG_CAT_VER) ? "-b" :
 			 "-c autovacuum=off -c autovacuum_freeze_max_age=2000000000",
-			 log_opts.filename);
+			 cluster->pgopts ? cluster->pgopts : "", SERVER_START_LOG_FILE);
 
 	/*
 	 * Don't throw an error right away, let connecting throw the error because
 	 * it might supply a reason for the failure.
 	 */
-	pg_ctl_return = exec_prog(false, "%s", cmd);
+	pg_ctl_return = exec_prog(false, true,
+	/* pass both file names if the differ */
+					  (strcmp(SERVER_LOG_FILE, SERVER_START_LOG_FILE) == 0) ?
+							  SERVER_LOG_FILE :
+							  SERVER_LOG_FILE " or " SERVER_START_LOG_FILE,
+							  "%s", cmd);
 
 	/* Check to see if we can connect to the server; if not, report it. */
 	if ((conn = get_db_conn(cluster, "template1")) == NULL ||
@@ -218,36 +204,23 @@ void
 stop_postmaster(bool fast)
 {
 	char		cmd[MAXPGPATH];
-	const char *bindir;
-	const char *datadir;
-
-#ifndef WIN32
-	char	   *output_filename = log_opts.filename;
-#else
-	/* See comment in start_postmaster() about why win32 output is ignored. */
-	char	   *output_filename = DEVNULL;
-#endif
+	ClusterInfo *cluster;
 
 	if (os_info.running_cluster == &old_cluster)
-	{
-		bindir = old_cluster.bindir;
-		datadir = old_cluster.pgdata;
-	}
+		cluster = &old_cluster;
 	else if (os_info.running_cluster == &new_cluster)
-	{
-		bindir = new_cluster.bindir;
-		datadir = new_cluster.pgdata;
-	}
+		cluster = &new_cluster;
 	else
 		return;					/* no cluster running */
 
 	snprintf(cmd, sizeof(cmd),
-			 SYSTEMQUOTE "\"%s/pg_ctl\" -w -l \"%s\" -D \"%s\" %s stop >> "
-			 "\"%s\" 2>&1" SYSTEMQUOTE,
-			 bindir, output_filename, datadir, fast ? "-m fast" : "",
-			 output_filename);
+			 SYSTEMQUOTE "\"%s/pg_ctl\" -w -D \"%s\" -o \"%s\" "
+			 "%s stop >> \"%s\" 2>&1" SYSTEMQUOTE,
+			 cluster->bindir, cluster->pgconfig,
+			 cluster->pgopts ? cluster->pgopts : "",
+			 fast ? "-m fast" : "", SERVER_STOP_LOG_FILE);
 
-	exec_prog(fast ? false : true, "%s", cmd);
+	exec_prog(fast ? false : true, true, SERVER_STOP_LOG_FILE, "%s", cmd);
 
 	os_info.running_cluster = NULL;
 }

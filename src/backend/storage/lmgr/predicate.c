@@ -125,7 +125,7 @@
  *		- Protects both PredXact and SerializableXidHash.
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -146,7 +146,9 @@
  *		PageIsPredicateLocked(Relation relation, BlockNumber blkno)
  *
  * predicate lock maintenance
- *		RegisterSerializableTransaction(Snapshot snapshot)
+ *		GetSerializableTransactionSnapshot(Snapshot snapshot)
+ *		SetSerializableTransactionSnapshot(Snapshot snapshot,
+ *										   TransactionId sourcexid)
  *		RegisterPredicateLockingXid(void)
  *		PredicateLockRelation(Relation relation, Snapshot snapshot)
  *		PredicateLockPage(Relation relation, BlockNumber blkno,
@@ -417,7 +419,8 @@ static void OldSerXidSetActiveSerXmin(TransactionId xid);
 static uint32 predicatelock_hash(const void *key, Size keysize);
 static void SummarizeOldestCommittedSxact(void);
 static Snapshot GetSafeSnapshot(Snapshot snapshot);
-static Snapshot RegisterSerializableTransactionInt(Snapshot snapshot);
+static Snapshot GetSerializableTransactionSnapshotInt(Snapshot snapshot,
+									  TransactionId sourcexid);
 static bool PredicateLockExists(const PREDICATELOCKTARGETTAG *targettag);
 static bool GetParentPredicateLockTag(const PREDICATELOCKTARGETTAG *tag,
 						  PREDICATELOCKTARGETTAG *parent);
@@ -662,7 +665,7 @@ SetRWConflict(SERIALIZABLEXACT *reader, SERIALIZABLEXACT *writer)
 	if (!conflict)
 		ereport(ERROR,
 				(errcode(ERRCODE_OUT_OF_MEMORY),
-				 errmsg("not enough elements in RWConflictPool to record a rw-conflict"),
+				 errmsg("not enough elements in RWConflictPool to record a read/write conflict"),
 				 errhint("You might need to run fewer transactions at a time or increase max_connections.")));
 
 	SHMQueueDelete(&conflict->outLink);
@@ -690,7 +693,7 @@ SetPossibleUnsafeConflict(SERIALIZABLEXACT *roXact,
 	if (!conflict)
 		ereport(ERROR,
 				(errcode(ERRCODE_OUT_OF_MEMORY),
-				 errmsg("not enough elements in RWConflictPool to record a potential rw-conflict"),
+				 errmsg("not enough elements in RWConflictPool to record a potential read/write conflict"),
 				 errhint("You might need to run fewer transactions at a time or increase max_connections.")));
 
 	SHMQueueDelete(&conflict->outLink);
@@ -1231,7 +1234,7 @@ InitPredicateLocks(void)
 	 * that this will prevent resource exhaustion in even the most pessimal
 	 * loads up to max_connections = 200 with all 200 connections pounding the
 	 * database with serializable transactions.  Beyond that, there may be
-	 * occassional transactions canceled when trying to flag conflicts. That's
+	 * occasional transactions canceled when trying to flag conflicts. That's
 	 * probably OK.
 	 */
 	max_table_size *= 5;
@@ -1485,6 +1488,10 @@ SummarizeOldestCommittedSxact(void)
  *		without further checks. This requires waiting for concurrent
  *		transactions to complete, and retrying with a new snapshot if
  *		one of them could possibly create a conflict.
+ *
+ *		As with GetSerializableTransactionSnapshot (which this is a subroutine
+ *		for), the passed-in Snapshot pointer should reference a static data
+ *		area that can safely be passed to GetSnapshotData.
  */
 static Snapshot
 GetSafeSnapshot(Snapshot origSnapshot)
@@ -1496,12 +1503,13 @@ GetSafeSnapshot(Snapshot origSnapshot)
 	while (true)
 	{
 		/*
-		 * RegisterSerializableTransactionInt is going to call
-		 * GetSnapshotData, so we need to provide it the static snapshot our
-		 * caller passed to us. It returns a copy of that snapshot and
-		 * registers it on TopTransactionResourceOwner.
+		 * GetSerializableTransactionSnapshotInt is going to call
+		 * GetSnapshotData, so we need to provide it the static snapshot area
+		 * our caller passed to us.  The pointer returned is actually the same
+		 * one passed to it, but we avoid assuming that here.
 		 */
-		snapshot = RegisterSerializableTransactionInt(origSnapshot);
+		snapshot = GetSerializableTransactionSnapshotInt(origSnapshot,
+													   InvalidTransactionId);
 
 		if (MySerializableXact == InvalidSerializableXact)
 			return snapshot;	/* no concurrent r/w xacts; it's safe */
@@ -1535,8 +1543,6 @@ GetSafeSnapshot(Snapshot origSnapshot)
 				(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 				 errmsg("deferrable snapshot was unsafe; trying a new one")));
 		ReleasePredicateLocks(false);
-		UnregisterSnapshotFromOwner(snapshot,
-									TopTransactionResourceOwner);
 	}
 
 	/*
@@ -1549,28 +1555,75 @@ GetSafeSnapshot(Snapshot origSnapshot)
 }
 
 /*
- * Acquire and register a snapshot which can be used for this transaction..
+ * Acquire a snapshot that can be used for the current transaction.
+ *
  * Make sure we have a SERIALIZABLEXACT reference in MySerializableXact.
  * It should be current for this process and be contained in PredXact.
+ *
+ * The passed-in Snapshot pointer should reference a static data area that
+ * can safely be passed to GetSnapshotData.  The return value is actually
+ * always this same pointer; no new snapshot data structure is allocated
+ * within this function.
  */
 Snapshot
-RegisterSerializableTransaction(Snapshot snapshot)
+GetSerializableTransactionSnapshot(Snapshot snapshot)
 {
 	Assert(IsolationIsSerializable());
 
 	/*
 	 * A special optimization is available for SERIALIZABLE READ ONLY
 	 * DEFERRABLE transactions -- we can wait for a suitable snapshot and
-	 * thereby avoid all SSI overhead once it's running..
+	 * thereby avoid all SSI overhead once it's running.
 	 */
 	if (XactReadOnly && XactDeferrable)
 		return GetSafeSnapshot(snapshot);
 
-	return RegisterSerializableTransactionInt(snapshot);
+	return GetSerializableTransactionSnapshotInt(snapshot,
+												 InvalidTransactionId);
 }
 
+/*
+ * Import a snapshot to be used for the current transaction.
+ *
+ * This is nearly the same as GetSerializableTransactionSnapshot, except that
+ * we don't take a new snapshot, but rather use the data we're handed.
+ *
+ * The caller must have verified that the snapshot came from a serializable
+ * transaction; and if we're read-write, the source transaction must not be
+ * read-only.
+ */
+void
+SetSerializableTransactionSnapshot(Snapshot snapshot,
+								   TransactionId sourcexid)
+{
+	Assert(IsolationIsSerializable());
+
+	/*
+	 * We do not allow SERIALIZABLE READ ONLY DEFERRABLE transactions to
+	 * import snapshots, since there's no way to wait for a safe snapshot when
+	 * we're using the snap we're told to.	(XXX instead of throwing an error,
+	 * we could just ignore the XactDeferrable flag?)
+	 */
+	if (XactReadOnly && XactDeferrable)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("a snapshot-importing transaction must not be READ ONLY DEFERRABLE")));
+
+	(void) GetSerializableTransactionSnapshotInt(snapshot, sourcexid);
+}
+
+/*
+ * Guts of GetSerializableTransactionSnapshot
+ *
+ * If sourcexid is valid, this is actually an import operation and we should
+ * skip calling GetSnapshotData, because the snapshot contents are already
+ * loaded up.  HOWEVER: to avoid race conditions, we must check that the
+ * source xact is still running after we acquire SerializableXactHashLock.
+ * We do that by calling ProcArrayInstallImportedXmin.
+ */
 static Snapshot
-RegisterSerializableTransactionInt(Snapshot snapshot)
+GetSerializableTransactionSnapshotInt(Snapshot snapshot,
+									  TransactionId sourcexid)
 {
 	PGPROC	   *proc;
 	VirtualTransactionId vxid;
@@ -1590,6 +1643,14 @@ RegisterSerializableTransactionInt(Snapshot snapshot)
 	/*
 	 * First we get the sxact structure, which may involve looping and access
 	 * to the "finished" list to free a structure for use.
+	 *
+	 * We must hold SerializableXactHashLock when taking/checking the snapshot
+	 * to avoid race conditions, for much the same reasons that
+	 * GetSnapshotData takes the ProcArrayLock.  Since we might have to
+	 * release SerializableXactHashLock to call SummarizeOldestCommittedSxact,
+	 * this means we have to create the sxact first, which is a bit annoying
+	 * (in particular, an elog(ERROR) in procarray.c would cause us to leak
+	 * the sxact).	Consider refactoring to avoid this.
 	 */
 #ifdef TEST_OLDSERXID
 	SummarizeOldestCommittedSxact();
@@ -1607,9 +1668,19 @@ RegisterSerializableTransactionInt(Snapshot snapshot)
 		}
 	} while (!sxact);
 
-	/* Get and register a snapshot */
-	snapshot = GetSnapshotData(snapshot);
-	snapshot = RegisterSnapshotOnOwner(snapshot, TopTransactionResourceOwner);
+	/* Get the snapshot, or check that it's safe to use */
+	if (!TransactionIdIsValid(sourcexid))
+		snapshot = GetSnapshotData(snapshot);
+	else if (!ProcArrayInstallImportedXmin(snapshot->xmin, sourcexid))
+	{
+		ReleasePredXact(sxact);
+		LWLockRelease(SerializableXactHashLock);
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("could not import the requested snapshot"),
+			   errdetail("The source transaction %u is not running anymore.",
+						 sourcexid)));
+	}
 
 	/*
 	 * If there are no serializable transactions which are not read-only, we
@@ -1942,7 +2013,7 @@ RestoreScratchTarget(bool lockheld)
 static void
 RemoveTargetIfNoLongerUsed(PREDICATELOCKTARGET *target, uint32 targettaghash)
 {
-	PREDICATELOCKTARGET *rmtarget;
+	PREDICATELOCKTARGET *rmtarget PG_USED_FOR_ASSERTS_ONLY;
 
 	Assert(LWLockHeldByMe(SerializablePredicateLockListLock));
 
@@ -2003,7 +2074,7 @@ DeleteChildTargetLocks(const PREDICATELOCKTARGETTAG *newtargettag)
 		{
 			uint32		oldtargettaghash;
 			LWLockId	partitionLock;
-			PREDICATELOCK *rmpredlock;
+			PREDICATELOCK *rmpredlock PG_USED_FOR_ASSERTS_ONLY;
 
 			oldtargettaghash = PredicateLockTargetTagHashCode(&oldtargettag);
 			partitionLock = PredicateLockHashPartitionLock(oldtargettaghash);
@@ -2156,7 +2227,7 @@ DecrementParentLocks(const PREDICATELOCKTARGETTAG *targettag)
 	{
 		uint32		targettaghash;
 		LOCALPREDICATELOCK *parentlock,
-				   *rmlock;
+				   *rmlock PG_USED_FOR_ASSERTS_ONLY;
 
 		parenttag = nexttag;
 		targettaghash = PredicateLockTargetTagHashCode(&parenttag);
@@ -2633,8 +2704,8 @@ TransferPredicateLocksToNewTarget(PREDICATELOCKTARGETTAG oldtargettag,
 			newpredlock = (PREDICATELOCK *)
 				hash_search_with_hash_value(PredicateLockHash,
 											&newpredlocktag,
-											PredicateLockHashCodeFromTargetHashCode(&newpredlocktag,
-																					newtargettaghash),
+					 PredicateLockHashCodeFromTargetHashCode(&newpredlocktag,
+														   newtargettaghash),
 											HASH_ENTER_NULL,
 											&found);
 			if (!newpredlock)
@@ -2874,8 +2945,8 @@ DropAllPredicateLocksFromTable(Relation relation, bool transfer)
 				newpredlock = (PREDICATELOCK *)
 					hash_search_with_hash_value(PredicateLockHash,
 												&newpredlocktag,
-												PredicateLockHashCodeFromTargetHashCode(&newpredlocktag,
-																						heaptargettaghash),
+					 PredicateLockHashCodeFromTargetHashCode(&newpredlocktag,
+														  heaptargettaghash),
 												HASH_ENTER,
 												&found);
 				if (!found)
@@ -3182,6 +3253,7 @@ ReleasePredicateLocks(bool isCommit)
 		 */
 		MySerializableXact->flags |= SXACT_FLAG_DOOMED;
 		MySerializableXact->flags |= SXACT_FLAG_ROLLED_BACK;
+
 		/*
 		 * If the transaction was previously prepared, but is now failing due
 		 * to a ROLLBACK PREPARED or (hopefully very rare) error after the
@@ -3457,10 +3529,29 @@ ClearOldPredicateLocks(void)
 		else if (finishedSxact->commitSeqNo > PredXact->HavePartialClearedThrough
 		   && finishedSxact->commitSeqNo <= PredXact->CanPartialClearThrough)
 		{
+			/*
+			 * Any active transactions that took their snapshot before this
+			 * transaction committed are read-only, so we can clear part of
+			 * its state.
+			 */
 			LWLockRelease(SerializableXactHashLock);
-			ReleaseOneSerializableXact(finishedSxact,
-									   !SxactIsReadOnly(finishedSxact),
-									   false);
+
+			if (SxactIsReadOnly(finishedSxact))
+			{
+				/* A read-only transaction can be removed entirely */
+				SHMQueueDelete(&(finishedSxact->finishedLink));
+				ReleaseOneSerializableXact(finishedSxact, false, false);
+			}
+			else
+			{
+				/*
+				 * A read-write transaction can only be partially cleared. We
+				 * need to keep the SERIALIZABLEXACT but can release the
+				 * SIREAD locks and conflicts in.
+				 */
+				ReleaseOneSerializableXact(finishedSxact, true, false);
+			}
+
 			PredXact->HavePartialClearedThrough = finishedSxact->commitSeqNo;
 			LWLockAcquire(SerializableXactHashLock, LW_SHARED);
 		}
@@ -3566,6 +3657,7 @@ ReleaseOneSerializableXact(SERIALIZABLEXACT *sxact, bool partial,
 
 	Assert(sxact != NULL);
 	Assert(SxactIsRolledBack(sxact) || SxactIsCommitted(sxact));
+	Assert(partial || !SxactIsOnFinishedList(sxact));
 	Assert(LWLockHeldByMe(SerializableFinishedListLock));
 
 	/*
@@ -3776,7 +3868,7 @@ CheckForSerializableConflictOut(bool visible, Relation relation,
 		ereport(ERROR,
 				(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 				 errmsg("could not serialize access due to read/write dependencies among transactions"),
-				 errdetail("Canceled on identification as a pivot, during conflict out checking."),
+				 errdetail_internal("Reason code: Canceled on identification as a pivot, during conflict out checking."),
 				 errhint("The transaction might succeed if retried.")));
 	}
 
@@ -3865,7 +3957,7 @@ CheckForSerializableConflictOut(bool visible, Relation relation,
 				ereport(ERROR,
 						(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 						 errmsg("could not serialize access due to read/write dependencies among transactions"),
-				errdetail("Canceled on conflict out to old pivot %u.", xid),
+						 errdetail_internal("Reason code: Canceled on conflict out to old pivot %u.", xid),
 					  errhint("The transaction might succeed if retried.")));
 
 			if (SxactHasSummaryConflictIn(MySerializableXact)
@@ -3873,7 +3965,7 @@ CheckForSerializableConflictOut(bool visible, Relation relation,
 				ereport(ERROR,
 						(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 						 errmsg("could not serialize access due to read/write dependencies among transactions"),
-						 errdetail("Canceled on identification as a pivot, with conflict out to old committed transaction %u.", xid),
+						 errdetail_internal("Reason code: Canceled on identification as a pivot, with conflict out to old committed transaction %u.", xid),
 					  errhint("The transaction might succeed if retried.")));
 
 			MySerializableXact->flags |= SXACT_FLAG_SUMMARY_CONFLICT_OUT;
@@ -3912,7 +4004,7 @@ CheckForSerializableConflictOut(bool visible, Relation relation,
 			ereport(ERROR,
 					(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 					 errmsg("could not serialize access due to read/write dependencies among transactions"),
-					 errdetail("Canceled on conflict out to old pivot."),
+					 errdetail_internal("Reason code: Canceled on conflict out to old pivot."),
 					 errhint("The transaction might succeed if retried.")));
 		}
 	}
@@ -4151,7 +4243,7 @@ CheckForSerializableConflictIn(Relation relation, HeapTuple tuple,
 		ereport(ERROR,
 				(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 				 errmsg("could not serialize access due to read/write dependencies among transactions"),
-				 errdetail("Canceled on identification as a pivot, during conflict in checking."),
+				 errdetail_internal("Reason code: Canceled on identification as a pivot, during conflict in checking."),
 				 errhint("The transaction might succeed if retried.")));
 
 	/*
@@ -4416,7 +4508,7 @@ OnConflict_CheckForSerializationFailure(const SERIALIZABLEXACT *reader,
 				&& (!SxactIsCommitted(writer)
 					|| t2->prepareSeqNo <= writer->commitSeqNo)
 				&& (!SxactIsReadOnly(reader)
-			   || t2->prepareSeqNo <= reader->SeqNo.lastCommitBeforeSnapshot))
+			  || t2->prepareSeqNo <= reader->SeqNo.lastCommitBeforeSnapshot))
 			{
 				failure = true;
 				break;
@@ -4461,7 +4553,7 @@ OnConflict_CheckForSerializationFailure(const SERIALIZABLEXACT *reader,
 				&& (!SxactIsCommitted(t0)
 					|| t0->commitSeqNo >= writer->prepareSeqNo)
 				&& (!SxactIsReadOnly(t0)
-			   || t0->SeqNo.lastCommitBeforeSnapshot >= writer->prepareSeqNo))
+			  || t0->SeqNo.lastCommitBeforeSnapshot >= writer->prepareSeqNo))
 			{
 				failure = true;
 				break;
@@ -4489,7 +4581,7 @@ OnConflict_CheckForSerializationFailure(const SERIALIZABLEXACT *reader,
 			ereport(ERROR,
 					(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 					 errmsg("could not serialize access due to read/write dependencies among transactions"),
-					 errdetail("Canceled on identification as a pivot, during write."),
+					 errdetail_internal("Reason code: Canceled on identification as a pivot, during write."),
 					 errhint("The transaction might succeed if retried.")));
 		}
 		else if (SxactIsPrepared(writer))
@@ -4501,7 +4593,7 @@ OnConflict_CheckForSerializationFailure(const SERIALIZABLEXACT *reader,
 			ereport(ERROR,
 					(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 					 errmsg("could not serialize access due to read/write dependencies among transactions"),
-					 errdetail("Canceled on conflict out to pivot %u, during read.", writer->topXid),
+					 errdetail_internal("Reason code: Canceled on conflict out to pivot %u, during read.", writer->topXid),
 					 errhint("The transaction might succeed if retried.")));
 		}
 		writer->flags |= SXACT_FLAG_DOOMED;
@@ -4543,7 +4635,7 @@ PreCommit_CheckForSerializationFailure(void)
 		ereport(ERROR,
 				(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 				 errmsg("could not serialize access due to read/write dependencies among transactions"),
-				 errdetail("Canceled on identification as a pivot, during commit attempt."),
+				 errdetail_internal("Reason code: Canceled on identification as a pivot, during commit attempt."),
 				 errhint("The transaction might succeed if retried.")));
 	}
 
@@ -4581,7 +4673,7 @@ PreCommit_CheckForSerializationFailure(void)
 						ereport(ERROR,
 								(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 								 errmsg("could not serialize access due to read/write dependencies among transactions"),
-								 errdetail("Canceled on commit attempt with conflict in from prepared pivot."),
+								 errdetail_internal("Reason code: Canceled on commit attempt with conflict in from prepared pivot."),
 								 errhint("The transaction might succeed if retried.")));
 					}
 					nearConflict->sxactOut->flags |= SXACT_FLAG_DOOMED;
@@ -4639,14 +4731,11 @@ AtPrepare_PredicateLocks(void)
 	xactRecord->flags = MySerializableXact->flags;
 
 	/*
-	 * Tweak the flags. Since we're not going to output the inConflicts and
-	 * outConflicts lists, if they're non-empty we'll represent that by
-	 * setting the appropriate summary conflict flags.
+	 * Note that we don't include the list of conflicts in our out in the
+	 * statefile, because new conflicts can be added even after the
+	 * transaction prepares. We'll just make a conservative assumption during
+	 * recovery instead.
 	 */
-	if (!SHMQueueEmpty(&MySerializableXact->inConflicts))
-		xactRecord->flags |= SXACT_FLAG_SUMMARY_CONFLICT_IN;
-	if (!SHMQueueEmpty(&MySerializableXact->outConflicts))
-		xactRecord->flags |= SXACT_FLAG_SUMMARY_CONFLICT_OUT;
 
 	RegisterTwoPhaseRecord(TWOPHASE_RM_PREDICATELOCK_ID, 0,
 						   &record, sizeof(record));
@@ -4781,15 +4870,6 @@ predicatelock_twophase_recover(TransactionId xid, uint16 info,
 
 		sxact->SeqNo.lastCommitBeforeSnapshot = RecoverySerCommitSeqNo;
 
-
-		/*
-		 * We don't need the details of a prepared transaction's conflicts,
-		 * just whether it had conflicts in or out (which we get from the
-		 * flags)
-		 */
-		SHMQueueInit(&(sxact->outConflicts));
-		SHMQueueInit(&(sxact->inConflicts));
-
 		/*
 		 * Don't need to track this; no transactions running at the time the
 		 * recovered xact started are still active, except possibly other
@@ -4810,6 +4890,16 @@ predicatelock_twophase_recover(TransactionId xid, uint16 info,
 			Assert(PredXact->WritableSxactCount <=
 				   (MaxBackends + max_prepared_xacts));
 		}
+
+		/*
+		 * We don't know whether the transaction had any conflicts or not, so
+		 * we'll conservatively assume that it had both a conflict in and a
+		 * conflict out, and represent that with the summary conflict flags.
+		 */
+		SHMQueueInit(&(sxact->outConflicts));
+		SHMQueueInit(&(sxact->inConflicts));
+		sxact->flags |= SXACT_FLAG_SUMMARY_CONFLICT_IN;
+		sxact->flags |= SXACT_FLAG_SUMMARY_CONFLICT_OUT;
 
 		/* Register the transaction's xid */
 		sxidtag.xid = xid;

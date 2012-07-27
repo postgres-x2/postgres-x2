@@ -4,7 +4,7 @@
  *	  Support routines for scanning Values lists
  *	  ("VALUES (...), (...), ..." in rangetable).
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -25,7 +25,7 @@
 
 #include "executor/executor.h"
 #include "executor/nodeValuesscan.h"
-#include "utils/memutils.h"
+#include "parser/parsetree.h"
 
 
 static TupleTableSlot *ValuesNext(ValuesScanState *node);
@@ -189,6 +189,8 @@ ValuesScanState *
 ExecInitValuesScan(ValuesScan *node, EState *estate, int eflags)
 {
 	ValuesScanState *scanstate;
+	RangeTblEntry *rte = rt_fetch(node->scan.scanrelid,
+								  estate->es_range_table);
 	TupleDesc	tupdesc;
 	ListCell   *vtl;
 	int			i;
@@ -240,7 +242,8 @@ ExecInitValuesScan(ValuesScan *node, EState *estate, int eflags)
 	/*
 	 * get info about values list
 	 */
-	tupdesc = ExecTypeFromExprList((List *) linitial(node->values_lists));
+	tupdesc = ExecTypeFromExprList((List *) linitial(node->values_lists),
+								   rte->eref->colnames);
 
 	ExecAssignScanType(&scanstate->ss, tupdesc);
 

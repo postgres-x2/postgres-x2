@@ -3,7 +3,7 @@
  * md.c
  *	  This code manages relations that reside on magnetic disk.
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -18,8 +18,9 @@
 #include <fcntl.h>
 #include <sys/file.h>
 
-#include "catalog/catalog.h"
 #include "miscadmin.h"
+#include "access/xlog.h"
+#include "catalog/catalog.h"
 #include "portability/instr_time.h"
 #include "postmaster/bgwriter.h"
 #include "storage/fd.h"
@@ -37,7 +38,7 @@
 /*
  * Special values for the segno arg to RememberFsyncRequest.
  *
- * Note that CompactBgwriterRequestQueue assumes that it's OK to remove an
+ * Note that CompactcheckpointerRequestQueue assumes that it's OK to remove an
  * fsync request from the queue if an identical, subsequent request is found.
  * See comments there before making changes here.
  */
@@ -76,7 +77,7 @@
  *	Inactive segments are those that once contained data but are currently
  *	not needed because of an mdtruncate() operation.  The reason for leaving
  *	them present at size zero, rather than unlinking them, is that other
- *	backends and/or the bgwriter might be holding open file references to
+ *	backends and/or the checkpointer might be holding open file references to
  *	such segments.	If the relation expands again after mdtruncate(), such
  *	that a deactivated segment becomes active again, it is important that
  *	such file references still be valid --- else data might get written
@@ -110,7 +111,7 @@ static MemoryContext MdCxt;		/* context for all md.c allocations */
 
 
 /*
- * In some contexts (currently, standalone backends and the bgwriter process)
+ * In some contexts (currently, standalone backends and the checkpointer process)
  * we keep track of pending fsync operations: we need to remember all relation
  * segments that have been written since the last checkpoint, so that we can
  * fsync them down to disk before completing the next checkpoint.  This hash
@@ -122,7 +123,7 @@ static MemoryContext MdCxt;		/* context for all md.c allocations */
  * a hash table, because we don't expect there to be any duplicate requests.
  *
  * (Regular backends do not track pending operations locally, but forward
- * them to the bgwriter.)
+ * them to the checkpointer.)
  */
 typedef struct
 {
@@ -193,7 +194,7 @@ mdinit(void)
 	 * Create pending-operations hashtable if we need it.  Currently, we need
 	 * it if we are standalone (not under a postmaster) OR if we are a
 	 * bootstrap-mode subprocess of a postmaster (that is, a startup or
-	 * bgwriter process).
+	 * checkpointer process).
 	 */
 	if (!IsUnderPostmaster || IsBootstrapProcessingMode())
 	{
@@ -213,10 +214,10 @@ mdinit(void)
 }
 
 /*
- * In archive recovery, we rely on bgwriter to do fsyncs, but we will have
+ * In archive recovery, we rely on checkpointer to do fsyncs, but we will have
  * already created the pendingOpsTable during initialization of the startup
  * process.  Calling this function drops the local pendingOpsTable so that
- * subsequent requests will be forwarded to bgwriter.
+ * subsequent requests will be forwarded to checkpointer.
  */
 void
 SetForwardFsyncRequests(void)
@@ -322,7 +323,13 @@ mdcreate(SMgrRelation reln, ForkNumber forkNum, bool isRedo)
  * number until it's safe, because relfilenode assignment skips over any
  * existing file.
  *
- * If isRedo is true, it's okay for the relation to be already gone.
+ * All the above applies only to the relation's main fork; other forks can
+ * just be removed immediately, since they are not needed to prevent the
+ * relfilenode number from being recycled.	Also, we do not carefully
+ * track whether other forks have been created or not, but just attempt to
+ * unlink them unconditionally; so we should never complain about ENOENT.
+ *
+ * If isRedo is true, it's unsurprising for the relation to be already gone.
  * Also, we should remove the file immediately instead of queuing a request
  * for later, since during redo there's no possibility of creating a
  * conflicting relation.
@@ -350,13 +357,10 @@ mdunlink(RelFileNodeBackend rnode, ForkNumber forkNum, bool isRedo)
 	if (isRedo || forkNum != MAIN_FORKNUM)
 	{
 		ret = unlink(path);
-		if (ret < 0)
-		{
-			if (!isRedo || errno != ENOENT)
-				ereport(WARNING,
-						(errcode_for_file_access(),
-						 errmsg("could not remove file \"%s\": %m", path)));
-		}
+		if (ret < 0 && errno != ENOENT)
+			ereport(WARNING,
+					(errcode_for_file_access(),
+					 errmsg("could not remove file \"%s\": %m", path)));
 	}
 	else
 	{
@@ -379,6 +383,9 @@ mdunlink(RelFileNodeBackend rnode, ForkNumber forkNum, bool isRedo)
 			ereport(WARNING,
 					(errcode_for_file_access(),
 					 errmsg("could not truncate file \"%s\": %m", path)));
+
+		/* Register request to unlink first segment later */
+		register_unlink(rnode);
 	}
 
 	/*
@@ -410,10 +417,6 @@ mdunlink(RelFileNodeBackend rnode, ForkNumber forkNum, bool isRedo)
 	}
 
 	pfree(path);
-
-	/* Register request to unlink first segment later */
-	if (!isRedo && forkNum == MAIN_FORKNUM)
-		register_unlink(rnode);
 }
 
 /*
@@ -764,9 +767,10 @@ mdnblocks(SMgrRelation reln, ForkNumber forknum)
 	 * NOTE: this assumption could only be wrong if another backend has
 	 * truncated the relation.	We rely on higher code levels to handle that
 	 * scenario by closing and re-opening the md fd, which is handled via
-	 * relcache flush.	(Since the bgwriter doesn't participate in relcache
-	 * flush, it could have segment chain entries for inactive segments;
-	 * that's OK because the bgwriter never needs to compute relation size.)
+	 * relcache flush.	(Since the checkpointer doesn't participate in
+	 * relcache flush, it could have segment chain entries for inactive
+	 * segments; that's OK because the checkpointer never needs to compute
+	 * relation size.)
 	 */
 	while (v->mdfd_chain != NULL)
 	{
@@ -956,7 +960,7 @@ mdsync(void)
 		elog(ERROR, "cannot sync without a pendingOpsTable");
 
 	/*
-	 * If we are in the bgwriter, the sync had better include all fsync
+	 * If we are in the checkpointer, the sync had better include all fsync
 	 * requests that were queued by backends up to this point.	The tightest
 	 * race condition that could occur is that a buffer that must be written
 	 * and fsync'd for the checkpoint could have been dumped by a backend just
@@ -1032,7 +1036,7 @@ mdsync(void)
 			int			failures;
 
 			/*
-			 * If in bgwriter, we want to absorb pending requests every so
+			 * If in checkpointer, we want to absorb pending requests every so
 			 * often to prevent overflow of the fsync request queue.  It is
 			 * unspecified whether newly-added entries will be visited by
 			 * hash_seq_search, but we don't care since we don't need to
@@ -1069,12 +1073,13 @@ mdsync(void)
 				 * say "but an unreferenced SMgrRelation is still a leak!" Not
 				 * really, because the only case in which a checkpoint is done
 				 * by a process that isn't about to shut down is in the
-				 * bgwriter, and it will periodically do smgrcloseall(). This
-				 * fact justifies our not closing the reln in the success path
-				 * either, which is a good thing since in non-bgwriter cases
-				 * we couldn't safely do that.)  Furthermore, in many cases
-				 * the relation will have been dirtied through this same smgr
-				 * relation, and so we can save a file open/close cycle.
+				 * checkpointer, and it will periodically do smgrcloseall().
+				 * This fact justifies our not closing the reln in the success
+				 * path either, which is a good thing since in
+				 * non-checkpointer cases we couldn't safely do that.)
+				 * Furthermore, in many cases the relation will have been
+				 * dirtied through this same smgr relation, and so we can save
+				 * a file open/close cycle.
 				 */
 				reln = smgropen(entry->tag.rnode.node,
 								entry->tag.rnode.backend);
@@ -1091,27 +1096,22 @@ mdsync(void)
 							  entry->tag.segno * ((BlockNumber) RELSEG_SIZE),
 								   false, EXTENSION_RETURN_NULL);
 
-				if (log_checkpoints)
-					INSTR_TIME_SET_CURRENT(sync_start);
-				else
-					INSTR_TIME_SET_ZERO(sync_start);
+				INSTR_TIME_SET_CURRENT(sync_start);
 
 				if (seg != NULL &&
 					FileSync(seg->mdfd_vfd) >= 0)
 				{
-					if (log_checkpoints && (!INSTR_TIME_IS_ZERO(sync_start)))
-					{
-						INSTR_TIME_SET_CURRENT(sync_end);
-						sync_diff = sync_end;
-						INSTR_TIME_SUBTRACT(sync_diff, sync_start);
-						elapsed = INSTR_TIME_GET_MICROSEC(sync_diff);
-						if (elapsed > longest)
-							longest = elapsed;
-						total_elapsed += elapsed;
-						processed++;
+					INSTR_TIME_SET_CURRENT(sync_end);
+					sync_diff = sync_end;
+					INSTR_TIME_SUBTRACT(sync_diff, sync_start);
+					elapsed = INSTR_TIME_GET_MICROSEC(sync_diff);
+					if (elapsed > longest)
+						longest = elapsed;
+					total_elapsed += elapsed;
+					processed++;
+					if (log_checkpoints)
 						elog(DEBUG1, "checkpoint sync: number=%d file=%s time=%.3f msec",
 							 processed, FilePathName(seg->mdfd_vfd), (double) elapsed / 1000);
-					}
 
 					break;		/* success; break out of retry loop */
 				}
@@ -1300,7 +1300,7 @@ register_unlink(RelFileNodeBackend rnode)
 	else
 	{
 		/*
-		 * Notify the bgwriter about it.  If we fail to queue the request
+		 * Notify the checkpointer about it.  If we fail to queue the request
 		 * message, we have to sleep and try again, because we can't simply
 		 * delete the file now.  Ugly, but hopefully won't happen often.
 		 *
@@ -1314,10 +1314,10 @@ register_unlink(RelFileNodeBackend rnode)
 }
 
 /*
- * RememberFsyncRequest() -- callback from bgwriter side of fsync request
+ * RememberFsyncRequest() -- callback from checkpointer side of fsync request
  *
  * We stuff most fsync requests into the local hash table for execution
- * during the bgwriter's next checkpoint.  UNLINK requests go into a
+ * during the checkpointer's next checkpoint.  UNLINK requests go into a
  * separate linked list, however, because they get processed separately.
  *
  * The range of possible segment numbers is way less than the range of
@@ -1459,21 +1459,21 @@ ForgetRelationFsyncRequests(RelFileNodeBackend rnode, ForkNumber forknum)
 	else if (IsUnderPostmaster)
 	{
 		/*
-		 * Notify the bgwriter about it.  If we fail to queue the revoke
+		 * Notify the checkpointer about it.  If we fail to queue the revoke
 		 * message, we have to sleep and try again ... ugly, but hopefully
 		 * won't happen often.
 		 *
 		 * XXX should we CHECK_FOR_INTERRUPTS in this loop?  Escaping with an
 		 * error would leave the no-longer-used file still present on disk,
-		 * which would be bad, so I'm inclined to assume that the bgwriter
+		 * which would be bad, so I'm inclined to assume that the checkpointer
 		 * will always empty the queue soon.
 		 */
 		while (!ForwardFsyncRequest(rnode, forknum, FORGET_RELATION_FSYNC))
 			pg_usleep(10000L);	/* 10 msec seems a good number */
 
 		/*
-		 * Note we don't wait for the bgwriter to actually absorb the revoke
-		 * message; see mdsync() for the implications.
+		 * Note we don't wait for the checkpointer to actually absorb the
+		 * revoke message; see mdsync() for the implications.
 		 */
 	}
 }

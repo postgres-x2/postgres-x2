@@ -9,7 +9,7 @@
  * See utils/resowner/README for more info.
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -21,12 +21,10 @@
 #include "postgres.h"
 
 #include "access/hash.h"
-#include "storage/bufmgr.h"
 #include "storage/predicate.h"
 #include "storage/proc.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
-#include "utils/resowner.h"
 #include "utils/snapmgr.h"
 
 

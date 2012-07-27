@@ -5,7 +5,7 @@
  *	  along with the relation's initial contents.
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/catalog/pg_constraint.h
@@ -88,9 +88,10 @@ CATALOG(pg_constraint,2606)
 	/* Number of times inherited from direct parent relation(s) */
 	int4		coninhcount;
 
-	/*
-	 * VARIABLE LENGTH FIELDS start here.  These fields may be NULL, too.
-	 */
+	/* Has a local definition and cannot be inherited */
+	bool		connoinherit;
+
+#ifdef CATALOG_VARLEN			/* variable-length fields start here */
 
 	/*
 	 * Columns of conrelid that the constraint applies to, if known (this is
@@ -136,6 +137,7 @@ CATALOG(pg_constraint,2606)
 	 * If a check constraint, source-text representation of expression
 	 */
 	text		consrc;
+#endif
 } FormData_pg_constraint;
 
 /* ----------------
@@ -149,7 +151,7 @@ typedef FormData_pg_constraint *Form_pg_constraint;
  *		compiler constants for pg_constraint
  * ----------------
  */
-#define Natts_pg_constraint					23
+#define Natts_pg_constraint					24
 #define Anum_pg_constraint_conname			1
 #define Anum_pg_constraint_connamespace		2
 #define Anum_pg_constraint_contype			3
@@ -165,14 +167,15 @@ typedef FormData_pg_constraint *Form_pg_constraint;
 #define Anum_pg_constraint_confmatchtype	13
 #define Anum_pg_constraint_conislocal		14
 #define Anum_pg_constraint_coninhcount		15
-#define Anum_pg_constraint_conkey			16
-#define Anum_pg_constraint_confkey			17
-#define Anum_pg_constraint_conpfeqop		18
-#define Anum_pg_constraint_conppeqop		19
-#define Anum_pg_constraint_conffeqop		20
-#define Anum_pg_constraint_conexclop		21
-#define Anum_pg_constraint_conbin			22
-#define Anum_pg_constraint_consrc			23
+#define Anum_pg_constraint_connoinherit		16
+#define Anum_pg_constraint_conkey			17
+#define Anum_pg_constraint_confkey			18
+#define Anum_pg_constraint_conpfeqop		19
+#define Anum_pg_constraint_conppeqop		20
+#define Anum_pg_constraint_conffeqop		21
+#define Anum_pg_constraint_conexclop		22
+#define Anum_pg_constraint_conbin			23
+#define Anum_pg_constraint_consrc			24
 
 
 /* Valid values for contype */
@@ -227,7 +230,8 @@ extern Oid CreateConstraintEntry(const char *constraintName,
 					  const char *conBin,
 					  const char *conSrc,
 					  bool conIsLocal,
-					  int conInhCount);
+					  int conInhCount,
+					  bool conIsOnly);
 
 extern void RemoveConstraintById(Oid conId);
 extern void RenameConstraintById(Oid conId, const char *newname);
@@ -241,7 +245,8 @@ extern char *ChooseConstraintName(const char *name1, const char *name2,
 
 extern void AlterConstraintNamespaces(Oid ownerId, Oid oldNspId,
 						  Oid newNspId, bool isType);
-extern Oid	get_constraint_oid(Oid relid, const char *conname, bool missing_ok);
+extern Oid	get_relation_constraint_oid(Oid relid, const char *conname, bool missing_ok);
+extern Oid	get_domain_constraint_oid(Oid typid, const char *conname, bool missing_ok);
 
 extern bool check_functional_grouping(Oid relid,
 						  Index varno, Index varlevelsup,

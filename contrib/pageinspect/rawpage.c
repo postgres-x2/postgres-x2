@@ -5,7 +5,7 @@
  *
  * Access-method specific inspection functions are in separate files.
  *
- * Copyright (c) 2007-2011, PostgreSQL Global Development Group
+ * Copyright (c) 2007-2012, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  contrib/pageinspect/rawpage.c
@@ -15,12 +15,8 @@
 
 #include "postgres.h"
 
-#include "access/heapam.h"
-#include "access/transam.h"
 #include "catalog/catalog.h"
 #include "catalog/namespace.h"
-#include "catalog/pg_type.h"
-#include "fmgr.h"
 #include "funcapi.h"
 #include "miscadmin.h"
 #include "storage/bufmgr.h"

@@ -4,7 +4,7 @@
  *	  WAL replay logic for GiST.
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -15,10 +15,7 @@
 
 #include "access/gist_private.h"
 #include "access/xlogutils.h"
-#include "miscadmin.h"
-#include "storage/bufmgr.h"
 #include "utils/memutils.h"
-#include "utils/rel.h"
 
 typedef struct
 {
@@ -266,7 +263,8 @@ gistRedoPageSplitRecord(XLogRecPtr lsn, XLogRecord *record)
 			else
 				GistPageGetOpaque(page)->rightlink = xldata->origrlink;
 			GistPageGetOpaque(page)->nsn = xldata->orignsn;
-			if (i < xlrec.data->npage - 1 && !isrootsplit)
+			if (i < xlrec.data->npage - 1 && !isrootsplit &&
+				xldata->markfollowright)
 				GistMarkFollowRight(page);
 			else
 				GistClearFollowRight(page);
@@ -414,7 +412,7 @@ XLogRecPtr
 gistXLogSplit(RelFileNode node, BlockNumber blkno, bool page_is_leaf,
 			  SplitedPageLayout *dist,
 			  BlockNumber origrlink, GistNSN orignsn,
-			  Buffer leftchildbuf)
+			  Buffer leftchildbuf, bool markfollowright)
 {
 	XLogRecData *rdata;
 	gistxlogPageSplit xlrec;
@@ -436,6 +434,7 @@ gistXLogSplit(RelFileNode node, BlockNumber blkno, bool page_is_leaf,
 	xlrec.npage = (uint16) npage;
 	xlrec.leftchild =
 		BufferIsValid(leftchildbuf) ? BufferGetBlockNumber(leftchildbuf) : InvalidBlockNumber;
+	xlrec.markfollowright = markfollowright;
 
 	rdata[0].data = (char *) &xlrec;
 	rdata[0].len = sizeof(gistxlogPageSplit);

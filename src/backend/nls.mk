@@ -12,10 +12,10 @@ GETTEXT_FLAGS    = $(BACKEND_COMMON_GETTEXT_FLAGS) \
     write_stderr:1:c-format
 
 gettext-files: distprep
-	find $(srcdir)/ $(srcdir)/../port/ -name '*.c' -print >$@
+	find $(srcdir)/ $(srcdir)/../port/ -name '*.c' -print | LC_ALL=C sort >$@
 
-my-maintainer-clean:
+my-clean:
 	rm -f gettext-files
 
-.PHONY: my-maintainer-clean
-maintainer-clean: my-maintainer-clean
+.PHONY: my-clean
+clean: my-clean

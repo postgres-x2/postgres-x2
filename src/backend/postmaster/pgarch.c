@@ -14,7 +14,7 @@
  *
  *	Initial author: Simon Riggs		simon@2ndquadrant.com
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -288,16 +288,21 @@ pgarch_exit(SIGNAL_ARGS)
 static void
 ArchSigHupHandler(SIGNAL_ARGS)
 {
+	int			save_errno = errno;
+
 	/* set flag to re-read config file at next convenient time */
 	got_SIGHUP = true;
-	/* let the waiting loop iterate */
 	SetLatch(&mainloop_latch);
+
+	errno = save_errno;
 }
 
 /* SIGTERM signal handler for archiver process */
 static void
 ArchSigTermHandler(SIGNAL_ARGS)
 {
+	int			save_errno = errno;
+
 	/*
 	 * The postmaster never sends us SIGTERM, so we assume that this means
 	 * that init is trying to shut down the whole system.  If we hang around
@@ -305,28 +310,35 @@ ArchSigTermHandler(SIGNAL_ARGS)
 	 * archive commands.
 	 */
 	got_SIGTERM = true;
-	/* let the waiting loop iterate */
 	SetLatch(&mainloop_latch);
+
+	errno = save_errno;
 }
 
 /* SIGUSR1 signal handler for archiver process */
 static void
 pgarch_waken(SIGNAL_ARGS)
 {
+	int			save_errno = errno;
+
 	/* set flag that there is work to be done */
 	wakened = true;
-	/* let the waiting loop iterate */
 	SetLatch(&mainloop_latch);
+
+	errno = save_errno;
 }
 
 /* SIGUSR2 signal handler for archiver process */
 static void
 pgarch_waken_stop(SIGNAL_ARGS)
 {
+	int			save_errno = errno;
+
 	/* set flag to do a final cycle and shut down afterwards */
 	ready_to_stop = true;
-	/* let the waiting loop iterate */
 	SetLatch(&mainloop_latch);
+
+	errno = save_errno;
 }
 
 /*
@@ -349,9 +361,9 @@ pgarch_MainLoop(void)
 	wakened = true;
 
 	/*
-	 * There shouldn't be anything for the archiver to do except to wait
-	 * for a signal ... however, the archiver exists to protect our data,
-	 * so she wakes up occasionally to allow herself to be proactive.
+	 * There shouldn't be anything for the archiver to do except to wait for a
+	 * signal ... however, the archiver exists to protect our data, so she
+	 * wakes up occasionally to allow herself to be proactive.
 	 */
 	do
 	{
@@ -398,18 +410,19 @@ pgarch_MainLoop(void)
 		 * PGARCH_AUTOWAKE_INTERVAL having passed since last_copy_time, or
 		 * until postmaster dies.
 		 */
-		if (!time_to_stop) /* Don't wait during last iteration */
+		if (!time_to_stop)		/* Don't wait during last iteration */
 		{
-			pg_time_t curtime = (pg_time_t) time(NULL);
-			int		timeout;
+			pg_time_t	curtime = (pg_time_t) time(NULL);
+			int			timeout;
 
 			timeout = PGARCH_AUTOWAKE_INTERVAL - (curtime - last_copy_time);
 			if (timeout > 0)
 			{
-				int rc;
+				int			rc;
+
 				rc = WaitLatch(&mainloop_latch,
-							   WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
-							   timeout * 1000000L);
+							 WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
+							   timeout * 1000L);
 				if (rc & WL_TIMEOUT)
 					wakened = true;
 			}

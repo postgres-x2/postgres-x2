@@ -3,7 +3,7 @@
  * parse_clause.c
  *	  handle clauses in parser
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -23,7 +23,6 @@
 #include "nodes/nodeFuncs.h"
 #include "optimizer/clauses.h"
 #include "optimizer/tlist.h"
-#include "optimizer/var.h"
 #include "parser/analyze.h"
 #include "parser/parsetree.h"
 #include "parser/parse_clause.h"
@@ -496,12 +495,6 @@ transformRangeSubselect(ParseState *pstate, RangeSubselect *r)
 		query->commandType != CMD_SELECT ||
 		query->utilityStmt != NULL)
 		elog(ERROR, "unexpected non-SELECT command in subquery in FROM");
-	if (query->intoClause)
-		ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("subquery in FROM cannot have SELECT INTO"),
-				 parser_errposition(pstate,
-								 exprLocation((Node *) query->intoClause))));
 
 	/*
 	 * The subquery cannot make use of any variables from FROM items created
@@ -2277,26 +2270,4 @@ transformFrameOffset(ParseState *pstate, int frameOptions, Node *clause)
 	checkExprIsVarFree(pstate, node, constructName);
 
 	return node;
-}
-
-/*
- * relabel_to_typmod
- *		Add a RelabelType node that changes just the typmod, and remove all
- *		now-superfluous RelabelType nodes beneath it.
- */
-Node *
-relabel_to_typmod(Node *expr, int32 typmod)
-{
-	Oid			type = exprType(expr);
-	Oid			coll = exprCollation(expr);
-
-	/*
-	 * Strip any existing RelabelType, then add one. This is to preserve the
-	 * invariant of no redundant RelabelTypes.
-	 */
-	while (IsA(expr, RelabelType))
-		expr = (Node *) ((RelabelType *) expr)->arg;
-
-	return (Node *) makeRelabelType((Expr *) expr, type, typmod, coll,
-									COERCE_DONTCARE);
 }

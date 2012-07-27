@@ -4,7 +4,7 @@
  *	  POSTGRES relation descriptor (a/k/a relcache entry) definitions.
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2012 Postgres-XC Development Group
  *
@@ -68,6 +68,7 @@ typedef struct RelationAmInfo
 	FmgrInfo	ambuildempty;
 	FmgrInfo	ambulkdelete;
 	FmgrInfo	amvacuumcleanup;
+	FmgrInfo	amcanreturn;
 	FmgrInfo	amcostestimate;
 	FmgrInfo	amoptions;
 } RelationAmInfo;
@@ -162,7 +163,8 @@ typedef struct RelationData
 	 * have the existing toast table's OID, not the OID of the transient toast
 	 * table.  If rd_toastoid isn't InvalidOid, it is the OID to place in
 	 * toast pointers inserted into this rel.  (Note it's set on the new
-	 * version of the main heap, not the toast table itself.)
+	 * version of the main heap, not the toast table itself.)  This also
+	 * causes toast_save_datum() to try to preserve toast value OIDs.
 	 */
 	Oid			rd_toastoid;	/* Real TOAST table's OID, or InvalidOid */
 
@@ -201,6 +203,7 @@ typedef struct StdRdOptions
 	int32		vl_len_;		/* varlena header (do not touch directly!) */
 	int			fillfactor;		/* page fill factor in percent (0..100) */
 	AutoVacOpts autovacuum;		/* autovacuum-related options */
+	bool		security_barrier;		/* for views */
 } StdRdOptions;
 
 #define HEAP_MIN_FILLFACTOR			10
@@ -227,6 +230,14 @@ typedef struct StdRdOptions
  */
 #define RelationGetTargetPageFreeSpace(relation, defaultff) \
 	(BLCKSZ * (100 - RelationGetFillFactor(relation, defaultff)) / 100)
+
+/*
+ * RelationIsSecurityView
+ *		Returns whether the relation is security view, or not
+ */
+#define RelationIsSecurityView(relation)	\
+	((relation)->rd_options ?				\
+	 ((StdRdOptions *) (relation)->rd_options)->security_barrier : false)
 
 /*
  * RelationIsValid

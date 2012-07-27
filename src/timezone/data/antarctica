@@ -1,5 +1,5 @@
 # <pre>
-# @(#)antarctica	8.8
+# @(#)antarctica	8.10
 # This file is in the public domain, so clarified as of
 # 2009-05-17 by Arthur David Olson.
 
@@ -18,18 +18,6 @@
 # Except for the French entries,
 # I made up all time zone abbreviations mentioned here; corrections welcome!
 # FORMAT is `zzz' and GMTOFF is 0 for locations while uninhabited.
-
-# These rules are stolen from the `europe' file.
-# Rule	NAME	FROM	TO	TYPE	IN	ON	AT	SAVE	LETTER/S
-Rule	RussAQ	1981	1984	-	Apr	 1	 0:00	1:00	S
-Rule	RussAQ	1981	1983	-	Oct	 1	 0:00	0	-
-Rule	RussAQ	1984	1991	-	Sep	lastSun	 2:00s	0	-
-Rule	RussAQ	1985	1991	-	Mar	lastSun	 2:00s	1:00	S
-Rule	RussAQ	1992	only	-	Mar	lastSat	 23:00	1:00	S
-Rule	RussAQ	1992	only	-	Sep	lastSat	 23:00	0	-
-Rule	RussAQ	1993	max	-	Mar	lastSun	 2:00s	1:00	S
-Rule	RussAQ	1993	1995	-	Sep	lastSun	 2:00s	0	-
-Rule	RussAQ	1996	max	-	Oct	lastSun	 2:00s	0	-
 
 # These rules are stolen from the `southamerica' file.
 # Rule	NAME	FROM	TO	TYPE	IN	ON	AT	SAVE	LETTER/S
@@ -54,8 +42,19 @@ Rule	ChileAQ	1997	only	-	Mar	30	3:00u	0	-
 Rule	ChileAQ	1998	only	-	Mar	Sun>=9	3:00u	0	-
 Rule	ChileAQ	1998	only	-	Sep	27	4:00u	1:00	S
 Rule	ChileAQ	1999	only	-	Apr	 4	3:00u	0	-
-Rule	ChileAQ	1999	max	-	Oct	Sun>=9	4:00u	1:00	S
-Rule	ChileAQ	2000	max	-	Mar	Sun>=9	3:00u	0	-
+Rule	ChileAQ	1999	2010	-	Oct	Sun>=9	4:00u	1:00	S
+Rule	ChileAQ	2000	2007	-	Mar	Sun>=9	3:00u	0	-
+# N.B.: the end of March 29 in Chile is March 30 in Universal time,
+# which is used below in specifying the transition.
+Rule	ChileAQ	2008	only	-	Mar	30	3:00u	0	-
+Rule	ChileAQ	2009	only	-	Mar	Sun>=9	3:00u	0	-
+Rule	ChileAQ	2010	only	-	Apr	Sun>=1	3:00u	0	-
+Rule	ChileAQ	2011	only	-	May	Sun>=2	3:00u	0	-
+Rule	ChileAQ	2011	only	-	Aug	Sun>=16	4:00u	1:00	S
+Rule	ChileAQ	2012	only	-	Apr	Sun>=23	3:00u	0	-
+Rule	ChileAQ	2012	only	-	Sep	Sun>=2	4:00u	1:00	S
+Rule	ChileAQ	2013	max	-	Mar	Sun>=9	3:00u	0	-
+Rule	ChileAQ	2013	max	-	Oct	Sun>=9	4:00u	1:00	S
 
 # These rules are stolen from the `australasia' file.
 Rule	AusAQ	1917	only	-	Jan	 1	0:01	1:00	-
@@ -154,12 +153,16 @@ Zone Antarctica/Casey	0	-	zzz	1969
 						# Western (Aus) Standard Time
 			11:00	-	CAST	2010 Mar 5 2:00
 						# Casey Time
+			8:00	-	WST	2011 Oct 28 2:00
+			11:00	-	CAST	2012 Feb 21 17:00u
 			8:00	-	WST
 Zone Antarctica/Davis	0	-	zzz	1957 Jan 13
 			7:00	-	DAVT	1964 Nov # Davis Time
 			0	-	zzz	1969 Feb
 			7:00	-	DAVT	2009 Oct 18 2:00
 			5:00	-	DAVT	2010 Mar 10 20:00u
+			7:00	-	DAVT	2011 Oct 28 2:00
+			5:00	-	DAVT	2012 Feb 21 20:00u
 			7:00	-	DAVT
 Zone Antarctica/Mawson	0	-	zzz	1954 Feb 13
 			6:00	-	MAWT	2009 Oct 18 2:00

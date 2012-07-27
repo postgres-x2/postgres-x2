@@ -9,7 +9,7 @@
  *	  polluting the namespace with lots of stuff...
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/c.h
@@ -58,7 +58,7 @@
 #endif
 #include "postgres_ext.h"
 
-#if _MSC_VER >= 1400 || defined(WIN64)
+#if _MSC_VER >= 1400 || defined(HAVE_CRTDEFS_H)
 #define errcode __msvc_errcode
 #include <crtdefs.h>
 #undef errcode
@@ -80,9 +80,6 @@
 #include <errno.h>
 #if defined(WIN32) || defined(__CYGWIN__)
 #include <fcntl.h>				/* ensure O_BINARY is available */
-#endif
-#ifdef HAVE_SUPPORTDEFS_H
-#include <SupportDefs.h>
 #endif
 
 #if defined(WIN32) || defined(__CYGWIN__)
@@ -478,7 +475,7 @@ typedef NameData *Name;
  * PointerIsValid
  *		True iff pointer is valid.
  */
-#define PointerIsValid(pointer) ((void*)(pointer) != NULL)
+#define PointerIsValid(pointer) ((const void*)(pointer) != NULL)
 
 /*
  * PointerIsAligned
@@ -708,6 +705,18 @@ typedef NameData *Name;
 #define STATUS_EOF				(-2)
 #define STATUS_FOUND			(1)
 #define STATUS_WAITING			(2)
+
+
+/*
+ * Append PG_USED_FOR_ASSERTS_ONLY to definitions of variables that are only
+ * used in assert-enabled builds, to avoid compiler warnings about unused
+ * variables in assert-disabled builds.
+ */
+#ifdef USE_ASSERT_CHECKING
+#define PG_USED_FOR_ASSERTS_ONLY
+#else
+#define PG_USED_FOR_ASSERTS_ONLY __attribute__((unused))
+#endif
 
 
 /* gettext domain name mangling */

@@ -140,7 +140,8 @@ inner_int_inter(ArrayType *a, ArrayType *b)
 			   *db,
 			   *dr;
 	int			i,
-				j;
+				j,
+				k;
 
 	if (ARRISEMPTY(a) || ARRISEMPTY(b))
 		return new_intArrayType(0);
@@ -152,15 +153,15 @@ inner_int_inter(ArrayType *a, ArrayType *b)
 	r = new_intArrayType(Min(na, nb));
 	dr = ARRPTR(r);
 
-	i = j = 0;
+	i = j = k = 0;
 	while (i < na && j < nb)
 	{
 		if (da[i] < db[j])
 			i++;
 		else if (da[i] == db[j])
 		{
-			if (i + j == 0 || (i + j > 0 && *(dr - 1) != db[j]))
-				*dr++ = db[j];
+			if (k == 0 || dr[k - 1] != db[j])
+				dr[k++] = db[j];
 			i++;
 			j++;
 		}
@@ -168,13 +169,13 @@ inner_int_inter(ArrayType *a, ArrayType *b)
 			j++;
 	}
 
-	if ((dr - ARRPTR(r)) == 0)
+	if (k == 0)
 	{
 		pfree(r);
 		return new_intArrayType(0);
 	}
 	else
-		return resize_intArrayType(r, dr - ARRPTR(r));
+		return resize_intArrayType(r, k);
 }
 
 void
@@ -388,15 +389,15 @@ int_to_intset(int32 n)
 int
 compASC(const void *a, const void *b)
 {
-	if (*(int4 *) a == *(int4 *) b)
+	if (*(const int4 *) a == *(const int4 *) b)
 		return 0;
-	return (*(int4 *) a > *(int4 *) b) ? 1 : -1;
+	return (*(const int4 *) a > *(const int4 *) b) ? 1 : -1;
 }
 
 int
 compDESC(const void *a, const void *b)
 {
-	if (*(int4 *) a == *(int4 *) b)
+	if (*(const int4 *) a == *(const int4 *) b)
 		return 0;
-	return (*(int4 *) a < *(int4 *) b) ? 1 : -1;
+	return (*(const int4 *) a < *(const int4 *) b) ? 1 : -1;
 }

@@ -4,7 +4,7 @@
  *	  WAL replay logic for btrees.
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -16,10 +16,7 @@
 
 #include "access/nbtree.h"
 #include "access/transam.h"
-#include "access/xact.h"
-#include "storage/bufmgr.h"
 #include "storage/procarray.h"
-#include "storage/standby.h"
 #include "miscadmin.h"
 
 /*
@@ -542,7 +539,7 @@ btree_xlog_vacuum(XLogRecPtr lsn, XLogRecord *record)
 
 	/*
 	 * Mark the page as not containing any LP_DEAD items --- see comments in
-	 * _bt_delitems().
+	 * _bt_delitems_vacuum().
 	 */
 	opaque = (BTPageOpaque) PageGetSpecialPointer(page);
 	opaque->btpo_flags &= ~BTP_HAS_GARBAGE;
@@ -723,7 +720,7 @@ btree_xlog_delete(XLogRecPtr lsn, XLogRecord *record)
 
 	/*
 	 * Mark the page as not containing any LP_DEAD items --- see comments in
-	 * _bt_delitems().
+	 * _bt_delitems_delete().
 	 */
 	opaque = (BTPageOpaque) PageGetSpecialPointer(page);
 	opaque->btpo_flags &= ~BTP_HAS_GARBAGE;
@@ -971,7 +968,11 @@ btree_redo(XLogRecPtr lsn, XLogRecord *record)
 				/*
 				 * Btree reuse page records exist to provide a conflict point
 				 * when we reuse pages in the index via the FSM. That's all it
-				 * does though.
+				 * does though. latestRemovedXid was the page's btpo.xact. The
+				 * btpo.xact < RecentGlobalXmin test in _bt_page_recyclable()
+				 * conceptually mirrors the pgxact->xmin > limitXmin test in
+				 * GetConflictingVirtualXIDs().  Consequently, one XID value
+				 * achieves the same exclusion effect on master and standby.
 				 */
 				{
 					xl_btree_reuse_page *xlrec = (xl_btree_reuse_page *) XLogRecGetData(record);

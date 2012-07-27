@@ -3,7 +3,7 @@
  * varlena.c
  *	  Functions for the variable-length built-in types.
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -396,6 +396,60 @@ byteasend(PG_FUNCTION_ARGS)
 	PG_RETURN_BYTEA_P(vlena);
 }
 
+Datum
+bytea_string_agg_transfn(PG_FUNCTION_ARGS)
+{
+	StringInfo	state;
+
+	state = PG_ARGISNULL(0) ? NULL : (StringInfo) PG_GETARG_POINTER(0);
+
+	/* Append the value unless null. */
+	if (!PG_ARGISNULL(1))
+	{
+		bytea	   *value = PG_GETARG_BYTEA_PP(1);
+
+		/* On the first time through, we ignore the delimiter. */
+		if (state == NULL)
+			state = makeStringAggState(fcinfo);
+		else if (!PG_ARGISNULL(2))
+		{
+			bytea	   *delim = PG_GETARG_BYTEA_PP(2);
+
+			appendBinaryStringInfo(state, VARDATA_ANY(delim), VARSIZE_ANY_EXHDR(delim));
+		}
+
+		appendBinaryStringInfo(state, VARDATA_ANY(value), VARSIZE_ANY_EXHDR(value));
+	}
+
+	/*
+	 * The transition type for string_agg() is declared to be "internal",
+	 * which is a pass-by-value type the same size as a pointer.
+	 */
+	PG_RETURN_POINTER(state);
+}
+
+Datum
+bytea_string_agg_finalfn(PG_FUNCTION_ARGS)
+{
+	StringInfo	state;
+
+	/* cannot be called directly because of internal-type argument */
+	Assert(AggCheckCallContext(fcinfo, NULL));
+
+	state = PG_ARGISNULL(0) ? NULL : (StringInfo) PG_GETARG_POINTER(0);
+
+	if (state != NULL)
+	{
+		bytea	   *result;
+
+		result = (bytea *) palloc(state->len + VARHDRSZ);
+		SET_VARSIZE(result, state->len + VARHDRSZ);
+		memcpy(VARDATA(result), state->data, state->len);
+		PG_RETURN_BYTEA_P(result);
+	}
+	else
+		PG_RETURN_NULL();
+}
 
 /*
  *		textin			- converts "..." to internal representation
@@ -1299,7 +1353,10 @@ varstr_cmp(char *arg1, int len1, char *arg2, int len2, Oid collid)
 		char		a2buf[STACKBUFLEN];
 		char	   *a1p,
 				   *a2p;
+
+#ifdef HAVE_LOCALE_T
 		pg_locale_t mylocale = 0;
+#endif
 
 		if (collid != DEFAULT_COLLATION_OID)
 		{
@@ -1314,7 +1371,9 @@ varstr_cmp(char *arg1, int len1, char *arg2, int len2, Oid collid)
 						 errmsg("could not determine which collation to use for string comparison"),
 						 errhint("Use the COLLATE clause to set the collation explicitly.")));
 			}
+#ifdef HAVE_LOCALE_T
 			mylocale = pg_newlocale_from_collation(collid);
+#endif
 		}
 
 #ifdef WIN32
@@ -1355,8 +1414,8 @@ varstr_cmp(char *arg1, int len1, char *arg2, int len2, Oid collid)
 										(LPWSTR) a1p, a1len / 2);
 				if (!r)
 					ereport(ERROR,
-					 (errmsg("could not convert string to UTF-16: error %lu",
-							 GetLastError())));
+							(errmsg("could not convert string to UTF-16: error code %lu",
+									GetLastError())));
 			}
 			((LPWSTR) a1p)[r] = 0;
 
@@ -1368,8 +1427,8 @@ varstr_cmp(char *arg1, int len1, char *arg2, int len2, Oid collid)
 										(LPWSTR) a2p, a2len / 2);
 				if (!r)
 					ereport(ERROR,
-					 (errmsg("could not convert string to UTF-16: error %lu",
-							 GetLastError())));
+							(errmsg("could not convert string to UTF-16: error code %lu",
+									GetLastError())));
 			}
 			((LPWSTR) a2p)[r] = 0;
 
@@ -2198,17 +2257,11 @@ text_name(PG_FUNCTION_ARGS)
 
 	/* Truncate oversize input */
 	if (len >= NAMEDATALEN)
-		len = NAMEDATALEN - 1;
+		len = pg_mbcliplen(VARDATA_ANY(s), len, NAMEDATALEN - 1);
 
-	result = (Name) palloc(NAMEDATALEN);
+	/* We use palloc0 here to ensure result is zero-padded */
+	result = (Name) palloc0(NAMEDATALEN);
 	memcpy(NameStr(*result), VARDATA_ANY(s), len);
-
-	/* now null pad to full length... */
-	while (len < NAMEDATALEN)
-	{
-		*(NameStr(*result) + len) = '\0';
-		len++;
-	}
 
 	PG_RETURN_NAME(result);
 }
@@ -3617,16 +3670,24 @@ string_agg_finalfn(PG_FUNCTION_ARGS)
 	state = PG_ARGISNULL(0) ? NULL : (StringInfo) PG_GETARG_POINTER(0);
 
 	if (state != NULL)
-		PG_RETURN_TEXT_P(cstring_to_text(state->data));
+		PG_RETURN_TEXT_P(cstring_to_text_with_len(state->data, state->len));
 	else
 		PG_RETURN_NULL();
 }
 
+/*
+ * Implementation of both concat() and concat_ws().
+ *
+ * sepstr/seplen describe the separator.  argidx is the first argument
+ * to concatenate (counting from zero).
+ */
 static text *
-concat_internal(const char *sepstr, int seplen, int argidx, FunctionCallInfo fcinfo)
+concat_internal(const char *sepstr, int seplen, int argidx,
+				FunctionCallInfo fcinfo)
 {
-	StringInfoData str;
 	text	   *result;
+	StringInfoData str;
+	bool		first_arg = true;
 	int			i;
 
 	initStringInfo(&str);
@@ -3635,17 +3696,21 @@ concat_internal(const char *sepstr, int seplen, int argidx, FunctionCallInfo fci
 	{
 		if (!PG_ARGISNULL(i))
 		{
+			Datum		value = PG_GETARG_DATUM(i);
 			Oid			valtype;
-			Datum		value;
 			Oid			typOutput;
 			bool		typIsVarlena;
 
-			if (i > argidx)
+			/* add separator if appropriate */
+			if (first_arg)
+				first_arg = false;
+			else
 				appendBinaryStringInfo(&str, sepstr, seplen);
 
-			/* append n-th value */
-			value = PG_GETARG_DATUM(i);
+			/* call the appropriate type output function, append the result */
 			valtype = get_fn_expr_argtype(fcinfo->flinfo, i);
+			if (!OidIsValid(valtype))
+				elog(ERROR, "could not determine data type of concat() input");
 			getTypeOutputInfo(valtype, &typOutput, &typIsVarlena);
 			appendStringInfoString(&str,
 								   OidOutputFunctionCall(typOutput, value));
@@ -3664,12 +3729,12 @@ concat_internal(const char *sepstr, int seplen, int argidx, FunctionCallInfo fci
 Datum
 text_concat(PG_FUNCTION_ARGS)
 {
-	PG_RETURN_TEXT_P(concat_internal(NULL, 0, 0, fcinfo));
+	PG_RETURN_TEXT_P(concat_internal("", 0, 0, fcinfo));
 }
 
 /*
- * Concatenate all but first argument values with separators. The first
- * parameter is used as a separator. NULL arguments are ignored.
+ * Concatenate all but first argument value with separators. The first
+ * parameter is used as the separator. NULL arguments are ignored.
  */
 Datum
 text_concat_ws(PG_FUNCTION_ARGS)
@@ -3682,8 +3747,8 @@ text_concat_ws(PG_FUNCTION_ARGS)
 
 	sep = PG_GETARG_TEXT_PP(0);
 
-	PG_RETURN_TEXT_P(concat_internal(
-					   VARDATA_ANY(sep), VARSIZE_ANY_EXHDR(sep), 1, fcinfo));
+	PG_RETURN_TEXT_P(concat_internal(VARDATA_ANY(sep), VARSIZE_ANY_EXHDR(sep),
+									 1, fcinfo));
 }
 
 /*
@@ -3937,7 +4002,7 @@ text_format_string_conversion(StringInfo buf, char conversion,
 		else if (conversion == 'I')
 			ereport(ERROR,
 					(errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),
-					 errmsg("null values cannot be formatted as an SQL identifier")));
+			errmsg("null values cannot be formatted as an SQL identifier")));
 		return;
 	}
 

@@ -2,7 +2,7 @@
  * SQL Information Schema
  * as defined in ISO/IEC 9075-11:2008
  *
- * Copyright (c) 2003-2011, PostgreSQL Global Development Group
+ * Copyright (c) 2003-2012, PostgreSQL Global Development Group
  *
  * src/backend/catalog/information_schema.sql
  */
@@ -158,7 +158,18 @@ $$SELECT
        WHEN $1 IN (1083, 1114, 1184, 1266) /* time, timestamp, same + tz */
            THEN CASE WHEN $2 < 0 THEN 6 ELSE $2 END
        WHEN $1 IN (1186) /* interval */
-           THEN CASE WHEN $2 < 0 THEN 6 ELSE $2 & 65535 END
+           THEN CASE WHEN $2 < 0 OR $2 & 65535 = 65535 THEN 6 ELSE $2 & 65535 END
+       ELSE null
+  END$$;
+
+CREATE FUNCTION _pg_interval_type(typid oid, mod int4) RETURNS text
+    LANGUAGE sql
+    IMMUTABLE
+    RETURNS NULL ON NULL INPUT
+    AS
+$$SELECT
+  CASE WHEN $1 IN (1186) /* interval */
+           THEN upper(substring(format_type($1, $2) from 'interval[()0-9]* #"%#"' for '#'))
        ELSE null
   END$$;
 
@@ -321,7 +332,10 @@ CREATE VIEW attributes AS
              AS cardinal_number)
              AS datetime_precision,
 
-           CAST(null AS character_data) AS interval_type, -- FIXME
+           CAST(
+             _pg_interval_type(_pg_truetypid(a, t), _pg_truetypmod(a, t))
+             AS character_data)
+             AS interval_type,
            CAST(null AS cardinal_number) AS interval_precision,
 
            CAST(current_database() AS sql_identifier) AS attribute_udt_catalog,
@@ -343,7 +357,9 @@ CREATE VIEW attributes AS
            ON a.attcollation = co.oid AND (nco.nspname, co.collname) <> ('pg_catalog', 'default')
 
     WHERE a.attnum > 0 AND NOT a.attisdropped
-          AND c.relkind in ('c');
+          AND c.relkind in ('c')
+          AND (pg_has_role(c.relowner, 'USAGE')
+               OR has_type_privilege(c.reltype, 'USAGE'));
 
 GRANT SELECT ON attributes TO PUBLIC;
 
@@ -538,7 +554,7 @@ CREATE VIEW column_privileges AS
                   pr_c.prtype,
                   pr_c.grantable,
                   pr_c.relowner
-           FROM (SELECT oid, relname, relnamespace, relowner, (aclexplode(relacl)).*
+           FROM (SELECT oid, relname, relnamespace, relowner, (aclexplode(coalesce(relacl, acldefault('r', relowner)))).*
                  FROM pg_class
                  WHERE relkind IN ('r', 'v', 'f')
                 ) pr_c (oid, relname, relnamespace, relowner, grantor, grantee, prtype, grantable),
@@ -555,8 +571,8 @@ CREATE VIEW column_privileges AS
                   pr_a.prtype,
                   pr_a.grantable,
                   c.relowner
-           FROM (SELECT attrelid, attname, (aclexplode(attacl)).*
-                 FROM pg_attribute
+           FROM (SELECT attrelid, attname, (aclexplode(coalesce(attacl, acldefault('c', relowner)))).*
+                 FROM pg_attribute a JOIN pg_class cc ON (a.attrelid = cc.oid)
                  WHERE attnum > 0
                        AND NOT attisdropped
                 ) pr_a (attrelid, attname, grantor, grantee, prtype, grantable),
@@ -670,7 +686,10 @@ CREATE VIEW columns AS
              AS cardinal_number)
              AS datetime_precision,
 
-           CAST(null AS character_data) AS interval_type, -- FIXME
+           CAST(
+             _pg_interval_type(_pg_truetypid(a, t), _pg_truetypmod(a, t))
+             AS character_data)
+             AS interval_type,
            CAST(null AS cardinal_number) AS interval_precision,
 
            CAST(null AS sql_identifier) AS character_set_catalog,
@@ -851,7 +870,9 @@ CREATE VIEW domain_constraints AS
     FROM pg_namespace rs, pg_namespace n, pg_constraint con, pg_type t
     WHERE rs.oid = con.connamespace
           AND n.oid = t.typnamespace
-          AND t.oid = con.contypid;
+          AND t.oid = con.contypid
+          AND (pg_has_role(t.typowner, 'USAGE')
+               OR has_type_privilege(t.oid, 'USAGE'));
 
 GRANT SELECT ON domain_constraints TO PUBLIC;
 
@@ -936,7 +957,10 @@ CREATE VIEW domains AS
              AS cardinal_number)
              AS datetime_precision,
 
-           CAST(null AS character_data) AS interval_type, -- FIXME
+           CAST(
+             _pg_interval_type(t.typbasetype, t.typtypmod)
+             AS character_data)
+             AS interval_type,
            CAST(null AS cardinal_number) AS interval_precision,
 
            CAST(t.typdefault AS character_data) AS domain_default,
@@ -958,7 +982,8 @@ CREATE VIEW domains AS
          LEFT JOIN (pg_collation co JOIN pg_namespace nco ON (co.collnamespace = nco.oid))
            ON t.typcollation = co.oid AND (nco.nspname, co.collname) <> ('pg_catalog', 'default')
 
-    ;
+    WHERE (pg_has_role(t.typowner, 'USAGE')
+           OR has_type_privilege(t.oid, 'USAGE'));
 
 GRANT SELECT ON domains TO PUBLIC;
 
@@ -1156,20 +1181,24 @@ CREATE VIEW referential_constraints AS
 
     FROM (pg_namespace ncon
           INNER JOIN pg_constraint con ON ncon.oid = con.connamespace
-          INNER JOIN pg_class c ON con.conrelid = c.oid)
-         LEFT JOIN
-         (pg_constraint pkc
-          INNER JOIN pg_namespace npkc ON pkc.connamespace = npkc.oid)
-         ON con.confrelid = pkc.conrelid
-            AND _pg_keysequal(con.confkey, pkc.conkey)
+          INNER JOIN pg_class c ON con.conrelid = c.oid AND con.contype = 'f')
+         LEFT JOIN pg_depend d1  -- find constraint's dependency on an index
+          ON d1.objid = con.oid AND d1.classid = 'pg_constraint'::regclass
+             AND d1.refclassid = 'pg_class'::regclass AND d1.refobjsubid = 0
+         LEFT JOIN pg_depend d2  -- find pkey/unique constraint for that index
+          ON d2.refclassid = 'pg_constraint'::regclass
+             AND d2.classid = 'pg_class'::regclass
+             AND d2.objid = d1.refobjid AND d2.objsubid = 0
+             AND d2.deptype = 'i'
+         LEFT JOIN pg_constraint pkc ON pkc.oid = d2.refobjid
+            AND pkc.contype IN ('p', 'u')
+            AND pkc.conrelid = con.confrelid
+         LEFT JOIN pg_namespace npkc ON pkc.connamespace = npkc.oid
 
-    WHERE c.relkind = 'r'
-          AND con.contype = 'f'
-          AND (pkc.contype IN ('p', 'u') OR pkc.contype IS NULL)
-          AND (pg_has_role(c.relowner, 'USAGE')
-               -- SELECT privilege omitted, per SQL standard
-               OR has_table_privilege(c.oid, 'INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
-               OR has_any_column_privilege(c.oid, 'INSERT, UPDATE, REFERENCES') );
+    WHERE pg_has_role(c.relowner, 'USAGE')
+          -- SELECT privilege omitted, per SQL standard
+          OR has_table_privilege(c.oid, 'INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
+          OR has_any_column_privilege(c.oid, 'INSERT, UPDATE, REFERENCES') ;
 
 GRANT SELECT ON referential_constraints TO PUBLIC;
 
@@ -1247,7 +1276,7 @@ CREATE VIEW routine_privileges AS
                   THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_grantable
 
     FROM (
-            SELECT oid, proname, proowner, pronamespace, (aclexplode(proacl)).* FROM pg_proc
+            SELECT oid, proname, proowner, pronamespace, (aclexplode(coalesce(proacl, acldefault('f', proowner)))).* FROM pg_proc
          ) p (oid, proname, proowner, pronamespace, grantor, grantee, prtype, grantable),
          pg_namespace n,
          pg_authid u_grantor,
@@ -1390,7 +1419,7 @@ CREATE VIEW routines AS
            CAST(null AS time_stamp) AS created,
            CAST(null AS time_stamp) AS last_altered,
            CAST(null AS yes_or_no) AS new_savepoint_level,
-           CAST('YES' AS yes_or_no) AS is_udt_dependent, -- FIXME?
+           CAST('NO' AS yes_or_no) AS is_udt_dependent,
 
            CAST(null AS character_data) AS result_cast_from_data_type,
            CAST(null AS yes_or_no) AS result_cast_as_locator,
@@ -1765,10 +1794,10 @@ CREATE VIEW table_privileges AS
                   pg_has_role(grantee.oid, c.relowner, 'USAGE')
                   OR c.grantable
                   THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_grantable,
-           CAST('NO' AS yes_or_no) AS with_hierarchy
+           CAST(CASE WHEN c.prtype = 'SELECT' THEN 'YES' ELSE 'NO' END AS yes_or_no) AS with_hierarchy
 
     FROM (
-            SELECT oid, relname, relnamespace, relkind, relowner, (aclexplode(relacl)).* FROM pg_class
+            SELECT oid, relname, relnamespace, relkind, relowner, (aclexplode(coalesce(relacl, acldefault('r', relowner)))).* FROM pg_class
          ) AS c (oid, relname, relnamespace, relkind, relowner, grantor, grantee, prtype, grantable),
          pg_namespace nc,
          pg_authid u_grantor,
@@ -1842,10 +1871,7 @@ CREATE VIEW tables AS
                 THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_insertable_into,
 
            CAST(CASE WHEN t.typname IS NOT NULL THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_typed,
-           CAST(
-             CASE WHEN nc.oid = pg_my_temp_schema() THEN 'PRESERVE' -- FIXME
-                  ELSE null END
-             AS character_data) AS commit_action
+           CAST(null AS character_data) AS commit_action
 
     FROM pg_namespace nc JOIN pg_class c ON (nc.oid = c.relnamespace)
            LEFT JOIN (pg_type t JOIN pg_namespace nt ON (t.typnamespace = nt.oid)) ON (c.reloftype = t.oid)
@@ -2003,20 +2029,38 @@ GRANT SELECT ON triggers TO PUBLIC;
  */
 
 CREATE VIEW udt_privileges AS
-    SELECT CAST(null AS sql_identifier) AS grantor,
-           CAST('PUBLIC' AS sql_identifier) AS grantee,
+    SELECT CAST(u_grantor.rolname AS sql_identifier) AS grantor,
+           CAST(grantee.rolname AS sql_identifier) AS grantee,
            CAST(current_database() AS sql_identifier) AS udt_catalog,
            CAST(n.nspname AS sql_identifier) AS udt_schema,
            CAST(t.typname AS sql_identifier) AS udt_name,
            CAST('TYPE USAGE' AS character_data) AS privilege_type, -- sic
-           CAST('NO' AS yes_or_no) AS is_grantable
+           CAST(
+             CASE WHEN
+                  -- object owner always has grant options
+                  pg_has_role(grantee.oid, t.typowner, 'USAGE')
+                  OR t.grantable
+                  THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_grantable
 
-    FROM pg_authid u, pg_namespace n, pg_type t
+    FROM (
+            SELECT oid, typname, typnamespace, typtype, typowner, (aclexplode(coalesce(typacl, acldefault('T', typowner)))).* FROM pg_type
+         ) AS t (oid, typname, typnamespace, typtype, typowner, grantor, grantee, prtype, grantable),
+         pg_namespace n,
+         pg_authid u_grantor,
+         (
+           SELECT oid, rolname FROM pg_authid
+           UNION ALL
+           SELECT 0::oid, 'PUBLIC'
+         ) AS grantee (oid, rolname)
 
-    WHERE u.oid = t.typowner
-          AND n.oid = t.typnamespace
-          AND t.typtype <> 'd'
-          AND NOT (t.typelem <> 0 AND t.typlen = -1);
+    WHERE t.typnamespace = n.oid
+          AND t.typtype = 'c'
+          AND t.grantee = grantee.oid
+          AND t.grantor = u_grantor.oid
+          AND t.prtype IN ('USAGE')
+          AND (pg_has_role(u_grantor.oid, 'USAGE')
+               OR pg_has_role(grantee.oid, 'USAGE')
+               OR grantee.rolname = 'PUBLIC');
 
 GRANT SELECT ON udt_privileges TO PUBLIC;
 
@@ -2070,23 +2114,39 @@ CREATE VIEW usage_privileges AS
     UNION ALL
 
     /* domains */
-    -- Domains have no real privileges, so we represent all domains with implicit usage privilege here.
-    SELECT CAST(u.rolname AS sql_identifier) AS grantor,
-           CAST('PUBLIC' AS sql_identifier) AS grantee,
+    SELECT CAST(u_grantor.rolname AS sql_identifier) AS grantor,
+           CAST(grantee.rolname AS sql_identifier) AS grantee,
            CAST(current_database() AS sql_identifier) AS object_catalog,
            CAST(n.nspname AS sql_identifier) AS object_schema,
            CAST(t.typname AS sql_identifier) AS object_name,
            CAST('DOMAIN' AS character_data) AS object_type,
            CAST('USAGE' AS character_data) AS privilege_type,
-           CAST('NO' AS yes_or_no) AS is_grantable
+           CAST(
+             CASE WHEN
+                  -- object owner always has grant options
+                  pg_has_role(grantee.oid, t.typowner, 'USAGE')
+                  OR t.grantable
+                  THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_grantable
 
-    FROM pg_authid u,
+    FROM (
+            SELECT oid, typname, typnamespace, typtype, typowner, (aclexplode(coalesce(typacl, acldefault('T', typowner)))).* FROM pg_type
+         ) AS t (oid, typname, typnamespace, typtype, typowner, grantor, grantee, prtype, grantable),
          pg_namespace n,
-         pg_type t
+         pg_authid u_grantor,
+         (
+           SELECT oid, rolname FROM pg_authid
+           UNION ALL
+           SELECT 0::oid, 'PUBLIC'
+         ) AS grantee (oid, rolname)
 
-    WHERE u.oid = t.typowner
-          AND t.typnamespace = n.oid
+    WHERE t.typnamespace = n.oid
           AND t.typtype = 'd'
+          AND t.grantee = grantee.oid
+          AND t.grantor = u_grantor.oid
+          AND t.prtype IN ('USAGE')
+          AND (pg_has_role(u_grantor.oid, 'USAGE')
+               OR pg_has_role(grantee.oid, 'USAGE')
+               OR grantee.rolname = 'PUBLIC')
 
     UNION ALL
 
@@ -2106,7 +2166,7 @@ CREATE VIEW usage_privileges AS
                   THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_grantable
 
     FROM (
-            SELECT fdwname, fdwowner, (aclexplode(fdwacl)).* FROM pg_foreign_data_wrapper
+            SELECT fdwname, fdwowner, (aclexplode(coalesce(fdwacl, acldefault('F', fdwowner)))).* FROM pg_foreign_data_wrapper
          ) AS fdw (fdwname, fdwowner, grantor, grantee, prtype, grantable),
          pg_authid u_grantor,
          (
@@ -2140,7 +2200,7 @@ CREATE VIEW usage_privileges AS
                   THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_grantable
 
     FROM (
-            SELECT srvname, srvowner, (aclexplode(srvacl)).* FROM pg_foreign_server
+            SELECT srvname, srvowner, (aclexplode(coalesce(srvacl, acldefault('S', srvowner)))).* FROM pg_foreign_server
          ) AS srv (srvname, srvowner, grantor, grantee, prtype, grantable),
          pg_authid u_grantor,
          (
@@ -2152,6 +2212,43 @@ CREATE VIEW usage_privileges AS
     WHERE u_grantor.oid = srv.grantor
           AND grantee.oid = srv.grantee
           AND srv.prtype IN ('USAGE')
+          AND (pg_has_role(u_grantor.oid, 'USAGE')
+               OR pg_has_role(grantee.oid, 'USAGE')
+               OR grantee.rolname = 'PUBLIC')
+
+    UNION ALL
+
+    /* sequences */
+    SELECT CAST(u_grantor.rolname AS sql_identifier) AS grantor,
+           CAST(grantee.rolname AS sql_identifier) AS grantee,
+           CAST(current_database() AS sql_identifier) AS object_catalog,
+           CAST(n.nspname AS sql_identifier) AS object_schema,
+           CAST(c.relname AS sql_identifier) AS object_name,
+           CAST('SEQUENCE' AS character_data) AS object_type,
+           CAST('USAGE' AS character_data) AS privilege_type,
+           CAST(
+             CASE WHEN
+                  -- object owner always has grant options
+                  pg_has_role(grantee.oid, c.relowner, 'USAGE')
+                  OR c.grantable
+                  THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_grantable
+
+    FROM (
+            SELECT oid, relname, relnamespace, relkind, relowner, (aclexplode(coalesce(relacl, acldefault('r', relowner)))).* FROM pg_class
+         ) AS c (oid, relname, relnamespace, relkind, relowner, grantor, grantee, prtype, grantable),
+         pg_namespace n,
+         pg_authid u_grantor,
+         (
+           SELECT oid, rolname FROM pg_authid
+           UNION ALL
+           SELECT 0::oid, 'PUBLIC'
+         ) AS grantee (oid, rolname)
+
+    WHERE c.relnamespace = n.oid
+          AND c.relkind = 'S'
+          AND c.grantee = grantee.oid
+          AND c.grantor = u_grantor.oid
+          AND c.prtype IN ('USAGE')
           AND (pg_has_role(u_grantor.oid, 'USAGE')
                OR pg_has_role(grantee.oid, 'USAGE')
                OR grantee.rolname = 'PUBLIC');
@@ -2216,10 +2313,13 @@ CREATE VIEW user_defined_types AS
            CAST(null AS sql_identifier) AS source_dtd_identifier,
            CAST(null AS sql_identifier) AS ref_dtd_identifier
 
-    FROM pg_namespace n, pg_class c
+    FROM pg_namespace n, pg_class c, pg_type t
 
     WHERE n.oid = c.relnamespace
-          AND c.relkind = 'c';
+          AND t.typrelid = c.oid
+          AND c.relkind = 'c'
+          AND (pg_has_role(t.typowner, 'USAGE')
+               OR has_type_privilege(t.oid, 'USAGE'));
 
 GRANT SELECT ON user_defined_types TO PUBLIC;
 
@@ -2516,6 +2616,39 @@ GRANT SELECT ON element_types TO PUBLIC;
 
 
 -- SQL/MED views; these use section numbers from part 9 of the standard.
+
+/* Base view for foreign table columns */
+CREATE VIEW _pg_foreign_table_columns AS
+    SELECT n.nspname,
+           c.relname,
+           a.attname,
+           a.attfdwoptions
+    FROM pg_foreign_table t, pg_authid u, pg_namespace n, pg_class c,
+         pg_attribute a
+    WHERE u.oid = c.relowner
+          AND (pg_has_role(c.relowner, 'USAGE')
+               OR has_column_privilege(c.oid, a.attnum, 'SELECT, INSERT, UPDATE, REFERENCES'))
+          AND n.oid = c.relnamespace
+          AND c.oid = t.ftrelid
+          AND c.relkind = 'f'
+          AND a.attrelid = c.oid
+          AND a.attnum > 0;
+
+/*
+ * 24.2
+ * COLUMN_OPTIONS view
+ */
+CREATE VIEW column_options AS
+    SELECT CAST(current_database() AS sql_identifier) AS table_catalog,
+           c.nspname AS table_schema,
+           c.relname AS table_name,
+           c.attname AS column_name,
+           CAST((pg_options_to_table(c.attfdwoptions)).option_name AS sql_identifier) AS option_name,
+           CAST((pg_options_to_table(c.attfdwoptions)).option_value AS character_data) AS option_value
+    FROM _pg_foreign_table_columns c;
+
+GRANT SELECT ON column_options TO PUBLIC;
+
 
 /* Base view for foreign-data wrappers */
 CREATE VIEW _pg_foreign_data_wrappers AS

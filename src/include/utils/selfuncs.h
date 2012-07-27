@@ -5,7 +5,7 @@
  *	  standard operators and index access methods.
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/utils/selfuncs.h
@@ -74,7 +74,7 @@ typedef struct VariableStatData
 	Oid			vartype;		/* exposed type of expression */
 	Oid			atttype;		/* type to pass to get_attstatsslot */
 	int32		atttypmod;		/* typmod to pass to get_attstatsslot */
-	bool		isunique;		/* true if matched to a unique index */
+	bool		isunique;		/* matches unique index or DISTINCT clause */
 } VariableStatData;
 
 #define ReleaseVariableStats(vardata)  \
@@ -95,9 +95,6 @@ typedef enum
 	Pattern_Prefix_None, Pattern_Prefix_Partial, Pattern_Prefix_Exact
 } Pattern_Prefix_Status;
 
-
-/* selfuncs.c */
-
 /* Hooks for plugins to get control when we ask for stats */
 typedef bool (*get_relation_stats_hook_type) (PlannerInfo *root,
 														  RangeTblEntry *rte,
@@ -110,6 +107,8 @@ typedef bool (*get_index_stats_hook_type) (PlannerInfo *root,
 												  VariableStatData *vardata);
 extern PGDLLIMPORT get_index_stats_hook_type get_index_stats_hook;
 
+/* Functions in selfuncs.c */
+
 extern void examine_variable(PlannerInfo *root, Node *node, int varRelid,
 				 VariableStatData *vardata);
 extern bool get_restriction_variable(PlannerInfo *root, List *args,
@@ -121,7 +120,8 @@ extern void get_join_variables(PlannerInfo *root, List *args,
 				   VariableStatData *vardata1,
 				   VariableStatData *vardata2,
 				   bool *join_is_reversed);
-extern double get_variable_numdistinct(VariableStatData *vardata);
+extern double get_variable_numdistinct(VariableStatData *vardata,
+						 bool *isdefault);
 extern double mcv_selectivity(VariableStatData *vardata, FmgrInfo *opproc,
 				Datum constval, bool varonleft,
 				double *sumcommonp);
@@ -193,6 +193,16 @@ extern Selectivity estimate_hash_bucketsize(PlannerInfo *root, Node *hashkey,
 extern Datum btcostestimate(PG_FUNCTION_ARGS);
 extern Datum hashcostestimate(PG_FUNCTION_ARGS);
 extern Datum gistcostestimate(PG_FUNCTION_ARGS);
+extern Datum spgcostestimate(PG_FUNCTION_ARGS);
 extern Datum gincostestimate(PG_FUNCTION_ARGS);
+
+/* Functions in array_selfuncs.c */
+
+extern Selectivity scalararraysel_containment(PlannerInfo *root,
+						   Node *leftop, Node *rightop,
+						   Oid elemtype, bool isEquality, bool useOr,
+						   int varRelid);
+extern Datum arraycontsel(PG_FUNCTION_ARGS);
+extern Datum arraycontjoinsel(PG_FUNCTION_ARGS);
 
 #endif   /* SELFUNCS_H */

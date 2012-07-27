@@ -1806,7 +1806,7 @@ UNBOUNDED FOLLOWING
     The syntaxes using <literal>*</> are used for calling parameter-less
     aggregate functions as window functions, for example
     <literal>count(*) OVER (PARTITION BY x ORDER BY y)</>.
-    <literal>*</> is customarily not used for non-aggregate window functions.
+    The asterisk (<literal>*</>) is customarily not used for non-aggregate window functions.
     Aggregate window functions, unlike normal aggregate functions, do not
     allow <literal>DISTINCT</> or <literal>ORDER BY</> to be used within the
     function argument list.
@@ -2109,9 +2109,9 @@ SELECT ARRAY[]::integer[];
    bracketed) subquery. For example:
 <programlisting>
 SELECT ARRAY(SELECT oid FROM pg_proc WHERE proname LIKE 'bytea%');
-                          ?column?
--------------------------------------------------------------
- {2011,1954,1948,1952,1951,1244,1950,2005,1949,1953,2006,31}
+                                 array
+-----------------------------------------------------------------------
+ {2011,1954,1948,1952,1951,1244,1950,2005,1949,1953,2006,31,2412,2413}
 (1 row)
 </programlisting>
    The subquery must return a single column. The resulting

@@ -4,7 +4,7 @@
  *	  Definition of (and support for) access control list data structures.
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/utils/acl.h
@@ -155,6 +155,7 @@ typedef ArrayType Acl;
 #define ACL_ALL_RIGHTS_LARGEOBJECT	(ACL_SELECT|ACL_UPDATE)
 #define ACL_ALL_RIGHTS_NAMESPACE	(ACL_USAGE|ACL_CREATE)
 #define ACL_ALL_RIGHTS_TABLESPACE	(ACL_CREATE)
+#define ACL_ALL_RIGHTS_TYPE			(ACL_USAGE)
 
 /* operation codes for pg_*_aclmask */
 typedef enum
@@ -244,6 +245,7 @@ extern Datum aclcontains(PG_FUNCTION_ARGS);
 extern Datum makeaclitem(PG_FUNCTION_ARGS);
 extern Datum aclitem_eq(PG_FUNCTION_ARGS);
 extern Datum hash_aclitem(PG_FUNCTION_ARGS);
+extern Datum acldefault_sql(PG_FUNCTION_ARGS);
 extern Datum aclexplode(PG_FUNCTION_ARGS);
 
 /*
@@ -275,6 +277,8 @@ extern AclMode pg_foreign_data_wrapper_aclmask(Oid fdw_oid, Oid roleid,
 								AclMode mask, AclMaskHow how);
 extern AclMode pg_foreign_server_aclmask(Oid srv_oid, Oid roleid,
 						  AclMode mask, AclMaskHow how);
+extern AclMode pg_type_aclmask(Oid type_oid, Oid roleid,
+				AclMode mask, AclMaskHow how);
 
 extern AclResult pg_attribute_aclcheck(Oid table_oid, AttrNumber attnum,
 					  Oid roleid, AclMode mode);
@@ -290,6 +294,7 @@ extern AclResult pg_namespace_aclcheck(Oid nsp_oid, Oid roleid, AclMode mode);
 extern AclResult pg_tablespace_aclcheck(Oid spc_oid, Oid roleid, AclMode mode);
 extern AclResult pg_foreign_data_wrapper_aclcheck(Oid fdw_oid, Oid roleid, AclMode mode);
 extern AclResult pg_foreign_server_aclcheck(Oid srv_oid, Oid roleid, AclMode mode);
+extern AclResult pg_type_aclcheck(Oid type_oid, Oid roleid, AclMode mode);
 
 extern void aclcheck_error(AclResult aclerr, AclObjectKind objectkind,
 			   const char *objectname);

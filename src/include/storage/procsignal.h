@@ -4,7 +4,7 @@
  *	  Routines for interprocess signalling
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/storage/procsignal.h
@@ -19,7 +19,7 @@
 
 /*
  * Reasons for signalling a Postgres child process (a backend or an auxiliary
- * process, like bgwriter).  We can cope with concurrent signals for different
+ * process, like checkpointer).  We can cope with concurrent signals for different
  * reasons.  However, if the same reason is signaled multiple times in quick
  * succession, the process is likely to observe only one notification of it.
  * This is okay for the present uses.

@@ -3,7 +3,7 @@
  * pg_operator.c
  *	  routines to support manipulation of the pg_operator relation
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -275,7 +275,7 @@ OperatorShellMake(const char *operatorName,
 
 	/* Post creation hook for new shell operator */
 	InvokeObjectAccessHook(OAT_POST_CREATE,
-						   OperatorRelationId, operatorObjectId, 0);
+						   OperatorRelationId, operatorObjectId, 0, NULL);
 
 	/*
 	 * Make sure the tuple is visible for subsequent lookups/updates.
@@ -544,7 +544,7 @@ OperatorCreate(const char *operatorName,
 
 	/* Post creation hook for new operator */
 	InvokeObjectAccessHook(OAT_POST_CREATE,
-						   OperatorRelationId, operatorObjectId, 0);
+						   OperatorRelationId, operatorObjectId, 0, NULL);
 
 	heap_close(pg_operator_desc, RowExclusiveLock);
 
@@ -774,8 +774,11 @@ makeOperatorDependencies(HeapTuple tuple)
 	myself.objectId = HeapTupleGetOid(tuple);
 	myself.objectSubId = 0;
 
-	/* In case we are updating a shell, delete any existing entries */
-	deleteDependencyRecordsFor(myself.classId, myself.objectId, false);
+	/*
+	 * In case we are updating a shell, delete any existing entries, except
+	 * for extension membership which should remain the same.
+	 */
+	deleteDependencyRecordsFor(myself.classId, myself.objectId, true);
 	deleteSharedDependencyRecordsFor(myself.classId, myself.objectId, 0);
 
 	/* Dependency on namespace */
@@ -855,5 +858,5 @@ makeOperatorDependencies(HeapTuple tuple)
 							oper->oprowner);
 
 	/* Dependency on extension */
-	recordDependencyOnCurrentExtension(&myself);
+	recordDependencyOnCurrentExtension(&myself, true);
 }

@@ -525,7 +525,7 @@ create table fktable (ftest1 int references pktable(base1));
 -- now some ins, upd, del
 insert into pktable(base1) values (1);
 insert into pktable(base1) values (2);
---  let's insert a non-existant fktable value
+--  let's insert a non-existent fktable value
 insert into fktable(ftest1) values (3);
 --  let's make a valid row for that
 insert into pktable(base1) values (3);
@@ -548,7 +548,7 @@ create table fktable (ftest1 int, ftest2 int, foreign key(ftest1, ftest2) refere
 -- now some ins, upd, del
 insert into pktable(base1, ptest1) values (1, 1);
 insert into pktable(base1, ptest1) values (2, 2);
---  let's insert a non-existant fktable value
+--  let's insert a non-existent fktable value
 insert into fktable(ftest1, ftest2) values (3, 1);
 --  let's make a valid row for that
 insert into pktable(base1,ptest1) values (3, 1);
@@ -923,3 +923,25 @@ SELECT * FROM tasks ORDER BY 1, 2, 3,4;
 DELETE FROM users WHERE id = 2;
 SELECT * FROM tasks ORDER BY 1, 2, 3,4;
 COMMIT;
+
+--
+-- Test self-referential FK with CASCADE (bug #6268)
+--
+create temp table selfref (
+    a int primary key,
+    b int,
+    foreign key (b) references selfref (a)
+        on update cascade on delete cascade
+);
+
+insert into selfref (a, b)
+values
+    (0, 0),
+    (1, 1);
+
+begin;
+    update selfref set a = 123 where a = 0;
+    select a, b from selfref;
+    update selfref set a = 456 where a = 123;
+    select a, b from selfref;
+commit;

@@ -3,7 +3,7 @@
  * parse_relation.c
  *	  parser support routines dealing with relations
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -16,7 +16,6 @@
 
 #include <ctype.h>
 
-#include "access/heapam.h"
 #include "access/sysattr.h"
 #include "catalog/heap.h"
 #include "catalog/namespace.h"
@@ -276,15 +275,16 @@ searchRangeTable(ParseState *pstate, RangeVar *relation)
 	 * relation.
 	 *
 	 * NB: It's not critical that RangeVarGetRelid return the correct answer
-	 * here in the face of concurrent DDL.  If it doesn't, the worst case
-	 * scenario is a less-clear error message.  Also, the tables involved in
+	 * here in the face of concurrent DDL.	If it doesn't, the worst case
+	 * scenario is a less-clear error message.	Also, the tables involved in
 	 * the query are already locked, which reduces the number of cases in
-	 * which surprising behavior can occur.  So we do the name lookup unlocked.
+	 * which surprising behavior can occur.  So we do the name lookup
+	 * unlocked.
 	 */
 	if (!relation->schemaname)
 		cte = scanNameSpaceForCTE(pstate, refname, &ctelevelsup);
 	if (!cte)
-		relId = RangeVarGetRelid(relation, NoLock, true, false);
+		relId = RangeVarGetRelid(relation, NoLock, true);
 
 	/* Now look for RTEs matching either the relation/CTE or the alias */
 	for (levelsup = 0;

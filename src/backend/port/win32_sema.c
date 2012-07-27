@@ -3,7 +3,7 @@
  * win32_sema.c
  *	  Microsoft Windows Win32 Semaphores Emulation
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  src/backend/port/win32_sema.c
@@ -91,7 +91,7 @@ PGSemaphoreCreate(PGSemaphore sema)
 	}
 	else
 		ereport(PANIC,
-				(errmsg("could not create semaphore: error code %d", (int) GetLastError())));
+				(errmsg("could not create semaphore: error code %lu", GetLastError())));
 }
 
 /*
@@ -121,8 +121,13 @@ PGSemaphoreLock(PGSemaphore sema, bool interruptOK)
 	DWORD		ret;
 	HANDLE		wh[2];
 
-	wh[0] = *sema;
-	wh[1] = pgwin32_signal_event;
+	/*
+	 * Note: pgwin32_signal_event should be first to ensure that it will be
+	 * reported when multiple events are set.  We want to guarantee that
+	 * pending signals are serviced.
+	 */
+	wh[0] = pgwin32_signal_event;
+	wh[1] = *sema;
 
 	/*
 	 * As in other implementations of PGSemaphoreLock, we need to check for
@@ -135,19 +140,18 @@ PGSemaphoreLock(PGSemaphore sema, bool interruptOK)
 		ImmediateInterruptOK = interruptOK;
 		CHECK_FOR_INTERRUPTS();
 
-		errno = 0;
 		ret = WaitForMultipleObjectsEx(2, wh, FALSE, INFINITE, TRUE);
 
 		if (ret == WAIT_OBJECT_0)
 		{
-			/* We got it! */
-			return;
-		}
-		else if (ret == WAIT_OBJECT_0 + 1)
-		{
 			/* Signal event is set - we have a signal to deliver */
 			pgwin32_dispatch_queued_signals();
 			errno = EINTR;
+		}
+		else if (ret == WAIT_OBJECT_0 + 1)
+		{
+			/* We got it! */
+			errno = 0;
 		}
 		else
 			/* Otherwise we are in trouble */
@@ -158,7 +162,7 @@ PGSemaphoreLock(PGSemaphore sema, bool interruptOK)
 
 	if (errno != 0)
 		ereport(FATAL,
-				(errmsg("could not lock semaphore: error code %d", (int) GetLastError())));
+		(errmsg("could not lock semaphore: error code %lu", GetLastError())));
 }
 
 /*
@@ -171,7 +175,7 @@ PGSemaphoreUnlock(PGSemaphore sema)
 {
 	if (!ReleaseSemaphore(*sema, 1, NULL))
 		ereport(FATAL,
-				(errmsg("could not unlock semaphore: error code %d", (int) GetLastError())));
+				(errmsg("could not unlock semaphore: error code %lu", GetLastError())));
 }
 
 /*
@@ -200,7 +204,7 @@ PGSemaphoreTryLock(PGSemaphore sema)
 
 	/* Otherwise we are in trouble */
 	ereport(FATAL,
-			(errmsg("could not try-lock semaphore: error code %d", (int) GetLastError())));
+	(errmsg("could not try-lock semaphore: error code %lu", GetLastError())));
 
 	/* keep compiler quiet */
 	return false;

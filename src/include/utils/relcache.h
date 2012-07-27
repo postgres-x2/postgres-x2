@@ -4,7 +4,7 @@
  *	  Relation descriptor cache definitions.
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/utils/relcache.h
@@ -16,7 +16,6 @@
 
 #include "access/tupdesc.h"
 #include "nodes/bitmapset.h"
-#include "nodes/pg_list.h"
 
 
 typedef struct RelationData *Relation;
@@ -67,6 +66,7 @@ extern Relation RelationBuildLocalRelation(const char *relname,
 						   Oid relnamespace,
 						   TupleDesc tupDesc,
 						   Oid relid,
+						   Oid relfilenode,
 						   Oid reltablespace,
 						   bool shared_relation,
 						   bool mapped_relation,
@@ -97,7 +97,8 @@ extern void AtEOSubXact_RelationCache(bool isCommit, SubTransactionId mySubid,
  * Routines to help manage rebuilding of relcache init files
  */
 extern bool RelationIdIsInInitFile(Oid relationId);
-extern void RelationCacheInitFileInvalidate(bool beforeSend);
+extern void RelationCacheInitFilePreInvalidate(void);
+extern void RelationCacheInitFilePostInvalidate(void);
 extern void RelationCacheInitFileRemove(void);
 
 /* should be used only by relcache.c and catcache.c */

@@ -364,8 +364,8 @@
     </indexterm>
     Ordinary comparison operators yield null (signifying <quote>unknown</>),
     not true or false, when either input is null.  For example,
-    <literal>7 = NULL</> yields null.  When this behavior is not suitable,
-    use the
+    <literal>7 = NULL</> yields null, as does <literal>7 &lt;&gt; NULL</>.  When
+    this behavior is not suitable, use the
     <literal>IS <optional> NOT </> DISTINCT FROM</literal> constructs:
 <synopsis>
 <replaceable>expression</replaceable> IS DISTINCT FROM <replaceable>expression</replaceable>
@@ -1587,7 +1587,7 @@
       </row>
 
       <row>
-       <entry><literal><function>length(<parameter>string</parameter><type>bytea</type>,
+       <entry><literal><function>length(<parameter>string</parameter> <type>bytea</type>,
         <parameter>encoding</parameter> <type>name</type> )</function></literal></entry>
        <entry><type>int</type></entry>
        <entry>
@@ -3160,6 +3160,11 @@
    right within each byte; for example bit 0 is the least significant bit of
    the first byte, and bit 15 is the most significant bit of the second byte.
   </para>
+
+  <para>
+   See also the aggregate function <function>string_agg</function> in
+   <xref linkend="functions-aggregate">.
+  </para>
  </sect1>
 
 
@@ -3368,8 +3373,8 @@ cast(-44 as bit(12))           <lineannotation>111111010100</lineannotation>
 
    <para>
     <function>LIKE</function> pattern matching always covers the entire
-    string.  Therefore, to match a sequence anywhere within a string, the
-    pattern must start and end with a percent sign.
+    string.  Therefore, if it's desired to match a sequence anywhere within
+    a string, the pattern must start and end with a percent sign.
    </para>
 
    <para>
@@ -3382,17 +3387,13 @@ cast(-44 as bit(12))           <lineannotation>111111010100</lineannotation>
     character itself, write two escape characters.
    </para>
 
-   <para>
-    Note that the backslash already has a special meaning in string literals,
-    so to write a pattern constant that contains a backslash you must write two
-    backslashes in an SQL statement (assuming escape string syntax is used, see
-    <xref linkend="sql-syntax-strings">).  Thus, writing a pattern that
-    actually matches a literal backslash means writing four backslashes in the
-    statement.  You can avoid this by selecting a different escape character
-    with <literal>ESCAPE</literal>; then a backslash is not special to
-    <function>LIKE</function> anymore. (But backslash is still special to the
-    string literal parser, so you still need two of them to match a backslash.)
-   </para>
+   <note>
+    <para>
+     If you have <xref linkend="guc-standard-conforming-strings"> turned off,
+     any backslashes you write in literal string constants will need to be
+     doubled.  See <xref linkend="sql-syntax-strings"> for more information.
+    </para>
+   </note>
 
    <para>
     It's also possible to select no escape character by writing
@@ -3720,8 +3721,7 @@ substring('foobar' from 'o(.)b')   <lineannotation>o</lineannotation>
      inserted, and it can contain <literal>\&amp;</> to indicate that the
      substring matching the entire pattern should be inserted.  Write
      <literal>\\</> if you need to put a literal backslash in the replacement
-     text.  (As always, remember to double backslashes written in literal
-     constant strings, assuming escape string syntax is used.)
+     text.
      The <replaceable>flags</> parameter is an optional text
      string containing zero or more single-letter flags that change the
      function's behavior.  Flag <literal>i</> specifies case-insensitive
@@ -4031,16 +4031,14 @@ SELECT foo FROM regexp_split_to_table('the quick brown fox', E'\\s*') AS foo;
     </table>
 
    <para>
-    An RE cannot end with <literal>\</>.
+    An RE cannot end with a backslash (<literal>\</>).
    </para>
 
    <note>
     <para>
-     Remember that the backslash (<literal>\</literal>) already has a special
-     meaning in <productname>PostgreSQL</> string literals.
-     To write a pattern constant that contains a backslash,
-     you must write two backslashes in the statement, assuming escape
-     string syntax is used (see <xref linkend="sql-syntax-strings">).
+     If you have <xref linkend="guc-standard-conforming-strings"> turned off,
+     any backslashes you write in literal string constants will need to be
+     doubled.  See <xref linkend="sql-syntax-strings"> for more information.
     </para>
    </note>
 
@@ -5541,10 +5539,17 @@ SELECT SUBSTRING('XY1234Z', 'Y*?([0-9]{1,3})');
      <listitem>
       <para>
        If you want to have a double quote in the output you must
-       precede it with a backslash, for example <literal>E'\\"YYYY
-       Month\\"'</literal>. <!-- "" font-lock sanity :-) -->
-       (Two backslashes are necessary because the backslash
-       has special meaning when using the escape string syntax.)
+       precede it with a backslash, for example <literal>'\"YYYY
+       Month\"'</literal>. <!-- "" font-lock sanity :-) -->
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+       If the year format specification is less than four digits, e.g.
+       <literal>YYY</>, and the supplied year is less than four digits,
+       the year will be adjusted to be nearest to the year 2020, e.g.
+       <literal>95</> becomes 1995.
       </para>
      </listitem>
 
@@ -6684,8 +6689,10 @@ SELECT EXTRACT(DOY FROM TIMESTAMP '2001-02-16 20:38:40');
       <term><literal>epoch</literal></term>
       <listitem>
        <para>
-        For <type>date</type> and <type>timestamp</type> values, the
+        For <type>timestamp with time zone</type> values, the
         number of seconds since 1970-01-01 00:00:00 UTC (can be negative);
+        for <type>date</type> and <type>timestamp</type> values, the
+        number of seconds since 1970-01-01 00:00:00 local time;
         for <type>interval</type> values, the total number
         of seconds in the interval
        </para>
@@ -6898,7 +6905,9 @@ SELECT EXTRACT(SECOND FROM TIME '17:12:28.5');
        <para>
         The time zone offset from UTC, measured in seconds.  Positive values
         correspond to time zones east of UTC, negative values to
-        zones west of UTC.
+        zones west of UTC.  (Technically,
+        <productname>PostgreSQL</productname> uses <acronym>UT1</> because
+        leap seconds are not handled.)
        </para>
       </listitem>
      </varlistentry>
@@ -8289,7 +8298,9 @@ CREATE TYPE rainbow AS ENUM ('red', 'orange', 'yellow', 'green', 'blue', 'purple
    <para>
     The <type>macaddr</type> type also supports the standard relational
     operators (<literal>&gt;</literal>, <literal>&lt;=</literal>, etc.) for
-    lexicographical ordering.
+    lexicographical ordering, and the bitwise arithmetic operators
+    (<literal>~</literal>, <literal>&amp;</literal> and <literal>|</literal>)
+    for NOT, AND and OR.
    </para>
 
   </sect1>
@@ -9275,6 +9286,8 @@ SELECT xml_is_well_formed_document('<pg:foo xmlns:pg="http://postgresql.org/stuf
     against the XML value
     <replaceable>xml</replaceable>.  It returns an array of XML values
     corresponding to the node set produced by the XPath expression.
+    If the XPath expression returns a scalar value rather than a node set,
+    a single-element array is returned.
    </para>
 
   <para>
@@ -9602,6 +9615,65 @@ table2-mapping
   </sect2>
  </sect1>
 
+ <sect1 id="functions-json">
+  <title>JSON Functions</title>
+
+  <indexterm zone="datatype-json">
+    <primary>JSON</primary>
+    <secondary>Functions and operators</secondary>
+  </indexterm>
+
+  <para>
+   <xref linkend="functions-json-table"> shows the functions that are available
+   for creating JSON (see <xref linkend="datatype-json">) data.
+  </para>
+
+  <table id="functions-json-table">
+    <title>JSON Support Functions</title>
+    <tgroup cols="4">
+     <thead>
+      <row>
+       <entry>Function</entry>
+       <entry>Description</entry>
+       <entry>Example</entry>
+       <entry>Example Result</entry>
+      </row>
+     </thead>
+     <tbody>
+      <row>
+       <entry>
+         <indexterm>
+          <primary>array_to_json</primary>
+         </indexterm>
+         <literal>array_to_json(anyarray [, pretty_bool])</literal>
+       </entry>
+       <entry>
+         Returns the array as JSON. A PostgreSQL multidimensional array
+         becomes a JSON array of arrays. Line feeds will be added between
+         dimension 1 elements if <parameter>pretty_bool</parameter> is true.
+       </entry>
+       <entry><literal>array_to_json('{{1,5},{99,100}}'::int[])</literal></entry>
+       <entry><literal>[[1,5],[99,100]]</literal></entry>
+      </row>
+      <row>
+       <entry>
+         <indexterm>
+          <primary>row_to_json</primary>
+         </indexterm>
+         <literal>row_to_json(record [, pretty_bool])</literal>
+       </entry>
+       <entry>
+         Returns the row as JSON. Line feeds will be added between level
+         1 elements if <parameter>pretty_bool</parameter> is true.
+       </entry>
+       <entry><literal>row_to_json(row(1,'foo'))</literal></entry>
+       <entry><literal>{"f1":1,"f2":"foo"}</literal></entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+
+ </sect1>
 
  <sect1 id="functions-sequence">
   <title>Sequence Manipulation Functions</title>
@@ -10002,6 +10074,8 @@ SELECT ... WHERE CASE WHEN x &lt;&gt; 0 THEN y/x &gt; 1.5 ELSE false END;
 <programlisting>
 SELECT COALESCE(description, short_description, '(none)') ...
 </programlisting>
+   This returns <varname>description</> if it is not null, otherwise
+   <varname>short_description</> if it is not null, otherwise <literal>(none)</>.
   </para>
 
    <para>
@@ -10442,6 +10516,318 @@ SELECT NULLIF(value, '(none)') ...
    </para>
   </sect1>
 
+ <sect1 id="functions-range">
+  <title>Range Functions and Operators</title>
+
+  <para>
+   See <xref linkend="rangetypes"> for an overview of range types.
+  </para>
+
+  <para>
+   <xref linkend="range-operators-table"> shows the operators
+   available for range types.
+  </para>
+
+    <table id="range-operators-table">
+     <title>Range Operators</title>
+     <tgroup cols="4">
+      <thead>
+       <row>
+        <entry>Operator</entry>
+        <entry>Description</entry>
+        <entry>Example</entry>
+        <entry>Result</entry>
+       </row>
+      </thead>
+      <tbody>
+       <row>
+        <entry> <literal>=</literal> </entry>
+        <entry>equal</entry>
+        <entry><literal>int4range(1,5) = '[1,4]'::int4range</literal></entry>
+        <entry><literal>t</literal></entry>
+       </row>
+
+       <row>
+        <entry> <literal>&lt;&gt;</literal> </entry>
+        <entry>not equal</entry>
+        <entry><literal>numrange(1.1,2.2) &lt;&gt; numrange(1.1,2.3)</literal></entry>
+        <entry><literal>t</literal></entry>
+       </row>
+
+       <row>
+        <entry> <literal>&lt;</literal> </entry>
+        <entry>less than</entry>
+        <entry><literal>int4range(1,10) &lt; int4range(2,3)</literal></entry>
+        <entry><literal>t</literal></entry>
+       </row>
+
+       <row>
+        <entry> <literal>&gt;</literal> </entry>
+        <entry>greater than</entry>
+        <entry><literal>int4range(1,10) &gt; int4range(1,5)</literal></entry>
+        <entry><literal>t</literal></entry>
+       </row>
+
+       <row>
+        <entry> <literal>&lt;=</literal> </entry>
+        <entry>less than or equal</entry>
+        <entry><literal>numrange(1.1,2.2) &lt;= numrange(1.1,2.2)</literal></entry>
+        <entry><literal>t</literal></entry>
+       </row>
+
+       <row>
+        <entry> <literal>&gt;=</literal> </entry>
+        <entry>greater than or equal</entry>
+        <entry><literal>numrange(1.1,2.2) &gt;= numrange(1.1,2.0)</literal></entry>
+        <entry><literal>t</literal></entry>
+       </row>
+
+       <row>
+        <entry> <literal>@&gt;</literal> </entry>
+        <entry>contains range</entry>
+        <entry><literal>int4range(2,4) @&gt; int4range(2,3)</literal></entry>
+        <entry><literal>t</literal></entry>
+       </row>
+
+       <row>
+        <entry> <literal>@&gt;</literal> </entry>
+        <entry>contains element</entry>
+        <entry><literal>'[2011-01-01,2011-03-01)'::tsrange @&gt; '2011-01-10'::timestamp</literal></entry>
+        <entry><literal>t</literal></entry>
+       </row>
+
+       <row>
+        <entry> <literal>&lt;@</literal> </entry>
+        <entry>range is contained by</entry>
+        <entry><literal>int4range(2,4) &lt;@ int4range(1,7)</literal></entry>
+        <entry><literal>t</literal></entry>
+       </row>
+
+       <row>
+        <entry> <literal>&lt;@</literal> </entry>
+        <entry>element is contained by</entry>
+        <entry><literal>42 &lt;@ int4range(1,7)</literal></entry>
+        <entry><literal>f</literal></entry>
+       </row>
+
+       <row>
+        <entry> <literal>&amp;&amp;</literal> </entry>
+        <entry>overlap (have points in common)</entry>
+        <entry><literal>int8range(3,7) &amp;&amp; int8range(4,12)</literal></entry>
+        <entry><literal>t</literal></entry>
+       </row>
+
+       <row>
+        <entry> <literal>&lt;&lt;</literal> </entry>
+        <entry>strictly left of</entry>
+        <entry><literal>int8range(1,10) &lt;&lt; int8range(100,110)</literal></entry>
+        <entry><literal>t</literal></entry>
+       </row>
+
+       <row>
+        <entry> <literal>&gt;&gt;</literal> </entry>
+        <entry>strictly right of</entry>
+        <entry><literal>int8range(50,60) &gt;&gt; int8range(20,30)</literal></entry>
+        <entry><literal>t</literal></entry>
+       </row>
+
+       <row>
+        <entry> <literal>&amp;&lt;</literal> </entry>
+        <entry>does not extend to the right of</entry>
+        <entry><literal>int8range(1,20) &amp;&lt; int8range(18,20)</literal></entry>
+        <entry><literal>t</literal></entry>
+       </row>
+
+       <row>
+        <entry> <literal>&amp;&gt;</literal> </entry>
+        <entry>does not extend to the left of</entry>
+        <entry><literal>int8range(7,20) &amp;&gt; int8range(5,10)</literal></entry>
+        <entry><literal>t</literal></entry>
+       </row>
+
+       <row>
+        <entry> <literal>-|-</literal> </entry>
+        <entry>is adjacent to</entry>
+        <entry><literal>numrange(1.1,2.2) -|- numrange(2.2,3.3)</literal></entry>
+        <entry><literal>t</literal></entry>
+       </row>
+
+       <row>
+        <entry> <literal>+</literal> </entry>
+        <entry>union</entry>
+        <entry><literal>numrange(5,15) + numrange(10,20)</literal></entry>
+        <entry><literal>[5,20)</literal></entry>
+       </row>
+
+       <row>
+        <entry> <literal>*</literal> </entry>
+        <entry>intersection</entry>
+        <entry><literal>int8range(5,15) * int8range(10,20)</literal></entry>
+        <entry><literal>[10,15)</literal></entry>
+       </row>
+
+       <row>
+        <entry> <literal>-</literal> </entry>
+        <entry>difference</entry>
+        <entry><literal>int8range(5,15) - int8range(10,20)</literal></entry>
+        <entry><literal>[5,10)</literal></entry>
+       </row>
+
+      </tbody>
+     </tgroup>
+    </table>
+
+  <para>
+   The simple comparison operators <literal>&lt;</literal>,
+   <literal>&gt;</literal>, <literal>&lt;=</literal>, and
+   <literal>&gt;=</literal> compare the lower bounds first, and only if those
+   are equal, compare the upper bounds.  These comparisons are not usually
+   very useful for ranges, but are provided to allow B-tree indexes to be
+   constructed on ranges.
+  </para>
+
+  <para>
+   The left-of/right-of/adjacent operators always return false when an empty
+   range is involved; that is, an empty range is not considered to be either
+   before or after any other range.
+  </para>
+
+  <para>
+   The union and difference operators will fail if the resulting range would
+   need to contain two disjoint sub-ranges, as such a range cannot be
+   represented.
+  </para>
+
+  <para>
+   <xref linkend="range-functions-table"> shows the functions
+   available for use with range types.
+  </para>
+
+  <indexterm>
+    <primary>lower</primary>
+  </indexterm>
+  <indexterm>
+    <primary>upper</primary>
+  </indexterm>
+  <indexterm>
+    <primary>isempty</primary>
+  </indexterm>
+  <indexterm>
+    <primary>lower_inc</primary>
+  </indexterm>
+  <indexterm>
+    <primary>upper_inc</primary>
+  </indexterm>
+  <indexterm>
+    <primary>lower_inf</primary>
+  </indexterm>
+  <indexterm>
+    <primary>upper_inf</primary>
+  </indexterm>
+
+    <table id="range-functions-table">
+     <title>Range Functions</title>
+     <tgroup cols="5">
+      <thead>
+       <row>
+        <entry>Function</entry>
+        <entry>Return Type</entry>
+        <entry>Description</entry>
+        <entry>Example</entry>
+        <entry>Result</entry>
+       </row>
+      </thead>
+      <tbody>
+       <row>
+        <entry>
+         <literal>
+          <function>lower</function>(<type>anyrange</type>)
+         </literal>
+        </entry>
+        <entry>range's element type</entry>
+        <entry>lower bound of range</entry>
+        <entry><literal>lower(numrange(1.1,2.2))</literal></entry>
+        <entry><literal>1.1</literal></entry>
+       </row>
+       <row>
+        <entry>
+         <literal>
+          <function>upper</function>(<type>anyrange</type>)
+         </literal>
+        </entry>
+        <entry>range's element type</entry>
+        <entry>upper bound of range</entry>
+        <entry><literal>upper(numrange(1.1,2.2))</literal></entry>
+        <entry><literal>2.2</literal></entry>
+       </row>
+       <row>
+        <entry>
+         <literal>
+          <function>isempty</function>(<type>anyrange</type>)
+         </literal>
+        </entry>
+        <entry><type>boolean</type></entry>
+        <entry>is the range empty?</entry>
+        <entry><literal>isempty(numrange(1.1,2.2))</literal></entry>
+        <entry><literal>false</literal></entry>
+       </row>
+       <row>
+        <entry>
+         <literal>
+          <function>lower_inc</function>(<type>anyrange</type>)
+         </literal>
+        </entry>
+        <entry><type>boolean</type></entry>
+        <entry>is the lower bound inclusive?</entry>
+        <entry><literal>lower_inc(numrange(1.1,2.2))</literal></entry>
+        <entry><literal>true</literal></entry>
+       </row>
+       <row>
+        <entry>
+         <literal>
+          <function>upper_inc</function>(<type>anyrange</type>)
+         </literal>
+        </entry>
+        <entry><type>boolean</type></entry>
+        <entry>is the upper bound inclusive?</entry>
+        <entry><literal>upper_inc(numrange(1.1,2.2))</literal></entry>
+        <entry><literal>false</literal></entry>
+       </row>
+       <row>
+        <entry>
+         <literal>
+          <function>lower_inf</function>(<type>anyrange</type>)
+         </literal>
+        </entry>
+        <entry><type>boolean</type></entry>
+        <entry>is the lower bound infinite?</entry>
+        <entry><literal>lower_inf('(,)'::daterange)</literal></entry>
+        <entry><literal>true</literal></entry>
+       </row>
+       <row>
+        <entry>
+         <literal>
+          <function>upper_inf</function>(<type>anyrange</type>)
+         </literal>
+        </entry>
+        <entry><type>boolean</type></entry>
+        <entry>is the upper bound infinite?</entry>
+        <entry><literal>upper_inf('(,)'::daterange)</literal></entry>
+        <entry><literal>true</literal></entry>
+       </row>
+      </tbody>
+     </tgroup>
+    </table>
+
+  <para>
+   The <function>lower</> and  <function>upper</> functions return null
+   if the range is empty or the requested bound is infinite.
+   The <function>lower_inc</function>, <function>upper_inc</function>,
+   <function>lower_inf</function>, and <function>upper_inf</function>
+   functions all return false for an empty range.
+  </para>
+  </sect1>
+
  <sect1 id="functions-aggregate">
   <title>Aggregate Functions</title>
 
@@ -10662,10 +11048,10 @@ SELECT NULLIF(value, '(none)') ...
        </function>
       </entry>
       <entry>
-       <type>text</type>, <type>text</type>
+       (<type>text</type>, <type>text</type>) or (<type>bytea</type>, <type>bytea</type>)
       </entry>
       <entry>
-       <type>text</type>
+       same as argument types
       </entry>
       <entry>input values concatenated into a string, separated by delimiter</entry>
      </row>
@@ -10755,8 +11141,10 @@ SELECT b1 = ANY((SELECT b2 FROM t2 ...)) FROM t1 ...;
 <programlisting>
 SELECT count(*) FROM sometable;
 </programlisting>
-    will be executed by <productname>PostgreSQL</productname> using a
-    sequential scan of the entire table.
+    will require effort proportional to the size of the table:
+    <productname>PostgreSQL</productname> will need to scan either the
+    entire table or the entirety of an index which includes all rows in
+    the table.
    </para>
   </note>
 
@@ -12448,6 +12836,13 @@ postgres=# SELECT * FROM unnest2(ARRAY[[1,2],[3,4]]);
       </row>
 
       <row>
+       <entry><literal><function>pg_trigger_depth()</function></literal></entry>
+       <entry><type>int</type></entry>
+       <entry>current nesting level of <productname>PostgreSQL</> triggers
+       (0 if not called, directly or indirectly, from inside a trigger)</entry>
+      </row>
+
+      <row>
        <entry><literal><function>session_user</function></literal></entry>
        <entry><type>name</type></entry>
        <entry>session user name</entry>
@@ -13110,6 +13505,12 @@ SELECT relname FROM pg_class WHERE pg_table_is_visible(oid);
        <entry>is operator visible in search path</entry>
       </row>
       <row>
+       <entry><literal><function>pg_opfamily_is_visible(<parameter>opclass_oid</parameter>)</function></literal>
+       </entry>
+       <entry><type>boolean</type></entry>
+       <entry>is operator family visible in search path</entry>
+      </row>
+      <row>
        <entry><literal><function>pg_table_is_visible(<parameter>table_oid</parameter>)</function></literal>
        </entry>
        <entry><type>boolean</type></entry>
@@ -13163,6 +13564,9 @@ SELECT relname FROM pg_class WHERE pg_table_is_visible(oid);
    </indexterm>
    <indexterm>
     <primary>pg_operator_is_visible</primary>
+   </indexterm>
+   <indexterm>
+    <primary>pg_opfamily_is_visible</primary>
    </indexterm>
    <indexterm>
     <primary>pg_table_is_visible</primary>
@@ -13276,7 +13680,15 @@ SELECT pg_type_is_visible('myschema.widget'::regtype);
    </indexterm>
 
    <indexterm>
+    <primary>pg_tablespace_location</primary>
+   </indexterm>
+
+   <indexterm>
     <primary>pg_typeof</primary>
+   </indexterm>
+
+   <indexterm>
+    <primary>collation for</primary>
    </indexterm>
 
   <para>
@@ -13400,7 +13812,8 @@ SELECT pg_type_is_visible('myschema.widget'::regtype);
       <row>
        <entry><literal><function>pg_get_viewdef(<parameter>view_name</parameter>, <parameter>pretty_bool</>)</function></literal></entry>
        <entry><type>text</type></entry>
-       <entry>get underlying <command>SELECT</command> command for view (<emphasis>deprecated</emphasis>)</entry>
+       <entry>get underlying <command>SELECT</command> command for view,
+              lines with fields are wrapped to 80 columns if <parameter>pretty_bool</parameter> is true (<emphasis>deprecated</emphasis>)</entry>
       </row>
       <row>
        <entry><literal><function>pg_get_viewdef(<parameter>view_oid</parameter>)</function></literal></entry>
@@ -13410,7 +13823,14 @@ SELECT pg_type_is_visible('myschema.widget'::regtype);
       <row>
        <entry><literal><function>pg_get_viewdef(<parameter>view_oid</parameter>, <parameter>pretty_bool</>)</function></literal></entry>
        <entry><type>text</type></entry>
-       <entry>get underlying <command>SELECT</command> command for view</entry>
+       <entry>get underlying <command>SELECT</command> command for view,
+              lines with fields are wrapped to 80 columns if <parameter>pretty_bool</parameter> is true</entry>
+      </row>
+      <row>
+       <entry><literal><function>pg_get_viewdef(<parameter>view_oid</parameter>, <parameter>wrap_int</>)</function></literal></entry>
+       <entry><type>text</type></entry>
+       <entry>get underlying <command>SELECT</command> command for view,
+              wrapping lines with fields as specified, pretty printing is implied</entry>
       </row>
       <row>
        <entry><literal><function>pg_options_to_table(<parameter>reloptions</parameter>)</function></literal></entry>
@@ -13423,9 +13843,19 @@ SELECT pg_type_is_visible('myschema.widget'::regtype);
        <entry>get the set of database OIDs that have objects in the tablespace</entry>
       </row>
       <row>
+       <entry><literal><function>pg_tablespace_location(<parameter>tablespace_oid</parameter>)</function></literal></entry>
+       <entry><type>text</type></entry>
+       <entry>get the path in the file system that this tablespace is located in</entry>
+      </row>
+      <row>
        <entry><literal><function>pg_typeof(<parameter>any</parameter>)</function></literal></entry>
        <entry><type>regtype</type></entry>
        <entry>get the data type of any value</entry>
+      </row>
+      <row>
+       <entry><literal><function>collation for (<parameter>any</parameter>)</function></literal></entry>
+       <entry><type>text</type></entry>
+       <entry>get the collation of the argument</entry>
       </row>
      </tbody>
     </tgroup>
@@ -13551,6 +13981,27 @@ SELECT typlen FROM pg_type WHERE oid = pg_typeof(33);
       4
 (1 row)
 </programlisting>
+  </para>
+
+  <para>
+   The expression <literal>collation for</literal> returns the collation of the
+   value that is passed to it.  Example:
+<programlisting>
+SELECT collation for (description) FROM pg_description LIMIT 1;
+ pg_collation_for 
+------------------
+ "default"
+(1 row)
+
+SELECT collation for ('foo' COLLATE "de_DE");
+ pg_collation_for 
+------------------
+ "de_DE"
+(1 row)
+</programlisting>
+  The value might be quoted and schema-qualified.  If no collation is derived
+  for the argument expression, then a null value is returned.  If the argument
+  is not of a collatable data type, then an error is raised.
   </para>
 
    <indexterm>
@@ -13779,6 +14230,14 @@ SELECT typlen FROM pg_type WHERE oid = pg_typeof(33);
    <title>System Administration Functions</title>
 
    <para>
+    The functions described in this section are used to control and
+    monitor a <productname>PostgreSQL</> installation.
+   </para>
+
+  <sect2 id="functions-admin-set">
+   <title>Configuration Settings Functions</title>
+
+   <para>
     <xref linkend="functions-admin-set-table"> shows the functions
     available to query and alter run-time configuration parameters.
    </para>
@@ -13865,6 +14324,11 @@ SELECT set_config('log_statement_stats', 'off', false);
 </programlisting>
    </para>
 
+  </sect2>
+
+  <sect2 id="functions-admin-signal">
+   <title>Server Signalling Functions</title>
+
    <indexterm>
     <primary>pg_cancel_backend</primary>
    </indexterm>
@@ -13886,8 +14350,8 @@ SELECT set_config('log_statement_stats', 'off', false);
    <para>
     The functions shown in <xref
     linkend="functions-admin-signal-table"> send control signals to
-    other server processes.  Use of these functions is restricted
-    to superusers.
+    other server processes.  Use of these functions is usually restricted
+    to superusers, with noted exceptions.
    </para>
 
    <table id="functions-admin-signal-table">
@@ -13904,7 +14368,10 @@ SELECT set_config('log_statement_stats', 'off', false);
         <literal><function>pg_cancel_backend(<parameter>pid</parameter> <type>int</>)</function></literal>
         </entry>
        <entry><type>boolean</type></entry>
-       <entry>Cancel a backend's current query</entry>
+       <entry>Cancel a backend's current query.  You can execute this against
+        another backend that has exactly the same role as the user calling the
+        function.  In all other cases, you must be a superuser.
+        </entry>
       </row>
       <row>
        <entry>
@@ -13941,11 +14408,15 @@ SELECT set_config('log_statement_stats', 'off', false);
     send signals (<systemitem>SIGINT</> or <systemitem>SIGTERM</>
     respectively) to backend processes identified by process ID.
     The process ID of an active backend can be found from
-    the <structfield>procpid</structfield> column of the
+    the <structfield>pid</structfield> column of the
     <structname>pg_stat_activity</structname> view, or by listing the
     <command>postgres</command> processes on the server (using
     <application>ps</> on Unix or the <application>Task
     Manager</> on <productname>Windows</>).
+    For the less restrictive <function>pg_cancel_backend</>, the role of an
+    active backend can be found from
+    the <structfield>usename</structfield> column of the
+    <structname>pg_stat_activity</structname> view.
    </para>
 
    <para>
@@ -13960,6 +14431,11 @@ SELECT set_config('log_statement_stats', 'off', false);
     log collector is running, since otherwise there is no log-file manager
     subprocess.
    </para>
+
+  </sect2>
+
+  <sect2 id="functions-admin-backup">
+   <title>Backup Control Functions</title>
 
    <indexterm>
     <primary>backup</primary>
@@ -13988,11 +14464,15 @@ SELECT set_config('log_statement_stats', 'off', false);
    <indexterm>
     <primary>pg_xlogfile_name_offset</primary>
    </indexterm>
+   <indexterm>
+    <primary>pg_xlog_location_diff</primary>
+   </indexterm>
 
    <para>
     The functions shown in <xref
     linkend="functions-admin-backup-table"> assist in making on-line backups.
-    These functions cannot be executed during recovery.
+    These functions cannot be executed during recovery (except
+    <function>pg_xlog_location_diff</function>).
    </para>
 
    <table id="functions-admin-backup-table">
@@ -14059,6 +14539,13 @@ SELECT set_config('log_statement_stats', 'off', false);
         </entry>
        <entry><type>text</>, <type>integer</></entry>
        <entry>Convert transaction log location string to file name and decimal byte offset within file</entry>
+      </row>
+      <row>
+       <entry>
+        <literal><function>pg_xlog_location_diff(<parameter>location</> <type>text</>, <parameter>location</> <type>text</>)</function></literal>
+       </entry>
+       <entry><type>numeric</></entry>
+       <entry>Calculate the difference between two transaction log locations</entry>
       </row>
      </tbody>
     </tgroup>
@@ -14153,9 +14640,21 @@ postgres=# SELECT * FROM pg_xlogfile_name_offset(pg_stop_backup());
    </para>
 
    <para>
+    <function>pg_xlog_location_diff</> calculates the difference in bytes
+    between two transaction log locations. It can be used with
+    <structname>pg_stat_replication</structname> or some functions shown in
+    <xref linkend="functions-admin-backup-table"> to get the replication lag.
+   </para>
+
+   <para>
     For details about proper usage of these functions, see
     <xref linkend="continuous-archiving">.
    </para>
+
+  </sect2>
+
+  <sect2 id="functions-recovery-control">
+   <title>Recovery Control Functions</title>
 
    <indexterm>
     <primary>pg_is_in_recovery</primary>
@@ -14174,7 +14673,7 @@ postgres=# SELECT * FROM pg_xlogfile_name_offset(pg_stop_backup());
     The functions shown in <xref
     linkend="functions-recovery-info-table"> provide information
     about the current status of the standby.
-    These functions may be executed during both recovery and in normal running.
+    These functions may be executed both during recovery and in normal running.
    </para>
 
    <table id="functions-recovery-info-table">
@@ -14309,6 +14808,87 @@ postgres=# SELECT * FROM pg_xlogfile_name_offset(pg_stop_backup());
     the pause, the rate of WAL generation and available disk space.
    </para>
 
+  </sect2>
+
+  <sect2 id="functions-snapshot-synchronization">
+   <title>Snapshot Synchronization Functions</title>
+
+   <indexterm>
+     <primary>pg_export_snapshot</primary>
+   </indexterm>
+
+   <para>
+    <productname>PostgreSQL</> allows database sessions to synchronize their
+    snapshots. A <firstterm>snapshot</> determines which data is visible to the
+    transaction that is using the snapshot. Synchronized snapshots are
+    necessary when two or more sessions need to see identical content in the
+    database. If two sessions just start their transactions independently,
+    there is always a possibility that some third transaction commits
+    between the executions of the two <command>START TRANSACTION</> commands,
+    so that one session sees the effects of that transaction and the other
+    does not.
+   </para>
+
+   <para>
+    To solve this problem, <productname>PostgreSQL</> allows a transaction to
+    <firstterm>export</> the snapshot it is using.  As long as the exporting
+    transaction remains open, other transactions can <firstterm>import</> its
+    snapshot, and thereby be guaranteed that they see exactly the same view
+    of the database that the first transaction sees.  But note that any
+    database changes made by any one of these transactions remain invisible
+    to the other transactions, as is usual for changes made by uncommitted
+    transactions.  So the transactions are synchronized with respect to
+    pre-existing data, but act normally for changes they make themselves.
+   </para>
+
+   <para>
+    Snapshots are exported with the <function>pg_export_snapshot</> function,
+    shown in <xref linkend="functions-snapshot-synchronization-table">, and
+    imported with the <xref linkend="sql-set-transaction"> command.
+   </para>
+
+   <table id="functions-snapshot-synchronization-table">
+    <title>Snapshot Synchronization Functions</title>
+    <tgroup cols="3">
+     <thead>
+      <row><entry>Name</entry> <entry>Return Type</entry> <entry>Description</entry>
+      </row>
+     </thead>
+
+     <tbody>
+      <row>
+       <entry>
+        <literal><function>pg_export_snapshot()</function></literal>
+       </entry>
+       <entry><type>text</type></entry>
+       <entry>Save the current snapshot and return its identifier</entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+
+   <para>
+    The function <function>pg_export_snapshot</> saves the current snapshot
+    and returns a <type>text</> string identifying the snapshot.  This string
+    must be passed (outside the database) to clients that want to import the
+    snapshot.  The snapshot is available for import only until the end of the
+    transaction that exported it.  A transaction can export more than one
+    snapshot, if needed.  Note that doing so is only useful in <literal>READ
+    COMMITTED</> transactions, since in <literal>REPEATABLE READ</> and
+    higher isolation levels, transactions use the same snapshot throughout
+    their lifetime.  Once a transaction has exported any snapshots, it cannot
+    be prepared with <xref linkend="sql-prepare-transaction">.
+   </para>
+
+   <para>
+    See  <xref linkend="sql-set-transaction"> for details of how to use an
+    exported snapshot.
+   </para>
+  </sect2>
+
+  <sect2 id="functions-admin-dbobject">
+   <title>Database Object Management Functions</title>
+
    <para>
     The functions shown in <xref linkend="functions-admin-dbsize"> calculate
     the disk space usage of database objects.
@@ -14401,7 +14981,20 @@ postgres=# SELECT * FROM pg_xlogfile_name_offset(pg_stop_backup());
         <literal><function>pg_size_pretty(<type>bigint</type>)</function></literal>
         </entry>
        <entry><type>text</type></entry>
-       <entry>Converts a size in bytes into a human-readable format with size units</entry>
+       <entry>
+         Converts a size in bytes expressed as a 64-bit integer into a
+         human-readable format with size units
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <literal><function>pg_size_pretty(<type>numeric</type>)</function></literal>
+        </entry>
+       <entry><type>text</type></entry>
+       <entry>
+         Converts a size in bytes expressed as a numeric value into a
+         human-readable format with size units
+       </entry>
       </row>
       <row>
        <entry>
@@ -14506,6 +15099,11 @@ postgres=# SELECT * FROM pg_xlogfile_name_offset(pg_stop_backup());
    </para>
 
    <para>
+    If an OID that does not represent an existing object is passed as
+    argument to one of the above functions, NULL is returned.
+   </para>
+
+   <para>
     The functions shown in <xref linkend="functions-admin-dblocation"> assist
     in identifying the specific disk files associated with database objects.
    </para>
@@ -14567,9 +15165,14 @@ postgres=# SELECT * FROM pg_xlogfile_name_offset(pg_stop_backup());
     the relation.
    </para>
 
+  </sect2>
+
+  <sect2 id="functions-admin-genfile">
+   <title>Generic File Access Functions</title>
+
    <para>
     The functions shown in <xref
-    linkend="functions-admin-genfile"> provide native access to
+    linkend="functions-admin-genfile-table"> provide native access to
     files on the machine hosting the server. Only files within the
     database cluster directory and the <varname>log_directory</> can be
     accessed.  Use a relative path for files in the cluster directory,
@@ -14577,7 +15180,7 @@ postgres=# SELECT * FROM pg_xlogfile_name_offset(pg_stop_backup());
     for log files.  Use of these functions is restricted to superusers.
    </para>
 
-   <table id="functions-admin-genfile">
+   <table id="functions-admin-genfile-table">
     <title>Generic File Access Functions</title>
     <tgroup cols="3">
      <thead>
@@ -14670,13 +15273,18 @@ SELECT (pg_stat_file('filename')).modification;
 </programlisting>
    </para>
 
+  </sect2>
+
+  <sect2 id="functions-advisory-locks">
+   <title>Advisory Lock Functions</title>
+
    <para>
-    The functions shown in <xref linkend="functions-advisory-locks"> manage
-    advisory locks.  For details about proper use of these functions, see
-    <xref linkend="advisory-locks">.
+    The functions shown in <xref linkend="functions-advisory-locks-table">
+    manage advisory locks.  For details about proper use of these functions,
+    see <xref linkend="advisory-locks">.
    </para>
 
-   <table id="functions-advisory-locks">
+   <table id="functions-advisory-locks-table">
     <title>Advisory Lock Functions</title>
     <tgroup cols="3">
      <thead>
@@ -14774,7 +15382,7 @@ SELECT (pg_stat_file('filename')).modification;
         <literal><function>pg_advisory_xact_lock_shared(<parameter>key1</> <type>int</>, <parameter>key2</> <type>int</>)</function></literal>
        </entry>
        <entry><type>void</type></entry>
-       <entry>Obtain shared advisory lock for the current transaction</entry>
+       <entry>Obtain shared transaction level advisory lock</entry>
       </row>
       <row>
        <entry>
@@ -14843,11 +15451,10 @@ SELECT (pg_stat_file('filename')).modification;
     <function>pg_advisory_lock</> locks an application-defined resource,
     which can be identified either by a single 64-bit key value or two
     32-bit key values (note that these two key spaces do not overlap).
-    The key type is specified in <literal>pg_locks.objid</>.  If
-    another session already holds a lock on the same resource, the
-    function will wait until the resource becomes available.  The lock
+    If another session already holds a lock on the same resource identifier,
+    this function will wait until the resource becomes available.  The lock
     is exclusive.  Multiple lock requests stack, so that if the same resource
-    is locked three times it must be also unlocked three times to be
+    is locked three times it must then be unlocked three times to be
     released for other sessions' use.
    </para>
 
@@ -14882,44 +15489,6 @@ SELECT (pg_stat_file('filename')).modification;
    </para>
 
    <indexterm>
-    <primary>pg_advisory_xact_lock</primary>
-   </indexterm>
-   <para>
-    <function>pg_advisory_xact_lock</> works the same as
-    <function>pg_advisory_lock</>, expect the lock is automatically released
-    at the end of the current transaction and can not be released explicitly.
-   </para>
-
-   <indexterm>
-    <primary>pg_advisory_xact_lock_shared</primary>
-   </indexterm>
-   <para>
-    <function>pg_advisory_xact_lock_shared</> works the same as
-    <function>pg_advisory_lock_shared</>, expect the lock is automatically released
-    at the end of the current transaction and can not be released explicitly.
-   </para>
-
-   <indexterm>
-    <primary>pg_try_advisory_xact_lock</primary>
-   </indexterm>
-   <para>
-    <function>pg_try_advisory_xact_lock</> works the same as
-    <function>pg_try_advisory_lock</>, expect the lock, if acquired,
-    is automatically released at the end of the current transaction and
-    can not be released explicitly.
-   </para>
-
-   <indexterm>
-    <primary>pg_try_advisory_xact_lock_shared</primary>
-   </indexterm>
-   <para>
-    <function>pg_try_advisory_xact_lock_shared</> works the same as
-    <function>pg_try_advisory_lock_shared</>, expect the lock, if acquired,
-    is automatically released at the end of the current transaction and
-    can not be released explicitly.
-   </para>
-
-   <indexterm>
     <primary>pg_advisory_unlock</primary>
    </indexterm>
    <para>
@@ -14927,7 +15496,7 @@ SELECT (pg_stat_file('filename')).modification;
     exclusive session level advisory lock.  It
     returns <literal>true</> if the lock is successfully released.
     If the lock was not held, it will return <literal>false</>,
-    and in addition, an SQL warning will be raised by the server.
+    and in addition, an SQL warning will be reported by the server.
    </para>
 
    <indexterm>
@@ -14947,6 +15516,46 @@ SELECT (pg_stat_file('filename')).modification;
     locks held by the current session.  (This function is implicitly invoked
     at session end, even if the client disconnects ungracefully.)
    </para>
+
+   <indexterm>
+    <primary>pg_advisory_xact_lock</primary>
+   </indexterm>
+   <para>
+    <function>pg_advisory_xact_lock</> works the same as
+    <function>pg_advisory_lock</>, except the lock is automatically released
+    at the end of the current transaction and cannot be released explicitly.
+   </para>
+
+   <indexterm>
+    <primary>pg_advisory_xact_lock_shared</primary>
+   </indexterm>
+   <para>
+    <function>pg_advisory_xact_lock_shared</> works the same as
+    <function>pg_advisory_lock_shared</>, except the lock is automatically released
+    at the end of the current transaction and cannot be released explicitly.
+   </para>
+
+   <indexterm>
+    <primary>pg_try_advisory_xact_lock</primary>
+   </indexterm>
+   <para>
+    <function>pg_try_advisory_xact_lock</> works the same as
+    <function>pg_try_advisory_lock</>, except the lock, if acquired,
+    is automatically released at the end of the current transaction and
+    cannot be released explicitly.
+   </para>
+
+   <indexterm>
+    <primary>pg_try_advisory_xact_lock_shared</primary>
+   </indexterm>
+   <para>
+    <function>pg_try_advisory_xact_lock_shared</> works the same as
+    <function>pg_try_advisory_lock_shared</>, except the lock, if acquired,
+    is automatically released at the end of the current transaction and
+    cannot be released explicitly.
+   </para>
+
+  </sect2>
 
   </sect1>
 

@@ -32,7 +32,7 @@
  *	  clients.
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2012 Postgres-XC Development Group
  *
@@ -215,12 +215,15 @@ bool		enable_bonjour = false;
 char	   *bonjour_name;
 bool		restart_after_crash = true;
 
+char	   *output_config_variable = NULL;
+
 /* PIDs of special child processes; 0 when not running */
 static pid_t StartupPID = 0,
 #ifdef PGXC /* PGXC_COORD */
 			PgPoolerPID = 0,
 #endif /* PGXC_COORD */
 			BgWriterPID = 0,
+			CheckpointerPID = 0,
 			WalWriterPID = 0,
 			WalReceiverPID = 0,
 			AutoVacPID = 0,
@@ -251,13 +254,13 @@ static bool RecoveryError = false;		/* T if WAL recovery failed */
  * hot standby during archive recovery.
  *
  * When the startup process is ready to start archive recovery, it signals the
- * postmaster, and we switch to PM_RECOVERY state. The background writer is
- * launched, while the startup process continues applying WAL.	If Hot Standby
- * is enabled, then, after reaching a consistent point in WAL redo, startup
- * process signals us again, and we switch to PM_HOT_STANDBY state and
- * begin accepting connections to perform read-only queries.  When archive
- * recovery is finished, the startup process exits with exit code 0 and we
- * switch to PM_RUN state.
+ * postmaster, and we switch to PM_RECOVERY state. The background writer and
+ * checkpointer are launched, while the startup process continues applying WAL.
+ * If Hot Standby is enabled, then, after reaching a consistent point in WAL
+ * redo, startup process signals us again, and we switch to PM_HOT_STANDBY
+ * state and begin accepting connections to perform read-only queries.	When
+ * archive recovery is finished, the startup process exits with exit code 0
+ * and we switch to PM_RUN state.
  *
  * Normal child backends can only be launched when we are in PM_RUN or
  * PM_HOT_STANDBY state.  (We also allow launch of normal
@@ -292,7 +295,8 @@ typedef enum
 	PM_WAIT_BACKUP,				/* waiting for online backup mode to end */
 	PM_WAIT_READONLY,			/* waiting for read only backends to exit */
 	PM_WAIT_BACKENDS,			/* waiting for live backends to exit */
-	PM_SHUTDOWN,				/* waiting for bgwriter to do shutdown ckpt */
+	PM_SHUTDOWN,				/* waiting for checkpointer to do shutdown
+								 * ckpt */
 	PM_SHUTDOWN_2,				/* waiting for archiver and walsenders to
 								 * finish */
 	PM_WAIT_DEAD_END,			/* waiting for dead_end children to exit */
@@ -455,12 +459,15 @@ typedef struct
 	slock_t    *ProcStructLock;
 	PROC_HDR   *ProcGlobal;
 	PGPROC	   *AuxiliaryProcs;
+	PGPROC	   *PreparedXactProcs;
 	PMSignalData *PMSignalState;
 	InheritableSocket pgStatSock;
 	pid_t		PostmasterPid;
 	TimestampTz PgStartTime;
 	TimestampTz PgReloadTime;
 	bool		redirection_done;
+	bool		IsBinaryUpgrade;
+	int			max_safe_fds;
 #ifdef WIN32
 	HANDLE		PostmasterHandle;
 	HANDLE		initial_signal_pipe;
@@ -498,6 +505,7 @@ int remoteConnType = REMOTE_CONN_APP;
 
 #define StartupDataBase()		StartChildProcess(StartupProcess)
 #define StartBackgroundWriter() StartChildProcess(BgWriterProcess)
+#define StartCheckpointer()		StartChildProcess(CheckpointerProcess)
 #define StartWalWriter()		StartChildProcess(WalWriterProcess)
 #define StartWalReceiver()		StartChildProcess(WalReceiverProcess)
 
@@ -510,7 +518,7 @@ int remoteConnType = REMOTE_CONN_APP;
  * File descriptors for pipe used to monitor if postmaster is alive.
  * First is POSTMASTER_FD_WATCH, second is POSTMASTER_FD_OWN.
  */
-int postmaster_alive_fds[2] = { -1, -1 };
+int			postmaster_alive_fds[2] = {-1, -1};
 #else
 /* Process handle of postmaster used for the same purpose on Windows */
 HANDLE		PostmasterHandle;
@@ -576,9 +584,9 @@ PostmasterMain(int argc, char *argv[])
 	 * common help() function in main/main.c.
 	 */
 #ifdef PGXC
-	while ((opt = getopt(argc, argv, "A:B:bCc:D:d:EeFf:h:ijk:lN:nOo:Pp:r:S:sTt:W:X-:")) != -1)
+	while ((opt = getopt(argc, argv, "A:B:bc:C:D:d:EeFf:h:ijk:lN:nOo:Pp:r:S:sTt:W:XY-:")) != -1)
 #else
-	while ((opt = getopt(argc, argv, "A:B:bc:D:d:EeFf:h:ijk:lN:nOo:Pp:r:S:sTt:W:-:")) != -1)
+	while ((opt = getopt(argc, argv, "A:B:bc:C:D:d:EeFf:h:ijk:lN:nOo:Pp:r:S:sTt:W:-:")) != -1)
 #endif
 	{
 		switch (opt)
@@ -590,15 +598,14 @@ PostmasterMain(int argc, char *argv[])
 			case 'B':
 				SetConfigOption("shared_buffers", optarg, PGC_POSTMASTER, PGC_S_ARGV);
 				break;
-#ifdef PGXC
-			case 'C':
-				isPGXCCoordinator = true;
-				break;
-#endif 
 
 			case 'b':
 				/* Undocumented flag used for binary upgrades */
 				IsBinaryUpgrade = true;
+				break;
+
+			case 'C':
+				output_config_variable = optarg;
 				break;
 
 			case 'D':
@@ -725,7 +732,11 @@ PostmasterMain(int argc, char *argv[])
 			case 'X':
 				isPGXCDataNode = true;
 				break;
-#endif 
+
+			case 'Y':
+				isPGXCCoordinator = true;
+				break;
+#endif
 			case 'c':
 			case '-':
 				{
@@ -788,6 +799,16 @@ PostmasterMain(int argc, char *argv[])
 	if (!SelectConfigFiles(userDoption, progname))
 		ExitPostmaster(2);
 
+	if (output_config_variable != NULL)
+	{
+		/*
+		 * permission is handled because the user is reading inside the data
+		 * dir
+		 */
+		puts(GetConfigOption(output_config_variable, false, false));
+		ExitPostmaster(0);
+	}
+
 	/* Verify that DataDir looks reasonable */
 	checkDataDir();
 
@@ -834,8 +855,8 @@ PostmasterMain(int argc, char *argv[])
 		char	  **p;
 
 		ereport(DEBUG3,
-				(errmsg_internal("%s: PostmasterMain: initial environment dump:",
-								 progname)));
+			(errmsg_internal("%s: PostmasterMain: initial environment dump:",
+							 progname)));
 		ereport(DEBUG3,
 			 (errmsg_internal("-----------------------------------------")));
 		for (p = environ; *p; ++p)
@@ -857,21 +878,6 @@ PostmasterMain(int argc, char *argv[])
 	CreateDataDirLockFile(true);
 
 	/*
-	 * If timezone is not set, determine what the OS uses.	(In theory this
-	 * should be done during GUC initialization, but because it can take as
-	 * much as several seconds, we delay it until after we've created the
-	 * postmaster.pid file.  This prevents problems with boot scripts that
-	 * expect the pidfile to appear quickly.  Also, we avoid problems with
-	 * trying to locate the timezone files too early in initialization.)
-	 */
-	pg_timezone_initialize();
-
-	/*
-	 * Likewise, init timezone_abbreviations if not already set.
-	 */
-	pg_timezone_abbrev_initialize();
-
-	/*
 	 * Initialize SSL library, if specified.
 	 */
 #ifdef USE_SSL
@@ -883,12 +889,6 @@ PostmasterMain(int argc, char *argv[])
 	 * process any libraries that should be preloaded at postmaster start
 	 */
 	process_shared_preload_libraries();
-
-	/*
-	 * Remove old temporary files.	At this point there can be no other
-	 * Postgres processes running in this directory, so this should be safe.
-	 */
-	RemovePgTempFiles();
 
 	/*
 	 * Establish input sockets.
@@ -1029,6 +1029,11 @@ PostmasterMain(int argc, char *argv[])
 	set_max_safe_fds();
 
 	/*
+	 * Set reference point for stack-depth checking.
+	 */
+	set_stack_base();
+
+	/*
 	 * Initialize the list of active backends.
 	 */
 	BackendList = DLNewList();
@@ -1040,6 +1045,7 @@ PostmasterMain(int argc, char *argv[])
 	InitPostmasterDeathWatchHandle();
 
 #ifdef WIN32
+
 	/*
 	 * Initialize I/O completion port used to deliver list of dead children.
 	 */
@@ -1090,8 +1096,8 @@ PostmasterMain(int argc, char *argv[])
 	 * CAUTION: when changing this list, check for side-effects on the signal
 	 * handling setup of child processes.  See tcop/postgres.c,
 	 * bootstrap/bootstrap.c, postmaster/bgwriter.c, postmaster/walwriter.c,
-	 * postmaster/autovacuum.c, postmaster/pgarch.c, postmaster/pgstat.c, and
-	 * postmaster/syslogger.c.
+	 * postmaster/autovacuum.c, postmaster/pgarch.c, postmaster/pgstat.c,
+	 * postmaster/syslogger.c and postmaster/checkpointer.c.
 	 */
 	pqinitmask();
 	PG_SETMASK(&BlockSig);
@@ -1151,6 +1157,12 @@ PostmasterMain(int argc, char *argv[])
 				(errmsg("could not load pg_hba.conf")));
 	}
 	load_ident();
+
+	/*
+	 * Remove old temporary files.	At this point there can be no other
+	 * Postgres processes running in this directory, so this should be safe.
+	 */
+	RemovePgTempFiles();
 
 	/*
 	 * Remember postmaster startup time
@@ -1440,16 +1452,21 @@ ServerLoop(void)
 		/*
 		 * If no background writer process is running, and we are not in a
 		 * state that prevents it, start one.  It doesn't matter if this
-		 * fails, we'll just try again later.
+		 * fails, we'll just try again later.  Likewise for the checkpointer.
 		 */
-		if (BgWriterPID == 0 &&
-			(pmState == PM_RUN || pmState == PM_RECOVERY ||
-			 pmState == PM_HOT_STANDBY))
-			BgWriterPID = StartBackgroundWriter();
+		if (pmState == PM_RUN || pmState == PM_RECOVERY ||
+			pmState == PM_HOT_STANDBY)
+		{
+			if (CheckpointerPID == 0)
+				CheckpointerPID = StartCheckpointer();
+			if (BgWriterPID == 0)
+				BgWriterPID = StartBackgroundWriter();
+		}
 
 		/*
 		 * Likewise, if we have lost the walwriter process, try to start a new
-		 * one.
+		 * one.  But this is needed only in normal operation (else we cannot
+		 * be writing any new WAL).
 		 */
 		if (WalWriterPID == 0 && pmState == PM_RUN)
 			WalWriterPID = StartWalWriter();
@@ -2046,6 +2063,7 @@ ClosePostmasterPorts(bool am_syslogger)
 	int			i;
 
 #ifndef WIN32
+
 	/*
 	 * Close the write end of postmaster death watch pipe. It's important to
 	 * do this as early as possible, so that if postmaster dies, others won't
@@ -2053,8 +2071,8 @@ ClosePostmasterPorts(bool am_syslogger)
 	 */
 	if (close(postmaster_alive_fds[POSTMASTER_FD_OWN]))
 		ereport(FATAL,
-			(errcode_for_file_access(),
-			 errmsg_internal("could not close postmaster death monitoring pipe in child process: %m")));
+				(errcode_for_file_access(),
+				 errmsg_internal("could not close postmaster death monitoring pipe in child process: %m")));
 	postmaster_alive_fds[POSTMASTER_FD_OWN] = -1;
 #endif
 
@@ -2132,6 +2150,8 @@ SIGHUP_handler(SIGNAL_ARGS)
 #endif
 		if (BgWriterPID != 0)
 			signal_child(BgWriterPID, SIGHUP);
+		if (CheckpointerPID != 0)
+			signal_child(CheckpointerPID, SIGHUP);
 		if (WalWriterPID != 0)
 			signal_child(WalWriterPID, SIGHUP);
 		if (WalReceiverPID != 0)
@@ -2201,6 +2221,9 @@ pmdie(SIGNAL_ARGS)
 				/* and the autovac launcher too */
 				if (AutoVacPID != 0)
 					signal_child(AutoVacPID, SIGTERM);
+				/* and the bgwriter too */
+				if (BgWriterPID != 0)
+					signal_child(BgWriterPID, SIGTERM);
 				/* and the walwriter too */
 				if (WalWriterPID != 0)
 					signal_child(WalWriterPID, SIGTERM);
@@ -2257,11 +2280,17 @@ pmdie(SIGNAL_ARGS)
 
 			if (StartupPID != 0)
 				signal_child(StartupPID, SIGTERM);
+			if (BgWriterPID != 0)
+				signal_child(BgWriterPID, SIGTERM);
 			if (WalReceiverPID != 0)
 				signal_child(WalReceiverPID, SIGTERM);
 			if (pmState == PM_RECOVERY)
 			{
-				/* only bgwriter is active in this state */
+				/*
+				 * Only startup, bgwriter, and checkpointer should be active
+				 * in this state; we just signaled the first two, and we don't
+				 * want to kill checkpointer yet.
+				 */
 				pmState = PM_WAIT_BACKENDS;
 			}
 			else if (pmState == PM_RUN ||
@@ -2324,6 +2353,8 @@ pmdie(SIGNAL_ARGS)
 #endif
 			if (BgWriterPID != 0)
 				signal_child(BgWriterPID, SIGQUIT);
+			if (CheckpointerPID != 0)
+				signal_child(CheckpointerPID, SIGQUIT);
 			if (WalWriterPID != 0)
 				signal_child(WalWriterPID, SIGQUIT);
 			if (WalReceiverPID != 0)
@@ -2414,13 +2445,18 @@ reaper(SIGNAL_ARGS)
 			}
 
 			/*
-			 * Any unexpected exit (including FATAL exit) of the startup
-			 * process is treated as a crash, except that we don't want to
-			 * reinitialize.
+			 * After PM_STARTUP, any unexpected exit (including FATAL exit) of
+			 * the startup process is catastrophic, so kill other children,
+			 * and set RecoveryError so we don't try to reinitialize after
+			 * they're gone.  Exception: if FatalError is already set, that
+			 * implies we previously sent the startup process a SIGQUIT, so
+			 * that's probably the reason it died, and we do want to try to
+			 * restart in that case.
 			 */
 			if (!EXIT_STATUS_0(exitstatus))
 			{
-				RecoveryError = true;
+				if (!FatalError)
+					RecoveryError = true;
 				HandleChildCrash(pid, exitstatus,
 								 _("startup process"));
 				continue;
@@ -2434,19 +2470,42 @@ reaper(SIGNAL_ARGS)
 			pmState = PM_RUN;
 
 			/*
-			 * Crank up the background writer, if we didn't do that already
+			 * Kill any walsenders to force the downstream standby(s) to
+			 * reread the timeline history file, adjust their timelines and
+			 * establish replication connections again. This is required
+			 * because the timeline of cascading standby is not consistent
+			 * with that of cascaded one just after failover. We LOG this
+			 * message since we need to leave a record to explain this
+			 * disconnection.
+			 *
+			 * XXX should avoid the need for disconnection. When we do,
+			 * am_cascading_walsender should be replaced with
+			 * RecoveryInProgress()
+			 */
+			if (max_wal_senders > 0 && CountChildren(BACKEND_TYPE_WALSND) > 0)
+			{
+				ereport(LOG,
+						(errmsg("terminating all walsender processes to force cascaded "
+							"standby(s) to update timeline and reconnect")));
+				SignalSomeChildren(SIGUSR2, BACKEND_TYPE_WALSND);
+			}
+
+			/*
+			 * Crank up the background tasks, if we didn't do that already
 			 * when we entered consistent recovery state.  It doesn't matter
 			 * if this fails, we'll just try again later.
 			 */
+			if (CheckpointerPID == 0)
+				CheckpointerPID = StartCheckpointer();
 			if (BgWriterPID == 0)
 				BgWriterPID = StartBackgroundWriter();
+			if (WalWriterPID == 0)
+				WalWriterPID = StartWalWriter();
 
 			/*
 			 * Likewise, start other special children as needed.  In a restart
 			 * situation, some of them may be alive already.
 			 */
-			if (WalWriterPID == 0)
-				WalWriterPID = StartWalWriter();
 			if (!IsBinaryUpgrade && AutoVacuumingActive() && AutoVacPID == 0)
 				AutoVacPID = StartAutoVacLauncher();
 			if (XLogArchivingActive() && PgArchPID == 0)
@@ -2466,16 +2525,30 @@ reaper(SIGNAL_ARGS)
 		}
 
 		/*
-		 * Was it the bgwriter?
+		 * Was it the bgwriter?  Normal exit can be ignored; we'll start a new
+		 * one at the next iteration of the postmaster's main loop, if
+		 * necessary.  Any other exit condition is treated as a crash.
 		 */
 		if (pid == BgWriterPID)
 		{
 			BgWriterPID = 0;
+			if (!EXIT_STATUS_0(exitstatus))
+				HandleChildCrash(pid, exitstatus,
+								 _("background writer process"));
+			continue;
+		}
+
+		/*
+		 * Was it the checkpointer?
+		 */
+		if (pid == CheckpointerPID)
+		{
+			CheckpointerPID = 0;
 			if (EXIT_STATUS_0(exitstatus) && pmState == PM_SHUTDOWN)
 			{
 				/*
-				 * OK, we saw normal exit of the bgwriter after it's been told
-				 * to shut down.  We expect that it wrote a shutdown
+				 * OK, we saw normal exit of the checkpointer after it's been
+				 * told to shut down.  We expect that it wrote a shutdown
 				 * checkpoint.	(If for some reason it didn't, recovery will
 				 * occur on next postmaster start.)
 				 *
@@ -2511,11 +2584,11 @@ reaper(SIGNAL_ARGS)
 			else
 			{
 				/*
-				 * Any unexpected exit of the bgwriter (including FATAL exit)
-				 * is treated as a crash.
+				 * Any unexpected exit of the checkpointer (including FATAL
+				 * exit) is treated as a crash.
 				 */
 				HandleChildCrash(pid, exitstatus,
-								 _("background writer process"));
+								 _("checkpointer process"));
 			}
 
 			continue;
@@ -2568,7 +2641,7 @@ reaper(SIGNAL_ARGS)
 		 * Was it the archiver?  If so, just try to start a new one; no need
 		 * to force reset of the rest of the system.  (If fail, we'll try
 		 * again in future cycles of the main loop.).  Unless we were waiting
-		 * for it to shut down; don't restart it in that case, and and
+		 * for it to shut down; don't restart it in that case, and
 		 * PostmasterStateMachine() will advance to the next shutdown step.
 		 */
 		if (pid == PgArchPID)
@@ -2714,8 +2787,8 @@ CleanupBackend(int pid,
 }
 
 /*
- * HandleChildCrash -- cleanup after failed backend, bgwriter, walwriter,
- * or autovacuum.
+ * HandleChildCrash -- cleanup after failed backend, bgwriter, checkpointer,
+ * walwriter or autovacuum.
  *
  * The objectives here are to clean up our local state about the child
  * process, and to signal all other remaining children to quickdie.
@@ -2806,6 +2879,18 @@ HandleChildCrash(int pid, int exitstatus, const char *procname)
 								 (SendStop ? "SIGSTOP" : "SIGQUIT"),
 								 (int) BgWriterPID)));
 		signal_child(BgWriterPID, (SendStop ? SIGSTOP : SIGQUIT));
+	}
+
+	/* Take care of the checkpointer too */
+	if (pid == CheckpointerPID)
+		CheckpointerPID = 0;
+	else if (CheckpointerPID != 0 && !FatalError)
+	{
+		ereport(DEBUG2,
+				(errmsg_internal("sending %s to process %d",
+								 (SendStop ? "SIGSTOP" : "SIGQUIT"),
+								 (int) CheckpointerPID)));
+		signal_child(CheckpointerPID, (SendStop ? SIGSTOP : SIGQUIT));
 	}
 
 	/* Take care of the walwriter too */
@@ -2911,6 +2996,18 @@ HandleChildCrash(int pid, int exitstatus, const char *procname)
 static void
 LogChildExit(int lev, const char *procname, int pid, int exitstatus)
 {
+	/*
+	 * size of activity_buffer is arbitrary, but set equal to default
+	 * track_activity_query_size
+	 */
+	char		activity_buffer[1024];
+	const char *activity = NULL;
+
+	if (!EXIT_STATUS_0(exitstatus))
+		activity = pgstat_get_crashed_backend_activity(pid,
+													   activity_buffer,
+													sizeof(activity_buffer));
+
 	if (WIFEXITED(exitstatus))
 		ereport(lev,
 
@@ -2918,7 +3015,8 @@ LogChildExit(int lev, const char *procname, int pid, int exitstatus)
 		  translator: %s is a noun phrase describing a child process, such as
 		  "server process" */
 				(errmsg("%s (PID %d) exited with exit code %d",
-						procname, pid, WEXITSTATUS(exitstatus))));
+						procname, pid, WEXITSTATUS(exitstatus)),
+				 activity ? errdetail("Failed process was running: %s", activity) : 0));
 	else if (WIFSIGNALED(exitstatus))
 #if defined(WIN32)
 		ereport(lev,
@@ -2928,7 +3026,8 @@ LogChildExit(int lev, const char *procname, int pid, int exitstatus)
 		  "server process" */
 				(errmsg("%s (PID %d) was terminated by exception 0x%X",
 						procname, pid, WTERMSIG(exitstatus)),
-				 errhint("See C include file \"ntstatus.h\" for a description of the hexadecimal value.")));
+				 errhint("See C include file \"ntstatus.h\" for a description of the hexadecimal value."),
+				 activity ? errdetail("Failed process was running: %s", activity) : 0));
 #elif defined(HAVE_DECL_SYS_SIGLIST) && HAVE_DECL_SYS_SIGLIST
 	ereport(lev,
 
@@ -2938,7 +3037,8 @@ LogChildExit(int lev, const char *procname, int pid, int exitstatus)
 			(errmsg("%s (PID %d) was terminated by signal %d: %s",
 					procname, pid, WTERMSIG(exitstatus),
 					WTERMSIG(exitstatus) < NSIG ?
-					sys_siglist[WTERMSIG(exitstatus)] : "(unknown)")));
+					sys_siglist[WTERMSIG(exitstatus)] : "(unknown)"),
+	  activity ? errdetail("Failed process was running: %s", activity) : 0));
 #else
 		ereport(lev,
 
@@ -2946,7 +3046,8 @@ LogChildExit(int lev, const char *procname, int pid, int exitstatus)
 		  translator: %s is a noun phrase describing a child process, such as
 		  "server process" */
 				(errmsg("%s (PID %d) was terminated by signal %d",
-						procname, pid, WTERMSIG(exitstatus))));
+						procname, pid, WTERMSIG(exitstatus)),
+				 activity ? errdetail("Failed process was running: %s", activity) : 0));
 #endif
 	else
 		ereport(lev,
@@ -2955,7 +3056,8 @@ LogChildExit(int lev, const char *procname, int pid, int exitstatus)
 		  translator: %s is a noun phrase describing a child process, such as
 		  "server process" */
 				(errmsg("%s (PID %d) exited with unrecognized status %d",
-						procname, pid, exitstatus)));
+						procname, pid, exitstatus),
+				 activity ? errdetail("Failed process was running: %s", activity) : 0));
 }
 
 /*
@@ -3004,13 +3106,14 @@ PostmasterStateMachine(void)
 	{
 		/*
 		 * PM_WAIT_BACKENDS state ends when we have no regular backends
-		 * (including autovac workers) and no walwriter or autovac launcher.
-		 * If we are doing crash recovery then we expect the bgwriter to exit
-		 * too, otherwise not.	The archiver, stats, and syslogger processes
-		 * are disregarded since they are not connected to shared memory; we
-		 * also disregard dead_end children here. Walsenders are also
-		 * disregarded, they will be terminated later after writing the
-		 * checkpoint record, like the archiver process.
+		 * (including autovac workers) and no walwriter, autovac launcher or
+		 * bgwriter.  If we are doing crash recovery then we expect the
+		 * checkpointer to exit as well, otherwise not. The archiver, stats,
+		 * and syslogger processes are disregarded since they are not
+		 * connected to shared memory; we also disregard dead_end children
+		 * here. Walsenders are also disregarded, they will be terminated
+		 * later after writing the checkpoint record, like the archiver
+		 * process.
 		 */
 		if (CountChildren(BACKEND_TYPE_NORMAL | BACKEND_TYPE_AUTOVAC) == 0 &&
 			StartupPID == 0 &&
@@ -3018,7 +3121,8 @@ PostmasterStateMachine(void)
 			PgPoolerPID == 0 &&
 #endif
 			WalReceiverPID == 0 &&
-			(BgWriterPID == 0 || !FatalError) &&
+			BgWriterPID == 0 &&
+			(CheckpointerPID == 0 || !FatalError) &&
 			WalWriterPID == 0 &&
 			AutoVacPID == 0)
 		{
@@ -3040,25 +3144,25 @@ PostmasterStateMachine(void)
 				/*
 				 * If we get here, we are proceeding with normal shutdown. All
 				 * the regular children are gone, and it's time to tell the
-				 * bgwriter to do a shutdown checkpoint.
+				 * checkpointer to do a shutdown checkpoint.
 				 */
 				Assert(Shutdown > NoShutdown);
-				/* Start the bgwriter if not running */
-				if (BgWriterPID == 0)
-					BgWriterPID = StartBackgroundWriter();
+				/* Start the checkpointer if not running */
+				if (CheckpointerPID == 0)
+					CheckpointerPID = StartCheckpointer();
 				/* And tell it to shut down */
-				if (BgWriterPID != 0)
+				if (CheckpointerPID != 0)
 				{
-					signal_child(BgWriterPID, SIGUSR2);
+					signal_child(CheckpointerPID, SIGUSR2);
 					pmState = PM_SHUTDOWN;
 				}
 				else
 				{
 					/*
-					 * If we failed to fork a bgwriter, just shut down. Any
-					 * required cleanup will happen at next restart. We set
-					 * FatalError so that an "abnormal shutdown" message gets
-					 * logged when we exit.
+					 * If we failed to fork a checkpointer, just shut down.
+					 * Any required cleanup will happen at next restart. We
+					 * set FatalError so that an "abnormal shutdown" message
+					 * gets logged when we exit.
 					 */
 					FatalError = true;
 					pmState = PM_WAIT_DEAD_END;
@@ -3117,6 +3221,7 @@ PostmasterStateMachine(void)
 			Assert(StartupPID == 0);
 			Assert(WalReceiverPID == 0);
 			Assert(BgWriterPID == 0);
+			Assert(CheckpointerPID == 0);
 			Assert(WalWriterPID == 0);
 			Assert(AutoVacPID == 0);
 			/* syslogger is not considered here */
@@ -3146,13 +3251,13 @@ PostmasterStateMachine(void)
 		else
 		{
 			/*
-			 * Terminate backup mode to avoid recovery after a clean fast
-			 * shutdown.  Since a backup can only be taken during normal
-			 * running (and not, for example, while running under Hot Standby)
-			 * it only makes sense to do this if we reached normal running. If
-			 * we're still in recovery, the backup file is one we're
-			 * recovering *from*, and we must keep it around so that recovery
-			 * restarts from the right place.
+			 * Terminate exclusive backup mode to avoid recovery after a clean
+			 * fast shutdown.  Since an exclusive backup can only be taken
+			 * during normal running (and not, for example, while running
+			 * under Hot Standby) it only makes sense to do this if we reached
+			 * normal running. If we're still in recovery, the backup file is
+			 * one we're recovering *from*, and we must keep it around so that
+			 * recovery restarts from the right place.
 			 */
 			if (ReachedNormalRunning)
 				CancelBackup();
@@ -3497,14 +3602,14 @@ BackendInitialize(Port *port)
 	if (pg_getnameinfo_all(&port->raddr.addr, port->raddr.salen,
 						   remote_host, sizeof(remote_host),
 						   remote_port, sizeof(remote_port),
-					   (log_hostname ? 0 : NI_NUMERICHOST) | NI_NUMERICSERV))
+				  (log_hostname ? 0 : NI_NUMERICHOST) | NI_NUMERICSERV) != 0)
 	{
 		int			ret = pg_getnameinfo_all(&port->raddr.addr, port->raddr.salen,
 											 remote_host, sizeof(remote_host),
 											 remote_port, sizeof(remote_port),
 											 NI_NUMERICHOST | NI_NUMERICSERV);
 
-		if (ret)
+		if (ret != 0)
 			ereport(WARNING,
 					(errmsg_internal("pg_getnameinfo_all() failed: %s",
 									 gai_strerror(ret))));
@@ -3845,16 +3950,16 @@ internal_forkexec(int argc, char *argv[], Port *port)
 									NULL);
 	if (paramHandle == INVALID_HANDLE_VALUE)
 	{
-		elog(LOG, "could not create backend parameter file mapping: error code %d",
-			 (int) GetLastError());
+		elog(LOG, "could not create backend parameter file mapping: error code %lu",
+			 GetLastError());
 		return -1;
 	}
 
 	param = MapViewOfFile(paramHandle, FILE_MAP_WRITE, 0, 0, sizeof(BackendParameters));
 	if (!param)
 	{
-		elog(LOG, "could not map backend parameter memory: error code %d",
-			 (int) GetLastError());
+		elog(LOG, "could not map backend parameter memory: error code %lu",
+			 GetLastError());
 		CloseHandle(paramHandle);
 		return -1;
 	}
@@ -3894,8 +3999,8 @@ internal_forkexec(int argc, char *argv[], Port *port)
 	if (!CreateProcess(NULL, cmdLine, NULL, NULL, TRUE, CREATE_SUSPENDED,
 					   NULL, NULL, &si, &pi))
 	{
-		elog(LOG, "CreateProcess call failed: %m (error code %d)",
-			 (int) GetLastError());
+		elog(LOG, "CreateProcess call failed: %m (error code %lu)",
+			 GetLastError());
 		return -1;
 	}
 
@@ -3907,8 +4012,8 @@ internal_forkexec(int argc, char *argv[], Port *port)
 		 */
 		if (!TerminateProcess(pi.hProcess, 255))
 			ereport(LOG,
-					(errmsg_internal("could not terminate unstarted process: error code %d",
-									 (int) GetLastError())));
+					(errmsg_internal("could not terminate unstarted process: error code %lu",
+									 GetLastError())));
 		CloseHandle(pi.hProcess);
 		CloseHandle(pi.hThread);
 		return -1;				/* log made by save_backend_variables */
@@ -3916,11 +4021,11 @@ internal_forkexec(int argc, char *argv[], Port *port)
 
 	/* Drop the parameter shared memory that is now inherited to the backend */
 	if (!UnmapViewOfFile(param))
-		elog(LOG, "could not unmap view of backend parameter file: error code %d",
-			 (int) GetLastError());
+		elog(LOG, "could not unmap view of backend parameter file: error code %lu",
+			 GetLastError());
 	if (!CloseHandle(paramHandle))
-		elog(LOG, "could not close handle to backend parameter file: error code %d",
-			 (int) GetLastError());
+		elog(LOG, "could not close handle to backend parameter file: error code %lu",
+			 GetLastError());
 
 	/*
 	 * Reserve the memory region used by our main shared memory segment before
@@ -3934,8 +4039,8 @@ internal_forkexec(int argc, char *argv[], Port *port)
 		 */
 		if (!TerminateProcess(pi.hProcess, 255))
 			ereport(LOG,
-					(errmsg_internal("could not terminate process that failed to reserve memory: error code %d",
-									 (int) GetLastError())));
+					(errmsg_internal("could not terminate process that failed to reserve memory: error code %lu",
+									 GetLastError())));
 		CloseHandle(pi.hProcess);
 		CloseHandle(pi.hThread);
 		return -1;				/* logging done made by
@@ -3952,8 +4057,8 @@ internal_forkexec(int argc, char *argv[], Port *port)
 		if (!TerminateProcess(pi.hProcess, 255))
 		{
 			ereport(LOG,
-					(errmsg_internal("could not terminate unstartable process: error code %d",
-									 (int) GetLastError())));
+					(errmsg_internal("could not terminate unstartable process: error code %lu",
+									 GetLastError())));
 			CloseHandle(pi.hProcess);
 			CloseHandle(pi.hThread);
 			return -1;
@@ -3961,8 +4066,8 @@ internal_forkexec(int argc, char *argv[], Port *port)
 		CloseHandle(pi.hProcess);
 		CloseHandle(pi.hThread);
 		ereport(LOG,
-				(errmsg_internal("could not resume thread of unstarted process: error code %d",
-								 (int) GetLastError())));
+				(errmsg_internal("could not resume thread of unstarted process: error code %lu",
+								 GetLastError())));
 		return -1;
 	}
 
@@ -3990,8 +4095,8 @@ internal_forkexec(int argc, char *argv[], Port *port)
 									 INFINITE,
 								WT_EXECUTEONLYONCE | WT_EXECUTEINWAITTHREAD))
 		ereport(FATAL,
-		(errmsg_internal("could not register process for wait: error code %d",
-						 (int) GetLastError())));
+				(errmsg_internal("could not register process for wait: error code %lu",
+								 GetLastError())));
 
 	/* Don't close pi.hProcess here - the wait thread needs access to it */
 
@@ -4049,6 +4154,11 @@ SubPostmasterMain(int argc, char *argv[])
 	/* Read in the variables file */
 	memset(&port, 0, sizeof(Port));
 	read_backend_variables(argv[2], &port);
+
+	/*
+	 * Set reference point for stack-depth checking
+	 */
+	set_stack_base();
 
 	/*
 	 * Set up memory area for GSS information. Mirrors the code in ConnCreate
@@ -4291,9 +4401,11 @@ sigusr1_handler(SIGNAL_ARGS)
 		FatalError = false;
 
 		/*
-		 * Crank up the background writer.	It doesn't matter if this fails,
+		 * Crank up the background tasks.  It doesn't matter if this fails,
 		 * we'll just try again later.
 		 */
+		Assert(CheckpointerPID == 0);
+		CheckpointerPID = StartCheckpointer();
 		Assert(BgWriterPID == 0);
 		BgWriterPID = StartBackgroundWriter();
 
@@ -4623,6 +4735,10 @@ StartChildProcess(AuxProcType type)
 				ereport(LOG,
 				   (errmsg("could not fork background writer process: %m")));
 				break;
+			case CheckpointerProcess:
+				ereport(LOG,
+						(errmsg("could not fork checkpointer process: %m")));
+				break;
 			case WalWriterProcess:
 				ereport(LOG,
 						(errmsg("could not fork WAL writer process: %m")));
@@ -4792,7 +4908,6 @@ MaxLivePostmasterChildren(void)
 extern slock_t *ShmemLock;
 extern LWLock *LWLockArray;
 extern slock_t *ProcStructLock;
-extern PROC_HDR *ProcGlobal;
 extern PGPROC *AuxiliaryProcs;
 extern PMSignalData *PMSignalState;
 extern pgsocket pgStatSock;
@@ -4840,6 +4955,7 @@ save_backend_variables(BackendParameters *param, Port *port,
 	param->ProcStructLock = ProcStructLock;
 	param->ProcGlobal = ProcGlobal;
 	param->AuxiliaryProcs = AuxiliaryProcs;
+	param->PreparedXactProcs = PreparedXactProcs;
 	param->PMSignalState = PMSignalState;
 	if (!write_inheritable_socket(&param->pgStatSock, pgStatSock, childPid))
 		return false;
@@ -4849,6 +4965,8 @@ save_backend_variables(BackendParameters *param, Port *port,
 	param->PgReloadTime = PgReloadTime;
 
 	param->redirection_done = redirection_done;
+	param->IsBinaryUpgrade = IsBinaryUpgrade;
+	param->max_safe_fds = max_safe_fds;
 
 #ifdef WIN32
 	param->PostmasterHandle = PostmasterHandle;
@@ -4892,8 +5010,8 @@ write_duplicated_handle(HANDLE *dest, HANDLE src, HANDLE childProcess)
 						 DUPLICATE_CLOSE_SOURCE | DUPLICATE_SAME_ACCESS))
 	{
 		ereport(LOG,
-				(errmsg_internal("could not duplicate handle to be written to backend parameter file: error code %d",
-								 (int) GetLastError())));
+				(errmsg_internal("could not duplicate handle to be written to backend parameter file: error code %lu",
+								 GetLastError())));
 		return false;
 	}
 
@@ -5012,8 +5130,8 @@ read_backend_variables(char *id, Port *port)
 	paramp = MapViewOfFile(paramHandle, FILE_MAP_READ, 0, 0, 0);
 	if (!paramp)
 	{
-		write_stderr("could not map view of backend variables: error code %d\n",
-					 (int) GetLastError());
+		write_stderr("could not map view of backend variables: error code %lu\n",
+					 GetLastError());
 		exit(1);
 	}
 
@@ -5021,15 +5139,15 @@ read_backend_variables(char *id, Port *port)
 
 	if (!UnmapViewOfFile(paramp))
 	{
-		write_stderr("could not unmap view of backend variables: error code %d\n",
-					 (int) GetLastError());
+		write_stderr("could not unmap view of backend variables: error code %lu\n",
+					 GetLastError());
 		exit(1);
 	}
 
 	if (!CloseHandle(paramHandle))
 	{
-		write_stderr("could not close handle to backend parameter variables: error code %d\n",
-					 (int) GetLastError());
+		write_stderr("could not close handle to backend parameter variables: error code %lu\n",
+					 GetLastError());
 		exit(1);
 	}
 #endif
@@ -5062,6 +5180,7 @@ restore_backend_variables(BackendParameters *param, Port *port)
 	ProcStructLock = param->ProcStructLock;
 	ProcGlobal = param->ProcGlobal;
 	AuxiliaryProcs = param->AuxiliaryProcs;
+	PreparedXactProcs = param->PreparedXactProcs;
 	PMSignalState = param->PMSignalState;
 	read_inheritable_socket(&pgStatSock, &param->pgStatSock);
 
@@ -5070,6 +5189,8 @@ restore_backend_variables(BackendParameters *param, Port *port)
 	PgReloadTime = param->PgReloadTime;
 
 	redirection_done = param->redirection_done;
+	IsBinaryUpgrade = param->IsBinaryUpgrade;
+	max_safe_fds = param->max_safe_fds;
 
 #ifdef WIN32
 	PostmasterHandle = param->PostmasterHandle;
@@ -5196,7 +5317,6 @@ pgwin32_deadchild_callback(PVOID lpParameter, BOOLEAN TimerOrWaitFired)
 	/* Queue SIGCHLD signal */
 	pg_queue_signal(SIGCHLD);
 }
-
 #endif   /* WIN32 */
 
 /*
@@ -5209,10 +5329,11 @@ static void
 InitPostmasterDeathWatchHandle(void)
 {
 #ifndef WIN32
+
 	/*
 	 * Create a pipe. Postmaster holds the write end of the pipe open
-	 * (POSTMASTER_FD_OWN), and children hold the read end. Children can
-	 * pass the read file descriptor to select() to wake up in case postmaster
+	 * (POSTMASTER_FD_OWN), and children hold the read end. Children can pass
+	 * the read file descriptor to select() to wake up in case postmaster
 	 * dies, or check for postmaster death with a (read() == 0). Children must
 	 * close the write end as soon as possible after forking, because EOF
 	 * won't be signaled in the read end until all processes have closed the
@@ -5232,8 +5353,8 @@ InitPostmasterDeathWatchHandle(void)
 		ereport(FATAL,
 				(errcode_for_socket_access(),
 				 errmsg_internal("could not set postmaster death monitoring pipe to non-blocking mode: %m")));
-
 #else
+
 	/*
 	 * On Windows, we use a process handle for the same purpose.
 	 */
@@ -5245,7 +5366,7 @@ InitPostmasterDeathWatchHandle(void)
 						TRUE,
 						DUPLICATE_SAME_ACCESS) == 0)
 		ereport(FATAL,
-				(errmsg_internal("could not duplicate postmaster handle: error code %d",
-								 (int) GetLastError())));
+				(errmsg_internal("could not duplicate postmaster handle: error code %lu",
+								 GetLastError())));
 #endif   /* WIN32 */
 }

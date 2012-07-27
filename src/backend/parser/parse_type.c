@@ -3,7 +3,7 @@
  * parse_type.c
  *		handle type operations for parser
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -111,11 +111,11 @@ LookupTypeName(ParseState *pstate, const TypeName *typeName,
 		/*
 		 * Look up the field.
 		 *
-		 * XXX: As no lock is taken here, this might fail in the presence
-		 * of concurrent DDL.  But taking a lock would carry a performance
+		 * XXX: As no lock is taken here, this might fail in the presence of
+		 * concurrent DDL.	But taking a lock would carry a performance
 		 * penalty and would also require a permissions check.
 		 */
-		relid = RangeVarGetRelid(rel, NoLock, false, false);
+		relid = RangeVarGetRelid(rel, NoLock, false);
 		attnum = get_attnum(relid, field);
 		if (attnum == InvalidAttrNumber)
 			ereport(ERROR,

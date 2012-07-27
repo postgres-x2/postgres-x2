@@ -288,7 +288,15 @@ ALTER EXTENSION hstore SET SCHEMA utils;
    To add an existing function to the <literal>hstore</literal> extension:
 <programlisting>
 ALTER EXTENSION hstore ADD FUNCTION populate_record(anyelement, hstore);
-</programlisting>
+</programlisting></para>
+ </refsect1>
+
+ <refsect1>
+  <title>Compatibility</title>
+
+  <para>
+   <command>ALTER EXTENSION</command> is a <productname>PostgreSQL</>
+   extension.
   </para>
  </refsect1>
 

@@ -269,6 +269,12 @@
        <entry></entry>
        <entry>XML data</entry>
       </row>
+
+      <row>
+       <entry><type>json</type></entry>
+       <entry></entry>
+       <entry>JSON data</entry>
+      </row>
      </tbody>
     </tgroup>
    </table>
@@ -562,7 +568,7 @@ NUMERIC
      type is more akin to <type>varchar(<replaceable>n</>)</type>
      than to <type>char(<replaceable>n</>)</type>.)  The actual storage
      requirement is two bytes for each group of four decimal digits,
-     plus five to eight bytes overhead.
+     plus three to eight bytes overhead.
     </para>
 
     <indexterm>
@@ -790,7 +796,7 @@ NUMERIC
     </indexterm>
 
     <para>
-     The data types <type>smallserial</type>, <type>serial</type> and 
+     The data types <type>smallserial</type>, <type>serial</type> and
      <type>bigserial</type> are not true types, but merely
      a notational convenience for creating unique identifier columns
      (similar to the <literal>AUTO_INCREMENT</literal> property
@@ -850,7 +856,7 @@ ALTER SEQUENCE <replaceable class="parameter">tablename</replaceable>_<replaceab
      column.  <type>bigserial</type> should be used if you anticipate
      the use of more than 2<superscript>31</> identifiers over the
      lifetime of the table. The type names <type>smallserial</type> and
-     <type>serial2</type> also work the same way, execpt that they
+     <type>serial2</type> also work the same way, except that they
      create a <type>smallint</type> column.
     </para>
 
@@ -1505,6 +1511,9 @@ SELECT E'\\xDEADBEEF';
     linkend="datatype-datetime-table">.  The operations available
     on these data types are described in
     <xref linkend="functions-datetime">.
+    Dates are counted according to the Gregorian calendar, even in
+    years before that calendar was introduced (see <xref
+    linkend="datetime-units-history"> for more information).
    </para>
 
     <table id="datatype-datetime-table">
@@ -1798,7 +1807,7 @@ MINUTE TO SECOND
         </row>
         <row>
          <entry>J2451187</entry>
-         <entry>Julian day</entry>
+         <entry>Julian date</entry>
         </row>
         <row>
          <entry>January 8, 99 BC</entry>
@@ -2197,28 +2206,38 @@ January 8 04:05:06 1999 PST
        </thead>
        <tbody>
         <row>
-         <entry>ISO</entry>
-         <entry>ISO 8601/SQL standard</entry>
-         <entry>1997-12-17 07:37:16-08</entry>
+         <entry><literal>ISO</literal></entry>
+         <entry>ISO 8601, SQL standard</entry>
+         <entry><literal>1997-12-17 07:37:16-08</literal></entry>
         </row>
         <row>
-         <entry>SQL</entry>
+         <entry><literal>SQL</literal></entry>
          <entry>traditional style</entry>
-         <entry>12/17/1997 07:37:16.00 PST</entry>
+         <entry><literal>12/17/1997 07:37:16.00 PST</literal></entry>
         </row>
         <row>
-         <entry>POSTGRES</entry>
+         <entry><literal>Postgres</literal></entry>
          <entry>original style</entry>
-         <entry>Wed Dec 17 07:37:16 1997 PST</entry>
+         <entry><literal>Wed Dec 17 07:37:16 1997 PST</literal></entry>
         </row>
         <row>
-         <entry>German</entry>
+         <entry><literal>German</literal></entry>
          <entry>regional style</entry>
-         <entry>17.12.1997 07:37:16.00 PST</entry>
+         <entry><literal>17.12.1997 07:37:16.00 PST</literal></entry>
         </row>
        </tbody>
       </tgroup>
      </table>
+
+    <note>
+     <para>
+      ISO 8601 specifies the use of uppercase letter <literal>T</> to separate
+      the date and time.  <productname>PostgreSQL</> accepts that format on
+      input, but on output it uses a space rather than <literal>T</>, as shown
+      above.  This is for readability and for consistency with RFC 3339 as
+      well as some other database systems.
+     </para>
+    </note>
 
     <para>
      In the <acronym>SQL</acronym> and POSTGRES styles, day appears before
@@ -2226,8 +2245,7 @@ January 8 04:05:06 1999 PST
      before day.
      (See <xref linkend="datatype-datetime-input">
      for how this setting also affects interpretation of input values.)
-     <xref linkend="datatype-datetime-output2-table"> shows an
-     example.
+     <xref linkend="datatype-datetime-output2-table"> shows examples.
     </para>
 
      <table id="datatype-datetime-output2-table">
@@ -2244,29 +2262,33 @@ January 8 04:05:06 1999 PST
         <row>
          <entry><literal>SQL, DMY</></entry>
          <entry><replaceable>day</replaceable>/<replaceable>month</replaceable>/<replaceable>year</replaceable></entry>
-         <entry>17/12/1997 15:37:16.00 CET</entry>
+         <entry><literal>17/12/1997 15:37:16.00 CET</literal></entry>
         </row>
         <row>
          <entry><literal>SQL, MDY</></entry>
          <entry><replaceable>month</replaceable>/<replaceable>day</replaceable>/<replaceable>year</replaceable></entry>
-         <entry>12/17/1997 07:37:16.00 PST</entry>
+         <entry><literal>12/17/1997 07:37:16.00 PST</literal></entry>
         </row>
         <row>
          <entry><literal>Postgres, DMY</></entry>
          <entry><replaceable>day</replaceable>/<replaceable>month</replaceable>/<replaceable>year</replaceable></entry>
-         <entry>Wed 17 Dec 07:37:16 1997 PST</entry>
+         <entry><literal>Wed 17 Dec 07:37:16 1997 PST</literal></entry>
         </row>
        </tbody>
       </tgroup>
      </table>
 
     <para>
-     The date/time styles can be selected by the user using the
+     The date/time style can be selected by the user using the
      <command>SET datestyle</command> command, the <xref
      linkend="guc-datestyle"> parameter in the
      <filename>postgresql.conf</filename> configuration file, or the
      <envar>PGDATESTYLE</envar> environment variable on the server or
-     client.  The formatting function <function>to_char</function>
+     client.
+    </para>
+
+    <para>
+     The formatting function <function>to_char</function>
      (see <xref linkend="functions-formatting">) is also available as
      a more flexible way to format date/time output.
     </para>
@@ -2286,7 +2308,7 @@ January 8 04:05:06 1999 PST
     but continue to be prone to arbitrary changes, particularly with
     respect to daylight-savings rules.
     <productname>PostgreSQL</productname> uses the widely-used
-    <literal>zoneinfo</> time zone database for information about
+    <literal>zoneinfo</> (Olson) time zone database for information about
     historical time zone rules.  For times in the future, the assumption
     is that the latest known rules for a given time zone will
     continue to be observed indefinitely far into the future.
@@ -2432,26 +2454,9 @@ January 8 04:05:06 1999 PST
      The <xref linkend="guc-timezone"> configuration parameter can
      be set in the file <filename>postgresql.conf</>, or in any of the
      other standard ways described in <xref linkend="runtime-config">.
-     There are also several special ways to set it:
+     There are also some special ways to set it:
 
      <itemizedlist>
-      <listitem>
-       <para>
-        If <varname>timezone</> is not specified in
-        <filename>postgresql.conf</> or as a server command-line option,
-        the server attempts to use the value of the <envar>TZ</envar>
-        environment variable as the default time zone.  If <envar>TZ</envar>
-        is not defined or is not any of the time zone names known to
-        <productname>PostgreSQL</productname>, the server attempts to
-        determine the operating system's default time zone by checking the
-        behavior of the C library function <literal>localtime()</>.  The
-        default time zone is selected as the closest match among
-        <productname>PostgreSQL</productname>'s known time zones.
-        (These rules are also used to choose the default value of
-        <xref linkend="guc-log-timezone">, if not specified.)
-       </para>
-      </listitem>
-
       <listitem>
        <para>
         The <acronym>SQL</acronym> command <command>SET TIME ZONE</command>
@@ -2766,23 +2771,6 @@ P <optional> <replaceable>years</>-<replaceable>months</>-<replaceable>days</> <
        </tgroup>
     </table>
 
-   </sect2>
-
-   <sect2 id="datatype-datetime-internals">
-    <title>Internals</title>
-
-    <para>
-     <productname>PostgreSQL</productname> uses Julian dates
-     for all date/time calculations. This has the useful property of correctly
-     calculating dates from 4713 BC
-     to far into the future, using the assumption that the length of the
-     year is 365.2425 days.
-    </para>
-
-    <para>
-     Date conventions before the 19th century make for interesting reading,
-     but are not consistent enough to warrant coding into a date/time handler.
-    </para>
    </sect2>
 
   </sect1>
@@ -3898,7 +3886,7 @@ SELECT to_tsvector( 'postgraduate' ) @@ to_tsquery( 'postgres:*' );
  t
 (1 row)
 </programlisting>
-     because <literal>postgres</> gets stemmed to <literal>postgr</>: 
+     because <literal>postgres</> gets stemmed to <literal>postgr</>:
 <programlisting>
 SELECT to_tsquery('postgres:*');
  to_tsquery 
@@ -4186,9 +4174,37 @@ SET xmloption TO { DOCUMENT | CONTENT };
    </sect2>
   </sect1>
 
+  <sect1 id="datatype-json">
+   <title><acronym>JSON</> Type</title>
+
+   <indexterm zone="datatype-json">
+    <primary>JSON</primary>
+   </indexterm>
+
+   <para>
+    The <type>json</type> data type can be used to store JSON data.  Such
+    data can also be stored as <type>text</type>, but the
+    <type>json</type> data type has the advantage of checking that each
+    stored value is a valid JSON value.
+   </para>
+
+   <para>
+    <productname>PostgreSQL</productname> allows only one server encoding
+    per database.  It is therefore not possible for JSON to conform rigidly
+    to the specification unless the server encoding is UTF-8.  Attempts to
+    directly include characters which cannot be represented in the server
+    encoding will fail; conversely, characters which can be represented in
+    the server encoding but not in UTF-8 will be allowed.
+    <literal>\uXXXX</literal> escapes are allowed regardless of the server
+    encoding, and are checked only for syntactic correctness.
+   </para>
+  </sect1>
+
   &array;
 
   &rowtypes;
+
+  &rangetypes;
 
   <sect1 id="datatype-oid">
    <title>Object Identifier Types</title>
@@ -4461,6 +4477,10 @@ SELECT * FROM pg_attribute
    </indexterm>
 
    <indexterm zone="datatype-pseudo">
+    <primary>anyrange</primary>
+   </indexterm>
+
+   <indexterm zone="datatype-pseudo">
     <primary>void</primary>
    </indexterm>
 
@@ -4518,14 +4538,20 @@ SELECT * FROM pg_attribute
        </row>
 
        <row>
+        <entry><type>anyelement</></entry>
+        <entry>Indicates that a function accepts any data type
+        (see <xref linkend="extend-types-polymorphic">).</entry>
+       </row>
+
+       <row>
         <entry><type>anyarray</></entry>
         <entry>Indicates that a function accepts any array data type
         (see <xref linkend="extend-types-polymorphic">).</entry>
        </row>
 
        <row>
-        <entry><type>anyelement</></entry>
-        <entry>Indicates that a function accepts any data type
+        <entry><type>anynonarray</></entry>
+        <entry>Indicates that a function accepts any non-array data type
         (see <xref linkend="extend-types-polymorphic">).</entry>
        </row>
 
@@ -4537,9 +4563,10 @@ SELECT * FROM pg_attribute
        </row>
 
        <row>
-        <entry><type>anynonarray</></entry>
-        <entry>Indicates that a function accepts any non-array data type
-        (see <xref linkend="extend-types-polymorphic">).</entry>
+        <entry><type>anyrange</></entry>
+        <entry>Indicates that a function accepts any range data type
+        (see <xref linkend="extend-types-polymorphic"> and
+        <xref linkend="rangetypes">).</entry>
        </row>
 
        <row>
@@ -4599,8 +4626,9 @@ SELECT * FROM pg_attribute
     languages all forbid use of a pseudo-type as argument type, and allow
     only <type>void</> and <type>record</> as a result type (plus
     <type>trigger</> when the function is used as a trigger).  Some also
-    support polymorphic functions using the types <type>anyarray</>,
-    <type>anyelement</>, <type>anyenum</>, and <type>anynonarray</>.
+    support polymorphic functions using the types <type>anyelement</>,
+    <type>anyarray</>, <type>anynonarray</>, <type>anyenum</>, and
+    <type>anyrange</>.
    </para>
 
    <para>

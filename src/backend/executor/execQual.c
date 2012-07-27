@@ -3,7 +3,7 @@
  * execQual.c
  *	  Routines to evaluate qualification and targetlist expressions
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -578,13 +578,15 @@ ExecEvalVar(ExprState *exprstate, ExprContext *econtext,
 	/* Get the input slot and attribute number we want */
 	switch (variable->varno)
 	{
-		case INNER:				/* get the tuple from the inner node */
+		case INNER_VAR: /* get the tuple from the inner node */
 			slot = econtext->ecxt_innertuple;
 			break;
 
-		case OUTER:				/* get the tuple from the outer node */
+		case OUTER_VAR: /* get the tuple from the outer node */
 			slot = econtext->ecxt_outertuple;
 			break;
+
+			/* INDEX_VAR is handled by default case */
 
 		default:				/* get the tuple from the relation being
 								 * scanned */
@@ -761,13 +763,15 @@ ExecEvalScalarVar(ExprState *exprstate, ExprContext *econtext,
 	/* Get the input slot and attribute number we want */
 	switch (variable->varno)
 	{
-		case INNER:				/* get the tuple from the inner node */
+		case INNER_VAR: /* get the tuple from the inner node */
 			slot = econtext->ecxt_innertuple;
 			break;
 
-		case OUTER:				/* get the tuple from the outer node */
+		case OUTER_VAR: /* get the tuple from the outer node */
 			slot = econtext->ecxt_outertuple;
 			break;
+
+			/* INDEX_VAR is handled by default case */
 
 		default:				/* get the tuple from the relation being
 								 * scanned */
@@ -804,13 +808,15 @@ ExecEvalWholeRowVar(ExprState *exprstate, ExprContext *econtext,
 	/* Get the input slot we want */
 	switch (variable->varno)
 	{
-		case INNER:				/* get the tuple from the inner node */
+		case INNER_VAR: /* get the tuple from the inner node */
 			slot = econtext->ecxt_innertuple;
 			break;
 
-		case OUTER:				/* get the tuple from the outer node */
+		case OUTER_VAR: /* get the tuple from the outer node */
 			slot = econtext->ecxt_outertuple;
 			break;
+
+			/* INDEX_VAR is handled by default case */
 
 		default:				/* get the tuple from the relation being
 								 * scanned */
@@ -873,13 +879,15 @@ ExecEvalWholeRowSlow(ExprState *exprstate, ExprContext *econtext,
 	/* Get the input slot we want */
 	switch (variable->varno)
 	{
-		case INNER:				/* get the tuple from the inner node */
+		case INNER_VAR: /* get the tuple from the inner node */
 			slot = econtext->ecxt_innertuple;
 			break;
 
-		case OUTER:				/* get the tuple from the outer node */
+		case OUTER_VAR: /* get the tuple from the outer node */
 			slot = econtext->ecxt_outertuple;
 			break;
+
+			/* INDEX_VAR is handled by default case */
 
 		default:				/* get the tuple from the relation being
 								 * scanned */
@@ -4628,7 +4636,8 @@ ExecInitExpr(Expr *node, PlanState *parent)
 				if (rowexpr->row_typeid == RECORDOID)
 				{
 					/* generic record, use runtime type assignment */
-					rstate->tupdesc = ExecTypeFromExprList(rowexpr->args);
+					rstate->tupdesc = ExecTypeFromExprList(rowexpr->args,
+														   rowexpr->colnames);
 					BlessTupleDesc(rstate->tupdesc);
 					/* we won't need to redo this at runtime */
 				}

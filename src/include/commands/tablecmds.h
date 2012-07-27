@@ -4,7 +4,7 @@
  *	  prototypes for tablecmds.c.
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/commands/tablecmds.h
@@ -14,6 +14,7 @@
 #ifndef TABLECMDS_H
 #define TABLECMDS_H
 
+#include "access/htup.h"
 #include "nodes/parsenodes.h"
 #include "storage/lock.h"
 #include "utils/relcache.h"
@@ -23,7 +24,9 @@ extern Oid	DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId);
 
 extern void RemoveRelations(DropStmt *drop);
 
-extern void AlterTable(AlterTableStmt *stmt);
+extern Oid	AlterTableLookupRelation(AlterTableStmt *stmt, LOCKMODE lockmode);
+
+extern void AlterTable(Oid relid, LOCKMODE lockmode, AlterTableStmt *stmt);
 
 extern LOCKMODE AlterTableGetLockLevel(List *cmds);
 
@@ -31,8 +34,7 @@ extern void ATExecChangeOwner(Oid relationOid, Oid newOwnerId, bool recursing, L
 
 extern void AlterTableInternal(Oid relid, List *cmds, bool recurse);
 
-extern void AlterTableNamespace(RangeVar *relation, const char *newschema,
-					ObjectType stmttype, LOCKMODE lockmode);
+extern void AlterTableNamespace(AlterObjectSchemaStmt *stmt);
 
 extern void AlterRelationNamespaceInternal(Relation classRel, Oid relOid,
 							   Oid oldNspOid, Oid newNspOid,
@@ -42,15 +44,16 @@ extern void CheckTableNotInUse(Relation rel, const char *stmt);
 
 extern void ExecuteTruncate(TruncateStmt *stmt);
 
-extern void renameatt(Oid myrelid, RenameStmt *stmt);
+extern void SetRelationHasSubclass(Oid relationId, bool relhassubclass);
 
-extern void RenameRelation(Oid myrelid,
-			   const char *newrelname,
-			   ObjectType reltype);
+extern void renameatt(RenameStmt *stmt);
+
+extern void RenameConstraint(RenameStmt *stmt);
+
+extern void RenameRelation(RenameStmt *stmt);
 
 extern void RenameRelationInternal(Oid myrelid,
-					   const char *newrelname,
-					   Oid namespaceId);
+					   const char *newrelname);
 
 extern void find_composite_type_dependencies(Oid typeOid,
 								 Relation origRelation,
@@ -78,5 +81,8 @@ extern void DropTableThrowErrorExternal(RangeVar *relation,
 										ObjectType removeType,
 										bool missing_ok);
 #endif
+
+extern void RangeVarCallbackOwnsTable(const RangeVar *relation,
+						  Oid relId, Oid oldRelId, void *arg);
 
 #endif   /* TABLECMDS_H */

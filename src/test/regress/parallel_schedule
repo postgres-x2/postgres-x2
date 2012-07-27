@@ -13,7 +13,7 @@ test: tablespace
 # ----------
 # The first group of parallel tests
 # ----------
-test: boolean char name varchar text int2 int4 int8 oid float4 float8 bit numeric txid uuid enum money
+test: boolean char name varchar text int2 int4 int8 oid float4 float8 bit numeric txid uuid enum money rangetypes
 
 # Depends on things setup during char, varchar and text
 test: strings
@@ -30,7 +30,7 @@ test: point lseg box path polygon circle date time timetz timestamp timestamptz 
 # geometry depends on point, lseg, box, path, polygon and circle
 # horology depends on interval, timetz, timestamp, timestamptz, reltime and abstime
 # ----------
-test: geometry horology oidjoins type_sanity opr_sanity
+test: geometry horology regex oidjoins type_sanity opr_sanity
 
 # ----------
 # These four each depend on the previous one
@@ -50,12 +50,16 @@ test: create_function_2
 test: copy copyselect
 
 # ----------
+# More groups of parallel tests
+# ----------
+test: create_misc create_operator
+# These depend on the above two
+test: create_index create_view
+
+# ----------
 # Another group of parallel tests
 # ----------
-test: constraints triggers create_misc create_aggregate create_operator inherit typed_table vacuum drop_if_exists create_cast
-
-# Depends on the above
-test: create_index create_view
+test: create_aggregate create_function_3 create_cast constraints triggers inherit create_table_like typed_table vacuum drop_if_exists
 
 # ----------
 # sanity_check does a vacuum, affecting the sort order of SELECT *
@@ -91,7 +95,7 @@ test: rules
 # ----------
 # Another group of parallel tests
 # ----------
-test: select_views portals_p2 foreign_key cluster dependency guc bitmapops combocid tsearch tsdicts foreign_data window xmlmap functional_deps advisory_lock
+test: select_views portals_p2 foreign_key cluster dependency guc bitmapops combocid tsearch tsdicts foreign_data window xmlmap functional_deps advisory_lock json
 
 # ----------
 # Another group of parallel tests

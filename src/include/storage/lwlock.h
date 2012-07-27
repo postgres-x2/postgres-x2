@@ -4,7 +4,7 @@
  *	  Lightweight lock manager
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/storage/lwlock.h
@@ -63,7 +63,7 @@ typedef enum LWLockId
 	MultiXactOffsetControlLock,
 	MultiXactMemberControlLock,
 	RelCacheInitLock,
-	BgWriterCommLock,
+	CheckpointerCommLock,
 	TwoPhaseStateLock,
 	TablespaceCreateLock,
 	BtreeVacuumLock,
@@ -98,7 +98,10 @@ typedef enum LWLockId
 typedef enum LWLockMode
 {
 	LW_EXCLUSIVE,
-	LW_SHARED
+	LW_SHARED,
+	LW_WAIT_UNTIL_FREE			/* A special mode used in PGPROC->lwlockMode,
+								 * when waiting for lock to become free. Not
+								 * to be used as LWLockAcquire argument */
 } LWLockMode;
 
 
@@ -109,6 +112,7 @@ extern bool Trace_lwlocks;
 extern LWLockId LWLockAssign(void);
 extern void LWLockAcquire(LWLockId lockid, LWLockMode mode);
 extern bool LWLockConditionalAcquire(LWLockId lockid, LWLockMode mode);
+extern bool LWLockAcquireOrWait(LWLockId lockid, LWLockMode mode);
 extern void LWLockRelease(LWLockId lockid);
 extern void LWLockReleaseAll(void);
 extern bool LWLockHeldByMe(LWLockId lockid);

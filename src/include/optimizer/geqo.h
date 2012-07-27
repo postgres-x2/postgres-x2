@@ -3,7 +3,7 @@
  * geqo.h
  *	  prototypes for various files in optimizer/geqo
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/optimizer/geqo.h
@@ -73,7 +73,7 @@ extern double Geqo_seed;		/* 0 .. 1 */
 typedef struct
 {
 	List	   *initial_rels;	/* the base relations we are joining */
-	unsigned short random_state[3];		/* state for erand48() */
+	unsigned short random_state[3];		/* state for pg_erand48() */
 } GeqoPrivateData;
 
 

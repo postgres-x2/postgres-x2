@@ -32,11 +32,12 @@ typedef uint8 RmgrId;
 #define RM_GIN_ID				13
 #define RM_GIST_ID				14
 #define RM_SEQ_ID				15
+#define RM_SPGIST_ID			16
 #ifdef PGXC
-#define RM_BARRIER_ID			16
+#define RM_BARRIER_ID			17
 #define RM_MAX_ID				RM_BARRIER_ID
 #else
-#define RM_MAX_ID				RM_SEQ_ID
+#define RM_MAX_ID				RM_SPGIST_ID
 #endif
 
 #endif   /* RMGR_H */

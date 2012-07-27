@@ -16,6 +16,7 @@
 
 #include <fcntl.h>
 
+#include "datatype/timestamp.h"
 #include "private.h"
 #include "pgtz.h"
 #include "tzfile.h"
@@ -734,6 +735,7 @@ tzparse(const char *name, struct state * sp, int lastditch)
 		 * can't assume pg_open_tzfile() is sane yet, and we don't care about
 		 * leap seconds anyway.
 		 */
+		sp->goback = sp->goahead = FALSE;
 		load_result = -1;
 	}
 	else
@@ -1290,20 +1292,21 @@ increment_overflow(int *number, int delta)
 }
 
 /*
- * Find the next DST transition time at or after the given time
+ * Find the next DST transition time after the given time
  *
  * *timep is the input value, the other parameters are output values.
  *
  * When the function result is 1, *boundary is set to the time_t
- * representation of the next DST transition time at or after *timep,
+ * representation of the next DST transition time after *timep,
  * *before_gmtoff and *before_isdst are set to the GMT offset and isdst
- * state prevailing just before that boundary, and *after_gmtoff and
- * *after_isdst are set to the state prevailing just after that boundary.
+ * state prevailing just before that boundary (in particular, the state
+ * prevailing at *timep), and *after_gmtoff and *after_isdst are set to
+ * the state prevailing just after that boundary.
  *
- * When the function result is 0, there is no known DST transition at or
+ * When the function result is 0, there is no known DST transition
  * after *timep, but *before_gmtoff and *before_isdst indicate the GMT
  * offset and isdst state prevailing at *timep.  (This would occur in
- * DST-less time zones, for example.)
+ * DST-less time zones, or if a zone has permanently ceased using DST.)
  *
  * A function result of -1 indicates failure (this case does not actually
  * occur in our current implementation).
@@ -1383,16 +1386,16 @@ pg_next_dst_boundary(const pg_time_t *timep,
 		return result;
 	}
 
-	if (t > sp->ats[sp->timecnt - 1])
+	if (t >= sp->ats[sp->timecnt - 1])
 	{
-		/* No known transition >= t, so use last known segment's type */
+		/* No known transition > t, so use last known segment's type */
 		i = sp->types[sp->timecnt - 1];
 		ttisp = &sp->ttis[i];
 		*before_gmtoff = ttisp->tt_gmtoff;
 		*before_isdst = ttisp->tt_isdst;
 		return 0;
 	}
-	if (t <= sp->ats[0])
+	if (t < sp->ats[0])
 	{
 		/* For "before", use lowest-numbered standard type */
 		i = 0;
@@ -1413,10 +1416,10 @@ pg_next_dst_boundary(const pg_time_t *timep,
 		*after_isdst = ttisp->tt_isdst;
 		return 1;
 	}
-	/* Else search to find the containing segment */
+	/* Else search to find the boundary following t */
 	{
 		int			lo = 1;
-		int			hi = sp->timecnt;
+		int			hi = sp->timecnt - 1;
 
 		while (lo < hi)
 		{
@@ -1475,4 +1478,30 @@ pg_get_timezone_name(pg_tz *tz)
 	if (tz)
 		return tz->TZname;
 	return NULL;
+}
+
+/*
+ * Check whether timezone is acceptable.
+ *
+ * What we are doing here is checking for leap-second-aware timekeeping.
+ * We need to reject such TZ settings because they'll wreak havoc with our
+ * date/time arithmetic.
+ */
+bool
+pg_tz_acceptable(pg_tz *tz)
+{
+	struct pg_tm *tt;
+	pg_time_t	time2000;
+
+	/*
+	 * To detect leap-second timekeeping, run pg_localtime for what should be
+	 * GMT midnight, 2000-01-01.  Insist that the tm_sec value be zero; any
+	 * other result has to be due to leap seconds.
+	 */
+	time2000 = (POSTGRES_EPOCH_JDATE - UNIX_EPOCH_JDATE) * SECS_PER_DAY;
+	tt = pg_localtime(&time2000, tz);
+	if (!tt || tt->tm_sec != 0)
+		return false;
+
+	return true;
 }

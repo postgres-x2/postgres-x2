@@ -102,6 +102,11 @@
      </listitem>
 
      <listitem>
+      <simpara>To update the visibility map, which speeds up index-only
+      scans.</simpara>
+     </listitem>
+
+     <listitem>
       <simpara>To protect against loss of very old data due to
       <firstterm>transaction ID wraparound</>.</simpara>
      </listitem>
@@ -327,6 +332,43 @@
      plans that use the expression index.
     </para>
    </tip>
+
+   <tip>
+    <para>
+     The autovacuum daemon does not issue <command>ANALYZE</> commands for
+     foreign tables, since it has no means of determining how often that
+     might be useful.  If your queries require statistics on foreign tables
+     for proper planning, it's a good idea to run manually-managed
+     <command>ANALYZE</> commands on those tables on a suitable schedule.
+    </para>
+   </tip>
+  </sect2>
+
+  <sect2 id="vacuum-for-visibility-map">
+   <title>Updating The Visibility Map</title>
+
+   <para>
+    Vacuum maintains a <link linkend="storage-vm">visibility map</> for each
+    table to keep track of which pages contain only tuples that are known to be
+    visible to all active transactions (and all future transactions, until the
+    page is again modified).  This has two purposes.  First, vacuum
+    itself can skip such pages on the next run, since there is nothing to
+    clean up.
+   </para>
+
+   <para>
+    Second, it allows <productname>PostgreSQL</productname> to answer some
+    queries using only the index, without reference to the underlying table.
+    Since <productname>PostgreSQL</productname> indexes don't contain tuple
+    visibility information, a normal index scan fetches the heap tuple for each
+    matching index entry, to check whether it should be seen by the current
+    transaction.  An <firstterm>index-only scan</>, on the other hand, checks
+    the visibility map first.  If it's known that all tuples on the page are
+    visible, the heap fetch can be skipped.  This is most noticeable on
+    large data sets where the visibility map can prevent disk accesses.
+    The visibility map is vastly smaller than the heap, so it can easily be
+    cached even when the heap is very large.
+   </para>
   </sect2>
 
   <sect2 id="vacuum-for-wraparound">
@@ -823,10 +865,10 @@ pg_ctl start | rotatelogs /var/log/pgsql_log 86400
   </para>
 
   <para>
-   <ulink url="http://pgfouine.projects.postgresql.org/">pgFouine</ulink>
+   <ulink url="http://pgfouine.projects.postgresql.org/"><productname>pgFouine</productname></ulink>
    is an external project that does sophisticated log file analysis.
    <ulink
-   url="http://bucardo.org/wiki/Check_postgres">check_postgres</ulink>
+   url="http://bucardo.org/wiki/Check_postgres"><productname>check_postgres</productname></ulink>
    provides Nagios alerts when important messages appear in the log
    files, as well as detection of many other extraordinary conditions.
   </para>

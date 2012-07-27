@@ -1219,10 +1219,6 @@ CREATE TRIGGER test_valid_id_trig
 
   <para>
   This section lists configuration parameters that affect <application>PL/Perl</>.
-  To set any of these parameters before <application>PL/Perl</> has been loaded,
-  it is necessary to have added <quote><literal>plperl</></> to the
-  <xref linkend="guc-custom-variable-classes"> list in
-  <filename>postgresql.conf</filename>.
   </para>
 
   <variablelist>
@@ -1256,7 +1252,7 @@ plperl.on_init = 'use lib "/my/app"; use MyApp::PgInit;'
        indirectly, will be available for use by <literal>plperl</>.  This may
        create a security risk. To see what modules have been loaded you can use:
 <programlisting>
-DO 'elog(WARNING, join ", ", sort keys %INC)' language plperl;
+DO 'elog(WARNING, join ", ", sort keys %INC)' LANGUAGE plperl;
 </programlisting>
        </para>
        <para>

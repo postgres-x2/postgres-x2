@@ -4,7 +4,7 @@
  *	  postgres transaction access method support code
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2012 Postgres-XC Development Group
  *
@@ -61,6 +61,10 @@
 		(dest)--; \
 	} while ((dest) < FirstNormalTransactionId)
 
+/* compare two XIDs already known to be normal; this is a macro for speed */
+#define NormalTransactionIdPrecedes(id1, id2) \
+	(AssertMacro(TransactionIdIsNormal(id1) && TransactionIdIsNormal(id2)), \
+	(int32) ((id1) - (id2)) < 0)
 
 /* ----------
  *		Object ID (OID) zero is InvalidOid.

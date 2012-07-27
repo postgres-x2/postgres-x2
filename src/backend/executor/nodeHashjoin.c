@@ -3,7 +3,7 @@
  * nodeHashjoin.c
  *	  Routines to handle hash join nodes
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -325,7 +325,11 @@ ExecHashJoin(HashJoinState *node)
 							return result;
 						}
 					}
+					else
+						InstrCountFiltered2(node, 1);
 				}
+				else
+					InstrCountFiltered1(node, 1);
 				break;
 
 			case HJ_FILL_OUTER_TUPLE:
@@ -360,6 +364,8 @@ ExecHashJoin(HashJoinState *node)
 							return result;
 						}
 					}
+					else
+						InstrCountFiltered2(node, 1);
 				}
 				break;
 
@@ -397,6 +403,8 @@ ExecHashJoin(HashJoinState *node)
 						return result;
 					}
 				}
+				else
+					InstrCountFiltered2(node, 1);
 				break;
 
 			case HJ_NEED_NEW_BATCH:

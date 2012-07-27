@@ -3,7 +3,7 @@
  * proclang.c
  *	  PostgreSQL PROCEDURAL LANGUAGE support code.
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -18,6 +18,7 @@
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
 #include "catalog/objectaccess.h"
+#include "catalog/pg_authid.h"
 #include "catalog/pg_language.h"
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_pltemplate.h"
@@ -64,7 +65,6 @@ static void AlterLanguageOwner_internal(HeapTuple tup, Relation rel,
 void
 CreateProceduralLanguage(CreatePLangStmt *stmt)
 {
-	char	   *languageName;
 	PLTemplate *pltemplate;
 	Oid			handlerOid,
 				inlineOid,
@@ -73,15 +73,10 @@ CreateProceduralLanguage(CreatePLangStmt *stmt)
 	Oid			funcargtypes[1];
 
 	/*
-	 * Translate the language name to lower case
-	 */
-	languageName = case_translate_language_name(stmt->plname);
-
-	/*
 	 * If we have template information for the language, ignore the supplied
 	 * parameters (if any) and use the template information.
 	 */
-	if ((pltemplate = find_language_template(languageName)) != NULL)
+	if ((pltemplate = find_language_template(stmt->plname)) != NULL)
 	{
 		List	   *funcname;
 
@@ -101,7 +96,7 @@ CreateProceduralLanguage(CreatePLangStmt *stmt)
 				ereport(ERROR,
 						(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 						 errmsg("must be superuser to create procedural language \"%s\"",
-								languageName)));
+								stmt->plname)));
 			if (!pg_database_ownercheck(MyDatabaseId, GetUserId()))
 				aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_DATABASE,
 							   get_database_name(MyDatabaseId));
@@ -130,6 +125,7 @@ CreateProceduralLanguage(CreatePLangStmt *stmt)
 										 false, /* replace */
 										 false, /* returnsSet */
 										 LANGUAGE_HANDLEROID,
+										 BOOTSTRAP_SUPERUSERID,
 										 ClanguageId,
 										 F_FMGR_C_VALIDATOR,
 										 pltemplate->tmplhandler,
@@ -137,6 +133,7 @@ CreateProceduralLanguage(CreatePLangStmt *stmt)
 										 false, /* isAgg */
 										 false, /* isWindowFunc */
 										 false, /* security_definer */
+										 false, /* isLeakProof */
 										 false, /* isStrict */
 										 PROVOLATILE_VOLATILE,
 										 buildoidvector(funcargtypes, 0),
@@ -165,6 +162,7 @@ CreateProceduralLanguage(CreatePLangStmt *stmt)
 											false,		/* replace */
 											false,		/* returnsSet */
 											VOIDOID,
+											BOOTSTRAP_SUPERUSERID,
 											ClanguageId,
 											F_FMGR_C_VALIDATOR,
 											pltemplate->tmplinline,
@@ -172,6 +170,7 @@ CreateProceduralLanguage(CreatePLangStmt *stmt)
 											false,		/* isAgg */
 											false,		/* isWindowFunc */
 											false,		/* security_definer */
+											false,		/* isLeakProof */
 											true,		/* isStrict */
 											PROVOLATILE_VOLATILE,
 											buildoidvector(funcargtypes, 1),
@@ -203,6 +202,7 @@ CreateProceduralLanguage(CreatePLangStmt *stmt)
 										 false, /* replace */
 										 false, /* returnsSet */
 										 VOIDOID,
+										 BOOTSTRAP_SUPERUSERID,
 										 ClanguageId,
 										 F_FMGR_C_VALIDATOR,
 										 pltemplate->tmplvalidator,
@@ -210,6 +210,7 @@ CreateProceduralLanguage(CreatePLangStmt *stmt)
 										 false, /* isAgg */
 										 false, /* isWindowFunc */
 										 false, /* security_definer */
+										 false, /* isLeakProof */
 										 true,	/* isStrict */
 										 PROVOLATILE_VOLATILE,
 										 buildoidvector(funcargtypes, 1),
@@ -226,7 +227,7 @@ CreateProceduralLanguage(CreatePLangStmt *stmt)
 			valOid = InvalidOid;
 
 		/* ok, create it */
-		create_proc_lang(languageName, stmt->replace, GetUserId(),
+		create_proc_lang(stmt->plname, stmt->replace, GetUserId(),
 						 handlerOid, inlineOid,
 						 valOid, pltemplate->tmpltrusted);
 	}
@@ -241,7 +242,7 @@ CreateProceduralLanguage(CreatePLangStmt *stmt)
 			ereport(ERROR,
 					(errcode(ERRCODE_UNDEFINED_OBJECT),
 					 errmsg("unsupported language \"%s\"",
-							languageName),
+							stmt->plname),
 					 errhint("The supported languages are listed in the pg_pltemplate system catalog.")));
 
 		/*
@@ -301,7 +302,7 @@ CreateProceduralLanguage(CreatePLangStmt *stmt)
 			valOid = InvalidOid;
 
 		/* ok, create it */
-		create_proc_lang(languageName, stmt->replace, GetUserId(),
+		create_proc_lang(stmt->plname, stmt->replace, GetUserId(),
 						 handlerOid, inlineOid,
 						 valOid, stmt->pltrusted);
 	}
@@ -388,8 +389,7 @@ create_proc_lang(const char *languageName, bool replace,
 	 * Create dependencies for the new language.  If we are updating an
 	 * existing language, first delete any existing pg_depend entries.
 	 * (However, since we are not changing ownership or permissions, the
-	 * shared dependencies do *not* need to change, and we leave them alone.
-	 * We also don't change any pre-existing extension-membership dependency.)
+	 * shared dependencies do *not* need to change, and we leave them alone.)
 	 */
 	myself.classId = LanguageRelationId;
 	myself.objectId = HeapTupleGetOid(tup);
@@ -404,8 +404,7 @@ create_proc_lang(const char *languageName, bool replace,
 								languageOwner);
 
 	/* dependency on extension */
-	if (!is_update)
-		recordDependencyOnCurrentExtension(&myself);
+	recordDependencyOnCurrentExtension(&myself, is_update);
 
 	/* dependency on the PL handler function */
 	referenced.classId = ProcedureRelationId;
@@ -433,7 +432,7 @@ create_proc_lang(const char *languageName, bool replace,
 
 	/* Post creation hook for new procedural language */
 	InvokeObjectAccessHook(OAT_POST_CREATE,
-						   LanguageRelationId, myself.objectId, 0);
+						   LanguageRelationId, myself.objectId, 0, NULL);
 
 	heap_close(rel, RowExclusiveLock);
 }
@@ -515,49 +514,6 @@ PLTemplateExists(const char *languageName)
 	return (find_language_template(languageName) != NULL);
 }
 
-
-/* ---------------------------------------------------------------------
- * DROP PROCEDURAL LANGUAGE
- * ---------------------------------------------------------------------
- */
-void
-DropProceduralLanguage(DropPLangStmt *stmt)
-{
-	char	   *languageName;
-	Oid			oid;
-	ObjectAddress object;
-
-	/*
-	 * Translate the language name, check that the language exists
-	 */
-	languageName = case_translate_language_name(stmt->plname);
-
-	oid = get_language_oid(languageName, stmt->missing_ok);
-	if (!OidIsValid(oid))
-	{
-		ereport(NOTICE,
-				(errmsg("language \"%s\" does not exist, skipping",
-						languageName)));
-		return;
-	}
-
-	/*
-	 * Check permission
-	 */
-	if (!pg_language_ownercheck(oid, GetUserId()))
-		aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_LANGUAGE,
-					   languageName);
-
-	object.classId = LanguageRelationId;
-	object.objectId = oid;
-	object.objectSubId = 0;
-
-	/*
-	 * Do the deletion
-	 */
-	performDeletion(&object, stmt->behavior);
-}
-
 /*
  * Guts of language dropping.
  */
@@ -588,10 +544,6 @@ RenameLanguage(const char *oldname, const char *newname)
 {
 	HeapTuple	tup;
 	Relation	rel;
-
-	/* Translate both names for consistency with CREATE */
-	oldname = case_translate_language_name(oldname);
-	newname = case_translate_language_name(newname);
 
 	rel = heap_open(LanguageRelationId, RowExclusiveLock);
 
@@ -629,9 +581,6 @@ AlterLanguageOwner(const char *name, Oid newOwnerId)
 {
 	HeapTuple	tup;
 	Relation	rel;
-
-	/* Translate name for consistency with CREATE */
-	name = case_translate_language_name(name);
 
 	rel = heap_open(LanguageRelationId, RowExclusiveLock);
 

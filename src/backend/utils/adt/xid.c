@@ -3,7 +3,7 @@
  * xid.c
  *	  POSTGRES transaction identifier and command identifier datatypes.
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -87,13 +87,13 @@ xideq(PG_FUNCTION_ARGS)
 }
 
 /*
- *		xid_age			- compute age of an XID (relative to current xact)
+ *		xid_age			- compute age of an XID (relative to latest stable xid)
  */
 Datum
 xid_age(PG_FUNCTION_ARGS)
 {
 	TransactionId xid = PG_GETARG_TRANSACTIONID(0);
-	TransactionId now = GetTopTransactionId();
+	TransactionId now = GetStableLatestTransactionId();
 
 	/* Permanent XIDs are always infinitely old */
 	if (!TransactionIdIsNormal(xid))

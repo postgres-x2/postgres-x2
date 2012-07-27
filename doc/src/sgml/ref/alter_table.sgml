@@ -21,13 +21,15 @@ PostgreSQL documentation
 
  <refsynopsisdiv>
 <synopsis>
-ALTER TABLE [ ONLY ] <replaceable class="PARAMETER">name</replaceable> [ * ]
+ALTER TABLE [ IF EXISTS ] [ ONLY ] <replaceable class="PARAMETER">name</replaceable> [ * ]
     <replaceable class="PARAMETER">action</replaceable> [, ... ]
-ALTER TABLE [ ONLY ] <replaceable class="PARAMETER">name</replaceable> [ * ]
+ALTER TABLE [ IF EXISTS ] [ ONLY ] <replaceable class="PARAMETER">name</replaceable> [ * ]
     RENAME [ COLUMN ] <replaceable class="PARAMETER">column</replaceable> TO <replaceable class="PARAMETER">new_column</replaceable>
-ALTER TABLE <replaceable class="PARAMETER">name</replaceable>
+ALTER TABLE [ IF EXISTS ] [ ONLY ] <replaceable class="PARAMETER">name</replaceable> [ * ]
+    RENAME CONSTRAINT <replaceable class="PARAMETER">constraint_name</replaceable> TO <replaceable class="PARAMETER">new_constraint_name</replaceable>
+ALTER TABLE [ IF EXISTS ] <replaceable class="PARAMETER">name</replaceable>
     RENAME TO <replaceable class="PARAMETER">new_name</replaceable>
-ALTER TABLE <replaceable class="PARAMETER">name</replaceable>
+ALTER TABLE [ IF EXISTS ] <replaceable class="PARAMETER">name</replaceable>
     SET SCHEMA <replaceable class="PARAMETER">new_schema</replaceable>
 
 <phrase>where <replaceable class="PARAMETER">action</replaceable> is one of:</phrase>
@@ -105,6 +107,16 @@ ALTER TABLE <replaceable class="PARAMETER">name</replaceable>
       If <literal>IF EXISTS</literal> is specified and the column
       does not exist, no error is thrown. In this case a notice
       is issued instead.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>IF EXISTS</literal></term>
+    <listitem>
+     <para>
+      Do not throw an error if the table does not exist. A notice is issued
+      in this case.
      </para>
     </listitem>
    </varlistentry>
@@ -375,7 +387,7 @@ ALTER TABLE <replaceable class="PARAMETER">name</replaceable>
    </varlistentry>
 
    <varlistentry>
-    <term><literal>CLUSTER</literal></term>
+    <term><literal>CLUSTER ON</literal></term>
     <listitem>
      <para>
       This form selects the default index for future
@@ -482,7 +494,11 @@ ALTER TABLE <replaceable class="PARAMETER">name</replaceable>
 
      <para>
       There must also be matching child-table constraints for all
-      <literal>CHECK</literal> constraints of the parent. Currently
+      <literal>CHECK</literal> constraints of the parent, except those
+      marked non-inheritable (that is, created with <literal>ALTER TABLE ONLY</literal>)
+      in the parent, which are ignored; all child-table constraints matched
+      must not be marked non-inheritable.
+      Currently
       <literal>UNIQUE</literal>, <literal>PRIMARY KEY</literal>, and
       <literal>FOREIGN KEY</literal> constraints are not considered, but
       this might change in the future.
@@ -555,8 +571,8 @@ ALTER TABLE <replaceable class="PARAMETER">name</replaceable>
     <listitem>
      <para>
       The <literal>RENAME</literal> forms change the name of a table
-      (or an index, sequence, or view) or the name of an individual column in
-      a table. There is no effect on the stored data.
+      (or an index, sequence, or view), the name of an individual column in
+      a table, or the name of a constraint of the table. There is no effect on the stored data.
      </para>
     </listitem>
    </varlistentry>
@@ -594,6 +610,9 @@ ALTER TABLE <replaceable class="PARAMETER">name</replaceable>
    the table's schema.  (These restrictions enforce that altering the owner
    doesn't do anything you couldn't do by dropping and recreating the table.
    However, a superuser can alter ownership of any table anyway.)
+   To add a column or alter a column type or use the <literal>OF</literal>
+   clause, you must also have <literal>USAGE</literal> privilege on the data
+   type.
   </para>
  </refsect1>
 
@@ -866,7 +885,8 @@ ALTER TABLE <replaceable class="PARAMETER">name</replaceable>
 
    <para>
     If a table has any descendant tables, it is not permitted to add,
-    rename, or change the type of a column in the parent table without doing
+    rename, or change the type of a column, or rename an inherited constraint
+    in the parent table without doing
     the same to the descendants.  That is, <command>ALTER TABLE ONLY</command>
     will be rejected.  This ensures that the descendants always have
     columns matching the parent.
@@ -886,8 +906,8 @@ ALTER TABLE <replaceable class="PARAMETER">name</replaceable>
     The <literal>TRIGGER</>, <literal>CLUSTER</>, <literal>OWNER</>,
     and <literal>TABLESPACE</> actions never recurse to descendant tables;
     that is, they always act as though <literal>ONLY</> were specified.
-    Adding a constraint can recurse only for <literal>CHECK</> constraints,
-    and is required to do so for such constraints.
+    Adding a constraint recurses only for <literal>CHECK</> constraints
+    that are not marked <literal>NO INHERIT</>.
    </para>
 
    <para>
@@ -966,6 +986,13 @@ ALTER TABLE distributors RENAME TO suppliers;
   </para>
 
   <para>
+   To rename an existing constraint:
+<programlisting>
+ALTER TABLE distributors RENAME CONSTRAINT zipchk TO zip_check;
+</programlisting>
+  </para>
+
+  <para>
    To add a not-null constraint to a column:
 <programlisting>
 ALTER TABLE distributors ALTER COLUMN street SET NOT NULL;
@@ -981,6 +1008,14 @@ ALTER TABLE distributors ALTER COLUMN street DROP NOT NULL;
 <programlisting>
 ALTER TABLE distributors ADD CONSTRAINT zipchk CHECK (char_length(zipcode) = 5);
 </programlisting>
+  </para>
+
+  <para>
+   To add a check constraint only to a table and not to its children:
+<programlisting>
+ALTER TABLE distributors ADD CONSTRAINT zipchk CHECK NO INHERIT (char_length(zipcode) = 5);
+</programlisting>
+   (The check constraint will not be inherited by future children, either.)
   </para>
 
   <para>
@@ -1001,7 +1036,7 @@ ALTER TABLE ONLY distributors DROP CONSTRAINT zipchk;
   <para>
    To add a foreign key constraint to a table:
 <programlisting>
-ALTER TABLE distributors ADD CONSTRAINT distfk FOREIGN KEY (address) REFERENCES addresses (address) MATCH FULL;
+ALTER TABLE distributors ADD CONSTRAINT distfk FOREIGN KEY (address) REFERENCES addresses (address);
 </programlisting>
   </para>
 
@@ -1041,8 +1076,7 @@ ALTER TABLE myschema.distributors SET SCHEMA yourschema;
 CREATE UNIQUE INDEX CONCURRENTLY dist_id_temp_idx ON distributors (dist_id);
 ALTER TABLE distributors DROP CONSTRAINT distributors_pkey,
     ADD CONSTRAINT distributors_pkey PRIMARY KEY USING INDEX dist_id_temp_idx;
-</programlisting>
-  </para>
+</programlisting></para>
 
  </refsect1>
 

@@ -3,7 +3,7 @@
  * genam.c
  *	  general index access method routines
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -23,7 +23,6 @@
 #include "access/transam.h"
 #include "catalog/index.h"
 #include "miscadmin.h"
-#include "pgstat.h"
 #include "storage/bufmgr.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
@@ -94,6 +93,8 @@ RelationGetIndexScan(Relation indexRelation, int nkeys, int norderbys)
 	else
 		scan->orderByData = NULL;
 
+	scan->xs_want_itup = false; /* may be set later */
+
 	/*
 	 * During recovery we ignore killed tuples and don't bother to kill them
 	 * either. We do this because the xmin on the primary node could easily be
@@ -109,6 +110,9 @@ RelationGetIndexScan(Relation indexRelation, int nkeys, int norderbys)
 	scan->ignore_killed_tuples = !scan->xactStartedInRecovery;
 
 	scan->opaque = NULL;
+
+	scan->xs_itup = NULL;
+	scan->xs_itupdesc = NULL;
 
 	ItemPointerSetInvalid(&scan->xs_ctup.t_self);
 	scan->xs_ctup.t_data = NULL;
@@ -289,7 +293,16 @@ systable_beginscan(Relation heapRelation,
 	}
 	else
 	{
-		sysscan->scan = heap_beginscan(heapRelation, snapshot, nkeys, key);
+		/*
+		 * We disallow synchronized scans when forced to use a heapscan on a
+		 * catalog.  In most cases the desired rows are near the front, so
+		 * that the unpredictable start point of a syncscan is a serious
+		 * disadvantage; and there are no compensating advantages, because
+		 * it's unlikely that such scans will occur in parallel.
+		 */
+		sysscan->scan = heap_beginscan_strat(heapRelation, snapshot,
+											 nkeys, key,
+											 true, false);
 		sysscan->iscan = NULL;
 	}
 

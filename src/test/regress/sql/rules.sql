@@ -929,3 +929,9 @@ update t1 set a = 4 where a = 5;
 select * from only t1 order by 1;
 select * from only t1_1 order by 1;
 select * from only t1_2 order by 1;
+
+-- test various flavors of pg_get_viewdef()
+
+select pg_get_viewdef('shoe'::regclass) as unpretty;
+select pg_get_viewdef('shoe'::regclass,true) as pretty;
+select pg_get_viewdef('shoe'::regclass,0) as prettier;

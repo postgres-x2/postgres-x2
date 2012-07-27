@@ -31,8 +31,6 @@
 
 #include "postgres.h"
 
-#include "fmgr.h"
-#include "parser/scansup.h"
 #include "mb/pg_wchar.h"
 #include "utils/builtins.h"
 
@@ -627,7 +625,7 @@ out:
 	px_set_debug_handler(NULL);
 
 	/*
-	 * add successfull decryptions also into RNG
+	 * add successful decryptions also into RNG
 	 */
 	add_entropy(res, key, keypsw);
 

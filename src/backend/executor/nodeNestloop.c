@@ -3,7 +3,7 @@
  * nodeNestloop.c
  *	  routines to support nest-loop joins
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -147,8 +147,9 @@ ExecNestLoop(NestLoopState *node)
 				ParamExecData *prm;
 
 				prm = &(econtext->ecxt_param_exec_vals[paramno]);
-				/* Param value should be an OUTER var */
-				Assert(nlp->paramval->varno == OUTER);
+				/* Param value should be an OUTER_VAR var */
+				Assert(IsA(nlp->paramval, Var));
+				Assert(nlp->paramval->varno == OUTER_VAR);
 				Assert(nlp->paramval->varattno > 0);
 				prm->value = slot_getattr(outerTupleSlot,
 										  nlp->paramval->varattno,
@@ -214,6 +215,8 @@ ExecNestLoop(NestLoopState *node)
 						return result;
 					}
 				}
+				else
+					InstrCountFiltered2(node, 1);
 			}
 
 			/*
@@ -270,7 +273,11 @@ ExecNestLoop(NestLoopState *node)
 					return result;
 				}
 			}
+			else
+				InstrCountFiltered2(node, 1);
 		}
+		else
+			InstrCountFiltered1(node, 1);
 
 		/*
 		 * Tuple fails qual, so free per-tuple memory and try again.

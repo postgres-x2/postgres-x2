@@ -4,7 +4,7 @@
  *	 functions for instrumentation of plan execution
  *
  *
- * Copyright (c) 2001-2011, PostgreSQL Global Development Group
+ * Copyright (c) 2001-2012, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  src/backend/executor/instrument.c
@@ -22,22 +22,26 @@ BufferUsage pgBufferUsage;
 static void BufferUsageAccumDiff(BufferUsage *dst,
 					 const BufferUsage *add, const BufferUsage *sub);
 
+
 /* Allocate new instrumentation structure(s) */
 Instrumentation *
 InstrAlloc(int n, int instrument_options)
 {
 	Instrumentation *instr;
 
-	/* timer is always required for now */
-	Assert(instrument_options & INSTRUMENT_TIMER);
-
+	/* initialize all fields to zeroes, then modify as needed */
 	instr = palloc0(n * sizeof(Instrumentation));
-	if (instrument_options & INSTRUMENT_BUFFERS)
+	if (instrument_options & (INSTRUMENT_BUFFERS | INSTRUMENT_TIMER))
 	{
 		int			i;
+		bool		need_buffers = instrument_options & INSTRUMENT_BUFFERS;
+		bool		need_timer = instrument_options & INSTRUMENT_TIMER;
 
 		for (i = 0; i < n; i++)
-			instr[i].needs_bufusage = true;
+		{
+			instr[i].need_bufusage = need_buffers;
+			instr[i].need_timer = need_timer;
+		}
 	}
 
 	return instr;
@@ -47,13 +51,13 @@ InstrAlloc(int n, int instrument_options)
 void
 InstrStartNode(Instrumentation *instr)
 {
-	if (INSTR_TIME_IS_ZERO(instr->starttime))
+	if (instr->need_timer && INSTR_TIME_IS_ZERO(instr->starttime))
 		INSTR_TIME_SET_CURRENT(instr->starttime);
 	else
 		elog(DEBUG2, "InstrStartNode called twice in a row");
 
-	/* initialize buffer usage per plan node */
-	if (instr->needs_bufusage)
+	/* save buffer usage totals at node entry, if needed */
+	if (instr->need_bufusage)
 		instr->bufusage_start = pgBufferUsage;
 }
 
@@ -66,19 +70,25 @@ InstrStopNode(Instrumentation *instr, double nTuples)
 	/* count the returned tuples */
 	instr->tuplecount += nTuples;
 
-	if (INSTR_TIME_IS_ZERO(instr->starttime))
+	/* let's update the time only if the timer was requested */
+	if (instr->need_timer)
 	{
-		elog(DEBUG2, "InstrStopNode called without start");
-		return;
+
+		if (INSTR_TIME_IS_ZERO(instr->starttime))
+		{
+			elog(DEBUG2, "InstrStopNode called without start");
+			return;
+		}
+
+		INSTR_TIME_SET_CURRENT(endtime);
+		INSTR_TIME_ACCUM_DIFF(instr->counter, endtime, instr->starttime);
+
+		INSTR_TIME_SET_ZERO(instr->starttime);
+
 	}
 
-	INSTR_TIME_SET_CURRENT(endtime);
-	INSTR_TIME_ACCUM_DIFF(instr->counter, endtime, instr->starttime);
-
-	INSTR_TIME_SET_ZERO(instr->starttime);
-
-	/* Adds delta of buffer usage to node's count. */
-	if (instr->needs_bufusage)
+	/* Add delta of buffer usage since entry to node's totals */
+	if (instr->need_bufusage)
 		BufferUsageAccumDiff(&instr->bufusage,
 							 &pgBufferUsage, &instr->bufusage_start);
 
@@ -119,18 +129,24 @@ InstrEndLoop(Instrumentation *instr)
 	instr->tuplecount = 0;
 }
 
+/* dst += add - sub */
 static void
 BufferUsageAccumDiff(BufferUsage *dst,
 					 const BufferUsage *add,
 					 const BufferUsage *sub)
 {
-	/* dst += add - sub */
 	dst->shared_blks_hit += add->shared_blks_hit - sub->shared_blks_hit;
 	dst->shared_blks_read += add->shared_blks_read - sub->shared_blks_read;
+	dst->shared_blks_dirtied += add->shared_blks_dirtied - sub->shared_blks_dirtied;
 	dst->shared_blks_written += add->shared_blks_written - sub->shared_blks_written;
 	dst->local_blks_hit += add->local_blks_hit - sub->local_blks_hit;
 	dst->local_blks_read += add->local_blks_read - sub->local_blks_read;
+	dst->local_blks_dirtied += add->local_blks_dirtied - sub->local_blks_dirtied;
 	dst->local_blks_written += add->local_blks_written - sub->local_blks_written;
 	dst->temp_blks_read += add->temp_blks_read - sub->temp_blks_read;
 	dst->temp_blks_written += add->temp_blks_written - sub->temp_blks_written;
+	INSTR_TIME_ACCUM_DIFF(dst->blk_read_time,
+						  add->blk_read_time, sub->blk_read_time);
+	INSTR_TIME_ACCUM_DIFF(dst->blk_write_time,
+						  add->blk_write_time, sub->blk_write_time);
 }

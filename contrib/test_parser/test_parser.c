@@ -3,7 +3,7 @@
  * test_parser.c
  *	  Simple example of a text search parser
  *
- * Copyright (c) 2007-2011, PostgreSQL Global Development Group
+ * Copyright (c) 2007-2012, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  contrib/test_parser/test_parser.c
@@ -73,31 +73,32 @@ testprs_getlexeme(PG_FUNCTION_ARGS)
 	ParserState *pst = (ParserState *) PG_GETARG_POINTER(0);
 	char	  **t = (char **) PG_GETARG_POINTER(1);
 	int		   *tlen = (int *) PG_GETARG_POINTER(2);
+	int			startpos = pst->pos;
 	int			type;
 
-	*tlen = pst->pos;
 	*t = pst->buffer + pst->pos;
 
-	if ((pst->buffer)[pst->pos] == ' ')
+	if (pst->pos < pst->len &&
+		(pst->buffer)[pst->pos] == ' ')
 	{
 		/* blank type */
 		type = 12;
-		/* go to the next non-white-space character */
-		while ((pst->buffer)[pst->pos] == ' ' &&
-			   pst->pos < pst->len)
+		/* go to the next non-space character */
+		while (pst->pos < pst->len &&
+			   (pst->buffer)[pst->pos] == ' ')
 			(pst->pos)++;
 	}
 	else
 	{
 		/* word type */
 		type = 3;
-		/* go to the next white-space character */
-		while ((pst->buffer)[pst->pos] != ' ' &&
-			   pst->pos < pst->len)
+		/* go to the next space character */
+		while (pst->pos < pst->len &&
+			   (pst->buffer)[pst->pos] != ' ')
 			(pst->pos)++;
 	}
 
-	*tlen = pst->pos - *tlen;
+	*tlen = pst->pos - startpos;
 
 	/* we are finished if (*tlen == 0) */
 	if (*tlen == 0)

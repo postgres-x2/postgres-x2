@@ -517,6 +517,12 @@ TAS         = @TAS@
 %.bz2: %
 	$(BZIP2) -c $< >$@
 
+# Direct builds of foo.c -> foo are disabled to avoid generating
+# *.dSYM junk on Macs.  All builds should normally go through the
+# foo.c -> foo.o -> foo steps.  This also ensures that dependency
+# tracking (see below) is used.
+%: %.c
+
 ifndef PGXS
 
 # Remake Makefile.global from Makefile.global.in if the latter
@@ -530,20 +536,20 @@ $(top_builddir)/src/Makefile.global: $(top_srcdir)/src/Makefile.global.in $(top_
 # config.status will not change the timestamp on pg_config.h if it
 # doesn't change, so as to avoid recompiling the entire tree
 # unnecessarily. Therefore we make config.status update a timestamp file
-# stamp-h everytime it runs, so that we don't trigger this rule everytime.
-# (We do trigger the null rule for stamp-h to pg_config.h everytime; so it's
-# important for that rule to be null!)
+# stamp-h every time it runs, so that we don't trigger this rule every time.
+# (We do trigger the null rule for stamp-h to pg_config.h every time; so it's
+# important for that rule to be empty!)
 #
 # Of course you need to turn on dependency tracking to get any
 # dependencies on pg_config.h.
-$(top_builddir)/src/include/pg_config.h: $(top_builddir)/src/include/stamp-h
+$(top_builddir)/src/include/pg_config.h: $(top_builddir)/src/include/stamp-h ;
 
 $(top_builddir)/src/include/stamp-h: $(top_srcdir)/src/include/pg_config.h.in $(top_builddir)/config.status
 	cd $(top_builddir) && ./config.status src/include/pg_config.h
 
 # Also remake ecpg_config.h from ecpg_config.h.in if the latter changed, same
 # logic as above.
-$(top_builddir)/src/interfaces/ecpg/include/ecpg_config.h: $(top_builddir)/src/interfaces/ecpg/include/stamp-h
+$(top_builddir)/src/interfaces/ecpg/include/ecpg_config.h: $(top_builddir)/src/interfaces/ecpg/include/stamp-h ;
 
  $(top_builddir)/src/interfaces/ecpg/include/stamp-h: $(top_builddir)/src/interfaces/ecpg/include/ecpg_config.h.in $(top_builddir)/config.status
 	cd $(top_builddir) && ./config.status src/interfaces/ecpg/include/ecpg_config.h

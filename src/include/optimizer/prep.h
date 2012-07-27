@@ -4,7 +4,7 @@
  *	  prototypes for files in optimizer/prep/
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/optimizer/prep.h
@@ -52,6 +52,7 @@ extern Plan *plan_set_operations(PlannerInfo *root, double tuple_fraction,
 
 extern void expand_inherited_tables(PlannerInfo *root);
 
-extern Node *adjust_appendrel_attrs(Node *node, AppendRelInfo *appinfo);
+extern Node *adjust_appendrel_attrs(PlannerInfo *root, Node *node,
+					   AppendRelInfo *appinfo);
 
 #endif   /* PREP_H */

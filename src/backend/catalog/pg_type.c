@@ -3,7 +3,7 @@
  * pg_type.c
  *	  routines to support manipulation of the pg_type relation
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -117,6 +117,7 @@ TypeShellMake(const char *typeName, Oid typeNamespace, Oid ownerId)
 	values[Anum_pg_type_typcollation - 1] = ObjectIdGetDatum(InvalidOid);
 	nulls[Anum_pg_type_typdefaultbin - 1] = true;
 	nulls[Anum_pg_type_typdefault - 1] = true;
+	nulls[Anum_pg_type_typacl - 1] = true;
 
 	/*
 	 * create a new type tuple
@@ -161,7 +162,8 @@ TypeShellMake(const char *typeName, Oid typeNamespace, Oid ownerId)
 								 false);
 
 	/* Post creation hook for new shell type */
-	InvokeObjectAccessHook(OAT_POST_CREATE, TypeRelationId, typoid, 0);
+	InvokeObjectAccessHook(OAT_POST_CREATE,
+						   TypeRelationId, typoid, 0, NULL);
 
 	/*
 	 * clean up and return the type-oid
@@ -224,6 +226,7 @@ TypeCreate(Oid newTypeOid,
 	Datum		values[Natts_pg_type];
 	NameData	name;
 	int			i;
+	Acl		   *typacl = NULL;
 
 	/*
 	 * We assume that the caller validated the arguments individually, but did
@@ -369,6 +372,13 @@ TypeCreate(Oid newTypeOid,
 	else
 		nulls[Anum_pg_type_typdefault - 1] = true;
 
+	typacl = get_user_default_acl(ACL_OBJECT_TYPE, ownerId,
+								  typeNamespace);
+	if (typacl != NULL)
+		values[Anum_pg_type_typacl - 1] = PointerGetDatum(typacl);
+	else
+		nulls[Anum_pg_type_typacl - 1] = true;
+
 	/*
 	 * open pg_type and prepare to insert or update a row.
 	 *
@@ -465,7 +475,8 @@ TypeCreate(Oid newTypeOid,
 								 rebuildDeps);
 
 	/* Post creation hook for new type */
-	InvokeObjectAccessHook(OAT_POST_CREATE, TypeRelationId, typeObjectId, 0);
+	InvokeObjectAccessHook(OAT_POST_CREATE,
+						   TypeRelationId, typeObjectId, 0, NULL);
 
 	/*
 	 * finish up
@@ -480,7 +491,11 @@ TypeCreate(Oid newTypeOid,
  *
  * If rebuild is true, we remove existing dependencies and rebuild them
  * from scratch.  This is needed for ALTER TYPE, and also when replacing
- * a shell type.  We don't remove/rebuild extension dependencies, though.
+ * a shell type.  We don't remove an existing extension dependency, though.
+ * (That means an extension can't absorb a shell type created in another
+ * extension, nor ALTER a type created by another extension.  Also, if it
+ * replaces a free-standing shell type or ALTERs a free-standing type,
+ * that type will become a member of the extension.)
  */
 void
 GenerateTypeDependencies(Oid typeNamespace,
@@ -505,6 +520,7 @@ GenerateTypeDependencies(Oid typeNamespace,
 	ObjectAddress myself,
 				referenced;
 
+	/* If rebuild, first flush old dependencies, except extension deps */
 	if (rebuild)
 	{
 		deleteDependencyRecordsFor(TypeRelationId, typeObjectId, true);
@@ -516,12 +532,12 @@ GenerateTypeDependencies(Oid typeNamespace,
 	myself.objectSubId = 0;
 
 	/*
-	 * Make dependency on namespace and shared dependency on owner.
+	 * Make dependencies on namespace, owner, extension.
 	 *
 	 * For a relation rowtype (that's not a composite type), we should skip
 	 * these because we'll depend on them indirectly through the pg_class
 	 * entry.  Likewise, skip for implicit arrays since we'll depend on them
-	 * through the element type.  The same goes for extension membership.
+	 * through the element type.
 	 */
 	if ((!OidIsValid(relationOid) || relationKind == RELKIND_COMPOSITE_TYPE) &&
 		!isImplicitArray)
@@ -533,9 +549,7 @@ GenerateTypeDependencies(Oid typeNamespace,
 
 		recordDependencyOnOwner(TypeRelationId, typeObjectId, owner);
 
-		/* dependency on extension */
-		if (!rebuild)
-			recordDependencyOnCurrentExtension(&myself);
+		recordDependencyOnCurrentExtension(&myself, rebuild);
 	}
 
 	/* Normal dependencies on the I/O functions */

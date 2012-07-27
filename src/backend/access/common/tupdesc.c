@@ -3,7 +3,7 @@
  * tupdesc.c
  *	  POSTGRES tuple descriptor support code
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -20,7 +20,9 @@
 #include "postgres.h"
 
 #include "catalog/pg_type.h"
+#include "miscadmin.h"
 #include "parser/parse_type.h"
+#include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/resowner.h"
 #include "utils/syscache.h"
@@ -363,7 +365,7 @@ equalTupleDescs(TupleDesc tupdesc1, TupleDesc tupdesc2)
 			return false;
 		if (attr1->attcollation != attr2->attcollation)
 			return false;
-		/* attacl and attoptions are not even present... */
+		/* attacl, attoptions and attfdwoptions are not even present... */
 	}
 
 	if (tupdesc1->constr != NULL)
@@ -483,7 +485,7 @@ TupleDescInitEntry(TupleDesc desc,
 	att->attisdropped = false;
 	att->attislocal = true;
 	att->attinhcount = 0;
-	/* attacl and attoptions are not present in tupledescs */
+	/* attacl, attoptions and attfdwoptions are not present in tupledescs */
 
 	tuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(oidtypeid));
 	if (!HeapTupleIsValid(tuple))
@@ -557,6 +559,7 @@ BuildDescForRelation(List *schema)
 	foreach(l, schema)
 	{
 		ColumnDef  *entry = lfirst(l);
+		AclResult	aclresult;
 
 		/*
 		 * for each entry in the list, get the name and type information from
@@ -567,6 +570,12 @@ BuildDescForRelation(List *schema)
 
 		attname = entry->colname;
 		typenameTypeIdAndMod(NULL, entry->typeName, &atttypid, &atttypmod);
+
+		aclresult = pg_type_aclcheck(atttypid, GetUserId(), ACL_USAGE);
+		if (aclresult != ACLCHECK_OK)
+			aclcheck_error(aclresult, ACL_KIND_TYPE,
+						   format_type_be(atttypid));
+
 		attcollation = GetColumnDefCollation(NULL, entry, atttypid);
 		attdim = list_length(entry->typeName->arrayBounds);
 

@@ -3,7 +3,7 @@
  * ipci.c
  *	  POSTGRES inter-process communication initialization code.
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -122,7 +122,7 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 		size = add_size(size, SInvalShmemSize());
 		size = add_size(size, PMSignalShmemSize());
 		size = add_size(size, ProcSignalShmemSize());
-		size = add_size(size, BgWriterShmemSize());
+		size = add_size(size, CheckpointerShmemSize());
 		size = add_size(size, AutoVacuumShmemSize());
 		size = add_size(size, WalSndShmemSize());
 		size = add_size(size, WalRcvShmemSize());
@@ -199,7 +199,6 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 	XLOGShmemInit();
 	CLOGShmemInit();
 	SUBTRANSShmemInit();
-	TwoPhaseShmemInit();
 	MultiXactShmemInit();
 	InitBufferPool();
 
@@ -220,6 +219,7 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 		InitProcGlobal();
 	CreateSharedProcArray();
 	CreateSharedBackendStatus();
+	TwoPhaseShmemInit();
 
 	/*
 	 * Set up shared-inval messaging
@@ -231,7 +231,7 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 	 */
 	PMSignalShmemInit();
 	ProcSignalShmemInit();
-	BgWriterShmemInit();
+	CheckpointerShmemInit();
 	AutoVacuumShmemInit();
 	WalSndShmemInit();
 	WalRcvShmemInit();

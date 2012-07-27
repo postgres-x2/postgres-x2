@@ -7,7 +7,7 @@
  *	  transfer pending entries into the regular index structure.  This
  *	  wins because bulk insertion is much more efficient than retail.
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -19,10 +19,8 @@
 #include "postgres.h"
 
 #include "access/gin_private.h"
-#include "catalog/index.h"
 #include "commands/vacuum.h"
 #include "miscadmin.h"
-#include "storage/bufmgr.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
 
@@ -858,7 +856,7 @@ ginInsertCleanup(GinState *ginstate,
 			 * added to it.  If so, process those entries immediately.	There
 			 * shouldn't be very many, so we don't worry about the fact that
 			 * we're doing this with exclusive lock. Insertion algorithm
-			 * gurantees that inserted row(s) will not continue on next page.
+			 * guarantees that inserted row(s) will not continue on next page.
 			 * NOTE: intentionally no vacuum_delay_point in this loop.
 			 */
 			if (PageGetMaxOffsetNumber(page) != maxoff)

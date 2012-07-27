@@ -4,7 +4,7 @@
  *	  POSTGRES heap access method definitions.
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/access/heapam.h
@@ -14,12 +14,10 @@
 #ifndef HEAPAM_H
 #define HEAPAM_H
 
-#include "access/htup.h"
 #include "access/sdir.h"
 #include "access/skey.h"
 #include "access/xlog.h"
 #include "nodes/primnodes.h"
-#include "storage/bufpage.h"
 #include "storage/lock.h"
 #include "utils/relcache.h"
 #include "utils/snapshot.h"
@@ -99,6 +97,8 @@ extern void FreeBulkInsertState(BulkInsertState);
 
 extern Oid heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 			int options, BulkInsertState bistate);
+extern void heap_multi_insert(Relation relation, HeapTuple *tuples, int ntuples,
+				  CommandId cid, int options, BulkInsertState bistate);
 extern HTSU_Result heap_delete(Relation relation, ItemPointer tid,
 			ItemPointer ctid, TransactionId *update_xmax,
 			CommandId cid, Snapshot crosscheck, bool wait);
@@ -111,8 +111,9 @@ extern HTSU_Result heap_lock_tuple(Relation relation, HeapTuple tuple,
 				TransactionId *update_xmax, CommandId cid,
 				LockTupleMode mode, bool nowait);
 extern void heap_inplace_update(Relation relation, HeapTuple tuple);
-extern bool heap_freeze_tuple(HeapTupleHeader tuple, TransactionId cutoff_xid,
-				  Buffer buf);
+extern bool heap_freeze_tuple(HeapTupleHeader tuple, TransactionId cutoff_xid);
+extern bool heap_tuple_needs_freeze(HeapTupleHeader tuple, TransactionId cutoff_xid,
+						Buffer buf);
 
 extern Oid	simple_heap_insert(Relation relation, HeapTuple tup);
 extern void simple_heap_delete(Relation relation, ItemPointer tid);
@@ -140,7 +141,7 @@ extern XLogRecPtr log_heap_freeze(Relation reln, Buffer buffer,
 				TransactionId cutoff_xid,
 				OffsetNumber *offsets, int offcnt);
 extern XLogRecPtr log_heap_visible(RelFileNode rnode, BlockNumber block,
-				 Buffer vm_buffer);
+				 Buffer vm_buffer, TransactionId cutoff_xid);
 extern XLogRecPtr log_newpage(RelFileNode *rnode, ForkNumber forkNum,
 			BlockNumber blk, Page page);
 

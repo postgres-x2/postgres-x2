@@ -1,7 +1,7 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2011, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2012, PostgreSQL Global Development Group
  *
  * src/bin/psql/command.c
  */
@@ -121,7 +121,7 @@ HandleSlashCmds(PsqlScanState scan_state,
 		/* eat any remaining arguments after a valid command */
 		/* note we suppress evaluation of backticks here */
 		while ((arg = psql_scan_slash_option(scan_state,
-											 OT_VERBATIM, NULL, false)))
+											 OT_NO_EVAL, NULL, false)))
 		{
 			psql_error("\\%s: extra argument \"%s\" ignored\n", cmd, arg);
 			free(arg);
@@ -320,25 +320,10 @@ exec_command(const char *cmd,
 	/* \copy */
 	else if (pg_strcasecmp(cmd, "copy") == 0)
 	{
-		/* Default fetch-it-all-and-print mode */
-		instr_time	before,
-					after;
-
 		char	   *opt = psql_scan_slash_option(scan_state,
 												 OT_WHOLE_LINE, NULL, false);
 
-		if (pset.timing)
-			INSTR_TIME_SET_CURRENT(before);
-
 		success = do_copy(opt);
-
-		if (pset.timing && success)
-		{
-			INSTR_TIME_SET_CURRENT(after);
-			INSTR_TIME_SUBTRACT(after, before);
-			printf(_("Time: %.3f ms\n"), INSTR_TIME_GET_MILLISEC(after));
-		}
-
 		free(opt);
 	}
 
@@ -378,10 +363,10 @@ exec_command(const char *cmd,
 				success = describeTablespaces(pattern, show_verbose);
 				break;
 			case 'c':
-				success = listConversions(pattern, show_system);
+				success = listConversions(pattern, show_verbose, show_system);
 				break;
 			case 'C':
-				success = listCasts(pattern);
+				success = listCasts(pattern, show_verbose);
 				break;
 			case 'd':
 				if (strncmp(cmd, "ddp", 3) == 0)
@@ -390,7 +375,7 @@ exec_command(const char *cmd,
 					success = objectDescription(pattern, show_system);
 				break;
 			case 'D':
-				success = listDomains(pattern, show_system);
+				success = listDomains(pattern, show_verbose, show_system);
 				break;
 			case 'f':			/* function subsystem */
 				switch (cmd[2])
@@ -583,7 +568,13 @@ exec_command(const char *cmd,
 	{
 		int			lineno = -1;
 
-		if (!query_buf)
+		if (pset.sversion < 80400)
+		{
+			psql_error("The server (version %d.%d) does not support editing function source.\n",
+					   pset.sversion / 10000, (pset.sversion / 100) % 100);
+			status = PSQL_CMD_ERROR;
+		}
+		else if (!query_buf)
 		{
 			psql_error("no query buffer\n");
 			status = PSQL_CMD_ERROR;
@@ -786,7 +777,7 @@ exec_command(const char *cmd,
 
 	/* \i and \ir include files */
 	else if (strcmp(cmd, "i") == 0 || strcmp(cmd, "include") == 0
-			|| strcmp(cmd, "ir") == 0 || strcmp(cmd, "include_relative") == 0)
+		   || strcmp(cmd, "ir") == 0 || strcmp(cmd, "include_relative") == 0)
 	{
 		char	   *fname = psql_scan_slash_option(scan_state,
 												   OT_NORMAL, NULL, true);
@@ -798,7 +789,7 @@ exec_command(const char *cmd,
 		}
 		else
 		{
-			bool	include_relative;
+			bool		include_relative;
 
 			include_relative = (strcmp(cmd, "ir") == 0
 								|| strcmp(cmd, "include_relative") == 0);
@@ -947,6 +938,9 @@ exec_command(const char *cmd,
 					PQclear(res);
 				PQfreemem(encrypted_password);
 			}
+
+			if (opt0)
+				free(opt0);
 		}
 
 		free(pw1);
@@ -995,7 +989,7 @@ exec_command(const char *cmd,
 
 			if (!SetVariable(pset.vars, opt, result))
 			{
-				psql_error("\\%s: error\n", cmd);
+				psql_error("\\%s: error while setting variable\n", cmd);
 				success = false;
 			}
 
@@ -1096,12 +1090,58 @@ exec_command(const char *cmd,
 
 			if (!SetVariable(pset.vars, opt0, newval))
 			{
-				psql_error("\\%s: error\n", cmd);
+				psql_error("\\%s: error while setting variable\n", cmd);
 				success = false;
 			}
 			free(newval);
 		}
 		free(opt0);
+	}
+
+
+	/* \setenv -- set environment command */
+	else if (strcmp(cmd, "setenv") == 0)
+	{
+		char	   *envvar = psql_scan_slash_option(scan_state,
+													OT_NORMAL, NULL, false);
+		char	   *envval = psql_scan_slash_option(scan_state,
+													OT_NORMAL, NULL, false);
+
+		if (!envvar)
+		{
+			psql_error("\\%s: missing required argument\n", cmd);
+			success = false;
+		}
+		else if (strchr(envvar, '=') != NULL)
+		{
+			psql_error("\\%s: environment variable name must not contain \"=\"\n",
+					   cmd);
+			success = false;
+		}
+		else if (!envval)
+		{
+			/* No argument - unset the environment variable */
+			unsetenv(envvar);
+			success = true;
+		}
+		else
+		{
+			/* Set variable to the value of the next argument */
+			int			len = strlen(envvar) + strlen(envval) + 1;
+			char	   *newval = pg_malloc(len + 1);
+
+			snprintf(newval, len + 1, "%s=%s", envvar, envval);
+			putenv(newval);
+			success = true;
+
+			/*
+			 * Do not free newval here, it will screw up the environment if
+			 * you do. See putenv man page for details. That means we leak a
+			 * bit of memory here, but not enough to worry about.
+			 */
+		}
+		free(envvar);
+		free(envval);
 	}
 
 	/* \sf -- show a function's source code */
@@ -1115,7 +1155,13 @@ exec_command(const char *cmd,
 		func_buf = createPQExpBuffer();
 		func = psql_scan_slash_option(scan_state,
 									  OT_WHOLE_LINE, NULL, true);
-		if (!func)
+		if (pset.sversion < 80400)
+		{
+			psql_error("The server (version %d.%d) does not support showing function source.\n",
+					   pset.sversion / 10000, (pset.sversion / 100) % 100);
+			status = PSQL_CMD_ERROR;
+		}
+		else if (!func)
 		{
 			psql_error("function name is required\n");
 			status = PSQL_CMD_ERROR;
@@ -1272,7 +1318,7 @@ exec_command(const char *cmd,
 		}
 		else if (!SetVariable(pset.vars, opt, NULL))
 		{
-			psql_error("\\%s: error\n", cmd);
+			psql_error("\\%s: error while setting variable\n", cmd);
 			success = false;
 		}
 		free(opt);
@@ -1343,7 +1389,7 @@ exec_command(const char *cmd,
 		free(fname);
 	}
 
-	/* \x -- toggle expanded table representation */
+	/* \x -- set or toggle expanded table representation */
 	else if (strcmp(cmd, "x") == 0)
 	{
 		char	   *opt = psql_scan_slash_option(scan_state,
@@ -1667,7 +1713,7 @@ printSSLInfo(void)
 		return;					/* no SSL */
 
 	SSL_get_cipher_bits(ssl, &sslbits);
-	printf(_("SSL connection (cipher: %s, bits: %i)\n"),
+	printf(_("SSL connection (cipher: %s, bits: %d)\n"),
 		   SSL_get_cipher(ssl), sslbits);
 #else
 
@@ -1757,7 +1803,7 @@ static bool
 editFile(const char *fname, int lineno)
 {
 	const char *editorName;
-	const char *editor_lineno_switch = NULL;
+	const char *editor_lineno_arg = NULL;
 	char	   *sys;
 	int			result;
 
@@ -1772,14 +1818,17 @@ editFile(const char *fname, int lineno)
 	if (!editorName)
 		editorName = DEFAULT_EDITOR;
 
-	/* Get line number switch, if we need it. */
+	/* Get line number argument, if we need it. */
 	if (lineno > 0)
 	{
-		editor_lineno_switch = GetVariable(pset.vars,
-										   "EDITOR_LINENUMBER_SWITCH");
-		if (editor_lineno_switch == NULL)
+		editor_lineno_arg = getenv("PSQL_EDITOR_LINENUMBER_ARG");
+#ifdef DEFAULT_EDITOR_LINENUMBER_ARG
+		if (!editor_lineno_arg)
+			editor_lineno_arg = DEFAULT_EDITOR_LINENUMBER_ARG;
+#endif
+		if (!editor_lineno_arg)
 		{
-			psql_error("EDITOR_LINENUMBER_SWITCH variable must be set to specify a line number\n");
+			psql_error("environment variable PSQL_EDITOR_LINENUMBER_ARG must be set to specify a line number\n");
 			return false;
 		}
 	}
@@ -1787,7 +1836,7 @@ editFile(const char *fname, int lineno)
 	/* Allocate sufficient memory for command line. */
 	if (lineno > 0)
 		sys = pg_malloc(strlen(editorName)
-						+ strlen(editor_lineno_switch) + 10		/* for integer */
+						+ strlen(editor_lineno_arg) + 10		/* for integer */
 						+ 1 + strlen(fname) + 10 + 1);
 	else
 		sys = pg_malloc(strlen(editorName) + strlen(fname) + 10 + 1);
@@ -1802,14 +1851,14 @@ editFile(const char *fname, int lineno)
 #ifndef WIN32
 	if (lineno > 0)
 		sprintf(sys, "exec %s %s%d '%s'",
-				editorName, editor_lineno_switch, lineno, fname);
+				editorName, editor_lineno_arg, lineno, fname);
 	else
 		sprintf(sys, "exec %s '%s'",
 				editorName, fname);
 #else
 	if (lineno > 0)
 		sprintf(sys, SYSTEMQUOTE "\"%s\" %s%d \"%s\"" SYSTEMQUOTE,
-				editorName, editor_lineno_switch, lineno, fname);
+				editorName, editor_lineno_arg, lineno, fname);
 	else
 		sprintf(sys, SYSTEMQUOTE "\"%s\" \"%s\"" SYSTEMQUOTE,
 				editorName, fname);
@@ -1856,7 +1905,7 @@ do_edit(const char *filename_arg, PQExpBuffer query_buf,
 		ret = GetTempPath(MAXPGPATH, tmpdir);
 		if (ret == 0 || ret > MAXPGPATH)
 		{
-			psql_error("cannot locate temporary directory: %s",
+			psql_error("could not locate temporary directory: %s\n",
 					   !ret ? strerror(errno) : "");
 			return false;
 		}
@@ -1868,10 +1917,10 @@ do_edit(const char *filename_arg, PQExpBuffer query_buf,
 		 */
 #endif
 #ifndef WIN32
-		snprintf(fnametmp, sizeof(fnametmp), "%s%spsql.edit.%d", tmpdir,
+		snprintf(fnametmp, sizeof(fnametmp), "%s%spsql.edit.%d.sql", tmpdir,
 				 "/", (int) getpid());
 #else
-		snprintf(fnametmp, sizeof(fnametmp), "%s%spsql.edit.%d", tmpdir,
+		snprintf(fnametmp, sizeof(fnametmp), "%s%spsql.edit.%d.sql", tmpdir,
 			   "" /* trailing separator already present */ , (int) getpid());
 #endif
 
@@ -2002,9 +2051,9 @@ process_file(char *filename, bool single_txn, bool use_relative_path)
 
 		/*
 		 * If we were asked to resolve the pathname relative to the location
-		 * of the currently executing script, and there is one, and this is
-		 * a relative pathname, then prepend all but the last pathname
-		 * component of the current script to this pathname.
+		 * of the currently executing script, and there is one, and this is a
+		 * relative pathname, then prepend all but the last pathname component
+		 * of the current script to this pathname.
 		 */
 		if (use_relative_path && pset.inputfile && !is_absolute_path(filename)
 			&& !has_drive_prefix(filename))
@@ -2018,14 +2067,17 @@ process_file(char *filename, bool single_txn, bool use_relative_path)
 		}
 
 		fd = fopen(filename, PG_BINARY_R);
+
+		if (!fd)
+		{
+			psql_error("%s: %s\n", filename, strerror(errno));
+			return EXIT_FAILURE;
+		}
 	}
 	else
-		fd = stdin;
-
-	if (!fd)
 	{
-		psql_error("%s: %s\n", filename, strerror(errno));
-		return EXIT_FAILURE;
+		fd = stdin;
+		filename = "<stdin>";	/* for future error messages */
 	}
 
 	oldfilename = pset.inputfile;
@@ -2178,14 +2230,21 @@ do_pset(const char *param, const char *value, printQueryOpt *popt, bool quiet)
 	/* set expanded/vertical mode */
 	else if (strcmp(param, "x") == 0 || strcmp(param, "expanded") == 0 || strcmp(param, "vertical") == 0)
 	{
-		if (value)
+		if (value && pg_strcasecmp(value, "auto") == 0)
+			popt->topt.expanded = 2;
+		else if (value)
 			popt->topt.expanded = ParseVariableBool(value);
 		else
 			popt->topt.expanded = !popt->topt.expanded;
 		if (!quiet)
-			printf(popt->topt.expanded
-				   ? _("Expanded display is on.\n")
-				   : _("Expanded display is off.\n"));
+		{
+			if (popt->topt.expanded == 1)
+				printf(_("Expanded display is on.\n"));
+			else if (popt->topt.expanded == 2)
+				printf(_("Expanded display is used automatically.\n"));
+			else
+				printf(_("Expanded display is off.\n"));
+		}
 	}
 
 	/* locale-aware numeric output */
@@ -2221,11 +2280,26 @@ do_pset(const char *param, const char *value, printQueryOpt *popt, bool quiet)
 	{
 		if (value)
 		{
-			free(popt->topt.fieldSep);
-			popt->topt.fieldSep = pg_strdup(value);
+			free(popt->topt.fieldSep.separator);
+			popt->topt.fieldSep.separator = pg_strdup(value);
+			popt->topt.fieldSep.separator_zero = false;
 		}
 		if (!quiet)
-			printf(_("Field separator is \"%s\".\n"), popt->topt.fieldSep);
+		{
+			if (popt->topt.fieldSep.separator_zero)
+				printf(_("Field separator is zero byte.\n"));
+			else
+				printf(_("Field separator is \"%s\".\n"), popt->topt.fieldSep.separator);
+		}
+	}
+
+	else if (strcmp(param, "fieldsep_zero") == 0)
+	{
+		free(popt->topt.fieldSep.separator);
+		popt->topt.fieldSep.separator = NULL;
+		popt->topt.fieldSep.separator_zero = true;
+		if (!quiet)
+			printf(_("Field separator is zero byte.\n"));
 	}
 
 	/* record separator for unaligned text */
@@ -2233,16 +2307,28 @@ do_pset(const char *param, const char *value, printQueryOpt *popt, bool quiet)
 	{
 		if (value)
 		{
-			free(popt->topt.recordSep);
-			popt->topt.recordSep = pg_strdup(value);
+			free(popt->topt.recordSep.separator);
+			popt->topt.recordSep.separator = pg_strdup(value);
+			popt->topt.recordSep.separator_zero = false;
 		}
 		if (!quiet)
 		{
-			if (strcmp(popt->topt.recordSep, "\n") == 0)
+			if (popt->topt.recordSep.separator_zero)
+				printf(_("Record separator is zero byte.\n"));
+			else if (strcmp(popt->topt.recordSep.separator, "\n") == 0)
 				printf(_("Record separator is <newline>."));
 			else
-				printf(_("Record separator is \"%s\".\n"), popt->topt.recordSep);
+				printf(_("Record separator is \"%s\".\n"), popt->topt.recordSep.separator);
 		}
+	}
+
+	else if (strcmp(param, "recordsep_zero") == 0)
+	{
+		free(popt->topt.recordSep.separator);
+		popt->topt.recordSep.separator = NULL;
+		popt->topt.recordSep.separator_zero = true;
+		if (!quiet)
+			printf(_("Record separator is zero byte.\n"));
 	}
 
 	/* toggle between full and tuples-only format */
@@ -2326,12 +2412,12 @@ do_pset(const char *param, const char *value, printQueryOpt *popt, bool quiet)
 	else if (strcmp(param, "footer") == 0)
 	{
 		if (value)
-			popt->default_footer = ParseVariableBool(value);
+			popt->topt.default_footer = ParseVariableBool(value);
 		else
-			popt->default_footer = !popt->default_footer;
+			popt->topt.default_footer = !popt->topt.default_footer;
 		if (!quiet)
 		{
-			if (popt->default_footer)
+			if (popt->topt.default_footer)
 				puts(_("Default footer is on."));
 			else
 				puts(_("Default footer is off."));
@@ -2345,7 +2431,7 @@ do_pset(const char *param, const char *value, printQueryOpt *popt, bool quiet)
 			popt->topt.columns = atoi(value);
 
 		if (!quiet)
-			printf(_("Target width for \"wrapped\" format is %d.\n"), popt->topt.columns);
+			printf(_("Target width is %d.\n"), popt->topt.columns);
 	}
 
 	else
@@ -2390,10 +2476,10 @@ do_shell(const char *command)
 		sys = pg_malloc(strlen(shellName) + 16);
 #ifndef WIN32
 		sprintf(sys,
-		/* See EDITOR handling comment for an explaination */
+		/* See EDITOR handling comment for an explanation */
 				"exec %s", shellName);
 #else
-		/* See EDITOR handling comment for an explaination */
+		/* See EDITOR handling comment for an explanation */
 		sprintf(sys, SYSTEMQUOTE "\"%s\"" SYSTEMQUOTE, shellName);
 #endif
 		result = system(sys);

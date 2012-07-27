@@ -15,7 +15,7 @@
  * The error constants are taken from the Frambak Bakfram LGSOCKET
  * library guys who in turn took them from the Winsock FAQ.
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  */
@@ -277,7 +277,7 @@ struct MessageDLL
  * to find it in the lookup table, and if that fails, tries
  * to load any of the winsock dlls to find that message.
  * The DLL thing works from Nt4 (spX ?) up, but some special
- * versions of winsock might have this aswell (seen on Win98 SE
+ * versions of winsock might have this as well (seen on Win98 SE
  * special install)			   / Magnus Naeslund (mag@fbab.net)
  *
  */
@@ -319,14 +319,14 @@ winsock_strerror(int err, char *strerrbuf, size_t buflen)
 	}
 
 	if (!success)
-		sprintf(strerrbuf, libpq_gettext("Unknown socket error (0x%08X/%i)"), err, err);
+		sprintf(strerrbuf, libpq_gettext("Unknown socket error (0x%08X/%d)"), err, err);
 	else
 	{
 		strerrbuf[buflen - 1] = '\0';
 		offs = strlen(strerrbuf);
 		if (offs > (int) buflen - 64)
 			offs = buflen - 64;
-		sprintf(strerrbuf + offs, " (0x%08X/%i)", err, err);
+		sprintf(strerrbuf + offs, " (0x%08X/%d)", err, err);
 	}
 	return strerrbuf;
 }

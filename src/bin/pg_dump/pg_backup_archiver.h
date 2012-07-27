@@ -102,7 +102,6 @@ typedef z_stream *z_streamp;
 
 struct _archiveHandle;
 struct _tocEntry;
-struct _restoreList;
 
 typedef void (*ClosePtr) (struct _archiveHandle * AH);
 typedef void (*ReopenPtr) (struct _archiveHandle * AH);
@@ -135,23 +134,15 @@ typedef size_t (*CustomOutPtr) (struct _archiveHandle * AH, const void *buf, siz
 typedef enum
 {
 	SQL_SCAN = 0,				/* normal */
-	SQL_IN_SQL_COMMENT,			/* -- comment */
-	SQL_IN_EXT_COMMENT,			/* slash-star comment */
 	SQL_IN_SINGLE_QUOTE,		/* '...' literal */
-	SQL_IN_E_QUOTE,				/* E'...' literal */
-	SQL_IN_DOUBLE_QUOTE,		/* "..." identifier */
-	SQL_IN_DOLLAR_TAG,			/* possible dollar-quote starting tag */
-	SQL_IN_DOLLAR_QUOTE			/* body of dollar quote */
+	SQL_IN_DOUBLE_QUOTE			/* "..." identifier */
 } sqlparseState;
 
 typedef struct
 {
 	sqlparseState state;		/* see above */
-	char		lastChar;		/* preceding char, or '\0' initially */
 	bool		backSlash;		/* next char is backslash quoted? */
-	int			braceDepth;		/* parenthesis nesting depth */
-	PQExpBuffer tagBuf;			/* dollar quote tag (NULL if not created) */
-	int			minTagEndPos;	/* first possible end position of $-quote */
+	PQExpBuffer curCmd;			/* incomplete line (NULL if not created) */
 } sqlparseInfo;
 
 typedef enum
@@ -164,9 +155,16 @@ typedef enum
 
 typedef enum
 {
-	REQ_SCHEMA = 1,
-	REQ_DATA = 2,
-	REQ_ALL = REQ_SCHEMA + REQ_DATA
+	OUTPUT_SQLCMDS = 0,			/* emitting general SQL commands */
+	OUTPUT_COPYDATA,			/* writing COPY data */
+	OUTPUT_OTHERDATA			/* writing data as INSERT commands */
+} ArchiverOutput;
+
+typedef enum
+{
+	REQ_SCHEMA = 0x01,			/* want schema */
+	REQ_DATA = 0x02,			/* want data */
+	REQ_SPECIAL = 0x04			/* for special TOC entries */
 } teReqs;
 
 typedef struct _archiveHandle
@@ -189,8 +187,7 @@ typedef struct _archiveHandle
 								 * Added V1.7 */
 	ArchiveFormat format;		/* Archive format */
 
-	sqlparseInfo sqlparse;
-	PQExpBuffer sqlBuf;
+	sqlparseInfo sqlparse;		/* state for parsing INSERT data */
 
 	time_t		createDate;		/* Date archive created */
 
@@ -242,10 +239,8 @@ typedef struct _archiveHandle
 	PGconn	   *connection;
 	int			connectToDB;	/* Flag to indicate if direct DB connection is
 								 * required */
-	bool		writingCopyData;	/* True when we are sending COPY data */
+	ArchiverOutput outputKind;	/* Flag for what we're currently writing */
 	bool		pgCopyIn;		/* Currently in libpq 'COPY IN' mode. */
-	PQExpBuffer pgCopyBuf;		/* Left-over data from incomplete lines in
-								 * COPY IN */
 
 	int			loFd;			/* BLOB fd */
 	int			writingBlob;	/* Flag */
@@ -256,9 +251,13 @@ typedef struct _archiveHandle
 	void	   *OF;
 	int			gzOut;			/* Output file */
 
-	struct _tocEntry *toc;		/* List of TOC entries */
+	struct _tocEntry *toc;		/* Header of circular list of TOC entries */
 	int			tocCount;		/* Number of TOC entries */
 	DumpId		maxDumpId;		/* largest DumpId among all TOC entries */
+
+	/* arrays created after the TOC list is complete: */
+	struct _tocEntry **tocsByDumpId;	/* TOCs indexed by dumpId */
+	DumpId	   *tableDataId;	/* TABLE DATA ids, indexed by table dumpId */
 
 	struct _tocEntry *currToc;	/* Used when dumping data */
 	int			compression;	/* Compression requested on open Possible
@@ -314,10 +313,13 @@ typedef struct _tocEntry
 	void	   *dataDumperArg;	/* Arg for above routine */
 	void	   *formatData;		/* TOC Entry data specific to file format */
 
+	/* working state while dumping/restoring */
+	teReqs		reqs;			/* do we need schema and/or data of object */
+	bool		created;		/* set for DATA member if TABLE was created */
+
 	/* working state (needed only for parallel restore) */
 	struct _tocEntry *par_prev; /* list links for pending/ready items; */
 	struct _tocEntry *par_next; /* these are NULL if not in either list */
-	bool		created;		/* set for DATA member if TABLE was created */
 	int			depCount;		/* number of dependencies not yet restored */
 	DumpId	   *revDeps;		/* dumpIds of objects depending on this one */
 	int			nRevDeps;		/* number of such dependencies */
@@ -325,12 +327,9 @@ typedef struct _tocEntry
 	int			nLockDeps;		/* number of such dependencies */
 } TocEntry;
 
-/* Used everywhere */
-extern const char *progname;
+extern void on_exit_close_archive(Archive *AHX);
 
-extern void die_horribly(ArchiveHandle *AH, const char *modulename, const char *fmt,...) __attribute__((format(PG_PRINTF_ATTRIBUTE, 3, 4)));
-extern void warn_or_die_horribly(ArchiveHandle *AH, const char *modulename, const char *fmt,...) __attribute__((format(PG_PRINTF_ATTRIBUTE, 3, 4)));
-extern void write_msg(const char *modulename, const char *fmt,...) __attribute__((format(PG_PRINTF_ATTRIBUTE, 2, 3)));
+extern void warn_or_exit_horribly(ArchiveHandle *AH, const char *modulename, const char *fmt,...) __attribute__((format(PG_PRINTF_ATTRIBUTE, 3, 4)));
 
 extern void WriteTOC(ArchiveHandle *AH);
 extern void ReadTOC(ArchiveHandle *AH);
@@ -340,7 +339,7 @@ extern void WriteToc(ArchiveHandle *AH);
 extern void ReadToc(ArchiveHandle *AH);
 extern void WriteDataChunks(ArchiveHandle *AH);
 
-extern teReqs TocIDRequired(ArchiveHandle *AH, DumpId id, RestoreOptions *ropt);
+extern teReqs TocIDRequired(ArchiveHandle *AH, DumpId id);
 extern bool checkSeek(FILE *fp);
 
 #define appendStringLiteralAHX(buf,str,AH) \
@@ -367,7 +366,6 @@ extern void EndRestoreBlob(ArchiveHandle *AH, Oid oid);
 extern void EndRestoreBlobs(ArchiveHandle *AH);
 
 extern void InitArchiveFmt_Custom(ArchiveHandle *AH);
-extern void InitArchiveFmt_Files(ArchiveHandle *AH);
 extern void InitArchiveFmt_Null(ArchiveHandle *AH);
 extern void InitArchiveFmt_Directory(ArchiveHandle *AH);
 extern void InitArchiveFmt_Tar(ArchiveHandle *AH);

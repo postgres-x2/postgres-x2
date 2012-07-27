@@ -4,7 +4,7 @@
  *	  POSTGRES process array definitions.
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2012 Postgres-XC Development Group
  *
@@ -15,8 +15,6 @@
 #ifndef PROCARRAY_H
 #define PROCARRAY_H
 
-#include "storage/lock.h"
-#include "storage/procsignal.h"
 #include "storage/standby.h"
 #include "utils/snapshot.h"
 
@@ -45,13 +43,20 @@ extern void ExpireTreeKnownAssignedTransactionIds(TransactionId xid,
 extern void ExpireAllKnownAssignedTransactionIds(void);
 extern void ExpireOldKnownAssignedTransactionIds(TransactionId xid);
 
-extern RunningTransactions GetRunningTransactionData(void);
+extern int	GetMaxSnapshotXidCount(void);
+extern int	GetMaxSnapshotSubxidCount(void);
 
 extern Snapshot GetSnapshotData(Snapshot snapshot);
+
+extern bool ProcArrayInstallImportedXmin(TransactionId xmin,
+							 TransactionId sourcexid);
+
+extern RunningTransactions GetRunningTransactionData(void);
 
 extern bool TransactionIdIsInProgress(TransactionId xid);
 extern bool TransactionIdIsActive(TransactionId xid);
 extern TransactionId GetOldestXmin(bool allDbs, bool ignoreVacuum);
+extern TransactionId GetOldestActiveTransactionId(void);
 
 extern int	GetTransactionsInCommit(TransactionId **xids_p);
 extern bool HaveTransactionsInCommit(TransactionId *xids, int nxids);

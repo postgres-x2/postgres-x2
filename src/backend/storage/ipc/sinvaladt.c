@@ -3,7 +3,7 @@
  * sinvaladt.c
  *	  POSTGRES shared cache invalidation data manager.
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -139,10 +139,12 @@ typedef struct ProcState
 {
 	/* procPid is zero in an inactive ProcState array entry. */
 	pid_t		procPid;		/* PID of backend, for signaling */
+	PGPROC	   *proc;			/* PGPROC of backend */
 	/* nextMsgNum is meaningless if procPid == 0 or resetState is true. */
 	int			nextMsgNum;		/* next message number to read */
 	bool		resetState;		/* backend needs to reset its state */
 	bool		signaled;		/* backend has been sent catchup signal */
+	bool		hasMessages;	/* backend has unread messages */
 
 	/*
 	 * Backend only sends invalidations, never receives them. This only makes
@@ -245,9 +247,11 @@ CreateSharedInvalidationState(void)
 	for (i = 0; i < shmInvalBuffer->maxBackends; i++)
 	{
 		shmInvalBuffer->procState[i].procPid = 0;		/* inactive */
+		shmInvalBuffer->procState[i].proc = NULL;
 		shmInvalBuffer->procState[i].nextMsgNum = 0;	/* meaningless */
 		shmInvalBuffer->procState[i].resetState = false;
 		shmInvalBuffer->procState[i].signaled = false;
+		shmInvalBuffer->procState[i].hasMessages = false;
 		shmInvalBuffer->procState[i].nextLXID = InvalidLocalTransactionId;
 	}
 }
@@ -264,11 +268,9 @@ SharedInvalBackendInit(bool sendOnly)
 	SISeg	   *segP = shmInvalBuffer;
 
 	/*
-	 * This can run in parallel with read operations, and for that matter with
-	 * write operations; but not in parallel with additions and removals of
-	 * backends, nor in parallel with SICleanupQueue.  It doesn't seem worth
-	 * having a third lock, so we choose to use SInvalWriteLock to serialize
-	 * additions/removals.
+	 * This can run in parallel with read operations, but not with write
+	 * operations, since SIInsertDataEntries relies on lastBackend to set
+	 * hasMessages appropriately.
 	 */
 	LWLockAcquire(SInvalWriteLock, LW_EXCLUSIVE);
 
@@ -313,9 +315,11 @@ SharedInvalBackendInit(bool sendOnly)
 
 	/* mark myself active, with all extant messages already read */
 	stateP->procPid = MyProcPid;
+	stateP->proc = MyProc;
 	stateP->nextMsgNum = segP->maxMsgNum;
 	stateP->resetState = false;
 	stateP->signaled = false;
+	stateP->hasMessages = false;
 	stateP->sendOnly = sendOnly;
 
 	LWLockRelease(SInvalWriteLock);
@@ -352,6 +356,7 @@ CleanupInvalidationState(int status, Datum arg)
 
 	/* Mark myself inactive */
 	stateP->procPid = 0;
+	stateP->proc = NULL;
 	stateP->nextMsgNum = 0;
 	stateP->resetState = false;
 	stateP->signaled = false;
@@ -368,13 +373,16 @@ CleanupInvalidationState(int status, Datum arg)
 }
 
 /*
- * BackendIdIsActive
- *		Test if the given backend ID is currently assigned to a process.
+ * BackendIdGetProc
+ *		Get the PGPROC structure for a backend, given the backend ID.
+ *		The result may be out of date arbitrarily quickly, so the caller
+ *		must be careful about how this information is used.  NULL is
+ *		returned if the backend is not active.
  */
-bool
-BackendIdIsActive(int backendID)
+PGPROC *
+BackendIdGetProc(int backendID)
 {
-	bool		result;
+	PGPROC	   *result = NULL;
 	SISeg	   *segP = shmInvalBuffer;
 
 	/* Need to lock out additions/removals of backends */
@@ -384,10 +392,8 @@ BackendIdIsActive(int backendID)
 	{
 		ProcState  *stateP = &segP->procState[backendID - 1];
 
-		result = (stateP->procPid != 0);
+		result = stateP->proc;
 	}
-	else
-		result = false;
 
 	LWLockRelease(SInvalWriteLock);
 
@@ -417,6 +423,7 @@ SIInsertDataEntries(const SharedInvalidationMessage *data, int n)
 		int			nthistime = Min(n, WRITE_QUANTUM);
 		int			numMsgs;
 		int			max;
+		int			i;
 
 		n -= nthistime;
 
@@ -459,6 +466,20 @@ SIInsertDataEntries(const SharedInvalidationMessage *data, int n)
 			SpinLockRelease(&vsegP->msgnumLock);
 		}
 
+		/*
+		 * Now that the maxMsgNum change is globally visible, we give everyone
+		 * a swift kick to make sure they read the newly added messages.
+		 * Releasing SInvalWriteLock will enforce a full memory barrier, so
+		 * these (unlocked) changes will be committed to memory before we exit
+		 * the function.
+		 */
+		for (i = 0; i < segP->lastBackend; i++)
+		{
+			ProcState  *stateP = &segP->procState[i];
+
+			stateP->hasMessages = true;
+		}
+
 		LWLockRelease(SInvalWriteLock);
 	}
 }
@@ -499,10 +520,35 @@ SIGetDataEntries(SharedInvalidationMessage *data, int datasize)
 	int			max;
 	int			n;
 
-	LWLockAcquire(SInvalReadLock, LW_SHARED);
-
 	segP = shmInvalBuffer;
 	stateP = &segP->procState[MyBackendId - 1];
+
+	/*
+	 * Before starting to take locks, do a quick, unlocked test to see whether
+	 * there can possibly be anything to read.	On a multiprocessor system,
+	 * it's possible that this load could migrate backwards and occur before
+	 * we actually enter this function, so we might miss a sinval message that
+	 * was just added by some other processor.	But they can't migrate
+	 * backwards over a preceding lock acquisition, so it should be OK.  If we
+	 * haven't acquired a lock preventing against further relevant
+	 * invalidations, any such occurrence is not much different than if the
+	 * invalidation had arrived slightly later in the first place.
+	 */
+	if (!stateP->hasMessages)
+		return 0;
+
+	LWLockAcquire(SInvalReadLock, LW_SHARED);
+
+	/*
+	 * We must reset hasMessages before determining how many messages we're
+	 * going to read.  That way, if new messages arrive after we have
+	 * determined how many we're reading, the flag will get reset and we'll
+	 * notice those messages part-way through.
+	 *
+	 * Note that, if we don't end up reading all of the messages, we had
+	 * better be certain to reset this flag before exiting!
+	 */
+	stateP->hasMessages = false;
 
 	/* Fetch current value of maxMsgNum using spinlock */
 	{
@@ -544,10 +590,16 @@ SIGetDataEntries(SharedInvalidationMessage *data, int datasize)
 	}
 
 	/*
-	 * Reset our "signaled" flag whenever we have caught up completely.
+	 * If we have caught up completely, reset our "signaled" flag so that
+	 * we'll get another signal if we fall behind again.
+	 *
+	 * If we haven't caught up completely, reset the hasMessages flag so that
+	 * we see the remaining messages next time.
 	 */
 	if (stateP->nextMsgNum >= max)
 		stateP->signaled = false;
+	else
+		stateP->hasMessages = true;
 
 	LWLockRelease(SInvalReadLock);
 	return n;

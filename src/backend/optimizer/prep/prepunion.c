@@ -17,7 +17,7 @@
  * append relations, and thenceforth share code with the UNION ALL case.
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -31,7 +31,6 @@
 
 #include "access/heapam.h"
 #include "access/sysattr.h"
-#include "catalog/namespace.h"
 #include "catalog/pg_inherits_fn.h"
 #include "catalog/pg_type.h"
 #include "miscadmin.h"
@@ -39,18 +38,22 @@
 #include "nodes/nodeFuncs.h"
 #include "optimizer/cost.h"
 #include "optimizer/pathnode.h"
-#include "optimizer/paths.h"
 #include "optimizer/planmain.h"
 #include "optimizer/planner.h"
 #include "optimizer/prep.h"
 #include "optimizer/tlist.h"
-#include "parser/parse_clause.h"
 #include "parser/parse_coerce.h"
 #include "parser/parsetree.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
 #include "utils/selfuncs.h"
 
+
+typedef struct
+{
+	PlannerInfo *root;
+	AppendRelInfo *appinfo;
+} adjust_appendrel_attrs_context;
 
 static Plan *recurse_set_operations(Node *setOp, PlannerInfo *root,
 					   double tuple_fraction,
@@ -102,7 +105,7 @@ static void make_inh_translation_list(Relation oldrelation,
 static Bitmapset *translate_col_privs(const Bitmapset *parent_privs,
 					List *translated_vars);
 static Node *adjust_appendrel_attrs_mutator(Node *node,
-							   AppendRelInfo *context);
+							   adjust_appendrel_attrs_context *context);
 static Relids adjust_relid_set(Relids relids, Index oldrelid, Index newrelid);
 static List *adjust_inherited_tlist(List *tlist,
 					   AppendRelInfo *context);
@@ -133,6 +136,7 @@ plan_set_operations(PlannerInfo *root, double tuple_fraction,
 	Query	   *parse = root->parse;
 	SetOperationStmt *topop = (SetOperationStmt *) parse->setOperations;
 	Node	   *node;
+	RangeTblEntry *leftmostRTE;
 	Query	   *leftmostQuery;
 
 	Assert(topop && IsA(topop, SetOperationStmt));
@@ -146,6 +150,13 @@ plan_set_operations(PlannerInfo *root, double tuple_fraction,
 	Assert(parse->distinctClause == NIL);
 
 	/*
+	 * We'll need to build RelOptInfos for each of the leaf subqueries, which
+	 * are RTE_SUBQUERY rangetable entries in this Query.  Prepare the index
+	 * arrays for that.
+	 */
+	setup_simple_rel_arrays(root);
+
+	/*
 	 * Find the leftmost component Query.  We need to use its column names for
 	 * all generated tlists (else SELECT INTO won't work right).
 	 */
@@ -153,8 +164,8 @@ plan_set_operations(PlannerInfo *root, double tuple_fraction,
 	while (node && IsA(node, SetOperationStmt))
 		node = ((SetOperationStmt *) node)->larg;
 	Assert(node && IsA(node, RangeTblRef));
-	leftmostQuery = rt_fetch(((RangeTblRef *) node)->rtindex,
-							 parse->rtable)->subquery;
+	leftmostRTE = root->simple_rte_array[((RangeTblRef *) node)->rtindex];
+	leftmostQuery = leftmostRTE->subquery;
 	Assert(leftmostQuery != NULL);
 
 	/*
@@ -209,13 +220,21 @@ recurse_set_operations(Node *setOp, PlannerInfo *root,
 	if (IsA(setOp, RangeTblRef))
 	{
 		RangeTblRef *rtr = (RangeTblRef *) setOp;
-		RangeTblEntry *rte = rt_fetch(rtr->rtindex, root->parse->rtable);
+		RangeTblEntry *rte = root->simple_rte_array[rtr->rtindex];
 		Query	   *subquery = rte->subquery;
+		RelOptInfo *rel;
 		PlannerInfo *subroot;
 		Plan	   *subplan,
 				   *plan;
 
 		Assert(subquery != NULL);
+
+		/*
+		 * We need to build a RelOptInfo for each leaf subquery.  This isn't
+		 * used for anything here, but it carries the subroot data structures
+		 * forward to setrefs.c processing.
+		 */
+		rel = build_simple_rel(root, rtr->rtindex, RELOPT_BASEREL);
 
 		/*
 		 * Generate plan for primitive subquery
@@ -224,6 +243,10 @@ recurse_set_operations(Node *setOp, PlannerInfo *root,
 								   root,
 								   false, tuple_fraction,
 								   &subroot);
+
+		/* Save subroot and subplan in RelOptInfo for setrefs.c */
+		rel->subplan = subplan;
+		rel->subroot = subroot;
 
 		/*
 		 * Estimate number of groups if caller wants it.  If the subquery used
@@ -253,9 +276,7 @@ recurse_set_operations(Node *setOp, PlannerInfo *root,
 												   refnames_tlist),
 							  NIL,
 							  rtr->rtindex,
-							  subplan,
-							  subroot->parse->rtable,
-							  subroot->rowMarks);
+							  subplan);
 
 		/*
 		 * We don't bother to determine the subquery's output ordering since
@@ -1554,9 +1575,13 @@ translate_col_privs(const Bitmapset *parent_privs,
  * maybe we should try to fold the two routines together.
  */
 Node *
-adjust_appendrel_attrs(Node *node, AppendRelInfo *appinfo)
+adjust_appendrel_attrs(PlannerInfo *root, Node *node, AppendRelInfo *appinfo)
 {
 	Node	   *result;
+	adjust_appendrel_attrs_context context;
+
+	context.root = root;
+	context.appinfo = appinfo;
 
 	/*
 	 * Must be prepared to start with a Query or a bare expression tree.
@@ -1567,7 +1592,7 @@ adjust_appendrel_attrs(Node *node, AppendRelInfo *appinfo)
 
 		newnode = query_tree_mutator((Query *) node,
 									 adjust_appendrel_attrs_mutator,
-									 (void *) appinfo,
+									 (void *) &context,
 									 QTW_IGNORE_RC_SUBQUERIES);
 		if (newnode->resultRelation == appinfo->parent_relid)
 		{
@@ -1581,14 +1606,17 @@ adjust_appendrel_attrs(Node *node, AppendRelInfo *appinfo)
 		result = (Node *) newnode;
 	}
 	else
-		result = adjust_appendrel_attrs_mutator(node, appinfo);
+		result = adjust_appendrel_attrs_mutator(node, &context);
 
 	return result;
 }
 
 static Node *
-adjust_appendrel_attrs_mutator(Node *node, AppendRelInfo *context)
+adjust_appendrel_attrs_mutator(Node *node,
+							   adjust_appendrel_attrs_context *context)
 {
+	AppendRelInfo *appinfo = context->appinfo;
+
 	if (node == NULL)
 		return NULL;
 	if (IsA(node, Var))
@@ -1596,22 +1624,22 @@ adjust_appendrel_attrs_mutator(Node *node, AppendRelInfo *context)
 		Var		   *var = (Var *) copyObject(node);
 
 		if (var->varlevelsup == 0 &&
-			var->varno == context->parent_relid)
+			var->varno == appinfo->parent_relid)
 		{
-			var->varno = context->child_relid;
-			var->varnoold = context->child_relid;
+			var->varno = appinfo->child_relid;
+			var->varnoold = appinfo->child_relid;
 			if (var->varattno > 0)
 			{
 				Node	   *newnode;
 
-				if (var->varattno > list_length(context->translated_vars))
+				if (var->varattno > list_length(appinfo->translated_vars))
 					elog(ERROR, "attribute %d of relation \"%s\" does not exist",
-						 var->varattno, get_rel_name(context->parent_reloid));
-				newnode = copyObject(list_nth(context->translated_vars,
+						 var->varattno, get_rel_name(appinfo->parent_reloid));
+				newnode = copyObject(list_nth(appinfo->translated_vars,
 											  var->varattno - 1));
 				if (newnode == NULL)
 					elog(ERROR, "attribute %d of relation \"%s\" does not exist",
-						 var->varattno, get_rel_name(context->parent_reloid));
+						 var->varattno, get_rel_name(appinfo->parent_reloid));
 				return newnode;
 			}
 			else if (var->varattno == 0)
@@ -1622,19 +1650,19 @@ adjust_appendrel_attrs_mutator(Node *node, AppendRelInfo *context)
 				 * step to convert the tuple layout to the parent's rowtype.
 				 * Otherwise we have to generate a RowExpr.
 				 */
-				if (OidIsValid(context->child_reltype))
+				if (OidIsValid(appinfo->child_reltype))
 				{
-					Assert(var->vartype == context->parent_reltype);
-					if (context->parent_reltype != context->child_reltype)
+					Assert(var->vartype == appinfo->parent_reltype);
+					if (appinfo->parent_reltype != appinfo->child_reltype)
 					{
 						ConvertRowtypeExpr *r = makeNode(ConvertRowtypeExpr);
 
 						r->arg = (Expr *) var;
-						r->resulttype = context->parent_reltype;
+						r->resulttype = appinfo->parent_reltype;
 						r->convertformat = COERCE_IMPLICIT_CAST;
 						r->location = -1;
 						/* Make sure the Var node has the right type ID, too */
-						var->vartype = context->child_reltype;
+						var->vartype = appinfo->child_reltype;
 						return (Node *) r;
 					}
 				}
@@ -1642,16 +1670,27 @@ adjust_appendrel_attrs_mutator(Node *node, AppendRelInfo *context)
 				{
 					/*
 					 * Build a RowExpr containing the translated variables.
+					 *
+					 * In practice var->vartype will always be RECORDOID here,
+					 * so we need to come up with some suitable column names.
+					 * We use the parent RTE's column names.
+					 *
+					 * Note: we can't get here for inheritance cases, so there
+					 * is no need to worry that translated_vars might contain
+					 * some dummy NULLs.
 					 */
 					RowExpr    *rowexpr;
 					List	   *fields;
+					RangeTblEntry *rte;
 
-					fields = (List *) copyObject(context->translated_vars);
+					rte = rt_fetch(appinfo->parent_relid,
+								   context->root->parse->rtable);
+					fields = (List *) copyObject(appinfo->translated_vars);
 					rowexpr = makeNode(RowExpr);
 					rowexpr->args = fields;
 					rowexpr->row_typeid = var->vartype;
 					rowexpr->row_format = COERCE_IMPLICIT_CAST;
-					rowexpr->colnames = NIL;
+					rowexpr->colnames = copyObject(rte->eref->colnames);
 					rowexpr->location = -1;
 
 					return (Node *) rowexpr;
@@ -1665,16 +1704,16 @@ adjust_appendrel_attrs_mutator(Node *node, AppendRelInfo *context)
 	{
 		CurrentOfExpr *cexpr = (CurrentOfExpr *) copyObject(node);
 
-		if (cexpr->cvarno == context->parent_relid)
-			cexpr->cvarno = context->child_relid;
+		if (cexpr->cvarno == appinfo->parent_relid)
+			cexpr->cvarno = appinfo->child_relid;
 		return (Node *) cexpr;
 	}
 	if (IsA(node, RangeTblRef))
 	{
 		RangeTblRef *rtr = (RangeTblRef *) copyObject(node);
 
-		if (rtr->rtindex == context->parent_relid)
-			rtr->rtindex = context->child_relid;
+		if (rtr->rtindex == appinfo->parent_relid)
+			rtr->rtindex = appinfo->child_relid;
 		return (Node *) rtr;
 	}
 	if (IsA(node, JoinExpr))
@@ -1686,8 +1725,8 @@ adjust_appendrel_attrs_mutator(Node *node, AppendRelInfo *context)
 											  adjust_appendrel_attrs_mutator,
 												 (void *) context);
 		/* now fix JoinExpr's rtindex (probably never happens) */
-		if (j->rtindex == context->parent_relid)
-			j->rtindex = context->child_relid;
+		if (j->rtindex == appinfo->parent_relid)
+			j->rtindex = appinfo->child_relid;
 		return (Node *) j;
 	}
 	if (IsA(node, PlaceHolderVar))
@@ -1701,8 +1740,8 @@ adjust_appendrel_attrs_mutator(Node *node, AppendRelInfo *context)
 		/* now fix PlaceHolderVar's relid sets */
 		if (phv->phlevelsup == 0)
 			phv->phrels = adjust_relid_set(phv->phrels,
-										   context->parent_relid,
-										   context->child_relid);
+										   appinfo->parent_relid,
+										   appinfo->child_relid);
 		return (Node *) phv;
 	}
 	/* Shouldn't need to handle planner auxiliary nodes here */
@@ -1734,20 +1773,23 @@ adjust_appendrel_attrs_mutator(Node *node, AppendRelInfo *context)
 
 		/* adjust relid sets too */
 		newinfo->clause_relids = adjust_relid_set(oldinfo->clause_relids,
-												  context->parent_relid,
-												  context->child_relid);
+												  appinfo->parent_relid,
+												  appinfo->child_relid);
 		newinfo->required_relids = adjust_relid_set(oldinfo->required_relids,
-													context->parent_relid,
-													context->child_relid);
+													appinfo->parent_relid,
+													appinfo->child_relid);
+		newinfo->outer_relids = adjust_relid_set(oldinfo->outer_relids,
+												 appinfo->parent_relid,
+												 appinfo->child_relid);
 		newinfo->nullable_relids = adjust_relid_set(oldinfo->nullable_relids,
-													context->parent_relid,
-													context->child_relid);
+													appinfo->parent_relid,
+													appinfo->child_relid);
 		newinfo->left_relids = adjust_relid_set(oldinfo->left_relids,
-												context->parent_relid,
-												context->child_relid);
+												appinfo->parent_relid,
+												appinfo->child_relid);
 		newinfo->right_relids = adjust_relid_set(oldinfo->right_relids,
-												 context->parent_relid,
-												 context->child_relid);
+												 appinfo->parent_relid,
+												 appinfo->child_relid);
 
 		/*
 		 * Reset cached derivative fields, since these might need to have

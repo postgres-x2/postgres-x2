@@ -867,7 +867,7 @@ ts_rank(<optional> <replaceable class="PARAMETER">weights</replaceable> <type>fl
 
       <listitem>
        <para>
-        Standard ranking function.<!-- TODO document this better -->
+        Ranks vectors based on the frequency of their matching lexems.
        </para>
       </listitem>
      </varlistentry>
@@ -1092,7 +1092,7 @@ ts_headline(<optional> <replaceable class="PARAMETER">config</replaceable> <type
        if they contain spaces or commas.
       </para>
      </listitem>
-     <listitem >
+     <listitem>
       <para>
        <literal>MaxWords</>, <literal>MinWords</literal>: these numbers
        determine the longest and shortest headlines to output.
@@ -2292,8 +2292,8 @@ SELECT ts_lexize('public.simple_dict','The');
     word with a synonym. Phrases are not supported (use the thesaurus
     template (<xref linkend="textsearch-thesaurus">) for that).  A synonym
     dictionary can be used to overcome linguistic problems, for example, to
-    prevent an English stemmer dictionary from reducing the word 'Paris' to
-    'pari'.  It is enough to have a <literal>Paris paris</literal> line in the
+    prevent an English stemmer dictionary from reducing the word <quote>Paris</quote> to
+    <quote>pari</quote>.  It is enough to have a <literal>Paris paris</literal> line in the
     synonym dictionary and put it before the <literal>english_stem</>
     dictionary.  For example:
 

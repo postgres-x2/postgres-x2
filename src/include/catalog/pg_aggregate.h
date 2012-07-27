@@ -5,7 +5,7 @@
  *	  along with the relation's initial contents.
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/catalog/pg_aggregate.h
@@ -55,11 +55,12 @@ CATALOG(pg_aggregate,2600) BKI_WITHOUT_OIDS
 	regproc		aggcollectfn; /* PGXC */
 	regproc		aggfinalfn;
 	Oid			aggsortop;
-	Oid			aggtranstype;	/* also serves as the input and output type
-								 * of aggcollectfn
-								 */
-	text		agginitval;		/* VARIABLE LENGTH FIELD */
+	Oid			aggtranstype;
+
+#ifdef CATALOG_VARLEN			/* variable-length fields start here */
+	text		agginitval;
 	text		agginitcollect;	/* PGXC, VARIABLE LENGTH FIELD */
+#endif
 } FormData_pg_aggregate;
 
 /* ----------------
@@ -386,14 +387,14 @@ DATA(insert ( 2829	float8_regr_accum	float8_regr_collect	float8_corr				0	1022	"
 
 /* boolean-and and boolean-or */
 #ifdef PGXC
-DATA(insert ( 2517	booland_statefunc	booland_statefunc	-		0	16		_null_ _null_ ));
-DATA(insert ( 2518	boolor_statefunc	boolor_statefunc	-		0	16		_null_ _null_ ));
-DATA(insert ( 2519	booland_statefunc	booland_statefunc	-		0	16		_null_ _null_ ));
+DATA(insert ( 2517	booland_statefunc	booland_statefunc	-		58	16		_null_ _null_ ));
+DATA(insert ( 2518	boolor_statefunc	boolor_statefunc	-		59	16		_null_ _null_ ));
+DATA(insert ( 2519	booland_statefunc	booland_statefunc	-		58	16		_null_ _null_ ));
 #endif
 #ifdef PGXC
-//DATA(insert ( 2517	booland_statefunc	-			0	16		_null_ ));
-//DATA(insert ( 2518	boolor_statefunc	-			0	16		_null_ ));
-//DATA(insert ( 2519	booland_statefunc	-			0	16		_null_ ));
+//DATA(insert ( 2517	booland_statefunc	-		58	16		_null_ ));
+//DATA(insert ( 2518	boolor_statefunc	-		59	16		_null_ ));
+//DATA(insert ( 2519	booland_statefunc	-		58	16		_null_ ));
 #endif
 
 /* bitwise integer */
@@ -441,6 +442,9 @@ DATA(insert ( 3538	string_agg_transfn			-	string_agg_finalfn	0	2281	_null_ _null
 #ifdef PGXC
 //DATA(insert ( 3538	string_agg_transfn	string_agg_finalfn		0	2281	_null_ ));
 #endif
+
+/* bytea */
+DATA(insert ( 3545	bytea_string_agg_transfn	bytea_string_agg_finalfn		0	2281	_null_ ));
 
 /*
  * prototypes for functions in pg_aggregate.c

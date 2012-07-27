@@ -27,7 +27,7 @@
  * the backend's "backend/libpq" is quite separate from "interfaces/libpq".
  * All that remains is similarities of names to trap the unwary...
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *	src/backend/libpq/pqcomm.c
@@ -1247,9 +1247,13 @@ internal_flush(void)
 
 			/*
 			 * We drop the buffered data anyway so that processing can
-			 * continue, even though we'll probably quit soon.
+			 * continue, even though we'll probably quit soon. We also set a
+			 * flag that'll cause the next CHECK_FOR_INTERRUPTS to terminate
+			 * the connection.
 			 */
 			PqSendStart = PqSendPointer = 0;
+			ClientConnectionLost = 1;
+			InterruptPending = 1;
 			return EOF;
 		}
 
@@ -1369,7 +1373,7 @@ fail:
 void
 pq_putmessage_noblock(char msgtype, const char *s, size_t len)
 {
-	int			res;
+	int res		PG_USED_FOR_ASSERTS_ONLY;
 	int			required;
 
 	/*

@@ -3,7 +3,7 @@
  * path.c
  *	  portable path handling routines
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -212,7 +212,8 @@ join_path_components(char *ret_path,
 	}
 	if (*tail)
 		snprintf(ret_path + strlen(ret_path), MAXPGPATH - strlen(ret_path),
-				 "/%s", tail);
+		/* only add slash if there is something already in head */
+				 "%s%s", head[0] ? "/" : "", tail);
 }
 
 
@@ -444,7 +445,7 @@ get_progname(const char *argv0)
 	if (progname == NULL)
 	{
 		fprintf(stderr, "%s: out of memory\n", nodir_name);
-		exit(1);				/* This could exit the postmaster */
+		abort();				/* This could exit the postmaster */
 	}
 
 #if defined(__CYGWIN__) || defined(WIN32)

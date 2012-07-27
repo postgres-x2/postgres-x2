@@ -125,7 +125,7 @@ WHERE p1.oid < p2.oid AND
 -- need to be modified whenever new pairs of types are made binary-equivalent,
 -- or when new polymorphic built-in functions are added!
 -- Note: ignore aggregate functions here, since they all point to the same
--- dummy built-in function.
+-- dummy built-in function.  Likewise, ignore range constructor functions.
 
 SELECT DISTINCT p1.prorettype, p2.prorettype
 FROM pg_proc AS p1, pg_proc AS p2
@@ -133,6 +133,8 @@ WHERE p1.oid != p2.oid AND
     p1.prosrc = p2.prosrc AND
     p1.prolang = 12 AND p2.prolang = 12 AND
     NOT p1.proisagg AND NOT p2.proisagg AND
+    p1.prosrc NOT LIKE E'range\\_constructor_' AND
+    p2.prosrc NOT LIKE E'range\\_constructor_' AND
     (p1.prorettype < p2.prorettype)
 ORDER BY 1, 2;
 
@@ -142,6 +144,8 @@ WHERE p1.oid != p2.oid AND
     p1.prosrc = p2.prosrc AND
     p1.prolang = 12 AND p2.prolang = 12 AND
     NOT p1.proisagg AND NOT p2.proisagg AND
+    p1.prosrc NOT LIKE E'range\\_constructor_' AND
+    p2.prosrc NOT LIKE E'range\\_constructor_' AND
     (p1.proargtypes[0] < p2.proargtypes[0])
 ORDER BY 1, 2;
 
@@ -151,6 +155,8 @@ WHERE p1.oid != p2.oid AND
     p1.prosrc = p2.prosrc AND
     p1.prolang = 12 AND p2.prolang = 12 AND
     NOT p1.proisagg AND NOT p2.proisagg AND
+    p1.prosrc NOT LIKE E'range\\_constructor_' AND
+    p2.prosrc NOT LIKE E'range\\_constructor_' AND
     (p1.proargtypes[1] < p2.proargtypes[1])
 ORDER BY 1, 2;
 
@@ -249,6 +255,13 @@ SELECT p1.oid, p1.proname
 FROM pg_proc as p1
 WHERE proargmodes IS NOT NULL AND proargnames IS NOT NULL AND
     array_length(proargmodes,1) <> array_length(proargnames,1);
+
+-- Check for protransform functions with the wrong signature
+SELECT p1.oid, p1.proname, p2.oid, p2.proname
+FROM pg_proc AS p1, pg_proc AS p2
+WHERE p2.oid = p1.protransform AND
+    (p2.prorettype != 'internal'::regtype OR p2.proretset OR p2.pronargs != 1
+     OR p2.proargtypes[0] != 'internal'::regtype);
 
 -- Insist that all built-in pg_proc entries have descriptions
 SELECT p1.oid, p1.proname
@@ -620,12 +633,12 @@ WHERE a.aggfnoid = p.oid AND
     NOT binary_coercible(p.proargtypes[0], a.aggtranstype);
 
 -- Cross-check aggsortop (if present) against pg_operator.
--- We expect to find only "<" for "min" and ">" for "max".
+-- We expect to find entries for bool_and, bool_or, every, max, and min.
 
 SELECT DISTINCT proname, oprname
 FROM pg_operator AS o, pg_aggregate AS a, pg_proc AS p
 WHERE a.aggfnoid = p.oid AND a.aggsortop = o.oid
-ORDER BY 1;
+ORDER BY 1, 2;
 
 -- Check datatypes match
 
@@ -825,6 +838,19 @@ WHERE NOT EXISTS(SELECT 1 FROM pg_amop AS p2
                  WHERE p2.amopfamily = p1.opcfamily
                    AND binary_coercible(p1.opcintype, p2.amoplefttype));
 
+-- Check that each operator listed in pg_amop has an associated opclass,
+-- that is one whose opcintype matches oprleft (possibly by coercion).
+-- Otherwise the operator is useless because it cannot be matched to an index.
+-- (In principle it could be useful to list such operators in multiple-datatype
+-- btree opfamilies, but in practice you'd expect there to be an opclass for
+-- every datatype the family knows about.)
+
+SELECT p1.amopfamily, p1.amopstrategy, p1.amopopr
+FROM pg_amop AS p1
+WHERE NOT EXISTS(SELECT 1 FROM pg_opclass AS p2
+                 WHERE p2.opcfamily = p1.amopfamily
+                   AND binary_coercible(p2.opcintype, p1.amoplefttype));
+
 -- Operators that are primary members of opclasses must be immutable (else
 -- it suggests that the index ordering isn't fixed).  Operators that are
 -- cross-type members need only be stable, since they are just shorthands
@@ -920,37 +946,29 @@ WHERE p1.amprocfamily = p3.oid AND p3.opfmethod = p2.oid AND
 
 -- Detect missing pg_amproc entries: should have as many support functions
 -- as AM expects for each datatype combination supported by the opfamily.
--- GiST/GIN are special cases because each has an optional support function.
+-- btree/GiST/GIN each allow one optional support function, though.
 
 SELECT p1.amname, p2.opfname, p3.amproclefttype, p3.amprocrighttype
 FROM pg_am AS p1, pg_opfamily AS p2, pg_amproc AS p3
 WHERE p2.opfmethod = p1.oid AND p3.amprocfamily = p2.oid AND
-    p1.amname <> 'gist' AND p1.amname <> 'gin' AND
-    p1.amsupport != (SELECT count(*) FROM pg_amproc AS p4
-                     WHERE p4.amprocfamily = p2.oid AND
-                           p4.amproclefttype = p3.amproclefttype AND
-                           p4.amprocrighttype = p3.amprocrighttype);
-
--- Similar check for GiST/GIN, allowing one optional proc
-
-SELECT p1.amname, p2.opfname, p3.amproclefttype, p3.amprocrighttype
-FROM pg_am AS p1, pg_opfamily AS p2, pg_amproc AS p3
-WHERE p2.opfmethod = p1.oid AND p3.amprocfamily = p2.oid AND
-    (p1.amname = 'gist' OR p1.amname = 'gin') AND
     (SELECT count(*) FROM pg_amproc AS p4
      WHERE p4.amprocfamily = p2.oid AND
            p4.amproclefttype = p3.amproclefttype AND
            p4.amprocrighttype = p3.amprocrighttype)
-      NOT IN (p1.amsupport, p1.amsupport - 1);
+    NOT BETWEEN
+      (CASE WHEN p1.amname IN ('btree', 'gist', 'gin') THEN p1.amsupport - 1
+            ELSE p1.amsupport END)
+      AND p1.amsupport;
 
 -- Also, check if there are any pg_opclass entries that don't seem to have
--- pg_amproc support.  Again, GiST/GIN have to be checked specially.
+-- pg_amproc support.  Again, opclasses with an optional support proc have
+-- to be checked specially.
 
 SELECT amname, opcname, count(*)
 FROM pg_am am JOIN pg_opclass op ON opcmethod = am.oid
      LEFT JOIN pg_amproc p ON amprocfamily = opcfamily AND
          amproclefttype = amprocrighttype AND amproclefttype = opcintype
-WHERE am.amname <> 'gist' AND am.amname <> 'gin'
+WHERE am.amname <> 'btree' AND am.amname <> 'gist' AND am.amname <> 'gin'
 GROUP BY amname, amsupport, opcname, amprocfamily
 HAVING count(*) != amsupport OR amprocfamily IS NULL;
 
@@ -958,7 +976,7 @@ SELECT amname, opcname, count(*)
 FROM pg_am am JOIN pg_opclass op ON opcmethod = am.oid
      LEFT JOIN pg_amproc p ON amprocfamily = opcfamily AND
          amproclefttype = amprocrighttype AND amproclefttype = opcintype
-WHERE am.amname = 'gist' OR am.amname = 'gin'
+WHERE am.amname = 'btree' OR am.amname = 'gist' OR am.amname = 'gin'
 GROUP BY amname, amsupport, opcname, amprocfamily
 HAVING (count(*) != amsupport AND count(*) != amsupport - 1)
     OR amprocfamily IS NULL;
@@ -984,7 +1002,8 @@ WHERE p1.amprocfamily = p3.oid AND p4.amprocfamily = p6.oid AND
     (p2.proretset OR p5.proretset OR p2.pronargs != p5.pronargs);
 
 -- For btree, though, we can do better since we know the support routines
--- must be of the form cmp(lefttype, righttype) returns int4.
+-- must be of the form cmp(lefttype, righttype) returns int4
+-- or sortsupport(internal) returns void.
 
 SELECT p1.amprocfamily, p1.amprocnum,
 	p2.oid, p2.proname,
@@ -992,12 +1011,14 @@ SELECT p1.amprocfamily, p1.amprocnum,
 FROM pg_amproc AS p1, pg_proc AS p2, pg_opfamily AS p3
 WHERE p3.opfmethod = (SELECT oid FROM pg_am WHERE amname = 'btree')
     AND p1.amprocfamily = p3.oid AND p1.amproc = p2.oid AND
-    (amprocnum != 1
-     OR proretset
-     OR prorettype != 'int4'::regtype
-     OR pronargs != 2
-     OR proargtypes[0] != amproclefttype
-     OR proargtypes[1] != amprocrighttype);
+    (CASE WHEN amprocnum = 1
+          THEN prorettype != 'int4'::regtype OR proretset OR pronargs != 2
+               OR proargtypes[0] != amproclefttype
+               OR proargtypes[1] != amprocrighttype
+          WHEN amprocnum = 2
+          THEN prorettype != 'void'::regtype OR proretset OR pronargs != 1
+               OR proargtypes[0] != 'internal'::regtype
+          ELSE true END);
 
 -- For hash we can also do a little better: the support routines must be
 -- of the form hash(lefttype) returns int4.  There are several cases where
@@ -1016,6 +1037,25 @@ WHERE p3.opfmethod = (SELECT oid FROM pg_am WHERE amname = 'hash')
      OR NOT physically_coercible(amproclefttype, proargtypes[0])
      OR amproclefttype != amprocrighttype)
 ORDER BY 1;
+
+-- We can also check SP-GiST carefully, since the support routine signatures
+-- are independent of the datatype being indexed.
+
+SELECT p1.amprocfamily, p1.amprocnum,
+	p2.oid, p2.proname,
+	p3.opfname
+FROM pg_amproc AS p1, pg_proc AS p2, pg_opfamily AS p3
+WHERE p3.opfmethod = (SELECT oid FROM pg_am WHERE amname = 'spgist')
+    AND p1.amprocfamily = p3.oid AND p1.amproc = p2.oid AND
+    (CASE WHEN amprocnum = 1 OR amprocnum = 2 OR amprocnum = 3 OR amprocnum = 4
+          THEN prorettype != 'void'::regtype OR proretset OR pronargs != 2
+               OR proargtypes[0] != 'internal'::regtype
+               OR proargtypes[1] != 'internal'::regtype
+          WHEN amprocnum = 5
+          THEN prorettype != 'bool'::regtype OR proretset OR pronargs != 2
+               OR proargtypes[0] != 'internal'::regtype
+               OR proargtypes[1] != 'internal'::regtype
+          ELSE true END);
 
 -- Support routines that are primary members of opfamilies must be immutable
 -- (else it suggests that the index ordering isn't fixed).  But cross-type

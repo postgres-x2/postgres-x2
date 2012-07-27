@@ -4,7 +4,7 @@
  *	  per-process shared memory data structures
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/storage/proc.h
@@ -15,11 +15,10 @@
 #define _PROC_H_
 
 #include "access/xlog.h"
-#include "replication/syncrep.h"
+#include "datatype/timestamp.h"
 #include "storage/latch.h"
 #include "storage/lock.h"
 #include "storage/pg_sema.h"
-#include "utils/timestamp.h"
 
 /*
  * Each backend advertises up to PGPROC_MAX_CACHED_SUBXIDS TransactionIds
@@ -36,12 +35,10 @@
 
 struct XidCache
 {
-	bool		overflowed;
-	int			nxids;
 	TransactionId xids[PGPROC_MAX_CACHED_SUBXIDS];
 };
 
-/* Flags for PGPROC->vacuumFlags */
+/* Flags for PGXACT->vacuumFlags */
 #define		PROC_IS_AUTOVACUUM	0x01	/* is it an autovac worker? */
 #define		PROC_IN_VACUUM		0x02	/* currently running lazy vacuum */
 #define		PROC_IN_ANALYZE		0x04	/* currently running analyze */
@@ -49,6 +46,14 @@ struct XidCache
 
 /* flags reset at EOXact */
 #define		PROC_VACUUM_STATE_MASK (0x0E)
+
+/*
+ * We allow a small number of "weak" relation locks (AccesShareLock,
+ * RowShareLock, RowExclusiveLock) to be recorded in the PGPROC structure
+ * rather than the main lock table.  This eases contention on the lock
+ * manager LWLocks.  See storage/lmgr/README for additional details.
+ */
+#define		FP_LOCK_SLOTS_PER_BACKEND 16
 
 /*
  * Each backend has a PGPROC struct in shared memory.  There is also a list of
@@ -74,29 +79,18 @@ struct PGPROC
 	PGSemaphoreData sem;		/* ONE semaphore to sleep on */
 	int			waitStatus;		/* STATUS_WAITING, STATUS_OK or STATUS_ERROR */
 
+	Latch		procLatch;		/* generic latch for process */
+
 	LocalTransactionId lxid;	/* local id of top-level transaction currently
 								 * being executed by this proc, if running;
 								 * else InvalidLocalTransactionId */
-
-	TransactionId xid;			/* id of top-level transaction currently being
-								 * executed by this proc, if running and XID
-								 * is assigned; else InvalidTransactionId */
-
-	TransactionId xmin;			/* minimal running XID as it was when we were
-								 * starting our xact, excluding LAZY VACUUM:
-								 * vacuum must not remove tuples deleted by
-								 * xid >= xmin ! */
-
 	int			pid;			/* Backend's process ID; 0 if prepared xact */
+	int			pgprocno;
 
 	/* These fields are zero while a backend is still starting up: */
 	BackendId	backendId;		/* This backend's backend ID (if assigned) */
 	Oid			databaseId;		/* OID of database this backend is using */
 	Oid			roleId;			/* OID of role using this backend */
-
-	bool		inCommit;		/* true if within commit critical section */
-
-	uint8		vacuumFlags;	/* vacuum-related flags, see above */
 
 	/*
 	 * While in hot standby mode, shows that a conflict signal has been sent
@@ -112,7 +106,7 @@ struct PGPROC
 
 	/* Info about LWLock the process is currently waiting for, if any. */
 	bool		lwWaiting;		/* true if waiting for an LW lock */
-	bool		lwExclusive;	/* true if waiting for exclusive access */
+	uint8		lwWaitMode;		/* lwlock mode being waited for */
 	struct PGPROC *lwWaitLink;	/* next waiter for same LW lock */
 
 	/* Info about lock the process is currently waiting for, if any. */
@@ -129,7 +123,6 @@ struct PGPROC
 	 * syncRepState must not be touched except by owning process or WALSender.
 	 * syncRepLinks used only while holding SyncRepLock.
 	 */
-	Latch		waitLatch;		/* allow us to wait for sync rep */
 	XLogRecPtr	waitLSN;		/* waiting for this LSN or higher */
 	int			syncRepState;	/* wait state for sync rep */
 	SHM_QUEUE	syncRepLinks;	/* list link if process is in syncrep queue */
@@ -142,43 +135,97 @@ struct PGPROC
 	SHM_QUEUE	myProcLocks[NUM_LOCK_PARTITIONS];
 
 	struct XidCache subxids;	/* cache for subtransaction XIDs */
+
+	/* Per-backend LWLock.	Protects fields below. */
+	LWLockId	backendLock;	/* protects the fields below */
+
+	/* Lock manager data, recording fast-path locks taken by this backend. */
+	uint64		fpLockBits;		/* lock modes held for each fast-path slot */
+	Oid			fpRelId[FP_LOCK_SLOTS_PER_BACKEND];		/* slots for rel oids */
+	bool		fpVXIDLock;		/* are we holding a fast-path VXID lock? */
+	LocalTransactionId fpLocalTransactionId;	/* lxid for fast-path VXID
+												 * lock */
 };
 
 /* NOTE: "typedef struct PGPROC PGPROC" appears in storage/lock.h. */
 
 
 extern PGDLLIMPORT PGPROC *MyProc;
+extern PGDLLIMPORT struct PGXACT *MyPgXact;
 
+/*
+ * Prior to PostgreSQL 9.2, the fields below were stored as part of the
+ * PGPROC.	However, benchmarking revealed that packing these particular
+ * members into a separate array as tightly as possible sped up GetSnapshotData
+ * considerably on systems with many CPU cores, by reducing the number of
+ * cache lines needing to be fetched.  Thus, think very carefully before adding
+ * anything else here.
+ */
+typedef struct PGXACT
+{
+	TransactionId xid;			/* id of top-level transaction currently being
+								 * executed by this proc, if running and XID
+								 * is assigned; else InvalidTransactionId */
+
+	TransactionId xmin;			/* minimal running XID as it was when we were
+								 * starting our xact, excluding LAZY VACUUM:
+								 * vacuum must not remove tuples deleted by
+								 * xid >= xmin ! */
+
+	uint8		vacuumFlags;	/* vacuum-related flags, see above */
+	bool		overflowed;
+	bool		inCommit;		/* true if within commit critical section */
+
+	uint8		nxids;
+} PGXACT;
 
 /*
  * There is one ProcGlobal struct for the whole database cluster.
  */
 typedef struct PROC_HDR
 {
+	/* Array of PGPROC structures (not including dummies for prepared txns) */
+	PGPROC	   *allProcs;
+	/* Array of PGXACT structures (not including dummies for prepared txns) */
+	PGXACT	   *allPgXact;
+	/* Length of allProcs array */
+	uint32		allProcCount;
 	/* Head of list of free PGPROC structures */
 	PGPROC	   *freeProcs;
 	/* Head of list of autovacuum's free PGPROC structures */
 	PGPROC	   *autovacFreeProcs;
+	/* WALWriter process's latch */
+	Latch	   *walwriterLatch;
+	/* Checkpointer process's latch */
+	Latch	   *checkpointerLatch;
 	/* Current shared estimate of appropriate spins_per_delay value */
 	int			spins_per_delay;
 	/* The proc of the Startup process, since not in ProcArray */
 	PGPROC	   *startupProc;
 	int			startupProcPid;
-	/* Buffer id of the buffer that Startup process waits for pin on */
+	/* Buffer id of the buffer that Startup process waits for pin on, or -1 */
 	int			startupBufferPinWaitBufId;
 } PROC_HDR;
+
+extern PROC_HDR *ProcGlobal;
+
+extern PGPROC *PreparedXactProcs;
 
 /*
  * We set aside some extra PGPROC structures for auxiliary processes,
  * ie things that aren't full-fledged backends but need shmem access.
  *
- * Background writer and WAL writer run during normal operation. Startup
- * process and WAL receiver also consume 2 slots, but WAL writer is
- * launched only after startup has exited, so we only need 3 slots.
+ * Background writer, checkpointer and WAL writer run during normal operation.
+ * Startup process and WAL receiver also consume 2 slots, but WAL writer is
+ * launched only after startup has exited, so we only need 4 slots.
  *
  * PGXC needs another slot for the pool manager process
  */
+#ifdef PGXC
+#define NUM_AUXILIARY_PROCS		5
+#else
 #define NUM_AUXILIARY_PROCS		4
+#ensif
 
 
 /* configurable options */
@@ -211,7 +258,7 @@ extern int	ProcSleep(LOCALLOCK *locallock, LockMethod lockMethodTable);
 extern PGPROC *ProcWakeup(PGPROC *proc, int waitStatus);
 extern void ProcLockWakeup(LockMethod lockMethodTable, LOCK *lock);
 extern bool IsWaitingForLock(void);
-extern void LockWaitCancel(void);
+extern void LockErrorCleanup(void);
 
 extern void ProcWaitForSignal(void);
 extern void ProcSendSignal(int pid);

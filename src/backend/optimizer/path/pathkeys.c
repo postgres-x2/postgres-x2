@@ -7,7 +7,7 @@
  * the nature and use of path keys.
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -25,7 +25,6 @@
 #include "optimizer/pathnode.h"
 #include "optimizer/paths.h"
 #include "optimizer/tlist.h"
-#include "parser/parsetree.h"
 #include "utils/lsyscache.h"
 
 
@@ -35,8 +34,6 @@ static PathKey *make_canonical_pathkey(PlannerInfo *root,
 					   EquivalenceClass *eclass, Oid opfamily,
 					   int strategy, bool nulls_first);
 static bool pathkey_is_redundant(PathKey *new_pathkey, List *pathkeys);
-static Var *find_indexkey_var(PlannerInfo *root, RelOptInfo *rel,
-				  AttrNumber varattno);
 static bool right_merge_direction(PlannerInfo *root, PathKey *pathkey);
 
 
@@ -224,6 +221,11 @@ canonicalize_pathkeys(PlannerInfo *root, List *pathkeys)
  * If the PathKey is being generated from a SortGroupClause, sortref should be
  * the SortGroupClause's SortGroupRef; otherwise zero.
  *
+ * If rel is not NULL, it identifies a specific relation we're considering
+ * a path for, and indicates that child EC members for that relation can be
+ * considered.	Otherwise child members are ignored.  (See the comments for
+ * get_eclass_for_sort_expr.)
+ *
  * create_it is TRUE if we should create any missing EquivalenceClass
  * needed to represent the sort key.  If it's FALSE, we return NULL if the
  * sort key isn't already present in any EquivalenceClass.
@@ -240,6 +242,7 @@ make_pathkey_from_sortinfo(PlannerInfo *root,
 						   bool reverse_sort,
 						   bool nulls_first,
 						   Index sortref,
+						   Relids rel,
 						   bool create_it,
 						   bool canonicalize)
 {
@@ -271,7 +274,7 @@ make_pathkey_from_sortinfo(PlannerInfo *root,
 	/* Now find or (optionally) create a matching EquivalenceClass */
 	eclass = get_eclass_for_sort_expr(root, expr, opfamilies,
 									  opcintype, collation,
-									  sortref, create_it);
+									  sortref, rel, create_it);
 
 	/* Fail if no EC and !create_it */
 	if (!eclass)
@@ -323,6 +326,7 @@ make_pathkey_from_sortop(PlannerInfo *root,
 									  (strategy == BTGreaterStrategyNumber),
 									  nulls_first,
 									  sortref,
+									  NULL,
 									  create_it,
 									  canonicalize);
 }
@@ -406,14 +410,17 @@ pathkeys_contained_in(List *keys1, List *keys2)
 /*
  * get_cheapest_path_for_pathkeys
  *	  Find the cheapest path (according to the specified criterion) that
- *	  satisfies the given pathkeys.  Return NULL if no such path.
+ *	  satisfies the given pathkeys and parameterization.
+ *	  Return NULL if no such path.
  *
  * 'paths' is a list of possible paths that all generate the same relation
  * 'pathkeys' represents a required ordering (already canonicalized!)
+ * 'required_outer' denotes allowable outer relations for parameterized paths
  * 'cost_criterion' is STARTUP_COST or TOTAL_COST
  */
 Path *
 get_cheapest_path_for_pathkeys(List *paths, List *pathkeys,
+							   Relids required_outer,
 							   CostSelector cost_criterion)
 {
 	Path	   *matched_path = NULL;
@@ -431,7 +438,8 @@ get_cheapest_path_for_pathkeys(List *paths, List *pathkeys,
 			compare_path_costs(matched_path, path, cost_criterion) <= 0)
 			continue;
 
-		if (pathkeys_contained_in(pathkeys, path->pathkeys))
+		if (pathkeys_contained_in(pathkeys, path->pathkeys) &&
+			bms_is_subset(PATH_REQ_OUTER(path), required_outer))
 			matched_path = path;
 	}
 	return matched_path;
@@ -440,7 +448,7 @@ get_cheapest_path_for_pathkeys(List *paths, List *pathkeys,
 /*
  * get_cheapest_fractional_path_for_pathkeys
  *	  Find the cheapest path (for retrieving a specified fraction of all
- *	  the tuples) that satisfies the given pathkeys.
+ *	  the tuples) that satisfies the given pathkeys and parameterization.
  *	  Return NULL if no such path.
  *
  * See compare_fractional_path_costs() for the interpretation of the fraction
@@ -448,11 +456,13 @@ get_cheapest_path_for_pathkeys(List *paths, List *pathkeys,
  *
  * 'paths' is a list of possible paths that all generate the same relation
  * 'pathkeys' represents a required ordering (already canonicalized!)
+ * 'required_outer' denotes allowable outer relations for parameterized paths
  * 'fraction' is the fraction of the total tuples expected to be retrieved
  */
 Path *
 get_cheapest_fractional_path_for_pathkeys(List *paths,
 										  List *pathkeys,
+										  Relids required_outer,
 										  double fraction)
 {
 	Path	   *matched_path = NULL;
@@ -464,13 +474,14 @@ get_cheapest_fractional_path_for_pathkeys(List *paths,
 
 		/*
 		 * Since cost comparison is a lot cheaper than pathkey comparison, do
-		 * that first.
+		 * that first.	(XXX is that still true?)
 		 */
 		if (matched_path != NULL &&
 			compare_fractional_path_costs(matched_path, path, fraction) <= 0)
 			continue;
 
-		if (pathkeys_contained_in(pathkeys, path->pathkeys))
+		if (pathkeys_contained_in(pathkeys, path->pathkeys) &&
+			bms_is_subset(PATH_REQ_OUTER(path), required_outer))
 			matched_path = path;
 	}
 	return matched_path;
@@ -504,20 +515,23 @@ build_index_pathkeys(PlannerInfo *root,
 					 ScanDirection scandir)
 {
 	List	   *retval = NIL;
-	ListCell   *indexprs_item;
+	ListCell   *lc;
 	int			i;
 
 	if (index->sortopfamily == NULL)
 		return NIL;				/* non-orderable index */
 
-	indexprs_item = list_head(index->indexprs);
-	for (i = 0; i < index->ncolumns; i++)
+	i = 0;
+	foreach(lc, index->indextlist)
 	{
+		TargetEntry *indextle = (TargetEntry *) lfirst(lc);
+		Expr	   *indexkey;
 		bool		reverse_sort;
 		bool		nulls_first;
-		int			ikey;
-		Expr	   *indexkey;
 		PathKey    *cpathkey;
+
+		/* We assume we don't need to make a copy of the tlist item */
+		indexkey = indextle->expr;
 
 		if (ScanDirectionIsBackward(scandir))
 		{
@@ -530,21 +544,6 @@ build_index_pathkeys(PlannerInfo *root,
 			nulls_first = index->nulls_first[i];
 		}
 
-		ikey = index->indexkeys[i];
-		if (ikey != 0)
-		{
-			/* simple index column */
-			indexkey = (Expr *) find_indexkey_var(root, index->rel, ikey);
-		}
-		else
-		{
-			/* expression --- assume we need not copy it */
-			if (indexprs_item == NULL)
-				elog(ERROR, "wrong number of index expressions");
-			indexkey = (Expr *) lfirst(indexprs_item);
-			indexprs_item = lnext(indexprs_item);
-		}
-
 		/* OK, try to make a canonical pathkey for this sort key */
 		cpathkey = make_pathkey_from_sortinfo(root,
 											  indexkey,
@@ -554,6 +553,7 @@ build_index_pathkeys(PlannerInfo *root,
 											  reverse_sort,
 											  nulls_first,
 											  0,
+											  index->rel->relids,
 											  false,
 											  true);
 
@@ -568,44 +568,11 @@ build_index_pathkeys(PlannerInfo *root,
 		/* Add to list unless redundant */
 		if (!pathkey_is_redundant(cpathkey, retval))
 			retval = lappend(retval, cpathkey);
+
+		i++;
 	}
 
 	return retval;
-}
-
-/*
- * Find or make a Var node for the specified attribute of the rel.
- *
- * We first look for the var in the rel's target list, because that's
- * easy and fast.  But the var might not be there (this should normally
- * only happen for vars that are used in WHERE restriction clauses,
- * but not in join clauses or in the SELECT target list).  In that case,
- * gin up a Var node the hard way.
- */
-static Var *
-find_indexkey_var(PlannerInfo *root, RelOptInfo *rel, AttrNumber varattno)
-{
-	ListCell   *temp;
-	Index		relid;
-	Oid			reloid,
-				vartypeid,
-				varcollid;
-	int32		type_mod;
-
-	foreach(temp, rel->reltargetlist)
-	{
-		Var		   *var = (Var *) lfirst(temp);
-
-		if (IsA(var, Var) &&
-			var->varattno == varattno)
-			return var;
-	}
-
-	relid = rel->relid;
-	reloid = getrelid(relid, root->parse->rtable);
-	get_atttypetypmodcoll(reloid, varattno, &vartypeid, &type_mod, &varcollid);
-
-	return makeVar(relid, varattno, vartypeid, type_mod, varcollid, 0);
 }
 
 /*
@@ -677,6 +644,7 @@ convert_subquery_pathkeys(PlannerInfo *root, RelOptInfo *rel,
 											 sub_member->em_datatype,
 											 sub_eclass->ec_collation,
 											 0,
+											 rel->relids,
 											 false);
 
 				/*
@@ -721,6 +689,9 @@ convert_subquery_pathkeys(PlannerInfo *root, RelOptInfo *rel,
 				Oid			sub_expr_coll = sub_eclass->ec_collation;
 				ListCell   *k;
 
+				if (sub_member->em_is_child)
+					continue;	/* ignore children here */
+
 				foreach(k, sub_tlist)
 				{
 					TargetEntry *tle = (TargetEntry *) lfirst(k);
@@ -760,6 +731,7 @@ convert_subquery_pathkeys(PlannerInfo *root, RelOptInfo *rel,
 														sub_expr_type,
 														sub_expr_coll,
 														0,
+														rel->relids,
 														false);
 
 					/*
@@ -951,6 +923,7 @@ initialize_mergeclause_eclasses(PlannerInfo *root, RestrictInfo *restrictinfo)
 								 lefttype,
 								 ((OpExpr *) clause)->inputcollid,
 								 0,
+								 NULL,
 								 true);
 	restrictinfo->right_ec =
 		get_eclass_for_sort_expr(root,
@@ -959,6 +932,7 @@ initialize_mergeclause_eclasses(PlannerInfo *root, RestrictInfo *restrictinfo)
 								 righttype,
 								 ((OpExpr *) clause)->inputcollid,
 								 0,
+								 NULL,
 								 true);
 }
 

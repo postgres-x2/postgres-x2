@@ -4,7 +4,7 @@
  *	  postgres transaction system definitions
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2012 Postgres-XC Development Group
  *
@@ -18,10 +18,10 @@
 #include "access/xlog.h"
 #include "nodes/pg_list.h"
 #include "storage/relfilenode.h"
-#include "utils/timestamp.h"
 #ifdef PGXC  /* PGXC_COORD */
 #include "gtm/gtm_c.h"
 #endif
+
 
 /*
  * Xact isolation levels
@@ -59,6 +59,8 @@ typedef enum
 {
 	SYNCHRONOUS_COMMIT_OFF,		/* asynchronous commit */
 	SYNCHRONOUS_COMMIT_LOCAL_FLUSH,		/* wait for local flush only */
+	SYNCHRONOUS_COMMIT_REMOTE_WRITE,	/* wait for local flush and remote
+										 * write */
 	SYNCHRONOUS_COMMIT_REMOTE_FLUSH		/* wait for local and remote flush */
 }	SyncCommitLevel;
 
@@ -233,6 +235,7 @@ extern GlobalTransactionId GetTopGlobalTransactionId(void);
 extern void SetAuxilliaryTransactionId(GlobalTransactionId gxid);
 extern void SetTopGlobalTransactionId(GlobalTransactionId gxid);
 #endif
+extern TransactionId GetStableLatestTransactionId(void);
 extern SubTransactionId GetCurrentSubTransactionId(void);
 extern CommandId GetCurrentCommandId(bool used);
 extern TimestampTz GetCurrentTransactionStartTimestamp(void);

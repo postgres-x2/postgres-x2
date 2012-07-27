@@ -3,9 +3,11 @@
  *
  *	information support functions
  *
- *	Copyright (c) 2010-2011, PostgreSQL Global Development Group
+ *	Copyright (c) 2010-2012, PostgreSQL Global Development Group
  *	contrib/pg_upgrade/info.c
  */
+
+#include "postgres.h"
 
 #include "pg_upgrade.h"
 
@@ -55,12 +57,15 @@ gen_db_file_maps(DbInfo *old_db, DbInfo *new_db,
 				   old_db->db_name, old_rel->reloid, new_rel->reloid);
 
 		/*
-		 * In pre-8.4, TOAST table names change during CLUSTER;  in >= 8.4
-		 * TOAST relation names always use heap table oids, hence we cannot
-		 * check relation names when upgrading from pre-8.4.
+		 * TOAST table names initially match the heap pg_class oid. In
+		 * pre-8.4, TOAST table names change during CLUSTER; in pre-9.0, TOAST
+		 * table names change during ALTER TABLE ALTER COLUMN SET TYPE. In >=
+		 * 9.0, TOAST relation names always use heap table oids, hence we
+		 * cannot check relation names when upgrading from pre-9.0. Clusters
+		 * upgraded to 9.0 will get matching TOAST names.
 		 */
 		if (strcmp(old_rel->nspname, new_rel->nspname) != 0 ||
-			((GET_MAJOR_VERSION(old_cluster.major_version) >= 804 ||
+			((GET_MAJOR_VERSION(old_cluster.major_version) >= 900 ||
 			  strcmp(old_rel->nspname, "pg_toast") != 0) &&
 			 strcmp(old_rel->relname, new_rel->relname) != 0))
 			pg_log(PG_FATAL, "Mismatch of relation names in database \"%s\": "
@@ -127,19 +132,19 @@ create_rel_filename_map(const char *old_data, const char *new_data,
 void
 print_maps(FileNameMap *maps, int n_maps, const char *db_name)
 {
-	if (log_opts.debug)
+	if (log_opts.verbose)
 	{
 		int			mapnum;
 
-		pg_log(PG_DEBUG, "mappings for database \"%s\":\n", db_name);
+		pg_log(PG_VERBOSE, "mappings for database \"%s\":\n", db_name);
 
 		for (mapnum = 0; mapnum < n_maps; mapnum++)
-			pg_log(PG_DEBUG, "%s.%s: %u to %u\n",
+			pg_log(PG_VERBOSE, "%s.%s: %u to %u\n",
 				   maps[mapnum].nspname, maps[mapnum].relname,
 				   maps[mapnum].old_relfilenode,
 				   maps[mapnum].new_relfilenode);
 
-		pg_log(PG_DEBUG, "\n\n");
+		pg_log(PG_VERBOSE, "\n\n");
 	}
 }
 
@@ -163,11 +168,9 @@ get_db_and_rel_infos(ClusterInfo *cluster)
 	for (dbnum = 0; dbnum < cluster->dbarr.ndbs; dbnum++)
 		get_rel_infos(cluster, &cluster->dbarr.dbs[dbnum]);
 
-	if (log_opts.debug)
-	{
-		pg_log(PG_DEBUG, "\n%s databases:\n", CLUSTER_NAME(cluster));
+	pg_log(PG_VERBOSE, "\n%s databases:\n", CLUSTER_NAME(cluster));
+	if (log_opts.verbose)
 		print_db_infos(&cluster->dbarr);
-	}
 }
 
 
@@ -188,15 +191,21 @@ get_db_infos(ClusterInfo *cluster)
 	int			i_datname,
 				i_oid,
 				i_spclocation;
+	char		query[QUERY_ALLOC];
 
-	res = executeQueryOrDie(conn,
-							"SELECT d.oid, d.datname, t.spclocation "
-							"FROM pg_catalog.pg_database d "
-							" LEFT OUTER JOIN pg_catalog.pg_tablespace t "
-							" ON d.dattablespace = t.oid "
-							"WHERE d.datallowconn = true "
+	snprintf(query, sizeof(query),
+			 "SELECT d.oid, d.datname, %s "
+			 "FROM pg_catalog.pg_database d "
+			 " LEFT OUTER JOIN pg_catalog.pg_tablespace t "
+			 " ON d.dattablespace = t.oid "
+			 "WHERE d.datallowconn = true "
 	/* we don't preserve pg_database.oid so we sort by name */
-							"ORDER BY 2");
+			 "ORDER BY 2",
+	/* 9.2 removed the spclocation column */
+			 (GET_MAJOR_VERSION(cluster->major_version) <= 901) ?
+			 "t.spclocation" : "pg_catalog.pg_tablespace_location(t.oid) AS spclocation");
+
+	res = executeQueryOrDie(conn, "%s", query);
 
 	i_oid = PQfnumber(res, "oid");
 	i_datname = PQfnumber(res, "datname");
@@ -225,7 +234,7 @@ get_db_infos(ClusterInfo *cluster)
 /*
  * get_rel_infos()
  *
- * gets the relinfos for all the user tables of the database refered
+ * gets the relinfos for all the user tables of the database referred
  * by "db".
  *
  * NOTE: we assume that relations/entities with oids greater than
@@ -247,7 +256,8 @@ get_rel_infos(ClusterInfo *cluster, DbInfo *dbinfo)
 				i_nspname,
 				i_relname,
 				i_oid,
-				i_relfilenode;
+				i_relfilenode,
+				i_reltablespace;
 	char		query[QUERY_ALLOC];
 
 	/*
@@ -260,18 +270,24 @@ get_rel_infos(ClusterInfo *cluster, DbInfo *dbinfo)
 
 	snprintf(query, sizeof(query),
 			 "SELECT c.oid, n.nspname, c.relname, "
-			 "	c.relfilenode, t.spclocation "
+			 "	c.relfilenode, c.reltablespace, %s "
 			 "FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n "
 			 "	   ON c.relnamespace = n.oid "
 			 "  LEFT OUTER JOIN pg_catalog.pg_tablespace t "
 			 "	   ON c.reltablespace = t.oid "
 			 "WHERE relkind IN ('r','t', 'i'%s) AND "
-			 "  ((n.nspname NOT IN ('pg_catalog', 'information_schema', 'binary_upgrade') AND "
+	/* exclude possible orphaned temp tables */
+			 "  ((n.nspname !~ '^pg_temp_' AND "
+			 "    n.nspname !~ '^pg_toast_temp_' AND "
+			 "    n.nspname NOT IN ('pg_catalog', 'information_schema', 'binary_upgrade') AND "
 			 "	  c.oid >= %u) "
 			 "  OR (n.nspname = 'pg_catalog' AND "
 	"    relname IN ('pg_largeobject', 'pg_largeobject_loid_pn_index'%s) )) "
 	/* we preserve pg_class.oid so we sort by it to match old/new */
 			 "ORDER BY 1;",
+	/* 9.2 removed the spclocation column */
+			 (GET_MAJOR_VERSION(cluster->major_version) <= 901) ?
+			 "t.spclocation" : "pg_catalog.pg_tablespace_location(t.oid) AS spclocation",
 	/* see the comment at the top of old_8_3_create_sequence_script() */
 			 (GET_MAJOR_VERSION(old_cluster.major_version) <= 803) ?
 			 "" : ", 'S'",
@@ -281,7 +297,7 @@ get_rel_infos(ClusterInfo *cluster, DbInfo *dbinfo)
 			 (GET_MAJOR_VERSION(old_cluster.major_version) <= 804) ?
 	"" : ", 'pg_largeobject_metadata', 'pg_largeobject_metadata_oid_index'");
 
-	res = executeQueryOrDie(conn, query);
+	res = executeQueryOrDie(conn, "%s", query);
 
 	ntups = PQntuples(res);
 
@@ -291,6 +307,7 @@ get_rel_infos(ClusterInfo *cluster, DbInfo *dbinfo)
 	i_nspname = PQfnumber(res, "nspname");
 	i_relname = PQfnumber(res, "relname");
 	i_relfilenode = PQfnumber(res, "relfilenode");
+	i_reltablespace = PQfnumber(res, "reltablespace");
 	i_spclocation = PQfnumber(res, "spclocation");
 
 	for (relnum = 0; relnum < ntups; relnum++)
@@ -308,10 +325,13 @@ get_rel_infos(ClusterInfo *cluster, DbInfo *dbinfo)
 
 		curr->relfilenode = atooid(PQgetvalue(res, relnum, i_relfilenode));
 
-		tblspace = PQgetvalue(res, relnum, i_spclocation);
-		/* if no table tablespace, use the database tablespace */
-		if (strlen(tblspace) == 0)
+		if (atooid(PQgetvalue(res, relnum, i_reltablespace)) != 0)
+			/* Might be "", meaning the cluster default location. */
+			tblspace = PQgetvalue(res, relnum, i_spclocation);
+		else
+			/* A zero reltablespace indicates the database tablespace. */
 			tblspace = dbinfo->db_tblspace;
+
 		strlcpy(curr->tablespace, tblspace, sizeof(curr->tablespace));
 	}
 	PQclear(res);
@@ -351,9 +371,9 @@ print_db_infos(DbInfoArr *db_arr)
 
 	for (dbnum = 0; dbnum < db_arr->ndbs; dbnum++)
 	{
-		pg_log(PG_DEBUG, "Database: %s\n", db_arr->dbs[dbnum].db_name);
+		pg_log(PG_VERBOSE, "Database: %s\n", db_arr->dbs[dbnum].db_name);
 		print_rel_infos(&db_arr->dbs[dbnum].rel_arr);
-		pg_log(PG_DEBUG, "\n\n");
+		pg_log(PG_VERBOSE, "\n\n");
 	}
 }
 
@@ -364,7 +384,7 @@ print_rel_infos(RelInfoArr *arr)
 	int			relnum;
 
 	for (relnum = 0; relnum < arr->nrels; relnum++)
-		pg_log(PG_DEBUG, "relname: %s.%s: reloid: %u reltblspace: %s\n",
+		pg_log(PG_VERBOSE, "relname: %s.%s: reloid: %u reltblspace: %s\n",
 			   arr->rels[relnum].nspname, arr->rels[relnum].relname,
 			   arr->rels[relnum].reloid, arr->rels[relnum].tablespace);
 }

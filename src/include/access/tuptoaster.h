@@ -4,7 +4,7 @@
  *	  POSTGRES definitions for external and compressed storage
  *	  of variable size attributes.
  *
- * Copyright (c) 2000-2011, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2012, PostgreSQL Global Development Group
  *
  * src/include/access/tuptoaster.h
  *
@@ -14,7 +14,6 @@
 #define TUPTOASTER_H
 
 #include "access/htup.h"
-#include "storage/bufpage.h"
 #include "utils/relcache.h"
 
 /*
@@ -143,6 +142,15 @@ extern struct varlena *heap_tuple_untoast_attr(struct varlena * attr);
 extern struct varlena *heap_tuple_untoast_attr_slice(struct varlena * attr,
 							  int32 sliceoffset,
 							  int32 slicelength);
+
+/* ----------
+ * toast_flatten_tuple -
+ *
+ *	"Flatten" a tuple to contain no out-of-line toasted fields.
+ *	(This does not eliminate compressed or short-header datums.)
+ * ----------
+ */
+extern HeapTuple toast_flatten_tuple(HeapTuple tup, TupleDesc tupleDesc);
 
 /* ----------
  * toast_flatten_tuple_attribute -

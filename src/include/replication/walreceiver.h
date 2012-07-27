@@ -3,7 +3,7 @@
  * walreceiver.h
  *	  Exports from replication/walreceiverfuncs.c.
  *
- * Portions Copyright (c) 2010-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 2010-2012, PostgreSQL Global Development Group
  *
  * src/include/replication/walreceiver.h
  *
@@ -12,6 +12,7 @@
 #ifndef _WALRECEIVER_H
 #define _WALRECEIVER_H
 
+#include "access/xlog.h"
 #include "access/xlogdefs.h"
 #include "storage/spin.h"
 #include "pgtime.h"
@@ -26,6 +27,9 @@ extern bool hot_standby_feedback;
  * XXX: Should this move to pg_config_manual.h?
  */
 #define MAXCONNINFO		1024
+
+/* Can we allow the standby to accept replication connection from another standby? */
+#define AllowCascadeReplication() (EnableHotStandby && max_wal_senders > 0)
 
 /*
  * Values for WalRcv->walRcvState.
@@ -75,6 +79,12 @@ typedef struct
 	XLogRecPtr	latestChunkStart;
 
 	/*
+	 * Time of send and receive of any message received.
+	 */
+	TimestampTz lastMsgSendTime;
+	TimestampTz lastMsgReceiptTime;
+
+	/*
 	 * connection string; is used for walreceiver to connect with the primary.
 	 */
 	char		conninfo[MAXCONNINFO];
@@ -108,5 +118,7 @@ extern void ShutdownWalRcv(void);
 extern bool WalRcvInProgress(void);
 extern void RequestXLogStreaming(XLogRecPtr recptr, const char *conninfo);
 extern XLogRecPtr GetWalRcvWriteRecPtr(XLogRecPtr *latestChunkStart);
+extern int	GetReplicationApplyDelay(void);
+extern int	GetReplicationTransferLatency(void);
 
 #endif   /* _WALRECEIVER_H */

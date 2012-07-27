@@ -3,19 +3,25 @@
  *
  *	execution functions
  *
- *	Copyright (c) 2010-2011, PostgreSQL Global Development Group
+ *	Copyright (c) 2010-2012, PostgreSQL Global Development Group
  *	contrib/pg_upgrade/exec.c
  */
+
+#include "postgres.h"
 
 #include "pg_upgrade.h"
 
 #include <fcntl.h>
 #include <unistd.h>
-
+#include <sys/types.h>
 
 static void check_data_dir(const char *pg_data);
 static void check_bin_dir(ClusterInfo *cluster);
 static void validate_exec(const char *dir, const char *cmdName);
+
+#ifdef WIN32
+static int	win32_check_directory_write_permissions(void);
+#endif
 
 
 /*
@@ -29,24 +35,37 @@ static void validate_exec(const char *dir, const char *cmdName);
  *	instead of returning should an error occur.
  */
 int
-exec_prog(bool throw_error, const char *fmt,...)
+exec_prog(bool throw_error, bool is_priv,
+		  const char *log_file, const char *fmt,...)
 {
 	va_list		args;
 	int			result;
 	char		cmd[MAXPGPATH];
+	mode_t		old_umask = 0;
+
+	if (is_priv)
+		old_umask = umask(S_IRWXG | S_IRWXO);
 
 	va_start(args, fmt);
 	vsnprintf(cmd, MAXPGPATH, fmt, args);
 	va_end(args);
 
-	pg_log(PG_INFO, "%s\n", cmd);
+	pg_log(PG_VERBOSE, "%s\n", cmd);
 
 	result = system(cmd);
 
+	if (is_priv)
+		umask(old_umask);
+
 	if (result != 0)
 	{
-		pg_log(throw_error ? PG_FATAL : PG_INFO,
-			   "There were problems executing \"%s\"\n", cmd);
+		report_status(PG_REPORT, "*failure*");
+		fflush(stdout);
+		pg_log(PG_VERBOSE, "There were problems executing \"%s\"\n", cmd);
+		pg_log(throw_error ? PG_FATAL : PG_REPORT,
+			   "Consult the last few lines of \"%s\" for\n"
+			   "the probable cause of the failure.\n",
+			   log_file);
 		return 1;
 	}
 
@@ -97,17 +116,11 @@ verify_directories(void)
 
 	prep_status("Checking current, bin, and data directories");
 
-	if (access(".", R_OK | W_OK
 #ifndef WIN32
-
-	/*
-	 * Do a directory execute check only on Unix because execute permission on
-	 * NTFS means "can execute scripts", which we don't care about. Also, X_OK
-	 * is not defined in the Windows API.
-	 */
-			   | X_OK
+	if (access(".", R_OK | W_OK | X_OK) != 0)
+#else
+	if (win32_check_directory_write_permissions() != 0)
 #endif
-			   ) != 0)
 		pg_log(PG_FATAL,
 		  "You must have read and write access in the current directory.\n");
 
@@ -117,6 +130,32 @@ verify_directories(void)
 	check_data_dir(new_cluster.pgdata);
 	check_ok();
 }
+
+
+#ifdef WIN32
+/*
+ * win32_check_directory_write_permissions()
+ *
+ *	access() on WIN32 can't check directory permissions, so we have to
+ *	optionally create, then delete a file to check.
+ *		http://msdn.microsoft.com/en-us/library/1w06ktdy%28v=vs.80%29.aspx
+ */
+static int
+win32_check_directory_write_permissions(void)
+{
+	int			fd;
+
+	/*
+	 * We open a file we would normally create anyway.	We do this even in
+	 * 'check' mode, which isn't ideal, but this is the best we can do.
+	 */
+	if ((fd = open(GLOBALS_DUMP_FILE, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR)) < 0)
+		return -1;
+	close(fd);
+
+	return unlink(GLOBALS_DUMP_FILE);
+}
+#endif
 
 
 /*
@@ -145,7 +184,9 @@ check_data_dir(const char *pg_data)
 	{
 		struct stat statBuf;
 
-		snprintf(subDirName, sizeof(subDirName), "%s/%s", pg_data,
+		snprintf(subDirName, sizeof(subDirName), "%s%s%s", pg_data,
+		/* Win32 can't stat() a directory with a trailing slash. */
+				 *requiredSubdirs[subdirnum] ? "/" : "",
 				 requiredSubdirs[subdirnum]);
 
 		if (stat(subDirName, &statBuf) != 0)

@@ -48,9 +48,6 @@
 /* Define to the default TCP port number as a string constant. */
 #undef DEF_PGPORT_STR
 
-/* Define to 1 to enable DTrace support. (--enable-dtrace) */
-#undef ENABLE_DTRACE
-
 /* Define to build with GSSAPI support. (--with-gssapi) */
 #undef ENABLE_GSS
 
@@ -90,14 +87,14 @@
 /* Define to 1 if you have the `append_history' function. */
 #undef HAVE_APPEND_HISTORY
 
-/* Define to 1 if you have the `atexit' function. */
-#undef HAVE_ATEXIT
-
 /* Define to 1 if you have the `cbrt' function. */
 #undef HAVE_CBRT
 
 /* Define to 1 if you have the `class' function. */
 #undef HAVE_CLASS
+
+/* Define to 1 if you have the <crtdefs.h> header file. */
+#undef HAVE_CRTDEFS_H
 
 /* Define to 1 if you have the `crypt' function. */
 #undef HAVE_CRYPT
@@ -149,17 +146,11 @@
 /* Define to 1 if you have the <editline/readline.h> header file. */
 #undef HAVE_EDITLINE_READLINE_H
 
-/* Define to 1 if you have the `erand48' function. */
-#undef HAVE_ERAND48
-
-/* Define to 1 if you have the `ERR_set_mark' function. */
-#undef HAVE_ERR_SET_MARK
-
-/* Define to 1 if you have the `fcvt' function. */
-#undef HAVE_FCVT
-
 /* Define to 1 if you have the `fdatasync' function. */
 #undef HAVE_FDATASYNC
+
+/* Define to 1 if you have the `fls' function. */
+#undef HAVE_FLS
 
 /* Define to 1 if you have the `fpclass' function. */
 #undef HAVE_FPCLASS
@@ -181,6 +172,9 @@
 
 /* Define to 1 if your compiler understands __FUNCTION__. */
 #undef HAVE_FUNCNAME__FUNCTION
+
+/* Define to 1 if you have __sync_lock_test_and_set(int *) and friends. */
+#undef HAVE_GCC_INT_ATOMICS
 
 /* Define to 1 if you have the `getaddrinfo' function. */
 #undef HAVE_GETADDRINFO
@@ -266,19 +260,13 @@
 /* Define to 1 if you have isinf(). */
 #undef HAVE_ISINF
 
-/* Define to 1 if you have the <kernel/image.h> header file. */
-#undef HAVE_KERNEL_IMAGE_H
-
-/* Define to 1 if you have the <kernel/OS.h> header file. */
-#undef HAVE_KERNEL_OS_H
-
 /* Define to 1 if `e_data' is member of `krb5_error'. */
 #undef HAVE_KRB5_ERROR_E_DATA
 
 /* Define to 1 if `text.data' is member of `krb5_error'. */
 #undef HAVE_KRB5_ERROR_TEXT_DATA
 
-/* Define to 1 if you have krb5_free_unparsed_name */
+/* Define to 1 if you have krb5_free_unparsed_name. */
 #undef HAVE_KRB5_FREE_UNPARSED_NAME
 
 /* Define to 1 if `client' is member of `krb5_ticket'. */
@@ -295,9 +283,6 @@
 
 /* Define to 1 if you have the `crypto' library (-lcrypto). */
 #undef HAVE_LIBCRYPTO
-
-/* Define to 1 if you have the `eay32' library (-leay32). */
-#undef HAVE_LIBEAY32
 
 /* Define to 1 if you have the `ldap' library (-lldap). */
 #undef HAVE_LIBLDAP
@@ -319,9 +304,6 @@
 
 /* Define to 1 if you have the `ssl' library (-lssl). */
 #undef HAVE_LIBSSL
-
-/* Define to 1 if you have the `ssleay32' library (-lssleay32). */
-#undef HAVE_LIBSSLEAY32
 
 /* Define to 1 if you have the `wldap32' library (-lwldap32). */
 #undef HAVE_LIBWLDAP32
@@ -369,9 +351,6 @@
 /* Define to 1 if you have the <net/if.h> header file. */
 #undef HAVE_NET_IF_H
 
-/* Define to 1 if you have the `on_exit' function. */
-#undef HAVE_ON_EXIT
-
 /* Define to 1 if you have the <ossp/uuid.h> header file. */
 #undef HAVE_OSSP_UUID_H
 
@@ -389,6 +368,9 @@
 
 /* Define to 1 if you have the POSIX signal interface. */
 #undef HAVE_POSIX_SIGNALS
+
+/* Define to 1 if the assembler supports PPC's LWARX mutex hint bit. */
+#undef HAVE_PPC_LWARX_MUTEX_HINT
 
 /* Define to 1 if you have the `pstat' function. */
 #undef HAVE_PSTAT
@@ -430,9 +412,6 @@
 /* Define to 1 if you have the `rl_filename_completion_function' function. */
 #undef HAVE_RL_FILENAME_COMPLETION_FUNCTION
 
-/* Define to 1 if you have the `scandir' function. */
-#undef HAVE_SCANDIR
-
 /* Define to 1 if you have the <security/pam_appl.h> header file. */
 #undef HAVE_SECURITY_PAM_APPL_H
 
@@ -466,9 +445,6 @@
 /* Define to 1 if you have the <stdlib.h> header file. */
 #undef HAVE_STDLIB_H
 
-/* Define to 1 if you have the `strdup' function. */
-#undef HAVE_STRDUP
-
 /* Define to 1 if you have the `strerror' function. */
 #undef HAVE_STRERROR
 
@@ -490,17 +466,11 @@
 /* Define to 1 if you have the `strlcpy' function. */
 #undef HAVE_STRLCPY
 
-/* Define to 1 if you have the `strtol' function. */
-#undef HAVE_STRTOL
-
 /* Define to 1 if you have the `strtoll' function. */
 #undef HAVE_STRTOLL
 
 /* Define to 1 if you have the `strtoq' function. */
 #undef HAVE_STRTOQ
-
-/* Define to 1 if you have the `strtoul' function. */
-#undef HAVE_STRTOUL
 
 /* Define to 1 if you have the `strtoull' function. */
 #undef HAVE_STRTOULL
@@ -535,20 +505,11 @@
 /* Define to 1 if `__ss_len' is member of `struct sockaddr_storage'. */
 #undef HAVE_STRUCT_SOCKADDR_STORAGE___SS_LEN
 
-/* Define to 1 if the system has the type `struct sockaddr_un'. */
-#undef HAVE_STRUCT_SOCKADDR_UN
-
 /* Define to 1 if `tm_zone' is member of `struct tm'. */
 #undef HAVE_STRUCT_TM_TM_ZONE
 
-/* Define to 1 if you have the <SupportDefs.h> header file. */
-#undef HAVE_SUPPORTDEFS_H
-
 /* Define to 1 if you have the `symlink' function. */
 #undef HAVE_SYMLINK
-
-/* Define to 1 if you have the `sysconf' function. */
-#undef HAVE_SYSCONF
 
 /* Define to 1 if you have the syslog interface. */
 #undef HAVE_SYSLOG
@@ -670,6 +631,9 @@
 
 /* Define to 1 if you have the <winldap.h> header file. */
 #undef HAVE_WINLDAP_H
+
+/* Define to 1 if your libxml has xmlStructuredErrorContext. */
+#undef HAVE_XMLSTRUCTUREDERRORCONTEXT
 
 /* Define to the appropriate snprintf format for 64-bit ints. */
 #undef INT64_FORMAT

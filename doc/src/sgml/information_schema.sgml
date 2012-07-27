@@ -284,6 +284,8 @@
    the attributes of composite data types defined in the database.
    (Note that the view does not give information about table columns,
    which are sometimes called attributes in PostgreSQL contexts.)
+   Only those attributes are shown that the current user has access to (by way
+   of being the owner of or having some privilege on the type).
   </para>
 
   <table>
@@ -483,7 +485,15 @@
      <row>
       <entry><literal>interval_type</literal></entry>
       <entry><type>character_data</type></entry>
-      <entry>Not yet implemented</entry>
+      <entry>
+       If <literal>data_type</literal> identifies an interval type,
+       this column contains the specification which fields the
+       intervals include for this attribute, e.g., <literal>YEAR TO
+       MONTH</literal>, <literal>DAY TO SECOND</literal>, etc.  If no
+       field restrictions were specified (that is, the interval
+       accepts all fields), and for all other data types, this field
+       is null.
+      </entry>
      </row>
 
      <row>
@@ -1010,6 +1020,69 @@
   </table>
  </sect1>
 
+ <sect1 id="infoschema-column-options">
+  <title><literal>column_options</literal></title>
+
+  <para>
+   The view <literal>column_options</literal> contains all the
+   options defined for foreign table columns in the current database.  Only
+   those foreign table columns are shown that the current user has access to
+   (by way of being the owner or having some privilege).
+  </para>
+
+  <table>
+   <title><literal>column_options</literal> Columns</title>
+
+   <tgroup cols="3">
+    <thead>
+     <row>
+      <entry>Name</entry>
+      <entry>Data Type</entry>
+      <entry>Description</entry>
+     </row>
+    </thead>
+
+    <tbody>
+     <row>
+      <entry><literal>table_catalog</literal></entry>
+      <entry><type>sql_identifier</type></entry>
+      <entry>Name of the database that contains the foreign table (always the current database)</entry>
+     </row>
+
+     <row>
+      <entry><literal>table_schema</literal></entry>
+      <entry><type>sql_identifier</type></entry>
+      <entry>Name of the schema that contains the foreign table</entry>
+     </row>
+
+     <row>
+      <entry><literal>table_name</literal></entry>
+      <entry><type>sql_identifier</type></entry>
+      <entry>Name of the foreign table</entry>
+     </row>
+
+     <row>
+      <entry><literal>column_name</literal></entry>
+      <entry><type>sql_identifier</type></entry>
+      <entry>Name of the column</entry>
+     </row>
+
+     <row>
+      <entry><literal>option_name</literal></entry>
+      <entry><type>sql_identifier</type></entry>
+      <entry>Name of an option</entry>
+     </row>
+
+     <row>
+      <entry><literal>option_value</literal></entry>
+      <entry><type>character_data</type></entry>
+      <entry>Value of the option</entry>
+     </row>
+    </tbody>
+   </tgroup>
+  </table>
+ </sect1>
+
  <sect1 id="infoschema-column-privileges">
   <title><literal>column_privileges</literal></title>
 
@@ -1343,7 +1416,15 @@
      <row>
       <entry><literal>interval_type</literal></entry>
       <entry><type>character_data</type></entry>
-      <entry>Not yet implemented</entry>
+      <entry>
+       If <literal>data_type</literal> identifies an interval type,
+       this column contains the specification which fields the
+       intervals include for this column, e.g., <literal>YEAR TO
+       MONTH</literal>, <literal>DAY TO SECOND</literal>, etc.  If no
+       field restrictions were specified (that is, the interval
+       accepts all fields), and for all other data types, this field
+       is null.
+      </entry>
      </row>
 
      <row>
@@ -1836,8 +1917,10 @@
   <title><literal>domain_constraints</literal></title>
 
   <para>
-   The view <literal>domain_constraints</literal> contains all
-   constraints belonging to domains defined in the current database.
+   The view <literal>domain_constraints</literal> contains all constraints
+   belonging to domains defined in the current database.  Only those domains
+   are shown that the current user has access to (by way of being the owner or
+   having some privilege).
   </para>
 
   <table>
@@ -1973,8 +2056,9 @@
   <title><literal>domains</literal></title>
 
   <para>
-   The view <literal>domains</literal> contains all domains defined in
-   the current database.
+   The view <literal>domains</literal> contains all domains defined in the
+   current database.  Only those domains are shown that the current user has
+   access to (by way of being the owner or having some privilege).
   </para>
 
   <table>
@@ -2144,7 +2228,15 @@
      <row>
       <entry><literal>interval_type</literal></entry>
       <entry><type>character_data</type></entry>
-      <entry>Not yet implemented</entry>
+      <entry>
+       If <literal>data_type</literal> identifies an interval type,
+       this column contains the specification which fields the
+       intervals include for this domain, e.g., <literal>YEAR TO
+       MONTH</literal>, <literal>DAY TO SECOND</literal>, etc.  If no
+       field restrictions were specified (that is, the interval
+       accepts all fields), and for all other data types, this field
+       is null.
+      </entry>
      </row>
 
      <row>
@@ -3244,7 +3336,7 @@ ORDER BY c.ordinal_position;
    referential (foreign key) constraints in the current database.
    Only those constraints are shown for which the current user has
    write access to the referencing table (by way of being the
-   owner or having some privilege other than SELECT).
+   owner or having some privilege other than <literal>SELECT</literal>).
   </para>
 
   <table>
@@ -3597,7 +3689,14 @@ ORDER BY c.ordinal_position;
      <row>
       <entry><literal>with_hierarchy</literal></entry>
       <entry><type>yes_or_no</type></entry>
-      <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
+      <entry>
+       In the SQL standard, <literal>WITH HIERARCHY OPTION</literal>
+       is a separate (sub-)privilege allowing certain operations on
+       table inheritance hierarchies.  In PostgreSQL, this is included
+       in the <literal>SELECT</literal> privilege, so this column
+       shows <literal>YES</literal> if the privilege
+       is <literal>SELECT</literal>, else <literal>NO</literal>.
+      </entry>
      </row>
     </tbody>
    </tgroup>
@@ -3740,7 +3839,7 @@ ORDER BY c.ordinal_position;
      <row>
       <entry><literal>object_type</literal></entry>
       <entry><type>character_data</type></entry>
-      <entry><literal>COLLATION</literal> or <literal>DOMAIN</literal> or <literal>FOREIGN DATA WRAPPER</literal> or <literal>FOREIGN SERVER</literal></entry>
+      <entry><literal>COLLATION</literal> or <literal>DOMAIN</literal> or <literal>FOREIGN DATA WRAPPER</literal> or <literal>FOREIGN SERVER</literal> or <literal>SEQUENCE</literal></entry>
      </row>
 
      <row>
@@ -4289,7 +4388,11 @@ ORDER BY c.ordinal_position;
      <row>
       <entry><literal>is_udt_dependent</literal></entry>
       <entry><type>yes_or_no</type></entry>
-      <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
+      <entry>
+       Currently always <literal>NO</literal>.  The alternative
+       <literal>YES</literal> applies to a feature not available in
+       <productname>PostgreSQL</>.
+      </entry>
      </row>
 
      <row>
@@ -4789,6 +4892,11 @@ ORDER BY c.ordinal_position;
    embedded SQL in C; that is all you will learn from this table.
   </para>
 
+  <para>
+   This table was removed from the SQL standard in SQL:2008, so there
+   are no entries referring to standards later than SQL:2003.
+  </para>
+
   <table>
    <title><literal>sql_languages</literal> Columns</title>
 
@@ -4816,8 +4924,7 @@ ORDER BY c.ordinal_position;
       <entry><type>character_data</type></entry>
       <entry>
        The year the standard referenced in
-       <literal>sql_language_source</literal> was approved; currently
-       <literal>2003</>
+       <literal>sql_language_source</literal> was approved.
       </entry>
      </row>
 
@@ -5118,7 +5225,7 @@ ORDER BY c.ordinal_position;
   <para>
    The view <literal>table_constraints</literal> contains all
    constraints belonging to tables that the current user owns or has
-   some non-SELECT privilege on.
+   some privilege other than <literal>SELECT</literal> on.
   </para>
 
   <table>
@@ -5269,7 +5376,14 @@ ORDER BY c.ordinal_position;
      <row>
       <entry><literal>with_hierarchy</literal></entry>
       <entry><type>yes_or_no</type></entry>
-      <entry>Applies to a feature not available in <productname>PostgreSQL</></entry>
+      <entry>
+       In the SQL standard, <literal>WITH HIERARCHY OPTION</literal>
+       is a separate (sub-)privilege allowing certain operations on
+       table inheritance hierarchies.  In PostgreSQL, this is included
+       in the <literal>SELECT</literal> privilege, so this column
+       shows <literal>YES</literal> if the privilege
+       is <literal>SELECT</literal>, else <literal>NO</literal>.
+      </entry>
      </row>
     </tbody>
    </tgroup>
@@ -5388,12 +5502,7 @@ ORDER BY c.ordinal_position;
      <row>
       <entry><literal>commit_action</literal></entry>
       <entry><type>character_data</type></entry>
-      <entry>
-       If the table is a temporary table, then
-       <literal>PRESERVE</literal>, else null.  (The SQL standard
-       defines other commit actions for temporary tables, which are
-       not supported by <productname>PostgreSQL</>.)
-      </entry>
+      <entry>Not yet implemented</entry>
      </row>
     </tbody>
    </tgroup>
@@ -5409,7 +5518,8 @@ ORDER BY c.ordinal_position;
    view <literal>triggered_update_columns</literal> identifies these
    columns.  Triggers that do not specify a column list are not
    included in this view.  Only those columns are shown that the
-   current user owns or has some non-SELECT privilege on.
+   current user owns or has some privilege other than
+   <literal>SELECT</literal> on.
   </para>
 
   <table>
@@ -5480,7 +5590,7 @@ ORDER BY c.ordinal_position;
   <para>
    The view <literal>triggers</literal> contains all triggers defined
    in the current database on tables and views that the current user owns
-   or has some non-SELECT privilege on.
+   or has some privilege other than <literal>SELECT</literal> on.
   </para>
 
   <table>
@@ -5673,15 +5783,13 @@ ORDER BY c.ordinal_position;
   <title><literal>udt_privileges</literal></title>
 
   <para>
-   The view <literal>udt_privileges</literal> is intended to identify
-   <literal>USAGE</literal> privileges granted on user-defined types
-   to a currently enabled role or by a currently enabled role.  Since
-   data types do not have real privileges
-   in <productname>PostgreSQL</productname>, this view shows implicit
-   non-grantable <literal>USAGE</literal> privileges granted by the
-   owner to <literal>PUBLIC</literal> for all types, including
-   built-in ones (except domains,
-   see <xref linkend="infoschema-usage-privileges"> for that).
+   The view <literal>udt_privileges</literal> identifies
+   <literal>USAGE</literal> privileges granted on user-defined types to a
+   currently enabled role or by a currently enabled role.  There is one row for
+   each combination of column, grantor, and grantee.  This view shows only
+   composite types (see under <xref linkend="infoschema-user-defined-types">
+   for why); see
+   <xref linkend="infoschema-usage-privileges"> for domain privileges.
   </para>
 
   <table>
@@ -5751,16 +5859,23 @@ ORDER BY c.ordinal_position;
    <literal>USAGE</literal> privileges granted on various kinds of
    objects to a currently enabled role or by a currently enabled role.
    In <productname>PostgreSQL</productname>, this currently applies to
-   collations, domains, foreign-data wrappers, and foreign servers.  There is one
+   collations, domains, foreign-data wrappers, foreign servers, and sequences.  There is one
    row for each combination of object, grantor, and grantee.
   </para>
 
   <para>
-   Since collations and domains do not have real privileges
+   Since collations do not have real privileges
    in <productname>PostgreSQL</productname>, this view shows implicit
    non-grantable <literal>USAGE</literal> privileges granted by the
-   owner to <literal>PUBLIC</literal> for all collations and domains.  The other
+   owner to <literal>PUBLIC</literal> for all collations.  The other
    object types, however, show real privileges.
+  </para>
+
+  <para>
+   In PostgreSQL, sequences also support <literal>SELECT</literal>
+   and <literal>UPDATE</literal> privileges in addition to
+   the <literal>USAGE</literal> privilege.  These are nonstandard and therefore
+   not visible in the information schema.
   </para>
 
   <table>
@@ -5810,7 +5925,7 @@ ORDER BY c.ordinal_position;
      <row>
       <entry><literal>object_type</literal></entry>
       <entry><type>character_data</type></entry>
-      <entry><literal>COLLATION</literal> or <literal>DOMAIN</literal> or <literal>FOREIGN DATA WRAPPER</literal> or <literal>FOREIGN SERVER</literal></entry>
+      <entry><literal>COLLATION</literal> or <literal>DOMAIN</literal> or <literal>FOREIGN DATA WRAPPER</literal> or <literal>FOREIGN SERVER</literal> or <literal>SEQUENCE</literal></entry>
      </row>
 
      <row>
@@ -5835,6 +5950,8 @@ ORDER BY c.ordinal_position;
   <para>
    The view <literal>user_defined_types</literal> currently contains
    all composite types defined in the current database.
+   Only those types are shown that the current user has access to (by way
+   of being the owner or having some privilege).
   </para>
 
   <para>

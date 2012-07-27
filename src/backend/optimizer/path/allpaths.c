@@ -3,7 +3,7 @@
  * allpaths.c
  *	  Routines to find possible search paths for processing a query
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -19,6 +19,7 @@
 
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_class.h"
+#include "foreign/fdwapi.h"
 #include "nodes/nodeFuncs.h"
 #ifdef OPTIMIZER_DEBUG
 #include "nodes/print.h"
@@ -52,13 +53,27 @@ int			geqo_threshold;
 join_search_hook_type join_search_hook = NULL;
 
 
+static void set_base_rel_sizes(PlannerInfo *root);
 static void set_base_rel_pathlists(PlannerInfo *root);
+static void set_rel_size(PlannerInfo *root, RelOptInfo *rel,
+			 Index rti, RangeTblEntry *rte);
 static void set_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 				 Index rti, RangeTblEntry *rte);
+static void set_plain_rel_size(PlannerInfo *root, RelOptInfo *rel,
+				   RangeTblEntry *rte);
 static void set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 					   RangeTblEntry *rte);
+static void set_foreign_size(PlannerInfo *root, RelOptInfo *rel,
+				 RangeTblEntry *rte);
+static void set_foreign_pathlist(PlannerInfo *root, RelOptInfo *rel,
+					 RangeTblEntry *rte);
+static void set_append_rel_size(PlannerInfo *root, RelOptInfo *rel,
+					Index rti, RangeTblEntry *rte);
 static void set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 						Index rti, RangeTblEntry *rte);
+static void generate_mergeappend_paths(PlannerInfo *root, RelOptInfo *rel,
+						   List *live_childrels,
+						   List *all_child_pathkeys);
 static List *accumulate_append_subpath(List *subpaths, Path *path);
 static void set_dummy_rel_pathlist(RelOptInfo *rel);
 static void set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
@@ -71,8 +86,6 @@ static void set_cte_pathlist(PlannerInfo *root, RelOptInfo *rel,
 				 RangeTblEntry *rte);
 static void set_worktable_pathlist(PlannerInfo *root, RelOptInfo *rel,
 					   RangeTblEntry *rte);
-static void set_foreign_pathlist(PlannerInfo *root, RelOptInfo *rel,
-					 RangeTblEntry *rte);
 static RelOptInfo *make_rel_from_joinlist(PlannerInfo *root, List *joinlist);
 static bool subquery_is_pushdown_safe(Query *subquery, Query *topquery,
 						  bool *differentTypes);
@@ -97,10 +110,33 @@ RelOptInfo *
 make_one_rel(PlannerInfo *root, List *joinlist)
 {
 	RelOptInfo *rel;
+	Index		rti;
+
+	/*
+	 * Construct the all_baserels Relids set.
+	 */
+	root->all_baserels = NULL;
+	for (rti = 1; rti < root->simple_rel_array_size; rti++)
+	{
+		RelOptInfo *brel = root->simple_rel_array[rti];
+
+		/* there may be empty slots corresponding to non-baserel RTEs */
+		if (brel == NULL)
+			continue;
+
+		Assert(brel->relid == rti);		/* sanity check on array */
+
+		/* ignore RTEs that are "other rels" */
+		if (brel->reloptkind != RELOPT_BASEREL)
+			continue;
+
+		root->all_baserels = bms_add_member(root->all_baserels, brel->relid);
+	}
 
 	/*
 	 * Generate access paths for the base rels.
 	 */
+	set_base_rel_sizes(root);
 	set_base_rel_pathlists(root);
 
 	/*
@@ -111,33 +147,39 @@ make_one_rel(PlannerInfo *root, List *joinlist)
 	/*
 	 * The result should join all and only the query's base rels.
 	 */
-#ifdef USE_ASSERT_CHECKING
-	{
-		int			num_base_rels = 0;
-		Index		rti;
-
-		for (rti = 1; rti < root->simple_rel_array_size; rti++)
-		{
-			RelOptInfo *brel = root->simple_rel_array[rti];
-
-			if (brel == NULL)
-				continue;
-
-			Assert(brel->relid == rti); /* sanity check on array */
-
-			/* ignore RTEs that are "other rels" */
-			if (brel->reloptkind != RELOPT_BASEREL)
-				continue;
-
-			Assert(bms_is_member(rti, rel->relids));
-			num_base_rels++;
-		}
-
-		Assert(bms_num_members(rel->relids) == num_base_rels);
-	}
-#endif
+	Assert(bms_equal(rel->relids, root->all_baserels));
 
 	return rel;
+}
+
+/*
+ * set_base_rel_sizes
+ *	  Set the size estimates (rows and widths) for each base-relation entry.
+ *
+ * We do this in a separate pass over the base rels so that rowcount
+ * estimates are available for parameterized path generation.
+ */
+static void
+set_base_rel_sizes(PlannerInfo *root)
+{
+	Index		rti;
+
+	for (rti = 1; rti < root->simple_rel_array_size; rti++)
+	{
+		RelOptInfo *rel = root->simple_rel_array[rti];
+
+		/* there may be empty slots corresponding to non-baserel RTEs */
+		if (rel == NULL)
+			continue;
+
+		Assert(rel->relid == rti);		/* sanity check on array */
+
+		/* ignore RTEs that are "other rels" */
+		if (rel->reloptkind != RELOPT_BASEREL)
+			continue;
+
+		set_rel_size(root, rel, rti, root->simple_rte_array[rti]);
+	}
 }
 
 /*
@@ -170,6 +212,83 @@ set_base_rel_pathlists(PlannerInfo *root)
 }
 
 /*
+ * set_rel_size
+ *	  Set size estimates for a base relation
+ */
+static void
+set_rel_size(PlannerInfo *root, RelOptInfo *rel,
+			 Index rti, RangeTblEntry *rte)
+{
+	if (rel->reloptkind == RELOPT_BASEREL &&
+		relation_excluded_by_constraints(root, rel, rte))
+	{
+		/*
+		 * We proved we don't need to scan the rel via constraint exclusion,
+		 * so set up a single dummy path for it.  Here we only check this for
+		 * regular baserels; if it's an otherrel, CE was already checked in
+		 * set_append_rel_pathlist().
+		 *
+		 * In this case, we go ahead and set up the relation's path right away
+		 * instead of leaving it for set_rel_pathlist to do.  This is because
+		 * we don't have a convention for marking a rel as dummy except by
+		 * assigning a dummy path to it.
+		 */
+		set_dummy_rel_pathlist(rel);
+	}
+	else if (rte->inh)
+	{
+		/* It's an "append relation", process accordingly */
+		set_append_rel_size(root, rel, rti, rte);
+	}
+	else
+	{
+		switch (rel->rtekind)
+		{
+			case RTE_RELATION:
+				if (rte->relkind == RELKIND_FOREIGN_TABLE)
+				{
+					/* Foreign table */
+					set_foreign_size(root, rel, rte);
+				}
+				else
+				{
+					/* Plain relation */
+					set_plain_rel_size(root, rel, rte);
+				}
+				break;
+			case RTE_SUBQUERY:
+
+				/*
+				 * Subqueries don't support parameterized paths, so just go
+				 * ahead and build their paths immediately.
+				 */
+				set_subquery_pathlist(root, rel, rti, rte);
+				break;
+			case RTE_FUNCTION:
+				set_function_size_estimates(root, rel);
+				break;
+			case RTE_VALUES:
+				set_values_size_estimates(root, rel);
+				break;
+			case RTE_CTE:
+
+				/*
+				 * CTEs don't support parameterized paths, so just go ahead
+				 * and build their paths immediately.
+				 */
+				if (rte->self_reference)
+					set_worktable_pathlist(root, rel, rte);
+				else
+					set_cte_pathlist(root, rel, rte);
+				break;
+			default:
+				elog(ERROR, "unexpected rtekind: %d", (int) rel->rtekind);
+				break;
+		}
+	}
+}
+
+/*
  * set_rel_pathlist
  *	  Build access paths for a base relation
  */
@@ -177,7 +296,11 @@ static void
 set_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 				 Index rti, RangeTblEntry *rte)
 {
-	if (rte->inh)
+	if (IS_DUMMY_REL(rel))
+	{
+		/* We already proved the relation empty, so nothing more to do */
+	}
+	else if (rte->inh)
 	{
 		/* It's an "append relation", process accordingly */
 		set_append_rel_pathlist(root, rel, rti, rte);
@@ -199,23 +322,18 @@ set_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 				}
 				break;
 			case RTE_SUBQUERY:
-				/* Subquery --- generate a separate plan for it */
-				set_subquery_pathlist(root, rel, rti, rte);
+				/* Subquery --- fully handled during set_rel_size */
 				break;
 			case RTE_FUNCTION:
-				/* RangeFunction --- generate a suitable path for it */
+				/* RangeFunction */
 				set_function_pathlist(root, rel, rte);
 				break;
 			case RTE_VALUES:
-				/* Values list --- generate a suitable path for it */
+				/* Values list */
 				set_values_pathlist(root, rel, rte);
 				break;
 			case RTE_CTE:
-				/* CTE reference --- generate a suitable path for it */
-				if (rte->self_reference)
-					set_worktable_pathlist(root, rel, rte);
-				else
-					set_cte_pathlist(root, rel, rte);
+				/* CTE reference --- fully handled during set_rel_size */
 				break;
 			default:
 				elog(ERROR, "unexpected rtekind: %d", (int) rel->rtekind);
@@ -229,25 +347,12 @@ set_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 }
 
 /*
- * set_plain_rel_pathlist
- *	  Build access paths for a plain relation (no subquery, no inheritance)
+ * set_plain_rel_size
+ *	  Set size estimates for a plain relation (no subquery, no inheritance)
  */
 static void
-set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
+set_plain_rel_size(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 {
-	/*
-	 * If we can prove we don't need to scan the rel via constraint exclusion,
-	 * set up a single dummy path for it.  We only need to check for regular
-	 * baserels; if it's an otherrel, CE was already checked in
-	 * set_append_rel_pathlist().
-	 */
-	if (rel->reloptkind == RELOPT_BASEREL &&
-		relation_excluded_by_constraints(root, rel, rte))
-	{
-		set_dummy_rel_pathlist(rel);
-		return;
-	}
-
 	/*
 	 * Test any partial indexes of rel for applicability.  We must do this
 	 * first since partial unique indexes can affect size estimates.
@@ -267,15 +372,16 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		check_partial_indexes(root, rel);
 		set_baserel_size_estimates(root, rel);
 	}
+}
 
-	/*
-	 * Generate paths and add them to the rel's pathlist.
-	 *
-	 * Note: add_path() will discard any paths that are dominated by another
-	 * available path, keeping only those paths that are superior along at
-	 * least one dimension of cost or sortedness.
-	 */
 
+/*
+ * set_plain_rel_pathlist
+ *	  Build access paths for a plain relation (no subquery, no inheritance)
+ */
+static void
+set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
+{
 #ifdef PGXC
 	/*
 	 * If we are on the Coordinator, we always want to use
@@ -293,7 +399,7 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 #endif
 
 	/* Consider sequential scan */
-	add_path(rel, create_seqscan_path(root, rel));
+	add_path(rel, create_seqscan_path(root, rel, NULL));
 
 	/* Consider index scans */
 	create_index_paths(root, rel);
@@ -309,8 +415,39 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 }
 
 /*
- * set_append_rel_pathlist
- *	  Build access paths for an "append relation"
+ * set_foreign_size
+ *		Set size estimates for a foreign table RTE
+ */
+static void
+set_foreign_size(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
+{
+	/* Mark rel with estimated output rows, width, etc */
+	set_foreign_size_estimates(root, rel);
+
+	/* Get FDW routine pointers for the rel */
+	rel->fdwroutine = GetFdwRoutineByRelId(rte->relid);
+
+	/* Let FDW adjust the size estimates, if it can */
+	rel->fdwroutine->GetForeignRelSize(root, rel, rte->relid);
+}
+
+/*
+ * set_foreign_pathlist
+ *		Build access paths for a foreign table RTE
+ */
+static void
+set_foreign_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
+{
+	/* Call the FDW's GetForeignPaths function to generate path(s) */
+	rel->fdwroutine->GetForeignPaths(root, rel, rte->relid);
+
+	/* Select cheapest path */
+	set_cheapest(rel);
+}
+
+/*
+ * set_append_rel_size
+ *	  Set size estimates for an "append relation"
  *
  * The passed-in rel and RTE represent the entire append relation.	The
  * relation's contents are computed by appending together the output of
@@ -320,13 +457,10 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
  * a good thing because their outputs are not the same size.
  */
 static void
-set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
-						Index rti, RangeTblEntry *rte)
+set_append_rel_size(PlannerInfo *root, RelOptInfo *rel,
+					Index rti, RangeTblEntry *rte)
 {
 	int			parentRTindex = rti;
-	List	   *live_childrels = NIL;
-	List	   *subpaths = NIL;
-	List	   *all_child_pathkeys = NIL;
 	double		parent_rows;
 	double		parent_size;
 	double	   *parent_attrsizes;
@@ -352,10 +486,6 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 	nattrs = rel->max_attr - rel->min_attr + 1;
 	parent_attrsizes = (double *) palloc0(nattrs * sizeof(double));
 
-	/*
-	 * Generate access paths for each member relation, and pick the cheapest
-	 * path for each one.
-	 */
 	foreach(l, root->append_rel_list)
 	{
 		AppendRelInfo *appinfo = (AppendRelInfo *) lfirst(l);
@@ -364,7 +494,6 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 		RelOptInfo *childrel;
 		List	   *childquals;
 		Node	   *childqual;
-		ListCell   *lcp;
 		ListCell   *parentvars;
 		ListCell   *childvars;
 
@@ -397,7 +526,8 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 		 * reconstitute the RestrictInfo layer.
 		 */
 		childquals = get_all_actual_clauses(rel->baserestrictinfo);
-		childquals = (List *) adjust_appendrel_attrs((Node *) childquals,
+		childquals = (List *) adjust_appendrel_attrs(root,
+													 (Node *) childquals,
 													 appinfo);
 		childqual = eval_const_expressions(root, (Node *)
 										   make_ands_explicit(childquals));
@@ -421,19 +551,28 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 		{
 			/*
 			 * This child need not be scanned, so we can omit it from the
-			 * appendrel.  Mark it with a dummy cheapest-path though, in case
-			 * best_appendrel_indexscan() looks at it later.
+			 * appendrel.
 			 */
 			set_dummy_rel_pathlist(childrel);
 			continue;
 		}
 
-		/* CE failed, so finish copying targetlist and join quals */
+		/*
+		 * CE failed, so finish copying/modifying targetlist and join quals.
+		 *
+		 * Note: the resulting childrel->reltargetlist may contain arbitrary
+		 * expressions, which normally would not occur in a reltargetlist.
+		 * That is okay because nothing outside of this routine will look at
+		 * the child rel's reltargetlist.  We do have to cope with the case
+		 * while constructing attr_widths estimates below, though.
+		 */
 		childrel->joininfo = (List *)
-			adjust_appendrel_attrs((Node *) rel->joininfo,
+			adjust_appendrel_attrs(root,
+								   (Node *) rel->joininfo,
 								   appinfo);
 		childrel->reltargetlist = (List *)
-			adjust_appendrel_attrs((Node *) rel->reltargetlist,
+			adjust_appendrel_attrs(root,
+								   (Node *) rel->reltargetlist,
 								   appinfo);
 
 		/*
@@ -456,78 +595,57 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 		 * otherrels.  So we just leave the child's attr_needed empty.
 		 */
 
-		/* Remember which childrels are live, for MergeAppend logic below */
-		live_childrels = lappend(live_childrels, childrel);
-
 		/*
-		 * Compute the child's access paths, and add the cheapest one to the
-		 * Append path we are constructing for the parent.
+		 * Compute the child's size.
 		 */
-		set_rel_pathlist(root, childrel, childRTindex, childRTE);
-
-		subpaths = accumulate_append_subpath(subpaths,
-											 childrel->cheapest_total_path);
+		set_rel_size(root, childrel, childRTindex, childRTE);
 
 		/*
-		 * Collect a list of all the available path orderings for all the
-		 * children.  We use this as a heuristic to indicate which sort
-		 * orderings we should build MergeAppend paths for.
+		 * It is possible that constraint exclusion detected a contradiction
+		 * within a child subquery, even though we didn't prove one above. If
+		 * so, we can skip this child.
 		 */
-		foreach(lcp, childrel->pathlist)
-		{
-			Path	   *childpath = (Path *) lfirst(lcp);
-			List	   *childkeys = childpath->pathkeys;
-			ListCell   *lpk;
-			bool		found = false;
-
-			/* Ignore unsorted paths */
-			if (childkeys == NIL)
-				continue;
-
-			/* Have we already seen this ordering? */
-			foreach(lpk, all_child_pathkeys)
-			{
-				List	   *existing_pathkeys = (List *) lfirst(lpk);
-
-				if (compare_pathkeys(existing_pathkeys,
-									 childkeys) == PATHKEYS_EQUAL)
-				{
-					found = true;
-					break;
-				}
-			}
-			if (!found)
-			{
-				/* No, so add it to all_child_pathkeys */
-				all_child_pathkeys = lappend(all_child_pathkeys, childkeys);
-			}
-		}
+		if (IS_DUMMY_REL(childrel))
+			continue;
 
 		/*
-		 * Accumulate size information from each child.
+		 * Accumulate size information from each live child.
 		 */
 		if (childrel->rows > 0)
 		{
 			parent_rows += childrel->rows;
 			parent_size += childrel->width * childrel->rows;
 
+			/*
+			 * Accumulate per-column estimates too.  We need not do anything
+			 * for PlaceHolderVars in the parent list.	If child expression
+			 * isn't a Var, or we didn't record a width estimate for it, we
+			 * have to fall back on a datatype-based estimate.
+			 *
+			 * By construction, child's reltargetlist is 1-to-1 with parent's.
+			 */
 			forboth(parentvars, rel->reltargetlist,
 					childvars, childrel->reltargetlist)
 			{
 				Var		   *parentvar = (Var *) lfirst(parentvars);
-				Var		   *childvar = (Var *) lfirst(childvars);
+				Node	   *childvar = (Node *) lfirst(childvars);
 
-				/*
-				 * Accumulate per-column estimates too.  Whole-row Vars and
-				 * PlaceHolderVars can be ignored here.
-				 */
-				if (IsA(parentvar, Var) &&
-					IsA(childvar, Var))
+				if (IsA(parentvar, Var))
 				{
 					int			pndx = parentvar->varattno - rel->min_attr;
-					int			cndx = childvar->varattno - childrel->min_attr;
+					int32		child_width = 0;
 
-					parent_attrsizes[pndx] += childrel->attr_widths[cndx] * childrel->rows;
+					if (IsA(childvar, Var))
+					{
+						int			cndx = ((Var *) childvar)->varattno - childrel->min_attr;
+
+						child_width = childrel->attr_widths[cndx];
+					}
+					if (child_width <= 0)
+						child_width = get_typavgwidth(exprType(childvar),
+													  exprTypmod(childvar));
+					Assert(child_width > 0);
+					parent_attrsizes[pndx] += child_width * childrel->rows;
 				}
 			}
 		}
@@ -555,24 +673,235 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 	rel->tuples = parent_rows;
 
 	pfree(parent_attrsizes);
+}
+
+/*
+ * set_append_rel_pathlist
+ *	  Build access paths for an "append relation"
+ */
+static void
+set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
+						Index rti, RangeTblEntry *rte)
+{
+	int			parentRTindex = rti;
+	List	   *live_childrels = NIL;
+	List	   *subpaths = NIL;
+	List	   *all_child_pathkeys = NIL;
+	List	   *all_child_outers = NIL;
+	ListCell   *l;
 
 	/*
-	 * Next, build an unordered Append path for the rel.  (Note: this is
-	 * correct even if we have zero or one live subpath due to constraint
-	 * exclusion.)
+	 * Generate access paths for each member relation, and remember the
+	 * cheapest path for each one.	Also, identify all pathkeys (orderings)
+	 * and parameterizations (required_outer sets) available for the member
+	 * relations.
 	 */
-	add_path(rel, (Path *) create_append_path(rel, subpaths));
-
-	/*
-	 * Next, build MergeAppend paths based on the collected list of child
-	 * pathkeys.  We consider both cheapest-startup and cheapest-total cases,
-	 * ie, for each interesting ordering, collect all the cheapest startup
-	 * subpaths and all the cheapest total paths, and build a MergeAppend path
-	 * for each list.
-	 */
-	foreach(l, all_child_pathkeys)
+	foreach(l, root->append_rel_list)
 	{
-		List	   *pathkeys = (List *) lfirst(l);
+		AppendRelInfo *appinfo = (AppendRelInfo *) lfirst(l);
+		int			childRTindex;
+		RangeTblEntry *childRTE;
+		RelOptInfo *childrel;
+		ListCell   *lcp;
+
+		/* append_rel_list contains all append rels; ignore others */
+		if (appinfo->parent_relid != parentRTindex)
+			continue;
+
+		/* Re-locate the child RTE and RelOptInfo */
+		childRTindex = appinfo->child_relid;
+		childRTE = root->simple_rte_array[childRTindex];
+		childrel = root->simple_rel_array[childRTindex];
+
+		/*
+		 * Compute the child's access paths.
+		 */
+		set_rel_pathlist(root, childrel, childRTindex, childRTE);
+
+		/*
+		 * If child is dummy, ignore it.
+		 */
+		if (IS_DUMMY_REL(childrel))
+			continue;
+
+		/*
+		 * Child is live, so add its cheapest access path to the Append path
+		 * we are constructing for the parent.
+		 */
+		subpaths = accumulate_append_subpath(subpaths,
+											 childrel->cheapest_total_path);
+
+		/* Remember which childrels are live, for logic below */
+		live_childrels = lappend(live_childrels, childrel);
+
+		/*
+		 * Collect lists of all the available path orderings and
+		 * parameterizations for all the children.	We use these as a
+		 * heuristic to indicate which sort orderings and parameterizations we
+		 * should build Append and MergeAppend paths for.
+		 */
+		foreach(lcp, childrel->pathlist)
+		{
+			Path	   *childpath = (Path *) lfirst(lcp);
+			List	   *childkeys = childpath->pathkeys;
+			Relids		childouter = PATH_REQ_OUTER(childpath);
+
+			/* Unsorted paths don't contribute to pathkey list */
+			if (childkeys != NIL)
+			{
+				ListCell   *lpk;
+				bool		found = false;
+
+				/* Have we already seen this ordering? */
+				foreach(lpk, all_child_pathkeys)
+				{
+					List	   *existing_pathkeys = (List *) lfirst(lpk);
+
+					if (compare_pathkeys(existing_pathkeys,
+										 childkeys) == PATHKEYS_EQUAL)
+					{
+						found = true;
+						break;
+					}
+				}
+				if (!found)
+				{
+					/* No, so add it to all_child_pathkeys */
+					all_child_pathkeys = lappend(all_child_pathkeys,
+												 childkeys);
+				}
+			}
+
+			/* Unparameterized paths don't contribute to param-set list */
+			if (childouter)
+			{
+				ListCell   *lco;
+				bool		found = false;
+
+				/* Have we already seen this param set? */
+				foreach(lco, all_child_outers)
+				{
+					Relids		existing_outers = (Relids) lfirst(lco);
+
+					if (bms_equal(existing_outers, childouter))
+					{
+						found = true;
+						break;
+					}
+				}
+				if (!found)
+				{
+					/* No, so add it to all_child_outers */
+					all_child_outers = lappend(all_child_outers,
+											   childouter);
+				}
+			}
+		}
+	}
+
+	/*
+	 * Next, build an unordered, unparameterized Append path for the rel.
+	 * (Note: this is correct even if we have zero or one live subpath due to
+	 * constraint exclusion.)
+	 */
+	add_path(rel, (Path *) create_append_path(rel, subpaths, NULL));
+
+	/*
+	 * Build unparameterized MergeAppend paths based on the collected list of
+	 * child pathkeys.
+	 */
+	generate_mergeappend_paths(root, rel, live_childrels, all_child_pathkeys);
+
+	/*
+	 * Build Append paths for each parameterization seen among the child rels.
+	 * (This may look pretty expensive, but in most cases of practical
+	 * interest, the child rels will expose mostly the same parameterizations,
+	 * so that not that many cases actually get considered here.)
+	 *
+	 * The Append node itself cannot enforce quals, so all qual checking must
+	 * be done in the child paths.	This means that to have a parameterized
+	 * Append path, we must have the exact same parameterization for each
+	 * child path; otherwise some children might be failing to check the
+	 * moved-down quals.  To make them match up, we can try to increase the
+	 * parameterization of lesser-parameterized paths.
+	 */
+	foreach(l, all_child_outers)
+	{
+		Relids		required_outer = (Relids) lfirst(l);
+		bool		ok = true;
+		ListCell   *lcr;
+
+		/* Select the child paths for an Append with this parameterization */
+		subpaths = NIL;
+		foreach(lcr, live_childrels)
+		{
+			RelOptInfo *childrel = (RelOptInfo *) lfirst(lcr);
+			Path	   *cheapest_total;
+
+			cheapest_total =
+				get_cheapest_path_for_pathkeys(childrel->pathlist,
+											   NIL,
+											   required_outer,
+											   TOTAL_COST);
+			Assert(cheapest_total != NULL);
+
+			/* Children must have exactly the desired parameterization */
+			if (!bms_equal(PATH_REQ_OUTER(cheapest_total), required_outer))
+			{
+				cheapest_total = reparameterize_path(root, cheapest_total,
+													 required_outer, 1.0);
+				if (cheapest_total == NULL)
+				{
+					ok = false;
+					break;
+				}
+			}
+
+			subpaths = accumulate_append_subpath(subpaths, cheapest_total);
+		}
+
+		if (ok)
+			add_path(rel, (Path *)
+					 create_append_path(rel, subpaths, required_outer));
+	}
+
+	/* Select cheapest paths */
+	set_cheapest(rel);
+}
+
+/*
+ * generate_mergeappend_paths
+ *		Generate MergeAppend paths for an append relation
+ *
+ * Generate a path for each ordering (pathkey list) appearing in
+ * all_child_pathkeys.
+ *
+ * We consider both cheapest-startup and cheapest-total cases, ie, for each
+ * interesting ordering, collect all the cheapest startup subpaths and all the
+ * cheapest total paths, and build a MergeAppend path for each case.
+ *
+ * We don't currently generate any parameterized MergeAppend paths.  While
+ * it would not take much more code here to do so, it's very unclear that it
+ * is worth the planning cycles to investigate such paths: there's little
+ * use for an ordered path on the inside of a nestloop.  In fact, it's likely
+ * that the current coding of add_path would reject such paths out of hand,
+ * because add_path gives no credit for sort ordering of parameterized paths,
+ * and a parameterized MergeAppend is going to be more expensive than the
+ * corresponding parameterized Append path.  If we ever try harder to support
+ * parameterized mergejoin plans, it might be worth adding support for
+ * parameterized MergeAppends to feed such joins.  (See notes in
+ * optimizer/README for why that might not ever happen, though.)
+ */
+static void
+generate_mergeappend_paths(PlannerInfo *root, RelOptInfo *rel,
+						   List *live_childrels,
+						   List *all_child_pathkeys)
+{
+	ListCell   *lcp;
+
+	foreach(lcp, all_child_pathkeys)
+	{
+		List	   *pathkeys = (List *) lfirst(lcp);
 		List	   *startup_subpaths = NIL;
 		List	   *total_subpaths = NIL;
 		bool		startup_neq_total = false;
@@ -589,20 +918,24 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 			cheapest_startup =
 				get_cheapest_path_for_pathkeys(childrel->pathlist,
 											   pathkeys,
+											   NULL,
 											   STARTUP_COST);
 			cheapest_total =
 				get_cheapest_path_for_pathkeys(childrel->pathlist,
 											   pathkeys,
+											   NULL,
 											   TOTAL_COST);
 
 			/*
-			 * If we can't find any paths with the right order just add the
-			 * cheapest-total path; we'll have to sort it.
+			 * If we can't find any paths with the right order just use the
+			 * cheapest-total path; we'll have to sort it later.
 			 */
-			if (cheapest_startup == NULL)
-				cheapest_startup = childrel->cheapest_total_path;
-			if (cheapest_total == NULL)
-				cheapest_total = childrel->cheapest_total_path;
+			if (cheapest_startup == NULL || cheapest_total == NULL)
+			{
+				cheapest_startup = cheapest_total =
+					childrel->cheapest_total_path;
+				Assert(cheapest_total != NULL);
+			}
 
 			/*
 			 * Notice whether we actually have different paths for the
@@ -622,16 +955,15 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 		add_path(rel, (Path *) create_merge_append_path(root,
 														rel,
 														startup_subpaths,
-														pathkeys));
+														pathkeys,
+														NULL));
 		if (startup_neq_total)
 			add_path(rel, (Path *) create_merge_append_path(root,
 															rel,
 															total_subpaths,
-															pathkeys));
+															pathkeys,
+															NULL));
 	}
-
-	/* Select cheapest path */
-	set_cheapest(rel);
 }
 
 /*
@@ -662,7 +994,7 @@ accumulate_append_subpath(List *subpaths, Path *path)
  *	  Build a dummy path for a relation that's been excluded by constraints
  *
  * Rather than inventing a special "dummy" path type, we represent this as an
- * AppendPath with no members (see also IS_DUMMY_PATH macro).
+ * AppendPath with no members (see also IS_DUMMY_PATH/IS_DUMMY_REL macros).
  */
 static void
 set_dummy_rel_pathlist(RelOptInfo *rel)
@@ -671,7 +1003,10 @@ set_dummy_rel_pathlist(RelOptInfo *rel)
 	rel->rows = 0;
 	rel->width = 0;
 
-	add_path(rel, (Path *) create_append_path(rel, NIL));
+	/* Discard any pre-existing paths; no further need for them */
+	rel->pathlist = NIL;
+
+	add_path(rel, (Path *) create_append_path(rel, NIL, NULL));
 
 	/* Select cheapest path (pretty easy in this case...) */
 	set_cheapest(rel);
@@ -702,6 +1037,9 @@ has_multiple_baserels(PlannerInfo *root)
 /*
  * set_subquery_pathlist
  *		Build the (single) access path for a subquery RTE
+ *
+ * There's no need for a separate set_subquery_size phase, since we don't
+ * support parameterized paths for subqueries.
  */
 static void
 set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
@@ -739,6 +1077,11 @@ set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 	 * pseudoconstant clauses; better to have the gating node above the
 	 * subquery.
 	 *
+	 * Also, if the sub-query has "security_barrier" flag, it means the
+	 * sub-query originated from a view that must enforce row-level security.
+	 * We must not push down quals in order to avoid information leaks, either
+	 * via side-effects or error output.
+	 *
 	 * Non-pushed-down clauses will get evaluated as qpquals of the
 	 * SubqueryScan node.
 	 *
@@ -758,6 +1101,8 @@ set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 			Node	   *clause = (Node *) rinfo->clause;
 
 			if (!rinfo->pseudoconstant &&
+				(!rte->security_barrier ||
+				 !contain_leaky_functions(clause)) &&
 				qual_is_pushdown_safe(subquery, rti, clause, differentTypes))
 			{
 				/* Push it down */
@@ -795,17 +1140,27 @@ set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 									root,
 									false, tuple_fraction,
 									&subroot);
-	rel->subrtable = subroot->parse->rtable;
-	rel->subrowmark = subroot->rowMarks;
+	rel->subroot = subroot;
+
+	/*
+	 * It's possible that constraint exclusion proved the subquery empty. If
+	 * so, it's convenient to turn it back into a dummy path so that we will
+	 * recognize appropriate optimizations at this level.
+	 */
+	if (is_dummy_plan(rel->subplan))
+	{
+		set_dummy_rel_pathlist(rel);
+		return;
+	}
 
 	/* Mark rel with estimated output rows, width, etc */
-	set_subquery_size_estimates(root, rel, subroot);
+	set_subquery_size_estimates(root, rel);
 
 	/* Convert subquery pathkeys to outer representation */
 	pathkeys = convert_subquery_pathkeys(root, rel, subroot->query_pathkeys);
 
 	/* Generate appropriate path */
-	add_path(rel, create_subqueryscan_path(rel, pathkeys));
+	add_path(rel, create_subqueryscan_path(root, rel, pathkeys, NULL));
 
 	/* Select cheapest path (pretty easy in this case...) */
 	set_cheapest(rel);
@@ -818,9 +1173,6 @@ set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 static void
 set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 {
-	/* Mark rel with estimated output rows, width, etc */
-	set_function_size_estimates(root, rel);
-
 	/* Generate appropriate path */
 	add_path(rel, create_functionscan_path(root, rel));
 
@@ -835,9 +1187,6 @@ set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 static void
 set_values_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 {
-	/* Mark rel with estimated output rows, width, etc */
-	set_values_size_estimates(root, rel);
-
 	/* Generate appropriate path */
 	add_path(rel, create_valuesscan_path(root, rel));
 
@@ -848,6 +1197,9 @@ set_values_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 /*
  * set_cte_pathlist
  *		Build the (single) access path for a non-self-reference CTE RTE
+ *
+ * There's no need for a separate set_cte_size phase, since we don't
+ * support parameterized paths for CTEs.
  */
 static void
 set_cte_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
@@ -906,6 +1258,9 @@ set_cte_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 /*
  * set_worktable_pathlist
  *		Build the (single) access path for a self-reference CTE RTE
+ *
+ * There's no need for a separate set_worktable_size phase, since we don't
+ * support parameterized paths for CTEs.
  */
 static void
 set_worktable_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
@@ -939,23 +1294,6 @@ set_worktable_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 	/* Generate appropriate path */
 	add_path(rel, create_worktablescan_path(root, rel));
-
-	/* Select cheapest path (pretty easy in this case...) */
-	set_cheapest(rel);
-}
-
-/*
- * set_foreign_pathlist
- *		Build the (single) access path for a foreign table RTE
- */
-static void
-set_foreign_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
-{
-	/* Mark rel with estimated output rows, width, etc */
-	set_foreign_size_estimates(root, rel);
-
-	/* Generate appropriate path */
-	add_path(rel, (Path *) create_foreignscan_path(root, rel));
 
 	/* Select cheapest path (pretty easy in this case...) */
 	set_cheapest(rel);
@@ -1329,7 +1667,7 @@ qual_is_pushdown_safe(Query *subquery, Index rti, Node *qual,
 
 	/*
 	 * It would be unsafe to push down window function calls, but at least for
-	 * the moment we could never see any in a qual anyhow.  (The same applies
+	 * the moment we could never see any in a qual anyhow.	(The same applies
 	 * to aggregates, which we check for in pull_var_clause below.)
 	 */
 	Assert(!contain_window_function(qual));

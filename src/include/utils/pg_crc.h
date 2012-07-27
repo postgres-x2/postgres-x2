@@ -14,7 +14,7 @@
  * code for possible future use.
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/utils/pg_crc.h
@@ -40,7 +40,7 @@ typedef uint32 pg_crc32;
 /* Accumulate some (more) bytes into a CRC */
 #define COMP_CRC32(crc, data, len)	\
 do { \
-	unsigned char *__data = (unsigned char *) (data); \
+	const unsigned char *__data = (const unsigned char *) (data); \
 	uint32		__len = (len); \
 \
 	while (__len-- > 0) \

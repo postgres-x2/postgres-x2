@@ -206,7 +206,7 @@ su - postgres
       installation with the header files and
       the <application>distutils</application> module.  The minimum
       required version is <productname>Python</productname>
-      2.2.  <productname>Python 3</productname> is supported if it's
+      2.3.  <productname>Python 3</productname> is supported if it's
       version 3.1 or later; but see
       <![%standalone-include[the <application>PL/Python</> documentation]]>
       <![%standalone-ignore[<xref linkend="plpython-python23">]]>
@@ -1412,6 +1412,28 @@ su - postgres
       </varlistentry>
      </variablelist>
     </para>
+
+    <note>
+     <para>
+      When developing code inside the server, it is recommended to
+      use the configure options <option>--enable-cassert</> (which
+      turns on many run-time error checks) and <option>--enable-debug</>
+      (which improves the usefulness of debugging tools).
+     </para>
+
+     <para>
+      If using GCC, it is best to build with an optimization level of
+      at least <option>-O1</>, because using no optimization
+      (<option>-O0</>) disables some important compiler warnings (such
+      as the use of uninitialized variables).  However, non-zero
+      optimization levels can complicate debugging because stepping
+      through compiled code will usually not match up one-to-one with
+      source code lines.  If you get confused while trying to debug
+      optimized code, recompile the specific files of interest with
+      <option>-O0</>.  An easy way to do this is by passing an option
+      to <application>make</>: <command>gmake PROFILE=-O0 file.o</>.
+     </para>
+    </note>
    </step>
 
   <step id="build">
@@ -1552,19 +1574,6 @@ PostgreSQL, contrib and HTML documentation successfully made. Ready to install.
   </procedure>
 
   <formalpara>
-   <title>Registering <application>eventlog</> on <systemitem
-   class="osname">Windows</>:</title>
-   <para>
-    To register a <systemitem class="osname">Windows</> <application>eventlog</>
-    library with the operating system, issue this command after installation:
-<screen>
-<userinput>regsvr32 <replaceable>pgsql_library_directory</>/pgevent.dll</>
-</screen>
-    This creates registry entries used by the event viewer.
-   </para>
-  </formalpara>
-
-  <formalpara>
    <title>Uninstallation:</title>
    <para>
     To undo the installation use the command <command>gmake
@@ -1613,8 +1622,8 @@ PostgreSQL, contrib and HTML documentation successfully made. Ready to install.
     On some systems with shared libraries
     you need to tell the system how to find the newly installed
     shared libraries.  The systems on which this is
-    <emphasis>not</emphasis> necessary include <systemitem
-    class="osname">BSD/OS</>, <systemitem class="osname">FreeBSD</>,
+    <emphasis>not</emphasis> necessary include
+    <systemitem class="osname">FreeBSD</>,
     <systemitem class="osname">HP-UX</>, <systemitem
     class="osname">IRIX</>, <systemitem class="osname">Linux</>,
     <systemitem class="osname">NetBSD</>, <systemitem
@@ -1673,9 +1682,8 @@ libpq.so.2.1: cannot open shared object file: No such file or directory
     <indexterm>
      <primary>ldconfig</primary>
     </indexterm>
-    If you are on <systemitem class="osname">BSD/OS</>, <systemitem
-    class="osname">Linux</>, or <systemitem class="osname">SunOS 4</>
-    and you have root access you can run:
+    If you are on <systemitem class="osname">Linux</> and you have root
+    access, you can run:
 <programlisting>
 /sbin/ldconfig /usr/local/pgsql/lib
 </programlisting>
@@ -2442,7 +2450,7 @@ make MAX_CONNECTIONS=5 check
     distribution tarball, you will also need Flex (GNU lex) and Bison
     (GNU yacc).  We also recommend making sure you are fairly
     up-to-date on HP patches.  At a minimum, if you are building 64
-    bit binaries on on HP-UX 11.11 you may need PHSS_30966 (11.11) or a
+    bit binaries on HP-UX 11.11 you may need PHSS_30966 (11.11) or a
     successor patch otherwise <command>initdb</command> may hang:
 <literallayout>
 PHSS_30966  s700_800 ld(1) and linker tools cumulative patch
@@ -2691,7 +2699,7 @@ cc-1020 cc: ERROR File = pqcomm.c, Line = 427
     </para>
 
     <para>
-     As of UnixWare 7.1.3 and above, the GNU Make program is is the
+     As of UnixWare 7.1.3 and above, the GNU Make program is the
      OSTK portion of the UDK CD, and is
      in <filename>/usr/gnu/bin/gmake</filename>.
     </para>

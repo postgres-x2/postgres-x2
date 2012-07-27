@@ -7,7 +7,7 @@
  *	  stuff - checking the qualification and projecting the tuple
  *	  appropriately.
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -219,6 +219,8 @@ ExecScan(ScanState *node,
 				return slot;
 			}
 		}
+		else
+			InstrCountFiltered1(node, 1);
 
 		/*
 		 * Tuple fails qual, so free per-tuple memory and try again.
@@ -244,10 +246,17 @@ void
 ExecAssignScanProjectionInfo(ScanState *node)
 {
 	Scan	   *scan = (Scan *) node->ps.plan;
+	Index		varno;
+
+	/* Vars in an index-only scan's tlist should be INDEX_VAR */
+	if (IsA(scan, IndexOnlyScan))
+		varno = INDEX_VAR;
+	else
+		varno = scan->scanrelid;
 
 	if (tlist_matches_tupdesc(&node->ps,
 							  scan->plan.targetlist,
-							  scan->scanrelid,
+							  varno,
 							  node->ss_ScanTupleSlot->tts_tupleDescriptor))
 		node->ps.ps_ProjInfo = NULL;
 	else

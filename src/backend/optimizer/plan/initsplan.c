@@ -3,7 +3,7 @@
  * initsplan.c
  *	  Target list, qualification, joininfo initialization routines
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -14,11 +14,9 @@
  */
 #include "postgres.h"
 
-#include "catalog/pg_operator.h"
 #include "catalog/pg_type.h"
 #include "nodes/nodeFuncs.h"
 #include "optimizer/clauses.h"
-#include "optimizer/cost.h"
 #include "optimizer/joininfo.h"
 #include "optimizer/pathnode.h"
 #include "optimizer/paths.h"
@@ -27,11 +25,7 @@
 #include "optimizer/prep.h"
 #include "optimizer/restrictinfo.h"
 #include "optimizer/var.h"
-#include "parser/parse_expr.h"
-#include "parser/parse_oper.h"
-#include "utils/builtins.h"
 #include "utils/lsyscache.h"
-#include "utils/syscache.h"
 
 
 /* These parameters are set by GUC */
@@ -137,7 +131,7 @@ build_base_rel_tlists(PlannerInfo *root, List *final_tlist)
 
 	if (tlist_vars != NIL)
 	{
-		add_vars_to_targetlist(root, tlist_vars, bms_make_singleton(0));
+		add_vars_to_targetlist(root, tlist_vars, bms_make_singleton(0), true);
 		list_free(tlist_vars);
 	}
 }
@@ -151,10 +145,15 @@ build_base_rel_tlists(PlannerInfo *root, List *final_tlist)
  *
  *	  The list may also contain PlaceHolderVars.  These don't necessarily
  *	  have a single owning relation; we keep their attr_needed info in
- *	  root->placeholder_list instead.
+ *	  root->placeholder_list instead.  If create_new_ph is true, it's OK
+ *	  to create new PlaceHolderInfos, and we also have to update ph_may_need;
+ *	  otherwise, the PlaceHolderInfos must already exist, and we should only
+ *	  update their ph_needed.  (It should be true before deconstruct_jointree
+ *	  begins, and false after that.)
  */
 void
-add_vars_to_targetlist(PlannerInfo *root, List *vars, Relids where_needed)
+add_vars_to_targetlist(PlannerInfo *root, List *vars,
+					   Relids where_needed, bool create_new_ph)
 {
 	ListCell   *temp;
 
@@ -185,18 +184,20 @@ add_vars_to_targetlist(PlannerInfo *root, List *vars, Relids where_needed)
 		else if (IsA(node, PlaceHolderVar))
 		{
 			PlaceHolderVar *phv = (PlaceHolderVar *) node;
-			PlaceHolderInfo *phinfo = find_placeholder_info(root, phv);
+			PlaceHolderInfo *phinfo = find_placeholder_info(root, phv,
+															create_new_ph);
 
+			/* Always adjust ph_needed */
 			phinfo->ph_needed = bms_add_members(phinfo->ph_needed,
 												where_needed);
 
 			/*
-			 * Update ph_may_need too.	This is currently only necessary when
-			 * being called from build_base_rel_tlists, but we may as well do
-			 * it always.
+			 * If we are creating PlaceHolderInfos, mark them with the correct
+			 * maybe-needed locations.	Otherwise, it's too late to change
+			 * that.
 			 */
-			phinfo->ph_may_need = bms_add_members(phinfo->ph_may_need,
-												  where_needed);
+			if (create_new_ph)
+				mark_placeholder_maybe_needed(root, phinfo, where_needed);
 		}
 		else
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
@@ -1016,6 +1017,7 @@ distribute_qual_to_rels(PlannerInfo *root, Node *clause,
 									 outerjoin_delayed,
 									 pseudoconstant,
 									 relids,
+									 outerjoin_nonnullable,
 									 nullable_relids);
 
 	/*
@@ -1035,7 +1037,7 @@ distribute_qual_to_rels(PlannerInfo *root, Node *clause,
 										   PVC_RECURSE_AGGREGATES,
 										   PVC_INCLUDE_PLACEHOLDERS);
 
-		add_vars_to_targetlist(root, vars, relids);
+		add_vars_to_targetlist(root, vars, relids, false);
 		list_free(vars);
 	}
 
@@ -1465,6 +1467,7 @@ build_implied_join_equality(Oid opno,
 									 false,		/* outerjoin_delayed */
 									 false,		/* pseudoconstant */
 									 qualscope, /* required_relids */
+									 NULL,		/* outer_relids */
 									 NULL);		/* nullable_relids */
 
 	/* Set mergejoinability/hashjoinability flags */

@@ -30,12 +30,6 @@
 #include "utils/numeric.h"
 #include "utils/pg_locale.h"
 
-#define CASH_BUFSZ		36
-
-#define TERMINATOR		(CASH_BUFSZ - 1)
-#define LAST_PAREN		(TERMINATOR - 1)
-#define LAST_DIGIT		(LAST_PAREN - 1)
-
 
 /*************************************************************************
  * Private routines
@@ -107,13 +101,13 @@ cash_in(PG_FUNCTION_ARGS)
 	Cash		value = 0;
 	Cash		dec = 0;
 	Cash		sgn = 1;
-	int			seen_dot = 0;
+	bool		seen_dot = false;
 	const char *s = str;
 	int			fpoint;
-	char		dsymbol,
-				ssymbol,
-				psymbol;
-	const char *nsymbol,
+	char		dsymbol;
+	const char *ssymbol,
+			   *psymbol,
+			   *nsymbol,
 			   *csymbol;
 	struct lconv *lconvert = PGLC_localeconv();
 
@@ -131,18 +125,22 @@ cash_in(PG_FUNCTION_ARGS)
 	if (fpoint < 0 || fpoint > 10)
 		fpoint = 2;				/* best guess in this case, I think */
 
-	dsymbol = ((*lconvert->mon_decimal_point != '\0') ? *lconvert->mon_decimal_point : '.');
-	if (*lconvert->mon_thousands_sep != '\0')
-		ssymbol = *lconvert->mon_thousands_sep;
+	/* we restrict dsymbol to be a single byte, but not the other symbols */
+	if (*lconvert->mon_decimal_point != '\0' &&
+		lconvert->mon_decimal_point[1] == '\0')
+		dsymbol = *lconvert->mon_decimal_point;
 	else
-		/* ssymbol should not equal dsymbol */
-		ssymbol = (dsymbol != ',') ? ',' : '.';
-	csymbol = ((*lconvert->currency_symbol != '\0') ? lconvert->currency_symbol : "$");
-	psymbol = ((*lconvert->positive_sign != '\0') ? *lconvert->positive_sign : '+');
-	nsymbol = ((*lconvert->negative_sign != '\0') ? lconvert->negative_sign : "-");
+		dsymbol = '.';
+	if (*lconvert->mon_thousands_sep != '\0')
+		ssymbol = lconvert->mon_thousands_sep;
+	else	/* ssymbol should not equal dsymbol */
+		ssymbol = (dsymbol != ',') ? "," : ".";
+	csymbol = (*lconvert->currency_symbol != '\0') ? lconvert->currency_symbol : "$";
+	psymbol = (*lconvert->positive_sign != '\0') ? lconvert->positive_sign : "+";
+	nsymbol = (*lconvert->negative_sign != '\0') ? lconvert->negative_sign : "-";
 
 #ifdef CASHDEBUG
-	printf("cashin- precision '%d'; decimal '%c'; thousands '%c'; currency '%s'; positive '%c'; negative '%s'\n",
+	printf("cashin- precision '%d'; decimal '%c'; thousands '%s'; currency '%s'; positive '%s'; negative '%s'\n",
 		   fpoint, dsymbol, ssymbol, csymbol, psymbol, nsymbol);
 #endif
 
@@ -152,6 +150,8 @@ cash_in(PG_FUNCTION_ARGS)
 		s++;
 	if (strncmp(s, csymbol, strlen(csymbol)) == 0)
 		s += strlen(csymbol);
+	while (isspace((unsigned char) *s))
+		s++;
 
 #ifdef CASHDEBUG
 	printf("cashin- string is '%s'\n", s);
@@ -164,32 +164,32 @@ cash_in(PG_FUNCTION_ARGS)
 	{
 		sgn = -1;
 		s += strlen(nsymbol);
-#ifdef CASHDEBUG
-		printf("cashin- negative symbol; string is '%s'\n", s);
-#endif
 	}
 	else if (*s == '(')
 	{
 		sgn = -1;
 		s++;
 	}
-	else if (*s == psymbol)
-		s++;
+	else if (strncmp(s, psymbol, strlen(psymbol)) == 0)
+		s += strlen(psymbol);
 
 #ifdef CASHDEBUG
 	printf("cashin- string is '%s'\n", s);
 #endif
 
+	/* allow whitespace and currency symbol after the sign, too */
 	while (isspace((unsigned char) *s))
 		s++;
 	if (strncmp(s, csymbol, strlen(csymbol)) == 0)
 		s += strlen(csymbol);
+	while (isspace((unsigned char) *s))
+		s++;
 
 #ifdef CASHDEBUG
 	printf("cashin- string is '%s'\n", s);
 #endif
 
-	for (;; s++)
+	for (; *s; s++)
 	{
 		/* we look for digits as long as we have found less */
 		/* than the required number of decimal places */
@@ -203,33 +203,49 @@ cash_in(PG_FUNCTION_ARGS)
 		/* decimal point? then start counting fractions... */
 		else if (*s == dsymbol && !seen_dot)
 		{
-			seen_dot = 1;
+			seen_dot = true;
 		}
 		/* ignore if "thousands" separator, else we're done */
-		else if (*s != ssymbol)
-		{
-			/* round off */
-			if (isdigit((unsigned char) *s) && *s >= '5')
-				value++;
-
-			/* adjust for less than required decimal places */
-			for (; dec < fpoint; dec++)
-				value *= 10;
-
+		else if (strncmp(s, ssymbol, strlen(ssymbol)) == 0)
+			s += strlen(ssymbol) - 1;
+		else
 			break;
-		}
 	}
 
-	/* should only be trailing digits followed by whitespace or right paren */
+	/* round off if there's another digit */
+	if (isdigit((unsigned char) *s) && *s >= '5')
+		value++;
+
+	/* adjust for less than required decimal places */
+	for (; dec < fpoint; dec++)
+		value *= 10;
+
+	/*
+	 * should only be trailing digits followed by whitespace, right paren,
+	 * trailing sign, and/or trailing currency symbol
+	 */
 	while (isdigit((unsigned char) *s))
 		s++;
-	while (isspace((unsigned char) *s) || *s == ')')
-		s++;
 
-	if (*s != '\0')
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
-				 errmsg("invalid input syntax for type money: \"%s\"", str)));
+	while (*s)
+	{
+		if (isspace((unsigned char) *s) || *s == ')')
+			s++;
+		else if (strncmp(s, nsymbol, strlen(nsymbol)) == 0)
+		{
+			sgn = -1;
+			s += strlen(nsymbol);
+		}
+		else if (strncmp(s, psymbol, strlen(psymbol)) == 0)
+			s += strlen(psymbol);
+		else if (strncmp(s, csymbol, strlen(csymbol)) == 0)
+			s += strlen(csymbol);
+		else
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+					 errmsg("invalid input syntax for type money: \"%s\"",
+							str)));
+	}
 
 	result = value * sgn;
 
@@ -242,27 +258,26 @@ cash_in(PG_FUNCTION_ARGS)
 
 
 /* cash_out()
- * Function to convert cash to a dollars and cents representation.
- * XXX HACK This code appears to assume US conventions for
- *	positive-valued amounts. - tgl 97/04/14
+ * Function to convert cash to a dollars and cents representation, using
+ * the lc_monetary locale's formatting.
  */
 Datum
 cash_out(PG_FUNCTION_ARGS)
 {
 	Cash		value = PG_GETARG_CASH(0);
 	char	   *result;
-	char		buf[CASH_BUFSZ];
-	int			minus = 0;
-	int			count = LAST_DIGIT;
-	int			point_pos;
-	int			ssymbol_position = 0;
+	char		buf[128];
+	char	   *bufptr;
+	int			digit_pos;
 	int			points,
 				mon_group;
-	char		ssymbol;
-	const char *csymbol,
-			   *nsymbol;
 	char		dsymbol;
-	char		convention;
+	const char *ssymbol,
+			   *csymbol,
+			   *signsymbol;
+	char		sign_posn,
+				cs_precedes,
+				sep_by_space;
 	struct lconv *lconvert = PGLC_localeconv();
 
 	/* see comments about frac_digits in cash_in() */
@@ -278,70 +293,171 @@ cash_out(PG_FUNCTION_ARGS)
 	if (mon_group <= 0 || mon_group > 6)
 		mon_group = 3;
 
-	convention = lconvert->n_sign_posn;
-	dsymbol = ((*lconvert->mon_decimal_point != '\0') ? *lconvert->mon_decimal_point : '.');
-	if (*lconvert->mon_thousands_sep != '\0')
-		ssymbol = *lconvert->mon_thousands_sep;
+	/* we restrict dsymbol to be a single byte, but not the other symbols */
+	if (*lconvert->mon_decimal_point != '\0' &&
+		lconvert->mon_decimal_point[1] == '\0')
+		dsymbol = *lconvert->mon_decimal_point;
 	else
-		/* ssymbol should not equal dsymbol */
-		ssymbol = (dsymbol != ',') ? ',' : '.';
-	csymbol = ((*lconvert->currency_symbol != '\0') ? lconvert->currency_symbol : "$");
-	nsymbol = ((*lconvert->negative_sign != '\0') ? lconvert->negative_sign : "-");
+		dsymbol = '.';
+	if (*lconvert->mon_thousands_sep != '\0')
+		ssymbol = lconvert->mon_thousands_sep;
+	else	/* ssymbol should not equal dsymbol */
+		ssymbol = (dsymbol != ',') ? "," : ".";
+	csymbol = (*lconvert->currency_symbol != '\0') ? lconvert->currency_symbol : "$";
 
-	point_pos = LAST_DIGIT - points;
-
-	point_pos -= (points - 1) / mon_group;
-	ssymbol_position = point_pos % (mon_group + 1);
-
-	/* we work with positive amounts and add the minus sign at the end */
 	if (value < 0)
 	{
-		minus = 1;
+		/* make the amount positive for digit-reconstruction loop */
 		value = -value;
-	}
-
-	/* allow for trailing negative strings */
-	MemSet(buf, ' ', CASH_BUFSZ);
-	buf[TERMINATOR] = buf[LAST_PAREN] = '\0';
-
-	while (value || count > (point_pos - 2))
-	{
-		if (points && count == point_pos)
-			buf[count--] = dsymbol;
-		else if (ssymbol && count % (mon_group + 1) == ssymbol_position)
-			buf[count--] = ssymbol;
-
-		buf[count--] = ((uint64) value % 10) + '0';
-		value = ((uint64) value) / 10;
-	}
-
-	strncpy((buf + count - strlen(csymbol) + 1), csymbol, strlen(csymbol));
-	count -= strlen(csymbol) - 1;
-
-	/*
-	 * If points == 0 and the number of digits % mon_group == 0, the code
-	 * above adds a trailing ssymbol on the far right, so remove it.
-	 */
-	if (buf[LAST_DIGIT] == ssymbol)
-		buf[LAST_DIGIT] = '\0';
-
-	/* see if we need to signify negative amount */
-	if (minus)
-	{
-		result = palloc(CASH_BUFSZ + 2 - count + strlen(nsymbol));
-
-		/* Position code of 0 means use parens */
-		if (convention == 0)
-			sprintf(result, "(%s)", buf + count);
-		else if (convention == 2)
-			sprintf(result, "%s%s", buf + count, nsymbol);
-		else
-			sprintf(result, "%s%s", nsymbol, buf + count);
+		/* set up formatting data */
+		signsymbol = (*lconvert->negative_sign != '\0') ? lconvert->negative_sign : "-";
+		sign_posn = lconvert->n_sign_posn;
+		cs_precedes = lconvert->n_cs_precedes;
+		sep_by_space = lconvert->n_sep_by_space;
 	}
 	else
 	{
-		result = palloc(CASH_BUFSZ + 2 - count);
-		strcpy(result, buf + count);
+		signsymbol = lconvert->positive_sign;
+		sign_posn = lconvert->p_sign_posn;
+		cs_precedes = lconvert->p_cs_precedes;
+		sep_by_space = lconvert->p_sep_by_space;
+	}
+
+	/* we build the digits+decimal-point+sep string right-to-left in buf[] */
+	bufptr = buf + sizeof(buf) - 1;
+	*bufptr = '\0';
+
+	/*
+	 * Generate digits till there are no non-zero digits left and we emitted
+	 * at least one to the left of the decimal point.  digit_pos is the
+	 * current digit position, with zero as the digit just left of the decimal
+	 * point, increasing to the right.
+	 */
+	digit_pos = points;
+	do
+	{
+		if (points && digit_pos == 0)
+		{
+			/* insert decimal point, but not if value cannot be fractional */
+			*(--bufptr) = dsymbol;
+		}
+		else if (digit_pos < 0 && (digit_pos % mon_group) == 0)
+		{
+			/* insert thousands sep, but only to left of radix point */
+			bufptr -= strlen(ssymbol);
+			memcpy(bufptr, ssymbol, strlen(ssymbol));
+		}
+
+		*(--bufptr) = ((uint64) value % 10) + '0';
+		value = ((uint64) value) / 10;
+		digit_pos--;
+	} while (value || digit_pos >= 0);
+
+	/*----------
+	 * Now, attach currency symbol and sign symbol in the correct order.
+	 *
+	 * The POSIX spec defines these values controlling this code:
+	 *
+	 * p/n_sign_posn:
+	 *	0	Parentheses enclose the quantity and the currency_symbol.
+	 *	1	The sign string precedes the quantity and the currency_symbol.
+	 *	2	The sign string succeeds the quantity and the currency_symbol.
+	 *	3	The sign string precedes the currency_symbol.
+	 *	4	The sign string succeeds the currency_symbol.
+	 *
+	 * p/n_cs_precedes: 0 means currency symbol after value, else before it.
+	 *
+	 * p/n_sep_by_space:
+	 *	0	No <space> separates the currency symbol and value.
+	 *	1	If the currency symbol and sign string are adjacent, a <space>
+	 *		separates them from the value; otherwise, a <space> separates
+	 *		the currency symbol from the value.
+	 *	2	If the currency symbol and sign string are adjacent, a <space>
+	 *		separates them; otherwise, a <space> separates the sign string
+	 *		from the value.
+	 *----------
+	 */
+	result = palloc(strlen(bufptr) + strlen(csymbol) + strlen(signsymbol) + 4);
+
+	switch (sign_posn)
+	{
+		case 0:
+			if (cs_precedes)
+				sprintf(result, "(%s%s%s)",
+						csymbol,
+						(sep_by_space == 1) ? " " : "",
+						bufptr);
+			else
+				sprintf(result, "(%s%s%s)",
+						bufptr,
+						(sep_by_space == 1) ? " " : "",
+						csymbol);
+			break;
+		case 1:
+		default:
+			if (cs_precedes)
+				sprintf(result, "%s%s%s%s%s",
+						signsymbol,
+						(sep_by_space == 2) ? " " : "",
+						csymbol,
+						(sep_by_space == 1) ? " " : "",
+						bufptr);
+			else
+				sprintf(result, "%s%s%s%s%s",
+						signsymbol,
+						(sep_by_space == 2) ? " " : "",
+						bufptr,
+						(sep_by_space == 1) ? " " : "",
+						csymbol);
+			break;
+		case 2:
+			if (cs_precedes)
+				sprintf(result, "%s%s%s%s%s",
+						csymbol,
+						(sep_by_space == 1) ? " " : "",
+						bufptr,
+						(sep_by_space == 2) ? " " : "",
+						signsymbol);
+			else
+				sprintf(result, "%s%s%s%s%s",
+						bufptr,
+						(sep_by_space == 1) ? " " : "",
+						csymbol,
+						(sep_by_space == 2) ? " " : "",
+						signsymbol);
+			break;
+		case 3:
+			if (cs_precedes)
+				sprintf(result, "%s%s%s%s%s",
+						signsymbol,
+						(sep_by_space == 2) ? " " : "",
+						csymbol,
+						(sep_by_space == 1) ? " " : "",
+						bufptr);
+			else
+				sprintf(result, "%s%s%s%s%s",
+						bufptr,
+						(sep_by_space == 1) ? " " : "",
+						signsymbol,
+						(sep_by_space == 2) ? " " : "",
+						csymbol);
+			break;
+		case 4:
+			if (cs_precedes)
+				sprintf(result, "%s%s%s%s%s",
+						csymbol,
+						(sep_by_space == 2) ? " " : "",
+						signsymbol,
+						(sep_by_space == 1) ? " " : "",
+						bufptr);
+			else
+				sprintf(result, "%s%s%s%s%s",
+						bufptr,
+						(sep_by_space == 1) ? " " : "",
+						csymbol,
+						(sep_by_space == 2) ? " " : "",
+						signsymbol);
+			break;
 	}
 
 	PG_RETURN_CSTRING(result);

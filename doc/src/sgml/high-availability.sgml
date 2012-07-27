@@ -140,7 +140,7 @@ protocol to make nodes agree on a serializable transactional order.
   </varlistentry>
 
   <varlistentry>
-   <term>Warm and Hot Standby Using Point-In-Time Recovery (<acronym>PITR</>)</term>
+   <term>Transaction Log Shipping</term>
    <listitem>
 
     <para>
@@ -148,11 +148,11 @@ protocol to make nodes agree on a serializable transactional order.
      stream of write-ahead log (<acronym>WAL</>)
      records.  If the main server fails, the standby contains
      almost all of the data of the main server, and can be quickly
-     made the new master database server.  This is asynchronous and
-     can only be done for the entire database server.
+     made the new master database server.  This can be synchronous or
+     asynchronous and can only be done for the entire database server.
     </para>
     <para>
-     A PITR standby server can be implemented using file-based log shipping
+     A standby server can be implemented using file-based log shipping
      (<xref linkend="warm-standby">) or streaming replication (see
      <xref linkend="streaming-replication">), or a combination of both. For
      information on hot standby, see <xref linkend="hot-standby">.
@@ -291,7 +291,7 @@ protocol to make nodes agree on a serializable transactional order.
      <entry>Feature</entry>
      <entry>Shared Disk Failover</entry>
      <entry>File System Replication</entry>
-     <entry>Hot/Warm Standby Using PITR</entry>
+     <entry>Transaction Log Shipping</entry>
      <entry>Trigger-Based Master-Standby Replication</entry>
      <entry>Statement-Based Replication Middleware</entry>
      <entry>Asynchronous Multimaster Replication</entry>
@@ -305,7 +305,7 @@ protocol to make nodes agree on a serializable transactional order.
      <entry>Most Common Implementation</entry>
      <entry align="center">NAS</entry>
      <entry align="center">DRBD</entry>
-     <entry align="center">PITR</entry>
+     <entry align="center">Streaming Repl.</entry>
      <entry align="center">Slony</entry>
      <entry align="center">pgpool-II</entry>
      <entry align="center">Bucardo</entry>
@@ -360,7 +360,7 @@ protocol to make nodes agree on a serializable transactional order.
      <entry>No waiting for multiple servers</entry>
      <entry align="center">&bull;</entry>
      <entry align="center"></entry>
-     <entry align="center">&bull;</entry>
+     <entry align="center">with sync off</entry>
      <entry align="center">&bull;</entry>
      <entry align="center"></entry>
      <entry align="center">&bull;</entry>
@@ -371,7 +371,7 @@ protocol to make nodes agree on a serializable transactional order.
      <entry>Master failure will never lose data</entry>
      <entry align="center">&bull;</entry>
      <entry align="center">&bull;</entry>
-     <entry align="center"></entry>
+     <entry align="center">with sync on</entry>
      <entry align="center"></entry>
      <entry align="center">&bull;</entry>
      <entry align="center"></entry>
@@ -382,7 +382,7 @@ protocol to make nodes agree on a serializable transactional order.
      <entry>Standby accept read-only queries</entry>
      <entry align="center"></entry>
      <entry align="center"></entry>
-     <entry align="center">Hot only</entry>
+     <entry align="center">with hot</entry>
      <entry align="center">&bull;</entry>
      <entry align="center">&bull;</entry>
      <entry align="center">&bull;</entry>
@@ -797,22 +797,13 @@ archive_cleanup_command = 'pg_archivecleanup /path/to/archive %r'
      It is very important that the access privileges for replication be set up
      so that only trusted users can read the WAL stream, because it is
      easy to extract privileged information from it.  Standby servers must
-     authenticate to the primary as an account that has the
-     <literal>REPLICATION</> privilege. So a role with the
-     <literal>REPLICATION</> and <literal>LOGIN</> privileges needs to be
-     created on the primary.
+     authenticate to the primary as a superuser or an account that has the
+     <literal>REPLICATION</> privilege. It is recommended to create a
+     dedicated user account with <literal>REPLICATION</> and <literal>LOGIN</>
+     privileges for replication. While <literal>REPLICATION</> privilege gives
+     very high permissions, it does not allow the user to modify any data on
+     the primary system, which the <literal>SUPERUSER</> privilege does.
     </para>
-
-    <note>
-     <para>
-      It is recommended that a dedicated user account is used for replication.
-      While the <literal>REPLICATION</> privilege is granted to superuser
-      accounts by default, it is not recommended to use superuser accounts
-      for replication. While <literal>REPLICATION</> privilege gives very high
-      permissions, it does not allow the user to modify any data on the
-      primary system, which the <literal>SUPERUSER</> privilege does.
-     </para>
-    </note>
 
     <para>
      Client authentication for replication is controlled by a
@@ -872,13 +863,72 @@ primary_conninfo = 'host=192.168.1.50 port=5432 user=foo password=foopass'
      <literal>pg_stat_replication</></link> view. Large differences between
      <function>pg_current_xlog_location</> and <literal>sent_location</> field
      might indicate that the master server is under heavy load, while
-     differences between <literal>sent_location</> and 
+     differences between <literal>sent_location</> and
      <function>pg_last_xlog_receive_location</> on the standby might indicate
      network delay, or that the standby is under heavy load.
     </para>
    </sect3>
-
   </sect2>
+
+  <sect2 id="cascading-replication">
+   <title>Cascading Replication</title>
+
+   <indexterm zone="high-availability">
+    <primary>Cascading Replication</primary>
+   </indexterm>
+
+   <para>
+    The cascading replication feature allows a standby server to accept replication
+    connections and stream WAL records to other standbys, acting as a relay.
+    This can be used to reduce the number of direct connections to the master
+    and also to minimise inter-site bandwidth overheads.
+   </para>
+
+   <para>
+    A standby acting as both a receiver and a sender is known as a cascading
+    standby.  Standbys that are more directly connected to the master are known
+    as upstream servers, while those standby servers further away are downstream
+    servers.  Cascading replication does not place limits on the number or
+    arrangement of downstream servers, though each standby connects to only
+    one upstream server which eventually links to a single master/primary
+    server.
+   </para>
+
+   <para>
+    A cascading standby sends not only WAL records received from the
+    master but also those restored from the archive. So even if the replication
+    connection in some upstream connection is terminated, streaming replication
+    continues downstream for as long as new WAL records are available.
+   </para>
+
+   <para>
+    Cascading replication is currently asynchronous. Synchronous replication
+    (see <xref linkend="synchronous-replication">) settings have no effect on
+    cascading replication at present.
+   </para>
+
+   <para>
+    Hot Standby feedback propagates upstream, whatever the cascaded arrangement.
+   </para>
+
+   <para>
+    Promoting a cascading standby terminates the immediate downstream replication
+    connections which it serves. This is because the timeline becomes different
+    between standbys, and they can no longer continue replication.  The
+    affected standby(s) may reconnect to reestablish streaming replication.
+   </para>
+
+   <para>
+    To use cascading replication, set up the cascading standby so that it can
+    accept replication connections (that is, set
+    <xref linkend="guc-max-wal-senders"> and <xref linkend="guc-hot-standby">,
+    and configure
+    <link linkend="auth-pg-hba-conf">host-based authentication</link>).
+    You will also need to set <varname>primary_conninfo</> in the downstream
+    standby to point to the cascading standby.
+   </para>
+  </sect2>
+
   <sect2 id="synchronous-replication">
    <title>Synchronous Replication</title>
 
@@ -955,12 +1005,24 @@ primary_conninfo = 'host=192.168.1.50 port=5432 user=foo password=foopass'
     confirmation that the commit record has been received. These parameters
     allow the administrator to specify which standby servers should be
     synchronous standbys. Note that the configuration of synchronous
-    replication is mainly on the master.
+    replication is mainly on the master. Named standbys must be directly
+    connected to the master; the master knows nothing about downstream
+    standby servers using cascaded replication.
+   </para>
+
+   <para>
+    Setting <varname>synchronous_commit</> to <literal>remote_write</> will
+    cause each commit to wait for confirmation that the standby has received
+    the commit record to memory. This provides a lower level of durability
+    than <literal>on</> does. However, it's a practically useful setting
+    because it can decrease the response time for the transaction, and causes
+    no data loss unless both the primary and the standby crashes and
+    the database of the primary gets corrupted at the same time.
    </para>
 
    <para>
     Users will stop waiting if a fast shutdown is requested.  However, as
-    when using asynchronous replication, the server will does not fully
+    when using asynchronous replication, the server will not fully
     shutdown until all outstanding WAL records are transferred to the currently
     connected standby servers.
    </para>
@@ -1013,13 +1075,13 @@ primary_conninfo = 'host=192.168.1.50 port=5432 user=foo password=foopass'
 
    <para>
     Commits made when <varname>synchronous_commit</> is set to <literal>on</>
-    will wait until the sync standby responds. The response may never occur
-    if the last, or only, standby should crash.
+    or <literal>remote_write</> will wait until the synchronous standby responds. The response
+    may never occur if the last, or only, standby should crash.
    </para>
 
    <para>
     The best solution for avoiding data loss is to ensure you don't lose
-    your last remaining sync standby. This can be achieved by naming multiple
+    your last remaining synchronous standby. This can be achieved by naming multiple
     potential synchronous standbys using <varname>synchronous_standby_names</>.
     The first named standby will be used as the synchronous standby. Standbys
     listed after this will take over the role of synchronous standby if the
@@ -1028,14 +1090,14 @@ primary_conninfo = 'host=192.168.1.50 port=5432 user=foo password=foopass'
 
    <para>
     When a standby first attaches to the primary, it will not yet be properly
-    synchronized. This is described as <literal>CATCHUP</> mode. Once
+    synchronized. This is described as <literal>catchup</> mode. Once
     the lag between standby and primary reaches zero for the first time
-    we move to real-time <literal>STREAMING</> state.
+    we move to real-time <literal>streaming</> state.
     The catch-up duration may be long immediately after the standby has
     been created. If the standby is shut down, then the catch-up period
     will increase according to the length of time the standby has been down.
     The standby is only able to become a synchronous standby
-    once it has reached <literal>STREAMING</> state.
+    once it has reached <literal>streaming</> state.
    </para>
 
    <para>
@@ -1064,7 +1126,7 @@ primary_conninfo = 'host=192.168.1.50 port=5432 user=foo password=foopass'
 
    <para>
     If you need to re-create a standby server while transactions are
-    waiting, make sure that the commands to run pg_start_backup() and
+    waiting, make sure that the commands pg_start_backup() and
     pg_stop_backup() are run in a session with
     <varname>synchronous_commit</> = <literal>off</>, otherwise those
     requests will wait forever for the standby to appear.

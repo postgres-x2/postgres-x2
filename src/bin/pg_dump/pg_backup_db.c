@@ -11,38 +11,32 @@
  */
 
 #include "pg_backup_db.h"
+#include "dumpmem.h"
 #include "dumputils.h"
 
 #include <unistd.h>
-
 #include <ctype.h>
-
 #ifdef HAVE_TERMIOS_H
 #include <termios.h>
 #endif
 
+
+#define DB_MAX_ERR_STMT 128
 
 static const char *modulename = gettext_noop("archiver (db)");
 
 static void _check_database_version(ArchiveHandle *AH);
 static PGconn *_connectDB(ArchiveHandle *AH, const char *newdbname, const char *newUser);
 static void notice_processor(void *arg, const char *message);
-static char *_sendSQLLine(ArchiveHandle *AH, char *qry, char *eos);
-static char *_sendCopyLine(ArchiveHandle *AH, char *qry, char *eos);
-
-static bool _isIdentChar(unsigned char c);
-static bool _isDQChar(unsigned char c, bool atStart);
-
-#define DB_MAX_ERR_STMT 128
 
 static int
-_parse_version(ArchiveHandle *AH, const char *versionString)
+_parse_version(const char *versionString)
 {
 	int			v;
 
 	v = parse_version(versionString);
 	if (v < 0)
-		die_horribly(AH, modulename, "could not parse version string \"%s\"\n", versionString);
+		exit_horribly(modulename, "could not parse version string \"%s\"\n", versionString);
 
 	return v;
 }
@@ -54,15 +48,15 @@ _check_database_version(ArchiveHandle *AH)
 	const char *remoteversion_str;
 	int			remoteversion;
 
-	myversion = _parse_version(AH, PG_VERSION);
+	myversion = _parse_version(PG_VERSION);
 
 	remoteversion_str = PQparameterStatus(AH->connection, "server_version");
 	if (!remoteversion_str)
-		die_horribly(AH, modulename, "could not get server_version from libpq\n");
+		exit_horribly(modulename, "could not get server_version from libpq\n");
 
-	remoteversion = _parse_version(AH, remoteversion_str);
+	remoteversion = _parse_version(remoteversion_str);
 
-	AH->public.remoteVersionStr = strdup(remoteversion_str);
+	AH->public.remoteVersionStr = pg_strdup(remoteversion_str);
 	AH->public.remoteVersion = remoteversion;
 	if (!AH->archiveRemoteVersion)
 		AH->archiveRemoteVersion = AH->public.remoteVersionStr;
@@ -73,7 +67,7 @@ _check_database_version(ArchiveHandle *AH)
 	{
 		write_msg(NULL, "server version: %s; %s version: %s\n",
 				  remoteversion_str, progname, PG_VERSION);
-		die_horribly(AH, NULL, "aborting because of server version mismatch\n");
+		exit_horribly(NULL, "aborting because of server version mismatch\n");
 	}
 }
 
@@ -151,17 +145,14 @@ _connectDB(ArchiveHandle *AH, const char *reqdb, const char *requser)
 	{
 		password = simple_prompt("Password: ", 100, false);
 		if (password == NULL)
-			die_horribly(AH, modulename, "out of memory\n");
+			exit_horribly(modulename, "out of memory\n");
 	}
 
 	do
 	{
 #define PARAMS_ARRAY_SIZE	7
-		const char **keywords = malloc(PARAMS_ARRAY_SIZE * sizeof(*keywords));
-		const char **values = malloc(PARAMS_ARRAY_SIZE * sizeof(*values));
-
-		if (!keywords || !values)
-			die_horribly(AH, modulename, "out of memory\n");
+		const char **keywords = pg_malloc(PARAMS_ARRAY_SIZE * sizeof(*keywords));
+		const char **values = pg_malloc(PARAMS_ARRAY_SIZE * sizeof(*values));
 
 		keywords[0] = "host";
 		values[0] = PQhost(AH->connection);
@@ -185,13 +176,13 @@ _connectDB(ArchiveHandle *AH, const char *reqdb, const char *requser)
 		free(values);
 
 		if (!newConn)
-			die_horribly(AH, modulename, "failed to reconnect to database\n");
+			exit_horribly(modulename, "failed to reconnect to database\n");
 
 		if (PQstatus(newConn) == CONNECTION_BAD)
 		{
 			if (!PQconnectionNeedsPassword(newConn))
-				die_horribly(AH, modulename, "could not reconnect to database: %s",
-							 PQerrorMessage(newConn));
+				exit_horribly(modulename, "could not reconnect to database: %s",
+							  PQerrorMessage(newConn));
 			PQfinish(newConn);
 
 			if (password)
@@ -206,10 +197,10 @@ _connectDB(ArchiveHandle *AH, const char *reqdb, const char *requser)
 			if (AH->promptPassword != TRI_NO)
 				password = simple_prompt("Password: ", 100, false);
 			else
-				die_horribly(AH, modulename, "connection needs password\n");
+				exit_horribly(modulename, "connection needs password\n");
 
 			if (password == NULL)
-				die_horribly(AH, modulename, "out of memory\n");
+				exit_horribly(modulename, "out of memory\n");
 			new_pass = true;
 		}
 	} while (new_pass);
@@ -234,7 +225,7 @@ _connectDB(ArchiveHandle *AH, const char *reqdb, const char *requser)
  * cache if the username keeps changing.  In current usage, however, the
  * username never does change, so one savedPassword is sufficient.
  */
-PGconn *
+void
 ConnectDatabase(Archive *AHX,
 				const char *dbname,
 				const char *pghost,
@@ -247,13 +238,13 @@ ConnectDatabase(Archive *AHX,
 	bool		new_pass;
 
 	if (AH->connection)
-		die_horribly(AH, modulename, "already connected to a database\n");
+		exit_horribly(modulename, "already connected to a database\n");
 
 	if (prompt_password == TRI_YES && password == NULL)
 	{
 		password = simple_prompt("Password: ", 100, false);
 		if (password == NULL)
-			die_horribly(AH, modulename, "out of memory\n");
+			exit_horribly(modulename, "out of memory\n");
 	}
 	AH->promptPassword = prompt_password;
 
@@ -264,11 +255,8 @@ ConnectDatabase(Archive *AHX,
 	do
 	{
 #define PARAMS_ARRAY_SIZE	7
-		const char **keywords = malloc(PARAMS_ARRAY_SIZE * sizeof(*keywords));
-		const char **values = malloc(PARAMS_ARRAY_SIZE * sizeof(*values));
-
-		if (!keywords || !values)
-			die_horribly(AH, modulename, "out of memory\n");
+		const char **keywords = pg_malloc(PARAMS_ARRAY_SIZE * sizeof(*keywords));
+		const char **values = pg_malloc(PARAMS_ARRAY_SIZE * sizeof(*values));
 
 		keywords[0] = "host";
 		values[0] = pghost;
@@ -292,7 +280,7 @@ ConnectDatabase(Archive *AHX,
 		free(values);
 
 		if (!AH->connection)
-			die_horribly(AH, modulename, "failed to connect to database\n");
+			exit_horribly(modulename, "failed to connect to database\n");
 
 		if (PQstatus(AH->connection) == CONNECTION_BAD &&
 			PQconnectionNeedsPassword(AH->connection) &&
@@ -302,7 +290,7 @@ ConnectDatabase(Archive *AHX,
 			PQfinish(AH->connection);
 			password = simple_prompt("Password: ", 100, false);
 			if (password == NULL)
-				die_horribly(AH, modulename, "out of memory\n");
+				exit_horribly(modulename, "out of memory\n");
 			new_pass = true;
 		}
 	} while (new_pass);
@@ -311,17 +299,31 @@ ConnectDatabase(Archive *AHX,
 
 	/* check to see that the backend connection was successfully made */
 	if (PQstatus(AH->connection) == CONNECTION_BAD)
-		die_horribly(AH, modulename, "connection to database \"%s\" failed: %s",
-					 PQdb(AH->connection), PQerrorMessage(AH->connection));
+		exit_horribly(modulename, "connection to database \"%s\" failed: %s",
+					  PQdb(AH->connection), PQerrorMessage(AH->connection));
 
 	/* check for version mismatch */
 	_check_database_version(AH);
 
 	PQsetNoticeProcessor(AH->connection, notice_processor, NULL);
+}
+
+void
+DisconnectDatabase(Archive *AHX)
+{
+	ArchiveHandle *AH = (ArchiveHandle *) AHX;
+
+	PQfinish(AH->connection);	/* noop if AH->connection is NULL */
+	AH->connection = NULL;
+}
+
+PGconn *
+GetConnection(Archive *AHX)
+{
+	ArchiveHandle *AH = (ArchiveHandle *) AHX;
 
 	return AH->connection;
 }
-
 
 static void
 notice_processor(void *arg, const char *message)
@@ -329,9 +331,43 @@ notice_processor(void *arg, const char *message)
 	write_msg(NULL, "%s", message);
 }
 
+/* Like exit_horribly(), but with a complaint about a particular query. */
+static void
+die_on_query_failure(ArchiveHandle *AH, const char *modulename, const char *query)
+{
+	write_msg(modulename, "query failed: %s",
+			  PQerrorMessage(AH->connection));
+	exit_horribly(modulename, "query was: %s\n", query);
+}
 
-/* Public interface */
-/* Convenience function to send a query. Monitors result to handle COPY statements */
+void
+ExecuteSqlStatement(Archive *AHX, const char *query)
+{
+	ArchiveHandle *AH = (ArchiveHandle *) AHX;
+	PGresult   *res;
+
+	res = PQexec(AH->connection, query);
+	if (PQresultStatus(res) != PGRES_COMMAND_OK)
+		die_on_query_failure(AH, modulename, query);
+	PQclear(res);
+}
+
+PGresult *
+ExecuteSqlQuery(Archive *AHX, const char *query, ExecStatusType status)
+{
+	ArchiveHandle *AH = (ArchiveHandle *) AHX;
+	PGresult   *res;
+
+	res = PQexec(AH->connection, query);
+	if (PQresultStatus(res) != status)
+		die_on_query_failure(AH, modulename, query);
+	return res;
+}
+
+/*
+ * Convenience function to send a query.
+ * Monitors result to detect COPY statements
+ */
 static void
 ExecuteSqlCommand(ArchiveHandle *AH, const char *qry, const char *desc)
 {
@@ -348,6 +384,7 @@ ExecuteSqlCommand(ArchiveHandle *AH, const char *qry, const char *desc)
 	{
 		case PGRES_COMMAND_OK:
 		case PGRES_TUPLES_OK:
+		case PGRES_EMPTY_QUERY:
 			/* A-OK */
 			break;
 		case PGRES_COPY_IN:
@@ -364,228 +401,76 @@ ExecuteSqlCommand(ArchiveHandle *AH, const char *qry, const char *desc)
 				errStmt[DB_MAX_ERR_STMT - 2] = '.';
 				errStmt[DB_MAX_ERR_STMT - 1] = '\0';
 			}
-			warn_or_die_horribly(AH, modulename, "%s: %s    Command was: %s\n",
-								 desc, PQerrorMessage(conn), errStmt);
+			warn_or_exit_horribly(AH, modulename, "%s: %s    Command was: %s\n",
+								  desc, PQerrorMessage(conn), errStmt);
 			break;
 	}
 
 	PQclear(res);
 }
 
-/*
- * Used by ExecuteSqlCommandBuf to send one buffered line when running a COPY command.
- */
-static char *
-_sendCopyLine(ArchiveHandle *AH, char *qry, char *eos)
-{
-	size_t		loc;			/* Location of next newline */
-	int			pos = 0;		/* Current position */
-	int			sPos = 0;		/* Last pos of a slash char */
-	int			isEnd = 0;
-
-	/* loop to find unquoted newline ending the line of COPY data */
-	for (;;)
-	{
-		loc = strcspn(&qry[pos], "\n") + pos;
-
-		/* If no match, then wait */
-		if (loc >= (eos - qry)) /* None found */
-		{
-			appendBinaryPQExpBuffer(AH->pgCopyBuf, qry, (eos - qry));
-			return eos;
-		}
-
-		/*
-		 * fprintf(stderr, "Found cr at %d, prev char was %c, next was %c\n",
-		 * loc, qry[loc-1], qry[loc+1]);
-		 */
-
-		/* Count the number of preceding slashes */
-		sPos = loc;
-		while (sPos > 0 && qry[sPos - 1] == '\\')
-			sPos--;
-
-		sPos = loc - sPos;
-
-		/*
-		 * If an odd number of preceding slashes, then \n was escaped so set
-		 * the next search pos, and loop (if any left).
-		 */
-		if ((sPos & 1) == 1)
-		{
-			/* fprintf(stderr, "cr was escaped\n"); */
-			pos = loc + 1;
-			if (pos >= (eos - qry))
-			{
-				appendBinaryPQExpBuffer(AH->pgCopyBuf, qry, (eos - qry));
-				return eos;
-			}
-		}
-		else
-			break;
-	}
-
-	/* We found an unquoted newline */
-	qry[loc] = '\0';
-	appendPQExpBuffer(AH->pgCopyBuf, "%s\n", qry);
-	isEnd = (strcmp(AH->pgCopyBuf->data, "\\.\n") == 0);
-
-	/*
-	 * Note that we drop the data on the floor if libpq has failed to enter
-	 * COPY mode; this allows us to behave reasonably when trying to continue
-	 * after an error in a COPY command.
-	 */
-	if (AH->pgCopyIn &&
-		PQputCopyData(AH->connection, AH->pgCopyBuf->data,
-					  AH->pgCopyBuf->len) <= 0)
-		die_horribly(AH, modulename, "error returned by PQputCopyData: %s",
-					 PQerrorMessage(AH->connection));
-
-	resetPQExpBuffer(AH->pgCopyBuf);
-
-	if (isEnd && AH->pgCopyIn)
-	{
-		PGresult   *res;
-
-		if (PQputCopyEnd(AH->connection, NULL) <= 0)
-			die_horribly(AH, modulename, "error returned by PQputCopyEnd: %s",
-						 PQerrorMessage(AH->connection));
-
-		/* Check command status and return to normal libpq state */
-		res = PQgetResult(AH->connection);
-		if (PQresultStatus(res) != PGRES_COMMAND_OK)
-			warn_or_die_horribly(AH, modulename, "COPY failed: %s",
-								 PQerrorMessage(AH->connection));
-		PQclear(res);
-
-		AH->pgCopyIn = false;
-	}
-
-	return qry + loc + 1;
-}
 
 /*
- * Used by ExecuteSqlCommandBuf to send one buffered line of SQL
- * (not data for the copy command).
+ * Process non-COPY table data (that is, INSERT commands).
+ *
+ * The commands have been run together as one long string for compressibility,
+ * and we are receiving them in bufferloads with arbitrary boundaries, so we
+ * have to locate command boundaries and save partial commands across calls.
+ * All state must be kept in AH->sqlparse, not in local variables of this
+ * routine.  We assume that AH->sqlparse was filled with zeroes when created.
+ *
+ * We have to lex the data to the extent of identifying literals and quoted
+ * identifiers, so that we can recognize statement-terminating semicolons.
+ * We assume that INSERT data will not contain SQL comments, E'' literals,
+ * or dollar-quoted strings, so this is much simpler than a full SQL lexer.
  */
-static char *
-_sendSQLLine(ArchiveHandle *AH, char *qry, char *eos)
+static void
+ExecuteInsertCommands(ArchiveHandle *AH, const char *buf, size_t bufLen)
 {
-	/*
-	 * The following is a mini state machine to assess the end of an SQL
-	 * statement. It really only needs to parse good SQL, or at least that's
-	 * the theory... End-of-statement is assumed to be an unquoted,
-	 * un-commented semi-colon that's not within any parentheses.
-	 *
-	 * Note: the input can be split into bufferloads at arbitrary boundaries.
-	 * Therefore all state must be kept in AH->sqlparse, not in local
-	 * variables of this routine.  We assume that AH->sqlparse was filled with
-	 * zeroes when created.
-	 */
+	const char *qry = buf;
+	const char *eos = buf + bufLen;
+
+	/* initialize command buffer if first time through */
+	if (AH->sqlparse.curCmd == NULL)
+		AH->sqlparse.curCmd = createPQExpBuffer();
+
 	for (; qry < eos; qry++)
 	{
+		char		ch = *qry;
+
+		/* For neatness, we skip any newlines between commands */
+		if (!(ch == '\n' && AH->sqlparse.curCmd->len == 0))
+			appendPQExpBufferChar(AH->sqlparse.curCmd, ch);
+
 		switch (AH->sqlparse.state)
 		{
 			case SQL_SCAN:		/* Default state == 0, set in _allocAH */
-				if (*qry == ';' && AH->sqlparse.braceDepth == 0)
+				if (ch == ';')
 				{
 					/*
 					 * We've found the end of a statement. Send it and reset
 					 * the buffer.
 					 */
-					appendPQExpBufferChar(AH->sqlBuf, ';');		/* inessential */
-					ExecuteSqlCommand(AH, AH->sqlBuf->data,
+					ExecuteSqlCommand(AH, AH->sqlparse.curCmd->data,
 									  "could not execute query");
-					resetPQExpBuffer(AH->sqlBuf);
-					AH->sqlparse.lastChar = '\0';
-
-					/*
-					 * Remove any following newlines - so that embedded COPY
-					 * commands don't get a starting newline.
-					 */
-					qry++;
-					while (qry < eos && *qry == '\n')
-						qry++;
-
-					/* We've finished one line, so exit */
-					return qry;
+					resetPQExpBuffer(AH->sqlparse.curCmd);
 				}
-				else if (*qry == '\'')
+				else if (ch == '\'')
 				{
-					if (AH->sqlparse.lastChar == 'E')
-						AH->sqlparse.state = SQL_IN_E_QUOTE;
-					else
-						AH->sqlparse.state = SQL_IN_SINGLE_QUOTE;
+					AH->sqlparse.state = SQL_IN_SINGLE_QUOTE;
 					AH->sqlparse.backSlash = false;
 				}
-				else if (*qry == '"')
+				else if (ch == '"')
 				{
 					AH->sqlparse.state = SQL_IN_DOUBLE_QUOTE;
 				}
-
-				/*
-				 * Look for dollar-quotes. We make the assumption that
-				 * $-quotes will not have an ident character just before them
-				 * in pg_dump output.  XXX is this good enough?
-				 */
-				else if (*qry == '$' && !_isIdentChar(AH->sqlparse.lastChar))
-				{
-					AH->sqlparse.state = SQL_IN_DOLLAR_TAG;
-					/* initialize separate buffer with possible tag */
-					if (AH->sqlparse.tagBuf == NULL)
-						AH->sqlparse.tagBuf = createPQExpBuffer();
-					else
-						resetPQExpBuffer(AH->sqlparse.tagBuf);
-					appendPQExpBufferChar(AH->sqlparse.tagBuf, *qry);
-				}
-				else if (*qry == '-' && AH->sqlparse.lastChar == '-')
-					AH->sqlparse.state = SQL_IN_SQL_COMMENT;
-				else if (*qry == '*' && AH->sqlparse.lastChar == '/')
-					AH->sqlparse.state = SQL_IN_EXT_COMMENT;
-				else if (*qry == '(')
-					AH->sqlparse.braceDepth++;
-				else if (*qry == ')')
-					AH->sqlparse.braceDepth--;
-				break;
-
-			case SQL_IN_SQL_COMMENT:
-				if (*qry == '\n')
-					AH->sqlparse.state = SQL_SCAN;
-				break;
-
-			case SQL_IN_EXT_COMMENT:
-
-				/*
-				 * This isn't fully correct, because we don't account for
-				 * nested slash-stars, but pg_dump never emits such.
-				 */
-				if (AH->sqlparse.lastChar == '*' && *qry == '/')
-					AH->sqlparse.state = SQL_SCAN;
 				break;
 
 			case SQL_IN_SINGLE_QUOTE:
 				/* We needn't handle '' specially */
-				if (*qry == '\'' && !AH->sqlparse.backSlash)
+				if (ch == '\'' && !AH->sqlparse.backSlash)
 					AH->sqlparse.state = SQL_SCAN;
-				else if (*qry == '\\')
-					AH->sqlparse.backSlash = !AH->sqlparse.backSlash;
-				else
-					AH->sqlparse.backSlash = false;
-				break;
-
-			case SQL_IN_E_QUOTE:
-
-				/*
-				 * Eventually we will need to handle '' specially, because
-				 * after E'...''... we should still be in E_QUOTE state.
-				 *
-				 * XXX problem: how do we tell whether the dump was made by a
-				 * version that thinks backslashes aren't special in non-E
-				 * literals??
-				 */
-				if (*qry == '\'' && !AH->sqlparse.backSlash)
-					AH->sqlparse.state = SQL_SCAN;
-				else if (*qry == '\\')
+				else if (ch == '\\' && !AH->public.std_strings)
 					AH->sqlparse.backSlash = !AH->sqlparse.backSlash;
 				else
 					AH->sqlparse.backSlash = false;
@@ -593,101 +478,89 @@ _sendSQLLine(ArchiveHandle *AH, char *qry, char *eos)
 
 			case SQL_IN_DOUBLE_QUOTE:
 				/* We needn't handle "" specially */
-				if (*qry == '"')
-					AH->sqlparse.state = SQL_SCAN;
-				break;
-
-			case SQL_IN_DOLLAR_TAG:
-				if (*qry == '$')
-				{
-					/* Do not add the closing $ to tagBuf */
-					AH->sqlparse.state = SQL_IN_DOLLAR_QUOTE;
-					AH->sqlparse.minTagEndPos = AH->sqlBuf->len + AH->sqlparse.tagBuf->len + 1;
-				}
-				else if (_isDQChar(*qry, (AH->sqlparse.tagBuf->len == 1)))
-				{
-					/* Valid, so add to tag */
-					appendPQExpBufferChar(AH->sqlparse.tagBuf, *qry);
-				}
-				else
-				{
-					/*
-					 * Ooops, we're not really in a dollar-tag.  Valid tag
-					 * chars do not include the various chars we look for in
-					 * this state machine, so it's safe to just jump from this
-					 * state back to SCAN.	We have to back up the qry pointer
-					 * so that the current character gets rescanned in SCAN
-					 * state; and then "continue" so that the bottom-of-loop
-					 * actions aren't done yet.
-					 */
-					AH->sqlparse.state = SQL_SCAN;
-					qry--;
-					continue;
-				}
-				break;
-
-			case SQL_IN_DOLLAR_QUOTE:
-
-				/*
-				 * If we are at a $, see whether what precedes it matches
-				 * tagBuf.	(Remember that the trailing $ of the tag was not
-				 * added to tagBuf.)  However, don't compare until we have
-				 * enough data to be a possible match --- this is needed to
-				 * avoid false match on '$a$a$...'
-				 */
-				if (*qry == '$' &&
-					AH->sqlBuf->len >= AH->sqlparse.minTagEndPos &&
-					strcmp(AH->sqlparse.tagBuf->data,
-						   AH->sqlBuf->data + AH->sqlBuf->len - AH->sqlparse.tagBuf->len) == 0)
+				if (ch == '"')
 					AH->sqlparse.state = SQL_SCAN;
 				break;
 		}
-
-		appendPQExpBufferChar(AH->sqlBuf, *qry);
-		AH->sqlparse.lastChar = *qry;
 	}
-
-	/*
-	 * If we get here, we've processed entire bufferload with no complete SQL
-	 * stmt
-	 */
-	return eos;
 }
 
 
-/* Convenience function to send one or more queries. Monitors result to handle COPY statements */
+/*
+ * Implement ahwrite() for direct-to-DB restore
+ */
 int
-ExecuteSqlCommandBuf(ArchiveHandle *AH, void *qryv, size_t bufLen)
+ExecuteSqlCommandBuf(ArchiveHandle *AH, const char *buf, size_t bufLen)
 {
-	char	   *qry = (char *) qryv;
-	char	   *eos = qry + bufLen;
-
-	/*
-	 * fprintf(stderr, "\n\n*****\n Buffer:\n\n%s\n*******************\n\n",
-	 * qry);
-	 */
-
-	/* Could switch between command and COPY IN mode at each line */
-	while (qry < eos)
+	if (AH->outputKind == OUTPUT_COPYDATA)
 	{
 		/*
-		 * If libpq is in CopyIn mode *or* if the archive structure shows we
-		 * are sending COPY data, treat the data as COPY data.	The pgCopyIn
-		 * check is only needed for backwards compatibility with ancient
-		 * archive files that might just issue a COPY command without marking
-		 * it properly.  Note that in an archive entry that has a copyStmt,
-		 * all data up to the end of the entry will go to _sendCopyLine, and
-		 * therefore will be dropped if libpq has failed to enter COPY mode.
-		 * Also, if a "\." data terminator is found, anything remaining in the
-		 * archive entry will be dropped.
+		 * COPY data.
+		 *
+		 * We drop the data on the floor if libpq has failed to enter COPY
+		 * mode; this allows us to behave reasonably when trying to continue
+		 * after an error in a COPY command.
 		 */
-		if (AH->pgCopyIn || AH->writingCopyData)
-			qry = _sendCopyLine(AH, qry, eos);
+		if (AH->pgCopyIn &&
+			PQputCopyData(AH->connection, buf, bufLen) <= 0)
+			exit_horribly(modulename, "error returned by PQputCopyData: %s",
+						  PQerrorMessage(AH->connection));
+	}
+	else if (AH->outputKind == OUTPUT_OTHERDATA)
+	{
+		/*
+		 * Table data expressed as INSERT commands.
+		 */
+		ExecuteInsertCommands(AH, buf, bufLen);
+	}
+	else
+	{
+		/*
+		 * General SQL commands; we assume that commands will not be split
+		 * across calls.
+		 *
+		 * In most cases the data passed to us will be a null-terminated
+		 * string, but if it's not, we have to add a trailing null.
+		 */
+		if (buf[bufLen] == '\0')
+			ExecuteSqlCommand(AH, buf, "could not execute query");
 		else
-			qry = _sendSQLLine(AH, qry, eos);
+		{
+			char	   *str = (char *) pg_malloc(bufLen + 1);
+
+			memcpy(str, buf, bufLen);
+			str[bufLen] = '\0';
+			ExecuteSqlCommand(AH, str, "could not execute query");
+			free(str);
+		}
 	}
 
 	return 1;
+}
+
+/*
+ * Terminate a COPY operation during direct-to-DB restore
+ */
+void
+EndDBCopyMode(ArchiveHandle *AH, TocEntry *te)
+{
+	if (AH->pgCopyIn)
+	{
+		PGresult   *res;
+
+		if (PQputCopyEnd(AH->connection, NULL) <= 0)
+			exit_horribly(modulename, "error returned by PQputCopyEnd: %s",
+						  PQerrorMessage(AH->connection));
+
+		/* Check command status and return to normal libpq state */
+		res = PQgetResult(AH->connection);
+		if (PQresultStatus(res) != PGRES_COMMAND_OK)
+			warn_or_exit_horribly(AH, modulename, "COPY failed for table \"%s\": %s",
+								  te->tag, PQerrorMessage(AH->connection));
+		PQclear(res);
+
+		AH->pgCopyIn = false;
+	}
 }
 
 void
@@ -727,33 +600,4 @@ DropBlobIfExists(ArchiveHandle *AH, Oid oid)
 				 ") THEN pg_catalog.lo_unlink('%u') END;\n",
 				 oid, oid);
 	}
-}
-
-static bool
-_isIdentChar(unsigned char c)
-{
-	if ((c >= 'a' && c <= 'z')
-		|| (c >= 'A' && c <= 'Z')
-		|| (c >= '0' && c <= '9')
-		|| (c == '_')
-		|| (c == '$')
-		|| (c >= (unsigned char) '\200')		/* no need to check <= \377 */
-		)
-		return true;
-	else
-		return false;
-}
-
-static bool
-_isDQChar(unsigned char c, bool atStart)
-{
-	if ((c >= 'a' && c <= 'z')
-		|| (c >= 'A' && c <= 'Z')
-		|| (c == '_')
-		|| (!atStart && c >= '0' && c <= '9')
-		|| (c >= (unsigned char) '\200')		/* no need to check <= \377 */
-		)
-		return true;
-	else
-		return false;
 }

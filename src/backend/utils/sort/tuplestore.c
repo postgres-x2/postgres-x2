@@ -43,7 +43,7 @@
  * before switching to the other state or activating a different read pointer.
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -59,7 +59,6 @@
 #include "storage/buffile.h"
 #include "utils/memutils.h"
 #include "utils/resowner.h"
-#include "utils/tuplestore.h"
 
 
 /*
@@ -570,7 +569,7 @@ tuplestore_puttuple(Tuplestorestate *state, HeapTuple tuple)
 	MemoryContext oldcxt = MemoryContextSwitchTo(state->context);
 
 	/*
-	 * Copy the tuple.  (Must do this even in WRITEFILE case.  Note that
+	 * Copy the tuple.	(Must do this even in WRITEFILE case.  Note that
 	 * COPYTUP includes USEMEM, so we needn't do that here.)
 	 */
 	tuple = COPYTUP(state, tuple);

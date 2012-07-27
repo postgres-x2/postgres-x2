@@ -8,7 +8,7 @@
  *	  Structs that need to be client-visible are in pqcomm.h.
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/libpq/libpq-be.h
@@ -65,9 +65,9 @@ typedef struct
 #endif
 #endif   /* ENABLE_SSPI */
 
+#include "datatype/timestamp.h"
 #include "libpq/hba.h"
 #include "libpq/pqcomm.h"
-#include "utils/timestamp.h"
 
 typedef enum CAC_state
 {
@@ -159,7 +159,7 @@ typedef struct Port
 #if defined(ENABLE_GSS) || defined(ENABLE_SSPI)
 
 	/*
-	 * If GSSAPI is supported, store GSSAPI information. Oterwise, store a
+	 * If GSSAPI is supported, store GSSAPI information. Otherwise, store a
 	 * NULL pointer to make sure offsets in the struct remain the same.
 	 */
 	pg_gssinfo *gss;
@@ -174,8 +174,7 @@ typedef struct Port
 #ifdef USE_SSL
 	SSL		   *ssl;
 	X509	   *peer;
-	char		peer_dn[128 + 1];
-	char		peer_cn[SM_USER + 1];
+	char	   *peer_cn;
 	unsigned long count;
 #endif
 } Port;

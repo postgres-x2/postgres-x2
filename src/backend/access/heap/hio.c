@@ -3,7 +3,7 @@
  * hio.c
  *	  POSTGRES heap access method input/output code.
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -109,8 +109,8 @@ GetVisibilityMapPins(Relation relation, Buffer buffer1, Buffer buffer2,
 					 BlockNumber block1, BlockNumber block2,
 					 Buffer *vmbuffer1, Buffer *vmbuffer2)
 {
-	bool	need_to_pin_buffer1;
-	bool	need_to_pin_buffer2;
+	bool		need_to_pin_buffer1;
+	bool		need_to_pin_buffer2;
 
 	Assert(BufferIsValid(buffer1));
 	Assert(buffer2 == InvalidBuffer || buffer1 <= buffer2);
@@ -145,7 +145,7 @@ GetVisibilityMapPins(Relation relation, Buffer buffer1, Buffer buffer2,
 		/*
 		 * If there are two buffers involved and we pinned just one of them,
 		 * it's possible that the second one became all-visible while we were
-		 * busy pinning the first one.  If it looks like that's a possible
+		 * busy pinning the first one.	If it looks like that's a possible
 		 * scenario, we'll need to make a second pass through this loop.
 		 */
 		if (buffer2 == InvalidBuffer || buffer1 == buffer2
@@ -178,6 +178,10 @@ GetVisibilityMapPins(Relation relation, Buffer buffer1, Buffer buffer2,
  *	happen if space is freed in that page after heap_update finds there's not
  *	enough there).	In that case, the page will be pinned and locked only once.
  *
+ *	For the vmbuffer and vmbuffer_other arguments, we avoid deadlock by
+ *	locking them only after locking the corresponding heap page, and taking
+ *	no further lwlocks while they are locked.
+ *
  *	We normally use FSM to help us find free space.  However,
  *	if HEAP_INSERT_SKIP_FSM is specified, we just append a new empty page to
  *	the end of the relation if the tuple won't fit on the current target page.
@@ -209,7 +213,7 @@ GetVisibilityMapPins(Relation relation, Buffer buffer1, Buffer buffer2,
 Buffer
 RelationGetBufferForTuple(Relation relation, Size len,
 						  Buffer otherBuffer, int options,
-						  struct BulkInsertStateData * bistate,
+						  BulkInsertState bistate,
 						  Buffer *vmbuffer, Buffer *vmbuffer_other)
 {
 	bool		use_fsm = !(options & HEAP_INSERT_SKIP_FSM);
@@ -298,11 +302,11 @@ RelationGetBufferForTuple(Relation relation, Size len,
 		 * block if one was given, taking suitable care with lock ordering and
 		 * the possibility they are the same block.
 		 *
-		 * If the page-level all-visible flag is set, caller will need to clear
-		 * both that and the corresponding visibility map bit.  However, by the
-		 * time we return, we'll have x-locked the buffer, and we don't want to
-		 * do any I/O while in that state.  So we check the bit here before
-		 * taking the lock, and pin the page if it appears necessary.
+		 * If the page-level all-visible flag is set, caller will need to
+		 * clear both that and the corresponding visibility map bit.  However,
+		 * by the time we return, we'll have x-locked the buffer, and we don't
+		 * want to do any I/O while in that state.	So we check the bit here
+		 * before taking the lock, and pin the page if it appears necessary.
 		 * Checking without the lock creates a risk of getting the wrong
 		 * answer, so we'll have to recheck after acquiring the lock.
 		 */
@@ -343,23 +347,24 @@ RelationGetBufferForTuple(Relation relation, Size len,
 
 		/*
 		 * We now have the target page (and the other buffer, if any) pinned
-		 * and locked.  However, since our initial PageIsAllVisible checks
-		 * were performed before acquiring the lock, the results might now
-		 * be out of date, either for the selected victim buffer, or for the
-		 * other buffer passed by the caller.  In that case, we'll need to give
-		 * up our locks, go get the pin(s) we failed to get earlier, and
+		 * and locked.	However, since our initial PageIsAllVisible checks
+		 * were performed before acquiring the lock, the results might now be
+		 * out of date, either for the selected victim buffer, or for the
+		 * other buffer passed by the caller.  In that case, we'll need to
+		 * give up our locks, go get the pin(s) we failed to get earlier, and
 		 * re-lock.  That's pretty painful, but hopefully shouldn't happen
 		 * often.
 		 *
-		 * Note that there's a small possibility that we didn't pin the
-		 * page above but still have the correct page pinned anyway, either
-		 * because we've already made a previous pass through this loop, or
-		 * because caller passed us the right page anyway.
+		 * Note that there's a small possibility that we didn't pin the page
+		 * above but still have the correct page pinned anyway, either because
+		 * we've already made a previous pass through this loop, or because
+		 * caller passed us the right page anyway.
 		 *
 		 * Note also that it's possible that by the time we get the pin and
 		 * retake the buffer locks, the visibility map bit will have been
-		 * cleared by some other backend anyway.  In that case, we'll have done
-		 * a bit of extra work for no gain, but there's no real harm done.
+		 * cleared by some other backend anyway.  In that case, we'll have
+		 * done a bit of extra work for no gain, but there's no real harm
+		 * done.
 		 */
 		if (otherBuffer == InvalidBuffer || buffer <= otherBuffer)
 			GetVisibilityMapPins(relation, buffer, otherBuffer,

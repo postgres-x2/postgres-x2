@@ -23,7 +23,7 @@
  * for aborts (whether sync or async), since the post-crash assumption would
  * be that such transactions failed anyway.
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2012 Postgres-XC Development Group
  *
@@ -36,8 +36,8 @@
 #include "access/clog.h"
 #include "access/slru.h"
 #include "access/transam.h"
+#include "miscadmin.h"
 #include "pg_trace.h"
-#include "postmaster/bgwriter.h"
 
 /*
  * Defines for CLOG page sizes.  A page is the same BLCKSZ as is used
@@ -45,9 +45,10 @@
  *
  * Note: because TransactionIds are 32 bits and wrap around at 0xFFFFFFFF,
  * CLOG page numbering also wraps around at 0xFFFFFFFF/CLOG_XACTS_PER_PAGE,
- * and CLOG segment numbering at 0xFFFFFFFF/CLOG_XACTS_PER_SEGMENT.  We need
- * take no explicit notice of that fact in this module, except when comparing
- * segment and page numbers in TruncateCLOG (see CLOGPagePrecedes).
+ * and CLOG segment numbering at
+ * 0xFFFFFFFF/CLOG_XACTS_PER_PAGE/SLRU_PAGES_PER_SEGMENT.  We need take no
+ * explicit notice of that fact in this module, except when comparing segment
+ * and page numbers in TruncateCLOG (see CLOGPagePrecedes).
  */
 
 /* We need two bits per xact, so four xacts fit in a byte */
@@ -421,6 +422,34 @@ TransactionIdGetStatus(TransactionId xid, XLogRecPtr *lsn)
 	return status;
 }
 
+/*
+ * Number of shared CLOG buffers.
+ *
+ * Testing during the PostgreSQL 9.2 development cycle revealed that on a
+ * large multi-processor system, it was possible to have more CLOG page
+ * requests in flight at one time than the numebr of CLOG buffers which existed
+ * at that time, which was hardcoded to 8.	Further testing revealed that
+ * performance dropped off with more than 32 CLOG buffers, possibly because
+ * the linear buffer search algorithm doesn't scale well.
+ *
+ * Unconditionally increasing the number of CLOG buffers to 32 did not seem
+ * like a good idea, because it would increase the minimum amount of shared
+ * memory required to start, which could be a problem for people running very
+ * small configurations.  The following formula seems to represent a reasonable
+ * compromise: people with very low values for shared_buffers will get fewer
+ * CLOG buffers as well, and everyone else will get 32.
+ *
+ * It is likely that some further work will be needed here in future releases;
+ * for example, on a 64-core server, the maximum number of CLOG requests that
+ * can be simultaneously in flight will be even larger.  But that will
+ * apparently require more than just changing the formula, so for now we take
+ * the easy way out.
+ */
+Size
+CLOGShmemBuffers(void)
+{
+	return Min(32, Max(4, NBuffers / 512));
+}
 
 /*
  * Initialization of shared memory for CLOG
@@ -428,14 +457,14 @@ TransactionIdGetStatus(TransactionId xid, XLogRecPtr *lsn)
 Size
 CLOGShmemSize(void)
 {
-	return SimpleLruShmemSize(NUM_CLOG_BUFFERS, CLOG_LSNS_PER_PAGE);
+	return SimpleLruShmemSize(CLOGShmemBuffers(), CLOG_LSNS_PER_PAGE);
 }
 
 void
 CLOGShmemInit(void)
 {
 	ClogCtl->PagePrecedes = CLOGPagePrecedes;
-	SimpleLruInit(ClogCtl, "CLOG Ctl", NUM_CLOG_BUFFERS, CLOG_LSNS_PER_PAGE,
+	SimpleLruInit(ClogCtl, "CLOG Ctl", CLOGShmemBuffers(), CLOG_LSNS_PER_PAGE,
 				  CLogControlLock, "pg_clog");
 }
 
@@ -498,6 +527,25 @@ StartupCLOG(void)
 
 	/*
 	 * Initialize our idea of the latest page number.
+	 */
+	ClogCtl->shared->latest_page_number = pageno;
+
+	LWLockRelease(CLogControlLock);
+}
+
+/*
+ * This must be called ONCE at the end of startup/recovery.
+ */
+void
+TrimCLOG(void)
+{
+	TransactionId xid = ShmemVariableCache->nextXid;
+	int			pageno = TransactionIdToPage(xid);
+
+	LWLockAcquire(CLogControlLock, LW_EXCLUSIVE);
+
+	/*
+	 * Re-Initialize our idea of the latest page number.
 	 */
 	ClogCtl->shared->latest_page_number = pageno;
 
@@ -654,7 +702,7 @@ TruncateCLOG(TransactionId oldestXact)
 	cutoffPage = TransactionIdToPage(oldestXact);
 
 	/* Check to see if there's any files that could be removed */
-	if (!SlruScanDirectory(ClogCtl, cutoffPage, false))
+	if (!SlruScanDirectory(ClogCtl, SlruScanDirCbReportPresence, &cutoffPage))
 		return;					/* nothing to remove */
 
 	/* Write XLOG record and flush XLOG to disk */

@@ -1,12 +1,10 @@
 /*-------------------------------------------------------------------------
  *
  * common.c
- *	  common routines between pg_dump and pg4_dump
+ *	Catalog routines used by pg_dump; long ago these were shared
+ *	by another dump tool, but not anymore.
  *
- * Since pg4_dump is long-dead code, there is no longer any useful distinction
- * between this file and pg_dump.c.
- *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -15,13 +13,13 @@
  *
  *-------------------------------------------------------------------------
  */
-#include "postgres_fe.h"
+#include "pg_backup_archiver.h"
 
 #include <ctype.h>
 
 #include "catalog/pg_class.h"
-
-#include "pg_backup_archiver.h"
+#include "dumpmem.h"
+#include "dumputils.h"
 
 
 /*
@@ -50,16 +48,19 @@ static TableInfo *tblinfo;
 static TypeInfo *typinfo;
 static FuncInfo *funinfo;
 static OprInfo *oprinfo;
+static NamespaceInfo *nspinfo;
 static int	numTables;
 static int	numTypes;
 static int	numFuncs;
 static int	numOperators;
 static int	numCollations;
+static int	numNamespaces;
 static DumpableObject **tblinfoindex;
 static DumpableObject **typinfoindex;
 static DumpableObject **funinfoindex;
 static DumpableObject **oprinfoindex;
 static DumpableObject **collinfoindex;
+static DumpableObject **nspinfoindex;
 
 
 static void flagInhTables(TableInfo *tbinfo, int numTables,
@@ -78,12 +79,11 @@ static int	strInArray(const char *pattern, char **arr, int arr_size);
  *	  Collect information about all potentially dumpable objects
  */
 TableInfo *
-getSchemaData(int *numTablesPtr)
+getSchemaData(Archive *fout, int *numTablesPtr)
 {
 	ExtensionInfo *extinfo;
 	InhInfo    *inhinfo;
 	CollInfo   *collinfo;
-	int			numNamespaces;
 	int			numExtensions;
 	int			numAggregates;
 	int			numInherits;
@@ -103,7 +103,8 @@ getSchemaData(int *numTablesPtr)
 
 	if (g_verbose)
 		write_msg(NULL, "reading schemas\n");
-	getNamespaces(&numNamespaces);
+	nspinfo = getNamespaces(fout, &numNamespaces);
+	nspinfoindex = buildIndexArray(nspinfo, numNamespaces, sizeof(NamespaceInfo));
 
 	/*
 	 * getTables should be done as soon as possible, so as to minimize the
@@ -113,94 +114,97 @@ getSchemaData(int *numTablesPtr)
 	 */
 	if (g_verbose)
 		write_msg(NULL, "reading user-defined tables\n");
-	tblinfo = getTables(&numTables);
+	tblinfo = getTables(fout, &numTables);
 	tblinfoindex = buildIndexArray(tblinfo, numTables, sizeof(TableInfo));
+
+	/* Do this after we've built tblinfoindex */
+	getOwnedSeqs(fout, tblinfo, numTables);
 
 	if (g_verbose)
 		write_msg(NULL, "reading extensions\n");
-	extinfo = getExtensions(&numExtensions);
+	extinfo = getExtensions(fout, &numExtensions);
 
 	if (g_verbose)
 		write_msg(NULL, "reading user-defined functions\n");
-	funinfo = getFuncs(&numFuncs);
+	funinfo = getFuncs(fout, &numFuncs);
 	funinfoindex = buildIndexArray(funinfo, numFuncs, sizeof(FuncInfo));
 
-	/* this must be after getFuncs */
+	/* this must be after getTables and getFuncs */
 	if (g_verbose)
 		write_msg(NULL, "reading user-defined types\n");
-	typinfo = getTypes(&numTypes);
+	typinfo = getTypes(fout, &numTypes);
 	typinfoindex = buildIndexArray(typinfo, numTypes, sizeof(TypeInfo));
 
 	/* this must be after getFuncs, too */
 	if (g_verbose)
 		write_msg(NULL, "reading procedural languages\n");
-	getProcLangs(&numProcLangs);
+	getProcLangs(fout, &numProcLangs);
 
 	if (g_verbose)
 		write_msg(NULL, "reading user-defined aggregate functions\n");
-	getAggregates(&numAggregates);
+	getAggregates(fout, &numAggregates);
 
 	if (g_verbose)
 		write_msg(NULL, "reading user-defined operators\n");
-	oprinfo = getOperators(&numOperators);
+	oprinfo = getOperators(fout, &numOperators);
 	oprinfoindex = buildIndexArray(oprinfo, numOperators, sizeof(OprInfo));
 
 	if (g_verbose)
 		write_msg(NULL, "reading user-defined operator classes\n");
-	getOpclasses(&numOpclasses);
+	getOpclasses(fout, &numOpclasses);
 
 	if (g_verbose)
 		write_msg(NULL, "reading user-defined operator families\n");
-	getOpfamilies(&numOpfamilies);
+	getOpfamilies(fout, &numOpfamilies);
 
 	if (g_verbose)
 		write_msg(NULL, "reading user-defined text search parsers\n");
-	getTSParsers(&numTSParsers);
+	getTSParsers(fout, &numTSParsers);
 
 	if (g_verbose)
 		write_msg(NULL, "reading user-defined text search templates\n");
-	getTSTemplates(&numTSTemplates);
+	getTSTemplates(fout, &numTSTemplates);
 
 	if (g_verbose)
 		write_msg(NULL, "reading user-defined text search dictionaries\n");
-	getTSDictionaries(&numTSDicts);
+	getTSDictionaries(fout, &numTSDicts);
 
 	if (g_verbose)
 		write_msg(NULL, "reading user-defined text search configurations\n");
-	getTSConfigurations(&numTSConfigs);
+	getTSConfigurations(fout, &numTSConfigs);
 
 	if (g_verbose)
 		write_msg(NULL, "reading user-defined foreign-data wrappers\n");
-	getForeignDataWrappers(&numForeignDataWrappers);
+	getForeignDataWrappers(fout, &numForeignDataWrappers);
 
 	if (g_verbose)
 		write_msg(NULL, "reading user-defined foreign servers\n");
-	getForeignServers(&numForeignServers);
+	getForeignServers(fout, &numForeignServers);
 
 	if (g_verbose)
 		write_msg(NULL, "reading default privileges\n");
-	getDefaultACLs(&numDefaultACLs);
+	getDefaultACLs(fout, &numDefaultACLs);
 
 	if (g_verbose)
 		write_msg(NULL, "reading user-defined collations\n");
-	collinfo = getCollations(&numCollations);
+	collinfo = getCollations(fout, &numCollations);
 	collinfoindex = buildIndexArray(collinfo, numCollations, sizeof(CollInfo));
 
 	if (g_verbose)
 		write_msg(NULL, "reading user-defined conversions\n");
-	getConversions(&numConversions);
+	getConversions(fout, &numConversions);
 
 	if (g_verbose)
 		write_msg(NULL, "reading type casts\n");
-	getCasts(&numCasts);
+	getCasts(fout, &numCasts);
 
 	if (g_verbose)
 		write_msg(NULL, "reading table inheritance information\n");
-	inhinfo = getInherits(&numInherits);
+	inhinfo = getInherits(fout, &numInherits);
 
 	if (g_verbose)
 		write_msg(NULL, "reading rewrite rules\n");
-	getRules(&numRules);
+	getRules(fout, &numRules);
 
 	/*
 	 * Identify extension member objects and mark them as not to be dumped.
@@ -209,7 +213,7 @@ getSchemaData(int *numTablesPtr)
 	 */
 	if (g_verbose)
 		write_msg(NULL, "finding extension members\n");
-	getExtensionMembership(extinfo, numExtensions);
+	getExtensionMembership(fout, extinfo, numExtensions);
 
 	/* Link tables to parents, mark parents of target tables interesting */
 	if (g_verbose)
@@ -218,7 +222,7 @@ getSchemaData(int *numTablesPtr)
 
 	if (g_verbose)
 		write_msg(NULL, "reading column info for interesting tables\n");
-	getTableAttrs(tblinfo, numTables);
+	getTableAttrs(fout, tblinfo, numTables);
 
 	if (g_verbose)
 		write_msg(NULL, "flagging inherited columns in subtables\n");
@@ -226,15 +230,15 @@ getSchemaData(int *numTablesPtr)
 
 	if (g_verbose)
 		write_msg(NULL, "reading indexes\n");
-	getIndexes(tblinfo, numTables);
+	getIndexes(fout, tblinfo, numTables);
 
 	if (g_verbose)
 		write_msg(NULL, "reading constraints\n");
-	getConstraints(tblinfo, numTables);
+	getConstraints(fout, tblinfo, numTables);
 
 	if (g_verbose)
 		write_msg(NULL, "reading triggers\n");
-	getTriggers(tblinfo, numTables);
+	getTriggers(fout, tblinfo, numTables);
 
 	*numTablesPtr = numTables;
 	return tblinfo;
@@ -283,7 +287,13 @@ flagInhTables(TableInfo *tblinfo, int numTables,
 
 /* flagInhAttrs -
  *	 for each dumpable table in tblinfo, flag its inherited attributes
- * so when we dump the table out, we don't dump out the inherited attributes
+ *
+ * What we need to do here is detect child columns that inherit NOT NULL
+ * bits from their parents (so that we needn't specify that again for the
+ * child) and child columns that have DEFAULT NULL when their parents had
+ * some non-null default.  In the latter case, we make up a dummy AttrDefInfo
+ * object so that we'll correctly emit the necessary DEFAULT NULL clause;
+ * otherwise the backend will apply an inherited default to the column.
  *
  * modifies tblinfo
  */
@@ -299,7 +309,6 @@ flagInhAttrs(TableInfo *tblinfo, int numTables)
 		TableInfo  *tbinfo = &(tblinfo[i]);
 		int			numParents;
 		TableInfo **parents;
-		TableInfo  *parent;
 
 		/* Sequences and views never have parents */
 		if (tbinfo->relkind == RELKIND_SEQUENCE ||
@@ -316,132 +325,70 @@ flagInhAttrs(TableInfo *tblinfo, int numTables)
 		if (numParents == 0)
 			continue;			/* nothing to see here, move along */
 
-		/*----------------------------------------------------------------
-		 * For each attr, check the parent info: if no parent has an attr
-		 * with the same name, then it's not inherited. If there *is* an
-		 * attr with the same name, then only dump it if:
-		 *
-		 * - it is NOT NULL and zero parents are NOT NULL
-		 *	 OR
-		 * - it has a default value AND the default value does not match
-		 *	 all parent default values, or no parents specify a default.
-		 *
-		 * See discussion on -hackers around 2-Apr-2001.
-		 *----------------------------------------------------------------
-		 */
+		/* For each column, search for matching column names in parent(s) */
 		for (j = 0; j < tbinfo->numatts; j++)
 		{
-			bool		foundAttr;		/* Attr was found in a parent */
 			bool		foundNotNull;	/* Attr was NOT NULL in a parent */
-			bool		defaultsMatch;	/* All non-empty defaults match */
-			bool		defaultsFound;	/* Found a default in a parent */
-			AttrDefInfo *attrDef;
+			bool		foundDefault;	/* Found a default in a parent */
 
-			foundAttr = false;
+			/* no point in examining dropped columns */
+			if (tbinfo->attisdropped[j])
+				continue;
+
 			foundNotNull = false;
-			defaultsMatch = true;
-			defaultsFound = false;
-
-			attrDef = tbinfo->attrdefs[j];
-
+			foundDefault = false;
 			for (k = 0; k < numParents; k++)
 			{
+				TableInfo  *parent = parents[k];
 				int			inhAttrInd;
 
-				parent = parents[k];
 				inhAttrInd = strInArray(tbinfo->attnames[j],
 										parent->attnames,
 										parent->numatts);
-
-				if (inhAttrInd != -1)
+				if (inhAttrInd >= 0)
 				{
-					AttrDefInfo *inhDef = parent->attrdefs[inhAttrInd];
-
-					foundAttr = true;
 					foundNotNull |= parent->notnull[inhAttrInd];
-					if (inhDef != NULL)
-					{
-						defaultsFound = true;
-
-						/*
-						 * If any parent has a default and the child doesn't,
-						 * we have to emit an explicit DEFAULT NULL clause for
-						 * the child, else the parent's default will win.
-						 */
-						if (attrDef == NULL)
-						{
-							attrDef = (AttrDefInfo *) malloc(sizeof(AttrDefInfo));
-							attrDef->dobj.objType = DO_ATTRDEF;
-							attrDef->dobj.catId.tableoid = 0;
-							attrDef->dobj.catId.oid = 0;
-							AssignDumpId(&attrDef->dobj);
-							attrDef->adtable = tbinfo;
-							attrDef->adnum = j + 1;
-							attrDef->adef_expr = strdup("NULL");
-
-							attrDef->dobj.name = strdup(tbinfo->dobj.name);
-							attrDef->dobj.namespace = tbinfo->dobj.namespace;
-
-							attrDef->dobj.dump = tbinfo->dobj.dump;
-
-							attrDef->separate = false;
-							addObjectDependency(&tbinfo->dobj,
-												attrDef->dobj.dumpId);
-
-							tbinfo->attrdefs[j] = attrDef;
-						}
-						if (strcmp(attrDef->adef_expr, inhDef->adef_expr) != 0)
-						{
-							defaultsMatch = false;
-
-							/*
-							 * Whenever there is a non-matching parent
-							 * default, add a dependency to force the parent
-							 * default to be dumped first, in case the
-							 * defaults end up being dumped as separate
-							 * commands.  Otherwise the parent default will
-							 * override the child's when it is applied.
-							 */
-							addObjectDependency(&attrDef->dobj,
-												inhDef->dobj.dumpId);
-						}
-					}
+					foundDefault |= (parent->attrdefs[inhAttrInd] != NULL);
 				}
 			}
 
-			/*
-			 * Based on the scan of the parents, decide if we can rely on the
-			 * inherited attr
-			 */
-			if (foundAttr)		/* Attr was inherited */
+			/* Remember if we found inherited NOT NULL */
+			tbinfo->inhNotNull[j] = foundNotNull;
+
+			/* Manufacture a DEFAULT NULL clause if necessary */
+			if (foundDefault && tbinfo->attrdefs[j] == NULL)
 			{
-				/* Set inherited flag by default */
-				tbinfo->inhAttrs[j] = true;
-				tbinfo->inhAttrDef[j] = true;
-				tbinfo->inhNotNull[j] = true;
+				AttrDefInfo *attrDef;
 
-				/*
-				 * Clear it if attr had a default, but parents did not, or
-				 * mismatch
-				 */
-				if ((attrDef != NULL) && (!defaultsFound || !defaultsMatch))
+				attrDef = (AttrDefInfo *) pg_malloc(sizeof(AttrDefInfo));
+				attrDef->dobj.objType = DO_ATTRDEF;
+				attrDef->dobj.catId.tableoid = 0;
+				attrDef->dobj.catId.oid = 0;
+				AssignDumpId(&attrDef->dobj);
+				attrDef->dobj.name = pg_strdup(tbinfo->dobj.name);
+				attrDef->dobj.namespace = tbinfo->dobj.namespace;
+				attrDef->dobj.dump = tbinfo->dobj.dump;
+
+				attrDef->adtable = tbinfo;
+				attrDef->adnum = j + 1;
+				attrDef->adef_expr = pg_strdup("NULL");
+
+				/* Will column be dumped explicitly? */
+				if (shouldPrintColumn(tbinfo, j))
 				{
-					tbinfo->inhAttrs[j] = false;
-					tbinfo->inhAttrDef[j] = false;
+					attrDef->separate = false;
+					/* No dependency needed: NULL cannot have dependencies */
+				}
+				else
+				{
+					/* column will be suppressed, print default separately */
+					attrDef->separate = true;
+					/* ensure it comes out after the table */
+					addObjectDependency(&attrDef->dobj,
+										tbinfo->dobj.dumpId);
 				}
 
-				/*
-				 * Clear it if NOT NULL and none of the parents were NOT NULL
-				 */
-				if (tbinfo->notnull[j] && !foundNotNull)
-				{
-					tbinfo->inhAttrs[j] = false;
-					tbinfo->inhNotNull[j] = false;
-				}
-
-				/* Clear it if attr has local definition */
-				if (tbinfo->attislocal[j])
-					tbinfo->inhAttrs[j] = false;
+				tbinfo->attrdefs[j] = attrDef;
 			}
 		}
 	}
@@ -632,7 +579,7 @@ buildIndexArray(void *objArray, int numObjs, Size objSize)
 	DumpableObject **ptrs;
 	int			i;
 
-	ptrs = (DumpableObject **) malloc(numObjs * sizeof(DumpableObject *));
+	ptrs = (DumpableObject **) pg_malloc(numObjs * sizeof(DumpableObject *));
 	for (i = 0; i < numObjs; i++)
 		ptrs[i] = (DumpableObject *) ((char *) objArray + i * objSize);
 
@@ -650,8 +597,8 @@ buildIndexArray(void *objArray, int numObjs, Size objSize)
 static int
 DOCatalogIdCompare(const void *p1, const void *p2)
 {
-	DumpableObject *obj1 = *(DumpableObject **) p1;
-	DumpableObject *obj2 = *(DumpableObject **) p2;
+	const DumpableObject *obj1 = *(DumpableObject *const *) p1;
+	const DumpableObject *obj2 = *(DumpableObject *const *) p2;
 	int			cmpval;
 
 	/*
@@ -788,6 +735,17 @@ findCollationByOid(Oid oid)
 	return (CollInfo *) findObjectByOid(oid, collinfoindex, numCollations);
 }
 
+/*
+ * findNamespaceByOid
+ *	  finds the entry (in nspinfo) of the namespace with the given oid
+ *	  returns NULL if not found
+ */
+NamespaceInfo *
+findNamespaceByOid(Oid oid)
+{
+	return (NamespaceInfo *) findObjectByOid(oid, nspinfoindex, numNamespaces);
+}
+
 
 /*
  * findParentsByOid
@@ -829,7 +787,7 @@ findParentsByOid(TableInfo *self,
 							  inhinfo[i].inhparent,
 							  self->dobj.name,
 							  oid);
-					exit_nicely();
+					exit_nicely(1);
 				}
 				self->parents[j++] = parent;
 			}
@@ -868,7 +826,7 @@ parseOidArray(const char *str, Oid *array, int arraysize)
 				if (argNum >= arraysize)
 				{
 					write_msg(NULL, "could not parse numeric array \"%s\": too many numbers\n", str);
-					exit_nicely();
+					exit_nicely(1);
 				}
 				temp[j] = '\0';
 				array[argNum++] = atooid(temp);
@@ -883,7 +841,7 @@ parseOidArray(const char *str, Oid *array, int arraysize)
 				j >= sizeof(temp) - 1)
 			{
 				write_msg(NULL, "could not parse numeric array \"%s\": invalid character in number\n", str);
-				exit_nicely();
+				exit_nicely(1);
 			}
 			temp[j++] = s;
 		}
@@ -977,60 +935,4 @@ simple_string_list_member(SimpleStringList *list, const char *val)
 			return true;
 	}
 	return false;
-}
-
-
-/*
- * Safer versions of some standard C library functions. If an
- * out-of-memory condition occurs, these functions will bail out
- * safely; therefore, their return value is guaranteed to be non-NULL.
- *
- * XXX need to refactor things so that these can be in a file that can be
- * shared by pg_dumpall and pg_restore as well as pg_dump.
- */
-
-char *
-pg_strdup(const char *string)
-{
-	char	   *tmp;
-
-	if (!string)
-		exit_horribly(NULL, NULL, "cannot duplicate null pointer\n");
-	tmp = strdup(string);
-	if (!tmp)
-		exit_horribly(NULL, NULL, "out of memory\n");
-	return tmp;
-}
-
-void *
-pg_malloc(size_t size)
-{
-	void	   *tmp;
-
-	tmp = malloc(size);
-	if (!tmp)
-		exit_horribly(NULL, NULL, "out of memory\n");
-	return tmp;
-}
-
-void *
-pg_calloc(size_t nmemb, size_t size)
-{
-	void	   *tmp;
-
-	tmp = calloc(nmemb, size);
-	if (!tmp)
-		exit_horribly(NULL, NULL, "out of memory\n");
-	return tmp;
-}
-
-void *
-pg_realloc(void *ptr, size_t size)
-{
-	void	   *tmp;
-
-	tmp = realloc(ptr, size);
-	if (!tmp)
-		exit_horribly(NULL, NULL, "out of memory\n");
-	return tmp;
 }

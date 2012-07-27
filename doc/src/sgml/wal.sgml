@@ -73,7 +73,7 @@
       <para>
         On <productname>Linux</>, IDE drives can be queried using
         <command>hdparm -I</command>; write caching is enabled if there is
-        a <literal>*</> next to <literal>Write cache</>.  <command>hdparm -W</>
+        a <literal>*</> next to <literal>Write cache</>.  <command>hdparm -W 0</>
         can be used to turn off write caching.  SCSI drives can be queried
         using <ulink url="http://sg.danny.cz/sg/sdparm.html"><application>sdparm</></ulink>.
         Use <command>sdparm --get=WCE</command> to check
@@ -87,7 +87,9 @@
         On <productname>FreeBSD</>, IDE drives can be queried using
         <command>atacontrol</command> and write caching turned off using
         <literal>hw.ata.wc=0</> in <filename>/boot/loader.conf</>;
-        SCSI drives use <command>sdparm</command>.
+        SCSI drives can be queried using <command>camcontrol identify</command>,
+        and the write cache both queried and changed using
+        <command>sdparm</command> when available.
       </para>
     </listitem>
 
@@ -417,13 +419,20 @@
   </para>
 
   <para>
-   The server's background writer process automatically performs
+   The server's checkpointer process automatically performs
    a checkpoint every so often.  A checkpoint is created every <xref
    linkend="guc-checkpoint-segments"> log segments, or every <xref
    linkend="guc-checkpoint-timeout"> seconds, whichever comes first.
    The default settings are 3 segments and 300 seconds (5 minutes), respectively.
-   It is also possible to force a checkpoint by using the SQL command
-   <command>CHECKPOINT</command>.
+   In cases where little or no WAL has been written, checkpoints will be
+   skipped even if checkpoint_timeout has passed.  At least one new WAL segment
+   must have been created before an automatic checkpoint occurs.  The time
+   between checkpoints and when new WAL segments are created are not related
+   in any other way.  If file-based WAL shipping is being used and you want to
+   bound how often files are sent to standby server to reduce potential data
+   loss, you should adjust archive_timeout parameter rather than the checkpoint
+   parameters.  It is also possible to force a checkpoint by using the SQL
+   command <command>CHECKPOINT</command>.
   </para>
 
   <para>

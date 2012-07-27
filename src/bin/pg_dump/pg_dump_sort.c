@@ -4,7 +4,7 @@
  *	  Sort the items of a dump into a safe order for dumping
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -14,7 +14,8 @@
  *-------------------------------------------------------------------------
  */
 #include "pg_backup_archiver.h"
-
+#include "dumputils.h"
+#include "dumpmem.h"
 
 static const char *modulename = gettext_noop("sorter");
 
@@ -110,11 +111,11 @@ static bool TopoSort(DumpableObject **objs,
 static void addHeapElement(int val, int *heap, int heapLength);
 static int	removeHeapElement(int *heap, int heapLength);
 static void findDependencyLoops(DumpableObject **objs, int nObjs, int totObjs);
-static bool findLoop(DumpableObject *obj,
+static int findLoop(DumpableObject *obj,
 		 DumpId startPoint,
+		 bool *processed,
 		 DumpableObject **workspace,
-		 int depth,
-		 int *newDepth);
+		 int depth);
 static void repairDependencyLoop(DumpableObject **loop,
 					 int nLoop);
 static void describeDumpableObject(DumpableObject *obj,
@@ -138,8 +139,8 @@ sortDumpableObjectsByTypeName(DumpableObject **objs, int numObjs)
 static int
 DOTypeNameCompare(const void *p1, const void *p2)
 {
-	DumpableObject *obj1 = *(DumpableObject **) p1;
-	DumpableObject *obj2 = *(DumpableObject **) p2;
+	DumpableObject *obj1 = *(DumpableObject *const *) p1;
+	DumpableObject *obj2 = *(DumpableObject *const *) p2;
 	int			cmpval;
 
 	/* Sort by type */
@@ -170,10 +171,29 @@ DOTypeNameCompare(const void *p1, const void *p2)
 	/* To have a stable sort order, break ties for some object types */
 	if (obj1->objType == DO_FUNC || obj1->objType == DO_AGG)
 	{
-		FuncInfo   *fobj1 = *(FuncInfo **) p1;
-		FuncInfo   *fobj2 = *(FuncInfo **) p2;
+		FuncInfo   *fobj1 = *(FuncInfo *const *) p1;
+		FuncInfo   *fobj2 = *(FuncInfo *const *) p2;
 
 		cmpval = fobj1->nargs - fobj2->nargs;
+		if (cmpval != 0)
+			return cmpval;
+	}
+	else if (obj1->objType == DO_OPERATOR)
+	{
+		OprInfo    *oobj1 = *(OprInfo *const *) p1;
+		OprInfo    *oobj2 = *(OprInfo *const *) p2;
+
+		/* oprkind is 'l', 'r', or 'b'; this sorts prefix, postfix, infix */
+		cmpval = (oobj2->oprkind - oobj1->oprkind);
+		if (cmpval != 0)
+			return cmpval;
+	}
+	else if (obj1->objType == DO_ATTRDEF)
+	{
+		AttrDefInfo *adobj1 = *(AttrDefInfo *const *) p1;
+		AttrDefInfo *adobj2 = *(AttrDefInfo *const *) p2;
+
+		cmpval = (adobj1->adnum - adobj2->adnum);
 		if (cmpval != 0)
 			return cmpval;
 	}
@@ -200,8 +220,8 @@ sortDumpableObjectsByTypeOid(DumpableObject **objs, int numObjs)
 static int
 DOTypeOidCompare(const void *p1, const void *p2)
 {
-	DumpableObject *obj1 = *(DumpableObject **) p1;
-	DumpableObject *obj2 = *(DumpableObject **) p2;
+	DumpableObject *obj1 = *(DumpableObject *const *) p1;
+	DumpableObject *obj2 = *(DumpableObject *const *) p2;
 	int			cmpval;
 
 	cmpval = oldObjectTypePriority[obj1->objType] -
@@ -227,10 +247,7 @@ sortDumpableObjects(DumpableObject **objs, int numObjs)
 	if (numObjs <= 0)
 		return;
 
-	ordering = (DumpableObject **) malloc(numObjs * sizeof(DumpableObject *));
-	if (ordering == NULL)
-		exit_horribly(NULL, modulename, "out of memory\n");
-
+	ordering = (DumpableObject **) pg_malloc(numObjs * sizeof(DumpableObject *));
 	while (!TopoSort(objs, numObjs, ordering, &nOrdering))
 		findDependencyLoops(ordering, nOrdering, numObjs);
 
@@ -301,9 +318,7 @@ TopoSort(DumpableObject **objs,
 		return true;
 
 	/* Create workspace for the above-described heap */
-	pendingHeap = (int *) malloc(numObjs * sizeof(int));
-	if (pendingHeap == NULL)
-		exit_horribly(NULL, modulename, "out of memory\n");
+	pendingHeap = (int *) pg_malloc(numObjs * sizeof(int));
 
 	/*
 	 * Scan the constraints, and for each item in the input, generate a count
@@ -312,25 +327,21 @@ TopoSort(DumpableObject **objs,
 	 * We also make a map showing the input-order index of the item with
 	 * dumpId j.
 	 */
-	beforeConstraints = (int *) malloc((maxDumpId + 1) * sizeof(int));
-	if (beforeConstraints == NULL)
-		exit_horribly(NULL, modulename, "out of memory\n");
+	beforeConstraints = (int *) pg_malloc((maxDumpId + 1) * sizeof(int));
 	memset(beforeConstraints, 0, (maxDumpId + 1) * sizeof(int));
-	idMap = (int *) malloc((maxDumpId + 1) * sizeof(int));
-	if (idMap == NULL)
-		exit_horribly(NULL, modulename, "out of memory\n");
+	idMap = (int *) pg_malloc((maxDumpId + 1) * sizeof(int));
 	for (i = 0; i < numObjs; i++)
 	{
 		obj = objs[i];
 		j = obj->dumpId;
 		if (j <= 0 || j > maxDumpId)
-			exit_horribly(NULL, modulename, "invalid dumpId %d\n", j);
+			exit_horribly(modulename, "invalid dumpId %d\n", j);
 		idMap[j] = i;
 		for (j = 0; j < obj->nDeps; j++)
 		{
 			k = obj->dependencies[j];
 			if (k <= 0 || k > maxDumpId)
-				exit_horribly(NULL, modulename, "invalid dependency %d\n", k);
+				exit_horribly(modulename, "invalid dependency %d\n", k);
 			beforeConstraints[k]++;
 		}
 	}
@@ -495,105 +506,103 @@ static void
 findDependencyLoops(DumpableObject **objs, int nObjs, int totObjs)
 {
 	/*
-	 * We use a workspace array, the initial part of which stores objects
-	 * already processed, and the rest of which is used as temporary space to
-	 * try to build a loop in.	This is convenient because we do not care
-	 * about loops involving already-processed objects (see notes above); we
-	 * can easily reject such loops in findLoop() because of this
-	 * representation.	After we identify and process a loop, we can add it to
-	 * the initial part of the workspace just by moving the boundary pointer.
-	 *
-	 * When we determine that an object is not part of any interesting loop,
-	 * we also add it to the initial part of the workspace.  This is not
-	 * necessary for correctness, but saves later invocations of findLoop()
-	 * from uselessly chasing references to such an object.
-	 *
-	 * We make the workspace large enough to hold all objects in the original
-	 * universe.  This is probably overkill, but it's provably enough space...
+	 * We use two data structures here.  One is a bool array processed[],
+	 * which is indexed by dump ID and marks the objects already processed
+	 * during this invocation of findDependencyLoops().  The other is a
+	 * workspace[] array of DumpableObject pointers, in which we try to build
+	 * lists of objects constituting loops.  We make workspace[] large enough
+	 * to hold all the objects, which is huge overkill in most cases but could
+	 * theoretically be necessary if there is a single dependency chain
+	 * linking all the objects.
 	 */
+	bool	   *processed;
 	DumpableObject **workspace;
-	int			initiallen;
 	bool		fixedloop;
 	int			i;
 
-	workspace = (DumpableObject **) malloc(totObjs * sizeof(DumpableObject *));
-	if (workspace == NULL)
-		exit_horribly(NULL, modulename, "out of memory\n");
-	initiallen = 0;
+	processed = (bool *) pg_calloc(getMaxDumpId() + 1, sizeof(bool));
+	workspace = (DumpableObject **) pg_malloc(totObjs * sizeof(DumpableObject *));
 	fixedloop = false;
 
 	for (i = 0; i < nObjs; i++)
 	{
 		DumpableObject *obj = objs[i];
-		int			newlen;
+		int			looplen;
+		int			j;
 
-		workspace[initiallen] = NULL;	/* see test below */
+		looplen = findLoop(obj, obj->dumpId, processed, workspace, 0);
 
-		if (findLoop(obj, obj->dumpId, workspace, initiallen, &newlen))
+		if (looplen > 0)
 		{
-			/* Found a loop of length newlen - initiallen */
-			repairDependencyLoop(&workspace[initiallen], newlen - initiallen);
-			/* Add loop members to workspace */
-			initiallen = newlen;
+			/* Found a loop, repair it */
+			repairDependencyLoop(workspace, looplen);
 			fixedloop = true;
+			/* Mark loop members as processed */
+			for (j = 0; j < looplen; j++)
+				processed[workspace[j]->dumpId] = true;
 		}
 		else
 		{
 			/*
-			 * Didn't find a loop, but add this object to workspace anyway,
-			 * unless it's already present.  We piggyback on the test that
-			 * findLoop() already did: it won't have tentatively added obj to
-			 * workspace if it's already present.
+			 * There's no loop starting at this object, but mark it processed
+			 * anyway.	This is not necessary for correctness, but saves later
+			 * invocations of findLoop() from uselessly chasing references to
+			 * such an object.
 			 */
-			if (workspace[initiallen] == obj)
-				initiallen++;
+			processed[obj->dumpId] = true;
 		}
 	}
 
 	/* We'd better have fixed at least one loop */
 	if (!fixedloop)
-		exit_horribly(NULL, modulename, "could not identify dependency loop\n");
+		exit_horribly(modulename, "could not identify dependency loop\n");
 
 	free(workspace);
+	free(processed);
 }
 
 /*
  * Recursively search for a circular dependency loop that doesn't include
- * any existing workspace members.
+ * any already-processed objects.
  *
  *	obj: object we are examining now
  *	startPoint: dumpId of starting object for the hoped-for circular loop
- *	workspace[]: work array for previously processed and current objects
+ *	processed[]: flag array marking already-processed objects
+ *	workspace[]: work array in which we are building list of loop members
  *	depth: number of valid entries in workspace[] at call
- *	newDepth: if successful, set to new number of workspace[] entries
  *
- * On success, *newDepth is set and workspace[] entries depth..*newDepth-1
- * are filled with pointers to the members of the loop.
+ * On success, the length of the loop is returned, and workspace[] is filled
+ * with pointers to the members of the loop.  On failure, we return 0.
  *
  * Note: it is possible that the given starting object is a member of more
  * than one cycle; if so, we will find an arbitrary one of the cycles.
  */
-static bool
+static int
 findLoop(DumpableObject *obj,
 		 DumpId startPoint,
+		 bool *processed,
 		 DumpableObject **workspace,
-		 int depth,
-		 int *newDepth)
+		 int depth)
 {
 	int			i;
 
 	/*
-	 * Reject if obj is already present in workspace.  This test serves three
-	 * purposes: it prevents us from finding loops that overlap
-	 * previously-processed loops, it prevents us from going into infinite
-	 * recursion if we are given a startPoint object that links to a cycle
-	 * it's not a member of, and it guarantees that we can't overflow the
-	 * allocated size of workspace[].
+	 * Reject if obj is already processed.	This test prevents us from finding
+	 * loops that overlap previously-processed loops.
+	 */
+	if (processed[obj->dumpId])
+		return 0;
+
+	/*
+	 * Reject if obj is already present in workspace.  This test prevents us
+	 * from going into infinite recursion if we are given a startPoint object
+	 * that links to a cycle it's not a member of, and it guarantees that we
+	 * can't overflow the allocated size of workspace[].
 	 */
 	for (i = 0; i < depth; i++)
 	{
 		if (workspace[i] == obj)
-			return false;
+			return 0;
 	}
 
 	/*
@@ -607,10 +616,7 @@ findLoop(DumpableObject *obj,
 	for (i = 0; i < obj->nDeps; i++)
 	{
 		if (obj->dependencies[i] == startPoint)
-		{
-			*newDepth = depth;
-			return true;
-		}
+			return depth;
 	}
 
 	/*
@@ -619,24 +625,27 @@ findLoop(DumpableObject *obj,
 	for (i = 0; i < obj->nDeps; i++)
 	{
 		DumpableObject *nextobj = findObjectByDumpId(obj->dependencies[i]);
+		int			newDepth;
 
 		if (!nextobj)
 			continue;			/* ignore dependencies on undumped objects */
-		if (findLoop(nextobj,
-					 startPoint,
-					 workspace,
-					 depth,
-					 newDepth))
-			return true;
+		newDepth = findLoop(nextobj,
+							startPoint,
+							processed,
+							workspace,
+							depth);
+		if (newDepth > 0)
+			return newDepth;
 	}
 
-	return false;
+	return 0;
 }
 
 /*
  * A user-defined datatype will have a dependency loop with each of its
  * I/O functions (since those have the datatype as input or output).
- * Break the loop and make the I/O function depend on the associated
+ * Similarly, a range type will have a loop with its canonicalize function,
+ * if any.	Break the loop by making the function depend on the associated
  * shell type, instead.
  */
 static void
@@ -651,7 +660,7 @@ repairTypeFuncLoop(DumpableObject *typeobj, DumpableObject *funcobj)
 	if (typeInfo->shellType)
 	{
 		addObjectDependency(funcobj, typeInfo->shellType->dobj.dumpId);
-		/* Mark shell type as to be dumped if any I/O function is */
+		/* Mark shell type as to be dumped if any such function is */
 		if (funcobj->dump)
 			typeInfo->shellType->dobj.dump = true;
 	}
@@ -789,7 +798,7 @@ repairDependencyLoop(DumpableObject **loop,
 	int			i,
 				j;
 
-	/* Datatype and one of its I/O functions */
+	/* Datatype and one of its I/O or canonicalize functions */
 	if (nLoop == 2 &&
 		loop[0]->objType == DO_TYPE &&
 		loop[1]->objType == DO_FUNC)
@@ -984,7 +993,7 @@ repairDependencyLoop(DumpableObject **loop,
 		write_msg(NULL, "NOTICE: there are circular foreign-key constraints among these table(s):\n");
 		for (i = 0; i < nLoop; i++)
 			write_msg(NULL, "  %s\n", loop[i]->name);
-		write_msg(NULL, "You may not be able to restore the dump without using --disable-triggers or temporarily dropping the constraints.\n");
+		write_msg(NULL, "You might not be able to restore the dump without using --disable-triggers or temporarily dropping the constraints.\n");
 		write_msg(NULL, "Consider using a full dump instead of a --data-only dump to avoid this problem.\n");
 		if (nLoop > 1)
 			removeObjectDependency(loop[0], loop[1]->dumpId);

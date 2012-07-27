@@ -3,7 +3,7 @@
  *
  *	Definitions for the PostgreSQL statistics collector daemon.
  *
- *	Copyright (c) 2001-2011, PostgreSQL Global Development Group
+ *	Copyright (c) 2001-2012, PostgreSQL Global Development Group
  *
  *	src/include/pgstat.h
  * ----------
@@ -11,11 +11,12 @@
 #ifndef PGSTAT_H
 #define PGSTAT_H
 
+#include "datatype/timestamp.h"
+#include "fmgr.h"
 #include "libpq/pqcomm.h"
 #include "portability/instr_time.h"
 #include "utils/hsearch.h"
 #include "utils/relcache.h"
-#include "utils/timestamp.h"
 
 
 /* Values for track_functions GUC variable --- order is significant! */
@@ -46,7 +47,9 @@ typedef enum StatMsgType
 	PGSTAT_MTYPE_BGWRITER,
 	PGSTAT_MTYPE_FUNCSTAT,
 	PGSTAT_MTYPE_FUNCPURGE,
-	PGSTAT_MTYPE_RECOVERYCONFLICT
+	PGSTAT_MTYPE_RECOVERYCONFLICT,
+	PGSTAT_MTYPE_TEMPFILE,
+	PGSTAT_MTYPE_DEADLOCK
 } StatMsgType;
 
 /* ----------
@@ -230,6 +233,8 @@ typedef struct PgStat_MsgTabstat
 	int			m_nentries;
 	int			m_xact_commit;
 	int			m_xact_rollback;
+	PgStat_Counter m_block_read_time;	/* times in microseconds */
+	PgStat_Counter m_block_write_time;
 	PgStat_TableEntry m_entry[PGSTAT_NUM_TABENTRIES];
 } PgStat_MsgTabstat;
 
@@ -361,6 +366,8 @@ typedef struct PgStat_MsgBgWriter
 	PgStat_Counter m_buf_written_backend;
 	PgStat_Counter m_buf_fsync_backend;
 	PgStat_Counter m_buf_alloc;
+	PgStat_Counter m_checkpoint_write_time;		/* times in milliseconds */
+	PgStat_Counter m_checkpoint_sync_time;
 } PgStat_MsgBgWriter;
 
 /* ----------
@@ -376,6 +383,18 @@ typedef struct PgStat_MsgRecoveryConflict
 } PgStat_MsgRecoveryConflict;
 
 /* ----------
+ * PgStat_MsgTempFile	Sent by the backend upon creating a temp file
+ * ----------
+ */
+typedef struct PgStat_MsgTempFile
+{
+	PgStat_MsgHdr m_hdr;
+
+	Oid			m_databaseid;
+	size_t		m_filesize;
+} PgStat_MsgTempFile;
+
+/* ----------
  * PgStat_FunctionCounts	The actual per-function counts kept by a backend
  *
  * This struct should contain only actual event counters, because we memcmp
@@ -388,8 +407,8 @@ typedef struct PgStat_MsgRecoveryConflict
 typedef struct PgStat_FunctionCounts
 {
 	PgStat_Counter f_numcalls;
-	instr_time	f_time;
-	instr_time	f_time_self;
+	instr_time	f_total_time;
+	instr_time	f_self_time;
 } PgStat_FunctionCounts;
 
 /* ----------
@@ -410,8 +429,8 @@ typedef struct PgStat_FunctionEntry
 {
 	Oid			f_id;
 	PgStat_Counter f_numcalls;
-	PgStat_Counter f_time;		/* times in microseconds */
-	PgStat_Counter f_time_self;
+	PgStat_Counter f_total_time;	/* times in microseconds */
+	PgStat_Counter f_self_time;
 } PgStat_FunctionEntry;
 
 /* ----------
@@ -448,6 +467,17 @@ typedef struct PgStat_MsgFuncpurge
 	Oid			m_functionid[PGSTAT_NUM_FUNCPURGE];
 } PgStat_MsgFuncpurge;
 
+/* ----------
+ * PgStat_MsgDeadlock			Sent by the backend to tell the collector
+ *								about a deadlock that occurred.
+ * ----------
+ */
+typedef struct PgStat_MsgDeadlock
+{
+	PgStat_MsgHdr m_hdr;
+	Oid			m_databaseid;
+} PgStat_MsgDeadlock;
+
 
 /* ----------
  * PgStat_Msg					Union over all possible messages.
@@ -471,6 +501,7 @@ typedef union PgStat_Msg
 	PgStat_MsgFuncstat msg_funcstat;
 	PgStat_MsgFuncpurge msg_funcpurge;
 	PgStat_MsgRecoveryConflict msg_recoveryconflict;
+	PgStat_MsgDeadlock msg_deadlock;
 } PgStat_Msg;
 
 
@@ -482,7 +513,7 @@ typedef union PgStat_Msg
  * ------------------------------------------------------------
  */
 
-#define PGSTAT_FILE_FORMAT_ID	0x01A5BC99
+#define PGSTAT_FILE_FORMAT_ID	0x01A5BC9A
 
 /* ----------
  * PgStat_StatDBEntry			The collector's data per database
@@ -506,8 +537,13 @@ typedef struct PgStat_StatDBEntry
 	PgStat_Counter n_conflict_snapshot;
 	PgStat_Counter n_conflict_bufferpin;
 	PgStat_Counter n_conflict_startup_deadlock;
-	TimestampTz stat_reset_timestamp;
+	PgStat_Counter n_temp_files;
+	PgStat_Counter n_temp_bytes;
+	PgStat_Counter n_deadlocks;
+	PgStat_Counter n_block_read_time;	/* times in microseconds */
+	PgStat_Counter n_block_write_time;
 
+	TimestampTz stat_reset_timestamp;
 
 	/*
 	 * tables and functions must be last in the struct, because we don't write
@@ -564,8 +600,8 @@ typedef struct PgStat_StatFuncEntry
 
 	PgStat_Counter f_numcalls;
 
-	PgStat_Counter f_time;		/* times in microseconds */
-	PgStat_Counter f_time_self;
+	PgStat_Counter f_total_time;	/* times in microseconds */
+	PgStat_Counter f_self_time;
 } PgStat_StatFuncEntry;
 
 
@@ -577,6 +613,8 @@ typedef struct PgStat_GlobalStats
 	TimestampTz stats_timestamp;	/* time of stats file update */
 	PgStat_Counter timed_checkpoints;
 	PgStat_Counter requested_checkpoints;
+	PgStat_Counter checkpoint_write_time;		/* times in milliseconds */
+	PgStat_Counter checkpoint_sync_time;
 	PgStat_Counter buf_written_checkpoints;
 	PgStat_Counter buf_written_clean;
 	PgStat_Counter maxwritten_clean;
@@ -588,9 +626,25 @@ typedef struct PgStat_GlobalStats
 
 
 /* ----------
+ * Backend states
+ * ----------
+ */
+typedef enum BackendState
+{
+	STATE_UNDEFINED,
+	STATE_IDLE,
+	STATE_RUNNING,
+	STATE_IDLEINTRANSACTION,
+	STATE_FASTPATH,
+	STATE_IDLEINTRANSACTION_ABORTED,
+	STATE_DISABLED,
+} BackendState;
+
+/* ----------
  * Shared-memory data structures
  * ----------
  */
+
 
 /* ----------
  * PgBackendStatus
@@ -621,6 +675,7 @@ typedef struct PgBackendStatus
 	TimestampTz st_proc_start_timestamp;
 	TimestampTz st_xact_start_timestamp;
 	TimestampTz st_activity_start_timestamp;
+	TimestampTz st_state_start_timestamp;
 
 	/* Database OID, owning user's OID, connection client address */
 	Oid			st_databaseid;
@@ -630,6 +685,9 @@ typedef struct PgBackendStatus
 
 	/* Is backend currently waiting on an lmgr lock? */
 	bool		st_waiting;
+
+	/* current state */
+	BackendState st_state;
 
 	/* application name; MUST be null-terminated */
 	char	   *st_appname;
@@ -647,7 +705,7 @@ typedef struct PgStat_FunctionCallUsage
 	/* NULL means we are not tracking the current function call */
 	PgStat_FunctionCounts *fs;
 	/* Total time previously charged to function, as of function start */
-	instr_time	save_f_time;
+	instr_time	save_f_total_time;
 	/* Backend-wide total time as of function start */
 	instr_time	save_total;
 	/* system clock as of function start */
@@ -670,6 +728,12 @@ extern char *pgstat_stat_filename;
  * BgWriter statistics counters are updated directly by bgwriter and bufmgr
  */
 extern PgStat_MsgBgWriter BgWriterStats;
+
+/*
+ * Updated by pgstat_count_buffer_*_time macros
+ */
+extern PgStat_Counter pgStatBlockReadTime;
+extern PgStat_Counter pgStatBlockWriteTime;
 
 /* ----------
  * Functions called from postmaster
@@ -710,15 +774,19 @@ extern void pgstat_report_analyze(Relation rel,
 					  PgStat_Counter livetuples, PgStat_Counter deadtuples);
 
 extern void pgstat_report_recovery_conflict(int reason);
+extern void pgstat_report_deadlock(void);
 
 extern void pgstat_initialize(void);
 extern void pgstat_bestart(void);
 
-extern void pgstat_report_activity(const char *cmd_str);
+extern void pgstat_report_activity(BackendState state, const char *cmd_str);
+extern void pgstat_report_tempfile(size_t filesize);
 extern void pgstat_report_appname(const char *appname);
 extern void pgstat_report_xact_timestamp(TimestampTz tstamp);
 extern void pgstat_report_waiting(bool waiting);
 extern const char *pgstat_get_backend_current_activity(int pid, bool checkUser);
+extern const char *pgstat_get_crashed_backend_activity(int pid, char *buffer,
+									int buflen);
 
 extern PgStat_TableStatus *find_tabstat_entry(Oid rel_id);
 extern PgStat_BackendFunctionEntry *find_funcstat_entry(Oid func_id);
@@ -762,8 +830,12 @@ extern void pgstat_initstats(Relation rel);
 		if ((rel)->pgstat_info != NULL)								\
 			(rel)->pgstat_info->t_counts.t_blocks_hit++;			\
 	} while (0)
+#define pgstat_count_buffer_read_time(n)							\
+	(pgStatBlockReadTime += (n))
+#define pgstat_count_buffer_write_time(n)							\
+	(pgStatBlockWriteTime += (n))
 
-extern void pgstat_count_heap_insert(Relation rel);
+extern void pgstat_count_heap_insert(Relation rel, int n);
 extern void pgstat_count_heap_update(Relation rel, bool hot);
 extern void pgstat_count_heap_delete(Relation rel);
 extern void pgstat_update_heap_dead_tuples(Relation rel, int delta);

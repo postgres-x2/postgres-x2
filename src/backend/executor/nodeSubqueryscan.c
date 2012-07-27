@@ -7,7 +7,7 @@
  * we need two sets of code.  Ought to look at trying to unify the cases.
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -99,14 +99,9 @@ ExecInitSubqueryScan(SubqueryScan *node, EState *estate, int eflags)
 	/* check for unsupported flags */
 	Assert(!(eflags & EXEC_FLAG_MARK));
 
-	/*
-	 * SubqueryScan should not have any "normal" children.	Also, if planner
-	 * left anything in subrtable/subrowmark, it's fishy.
-	 */
+	/* SubqueryScan should not have any "normal" children */
 	Assert(outerPlan(node) == NULL);
 	Assert(innerPlan(node) == NULL);
-	Assert(node->subrtable == NIL);
-	Assert(node->subrowmark == NIL);
 
 	/*
 	 * create state structure

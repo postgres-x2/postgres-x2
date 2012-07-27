@@ -2166,6 +2166,7 @@ ORDER BY x1, x2, y1, y2;
 -- regression test: check for bug with propagation of implied equality
 -- to outside an IN
 --
+analyze tenk1;		-- ensure we get consistent plans here
 select count(*) from tenk1 a where unique1 in
   (select unique1 from tenk1 b join tenk1 c using (unique1)
    where b.unique2 = 42);
@@ -2532,6 +2533,135 @@ order by c.name;
 
 rollback;
 --
+-- test incorrect handling of placeholders that only appear in targetlists,
+-- per bug #6154
+--
+SELECT * FROM
+( SELECT 1 as key1 ) sub1
+LEFT JOIN
+( SELECT sub3.key3, sub4.value2, COALESCE(sub4.value2, 66) as value3 FROM
+    ( SELECT 1 as key3 ) sub3
+    LEFT JOIN
+    ( SELECT sub5.key5, COALESCE(sub6.value1, 1) as value2 FROM
+        ( SELECT 1 as key5 ) sub5
+        LEFT JOIN
+        ( SELECT 2 as key6, 42 as value1 ) sub6
+        ON sub5.key5 = sub6.key6
+    ) sub4
+    ON sub4.key5 = sub3.key3
+) sub2
+ON sub1.key1 = sub2.key3;
+ key1 | key3 | value2 | value3 
+------+------+--------+--------
+    1 |    1 |      1 |      1
+(1 row)
+
+-- test the path using join aliases, too
+SELECT * FROM
+( SELECT 1 as key1 ) sub1
+LEFT JOIN
+( SELECT sub3.key3, value2, COALESCE(value2, 66) as value3 FROM
+    ( SELECT 1 as key3 ) sub3
+    LEFT JOIN
+    ( SELECT sub5.key5, COALESCE(sub6.value1, 1) as value2 FROM
+        ( SELECT 1 as key5 ) sub5
+        LEFT JOIN
+        ( SELECT 2 as key6, 42 as value1 ) sub6
+        ON sub5.key5 = sub6.key6
+    ) sub4
+    ON sub4.key5 = sub3.key3
+) sub2
+ON sub1.key1 = sub2.key3;
+ key1 | key3 | value2 | value3 
+------+------+--------+--------
+    1 |    1 |      1 |      1
+(1 row)
+
+--
+-- test case where a PlaceHolderVar is used as a nestloop parameter
+--
+EXPLAIN (COSTS OFF)
+SELECT qq, unique1
+  FROM
+  ( SELECT COALESCE(q1, 0) AS qq FROM int8_tbl a ) AS ss1
+  FULL OUTER JOIN
+  ( SELECT COALESCE(q2, -1) AS qq FROM int8_tbl b ) AS ss2
+  USING (qq)
+  INNER JOIN tenk1 c ON qq = unique2;
+                                              QUERY PLAN                                               
+-------------------------------------------------------------------------------------------------------
+ Nested Loop
+   ->  Hash Full Join
+         Hash Cond: (COALESCE(a.q1, 0::bigint) = COALESCE(b.q2, (-1)::bigint))
+         ->  Seq Scan on int8_tbl a
+         ->  Hash
+               ->  Seq Scan on int8_tbl b
+   ->  Index Scan using tenk1_unique2 on tenk1 c
+         Index Cond: (unique2 = COALESCE((COALESCE(a.q1, 0::bigint)), (COALESCE(b.q2, (-1)::bigint))))
+(8 rows)
+
+SELECT qq, unique1
+  FROM
+  ( SELECT COALESCE(q1, 0) AS qq FROM int8_tbl a ) AS ss1
+  FULL OUTER JOIN
+  ( SELECT COALESCE(q2, -1) AS qq FROM int8_tbl b ) AS ss2
+  USING (qq)
+  INNER JOIN tenk1 c ON qq = unique2;
+ qq  | unique1 
+-----+---------
+ 123 |    4596
+ 123 |    4596
+ 456 |    7318
+(3 rows)
+
+--
+-- test case where a PlaceHolderVar is propagated into a subquery
+--
+explain (costs off)
+select * from
+  int8_tbl t1 left join
+  (select q1 as x, 42 as y from int8_tbl t2) ss
+  on t1.q2 = ss.x
+where
+  1 = (select 1 from int8_tbl t3 where ss.y is not null limit 1)
+order by 1,2;
+                        QUERY PLAN                         
+-----------------------------------------------------------
+ Sort
+   Sort Key: t1.q1, t1.q2
+   ->  Hash Left Join
+         Hash Cond: (t1.q2 = t2.q1)
+         Filter: (1 = (SubPlan 1))
+         ->  Seq Scan on int8_tbl t1
+         ->  Hash
+               ->  Seq Scan on int8_tbl t2
+         SubPlan 1
+           ->  Limit
+                 ->  Result
+                       One-Time Filter: ((42) IS NOT NULL)
+                       ->  Seq Scan on int8_tbl t3
+(13 rows)
+
+select * from
+  int8_tbl t1 left join
+  (select q1 as x, 42 as y from int8_tbl t2) ss
+  on t1.q2 = ss.x
+where
+  1 = (select 1 from int8_tbl t3 where ss.y is not null limit 1)
+order by 1,2;
+        q1        |        q2        |        x         | y  
+------------------+------------------+------------------+----
+              123 | 4567890123456789 | 4567890123456789 | 42
+              123 | 4567890123456789 | 4567890123456789 | 42
+              123 | 4567890123456789 | 4567890123456789 | 42
+ 4567890123456789 |              123 |              123 | 42
+ 4567890123456789 |              123 |              123 | 42
+ 4567890123456789 | 4567890123456789 | 4567890123456789 | 42
+ 4567890123456789 | 4567890123456789 | 4567890123456789 | 42
+ 4567890123456789 | 4567890123456789 | 4567890123456789 | 42
+(8 rows)
+
+--
 -- test the corner cases FULL JOIN ON TRUE and FULL JOIN ON FALSE
 --
 select * from int4_tbl a full join int4_tbl b on true order by 1,2;
@@ -2578,6 +2708,166 @@ select * from int4_tbl a full join int4_tbl b on false order by 1,2;
              |      123456
              |  2147483647
 (10 rows)
+
+--
+-- test for ability to use a cartesian join when necessary
+--
+explain (costs off)
+select * from
+  tenk1 join int4_tbl on f1 = twothousand,
+  int4(sin(1)) q1,
+  int4(sin(0)) q2
+where q1 = thousand or q2 = thousand;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Hash Join
+   Hash Cond: (tenk1.twothousand = int4_tbl.f1)
+   ->  Nested Loop
+         ->  Nested Loop
+               ->  Function Scan on q1
+               ->  Function Scan on q2
+         ->  Bitmap Heap Scan on tenk1
+               Recheck Cond: ((q1.q1 = thousand) OR (q2.q2 = thousand))
+               ->  BitmapOr
+                     ->  Bitmap Index Scan on tenk1_thous_tenthous
+                           Index Cond: (q1.q1 = thousand)
+                     ->  Bitmap Index Scan on tenk1_thous_tenthous
+                           Index Cond: (q2.q2 = thousand)
+   ->  Hash
+         ->  Seq Scan on int4_tbl
+(15 rows)
+
+explain (costs off)
+select * from
+  tenk1 join int4_tbl on f1 = twothousand,
+  int4(sin(1)) q1,
+  int4(sin(0)) q2
+where thousand = (q1 + q2);
+                          QUERY PLAN                          
+--------------------------------------------------------------
+ Hash Join
+   Hash Cond: (tenk1.twothousand = int4_tbl.f1)
+   ->  Nested Loop
+         ->  Nested Loop
+               ->  Function Scan on q1
+               ->  Function Scan on q2
+         ->  Bitmap Heap Scan on tenk1
+               Recheck Cond: (thousand = (q1.q1 + q2.q2))
+               ->  Bitmap Index Scan on tenk1_thous_tenthous
+                     Index Cond: (thousand = (q1.q1 + q2.q2))
+   ->  Hash
+         ->  Seq Scan on int4_tbl
+(12 rows)
+
+--
+-- test placement of movable quals in a parameterized join tree
+--
+explain (costs off)
+select * from tenk1 t1 left join
+  (tenk1 t2 join tenk1 t3 on t2.thousand = t3.unique2)
+  on t1.hundred = t2.hundred and t1.ten = t3.ten
+where t1.unique1 = 1;
+                       QUERY PLAN                       
+--------------------------------------------------------
+ Nested Loop Left Join
+   ->  Index Scan using tenk1_unique1 on tenk1 t1
+         Index Cond: (unique1 = 1)
+   ->  Nested Loop
+         Join Filter: (t1.ten = t3.ten)
+         ->  Index Scan using tenk1_hundred on tenk1 t2
+               Index Cond: (t1.hundred = hundred)
+         ->  Index Scan using tenk1_unique2 on tenk1 t3
+               Index Cond: (unique2 = t2.thousand)
+(9 rows)
+
+explain (costs off)
+select * from tenk1 t1 left join
+  (tenk1 t2 join tenk1 t3 on t2.thousand = t3.unique2)
+  on t1.hundred = t2.hundred and t1.ten + t2.ten = t3.ten
+where t1.unique1 = 1;
+                       QUERY PLAN                       
+--------------------------------------------------------
+ Nested Loop Left Join
+   ->  Index Scan using tenk1_unique1 on tenk1 t1
+         Index Cond: (unique1 = 1)
+   ->  Nested Loop
+         Join Filter: ((t1.ten + t2.ten) = t3.ten)
+         ->  Index Scan using tenk1_hundred on tenk1 t2
+               Index Cond: (t1.hundred = hundred)
+         ->  Index Scan using tenk1_unique2 on tenk1 t3
+               Index Cond: (unique2 = t2.thousand)
+(9 rows)
+
+explain (costs off)
+select count(*) from
+  tenk1 a join tenk1 b on a.unique1 = b.unique2
+  left join tenk1 c on a.unique2 = b.unique1 and c.thousand = a.thousand
+  join int4_tbl on b.thousand = f1;
+                                QUERY PLAN                                
+--------------------------------------------------------------------------
+ Aggregate
+   ->  Nested Loop Left Join
+         Join Filter: (a.unique2 = b.unique1)
+         ->  Nested Loop
+               ->  Nested Loop
+                     ->  Seq Scan on int4_tbl
+                     ->  Index Scan using tenk1_thous_tenthous on tenk1 b
+                           Index Cond: (thousand = int4_tbl.f1)
+               ->  Index Scan using tenk1_unique1 on tenk1 a
+                     Index Cond: (unique1 = b.unique2)
+         ->  Index Only Scan using tenk1_thous_tenthous on tenk1 c
+               Index Cond: (thousand = a.thousand)
+(12 rows)
+
+select count(*) from
+  tenk1 a join tenk1 b on a.unique1 = b.unique2
+  left join tenk1 c on a.unique2 = b.unique1 and c.thousand = a.thousand
+  join int4_tbl on b.thousand = f1;
+ count 
+-------
+    10
+(1 row)
+
+explain (costs off)
+select b.unique1 from
+  tenk1 a join tenk1 b on a.unique1 = b.unique2
+  left join tenk1 c on b.unique1 = 42 and c.thousand = a.thousand
+  join int4_tbl i1 on b.thousand = f1
+  right join int4_tbl i2 on i2.f1 = b.tenthous
+  order by 1;
+                                       QUERY PLAN                                        
+-----------------------------------------------------------------------------------------
+ Sort
+   Sort Key: b.unique1
+   ->  Nested Loop Left Join
+         ->  Seq Scan on int4_tbl i2
+         ->  Nested Loop
+               ->  Seq Scan on int4_tbl i1
+               ->  Nested Loop Left Join
+                     Join Filter: (b.unique1 = 42)
+                     ->  Nested Loop
+                           ->  Index Scan using tenk1_thous_tenthous on tenk1 b
+                                 Index Cond: ((thousand = i1.f1) AND (i2.f1 = tenthous))
+                           ->  Index Scan using tenk1_unique1 on tenk1 a
+                                 Index Cond: (unique1 = b.unique2)
+                     ->  Index Only Scan using tenk1_thous_tenthous on tenk1 c
+                           Index Cond: (thousand = a.thousand)
+(15 rows)
+
+select b.unique1 from
+  tenk1 a join tenk1 b on a.unique1 = b.unique2
+  left join tenk1 c on b.unique1 = 42 and c.thousand = a.thousand
+  join int4_tbl i1 on b.thousand = f1
+  right join int4_tbl i2 on i2.f1 = b.tenthous
+  order by 1;
+ unique1 
+---------
+       0
+        
+        
+        
+        
+(5 rows)
 
 --
 -- test join removal

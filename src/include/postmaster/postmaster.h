@@ -3,7 +3,7 @@
  * postmaster.h
  *	  Exports from postmaster/postmaster.c.
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/postmaster/postmaster.h
@@ -33,13 +33,15 @@ extern bool restart_after_crash;
 #ifdef WIN32
 extern HANDLE PostmasterHandle;
 #else
-extern int postmaster_alive_fds[2];
+extern int	postmaster_alive_fds[2];
+
 /*
  * Constants that represent which of postmaster_alive_fds is held by
  * postmaster, and which is used in children to check for postmaster death.
  */
-#define POSTMASTER_FD_WATCH		0	/* used in children to check for postmaster death */
-#define POSTMASTER_FD_OWN		1	/* kept open by postmaster only */
+#define POSTMASTER_FD_WATCH		0		/* used in children to check for
+										 * postmaster death */
+#define POSTMASTER_FD_OWN		1		/* kept open by postmaster only */
 #endif
 
 extern const char *progname;

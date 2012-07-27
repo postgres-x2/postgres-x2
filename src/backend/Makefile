@@ -2,7 +2,7 @@
 #
 # Makefile for the postgres backend
 #
-# Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+# Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
 # Portions Copyright (c) 1994, Regents of the University of California
 #
 # src/backend/Makefile
@@ -220,6 +220,7 @@ distprep:
 	$(MAKE) -C replication	repl_gram.c repl_scanner.c
 	$(MAKE) -C utils	fmgrtab.c fmgroids.h errcodes.h
 	$(MAKE) -C utils/misc	guc-file.c
+	$(MAKE) -C utils/sort	qsort_tuple.c
 
 
 ##########################################################################
@@ -333,7 +334,8 @@ maintainer-clean: distclean
 	      utils/fmgroids.h \
 	      utils/fmgrtab.c \
 	      utils/errcodes.h \
-	      utils/misc/guc-file.c
+	      utils/misc/guc-file.c \
+	      utils/sort/qsort_tuple.c
 
 
 ##########################################################################

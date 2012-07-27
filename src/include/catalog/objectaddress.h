@@ -3,7 +3,7 @@
  * objectaddress.h
  *	  functions for working with object addresses
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/catalog/objectaddress.h
@@ -28,11 +28,13 @@ typedef struct ObjectAddress
 } ObjectAddress;
 
 extern ObjectAddress get_object_address(ObjectType objtype, List *objname,
-										List *objargs, Relation *relp,
-										LOCKMODE lockmode, bool missing_ok);
+				   List *objargs, Relation *relp,
+				   LOCKMODE lockmode, bool missing_ok);
 
 extern void check_object_ownership(Oid roleid,
 					   ObjectType objtype, ObjectAddress address,
 					   List *objname, List *objargs, Relation relation);
+
+extern Oid	get_object_namespace(const ObjectAddress *address);
 
 #endif   /* PARSE_OBJECT_H */

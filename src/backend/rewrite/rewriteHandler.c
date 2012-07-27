@@ -3,7 +3,7 @@
  * rewriteHandler.c
  *		Primary module of query rewriter.
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -13,7 +13,6 @@
  */
 #include "postgres.h"
 
-#include "access/heapam.h"
 #include "access/sysattr.h"
 #include "catalog/pg_type.h"
 #include "commands/trigger.h"
@@ -1312,7 +1311,8 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 		 */
 		var = makeWholeRowVar(target_rte,
 							  parsetree->resultRelation,
-							  0);
+							  0,
+							  false);
 
 		attrname = "wholerow";
 	}
@@ -1532,6 +1532,7 @@ ApplyRetrieveRule(Query *parsetree,
 
 	rte->rtekind = RTE_SUBQUERY;
 	rte->relid = InvalidOid;
+	rte->security_barrier = RelationIsSecurityView(relation);
 	rte->subquery = rule_action;
 	rte->inh = false;			/* must not be set for a subquery */
 
@@ -2475,6 +2476,7 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 List *
 QueryRewrite(Query *parsetree)
 {
+	uint32		input_query_id = parsetree->queryId;
 	List	   *querylist;
 	List	   *results;
 	ListCell   *l;
@@ -2499,6 +2501,8 @@ QueryRewrite(Query *parsetree)
 	 * Step 2
 	 *
 	 * Apply all the RIR rules on each query
+	 *
+	 * This is also a handy place to mark each query with the original queryId
 	 */
 	results = NIL;
 	foreach(l, querylist)
@@ -2506,6 +2510,9 @@ QueryRewrite(Query *parsetree)
 		Query	   *query = (Query *) lfirst(l);
 
 		query = fireRIRrules(query, NIL, false);
+
+		query->queryId = input_query_id;
+
 		results = lappend(results, query);
 	}
 

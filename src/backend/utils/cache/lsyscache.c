@@ -3,7 +3,7 @@
  * lsyscache.c
  *	  Convenience routines for common queries in the system catalog cache.
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -26,6 +26,7 @@
 #include "catalog/pg_opclass.h"
 #include "catalog/pg_operator.h"
 #include "catalog/pg_proc.h"
+#include "catalog/pg_range.h"
 #include "catalog/pg_statistic.h"
 #include "catalog/pg_type.h"
 #ifdef PGXC
@@ -248,19 +249,22 @@ get_ordering_op_properties(Oid opno,
 }
 
 /*
- * get_compare_function_for_ordering_op
- *		Get the OID of the datatype-specific btree comparison function
+ * get_sort_function_for_ordering_op
+ *		Get the OID of the datatype-specific btree sort support function,
+ *		or if there is none, the btree comparison function,
  *		associated with an ordering operator (a "<" or ">" operator).
  *
- * *cmpfunc receives the comparison function OID.
+ * *sortfunc receives the support or comparison function OID.
+ * *issupport is set TRUE if it's a support func, FALSE if a comparison func.
  * *reverse is set FALSE if the operator is "<", TRUE if it's ">"
- * (indicating the comparison result must be negated before use).
+ * (indicating that comparison results must be negated before use).
  *
  * Returns TRUE if successful, FALSE if no btree function can be found.
  * (This indicates that the operator is not a valid ordering operator.)
  */
 bool
-get_compare_function_for_ordering_op(Oid opno, Oid *cmpfunc, bool *reverse)
+get_sort_function_for_ordering_op(Oid opno, Oid *sortfunc,
+								  bool *issupport, bool *reverse)
 {
 	Oid			opfamily;
 	Oid			opcintype;
@@ -271,21 +275,31 @@ get_compare_function_for_ordering_op(Oid opno, Oid *cmpfunc, bool *reverse)
 								   &opfamily, &opcintype, &strategy))
 	{
 		/* Found a suitable opfamily, get matching support function */
-		*cmpfunc = get_opfamily_proc(opfamily,
-									 opcintype,
-									 opcintype,
-									 BTORDER_PROC);
-
-		if (!OidIsValid(*cmpfunc))		/* should not happen */
-			elog(ERROR, "missing support function %d(%u,%u) in opfamily %u",
-				 BTORDER_PROC, opcintype, opcintype, opfamily);
+		*sortfunc = get_opfamily_proc(opfamily,
+									  opcintype,
+									  opcintype,
+									  BTSORTSUPPORT_PROC);
+		if (OidIsValid(*sortfunc))
+			*issupport = true;
+		else
+		{
+			/* opfamily doesn't provide sort support, get comparison func */
+			*sortfunc = get_opfamily_proc(opfamily,
+										  opcintype,
+										  opcintype,
+										  BTORDER_PROC);
+			if (!OidIsValid(*sortfunc)) /* should not happen */
+				elog(ERROR, "missing support function %d(%u,%u) in opfamily %u",
+					 BTORDER_PROC, opcintype, opcintype, opfamily);
+			*issupport = false;
+		}
 		*reverse = (strategy == BTGreaterStrategyNumber);
 		return true;
 	}
 
 	/* ensure outputs are set on failure */
-	*cmpfunc = InvalidOid;
-
+	*sortfunc = InvalidOid;
+	*issupport = false;
 	*reverse = false;
 	return false;
 }
@@ -1539,6 +1553,25 @@ func_volatile(Oid funcid)
 }
 
 /*
+ * get_func_leakproof
+ *	   Given procedure id, return the function's leakproof field.
+ */
+bool
+get_func_leakproof(Oid funcid)
+{
+	HeapTuple	tp;
+	bool		result;
+
+	tp = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcid));
+	if (!HeapTupleIsValid(tp))
+		elog(ERROR, "cache lookup failed for function %u", funcid);
+
+	result = ((Form_pg_proc) GETSTRUCT(tp))->proleakproof;
+	ReleaseSysCache(tp);
+	return result;
+}
+
+/*
  * get_func_cost
  *		Given procedure id, return the function's procost field.
  */
@@ -1894,10 +1927,9 @@ getTypeIOParam(HeapTuple typeTuple)
 
 	/*
 	 * Array types get their typelem as parameter; everybody else gets their
-	 * own type OID as parameter.  (As of 8.2, domains must get their own OID
-	 * even if their base type is an array.)
+	 * own type OID as parameter.
 	 */
-	if (typeStruct->typtype == TYPTYPE_BASE && OidIsValid(typeStruct->typelem))
+	if (OidIsValid(typeStruct->typelem))
 		return typeStruct->typelem;
 	else
 		return HeapTupleGetOid(typeTuple);
@@ -2525,6 +2557,16 @@ type_is_enum(Oid typid)
 }
 
 /*
+ * type_is_range
+ *	  Returns true if the given type is a range type.
+ */
+bool
+type_is_range(Oid typid)
+{
+	return (get_typtype(typid) == TYPTYPE_RANGE);
+}
+
+/*
  * get_type_category_preferred
  *
  *		Given the type OID, fetch its category and preferred-type status.
@@ -3128,4 +3170,31 @@ get_namespace_name(Oid nspid)
 	}
 	else
 		return NULL;
+}
+
+/*				---------- PG_RANGE CACHE ----------				 */
+
+/*
+ * get_range_subtype
+ *		Returns the subtype of a given range type
+ *
+ * Returns InvalidOid if the type is not a range type.
+ */
+Oid
+get_range_subtype(Oid rangeOid)
+{
+	HeapTuple	tp;
+
+	tp = SearchSysCache1(RANGETYPE, ObjectIdGetDatum(rangeOid));
+	if (HeapTupleIsValid(tp))
+	{
+		Form_pg_range rngtup = (Form_pg_range) GETSTRUCT(tp);
+		Oid			result;
+
+		result = rngtup->rngsubtype;
+		ReleaseSysCache(tp);
+		return result;
+	}
+	else
+		return InvalidOid;
 }

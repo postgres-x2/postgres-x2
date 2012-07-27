@@ -3,7 +3,7 @@
  * parse_expr.c
  *	  handle expressions in parser
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -836,12 +836,15 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 	/*
 	 * Special-case "foo = NULL" and "NULL = foo" for compatibility with
 	 * standards-broken products (like Microsoft's).  Turn these into IS NULL
-	 * exprs.
+	 * exprs. (If either side is a CaseTestExpr, then the expression was
+	 * generated internally from a CASE-WHEN expression, and
+	 * transform_null_equals does not apply.)
 	 */
 	if (Transform_null_equals &&
 		list_length(a->name) == 1 &&
 		strcmp(strVal(linitial(a->name)), "=") == 0 &&
-		(exprIsNullConstant(lexpr) || exprIsNullConstant(rexpr)))
+		(exprIsNullConstant(lexpr) || exprIsNullConstant(rexpr)) &&
+		(!IsA(lexpr, CaseTestExpr) &&!IsA(rexpr, CaseTestExpr)))
 	{
 		NullTest   *n = makeNode(NullTest);
 
@@ -1406,12 +1409,6 @@ transformSubLink(ParseState *pstate, SubLink *sublink)
 		qtree->commandType != CMD_SELECT ||
 		qtree->utilityStmt != NULL)
 		elog(ERROR, "unexpected non-SELECT command in SubLink");
-	if (qtree->intoClause)
-		ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("subquery cannot have SELECT INTO"),
-				 parser_errposition(pstate,
-								 exprLocation((Node *) qtree->intoClause))));
 
 	sublink->subselect = (Node *) qtree;
 
@@ -1690,6 +1687,9 @@ static Node *
 transformRowExpr(ParseState *pstate, RowExpr *r)
 {
 	RowExpr    *newr = makeNode(RowExpr);
+	char		fname[16];
+	int			fnum;
+	ListCell   *lc;
 
 	/* Transform the field expressions */
 	newr->args = transformExpressionList(pstate, r->args);
@@ -1697,7 +1697,16 @@ transformRowExpr(ParseState *pstate, RowExpr *r)
 	/* Barring later casting, we consider the type RECORD */
 	newr->row_typeid = RECORDOID;
 	newr->row_format = COERCE_IMPLICIT_CAST;
-	newr->colnames = NIL;		/* ROW() has anonymous columns */
+
+	/* ROW() has anonymous columns, so invent some field names */
+	newr->colnames = NIL;
+	fnum = 1;
+	foreach(lc, newr->args)
+	{
+		snprintf(fname, sizeof(fname), "f%d", fnum++);
+		newr->colnames = lappend(newr->colnames, makeString(pstrdup(fname)));
+	}
+
 	newr->location = r->location;
 
 	return (Node *) newr;
@@ -2063,8 +2072,15 @@ transformWholeRowRef(ParseState *pstate, RangeTblEntry *rte, int location)
 	/* Find the RTE's rangetable location */
 	vnum = RTERangeTablePosn(pstate, rte, &sublevels_up);
 
-	/* Build the appropriate referencing node */
-	result = makeWholeRowVar(rte, vnum, sublevels_up);
+	/*
+	 * Build the appropriate referencing node.	Note that if the RTE is a
+	 * function returning scalar, we create just a plain reference to the
+	 * function value, not a composite containing a single column.	This is
+	 * pretty inconsistent at first sight, but it's what we've done
+	 * historically.  One argument for it is that "rel" and "rel.*" mean the
+	 * same thing for composite relations, so why not for scalar functions...
+	 */
+	result = makeWholeRowVar(rte, vnum, sublevels_up, true);
 
 	/* location is not filled in by makeWholeRowVar */
 	result->location = location;
@@ -2259,8 +2275,8 @@ make_row_comparison_op(ParseState *pstate, List *opname,
 		opinfo_lists[i] = get_op_btree_interpretation(opno);
 
 		/*
-		 * convert strategy numbers into a Bitmapset to make the
-		 * intersection calculation easy.
+		 * convert strategy numbers into a Bitmapset to make the intersection
+		 * calculation easy.
 		 */
 		this_strats = NULL;
 		foreach(j, opinfo_lists[i])

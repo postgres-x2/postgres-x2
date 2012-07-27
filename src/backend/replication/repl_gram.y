@@ -3,7 +3,7 @@
  *
  * repl_gram.y				- Parser for the replication commands
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -15,10 +15,12 @@
 
 #include "postgres.h"
 
+#include "access/xlogdefs.h"
 #include "nodes/makefuncs.h"
-#include "nodes/parsenodes.h"
-#include "replication/replnodes.h"
+#include "nodes/replnodes.h"
 #include "replication/walsender.h"
+#include "replication/walsender_private.h"
+
 
 /* Result of the parsing is returned here */
 Node *replication_parse_result;
@@ -120,7 +122,7 @@ base_backup:
 			;
 
 base_backup_opt_list: base_backup_opt_list base_backup_opt { $$ = lappend($1, $2); }
-			| /* EMPTY */           { $$ = NIL; }
+			| /* EMPTY */			{ $$ = NIL; }
 
 base_backup_opt:
 			K_LABEL SCONST

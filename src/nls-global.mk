@@ -36,10 +36,15 @@ LANGUAGES = $(AVAIL_LANGUAGES)
 endif
 
 PO_FILES = $(addprefix po/, $(addsuffix .po, $(LANGUAGES)))
+ALL_PO_FILES = $(addprefix po/, $(addsuffix .po, $(AVAIL_LANGUAGES)))
 MO_FILES = $(addprefix po/, $(addsuffix .mo, $(LANGUAGES)))
 
 ifdef XGETTEXT
-XGETTEXT += -ctranslator --copyright-holder='PostgreSQL Global Development Group' --msgid-bugs-address=pgsql-bugs@postgresql.org
+XGETTEXT += -ctranslator --copyright-holder='PostgreSQL Global Development Group' --msgid-bugs-address=pgsql-bugs@postgresql.org --no-wrap --sort-by-file --package-name='$(CATALOG_NAME) (PostgreSQL)' --package-version='$(MAJORVERSION)'
+endif
+
+ifdef MSGMERGE
+MSGMERGE += --no-wrap --sort-by-file
 endif
 
 # _ is defined in c.h, so it's global
@@ -87,7 +92,7 @@ endif # GETTEXT_FILES
 	rm messages.po
 
 
-# catalog name extentions must match behavior of PG_TEXTDOMAIN() in c.h
+# catalog name extensions must match behavior of PG_TEXTDOMAIN() in c.h
 install-po: all-po installdirs-po
 ifneq (,$(LANGUAGES))
 	for lang in $(LANGUAGES); do \
@@ -108,7 +113,7 @@ clean-po:
 	rm -f po/$(CATALOG_NAME).pot
 
 
-maintainer-check-po: $(PO_FILES)
+maintainer-check-po: $(ALL_PO_FILES)
 	for file in $^; do \
 	  $(MSGFMT) -c -v -o /dev/null $$file || exit 1; \
 	done
@@ -120,8 +125,8 @@ init-po: po/$(CATALOG_NAME).pot
 # For performance reasons, only calculate these when the user actually
 # requested update-po or a specific file.
 ifneq (,$(filter update-po %.po.new,$(MAKECMDGOALS)))
-ALL_LANGUAGES := $(shell find $(top_srcdir) -name '*.po' -print | sed 's,^.*/\([^/]*\).po$$,\1,' | sort -u)
-all_compendia := $(shell find $(top_srcdir) -name '*.po' -print)
+ALL_LANGUAGES := $(shell find $(top_srcdir) -name '*.po' -print | sed 's,^.*/\([^/]*\).po$$,\1,' | LC_ALL=C sort -u)
+all_compendia := $(shell find $(top_srcdir) -name '*.po' -print | LC_ALL=C sort)
 else
 ALL_LANGUAGES = $(AVAIL_LANGUAGES)
 all_compendia = FORCE
@@ -135,14 +140,14 @@ endif
 update-po: $(ALL_LANGUAGES:%=po/%.po.new)
 
 $(AVAIL_LANGUAGES:%=po/%.po.new): po/%.po.new: po/%.po po/$(CATALOG_NAME).pot $(all_compendia)
-	$(MSGMERGE) $(word 1, $^) $(word 2,$^) -o $@ $(addprefix --compendium=,$(filter %/$*.po,$(wordlist 3,$(words $^),$^)))
+	$(MSGMERGE) --lang=$* $(word 1, $^) $(word 2,$^) -o $@ $(addprefix --compendium=,$(filter %/$*.po,$(wordlist 3,$(words $^),$^)))
 
 # For languages not yet available, merge against oneself, to pick
 # up translations from the compendia.  (Merging against /dev/null
 # doesn't work so well; it inserts the headers from the first-named
 # compendium.)
 po/%.po.new: po/$(CATALOG_NAME).pot $(all_compendia)
-	$(MSGMERGE) $(word 1,$^) $(word 1,$^) -o $@ $(addprefix --compendium=,$(filter %/$*.po,$(wordlist 2,$(words $^),$^)))
+	$(MSGMERGE) --lang=$* $(word 1,$^) $(word 1,$^) -o $@ $(addprefix --compendium=,$(filter %/$*.po,$(wordlist 2,$(words $^),$^)))
 
 
 all: all-po

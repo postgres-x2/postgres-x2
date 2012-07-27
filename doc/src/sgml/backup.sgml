@@ -837,7 +837,9 @@ SELECT pg_stop_backup();
     a fatal error if a file was truncated while <application>tar</> was
     copying it.  Fortunately, GNU <application>tar</> versions 1.16 and
     later exit with 1 if a file was changed during the backup,
-    and 2 for other errors.
+    and 2 for other errors.  With GNU <application>tar</> version 1.23 and
+    later, you can use the warning options <literal>--warning=no-file-changed
+    --warning=no-file-removed</literal> to hide the related warning messages.
    </para>
 
    <para>
@@ -869,7 +871,11 @@ SELECT pg_stop_backup();
     of mistakes when restoring.  This is easy to arrange if
     <filename>pg_xlog/</> is a symbolic link pointing to someplace outside
     the cluster directory, which is a common setup anyway for performance
-    reasons.
+    reasons.  You might also want to exclude <filename>postmaster.pid</>
+    and <filename>postmaster.opts</>, which record information
+    about the running <application>postmaster</>, not about the
+    <application>postmaster</> which will eventually use this backup.
+    (These files can confuse <application>pg_ctl</>.)
    </para>
 
    <para>
@@ -1241,19 +1247,14 @@ tar -rf /var/lib/pgsql/backup.tar /var/lib/pgsql/archive/
      </para>
 
      <para>
-      If archive storage size is a concern, use <application>pg_compresslog</>,
-      <ulink url="http://pglesslog.projects.postgresql.org"></ulink>, to
-      remove unnecessary <xref linkend="guc-full-page-writes"> and trailing
-      space from the WAL files.  You can then use
-      <application>gzip</application> to further compress the output of
-      <application>pg_compresslog</>:
+      If archive storage size is a concern, you can use
+      <application>gzip</application> to compress the archive files:
 <programlisting>
-archive_command = 'pg_compresslog %p - | gzip &gt; /var/lib/pgsql/archive/%f'
+archive_command = 'gzip &lt; %p &gt; /var/lib/pgsql/archive/%f'
 </programlisting>
-      You will then need to use <application>gunzip</> and
-      <application>pg_decompresslog</> during recovery:
+      You will then need to use <application>gunzip</> during recovery:
 <programlisting>
-restore_command = 'gunzip &lt; /mnt/server/archivedir/%f | pg_decompresslog - %p'
+restore_command = 'gunzip &lt; /mnt/server/archivedir/%f &gt; %p'
 </programlisting>
      </para>
     </sect3>
@@ -1266,16 +1267,13 @@ restore_command = 'gunzip &lt; /mnt/server/archivedir/%f | pg_decompresslog - %p
       <varname>archive_command</varname>, so that their
       <filename>postgresql.conf</> entry looks very simple:
 <programlisting>
-archive_command = 'local_backup_script.sh'
+archive_command = 'local_backup_script.sh "%p" "%f"'
 </programlisting>
       Using a separate script file is advisable any time you want to use
       more than a single command in the archiving process.
       This allows all complexity to be managed within the script, which
       can be written in a popular scripting language such as
       <application>bash</> or <application>perl</>.
-      Any messages written to <literal>stderr</> from the script will appear
-      in the database server log, allowing complex configurations to be
-      diagnosed easily if they fail.
      </para>
 
      <para>
@@ -1304,6 +1302,16 @@ archive_command = 'local_backup_script.sh'
        </listitem>
       </itemizedlist>
      </para>
+
+     <tip>
+      <para>
+       When using an <varname>archive_command</varname> script, it's desirable
+       to enable <xref linkend="guc-logging-collector">.
+       Any messages written to <systemitem>stderr</> from the script will then
+       appear in the database server log, allowing complex configurations to
+       be diagnosed easily if they fail.
+      </para>
+     </tip>
     </sect3>
   </sect2>
 

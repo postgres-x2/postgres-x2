@@ -3,7 +3,7 @@
  * typecmds.c
  *	  Routines for SQL commands that manipulate types (and domains).
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -38,11 +38,16 @@
 #include "catalog/dependency.h"
 #include "catalog/heap.h"
 #include "catalog/indexing.h"
+#include "catalog/pg_authid.h"
 #include "catalog/pg_collation.h"
 #include "catalog/pg_constraint.h"
 #include "catalog/pg_depend.h"
 #include "catalog/pg_enum.h"
+#include "catalog/pg_language.h"
 #include "catalog/pg_namespace.h"
+#include "catalog/pg_proc.h"
+#include "catalog/pg_proc_fn.h"
+#include "catalog/pg_range.h"
 #include "catalog/pg_type.h"
 #include "catalog/pg_type_fn.h"
 #include "commands/defrem.h"
@@ -80,6 +85,8 @@ typedef struct
 /* Potentially set by contrib/pg_upgrade_support functions */
 Oid			binary_upgrade_next_array_pg_type_oid = InvalidOid;
 
+static void makeRangeConstructors(const char *name, Oid namespace,
+					  Oid rangeOid, Oid subtype);
 static Oid	findTypeInputFunction(List *procname, Oid typeOid);
 static Oid	findTypeOutputFunction(List *procname, Oid typeOid);
 static Oid	findTypeReceiveFunction(List *procname, Oid typeOid);
@@ -87,9 +94,11 @@ static Oid	findTypeSendFunction(List *procname, Oid typeOid);
 static Oid	findTypeTypmodinFunction(List *procname);
 static Oid	findTypeTypmodoutFunction(List *procname);
 static Oid	findTypeAnalyzeFunction(List *procname, Oid typeOid);
-static void	validateDomainConstraint(Oid domainoid, char *ccbin);
+static Oid	findRangeSubOpclass(List *opcname, Oid subtype);
+static Oid	findRangeCanonicalFunction(List *procname, Oid typeOid);
+static Oid	findRangeSubtypeDiffFunction(List *procname, Oid subtype);
+static void validateDomainConstraint(Oid domainoid, char *ccbin);
 static List *get_rels_with_domain(Oid domainOid, LOCKMODE lockmode);
-static void checkDomainOwner(HeapTuple tup);
 static void checkEnumOwner(HeapTuple tup);
 static char *domainAddConstraint(Oid domainOid, Oid domainNamespace,
 					Oid baseTypeOid,
@@ -600,7 +609,7 @@ DefineType(List *names, List *parameters)
 			   F_ARRAY_SEND,	/* send procedure */
 			   typmodinOid,		/* typmodin procedure */
 			   typmodoutOid,	/* typmodout procedure */
-			   InvalidOid,		/* analyze procedure - default */
+			   F_ARRAY_TYPANALYZE,		/* analyze procedure */
 			   typoid,			/* element type ID */
 			   true,			/* yes this is an array type */
 			   InvalidOid,		/* no further array type */
@@ -617,98 +626,6 @@ DefineType(List *names, List *parameters)
 
 	pfree(array_type);
 }
-
-
-/*
- *	RemoveTypes
- *		Implements DROP TYPE and DROP DOMAIN
- *
- * Note: if DOMAIN is specified, we enforce that each type is a domain, but
- * we don't enforce the converse for DROP TYPE
- */
-void
-RemoveTypes(DropStmt *drop)
-{
-	ObjectAddresses *objects;
-	ListCell   *cell;
-
-	/*
-	 * First we identify all the types, then we delete them in a single
-	 * performMultipleDeletions() call.  This is to avoid unwanted DROP
-	 * RESTRICT errors if one of the types depends on another.
-	 */
-	objects = new_object_addresses();
-
-	foreach(cell, drop->objects)
-	{
-		List	   *names = (List *) lfirst(cell);
-		TypeName   *typename;
-		Oid			typeoid;
-		HeapTuple	tup;
-		ObjectAddress object;
-		Form_pg_type typ;
-
-		/* Make a TypeName so we can use standard type lookup machinery */
-		typename = makeTypeNameFromNameList(names);
-
-		/* Use LookupTypeName here so that shell types can be removed. */
-		tup = LookupTypeName(NULL, typename, NULL);
-		if (tup == NULL)
-		{
-			if (!drop->missing_ok)
-			{
-				ereport(ERROR,
-						(errcode(ERRCODE_UNDEFINED_OBJECT),
-						 errmsg("type \"%s\" does not exist",
-								TypeNameToString(typename))));
-			}
-			else
-			{
-				ereport(NOTICE,
-						(errmsg("type \"%s\" does not exist, skipping",
-								TypeNameToString(typename))));
-			}
-			continue;
-		}
-
-		typeoid = typeTypeId(tup);
-		typ = (Form_pg_type) GETSTRUCT(tup);
-
-		/* Permission check: must own type or its namespace */
-		if (!pg_type_ownercheck(typeoid, GetUserId()) &&
-			!pg_namespace_ownercheck(typ->typnamespace, GetUserId()))
-			aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_TYPE,
-						   format_type_be(typeoid));
-
-		if (drop->removeType == OBJECT_DOMAIN)
-		{
-			/* Check that this is actually a domain */
-			if (typ->typtype != TYPTYPE_DOMAIN)
-				ereport(ERROR,
-						(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-						 errmsg("\"%s\" is not a domain",
-								TypeNameToString(typename))));
-		}
-
-		/*
-		 * Note: we need no special check for array types here, as the normal
-		 * treatment of internal dependencies handles it just fine
-		 */
-
-		object.classId = TypeRelationId;
-		object.objectId = typeoid;
-		object.objectSubId = 0;
-
-		add_exact_object_address(&object, objects);
-
-		ReleaseSysCache(tup);
-	}
-
-	performMultipleDeletions(objects, drop->behavior);
-
-	free_object_addresses(objects);
-}
-
 
 /*
  * Guts of type deletion.
@@ -734,6 +651,14 @@ RemoveTypeById(Oid typeOid)
 	 */
 	if (((Form_pg_type) GETSTRUCT(tup))->typtype == TYPTYPE_ENUM)
 		EnumValuesDelete(typeOid);
+
+	/*
+	 * If it is a range type, delete the pg_range entry too; we don't bother
+	 * with making a dependency entry for that, so it has to be done "by hand"
+	 * here.
+	 */
+	if (((Form_pg_type) GETSTRUCT(tup))->typtype == TYPTYPE_RANGE)
+		RangeDelete(typeOid);
 
 	ReleaseSysCache(tup);
 
@@ -816,18 +741,25 @@ DefineDomain(CreateDomainStmt *stmt)
 	basetypeoid = HeapTupleGetOid(typeTup);
 
 	/*
-	 * Base type must be a plain base type, another domain or an enum. Domains
-	 * over pseudotypes would create a security hole.  Domains over composite
-	 * types might be made to work in the future, but not today.
+	 * Base type must be a plain base type, another domain, an enum or a range
+	 * type. Domains over pseudotypes would create a security hole.  Domains
+	 * over composite types might be made to work in the future, but not
+	 * today.
 	 */
 	typtype = baseType->typtype;
 	if (typtype != TYPTYPE_BASE &&
 		typtype != TYPTYPE_DOMAIN &&
-		typtype != TYPTYPE_ENUM)
+		typtype != TYPTYPE_ENUM &&
+		typtype != TYPTYPE_RANGE)
 		ereport(ERROR,
 				(errcode(ERRCODE_DATATYPE_MISMATCH),
 				 errmsg("\"%s\" is not a valid base type for a domain",
 						TypeNameToString(stmt->typeName))));
+
+	aclresult = pg_type_aclcheck(basetypeoid, GetUserId(), ACL_USAGE);
+	if (aclresult != ACLCHECK_OK)
+		aclcheck_error(aclresult, ACL_KIND_TYPE,
+					   format_type_be(basetypeoid));
 
 	/*
 	 * Identify the collation if any
@@ -1208,7 +1140,7 @@ DefineEnum(CreateEnumStmt *stmt)
 			   F_ARRAY_SEND,	/* send procedure */
 			   InvalidOid,		/* typmodin procedure - none */
 			   InvalidOid,		/* typmodout procedure - none */
-			   InvalidOid,		/* analyze procedure - default */
+			   F_ARRAY_TYPANALYZE,		/* analyze procedure */
 			   enumTypeOid,		/* element type ID */
 			   true,			/* yes this is an array type */
 			   InvalidOid,		/* no further array type */
@@ -1278,6 +1210,341 @@ checkEnumOwner(HeapTuple tup)
 	if (!pg_type_ownercheck(HeapTupleGetOid(tup), GetUserId()))
 		aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_TYPE,
 					   format_type_be(HeapTupleGetOid(tup)));
+}
+
+
+/*
+ * DefineRange
+ *		Registers a new range type.
+ */
+void
+DefineRange(CreateRangeStmt *stmt)
+{
+	char	   *typeName;
+	Oid			typeNamespace;
+	Oid			typoid;
+	char	   *rangeArrayName;
+	Oid			rangeArrayOid;
+	Oid			rangeSubtype = InvalidOid;
+	List	   *rangeSubOpclassName = NIL;
+	List	   *rangeCollationName = NIL;
+	List	   *rangeCanonicalName = NIL;
+	List	   *rangeSubtypeDiffName = NIL;
+	Oid			rangeSubOpclass;
+	Oid			rangeCollation;
+	regproc		rangeCanonical;
+	regproc		rangeSubtypeDiff;
+	int16		subtyplen;
+	bool		subtypbyval;
+	char		subtypalign;
+	char		alignment;
+	AclResult	aclresult;
+	ListCell   *lc;
+
+	/* Convert list of names to a name and namespace */
+	typeNamespace = QualifiedNameGetCreationNamespace(stmt->typeName,
+													  &typeName);
+
+	/* Check we have creation rights in target namespace */
+	aclresult = pg_namespace_aclcheck(typeNamespace, GetUserId(), ACL_CREATE);
+	if (aclresult != ACLCHECK_OK)
+		aclcheck_error(aclresult, ACL_KIND_NAMESPACE,
+					   get_namespace_name(typeNamespace));
+
+	/*
+	 * Look to see if type already exists.
+	 */
+	typoid = GetSysCacheOid2(TYPENAMENSP,
+							 CStringGetDatum(typeName),
+							 ObjectIdGetDatum(typeNamespace));
+
+	/*
+	 * If it's not a shell, see if it's an autogenerated array type, and if so
+	 * rename it out of the way.
+	 */
+	if (OidIsValid(typoid) && get_typisdefined(typoid))
+	{
+		if (moveArrayTypeName(typoid, typeName, typeNamespace))
+			typoid = InvalidOid;
+		else
+			ereport(ERROR,
+					(errcode(ERRCODE_DUPLICATE_OBJECT),
+					 errmsg("type \"%s\" already exists", typeName)));
+	}
+
+	/*
+	 * If it doesn't exist, create it as a shell, so that the OID is known for
+	 * use in the range function definitions.
+	 */
+	if (!OidIsValid(typoid))
+	{
+		typoid = TypeShellMake(typeName, typeNamespace, GetUserId());
+		/* Make new shell type visible for modification below */
+		CommandCounterIncrement();
+	}
+
+	/* Extract the parameters from the parameter list */
+	foreach(lc, stmt->params)
+	{
+		DefElem    *defel = (DefElem *) lfirst(lc);
+
+		if (pg_strcasecmp(defel->defname, "subtype") == 0)
+		{
+			if (OidIsValid(rangeSubtype))
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("conflicting or redundant options")));
+			/* we can look up the subtype name immediately */
+			rangeSubtype = typenameTypeId(NULL, defGetTypeName(defel));
+		}
+		else if (pg_strcasecmp(defel->defname, "subtype_opclass") == 0)
+		{
+			if (rangeSubOpclassName != NIL)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("conflicting or redundant options")));
+			rangeSubOpclassName = defGetQualifiedName(defel);
+		}
+		else if (pg_strcasecmp(defel->defname, "collation") == 0)
+		{
+			if (rangeCollationName != NIL)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("conflicting or redundant options")));
+			rangeCollationName = defGetQualifiedName(defel);
+		}
+		else if (pg_strcasecmp(defel->defname, "canonical") == 0)
+		{
+			if (rangeCanonicalName != NIL)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("conflicting or redundant options")));
+			rangeCanonicalName = defGetQualifiedName(defel);
+		}
+		else if (pg_strcasecmp(defel->defname, "subtype_diff") == 0)
+		{
+			if (rangeSubtypeDiffName != NIL)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("conflicting or redundant options")));
+			rangeSubtypeDiffName = defGetQualifiedName(defel);
+		}
+		else
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("type attribute \"%s\" not recognized",
+							defel->defname)));
+	}
+
+	/* Must have a subtype */
+	if (!OidIsValid(rangeSubtype))
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("type attribute \"subtype\" is required")));
+	/* disallow ranges of pseudotypes */
+	if (get_typtype(rangeSubtype) == TYPTYPE_PSEUDO)
+		ereport(ERROR,
+				(errcode(ERRCODE_DATATYPE_MISMATCH),
+				 errmsg("range subtype cannot be %s",
+						format_type_be(rangeSubtype))));
+
+	/* Identify subopclass */
+	rangeSubOpclass = findRangeSubOpclass(rangeSubOpclassName, rangeSubtype);
+
+	/* Identify collation to use, if any */
+	if (type_is_collatable(rangeSubtype))
+	{
+		if (rangeCollationName != NIL)
+			rangeCollation = get_collation_oid(rangeCollationName, false);
+		else
+			rangeCollation = get_typcollation(rangeSubtype);
+	}
+	else
+	{
+		if (rangeCollationName != NIL)
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					 errmsg("range collation specified but subtype does not support collation")));
+		rangeCollation = InvalidOid;
+	}
+
+	/* Identify support functions, if provided */
+	if (rangeCanonicalName != NIL)
+		rangeCanonical = findRangeCanonicalFunction(rangeCanonicalName,
+													typoid);
+	else
+		rangeCanonical = InvalidOid;
+
+	if (rangeSubtypeDiffName != NIL)
+		rangeSubtypeDiff = findRangeSubtypeDiffFunction(rangeSubtypeDiffName,
+														rangeSubtype);
+	else
+		rangeSubtypeDiff = InvalidOid;
+
+	get_typlenbyvalalign(rangeSubtype,
+						 &subtyplen, &subtypbyval, &subtypalign);
+
+	/* alignment must be 'i' or 'd' for ranges */
+	alignment = (subtypalign == 'd') ? 'd' : 'i';
+
+	/* Allocate OID for array type */
+	rangeArrayOid = AssignTypeArrayOid();
+
+	/* Create the pg_type entry */
+	typoid =
+		TypeCreate(InvalidOid,	/* no predetermined type OID */
+				   typeName,	/* type name */
+				   typeNamespace,		/* namespace */
+				   InvalidOid,	/* relation oid (n/a here) */
+				   0,			/* relation kind (ditto) */
+				   GetUserId(), /* owner's ID */
+				   -1,			/* internal size (always varlena) */
+				   TYPTYPE_RANGE,		/* type-type (range type) */
+				   TYPCATEGORY_RANGE,	/* type-category (range type) */
+				   false,		/* range types are never preferred */
+				   DEFAULT_TYPDELIM,	/* array element delimiter */
+				   F_RANGE_IN,	/* input procedure */
+				   F_RANGE_OUT, /* output procedure */
+				   F_RANGE_RECV,	/* receive procedure */
+				   F_RANGE_SEND,	/* send procedure */
+				   InvalidOid,	/* typmodin procedure - none */
+				   InvalidOid,	/* typmodout procedure - none */
+				   F_RANGE_TYPANALYZE,	/* analyze procedure */
+				   InvalidOid,	/* element type ID - none */
+				   false,		/* this is not an array type */
+				   rangeArrayOid,		/* array type we are about to create */
+				   InvalidOid,	/* base type ID (only for domains) */
+				   NULL,		/* never a default type value */
+				   NULL,		/* no binary form available either */
+				   false,		/* never passed by value */
+				   alignment,	/* alignment */
+				   'x',			/* TOAST strategy (always extended) */
+				   -1,			/* typMod (Domains only) */
+				   0,			/* Array dimensions of typbasetype */
+				   false,		/* Type NOT NULL */
+				   InvalidOid); /* type's collation (ranges never have one) */
+
+	/* Create the entry in pg_range */
+	RangeCreate(typoid, rangeSubtype, rangeCollation, rangeSubOpclass,
+				rangeCanonical, rangeSubtypeDiff);
+
+	/*
+	 * Create the array type that goes with it.
+	 */
+	rangeArrayName = makeArrayTypeName(typeName, typeNamespace);
+
+	TypeCreate(rangeArrayOid,	/* force assignment of this type OID */
+			   rangeArrayName,	/* type name */
+			   typeNamespace,	/* namespace */
+			   InvalidOid,		/* relation oid (n/a here) */
+			   0,				/* relation kind (ditto) */
+			   GetUserId(),		/* owner's ID */
+			   -1,				/* internal size (always varlena) */
+			   TYPTYPE_BASE,	/* type-type (base type) */
+			   TYPCATEGORY_ARRAY,		/* type-category (array) */
+			   false,			/* array types are never preferred */
+			   DEFAULT_TYPDELIM,	/* array element delimiter */
+			   F_ARRAY_IN,		/* input procedure */
+			   F_ARRAY_OUT,		/* output procedure */
+			   F_ARRAY_RECV,	/* receive procedure */
+			   F_ARRAY_SEND,	/* send procedure */
+			   InvalidOid,		/* typmodin procedure - none */
+			   InvalidOid,		/* typmodout procedure - none */
+			   F_ARRAY_TYPANALYZE,		/* analyze procedure */
+			   typoid,			/* element type ID */
+			   true,			/* yes this is an array type */
+			   InvalidOid,		/* no further array type */
+			   InvalidOid,		/* base type ID */
+			   NULL,			/* never a default type value */
+			   NULL,			/* binary default isn't sent either */
+			   false,			/* never passed by value */
+			   alignment,		/* alignment - same as range's */
+			   'x',				/* ARRAY is always toastable */
+			   -1,				/* typMod (Domains only) */
+			   0,				/* Array dimensions of typbasetype */
+			   false,			/* Type NOT NULL */
+			   InvalidOid);		/* typcollation */
+
+	pfree(rangeArrayName);
+
+	/* And create the constructor functions for this range type */
+	makeRangeConstructors(typeName, typeNamespace, typoid, rangeSubtype);
+}
+
+/*
+ * Because there may exist several range types over the same subtype, the
+ * range type can't be uniquely determined from the subtype.  So it's
+ * impossible to define a polymorphic constructor; we have to generate new
+ * constructor functions explicitly for each range type.
+ *
+ * We actually define 4 functions, with 0 through 3 arguments.	This is just
+ * to offer more convenience for the user.
+ */
+static void
+makeRangeConstructors(const char *name, Oid namespace,
+					  Oid rangeOid, Oid subtype)
+{
+	static const char *const prosrc[2] = {"range_constructor2",
+	"range_constructor3"};
+	static const int pronargs[2] = {2, 3};
+
+	Oid			constructorArgTypes[3];
+	ObjectAddress myself,
+				referenced;
+	int			i;
+
+	constructorArgTypes[0] = subtype;
+	constructorArgTypes[1] = subtype;
+	constructorArgTypes[2] = TEXTOID;
+
+	referenced.classId = TypeRelationId;
+	referenced.objectId = rangeOid;
+	referenced.objectSubId = 0;
+
+	for (i = 0; i < lengthof(prosrc); i++)
+	{
+		oidvector  *constructorArgTypesVector;
+		Oid			procOid;
+
+		constructorArgTypesVector = buildoidvector(constructorArgTypes,
+												   pronargs[i]);
+
+		procOid = ProcedureCreate(name, /* name: same as range type */
+								  namespace,	/* namespace */
+								  false,		/* replace */
+								  false,		/* returns set */
+								  rangeOid,		/* return type */
+								  BOOTSTRAP_SUPERUSERID,		/* proowner */
+								  INTERNALlanguageId,	/* language */
+								  F_FMGR_INTERNAL_VALIDATOR,	/* language validator */
+								  prosrc[i],	/* prosrc */
+								  NULL, /* probin */
+								  false,		/* isAgg */
+								  false,		/* isWindowFunc */
+								  false,		/* security_definer */
+								  false,		/* leakproof */
+								  false,		/* isStrict */
+								  PROVOLATILE_IMMUTABLE,		/* volatility */
+								  constructorArgTypesVector,	/* parameterTypes */
+								  PointerGetDatum(NULL),		/* allParameterTypes */
+								  PointerGetDatum(NULL),		/* parameterModes */
+								  PointerGetDatum(NULL),		/* parameterNames */
+								  NIL,	/* parameterDefaults */
+								  PointerGetDatum(NULL),		/* proconfig */
+								  1.0,	/* procost */
+								  0.0); /* prorows */
+
+		/*
+		 * Make the constructors internally-dependent on the range type so
+		 * that they go away silently when the type is dropped.  Note that
+		 * pg_dump depends on this choice to avoid dumping the constructors.
+		 */
+		myself.classId = ProcedureRelationId;
+		myself.objectId = procOid;
+		myself.objectSubId = 0;
+
+		recordDependencyOn(&myself, &referenced, DEPENDENCY_INTERNAL);
+	}
 }
 
 
@@ -1542,6 +1809,136 @@ findTypeAnalyzeFunction(List *procname, Oid typeOid)
 }
 
 /*
+ * Find suitable support functions and opclasses for a range type.
+ */
+
+/*
+ * Find named btree opclass for subtype, or default btree opclass if
+ * opcname is NIL.
+ */
+static Oid
+findRangeSubOpclass(List *opcname, Oid subtype)
+{
+	Oid			opcid;
+	Oid			opInputType;
+
+	if (opcname != NIL)
+	{
+		opcid = get_opclass_oid(BTREE_AM_OID, opcname, false);
+
+		/*
+		 * Verify that the operator class accepts this datatype. Note we will
+		 * accept binary compatibility.
+		 */
+		opInputType = get_opclass_input_type(opcid);
+		if (!IsBinaryCoercible(subtype, opInputType))
+			ereport(ERROR,
+					(errcode(ERRCODE_DATATYPE_MISMATCH),
+				 errmsg("operator class \"%s\" does not accept data type %s",
+						NameListToString(opcname),
+						format_type_be(subtype))));
+	}
+	else
+	{
+		opcid = GetDefaultOpClass(subtype, BTREE_AM_OID);
+		if (!OidIsValid(opcid))
+		{
+			/* We spell the error message identically to GetIndexOpClass */
+			ereport(ERROR,
+					(errcode(ERRCODE_UNDEFINED_OBJECT),
+					 errmsg("data type %s has no default operator class for access method \"%s\"",
+							format_type_be(subtype), "btree"),
+					 errhint("You must specify an operator class for the range type or define a default operator class for the subtype.")));
+		}
+	}
+
+	return opcid;
+}
+
+static Oid
+findRangeCanonicalFunction(List *procname, Oid typeOid)
+{
+	Oid			argList[1];
+	Oid			procOid;
+	AclResult	aclresult;
+
+	/*
+	 * Range canonical functions must take and return the range type, and must
+	 * be immutable.
+	 */
+	argList[0] = typeOid;
+
+	procOid = LookupFuncName(procname, 1, argList, true);
+
+	if (!OidIsValid(procOid))
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_FUNCTION),
+				 errmsg("function %s does not exist",
+						func_signature_string(procname, 1, NIL, argList))));
+
+	if (get_func_rettype(procOid) != typeOid)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+				 errmsg("range canonical function %s must return range type",
+						func_signature_string(procname, 1, NIL, argList))));
+
+	if (func_volatile(procOid) != PROVOLATILE_IMMUTABLE)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+				 errmsg("range canonical function %s must be immutable",
+						func_signature_string(procname, 1, NIL, argList))));
+
+	/* Also, range type's creator must have permission to call function */
+	aclresult = pg_proc_aclcheck(procOid, GetUserId(), ACL_EXECUTE);
+	if (aclresult != ACLCHECK_OK)
+		aclcheck_error(aclresult, ACL_KIND_PROC, get_func_name(procOid));
+
+	return procOid;
+}
+
+static Oid
+findRangeSubtypeDiffFunction(List *procname, Oid subtype)
+{
+	Oid			argList[2];
+	Oid			procOid;
+	AclResult	aclresult;
+
+	/*
+	 * Range subtype diff functions must take two arguments of the subtype,
+	 * must return float8, and must be immutable.
+	 */
+	argList[0] = subtype;
+	argList[1] = subtype;
+
+	procOid = LookupFuncName(procname, 2, argList, true);
+
+	if (!OidIsValid(procOid))
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_FUNCTION),
+				 errmsg("function %s does not exist",
+						func_signature_string(procname, 2, NIL, argList))));
+
+	if (get_func_rettype(procOid) != FLOAT8OID)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+				 errmsg("range subtype diff function %s must return type double precision",
+						func_signature_string(procname, 2, NIL, argList))));
+
+	if (func_volatile(procOid) != PROVOLATILE_IMMUTABLE)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+				 errmsg("range subtype diff function %s must be immutable",
+						func_signature_string(procname, 2, NIL, argList))));
+
+	/* Also, range type's creator must have permission to call function */
+	aclresult = pg_proc_aclcheck(procOid, GetUserId(), ACL_EXECUTE);
+	if (aclresult != ACLCHECK_OK)
+		aclcheck_error(aclresult, ACL_KIND_PROC, get_func_name(procOid));
+
+	return procOid;
+}
+
+/*
  *	AssignTypeArrayOid
  *
  *	Pre-assign the type's array OID for use in pg_type.typarray
@@ -1584,7 +1981,7 @@ AssignTypeArrayOid(void)
  *-------------------------------------------------------------------
  */
 Oid
-DefineCompositeType(const RangeVar *typevar, List *coldeflist)
+DefineCompositeType(RangeVar *typevar, List *coldeflist)
 {
 	CreateStmt *createStmt = makeNode(CreateStmt);
 	Oid			old_type_oid;
@@ -1595,7 +1992,7 @@ DefineCompositeType(const RangeVar *typevar, List *coldeflist)
 	 * now set the parameters for keys/inheritance etc. All of these are
 	 * uninteresting for composite types...
 	 */
-	createStmt->relation = (RangeVar *) typevar;
+	createStmt->relation = typevar;
 	createStmt->tableElts = coldeflist;
 	createStmt->inhRelations = NIL;
 	createStmt->constraints = NIL;
@@ -1610,7 +2007,8 @@ DefineCompositeType(const RangeVar *typevar, List *coldeflist)
 	 * check is here mainly to get a better error message about a "type"
 	 * instead of below about a "relation".
 	 */
-	typeNamespace = RangeVarGetCreationNamespace(createStmt->relation);
+	typeNamespace = RangeVarGetAndCheckCreationNamespace(createStmt->relation,
+														 NoLock, NULL);
 	RangeVarAdjustRelationPersistence(createStmt->relation, typeNamespace);
 	old_type_oid =
 		GetSysCacheOid2(TYPENAMENSP,
@@ -1869,7 +2267,7 @@ AlterDomainNotNull(List *names, bool notNull)
  */
 void
 AlterDomainDropConstraint(List *names, const char *constrName,
-						  DropBehavior behavior)
+						  DropBehavior behavior, bool missing_ok)
 {
 	TypeName   *typename;
 	Oid			domainoid;
@@ -1879,6 +2277,7 @@ AlterDomainDropConstraint(List *names, const char *constrName,
 	SysScanDesc conscan;
 	ScanKeyData key[1];
 	HeapTuple	contup;
+	bool		found = false;
 
 	/* Make a TypeName so we can use standard type lookup machinery */
 	typename = makeTypeNameFromNameList(names);
@@ -1921,7 +2320,8 @@ AlterDomainDropConstraint(List *names, const char *constrName,
 			conobj.objectId = HeapTupleGetOid(contup);
 			conobj.objectSubId = 0;
 
-			performDeletion(&conobj, behavior);
+			performDeletion(&conobj, behavior, 0);
+			found = true;
 		}
 	}
 	/* Clean up after the scan */
@@ -1929,6 +2329,19 @@ AlterDomainDropConstraint(List *names, const char *constrName,
 	heap_close(conrel, RowExclusiveLock);
 
 	heap_close(rel, NoLock);
+
+	if (!found)
+	{
+		if (!missing_ok)
+			ereport(ERROR,
+					(errcode(ERRCODE_UNDEFINED_OBJECT),
+				  errmsg("constraint \"%s\" of domain \"%s\" does not exist",
+						 constrName, TypeNameToString(typename))));
+		else
+			ereport(NOTICE,
+					(errmsg("constraint \"%s\" of domain \"%s\" does not exist, skipping",
+							constrName, TypeNameToString(typename))));
+	}
 }
 
 /*
@@ -2050,13 +2463,13 @@ AlterDomainValidateConstraint(List *names, char *constrName)
 	Form_pg_constraint con = NULL;
 	Form_pg_constraint copy_con;
 	char	   *conbin;
-	SysScanDesc	scan;
+	SysScanDesc scan;
 	Datum		val;
 	bool		found = false;
 	bool		isnull;
 	HeapTuple	tuple;
 	HeapTuple	copyTuple;
-	ScanKeyData	key;
+	ScanKeyData key;
 
 	/* Make a TypeName so we can use standard type lookup machinery */
 	typename = makeTypeNameFromNameList(names);
@@ -2102,8 +2515,8 @@ AlterDomainValidateConstraint(List *names, char *constrName)
 	if (con->contype != CONSTRAINT_CHECK)
 		ereport(ERROR,
 				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-				 errmsg("constraint \"%s\" of domain \"%s\" is not a check constraint",
-						constrName, TypeNameToString(typename))));
+		errmsg("constraint \"%s\" of domain \"%s\" is not a check constraint",
+			   constrName, TypeNameToString(typename))));
 
 	val = SysCacheGetAttr(CONSTROID, tuple,
 						  Anum_pg_constraint_conbin,
@@ -2204,6 +2617,7 @@ validateDomainConstraint(Oid domainoid, char *ccbin)
 
 	FreeExecutorState(estate);
 }
+
 /*
  * get_rels_with_domain
  *
@@ -2342,7 +2756,7 @@ get_rels_with_domain(Oid domainOid, LOCKMODE lockmode)
 
 		/*
 		 * Confirm column has not been dropped, and is of the expected type.
-		 * This defends against an ALTER DROP COLUMN occuring just before we
+		 * This defends against an ALTER DROP COLUMN occurring just before we
 		 * acquired lock ... but if the whole table were dropped, we'd still
 		 * have a problem.
 		 */
@@ -2381,7 +2795,7 @@ get_rels_with_domain(Oid domainOid, LOCKMODE lockmode)
  * Check that the type is actually a domain and that the current user
  * has permission to do ALTER DOMAIN on it.  Throw an error if not.
  */
-static void
+void
 checkDomainOwner(HeapTuple tup)
 {
 	Form_pg_type typTup = (Form_pg_type) GETSTRUCT(tup);
@@ -2523,7 +2937,7 @@ domainAddConstraint(Oid domainOid, Oid domainNamespace, Oid baseTypeOid,
 						  CONSTRAINT_CHECK,		/* Constraint Type */
 						  false,	/* Is Deferrable */
 						  false,	/* Is Deferred */
-						  !constr->skip_validation, /* Is Validated */
+						  !constr->skip_validation,		/* Is Validated */
 						  InvalidOid,	/* not a relation constraint */
 						  NULL,
 						  0,
@@ -2543,7 +2957,8 @@ domainAddConstraint(Oid domainOid, Oid domainNamespace, Oid baseTypeOid,
 						  ccbin,	/* Binary form of check constraint */
 						  ccsrc,	/* Source form of check constraint */
 						  true, /* is local */
-						  0);	/* inhcount */
+						  0,	/* inhcount */
+						  false);		/* is only */
 
 	/*
 	 * Return the compiled constraint expression so the calling routine can
@@ -2677,8 +3092,10 @@ GetDomainConstraints(Oid typeOid)
  * Execute ALTER TYPE RENAME
  */
 void
-RenameType(List *names, const char *newTypeName)
+RenameType(RenameStmt *stmt)
 {
+	List	   *names = stmt->object;
+	const char *newTypeName = stmt->newname;
 	TypeName   *typename;
 	Oid			typeOid;
 	Relation	rel;
@@ -2701,6 +3118,13 @@ RenameType(List *names, const char *newTypeName)
 	if (!pg_type_ownercheck(typeOid, GetUserId()))
 		aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_TYPE,
 					   format_type_be(typeOid));
+
+	/* ALTER DOMAIN used on a non-domain? */
+	if (stmt->renameType == OBJECT_DOMAIN && typTup->typtype != TYPTYPE_DOMAIN)
+		ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+				 errmsg("\"%s\" is not a domain",
+						format_type_be(typeOid))));
 
 	/*
 	 * If it's a composite type, we need to check that it really is a
@@ -2730,8 +3154,7 @@ RenameType(List *names, const char *newTypeName)
 	 * RenameRelationInternal will call RenameTypeInternal automatically.
 	 */
 	if (typTup->typtype == TYPTYPE_COMPOSITE)
-		RenameRelationInternal(typTup->typrelid, newTypeName,
-							   typTup->typnamespace);
+		RenameRelationInternal(typTup->typrelid, newTypeName);
 	else
 		RenameTypeInternal(typeOid, newTypeName,
 						   typTup->typnamespace);
@@ -2744,7 +3167,7 @@ RenameType(List *names, const char *newTypeName)
  * Change the owner of a type.
  */
 void
-AlterTypeOwner(List *names, Oid newOwnerId)
+AlterTypeOwner(List *names, Oid newOwnerId, ObjectType objecttype)
 {
 	TypeName   *typename;
 	Oid			typeOid;
@@ -2773,6 +3196,13 @@ AlterTypeOwner(List *names, Oid newOwnerId)
 	ReleaseSysCache(tup);
 	tup = newtup;
 	typTup = (Form_pg_type) GETSTRUCT(tup);
+
+	/* Don't allow ALTER DOMAIN on a type */
+	if (objecttype == OBJECT_DOMAIN && typTup->typtype != TYPTYPE_DOMAIN)
+		ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+				 errmsg("%s is not a domain",
+						format_type_be(typeOid))));
 
 	/*
 	 * If it's a composite type, we need to check that it really is a
@@ -2907,7 +3337,7 @@ AlterTypeOwnerInternal(Oid typeOid, Oid newOwnerId,
  * Execute ALTER TYPE SET SCHEMA
  */
 void
-AlterTypeNamespace(List *names, const char *newschema)
+AlterTypeNamespace(List *names, const char *newschema, ObjectType objecttype)
 {
 	TypeName   *typename;
 	Oid			typeOid;
@@ -2916,6 +3346,13 @@ AlterTypeNamespace(List *names, const char *newschema)
 	/* Make a TypeName so we can use standard type lookup machinery */
 	typename = makeTypeNameFromNameList(names);
 	typeOid = typenameTypeId(NULL, typename);
+
+	/* Don't allow ALTER DOMAIN on a type */
+	if (objecttype == OBJECT_DOMAIN && get_typtype(typeOid) != TYPTYPE_DOMAIN)
+		ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+				 errmsg("%s is not a domain",
+						format_type_be(typeOid))));
 
 	/* get schema OID and check its permissions */
 	nspOid = LookupCreationNamespace(newschema);

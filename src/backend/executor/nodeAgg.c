@@ -67,7 +67,7 @@
  *	  but direct examination of the node is needed to use it before 9.0.
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -991,8 +991,8 @@ find_unaggregated_cols_walker(Node *node, Bitmapset **colnos)
 	{
 		Var		   *var = (Var *) node;
 
-		/* setrefs.c should have set the varno to OUTER */
-		Assert(var->varno == OUTER);
+		/* setrefs.c should have set the varno to OUTER_VAR */
+		Assert(var->varno == OUTER_VAR);
 		Assert(var->varlevelsup == 0);
 		*colnos = bms_add_member(*colnos, var->varattno);
 		return false;
@@ -1389,6 +1389,8 @@ agg_retrieve_direct(AggState *aggstate)
 				return result;
 			}
 		}
+		else
+			InstrCountFiltered1(aggstate, 1);
 	}
 
 	/* No more groups */
@@ -1539,6 +1541,8 @@ agg_retrieve_hash_table(AggState *aggstate)
 				return result;
 			}
 		}
+		else
+			InstrCountFiltered1(aggstate, 1);
 	}
 
 	/* No more groups */

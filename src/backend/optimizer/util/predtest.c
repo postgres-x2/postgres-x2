@@ -4,7 +4,7 @@
  *	  Routines to attempt to prove logical implications between predicate
  *	  expressions.
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -15,13 +15,10 @@
  */
 #include "postgres.h"
 
-#include "catalog/pg_am.h"
-#include "catalog/pg_amop.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
 #include "executor/executor.h"
 #include "miscadmin.h"
-#include "nodes/nodeFuncs.h"
 #include "optimizer/clauses.h"
 #include "optimizer/planmain.h"
 #include "optimizer/predtest.h"
@@ -101,7 +98,7 @@ static bool list_member_strip(List *list, Expr *datum);
 static bool btree_predicate_proof(Expr *predicate, Node *clause,
 					  bool refute_it);
 static Oid	get_btree_test_op(Oid pred_op, Oid clause_op, bool refute_it);
-static void InvalidateOprProofCacheCallBack(Datum arg, int cacheid, ItemPointer tuplePtr);
+static void InvalidateOprProofCacheCallBack(Datum arg, int cacheid, uint32 hashvalue);
 
 
 /*
@@ -1627,7 +1624,7 @@ get_btree_test_op(Oid pred_op, Oid clause_op, bool refute_it)
 	clause_op_infos = get_op_btree_interpretation(clause_op);
 	if (clause_op_infos)
 		pred_op_infos = get_op_btree_interpretation(pred_op);
-	else							/* no point in looking */
+	else	/* no point in looking */
 		pred_op_infos = NIL;
 
 	foreach(lcp, pred_op_infos)
@@ -1738,7 +1735,7 @@ get_btree_test_op(Oid pred_op, Oid clause_op, bool refute_it)
  * Callback for pg_amop inval events
  */
 static void
-InvalidateOprProofCacheCallBack(Datum arg, int cacheid, ItemPointer tuplePtr)
+InvalidateOprProofCacheCallBack(Datum arg, int cacheid, uint32 hashvalue)
 {
 	HASH_SEQ_STATUS status;
 	OprProofCacheEntry *hentry;

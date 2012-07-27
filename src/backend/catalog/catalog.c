@@ -5,7 +5,7 @@
  *		bits of hard-wired knowledge
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -34,6 +34,7 @@
 #include "catalog/pg_db_role_setting.h"
 #include "catalog/pg_shdepend.h"
 #include "catalog/pg_shdescription.h"
+#include "catalog/pg_shseclabel.h"
 #include "catalog/pg_tablespace.h"
 #include "catalog/toasting.h"
 #include "catalog/pgxc_node.h"
@@ -429,6 +430,7 @@ IsSharedRelation(Oid relationId)
 		relationId == PLTemplateRelationId ||
 		relationId == SharedDescriptionRelationId ||
 		relationId == SharedDependRelationId ||
+		relationId == SharedSecLabelRelationId ||
 		relationId == TableSpaceRelationId ||
 #ifdef PGXC
 		relationId == PgxcGroupRelationId ||
@@ -447,6 +449,7 @@ IsSharedRelation(Oid relationId)
 		relationId == SharedDescriptionObjIndexId ||
 		relationId == SharedDependDependerIndexId ||
 		relationId == SharedDependReferenceIndexId ||
+		relationId == SharedSecLabelObjectIndexId ||
 		relationId == TablespaceOidIndexId ||
 		relationId == TablespaceNameIndexId ||
 #ifdef PGXC
@@ -459,9 +462,7 @@ IsSharedRelation(Oid relationId)
 		relationId == DbRoleSettingDatidRolidIndexId)
 		return true;
 	/* These are their toast tables and toast indexes (see toasting.h) */
-	if (relationId == PgDatabaseToastTable ||
-		relationId == PgDatabaseToastIndex ||
-		relationId == PgShdescriptionToastTable ||
+	if (relationId == PgShdescriptionToastTable ||
 		relationId == PgShdescriptionToastIndex ||
 		relationId == PgDbRoleSettingToastTable ||
 		relationId == PgDbRoleSettingToastIndex)

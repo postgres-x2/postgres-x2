@@ -4,7 +4,7 @@
  *	  This file contains definitions for structures and
  *	  externs for functions used by frontend postgres applications.
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/interfaces/libpq/libpq-fe.h
@@ -38,13 +38,14 @@ extern		"C"
 
 /* Application-visible enum types */
 
+/*
+ * Although it is okay to add to these lists, values which become unused
+ * should never be removed, nor should constants be redefined - that would
+ * break compatibility with existing code.
+ */
+
 typedef enum
 {
-	/*
-	 * Although it is okay to add to this list, values which become unused
-	 * should never be removed, nor should constants be redefined - that would
-	 * break compatibility with existing code.
-	 */
 	CONNECTION_OK,
 	CONNECTION_BAD,
 	/* Non-blocking mode only below here */
@@ -128,6 +129,17 @@ typedef struct pg_conn PGconn;
  */
 typedef struct pg_result PGresult;
 
+/* PGdataValue represents a data field value being passed to a row processor.
+ * It could be either text or binary data; text data is not zero-terminated.
+ * A SQL NULL is represented by len < 0; then value is still valid but there
+ * are no data bytes there.
+ */
+typedef struct pgDataValue
+{
+	int			len;			/* data length in bytes, or <0 if NULL */
+	const char *value;			/* data value, without zero-termination */
+} PGdataValue;
+
 /* PGcancel encapsulates the information needed to cancel a running
  * query on an existing connection.
  * The contents of this struct are not supposed to be known to applications.
@@ -148,6 +160,10 @@ typedef struct pgNotify
 	/* Fields below here are private to libpq; apps should not use 'em */
 	struct pgNotify *next;		/* list link */
 } PGnotify;
+
+/* Function type for row-processor callback */
+typedef int (*PQrowProcessor) (PGresult *res, const PGdataValue *columns,
+										   const char **errmsgp, void *param);
 
 /* Function types for notice-handling callbacks */
 typedef void (*PQnoticeReceiver) (void *arg, const PGresult *res);
@@ -235,14 +251,14 @@ typedef struct pgresAttDesc
 /* make a new client connection to the backend */
 /* Asynchronous (non-blocking) */
 extern PGconn *PQconnectStart(const char *conninfo);
-extern PGconn *PQconnectStartParams(const char **keywords,
-					 const char **values, int expand_dbname);
+extern PGconn *PQconnectStartParams(const char *const * keywords,
+					 const char *const * values, int expand_dbname);
 extern PostgresPollingStatusType PQconnectPoll(PGconn *conn);
 
 /* Synchronous (blocking) */
 extern PGconn *PQconnectdb(const char *conninfo);
-extern PGconn *PQconnectdbParams(const char **keywords,
-				  const char **values, int expand_dbname);
+extern PGconn *PQconnectdbParams(const char *const * keywords,
+				  const char *const * values, int expand_dbname);
 extern PGconn *PQsetdbLogin(const char *pghost, const char *pgport,
 			 const char *pgoptions, const char *pgtty,
 			 const char *dbName,
@@ -388,10 +404,15 @@ extern int PQsendQueryPrepared(PGconn *conn,
 					const int *paramFormats,
 					int resultFormat);
 extern PGresult *PQgetResult(PGconn *conn);
+extern PGresult *PQskipResult(PGconn *conn);
 
 /* Routines for managing an asynchronous query */
 extern int	PQisBusy(PGconn *conn);
 extern int	PQconsumeInput(PGconn *conn);
+
+/* Override default per-row processing */
+extern void PQsetRowProcessor(PGconn *conn, PQrowProcessor func, void *param);
+extern PQrowProcessor PQgetRowProcessor(const PGconn *conn, void **param);
 
 /* LISTEN/NOTIFY support */
 extern PGnotify *PQnotifies(PGconn *conn);
@@ -413,8 +434,8 @@ extern int	PQsetnonblocking(PGconn *conn, int arg);
 extern int	PQisnonblocking(const PGconn *conn);
 extern int	PQisthreadsafe(void);
 extern PGPing PQping(const char *conninfo);
-extern PGPing PQpingParams(const char **keywords,
-			 const char **values, int expand_dbname);
+extern PGPing PQpingParams(const char *const * keywords,
+			 const char *const * values, int expand_dbname);
 
 /* Force the write buffer to be written (or at least try) */
 extern int	PQflush(PGconn *conn);

@@ -1043,7 +1043,7 @@ ts = 2010-06-27 18:03:56.949343
 
      <para>
       In addition, the DATE type can be handled in the same way. The
-      program has to include <filename>pg_types_date.h</filename>, declare a host variable
+      program has to include <filename>pgtypes_date.h</filename>, declare a host variable
       as the date type and convert a DATE value into a text form using
       <function>PGTYPESdate_to_asc()</function> function. For more details about the
       pgtypes library functions, see <xref linkend="ecpg-pgtypes">.
@@ -2752,7 +2752,7 @@ timestamp PGTYPEStimestamp_from_asc(char *str, char **endptr);
        <para>
         In general, the input string can contain any combination of an allowed
         date specification, a whitespace character and an allowed time
-        specification. Note that timezones are not supported by ECPG. It can
+        specification. Note that time zones are not supported by ECPG. It can
         parse them but does not apply any calculation as the
         <productname>PostgreSQL</> server does for example. Timezone
         specifiers are silently discarded.
@@ -4038,7 +4038,7 @@ typedef struct sqlvar_struct sqlvar_t;
          <term><literal>sqlname</></term>
           <listitem>
            <para>
-            The the name of the field.
+            The name of the field.
            </para>
           </listitem>
          </varlistentry>
@@ -9164,7 +9164,7 @@ int rtypwidth(int sqltype, int sqllen);
 int rsetnull(int t, char *ptr);
 </synopsis>
         The function receives an integer that indicates the type of the
-        variable and a pointer to the variable itself that is casted to a C
+        variable and a pointer to the variable itself that is cast to a C
         char* pointer.
        </para>
        <para>
@@ -9249,7 +9249,7 @@ int risnull(int t, char *ptr);
 </synopsis>
         The function receives the type of the variable to test (<literal>t</>)
         as well a pointer to this variable (<literal>ptr</>). Note that the
-        latter needs to be casted to a char*. See the function <xref
+        latter needs to be cast to a char*. See the function <xref
         linkend="rsetnull"> for a list of possible variable types.
        </para>
        <para>
@@ -9429,7 +9429,7 @@ risnull(CINTTYPE, (char *) &i);
       <listitem>
        <para>
         Functions return this value if a parsing routine is passed extra
-        characters is cannot parse.  Internally it is defined as -1264 (the
+        characters it cannot parse.  Internally it is defined as -1264 (the
         <productname>Informix</productname> definition).
        </para>
       </listitem>

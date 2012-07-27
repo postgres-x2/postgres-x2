@@ -4,7 +4,7 @@
  *	  include file for the bootstrapping code
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2012 Postgres-XC Development Group
  *
@@ -23,6 +23,7 @@ typedef enum
 	BootstrapProcess,
 	StartupProcess,
 	BgWriterProcess,
+	CheckpointerProcess,
 	WalWriterProcess,
 	WalReceiverProcess,
 #ifdef PGXC

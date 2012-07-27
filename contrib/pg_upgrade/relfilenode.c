@@ -3,9 +3,11 @@
  *
  *	relfilenode functions
  *
- *	Copyright (c) 2010-2011, PostgreSQL Global Development Group
+ *	Copyright (c) 2010-2012, PostgreSQL Global Development Group
  *	contrib/pg_upgrade/relfilenode.c
  */
+
+#include "postgres.h"
 
 #include "pg_upgrade.h"
 
@@ -32,25 +34,39 @@ const char *
 transfer_all_new_dbs(DbInfoArr *old_db_arr,
 				   DbInfoArr *new_db_arr, char *old_pgdata, char *new_pgdata)
 {
-	int			dbnum;
+	int			old_dbnum,
+				new_dbnum;
 	const char *msg = NULL;
 
-	prep_status("Restoring user relation files\n");
+	prep_status("%s user relation files\n",
+	  user_opts.transfer_mode == TRANSFER_MODE_LINK ? "Linking" : "Copying");
 
-	if (old_db_arr->ndbs != new_db_arr->ndbs)
-		pg_log(PG_FATAL, "old and new clusters have a different number of databases\n");
-
-	for (dbnum = 0; dbnum < old_db_arr->ndbs; dbnum++)
+	/* Scan the old cluster databases and transfer their files */
+	for (old_dbnum = new_dbnum = 0;
+		 old_dbnum < old_db_arr->ndbs;
+		 old_dbnum++, new_dbnum++)
 	{
-		DbInfo	   *old_db = &old_db_arr->dbs[dbnum];
-		DbInfo	   *new_db = &new_db_arr->dbs[dbnum];
+		DbInfo	   *old_db = &old_db_arr->dbs[old_dbnum],
+				   *new_db = NULL;
 		FileNameMap *mappings;
 		int			n_maps;
 		pageCnvCtx *pageConverter = NULL;
 
-		if (strcmp(old_db->db_name, new_db->db_name) != 0)
-			pg_log(PG_FATAL, "old and new databases have different names: old \"%s\", new \"%s\"\n",
-				   old_db->db_name, new_db->db_name);
+		/*
+		 * Advance past any databases that exist in the new cluster but not in
+		 * the old, e.g. "postgres".  (The user might have removed the
+		 * 'postgres' database from the old cluster.)
+		 */
+		for (; new_dbnum < new_db_arr->ndbs; new_dbnum++)
+		{
+			new_db = &new_db_arr->dbs[new_dbnum];
+			if (strcmp(old_db->db_name, new_db->db_name) == 0)
+				break;
+		}
+
+		if (new_dbnum >= new_db_arr->ndbs)
+			pg_log(PG_FATAL, "old database \"%s\" not found in the new cluster\n",
+				   old_db->db_name);
 
 		n_maps = 0;
 		mappings = gen_db_file_maps(old_db, new_db, &n_maps, old_pgdata,
@@ -69,7 +85,9 @@ transfer_all_new_dbs(DbInfoArr *old_db_arr,
 		}
 	}
 
-	prep_status("");			/* in case nothing printed */
+	prep_status(" ");			/* in case nothing printed; pass a space so
+								 * gcc doesn't complain about empty format
+								 * string */
 	check_ok();
 
 	return msg;
@@ -120,8 +138,14 @@ transfer_single_new_db(pageCnvCtx *pageConverter,
 	int			numFiles = 0;
 	int			mapnum;
 	int			fileno;
+	bool		vm_crashsafe_change = false;
 
 	old_dir[0] = '\0';
+
+	/* Do not copy non-crashsafe vm files for binaries that assume crashsafety */
+	if (old_cluster.controldata.cat_ver < VISIBILITY_MAP_CRASHSAFE_CAT_VER &&
+		new_cluster.controldata.cat_ver >= VISIBILITY_MAP_CRASHSAFE_CAT_VER)
+		vm_crashsafe_change = true;
 
 	for (mapnum = 0; mapnum < size; mapnum++)
 	{
@@ -139,7 +163,7 @@ transfer_single_new_db(pageCnvCtx *pageConverter,
 			}
 
 			snprintf(old_dir, sizeof(old_dir), "%s", maps[mapnum].old_dir);
-			numFiles = pg_scandir(old_dir, &namelist, NULL);
+			numFiles = load_directory(old_dir, &namelist);
 		}
 
 		/* Copying files might take some time, so give feedback. */
@@ -168,8 +192,16 @@ transfer_single_new_db(pageCnvCtx *pageConverter,
 
 			for (fileno = 0; fileno < numFiles; fileno++)
 			{
+				char	   *vm_offset = strstr(namelist[fileno]->d_name, "_vm");
+				bool		is_vm_file = false;
+
+				/* Is a visibility map file? (name ends with _vm) */
+				if (vm_offset && strlen(vm_offset) == strlen("_vm"))
+					is_vm_file = true;
+
 				if (strncmp(namelist[fileno]->d_name, scandir_file_pattern,
-							strlen(scandir_file_pattern)) == 0)
+							strlen(scandir_file_pattern)) == 0 &&
+					(!is_vm_file || !vm_crashsafe_change))
 				{
 					snprintf(old_file, sizeof(old_file), "%s/%s", maps[mapnum].old_dir,
 							 namelist[fileno]->d_name);
@@ -237,7 +269,7 @@ transfer_relfile(pageCnvCtx *pageConverter, const char *old_file,
 
 	if (user_opts.transfer_mode == TRANSFER_MODE_COPY)
 	{
-		pg_log(PG_INFO, "copying \"%s\" to \"%s\"\n", old_file, new_file);
+		pg_log(PG_VERBOSE, "copying \"%s\" to \"%s\"\n", old_file, new_file);
 
 		if ((msg = copyAndUpdateFile(pageConverter, old_file, new_file, true)) != NULL)
 			pg_log(PG_FATAL, "error while copying relation \"%s.%s\" (\"%s\" to \"%s\"): %s\n",
@@ -245,7 +277,7 @@ transfer_relfile(pageCnvCtx *pageConverter, const char *old_file,
 	}
 	else
 	{
-		pg_log(PG_INFO, "linking \"%s\" to \"%s\"\n", old_file, new_file);
+		pg_log(PG_VERBOSE, "linking \"%s\" to \"%s\"\n", old_file, new_file);
 
 		if ((msg = linkAndUpdateFile(pageConverter, old_file, new_file)) != NULL)
 			pg_log(PG_FATAL,

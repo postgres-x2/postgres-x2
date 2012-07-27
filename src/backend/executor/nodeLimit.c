@@ -3,7 +3,7 @@
  * nodeLimit.c
  *	  Routines to handle limiting of query results where appropriate
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -127,7 +127,7 @@ ExecLimit(LimitState *node)
 				 * the state machine state to record having done so.
 				 */
 				if (!node->noCount &&
-					node->position >= node->offset + node->count)
+					node->position - node->offset >= node->count)
 				{
 					node->lstate = LIMIT_WINDOWEND;
 					return NULL;

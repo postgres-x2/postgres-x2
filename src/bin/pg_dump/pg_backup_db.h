@@ -10,7 +10,13 @@
 
 #include "pg_backup_archiver.h"
 
-extern int	ExecuteSqlCommandBuf(ArchiveHandle *AH, void *qry, size_t bufLen);
+extern int	ExecuteSqlCommandBuf(ArchiveHandle *AH, const char *buf, size_t bufLen);
+
+extern void ExecuteSqlStatement(Archive *AHX, const char *query);
+extern PGresult *ExecuteSqlQuery(Archive *AHX, const char *query,
+				ExecStatusType status);
+
+extern void EndDBCopyMode(ArchiveHandle *AH, struct _tocEntry * te);
 
 extern void StartTransaction(ArchiveHandle *AH);
 extern void CommitTransaction(ArchiveHandle *AH);
