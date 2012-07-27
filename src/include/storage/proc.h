@@ -225,7 +225,7 @@ extern PGPROC *PreparedXactProcs;
 #define NUM_AUXILIARY_PROCS		5
 #else
 #define NUM_AUXILIARY_PROCS		4
-#ensif
+#endif
 
 
 /* configurable options */

@@ -3,12 +3,8 @@
  * varsup.c
  *	  postgres OID & XID variables support routines
  *
-<<<<<<< HEAD
- * Copyright (c) 2000-2011, PostgreSQL Global Development Group
- * Portions Copyright (c) 2010-2012 Postgres-XC Development Group
-=======
  * Copyright (c) 2000-2012, PostgreSQL Global Development Group
->>>>>>> 80edfd76591fdb9beec061de3c05ef4e9d96ce56
+ * Portions Copyright (c) 2010-2012 Postgres-XC Development Group
  *
  * IDENTIFICATION
  *	  src/backend/access/transam/varsup.c
@@ -126,7 +122,7 @@ GetNewTransactionId(bool isSubXact)
 		 * block all other processes.
 		 * GXID can just be obtained from a remote Coordinator
 		 */
-		if (IsAutoVacuumWorkerProcess() && (MyProc->vacuumFlags & PROC_IN_VACUUM))
+		if (IsAutoVacuumWorkerProcess() && (MyPgXact->vacuumFlags & PROC_IN_VACUUM))
 			xid = (TransactionId) BeginTranAutovacuumGTM();
 		else
 			xid = (TransactionId) BeginTranGTM(timestamp);
@@ -172,7 +168,7 @@ GetNewTransactionId(bool isSubXact)
 			 * from snapshots so use a special function for this purpose.
 			 * For a simple worker get transaction ID like a normal transaction would do.
 			 */
-			if (MyProc->vacuumFlags & PROC_IN_VACUUM)
+			if (MyPgXact->vacuumFlags & PROC_IN_VACUUM)
 				next_xid = (TransactionId) BeginTranAutovacuumGTM();
 			else
 				next_xid = (TransactionId) BeginTranGTM(timestamp);
