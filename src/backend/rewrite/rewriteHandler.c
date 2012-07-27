@@ -2585,16 +2585,18 @@ QueryRewriteCTAS(Query *parsetree)
 	Query *cparsetree;
 	List *raw_parsetree_list;
 	char *selectstr;
+	CreateTableAsStmt *stmt;
 
-	if (parsetree->commandType != CMD_SELECT ||
-		(parsetree->intoClause == NULL))
+	if (parsetree->commandType != CMD_UTILITY ||
+		IsA(parsetree->utilityStmt, CreateTableAsStmt))
 		elog(ERROR, "Unexpected commandType or intoClause is not set properly");
 
 	/* Get the target table */
-	relation = parsetree->intoClause->rel;
+	stmt = (CreateTableAsStmt *) parsetree->utilityStmt;
+	relation = stmt->into->rel;
 
 	/* Start building a CreateStmt for creating the target table */
-   	create_stmt = makeNode(CreateStmt);
+	create_stmt = makeNode(CreateStmt);
 	create_stmt->relation = relation;
 
 	/* 
@@ -2643,12 +2645,12 @@ QueryRewriteCTAS(Query *parsetree)
 	 * NULL for SELECT INTO and the default mechanism will be picked)
 	 */
 	create_stmt->tableElts = tableElts;
-	create_stmt->distributeby = parsetree->intoClause->distributeby;
-	create_stmt->subcluster = parsetree->intoClause->subcluster;
+	create_stmt->distributeby = stmt->into->distributeby;
+	create_stmt->subcluster = stmt->into->subcluster;
 
-	create_stmt->tablespacename = parsetree->intoClause->tableSpaceName;
-	create_stmt->oncommit = parsetree->intoClause->onCommit;
-	create_stmt->options = parsetree->intoClause->options;
+	create_stmt->tablespacename = stmt->into->tableSpaceName;
+	create_stmt->oncommit = stmt->into->onCommit;
+	create_stmt->options = stmt->into->options;
 
 	/*
 	 * Check consistency of arguments
@@ -2679,10 +2681,10 @@ QueryRewriteCTAS(Query *parsetree)
 					NULL);
 
 	/*
-	 * Now fold the SELECT statement into an INSERT INTO statement. The
-	 * intoClause is no more required.
+	 * Now fold the CTAS statement into an INSERT INTO statement. The
+	 * utility is no more required.
 	 */
-	parsetree->intoClause = NULL;
+	parsetree->utilityStmt = NULL;
 
 	/* Get the SELECT query string */
 	initStringInfo(&cquery);
