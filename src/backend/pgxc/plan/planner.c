@@ -1664,7 +1664,11 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 				break;
 			}
 			/* We are checking shippability of whole query, go ahead */
-			//PGXCTODO MP: Add here a check to move out of FQS if CREATE TABLE AS is in
+
+			/* CREATE TABLE AS is not supported in FQS */
+			if (query->commandType == CMD_UTILITY &&
+				IsA(query->utilityStmt, CreateTableAsStmt))
+				pgxc_set_shippability_reason(sc_context, SS_UNSUPPORTED_EXPR);
 
 			if (query->hasRecursive)
 				pgxc_set_shippability_reason(sc_context, SS_UNSUPPORTED_EXPR);
