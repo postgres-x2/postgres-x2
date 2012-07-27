@@ -1377,7 +1377,11 @@ CreateExtension(CreateExtensionStmt *stmt)
 			csstmt->schemaname = schemaName;
 			csstmt->authid = NULL;		/* will be created by current user */
 			csstmt->schemaElts = NIL;
+#ifdef PGXC
+			CreateSchemaCommand(csstmt, NULL, true);
+#else
 			CreateSchemaCommand(csstmt, NULL);
+#endif
 
 			/*
 			 * CreateSchemaCommand includes CommandCounterIncrement, so new

@@ -696,7 +696,7 @@ transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_cla
 	 * This will override transaction direct commit as no 2PC
 	 * can be used for transactions involving temporary objects.
 	 */
-	if (IsTempTable(RangeVarGetRelid(inhRelation->relation, NoLock, false, false)))
+	if (IsTempTable(RelationGetRelid(relation)))
 		ExecSetTempObjectIncluded();
 #endif
 
@@ -1914,7 +1914,7 @@ transformFKConstraints(CreateStmtContext *cxt,
 			 */
 			if (IS_PGXC_COORDINATOR && !cxt->fallback_dist_col)
 			{
-				Oid pk_rel_id = RangeVarGetRelid(constraint->pktable, NoLock, false, false);
+				Oid pk_rel_id = RangeVarGetRelid(constraint->pktable, NoLock, false);
 
 				/* make sure it is a partitioned column */
 				if (list_length(constraint->pk_attrs) != 0
@@ -2969,7 +2969,7 @@ checkLocalFKConstraints(CreateStmtContext *cxt)
 				continue;
 		}
 
-		pk_rel_id = RangeVarGetRelid(constraint->pktable, NoLock, false, false);
+		pk_rel_id = RangeVarGetRelid(constraint->pktable, NoLock, false);
 
 		refloctype = GetLocatorType(pk_rel_id);
 
