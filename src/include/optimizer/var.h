@@ -31,10 +31,6 @@ typedef enum
 } PVCPlaceHolderBehavior;
 
 extern Relids pull_varnos(Node *node);
-#ifdef PGXC
-//PGXCTODO: replace pull_varattnos_varno calls by Postgres pull_varattnos
-extern Bitmapset * pull_varattnos_varno(Node *node, Index varno, Bitmapset *varattnos);
-#endif
 extern void pull_varattnos(Node *node, Index varno, Bitmapset **varattnos);
 extern bool contain_var_clause(Node *node);
 extern bool contain_vars_of_level(Node *node, int levelsup);

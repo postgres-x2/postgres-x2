@@ -1745,10 +1745,11 @@ create_remotequery_path(PlannerInfo *root, RelOptInfo *rel)
 
 	pathnode->pathtype = T_RemoteQuery;
 	pathnode->parent = rel;
+	pathnode->param_info = NULL;	/* never parameterized at present */
 	pathnode->pathkeys = NIL;	/* result is always unordered */
 
 	/* PGXCTODO - set cost properly */
-	cost_seqscan(pathnode, root, rel);
+	cost_seqscan(pathnode, root, rel, pathnode->param_info);
 
 	return pathnode;
 }
