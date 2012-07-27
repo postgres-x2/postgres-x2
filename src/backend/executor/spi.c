@@ -1765,6 +1765,9 @@ _SPI_pgxc_prepare_plan(const char *src, List *src_parsetree, SPIPlanPtr plan, Pa
 		 */
 		plansource = CreateCachedPlan(parsetree,
 									  src,
+#ifdef PGXC
+									  NULL,
+#endif
 									  CreateCommandTag(parsetree));
 
 		/*

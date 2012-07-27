@@ -10517,7 +10517,7 @@ AlterTableNamespace(AlterObjectSchemaStmt *stmt)
 		!IsTempSequence(relid))
 	{
 		char *seqname = GetGlobalSeqName(rel, NULL, NULL);
-		char *newseqname = GetGlobalSeqName(rel, NULL, newschema);
+		char *newseqname = GetGlobalSeqName(rel, NULL, stmt->newschema);
 
 		/* We also need to rename it on the GTM */
 		if (RenameSequenceGTM(seqname, newseqname) < 0)

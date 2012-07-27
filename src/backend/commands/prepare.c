@@ -89,6 +89,9 @@ PrepareQuery(PrepareStmt *stmt, const char *queryString)
 	 * to see the unmodified raw parse tree.
 	 */
 	plansource = CreateCachedPlan(stmt->query, queryString,
+#ifdef PGXC
+								  stmt->name,
+#endif
 								  CreateCommandTag(stmt->query));
 
 	/* Transform list of TypeNames to array of type OIDs */
