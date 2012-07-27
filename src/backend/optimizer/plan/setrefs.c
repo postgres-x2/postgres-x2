@@ -140,15 +140,18 @@ static List *set_returning_clause_references(PlannerInfo *root,
 static bool fix_opfuncids_walker(Node *node, void *context);
 static bool extract_query_dependencies_walker(Node *node,
 								  PlannerInfo *context);
-//MP PGXCTODO: note replace PlannerGlobal by PlannerInfo?
-static List * fix_remote_expr(PlannerGlobal *glob,
+
+#ifdef PGXC
+/* References for remote plans */
+static List * fix_remote_expr(PlannerInfo *root,
 			  List *clauses,
 			  indexed_tlist *base_itlist,
 			  Index	newrelid,
 			  int rtoffset);
 static Node *fix_remote_expr_mutator(Node *node,
 			  fix_remote_expr_context *context);
-static void set_remote_references(PlannerGlobal *glob, RemoteQuery *rscan, int rtoffset);
+static void set_remote_references(PlannerInfo *root, RemoteQuery *rscan, int rtoffset);
+#endif
 
 
 /*****************************************************************************
@@ -455,13 +458,13 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 				 * query plan. So need to set the var references accordingly.
 				 */
 				if (splan->base_tlist)
-					set_remote_references(glob, splan, rtoffset);
+					set_remote_references(root, splan, rtoffset);
 				splan->scan.plan.targetlist =
-					fix_scan_list(glob, splan->scan.plan.targetlist, rtoffset);
+					fix_scan_list(root, splan->scan.plan.targetlist, rtoffset);
 				splan->scan.plan.qual =
-					fix_scan_list(glob, splan->scan.plan.qual, rtoffset);
+					fix_scan_list(root, splan->scan.plan.qual, rtoffset);
 				splan->base_tlist =
-					fix_scan_list(glob, splan->base_tlist, rtoffset);
+					fix_scan_list(root, splan->base_tlist, rtoffset);
 				splan->scan.scanrelid += rtoffset;
 			}
 			break;
@@ -2046,7 +2049,7 @@ extract_query_dependencies_walker(Node *node, PlannerInfo *context)
  * not modified.
  */
 static List *
-fix_remote_expr(PlannerGlobal *glob,
+fix_remote_expr(PlannerInfo *root,
 			  List *clauses,
 			  indexed_tlist *base_itlist,
 			  Index	newrelid,
@@ -2054,7 +2057,7 @@ fix_remote_expr(PlannerGlobal *glob,
 {
 	fix_remote_expr_context context;
 
-	context.glob		= glob;
+	context.glob		= root->glob;
 	context.base_itlist = base_itlist;
 	context.relid		= newrelid;
 	context.rtoffset	= rtoffset;
@@ -2108,7 +2111,7 @@ fix_remote_expr_mutator(Node *node, fix_remote_expr_context *context)
  *	  OIDs to glob->relationOids.
  */
 static void
-set_remote_references(PlannerGlobal *glob, RemoteQuery *rscan, int rtoffset)
+set_remote_references(PlannerInfo *root, RemoteQuery *rscan, int rtoffset)
 {
 	indexed_tlist *base_itlist;
 
@@ -2118,13 +2121,13 @@ set_remote_references(PlannerGlobal *glob, RemoteQuery *rscan, int rtoffset)
 	base_itlist = build_tlist_index(rscan->base_tlist);
 
 	/* All remotescan plans have tlist, and quals */
-	rscan->scan.plan.targetlist = fix_remote_expr(glob,
+	rscan->scan.plan.targetlist = fix_remote_expr(root      ,
 										  rscan->scan.plan.targetlist,
 										  base_itlist,
 										  rscan->scan.scanrelid,
 										  rtoffset);
 
-	rscan->scan.plan.qual = fix_remote_expr(glob,
+	rscan->scan.plan.qual = fix_remote_expr(root      ,
 										  rscan->scan.plan.qual,
 										  base_itlist,
 										  rscan->scan.scanrelid,
@@ -2135,8 +2138,8 @@ set_remote_references(PlannerGlobal *glob, RemoteQuery *rscan, int rtoffset)
 
 #ifdef PGXC
 Node *
-pgxc_fix_scan_expr(PlannerGlobal *glob, Node *node, int rtoffset)
+pgxc_fix_scan_expr(PlannerInfo *root, Node *node, int rtoffset)
 {
-	return fix_scan_expr(glob, node, rtoffset);
+	return fix_scan_expr(root, node, rtoffset);
 }
 #endif /* PGXC */

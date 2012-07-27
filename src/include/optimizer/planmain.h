@@ -135,7 +135,7 @@ extern Plan *create_remoteupdate_plan(PlannerInfo *root, Plan *topplan);
 extern Plan *create_remotedelete_plan(PlannerInfo *root, Plan *topplan);
 extern Plan *create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan);
 /* Expose fix_scan_expr to create_remotequery_plan() */
-extern Node *pgxc_fix_scan_expr(PlannerGlobal *glob, Node *node, int rtoffset);
+extern Node *pgxc_fix_scan_expr(PlannerInfo *root, Node *node, int rtoffset);
 #endif
 
 #endif   /* PLANMAIN_H */
