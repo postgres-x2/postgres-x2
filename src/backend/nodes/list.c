@@ -824,7 +824,7 @@ list_intersection(const List *list1, const List *list2)
  * This variant of list_intersection() operates upon lists of integers.
  */
 List *
-list_intersection_int(List *list1, List *list2)
+list_intersection_int(const List *list1, const List *list2)
 {
 	List	   *result;
 	ListCell   *cell;

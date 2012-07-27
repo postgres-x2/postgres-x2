@@ -993,7 +993,7 @@ _copyPlanInvalItem(const PlanInvalItem *from)
  * _copyExecDirect
  */
 static ExecDirectStmt*
-_copyExecDirect(ExecDirectStmt *from)
+_copyExecDirect(const ExecDirectStmt *from)
 {
 	ExecDirectStmt *newnode = makeNode(ExecDirectStmt);
 
@@ -1007,7 +1007,7 @@ _copyExecDirect(ExecDirectStmt *from)
  * _copyRemoteQuery
  */
 static RemoteQuery *
-_copyRemoteQuery(RemoteQuery *from)
+_copyRemoteQuery(const RemoteQuery *from)
 {
 	RemoteQuery *newnode = makeNode(RemoteQuery);
 
@@ -1055,7 +1055,7 @@ _copyRemoteQuery(RemoteQuery *from)
  * _copyExecNodes
  */
 static ExecNodes *
-_copyExecNodes(ExecNodes *from)
+_copyExecNodes(const ExecNodes *from)
 {
 	ExecNodes *newnode = makeNode(ExecNodes);
 
@@ -1073,7 +1073,7 @@ _copyExecNodes(ExecNodes *from)
  * _copySimpleSort
  */
 static SimpleSort *
-_copySimpleSort(SimpleSort *from)
+_copySimpleSort(const SimpleSort *from)
 {
 	SimpleSort *newnode = makeNode(SimpleSort);
 
@@ -2819,7 +2819,7 @@ _copyCopyStmt(const CopyStmt *from)
 
 #ifdef PGXC
 static DistributeBy *
-_copyDistributeBy(DistributeBy *from)
+_copyDistributeBy(const DistributeBy *from)
 {
 	DistributeBy *newnode = makeNode(DistributeBy);
 
@@ -2830,7 +2830,7 @@ _copyDistributeBy(DistributeBy *from)
 }
 
 static PGXCSubCluster *
-_copyPGXCSubCluster(PGXCSubCluster *from)
+_copyPGXCSubCluster(const PGXCSubCluster *from)
 {
 	PGXCSubCluster *newnode = makeNode(PGXCSubCluster);
 
@@ -3916,7 +3916,7 @@ _copyValue(const Value *from)
 
 #ifdef PGXC
 static BarrierStmt *
-_copyBarrierStmt(BarrierStmt *from)
+_copyBarrierStmt(const BarrierStmt *from)
 {
 	BarrierStmt *newnode = makeNode(BarrierStmt);
 

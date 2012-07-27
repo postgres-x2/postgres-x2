@@ -468,7 +468,6 @@ pgxc_handle_exec_direct(Query *query, int cursorOptions,
 			/* Try and set what we can, rest must have been zeroed out by makeNode() */
 			result->commandType = query->commandType;
 			result->canSetTag = query->canSetTag;
-			result->intoClause = query->intoClause;
 			/* Set result relations */
 			if (query->commandType != CMD_SELECT)
 				result->resultRelations = list_make1_int(query->resultRelation);
@@ -482,8 +481,7 @@ pgxc_handle_exec_direct(Query *query, int cursorOptions,
 			 * dependencies are in glob->invalItems. These fields can be retrieved
 			 * through set_plan_references().
 			 */
-			result->planTree = set_plan_references(glob, result->planTree,
-			                                       query->rtable, root->rowMarks);
+			result->planTree = set_plan_references(root, result->planTree);
 			result->relationOids = glob->relationOids;
 			result->invalItems = glob->invalItems;
 		}
@@ -592,15 +590,15 @@ pgxc_FQS_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	 * dependencies are in glob->invalItems. These fields can be retrieved
 	 * through set_plan_references().
 	 */
-	top_plan = set_plan_references(glob, top_plan, query->rtable,
-									root->rowMarks);
+	top_plan = set_plan_references(root, top_plan);
+
 	/* build the PlannedStmt result */
 	result = makeNode(PlannedStmt);
 	/* Try and set what we can, rest must have been zeroed out by makeNode() */
 	result->commandType = query->commandType;
 	result->canSetTag = query->canSetTag;
 	result->utilityStmt = query->utilityStmt;
-	result->intoClause = query->intoClause;
+
 	/* Set result relations */
 	if (query->commandType != CMD_SELECT)
 		result->resultRelations = list_make1_int(query->resultRelation);
@@ -1666,8 +1664,9 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 				break;
 			}
 			/* We are checking shippability of whole query, go ahead */
+			//PGXCTODO MP: Add here a check to move out of FQS if CREATE TABLE AS is in
 
-			if (query->hasRecursive || 	query->intoClause)
+			if (query->hasRecursive)
 				pgxc_set_shippability_reason(sc_context, SS_UNSUPPORTED_EXPR);
 			/*
 			 * If the query needs Coordinator for evaluation or the query can be
