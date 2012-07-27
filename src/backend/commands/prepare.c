@@ -581,32 +581,7 @@ StorePreparedStatement(const char *stmt_name,
 	if (!prepared_queries)
 		InitQueryHashTable();
 
-<<<<<<< HEAD
-	/* Check for pre-existing entry of same name */
-	hash_search(prepared_queries, stmt_name, HASH_FIND, &found);
-
-	if (found)
-		ereport(ERROR,
-				(errcode(ERRCODE_DUPLICATE_PSTATEMENT),
-				 errmsg("prepared statement \"%s\" already exists",
-						stmt_name)));
-
-	/* Create a plancache entry */
-	plansource = CreateCachedPlan(raw_parse_tree,
-								  query_string,
-								  commandTag,
-								  param_types,
-								  num_params,
-								  cursor_options,
-								  stmt_list,
-								  true,
-								  true,
-								  stmt_name);
-
-	/* Now we can add entry to hash table */
-=======
 	/* Add entry to hash table */
->>>>>>> 80edfd76591fdb9beec061de3c05ef4e9d96ce56
 	entry = (PreparedStatement *) hash_search(prepared_queries,
 											  stmt_name,
 											  HASH_ENTER,
