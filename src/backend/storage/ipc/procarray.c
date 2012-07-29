@@ -442,7 +442,7 @@ ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid)
 		 * by XC. See thread on hackers with subject "Canceling ROLLBACK
 		 * statement"
 		 */
-#else		
+#else
 		Assert(TransactionIdIsValid(allPgXact[proc->pgprocno].xid));
 #endif
 
@@ -1361,7 +1361,7 @@ GetSnapshotData(Snapshot snapshot)
 		elog(WARNING, "Do not have a GTM snapshot available");
 	}
 #endif
-      
+
 	/*
 	 * Fallback to standard routine, calculate snapshot from local proc arrey
 	 * if no master connection
@@ -1574,7 +1574,7 @@ GetSnapshotData(Snapshot snapshot)
 
 #ifdef PGXC
 	elog(DEBUG1, "Local snapshot is built, xmin: %d, xmax: %d, xcnt: %d, RecentGlobalXmin: %d", xmin, xmax, count, globalxmin);
-#endif 
+#endif
 	/*
 	 * This is a new snapshot, so set both refcounts are zero, and mark it as
 	 * not copied in persistent memory.
@@ -2548,7 +2548,9 @@ ReloadConnInfoOnBackends(void)
 
 	for (index = 0; index < arrayP->numProcs; index++)
 	{
-		volatile PGPROC *proc = arrayP->procs[index];
+		int			pgprocno = arrayP->pgprocnos[index];
+		volatile PGPROC *proc = &allProcs[pgprocno];
+		volatile PGXACT *pgxact = &allPgXact[pgprocno];
 		VirtualTransactionId vxid;
 		GET_VXID_FROM_PGPROC(vxid, *proc);
 
@@ -2560,7 +2562,7 @@ ReloadConnInfoOnBackends(void)
 			continue;			/* useless on prepared xacts */
 		if (!OidIsValid(proc->databaseId))
 			continue;			/* ignore backends not connected to a database */
-		if (proc->vacuumFlags & PROC_IN_VACUUM)
+		if (pgxact->vacuumFlags & PROC_IN_VACUUM)
 			continue;			/* ignore vacuum processes */
 
 		pid = proc->pid;
@@ -2679,11 +2681,11 @@ DisplayXidCache(void)
 #endif   /* XIDCACHE_DEBUG */
 
 
-#ifdef PGXC  
+#ifdef PGXC
 /*
  * Store snapshot data received from the Coordinator
  */
-void 
+void
 SetGlobalSnapshotData(int xmin, int xmax, int xcnt, int *xip)
 {
 	snapshot_source = SNAPSHOT_COORDINATOR;
@@ -2718,7 +2720,7 @@ UnsetGlobalSnapshotData(void)
  *
  * returns whether or not to return immediately with snapshot
  */
-static bool 
+static bool
 GetSnapshotDataDataNode(Snapshot snapshot)
 {
 	Assert(IS_PGXC_DATANODE || IsConnFromCoord() || IsAutoVacuumWorkerProcess());
@@ -2811,11 +2813,11 @@ GetSnapshotDataDataNode(Snapshot snapshot)
 			snapshot->max_xcnt = gxcnt;
 		}
 
-		memcpy(snapshot->xip, gxip, gxcnt * sizeof(TransactionId)); 
+		memcpy(snapshot->xip, gxip, gxcnt * sizeof(TransactionId));
 		snapshot->curcid = GetCurrentCommandId(false);
 
-		if (!TransactionIdIsValid(MyProc->xmin))
-			MyProc->xmin = TransactionXmin = gxmin;
+		if (!TransactionIdIsValid(MyPgXact->xmin))
+			MyPgXact->xmin = TransactionXmin = gxmin;
 
 		/*
 		 * We should update RecentXmin here. But we have recently seen some
@@ -2826,7 +2828,7 @@ GetSnapshotDataDataNode(Snapshot snapshot)
 		RecentXmin = gxmin;
 
 		/* PGXCTODO - set this until we handle subtransactions. */
-		snapshot->subxcnt = 0; 
+		snapshot->subxcnt = 0;
 
 		/*
 		 * This is a new snapshot, so set both refcounts are zero, and mark it
@@ -2848,22 +2850,24 @@ GetSnapshotDataDataNode(Snapshot snapshot)
 		 */
 		for (index = 0; index < arrayP->numProcs; index++)
 		{
-			volatile PGPROC *proc = arrayP->procs[index];
+			int			pgprocno = arrayP->pgprocnos[index];
+			volatile PGPROC *proc = &allProcs[pgprocno];
+			volatile PGXACT *pgxact = &allPgXact[pgprocno];
 
 			/* Do that only for an autovacuum process */
-			if (proc->vacuumFlags & PROC_IS_AUTOVACUUM)
+			if (pgxact->vacuumFlags & PROC_IS_AUTOVACUUM)
 			{
 				TransactionId xid;
 
 				/* Update globalxmin to be the smallest valid xmin */
-				xid = proc->xmin;		/* fetch just once */
+				xid = pgxact->xmin;		/* fetch just once */
 
 				if (TransactionIdIsNormal(xid) &&
 					TransactionIdPrecedes(xid, RecentGlobalXmin))
 					RecentGlobalXmin = xid;
 
 				/* Fetch xid just once - see GetNewTransactionId */
-				xid = proc->xid;
+				xid = pgxact->xid;
 
 				/*
 				 * If the transaction has been assigned an xid < xmax we add it to the
@@ -2892,7 +2896,7 @@ GetSnapshotDataDataNode(Snapshot snapshot)
 										 errmsg("out of memory")));
 						}
 						snapshot->xip[snapshot->xcnt++] = xid;
-						elog(DEBUG1, "Adding Analyze for xid %d to snapshot", proc->xid);
+						elog(DEBUG1, "Adding Analyze for xid %d to snapshot", pgxact->xid);
 					}
 					if (TransactionIdPrecedes(xid, snapshot->xmin))
 						snapshot->xmin = xid;
@@ -2900,8 +2904,8 @@ GetSnapshotDataDataNode(Snapshot snapshot)
 			}
 		}
 
-		if (!TransactionIdIsValid(MyProc->xmin))
-			MyProc->xmin = snapshot->xmin;
+		if (!TransactionIdIsValid(MyPgXact->xmin))
+			MyPgXact->xmin = snapshot->xmin;
 
 		LWLockRelease(ProcArrayLock);
 		/* End handling of local analyze XID in snapshots */
@@ -2917,7 +2921,7 @@ GetSnapshotDataDataNode(Snapshot snapshot)
  *
  * returns whether or not to return immediately with snapshot
  */
-static bool 
+static bool
 GetSnapshotDataCoordinator(Snapshot snapshot)
 {
 	bool canbe_grouped;
@@ -2929,19 +2933,18 @@ GetSnapshotDataCoordinator(Snapshot snapshot)
 	canbe_grouped = (!FirstSnapshotSet) || (!IsolationUsesXactSnapshot());
 	gtm_snapshot = GetSnapshotGTM(GetCurrentTransactionId(), canbe_grouped);
 
-	if (!gtm_snapshot) 
+	if (!gtm_snapshot)
 			ereport(ERROR,
 				(errcode(ERRCODE_CONNECTION_FAILURE),
 				errmsg("GTM error, could not obtain snapshot")));
-	else 
+	else
 	{
 		snapshot->xmin = gtm_snapshot->sn_xmin;
 		snapshot->xmax = gtm_snapshot->sn_xmax;
-		snapshot->recent_global_xmin = gtm_snapshot->sn_recent_global_xmin;
 		snapshot->xcnt = gtm_snapshot->sn_xcnt;
 		RecentGlobalXmin = gtm_snapshot->sn_recent_global_xmin;
 		elog(DEBUG1, "from GTM: xmin = %d, xmax = %d, xcnt = %d, RecGlobXmin = %d",
-			snapshot->xmin, snapshot->xmax, snapshot->xcnt, snapshot->recent_global_xmin);
+			snapshot->xmin, snapshot->xmax, snapshot->xcnt, gtm_snapshot->sn_recent_global_xmin);
 		/*
 		 * Allocating space for maxProcs xids is usually overkill; numProcs would
 		 * be sufficient.  But it seems better to do the malloc while not holding
@@ -2969,7 +2972,7 @@ GetSnapshotDataCoordinator(Snapshot snapshot)
 
 			/*
 			 * FIXME
-			 * 
+			 *
 			 * We really don't support subtransaction in PGXC right now, but
 			 * when we would, we should fix the allocation below
 			 */
@@ -2993,11 +2996,11 @@ GetSnapshotDataCoordinator(Snapshot snapshot)
 			snapshot->max_xcnt = gtm_snapshot->sn_xcnt;
 		}
 
-		memcpy(snapshot->xip, gtm_snapshot->sn_xip, gtm_snapshot->sn_xcnt * sizeof(TransactionId)); 
+		memcpy(snapshot->xip, gtm_snapshot->sn_xip, gtm_snapshot->sn_xcnt * sizeof(TransactionId));
 		snapshot->curcid = GetCurrentCommandId(false);
 
-		if (!TransactionIdIsValid(MyProc->xmin))
-			MyProc->xmin = TransactionXmin = snapshot->xmin;
+		if (!TransactionIdIsValid(MyPgXact->xmin))
+			MyPgXact->xmin = TransactionXmin = snapshot->xmin;
 
 		/*
 		 * We should update RecentXmin here. But we have recently seen some
@@ -3008,7 +3011,7 @@ GetSnapshotDataCoordinator(Snapshot snapshot)
 		RecentXmin = snapshot->xmin;
 
 		/* PGXCTODO - set this until we handle subtransactions. */
-		snapshot->subxcnt = 0; 
+		snapshot->subxcnt = 0;
 		/*
 		 * This is a new snapshot, so set both refcounts are zero, and mark it
 		 * as not copied in persistent memory.
