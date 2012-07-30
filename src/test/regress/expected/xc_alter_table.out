@@ -462,7 +462,8 @@ SELECT * FROM xc_alter_table_3_v;
 (1 row)
 
 -- Drop column on table
-ALTER TABLE xc_alter_table_3 DROP COLUMN b;
+ALTER TABLE xc_alter_table_3 DROP COLUMN b CASCADE;
+NOTICE:  drop cascades to rule xc_alter_table_3_insert on table xc_alter_table_3
 ALTER TABLE xc_alter_table_3 DISTRIBUTE BY HASH(a);
 SELECT count(*), sum(a), avg(a) FROM xc_alter_table_3;
  count | sum |        avg         

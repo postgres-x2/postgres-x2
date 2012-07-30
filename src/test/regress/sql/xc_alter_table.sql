@@ -150,7 +150,7 @@ ALTER TABLE xc_alter_table_3 DISTRIBUTE BY REPLICATION;
 SELECT count(*), sum(a), avg(a) FROM xc_alter_table_3;
 SELECT * FROM xc_alter_table_3_v;
 -- Drop column on table
-ALTER TABLE xc_alter_table_3 DROP COLUMN b;
+ALTER TABLE xc_alter_table_3 DROP COLUMN b CASCADE;
 ALTER TABLE xc_alter_table_3 DISTRIBUTE BY HASH(a);
 SELECT count(*), sum(a), avg(a) FROM xc_alter_table_3;
 SELECT * FROM xc_alter_table_3_v;
