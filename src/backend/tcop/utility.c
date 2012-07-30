@@ -1034,27 +1034,28 @@ standard_ProcessUtility(Node *parsetree,
 				lockmode = AlterTableGetLockLevel(atstmt->cmds);
 				relid = AlterTableLookupRelation(atstmt, lockmode);
 
-#ifdef PGXC
-				/*
-				 * Add a RemoteQuery node for a query at top level on a remote
-				 * Coordinator, if not already done so
-				 */
-				if (!sentToRemote)
-				{
-					bool is_temp = false;
-					RemoteQueryExecType exec_type;
-					exec_type = ExecUtilityFindNodes(atstmt->relkind,
-													 RangeVarGetRelid(atstmt->relation, NoLock, false),
-													 &is_temp);
-
-					stmts = AddRemoteQueryNode(stmts, queryString, exec_type, is_temp);
-				}
-#endif
-
 				if (OidIsValid(relid))
 				{
 					/* Run parse analysis ... */
 					stmts = transformAlterTableStmt(atstmt, queryString);
+
+#ifdef PGXC
+					/*
+					 * Add a RemoteQuery node for a query at top level on a remote
+					 * Coordinator, if not already done so
+					 */
+					if (!sentToRemote)
+					{
+						bool is_temp = false;
+						RemoteQueryExecType exec_type;
+						exec_type = ExecUtilityFindNodes(atstmt->relkind,
+														 RangeVarGetRelid(atstmt->relation,
+																		  NoLock, false),
+														 &is_temp);
+
+						stmts = AddRemoteQueryNode(stmts, queryString, exec_type, is_temp);
+					}
+#endif
 
 					/* ... and do it */
 					foreach(l, stmts)
