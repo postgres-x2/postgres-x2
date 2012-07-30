@@ -2239,7 +2239,6 @@ deparse_context_for_remotequery(Alias *aliasname, Oid relid)
 	dpns->ctes = NIL;
 	dpns->planstate = NULL;
 	dpns->ancestors = NIL;
-	dpns->outer_plan = dpns->inner_plan = NULL;
 	dpns->outer_planstate = dpns->inner_planstate = NULL;
 	dpns->remotequery = true;
 
@@ -2377,9 +2376,7 @@ deparse_context_for_plan(Node *plan, List *ancestors,
 	/* Initialize fields that stay the same across the whole plan tree */
 	dpns->rtable = rtable;
 	dpns->ctes = NIL;
-#ifdef PGXC
 	dpns->remotequery = false;
-#endif
 
 	/* Set our attention on the specific plan node passed in */
 	set_deparse_plan(dpns, (Plan *) plan);
@@ -2413,10 +2410,10 @@ set_deparse_plan(deparse_namespace *dpns, Plan *plan)
 		dpns->planstate->plan = plan;
 
 		dpns->outer_planstate = (PlanState *) makeNode(PlanState);
-		dpns->outer_plan = dpns->outer_planstate->plan = nestloop->join.plan.lefttree;
-		
+		dpns->outer_planstate->plan = nestloop->join.plan.lefttree;
+
 		dpns->inner_planstate = (PlanState *) makeNode(PlanState);
-		dpns->inner_plan = dpns->inner_planstate->plan = nestloop->join.plan.righttree;
+		dpns->inner_planstate->plan = nestloop->join.plan.righttree;
 	}
 	else if (IsA(plan, RemoteQuery))
 	{
@@ -2827,7 +2824,7 @@ deparse_query(Query *query, StringInfo buf, List *parentnamespace)
 void
 get_query_def_from_valuesList(Query *query, StringInfo buf)
 {
-	
+
 	RangeTblEntry *select_rte = NULL;
 	RangeTblEntry *values_rte = NULL;
 	RangeTblEntry *rte;
@@ -2861,7 +2858,6 @@ get_query_def_from_valuesList(Query *query, StringInfo buf)
 	dpns.ctes = query->cteList;
 	dpns.planstate = NULL;
 	dpns.ancestors = NIL;
-	dpns.outer_plan = dpns.inner_plan = NULL;
 	dpns.outer_planstate = dpns.inner_planstate = NULL;
 	dpns.remotequery = false;
 
@@ -3519,7 +3515,7 @@ get_target_list(List *targetList, deparse_context *context,
 	}
 
 #ifdef PGXC
-	/* 
+	/*
 	 * Because the empty target list can generate invalid SQL
 	 * clause. Here, just fill a '*' to process a table without
 	 * any columns, this statement will be sent to Datanodes
@@ -3911,7 +3907,7 @@ get_insert_query_def(Query *query, deparse_context *context)
 
 #ifdef PGXC
 	/*
-	 * If it's an INSERT ... SELECT or VALUES (...), (...), ... 
+	 * If it's an INSERT ... SELECT or VALUES (...), (...), ...
 	 * sql_statement is rewritten and assigned in RewriteQuery.
 	 * Just return it here.
 	 */
@@ -4177,7 +4173,7 @@ get_utility_query_def(Query *query, deparse_context *context)
 			simple_quote_literal(buf, stmt->payload);
 		}
 	}
-#ifdef PGXC	
+#ifdef PGXC
 	else if (query->utilityStmt && IsA(query->utilityStmt, CreateStmt))
 	{
 		CreateStmt *stmt = (CreateStmt *) query->utilityStmt;
@@ -4344,7 +4340,7 @@ get_utility_query_def(Query *query, deparse_context *context)
 			}
 		}
 	}
-#endif	
+#endif
 	else
 	{
 		/* Currently only NOTIFY utility commands can appear in rules */
