@@ -752,13 +752,9 @@ pg_rewrite_query(Query *query)
 	if (log_parser_stats)
 		ResetUsage();
 
-	if (query->commandType == CMD_UTILITY)
-	{
-		/* don't rewrite utilities, just dump 'em into result list */
-		querytree_list = list_make1(query);
-	}
 #ifdef PGXC
-	else if ((query->commandType == CMD_SELECT) && (query->intoClause != NULL))
+	if (query->commandType == CMD_UTILITY &&
+		IsA(query->utilityStmt, CreateTableAsStmt))
 	{
 		/*
 		 * CREATE TABLE AS SELECT and SELECT INTO are rewritten so that the
@@ -767,7 +763,13 @@ pg_rewrite_query(Query *query)
 		 */
 		querytree_list = QueryRewriteCTAS(query);
 	}
+	else
 #endif
+	if (query->commandType == CMD_UTILITY)
+	{
+		/* don't rewrite utilities, just dump 'em into result list */
+		querytree_list = list_make1(query);
+	}
 	else
 	{
 		/* rewrite regular queries */
@@ -1375,7 +1377,11 @@ exec_parse_message(const char *query_string,	/* string to execute */
 		 * Create the CachedPlanSource before we do parse analysis, since it
 		 * needs to see the unmodified raw parse tree.
 		 */
+#ifdef PGXC
+		psrc = CreateCachedPlan(raw_parse_tree, query_string, stmt_name, commandTag);
+#else
 		psrc = CreateCachedPlan(raw_parse_tree, query_string, commandTag);
+#endif
 
 		/*
 		 * Set up a snapshot if parse analysis will need one.
@@ -1441,7 +1447,11 @@ exec_parse_message(const char *query_string,	/* string to execute */
 		/* Empty input string.	This is legal. */
 		raw_parse_tree = NULL;
 		commandTag = NULL;
+#ifdef PGXC
+		psrc = CreateCachedPlan(raw_parse_tree, query_string, stmt_name, commandTag);
+#else
 		psrc = CreateCachedPlan(raw_parse_tree, query_string, commandTag);
+#endif
 		querytree_list = NIL;
 	}
 
