@@ -2434,19 +2434,19 @@ DESCR("aggregate final function");
 DATA(insert OID = 3535 (  string_agg_transfn		PGNSP PGUID 12 1 0 0 0 f f f f f f i 3 0 2281 "2281 25 25" _null_ _null_ _null_ _null_ string_agg_transfn _null_ _null_ _null_ ));
 DESCR("aggregate transition function");
 #ifdef PGXC
-DATA(insert OID = 2966 (  float8_collect   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 1022 "1022 1022" _null_ _null_ _null_ _null_ float8_collect _null_ _null_ _null_ ));
+DATA(insert OID = 2966 (  float8_collect			PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 1022 "1022 1022" _null_ _null_ _null_ _null_ float8_collect _null_ _null_ _null_ ));
 DESCR("aggregate collection function");
-DATA(insert OID = 2964 (  numeric_avg_collect	PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 1231 "1231 1231" _null_ _null_ _null_ _null_ numeric_avg_collect _null_ _null_ _null_ ));
+DATA(insert OID = 2964 (  numeric_avg_collect		PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 1231 "1231 1231" _null_ _null_ _null_ _null_ numeric_avg_collect _null_ _null_ _null_ ));
 DESCR("aggregate collection function");
-DATA(insert OID = 2968 (  numeric_collect	PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 1231 "1231 1231" _null_ _null_ _null_ _null_ numeric_collect _null_ _null_ _null_ ));
+DATA(insert OID = 2968 (  numeric_collect			PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 1231 "1231 1231" _null_ _null_ _null_ _null_ numeric_collect _null_ _null_ _null_ ));
 DESCR("aggregate collection function");
-DATA(insert OID = 2967 (  interval_collect   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 1187 "1187 1187" _null_ _null_ _null_ _null_ interval_collect _null_ _null_ _null_ ));
+DATA(insert OID = 2967 (  interval_collect			PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 1187 "1187 1187" _null_ _null_ _null_ _null_ interval_collect _null_ _null_ _null_ ));
 DESCR("aggregate transition function");
-DATA(insert OID = 2965 (  int8_avg_collect   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 1016 "1016 1016" _null_ _null_ _null_ _null_ int8_avg_collect _null_ _null_ _null_ ));
+DATA(insert OID = 2965 (  int8_avg_collect			PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 1016 "1016 1016" _null_ _null_ _null_ _null_ int8_avg_collect _null_ _null_ _null_ ));
 DESCR("AVG(int) collection function");
-DATA(insert OID = 2996 (  int8_sum_to_int8	PGNSP PGUID 12 1 0 0 0 f f f f f f i 2 0 20 "20 20" _null_ _null_ _null_ _null_ int8_sum_to_int8 _null_ _null_ _null_ ));
+DATA(insert OID = 2996 (  int8_sum_to_int8			PGNSP PGUID 12 1 0 0 0 f f f f f f i 2 0 20 "20 20" _null_ _null_ _null_ _null_ int8_sum_to_int8 _null_ _null_ _null_ ));
 DESCR("SUM(int) collection function");
-DATA(insert OID = 2995 (  float8_regr_collect   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 1022 "1022 1022" _null_ _null_ _null_ _null_ float8_regr_collect _null_ _null_ _null_ ));
+DATA(insert OID = 2995 (  float8_regr_collect		PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 1022 "1022 1022" _null_ _null_ _null_ _null_ float8_regr_collect _null_ _null_ _null_ ));
 DESCR("REGR_...(double, double) collection function");
 #endif
 DATA(insert OID = 3536 (  string_agg_finalfn		PGNSP PGUID 12 1 0 0 0 f f f f f f i 1 0 25 "2281" _null_ _null_ _null_ _null_ string_agg_finalfn _null_ _null_ _null_ ));
@@ -4662,9 +4662,9 @@ DATA(insert OID = 3200 ( pgxc_pool_check	PGNSP PGUID 12 1 0 0 0 f f f f t f v 0 
 DESCR("check connection information consistency in pooler");
 DATA(insert OID = 3201 ( pgxc_pool_reload	PGNSP PGUID 12 1 0 0 0 f f f f t f v 0 0 16 "" _null_ _null_ _null_ _null_ pgxc_pool_reload _null_ _null_ _null_ ));
 DESCR("reload connection information in pooler and reload server sessions");
-DATA(insert OID = 3122 ( pgxc_node_str		PGNSP PGUID 12 1 0 0 0 f f f f t f s 0 0 19 "" _null_ _null_ _null_ _null_ pgxc_node_str _null_ _null_ _null_ ));
+DATA(insert OID = 3202 ( pgxc_node_str		PGNSP PGUID 12 1 0 0 0 f f f f t f s 0 0 19 "" _null_ _null_ _null_ _null_ pgxc_node_str _null_ _null_ _null_ ));
 DESCR("get the name of the node");
-DATA(insert OID = 3202 (  pgxc_is_committed	PGNSP PGUID 12 1 1 0 0 f f f f t t s 1 0 16 "28" _null_ _null_ _null_ _null_ pgxc_is_committed _null_ _null_ _null_ ));
+DATA(insert OID = 3203 (  pgxc_is_committed	PGNSP PGUID 12 1 1 0 0 f f f f t t s 1 0 16 "28" _null_ _null_ _null_ _null_ pgxc_is_committed _null_ _null_ _null_ ));
 DESCR("is given GXID committed or aborted?");
 #endif
 
