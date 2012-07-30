@@ -358,7 +358,7 @@ SELECT max(col) FROM enumtest WHERE col < 'green';
 (1 row)
 
 DROP INDEX enumtest_btree;
-ERROR:  index "enumtest_btree" does not exist
+ERROR:  relation "enumtest_btree" does not exist
 --
 -- Hash index / opclass with the = operator
 --
@@ -548,9 +548,9 @@ DROP TYPE bogus;
 -- Cleanup
 --
 DROP TABLE enumtest_child;
-ERROR:  table "enumtest_child" does not exist
+ERROR:  relation "enumtest_child" does not exist
 DROP TABLE enumtest_parent;
-ERROR:  table "enumtest_parent" does not exist
+ERROR:  relation "enumtest_parent" does not exist
 DROP TABLE enumtest;
 DROP TYPE rainbow;
 --
