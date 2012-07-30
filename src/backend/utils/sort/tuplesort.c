@@ -938,42 +938,21 @@ tuplesort_begin_merge(TupleDesc tupDesc,
 	state->reversedirection = reversedirection_heap;
 
 	state->tupDesc = tupDesc;	/* assume we need not copy tupDesc */
-	state->scanKeys = (ScanKey) palloc0(nkeys * sizeof(ScanKeyData));
+	state->sortKeys = (SortSupport) palloc0(nkeys * sizeof(SortSupportData));
 
 	for (i = 0; i < nkeys; i++)
 	{
-		Oid			sortFunction;
-		bool		reverse;
-		int			flags;
+		SortSupport sortKey = state->sortKeys + i;
 
 		AssertArg(attNums[i] != 0);
 		AssertArg(sortOperators[i] != 0);
 
-		if (!get_compare_function_for_ordering_op(sortOperators[i],
-												  &sortFunction, &reverse))
-			elog(ERROR, "operator %u is not a valid ordering operator",
-				 sortOperators[i]);
+		sortKey->ssup_cxt = CurrentMemoryContext;
+		sortKey->ssup_collation = sortCollations[i];
+		sortKey->ssup_nulls_first = nullsFirstFlags[i];
+		sortKey->ssup_attno = attNums[i];
 
-
-		/* We use btree's conventions for encoding directionality */
-		flags = 0;
-		if (reverse)
-			flags |= SK_BT_DESC;
-		if (nullsFirstFlags[i])
-			flags |= SK_BT_NULLS_FIRST;
-
-		/*
-		 * We needn't fill in sk_strategy or sk_subtype since these scankeys
-		 * will never be passed to an index.
-		 */
-		ScanKeyEntryInitialize(&state->scanKeys[i],
-					flags,
-					attNums[i],
-					InvalidStrategy,
-					InvalidOid,
-					sortCollations[i],
-					sortFunction,
-					(Datum) 0);
+		PrepareSortSupportFromOrderingOp(sortOperators[i], sortKey);
 	}
 
 	/*
@@ -3134,7 +3113,7 @@ readtup_datanode(Tuplesortstate *state, SortTuple *stup,
 	htup.t_len = tuple->t_len + MINIMAL_TUPLE_OFFSET;
 	htup.t_data = (HeapTupleHeader) ((char *) tuple - MINIMAL_TUPLE_OFFSET);
 	stup->datum1 = heap_getattr(&htup,
-								state->scanKeys[0].sk_attno,
+								state->sortKeys[0].ssup_attno,
 								state->tupDesc,
 								&stup->isnull1);
 }
