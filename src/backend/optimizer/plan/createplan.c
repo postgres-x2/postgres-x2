@@ -2575,15 +2575,15 @@ mk_row_mark_clause(PlanRowMark *prm)
 
 	/* Copy rti as is form the PlanRowMark */
 	rmc->rti = prm->rti;
-	
+
 	/* Assume FOR SHARE unless compelled FOR UPDATE */
 	rmc->forUpdate = false;
 	if (prm->markType == ROW_MARK_EXCLUSIVE)
 		rmc->forUpdate = true;
-	
+
 	/* Copy noWait as is form the PlanRowMark */
 	rmc->noWait = prm->noWait;
-	
+
 	/* true or false does not matter since we will use the result only while deparsing */
 	rmc->pushedDown = false;
 
@@ -2775,10 +2775,10 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 	 * Call fix_scan_expr to fix the PlaceHolderVars. This step is not needed if
 	 * we construct the query at the time of execution.
 	 */
-	tmp_node = pgxc_fix_scan_expr(root->glob, (Node *)query->targetList, 0);
+	tmp_node = pgxc_fix_scan_expr(root, (Node *)query->targetList, 0);
 	Assert(!tmp_node || IsA(tmp_node, List));
 	query->targetList = (List *)tmp_node;
-	tmp_node = pgxc_fix_scan_expr(root->glob, (Node *)query->jointree->quals, 0);
+	tmp_node = pgxc_fix_scan_expr(root, (Node *)query->jointree->quals, 0);
 	query->jointree->quals = tmp_node;
 
 	/*
@@ -2820,8 +2820,8 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 					rmlist = lappend(rmlist, rmc);
 
 					/*
-					 * Although we can have mutiple row mark clauses even for a single table 
-					 * but here we will have only one plan row mark clause per table 
+					 * Although we can have mutiple row mark clauses even for a single table
+					 * but here we will have only one plan row mark clause per table
 					 * The reason is that here we are talking about only FOR UPDATE & FOR SHARE
 					 * If we have both FOR SHARE and FOR UPDATE mentioned for the same table
 					 * FOR UPDATE takes priority over FOR SHARE and in effect we will have only one clause.
@@ -2830,7 +2830,7 @@ create_remotequery_plan(PlannerInfo *root, Path *best_path,
 				}
 			}
 		}
-		
+
 		/* copy the row mark clause list in the query to deparse */
 		query->rowMarks = rmlist;
 
@@ -5677,9 +5677,9 @@ is_projection_capable_plan(Plan *plan)
 /*
  * findReferencedVars()
  *
- *	Constructs a list of those Vars in targetlist which are found in 
+ *	Constructs a list of those Vars in targetlist which are found in
  *  parent_vars (in other words, the intersection of targetlist and
- *  parent_vars).  Returns a new list in *out_tlist and a bitmap of 
+ *  parent_vars).  Returns a new list in *out_tlist and a bitmap of
  *  those relids found in the result.
  *
  *  Additionally do look at the qual references to other vars! They
@@ -5789,7 +5789,7 @@ create_remoteinsert_plan(PlannerInfo *root, Plan *topplan)
 		 * vary on each node
 		 */
 		if (IsTempTable(ttab->relid))
-			appendStringInfo(buf, "INSERT INTO %s (", 
+			appendStringInfo(buf, "INSERT INTO %s (",
 					quote_identifier(relname));
 		else
 			appendStringInfo(buf, "INSERT INTO %s.%s (", quote_identifier(nspname),
@@ -7040,7 +7040,7 @@ pgxc_build_rowmark_entries(List *rowMarks, List *rtable, Oid *types, int preppar
 
 	/* Nothing to do, total number of parameters is already correct */
 	if (prepparams == totparams)
-		return newtypes;		
+		return newtypes;
 
 	/* Fetch number of extra entries related to Rowmarks */
 	rowmark_entry_num = pgxc_count_rowmarks_entries(rowMarks);
