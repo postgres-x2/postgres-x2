@@ -1288,6 +1288,10 @@ standard_ProcessUtility(Node *parsetree,
 
 		case T_CreateRangeStmt:	/* CREATE TYPE AS RANGE */
 			DefineRange((CreateRangeStmt *) parsetree);
+#ifdef PGXC
+			if (IS_PGXC_COORDINATOR)
+				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+#endif
 			break;
 
 		case T_AlterEnumStmt:	/* ALTER TYPE (enum) */
@@ -1299,6 +1303,14 @@ standard_ProcessUtility(Node *parsetree,
 			 */
 			PreventTransactionChain(isTopLevel, "ALTER TYPE ... ADD");
 			AlterEnum((AlterEnumStmt *) parsetree);
+#ifdef PGXC
+			/*
+			 * In this case force autocommit, this transaction cannot be launched
+			 * inside a transaction block.
+			 */
+			if (IS_PGXC_COORDINATOR)
+				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, true, EXEC_ON_ALL_NODES, false);
+#endif
 			break;
 
 		case T_ViewStmt:		/* CREATE VIEW */
