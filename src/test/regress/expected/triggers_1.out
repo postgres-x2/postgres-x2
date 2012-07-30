@@ -415,6 +415,39 @@ SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgrelid = 'main_table'::regc
 UPDATE main_table SET a = 50;
 ERROR:  Partition column can't be updated in current version
 UPDATE main_table SET b = 10;
+--
+-- Test case for bug with BEFORE trigger followed by AFTER trigger with WHEN
+--
+CREATE TABLE some_t (some_col boolean NOT NULL);
+CREATE FUNCTION dummy_update_func() RETURNS trigger AS $$
+BEGIN
+  RAISE NOTICE 'dummy_update_func(%) called: action = %, old = %, new = %',
+    TG_ARGV[0], TG_OP, OLD, NEW;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER some_trig_before BEFORE UPDATE ON some_t FOR EACH ROW
+  EXECUTE PROCEDURE dummy_update_func('before');
+ERROR:  Postgres-XC does not support TRIGGER yet
+DETAIL:  The feature is not currently supported
+CREATE TRIGGER some_trig_aftera AFTER UPDATE ON some_t FOR EACH ROW
+  WHEN (NOT OLD.some_col AND NEW.some_col)
+  EXECUTE PROCEDURE dummy_update_func('aftera');
+ERROR:  Postgres-XC does not support TRIGGER yet
+DETAIL:  The feature is not currently supported
+CREATE TRIGGER some_trig_afterb AFTER UPDATE ON some_t FOR EACH ROW
+  WHEN (NOT NEW.some_col)
+  EXECUTE PROCEDURE dummy_update_func('afterb');
+ERROR:  Postgres-XC does not support TRIGGER yet
+DETAIL:  The feature is not currently supported
+INSERT INTO some_t VALUES (TRUE);
+UPDATE some_t SET some_col = TRUE;
+ERROR:  Partition column can't be updated in current version
+UPDATE some_t SET some_col = FALSE;
+ERROR:  Partition column can't be updated in current version
+UPDATE some_t SET some_col = TRUE;
+ERROR:  Partition column can't be updated in current version
+DROP TABLE some_t;
 -- bogus cases
 CREATE TRIGGER error_upd_and_col BEFORE UPDATE OR UPDATE OF a ON main_table
 FOR EACH ROW EXECUTE PROCEDURE trigger_func('error_upd_and_col');
@@ -1186,3 +1219,83 @@ DROP TABLE city_table CASCADE;
 ERROR:  table "city_table" does not exist
 DROP TABLE country_table;
 ERROR:  table "country_table" does not exist
+-- Test pg_trigger_depth()
+create table depth_a (id int not null primary key);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "depth_a_pkey" for table "depth_a"
+create table depth_b (id int not null primary key);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "depth_b_pkey" for table "depth_b"
+create table depth_c (id int not null primary key);
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "depth_c_pkey" for table "depth_c"
+create function depth_a_tf() returns trigger
+  language plpgsql as $$
+begin
+  raise notice '%: depth = %', tg_name, pg_trigger_depth();
+  insert into depth_b values (new.id);
+  raise notice '%: depth = %', tg_name, pg_trigger_depth();
+  return new;
+end;
+$$;
+create trigger depth_a_tr before insert on depth_a
+  for each row execute procedure depth_a_tf();
+ERROR:  Postgres-XC does not support TRIGGER yet
+DETAIL:  The feature is not currently supported
+create function depth_b_tf() returns trigger
+  language plpgsql as $$
+begin
+  raise notice '%: depth = %', tg_name, pg_trigger_depth();
+  begin
+    execute 'insert into depth_c values (' || new.id::text || ')';
+  exception
+    when sqlstate 'U9999' then
+      raise notice 'SQLSTATE = U9999: depth = %', pg_trigger_depth();
+  end;
+  raise notice '%: depth = %', tg_name, pg_trigger_depth();
+  if new.id = 1 then
+    execute 'insert into depth_c values (' || new.id::text || ')';
+  end if;
+  return new;
+end;
+$$;
+create trigger depth_b_tr before insert on depth_b
+  for each row execute procedure depth_b_tf();
+ERROR:  Postgres-XC does not support TRIGGER yet
+DETAIL:  The feature is not currently supported
+create function depth_c_tf() returns trigger
+  language plpgsql as $$
+begin
+  raise notice '%: depth = %', tg_name, pg_trigger_depth();
+  if new.id = 1 then
+    raise exception sqlstate 'U9999';
+  end if;
+  raise notice '%: depth = %', tg_name, pg_trigger_depth();
+  return new;
+end;
+$$;
+create trigger depth_c_tr before insert on depth_c
+  for each row execute procedure depth_c_tf();
+ERROR:  Postgres-XC does not support TRIGGER yet
+DETAIL:  The feature is not currently supported
+select pg_trigger_depth();
+ pg_trigger_depth 
+------------------
+                0
+(1 row)
+
+insert into depth_a values (1);
+select pg_trigger_depth();
+ pg_trigger_depth 
+------------------
+                0
+(1 row)
+
+insert into depth_a values (2);
+select pg_trigger_depth();
+ pg_trigger_depth 
+------------------
+                0
+(1 row)
+
+drop table depth_a, depth_b, depth_c;
+drop function depth_a_tf();
+drop function depth_b_tf();
+drop function depth_c_tf();
