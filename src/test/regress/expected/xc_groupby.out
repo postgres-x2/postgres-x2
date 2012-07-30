@@ -31,7 +31,7 @@ explain (verbose true, costs false, nodes false) select * from (select count(*),
          Output: pg_catalog.count(*), pg_catalog.sum((sum(xc_groupby_tab1.val))), pg_catalog.avg((avg(xc_groupby_tab1.val))), ((pg_catalog.sum((sum(xc_groupby_tab1.val))))::double precision / (pg_catalog.count(*))::double precision), xc_groupby_tab1.val2
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: (count(*)), (sum(xc_groupby_tab1.val)), (avg(xc_groupby_tab1.val)), xc_groupby_tab1.val2
-               Remote query: SELECT count(*), sum(group_1.val), avg(group_1.val), group_1.val2  FROM (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 4  
+               Remote query: SELECT count(*), sum(group_1.val), avg(group_1.val), group_1.val2  FROM (SELECT val2, val FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 4  
 (8 rows)
 
 -- joins and group by
@@ -53,16 +53,16 @@ explain (verbose true, costs false, nodes false) select * from (select count(*),
    ->  HashAggregate
          Output: count(*), sum((xc_groupby_tab1.val * xc_groupby_tab2.val)), avg((xc_groupby_tab1.val * xc_groupby_tab2.val)), ((sum((xc_groupby_tab1.val * xc_groupby_tab2.val)))::double precision / (count(*))::double precision), xc_groupby_tab1.val2, xc_groupby_tab2.val2
          ->  Hash Full Join
-               Output: xc_groupby_tab1.val, xc_groupby_tab1.val2, xc_groupby_tab2.val, xc_groupby_tab2.val2
+               Output: xc_groupby_tab1.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2, xc_groupby_tab2.val
                Hash Cond: (xc_groupby_tab1.val2 = xc_groupby_tab2.val2)
                ->  Data Node Scan on xc_groupby_tab1 "_REMOTE_TABLE_QUERY_"
-                     Output: xc_groupby_tab1.val, xc_groupby_tab1.val2
-                     Remote query: SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true
+                     Output: xc_groupby_tab1.val2, xc_groupby_tab1.val
+                     Remote query: SELECT val2, val FROM ONLY xc_groupby_tab1 WHERE true
                ->  Hash
-                     Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
+                     Output: xc_groupby_tab2.val2, xc_groupby_tab2.val
                      ->  Data Node Scan on xc_groupby_tab2 "_REMOTE_TABLE_QUERY_"
-                           Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
-                           Remote query: SELECT val, val2 FROM ONLY xc_groupby_tab2 WHERE true
+                           Output: xc_groupby_tab2.val2, xc_groupby_tab2.val
+                           Remote query: SELECT val2, val FROM ONLY xc_groupby_tab2 WHERE true
 (16 rows)
 
 -- aggregates over aggregates
@@ -79,15 +79,15 @@ explain (verbose true, costs false, nodes false) select sum(y) from (select sum(
  GroupAggregate
    Output: sum(q1.y), q1.x
    ->  Sort
-         Output: q1.y, q1.x
+         Output: q1.x, q1.y
          Sort Key: q1.x
          ->  Subquery Scan on q1
-               Output: q1.y, q1.x
+               Output: q1.x, q1.y
                ->  HashAggregate
                      Output: pg_catalog.sum((sum(xc_groupby_tab1.val))), ((xc_groupby_tab1.val2 % 2)), xc_groupby_tab1.val2
                      ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                            Output: (sum(xc_groupby_tab1.val)), ((xc_groupby_tab1.val2 % 2)), xc_groupby_tab1.val2
-                           Remote query: SELECT sum(group_1.val), (group_1.val2 % 2), group_1.val2  FROM (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 3  
+                           Remote query: SELECT sum(group_1.val), (group_1.val2 % 2), group_1.val2  FROM (SELECT val2, val FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 3  
 (12 rows)
 
 -- group by without aggregate
@@ -227,7 +227,7 @@ explain (verbose true, costs false, nodes false) select * from (select count(*) 
          Output: (((pg_catalog.count(*) + pg_catalog.sum((sum(xc_groupby_tab1.val)))))::numeric + pg_catalog.avg((avg(xc_groupby_tab1.val)))), xc_groupby_tab1.val2
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: (count(*)), (sum(xc_groupby_tab1.val)), (avg(xc_groupby_tab1.val)), xc_groupby_tab1.val2
-               Remote query: SELECT count(*), sum(group_1.val), avg(group_1.val), group_1.val2  FROM (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 4  
+               Remote query: SELECT count(*), sum(group_1.val), avg(group_1.val), group_1.val2  FROM (SELECT val2, val FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 4  
 (8 rows)
 
 -- group by with expressions in group by clause
@@ -249,7 +249,7 @@ explain (verbose true, costs false, nodes false) select * from (select sum(val),
          Output: pg_catalog.sum((sum(xc_groupby_tab1.val))), pg_catalog.avg((avg(xc_groupby_tab1.val))), ((2 * xc_groupby_tab1.val2))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: (sum(xc_groupby_tab1.val)), (avg(xc_groupby_tab1.val)), ((2 * xc_groupby_tab1.val2))
-               Remote query: SELECT sum(group_1.val), avg(group_1.val), (2 * group_1.val2)  FROM (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 3  
+               Remote query: SELECT sum(group_1.val), avg(group_1.val), (2 * group_1.val2)  FROM (SELECT val2, val FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 3  
 (8 rows)
 
 drop table xc_groupby_tab1;
@@ -288,7 +288,7 @@ explain (verbose true, costs false, nodes false) select * from (select avg(a), s
          Output: pg_catalog.avg((avg(xc_groupby_def.a))), pg_catalog.sum((sum(xc_groupby_def.a))), pg_catalog.count(*), xc_groupby_def.b
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: (avg(xc_groupby_def.a)), (sum(xc_groupby_def.a)), (count(*)), xc_groupby_def.b
-               Remote query: SELECT avg(group_1.a), sum(group_1.a), count(*), group_1.b  FROM (SELECT a, b FROM ONLY xc_groupby_def WHERE true) group_1 GROUP BY 4  
+               Remote query: SELECT avg(group_1.a), sum(group_1.a), count(*), group_1.b  FROM (SELECT b, a FROM ONLY xc_groupby_def WHERE true) group_1 GROUP BY 4  
 (8 rows)
 
 select b from xc_groupby_def group by b;
@@ -397,7 +397,7 @@ explain (verbose true, costs false, nodes false) select sum(c) from xc_groupby_g
    Output: sum((sum(xc_groupby_g.c))), xc_groupby_g.b
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (sum(xc_groupby_g.c)), xc_groupby_g.b
-         Remote query: SELECT sum(group_1.c), group_1.b  FROM (SELECT c, b FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
+         Remote query: SELECT sum(group_1.c), group_1.b  FROM (SELECT b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
 (5 rows)
 
 select avg(a) from xc_groupby_g group by b;
@@ -414,7 +414,7 @@ explain (verbose true, costs false, nodes false) select avg(a) from xc_groupby_g
    Output: pg_catalog.avg((avg(xc_groupby_g.a))), xc_groupby_g.b
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (avg(xc_groupby_g.a)), xc_groupby_g.b
-         Remote query: SELECT avg(group_1.a), group_1.b  FROM (SELECT a, b FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
+         Remote query: SELECT avg(group_1.a), group_1.b  FROM (SELECT b, a FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
 (5 rows)
 
 select avg(b) from xc_groupby_g group by c;
@@ -431,7 +431,7 @@ explain (verbose true, costs false, nodes false) select avg(b) from xc_groupby_g
    Output: pg_catalog.avg((avg(xc_groupby_g.b))), xc_groupby_g.c
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (avg(xc_groupby_g.b)), xc_groupby_g.c
-         Remote query: SELECT avg(group_1.b), group_1.c  FROM (SELECT b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
+         Remote query: SELECT avg(group_1.b), group_1.c  FROM (SELECT c, b FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
 (5 rows)
 
 select avg(c) from xc_groupby_g group by c;
@@ -475,7 +475,7 @@ explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(
    Output: pg_catalog.count(*), pg_catalog.sum((sum(xc_groupby_tab1.val))), pg_catalog.avg((avg(xc_groupby_tab1.val))), ((pg_catalog.sum((sum(xc_groupby_tab1.val))))::double precision / (pg_catalog.count(*))::double precision), xc_groupby_tab1.val2
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (count(*)), (sum(xc_groupby_tab1.val)), (avg(xc_groupby_tab1.val)), xc_groupby_tab1.val2
-         Remote query: SELECT count(*), sum(group_1.val), avg(group_1.val), group_1.val2  FROM (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 4  
+         Remote query: SELECT count(*), sum(group_1.val), avg(group_1.val), group_1.val2  FROM (SELECT val2, val FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 4  
 (5 rows)
 
 -- joins and group by
@@ -494,16 +494,16 @@ explain (verbose true, costs false, nodes false) select count(*), sum(xc_groupby
  HashAggregate
    Output: count(*), sum((xc_groupby_tab1.val * xc_groupby_tab2.val)), avg((xc_groupby_tab1.val * xc_groupby_tab2.val)), ((sum((xc_groupby_tab1.val * xc_groupby_tab2.val)))::double precision / (count(*))::double precision), xc_groupby_tab1.val2, xc_groupby_tab2.val2
    ->  Hash Full Join
-         Output: xc_groupby_tab1.val, xc_groupby_tab1.val2, xc_groupby_tab2.val, xc_groupby_tab2.val2
+         Output: xc_groupby_tab1.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2, xc_groupby_tab2.val
          Hash Cond: (xc_groupby_tab1.val2 = xc_groupby_tab2.val2)
          ->  Data Node Scan on xc_groupby_tab1 "_REMOTE_TABLE_QUERY_"
-               Output: xc_groupby_tab1.val, xc_groupby_tab1.val2
-               Remote query: SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true
+               Output: xc_groupby_tab1.val2, xc_groupby_tab1.val
+               Remote query: SELECT val2, val FROM ONLY xc_groupby_tab1 WHERE true
          ->  Hash
-               Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
+               Output: xc_groupby_tab2.val2, xc_groupby_tab2.val
                ->  Data Node Scan on xc_groupby_tab2 "_REMOTE_TABLE_QUERY_"
-                     Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
-                     Remote query: SELECT val, val2 FROM ONLY xc_groupby_tab2 WHERE true
+                     Output: xc_groupby_tab2.val2, xc_groupby_tab2.val
+                     Remote query: SELECT val2, val FROM ONLY xc_groupby_tab2 WHERE true
 (13 rows)
 
 -- aggregates over aggregates
@@ -523,7 +523,7 @@ explain (verbose true, costs false, nodes false) select sum(y) from (select sum(
          Output: pg_catalog.sum((sum(xc_groupby_tab1.val))), ((xc_groupby_tab1.val2 % 2)), xc_groupby_tab1.val2
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: (sum(xc_groupby_tab1.val)), ((xc_groupby_tab1.val2 % 2)), xc_groupby_tab1.val2
-               Remote query: SELECT sum(group_1.val), (group_1.val2 % 2), group_1.val2  FROM (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 3  
+               Remote query: SELECT sum(group_1.val), (group_1.val2 % 2), group_1.val2  FROM (SELECT val2, val FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 3  
 (7 rows)
 
 -- group by without aggregate
@@ -645,7 +645,7 @@ explain (verbose true, costs false, nodes false) select count(*) + sum(val) + av
    Output: (((pg_catalog.count(*) + pg_catalog.sum((sum(xc_groupby_tab1.val)))))::numeric + pg_catalog.avg((avg(xc_groupby_tab1.val)))), xc_groupby_tab1.val2
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (count(*)), (sum(xc_groupby_tab1.val)), (avg(xc_groupby_tab1.val)), xc_groupby_tab1.val2
-         Remote query: SELECT count(*), sum(group_1.val), avg(group_1.val), group_1.val2  FROM (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 4  
+         Remote query: SELECT count(*), sum(group_1.val), avg(group_1.val), group_1.val2  FROM (SELECT val2, val FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 4  
 (5 rows)
 
 -- group by with expressions in group by clause
@@ -664,7 +664,7 @@ explain (verbose true, costs false, nodes false) select sum(val), avg(val), 2 * 
    Output: pg_catalog.sum((sum(xc_groupby_tab1.val))), pg_catalog.avg((avg(xc_groupby_tab1.val))), ((2 * xc_groupby_tab1.val2))
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (sum(xc_groupby_tab1.val)), (avg(xc_groupby_tab1.val)), ((2 * xc_groupby_tab1.val2))
-         Remote query: SELECT sum(group_1.val), avg(group_1.val), (2 * group_1.val2)  FROM (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 3  
+         Remote query: SELECT sum(group_1.val), avg(group_1.val), (2 * group_1.val2)  FROM (SELECT val2, val FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 3  
 (5 rows)
 
 drop table xc_groupby_tab1;
@@ -703,7 +703,7 @@ explain (verbose true, costs false, nodes false) select * from (select avg(a), s
          Output: pg_catalog.avg((avg(xc_groupby_def.a))), pg_catalog.sum((sum(xc_groupby_def.a))), pg_catalog.count(*), xc_groupby_def.b
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: (avg(xc_groupby_def.a)), (sum(xc_groupby_def.a)), (count(*)), xc_groupby_def.b
-               Remote query: SELECT avg(group_1.a), sum(group_1.a), count(*), group_1.b  FROM (SELECT a, b FROM ONLY xc_groupby_def WHERE true) group_1 GROUP BY 4  
+               Remote query: SELECT avg(group_1.a), sum(group_1.a), count(*), group_1.b  FROM (SELECT b, a FROM ONLY xc_groupby_def WHERE true) group_1 GROUP BY 4  
 (8 rows)
 
 select b from xc_groupby_def group by b;
@@ -812,7 +812,7 @@ explain (verbose true, costs false, nodes false) select sum(c) from xc_groupby_g
    Output: sum((sum(xc_groupby_g.c))), xc_groupby_g.b
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (sum(xc_groupby_g.c)), xc_groupby_g.b
-         Remote query: SELECT sum(group_1.c), group_1.b  FROM (SELECT c, b FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
+         Remote query: SELECT sum(group_1.c), group_1.b  FROM (SELECT b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
 (5 rows)
 
 select avg(a) from xc_groupby_g group by b;
@@ -829,7 +829,7 @@ explain (verbose true, costs false, nodes false) select avg(a) from xc_groupby_g
    Output: pg_catalog.avg((avg(xc_groupby_g.a))), xc_groupby_g.b
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (avg(xc_groupby_g.a)), xc_groupby_g.b
-         Remote query: SELECT avg(group_1.a), group_1.b  FROM (SELECT a, b FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
+         Remote query: SELECT avg(group_1.a), group_1.b  FROM (SELECT b, a FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
 (5 rows)
 
 select avg(b) from xc_groupby_g group by c;
@@ -846,7 +846,7 @@ explain (verbose true, costs false, nodes false) select avg(b) from xc_groupby_g
    Output: pg_catalog.avg((avg(xc_groupby_g.b))), xc_groupby_g.c
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (avg(xc_groupby_g.b)), xc_groupby_g.c
-         Remote query: SELECT avg(group_1.b), group_1.c  FROM (SELECT b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
+         Remote query: SELECT avg(group_1.b), group_1.c  FROM (SELECT c, b FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2  
 (5 rows)
 
 select avg(c) from xc_groupby_g group by c;
@@ -891,7 +891,7 @@ explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(
    Output: pg_catalog.count(*), pg_catalog.sum((sum(xc_groupby_tab1.val))), pg_catalog.avg((avg(xc_groupby_tab1.val))), ((pg_catalog.sum((sum(xc_groupby_tab1.val))))::double precision / (pg_catalog.count(*))::double precision), xc_groupby_tab1.val2
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (count(*)), (sum(xc_groupby_tab1.val)), (avg(xc_groupby_tab1.val)), xc_groupby_tab1.val2
-         Remote query: SELECT count(*), sum(group_1.val), avg(group_1.val), group_1.val2  FROM (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 4 ORDER BY 4 
+         Remote query: SELECT count(*), sum(group_1.val), avg(group_1.val), group_1.val2  FROM (SELECT val2, val FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 4 ORDER BY 4 
 (5 rows)
 
 -- joins and group by
@@ -910,19 +910,19 @@ explain (verbose true, costs false, nodes false) select count(*), sum(xc_groupby
  GroupAggregate
    Output: count(*), sum((xc_groupby_tab1.val * xc_groupby_tab2.val)), avg((xc_groupby_tab1.val * xc_groupby_tab2.val)), ((sum((xc_groupby_tab1.val * xc_groupby_tab2.val)))::double precision / (count(*))::double precision), xc_groupby_tab1.val2, xc_groupby_tab2.val2
    ->  Sort
-         Output: xc_groupby_tab1.val, xc_groupby_tab2.val, xc_groupby_tab1.val2, xc_groupby_tab2.val2
+         Output: xc_groupby_tab1.val2, xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val
          Sort Key: xc_groupby_tab1.val2, xc_groupby_tab2.val2
          ->  Hash Full Join
-               Output: xc_groupby_tab1.val, xc_groupby_tab2.val, xc_groupby_tab1.val2, xc_groupby_tab2.val2
+               Output: xc_groupby_tab1.val2, xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val
                Hash Cond: (xc_groupby_tab1.val2 = xc_groupby_tab2.val2)
                ->  Data Node Scan on xc_groupby_tab1 "_REMOTE_TABLE_QUERY_"
-                     Output: xc_groupby_tab1.val, xc_groupby_tab1.val2
-                     Remote query: SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true
+                     Output: xc_groupby_tab1.val2, xc_groupby_tab1.val
+                     Remote query: SELECT val2, val FROM ONLY xc_groupby_tab1 WHERE true
                ->  Hash
-                     Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
+                     Output: xc_groupby_tab2.val2, xc_groupby_tab2.val
                      ->  Data Node Scan on xc_groupby_tab2 "_REMOTE_TABLE_QUERY_"
-                           Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
-                           Remote query: SELECT val, val2 FROM ONLY xc_groupby_tab2 WHERE true
+                           Output: xc_groupby_tab2.val2, xc_groupby_tab2.val
+                           Remote query: SELECT val2, val FROM ONLY xc_groupby_tab2 WHERE true
 (16 rows)
 
 -- aggregates over aggregates
@@ -939,15 +939,15 @@ explain (verbose true, costs false, nodes false) select sum(y) from (select sum(
  GroupAggregate
    Output: sum(q1.y), q1.x
    ->  Sort
-         Output: q1.y, q1.x
+         Output: q1.x, q1.y
          Sort Key: q1.x
          ->  Subquery Scan on q1
-               Output: q1.y, q1.x
+               Output: q1.x, q1.y
                ->  GroupAggregate
                      Output: pg_catalog.sum((sum(xc_groupby_tab1.val))), ((xc_groupby_tab1.val2 % 2)), xc_groupby_tab1.val2
                      ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                            Output: (sum(xc_groupby_tab1.val)), ((xc_groupby_tab1.val2 % 2)), xc_groupby_tab1.val2
-                           Remote query: SELECT sum(group_1.val), (group_1.val2 % 2), group_1.val2  FROM (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 3 ORDER BY 3 
+                           Remote query: SELECT sum(group_1.val), (group_1.val2 % 2), group_1.val2  FROM (SELECT val2, val FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 3 ORDER BY 3 
 (12 rows)
 
 -- group by without aggregate
@@ -1069,7 +1069,7 @@ explain (verbose true, costs false, nodes false) select count(*) + sum(val) + av
    Output: (((pg_catalog.count(*) + pg_catalog.sum((sum(xc_groupby_tab1.val)))))::numeric + pg_catalog.avg((avg(xc_groupby_tab1.val)))), xc_groupby_tab1.val2
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (count(*)), (sum(xc_groupby_tab1.val)), (avg(xc_groupby_tab1.val)), xc_groupby_tab1.val2
-         Remote query: SELECT count(*), sum(group_1.val), avg(group_1.val), group_1.val2  FROM (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 4 ORDER BY 4 
+         Remote query: SELECT count(*), sum(group_1.val), avg(group_1.val), group_1.val2  FROM (SELECT val2, val FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 4 ORDER BY 4 
 (5 rows)
 
 -- group by with expressions in group by clause
@@ -1088,7 +1088,7 @@ explain (verbose true, costs false, nodes false) select sum(val), avg(val), 2 * 
    Output: pg_catalog.sum((sum(xc_groupby_tab1.val))), pg_catalog.avg((avg(xc_groupby_tab1.val))), ((2 * xc_groupby_tab1.val2))
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (sum(xc_groupby_tab1.val)), (avg(xc_groupby_tab1.val)), ((2 * xc_groupby_tab1.val2))
-         Remote query: SELECT sum(group_1.val), avg(group_1.val), (2 * group_1.val2)  FROM (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 3 ORDER BY 3 
+         Remote query: SELECT sum(group_1.val), avg(group_1.val), (2 * group_1.val2)  FROM (SELECT val2, val FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 3 ORDER BY 3 
 (5 rows)
 
 drop table xc_groupby_tab1;
@@ -1124,7 +1124,7 @@ explain (verbose true, costs false, nodes false) select * from (select avg(a), s
    Output: pg_catalog.avg((avg(xc_groupby_def.a))), pg_catalog.sum((sum(xc_groupby_def.a))), pg_catalog.count(*), xc_groupby_def.b
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (avg(xc_groupby_def.a)), (sum(xc_groupby_def.a)), (count(*)), xc_groupby_def.b
-         Remote query: SELECT avg(group_1.a), sum(group_1.a), count(*), group_1.b  FROM (SELECT a, b FROM ONLY xc_groupby_def WHERE true) group_1 GROUP BY 4 ORDER BY 4 
+         Remote query: SELECT avg(group_1.a), sum(group_1.a), count(*), group_1.b  FROM (SELECT b, a FROM ONLY xc_groupby_def WHERE true) group_1 GROUP BY 4 ORDER BY 4 
 (5 rows)
 
 select b from xc_groupby_def group by b;
@@ -1233,7 +1233,7 @@ explain (verbose true, costs false, nodes false) select sum(c) from xc_groupby_g
    Output: sum((sum(xc_groupby_g.c))), xc_groupby_g.b
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (sum(xc_groupby_g.c)), xc_groupby_g.b
-         Remote query: SELECT sum(group_1.c), group_1.b  FROM (SELECT c, b FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
+         Remote query: SELECT sum(group_1.c), group_1.b  FROM (SELECT b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
 (5 rows)
 
 select avg(a) from xc_groupby_g group by b;
@@ -1250,7 +1250,7 @@ explain (verbose true, costs false, nodes false) select avg(a) from xc_groupby_g
    Output: pg_catalog.avg((avg(xc_groupby_g.a))), xc_groupby_g.b
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (avg(xc_groupby_g.a)), xc_groupby_g.b
-         Remote query: SELECT avg(group_1.a), group_1.b  FROM (SELECT a, b FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
+         Remote query: SELECT avg(group_1.a), group_1.b  FROM (SELECT b, a FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
 (5 rows)
 
 select avg(b) from xc_groupby_g group by c;
@@ -1267,7 +1267,7 @@ explain (verbose true, costs false, nodes false) select avg(b) from xc_groupby_g
    Output: pg_catalog.avg((avg(xc_groupby_g.b))), xc_groupby_g.c
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (avg(xc_groupby_g.b)), xc_groupby_g.c
-         Remote query: SELECT avg(group_1.b), group_1.c  FROM (SELECT b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
+         Remote query: SELECT avg(group_1.b), group_1.c  FROM (SELECT c, b FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
 (5 rows)
 
 select avg(c) from xc_groupby_g group by c;
@@ -1311,7 +1311,7 @@ explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(
    Output: pg_catalog.count(*), pg_catalog.sum((sum(xc_groupby_tab1.val))), pg_catalog.avg((avg(xc_groupby_tab1.val))), ((pg_catalog.sum((sum(xc_groupby_tab1.val))))::double precision / (pg_catalog.count(*))::double precision), xc_groupby_tab1.val2
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (count(*)), (sum(xc_groupby_tab1.val)), (avg(xc_groupby_tab1.val)), xc_groupby_tab1.val2
-         Remote query: SELECT count(*), sum(group_1.val), avg(group_1.val), group_1.val2  FROM (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 4 ORDER BY 4 
+         Remote query: SELECT count(*), sum(group_1.val), avg(group_1.val), group_1.val2  FROM (SELECT val2, val FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 4 ORDER BY 4 
 (5 rows)
 
 -- joins and group by
@@ -1330,19 +1330,19 @@ explain (verbose true, costs false, nodes false) select count(*), sum(xc_groupby
  GroupAggregate
    Output: count(*), sum((xc_groupby_tab1.val * xc_groupby_tab2.val)), avg((xc_groupby_tab1.val * xc_groupby_tab2.val)), ((sum((xc_groupby_tab1.val * xc_groupby_tab2.val)))::double precision / (count(*))::double precision), xc_groupby_tab1.val2, xc_groupby_tab2.val2
    ->  Sort
-         Output: xc_groupby_tab1.val, xc_groupby_tab2.val, xc_groupby_tab1.val2, xc_groupby_tab2.val2
+         Output: xc_groupby_tab1.val2, xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val
          Sort Key: xc_groupby_tab1.val2, xc_groupby_tab2.val2
          ->  Hash Full Join
-               Output: xc_groupby_tab1.val, xc_groupby_tab2.val, xc_groupby_tab1.val2, xc_groupby_tab2.val2
+               Output: xc_groupby_tab1.val2, xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val
                Hash Cond: (xc_groupby_tab1.val2 = xc_groupby_tab2.val2)
                ->  Data Node Scan on xc_groupby_tab1 "_REMOTE_TABLE_QUERY_"
-                     Output: xc_groupby_tab1.val, xc_groupby_tab1.val2
-                     Remote query: SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true
+                     Output: xc_groupby_tab1.val2, xc_groupby_tab1.val
+                     Remote query: SELECT val2, val FROM ONLY xc_groupby_tab1 WHERE true
                ->  Hash
-                     Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
+                     Output: xc_groupby_tab2.val2, xc_groupby_tab2.val
                      ->  Data Node Scan on xc_groupby_tab2 "_REMOTE_TABLE_QUERY_"
-                           Output: xc_groupby_tab2.val, xc_groupby_tab2.val2
-                           Remote query: SELECT val, val2 FROM ONLY xc_groupby_tab2 WHERE true
+                           Output: xc_groupby_tab2.val2, xc_groupby_tab2.val
+                           Remote query: SELECT val2, val FROM ONLY xc_groupby_tab2 WHERE true
 (16 rows)
 
 -- aggregates over aggregates
@@ -1359,15 +1359,15 @@ explain (verbose true, costs false, nodes false) select sum(y) from (select sum(
  GroupAggregate
    Output: sum(q1.y), q1.x
    ->  Sort
-         Output: q1.y, q1.x
+         Output: q1.x, q1.y
          Sort Key: q1.x
          ->  Subquery Scan on q1
-               Output: q1.y, q1.x
+               Output: q1.x, q1.y
                ->  GroupAggregate
                      Output: pg_catalog.sum((sum(xc_groupby_tab1.val))), ((xc_groupby_tab1.val2 % 2)), xc_groupby_tab1.val2
                      ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                            Output: (sum(xc_groupby_tab1.val)), ((xc_groupby_tab1.val2 % 2)), xc_groupby_tab1.val2
-                           Remote query: SELECT sum(group_1.val), (group_1.val2 % 2), group_1.val2  FROM (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 3 ORDER BY 3 
+                           Remote query: SELECT sum(group_1.val), (group_1.val2 % 2), group_1.val2  FROM (SELECT val2, val FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 3 ORDER BY 3 
 (12 rows)
 
 -- group by without aggregate
@@ -1489,7 +1489,7 @@ explain (verbose true, costs false, nodes false) select count(*) + sum(val) + av
    Output: (((pg_catalog.count(*) + pg_catalog.sum((sum(xc_groupby_tab1.val)))))::numeric + pg_catalog.avg((avg(xc_groupby_tab1.val)))), xc_groupby_tab1.val2
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (count(*)), (sum(xc_groupby_tab1.val)), (avg(xc_groupby_tab1.val)), xc_groupby_tab1.val2
-         Remote query: SELECT count(*), sum(group_1.val), avg(group_1.val), group_1.val2  FROM (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 4 ORDER BY 4 
+         Remote query: SELECT count(*), sum(group_1.val), avg(group_1.val), group_1.val2  FROM (SELECT val2, val FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 4 ORDER BY 4 
 (5 rows)
 
 -- group by with expressions in group by clause
@@ -1508,7 +1508,7 @@ explain (verbose true, costs false, nodes false) select sum(val), avg(val), 2 * 
    Output: pg_catalog.sum((sum(xc_groupby_tab1.val))), pg_catalog.avg((avg(xc_groupby_tab1.val))), ((2 * xc_groupby_tab1.val2))
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (sum(xc_groupby_tab1.val)), (avg(xc_groupby_tab1.val)), ((2 * xc_groupby_tab1.val2))
-         Remote query: SELECT sum(group_1.val), avg(group_1.val), (2 * group_1.val2)  FROM (SELECT val, val2 FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 3 ORDER BY 3 
+         Remote query: SELECT sum(group_1.val), avg(group_1.val), (2 * group_1.val2)  FROM (SELECT val2, val FROM ONLY xc_groupby_tab1 WHERE true) group_1 GROUP BY 3 ORDER BY 3 
 (5 rows)
 
 drop table xc_groupby_tab1;
@@ -1544,7 +1544,7 @@ explain (verbose true, costs false, nodes false) select * from (select avg(a), s
    Output: pg_catalog.avg((avg(xc_groupby_def.a))), pg_catalog.sum((sum(xc_groupby_def.a))), pg_catalog.count(*), xc_groupby_def.b
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (avg(xc_groupby_def.a)), (sum(xc_groupby_def.a)), (count(*)), xc_groupby_def.b
-         Remote query: SELECT avg(group_1.a), sum(group_1.a), count(*), group_1.b  FROM (SELECT a, b FROM ONLY xc_groupby_def WHERE true) group_1 GROUP BY 4 ORDER BY 4 
+         Remote query: SELECT avg(group_1.a), sum(group_1.a), count(*), group_1.b  FROM (SELECT b, a FROM ONLY xc_groupby_def WHERE true) group_1 GROUP BY 4 ORDER BY 4 
 (5 rows)
 
 select b from xc_groupby_def group by b;
@@ -1653,7 +1653,7 @@ explain (verbose true, costs false, nodes false) select sum(c) from xc_groupby_g
    Output: sum((sum(xc_groupby_g.c))), xc_groupby_g.b
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (sum(xc_groupby_g.c)), xc_groupby_g.b
-         Remote query: SELECT sum(group_1.c), group_1.b  FROM (SELECT c, b FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
+         Remote query: SELECT sum(group_1.c), group_1.b  FROM (SELECT b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
 (5 rows)
 
 select avg(a) from xc_groupby_g group by b;
@@ -1670,7 +1670,7 @@ explain (verbose true, costs false, nodes false) select avg(a) from xc_groupby_g
    Output: pg_catalog.avg((avg(xc_groupby_g.a))), xc_groupby_g.b
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (avg(xc_groupby_g.a)), xc_groupby_g.b
-         Remote query: SELECT avg(group_1.a), group_1.b  FROM (SELECT a, b FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
+         Remote query: SELECT avg(group_1.a), group_1.b  FROM (SELECT b, a FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
 (5 rows)
 
 select avg(b) from xc_groupby_g group by c;
@@ -1687,7 +1687,7 @@ explain (verbose true, costs false, nodes false) select avg(b) from xc_groupby_g
    Output: pg_catalog.avg((avg(xc_groupby_g.b))), xc_groupby_g.c
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (avg(xc_groupby_g.b)), xc_groupby_g.c
-         Remote query: SELECT avg(group_1.b), group_1.c  FROM (SELECT b, c FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
+         Remote query: SELECT avg(group_1.b), group_1.c  FROM (SELECT c, b FROM ONLY xc_groupby_g WHERE true) group_1 GROUP BY 2 ORDER BY 2 
 (5 rows)
 
 select avg(c) from xc_groupby_g group by c;

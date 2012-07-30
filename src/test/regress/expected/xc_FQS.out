@@ -184,7 +184,7 @@ explain (costs off, verbose on, nodes off) select sum(val) from tab1_rr where va
    Filter: (pg_catalog.sum((sum(tab1_rr.val))) > 1)
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (sum(tab1_rr.val)), tab1_rr.val2
-         Remote query: SELECT sum(group_1.val), group_1.val2  FROM (SELECT val, val2 FROM ONLY tab1_rr WHERE (val2 = 2)) group_1 GROUP BY 2  
+         Remote query: SELECT sum(group_1.val), group_1.val2  FROM (SELECT val2, val FROM ONLY tab1_rr WHERE (val2 = 2)) group_1 GROUP BY 2  
 (6 rows)
 
 -- tests for node reduction by application of quals, for round robin node
@@ -530,7 +530,7 @@ explain (costs off, verbose on, nodes off) select sum(val) from tab1_hash where 
    Filter: (pg_catalog.sum((sum(tab1_hash.val))) > 1)
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (sum(tab1_hash.val)), tab1_hash.val2
-         Remote query: SELECT sum(group_1.val), group_1.val2  FROM (SELECT val, val2 FROM ONLY tab1_hash WHERE (val2 = 2)) group_1 GROUP BY 2  
+         Remote query: SELECT sum(group_1.val), group_1.val2  FROM (SELECT val2, val FROM ONLY tab1_hash WHERE (val2 = 2)) group_1 GROUP BY 2  
 (6 rows)
 
 -- tests for node reduction by application of quals. Having query FQSed because of
@@ -868,7 +868,7 @@ explain (costs off, verbose on, nodes off) select sum(val) from tab1_modulo wher
    Filter: (pg_catalog.sum((sum(tab1_modulo.val))) > 1)
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (sum(tab1_modulo.val)), tab1_modulo.val2
-         Remote query: SELECT sum(group_1.val), group_1.val2  FROM (SELECT val, val2 FROM ONLY tab1_modulo WHERE (val2 = 2)) group_1 GROUP BY 2  
+         Remote query: SELECT sum(group_1.val), group_1.val2  FROM (SELECT val2, val FROM ONLY tab1_modulo WHERE (val2 = 2)) group_1 GROUP BY 2  
 (6 rows)
 
 -- tests for node reduction by application of quals. Having query FQSed because of
