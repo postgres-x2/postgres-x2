@@ -1347,7 +1347,7 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 							  pstrdup(attrname),
 							  true);
 
-		parsetree->targetList = lappend(parsetree->targetList, tle);		
+		parsetree->targetList = lappend(parsetree->targetList, tle);
 	}
 #endif
 }
@@ -2141,7 +2141,7 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 		}
 		else
 			elog(ERROR, "unrecognized commandType: %d", (int) event);
-		
+
 #ifdef PGXC
 		if (parsetree_list == NIL)
 		{
@@ -2256,7 +2256,7 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 			foreach(pt_cell, parsetree_list)
 			{
 				Query  *query;
-				
+
 				query = (Query *)lfirst(pt_cell);
 
 				/*
@@ -2277,7 +2277,7 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 										&instead,
 										&returning,
 										&qual_product);
-					
+
 					qual_product_list = lappend(qual_product_list,  qual_product);
 
 					/*
@@ -2400,14 +2400,14 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 	}
 	else
 	{
-		int query_no = 0;	
+		int query_no = 0;
 
 		foreach(pt_cell, parsetree_list)
 		{
 
 			Query	*query = NULL;
 			Query	*qual = NULL;
-			
+
 			query = (Query *)lfirst(pt_cell);
 			if (!instead)
 			{
@@ -2583,12 +2583,12 @@ QueryRewriteCTAS(Query *parsetree)
 	StringInfoData cquery;
 	ListCell *col;
 	Query *cparsetree;
-	List *raw_parsetree_list;
+	List *raw_parsetree_list, *tlist;
 	char *selectstr;
 	CreateTableAsStmt *stmt;
 
 	if (parsetree->commandType != CMD_UTILITY ||
-		IsA(parsetree->utilityStmt, CreateTableAsStmt))
+		!IsA(parsetree->utilityStmt, CreateTableAsStmt))
 		elog(ERROR, "Unexpected commandType or intoClause is not set properly");
 
 	/* Get the target table */
@@ -2599,11 +2599,16 @@ QueryRewriteCTAS(Query *parsetree)
 	create_stmt = makeNode(CreateStmt);
 	create_stmt->relation = relation;
 
-	/* 
+	/* Obtain the target list of new table */
+	Assert(IsA(stmt->query, Query));
+	cparsetree = (Query *) stmt->query;
+	tlist = cparsetree->targetList;
+
+	/*
 	 * Based on the targetList, populate the column information for the target
 	 * table.
 	 */
-	foreach(col, parsetree->targetList)
+	foreach(col, tlist)
 	{
 		TargetEntry *tle = (TargetEntry *)lfirst(col);
 		ColumnDef   *coldef;
@@ -2623,7 +2628,7 @@ QueryRewriteCTAS(Query *parsetree)
 		coldef->cooked_default = NULL;
 		coldef->constraints = NIL;
 
-		/* 
+		/*
 		 * Set typeOid and typemod. The name of the type is derived while
 		 * generating query
 		 */
@@ -2632,7 +2637,7 @@ QueryRewriteCTAS(Query *parsetree)
 
 		coldef->typeName = typename;
 
-		/* 
+		/*
 		 * XXX Should we look at the column specifications in the intoClause
 		 * instead of the target entry ?
 		 */
@@ -2640,7 +2645,7 @@ QueryRewriteCTAS(Query *parsetree)
 		tableElts = lappend(tableElts, coldef);
 	}
 
-	/* 
+	/*
 	 * Set column information and the distribution mechanism (which will be
 	 * NULL for SELECT INTO and the default mechanism will be picked)
 	 */
@@ -2664,7 +2669,7 @@ QueryRewriteCTAS(Query *parsetree)
 	/* Get a copy of the parsetree which we can freely modify  */
 	cparsetree = copyObject(parsetree);
 
-	/* 
+	/*
 	 * Now build a utility statement in order to run the CREATE TABLE DDL on
 	 * the local and remote nodes. We keep others fields as it is since they
 	 * are ignored anyways by deparse_query.
@@ -2688,7 +2693,7 @@ QueryRewriteCTAS(Query *parsetree)
 
 	/* Get the SELECT query string */
 	initStringInfo(&cquery);
-	deparse_query(parsetree, &cquery, NIL);
+	deparse_query((Query *)stmt->query, &cquery, NIL);
 	selectstr = pstrdup(cquery.data);
 
 	/* Now, finally build the INSERT INTO statement */
@@ -2707,4 +2712,3 @@ QueryRewriteCTAS(Query *parsetree)
 			NULL, 0);
 }
 #endif
-
