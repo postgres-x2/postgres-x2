@@ -338,9 +338,9 @@ _outModifyTable(StringInfo str, const ModifyTable *node)
 	WRITE_NODE_FIELD(returningLists);
 	WRITE_NODE_FIELD(rowMarks);
 	WRITE_INT_FIELD(epqParam);
-#ifdef PGXC	
+#ifdef PGXC
 	WRITE_NODE_FIELD(remote_plans);
-#endif	
+#endif
 }
 
 static void
@@ -459,7 +459,7 @@ _outIndexScan(StringInfo str, const IndexScan *node)
 
 #ifdef PGXC
 static void
-_outRemoteQuery(StringInfo str, RemoteQuery *node)
+_outRemoteQuery(StringInfo str, const RemoteQuery *node)
 {
 	WRITE_NODE_TYPE("REMOTEQUERY");
 
@@ -481,7 +481,7 @@ _outRemoteQuery(StringInfo str, RemoteQuery *node)
 }
 
 static void
-_outExecNodes(StringInfo str, ExecNodes *node)
+_outExecNodes(StringInfo str, const ExecNodes *node)
 {
 	WRITE_NODE_TYPE("EXEC_NODES");
 

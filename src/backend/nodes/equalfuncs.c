@@ -2461,7 +2461,7 @@ _equalValue(const Value *a, const Value *b)
  */
 
 static bool
-_equalBarrierStmt(BarrierStmt *a, BarrierStmt *b)
+_equalBarrierStmt(const BarrierStmt *a, const BarrierStmt *b)
 {
 	COMPARE_STRING_FIELD(id);
 	return true;
