@@ -3669,7 +3669,7 @@ DropStmtPreTreatment(DropStmt *stmt, const char *queryString, bool sentToRemote,
 					 * Do not print result at all, error is thrown
 					 * after if necessary
 					 */
-					relid = RangeVarGetRelid(rel, NoLock, false);
+					relid = RangeVarGetRelid(rel, NoLock, true);
 
 					/*
 					 * In case this relation ID is incorrect throw
