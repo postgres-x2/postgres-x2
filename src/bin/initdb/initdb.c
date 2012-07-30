@@ -1055,7 +1055,7 @@ setup_config(void)
 	snprintf(repltok, sizeof(repltok),
 			 "pgxc_node_name = '%s'",
 			 escape_quotes(nodename));
-	conflines = replace_token(conflines, "#pgxc_node_name = ''", repltok);	
+	conflines = replace_token(conflines, "#pgxc_node_name = ''", repltok);
 #endif
 
 	default_timezone = select_default_timezone(share_path);
@@ -2663,7 +2663,7 @@ main(int argc, char *argv[])
 		{"noclean", no_argument, NULL, 'n'},
 		{"xlogdir", required_argument, NULL, 'X'},
 #ifdef PGXC
-		{"nodename", required_argument, NULL, 10},
+		{"nodename", required_argument, NULL, 12},
 #endif
 		{NULL, 0, NULL, 0}
 	};
@@ -2802,7 +2802,7 @@ main(int argc, char *argv[])
 				xlog_dir = xstrdup(optarg);
 				break;
 #ifdef PGXC
-			case 10:
+			case 12:
 				nodename = xstrdup(optarg);
 				break;
 #endif

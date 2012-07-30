@@ -393,7 +393,7 @@ stop_gtm(void)
 	{
 		fprintf(stderr, _("\n%s: could not stop GTM: exit code was %d\n"),
 				progname, r);
-		exit(2);			/* not exit_nicely(), that would be recursive */
+		exit(2);
 	}
 }
 
@@ -419,7 +419,7 @@ stop_node(PGXCNodeTypeNum node)
 	{
 		fprintf(stderr, _("\n%s: could not stop postmaster: exit code was %d\n"),
 				progname, r);
-		exit(2);			/* not exit_nicely(), that would be recursive */
+		exit(2);
 	}
 }
 #endif
@@ -628,7 +628,7 @@ calculate_node_port(PGXCNodeTypeNum node, bool is_main)
 				if (!port_specified_by_user)
 					fprintf(stderr, _("%s: could not determine an available port\n"), progname);
 				fprintf(stderr, _("Specify an unused port using the --port option or shut down any conflicting PostgreSQL servers.\n"));
-				exit_nicely(2);
+				exit(2);
 			}
 
 			fprintf(stderr, _("port %d apparently in use, trying %d\n"),
@@ -731,7 +731,7 @@ start_gtm(void)
 	{
 		fprintf(stderr, _("\n%s: could not spawn GTM: %s\n"),
 				progname, strerror(errno));
-		exit_nicely(2);
+		exit(2);
 	}
 
 	/* Save static PID number */
@@ -777,7 +777,7 @@ start_node(PGXCNodeTypeNum node, bool is_coord, bool is_main)
 	{
 		fprintf(stderr, _("\n%s: could not spawn postmaster: %s\n"),
 				progname, strerror(errno));
-		exit_nicely(2);
+		exit(2);
 	}
 
 	/* Wait a little for full start */
@@ -805,7 +805,7 @@ initdb_node(PGXCNodeTypeNum node)
 	if (system(buf))
 	{
 		fprintf(stderr, _("\n%s: initdb failed\nExamine %s/log/initdb.log for the reason.\nCommand was: %s\n"), progname, outputdir, buf);
-		exit_nicely(2);
+		exit(2);
 	}
 }
 
@@ -826,7 +826,7 @@ init_gtm(void)
 	if (system(buf))
 	{
 		fprintf(stderr, _("\n%s: initgtm failed\nExamine %s/log/initgtm.log for the reason.\nCommand was: %s\n"), progname, outputdir, buf);
-		exit_nicely(2);
+		exit(2);
 	}
 }
 
@@ -842,7 +842,7 @@ set_node_config_file(PGXCNodeTypeNum node)
 	if (pg_conf == NULL)
 	{
 		fprintf(stderr, _("\n%s: could not open \"%s\" for adding extra config: %s\n"), progname, buf, strerror(errno));
-		exit_nicely(2);
+		exit(2);
 	}
 	fputs("\n# Configuration added by pg_regress\n\n", pg_conf);
 
@@ -875,7 +875,7 @@ set_node_config_file(PGXCNodeTypeNum node)
 		if (extra_conf == NULL)
 		{
 			fprintf(stderr, _("\n%s: could not open \"%s\" to read extra config: %s\n"), progname, temp_config, strerror(errno));
-			exit_nicely(2);
+			exit(2);
 		}
 		while (fgets(line_buf, sizeof(line_buf), extra_conf) != NULL)
 			fputs(line_buf, pg_conf);
@@ -928,7 +928,7 @@ psql_command_node(const char *database, PGXCNodeTypeNum node, const char *query,
 	{
 		/* psql probably already reported the error */
 		fprintf(stderr, _("command failed: %s\n"), psql_cmd);
-		exit_nicely(2);
+		exit(2);
 	}
 }
 
@@ -989,7 +989,7 @@ check_node_fail(PGXCNodeTypeNum node)
 #endif /* WIN32 */
 	{
 		fprintf(stderr, _("\n%s: postmaster failed\nExamine %s/log/postmaster_%d.log for the reason\n"), progname, outputdir, node);
-		exit_nicely(2);
+		exit(2);
 	}
 }
 
@@ -3088,7 +3088,7 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 #ifdef PGXC
 		/* Print info for each node */
 		printf(_("running on port %d, pooler port %d with PID %lu for Coordinator 1\n"),
-			   get_port_number(PGXC_COORD_1), get_pooler_port(PGXC_COORD_1), ULONGPID(get_node_pid(PGXC_COORD_1)));       
+			   get_port_number(PGXC_COORD_1), get_pooler_port(PGXC_COORD_1), ULONGPID(get_node_pid(PGXC_COORD_1)));
 		printf(_("running on port %d, pooler port %d with PID %lu for Coordinator 2\n"),
 			   get_port_number(PGXC_COORD_2), get_pooler_port(PGXC_COORD_2), ULONGPID(get_node_pid(PGXC_COORD_2)));
 		printf(_("running on port %d with PID %lu for Datanode 1\n"),
