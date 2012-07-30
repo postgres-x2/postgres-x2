@@ -20,7 +20,7 @@ as select 'v_'||t from test1;
 --
 -- Test COPY table TO
 --
-copy test1 to stdout;
+copy (select * from test1 order by 1) to stdout;
 1	a
 2	b
 3	c
@@ -64,7 +64,7 @@ LINE 1: copy (select * from test1) (t,id) to stdout;
 --
 -- Test JOIN
 --
-copy (select * from test1 join test2 using (id)) to stdout;
+copy (select * from test1 join test2 using (id) order by 1) to stdout;
 1	a	A
 2	b	B
 3	c	C
@@ -99,7 +99,7 @@ t
 --
 -- Test psql builtins, plain table
 --
-\copy test1 to stdout
+\copy (select * from test1 order by 1) to stdout
 1	a
 2	b
 3	c
