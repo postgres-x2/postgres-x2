@@ -56,23 +56,23 @@ INSERT INTO numrange_test VALUES(numrange(1.1, 2.2));
 INSERT INTO numrange_test VALUES('empty');
 INSERT INTO numrange_test VALUES(numrange(1.7, 1.7, '[]'));
 
-SELECT nr, isempty(nr), lower(nr), upper(nr) FROM numrange_test;
-SELECT nr, lower_inc(nr), lower_inf(nr), upper_inc(nr), upper_inf(nr) FROM numrange_test;
+SELECT nr, isempty(nr), lower(nr), upper(nr) FROM numrange_test ORDER BY nr;
+SELECT nr, lower_inc(nr), lower_inf(nr), upper_inc(nr), upper_inf(nr) FROM numrange_test ORDER BY nr;
 
-SELECT * FROM numrange_test WHERE range_contains(nr, numrange(1.9,1.91));
-SELECT * FROM numrange_test WHERE nr @> numrange(1.0,10000.1);
-SELECT * FROM numrange_test WHERE range_contained_by(numrange(-1e7,-10000.1), nr);
-SELECT * FROM numrange_test WHERE 1.9 <@ nr;
+SELECT * FROM numrange_test WHERE range_contains(nr, numrange(1.9,1.91)) ORDER BY nr;
+SELECT * FROM numrange_test WHERE nr @> numrange(1.0,10000.1) ORDER BY nr;
+SELECT * FROM numrange_test WHERE range_contained_by(numrange(-1e7,-10000.1), nr) ORDER BY nr;
+SELECT * FROM numrange_test WHERE 1.9 <@ nr ORDER BY nr;
 
-select * from numrange_test where nr = 'empty';
-select * from numrange_test where nr = '(1.1, 2.2)';
-select * from numrange_test where nr = '[1.1, 2.2)';
-select * from numrange_test where nr < numrange(-1000.0, -1000.0,'[]');
-select * from numrange_test where nr < numrange(0.0, 1.0,'[]');
-select * from numrange_test where nr < numrange(1000.0, 1001.0,'[]');
-select * from numrange_test where nr > numrange(-1001.0, -1000.0,'[]');
-select * from numrange_test where nr > numrange(0.0, 1.0,'[]');
-select * from numrange_test where nr > numrange(1000.0, 1000.0,'[]');
+select * from numrange_test where nr = 'empty' ORDER BY nr;
+select * from numrange_test where nr = '(1.1, 2.2)' ORDER BY nr;
+select * from numrange_test where nr = '[1.1, 2.2)' ORDER BY nr;
+select * from numrange_test where nr < numrange(-1000.0, -1000.0,'[]') ORDER BY nr;
+select * from numrange_test where nr < numrange(0.0, 1.0,'[]') ORDER BY nr;
+select * from numrange_test where nr < numrange(1000.0, 1001.0,'[]') ORDER BY nr;
+select * from numrange_test where nr > numrange(-1001.0, -1000.0,'[]') ORDER BY nr;
+select * from numrange_test where nr > numrange(0.0, 1.0,'[]') ORDER BY nr;
+select * from numrange_test where nr > numrange(1000.0, 1000.0,'[]') ORDER BY nr;
 
 select numrange(2.0, 1.0);
 
@@ -120,8 +120,8 @@ INSERT INTO numrange_test2 VALUES(numrange(1.1, 2.2,'()'));
 INSERT INTO numrange_test2 VALUES('empty');
 
 select * from numrange_test2 where nr = 'empty'::numrange;
-select * from numrange_test2 where nr = numrange(1.1, 2.2);
-select * from numrange_test2 where nr = numrange(1.1, 2.3);
+select * from numrange_test2 where nr = numrange(1.1, 2.2) ORDER BY nr;
+select * from numrange_test2 where nr = numrange(1.1, 2.3) ORDER BY nr;
 
 set enable_nestloop=t;
 set enable_hashjoin=f;
