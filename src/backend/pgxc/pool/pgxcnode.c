@@ -44,6 +44,7 @@
 #include "utils/elog.h"
 #include "utils/memutils.h"
 #include "utils/fmgroids.h"
+#include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #include "utils/lsyscache.h"
 #include "utils/formatting.h"
@@ -1668,6 +1669,10 @@ pgxc_node_send_snapshot(PGXCNodeHandle *handle, Snapshot snapshot)
 	handle->outEnd += 4;
 
 	nval = htonl(snapshot->xmax);
+	memcpy(handle->outBuffer + handle->outEnd, &nval, 4);
+	handle->outEnd += 4;
+
+	nval = htonl(RecentGlobalXmin);
 	memcpy(handle->outBuffer + handle->outEnd, &nval, 4);
 	handle->outEnd += 4;
 
