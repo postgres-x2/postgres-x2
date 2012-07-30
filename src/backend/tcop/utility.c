@@ -86,7 +86,7 @@ static RemoteQueryExecType ExecUtilityFindNodes(ObjectType objectType,
 static RemoteQueryExecType ExecUtilityFindNodesRelkind(Oid relid, bool *is_temp);
 static RemoteQueryExecType GetNodesForCommentUtility(CommentStmt *stmt, bool *is_temp);
 static RemoteQueryExecType GetNodesForRulesUtility(RangeVar *relation, bool *is_temp);
-static void DropStmtPreTreatment(DropStmt *stmt, char *queryString, bool sentToRemote,
+static void DropStmtPreTreatment(DropStmt *stmt, const char *queryString, bool sentToRemote,
 								 bool *is_temp, RemoteQueryExecType *exec_type);
 #endif
 
@@ -466,7 +466,7 @@ standard_ProcessUtility(Node *parsetree,
 					case TRANS_STMT_COMMIT_PREPARED:
 						PreventTransactionChain(isTopLevel, "COMMIT PREPARED");
 						PreventCommandDuringRecovery("COMMIT PREPARED");
-#ifdef PGXC						
+#ifdef PGXC
 						/*
 						 * Commit a transaction which was explicitely prepared
 						 * before
@@ -484,7 +484,7 @@ standard_ProcessUtility(Node *parsetree,
 					case TRANS_STMT_ROLLBACK_PREPARED:
 						PreventTransactionChain(isTopLevel, "ROLLBACK PREPARED");
 						PreventCommandDuringRecovery("ROLLBACK PREPARED");
-#ifdef PGXC						
+#ifdef PGXC
 						/*
 						 * Abort a transaction which was explicitely prepared
 						 * before
@@ -894,7 +894,7 @@ standard_ProcessUtility(Node *parsetree,
 					Oid relid;
 					RangeVar *rel = (RangeVar *) lfirst(cell);
 
-					relid = RangeVarGetRelid(rel, NoLock, true, false);
+					relid = RangeVarGetRelid(rel, NoLock, false);
 					if (IsTempTable(relid))
 					{
 						is_temp = true;
@@ -966,7 +966,7 @@ standard_ProcessUtility(Node *parsetree,
 				/* Relation is not set for a schema */
 				if (stmt->relation)
 					exec_type = ExecUtilityFindNodes(stmt->renameType,
-													 RangeVarGetRelid(stmt->relation, NoLock, false, false),
+													 RangeVarGetRelid(stmt->relation, NoLock, false),
 													 &is_temp);
 				else
 					exec_type = EXEC_ON_ALL_NODES;
@@ -992,7 +992,7 @@ standard_ProcessUtility(Node *parsetree,
 
 				if (stmt->relation)
 					exec_type = ExecUtilityFindNodes(stmt->objectType,
-													 RangeVarGetRelid(stmt->relation, NoLock, false, false),
+													 RangeVarGetRelid(stmt->relation, NoLock, false),
 													 &is_temp);
 				else
 					exec_type = EXEC_ON_ALL_NODES;
@@ -1021,7 +1021,7 @@ standard_ProcessUtility(Node *parsetree,
 			{
 				AlterTableStmt *atstmt = (AlterTableStmt *) parsetree;
 				Oid			relid;
-				List	   *stmts;
+				List	   *stmts = NIL;
 				ListCell   *l;
 				LOCKMODE	lockmode;
 
@@ -1044,7 +1044,7 @@ standard_ProcessUtility(Node *parsetree,
 					bool is_temp = false;
 					RemoteQueryExecType exec_type;
 					exec_type = ExecUtilityFindNodes(atstmt->relkind,
-													 RangeVarGetRelid(stmt->relation, NoLock, false, false),
+													 RangeVarGetRelid(atstmt->relation, NoLock, false),
 													 &is_temp);
 
 					stmts = AddRemoteQueryNode(stmts, queryString, exec_type, is_temp);
@@ -1169,7 +1169,7 @@ standard_ProcessUtility(Node *parsetree,
 					foreach (cell, stmt->objects)
 					{
 						RangeVar   *relvar = (RangeVar *) lfirst(cell);
-						Oid			relid = RangeVarGetRelid(relvar, NoLock, false, false);
+						Oid			relid = RangeVarGetRelid(relvar, NoLock, false);
 
 						remoteExecType = ExecUtilityFindNodesRelkind(relid, &is_temp);
 
@@ -1346,7 +1346,7 @@ standard_ProcessUtility(Node *parsetree,
 				}
 
 				/* INDEX on a temporary table cannot use 2PC at commit */
-				relid = RangeVarGetRelid(stmt->relation, NoLock, true, true);
+				relid = RangeVarGetRelid(stmt->relation, NoLock, true);
 
 				if (OidIsValid(relid))
 					exec_type = ExecUtilityFindNodes(OBJECT_INDEX, relid, &is_temp);
@@ -1440,7 +1440,7 @@ standard_ProcessUtility(Node *parsetree,
 					RemoteQueryExecType exec_type;
 
 					exec_type = ExecUtilityFindNodes(OBJECT_SEQUENCE,
-													 RangeVarGetRelid(stmt->sequence, NoLock, false, false),
+													 RangeVarGetRelid(stmt->sequence, NoLock, false),
 													 &is_temp);
 
 					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, exec_type, is_temp);
@@ -3606,7 +3606,7 @@ GetNodesForCommentUtility(CommentStmt *stmt, bool *is_temp)
 static RemoteQueryExecType
 GetNodesForRulesUtility(RangeVar *relation, bool *is_temp)
 {
-	Oid relid = RangeVarGetRelid(relation, NoLock, false, false);
+	Oid relid = RangeVarGetRelid(relation, NoLock, false);
 	RemoteQueryExecType exec_type;
 	/*
 	 * PGXCTODO: See if it's a temporary object, do we really need
@@ -3622,7 +3622,7 @@ GetNodesForRulesUtility(RangeVar *relation, bool *is_temp)
  * Do a pre-treatment of Drop statement on a remote Coordinator
  */
 static void
-DropStmtPreTreatment(DropStmt *stmt, char *queryString, bool sentToRemote,
+DropStmtPreTreatment(DropStmt *stmt, const char *queryString, bool sentToRemote,
 					 bool *is_temp, RemoteQueryExecType *exec_type)
 {
 	bool		res_is_temp = false;
@@ -3657,7 +3657,7 @@ DropStmtPreTreatment(DropStmt *stmt, char *queryString, bool sentToRemote,
 					 * Do not print result at all, error is thrown
 					 * after if necessary
 					 */
-					relid = RangeVarGetRelid(rel, NoLock, true, false);
+					relid = RangeVarGetRelid(rel, NoLock, false);
 
 					/*
 					 * In case this relation ID is incorrect throw
