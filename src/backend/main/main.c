@@ -325,8 +325,8 @@ help(const char *progname)
 
 #ifdef PGXC
 	printf(_("\nNode options:\n"));
-	printf(_("  -C              start as a Coordinator\n"));
-	printf(_("  -X              start as a Datanode\n"));
+	printf(_("  --coordinator      start as a Coordinator\n"));
+	printf(_("  --datanode         start as a Datanode\n"));
 #endif
 
 	printf(_("\nPlease read the documentation for the complete list of run-time\n"

@@ -341,7 +341,7 @@ static DNSServiceRef bonjour_sdref = NULL;
 #ifdef PGXC
 char			*PGXCNodeName = NULL;
 int			PGXCNodeId = -1;
-/* 
+/*
  * When a particular node starts up, store the node identifier in this variable
  * so that we dont have to calculate it OR do a search in cache any where else
  * This will have minimal impact on performance
@@ -583,11 +583,7 @@ PostmasterMain(int argc, char *argv[])
 	 * tcop/postgres.c (the option sets should not conflict) and with the
 	 * common help() function in main/main.c.
 	 */
-#ifdef PGXC
-	while ((opt = getopt(argc, argv, "A:B:bc:C:D:d:EeFf:h:ijk:lN:nOo:Pp:r:S:sTt:W:XY-:")) != -1)
-#else
 	while ((opt = getopt(argc, argv, "A:B:bc:C:D:d:EeFf:h:ijk:lN:nOo:Pp:r:S:sTt:W:-:")) != -1)
-#endif
 	{
 		switch (opt)
 		{
@@ -728,15 +724,6 @@ PostmasterMain(int argc, char *argv[])
 				SetConfigOption("post_auth_delay", optarg, PGC_POSTMASTER, PGC_S_ARGV);
 				break;
 
-#ifdef PGXC
-			case 'X':
-				isPGXCDataNode = true;
-				break;
-
-			case 'Y':
-				isPGXCCoordinator = true;
-				break;
-#endif
 			case 'c':
 			case '-':
 				{
@@ -744,6 +731,18 @@ PostmasterMain(int argc, char *argv[])
 							   *value;
 
 					ParseLongOption(optarg, &name, &value);
+
+#ifdef PGXC
+					/* A Coordinator is being activated */
+					if (strcmp(name, "coordinator") == 0 &&
+						!value)
+						isPGXCCoordinator = true;
+					else if (strcmp(name, "datanode") == 0 &&
+						!value)
+						isPGXCDataNode = true;
+					else /* default case */
+					{
+#endif
 					if (!value)
 					{
 						if (opt == '-')
@@ -759,6 +758,9 @@ PostmasterMain(int argc, char *argv[])
 					}
 
 					SetConfigOption(name, value, PGC_POSTMASTER, PGC_S_ARGV);
+#ifdef PGXC
+					}
+#endif
 					free(name);
 					if (value)
 						free(value);
@@ -775,7 +777,7 @@ PostmasterMain(int argc, char *argv[])
 #ifdef PGXC
 	if (!IS_PGXC_COORDINATOR && !IS_PGXC_DATANODE)
 	{
-		write_stderr("%s: PG-XC: must start as either a Coordinator (-C) or Data Node (-X)\n",
+		write_stderr("%s: Postgres-XC: must start as either a Coordinator (--datanode) or Data Node (--datanode)\n",
 					 progname);
 		ExitPostmaster(1);
 	}
@@ -1182,7 +1184,7 @@ PostmasterMain(int argc, char *argv[])
 	if (IS_PGXC_COORDINATOR)
 	{
 		oldcontext = MemoryContextSwitchTo(TopMemoryContext);
-	
+
 		/*
 		 * Initialize the Data Node connection pool
 		 */
@@ -2684,8 +2686,8 @@ reaper(SIGNAL_ARGS)
 		}
 
 #ifdef PGXC /* PGXC_COORD */
-		/* 
-		 * Was it the pool manager?  TODO decide how to handle 
+		/*
+		 * Was it the pool manager?  TODO decide how to handle
 		 * Probably we should restart the system
 		 */
 		if (IS_PGXC_COORDINATOR && pid == PgPoolerPID)

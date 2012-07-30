@@ -149,7 +149,7 @@ PostgreSQL documentation
 
 <!## XC>
      <varlistentry>
-      <term><option>-C</option></term>
+      <term><option>--coordinator</option></term>
       <listitem>
 &xconly;
        <para>
@@ -369,7 +369,7 @@ PostgreSQL documentation
 
 <!## XC>
      <varlistentry>
-      <term><option>-X</option></term>
+      <term><option>--datanode</option></term>
       <listitem>
 &xconly;
        <para>
@@ -844,7 +844,7 @@ PostgreSQL documentation
 <!## end>
 <!## XC>
 <screen>
-<prompt>$</prompt> <userinput>nohup postgres -X &gt;logfile 2&gt;&amp;1 &lt;/dev/null &amp;</userinput>
+<prompt>$</prompt> <userinput>nohup postgres --datanode &gt;logfile 2&gt;&amp;1 &lt;/dev/null &amp;</userinput>
 </screen>
 <!## end>
   </para>
@@ -864,7 +864,7 @@ PostgreSQL documentation
 <!## end>
 <!## XC>
 <screen>
-<prompt>$</prompt> <userinput>postgres -C -p 1234</userinput>
+<prompt>$</prompt> <userinput>postgres --coordinator -p 1234</userinput>
 </screen>
 <!## end>
    To connect to this server using <application>psql</>, specify this port with the -p option:
@@ -888,8 +888,8 @@ PostgreSQL documentation
 <!## end>
 <!## XC>
 <screen>
-<prompt>$</prompt> <userinput>postgres -C -c work_mem=1234</userinput>
-<prompt>$</prompt> <userinput>postgres -C --work-mem=1234</userinput>
+<prompt>$</prompt> <userinput>postgres --coordinator -c work_mem=1234</userinput>
+<prompt>$</prompt> <userinput>postgres --coordinator --work-mem=1234</userinput>
 </screen>
 <!## end>
    Either form overrides whatever setting might exist for

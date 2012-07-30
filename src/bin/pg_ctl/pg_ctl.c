@@ -2107,9 +2107,9 @@ main(int argc, char **argv)
 #ifdef PGXC
 				case 'Z':
 					if (strcmp(optarg, "coordinator") == 0)
-						pgxcCommand = strdup("-C");
+						pgxcCommand = strdup("--coordinator");
 					else if (strcmp(optarg, "datanode") == 0)
-						pgxcCommand = strdup("-X");
+						pgxcCommand = strdup("--datanode");
 #endif
 				case 's':
 					silent_mode = true;

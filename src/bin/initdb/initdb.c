@@ -3384,11 +3384,11 @@ main(int argc, char *argv[])
 
 #ifdef PGXC
 	printf(_("\nSuccess.\n You can now start the database server of the Postgres-XC coordinator using:\n\n"
-			 "    %s%s%spostgres%s -C -D %s%s%s\n"
+			 "    %s%s%spostgres%s --coordinator -D %s%s%s\n"
 			 "or\n"
 			 "    %s%s%spg_ctl%s start -D %s%s%s -Z coordinator -l logfile\n\n"
 			 " You can now start the database server of the Postgres-XC datanode using:\n\n"
-			 "    %s%s%spostgres%s -X -D %s%s%s\n"
+			 "    %s%s%spostgres%s --datanode -D %s%s%s\n"
 			 "or \n"
 			 "    %s%s%spg_ctl%s start -D %s%s%s -Z datanode -l logfile\n\n"),
 	   QUOTE_PATH, bin_dir, (strlen(bin_dir) > 0) ? DIR_SEP : "", QUOTE_PATH,

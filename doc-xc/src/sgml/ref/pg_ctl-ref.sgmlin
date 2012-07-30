@@ -40,9 +40,7 @@ PostgreSQL documentation
    <arg>-p <replaceable>path</replaceable></arg>
    <arg>-c</arg>
 <!## XC>
-   <arg>-S <replaceable>nodeopt</replaceable></arg>
-   <arg>-C</arg>
-   <arg>-X</arg>
+   <arg>-Z <replaceable>nodeopt</replaceable></arg>
 <!## end>
   </cmdsynopsis>
 
@@ -246,17 +244,6 @@ PostgreSQL documentation
 
     <variablelist>
 
-<!## XC>
-     <varlistentry>
-      <term><option>-C</option></term>
-      <listitem>
-       <para>
-        Specifies to run as a Coordinator.  Only for Postgres-XC.
-       </para>
-      </listitem>
-     </varlistentry>
-<!## end>
-
      <varlistentry>
       <term><option>-c</option></term>
       <listitem>
@@ -359,7 +346,7 @@ PostgreSQL documentation
       <listitem>
        <para>
         Specifies to run as Coordinator or as Datanode.  You should
-        specify Coordinator or Datanode as <replaceable>nodeopt</replaceable>.  Only for Postgres-XC.
+        specify coordinator or datanode as <replaceable>nodeopt</replaceable>.  Only for Postgres-XC.
        </para>
       </listitem>
      </varlistentry>
@@ -409,17 +396,6 @@ PostgreSQL documentation
        </para>
       </listitem>
      </varlistentry>
-
-<!## XC>
-     <varlistentry>
-      <term><option>-X</option></term>
-      <listitem>
-       <para>
-        Specifies to run as a Datanode.  Only for Postgres-XC.
-       </para>
-      </listitem>
-     </varlistentry>
-<!## end>
 
    </variablelist>
 

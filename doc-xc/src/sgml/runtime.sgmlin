@@ -729,9 +729,9 @@ postgres$ <userinput>initdb -D /usr/local/pgsql/data --nodename foo</userinput>
    <para>
     You can start a Datanode as follows:
 <screen>
-<prompt>$</> <userinput>postgres -X -D /usr/local/pgsql/data</userinput>
+<prompt>$</> <userinput>postgres --datanode -D /usr/local/pgsql/data</userinput>
 </screen>
-    <option>-X</> specifies <command>postgres</> should run as a
+    <option>--datanode</> specifies <command>postgres</> should run as a
     Datanode. You may need to specify <option>-i</> <command>postgres</> to
     accept connection from TCP/IP connections or edit <filename>pg_hba.conf</filename>
     if cluster uses nodes among several servers.
@@ -745,9 +745,9 @@ postgres$ <userinput>initdb -D /usr/local/pgsql/data --nodename foo</userinput>
    <para>
     You can start a Coordinator as follows:
 <screen>
-<prompt>$</> <userinput>postgres -C -D /usr/local/pgsql/Datanode</userinput>
+<prompt>$</> <userinput>postgres --coordinator -D /usr/local/pgsql/Datanode</userinput>
 </screen>
-    <option>-C</> specifies <command>postgres</> should run as a
+    <option>--coordinator</> specifies <command>postgres</> should run as a
     Coordinator. You may need to specify <option>-i</> <command>postgres</> to
     accept connection from TCP/IP connections or edit <filename>pg_hba.conf</filename>
     if cluster uses nodes among several servers.

@@ -3418,11 +3418,7 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx)
 	 * postmaster/postmaster.c (the option sets should not conflict) and with
 	 * the common help() function in main/main.c.
 	 */
-#ifdef PGXC
-	while ((flag = getopt(argc, argv, "A:B:bc:C:D:d:EeFf:h:ijk:lN:nOo:Pp:r:S:sTt:v:W:XY-:")) != -1)
-#else
 	while ((flag = getopt(argc, argv, "A:B:bc:C:D:d:EeFf:h:ijk:lN:nOo:Pp:r:S:sTt:v:W:-:")) != -1)
-#endif
 	{
 		switch (flag)
 		{
@@ -3559,15 +3555,6 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx)
 				SetConfigOption("post_auth_delay", optarg, ctx, gucsource);
 				break;
 
-#ifdef PGXC
-			case 'X':
-				isPGXCDataNode = true;
-				break;
-
-			case 'Y':
-				isPGXCCoordinator = true;
-				break;
-#endif
 			case 'c':
 			case '-':
 				{
@@ -3575,6 +3562,18 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx)
 							   *value;
 
 					ParseLongOption(optarg, &name, &value);
+#ifdef PGXC
+					/* A Coordinator is being activated */
+					if (strcmp(name, "coordinator") == 0 &&
+						!value)
+						isPGXCCoordinator = true;
+					/* A Datanode is being activated */
+					else if (strcmp(name, "datanode") == 0 &&
+							 !value)
+						isPGXCDataNode = true;
+					else /* default case */
+					{
+#endif
 					if (!value)
 					{
 						if (flag == '-')
@@ -3589,6 +3588,9 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx)
 											optarg)));
 					}
 					SetConfigOption(name, value, ctx, gucsource);
+#ifdef PGXC
+					}
+#endif
 					free(name);
 					if (value)
 						free(value);
@@ -3613,7 +3615,7 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx)
 	{
 		ereport(FATAL,
 				(errcode(ERRCODE_SYNTAX_ERROR),
-			 errmsg("PG-XC: must start as either a Coordinator (-C) or Datanode (-X)\n")));
+			 errmsg("Postgres-XC: must start as either a Coordinator (--coordinator) or Datanode (-datanode)\n")));
 	}
 	if (!IsPostmasterEnvironment)
 	{

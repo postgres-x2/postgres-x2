@@ -93,9 +93,9 @@ su - postgres
 /usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data_datanode2 --nodename datanode2
 /usr/local/pgsql/bin/initgtm -D /usr/local/pgsql/data_gtm -Z gtm
 /usr/local/pgsql/bin/gtm -D /usr/local/pgsql/data_gtm &gt;logfile 2&gt;&amp;1 &amp;
-/usr/local/pgsql/bin/postgres -X -p 15432 -D /usr/local/pgsql/data_datanode1 &gt;logfile 2&gt;&amp;1 &amp;
-/usr/local/pgsql/bin/postgres -X -p 15433 -D /usr/local/pgsql/data_datanode2 &gt;logfile 2&gt;&amp;1 &amp;
-/usr/local/pgsql/bin/postgres -C -D /usr/local/pgsql/data_coord1 &gt;logfile 2&gt;&amp;1 &amp;
+/usr/local/pgsql/bin/postgres --datanode -p 15432 -D /usr/local/pgsql/data_datanode1 &gt;logfile 2&gt;&amp;1 &amp;
+/usr/local/pgsql/bin/postgres --datanode -p 15433 -D /usr/local/pgsql/data_datanode2 &gt;logfile 2&gt;&amp;1 &amp;
+/usr/local/pgsql/bin/postgres --coordinator -D /usr/local/pgsql/data_coord1 &gt;logfile 2&gt;&amp;1 &amp;
 /usr/local/pgsql/bin/psql -c "CREATE NODE datanode1 WITH (TYPE = 'datanode', PORT = 15432)" postgres
 /usr/local/pgsql/bin/psql -c "CREATE NODE datanode2 WITH (TYPE = 'datanode', PORT = 15433)" postgres
 /usr/local/pgsql/bin/psql -c "SELECT pgxc_pool_reload()" postgres
@@ -2546,9 +2546,9 @@ gtm_proxy -h localhost -p 20002 -s localhost -t 20001 -i 1 -n 2 -D /usr/local/pg
     <para>
      Now you can start Datanode on each server like:
 <programlisting>
-postgres -X -D /usr/local/pgsql/Datanode
+postgres --datanode -D /usr/local/pgsql/Datanode
 </programlisting>
-     This will start the Datanode.   <option>-X</>
+     This will start the Datanode.   <option>--datanode</>
      specifies <command>postgres</> to start as a
      Datanode. <option>-D</> specifies the data directory of the
      Datanode. You can specify other options of standalone <command>postgres</>.
@@ -2562,9 +2562,9 @@ postgres -X -D /usr/local/pgsql/Datanode
    <para>
     Finally, you can start Coordinator like:
 <programlisting>
-postgres -C -D /usr/local/pgsql/Coordinator
+postgres --coordinator -D /usr/local/pgsql/Coordinator
 </programlisting>
-    This will start the Coordinator.  <option>-C</>
+    This will start the Coordinator.  <option>--coordinator</>
     specifies <command>postgres</> to start as a
     Coordinator.  <option>-D</> specifies the data directory of the
     Coordinator.  You can specify other options of standalone <command>postgres</>.
@@ -2607,12 +2607,12 @@ kill `cat /usr/local/pgsql/data/postmaster.pid`
      start up the whole database cluster. Do so now. The command should look
      something like:
 <programlisting>
-postgres -X -D /usr/local/pgsql/Datanode
+postgres --datanode -D /usr/local/pgsql/Datanode
 </programlisting>
      This will start the Datanode in the foreground. To put the Datanode
      in the background use something like:
 <programlisting>
-nohup postgres -X -D /usr/local/pgsql/data \
+nohup postgres --datanode -D /usr/local/pgsql/data \
     &lt;/dev/null &gt;&gt;server.log 2&gt;&amp;1 &lt;/dev/null &amp;
 </programlisting>
      You can apply this to all the other components, GTM, GTM-Proxies,

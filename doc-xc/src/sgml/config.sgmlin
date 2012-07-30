@@ -145,7 +145,7 @@ postgres -c log_connections=yes -c log_destination='syslog'
 <!## end>
 <!## XC>
 <programlisting>
-postgres -C -c log_connections=yes -c log_destination='syslog'
+postgres --coordinator -c log_connections=yes -c log_destination='syslog'
 </programlisting>
 <!## end>
     Command-line options override any conflicting settings in
