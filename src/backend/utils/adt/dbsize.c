@@ -569,8 +569,8 @@ pg_total_relation_size(PG_FUNCTION_ARGS)
 	int64		size;
 
 #ifdef PGXC
-	if (COLLECT_FROM_DATANODES(relid))
-		PG_RETURN_INT64(pgxc_exec_sizefunc(relid, "pg_total_relation_size", NULL));
+	if (COLLECT_FROM_DATANODES(relOid))
+		PG_RETURN_INT64(pgxc_exec_sizefunc(relOid, "pg_total_relation_size", NULL));
 #endif /* PGXC */
 
 	rel = try_relation_open(relOid, AccessShareLock);

@@ -439,7 +439,7 @@ ReleaseGenericPlan(CachedPlanSource *plansource)
 
 #ifdef PGXC
 		/* Drop this plan on remote nodes */
-		if (plan->fully_planned)
+		if (plan)
 		{
 			ListCell *lc;
 
@@ -534,41 +534,6 @@ RevalidateCachedQuery(CachedPlanSource *plansource)
 		plansource->query_context = NULL;
 		MemoryContextDelete(qcxt);
 	}
-
-#ifdef PGXC
-	/*
-	 * If this plansource belongs to a named prepared statement, store the stmt
-	 * name for the Datanode queries.
-	 */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord()
-	    && plansource->stmt_name)
-	{
-		ListCell	*lc;
-		int 		n;
-
-		/*
-		 * Scan the plans and set the statement field for all found RemoteQuery
-		 * nodes so they use Datanode statements
-		 */
-		n = 0;
-		foreach(lc, stmt_list)
-		{
-			Node *st;
-			PlannedStmt *ps;
-
-			st = (Node *) lfirst(lc);
-
-			if (IsA(st, PlannedStmt))
-			{
-				ps = (PlannedStmt *)st;
-
-				n = SetRemoteStatementName(ps->planTree, plansource->stmt_name,
-							plansource->num_params,
-							plansource->param_types, n);
-			}
-		}
-	}
-#endif
 
 	/*
 	 * Now re-do parse analysis and rewrite.  This not incidentally acquires
@@ -879,6 +844,41 @@ BuildCachedPlan(CachedPlanSource *plansource, List *qlist,
 	oldcxt = MemoryContextSwitchTo(plan_context);
 
 	plist = (List *) copyObject(plist);
+
+#ifdef PGXC
+	/*
+	 * If this plansource belongs to a named prepared statement, store the stmt
+	 * name for the Datanode queries.
+	 */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord()
+	    && plansource->stmt_name)
+	{
+		ListCell	*lc;
+		int 		n;
+
+		/*
+		 * Scan the plans and set the statement field for all found RemoteQuery
+		 * nodes so they use Datanode statements
+		 */
+		n = 0;
+		foreach(lc, plist)
+		{
+			Node *st;
+			PlannedStmt *ps;
+
+			st = (Node *) lfirst(lc);
+
+			if (IsA(st, PlannedStmt))
+			{
+				ps = (PlannedStmt *)st;
+
+				n = SetRemoteStatementName(ps->planTree, plansource->stmt_name,
+							plansource->num_params,
+							plansource->param_types, n);
+			}
+		}
+	}
+#endif
 
 	/*
 	 * Create and fill the CachedPlan struct within the new context.
