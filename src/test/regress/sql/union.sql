@@ -187,14 +187,14 @@ set enable_seqscan = off;
 set enable_indexscan = on;
 set enable_bitmapscan = off;
 
-explain (costs off)
+explain (num_nodes off, nodes off, costs off)
  SELECT * FROM
  (SELECT a || b AS ab FROM t1
   UNION ALL
   SELECT * FROM t2) t
  WHERE ab = 'ab';
 
-explain (costs off)
+explain (num_nodes off, nodes off, costs off)
  SELECT * FROM
  (SELECT a || b AS ab FROM t1
   UNION
@@ -206,7 +206,7 @@ reset enable_indexscan;
 reset enable_bitmapscan;
 
 -- Test constraint exclusion of UNION ALL subqueries
-explain (costs off)
+explain (num_nodes off, nodes off, costs off)
  SELECT * FROM
   (SELECT 1 AS t, * FROM tenk1 a
    UNION ALL
