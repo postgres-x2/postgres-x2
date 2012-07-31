@@ -58,23 +58,19 @@ CREATE FUNCTION make_table() RETURNS VOID
 AS $$
   CREATE TABLE created_table AS SELECT * FROM int8_tbl;
 $$ LANGUAGE SQL;
+ERROR:  In XC, SQL functions cannot contain utility statements
+CONTEXT:  SQL function "make_table"
 SELECT make_table();
- make_table 
-------------
- 
-(1 row)
-
+ERROR:  function make_table() does not exist
+LINE 1: SELECT make_table();
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
 SELECT * FROM created_table;
-        q1        |        q2         
-------------------+-------------------
-              123 |               456
-              123 |  4567890123456789
- 4567890123456789 |               123
- 4567890123456789 |  4567890123456789
- 4567890123456789 | -4567890123456789
-(5 rows)
-
+ERROR:  relation "created_table" does not exist
+LINE 1: SELECT * FROM created_table;
+                      ^
 DROP TABLE created_table;
+ERROR:  table "created_table" does not exist
 --
 -- Disallowed uses of SELECT ... INTO.  All should fail
 --
