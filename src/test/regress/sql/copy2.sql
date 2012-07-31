@@ -179,7 +179,7 @@ COPY testnull FROM stdin WITH NULL AS E'\\0';
 \0	\0
 \.
 
-SELECT * FROM testnull;
+SELECT * FROM testnull ORDER BY 1,2;
 
 
 DROP TABLE x, y;
