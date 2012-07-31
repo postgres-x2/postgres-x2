@@ -690,7 +690,7 @@ ON sub1.key1 = sub2.key3;
 -- test case where a PlaceHolderVar is used as a nestloop parameter
 --
 
-EXPLAIN (COSTS OFF)
+EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT qq, unique1
   FROM
   ( SELECT COALESCE(q1, 0) AS qq FROM int8_tbl a ) AS ss1
@@ -711,7 +711,7 @@ SELECT qq, unique1
 -- test case where a PlaceHolderVar is propagated into a subquery
 --
 
-explain (costs off)
+explain (num_nodes off, nodes off, costs off)
 select * from
   int8_tbl t1 left join
   (select q1 as x, 42 as y from int8_tbl t2) ss
@@ -738,14 +738,14 @@ select * from int4_tbl a full join int4_tbl b on false order by 1,2;
 -- test for ability to use a cartesian join when necessary
 --
 
-explain (costs off)
+explain (num_nodes off, nodes off, costs off)
 select * from
   tenk1 join int4_tbl on f1 = twothousand,
   int4(sin(1)) q1,
   int4(sin(0)) q2
 where q1 = thousand or q2 = thousand;
 
-explain (costs off)
+explain (num_nodes off, nodes off, costs off)
 select * from
   tenk1 join int4_tbl on f1 = twothousand,
   int4(sin(1)) q1,
@@ -756,19 +756,19 @@ where thousand = (q1 + q2);
 -- test placement of movable quals in a parameterized join tree
 --
 
-explain (costs off)
+explain (num_nodes off, nodes off, costs off)
 select * from tenk1 t1 left join
   (tenk1 t2 join tenk1 t3 on t2.thousand = t3.unique2)
   on t1.hundred = t2.hundred and t1.ten = t3.ten
 where t1.unique1 = 1;
 
-explain (costs off)
+explain (num_nodes off, nodes off, costs off)
 select * from tenk1 t1 left join
   (tenk1 t2 join tenk1 t3 on t2.thousand = t3.unique2)
   on t1.hundred = t2.hundred and t1.ten + t2.ten = t3.ten
 where t1.unique1 = 1;
 
-explain (costs off)
+explain (num_nodes off, nodes off, costs off)
 select count(*) from
   tenk1 a join tenk1 b on a.unique1 = b.unique2
   left join tenk1 c on a.unique2 = b.unique1 and c.thousand = a.thousand
@@ -779,7 +779,7 @@ select count(*) from
   left join tenk1 c on a.unique2 = b.unique1 and c.thousand = a.thousand
   join int4_tbl on b.thousand = f1;
 
-explain (costs off)
+explain (num_nodes off, nodes off, costs off)
 select b.unique1 from
   tenk1 a join tenk1 b on a.unique1 = b.unique2
   left join tenk1 c on b.unique1 = 42 and c.thousand = a.thousand
