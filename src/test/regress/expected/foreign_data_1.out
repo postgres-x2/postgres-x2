@@ -59,9 +59,9 @@ CREATE FOREIGN DATA WRAPPER foo OPTIONS (testing '1');
 ERROR:  Postgres-XC does not support FOREIGN DATA WRAPPER yet
 DETAIL:  The feature is not currently supported
 \dew+
-                  List of foreign-data wrappers
- Name | Owner | Handler | Validator | Access privileges | Options 
-------+-------+---------+-----------+-------------------+---------
+                           List of foreign-data wrappers
+ Name | Owner | Handler | Validator | Access privileges | FDW Options | Description 
+------+-------+---------+-----------+-------------------+-------------+-------------
 (0 rows)
 
 DROP FOREIGN DATA WRAPPER foo;
@@ -73,9 +73,9 @@ CREATE FOREIGN DATA WRAPPER foo OPTIONS (testing '1', another '2');
 ERROR:  Postgres-XC does not support FOREIGN DATA WRAPPER yet
 DETAIL:  The feature is not currently supported
 \dew+
-                  List of foreign-data wrappers
- Name | Owner | Handler | Validator | Access privileges | Options 
-------+-------+---------+-----------+-------------------+---------
+                           List of foreign-data wrappers
+ Name | Owner | Handler | Validator | Access privileges | FDW Options | Description 
+------+-------+---------+-----------+-------------------+-------------+-------------
 (0 rows)
 
 DROP FOREIGN DATA WRAPPER foo;
@@ -89,9 +89,9 @@ CREATE FOREIGN DATA WRAPPER foo VALIDATOR postgresql_fdw_validator;
 ERROR:  Postgres-XC does not support FOREIGN DATA WRAPPER yet
 DETAIL:  The feature is not currently supported
 \dew+
-                  List of foreign-data wrappers
- Name | Owner | Handler | Validator | Access privileges | Options 
-------+-------+---------+-----------+-------------------+---------
+                           List of foreign-data wrappers
+ Name | Owner | Handler | Validator | Access privileges | FDW Options | Description 
+------+-------+---------+-----------+-------------------+-------------+-------------
 (0 rows)
 
 -- ALTER FOREIGN DATA WRAPPER
@@ -104,9 +104,9 @@ ERROR:  foreign-data wrapper "foo" does not exist
 ALTER FOREIGN DATA WRAPPER foo NO VALIDATOR;
 ERROR:  foreign-data wrapper "foo" does not exist
 \dew+
-                  List of foreign-data wrappers
- Name | Owner | Handler | Validator | Access privileges | Options 
-------+-------+---------+-----------+-------------------+---------
+                           List of foreign-data wrappers
+ Name | Owner | Handler | Validator | Access privileges | FDW Options | Description 
+------+-------+---------+-----------+-------------------+-------------+-------------
 (0 rows)
 
 ALTER FOREIGN DATA WRAPPER foo OPTIONS (a '1', b '2');
@@ -118,17 +118,17 @@ ERROR:  foreign-data wrapper "foo" does not exist
 ALTER FOREIGN DATA WRAPPER foo OPTIONS (ADD x '1', DROP x);
 ERROR:  foreign-data wrapper "foo" does not exist
 \dew+
-                  List of foreign-data wrappers
- Name | Owner | Handler | Validator | Access privileges | Options 
-------+-------+---------+-----------+-------------------+---------
+                           List of foreign-data wrappers
+ Name | Owner | Handler | Validator | Access privileges | FDW Options | Description 
+------+-------+---------+-----------+-------------------+-------------+-------------
 (0 rows)
 
 ALTER FOREIGN DATA WRAPPER foo OPTIONS (DROP a, SET b '3', ADD c '4');
 ERROR:  foreign-data wrapper "foo" does not exist
 \dew+
-                  List of foreign-data wrappers
- Name | Owner | Handler | Validator | Access privileges | Options 
-------+-------+---------+-----------+-------------------+---------
+                           List of foreign-data wrappers
+ Name | Owner | Handler | Validator | Access privileges | FDW Options | Description 
+------+-------+---------+-----------+-------------------+-------------+-------------
 (0 rows)
 
 ALTER FOREIGN DATA WRAPPER foo OPTIONS (a '2');
@@ -136,9 +136,9 @@ ERROR:  foreign-data wrapper "foo" does not exist
 ALTER FOREIGN DATA WRAPPER foo OPTIONS (b '4');             -- ERROR
 ERROR:  foreign-data wrapper "foo" does not exist
 \dew+
-                  List of foreign-data wrappers
- Name | Owner | Handler | Validator | Access privileges | Options 
-------+-------+---------+-----------+-------------------+---------
+                           List of foreign-data wrappers
+ Name | Owner | Handler | Validator | Access privileges | FDW Options | Description 
+------+-------+---------+-----------+-------------------+-------------+-------------
 (0 rows)
 
 SET ROLE regress_test_role;
@@ -149,14 +149,13 @@ SET ROLE regress_test_role_super;
 ALTER FOREIGN DATA WRAPPER foo OPTIONS (ADD d '5');
 ERROR:  foreign-data wrapper "foo" does not exist
 \dew+
-                  List of foreign-data wrappers
- Name | Owner | Handler | Validator | Access privileges | Options 
-------+-------+---------+-----------+-------------------+---------
+                           List of foreign-data wrappers
+ Name | Owner | Handler | Validator | Access privileges | FDW Options | Description 
+------+-------+---------+-----------+-------------------+-------------+-------------
 (0 rows)
 
 ALTER FOREIGN DATA WRAPPER foo OWNER TO regress_test_role;  -- ERROR
-ERROR:  permission denied to change owner of foreign-data wrapper "foo"
-HINT:  The owner of a foreign-data wrapper must be a superuser.
+ERROR:  foreign-data wrapper "foo" does not exist
 ALTER FOREIGN DATA WRAPPER foo OWNER TO regress_test_role_super;
 ERROR:  foreign-data wrapper "foo" does not exist
 ALTER ROLE regress_test_role_super NOSUPERUSER;
@@ -166,38 +165,44 @@ ERROR:  permission denied to alter foreign-data wrapper "foo"
 HINT:  Must be superuser to alter a foreign-data wrapper.
 RESET ROLE;
 \dew+
-                  List of foreign-data wrappers
- Name | Owner | Handler | Validator | Access privileges | Options 
-------+-------+---------+-----------+-------------------+---------
+                           List of foreign-data wrappers
+ Name | Owner | Handler | Validator | Access privileges | FDW Options | Description 
+------+-------+---------+-----------+-------------------+-------------+-------------
 (0 rows)
 
+ALTER FOREIGN DATA WRAPPER foo RENAME TO foo1;
+ERROR:  foreign-data wrapper "foo" does not exist
+\dew+
+                           List of foreign-data wrappers
+ Name | Owner | Handler | Validator | Access privileges | FDW Options | Description 
+------+-------+---------+-----------+-------------------+-------------+-------------
+(0 rows)
+
+ALTER FOREIGN DATA WRAPPER foo1 RENAME TO foo;
+ERROR:  foreign-data wrapper "foo1" does not exist
 -- DROP FOREIGN DATA WRAPPER
 DROP FOREIGN DATA WRAPPER nonexistent;                      -- ERROR
 ERROR:  foreign-data wrapper "nonexistent" does not exist
 DROP FOREIGN DATA WRAPPER IF EXISTS nonexistent;
 NOTICE:  foreign-data wrapper "nonexistent" does not exist, skipping
 \dew+
-                  List of foreign-data wrappers
- Name | Owner | Handler | Validator | Access privileges | Options 
-------+-------+---------+-----------+-------------------+---------
+                           List of foreign-data wrappers
+ Name | Owner | Handler | Validator | Access privileges | FDW Options | Description 
+------+-------+---------+-----------+-------------------+-------------+-------------
 (0 rows)
 
 DROP ROLE regress_test_role_super;                          -- ERROR
 SET ROLE regress_test_role_super;
 ERROR:  role "regress_test_role_super" does not exist
-DROP FOREIGN DATA WRAPPER foo;                              -- ERROR
-ERROR:  foreign-data wrapper "foo" does not exist
-RESET ROLE;
-ALTER ROLE regress_test_role_super SUPERUSER;
-ERROR:  role "regress_test_role_super" does not exist
 DROP FOREIGN DATA WRAPPER foo;
 ERROR:  foreign-data wrapper "foo" does not exist
+RESET ROLE;
 DROP ROLE regress_test_role_super;
 ERROR:  role "regress_test_role_super" does not exist
 \dew+
-                  List of foreign-data wrappers
- Name | Owner | Handler | Validator | Access privileges | Options 
-------+-------+---------+-----------+-------------------+---------
+                           List of foreign-data wrappers
+ Name | Owner | Handler | Validator | Access privileges | FDW Options | Description 
+------+-------+---------+-----------+-------------------+-------------+-------------
 (0 rows)
 
 CREATE FOREIGN DATA WRAPPER foo;
@@ -212,55 +217,54 @@ CREATE USER MAPPING FOR current_user SERVER s1;
 ERROR:  Postgres-XC does not support USER MAPPING yet
 DETAIL:  The feature is not currently supported
 \dew+
-                  List of foreign-data wrappers
- Name | Owner | Handler | Validator | Access privileges | Options 
-------+-------+---------+-----------+-------------------+---------
+                           List of foreign-data wrappers
+ Name | Owner | Handler | Validator | Access privileges | FDW Options | Description 
+------+-------+---------+-----------+-------------------+-------------+-------------
 (0 rows)
 
 \des+
-                              List of foreign servers
- Name | Owner | Foreign-data wrapper | Access privileges | Type | Version | Options 
-------+-------+----------------------+-------------------+------+---------+---------
+                                       List of foreign servers
+ Name | Owner | Foreign-data wrapper | Access privileges | Type | Version | FDW Options | Description 
+------+-------+----------------------+-------------------+------+---------+-------------+-------------
 (0 rows)
 
 \deu+
-    List of user mappings
- Server | User name | Options 
---------+-----------+---------
+      List of user mappings
+ Server | User name | FDW Options 
+--------+-----------+-------------
 (0 rows)
 
 DROP FOREIGN DATA WRAPPER foo;                              -- ERROR
 ERROR:  foreign-data wrapper "foo" does not exist
 SET ROLE regress_test_role;
 DROP FOREIGN DATA WRAPPER foo CASCADE;                      -- ERROR
-ERROR:  permission denied to drop foreign-data wrapper "foo"
-HINT:  Must be superuser to drop a foreign-data wrapper.
+ERROR:  foreign-data wrapper "foo" does not exist
 RESET ROLE;
 DROP FOREIGN DATA WRAPPER foo CASCADE;
 ERROR:  foreign-data wrapper "foo" does not exist
 \dew+
-                  List of foreign-data wrappers
- Name | Owner | Handler | Validator | Access privileges | Options 
-------+-------+---------+-----------+-------------------+---------
+                           List of foreign-data wrappers
+ Name | Owner | Handler | Validator | Access privileges | FDW Options | Description 
+------+-------+---------+-----------+-------------------+-------------+-------------
 (0 rows)
 
 \des+
-                              List of foreign servers
- Name | Owner | Foreign-data wrapper | Access privileges | Type | Version | Options 
-------+-------+----------------------+-------------------+------+---------+---------
+                                       List of foreign servers
+ Name | Owner | Foreign-data wrapper | Access privileges | Type | Version | FDW Options | Description 
+------+-------+----------------------+-------------------+------+---------+-------------+-------------
 (0 rows)
 
 \deu+
-    List of user mappings
- Server | User name | Options 
---------+-----------+---------
+      List of user mappings
+ Server | User name | FDW Options 
+--------+-----------+-------------
 (0 rows)
 
 -- exercise CREATE SERVER
 CREATE SERVER s1 FOREIGN DATA WRAPPER foo;                  -- ERROR
 ERROR:  Postgres-XC does not support SERVER yet
 DETAIL:  The feature is not currently supported
-CREATE FOREIGN DATA WRAPPER foo OPTIONS (test_wrapper 'true');
+CREATE FOREIGN DATA WRAPPER foo OPTIONS ("test wrapper" 'true');
 ERROR:  Postgres-XC does not support FOREIGN DATA WRAPPER yet
 DETAIL:  The feature is not currently supported
 CREATE SERVER s1 FOREIGN DATA WRAPPER foo;
@@ -294,9 +298,9 @@ CREATE SERVER s8 FOREIGN DATA WRAPPER postgresql OPTIONS (host 'localhost', dbna
 ERROR:  Postgres-XC does not support SERVER yet
 DETAIL:  The feature is not currently supported
 \des+
-                              List of foreign servers
- Name | Owner | Foreign-data wrapper | Access privileges | Type | Version | Options 
-------+-------+----------------------+-------------------+------+---------+---------
+                                       List of foreign servers
+ Name | Owner | Foreign-data wrapper | Access privileges | Type | Version | FDW Options | Description 
+------+-------+----------------------+-------------------+------+---------+-------------+-------------
 (0 rows)
 
 SET ROLE regress_test_role;
@@ -312,9 +316,9 @@ ERROR:  Postgres-XC does not support SERVER yet
 DETAIL:  The feature is not currently supported
 RESET ROLE;
 \des+
-                              List of foreign servers
- Name | Owner | Foreign-data wrapper | Access privileges | Type | Version | Options 
-------+-------+----------------------+-------------------+------+---------+---------
+                                       List of foreign servers
+ Name | Owner | Foreign-data wrapper | Access privileges | Type | Version | FDW Options | Description 
+------+-------+----------------------+-------------------+------+---------+-------------+-------------
 (0 rows)
 
 REVOKE USAGE ON FOREIGN DATA WRAPPER foo FROM regress_test_role;
@@ -332,9 +336,9 @@ CREATE SERVER t2 FOREIGN DATA WRAPPER foo;
 ERROR:  Postgres-XC does not support SERVER yet
 DETAIL:  The feature is not currently supported
 \des+
-                              List of foreign servers
- Name | Owner | Foreign-data wrapper | Access privileges | Type | Version | Options 
-------+-------+----------------------+-------------------+------+---------+---------
+                                       List of foreign servers
+ Name | Owner | Foreign-data wrapper | Access privileges | Type | Version | FDW Options | Description 
+------+-------+----------------------+-------------------+------+---------+-------------+-------------
 (0 rows)
 
 RESET ROLE;
@@ -350,16 +354,16 @@ ALTER SERVER s1 VERSION '1.0' OPTIONS (servername 's1');
 ERROR:  server "s1" does not exist
 ALTER SERVER s2 VERSION '1.1';
 ERROR:  server "s2" does not exist
-ALTER SERVER s3 OPTIONS (tnsname 'orcl', port '1521');
+ALTER SERVER s3 OPTIONS ("tns name" 'orcl', port '1521');
 ERROR:  server "s3" does not exist
 GRANT USAGE ON FOREIGN SERVER s1 TO regress_test_role;
 ERROR:  server "s1" does not exist
 GRANT USAGE ON FOREIGN SERVER s6 TO regress_test_role2 WITH GRANT OPTION;
 ERROR:  server "s6" does not exist
 \des+
-                              List of foreign servers
- Name | Owner | Foreign-data wrapper | Access privileges | Type | Version | Options 
-------+-------+----------------------+-------------------+------+---------+---------
+                                       List of foreign servers
+ Name | Owner | Foreign-data wrapper | Access privileges | Type | Version | FDW Options | Description 
+------+-------+----------------------+-------------------+------+---------+-------------+-------------
 (0 rows)
 
 SET ROLE regress_test_role;
@@ -398,11 +402,21 @@ ERROR:  server "s1" does not exist
 RESET ROLE;
 DROP ROLE regress_test_indirect;                            -- ERROR
 \des+
-                              List of foreign servers
- Name | Owner | Foreign-data wrapper | Access privileges | Type | Version | Options 
-------+-------+----------------------+-------------------+------+---------+---------
+                                       List of foreign servers
+ Name | Owner | Foreign-data wrapper | Access privileges | Type | Version | FDW Options | Description 
+------+-------+----------------------+-------------------+------+---------+-------------+-------------
 (0 rows)
 
+ALTER SERVER s8 RENAME to s8new;
+ERROR:  server "s8" does not exist
+\des+
+                                       List of foreign servers
+ Name | Owner | Foreign-data wrapper | Access privileges | Type | Version | FDW Options | Description 
+------+-------+----------------------+-------------------+------+---------+-------------+-------------
+(0 rows)
+
+ALTER SERVER s8new RENAME to s8;
+ERROR:  server "s8new" does not exist
 -- DROP SERVER
 DROP SERVER nonexistent;                                    -- ERROR
 ERROR:  server "nonexistent" does not exist
@@ -476,7 +490,7 @@ DETAIL:  The feature is not currently supported
 CREATE USER MAPPING FOR user SERVER s4;                     -- ERROR duplicate
 ERROR:  Postgres-XC does not support USER MAPPING yet
 DETAIL:  The feature is not currently supported
-CREATE USER MAPPING FOR public SERVER s4 OPTIONS (mapping 'is public');
+CREATE USER MAPPING FOR public SERVER s4 OPTIONS ("this mapping" 'is public');
 ERROR:  Postgres-XC does not support USER MAPPING yet
 DETAIL:  The feature is not currently supported
 CREATE USER MAPPING FOR user SERVER s8 OPTIONS (username 'test', password 'secret');    -- ERROR
@@ -539,9 +553,9 @@ ALTER USER MAPPING FOR public SERVER t1 OPTIONS (ADD modified '1');
 ERROR:  server "t1" does not exist
 RESET ROLE;
 \deu+
-    List of user mappings
- Server | User name | Options 
---------+-----------+---------
+      List of user mappings
+ Server | User name | FDW Options 
+--------+-----------+-------------
 (0 rows)
 
 -- DROP USER MAPPING
@@ -574,7 +588,7 @@ List of user mappings
 
 -- CREATE FOREIGN TABLE
 CREATE SCHEMA foreign_schema;
-CREATE SERVER sc FOREIGN DATA WRAPPER dummy;
+CREATE SERVER s0 FOREIGN DATA WRAPPER dummy;
 ERROR:  Postgres-XC does not support SERVER yet
 DETAIL:  The feature is not currently supported
 CREATE FOREIGN TABLE ft1 ();                                    -- ERROR
@@ -586,25 +600,25 @@ ERROR:  server "no_server" does not exist
 CREATE FOREIGN TABLE ft1 (c1 serial) SERVER sc;                 -- ERROR
 NOTICE:  CREATE FOREIGN TABLE will create implicit sequence "ft1_c1_seq" for serial column "ft1.c1"
 ERROR:  default values on foreign tables are not supported
-CREATE FOREIGN TABLE ft1 () SERVER sc WITH OIDS;                -- ERROR
+CREATE FOREIGN TABLE ft1 () SERVER s0 WITH OIDS;                -- ERROR
 ERROR:  syntax error at or near "WITH OIDS"
-LINE 1: CREATE FOREIGN TABLE ft1 () SERVER sc WITH OIDS;
+LINE 1: CREATE FOREIGN TABLE ft1 () SERVER s0 WITH OIDS;
                                               ^
 CREATE FOREIGN TABLE ft1 (
-	c1 integer NOT NULL,
-	c2 text,
+	c1 integer OPTIONS ("param 1" 'val1') NOT NULL,
+	c2 text OPTIONS (param2 'val2', param3 'val3'),
 	c3 date
-) SERVER sc OPTIONS (delimiter ',', quote '"');
-ERROR:  server "sc" does not exist
+) SERVER s0 OPTIONS (delimiter ',', quote '"', "be quoted" 'value');
+ERROR:  server "s0" does not exist
 COMMENT ON FOREIGN TABLE ft1 IS 'ft1';
 ERROR:  relation "ft1" does not exist
 COMMENT ON COLUMN ft1.c1 IS 'ft1.c1';
 ERROR:  relation "ft1" does not exist
 \d+ ft1
 \det+
-      List of foreign tables
- Schema | Table | Server | Options 
---------+-------+--------+---------
+               List of foreign tables
+ Schema | Table | Server | FDW Options | Description 
+--------+-------+--------+-------------+-------------
 (0 rows)
 
 CREATE INDEX id_ft1_c2 ON ft1 (c2);                             -- ERROR
@@ -638,7 +652,7 @@ ALTER FOREIGN TABLE ft1 ADD COLUMN c8 integer;
 ERROR:  relation "ft1" does not exist
 ALTER FOREIGN TABLE ft1 ADD COLUMN c9 integer;
 ERROR:  relation "ft1" does not exist
-ALTER FOREIGN TABLE ft1 ADD COLUMN c10 integer;
+ALTER FOREIGN TABLE ft1 ADD COLUMN c10 integer OPTIONS (p1 'v1');
 ERROR:  relation "ft1" does not exist
 ALTER FOREIGN TABLE ft1 ALTER COLUMN c4 SET DEFAULT 0;          -- ERROR
 ERROR:  relation "ft1" does not exist
@@ -654,6 +668,20 @@ ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE char(10);
 ERROR:  relation "ft1" does not exist
 ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 SET DATA TYPE text;
 ERROR:  relation "ft1" does not exist
+ALTER FOREIGN TABLE ft1 ALTER COLUMN xmin OPTIONS (ADD p1 'v1'); -- ERROR
+ERROR:  relation "ft1" does not exist
+ALTER FOREIGN TABLE ft1 ALTER COLUMN c7 OPTIONS (ADD p1 'v1', ADD p2 'v2'),
+                        ALTER COLUMN c8 OPTIONS (ADD p1 'v1', ADD p2 'v2');
+ERROR:  relation "ft1" does not exist
+ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 OPTIONS (SET p2 'V2', DROP p1);
+ERROR:  relation "ft1" does not exist
+ALTER FOREIGN TABLE ft1 ALTER COLUMN c1 SET STATISTICS 10000;
+ERROR:  relation "ft1" does not exist
+ALTER FOREIGN TABLE ft1 ALTER COLUMN c1 SET (n_distinct = 100);
+ERROR:  relation "ft1" does not exist
+ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 SET STATISTICS -1;
+ERROR:  relation "ft1" does not exist
+\d+ ft1
 -- can't change the column type if it's used elsewhere
 CREATE TABLE use_ft1_column_type (x ft1);
 ERROR:  type "ft1" does not exist
@@ -692,6 +720,50 @@ ERROR:  relation "foreign_schema.ft1" does not exist
 ALTER FOREIGN TABLE foreign_schema.ft1 RENAME TO foreign_table_1;
 ERROR:  relation "foreign_schema.ft1" does not exist
 \d foreign_schema.foreign_table_1
+-- alter noexisting table
+ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ADD COLUMN c4 integer;
+NOTICE:  relation "doesnt_exist_ft1" does not exist, skipping
+ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ADD COLUMN c6 integer;
+NOTICE:  relation "doesnt_exist_ft1" does not exist, skipping
+ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ADD COLUMN c7 integer NOT NULL;
+NOTICE:  relation "doesnt_exist_ft1" does not exist, skipping
+ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ADD COLUMN c8 integer;
+NOTICE:  relation "doesnt_exist_ft1" does not exist, skipping
+ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ADD COLUMN c9 integer;
+NOTICE:  relation "doesnt_exist_ft1" does not exist, skipping
+ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ADD COLUMN c10 integer OPTIONS (p1 'v1');
+NOTICE:  relation "doesnt_exist_ft1" does not exist, skipping
+ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ALTER COLUMN c6 SET NOT NULL;
+NOTICE:  relation "doesnt_exist_ft1" does not exist, skipping
+ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ALTER COLUMN c7 DROP NOT NULL;
+NOTICE:  relation "doesnt_exist_ft1" does not exist, skipping
+ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ALTER COLUMN c8 TYPE char(10);
+NOTICE:  relation "doesnt_exist_ft1" does not exist, skipping
+ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ALTER COLUMN c8 SET DATA TYPE text;
+NOTICE:  relation "doesnt_exist_ft1" does not exist, skipping
+ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ALTER COLUMN c7 OPTIONS (ADD p1 'v1', ADD p2 'v2'),
+                        ALTER COLUMN c8 OPTIONS (ADD p1 'v1', ADD p2 'v2');
+NOTICE:  relation "doesnt_exist_ft1" does not exist, skipping
+ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ALTER COLUMN c8 OPTIONS (SET p2 'V2', DROP p1);
+NOTICE:  relation "doesnt_exist_ft1" does not exist, skipping
+ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 DROP CONSTRAINT IF EXISTS no_const;
+NOTICE:  relation "doesnt_exist_ft1" does not exist, skipping
+ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 DROP CONSTRAINT ft1_c1_check;
+NOTICE:  relation "doesnt_exist_ft1" does not exist, skipping
+ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 OWNER TO regress_test_role;
+NOTICE:  relation "doesnt_exist_ft1" does not exist, skipping
+ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 OPTIONS (DROP delimiter, SET quote '~', ADD escape '@');
+NOTICE:  relation "doesnt_exist_ft1" does not exist, skipping
+ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 DROP COLUMN IF EXISTS no_column;
+NOTICE:  relation "doesnt_exist_ft1" does not exist, skipping
+ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 DROP COLUMN c9;
+NOTICE:  relation "doesnt_exist_ft1" does not exist, skipping
+ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 SET SCHEMA foreign_schema;
+ERROR:  relation "doesnt_exist_ft1" does not exist
+ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 RENAME c1 TO foreign_column_1;
+ERROR:  relation "doesnt_exist_ft1" does not exist
+ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 RENAME TO foreign_table_1;
+ERROR:  relation "doesnt_exist_ft1" does not exist
 -- Information schema
 SELECT * FROM information_schema.foreign_data_wrappers ORDER BY 1, 2;
  foreign_data_wrapper_catalog | foreign_data_wrapper_name | authorization_identifier | library_name | foreign_data_wrapper_language 
@@ -723,12 +795,12 @@ SELECT * FROM information_schema.user_mapping_options ORDER BY lower(authorizati
 --------------------------+------------------------+---------------------+-------------+--------------
 (0 rows)
 
-SELECT * FROM information_schema.usage_privileges WHERE object_type LIKE 'FOREIGN%' ORDER BY 1, 2, 3, 4, 5;
+SELECT * FROM information_schema.usage_privileges WHERE object_type LIKE 'FOREIGN%' AND object_name IN ('s6', 'foo') ORDER BY 1, 2, 3, 4, 5;
  grantor | grantee | object_catalog | object_schema | object_name | object_type | privilege_type | is_grantable 
 ---------+---------+----------------+---------------+-------------+-------------+----------------+--------------
 (0 rows)
 
-SELECT * FROM information_schema.role_usage_grants WHERE object_type LIKE 'FOREIGN%' ORDER BY 1, 2, 3, 4, 5;
+SELECT * FROM information_schema.role_usage_grants WHERE object_type LIKE 'FOREIGN%' AND object_name IN ('s6', 'foo') ORDER BY 1, 2, 3, 4, 5;
  grantor | grantee | object_catalog | object_schema | object_name | object_type | privilege_type | is_grantable 
 ---------+---------+----------------+---------------+-------------+-------------+----------------+--------------
 (0 rows)
@@ -749,12 +821,12 @@ SELECT * FROM information_schema.user_mapping_options ORDER BY 1, 2, 3, 4;
 --------------------------+------------------------+---------------------+-------------+--------------
 (0 rows)
 
-SELECT * FROM information_schema.usage_privileges WHERE object_type LIKE 'FOREIGN%' ORDER BY 1, 2, 3, 4, 5;
+SELECT * FROM information_schema.usage_privileges WHERE object_type LIKE 'FOREIGN%' AND object_name IN ('s6', 'foo') ORDER BY 1, 2, 3, 4, 5;
  grantor | grantee | object_catalog | object_schema | object_name | object_type | privilege_type | is_grantable 
 ---------+---------+----------------+---------------+-------------+-------------+----------------+--------------
 (0 rows)
 
-SELECT * FROM information_schema.role_usage_grants WHERE object_type LIKE 'FOREIGN%' ORDER BY 1, 2, 3, 4, 5;
+SELECT * FROM information_schema.role_usage_grants WHERE object_type LIKE 'FOREIGN%' AND object_name IN ('s6', 'foo') ORDER BY 1, 2, 3, 4, 5;
  grantor | grantee | object_catalog | object_schema | object_name | object_type | privilege_type | is_grantable 
 ---------+---------+----------------+---------------+-------------+-------------+----------------+--------------
 (0 rows)
@@ -857,11 +929,9 @@ ALTER FOREIGN DATA WRAPPER foo OPTIONS (gotcha 'true');         -- ERROR
 ERROR:  permission denied to alter foreign-data wrapper "foo"
 HINT:  Must be superuser to alter a foreign-data wrapper.
 ALTER FOREIGN DATA WRAPPER foo OWNER TO unprivileged_role;      -- ERROR
-ERROR:  permission denied to change owner of foreign-data wrapper "foo"
-HINT:  Must be superuser to change owner of a foreign-data wrapper.
+ERROR:  foreign-data wrapper "foo" does not exist
 DROP FOREIGN DATA WRAPPER foo;                                  -- ERROR
-ERROR:  permission denied to drop foreign-data wrapper "foo"
-HINT:  Must be superuser to drop a foreign-data wrapper.
+ERROR:  foreign-data wrapper "foo" does not exist
 GRANT USAGE ON FOREIGN DATA WRAPPER foo TO regress_test_role;   -- ERROR
 ERROR:  foreign-data wrapper "foo" does not exist
 CREATE SERVER s9 FOREIGN DATA WRAPPER foo;                      -- ERROR
@@ -895,8 +965,7 @@ ALTER FOREIGN DATA WRAPPER foo OPTIONS (gotcha 'true');         -- ERROR
 ERROR:  permission denied to alter foreign-data wrapper "foo"
 HINT:  Must be superuser to alter a foreign-data wrapper.
 DROP FOREIGN DATA WRAPPER foo;                                  -- ERROR
-ERROR:  permission denied to drop foreign-data wrapper "foo"
-HINT:  Must be superuser to drop a foreign-data wrapper.
+ERROR:  foreign-data wrapper "foo" does not exist
 GRANT USAGE ON FOREIGN DATA WRAPPER postgresql TO regress_test_role; -- WARNING
 ERROR:  foreign-data wrapper "postgresql" does not exist
 GRANT USAGE ON FOREIGN DATA WRAPPER foo TO regress_test_role;
@@ -978,7 +1047,7 @@ ERROR:  server "t2" does not exist
 DROP USER MAPPING FOR regress_test_role SERVER s6;
 ERROR:  role "regress_test_role" does not exist
 -- This test causes some order dependent cascade detail output,
--- so switch to terse mode for it. 
+-- so switch to terse mode for it.
 \set VERBOSITY terse
 DROP FOREIGN DATA WRAPPER foo CASCADE;
 ERROR:  foreign-data wrapper "foo" does not exist
