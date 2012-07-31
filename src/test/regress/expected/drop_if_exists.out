@@ -177,7 +177,10 @@ ERROR:  relation "no_such_table" does not exist
 CREATE TRIGGER test_trigger_exists
     BEFORE UPDATE ON test_exists
     FOR EACH ROW EXECUTE PROCEDURE suppress_redundant_updates_trigger();
+ERROR:  Postgres-XC does not support TRIGGER yet
+DETAIL:  The feature is not currently supported
 DROP TRIGGER test_trigger_exists ON test_exists;
+ERROR:  trigger "test_trigger_exists" for table "test_exists" does not exist
 -- rule
 DROP RULE test_rule_exists ON test_exists;
 ERROR:  rule "test_rule_exists" for relation "test_exists" does not exist
@@ -191,6 +194,7 @@ CREATE RULE test_rule_exists AS ON INSERT TO test_exists
     DO INSTEAD
     INSERT INTO test_exists VALUES (NEW.a, NEW.b || NEW.a::text);
 DROP RULE test_rule_exists ON test_exists;
+ERROR:  rule "test_rule_exists" for relation "test_exists" does not exist
 -- foreign data wrapper
 DROP FOREIGN DATA WRAPPER test_fdw_exists;
 ERROR:  foreign-data wrapper "test_fdw_exists" does not exist
