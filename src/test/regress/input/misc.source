@@ -235,7 +235,7 @@ SELECT name(equipment_named_ambiguous_1c(hobby_construct_named(text 'skywalking'
 
 SELECT name(equipment_named_ambiguous_2a(text 'skywalking'));
 
-SELECT name(equipment_named_ambiguous_2b(text 'skywalking'));
+SELECT name(equipment_named_ambiguous_2b(text 'skywalking')) ORDER BY 1;
 
 SELECT hobbies_by_name('basketball');
 

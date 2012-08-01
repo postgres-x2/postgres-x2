@@ -732,13 +732,13 @@ SELECT name(equipment_named_ambiguous_2a(text 'skywalking'));
  guts
 (1 row)
 
-SELECT name(equipment_named_ambiguous_2b(text 'skywalking'));
+SELECT name(equipment_named_ambiguous_2b(text 'skywalking')) ORDER BY 1;
      name      
 ---------------
  advil
- peet's coffee
- hightops
  guts
+ hightops
+ peet's coffee
 (4 rows)
 
 SELECT hobbies_by_name('basketball');
