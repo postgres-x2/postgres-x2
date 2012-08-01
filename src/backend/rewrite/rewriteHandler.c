@@ -2586,6 +2586,8 @@ QueryRewriteCTAS(Query *parsetree)
 	List *raw_parsetree_list, *tlist;
 	char *selectstr;
 	CreateTableAsStmt *stmt;
+	IntoClause *into;
+	ListCell *lc;
 
 	if (parsetree->commandType != CMD_UTILITY ||
 		!IsA(parsetree->utilityStmt, CreateTableAsStmt))
@@ -2598,6 +2600,7 @@ QueryRewriteCTAS(Query *parsetree)
 	/* Start building a CreateStmt for creating the target table */
 	create_stmt = makeNode(CreateStmt);
 	create_stmt->relation = relation;
+	into = stmt->into;
 
 	/* Obtain the target list of new table */
 	Assert(IsA(stmt->query, Query));
@@ -2606,8 +2609,11 @@ QueryRewriteCTAS(Query *parsetree)
 
 	/*
 	 * Based on the targetList, populate the column information for the target
-	 * table.
+	 * table. If a column name list was specified in CREATE TABLE AS, override
+	 * the column names derived from the query. (Too few column names are OK, too
+	 * many are not.).
 	 */
+	lc = list_head(into->colNames);
 	foreach(col, tlist)
 	{
 		TargetEntry *tle = (TargetEntry *)lfirst(col);
@@ -2620,6 +2626,15 @@ QueryRewriteCTAS(Query *parsetree)
 
 		coldef = makeNode(ColumnDef);
 		typename = makeNode(TypeName);
+
+		/* Take the column name specified if any */
+		if (lc)
+		{
+			coldef->colname = strVal(lfirst(lc));
+			lc = lnext(lc);
+		}
+		else
+			coldef->colname = pstrdup(tle->resname);
 
 		coldef->inhcount = 0;
 		coldef->is_local = true;
@@ -2637,13 +2652,13 @@ QueryRewriteCTAS(Query *parsetree)
 
 		coldef->typeName = typename;
 
-		/*
-		 * XXX Should we look at the column specifications in the intoClause
-		 * instead of the target entry ?
-		 */
-		coldef->colname = pstrdup(tle->resname);
 		tableElts = lappend(tableElts, coldef);
 	}
+
+	if (lc != NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("CREATE TABLE AS specifies too many column names")));
 
 	/*
 	 * Set column information and the distribution mechanism (which will be
