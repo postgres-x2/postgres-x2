@@ -698,6 +698,22 @@ transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_cla
 	 */
 	if (IsTempTable(RelationGetRelid(relation)))
 		ExecSetTempObjectIncluded();
+
+	/*
+	 * Block the creation of tables using views in their LIKE clause.
+	 * Views are not created on Datanodes, so this will result in an error
+	 * PGXCTODO: In order to fix this problem, it will be necessary to
+	 * transform the query string of CREATE TABLE into something not using
+	 * the view definition. Now Postgres-XC only uses the raw string...
+	 * There is some work done with event triggers in 9.3, so it might
+	 * be possible to use that code to generate the SQL query to be sent to
+	 * remote nodes. When this is done, this error will be removed.
+	 */
+	if (relation->rd_rel->relkind == RELKIND_VIEW)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("Postgres-XC does not support VIEW in LIKE clauses"),
+				 errdetail("The feature is not currently supported")));
 #endif
 
 	/*
@@ -1869,7 +1885,7 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 	}
 #ifdef PGXC
 		if (IS_PGXC_COORDINATOR && cxt->distributeby
-				&& ( cxt->distributeby->disttype == DISTTYPE_HASH || 
+				&& (cxt->distributeby->disttype == DISTTYPE_HASH ||
 					cxt->distributeby->disttype == DISTTYPE_MODULO)
 				&& !isLocalSafe)
 			ereport(ERROR,
@@ -3038,7 +3054,7 @@ checkLocalFKConstraints(CreateStmtContext *cxt)
 			 * as the one used to distribute it makes sense only when the user
 			 * supplies the name of the referenced colum while adding the constraint
 			 * because if the user did not specify it the system will choose the pk column
-			 * which will obviously be the one used to distribute it knowing the 
+			 * which will obviously be the one used to distribute it knowing the
 			 * existing constraints in XC
 			 * This is required to make sure that both
 			 * alter table dtab add foreign key (b) references rtab(a);

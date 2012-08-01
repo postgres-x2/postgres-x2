@@ -37,16 +37,16 @@ INSERT INTO inhg VALUES ('x', 'foo',  'y');  /* fails due to constraint */
 SELECT * FROM inhg; /* Two records with three columns in order x=x, xx=text, y=y */
 DROP TABLE inhg;
 
-CREATE TABLE inhg (x text, LIKE inhx INCLUDING INDEXES, y text); /* copies indexes */
+CREATE TABLE inhg (x text, LIKE inhx INCLUDING INDEXES, y text) DISTRIBUTE BY REPLICATION; /* copies indexes */
 INSERT INTO inhg VALUES (5, 10);
 INSERT INTO inhg VALUES (20, 10); -- should fail
 DROP TABLE inhg;
 /* Multiple primary keys creation should fail */
 CREATE TABLE inhg (x text, LIKE inhx INCLUDING INDEXES, PRIMARY KEY(x)); /* fails */
-CREATE TABLE inhz (xx text DEFAULT 'text', yy int UNIQUE);
+CREATE TABLE inhz (xx text DEFAULT 'text', yy int UNIQUE) DISTRIBUTE BY REPLICATION;
 CREATE UNIQUE INDEX inhz_xx_idx on inhz (xx) WHERE xx <> 'test';
 /* Ok to create multiple unique indexes */
-CREATE TABLE inhg (x text UNIQUE, LIKE inhz INCLUDING INDEXES);
+CREATE TABLE inhg (x text UNIQUE, LIKE inhz INCLUDING INDEXES) DISTRIBUTE BY REPLICATION;
 INSERT INTO inhg (xx, yy, x) VALUES ('test', 5, 10);
 INSERT INTO inhg (xx, yy, x) VALUES ('test', 10, 15);
 INSERT INTO inhg (xx, yy, x) VALUES ('foo', 10, 15); -- should fail
