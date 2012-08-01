@@ -932,7 +932,7 @@ create temp table selfref (
     b int,
     foreign key (b) references selfref (a)
         on update cascade on delete cascade
-);
+) DISTRIBUTE BY REPLICATION;
 
 insert into selfref (a, b)
 values
