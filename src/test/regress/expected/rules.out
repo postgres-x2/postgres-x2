@@ -1496,16 +1496,22 @@ select * from id_ordered order by id;
 (6 rows)
 
 update id_ordered set name = 'update 2' where id = 2;
+ERROR:  Cannot generate remote query plan
+DETAIL:  This relation rowtype cannot be fetched
 update id_ordered set name = 'update 4' where id = 4;
+ERROR:  Cannot generate remote query plan
+DETAIL:  This relation rowtype cannot be fetched
 update id_ordered set name = 'update 5' where id = 5;
+ERROR:  Cannot generate remote query plan
+DETAIL:  This relation rowtype cannot be fetched
 select * from id_ordered order by id;
- id |   name   
-----+----------
+ id |  name  
+----+--------
   1 | Test 1
-  2 | update 2
+  2 | Test 2
   3 | Test 3
-  4 | update 4
-  5 | update 5
+  4 | Test 4
+  5 | Test 5
   6 | Test 6
 (6 rows)
 
@@ -1520,8 +1526,8 @@ reset client_min_messages;
 SET enforce_two_phase_commit TO off;
 create temp table t1 (a integer primary key) distribute by replication;
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "t1_pkey" for table "t1"
-create temp table t1_1 (check (a >= 0 and a < 10)) inherits (t1);
-create temp table t1_2 (check (a >= 10 and a < 20)) inherits (t1);
+create temp table t1_1 (check (a >= 0 and a < 10)) inherits (t1) distribute by replication;
+create temp table t1_2 (check (a >= 10 and a < 20)) inherits (t1) distribute by replication;
 create rule t1_ins_1 as on insert to t1
 	where new.a >= 0 and new.a < 10
 	do instead

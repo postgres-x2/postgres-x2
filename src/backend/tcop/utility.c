@@ -860,16 +860,25 @@ standard_ProcessUtility(Node *parsetree,
 						if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 							ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false,
 												   exec_type, is_temp);
-
 					}
 #endif
 					break;
 				default:
-					RemoveObjects((DropStmt *) parsetree);
 #ifdef PGXC
-					if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-						ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false,
-											   EXEC_ON_ALL_NODES, false);
+					{
+						bool		is_temp = false;
+						RemoteQueryExecType exec_type = EXEC_ON_ALL_NODES;
+
+						/* Check restrictions on objects dropped */
+						DropStmtPreTreatment((DropStmt *) parsetree, queryString, sentToRemote,
+											 &is_temp, &exec_type);
+#endif
+						RemoveObjects((DropStmt *) parsetree);
+#ifdef PGXC
+						if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+							ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false,
+												   exec_type, is_temp);
+					}
 #endif
 					break;
 			}
@@ -2065,11 +2074,11 @@ ExecUtilityFindNodes(ObjectType object_type,
 			exec_type = ExecUtilityFindNodesRelkind(object_id, is_temp);
 			break;
 
+		/*
+		 * Views and rules, both permanent or temporary are created
+		 * on Coordinators only.
+		 */
 		case OBJECT_RULE:
-			/*
-			 * For RULEs, we get the object id of the relation to which the rule
-			 * is applicable.
-			 */
 		case OBJECT_VIEW:
 			/* Check if object is a temporary view */
 			if ((*is_temp = IsTempTable(object_id)))
@@ -3681,7 +3690,7 @@ GetNodesForRulesUtility(RangeVar *relation, bool *is_temp)
 	 * to care about temporary objects here? What about the
 	 * temporary objects defined inside the rule?
 	 */
-	exec_type =	ExecUtilityFindNodes(OBJECT_RULE, relid, is_temp);
+	exec_type = ExecUtilityFindNodes(OBJECT_RULE, relid, is_temp);
 	return exec_type;
 }
 
@@ -3762,6 +3771,36 @@ DropStmtPreTreatment(DropStmt *stmt, const char *queryString, bool sentToRemote,
 									 errdetail("You should separate TEMP and non-TEMP objects")));
 					}
 				}
+			}
+			break;
+
+		case OBJECT_RULE:
+			{
+				/*
+				 * In the case of a rule we need to find the object on
+				 * which the rule is dependent and define if this rule
+				 * has a dependency with a temporary object or not.
+				 */
+				List *objname = linitial(stmt->objects);
+				Relation    relation = NULL;
+
+				get_object_address(OBJECT_RULE,
+								   objname, NIL,
+								   &relation,
+								   AccessExclusiveLock,
+								   stmt->missing_ok);
+
+				/* Do nothing if no relation */
+				if (relation && OidIsValid(relation->rd_id))
+					res_exec_type = ExecUtilityFindNodes(OBJECT_RULE,
+														 relation->rd_id,
+														 &res_is_temp);
+				else
+					res_exec_type = EXEC_ON_NONE;
+
+				/* Close relation if necessary */
+				if (relation)
+					relation_close(relation, NoLock);
 			}
 			break;
 
