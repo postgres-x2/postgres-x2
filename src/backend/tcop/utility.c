@@ -963,13 +963,30 @@ standard_ProcessUtility(Node *parsetree,
 				RemoteQueryExecType exec_type;
 				bool is_temp = false;
 
-				/* Relation is not set for a schema */
-				if (stmt->relation)
-					exec_type = ExecUtilityFindNodes(stmt->renameType,
-													 RangeVarGetRelid(stmt->relation, NoLock, false),
-													 &is_temp);
-				else
+				/* Launch it on all the nodes for a schema */
+				if (stmt->renameType == OBJECT_SCHEMA)
+				{
 					exec_type = EXEC_ON_ALL_NODES;
+				}
+				else
+				{
+					/*
+					 * For the other objects it might be possible that they do not exist
+					 * because of the use of IF EXISTS or similar, so bypass process to
+					 * remote nodes. Here it is necessary to avoid throwing an error at
+					 * RangeVarGetRelid step to have correct error message if object
+					 * does not exist.
+					 */
+					Oid relid = stmt->relation ?
+						RangeVarGetRelid(stmt->relation, NoLock, true) : InvalidOid;
+
+					if (OidIsValid(relid))
+						exec_type = ExecUtilityFindNodes(stmt->renameType,
+														 relid,
+														 &is_temp);
+					else
+						exec_type = EXEC_ON_NONE;
+				}
 
 				ExecUtilityStmtOnNodes(queryString,
 									   NULL,
@@ -990,12 +1007,30 @@ standard_ProcessUtility(Node *parsetree,
 				RemoteQueryExecType exec_type;
 				bool is_temp = false;
 
-				if (stmt->relation)
-					exec_type = ExecUtilityFindNodes(stmt->objectType,
-													 RangeVarGetRelid(stmt->relation, NoLock, false),
-													 &is_temp);
-				else
+				/* Launch it on all the nodes for a schema */
+				if (stmt->objectType == OBJECT_SCHEMA)
+				{
 					exec_type = EXEC_ON_ALL_NODES;
+				}
+				else
+				{
+					/*
+					 * For the other objects it might be possible that they do not exist
+					 * because of the use of IF EXISTS or similar, so bypass process to
+					 * remote nodes. Here it is necessary to avoid throwing an error at
+					 * RangeVarGetRelid step to have correct error message if object
+					 * does not exist.
+					 */
+					Oid relid = stmt->relation ?
+						RangeVarGetRelid(stmt->relation, NoLock, true) : InvalidOid;
+
+					if (OidIsValid(relid))
+						exec_type = ExecUtilityFindNodes(stmt->objectType,
+														 relid,
+														 &is_temp);
+					else
+						exec_type = EXEC_ON_NONE;
+				}
 
 				ExecUtilityStmtOnNodes(queryString,
 									   NULL,
@@ -1048,12 +1083,17 @@ standard_ProcessUtility(Node *parsetree,
 					{
 						bool is_temp = false;
 						RemoteQueryExecType exec_type;
-						exec_type = ExecUtilityFindNodes(atstmt->relkind,
-														 RangeVarGetRelid(atstmt->relation,
-																		  NoLock, false),
-														 &is_temp);
+						Oid relid = RangeVarGetRelid(atstmt->relation,
+													 NoLock, true);
 
-						stmts = AddRemoteQueryNode(stmts, queryString, exec_type, is_temp);
+						if (OidIsValid(relid))
+						{
+							exec_type = ExecUtilityFindNodes(atstmt->relkind,
+															 relid,
+															 &is_temp);
+
+							stmts = AddRemoteQueryNode(stmts, queryString, exec_type, is_temp);
+						}
 					}
 #endif
 
@@ -1170,7 +1210,11 @@ standard_ProcessUtility(Node *parsetree,
 					foreach (cell, stmt->objects)
 					{
 						RangeVar   *relvar = (RangeVar *) lfirst(cell);
-						Oid			relid = RangeVarGetRelid(relvar, NoLock, false);
+						Oid			relid = RangeVarGetRelid(relvar, NoLock, true);
+
+						/* Skip if object does not exist */
+						if (!OidIsValid(relid))
+							continue;
 
 						remoteExecType = ExecUtilityFindNodesRelkind(relid, &is_temp);
 
@@ -1363,6 +1407,8 @@ standard_ProcessUtility(Node *parsetree,
 
 				if (OidIsValid(relid))
 					exec_type = ExecUtilityFindNodes(OBJECT_INDEX, relid, &is_temp);
+				else
+					exec_type = EXEC_ON_NONE;
 #endif
 
 				if (stmt->concurrent)
@@ -1451,9 +1497,13 @@ standard_ProcessUtility(Node *parsetree,
 				{
 					bool		  is_temp;
 					RemoteQueryExecType exec_type;
+					Oid					relid = RangeVarGetRelid(stmt->sequence, NoLock, true);
+
+					if (!OidIsValid(relid))
+						break;
 
 					exec_type = ExecUtilityFindNodes(OBJECT_SEQUENCE,
-													 RangeVarGetRelid(stmt->sequence, NoLock, false),
+													 relid,
 													 &is_temp);
 
 					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, exec_type, is_temp);
@@ -3619,8 +3669,13 @@ GetNodesForCommentUtility(CommentStmt *stmt, bool *is_temp)
 static RemoteQueryExecType
 GetNodesForRulesUtility(RangeVar *relation, bool *is_temp)
 {
-	Oid relid = RangeVarGetRelid(relation, NoLock, false);
+	Oid relid = RangeVarGetRelid(relation, NoLock, true);
 	RemoteQueryExecType exec_type;
+
+	/* Skip if this Oid does not exist */
+	if (!OidIsValid(relid))
+		return EXEC_ON_NONE;
+
 	/*
 	 * PGXCTODO: See if it's a temporary object, do we really need
 	 * to care about temporary objects here? What about the
