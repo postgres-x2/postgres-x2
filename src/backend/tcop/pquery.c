@@ -281,6 +281,41 @@ ChoosePortalStrategy(List *stmts)
 					/* it can't be ONE_RETURNING, so give up */
 					return PORTAL_MULTI_QUERY;
 				}
+#ifdef PGXC
+				/*
+				 * This is possible with an EXECUTE DIRECT in a SPI.
+				 * PGXCTODO: there might be a better way to manage the
+				 * cases with EXECUTE DIRECT here like using a special
+				 * utility command and redirect it to a correct portal
+				 * strategy.
+				 * Something like PORTAL_UTIL_SELECT might be far better.
+				 */
+				if (query->commandType == CMD_SELECT &&
+					query->utilityStmt != NULL &&
+					IsA(query->utilityStmt, RemoteQuery))
+				{
+					RemoteQuery *step = (RemoteQuery *) stmt;
+					/*
+					 * Let's choose PORTAL_ONE_SELECT for now
+					 * After adding more PGXC functionality we may have more
+					 * sophisticated algorithm of determining portal strategy
+					 *
+					 * EXECUTE DIRECT is a utility but depending on its inner query
+					 * it can return tuples or not depending on the query used.
+					 */
+					if (step->exec_direct_type == EXEC_DIRECT_SELECT
+						|| step->exec_direct_type == EXEC_DIRECT_UPDATE
+						|| step->exec_direct_type == EXEC_DIRECT_DELETE
+						|| step->exec_direct_type == EXEC_DIRECT_INSERT
+						|| step->exec_direct_type == EXEC_DIRECT_LOCAL)
+						return PORTAL_ONE_SELECT;
+					else if (step->exec_direct_type == EXEC_DIRECT_UTILITY
+							 || step->exec_direct_type == EXEC_DIRECT_LOCAL_UTILITY)
+						return PORTAL_MULTI_QUERY;
+					else
+						return PORTAL_ONE_SELECT;
+				}
+#endif
 			}
 		}
 #ifdef PGXC
@@ -290,7 +325,7 @@ ChoosePortalStrategy(List *stmts)
 			/*
 			 * Let's choose PORTAL_ONE_SELECT for now
 			 * After adding more PGXC functionality we may have more
-			 * sophisticated algorithm of determining portal strategy
+			 * sophisticated algorithm of determining portal strategy.
 			 *
 			 * EXECUTE DIRECT is a utility but depending on its inner query
 			 * it can return tuples or not depending on the query used.

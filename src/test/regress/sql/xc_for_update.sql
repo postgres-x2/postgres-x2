@@ -43,60 +43,60 @@ WITH q1 AS (SELECT * from t1 order by 1 FOR UPDATE) SELECT * FROM q1 FOR UPDATE;
 
 -- confirm that in various join scenarios for update gets to the remote query
 -- single table case
-explain (num_nodes off, nodes off, verbose on)  select * from t1 for update of t1 nowait;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1 for update of t1 nowait;
 
 -- two table case
-explain (num_nodes off, nodes off, verbose on)  select * from t1, t2 where t1.val = t2.val for update nowait;
-explain (num_nodes off, nodes off, verbose on)  select * from t1, t2 where t1.val = t2.val for update;
-explain (num_nodes off, nodes off, verbose on)  select * from t1, t2 where t1.val = t2.val for share;
-explain (num_nodes off, nodes off, verbose on)  select * from t1, t2 where t1.val = t2.val;
-explain (num_nodes off, nodes off, verbose on)  select * from t1, t2;
-explain (num_nodes off, nodes off, verbose on)  select * from t1, t2 for update;
-explain (num_nodes off, nodes off, verbose on)  select * from t1, t2 for update nowait;
-explain (num_nodes off, nodes off, verbose on)  select * from t1, t2 for share nowait;
-explain (num_nodes off, nodes off, verbose on)  select * from t1, t2 for share;
-explain (num_nodes off, nodes off, verbose on)  select * from t1, t2 for share of t2;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1, t2 where t1.val = t2.val for update nowait;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1, t2 where t1.val = t2.val for update;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1, t2 where t1.val = t2.val for share;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1, t2 where t1.val = t2.val;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1, t2;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1, t2 for update;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1, t2 for update nowait;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1, t2 for share nowait;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1, t2 for share;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1, t2 for share of t2;
 
 -- three table case
-explain (num_nodes off, nodes off, verbose on)  select * from t1, t2, t3;
-explain (num_nodes off, nodes off, verbose on)  select * from t1, t2, t3 for update;
-explain (num_nodes off, nodes off, verbose on)  select * from t1, t2, t3 for update of t1;
-explain (num_nodes off, nodes off, verbose on)  select * from t1, t2, t3 for update of t1,t3;
-explain (num_nodes off, nodes off, verbose on)  select * from t1, t2, t3 for update of t1,t3 nowait;
-explain (num_nodes off, nodes off, verbose on)  select * from t1, t2, t3 for share of t1,t2 nowait;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1, t2, t3;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1, t2, t3 for update;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1, t2, t3 for update of t1;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1, t2, t3 for update of t1,t3;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1, t2, t3 for update of t1,t3 nowait;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1, t2, t3 for share of t1,t2 nowait;
 
 -- check a few subquery cases
-explain (num_nodes off, nodes off, verbose on)  select * from (select * from t1 for update of t1 nowait) as foo;
-explain (num_nodes off, nodes off, verbose on)  select * from t1 where val in (select val from t2 for update of t2 nowait) for update;
-explain (num_nodes off, nodes off, verbose on)  select * from t1 where val in (select val from t2 for update of t2 nowait);
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from (select * from t1 for update of t1 nowait) as foo;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1 where val in (select val from t2 for update of t2 nowait) for update;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1 where val in (select val from t2 for update of t2 nowait);
 
 -- test multiple row marks
-explain (num_nodes off, nodes off, verbose on)  select * from t1, t2 for share of t2 for update of t1;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1, t2 for share of t2 for update of t1;
 -- make sure FOR UPDATE takes prioriy over FOR SHARE when mentioned for the same table
-explain (num_nodes off, nodes off, verbose on)  select * from t1 for share of t1 for update of t1;
-explain (num_nodes off, nodes off, verbose on)  select * from t1 for update of t1 for share of t1;
-explain (num_nodes off, nodes off, verbose on)  select * from t1 for share of t1 for share of t1 for update of t1;
-explain (num_nodes off, nodes off, verbose on)  select * from t1 for share of t1 for share of t1 for share of t1;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1 for share of t1 for update of t1;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1 for update of t1 for share of t1;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1 for share of t1 for share of t1 for update of t1;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1 for share of t1 for share of t1 for share of t1;
 -- make sure NOWAIT is used in remote query even if it is not mentioned with FOR UPDATE clause
-explain (num_nodes off, nodes off, verbose on)  select * from t1 for share of t1 for share of t1 nowait for update of t1;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1 for share of t1 for share of t1 nowait for update of t1;
 -- same table , different aliases and different row marks for different aliases
-explain (num_nodes off, nodes off, verbose on)  select * from t1 a,t1 b for share of a for update of b;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from t1 a,t1 b for share of a for update of b;
 
 -- test WITH queries
 -- join of a WITH table and a normal table
-explain (num_nodes off, nodes off, verbose on)  WITH q1 AS (SELECT * from t1 FOR UPDATE) SELECT * FROM q1,t2 FOR UPDATE;
+explain (costs off, num_nodes off, nodes off, verbose on)  WITH q1 AS (SELECT * from t1 FOR UPDATE) SELECT * FROM q1,t2 FOR UPDATE;
 
-explain (num_nodes off, nodes off, verbose on)  WITH q1 AS (SELECT * from t1) SELECT * FROM q1;
+explain (costs off, num_nodes off, nodes off, verbose on)  WITH q1 AS (SELECT * from t1) SELECT * FROM q1;
 -- make sure row marks are no ops for queries on WITH tables
-explain (num_nodes off, nodes off, verbose on)  WITH q1 AS (SELECT * from t1) SELECT * FROM q1 FOR UPDATE;
-explain (num_nodes off, nodes off, verbose on)  WITH q1 AS (SELECT * from t1 FOR UPDATE) SELECT * FROM q1 FOR UPDATE;
+explain (costs off, num_nodes off, nodes off, verbose on)  WITH q1 AS (SELECT * from t1) SELECT * FROM q1 FOR UPDATE;
+explain (costs off, num_nodes off, nodes off, verbose on)  WITH q1 AS (SELECT * from t1 FOR UPDATE) SELECT * FROM q1 FOR UPDATE;
 
 -- test case of inheried tables
 select * from p1 order by 1 for update;
-explain (num_nodes off, nodes off, verbose on)  select * from p1 for update;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from p1 for update;
 
 select * from c1 order by 1 for update;
-explain (num_nodes off, nodes off, verbose on)  select * from c1 for update;
+explain (costs off, num_nodes off, nodes off, verbose on)  select * from c1 for update;
 
 -- drop objects created
 drop table c1;
