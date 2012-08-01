@@ -963,22 +963,16 @@ standard_ProcessUtility(Node *parsetree,
 				RemoteQueryExecType exec_type;
 				bool is_temp = false;
 
-				/* Launch it on all the nodes for a schema */
-				if (stmt->renameType == OBJECT_SCHEMA)
-				{
-					exec_type = EXEC_ON_ALL_NODES;
-				}
-				else
+				/* Try to use the object relation if possible */
+				if (stmt->relation)
 				{
 					/*
-					 * For the other objects it might be possible that they do not exist
-					 * because of the use of IF EXISTS or similar, so bypass process to
-					 * remote nodes. Here it is necessary to avoid throwing an error at
-					 * RangeVarGetRelid step to have correct error message if object
-					 * does not exist.
+					 * When a relation is defined, it is possible that this object does
+					 * not exist but an IF EXISTS clause might be used. So we do not do
+					 * any error check here but block the access to remote nodes to
+					 * this object as it does not exisy
 					 */
-					Oid relid = stmt->relation ?
-						RangeVarGetRelid(stmt->relation, NoLock, true) : InvalidOid;
+					Oid relid = RangeVarGetRelid(stmt->relation, NoLock, true);
 
 					if (OidIsValid(relid))
 						exec_type = ExecUtilityFindNodes(stmt->renameType,
@@ -986,6 +980,12 @@ standard_ProcessUtility(Node *parsetree,
 														 &is_temp);
 					else
 						exec_type = EXEC_ON_NONE;
+				}
+				else
+				{
+					exec_type = ExecUtilityFindNodes(stmt->renameType,
+													 InvalidOid,
+													 &is_temp);
 				}
 
 				ExecUtilityStmtOnNodes(queryString,
@@ -1007,22 +1007,16 @@ standard_ProcessUtility(Node *parsetree,
 				RemoteQueryExecType exec_type;
 				bool is_temp = false;
 
-				/* Launch it on all the nodes for a schema */
-				if (stmt->objectType == OBJECT_SCHEMA)
-				{
-					exec_type = EXEC_ON_ALL_NODES;
-				}
-				else
+				/* Try to use the object relation if possible */
+				if (stmt->relation)
 				{
 					/*
-					 * For the other objects it might be possible that they do not exist
-					 * because of the use of IF EXISTS or similar, so bypass process to
-					 * remote nodes. Here it is necessary to avoid throwing an error at
-					 * RangeVarGetRelid step to have correct error message if object
-					 * does not exist.
+					 * When a relation is defined, it is possible that this object does
+					 * not exist but an IF EXISTS clause might be used. So we do not do
+					 * any error check here but block the access to remote nodes to
+					 * this object as it does not exisy
 					 */
-					Oid relid = stmt->relation ?
-						RangeVarGetRelid(stmt->relation, NoLock, true) : InvalidOid;
+					Oid relid = RangeVarGetRelid(stmt->relation, NoLock, true);
 
 					if (OidIsValid(relid))
 						exec_type = ExecUtilityFindNodes(stmt->objectType,
@@ -1030,6 +1024,12 @@ standard_ProcessUtility(Node *parsetree,
 														 &is_temp);
 					else
 						exec_type = EXEC_ON_NONE;
+				}
+				else
+				{
+					exec_type = ExecUtilityFindNodes(stmt->objectType,
+													 InvalidOid,
+													 &is_temp);
 				}
 
 				ExecUtilityStmtOnNodes(queryString,
