@@ -1986,6 +1986,10 @@ StartTransaction(void)
 	{
 		s->startedInRecovery = false;
 		XactReadOnly = DefaultXactReadOnly;
+#ifdef PGXC
+		/* Save Postgres-XC session as read-only if necessary */
+		XactReadOnly |= IsPGXCNodeXactReadOnly();
+#endif
 	}
 	XactDeferrable = DefaultXactDeferrable;
 #ifdef PGXC
@@ -5855,5 +5859,31 @@ void
 SetSendCommandId(bool status)
 {
 	sendCommandId = status;
+}
+
+/*
+ * IsPGXCNodeXactReadOnly
+ * Determine if a Postgres-XC node session
+ * is read-only or not.
+ */
+bool
+IsPGXCNodeXactReadOnly(void)
+{
+	/*
+	 * For the time being a Postgres-XC session is read-only
+	 * under very specific conditions.
+	 * For a Postgres-XC Datanode, block write operations
+	 * if backend connection is not from a Coordinator but
+	 * from an external application.
+	 *
+	 * IsPostmasterEnvironment - checks for initdb and standalone
+	 * IsNormalProcessingMode() - checks for new connections
+	 * IsAutoVacuumLauncherProcess - checks for autovacuum launcher process
+	 */
+	return IS_PGXC_DATANODE &&
+		   IsPostmasterEnvironment &&
+		   IsNormalProcessingMode() &&
+		   !IsAutoVacuumLauncherProcess() &&
+		   !IsConnFromCoord();
 }
 #endif

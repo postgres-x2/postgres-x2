@@ -582,9 +582,9 @@ check_XactIsoLevel(char **newval, void **extra, GucSource source)
 		 * PGXCTODO - PGXC does not support 9.1 serializable transactions yet
 		 */
 		newXactIsoLevel = XACT_REPEATABLE_READ;
-#else		
+#else
 		newXactIsoLevel = XACT_SERIALIZABLE;
-#endif		
+#endif
 	}
 	else if (strcmp(*newval, "repeatable read") == 0)
 	{
@@ -647,7 +647,7 @@ assign_XactIsoLevel(const char *newval, void *extra)
 	 */
 	if (XactIsoLevel == XACT_SERIALIZABLE)
 		XactIsoLevel = XACT_REPEATABLE_READ;
-#endif	
+#endif
 }
 
 const char *

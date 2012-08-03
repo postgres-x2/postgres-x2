@@ -294,6 +294,7 @@ extern CommandId GetReceivedCommandId(void);
 extern void ReportCommandIdChange(CommandId cid);
 extern bool IsSendCommandId(void);
 extern void SetSendCommandId(bool status);
+extern bool IsPGXCNodeXactReadOnly(void);
 #endif
 
 extern int	xactGetCommittedChildren(TransactionId **ptr);
