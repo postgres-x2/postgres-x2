@@ -1463,7 +1463,23 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 		 * that expression is encountered.
 		 */
 		case T_CaseTestExpr:
+			break;
+
+		/*
+		 * record_in() function throws error, thus requesting a result in the
+		 * form of anonymous record from datanode gets into error. Hence, if the
+		 * top expression of a target entry is ROW(), it's not shippable.
+		 */
 		case T_TargetEntry:
+		{
+			TargetEntry *tle = (TargetEntry *)node;
+			if (tle->expr)
+			{
+				char typtype = get_typtype(exprType((Node *)tle->expr));
+				if (!typtype || typtype == TYPTYPE_PSEUDO)
+					pgxc_set_shippability_reason(sc_context, SS_UNSHIPPABLE_EXPR);
+			}
+		}
 			break;
 
 		case T_SortGroupClause:
