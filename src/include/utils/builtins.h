@@ -780,6 +780,9 @@ extern Datum text_format_nv(PG_FUNCTION_ARGS);
 
 /* version.c */
 extern Datum pgsql_version(PG_FUNCTION_ARGS);
+#ifdef PGXC
+extern Datum pgxc_version(PG_FUNCTION_ARGS);
+#endif
 
 /* xid.c */
 extern Datum xidin(PG_FUNCTION_ARGS);

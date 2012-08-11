@@ -22,3 +22,11 @@ pgsql_version(PG_FUNCTION_ARGS)
 {
 	PG_RETURN_TEXT_P(cstring_to_text(PG_VERSION_STR));
 }
+
+#ifdef PGXC
+Datum
+pgxc_version(PG_FUNCTION_ARGS)
+{
+	PG_RETURN_TEXT_P(cstring_to_text(PGXC_VERSION_STR));
+}
+#endif
