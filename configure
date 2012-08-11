@@ -29743,9 +29743,13 @@ fi
 
 
 cat >>confdefs.h <<_ACEOF
-#define PG_VERSION_STR "Postgres-XC $PACKAGE_XC_VERSION on $host, based on PostgreSQL $PACKAGE_VERSION, compiled by $cc_string, `expr $ac_cv_sizeof_void_p \* 8`-bit"
+#define PG_VERSION_STR "PostgreSQL $PACKAGE_VERSION on $host, compiled by $cc_string, `expr $ac_cv_sizeof_void_p \* 8`-bit"
 _ACEOF
 
+# Supply additional version name for Postgres-XC
+cat >>confdefs.h <<_ACEOF
+#define PGXC_VERSION_STR "Postgres-XC $PACKAGE_XC_VERSION on $host, based on PostgreSQL $PACKAGE_VERSION, compiled by $cc_string, `expr $ac_cv_sizeof_void_p \* 8`-bit"
+_ACEOF
 
 # Supply a numeric version string for use by 3rd party add-ons
 # awk -F is a regex on some platforms, and not on others, so make "." a tab

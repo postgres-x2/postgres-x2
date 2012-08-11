@@ -226,6 +226,10 @@ DATA(insert OID = 1258 (  textcat		   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 2
 DATA(insert OID =  84 (  boolne			   PGNSP PGUID 12 1 0 0 0 f f f t t f i 2 0 16 "16 16" _null_ _null_ _null_ _null_ boolne _null_ _null_ _null_ ));
 DATA(insert OID =  89 (  version		   PGNSP PGUID 12 1 0 0 0 f f f f t f s 0 0 25 "" _null_ _null_ _null_ _null_ pgsql_version _null_ _null_ _null_ ));
 DESCR("PostgreSQL version string");
+#ifdef PGXC
+DATA(insert OID =  90 (  pgxc_version	   PGNSP PGUID 12 1 0 0 0 f f f f t f s 0 0 25 "" _null_ _null_ _null_ _null_ pgxc_version _null_ _null_ _null_ ));
+DESCR("Postgres-XC version string");
+#endif
 
 /* OIDS 100 - 199 */
 

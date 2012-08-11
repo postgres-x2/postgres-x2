@@ -575,6 +575,9 @@
 /* A string containing the version number, platform, and C compiler */
 #define PG_VERSION_STR "Uninitialized version string (win32)"
 
+/* A string containing the version number, platform, and C compiler */
+#define PGXC_VERSION_STR "Uninitialized version string (win32)"
+
 /* Define to the necessary symbol if this constant uses a non-standard name on
    your system. */
 /* #undef PTHREAD_CREATE_JOINABLE */

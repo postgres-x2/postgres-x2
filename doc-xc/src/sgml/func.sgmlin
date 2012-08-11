@@ -12620,13 +12620,16 @@ postgres=# SELECT * FROM unnest2(ARRAY[[1,2],[3,4]]);
       <row>
        <entry><literal><function>version()</function></literal></entry>
        <entry><type>text</type></entry>
-<!## PG>
        <entry><productname>PostgreSQL</> version information</entry>
-<!## end>
-<!## XC>
-       <entry><productname>Postgres-XC</> version information</entry>
-<!## end>
       </row>
+
+<!## XC>
+      <row>
+       <entry><literal><function>pgxc_version()</function></literal></entry>
+       <entry><type>text</type></entry>
+       <entry><productname>Postgres-XC</> version information</entry>
+      </row>
+<!## end>
      </tbody>
     </tgroup>
    </table>
