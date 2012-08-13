@@ -709,34 +709,6 @@ get_node_pid(PGXCNodeTypeNum node)
 	}
 }
 
-/*
- * Start GTM process
- */
-static void
-start_gtm(void)
-{
-	char		buf[MAXPGPATH * 4];
-	const char *data_folder = find_data_folder(PGXC_GTM);
-	PID_TYPE	node_pid;
-
-	/* Start process */
-	header(_("starting GTM process"));
-	snprintf(buf, sizeof(buf),
-			 SYSTEMQUOTE "\"%s/gtm\" -D \"%s/%s\" -p %d -x 10000 > \"%s/log/gtm.log\" 2>&1" SYSTEMQUOTE,
-			 bindir, temp_install, data_folder, get_port_number(PGXC_GTM),
-			 outputdir);
-
-	node_pid = spawn_process(buf);
-	if (node_pid == INVALID_PID)
-	{
-		fprintf(stderr, _("\n%s: could not spawn GTM: %s\n"),
-				progname, strerror(errno));
-		exit(2);
-	}
-
-	/* Save static PID number */
-	set_node_pid(PGXC_GTM, node_pid);
-}
 
 /*
  * Start given node
@@ -749,34 +721,51 @@ start_node(PGXCNodeTypeNum node, bool is_coord, bool is_main)
 	PID_TYPE	node_pid;
 	char		buf[MAXPGPATH * 4];
 
-	/* Start the node */
-	if (is_main)
+	if (node == PGXC_GTM)
+	{
+		/* Case of a GTM start */
+		header(_("starting GTM process"));
 		snprintf(buf, sizeof(buf),
-				 SYSTEMQUOTE "\"%s/postgres\" %s -i -p %d -D \"%s/%s\"%s -c \"listen_addresses=%s\" > \"%s/log/postmaster_%d.log\" 2>&1" SYSTEMQUOTE,
-				 bindir,
-				 is_coord ? "--coordinator" : "--datanode",
-				 port_number,
-				 temp_install, data_folder,
-				 debug ? " -d 5" : "",
-				 hostname ? hostname : "",
-				 outputdir,
-				 node);
+				 SYSTEMQUOTE "\"%s/gtm\" -D \"%s/%s\" -p %d -x 10000 > \"%s/log/gtm.log\" 2>&1" SYSTEMQUOTE,
+				 bindir, temp_install, data_folder, port_number,
+				 outputdir);
+	}
 	else
-		snprintf(buf, sizeof(buf),
-				 SYSTEMQUOTE "\"%s/postgres\" %s -i -p %d -D \"%s/%s\"%s > \"%s/log/postmaster_%d.log\" 2>&1" SYSTEMQUOTE,
-				 bindir,
-				 is_coord ? "--coordinator" : "--datanode",
-				 port_number,
-				 temp_install, data_folder,
-				 debug ? " -d 5" : "",
-				 outputdir,
-				 node);
+	{
+		/* Case of normal nodes, start the node */
+		if (is_main)
+			snprintf(buf, sizeof(buf),
+					 SYSTEMQUOTE "\"%s/postgres\" %s -i -p %d -D \"%s/%s\"%s -c \"listen_addresses=%s\" > \"%s/log/postmaster_%d.log\" 2>&1" SYSTEMQUOTE,
+					 bindir,
+					 is_coord ? "--coordinator" : "--datanode",
+					 port_number,
+					 temp_install, data_folder,
+					 debug ? " -d 5" : "",
+					 hostname ? hostname : "",
+					 outputdir,
+					 node);
+		else
+			snprintf(buf, sizeof(buf),
+					 SYSTEMQUOTE "\"%s/postgres\" %s -i -p %d -D \"%s/%s\"%s > \"%s/log/postmaster_%d.log\" 2>&1" SYSTEMQUOTE,
+					 bindir,
+					 is_coord ? "--coordinator" : "--datanode",
+					 port_number,
+					 temp_install, data_folder,
+					 debug ? " -d 5" : "",
+					 outputdir,
+					 node);
+	}
 
+	/* Check process spawn */
 	node_pid = spawn_process(buf);
 	if (node_pid == INVALID_PID)
 	{
-		fprintf(stderr, _("\n%s: could not spawn postmaster: %s\n"),
+		if (node == PGXC_GTM)
+			fprintf(stderr, _("\n%s: could not spawn GTM: %s\n"),
 				progname, strerror(errno));
+		else
+			fprintf(stderr, _("\n%s: could not spawn postmaster: %s\n"),
+					progname, strerror(errno));
 		exit(2);
 	}
 
@@ -796,39 +785,35 @@ initdb_node(PGXCNodeTypeNum node)
 	const char *data_folder = find_data_folder(node);
 	char		buf[MAXPGPATH * 4];
 
-	snprintf(buf, sizeof(buf),
-			 SYSTEMQUOTE "\"%s/initdb\" --nodename %s -D \"%s/%s\" -L \"%s\" --noclean%s%s > \"%s/log/initdb.log\" 2>&1" SYSTEMQUOTE,
-			 bindir, (char *)get_node_name(node), temp_install, data_folder, datadir,
-			 debug ? " --debug" : "",
-			 nolocale ? " --no-locale" : "",
-			 outputdir);
-	if (system(buf))
+	if (node == PGXC_GTM)
 	{
-		fprintf(stderr, _("\n%s: initdb failed\nExamine %s/log/initdb.log for the reason.\nCommand was: %s\n"), progname, outputdir, buf);
-		exit(2);
+		snprintf(buf, sizeof(buf),
+				 SYSTEMQUOTE "\"%s/initgtm\" -Z gtm -D \"%s/%s\" --noclean%s > \"%s/log/initgtm.log\" 2>&1" SYSTEMQUOTE,
+				 bindir, temp_install, data_folder,
+				 debug ? " --debug" : "",
+				 outputdir);
+		if (system(buf))
+		{
+			fprintf(stderr, _("\n%s: initgtm failed\nExamine %s/log/initgtm.log for the reason.\nCommand was: %s\n"), progname, outputdir, buf);
+			exit(2);
+		}
+	}
+	else
+	{
+		snprintf(buf, sizeof(buf),
+				 SYSTEMQUOTE "\"%s/initdb\" --nodename %s -D \"%s/%s\" -L \"%s\" --noclean%s%s > \"%s/log/initdb.log\" 2>&1" SYSTEMQUOTE,
+				 bindir, (char *)get_node_name(node), temp_install, data_folder, datadir,
+				 debug ? " --debug" : "",
+				 nolocale ? " --no-locale" : "",
+				 outputdir);
+		if (system(buf))
+		{
+			fprintf(stderr, _("\n%s: initdb failed\nExamine %s/log/initdb.log for the reason.\nCommand was: %s\n"), progname, outputdir, buf);
+			exit(2);
+		}
 	}
 }
 
-/*
- * Initialize GTM
- */
-static void
-init_gtm(void)
-{
-	const char *data_folder = find_data_folder(PGXC_GTM);
-	char		buf[MAXPGPATH * 4];
-
-	snprintf(buf, sizeof(buf),
-			 SYSTEMQUOTE "\"%s/initgtm\" -Z gtm -D \"%s/%s\" --noclean%s > \"%s/log/initgtm.log\" 2>&1" SYSTEMQUOTE,
-			 bindir, temp_install, data_folder,
-			 debug ? " --debug" : "",
-			 outputdir);
-	if (system(buf))
-	{
-		fprintf(stderr, _("\n%s: initgtm failed\nExamine %s/log/initgtm.log for the reason.\nCommand was: %s\n"), progname, outputdir, buf);
-		exit(2);
-	}
-}
 
 static void
 set_node_config_file(PGXCNodeTypeNum node)
@@ -974,13 +959,30 @@ setup_connection_information(void)
 	psql_command_node("postgres", PGXC_COORD_2, "SELECT pgxc_pool_reload();");
 }
 
+
+/*
+ * Check if node is already running
+ */
+static bool
+check_node_running(PGXCNodeTypeNum node)
+{
+	char		buf[MAXPGPATH * 4];
+
+	snprintf(buf, sizeof(buf),
+			 SYSTEMQUOTE "\"%s/psql\" -p %d -X postgres <%s 2>%s" SYSTEMQUOTE,
+			 bindir, get_port_number(node), DEVNULL, DEVNULL);
+
+	return system(buf) == 0;
+}
+
+
 /*
  * Check if given node has failed during startup
  */
 static void
 check_node_fail(PGXCNodeTypeNum node)
 {
-	PID_TYPE pid_number = get_node_pid(node);
+	PID_TYPE	pid_number = get_node_pid(node);
 
 #ifndef WIN32
 	if (kill(pid_number, 0) != 0)
@@ -2622,7 +2624,9 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 	int			i;
 	int			option_index;
 	char		buf[MAXPGPATH * 4];
+#ifndef PGXC
 	char		buf2[MAXPGPATH * 4];
+#endif
 
 	static struct option long_options[] = {
 		{"help", no_argument, NULL, 'h'},
@@ -2874,7 +2878,7 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 		header(_("initializing database system"));
 #ifdef PGXC
 		/* Initialize nodes and GTM */
-		init_gtm();
+		initdb_node(PGXC_GTM);
 		initdb_node(PGXC_COORD_1);
 		initdb_node(PGXC_COORD_2);
 		initdb_node(PGXC_DATANODE_1);
@@ -2987,7 +2991,7 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 		header(_("starting postmaster"));
 #ifdef PGXC
 		/* Start GTM */
-		start_gtm();
+		start_node(PGXC_GTM, false, false);
 
 		/* Start all the nodes */
 		start_node(PGXC_COORD_1, true, true);
@@ -3017,17 +3021,25 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 		 */
 		for (i = 0; i < 60; i++)
 		{
-			/* Done if psql succeeds */
-			if (system(buf2) == 0)
-				break;
 
 #ifdef PGXC
+			/* Done if psql succeeds for each node */
+			if (check_node_running(PGXC_COORD_1) &&
+				check_node_running(PGXC_COORD_2) &&
+				check_node_running(PGXC_DATANODE_1) &&
+				check_node_running(PGXC_DATANODE_2))
+				break;
+
 			/* Check node failure */
 			check_node_fail(PGXC_COORD_1);
 			check_node_fail(PGXC_COORD_2);
 			check_node_fail(PGXC_DATANODE_1);
 			check_node_fail(PGXC_DATANODE_2);
 #else
+			/* Done if psql succeeds */
+			if (system(buf2) == 0)
+				break;
+
 			/*
 			 * Fail immediately if postmaster has exited
 			 */
