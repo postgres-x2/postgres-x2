@@ -2329,6 +2329,12 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 	int			nodeIndex;
 	char		nodetype;
 
+	/* Support not available on Datanodes */
+	if (IS_PGXC_DATANODE)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("EXECUTE DIRECT cannot be executed on a Datanode")));
+
 	if (list_length(nodelist) > 1)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
