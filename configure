@@ -30,9 +30,6 @@ esac
 
 fi
 
-# For PGXC, set -DPGXC by default. This can be overriden with -UPGXC if the user sets it.
-CFLAGS="$CFLAGS -DPGXC"
-
 
 # PATH needs CR
 # Avoid depending upon Character Ranges.
@@ -29770,6 +29767,8 @@ cat >>confdefs.h <<_ACEOF
 #define PGXC_VERSION_NUM $PGXC_VERSION_NUM
 _ACEOF
 
+# For PGXC, set -DPGXC by default. This can be overriden with -UPGXC if the user sets it.
+CFLAGS="-DPGXC $CFLAGS"
 
 # Begin output steps
 
