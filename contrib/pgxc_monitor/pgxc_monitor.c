@@ -12,24 +12,24 @@
  * Options are:
  * -Z nodetype		What node type to monitor, gtm or node.
  *					gtm tests gtm, gtm_standby or gtm_proxy.
- *					node tests coordinator or datanode.
+ *					node tests Coordinator or Datanode.
  * -p port			Port number of the monitored node.
  * -h host			Host name or IP address of the monitored node.
- * -n nodename      Specifies pgxc_monitor node name.   Default is "pgxc_monitor"
- * -q				Run in quiet mode.  Default is quiet mode.
- * -v				Run in verbose mdoe.
- * --help			Prints the help message and exit with 0.
+ * -n nodename      Specifies pgxc_monitor node name. Default is "pgxc_monitor"
+ * -q				Run in quiet mode. Default is quiet mode.
+ * -v				Run in verbose mode.
+ * --help			Prints the help message and exits with 0.
  *
- * When monitoring coordinator or datanode, -p and -h options can be
- * supplied via .pgpass file.   If you use non-default target database name
+ * When monitoring Coordinator or Datanode, -p and -h options can be
+ * supplied via .pgpass file. If you use non-default target database name
  * and username, they must also be supplied by .pgpass file.
  * If password is needed, it must also be supplied by .pgpass file.
  *
- * Monitoring coordinaor and datanode uses system(3) function.  Therefore,
- * you should not use set-userid bit or set-groupid bit.   Also, because
+ * Monitoring Coordinator and Datanode uses system(3) function.  Therefore,
+ * you should not use set-userid bit or set-groupid bit. Also, because
  * this uses psql command, psql must be in your PATH.
  *
- * When testing coordinator/datanode, you must setup .pgpass file if you
+ * When testing Coordinator/Datanode, you must setup .pgpass file if you
  * need to supply password, as well as non-default database name and username.
  *
  * If invalid parameters are given, error message will be printed even if
@@ -45,38 +45,45 @@
 #include <stdlib.h>
 #include <getopt.h>
 
-/*
- * GTM_Proxy and Datanode are for future extension.
- */
+/* Define all the node types */
 typedef enum
 {
-	None = 0,
-	GTM,
-	GTM_Proxy,
-	Coordinator,
-	Datanode
+	NONE = 0,
+	GTM,	/* GTM or GTM-proxy */
+	NODE	/* Coordinator or Datanode */
 } nodetype_t;
 
 static char 	*progname;
-static nodetype_t nodetype = None;
-static char		*port = NULL;
-static char		*host = NULL;
-static char		*nodename = NULL;
-static int 		verbose = 0;
 
 #define Free(x) do{if((x)) free((x)); x = NULL;} while(0)
 
 static void usage(void);
-static int do_gtm_ping(char *host, char *node, nodetype_t nodetype);
-static int do_node_ping(char *host, char *node);
+static int do_gtm_ping(char *host, char *node, nodetype_t nodetype, char *nodename, bool verbose);
+static int do_node_ping(char *host, char *node, bool verbose);
 
-
-int main (int ac, char *av[])
+int
+main(int ac, char *av[])
 {
 	int opt;
+	nodetype_t	nodetype = NONE;
+	char	   *port = NULL;
+	char	   *host = NULL;
+	char	   *nodename = NULL;
+	bool		verbose = false;
 
 	progname = strdup(av[0]);
 
+	/* Print help if necessary */
+	if (ac > 1)
+	{
+		if (strcmp(av[1], "--help") == 0 || strcmp(av[1], "-?") == 0)
+		{
+			usage();
+			exit(0);
+		}
+	}
+
+	/* Scan options */
 	while ((opt = getopt(ac, av, "Z:h:n:p:qv")) != -1)
 	{
 		switch(opt)
@@ -85,7 +92,7 @@ int main (int ac, char *av[])
 				if (strcmp(optarg, "gtm") == 0)
 					nodetype = GTM;
 				else if (strcmp(optarg, "node") == 0)
-					nodetype = Coordinator;
+					nodetype = NODE;
 				else
 				{
 					fprintf(stderr, "%s: invalid -Z option value.\n", progname);
@@ -105,43 +112,49 @@ int main (int ac, char *av[])
 				port = strdup(optarg);
 				break;
 			case 'q':
-				verbose = 0;
+				verbose = false;
 				break;
 			case 'v':
-				verbose = 1;
+				verbose = true;
 				break;
 			default:
 				fprintf(stderr, "%s: unknow option %c.\n", progname, opt);
 				exit(3);
 		}
 	}
-	if (nodetype == None)
+
+	/* If no types are defined, well there is nothing to be done */
+	if (nodetype == NONE)
 	{
 		fprintf(stderr, "%s: -Z option is missing, it is mandatory.\n", progname);
 		usage();
 		exit(3);
 	}
+
 	switch(nodetype)
 	{
 		case GTM:
-		case GTM_Proxy:
-			exit(do_gtm_ping(host, port, nodetype));
-		case Coordinator:
-		case Datanode:
-			exit(do_node_ping(host, port));
-		case None:
+			exit(do_gtm_ping(host, port, nodetype, nodename, verbose));
+		case NODE:
+			exit(do_node_ping(host, port, verbose));
+		case NONE:
 		default:
 			break;
 	}
-	fprintf(stderr, "%s: inernal error.\n", progname);
+
+	/* Should not happen */
+	fprintf(stderr, "%s: internal error.\n", progname);
 	exit(3);
 }
 
-static int do_gtm_ping(char *host, char* port, nodetype_t nodetype)
+/*
+ * Ping a given GTM or GTM-proxy
+ */
+static int do_gtm_ping(char *host, char* port, nodetype_t nodetype, char *nodename, bool verbose)
 {
 	char connect_str[256];
 	GTM_Conn *conn;
-	
+
 	if (host == NULL)
 	{
 		fprintf(stderr, "%s: -h is mandatory for -Z gtm or -Z gtm_proxy\n", progname);
@@ -152,7 +165,7 @@ static int do_gtm_ping(char *host, char* port, nodetype_t nodetype)
 		fprintf(stderr, "%s: -p is mandatory for -Z gtm or -Z gtm_proxy\n", progname);
 		exit(3);
 	}
-	sprintf(connect_str, "host=%s port=%s node_name=%s remote_type=%d postmaster=0", 
+	sprintf(connect_str, "host=%s port=%s node_name=%s remote_type=%d postmaster=0",
 			host, port, nodename ? nodename : "pgxc_monitor", GTM_NODE_COORDINATOR);
 	if ((conn = PQconnectGTM(connect_str)) == NULL)
 	{
@@ -163,10 +176,13 @@ static int do_gtm_ping(char *host, char* port, nodetype_t nodetype)
 	GTMPQfinish(conn);
 	if (verbose)
 		printf("Running\n");
-	return(0);
+	return 0;
 }
 
-static int do_node_ping(char *host, char *node)
+/*
+ * Ping a given node
+ */
+static int do_node_ping(char *host, char *port, bool verbose)
 {
 	int rc;
 	int exitStatus;
@@ -175,14 +191,20 @@ static int do_node_ping(char *host, char *node)
 	char *verbose_out = "";
 	char *out = verbose ? verbose_out : quiet_out;
 
-	if (host && node)
-		sprintf(command_line, "psql -h %s -p %s -w -q -c \"select 1 a\" %s", host, node, out);
-	else if (host)
-		sprintf(command_line, "psql -h %s -w -q -c \"select 1 a\" %s", host, out);
-	else if (node)
-		sprintf(command_line, "psql -p %p -w -q -c \"select 1 a\" %s", port, out);
-	else
-		sprintf(command_line, "psql -w -q -c \"select 1 a\" %s", out);
+	/* Build psql command launched to node */
+	sprintf(command_line, "psql -w -q -c \"select 1 a\"");
+
+	/* Then add options if necessary */
+	if (host)
+		sprintf(command_line, "%s -h %s", command_line, host);
+	if (port)
+		sprintf(command_line, "%s -p %s", command_line, port);
+
+	/* Add database name, here default database, postgres, is used */
+	sprintf(command_line, "%s postgres", command_line);
+	sprintf(command_line, "%s %s", command_line, out);
+
+	/* Launch the command and output result if necessary */
 	rc = system(command_line);
 	exitStatus = WEXITSTATUS(rc);
 	if (verbose)
@@ -192,20 +214,26 @@ static int do_node_ping(char *host, char *node)
 		else
 			printf("Not running\n");
 	}
-	
-	return(exitStatus);
+
+	return exitStatus;
 }
 
+/*
+ * Show help information
+ */
 static void usage(void)
 {
 	printf("pgxc_monitor -Z nodetype -p port -h host\n\n");
 	printf("Options are:\n");
 	printf("    -Z nodetype	    What node type to monitor, gtm, gtm_proxy,\n");
 	printf("                    coordinator, or datanode.\n");
-	printf("    -h host         Host name or IP address of the monitored node.  Mandatory for -Z gtm or -Z gtm_proxy\n");
-	printf("    -n nodename     Nodename of this pgxc_monitor.   Only for -Z gtm or -Z gtm_proxy.  Default is pgxc_monitor\n");
-	printf("    -p port         Port number of the monitored node.  Mandatory for -Z gtm or -Z gtm_proxy\n");
+	printf("    -h host         Host name or IP address of the monitored node.\n");
+	printf("                    Mandatory for -Z gtm or -Z gtm_proxy\n");
+	printf("    -n nodename     Nodename of this pgxc_monitor.\n");
+	printf("                    Only for -Z gtm or -Z gtm_proxy. Default is pgxc_monitor\n");
+	printf("                    This identifies what is the name of component connecting to GTM.");
+	printf("    -p port         Port number of the monitored node. Mandatory for -Z gtm or -Z gtm_proxy\n");
 	printf("    -q              Quiet mode.\n");
 	printf("    -v              Verbose mode.\n");
-	printf("    --help          Prints the help message and exit with 0.\n");
+	printf("    --help          Prints the help message and exits with 0.\n");
 }

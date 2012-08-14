@@ -4,8 +4,8 @@
 
 <title>pgxc_monitor</title>
 
- <indexterm zone="pgxcclean">
-  <primary>pgxc_monitorn</primary>
+ <indexterm zone="pgxcmonitor">
+  <primary>pgxc_monitor</primary>
  </indexterm>
 
  <sect2>
@@ -20,7 +20,7 @@ pgxc_monitor <optional> <replaceable>option</> </optional>
     </para>
 
     <para>
-     <application>pgxc_clean</application> is Postgres-XC utility to test if
+     <application>pgxc_monitor</application> is a <productname>Postgres-XC</> utility to test if
      the target node is running.
     </para>
 
@@ -47,8 +47,8 @@ pgxc_monitor <optional> <replaceable>option</> </optional>
       <term><option>-Z <replaceable class="parameter">nodetype</replaceable></option></term>
       <listitem>
       <para>
-       Type of node to test.   Specify gtm for gtm and gtm_proxy.
-       Specify node for coordinator and datanode.
+       Type of node type to test. Specify gtm as <replaceable>nodetype</replaceable> for gtm and gtm_proxy.
+       Specify node as <replaceable>nodeopt</replaceable> for a Coordinator or a Datanode.
       </para>
       </listitem>
     </varlistentry>
@@ -66,7 +66,7 @@ pgxc_monitor <optional> <replaceable>option</> </optional>
       <term><option>-n <replaceable class="parameter">nodename</replaceable></></term>
       <listitem>
       <para>
-      Nodename to use when testing gtm or gtm_proxy.
+      Node name to use when testing gtm or gtm_proxy.
       Default value is <literal>pgxc_monitor</literal>.
       </para>
       </listitem>
@@ -85,7 +85,7 @@ pgxc_monitor <optional> <replaceable>option</> </optional>
       <term><option>-q</></term>
       <listitem>
       <para>
-       Surpress messages as much as possible.
+       Quiet mode. Supress messages as much as possible.
       </para>
       </listitem>
     </varlistentry>
@@ -94,7 +94,7 @@ pgxc_monitor <optional> <replaceable>option</> </optional>
       <term><option>-v</></term>
       <listitem>
       <para>
-       Prints as many messages as possible.
+       Verbose mode. Prints as many messages as possible.
       </para>
       </listitem>
     </varlistentry>
@@ -116,7 +116,7 @@ pgxc_monitor <optional> <replaceable>option</> </optional>
   <title>Options</title>
 
   <para>
-   When monitoring coordinator or datanode, <option>-p</option> and
+   When monitoring Coordinator or Datanode, <option>-p</option> and
    <option>-h</option> options can be supplied using
    <literal>.pgpass</literal> file.
    If you use non-default target database name, and username, as well as
@@ -128,7 +128,7 @@ pgxc_monitor <optional> <replaceable>option</> </optional>
    <option>.pgpass</option> file too.
   </para>
   <para>
-   Monitoring coordinaor and datanode uses system(3) function.  
+   Monitoring Coordinator and Datanode uses system(3) function.  
    Therefore,you should not use set-userid bit or set-groupid bit.
    Also, because this uses psql command, psql must be in your PATH.
   </para>
