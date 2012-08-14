@@ -231,7 +231,7 @@ static void usage(void)
 	printf("                    Mandatory for -Z gtm or -Z gtm_proxy\n");
 	printf("    -n nodename     Nodename of this pgxc_monitor.\n");
 	printf("                    Only for -Z gtm or -Z gtm_proxy. Default is pgxc_monitor\n");
-	printf("                    This identifies what is the name of component connecting to GTM.");
+	printf("                    This identifies what is the name of component connecting to GTM.\n");
 	printf("    -p port         Port number of the monitored node. Mandatory for -Z gtm or -Z gtm_proxy\n");
 	printf("    -q              Quiet mode.\n");
 	printf("    -v              Verbose mode.\n");
