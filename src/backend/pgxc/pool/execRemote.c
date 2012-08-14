@@ -2822,6 +2822,13 @@ do_query(RemoteQueryState *node)
 	PGXCNodeAllHandles	*pgxc_connections;
 
 	/*
+	 * A Postgres-XC node cannot run transactions while in recovery as
+	 * this operation needs transaction IDs. This is more a safety guard than anything else.
+	 */
+	if (RecoveryInProgress())
+		elog(ERROR, "cannot run transaction to remote nodes during recovery");
+
+	/*
 	 * Remember if the remote query is accessing a temp object
 	 *
 	 * !! PGXC TODO Check if the is_temp flag is propogated correctly when a

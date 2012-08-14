@@ -148,7 +148,7 @@ typedef struct TransactionStateData
 	GlobalTransactionId	auxilliaryTransactionId;
 	bool				isLocalParameterUsed;		/* Check if a local parameter is active
 													 * in transaction block (SET LOCAL, DEFERRED) */
-#else	
+#else
 	TransactionId transactionId;	/* my XID, or Invalid if none */
 #endif
 	SubTransactionId subTransactionId;	/* my subxact ID */
@@ -183,7 +183,7 @@ static TransactionStateData TopTransactionStateData = {
 	0,							/* prepared global transaction id */
 	0,							/* commit prepared global transaction id */
 	false,						/* isLocalParameterUsed */
-#else	
+#else
 	0,							/* transaction id */
 #endif
 	0,							/* subtransaction id */
@@ -644,7 +644,7 @@ GetTopGlobalTransactionId()
 	return s->topGlobalTransansactionId;
 }
 
-GlobalTransactionId 
+GlobalTransactionId
 GetAuxilliaryTransactionId()
 {
 	TransactionState s = CurrentTransactionState;
@@ -1885,7 +1885,7 @@ StartTransaction(void)
 	 */
 	if (DefaultXactIsoLevel == XACT_SERIALIZABLE)
 		DefaultXactIsoLevel = XACT_REPEATABLE_READ;
-#endif	
+#endif
 	XactIsoLevel = DefaultXactIsoLevel;
 	forceSyncCommit = false;
 	MyXactAccessedTempRel = false;
@@ -1999,9 +1999,9 @@ CommitTransaction(void)
 			 TransStateAsString(s->state));
 	Assert(s->parent == NULL);
 
-#ifdef PGXC	
+#ifdef PGXC
 	/*
-	 * If we are a Coordinator and currently serving the client, 
+	 * If we are a Coordinator and currently serving the client,
 	 * we must run a 2PC if more than one nodes are involved in this
 	 * transaction. We first prepare on the remote nodes and if everything goes
 	 * right, we commit locally and then commit on the remote nodes. We must
@@ -2080,7 +2080,7 @@ CommitTransaction(void)
 				s->auxilliaryTransactionId = InvalidGlobalTransactionId;
 		}
 	}
-#endif	
+#endif
 
 	/*
 	 * Do pre-commit processing that involves calling user-defined code, such
@@ -2137,7 +2137,7 @@ CommitTransaction(void)
 	 */
 	PreCommit_Notify();
 
-#ifdef PGXC	
+#ifdef PGXC
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 	{
 		/*
@@ -2338,7 +2338,7 @@ AtEOXact_GlobalTxn(bool commit)
 
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 	{
-		if (commit) 
+		if (commit)
 		{
 			if (GlobalTransactionIdIsValid(s->auxilliaryTransactionId) &&
 				GlobalTransactionIdIsValid(s->topGlobalTransansactionId))
@@ -2351,7 +2351,7 @@ AtEOXact_GlobalTxn(bool commit)
 		}
 		else
 		{
-			/* 
+			/*
 			 * XXX Why don't we have a single API to abort both the GXIDs
 			 * together ?
 			 */
@@ -2373,7 +2373,7 @@ AtEOXact_GlobalTxn(bool commit)
 				RollbackTranGTM(s->topGlobalTransansactionId);
 		}
 	}
-	
+
 	s->topGlobalTransansactionId = InvalidGlobalTransactionId;
 	s->auxilliaryTransactionId = InvalidGlobalTransactionId;
 
@@ -2401,7 +2401,7 @@ PrepareTransaction(void)
 #ifdef PGXC
 	bool		isImplicit = !(s->blockState == TBLOCK_PREPARE);
 	char		*nodestring;
-#endif	
+#endif
 
 	ShowTransactionState("PrepareTransaction");
 
@@ -2687,7 +2687,7 @@ AbortTransaction(void)
 	TransactionState s = CurrentTransactionState;
 	TransactionId latestXid;
 
-#ifdef PGXC	
+#ifdef PGXC
 	/*
 	 * Save the current top transaction ID. We need this to close the
 	 * transaction at the GTM at thr end
@@ -2835,7 +2835,7 @@ AbortTransaction(void)
 		pgstat_report_xact_timestamp(0);
 	}
 
-#ifdef PGXC	
+#ifdef PGXC
 	ForgetTransactionLocalNode();
 #endif
 	/*
@@ -2843,7 +2843,7 @@ AbortTransaction(void)
 	 */
 	RESUME_INTERRUPTS();
 
-#ifdef PGXC	
+#ifdef PGXC
 	AtEOXact_GlobalTxn(false);
 	AtEOXact_Remote();
 #endif
@@ -5494,5 +5494,28 @@ IsXidImplicit(const char *xid)
 	if (strncmp(xid, implicit2PC_head, implicit2PC_head_len))
 		return false;
 	return true;
+}
+
+/*
+ * IsPGXCNodeXactDatanodeDirect
+ * Determine if a Postgres-XC node session
+ * is being accessed directly by an application.
+ */
+bool
+IsPGXCNodeXactDatanodeDirect(void)
+{
+	/*
+	 * For the time being a Postgres-XC session is considered
+	 * as being connected directly under very specific conditions.
+	 *
+	 * IsPostmasterEnvironment - checks for initdb and standalone
+	 * IsNormalProcessingMode() - checks for new connections
+	 * IsAutoVacuumLauncherProcess - checks for autovacuum launcher process
+	 */
+	return IS_PGXC_DATANODE &&
+		   IsPostmasterEnvironment &&
+		   IsNormalProcessingMode() &&
+		   !IsAutoVacuumLauncherProcess() &&
+		   !IsConnFromCoord();
 }
 #endif

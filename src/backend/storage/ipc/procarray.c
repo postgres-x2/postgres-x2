@@ -79,9 +79,9 @@
 typedef struct ProcArrayStruct
 {
 	int			numProcs;		/* number of valid procs entries */
-#ifdef PGXC	
+#ifdef PGXC
 	int			numAVProcs;		/* number of autovacuum procs - stored at the begining of the array */
-#endif	
+#endif
 	int			maxProcs;		/* allocated size of procs array */
 
 	/*
@@ -173,6 +173,7 @@ typedef enum
 
 void SetGlobalSnapshotData(int xmin, int xmax, int xcnt, int *xip);
 void UnsetGlobalSnapshotData(void);
+static bool GetPGXCSnapshotData(Snapshot snapshot);
 static bool GetSnapshotDataDataNode(Snapshot snapshot);
 static bool GetSnapshotDataCoordinator(Snapshot snapshot);
 /* Global snapshot data */
@@ -319,7 +320,7 @@ ProcArrayAdd(PGPROC *proc)
 		arrayP->numAVProcs++;
 	}
 	else
-#endif		
+#endif
 		arrayP->procs[arrayP->numProcs] = proc;
 	arrayP->numProcs++;
 
@@ -437,7 +438,7 @@ ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid)
 		 * by XC. See thread on hackers with subject "Canceling ROLLBACK
 		 * statement"
 		 */
-#else		
+#else
 		Assert(TransactionIdIsValid(proc->xid));
 #endif
 
@@ -474,7 +475,7 @@ ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid)
 		 * We are seeing this assertion failure every once in a while. We have
 		 * a theory about how this can happen also on vanilla PostgreSQL, we
 		 * don't have a reproducible case yet (see email of hackers with
-		 * subject "Canceling ROLLBACK statement". 
+		 * subject "Canceling ROLLBACK statement".
 		 */
 		Assert(!TransactionIdIsValid(proc->xid));
 #endif
@@ -1270,49 +1271,13 @@ GetSnapshotData(Snapshot snapshot)
 
 #ifdef PGXC  /* PGXC_DATANODE */
 	/*
- 	 * The typical case is that the local Coordinator passes down the snapshot to the
- 	 * remote nodes to use, while it itself obtains it from GTM. Autovacuum processes
-	 * need however to connect directly to GTM themselves to obtain XID and snapshot
-	 * information for autovacuum worker threads.
-	 * A vacuum analyze uses a special function to get a transaction ID and signal
-	 * GTM not to include this transaction ID in snapshot.
-	 * A vacuum worker starts as a normal transaction would.
- 	 */
-	if (IS_PGXC_DATANODE || IsConnFromCoord() || IsAutoVacuumWorkerProcess())
-	{
-		if (GetSnapshotDataDataNode(snapshot))
-			return snapshot;
-		/* else fallthrough */
-	}
-	else if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && IsNormalProcessingMode())
-	{
-		/* Snapshot has ever been received from remote Coordinator */
-		if (GetSnapshotDataCoordinator(snapshot))
-			return snapshot;
-		/* else fallthrough */
-	}
-
-	/*
-	 * If we have no snapshot, we will use a local one.
-	 * If we are in normal mode, we output a warning though.
-	 * We currently fallback and use a local one at initdb time,
-	 * as well as when a new connection occurs.
-	 * This is also the case for autovacuum launcher.
-	 *
-	 * IsPostmasterEnvironment - checks for initdb
-	 * IsNormalProcessingMode() - checks for new connections
-	 * IsAutoVacuumLauncherProcess - checks for autovacuum launcher process
+	 * Obtain a global snapshot for a Postgres-XC session
+	 * if possible.
 	 */
-	if (IS_PGXC_DATANODE &&
-		snapshot_source == SNAPSHOT_UNDEFINED &&
-		IsPostmasterEnvironment &&
-		IsNormalProcessingMode() &&
-		!IsAutoVacuumLauncherProcess())
-	{
-		elog(WARNING, "Do not have a GTM snapshot available");
-	}
+	if (GetPGXCSnapshotData(snapshot))
+		return snapshot;
 #endif
-      
+
 	/*
 	 * Fallback to standard routine, calculate snapshot from local proc arrey
 	 * if no master connection
@@ -1518,8 +1483,11 @@ GetSnapshotData(Snapshot snapshot)
 	snapshot->curcid = GetCurrentCommandId(false);
 
 #ifdef PGXC
-	elog(DEBUG1, "Local snapshot is built, xmin: %d, xmax: %d, xcnt: %d, RecentGlobalXmin: %d", xmin, xmax, count, globalxmin);
-#endif 
+	if (!RecoveryInProgress())
+		elog(DEBUG1, "Local snapshot is built, xmin: %d, xmax: %d, xcnt: %d, RecentGlobalXmin: %d",
+			 xmin, xmax, count, globalxmin);
+#endif
+
 	/*
 	 * This is a new snapshot, so set both refcounts are zero, and mark it as
 	 * not copied in persistent memory.
@@ -2523,11 +2491,11 @@ DisplayXidCache(void)
 #endif   /* XIDCACHE_DEBUG */
 
 
-#ifdef PGXC  
+#ifdef PGXC
 /*
  * Store snapshot data received from the Coordinator
  */
-void 
+void
 SetGlobalSnapshotData(int xmin, int xmax, int xcnt, int *xip)
 {
 	snapshot_source = SNAPSHOT_COORDINATOR;
@@ -2556,17 +2524,84 @@ UnsetGlobalSnapshotData(void)
 	elog (DEBUG1, "unset snapshot info");
 }
 
+
+/*
+ * Entry of snapshot obtention for Postgres-XC node
+ */
+static bool
+GetPGXCSnapshotData(Snapshot snapshot)
+{
+	/*
+	 * If this node is in recovery phase,
+	 * snapshot has to be taken directly from WAL information.
+	 */
+	if (RecoveryInProgress())
+		return false;
+
+	/*
+	 * The typical case is that the local Coordinator passes down the snapshot to the
+	 * remote nodes to use, while it itself obtains it from GTM. Autovacuum processes
+	 * need however to connect directly to GTM themselves to obtain XID and snapshot
+	 * information for autovacuum worker threads.
+	 * A vacuum analyze uses a special function to get a transaction ID and signal
+	 * GTM not to include this transaction ID in snapshot.
+	 * A vacuum worker starts as a normal transaction would.
+	 */
+	if (IS_PGXC_DATANODE || IsConnFromCoord() || IsAutoVacuumWorkerProcess())
+	{
+		if (GetSnapshotDataDataNode(snapshot))
+			return true;
+		/* else fallthrough */
+	}
+	else if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && IsNormalProcessingMode())
+	{
+		/* Snapshot has ever been received from remote Coordinator */
+		if (GetSnapshotDataCoordinator(snapshot))
+			return true;
+		/* else fallthrough */
+	}
+
+	/*
+	 * If we have no snapshot, we will use a local one.
+	 * If we are in normal mode, we output a warning though.
+	 * We currently fallback and use a local one at initdb time,
+	 * as well as when a new connection occurs.
+	 * This is also the case for autovacuum launcher.
+	 *
+	 * IsPostmasterEnvironment - checks for initdb
+	 * IsNormalProcessingMode() - checks for new connections
+	 * IsAutoVacuumLauncherProcess - checks for autovacuum launcher process
+	 */
+	if (IS_PGXC_DATANODE &&
+		snapshot_source == SNAPSHOT_UNDEFINED &&
+		IsPostmasterEnvironment &&
+		IsNormalProcessingMode() &&
+		!IsAutoVacuumLauncherProcess())
+	{
+		elog(WARNING, "Do not have a GTM snapshot available");
+	}
+
+	return false;
+}
+
 /*
  * Get snapshot data for Datanode
  * This is usually passed down from the Coordinator
  *
  * returns whether or not to return immediately with snapshot
  */
-static bool 
+static bool
 GetSnapshotDataDataNode(Snapshot snapshot)
 {
 	Assert(IS_PGXC_DATANODE || IsConnFromCoord() || IsAutoVacuumWorkerProcess());
 
+	/*
+	 * Fallback to general case if Datanode is accessed directly by an application
+	 */
+	if (IsPGXCNodeXactDatanodeDirect())
+		return GetSnapshotDataCoordinator(snapshot);
+
+	/* Have a look at cases where Datanode is accessed by cluster internally */
 	if (IsAutoVacuumWorkerProcess() || GetForceXidFromGTM())
 	{
 		GTM_Snapshot gtm_snapshot;
@@ -2655,7 +2690,7 @@ GetSnapshotDataDataNode(Snapshot snapshot)
 			snapshot->max_xcnt = gxcnt;
 		}
 
-		memcpy(snapshot->xip, gxip, gxcnt * sizeof(TransactionId)); 
+		memcpy(snapshot->xip, gxip, gxcnt * sizeof(TransactionId));
 		snapshot->curcid = GetCurrentCommandId(false);
 
 		if (!TransactionIdIsValid(MyProc->xmin))
@@ -2670,7 +2705,7 @@ GetSnapshotDataDataNode(Snapshot snapshot)
 		RecentXmin = gxmin;
 
 		/* PGXCTODO - set this until we handle subtransactions. */
-		snapshot->subxcnt = 0; 
+		snapshot->subxcnt = 0;
 
 		/*
 		 * This is a new snapshot, so set both refcounts are zero, and mark it
@@ -2757,23 +2792,22 @@ GetSnapshotDataDataNode(Snapshot snapshot)
  *
  * returns whether or not to return immediately with snapshot
  */
-static bool 
+static bool
 GetSnapshotDataCoordinator(Snapshot snapshot)
 {
 	bool canbe_grouped;
 	GTM_Snapshot gtm_snapshot;
 
-
- 	Assert (IS_PGXC_COORDINATOR);
+	Assert(IS_PGXC_COORDINATOR || IsPGXCNodeXactDatanodeDirect());
 
 	canbe_grouped = (!FirstSnapshotSet) || (!IsolationUsesXactSnapshot());
 	gtm_snapshot = GetSnapshotGTM(GetCurrentTransactionId(), canbe_grouped);
 
-	if (!gtm_snapshot) 
+	if (!gtm_snapshot)
 			ereport(ERROR,
 				(errcode(ERRCODE_CONNECTION_FAILURE),
 				errmsg("GTM error, could not obtain snapshot")));
-	else 
+	else
 	{
 		snapshot->xmin = gtm_snapshot->sn_xmin;
 		snapshot->xmax = gtm_snapshot->sn_xmax;
@@ -2809,7 +2843,7 @@ GetSnapshotDataCoordinator(Snapshot snapshot)
 
 			/*
 			 * FIXME
-			 * 
+			 *
 			 * We really don't support subtransaction in PGXC right now, but
 			 * when we would, we should fix the allocation below
 			 */
@@ -2833,7 +2867,7 @@ GetSnapshotDataCoordinator(Snapshot snapshot)
 			snapshot->max_xcnt = gtm_snapshot->sn_xcnt;
 		}
 
-		memcpy(snapshot->xip, gtm_snapshot->sn_xip, gtm_snapshot->sn_xcnt * sizeof(TransactionId)); 
+		memcpy(snapshot->xip, gtm_snapshot->sn_xip, gtm_snapshot->sn_xcnt * sizeof(TransactionId));
 		snapshot->curcid = GetCurrentCommandId(false);
 
 		if (!TransactionIdIsValid(MyProc->xmin))
@@ -2848,7 +2882,7 @@ GetSnapshotDataCoordinator(Snapshot snapshot)
 		RecentXmin = snapshot->xmin;
 
 		/* PGXCTODO - set this until we handle subtransactions. */
-		snapshot->subxcnt = 0; 
+		snapshot->subxcnt = 0;
 		/*
 		 * This is a new snapshot, so set both refcounts are zero, and mark it
 		 * as not copied in persistent memory.
