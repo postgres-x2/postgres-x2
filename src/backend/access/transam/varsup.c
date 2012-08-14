@@ -41,7 +41,7 @@ VariableCache ShmemVariableCache = NULL;
 static TransactionId next_xid = InvalidTransactionId;
 static bool force_get_xid_from_gtm = false;
 
-/* 
+/*
  * Set next transaction id to use
  */
 void
@@ -51,11 +51,11 @@ SetNextTransactionId(TransactionId xid)
 	next_xid = xid;
 }
 
-/* 
- * Allow force of getting XID from GTM 
+/*
+ * Allow force of getting XID from GTM
  * Useful for explicit VACUUM (autovacuum already handled)
  */
-void 
+void
 SetForceXidFromGTM(bool value)
 {
 	force_get_xid_from_gtm = value;
@@ -65,7 +65,7 @@ SetForceXidFromGTM(bool value)
  * See if we should force using GTM
  * Useful for explicit VACUUM (autovacuum already handled)
  */
-bool 
+bool
 GetForceXidFromGTM(void)
 {
 	return force_get_xid_from_gtm;
@@ -112,7 +112,7 @@ GetNewTransactionId(bool isSubXact)
 		elog(ERROR, "cannot assign TransactionIds during recovery");
 
 #ifdef PGXC
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord() || IsPGXCNodeXactDatanodeDirect())
 	{
 		/*
 		 * Get XID from GTM before acquiring the lock.
@@ -133,10 +133,10 @@ GetNewTransactionId(bool isSubXact)
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
 
 #ifdef PGXC
-	/* Only remote Coordinator can get a GXID */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	/* Only remote Coordinator or a Datanode accessed directly by an application can get a GXID */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord() || IsPGXCNodeXactDatanodeDirect())
 	{
-		if (TransactionIdIsValid(xid)) 
+		if (TransactionIdIsValid(xid))
 		{
 			if (!TransactionIdFollowsOrEquals(xid, ShmemVariableCache->nextXid))
 			{
@@ -149,14 +149,14 @@ GetNewTransactionId(bool isSubXact)
 				ShmemVariableCache->nextXid = xid;
 		}
 		else
-		{			
+		{
 			ereport(WARNING,
 			   (errmsg("Xid is invalid.")));
-	
+
 			/* Problem is already reported, so just remove lock and return */
 			LWLockRelease(XidGenLock);
 			return xid;
-		}	
+		}
 	}
 	else if(IS_PGXC_DATANODE || IsConnFromCoord())
 	{
@@ -186,14 +186,14 @@ GetNewTransactionId(bool isSubXact)
 			elog(DEBUG1, "TransactionId = %d", next_xid);
 			next_xid = InvalidTransactionId; /* reset */
 			if (!TransactionIdFollowsOrEquals(xid, ShmemVariableCache->nextXid))
-			{ 
+			{
 				/* This should be ok, due to concurrency from multiple coords
 				 * passing down the xids.
-				 * We later do not want to bother incrementing the value 
+				 * We later do not want to bother incrementing the value
 				 * in shared memory though.
 				 */
 				increment_xid = false;
-				elog(DEBUG1, "xid (%d) does not follow ShmemVariableCache->nextXid (%d)", 
+				elog(DEBUG1, "xid (%d) does not follow ShmemVariableCache->nextXid (%d)",
 					xid, ShmemVariableCache->nextXid);
 			}
 			else
@@ -202,13 +202,13 @@ GetNewTransactionId(bool isSubXact)
 		else
 		{
 			/* Fallback to default */
-			elog(LOG, "Falling back to local Xid. Was = %d, now is = %d", 
+			elog(LOG, "Falling back to local Xid. Was = %d, now is = %d",
 					next_xid, ShmemVariableCache->nextXid);
 			xid = ShmemVariableCache->nextXid;
-	
+
 		}
 	}
-#else 
+#else
 	xid = ShmemVariableCache->nextXid;
 #endif /* PGXC */
 
@@ -313,7 +313,7 @@ GetNewTransactionId(bool isSubXact)
 	 * more XIDs until there is CLOG space for them.
 	 */
 #ifdef PGXC  /* defined(PGXC_COORD) || defined(PGXC_DATANODE) */
-	/* We may not be at the max, which is ok. Do not bother to increment. 
+	/* We may not be at the max, which is ok. Do not bother to increment.
 	 * We get this externally anyway, so it should not be needed in theory...
 	 */
 	if (increment_xid)

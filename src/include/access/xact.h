@@ -295,6 +295,7 @@ extern void ReportCommandIdChange(CommandId cid);
 extern bool IsSendCommandId(void);
 extern void SetSendCommandId(bool status);
 extern bool IsPGXCNodeXactReadOnly(void);
+extern bool IsPGXCNodeXactDatanodeDirect(void);
 #endif
 
 extern int	xactGetCommittedChildren(TransactionId **ptr);

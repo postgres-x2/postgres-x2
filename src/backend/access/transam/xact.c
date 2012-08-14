@@ -5872,9 +5872,23 @@ IsPGXCNodeXactReadOnly(void)
 	/*
 	 * For the time being a Postgres-XC session is read-only
 	 * under very specific conditions.
-	 * For a Postgres-XC Datanode, block write operations
-	 * if backend connection is not from a Coordinator but
-	 * from an external application.
+	 * This is the case of an application accessing directly
+	 * a Datanode.
+	 */
+	return IsPGXCNodeXactDatanodeDirect();
+}
+
+/*
+ * IsPGXCNodeXactDatanodeDirect
+ * Determine if a Postgres-XC node session
+ * is being accessed directly by an application.
+ */
+bool
+IsPGXCNodeXactDatanodeDirect(void)
+{
+	/*
+	 * For the time being a Postgres-XC session is considered
+	 * as being connected directly under very specific conditions.
 	 *
 	 * IsPostmasterEnvironment - checks for initdb and standalone
 	 * IsNormalProcessingMode() - checks for new connections
