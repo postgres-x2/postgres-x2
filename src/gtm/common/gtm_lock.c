@@ -28,7 +28,7 @@
 bool
 GTM_RWLockAcquire(GTM_RWLock *lock, GTM_LockMode mode)
 {
-	int status;
+	int status = EINVAL;
 
 	switch (mode)
 	{
@@ -86,7 +86,7 @@ GTM_RWLockDestroy(GTM_RWLock *lock)
 bool
 GTM_RWLockConditionalAcquire(GTM_RWLock *lock, GTM_LockMode mode)
 {
-	int status;
+	int status = EINVAL;
 
 	switch (mode)
 	{

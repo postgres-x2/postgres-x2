@@ -5672,7 +5672,7 @@ recoveryStopsHere(XLogRecord *record, bool *includeThis)
 	bool		stopsHere;
 #ifdef PGXC
 	bool		stopsAtThisBarrier = false;
-	char		*recordBarrierId;
+	char		*recordBarrierId = NULL;
 #endif
 	uint8		record_info;
 	TimestampTz recordXtime;
@@ -5726,7 +5726,7 @@ recoveryStopsHere(XLogRecord *record, bool *includeThis)
 					(errmsg("processing barrier xlog record for %s", recordBarrierId)));
 		}
 	}
-#endif	
+#endif
 	else if (record->xl_rmid == RM_XLOG_ID && record_info == XLOG_RESTORE_POINT)
 	{
 		xl_restore_point *recordRestorePointData;

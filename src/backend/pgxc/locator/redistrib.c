@@ -701,7 +701,7 @@ distrib_delete_hash(RedistribState *distribState, ExecNodes *exec_nodes)
 	foreach(item, exec_nodes->nodeList)
 	{
 		StringInfo	buf2;
-		char	   *hashfuncname, *colname;
+		char	   *hashfuncname, *colname = NULL;
 		Oid			hashtype;
 		RelationLocInfo *locinfo = RelationGetLocInfo(rel);
 		int			nodenum = lfirst_int(item);

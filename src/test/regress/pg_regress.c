@@ -197,6 +197,14 @@ psql_command(const char *database, const char *query,...)
    the supplied arguments. */
 __attribute__((format(PG_PRINTF_ATTRIBUTE, 2, 3)));
 
+#ifdef PGXC
+static void
+psql_command_node(const char *database, PGXCNodeTypeNum node, const char *query,...)
+/* This extension allows gcc to check the format string for consistency with
+   the supplied arguments. */
+__attribute__((format(PG_PRINTF_ATTRIBUTE, 3, 4)));
+#endif
+
 #ifdef WIN32
 typedef BOOL (WINAPI * __CreateRestrictedToken) (HANDLE, DWORD, DWORD, PSID_AND_ATTRIBUTES, DWORD, PLUID_AND_ATTRIBUTES, DWORD, PSID_AND_ATTRIBUTES, PHANDLE);
 

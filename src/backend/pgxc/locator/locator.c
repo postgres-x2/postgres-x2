@@ -777,7 +777,7 @@ GetRelationNodesByQuals(Oid reloid, Index varno, Node *quals,
 char
 ConvertToLocatorType(int disttype)
 {
-	char		loctype;
+	char		loctype = LOCATOR_TYPE_NONE;
 
 	switch (disttype)
 	{

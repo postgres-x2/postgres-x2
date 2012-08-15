@@ -3150,8 +3150,7 @@ RegisterProxy(bool is_reconnect)
 	GTM_Result *res = NULL;
 	char proxyname[] = "";
 	time_t finish_time;
-
-	MemoryContext old_mcxt;
+	MemoryContext old_mcxt = NULL;
 
 	if (is_reconnect)
 	{

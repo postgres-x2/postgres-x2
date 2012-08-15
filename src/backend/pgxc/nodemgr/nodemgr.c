@@ -335,9 +335,8 @@ PgxcNodeListAndCount(void)
 				node = &coDefs[(*shmemNumCoords)++];
 				break;
 			case PGXC_NODE_DATANODE:
-				node = &dnDefs[(*shmemNumDataNodes)++];
-				break;
 			default:
+				node = &dnDefs[(*shmemNumDataNodes)++];
 				break;
 		}
 

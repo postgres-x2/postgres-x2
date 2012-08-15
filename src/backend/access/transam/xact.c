@@ -2533,7 +2533,7 @@ PrepareTransaction(void)
 	TimestampTz prepared_at;
 #ifdef PGXC
 	bool		isImplicit = !(s->blockState == TBLOCK_PREPARE);
-	char		*nodestring;
+	char		*nodestring = NULL;
 #endif
 
 	ShowTransactionState("PrepareTransaction");

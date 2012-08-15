@@ -106,7 +106,9 @@ __attribute__((format(printf, 2, 3)));
  * without modifying str.  Typically the caller would enlarge str and retry
  * on false return --- see appendStringInfo for standard usage pattern.
  */
-extern bool appendStringInfoVA(StringInfo str, const char *fmt, va_list args);
+extern bool
+appendStringInfoVA(StringInfo str, const char *fmt, va_list args)
+__attribute__((format(printf, 2, 0)));
 
 /*------------------------
  * appendStringInfoString

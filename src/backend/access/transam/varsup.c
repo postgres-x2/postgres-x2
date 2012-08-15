@@ -112,7 +112,10 @@ GetNewTransactionId(bool isSubXact)
 		elog(ERROR, "cannot assign TransactionIds during recovery");
 
 #ifdef PGXC
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord() || IsPGXCNodeXactDatanodeDirect())
+	/* Initialize transaction ID */
+	xid = InvalidTransactionId;
+
+	if ((IS_PGXC_COORDINATOR && !IsConnFromCoord()) || IsPGXCNodeXactDatanodeDirect())
 	{
 		/*
 		 * Get XID from GTM before acquiring the lock.
@@ -134,7 +137,7 @@ GetNewTransactionId(bool isSubXact)
 
 #ifdef PGXC
 	/* Only remote Coordinator or a Datanode accessed directly by an application can get a GXID */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord() || IsPGXCNodeXactDatanodeDirect())
+	if ((IS_PGXC_COORDINATOR && !IsConnFromCoord()) || IsPGXCNodeXactDatanodeDirect())
 	{
 		if (TransactionIdIsValid(xid))
 		{

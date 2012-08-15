@@ -2925,8 +2925,8 @@ do_query(RemoteQueryState *node)
 	PGXCNodeHandle		**connections = NULL;
 	PGXCNodeHandle		*primaryconnection = NULL;
 	int			i;
-	int			regular_conn_count;
-	int			total_conn_count;
+	int			regular_conn_count = 0;
+	int			total_conn_count = 0;
 	bool			need_tran_block;
 	PGXCNodeAllHandles	*pgxc_connections;
 

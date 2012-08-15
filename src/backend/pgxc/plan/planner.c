@@ -102,7 +102,7 @@ make_ctid_col_ref(Query *qry)
 	ListCell		*lc1, *lc2;
 	RangeTblEntry		*rte1, *rte2;
 	int			tableRTEs, firstTableRTENumber;
-	RangeTblEntry		*rte_in_query;
+	RangeTblEntry		*rte_in_query = NULL;
 	AttrNumber		attnum;
 	Oid			vartypeid;
 	int32			type_mod;
@@ -165,6 +165,7 @@ make_ctid_col_ref(Query *qry)
 	}
 
 	attnum = specialAttNum("ctid");
+	Assert(rte_in_query);
 	get_rte_attribute_type(rte_in_query, attnum, &vartypeid, &type_mod, &varcollid);
 	return makeVar(firstTableRTENumber, attnum, vartypeid, type_mod, varcollid, 0);
 }
@@ -1325,7 +1326,7 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 	CmdType command_type = query->commandType;
 	bool for_update = query->rowMarks ? true : false;
 	ExecNodes	*rel_exec_nodes;
-	RelationAccessType rel_access;
+	RelationAccessType rel_access = RELATION_ACCESS_READ;
 	RelationLocInfo *rel_loc_info;
 
 	Assert(rte == rt_fetch(varno, (query->rtable)));

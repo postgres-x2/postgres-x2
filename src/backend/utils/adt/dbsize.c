@@ -1051,7 +1051,7 @@ pgxc_exec_sizefunc(Oid relOid, char *funcname, char *extra_arg)
 {
 	int             numnodes;
 	Oid            *nodelist;
-	char           *relname;
+	char           *relname = NULL;
 	StringInfoData  buf;
 	Relation        rel;
 

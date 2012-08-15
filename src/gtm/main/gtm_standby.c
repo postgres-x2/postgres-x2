@@ -410,7 +410,7 @@ gtm_standby_disconnect_from_standby(GTM_Conn *conn)
 GTM_Conn *
 gtm_standby_reconnect_to_standby(GTM_Conn *old_conn, int retry_max)
 {
-	GTM_Conn *newconn;
+	GTM_Conn *newconn = NULL;
 	int report;
 	int i;
 

@@ -304,7 +304,7 @@ DefineSequence(CreateSeqStmt *seq)
 		if (CreateSequenceGTM(seqname,
 							  increment,
 							  min_value,
-							  max_value, 
+							  max_value,
 				start_value, cycle) < 0)
 		{
 			ereport(ERROR,

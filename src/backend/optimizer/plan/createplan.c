@@ -6654,7 +6654,7 @@ static List *
 pgxc_add_node_to_grouping_tlist(List *remote_tlist, Node *expr, Index ressortgroupref)
 {
 	TargetEntry *remote_tle;
-	Oid			saved_aggtype;
+	Oid			saved_aggtype = InvalidOid;
 
 	/*
 	 * When we add an aggregate to the remote targetlist the aggtype of such

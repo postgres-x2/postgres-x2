@@ -249,7 +249,7 @@ connectFailureMessage(GTM_Conn *conn, int errorno)
 static int
 connectGTMStart(GTM_Conn *conn)
 {
-	int			portnum;
+	int			portnum = 0;
 	char		portstr[128];
 	struct addrinfo *addrs = NULL;
 	struct addrinfo hint;
@@ -1006,7 +1006,7 @@ GTMPQconninfoParse(const char *conninfo, char **errmsg)
 	if (errmsg)
 		*errmsg = NULL;			/* default */
 	initGTMPQExpBuffer(&errorBuf);
-	if (PQExpBufferBroken(&errorBuf))
+	if (PQExpBufferDataBroken(errorBuf))
 		return NULL;			/* out of memory already :-( */
 	connOptions = conninfo_parse(conninfo, &errorBuf, false);
 	if (connOptions == NULL && errmsg)
