@@ -140,7 +140,7 @@ char	   *index_tablespace = NULL;
 #define naccounts	100000
 
 #ifdef PGXC
-bool		use_branch = true;	/* use branch id in DDL and DML */
+bool		use_branch = false;	/* use branch id in DDL and DML */
 #endif
 bool		use_log;			/* log transaction latencies to a file */
 bool		is_connect;			/* establish connection for each transaction */
@@ -264,17 +264,17 @@ static char *tpc_b = {
 
 #ifdef PGXC
 static char *tpc_b_bid = {
-	"\\set nbranches :scale\n"
-	"\\set ntellers 10 * :scale\n"
-	"\\set naccounts 100000 * :scale\n"
+	"\\set nbranches " CppAsString2(nbranches) " * :scale\n"
+	"\\set ntellers " CppAsString2(ntellers) " * :scale\n"
+	"\\set naccounts " CppAsString2(naccounts) " * :scale\n"
 	"\\setrandom aid 1 :naccounts\n"
 	"\\setrandom bid 1 :nbranches\n"
 	"\\setrandom tid 1 :ntellers\n"
 	"\\setrandom delta -5000 5000\n"
 	"BEGIN;\n"
-	"UPDATE pgbench_accounts SET abalance = abalance + :delta WHERE aid = :aid;\n"
-	"SELECT abalance FROM pgbench_accounts WHERE aid = :aid\n"
-	"UPDATE pgbench_tellers SET tbalance = tbalance + :delta WHERE tid = :tid;\n"
+	"UPDATE pgbench_accounts SET abalance = abalance + :delta WHERE aid = :aid AND bid = :bid;\n"
+	"SELECT abalance FROM pgbench_accounts WHERE aid = :aid AND bid = :bid\n"
+	"UPDATE pgbench_tellers SET tbalance = tbalance + :delta WHERE tid = :tid AND bid = :bid;\n"
 	"UPDATE pgbench_branches SET bbalance = bbalance + :delta WHERE bid = :bid;\n"
 	"INSERT INTO pgbench_history (tid, bid, aid, delta, mtime) VALUES (:tid, :bid, :aid, :delta, CURRENT_TIMESTAMP);\n"
 	"END;\n"
@@ -300,9 +300,9 @@ static char *simple_update = {
 
 #ifdef PGXC
 static char *simple_update_bid = {
-	"\\set nbranches :scale\n"
-	"\\set ntellers 10 * :scale\n"
-	"\\set naccounts 100000 * :scale\n"
+	"\\set nbranches " CppAsString2(nbranches) " * :scale\n"
+	"\\set ntellers " CppAsString2(ntellers) " * :scale\n"
+	"\\set naccounts " CppAsString2(naccounts) " * :scale\n"
 	"\\setrandom aid 1 :naccounts\n"
 	"\\setrandom bid 1 :nbranches\n"
 	"\\setrandom tid 1 :ntellers\n"
@@ -383,7 +383,7 @@ usage(const char *progname)
 		   "  -i           invokes initialization mode\n"
 		   "  -F NUM       fill factor\n"
 #ifdef PGXC
-		   "  -k           distribute by primary key (default: branch id - bid)\n"
+		   "  -k           distribute by primary key branch id - bid\n"
 #endif
 		   "  -s NUM       scaling factor\n"
 		   "  --index-tablespace=TABLESPACE\n"
@@ -399,7 +399,7 @@ usage(const char *progname)
 		   "               define variable for use by custom script\n"
 		   "  -f FILENAME  read transaction script from FILENAME\n"
 #ifdef PGXC
-		   "  -k           query with key only, no branch id (bid)\n"
+		   "  -k           query with default key and additional key branch id (bid)\n"
 #endif
 		   "  -j NUM       number of threads (default: 1)\n"
 		   "  -l           write transaction times to log file\n"
@@ -1336,7 +1336,7 @@ init(void)
 			"tid int not null,bid int,tbalance int,filler char(84)",
 			1
 #ifdef PGXC
-			, "distribute by hash (tid)"
+			, "distribute by hash (bid)"
 #endif
 		},
 		{
@@ -1344,7 +1344,7 @@ init(void)
 			"aid int not null,bid int,abalance int,filler char(84)",
 			1
 #ifdef PGXC
-			, "distribute by hash (aid)"
+			, "distribute by hash (bid)"
 #endif
 		},
 		{
@@ -1362,6 +1362,14 @@ init(void)
 		"alter table pgbench_tellers add primary key (tid)",
 		"alter table pgbench_accounts add primary key (aid)"
 	};
+
+#ifdef PGXC
+	static char *DDLAFTERs_bid[] = {
+		"alter table pgbench_branches add primary key (bid)",
+		"alter table pgbench_tellers add primary key (tid,bid)",
+		"alter table pgbench_accounts add primary key (aid,bid)"
+	};
+#endif
 
 	PGconn	   *con;
 	PGresult   *res;
@@ -1396,15 +1404,17 @@ init(void)
 					 " tablespace %s", escape_tablespace);
 			PQfreemem(escape_tablespace);
 		}
-		snprintf(buffer, 256, "create%s table %s(%s)%s",
-				 unlogged_tables ? " unlogged" : "",
-				 ddl->table, ddl->cols, opts);
-
 #ifdef PGXC
 		/* Add distribution columns if necessary */
 		if (use_branch)
-			snprintf(buffer, 256, buffer, ddl->distribute_by);
+			snprintf(buffer, 256, "create%s table %s(%s)%s %s",
+					 unlogged_tables ? " unlogged" : "",
+					 ddl->table, ddl->cols, opts, ddl->distribute_by);
+		else
 #endif
+		snprintf(buffer, 256, "create%s table %s(%s)%s",
+				 unlogged_tables ? " unlogged" : "",
+				 ddl->table, ddl->cols, opts);
 
 		executeStatement(con, buffer);
 	}
@@ -1472,6 +1482,35 @@ init(void)
 	 * create indexes
 	 */
 	fprintf(stderr, "set primary key...\n");
+#ifdef PGXC
+	/*
+	 * If all the tables are distributed according to bid, create an index on it
+	 * instead.
+	 */
+	if (use_branch)
+	{
+		for (i = 0; i < lengthof(DDLAFTERs_bid); i++)
+		{
+			char		buffer[256];
+
+			strncpy(buffer, DDLAFTERs_bid[i], 256);
+
+			if (index_tablespace != NULL)
+			{
+				char	   *escape_tablespace;
+
+				escape_tablespace = PQescapeIdentifier(con, index_tablespace,
+												   strlen(index_tablespace));
+				snprintf(buffer + strlen(buffer), 256 - strlen(buffer),
+						 " using index tablespace %s", escape_tablespace);
+				PQfreemem(escape_tablespace);
+			}
+
+			executeStatement(con, buffer);
+		}
+	}
+	else
+#endif
 	for (i = 0; i < lengthof(DDLAFTERs); i++)
 	{
 		char		buffer[256];
@@ -1994,7 +2033,7 @@ main(int argc, char **argv)
 				break;
 #ifdef PGXC
 			case 'k':
-				use_branch = false;
+				use_branch = true;
 				break;
 #endif
 			case 'h':
