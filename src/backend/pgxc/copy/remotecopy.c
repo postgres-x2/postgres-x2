@@ -117,7 +117,8 @@ RemoteCopy_BuildStatement(RemoteCopyData *state,
 	 */
 	initStringInfo(&state->query_buf);
 	appendStringInfoString(&state->query_buf, "COPY ");
-	appendStringInfo(&state->query_buf, "%s", RelationGetRelationName(rel));
+	appendStringInfo(&state->query_buf, "%s",
+					 quote_identifier(RelationGetRelationName(rel)));
 
 	if (attnamelist)
 	{
