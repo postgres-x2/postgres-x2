@@ -4452,7 +4452,8 @@ build_copy_statement(CopyState cstate, List *attnamelist,
 	initStringInfo(&cstate->query_buf);
 
 	appendStringInfoString(&cstate->query_buf, "COPY ");
-	appendStringInfo(&cstate->query_buf, "%s", RelationGetRelationName(cstate->rel));
+	appendStringInfo(&cstate->query_buf, "%s",
+					 quote_identifier(RelationGetRelationName(cstate->rel)));
 
 	if (attnamelist)
 	{
