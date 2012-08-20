@@ -73,10 +73,6 @@ static PlannedStmt *pgxc_FQS_planner(Query *query, int cursorOptions,
 static bool pgxc_query_needs_coord(Query *query);
 static ExecNodes *pgxc_is_query_shippable(Query *query, int query_level);
 static void pgxc_FQS_find_datanodes(Shippability_context *sc_context);
-static ExecNodes *pgxc_merge_exec_nodes(ExecNodes *exec_nodes1,
-										ExecNodes *exec_nodes2,
-										bool merge_dist_equijoin,
-										bool merge_replicated_only);
 static PlannedStmt *pgxc_handle_exec_direct(Query *query, int cursorOptions,
 												ParamListInfo boundParams);
 static RemoteQuery *pgxc_FQS_create_remote_plan(Query *query,
@@ -84,11 +80,9 @@ static RemoteQuery *pgxc_FQS_create_remote_plan(Query *query,
 												bool is_exec_direct);
 static ExecNodes *pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno,
 												Query *query);
-static bool pgxc_qual_hash_dist_equijoin(Relids varnos_1, Relids varnos_2,
-											Oid distcol_type, Node *quals,
-											List *rtable);
 static bool VarAttrIsPartAttr(Var *var, List *rtable);
-static void pgxc_set_shippability_reason(Shippability_context *context, ShippabilityStat reason);
+static void pgxc_set_shippability_reason(Shippability_context *context,
+											ShippabilityStat reason);
 
 /*
  * make_ctid_col_ref
@@ -884,7 +878,7 @@ pgxc_is_query_shippable(Query *query, int query_level)
  * exec_node corresponds to the JOIN of respective relations.
  * If both exec_nodes can not be merged, it returns NULL.
  */
-static ExecNodes *
+ExecNodes *
 pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2, bool merge_dist_equijoin,
 						bool merge_replicated_only)
 {
@@ -1223,13 +1217,16 @@ pgxc_FQS_find_datanodes(Shippability_context *sc_context)
 	return;
 }
 
-static bool
+bool
 pgxc_qual_hash_dist_equijoin(Relids varnos_1, Relids varnos_2, Oid distcol_type,
 								Node *quals, List *rtable)
 {
 	List		*lquals;
 	ListCell	*qcell;
 
+	/* If no quals, no equijoin */
+	if (!quals)
+		return false;
 	/*
 	 * Make a copy of the argument bitmaps, it will be modified by
 	 * bms_first_member().
@@ -1237,7 +1234,11 @@ pgxc_qual_hash_dist_equijoin(Relids varnos_1, Relids varnos_2, Oid distcol_type,
 	varnos_1 = bms_copy(varnos_1);
 	varnos_2 = bms_copy(varnos_2);
 
-	lquals = make_ands_implicit((Expr *)quals);
+	if (!IsA(quals, List))
+		lquals = make_ands_implicit((Expr *)quals);
+	else
+		lquals = (List *)quals;
+
 	foreach(qcell, lquals)
 	{
 		Expr *qual_expr = (Expr *)lfirst(qcell);
@@ -1870,114 +1871,6 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 			break;
 	}
 	return expression_tree_walker(node, pgxc_shippability_walker, (void *)sc_context);
-}
-
-/*
- * See if we can reduce the passed in RemoteQuery nodes to a single step.
- *
- * We need to check when we can further collapse already collapsed nodes.
- * We cannot always collapse- we do not want to allow a replicated table
- * to be used twice. That is if we have
- *
- *     partitioned_1 -- replicated -- partitioned_2
- *
- * partitioned_1 and partitioned_2 cannot (usually) be safely joined only
- * locally.
- * We can do this by checking (may need tracking) what type it is,
- * and looking at context->conditions->replicated_joins
- *
- * The following cases are possible, and whether or not it is ok
- * to reduce.
- *
- * If the join between the two RemoteQuery nodes is replicated
- *
- *      Node 1            Node 2
- * rep-part folded   rep-part  folded    ok to reduce?
- *    0       0         0         1       1
- *    0       0         1         1       1
- *    0       1         0         1       1
- *    0       1         1         1       1
- *    1       1         1         1       0
- *
- *
- * If the join between the two RemoteQuery nodes is replicated - partitioned
- *
- *      Node 1            Node 2
- * rep-part folded   rep-part  folded    ok to reduce?
- *    0       0         0         1       1
- *    0       0         1         1       0
- *    0       1         0         1       1
- *    0       1         1         1       0
- *    1       1         1         1       0
- *
- *
- * If the join between the two RemoteQuery nodes is partitioned - partitioned
- * it is always reducibile safely,
- *
- * RemoteQuery *innernode  - the inner node
- * RemoteQuery *outernode  - the outer node
- * List *rtable_list	   - rtables
- * JoinPath *join_path	   - used to examine join restrictions
- * PGXCJoinInfo *join_info - contains info about the join reduction
- * join_info->partitioned_replicated  is set to true if we have a partitioned-replicated
- *                          join. We want to use replicated tables with non-replicated
- *                          tables ony once. Only use this value if this function
- *							returns true.
- */
-ExecNodes *
-IsJoinReducible(RemoteQuery *innernode, RemoteQuery *outernode, Relids in_relids, Relids out_relids,
-				Join *join, JoinPath *join_path, List *rtables)
-{
-	ExecNodes 	*join_exec_nodes;
-	bool		merge_dist_equijoin = false;
-	bool		merge_replicated_only;
-	ListCell	*cell;
-	ExecNodes	*inner_en = innernode->exec_nodes;
-	ExecNodes	*outer_en = outernode->exec_nodes;
-	List		*quals = join->joinqual;
-
-	/*
-	 * When join type is other than INNER, we will get the unmatched rows on
-	 * either side. The result will be correct only in case both the sides of
-	 * join are replicated. In case one of the sides is replicated, and the
-	 * unmatched results are not coming from that side, it might be possible to
-	 * ship such join, but this needs to be validated from correctness
-	 * perspective.
-	 */
-	merge_replicated_only = (join->jointype != JOIN_INNER);
-
-	/*
-	 * If both the relations are distributed with similar distribution strategy
-	 * walk through the restriction info for this JOIN to find if there is an
-	 * equality condition on the distributed columns of both the relations. In
-	 * such case, we can reduce the JOIN if the distribution nodelist is also
-	 * same.
-	 */
-	if (IsLocatorDistributedByValue(inner_en->baselocatortype) &&
-		inner_en->baselocatortype == outer_en->baselocatortype &&
-		!merge_replicated_only)
-	{
-		foreach(cell, quals)
-		{
-			Node	*qual = (Node *)lfirst(cell);
-			if (pgxc_qual_hash_dist_equijoin(in_relids, out_relids, InvalidOid,
-												qual, rtables))
-			{
-				merge_dist_equijoin = true;
-				break;
-			}
-		}
-	}
-	/*
-	 * If the ExecNodes of inner and outer nodes can be merged, the JOIN is
-	 * shippable
-	 * PGXCTODO: Can we take into consideration the JOIN conditions to optimize
-	 * further?
-	 */
-	join_exec_nodes = pgxc_merge_exec_nodes(inner_en, outer_en,
-											merge_dist_equijoin,
-											merge_replicated_only);
-	return join_exec_nodes;
 }
 
 /*

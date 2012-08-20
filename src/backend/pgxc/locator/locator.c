@@ -127,30 +127,30 @@ static const unsigned int xc_mod_r[][6] =
 List *
 GetPreferredReplicationNode(List *relNodes)
 {
-	/*
-	 * Try to find the first node in given list relNodes
-	 * that is in the list of preferred nodes
-	 */
-	if (num_preferred_data_nodes != 0)
+	ListCell	*item;
+	int			nodeid = -1;
+
+	if (list_length(relNodes) <= 0)
+		elog(ERROR, "a list of nodes should have at least one node");
+
+	foreach(item, relNodes)
 	{
-		ListCell	*item;
-		foreach(item, relNodes)
+		int cnt_nodes;
+		for (cnt_nodes = 0;
+				cnt_nodes < num_preferred_data_nodes && nodeid < 0;
+				cnt_nodes++)
 		{
-			int		relation_nodeid = lfirst_int(item);
-			int		i;
-			for (i = 0; i < num_preferred_data_nodes; i++)
-			{
-				int nodeid = PGXCNodeGetNodeId(preferred_data_node[i], PGXC_NODE_DATANODE);
-
-				/* OK, found one */
-				if (nodeid == relation_nodeid)
-					return lappend_int(NULL, nodeid);
-			}
+			if (PGXCNodeGetNodeId(preferred_data_node[cnt_nodes],
+								  PGXC_NODE_DATANODE) == lfirst_int(item))
+				nodeid = lfirst_int(item);
 		}
+		if (nodeid >= 0)
+			break;
 	}
+	if (nodeid < 0)
+		return list_make1_int(linitial_int(relNodes));
 
-	/* Nothing found? Return the first one in relation node list */
-	return lappend_int(NULL, linitial_int(relNodes));
+	return list_make1_int(nodeid);
 }
 
 /*
@@ -1053,9 +1053,19 @@ static Expr *
 pgxc_find_distcol_expr(Index varno, PartAttrNumber partAttrNum,
 												Node *quals)
 {
-	/* Convert the qualification into list of arguments of AND */
-	List *lquals = make_ands_implicit((Expr *)quals);
+	List *lquals;
 	ListCell *qual_cell;
+
+	/* If no quals, no distribution column expression */
+	if (!quals)
+		return NULL;
+
+	/* Convert the qualification into List if it's not already so */
+	if (!IsA(quals, List))
+		lquals = make_ands_implicit((Expr *)quals);
+	else
+		lquals = (List *)quals;
+
 	/*
 	 * For every ANDed expression, check if that expression is of the form
 	 * <distribution_col> = <expr>. If so return expr.

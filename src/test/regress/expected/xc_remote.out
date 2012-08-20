@@ -393,7 +393,7 @@ $$begin return 3;end $$ language plpgsql;
            ->  Aggregate
                  Output: avg(xcrem_employee.salary)
                  ->  Data Node Scan on xcrem_employee "_REMOTE_TABLE_QUERY_"
-                       Output: xcrem_employee.salary, xcrem_employee.workdept
+                       Output: xcrem_employee.salary
                        Remote query: SELECT salary, workdept FROM ONLY xcrem_employee WHERE true
                        Coordinator quals: ("substring"((e.workdept)::text, 1, 1) = "substring"((xcrem_employee.workdept)::text, 1, 1))
 (14 rows)
@@ -435,7 +435,7 @@ $$begin return 3;end $$ language plpgsql;
            ->  Aggregate
                  Output: avg(xcrem_employee.edlevel)
                  ->  Data Node Scan on xcrem_employee "_REMOTE_TABLE_QUERY_"
-                       Output: xcrem_employee.edlevel, xcrem_employee.workdept
+                       Output: xcrem_employee.edlevel
                        Remote query: SELECT edlevel, workdept FROM ONLY xcrem_employee WHERE true
                        Coordinator quals: (xcrem_employee.workdept = e.workdept)
 (14 rows)
@@ -570,7 +570,7 @@ insert into xcrem_employee select * from xcrem_temptable;
            ->  Aggregate
                  Output: avg(xcrem_employee.edlevel)
                  ->  Data Node Scan on xcrem_employee "_REMOTE_TABLE_QUERY_"
-                       Output: xcrem_employee.edlevel, xcrem_employee.workdept
+                       Output: xcrem_employee.edlevel
                        Remote query: SELECT edlevel, workdept FROM ONLY xcrem_employee WHERE true
                        Coordinator quals: (xcrem_employee.workdept = e.workdept)
 (13 rows)
@@ -608,7 +608,7 @@ insert into xcrem_employee select * from xcrem_temptable;
            ->  Aggregate
                  Output: avg(xcrem_employee.salary)
                  ->  Data Node Scan on xcrem_employee "_REMOTE_TABLE_QUERY_"
-                       Output: xcrem_employee.salary, xcrem_employee.workdept
+                       Output: xcrem_employee.salary
                        Remote query: SELECT salary, workdept FROM ONLY xcrem_employee WHERE true
                        Coordinator quals: ("substring"((e.workdept)::text, 1, 1) = "substring"((xcrem_employee.workdept)::text, 1, 1))
 (13 rows)

@@ -1498,32 +1498,6 @@ search_indexed_tlist_for_non_var(Node *node,
 	return NULL;				/* no match */
 }
 
-#ifdef PGXC
-/*  
- * search_tlist_for_var --- find a Var in the provided tlist. This does a
- * basic scan through the list. So not very efficient...
- *
- * If no match, return NULL.
- *
- */     
-Var *
-search_tlist_for_var(Var *var, List *jtlist)
-{           
-	Index       varno = var->varno;
-	AttrNumber  varattno = var->varattno;
-	ListCell   *l; 
-
-	foreach(l, jtlist)
-	{
-		Var *listvar = (Var *) lfirst(l);
-
-		if (listvar->varno == varno && listvar->varattno == varattno)
-			return var;
-	}   
-	return NULL;                /* no match */
-}       
-#endif
-
 /*
  * search_indexed_tlist_for_sortgroupref --- find a sort/group expression
  *		(which is assumed not to be just a Var)
@@ -2135,11 +2109,3 @@ set_remote_references(PlannerInfo *root, RemoteQuery *rscan, int rtoffset)
 
 	pfree(base_itlist);
 }
-
-#ifdef PGXC
-Node *
-pgxc_fix_scan_expr(PlannerInfo *root, Node *node, int rtoffset)
-{
-	return fix_scan_expr(root, node, rtoffset);
-}
-#endif /* PGXC */

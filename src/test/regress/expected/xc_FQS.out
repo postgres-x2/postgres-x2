@@ -47,13 +47,13 @@ select sum(val), avg(val), count(*) from tab1_rr;
 (1 row)
 
 explain (costs off, verbose on, nodes off) select sum(val), avg(val), count(*) from tab1_rr;
-                                                              QUERY PLAN                                                              
---------------------------------------------------------------------------------------------------------------------------------------
+                                              QUERY PLAN                                               
+-------------------------------------------------------------------------------------------------------
  Aggregate
    Output: pg_catalog.sum((sum(tab1_rr.val))), pg_catalog.avg((avg(tab1_rr.val))), pg_catalog.count(*)
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (sum(tab1_rr.val)), (avg(tab1_rr.val)), (count(*))
-         Remote query: SELECT sum(group_1.val), avg(group_1.val), count(*)  FROM (SELECT val FROM ONLY tab1_rr WHERE true) group_1   
+         Remote query: SELECT sum(val), avg(val), count(*) FROM ONLY tab1_rr WHERE true
 (5 rows)
 
 -- should not get FQSed because of window functions
@@ -160,13 +160,13 @@ select val, val2 from tab1_rr where val2 = 8 group by val, val2;
 (1 row)
 
 explain (costs off, verbose on, nodes off) select val, val2 from tab1_rr where val2 = 8 group by val, val2;
-                                                                 QUERY PLAN                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------
+                                          QUERY PLAN                                          
+----------------------------------------------------------------------------------------------
  HashAggregate
    Output: tab1_rr.val, tab1_rr.val2
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: tab1_rr.val, tab1_rr.val2
-         Remote query: SELECT group_1.val, group_1.val2  FROM (SELECT val, val2 FROM ONLY tab1_rr WHERE (val2 = 8)) group_1 GROUP BY 1, 2  
+         Remote query: SELECT val, val2 FROM ONLY tab1_rr WHERE (val2 = 8) GROUP BY val, val2
 (5 rows)
 
 -- should not get FQSed because of HAVING clause
@@ -177,14 +177,14 @@ select sum(val) from tab1_rr where val2 = 2 group by val2 having sum(val) > 1;
 (1 row)
 
 explain (costs off, verbose on, nodes off) select sum(val) from tab1_rr where val2 = 2 group by val2 having sum(val) > 1;
-                                                                  QUERY PLAN                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------
+                                          QUERY PLAN                                          
+----------------------------------------------------------------------------------------------
  GroupAggregate
    Output: pg_catalog.sum((sum(tab1_rr.val))), tab1_rr.val2
    Filter: (pg_catalog.sum((sum(tab1_rr.val))) > 1)
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (sum(tab1_rr.val)), tab1_rr.val2
-         Remote query: SELECT sum(group_1.val), group_1.val2  FROM (SELECT val2, val FROM ONLY tab1_rr WHERE (val2 = 2)) group_1 GROUP BY 2  
+         Remote query: SELECT sum(val), val2 FROM ONLY tab1_rr WHERE (val2 = 2) GROUP BY val2
 (6 rows)
 
 -- tests for node reduction by application of quals, for round robin node
@@ -273,13 +273,13 @@ select avg(val) from tab1_rr where val = 7;
 (1 row)
 
 explain (costs off, verbose on, nodes off) select avg(val) from tab1_rr where val = 7;
-                                                  QUERY PLAN                                                   
----------------------------------------------------------------------------------------------------------------
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
  Aggregate
    Output: pg_catalog.avg((avg(tab1_rr.val)))
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (avg(tab1_rr.val))
-         Remote query: SELECT avg(group_1.val)  FROM (SELECT val FROM ONLY tab1_rr WHERE (val = 7)) group_1   
+         Remote query: SELECT avg(val) FROM ONLY tab1_rr WHERE (val = 7)
 (5 rows)
 
 select val, val2 from tab1_rr where val = 7 order by val2;
@@ -393,13 +393,13 @@ select sum(val), avg(val), count(*) from tab1_hash;
 (1 row)
 
 explain (costs off, verbose on, nodes off) select sum(val), avg(val), count(*) from tab1_hash;
-                                                               QUERY PLAN                                                               
-----------------------------------------------------------------------------------------------------------------------------------------
+                                                QUERY PLAN                                                 
+-----------------------------------------------------------------------------------------------------------
  Aggregate
    Output: pg_catalog.sum((sum(tab1_hash.val))), pg_catalog.avg((avg(tab1_hash.val))), pg_catalog.count(*)
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (sum(tab1_hash.val)), (avg(tab1_hash.val)), (count(*))
-         Remote query: SELECT sum(group_1.val), avg(group_1.val), count(*)  FROM (SELECT val FROM ONLY tab1_hash WHERE true) group_1   
+         Remote query: SELECT sum(val), avg(val), count(*) FROM ONLY tab1_hash WHERE true
 (5 rows)
 
 -- should not get FQSed because of window functions
@@ -506,13 +506,13 @@ select val, val2 from tab1_hash where val2 = 8 group by val, val2;
 (1 row)
 
 explain (costs off, verbose on, nodes off) select val, val2 from tab1_hash where val2 = 8 group by val, val2;
-                                                                  QUERY PLAN                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
  HashAggregate
    Output: tab1_hash.val, tab1_hash.val2
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: tab1_hash.val, tab1_hash.val2
-         Remote query: SELECT group_1.val, group_1.val2  FROM (SELECT val, val2 FROM ONLY tab1_hash WHERE (val2 = 8)) group_1 GROUP BY 1, 2  
+         Remote query: SELECT val, val2 FROM ONLY tab1_hash WHERE (val2 = 8) GROUP BY val, val2
 (5 rows)
 
 -- should not get FQSed because of HAVING clause
@@ -523,14 +523,14 @@ select sum(val) from tab1_hash where val2 = 2 group by val2 having sum(val) > 1;
 (1 row)
 
 explain (costs off, verbose on, nodes off) select sum(val) from tab1_hash where val2 = 2 group by val2 having sum(val) > 1;
-                                                                   QUERY PLAN                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
  GroupAggregate
    Output: pg_catalog.sum((sum(tab1_hash.val))), tab1_hash.val2
    Filter: (pg_catalog.sum((sum(tab1_hash.val))) > 1)
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (sum(tab1_hash.val)), tab1_hash.val2
-         Remote query: SELECT sum(group_1.val), group_1.val2  FROM (SELECT val2, val FROM ONLY tab1_hash WHERE (val2 = 2)) group_1 GROUP BY 2  
+         Remote query: SELECT sum(val), val2 FROM ONLY tab1_hash WHERE (val2 = 2) GROUP BY val2
 (6 rows)
 
 -- tests for node reduction by application of quals. Having query FQSed because of
@@ -731,13 +731,13 @@ select sum(val), avg(val), count(*) from tab1_modulo;
 (1 row)
 
 explain (costs off, verbose on, nodes off) select sum(val), avg(val), count(*) from tab1_modulo;
-                                                                QUERY PLAN                                                                
-------------------------------------------------------------------------------------------------------------------------------------------
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
  Aggregate
    Output: pg_catalog.sum((sum(tab1_modulo.val))), pg_catalog.avg((avg(tab1_modulo.val))), pg_catalog.count(*)
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (sum(tab1_modulo.val)), (avg(tab1_modulo.val)), (count(*))
-         Remote query: SELECT sum(group_1.val), avg(group_1.val), count(*)  FROM (SELECT val FROM ONLY tab1_modulo WHERE true) group_1   
+         Remote query: SELECT sum(val), avg(val), count(*) FROM ONLY tab1_modulo WHERE true
 (5 rows)
 
 -- should not get FQSed because of window functions
@@ -844,13 +844,13 @@ select val, val2 from tab1_modulo where val2 = 8 group by val, val2;
 (1 row)
 
 explain (costs off, verbose on, nodes off) select val, val2 from tab1_modulo where val2 = 8 group by val, val2;
-                                                                   QUERY PLAN                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
  HashAggregate
    Output: tab1_modulo.val, tab1_modulo.val2
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: tab1_modulo.val, tab1_modulo.val2
-         Remote query: SELECT group_1.val, group_1.val2  FROM (SELECT val, val2 FROM ONLY tab1_modulo WHERE (val2 = 8)) group_1 GROUP BY 1, 2  
+         Remote query: SELECT val, val2 FROM ONLY tab1_modulo WHERE (val2 = 8) GROUP BY val, val2
 (5 rows)
 
 -- should not get FQSed because of HAVING clause
@@ -861,14 +861,14 @@ select sum(val) from tab1_modulo where val2 = 2 group by val2 having sum(val) > 
 (1 row)
 
 explain (costs off, verbose on, nodes off) select sum(val) from tab1_modulo where val2 = 2 group by val2 having sum(val) > 1;
-                                                                    QUERY PLAN                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
  GroupAggregate
    Output: pg_catalog.sum((sum(tab1_modulo.val))), tab1_modulo.val2
    Filter: (pg_catalog.sum((sum(tab1_modulo.val))) > 1)
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (sum(tab1_modulo.val)), tab1_modulo.val2
-         Remote query: SELECT sum(group_1.val), group_1.val2  FROM (SELECT val2, val FROM ONLY tab1_modulo WHERE (val2 = 2)) group_1 GROUP BY 2  
+         Remote query: SELECT sum(val), val2 FROM ONLY tab1_modulo WHERE (val2 = 2) GROUP BY val2
 (6 rows)
 
 -- tests for node reduction by application of quals. Having query FQSed because of

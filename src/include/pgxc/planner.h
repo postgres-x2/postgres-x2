@@ -96,19 +96,23 @@ typedef struct
 							 */
 	RemoteQueryExecType	exec_type;
 	bool			is_temp;		/* determine if this remote node is based
-							 * on a temporary objects (no 2PC) */
+									 * on a temporary objects (no 2PC) */
 
-	int			reduce_level;		/* in case of reduced JOIN, it's level    */
-	List			*base_tlist;		/* in case of isReduced, the base tlist   */
-	char			*outer_alias;
-	char			*inner_alias;
-	int			outer_reduce_level;
-	int			inner_reduce_level;
-	Relids			outer_relids;
-	Relids			inner_relids;
-	char			*inner_statement;
-	char			*outer_statement;
-	char			*join_condition;
+	Query			*remote_query;	/* Query structure representing the query to be
+									 * sent to the datanodes
+									 */
+	List			*base_tlist;	/* the targetlist representing the result of
+									 * the query to be sent to the datanode
+									 */
+	/*
+	 * Reference targetlist of Vars to match the Vars in the plan nodes on
+	 * coordinator to the corresponding Vars in the remote_query. These
+	 * targetlists are used to while replacing/adding targetlist and quals in
+	 * the remote_query.
+	 */
+	List			*coord_var_tlist;
+	List			*query_var_tlist;
+	bool			is_shippable_tlist;
 	bool			has_row_marks;		/* Did SELECT had FOR UPDATE/SHARE? */
 	bool			has_ins_child_sel_parent;	/* This node is part of an INSERT SELECT that
 								 * inserts into child by selecting from its parent */
@@ -187,8 +191,18 @@ extern List *AddRemoteQueryNode(List *stmts, const char *queryString,
 								RemoteQueryExecType remoteExecType, bool is_temp);
 extern bool pgxc_query_contains_temp_tables(List *queries);
 extern bool pgxc_query_contains_utility(List *queries);
+/* TODO: We need a better place to keep these prototypes */
+extern bool pgxc_qual_hash_dist_equijoin(Relids varnos_1, Relids varnos_2,
+											Oid distcol_type, Node *quals,
+											List *rtable);
+extern ExecNodes *pgxc_merge_exec_nodes(ExecNodes *exec_nodes1,
+										ExecNodes *exec_nodes2,
+										bool merge_dist_equijoin,
+										bool merge_replicated_only);
 extern bool pgxc_shippability_walker(Node *node, Shippability_context *sc_context);
 extern bool pgxc_test_shippability_reason(Shippability_context *context,
 											ShippabilityStat reason);
+extern void pgxc_rqplan_adjust_tlist(RemoteQuery *rqplan);
+extern void pgxc_rqplan_adjust_vars(RemoteQuery *rqplan, Node *node);
 
 #endif   /* PGXCPLANNER_H */

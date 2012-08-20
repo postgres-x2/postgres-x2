@@ -36,11 +36,6 @@
 #include "optimizer/var.h"
 #include "parser/parse_clause.h"
 #include "parser/parsetree.h"
-#ifdef PGXC
-#include "catalog/pg_namespace.h"
-#include "catalog/pg_class.h"
-#include "pgxc/pgxc.h"
-#endif
 #include "rewrite/rewriteManip.h"
 #include "utils/lsyscache.h"
 
@@ -383,18 +378,7 @@ static void
 set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 {
 #ifdef PGXC
-	/*
-	 * If we are on the Coordinator, we always want to use
-	 * the remote query path unless it is a pg_catalog table
-	 * or a sequence relation.
-	 */
-	if (IS_PGXC_COORDINATOR &&
-		!IsConnFromCoord() &&
-		get_rel_namespace(rte->relid) != PG_CATALOG_NAMESPACE &&
-		get_rel_relkind(rte->relid) != RELKIND_SEQUENCE &&
-		!root->parse->is_local)
-		add_path(rel, create_remotequery_path(root, rel));
-	else
+	if (!create_plainrel_rqpath(root, rel, rte))
 	{
 #endif
 

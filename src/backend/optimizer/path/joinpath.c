@@ -196,6 +196,16 @@ add_paths_to_joinrel(PlannerInfo *root,
 		hash_inner_and_outer(root, joinrel, outerrel, innerrel,
 							 restrictlist, jointype,
 							 sjinfo, &semifactors, param_source_rels);
+
+#ifdef PGXC
+	/*
+	 * If the inner and outer relations have RemoteQuery paths, check if this
+	 * JOIN can be pushed to the data-nodes. If so, create a RemoteQuery path
+	 * corresponding to the this JOIN.
+	 */
+	create_joinrel_rqpath(root, joinrel, outerrel, innerrel, restrictlist,
+								jointype, sjinfo);
+#endif /* PGXC */
 }
 
 /*
@@ -1328,3 +1338,4 @@ select_mergejoin_clauses(PlannerInfo *root,
 
 	return result_list;
 }
+

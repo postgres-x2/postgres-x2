@@ -261,6 +261,9 @@ typedef enum NodeTag
 	T_PlaceHolderInfo,
 	T_MinMaxAggInfo,
 	T_PlannerParamItem,
+#ifdef PGXC
+	T_RemoteQueryPath,
+#endif /* PGXC */
 
 	/*
 	 * TAGS FOR MEMORY NODES (memnodes.h)

@@ -1034,17 +1034,11 @@ _copyRemoteQuery(const RemoteQuery *from)
 	COPY_SCALAR_FIELD(exec_type);
 	COPY_SCALAR_FIELD(is_temp);
 
-	COPY_SCALAR_FIELD(reduce_level);
+	COPY_NODE_FIELD(remote_query);
 	COPY_NODE_FIELD(base_tlist);
-	COPY_STRING_FIELD(outer_alias);
-	COPY_STRING_FIELD(inner_alias);
-	COPY_SCALAR_FIELD(outer_reduce_level);
-	COPY_SCALAR_FIELD(inner_reduce_level);
-	COPY_BITMAPSET_FIELD(outer_relids);
-	COPY_BITMAPSET_FIELD(inner_relids);
-	COPY_STRING_FIELD(inner_statement);
-	COPY_STRING_FIELD(outer_statement);
-	COPY_STRING_FIELD(join_condition);
+	COPY_NODE_FIELD(coord_var_tlist);
+	COPY_NODE_FIELD(query_var_tlist);
+	COPY_SCALAR_FIELD(is_shippable_tlist);
 	COPY_SCALAR_FIELD(has_row_marks);
 	COPY_SCALAR_FIELD(has_ins_child_sel_parent);
 

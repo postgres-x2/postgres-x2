@@ -1028,6 +1028,45 @@ typedef struct HashPath
 	int			num_batches;	/* number of batches expected */
 } HashPath;
 
+#ifdef PGXC
+/*
+ * A remotequery path represents the queries to be sent to the datanode/s
+ *
+ * When RemoteQuery plan is created from RemoteQueryPath, we build the query to
+ * be executed at the datanode. For building such a query, it's important to get
+ * the RHS relation and LHS relation of the JOIN clause. So, instead of storing
+ * the outer and inner paths, we find out the RHS and LHS paths and store those
+ * here.
+ */
+
+typedef struct RemoteQueryPath
+{
+	Path			path;
+	ExecNodes		*rqpath_en;		/* List of datanodes to execute the query on */
+	/*
+	 * If the path represents a JOIN rel, leftpath and rightpath represent the
+	 * RemoteQuery paths for left (outer) and right (inner) side of the JOIN
+	 * resp. jointype and join_restrictlist pertains to such JOINs. 
+	 */
+	struct RemoteQueryPath	*leftpath;
+	struct RemoteQueryPath	*rightpath;
+	JoinType				jointype;
+	List					*join_restrictlist;	/* restrict list corresponding to JOINs,
+												 * only considered if rest of
+												 * the JOIN information is
+												 * available
+												 */
+	bool					rqhas_unshippable_qual; /* TRUE if there is at least
+													 * one qual which can not be
+													 * shipped to the datanodes
+													 */
+	bool					rqhas_temp_rel;			/* TRUE if one of the base relations
+													 * involved in this path is a temporary
+													 * table.
+													 */
+} RemoteQueryPath;
+#endif /* PGXC */
+
 /*
  * Restriction clause info.
  *

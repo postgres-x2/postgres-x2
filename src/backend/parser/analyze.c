@@ -2424,17 +2424,7 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 	else
 		step->exec_type = EXEC_ON_DATANODES;
 
-	step->reduce_level = 0;
 	step->base_tlist = NIL;
-	step->outer_alias = NULL;
-	step->inner_alias = NULL;
-	step->outer_reduce_level = 0;
-	step->inner_reduce_level = 0;
-	step->outer_relids = NULL;
-	step->inner_relids = NULL;
-	step->inner_statement = NULL;
-	step->outer_statement = NULL;
-	step->join_condition = NULL;
 
 	/* Change the list of nodes that will be executed for the query and others */
 	step->force_autocommit = false;

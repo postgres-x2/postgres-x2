@@ -2847,6 +2847,21 @@ cost_rescan(PlannerInfo *root, Path *path,
 	}
 }
 
+#ifdef PGXC
+/*
+ * cost_remotequery
+ * As of now the function just sets the costs to 0 to make this path the
+ * cheapest.
+ * PGXC_TODO: Ideally, we should estimate the costs of network transfer from
+ * datanodes and any datanode costs involved.
+ */
+void
+cost_remotequery(RemoteQueryPath *rqpath, PlannerInfo *root, RelOptInfo *rel)
+{
+	rqpath->path.startup_cost = 0;
+	rqpath->path.total_cost = 0;
+}
+#endif /* PGXC */
 
 /*
  * cost_qual_eval

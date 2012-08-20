@@ -129,13 +129,18 @@ extern void extract_query_dependencies(Node *query,
 						   List **invalItems);
 
 #ifdef PGXC
-extern Var *search_tlist_for_var(Var *var, List *jtlist);
+/*
+ * prototypes for plan/pgxcplan.c
+ */
 extern Plan *create_remoteinsert_plan(PlannerInfo *root, Plan *topplan);
 extern Plan *create_remoteupdate_plan(PlannerInfo *root, Plan *topplan);
 extern Plan *create_remotedelete_plan(PlannerInfo *root, Plan *topplan);
 extern Plan *create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan);
-/* Expose fix_scan_expr to create_remotequery_plan() */
-extern Node *pgxc_fix_scan_expr(PlannerInfo *root, Node *node, int rtoffset);
+extern Plan *create_remotequery_plan(PlannerInfo *root, RemoteQueryPath *best_path);
+extern List *pgxc_order_qual_clauses(PlannerInfo *root, List *clauses);
+extern List *pgxc_build_relation_tlist(RelOptInfo *rel);
+extern void pgxc_copy_path_costsize(Plan *dest, Path *src);
+extern Plan *pgxc_create_gating_plan(PlannerInfo *root, Plan *plan, List *quals);
 #endif
 
 #endif   /* PLANMAIN_H */

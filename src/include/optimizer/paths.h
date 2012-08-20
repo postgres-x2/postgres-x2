@@ -85,6 +85,19 @@ extern void add_paths_to_joinrel(PlannerInfo *root, RelOptInfo *joinrel,
 					 JoinType jointype, SpecialJoinInfo *sjinfo,
 					 List *restrictlist);
 
+#ifdef PGXC
+/*
+ * rquerypath.c
+ * 		routines to create RemoteQuery paths
+ */
+extern bool create_plainrel_rqpath(PlannerInfo *root, RelOptInfo *rel,
+									RangeTblEntry *rte);
+extern void create_joinrel_rqpath(PlannerInfo *root, RelOptInfo *joinrel,
+						RelOptInfo *outerrel, RelOptInfo *innerrel,
+						List *restrictlist, JoinType jointype,
+						SpecialJoinInfo *sjinfo);
+#endif /* PGXC */
+
 /*
  * joinrels.c
  *	  routines to determine which relations to join
