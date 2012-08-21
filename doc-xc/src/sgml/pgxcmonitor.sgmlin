@@ -47,8 +47,9 @@ pgxc_monitor <optional> <replaceable>option</> </optional>
       <term><option>-Z <replaceable class="parameter">nodetype</replaceable></option></term>
       <listitem>
       <para>
-       Type of node type to test. Specify gtm as <replaceable>nodetype</replaceable> for gtm and gtm_proxy.
-       Specify node as <replaceable>nodeopt</replaceable> for a Coordinator or a Datanode.
+       Type of node type to test. Specify <literal>gtm</> as <replaceable>nodetype</replaceable>
+       for gtm and gtm_proxy and <literal>node</> as <replaceable>nodetype</replaceable> for a
+       Coordinator or a Datanode.
       </para>
       </listitem>
     </varlistentry>
@@ -77,6 +78,24 @@ pgxc_monitor <optional> <replaceable>option</> </optional>
       <listitem>
       <para>
        Specifies the port number to test target.
+      </para>
+      </listitem>
+    </varlistentry>
+
+    <varlistentry>
+      <term><option>-U <replaceable class="parameter">username</replaceable></></term>
+      <listitem>
+      <para>
+       Specifies the database username to connect as.
+      </para>
+      </listitem>
+    </varlistentry>
+
+    <varlistentry>
+      <term><option>-d <replaceable class="parameter">database</replaceable></></term>
+      <listitem>
+      <para>
+       Specifies the database name to connect to. Default is "postgres".
       </para>
       </listitem>
     </varlistentry>
@@ -131,6 +150,11 @@ pgxc_monitor <optional> <replaceable>option</> </optional>
    Monitoring Coordinator and Datanode uses system(3) function.  
    Therefore,you should not use set-userid bit or set-groupid bit.
    Also, because this uses psql command, psql must be in your PATH.
+  </para>
+  <para>
+   The username and database name can be specified via command line
+   options too. If password is needed, it must be supplied via
+   <option>.pgpass</option> file though.
   </para>
   <para>
    If invalid parameters are given, 
