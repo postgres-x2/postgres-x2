@@ -137,7 +137,7 @@ GetNewTransactionId(bool isSubXact)
 		if (TransactionIdIsValid(xid))
 		{
 			/* Log some information about the new transaction ID obtained */
-			if (IsAutoVacuumWorkerProcess() && (MyPgXact->vacuumFlags & PROC_IN_VACUUM))
+			if (IsAutoVacuumWorkerProcess() && (MyProc->vacuumFlags & PROC_IN_VACUUM))
 				elog(DEBUG1, "Assigned new transaction ID from GTM for autovacuum = %d", xid);
 			else
 				elog(DEBUG1, "Assigned new transaction ID from GTM = %d", xid);
