@@ -864,12 +864,11 @@ vacuum_rel(Oid relid, VacuumStmt *vacstmt, bool do_toast, bool for_wraparound)
 	int			save_sec_context;
 	int			save_nestlevel;
 
-#ifndef PGXC
-	/* In PG-XC, do these after setting vacuum flags */
-
 	/* Begin a transaction for vacuuming this relation */
 	StartTransactionCommand();
 
+#ifndef PGXC
+	/* In Postgres-XC, take a snapshot after setting the vacuum flags */
 	/*
 	 * Functions in indexes may want a snapshot set.  Also, setting a snapshot
 	 * ensures that RecentGlobalXmin is kept truly recent.
@@ -907,17 +906,17 @@ vacuum_rel(Oid relid, VacuumStmt *vacstmt, bool do_toast, bool for_wraparound)
 	}
 
 #ifdef PGXC
-	elog (DEBUG1, "Starting vacuum transaction");
-	/* In PG-XC, do these after setting vacuum flags */
-	/* Begin a transaction for vacuuming this relation */
-	StartTransactionCommand();
-	elog (DEBUG1, "Started vacuum transaction");
+	if (for_wraparound)
+		elog(DEBUG1, "Starting wraparound autovacuum");
+	else
+		elog(DEBUG1, "Starting autovacuum");
 
-	/*
-	 * Functions in indexes may want a snapshot set.  Also, setting
-	 * a snapshot ensures that RecentGlobalXmin is kept truly recent.
-	 */
+	/* Now that flags have been set, we can take a snapshot correctly */
 	PushActiveSnapshot(GetTransactionSnapshot());
+	if (for_wraparound)
+		elog(DEBUG1, "Started wraparound autovacuum");
+	else
+		elog(DEBUG1, "Started autovacuum");
 #endif
 	/*
 	 * Check for user-requested abort.	Note we want this to be inside a

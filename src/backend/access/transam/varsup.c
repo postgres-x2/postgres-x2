@@ -116,12 +116,9 @@ GetNewTransactionId(bool isSubXact)
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord() || IsPGXCNodeXactDatanodeDirect())
 	{
 		/*
-		 * Get XID from GTM before acquiring the lock.
-		 * The rest of the code will handle it if after obtaining XIDs,
-		 * the lock is acquired in a different order.
-		 * This will help with GTM connection issues- we will not
-		 * block all other processes.
-		 * GXID can just be obtained from a remote Coordinator
+		 * Get XID from GTM before acquiring the lock as concurrent connections are
+		 * being handled on GTM side even if the lock is acquired in a different
+		 * order.
 		 */
 		if (IsAutoVacuumWorkerProcess() && (MyProc->vacuumFlags & PROC_IN_VACUUM))
 			xid = (TransactionId) BeginTranAutovacuumGTM();
@@ -139,6 +136,12 @@ GetNewTransactionId(bool isSubXact)
 	{
 		if (TransactionIdIsValid(xid))
 		{
+			/* Log some information about the new transaction ID obtained */
+			if (IsAutoVacuumWorkerProcess() && (MyPgXact->vacuumFlags & PROC_IN_VACUUM))
+				elog(DEBUG1, "Assigned new transaction ID from GTM for autovacuum = %d", xid);
+			else
+				elog(DEBUG1, "Assigned new transaction ID from GTM = %d", xid);
+
 			if (!TransactionIdFollowsOrEquals(xid, ShmemVariableCache->nextXid))
 			{
 				increment_xid = false;
@@ -206,7 +209,6 @@ GetNewTransactionId(bool isSubXact)
 			elog(LOG, "Falling back to local Xid. Was = %d, now is = %d",
 					next_xid, ShmemVariableCache->nextXid);
 			xid = ShmemVariableCache->nextXid;
-
 		}
 	}
 #else
@@ -293,7 +295,16 @@ GetNewTransactionId(bool isSubXact)
 
 		/* Re-acquire lock and start over */
 		LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
+
+#ifndef PGXC
+		/*
+		 * In the case of Postgres-XC, transaction ID is managed globally at GTM level,
+		 * so updating the GXID here based on the cache that might have been changed
+		 * by another session when checking for wraparound errors at this local node
+		 * level breaks transaction ID consistency of cluster.
+		 */
 		xid = ShmemVariableCache->nextXid;
+#endif
 	}
 	/*
 	 * If we are allocating the first XID of a new page of the commit log,

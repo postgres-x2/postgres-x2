@@ -577,6 +577,8 @@ GTM_GetGlobalTransactionIdMulti(GTM_TransactionHandle handle[], int txn_count)
 		GlobalTransactionIdAdvance(GTMTransactions.gt_nextXid);
 		gtm_txninfo = GTM_HandleToTransactionInfo(handle[ii]);
 		Assert(gtm_txninfo);
+
+		elog(LOG, "Assigning new transaction ID = %d", xid);
 		gtm_txninfo->gti_gxid = xid;
 	}
 
@@ -1324,7 +1326,7 @@ ProcessBeginTransactionGetGXIDAutovacuumCommand(Port *myport, StringInfo message
 	GlobalTransactionId gxid;
 	MemoryContext oldContext;
 
-	elog(DEBUG3, "Inside ProcessBeginTransactionGetGXIDAutovacuumCommand");
+	elog(LOG, "Inside ProcessBeginTransactionGetGXIDAutovacuumCommand");
 
 	txn_isolation_level = pq_getmsgint(message, sizeof (GTM_IsolationLevel));
 	txn_read_only = pq_getmsgbyte(message);
@@ -1353,7 +1355,7 @@ ProcessBeginTransactionGetGXIDAutovacuumCommand(Port *myport, StringInfo message
 
 	MemoryContextSwitchTo(oldContext);
 
-	elog(DEBUG3, "Sending transaction id %d", gxid);
+	elog(LOG, "Sending transaction id %d", gxid);
 
 	/* Backup first */
 	if (GetMyThreadInfo->thr_conn->standby)
