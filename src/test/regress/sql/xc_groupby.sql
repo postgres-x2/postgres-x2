@@ -62,10 +62,10 @@ insert into xc_groupby_def VALUES (10, 'Three');
 select * from (select avg(a), sum(a), count(*), b from xc_groupby_def group by b) q order by q.b;
 explain (verbose true, costs false, nodes false) select * from (select avg(a), sum(a), count(*), b from xc_groupby_def group by b) q order by q.b;
 
-select b from xc_groupby_def group by b;
-explain (verbose true, costs false, nodes false) select b from xc_groupby_def group by b;
-select b,count(b) from xc_groupby_def group by b;
-explain (verbose true, costs false, nodes false) select b,count(b) from xc_groupby_def group by b;
+select * from (select b from xc_groupby_def group by b) q order by q.b;
+explain (verbose true, costs false, nodes false) select * from (select b from xc_groupby_def group by b) q order by q.b;
+select * from (select b,count(b) from xc_groupby_def group by b) q order by q.b;
+explain (verbose true, costs false, nodes false) select * from (select b,count(b) from xc_groupby_def group by b) q order by q.b;
 select count(*) from xc_groupby_def where b is null group by b;
 explain (verbose true, costs false, nodes false) select count(*) from xc_groupby_def where b is null group by b;
 
@@ -101,22 +101,22 @@ insert into xc_groupby_tab2 values (1, 1), (4, 1), (8, 1), (2, 4), (9, 4), (3, 4
 select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_groupby_tab1 group by val2;
 explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_groupby_tab1 group by val2;
 -- joins and group by
-select count(*), sum(xc_groupby_tab1.val * xc_groupby_tab2.val), avg(xc_groupby_tab1.val*xc_groupby_tab2.val), sum(xc_groupby_tab1.val*xc_groupby_tab2.val)::float8/count(*), xc_groupby_tab1.val2, xc_groupby_tab2.val2 from xc_groupby_tab1 full outer join xc_groupby_tab2 on xc_groupby_tab1.val2 = xc_groupby_tab2.val2 group by xc_groupby_tab1.val2, xc_groupby_tab2.val2;
-explain (verbose true, costs false, nodes false) select count(*), sum(xc_groupby_tab1.val * xc_groupby_tab2.val), avg(xc_groupby_tab1.val*xc_groupby_tab2.val), sum(xc_groupby_tab1.val*xc_groupby_tab2.val)::float8/count(*), xc_groupby_tab1.val2, xc_groupby_tab2.val2 from xc_groupby_tab1 full outer join xc_groupby_tab2 on xc_groupby_tab1.val2 = xc_groupby_tab2.val2 group by xc_groupby_tab1.val2, xc_groupby_tab2.val2;
+select * from (select count(*), sum(xc_groupby_tab1.val * xc_groupby_tab2.val), avg(xc_groupby_tab1.val*xc_groupby_tab2.val), sum(xc_groupby_tab1.val*xc_groupby_tab2.val)::float8/count(*), xc_groupby_tab1.val2 c1, xc_groupby_tab2.val2 c2 from xc_groupby_tab1 full outer join xc_groupby_tab2 on xc_groupby_tab1.val2 = xc_groupby_tab2.val2 group by xc_groupby_tab1.val2, xc_groupby_tab2.val2) q order by q.c1, q.c2;
+explain (verbose true, costs false, nodes false) select * from (select count(*), sum(xc_groupby_tab1.val * xc_groupby_tab2.val), avg(xc_groupby_tab1.val*xc_groupby_tab2.val), sum(xc_groupby_tab1.val*xc_groupby_tab2.val)::float8/count(*), xc_groupby_tab1.val2 c1, xc_groupby_tab2.val2 c2 from xc_groupby_tab1 full outer join xc_groupby_tab2 on xc_groupby_tab1.val2 = xc_groupby_tab2.val2 group by xc_groupby_tab1.val2, xc_groupby_tab2.val2) q order by q.c1, q.c2;
 -- aggregates over aggregates
-select sum(y) from (select sum(val) y, val2%2 x from xc_groupby_tab1 group by val2) q1 group by x;
-explain (verbose true, costs false, nodes false) select sum(y) from (select sum(val) y, val2%2 x from xc_groupby_tab1 group by val2) q1 group by x;
+select * from (select sum(y) sum from (select sum(val) y, val2%2 x from xc_groupby_tab1 group by val2) q1 group by x) q order by q.sum;
+explain (verbose true, costs false, nodes false) select * from (select sum(y) sum from (select sum(val) y, val2%2 x from xc_groupby_tab1 group by val2) q1 group by x) q order by q.sum;
 -- group by without aggregate
 select val2 from xc_groupby_tab1 group by val2;
 explain (verbose true, costs false, nodes false) select val2 from xc_groupby_tab1 group by val2;
-select val + val2 from xc_groupby_tab1 group by val + val2;
-explain (verbose true, costs false, nodes false) select val + val2 from xc_groupby_tab1 group by val + val2;
-select val + val2, val, val2 from xc_groupby_tab1 group by val, val2;
-explain (verbose true, costs false, nodes false) select val + val2, val, val2 from xc_groupby_tab1 group by val, val2;
-select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val, xc_groupby_tab2.val2;
-explain (verbose true, costs false, nodes false) select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val, xc_groupby_tab2.val2;
-select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
-explain (verbose true, costs false, nodes false) select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
+select * from (select val + val2 sum from xc_groupby_tab1 group by val + val2) q order by q.sum;
+explain (verbose true, costs false, nodes false) select * from (select val + val2 sum from xc_groupby_tab1 group by val + val2) q order by q.sum;
+select * from (select val + val2, val, val2 from xc_groupby_tab1 group by val, val2) q order by q.val, q.val2;
+explain (verbose true, costs false, nodes false) select * from (select val + val2, val, val2 from xc_groupby_tab1 group by val, val2) q order by q.val, q.val2;
+select * from (select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val, xc_groupby_tab2.val2) q order by q.val, q.val2;
+explain (verbose true, costs false, nodes false) select * from (select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val, xc_groupby_tab2.val2) q order by q.val, q.val2;
+select * from (select xc_groupby_tab1.val + xc_groupby_tab2.val2 sum from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2) q order by q.sum;
+explain (verbose true, costs false, nodes false) select * from (select xc_groupby_tab1.val + xc_groupby_tab2.val2 sum from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2) q order by q.sum;
 -- group by with aggregates in expression
 select count(*) + sum(val) + avg(val), val2 from xc_groupby_tab1 group by val2;
 explain (verbose true, costs false, nodes false) select count(*) + sum(val) + avg(val), val2 from xc_groupby_tab1 group by val2;
@@ -145,10 +145,10 @@ insert into xc_groupby_def VALUES (10, 'Three');
 select * from (select avg(a), sum(a), count(*), b from xc_groupby_def group by b) q order by q.b;
 explain (verbose true, costs false, nodes false) select * from (select avg(a), sum(a), count(*), b from xc_groupby_def group by b) q order by q.b;
 
-select b from xc_groupby_def group by b;
-explain (verbose true, costs false, nodes false) select b from xc_groupby_def group by b;
-select b,count(b) from xc_groupby_def group by b;
-explain (verbose true, costs false, nodes false) select b,count(b) from xc_groupby_def group by b;
+select * from (select b from xc_groupby_def group by b) q order by q.b;
+explain (verbose true, costs false, nodes false) select * from (select b from xc_groupby_def group by b) q order by q.b;
+select * from (select b,count(b) from xc_groupby_def group by b) q order by q.b;
+explain (verbose true, costs false, nodes false) select * from (select b,count(b) from xc_groupby_def group by b) q order by q.b;
 select count(*) from xc_groupby_def where b is null group by b;
 explain (verbose true, costs false, nodes false) select count(*) from xc_groupby_def where b is null group by b;
 

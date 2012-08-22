@@ -94,16 +94,19 @@ explain (verbose true, costs false, nodes false) select count(*), sum(xc_having_
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: count(*), sum((xc_having_tab1.val * xc_having_tab2.val)), avg((xc_having_tab1.val * xc_having_tab2.val)), ((sum((xc_having_tab1.val * xc_having_tab2.val)))::double precision / (count(*))::double precision), xc_having_tab1.val2, xc_having_tab2.val2
-   ->  Nested Loop
+   ->  Hash Join
          Output: xc_having_tab1.val2, xc_having_tab1.val, xc_having_tab2.val2, xc_having_tab2.val
-         Join Filter: ((xc_having_tab1.val2 = xc_having_tab2.val2) AND ((xc_having_tab1.val2 + xc_having_tab2.val2) > 2))
+         Hash Cond: (xc_having_tab1.val2 = xc_having_tab2.val2)
+         Join Filter: ((xc_having_tab1.val2 + xc_having_tab2.val2) > 2)
          ->  Data Node Scan on xc_having_tab1 "_REMOTE_TABLE_QUERY_"
                Output: xc_having_tab1.val2, xc_having_tab1.val
                Remote query: SELECT val2, val FROM ONLY xc_having_tab1 WHERE true
-         ->  Data Node Scan on xc_having_tab2 "_REMOTE_TABLE_QUERY_"
+         ->  Hash
                Output: xc_having_tab2.val2, xc_having_tab2.val
-               Remote query: SELECT val2, val FROM ONLY xc_having_tab2 WHERE true
-(11 rows)
+               ->  Data Node Scan on xc_having_tab2 "_REMOTE_TABLE_QUERY_"
+                     Output: xc_having_tab2.val2, xc_having_tab2.val
+                     Remote query: SELECT val2, val FROM ONLY xc_having_tab2 WHERE true
+(14 rows)
 
 -- group by and having, without aggregate in the target list
 select val2 from xc_having_tab1 group by val2 having sum(val) > 8;
@@ -123,24 +126,27 @@ explain (verbose true, costs false, nodes false) select val2 from xc_having_tab1
          Remote query: SELECT val2, sum(val) FROM ONLY xc_having_tab1 WHERE true GROUP BY val2
 (6 rows)
 
-select val + val2 from xc_having_tab1 group by val + val2 having sum(val) > 5;
- ?column? 
-----------
-        4
-        8
-        9
+select * from (select val + val2 sum from xc_having_tab1 group by val + val2 having sum(val) > 5) q order by q.sum;
+ sum 
+-----
+   4
+   8
+   9
 (3 rows)
 
-explain (verbose true, costs false, nodes false) select val + val2 from xc_having_tab1 group by val + val2 having sum(val) > 5;
-                                                  QUERY PLAN                                                   
----------------------------------------------------------------------------------------------------------------
- HashAggregate
+explain (verbose true, costs false, nodes false) select * from (select val + val2 sum from xc_having_tab1 group by val + val2 having sum(val) > 5) q order by q.sum;
+                                                     QUERY PLAN                                                      
+---------------------------------------------------------------------------------------------------------------------
+ Sort
    Output: ((xc_having_tab1.val + xc_having_tab1.val2))
-   Filter: (pg_catalog.sum((sum(xc_having_tab1.val))) > 5)
-   ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
-         Output: ((xc_having_tab1.val + xc_having_tab1.val2)), (sum(xc_having_tab1.val))
-         Remote query: SELECT (val + val2), sum(val) FROM ONLY xc_having_tab1 WHERE true GROUP BY (val + val2)
-(6 rows)
+   Sort Key: ((xc_having_tab1.val + xc_having_tab1.val2))
+   ->  HashAggregate
+         Output: ((xc_having_tab1.val + xc_having_tab1.val2))
+         Filter: (pg_catalog.sum((sum(xc_having_tab1.val))) > 5)
+         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+               Output: ((xc_having_tab1.val + xc_having_tab1.val2)), (sum(xc_having_tab1.val))
+               Remote query: SELECT (val + val2), sum(val) FROM ONLY xc_having_tab1 WHERE true GROUP BY (val + val2)
+(9 rows)
 
 -- group by with aggregates in expression
 select count(*) + sum(val) + avg(val), val2 from xc_having_tab1 group by val2 having min(val) < val2;
@@ -273,24 +279,27 @@ explain (verbose true, costs false, nodes false) select val2 from xc_having_tab1
          Remote query: SELECT val2, sum(val) FROM ONLY xc_having_tab1 WHERE true GROUP BY val2
 (6 rows)
 
-select val + val2 from xc_having_tab1 group by val + val2 having sum(val) > 5;
- ?column? 
-----------
-        4
-        8
-        9
+select * from (select val + val2 sum from xc_having_tab1 group by val + val2 having sum(val) > 5) q order by q.sum;
+ sum 
+-----
+   4
+   8
+   9
 (3 rows)
 
-explain (verbose true, costs false, nodes false) select val + val2 from xc_having_tab1 group by val + val2 having sum(val) > 5;
-                                                  QUERY PLAN                                                   
----------------------------------------------------------------------------------------------------------------
- HashAggregate
+explain (verbose true, costs false, nodes false) select * from (select val + val2 sum from xc_having_tab1 group by val + val2 having sum(val) > 5) q order by q.sum;
+                                                     QUERY PLAN                                                      
+---------------------------------------------------------------------------------------------------------------------
+ Sort
    Output: ((xc_having_tab1.val + xc_having_tab1.val2))
-   Filter: (pg_catalog.sum((sum(xc_having_tab1.val))) > 5)
-   ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
-         Output: ((xc_having_tab1.val + xc_having_tab1.val2)), (sum(xc_having_tab1.val))
-         Remote query: SELECT (val + val2), sum(val) FROM ONLY xc_having_tab1 WHERE true GROUP BY (val + val2)
-(6 rows)
+   Sort Key: ((xc_having_tab1.val + xc_having_tab1.val2))
+   ->  HashAggregate
+         Output: ((xc_having_tab1.val + xc_having_tab1.val2))
+         Filter: (pg_catalog.sum((sum(xc_having_tab1.val))) > 5)
+         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+               Output: ((xc_having_tab1.val + xc_having_tab1.val2)), (sum(xc_having_tab1.val))
+               Remote query: SELECT (val + val2), sum(val) FROM ONLY xc_having_tab1 WHERE true GROUP BY (val + val2)
+(9 rows)
 
 -- group by with aggregates in expression
 select count(*) + sum(val) + avg(val), val2 from xc_having_tab1 group by val2 having min(val) < val2;
@@ -403,16 +412,19 @@ explain (verbose true, costs false, nodes false) select count(*), sum(xc_having_
    ->  Sort
          Output: xc_having_tab1.val2, xc_having_tab2.val2, xc_having_tab1.val, xc_having_tab2.val
          Sort Key: xc_having_tab1.val2, xc_having_tab2.val2
-         ->  Nested Loop
+         ->  Hash Join
                Output: xc_having_tab1.val2, xc_having_tab2.val2, xc_having_tab1.val, xc_having_tab2.val
-               Join Filter: ((xc_having_tab1.val2 = xc_having_tab2.val2) AND ((xc_having_tab1.val2 + xc_having_tab2.val2) > 2))
+               Hash Cond: (xc_having_tab1.val2 = xc_having_tab2.val2)
+               Join Filter: ((xc_having_tab1.val2 + xc_having_tab2.val2) > 2)
                ->  Data Node Scan on xc_having_tab1 "_REMOTE_TABLE_QUERY_"
                      Output: xc_having_tab1.val2, xc_having_tab1.val
                      Remote query: SELECT val2, val FROM ONLY xc_having_tab1 WHERE true
-               ->  Data Node Scan on xc_having_tab2 "_REMOTE_TABLE_QUERY_"
+               ->  Hash
                      Output: xc_having_tab2.val2, xc_having_tab2.val
-                     Remote query: SELECT val2, val FROM ONLY xc_having_tab2 WHERE true
-(14 rows)
+                     ->  Data Node Scan on xc_having_tab2 "_REMOTE_TABLE_QUERY_"
+                           Output: xc_having_tab2.val2, xc_having_tab2.val
+                           Remote query: SELECT val2, val FROM ONLY xc_having_tab2 WHERE true
+(17 rows)
 
 -- group by and having, without aggregate in the target list
 select val2 from xc_having_tab1 group by val2 having sum(val) > 8;

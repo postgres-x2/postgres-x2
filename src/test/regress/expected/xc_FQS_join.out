@@ -187,18 +187,20 @@ select * from tab3_rep natural join tab4_rep
 
 explain (costs off, num_nodes on, nodes off, verbose on) select * from tab3_rep natural join tab4_rep
 			where tab3_rep.val > 2 and tab4_rep.val < 5;
-                                          QUERY PLAN                                          
-----------------------------------------------------------------------------------------------
- Nested Loop
+                                             QUERY PLAN                                             
+----------------------------------------------------------------------------------------------------
+ Hash Join
    Output: tab3_rep.val, tab3_rep.val2
-   Join Filter: ((tab3_rep.val = tab4_rep.val) AND (tab3_rep.val2 = tab4_rep.val2))
+   Hash Cond: ((tab3_rep.val = tab4_rep.val) AND (tab3_rep.val2 = tab4_rep.val2))
    ->  Data Node Scan (primary node count=0, node count=1) on tab3_rep "_REMOTE_TABLE_QUERY_"
          Output: tab3_rep.val, tab3_rep.val2
          Remote query: SELECT val, val2 FROM ONLY tab3_rep WHERE (val > 2)
-   ->  Data Node Scan (primary node count=0, node count=1) on tab4_rep "_REMOTE_TABLE_QUERY_"
+   ->  Hash
          Output: tab4_rep.val, tab4_rep.val2
-         Remote query: SELECT val, val2 FROM ONLY tab4_rep WHERE (val < 5)
-(9 rows)
+         ->  Data Node Scan (primary node count=0, node count=1) on tab4_rep "_REMOTE_TABLE_QUERY_"
+               Output: tab4_rep.val, tab4_rep.val2
+               Remote query: SELECT val, val2 FROM ONLY tab4_rep WHERE (val < 5)
+(11 rows)
 
 -- Join involving one distributed and one replicated table, with replicated
 -- table existing on all nodes where distributed table exists. should be
@@ -239,18 +241,20 @@ select * from tab1_mod natural join tab4_rep
 
 explain (costs off, verbose on, nodes off) select * from tab1_mod natural join tab4_rep
 			where tab1_mod.val > 2 and tab4_rep.val < 4;
-                                     QUERY PLAN                                     
-------------------------------------------------------------------------------------
- Nested Loop
+                                    QUERY PLAN                                    
+----------------------------------------------------------------------------------
+ Hash Join
    Output: tab1_mod.val, tab1_mod.val2
-   Join Filter: ((tab1_mod.val = tab4_rep.val) AND (tab1_mod.val2 = tab4_rep.val2))
+   Hash Cond: ((tab1_mod.val = tab4_rep.val) AND (tab1_mod.val2 = tab4_rep.val2))
    ->  Data Node Scan on tab1_mod "_REMOTE_TABLE_QUERY_"
          Output: tab1_mod.val, tab1_mod.val2
          Remote query: SELECT val, val2 FROM ONLY tab1_mod WHERE (val > 2)
-   ->  Data Node Scan on tab4_rep "_REMOTE_TABLE_QUERY_"
+   ->  Hash
          Output: tab4_rep.val, tab4_rep.val2
-         Remote query: SELECT val, val2 FROM ONLY tab4_rep WHERE (val < 4)
-(9 rows)
+         ->  Data Node Scan on tab4_rep "_REMOTE_TABLE_QUERY_"
+               Output: tab4_rep.val, tab4_rep.val2
+               Remote query: SELECT val, val2 FROM ONLY tab4_rep WHERE (val < 4)
+(11 rows)
 
 -- Join involving two distributed tables, never shipped
 select * from tab1_mod natural join tab2_mod
@@ -266,18 +270,20 @@ select * from tab1_mod natural join tab2_mod
 
 explain (costs off, verbose on, nodes off) select * from tab1_mod natural join tab2_mod
 			where tab1_mod.val > 2 and tab2_mod.val < 4;
-                                     QUERY PLAN                                     
-------------------------------------------------------------------------------------
- Nested Loop
+                                    QUERY PLAN                                    
+----------------------------------------------------------------------------------
+ Hash Join
    Output: tab1_mod.val, tab1_mod.val2
-   Join Filter: ((tab1_mod.val = tab2_mod.val) AND (tab1_mod.val2 = tab2_mod.val2))
+   Hash Cond: ((tab1_mod.val = tab2_mod.val) AND (tab1_mod.val2 = tab2_mod.val2))
    ->  Data Node Scan on tab1_mod "_REMOTE_TABLE_QUERY_"
          Output: tab1_mod.val, tab1_mod.val2
          Remote query: SELECT val, val2 FROM ONLY tab1_mod WHERE (val > 2)
-   ->  Data Node Scan on tab2_mod "_REMOTE_TABLE_QUERY_"
+   ->  Hash
          Output: tab2_mod.val, tab2_mod.val2
-         Remote query: SELECT val, val2 FROM ONLY tab2_mod WHERE (val < 4)
-(9 rows)
+         ->  Data Node Scan on tab2_mod "_REMOTE_TABLE_QUERY_"
+               Output: tab2_mod.val, tab2_mod.val2
+               Remote query: SELECT val, val2 FROM ONLY tab2_mod WHERE (val < 4)
+(11 rows)
 
 -- Join involving a distributed table and two replicated tables, such that the
 -- distributed table exists only on nodes common to replicated tables, try few
@@ -440,16 +446,18 @@ explain (costs off, verbose on, nodes off) update tab1_mod set val2 = 1000 from 
  Update on public.tab1_mod
    Node expr: tab1_mod.val
    Remote query: UPDATE ONLY public.tab1_mod SET val2 = $2 WHERE ctid = $5 AND xc_node_id = $6 
-   ->  Nested Loop
+   ->  Hash Join
          Output: tab1_mod.val, 1000, tab1_mod.val, tab1_mod.val2, tab1_mod.ctid, tab1_mod.xc_node_id, tab2_mod.ctid
-         Join Filter: ((tab1_mod.val = tab2_mod.val) AND (tab1_mod.val2 = tab2_mod.val2))
+         Hash Cond: ((tab1_mod.val = tab2_mod.val) AND (tab1_mod.val2 = tab2_mod.val2))
          ->  Data Node Scan on tab1_mod "_REMOTE_TABLE_QUERY_"
                Output: tab1_mod.val, tab1_mod.val2, tab1_mod.ctid, tab1_mod.xc_node_id
                Remote query: SELECT val, val2, ctid, xc_node_id FROM ONLY tab1_mod WHERE true
-         ->  Data Node Scan on tab2_mod "_REMOTE_TABLE_QUERY_"
+         ->  Hash
                Output: tab2_mod.ctid, tab2_mod.val, tab2_mod.val2
-               Remote query: SELECT ctid, val, val2 FROM ONLY tab2_mod WHERE true
-(12 rows)
+               ->  Data Node Scan on tab2_mod "_REMOTE_TABLE_QUERY_"
+                     Output: tab2_mod.ctid, tab2_mod.val, tab2_mod.val2
+                     Remote query: SELECT ctid, val, val2 FROM ONLY tab2_mod WHERE true
+(14 rows)
 
 explain (costs off, verbose on, nodes off) delete from tab1_mod using tab2_mod
 		where tab1_mod.val = tab2_mod.val and tab1_mod.val2 = tab2_mod.val2;
@@ -457,16 +465,18 @@ explain (costs off, verbose on, nodes off) delete from tab1_mod using tab2_mod
 ------------------------------------------------------------------------------------------------
  Delete on public.tab1_mod
    Remote query: DELETE FROM ONLY public.tab1_mod WHERE ctid = $3 AND xc_node_id = $4 
-   ->  Nested Loop
+   ->  Hash Join
          Output: tab1_mod.val, tab1_mod.val2, tab1_mod.ctid, tab1_mod.xc_node_id, tab2_mod.ctid
-         Join Filter: ((tab1_mod.val = tab2_mod.val) AND (tab1_mod.val2 = tab2_mod.val2))
+         Hash Cond: ((tab1_mod.val = tab2_mod.val) AND (tab1_mod.val2 = tab2_mod.val2))
          ->  Data Node Scan on tab1_mod "_REMOTE_TABLE_QUERY_"
                Output: tab1_mod.val, tab1_mod.val2, tab1_mod.ctid, tab1_mod.xc_node_id
                Remote query: SELECT val, val2, ctid, xc_node_id FROM ONLY tab1_mod WHERE true
-         ->  Data Node Scan on tab2_mod "_REMOTE_TABLE_QUERY_"
+         ->  Hash
                Output: tab2_mod.ctid, tab2_mod.val, tab2_mod.val2
-               Remote query: SELECT ctid, val, val2 FROM ONLY tab2_mod WHERE true
-(11 rows)
+               ->  Data Node Scan on tab2_mod "_REMOTE_TABLE_QUERY_"
+                     Output: tab2_mod.ctid, tab2_mod.val, tab2_mod.val2
+                     Remote query: SELECT ctid, val, val2 FROM ONLY tab2_mod WHERE true
+(13 rows)
 
 explain (costs off, verbose on, nodes off) update tab1_rep set val2 = 1000 from tab2_rep
 		where tab1_rep.val = tab2_rep.val and tab1_rep.val2 = tab2_rep.val2;
@@ -474,33 +484,37 @@ explain (costs off, verbose on, nodes off) update tab1_rep set val2 = 1000 from 
 -----------------------------------------------------------------------------------------------
  Update on public.tab1_rep
    Remote query: UPDATE ONLY public.tab1_rep SET val2 = $2 WHERE ctid = $5 
-   ->  Nested Loop
+   ->  Hash Join
          Output: tab1_rep.val, 1000, tab1_rep.val, tab1_rep.val2, tab1_rep.ctid, tab2_rep.ctid
-         Join Filter: ((tab1_rep.val = tab2_rep.val) AND (tab1_rep.val2 = tab2_rep.val2))
+         Hash Cond: ((tab1_rep.val = tab2_rep.val) AND (tab1_rep.val2 = tab2_rep.val2))
          ->  Data Node Scan on tab1_rep "_REMOTE_TABLE_QUERY_"
                Output: tab1_rep.val, tab1_rep.val2, tab1_rep.ctid
                Remote query: SELECT val, val2, ctid FROM ONLY tab1_rep WHERE true
-         ->  Data Node Scan on tab2_rep "_REMOTE_TABLE_QUERY_"
+         ->  Hash
                Output: tab2_rep.ctid, tab2_rep.val, tab2_rep.val2
-               Remote query: SELECT ctid, val, val2 FROM ONLY tab2_rep WHERE true
-(11 rows)
+               ->  Data Node Scan on tab2_rep "_REMOTE_TABLE_QUERY_"
+                     Output: tab2_rep.ctid, tab2_rep.val, tab2_rep.val2
+                     Remote query: SELECT ctid, val, val2 FROM ONLY tab2_rep WHERE true
+(13 rows)
 
 explain (costs off, verbose on, nodes off) delete from tab1_rep using tab2_rep 
 		where tab1_rep.val = tab2_rep.val and tab1_rep.val2 = tab2_rep.val2;
-                                        QUERY PLAN                                        
-------------------------------------------------------------------------------------------
+                                       QUERY PLAN                                       
+----------------------------------------------------------------------------------------
  Delete on public.tab1_rep
    Remote query: DELETE FROM ONLY public.tab1_rep WHERE ctid = $3 
-   ->  Nested Loop
+   ->  Hash Join
          Output: tab1_rep.val, tab1_rep.val2, tab1_rep.ctid, tab2_rep.ctid
-         Join Filter: ((tab1_rep.val = tab2_rep.val) AND (tab1_rep.val2 = tab2_rep.val2))
+         Hash Cond: ((tab1_rep.val = tab2_rep.val) AND (tab1_rep.val2 = tab2_rep.val2))
          ->  Data Node Scan on tab1_rep "_REMOTE_TABLE_QUERY_"
                Output: tab1_rep.val, tab1_rep.val2, tab1_rep.ctid
                Remote query: SELECT val, val2, ctid FROM ONLY tab1_rep WHERE true
-         ->  Data Node Scan on tab2_rep "_REMOTE_TABLE_QUERY_"
+         ->  Hash
                Output: tab2_rep.ctid, tab2_rep.val, tab2_rep.val2
-               Remote query: SELECT ctid, val, val2 FROM ONLY tab2_rep WHERE true
-(11 rows)
+               ->  Data Node Scan on tab2_rep "_REMOTE_TABLE_QUERY_"
+                     Output: tab2_rep.ctid, tab2_rep.val, tab2_rep.val2
+                     Remote query: SELECT ctid, val, val2 FROM ONLY tab2_rep WHERE true
+(13 rows)
 
 reset enable_remotejoin;
 drop table tab1_rep;

@@ -291,43 +291,49 @@ explain (verbose true, costs false, nodes false) select * from (select avg(a), s
                Remote query: SELECT avg(a), sum(a), count(*), b FROM ONLY xc_groupby_def WHERE true GROUP BY b
 (8 rows)
 
-select b from xc_groupby_def group by b;
+select * from (select b from xc_groupby_def group by b) q order by q.b;
    b   
 -------
- 
  One
- Two
  Three
+ Two
+ 
 (4 rows)
 
-explain (verbose true, costs false, nodes false) select b from xc_groupby_def group by b;
-                                  QUERY PLAN                                   
--------------------------------------------------------------------------------
- HashAggregate
+explain (verbose true, costs false, nodes false) select * from (select b from xc_groupby_def group by b) q order by q.b;
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
+ Sort
    Output: xc_groupby_def.b
-   ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+   Sort Key: xc_groupby_def.b
+   ->  HashAggregate
          Output: xc_groupby_def.b
-         Remote query: SELECT b FROM ONLY xc_groupby_def WHERE true GROUP BY b
-(5 rows)
+         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+               Output: xc_groupby_def.b
+               Remote query: SELECT b FROM ONLY xc_groupby_def WHERE true GROUP BY b
+(8 rows)
 
-select b,count(b) from xc_groupby_def group by b;
+select * from (select b,count(b) from xc_groupby_def group by b) q order by q.b;
    b   | count 
 -------+-------
-       |     0
  One   |     1
- Two   |     4
  Three |     5
+ Two   |     4
+       |     0
 (4 rows)
 
-explain (verbose true, costs false, nodes false) select b,count(b) from xc_groupby_def group by b;
-                                       QUERY PLAN                                        
------------------------------------------------------------------------------------------
- HashAggregate
-   Output: xc_groupby_def.b, count((count(xc_groupby_def.b)))
-   ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
-         Output: xc_groupby_def.b, (count(xc_groupby_def.b))
-         Remote query: SELECT b, count(b) FROM ONLY xc_groupby_def WHERE true GROUP BY b
-(5 rows)
+explain (verbose true, costs false, nodes false) select * from (select b,count(b) from xc_groupby_def group by b) q order by q.b;
+                                          QUERY PLAN                                           
+-----------------------------------------------------------------------------------------------
+ Sort
+   Output: xc_groupby_def.b, (count((count(xc_groupby_def.b))))
+   Sort Key: xc_groupby_def.b
+   ->  HashAggregate
+         Output: xc_groupby_def.b, count((count(xc_groupby_def.b)))
+         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+               Output: xc_groupby_def.b, (count(xc_groupby_def.b))
+               Remote query: SELECT b, count(b) FROM ONLY xc_groupby_def WHERE true GROUP BY b
+(8 rows)
 
 select count(*) from xc_groupby_def where b is null group by b;
  count 
@@ -479,44 +485,52 @@ explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(
 (5 rows)
 
 -- joins and group by
-select count(*), sum(xc_groupby_tab1.val * xc_groupby_tab2.val), avg(xc_groupby_tab1.val*xc_groupby_tab2.val), sum(xc_groupby_tab1.val*xc_groupby_tab2.val)::float8/count(*), xc_groupby_tab1.val2, xc_groupby_tab2.val2 from xc_groupby_tab1 full outer join xc_groupby_tab2 on xc_groupby_tab1.val2 = xc_groupby_tab2.val2 group by xc_groupby_tab1.val2, xc_groupby_tab2.val2;
- count | sum |         avg         |     ?column?     | val2 | val2 
--------+-----+---------------------+------------------+------+------
-     6 |  96 | 16.0000000000000000 |               16 |    2 |    2
-     9 |  78 |  8.6666666666666667 | 8.66666666666667 |    1 |    1
-     3 |     |                     |                  |    3 |     
-     3 |     |                     |                  |      |    4
+select * from (select count(*), sum(xc_groupby_tab1.val * xc_groupby_tab2.val), avg(xc_groupby_tab1.val*xc_groupby_tab2.val), sum(xc_groupby_tab1.val*xc_groupby_tab2.val)::float8/count(*), xc_groupby_tab1.val2 c1, xc_groupby_tab2.val2 c2 from xc_groupby_tab1 full outer join xc_groupby_tab2 on xc_groupby_tab1.val2 = xc_groupby_tab2.val2 group by xc_groupby_tab1.val2, xc_groupby_tab2.val2) q order by q.c1, q.c2;
+ count | sum |         avg         |     ?column?     | c1 | c2 
+-------+-----+---------------------+------------------+----+----
+     9 |  78 |  8.6666666666666667 | 8.66666666666667 |  1 |  1
+     6 |  96 | 16.0000000000000000 |               16 |  2 |  2
+     3 |     |                     |                  |  3 |   
+     3 |     |                     |                  |    |  4
 (4 rows)
 
-explain (verbose true, costs false, nodes false) select count(*), sum(xc_groupby_tab1.val * xc_groupby_tab2.val), avg(xc_groupby_tab1.val*xc_groupby_tab2.val), sum(xc_groupby_tab1.val*xc_groupby_tab2.val)::float8/count(*), xc_groupby_tab1.val2, xc_groupby_tab2.val2 from xc_groupby_tab1 full outer join xc_groupby_tab2 on xc_groupby_tab1.val2 = xc_groupby_tab2.val2 group by xc_groupby_tab1.val2, xc_groupby_tab2.val2;
-                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- HashAggregate
-   Output: pg_catalog.count(*), pg_catalog.sum((sum((xc_groupby_tab1.val * xc_groupby_tab2.val)))), pg_catalog.avg((avg((xc_groupby_tab1.val * xc_groupby_tab2.val)))), ((pg_catalog.sum((sum((xc_groupby_tab1.val * xc_groupby_tab2.val)))))::double precision / (pg_catalog.count(*))::double precision), xc_groupby_tab1.val2, xc_groupby_tab2.val2
-   ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
-         Output: (count(*)), (sum((xc_groupby_tab1.val * xc_groupby_tab2.val))), (avg((xc_groupby_tab1.val * xc_groupby_tab2.val))), xc_groupby_tab1.val2, xc_groupby_tab2.val2
-         Remote query: SELECT count(*), sum((l.a_2 * r.a_2)), avg((l.a_2 * r.a_2)), l.a_1, r.a_1 FROM ((SELECT xc_groupby_tab1.val2, xc_groupby_tab1.val FROM ONLY xc_groupby_tab1 WHERE true) l(a_1, a_2) FULL JOIN (SELECT xc_groupby_tab2.val2, xc_groupby_tab2.val FROM ONLY xc_groupby_tab2 WHERE true) r(a_1, a_2) ON ((l.a_1 = r.a_1))) WHERE true GROUP BY l.a_1, r.a_1
-(5 rows)
+explain (verbose true, costs false, nodes false) select * from (select count(*), sum(xc_groupby_tab1.val * xc_groupby_tab2.val), avg(xc_groupby_tab1.val*xc_groupby_tab2.val), sum(xc_groupby_tab1.val*xc_groupby_tab2.val)::float8/count(*), xc_groupby_tab1.val2 c1, xc_groupby_tab2.val2 c2 from xc_groupby_tab1 full outer join xc_groupby_tab2 on xc_groupby_tab1.val2 = xc_groupby_tab2.val2 group by xc_groupby_tab1.val2, xc_groupby_tab2.val2) q order by q.c1, q.c2;
+                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: (pg_catalog.count(*)), (pg_catalog.sum((sum((xc_groupby_tab1.val * xc_groupby_tab2.val))))), (pg_catalog.avg((avg((xc_groupby_tab1.val * xc_groupby_tab2.val))))), (((pg_catalog.sum((sum((xc_groupby_tab1.val * xc_groupby_tab2.val)))))::double precision / (pg_catalog.count(*))::double precision)), xc_groupby_tab1.val2, xc_groupby_tab2.val2
+   Sort Key: xc_groupby_tab1.val2, xc_groupby_tab2.val2
+   ->  HashAggregate
+         Output: pg_catalog.count(*), pg_catalog.sum((sum((xc_groupby_tab1.val * xc_groupby_tab2.val)))), pg_catalog.avg((avg((xc_groupby_tab1.val * xc_groupby_tab2.val)))), ((pg_catalog.sum((sum((xc_groupby_tab1.val * xc_groupby_tab2.val)))))::double precision / (pg_catalog.count(*))::double precision), xc_groupby_tab1.val2, xc_groupby_tab2.val2
+         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+               Output: (count(*)), (sum((xc_groupby_tab1.val * xc_groupby_tab2.val))), (avg((xc_groupby_tab1.val * xc_groupby_tab2.val))), xc_groupby_tab1.val2, xc_groupby_tab2.val2
+               Remote query: SELECT count(*), sum((l.a_2 * r.a_2)), avg((l.a_2 * r.a_2)), l.a_1, r.a_1 FROM ((SELECT xc_groupby_tab1.val2, xc_groupby_tab1.val FROM ONLY xc_groupby_tab1 WHERE true) l(a_1, a_2) FULL JOIN (SELECT xc_groupby_tab2.val2, xc_groupby_tab2.val FROM ONLY xc_groupby_tab2 WHERE true) r(a_1, a_2) ON ((l.a_1 = r.a_1))) WHERE true GROUP BY l.a_1, r.a_1
+(8 rows)
 
 -- aggregates over aggregates
-select sum(y) from (select sum(val) y, val2%2 x from xc_groupby_tab1 group by val2) q1 group by x;
+select * from (select sum(y) sum from (select sum(val) y, val2%2 x from xc_groupby_tab1 group by val2) q1 group by x) q order by q.sum;
  sum 
 -----
    8
   17
 (2 rows)
 
-explain (verbose true, costs false, nodes false) select sum(y) from (select sum(val) y, val2%2 x from xc_groupby_tab1 group by val2) q1 group by x;
-                                                    QUERY PLAN                                                    
-------------------------------------------------------------------------------------------------------------------
- HashAggregate
-   Output: sum((pg_catalog.sum((sum(xc_groupby_tab1.val))))), ((xc_groupby_tab1.val2 % 2))
-   ->  HashAggregate
-         Output: pg_catalog.sum((sum(xc_groupby_tab1.val))), ((xc_groupby_tab1.val2 % 2)), xc_groupby_tab1.val2
-         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
-               Output: (sum(xc_groupby_tab1.val)), ((xc_groupby_tab1.val2 % 2)), xc_groupby_tab1.val2
-               Remote query: SELECT sum(val), (val2 % 2), val2 FROM ONLY xc_groupby_tab1 WHERE true GROUP BY val2
-(7 rows)
+explain (verbose true, costs false, nodes false) select * from (select sum(y) sum from (select sum(val) y, val2%2 x from xc_groupby_tab1 group by val2) q1 group by x) q order by q.sum;
+                                                          QUERY PLAN                                                          
+------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: q.sum
+   Sort Key: q.sum
+   ->  Subquery Scan on q
+         Output: q.sum
+         ->  HashAggregate
+               Output: sum((pg_catalog.sum((sum(xc_groupby_tab1.val))))), ((xc_groupby_tab1.val2 % 2))
+               ->  HashAggregate
+                     Output: pg_catalog.sum((sum(xc_groupby_tab1.val))), ((xc_groupby_tab1.val2 % 2)), xc_groupby_tab1.val2
+                     ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+                           Output: (sum(xc_groupby_tab1.val)), ((xc_groupby_tab1.val2 % 2)), xc_groupby_tab1.val2
+                           Remote query: SELECT sum(val), (val2 % 2), val2 FROM ONLY xc_groupby_tab1 WHERE true GROUP BY val2
+(12 rows)
 
 -- group by without aggregate
 select val2 from xc_groupby_tab1 group by val2;
@@ -537,89 +551,101 @@ explain (verbose true, costs false, nodes false) select val2 from xc_groupby_tab
          Remote query: SELECT val2 FROM ONLY xc_groupby_tab1 WHERE true GROUP BY val2
 (5 rows)
 
-select val + val2 from xc_groupby_tab1 group by val + val2;
- ?column? 
-----------
-        4
-        3
-        7
-        8
-        9
-        2
+select * from (select val + val2 sum from xc_groupby_tab1 group by val + val2) q order by q.sum;
+ sum 
+-----
+   2
+   3
+   4
+   7
+   8
+   9
 (6 rows)
 
-explain (verbose true, costs false, nodes false) select val + val2 from xc_groupby_tab1 group by val + val2;
-                                              QUERY PLAN                                              
-------------------------------------------------------------------------------------------------------
- HashAggregate
+explain (verbose true, costs false, nodes false) select * from (select val + val2 sum from xc_groupby_tab1 group by val + val2) q order by q.sum;
+                                                 QUERY PLAN                                                 
+------------------------------------------------------------------------------------------------------------
+ Sort
    Output: ((xc_groupby_tab1.val + xc_groupby_tab1.val2))
-   ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+   Sort Key: ((xc_groupby_tab1.val + xc_groupby_tab1.val2))
+   ->  HashAggregate
          Output: ((xc_groupby_tab1.val + xc_groupby_tab1.val2))
-         Remote query: SELECT (val + val2) FROM ONLY xc_groupby_tab1 WHERE true GROUP BY (val + val2)
-(5 rows)
+         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+               Output: ((xc_groupby_tab1.val + xc_groupby_tab1.val2))
+               Remote query: SELECT (val + val2) FROM ONLY xc_groupby_tab1 WHERE true GROUP BY (val + val2)
+(8 rows)
 
-select val + val2, val, val2 from xc_groupby_tab1 group by val, val2;
+select * from (select val + val2, val, val2 from xc_groupby_tab1 group by val, val2) q order by q.val, q.val2;
  ?column? | val | val2 
 ----------+-----+------
-        7 |   4 |    3
-        4 |   3 |    1
-        4 |   2 |    2
+        2 |   1 |    1
         4 |   1 |    3
         3 |   2 |    1
-        2 |   1 |    1
+        4 |   2 |    2
+        4 |   3 |    1
+        7 |   4 |    3
         8 |   6 |    2
         9 |   6 |    3
 (8 rows)
 
-explain (verbose true, costs false, nodes false) select val + val2, val, val2 from xc_groupby_tab1 group by val, val2;
-                                                  QUERY PLAN                                                  
---------------------------------------------------------------------------------------------------------------
- HashAggregate
+explain (verbose true, costs false, nodes false) select * from (select val + val2, val, val2 from xc_groupby_tab1 group by val, val2) q order by q.val, q.val2;
+                                                     QUERY PLAN                                                     
+--------------------------------------------------------------------------------------------------------------------
+ Sort
    Output: ((xc_groupby_tab1.val + xc_groupby_tab1.val2)), xc_groupby_tab1.val, xc_groupby_tab1.val2
-   ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+   Sort Key: xc_groupby_tab1.val, xc_groupby_tab1.val2
+   ->  HashAggregate
          Output: ((xc_groupby_tab1.val + xc_groupby_tab1.val2)), xc_groupby_tab1.val, xc_groupby_tab1.val2
-         Remote query: SELECT (val + val2), val, val2 FROM ONLY xc_groupby_tab1 WHERE true GROUP BY val, val2
-(5 rows)
+         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+               Output: ((xc_groupby_tab1.val + xc_groupby_tab1.val2)), xc_groupby_tab1.val, xc_groupby_tab1.val2
+               Remote query: SELECT (val + val2), val, val2 FROM ONLY xc_groupby_tab1 WHERE true GROUP BY val, val2
+(8 rows)
 
-select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val, xc_groupby_tab2.val2;
+select * from (select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val, xc_groupby_tab2.val2) q order by q.val, q.val2;
  ?column? | val | val2 
 ----------+-----+------
-        5 |   3 |    2
-        5 |   4 |    1
-        6 |   4 |    2
         2 |   1 |    1
         6 |   2 |    4
+        5 |   3 |    2
         7 |   3 |    4
+        5 |   4 |    1
+        6 |   4 |    2
 (6 rows)
 
-explain (verbose true, costs false, nodes false) select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val, xc_groupby_tab2.val2;
-                                                                                                                                                QUERY PLAN                                                                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- HashAggregate
+explain (verbose true, costs false, nodes false) select * from (select xc_groupby_tab1.val + xc_groupby_tab2.val2, xc_groupby_tab1.val, xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val, xc_groupby_tab2.val2) q order by q.val, q.val2;
+                                                                                                                                                   QUERY PLAN                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
    Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
-   ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+   Sort Key: xc_groupby_tab1.val, xc_groupby_tab2.val2
+   ->  HashAggregate
          Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
-         Remote query: SELECT (l.a_1 + r.a_1), l.a_1, r.a_1 FROM ((SELECT xc_groupby_tab1.val FROM ONLY xc_groupby_tab1 WHERE true) l(a_1) JOIN (SELECT xc_groupby_tab2.val2, xc_groupby_tab2.val FROM ONLY xc_groupby_tab2 WHERE true) r(a_1, a_2) ON (true)) WHERE (l.a_1 = r.a_2) GROUP BY l.a_1, r.a_1
-(5 rows)
+         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+               Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2)), xc_groupby_tab1.val, xc_groupby_tab2.val2
+               Remote query: SELECT (l.a_1 + r.a_1), l.a_1, r.a_1 FROM ((SELECT xc_groupby_tab1.val FROM ONLY xc_groupby_tab1 WHERE true) l(a_1) JOIN (SELECT xc_groupby_tab2.val2, xc_groupby_tab2.val FROM ONLY xc_groupby_tab2 WHERE true) r(a_1, a_2) ON (true)) WHERE (l.a_1 = r.a_2) GROUP BY l.a_1, r.a_1
+(8 rows)
 
-select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
- ?column? 
-----------
-        6
-        2
-        7
-        5
+select * from (select xc_groupby_tab1.val + xc_groupby_tab2.val2 sum from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2) q order by q.sum;
+ sum 
+-----
+   2
+   5
+   6
+   7
 (4 rows)
 
-explain (verbose true, costs false, nodes false) select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
-                                                                                                                                           QUERY PLAN                                                                                                                                           
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- HashAggregate
+explain (verbose true, costs false, nodes false) select * from (select xc_groupby_tab1.val + xc_groupby_tab2.val2 sum from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2) q order by q.sum;
+                                                                                                                                              QUERY PLAN                                                                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
    Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
-   ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+   Sort Key: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
+   ->  HashAggregate
          Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
-         Remote query: SELECT (l.a_1 + r.a_1) FROM ((SELECT xc_groupby_tab1.val FROM ONLY xc_groupby_tab1 WHERE true) l(a_1) JOIN (SELECT xc_groupby_tab2.val2, xc_groupby_tab2.val FROM ONLY xc_groupby_tab2 WHERE true) r(a_1, a_2) ON (true)) WHERE (l.a_1 = r.a_2) GROUP BY (l.a_1 + r.a_1)
-(5 rows)
+         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+               Output: ((xc_groupby_tab1.val + xc_groupby_tab2.val2))
+               Remote query: SELECT (l.a_1 + r.a_1) FROM ((SELECT xc_groupby_tab1.val FROM ONLY xc_groupby_tab1 WHERE true) l(a_1) JOIN (SELECT xc_groupby_tab2.val2, xc_groupby_tab2.val FROM ONLY xc_groupby_tab2 WHERE true) r(a_1, a_2) ON (true)) WHERE (l.a_1 = r.a_2) GROUP BY (l.a_1 + r.a_1)
+(8 rows)
 
 -- group by with aggregates in expression
 select count(*) + sum(val) + avg(val), val2 from xc_groupby_tab1 group by val2;
@@ -698,43 +724,49 @@ explain (verbose true, costs false, nodes false) select * from (select avg(a), s
                Remote query: SELECT avg(a), sum(a), count(*), b FROM ONLY xc_groupby_def WHERE true GROUP BY b
 (8 rows)
 
-select b from xc_groupby_def group by b;
+select * from (select b from xc_groupby_def group by b) q order by q.b;
    b   
 -------
- 
  One
- Two
  Three
+ Two
+ 
 (4 rows)
 
-explain (verbose true, costs false, nodes false) select b from xc_groupby_def group by b;
-                                  QUERY PLAN                                   
--------------------------------------------------------------------------------
- HashAggregate
+explain (verbose true, costs false, nodes false) select * from (select b from xc_groupby_def group by b) q order by q.b;
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
+ Sort
    Output: xc_groupby_def.b
-   ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+   Sort Key: xc_groupby_def.b
+   ->  HashAggregate
          Output: xc_groupby_def.b
-         Remote query: SELECT b FROM ONLY xc_groupby_def WHERE true GROUP BY b
-(5 rows)
+         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+               Output: xc_groupby_def.b
+               Remote query: SELECT b FROM ONLY xc_groupby_def WHERE true GROUP BY b
+(8 rows)
 
-select b,count(b) from xc_groupby_def group by b;
+select * from (select b,count(b) from xc_groupby_def group by b) q order by q.b;
    b   | count 
 -------+-------
-       |     0
  One   |     1
- Two   |     4
  Three |     5
+ Two   |     4
+       |     0
 (4 rows)
 
-explain (verbose true, costs false, nodes false) select b,count(b) from xc_groupby_def group by b;
-                                       QUERY PLAN                                        
------------------------------------------------------------------------------------------
- HashAggregate
-   Output: xc_groupby_def.b, count((count(xc_groupby_def.b)))
-   ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
-         Output: xc_groupby_def.b, (count(xc_groupby_def.b))
-         Remote query: SELECT b, count(b) FROM ONLY xc_groupby_def WHERE true GROUP BY b
-(5 rows)
+explain (verbose true, costs false, nodes false) select * from (select b,count(b) from xc_groupby_def group by b) q order by q.b;
+                                          QUERY PLAN                                           
+-----------------------------------------------------------------------------------------------
+ Sort
+   Output: xc_groupby_def.b, (count((count(xc_groupby_def.b))))
+   Sort Key: xc_groupby_def.b
+   ->  HashAggregate
+         Output: xc_groupby_def.b, count((count(xc_groupby_def.b)))
+         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+               Output: xc_groupby_def.b, (count(xc_groupby_def.b))
+               Remote query: SELECT b, count(b) FROM ONLY xc_groupby_def WHERE true GROUP BY b
+(8 rows)
 
 select count(*) from xc_groupby_def where b is null group by b;
  count 

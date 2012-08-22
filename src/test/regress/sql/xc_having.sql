@@ -31,8 +31,8 @@ explain (verbose true, costs false, nodes false) select count(*), sum(xc_having_
 -- group by and having, without aggregate in the target list
 select val2 from xc_having_tab1 group by val2 having sum(val) > 8;
 explain (verbose true, costs false, nodes false) select val2 from xc_having_tab1 group by val2 having sum(val) > 8;
-select val + val2 from xc_having_tab1 group by val + val2 having sum(val) > 5;
-explain (verbose true, costs false, nodes false) select val + val2 from xc_having_tab1 group by val + val2 having sum(val) > 5;
+select * from (select val + val2 sum from xc_having_tab1 group by val + val2 having sum(val) > 5) q order by q.sum;
+explain (verbose true, costs false, nodes false) select * from (select val + val2 sum from xc_having_tab1 group by val + val2 having sum(val) > 5) q order by q.sum;
 -- group by with aggregates in expression
 select count(*) + sum(val) + avg(val), val2 from xc_having_tab1 group by val2 having min(val) < val2;
 explain (verbose true, costs false, nodes false) select count(*) + sum(val) + avg(val), val2 from xc_having_tab1 group by val2 having min(val) < val2;
@@ -62,8 +62,8 @@ explain (verbose true, costs false, nodes false) select count(*), sum(xc_having_
 -- group by and having, without aggregate in the target list
 select val2 from xc_having_tab1 group by val2 having sum(val) > 8;
 explain (verbose true, costs false, nodes false) select val2 from xc_having_tab1 group by val2 having sum(val) > 8;
-select val + val2 from xc_having_tab1 group by val + val2 having sum(val) > 5;
-explain (verbose true, costs false, nodes false) select val + val2 from xc_having_tab1 group by val + val2 having sum(val) > 5;
+select * from (select val + val2 sum from xc_having_tab1 group by val + val2 having sum(val) > 5) q order by q.sum;
+explain (verbose true, costs false, nodes false) select * from (select val + val2 sum from xc_having_tab1 group by val + val2 having sum(val) > 5) q order by q.sum;
 -- group by with aggregates in expression
 select count(*) + sum(val) + avg(val), val2 from xc_having_tab1 group by val2 having min(val) < val2;
 explain (verbose true, costs false, nodes false) select count(*) + sum(val) + avg(val), val2 from xc_having_tab1 group by val2 having min(val) < val2;

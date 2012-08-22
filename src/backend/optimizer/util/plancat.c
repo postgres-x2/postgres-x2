@@ -414,8 +414,8 @@ estimate_rel_size(Relation rel, int32 *attr_widths,
 			if (IS_PGXC_COORDINATOR && !IsConnFromCoord() &&
 				rel->rd_locator_info)
 			{
-				relpages   = 1;
-				reltuples  = 1;
+				*pages   = 10;
+				*tuples  = 10;
 				break;
 			}
 #endif

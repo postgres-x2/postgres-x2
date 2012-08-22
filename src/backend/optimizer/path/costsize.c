@@ -2860,6 +2860,7 @@ cost_remotequery(RemoteQueryPath *rqpath, PlannerInfo *root, RelOptInfo *rel)
 {
 	rqpath->path.startup_cost = 0;
 	rqpath->path.total_cost = 0;
+	rqpath->path.rows = rel->rows;
 }
 #endif /* PGXC */
 
