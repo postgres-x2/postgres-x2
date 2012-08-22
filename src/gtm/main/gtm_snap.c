@@ -303,7 +303,8 @@ ProcessGetSnapshotCommand(Port *myport, StringInfo message, bool get_gxid)
 			ereport(ERROR,
 					(EPROTO,
 					 errmsg("Message does not contain valid GXID")));
-		memcpy(&gxid, data, sizeof (gxid));
+		memcpy(&gxid, data, sizeof(gxid));
+		elog(LOG, "Received transaction ID %d for snapshot obtention", gxid);
 		txn = GTM_GXIDToHandle(gxid);
 	}
 	else

@@ -468,7 +468,7 @@ LockGXact(const char *gid, Oid user)
 
 #ifdef PGXC
 	/*
-	 * In PGXC, if xc_maintenance_mode is on, COMMIT/ROLLBACK PREPARED may be issued to the 
+	 * In PGXC, if xc_maintenance_mode is on, COMMIT/ROLLBACK PREPARED may be issued to the
 	 * node where the given xid does not exist.
 	 */
 	if (!xc_maintenance_mode)
@@ -1302,7 +1302,7 @@ FinishPreparedTransaction(const char *gid, bool isCommit)
 	 * TXN.  This can happen when COMMIT/ROLLBACK PREPARED is issued at
 	 * the originating Coordinator for cleanup.
 	 * In this case, no local handling is needed.   Only report to GTM
-	 * is needed and this has already been handled in 
+	 * is needed and this has already been handled in
 	 * FinishRemotePreparedTransaction().
 	 *
 	 * Second predicate may not be necessary.   It is just in case.

@@ -2965,6 +2965,13 @@ GetSnapshotDataCoordinator(Snapshot snapshot)
 	Assert(IS_PGXC_COORDINATOR || IsPGXCNodeXactDatanodeDirect());
 
 	canbe_grouped = (!FirstSnapshotSet) || (!IsolationUsesXactSnapshot());
+
+	/* Log some information about snapshot obtention */
+	if (IsAutoVacuumWorkerProcess())
+		elog(DEBUG1, "Getting snapshot for autovacuum. Current XID = %d", GetCurrentTransactionId());
+	else
+		elog(DEBUG1, "Getting snapshot. Current XID = %d", GetCurrentTransactionId());
+
 	gtm_snapshot = GetSnapshotGTM(GetCurrentTransactionId(), canbe_grouped);
 
 	if (!gtm_snapshot)
