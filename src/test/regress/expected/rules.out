@@ -6,7 +6,7 @@
 --
 -- Tables and rules for the view test
 --
-create table rtest_t1 (a int4, b int4) distribute by round robin;
+create table rtest_t1 (a int4, b int4) distribute by roundrobin;
 create table rtest_t2 (a int4, b int4);
 create table rtest_t3 (a int4, b int4);
 create view rtest_v1 as select * from rtest_t1;
@@ -30,10 +30,10 @@ COMMENT ON RULE rtest_v1_del ON rtest_v1 IS NULL;
 -- 	both possible syntaxes to define them (The last action
 --  can but must not have a semicolon at the end).
 --
-create table rtest_system (sysname text, sysdesc text) distribute by round robin;
-create table rtest_interface (sysname text, ifname text) distribute by round robin;
-create table rtest_person (pname text, pdesc text) distribute by round robin;
-create table rtest_admin (pname text, sysname text) distribute by round robin;
+create table rtest_system (sysname text, sysdesc text) distribute by roundrobin;
+create table rtest_interface (sysname text, ifname text) distribute by roundrobin;
+create table rtest_person (pname text, pdesc text) distribute by roundrobin;
+create table rtest_admin (pname text, sysname text) distribute by roundrobin;
 create rule rtest_sys_upd as on update to rtest_system do also (
 	update rtest_interface set sysname = new.sysname
 		where sysname = old.sysname;
@@ -51,9 +51,9 @@ create rule rtest_pers_del as on delete to rtest_person do also
 --
 -- Tables and rules for the logging test
 --
-create table rtest_emp (ename char(20), salary money) distribute by round robin;
-create table rtest_emplog (ename char(20), who name, action char(10), newsal money, oldsal money) distribute by round robin;
-create table rtest_empmass (ename char(20), salary money) distribute by round robin;
+create table rtest_emp (ename char(20), salary money) distribute by roundrobin;
+create table rtest_emplog (ename char(20), who name, action char(10), newsal money, oldsal money) distribute by roundrobin;
+create table rtest_empmass (ename char(20), salary money) distribute by roundrobin;
 create rule rtest_emp_ins as on insert to rtest_emp do
 	insert into rtest_emplog values (new.ename, current_user,
 			'hired', new.salary, '0.00');
@@ -941,18 +941,18 @@ CREATE TABLE shoe_data (
 	slminlen   float,         -- miminum shoelace length
 	slmaxlen   float,         -- maximum shoelace length
 	slunit     char(8)        -- length unit
-) distribute by round robin;
+) distribute by roundrobin;
 CREATE TABLE shoelace_data (
 	sl_name    char(10),      -- primary key
 	sl_avail   integer,       -- available # of pairs
 	sl_color   char(10),      -- shoelace color
 	sl_len     float,         -- shoelace length
 	sl_unit    char(8)        -- length unit
-) distribute by round robin;
+) distribute by roundrobin;
 CREATE TABLE unit (
 	un_name    char(8),       -- the primary key
 	un_fact    float          -- factor to transform to cm
-) distribute by round robin;
+) distribute by roundrobin;
 CREATE VIEW shoe AS
 	SELECT sh.shoename,
 		   sh.sh_avail,

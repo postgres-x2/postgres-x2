@@ -67,7 +67,7 @@ ALTER TABLE <replaceable class="PARAMETER">name</replaceable>
     NOT OF
     OWNER TO <replaceable class="PARAMETER">new_owner</replaceable>
     SET TABLESPACE <replaceable class="PARAMETER">new_tablespace</replaceable>
-    DISTRIBUTE BY { REPLICATION | ROUND ROBIN | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</replaceable> ) } }
+    DISTRIBUTE BY { REPLICATION | ROUNDROBIN | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</replaceable> ) } }
     TO { GROUP <replaceable class="PARAMETER">groupname</replaceable> | NODE ( <replaceable class="PARAMETER">nodename</replaceable> [, ... ] ) }
     ADD NODE ( <replaceable class="PARAMETER">nodename</replaceable> [, ... ] )
     DELETE NODE ( <replaceable class="PARAMETER">nodename</replaceable> [, ... ] )
@@ -600,7 +600,7 @@ ALTER TABLE <replaceable class="PARAMETER">name</replaceable>
       </varlistentry>
 
       <varlistentry>
-       <term><literal>ROUND ROBIN</literal></term>
+       <term><literal>ROUNDROBIN</literal></term>
        <listitem>
         <para>
          Each row of the table will be placed in one of the Datanodes

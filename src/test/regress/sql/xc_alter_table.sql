@@ -102,7 +102,7 @@ SELECT b FROM xc_alter_table_3 WHERE a = 11;
 EXECUTE xc_alter_table_delete(11);
 SELECT b FROM xc_alter_table_3 WHERE a = 11 or a = 12;
 EXECUTE xc_alter_table_delete(12);
-ALTER TABLE xc_alter_table_3 DISTRIBUTE BY ROUND ROBIN;
+ALTER TABLE xc_alter_table_3 DISTRIBUTE BY ROUNDROBIN;
 SELECT count(*), sum(a), avg(a) FROM xc_alter_table_3; -- Check on tuple presence
 SELECT * FROM xc_alter_table_3_v;
 EXECUTE xc_alter_table_insert(11, 'b');

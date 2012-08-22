@@ -93,7 +93,7 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE [ IF NOT EXI
 [ WITH ( <replaceable class="PARAMETER">storage_parameter</replaceable> [= <replaceable class="PARAMETER">value</replaceable>] [, ... ] ) | WITH OIDS | WITHOUT OIDS ]
 [ ON COMMIT { PRESERVE ROWS | DELETE ROWS | DROP } ]
 [ TABLESPACE <replaceable class="PARAMETER">tablespace</replaceable> ]
-[ DISTRIBUTE BY { REPLICATION | ROUND ROBIN | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</replaceable> ) } } ]
+[ DISTRIBUTE BY { REPLICATION | ROUNDROBIN | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</replaceable> ) } } ]
 [ TO { GROUP <replaceable class="PARAMETER">groupname</replaceable> | NODE ( <replaceable class="PARAMETER">nodename</replaceable> [, ... ] ) } ]
 
 CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
@@ -105,7 +105,7 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
 [ WITH ( <replaceable class="PARAMETER">storage_parameter</replaceable> [= <replaceable class="PARAMETER">value</replaceable>] [, ... ] ) | WITH OIDS | WITHOUT OIDS ]
 [ ON COMMIT { PRESERVE ROWS | DELETE ROWS | DROP } ]
 [ TABLESPACE <replaceable class="PARAMETER">tablespace</replaceable> ]
-[ DISTRIBUTE BY { REPLICATION | ROUND ROBIN | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</replaceable> ) } } ]
+[ DISTRIBUTE BY { REPLICATION | ROUNDROBIN | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</replaceable> ) } } ]
 [ TO { GROUP <replaceable class="PARAMETER">groupname</replaceable> | NODE ( <replaceable class="PARAMETER">nodename</replaceable> [, ... ] ) } ]
 
 <phrase>where <replaceable class="PARAMETER">column_constraint</replaceable> is:</phrase>
@@ -976,7 +976,7 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
        </varlistentry>
 
        <varlistentry>
-        <term><literal>ROUND ROBIN</literal></term>
+        <term><literal>ROUNDROBIN</literal></term>
         <listitem>
          <para>
           Each row of the table will be placed in one of the Datanodes
@@ -1028,7 +1028,7 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
      UNIQUE constraint will be chosen as the distribution key.  If no
      such column is specified, distribution column is the first
      eligible column in the definition.  If no such column is found,
-     then the table will be distributed by <literal>ROUND ROBIN</>.
+     then the table will be distributed by <literal>ROUNDROBIN</>.
     </para>
 
    </listitem>

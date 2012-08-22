@@ -14,7 +14,7 @@ CREATE FUNCTION func_immutable (int) RETURNS int AS $$ SELECT $1 $$ LANGUAGE SQL
 -- Test for remote DML on different tables
 CREATE TABLE rel_rep (a int, b int) DISTRIBUTE BY REPLICATION;
 CREATE TABLE rel_hash (a int, b int) DISTRIBUTE BY HASH (a);
-CREATE TABLE rel_rr (a int, b int) DISTRIBUTE BY ROUND ROBIN;
+CREATE TABLE rel_rr (a int, b int) DISTRIBUTE BY ROUNDROBIN;
 CREATE SEQUENCE seqtest START 10;
 CREATE SEQUENCE seqtest2 START 100;
 
@@ -81,9 +81,9 @@ UPDATE rel_rep SET b = now(), c = true WHERE a < currval('seqtest3') - 3 AND b <
 SELECT a FROM rel_rep  WHERE c = true ORDER BY 1;
 DROP SEQUENCE seqtest3;
 
--- UPDATE cases for round robin table
+-- UPDATE cases for roundrobin table
 -- Plain cases change it completely
-CREATE TABLE rel_rr (a int, b timestamp DEFAULT NULL, c boolean DEFAULT NULL) DISTRIBUTE BY ROUND ROBIN;
+CREATE TABLE rel_rr (a int, b timestamp DEFAULT NULL, c boolean DEFAULT NULL) DISTRIBUTE BY ROUNDROBIN;
 CREATE SEQUENCE seqtest4 START 1;
 INSERT INTO rel_rr VALUES (1),(2),(3),(4),(5);
 UPDATE rel_rr SET a = nextval('seqtest4'), b = now(), c = false;

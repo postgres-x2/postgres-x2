@@ -477,7 +477,7 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 				opt_frame_clause frame_extent frame_bound
 %type <str>		opt_existing_window_name
 /* PGXC_BEGIN */
-%type <str>		opt_barrier_id
+%type <str>		opt_barrier_id OptDistributeType
 %type <distby>	OptDistributeBy OptDistributeByInternal
 %type <subclus> OptSubCluster OptSubClusterInternal
 /* PGXC_END */
@@ -504,8 +504,7 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
  */
 
 /* ordinary key words in alphabetical order */
-/* PGXC - added DISTRIBUTE, DIRECT, HASH, REPLICATION, ROUND ROBIN,
- * COORDINATOR, CLEAN, MODULO, NODE, BARRIER */
+/* PGXC - added DISTRIBUTE, DIRECT, COORDINATOR, CLEAN,  NODE, BARRIER */
 %token <keyword> ABORT_P ABSOLUTE_P ACCESS ACTION ADD_P ADMIN AFTER
 	AGGREGATE ALL ALSO ALTER ALWAYS ANALYSE ANALYZE AND ANY ARRAY AS ASC
 	ASSERTION ASSIGNMENT ASYMMETRIC AT ATTRIBUTE AUTHORIZATION
@@ -525,7 +524,7 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 	DATA_P DATABASE DAY_P DEALLOCATE DEC DECIMAL_P DECLARE DEFAULT DEFAULTS
 	DEFERRABLE DEFERRED DEFINER DELETE_P DELIMITER DELIMITERS DESC
 /* PGXC_BEGIN */
-	DICTIONARY DIRECT DISABLE_P DISCARD DISTINCT DISTRIBUTE DO DOCUMENT_P DOMAIN_P DOUBLE_P 
+	DICTIONARY DIRECT DISABLE_P DISCARD DISTINCT DISTRIBUTE DO DOCUMENT_P DOMAIN_P DOUBLE_P
 /* PGXC_END */
 	DROP
 
@@ -538,9 +537,7 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 
 	GLOBAL GRANT GRANTED GREATEST GROUP_P
 
-/* PGXC_BEGIN */
-	HANDLER HASH HAVING HEADER_P HOLD HOUR_P
-/* PGXC_END */
+	HANDLER HAVING HEADER_P HOLD HOUR_P
 
 	IDENTITY_P IF_P ILIKE IMMEDIATE IMMUTABLE IMPLICIT_P IN_P
 	INCLUDING INCREMENT INDEX INDEXES INHERIT INHERITS INITIALLY INLINE_P
@@ -554,9 +551,7 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 	LABEL LANGUAGE LARGE_P LAST_P LC_COLLATE_P LC_CTYPE_P LEADING LEAKPROOF
 	LEAST LEFT LEVEL LIKE LIMIT LISTEN LOAD LOCAL LOCALTIME LOCALTIMESTAMP
 	LOCATION LOCK_P
-/* PGXC_BEGIN */
-	MAPPING MATCH MAXVALUE MINUTE_P MINVALUE MODE MODULO MONTH_P MOVE
-/* PGXC_END */
+	MAPPING MATCH MAXVALUE MINUTE_P MINVALUE MODE MONTH_P MOVE
 	NAME_P NAMES NATIONAL NATURAL NCHAR NEXT NO NODE NONE
 	NOT NOTHING NOTIFY NOTNULL NOWAIT NULL_P NULLIF NULLS_P NUMERIC
 
@@ -572,11 +567,9 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 	QUOTE
 
 	RANGE READ REAL REASSIGN RECHECK RECURSIVE REF REFERENCES REINDEX
-/* PGXC_BEGIN */
-	RELATIVE_P RELEASE RENAME REPEATABLE REPLACE REPLICA REPLICATION
-	RESET RESTART RESTRICT RETURNING RETURNS REVOKE RIGHT ROBIN ROLE ROLLBACK
-	ROUND ROW ROWS RULE
-/* PGXC_END */
+	RELATIVE_P RELEASE RENAME REPEATABLE REPLACE REPLICA
+	RESET RESTART RESTRICT RETURNING RETURNS REVOKE RIGHT ROLE ROLLBACK
+	ROW ROWS RULE
 
 	SAVEPOINT SCHEMA SCROLL SEARCH SECOND_P SECURITY SELECT SEQUENCE SEQUENCES
 	SERIALIZABLE SERVER SESSION SESSION_USER SET SETOF SHARE
@@ -2510,14 +2503,14 @@ copy_generic_opt_arg_list_item:
  *		PGXC-related extensions:
  *		1) Distribution type of a table:
  *			DISTRIBUTE BY ( HASH(column) | MODULO(column) |
- *							REPLICATION | ROUND ROBIN )
+ *							REPLICATION | ROUNDROBIN )
  *		2) Subcluster for table
  *			TO ( GROUP groupname | NODE nodename1,...,nodenameN )
  *
  *****************************************************************************/
 
 CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
-			OptInherit OptWith OnCommitOption OptTableSpace 
+			OptInherit OptWith OnCommitOption OptTableSpace
 /* PGXC_BEGIN */
 			OptDistributeBy OptSubCluster
 /* PGXC_END */
@@ -3179,39 +3172,43 @@ OptTableSpace:   TABLESPACE name					{ $$ = $2; }
 		;
 
 /* PGXC_BEGIN */
-DistributeByHash: DISTRIBUTE BY
-			| DISTRIBUTE BY HASH
-		;
-
 OptDistributeBy: OptDistributeByInternal			{ $$ = $1; }
 			| /* EMPTY */							{ $$ = NULL; }
 		;
 
-OptDistributeByInternal: DistributeByHash '(' name ')'
+/*
+ * For the distribution type, we use IDENT to limit the impact of keywords
+ * related to distribution on other commands and to allow extensibility for
+ * new distributions.
+ */
+OptDistributeType: IDENT							{ $$ = $1; }
+		;
+
+OptDistributeByInternal:  DISTRIBUTE BY OptDistributeType '(' name ')'
 				{
 					DistributeBy *n = makeNode(DistributeBy);
-					n->disttype = DISTTYPE_HASH;
-					n->colname = $3;
-					$$ = n;
-				}
-			| DISTRIBUTE BY MODULO '(' name ')'
-				{
-					DistributeBy *n = makeNode(DistributeBy);
-					n->disttype = DISTTYPE_MODULO;
+					if (strcmp($3, "modulo") == 0)
+						n->disttype = DISTTYPE_MODULO;
+					else if (strcmp($3, "hash") == 0)
+						n->disttype = DISTTYPE_HASH;
+					else
+                        ereport(ERROR,
+                                (errcode(ERRCODE_SYNTAX_ERROR),
+                                 errmsg("unrecognized distribution option \"%s\"", $3)));
 					n->colname = $5;
 					$$ = n;
 				}
-			| DISTRIBUTE BY REPLICATION
+			| DISTRIBUTE BY OptDistributeType
 				{
 					DistributeBy *n = makeNode(DistributeBy);
-					n->disttype = DISTTYPE_REPLICATION;
-					n->colname = NULL;
-					$$ = n;
-				}
-			| DISTRIBUTE BY ROUND ROBIN
-				{
-					DistributeBy *n = makeNode(DistributeBy);
-					n->disttype = DISTTYPE_ROUNDROBIN;
+					if (strcmp($3, "replication") == 0)
+                        n->disttype = DISTTYPE_REPLICATION;
+					else if (strcmp($3, "roundrobin") == 0)
+						n->disttype = DISTTYPE_ROUNDROBIN;
+                    else
+                        ereport(ERROR,
+                                (errcode(ERRCODE_SYNTAX_ERROR),
+                                 errmsg("unrecognized distribution option \"%s\"", $3)));
 					n->colname = NULL;
 					$$ = n;
 				}
@@ -12632,8 +12629,7 @@ ColLabel:	IDENT									{ $$ = $1; }
 
 /* "Unreserved" keywords --- available for use as any kind of name.
  */
-/* PGXC - added DISTRIBUTE, DIRECT, HASH, REPLICATION, ROUND ROBIN,
- * COORDINATOR, CLEAN, MODULO, NODE, BARRIER */
+/* PGXC - added DISTRIBUTE, DIRECT, COORDINATOR, CLEAN, NODE, BARRIER */
 unreserved_keyword:
 			  ABORT_P
 			| ABSOLUTE_P
@@ -12731,9 +12727,6 @@ unreserved_keyword:
 			| GLOBAL
 			| GRANTED
 			| HANDLER
-/* PGXC_BEGIN */
-			| HASH
-/* PGXC_END */
 			| HEADER_P
 			| HOLD
 			| HOUR_P
@@ -12775,9 +12768,6 @@ unreserved_keyword:
 			| MINUTE_P
 			| MINVALUE
 			| MODE
-/* PGXC_BEGIN */
-			| MODULO
-/* PGXC_END */
 			| MONTH_P
 			| MOVE
 			| NAME_P
@@ -12829,22 +12819,13 @@ unreserved_keyword:
 			| REPEATABLE
 			| REPLACE
 			| REPLICA
-/* PGXC_BEGIN */
-			| REPLICATION
-/* PGXC_END */
 			| RESET
 			| RESTART
 			| RESTRICT
 			| RETURNS
 			| REVOKE
-/* PGXC_BEGIN */
-			| ROBIN
-/* PGXC_END */
 			| ROLE
 			| ROLLBACK
-/* PGXC_BEGIN */
-			| ROUND
-/* PGXC_END */
 			| ROWS
 			| RULE
 			| SAVEPOINT

@@ -5,8 +5,8 @@
 -- This file contains tests for Fast Query Shipping (FQS) for queries involving
 -- a single table
 
--- Testset 1 for distributed table (by round robin)
-select create_table_nodes('tab1_rr(val int, val2 int)', '{1, 2, 3}'::int[], 'round robin', NULL);
+-- Testset 1 for distributed table (by roundrobin)
+select create_table_nodes('tab1_rr(val int, val2 int)', '{1, 2, 3}'::int[], 'roundrobin', NULL);
 insert into tab1_rr values (1, 2);
 insert into tab1_rr values (2, 4);
 insert into tab1_rr values (5, 3);
@@ -42,7 +42,7 @@ explain (costs off, verbose on, nodes off) select val, val2 from tab1_rr where v
 select sum(val) from tab1_rr where val2 = 2 group by val2 having sum(val) > 1;
 explain (costs off, verbose on, nodes off) select sum(val) from tab1_rr where val2 = 2 group by val2 having sum(val) > 1;
 
--- tests for node reduction by application of quals, for round robin node
+-- tests for node reduction by application of quals, for roundrobin node
 -- reduction is not applicable. Having query not FQSed because of existence of ORDER BY,
 -- implies that nodes did not get reduced.
 select * from tab1_rr where val = 7;

@@ -1443,7 +1443,7 @@ SELECT recursion_test(4,3);
 --
 -- Test the FOUND magic variable
 --
-CREATE TABLE found_test_tbl (a int) distribute by round robin;
+CREATE TABLE found_test_tbl (a int) distribute by roundrobin;
 
 create function test_found()
   returns boolean as '

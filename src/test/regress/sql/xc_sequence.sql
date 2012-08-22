@@ -48,7 +48,7 @@ DROP SEQUENCE xc_sequence_2;
 
 -- Columns with SERIAL
 -- Serial sequence is named xc_sequence_tab1_col2_seq
-CREATE TABLE xc_sequence_tab1 (col1 int, col2 serial) DISTRIBUTE BY ROUND ROBIN;
+CREATE TABLE xc_sequence_tab1 (col1 int, col2 serial) DISTRIBUTE BY ROUNDROBIN;
 -- Some data
 INSERT INTO xc_sequence_tab1 VALUES (1, DEFAULT);
 INSERT INTO xc_sequence_tab1 VALUES (2, DEFAULT);
@@ -68,7 +68,7 @@ SELECT col1 FROM xc_sequence_tab1 ORDER BY 1;
 COMMIT;
 DROP TABLE xc_sequence_tab1;
 -- Need to recreate here, serial column is no more
-CREATE TABLE xc_sequence_tab1 (col1 int, col2 serial) DISTRIBUTE BY ROUND ROBIN;
+CREATE TABLE xc_sequence_tab1 (col1 int, col2 serial) DISTRIBUTE BY ROUNDROBIN;
 INSERT INTO xc_sequence_tab1 VALUES (1234, DEFAULT);
 SELECT col1, col2 FROM xc_sequence_tab1 ORDER BY 1;
 -- Rollback of a table with SERIAL

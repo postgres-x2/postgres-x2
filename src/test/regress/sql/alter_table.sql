@@ -542,7 +542,7 @@ drop table atacc1;
 
 -- let's do one where the unique constraint fails
 -- because the column doesn't exist
-create table atacc1 ( test int ) distribute by round robin;
+create table atacc1 ( test int ) distribute by roundrobin;
 -- add a unique constraint (fails)
 alter table atacc1 add constraint atacc_test1 unique (test1);
 drop table atacc1;
@@ -877,7 +877,7 @@ select * from atacc1;
 drop table atacc1;
 
 -- test inheritance
-create table parent (a int, b int, c int) distribute by round robin;
+create table parent (a int, b int, c int) distribute by roundrobin;
 insert into parent values (1, 2, 3);
 alter table parent drop a;
 create table child (d varchar(255)) inherits (parent);
@@ -893,7 +893,7 @@ drop table child;
 drop table parent;
 
 -- test copy in/out
-create table test (a int4, b int4, c int4) distribute by round robin;
+create table test (a int4, b int4, c int4) distribute by roundrobin;
 insert into test values (1,2,3);
 alter table test drop a;
 copy test to stdout;
@@ -958,8 +958,8 @@ alter table only renameColumn add column x int;
 
 -- Test corner cases in dropping of inherited columns
 
-create table p1 (f1 int, f2 int) distribute by round robin;
-create table c1 (f1 int not null) inherits(p1) distribute by round robin;
+create table p1 (f1 int, f2 int) distribute by roundrobin;
+create table c1 (f1 int not null) inherits(p1) distribute by roundrobin;
 
 -- should be rejected since c1.f1 is inherited
 alter table c1 drop column f1;
@@ -972,8 +972,8 @@ select f1 from c1;
 
 drop table p1 cascade;
 
-create table p1 (f1 int, f2 int) distribute by round robin;
-create table c1 () inherits(p1) distribute by round robin;
+create table p1 (f1 int, f2 int) distribute by roundrobin;
+create table c1 () inherits(p1) distribute by roundrobin;
 
 -- should be rejected since c1.f1 is inherited
 alter table c1 drop column f1;
@@ -983,8 +983,8 @@ select f1 from c1;
 
 drop table p1 cascade;
 
-create table p1 (f1 int, f2 int) distribute by round robin;
-create table c1 () inherits(p1) distribute by round robin;
+create table p1 (f1 int, f2 int) distribute by roundrobin;
+create table c1 () inherits(p1) distribute by roundrobin;
 
 -- should be rejected since c1.f1 is inherited
 alter table c1 drop column f1;
@@ -994,8 +994,8 @@ alter table c1 drop column f1;
 
 drop table p1 cascade;
 
-create table p1 (f1 int, f2 int) distribute by round robin;
-create table c1 (f1 int not null) inherits(p1) distribute by round robin;
+create table p1 (f1 int, f2 int) distribute by roundrobin;
+create table c1 (f1 int not null) inherits(p1) distribute by roundrobin;
 
 -- should be rejected since c1.f1 is inherited
 alter table c1 drop column f1;

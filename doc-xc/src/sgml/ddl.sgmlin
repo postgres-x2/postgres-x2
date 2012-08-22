@@ -170,7 +170,7 @@ CREATE TABLE products (
    generate hash value as an index for Datanode which accommodate the
    row.  
    You can choose another distribution method such as <type>MODULO</> and
-   <type>ROUND ROBIN</>.
+   <type>ROUNDROBIN</>.
    To specify what column to choose as the distribution column and what value test to
    choose, you can do as follows:
 <programlisting>
@@ -183,7 +183,7 @@ CREATE TABLE products (
    In this case, the column <type>product_no</> is chosen as the distribute column and
    the target Datanode of each row is determined based upon the hash value of the column.
    You can use <type>MODULO</> to specify modulo to test and determine the target Datanode.
-   You can also specify <type>ROUND ROBIN</> to determine the Datanode by the order each
+   You can also specify <type>ROUNDROBIN</> to determine the Datanode by the order each
    row is inserted.
   </para>
 
@@ -663,7 +663,7 @@ CREATE TABLE products (
     In <productname>Postgres-XC</>, in distributed
     tables, <literal>UNIQUE</literal> constraints must include the
     distribution column of the table. If the table is distributed
-    by <type>ROUND ROBIN</type>, you cannot enforce <type>UNIQUE</>
+    by <type>ROUNDROBIN</type>, you cannot enforce <type>UNIQUE</>
     constraint because it does not have a distribution column.
     There's no restriction in <type>UNIQUE</> constraint in replicated
 tables.

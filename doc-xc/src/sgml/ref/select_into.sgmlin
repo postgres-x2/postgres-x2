@@ -122,7 +122,7 @@ SELECT [ ALL | DISTINCT [ ON ( <replaceable class="parameter">expression</replac
     of the newly-created table on all the node respecting the default
     distribution which is <literal>HASH</literal> on the first column
     having a type that can be distributed. If no columns are found,
-    distribution is done by <literal>ROUND ROBIN</literal>.
+    distribution is done by <literal>ROUNDROBIN</literal>.
    </para>
 <!## end>
  </refsect1>
