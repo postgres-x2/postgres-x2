@@ -19,6 +19,5 @@
 #include "pgxc/execRemote.h"
 
 bool is_immutable_func(Oid funcid);
-char *deparseSql(RemoteQueryState *scanstate);
 bool pgxc_is_expr_shippable(Expr *node, bool *has_aggs);
 #endif
