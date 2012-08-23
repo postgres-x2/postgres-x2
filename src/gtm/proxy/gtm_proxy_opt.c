@@ -349,7 +349,7 @@ struct config_string ConfigureNamesString[] =
 			0
 		},
 		&ListenAddresses,
-		NULL,
+		"*",
 		NULL, NULL
 	},
 

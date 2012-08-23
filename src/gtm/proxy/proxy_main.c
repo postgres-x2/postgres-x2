@@ -601,9 +601,7 @@ main(int argc, char *argv[])
 		}
 	}
 
-/*
 	ListenAddresses = strdup(GTM_PROXY_DEFAULT_HOSTNAME);
-*/
 	GTMProxyPortNumber = GTM_PROXY_DEFAULT_PORT;
 	GTMProxyWorkerThreads = GTM_PROXY_DEFAULT_WORKERS;
 
@@ -850,9 +848,15 @@ main(int argc, char *argv[])
 	{
 		int			success = 0;
 
+		if (strcmp(ListenAddresses, "*") == 0)
+			status = StreamServerPort(AF_UNSPEC, NULL,
+									  (unsigned short) GTMProxyPortNumber,
+									  ListenSocket, MAXLISTEN);
+		else
 			status = StreamServerPort(AF_UNSPEC, ListenAddresses,
 									  (unsigned short) GTMProxyPortNumber,
 									  ListenSocket, MAXLISTEN);
+
 		if (status == STATUS_OK)
 			success++;
 		else

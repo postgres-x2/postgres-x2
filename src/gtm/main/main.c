@@ -634,9 +634,15 @@ main(int argc, char *argv[])
 	{
 		int			success = 0;
 
+		if (strcmp(ListenAddresses, "*") == 0)
+			status = StreamServerPort(AF_UNSPEC, NULL,
+									  (unsigned short) GTMPortNumber,
+									  ListenSocket, MAXLISTEN);
+		else
 			status = StreamServerPort(AF_UNSPEC, ListenAddresses,
 									  (unsigned short) GTMPortNumber,
 									  ListenSocket, MAXLISTEN);
+
 		if (status == STATUS_OK)
 			success++;
 		else
