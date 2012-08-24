@@ -100,3 +100,11 @@ COPY xc_copy_1 TO STDOUT;
 34	5
 9	11
 DROP TABLE xc_copy_1;
+-- Quoted table
+-- check for correct remote query generation
+CREATE TABLE "Xc_copy_2" (a int, b int);
+COPY "Xc_copy_2" FROM STDIN DELIMITER ',';
+COPY "Xc_copy_2" TO STDOUT;
+1	2
+3	4
+DROP TABLE "Xc_copy_2";

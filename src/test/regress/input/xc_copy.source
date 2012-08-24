@@ -99,3 +99,13 @@ INSERT INTO xc_copy_1 VALUES (1,23),(34,5),(9,11);
 -- Extract its data
 COPY xc_copy_1 TO STDOUT;
 DROP TABLE xc_copy_1;
+
+-- Quoted table
+-- check for correct remote query generation
+CREATE TABLE "Xc_copy_2" (a int, b int);
+COPY "Xc_copy_2" FROM STDIN DELIMITER ',';
+1,2
+3,4
+\.
+COPY "Xc_copy_2" TO STDOUT;
+DROP TABLE "Xc_copy_2";
