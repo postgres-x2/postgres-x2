@@ -12465,10 +12465,10 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 		/* Add the grammar extension linked to PGXC depending on data got from pgxc_class */
 		if (tbinfo->pgxclocatortype != 'E')
 		{
-			/* N: DISTRIBUTE BY ROUND ROBIN */
+			/* N: DISTRIBUTE BY ROUNDROBIN */
 			if (tbinfo->pgxclocatortype == 'N')
 			{
-				appendPQExpBuffer(q, "\nDISTRIBUTE BY ROUND ROBIN");
+				appendPQExpBuffer(q, "\nDISTRIBUTE BY ROUNDROBIN");
 			}
 			/* R: DISTRIBUTE BY REPLICATED */
 			else if (tbinfo->pgxclocatortype == 'R')

@@ -4286,7 +4286,7 @@ get_utility_query_def(Query *query, deparse_context *context)
 					break;
 
 				case DISTTYPE_ROUNDROBIN:
-					appendStringInfo(buf, " DISTRIBUTE BY ROUND ROBIN");
+					appendStringInfo(buf, " DISTRIBUTE BY ROUNDROBIN");
 					break;
 
 				case DISTTYPE_MODULO:
