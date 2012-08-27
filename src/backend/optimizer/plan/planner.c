@@ -1427,6 +1427,15 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 					 * the desired tlist.
 					 */
 					result_plan->targetlist = sub_tlist;
+#ifdef PGXC
+					/*
+					 * If the Join tree is completely shippable, adjust the
+					 * target list of the query according to the new targetlist
+					 * set above. For now do this only for SELECT statements.
+					 */
+					if (IsA(result_plan, RemoteQuery) && parse->commandType == CMD_SELECT)
+						pgxc_rqplan_adjust_tlist((RemoteQuery *)result_plan);
+#endif /* PGXC */
 				}
 
 				/*

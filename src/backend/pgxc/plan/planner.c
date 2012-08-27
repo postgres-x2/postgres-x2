@@ -34,10 +34,12 @@
 #include "optimizer/planner.h"
 #include "optimizer/tlist.h"
 #include "parser/parse_agg.h"
+#include "parser/parse_coerce.h"
 #include "parser/parse_func.h"
 #include "parser/parse_relation.h"
 #include "parser/parsetree.h"
 #include "parser/parse_oper.h"
+#include "parser/parse_type.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/locator.h"
@@ -83,6 +85,7 @@ static ExecNodes *pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno,
 static bool VarAttrIsPartAttr(Var *var, List *rtable);
 static void pgxc_set_shippability_reason(Shippability_context *context,
 											ShippabilityStat reason);
+static void pgxc_set_exprtype_shippability(Oid exprtype, Shippability_context *sc_context);
 
 /*
  * make_ctid_col_ref
@@ -774,6 +777,13 @@ pgxc_test_shippability_reason(Shippability_context *context, ShippabilityStat re
 	return bms_is_member(reason, context->sc_shippability);
 }
 
+void
+pgxc_reset_shippability_reason(Shippability_context *context, ShippabilityStat reason)
+{
+	context->sc_shippability = bms_del_member(context->sc_shippability, reason);
+	return;
+}
+
 /*
  * pgxc_is_query_shippable
  * This function calls the query walker to analyse the query to gather
@@ -1428,6 +1438,26 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 	}
 	return rel_exec_nodes;
 }
+
+/*
+ * pgxc_is_exprtype_shippable
+ * Checks if the type of the expression is shippable. For now composite types
+ * derived from view definitions are not shippable. Also sets the
+ * (un)shippability reason if the type is not shippable.
+ */
+static void
+pgxc_set_exprtype_shippability(Oid exprtype, Shippability_context *sc_context)
+{
+	char	typerelkind;
+
+	typerelkind = get_rel_relkind(typeidTypeRelid(exprtype));
+
+	if (typerelkind == RELKIND_SEQUENCE ||
+		typerelkind == RELKIND_VIEW		||
+		typerelkind == RELKIND_FOREIGN_TABLE)
+			pgxc_set_shippability_reason(sc_context, SS_UNSHIPPABLE_TYPE);
+}
+
 /*
  * pgxc_shippability_walker
  * walks the query/expression tree routed at the node passed in, gathering
@@ -1452,11 +1482,14 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 	 * kind of node and find out under what conditions query with this node can
 	 * be shippable. For each node, update the context (add fields if
 	 * necessary) so that decision whether to FQS the query or not can be made.
+	 * Every node which has a result is checked to see if the result type of that
+	 * expression is shippable.
 	 */
 	switch(nodeTag(node))
 	{
 		/* Constants are always shippable */
 		case T_Const:
+			pgxc_set_exprtype_shippability(exprType(node), sc_context);
 			break;
 
 		/*
@@ -1465,6 +1498,7 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 		 * that expression is encountered.
 		 */
 		case T_CaseTestExpr:
+			pgxc_set_exprtype_shippability(exprType(node), sc_context);
 			break;
 
 		/*
@@ -1489,27 +1523,44 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 				pgxc_set_shippability_reason(sc_context, SS_UNSUPPORTED_EXPR);
 			break;
 
+		case T_CoerceViaIO:
+		{
+			CoerceViaIO		*cvio = (CoerceViaIO *)node;
+			Oid				input_type = exprType((Node *)cvio->arg);
+			Oid				output_type = cvio->resulttype;
+			CoercionContext	cc;
+
+			cc = cvio->coerceformat == COERCE_IMPLICIT_CAST ? COERCION_IMPLICIT :
+																COERCION_EXPLICIT;
+			/*
+			 * Internally we use IO coercion for types which do not have casting
+			 * defined for them e.g. cstring::date. If such casts are sent to
+			 * the datanode, those won't be accepted. Hence such casts are
+			 * unshippable. Since it will be shown as an explicit cast.
+			 */
+			if (!can_coerce_type(1, &input_type, &output_type, cc))
+				pgxc_set_shippability_reason(sc_context, SS_UNSHIPPABLE_EXPR);
+			pgxc_set_exprtype_shippability(exprType(node), sc_context);
+		}
+		break;
 		/*
 		 * Nodes, which are shippable if the tree rooted under these nodes is
 		 * shippable
 		 */
-		case T_List:
 		case T_CoerceToDomainValue:
 			/*
 			 * PGXCTODO: mostly, CoerceToDomainValue node appears in DDLs,
 			 * do we handle DDLs here?
 			 */
 		case T_FieldSelect:
-		case T_RangeTblRef:
 		case T_NamedArgExpr:
+		case T_RelabelType:
 		case T_BoolExpr:
 			/*
 			 * PGXCTODO: we might need to take into account the kind of boolean
 			 * operator we have in the quals and see if the corresponding
 			 * function is immutable.
 			 */
-		case T_RelabelType:
-		case T_CoerceViaIO:
 		case T_ArrayCoerceExpr:
 		case T_ConvertRowtypeExpr:
 		case T_CaseExpr:
@@ -1521,6 +1572,11 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 		case T_NullTest:
 		case T_BooleanTest:
 		case T_CoerceToDomain:
+			pgxc_set_exprtype_shippability(exprType(node), sc_context);
+			break;
+
+		case T_List:
+		case T_RangeTblRef:
 			break;
 
 		case T_ArrayRef:
@@ -1529,9 +1585,6 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 			 * FQS planner cannot yet handle SQL representation correctly.
 			 * So disable FQS in this case and let standard planner manage it.
 			 */
-			pgxc_set_shippability_reason(sc_context, SS_UNSUPPORTED_EXPR);
-			break;
-
 		case T_FieldStore:
 			/*
 			 * PostgreSQL deparsing logic does not handle the FieldStore
@@ -1539,9 +1592,6 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 			 * handle it through standard planner, where whole row will be
 			 * constructed.
 			 */
-			pgxc_set_shippability_reason(sc_context, SS_UNSUPPORTED_EXPR);
-			break;
-
 		case T_SetToDefault:
 			/*
 			 * PGXCTODO: we should actually check whether the default value to
@@ -1550,6 +1600,7 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 			 * for now default values can not be shipped to the Datanodes
 			 */
 			pgxc_set_shippability_reason(sc_context, SS_UNSUPPORTED_EXPR);
+			pgxc_set_exprtype_shippability(exprType(node), sc_context);
 			break;
 
 		case T_Var:
@@ -1561,6 +1612,7 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 			 */
 			if (var->varlevelsup > sc_context->sc_max_varlevelsup)
 				sc_context->sc_max_varlevelsup = var->varlevelsup;
+			pgxc_set_exprtype_shippability(exprType(node), sc_context);
 		}
 		break;
 
@@ -1570,6 +1622,7 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 			/* PGXCTODO: Can we handle internally generated parameters? */
 			if (param->paramkind != PARAM_EXTERN)
 				pgxc_set_shippability_reason(sc_context, SS_UNSUPPORTED_EXPR);
+			pgxc_set_exprtype_shippability(exprType(node), sc_context);
 		}
 		break;
 
@@ -1580,6 +1633,7 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 			 * should have been replaced by the CTID = ? expression. But
 			 * still, no harm in shipping it as is.
 			 */
+			pgxc_set_exprtype_shippability(exprType(node), sc_context);
 		}
 		break;
 
@@ -1611,6 +1665,8 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 				!aggref->agghas_collectfn ||
 				IsPolymorphicType(aggref->aggtrantype))
 					pgxc_set_shippability_reason(sc_context, SS_NEED_SINGLENODE);
+
+			pgxc_set_exprtype_shippability(exprType(node), sc_context);
 		}
 		break;
 
@@ -1624,6 +1680,8 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 			 */
 			if (!is_immutable_func(funcexpr->funcid))
 				pgxc_set_shippability_reason(sc_context, SS_UNSHIPPABLE_EXPR);
+
+			pgxc_set_exprtype_shippability(exprType(node), sc_context);
 		}
 		break;
 
@@ -1641,6 +1699,8 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 								op_expr->opfuncid : get_opcode(op_expr->opno);
 			if (!OidIsValid(opfuncid) || !is_immutable_func(opfuncid))
 				pgxc_set_shippability_reason(sc_context, SS_UNSHIPPABLE_EXPR);
+
+			pgxc_set_exprtype_shippability(exprType(node), sc_context);
 		}
 		break;
 
@@ -1668,6 +1728,7 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 			 * Otherwise this node should be treated similar to other
 			 * "shell" nodes.
 			 */
+			pgxc_set_exprtype_shippability(exprType(node), sc_context);
 		}
 		break;
 
@@ -1788,6 +1849,8 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 			if (sc_context->sc_for_expr ||
 				!is_immutable_func(winf->winfnoid))
 				pgxc_set_shippability_reason(sc_context, SS_UNSHIPPABLE_EXPR);
+
+			pgxc_set_exprtype_shippability(exprType(node), sc_context);
 		}
 		break;
 
@@ -1849,6 +1912,8 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 				if (!sc_context->sc_subquery_en)
 					pgxc_set_shippability_reason(sc_context, SS_NO_NODES);
 			}
+
+			pgxc_set_exprtype_shippability(exprType(node), sc_context);
 		}
 		break;
 
@@ -1870,6 +1935,7 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 				 (int) nodeTag(node));
 			break;
 	}
+
 	return expression_tree_walker(node, pgxc_shippability_walker, (void *)sc_context);
 }
 

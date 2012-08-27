@@ -168,7 +168,8 @@ typedef enum
 								 * by FQS, but such expressions might be
 								 * supported by FQS in future
 								 */
-	SS_HAS_AGG_EXPR				/* it has aggregate expressions */
+	SS_HAS_AGG_EXPR,			/* it has aggregate expressions */
+	SS_UNSHIPPABLE_TYPE			/* the type of expression is unshippable */
 } ShippabilityStat;
 
 /* global variable corresponding to the GUC with same name */
@@ -201,6 +202,8 @@ extern ExecNodes *pgxc_merge_exec_nodes(ExecNodes *exec_nodes1,
 										bool merge_replicated_only);
 extern bool pgxc_shippability_walker(Node *node, Shippability_context *sc_context);
 extern bool pgxc_test_shippability_reason(Shippability_context *context,
+											ShippabilityStat reason);
+extern void pgxc_reset_shippability_reason(Shippability_context *context,
 											ShippabilityStat reason);
 extern void pgxc_rqplan_adjust_tlist(RemoteQuery *rqplan);
 extern void pgxc_rqplan_adjust_vars(RemoteQuery *rqplan, Node *node);

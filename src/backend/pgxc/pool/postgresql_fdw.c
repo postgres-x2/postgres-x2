@@ -106,16 +106,11 @@ pgxc_is_expr_shippable(Expr *node, bool *has_aggs)
 		*has_aggs = pgxc_test_shippability_reason(&sc_context, SS_HAS_AGG_EXPR);
 	else if (pgxc_test_shippability_reason(&sc_context, SS_HAS_AGG_EXPR))
 		return false;
+	/* Done with aggregate expression shippability. Delete the status */
+	pgxc_reset_shippability_reason(&sc_context, SS_HAS_AGG_EXPR);
 
-	/*
-	 * If the expression unshippable or unsupported by expression shipping
-	 * algorithm, return false. We don't have information about the number of
-	 * nodes involved in expression evaluation, hence even if the expression can
-	 * be evaluated only on single node, return false.
-	 */
-	if (pgxc_test_shippability_reason(&sc_context, SS_UNSUPPORTED_EXPR) ||
-		pgxc_test_shippability_reason(&sc_context, SS_UNSHIPPABLE_EXPR) ||
-		pgxc_test_shippability_reason(&sc_context, SS_NEED_SINGLENODE))
+	/* If there are reasons why the expression is unshippable, return false */
+	if (!bms_is_empty(sc_context.sc_shippability))
 		return false;
 
 	/* If nothing wrong found, the expression is shippable */
