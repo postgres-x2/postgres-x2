@@ -98,7 +98,7 @@ SELECT x, 'txt' || x as y
 FROM generate_series(1,3) AS x;
 
 SELECT row_to_json(q,true)
-FROM rows q;
+FROM rows q order by x;
 
 SELECT row_to_json(row((select array_agg(x) as d from generate_series(5,10) x)),false);
 
