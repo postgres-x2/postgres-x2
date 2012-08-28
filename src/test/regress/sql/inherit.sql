@@ -2,9 +2,6 @@
 -- Test inheritance features
 --
 
--- Enforce use of COMMIT instead of 2PC for temporary objects
-SET enforce_two_phase_commit TO off;
-
 CREATE TABLE a (aa TEXT) distribute by roundrobin;
 CREATE TABLE b (bb TEXT) INHERITS (a) distribute by roundrobin;
 CREATE TABLE c (cc TEXT) INHERITS (a) distribute by roundrobin;
@@ -156,6 +153,9 @@ SELECT * FROM ONLY a ORDER BY a.aa;
 SELECT * from ONLY b ORDER BY b.aa;
 SELECT * FROM ONLY c ORDER BY c.aa;
 SELECT * from ONLY d ORDER BY d.aa;
+
+-- Enforce use of COMMIT instead of 2PC for temporary objects
+SET enforce_two_phase_commit TO off;
 
 -- Confirm PRIMARY KEY adds NOT NULL constraint to child table
 CREATE TEMP TABLE z (b TEXT, PRIMARY KEY(aa, b)) inherits (a);
@@ -366,12 +366,12 @@ DROP TABLE inht1, inhs1 CASCADE;
 -- Test parameterized append plans for inheritance trees
 --
 
-create temp table patest0 (id, x) as
+create table patest0 (id, x) as
   select x, x from generate_series(0,1000) x;
-create temp table patest1() inherits (patest0);
+create table patest1() inherits (patest0);
 insert into patest1
   select x, x from generate_series(0,1000) x;
-create temp table patest2() inherits (patest0);
+create table patest2() inherits (patest0);
 insert into patest2
   select x, x from generate_series(0,1000) x;
 create index patest0i on patest0(id);

@@ -1,12 +1,10 @@
 --
 -- Test inheritance features
 --
--- Enforce use of COMMIT instead of 2PC for temporary objects
-SET enforce_two_phase_commit TO off;
-CREATE TABLE a (aa TEXT) distribute by round robin;
-CREATE TABLE b (bb TEXT) INHERITS (a) distribute by round robin;
-CREATE TABLE c (cc TEXT) INHERITS (a) distribute by round robin;
-CREATE TABLE d (dd TEXT) INHERITS (b,c,a) distribute by round robin;
+CREATE TABLE a (aa TEXT) distribute by roundrobin;
+CREATE TABLE b (bb TEXT) INHERITS (a) distribute by roundrobin;
+CREATE TABLE c (cc TEXT) INHERITS (a) distribute by roundrobin;
+CREATE TABLE d (dd TEXT) INHERITS (b,c,a) distribute by roundrobin;
 NOTICE:  merging multiple inherited definitions of column "aa"
 NOTICE:  merging multiple inherited definitions of column "aa"
 INSERT INTO a(aa) VALUES('aaa');
@@ -756,6 +754,8 @@ SELECT * from ONLY d ORDER BY d.aa;
 ----+----+----+----
 (0 rows)
 
+-- Enforce use of COMMIT instead of 2PC for temporary objects
+SET enforce_two_phase_commit TO off;
 -- Confirm PRIMARY KEY adds NOT NULL constraint to child table
 CREATE TEMP TABLE z (b TEXT, PRIMARY KEY(aa, b)) inherits (a);
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "z_pkey" for table "z"
@@ -1222,12 +1222,12 @@ drop cascades to table inht4
 --
 -- Test parameterized append plans for inheritance trees
 --
-create temp table patest0 (id, x) as
+create table patest0 (id, x) as
   select x, x from generate_series(0,1000) x;
-create temp table patest1() inherits (patest0);
+create table patest1() inherits (patest0);
 insert into patest1
   select x, x from generate_series(0,1000) x;
-create temp table patest2() inherits (patest0);
+create table patest2() inherits (patest0);
 insert into patest2
   select x, x from generate_series(0,1000) x;
 create index patest0i on patest0(id);
@@ -1241,7 +1241,7 @@ select * from patest0 join (select f1 from int4_tbl limit 1) ss on id = f1;
                              QUERY PLAN                              
 ---------------------------------------------------------------------
  Hash Join
-   Hash Cond: (pg_temp_3.patest0.id = int4_tbl.f1)
+   Hash Cond: (public.patest0.id = int4_tbl.f1)
    ->  Append
          ->  Data Node Scan on patest0 "_REMOTE_TABLE_QUERY_"
          ->  Data Node Scan on patest1 "_REMOTE_TABLE_QUERY_"
@@ -1254,7 +1254,10 @@ select * from patest0 join (select f1 from int4_tbl limit 1) ss on id = f1;
 select * from patest0 join (select f1 from int4_tbl limit 1) ss on id = f1;
  id | x | f1 
 ----+---+----
-(0 rows)
+  0 | 0 |  0
+  0 | 0 |  0
+  0 | 0 |  0
+(3 rows)
 
 drop index patest2i;
 explain (costs off, num_nodes off, nodes off)
@@ -1262,7 +1265,7 @@ select * from patest0 join (select f1 from int4_tbl limit 1) ss on id = f1;
                              QUERY PLAN                              
 ---------------------------------------------------------------------
  Hash Join
-   Hash Cond: (pg_temp_3.patest0.id = int4_tbl.f1)
+   Hash Cond: (public.patest0.id = int4_tbl.f1)
    ->  Append
          ->  Data Node Scan on patest0 "_REMOTE_TABLE_QUERY_"
          ->  Data Node Scan on patest1 "_REMOTE_TABLE_QUERY_"
@@ -1275,7 +1278,10 @@ select * from patest0 join (select f1 from int4_tbl limit 1) ss on id = f1;
 select * from patest0 join (select f1 from int4_tbl limit 1) ss on id = f1;
  id | x | f1 
 ----+---+----
-(0 rows)
+  0 | 0 |  0
+  0 | 0 |  0
+  0 | 0 |  0
+(3 rows)
 
 drop table patest0 cascade;
 NOTICE:  drop cascades to 2 other objects
