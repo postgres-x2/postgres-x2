@@ -1323,8 +1323,7 @@ exec_parse_message(const char *query_string,	/* string to execute */
 		/* we don't expect type mod */
 		for (cnt_param = 0; cnt_param < numParams; cnt_param++)
 			parseTypeString(paramTypeNames[cnt_param], &paramTypes[cnt_param],
-								NULL);
-
+							NULL);
 	}
 #endif /* PGXC */
 

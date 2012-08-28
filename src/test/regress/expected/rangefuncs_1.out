@@ -5,6 +5,7 @@ SELECT name, setting FROM pg_settings WHERE name LIKE 'enable%' ORDER BY name;
  enable_fast_query_shipping | on
  enable_hashagg             | on
  enable_hashjoin            | on
+ enable_indexonlyscan       | on
  enable_indexscan           | on
  enable_material            | on
  enable_mergejoin           | on
@@ -14,7 +15,7 @@ SELECT name, setting FROM pg_settings WHERE name LIKE 'enable%' ORDER BY name;
  enable_seqscan             | on
  enable_sort                | on
  enable_tidscan             | on
-(13 rows)
+(14 rows)
 
 CREATE TABLE foo2(fooid int, f2 int);
 INSERT INTO foo2 VALUES(1, 11);

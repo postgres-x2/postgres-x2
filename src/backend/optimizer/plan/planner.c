@@ -135,18 +135,7 @@ planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 		 * is not allowed to go into PGXC planner.
 		 */
 		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-		{
 			result = pgxc_planner(parse, cursorOptions, boundParams);
-			if (boundParams)
-			{
-				Oid *param_types = palloc(sizeof(Oid) * boundParams->numParams);
-				int	cntParam;
-				for (cntParam = 0; cntParam < boundParams->numParams; cntParam++)
-					param_types[cntParam] = boundParams->params[cntParam].ptype;
-				SetRemoteStatementName(result->planTree, NULL,
-									boundParams->numParams, param_types, 0);
-			}
-		}
 		else
 #endif
 			result = standard_planner(parse, cursorOptions, boundParams);
@@ -439,7 +428,7 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 	 * In Coordinators we separate row marks in two groups
 	 * one comprises of row marks of types ROW_MARK_EXCLUSIVE & ROW_MARK_SHARE
 	 * and the other contains the rest of the types of row marks
-	 * The former is handeled on Coordinator in such a way that 
+	 * The former is handeled on Coordinator in such a way that
 	 * FOR UPDATE/SHARE gets added in the remote query, whereas
 	 * the later needs to be handeled the way pg does
 	 *
@@ -448,7 +437,7 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 	 * select * from t1, t2 where t1.val = t2.val for update
 	 * It results in this query to be fired at the Datanodes
 	 * SELECT val, val2, ctid FROM ONLY t2 WHERE true FOR UPDATE OF t2
-	 * We are locking the complete table where as we should have locked 
+	 * We are locking the complete table where as we should have locked
 	 * only the rows where t1.val = t2.val is met
 	 */
 	separate_rowmarks(root);
@@ -2104,8 +2093,8 @@ preprocess_rowmarks(PlannerInfo *root)
 /*
  * separate_rowmarks - In XC Coordinators are supposed to skip handling
  *                of type ROW_MARK_EXCLUSIVE & ROW_MARK_SHARE.
- *                In order to do that we simply remove such type 
- *                of row marks from the list. Instead they are saved 
+ *                In order to do that we simply remove such type
+ *                of row marks from the list. Instead they are saved
  *                in another list that is then handeled to add
  *                FOR UPDATE/SHARE in the remote query
  *                in the function create_remotequery_plan

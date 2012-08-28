@@ -491,11 +491,20 @@ SetRemoteStatementName(Plan *plan, const char *stmt_name, int num_params,
 	if (!plan)
 		return 0;
 
+	/* Leave if no parameters */
+	if (num_params == 0 || !param_types)
+		return 0;
+
 	if (IsA(plan, RemoteQuery))
 	{
+		RemoteQuery *remotequery = (RemoteQuery *) plan;
 		DatanodeStatement *entry;
 		bool exists;
 		char name[NAMEDATALEN];
+
+		/* Nothing to do if parameters are already set for this query */
+		if (remotequery->remote_num_params != 0)
+			return 0;
 
 		if (stmt_name)
 		{
@@ -530,15 +539,15 @@ SetRemoteStatementName(Plan *plan, const char *stmt_name, int num_params,
 				entry->number_of_nodes = 0;
 			}
 
-			((RemoteQuery *) plan)->statement = pstrdup(name);
+			remotequery->statement = pstrdup(name);
 		}
-		else if (((RemoteQuery *)plan)->statement)
+		else if (remotequery->statement)
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 					 errmsg("Passing parameters in PREPARE statement is not supported")));
 
-		((RemoteQuery *) plan)->num_params = num_params;
-		((RemoteQuery *) plan)->param_types = param_types;
+		remotequery->remote_num_params = num_params;
+		remotequery->remote_param_types = param_types;
 	}
 	else if (IsA(plan, ModifyTable))
 	{

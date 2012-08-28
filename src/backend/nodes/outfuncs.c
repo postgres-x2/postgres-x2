@@ -461,6 +461,8 @@ _outIndexScan(StringInfo str, const IndexScan *node)
 static void
 _outRemoteQuery(StringInfo str, const RemoteQuery *node)
 {
+	int			i;
+
 	WRITE_NODE_TYPE("REMOTEQUERY");
 
 	_outScanInfo(str, (Scan *) node);
@@ -473,7 +475,12 @@ _outRemoteQuery(StringInfo str, const RemoteQuery *node)
 	WRITE_BOOL_FIELD(force_autocommit);
 	WRITE_STRING_FIELD(statement);
 	WRITE_STRING_FIELD(cursor);
-	WRITE_INT_FIELD(num_params);
+	WRITE_INT_FIELD(remote_num_params);
+
+	appendStringInfo(str, " :remote_param_types");
+	for (i = 0; i < node->remote_num_params; i++)
+		appendStringInfo(str, " %d", node->remote_param_types[i]);
+
 	WRITE_ENUM_FIELD(exec_type, RemoteQueryExecType);
 	WRITE_BOOL_FIELD(is_temp);
 	WRITE_BOOL_FIELD(has_row_marks);

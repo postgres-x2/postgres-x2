@@ -186,9 +186,9 @@ _copyModifyTable(const ModifyTable *from)
 	COPY_NODE_FIELD(returningLists);
 	COPY_NODE_FIELD(rowMarks);
 	COPY_SCALAR_FIELD(epqParam);
-#ifdef PGXC	
+#ifdef PGXC
 	COPY_NODE_FIELD(remote_plans);
-#endif	
+#endif
 
 	return newnode;
 }
@@ -1028,9 +1028,9 @@ _copyRemoteQuery(const RemoteQuery *from)
 	COPY_SCALAR_FIELD(force_autocommit);
 	COPY_STRING_FIELD(statement);
 	COPY_STRING_FIELD(cursor);
-	COPY_SCALAR_FIELD(num_params);
-	COPY_POINTER_FIELD(param_types,
-					   sizeof(from->param_types[0]) * from->num_params);
+	COPY_SCALAR_FIELD(remote_num_params);
+	COPY_POINTER_FIELD(remote_param_types,
+	   sizeof(from->remote_param_types[0]) * from->remote_num_params);
 	COPY_SCALAR_FIELD(exec_type);
 	COPY_SCALAR_FIELD(is_temp);
 

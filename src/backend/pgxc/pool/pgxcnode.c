@@ -28,6 +28,7 @@
 #include "access/gtm.h"
 #include "access/transam.h"
 #include "access/xact.h"
+#include "catalog/pg_type.h"
 #include "commands/prepare.h"
 #include "gtm/gtm_c.h"
 #include "nodes/nodes.h"
@@ -1140,7 +1141,15 @@ pgxc_node_send_parse(PGXCNodeHandle * handle, const char* statement,
 	/* find names of the types of parameters */
 	for (cnt_params = 0; cnt_params < num_params; cnt_params++)
 	{
-		paramTypes[cnt_params] = format_type_be(param_types[cnt_params]);
+		Oid typeoid;
+
+		/* Parameters with no types are simply ignored */
+		if (OidIsValid(param_types[cnt_params]))
+			typeoid = param_types[cnt_params];
+		else
+			typeoid = INT4OID;
+
+		paramTypes[cnt_params] = format_type_be(typeoid);
 		paramTypeLen += strlen(paramTypes[cnt_params]) + 1;
 	}
 
