@@ -77,7 +77,6 @@
 #include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/pgxcnode.h"
-#include "pgxc/postgresql_fdw.h"
 #endif
 
 

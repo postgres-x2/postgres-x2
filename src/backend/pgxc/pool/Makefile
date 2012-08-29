@@ -14,6 +14,6 @@ subdir = src/backend/pgxc/pool
 top_builddir = ../../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS = pgxcnode.o execRemote.o poolmgr.o poolcomm.o postgresql_fdw.o poolutils.o
+OBJS = pgxcnode.o execRemote.o poolmgr.o poolcomm.o poolutils.o
 
 include $(top_srcdir)/src/backend/common.mk

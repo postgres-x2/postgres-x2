@@ -37,13 +37,13 @@
 #include "optimizer/planner.h"
 #include "parser/parse_relation.h"
 #ifdef PGXC
+#include "optimizer/pgxcship.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/locator.h"
 #include "pgxc/remotecopy.h"
 #include "nodes/nodes.h"
 #include "pgxc/poolmgr.h"
-#include "pgxc/postgresql_fdw.h"
 #include "catalog/pgxc_node.h"
 #endif
 #include "rewrite/rewriteHandler.h"

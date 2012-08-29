@@ -32,7 +32,6 @@
 #include "pgxc/locator.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
-#include "pgxc/postgresql_fdw.h"
 #include "nodes/nodes.h"
 #include "optimizer/planner.h"
 #include "optimizer/var.h"

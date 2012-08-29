@@ -16,11 +16,11 @@
 #include "optimizer/cost.h"
 #include "optimizer/paths.h"
 #include "optimizer/pathnode.h"
+#include "optimizer/pgxcship.h"
 #include "optimizer/restrictinfo.h"
 #include "parser/parsetree.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/planner.h"
-#include "pgxc/postgresql_fdw.h"
 
 static RemoteQueryPath *pgxc_find_remotequery_path(RelOptInfo *rel);
 static ExecNodes *pgxc_is_join_reducible(ExecNodes *inner_en, ExecNodes *outer_en,
@@ -110,7 +110,7 @@ create_remotequery_path(PlannerInfo *root, RelOptInfo *rel, ExecNodes *exec_node
  * The caller can decide whether to add the scan paths depending upon the return
  * value.
  */
-extern bool 
+extern bool
 create_plainrel_rqpath(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 {
 	RelationLocInfo	*rel_loc_info;
@@ -127,7 +127,7 @@ create_plainrel_rqpath(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 	rel_loc_info = GetRelationLocInfo(rte->relid);
 	quals = extract_actual_clauses(rel->baserestrictinfo, false);
-	exec_nodes = GetRelationNodesByQuals(rte->relid, rel->relid, 
+	exec_nodes = GetRelationNodesByQuals(rte->relid, rel->relid,
 														(Node *)quals,
 														RELATION_ACCESS_READ);
 	if (!exec_nodes)
@@ -147,7 +147,7 @@ create_plainrel_rqpath(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 	}
 
 	/* We don't have subpaths for a plain base relation */
-	add_path(rel, (Path *)create_remotequery_path(root, rel, exec_nodes, 
+	add_path(rel, (Path *)create_remotequery_path(root, rel, exec_nodes,
 													NULL, NULL, 0, NULL));
 	return true;
 }
@@ -217,8 +217,9 @@ pgxc_is_join_reducible(ExecNodes *inner_en, ExecNodes *outer_en, Relids in_relid
 		foreach(cell, join_quals)
 		{
 			Node	*qual = (Node *)lfirst(cell);
-			if (pgxc_qual_hash_dist_equijoin(in_relids, out_relids, InvalidOid,
-												qual, rtables) &&
+			if (pgxc_qual_has_dist_equijoin(in_relids,
+											out_relids, InvalidOid,
+											qual, rtables) &&
 				pgxc_is_expr_shippable((Expr *)qual, NULL))
 			{
 				merge_dist_equijoin = true;
@@ -238,7 +239,7 @@ pgxc_is_join_reducible(ExecNodes *inner_en, ExecNodes *outer_en, Relids in_relid
 	return join_exec_nodes;
 }
 
-/* 
+/*
  * pgxc_ship_remotejoin
  * If there are RemoteQuery paths for the rels being joined, check if the join
  * is shippable to the datanodes, and if so, create a remotequery path for this
@@ -279,10 +280,10 @@ create_joinrel_rqpath(PlannerInfo *root, RelOptInfo *joinrel,
 
 	inner_en = innerpath->rqpath_en;
 	outer_en = outerpath->rqpath_en;
-	
+
 	if (!inner_en || !outer_en)
-		elog(ERROR, "No node list provided for remote query path"); 
-	/* 
+		elog(ERROR, "No node list provided for remote query path");
+	/*
 	 * Collect quals from restrictions so as to check the shippability of a JOIN
 	 * between distributed relations.
 	 */
@@ -291,7 +292,7 @@ create_joinrel_rqpath(PlannerInfo *root, RelOptInfo *joinrel,
 	 * If the joining qual is not shippable and it's an OUTER JOIN, we can not
 	 * ship the JOIN, since that would impact JOIN result.
 	 */
-	if (jointype != JOIN_INNER && 
+	if (jointype != JOIN_INNER &&
 		!pgxc_is_expr_shippable((Expr *)join_quals, NULL))
 		return;
 	/*
@@ -314,5 +315,5 @@ create_joinrel_rqpath(PlannerInfo *root, RelOptInfo *joinrel,
 		add_path(joinrel, (Path *)create_remotequery_path(root, joinrel, join_en,
 													outerpath, innerpath, jointype,
 													restrictlist));
-	return;	
+	return;
 }

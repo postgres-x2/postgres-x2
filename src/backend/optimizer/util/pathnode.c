@@ -30,7 +30,6 @@
 #include "utils/selfuncs.h"
 #ifdef PGXC
 #include "commands/tablecmds.h"
-#include "pgxc/postgresql_fdw.h"
 #include "optimizer/restrictinfo.h"
 #endif /* PGXC */
 

@@ -24,6 +24,7 @@
 #include "nodes/nodeFuncs.h"
 #include "optimizer/clauses.h"
 #include "optimizer/cost.h"
+#include "optimizer/pgxcship.h"
 #include "optimizer/planmain.h"
 #include "optimizer/restrictinfo.h"
 #include "optimizer/tlist.h"
@@ -33,7 +34,6 @@
 #include "parser/parsetree.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/planner.h"
-#include "pgxc/postgresql_fdw.h"
 #include "rewrite/rewriteManip.h"
 #include "utils/builtins.h"
 #include "utils/rel.h"
@@ -124,7 +124,7 @@ pgxc_build_shippable_tlist(List *tlist, List *unshippabl_quals)
 		if (pgxc_is_expr_shippable((Expr *)tle, NULL))
 			tmp_rtlist = lappend(tmp_rtlist, expr);
 		else
-			tmp_rtlist = list_concat(tmp_rtlist, pull_var_clause((Node *)expr, 
+			tmp_rtlist = list_concat(tmp_rtlist, pull_var_clause((Node *)expr,
 														PVC_REJECT_AGGREGATES,
 														PVC_RECURSE_PLACEHOLDERS));
 	}
@@ -137,7 +137,7 @@ pgxc_build_shippable_tlist(List *tlist, List *unshippabl_quals)
 	remote_tlist = add_to_flat_tlist(remote_tlist, pull_var_clause((Node *)unshippabl_quals,
 															PVC_RECURSE_AGGREGATES,
 															PVC_RECURSE_PLACEHOLDERS));
-											
+
 	return remote_tlist;
 }
 
@@ -161,11 +161,11 @@ pgxc_build_shippable_query_baserel(PlannerInfo *root, RemoteQueryPath *rqpath,
 	ListCell	*lcell;
 	RangeTblRef	*rtr;
 
-	if ((baserel->reloptkind != RELOPT_BASEREL && 
+	if ((baserel->reloptkind != RELOPT_BASEREL &&
 			baserel->reloptkind != RELOPT_OTHER_MEMBER_REL) ||
 		baserel->rtekind != RTE_RELATION)
 		elog(ERROR, "can not generate shippable query for base relations of type other than plain tables");
-	
+
 	*rep_tlist = NIL;
 	*unshippable_quals = NIL;
 	/*
@@ -199,7 +199,7 @@ pgxc_build_shippable_query_baserel(PlannerInfo *root, RemoteQueryPath *rqpath,
 
 	/*
 	 * The target list that we built just now represents the result of the
-	 * query being built. This serves as a reference for building the 
+	 * query being built. This serves as a reference for building the
 	 * encapsulating queries. So, copy it. We then modify the Vars to change
 	 * their varno with 1 for the query being built
 	 */
@@ -209,7 +209,7 @@ pgxc_build_shippable_query_baserel(PlannerInfo *root, RemoteQueryPath *rqpath,
 	query = makeNode(Query);
 	query->commandType = CMD_SELECT;
 	query->rtable = list_make1(rte);
-	query->targetList = copyObject(*rep_tlist); 
+	query->targetList = copyObject(*rep_tlist);
 	query->jointree = (FromExpr *)makeNode(FromExpr);
 
 	rtr = makeNode(RangeTblRef);
@@ -303,24 +303,24 @@ pgxc_build_shippable_query_jointree(PlannerInfo *root, RemoteQueryPath *rqpath,
 	RangeTblRef		*right_rtr;
 	/* Miscellaneous variables */
 	ListCell		*lcell;
-	
+
 	if (!rqpath->leftpath || !rqpath->rightpath)
 		elog(ERROR, "a join relation path should have both left and right paths");
 
-	/* 
+	/*
 	 * Build the query representing the left side of JOIN and add corresponding
 	 * RTE with proper aliases
 	 */
 	left_query = pgxc_build_shippable_query_recurse(root, rqpath->leftpath,
 													&left_us_quals,
 													&left_rep_tlist);
-	left_colnames = pgxc_generate_colnames("a", list_length(left_rep_tlist));  
+	left_colnames = pgxc_generate_colnames("a", list_length(left_rep_tlist));
 	left_alias = makeAlias(left_aname, left_colnames);
 	left_rte = addRangeTableEntryForSubquery(NULL, left_query, left_alias, true);
-	rtable = lappend(rtable, left_rte); 
+	rtable = lappend(rtable, left_rte);
 	left_rtr = makeNode(RangeTblRef);
 	left_rtr->rtindex = list_length(rtable);
-	/* 
+	/*
 	 * Build the query representing the right side of JOIN and add corresponding
 	 * RTE with proper aliases
 	 */
@@ -331,7 +331,7 @@ pgxc_build_shippable_query_jointree(PlannerInfo *root, RemoteQueryPath *rqpath,
 	right_alias = makeAlias(right_aname, right_colnames);
 	right_rte = addRangeTableEntryForSubquery(NULL, right_query, right_alias,
 												true);
-	rtable = lappend(rtable, right_rte); 
+	rtable = lappend(rtable, right_rte);
 	right_rtr = makeNode(RangeTblRef);
 	right_rtr->rtindex = list_length(rtable);
 
@@ -354,7 +354,7 @@ pgxc_build_shippable_query_jointree(PlannerInfo *root, RemoteQueryPath *rqpath,
 	other_clauses = pgxc_separate_quals(other_clauses, unshippable_quals);
 	other_clauses = copyObject(other_clauses);
 
-	/* 
+	/*
 	 * Build the targetlist for this relation and also the targetlist
 	 * representing the query targetlist. The representative target list is in
 	 * the form that rest of the plan can understand. The Vars in the JOIN Query
@@ -487,8 +487,8 @@ pgxc_rqplan_adjust_vars(RemoteQuery *rqplan, Node *node)
 		TargetEntry	*qry_tle;
 		Var *var = (Var *)lfirst(lcell_var);
 
-		ref_tle = tlist_member((Node *)var, rqplan->coord_var_tlist);	
-		qry_tle = get_tle_by_resno(rqplan->query_var_tlist, ref_tle->resno);	
+		ref_tle = tlist_member((Node *)var, rqplan->coord_var_tlist);
+		qry_tle = get_tle_by_resno(rqplan->query_var_tlist, ref_tle->resno);
 		if (!IsA(qry_tle->expr, Var))
 			elog(ERROR, "expected a VAR node but got node of type %d", nodeTag(qry_tle->expr));
 		*var = *(Var *)(qry_tle->expr);
@@ -515,7 +515,7 @@ pgxc_rqplan_build_statement(RemoteQuery *rqplan)
  * pgxc_rqplan_adjust_tlist
  * The function adjusts the targetlist of remote_query in RemoteQuery node
  * according to the plan's targetlist. This function should be
- * called whenever we modify or set plan's targetlist (plan->targetlist). 
+ * called whenever we modify or set plan's targetlist (plan->targetlist).
  */
 extern void
 pgxc_rqplan_adjust_tlist(RemoteQuery *rqplan)
@@ -550,10 +550,10 @@ static void
 pgxc_build_shippable_query(PlannerInfo *root, RemoteQueryPath *covering_path,
 							RemoteQuery *result_node)
 {
-	Query		*query;	
+	Query		*query;
 	List		*rep_tlist;
 	List		*unshippable_quals;
-	
+
 	/*
 	 * Build Query representing the result of the JOIN tree. During the process
 	 * we also get the set of unshippable quals to be applied after getting the
@@ -583,7 +583,7 @@ pgxc_build_shippable_query(PlannerInfo *root, RemoteQueryPath *covering_path,
 Plan *
 create_remotequery_plan(PlannerInfo *root, RemoteQueryPath *best_path)
 {
-	RelOptInfo		*rel = best_path->path.parent;	/* relation for which plan is 
+	RelOptInfo		*rel = best_path->path.parent;	/* relation for which plan is
 													 * being built
 													 */
 	RemoteQuery		*result_node;	/* the built plan */
@@ -594,12 +594,12 @@ create_remotequery_plan(PlannerInfo *root, RemoteQueryPath *best_path)
 	Index			dummy_rtindex;
 	char			*rte_name;
 
-	/* Get the target list required from this plan */ 
+	/* Get the target list required from this plan */
 	tlist = pgxc_build_relation_tlist(rel);
 	result_node = makeNode(RemoteQuery);
 	result_node->scan.plan.targetlist = tlist;
 	pgxc_build_shippable_query(root, best_path, result_node);
-	
+
 	/*
 	 * Create and append the dummy range table entry to the range table.
 	 * Note that this modifies the master copy the caller passed us, otherwise
@@ -621,9 +621,9 @@ create_remotequery_plan(PlannerInfo *root, RemoteQueryPath *best_path)
 										makeAlias("_REMOTE_TABLE_QUERY_", NIL));
 	root->parse->rtable = lappend(root->parse->rtable, dummy_rte);
 	dummy_rtindex = list_length(root->parse->rtable);
-	
+
 	result_node->scan.scanrelid = dummy_rtindex;
-	result_node->read_only = true; 
+	result_node->read_only = true;
 	/* result_node->read_only = (query->commandType == CMD_SELECT && !query->hasForUpdate); */
 	/* result_node->has_row_marks = query->hasForUpdate; */
 	result_node->exec_nodes = best_path->rqpath_en;
@@ -632,7 +632,7 @@ create_remotequery_plan(PlannerInfo *root, RemoteQueryPath *best_path)
 	 * many of them.
 	 */
 	if (IsLocatorReplicated(result_node->exec_nodes->baselocatortype))
-		result_node->exec_nodes->nodeList = 
+		result_node->exec_nodes->nodeList =
 						GetPreferredReplicationNode(result_node->exec_nodes->nodeList);
 
 	result_node->is_temp = best_path->rqhas_temp_rel;
@@ -1419,13 +1419,13 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 			SortGroupClause	*sortClauseItem = makeNode(SortGroupClause);
 			TargetEntry		*sc_tle = get_tle_by_resno(base_tlist,
 														grpColIdx[cntCols]);
-			
+
 			Assert(sc_tle->ressortgroupref > 0);
 			sortClauseItem->tleSortGroupRef = sc_tle->ressortgroupref;
 			sortClauseItem->sortop = remote_sort->sortOperators[cntCols];
 			sortClauseItem->nulls_first = remote_sort->nullsFirst[cntCols];
 			sortClause = lappend(sortClause, sortClauseItem);
-			
+
 			/* set the sorting column index in the Sort node in RemoteQuery */
 			remote_sort->sortColIdx[cntCols] = grpColIdx[cntCols];
 		}

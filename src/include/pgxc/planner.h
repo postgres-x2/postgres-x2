@@ -118,67 +118,8 @@ typedef struct
 								 * inserts into child by selecting from its parent */
 } RemoteQuery;
 
-/*
- * FQS_context
- * This context structure is used by the Fast Query Shipping walker, to gather
- * information during analysing query for Fast Query Shipping.
- */
-typedef struct
-{
-	bool		sc_for_expr;		/* if false, the we are checking shippability
-									 * of the Query, otherwise, we are checking
-									 * shippability of a stand-alone expression.
-									 */
-	Bitmapset	*sc_shippability;	/* The conditions for (un)shippability of the
-									 * query.
-									 */
-	Query		*sc_query;			/* the query being analysed for FQS */
-	int			sc_query_level;		/* level of the query */
-	int			sc_max_varlevelsup;	/* maximum upper level referred to by any
-									 * variable reference in the query. If this
-									 * value is greater than 0, the query is not
-									 * shippable, if shipped alone.
-									 */
-	ExecNodes	*sc_exec_nodes;		/* nodes where the query should be executed */
-	ExecNodes	*sc_subquery_en;	/* ExecNodes produced by merging the ExecNodes
-									 * for individual subqueries. This gets
-									 * ultimately merged with sc_exec_nodes.
-									 */
-} Shippability_context;
-
-/* enum for reasons as to why a query/expression is not FQSable */
-typedef enum
-{
-	SS_UNSHIPPABLE_EXPR = 0,	/* it has unshippable expression */
-	SS_NEED_SINGLENODE,			/* Has expressions which can be evaluated when
-								 * there is only a single node involved.
-								 * Athought aggregates too fit in this class, we
-								 * have a separate status to report aggregates,
-								 * see below.
-								 */
-	SS_NEEDS_COORD,				/* the query needs Coordinator */
-	SS_VARLEVEL,				/* one of its subqueries has a VAR
-								 * referencing an upper level query
-								 * relation
-								 */
-	SS_NO_NODES,				/* no suitable nodes can be found to ship
-								 * the query
-								 */
-	SS_UNSUPPORTED_EXPR,		/* it has expressions currently unsupported
-								 * by FQS, but such expressions might be
-								 * supported by FQS in future
-								 */
-	SS_HAS_AGG_EXPR,			/* it has aggregate expressions */
-	SS_UNSHIPPABLE_TYPE			/* the type of expression is unshippable */
-} ShippabilityStat;
-
 /* global variable corresponding to the GUC with same name */
 extern bool enable_fast_query_shipping;
-/* forbid SQL if unsafe, useful to turn off for development */
-extern bool StrictStatementChecking;
-
-/* forbid SELECT even multi-node ORDER BY */
-extern bool StrictSelectChecking;
 
 extern PlannedStmt *pgxc_planner(Query *query, int cursorOptions,
 								 ParamListInfo boundParams);
@@ -192,19 +133,6 @@ extern List *AddRemoteQueryNode(List *stmts, const char *queryString,
 								RemoteQueryExecType remoteExecType, bool is_temp);
 extern bool pgxc_query_contains_temp_tables(List *queries);
 extern bool pgxc_query_contains_utility(List *queries);
-/* TODO: We need a better place to keep these prototypes */
-extern bool pgxc_qual_hash_dist_equijoin(Relids varnos_1, Relids varnos_2,
-											Oid distcol_type, Node *quals,
-											List *rtable);
-extern ExecNodes *pgxc_merge_exec_nodes(ExecNodes *exec_nodes1,
-										ExecNodes *exec_nodes2,
-										bool merge_dist_equijoin,
-										bool merge_replicated_only);
-extern bool pgxc_shippability_walker(Node *node, Shippability_context *sc_context);
-extern bool pgxc_test_shippability_reason(Shippability_context *context,
-											ShippabilityStat reason);
-extern void pgxc_reset_shippability_reason(Shippability_context *context,
-											ShippabilityStat reason);
 extern void pgxc_rqplan_adjust_tlist(RemoteQuery *rqplan);
 extern void pgxc_rqplan_adjust_vars(RemoteQuery *rqplan, Node *node);
 

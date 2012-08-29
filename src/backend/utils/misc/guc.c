@@ -59,6 +59,7 @@
 #ifdef PGXC
 #include "commands/tablecmds.h"
 #include "nodes/nodes.h"
+#include "optimizer/pgxcship.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/locator.h"
 #include "pgxc/planner.h"
