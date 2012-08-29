@@ -20,8 +20,6 @@
 #include "nodes/relation.h"
 #include "pgxc/locator.h"
 
-/* Forbid SQL if unsafe, useful to turn off for development */
-extern bool StrictStatementChecking;
 
 /* Determine if query is shippable */
 extern ExecNodes *pgxc_is_query_shippable(Query *query, int query_level);

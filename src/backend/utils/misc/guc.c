@@ -1509,15 +1509,6 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 	{
-		{"strict_statement_checking", PGC_USERSET, DEVELOPER_OPTIONS,
-			gettext_noop("Forbid statements that are not safe for the cluster"),
-			NULL
-		},
-		&StrictStatementChecking,
-		true,
-		NULL, NULL, NULL
-	},
-	{
 		{"enforce_two_phase_commit", PGC_SUSET, XC_HOUSEKEEPING_OPTIONS,
 			gettext_noop("Enforce the use of two-phase commit on transactions that"
 					"made use of temporary objects"),

@@ -31,8 +31,6 @@
 #include "pgxc/pgxcnode.h"
 #include "utils/lsyscache.h"
 
-/* Forbid unsafe SQL statements */
-bool        StrictStatementChecking = true;
 
 /*
  * Shippability_context
@@ -982,20 +980,6 @@ pgxc_query_needs_coord(Query *query)
 	 */
 	if (pgxc_query_contains_only_pg_catalog(query->rtable))
 		return true;
-
-	/* Allow for override */
-	if (query->commandType != CMD_SELECT &&
-			query->commandType != CMD_INSERT &&
-			query->commandType != CMD_UPDATE &&
-		query->commandType != CMD_DELETE)
-	{
-		if (StrictStatementChecking)
-			ereport(ERROR,
-					(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-					 (errmsg("This command is not yet supported."))));
-
-		return true;
-	}
 
 	return false;
 }

@@ -598,8 +598,6 @@
 ##------------------------------------------------------------------------------
 # OTHER PG-XC OPTIONS
 #------------------------------------------------------------------------------
-#strict_statement_checking = on		# Forbid PG-XC-unsafe SQL
-					# Enabling is useful for development
 #enforce_two_phase_commit = on		# Enforce the usage of two-phase commit on transactions
 					# where temporary objects are used or ON COMMIT actions
 					# are pending.
