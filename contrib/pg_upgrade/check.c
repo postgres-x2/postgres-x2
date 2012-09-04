@@ -22,6 +22,35 @@ static void check_for_reg_data_type_usage(ClusterInfo *cluster);
 static void get_bin_version(ClusterInfo *cluster);
 
 
+/*
+ * fix_path_separator
+ * For non-Windows, just return the argument.
+ * For Windows convert any forward slash to a backslash
+ * such as is suitable for arguments to builtin commands 
+ * like RMDIR and DEL.
+ */
+static char *fix_path_separator(char *path)
+{
+#ifdef WIN32
+
+	char *result;
+	char *c;
+
+	result = pg_strdup(path);
+
+	for (c = result; *c != '\0'; c++)
+		if (*c == '/')
+			*c = '\\';
+
+	return result;
+
+#else
+
+	return path;
+
+#endif
+}
+
 void
 output_check_banner(bool *live_check)
 {
@@ -118,18 +147,38 @@ check_new_cluster(void)
 {
 	set_locale_and_encoding(&new_cluster);
 
+	check_locale_and_encoding(&old_cluster.controldata, &new_cluster.controldata);
+
 	get_db_and_rel_infos(&new_cluster);
 
 	check_new_cluster_is_empty();
-	check_for_prepared_transactions(&new_cluster);
+
 	check_old_cluster_has_new_cluster_dbs();
 
 	check_loadable_libraries();
 
-	check_locale_and_encoding(&old_cluster.controldata, &new_cluster.controldata);
-
 	if (user_opts.transfer_mode == TRANSFER_MODE_LINK)
 		check_hard_link();
+
+	check_is_super_user(&new_cluster);
+
+	/*
+	 *	We don't restore our own user, so both clusters must match have
+	 *	matching install-user oids.
+	 */
+	if (old_cluster.install_role_oid != new_cluster.install_role_oid)
+		pg_log(PG_FATAL,
+		"Old and new cluster install users have different values for pg_authid.oid.\n");
+
+	/*
+	 *	We only allow the install user in the new cluster because other
+	 *	defined users might match users defined in the old cluster and
+	 *	generate an error during pg_dump restore.
+	 */
+	if (new_cluster.role_count != 1)
+		pg_log(PG_FATAL, "Only the install user can be defined in the new cluster.\n");
+    
+	check_for_prepared_transactions(&new_cluster);
 }
 
 
@@ -433,7 +482,7 @@ create_script_for_old_cluster_deletion(
 #endif
 
 	/* delete old cluster's default tablespace */
-	fprintf(script, RMDIR_CMD " %s\n", old_cluster.pgdata);
+	fprintf(script, RMDIR_CMD " %s\n", fix_path_separator(old_cluster.pgdata));
 
 	/* delete old cluster's alternate tablespaces */
 	for (tblnum = 0; tblnum < os_info.num_tablespaces; tblnum++)
@@ -450,14 +499,17 @@ create_script_for_old_cluster_deletion(
 			fprintf(script, "\n");
 			/* remove PG_VERSION? */
 			if (GET_MAJOR_VERSION(old_cluster.major_version) <= 804)
-				fprintf(script, RM_CMD " %s%s/PG_VERSION\n",
-				 os_info.tablespaces[tblnum], old_cluster.tablespace_suffix);
+				fprintf(script, RM_CMD " %s%s%cPG_VERSION\n",
+						fix_path_separator(os_info.tablespaces[tblnum]), 
+						fix_path_separator(old_cluster.tablespace_suffix),
+						PATH_SEPARATOR);
 
 			for (dbnum = 0; dbnum < new_cluster.dbarr.ndbs; dbnum++)
 			{
-				fprintf(script, RMDIR_CMD " %s%s/%d\n",
-				  os_info.tablespaces[tblnum], old_cluster.tablespace_suffix,
-						old_cluster.dbarr.dbs[dbnum].db_oid);
+				fprintf(script, RMDIR_CMD " %s%s%c%d\n",
+						fix_path_separator(os_info.tablespaces[tblnum]),
+						fix_path_separator(old_cluster.tablespace_suffix),
+						PATH_SEPARATOR, old_cluster.dbarr.dbs[dbnum].db_oid);
 			}
 		}
 		else
@@ -467,7 +519,8 @@ create_script_for_old_cluster_deletion(
 			 * or a version-specific subdirectory.
 			 */
 			fprintf(script, RMDIR_CMD " %s%s\n",
-				 os_info.tablespaces[tblnum], old_cluster.tablespace_suffix);
+					fix_path_separator(os_info.tablespaces[tblnum]), 
+					fix_path_separator(old_cluster.tablespace_suffix));
 	}
 
 	fclose(script);
@@ -485,7 +538,7 @@ create_script_for_old_cluster_deletion(
 /*
  *	check_is_super_user()
  *
- *	Make sure we are the super-user.
+ *	Check we are superuser, and out user id and user count
  */
 static void
 check_is_super_user(ClusterInfo *cluster)
@@ -497,13 +550,26 @@ check_is_super_user(ClusterInfo *cluster)
 
 	/* Can't use pg_authid because only superusers can view it. */
 	res = executeQueryOrDie(conn,
-							"SELECT rolsuper "
+							"SELECT rolsuper, oid "
 							"FROM pg_catalog.pg_roles "
 							"WHERE rolname = current_user");
 
 	if (PQntuples(res) != 1 || strcmp(PQgetvalue(res, 0, 0), "t") != 0)
 		pg_log(PG_FATAL, "database user \"%s\" is not a superuser\n",
 			   os_info.user);
+
+	cluster->install_role_oid = atooid(PQgetvalue(res, 0, 1));
+
+	PQclear(res);
+
+	res = executeQueryOrDie(conn,
+							"SELECT COUNT(*) "
+							"FROM pg_catalog.pg_roles ");
+
+	if (PQntuples(res) != 1)
+		pg_log(PG_FATAL, "could not determine the number of users\n");
+
+	cluster->role_count = atoi(PQgetvalue(res, 0, 0));
 
 	PQclear(res);
 

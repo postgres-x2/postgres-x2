@@ -38,6 +38,7 @@
 #define pg_copy_file		copy_file
 #define pg_mv_file			rename
 #define pg_link_file		link
+#define PATH_SEPARATOR      '/'
 #define RM_CMD				"rm -f"
 #define RMDIR_CMD			"rm -rf"
 #define SCRIPT_EXT			"sh"
@@ -46,6 +47,7 @@
 #define pg_mv_file			pgrename
 #define pg_link_file		win32_pghardlink
 #define sleep(x)			Sleep(x * 1000)
+#define PATH_SEPARATOR      '\\'
 #define RM_CMD				"DEL /q"
 #define RMDIR_CMD			"RMDIR /s/q"
 #define SCRIPT_EXT			"bat"
@@ -187,6 +189,8 @@ typedef struct
 	char		major_version_str[64];	/* string PG_VERSION of cluster */
 	uint32		bin_version;	/* version returned from pg_ctl */
 	Oid			pg_database_oid;	/* OID of pg_database relation */
+	Oid			install_role_oid;	/* OID of connected role */
+	Oid			role_count;			/* number of roles defined in the cluster */
 	char	   *tablespace_suffix;		/* directory specification */
 } ClusterInfo;
 

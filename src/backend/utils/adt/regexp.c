@@ -187,9 +187,8 @@ RE_compile_and_cache(text *text_re, int cflags, Oid collation)
 
 	if (regcomp_result != REG_OKAY)
 	{
-		/* re didn't compile */
+		/* re didn't compile (no need for pg_regfree, if so) */
 		pg_regerror(regcomp_result, &re_temp.cre_re, errMsg, sizeof(errMsg));
-		/* XXX should we pg_regfree here? */
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_REGULAR_EXPRESSION),
 				 errmsg("invalid regular expression: %s", errMsg)));
@@ -1169,4 +1168,69 @@ build_regexp_split_result(regexp_matches_ctx *splitctx)
 								   PointerGetDatum(splitctx->orig_str),
 								   Int32GetDatum(startpos + 1));
 	}
+}
+
+/*
+ * regexp_fixed_prefix - extract fixed prefix, if any, for a regexp
+ *
+ * The result is NULL if there is no fixed prefix, else a palloc'd string.
+ * If it is an exact match, not just a prefix, *exact is returned as TRUE.
+ */
+char *
+regexp_fixed_prefix(text *text_re, bool case_insensitive, Oid collation,
+					bool *exact)
+{
+	char	   *result;
+	regex_t    *re;
+	int			cflags;
+	int			re_result;
+	pg_wchar   *str;
+	size_t		slen;
+	size_t		maxlen;
+	char		errMsg[100];
+
+	*exact = false;				/* default result */
+
+	/* Compile RE */
+	cflags = REG_ADVANCED;
+	if (case_insensitive)
+		cflags |= REG_ICASE;
+
+	re = RE_compile_and_cache(text_re, cflags, collation);
+
+	/* Examine it to see if there's a fixed prefix */
+	re_result = pg_regprefix(re, &str, &slen);
+
+	switch (re_result)
+	{
+		case REG_NOMATCH:
+			return NULL;
+
+		case REG_PREFIX:
+			/* continue with wchar conversion */
+			break;
+
+		case REG_EXACT:
+			*exact = true;
+			/* continue with wchar conversion */
+			break;
+
+		default:
+			/* re failed??? */
+			pg_regerror(re_result, re, errMsg, sizeof(errMsg));
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_REGULAR_EXPRESSION),
+					 errmsg("regular expression failed: %s", errMsg)));
+			break;
+	}
+
+	/* Convert pg_wchar result back to database encoding */
+	maxlen = pg_database_encoding_max_length() * slen + 1;
+	result = (char *) palloc(maxlen);
+	slen = pg_wchar2mb_with_len(str, result, slen);
+	Assert(slen < maxlen);
+
+	free(str);
+
+	return result;
 }

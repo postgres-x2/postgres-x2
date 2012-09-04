@@ -378,7 +378,7 @@
    committing at about the same time.  Setting <varname>commit_delay</varname>
    can only help when there are many concurrently committing transactions,
    and it is difficult to tune it to a value that actually helps rather
-   than hurt throughput.
+   than hurts throughput.
   </para>
 
  </sect1>
@@ -540,9 +540,7 @@
    from having to do writes.  On such systems
    one should increase the number of <acronym>WAL</acronym> buffers by
    modifying the configuration parameter <xref
-   linkend="guc-wal-buffers">.  The default number of <acronym>WAL</acronym>
-   buffers is 8.  Increasing this value will
-   correspondingly increase shared memory usage.  When
+   linkend="guc-wal-buffers">.  When
    <xref linkend="guc-full-page-writes"> is set and the system is very busy,
    setting this value higher will help smooth response times during the
    period immediately following each checkpoint.

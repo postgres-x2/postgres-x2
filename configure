@@ -597,7 +597,7 @@ SHELL=${CONFIG_SHELL-/bin/sh}
 PACKAGE_NAME='Postgres-XC'
 PACKAGE_TARNAME='postgres-xc'
 # Package is based on former PostgreSQL, so base package version on that
-PACKAGE_VERSION='9.1.4'
+PACKAGE_VERSION='9.1.5'
 PACKAGE_XC_VERSION='1.0.0'
 PACKAGE_STRING='Postgres-XC 1.0.0'
 PACKAGE_BUGREPORT='postgres-xc-bugs@lists.sourceforge.net'
@@ -18960,7 +18960,8 @@ fi
 
 
 
-for ac_func in cbrt dlopen fcvt fdatasync getifaddrs getpeerucred getrlimit memmove poll pstat readlink scandir setproctitle setsid sigprocmask symlink sysconf towlower utime utimes waitpid wcstombs wcstombs_l
+
+for ac_func in cbrt dlopen fcvt fdatasync getifaddrs getpeerucred getrlimit mbstowcs_l memmove poll pstat readlink scandir setproctitle setsid sigprocmask symlink sysconf towlower utime utimes waitpid wcstombs wcstombs_l
 do
 as_ac_var=`$as_echo "ac_cv_func_$ac_func" | $as_tr_sh`
 { $as_echo "$as_me:$LINENO: checking for $ac_func" >&5
@@ -31160,4 +31161,3 @@ if test -n "$ac_unrecognized_opts" && test "$enable_option_checking" != no; then
   { $as_echo "$as_me:$LINENO: WARNING: unrecognized options: $ac_unrecognized_opts" >&5
 $as_echo "$as_me: WARNING: unrecognized options: $ac_unrecognized_opts" >&2;}
 fi
-
