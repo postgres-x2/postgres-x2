@@ -1,6 +1,338 @@
 <!-- doc/src/sgml/release-xc-1.0.sgml -->
 <!-- See header comment in release.sgml about typical markup -->
 
+ <sect1 id="release-xc-1-0-1">
+  <title>Release 1.0.1</title>
+
+  <note>
+   <title>Release Date</title>
+   <simpara>2012-09-??</simpara>
+  </note>
+
+  <para>
+   This release contains a variety of fixes from 1.0.0.
+   For information about new features in the 1.0 major release, see
+   <xref linkend="release-xc-1-0">.
+  </para>
+
+  <sect2>
+   <title>Migration to Version 1.0.1</title>
+
+   <para>
+    A dump/restore is not required for those running 1.0.X.
+   </para>
+
+  </sect2>
+
+  <sect2>
+   <title>Changes</title>
+
+   <itemizedlist>
+
+    <listitem>
+     <para>
+      Make data ordering consistent in query for test <filename>join.sql</> (Michael Paquier)
+     </para>
+
+     <para>
+      Regression test join failed occasionally depending on the cluster
+      configuration.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix for sequence removal on GTM when related database is dropped
+      (Michael Paquier, Dimitrije Radojevic)
+     </para>
+
+     <para>
+      There was an error on GTM side when comparing sequence key strings
+      related to key size when sequence drop is based on a sequence key type
+      GTM_SEQ_DB_NAME.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix for <literal>INSERT SELECT</> for partially replicated tables.
+      Remote DML planning was not taking into account the node list
+      to be used on a relation when modifying data on it. (Michael Paquier)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Push -l option of <command>gtm_ctl</> to gtm (Michael Meskes).
+     </para>
+
+     <para>
+      This avoids to have an empty output file when <command>gtm_ctl</> has a log file defined
+      and change log file name of GTM according to what is given by <command>gtm_ctl</>
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix for crash at gtm_proxy startup in 32b-linux machines (Koichi Suzuki, Plexo Rama)
+     </para>
+
+     <para>
+      This fix adds an additional boolean flag in GTM-Proxy thread info
+      to make it similar to the one used in GTM. The problem which was
+      happening was that GTM-Proxy tried to use the memory structure of
+      the thread info of GTM.
+      Crash problems are solved but we should find in the future a smarter
+      way to manage GTM and GTM-Proxy memory allocation APIs as they are
+      now strongly dependant on each other and we may find similar issues
+      if some new developments are done on GTM and/or GTM-Proxy.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Activate <command>gtm_ctl</> status (Koichi Suzuki, Michael Paquier)
+     </para>
+
+     <para>
+      <command>gtm_ctl</> can control the status of a GTM server like <command>
+      pg_ctl</> does with <productname>PostgreSQL</> instances (in the case of <productname>
+      Postgres-XC</> Coordinator and Datanode).
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix for incorrect <literal>COPY</> for partially distributed tables (Michael Paquier)
+     </para>
+
+     <para>
+      When a table was distributed on a portion of nodes. <literal>COPY</> process
+      was not correctly choosing the output node during a <literal>COPY TO</>. This
+      problem has been put into light by a case where table was replicated
+      without using the first datanode of the cluster. It happened that
+      there was the same problem for hash/modulo tables as well.
+      A test case in xc_copy has been added to cover this problem, and
+      a small portion managing <literal>COPY TO</> in <filename>execRemote.c</> has been cleaned.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Correct whitespaces, format and message format in <filename>gtm_client.c</> (Andrei Martsinchyk)
+     </para>
+
+     <para>
+      This had consequences on the data types of the values sent by
+      GTM which was not matching those GTM Standby was trying to read.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Solve SEGENV for GTM-Standby (Andrei Martsinchyk)
+     </para>
+
+     <para>
+      Wrong variable was referenced when writing terminating null at the
+      end of a string. It caused seg faults, because the referenced variable
+      was not initialized yet.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Introduce new GTM thread status managing thread backup (Andrei Martsinchyk)
+     </para>
+
+     <para>
+      In the case of a GTM standby crash during the initial backup, the
+      master GTM remained locked. The origin of this problem was during
+      GTM backup process, where GTM locks all its threads one by one,
+      performs a backup and then releases everything.
+      This commit adds an additional control layer able to detect the
+      thread status during backup. The new status GTM_THREAD_BACKUP is
+      introduced for this purpose. Once backup is performed, the thread
+      status is changed to GTM_THREAD_RUNNING.
+      Hence, if the handler (GTM) is invoked upon sudden disconnection for
+      backend (here GTM-Standby) disconnect of its connection and it sees
+      that the current thread has status GTM_THREAD_BACKUP it goes ahead
+      and releases the locks.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Release GTM thread lock before exit (Andrei Martsinchyk)
+     </para>
+
+     <para>
+      This avoid to have another thread waiting for it, as it is possible
+      it waits for it.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Block GXID generation on standbys (Andrei Martsinchyk)
+     </para>
+
+     <para>
+      If a node accidentally connects to the Standby and reconnects to the
+      Master afterwards, it will get an inconsistent GXID value since GTM
+      Master is not aware of GXIDs generated by GTM Standby.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      validate_part_col_updatable was falsely assuming that the table with no
+      location info is as good as non-existent table. This assumption is not true for
+      catalogs or coordinator only tables. In such cases, this function should not look for any
+      distribution column, since one can not exist for a table local to the
+      coordinator (Ashutosh Bapat)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix for bug 3556031: pgadmin3 connection error (Michael Paquier)
+     </para>
+
+     <para>
+      pgadmin3 parses the output of <literal>SELECT version()</> to determine
+      the server version it is connecting to. For Postgres-XC, this
+      output result was changed and completed with Postgres-XC and
+      PostgreSQL version. pgadmin thought that the version of server
+      was the one of <productname>Postgres-XC</>, meaning 1.0 for 1.0 stable
+      and 1.1 for master branch. In consequence to that, SQL queries with
+      very old catalog were run to server, and of course errors were reported
+      to client and pgadmin could not work correctly.
+      This is solved with changing back version() to its former output.
+      An additional function <function>pgxc_version()</> is added to provide a way
+      for application to inform about <productname>Postgres-XC</> version and
+      the <productname>PostgreSQL</> version it is based on.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Refactoring of <filename>pg_regress.c</> due to bugs with O2 compilation (Michael Paquier)
+     </para>
+
+     <para>
+      When code was being compiled with O2, initialization and start-up
+      of GTM was done twice, creating errors in log files.
+      In consequence, functions related to start and initialization of
+      PGXC nodes and GTM are unified to clarify code and additional checks
+      are added to verify that nodes have been correctly started.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix compilation flag O2 not set in CFLAGS at configure step by default (Michael Paquier)
+     </para>
+
+     <para>
+      The flag -DPGXC is mandatory for correct compilation and is set once
+      all the compilation flags have been determined.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Block <literal>EXECUTE DIRECT</> when used from a Datanode (Michael Paquier)
+     </para>
+
+     <para>
+      This caused the Datanode to crash, and it is however a functionality
+      only usable by Coordinators.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix snapshot management on slave nodes and on Datanodes accessed directly by
+      applications (Michael Paquier)
+     </para>
+
+     <para>
+      A slave node session acquires its snapshot directly from WAL like <productname>
+      PostgreSQL</> does. Also, a Datanode is now able to get a global snapshot directly
+      from GTM, avoiding WARNING messages that a snapshot is not available.
+     </para>
+
+     <para>
+      Queries interacting with remote nodes running on slave nodes are blocked.
+      Such queries need a global snapshot and a new transaction ID, but sessions
+      on slave nodes cannot acquire that.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Correct query generation of <literal>COPY</> with quoted table names (Nikhil Sontakke)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix race condition in GXID generation for autovacuum wraparound (Michael Paquier)
+     </para>
+
+     <para>
+      When an autovacuum wraparound begins, a global snapshot with a
+      global GXID is obtained from GTM. After getting this snapshot,
+      the code checks for wraparound conditions. Before this check, the
+      lock on GXID generation is released and then taken back. Just after
+      taking back the lock the GXID is updated to the latest value in cache.
+      However, during this time it is possible that ShmemVariableCache->nextXid
+      is updated by another local session that obtained a transaction ID
+      from GTM. GXID generation concurrency is managed globally at GTM, so we
+      cannot rely here on the local ShmemVariableCache->nextXid to update the
+      GXID of autovacuum. Updating it to a wrong value makes is async with GTM
+      information and such autovacuum is not able to gather a global snapshot
+      correctly, making the autovacuum session inconsistent with the other global
+      sessions. This could fatally crash a node under certain conditions like
+      GXID being updated concurrently by multiple sessions at the same time
+      during the wraparound condition checks.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix for <literal>DDL ALTER ROLE ... REPLICATION</> not recognized (Nikhil Sontakke)
+     </para>
+
+     <para>
+      <productname>PostgreSQL</> 9.1 code uses the word <literal>REPLICATION</> in
+      <literal>ALTER TABLE</> as a portion of <literal>IDENT</>. However it is a
+      reserved keyword in Postgres-XC due to its use in clause <literal>DISTRIBUTE BY</>,
+      extension of <literal>CREATE TABLE</> and <literal>ALTER TABLE</>.
+      So here what is done is completing deparsing of <literal>ALTER ROLE</> to use
+      <literal>REPLICATION</> as a normal reserved keyword.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix GTM startup with "*" set as <varname>listen_addresses</> on OSX (Michael Paquier)
+     </para>
+
+     <para>
+      On OSX, GTM was not able to start with default parameter values.
+      This had side effects on regressions with make check, making impossible
+      to run a simple default regression test.
+     </para>
+    </listitem>
+
+   </itemizedlist>
+
+  </sect2>
+
+ </sect1>
+
  <sect1 id="release-xc-1-0">
   <title>Release 1.0</title>
 
