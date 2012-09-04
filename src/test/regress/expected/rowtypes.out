@@ -69,7 +69,7 @@ select f1, q.c1 from quadtable;		-- fails, q is a table reference
 ERROR:  missing FROM-clause entry for table "q"
 LINE 1: select f1, q.c1 from quadtable;
                    ^
-select f1, (q).c1, (qq.q).c1.i from quadtable qq;
+select f1, (q).c1, (qq.q).c1.i from quadtable qq order by 1;
  f1 |    c1     |  i  
 ----+-----------+-----
   1 | (3.3,4.4) | 4.4

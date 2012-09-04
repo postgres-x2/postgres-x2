@@ -1928,12 +1928,19 @@ pgxc_build_rowmark_entries(List *rowMarks, List *rtable, Oid *types, int preppar
 			case ROW_MARK_COPY:
 			{
 				RangeTblEntry *rte = rt_fetch(rc->prti, rtable);
+				Oid typeoid = InvalidOid;
 
-				/*
-				 * PGXCTODO: We still need to determine the rowtype
-				 * in case relation involved here is a view (see inherit.sql).
-				 */
-				if (!OidIsValid(rte->relid))
+				/* Try to get the type with the function expression */
+				if (rte->funcexpr)
+				{
+					FuncExpr *func = (FuncExpr *) rte->funcexpr;
+
+					/* Row type OID is the result type of this RTE function */
+					typeoid = func->funcresulttype;
+				}
+
+				/* Return an error if nothing found */
+				if (!OidIsValid(typeoid))
 					ereport(ERROR,
 							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 							 errmsg("Cannot generate remote query plan"),
@@ -1944,7 +1951,7 @@ pgxc_build_rowmark_entries(List *rowMarks, List *rtable, Oid *types, int preppar
 				 * to set parameter as a rowtype
 				 */
 				count++;
-				newtypes[count - 1] = get_rel_type_id(rte->relid);
+				newtypes[count - 1] = typeoid;
 			}
 			break;
 
