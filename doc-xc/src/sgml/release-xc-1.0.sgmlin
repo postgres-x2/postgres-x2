@@ -6,7 +6,7 @@
 
   <note>
    <title>Release Date</title>
-   <simpara>2012-09-??</simpara>
+   <simpara>2012-09-05</simpara>
   </note>
 
   <para>
@@ -347,7 +347,7 @@
    <para>
     <productname>Postgres-XC</> 1.0 is a symetric (multi-master, read and write-scalable)
     shared-nothing cluster based on PostgreSQL. This release version is based on
-    PostgreSQL 9.1. 
+    PostgreSQL 9.1.
    </para>
 
    <para>
@@ -403,7 +403,7 @@
    </para>
 
   <para>
-   The original overall architecture and design of <productname>Postgres-XC</> is by Koichi Suzuki, Mason Sharp, 
+   The original overall architecture and design of <productname>Postgres-XC</> is by Koichi Suzuki, Mason Sharp,
    Pavan Deolasee, Andrei Martsinchyk and Michael Paquier. Koichi Suzuki is the original project lead.
   </para>
 
@@ -530,10 +530,10 @@
         <link linkend="SQL-DROPTSTEMPLATE"><command>DROP TEXT SEARCH TEMPLATE</></link>,
         <link linkend="SQL-CREATETYPE"><command>CREATE TYPE</></link>,
         <link linkend="SQL-ALTERTYPE"><command>ALTER TYPE</></link>,
-        <link linkend="SQL-DROPTYPE"><command>DROP TYPE</></link>, 
+        <link linkend="SQL-DROPTYPE"><command>DROP TYPE</></link>,
         <link linkend="SQL-CREATEUSER"><command>CREATE USER</></link>,
         <link linkend="SQL-ALTERUSER"><command>ALTER USER</></link>,
-        <link linkend="SQL-DROPUSER"><command>DROP USER</></link>, 
+        <link linkend="SQL-DROPUSER"><command>DROP USER</></link>,
         <link linkend="SQL-CREATEVIEW"><command>CREATE VIEW</></link>,
         <link linkend="SQL-ALTERVIEW"><command>ALTER VIEW</></link>,
         <link linkend="SQL-DROPVIEW"><command>DROP VIEW</></link>,
@@ -549,7 +549,7 @@
        <para>
         <link linkend="SQL-ANALYZE"><command>ANALYZE</></link>,
         <link linkend="SQL-BEGIN"><command>BEGIN</></link>,
-        <link linkend="SQL-CHECKPOINT"><command>CHECKPOINT</></link>, 
+        <link linkend="SQL-CHECKPOINT"><command>CHECKPOINT</></link>,
         <link linkend="SQL-CLOSE"><command>CLOSE</></link>,
         <link linkend="SQL-CLUSTER"><command>CLUSTER</></link>,
         <link linkend="SQL-COMMENT"><command>COMMENT</></link>,
@@ -595,7 +595,7 @@
 
       <listitem>
        <para>
-        HOT-Standby and streaming replication, working as in native <productname>PostgreSQL</>, 
+        HOT-Standby and streaming replication, working as in native <productname>PostgreSQL</>,
         at the Coordinator and Datanode level.
        </para>
       </listitem>
@@ -611,7 +611,7 @@
        <para>
         <application>initdb</> (Michael Paquier): addition of a new mandatory option <option>
         --nodename=<replaceable class="parameter">nodename</replaceable></option> to specify
-        a node name when initializing it. This adds a parameter (pgxc_node_name) to the 
+        a node name when initializing it. This adds a parameter (pgxc_node_name) to the
         node's postgresql.conf file that the node uses to identify itself.
        </para>
       </listitem>
@@ -706,7 +706,7 @@
 
       <listitem>
        <para>
-        <command>INSERT SELECT</command> (Pavan Deolasee): extensions have 
+        <command>INSERT SELECT</command> (Pavan Deolasee): extensions have
         been done to manage that for all the table distribution types.
        </para>
       </listitem>
@@ -721,7 +721,7 @@
 
       <listitem>
        <para>
-        <command>EXPLAIN</command> (Andrei Martsinchyk, Ashutosh Bapat, Michael Paquier): Addition of options to 
+        <command>EXPLAIN</command> (Andrei Martsinchyk, Ashutosh Bapat, Michael Paquier): Addition of options to
         print the nodes involved in query, as well as extensions to print remote queries for remote node plans.
        </para>
       </listitem>
@@ -1041,7 +1041,7 @@
 
     <para>
      <link linkend="APP-GTM">GTM-Standby</link> is a solution that prevents GTM single point
-     of failure. (Koichi Suzuki) 
+     of failure. (Koichi Suzuki)
     </para>
 
     <itemizedlist>
