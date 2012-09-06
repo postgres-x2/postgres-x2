@@ -210,4 +210,9 @@ extern int	RI_FKey_trigger_type(Oid tgfoid);
 
 extern Datum pg_trigger_depth(PG_FUNCTION_ARGS);
 
+#ifdef PGXC
+/* Postgres-XC related functions for triggers */
+extern bool pgxc_check_triggers_shippability(Oid relid, CmdType commandType);
+#endif
+
 #endif   /* TRIGGER_H */

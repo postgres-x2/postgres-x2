@@ -28,16 +28,6 @@ DROP TRIGGER [ IF EXISTS ] <replaceable class="PARAMETER">name</replaceable> ON 
  <refsect1>
   <title>Description</title>
 
-<!## XC>
-&xconly;
-  <para>
-   <command>DROP TRIGGER</> statement has not been supported
-   in <productname>Postgres-XC</> yet.
-  </para>
-<!## end>
-
-<!## PG>
-
   <para>
    <command>DROP TRIGGER</command> removes an existing
    trigger definition. To execute this command, the current
@@ -124,7 +114,6 @@ DROP TRIGGER if_dist_exists ON films;
    <replaceable>name</replaceable></literal>.
   </para>
 
-<!## end>
  </refsect1>
 
  <refsect1>

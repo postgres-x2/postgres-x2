@@ -885,34 +885,15 @@ standard_ProcessUtility(Node *parsetree,
 			break;
 
 		case T_TruncateStmt:
-			ExecuteTruncate((TruncateStmt *) parsetree);
 #ifdef PGXC
 			/*
-			 * Check details of the object being truncated.
-			 * If at least one temporary table is truncated truncate cannot use 2PC
-			 * at commit.
+			 * In Postgres-XC, TRUNCATE needs to be launched to remote nodes
+			 * before AFTER triggers. As this needs an internal control it is
+			 * managed by this function internally.
 			 */
-			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-			{
-				bool is_temp = false;
-				ListCell	*cell;
-				TruncateStmt *stmt = (TruncateStmt *) parsetree;
-
-				foreach(cell, stmt->relations)
-				{
-					Oid relid;
-					RangeVar *rel = (RangeVar *) lfirst(cell);
-
-					relid = RangeVarGetRelid(rel, NoLock, false);
-					if (IsTempTable(relid))
-					{
-						is_temp = true;
-						break;
-					}
-				}
-
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_DATANODES, is_temp);
-			}
+			ExecuteTruncate((TruncateStmt *) parsetree, queryString);
+#else
+			ExecuteTruncate((TruncateStmt *) parsetree);
 #endif
 			break;
 
@@ -1713,14 +1694,25 @@ standard_ProcessUtility(Node *parsetree,
 			(void) CreateTrigger((CreateTrigStmt *) parsetree, queryString,
 								 InvalidOid, InvalidOid, false);
 #ifdef PGXC
-			/* Postgres-XC does not support yet triggers */
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("Postgres-XC does not support TRIGGER yet"),
-					 errdetail("The feature is not currently supported")));
-
 			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+			{
+				CreateTrigStmt *stmt = (CreateTrigStmt *) parsetree;
+				RemoteQueryExecType exec_type;
+				bool is_temp;
+
+				/* Postgres-XC does not support yet FOR EACH ROW yet */
+				if (stmt->row)
+					ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							 errmsg("Postgres-XC does not support ROW TRIGGER yet"),
+							 errdetail("The feature is not currently supported")));
+
+				exec_type = ExecUtilityFindNodes(OBJECT_TABLE,
+												 RangeVarGetRelid(stmt->relation, NoLock, false),
+												 &is_temp);
+
+				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, exec_type, is_temp);
+			}
 #endif
 			break;
 
@@ -2069,7 +2061,9 @@ ExecUtilityFindNodes(ObjectType object_type,
 			exec_type = EXEC_ON_ALL_NODES;
 			break;
 
+		/* Triggers are evaluated based on the relation they are defined on */
 		case OBJECT_TABLE:
+		case OBJECT_TRIGGER:
 			/* Do the check on relation kind */
 			exec_type = ExecUtilityFindNodesRelkind(object_id, is_temp);
 			break;
@@ -3774,17 +3768,18 @@ DropStmtPreTreatment(DropStmt *stmt, const char *queryString, bool sentToRemote,
 			}
 			break;
 
+		/*
+		 * Those objects are dropped depending on the nature of the relationss
+		 * they are defined on. This evaluation uses the temporary behavior
+		 * and the relkind of the relation used.
+		 */
 		case OBJECT_RULE:
+		case OBJECT_TRIGGER:
 			{
-				/*
-				 * In the case of a rule we need to find the object on
-				 * which the rule is dependent and define if this rule
-				 * has a dependency with a temporary object or not.
-				 */
 				List *objname = linitial(stmt->objects);
 				Relation    relation = NULL;
 
-				get_object_address(OBJECT_RULE,
+				get_object_address(stmt->removeType,
 								   objname, NIL,
 								   &relation,
 								   AccessExclusiveLock,
@@ -3792,7 +3787,7 @@ DropStmtPreTreatment(DropStmt *stmt, const char *queryString, bool sentToRemote,
 
 				/* Do nothing if no relation */
 				if (relation && OidIsValid(relation->rd_id))
-					res_exec_type = ExecUtilityFindNodes(OBJECT_RULE,
+					res_exec_type = ExecUtilityFindNodes(stmt->removeType,
 														 relation->rd_id,
 														 &res_is_temp);
 				else

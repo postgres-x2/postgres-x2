@@ -41,22 +41,19 @@ CREATE [ CONSTRAINT ] TRIGGER <replaceable class="PARAMETER">name</replaceable> 
  <refsect1>
   <title>Description</title>
 
-<!## XC>
-&xconly;
-  <para>
-   <command>CREATE TRIGGER</> statement has not been supported
-   in <productname>Postgres-XC</> yet.
-  </para>
-<!## end>
-
-<!## PG>
-
   <para>
    <command>CREATE TRIGGER</command> creates a new trigger.  The
    trigger will be associated with the specified table or view and will
    execute the specified function <replaceable
    class="parameter">function_name</replaceable> when certain events occur.
   </para>
+
+<!## XC>
+&xconly;
+  <para>
+   <literal>FOR EACH ROW</literal> is not supported by <productname>Postgres-XC</> yet.
+  </para>
+<!## end>
 
   <para>
    The trigger can be specified to fire before the
@@ -560,7 +557,6 @@ CREATE TRIGGER view_insert
    <productname>PostgreSQL</productname> extension of the <acronym>SQL</>
    standard.
   </para>
-<!## end>
  </refsect1>
 
  <refsect1>

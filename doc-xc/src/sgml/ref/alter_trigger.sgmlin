@@ -28,16 +28,6 @@ ALTER TRIGGER <replaceable class="PARAMETER">name</replaceable> ON <replaceable 
  <refsect1>
   <title>Description</title>
 
-<!## XC>
-&xconly;
-  <para>
-   <command>ALTER TRIGGERXS</> statement has not been supported
-   in <productname>Postgres-XC</> yet.
-  </para>
-<!## end>
-
-<!## PG>
-
   <para>
    <command>ALTER TRIGGER</command> changes properties of an existing
    trigger.  The <literal>RENAME</literal> clause changes the name of
@@ -113,7 +103,6 @@ ALTER TRIGGER emp_stamp ON emp RENAME TO emp_track_chgs;
    <command>ALTER TRIGGER</command> is a <productname>PostgreSQL</>
    extension of the SQL standard.
   </para>
-<!## end>
  </refsect1>
 
  <refsect1>

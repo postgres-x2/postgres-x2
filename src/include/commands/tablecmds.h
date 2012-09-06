@@ -42,7 +42,11 @@ extern void AlterRelationNamespaceInternal(Relation classRel, Oid relOid,
 
 extern void CheckTableNotInUse(Relation rel, const char *stmt);
 
+#ifdef PGXC
+extern void ExecuteTruncate(TruncateStmt *stmt, const char *sql_statement);
+#else
 extern void ExecuteTruncate(TruncateStmt *stmt);
+#endif
 
 extern void SetRelationHasSubclass(Oid relationId, bool relhassubclass);
 

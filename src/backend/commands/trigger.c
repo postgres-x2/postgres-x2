@@ -56,6 +56,7 @@
 #include "utils/tqual.h"
 #ifdef PGXC
 #include "pgxc/pgxc.h"
+#include "optimizer/pgxcship.h"
 #endif
 
 
@@ -89,6 +90,10 @@ static void AfterTriggerSaveEvent(EState *estate, ResultRelInfo *relinfo,
 					  int event, bool row_trigger,
 					  HeapTuple oldtup, HeapTuple newtup,
 					  List *recheckIndexes, Bitmapset *modifiedCols);
+#ifdef PGXC
+static bool pgxc_is_trigger_shippable(Trigger *trigger);
+static bool pgxc_is_trigger_firable(Trigger *trigger);
+#endif
 
 
 /*
@@ -1927,6 +1932,12 @@ ExecBSInsertTriggers(EState *estate, ResultRelInfo *relinfo)
 							NULL, NULL, NULL))
 			continue;
 
+#ifdef PGXC
+		/* Fire the trigger if authorized */
+		if (!pgxc_is_trigger_firable(trigger))
+			continue;
+#endif
+
 		LocTriggerData.tg_trigger = trigger;
 		newtuple = ExecCallTriggerFunc(&LocTriggerData,
 									   i,
@@ -1981,6 +1992,12 @@ ExecBRInsertTriggers(EState *estate, ResultRelInfo *relinfo,
 		if (!TriggerEnabled(estate, relinfo, trigger, LocTriggerData.tg_event,
 							NULL, NULL, newtuple))
 			continue;
+
+#ifdef PGXC
+		/* Fire the trigger if authorized */
+		if (!pgxc_is_trigger_firable(trigger))
+			continue;
+#endif
 
 		LocTriggerData.tg_trigtuple = oldtuple = newtuple;
 		LocTriggerData.tg_trigtuplebuf = InvalidBuffer;
@@ -2057,6 +2074,12 @@ ExecIRInsertTriggers(EState *estate, ResultRelInfo *relinfo,
 							NULL, NULL, newtuple))
 			continue;
 
+#ifdef PGXC
+		/* Fire the trigger if authorized */
+		if (!pgxc_is_trigger_firable(trigger))
+			continue;
+#endif
+
 		LocTriggerData.tg_trigtuple = oldtuple = newtuple;
 		LocTriggerData.tg_trigtuplebuf = InvalidBuffer;
 		LocTriggerData.tg_trigger = trigger;
@@ -2126,6 +2149,12 @@ ExecBSDeleteTriggers(EState *estate, ResultRelInfo *relinfo)
 							NULL, NULL, NULL))
 			continue;
 
+#ifdef PGXC
+		/* Fire the trigger if authorized */
+		if (!pgxc_is_trigger_firable(trigger))
+			continue;
+#endif
+
 		LocTriggerData.tg_trigger = trigger;
 		newtuple = ExecCallTriggerFunc(&LocTriggerData,
 									   i,
@@ -2187,6 +2216,12 @@ ExecBRDeleteTriggers(EState *estate, EPQState *epqstate,
 		if (!TriggerEnabled(estate, relinfo, trigger, LocTriggerData.tg_event,
 							NULL, trigtuple, NULL))
 			continue;
+
+#ifdef PGXC
+		/* Fire the trigger if authorized */
+		if (!pgxc_is_trigger_firable(trigger))
+			continue;
+#endif
 
 		LocTriggerData.tg_trigtuple = trigtuple;
 		LocTriggerData.tg_trigtuplebuf = InvalidBuffer;
@@ -2255,6 +2290,12 @@ ExecIRDeleteTriggers(EState *estate, ResultRelInfo *relinfo,
 							NULL, trigtuple, NULL))
 			continue;
 
+#ifdef PGXC
+		/* Fire the trigger if authorized */
+		if (!pgxc_is_trigger_firable(trigger))
+			continue;
+#endif
+
 		LocTriggerData.tg_trigtuple = trigtuple;
 		LocTriggerData.tg_trigtuplebuf = InvalidBuffer;
 		LocTriggerData.tg_trigger = trigger;
@@ -2309,6 +2350,12 @@ ExecBSUpdateTriggers(EState *estate, ResultRelInfo *relinfo)
 		if (!TriggerEnabled(estate, relinfo, trigger, LocTriggerData.tg_event,
 							modifiedCols, NULL, NULL))
 			continue;
+
+#ifdef PGXC
+		/* Fire the trigger if authorized */
+		if (!pgxc_is_trigger_firable(trigger))
+			continue;
+#endif
 
 		LocTriggerData.tg_trigger = trigger;
 		newtuple = ExecCallTriggerFunc(&LocTriggerData,
@@ -2393,6 +2440,12 @@ ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 		if (!TriggerEnabled(estate, relinfo, trigger, LocTriggerData.tg_event,
 							modifiedCols, trigtuple, newtuple))
 			continue;
+
+#ifdef PGXC
+		/* Fire the trigger if authorized */
+		if (!pgxc_is_trigger_firable(trigger))
+			continue;
+#endif
 
 		LocTriggerData.tg_trigtuple = trigtuple;
 		LocTriggerData.tg_newtuple = oldtuple = newtuple;
@@ -2481,6 +2534,12 @@ ExecIRUpdateTriggers(EState *estate, ResultRelInfo *relinfo,
 							NULL, trigtuple, newtuple))
 			continue;
 
+#ifdef PGXC
+		/* Fire the trigger if authorized */
+		if (!pgxc_is_trigger_firable(trigger))
+			continue;
+#endif
+
 		LocTriggerData.tg_trigtuple = trigtuple;
 		LocTriggerData.tg_newtuple = oldtuple = newtuple;
 		LocTriggerData.tg_trigtuplebuf = InvalidBuffer;
@@ -2551,6 +2610,12 @@ ExecBSTruncateTriggers(EState *estate, ResultRelInfo *relinfo)
 		if (!TriggerEnabled(estate, relinfo, trigger, LocTriggerData.tg_event,
 							NULL, NULL, NULL))
 			continue;
+
+#ifdef PGXC
+		/* Fire the trigger if authorized */
+		if (!pgxc_is_trigger_firable(trigger))
+			continue;
+#endif
 
 		LocTriggerData.tg_trigger = trigger;
 		newtuple = ExecCallTriggerFunc(&LocTriggerData,
@@ -4618,6 +4683,12 @@ AfterTriggerSaveEvent(EState *estate, ResultRelInfo *relinfo,
 							modifiedCols, oldtup, newtup))
 			continue;
 
+#ifdef PGXC
+		/* Fire the trigger if authorized */
+		if (!pgxc_is_trigger_firable(trigger))
+			continue;
+#endif
+
 		/*
 		 * If this is an UPDATE of a PK table or FK table that does not change
 		 * the PK or FK respectively, we can skip queuing the event: there is
@@ -4695,3 +4766,197 @@ pg_trigger_depth(PG_FUNCTION_ARGS)
 {
 	PG_RETURN_INT32(MyTriggerDepth);
 }
+
+
+#ifdef PGXC
+/*
+ * pgxc_check_triggers_shippability
+ * Check if given relation can be shipped entirely based on its potential
+ * triggers actions. If at least one trigger is not shippable then the given
+ * relation cannot be shipped completely to remote nodes for given command
+ * type.
+ */
+bool
+pgxc_check_triggers_shippability(Oid relid, CmdType commandType)
+{
+	Relation	rel = relation_open(relid, AccessShareLock);
+	bool		res = true;
+	int			i;
+	TriggerDesc *trigdesc;
+
+	/* Relation has no triggers, can safely return */
+	if (!rel->rd_rel->relhastriggers)
+		goto finish;
+
+	/* Rebuild trigger list if necessary */
+	if (rel->rd_rel->relhastriggers && rel->trigdesc == NULL)
+		RelationBuildTriggers(rel);
+
+	/* Definitely no triggers for this relation */
+	if (rel->trigdesc == NULL)
+		goto finish;
+
+	trigdesc = rel->trigdesc;
+
+	/*
+	 * Check if there are any triggers related to given command
+	 * If there are any, we need to scan the triggers to be sure
+	 * that they are safe.
+	 */
+	switch (commandType)
+	{
+		case CMD_INSERT:
+			if (!trigdesc->trig_insert_before_row &&
+				!trigdesc->trig_insert_after_row &&
+				!trigdesc->trig_insert_instead_row &&
+				!trigdesc->trig_insert_before_statement &&
+				!trigdesc->trig_insert_after_statement)
+				goto finish;
+			break;
+		case CMD_UPDATE:
+			if (!trigdesc->trig_update_before_row &&
+				!trigdesc->trig_update_after_row &&
+				!trigdesc->trig_update_instead_row &&
+				!trigdesc->trig_update_before_statement &&
+				!trigdesc->trig_update_after_statement)
+				goto finish;
+			break;
+		case CMD_DELETE:
+			if (!trigdesc->trig_delete_before_row &&
+				!trigdesc->trig_delete_after_row &&
+				!trigdesc->trig_delete_instead_row &&
+				!trigdesc->trig_delete_before_statement &&
+				!trigdesc->trig_delete_after_statement)
+				goto finish;
+			break;
+		case CMD_UTILITY:
+			/* Trigger might be based on an event */
+			if (!trigdesc->trig_truncate_before_statement &&
+				!trigdesc->trig_truncate_after_statement)
+				goto finish;
+			break;
+		case CMD_SELECT:
+		default:
+			Assert(0); /* Shouldn't come here */
+	}
+
+	/*
+	 * By being here, it is sure that there are triggers on this relation
+	 * that are based on events based on the command type invocated.
+	 * So let's scan each potential trigger and be such that it is shippable.
+	 */
+	for (i = 0; i < trigdesc->numtriggers; i++)
+	{
+		Trigger    *trigger = &trigdesc->triggers[i];
+		int16		tgtype = trigger->tgtype;
+
+		switch (commandType)
+		{
+			case CMD_INSERT:
+				/* Don't mind if trigger is not involved in INSERT */
+				if (!TRIGGER_FOR_INSERT(tgtype))
+					continue;
+				break;
+			case CMD_UPDATE:
+				/* Don't mind if trigger is not involved in UPDATE */
+				if (!TRIGGER_FOR_UPDATE(tgtype))
+					continue;
+				break;
+			case CMD_DELETE:
+				/* Don't mind if trigger is not involved in UPDATE */
+				if (!TRIGGER_FOR_DELETE(tgtype))
+					continue;
+				break;
+			/* Trigger might be on a truncate */
+			case CMD_UTILITY:
+				/* Don't mind if trigger is not involved in TRUNCATE */
+				if (!TRIGGER_FOR_TRUNCATE(tgtype))
+					continue;
+				break;
+			case CMD_SELECT:
+			default:
+				Assert(0); /* Shouldn't come here */
+				continue;
+		}
+
+		/* Check trigger shippability */
+		res = pgxc_is_trigger_shippable(trigger);
+
+		/* Leave if trigger is not shippable */
+		if (!res)
+			goto finish;
+	}
+
+finish:
+	relation_close(rel, AccessShareLock);
+	return res;
+}
+
+
+/*
+ * pgxc_is_trigger_shippable
+ * Depending on the node type where this trigger is evaluated and
+ * its shippability, determine if the trigger can be fired or not.
+ */
+static bool
+pgxc_is_trigger_firable(Trigger *trigger)
+{
+	bool	is_shippable = pgxc_is_trigger_shippable(trigger);
+
+	/*
+	 * If trigger is based on a constraint or is internal, enforce its launch
+	 * whatever the node type where we are for the time being.
+	 * PGXCTODO: we need to remove this condition once constraints and triggers
+	 * are better implemented within Postgres-XC as a constraint can be locally
+	 * evaluated on remote nodes depending on the distribution type of the table
+	 * on which it is defined or on its parent/child distribution types.
+	 */
+	if (trigger->tgisinternal)
+		return true;
+
+	/* A non-shippable trigger can be fired safely on a local Coordinator */
+	if (!is_shippable && IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		return true;
+
+	/* A shippable trigger can be fired safely on a remote node */
+	if (is_shippable && IsConnFromCoord())
+		return true;
+
+	return false;
+}
+
+
+/*
+ * pgxc_is_trigger_shippable
+ * Check if trigger is shippable to a remote node
+ */
+static bool
+pgxc_is_trigger_shippable(Trigger *trigger)
+{
+	bool		res = true;
+
+	/*
+	 * If trigger is based on a constraint or is internal, enforce its launch
+	 * whatever the node type where we are for the time being.
+	 * PGXCTODO: we need to remove this condition once constraints and triggers
+	 * are better implemented within Postgres-XC as a constraint can be locally
+	 * evaluated on remote nodes depending on the distribution type of the table
+	 * on which it is defined or on its parent/child distribution types.
+	 */
+	if (trigger->tgisinternal)
+		return true;
+
+	/*
+	 * INSTEAD OF triggers can only be defined on views, which are defined
+	 * only on Coordinators, so they cannot be shipped.
+	 */
+	if (TRIGGER_FOR_INSTEAD(trigger->tgtype))
+		res = false;
+
+	/* Finally check if function called is shippable */
+	if (!pgxc_is_func_shippable(trigger->tgfoid))
+		res = false;
+
+	return res;
+}
+#endif

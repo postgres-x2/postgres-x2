@@ -1052,7 +1052,7 @@ SELECT to_tsquery('SKIES & My | booKs');
 CREATE TRIGGER tsvectorupdate
 BEFORE UPDATE OR INSERT ON test_tsvector
 FOR EACH ROW EXECUTE PROCEDURE tsvector_update_trigger(a, 'pg_catalog.english', t);
-ERROR:  Postgres-XC does not support TRIGGER yet
+ERROR:  Postgres-XC does not support ROW TRIGGER yet
 DETAIL:  The feature is not currently supported
 SELECT count(*) FROM test_tsvector WHERE a @@ to_tsquery('345&qwerty');
  count 

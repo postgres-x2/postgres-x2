@@ -358,16 +358,6 @@ from applications, which is known as "master" server in general. In Postgres-XC,
       </simpara>
      </listitem>
      <listitem>
-      <simpara>
-       triggers
-       <footnote>
-        <para>
-         <productname>Postgres-XC</productname> does not support trigger in the current version.  This may be supported in the future releases.
-        </para>
-       </footnote>
-      </simpara>
-     </listitem>
-     <listitem>
       <simpara>views</simpara>
      </listitem>
 <!## PG>

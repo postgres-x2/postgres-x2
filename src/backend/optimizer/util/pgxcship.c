@@ -21,6 +21,7 @@
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
 #include "catalog/pgxc_node.h"
+#include "commands/trigger.h"
 #include "nodes/nodeFuncs.h"
 #include "nodes/relation.h"
 #include "optimizer/clauses.h"
@@ -822,6 +823,17 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 			 */
 			if (sc_context->sc_max_varlevelsup != 0)
 				pgxc_set_shippability_reason(sc_context, SS_VARLEVEL);
+
+			/* Check shippability of triggers on this query */
+			if (query->commandType == CMD_UPDATE ||
+				query->commandType == CMD_INSERT ||
+				query->commandType == CMD_DELETE)
+			{
+				RangeTblEntry *rte = (RangeTblEntry *) list_nth(query->rtable, query->resultRelation - 1);
+
+				if (!pgxc_check_triggers_shippability(rte->relid, query->commandType))
+					pgxc_set_shippability_reason(sc_context, SS_UNSHIPPABLE_EXPR);
+			}
 
 			/*
 			 * Walk the RangeTableEntries of the query and find the

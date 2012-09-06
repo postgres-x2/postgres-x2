@@ -177,7 +177,7 @@ ERROR:  relation "no_such_table" does not exist
 CREATE TRIGGER test_trigger_exists
     BEFORE UPDATE ON test_exists
     FOR EACH ROW EXECUTE PROCEDURE suppress_redundant_updates_trigger();
-ERROR:  Postgres-XC does not support TRIGGER yet
+ERROR:  Postgres-XC does not support ROW TRIGGER yet
 DETAIL:  The feature is not currently supported
 DROP TRIGGER test_trigger_exists ON test_exists;
 ERROR:  trigger "test_trigger_exists" for table "test_exists" does not exist

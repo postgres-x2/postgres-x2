@@ -7,14 +7,6 @@
    <primary>trigger</primary>
   </indexterm>
 
-<!## XC>
-&xconly;
-  <para>
-   The trigger will be supported in the future.  The document will be supported then.
-  </para>
-<!## end>
-
-<!## PG>
   <para>
    This chapter provides general information about writing trigger functions.
    Trigger functions can be written in most of the available procedural
@@ -34,18 +26,10 @@
    It is not currently possible to write a trigger function in the
    plain SQL function language.
   </para>
-<!## end>
 
   <sect1 id="trigger-definition">
    <title>Overview of Trigger Behavior</title>
 
-<!## XC>
-&xconly;
-  <para>
-   The trigger will be supported in the future.  The document will be supported then.
-  </para>
-<!## end>
-<!## PG>
    <para>
     A trigger is a specification that the database should automatically
     execute a particular function whenever a certain type of operation is
@@ -291,20 +275,10 @@
     Statement-level triggers do not currently have any way to examine the
     individual row(s) modified by the statement.
    </para>
-<!## end>
   </sect1>
 
   <sect1 id="trigger-datachanges">
    <title>Visibility of Data Changes</title>
-
-<!## XC>
-&xconly;
-  <para>
-   The trigger will be supported in the future.  The document will be supported then.
-  </para>
-<!## end>
-
-<!## PG>
 
    <para>
     If you execute SQL commands in your trigger function, and these
@@ -377,7 +351,6 @@
     <xref linkend="spi-visibility">.  The example in <xref
     linkend="trigger-example"> contains a demonstration of these rules.
    </para>
-<!## end>
   </sect1>
 
   <sect1 id="trigger-interface">
@@ -388,14 +361,6 @@
     <secondary>in C</secondary>
    </indexterm>
 
-<!## XC>
-&xconly;
-  <para>
-   The trigger will be supported in the future.  The document will be supported then.
-  </para>
-<!## end>
-
-<!## PG>
    <para>
     This section describes the low-level details of the interface to a
     trigger function.  This information is only needed when writing
@@ -672,20 +637,11 @@ typedef struct Trigger
     <structfield>tg_trigtuple</> or <structfield>tg_newtuple</>,
     as appropriate, if you don't want to modify the row being operated on.
    </para>
-<!## end>
   </sect1>
 
   <sect1 id="trigger-example">
    <title>A Complete Trigger Example</title>
 
-<!## XC>
-&xconly;
-  <para>
-   The trigger will be supported in the future.  The document will be supported then.
-  </para>
-<!## end>
-
-<!## PG>
    <para>
     Here is a very simple example of a trigger function written in C.
     (Examples of triggers written in procedural languages can be found
@@ -880,6 +836,5 @@ DELETE 2
     <filename>src/test/regress/regress.c</filename> and
     in <xref linkend="contrib-spi">.
    </para>
-<!## end>
   </sect1>
  </chapter>
