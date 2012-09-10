@@ -972,25 +972,7 @@ currval_oid(PG_FUNCTION_ARGS)
 				 errmsg("currval of sequence \"%s\" is not yet defined in this session",
 						RelationGetRelationName(seqrel))));
 
-#ifdef PGXC
-	if (IS_PGXC_COORDINATOR &&
-		seqrel->rd_backend != MyBackendId)
-	{
-		char *seqname = GetGlobalSeqName(seqrel, NULL, NULL);
-
-		result = (int64) GetCurrentValGTM(seqname);
-		if (result < 0)
-			ereport(ERROR,
-					(errcode(ERRCODE_CONNECTION_FAILURE),
-					 errmsg("GTM error, could not obtain sequence value")));
-		pfree(seqname);
-	}
-	else {
-#endif
 	result = elm->last;
-#ifdef PGXC
-	}
-#endif
 	relation_close(seqrel, NoLock);
 
 	PG_RETURN_INT64(result);

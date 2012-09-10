@@ -71,13 +71,11 @@ int GTM_SeqAlter(GTM_SequenceKey seqkey,
 int GTM_SeqClose(GTM_SequenceKey seqkey);
 int GTM_SeqRename(GTM_SequenceKey seqkey, GTM_SequenceKey newseqkey);
 GTM_Sequence GTM_SeqGetNext(GTM_SequenceKey seqkey);
-GTM_Sequence GTM_SeqGetCurrent(GTM_SequenceKey seqkey);
 int GTM_SeqSetVal(GTM_SequenceKey seqkey, GTM_Sequence nextval, bool iscalled);
 int GTM_SeqReset(GTM_SequenceKey seqkey);
 
 
 void ProcessSequenceInitCommand(Port *myport, StringInfo message, bool is_backup);
-void ProcessSequenceGetCurrentCommand(Port *myport, StringInfo message);
 void ProcessSequenceGetNextCommand(Port *myport, StringInfo message, bool is_backup);
 void ProcessSequenceSetValCommand(Port *myport, StringInfo message, bool is_backup);
 void ProcessSequenceResetCommand(Port *myport, StringInfo message, bool is_backup);

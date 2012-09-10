@@ -543,7 +543,6 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 				result->gr_status = GTM_RESULT_ERROR;
 			break;
 
-		case SEQUENCE_GET_CURRENT_RESULT:
 		case SEQUENCE_GET_NEXT_RESULT:
 		case SEQUENCE_GET_LAST_RESULT:
 			if (gtmpqReadSeqKey(&result->gr_resdata.grd_seq.seqkey, conn))
@@ -808,7 +807,6 @@ gtmpqFreeResultData(GTM_Result *result, GTM_PGXCNodeType remote_type)
 			result->gr_resdata.grd_seqkey.gsk_key = NULL;
 			break;
 
-		case SEQUENCE_GET_CURRENT_RESULT:
 		case SEQUENCE_GET_NEXT_RESULT:
 		case SEQUENCE_GET_LAST_RESULT:
 			if (result->gr_resdata.grd_seq.seqkey.gsk_key != NULL)

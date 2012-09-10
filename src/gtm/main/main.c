@@ -1253,7 +1253,6 @@ ProcessCommand(Port *myport, StringInfo input_message)
 
 		case MSG_SEQUENCE_INIT:
 		case MSG_BKUP_SEQUENCE_INIT:
-		case MSG_SEQUENCE_GET_CURRENT:
 		case MSG_SEQUENCE_GET_NEXT:
 		case MSG_BKUP_SEQUENCE_GET_NEXT:
 		case MSG_SEQUENCE_GET_LAST:
@@ -1619,10 +1618,6 @@ ProcessSequenceCommand(Port *myport, GTM_MessageType mtype, StringInfo message)
 
 		case MSG_BKUP_SEQUENCE_ALTER:
 			ProcessSequenceAlterCommand(myport, message, true);
-			break;
-
-		case MSG_SEQUENCE_GET_CURRENT:
-			ProcessSequenceGetCurrentCommand(myport, message);
 			break;
 
 		case MSG_SEQUENCE_GET_NEXT:

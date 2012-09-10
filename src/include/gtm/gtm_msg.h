@@ -62,7 +62,6 @@ typedef enum GTM_MessageType
 	MSG_SNAPSHOT_GXID_GET,	/* Get GXID and snapshot together */
 	MSG_SEQUENCE_INIT,		/* Initialize a new global sequence */
 	MSG_BKUP_SEQUENCE_INIT,	/* Backup of MSG_SEQUENCE_INIT */
-	MSG_SEQUENCE_GET_CURRENT,/* Get the current value of sequence */
 	MSG_SEQUENCE_GET_NEXT,		/* Get the next sequence value of sequence */
 	MSG_BKUP_SEQUENCE_GET_NEXT,	/* Backup of MSG_SEQUENCE_GET_NEXT */
 	MSG_SEQUENCE_GET_LAST,	/* Get the last sequence value of sequence */
@@ -123,7 +122,6 @@ typedef enum GTM_ResultType
 	SNAPSHOT_GET_MULTI_RESULT,
 	SNAPSHOT_GXID_GET_RESULT,
 	SEQUENCE_INIT_RESULT,
-	SEQUENCE_GET_CURRENT_RESULT,
 	SEQUENCE_GET_NEXT_RESULT,
 	SEQUENCE_GET_LAST_RESULT,
 	SEQUENCE_SET_VAL_RESULT,

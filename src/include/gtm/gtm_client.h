@@ -53,8 +53,8 @@ typedef union GTM_ResultData
 	{
 		GTM_SequenceKeyData		seqkey;
 		GTM_Sequence			seqval;
-	} grd_seq;									/* SEQUENCE_GET_CURRENT
-												 * SEQUENCE_GET_NEXT */
+	} grd_seq;									/* SEQUENCE_GET_NEXT */
+
 	struct
 	{
 		int				seq_count;
@@ -268,7 +268,6 @@ int close_sequence(GTM_Conn *conn, GTM_SequenceKey key);
 int bkup_close_sequence(GTM_Conn *conn, GTM_SequenceKey key);
 int rename_sequence(GTM_Conn *conn, GTM_SequenceKey key, GTM_SequenceKey newkey);
 int bkup_rename_sequence(GTM_Conn *conn, GTM_SequenceKey key, GTM_SequenceKey newkey);
-GTM_Sequence get_current(GTM_Conn *conn, GTM_SequenceKey key);
 GTM_Sequence get_next(GTM_Conn *conn, GTM_SequenceKey key);
 GTM_Sequence bkup_get_next(GTM_Conn *conn, GTM_SequenceKey key);
 int set_val(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence nextval, bool is_called);
