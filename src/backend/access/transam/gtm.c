@@ -1,8 +1,8 @@
 /*-------------------------------------------------------------------------
  *
  * gtm.c
- * 
- *	  Module interfacing with GTM 
+ *
+ *	  Module interfacing with GTM
  *
  *
  *-------------------------------------------------------------------------
@@ -123,7 +123,7 @@ BeginTranGTM(GTM_Timestamp *timestamp)
 	if (conn)
 		xid =  begin_transaction(conn, GTM_ISOLATION_RC, timestamp);
 
-	/* If something went wrong (timeout), try and reset GTM connection 
+	/* If something went wrong (timeout), try and reset GTM connection
 	 * and retry. This is safe at the beginning of a transaction.
 	 */
 	if (!TransactionIdIsValid(xid))
@@ -171,7 +171,7 @@ CommitTranGTM(GlobalTransactionId gxid)
 	ret = commit_transaction(conn, gxid);
 
 	/*
-	 * If something went wrong (timeout), try and reset GTM connection. 
+	 * If something went wrong (timeout), try and reset GTM connection.
 	 * We will close the transaction locally anyway, and closing GTM will force
 	 * it to be closed on GTM.
 	 */
@@ -229,7 +229,7 @@ RollbackTranGTM(GlobalTransactionId gxid)
 		ret = abort_transaction(conn, gxid);
 
 	/*
-	 * If something went wrong (timeout), try and reset GTM connection. 
+	 * If something went wrong (timeout), try and reset GTM connection.
 	 * We will abort the transaction locally anyway, and closing GTM will force
 	 * it to end on GTM.
 	 */
@@ -279,7 +279,7 @@ PrepareTranGTM(GlobalTransactionId gxid)
 	ret = prepare_transaction(conn, gxid);
 
 	/*
-	 * If something went wrong (timeout), try and reset GTM connection. 
+	 * If something went wrong (timeout), try and reset GTM connection.
 	 * We will close the transaction locally anyway, and closing GTM will force
 	 * it to be closed on GTM.
 	 */
@@ -364,28 +364,6 @@ AlterSequenceGTM(char *seqname, GTM_Sequence increment, GTM_Sequence minval,
 	return conn ? alter_sequence(conn, &seqkey, increment, minval, maxval, startval, lastval, cycle, is_restart) : 0;
 }
 
-/*
- * get the current sequence value
- */
-
-GTM_Sequence
-GetCurrentValGTM(char *seqname)
-{
-	GTM_Sequence ret = -1;
-	GTM_SequenceKeyData seqkey;
-	CheckConnection();
-	seqkey.gsk_keylen = strlen(seqname) + 1;
-	seqkey.gsk_key = seqname;
-
-	if (conn)
-		ret =  get_current(conn, &seqkey);
-	if (ret < 0)
-	{
-		CloseGTM();
-		InitGTM();
-	}
-	return ret;
-}
 
 /*
  * Get the next sequence value

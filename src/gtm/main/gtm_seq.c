@@ -648,31 +648,6 @@ GTM_SeqRename(GTM_SequenceKey seqkey, GTM_SequenceKey newseqkey)
 	return errcode;
 }
 
-/*
- * Get current value for the sequence without incrementing it
- */
-GTM_Sequence
-GTM_SeqGetCurrent(GTM_SequenceKey seqkey)
-{
-	GTM_SeqInfo *seqinfo = seq_find_seqinfo(seqkey);
-	GTM_Sequence value;
-
-	if (seqinfo == NULL)
-	{
-		ereport(LOG,
-				(EINVAL,
-				 errmsg("The sequence with the given key does not exist")));
-		return InvalidSequenceValue;
-	}
-
-	GTM_RWLockAcquire(&seqinfo->gs_lock, GTM_LOCKMODE_WRITE);
-
-	value = seqinfo->gs_last_value;
-
-	GTM_RWLockRelease(&seqinfo->gs_lock);
-	seq_release_seqinfo(seqinfo);
-	return value;
-}
 
 /*
  * Set values for the sequence
@@ -1145,70 +1120,6 @@ ProcessSequenceListCommand(Port *myport, StringInfo message)
 		pq_flush(myport);
 }
 
-
-/*
- * Process MSG_SEQUENCE_GET_CURRENT message
- */
-void
-ProcessSequenceGetCurrentCommand(Port *myport, StringInfo message)
-{
-	GTM_SequenceKeyData seqkey;
-	StringInfoData buf;
-	GTM_Sequence seqval;
-
-	seqkey.gsk_keylen = pq_getmsgint(message, sizeof (seqkey.gsk_keylen));
-	seqkey.gsk_key = (char *)pq_getmsgbytes(message, seqkey.gsk_keylen);
-
-	seqval = GTM_SeqGetCurrent(&seqkey);
-	if (!SEQVAL_IS_VALID(seqval))
-		ereport(ERROR,
-				(ERANGE,
-				 errmsg("Can not get current value of the sequence")));
-
-	elog(LOG, "Getting current value %ld for sequence %s", seqval, seqkey.gsk_key);
-
-	pq_beginmessage(&buf, 'S');
-	pq_sendint(&buf, SEQUENCE_GET_CURRENT_RESULT, 4);
-	if (myport->remote_type == GTM_NODE_GTM_PROXY)
-	{
-		GTM_ProxyMsgHeader proxyhdr;
-		proxyhdr.ph_conid = myport->conn_id;
-		pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
-	}
-	pq_sendint(&buf, seqkey.gsk_keylen, 4);
-	pq_sendbytes(&buf, seqkey.gsk_key, seqkey.gsk_keylen);
-	pq_sendbytes(&buf, (char *)&seqval, sizeof (GTM_Sequence));
-	pq_endmessage(myport, &buf);
-
-	if (myport->remote_type != GTM_NODE_GTM_PROXY)
-		/* Don't flush to the standby because this does not change the status */
-		pq_flush(myport);
-
-	/*
-	 * I don't think backup is needed here. It does not change internal state.
-	 * 27th Dec., 2011, K.Suzuki
-	 */
-#if 0
-	if (GetMyThreadInfo->thr_conn->standby)
-	{
-		GTM_Sequence loc_seq;
-		GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
-		int count = 0;
-
-		elog(LOG, "calling get_current() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
-
-retry:
-		loc_seq = get_current(GetMyThreadInfo->thr_conn->standby, &seqkey);
-
-		if (gtm_standby_check_communication_error(&count, oldconn))
-			goto retry;
-
-		elog(LOG, "get_current() returns GTM_Sequence %ld.", loc_seq);
-	}
-#endif
-
-	/* FIXME: need to check errors */
-}
 
 /*
  * Process MSG_SEQUENCE_GET_NEXT/MSG_BKUP_SEQUENCE_GET_NEXT message

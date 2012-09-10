@@ -1,7 +1,7 @@
 /*-------------------------------------------------------------------------
  *
  * gtm.h
- * 
+ *
  *	  Module interfacing with GTM definitions
  *
  *
@@ -41,10 +41,9 @@ extern int RegisterGTM(GTM_PGXCNodeType type, GTM_PGXCNodePort port, char *dataf
 extern int UnregisterGTM(GTM_PGXCNodeType type);
 
 /* Sequence interface APIs with GTM */
-extern GTM_Sequence GetCurrentValGTM(char *seqname);
 extern GTM_Sequence GetNextValGTM(char *seqname);
 extern int SetValGTM(char *seqname, GTM_Sequence nextval, bool iscalled);
-extern int CreateSequenceGTM(char *seqname, GTM_Sequence increment, 
+extern int CreateSequenceGTM(char *seqname, GTM_Sequence increment,
 		GTM_Sequence minval, GTM_Sequence maxval, GTM_Sequence startval,
 		bool cycle);
 extern int AlterSequenceGTM(char *seqname, GTM_Sequence increment,
