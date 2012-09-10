@@ -13413,7 +13413,9 @@ dumpSequence(Archive *fout, TableInfo *tbinfo)
 		appendPQExpBuffer(query, "SELECT pg_catalog.nextval(");
 		appendStringLiteralAH(query, fmtId(tbinfo->dobj.name), fout);
 		appendPQExpBuffer(query, ");\n");
-		res = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);
+
+		res = PQexec(g_conn, query->data);
+		check_sql_result(res, g_conn, query->data, PGRES_TUPLES_OK);
 
 		if (PQntuples(res) != 1)
 		{
@@ -13423,7 +13425,7 @@ dumpSequence(Archive *fout, TableInfo *tbinfo)
 									 "returned %d rows (expected 1)\n",
 									 PQntuples(res)),
 					  tbinfo->dobj.name, PQntuples(res));
-			exit_nicely(1);
+			exit_nicely();
 		}
 
 		last = PQgetvalue(res, 0, 0);
