@@ -75,6 +75,7 @@
 #include "pgxc/groupmgr.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
+#include "utils/snapmgr.h"
 #include "pgxc/xc_maintenance_mode.h"
 
 static void ExecUtilityStmtOnNodes(const char *queryString, ExecNodes *nodes, bool sentToRemote,
@@ -88,6 +89,7 @@ static RemoteQueryExecType GetNodesForCommentUtility(CommentStmt *stmt, bool *is
 static RemoteQueryExecType GetNodesForRulesUtility(RangeVar *relation, bool *is_temp);
 static void DropStmtPreTreatment(DropStmt *stmt, const char *queryString, bool sentToRemote,
 								 bool *is_temp, RemoteQueryExecType *exec_type);
+static void ExecUtilityWithMessage(const char *queryString, bool sentToRemote, bool is_temp);
 #endif
 
 
@@ -737,20 +739,28 @@ standard_ProcessUtility(Node *parsetree,
 			break;
 
 		case T_CreateTableSpaceStmt:
-			PreventTransactionChain(isTopLevel, "CREATE TABLESPACE");
+#ifdef PGXC
+			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+#endif
+				PreventTransactionChain(isTopLevel, "CREATE TABLESPACE");
 			CreateTableSpace((CreateTableSpaceStmt *) parsetree);
 #ifdef PGXC
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, true, EXEC_ON_ALL_NODES, false);
+			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+				ExecUtilityWithMessage(queryString, sentToRemote, false);
 #endif
 			break;
 
 		case T_DropTableSpaceStmt:
-			PreventTransactionChain(isTopLevel, "DROP TABLESPACE");
+#ifdef PGXC
+			/* Allow this to be run inside transaction block on remote nodes */
+			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+#endif
+				PreventTransactionChain(isTopLevel, "DROP TABLESPACE");
+
 			DropTableSpace((DropTableSpaceStmt *) parsetree);
 #ifdef PGXC
 			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, true, EXEC_ON_ALL_NODES, false);
+				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
 #endif
 			break;
 
@@ -1336,7 +1346,11 @@ standard_ProcessUtility(Node *parsetree,
 			 * with enum OID values getting into indexes and then having their
 			 * defining pg_enum entries go away.
 			 */
-			PreventTransactionChain(isTopLevel, "ALTER TYPE ... ADD");
+#ifdef PGXC
+			/* Allow this to be run inside transaction block on remote nodes */
+			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+#endif
+				PreventTransactionChain(isTopLevel, "ALTER TYPE ... ADD");
 			AlterEnum((AlterEnumStmt *) parsetree);
 #ifdef PGXC
 			/*
@@ -1344,7 +1358,7 @@ standard_ProcessUtility(Node *parsetree,
 			 * inside a transaction block.
 			 */
 			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, true, EXEC_ON_ALL_NODES, false);
+				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
 #endif
 			break;
 
@@ -1507,19 +1521,32 @@ standard_ProcessUtility(Node *parsetree,
 			break;
 
 		case T_CreatedbStmt:
+#ifdef PGXC
+		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+#endif
 			PreventTransactionChain(isTopLevel, "CREATE DATABASE");
+
 			createdb((CreatedbStmt *) parsetree);
 #ifdef PGXC
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, true, EXEC_ON_ALL_NODES, false);
+			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+				ExecUtilityWithMessage(queryString, sentToRemote, false);
 #endif
 			break;
 
 		case T_AlterDatabaseStmt:
 			AlterDatabase((AlterDatabaseStmt *) parsetree, isTopLevel);
 #ifdef PGXC
-			if (IS_PGXC_COORDINATOR)
+		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		{
+			/*
+			 * If this is not a SET TABLESPACE statement, just propogate the
+			 * cmd as usual.
+			 */
+			if (!IsSetTableSpace((AlterDatabaseStmt*) parsetree))
 				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+			else
+				ExecUtilityWithMessage(queryString, sentToRemote, false);
+		}
 #endif
 			break;
 
@@ -1549,12 +1576,17 @@ standard_ProcessUtility(Node *parsetree,
 				}
 #endif
 
-				PreventTransactionChain(isTopLevel, "DROP DATABASE");
+#ifdef PGXC
+				/* Allow this to be run inside transaction block on remote nodes */
+				if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+#endif
+					PreventTransactionChain(isTopLevel, "DROP DATABASE");
+
 				dropdb(stmt->dbname, stmt->missing_ok);
 			}
 #ifdef PGXC
 			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, true, EXEC_ON_ALL_NODES, false);
+				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
 #endif
 			break;
 
@@ -1996,6 +2028,43 @@ standard_ProcessUtility(Node *parsetree,
 }
 
 #ifdef PGXC
+
+/*
+ * ExecUtilityWithMessage:
+ * Execute the query on remote nodes in a transaction block.
+ * If this fails on one of the nodes :
+ * 		Add a context message containing the failed node names.
+ *		Rethrow the error with the message about the failed nodes.
+ * If all are successful, just return.
+ */
+static void
+ExecUtilityWithMessage(const char *queryString, bool sentToRemote, bool is_temp)
+{
+	PG_TRY();
+	{
+		ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, is_temp);
+	}
+	PG_CATCH();
+	{
+
+		/*
+		 * Some nodes failed. Add context about what all nodes the query
+		 * failed
+		 */
+		ExecNodes *coord_success_nodes = NULL;
+		ExecNodes *data_success_nodes = NULL;
+		char *msg_failed_nodes;
+
+		pgxc_all_success_nodes(&data_success_nodes, &coord_success_nodes, &msg_failed_nodes);
+		if (msg_failed_nodes)
+			errcontext("%s", msg_failed_nodes);
+		PG_RE_THROW();
+	}
+	PG_END_TRY();
+
+
+}
+
 /*
  * Execute a Utility statement on nodes, including Coordinators
  * If the DDL is received from a remote Coordinator,

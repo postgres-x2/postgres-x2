@@ -120,3 +120,6 @@ test: xc_node
 
 # Additional tests for prepared xacts
 test: xc_prepared_xacts
+
+# This runs statements that are not allowed in a transaction block
+test: xc_notrans_block

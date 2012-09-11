@@ -164,3 +164,14 @@ BEGIN
 	RETURN false;
 END;
 $$;
+-- A function to execute direct a query on a data node specified by the node number.
+create or replace function exec_util_on_node(query varchar, nodenum int) returns void as
+$D$
+DECLARE
+	str varchar;
+	node_name varchar;
+BEGIN
+	node_name = get_xc_node_name(nodenum);
+	str = 'execute direct on (' || node_name || ') $$ ' || query || ' $$'  ;
+	execute str;
+END $D$ language plpgsql;

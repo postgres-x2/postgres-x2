@@ -136,6 +136,8 @@ typedef struct RemoteQueryState
 	CommandId	rqs_cmd_id;			/* Cmd id to use in some special cases */
 }	RemoteQueryState;
 
+typedef void (*xact_callback) (bool isCommit, void *args);
+
 /* Multinode Executor */
 extern void PGXCNodeBegin(void);
 extern void PGXCNodeSetBeginQuery(char *query_string);
@@ -183,4 +185,10 @@ extern bool FinishRemotePreparedTransaction(char *prepareGID, bool commit);
 extern void ExecSetTempObjectIncluded(void);
 extern bool ExecIsTempObjectIncluded(void);
 extern void ExecRemoteQueryStandard(Relation resultRelationDesc, RemoteQueryState *resultRemoteRel, TupleTableSlot *slot);
+
+extern void pgxc_all_success_nodes(ExecNodes **d_nodes, ExecNodes **c_nodes, char **failednodes_msg);
+extern void AtEOXact_DBCleanup(bool isCommit);
+
+extern void set_dbcleanup_callback(xact_callback function, void *paraminfo, int paraminfo_size);
+
 #endif

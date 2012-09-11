@@ -109,6 +109,14 @@ typedef struct RemoteXactState
 
 static RemoteXactState remoteXactState;
 
+#ifdef PGXC
+typedef struct
+{
+	xact_callback function;
+	void *fparams;
+} abort_callback_type;
+#endif
+
 /*
  * Buffer size does not affect performance significantly, just do not allow
  * connection buffer grows infinitely
@@ -128,6 +136,10 @@ static char *preparedNodes;
  * Flag to track if a temporary object is accessed by the current transaction
  */
 static bool temp_object_included = false;
+
+#ifdef PGXC
+static abort_callback_type dbcleanup_info = { NULL, NULL };
+#endif
 
 static int	pgxc_node_begin(int conn_count, PGXCNodeHandle ** connections,
 				GlobalTransactionId gxid, bool need_tran_block,
@@ -4646,5 +4658,107 @@ pgxc_node_report_error(RemoteQueryState *combiner)
 			ereport(ERROR,
 					(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
 					errmsg("%s", combiner->errorMessage)));
+	}
+}
+
+
+/*
+ * get_success_nodes:
+ * Currently called to print a user-friendly message about
+ * which nodes the query failed.
+ * Gets all the nodes where no 'E' (error) messages were received; i.e. where the
+ * query ran successfully.
+ */
+static ExecNodes *
+get_success_nodes(int node_count, PGXCNodeHandle **handles, char node_type, StringInfo failednodes)
+{
+	ExecNodes *success_nodes = NULL;
+	int i;
+
+	for (i = 0; i < node_count; i++)
+	{
+		PGXCNodeHandle *handle = handles[i];
+		int nodenum = PGXCNodeGetNodeId(handle->nodeoid, node_type);
+
+		if (!handle->error)
+		{
+			if (!success_nodes)
+				success_nodes = makeNode(ExecNodes);
+			success_nodes->nodeList = lappend_int(success_nodes->nodeList, nodenum);
+		}
+		else
+		{
+			if (failednodes->len == 0)
+				appendStringInfo(failednodes, "Error message received from nodes:");
+			appendStringInfo(failednodes, " %s#%d",
+				(node_type == PGXC_NODE_COORDINATOR ? "coordinator" : "datanode"),
+				nodenum + 1);
+		}
+	}
+	return success_nodes;
+}
+
+/*
+ * pgxc_all_success_nodes: Uses get_success_nodes() to collect the
+ * user-friendly message from coordinator as well as datanode.
+ */
+void
+pgxc_all_success_nodes(ExecNodes **d_nodes, ExecNodes **c_nodes, char **failednodes_msg)
+{
+	PGXCNodeAllHandles *connections = get_exec_connections(NULL, NULL, EXEC_ON_ALL_NODES);
+	StringInfoData failednodes;
+	initStringInfo(&failednodes);
+
+	*d_nodes = get_success_nodes(connections->dn_conn_count,
+	                             connections->datanode_handles,
+								 PGXC_NODE_DATANODE,
+								 &failednodes);
+
+	*c_nodes = get_success_nodes(connections->co_conn_count,
+	                             connections->coord_handles,
+								 PGXC_NODE_COORDINATOR,
+								 &failednodes);
+
+	if (failednodes.len == 0)
+		*failednodes_msg = NULL;
+	else
+		*failednodes_msg = failednodes.data;
+}
+
+
+/*
+ * set_dbcleanup_callback:
+ * Register a callback function which does some non-critical cleanup tasks
+ * on xact success or abort, such as tablespace/database directory cleanup.
+ */
+void set_dbcleanup_callback(xact_callback function, void *paraminfo, int paraminfo_size)
+{
+	void *fparams;
+
+	fparams = MemoryContextAlloc(TopMemoryContext, paraminfo_size);
+	memcpy(fparams, paraminfo, paraminfo_size);
+
+	dbcleanup_info.function = function;
+	dbcleanup_info.fparams = fparams;
+}
+
+/*
+ * AtEOXact_DBCleanup: To be called at post-commit or pre-abort.
+ * Calls the cleanup function registered during this transaction, if any.
+ */
+void AtEOXact_DBCleanup(bool isCommit)
+{
+	if (dbcleanup_info.function)
+		(*dbcleanup_info.function)(isCommit, dbcleanup_info.fparams);
+
+	/*
+	 * Just reset the callbackinfo. We anyway don't want this to be called again,
+	 * until explicitly set.
+	 */
+	dbcleanup_info.function = NULL;
+	if (dbcleanup_info.fparams)
+	{
+		pfree(dbcleanup_info.fparams);
+		dbcleanup_info.fparams = NULL;
 	}
 }
