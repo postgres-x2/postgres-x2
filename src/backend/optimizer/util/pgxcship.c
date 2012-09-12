@@ -26,6 +26,7 @@
 #include "nodes/relation.h"
 #include "optimizer/clauses.h"
 #include "optimizer/pgxcship.h"
+#include "optimizer/tlist.h"
 #include "parser/parsetree.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_type.h"
@@ -59,6 +60,7 @@ typedef struct
 									 * for individual subqueries. This gets
 									 * ultimately merged with sc_exec_nodes.
 									 */
+	bool		sc_groupby_has_distcol;	/* GROUP BY clause has distribution column */
 } Shippability_context;
 
 /*
@@ -110,6 +112,8 @@ static void pgxc_FQS_find_datanodes(Shippability_context *sc_context);
 static bool pgxc_query_needs_coord(Query *query);
 static bool pgxc_query_contains_only_pg_catalog(List *rtable);
 static bool pgxc_is_var_distrib_column(Var *var, List *rtable);
+static bool pgxc_query_has_distcolgrouping(Query *query);
+static bool pgxc_distinct_has_distcol(Query *query);
 
 
 /*
@@ -475,6 +479,41 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 	return rel_exec_nodes;
 }
 
+static bool
+pgxc_query_has_distcolgrouping(Query *query)
+{
+	ListCell	*lcell;
+	foreach (lcell, query->groupClause)
+	{
+		SortGroupClause 	*sgc = lfirst(lcell);
+		Node				*sgc_expr;
+		if (!IsA(sgc, SortGroupClause))
+			continue;
+		sgc_expr = get_sortgroupclause_expr(sgc, query->targetList);
+		if (IsA(sgc_expr, Var) &&
+			pgxc_is_var_distrib_column((Var *)sgc_expr, query->rtable))
+			return true;
+	}
+	return false;
+}
+
+static bool
+pgxc_distinct_has_distcol(Query *query)
+{
+	ListCell	*lcell;
+	foreach (lcell, query->distinctClause)
+	{
+		SortGroupClause 	*sgc = lfirst(lcell);
+		Node				*sgc_expr;
+		if (!IsA(sgc, SortGroupClause))
+			continue;
+		sgc_expr = get_sortgroupclause_expr(sgc, query->targetList);
+		if (IsA(sgc_expr, Var) &&
+			pgxc_is_var_distrib_column((Var *)sgc_expr, query->rtable))
+			return true;
+	}
+	return false;
+}
 
 /*
  * pgxc_shippability_walker
@@ -792,24 +831,43 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 			/*
 			 * In following conditions query is shippable when there is only one
 			 * Datanode involved
-			 * 1. the query has aggregagtes
+			 * 1. the query has aggregagtes without grouping by distribution
+			 *    column
 			 * 2. the query has window functions
 			 * 3. the query has ORDER BY clause
-			 * 4. the query has Distinct clause
+			 * 4. the query has Distinct clause without distribution column in
+			 *    distinct clause
 			 * 5. the query has limit and offset clause
-			 *
-			 * PGXC_FQS_TODO: Condition 1 above is really dependent upon the GROUP BY clause. If
-			 * all rows in each group reside on the same Datanode, aggregates can be
-			 * evaluated on that Datanode, thus condition 1 is has aggregates & the rows
-			 * in any group reside on multiple Datanodes.
-			 * PGXC_FQS_TODO: Condition 2 above is really dependent upon whether the distinct
-			 * clause has distribution column in it. If the distinct clause has
-			 * distribution column in it, we can ship DISTINCT clause to the Datanodes.
 			 */
-			if (query->hasAggs || query->hasWindowFuncs || query->sortClause ||
-				query->distinctClause || query->groupClause || query->havingQual ||
+			if (query->hasWindowFuncs || query->sortClause ||
 				query->limitOffset || query->limitCount)
 				pgxc_set_shippability_reason(sc_context, SS_NEED_SINGLENODE);
+
+			/*
+			 * Presence of aggregates or having clause, implies grouping. In
+			 * such cases, the query won't be shippable unless 1. there is only
+			 * a single node involved 2. GROUP BY clause has distribution column
+			 * in it. In the later case aggregates for a given group are entirely
+			 * computable on a single datanode, because all the rows
+			 * participating in particular group reside on that datanode.
+			 * The distribution column can be of any relation
+			 * participating in the query. All the rows of that relation with
+			 * the same value of distribution column reside on same node.
+			 */
+			if ((query->hasAggs || query->havingQual) &&
+				!pgxc_query_has_distcolgrouping(query))
+				pgxc_set_shippability_reason(sc_context, SS_NEED_SINGLENODE);
+
+			/*
+			 * If distribution column of any relation is present in the distinct
+			 * clause, values for that column across nodes will differ, thus two
+			 * nodes won't be able to produce same result row. Hence in such
+			 * case, we can execute the queries on many nodes managing to have
+			 * distinct result.
+			 */
+			if (query->distinctClause && !pgxc_distinct_has_distcol(query))
+				pgxc_set_shippability_reason(sc_context, SS_NEED_SINGLENODE);
+
 
 			/* walk the entire query tree to analyse the query */
 			if (query_tree_walker(query, pgxc_shippability_walker, sc_context, 0))
@@ -1116,17 +1174,23 @@ pgxc_is_query_shippable(Query *query, int query_level)
 	 */
 	if (bms_is_member(SS_NEED_SINGLENODE, shippability))
 	{
-		/* We handled the reason here, reset it */
-		shippability = bms_del_member(shippability, SS_NEED_SINGLENODE);
-		/* if nodeList has no nodes, it ExecNodes will have other means to know
+		/*
+		 * if nodeList has no nodes, it ExecNodes will have other means to know
 		 * the nodes where to execute like distribution column expression. We
 		 * can't tell how many nodes the query will be executed on, hence treat
 		 * that as multiple nodes.
 		 */
 		if (list_length(exec_nodes->nodeList) != 1)
 			canShip = false;
+
+		/* We handled the reason here, reset it */
+		shippability = bms_del_member(shippability, SS_NEED_SINGLENODE);
 	}
-	/* We have delt with aggregates as well, delete the Has aggregates status */
+
+	/*
+	 * If HAS_AGG_EXPR is set but NEED_SINGLENODE is not set, it means the
+	 * aggregates are entirely shippable, so don't worry about it.
+	 */
 	shippability = bms_del_member(shippability, SS_HAS_AGG_EXPR);
 
 	/* Can not ship the query for some reason */

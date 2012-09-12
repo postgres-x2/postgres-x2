@@ -38,7 +38,7 @@ explain (costs off, verbose on, nodes off) select distinct val, val2 from tab1_r
 -- should not get FQSed because of GROUP clause
 select val, val2 from tab1_rr where val2 = 8 group by val, val2;
 explain (costs off, verbose on, nodes off) select val, val2 from tab1_rr where val2 = 8 group by val, val2;
--- should not get FQSed because of HAVING clause
+-- should not get FQSed because of presence of aggregates and HAVING clause,
 select sum(val) from tab1_rr where val2 = 2 group by val2 having sum(val) > 1;
 explain (costs off, verbose on, nodes off) select sum(val) from tab1_rr where val2 = 2 group by val2 having sum(val) > 1;
 
@@ -98,13 +98,17 @@ explain (costs off, verbose on, nodes off) select * from tab1_hash where val2 = 
 -- should not get FQSed because of SORT clause
 select * from tab1_hash order by val;
 explain (costs off, verbose on, nodes off) select * from tab1_hash order by val;
--- should not get FQSed because of DISTINCT clause
+-- should get FQSed because of DISTINCT clause with distribution column in it
 select distinct val, val2 from tab1_hash where val2 = 8;
 explain (costs off, verbose on, nodes off) select distinct val, val2 from tab1_hash where val2 = 8;
--- should not get FQSed because of GROUP clause
+-- should get FQSed because of GROUP clause with distribution column in it
 select val, val2 from tab1_hash where val2 = 8 group by val, val2;
 explain (costs off, verbose on, nodes off) select val, val2 from tab1_hash where val2 = 8 group by val, val2;
--- should not get FQSed because of HAVING clause
+-- should not get FQSed because of DISTINCT clause
+select distinct on (val2) val, val2 from tab1_hash where val2 = 8;
+explain (costs off, verbose on, nodes off) select distinct (val2) val, val2 from tab1_hash where val2 = 8;
+-- should not get FQSed because of presence of aggregates and HAVING clause
+-- withour distribution column in GROUP BY clause
 select sum(val) from tab1_hash where val2 = 2 group by val2 having sum(val) > 1;
 explain (costs off, verbose on, nodes off) select sum(val) from tab1_hash where val2 = 2 group by val2 having sum(val) > 1;
 
@@ -163,13 +167,18 @@ explain (costs off, verbose on, nodes off) select * from tab1_modulo where val2 
 -- should not get FQSed because of SORT clause
 select * from tab1_modulo order by val;
 explain (costs off, verbose on, nodes off) select * from tab1_modulo order by val;
--- should not get FQSed because of DISTINCT clause
+-- should get FQSed because of DISTINCT clause with distribution column in it
 select distinct val, val2 from tab1_modulo where val2 = 8;
 explain (costs off, verbose on, nodes off) select distinct val, val2 from tab1_modulo where val2 = 8;
--- should not get FQSed because of GROUP clause
+-- should get FQSed because of GROUP clause with distribution column in it
 select val, val2 from tab1_modulo where val2 = 8 group by val, val2;
 explain (costs off, verbose on, nodes off) select val, val2 from tab1_modulo where val2 = 8 group by val, val2;
--- should not get FQSed because of HAVING clause
+-- should not get FQSed because of DISTINCT clause without distribution column
+-- in it
+select distinct on (val2) val, val2 from tab1_modulo where val2 = 8;
+explain (costs off, verbose on, nodes off) select distinct on (val2) val, val2 from tab1_modulo where val2 = 8;
+-- should not get FQSed because of presence of aggregates and HAVING clause
+-- without distribution column in GROUP BY clause
 select sum(val) from tab1_modulo where val2 = 2 group by val2 having sum(val) > 1;
 explain (costs off, verbose on, nodes off) select sum(val) from tab1_modulo where val2 = 2 group by val2 having sum(val) > 1;
 
