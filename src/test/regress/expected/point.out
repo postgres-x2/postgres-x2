@@ -1,7 +1,9 @@
 --
 -- POINT
 --
-CREATE TABLE POINT_TBL(f1 point);
+-- Postgres-XC case: point type cannot use ORDER BY so table
+-- is replicated for regression tests whatever the cluster configuration
+CREATE TABLE POINT_TBL(f1 point) DISTRIBUTE BY REPLICATION;
 INSERT INTO POINT_TBL(f1) VALUES ('(0.0,0.0)');
 INSERT INTO POINT_TBL(f1) VALUES ('(-10.0,0.0)');
 INSERT INTO POINT_TBL(f1) VALUES ('(-3.0,4.0)');
@@ -91,12 +93,12 @@ SELECT '' AS three, p.* FROM POINT_TBL p
 (3 rows)
 
 SELECT '' AS three, p.* FROM POINT_TBL p
-   WHERE not p.f1 <@ box '(0,0,100,100)' ORDER BY p.f1[0], p.f1[1];
+   WHERE not p.f1 <@ box '(0,0,100,100)';
  three |    f1    
 -------+----------
        | (-10,0)
-       | (-5,-12)
        | (-3,4)
+       | (-5,-12)
 (3 rows)
 
 SELECT '' AS two, p.* FROM POINT_TBL p
