@@ -252,4 +252,4 @@ write_stderr(const char *fmt,...)
    the supplied arguments. */
 __attribute__((format(printf, 1, 2)));
 
-#endif   /* ELOG_H */
+#endif   /* GTM_ELOG_H */

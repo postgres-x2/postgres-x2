@@ -11,7 +11,7 @@
  *-------------------------------------------------------------------------
  */
 #ifndef GTM_OPT_TABLES_H
-#define GTM_OPT_TABLES_H 1
+#define GTM_OPT_TABLES_H
 
 #include "gtm/gtm_opt.h"
 

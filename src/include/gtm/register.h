@@ -11,8 +11,8 @@
  *
  *-------------------------------------------------------------------------
  */
-#ifndef _REGISTER_H
-#define _REGISTER_H
+#ifndef GTM_REGISTER_H
+#define GTM_REGISTER_H
 
 #include "gtm/libpq-be.h"
 #include "gtm/gtm_c.h"

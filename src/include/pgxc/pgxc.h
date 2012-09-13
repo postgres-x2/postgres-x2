@@ -11,7 +11,8 @@
  *
  *-------------------------------------------------------------------------
  */
-#ifdef PGXC
+#ifndef PGXC_H
+#define PGXC_H
 
 #include "storage/lwlock.h"
 
@@ -44,4 +45,4 @@ extern uint32	PGXCNodeIdentifier;
 #define IsConnFromDatanode() (remoteConnType == REMOTE_CONN_DATANODE)
 #define IsConnFromGtm() (remoteConnType == REMOTE_CONN_GTM)
 #define IsConnFromGtmProxy() (remoteConnType == REMOTE_CONN_GTM_PROXY)
-#endif   /* PGXC */
+#endif   /* PGXC_H */

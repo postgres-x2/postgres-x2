@@ -13,8 +13,8 @@
  *
  *-------------------------------------------------------------------------
  */
-#ifndef IP_H
-#define IP_H
+#ifndef GTM_IP_H
+#define GTM_IP_H
 
 #include "gtm/pqcomm.h"
 
@@ -47,4 +47,4 @@ extern void gtm_promote_v4_to_v6_mask(struct sockaddr_storage * addr);
 #define IS_AF_UNIX(fam) (0)
 #endif
 
-#endif   /* IP_H */
+#endif   /* GTM_IP_H */

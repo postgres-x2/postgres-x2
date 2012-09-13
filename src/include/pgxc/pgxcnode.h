@@ -13,8 +13,8 @@
  *-------------------------------------------------------------------------
  */
 
-#ifndef DATANODE_H
-#define DATANODE_H
+#ifndef PGXCNODE_H
+#define PGXCNODE_H
 #include "postgres.h"
 #include "gtm/gtm_c.h"
 #include "utils/timestamp.h"
@@ -194,4 +194,4 @@ extern void add_error_message(PGXCNodeHandle * handle, const char *message);
 
 extern Datum pgxc_execute_on_nodes(int numnodes, Oid *nodelist, char *query);
 
-#endif
+#endif /* PGXCNODE_H */
