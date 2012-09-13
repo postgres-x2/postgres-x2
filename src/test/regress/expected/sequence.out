@@ -9,7 +9,6 @@ INSERT INTO serialTest VALUES ('force', 100);
 INSERT INTO serialTest VALUES ('wrong', NULL);
 ERROR:  null value in column "f2" violates not-null constraint
 DETAIL:  Failing row contains (wrong, null).
- 
 SELECT * FROM serialTest ORDER BY f1, f2;
   f1   | f2  
 -------+-----
@@ -195,7 +194,7 @@ SELECT nextval('foo_seq_new');
 SELECT * FROM foo_seq_new;
  sequence_name | last_value | start_value | increment_by |      max_value      | min_value | cache_value | log_cnt | is_cycled | is_called 
 ---------------+------------+-------------+--------------+---------------------+-----------+-------------+---------+-----------+-----------
- foo_seq       |          2 |           1 |            1 | 9223372036854775807 |         1 |           1 |      32 | f         | t
+ foo_seq       |          2 |           1 |            1 | 9223372036854775807 |         1 |           1 |      31 | f         | t
 (1 row)
 
 DROP SEQUENCE foo_seq_new;

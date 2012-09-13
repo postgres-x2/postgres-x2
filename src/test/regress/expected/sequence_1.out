@@ -9,11 +9,11 @@ INSERT INTO serialTest VALUES ('force', 100);
 INSERT INTO serialTest VALUES ('wrong', NULL);
 ERROR:  null value in column "f2" violates not-null constraint
 DETAIL:  Failing row contains (wrong, null).
-SELECT * FROM serialTest;
+SELECT * FROM serialTest ORDER BY f1, f2;
   f1   | f2  
 -------+-----
- foo   |   1
  bar   |   2
+ foo   |   1
  force | 100
 (3 rows)
 
@@ -194,18 +194,18 @@ SELECT nextval('foo_seq_new');
 SELECT * FROM foo_seq_new;
  sequence_name | last_value | start_value | increment_by |      max_value      | min_value | cache_value | log_cnt | is_cycled | is_called 
 ---------------+------------+-------------+--------------+---------------------+-----------+-------------+---------+-----------+-----------
- foo_seq       |          2 |           1 |            1 | 9223372036854775807 |         1 |           1 |      31 | f         | t
+ foo_seq       |          2 |           1 |            1 | 9223372036854775807 |         1 |           1 |      32 | f         | t
 (1 row)
 
 DROP SEQUENCE foo_seq_new;
 -- renaming serial sequences
 ALTER TABLE serialtest_f2_seq RENAME TO serialtest_f2_foo;
 INSERT INTO serialTest VALUES ('more');
-SELECT * FROM serialTest;
+SELECT * FROM serialTest ORDER BY f1, f2;
   f1   | f2  
 -------+-----
- foo   |   1
  bar   |   2
+ foo   |   1
  force | 100
  more  |   3
 (4 rows)
@@ -213,6 +213,8 @@ SELECT * FROM serialTest;
 --
 -- Check dependencies of serial and ordinary sequences
 --
+-- Enforce use of COMMIT instead of 2PC for temporary objects
+SET enforce_two_phase_commit TO off;
 CREATE TEMP SEQUENCE myseq2;
 CREATE TEMP SEQUENCE myseq3;
 CREATE TEMP TABLE t1 (
@@ -241,6 +243,9 @@ DROP SEQUENCE myseq2;
 --
 -- Alter sequence
 --
+ALTER SEQUENCE IF EXISTS sequence_test2 RESTART WITH 24
+	 INCREMENT BY 4 MAXVALUE 36 MINVALUE 5 CYCLE;
+NOTICE:  relation "sequence_test2" does not exist, skipping
 CREATE SEQUENCE sequence_test2 START WITH 32;
 SELECT nextval('sequence_test2');
  nextval 

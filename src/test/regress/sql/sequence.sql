@@ -8,7 +8,7 @@ INSERT INTO serialTest VALUES ('foo');
 INSERT INTO serialTest VALUES ('bar');
 INSERT INTO serialTest VALUES ('force', 100);
 INSERT INTO serialTest VALUES ('wrong', NULL);
- 
+
 SELECT * FROM serialTest ORDER BY f1, f2;
 
 -- test smallserial / bigserial
