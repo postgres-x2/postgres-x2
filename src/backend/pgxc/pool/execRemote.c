@@ -170,105 +170,6 @@ static void init_RemoteXactState(bool preparedLocalNode);
 static void clear_RemoteXactState(void);
 static void pgxc_node_report_error(RemoteQueryState *combiner);
 
-#define MAX_STATEMENTS_PER_TRAN 10
-
-/* Variables to collect statistics */
-static int	total_transactions = 0;
-static int	total_statements = 0;
-static int	total_autocommit = 0;
-static int	nonautocommit_2pc = 0;
-static int	autocommit_2pc = 0;
-static int	current_tran_statements = 0;
-static int *statements_per_transaction = NULL;
-static int *nodes_per_transaction = NULL;
-
-/*
- * statistics collection: count a statement
- */
-static void
-stat_statement()
-{
-	total_statements++;
-	current_tran_statements++;
-}
-
-/*
- * To collect statistics: count a transaction
- */
-static void
-stat_transaction(int node_count)
-{
-	total_transactions++;
-
-	if (!statements_per_transaction)
-	{
-		statements_per_transaction = (int *) malloc((MAX_STATEMENTS_PER_TRAN + 1) * sizeof(int));
-		memset(statements_per_transaction, 0, (MAX_STATEMENTS_PER_TRAN + 1) * sizeof(int));
-	}
-	if (current_tran_statements > MAX_STATEMENTS_PER_TRAN)
-		statements_per_transaction[MAX_STATEMENTS_PER_TRAN]++;
-	else
-		statements_per_transaction[current_tran_statements]++;
-	current_tran_statements = 0;
-	if (node_count > 0 && node_count <= NumDataNodes)
-	{
-		if (!nodes_per_transaction)
-		{
-			nodes_per_transaction = (int *) malloc(NumDataNodes * sizeof(int));
-			memset(nodes_per_transaction, 0, NumDataNodes * sizeof(int));
-		}
-		nodes_per_transaction[node_count - 1]++;
-	}
-}
-
-
-#ifdef NOT_USED
-/*
- * To collect statistics: count a two-phase commit on nodes
- */
-static void
-stat_2pc()
-{
-	if (autocommit)
-		autocommit_2pc++;
-	else
-		nonautocommit_2pc++;
-}
-#endif
-
-
-/*
- * Output collected statistics to the log
- */
-static void
-stat_log()
-{
-	elog(DEBUG1, "Total Transactions: %d Total Statements: %d", total_transactions, total_statements);
-	elog(DEBUG1, "Autocommit: %d 2PC for Autocommit: %d 2PC for non-Autocommit: %d",
-		 total_autocommit, autocommit_2pc, nonautocommit_2pc);
-	if (total_transactions)
-	{
-		if (statements_per_transaction)
-		{
-			int			i;
-
-			for (i = 0; i < MAX_STATEMENTS_PER_TRAN; i++)
-				elog(DEBUG1, "%d Statements per Transaction: %d (%d%%)",
-					 i, statements_per_transaction[i], statements_per_transaction[i] * 100 / total_transactions);
-		}
-		elog(DEBUG1, "%d+ Statements per Transaction: %d (%d%%)",
-			 MAX_STATEMENTS_PER_TRAN, statements_per_transaction[MAX_STATEMENTS_PER_TRAN], statements_per_transaction[MAX_STATEMENTS_PER_TRAN] * 100 / total_transactions);
-		if (nodes_per_transaction)
-		{
-			int			i;
-
-			for (i = 0; i < NumDataNodes; i++)
-				elog(DEBUG1, "%d Nodes per Transaction: %d (%d%%)",
-					 i + 1, nodes_per_transaction[i], nodes_per_transaction[i] * 100 / total_transactions);
-		}
-	}
-}
-
 
 /*
  * Create a structure to store parameters needed to combine responses from
@@ -2025,8 +1926,6 @@ pgxc_node_remote_commit(void)
 		}
 	}
 
-	stat_transaction(write_conn_count + read_conn_count);
-
 	if (result)
 	{
 		if (combiner)
@@ -2231,10 +2130,6 @@ DataNodeCopyBegin(const char *query, List *nodelist, Snapshot snapshot)
 	i = 0;
 	foreach(nodeitem, nodelist)
 		copy_connections[lfirst_int(nodeitem)] = connections[i++];
-
-	/* Gather statistics */
-	stat_statement();
-	stat_transaction(conn_count);
 
 	gxid = GetCurrentTransactionId();
 
@@ -2938,7 +2833,6 @@ do_query(RemoteQueryState *node)
 	PGXCNodeHandle		*primaryconnection = NULL;
 	int			i;
 	int			regular_conn_count = 0;
-	int			total_conn_count = 0;
 	bool			need_tran_block;
 	PGXCNodeAllHandles	*pgxc_connections;
 
@@ -2965,21 +2859,13 @@ do_query(RemoteQueryState *node)
 	pgxc_connections = get_exec_connections(node, step->exec_nodes, step->exec_type);
 
 	if (step->exec_type == EXEC_ON_DATANODES)
-	{
 		connections = pgxc_connections->datanode_handles;
-		total_conn_count = regular_conn_count = pgxc_connections->dn_conn_count;
-	}
 	else if (step->exec_type == EXEC_ON_COORDS)
-	{
 		connections = pgxc_connections->coord_handles;
-		total_conn_count = regular_conn_count = pgxc_connections->co_conn_count;
-	}
 
 	primaryconnection = pgxc_connections->primary_handle;
 
-	/*
-	 * Primary connection is counted separately but is included in total_conn_count if used.
-	 */
+	/* Primary connection is counted separately */
 	if (primaryconnection)
 		regular_conn_count--;
 
@@ -3017,9 +2903,6 @@ do_query(RemoteQueryState *node)
 	elog(DEBUG1, "has primary = %s, regular_conn_count = %d, "
 				 "need_tran_block = %s", primaryconnection ? "true" : "false",
 				 regular_conn_count, need_tran_block ? "true" : "false");
-
-	stat_statement();
-	stat_transaction(total_conn_count);
 
 	gxid = GetCurrentTransactionId();
 
@@ -3898,9 +3781,6 @@ PGXCNodeCleanAndRelease(int code, Datum arg)
 
 	/* Close connection with GTM */
 	CloseGTM();
-
-	/* Dump collected statistics to the log */
-	stat_log();
 }
 
 static int
