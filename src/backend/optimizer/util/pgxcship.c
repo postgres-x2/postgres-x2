@@ -89,7 +89,8 @@ typedef enum
 								 * supported by FQS in future
 								 */
 	SS_HAS_AGG_EXPR,			/* it has aggregate expressions */
-	SS_UNSHIPPABLE_TYPE			/* the type of expression is unshippable */
+	SS_UNSHIPPABLE_TYPE,		/* the type of expression is unshippable */
+	SS_UNSHIPPABLE_TRIGGER		/* the type of trigger is unshippable */
 } ShippabilityStat;
 
 /* Manipulation of shippability reason */
@@ -887,10 +888,13 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 				query->commandType == CMD_INSERT ||
 				query->commandType == CMD_DELETE)
 			{
-				RangeTblEntry *rte = (RangeTblEntry *) list_nth(query->rtable, query->resultRelation - 1);
+				RangeTblEntry *rte = (RangeTblEntry *)
+					list_nth(query->rtable, query->resultRelation - 1);
 
-				if (!pgxc_check_triggers_shippability(rte->relid, query->commandType))
-					pgxc_set_shippability_reason(sc_context, SS_UNSHIPPABLE_EXPR);
+				if (!pgxc_check_triggers_shippability(rte->relid,
+													  query->commandType))
+					pgxc_set_shippability_reason(sc_context,
+												 SS_UNSHIPPABLE_TRIGGER);
 			}
 
 			/*
