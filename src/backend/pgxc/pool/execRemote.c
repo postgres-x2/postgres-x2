@@ -2859,9 +2859,15 @@ do_query(RemoteQueryState *node)
 	pgxc_connections = get_exec_connections(node, step->exec_nodes, step->exec_type);
 
 	if (step->exec_type == EXEC_ON_DATANODES)
+	{
 		connections = pgxc_connections->datanode_handles;
+		regular_conn_count = pgxc_connections->dn_conn_count;
+	}
 	else if (step->exec_type == EXEC_ON_COORDS)
+	{
 		connections = pgxc_connections->coord_handles;
+		regular_conn_count = pgxc_connections->co_conn_count;
+	}
 
 	primaryconnection = pgxc_connections->primary_handle;
 
