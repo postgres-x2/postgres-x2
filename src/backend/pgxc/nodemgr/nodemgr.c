@@ -184,18 +184,14 @@ check_node_options(const char *node_name, List *options, char **node_host,
 		}
 	}
 
-	/* Checks on primary and preferred nodes */
+	/* A primary node has to be a Datanode */
 	if (*is_primary && *node_type != PGXC_NODE_DATANODE)
 		ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
 				 errmsg("PGXC node %s: cannot be a primary node, it has to be a Datanode",
 						node_name)));
-	if (*is_primary && OidIsValid(primary_data_node))
-		ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("PGXC node %s: two nodes cannot be primary",
-						node_name)));
 
+	/* A preferred node has to be a Datanode */
 	if (*is_preferred && *node_type != PGXC_NODE_DATANODE)
 		ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
@@ -524,6 +520,16 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 	node_id = generate_node_id(node_name);
 
 	/*
+	 * Check that this node is not created as a primary if one already
+	 * exists.
+	 */
+	if (is_primary && OidIsValid(primary_data_node))
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("PGXC node %s: two nodes cannot be primary",
+						node_name)));
+
+	/*
 	 * Then assign default values if necessary
 	 * First for port.
 	 */
@@ -635,6 +641,19 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 	check_node_options(node_name, stmt->options, &node_host,
 				&node_port, &node_type,
 				&is_primary, &is_preferred);
+
+	/*
+	 * Two nodes cannot be primary at the same time. If the primary
+	 * node is this node itself, well there is no point in having an
+	 * error.
+	 */
+	if (is_primary &&
+		OidIsValid(primary_data_node) &&
+		node_id != primary_data_node)
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("PGXC node %s: two nodes cannot be primary",
+						node_name)));
 
 	/* Check type dependency */
 	if (node_type_old == PGXC_NODE_COORDINATOR &&
