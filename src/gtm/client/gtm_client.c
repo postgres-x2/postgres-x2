@@ -24,7 +24,6 @@
 
 #include <time.h>
 
-#include "gtm/elog.h"
 #include "gtm/gtm_c.h"
 
 #include "gtm/gtm_ip.h"
@@ -2088,8 +2087,6 @@ gtm_sync_standby(GTM_Conn *conn)
 {
 	GTM_Result *res = NULL;
 	time_t finish_time;
-
-	elog(DEBUG3, "Synchronizing with standby");
 
 	if (gtmpqPutMsgStart('C', true, conn))
 		goto send_failed;
