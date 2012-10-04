@@ -6462,7 +6462,7 @@
      </row>
 
      <row>
-      <entry><structfield>pchasharigorithm</structfield></entry>
+      <entry><structfield>pchashalgorithm</structfield></entry>
       <entry><type>int2</type></entry>
       <entry></entry>
       <entry>
