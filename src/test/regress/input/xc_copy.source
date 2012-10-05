@@ -109,3 +109,8 @@ COPY "Xc_copy_2" FROM STDIN DELIMITER ',';
 \.
 COPY "Xc_copy_2" TO STDOUT;
 DROP TABLE "Xc_copy_2";
+
+-- Table with no locator data
+CREATE TABLE xc_copy_3 (c1 int) DISTRIBUTE BY HASH(c1);
+COPY (SELECT pclocatortype,pcattnum,pchashalgorithm,pchashbuckets FROM pgxc_class WHERE pgxc_class.pcrelid = 'xc_copy_3'::regclass) TO stdout;
+DROP TABLE xc_copy_3;
