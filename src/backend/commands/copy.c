@@ -4399,7 +4399,6 @@ static ExecNodes*
 build_copy_statement(CopyState cstate, List *attnamelist,
 				TupleDesc tupDesc, bool is_from, List *force_quote, List *force_notnull)
 {
-	char      *pPartByCol;
 	ExecNodes *exec_nodes = makeNode(ExecNodes);
 	int        attnum;
 	List      *attnums = CopyGetAttnums(tupDesc, cstate->rel, attnamelist);
@@ -4412,27 +4411,30 @@ build_copy_statement(CopyState cstate, List *attnamelist,
 	 */
 	cstate->rel_loc = GetRelationLocInfo(RelationGetRelid(cstate->rel));
 
-	pPartByCol = GetRelationDistColumn(cstate->rel_loc);
 	if (cstate->rel_loc)
 	{
+		exec_nodes = makeNode(ExecNodes);
+
 		/*
-		 * Pick up one node only
-		 * This case corresponds to a replicated table with COPY TO
-		 *
+		 * Pick up one node only. This case corresponds to a replicated table
+		 * with COPY TO.
 		 */
 		if (!is_from && cstate->rel_loc->locatorType == 'R')
 			exec_nodes->nodeList = GetAnyDataNode(cstate->rel_loc->nodeList);
 		else
 		{
 			/* All nodes necessary */
-			exec_nodes->nodeList = list_concat(exec_nodes->nodeList, cstate->rel_loc->nodeList);
+			exec_nodes->nodeList = list_concat(exec_nodes->nodeList,
+											   cstate->rel_loc->nodeList);
 		}
 	}
 
 	cstate->idx_dist_by_col = -1;
-	if (pPartByCol)
+	if (cstate->rel_loc && cstate->rel_loc->partAttrNum != 0)
 	{
 		ListCell   *cur;
+		char	   *pPartByCol = GetRelationDistColumn(cstate->rel_loc);
+
 		foreach(cur, attnums)
 		{
 			attnum = lfirst_int(cur);
