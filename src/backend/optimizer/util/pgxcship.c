@@ -113,9 +113,7 @@ static void pgxc_FQS_find_datanodes(Shippability_context *sc_context);
 static bool pgxc_query_needs_coord(Query *query);
 static bool pgxc_query_contains_only_pg_catalog(List *rtable);
 static bool pgxc_is_var_distrib_column(Var *var, List *rtable);
-static bool pgxc_query_has_distcolgrouping(Query *query);
 static bool pgxc_distinct_has_distcol(Query *query);
-
 
 /*
  * Set the given reason in Shippability_context indicating why the query can not be
@@ -480,7 +478,7 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 	return rel_exec_nodes;
 }
 
-static bool
+bool
 pgxc_query_has_distcolgrouping(Query *query)
 {
 	ListCell	*lcell;
@@ -737,6 +735,14 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 			 * can be shipped to the Datanode and what can not be.
 			 */
 			if (!pgxc_is_func_shippable(funcexpr->funcid))
+				pgxc_set_shippability_reason(sc_context, SS_UNSHIPPABLE_EXPR);
+
+			/*
+			 * If this is a stand alone expression and the function returns a
+			 * set of rows, we need to handle it along with the final result of
+			 * other expressions. So, it can not be shippable.
+			 */
+			if (funcexpr->funcretset && sc_context->sc_for_expr)
 				pgxc_set_shippability_reason(sc_context, SS_UNSHIPPABLE_EXPR);
 
 			pgxc_set_exprtype_shippability(exprType(node), sc_context);
@@ -1216,9 +1222,17 @@ pgxc_is_query_shippable(Query *query, int query_level)
 
 /*
  * pgxc_is_expr_shippable
- * Check whether the given expression can be shipped to remote nodes.
- * This can be used as an entry point to check the shippability of
- * an expression.
+ * Check whether the given expression can be shipped to datanodes.
+ *
+ * Note on has_aggs
+ * The aggregate expressions are not shippable if they can not be completely
+ * evaluated on a single datanode. But this function does not have enough
+ * context to determine the set of datanodes where the expression will be
+ * evaluated. Hence, the caller of this function can handle aggregate
+ * expressions, it passes a non-NULL value for has_aggs. This function returns
+ * whether the expression has any aggregates or not through this argument. If a
+ * caller passes NULL value for has_aggs, this function assumes that the caller
+ * can not handle the aggregates and deems the expression has unshippable.
  */
 bool
 pgxc_is_expr_shippable(Expr *node, bool *has_aggs)
