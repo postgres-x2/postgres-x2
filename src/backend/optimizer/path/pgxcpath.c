@@ -20,7 +20,7 @@
 #include "optimizer/restrictinfo.h"
 #include "parser/parsetree.h"
 #include "pgxc/pgxc.h"
-#include "pgxc/planner.h"
+#include "optimizer/pgxcplan.h"
 
 static RemoteQueryPath *pgxc_find_remotequery_path(RelOptInfo *rel);
 static ExecNodes *pgxc_is_join_reducible(ExecNodes *inner_en, ExecNodes *outer_en,

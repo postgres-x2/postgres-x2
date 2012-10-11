@@ -39,7 +39,6 @@
 #ifdef PGXC
 #include "pgxc/execRemote.h"
 #include "pgxc/pgxc.h"
-#include "pgxc/planner.h"
 #endif
 
 

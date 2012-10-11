@@ -67,7 +67,7 @@
 #include "pgxc/execRemote.h"
 #include "pgxc/locator.h"
 #include "pgxc/pgxc.h"
-#include "pgxc/planner.h"
+#include "optimizer/pgxcplan.h"
 #include "pgxc/poolutils.h"
 #include "nodes/nodes.h"
 #include "pgxc/poolmgr.h"

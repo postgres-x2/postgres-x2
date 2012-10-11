@@ -26,7 +26,7 @@
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
 #ifdef PGXC
-#include "pgxc/planner.h"
+#include "optimizer/pgxcplan.h"
 #endif
 
 

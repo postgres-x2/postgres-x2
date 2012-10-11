@@ -62,7 +62,7 @@
 #include "optimizer/pgxcship.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/locator.h"
-#include "pgxc/planner.h"
+#include "optimizer/pgxcplan.h"
 #include "pgxc/poolmgr.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/xc_maintenance_mode.h"

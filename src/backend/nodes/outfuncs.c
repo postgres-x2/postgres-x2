@@ -28,7 +28,7 @@
 #include "nodes/relation.h"
 #include "utils/datum.h"
 #ifdef PGXC
-#include "pgxc/planner.h"
+#include "optimizer/pgxcplan.h"
 #endif
 
 

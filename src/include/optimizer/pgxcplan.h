@@ -1,13 +1,13 @@
 /*-------------------------------------------------------------------------
  *
- * planner.h
- *		Externally declared locator functions
+ * pgxcplan.h
+ *		Postgres-XC specific planner interfaces and structures.
  *
  *
  * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 2010-2012 Postgres-XC Development Group
  *
- * src/include/pgxc/planner.h
+ * src/include/optimizer/pgxcplan.h
  *
  *-------------------------------------------------------------------------
  */
@@ -123,17 +123,10 @@ extern bool enable_fast_query_shipping;
 
 extern PlannedStmt *pgxc_planner(Query *query, int cursorOptions,
 								 ParamListInfo boundParams);
-extern bool IsHashDistributable(Oid col_type);
-
-extern ExecNodes *IsJoinReducible(RemoteQuery *innernode, RemoteQuery *outernode,
-									Relids in_relids, Relids out_relids,
-									Join *join, JoinPath *join_path, List *rtable);
-
 extern List *AddRemoteQueryNode(List *stmts, const char *queryString,
 								RemoteQueryExecType remoteExecType, bool is_temp);
 extern bool pgxc_query_contains_temp_tables(List *queries);
 extern bool pgxc_query_contains_utility(List *queries);
 extern void pgxc_rqplan_adjust_tlist(RemoteQuery *rqplan);
-extern void pgxc_rqplan_adjust_vars(RemoteQuery *rqplan, Node *node);
 
 #endif   /* PGXCPLANNER_H */

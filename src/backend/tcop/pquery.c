@@ -22,7 +22,7 @@
 #include "pg_trace.h"
 #ifdef PGXC
 #include "pgxc/pgxc.h"
-#include "pgxc/planner.h"
+#include "optimizer/pgxcplan.h"
 #include "pgxc/execRemote.h"
 #include "access/relscan.h"
 #endif

@@ -55,7 +55,7 @@
 #ifdef PGXC
 #include "pgxc/locator.h"
 #include "pgxc/pgxc.h"
-#include "pgxc/planner.h"
+#include "optimizer/pgxcplan.h"
 #include "pgxc/execRemote.h"
 #endif
 #include "parser/parser.h"

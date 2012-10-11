@@ -89,7 +89,7 @@
 /* PGXC_COORD */
 #include "pgxc/execRemote.h"
 #include "pgxc/barrier.h"
-#include "pgxc/planner.h"
+#include "optimizer/pgxcplan.h"
 #include "nodes/nodes.h"
 #include "pgxc/poolmgr.h"
 #include "pgxc/pgxcnode.h"

@@ -54,7 +54,7 @@
 #include "pgxc/pgxcnode.h"
 #include "access/gtm.h"
 #include "utils/lsyscache.h"
-#include "pgxc/planner.h"
+#include "optimizer/pgxcplan.h"
 #include "tcop/tcopprot.h"
 #include "nodes/nodes.h"
 #include "pgxc/poolmgr.h"

@@ -56,7 +56,7 @@
 #include "parser/parsetree.h"
 #ifdef PGXC
 #include "pgxc/pgxc.h"
-#include "pgxc/planner.h"
+#include "optimizer/pgxcplan.h"
 #endif
 #include "rewrite/rewriteHandler.h"
 #include "rewrite/rewriteManip.h"

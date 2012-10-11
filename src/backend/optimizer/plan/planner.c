@@ -41,7 +41,7 @@
 #ifdef PGXC
 #include "commands/prepare.h"
 #include "pgxc/pgxc.h"
-#include "pgxc/planner.h"
+#include "optimizer/pgxcplan.h"
 #endif
 
 
