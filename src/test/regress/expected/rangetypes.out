@@ -835,7 +835,7 @@ create table test_range_excl(
   during tsrange,
   exclude using gist (room with =, during with &&),
   exclude using gist (speaker with =, during with &&)
-);
+) distribute by replication;
 NOTICE:  CREATE TABLE / EXCLUDE will create implicit index "test_range_excl_room_during_excl" for table "test_range_excl"
 NOTICE:  CREATE TABLE / EXCLUDE will create implicit index "test_range_excl_speaker_during_excl" for table "test_range_excl"
 insert into test_range_excl

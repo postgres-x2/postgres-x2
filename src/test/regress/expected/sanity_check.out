@@ -47,7 +47,7 @@ SELECT relname, relhasindex
  fast_emp4000            | t
  float4_tbl              | f
  float8_tbl              | f
- func_index_heap         | f
+ func_index_heap         | t
  hash_f8_heap            | t
  hash_i4_heap            | t
  hash_name_heap          | t

@@ -983,7 +983,7 @@ CREATE TABLE country_table (
 );
 NOTICE:  CREATE TABLE will create implicit sequence "country_table_country_id_seq" for serial column "country_table.country_id"
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "country_table_pkey" for table "country_table"
-ERROR:  Unique index of partitioned table must contain the hash/modulo distribution column.
+ERROR:  Cannot create index whose evaluation cannot be enforced to remote nodes
 INSERT INTO country_table (country_name, continent)
     VALUES ('Japan', 'Asia'),
            ('UK', 'Europe'),
@@ -999,6 +999,7 @@ CREATE TABLE city_table (
     country_id    int references country_table
 );
 NOTICE:  CREATE TABLE will create implicit sequence "city_table_city_id_seq" for serial column "city_table.city_id"
+NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "city_table_pkey" for table "city_table"
 ERROR:  relation "country_table" does not exist
 CREATE VIEW city_view AS
     SELECT city_id, city_name, population, country_name, continent

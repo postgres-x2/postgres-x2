@@ -92,6 +92,7 @@
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node.h"
 #include "commands/sequence.h"
+#include "optimizer/pgxcship.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/redistrib.h"
 #endif
@@ -6362,6 +6363,29 @@ ATAddForeignKeyConstraint(AlteredTableInfo *tab, Relation rel,
 		ffeqoperators[i] = ffeqop;
 	}
 
+#ifdef PGXC
+	/* Check the shippability of this foreign key */
+	if (IS_PGXC_COORDINATOR)
+	{
+		List *childRefs = NIL, *parentRefs = NIL;
+
+		/* Prepare call for shippability check */
+		for (i = 0; i < numfks; i++)
+			childRefs = lappend_int(childRefs, fkattnum[i]);
+		for (i = 0; i < numpks; i++)
+			parentRefs = lappend_int(parentRefs, pkattnum[i]);
+
+		/* Now check shippability for this foreign key */
+		if (!pgxc_check_fk_shippability(GetRelationLocInfo(RelationGetRelid(pkrel)),
+										GetRelationLocInfo(RelationGetRelid(rel)),
+										parentRefs,
+										childRefs))
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("Cannot create foreign key whose evaluation cannot be enforced to remote nodes")));
+	}
+#endif
+
 	/*
 	 * Record the FK constraint in pg_constraint.
 	 */
@@ -10351,6 +10375,42 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 
 	/* Build the command tree for table redistribution */
 	PGXCRedistribCreateCommandList(redistribState, newLocInfo);
+
+	/*
+	 * Using the new locator info already available, check if constraints on
+	 * relation are compatible with the new distribution.
+	 */
+	foreach(item, RelationGetIndexList(rel))
+	{
+		Oid			indid = lfirst_oid(item);
+		Relation	indexRel = index_open(indid, AccessShareLock);
+		List	   *indexColNums = NIL;
+		int2vector	colIds = indexRel->rd_index->indkey;
+
+		/*
+		 * Prepare call to shippability check. Attributes set to 0 correspond
+		 * to index expressions and are evaluated internally, so they are not
+		 * appended in given list.
+		 */
+		for (i = 0; i < colIds.dim1; i++)
+		{
+			if (colIds.values[i] > 0)
+				indexColNums = lappend_int(indexColNums, colIds.values[i]);
+		}
+
+		if (!pgxc_check_index_shippability(newLocInfo,
+										indexRel->rd_index->indisprimary,
+										indexRel->rd_index->indisunique,
+										indexRel->rd_index->indisexclusion,
+										indexColNums,
+										indexRel->rd_indexprs))
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("Cannot alter table to distribution incompatible "
+							"with existing constraints")));
+
+		index_close(indexRel, AccessShareLock);
+	}
 
 	/* Clean up */
 	FreeRelationLocInfo(newLocInfo);

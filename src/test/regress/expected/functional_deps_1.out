@@ -9,7 +9,7 @@ CREATE TEMP TABLE articles (
     created date
 );
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "articles_pkey" for table "articles"
-ERROR:  Unique index of partitioned table must contain the hash/modulo distribution column.
+ERROR:  Cannot create index whose evaluation cannot be enforced to remote nodes
 CREATE TEMP TABLE articles_in_category (
     article_id int,
     category_id int,
@@ -148,7 +148,7 @@ CREATE TEMP TABLE users (
     UNIQUE (name)
 );
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "users_pkey" for table "users"
-ERROR:  Unique index of partitioned table must contain the hash/modulo distribution column.
+ERROR:  Cannot create index whose evaluation cannot be enforced to remote nodes
 -- OK
 SELECT u.uid, u.name FROM node n
 INNER JOIN users u ON u.uid = n.uid

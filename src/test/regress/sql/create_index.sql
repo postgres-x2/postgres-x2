@@ -655,7 +655,10 @@ CREATE INDEX hash_f8_index ON hash_f8_heap USING hash (random float8_ops);
 --
 -- Test functional index
 --
-CREATE TABLE func_index_heap (f1 text, f2 text);
+-- PGXC: Here replication is used to ensure correct index creation
+-- when a non-shippable expression is used.
+-- PGXCTODO: this should be removed once global constraints are supported
+CREATE TABLE func_index_heap (f1 text, f2 text) DISTRIBUTE BY REPLICATION;
 CREATE UNIQUE INDEX func_index_index on func_index_heap (textcat(f1,f2));
 
 INSERT INTO func_index_heap VALUES('ABC','DEF');
@@ -671,7 +674,10 @@ INSERT INTO func_index_heap VALUES('QWERTY');
 -- Same test, expressional index
 --
 DROP TABLE func_index_heap;
-CREATE TABLE func_index_heap (f1 text, f2 text);
+-- PGXC: Here replication is used to ensure correct index creation
+-- when a non-shippable expression is used.
+-- PGXCTODO: this should be removed once global constraints are supported
+CREATE TABLE func_index_heap (f1 text, f2 text) DISTRIBUTE BY REPLICATION;
 CREATE UNIQUE INDEX func_index_index on func_index_heap ((f1 || f2) text_ops);
 
 INSERT INTO func_index_heap VALUES('ABC','DEF');

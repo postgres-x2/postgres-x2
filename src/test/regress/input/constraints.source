@@ -406,7 +406,7 @@ CREATE TABLE circles (
   EXCLUDE USING gist
     (c1 WITH &&, (c2::circle) WITH &&)
     WHERE (circle_center(c1) <> '(0,0)')
-);
+) DISTRIBUTE BY REPLICATION;
 
 -- these should succeed because they don't match the index predicate
 INSERT INTO circles VALUES('<(0,0), 5>', '<(0,0), 5>');

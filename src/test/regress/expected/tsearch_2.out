@@ -813,7 +813,7 @@ SELECT COUNT(*) FROM test_tsquery WHERE keyword >  'new & york';
 (1 row)
 
 CREATE UNIQUE INDEX bt_tsq ON test_tsquery (keyword);
-ERROR:  Unique index of partitioned table must contain the hash/modulo distribution column.
+ERROR:  Cannot create index whose evaluation cannot be enforced to remote nodes
 SET enable_seqscan=OFF;
 SELECT COUNT(*) FROM test_tsquery WHERE keyword <  'new & york';
  count 

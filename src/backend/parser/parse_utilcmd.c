@@ -53,6 +53,7 @@
 #include "parser/parse_type.h"
 #include "parser/parse_utilcmd.h"
 #ifdef PGXC
+#include "optimizer/pgxcship.h"
 #include "pgxc/locator.h"
 #include "pgxc/pgxc.h"
 #include "optimizer/pgxcplan.h"
@@ -133,9 +134,6 @@ static void transformConstraintAttrs(CreateStmtContext *cxt,
 						 List *constraintList);
 static void transformColumnType(CreateStmtContext *cxt, ColumnDef *column);
 static void setSchemaName(char *context_schema, char **stmt_schema_name);
-#ifdef PGXC
-static void checkLocalFKConstraints(CreateStmtContext *cxt);
-#endif
 
 /*
  * transformCreateStmt -
@@ -1475,9 +1473,6 @@ static IndexStmt *
 transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 {
 	IndexStmt  *index;
-#ifdef PGXC
-		bool		isLocalSafe = false;
-#endif
 	ListCell   *lc;
 
 	index = makeNode(IndexStmt);
@@ -1740,22 +1735,6 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 			if (strcmp(column->colname, key) == 0)
 			{
 				found = true;
-
-#ifdef PGXC
-				/*
-			 	 * Only allow locally enforceable constraints.
-				 * See if it is a distribution column
-				 * If not set, set it to first column in index.
-				 * If primary key, we prefer that over a unique constraint.
-				 */
-			   if (IS_PGXC_COORDINATOR && !isLocalSafe)
-			   {
-					if (cxt->distributeby)
-						isLocalSafe = CheckLocalIndexColumn (
-								ConvertToLocatorType(cxt->distributeby->disttype),
-								cxt->distributeby->colname, key);
-			   }
-#endif
 				break;
 			}
 		}
@@ -1859,16 +1838,9 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 			 * If not set, set it to first column in index.
 			 * If primary key, we prefer that over a unique constraint.
 			 */
-			if (index->indexParams == NIL
-					&& (index->primary || !cxt->fallback_dist_col))
-			{
+			if (index->indexParams == NIL &&
+				(index->primary || !cxt->fallback_dist_col))
 				cxt->fallback_dist_col = pstrdup(key);
-			}
-
-			/* Existing table, check if it is safe */
-			if (cxt->isalter && !cxt->distributeby && !isLocalSafe)
-				isLocalSafe = CheckLocalIndexColumn (
-						cxt->rel->rd_locator_info->locatorType, cxt->rel->rd_locator_info->partAttrName, key);
 		}
 #endif
 
@@ -1883,15 +1855,6 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 		iparam->nulls_ordering = SORTBY_NULLS_DEFAULT;
 		index->indexParams = lappend(index->indexParams, iparam);
 	}
-#ifdef PGXC
-		if (IS_PGXC_COORDINATOR && cxt->distributeby
-				&& (cxt->distributeby->disttype == DISTTYPE_HASH ||
-					cxt->distributeby->disttype == DISTTYPE_MODULO)
-				&& !isLocalSafe)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
-					errmsg("Unique index of partitioned table must contain the hash distribution column.")));
-#endif
 
 	return index;
 }
@@ -1944,12 +1907,6 @@ transformFKConstraints(CreateStmtContext *cxt,
 #endif
 		}
 	}
-
-#ifdef PGXC
-	/* Only allow constraints that are locally enforceable - no distributed ones */
-	if (IS_PGXC_COORDINATOR)
-		checkLocalFKConstraints(cxt);
-#endif
 
 	/*
 	 * For CREATE TABLE or ALTER TABLE ADD COLUMN, gin up an ALTER TABLE ADD
@@ -2906,171 +2863,3 @@ setSchemaName(char *context_schema, char **stmt_schema_name)
 						"different from the one being created (%s)",
 						*stmt_schema_name, context_schema)));
 }
-
-#ifdef PGXC
-/*
- * CheckLocalIndexColumn
- *
- * Checks whether or not the index can be safely enforced locally
- */
-bool
-CheckLocalIndexColumn (char loctype, char *partcolname, char *indexcolname)
-{
-
-	if (loctype == LOCATOR_TYPE_REPLICATED)
-		/* always safe */
-		return true;
-	if (loctype == LOCATOR_TYPE_RROBIN)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
-					errmsg("Cannot locally enforce a unique index on round robin distributed table.")));
-	else if (loctype == LOCATOR_TYPE_HASH || loctype == LOCATOR_TYPE_MODULO)
-	{
-		if (partcolname && indexcolname && strcmp(partcolname, indexcolname) == 0)
-			return true;
-	}
-	return false;
-}
-
-
-/*
- * check to see if the constraint can be enforced locally
- * if not, an error will be thrown
- */
-static void
-checkLocalFKConstraints(CreateStmtContext *cxt)
-{
-	ListCell *fkclist;
-
-	foreach(fkclist, cxt->fkconstraints)
-	{
-		Constraint *constraint;
-		Oid pk_rel_id;
-		char refloctype;
-		char *checkcolname = NULL;
-
-		constraint = (Constraint *) lfirst(fkclist);
-
-		/*
-		 * If constraint references to the table itself, it is safe
-		 * Check if relation name is the same
-		 */
-		if (constraint->pktable &&
-			strcmp(constraint->pktable->relname,cxt->relation->relname) == 0)
-		{
-			/* Is namespace also the same ? */
-			char *fkcon_schemaname = NULL;
-
-			if (!cxt->relation->schemaname &&
-				!constraint->pktable->schemaname)
-				continue;
-
-			if (!constraint->pktable->schemaname)
-			{
-				/* Schema name is not defined, look for current one */
-				List   *search_path = fetch_search_path(false);
-				fkcon_schemaname = get_namespace_name(linitial_oid(search_path));
-				list_free(search_path);
-			}
-			else
-				fkcon_schemaname = constraint->pktable->schemaname;
-
-			/*
-			 * If schema name and relation name are the same, table
-			 * references to itself, so constraint is safe
-			 */
-			if (fkcon_schemaname &&
-				strcmp(fkcon_schemaname,
-					   cxt->relation->schemaname) == 0)
-				continue;
-		}
-
-		pk_rel_id = RangeVarGetRelid(constraint->pktable, NoLock, false);
-
-		refloctype = GetLocatorType(pk_rel_id);
-
-		/* If referenced table is replicated, the constraint is safe */
-		if (refloctype == LOCATOR_TYPE_REPLICATED)
-			continue;
-		else if (refloctype == LOCATOR_TYPE_RROBIN)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_SYNTAX_ERROR),
-					errmsg("Cannot reference a round robin table in a foreign key constraint")));
-		}
-
-		/*
-		 * See if we are hash or modulo partitioned and the column appears in the
-		 * constraint, and it corresponds to the position in the referenced table.
-		 */
-		if (cxt->isalter)
-		{
-			if (cxt->rel->rd_locator_info->locatorType == LOCATOR_TYPE_HASH ||
-				cxt->rel->rd_locator_info->locatorType == LOCATOR_TYPE_MODULO)
-			{
-				checkcolname = cxt->rel->rd_locator_info->partAttrName;
-			}
-		}
-		else
-		{
-			if (cxt->distributeby)
-			{
-				if (cxt->distributeby->disttype == DISTTYPE_HASH ||
-					cxt->distributeby->disttype == DISTTYPE_MODULO)
-					checkcolname = cxt->distributeby->colname;
-			}
-			else
-			{
-				if (cxt->fallback_dist_col)
-					checkcolname = cxt->fallback_dist_col;
-			}
-		}
-
-		if (checkcolname)
-		{
-			int pos = 0;
-
-			ListCell *attritem;
-
-			foreach(attritem, constraint->fk_attrs)
-			{
-				char *attrname = (char *) strVal(lfirst(attritem));
-
-				if (strcmp(checkcolname, attrname) == 0)
-				{
-					/* Found the ordinal position in constraint */
-					break;
-				}
-				pos++;
-			}
-
-			if (pos >= list_length(constraint->fk_attrs))
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("Hash/Modulo distributed table must include distribution column in index")));
-
-			/*
-			 * The check to make sure that the referenced column in pk table is the same
-			 * as the one used to distribute it makes sense only when the user
-			 * supplies the name of the referenced colum while adding the constraint
-			 * because if the user did not specify it the system will choose the pk column
-			 * which will obviously be the one used to distribute it knowing the
-			 * existing constraints in XC
-			 * This is required to make sure that both
-			 * alter table dtab add foreign key (b) references rtab(a);
-			 * and
-			 * alter table dtab add foreign key (b) references rtab;
-			 * behave similarly
-			 */
-			if (constraint->pk_attrs != NULL)
-			{
-				/* Verify that the referenced table is partitioned at the same position in the index */
-				if (!IsDistColumnForRelId(pk_rel_id, strVal(list_nth(constraint->pk_attrs,pos))))
-					ereport(ERROR,
-							(errcode(ERRCODE_SYNTAX_ERROR),
-							errmsg("Hash/Modulo distribution column does not refer to hash/modulo distribution column in referenced table.")));
-			}
-		}
-	}
-}
-#endif

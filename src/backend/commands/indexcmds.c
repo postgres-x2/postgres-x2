@@ -38,6 +38,7 @@
 #include "parser/parse_func.h"
 #include "parser/parse_oper.h"
 #ifdef PGXC
+#include "optimizer/pgxcship.h"
 #include "parser/parse_utilcmd.h"
 #include "pgxc/pgxc.h"
 #endif
@@ -544,30 +545,6 @@ DefineIndex(RangeVar *heapRelation,
 
 	(void) index_reloptions(amoptions, reloptions, true);
 
-#ifdef PGXC
-	/* Make sure we can locally enforce the index */
-	if (IS_PGXC_COORDINATOR && (primary || unique))
-	{
-		ListCell *elem;
-		bool isSafe = false;
-
-		foreach(elem, attributeList)
-		{
-			IndexElem  *key = (IndexElem *) lfirst(elem);
-
-			if (CheckLocalIndexColumn(rel->rd_locator_info->locatorType, 
-				rel->rd_locator_info->partAttrName, key->name))
-			{
-				isSafe = true;
-				break;
-			}
-		}
-		if (!isSafe)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
-					errmsg("Unique index of partitioned table must contain the hash/modulo distribution column.")));
-	}
-#endif
 	/*
 	 * Prepare arguments for index_create, primarily an IndexInfo structure.
 	 * Note that ii_Predicate must be in implicit-AND format.
@@ -597,6 +574,37 @@ DefineIndex(RangeVar *heapRelation,
 					  exclusionOpNames, relationId,
 					  accessMethodName, accessMethodId,
 					  amcanorder, isconstraint);
+
+#ifdef PGXC
+	/* Check if index is safely shippable */
+	if (IS_PGXC_COORDINATOR)
+	{
+		List *indexAttrs = NIL;
+
+		/* Prepare call for shippability evaluation */
+		for (i = 0; i < indexInfo->ii_NumIndexAttrs; i++)
+		{
+			/*
+			 * Expression attributes are set at 0, and do not make sense
+			 * when comparing them to distribution columns, so bypass.
+			 */
+			if (indexInfo->ii_KeyAttrNumbers[i] > 0)
+				indexAttrs = lappend_int(indexAttrs, indexInfo->ii_KeyAttrNumbers[i]);
+		}
+
+		/* Finalize check */
+		if (!pgxc_check_index_shippability(GetRelationLocInfo(relationId),
+										   primary,
+										   unique,
+										   exclusionOpNames != NULL,
+										   indexAttrs,
+										   indexInfo->ii_Expressions))
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("Cannot create index whose evaluation cannot be "
+							"enforced to remote nodes")));
+}
+#endif
 
 	/*
 	 * Extra checks when creating a PRIMARY KEY index.

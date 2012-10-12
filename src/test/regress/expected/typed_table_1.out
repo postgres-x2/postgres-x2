@@ -46,7 +46,7 @@ CREATE TABLE persons2 OF person_type (
     UNIQUE (name)
 );
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "persons2_pkey" for table "persons2"
-ERROR:  Unique index of partitioned table must contain the hash/modulo distribution column.
+ERROR:  Cannot create index whose evaluation cannot be enforced to remote nodes
 \d persons2
 CREATE TABLE persons3 OF person_type (
     PRIMARY KEY (id),

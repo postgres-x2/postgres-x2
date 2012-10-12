@@ -182,13 +182,12 @@ SELECT h.seqno AS i8096, h.random AS f1234_1234
 UPDATE hash_f8_heap
    SET seqno = 20000
    WHERE hash_f8_heap.random = '488912369'::float8;
-ERROR:  Partition column can't be updated in current version
 SELECT h.seqno AS f20000
    FROM hash_f8_heap h
    WHERE h.random = '488912369'::float8;
  f20000 
 --------
-   8932
+  20000
 (1 row)
 
 -- UPDATE hash_ovfl_heap

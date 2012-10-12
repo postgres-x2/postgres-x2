@@ -161,14 +161,14 @@ CREATE TABLE products (
 
   <para>
    When you distribute a table, you can choose almost any column of a fundamental data type as distribution
-   column.   
+   column.
    For details, please refer to <xref linkend="SQL-CREATETABLE">.
    Datanode for specific row is determined based upon the value of the distribution
-   column.   
+   column.
     By default, distribution column is the first column you specified in
    <type>CREATE TABLE</type> statement and the column value is used to
    generate hash value as an index for Datanode which accommodate the
-   row.  
+   row.
    You can choose another distribution method such as <type>MODULO</> and
    <type>ROUNDROBIN</>.
    To specify what column to choose as the distribution column and what value test to
@@ -666,7 +666,9 @@ CREATE TABLE products (
     by <type>ROUNDROBIN</type>, you cannot enforce <type>UNIQUE</>
     constraint because it does not have a distribution column.
     There's no restriction in <type>UNIQUE</> constraint in replicated
-tables.
+    tables. When an expression is used on a <type>UNIQUE</> constraint,
+    this expression must contain the distribution column of its parent
+    table. It cannot use other columns as well.
    </para>
 <!## end>
   </sect2>
@@ -749,7 +751,10 @@ CREATE TABLE example (
    <para>
     As mentioned in <type>UNIQUE</> constraint, distribution column
     must be included in <type>PRIMARY KEY</type>.  Other restrictions
-    apply to <type>PRIMARY KEY</> too.
+    apply to <type>PRIMARY KEY</> too.  When an expression is used on
+    a <type>PRIMARY KEY</> constraint, this expression must contain
+    the distribution column of its parent table. It cannot use other
+    columns as well.
    </para>
 <!## end>
   </sect2>

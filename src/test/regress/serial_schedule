@@ -143,6 +143,7 @@ test: xc_FQS
 test: xc_FQS_join
 test: xc_misc
 test: xc_triggers
+test: xc_constraints
 test: xc_copy
 test: xc_for_update
 test: xc_alter_table

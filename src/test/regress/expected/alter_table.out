@@ -680,7 +680,7 @@ drop table atacc1;
 create table atacc1 ( test int ) distribute by roundrobin;
 -- add a unique constraint (fails)
 alter table atacc1 add constraint atacc_test1 unique (test1);
-ERROR:  Cannot locally enforce a unique index on round robin distributed table.
+ERROR:  column "test1" named in key does not exist
 drop table atacc1;
 -- something a little more complicated
 create table atacc1 ( test int, test2 int);
@@ -2283,7 +2283,7 @@ CREATE TABLE tt8(a int);
 CREATE SCHEMA alter2;
 ALTER TABLE IF EXISTS tt8 ADD COLUMN f int;
 ALTER TABLE IF EXISTS tt8 ADD CONSTRAINT xxx PRIMARY KEY(f);
-ERROR:  Unique index of partitioned table must contain the hash/modulo distribution column.
+ERROR:  Cannot create index whose evaluation cannot be enforced to remote nodes
 ALTER TABLE IF EXISTS tt8 ADD CHECK (f BETWEEN 0 AND 10);
 ALTER TABLE IF EXISTS tt8 ALTER COLUMN f SET DEFAULT 0;
 ALTER TABLE IF EXISTS tt8 RENAME COLUMN f TO f1;

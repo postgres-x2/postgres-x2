@@ -288,7 +288,7 @@ SET enable_bitmapscan = off;
 -- Btree index / opclass with the various operators
 --
 CREATE UNIQUE INDEX enumtest_btree ON enumtest USING btree (col);
-ERROR:  Cannot locally enforce a unique index on round robin distributed table.
+ERROR:  Cannot create index whose evaluation cannot be enforced to remote nodes
 SELECT * FROM enumtest WHERE col = 'orange';
   col   
 --------
