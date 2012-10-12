@@ -1891,13 +1891,16 @@ transformFKConstraints(CreateStmtContext *cxt,
 			 * If not yet set, set it to first column in FK constraint
 			 * if it references a partitioned table
 			 */
-			if (IS_PGXC_COORDINATOR && !cxt->fallback_dist_col)
+			if (IS_PGXC_COORDINATOR &&
+				!cxt->fallback_dist_col &&
+				list_length(constraint->pk_attrs) != 0)
 			{
 				Oid pk_rel_id = RangeVarGetRelid(constraint->pktable, NoLock, false);
+				AttrNumber attnum = get_attnum(pk_rel_id,
+											   strVal(list_nth(constraint->fk_attrs, 0)));
 
-				/* make sure it is a partitioned column */
-				if (list_length(constraint->pk_attrs) != 0
-					&& IsHashColumnForRelId(pk_rel_id, strVal(list_nth(constraint->pk_attrs,0))))
+				/* Make sure key is done on a partitioned column */
+				if (IsDistribColumn(pk_rel_id, attnum))
 				{
 					/* take first column */
 					char *colstr = strdup(strVal(list_nth(constraint->fk_attrs,0)));

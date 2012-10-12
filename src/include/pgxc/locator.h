@@ -44,8 +44,6 @@
 #include "nodes/primnodes.h"
 #include "utils/relcache.h"
 
-typedef int PartAttrNumber;
-
 /*
  * How relation is accessed in the query
  */
@@ -59,12 +57,11 @@ typedef enum
 
 typedef struct
 {
-	Oid		relid;
-	char		locatorType;
-	PartAttrNumber	partAttrNum;	/* if partitioned */
-	char		*partAttrName;		/* if partitioned */
-	List		*nodeList;			/* Node Indices */
-	ListCell	*roundRobinNode;	/* index of the next one to use */
+	Oid			relid;			/* OID of relation */
+	char		locatorType;	/* locator type, see above */
+	AttrNumber	partAttrNum;	/* Distribution column attribute */
+	List	   *nodeList;		/* Node indices where data is located */
+	ListCell   *roundRobinNode;	/* Index of the next node to use */
 } RelationLocInfo;
 
 /*
@@ -76,13 +73,15 @@ typedef struct
 typedef struct
 {
 	NodeTag		type;
-	List		*primarynodelist;
-	List		*nodeList;
-	char		baselocatortype;
-	Expr		*en_expr;		/* expression to evaluate at execution time if planner
-						 * can not determine execution nodes */
-	Oid		en_relid;		/* Relation to determine execution nodes */
-	RelationAccessType accesstype;		/* Access type to determine execution nodes */
+	List		*primarynodelist;	/* Primary node list indexes */
+	List		*nodeList;			/* Node list indexes */
+	char		baselocatortype;	/* Locator type, see above */
+	Expr		*en_expr;			/* Expression to evaluate at execution time
+									 * if planner can not determine execution
+									 * nodes */
+	Oid		en_relid;				/* Relation to determine execution nodes */
+	RelationAccessType accesstype;	/* Access type to determine execution
+									 * nodes */
 } ExecNodes;
 
 /* Extern variables related to locations */
@@ -90,38 +89,32 @@ extern Oid primary_data_node;
 extern Oid preferred_data_node[MAX_PREFERRED_NODES];
 extern int num_preferred_data_nodes;
 
-extern void InitRelationLocInfo(void);
-extern char GetLocatorType(Oid relid);
-extern char ConvertToLocatorType(int disttype);
-
-extern char *GetRelationHashColumn(RelationLocInfo *rel_loc_info);
+/* Function for RelationLocInfo building and management */
+extern void RelationBuildLocator(Relation rel);
 extern RelationLocInfo *GetRelationLocInfo(Oid relid);
-extern RelationLocInfo *CopyRelationLocInfo(RelationLocInfo *src_info);
-extern char GetRelationLocType(Oid relid);
-extern bool IsTableDistOnPrimary(RelationLocInfo *rel_loc_info);
-extern bool IsLocatorInfoEqual(RelationLocInfo *rel_loc_info1, RelationLocInfo *rel_loc_info2);
-extern ExecNodes *GetRelationNodes(RelationLocInfo *rel_loc_info, Datum valueForDistCol,
-									bool isValueNull, Oid typeOfValueForDistCol,
-									RelationAccessType accessType);
-extern ExecNodes *GetRelationNodesByQuals(Oid reloid, Index varno, Node *quals,
-											RelationAccessType relaccess);
-extern bool IsHashColumn(RelationLocInfo *rel_loc_info, char *part_col_name);
-extern bool IsHashColumnForRelId(Oid relid, char *part_col_name);
-extern int	GetRoundRobinNode(Oid relid);
-
-extern bool IsTypeHashDistributable(Oid col_type);
+extern RelationLocInfo *CopyRelationLocInfo(RelationLocInfo *srcInfo);
+extern void FreeRelationLocInfo(RelationLocInfo *relationLocInfo);
+extern char *GetRelationDistribColumn(RelationLocInfo *locInfo);
+extern char GetLocatorType(Oid relid);
+extern List *GetPreferredReplicationNode(List *relNodes);
+extern bool IsTableDistOnPrimary(RelationLocInfo *locInfo);
+extern bool IsLocatorInfoEqual(RelationLocInfo *locInfo1,
+							   RelationLocInfo *locInfo2);
+extern int GetRoundRobinNode(Oid relid);
+extern bool IsTypeDistributable(Oid colType);
+extern bool IsDistribColumn(Oid relid, AttrNumber attNum);
+extern ExecNodes *GetRelationNodes(RelationLocInfo *rel_loc_info,
+								   Datum valueForDistCol,
+								   bool isValueNull,
+								   Oid typeOfValueForDistCol,
+								   RelationAccessType accessType);
+extern ExecNodes *GetRelationNodesByQuals(Oid reloid,
+										  Index varno,
+										  Node *quals,
+										  RelationAccessType relaccess);
+/* Global locator data */
+extern void FreeExecNodes(ExecNodes **exec_nodes);
 extern List *GetAllDataNodes(void);
 extern List *GetAllCoordNodes(void);
-extern List *GetPreferredReplicationNode(List *relNodes);
-extern void RelationBuildLocator(Relation rel);
-extern void FreeRelationLocInfo(RelationLocInfo *relationLocInfo);
-
-extern bool IsTypeModuloDistributable(Oid col_type);
-extern char *GetRelationModuloColumn(RelationLocInfo *rel_loc_info);
-extern bool IsModuloColumn(RelationLocInfo *rel_loc_info, char *part_col_name);
-extern bool IsModuloColumnForRelId(Oid relid, char *part_col_name);
-extern char *GetRelationDistColumn(RelationLocInfo *rel_loc_info);
-extern bool IsDistColumnForRelId(Oid relid, char *part_col_name);
-extern void FreeExecNodes(ExecNodes **exec_nodes);
 
 #endif   /* LOCATOR_H */

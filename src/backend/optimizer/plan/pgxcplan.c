@@ -2647,16 +2647,15 @@ validate_part_col_updatable(const Query *query)
 	if (!rel_loc_info)
 		return;
 
-
-	/* Only LOCATOR_TYPE_HASH & LOCATOR_TYPE_MODULO should be checked */
-	if ( (rel_loc_info->partAttrName != NULL) &&
-		( (rel_loc_info->locatorType == LOCATOR_TYPE_HASH) || (rel_loc_info->locatorType == LOCATOR_TYPE_MODULO) ) )
+	/* Only relations distributed by value can be checked */
+	if (IsLocatorDistributedByValue(rel_loc_info->locatorType))
 	{
 		/* It is a partitioned table, check partition column in targetList */
 		foreach(lc, query->targetList)
 		{
 			TargetEntry *tle = (TargetEntry *) lfirst(lc);
 
+			/* Nothing to do for a junk entry */
 			if (tle->resjunk)
 				continue;
 
@@ -2664,7 +2663,7 @@ validate_part_col_updatable(const Query *query)
 			 * See if we have a constant expression comparing against the
 			 * designated partitioned column
 			 */
-			if (strcmp(tle->resname, rel_loc_info->partAttrName) == 0)
+			if (strcmp(tle->resname, GetRelationDistribColumn(rel_loc_info)) == 0)
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
 						(errmsg("Partition column can't be updated in current version"))));

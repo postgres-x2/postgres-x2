@@ -1330,7 +1330,7 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 	 */
 	if (IS_PGXC_COORDINATOR &&
 		!IsConnFromCoord() &&
-		!IsLocatorReplicated(GetRelationLocType(RelationGetRelid(target_relation))))
+		!IsLocatorReplicated(GetLocatorType(RelationGetRelid(target_relation))))
 	{
 		var = makeVar(parsetree->resultRelation,
 					  XC_NodeIdAttributeNumber,

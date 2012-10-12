@@ -462,7 +462,7 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 
 			if (tle->resjunk)
 				continue;
-			if (strcmp(tle->resname, rel_loc_info->partAttrName) == 0)
+			if (strcmp(tle->resname, GetRelationDistribColumn(rel_loc_info)) == 0)
 				break;
 		}
 		/* Not found, bail out */

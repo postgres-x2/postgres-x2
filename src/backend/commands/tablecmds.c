@@ -10277,12 +10277,16 @@ ATCheckCmd(Relation rel, AlterTableCmd *cmd)
 	switch (cmd->subtype)
 	{
 		case AT_DropColumn:
-			/* Distribution column cannot be dropped */
-			if (IsDistColumnForRelId(RelationGetRelid(rel), cmd->name))
-				ereport(ERROR,
-						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+			{
+				AttrNumber attnum = get_attnum(RelationGetRelid(rel),
+											   cmd->name);
+				/* Distribution column cannot be dropped */
+				if (IsDistribColumn(RelationGetRelid(rel), attnum))
+					ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 						 errmsg("Distribution column cannot be dropped")));
-			break;
+				break;
+			}
 
 		default:
 			break;

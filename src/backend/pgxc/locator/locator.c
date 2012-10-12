@@ -50,7 +50,7 @@
 #include "catalog/namespace.h"
 #include "access/hash.h"
 
-static Expr *pgxc_find_distcol_expr(Index varno, PartAttrNumber partAttrNum,
+static Expr *pgxc_find_distcol_expr(Index varno, AttrNumber attrNum,
 												Node *quals);
 
 Oid		primary_data_node = InvalidOid;
@@ -222,30 +222,53 @@ get_node_from_modulo(int modulo, List *nodeList)
 
 
 /*
- * GetRelationDistColumn - Returns the name of the hash or modulo distribution column
- * First hash distribution is checked
- * Retuens NULL if the table is neither hash nor modulo distributed
+ * GetRelationDistribColumn
+ * Return hash column name for relation or NULL if relation is not distributed.
  */
 char *
-GetRelationDistColumn(RelationLocInfo * rel_loc_info)
+GetRelationDistribColumn(RelationLocInfo *locInfo)
 {
-char *pColName;
+	/* No relation, so simply leave */
+	if (!locInfo)
+		return NULL;
 
-	pColName = NULL;
+	/* No distribution column if relation is not distributed with a key */
+	if (!IsLocatorDistributedByValue(locInfo->locatorType))
+		return NULL;
 
-	pColName = GetRelationHashColumn(rel_loc_info);
-	if (pColName == NULL)
-		pColName = GetRelationModuloColumn(rel_loc_info);
-
-	return pColName;
+	/* Return column name */
+	return get_attname(locInfo->relid, locInfo->partAttrNum);
 }
 
+
 /*
- * Returns whether or not the data type is hash distributable with PG-XC
- * PGXCTODO - expand support for other data types!
+ * IsDistribColumn
+ * Return whether column for relation is used for distribution or not.
  */
 bool
-IsTypeHashDistributable(Oid col_type)
+IsDistribColumn(Oid relid, AttrNumber attNum)
+{
+	RelationLocInfo *locInfo = GetRelationLocInfo(relid);
+
+	/* No locator info, so leave */
+	if (!locInfo)
+		return false;
+
+	/* No distribution column if relation is not distributed with a key */
+	if (!IsLocatorDistributedByValue(locInfo->locatorType))
+		return false;
+
+	/* Finally check if attribute is distributed */
+	return locInfo->partAttrNum == attNum;
+}
+
+
+/*
+ * IsTypeDistributable
+ * Returns whether the data type is distributable using a column value.
+ */
+bool
+IsTypeDistributable(Oid col_type)
 {
 	if(col_type == INT8OID
 	|| col_type == INT2OID
@@ -278,180 +301,10 @@ IsTypeHashDistributable(Oid col_type)
 	return false;
 }
 
-/*
- * GetRelationHashColumn - return hash column for relation.
- *
- * Returns NULL if the relation is not hash partitioned.
- */
-char *
-GetRelationHashColumn(RelationLocInfo * rel_loc_info)
-{
-	char	   *column_str = NULL;
-
-	if (rel_loc_info == NULL)
-		column_str = NULL;
-	else if (rel_loc_info->locatorType != LOCATOR_TYPE_HASH)
-		column_str = NULL;
-	else
-	{
-		int			len = strlen(rel_loc_info->partAttrName);
-
-		column_str = (char *) palloc(len + 1);
-		strncpy(column_str, rel_loc_info->partAttrName, len + 1);
-	}
-
-	return column_str;
-}
 
 /*
- * IsHashColumn - return whether or not column for relation is hashed.
- *
- */
-bool
-IsHashColumn(RelationLocInfo *rel_loc_info, char *part_col_name)
-{
-	bool		ret_value = false;
-
-	if (!rel_loc_info || !part_col_name)
-		ret_value = false;
-	else if (rel_loc_info->locatorType != LOCATOR_TYPE_HASH)
-		ret_value = false;
-	else
-		ret_value = !strcmp(part_col_name, rel_loc_info->partAttrName);
-
-	return ret_value;
-}
-
-
-/*
- * IsHashColumnForRelId - return whether or not column for relation is hashed.
- *
- */
-bool
-IsHashColumnForRelId(Oid relid, char *part_col_name)
-{
-	RelationLocInfo *rel_loc_info = GetRelationLocInfo(relid);
-
-	return IsHashColumn(rel_loc_info, part_col_name);
-}
-
-/*
- * IsDistColumnForRelId - return whether or not column for relation is used for hash or modulo distribution
- *
- */
-bool
-IsDistColumnForRelId(Oid relid, char *part_col_name)
-{
-	bool bRet;
-	RelationLocInfo *rel_loc_info;
-
-	rel_loc_info = GetRelationLocInfo(relid);
-	bRet = false;
-
-	bRet = IsHashColumn(rel_loc_info, part_col_name);
-	if (bRet == false)
-		IsModuloColumn(rel_loc_info, part_col_name);
-	return bRet;
-}
-
-
-/*
- * Returns whether or not the data type is modulo distributable with PG-XC
- * PGXCTODO - expand support for other data types!
- */
-bool
-IsTypeModuloDistributable(Oid col_type)
-{
-	if(col_type == INT8OID
-	|| col_type == INT2OID
-	|| col_type == OIDOID
-	|| col_type == INT4OID
-	|| col_type == BOOLOID
-	|| col_type == CHAROID
-	|| col_type == NAMEOID
-	|| col_type == INT2VECTOROID
-	|| col_type == TEXTOID
-	|| col_type == OIDVECTOROID
-	|| col_type == FLOAT4OID
-	|| col_type == FLOAT8OID
-	|| col_type == ABSTIMEOID
-	|| col_type == RELTIMEOID
-	|| col_type == CASHOID
-	|| col_type == BPCHAROID
-	|| col_type == BYTEAOID
-	|| col_type == VARCHAROID
-	|| col_type == DATEOID
-	|| col_type == TIMEOID
-	|| col_type == TIMESTAMPOID
-	|| col_type == TIMESTAMPTZOID
-	|| col_type == INTERVALOID
-	|| col_type == TIMETZOID
-	|| col_type == NUMERICOID
-	)
-		return true;
-
-	return false;
-}
-
-/*
- * GetRelationModuloColumn - return modulo column for relation.
- *
- * Returns NULL if the relation is not modulo partitioned.
- */
-char *
-GetRelationModuloColumn(RelationLocInfo * rel_loc_info)
-{
-	char	   *column_str = NULL;
-
-	if (rel_loc_info == NULL)
-		column_str = NULL;
-	else if (rel_loc_info->locatorType != LOCATOR_TYPE_MODULO)
-		column_str = NULL;
-	else
-	{
-		int	len = strlen(rel_loc_info->partAttrName);
-
-		column_str = (char *) palloc(len + 1);
-		strncpy(column_str, rel_loc_info->partAttrName, len + 1);
-	}
-
-	return column_str;
-}
-
-/*
- * IsModuloColumn - return whether or not column for relation is used for modulo distribution.
- *
- */
-bool
-IsModuloColumn(RelationLocInfo *rel_loc_info, char *part_col_name)
-{
-	bool		ret_value = false;
-
-	if (!rel_loc_info || !part_col_name)
-		ret_value = false;
-	else if (rel_loc_info->locatorType != LOCATOR_TYPE_MODULO)
-		ret_value = false;
-	else
-		ret_value = !strcmp(part_col_name, rel_loc_info->partAttrName);
-
-	return ret_value;
-}
-
-
-/*
- * IsModuloColumnForRelId - return whether or not column for relation is used for modulo distribution.
- */
-bool
-IsModuloColumnForRelId(Oid relid, char *part_col_name)
-{
-	RelationLocInfo *rel_loc_info = GetRelationLocInfo(relid);
-
-	return IsModuloColumn(rel_loc_info, part_col_name);
-}
-
-/*
- * Update the round robin node for the relation
- *
+ * GetRoundRobinNode
+ * Update the round robin node for the relation.
  * PGXCTODO - may not want to bother with locking here, we could track
  * these in the session memory context instead...
  */
@@ -480,7 +333,6 @@ GetRoundRobinNode(Oid relid)
 
 /*
  * IsTableDistOnPrimary
- *
  * Does the table distribution list include the primary node?
  */
 bool
@@ -507,24 +359,25 @@ IsTableDistOnPrimary(RelationLocInfo *rel_loc_info)
  * Check equality of given locator information
  */
 bool
-IsLocatorInfoEqual(RelationLocInfo *rel_loc_info1, RelationLocInfo *rel_loc_info2)
+IsLocatorInfoEqual(RelationLocInfo *locInfo1,
+				   RelationLocInfo *locInfo2)
 {
 	List *nodeList1, *nodeList2;
-	Assert(rel_loc_info1 && rel_loc_info2);
+	Assert(locInfo1 && locInfo2);
 
-	nodeList1 = rel_loc_info1->nodeList;
-	nodeList2 = rel_loc_info2->nodeList;
+	nodeList1 = locInfo1->nodeList;
+	nodeList2 = locInfo2->nodeList;
 
 	/* Same relation? */
-	if (rel_loc_info1->relid != rel_loc_info2->relid)
+	if (locInfo1->relid != locInfo2->relid)
 		return false;
 
 	/* Same locator type? */
-	if (rel_loc_info1->locatorType != rel_loc_info2->locatorType)
+	if (locInfo1->locatorType != locInfo2->locatorType)
 		return false;
 
 	/* Same attribute number? */
-	if (rel_loc_info1->partAttrNum != rel_loc_info2->partAttrNum)
+	if (locInfo1->partAttrNum != locInfo2->partAttrNum)
 		return false;
 
 	/* Same node list? */
@@ -770,59 +623,24 @@ GetRelationNodesByQuals(Oid reloid, Index varno, Node *quals,
 }
 
 /*
- * ConvertToLocatorType
- *		get locator distribution type
- * We really should just have pgxc_class use disttype instead...
- */
-char
-ConvertToLocatorType(int disttype)
-{
-	char		loctype = LOCATOR_TYPE_NONE;
-
-	switch (disttype)
-	{
-		case DISTTYPE_HASH:
-			loctype = LOCATOR_TYPE_HASH;
-			break;
-		case DISTTYPE_ROUNDROBIN:
-			loctype = LOCATOR_TYPE_RROBIN;
-			break;
-		case DISTTYPE_REPLICATION:
-			loctype = LOCATOR_TYPE_REPLICATED;
-			break;
-		case DISTTYPE_MODULO:
-			loctype = LOCATOR_TYPE_MODULO;
-			break;
-		default:
-			ereport(ERROR,
-					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-					 errmsg("Invalid distribution type")));
-			break;
-	}
-
-	return loctype;
-}
-
-
-/*
- * GetLocatorType - Returns the locator type of the table
- *
+ * GetLocatorType
+ * Returns the locator type of the table.
  */
 char
 GetLocatorType(Oid relid)
 {
-	char		ret = '\0';
+	char		ret = LOCATOR_TYPE_NONE;
+	RelationLocInfo *locInfo = GetRelationLocInfo(relid);
 
-	RelationLocInfo *ret_loc_info = GetRelationLocInfo(relid);
-
-	if (ret_loc_info != NULL)
-		ret = ret_loc_info->locatorType;
+	if (locInfo != NULL)
+		ret = locInfo->locatorType;
 
 	return ret;
 }
 
 
 /*
+ * GetAllDataNodes
  * Return a list of all Datanodes.
  * We assume all tables use all nodes in the prototype, so just return a list
  * from first one.
@@ -840,6 +658,7 @@ GetAllDataNodes(void)
 }
 
 /*
+ * GetAllCoordNodes
  * Return a list of all Coordinators
  * This is used to send DDL to all nodes and to clean up pooler connections.
  * Do not put in the list the local Coordinator where this function is launched.
@@ -866,6 +685,7 @@ GetAllCoordNodes(void)
 
 
 /*
+ * RelationBuildLocator
  * Build locator information associated with the specified relation.
  */
 void
@@ -910,9 +730,6 @@ RelationBuildLocator(Relation rel)
 	relationLocInfo->locatorType = pgxc_class->pclocatortype;
 
 	relationLocInfo->partAttrNum = pgxc_class->pcattnum;
-
-	relationLocInfo->partAttrName = get_attname(relationLocInfo->relid, pgxc_class->pcattnum);
-
 	relationLocInfo->nodeList = NIL;
 
 	for (j = 0; j < pgxc_class->nodeoids.dim1; j++)
@@ -948,7 +765,8 @@ RelationBuildLocator(Relation rel)
 }
 
 /*
- * GetLocatorRelationInfo - Returns the locator information for relation,
+ * GetLocatorRelationInfo
+ * Returns the locator information for relation,
  * in a copy of the RelationLocatorInfo struct in relcache
  */
 RelationLocInfo *
@@ -969,60 +787,43 @@ GetRelationLocInfo(Oid relid)
 }
 
 /*
- * Get the distribution type of relation.
- */
-char
-GetRelationLocType(Oid relid)
-{
-	RelationLocInfo *locinfo = GetRelationLocInfo(relid);
-	if (!locinfo)
-		return LOCATOR_TYPE_NONE;
-
-	return locinfo->locatorType;
-}
-
-/*
+ * CopyRelationLocInfo
  * Copy the RelationLocInfo struct
  */
 RelationLocInfo *
-CopyRelationLocInfo(RelationLocInfo * src_info)
+CopyRelationLocInfo(RelationLocInfo *srcInfo)
 {
-	RelationLocInfo *dest_info;
+	RelationLocInfo *destInfo;
 
-	Assert(src_info);
+	Assert(srcInfo);
+	destInfo = (RelationLocInfo *) palloc0(sizeof(RelationLocInfo));
 
-	dest_info = (RelationLocInfo *) palloc0(sizeof(RelationLocInfo));
+	destInfo->relid = srcInfo->relid;
+	destInfo->locatorType = srcInfo->locatorType;
+	destInfo->partAttrNum = srcInfo->partAttrNum;
+	if (srcInfo->nodeList)
+		destInfo->nodeList = list_copy(srcInfo->nodeList);
 
-	dest_info->relid = src_info->relid;
-	dest_info->locatorType = src_info->locatorType;
-	dest_info->partAttrNum = src_info->partAttrNum;
-	if (src_info->partAttrName)
-		dest_info->partAttrName = pstrdup(src_info->partAttrName);
-
-	if (src_info->nodeList)
-		dest_info->nodeList = list_copy(src_info->nodeList);
-	/* Note, for round robin, we use the relcache entry */
-
-	return dest_info;
+	/* Note: for roundrobin, we use the relcache entry */
+	return destInfo;
 }
 
 
 /*
+ * FreeRelationLocInfo
  * Free RelationLocInfo struct
  */
 void
 FreeRelationLocInfo(RelationLocInfo *relationLocInfo)
 {
 	if (relationLocInfo)
-	{
-		if (relationLocInfo->partAttrName)
-			pfree(relationLocInfo->partAttrName);
 		pfree(relationLocInfo);
-	}
 }
 
 /*
- * Free the contents of the ExecNodes expression */
+ * FreeExecNodes
+ * Free the contents of the ExecNodes expression
+ */
 void
 FreeExecNodes(ExecNodes **exec_nodes)
 {
@@ -1050,8 +851,9 @@ FreeExecNodes(ExecNodes **exec_nodes)
  * this function returns NULL.
  */
 static Expr *
-pgxc_find_distcol_expr(Index varno, PartAttrNumber partAttrNum,
-												Node *quals)
+pgxc_find_distcol_expr(Index varno,
+					   AttrNumber attrNum,
+					   Node *quals)
 {
 	List *lquals;
 	ListCell *qual_cell;
@@ -1123,7 +925,7 @@ pgxc_find_distcol_expr(Index varno, PartAttrNumber partAttrNum,
 		 * If Var found is not the distribution column of required relation,
 		 * check next qual
 		 */
-		if (var_expr->varno != varno || var_expr->varattno != partAttrNum)
+		if (var_expr->varno != varno || var_expr->varattno != attrNum)
 			continue;
 		/*
 		 * If the operator is not an assignment operator, check next

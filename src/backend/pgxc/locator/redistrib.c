@@ -721,10 +721,8 @@ distrib_delete_hash(RedistribState *distribState, ExecNodes *exec_nodes)
 		hashfuncname = get_compute_hash_function(hashtype, locinfo->locatorType);
 
 		/* Get distribution column name */
-		if (locinfo->locatorType == LOCATOR_TYPE_HASH)
-			colname = GetRelationHashColumn(locinfo);
-		else if (locinfo->locatorType == LOCATOR_TYPE_MODULO)
-			colname = GetRelationModuloColumn(locinfo);
+		if (IsLocatorDistributedByValue(locinfo->locatorType))
+			colname = GetRelationDistribColumn(locinfo);
 		else
 			ereport(ERROR,
 					(errcode(ERRCODE_WRONG_OBJECT_TYPE),

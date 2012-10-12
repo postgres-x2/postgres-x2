@@ -1033,7 +1033,7 @@ GetRelationDistributionItems(Oid relid,
 		for (i = 0; i < descriptor->natts; i++)
 		{
 			attr = descriptor->attrs[i];
-			if (IsTypeHashDistributable(attr->atttypid))
+			if (IsTypeDistributable(attr->atttypid))
 			{
 				/* distribute on this column */
 				local_attnum = i + 1;
@@ -1065,7 +1065,7 @@ GetRelationDistributionItems(Oid relid,
 						 errmsg("Invalid distribution column specified")));
 				}
 
-				if (!IsTypeHashDistributable(descriptor->attrs[local_attnum - 1]->atttypid))
+				if (!IsTypeDistributable(descriptor->attrs[local_attnum - 1]->atttypid))
 				{
 					ereport(ERROR,
 						(errcode(ERRCODE_WRONG_OBJECT_TYPE),
@@ -1088,7 +1088,7 @@ GetRelationDistributionItems(Oid relid,
 						 errmsg("Invalid distribution column specified")));
 				}
 
-				if (!IsTypeModuloDistributable(descriptor->attrs[local_attnum - 1]->atttypid))
+				if (!IsTypeDistributable(descriptor->attrs[local_attnum - 1]->atttypid))
 				{
 					ereport(ERROR,
 						(errcode(ERRCODE_WRONG_OBJECT_TYPE),
