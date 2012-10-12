@@ -1038,6 +1038,7 @@ _copyRemoteQuery(const RemoteQuery *from)
 	COPY_NODE_FIELD(base_tlist);
 	COPY_NODE_FIELD(coord_var_tlist);
 	COPY_NODE_FIELD(query_var_tlist);
+	COPY_SCALAR_FIELD(is_shippable_tlist);
 	COPY_SCALAR_FIELD(has_row_marks);
 	COPY_SCALAR_FIELD(has_ins_child_sel_parent);
 

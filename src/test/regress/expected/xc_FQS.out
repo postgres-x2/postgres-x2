@@ -516,14 +516,14 @@ select distinct on (val2) val, val2 from tab1_hash where val2 = 8;
    7 |    8
 (1 row)
 
-explain (costs off, verbose on, nodes off) select distinct on (val2) val, val2 from tab1_hash where val2 = 8;
-                                 QUERY PLAN                                  
------------------------------------------------------------------------------
+explain (costs off, verbose on, nodes off) select distinct (val2) val, val2 from tab1_hash where val2 = 8;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
  Unique
-   Output: tab1_hash.val, tab1_hash.val2
+   Output: tab1_hash.val2, tab1_hash.val2
    ->  Data Node Scan on tab1_hash "_REMOTE_TABLE_QUERY_"
-         Output: tab1_hash.val, tab1_hash.val2
-         Remote query: SELECT val, val2 FROM ONLY tab1_hash WHERE (val2 = 8)
+         Output: tab1_hash.val2, tab1_hash.val2
+         Remote query: SELECT val2 FROM ONLY tab1_hash WHERE (val2 = 8)
 (5 rows)
 
 -- should not get FQSed because of presence of aggregates and HAVING clause

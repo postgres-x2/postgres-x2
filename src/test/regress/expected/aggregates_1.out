@@ -579,11 +579,11 @@ order by f1;
 -- check some cases that were handled incorrectly in 8.3.0
 explain (costs off, nodes off)
   select distinct max(unique2) from tenk1;
-                       QUERY PLAN                       
---------------------------------------------------------
+                         QUERY PLAN                         
+------------------------------------------------------------
  HashAggregate
    ->  Aggregate
-         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+         ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
 (3 rows)
 
 select distinct max(unique2) from tenk1;
@@ -594,12 +594,12 @@ select distinct max(unique2) from tenk1;
 
 explain (costs off, nodes off)
   select max(unique2) from tenk1 order by 1;
-                       QUERY PLAN                       
---------------------------------------------------------
+                         QUERY PLAN                         
+------------------------------------------------------------
  Sort
-   Sort Key: (max((max(tenk1.unique2))))
+   Sort Key: (max(tenk1.unique2))
    ->  Aggregate
-         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+         ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
 (4 rows)
 
 select max(unique2) from tenk1 order by 1;
@@ -610,12 +610,12 @@ select max(unique2) from tenk1 order by 1;
 
 explain (costs off, nodes off)
   select max(unique2) from tenk1 order by max(unique2);
-                       QUERY PLAN                       
---------------------------------------------------------
+                         QUERY PLAN                         
+------------------------------------------------------------
  Sort
-   Sort Key: (max((max(tenk1.unique2))))
+   Sort Key: (max(tenk1.unique2))
    ->  Aggregate
-         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+         ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
 (4 rows)
 
 select max(unique2) from tenk1 order by max(unique2);
@@ -626,12 +626,12 @@ select max(unique2) from tenk1 order by max(unique2);
 
 explain (costs off, nodes off)
   select max(unique2) from tenk1 order by max(unique2)+1;
-                       QUERY PLAN                       
---------------------------------------------------------
+                         QUERY PLAN                         
+------------------------------------------------------------
  Sort
-   Sort Key: ((max((max(tenk1.unique2))) + 1))
+   Sort Key: ((max(tenk1.unique2) + 1))
    ->  Aggregate
-         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+         ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
 (4 rows)
 
 select max(unique2) from tenk1 order by max(unique2)+1;
@@ -642,12 +642,12 @@ select max(unique2) from tenk1 order by max(unique2)+1;
 
 explain (costs off, nodes off)
   select max(unique2), generate_series(1,3) as g from tenk1 order by g desc;
-                       QUERY PLAN                       
---------------------------------------------------------
+                         QUERY PLAN                         
+------------------------------------------------------------
  Sort
    Sort Key: (generate_series(1, 3))
    ->  Aggregate
-         ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
+         ->  Data Node Scan on tenk1 "_REMOTE_TABLE_QUERY_"
 (4 rows)
 
 select max(unique2), generate_series(1,3) as g from tenk1 order by g desc;

@@ -112,6 +112,7 @@ typedef struct
 	 */
 	List			*coord_var_tlist;
 	List			*query_var_tlist;
+	bool			is_shippable_tlist;
 	bool			has_row_marks;		/* Did SELECT had FOR UPDATE/SHARE? */
 	bool			has_ins_child_sel_parent;	/* This node is part of an INSERT SELECT that
 								 * inserts into child by selecting from its parent */

@@ -106,7 +106,7 @@ select val, val2 from tab1_hash where val2 = 8 group by val, val2;
 explain (costs off, verbose on, nodes off) select val, val2 from tab1_hash where val2 = 8 group by val, val2;
 -- should not get FQSed because of DISTINCT clause
 select distinct on (val2) val, val2 from tab1_hash where val2 = 8;
-explain (costs off, verbose on, nodes off) select distinct on (val2) val, val2 from tab1_hash where val2 = 8;
+explain (costs off, verbose on, nodes off) select distinct (val2) val, val2 from tab1_hash where val2 = 8;
 -- should not get FQSed because of presence of aggregates and HAVING clause
 -- withour distribution column in GROUP BY clause
 select sum(val) from tab1_hash where val2 = 2 group by val2 having sum(val) > 1;

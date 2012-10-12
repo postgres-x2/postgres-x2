@@ -26,7 +26,6 @@
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
 #ifdef PGXC
-#include "pgxc/pgxc.h"
 #include "optimizer/pgxcplan.h"
 #endif
 
@@ -152,7 +151,6 @@ static List * fix_remote_expr(PlannerInfo *root,
 static Node *fix_remote_expr_mutator(Node *node,
 			  fix_remote_expr_context *context);
 static void set_remote_references(PlannerInfo *root, RemoteQuery *rscan, int rtoffset);
-static void pgxc_set_agg_references(PlannerInfo *root, Agg *aggplan);
 #endif
 
 
@@ -552,11 +550,6 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 			}
 			break;
 		case T_Agg:
-#ifdef PGXC
-			/* If the lower plan is RemoteQuery plan, adjust the aggregates */
-			pgxc_set_agg_references(root, (Agg *)plan);
-			/* Fall through */
-#endif /* PGXC */
 		case T_Group:
 			set_upper_references(root, plan, rtoffset);
 			break;
@@ -2116,94 +2109,3 @@ set_remote_references(PlannerInfo *root, RemoteQuery *rscan, int rtoffset)
 
 	pfree(base_itlist);
 }
-
-#ifdef PGXC
-/*
- * For Agg plans, if the lower scan plan is a RemoteQuery node, adjust the
- * Aggref nodes to pull the transition results from the datanodes. We do while
- * setting planner references so that the upper nodes will find the nodes that
- * they expect in Agg plans.
- */
-void
-pgxc_set_agg_references(PlannerInfo *root, Agg *aggplan)
-{
-	RemoteQuery *rqplan = (RemoteQuery *)aggplan->plan.lefttree;
-	List		*aggs_n_vars;
-	ListCell	*lcell;
-	List		*nodes_to_modify;
-	List		*rq_nodes_to_modify;
-
-
-	/* Nothing to do if the lower plan is not RemoteQuery */
-	if (!IsA(rqplan, RemoteQuery))
-		return;
-
-	Assert(IS_PGXC_COORDINATOR && !IsConnFromCoord());
-	/*
-	 * If there are not transition results expected from lower plans, nothing to
-	 * be done here.
-	 */
-	if (!aggplan->skip_trans)
-		return;
-
-	/* Gather all the aggregates that need fixing */
-	nodes_to_modify = list_copy(aggplan->plan.targetlist);
-	nodes_to_modify = list_concat(nodes_to_modify, aggplan->plan.qual);
-	aggs_n_vars = pull_var_clause((Node *)nodes_to_modify, PVC_INCLUDE_AGGREGATES,
-									PVC_RECURSE_PLACEHOLDERS);
-	rq_nodes_to_modify = NIL;
-	/*
-	 * For every aggregate, find corresponding aggregate in the lower plan and
-	 * modify it correctly.
-	 */
-	foreach (lcell, aggs_n_vars)
-	{
-		Aggref *aggref = lfirst(lcell);
-		TargetEntry	*tle;
-		Aggref *rq_aggref;
-
-		if (!IsA(aggref, Aggref))
-		{
-			Assert(IsA(aggref, Var));
-			continue;
-		}
-
-		tle = tlist_member((Node *)aggref, rqplan->scan.plan.targetlist);
-
-		if (!tle)
-			elog(ERROR, "Could not find the Aggref node");
-
-		rq_aggref = (Aggref *)tle->expr;
-		Assert(equal(rq_aggref, aggref));
-
-		/*
-		 * Remember the Aggref nodes of which we need to modify. This is done so
-		 * that, if there multiple copies of same aggregate, we will match all
-		 * of them
-		 */
-		rq_nodes_to_modify = list_append_unique(rq_nodes_to_modify, rq_aggref);
-		/*
-		 * The transition result from the datanodes acts as an input to the
-		 * Aggref node on coordinator.
-		 */
-		aggref->args = list_make1(makeTargetEntry((Expr *)rq_aggref, 1, NULL,
-																false));
-	}
-
-	/* Modify the transition types now */
-	foreach (lcell, rq_nodes_to_modify)
-	{
-		Aggref	*rq_aggref = lfirst(lcell);
-		Assert(IsA(rq_aggref, Aggref));
-		rq_aggref->aggtype = rq_aggref->aggtrantype;
-	}
-
-	/*
-	 * We have modified the targetlist of the RemoteQuery plan below the Agg
-	 * plan. Adjust its targetlist as well.
-	 */
-	pgxc_rqplan_adjust_tlist(rqplan);
-
-	return;
-}
-#endif /* PGXC */
