@@ -812,52 +812,6 @@ CopyQuoteStr(StringInfo query_buf, char *value)
 	APPENDSOFAR;
 	appendStringInfoChar(query_buf, '\'');
 }
-
-/*
- *  CopyQuoteIdentifier determine if identifier needs to be quoted and surround
- * it with double quotes
- */
-static void
-CopyQuoteIdentifier(StringInfo query_buf, char *value)
-{
-	char   *start = value;
-	char   *current = value;
-	char	c;
-	int 	len = strlen(value);
-	bool	need_quote = (strspn(value, "_abcdefghijklmnopqrstuvwxyz0123456789") < len)
-			|| (strchr("_abcdefghijklmnopqrstuvwxyz", value[0]) == NULL);
-
-	if (need_quote)
-	{
-		appendStringInfoChar(query_buf, '"');
-
-#define APPENDSOFAR \
-		if (current > start) \
-			appendBinaryStringInfo(query_buf, start, current - start)
-
-		while ((c = *current) != '\0')
-		{
-			switch (c)
-			{
-				case '"':
-					APPENDSOFAR;
-					/* Double current */
-					appendStringInfoChar(query_buf, c);
-					/* Second current will be appended next time */
-					start = current;
-					/* fallthru */
-				default:
-					current++;
-			}
-		}
-		APPENDSOFAR;
-		appendStringInfoChar(query_buf, '"');
-	}
-	else
-	{
-		appendBinaryStringInfo(query_buf, value, len);
-	}
-}
 #endif
 
 
@@ -4466,7 +4420,8 @@ build_copy_statement(CopyState cstate, List *attnamelist,
 		{
 			if (prev)
 				appendStringInfoString(&cstate->query_buf, ", ");
-			CopyQuoteIdentifier(&cstate->query_buf, strVal(lfirst(cell)));
+			appendStringInfoString(&cstate->query_buf,
+								   quote_identifier(strVal(lfirst(cell))));
 			prev = cell;
 		}
 
@@ -4490,8 +4445,8 @@ build_copy_statement(CopyState cstate, List *attnamelist,
 					    !is_foreign_expr((Node*)expression_planner(defexpr), NULL))
 					{
 						appendStringInfoString(&cstate->query_buf, ", ");
-						CopyQuoteIdentifier(&cstate->query_buf,
-							NameStr(tupDesc->attrs[attnum - 1]->attname));
+						appendStringInfoString(&cstate->query_buf,
+							quote_identifier(NameStr(tupDesc->attrs[attnum - 1]->attname)));
 					}
 				}
 			}
@@ -4557,7 +4512,8 @@ build_copy_statement(CopyState cstate, List *attnamelist,
 		{
 			if (prev)
 				appendStringInfoString(&cstate->query_buf, ", ");
-			CopyQuoteIdentifier(&cstate->query_buf, strVal(lfirst(cell)));
+				appendStringInfoString(&cstate->query_buf,
+						quote_identifier(strVal(lfirst(cell))));
 			prev = cell;
 		}
 	}
@@ -4571,7 +4527,8 @@ build_copy_statement(CopyState cstate, List *attnamelist,
 		{
 			if (prev)
 				appendStringInfoString(&cstate->query_buf, ", ");
-			CopyQuoteIdentifier(&cstate->query_buf, strVal(lfirst(cell)));
+			appendStringInfoString(&cstate->query_buf,
+								   quote_identifier(strVal(lfirst(cell))));
 			prev = cell;
 		}
 	}

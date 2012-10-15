@@ -98,7 +98,7 @@ INSERT INTO xc_copy_1 VALUES (1,23),(34,5),(9,11);
 COPY xc_copy_1 TO STDOUT;
 DROP TABLE xc_copy_1;
 
--- Quoted table
+-- Quoted table name
 -- check for correct remote query generation
 CREATE TABLE "Xc_copy_2" (a int, b int);
 COPY "Xc_copy_2" FROM STDIN DELIMITER ',';
@@ -108,7 +108,17 @@ COPY "Xc_copy_2" FROM STDIN DELIMITER ',';
 COPY "Xc_copy_2" TO STDOUT;
 DROP TABLE "Xc_copy_2";
 
--- Table with no locator data
-CREATE TABLE xc_copy_3 (c1 int) DISTRIBUTE BY HASH(c1);
-COPY (SELECT pclocatortype,pcattnum,pchashalgorithm,pchashbuckets FROM pgxc_class WHERE pgxc_class.pcrelid = 'xc_copy_3'::regclass) TO stdout;
+-- Quoted column name
+-- check for correct remote query generation
+CREATE TABLE xc_copy_3(a int, "user" int);
+COPY xc_copy_3 (a, "user") FROM STDIN (DELIMITER ',');
+1,2
+3,4
+\.
+COPY xc_copy_3 TO STDOUT;
 DROP TABLE xc_copy_3;
+
+-- Table with no locator data
+CREATE TABLE xc_copy_4 (c1 int) DISTRIBUTE BY HASH(c1);
+COPY (SELECT pclocatortype,pcattnum,pchashalgorithm,pchashbuckets FROM pgxc_class WHERE pgxc_class.pcrelid = 'xc_copy_4'::regclass) TO stdout;
+DROP TABLE xc_copy_4;
