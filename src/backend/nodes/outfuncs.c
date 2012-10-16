@@ -487,7 +487,6 @@ _outRemoteQuery(StringInfo str, const RemoteQuery *node)
 	WRITE_NODE_FIELD(remote_query);
 	WRITE_NODE_FIELD(coord_var_tlist);
 	WRITE_NODE_FIELD(query_var_tlist);
-	WRITE_BOOL_FIELD(is_shippable_tlist);
 	WRITE_BOOL_FIELD(has_ins_child_sel_parent);
 }
 

@@ -33,6 +33,8 @@ extern bool pgxc_qual_has_dist_equijoin(Relids varnos_1,
 /* Merge given execution nodes based on join shippability conditions */
 extern ExecNodes *pgxc_merge_exec_nodes(ExecNodes *en1,
 	ExecNodes *en2, bool merge_dist_equijoin, bool merge_replicated_only);
+/* Check if given Query includes distribution column */
+extern bool pgxc_query_has_distcolgrouping(Query *query);
 /* Check the shippability of an index */
 extern bool pgxc_check_index_shippability(RelationLocInfo *relLocInfo,
 									   bool is_primary,
