@@ -1574,6 +1574,13 @@ pgxc_check_index_shippability(RelationLocInfo *relLocInfo,
 	}
 
 	/*
+	 * Check if relation is distributed on a single node, in this case
+	 * the constraint can be shipped in all the cases.
+	 */
+	if (list_length(relLocInfo->nodeList) == 1)
+		return result;
+
+	/*
 	 * Check the case of EXCLUSION index.
 	 * EXCLUSION constraints are shippable only for replicated relations as
 	 * such constraints need that one tuple is checked on all the others, and
@@ -1619,13 +1626,9 @@ pgxc_check_index_shippability(RelationLocInfo *relLocInfo,
 			case LOCATOR_TYPE_HASH:
 			case LOCATOR_TYPE_MODULO:
 				/*
-				 * Index on Hash and Modulo tables are shippable if the index
-				 * columns include the list of all column keys of distribution.
-				 * We need also to check if this index uses expressions. Such
-				 * expressions are not shippable if they do not satisfy the
-				 * following conditions:
-				 * - expression uses non-distribution columns
-				 * - expression uses more than 1 distribution column
+				 * Unique indexes on Hash and Modulo tables are shippable if the
+				 * index expression contains all the distribution expressions of
+				 * its parent relation.
 				 *
 				 * Here is a short example with concatenate that cannot be
 				 * shipped:
@@ -1637,40 +1640,27 @@ pgxc_check_index_shippability(RelationLocInfo *relLocInfo,
 				 * go to different nodes. For such simple reasons unique
 				 * indexes on distributed tables are not shippable.
 				 * Shippability is not even ensured if all the expressions
-				 * use as Var only distributed colums as the hash output of
+				 * used as Var are only distributed columns as the hash output of
 				 * their value combination does not ensure that query will
-				 * be directed to the correct remote node.
+				 * be directed to the correct remote node. Uniqueness is not even
+				 * protected if the index expression contains only the distribution
+				 * column like for that with a cluster of 2 Datanodes:
+				 * CREATE TABLE aa (a int) DISTRIBUTE BY HASH(a);
+				 * CREATE UNIQUE INDEX aap ON (abs(a));
+				 * INSERT INTO aa (2); -- to Datanode 1
+				 * INSERT INTO aa (-2); -- to Datanode 2, breaks uniqueness
 				 *
 				 * PGXCTODO: for the time being distribution key can only be
 				 * defined on a single column, so this will need to be changed
-				 * once such a feature is implemented.
+				 * onde a relation distribution will be able to be defined based
+				 * on an expression of multiple columns.
 				 */
 
-				/* Evaluate expression shippability based on index uniqueness */
+				/* Index contains expressions, it cannot be shipped safely */
 				if (indexExprs != NIL)
 				{
-					/*
-					 * Check if the expressions use only distribution columns.
-					 * In order to evaluate that get all the variable expressions.
-					 */
-					List *indexVars = pull_var_clause((Node *) indexExprs,
-													  PVC_RECURSE_AGGREGATES,
-													  PVC_RECURSE_PLACEHOLDERS);
-					foreach(lc, indexVars)
-					{
-						Var *var = (Var *) lfirst(lc);
-
-						/*
-						 * Check if attribute is the distribution column.
-						 * PGXCTODO: this will need modifications once
-						 * multi-column distribution is implemented.
-						 */
-						if (var->varattno != relLocInfo->partAttrNum)
-						{
-							result = false;
-							break;
-						}
-					}
+					result = false;
+					break;
 				}
 
 				/* Nothing to do if no attributes */

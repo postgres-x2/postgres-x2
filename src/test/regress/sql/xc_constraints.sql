@@ -24,7 +24,7 @@ CREATE UNIQUE INDEX xc_cons_rr_unique3 ON xc_cons_rr((c2 || c3)); -- error, not 
 CREATE UNIQUE INDEX xc_cons_hash_unique1 ON xc_cons_hash(c1);
 -- OK, contains distribution column
 CREATE UNIQUE INDEX xc_cons_hash_unique2 ON xc_cons_hash(c1,c2);
--- OK, expression contains only distribution column
+-- error, expression contains only distribution column
 CREATE UNIQUE INDEX xc_cons_hash_unique3 ON xc_cons_hash((c1 || c1));
 -- error, expression contains other columns than distribution one
 CREATE UNIQUE INDEX xc_cons_hash_unique3 ON xc_cons_hash((c1 || c2));
