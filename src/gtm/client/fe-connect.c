@@ -665,7 +665,11 @@ keep_going:						/* We will come back to here until there is
 
 		case CONNECTION_MADE:
 			{
-				GTM_StartupPacket sp;
+				GTM_StartupPacket *sp = (GTM_StartupPacket *)
+					malloc(sizeof(GTM_StartupPacket));
+				int packetlen = sizeof(GTM_StartupPacket);
+
+				MemSet(sp, 0, sizeof(GTM_StartupPacket));
 
 				/*
 				 * Build a startup packet. We tell the GTM server/proxy our
@@ -675,9 +679,9 @@ keep_going:						/* We will come back to here until there is
 				 * server know about it so that some special headers are
 				 * handled correctly by the server.
 				 */
-				strcpy(sp.sp_node_name, conn->gc_node_name);
-				sp.sp_remotetype = conn->remote_type;
-				sp.sp_ispostmaster = conn->is_postmaster;
+				strncpy(sp->sp_node_name, conn->gc_node_name, SP_NODE_NAME);
+				sp->sp_remotetype = conn->remote_type;
+				sp->sp_ispostmaster = conn->is_postmaster;
 
 				/*
 				 * Send the startup packet.
@@ -685,7 +689,7 @@ keep_going:						/* We will come back to here until there is
 				 * Theoretically, this could block, but it really shouldn't
 				 * since we only got here if the socket is write-ready.
 				 */
-				if (pqPacketSend(conn, 'A', &sp, sizeof (GTM_StartupPacket)) != STATUS_OK)
+				if (pqPacketSend(conn, 'A', (char *)sp, packetlen) != STATUS_OK)
 				{
 					appendGTMPQExpBuffer(&conn->errorMessage,
 						"could not send startup packet: \n");
@@ -693,6 +697,10 @@ keep_going:						/* We will come back to here until there is
 				}
 
 				conn->status = CONNECTION_AWAITING_RESPONSE;
+
+				/* Clean up startup packet */
+				free(sp);
+
 				return PGRES_POLLING_READING;
 			}
 
