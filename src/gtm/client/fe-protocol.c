@@ -518,14 +518,20 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 			xcnt = result->gr_snapshot.sn_xcnt;
 			xip = result->gr_snapshot.sn_xip;
 
-			if ((xip == NULL) || (xcnt > xsize))
+			if (!xip || xcnt > xsize)
 			{
-				xip = (GlobalTransactionId *) realloc(xip, sizeof (GlobalTransactionId) * xcnt);
+				if (!xip)
+					xip = (GlobalTransactionId *) malloc(sizeof(GlobalTransactionId) *
+														 GTM_MAX_GLOBAL_TRANSACTIONS);
+				else
+					xip = (GlobalTransactionId *) realloc(xip,
+									  sizeof(GlobalTransactionId) * xcnt);
+
 				result->gr_snapshot.sn_xip = xip;
 				result->gr_xip_size = xcnt;
 			}
 
-			if (gtmpqGetnchar((char *)xip, sizeof (GlobalTransactionId) * xcnt, conn))
+			if (gtmpqGetnchar((char *)xip, sizeof(GlobalTransactionId) * xcnt, conn))
 			{
 				result->gr_status = GTM_RESULT_ERROR;
 				break;

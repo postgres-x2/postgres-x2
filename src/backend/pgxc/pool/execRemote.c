@@ -4327,12 +4327,21 @@ clear_RemoteXactState(void)
 	if ((remoteXactState.remoteNodeHandles == NULL) ||
 		(remoteXactState.maxRemoteNodes < (NumDataNodes + NumCoords)))
 	{
-		remoteXactState.remoteNodeHandles = (PGXCNodeHandle **)
-			realloc (remoteXactState.remoteNodeHandles,
-					sizeof (PGXCNodeHandle *) * (NumDataNodes + NumCoords));
-		remoteXactState.remoteNodeStatus = (RemoteXactNodeStatus *)
-			realloc (remoteXactState.remoteNodeStatus,
-					sizeof (RemoteXactNodeStatus) * (NumDataNodes + NumCoords));
+		if (!remoteXactState.remoteNodeHandles)
+			remoteXactState.remoteNodeHandles = (PGXCNodeHandle **)
+				malloc(sizeof(PGXCNodeHandle *) * (MaxDataNodes + MaxCoords));
+		else
+			remoteXactState.remoteNodeHandles = (PGXCNodeHandle **)
+				realloc(remoteXactState.remoteNodeHandles,
+						sizeof(PGXCNodeHandle *) * (NumDataNodes + NumCoords));
+		if (!remoteXactState.remoteNodeStatus)
+			remoteXactState.remoteNodeStatus = (RemoteXactNodeStatus *)
+				malloc(sizeof(RemoteXactNodeStatus) * (MaxDataNodes + MaxCoords));
+		else
+			remoteXactState.remoteNodeStatus = (RemoteXactNodeStatus *)
+				realloc (remoteXactState.remoteNodeStatus,
+						sizeof(RemoteXactNodeStatus) * (NumDataNodes + NumCoords));
+
 		remoteXactState.maxRemoteNodes = NumDataNodes + NumCoords;
 	}
 
