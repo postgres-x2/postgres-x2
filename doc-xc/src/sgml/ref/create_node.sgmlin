@@ -145,8 +145,13 @@ CREATE NODE <replaceable class="parameter">nodename</replaceable> WITH
   </para>
 
   <para>
-    A slave Datanode cannot be defined as <literal>PRIMARY</literal> but
-    it can be defined as <literal>PREFERRED</literal>.
+    When using a cluster with 1 Coordinator and 1 Datanode on each server,
+    Defining the local Datanode as <literal>PREFERRED</literal> can greatly
+    improve the performance of a system by avoiding any network overhead for
+    replicated reads, as in this case a local socket is used for communication
+    between nodes. This has even more effects when the application uses heavily
+    replicated table for remote join operations and that those operations can
+    be operated on the local <literal>PREFERRED</literal> node.
   </para>
  </refsect1>
 
