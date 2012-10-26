@@ -1892,16 +1892,10 @@ standard_ProcessUtility(Node *parsetree,
 
 		case T_CreateGroupStmt:
 			PgxcGroupCreate((CreateGroupStmt *) parsetree);
-
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, true, EXEC_ON_ALL_NODES, false);
 			break;
 
 		case T_DropGroupStmt:
 			PgxcGroupRemove((DropGroupStmt *) parsetree);
-
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, true, EXEC_ON_ALL_NODES, false);
 			break;
 #endif
 
