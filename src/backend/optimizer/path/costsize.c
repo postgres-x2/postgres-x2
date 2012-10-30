@@ -116,6 +116,7 @@ bool		enable_hashjoin = true;
 #ifdef PGXC
 bool		enable_remotejoin = true;
 bool		enable_remotegroup = true;
+bool		enable_remotelimit = true;
 #endif
 
 typedef struct

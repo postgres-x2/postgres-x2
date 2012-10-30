@@ -33,6 +33,7 @@
 #include "optimizer/var.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_relation.h"
+#include "parser/parse_oper.h"
 #include "parser/parsetree.h"
 #include "parser/parse_func.h"
 #include "pgxc/pgxc.h"
@@ -2834,4 +2835,173 @@ pgxc_set_remote_parameters(PlannedStmt *plan, ParamListInfo boundParams)
 						   cntParam, param_types, 0);
 
 	return;
+}
+
+/*
+ * create_remotelimit_plan
+ * Check if we can incorporate the LIMIT clause into the RemoteQuery node if the
+ * node under the Limit node is a RemoteQuery node. If yes then do so.
+ * If there is only one datanode involved in the execution of RemoteQuery, we
+ * don't need the covering Limit node, both limitcount and limitoffset can be
+ * pushed to the RemoteQuery node.
+ * If there are multiple datanodes involved in the execution of RemoteQuery, we
+ * have following rules
+ * 1. If there is only limitcount, push that into RemoteQuery node
+ * 2. If there are both limitcount and limitoffset, push limitcount +
+ * limitoffset into RemoteQuery node.
+ *
+ * If either of limitcount or limitoffset expressions are unshippable, we can
+ * not push either of them to the RemoteQuery node.
+ * If there is no possibility of pushing clauses, the input plan is returned
+ * unmodified, otherwise, the RemoteQuery node under Limit is modified.
+ */
+Plan *
+create_remotelimit_plan(PlannerInfo *root, Plan *local_plan)
+{
+	Limit		*local_limit = NULL;
+	RemoteQuery	*remote_scan = NULL;
+	Plan		*result_plan = local_plan; /* By default we return the local_plan */
+	Query 		*remote_query;
+	Node		*rq_limitOffset = NULL;
+	Node		*rq_limitCount = NULL;
+	RangeTblEntry	*dummy_rte;
+	Query		*query = root->parse;	/* Query being planned */
+	Plan		*temp_plan;
+
+	/* If GUC forbids this optimization, return */
+	if (!enable_remotelimit)
+		return local_plan;
+
+	/* The function can handle only Limit as local plan */
+	if (IsA(local_plan, Limit))
+	{
+		local_limit = (Limit *)local_plan;
+		temp_plan = local_plan->lefttree;
+	}
+
+	/*
+	 * If the underlying plan is not RemoteQuery, there are other operations
+	 * being done locally on coordinator. LIMIT or OFFSET clauses can be applied
+	 * only after these operations have been performed. Hence can not push LIMIT
+	 * or OFFSET to datanodes.
+	 */
+	if (temp_plan && IsA(temp_plan, RemoteQuery))
+	{
+		remote_scan = (RemoteQuery *)temp_plan;
+		temp_plan = NULL;
+	}
+
+	/* If we didn't find the desired plan tree, return local plan as is */
+	if (!local_limit || !remote_scan)
+		return local_plan;
+
+	/*
+	 * If we have some local quals to be applied in RemoteQuery node, we can't
+	 * push the LIMIT and OFFSET clauses, since application of quals would
+	 * reduce the number of rows that can be projected further.
+	 */
+	if (remote_scan->scan.plan.qual || remote_scan->sort)
+		return local_plan;
+
+	/*
+	 * While checking shippability for LIMIT and OFFSET clauses, we don't expect
+	 * any aggregates in there
+	 */
+	if (!pgxc_is_expr_shippable((Expr *)local_limit->limitOffset, NULL) ||
+		!pgxc_is_expr_shippable((Expr *)local_limit->limitCount, NULL))
+			return local_plan;
+
+	/* Calculate the LIMIT and OFFSET values to be sent to the datanodes */
+	if (remote_scan->exec_nodes &&
+		list_length(remote_scan->exec_nodes->nodeList) == 1)
+	{
+		/*
+		 * If there is only a single node involved in execution of the RemoteQuery
+		 * node, we don't need covering Limit node on coordinator LIMIT and OFFSET
+		 * clauses can be pushed to the datanode. Copy the LIMIT and OFFSET
+		 * expressions.
+		 */
+		rq_limitCount = copyObject(local_limit->limitCount);
+		rq_limitOffset = copyObject(local_limit->limitOffset);
+		/* we don't need the covering Limit node, return the RemoteQuery node */
+		result_plan = (Plan *)remote_scan;
+	}
+	else if (local_limit->limitCount)
+	{
+		/*
+		 * The underlying RemoteQuery node needs more than one datanode for its
+		 * execution. We need the covering local Limit plan for combining the
+		 * results. If there is no LIMIT clause but only OFFSET clause, we don't
+		 * push anything.
+		 * Assumption: We do not know the number of rows available from each datanode.
+		 * Case 1: There is no OFFSET clause
+		 * In worst case, we can have all qualifying rows coming from a single
+		 * datanode. Hence we have to set the same limit as specified by LIMIT
+		 * clause for each datanode.
+		 * Case 2: There is OFFSET clause
+		 * In worst case, there can be OFFSET + LIMIT number of rows evenly
+		 * distributed across all the datanodes. In such case, we need to fetch
+		 * all rows from all the datanodes. Hence we can not set any OFFSET in
+		 * the query. The other extreme is all OFFSET + LIMIT rows are located
+		 * only on a single node. Hence we need to set limit of the query to be
+		 * sent to the datanode to be LIMIT + OFFSET.
+		 */
+		if (!local_limit->limitOffset)
+			rq_limitCount = copyObject(local_limit->limitCount);
+		else
+		{
+			/* Generate an expression LIMIT + OFFSET, use dummy parse state */
+			/*
+			 * PGXCTODO: do we need to use pg_catalog.+ as the operator name
+			 * here?
+			 */
+			rq_limitCount = (Node *)make_op(make_parsestate(NULL),
+									list_make1(makeString((char *)"+")),
+									copyObject(local_limit->limitCount),
+									copyObject(local_limit->limitOffset),
+									-1);
+		}
+		rq_limitOffset = NULL;
+		result_plan = local_plan;
+	}
+	else
+	{
+		/*
+		 * Underlying RemoteQuery needs more than one datanode, and does not
+		 * have LIMIT clause. No optimization. Return the input plan as is.
+		 */
+		result_plan = local_plan;
+		rq_limitCount = NULL;
+		rq_limitOffset = NULL;
+	}
+
+	/*
+	 * If we have valid OFFSET and LIMIT to be set for the RemoteQuery, then
+	 * only modify the Query in RemoteQuery node.
+	 */
+	if (rq_limitOffset || rq_limitCount)
+	{
+		remote_query = remote_scan->remote_query;
+		Assert(remote_query);
+		/*
+		 * None should have set the OFFSET and LIMIT clauses in the Query of
+		 * RemoteQuery node
+		 */
+		Assert(!remote_query->limitOffset && !remote_query->limitCount);
+		remote_query->limitOffset = rq_limitOffset;
+		remote_query->limitCount = rq_limitCount;
+
+		/* Change the dummy RTE added to show the new place of reduction */
+		dummy_rte = rt_fetch(remote_scan->scan.scanrelid, query->rtable);
+		dummy_rte->relname = "__REMOTE_LIMIT_QUERY__";
+		dummy_rte->eref = makeAlias("__REMOTE_LIMIT_QUERY__", NIL);
+
+		/*
+		 * We must have modified the Query to be sent to the datanode. Build the
+		 * statement out of it.
+		 */
+		pgxc_rqplan_build_statement(remote_scan);
+	}
+
+	return result_plan;
 }

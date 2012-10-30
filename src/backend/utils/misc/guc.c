@@ -835,6 +835,15 @@ static struct config_bool ConfigureNamesBool[] =
 		true,
 		NULL, NULL, NULL
 	},
+	{
+		{"enable_remotelimit", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables the planner's use of remote limit plans."),
+			NULL
+		},
+		&enable_remotelimit,
+		true,
+		NULL, NULL, NULL
+	},
 #endif
 	{
 		{"geqo", PGC_USERSET, QUERY_TUNING_GEQO,

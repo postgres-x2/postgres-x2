@@ -88,13 +88,13 @@ select * from tab1_rr where val2 = 3 limit 1;
 (1 row)
 
 explain (costs off, verbose on, nodes off) select * from tab1_rr where val2 = 3 limit 1;
-                                QUERY PLAN                                 
----------------------------------------------------------------------------
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
  Limit
    Output: tab1_rr.val, tab1_rr.val2
-   ->  Data Node Scan on tab1_rr "_REMOTE_TABLE_QUERY_"
+   ->  Data Node Scan on "__REMOTE_LIMIT_QUERY__"
          Output: tab1_rr.val, tab1_rr.val2
-         Remote query: SELECT val, val2 FROM ONLY tab1_rr WHERE (val2 = 3)
+         Remote query: SELECT val, val2 FROM ONLY tab1_rr WHERE (val2 = 3) LIMIT 1::bigint
 (5 rows)
 
 -- should not FQSed because of OFFSET clause
@@ -432,13 +432,13 @@ select * from tab1_hash where val2 = 3 limit 1;
 (1 row)
 
 explain (costs off, verbose on, nodes off) select * from tab1_hash where val2 = 3 limit 1;
-                                 QUERY PLAN                                  
------------------------------------------------------------------------------
+                                         QUERY PLAN                                          
+---------------------------------------------------------------------------------------------
  Limit
    Output: tab1_hash.val, tab1_hash.val2
-   ->  Data Node Scan on tab1_hash "_REMOTE_TABLE_QUERY_"
+   ->  Data Node Scan on "__REMOTE_LIMIT_QUERY__"
          Output: tab1_hash.val, tab1_hash.val2
-         Remote query: SELECT val, val2 FROM ONLY tab1_hash WHERE (val2 = 3)
+         Remote query: SELECT val, val2 FROM ONLY tab1_hash WHERE (val2 = 3) LIMIT 1::bigint
 (5 rows)
 
 -- should not FQSed because of OFFSET clause
@@ -784,13 +784,13 @@ select * from tab1_modulo where val2 = 3 limit 1;
 (1 row)
 
 explain (costs off, verbose on, nodes off) select * from tab1_modulo where val2 = 3 limit 1;
-                                  QUERY PLAN                                   
--------------------------------------------------------------------------------
+                                          QUERY PLAN                                           
+-----------------------------------------------------------------------------------------------
  Limit
    Output: tab1_modulo.val, tab1_modulo.val2
-   ->  Data Node Scan on tab1_modulo "_REMOTE_TABLE_QUERY_"
+   ->  Data Node Scan on "__REMOTE_LIMIT_QUERY__"
          Output: tab1_modulo.val, tab1_modulo.val2
-         Remote query: SELECT val, val2 FROM ONLY tab1_modulo WHERE (val2 = 3)
+         Remote query: SELECT val, val2 FROM ONLY tab1_modulo WHERE (val2 = 3) LIMIT 1::bigint
 (5 rows)
 
 -- should not FQSed because of OFFSET clause

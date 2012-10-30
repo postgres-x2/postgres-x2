@@ -1888,6 +1888,11 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 										  parse->limitCount,
 										  offset_est,
 										  count_est);
+#ifdef PGXC
+		/* See if we can push LIMIT or OFFSET clauses to datanodes */
+		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+			result_plan = (Plan *) create_remotelimit_plan(root, result_plan);
+#endif /* PGXC */
 	}
 
 	/*
