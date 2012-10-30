@@ -297,7 +297,7 @@ ProcessConfigFile(GtmOptContext context)
 		char   *pre_value = NULL;
 
 		if (set_config_option(item->name, item->value, context,
-			   					 GTMC_S_FILE, true))
+								 GTMC_S_FILE, true))
 		{
 			set_config_sourcefile(item->name, item->filename,
 								  item->sourceline);

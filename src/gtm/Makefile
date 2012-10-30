@@ -12,7 +12,7 @@ subdir = src/gtm
 top_builddir = ../..
 include $(top_builddir)/src/Makefile.global
 
-WANTED_DIRS=common path libpq client recovery main proxy gtm_ctl
+WANTED_DIRS=common config path libpq client recovery main proxy gtm_ctl
 
 all:
 	@for dir in $(WANTED_DIRS); do \
