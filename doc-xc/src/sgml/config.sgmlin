@@ -423,7 +423,7 @@ SET ENABLE_SEQSCAN TO OFF;
 
 <!## XC>
        <para>
-        In the case of the Coordinator, this parameter determines how many 
+        In the case of the Coordinator, this parameter determines how many
         connections can each Coordinator accept.
        </para>
        <para>
@@ -1237,8 +1237,8 @@ SET ENABLE_SEQSCAN TO OFF;
 <!## end>
 <!## XC>
         Every  Postgres-XC-supported library has a <quote>magic
-        block</> that is checked to guarantee compatibility.  
-        For this reason, non-Postgres-XC libraries cannot be 
+        block</> that is checked to guarantee compatibility.
+        For this reason, non-Postgres-XC libraries cannot be
         loaded in this way.
 <!## end>
        </para>
@@ -2603,6 +2603,67 @@ SET ENABLE_SEQSCAN TO OFF;
        </para>
       </listitem>
      </varlistentry>
+
+<!## XC>
+     <varlistentry id="guc-enable-fastqueryshipping" xreflabel="enable_fast_query_shipping">
+      <term><varname>enable_fast_query_shipping</varname> (<type>boolean</type>)</term>
+      <indexterm>
+       <primary><varname>enable_fast_query_shipping</> configuration parameter</primary>
+      </indexterm>
+      <listitem>
+       <para>
+        Enables or disables the query planner's use of fast query shipping
+        steps. When disabled, queries that could be completely shipped to remote
+        nodes are planned through the standard planner instead. The default
+        is <literal>on</>.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry id="guc-enable-remotejoin" xreflabel="enable_remotejoin">
+      <term><varname>enable_remotejoin</varname> (<type>boolean</type>)</term>
+      <indexterm>
+       <primary><varname>enable_remotejoin</> configuration parameter</primary>
+      </indexterm>
+      <listitem>
+       <para>
+        Enables or disables the query planner's use of remote join shippability
+        steps. When disabled, joins that could be shipped to remote nodes are
+        evaluated on local node instead. The default is <literal>on</>.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry id="guc-enable-remotegroup" xreflabel="enable_remotegroup">
+      <term><varname>enable_remotegroup</varname> (<type>boolean</type>)</term>
+      <indexterm>
+       <primary><varname>enable_remotegroup</> configuration parameter</primary>
+      </indexterm>
+      <listitem>
+       <para>
+        Enables or disables the query planner's use of remote <literal>GROUP
+        BY</> shippability steps. When disabled, <literal>GROUP BY</> clauses
+        that could be shipped to remote nodes are evaluated on local node
+        instead. The default is <literal>on</>.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry id="guc-enable-remotelimit" xreflabel="enable_remotelimit">
+      <term><varname>enable_remotelimit</varname> (<type>boolean</type>)</term>
+      <indexterm>
+       <primary><varname>enable_remotelimit</> configuration parameter</primary>
+      </indexterm>
+      <listitem>
+       <para>
+        Enables or disables the query planner's use of remote <literal>LIMIT</>
+        shippability steps. When disabled, <literal>LIMIT</> clauses that
+        could be shipped to remote nodes are fully evaluated on local node
+        instead. The default is <literal>on</>.
+       </para>
+      </listitem>
+     </varlistentry>
+<!## end>
 
      </variablelist>
      </sect2>
@@ -4858,9 +4919,9 @@ COPY postgres_log FROM '/full/path/to/logfile.csv' WITH csv;
 <!## XC>
         <note>
          <para>
-          In <productname>Postgres-XC</> setting <varname>check_function_bodies</varname> 
-          to <literal>off</> is not recomended. If SQL functions are created after setting 
-          <varname>check_function_bodies</varname> to <literal>off</>, the behaviour of the 
+          In <productname>Postgres-XC</> setting <varname>check_function_bodies</varname>
+          to <literal>off</> is not recomended. If SQL functions are created after setting
+          <varname>check_function_bodies</varname> to <literal>off</>, the behaviour of the
           function when executed is un-defined.
          </para>
         </note>
@@ -6851,7 +6912,7 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
        <para>
         Specify the maximum connection pool of the Coordinator to Datanodes.
         Because each transaction can be involved by all the Datanodes,
-        this parameter should at least be <varname>max_connections</> 
+        this parameter should at least be <varname>max_connections</>
 		multiplied by number of Datanodes.
        </para>
       </listitem>

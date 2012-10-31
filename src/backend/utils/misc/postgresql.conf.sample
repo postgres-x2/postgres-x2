@@ -604,6 +604,13 @@
 					# Usage of commit instead of two-phase commit may break
 					# data consistency so use at your own risk.
 
+# - Postgres-XC specific Planner Method Configuration
+
+#enable_fast_query_shipping = on
+#enable_remotejoin = on
+#enable_remotegroup = on
+#enable_remotelimit = on
+
 #------------------------------------------------------------------------------
 # CUSTOMIZED OPTIONS
 #------------------------------------------------------------------------------

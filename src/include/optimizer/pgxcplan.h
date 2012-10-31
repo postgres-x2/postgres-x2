@@ -117,9 +117,6 @@ typedef struct
 								 * inserts into child by selecting from its parent */
 } RemoteQuery;
 
-/* global variable corresponding to the GUC with same name */
-extern bool enable_fast_query_shipping;
-
 extern PlannedStmt *pgxc_planner(Query *query, int cursorOptions,
 								 ParamListInfo boundParams);
 extern List *AddRemoteQueryNode(List *stmts, const char *queryString,

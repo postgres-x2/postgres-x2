@@ -44,9 +44,6 @@
 #include "utils/memutils.h"
 #include "utils/syscache.h"
 
-/* fast query shipping is enabled by default */
-bool		enable_fast_query_shipping = true;
-
 static void validate_part_col_updatable(const Query *query);
 static bool contains_temp_tables(List *rtable);
 static void pgxc_handle_unsupported_stmts(Query *query);
