@@ -121,8 +121,8 @@ pgxc_separate_quals(List *quals, List **unshippabl_quals, bool has_aggs)
  * expression and add those vars to the target list to be shipped to the
  * datanode. If no such expression exists, we can add the member to the
  * datanode target list as is.
- * We need the values of VARs in the quals to be applied on coordinator. Add
- * those in the target list for the datanode.
+ * We need the values of VARs in the quals to be applied on Coordinator. Add
+ * those in the target list for the Datanode.
  */
 static List *
 pgxc_build_shippable_tlist(List *tlist, List *unshippabl_quals, bool has_aggs)
@@ -602,7 +602,7 @@ pgxc_build_shippable_query(PlannerInfo *root, RemoteQueryPath *covering_path,
 	 * Build Query representing the result of the JOIN tree. During the process
 	 * we also get the set of unshippable quals to be applied after getting the
 	 * results from the datanode and the targetlist representing the results of
-	 * the query, in a form which plan nodes on coordinator can understand
+	 * the query, in a form which plan nodes on Coordinator can understand
 	 */
 	query = pgxc_build_shippable_query_recurse(root, covering_path,
 															&unshippable_quals,
@@ -2841,10 +2841,10 @@ pgxc_set_remote_parameters(PlannedStmt *plan, ParamListInfo boundParams)
  * create_remotelimit_plan
  * Check if we can incorporate the LIMIT clause into the RemoteQuery node if the
  * node under the Limit node is a RemoteQuery node. If yes then do so.
- * If there is only one datanode involved in the execution of RemoteQuery, we
+ * If there is only one Datanode involved in the execution of RemoteQuery, we
  * don't need the covering Limit node, both limitcount and limitoffset can be
  * pushed to the RemoteQuery node.
- * If there are multiple datanodes involved in the execution of RemoteQuery, we
+ * If there are multiple Datanodes involved in the execution of RemoteQuery, we
  * have following rules
  * 1. If there is only limitcount, push that into RemoteQuery node
  * 2. If there are both limitcount and limitoffset, push limitcount +
@@ -2881,9 +2881,9 @@ create_remotelimit_plan(PlannerInfo *root, Plan *local_plan)
 
 	/*
 	 * If the underlying plan is not RemoteQuery, there are other operations
-	 * being done locally on coordinator. LIMIT or OFFSET clauses can be applied
+	 * being done locally on Coordinator. LIMIT or OFFSET clauses can be applied
 	 * only after these operations have been performed. Hence can not push LIMIT
-	 * or OFFSET to datanodes.
+	 * or OFFSET to Datanodes.
 	 */
 	if (temp_plan && IsA(temp_plan, RemoteQuery))
 	{
@@ -2911,14 +2911,14 @@ create_remotelimit_plan(PlannerInfo *root, Plan *local_plan)
 		!pgxc_is_expr_shippable((Expr *)local_limit->limitCount, NULL))
 			return local_plan;
 
-	/* Calculate the LIMIT and OFFSET values to be sent to the datanodes */
+	/* Calculate the LIMIT and OFFSET values to be sent to the Datanodes */
 	if (remote_scan->exec_nodes &&
 		list_length(remote_scan->exec_nodes->nodeList) == 1)
 	{
 		/*
 		 * If there is only a single node involved in execution of the RemoteQuery
-		 * node, we don't need covering Limit node on coordinator LIMIT and OFFSET
-		 * clauses can be pushed to the datanode. Copy the LIMIT and OFFSET
+		 * node, we don't need covering Limit node on Coordinator LIMIT and OFFSET
+		 * clauses can be pushed to the Datanode. Copy the LIMIT and OFFSET
 		 * expressions.
 		 */
 		rq_limitCount = copyObject(local_limit->limitCount);
@@ -2929,22 +2929,22 @@ create_remotelimit_plan(PlannerInfo *root, Plan *local_plan)
 	else if (local_limit->limitCount)
 	{
 		/*
-		 * The underlying RemoteQuery node needs more than one datanode for its
+		 * The underlying RemoteQuery node needs more than one Datanode for its
 		 * execution. We need the covering local Limit plan for combining the
 		 * results. If there is no LIMIT clause but only OFFSET clause, we don't
 		 * push anything.
-		 * Assumption: We do not know the number of rows available from each datanode.
+		 * Assumption: We do not know the number of rows available from each Datanode.
 		 * Case 1: There is no OFFSET clause
 		 * In worst case, we can have all qualifying rows coming from a single
-		 * datanode. Hence we have to set the same limit as specified by LIMIT
-		 * clause for each datanode.
+		 * Datanode. Hence we have to set the same limit as specified by LIMIT
+		 * clause for each Datanode.
 		 * Case 2: There is OFFSET clause
 		 * In worst case, there can be OFFSET + LIMIT number of rows evenly
-		 * distributed across all the datanodes. In such case, we need to fetch
-		 * all rows from all the datanodes. Hence we can not set any OFFSET in
+		 * distributed across all the Datanodes. In such case, we need to fetch
+		 * all rows from all the Datanodes. Hence we can not set any OFFSET in
 		 * the query. The other extreme is all OFFSET + LIMIT rows are located
 		 * only on a single node. Hence we need to set limit of the query to be
-		 * sent to the datanode to be LIMIT + OFFSET.
+		 * sent to the Datanode to be LIMIT + OFFSET.
 		 */
 		if (!local_limit->limitOffset)
 			rq_limitCount = copyObject(local_limit->limitCount);
@@ -2967,7 +2967,7 @@ create_remotelimit_plan(PlannerInfo *root, Plan *local_plan)
 	else
 	{
 		/*
-		 * Underlying RemoteQuery needs more than one datanode, and does not
+		 * Underlying RemoteQuery needs more than one Datanode, and does not
 		 * have LIMIT clause. No optimization. Return the input plan as is.
 		 */
 		result_plan = local_plan;
@@ -2997,7 +2997,7 @@ create_remotelimit_plan(PlannerInfo *root, Plan *local_plan)
 		dummy_rte->eref = makeAlias("__REMOTE_LIMIT_QUERY__", NIL);
 
 		/*
-		 * We must have modified the Query to be sent to the datanode. Build the
+		 * We must have modified the Query to be sent to the Datanode. Build the
 		 * statement out of it.
 		 */
 		pgxc_rqplan_build_statement(remote_scan);
