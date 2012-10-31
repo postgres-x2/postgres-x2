@@ -429,51 +429,6 @@ ProcessPGXCNodeList(Port *myport, StringInfo message)
 	elog(LOG, "ProcessPGXCNodeList() ok.");
 }
 
-void
-ProcessGTMBeginBackup(Port *myport, StringInfo message)
-{
-	int ii;
-	GTM_ThreadInfo *my_threadinfo;
-	StringInfoData buf;
-
-	pq_getmsgend(message);
-	my_threadinfo = GetMyThreadInfo;
-
-	for (ii = 0; ii < GTMThreads->gt_array_size; ii++)
-	{
-		if (GTMThreads->gt_threads[ii] && GTMThreads->gt_threads[ii] != my_threadinfo)
-			GTM_RWLockAcquire(&GTMThreads->gt_threads[ii]->thr_lock, GTM_LOCKMODE_WRITE);
-	}
-	my_threadinfo->thr_status = GTM_THREAD_BACKUP;
-	pq_beginmessage(&buf, 'S');
-	pq_sendint(&buf, BEGIN_BACKUP_RESULT, 4);
-	pq_endmessage(myport, &buf);
-	pq_flush(myport);
-}
-
-void
-ProcessGTMEndBackup(Port *myport, StringInfo message)
-{
-	int ii;
-	GTM_ThreadInfo *my_threadinfo;
-	StringInfoData buf;
-
-	pq_getmsgend(message);
-	my_threadinfo = GetMyThreadInfo;
-
-	for (ii = 0; ii < GTMThreads->gt_array_size; ii++)
-	{
-		if (GTMThreads->gt_threads[ii] && GTMThreads->gt_threads[ii] != my_threadinfo)
-			GTM_RWLockRelease(&GTMThreads->gt_threads[ii]->thr_lock);
-	}
-	my_threadinfo->thr_status = GTM_THREAD_RUNNING;
-	pq_beginmessage(&buf, 'S');
-	pq_sendint(&buf, END_BACKUP_RESULT, 4);
-	pq_endmessage(myport, &buf);
-	pq_flush(myport);
-}
-
-
 static void
 finishStandbyConn(GTM_ThreadInfo *thrinfo)
 {

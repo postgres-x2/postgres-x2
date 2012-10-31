@@ -11,24 +11,36 @@ top_builddir=../../..
 include $(top_builddir)/src/Makefile.global
 subdir=src/gtm/gtm_ctl
 
-OBJS=gtm_ctl.o 
+override CPPFLAGS := -I$(libpq_srcdir) $(CPPFLAGS)
 
-OTHERS=../common/libgtm.a ../libpq/libpqcomm.a ../client/libgtmclient.a ../path/libgtmpath.a
-
-LDFLAGS=-L$(top_builddir)/common -L$(top_builddir)/libpq
-
-
-LIBS=-lpthread
-
-gtm_ctl:$(OBJS)
-	$(CC) $(CFLAGS) $(LDFLAGS) $(LIBS) $^ $(OTHERS) -o gtm_ctl
+OBJS = gtm_ctl.o \
+	$(top_builddir)/src/gtm/client/libgtmclient.a \
+	$(top_builddir)/src/gtm/common/libgtmcommon.a \
+	$(top_builddir)/src/interfaces/libpq/libpq.a
 
 all:gtm_ctl
 
-clean:
-	rm -f $(OBJS)
-	rm -f gtm_ctl
+gtm_ctl: $(OBJS) | submake-libpq submake-libpgport
+	$(CC) $(CFLAGS) $^ $(libpq_pgport) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 
-distclean: clean
+install: all installdirs
+	$(INSTALL_PROGRAM) gtm_ctl$(X) '$(DESTDIR)$(bindir)/gtm_ctl$(X)'
 
-maintainer-clean: distclean
+installdirs:
+	$(MKDIR_P) '$(DESTDIR)$(bindir)'
+
+uninstall:
+	rm -f '$(DESTDIR)$(bindir)/gtm_ctl$(X)'
+
+clean distclean maintainer-clean:
+	rm -f gtm_ctl$(X) $(OBJS)
+
+# Be sure that the necessary archives are compiled
+$(top_builddir)/src/interfaces/libpq/libpq.a:
+	$(MAKE) -C ../../interfaces/libpq libpq.a
+
+$(top_builddir)/src/gtm/common/libgtmcommon.a:
+	$(MAKE) -C ../../gtm/common libgtmcommon.a
+
+$(top_builddir)/src/gtm/client/libgtmclient.a:
+	$(MAKE) -C ../../gtm/client libgtmclient.a

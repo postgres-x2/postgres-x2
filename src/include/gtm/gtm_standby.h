@@ -51,8 +51,9 @@ void gtm_standby_closeActiveConn(void);
 
 void gtm_standby_finishActiveConn(void);
 
-
-
+/* Functions to process backup */
+void ProcessGTMBeginBackup(Port *myport, StringInfo message);
+void ProcessGTMEndBackup(Port *myport, StringInfo message);
 
 /*
  * Startup mode

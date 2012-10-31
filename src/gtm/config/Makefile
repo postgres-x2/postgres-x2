@@ -12,18 +12,16 @@ include $(top_builddir)/src/Makefile.global
 subdir=src/gtm/config
 
 override CPPFLAGS := -I. -I$(libpq_srcdir) $(CPPFLAGS)
+LIBS += $(PTHREAD_LIBS)
 
-NAME = gtmconfig
-
-SO_MAJOR_VERSION= 1
-SO_MINOR_VERSION= 0
+include $(top_srcdir)/src/backend/common.mk
 
 OBJS = gtm_opt_handler.o
 
-all: all-lib
+all: libgtmconfig.a
 
-# Shared library stuff
-include $(top_srcdir)/src/Makefile.shlib
+libgtmconfig.a: $(OBJS)
+	$(AR) $(AROPT) $@ $^
 
 gtm_opt_handler.o: gtm_opt_scanner.c
 
@@ -36,8 +34,7 @@ endif
 
 # Note that gtm_opt_scanner.c is not deleted by make clean as we want it in distribution tarballs
 clean:
-	rm -f $(OBJS)
-	rm -f rm -f libgtmconfig.so libgtmconfig.so.1 libgtmconfig.so.1.0
+	rm -f $(OBJS) libgtmconfig.a
 
 distclean: clean
 

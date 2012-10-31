@@ -8,32 +8,24 @@
 #
 #-----------------------------------------------------------------------------
 top_builddir=../../..
+include $(top_builddir)/src/Makefile.global
 subdir=src/gtm/common
 
-include $(top_builddir)/src/Makefile.global
-
-override CPPFLAGS := -I. -I$(srcdir) $(CPPFLAGS)
-
-NAME=gtm
-
-SO_MAJOR_VERSION= 1
-SO_MINOR_VERSION= 0
-
-LDFLAGS=-L$(top_builddir)/common -L$(top_builddir)/libpq
+override CPPFLAGS := -I. -I$(libpq_srcdir) $(CPPFLAGS)
 LIBS += $(PTHREAD_LIBS)
 
-OBJS = aset.o mcxt.o gtm_utils.o elog.o assert.o stringinfo.o gtm_lock.o \
-       gtm_list.o gtm_serialize.o gtm_serialize_debug.o
+include $(top_srcdir)/src/backend/common.mk
 
-all:all-lib
+OBJS = gtm_utils.o gtm_lock.o gtm_serialize.o gtm_serialize_debug.o \
+	aset.o assert.o elog.o mcxt.o stringinfo.o gtm_list.o
 
-# Shared library stuff
-include $(top_srcdir)/src/Makefile.shlib
+all: libgtmcommon.a
 
-# Note that gtm_opt_scanner.c is not deleted by make clean as we want it in distribution tarballs
+libgtmcommon.a: $(OBJS)
+	$(AR) $(AROPT) $@ $^
+
 clean:
-	rm -f $(OBJS)
-	rm -f libgtm.so libgtm.so.1 libgtm.so.1.0
+	rm -f $(OBJS) libgtmcommon.a
 
 distclean: clean
 

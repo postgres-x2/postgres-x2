@@ -18,12 +18,15 @@
 #include "gtm/elog.h"
 #include "gtm/gtm.h"
 #include "gtm/gtm_c.h"
-#include "gtm/standby_utils.h"
 #include "gtm/gtm_client.h"
 #include "gtm/gtm_seq.h"
 #include "gtm/gtm_serialize.h"
 #include "gtm/gtm_utils.h"
+#include "gtm/libpq.h"
+#include "gtm/pqformat.h"
 #include "gtm/register.h"
+#include "gtm/standby_utils.h"
+#include "gtm/stringinfo.h"
 
 GTM_Conn *GTM_ActiveConn = NULL;
 static char standbyHostName[NI_MAXHOST];
@@ -512,4 +515,48 @@ gtm_standby_connectToActiveGTM(void)
 			active_address, active_port, NodeName, GTM_NODE_GTM);
 
 	return PQconnectGTM(connect_string);
+}
+
+void
+ProcessGTMBeginBackup(Port *myport, StringInfo message)
+{
+	int ii;
+	GTM_ThreadInfo *my_threadinfo;
+	StringInfoData buf;
+
+	pq_getmsgend(message);
+	my_threadinfo = GetMyThreadInfo;
+
+	for (ii = 0; ii < GTMThreads->gt_array_size; ii++)
+	{
+		if (GTMThreads->gt_threads[ii] && GTMThreads->gt_threads[ii] != my_threadinfo)
+			GTM_RWLockAcquire(&GTMThreads->gt_threads[ii]->thr_lock, GTM_LOCKMODE_WRITE);
+	}
+	my_threadinfo->thr_status = GTM_THREAD_BACKUP;
+	pq_beginmessage(&buf, 'S');
+	pq_sendint(&buf, BEGIN_BACKUP_RESULT, 4);
+	pq_endmessage(myport, &buf);
+	pq_flush(myport);
+}
+
+void
+ProcessGTMEndBackup(Port *myport, StringInfo message)
+{
+	int ii;
+	GTM_ThreadInfo *my_threadinfo;
+	StringInfoData buf;
+
+	pq_getmsgend(message);
+	my_threadinfo = GetMyThreadInfo;
+
+	for (ii = 0; ii < GTMThreads->gt_array_size; ii++)
+	{
+		if (GTMThreads->gt_threads[ii] && GTMThreads->gt_threads[ii] != my_threadinfo)
+			GTM_RWLockRelease(&GTMThreads->gt_threads[ii]->thr_lock);
+	}
+	my_threadinfo->thr_status = GTM_THREAD_RUNNING;
+	pq_beginmessage(&buf, 'S');
+	pq_sendint(&buf, END_BACKUP_RESULT, 4);
+	pq_endmessage(myport, &buf);
+	pq_flush(myport);
 }

@@ -11,21 +11,17 @@ top_builddir=../../..
 include $(top_builddir)/src/Makefile.global
 subdir=src/gtm/recovery
 
-NAME=gtmrecovery
-SO_MAJOR_VERSION= 1
-SO_MINOR_VERSION= 0
+include $(top_srcdir)/src/backend/common.mk
 
-OBJS=register_common.o register_gtm.o replication.o standby_utils.o
+OBJS = register_common.o standby_utils.o
 
-OTHERS=../client/libgtmclient.a
+all: libgtmrecovery.a
 
-all:all-lib
-
-include $(top_srcdir)/src/Makefile.shlib
+libgtmrecovery.a: $(OBJS)
+	$(AR) $(AROPT) $@ $^
 
 clean:
-	rm -f $(OBJS)
-	rm -f libgtmrecovery.a libgtmrecovery.so libgtmrecovery.so.1 libgtmrecovery.so.1.0 
+	rm -f $(OBJS) libgtmrecovery.a
 
 distclean: clean
 

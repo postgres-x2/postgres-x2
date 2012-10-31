@@ -11,21 +11,18 @@ top_builddir=../../..
 include $(top_builddir)/src/Makefile.global
 subdir=src/gtm/path
 
-NAME=gtmpath
-SO_MAJOR_VERSION= 1
-SO_MINOR_VERSION= 0
+include $(top_srcdir)/src/backend/common.mk
 
-OBJS=path.o
+OBJS = path.o
 
-all:all-lib
+all: libgtmpath.a
 
-include $(top_srcdir)/src/Makefile.shlib
+libgtmpath.a: $(OBJS)
+	$(AR) $(AROPT) $@ $^
 
 clean:
-	rm -f $(OBJS)
-	rm -f libgtmpath.a libgtmpath.so libgtmpath.so.1 libgtmpath.so.1.0
+	rm -f $(OBJS) libgtmpath.a
 
 distclean: clean
 
 maintainer-clean: distclean
-

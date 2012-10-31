@@ -15,23 +15,38 @@ ifneq ($(PORTNAME), win32)
 override CFLAGS += $(PTHREAD_CFLAGS)
 endif
 
-OBJS = proxy_main.o proxy_thread.o proxy_utils.o gtm_proxy_opt.o
+SUBDIRS = $(top_builddir)/src/gtm/client \
+	$(top_builddir)/src/gtm/common \
+	$(top_builddir)/src/gtm/config \
+	$(top_builddir)/src/gtm/libpq \
+	$(top_builddir)/src/gtm/path \
+	$(top_builddir)/src/gtm/recovery
 
-OTHERS = ../config/libgtmconfig.a ../libpq/libpqcomm.a ../path/libgtmpath.a \
-	 ../recovery/libgtmrecovery.a ../client/libgtmclient.a ../common/libgtm.a
+include $(top_srcdir)/src/backend/common.mk
 
-LDFLAGS=-L$(top_builddir)/common -L$(top_builddir)/libpq
-LIBS=-lpthread
+OBJS = $(SUBDIROBJS) \
+	$(top_builddir)/src/port/libpgport_srv.a \
+	$(top_builddir)/src/port/pgsleep.o \
+	proxy_main.o proxy_thread.o proxy_utils.o gtm_proxy_opt.o
 
-gtm_proxy: $(OBJS)
-	$(CC) $(CFLAGS) $(LDFLAGS) $(LIBS) $^ $(OTHERS) ../../port/libpgport_srv.a -o $@
+LIBS += $(PTHREAD_LIBS)
 
-all:gtm_proxy
+all: gtm_proxy
 
-clean:
-	rm -f $(OBJS)
-	rm -f gtm_proxy
+gtm_proxy: $(OBJS) | submake-libpgport
+	$(CC) $(CFLAGS) $(LDFLAGS) $(LIBS) $(call expand_subsys,$^) -o $@
 
-distclean: clean
+install: all installdirs
+	$(INSTALL_PROGRAM) gtm_proxy$(X) '$(DESTDIR)$(bindir)/gtm_proxy$(X)'
+	$(INSTALL_DATA) $(srcdir)/gtm_proxy.conf.sample '$(DESTDIR)$(datadir)/gtm_proxy.conf.sample'
 
-maintainer-clean: distclean
+installdirs:
+	$(MKDIR_P) '$(DESTDIR)$(bindir)' '$(DESTDIR)$(datadir)'
+
+uninstall:
+	rm -f '$(DESTDIR)$(bindir)/gtm_proxy$(X)' '$(DESTDIR)$(datadir)/gtm_proxy.conf.sample'
+
+clean distclean maintainer-clean:
+	rm -f gtm_proxy$(X) $(OBJS)
+
+$(top_builddir)/src/port/libpgport_srv.a: | submake-libpgport
