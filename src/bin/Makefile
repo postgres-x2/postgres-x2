@@ -13,7 +13,7 @@ subdir = src/bin
 top_builddir = ../..
 include $(top_builddir)/src/Makefile.global
 
-SUBDIRS = initdb initgtm pg_ctl pg_dump \
+SUBDIRS = gtm_ctl initdb initgtm pg_ctl pg_dump \
 	psql scripts pg_config pg_controldata pg_resetxlog pg_basebackup
 
 ifeq ($(PORTNAME), win32)

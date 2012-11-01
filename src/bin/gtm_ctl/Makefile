@@ -4,12 +4,12 @@
 #
 # Copyright(c) 2010-2012 Postgres-XC Development Group
 #
-# src/gtm/gtm_ctl/Makefile
+# src/bin/gtm_ctl/Makefile
 #
 #-----------------------------------------------------------------------------
 top_builddir=../../..
 include $(top_builddir)/src/Makefile.global
-subdir=src/gtm/gtm_ctl
+subdir=src/bin/gtm_ctl
 
 override CPPFLAGS := -I$(libpq_srcdir) $(CPPFLAGS)
 
@@ -37,10 +37,10 @@ clean distclean maintainer-clean:
 
 # Be sure that the necessary archives are compiled
 $(top_builddir)/src/interfaces/libpq/libpq.a:
-	$(MAKE) -C ../../interfaces/libpq libpq.a
+	$(MAKE) -C $(top_builddir)/src/interfaces/libpq libpq.a
 
 $(top_builddir)/src/gtm/common/libgtmcommon.a:
-	$(MAKE) -C ../../gtm/common libgtmcommon.a
+	$(MAKE) -C $(top_builddir)/src/gtm/common libgtmcommon.a
 
 $(top_builddir)/src/gtm/client/libgtmclient.a:
-	$(MAKE) -C ../../gtm/client libgtmclient.a
+	$(MAKE) -C $(top_builddir)/src/gtm/client libgtmclient.a

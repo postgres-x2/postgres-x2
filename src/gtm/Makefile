@@ -12,6 +12,6 @@ subdir = src/gtm
 top_builddir = ../..
 include $(top_builddir)/src/Makefile.global
 
-SUBDIRS = client common config gtm_ctl libpq main path proxy recovery
+SUBDIRS = client common config libpq main path proxy recovery
 
 $(recurse)
