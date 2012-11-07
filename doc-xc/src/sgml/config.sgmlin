@@ -2611,6 +2611,7 @@ SET ENABLE_SEQSCAN TO OFF;
        <primary><varname>enable_fast_query_shipping</> configuration parameter</primary>
       </indexterm>
       <listitem>
+&xconly;
        <para>
         Enables or disables the query planner's use of fast query shipping
         steps. When disabled, queries that could be completely shipped to remote
@@ -2626,6 +2627,7 @@ SET ENABLE_SEQSCAN TO OFF;
        <primary><varname>enable_remotejoin</> configuration parameter</primary>
       </indexterm>
       <listitem>
+&xconly;
        <para>
         Enables or disables the query planner's use of remote join shippability
         steps. When disabled, joins that could be shipped to remote nodes are
@@ -2640,6 +2642,7 @@ SET ENABLE_SEQSCAN TO OFF;
        <primary><varname>enable_remotegroup</> configuration parameter</primary>
       </indexterm>
       <listitem>
++&xconly;
        <para>
         Enables or disables the query planner's use of remote <literal>GROUP
         BY</> shippability steps. When disabled, <literal>GROUP BY</> clauses
