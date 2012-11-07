@@ -69,6 +69,7 @@
 #include "pgxc/pgxc.h"
 #include "access/gtm.h"
 #include "storage/ipc.h"
+#include "pgxc/nodemgr.h"
 /* PGXC_DATANODE */
 #include "postmaster/autovacuum.h"
 #endif
@@ -231,8 +232,13 @@ ProcArrayShmemSize(void)
 	 * standby in the current run, but we don't know that yet at the time
 	 * shared memory is being set up.
 	 */
+#ifdef PGXC
+#define TOTAL_MAX_CACHED_SUBXIDS \
+	(((PGPROC_MAX_CACHED_SUBXIDS + 1) * PROCARRAY_MAXPROCS) * (MaxCoords + MaxDataNodes))
+#else
 #define TOTAL_MAX_CACHED_SUBXIDS \
 	((PGPROC_MAX_CACHED_SUBXIDS + 1) * PROCARRAY_MAXPROCS)
+#endif
 
 	if (EnableHotStandby)
 	{
