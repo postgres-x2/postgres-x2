@@ -169,7 +169,7 @@ struct config_int ConfigureNamesInt[] =
 			0
 		},
 		&GTMProxyPortNumber,
-		0, 0, INT_MAX,
+		6666, 0, INT_MAX,
 		0, NULL
 	},
 	{
@@ -180,7 +180,7 @@ struct config_int ConfigureNamesInt[] =
 			0
 		},
 		&GTMServerPortNumber,
-		0, 0, INT_MAX,
+		6666, 0, INT_MAX,
 	    0, NULL
 	},
 	{
