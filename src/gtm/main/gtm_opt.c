@@ -148,7 +148,7 @@ struct config_int ConfigureNamesInt[] =
 			0
 		},
 		&GTMPortNumber,
-		0, 0, INT_MAX,
+		6666, 0, INT_MAX,
 		0, NULL
 	},
 	{
