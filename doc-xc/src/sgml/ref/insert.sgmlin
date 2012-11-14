@@ -19,7 +19,6 @@ PostgreSQL documentation
   <primary>INSERT</primary>
  </indexterm>
 
-<!## PG>
  <refsynopsisdiv>
 <synopsis>
 [ WITH [ RECURSIVE ] <replaceable class="parameter">with_query</replaceable> [, ...] ]
@@ -28,46 +27,17 @@ INSERT INTO <replaceable class="PARAMETER">table</replaceable> [ ( <replaceable 
     [ RETURNING * | <replaceable class="parameter">output_expression</replaceable> [ [ AS ] <replaceable class="parameter">output_name</replaceable> ] [, ...] ]
 </synopsis>
  </refsynopsisdiv>
-<!## end>
-<!## XC>
-<!-- NOTICE:
-     No QUERY in INSRT statement yet
--->
- <refsynopsisdiv>
-<synopsis>
-INSERT INTO <replaceable class="PARAMETER">table</replaceable> [ ( <replaceable class="PARAMETER">column</replaceable> [, ...] ) ]
-    { DEFAULT VALUES | VALUES ( { <replaceable class="PARAMETER">expression</replaceable> | DEFAULT } [, ...] ) [, ...]  }
-    [ RETURNING * | <replaceable class="parameter">output_expression</replaceable> [ [ AS ] <replaceable class="parameter">output_name</replaceable> ] [, ...] ]
-</synopsis>
- </refsynopsisdiv>
-<!## end>
 
  <refsect1>
   <title>Description</title>
 
 &common;
 
-<!## PG>
   <para>
    <command>INSERT</command> inserts new rows into a table.
    One can insert one or more rows specified by value expressions,
    or zero or more rows resulting from a query.
   </para>
-<!## end>
-<!## XC>
-<!-- NOTICE:
-     XC doesn't support query in VALUES clause
--->
-  <para>
-   The target column names can be listed in any order.  If no list of
-   column names is given at all, the default is all the columns of the
-   table in their declared order; or the first <replaceable>N</> column
-   names, if there are only <replaceable>N</> columns supplied by the
-   <literal>VALUES</> clause or <replaceable>query</>.  The values
-   supplied by the <literal>VALUES</> clause are
-   associated with the explicit or implicit column list left-to-right.
-  </para>
-<!## end>
 
   <para>
    Each column not present in the explicit or implicit column list will be
@@ -90,7 +60,6 @@ INSERT INTO <replaceable class="PARAMETER">table</replaceable> [ ( <replaceable 
    of <command>SELECT</>.
   </para>
 
-<!## PG>
   <para>
    You must have <literal>INSERT</literal> privilege on a table in
    order to insert into it.  If a column list is specified, you only
@@ -102,19 +71,6 @@ INSERT INTO <replaceable class="PARAMETER">table</replaceable> [ ( <replaceable 
    query, you of course need to have <literal>SELECT</literal> privilege on
    any table or column used in the query.
   </para>
-<!## end>
-<!## XC>
-<!-- NOTICE:
-     XC doesn't support query in VALUES clause
--->
-  <para>
-   You must have <literal>INSERT</literal> privilege on a table in
-   order to insert into it.  If a column list is specified, you only
-   need <literal>INSERT</literal> privilege on the listed columns.
-   Use of the <literal>RETURNING</> clause requires <literal>SELECT</>
-   privilege on all columns mentioned in <literal>RETURNING</>.
-  </para>
-<!## end>
  </refsect1>
 
  <refsect1>
@@ -194,13 +150,6 @@ INSERT INTO <replaceable class="PARAMETER">table</replaceable> [ ( <replaceable 
    <varlistentry>
     <term><replaceable class="PARAMETER">query</replaceable></term>
     <listitem>
-<!## XC>
-&pgonly;
-     <para>
-      Current release of <productname>Postgres-XC</productname> does
-      not support query to supply rows.
-     </para>
-<!## end>
      <para>
       A query (<command>SELECT</command> statement) that supplies the
       rows to be inserted.  Refer to the
@@ -321,17 +270,6 @@ INSERT INTO films SELECT * FROM tmp_films WHERE date_prod &lt; '2004-05-07';
 </programlisting>
   </para>
 
-<!## XC>
-&xconly;
-  <para>
-   SELECT clause should be based upon the same distribution.  For
-   example, you cannot <command>INSERT</command> into hash distribute
-   table to replicated table.
-  </para>
-
-&common;
-<!## end>
-
   <para>
    This example inserts into array columns:
 
@@ -378,17 +316,9 @@ INSERT INTO employees_log SELECT *, current_timestamp FROM upd;
    the <literal>RETURNING</> clause is a
 <!## PG>
    <productname>PostgreSQL</productname> extension, as is the ability
-   to use <literal>WITH</> with <command>INSERT</>.
-   Also, the case in
-   which a column name list is omitted, but not all the columns are
-   filled from the <literal>VALUES</> clause or <replaceable>query</>,
-   is disallowed by the standard.
 <!## end>
 <!## XC>
-   <productname>Postgres-XC</productname> extension.  Also, the case in
-   which a column name list is omitted, but not all the columns are
-   filled from the <literal>VALUES</> clause,
-   is disallowed by the standard.
+   <productname>Postgres-XC</productname> extension, as is the ability
 <!## end>
 
   </para>
