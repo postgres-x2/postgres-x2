@@ -44,6 +44,7 @@
 #include <stdio.h>
 #include <pwd.h>
 #include <errno.h>
+#include <string.h>
 #include "libpq-fe.h"
 #include "pg_config.h"
 #include "getopt_long.h"
@@ -223,6 +224,9 @@ int main(int argc, char *argv[])
 		fprintf(outf, "no-clean: %s\n", no_clean_opt ? "on" : "off");
 	}
 
+	/* Tweak options --> should be improved in the next releases */
+	if (status_opt)
+		verbose_opt = true;
 	/* Connect to XC server */
 	if (verbose_opt)
 	{
@@ -259,7 +263,8 @@ int main(int argc, char *argv[])
 	 * If such node-subset database is found to be used widely, pgxc_clean may need
 	 * an extension to deal with this case.
 	 */
-	getDatabaseList(coord_conn);
+	if (clean_all_databases)
+		getDatabaseList(coord_conn);
 	if (verbose_opt)
 	{
 		database_info *cur_database;
@@ -762,6 +767,7 @@ getDatabaseList(PGconn *conn)
 	int database_count;
 	int ii;
 	PGresult *res;
+	char *dbname;
 
 	/* SQL Statement */
 	static const char *STMT_GET_DATABASE_LIST = "SELECT DATNAME FROM PG_DATABASE;";
@@ -778,7 +784,13 @@ getDatabaseList(PGconn *conn)
 	}
 	database_count = PQntuples(res);
 	for(ii = 0; ii < database_count; ii++)
-		add_database_info(PQgetvalue(res, ii, 0));
+	{
+		dbname = PQgetvalue(res, ii, 0);
+		if (strcmp(dbname, "template0") == 0)
+			/* Skip template0 database */
+			continue;
+		add_database_info(dbname);
+	}
 	PQclear(res);
 }
 
@@ -979,7 +991,14 @@ parse_pgxc_clean_options(int argc, char *argv[])
 	while (argc - optind >= 1)
 	{
 		if (head_database_names == NULL)
+		{
+			if (strcmp(argv[optind], "template0") == 0)
+			{
+				fprintf(stderr, "%s: You should not clean template0 database.\n", progname);
+				exit(1);
+			}
 			add_to_database_list(argv[optind]);
+		}
 		if (username == NULL)
 			username = argv[optind];
 		else

@@ -152,7 +152,7 @@ make_txn_info(char *dbname, TransactionId gxid, char *xid, char *owner)
 	txn->txn_stat = (TXN_STATUS *)malloc(sizeof(TXN_STATUS) * pgxc_clean_node_count);
 	if (txn->txn_stat == NULL)
 		return(NULL);
-	memset(txn->txn_stat, sizeof(TXN_STATUS) * pgxc_clean_node_count, 0);
+	memset(txn->txn_stat, 0, sizeof(TXN_STATUS) * pgxc_clean_node_count);
 	return txn;
 }
 
@@ -171,7 +171,7 @@ txn_info *init_txn_info(char *database_name, TransactionId gxid)
 		database->head_txn_info = database->last_txn_info = (txn_info *)malloc(sizeof(txn_info));
 		if (database->head_txn_info == NULL)
 			return NULL;
-		memset(database->head_txn_info, sizeof(txn_info), 0);
+		memset(database->head_txn_info, 0, sizeof(txn_info));
 		return database->head_txn_info;
 	}
 	for(cur_txn_info = database->head_txn_info; cur_txn_info; cur_txn_info = cur_txn_info->next)
@@ -182,10 +182,10 @@ txn_info *init_txn_info(char *database_name, TransactionId gxid)
 	cur_txn_info->next = database->last_txn_info = (txn_info *)malloc(sizeof(txn_info));
 	if (cur_txn_info->next == NULL)
 		return(NULL);
-	memset(cur_txn_info->next, sizeof(txn_info), 0);
+	memset(cur_txn_info->next, 0, sizeof(txn_info));
 	if ((cur_txn_info->next->txn_stat = (TXN_STATUS *)malloc(sizeof(TXN_STATUS) * pgxc_clean_node_count)) == NULL)
 		return(NULL);
-	memset(cur_txn_info->next->txn_stat, sizeof(TXN_STATUS) * pgxc_clean_node_count, 0);
+	memset(cur_txn_info->next->txn_stat, 0, sizeof(TXN_STATUS) * pgxc_clean_node_count);
 	return cur_txn_info->next;
 }
 
@@ -249,7 +249,7 @@ TXN_STATUS check_txn_global_status(txn_info *txn)
 		return TXN_STATUS_INITIAL;
 	for (ii = 0; ii < pgxc_clean_node_count; ii++)
 	{
-		if (txn->txn_stat[ii] == TXN_STATUS_INITIAL)
+		if (txn->txn_stat[ii] == TXN_STATUS_INITIAL || txn->txn_stat[ii] == TXN_STATUS_UNKNOWN)
 			continue;
 		else if (txn->txn_stat[ii] == TXN_STATUS_PREPARED)
 			check_flag |= TXN_PREPARED;
