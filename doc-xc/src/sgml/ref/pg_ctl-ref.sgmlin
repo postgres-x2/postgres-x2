@@ -40,9 +40,7 @@ PostgreSQL documentation
    <arg>-p <replaceable>path</replaceable></arg>
    <arg>-c</arg>
 <!## XC>
-   <arg>-S <replaceable>nodeopt</replaceable></arg>
-   <arg>-C</arg>
-   <arg>-X</arg>
+   <arg>-Z <replaceable>nodeopt</replaceable></arg>
 <!## end>
   </cmdsynopsis>
 
@@ -78,6 +76,9 @@ PostgreSQL documentation
      </group>
    </arg>
    <arg>-o <replaceable>options</replaceable></arg>
+<!## XC>
+   <arg>-Z <replaceable>nodeopt</replaceable></arg>
+<!## end>
   </cmdsynopsis>
 
   <cmdsynopsis>
@@ -355,11 +356,12 @@ PostgreSQL documentation
 
 <!## XC>
      <varlistentry>
-      <term><option>-Z<replaceable class="parameter">nodeopt</replaceable></option></term>
+      <term><option>-Z <replaceable class="parameter">nodeopt</replaceable></option></term>
       <listitem>
        <para>
-        Specifies to run as Coordinator or as Datanode.  You should
-        specify Coordinator or Datanode as <replaceable>nodeopt</replaceable>.  Only for Postgres-XC.
+        Specifies to run node as a Coordinator or as a Datanode.
+        <replaceable>nodeopt</replaceable> can be respectively
+        <literal>coordinator</literal> or <literal>datanode</literal>.
        </para>
       </listitem>
      </varlistentry>
