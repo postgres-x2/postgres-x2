@@ -884,7 +884,7 @@ dropdb(const char *dbname, bool missing_ok)
 	 * according to pg_database, which is not good.
 	 */
 	ForceSyncCommit();
-	
+
 #ifdef PGXC
 	/* Drop sequences on gtm that are on the database dropped. */
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
@@ -976,6 +976,25 @@ RenameDatabase(const char *oldname, const char *newname)
 	heap_close(rel, NoLock);
 }
 
+#ifdef PGXC
+/*
+ * IsSetTableSpace:
+ * Returns true if it is ALTER DATABASE SET TABLESPACE
+ */
+bool
+IsSetTableSpace(AlterDatabaseStmt *stmt)
+{
+	ListCell   *option;
+	/* Handle the SET TABLESPACE option separately */
+	foreach(option, stmt->options)
+	{
+		DefElem	*defel = (DefElem *) lfirst(option);
+		if (strcmp(defel->defname, "tablespace") == 0)
+			return true;
+	}
+	return false;
+}
+#endif
 
 /*
  * ALTER DATABASE SET TABLESPACE

@@ -463,7 +463,7 @@ standard_ProcessUtility(Node *parsetree,
 					case TRANS_STMT_COMMIT_PREPARED:
 						PreventTransactionChain(isTopLevel, "COMMIT PREPARED");
 						PreventCommandDuringRecovery("COMMIT PREPARED");
-#ifdef PGXC						
+#ifdef PGXC
 						/*
 						 * Commit a transaction which was explicitely prepared
 						 * before
@@ -481,7 +481,7 @@ standard_ProcessUtility(Node *parsetree,
 					case TRANS_STMT_ROLLBACK_PREPARED:
 						PreventTransactionChain(isTopLevel, "ROLLBACK PREPARED");
 						PreventCommandDuringRecovery("ROLLBACK PREPARED");
-#ifdef PGXC						
+#ifdef PGXC
 						/*
 						 * Abort a transaction which was explicitely prepared
 						 * before
@@ -1572,8 +1572,17 @@ standard_ProcessUtility(Node *parsetree,
 		case T_AlterDatabaseStmt:
 			AlterDatabase((AlterDatabaseStmt *) parsetree, isTopLevel);
 #ifdef PGXC
+			/*
+			 * If the query uses SET TABLESPACE, enforce autocommit as it
+			 * cannot run inside a transaction block.
+			 */
 			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecUtilityStmtOnNodes(queryString,
+				   NULL,
+				   sentToRemote,
+				   IsSetTableSpace((AlterDatabaseStmt *) parsetree) ? true : false,
+				   EXEC_ON_ALL_NODES,
+				   false);
 #endif
 			break;
 
