@@ -175,14 +175,14 @@ select sum(val) from tab1_rr where val2 = 2 group by val2 having sum(val) > 1;
 (1 row)
 
 explain (costs off, verbose on, nodes off) select sum(val) from tab1_rr where val2 = 2 group by val2 having sum(val) > 1;
-                                          QUERY PLAN                                          
-----------------------------------------------------------------------------------------------
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
  GroupAggregate
    Output: pg_catalog.sum((sum(tab1_rr.val))), tab1_rr.val2
    Filter: (pg_catalog.sum((sum(tab1_rr.val))) > 1)
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (sum(tab1_rr.val)), tab1_rr.val2
-         Remote query: SELECT sum(val), val2 FROM ONLY tab1_rr WHERE (val2 = 2) GROUP BY val2
+         Remote query: SELECT sum(val), val2 FROM ONLY tab1_rr WHERE (val2 = 2) GROUP BY 2
 (6 rows)
 
 -- tests for node reduction by application of quals, for roundrobin node
@@ -535,14 +535,14 @@ select sum(val) from tab1_hash where val2 = 2 group by val2 having sum(val) > 1;
 (1 row)
 
 explain (costs off, verbose on, nodes off) select sum(val) from tab1_hash where val2 = 2 group by val2 having sum(val) > 1;
-                                           QUERY PLAN                                           
-------------------------------------------------------------------------------------------------
+                                         QUERY PLAN                                          
+---------------------------------------------------------------------------------------------
  GroupAggregate
    Output: pg_catalog.sum((sum(tab1_hash.val))), tab1_hash.val2
    Filter: (pg_catalog.sum((sum(tab1_hash.val))) > 1)
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (sum(tab1_hash.val)), tab1_hash.val2
-         Remote query: SELECT sum(val), val2 FROM ONLY tab1_hash WHERE (val2 = 2) GROUP BY val2
+         Remote query: SELECT sum(val), val2 FROM ONLY tab1_hash WHERE (val2 = 2) GROUP BY 2
 (6 rows)
 
 -- tests for node reduction by application of quals. Having query FQSed because of
@@ -888,14 +888,14 @@ select sum(val) from tab1_modulo where val2 = 2 group by val2 having sum(val) > 
 (1 row)
 
 explain (costs off, verbose on, nodes off) select sum(val) from tab1_modulo where val2 = 2 group by val2 having sum(val) > 1;
-                                            QUERY PLAN                                            
---------------------------------------------------------------------------------------------------
+                                          QUERY PLAN                                           
+-----------------------------------------------------------------------------------------------
  GroupAggregate
    Output: pg_catalog.sum((sum(tab1_modulo.val))), tab1_modulo.val2
    Filter: (pg_catalog.sum((sum(tab1_modulo.val))) > 1)
    ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
          Output: (sum(tab1_modulo.val)), tab1_modulo.val2
-         Remote query: SELECT sum(val), val2 FROM ONLY tab1_modulo WHERE (val2 = 2) GROUP BY val2
+         Remote query: SELECT sum(val), val2 FROM ONLY tab1_modulo WHERE (val2 = 2) GROUP BY 2
 (6 rows)
 
 -- tests for node reduction by application of quals. Having query FQSed because of

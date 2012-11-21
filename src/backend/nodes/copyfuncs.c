@@ -1033,7 +1033,8 @@ _copyRemoteQuery(const RemoteQuery *from)
 	   sizeof(from->remote_param_types[0]) * from->remote_num_params);
 	COPY_SCALAR_FIELD(exec_type);
 	COPY_SCALAR_FIELD(is_temp);
-
+	COPY_SCALAR_FIELD(rq_finalise_aggs);
+	COPY_SCALAR_FIELD(rq_sortgroup_colno);
 	COPY_NODE_FIELD(remote_query);
 	COPY_NODE_FIELD(base_tlist);
 	COPY_NODE_FIELD(coord_var_tlist);

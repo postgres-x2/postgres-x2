@@ -110,6 +110,9 @@ typedef struct
 	bool		varprefix;		/* TRUE to print prefixes on Vars */
 #ifdef PGXC
 	bool		finalise_aggs;	/* should Datanode finalise the aggregates? */
+	bool		sortgroup_colno;/* instead of expression use resno for
+								 * sortgrouprefs.
+								 */
 #endif /* PGXC */
 } deparse_context;
 
@@ -207,7 +210,11 @@ static void make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 static void make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 			 int prettyFlags);
 static void get_query_def(Query *query, StringInfo buf, List *parentnamespace,
-			  TupleDesc resultDesc, int prettyFlags, int startIndent);
+			  TupleDesc resultDesc, int prettyFlags, int startIndent
+#ifdef PGXC
+			  , bool finalise_aggregates, bool sortgroup_colno
+#endif /* PGXC */
+				);
 static void get_values_def(List *values_lists, deparse_context *context);
 static void get_with_clause(Query *query, deparse_context *context);
 static void get_select_query_def(Query *query, deparse_context *context,
@@ -2217,36 +2224,6 @@ deparse_context_for(const char *aliasname, Oid relid)
 	return list_make1(dpns);
 }
 
-#ifdef PGXC
-List *
-deparse_context_for_remotequery(Alias *aliasname, Oid relid)
-{
-	deparse_namespace *dpns;
-	RangeTblEntry *rte;
-
-	dpns = (deparse_namespace *) palloc(sizeof(deparse_namespace));
-
-	/* Build a minimal RTE for the rel */
-	rte = makeNode(RangeTblEntry);
-	rte->rtekind = RTE_RELATION;
-	rte->relid = relid;
-	rte->eref = aliasname;
-	rte->inh = false;
-	rte->inFromCl = true;
-
-	/* Build one-element rtable */
-	dpns->rtable = list_make1(rte);
-	dpns->ctes = NIL;
-	dpns->planstate = NULL;
-	dpns->ancestors = NIL;
-	dpns->outer_planstate = dpns->inner_planstate = NULL;
-	dpns->remotequery = true;
-
-	/* Return a one-deep namespace stack */
-	return list_make1(dpns);
-}
-#endif
-
 /*
  * deparse_context_for_planstate	- Build deparse context for a plan
  *
@@ -2714,7 +2691,11 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 		foreach(action, actions)
 		{
 			query = (Query *) lfirst(action);
-			get_query_def(query, buf, NIL, NULL, prettyFlags, 0);
+			get_query_def(query, buf, NIL, NULL, prettyFlags, 0
+#ifdef PGXC
+			, false, false
+#endif /* PGXC */
+			);
 			if (prettyFlags)
 				appendStringInfo(buf, ";\n");
 			else
@@ -2731,7 +2712,11 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 		Query	   *query;
 
 		query = (Query *) linitial(actions);
-		get_query_def(query, buf, NIL, NULL, prettyFlags, 0);
+		get_query_def(query, buf, NIL, NULL, prettyFlags, 0
+#ifdef PGXC
+						, false, false
+#endif /* PGXC */
+		);
 		appendStringInfo(buf, ";");
 	}
 }
@@ -2799,7 +2784,11 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	ev_relation = heap_open(ev_class, AccessShareLock);
 
 	get_query_def(query, buf, NIL, RelationGetDescr(ev_relation),
-				  prettyFlags, 0);
+				  prettyFlags, 0
+#ifdef PGXC
+				  , false, false
+#endif /* PGXC */
+				  );
 	appendStringInfo(buf, ";");
 
 	heap_close(ev_relation, AccessShareLock);
@@ -2815,166 +2804,11 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
  * ----------
  */
 void
-deparse_query(Query *query, StringInfo buf, List *parentnamespace)
+deparse_query(Query *query, StringInfo buf, List *parentnamespace,
+				bool finalise_aggs, bool sortgroup_colno)
 {
-	get_query_def(query, buf, parentnamespace, NULL, 0, 0);
-}
-
-/* code borrowed from get_insert_query_def */
-void
-get_query_def_from_valuesList(Query *query, StringInfo buf)
-{
-
-	RangeTblEntry *select_rte = NULL;
-	RangeTblEntry *values_rte = NULL;
-	RangeTblEntry *rte;
-	char	   *sep;
-	ListCell   *values_cell;
-	ListCell   *l;
-	List	   *strippedexprs;
-	deparse_context context;
-	deparse_namespace dpns;
-
-	/*
-	 * Before we begin to examine the query, acquire locks on referenced
-	 * relations, and fix up deleted columns in JOIN RTEs.	This ensures
-	 * consistent results.	Note we assume it's OK to scribble on the passed
-	 * querytree!
-	 */
-	AcquireRewriteLocks(query, false);
-
-	context.buf = buf;
-	context.namespaces = NIL;
-	context.windowClause = NIL;
-	context.windowTList = NIL;
-	context.varprefix = (list_length(query->rtable) != 1);
-	context.prettyFlags = 0;
-	context.indentLevel = 0;
-#ifdef PGXC
-	context.finalise_aggs = query->qry_finalise_aggs;
-#endif /* PGXC */
-
-	dpns.rtable = query->rtable;
-	dpns.ctes = query->cteList;
-	dpns.planstate = NULL;
-	dpns.ancestors = NIL;
-	dpns.outer_planstate = dpns.inner_planstate = NULL;
-	dpns.remotequery = false;
-
-	/*
-	 * If it's an INSERT ... SELECT or VALUES (...), (...), ... there will be
-	 * a single RTE for the SELECT or VALUES.
-	 */
-	foreach(l, query->rtable)
-	{
-		rte = (RangeTblEntry *) lfirst(l);
-
-		if (rte->rtekind == RTE_SUBQUERY)
-		{
-			if (select_rte)
-				elog(ERROR, "too many subquery RTEs in INSERT");
-			select_rte = rte;
-		}
-
-		if (rte->rtekind == RTE_VALUES)
-		{
-			if (values_rte)
-				elog(ERROR, "too many values RTEs in INSERT");
-			values_rte = rte;
-		}
-	}
-	if (select_rte && values_rte)
-		elog(ERROR, "both subquery and values RTEs in INSERT");
-
-	/*
-	 * Start the query with INSERT INTO relname
-	 */
-	rte = rt_fetch(query->resultRelation, query->rtable);
-	Assert(rte->rtekind == RTE_RELATION);
-
-	appendStringInfo(buf, "INSERT INTO %s (",
-					 generate_relation_name(rte->relid, NIL));
-
-	/*
-	 * Add the insert-column-names list.  To handle indirection properly, we
-	 * need to look for indirection nodes in the top targetlist (if it's
-	 * INSERT ... SELECT or INSERT ... single VALUES), or in the first
-	 * expression list of the VALUES RTE (if it's INSERT ... multi VALUES). We
-	 * assume that all the expression lists will have similar indirection in
-	 * the latter case.
-	 */
-	if (values_rte)
-		values_cell = list_head((List *) linitial(values_rte->values_lists));
-	else
-		values_cell = NULL;
-	strippedexprs = NIL;
-	sep = "";
-	foreach(l, query->targetList)
-	{
-		TargetEntry *tle = (TargetEntry *) lfirst(l);
-
-		elog(DEBUG1, "targetEntry type is %d\n)", tle->expr->type);
-		if (tle->resjunk || !IsA(tle->expr, Var))
-			continue;			/* ignore junk entries */
-
-		appendStringInfoString(buf, sep);
-		sep = ", ";
-
-		/*
-		 * Put out name of target column; look in the catalogs, not at
-		 * tle->resname, since resname will fail to track RENAME.
-		 */
-		appendStringInfoString(buf,quote_identifier(get_relid_attribute_name(rte->relid, tle->resno)));
-
-		/*
-		 * Print any indirection needed (subfields or subscripts), and strip
-		 * off the top-level nodes representing the indirection assignments.
-		 */
-		if (values_cell)
-		{
-			/* we discard the stripped expression in this case */
-			processIndirection((Node *) lfirst(values_cell), &context, true);
-			values_cell = lnext(values_cell);
-		}
-		else
-		{
-			/* we keep a list of the stripped expressions in this case */
-			strippedexprs = lappend(strippedexprs, processIndirection((Node *) tle->expr, &context, true));
-		}
-	}
-	appendStringInfo(buf, ") ");
-
-	if (select_rte)
-	{
-		/* Add the SELECT */
-		get_query_def(select_rte->subquery, buf, NIL, NULL,
-					  context.prettyFlags, context.indentLevel);
-	}
-	else if (values_rte)
-	{
-		/* A WITH clause is possible here */
-		get_with_clause(query, &context);
-		/* Add the multi-VALUES expression lists */
-		get_values_def(values_rte->values_lists, &context);
-	}
-	else
-	{
-		/* A WITH clause is possible here */
-		get_with_clause(query, &context);
-		/* Add the single-VALUES expression list */
-		appendContextKeyword(&context, "VALUES (",
-							 -PRETTYINDENT_STD, PRETTYINDENT_STD, 2);
-		get_rule_expr((Node *) strippedexprs, &context, false);
-		appendStringInfoChar(buf, ')');
-	}
-
-	/* Add RETURNING if present */
-	if (query->returningList)
-	{
-		appendContextKeyword(&context, " RETURNING",
-							 -PRETTYINDENT_STD, PRETTYINDENT_STD, 1);
-		get_target_list(query->returningList, &context, NULL);
-	}
+	get_query_def(query, buf, parentnamespace, NULL, 0, 0, finalise_aggs,
+					sortgroup_colno);
 }
 #endif
 /* ----------
@@ -2986,7 +2820,11 @@ get_query_def_from_valuesList(Query *query, StringInfo buf)
  */
 static void
 get_query_def(Query *query, StringInfo buf, List *parentnamespace,
-			  TupleDesc resultDesc, int prettyFlags, int startIndent)
+			  TupleDesc resultDesc, int prettyFlags, int startIndent
+#ifdef PGXC
+				, bool finalise_aggs, bool sortgroup_colno
+#endif /* PGXC */
+			  )
 {
 	deparse_context context;
 	deparse_namespace dpns;
@@ -3008,7 +2846,8 @@ get_query_def(Query *query, StringInfo buf, List *parentnamespace,
 	context.prettyFlags = prettyFlags;
 	context.indentLevel = startIndent;
 #ifdef PGXC
-	context.finalise_aggs = query->qry_finalise_aggs;
+	context.finalise_aggs = finalise_aggs;
+	context.sortgroup_colno = sortgroup_colno;
 #endif /* PGXC */
 
 	memset(&dpns, 0, sizeof(dpns));
@@ -3147,7 +2986,11 @@ get_with_clause(Query *query, deparse_context *context)
 		if (PRETTY_INDENT(context))
 			appendContextKeyword(context, "", 0, 0, 0);
 		get_query_def((Query *) cte->ctequery, buf, context->namespaces, NULL,
-					  context->prettyFlags, context->indentLevel);
+					  context->prettyFlags, context->indentLevel
+#ifdef PGXC
+					  , context->finalise_aggs, context->sortgroup_colno
+#endif /* PGXC */
+					  );
 		if (PRETTY_INDENT(context))
 			appendContextKeyword(context, "", 0, 0, 0);
 		appendStringInfoChar(buf, ')');
@@ -3550,7 +3393,11 @@ get_setop_query(Node *setOp, Query *query, deparse_context *context,
 		if (need_paren)
 			appendStringInfoChar(buf, '(');
 		get_query_def(subquery, buf, context->namespaces, resultDesc,
-					  context->prettyFlags, context->indentLevel);
+					  context->prettyFlags, context->indentLevel
+#ifdef PGXC
+					  , context->finalise_aggs, context->sortgroup_colno
+#endif /* PGXC */
+					  );
 		if (need_paren)
 			appendStringInfoChar(buf, ')');
 	}
@@ -3646,7 +3493,7 @@ get_rule_sortgroupclause(SortGroupClause *srt, List *tlist, bool force_colno,
 	 * dump it without any decoration.	Otherwise, just dump the expression
 	 * normally.
 	 */
-	if (force_colno)
+	if (force_colno || context->sortgroup_colno)
 	{
 		Assert(!tle->resjunk);
 		appendStringInfo(buf, "%d", tle->resno);
@@ -3987,7 +3834,11 @@ get_insert_query_def(Query *query, deparse_context *context)
 	{
 		/* Add the SELECT */
 		get_query_def(select_rte->subquery, buf, NIL, NULL,
-					  context->prettyFlags, context->indentLevel);
+					  context->prettyFlags, context->indentLevel
+#ifdef PGXC
+					  , context->finalise_aggs, context->sortgroup_colno
+#endif /* PGXC */
+					  );
 	}
 	else if (values_rte)
 	{
@@ -7153,7 +7004,11 @@ get_sublink_expr(SubLink *sublink, deparse_context *context)
 		appendStringInfoChar(buf, '(');
 
 	get_query_def(query, buf, context->namespaces, NULL,
-				  context->prettyFlags, context->indentLevel);
+				  context->prettyFlags, context->indentLevel
+#ifdef PGXC
+				  , context->finalise_aggs, context->sortgroup_colno
+#endif /* PGXC */
+				  );
 
 	if (need_paren)
 		appendStringInfo(buf, "))");
@@ -7275,7 +7130,11 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 				/* Subquery RTE */
 				appendStringInfoChar(buf, '(');
 				get_query_def(rte->subquery, buf, context->namespaces, NULL,
-							  context->prettyFlags, context->indentLevel);
+							  context->prettyFlags, context->indentLevel,
+#ifdef PGXC
+							  context->finalise_aggs, context->sortgroup_colno
+#endif /* PGXC */
+							  );
 				appendStringInfoChar(buf, ')');
 				break;
 			case RTE_FUNCTION:

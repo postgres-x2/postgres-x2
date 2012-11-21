@@ -484,6 +484,8 @@ _outRemoteQuery(StringInfo str, const RemoteQuery *node)
 	WRITE_ENUM_FIELD(exec_type, RemoteQueryExecType);
 	WRITE_BOOL_FIELD(is_temp);
 	WRITE_BOOL_FIELD(has_row_marks);
+	WRITE_BOOL_FIELD(rq_finalise_aggs);
+	WRITE_BOOL_FIELD(rq_sortgroup_colno);
 	WRITE_NODE_FIELD(remote_query);
 	WRITE_NODE_FIELD(coord_var_tlist);
 	WRITE_NODE_FIELD(query_var_tlist);

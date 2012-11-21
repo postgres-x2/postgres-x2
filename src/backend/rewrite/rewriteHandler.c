@@ -2692,7 +2692,7 @@ QueryRewriteCTAS(Query *parsetree)
 	cparsetree->utilityStmt = (Node *) create_stmt;
 
 	initStringInfo(&cquery);
-	deparse_query(cparsetree, &cquery, NIL);
+	deparse_query(cparsetree, &cquery, NIL, false, false);
 
 	/* Finally, fire off the query to run the DDL */
 	ProcessUtility(cparsetree->utilityStmt, cquery.data, NULL, true, NULL,
@@ -2707,7 +2707,7 @@ QueryRewriteCTAS(Query *parsetree)
 
 	/* Get the SELECT query string */
 	initStringInfo(&cquery);
-	deparse_query((Query *)stmt->query, &cquery, NIL);
+	deparse_query((Query *)stmt->query, &cquery, NIL, true, false);
 	selectstr = pstrdup(cquery.data);
 
 	/* Now, finally build the INSERT INTO statement */

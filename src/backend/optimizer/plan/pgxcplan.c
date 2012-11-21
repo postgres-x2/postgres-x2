@@ -547,7 +547,8 @@ static void
 pgxc_rqplan_build_statement(RemoteQuery *rqplan)
 {
 	StringInfo sql = makeStringInfo();
-	deparse_query(rqplan->remote_query, sql, NULL);
+	deparse_query(rqplan->remote_query, sql, NULL, rqplan->rq_finalise_aggs,
+					rqplan->rq_sortgroup_colno);
 	if (rqplan->sql_statement)
 		pfree(rqplan->sql_statement);
 	rqplan->sql_statement = sql->data;
@@ -1411,7 +1412,12 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	 * If we are able to completely evaluate the aggregates on datanodes, we
 	 * need to ask datanode/s to finalise the aggregates
 	 */
-	remote_scan->remote_query->qry_finalise_aggs = single_node_grouping;
+	remote_scan->rq_finalise_aggs = single_node_grouping;
+	/*
+	 * We want sort and group references to be included as column numbers in the
+	 * query to be sent to the datanodes.
+	 */
+	remote_scan->rq_sortgroup_colno = true;
 
 	/*
 	 * Build the targetlist of the query plan.
@@ -2291,7 +2297,7 @@ fetch_ctid_of(Plan *subtree, Query *query)
 			temp_qry->targetList = lappend(temp_qry->targetList, te2);
 
 			initStringInfo(&deparsed_qry);
-			deparse_query(temp_qry, &deparsed_qry, NIL);
+			deparse_query(temp_qry, &deparsed_qry, NIL, false, false);
 
 			MemoryContextSwitchTo(oldcontext);
 
@@ -2562,25 +2568,19 @@ pgxc_FQS_create_remote_plan(Query *query, ExecNodes *exec_nodes, bool is_exec_di
 
 	Assert(query_step->exec_nodes);
 
-	/* Datanodes should finalise the results of this query */
-	query->qry_finalise_aggs = true;
-
 	/* Deparse query tree to get step query. */
 	if (query_step->sql_statement == NULL)
 	{
 		initStringInfo(&buf);
-		deparse_query(query, &buf, NIL);
+		/*
+		 * We always finalise aggregates on datanodes for FQS.
+		 * Use the expressions for ORDER BY or GROUP BY clauses.
+		 */
+		deparse_query(query, &buf, NIL, true, false);
 		query_step->sql_statement = pstrdup(buf.data);
 		pfree(buf.data);
 	}
-	/*
-	 * PGXCTODO: we may route this same Query structure through
-	 * standard_planner, where we don't want Datanodes to finalise the results.
-	 * Turn it off. At some point, we will avoid routing the same query
-	 * structure through the standard_planner by modifying it only when it's not
-	 * be routed through standard_planner.
-	 */
-	query->qry_finalise_aggs = false;
+
 	/* Optimize multi-node handling */
 	query_step->read_only = (query->commandType == CMD_SELECT && !query->hasForUpdate);
 	query_step->has_row_marks = query->hasForUpdate;

@@ -98,6 +98,12 @@ typedef struct
 	bool			is_temp;		/* determine if this remote node is based
 									 * on a temporary objects (no 2PC) */
 
+	bool			rq_finalise_aggs;	/* Aggregates should be finalised at the
+										 * Datanode
+										 */
+	bool			rq_sortgroup_colno;	/* Use resno for sort group references
+										 * instead of expressions
+										 */
 	Query			*remote_query;	/* Query structure representing the query to be
 									 * sent to the datanodes
 									 */

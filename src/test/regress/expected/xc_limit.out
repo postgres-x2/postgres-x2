@@ -140,11 +140,11 @@ select count(*) from (select count(*) from xc_limit_tab1 group by val2 % 4 limit
 (1 row)
 
 explain (costs off, verbose on, nodes off) select count(*) from xc_limit_tab1 group by val2 % 4 limit 2;
-                                                     QUERY PLAN                                                     
---------------------------------------------------------------------------------------------------------------------
+                                                QUERY PLAN                                                 
+-----------------------------------------------------------------------------------------------------------
  Data Node Scan on "__REMOTE_LIMIT_QUERY__"
    Output: (count(*)), ((xc_limit_tab1.val2 % 4))
-   Remote query: SELECT count(*), (val2 % 4) FROM ONLY xc_limit_tab1 WHERE true GROUP BY (val2 % 4) LIMIT 2::bigint
+   Remote query: SELECT count(*), (val2 % 4) FROM ONLY xc_limit_tab1 WHERE true GROUP BY 2 LIMIT 2::bigint
 (3 rows)
 
 select val, val2 from xc_limit_tab1 order by val2 limit 2;
@@ -331,15 +331,15 @@ select count(*) from (select count(*) from xc_limit_tab1 group by val2 % 4 limit
 (1 row)
 
 explain (costs off, verbose on, nodes off) select count(*) from xc_limit_tab1 group by val2 % 4 limit 2;
-                                                   QUERY PLAN                                                   
-----------------------------------------------------------------------------------------------------------------
+                                              QUERY PLAN                                               
+-------------------------------------------------------------------------------------------------------
  Limit
    Output: (pg_catalog.count(*)), ((xc_limit_tab1.val2 % 4))
    ->  HashAggregate
          Output: pg_catalog.count(*), ((xc_limit_tab1.val2 % 4))
          ->  Data Node Scan on "__REMOTE_GROUP_QUERY__"
                Output: (count(*)), ((xc_limit_tab1.val2 % 4))
-               Remote query: SELECT count(*), (val2 % 4) FROM ONLY xc_limit_tab1 WHERE true GROUP BY (val2 % 4)
+               Remote query: SELECT count(*), (val2 % 4) FROM ONLY xc_limit_tab1 WHERE true GROUP BY 2
 (7 rows)
 
 select val, val2 from xc_limit_tab1 order by val2 limit 2;
