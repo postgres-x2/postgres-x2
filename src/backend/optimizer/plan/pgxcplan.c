@@ -63,8 +63,6 @@ static List *pgxc_process_having_clause(List *remote_tlist, bool single_node_gro
 												Node *havingQual, List **local_qual,
 												List **remote_qual);
 static Expr *pgxc_set_en_expr(Oid tableoid, Index resultRelationIndex);
-static int pgxc_count_rowmarks_entries(List *rowMarks);
-static Oid *pgxc_build_rowmark_entries(List *rowMarks, List *rtable, Oid *types, int prepparams, int totparams);
 static List *pgxc_separate_quals(List *quals, List **local_quals, bool has_aggs);
 static Query *pgxc_build_shippable_query_recurse(PlannerInfo *root,
 													RemoteQueryPath *rqpath,
@@ -909,6 +907,7 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 {
 	ModifyTable *mt = (ModifyTable *)topplan;
 	ListCell	*l;
+	int		relcount = 0;
 
 	/* We expect to work only on ModifyTable node */
 	if (!IsA(topplan, ModifyTable))
@@ -932,8 +931,22 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		RemoteQuery	   *fstep;		/* Plan step generated */
 		ListCell	   *elt;
 		int				count = 0, where_count = 1;
-		int				natts, count_prepparams, tot_prepparams;
+		int				natts, tot_prepparams;
 		char		   *relname;
+		int		i;
+		List		*sourceTargetList = NULL;
+		Plan		*sourceDataPlan;	/* plan producing source data */
+
+		/*
+		 * Get the plan that corresponds to this relation
+		 * that is supposed to supply source data to this plan
+		 */
+		sourceDataPlan = list_nth(mt->plans, relcount);
+		/*
+		 * Get the target list of the plan that is supposed to
+		 * supply source data to this plan
+		 */
+		sourceTargetList = sourceDataPlan->targetlist;
 
 		ttab = rt_fetch(resultRelationIndex, parse->rtable);
 
@@ -979,12 +992,37 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 			if (tle->resjunk)
 				count++;
 		}
-		count_prepparams = natts + count;
-		/* Count entries related to Rowmarks */
-		tot_prepparams = count_prepparams + pgxc_count_rowmarks_entries(root->rowMarks);
+
+		/*
+		 * In XC an update is planned as a two step process
+		 * The first step selects the ctid, node id and the
+		 * new values of the columns for the row to be updated
+		 * where as the second step
+		 * creates a parameterized query that is supposed to
+		 * take the data row returned by the lower plan node
+		 * as the parameters and update the row.
+		 * The total number of parameters should therefore
+		 * be equal to the number of target list entries in
+		 * lower plan node
+		 */
+		tot_prepparams = list_length(sourceTargetList);
 
 		/* Then allocate the array for this purpose */
 		param_types = (Oid *) palloc0(sizeof (Oid) * tot_prepparams);
+
+		/*
+		 * The parameter types of all the supplied parameters
+		 * will be the same as the types of the target list entries
+		 * in the lower plan node
+		 */
+		i = 0;
+		foreach(elt, sourceTargetList)
+		{
+			TargetEntry *tle = lfirst(elt);
+
+			/* Set up the parameter type */
+			param_types[i++] = exprType((Node *) tle->expr);
+		}
 
 		/*
 		 * Now build the query based on the target list. SET clause is completed
@@ -1023,22 +1061,18 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 				appendStringInfo(buf, "%s = $%d",
 								 tle->resname,
 								 attno);
-
-				/* Set parameter type correctly */
-				param_types[attno - 1] = exprType((Node *) tle->expr);
 			}
 			else
 			{
-				/* Set parameter type */
-				param_types[natts + where_count - 1] = exprType((Node *) tle->expr);
 				where_count++;
 
 				/*
 				 * ctid and xc_node_id are sufficient to identify
 				 * remote tuple.
 				 */
-				if (strcmp(tle->resname, "xc_node_id") != 0 &&
-					strcmp(tle->resname, "ctid") != 0)
+				if (tle->resname == NULL ||
+					(strcmp(tle->resname, "xc_node_id") != 0 &&
+					strcmp(tle->resname, "ctid") != 0))
 					continue;
 
 				/* Set the clause if necessary */
@@ -1056,50 +1090,6 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 								 natts + where_count - 1);
 			}
 		}
-
-		/*
-		 * Before finalizing query be sure that there are no missing entries for attributes.
-		 * If there are complete the last holes. Those ones are mandatory to insure that
-		 * update is executed consistently.
-		 */
-		for (count = 1; count <= natts; count++)
-		{
-			if (param_types[count - 1] == 0)
-			{
-				HeapTuple tp;
-
-				tp = SearchSysCache(ATTNUM,
-									ObjectIdGetDatum(ttab->relid),
-									Int16GetDatum(count),
-									0, 0);
-
-				if (HeapTupleIsValid(tp))
-				{
-					Form_pg_attribute att_saved = (Form_pg_attribute) GETSTRUCT(tp);
-
-					/*
-					 * Set parameter type of attribute
-					 * Dropped columns are casted as int4
-					 */
-					if (att_saved->attisdropped)
-						param_types[count - 1] = INT4OID;
-					else
-						param_types[count - 1] = att_saved->atttypid;
-					ReleaseSysCache(tp);
-				}
-				else
-					elog(ERROR, "cache lookup failed for attribute %d of relation %u",
-							count, ttab->relid);
-			}
-		}
-
-		/*
-		 * The query needs to be completed by nullifying the non-parent entries
-		 * defined in RowMarks. This is essential for UPDATE queries running with child
-		 * entries as we need to bypass them correctly at executor level.
-		 */
-		param_types = pgxc_build_rowmark_entries(root->rowMarks, parse->rtable, param_types,
-												count_prepparams, tot_prepparams);
 
 		/* Finish building the query by gathering SET and WHERE clauses */
 		appendStringInfo(buf, "%s", buf2->data);
@@ -1129,6 +1119,8 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		pfree(buf2);
 
 		mt->remote_plans = lappend(mt->remote_plans, fstep);
+
+		relcount++;
 	}
 
 	return topplan;
@@ -1146,6 +1138,7 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 {
 	ModifyTable *mt = (ModifyTable *)topplan;
 	ListCell	*l;
+	int		relcount = 0;
 
 	/* We expect to work only on ModifyTable node */
 	if (!IsA(topplan, ModifyTable))
@@ -1163,13 +1156,27 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		StringInfo		buf;
 		Oid			    nspid;		/* Relation namespace Oid */
 		char		   *nspname;	/* Relation namespace name */
-		int				count_prepparams, tot_prepparams;	/* Attribute used is CTID */
+		int				tot_prepparams;	/* Attribute used is CTID */
 		Oid			   *param_types;	/* Types of query parameters */
 		RemoteQuery	   *fstep;		/* Plan step generated */
 		bool			is_where_created = false;
 		ListCell	   *elt;
 		int				count = 1;
 		char		   *relname;
+		List		*sourceTargetList = NULL;
+		Plan		*sourceDataPlan;	/* plan producing source data */
+		int 		i;
+
+		/*
+		 * Get the plan that corresponds to this relation
+		 * that is supposed to supply source data to this plan
+		 */
+		sourceDataPlan = list_nth(mt->plans, relcount);
+		/*
+		 * Get the target list of the plan that is supposed to
+		 * supply source data to this plan
+		 */
+		sourceTargetList = sourceDataPlan->targetlist;
 
 		ttab = rt_fetch(resultRelationIndex, parse->rtable);
 
@@ -1190,16 +1197,33 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		nspname = get_namespace_name(nspid);
 		relname = get_rel_name(ttab->relid);
 
-		/* Parameters are defined by target list */
-		count_prepparams = list_length(parse->targetList);
+		/*
+		 * In XC a delete is planned as a two step process
+		 * The first step selects the ctid, node id
+		 * of the row to be deleted and the second step
+		 * creates a parameterized query that is supposed to
+		 * take the data row returned by the lower plan node
+		 * as the parameters and deletes the row.
+		 * The total number of parameters should therefore
+		 * be equal to the number of target list entries in
+		 * lower plan node
+		 */
+		tot_prepparams = list_length(sourceTargetList);
+		param_types = (Oid *) palloc0 (sizeof (Oid) * tot_prepparams);
 
-		/* Count entries related to Rowmarks only if there are child relations here */
-		if (list_length(mt->resultRelations) != 1)
-			tot_prepparams = count_prepparams + pgxc_count_rowmarks_entries(root->rowMarks);
-		else
-			tot_prepparams = count_prepparams;
+		/*
+		 * The parameter types of all the supplied parameters
+		 * will be the same as the types of the target list entries
+		 * in the lower plan node
+		 */
+		i = 0;
+		foreach(elt, sourceTargetList)
+		{
+			TargetEntry *tle = lfirst(elt);
 
-		param_types = (Oid *) palloc0(sizeof(Oid) * tot_prepparams);
+			/* Set up the parameter type */
+			param_types[i++] = exprType((Node *) tle->expr);
+		}
 
 		/*
 		 * Do not qualify with namespace for TEMP tables. The schema name may
@@ -1217,16 +1241,15 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		{
 			TargetEntry *tle = lfirst(elt);
 
-			/* Set up the parameter type */
-			param_types[count - 1] = exprType((Node *) tle->expr);
 			count++;
 
 			/*
 			 * In WHERE clause, ctid and xc_node_id are
 			 * sufficient to fetch a tuple from remote node.
 			 */
-			if (strcmp(tle->resname, "xc_node_id") != 0 &&
-				strcmp(tle->resname, "ctid") != 0)
+			if (tle->resname == NULL ||
+				(strcmp(tle->resname, "xc_node_id") != 0 &&
+				strcmp(tle->resname, "ctid") != 0))
 				continue;
 
 			/* Set the clause if necessary */
@@ -1242,14 +1265,6 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 							quote_identifier(tle->resname),
 							count - 1);
 		}
-
-		/*
-		 * The query needs to be completed by nullifying the non-parent entries
-		 * defined in RowMarks. This is essential for UPDATE queries running with child
-		 * entries as we need to bypass them correctly at executor level.
-		 */
-		param_types = pgxc_build_rowmark_entries(root->rowMarks, parse->rtable, param_types,
-												count_prepparams, tot_prepparams);
 
 		/* Finish by building the plan step */
 		fstep = make_remotequery(parse->targetList, NIL, resultRelationIndex);
@@ -1274,6 +1289,8 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		pfree(buf);
 
 		mt->remote_plans = lappend(mt->remote_plans, fstep);
+
+		relcount++;
 	}
 
 	return topplan;
@@ -1896,143 +1913,6 @@ pgxc_set_en_expr(Oid tableoid, Index resultRelationIndex)
 	ReleaseSysCache(tp);
 
 	return (Expr *) var;
-}
-
-/*
- * pgxc_count_rowmarks_entries
- * Count the number of rowmarks that need to be added as prepared parameters
- * for remote DML plan
- */
-static int
-pgxc_count_rowmarks_entries(List *rowMarks)
-{
-	int res = 0;
-	ListCell *elt;
-
-	foreach(elt, rowMarks)
-	{
-		PlanRowMark *rc = (PlanRowMark *) lfirst(elt);
-
-		/* RowMarks with different parent are not needed */
-		if (rc->rti != rc->prti)
-			continue;
-
-		/*
-		 * Count the entry and move to next element
-		 * For a non-parent rowmark, only ctid is used.
-		 * For a parent rowmark, ctid and tableoid are used.
-		 */
-		if (!rc->isParent)
-			res++;
-		else
-			res = res + 2;
-	}
-
-	return res;
-}
-
-/*
- * pgxc_build_rowmark_entries
- * Complete type array for SetRemoteStatementName based on given RowMarks list
- * The list of total parameters is calculated based on the current number of prepared
- * parameters and the rowmark list.
- */
-static Oid *
-pgxc_build_rowmark_entries(List *rowMarks, List *rtable, Oid *types, int prepparams, int totparams)
-{
-	Oid *newtypes = types;
-	int rowmark_entry_num;
-	int count = prepparams;
-	ListCell *elt;
-
-	/* No modifications is list is empty */
-	if (rowMarks == NIL)
-		return newtypes;
-
-	/* Nothing to do, total number of parameters is already correct */
-	if (prepparams == totparams)
-		return newtypes;
-
-	/* Fetch number of extra entries related to Rowmarks */
-	rowmark_entry_num = pgxc_count_rowmarks_entries(rowMarks);
-
-	/* Nothing to do */
-	if (rowmark_entry_num == 0)
-		return newtypes;
-
-	/* This needs to be absolutely verified */
-	Assert(totparams == (prepparams + rowmark_entry_num));
-
-	foreach(elt, rowMarks)
-	{
-		PlanRowMark *rc = (PlanRowMark *) lfirst(elt);
-
-		/* RowMarks with different parent are not needed */
-		if (rc->rti != rc->prti)
-			continue;
-
-		/* Determine the correct parameter type */
-		switch (rc->markType)
-		{
-			case ROW_MARK_COPY:
-			{
-				RangeTblEntry *rte = rt_fetch(rc->prti, rtable);
-				Oid typeoid = InvalidOid;
-
-				/* Try to get the type with the function expression */
-				if (rte->funcexpr)
-				{
-					FuncExpr *func = (FuncExpr *) rte->funcexpr;
-
-					/* Row type OID is the result type of this RTE function */
-					typeoid = func->funcresulttype;
-				}
-
-				/* Return an error if nothing found */
-				if (!OidIsValid(typeoid))
-					ereport(ERROR,
-							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-							 errmsg("Cannot generate remote query plan"),
-							 errdetail("This relation rowtype cannot be fetched")));
-
-				/*
-				 * This is the complete copy of a row, so it is necessary
-				 * to set parameter as a rowtype
-				 */
-				count++;
-				newtypes[count - 1] = typeoid;
-			}
-			break;
-
-			case ROW_MARK_REFERENCE:
-				/* Here we have a ctid for sure */
-				count++;
-				newtypes[count - 1] = TIDOID;
-
-				if (rc->isParent)
-				{
-					/* For a parent table, tableoid is also necessary */
-					count++;
-					/* Set parameter type */
-					newtypes[count - 1] = OIDOID;
-				}
-				break;
-
-			/* Ignore other entries */
-			case ROW_MARK_SHARE:
-			case ROW_MARK_EXCLUSIVE:
-				default:
-				break;
-		}
-	}
-
-	/* This should not happen */
-	if (count != totparams)
-		ereport(ERROR,
-				(errcode(ERRCODE_DATA_EXCEPTION),
-				 errmsg("Error when generating remote query plan")));
-
-	return newtypes;
 }
 
 static RangeTblEntry *

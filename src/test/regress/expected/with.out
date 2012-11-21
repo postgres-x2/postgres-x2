@@ -1533,8 +1533,7 @@ SELECT * FROM parent ORDER BY id;
 
 WITH rcte AS ( SELECT max(id) AS maxid FROM parent )
 DELETE FROM parent USING rcte WHERE id = maxid;
-ERROR:  Cannot generate remote query plan
-DETAIL:  This relation rowtype cannot be fetched
+ERROR:  input of anonymous composite types is not implemented
 SELECT * FROM parent ORDER BY id;
  id | val 
 ----+-----
