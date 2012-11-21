@@ -237,33 +237,6 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 		lfirst(lp) = set_plan_references(subroot, subplan);
 	}
 
-#ifdef PGXC
-	/*
-	 * PGXC should apply INSERT/UPDATE/DELETE to a Datanode. We are overriding
-	 * normal Postgres behavior by modifying final plan or by adding a node on
-	 * top of it.
-	 * If the optimizer finds out that there is nothing to UPDATE/INSERT/DELETE
-	 * in the table/s (say using constraint exclusion), it does not add modify
-	 * table plan on the top. We should send queries to the remote nodes only
-	 * when there is something to modify.
-	 */
-	if (IS_PGXC_COORDINATOR && IsA(top_plan, ModifyTable))
-		switch (parse->commandType)
-		{
-			case CMD_INSERT:
-				top_plan = create_remoteinsert_plan(root, top_plan);
-				break;
-			case CMD_UPDATE:
-				top_plan = create_remoteupdate_plan(root, top_plan);
-				break;
-			case CMD_DELETE:
-				top_plan = create_remotedelete_plan(root, top_plan);
-				break;
-			default:
-				break;
-		}
-#endif
-
 	/* build the PlannedStmt result */
 	result = makeNode(PlannedStmt);
 
@@ -618,6 +591,9 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 											 returningLists,
 											 rowMarks,
 											 SS_assign_special_param(root));
+#ifdef PGXC
+			plan = pgxc_make_modifytable(root, plan);
+#endif
 		}
 	}
 
@@ -785,6 +761,9 @@ inheritance_planner(PlannerInfo *root)
 	List	   *returningLists = NIL;
 	List	   *rowMarks;
 	ListCell   *lc;
+#ifdef PGXC
+	ModifyTable *mtplan;
+#endif
 
 	/*
 	 * We generate a modified instance of the original Query for each target
@@ -985,13 +964,20 @@ inheritance_planner(PlannerInfo *root)
 		rowMarks = root->rowMarks;
 
 	/* And last, tack on a ModifyTable node to do the UPDATE/DELETE work */
+#ifdef PGXC
+	mtplan = make_modifytable(parse->commandType,
+#else
 	return (Plan *) make_modifytable(parse->commandType,
+#endif
 									 parse->canSetTag,
 									 resultRelations,
 									 subplans,
 									 returningLists,
 									 rowMarks,
 									 SS_assign_special_param(root));
+#ifdef PGXC
+	return pgxc_make_modifytable(root, (Plan *)mtplan);
+#endif
 }
 
 /*--------------------

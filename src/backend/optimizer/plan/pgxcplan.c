@@ -736,6 +736,42 @@ make_remotequery(List *qptlist, List *qpqual, Index scanrelid)
 	return node;
 }
 
+Plan *
+pgxc_make_modifytable(PlannerInfo *root, Plan *topplan)
+{
+	ModifyTable *mt = (ModifyTable *)topplan;
+
+	/* We expect to work only on ModifyTable node */
+	if (!IsA(topplan, ModifyTable))
+		elog(ERROR, "Unexpected node type: %d", topplan->type);
+
+	/*
+	 * PGXC should apply INSERT/UPDATE/DELETE to a Datanode. We are overriding
+	 * normal Postgres behavior by modifying final plan or by adding a node on
+	 * top of it.
+	 * If the optimizer finds out that there is nothing to UPDATE/INSERT/DELETE
+	 * in the table/s (say using constraint exclusion), it does not add modify
+	 * table plan on the top. We should send queries to the remote nodes only
+	 * when there is something to modify.
+	 */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		switch (mt->operation)
+		{
+			case CMD_INSERT:
+				topplan = create_remoteinsert_plan(root, topplan);
+				break;
+			case CMD_UPDATE:
+				topplan = create_remoteupdate_plan(root, topplan);
+				break;
+			case CMD_DELETE:
+				topplan = create_remotedelete_plan(root, topplan);
+				break;
+			default:
+				break;
+		}
+	return topplan;
+}
+
 /*
  * create_remoteinsert_plan()
  *
@@ -885,7 +921,7 @@ create_remoteinsert_plan(PlannerInfo *root, Plan *topplan)
 		mt->remote_plans = lappend(mt->remote_plans, fstep);
 	}
 
-	return topplan;
+	return (Plan *)mt;
 }
 
 
@@ -1123,7 +1159,7 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		relcount++;
 	}
 
-	return topplan;
+	return (Plan *)mt;
 }
 
 /*
@@ -1293,7 +1329,7 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		relcount++;
 	}
 
-	return topplan;
+	return (Plan *) mt;
 }
 
 /*

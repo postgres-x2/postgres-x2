@@ -131,4 +131,6 @@ extern bool pgxc_query_contains_temp_tables(List *queries);
 extern bool pgxc_query_contains_utility(List *queries);
 extern void pgxc_rqplan_adjust_tlist(RemoteQuery *rqplan);
 
+extern Plan *pgxc_make_modifytable(PlannerInfo *root, Plan *topplan);
+
 #endif   /* PGXCPLANNER_H */
