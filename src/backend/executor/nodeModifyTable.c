@@ -884,7 +884,7 @@ ExecModifyTable(ModifyTableState *node)
 #ifdef PGXC
 				/* Move to next remote plan */
 				estate->es_result_remoterel = node->mt_remoterels[node->mt_whichplan];
-				remoterelstate = node->mt_plans[node->mt_whichplan];
+				remoterelstate = node->mt_remoterels[node->mt_whichplan];
 #endif
 				junkfilter = resultRelInfo->ri_junkFilter;
 				estate->es_result_relation_info = resultRelInfo;
