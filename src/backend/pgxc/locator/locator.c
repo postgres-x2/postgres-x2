@@ -342,7 +342,7 @@ IsTableDistOnPrimary(RelationLocInfo *rel_loc_info)
 
 	if (!OidIsValid(primary_data_node) ||
 		rel_loc_info == NULL ||
-		list_length(rel_loc_info->nodeList = 0))
+		list_length(rel_loc_info->nodeList) == 0)
 		return false;
 
 	foreach(item, rel_loc_info->nodeList)

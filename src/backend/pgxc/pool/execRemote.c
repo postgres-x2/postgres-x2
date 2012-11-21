@@ -348,7 +348,7 @@ HandleCommandComplete(RemoteQueryState *combiner, char *msg_body, size_t len, PG
 			{
 				if (combiner->command_complete_count)
 				{
-					if (rowcount != estate->es_processed)
+					if (rowcount != estate->es_processed && !combiner->non_fqs_dml)
 						/* There is a consistency issue in the database with the replicated table */
 						ereport(ERROR,
 								(errcode(ERRCODE_DATA_CORRUPTED),
@@ -356,7 +356,8 @@ HandleCommandComplete(RemoteQueryState *combiner, char *msg_body, size_t len, PG
 				}
 				else
 					/* first result */
-					estate->es_processed = rowcount;
+					if (!combiner->non_fqs_dml)
+						estate->es_processed = rowcount;
 			}
 			else
 				estate->es_processed += rowcount;
@@ -2653,7 +2654,10 @@ get_exec_connections(RemoteQueryState *planstate,
 			else if (nodes)
 			{
 				if (exec_type == EXEC_ON_DATANODES || exec_type == EXEC_ON_ALL_NODES)
+				{
 					nodelist = exec_nodes->nodeList;
+					primarynode = exec_nodes->primarynodelist;
+				}
 			}
 
 			if (nodes)
@@ -4006,6 +4010,9 @@ ExecRemoteQueryStandard(Relation resultRelationDesc,
 		 */
 		if (econtext)
 			econtext->ecxt_scantuple = slot;
+
+		resultRemoteRel->non_fqs_dml = true;
+
 		do_query(resultRemoteRel);
 	}
 }

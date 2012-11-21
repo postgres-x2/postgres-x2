@@ -134,6 +134,7 @@ typedef struct RemoteQueryState
 	bool		eof_underlying; /* reached end of underlying plan? */
 	Tuplestorestate *tuplestorestate;
 	CommandId	rqs_cmd_id;			/* Cmd id to use in some special cases */
+	bool		non_fqs_dml;			/* true if this is a non fast query shipped DML */
 }	RemoteQueryState;
 
 typedef void (*xact_callback) (bool isCommit, void *args);

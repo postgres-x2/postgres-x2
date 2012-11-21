@@ -220,3 +220,84 @@ drop table tt_33;
 
 drop table cc_11;
 drop table tt_11;
+
+------------------------------------------------------------------------------
+-- Check data consistency of replicated tables both in case of FQS and NON-FQS
+------------------------------------------------------------------------------
+
+select create_table_nodes('rr(a int, b int)', '{1, 2}'::int[], 'replication', NULL);
+
+-- A function to select data form table rr name by running the query on the passed node number
+CREATE OR REPLACE FUNCTION select_data_from(nodenum int) RETURNS SETOF rr LANGUAGE plpgsql AS $$
+DECLARE
+	nodename	varchar;
+	qry		varchar;
+	r		rr%rowtype;
+BEGIN
+	nodename := (SELECT get_xc_node_name(nodenum));
+	qry := 'EXECUTE DIRECT ON (' || nodename || ') ' || chr(39) || 'select * from rr order by 1' || chr(39);
+
+	FOR r IN EXECUTE qry LOOP
+		RETURN NEXT r;
+	END LOOP;
+	RETURN;
+END;
+$$;
+
+set enable_fast_query_shipping=true;
+
+insert into rr values(1,2);
+select select_data_from(1);
+select select_data_from(2);
+
+insert into rr values(3,4),(5,6),(7,8);
+select select_data_from(1);
+select select_data_from(2);
+
+update rr set b=b+1 where b=2;
+select select_data_from(1);
+select select_data_from(2);
+
+update rr set b=b+1;
+select select_data_from(1);
+select select_data_from(2);
+
+delete from rr where b=9;
+select select_data_from(1);
+select select_data_from(2);
+
+delete from rr;
+select select_data_from(1);
+select select_data_from(2);
+
+set enable_fast_query_shipping=false;
+
+insert into rr values(1,2);
+select select_data_from(1);
+select select_data_from(2);
+
+insert into rr values(3,4),(5,6),(7,8);
+select select_data_from(1);
+select select_data_from(2);
+
+update rr set b=b+1 where b=2;
+select select_data_from(1);
+select select_data_from(2);
+
+update rr set b=b+1;
+select select_data_from(1);
+select select_data_from(2);
+
+delete from rr where b=9;
+select select_data_from(1);
+select select_data_from(2);
+
+delete from rr;
+select select_data_from(1);
+select select_data_from(2);
+
+set enable_fast_query_shipping=true;
+
+DROP FUNCTION select_data_from( int);
+
+drop table rr;
