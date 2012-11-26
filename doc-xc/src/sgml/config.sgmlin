@@ -2642,7 +2642,7 @@ SET ENABLE_SEQSCAN TO OFF;
        <primary><varname>enable_remotegroup</> configuration parameter</primary>
       </indexterm>
       <listitem>
-+&xconly;
+&xconly;
        <para>
         Enables or disables the query planner's use of remote <literal>GROUP
         BY</> shippability steps. When disabled, <literal>GROUP BY</> clauses
