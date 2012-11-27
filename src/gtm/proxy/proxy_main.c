@@ -3285,8 +3285,13 @@ workerThreadReconnectToGTM(void)
 	PG_SETMASK(&UnBlockSig);
 
 	/* Disconnect the current connection and re-connect to the new GTM */
-	if (GetMyThreadInfo->thr_gtm_conn)
-		GTMPQfinish(GetMyThreadInfo->thr_gtm_conn);
+	/*
+	 * Because some error is expected, it is harmful to close GTM connection in
+	 * normal way.   Instead, just close the socket to save kernel resource.
+	 */
+	if (GetMyThreadInfo->thr_gtm_conn->sock != -1)
+		StreamClose(GetMyThreadInfo->thr_gtm_conn->sock);
+
 	sprintf(gtm_connect_string, "host=%s port=%d node_name=%s remote_type=%d",
 			GTMServerHost, GTMServerPortNumber, GTMProxyNodeName, GTM_NODE_GTM_PROXY);
 	elog(LOG, "Worker thread connecting to %s", gtm_connect_string);
