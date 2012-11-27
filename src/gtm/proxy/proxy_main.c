@@ -3288,8 +3288,11 @@ workerThreadReconnectToGTM(void)
 	/*
 	 * Because some error is expected, it is harmful to close GTM connection in
 	 * normal way.   Instead, just close the socket to save kernel resource.
+	 *
+	 * This is error recovery and we should be very careful what structure is
+	 * available.
 	 */
-	if (GetMyThreadInfo->thr_gtm_conn->sock != -1)
+	if (GetMyThreadInfo && GetMyThreadInfo->thr_gtm_conn && GetMyThreadInfo->thr_gtm_conn->sock != -1)
 		StreamClose(GetMyThreadInfo->thr_gtm_conn->sock);
 
 	sprintf(gtm_connect_string, "host=%s port=%d node_name=%s remote_type=%d",
