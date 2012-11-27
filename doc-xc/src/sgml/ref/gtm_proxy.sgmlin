@@ -149,7 +149,7 @@ PostgreSQL documentation
      <para>
       Specifies how many times GTM-Proxy retries to connect to GTM
       when communication error with GTM is detected.
-      Default value is zero.
+      Default value is 10,000.
       Refer to <varname>gtm_connect_retry_idle</varname> and <varname>gtm_connect_retry_interval</varname>.
      </para>
     </listitem>
@@ -179,7 +179,7 @@ PostgreSQL documentation
      <para>
       Specifies how log in second GTM-Proxy waits between each retry to connect to GTM when
       communication error with GTM is detected.
-      Default value is zero.
+      Default value is 1.
       Refer to <varname>gtm_connect_retry_count</varname> and <varname>gtm_connect_retry_idle</varname>.
      </para>
     </listitem>

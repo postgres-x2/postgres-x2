@@ -191,7 +191,7 @@ struct config_int ConfigureNamesInt[] =
 		 	0
 		},
 		&GTMConnectRetryCount,
-		0, 0, INT_MAX,
+		10000, 0, INT_MAX,
 		0, NULL
 	},
 	{
@@ -214,7 +214,7 @@ struct config_int ConfigureNamesInt[] =
 			GTMOPT_UNIT_TIME
 		},
 		&GTMConnectRetryInterval,
-		0, 0, INT_MAX,
+		1, 0, INT_MAX,
 		0, NULL
 	},
 	{
