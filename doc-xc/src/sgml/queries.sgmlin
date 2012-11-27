@@ -1023,7 +1023,7 @@ SELECT product_id, p.name, (sum(s.units) * (p.price - p.cost)) AS profit
     top-level <literal>ORDER BY</> clause if you want to be sure the
     results are sorted in a particular way.
    </para>
-
+  </sect2>
  </sect1>
 
 
@@ -1851,7 +1851,7 @@ SELECT n FROM t LIMIT 100;
    In each case it effectively provides temporary table(s) that can
    be referred to in the main command.
   </para>
- 
+
  </sect2>
 
  <sect2 id="queries-with-modifying">
