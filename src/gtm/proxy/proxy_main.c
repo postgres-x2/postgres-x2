@@ -3275,6 +3275,7 @@ static void
 workerThreadReconnectToGTM(void)
 {
 	char gtm_connect_string[1024];
+	MemoryContext   oldContext;
 
 	/*
 	 * First of all, we should acquire reconnect control lock in READ mode
@@ -3292,6 +3293,8 @@ workerThreadReconnectToGTM(void)
 	 * This is error recovery and we should be very careful what structure is
 	 * available.
 	 */
+	oldContext = MemoryContextSwitchTo(TopMostMemoryContext);
+
 	if (GetMyThreadInfo && GetMyThreadInfo->thr_gtm_conn && GetMyThreadInfo->thr_gtm_conn->sock != -1)
 		StreamClose(GetMyThreadInfo->thr_gtm_conn->sock);
 
@@ -3303,6 +3306,8 @@ workerThreadReconnectToGTM(void)
 	if (GetMyThreadInfo->thr_gtm_conn == NULL)
 		elog(FATAL, "Worker thread GTM connection failed.");
 	elog(LOG, "Worker thread connection done.");
+
+	MemoryContextSwitchTo(oldContext);
 
 	/* Initialize the command processing */
 	GetMyThreadInfo->reconnect_issued = FALSE;
