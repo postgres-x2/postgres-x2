@@ -182,7 +182,8 @@ static SnapshotSource snapshot_source = SNAPSHOT_UNDEFINED;
 static int gxmin = InvalidTransactionId;
 static int gxmax = InvalidTransactionId;
 static int gxcnt = 0;
-static int *gxip = NULL;
+static int max_xcnt = 0;
+static TransactionId *gxip = NULL;
 #endif
 
 /* Primitives for KnownAssignedXids array handling for standby */
@@ -2521,7 +2522,7 @@ SetGlobalSnapshotData(int xmin, int xmax, int xcnt, int *xip)
 	gxcnt = xcnt;
 	if (gxip)
 		free(gxip);
-	gxip = xip;
+	gxip = (TransactionId *)xip;
 	elog (DEBUG1, "global snapshot info: gxmin: %d, gxmax: %d, gxcnt: %d", gxmin, gxmax, gxcnt);
 }
 
@@ -2618,6 +2619,10 @@ GetSnapshotDataDataNode(Snapshot snapshot)
 	if (IsPGXCNodeXactDatanodeDirect())
 		return GetSnapshotDataCoordinator(snapshot);
 
+	/* Initialize static global txn info */
+	gxmin = gxmax = InvalidTransactionId;
+	gxcnt = max_xcnt = 0;
+
 	/* Have a look at cases where Datanode is accessed by cluster internally */
 	if (IsAutoVacuumWorkerProcess() || GetForceXidFromGTM())
 	{
@@ -2635,6 +2640,8 @@ GetSnapshotDataDataNode(Snapshot snapshot)
 			gxmin = gtm_snapshot->sn_xmin;
 			gxmax = gtm_snapshot->sn_xmax;
 			gxcnt = gtm_snapshot->sn_xcnt;
+			max_xcnt = gxcnt;
+
 			RecentGlobalXmin = gtm_snapshot->sn_recent_global_xmin;
 			if (gxip)
 				free(gxip);
@@ -2662,9 +2669,13 @@ GetSnapshotDataDataNode(Snapshot snapshot)
 		int index;
 		ProcArrayStruct *arrayP = procArray;
 
+		/* Reflect GTM snapshot here */
 		snapshot->xmin = gxmin;
 		snapshot->xmax = gxmax;
 		snapshot->xcnt = gxcnt;
+		snapshot->max_xcnt = max_xcnt;
+		snapshot->xip = gxip;
+
 		/*
 		 * Allocating space for maxProcs xids is usually overkill; numProcs would
 		 * be sufficient.  But it seems better to do the malloc while not holding
@@ -2687,27 +2698,15 @@ GetSnapshotDataDataNode(Snapshot snapshot)
 				ereport(ERROR,
 						(errcode(ERRCODE_OUT_OF_MEMORY),
 						 errmsg("out of memory")));
-
-			Assert(snapshot->subxip == NULL);
-			snapshot->subxip = (TransactionId *)
-				malloc(arrayP->maxProcs * PGPROC_MAX_CACHED_SUBXIDS * sizeof(TransactionId));
-			if (snapshot->subxip == NULL)
-				ereport(ERROR,
-						(errcode(ERRCODE_OUT_OF_MEMORY),
-						 errmsg("out of memory")));
 		}
-		else if (snapshot->max_xcnt < gxcnt)
-		{
-			snapshot->xip = (TransactionId *)
-				realloc(snapshot->xip, gxcnt * sizeof(TransactionId));
-			if (snapshot->xip == NULL)
-				ereport(ERROR,
-						(errcode(ERRCODE_OUT_OF_MEMORY),
-						 errmsg("out of memory")));
-			snapshot->max_xcnt = gxcnt;
-		}
+		Assert(snapshot->subxip == NULL);
+		snapshot->subxip = (TransactionId *)
+			malloc(arrayP->maxProcs * PGPROC_MAX_CACHED_SUBXIDS * sizeof(TransactionId));
+		if (snapshot->subxip == NULL)
+			ereport(ERROR,
+					(errcode(ERRCODE_OUT_OF_MEMORY),
+					 errmsg("out of memory")));
 
-		memcpy(snapshot->xip, gxip, gxcnt * sizeof(TransactionId));
 		snapshot->curcid = GetCurrentCommandId(false);
 
 		if (!TransactionIdIsValid(MyProc->xmin))
