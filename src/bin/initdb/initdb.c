@@ -169,7 +169,11 @@ static char *authwarning = NULL;
  * (no quoting to worry about).
  */
 static const char *boot_options = "-F";
-static const char *backend_options = "--single -F -O -c search_path=pg_catalog -c exit_on_error=true";
+static const char *backend_options = "--single "
+#ifdef PGXC
+	                                 "--localxid "
+#endif
+	                                 "-F -O -c search_path=pg_catalog -c exit_on_error=true";
 
 
 /* path to 'initdb' binary directory */
@@ -2021,6 +2025,36 @@ load_plpgsql(void)
 	check_ok();
 }
 
+#ifdef PGXC
+/*
+ * Vacuum Freeze given database. This is required to prevent xid wraparound
+ * issues when a node is brought up with xids out-of-sync w.r.t. gtm xids.
+ */
+static void
+vacuumfreeze(char *dbname)
+{
+	PG_CMD_DECL;
+	char msg[MAXPGPATH];
+	snprintf(msg, sizeof(msg), "freezing database %s ... ", dbname);
+
+	fputs(_(msg), stdout);
+	fflush(stdout);
+
+	snprintf(cmd, sizeof(cmd),
+			 "\"%s\" %s %s >%s",
+			 backend_exec, backend_options, dbname,
+			 DEVNULL);
+
+	PG_CMD_OPEN;
+
+	PG_CMD_PUTS("VACUUM FREEZE;\n");
+
+	PG_CMD_CLOSE;
+
+	check_ok();
+}
+#endif /* PGXC */
+
 /*
  * clean everything up in template1
  */
@@ -3373,6 +3407,12 @@ main(int argc, char *argv[])
 	make_template0();
 
 	make_postgres();
+
+#ifdef PGXC
+	vacuumfreeze("template0");
+	vacuumfreeze("template1");
+	vacuumfreeze("postgres");
+#endif
 
 	if (authwarning != NULL)
 		fprintf(stderr, "%s", authwarning);

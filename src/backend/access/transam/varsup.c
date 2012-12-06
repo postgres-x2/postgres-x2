@@ -229,6 +229,28 @@ GetNewTransactionId(bool isSubXact)
 	 * to the DBA who somehow got past the earlier defenses).
 	 *----------
 	 */
+#ifdef PGXC
+	/*
+	 * In PG, the xid will never cross the wrap-around limit thanks to the
+	 * above checks. But in PGXC, if a new node is initialized and brought up,
+	 * it's own xid may not be in sync with the GTM gxid. The wrap-around limits
+	 * are initially set w.r.t. the last xid used. So if the Gxid-xid difference
+	 * is already more than 2^31, then the gxid is deemed to have already
+	 * crossed the wrap-around limit. So again in such cases as well, we should
+	 * allow only a standalone backend to run vacuum.
+	 */
+	if (TransactionIdFollowsOrEquals(xid, ShmemVariableCache->xidWrapLimit))
+	{
+		if (IsPostmasterEnvironment)
+		    ereport(ERROR,
+		       (errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+		       errmsg("Xid wraparound might have already happened. database is not accepting commands on database with OID %u",
+		       ShmemVariableCache->oldestXidDB),
+		       errhint("Stop the postmaster and use a standalone backend to vacuum that database.\n"
+		               "You might also need to commit or roll back old prepared transactions.")));
+	}
+	else
+#endif
 	if (TransactionIdFollowsOrEquals(xid, ShmemVariableCache->xidVacLimit))
 	{
 		/*
@@ -256,27 +278,41 @@ GetNewTransactionId(bool isSubXact)
 		if (IsUnderPostmaster &&
 			TransactionIdFollowsOrEquals(xid, xidStopLimit))
 		{
+#ifdef PGXC
+			/*
+			 * Allow auto-vacuum to carry-on, so that it gets a chance to correct
+			 * the xid-wrap-limits w.r.t to gxid fetched from GTM.
+			 */
+			if (!IsAutoVacuumLauncherProcess() && !IsAutoVacuumWorkerProcess())
+			{
+				char  *oldest_datname = (OidIsValid(MyDatabaseId) ?
+			           get_database_name(oldest_datoid): NULL);
+#else
 			char	   *oldest_datname = get_database_name(oldest_datoid);
-
-			/* complain even if that DB has disappeared */
-			if (oldest_datname)
-				ereport(ERROR,
+#endif
+				/* complain even if that DB has disappeared */
+				if (oldest_datname)
+					ereport(ERROR,
 						(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
 						 errmsg("database is not accepting commands to avoid wraparound data loss in database \"%s\"",
 								oldest_datname),
 						 errhint("Stop the postmaster and use a standalone backend to vacuum that database.\n"
 								 "You might also need to commit or roll back old prepared transactions.")));
-			else
-				ereport(ERROR,
+				else
+					ereport(ERROR,
 						(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
 						 errmsg("database is not accepting commands to avoid wraparound data loss in database with OID %u",
 								oldest_datoid),
 						 errhint("Stop the postmaster and use a standalone backend to vacuum that database.\n"
 								 "You might also need to commit or roll back old prepared transactions.")));
+#ifdef PGXC
+			}
+#endif
 		}
 		else if (TransactionIdFollowsOrEquals(xid, xidWarnLimit))
 		{
-			char	   *oldest_datname = get_database_name(oldest_datoid);
+			char  *oldest_datname = (OidIsValid(MyDatabaseId) ?
+			           get_database_name(oldest_datoid): NULL);
 
 			/* complain even if that DB has disappeared */
 			if (oldest_datname)
@@ -326,13 +362,21 @@ GetNewTransactionId(bool isSubXact)
 	 * want the next incoming transaction to try it again.	We cannot assign
 	 * more XIDs until there is CLOG space for them.
 	 */
-#ifdef PGXC  /* defined(PGXC_COORD) || defined(PGXC_DATANODE) */
-	/* We may not be at the max, which is ok. Do not bother to increment.
-	 * We get this externally anyway, so it should not be needed in theory...
+#ifdef PGXC
+	/*
+	 * But first bring nextXid in sync with global xid. Actually we get xid
+	 * externally anyway, so it should not be needed to update nextXid in
+	 * theory, but it is required to keep nextXid close to the gxid
+	 * especially when vacuumfreeze is run using a standalone backend.
 	 */
-	if (increment_xid)
-#endif
+	if (increment_xid || !IsPostmasterEnvironment)
+	{
+		ShmemVariableCache->nextXid = xid;
 		TransactionIdAdvance(ShmemVariableCache->nextXid);
+	}
+#else
+	TransactionIdAdvance(ShmemVariableCache->nextXid);
+#endif
 
 	/*
 	 * We must store the new XID into the shared ProcArray before releasing

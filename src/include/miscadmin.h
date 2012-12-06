@@ -244,6 +244,10 @@ extern int	VacuumPageDirty;
 extern int	VacuumCostBalance;
 extern bool VacuumCostActive;
 
+#ifdef PGXC
+extern bool useLocalXid;
+#endif
+
 
 /* in tcop/postgres.c */
 

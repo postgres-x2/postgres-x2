@@ -641,11 +641,16 @@ vac_update_relstats(Relation relation,
 	}
 
 	/*
-	 * relfrozenxid should never go backward.  Caller can pass
-	 * InvalidTransactionId if it has no new data.
+	 * relfrozenxid should never go backward, except in PGXC, when xid has gone
+	 * out-of-sync w.r.t. gxid and we want to correct it using standalone
+	 * backend.
+	 * Caller can pass InvalidTransactionId if it has no new data.
 	 */
 	if (TransactionIdIsNormal(frozenxid) &&
-		TransactionIdPrecedes(pgcform->relfrozenxid, frozenxid))
+		   (TransactionIdPrecedes(pgcform->relfrozenxid, frozenxid)
+#ifdef PGXC
+		    || !IsPostmasterEnvironment))
+#endif
 	{
 		pgcform->relfrozenxid = frozenxid;
 		dirty = true;
@@ -734,10 +739,14 @@ vac_update_datfrozenxid(void)
 	dbform = (Form_pg_database) GETSTRUCT(tuple);
 
 	/*
-	 * Don't allow datfrozenxid to go backward (probably can't happen anyway);
-	 * and detect the common case where it doesn't go forward either.
+	 * Don't allow datfrozenxid to go backward, unless in PGXC when it's a
+	 * standalone backend and we want to bring the datfrozenxid in sync with gxid.
+	 * Also detect the common case where it doesn't go forward either.
 	 */
-	if (TransactionIdPrecedes(dbform->datfrozenxid, newFrozenXid))
+	if ((TransactionIdPrecedes(dbform->datfrozenxid, newFrozenXid))
+#ifdef PGXC
+       || !IsPostmasterEnvironment)
+#endif
 	{
 		dbform->datfrozenxid = newFrozenXid;
 		dirty = true;
@@ -846,9 +855,15 @@ vac_truncate_clog(TransactionId frozenXID)
 		ereport(WARNING,
 				(errmsg("some databases have not been vacuumed in over 2 billion transactions"),
 				 errdetail("You might have already suffered transaction-wraparound data loss.")));
+#ifndef PGXC
+		/* Don't return if PGXC: We want to update the transaction limits anyways */
 		return;
+#endif
 	}
 
+#ifdef PGXC
+	if (!frozenAlreadyWrapped)
+#endif
 	/* Truncate CLOG to the oldest frozenxid */
 	TruncateCLOG(frozenXID);
 

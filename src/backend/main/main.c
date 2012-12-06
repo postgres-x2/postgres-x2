@@ -308,6 +308,7 @@ help(const char *progname)
 	printf(_("  -t pa|pl|ex        show timings after each query\n"));
 	printf(_("  -T                 send SIGSTOP to all backend processes if one dies\n"));
 	printf(_("  -W NUM             wait NUM seconds to allow attach from a debugger\n"));
+	printf(_("  --localxid         use local transaction id (used only by initdb)\n"));
 
 	printf(_("\nOptions for single-user mode:\n"));
 	printf(_("  --single           selects single-user mode (must be first argument)\n"));

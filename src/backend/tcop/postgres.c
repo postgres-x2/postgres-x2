@@ -3384,7 +3384,9 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx)
 	int			errs = 0;
 	GucSource	gucsource;
 	int			flag;
-
+#ifdef PGXC
+	bool		singleuser = false;
+#endif
 
 	if (secure)
 	{
@@ -3395,6 +3397,9 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx)
 		{
 			argv++;
 			argc--;
+#ifdef PGXC
+			singleuser = true;
+#endif
 		}
 	}
 	else
@@ -3570,9 +3575,18 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx)
 					else if (strcmp(name, "datanode") == 0 &&
 							 !value)
 						isPGXCDataNode = true;
+					else if (strcmp(name, "localxid") == 0 &&
+							 !value)
+					{
+						if (!singleuser)
+							ereport(ERROR,
+									(errcode(ERRCODE_SYNTAX_ERROR),
+									 errmsg("local xids can be used only in single user mode")));
+						useLocalXid = true;
+					}
 					else /* default case */
 					{
-#endif
+#endif /* PGXC */
 					if (!value)
 					{
 						if (flag == '-')

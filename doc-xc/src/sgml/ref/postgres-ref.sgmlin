@@ -532,6 +532,21 @@ PostgreSQL documentation
        </para>
       </listitem>
      </varlistentry>
+
+<!## XC>
+     <varlistentry>
+      <term><option>--localxid</option></term>
+      <listitem>
+       &xconly;
+       <para>
+        Use local transaction IDs rather than GXID. This option applies
+        only to <productname>Postgres-XC</productname>. It is only
+        used by initdb. Explicit use of this option may cause
+        database inconsistency.
+       </para>
+      </listitem>
+     </varlistentry>
+<!## end>
     </variablelist>
    </refsect2>
 

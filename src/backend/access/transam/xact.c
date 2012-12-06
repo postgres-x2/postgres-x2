@@ -5907,12 +5907,17 @@ IsPGXCNodeXactDatanodeDirect(void)
 	 * For the time being a Postgres-XC session is considered
 	 * as being connected directly under very specific conditions.
 	 *
-	 * IsPostmasterEnvironment - checks for initdb and standalone
+	 * IsPostmasterEnvironment || !useLocalXid
+	 *     All standalone backends except initdb are considered to be
+	 *     "directly connected" by application, which implies that for xid
+	 *     consistency, the backend should use global xids. initdb is the only
+	 *     one where local xids are used. So any standalone backend except
+	 *     initdb is supposed to use global xids.
 	 * IsNormalProcessingMode() - checks for new connections
 	 * IsAutoVacuumLauncherProcess - checks for autovacuum launcher process
 	 */
 	return IS_PGXC_DATANODE &&
-		   IsPostmasterEnvironment &&
+		   (IsPostmasterEnvironment || !useLocalXid) &&
 		   IsNormalProcessingMode() &&
 		   !IsAutoVacuumLauncherProcess() &&
 		   !IsConnFromCoord();
