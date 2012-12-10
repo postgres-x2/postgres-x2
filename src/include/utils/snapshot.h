@@ -47,11 +47,11 @@ typedef struct SnapshotData
 	 */
 	TransactionId xmin;			/* all XID < xmin are visible to me */
 	TransactionId xmax;			/* all XID >= xmax are invisible to me */
-	TransactionId recent_global_xmin;
-	uint32		xcnt;			/* # of xact ids in xip[] */
 #ifdef PGXC  /* PGXC_COORD */
+	TransactionId recent_global_xmin;
 	uint32		max_xcnt;		/* Max # of xact in xip[] */
 #endif
+	uint32		xcnt;			/* # of xact ids in xip[] */
 	TransactionId *xip;			/* array of xact IDs in progress */
 	/* note: all ids in xip[] satisfy xmin <= xip[i] < xmax */
 	int32		subxcnt;		/* # of xact ids in subxip[] */
