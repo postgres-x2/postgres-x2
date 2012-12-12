@@ -2667,6 +2667,22 @@ SET ENABLE_SEQSCAN TO OFF;
        </para>
       </listitem>
      </varlistentry>
+
+     <varlistentry id="guc-enable-remotesort" xreflabel="enable_remotesort">
+      <term><varname>enable_remotesort</varname> (<type>boolean</type>)</term>
+      <indexterm>
+       <primary><varname>enable_remotesort</> configuration parameter</primary>
+      </indexterm>
+      <listitem>
+&xconly;
+       <para>
+        Enables or disables the query planner's use of remote <literal>ORDER BY</>
+        shippability steps. When disabled, <literal>ORDER BY</> clauses that
+        could be shipped to remote nodes are fully evaluated on local node
+        instead. The default is <literal>on</>.
+       </para>
+      </listitem>
+     </varlistentry>
 <!## end>
 
      </variablelist>

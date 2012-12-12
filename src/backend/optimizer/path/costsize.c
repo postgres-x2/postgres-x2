@@ -117,6 +117,7 @@ bool		enable_hashjoin = true;
 bool		enable_fast_query_shipping = true;
 bool		enable_remotejoin = true;
 bool		enable_remotegroup = true;
+bool		enable_remotesort = true;
 bool		enable_remotelimit = true;
 #endif
 

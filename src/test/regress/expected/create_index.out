@@ -439,11 +439,11 @@ SELECT * FROM polygon_tbl WHERE f1 ~ '((1,1),(2,2),(2,1))'::polygon
 EXPLAIN (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT * FROM circle_tbl WHERE f1 && circle(point(1,-2), 1)
     ORDER BY area(f1);
-                        QUERY PLAN                         
------------------------------------------------------------
+                   QUERY PLAN                    
+-------------------------------------------------
  Sort
    Sort Key: (area(circle_tbl.f1))
-   ->  Data Node Scan on circle_tbl "_REMOTE_TABLE_QUERY_"
+   ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
 (3 rows)
 
 SELECT * FROM circle_tbl WHERE f1 && circle(point(1,-2), 1)
@@ -1531,11 +1531,11 @@ SET enable_bitmapscan = ON;
 CREATE INDEX intarrayidx ON array_index_op_test USING gin (i);
 explain (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT * FROM array_index_op_test WHERE i @> '{32}' ORDER BY seqno;
-                             QUERY PLAN                             
---------------------------------------------------------------------
+                   QUERY PLAN                    
+-------------------------------------------------
  Sort
    Sort Key: array_index_op_test.seqno
-   ->  Data Node Scan on array_index_op_test "_REMOTE_TABLE_QUERY_"
+   ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
 (3 rows)
 
 SELECT * FROM array_index_op_test WHERE i @> '{32}' ORDER BY seqno;
@@ -1774,11 +1774,11 @@ SELECT * FROM array_op_test WHERE i <@ '{NULL}' ORDER BY seqno;
 CREATE INDEX textarrayidx ON array_index_op_test USING gin (t);
 explain (NUM_NODES OFF, NODES OFF, COSTS OFF)
 SELECT * FROM array_index_op_test WHERE t @> '{AAAAAAAA72908}' ORDER BY seqno;
-                             QUERY PLAN                             
---------------------------------------------------------------------
+                   QUERY PLAN                    
+-------------------------------------------------
  Sort
    Sort Key: array_index_op_test.seqno
-   ->  Data Node Scan on array_index_op_test "_REMOTE_TABLE_QUERY_"
+   ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
 (3 rows)
 
 SELECT * FROM array_index_op_test WHERE t @> '{AAAAAAAA72908}' ORDER BY seqno;

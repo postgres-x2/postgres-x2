@@ -1841,6 +1841,11 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 														   result_plan,
 														 root->sort_pathkeys,
 														   limit_tuples);
+#ifdef PGXC
+			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+				result_plan = (Plan *) create_remotesort_plan(root,
+														result_plan);
+#endif /* PGXC */
 			current_pathkeys = root->sort_pathkeys;
 		}
 	}

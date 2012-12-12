@@ -10,6 +10,7 @@ SELECT name, setting FROM pg_settings WHERE name LIKE 'enable%';
  enable_mergejoin     | on
  enable_nestloop      | on
  enable_remotelimit   | on
+ enable_remotesort    | on
  enable_seqscan       | on
  enable_sort          | on
  enable_tidscan       | on

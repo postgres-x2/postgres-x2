@@ -2128,13 +2128,22 @@ void
 pgxc_set_agg_references(PlannerInfo *root, Agg *aggplan)
 {
 	RemoteQuery *rqplan = (RemoteQuery *)aggplan->plan.lefttree;
+	Sort		*srtplan;
 	List		*aggs_n_vars;
 	ListCell	*lcell;
 	List		*nodes_to_modify;
 	List		*rq_nodes_to_modify;
+	List		*srt_nodes_to_modify;
 
+	/* Lower plan tree can be Sort->RemoteQuery or RemoteQuery */
+	if (IsA(rqplan, Sort))
+	{
+		srtplan = (Sort *)rqplan;
+		rqplan = (RemoteQuery *)srtplan->plan.lefttree;
+	}
+	else
+		srtplan = NULL;
 
-	/* Nothing to do if the lower plan is not RemoteQuery */
 	if (!IsA(rqplan, RemoteQuery))
 		return;
 
@@ -2146,22 +2155,27 @@ pgxc_set_agg_references(PlannerInfo *root, Agg *aggplan)
 	if (!aggplan->skip_trans)
 		return;
 
-	/* Gather all the aggregates that need fixing */
+	/* Gather all the aggregates from all the targetlists that need fixing */
 	nodes_to_modify = list_copy(aggplan->plan.targetlist);
 	nodes_to_modify = list_concat(nodes_to_modify, aggplan->plan.qual);
 	aggs_n_vars = pull_var_clause((Node *)nodes_to_modify, PVC_INCLUDE_AGGREGATES,
 									PVC_RECURSE_PLACEHOLDERS);
 	rq_nodes_to_modify = NIL;
+	srt_nodes_to_modify = NIL;
 	/*
 	 * For every aggregate, find corresponding aggregate in the lower plan and
 	 * modify it correctly.
 	 */
 	foreach (lcell, aggs_n_vars)
 	{
-		Aggref *aggref = lfirst(lcell);
+		Aggref 		*aggref = lfirst(lcell);
 		TargetEntry	*tle;
-		Aggref *rq_aggref;
+		Aggref		*rq_aggref;
+		Aggref		*srt_aggref;
+		Aggref		*arg_aggref;	/* Aggref to be set as Argument to the
+									 * aggref in the Agg plan */
 
+		/* Only Aggref expressions need modifications */
 		if (!IsA(aggref, Aggref))
 		{
 			Assert(IsA(aggref, Var));
@@ -2169,24 +2183,39 @@ pgxc_set_agg_references(PlannerInfo *root, Agg *aggplan)
 		}
 
 		tle = tlist_member((Node *)aggref, rqplan->scan.plan.targetlist);
-
 		if (!tle)
 			elog(ERROR, "Could not find the Aggref node");
-
 		rq_aggref = (Aggref *)tle->expr;
 		Assert(equal(rq_aggref, aggref));
-
 		/*
 		 * Remember the Aggref nodes of which we need to modify. This is done so
 		 * that, if there multiple copies of same aggregate, we will match all
 		 * of them
 		 */
 		rq_nodes_to_modify = list_append_unique(rq_nodes_to_modify, rq_aggref);
+		arg_aggref = rq_aggref;
+
+		/*
+		 * If there is a Sort plan, get corresponding expression from there as
+		 * well and remember it to be modified.
+		 */
+		if (srtplan)
+		{
+			tle = tlist_member((Node *)rq_aggref, srtplan->plan.targetlist);
+			if (!tle)
+				elog(ERROR, "Could not find the Aggref node");
+			srt_aggref = (Aggref *)tle->expr;
+			Assert(equal(srt_aggref, rq_aggref));
+			srt_nodes_to_modify = list_append_unique(srt_nodes_to_modify,
+														srt_aggref);
+			arg_aggref = srt_aggref;
+		}
+
 		/*
 		 * The transition result from the datanodes acts as an input to the
 		 * Aggref node on coordinator.
 		 */
-		aggref->args = list_make1(makeTargetEntry((Expr *)rq_aggref, 1, NULL,
+		aggref->args = list_make1(makeTargetEntry((Expr *)arg_aggref, 1, NULL,
 																false));
 	}
 
@@ -2196,6 +2225,12 @@ pgxc_set_agg_references(PlannerInfo *root, Agg *aggplan)
 		Aggref	*rq_aggref = lfirst(lcell);
 		Assert(IsA(rq_aggref, Aggref));
 		rq_aggref->aggtype = rq_aggref->aggtrantype;
+	}
+	foreach (lcell, srt_nodes_to_modify)
+	{
+		Aggref	*srt_aggref = lfirst(lcell);
+		Assert(IsA(srt_aggref, Aggref));
+		srt_aggref->aggtype = srt_aggref->aggtrantype;
 	}
 
 	/*

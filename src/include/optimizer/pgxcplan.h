@@ -84,7 +84,6 @@ typedef struct
 	char			*sql_statement;
 	ExecNodes		*exec_nodes;		/* List of Datanodes where to launch query */
 	CombineType		combine_type;
-	SimpleSort		*sort;
 	bool			read_only;		/* do not use 2PC when committing read only steps */
 	bool			force_autocommit;	/* some commands like VACUUM require autocommit mode */
 	char			*statement;		/* if specified use it as a PreparedStatement name on Datanodes */

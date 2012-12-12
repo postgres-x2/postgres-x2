@@ -155,17 +155,12 @@ select val, val2 from xc_limit_tab1 order by val2 limit 2;
 (2 rows)
 
 explain (costs off, verbose on, nodes off) select val, val2 from xc_limit_tab1 order by val2 limit 2;
-                                   QUERY PLAN                                    
----------------------------------------------------------------------------------
- Limit
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Data Node Scan on "__REMOTE_LIMIT_QUERY__"
    Output: xc_limit_tab1.val, xc_limit_tab1.val2
-   ->  Sort
-         Output: xc_limit_tab1.val, xc_limit_tab1.val2
-         Sort Key: xc_limit_tab1.val2
-         ->  Data Node Scan on xc_limit_tab1 "_REMOTE_TABLE_QUERY_"
-               Output: xc_limit_tab1.val, xc_limit_tab1.val2
-               Remote query: SELECT val, val2 FROM ONLY xc_limit_tab1 WHERE true
-(8 rows)
+   Remote query: SELECT val, val2 FROM ONLY xc_limit_tab1 WHERE true ORDER BY 2 LIMIT 2::bigint
+(3 rows)
 
 -- On top of JOIN tree
 select count(*) from (select * from xc_limit_tab1 join xc_limit_tab2 using (val) limit 2) q;
@@ -350,16 +345,16 @@ select val, val2 from xc_limit_tab1 order by val2 limit 2;
 (2 rows)
 
 explain (costs off, verbose on, nodes off) select val, val2 from xc_limit_tab1 order by val2 limit 2;
-                                   QUERY PLAN                                    
----------------------------------------------------------------------------------
+                                         QUERY PLAN                                         
+--------------------------------------------------------------------------------------------
  Limit
    Output: xc_limit_tab1.val, xc_limit_tab1.val2
    ->  Sort
          Output: xc_limit_tab1.val, xc_limit_tab1.val2
          Sort Key: xc_limit_tab1.val2
-         ->  Data Node Scan on xc_limit_tab1 "_REMOTE_TABLE_QUERY_"
+         ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
                Output: xc_limit_tab1.val, xc_limit_tab1.val2
-               Remote query: SELECT val, val2 FROM ONLY xc_limit_tab1 WHERE true
+               Remote query: SELECT val, val2 FROM ONLY xc_limit_tab1 WHERE true ORDER BY 2
 (8 rows)
 
 -- On top of JOIN tree

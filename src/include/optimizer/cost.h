@@ -65,6 +65,7 @@ extern bool enable_hashjoin;
 extern bool enable_fast_query_shipping;
 extern bool enable_remotejoin;
 extern bool enable_remotegroup;
+extern bool enable_remotesort;
 extern bool enable_remotelimit;
 #endif
 extern int	constraint_exclusion;

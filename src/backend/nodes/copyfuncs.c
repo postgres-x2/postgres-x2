@@ -1023,7 +1023,6 @@ _copyRemoteQuery(const RemoteQuery *from)
 	COPY_STRING_FIELD(sql_statement);
 	COPY_NODE_FIELD(exec_nodes);
 	COPY_SCALAR_FIELD(combine_type);
-	COPY_NODE_FIELD(sort);
 	COPY_SCALAR_FIELD(read_only);
 	COPY_SCALAR_FIELD(force_autocommit);
 	COPY_STRING_FIELD(statement);

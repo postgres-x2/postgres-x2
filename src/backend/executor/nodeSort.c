@@ -82,6 +82,40 @@ ExecSort(SortState *node)
 		outerNode = outerPlanState(node);
 		tupDesc = ExecGetResultType(outerNode);
 
+#ifdef PGXC
+		if (plannode->srt_start_merge &&
+			IsA(node->ss.ps.lefttree, RemoteQueryState))
+		{
+			RemoteQueryState	*rqs = (RemoteQueryState *)node->ss.ps.lefttree;
+
+			rqs->rqs_for_sort = true;
+			/*
+			 * Start the queries on all the nodes. That way we get the number of
+			 * connections and connection handlers set in RemoteQueryState.
+			 * Those will be used to merge the data from the datanodes.
+			 */
+			if (!rqs->query_Done)
+			{
+				do_query(rqs);
+				rqs->query_Done = true;
+			}
+
+			/*
+			 * PGXCTODO: We don't handle bounded in this case, but see if it can
+			 * be used.
+			 */
+			tuplesortstate = tuplesort_begin_merge(tupDesc,
+													plannode->numCols,
+													plannode->sortColIdx,
+													plannode->sortOperators,
+													plannode->collations,
+													plannode->nullsFirst,
+													rqs, work_mem);
+
+		}
+		else
+		{
+#endif /* PGXC */
 		tuplesortstate = tuplesort_begin_heap(tupDesc,
 											  plannode->numCols,
 											  plannode->sortColIdx,
@@ -92,8 +126,15 @@ ExecSort(SortState *node)
 											  node->randomAccess);
 		if (node->bounded)
 			tuplesort_set_bound(tuplesortstate, node->bound);
+#ifdef PGXC
+		}
+#endif /* PGXC */
 		node->tuplesortstate = (void *) tuplesortstate;
 
+#ifdef PGXC
+		if (!plannode->srt_start_merge)
+		{
+#endif /* PGXC */
 		/*
 		 * Scan the subplan and feed all the tuples to tuplesort.
 		 */
@@ -112,6 +153,11 @@ ExecSort(SortState *node)
 		 * Complete the sort.
 		 */
 		tuplesort_performsort(tuplesortstate);
+#ifdef PGXC
+		}
+		else
+			Assert(IsA(node->ss.ps.lefttree, RemoteQueryState));
+#endif /* PGXC */
 
 		/*
 		 * restore to user specified direction

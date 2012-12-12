@@ -1369,6 +1369,7 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 									 * on a given datanode?
 									 */
 	List		*remote_scan_tlist;
+	Plan 		*local_plan_left;
 
 	/* Remote grouping is not enabled, don't do anything */
 	if (!enable_remotegroup)
@@ -1424,6 +1425,12 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	if (IsA(local_plan, Group) && !sort_plan)
 		return local_plan;
 	/*
+	 * If this is grouping/aggregation by sorting, we need the enable_remotesort
+	 * to be ON to push the sorting and grouping down to the Datanode.
+	 */
+	if (sort_plan && !enable_remotesort)
+		return local_plan;
+	/*
 	 * If the remote_scan has any quals on it, those need to be executed before
 	 * doing anything. Hence we won't be able to push any aggregates or grouping
 	 * to the Datanode.
@@ -1431,7 +1438,7 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	 * before doing anything. Hence can not push any aggregates or grouping to
 	 * the Datanode.
 	 */
-	if (remote_scan->scan.plan.qual || remote_scan->sort)
+	if (remote_scan->scan.plan.qual)
 		return local_plan;
 
 	/*
@@ -1526,52 +1533,27 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	 */
 	if (!pgxc_locate_grouping_columns(root, base_tlist, grpColIdx))
 		return local_plan;
-
-	/* Add the GROUP BY clause to the JOIN query */
-	remote_scan->remote_query->groupClause = query->groupClause;
 	/*
-	 * Add the ORDER BY clause if necessary, this ordering important, because
-	 * rest of the plan depends upon it.
+	 * We have adjusted the targetlist of the RemoteQuery underneath to suit the
+	 * GROUP BY clause. Now if sorting is used for aggregation we need to push
+	 * down the ORDER BY clause as well. In this case, the targetlist of the
+	 * Sort plan should be same as that of the RemoteQuery plan.
 	 */
 	if (sort_plan)
 	{
-		List		*sortClause = NIL;
-		SimpleSort	*remote_sort = makeNode(SimpleSort);
-		int 		cntCols;
-
 		Assert(query->groupClause);
-		/*
-		 * reuse the arrays allocated in sort_plan to create SimpleSort
-		 * structure. sort_plan is useless henceforth.
-		 */
-		remote_sort->numCols = sort_plan->numCols;
-		remote_sort->sortColIdx = sort_plan->sortColIdx;
-		remote_sort->sortOperators = sort_plan->sortOperators;
-		remote_sort->sortCollations = sort_plan->collations;
-		remote_sort->nullsFirst = sort_plan->nullsFirst;
-		/*
-		 * Create list of SortGroupClauses corresponding to the Sorting expected
-		 * by the sort_plan node. Earlier we have made sure that the columns on
-		 * which to sort are same as the grouping columns.
-		 */
-		for (cntCols = 0; cntCols < remote_sort->numCols; cntCols++)
-		{
-			SortGroupClause	*sortClauseItem = makeNode(SortGroupClause);
-			TargetEntry		*sc_tle = get_tle_by_resno(base_tlist,
-														grpColIdx[cntCols]);
-
-			Assert(sc_tle->ressortgroupref > 0);
-			sortClauseItem->tleSortGroupRef = sc_tle->ressortgroupref;
-			sortClauseItem->sortop = remote_sort->sortOperators[cntCols];
-			sortClauseItem->nulls_first = remote_sort->nullsFirst[cntCols];
-			sortClause = lappend(sortClause, sortClauseItem);
-
-			/* set the sorting column index in the Sort node in RemoteQuery */
-			remote_sort->sortColIdx[cntCols] = grpColIdx[cntCols];
-		}
-		remote_scan->sort = remote_sort;
-		remote_scan->remote_query->sortClause = sortClause;
+		Assert(sort_plan->plan.lefttree == (Plan *)remote_scan);
+		sort_plan = make_sort_from_groupcols(root, query->groupClause,
+												grpColIdx, (Plan *)remote_scan);
+		local_plan_left = create_remotesort_plan(root, (Plan *)sort_plan);
+		if (IsA(local_plan_left, Sort))
+			Assert(((Sort *)local_plan_left)->srt_start_merge);
 	}
+	else
+		local_plan_left = (Plan *)remote_scan;
+
+	/* Add the GROUP BY clause to the JOIN query */
+	remote_scan->remote_query->groupClause = query->groupClause;
 
 	/*
 	 * We have added new clauses to the query being shipped to the datanode/s,
@@ -1589,10 +1571,10 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	 * covering Agg/Group plan.
 	 */
 	if (single_node_grouping)
-		return (Plan *)remote_scan;
+		return local_plan_left;
 	else
 	{
-		local_plan->lefttree = (Plan *)remote_scan;
+		local_plan->lefttree = local_plan_left;
 		/* indicate that we should apply collection function directly */
 		if (IsA(local_plan, Agg))
 			((Agg *)local_plan)->skip_trans = true;
@@ -2753,6 +2735,193 @@ pgxc_set_remote_parameters(PlannedStmt *plan, ParamListInfo boundParams)
 }
 
 /*
+ * create_remotesort_plan
+ * Check if we can push down the ORDER BY clause to the datanode/s thereby
+ * getting partially sorted results.
+ * If this optimization is possible, the function changes the passed in Sort
+ * plan and the underlying RemoteQuery plan.
+ * Even if RemoteQuery has local quals to be applied, it doesn't matter,
+ * since application of quals does not change the order in which the
+ * filtered rows appear. Hence unlike remote grouping or limit planner, we don't
+ * look at the RemoteQuery plan's local quals.
+ */
+Plan *
+create_remotesort_plan(PlannerInfo *root, Plan *local_plan)
+{
+	Sort			*local_sort = NULL;
+	RemoteQuery		*remote_scan = NULL;
+	Plan			*temp_plan = NULL;
+	Plan			*result_plan = NULL;
+	Query			*remote_query = NULL;
+	List			*rq_order_by = NULL;
+	int				cntCol;
+	ListCell		*lcell;
+	Index			next_ressortgrpref;
+	RangeTblEntry	*dummy_rte;
+
+	/* If GUC does not specify this optimization, don't do it */
+	if (!enable_remotesort)
+		return local_plan;
+
+	/* We can only handle Sort->RemoteQuery plan tree */
+	if (local_plan && IsA(local_plan, Sort))
+	{
+		local_sort = (Sort *)local_plan;
+		temp_plan = local_plan->lefttree;
+	}
+
+	if (temp_plan && IsA(temp_plan, RemoteQuery))
+	{
+		remote_scan = (RemoteQuery *) temp_plan;
+		temp_plan = NULL;
+	}
+
+	if (!remote_scan || !local_sort)
+		return local_plan;
+
+	/* We expect the targetlists of the Sort and RemoteQuery plans to be same */
+	if (!equal(local_sort->plan.targetlist, remote_scan->scan.plan.targetlist))
+		return local_plan;
+
+	remote_query = remote_scan->remote_query;
+	/*
+	 * If there is already sortClause set for the query to be sent to the
+	 * datanode/s, we can't over-write it. No push down possible.
+	 */
+	if (!remote_query || remote_query->sortClause)
+		return local_plan;
+
+	/*
+	 * Scan the targetlist of the query to be shipped to the datanode to find the
+	 * maximum ressortgroupref, in case we need to create new one. By default
+	 * it's the first one.
+	 */
+	next_ressortgrpref = 1;
+	foreach (lcell, remote_query->targetList)
+	{
+		TargetEntry *tle = lfirst(lcell);
+		/*
+		 * If there is a valid ressortgroupref in TLE and it's greater than
+		 * next ressortgrpref intended to be used, update the later one.
+		 */
+		if (tle->ressortgroupref > 0 &&
+			next_ressortgrpref <= tle->ressortgroupref)
+			next_ressortgrpref = tle->ressortgroupref + 1;
+	}
+	/*
+	 * If all of the sort clauses are shippable, we can push down ORDER BY
+	 * clause. For every sort key, check if the corresponding expression is
+	 * being shipped to the datanode. The expressions being shipped to the
+	 * datanode can be found in RemoteQuery::base_tlist. Also make sure that the
+	 * sortgroupref numbers are correct.
+	 */
+	for (cntCol = 0; cntCol < local_sort->numCols; cntCol++)
+	{
+		TargetEntry 	*remote_base_tle;/* TLE in the remote_scan's base_tlist */
+		TargetEntry 	*remote_tle;	/* TLE in the remote_scan's targetlist */
+		SortGroupClause	*orderby_entry;
+		TargetEntry		*remote_query_tle; /* TLE in targetlist of the query to
+											* be sent to the datanodes */
+
+		remote_tle = get_tle_by_resno(remote_scan->scan.plan.targetlist,
+											local_sort->sortColIdx[cntCol]);
+		/* This should not happen, but safer to protect against bugs */
+		if (!remote_tle)
+		{
+			rq_order_by = NULL;
+			break;
+		}
+
+		remote_base_tle = tlist_member((Node *)remote_tle->expr,
+										remote_scan->base_tlist);
+		/*
+		 * If we didn't find the sorting expression in base_tlist, can't ship
+		 * ORDER BY.
+		 */
+		if (!remote_base_tle)
+		{
+			rq_order_by = NULL;
+			break;
+		}
+
+		remote_query_tle = get_tle_by_resno(remote_query->targetList,
+											remote_base_tle->resno);
+		/*
+		 * This should never happen, base_tlist should be exact replica of the
+		 * targetlist to be sent to the Datanode except for varnos. But be
+		 * safer. Also, if the targetlist entry to be sent to the Datanode is
+		 * resjunk, while deparsing the query we are going to use the resno in
+		 * ORDER BY clause, we can not ship the ORDER BY.
+		 * PGXCTODO: in the case of resjunk, is it possible to just reset
+		 * resjunk in the query's targetlist and base_tlist?
+		 */
+		if (!remote_query_tle ||
+			remote_query_tle->ressortgroupref != remote_base_tle->ressortgroupref ||
+			(remote_query_tle->resjunk))
+		{
+			rq_order_by = NULL;
+			break;
+		}
+
+		/*
+		 * The expression in the target entry is going to be used for sorting,
+		 * so it should have a valid ressortref. If it doesn't have one, give it
+		 * the one we calculated. Also set it in all the TLEs. In case the
+		 * targetlists in RemoteQuery need to be adjusted, we will have
+		 * the same ressortgroupref everywhere, which will get copied.
+		 */
+		if (remote_query_tle->ressortgroupref <= 0)
+		{
+			remote_query_tle->ressortgroupref = next_ressortgrpref;
+			remote_tle->ressortgroupref = next_ressortgrpref;
+			remote_base_tle->ressortgroupref = next_ressortgrpref;
+			next_ressortgrpref = next_ressortgrpref + 1;
+		}
+
+		orderby_entry = makeNode(SortGroupClause);
+		orderby_entry->tleSortGroupRef = remote_query_tle->ressortgroupref;
+		orderby_entry->sortop = local_sort->sortOperators[cntCol];
+		orderby_entry->nulls_first = local_sort->nullsFirst[cntCol];
+		rq_order_by = lappend(rq_order_by, orderby_entry);
+	}
+
+	/*
+	 * The sorting expressions are not found in the remote targetlist, ORDER BY
+	 * can not be pushed down.
+	 */
+	if (!rq_order_by)
+		return local_plan;
+	remote_query->sortClause = rq_order_by;
+	/*
+	 * If there is only a single node involved in execution of RemoteQuery, we
+	 * don't need the covering Sort plan. No sorting required at the
+	 * coordinator.
+	 */
+	if (list_length(remote_scan->exec_nodes->nodeList) == 1)
+		result_plan = (Plan *)remote_scan;
+	else
+	{
+		local_sort->srt_start_merge = true;
+		result_plan = (Plan *)local_sort;
+	}
+
+	/* Use index into targetlist for ORDER BY clause instead of expressions */
+	remote_scan->rq_sortgroup_colno = true;
+	/* We changed the Query to be sent to datanode/s. Build the statement */
+	pgxc_rqplan_build_statement(remote_scan);
+	/* Change the dummy RTE added to show the new place of reduction */
+	dummy_rte = rt_fetch(remote_scan->scan.scanrelid, root->parse->rtable);
+	dummy_rte->relname = "__REMOTE_SORT_QUERY__";
+	dummy_rte->eref = makeAlias("__REMOTE_SORT_QUERY__", NIL);
+
+	/* The plan to return should be from the passed in tree */
+	Assert(result_plan == (Plan *)remote_scan ||
+			result_plan == (Plan *)local_sort);
+
+	return result_plan;
+}
+
+/*
  * create_remotelimit_plan
  * Check if we can incorporate the LIMIT clause into the RemoteQuery node if the
  * node under the Limit node is a RemoteQuery node. If yes then do so.
@@ -2815,7 +2984,7 @@ create_remotelimit_plan(PlannerInfo *root, Plan *local_plan)
 	 * push the LIMIT and OFFSET clauses, since application of quals would
 	 * reduce the number of rows that can be projected further.
 	 */
-	if (remote_scan->scan.plan.qual || remote_scan->sort)
+	if (remote_scan->scan.plan.qual)
 		return local_plan;
 
 	/*
@@ -2917,6 +3086,5 @@ create_remotelimit_plan(PlannerInfo *root, Plan *local_plan)
 		 */
 		pgxc_rqplan_build_statement(remote_scan);
 	}
-
 	return result_plan;
 }

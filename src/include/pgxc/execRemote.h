@@ -102,22 +102,14 @@ typedef struct RemoteQueryState
 	List 	   *rowBuffer;				/* buffer where rows are stored when connection
 										 * should be cleaned for reuse by other RemoteQuery */
 	/*
-	 * To handle special case - if there is a simple sort and sort connection
+	 * To handle special case - if this RemoteQuery is feeding sorted data to
+	 * Sort plan and if the connection fetching data from the Datanode
 	 * is buffered. If EOF is reached on a connection it should be removed from
 	 * the array, but we need to know node number of the connection to find
 	 * messages in the buffer. So we store nodenum to that array if reach EOF
 	 * when buffering
 	 */
 	int 	   *tapenodes;
-	/*
-	 * While we are not supporting grouping use this flag to indicate we need
-	 * to initialize collecting of aggregates from the DNs
-	 */
-	bool		initAggregates;
-	void	   *tuplesortstate;			/* for merge sort */
-	/* Simple DISTINCT support */
-	FmgrInfo   *eqfunctions; 			/* functions to compare tuples */
-	MemoryContext tmp_ctx;				/* separate context is needed to compare tuples */
 	RemoteCopyType remoteCopyType;		/* Type of remote COPY operation */
 	FILE	   *copy_file;      		/* used if remoteCopyType == REMOTE_COPY_FILE */
 	uint64		processed;				/* count of data rows when running CopyOut */
@@ -134,6 +126,12 @@ typedef struct RemoteQueryState
 	bool		eof_underlying; /* reached end of underlying plan? */
 	Tuplestorestate *tuplestorestate;
 	CommandId	rqs_cmd_id;			/* Cmd id to use in some special cases */
+	int			rqs_tapenum;		/* Connection from which to fetch next row,
+									 * in case of Sorting */
+	TupleTableSlot	*rqs_tapedata;	/* Data received from this connection to be
+									 * buffered between getlen and readtup calls
+									 * for sort */
+	bool		rqs_for_sort;	/* The row fetches will be handled by Sort */
 	bool		non_fqs_dml;			/* true if this is a non fast query shipped DML */
 }	RemoteQueryState;
 
@@ -191,5 +189,6 @@ extern void pgxc_all_success_nodes(ExecNodes **d_nodes, ExecNodes **c_nodes, cha
 extern void AtEOXact_DBCleanup(bool isCommit);
 
 extern void set_dbcleanup_callback(xact_callback function, void *paraminfo, int paraminfo_size);
+extern void do_query(RemoteQueryState *node);
 
 #endif

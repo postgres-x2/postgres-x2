@@ -836,6 +836,15 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 	{
+		{"enable_remotesort", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables the planner's use of remote sort plans."),
+			NULL
+		},
+		&enable_remotesort,
+		true,
+		NULL, NULL, NULL
+	},
+	{
 		{"enable_remotelimit", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Enables the planner's use of remote limit plans."),
 			NULL

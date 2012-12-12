@@ -151,3 +151,4 @@ test: xc_sequence
 test: xc_prepared_xacts
 test: xc_notrans_block
 test: xc_limit
+test: xc_sort

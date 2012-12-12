@@ -610,6 +610,7 @@
 #enable_remotejoin = on
 #enable_remotegroup = on
 #enable_remotelimit = on
+#enable_remotesort = on
 
 #------------------------------------------------------------------------------
 # CUSTOMIZED OPTIONS

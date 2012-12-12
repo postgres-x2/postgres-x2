@@ -113,7 +113,7 @@ test: stats
 # This creates functions used by tests xc_misc, xc_FQS and xc_FQS_join
 test: xc_create_function
 # Those ones can be run in parallel
-test: xc_groupby xc_distkey xc_having xc_temp xc_remote xc_FQS xc_FQS_join xc_copy xc_for_update xc_alter_table xc_sequence xc_misc xc_triggers xc_constraints xc_limit
+test: xc_groupby xc_distkey xc_having xc_temp xc_remote xc_FQS xc_FQS_join xc_copy xc_for_update xc_alter_table xc_sequence xc_misc xc_triggers xc_constraints xc_limit xc_sort
 
 # Cluster setting related test is independant
 test: xc_node

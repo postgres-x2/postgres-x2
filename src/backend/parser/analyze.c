@@ -2412,7 +2412,6 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 	step->sql_statement = NULL;
 	step->exec_nodes = makeNode(ExecNodes);
 	step->combine_type = COMBINE_TYPE_NONE;
-	step->sort = NULL;
 	step->read_only = true;
 	step->force_autocommit = false;
 	step->cursor = NULL;

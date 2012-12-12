@@ -2952,14 +2952,14 @@ select p.* from parent p left join child c on (p.k = c.k) order by 1,2;
 
 explain (verbose true, costs false, nodes false)
   select p.* from parent p left join child c on (p.k = c.k) order by 1,2;
-                            QUERY PLAN                            
-------------------------------------------------------------------
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
  Sort
    Output: p.k, p.pd
    Sort Key: p.k, p.pd
-   ->  Data Node Scan on parent "_REMOTE_TABLE_QUERY_"
+   ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
          Output: p.k, p.pd
-         Remote query: SELECT k, pd FROM ONLY parent p WHERE true
+         Remote query: SELECT k, pd FROM ONLY parent p WHERE true ORDER BY 1, 2
 (6 rows)
 
 -- this case is not

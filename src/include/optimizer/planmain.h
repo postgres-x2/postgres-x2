@@ -137,6 +137,7 @@ extern Plan *create_remoteupdate_plan(PlannerInfo *root, Plan *topplan);
 extern Plan *create_remotedelete_plan(PlannerInfo *root, Plan *topplan);
 extern Plan *create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan);
 extern Plan *create_remotequery_plan(PlannerInfo *root, RemoteQueryPath *best_path);
+extern Plan *create_remotesort_plan(PlannerInfo *root, Plan *local_plan);
 extern Plan *create_remotelimit_plan(PlannerInfo *root, Plan *local_plan);
 extern List *pgxc_order_qual_clauses(PlannerInfo *root, List *clauses);
 extern List *pgxc_build_relation_tlist(RelOptInfo *rel);

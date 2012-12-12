@@ -13,10 +13,11 @@ SELECT name, setting FROM pg_settings WHERE name LIKE 'enable%' ORDER BY name;
  enable_remotegroup         | on
  enable_remotejoin          | on
  enable_remotelimit         | on
+ enable_remotesort          | on
  enable_seqscan             | on
  enable_sort                | on
  enable_tidscan             | on
-(15 rows)
+(16 rows)
 
 CREATE TABLE foo2(fooid int, f2 int);
 INSERT INTO foo2 VALUES(1, 11);

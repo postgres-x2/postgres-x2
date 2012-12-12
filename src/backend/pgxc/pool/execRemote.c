@@ -169,6 +169,8 @@ static void ExecClearTempObjectIncluded(void);
 static void init_RemoteXactState(bool preparedLocalNode);
 static void clear_RemoteXactState(void);
 static void pgxc_node_report_error(RemoteQueryState *combiner);
+static TupleTableSlot *getrow_for_tapesort(RemoteQueryState *combiner,
+											TupleTableSlot *scanslot);
 
 
 /*
@@ -206,7 +208,6 @@ CreateResponseCombiner(int node_count, CombineType combine_type)
 	combiner->currentRow.msgnode = 0;
 	combiner->rowBuffer = NIL;
 	combiner->tapenodes = NULL;
-	combiner->initAggregates = true;
 	combiner->remoteCopyType = REMOTE_COPY_NONE;
 	combiner->copy_file = NULL;
 	combiner->rqs_cmd_id = FirstCommandId;
@@ -975,7 +976,7 @@ BufferConnection(PGXCNodeHandle *conn)
 			 * connection to NULL (step with sort) or remove it from the list
 			 * (step without sort)
 			 */
-			if (combiner->tuplesortstate)
+			if (combiner->rqs_for_sort)
 			{
 				combiner->connections[combiner->current_conn] = NULL;
 				if (combiner->tapenodes == NULL)
@@ -1032,21 +1033,18 @@ FetchTuple(RemoteQueryState *combiner, TupleTableSlot *slot)
 {
 	bool have_tuple = false;
 
+	/*
+	 * We don't expect the RemoteQuery feeding a sort to come this way. As of
+	 * now, such a RemoteQuery gets the rows as dictated by the Sort plan above,
+	 * hence fetches the rows on its own.
+	 */
+	Assert(!combiner->rqs_for_sort);
 	/* If we have message in the buffer, consume it */
 	if (combiner->currentRow.msg)
 	{
 		CopyDataRowTupleToSlot(combiner, slot);
 		have_tuple = true;
 	}
-
-	/*
-	 * If this is ordered fetch we can not know what is the node
-	 * to handle next, so sorter will choose next itself and set it as
-	 * currentRow to have it consumed on the next call to FetchTuple.
-	 * Otherwise allow to prefetch next tuple
-	 */
-	if (((RemoteQuery *)combiner->ss.ps.plan)->sort)
-		return have_tuple;
 
 	/*
 	 * Note: If we are fetching not sorted results we can not have both
@@ -1151,15 +1149,6 @@ FetchTuple(RemoteQueryState *combiner, TupleTableSlot *slot)
 			CopyDataRowTupleToSlot(combiner, slot);
 			have_tuple = true;
 		}
-
-		/*
-		 * If this is ordered fetch we can not know what is the node
-		 * to handle next, so sorter will choose next itself and set it as
-		 * currentRow to have it consumed on the next call to FetchTuple.
-		 * Otherwise allow to prefetch next tuple
-		 */
-		if (((RemoteQuery *)combiner->ss.ps.plan)->sort)
-			return have_tuple;
 	}
 
 	/* report end of data to the caller */
@@ -2824,7 +2813,7 @@ pgxc_start_command_on_connection(PGXCNodeHandle *connection,
 	return true;
 }
 
-static void
+void
 do_query(RemoteQueryState *node)
 {
 	RemoteQuery		*step = (RemoteQuery *) node->ss.ps.plan;
@@ -3045,33 +3034,15 @@ do_query(RemoteQueryState *node)
 				 * descriptor
 				 */
 				node->tuple_desc = NULL;
-				if (step->sort)
+				if (node->rqs_for_sort)
 				{
-					SimpleSort *sort = step->sort;
-
-					node->connections = connections;
-					node->conn_count = regular_conn_count;
 					/*
 					 * First message is already in the buffer
-					 * Further fetch will be under tuplesort control
-					 * If query does not produce rows tuplesort will not
-					 * be initialized
+					 * Further fetch will be under the control of Sort plan
+					 * above. So, don't wait till first row is fetched.
 					 */
-					node->tuplesortstate = tuplesort_begin_merge(
-										   scanslot->tts_tupleDescriptor,
-										   sort->numCols,
-										   sort->sortColIdx,
-										   sort->sortOperators,
-										   sort->sortCollations,
-										   sort->nullsFirst,
-										   node,
-										   work_mem);
-					/*
-					 * Break the loop, do not wait for first row.
-					 * Tuplesort module want to control node it is
-					 * fetching rows from, while in this loop first
-					 * row would be got from random node
-					 */
+					node->connections = connections;
+					node->conn_count = regular_conn_count;
 					break;
 				}
 				else
@@ -3102,6 +3073,15 @@ do_query(RemoteQueryState *node)
 		}
 		/* report error if any */
 		pgxc_node_report_error(node);
+
+		if (node->rqs_for_sort)
+		{
+			/*
+			 * Break the loop, do not wait for first row. See comment above for
+			 * rqs_for_sort.
+			 */
+			break;
+		}
 	}
 
 	if (node->cursor_count)
@@ -3171,13 +3151,6 @@ RemoteQueryNext(ScanState *scan_node)
 		node->update_cursor = NULL;
 		pfree_pgxc_all_handles(all_dn_handles);
 	}
-
-	/* We can't have both tuplesortstate and tuplestorestate */
-	Assert(!(node->tuplesortstate && node->tuplestorestate));
-
-	if (node->tuplesortstate)
-		tuplesort_gettupleslot((Tuplesortstate *) node->tuplesortstate,
-									  true, scanslot);
 	else if(node->tuplestorestate)
 	{
 		/*
@@ -3220,7 +3193,8 @@ RemoteQueryNext(ScanState *scan_node)
 		if (eof_tuplestore && node->eof_underlying)
 			ExecClearTuple(scanslot);
 	}
-	/* No tuple store whatsoever, no result from the datanode */
+	else if (node->rqs_for_sort)
+		getrow_for_tapesort(node, scanslot);
 	else
 		ExecClearTuple(scanslot);
 
@@ -3287,14 +3261,8 @@ ExecEndRemoteQuery(RemoteQueryState *node)
 		}
 	}
 
-	if (node->tuplesortstate != NULL || node->tuplestorestate != NULL)
+	if (node->tuplestorestate != NULL)
 		ExecClearTuple(node->ss.ss_ScanTupleSlot);
-	/*
-	 * Release tuplesort resources
-	 */
-	if (node->tuplesortstate != NULL)
-		tuplesort_end((Tuplesortstate *) node->tuplesortstate);
-	node->tuplesortstate = NULL;
 	/*
 	 * Release tuplestore resources
 	 */
@@ -3358,9 +3326,6 @@ ExecEndRemoteQuery(RemoteQueryState *node)
 
 	if (node->ss.ss_currentRelation)
 		ExecCloseScanRelation(node->ss.ss_currentRelation);
-
-	if (node->tmp_ctx)
-		MemoryContextDelete(node->tmp_ctx);
 
 	CloseCombiner(node);
 }
@@ -3539,21 +3504,10 @@ ExecRemoteQueryReScan(RemoteQueryState *node, ExprContext *exprCtxt)
 	 */
 	ExecClearTuple(node->ss.ps.ps_ResultTupleSlot);
 
-	if (((RemoteQuery *) node->ss.ps.plan)->sort)
-	{
-		if (!node->tuplesortstate)
-			return;
+	if (!node->tuplestorestate)
+		return;
 
-		tuplesort_rescan(node->tuplesortstate);
-	}
-	else
-	{
-		if (!node->tuplestorestate)
-			return;
-
-		tuplestore_rescan(node->tuplestorestate);
-	}
-
+	tuplestore_rescan(node->tuplestorestate);
 }
 
 
@@ -4663,4 +4617,124 @@ void AtEOXact_DBCleanup(bool isCommit)
 		pfree(dbcleanup_info.fparams);
 		dbcleanup_info.fparams = NULL;
 	}
+}
+
+static TupleTableSlot *
+getrow_for_tapesort(RemoteQueryState *combiner, TupleTableSlot *scanslot)
+{
+	int	tapenum = combiner->rqs_tapenum;
+	PGXCNodeHandle *conn = combiner->connections[tapenum];
+	/*
+	 * If connection is active (potentially has data to read) we can get node
+	 * number from the connection. If connection is not active (we have read all
+	 * available data rows) and if we have buffered data from that connection
+	 * the node number is stored in combiner->tapenodes[tapenum].
+	 * If connection is inactive and no buffered data we have EOF condition
+	 */
+	int		nid;
+	ListCell	*lc;
+	ListCell	*prev = NULL;
+
+	/* May it ever happen ?! */
+	if (!conn && !combiner->tapenodes)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Failed to fetch from data node cursor")));
+
+	nid = conn ? PGXCNodeGetNodeId(conn->nodeoid, PGXC_NODE_DATANODE) : combiner->tapenodes[tapenum];
+
+	if (nid < 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Node id %d is incorrect", nid)));
+
+	/*
+	 * If there are buffered rows iterate over them and get first from
+	 * the requested tape
+	 */
+	foreach (lc, combiner->rowBuffer)
+	{
+		RemoteDataRow dataRow = (RemoteDataRow) lfirst(lc);
+		if (dataRow->msgnode == nid)
+		{
+			combiner->currentRow = *dataRow;
+			combiner->rowBuffer = list_delete_cell(combiner->rowBuffer, lc, prev);
+			CopyDataRowTupleToSlot(combiner, scanslot);
+			return scanslot;
+		}
+		prev = lc;
+	}
+
+	/* Nothing is found in the buffer, check for EOF */
+	if (conn == NULL)
+	{
+		ExecClearTuple(scanslot);
+		return scanslot;
+	}
+
+	/* The connection is executing a query but not for this RemoteQueryState.
+	 * Before sending the query, it must have buffered the rows for the query of
+	 * this RemoteQueryState, which we have consumed already. So nothing do
+	 * here. Just return a NULL tuple and mark the connection as done
+	 */
+	if (conn->state == DN_CONNECTION_STATE_QUERY && conn->combiner != combiner)
+	{
+		combiner->connections[tapenum] = NULL;
+		ExecClearTuple(scanslot);
+		return scanslot;
+	}
+
+	/* Read data from the connection until get a row or EOF */
+	for (;;)
+	{
+		switch (handle_response(conn, combiner))
+		{
+			case RESPONSE_SUSPENDED:
+				/* Send Execute to request next row */
+				Assert(combiner->cursor);
+				if (pgxc_node_send_execute(conn, combiner->cursor, 1) != 0)
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+							 errmsg("Failed to fetch from data node cursor")));
+				if (pgxc_node_send_sync(conn) != 0)
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+							 errmsg("Failed to fetch from data node cursor")));
+				conn->state = DN_CONNECTION_STATE_QUERY;
+				conn->combiner = combiner;
+				/* fallthru */
+			case RESPONSE_EOF:
+				/* receive more data */
+				if (pgxc_node_receive(1, &conn, NULL))
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+							 errmsg("%s", conn->error)));
+				break;
+
+			case RESPONSE_COMPLETE:
+				combiner->connections[tapenum] = NULL;
+				ExecClearTuple(scanslot);
+				return scanslot;
+				break;
+
+			case RESPONSE_DATAROW:
+				CopyDataRowTupleToSlot(combiner, scanslot);
+				return scanslot;
+				break;
+
+			default:
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("Unexpected response from the data nodes")));
+		}
+	}
+
+	/*
+	 * Didn't get any row and also didn't get a RESPONSE_COMPLETE (otherwise we
+	 * would have returned from there with this tape nullified). This should
+	 * never happen. Throw an error.
+	 */
+	ereport(ERROR,
+			(errcode(ERRCODE_INTERNAL_ERROR),
+			 errmsg("Did not get response complete message for the connection.")));
 }

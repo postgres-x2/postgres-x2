@@ -590,6 +590,12 @@ typedef struct Sort
 	Oid		   *sortOperators;	/* OIDs of operators to sort them by */
 	Oid		   *collations;		/* OIDs of collations */
 	bool	   *nullsFirst;		/* NULLS FIRST/LAST directions */
+#ifdef PGXC
+	bool		srt_start_merge;/* No need to create the sorted runs. The
+								 * underlying plan provides those runs. Merge
+								 * them.
+								 */
+#endif /* PGXC */
 } Sort;
 
 /* ---------------

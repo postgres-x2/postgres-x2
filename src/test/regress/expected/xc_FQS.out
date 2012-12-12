@@ -125,14 +125,14 @@ select * from tab1_rr order by val;
 (5 rows)
 
 explain (costs off, verbose on, nodes off) select * from tab1_rr order by val;
-                             QUERY PLAN                              
----------------------------------------------------------------------
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
  Sort
    Output: tab1_rr.val, tab1_rr.val2
    Sort Key: tab1_rr.val
-   ->  Data Node Scan on tab1_rr "_REMOTE_TABLE_QUERY_"
+   ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
          Output: tab1_rr.val, tab1_rr.val2
-         Remote query: SELECT val, val2 FROM ONLY tab1_rr WHERE true
+         Remote query: SELECT val, val2 FROM ONLY tab1_rr WHERE true ORDER BY 1
 (6 rows)
 
 -- should not get FQSed because of DISTINCT clause
@@ -210,14 +210,14 @@ select * from tab1_rr where val = 7 or val = 2 order by val;
 (2 rows)
 
 explain (costs off, verbose on, nodes off) select * from tab1_rr where val = 7 or val = 2 order by val;
-                                       QUERY PLAN                                        
------------------------------------------------------------------------------------------
+                                             QUERY PLAN                                             
+----------------------------------------------------------------------------------------------------
  Sort
    Output: tab1_rr.val, tab1_rr.val2
    Sort Key: tab1_rr.val
-   ->  Data Node Scan on tab1_rr "_REMOTE_TABLE_QUERY_"
+   ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
          Output: tab1_rr.val, tab1_rr.val2
-         Remote query: SELECT val, val2 FROM ONLY tab1_rr WHERE ((val = 7) OR (val = 2))
+         Remote query: SELECT val, val2 FROM ONLY tab1_rr WHERE ((val = 7) OR (val = 2)) ORDER BY 1
 (6 rows)
 
 select * from tab1_rr where val = 7 and val2 = 8;
@@ -288,14 +288,14 @@ select val, val2 from tab1_rr where val = 7 order by val2;
 (2 rows)
 
 explain (costs off, verbose on, nodes off) select val, val2 from tab1_rr where val = 7 order by val2;
-                                QUERY PLAN                                
---------------------------------------------------------------------------
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
  Sort
    Output: tab1_rr.val, tab1_rr.val2
    Sort Key: tab1_rr.val2
-   ->  Data Node Scan on tab1_rr "_REMOTE_TABLE_QUERY_"
+   ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
          Output: tab1_rr.val, tab1_rr.val2
-         Remote query: SELECT val, val2 FROM ONLY tab1_rr WHERE (val = 7)
+         Remote query: SELECT val, val2 FROM ONLY tab1_rr WHERE (val = 7) ORDER BY 2
 (6 rows)
 
 select distinct val2 from tab1_rr where val = 7;
@@ -469,14 +469,14 @@ select * from tab1_hash order by val;
 (5 rows)
 
 explain (costs off, verbose on, nodes off) select * from tab1_hash order by val;
-                              QUERY PLAN                               
------------------------------------------------------------------------
+                                    QUERY PLAN                                    
+----------------------------------------------------------------------------------
  Sort
    Output: tab1_hash.val, tab1_hash.val2
    Sort Key: tab1_hash.val
-   ->  Data Node Scan on tab1_hash "_REMOTE_TABLE_QUERY_"
+   ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
          Output: tab1_hash.val, tab1_hash.val2
-         Remote query: SELECT val, val2 FROM ONLY tab1_hash WHERE true
+         Remote query: SELECT val, val2 FROM ONLY tab1_hash WHERE true ORDER BY 1
 (6 rows)
 
 -- should get FQSed because of DISTINCT clause with distribution column in it
@@ -569,14 +569,14 @@ select * from tab1_hash where val = 7 or val = 2 order by val;
 (2 rows)
 
 explain (costs off, verbose on, nodes off) select * from tab1_hash where val = 7 or val = 2 order by val;
-                                        QUERY PLAN                                         
--------------------------------------------------------------------------------------------
+                                              QUERY PLAN                                              
+------------------------------------------------------------------------------------------------------
  Sort
    Output: tab1_hash.val, tab1_hash.val2
    Sort Key: tab1_hash.val
-   ->  Data Node Scan on tab1_hash "_REMOTE_TABLE_QUERY_"
+   ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
          Output: tab1_hash.val, tab1_hash.val2
-         Remote query: SELECT val, val2 FROM ONLY tab1_hash WHERE ((val = 7) OR (val = 2))
+         Remote query: SELECT val, val2 FROM ONLY tab1_hash WHERE ((val = 7) OR (val = 2)) ORDER BY 1
 (6 rows)
 
 select * from tab1_hash where val = 7 and val2 = 8;
@@ -821,14 +821,14 @@ select * from tab1_modulo order by val;
 (5 rows)
 
 explain (costs off, verbose on, nodes off) select * from tab1_modulo order by val;
-                               QUERY PLAN                                
--------------------------------------------------------------------------
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
  Sort
    Output: tab1_modulo.val, tab1_modulo.val2
    Sort Key: tab1_modulo.val
-   ->  Data Node Scan on tab1_modulo "_REMOTE_TABLE_QUERY_"
+   ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
          Output: tab1_modulo.val, tab1_modulo.val2
-         Remote query: SELECT val, val2 FROM ONLY tab1_modulo WHERE true
+         Remote query: SELECT val, val2 FROM ONLY tab1_modulo WHERE true ORDER BY 1
 (6 rows)
 
 -- should get FQSed because of DISTINCT clause with distribution column in it
@@ -922,14 +922,14 @@ select * from tab1_modulo where val = 7 or val = 2 order by val;
 (2 rows)
 
 explain (costs off, verbose on, nodes off) select * from tab1_modulo where val = 7 or val = 2 order by val;
-                                         QUERY PLAN                                          
----------------------------------------------------------------------------------------------
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
  Sort
    Output: tab1_modulo.val, tab1_modulo.val2
    Sort Key: tab1_modulo.val
-   ->  Data Node Scan on tab1_modulo "_REMOTE_TABLE_QUERY_"
+   ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
          Output: tab1_modulo.val, tab1_modulo.val2
-         Remote query: SELECT val, val2 FROM ONLY tab1_modulo WHERE ((val = 7) OR (val = 2))
+         Remote query: SELECT val, val2 FROM ONLY tab1_modulo WHERE ((val = 7) OR (val = 2)) ORDER BY 1
 (6 rows)
 
 select * from tab1_modulo where val = 7 and val2 = 8;
