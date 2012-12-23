@@ -26,6 +26,9 @@ extern bool FirstSnapshotSet;
 
 static GTM_Conn *conn;
 
+/* Used to check if needed to commit/abort at datanodes */
+GlobalTransactionId currentGxid = InvalidGlobalTransactionId;
+
 bool
 IsGTMConnected()
 {
@@ -133,6 +136,7 @@ BeginTranGTM(GTM_Timestamp *timestamp)
 		if (conn)
 			xid = begin_transaction(conn, GTM_ISOLATION_RC, timestamp);
 	}
+	currentGxid = xid;
 	return xid;
 }
 
@@ -157,6 +161,7 @@ BeginTranAutovacuumGTM(void)
 		if (conn)
 			xid =  begin_transaction_autovacuum(conn, GTM_ISOLATION_RC);
 	}
+	currentGxid = xid;
 	return xid;
 }
 
@@ -185,6 +190,7 @@ CommitTranGTM(GlobalTransactionId gxid)
 	if (IsAutoVacuumWorkerProcess() || IsAutoVacuumLauncherProcess())
 		CloseGTM();
 
+	currentGxid = InvalidGlobalTransactionId;
 	return ret;
 }
 
@@ -213,6 +219,7 @@ CommitPreparedTranGTM(GlobalTransactionId gxid, GlobalTransactionId prepared_gxi
 		CloseGTM();
 		InitGTM();
 	}
+	currentGxid = InvalidGlobalTransactionId;
 	return ret;
 }
 
@@ -238,6 +245,8 @@ RollbackTranGTM(GlobalTransactionId gxid)
 		CloseGTM();
 		InitGTM();
 	}
+
+	currentGxid = InvalidGlobalTransactionId;
 	return ret;
 }
 
@@ -288,6 +297,7 @@ PrepareTranGTM(GlobalTransactionId gxid)
 		CloseGTM();
 		InitGTM();
 	}
+	currentGxid = InvalidGlobalTransactionId;
 	return ret;
 }
 
