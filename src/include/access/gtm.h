@@ -16,6 +16,8 @@
 extern char *GtmHost;
 extern int GtmPort;
 
+extern GlobalTransactionId currentGxid;
+
 extern bool IsGTMConnected(void);
 extern void InitGTM(void);
 extern void CloseGTM(void);
