@@ -250,7 +250,7 @@ ProcArrayShmemSize(void)
 	 * standby in the current run, but we don't know that yet at the time
 	 * shared memory is being set up.
 	 */
-#ifdef PGXC
+#if 0		/* Reamins this code for the test to disable KnownAssignedXids in the slave */
 #define TOTAL_MAX_CACHED_SUBXIDS \
 	(((PGPROC_MAX_CACHED_SUBXIDS + 1) * PROCARRAY_MAXPROCS) * (MaxCoords + MaxDataNodes))
 #else
@@ -3299,6 +3299,25 @@ static void
 KnownAssignedXidsAdd(TransactionId from_xid, TransactionId to_xid,
 					 bool exclusive_lock)
 {
+#ifdef PGXC
+	/*
+	 * Postgres-XC Version 1.0.x supports log shipping replication but not hot standby
+	 * because hot standby needs to provide consistent database views for all the
+	 * datanode, which is not available yet.
+	 *
+	 * On the other hand, in the slave, current KnownAssignedXids ignores latter half
+	 * of XLOG_XACT_ASSIGNMENT wal record and registers all the possible XIDs found
+	 * at the first half of the wal record.   Some of them can be missing and such missing
+	 * Xids remain in the buffer, causing overflow and the slave stops.
+	 *
+	 * It will need various change in the code, while the hot standby does not work correctly.
+	 *
+	 * For short term solution for Version 1.0.x, it was determined to disable whole hot
+	 * hot staydby.
+	 *
+	 * Hot standby correction will be done in next major release.
+	 */
+#else
 	/* use volatile pointer to prevent code rearrangement */
 	volatile ProcArrayStruct *pArray = procArray;
 	TransactionId next_xid;
@@ -3403,6 +3422,7 @@ KnownAssignedXidsAdd(TransactionId from_xid, TransactionId to_xid,
 		pArray->headKnownAssignedXids = head;
 		SpinLockRelease(&pArray->known_assigned_xids_lck);
 	}
+#endif
 }
 
 /*
@@ -3572,6 +3592,25 @@ KnownAssignedXidsRemoveTree(TransactionId xid, int nsubxids,
 static void
 KnownAssignedXidsRemovePreceding(TransactionId removeXid)
 {
+#ifdef PGXC
+	/*
+	 * Postgres-XC Version 1.0.x supports log shipping replication but not hot standby
+	 * because hot standby needs to provide consistent database views for all the
+	 * datanode, which is not available yet.
+	 *
+	 * On the other hand, in the slave, current KnownAssignedXids ignores latter half
+	 * of XLOG_XACT_ASSIGNMENT wal record and registers all the possible XIDs found
+	 * at the first half of the wal record.   Some of them can be missing and such missing
+	 * Xids remain in the buffer, causing overflow and the slave stops.
+	 *
+	 * It will need various change in the code, while the hot standby does not work correctly.
+	 *
+	 * For short term solution for Version 1.0.x, it was determined to disable whole hot
+	 * hot staydby.
+	 *
+	 * Hot standby correction will be done in next major release.
+	 */
+#else
 	/* use volatile pointer to prevent code rearrangement */
 	volatile ProcArrayStruct *pArray = procArray;
 	int			count = 0;
@@ -3637,6 +3676,7 @@ KnownAssignedXidsRemovePreceding(TransactionId removeXid)
 
 	/* Opportunistically compress the array */
 	KnownAssignedXidsCompress(false);
+#endif
 }
 
 /*
@@ -3666,6 +3706,26 @@ static int
 KnownAssignedXidsGetAndSetXmin(TransactionId *xarray, TransactionId *xmin,
 							   TransactionId xmax)
 {
+#ifdef PGXC
+	/*
+	 * Postgres-XC Version 1.0.x supports log shipping replication but not hot standby
+	 * because hot standby needs to provide consistent database views for all the
+	 * datanode, which is not available yet.
+	 *
+	 * On the other hand, in the slave, current KnownAssignedXids ignores latter half
+	 * of XLOG_XACT_ASSIGNMENT wal record and registers all the possible XIDs found
+	 * at the first half of the wal record.   Some of them can be missing and such missing
+	 * Xids remain in the buffer, causing overflow and the slave stops.
+	 *
+	 * It will need various change in the code, while the hot standby does not work correctly.
+	 *
+	 * For short term solution for Version 1.0.x, it was determined to disable whole hot
+	 * hot staydby.
+	 *
+	 * Hot standby correction will be done in next major release.
+	 */
+	return 0;
+#else
 	/* use volatile pointer to prevent code rearrangement */
 	volatile ProcArrayStruct *pArray = procArray;
 	int			count = 0;
@@ -3716,6 +3776,7 @@ KnownAssignedXidsGetAndSetXmin(TransactionId *xarray, TransactionId *xmin,
 	}
 
 	return count;
+#endif
 }
 
 /*
@@ -3725,6 +3786,26 @@ KnownAssignedXidsGetAndSetXmin(TransactionId *xarray, TransactionId *xmin,
 static TransactionId
 KnownAssignedXidsGetOldestXmin(void)
 {
+#ifdef PGXC
+	/*
+	 * Postgres-XC Version 1.0.x supports log shipping replication but not hot standby
+	 * because hot standby needs to provide consistent database views for all the
+	 * datanode, which is not available yet.
+	 *
+	 * On the other hand, in the slave, current KnownAssignedXids ignores latter half
+	 * of XLOG_XACT_ASSIGNMENT wal record and registers all the possible XIDs found
+	 * at the first half of the wal record.   Some of them can be missing and such missing
+	 * Xids remain in the buffer, causing overflow and the slave stops.
+	 *
+	 * It will need various change in the code, while the hot standby does not work correctly.
+	 *
+	 * For short term solution for Version 1.0.x, it was determined to disable whole hot
+	 * hot staydby.
+	 *
+	 * Hot standby correction will be done in next major release.
+	 */
+	return InvalidTransactionId;
+#else
 	/* use volatile pointer to prevent code rearrangement */
 	volatile ProcArrayStruct *pArray = procArray;
 	int			head,
@@ -3747,6 +3828,7 @@ KnownAssignedXidsGetOldestXmin(void)
 	}
 
 	return InvalidTransactionId;
+#endif
 }
 
 /*
