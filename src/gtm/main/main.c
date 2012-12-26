@@ -223,7 +223,8 @@ GTM_SigleHandler(int signal)
 			break;
 
 		case SIGUSR1:
-			PromoteToActive();
+			if (Recovery_IsStandby())
+				PromoteToActive();
 			return;
 
 		default:
@@ -2022,6 +2023,9 @@ DeleteLockFile(const char *filename)
 static void
 PromoteToActive(void)
 {
+	const char *conf_file;
+	FILE	   *fp;
+
 	elog(LOG, "Promote signal received. Becoming an active...");
 
 	/*
@@ -2030,5 +2034,34 @@ PromoteToActive(void)
 	Recovery_StandbySetStandby(false);
 	CreateDataDirLockFile();
 
+	/*
+	 * Update the GTM config file for the next restart..
+	 */
+	conf_file = GetConfigOption("config_file", true);
+	elog(LOG, "Config file is %s...", conf_file);
+	if ((fp = fopen(conf_file, PG_BINARY_A)) == NULL)
+	{
+		ereport(FATAL,
+				(EINVAL,
+				 errmsg("could not open GTM configuration file \"%s\": %m",
+						conf_file)));
+
+	}
+	else
+	{
+		time_t		stamp_time = (time_t) time(NULL);
+		char		strfbuf[128];
+
+		strftime(strfbuf, sizeof(strfbuf),
+					"%Y-%m-%d %H:%M:%S %Z",
+					localtime(&stamp_time));
+
+		fprintf(fp, "#===================================================\n# Updated due to GTM promote request\n# %s\nstartup = ACT\n#===================================================\n", strfbuf);
+		if (fclose(fp))
+			ereport(FATAL,
+					(EINVAL,
+					 errmsg("could not close GTM configuration file \"%s\": %m",
+							conf_file)));
+	}
 	return;
 }
