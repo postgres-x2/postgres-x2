@@ -119,6 +119,7 @@ gtm_standby_restore_gxid(void)
 	num_txn = get_txn_gxid_list(GTM_ActiveConn, &txn);
 
 	GTM_RWLockAcquire(&GTMTransactions.gt_XidGenLock, GTM_LOCKMODE_WRITE);
+	GTM_RWLockAcquire(&GTMTransactions.gt_TransArrayLock, GTM_LOCKMODE_WRITE);
 
 	GTMTransactions.gt_txn_count = txn.gt_txn_count;
 	GTMTransactions.gt_gtm_state = txn.gt_gtm_state;
@@ -187,6 +188,7 @@ gtm_standby_restore_gxid(void)
 
 	dump_transactions_elog(&GTMTransactions, num_txn);
 
+	GTM_RWLockRelease(&GTMTransactions.gt_TransArrayLock);
 	GTM_RWLockRelease(&GTMTransactions.gt_XidGenLock);
 
 	elog(LOG, "Restoring %d gxid(s) done.", num_txn);
