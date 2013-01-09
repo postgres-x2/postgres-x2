@@ -38,6 +38,10 @@ WITH ( <replaceable class="parameter">nodename</replaceable> [, ... ] )
    node group information in catalog pgxc_group.
   </para>
 
+  <para>
+   <command>CREATE NODE</command> only runs on the local node where it is launched.
+  </para>
+
  </refsect1>
 
  <refsect1>
