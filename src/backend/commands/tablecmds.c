@@ -9217,10 +9217,16 @@ AlterTableNamespaceInternal(Relation rel, Oid oldNspOid, Oid nspOid,
 	if (IS_PGXC_COORDINATOR &&
 		!IsConnFromCoord() &&
 		rel->rd_rel->relkind == RELKIND_SEQUENCE &&
-		!IsTempSequence(relid))
+		!IsTempSequence(RelationGetRelid(rel)))
 	{
 		char *seqname = GetGlobalSeqName(rel, NULL, NULL);
-		char *newseqname = GetGlobalSeqName(rel, NULL, newschema);
+		/*
+		 * FIXME:
+		 * In 9.1.7 or later, new schema name (newschema) can no longer be used here,
+		 * so GetGlobalSeqName() needs to be fixed to deal with new name space OID,
+		 * instead of the namespace name, where an object is going to be moved.
+		 */
+		char *newseqname = GetGlobalSeqName(rel, NULL, /* newschema */ NULL);
 
 		/* We also need to rename it on the GTM */
 		if (RenameSequenceGTM(seqname, newseqname) < 0)
@@ -9417,7 +9423,13 @@ AlterSeqNamespaces(Relation classRel, Relation rel,
 			!IsTempSequence(RelationGetRelid(seqRel)))
 		{
 			char *seqname = GetGlobalSeqName(seqRel, NULL, NULL);
-			char *newseqname = GetGlobalSeqName(seqRel, NULL, newNspName);
+			/*
+			 * FIXME:
+			 * In 9.1.7 or later, new schema name (newschema) can no longer be used here,
+			 * so GetGlobalSeqName() needs to be fixed to deal with new name space OID,
+			 * instead of the namespace name, where an object is going to be moved.
+			 */
+			char *newseqname = GetGlobalSeqName(seqRel, NULL, /* newNspName */ NULL);
 
 			/* We also need to rename it on the GTM */
 			if (RenameSequenceGTM(seqname, newseqname) < 0)
