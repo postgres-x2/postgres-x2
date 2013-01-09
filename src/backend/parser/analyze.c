@@ -33,6 +33,7 @@
 #include "utils/tqual.h"
 #endif
 #include "catalog/pg_type.h"
+#include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "optimizer/var.h"
@@ -1574,6 +1575,9 @@ transformSetOperationTree(ParseState *pstate, SelectStmt *stmt,
 	bool		isLeaf;
 
 	Assert(stmt && IsA(stmt, SelectStmt));
+
+	/* Guard against stack overflow due to overly complex set-expressions */
+	check_stack_depth();
 
 	/*
 	 * Validity-check both leaf and internal SELECTs for disallowed ops.
