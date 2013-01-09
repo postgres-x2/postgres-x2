@@ -2640,6 +2640,16 @@ ltrmark:;
 
 		buffer = ReadBuffer(relation, ItemPointerGetBlockNumber(tid));
 
+		/*
+		 * Although we already know this tuple is valid, we must lock the
+		 * buffer to ensure that no one has a buffer cleanup lock; otherwise
+		 * they might move the tuple while we try to copy it.  But we can
+		 * release the lock before actually doing the heap_copytuple call,
+		 * since holding pin is sufficient to prevent anyone from getting a
+		 * cleanup lock they don't already hold.
+		 */
+		LockBuffer(buffer, BUFFER_LOCK_SHARE);
+
 		page = BufferGetPage(buffer);
 		lp = PageGetItemId(page, ItemPointerGetOffsetNumber(tid));
 
@@ -2652,6 +2662,8 @@ ltrmark:;
 #ifdef PGXC
 		tuple.t_xc_node_id = PGXCNodeIdentifier;
 #endif
+
+		LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
 	}
 
 	result = heap_copytuple(&tuple);
