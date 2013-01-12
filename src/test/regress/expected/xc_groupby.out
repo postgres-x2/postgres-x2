@@ -454,8 +454,8 @@ explain (verbose true, costs false, nodes false) select avg(a) from xc_groupby_g
 select avg(b) from xc_groupby_g group by c;
  avg 
 -----
- 2.3
  2.1
+ 2.3
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select avg(b) from xc_groupby_g group by c;
@@ -473,8 +473,8 @@ explain (verbose true, costs false, nodes false) select avg(b) from xc_groupby_g
 select avg(c) from xc_groupby_g group by c;
         avg         
 --------------------
- 5.2000000000000000
  3.2000000000000000
+ 5.2000000000000000
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select avg(c) from xc_groupby_g group by c;
@@ -501,9 +501,9 @@ insert into xc_groupby_tab2 values (1, 1), (4, 1), (8, 1), (2, 4), (9, 4), (3, 4
 select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_groupby_tab1 group by val2;
  count | sum |        avg         |     ?column?     | val2 
 -------+-----+--------------------+------------------+------
+     3 |  11 | 3.6666666666666667 | 3.66666666666667 |    3
      3 |   6 | 2.0000000000000000 |                2 |    1
      2 |   8 | 4.0000000000000000 |                4 |    2
-     3 |  11 | 3.6666666666666667 | 3.66666666666667 |    3
 (3 rows)
 
 explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_groupby_tab1 group by val2;
@@ -550,8 +550,8 @@ explain (verbose true, costs false, nodes false) select count(*), sum(xc_groupby
 select sum(y) from (select sum(val) y, val2%2 x from xc_groupby_tab1 group by val2) q1 group by x;
  sum 
 -----
-   8
   17
+   8
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select sum(y) from (select sum(val) y, val2%2 x from xc_groupby_tab1 group by val2) q1 group by x;
@@ -572,9 +572,9 @@ explain (verbose true, costs false, nodes false) select sum(y) from (select sum(
 select val2 from xc_groupby_tab1 group by val2;
  val2 
 ------
+    3
     1
     2
-    3
 (3 rows)
 
 explain (verbose true, costs false, nodes false) select val2 from xc_groupby_tab1 group by val2;
@@ -592,12 +592,12 @@ explain (verbose true, costs false, nodes false) select val2 from xc_groupby_tab
 select val + val2 from xc_groupby_tab1 group by val + val2;
  ?column? 
 ----------
+        9
+        2
         4
         3
         7
         8
-        9
-        2
 (6 rows)
 
 explain (verbose true, costs false, nodes false) select val + val2 from xc_groupby_tab1 group by val + val2;
@@ -663,10 +663,10 @@ explain (verbose true, costs false, nodes false) select xc_groupby_tab1.val + xc
 select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
  ?column? 
 ----------
+        5
         6
         2
         7
-        5
 (4 rows)
 
 explain (verbose true, costs false, nodes false) select xc_groupby_tab1.val + xc_groupby_tab2.val2 from xc_groupby_tab1, xc_groupby_tab2 where xc_groupby_tab1.val = xc_groupby_tab2.val group by xc_groupby_tab1.val + xc_groupby_tab2.val2;
@@ -685,9 +685,9 @@ explain (verbose true, costs false, nodes false) select xc_groupby_tab1.val + xc
 select count(*) + sum(val) + avg(val), val2 from xc_groupby_tab1 group by val2;
       ?column?       | val2 
 ---------------------+------
+ 17.6666666666666667 |    3
  11.0000000000000000 |    1
  14.0000000000000000 |    2
- 17.6666666666666667 |    3
 (3 rows)
 
 explain (verbose true, costs false, nodes false) select count(*) + sum(val) + avg(val), val2 from xc_groupby_tab1 group by val2;
@@ -707,8 +707,8 @@ select sum(val), avg(val), 2 * val2 from xc_groupby_tab1 group by 2 * val2;
  sum |        avg         | ?column? 
 -----+--------------------+----------
   11 | 3.6666666666666667 |        6
-   6 | 2.0000000000000000 |        2
    8 | 4.0000000000000000 |        4
+   6 | 2.0000000000000000 |        2
 (3 rows)
 
 explain (verbose true, costs false, nodes false) select sum(val), avg(val), 2 * val2 from xc_groupby_tab1 group by 2 * val2;
@@ -907,8 +907,8 @@ explain (verbose true, costs false, nodes false) select avg(a) from xc_groupby_g
 select avg(b) from xc_groupby_g group by c;
  avg 
 -----
- 2.3
  2.1
+ 2.3
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select avg(b) from xc_groupby_g group by c;
@@ -926,8 +926,8 @@ explain (verbose true, costs false, nodes false) select avg(b) from xc_groupby_g
 select avg(c) from xc_groupby_g group by c;
         avg         
 --------------------
- 5.2000000000000000
  3.2000000000000000
+ 5.2000000000000000
 (2 rows)
 
 explain (verbose true, costs false, nodes false) select avg(c) from xc_groupby_g group by c;

@@ -52,7 +52,7 @@ explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(
                Remote query: SELECT count(*), sum(group_1.val), avg(group_1.val), group_1.val2  FROM (SELECT val, val2 FROM ONLY xc_having_tab1 WHERE true) group_1 GROUP BY 4  
 (8 rows)
 
-select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 or val2 > 2;
+select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 or val2 > 2 order by 1;
  count | sum |        avg         |     ?column?     | val2 
 -------+-----+--------------------+------------------+------
      2 |   8 | 4.0000000000000000 |                4 |    2
@@ -136,9 +136,9 @@ explain (verbose true, costs false, nodes false) select val2 from xc_having_tab1
 select val + val2 from xc_having_tab1 group by val + val2 having sum(val) > 5;
  ?column? 
 ----------
+        9
         4
         8
-        9
 (3 rows)
 
 explain (verbose true, costs false, nodes false) select val + val2 from xc_having_tab1 group by val + val2 having sum(val) > 5;
@@ -222,7 +222,7 @@ explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(
                Remote query: SELECT count(*), sum(group_1.val), avg(group_1.val), group_1.val2  FROM (SELECT val, val2 FROM ONLY xc_having_tab1 WHERE true) group_1 GROUP BY 4  
 (8 rows)
 
-select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 or val2 > 2;
+select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 or val2 > 2 order by 1;
  count | sum |        avg         |     ?column?     | val2 
 -------+-----+--------------------+------------------+------
      2 |   8 | 4.0000000000000000 |                4 |    2
@@ -302,9 +302,9 @@ explain (verbose true, costs false, nodes false) select val2 from xc_having_tab1
 select val + val2 from xc_having_tab1 group by val + val2 having sum(val) > 5;
  ?column? 
 ----------
+        9
         4
         8
-        9
 (3 rows)
 
 explain (verbose true, costs false, nodes false) select val + val2 from xc_having_tab1 group by val + val2 having sum(val) > 5;
@@ -388,7 +388,7 @@ explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(
                Remote query: SELECT count(*), sum(group_1.val), avg(group_1.val), group_1.val2  FROM (SELECT val, val2 FROM ONLY xc_having_tab1 WHERE true) group_1 GROUP BY 4 ORDER BY 4 
 (8 rows)
 
-select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 or val2 > 2;
+select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 or val2 > 2 order by 1;
  count | sum |        avg         |     ?column?     | val2 
 -------+-----+--------------------+------------------+------
      2 |   8 | 4.0000000000000000 |                4 |    2
@@ -561,7 +561,7 @@ explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(
                Remote query: SELECT count(*), sum(group_1.val), avg(group_1.val), group_1.val2  FROM (SELECT val, val2 FROM ONLY xc_having_tab1 WHERE true) group_1 GROUP BY 4 ORDER BY 4 
 (8 rows)
 
-select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 or val2 > 2;
+select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 or val2 > 2 order by 1;
  count | sum |        avg         |     ?column?     | val2 
 -------+-----+--------------------+------------------+------
      2 |   8 | 4.0000000000000000 |                4 |    2

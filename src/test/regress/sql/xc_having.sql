@@ -21,7 +21,7 @@ explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(
 -- having clause containing aggregate
 select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75;
 explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75;
-select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 or val2 > 2;
+select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 or val2 > 2 order by 1;
 explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 or val2 > 2;
 select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 and val2 > 2;
 explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 and val2 > 2;
@@ -52,7 +52,7 @@ explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(
 -- having clause containing aggregate
 select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75;
 explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75;
-select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 or val2 > 2;
+select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 or val2 > 2 order by 1;
 explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 or val2 > 2;
 select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 and val2 > 2;
 explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 and val2 > 2;
@@ -83,7 +83,7 @@ explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(
 -- having clause containing aggregate
 select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75;
 explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75;
-select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 or val2 > 2;
+select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 or val2 > 2 order by 1;
 explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 or val2 > 2;
 select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 and val2 > 2;
 explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 and val2 > 2;
@@ -114,7 +114,7 @@ explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(
 -- having clause containing aggregate
 select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75;
 explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75;
-select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 or val2 > 2;
+select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 or val2 > 2 order by 1;
 explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 or val2 > 2;
 select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 and val2 > 2;
 explain (verbose true, costs false, nodes false) select count(*), sum(val), avg(val), sum(val)::float8/count(*), val2 from xc_having_tab1 group by val2 having avg(val) > 3.75 and val2 > 2;
