@@ -697,6 +697,30 @@ select min(f1), max(f1) from minmaxtest;
   11 |  18
 (1 row)
 
+-- DISTINCT doesn't do anything useful here, but it shouldn't fail
+explain (costs off)
+  select distinct min(f1), max(f1) from minmaxtest;
+                   QUERY PLAN                   
+------------------------------------------------
+ HashAggregate
+   ->  Aggregate
+         ->  Append
+               ->  Data Node Scan on minmaxtest
+                     Node/s: dn1, dn2
+               ->  Data Node Scan on minmaxtest
+                     Node/s: dn1, dn2
+               ->  Data Node Scan on minmaxtest
+                     Node/s: dn1, dn2
+               ->  Data Node Scan on minmaxtest
+                     Node/s: dn1, dn2
+(11 rows)
+
+select distinct min(f1), max(f1) from minmaxtest;
+ min | max 
+-----+-----
+  11 |  18
+(1 row)
+
 drop table minmaxtest cascade;
 NOTICE:  drop cascades to 3 other objects
 DETAIL:  drop cascades to table minmaxtest1
