@@ -1010,10 +1010,11 @@ pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2, bool merge_dist_equijoin,
 			merged_en->nodeList = list_copy(en1->nodeList);
 			merged_en->baselocatortype = en1->baselocatortype;
 		}
-		else if (list_length(en1->nodeList) == 1 && list_length(en2->nodeList) == 1)
+		else if (list_length(en1->nodeList) == 1 
+					&& list_length(en2->nodeList) == 1
+					&& (merged_en->nodeList = list_intersection_int(en1->nodeList,
+														en2->nodeList)))
 		{
-			merged_en->nodeList = list_intersection_int(en1->nodeList,
-														en2->nodeList);
 			merged_en->baselocatortype = LOCATOR_TYPE_DISTRIBUTED;
 		}
 		else
