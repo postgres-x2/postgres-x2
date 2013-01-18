@@ -768,11 +768,14 @@ do_status(void)
 		exit(1);
 	}
 
-	if (fscanf(pidf, "%d", &mode) != 1)
+	if (strcmp(gtm_app, "gtm_proxy") != 0)
 	{
-		write_stderr(_("%s: invalid data in PID file \"%s\"\n"),
-					 progname, pid_file);
-		exit(1);
+		if (fscanf(pidf, "%d", &mode) != 1)
+		{
+			write_stderr(_("%s: invalid data in PID file \"%s\"\n"),
+						 progname, pid_file);
+			exit(1);
+		}
 	}
 
 	fclose(pidf);
@@ -811,6 +814,8 @@ do_status(void)
 			if (optlines != NULL)
 				for (; *optlines != NULL; optlines++)
 					fputs(*optlines, stdout);
+			if (strcmp(gtm_app, "gtm_proxy") != 0)
+				printf("%d %s\n", mode, mode == 1 ? "master" : "slave");
 			return;
 		}
 	}
