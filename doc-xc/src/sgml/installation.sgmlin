@@ -2466,7 +2466,7 @@ postgres$ <userinput>/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data</>
        two-phase commit operation implicitly if a transaction is
        involved with multiple Datanodes and/or Coordinators.   The value
        of this parameter should be at least the value
-       of <option>max_connections</> multiplied by the number of Coordinators.
+       of <option>max_connections</> of Coordinator multiplied by the number of Coordinators.
       </para>
      </listitem>
     </varlistentry>
