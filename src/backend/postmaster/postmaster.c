@@ -2426,6 +2426,15 @@ pmdie(SIGNAL_ARGS)
 #ifdef PGXC /* PGXC_COORD */
 			if (IS_PGXC_COORDINATOR && PgPoolerPID != 0)
 				signal_child(PgPoolerPID, SIGQUIT);
+
+			/* Unregister Node on GTM */
+			if (isNodeRegistered)
+			{
+				if (IS_PGXC_COORDINATOR)
+					UnregisterGTM(GTM_NODE_COORDINATOR);
+				else if (IS_PGXC_DATANODE)
+					UnregisterGTM(GTM_NODE_DATANODE);
+			}
 #endif
 			if (BgWriterPID != 0)
 				signal_child(BgWriterPID, SIGQUIT);
