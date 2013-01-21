@@ -1153,7 +1153,12 @@ pgxc_FQS_find_datanodes(FQS_context *fqs_context)
 				break;
 
 			case RTE_JOIN:
-				/* Is information here useful in some or other way? */
+				/*
+				 * FQS can not handle the JOINs of type other than Inner join
+				 * correctly, hence those joins are not FQSable.
+				 */
+				if (rte->jointype != JOIN_INNER)
+					canShip = false;
 				break;
 			case RTE_CTE:
 			case RTE_SUBQUERY:
