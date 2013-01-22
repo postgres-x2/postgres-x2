@@ -349,6 +349,10 @@ HandleCommandComplete(RemoteQueryState *combiner, char *msg_body, size_t len, PG
 			{
 				if (combiner->command_complete_count)
 				{
+					/*
+					 * For comments on why non_fqs_dml is required
+					 * see comments in ExecRemoteQueryStandard
+					 */
 					if (rowcount != estate->es_processed && !combiner->non_fqs_dml)
 						/* There is a consistency issue in the database with the replicated table */
 						ereport(ERROR,
@@ -361,7 +365,8 @@ HandleCommandComplete(RemoteQueryState *combiner, char *msg_body, size_t len, PG
 						estate->es_processed = rowcount;
 			}
 			else
-				estate->es_processed += rowcount;
+				if (!combiner->non_fqs_dml)
+					estate->es_processed += rowcount;
 		}
 		else
 			combiner->combine_type = COMBINE_TYPE_NONE;
@@ -3965,6 +3970,24 @@ ExecRemoteQueryStandard(Relation resultRelationDesc,
 		if (econtext)
 			econtext->ecxt_scantuple = slot;
 
+		/*
+		 * Consider the case of a non FQSed INSERT for example. The executor keeps
+		 * track of # of tuples processed in es_processed member of EState structure.
+		 * When a non-FQSed INSERT completes this member is increased once due to
+		 * estate->es_processed += rowcount
+		 * in HandleCommandComplete and once due to
+		 * (estate->es_processed)++
+		 * in ExecInsert. The result is that although only one row is inserted we
+		 * get message as if two rows got inserted INSERT 0 2. Now consider the
+		 * same INSERT case when it is FQSed. In this case the # of tuples processed
+		 * is increased just once in HandleCommandComplete since ExecInsert is never
+		 * called in this case and hence we get correct output i.e. INSERT 0 1
+		 * To handle this error in processed tuple counting we use a variable
+		 * non_fqs_dml which indicates whether this DML is FQSed or not. To indicate
+		 * that this DML is not FQSed non_fqs_dml is set to true here and then if
+		 * it is found true in HandleCommandComplete we skip handling of
+		 * es_processed there and let ExecInsert do the processed tuple counting.
+		 */
 		resultRemoteRel->non_fqs_dml = true;
 
 		do_query(resultRemoteRel);

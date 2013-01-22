@@ -132,7 +132,9 @@ typedef struct RemoteQueryState
 									 * buffered between getlen and readtup calls
 									 * for sort */
 	bool		rqs_for_sort;	/* The row fetches will be handled by Sort */
-	bool		non_fqs_dml;			/* true if this is a non fast query shipped DML */
+	bool		non_fqs_dml;	/* true if this is a non fast query shipped DML
+								 * For detailed discussion on why this variable
+								 * is required see comments in */
 }	RemoteQueryState;
 
 typedef void (*xact_callback) (bool isCommit, void *args);
