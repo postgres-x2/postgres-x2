@@ -966,7 +966,7 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		bool			is_where_printed = false;	/* Control of WHERE generation */
 		RemoteQuery	   *fstep;		/* Plan step generated */
 		ListCell	   *elt;
-		int				count = 0, where_count = 1;
+		int				where_count = 1;
 		int				natts, tot_prepparams;
 		char		   *relname;
 		int		i;
@@ -1016,18 +1016,6 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		else
 			appendStringInfo(buf, "UPDATE ONLY %s.%s SET ", quote_identifier(nspname),
 							 quote_identifier(relname));
-
-		/*
-		 * Count the number of junk entries before setting the parameter type list.
-		 * This helps to know how many parameters part of the WHERE clause need to
-		 * be sent down by extended query protocol.
-		 */
-		foreach(elt, parse->targetList)
-		{
-			TargetEntry *tle = lfirst(elt);
-			if (tle->resjunk)
-				count++;
-		}
 
 		/*
 		 * In XC an update is planned as a two step process
@@ -1131,7 +1119,7 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		appendStringInfo(buf, "%s", buf2->data);
 
 		/* Finally build the final UPDATE step */
-		fstep = make_remotequery(parse->targetList, NIL, resultRelationIndex);
+		fstep = make_remotequery(NIL, NIL, resultRelationIndex);
 		fstep->is_temp = IsTempTable(ttab->relid);
 		fstep->sql_statement = pstrdup(buf->data);
 		fstep->combine_type = get_plan_combine_type(CMD_UPDATE, rel_loc_info->locatorType);
@@ -1303,7 +1291,7 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		}
 
 		/* Finish by building the plan step */
-		fstep = make_remotequery(parse->targetList, NIL, resultRelationIndex);
+		fstep = make_remotequery(NIL, NIL, resultRelationIndex);
 		fstep->is_temp = IsTempTable(ttab->relid);
 		fstep->sql_statement = pstrdup(buf->data);
 		fstep->combine_type = get_plan_combine_type(CMD_DELETE, rel_loc_info->locatorType);
