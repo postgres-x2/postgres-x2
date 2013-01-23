@@ -94,6 +94,7 @@ static void *pg_realloc(void *ptr, size_t size);
 
 static char gtmopts_file[MAXPGPATH];
 static char pid_file[MAXPGPATH];
+static int RunAsDaemon(char *cmd);
 
 /*
  * Write errors to stderr (or by gtm_equal means when stderr is
@@ -286,8 +287,8 @@ start_gtm(void)
 	strncat(gtm_app_path, gtm_app, MAXPGPATH - len - 1);
 
 	if (log_file != NULL)
-		len = snprintf(cmd, MAXPGPATH - 1, SYSTEMQUOTE "\"%s\" %s%s -l %s < \"%s\" 2>&1 &" SYSTEMQUOTE,
-				 gtm_app_path, gtmdata_opt, gtm_opts, log_file, DEVNULL);
+		len = snprintf(cmd, MAXPGPATH - 1, SYSTEMQUOTE "\"%s\" %s%s -l %s &" SYSTEMQUOTE,
+				 gtm_app_path, gtmdata_opt, gtm_opts, log_file);
 	else
 		len = snprintf(cmd, MAXPGPATH - 1, SYSTEMQUOTE "\"%s\" %s%s < \"%s\" 2>&1 &" SYSTEMQUOTE,
 				 gtm_app_path, gtmdata_opt, gtm_opts, DEVNULL);
@@ -298,7 +299,48 @@ start_gtm(void)
 		exit(1);
 	}
 
-	return system(cmd);
+	if (log_file)
+		return (RunAsDaemon(cmd));
+	else
+		return system(cmd);
+}
+
+/*
+ * Run specified command as a daemon.
+ * Assume that *cmd includes '&' to run
+ * the command at background so that we need fork()
+ * only once.
+ */
+static int RunAsDaemon(char *cmd)
+{
+	switch (fork())
+	{
+		int status;
+
+		case 0:
+			/*
+			 * Using fileno(xxx) may encounter trivial error because xxx may
+			 * have been closed at somewhere else and fileno() may fail.  
+			 * Its safer to use literal file descriptor here.
+			 */
+			close(0);
+			close(1);
+			close(2);
+			if ((status = system(cmd)) == -1)
+				/* 
+				 * Same behavior as /bin/sh could not be
+				 * executed.
+				 */
+				exit(127);
+			else
+				exit(WEXITSTATUS(status));
+			break;
+		case -1:
+			return -1;
+		default:
+			return 0;
+			break;
+	}
 }
 
 
