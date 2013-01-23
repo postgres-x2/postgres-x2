@@ -1421,13 +1421,6 @@ addRangeTableEntryForCTE(ParseState *pstate,
 				 errmsg("WITH query \"%s\" does not have a RETURNING clause",
 						cte->ctename),
 					 parser_errposition(pstate, rv->location)));
-
-#ifdef PGXC
-		if (ctequery->returningList != NIL)
-			ereport(ERROR,
-			       (errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-			       (errmsg("RETURNING clause not yet supported"))));
-#endif
 	}
 
 	rte->ctecoltypes = cte->ctecoltypes;

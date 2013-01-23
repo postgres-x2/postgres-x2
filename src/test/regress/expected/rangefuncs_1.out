@@ -591,51 +591,95 @@ create function insert_tt(text) returns int as
 $$ insert into tt(data) values($1) returning f1 $$
 language sql;
 select insert_tt('foo');
-ERROR:  RETURNING clause not yet supported
-CONTEXT:  SQL function "insert_tt" during startup
+ insert_tt 
+-----------
+         1
+(1 row)
+
 select insert_tt('bar');
-ERROR:  RETURNING clause not yet supported
-CONTEXT:  SQL function "insert_tt" during startup
+ insert_tt 
+-----------
+         2
+(1 row)
+
 select * from tt order by 1, 2;
  f1 | data 
 ----+------
-(0 rows)
+  1 | foo
+  2 | bar
+(2 rows)
 
 -- insert will execute to completion even if function needs just 1 row
 create or replace function insert_tt(text) returns int as
 $$ insert into tt(data) values($1),($1||$1) returning f1 $$
 language sql;
 select insert_tt('fool');
-ERROR:  RETURNING clause not yet supported
-CONTEXT:  SQL function "insert_tt" during startup
+ insert_tt 
+-----------
+         3
+(1 row)
+
 select * from tt order by 1, 2;
- f1 | data 
-----+------
-(0 rows)
+ f1 |   data   
+----+----------
+  1 | foo
+  2 | bar
+  3 | fool
+  4 | foolfool
+(4 rows)
 
 -- setof does what's expected
 create or replace function insert_tt2(text,text) returns setof int as
 $$ insert into tt(data) values($1),($2) returning f1 $$
 language sql;
 select insert_tt2('foolish','barrish');
-ERROR:  RETURNING clause not yet supported
-CONTEXT:  SQL function "insert_tt2" during startup
+ insert_tt2 
+------------
+          5
+          6
+(2 rows)
+
 select * from insert_tt2('baz','quux') order by 1;
-ERROR:  RETURNING clause not yet supported
-CONTEXT:  SQL function "insert_tt2" during startup
+ insert_tt2 
+------------
+          7
+          8
+(2 rows)
+
 select * from tt order by 1, 2;
- f1 | data 
-----+------
-(0 rows)
+ f1 |   data   
+----+----------
+  1 | foo
+  2 | bar
+  3 | fool
+  4 | foolfool
+  5 | foolish
+  6 | barrish
+  7 | baz
+  8 | quux
+(8 rows)
 
 -- limit doesn't prevent execution to completion
 select insert_tt2('foolish','barrish') limit 1;
-ERROR:  RETURNING clause not yet supported
-CONTEXT:  SQL function "insert_tt2" during startup
+ insert_tt2 
+------------
+          9
+(1 row)
+
 select * from tt order by 1, 2;
- f1 | data 
-----+------
-(0 rows)
+ f1 |   data   
+----+----------
+  1 | foo
+  2 | bar
+  3 | fool
+  4 | foolfool
+  5 | foolish
+  6 | barrish
+  7 | baz
+  8 | quux
+  9 | foolish
+ 10 | barrish
+(10 rows)
 
 -- triggers will fire, too
 create function noticetrigger() returns trigger as $$
@@ -648,31 +692,65 @@ execute procedure noticetrigger();
 ERROR:  Postgres-XC does not support ROW TRIGGER yet
 DETAIL:  The feature is not currently supported
 select insert_tt2('foolme','barme') limit 1;
-ERROR:  RETURNING clause not yet supported
-CONTEXT:  SQL function "insert_tt2" during startup
+ insert_tt2 
+------------
+         11
+(1 row)
+
 select * from tt order by 1, 2;
- f1 | data 
-----+------
-(0 rows)
+ f1 |   data   
+----+----------
+  1 | foo
+  2 | bar
+  3 | fool
+  4 | foolfool
+  5 | foolish
+  6 | barrish
+  7 | baz
+  8 | quux
+  9 | foolish
+ 10 | barrish
+ 11 | foolme
+ 12 | barme
+(12 rows)
 
 -- and rules work
 create temp table tt_log(f1 int, data text);
 create rule insert_tt_rule as on insert to tt do also
   insert into tt_log values(new.*);
 select insert_tt2('foollog','barlog') limit 1;
-ERROR:  RETURNING clause not yet supported
-CONTEXT:  SQL function "insert_tt2" during startup
+ insert_tt2 
+------------
+         13
+(1 row)
+
 select * from tt order by 1, 2;
- f1 | data 
-----+------
-(0 rows)
+ f1 |   data   
+----+----------
+  1 | foo
+  2 | bar
+  3 | fool
+  4 | foolfool
+  5 | foolish
+  6 | barrish
+  7 | baz
+  8 | quux
+  9 | foolish
+ 10 | barrish
+ 11 | foolme
+ 12 | barme
+ 13 | foollog
+ 14 | barlog
+(14 rows)
 
 -- note that nextval() gets executed a second time in the rule expansion,
 -- which is expected.
 select * from tt_log order by 1, 2;
- f1 | data 
-----+------
-(0 rows)
+ f1 |  data   
+----+---------
+ 15 | foollog
+ 16 | barlog
+(2 rows)
 
 -- test case for a whole-row-variable bug
 create function foo1(n integer, out a text, out b text)
@@ -723,11 +801,17 @@ create function testfoo() returns record as $$
   insert into foo values (1,2) returning *;
 $$ language sql;
 select testfoo();
-ERROR:  RETURNING clause not yet supported
-CONTEXT:  SQL function "testfoo" during startup
+ testfoo 
+---------
+ (1,2)
+(1 row)
+
 select * from testfoo() as t(f1 int8,f2 int8);
-ERROR:  RETURNING clause not yet supported
-CONTEXT:  SQL function "testfoo" during startup
+ f1 | f2 
+----+----
+  1 |  2
+(1 row)
+
 select * from testfoo(); -- fail
 ERROR:  a column definition list is required for functions returning "record"
 LINE 1: select * from testfoo();
@@ -737,11 +821,19 @@ create function testfoo() returns setof record as $$
   insert into foo values (1,2), (3,4) returning *;
 $$ language sql;
 select testfoo();
-ERROR:  RETURNING clause not yet supported
-CONTEXT:  SQL function "testfoo" during startup
+ testfoo 
+---------
+ (1,2)
+ (3,4)
+(2 rows)
+
 select * from testfoo() as t(f1 int8,f2 int8) order by 1, 2;
-ERROR:  RETURNING clause not yet supported
-CONTEXT:  SQL function "testfoo" during startup
+ f1 | f2 
+----+----
+  1 |  2
+  3 |  4
+(2 rows)
+
 select * from testfoo(); -- fail
 ERROR:  a column definition list is required for functions returning "record"
 LINE 1: select * from testfoo();

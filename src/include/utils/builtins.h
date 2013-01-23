@@ -663,6 +663,7 @@ extern char *deparse_expression(Node *expr, List *dpcontext,
 #ifdef PGXC
 extern void deparse_query(Query *query, StringInfo buf, List *parentnamespace,
 							bool finalise_aggs, bool sortgroup_colno);
+extern void deparse_targetlist(Query *query, List *targetList, StringInfo buf);
 #endif
 extern List *deparse_context_for(const char *aliasname, Oid relid);
 extern List *deparse_context_for_planstate(Node *planstate, List *ancestors,

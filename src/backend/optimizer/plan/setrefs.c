@@ -77,6 +77,7 @@ typedef struct
 	indexed_tlist *base_itlist;
 	int			   rtoffset;
 	Index		   relid;
+	bool		   return_non_base_vars;	/* Should we reject or return vars not found in base_itlist */
 } fix_remote_expr_context;
 
 /*
@@ -148,11 +149,13 @@ static List * fix_remote_expr(PlannerInfo *root,
 			  List *clauses,
 			  indexed_tlist *base_itlist,
 			  Index	newrelid,
-			  int rtoffset);
+			  int rtoffset,
+			  bool return_non_base_vars);
 static Node *fix_remote_expr_mutator(Node *node,
 			  fix_remote_expr_context *context);
 static void set_remote_references(PlannerInfo *root, RemoteQuery *rscan, int rtoffset);
 static void pgxc_set_agg_references(PlannerInfo *root, Agg *aggplan);
+static List *set_remote_returning_refs(PlannerInfo *root, List *rlist, Plan *topplan, Index relid, int rtoffset);
 #endif
 
 
@@ -602,6 +605,12 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 		case T_ModifyTable:
 			{
 				ModifyTable *splan = (ModifyTable *) plan;
+#ifdef PGXC
+				int n = 0;
+				List	*firstRetList;	/* First returning list required for
+										 * setting up visible plan target list
+										 */
+#endif
 
 				Assert(splan->plan.targetlist == NIL);
 				Assert(splan->plan.qual == NIL);
@@ -626,7 +635,48 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 						List	   *rlist = (List *) lfirst(lcrl);
 						Index		resultrel = lfirst_int(lcrr);
 						Plan	   *subplan = (Plan *) lfirst(lcp);
+#ifdef PGXC
+						RemoteQuery	*rq = NULL;
 
+						if (n == 0)
+						{
+							/*
+							 * Set up first returning list before we change
+							 * var references to point to RTE_REMOTE_DUMMY
+							 */
+							firstRetList = set_returning_clause_references(root,
+																	rlist,
+																	subplan,
+																	resultrel,
+																	rtoffset);
+							/* Restore the returning list changed by the above call */
+							rlist = (List *) lfirst(lcrl);
+						}
+
+						if (splan->remote_plans)
+							rq = (RemoteQuery *)list_nth(splan->remote_plans, n);
+						n++;
+
+						if(rq != NULL && IS_PGXC_COORDINATOR && !IsConnFromCoord())
+						{
+							/*
+							 * Set references of returning clause by adjusting
+							 * varno/varattno according to target list in
+							 * remote query node
+							 */
+							rlist = set_remote_returning_refs(root,
+											rlist,
+											(Plan *)rq,
+											rq->scan.scanrelid,
+											rtoffset);
+							/*
+							 * The next call to set_returning_clause_references
+							 * should skip the vars already taken care of by
+							 * the above call to set_remote_returning_refs
+							 */
+							resultrel = rq->scan.scanrelid;
+						}
+#endif
 						rlist = set_returning_clause_references(root,
 																rlist,
 																subplan,
@@ -636,6 +686,16 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 					}
 					splan->returningLists = newRL;
 
+#ifdef PGXC
+					/*
+					 * In XC we do not need to set the target list as the
+					 * first RETURNING list from the finalized list because
+					 * it can contain vars referring to RTE_REMOTE_DUMMY.
+					 * We therefore create a list before fixing
+					 * remote returning references and use that here.
+					 */
+					splan->plan.targetlist = copyObject(firstRetList);
+#else
 					/*
 					 * Set up the visible plan targetlist as being the same as
 					 * the first RETURNING list. This is for the use of
@@ -645,6 +705,7 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 					 * twice on identical targetlists.
 					 */
 					splan->plan.targetlist = copyObject(linitial(newRL));
+#endif
 				}
 
 				foreach(l, splan->resultRelations)
@@ -675,6 +736,34 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 				root->glob->resultRelations =
 					list_concat(root->glob->resultRelations,
 								list_copy(splan->resultRelations));
+
+#ifdef PGXC
+				/* Adjust references of remote query nodes in ModifyTable node */
+				if(IS_PGXC_COORDINATOR && !IsConnFromCoord())
+				{
+					ListCell *elt;
+					RemoteQuery *rq;
+
+					foreach(elt, splan->remote_plans)
+					{
+						rq = (RemoteQuery *) lfirst(elt);
+						/*
+						 * If base_tlist is set, it means that we have a reduced remote
+						 * query plan. So need to set the var references accordingly.
+						 */
+						if (rq->base_tlist)
+							set_remote_references(root, rq, rtoffset);
+						rq->scan.plan.targetlist = fix_scan_list(root,
+													rq->scan.plan.targetlist,
+													rtoffset);
+						rq->scan.plan.qual = fix_scan_list(root,
+															rq->scan.plan.qual,
+															rtoffset);
+						rq->base_tlist = fix_scan_list(root, rq->base_tlist, rtoffset);
+						rq->scan.scanrelid += rtoffset;
+					}
+				}
+#endif
 			}
 			break;
 		case T_Append:
@@ -2026,6 +2115,9 @@ extract_query_dependencies_walker(Node *node, PlannerInfo *context)
  * 'clauses' is the targetlist or list of clauses
  * 'base_itlist' is the indexed target list of the base referenced relations
  *
+ * 'return_non_base_vars' lets the caller decide whether to reject
+ * or return vars not found in base_itlist
+ *
  * Returns the new expression tree.  The original clause structure is
  * not modified.
  */
@@ -2034,7 +2126,8 @@ fix_remote_expr(PlannerInfo *root,
 			  List *clauses,
 			  indexed_tlist *base_itlist,
 			  Index	newrelid,
-			  int rtoffset)
+			  int rtoffset,
+			  bool return_non_base_vars)
 {
 	fix_remote_expr_context context;
 
@@ -2042,6 +2135,7 @@ fix_remote_expr(PlannerInfo *root,
 	context.base_itlist = base_itlist;
 	context.relid		= newrelid;
 	context.rtoffset	= rtoffset;
+	context.return_non_base_vars = return_non_base_vars;
 
 	return (List *) fix_remote_expr_mutator((Node *) clauses, &context);
 }
@@ -2065,6 +2159,10 @@ fix_remote_expr_mutator(Node *node, fix_remote_expr_context *context)
 											  context->rtoffset);
 		if (newvar)
 			return (Node *) newvar;
+
+		/* If it's not found in base_itlist, return it if required */
+		if (context->return_non_base_vars && var->varno != context->relid)
+			return (Node *) var;
 
 		/* No reference found for Var */
 		elog(ERROR, "variable not found in base remote scan target lists");
@@ -2106,15 +2204,48 @@ set_remote_references(PlannerInfo *root, RemoteQuery *rscan, int rtoffset)
 										  rscan->scan.plan.targetlist,
 										  base_itlist,
 										  rscan->scan.scanrelid,
-										  rtoffset);
+										  rtoffset,
+										  false);
 
 	rscan->scan.plan.qual = fix_remote_expr(root      ,
 										  rscan->scan.plan.qual,
 										  base_itlist,
 										  rscan->scan.scanrelid,
-										  rtoffset);
+										  rtoffset,
+										  false);
 
 	pfree(base_itlist);
+}
+
+/*
+ * set_remote_returning_refs
+ *
+ * Fix references of remote returning list to point
+ * to reference target list values from the base
+ * relation target lists
+ */
+
+static List *
+set_remote_returning_refs(PlannerInfo *root,
+				List *rlist,
+				Plan *topplan,
+				Index relid,
+				int rtoffset)
+{
+	indexed_tlist	*base_itlist;
+
+	base_itlist = build_tlist_index(topplan->targetlist);
+
+	rlist = fix_remote_expr(root,
+				rlist,
+				base_itlist,
+				relid,
+				rtoffset,
+				true);
+
+	pfree(base_itlist);
+
+	return rlist;
 }
 
 #ifdef PGXC

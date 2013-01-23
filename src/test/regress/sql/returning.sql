@@ -15,7 +15,11 @@ INSERT INTO foo (f2,f3)
 
 SELECT * FROM foo ORDER BY f1;
 
-UPDATE foo SET f2 = lower(f2), f3 = DEFAULT RETURNING foo.*, f1+f3 AS sum13;
+with t as
+(
+UPDATE foo SET f2 = lower(f2), f3 = DEFAULT RETURNING foo.*, f1+f3 AS sum13
+)
+select * from t order by 1,2,3;
 
 SELECT * FROM foo ORDER BY f1;
 
@@ -29,15 +33,23 @@ INSERT INTO foo SELECT f1+10, f2, f3+99 FROM foo
   RETURNING *, f1+112 IN (SELECT q1 FROM int8_tbl) AS subplan,
     EXISTS(SELECT * FROM int4_tbl) AS initplan;
 
+with t as
+(
 UPDATE foo SET f3 = f3 * 2
   WHERE f1 > 10
   RETURNING *, f1+112 IN (SELECT q1 FROM int8_tbl) AS subplan,
-    EXISTS(SELECT * FROM int4_tbl) AS initplan;
+    EXISTS(SELECT * FROM int4_tbl) AS initplan
+)
+select * from t order by 1,2,3,4;
 
+with t as
+(
 DELETE FROM foo
   WHERE f1 > 10
   RETURNING *, f1+112 IN (SELECT q1 FROM int8_tbl) AS subplan,
-    EXISTS(SELECT * FROM int4_tbl) AS initplan;
+    EXISTS(SELECT * FROM int4_tbl) AS initplan
+)
+select * from t order by 1,2,3,4;
 
 -- Joins
 

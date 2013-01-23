@@ -352,7 +352,7 @@ WITH t AS (
 	SELECT a FROM y
 )
 INSERT INTO y
-SELECT a+20 FROM t RETURNING *;
+SELECT a+20 FROM t order by 1 RETURNING *;
 
 SELECT * FROM y order by 1;
 
@@ -562,7 +562,7 @@ WITH t AS (
         (20)
     RETURNING *
 )
-SELECT * FROM t;
+SELECT * FROM t order by 1;
 
 SELECT * FROM y order by 1;
 
@@ -572,7 +572,7 @@ WITH t AS (
     SET a=a+1
     RETURNING *
 )
-SELECT * FROM t;
+SELECT * FROM t order by 1;
 
 SELECT * FROM y order by 1;
 
@@ -582,7 +582,7 @@ WITH t AS (
     WHERE a <= 10
     RETURNING *
 )
-SELECT * FROM t;
+SELECT * FROM t order by 1;
 
 SELECT * FROM y order by 1;
 
@@ -596,7 +596,7 @@ WITH RECURSIVE t AS (
 )
 SELECT * FROM t
 UNION ALL
-SELECT * FROM t2;
+SELECT * FROM t2 order by 1;
 
 SELECT * FROM y order by 1;
 
@@ -634,7 +634,7 @@ WITH t1 AS ( DELETE FROM bug6051 RETURNING * )
 INSERT INTO bug6051 SELECT * FROM t1;
 
 SELECT * FROM bug6051 ORDER BY 1;
-SELECT * FROM bug6051_2;
+SELECT * FROM bug6051_2 ORDER BY 1;
 
 -- a truly recursive CTE in the same list
 WITH RECURSIVE t(a) AS (
@@ -655,7 +655,7 @@ WITH t AS (
     WHERE a <= 10
     RETURNING *
 )
-INSERT INTO y SELECT -a FROM t RETURNING *;
+INSERT INTO y SELECT -a FROM t ORDER BY 1 RETURNING *;
 
 SELECT * FROM y order by 1;
 
@@ -663,7 +663,7 @@ SELECT * FROM y order by 1;
 WITH t AS (
     UPDATE y SET a = a * 100 RETURNING *
 )
-SELECT * FROM t LIMIT 10;
+SELECT * FROM t ORDER BY 1 LIMIT 10;
 
 SELECT * FROM y order by 1;
 
@@ -681,7 +681,7 @@ WITH RECURSIVE t1 AS (
 SELECT 1;
 
 SELECT * FROM y order by 1;
-SELECT * FROM yy;
+SELECT * FROM yy order by 1;
 
 WITH RECURSIVE t1 AS (
   INSERT INTO yy SELECT * FROM t2 RETURNING *

@@ -17,6 +17,10 @@
 #include "access/sysattr.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
+#include "catalog/pg_inherits.h"
+#include "catalog/pg_inherits_fn.h"
+#include "catalog/indexing.h"
+#include "catalog/pgxc_node.h"
 #include "commands/prepare.h"
 #include "commands/tablecmds.h"
 #include "executor/executor.h"
@@ -37,12 +41,16 @@
 #include "parser/parsetree.h"
 #include "parser/parse_func.h"
 #include "pgxc/pgxc.h"
+#include "pgxc/pgxcnode.h"
+#include "pgxc/execRemote.h"
 #include "rewrite/rewriteManip.h"
 #include "utils/builtins.h"
 #include "utils/rel.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/syscache.h"
+#include "utils/fmgroids.h"
+#include "utils/tqual.h"
 
 static void validate_part_col_updatable(const Query *query);
 static bool contains_temp_tables(List *rtable);
@@ -78,6 +86,9 @@ static List *pgxc_add_to_flat_tlist(List *remote_tlist, Node *expr,
 static void pgxc_rqplan_adjust_vars(RemoteQuery *rqplan, Node *node);
 
 static CombineType get_plan_combine_type(CmdType commandType, char baselocatortype);
+
+static void pgxc_add_returning_clause(RemoteQuery *rq, Query *parse,
+								List *ret_list,StringInfo buf, int rel_index);
 
 /*
  * pgxc_separate_quals
@@ -736,6 +747,78 @@ make_remotequery(List *qptlist, List *qpqual, Index scanrelid)
 	return node;
 }
 
+/*
+ * pgxc_add_returning_clause
+ *
+ * This function adds RETURNING clause to the passed remote query node
+ * It first pulls all vars from the returning list.
+ * It then iterates over all the vars and picks all belonging
+ * to the remote relation. The refined vars list is then copied in plan target
+ * list as well as base_tlist of remote query.
+ * The vars list is then de-parsed and the returning string is appended to
+ * the query buffer.
+ *
+ * Parameters:
+ * rq             : The remote query node to whom the returning
+ *                  list is to be added
+ * parse          : The query tree
+ * ret_list       : The returning list
+ * buf            : The query buffer in which the sql statement to be
+ *                  sent to the datanode is being prepared
+ * rel_index      : The index of the concerned relation in RTE list
+ */
+static void
+pgxc_add_returning_clause(RemoteQuery *rq, Query *parse, List *ret_list,
+							StringInfo buf, int rel_index)
+{
+	List		*shipableReturningList = NULL;
+	StringInfo	tlbuf;
+	List		*varlist;
+	ListCell	*lc;
+
+	/* Do we have to add a returning clause or not? */
+	if (ret_list == NULL)
+		return;
+
+	tlbuf = makeStringInfo();
+	/*
+	 * Returning lists cannot contain aggregates and
+	 * we are not supporting place holders for now
+	 */
+	varlist = pull_var_clause((Node *)ret_list, PVC_REJECT_AGGREGATES,
+								PVC_REJECT_PLACEHOLDERS);
+
+	/*
+	 * For every entry in the returning list if the entry belongs to the
+	 * same table as the one whose index is passed then add it to the
+	 * shippable returning list
+	 */
+	foreach (lc, varlist)
+	{
+		Var *var = lfirst(lc);
+
+		if (var->varno == rel_index)
+			shipableReturningList = add_to_flat_tlist(shipableReturningList,
+														list_make1(var));
+	}
+
+	/*
+	 * Copy the refined var list in plan target list as well as
+	 * base_tlist of the remote query node
+	 */
+	rq->scan.plan.targetlist = list_copy(shipableReturningList);
+	rq->base_tlist = list_copy(shipableReturningList);
+
+	deparse_targetlist(parse, shipableReturningList, tlbuf);
+
+	if (tlbuf->len > 0)
+	{
+		appendStringInfoString(buf, " RETURNING ");
+		appendStringInfoString(buf, tlbuf->data);
+	}
+	pfree(tlbuf);
+}
+
 Plan *
 pgxc_make_modifytable(PlannerInfo *root, Plan *topplan)
 {
@@ -783,6 +866,7 @@ create_remoteinsert_plan(PlannerInfo *root, Plan *topplan)
 {
 	ModifyTable *mt = (ModifyTable *)topplan;
 	ListCell	   *l;
+	int		relcount = 0;
 
 	/* We expect to work only on ModifyTable node */
 	if (!IsA(topplan, ModifyTable))
@@ -804,6 +888,8 @@ create_remoteinsert_plan(PlannerInfo *root, Plan *topplan)
 		Oid 		   *att_types;
 		char		   *relname;
 		bool			first_att_printed = false;
+		Query			*parse = root->parse;
+		RangeTblEntry	*dummy_rte;	/* RTE for the remote query node being added. */
 
 		ttab = rt_fetch(resultRelationIndex, root->parse->rtable);
 
@@ -896,6 +982,11 @@ create_remoteinsert_plan(PlannerInfo *root, Plan *topplan)
 		/* Gather the two strings */
 		appendStringInfo(buf, ") VALUES (%s)", buf2->data);
 
+		if (mt->returningLists)
+			pgxc_add_returning_clause(fstep, parse,
+									list_nth(mt->returningLists, relcount),
+									buf, resultRelationIndex);
+
 		fstep->sql_statement = pstrdup(buf->data);
 
 		/* Processed rows are counted by the main planner */
@@ -912,6 +1003,10 @@ create_remoteinsert_plan(PlannerInfo *root, Plan *topplan)
 
 		SetRemoteStatementName((Plan *) fstep, NULL, natts, att_types, 0);
 
+		dummy_rte = make_dummy_remote_rte(relname, makeAlias("REMOTE_DML_QUERY", NIL));
+		root->parse->rtable = lappend(root->parse->rtable, dummy_rte);
+		fstep->scan.scanrelid = list_length(root->parse->rtable);
+
 		/* Free everything */
 		pfree(buf->data);
 		pfree(buf);
@@ -919,6 +1014,8 @@ create_remoteinsert_plan(PlannerInfo *root, Plan *topplan)
 		pfree(buf2);
 
 		mt->remote_plans = lappend(mt->remote_plans, fstep);
+
+		relcount++;
 	}
 
 	return (Plan *)mt;
@@ -972,6 +1069,7 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 		int		i;
 		List		*sourceTargetList = NULL;
 		Plan		*sourceDataPlan;	/* plan producing source data */
+		RangeTblEntry	*dummy_rte;		/* RTE for the remote query node being added. */
 
 		/*
 		 * Get the plan that corresponds to this relation
@@ -1120,9 +1218,19 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 
 		/* Finally build the final UPDATE step */
 		fstep = make_remotequery(NIL, NIL, resultRelationIndex);
+
+		if (mt->returningLists)
+			pgxc_add_returning_clause(fstep, parse,
+									list_nth(mt->returningLists, relcount),
+									buf, resultRelationIndex);
+
 		fstep->is_temp = IsTempTable(ttab->relid);
 		fstep->sql_statement = pstrdup(buf->data);
 		fstep->combine_type = get_plan_combine_type(CMD_UPDATE, rel_loc_info->locatorType);
+
+		dummy_rte = make_dummy_remote_rte(relname, makeAlias("REMOTE_DML_QUERY", NIL));
+		root->parse->rtable = lappend(root->parse->rtable, dummy_rte);
+		fstep->scan.scanrelid = list_length(root->parse->rtable);
 
 		fstep->read_only = false;
 		/*
@@ -1190,6 +1298,7 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		List		*sourceTargetList = NULL;
 		Plan		*sourceDataPlan;	/* plan producing source data */
 		int 		i;
+		RangeTblEntry	*dummy_rte;		/* RTE for the remote query node being added. */
 
 		/*
 		 * Get the plan that corresponds to this relation
@@ -1292,6 +1401,12 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 
 		/* Finish by building the plan step */
 		fstep = make_remotequery(NIL, NIL, resultRelationIndex);
+
+		if (mt->returningLists)
+			pgxc_add_returning_clause(fstep, parse,
+									list_nth(mt->returningLists, relcount),
+									buf, resultRelationIndex);
+
 		fstep->is_temp = IsTempTable(ttab->relid);
 		fstep->sql_statement = pstrdup(buf->data);
 		fstep->combine_type = get_plan_combine_type(CMD_DELETE, rel_loc_info->locatorType);
@@ -1308,6 +1423,11 @@ create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
 		fstep->exec_nodes->en_relid = ttab->relid;
 		fstep->exec_nodes->nodeList = rel_loc_info->nodeList;
 		fstep->exec_nodes->accesstype = RELATION_ACCESS_UPDATE;
+
+		dummy_rte = make_dummy_remote_rte(relname, makeAlias("REMOTE_DML_QUERY", NIL));
+		root->parse->rtable = lappend(root->parse->rtable, dummy_rte);
+		fstep->scan.scanrelid = list_length(root->parse->rtable);
+
 		SetRemoteStatementName((Plan *) fstep, NULL, tot_prepparams, param_types, 0);
 		pfree(buf->data);
 		pfree(buf);
@@ -2312,11 +2432,6 @@ pgxc_handle_unsupported_stmts(Query *query)
 	 */
 	if (query->commandType == CMD_UPDATE)
 		validate_part_col_updatable(query);
-
-	if (query->returningList)
-		ereport(ERROR,
-				(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-				 (errmsg("RETURNING clause not yet supported"))));
 }
 
 /*

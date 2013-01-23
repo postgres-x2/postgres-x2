@@ -152,3 +152,4 @@ test: xc_prepared_xacts
 test: xc_notrans_block
 test: xc_limit
 test: xc_sort
+test: xc_returning

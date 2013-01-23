@@ -749,8 +749,21 @@ WITH t AS (
 	SELECT a FROM y
 )
 INSERT INTO y
-SELECT a+20 FROM t RETURNING *;
-ERROR:  RETURNING clause not yet supported
+SELECT a+20 FROM t order by 1 RETURNING *;
+ a  
+----
+ 21
+ 22
+ 23
+ 24
+ 25
+ 26
+ 27
+ 28
+ 29
+ 30
+(10 rows)
+
 SELECT * FROM y order by 1;
  a  
 ----
@@ -764,7 +777,17 @@ SELECT * FROM y order by 1;
   8
   9
  10
-(10 rows)
+ 21
+ 22
+ 23
+ 24
+ 25
+ 26
+ 27
+ 28
+ 29
+ 30
+(20 rows)
 
 WITH t AS (
 	SELECT a FROM y
@@ -784,7 +807,17 @@ SELECT * FROM y order by 1;
   8
   9
  10
-(10 rows)
+ 21
+ 22
+ 23
+ 24
+ 25
+ 26
+ 27
+ 28
+ 29
+ 30
+(20 rows)
 
 WITH RECURSIVE t(a) AS (
 	SELECT 11
@@ -792,7 +825,7 @@ WITH RECURSIVE t(a) AS (
 	SELECT a+1 FROM t WHERE a < 50
 )
 DELETE FROM y USING t WHERE t.a = y.a RETURNING y.a;
-ERROR:  RETURNING clause not yet supported
+ERROR:  input of anonymous composite types is not implemented
 SELECT * FROM y order by 1;
  a  
 ----
@@ -806,7 +839,17 @@ SELECT * FROM y order by 1;
   8
   9
  10
-(10 rows)
+ 21
+ 22
+ 23
+ 24
+ 25
+ 26
+ 27
+ 28
+ 29
+ 30
+(20 rows)
 
 DROP TABLE y;
 --
@@ -1122,8 +1165,21 @@ WITH t AS (
         (20)
     RETURNING *
 )
-SELECT * FROM t;
-ERROR:  RETURNING clause not yet supported
+SELECT * FROM t order by 1;
+ a  
+----
+ 11
+ 12
+ 13
+ 14
+ 15
+ 16
+ 17
+ 18
+ 19
+ 20
+(10 rows)
+
 SELECT * FROM y order by 1;
  a  
 ----
@@ -1137,7 +1193,17 @@ SELECT * FROM y order by 1;
   8
   9
  10
-(10 rows)
+ 11
+ 12
+ 13
+ 14
+ 15
+ 16
+ 17
+ 18
+ 19
+ 20
+(20 rows)
 
 -- UPDATE ... RETURNING
 WITH t AS (
@@ -1145,22 +1211,41 @@ WITH t AS (
     SET a=a+1
     RETURNING *
 )
-SELECT * FROM t;
-ERROR:  RETURNING clause not yet supported
+SELECT * FROM t order by 1;
+ a  
+----
+  2
+  4
+  6
+  9
+ 11
+ 13
+(6 rows)
+
 SELECT * FROM y order by 1;
  a  
 ----
-  1
   2
-  3
+  2
   4
-  5
+  4
+  6
   6
   7
-  8
   9
- 10
-(10 rows)
+  9
+ 11
+ 11
+ 13
+ 13
+ 14
+ 15
+ 16
+ 17
+ 18
+ 19
+ 20
+(20 rows)
 
 -- DELETE ... RETURNING
 WITH t AS (
@@ -1168,22 +1253,35 @@ WITH t AS (
     WHERE a <= 10
     RETURNING *
 )
-SELECT * FROM t;
-ERROR:  RETURNING clause not yet supported
+SELECT * FROM t order by 1;
+ a 
+---
+ 2
+ 2
+ 4
+ 4
+ 6
+ 6
+ 7
+ 9
+ 9
+(9 rows)
+
 SELECT * FROM y order by 1;
  a  
 ----
-  1
-  2
-  3
-  4
-  5
-  6
-  7
-  8
-  9
- 10
-(10 rows)
+ 11
+ 11
+ 13
+ 13
+ 14
+ 15
+ 16
+ 17
+ 18
+ 19
+ 20
+(11 rows)
 
 -- forward reference
 WITH RECURSIVE t AS (
@@ -1195,22 +1293,40 @@ WITH RECURSIVE t AS (
 )
 SELECT * FROM t
 UNION ALL
-SELECT * FROM t2;
-ERROR:  RETURNING clause not yet supported
-SELECT * FROM y order by 1;
+SELECT * FROM t2 order by 1;
  a  
 ----
-  1
+  0
+  0
+  2
   2
   3
-  4
-  5
   6
   7
   8
-  9
- 10
-(10 rows)
+ 11
+ 12
+ 13
+(11 rows)
+
+SELECT * FROM y order by 1;
+ a  
+----
+  0
+  0
+  2
+  2
+  3
+  6
+  7
+  8
+ 11
+ 12
+ 13
+ 15
+ 16
+ 20
+(14 rows)
 
 -- unconditional DO INSTEAD rule
 CREATE RULE y_rule AS ON DELETE TO y DO INSTEAD
@@ -1219,21 +1335,30 @@ WITH t AS (
 	DELETE FROM y RETURNING *
 )
 SELECT * FROM t;
-ERROR:  RETURNING clause not yet supported
+ a  
+----
+ 42
+(1 row)
+
 SELECT * FROM y order by 1;
  a  
 ----
-  1
+  0
+  0
+  2
   2
   3
-  4
-  5
   6
   7
   8
-  9
- 10
-(10 rows)
+ 11
+ 12
+ 13
+ 15
+ 16
+ 20
+ 42
+(15 rows)
 
 DROP RULE y_rule ON y;
 -- check merging of outer CTE with CTE in a rule action
@@ -1249,7 +1374,6 @@ SELECT * FROM bug6051 ORDER BY 1;
 
 WITH t1 AS ( DELETE FROM bug6051 RETURNING * )
 INSERT INTO bug6051 SELECT * FROM t1;
-ERROR:  RETURNING clause not yet supported
 SELECT * FROM bug6051 ORDER BY 1;
  i 
 ---
@@ -1264,19 +1388,18 @@ CREATE RULE bug6051_ins AS ON INSERT TO bug6051 DO INSTEAD
  SELECT NEW.i;
 WITH t1 AS ( DELETE FROM bug6051 RETURNING * )
 INSERT INTO bug6051 SELECT * FROM t1;
-ERROR:  RETURNING clause not yet supported
 SELECT * FROM bug6051 ORDER BY 1;
+ i 
+---
+(0 rows)
+
+SELECT * FROM bug6051_2 ORDER BY 1;
  i 
 ---
  1
  2
  3
 (3 rows)
-
-SELECT * FROM bug6051_2;
- i 
----
-(0 rows)
 
 -- a truly recursive CTE in the same list
 WITH RECURSIVE t(a) AS (
@@ -1288,21 +1411,39 @@ WITH RECURSIVE t(a) AS (
 		SELECT * FROM t RETURNING *
 )
 SELECT * FROM t2 JOIN y USING (a) ORDER BY a;
-ERROR:  RETURNING clause not yet supported
+ a 
+---
+ 0
+ 0
+ 2
+ 2
+ 3
+(5 rows)
+
 SELECT * FROM y order by 1;
  a  
 ----
+  0
+  0
+  0
   1
   2
+  2
+  2
+  3
   3
   4
-  5
   6
   7
   8
-  9
- 10
-(10 rows)
+ 11
+ 12
+ 13
+ 15
+ 16
+ 20
+ 42
+(20 rows)
 
 -- data-modifying WITH in a modifying statement
 WITH t AS (
@@ -1310,43 +1451,90 @@ WITH t AS (
     WHERE a <= 10
     RETURNING *
 )
-INSERT INTO y SELECT -a FROM t RETURNING *;
-ERROR:  RETURNING clause not yet supported
+INSERT INTO y SELECT -a FROM t ORDER BY 1 RETURNING *;
+ a  
+----
+ -8
+ -7
+ -6
+ -4
+ -3
+ -3
+ -2
+ -2
+ -2
+ -1
+  0
+  0
+  0
+(13 rows)
+
 SELECT * FROM y order by 1;
  a  
 ----
-  1
-  2
-  3
-  4
-  5
-  6
-  7
-  8
-  9
- 10
-(10 rows)
+ -8
+ -7
+ -6
+ -4
+ -3
+ -3
+ -2
+ -2
+ -2
+ -1
+  0
+  0
+  0
+ 11
+ 12
+ 13
+ 15
+ 16
+ 20
+ 42
+(20 rows)
 
 -- check that WITH query is run to completion even if outer query isn't
 WITH t AS (
     UPDATE y SET a = a * 100 RETURNING *
 )
-SELECT * FROM t LIMIT 10;
-ERROR:  RETURNING clause not yet supported
+SELECT * FROM t ORDER BY 1 LIMIT 10;
+  a   
+------
+ -700
+ -600
+ -400
+ -300
+ -300
+    0
+    0
+    0
+(8 rows)
+
 SELECT * FROM y order by 1;
- a  
-----
-  1
-  2
-  3
-  4
-  5
-  6
-  7
-  8
-  9
- 10
-(10 rows)
+  a   
+------
+ -700
+ -600
+ -400
+ -300
+ -300
+   -8
+   -2
+   -2
+   -2
+   -1
+    0
+    0
+    0
+   11
+   12
+   13
+   15
+   16
+   20
+   42
+(20 rows)
 
 -- check that run to completion happens in proper ordering
 TRUNCATE TABLE y;
@@ -1358,19 +1546,29 @@ WITH RECURSIVE t1 AS (
   INSERT INTO yy SELECT * FROM t1 RETURNING *
 )
 SELECT 1;
-ERROR:  RETURNING clause not yet supported
+ ?column? 
+----------
+        1
+(1 row)
+
 SELECT * FROM y order by 1;
+ a 
+---
+ 1
+ 1
+ 2
+ 2
+ 3
+ 3
+(6 rows)
+
+SELECT * FROM yy order by 1;
  a 
 ---
  1
  2
  3
 (3 rows)
-
-SELECT * FROM yy;
- a 
----
-(0 rows)
 
 WITH RECURSIVE t1 AS (
   INSERT INTO yy SELECT * FROM t2 RETURNING *
@@ -1378,19 +1576,41 @@ WITH RECURSIVE t1 AS (
   INSERT INTO y SELECT * FROM y RETURNING *
 )
 SELECT 1;
-ERROR:  RETURNING clause not yet supported
+ ?column? 
+----------
+        1
+(1 row)
+
 SELECT * FROM y order by 1;
  a 
 ---
  1
+ 1
+ 1
+ 1
+ 2
+ 2
+ 2
  2
  3
-(3 rows)
+ 3
+ 3
+ 3
+(12 rows)
 
 SELECT * FROM yy order by 1;
  a 
 ---
-(0 rows)
+ 1
+ 1
+ 1
+ 2
+ 2
+ 2
+ 3
+ 3
+ 3
+(9 rows)
 
 -- triggers
 TRUNCATE TABLE y;
@@ -1414,7 +1634,13 @@ WITH t AS (
     RETURNING *
 )
 SELECT * FROM t;
-ERROR:  RETURNING clause not yet supported
+ a  
+----
+ 21
+ 22
+ 23
+(3 rows)
+
 SELECT * FROM y order by 1;
  a  
 ----
@@ -1428,7 +1654,10 @@ SELECT * FROM y order by 1;
   8
   9
  10
-(10 rows)
+ 21
+ 22
+ 23
+(13 rows)
 
 DROP TRIGGER y_trig ON y;
 ERROR:  trigger "y_trig" for table "y" does not exist
@@ -1445,7 +1674,11 @@ WITH t AS (
     RETURNING *
 )
 SELECT * FROM t LIMIT 1;
-ERROR:  RETURNING clause not yet supported
+ a  
+----
+ 31
+(1 row)
+
 SELECT * FROM y order by 1;
  a  
 ----
@@ -1459,7 +1692,13 @@ SELECT * FROM y order by 1;
   8
   9
  10
-(10 rows)
+ 21
+ 22
+ 23
+ 31
+ 32
+ 33
+(16 rows)
 
 DROP TRIGGER y_trig ON y;
 ERROR:  trigger "y_trig" for table "y" does not exist
@@ -1480,7 +1719,14 @@ WITH t AS (
     RETURNING *
 )
 SELECT * FROM t;
-ERROR:  RETURNING clause not yet supported
+NOTICE:  y_trigger
+ a  
+----
+ 41
+ 42
+ 43
+(3 rows)
+
 SELECT * FROM y order by 1;
  a  
 ----
@@ -1494,7 +1740,16 @@ SELECT * FROM y order by 1;
   8
   9
  10
-(10 rows)
+ 21
+ 22
+ 23
+ 31
+ 32
+ 33
+ 41
+ 42
+ 43
+(19 rows)
 
 DROP TRIGGER y_trig ON y;
 DROP FUNCTION y_trigger();
@@ -1520,7 +1775,7 @@ SELECT * FROM parent ORDER BY id;
 
 WITH wcte AS ( INSERT INTO child1 VALUES ( 42, 'new' ) RETURNING id AS newid )
 UPDATE parent SET id = id + newid FROM wcte;
-ERROR:  RETURNING clause not yet supported
+ERROR:  Partition column can't be updated in current version
 SELECT * FROM parent ORDER BY id;
  id | val 
 ----+-----
@@ -1546,7 +1801,7 @@ SELECT * FROM parent ORDER BY id;
 
 WITH wcte AS ( INSERT INTO child2 VALUES ( 42, 'new2' ) RETURNING id AS newid )
 DELETE FROM parent USING wcte WHERE id = newid;
-ERROR:  RETURNING clause not yet supported
+ERROR:  input of anonymous composite types is not implemented
 SELECT * FROM parent ORDER BY id;
  id | val 
 ----+-----
@@ -1561,7 +1816,62 @@ SELECT * FROM parent ORDER BY id;
 EXPLAIN (VERBOSE, COSTS OFF, NODES OFF, NUM_NODES OFF)
 WITH wcte AS ( INSERT INTO int8_tbl VALUES ( 42, 47 ) RETURNING q2 )
 DELETE FROM a USING wcte WHERE aa = q2;
-ERROR:  RETURNING clause not yet supported
+                                         QUERY PLAN                                         
+--------------------------------------------------------------------------------------------
+ Delete on public.a
+   Remote query: DELETE FROM ONLY public.a WHERE ctid = $2 AND xc_node_id = $3 
+   Remote query: DELETE FROM ONLY public.b WHERE ctid = $2 AND xc_node_id = $3 
+   Remote query: DELETE FROM ONLY public.c WHERE ctid = $2 AND xc_node_id = $3 
+   Remote query: DELETE FROM ONLY public.d WHERE ctid = $2 AND xc_node_id = $3 
+   CTE wcte
+     ->  Insert on public.int8_tbl
+           Output: int8_tbl.q2
+           Node expr: public.a.aa
+           Remote query: INSERT INTO public.int8_tbl (q1, q2) VALUES ($1, $2) RETURNING  q2
+           ->  Result
+                 Output: 42::bigint, 47::bigint
+   ->  Hash Join
+         Output: public.a.aa, public.a.ctid, public.a.xc_node_id, wcte.*
+         Hash Cond: (public.a.aa = wcte.q2)
+         ->  Data Node Scan on a "_REMOTE_TABLE_QUERY_"
+               Output: public.a.aa, public.a.ctid, public.a.xc_node_id
+               Remote query: SELECT aa, ctid, xc_node_id FROM ONLY a WHERE true
+         ->  Hash
+               Output: wcte.*, wcte.q2
+               ->  CTE Scan on wcte
+                     Output: wcte.*, wcte.q2
+   ->  Hash Join
+         Output: public.a.aa, public.a.ctid, public.a.xc_node_id, wcte.*
+         Hash Cond: (public.a.aa = wcte.q2)
+         ->  Data Node Scan on b "_REMOTE_TABLE_QUERY_"
+               Output: public.a.aa, public.a.ctid, public.a.xc_node_id
+               Remote query: SELECT aa, ctid, xc_node_id FROM ONLY b a WHERE true
+         ->  Hash
+               Output: wcte.*, wcte.q2
+               ->  CTE Scan on wcte
+                     Output: wcte.*, wcte.q2
+   ->  Hash Join
+         Output: public.a.aa, public.a.ctid, public.a.xc_node_id, wcte.*
+         Hash Cond: (public.a.aa = wcte.q2)
+         ->  Data Node Scan on c "_REMOTE_TABLE_QUERY_"
+               Output: public.a.aa, public.a.ctid, public.a.xc_node_id
+               Remote query: SELECT aa, ctid, xc_node_id FROM ONLY c a WHERE true
+         ->  Hash
+               Output: wcte.*, wcte.q2
+               ->  CTE Scan on wcte
+                     Output: wcte.*, wcte.q2
+   ->  Hash Join
+         Output: public.a.aa, public.a.ctid, public.a.xc_node_id, wcte.*
+         Hash Cond: (public.a.aa = wcte.q2)
+         ->  Data Node Scan on d "_REMOTE_TABLE_QUERY_"
+               Output: public.a.aa, public.a.ctid, public.a.xc_node_id
+               Remote query: SELECT aa, ctid, xc_node_id FROM ONLY d a WHERE true
+         ->  Hash
+               Output: wcte.*, wcte.q2
+               ->  CTE Scan on wcte
+                     Output: wcte.*, wcte.q2
+(52 rows)
+
 -- error cases
 -- data-modifying WITH tries to use its own output
 WITH RECURSIVE t AS (

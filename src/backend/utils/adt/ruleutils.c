@@ -2810,6 +2810,39 @@ deparse_query(Query *query, StringInfo buf, List *parentnamespace,
 	get_query_def(query, buf, parentnamespace, NULL, 0, 0, finalise_aggs,
 					sortgroup_colno);
 }
+
+/*
+ * deparse_targetlist
+ *
+ * This function deparses the passed targetList into the passed buffer.
+ * PGXCTODO
+ * This function will be used untill we start using
+ * Query structure in DML planning
+ */
+
+void
+deparse_targetlist(Query *query, List *targetList, StringInfo buf)
+{
+	deparse_context context;
+	deparse_namespace dpns;
+
+	context.buf = buf;
+	context.windowClause = NIL;
+	context.windowTList = NIL;
+	context.varprefix = 0;
+	context.prettyFlags = 0;
+	context.indentLevel = 0;
+
+	context.namespaces = lcons(&dpns, list_copy(NULL));
+
+	memset(&dpns, 0, sizeof(dpns));
+	dpns.rtable = query->rtable;
+	dpns.ctes = query->cteList;
+	dpns.remotequery = false;
+
+	get_target_list(targetList, &context, NULL);
+}
+
 #endif
 /* ----------
  * get_query_def			- Parse back one query parsetree

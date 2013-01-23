@@ -244,8 +244,7 @@ ExecInsert(TupleTableSlot *slot,
 #ifdef PGXC
 		if (IS_PGXC_COORDINATOR && resultRemoteRel)
 		{
-			ExecRemoteQueryStandard(resultRelationDesc, (RemoteQueryState *)resultRemoteRel, slot);
-
+			slot = ExecProcNodeDMLInXC((RemoteQueryState *)resultRemoteRel, slot);
 			/*
 			 * PGXCTODO: If target table uses WITH OIDS, this should be set to the Oid inserted
 			 * but Oids are not consistent among nodes in Postgres-XC, so this is set to the
@@ -277,6 +276,55 @@ ExecInsert(TupleTableSlot *slot,
 
 	if (canSetTag)
 	{
+#ifdef PGXC
+		if (IS_PGXC_COORDINATOR && resultRelInfo->ri_projectReturning)
+		{
+			/*
+			 * Consider this example
+			 *
+			 * CREATE TABLE bar(c3 int, c4 int);
+			 * INSERT INTO bar VALUES(123,456);
+			 * INSERT INTO bar VALUES(123,789);
+			 *
+			 * CREATE TABLE foo (c1 int, c2 int);
+			 * INSERT INTO foo VALUES (1,2), (3,4);
+			 * Consider this join query
+			 *   select f.ctid, b.ctid, * from foo f, bar b where f.c1+122=b.c3;
+			 * Note it returned TWO rows
+			 *   ctid  | ctid  | c1 | c2 | c3  | c4
+			 *  -------+-------+----+----+-----+-----
+			 *   (0,1) | (0,1) |  1 |  2 | 123 | 456
+			 *   (0,1) | (0,2) |  1 |  2 | 123 | 789
+			 *   (2 rows)
+			 *
+			 * Now consider the update with the same join condition
+			 *
+			 * update foo set c2=c2*2 from bar b
+			 * WHERE foo.c1+122 = b.c3 RETURNING *, foo.ctid;
+			 *
+			 * The update would run twice since we got two rows from the join.
+			 * When the first update runs it will change the ctid of the row
+			 * to be updated and would return the updated row with ctid say (0,3).
+			 * The second update would not update any row since the row with
+			 * ctid (0,1) would no more exist in foo, it would therefore return
+			 * an empty slot.
+			 *
+			 * update foo set c2=c2*2 from bar b
+			 * WHERE foo.c1+122 = b.c3  RETURNING *, foo.ctid;
+			 *  f1 |  f2  | f3 | q1  |        q2        | ctid
+			 * ----+------+----+-----+------------------+-------
+			 *   1 | test | 84 | 123 | 4567890123456789 | (0,3)
+			 * (1 row)
+			 *
+			 * It is therefore possible in ExecInsert/Update/Delete
+			 * to receive an empty slot, and we have to add checks
+			 * before we can update the processed tuple count.
+			 */
+			if (!TupIsNull(slot))
+				(estate->es_processed)++;
+		}
+		else
+#endif
 		(estate->es_processed)++;
 		estate->es_lastoid = newId;
 		setLastTid(&(tuple->t_self));
@@ -289,8 +337,16 @@ ExecInsert(TupleTableSlot *slot,
 
 	/* Process RETURNING if present */
 	if (resultRelInfo->ri_projectReturning)
+#ifdef PGXC
+	{
+		if (TupIsNull(slot))
+			return NULL;
+#endif
 		return ExecProcessReturning(resultRelInfo->ri_projectReturning,
 									slot, planSlot);
+#ifdef PGXC
+	}
+#endif
 
 	return NULL;
 }
@@ -324,6 +380,7 @@ ExecDelete(ItemPointer tupleid,
 	TransactionId update_xmax;
 #ifdef PGXC
 	PlanState  *resultRemoteRel = NULL;
+	TupleTableSlot *slot;
 #endif
 
 	/*
@@ -384,7 +441,7 @@ ldelete:;
 #ifdef PGXC
 		if (IS_PGXC_COORDINATOR && resultRemoteRel)
 		{
-			ExecRemoteQueryStandard(resultRelationDesc, (RemoteQueryState *)resultRemoteRel, planSlot);
+			slot = ExecProcNodeDMLInXC((RemoteQueryState *)resultRemoteRel, planSlot);
 		}
 		else
 		{
@@ -447,7 +504,20 @@ ldelete:;
 	}
 
 	if (canSetTag)
+#ifdef PGXC
+	{
+		if (IS_PGXC_COORDINATOR && resultRelInfo->ri_projectReturning)
+		{
+			/* For reason see comments in ExecInsert */
+			if (!TupIsNull(slot))
+				(estate->es_processed)++;
+		}
+		else
+#endif
 		(estate->es_processed)++;
+#ifdef PGXC
+	}
+#endif
 
 #ifdef PGXC
 	/*
@@ -459,6 +529,18 @@ ldelete:;
 	ExecARDeleteTriggers(estate, resultRelInfo, tupleid);
 
 	/* Process RETURNING if present */
+#ifdef PGXC
+	if (resultRelInfo->ri_projectReturning && resultRemoteRel != NULL &&
+		IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	{
+		if (TupIsNull(slot))
+			return NULL;
+
+		return ExecProcessReturning(resultRelInfo->ri_projectReturning,
+						slot, planSlot);
+	}
+	else
+#endif
 	if (resultRelInfo->ri_projectReturning)
 	{
 		/*
@@ -621,7 +703,7 @@ lreplace:;
 #ifdef PGXC
 		if (IS_PGXC_COORDINATOR && resultRemoteRel)
 		{
-			ExecRemoteQueryStandard(resultRelationDesc, (RemoteQueryState *)resultRemoteRel, planSlot);
+			slot = ExecProcNodeDMLInXC((RemoteQueryState *)resultRemoteRel, planSlot);
 		}
 		else
 		{
@@ -705,7 +787,20 @@ lreplace:;
 	}
 
 	if (canSetTag)
+#ifdef PGXC
+	{
+		if (IS_PGXC_COORDINATOR && resultRelInfo->ri_projectReturning)
+		{
+			/* For reason see comments in ExecInsert */
+			if (!TupIsNull(slot))
+				(estate->es_processed)++;
+		}
+		else
+#endif
 		(estate->es_processed)++;
+#ifdef PGXC
+		}
+#endif
 
 #ifdef PGXC
 	/*
@@ -721,8 +816,16 @@ lreplace:;
 
 	/* Process RETURNING if present */
 	if (resultRelInfo->ri_projectReturning)
+#ifdef PGXC
+	{
+		if (TupIsNull(slot))
+			return NULL;
+#endif
 		return ExecProcessReturning(resultRelInfo->ri_projectReturning,
 									slot, planSlot);
+#ifdef PGXC
+	}
+#endif
 
 	return NULL;
 }
@@ -942,7 +1045,9 @@ ExecModifyTable(ModifyTableState *node)
 			if (operation != CMD_DELETE)
 				slot = ExecFilterJunk(junkfilter, slot);
 		}
-
+#ifdef PGXC
+		estate->es_result_remoterel = remoterelstate;
+#endif
 		switch (operation)
 		{
 			case CMD_INSERT:
@@ -968,6 +1073,9 @@ ExecModifyTable(ModifyTableState *node)
 		if (slot)
 		{
 			estate->es_result_relation_info = saved_resultRelInfo;
+#ifdef PGXC
+			estate->es_result_remoterel = saved_resultRemoteRel;
+#endif
 			return slot;
 		}
 	}
@@ -1004,6 +1112,9 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 	Plan	   *subplan;
 	ListCell   *l;
 	int			i;
+#ifdef PGXC
+	PlanState  *saved_remoteRelInfo;
+#endif
 
 	/* check for unsupported flags */
 	Assert(!(eflags & (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)));
@@ -1041,6 +1152,9 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 	 * sub-plan; ExecContextForcesOids depends on that!
 	 */
 	saved_resultRelInfo = estate->es_result_relation_info;
+#ifdef PGXC
+	saved_remoteRelInfo = estate->es_result_remoterel;
+#endif
 
 	resultRelInfo = mtstate->resultRelInfo;
 	i = 0;
@@ -1096,6 +1210,9 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 	}
 
 	estate->es_result_relation_info = saved_resultRelInfo;
+#ifdef PGXC
+	estate->es_result_remoterel = saved_remoteRelInfo;
+#endif
 
 	/*
 	 * Initialize RETURNING projections if needed.

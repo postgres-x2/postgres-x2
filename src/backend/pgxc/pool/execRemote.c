@@ -171,7 +171,7 @@ static void clear_RemoteXactState(void);
 static void pgxc_node_report_error(RemoteQueryState *combiner);
 static TupleTableSlot *getrow_for_tapesort(RemoteQueryState *combiner,
 											TupleTableSlot *scanslot);
-
+static bool IsReturningDMLOnReplicatedTable(RemoteQuery *rq);
 
 /*
  * Create a structure to store parameters needed to combine responses from
@@ -351,7 +351,7 @@ HandleCommandComplete(RemoteQueryState *combiner, char *msg_body, size_t len, PG
 				{
 					/*
 					 * For comments on why non_fqs_dml is required
-					 * see comments in ExecRemoteQueryStandard
+					 * see comments in ExecProcNodeDMLInXC
 					 */
 					if (rowcount != estate->es_processed && !combiner->non_fqs_dml)
 						/* There is a consistency issue in the database with the replicated table */
@@ -2785,6 +2785,12 @@ pgxc_start_command_on_connection(PGXCNodeHandle *connection,
 		/* need to use Extended Query Protocol */
 		int	fetch = 0;
 		bool	prepared = false;
+		bool	send_desc = false;
+
+		if (step->base_tlist != NULL ||
+		    step->exec_nodes->accesstype == RELATION_ACCESS_READ ||
+		    step->has_row_marks)
+			send_desc = true;
 
 		/* if prepared statement is referenced see if it is already exist */
 		if (step->statement)
@@ -2806,7 +2812,7 @@ pgxc_start_command_on_connection(PGXCNodeHandle *connection,
 							step->remote_param_types,
 							remotestate->paramval_len,
 							remotestate->paramval_data,
-							step->has_row_marks ? true : step->read_only,
+							send_desc,
 							fetch) != 0)
 			return false;
 	}
@@ -2816,6 +2822,31 @@ pgxc_start_command_on_connection(PGXCNodeHandle *connection,
 			return false;
 	}
 	return true;
+}
+
+
+/*
+ * IsReturningDMLOnReplicatedTable
+ *
+ * This function returns true if the passed RemoteQuery
+ * 1. Operates on a table that is replicated
+ * 2. Represents a DML
+ * 3. Has a RETURNING clause in it
+ *
+ * If the passed RemoteQuery has a non null base_tlist
+ * means that DML has a RETURNING clause.
+ */
+
+static bool
+IsReturningDMLOnReplicatedTable(RemoteQuery *rq)
+{
+	if (IsLocatorReplicated(rq->exec_nodes->baselocatortype) &&
+		rq->base_tlist != NULL &&	/* Means DML has RETURNING */
+		(rq->exec_nodes->accesstype == RELATION_ACCESS_UPDATE ||
+		rq->exec_nodes->accesstype == RELATION_ACCESS_INSERT))
+		return true;
+
+	return false;
 }
 
 void
@@ -2849,6 +2880,22 @@ do_query(RemoteQueryState *node)
 	 */
 	if (step->is_temp)
 		ExecSetTempObjectIncluded();
+
+	/*
+	 * Consider a test case
+	 *
+	 * create table rf(a int, b int) distributed by replication;
+	 * insert into rf values(1,2),(3,4) returning ctid;
+	 *
+	 * While inserting the first row do_query works fine, receives the returned
+	 * row from the first connection and returns it. In this iteration the other
+	 * datanodes also had returned rows but they have not yet been read from the
+	 * network buffers. On Next Iteration do_query does not enter the data
+	 * receiving loop because it finds that node->connections is not null.
+	 * It is therefore required to set node->connections to null here.
+	 */
+	if (node->conn_count == 0)
+		node->connections = NULL;
 
 	/*
 	 * Get connections for Datanodes only, utilities and DDLs
@@ -2949,6 +2996,30 @@ do_query(RemoteQueryState *node)
 			res = handle_response(primaryconnection, node);
 			if (res == RESPONSE_COMPLETE)
 				break;
+			else if (res == RESPONSE_TUPDESC)
+			{
+				ExecSetSlotDescriptor(scanslot, node->tuple_desc);
+				/*
+				 * Now tuple table slot is responsible for freeing the
+				 * descriptor
+				 */
+				node->tuple_desc = NULL;
+				/*
+				 * RemoteQuery node doesn't support backward scan, so
+				 * randomAccess is false, neither we want this tuple store
+				 * persist across transactions.
+				 */
+				node->tuplestorestate = tuplestore_begin_heap(false, false, work_mem);
+				tuplestore_set_eflags(node->tuplestorestate, node->eflags);
+			}
+			else if (res == RESPONSE_DATAROW)
+			{
+				pfree(node->currentRow.msg);
+				node->currentRow.msg = NULL;
+				node->currentRow.msglen = 0;
+				node->currentRow.msgnode = 0;
+				continue;
+			}
 			else if (res == RESPONSE_EOF)
 				continue;
 			else
@@ -3175,7 +3246,50 @@ RemoteQueryNext(ScanState *scan_node)
 				eof_tuplestore = true;
 		}
 
-		if (eof_tuplestore && !node->eof_underlying)
+		/*
+		 * Consider a test case
+		 *
+		 * create table ta1 (v1 int, v2 int);
+		 * insert into ta1 values(1,2),(2,3),(3,4);
+		 *
+		 * create table ta2 (v1 int, v2 int);
+		 * insert into ta2 values(1,2),(2,3),(3,4);
+		 *
+		 * select t1.ctid, t2.ctid,* from ta1 t1, ta2 t2
+		 * where t2.v2<=3 order by t1.v1;
+		 *          ctid  | ctid  | v1 | v2 | v1 | v2
+		 *         -------+-------+----+----+----+----
+		 * Row_1    (0,1) | (0,1) |  1 |  2 |  1 |  2
+		 * Row_2    (0,1) | (0,2) |  1 |  2 |  2 |  3
+		 * Row_3    (0,2) | (0,1) |  2 |  3 |  1 |  2
+		 * Row_4    (0,2) | (0,2) |  2 |  3 |  2 |  3
+		 * Row_5    (0,1) | (0,1) |  3 |  4 |  1 |  2
+		 * Row_6    (0,1) | (0,2) |  3 |  4 |  2 |  3
+		 *         (6 rows)
+		 *
+		 * Note that in the resulting join, we are getting one row of ta1 twice,
+		 * as shown by the ctid's in the results. Now consider this update
+		 *
+		 * update ta1 t1 set v2=t1.v2+10 from ta2 t2
+		 * where t2.v2<=3 returning t1.ctid,t1.v1 t1_v1, t1.v2 t1_v2;
+		 *
+		 * The first iteration of the update runs for Row_1, succeeds and
+		 * updates its ctid to say (0,3). In the second iteration for Row_2,
+		 * since the ctid of the row has already changed, fails to update any
+		 * row and hence do_query does not return any tuple. The FetchTuple
+		 * call in RemoteQueryNext hence fails and eof_underlying is set to true.
+		 * However in the third iteration for Row_3, the update succeeds and
+		 * returns a row, but since the eof_underlying is already set to true,
+		 * the RemoteQueryNext does not bother calling FetchTuple, we therefore
+		 * do not get more than one row returned as a result of the update
+		 * returning query. It is therefore required in RemoteQueryNext to call
+		 * FetchTuple in case do_query has copied a row in node->currentRow.msg.
+		 * Also we have to reset the eof_underlying flag every time
+		 * FetchTuple succeeds to clear any previously set status.
+		 */
+		if (eof_tuplestore &&
+			(!node->eof_underlying ||
+			(node->currentRow.msg != NULL)))
 		{
 			/*
 			 * If tuplestore has reached its end but the underlying RemoteQueryNext() hasn't
@@ -3183,13 +3297,15 @@ RemoteQueryNext(ScanState *scan_node)
 			 */
 			if (FetchTuple(node, scanslot))
 			{
-					/*
-					 * Append a copy of the returned tuple to tuplestore.  NOTE: because
-					 * the tuplestore is certainly in EOF state, its read position will
-					 * move forward over the added tuple.  This is what we want.
-					 */
-					if (tuplestorestate && !TupIsNull(scanslot))
-						tuplestore_puttupleslot(tuplestorestate, scanslot);
+				/* See comments a couple of lines above */
+				node->eof_underlying = false;
+				/*
+				 * Append a copy of the returned tuple to tuplestore.  NOTE: because
+				 * the tuplestore is certainly in EOF state, its read position will
+				 * move forward over the added tuple.  This is what we want.
+				 */
+				if (tuplestorestate && !TupIsNull(scanslot))
+					tuplestore_puttupleslot(tuplestorestate, scanslot);
 			}
 			else
 				node->eof_underlying = true;
@@ -3942,56 +4058,137 @@ ExecIsTempObjectIncluded(void)
 }
 
 /*
- * Execute given tuple in the remote relation. We use extended query protocol
- * to avoid repeated planning of the query. So we must pass the column values
- * as parameters while executing the query.
- * This is used by queries using a remote query planning of standard planner.
+ * ExecProcNodeDMLInXC
+ *
+ * This function is used by ExecInsert/Update/Delete to execute the
+ * Insert/Update/Delete on the datanode using RemoteQuery plan.
+ *
+ * In XC, a non-FQSed UPDATE/DELETE is planned as a two step process
+ * The first step selects the ctid & node id of the row to be modified and the
+ * second step creates a parameterized query that is supposed to take the data
+ * row returned by the lower plan node as the parameters to modify the affected
+ * row. In case of an INSERT however the first step is used to get the new
+ * column values to be inserted in the target table and the second step uses
+ * those values as parameters of the INSERT query.
+ *
+ * We use extended query protocol to avoid repeated planning of the query and
+ * pass the column values(in case of an INSERT) and ctid & xc_node_id
+ * (in case of UPDATE/DELETE) as parameters while executing the query.
+ *
+ * Parameters:
+ * resultRemoteRel:  The RemoteQueryState containing DML statement to be
+ *					 executed
+ * previousStepSlot: The tuple returned by the first step (described above)
+ *					 to be used as parameters in the second step.
+ *
+ * Returns the result of RETURNING clause if any
  */
-void
-ExecRemoteQueryStandard(Relation resultRelationDesc,
-						RemoteQueryState *resultRemoteRel,
-						TupleTableSlot *slot)
+TupleTableSlot *
+ExecProcNodeDMLInXC(RemoteQueryState *resultRemoteRel,
+					TupleTableSlot *previousStepSlot)
 {
-	ExprContext		*econtext = resultRemoteRel->ss.ps.ps_ExprContext;
+	ExprContext	*econtext = resultRemoteRel->ss.ps.ps_ExprContext;
+	TupleTableSlot	*returningResultSlot = NULL;	/* RETURNING clause result */
+	TupleTableSlot	*temp_slot;
+	bool			dml_returning_on_replicated = false;
+	RemoteQuery		*step = (RemoteQuery *) resultRemoteRel->ss.ps.plan;
 
 	/*
-	 * Use data row returned by the previous step as a parameters for
-	 * the main query.
+	 * If the tuple returned by the previous step was null,
+	 * simply return null tuple, no need to execute the DML
 	 */
-	if (!TupIsNull(slot))
+	if (TupIsNull(previousStepSlot))
+		return NULL;
+
+	/*
+	 * The current implementation of DMLs with RETURNING when run on replicated
+	 * tables returns row from one of the datanodes. In order to achieve this
+	 * ExecProcNode is repeatedly called saving one tuple and rejecting the rest.
+	 * Do we have a DML on replicated table with RETURNING?
+	 */
+	dml_returning_on_replicated = IsReturningDMLOnReplicatedTable(step);
+
+	/*
+	 * Use data row returned by the previous step as parameter for
+	 * the DML to be executed in this step.
+	 */
+	resultRemoteRel->paramval_len = ExecCopySlotDatarow(previousStepSlot,
+											&resultRemoteRel->paramval_data);
+
+	/*
+	 * do_query calls get_exec_connections to determine target nodes
+	 * at execution time. The function get_exec_connections can decide
+	 * to evaluate en_expr to determine the target nodes. To evaluate en_expr,
+	 * ExecEvalVar is called which picks up values from ecxt_scantuple if Var
+	 * does not refer either OUTER or INNER varno. Hence we should copy the
+	 * tuple returned by previous step in ecxt_scantuple if econtext is set.
+	 * The econtext is set only when en_expr is set for execution time
+	 * determination of the target nodes.
+	 */
+	if (econtext)
+		econtext->ecxt_scantuple = previousStepSlot;
+
+	/*
+	 * Consider the case of a non FQSed INSERT for example. The executor keeps
+	 * track of # of tuples processed in es_processed member of EState structure.
+	 * When a non-FQSed INSERT completes this member is increased once due to
+	 * estate->es_processed += rowcount
+	 * in HandleCommandComplete and once due to
+	 * (estate->es_processed)++
+	 * in ExecInsert. The result is that although only one row is inserted we
+	 * get message as if two rows got inserted INSERT 0 2. Now consider the
+	 * same INSERT case when it is FQSed. In this case the # of tuples processed
+	 * is increased just once in HandleCommandComplete since ExecInsert is never
+	 * called in this case and hence we get correct output i.e. INSERT 0 1
+	 * To handle this error in processed tuple counting we use a variable
+	 * non_fqs_dml which indicates whether this DML is FQSed or not. To indicate
+	 * that this DML is not FQSed non_fqs_dml is set to true here and then if
+	 * it is found true in HandleCommandComplete we skip handling of
+	 * es_processed there and let ExecInsert do the processed tuple counting.
+	 */
+	resultRemoteRel->non_fqs_dml = true;
+
+	/*
+	 * This loop would be required to reject tuples received from datanodes
+	 * when a DML with RETURNING is run on a replicated table otherwise it
+	 * would run once.
+	 * PGXC_TODO: This approach is error prone if the DML statement constructed
+	 * by the planner is such that it updates more than one row (even in case of
+	 * non-replicated data). Fix it.
+	 */
+	do
 	{
-		resultRemoteRel->paramval_len = ExecCopySlotDatarow(slot,
-												 &resultRemoteRel->paramval_data);
+		temp_slot = ExecProcNode((PlanState *)resultRemoteRel);
+		if (!TupIsNull(temp_slot))
+		{
+			/* Have we already copied the returned tuple? */
+			if (returningResultSlot == NULL)
+			{
+				/* Copy the received tuple to be returned later */
+				returningResultSlot = MakeSingleTupleTableSlot(temp_slot->tts_tupleDescriptor);
+				returningResultSlot = ExecCopySlot(returningResultSlot, temp_slot);
+			}
+			/* Clear the received tuple, the copy required has already been saved */
+			ExecClearTuple(temp_slot);
+		}
+		else
+		{
+			/* Null tuple received, so break the loop */
+			ExecClearTuple(temp_slot);
+			break;
+		}
+	} while (dml_returning_on_replicated);
 
-		/*
-		 * The econtext is set only when en_expr is set for execution time
-		 * evalulation of the target node.
-		 */
-		if (econtext)
-			econtext->ecxt_scantuple = slot;
+	/*
+	 * A DML can impact more than one row, e.g. an update without any where
+	 * clause on a table with more than one row. We need to make sure that
+	 * RemoteQueryNext calls do_query for each affected row, hence we reset
+	 * the flag here and finish the DML being executed only when we return
+	 * NULL from ExecModifyTable
+	 */
+	resultRemoteRel->query_Done = false;
 
-		/*
-		 * Consider the case of a non FQSed INSERT for example. The executor keeps
-		 * track of # of tuples processed in es_processed member of EState structure.
-		 * When a non-FQSed INSERT completes this member is increased once due to
-		 * estate->es_processed += rowcount
-		 * in HandleCommandComplete and once due to
-		 * (estate->es_processed)++
-		 * in ExecInsert. The result is that although only one row is inserted we
-		 * get message as if two rows got inserted INSERT 0 2. Now consider the
-		 * same INSERT case when it is FQSed. In this case the # of tuples processed
-		 * is increased just once in HandleCommandComplete since ExecInsert is never
-		 * called in this case and hence we get correct output i.e. INSERT 0 1
-		 * To handle this error in processed tuple counting we use a variable
-		 * non_fqs_dml which indicates whether this DML is FQSed or not. To indicate
-		 * that this DML is not FQSed non_fqs_dml is set to true here and then if
-		 * it is found true in HandleCommandComplete we skip handling of
-		 * es_processed there and let ExecInsert do the processed tuple counting.
-		 */
-		resultRemoteRel->non_fqs_dml = true;
-
-		do_query(resultRemoteRel);
-	}
+	return returningResultSlot;
 }
 
 void

@@ -134,7 +134,7 @@ typedef struct RemoteQueryState
 	bool		rqs_for_sort;	/* The row fetches will be handled by Sort */
 	bool		non_fqs_dml;	/* true if this is a non fast query shipped DML
 								 * For detailed discussion on why this variable
-								 * is required see comments in */
+								 * is required see comments in ExecProcNodeDMLInXC */
 }	RemoteQueryState;
 
 typedef void (*xact_callback) (bool isCommit, void *args);
@@ -185,7 +185,8 @@ extern bool FinishRemotePreparedTransaction(char *prepareGID, bool commit);
 /* Flags related to temporary objects included in query */
 extern void ExecSetTempObjectIncluded(void);
 extern bool ExecIsTempObjectIncluded(void);
-extern void ExecRemoteQueryStandard(Relation resultRelationDesc, RemoteQueryState *resultRemoteRel, TupleTableSlot *slot);
+extern TupleTableSlot *ExecProcNodeDMLInXC(RemoteQueryState *resultRemoteRel,
+											TupleTableSlot *slot);
 
 extern void pgxc_all_success_nodes(ExecNodes **d_nodes, ExecNodes **c_nodes, char **failednodes_msg);
 extern void AtEOXact_DBCleanup(bool isCommit);

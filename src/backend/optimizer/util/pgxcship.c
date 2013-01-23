@@ -808,6 +808,10 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 		{
 			Query *query = (Query *)node;
 
+			/* PGXCTODO : If the query has a returning list, it is not shippable as of now */
+			if (query->returningList)
+				pgxc_set_shippability_reason(sc_context, SS_UNSUPPORTED_EXPR);
+
 			/* A stand-alone expression containing Query is not shippable */
 			if (sc_context->sc_for_expr)
 			{

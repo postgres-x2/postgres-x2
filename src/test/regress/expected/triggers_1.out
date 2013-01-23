@@ -909,13 +909,15 @@ INSERT INTO main_view VALUES (20, 30);
 ERROR:  cannot insert into view "main_view"
 HINT:  You need an unconditional ON INSERT DO INSTEAD rule or an INSTEAD OF INSERT trigger.
 INSERT INTO main_view VALUES (21, 31) RETURNING a, b;
-ERROR:  RETURNING clause not yet supported
+ERROR:  cannot insert into view "main_view"
+HINT:  You need an unconditional ON INSERT DO INSTEAD rule or an INSTEAD OF INSERT trigger.
 -- Table trigger will prevent updates
 UPDATE main_view SET b = 31 WHERE a = 20;
 ERROR:  cannot update view "main_view"
 HINT:  You need an unconditional ON UPDATE DO INSTEAD rule or an INSTEAD OF UPDATE trigger.
 UPDATE main_view SET b = 32 WHERE a = 21 AND b = 31 RETURNING a, b;
-ERROR:  RETURNING clause not yet supported
+ERROR:  cannot update view "main_view"
+HINT:  You need an unconditional ON UPDATE DO INSTEAD rule or an INSTEAD OF UPDATE trigger.
 -- Remove table trigger to allow updates
 DROP TRIGGER before_upd_a_row_trig ON main_table;
 ERROR:  trigger "before_upd_a_row_trig" for table "main_table" does not exist
@@ -923,7 +925,8 @@ UPDATE main_view SET b = 31 WHERE a = 20;
 ERROR:  cannot update view "main_view"
 HINT:  You need an unconditional ON UPDATE DO INSTEAD rule or an INSTEAD OF UPDATE trigger.
 UPDATE main_view SET b = 32 WHERE a = 21 AND b = 31 RETURNING a, b;
-ERROR:  RETURNING clause not yet supported
+ERROR:  cannot update view "main_view"
+HINT:  You need an unconditional ON UPDATE DO INSTEAD rule or an INSTEAD OF UPDATE trigger.
 -- Before and after stmt triggers should fire even when no rows are affected
 UPDATE main_view SET b = 0 WHERE false;
 ERROR:  cannot update view "main_view"
@@ -933,7 +936,8 @@ DELETE FROM main_view WHERE a IN (20,21);
 ERROR:  cannot delete from view "main_view"
 HINT:  You need an unconditional ON DELETE DO INSTEAD rule or an INSTEAD OF DELETE trigger.
 DELETE FROM main_view WHERE a = 31 RETURNING a, b;
-ERROR:  RETURNING clause not yet supported
+ERROR:  cannot delete from view "main_view"
+HINT:  You need an unconditional ON DELETE DO INSTEAD rule or an INSTEAD OF DELETE trigger.
 \set QUIET true
 -- Describe view should list triggers
 \d main_view
