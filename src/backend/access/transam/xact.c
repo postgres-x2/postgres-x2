@@ -24,6 +24,7 @@
 #ifdef PGXC
 #include "pgxc/pgxc.h"
 #include "access/gtm.h"
+#include "pgxc/xc_maintenance_mode.h"
 /* PGXC_COORD */
 #include "gtm/gtm_c.h"
 #include "pgxc/execRemote.h"
@@ -1989,7 +1990,8 @@ StartTransaction(void)
 		XactReadOnly = DefaultXactReadOnly;
 #ifdef PGXC
 		/* Save Postgres-XC session as read-only if necessary */
-		XactReadOnly |= IsPGXCNodeXactReadOnly();
+		if (!xc_maintenance_mode)
+			XactReadOnly |= IsPGXCNodeXactReadOnly();
 #endif
 	}
 	XactDeferrable = DefaultXactDeferrable;

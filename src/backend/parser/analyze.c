@@ -2468,9 +2468,9 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 	 * DML can be launched without errors but this could compromise data
 	 * consistency, so block it.
 	 */
-	if (step->exec_direct_type == EXEC_DIRECT_DELETE
-		|| step->exec_direct_type == EXEC_DIRECT_UPDATE
-		|| step->exec_direct_type == EXEC_DIRECT_INSERT)
+	if (!xc_maintenance_mode && (step->exec_direct_type == EXEC_DIRECT_DELETE
+								 || step->exec_direct_type == EXEC_DIRECT_UPDATE
+								 || step->exec_direct_type == EXEC_DIRECT_INSERT))
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("EXECUTE DIRECT cannot execute DML queries")));

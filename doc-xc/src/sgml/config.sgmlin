@@ -7051,8 +7051,12 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
         value to <literal>on</literal>.
        </para>
        <para>
-        So far, behavior of <xref linkend="sql-commit-prepared"> and <xref linkend="sql-rollback-prepared"> statements are affected by this parameter.
+        Behavior of <xref linkend="sql-commit-prepared"> and <xref linkend="sql-rollback-prepared"> statements are affected by this parameter.
        </para>
+	   <para>
+        If this is set to ON, you can do many other maintenance work to update datanode locally through <literal>EXECUTE DIRECT</literal> or connecting directly to datanodes.
+		As a DBA, you are totally responsible to any side effects.
+		You must be extremely careful not to bring in any inconsisitencies to Postgres-XC database cluster.
        <para>
         This parameter can only be set by superuser
         with <literal>SET</literal> command. Otherwise, the setting
