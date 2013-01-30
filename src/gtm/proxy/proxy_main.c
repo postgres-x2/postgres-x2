@@ -185,7 +185,7 @@ static void SetDataDir(void);
 static void ChangeToDataDir(void);
 static void checkDataDir(void);
 static void DeleteLockFile(const char *filename);
-static void RegisterProxy(bool is_reconnect);
+static void RegisterProxy(bool is_reconnect, bool is_retry);
 static void UnregisterProxy(void);
 static GTM_Conn *ConnectGTM(void);
 static void ReleaseCmdBackup(GTMProxy_CommandInfo *cmdinfo);
@@ -268,7 +268,7 @@ BaseInit()
 	Recovery_SaveRegisterFileName(GTMProxyDataDir);
 
 	/* Register Proxy on GTM */
-	RegisterProxy(false);
+	RegisterProxy(false, false);
 
 	DebugFileOpen();
 
@@ -992,7 +992,7 @@ ServerLoop(void)
 			 */
 
 			elog(LOG, "Main Thread reconnecting to new GTM.");
-			RegisterProxy(TRUE);
+			RegisterProxy(TRUE, false);
 			elog(LOG, "Reconnected.");
 
 			/* If it is done, then release the lock for worker threads. */
@@ -3237,7 +3237,7 @@ failed:
  * NewGTMServerPortNumber.
  */
 static void
-RegisterProxy(bool is_reconnect)
+RegisterProxy(bool is_reconnect, bool is_retry)
 {
 	GTM_PGXCNodeType type = GTM_NODE_GTM_PROXY;
 	GTM_PGXCNodePort port = (GTM_PGXCNodePort) GTMProxyPortNumber;
@@ -3323,7 +3323,14 @@ RegisterProxy(bool is_reconnect)
 	return;
 
 failed:
-	elog(ERROR, "can not register Proxy on GTM");
+	if (!is_retry)
+	{
+		elog(NOTICE, "could not register Proxy on GTM. Trying to unregister myself and then retry.");
+		UnregisterProxy();
+		return RegisterProxy(is_reconnect, true);
+	}
+	else
+		elog(ERROR, "can not register Proxy on GTM");
 }
 
 static GTM_Conn*
