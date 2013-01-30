@@ -61,21 +61,12 @@ UPDATE [ ONLY ] <replaceable class="PARAMETER">table</replaceable> [ [ AS ] <rep
    clause.
   </para>
 
-&pgonly;
   <para>
    There are two ways to modify a table using information contained in
    other tables in the database: using sub-selects, or specifying
    additional tables in the <literal>FROM</literal> clause. Which
    technique is more appropriate depends on the specific
    circumstances.
-<!## XC>
-   <footnote>
-    <para>
-     <literal>FROM</literal> clause is not supported in the current
-     version of <productname>Postgres-XC</productname>.
-    </para>
-   </footnote>
-<!## end>
   </para>
 
   <para>
@@ -411,21 +402,12 @@ UPDATE films SET kind = 'Dramatic' WHERE CURRENT OF c_films;
  <refsect1>
   <title>Compatibility</title>
 
-<!## PG>
   <para>
    This command conforms to the <acronym>SQL</acronym> standard, except
    that the <literal>FROM</literal> and <literal>RETURNING</> clauses
    are <productname>PostgreSQL</productname> extensions, as is the ability
    to use <literal>WITH</> with <command>UPDATE</>.
   </para>
-<!## end>
-<!## XC>
-  <para>
-   This command conforms to the <acronym>SQL</acronym> standard, except
-   that the <literal>RETURNING</> clause
-   is <productname>PostgreSQL</productname> extensions.
-  </para>
-<!## end>
 
   <para>
    According to the standard, the column-list syntax should allow a list

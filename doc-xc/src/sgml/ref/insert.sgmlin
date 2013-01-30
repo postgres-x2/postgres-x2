@@ -312,15 +312,11 @@ INSERT INTO employees_log SELECT *, current_timestamp FROM upd;
   <title>Compatibility</title>
 
   <para>
-   <command>INSERT</command> conforms to the SQL standard, except that
-   the <literal>RETURNING</> clause is a
-<!## PG>
-   <productname>PostgreSQL</productname> extension, as is the ability
-<!## end>
-<!## XC>
-   <productname>Postgres-XC</productname> extension, as is the ability
-<!## end>
-
+   <command>INSERT</> conforms to the <acronym>SQL</acronym> standard, except
+   that the <literal>RETURNING</> clause is a <productname>PostgreSQL</productname>
+   extension, as is the ability to use <literal>WITH</> with <command>INSERT</>.
+   Also, the case in which a column name list is omitted, but not all the columns
+   are filled from the <command>VALUES</> clause or query, is disallowed by the standard.
   </para>
 
   <para>

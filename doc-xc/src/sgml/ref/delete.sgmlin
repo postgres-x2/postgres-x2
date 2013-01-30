@@ -70,20 +70,11 @@ DELETE FROM [ ONLY ] <replaceable class="PARAMETER">table</replaceable> [ [ AS ]
   </para>
 
   <para>
-&pgonly;
    There are two ways to delete rows in a table using information
    contained in other tables in the database: using sub-selects, or
    specifying additional tables in the <literal>USING</literal> clause.
    Which technique is more appropriate depends on the specific
    circumstances.
-<!## XC>
-   <footnote>
-    <para>
-     <literal>USING</literal> clause is not supported
-     in <productname>Postgres-XC</productname> yet.
-    </para>
-   </footnote>
-<!## end>
   </para>
 
   <para>
@@ -334,17 +325,10 @@ DELETE FROM tasks WHERE CURRENT OF c_tasks;
   <title>Compatibility</title>
 
   <para>
-<!## PG>
    This command conforms to the <acronym>SQL</acronym> standard, except
    that the <literal>USING</literal> and <literal>RETURNING</> clauses
    are <productname>PostgreSQL</productname> extensions, as is the ability
    to use <literal>WITH</> with <command>DELETE</>.
-<!## end>
-<!## XC>
-   This command conforms to the <acronym>SQL</acronym> standard, except
-   that the                              <literal>RETURNING</> clause
-   is <productname>Postgres-XC</productname> extensions inherited from <productname>PostgreSQL</>.
-<!## end>
   </para>
  </refsect1>
 </refentry>
