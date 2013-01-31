@@ -80,6 +80,7 @@ ALTER DOMAIN <replaceable class="PARAMETER">name</replaceable>
       This will only succeed if all columns using the domain satisfy the
       new constraint.
      </para>
+&xc-constraint;
     </listitem>
    </varlistentry>
 

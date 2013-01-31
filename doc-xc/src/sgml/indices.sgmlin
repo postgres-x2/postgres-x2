@@ -653,6 +653,7 @@ CREATE UNIQUE INDEX <replaceable>name</replaceable> ON <replaceable>table</repla
     the automatically-created index.
    </para>
   </note>
+&xc-constraint;
  </sect1>
 
 
@@ -692,7 +693,6 @@ CREATE INDEX test1_lower_col1_idx ON test1 (lower(col1));
    Thus, indexes on expressions can be used to enforce constraints that
    are not definable as simple unique constraints.
   </para>
-
   <para>
    As another example, if one often does queries like:
 <programlisting>
@@ -722,6 +722,7 @@ CREATE INDEX people_names ON people ((first_name || ' ' || last_name));
    query.  Thus, indexes on expressions are useful when retrieval speed
    is more important than insertion and update speed.
   </para>
+&xc-constraint;
  </sect1>
 
 
@@ -973,6 +974,7 @@ CREATE UNIQUE INDEX tests_success_constraint ON tests (subject, target)
    linkend="STON89b">, <xref linkend="OLSON93">, and <xref
    linkend="SESHADRI95">.
   </para>
+&xc-constraint;
  </sect1>
 
 

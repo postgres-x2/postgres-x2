@@ -1122,6 +1122,7 @@ CREATE TABLE circles (
     Adding an exclusion constraint will automatically create an index
     of the type specified in the constraint declaration.
    </para>
+$xc-constraint;
   </sect2>
 <!## end>
  </sect1>
@@ -1540,6 +1541,7 @@ ALTER TABLE products ALTER COLUMN product_no SET NOT NULL;
    <para>
     Please remember that distribution column has to be included in UNIQUE and REFERENCE constraints.
    </para>
+&xc-constraint;
 <!## end>
   </sect2>
 
