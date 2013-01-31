@@ -194,6 +194,7 @@ CREATE TABLE <replaceable class="PARAMETER">table_name</replaceable>
    a column constraint is only a notational convenience for use when the
    constraint only affects one column.
   </para>
+&xc-constraint;
  </refsect1>
 
  <refsect1>

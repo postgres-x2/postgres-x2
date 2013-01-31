@@ -61,6 +61,7 @@ CREATE DOMAIN <replaceable class="parameter">name</replaceable> [ AS ] <replacea
    Define a domain rather than setting up each table's constraint
    individually.
   </para>
+&xc-constraint;
  </refsect1>
 
  <refsect1>

@@ -11,6 +11,7 @@
 <!entity xconly		SYSTEM "xconly.sgml">
 <!entity pgonly     SYSTEM "pgonly.sgml">
 <!entity common		SYSTEM "common.sgml">
+<!entity xc-constraint SYSTEM "xc-constraint.sgml">
 <!## end>
 
 <!-- tutorial -->
