@@ -90,6 +90,10 @@ CREATE NODE <replaceable class="parameter">nodename</replaceable> WITH
         value can be specified. In case no value is specified, <literal>PRIMARY</literal>
         acts like <literal>true</>.
        </para>
+	   <para>
+        To avoid deadlock and make update consistetnt, you should specify the same <literal>PRIMARY</literal>
+        node at all the nodes.
+       </para>
       </listitem>
      </varlistentry>
 
@@ -98,10 +102,18 @@ CREATE NODE <replaceable class="parameter">nodename</replaceable> WITH
       <listitem>
        <para>
         Defines if the cluster node is used as a preferred node for replicated
-        read operations. A <replaceable class="parameter">boolean</replaceable>
+        read operations if no node is determined. A <replaceable class="parameter">boolean</replaceable>
         value can be specified. In case no value is specified, <literal>PREFERRED</literal>
         acts like <literal>true</>.
        </para>
+	   <para>
+        You can specify different <literal>PREFERRED</literal> node at different coordinator.
+        This parameter affects performance of your <literal>Postgres-XC</literal> cluster.
+        If you configure a datanode where you configure a coordinator, 
+        you should specify <literal>PREFERRED</literal> for the coordinator to such a local datanode.
+        This will save network communication and improve cluster-wide performance.
+       </para>
+        
       </listitem>
      </varlistentry>
 
