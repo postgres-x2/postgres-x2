@@ -1548,7 +1548,7 @@ update PSlot set slotlink = 'HS.base.hub1.1' where slotname = 'PS.base.b2';
 --
 -- PGXCTODO: This is failing due to issue 3522907, complicated SELECT queries in plpgsql functions
 select * from PField_v1 where pfname = 'PF0_1' order by slotname;
-ERROR:  could not determine data type of parameter $1
+ERROR:  there is no parameter $6
 CONTEXT:  SQL statement "select          * from WSlot where slotname = rec.backlink"
 PL/pgSQL function pslot_backlink_view(character) line 31 at SQL statement
 select * from PField_v1 where pfname = 'PF0_2' order by slotname;
@@ -2021,12 +2021,12 @@ begin
 	end;
 	return x;
 end$$ language plpgsql;
--- PGXCTODO: This is failing due to issue 3522907, complicated SELECT queries in plpgsql functions
 select trap_matching_test(50);
-ERROR:  bind message supplies 1 parameters, but prepared statement "" requires 0
-CONTEXT:  SQL statement "select        unique1 from tenk1 where unique2 =
-			(select unique2 from tenk1 b where ten = $1)"
-PL/pgSQL function trap_matching_test(integer) line 9 at SQL statement
+ trap_matching_test 
+--------------------
+                  2
+(1 row)
+
 select trap_matching_test(0);
 NOTICE:  caught data_exception
  trap_matching_test 
@@ -2041,12 +2041,13 @@ NOTICE:  caught data_exception
                  -1
 (1 row)
 
--- PGXCTODO: This is failing due to issue 3522907, complicated SELECT queries in plpgsql functions
 select trap_matching_test(1);
-ERROR:  bind message supplies 1 parameters, but prepared statement "" requires 0
-CONTEXT:  SQL statement "select        unique1 from tenk1 where unique2 =
-			(select unique2 from tenk1 b where ten = $1)"
-PL/pgSQL function trap_matching_test(integer) line 9 at SQL statement
+NOTICE:  caught numeric_value_out_of_range or cardinality_violation
+ trap_matching_test 
+--------------------
+                 -2
+(1 row)
+
 -- Enforce use of COMMIT instead of 2PC for temporary objects
 SET enforce_two_phase_commit TO off;
 create temp table foo (f1 int);

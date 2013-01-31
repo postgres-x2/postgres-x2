@@ -1739,11 +1739,9 @@ begin
 	return x;
 end$$ language plpgsql;
 
--- PGXCTODO: This is failing due to issue 3522907, complicated SELECT queries in plpgsql functions
 select trap_matching_test(50);
 select trap_matching_test(0);
 select trap_matching_test(100000);
--- PGXCTODO: This is failing due to issue 3522907, complicated SELECT queries in plpgsql functions
 select trap_matching_test(1);
 
 -- Enforce use of COMMIT instead of 2PC for temporary objects
