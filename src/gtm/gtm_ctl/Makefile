@@ -13,14 +13,11 @@ subdir=src/gtm/gtm_ctl
 
 OBJS=gtm_ctl.o 
 
-OTHERS=../common/libgtm.a ../libpq/libpqcomm.a ../client/libgtmclient.a ../path/libgtmpath.a
-
-LDFLAGS=-L$(top_builddir)/common -L$(top_builddir)/libpq
-
+OTHERS=../../../src/port/libpgport.a ../client/libgtmclient.a
 
 LIBS=-lpthread
 
-gtm_ctl:$(OBJS)
+gtm_ctl:$(OBJS) | submake-libpgport
 	$(CC) $(CFLAGS) $(LDFLAGS) $(LIBS) $^ $(OTHERS) -o gtm_ctl
 
 all:gtm_ctl

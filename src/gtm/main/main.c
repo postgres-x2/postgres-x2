@@ -264,6 +264,7 @@ help(const char *progname)
 	printf(_("  -D directory    GTM working directory\n"));
 	printf(_("  -l filename     GTM server log file name \n"));
 	printf(_("  -c              show server status, then exit\n"));
+	printf(_("  -V, --version   output version information, then exit\n"));
 	printf(_("  --help          show this help, then exit\n"));
 	printf(_("\n"));
 	printf(_("Options for Standby mode:\n"));
@@ -336,6 +337,11 @@ main(int argc, char *argv[])
 		if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-?") == 0)
 		{
 			help(argv[0]);
+			exit(0);
+		}
+		if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-V") == 0)
+		{
+			puts("gtm (Postgres-XC) " PGXC_VERSION);
 			exit(0);
 		}
 	}
