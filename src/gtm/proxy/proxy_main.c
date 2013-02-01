@@ -549,6 +549,7 @@ help(const char *progname)
 	printf(_("  -n count		Number of worker threads\n"));
 	printf(_("  -D directory	GTM proxy working directory\n"));
 	printf(_("  -l filename		GTM proxy log file name \n"));
+	printf(_("  -V, --version	output version information, then exit\n"));
 	printf(_("  --help          show this help, then exit\n"));
 }
 
@@ -587,6 +588,11 @@ main(int argc, char *argv[])
 		if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-?") == 0)
 		{
 			help(argv[0]);
+			exit(0);
+		}
+		if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-V") == 0)
+		{
+			puts("gtm_proxy (Postgres-XC) " PGXC_VERSION);
 			exit(0);
 		}
 	}

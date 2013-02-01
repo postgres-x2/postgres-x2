@@ -480,6 +480,45 @@ do_start(void)
 
 	read_gtm_opts();
 
+	/* The binary for both gtm and gtm_standby is the same */
+	if (strcmp(gtm_app, "gtm_standby") == 0)
+		gtm_app = "gtm";
+
+	if (gtm_path == NULL)
+	{
+		int		 ret;
+		char	*found_path;
+		char	 version_str[MAXPGPATH];
+
+		found_path = pg_malloc(MAXPGPATH);
+		sprintf(version_str, "%s (Postgres-XC) %s\n", gtm_app, PGXC_VERSION);
+
+		if ((ret = find_other_exec(argv0, gtm_app, version_str, found_path)) < 0)
+		{
+			char		full_path[MAXPGPATH];
+
+			if (find_my_exec(argv0, full_path) < 0)
+				strlcpy(full_path, progname, sizeof(full_path));
+
+			if (ret == -1)
+				write_stderr(_("The program \"%s\" is needed by gtm_ctl "
+							   "but was not found in the\n"
+							   "same directory as \"%s\".\n"
+							   "Check your installation.\n"),
+							 gtm_app, full_path);
+			else
+				write_stderr(_("The program \"%s\" was found by \"%s\"\n"
+							   "but was not the same version as gtm_ctl.\n"
+							   "Check your installation.\n"),
+							 gtm_app, full_path);
+			exit(1);
+		}
+
+		*last_dir_separator(found_path) = '\0';
+
+		gtm_path = found_path;
+	}
+
 	exitcode = start_gtm();
 	if (exitcode != 0)
 	{
@@ -923,6 +962,7 @@ do_help(void)
 	printf(_("  -t SECS                seconds to wait when using -w option\n"));
 	printf(_("  -w                     wait until operation completes\n"));
 	printf(_("  -W                     do not wait until operation completes\n"));
+	printf(_("  -V, --version          output version information, then exit\n"));
 	printf(_("  --help                 show this help, then exit\n"));
 	printf(_("(The default is to wait for shutdown, but not for start or restart.)\n\n"));
 
@@ -995,6 +1035,11 @@ main(int argc, char **argv)
 			strcmp(argv[1], "-?") == 0)
 		{
 			do_help();
+			exit(0);
+		}
+		if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-V") == 0)
+		{
+			puts("gtm_ctl (Postgres-XC) " PGXC_VERSION);
 			exit(0);
 		}
 	}
