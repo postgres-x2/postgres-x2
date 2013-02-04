@@ -1,6 +1,294 @@
 <!-- doc/src/sgml/release-xc-1.0.sgml -->
 <!-- See header comment in release.sgml about typical markup -->
 
+ <sect1 id="release-xc-1-0-2">
+  <title>Release 1.0.2</title>
+
+  <note>
+   <title>Release Date</title>
+   <simpara>2013-02-05</simpara>
+  </note>
+
+  <para>
+   This release contains a variety of fixes from 1.0.1.
+   For information about new features in the 1.0 major release, see
+   <xref linkend="release-xc-1-0">.
+  </para>
+
+  <sect2>
+   <title>Migration to Version 1.0.2</title>
+
+   <para>
+    A dump/restore is not required for those running 1.0.X.
+   </para>
+
+  </sect2>
+
+  <sect2>
+   <title>Changes</title>
+
+   <itemizedlist>
+
+    <listitem>
+     <para>
+      Fix for bug 3602944: Fixed <command>gtm_ctl</command> to solve
+      the PATH dependency. (Nikhil Sontakke)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix for bug 3601255: Fixed the planner to disable FQS for all
+      the <literal>OUTER</literal> joins.
+      (Ashutosh Bapat)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix for bug 3600220: Fixed coordinator/datanode to unregister
+      themselves from GTM while restarting after
+      "<literal>-m immediate</literal>" shutdown.
+      (Koichi Suzuki)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fixed <command>gtm_ctl</command> for "<literal>status</literal>"
+      command with "<literal>-Z gtm</literal>" to show the status correctly.
+      (Koichi Suzuki)
+     </para>
+
+     <para>
+      Now for <literal>-Z gtm</literal> option,
+      <literal>gtm_ctl status</literal> displays if it runs as
+      <literal>master</literal> or <literal>slave</literal>.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Rebased from PostgreSQL 9.1.6 to 9.1.7, and fixed several regression
+      test failures, which had been newly introduced during the rebase.
+      (Satoshi Nagayasu)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix for bug 3597414: Fixed the planner for JOIN between two distributed
+      tables to be pushable when on only one node.
+      (Ashutosh Bapat)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix for bug 3598637: Fixed GTM standby to avoid occasional crash.
+      (Koichi Suzuki)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fixed GTM to deal with a promoted master correctly while restarting.
+      (Nikhil Sontakke, Koichi Suzuki)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix for bug 3583921: Fixed coordinator slave (and possibly datanode too)
+      to avoid crash due to "<literal>too many KnownAssignedXids</literal>".
+      (Koichi Suzuki)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix for bug 3598030: Fixed to allow commit/abort transactions while
+      connecting to the datanode directly.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix for bug 3591285: Fixed autovacuum crash in datanode.
+      (Koichi Suzuki)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix for bug 3571154: Fixed GTM proxy error while reconnecting.
+      (Koichi Suzuki)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fixed <literal>libgtmclient.a</literal> to surpress debug messages.
+      (Koichi Suzuki)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fixed GTM proxy to have appropriate default values (retry count and
+      retry interval) for GTM proxy HA.
+      (Koichi Suzuki)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fix for bug 3588869: Fixed GTM proxy to avoid stall while reconnecting.
+      (Koichi Suzuki)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fixed to enforce autocommit when running <command>ALTER DATABASE SET
+      TABLESPACE</command>.
+      (Michael Paquier)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fixed <command>pgxc_clean</command> for <literal>-s</literal>,
+      <literal>--status</literal> option working correctly.
+      (Koichi Suzuki)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fixed "<command>SET XC_MAINTENANCE_MODE = ON</command>" to ignore
+      "<literal>template0</literal>" database.
+      (Koichi Suzuki)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fixed GTM and GTM proxy for inaccurate default values of the port number.
+      (Koichi Suzuki)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Added GTM header files in installation to allow compiling server modules.
+      (Michael Paquier)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Added support to create cached plans for XC-specific DDL commands.
+      (Michael Paquier)
+     </para>
+
+     <para>
+      This allows to use cached plans or prepared queries for following
+      commands: <command>CREATE NODE</command>, <command>ALTER NODE</command>,
+      <command>DROP NODE</command>, <command>CREATE NODE GROUP</command>,
+      <command>DROP NODE GROUP</command>, <command>CLEAN CONNECTION</command>.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fixed <command>CREATE NODE GROUP</command>/<command>DROP NODE
+      GROUP</command> commands to stop query pushdown to remote nodes.
+      (Michael Paquier)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fixed memory allocation issues pointed by ElectricFence (libefence).
+      (Michael Paquier)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fixed memory corruption in GTM/backend buffer for snapshots and
+      transaction IDs.
+      (Michael Paquier)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fixed <command>COPY</command> command to deal with quoted column names.
+      (Nikhil Sontakke, Michael Paquier)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fixed to ignore automatically generated regression outputs specific
+      to Postgres-XC. 
+      (Michael Paquier)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fixed <command>COPY</command> command to avoid crash when involving
+      relation with no locator data.
+      (Michael Paquier)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fixed <command>ALTER NODE</command> to allow modifying primary node data.
+      (Michael Paquier)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fixed compilation error in <command>pg_dump</command>.
+      (Michael Paquier)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Changed current value management of sequences to make it consistent
+      with vanilla.
+      (Michael Paquier)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fixed <command>pg_dump</command> to get consistent sequence dump value.
+      (Nikkhil Sontakke, Michael Paquier)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Fixed and improved docs for several XC-specific commands, options and
+      parameters.
+      (Koichi Suzuki, Michael Paquier)
+     </para>
+    </listitem>
+
+   </itemizedlist>
+
+  </sect2>
+
+ </sect1>
+
  <sect1 id="release-xc-1-0-1">
   <title>Release 1.0.1</title>
 
