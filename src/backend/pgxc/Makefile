@@ -2,7 +2,7 @@
 #
 # Postgres-XC backend method makefile
 #
-# Copyright(c) 2010-2012 Postgres-XC Development Group
+# Copyright (c) 2010-2013, Postgres-XC Development Group
 #
 # src/backend/pgxc/Makefile
 #

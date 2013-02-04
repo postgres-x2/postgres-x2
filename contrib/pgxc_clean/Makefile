@@ -2,7 +2,7 @@
 #
 # Makefile for contrib/pgxc_clean
 #
-# Portions Copyright (c) 2011-2012 Postgres-XC Development Group
+# Portions Copyright (c) 2010-2013, Postgres-XC Development Group
 #
 # $PostgreSQL$
 #

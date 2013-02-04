@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright (c) 2010-2012 Postgres-XC Development Group
+# Copyright (c) 2010-2013, Postgres-XC Development Group
 
 GTM_SERVER_HOSTNAME=gtm
 GTM_SERVER_PORT=16667

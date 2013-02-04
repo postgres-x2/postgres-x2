@@ -3,7 +3,7 @@
 # Makefile--
 #    Makefile for locator
 #
-# Copyright(C) 2010-2012 Postgres-XC Development Group
+# Copyright (c) 2010-2013, Postgres-XC Development Group
 #
 # IDENTIFICATION
 #    $PostgreSQL$

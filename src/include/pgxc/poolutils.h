@@ -5,7 +5,7 @@
  *		Utilities for Postgres-XC Pooler
  *
  * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
- * Portions Copyright (c) 2010-2012 Postgres-XC Development Group
+ * Portions Copyright (c) 2010-2013, Postgres-XC Development Group
  *
  * src/include/pgxc/poolutils.h
  *

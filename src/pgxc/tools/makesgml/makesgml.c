@@ -2,7 +2,7 @@
  *
  * makesgml - Postgres-XC document build tool
  *
- * Copyright (c) 2010-2012, Postgres-XC Development Group
+ * Copyright (c) 2010-2013, Postgres-XC Development Group
  *
  * IDENTIFICATION
  *		src/pgxc/tools/makesgml/makesgml.c

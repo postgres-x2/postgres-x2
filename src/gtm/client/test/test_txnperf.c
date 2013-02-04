@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010-2012 Postgres-XC Development Group
+ * Copyright (c) 2010-2013, Postgres-XC Development Group
  */
 #include <sys/types.h>
 #include <unistd.h>

@@ -1,0 +1,14 @@
+#!/bin/sh
+
+# src/tools/copyright_xc
+
+echo "Using current year:  `date '+%Y'`"
+
+grep -R -l 'Copyright.*Postgres-XC Development Group' . | while read FILE
+do
+	cat $FILE | sed 's/^\(.*Copyright (c) [12][0-9][0-9][0-9]\) \?- \?[12][0-9][0-9][0-9] \?,\?\( Postgres-XC Development Group.*\)$/\1-'`date '+%Y'`',\2/' \
+	| sed 's/^\(.*Copyright (c) [12][0-9][0-9][0-9]\) \?,\?\( Postgres-XC Development Group.*\)$/\1-'`date '+%Y'`',\2/' > /tmp/year.tmp
+	mv /tmp/year.tmp $FILE
+done
+
+echo "Manually update doc-xc/src/sgml/legal.sgmlin and src/interfaces/libpq/libpq.rc.in too" 1>&2
