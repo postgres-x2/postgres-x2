@@ -2840,7 +2840,7 @@ pgxc_start_command_on_connection(PGXCNodeHandle *connection,
 static bool
 IsReturningDMLOnReplicatedTable(RemoteQuery *rq)
 {
-	if (IsLocatorReplicated(rq->exec_nodes->baselocatortype) &&
+	if (IsExecNodesReplicated(rq->exec_nodes) &&
 		rq->base_tlist != NULL &&	/* Means DML has RETURNING */
 		(rq->exec_nodes->accesstype == RELATION_ACCESS_UPDATE ||
 		rq->exec_nodes->accesstype == RELATION_ACCESS_INSERT))

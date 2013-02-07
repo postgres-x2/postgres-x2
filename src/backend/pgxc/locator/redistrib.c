@@ -159,8 +159,8 @@ pgxc_redist_build_replicate_to_distrib(RedistribState *distribState,
 		return;
 
 	/* Redistribution is done from replication to distributed (with value) */
-	if (!IsLocatorReplicated(oldLocInfo->locatorType) ||
-		!IsLocatorDistributedByValue(newLocInfo->locatorType))
+	if (!IsRelationReplicated(oldLocInfo) ||
+		!IsRelationDistributedByValue(newLocInfo))
 		return;
 
 	/* Get the list of nodes that are added to the relation */
@@ -243,8 +243,8 @@ pgxc_redist_build_replicate(RedistribState *distribState,
 		return;
 
 	/* Case of a replicated table whose set of nodes is changed */
-	if (!IsLocatorReplicated(newLocInfo->locatorType) ||
-		!IsLocatorReplicated(oldLocInfo->locatorType))
+	if (!IsRelationReplicated(newLocInfo) ||
+		!IsRelationReplicated(oldLocInfo))
 		return;
 
 	/* Get the list of nodes that are added to the relation */
@@ -721,7 +721,7 @@ distrib_delete_hash(RedistribState *distribState, ExecNodes *exec_nodes)
 		hashfuncname = get_compute_hash_function(hashtype, locinfo->locatorType);
 
 		/* Get distribution column name */
-		if (IsLocatorDistributedByValue(locinfo->locatorType))
+		if (IsRelationDistributedByValue(locinfo))
 			colname = GetRelationDistribColumn(locinfo);
 		else
 			ereport(ERROR,

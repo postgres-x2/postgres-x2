@@ -64,6 +64,9 @@ typedef struct
 	ListCell   *roundRobinNode;	/* Index of the next node to use */
 } RelationLocInfo;
 
+#define IsRelationReplicated(rel_loc)			IsLocatorReplicated((rel_loc)->locatorType)
+#define IsRelationColumnDistributed(rel_loc) 	IsLocatorColumnDistributed((rel_loc)->locatorType)
+#define IsRelationDistributedByValue(rel_loc)	IsLocatorDistributedByValue((rel_loc)->locatorType)
 /*
  * Nodes to execute on
  * primarynodelist is for replicated table writes, where to execute first.
@@ -83,6 +86,10 @@ typedef struct
 	RelationAccessType accesstype;	/* Access type to determine execution
 									 * nodes */
 } ExecNodes;
+
+#define IsExecNodesReplicated(en)			IsLocatorReplicated((en)->baselocatortype)
+#define IsExecNodesColumnDistributed(en) 	IsLocatorColumnDistributed((en)->baselocatortype)
+#define IsExecNodesDistributedByValue(en)	IsLocatorDistributedByValue((en)->baselocatortype)
 
 /* Extern variables related to locations */
 extern Oid primary_data_node;

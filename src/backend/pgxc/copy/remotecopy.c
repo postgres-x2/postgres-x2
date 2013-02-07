@@ -55,7 +55,7 @@ RemoteCopy_GetRelationLoc(RemoteCopyData *state,
 		 */
 		exec_nodes = makeNode(ExecNodes);
 		if (!state->is_from &&
-			IsLocatorReplicated(state->rel_loc->locatorType))
+			IsRelationReplicated(state->rel_loc))
 			exec_nodes->nodeList = GetPreferredReplicationNode(state->rel_loc->nodeList);
 		else
 		{

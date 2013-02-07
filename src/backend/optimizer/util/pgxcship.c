@@ -250,7 +250,7 @@ pgxc_FQS_find_datanodes(Shippability_context *sc_context)
 				}
 				if (varno == 1)
 				{
-					if (IsLocatorColumnDistributed(rel_exec_nodes->baselocatortype))
+					if (IsExecNodesColumnDistributed(rel_exec_nodes))
 					{
 						RelationLocInfo *rel_loc_info = GetRelationLocInfo(rte->relid);
 						distcol_type = get_atttype(rte->relid,
@@ -264,7 +264,7 @@ pgxc_FQS_find_datanodes(Shippability_context *sc_context)
 					}
 				}
 				if (exec_nodes &&
-					IsLocatorDistributedByValue(exec_nodes->baselocatortype) &&
+					IsExecNodesDistributedByValue(exec_nodes) &&
 					OidIsValid(distcol_type) && bms_num_members(dist_varnos) > 0 &&
 					exec_nodes->baselocatortype == rel_exec_nodes->baselocatortype)
 				{
@@ -334,7 +334,7 @@ pgxc_FQS_find_datanodes(Shippability_context *sc_context)
 		 * replicated JOIN, choose only one of them. If one of them is a
 		 * preferred node choose that one, otherwise choose the first one.
 		 */
-		if (IsLocatorReplicated(exec_nodes->baselocatortype) &&
+		if (IsExecNodesReplicated(exec_nodes) &&
 			exec_nodes->accesstype == RELATION_ACCESS_READ)
 		{
 			List		*tmp_list = exec_nodes->nodeList;
@@ -441,13 +441,13 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 	 * the JOIN is replicated.
 	 */
 	if (rel_access == RELATION_ACCESS_READ &&
-		IsLocatorReplicated(rel_loc_info->locatorType))
+		IsRelationReplicated(rel_loc_info))
 	{
 		list_free(rel_exec_nodes->nodeList);
 		rel_exec_nodes->nodeList = list_copy(rel_loc_info->nodeList);
 	}
 	else if (rel_access == RELATION_ACCESS_INSERT &&
-			 IsLocatorDistributedByValue(rel_loc_info->locatorType))
+			 IsRelationDistributedByValue(rel_loc_info))
 	{
 		ListCell *lc;
 		TargetEntry *tle;
@@ -1421,8 +1421,8 @@ pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2, bool merge_dist_equijoin,
 		en1->accesstype != RELATION_ACCESS_READ || en2->accesstype != RELATION_ACCESS_READ)
 		return NULL;
 
-	if (IsLocatorReplicated(en1->baselocatortype) &&
-		IsLocatorReplicated(en2->baselocatortype))
+	if (IsExecNodesReplicated(en1) &&
+		IsExecNodesReplicated(en2))
 	{
 		/*
 		 * Replicated/replicated join case
@@ -1451,8 +1451,8 @@ pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2, bool merge_dist_equijoin,
 		return merged_en;
 	}
 
-	if (IsLocatorReplicated(en1->baselocatortype) &&
-		IsLocatorColumnDistributed(en2->baselocatortype))
+	if (IsExecNodesReplicated(en1) &&
+		IsExecNodesColumnDistributed(en2))
 	{
 		List	*diff_nodelist = NULL;
 		/*
@@ -1476,8 +1476,8 @@ pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2, bool merge_dist_equijoin,
 		return merged_en;
 	}
 
-	if (IsLocatorColumnDistributed(en1->baselocatortype) &&
-		IsLocatorReplicated(en2->baselocatortype))
+	if (IsExecNodesColumnDistributed(en1) &&
+		IsExecNodesReplicated(en2))
 	{
 		List *diff_nodelist = NULL;
 		/*
@@ -1502,8 +1502,8 @@ pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2, bool merge_dist_equijoin,
 		return merged_en;
 	}
 
-	if (IsLocatorColumnDistributed(en1->baselocatortype) &&
-		IsLocatorColumnDistributed(en2->baselocatortype))
+	if (IsExecNodesColumnDistributed(en1) &&
+		IsExecNodesColumnDistributed(en2))
 	{
 		/*
 		 * Distributed/distributed case
@@ -1602,7 +1602,7 @@ pgxc_check_index_shippability(RelationLocInfo *relLocInfo,
 	 */
 	if (is_exclusion)
 	{
-		if (!IsLocatorReplicated(relLocInfo->locatorType))
+		if (!IsRelationReplicated(relLocInfo))
 		{
 			result = false;
 			goto finish;
@@ -1779,7 +1779,7 @@ pgxc_check_fk_shippability(RelationLocInfo *parentLocInfo,
 			 */
 
 			/* A replicated child cannot refer to a distributed parent */
-			if (IsLocatorReplicated(childLocInfo->locatorType))
+			if (IsRelationReplicated(childLocInfo))
 			{
 				result = false;
 				break;

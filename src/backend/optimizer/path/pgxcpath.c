@@ -140,7 +140,7 @@ create_plainrel_rqpath(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 	 * GetRelationNodes().
 	 * create_remotequery_plan would reduce the number of nodes to 1.
 	 */
-	if (IsLocatorReplicated(rel_loc_info->locatorType))
+	if (IsRelationReplicated(rel_loc_info))
 	{
 		list_free(exec_nodes->nodeList);
 		exec_nodes->nodeList = list_copy(rel_loc_info->nodeList);
@@ -210,7 +210,7 @@ pgxc_is_join_reducible(ExecNodes *inner_en, ExecNodes *outer_en, Relids in_relid
 	 * such case, we can reduce the JOIN if the distribution nodelist is also
 	 * same.
 	 */
-	if (IsLocatorDistributedByValue(inner_en->baselocatortype) &&
+	if (IsExecNodesDistributedByValue(inner_en) &&
 		inner_en->baselocatortype == outer_en->baselocatortype &&
 		!merge_replicated_only)
 	{

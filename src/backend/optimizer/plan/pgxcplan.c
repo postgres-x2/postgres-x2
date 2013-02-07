@@ -684,7 +684,7 @@ create_remotequery_plan(PlannerInfo *root, RemoteQueryPath *best_path)
 	 * For replicated results, we need to choose one of the nodes, if there are
 	 * many of them.
 	 */
-	if (IsLocatorReplicated(result_node->exec_nodes->baselocatortype))
+	if (IsExecNodesReplicated(result_node->exec_nodes))
 		result_node->exec_nodes->nodeList =
 						GetPreferredReplicationNode(result_node->exec_nodes->nodeList);
 
@@ -2675,7 +2675,7 @@ validate_part_col_updatable(const Query *query)
 		return;
 
 	/* Only relations distributed by value can be checked */
-	if (IsLocatorDistributedByValue(rel_loc_info->locatorType))
+	if (IsRelationDistributedByValue(rel_loc_info))
 	{
 		/* It is a partitioned table, check partition column in targetList */
 		foreach(lc, query->targetList)
