@@ -87,9 +87,18 @@ static void pgxc_rqplan_adjust_vars(RemoteQuery *rqplan, Node *node);
 
 static CombineType get_plan_combine_type(CmdType commandType, char baselocatortype);
 
-static void pgxc_add_returning_clause(RemoteQuery *rq, Query *parse,
-								List *ret_list,StringInfo buf, int rel_index);
-
+static void pgxc_add_returning_list(RemoteQuery *rq, List *ret_list,
+									int rel_index);
+static void pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
+									Index resultRelationIndex,
+									RemoteQuery *rqplan,
+									List *sourceTargetList);
+static void pgxc_dml_add_qual_to_query(Query *query, int param_num,
+									AttrNumber sys_col_attno, Index varno);
+static Param *pgxc_make_param(int param_num, Oid param_type);
+static void pgxc_add_param_as_tle(Query *query, int param_num, Oid param_type,
+									char *resname);
+static bool is_column_dropped(int col_att, Oid rel_id);
 /*
  * pgxc_separate_quals
  * Separate the quals into shippable and unshippable quals. Return the shippable
@@ -748,31 +757,24 @@ make_remotequery(List *qptlist, List *qpqual, Index scanrelid)
 }
 
 /*
- * pgxc_add_returning_clause
+ * pgxc_add_returning_list
  *
- * This function adds RETURNING clause to the passed remote query node
+ * This function adds RETURNING var list to the passed remote query node
  * It first pulls all vars from the returning list.
  * It then iterates over all the vars and picks all belonging
  * to the remote relation. The refined vars list is then copied in plan target
  * list as well as base_tlist of remote query.
- * The vars list is then de-parsed and the returning string is appended to
- * the query buffer.
  *
  * Parameters:
  * rq             : The remote query node to whom the returning
  *                  list is to be added
- * parse          : The query tree
  * ret_list       : The returning list
- * buf            : The query buffer in which the sql statement to be
- *                  sent to the datanode is being prepared
  * rel_index      : The index of the concerned relation in RTE list
  */
 static void
-pgxc_add_returning_clause(RemoteQuery *rq, Query *parse, List *ret_list,
-							StringInfo buf, int rel_index)
+pgxc_add_returning_list(RemoteQuery *rq, List *ret_list, int rel_index)
 {
 	List		*shipableReturningList = NULL;
-	StringInfo	tlbuf;
 	List		*varlist;
 	ListCell	*lc;
 
@@ -780,7 +782,6 @@ pgxc_add_returning_clause(RemoteQuery *rq, Query *parse, List *ret_list,
 	if (ret_list == NULL)
 		return;
 
-	tlbuf = makeStringInfo();
 	/*
 	 * Returning lists cannot contain aggregates and
 	 * we are not supporting place holders for now
@@ -808,15 +809,6 @@ pgxc_add_returning_clause(RemoteQuery *rq, Query *parse, List *ret_list,
 	 */
 	rq->scan.plan.targetlist = list_copy(shipableReturningList);
 	rq->base_tlist = list_copy(shipableReturningList);
-
-	deparse_targetlist(parse, shipableReturningList, tlbuf);
-
-	if (tlbuf->len > 0)
-	{
-		appendStringInfoString(buf, " RETURNING ");
-		appendStringInfoString(buf, tlbuf->data);
-	}
-	pfree(tlbuf);
 }
 
 Plan *
@@ -838,305 +830,448 @@ pgxc_make_modifytable(PlannerInfo *root, Plan *topplan)
 	 * when there is something to modify.
 	 */
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-		switch (mt->operation)
-		{
-			case CMD_INSERT:
-				topplan = create_remoteinsert_plan(root, topplan);
-				break;
-			case CMD_UPDATE:
-				topplan = create_remoteupdate_plan(root, topplan);
-				break;
-			case CMD_DELETE:
-				topplan = create_remotedelete_plan(root, topplan);
-				break;
-			default:
-				break;
-		}
+		topplan = create_remote_dml_plan(root, topplan, mt->operation);
+
 	return topplan;
 }
 
 /*
- * create_remoteinsert_plan()
+ * is_column_dropped
+ *
+ * Helper function to check whether the specidied attribute is dropped or not
+ */
+static bool
+is_column_dropped(int col_att, Oid rel_id)
+{
+	HeapTuple	tp;
+
+	/* Get the column attribute */
+	tp = SearchSysCache(ATTNUM, ObjectIdGetDatum(rel_id),
+						Int16GetDatum(col_att), 0, 0);
+	if (HeapTupleIsValid(tp))
+	{
+		Form_pg_attribute att_tup = (Form_pg_attribute) GETSTRUCT(tp);
+
+		/* Has it been dropped? */
+		if (att_tup->attisdropped)
+		{
+			ReleaseSysCache(tp);
+			return true;
+		}
+		ReleaseSysCache(tp);
+	}
+	else
+		elog(ERROR, "cache lookup failed for attribute %d of relation %u",
+											col_att, rel_id);
+	return false;
+}
+
+/*
+ * pgxc_make_param
+ *
+ * Helper function to make a parameter
+ */
+static Param *
+pgxc_make_param(int param_num, Oid param_type)
+{
+	Param	*param;
+
+	param = makeNode(Param);
+	/* Parameter values are supplied from outside the plan */
+	param->paramkind = PARAM_EXTERN;
+	/* Parameters are numbered from 1 to n */
+	param->paramid = param_num;
+	param->paramtype = param_type;
+	/* The following members are not required for deparsing */
+	param->paramtypmod = -1;
+	param->paramcollid = InvalidOid;
+	param->location = -1;
+
+	return param;
+}
+
+/*
+ * pgxc_add_param_as_tle
+ *
+ * Helper function to add a parameter to the target list of the query
+ */
+static void
+pgxc_add_param_as_tle(Query *query, int param_num, Oid param_type,
+						char *resname)
+{
+	Param		*param;
+	TargetEntry	*res_tle;
+
+	param = pgxc_make_param(param_num, param_type);
+	res_tle = makeTargetEntry((Expr *)param, param_num, resname, false);
+	query->targetList = lappend(query->targetList, res_tle);
+}
+
+/*
+ * pgxc_dml_add_qual_to_query
+ *
+ * This function adds a qual of the form sys_col_name = $? to a query
+ * It is required while adding quals like ctid = $2 or xc_node_id = $3 to DMLs
+ *
+ * Parameters Description
+ * query         : The qual will be added to this query
+ * param_num     : The parameter number to use while adding the qual
+ * sys_col_attno : Which system column to use for LHS of the = operator
+ *               : SelfItemPointerAttributeNumber for ctid
+ *               : XC_NodeIdAttributeNumber for xc_node_id
+ * varno         : Index of this system column's relation in range table
+ */
+static void
+pgxc_dml_add_qual_to_query(Query *query, int param_num,
+							AttrNumber sys_col_attno, Index varno)
+{
+	Var			*lhs_var;
+	Expr		*qual;
+	Param		*rhs_param;
+
+	/* Make a parameter expr for RHS of the = operator */
+	rhs_param = pgxc_make_param(param_num, INT4OID);
+
+	/* Make a system column ref expr for LHS of the = operator */
+	lhs_var = makeVar(varno, sys_col_attno, INT4OID, -1, InvalidOid, 0);
+
+	/* Make the new qual sys_column_name = $? */
+	qual = make_op(NULL, list_make1(makeString("=")), (Node *)lhs_var,
+									(Node *)rhs_param, -1);
+
+	/* Add the qual to the qual list */
+	query->jointree->quals = (Node *)lappend((List *)query->jointree->quals,
+										(Node *)qual);
+}
+
+/*
+ * pgxc_build_dml_statement
+ *
+ * Construct a Query structure for the query to be fired on the datanodes
+ * and deparse it. Fields not set remain memzero'ed as set by makeNode.
+ * Following is a description of all members of Query structure
+ * when used for deparsing of non FQSed DMLs in XC.
+ *
+ * querySource		: Can be set to QSRC_ORIGINAL i.e. 0
+ * queryId			: Not used in deparsing, can be 0
+ * canSetTag		: Not used in deparsing, can be false
+ * utilityStmt		: A DML is not a utility statement, keep it NULL
+ * resultRelation	: Index of the target relation will be sent by the caller
+ * hasAggs			: Our DML won't contain any aggregates in tlist, so false
+ * hasWindowFuncs	: Our DML won't contain any window funcs in tlist, so false
+ * hasSubLinks		: RemoteQuery does not support subquery, so false
+ * hasDistinctOn	: Our DML wont contain any DISTINCT clause, so false
+ * hasRecursive		: WITH RECURSIVE wont be specified in our DML, so false
+ * hasModifyingCTE	: Our DML will not be in WITH, so false
+ * hasForUpdate		: FOR UPDATE/SHARE can be there but not untill we support it
+ * cteList			: WITH list will be NULL in our case
+ * rtable			: We can set the rtable as being the same as the original query
+ * jointree			: In XC we plan non FQSed DML's in such a maner that the
+ *					: DML's to be sent to the datanodes do not contain joins,
+ *					: so the join tree will not contain any thing in fromlist,
+ *					: It will however contain quals and the number of quals
+ *					: will always be fixed to two in case of UPDATE/DELETE &
+ *					: zero in case of an INSERT. The quals will be of the
+ *					: form ctid = $4 or xc_node_id = $5
+ * targetList		: For DELETEs it will be NULL
+ *					: For INSERTs it will be a list of params. The number of
+ *					:             params will be the same as the number of
+ *					:             enteries in the source data plan target list
+ *					:             The targetList specifies the VALUES caluse
+ *					:             e.g. INSERT INTO TAB VALUES ($1, $2, ...)
+ *					: For UPDATEs it will be a list of parameters, the number
+ *					:             of parameters will be the same as the number
+ *					:             entries in the original query, however the
+ *					:             parameter numbers will be the one where
+ *					:             the target entry of the original query occurs
+ *					:             in the source data plan target list
+ *					:             The targetList specified the SET clause
+ *					:             e.g. UPDATE tab SET c1 = $3, c2 = $5 ....
+ * returningList	: will be provided by pgxc_add_returning_list
+ * groupClause		: Our DML won't contin any so NULL.
+ * havingQual		: Our DML won't contin any so NULL.
+ * windowClause		: Our DML won't contin any so NULL.
+ * distinctClause	: Our DML won't contin any so NULL.
+ * sortClause		: Our DML won't contin any so NULL.
+ * limitOffset		: Our DML won't contin any so NULL.
+ * limitCount		: Our DML won't contin any so NULL.
+ * rowMarks			: Will be NULL for now, may be used when we provide support
+ *					: for WHERE CURRENT OF.
+ * setOperations	: Our DML won't contin any so NULL.
+ * constraintDeps	: Our DML won't contin any so NULL.
+ * sql_statement	: Original query is not required for deparsing
+ * is_local			: Not required for deparsing, keep 0
+ * is_ins_child_sel_parent	: Not required for deparsing, keep 0
+ */
+static void
+pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
+						Index resultRelationIndex, RemoteQuery *rqplan,
+						List *sourceTargetList)
+{
+	Query			*query_to_deparse;
+	RangeTblRef		*target_table_ref;
+	RangeTblEntry	*res_rel;
+	ListCell		*elt;
+	int				ctid_param_num = -1;
+	int				xc_node_id_param_num = -1;
+	int				col_att = 0;
+
+	/* Make sure we are dealing with DMLs */
+	if (cmdtype != CMD_UPDATE &&
+		cmdtype != CMD_INSERT &&
+		cmdtype != CMD_DELETE)
+		return;
+
+	/* First construct a reference to an entry in the query's rangetable */
+	target_table_ref = makeNode(RangeTblRef);
+
+	/* RangeTblRef::rtindex will be the same as indicated by the caller */
+	target_table_ref->rtindex = resultRelationIndex;
+
+	query_to_deparse = makeNode(Query);
+	query_to_deparse->commandType = cmdtype;
+	query_to_deparse->resultRelation = resultRelationIndex;
+
+	/* We will modify the RTE, so make a copy */
+	query_to_deparse->rtable = list_copy(root->parse->rtable);
+
+	res_rel = rt_fetch(resultRelationIndex, query_to_deparse->rtable);
+	Assert(res_rel->rtekind == RTE_RELATION);
+	/*
+	 * If this is RTE for an inherited table, we will have
+	 * res_rel->eref->aliasname set to the name of the parent table.
+	 * Query deparsing logic fully qualifies such relation names while
+	 * generating strings for Var nodes. To avoid this, set the alias
+	 * node to the eref node temporarily. See code in get_variable for ref.
+	 * PGXC_TODO: if get_variable() starts correctly using the aliasname set in
+	 * inherited tables, we don't need this hack here.
+	 * Similarly we do not need schema qualification for temp tables
+	 */
+	if (IsTempTable(res_rel->relid) ||
+		(!res_rel->alias && res_rel->eref && res_rel->eref->aliasname &&
+		strcmp(res_rel->eref->aliasname, get_rel_name(res_rel->relid)) != 0))
+		res_rel->alias = res_rel->eref;
+
+	/* This RTE should appear in FROM clause of the SQL statement constructed */
+	res_rel->inFromCl = true;
+
+	query_to_deparse->jointree = makeNode(FromExpr);
+
+	/*
+	 * Prepare a param list for INSERT queries
+	 * While doing so note the position of ctid, xc_node_id in source data
+	 * plan's target list provided by the caller.
+	 */
+	foreach(elt, sourceTargetList)
+	{
+		TargetEntry	*tle = lfirst(elt);
+
+		col_att++;
+
+		/* The position of ctid/xc_node_id is not required for INSERT */
+		if (tle->resjunk && (cmdtype == CMD_UPDATE || cmdtype == CMD_DELETE))
+		{
+			if (xc_node_id_param_num == -1)
+			{
+				Var *v = (Var *)tle->expr;
+
+				if (v->varattno == XC_NodeIdAttributeNumber)
+					xc_node_id_param_num = tle->resno;
+			}
+			if (ctid_param_num == -1)
+			{
+				Var *v = (Var *)tle->expr;
+
+				if (v->varattno == SelfItemPointerAttributeNumber)
+					ctid_param_num = tle->resno;
+			}
+
+			continue;
+		}
+
+		/*
+		 * Make sure the entry in the source target list belongs to the
+		 * target table of the DML
+		 */
+		if (tle->resorigtbl != 0 && tle->resorigtbl != res_rel->relid)
+			continue;
+
+		if (cmdtype == CMD_INSERT)
+		{
+			/* Make sure the column has not been dropped */
+			if (is_column_dropped(col_att, res_rel->relid))
+				continue;
+
+			/*
+			 * Create the param to be used for VALUES caluse ($1, $2 ...)
+			 * and add it to the query target list
+			 */
+			pgxc_add_param_as_tle(query_to_deparse, tle->resno,
+									exprType((Node *) tle->expr), NULL);
+		}
+	}
+
+	/*
+	 * For UPDATEs the targetList will specify the SET clause
+	 * The number of entries will be the same as the number
+	 * of enries in the target list of original query,
+	 * however their form has to be changed to col_name = $4
+	 * The query deparsing logic obtains the column names from
+	 * TargetEntry::resno, where as the parameter number is
+	 * set to be the same as its position in target table
+	 */
+	if (cmdtype == CMD_UPDATE)
+	{
+		foreach(elt, root->parse->targetList)
+		{
+			TargetEntry	*qtle = lfirst(elt);
+			AttrNumber	param_num = -1;
+	
+			/*
+			 * The entries of the SET clause will have resjusk false
+			 * and will have a valid resname
+			 */
+			if (qtle->resjunk || qtle->resname == NULL)
+				continue;
+
+			/*
+			 * Assume all attributes will be there in the source target list
+			 * and in the same order as the attributes exist in the table
+			 * The paramter number for the set caluse would therefore
+			 * be same as its attribute number
+			 */
+			param_num = get_attnum(res_rel->relid, qtle->resname);
+			if (param_num == InvalidAttrNumber)
+			{
+				elog(ERROR, "cache lookup failed for attribute %s of relation %u",
+					qtle->resname, res_rel->relid);
+				return;
+			}
+
+			/*
+			 * Create the parameter using the parameter number found earlier
+			 * and add it to the target list of the query to deparse
+			 */
+			pgxc_add_param_as_tle(query_to_deparse, param_num,
+								exprType((Node *) qtle->expr), qtle->resname);
+		}
+	}
+
+	/* Add quals like ctid = $4 AND xc_node_id = $6 to the UPDATE/DELETE query */
+	if (cmdtype == CMD_UPDATE || cmdtype == CMD_DELETE)
+	{
+		if (ctid_param_num <= 0 && xc_node_id_param_num <= 0)
+		{
+			elog(ERROR, "Source data plan's target list does not contain required system colums");
+			return;
+		}
+
+		if (ctid_param_num > 0)
+			pgxc_dml_add_qual_to_query(query_to_deparse, ctid_param_num,
+							SelfItemPointerAttributeNumber, resultRelationIndex);
+
+		if (xc_node_id_param_num > 0)
+			pgxc_dml_add_qual_to_query(query_to_deparse, xc_node_id_param_num,
+							XC_NodeIdAttributeNumber, resultRelationIndex);
+
+		if (ctid_param_num > 0 && xc_node_id_param_num > 0)
+			query_to_deparse->jointree->quals = (Node *)make_andclause(
+									(List *)query_to_deparse->jointree->quals);
+	}
+
+	/* pgxc_add_returning_list copied returning list in base_tlist */
+	if (rqplan->base_tlist)
+		query_to_deparse->returningList = list_copy(rqplan->base_tlist);
+
+	rqplan->remote_query = query_to_deparse;
+
+	pgxc_rqplan_build_statement(rqplan);
+}
+
+/*
+ * create_remote_dml_plan()
  *
  * For every target relation, add a remote query node to carry out remote
  * operations.
  */
 Plan *
-create_remoteinsert_plan(PlannerInfo *root, Plan *topplan)
+create_remote_dml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp)
 {
-	ModifyTable *mt = (ModifyTable *)topplan;
-	ListCell	   *l;
-	int		relcount = 0;
+	ModifyTable			*mt = (ModifyTable *)topplan;
+	ListCell			*rel;
+	int					relcount = -1;
+	RelationAccessType	accessType;
 
 	/* We expect to work only on ModifyTable node */
 	if (!IsA(topplan, ModifyTable))
 		elog(ERROR, "Unexpected node type: %d", topplan->type);
 
-	/*
-	 * For every result relation, build a remote plan to execute remote insert.
-	 */
-	foreach(l, mt->resultRelations)
+	switch(cmdtyp)
 	{
-		Index			resultRelationIndex = lfirst_int(l);
-		RangeTblEntry	*ttab;
-		RelationLocInfo *rel_loc_info;
-		StringInfo		buf, buf2;
-		RemoteQuery	   *fstep;
-		Oid				nspid;
-		char		   *nspname;
-		int				natts, att;
-		Oid 		   *att_types;
-		char		   *relname;
-		bool			first_att_printed = false;
-		Query			*parse = root->parse;
-		RangeTblEntry	*dummy_rte;	/* RTE for the remote query node being added. */
+		case CMD_UPDATE:
+		case CMD_DELETE:
+			accessType = RELATION_ACCESS_UPDATE;
+			break;
 
-		ttab = rt_fetch(resultRelationIndex, root->parse->rtable);
+		case CMD_INSERT:
+			accessType = RELATION_ACCESS_INSERT;
+			break;
+
+		default:
+			elog(ERROR, "Unexpected command type: %d", cmdtyp);
+			return NULL;
+	}
+
+	/*
+	 * For every result relation, build a remote plan to execute remote DML.
+	 */
+	foreach(rel, mt->resultRelations)
+	{
+		Index			resultRelationIndex = lfirst_int(rel);
+		RangeTblEntry	*res_rel;
+		RelationLocInfo	*rel_loc_info;
+		Oid				*param_types;		/* Types of query parameters */
+		RemoteQuery		*fstep;
+		RangeTblEntry	*dummy_rte;			/* RTE for the remote query node */
+		Plan			*sourceDataPlan;	/* plan producing source data */
+		List			*sourceTargetList = NULL;
+		int				tot_prepparams;
+		char			*relname;
+		int				i;
+		ListCell		*elt;
+
+		relcount++;
+
+		res_rel = rt_fetch(resultRelationIndex, root->parse->rtable);
 
 		/* Bad relation ? */
-		if (ttab == NULL || ttab->rtekind != RTE_RELATION)
+		if (res_rel == NULL || res_rel->rtekind != RTE_RELATION)
 			continue;
 
+		relname = get_rel_name(res_rel->relid);
+
 		/* Get location info of the target table */
-		rel_loc_info = GetRelationLocInfo(ttab->relid);
+		rel_loc_info = GetRelationLocInfo(res_rel->relid);
 		if (rel_loc_info == NULL)
 			continue;
 
-		/* For main string */
-		buf = makeStringInfo();
-		/* For values */
-		buf2 = makeStringInfo();
-
-		/* Compose INSERT FROM target_table */
-		nspid = get_rel_namespace(ttab->relid);
-		nspname = get_namespace_name(nspid);
-		relname = get_rel_name(ttab->relid);
-
-		/*
-		 * Do not qualify with namespace for TEMP tables. The schema name may
-		 * vary on each node
-		 */
-		if (IsTempTable(ttab->relid))
-			appendStringInfo(buf, "INSERT INTO %s (",
-					quote_identifier(relname));
-		else
-			appendStringInfo(buf, "INSERT INTO %s.%s (", quote_identifier(nspname),
-					quote_identifier(relname));
-
-		fstep = make_remotequery(NIL, NIL, resultRelationIndex);
-		fstep->is_temp = IsTempTable(ttab->relid);
-
-		natts = get_relnatts(ttab->relid);
-		att_types = (Oid *) palloc0 (sizeof (Oid) * natts);
-
-		/*
-		 * Populate the column information
-		 */
-		for (att = 1; att <= natts; att++)
-		{
-			HeapTuple tp;
-
-			tp = SearchSysCache(ATTNUM,
-					ObjectIdGetDatum(ttab->relid),
-					Int16GetDatum(att),
-					0, 0);
-			if (HeapTupleIsValid(tp))
-			{
-				Form_pg_attribute att_tup = (Form_pg_attribute) GETSTRUCT(tp);
-
-				/* Bypass dropped attributes in query */
-				if (att_tup->attisdropped)
-				{
-					/* Dropped attributes are casted as int4 in prepared parameters */
-					att_types[att - 1] = INT4OID;
-				}
-				else
-				{
-					/* Add comma before all except first attributes */
-					if (first_att_printed)
-						appendStringInfoString(buf, ", ");
-
-					/* Build the value part, parameters are filled at run time */
-					if (first_att_printed)
-						appendStringInfoString(buf2, ", ");
-
-					first_att_printed = true;
-
-					/* Append column name */
-					appendStringInfoString(buf, quote_identifier(NameStr(att_tup->attname)));
-
-					/* Append value in string */
-					appendStringInfo(buf2, "$%d", att);
-
-					/* Assign parameter type */
-					att_types[att - 1] = att_tup->atttypid;
-				}
-
-				ReleaseSysCache(tp);
-			}
-			else
-				elog(ERROR, "cache lookup failed for attribute %d of relation %u",
-						att, ttab->relid);
-		}
-
-		/* Gather the two strings */
-		appendStringInfo(buf, ") VALUES (%s)", buf2->data);
-
-		if (mt->returningLists)
-			pgxc_add_returning_clause(fstep, parse,
-									list_nth(mt->returningLists, relcount),
-									buf, resultRelationIndex);
-
-		fstep->sql_statement = pstrdup(buf->data);
-
-		/* Processed rows are counted by the main planner */
-		fstep->combine_type = get_plan_combine_type(CMD_INSERT, rel_loc_info->locatorType);
-
-		fstep->read_only = false;
-		fstep->exec_nodes = makeNode(ExecNodes);
-		fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
-		fstep->exec_nodes->primarynodelist = NULL;
-		fstep->exec_nodes->nodeList = rel_loc_info->nodeList;
-		fstep->exec_nodes->en_relid = ttab->relid;
-		fstep->exec_nodes->accesstype = RELATION_ACCESS_INSERT;
-		fstep->exec_nodes->en_expr = pgxc_set_en_expr(ttab->relid, resultRelationIndex);
-
-		SetRemoteStatementName((Plan *) fstep, NULL, natts, att_types, 0);
-
-		dummy_rte = make_dummy_remote_rte(relname, makeAlias("REMOTE_DML_QUERY", NIL));
-		root->parse->rtable = lappend(root->parse->rtable, dummy_rte);
-		fstep->scan.scanrelid = list_length(root->parse->rtable);
-
-		/* Free everything */
-		pfree(buf->data);
-		pfree(buf);
-		pfree(buf2->data);
-		pfree(buf2);
-
-		mt->remote_plans = lappend(mt->remote_plans, fstep);
-
-		relcount++;
-	}
-
-	return (Plan *)mt;
-}
-
-
-/*
- * create_remoteupdate_plan()
- *
- * For every target relation, add a remote query node to carry out remote
- * operations.
- * WHERE and SET clauses are populated with the relation attributes.
- * Target list is used for SET clause and completed with the expressions already given
- * Those are the non-junk expressions in target list of parser tree.
- * WHERE clause is completed by the other expressions in target tree that have been
- * marked as junk during target list rewriting to be able to identify consistently
- * tuples on remote Coordinators. This target list is based on the information obtained
- * from the inner plan that should be generated by create_remotequery_plan.
- */
-Plan *
-create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
-{
-	ModifyTable *mt = (ModifyTable *)topplan;
-	ListCell	*l;
-	int		relcount = 0;
-
-	/* We expect to work only on ModifyTable node */
-	if (!IsA(topplan, ModifyTable))
-		elog(ERROR, "Unexpected node type: %d", topplan->type);
-
-	/*
-	 * For every result relation, build a remote plan to execute remote update.
-	 */
-	foreach(l, mt->resultRelations)
-	{
-		Index			resultRelationIndex = lfirst_int(l);
-		Query			*parse = root->parse;
-		RangeTblEntry   *ttab;
-		RelationLocInfo *rel_loc_info;
-		StringInfo		buf, buf2;
-		Oid			    nspid;		/* Relation namespace Oid */
-		char		   *nspname;	/* Relation namespace name */
-		Oid			   *param_types;	/* Types of query parameters */
-		bool			is_set_printed = false;	/* Control of SET generation */
-		bool			is_where_printed = false;	/* Control of WHERE generation */
-		RemoteQuery	   *fstep;		/* Plan step generated */
-		ListCell	   *elt;
-		int				where_count = 1;
-		int				natts, tot_prepparams;
-		char		   *relname;
-		int		i;
-		List		*sourceTargetList = NULL;
-		Plan		*sourceDataPlan;	/* plan producing source data */
-		RangeTblEntry	*dummy_rte;		/* RTE for the remote query node being added. */
-
-		/*
-		 * Get the plan that corresponds to this relation
-		 * that is supposed to supply source data to this plan
-		 */
+		/* Get the plan that is supposed to supply source data to this plan */
 		sourceDataPlan = list_nth(mt->plans, relcount);
 		/*
 		 * Get the target list of the plan that is supposed to
 		 * supply source data to this plan
 		 */
 		sourceTargetList = sourceDataPlan->targetlist;
-
-		ttab = rt_fetch(resultRelationIndex, parse->rtable);
-
-		/* Bad relation ? */
-		if (ttab == NULL || ttab->rtekind != RTE_RELATION)
-			continue;
-
-		relname = get_rel_name(ttab->relid);
-
-		/* Get location info of the target table */
-		rel_loc_info = GetRelationLocInfo(ttab->relid);
-		if (rel_loc_info == NULL)
-			continue;
-
-		/* Create query buffers */
-		buf = makeStringInfo();		/* For SET clause */
-		buf2 = makeStringInfo();	/* For WHERE clause */
-
-		/* Compose UPDATE target_table */
-		natts = get_relnatts(ttab->relid);
-		nspid = get_rel_namespace(ttab->relid);
-		nspname = get_namespace_name(nspid);
-
-		/*
-		 * Do not qualify with namespace for TEMP tables. The schema name may
-		 * vary on each node
-		 */
-		if (IsTempTable(ttab->relid))
-			appendStringInfo(buf, "UPDATE ONLY %s SET ",
-							 quote_identifier(relname));
-		else
-			appendStringInfo(buf, "UPDATE ONLY %s.%s SET ", quote_identifier(nspname),
-							 quote_identifier(relname));
-
-		/*
-		 * In XC an update is planned as a two step process
-		 * The first step selects the ctid, node id and the
-		 * new values of the columns for the row to be updated
-		 * where as the second step
-		 * creates a parameterized query that is supposed to
-		 * take the data row returned by the lower plan node
-		 * as the parameters and update the row.
-		 * The total number of parameters should therefore
-		 * be equal to the number of target list entries in
-		 * lower plan node
-		 */
 		tot_prepparams = list_length(sourceTargetList);
 
-		/* Then allocate the array for this purpose */
+		/* Allocate the array for parameter types */
 		param_types = (Oid *) palloc0(sizeof (Oid) * tot_prepparams);
 
 		/*
-		 * The parameter types of all the supplied parameters
-		 * will be the same as the types of the target list entries
-		 * in the lower plan node
-		 */
+		* The parameter types of all the supplied parameters
+		* will be the same as the types of the target list entries
+		* in the source data plan
+		*/
 		i = 0;
 		foreach(elt, sourceTargetList)
 		{
@@ -1146,298 +1281,51 @@ create_remoteupdate_plan(PlannerInfo *root, Plan *topplan)
 			param_types[i++] = exprType((Node *) tle->expr);
 		}
 
-		/*
-		 * Now build the query based on the target list. SET clause is completed
-		 * by non-junk entries and WHERE clause by junk entries used to identify
-		 * uniquely tuples on remote nodes.
-		 */
-		foreach(elt, parse->targetList)
-		{
-			TargetEntry *tle = lfirst(elt);
-
-			if (!tle->resjunk)
-			{
-				int attno = 0;
-				int i;
-
-				/* Add target list element to SET clause */
-
-				/* Add comma before all except first attributes */
-				if (!is_set_printed)
-					is_set_printed = true;
-				else
-					appendStringInfoString(buf, ", ");
-
-				/* We need first to find the position of this element in attribute list */
-				for (i = 0; i < natts; i++)
-				{
-					if (strcmp(tle->resname,
-					    get_relid_attribute_name(ttab->relid, i + 1)) == 0)
-					{
-						attno = i + 1;
-						break;
-					}
-				}
-
-				/* Complete string */
-				appendStringInfo(buf, "%s = $%d",
-								 tle->resname,
-								 attno);
-			}
-			else
-			{
-				where_count++;
-
-				/*
-				 * ctid and xc_node_id are sufficient to identify
-				 * remote tuple.
-				 */
-				if (tle->resname == NULL ||
-					(strcmp(tle->resname, "xc_node_id") != 0 &&
-					strcmp(tle->resname, "ctid") != 0))
-					continue;
-
-				/* Set the clause if necessary */
-				if (!is_where_printed)
-				{
-					is_where_printed = true;
-					appendStringInfoString(buf2, " WHERE ");
-				}
-				else
-					appendStringInfoString(buf2, "AND ");
-
-				/* Complete string */
-				appendStringInfo(buf2, "%s = $%d ",
-								 tle->resname,
-								 natts + where_count - 1);
-			}
-		}
-
-		/* Finish building the query by gathering SET and WHERE clauses */
-		appendStringInfo(buf, "%s", buf2->data);
-
-		/* Finally build the final UPDATE step */
 		fstep = make_remotequery(NIL, NIL, resultRelationIndex);
+		fstep->is_temp = IsTempTable(res_rel->relid);
+		fstep->read_only = false;
 
 		if (mt->returningLists)
-			pgxc_add_returning_clause(fstep, parse,
+			pgxc_add_returning_list(fstep,
 									list_nth(mt->returningLists, relcount),
-									buf, resultRelationIndex);
+									resultRelationIndex);
 
-		fstep->is_temp = IsTempTable(ttab->relid);
-		fstep->sql_statement = pstrdup(buf->data);
-		fstep->combine_type = get_plan_combine_type(CMD_UPDATE, rel_loc_info->locatorType);
+		pgxc_build_dml_statement(root, cmdtyp, resultRelationIndex, fstep,
+									sourceTargetList);
 
-		dummy_rte = make_dummy_remote_rte(relname, makeAlias("REMOTE_DML_QUERY", NIL));
+		fstep->combine_type = get_plan_combine_type(cmdtyp,
+													rel_loc_info->locatorType);
+
+		if (cmdtyp == CMD_INSERT)
+		{
+			fstep->exec_nodes = makeNode(ExecNodes);
+			fstep->exec_nodes->accesstype = accessType;
+			fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
+			fstep->exec_nodes->primarynodelist = NULL;
+			fstep->exec_nodes->nodeList = rel_loc_info->nodeList;
+		}
+		else
+		{
+			fstep->exec_nodes = GetRelationNodes(rel_loc_info, 0, true,
+												UNKNOWNOID, accessType);
+		}
+		fstep->exec_nodes->en_relid = res_rel->relid;
+
+		if (cmdtyp != CMD_DELETE)
+			fstep->exec_nodes->en_expr = pgxc_set_en_expr(res_rel->relid,
+														resultRelationIndex);
+
+		SetRemoteStatementName((Plan *) fstep, NULL, tot_prepparams,
+											param_types, 0);
+		dummy_rte = make_dummy_remote_rte(relname,
+										makeAlias("REMOTE_DML_QUERY", NIL));
 		root->parse->rtable = lappend(root->parse->rtable, dummy_rte);
 		fstep->scan.scanrelid = list_length(root->parse->rtable);
 
-		fstep->read_only = false;
-		/*
-		 * Get the nodes to execute the query on. We will execute this query on
-		 * all nodes. The WHERE condition will take care of updating the columns
-		 * accordingly.
-		 */
-		fstep->exec_nodes = GetRelationNodes(rel_loc_info, 0, true, UNKNOWNOID, RELATION_ACCESS_UPDATE);
-		fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
-		fstep->exec_nodes->en_relid = ttab->relid;
-		fstep->exec_nodes->nodeList = rel_loc_info->nodeList;
-		fstep->exec_nodes->accesstype = RELATION_ACCESS_UPDATE;
-		fstep->exec_nodes->en_expr = pgxc_set_en_expr(ttab->relid, resultRelationIndex);
-		SetRemoteStatementName((Plan *) fstep, NULL, tot_prepparams, param_types, 0);
-		pfree(buf->data);
-		pfree(buf2->data);
-		pfree(buf);
-		pfree(buf2);
-
 		mt->remote_plans = lappend(mt->remote_plans, fstep);
-
-		relcount++;
 	}
 
 	return (Plan *)mt;
-}
-
-/*
- * create_remotedelete_plan()
- *
- * For every target relation, add a remote query node to carry out remote
- * operations. The tuple to be deleted is selected depending on the target
- * list of given plan, generating parametrized WHERE clause in consequence.
- */
-Plan *
-create_remotedelete_plan(PlannerInfo *root, Plan *topplan)
-{
-	ModifyTable *mt = (ModifyTable *)topplan;
-	ListCell	*l;
-	int		relcount = 0;
-
-	/* We expect to work only on ModifyTable node */
-	if (!IsA(topplan, ModifyTable))
-		elog(ERROR, "Unexpected node type: %d", topplan->type);
-
-	/*
-	 * For every result relation, build a remote plan to execute remote delete.
-	 */
-	foreach(l, mt->resultRelations)
-	{
-		Index			resultRelationIndex = lfirst_int(l);
-		Query			*parse = root->parse;
-		RangeTblEntry   *ttab;
-		RelationLocInfo *rel_loc_info;
-		StringInfo		buf;
-		Oid			    nspid;		/* Relation namespace Oid */
-		char		   *nspname;	/* Relation namespace name */
-		int				tot_prepparams;	/* Attribute used is CTID */
-		Oid			   *param_types;	/* Types of query parameters */
-		RemoteQuery	   *fstep;		/* Plan step generated */
-		bool			is_where_created = false;
-		ListCell	   *elt;
-		int				count = 1;
-		char		   *relname;
-		List		*sourceTargetList = NULL;
-		Plan		*sourceDataPlan;	/* plan producing source data */
-		int 		i;
-		RangeTblEntry	*dummy_rte;		/* RTE for the remote query node being added. */
-
-		/*
-		 * Get the plan that corresponds to this relation
-		 * that is supposed to supply source data to this plan
-		 */
-		sourceDataPlan = list_nth(mt->plans, relcount);
-		/*
-		 * Get the target list of the plan that is supposed to
-		 * supply source data to this plan
-		 */
-		sourceTargetList = sourceDataPlan->targetlist;
-
-		ttab = rt_fetch(resultRelationIndex, parse->rtable);
-
-		/* Bad relation ? */
-		if (ttab == NULL || ttab->rtekind != RTE_RELATION)
-			continue;
-
-		/* Get location info of the target table */
-		rel_loc_info = GetRelationLocInfo(ttab->relid);
-		if (rel_loc_info == NULL)
-			continue;
-
-		/* Create query buffers */
-		buf = makeStringInfo();
-
-		/* Compose DELETE target_table */
-		nspid = get_rel_namespace(ttab->relid);
-		nspname = get_namespace_name(nspid);
-		relname = get_rel_name(ttab->relid);
-
-		/*
-		 * In XC a delete is planned as a two step process
-		 * The first step selects the ctid, node id
-		 * of the row to be deleted and the second step
-		 * creates a parameterized query that is supposed to
-		 * take the data row returned by the lower plan node
-		 * as the parameters and deletes the row.
-		 * The total number of parameters should therefore
-		 * be equal to the number of target list entries in
-		 * lower plan node
-		 */
-		tot_prepparams = list_length(sourceTargetList);
-		param_types = (Oid *) palloc0 (sizeof (Oid) * tot_prepparams);
-
-		/*
-		 * The parameter types of all the supplied parameters
-		 * will be the same as the types of the target list entries
-		 * in the lower plan node
-		 */
-		i = 0;
-		foreach(elt, sourceTargetList)
-		{
-			TargetEntry *tle = lfirst(elt);
-
-			/* Set up the parameter type */
-			param_types[i++] = exprType((Node *) tle->expr);
-		}
-
-		/*
-		 * Do not qualify with namespace for TEMP tables. The schema name may
-		 * vary on each node.
-		 */
-		if (IsTempTable(ttab->relid))
-			appendStringInfo(buf, "DELETE FROM ONLY %s ",
-							 quote_identifier(relname));
-		else
-			appendStringInfo(buf, "DELETE FROM ONLY %s.%s ", quote_identifier(nspname),
-							 quote_identifier(relname));
-
-		/* Generate WHERE clause for each target list item */
-		foreach(elt, parse->targetList)
-		{
-			TargetEntry *tle = lfirst(elt);
-
-			count++;
-
-			/*
-			 * In WHERE clause, ctid and xc_node_id are
-			 * sufficient to fetch a tuple from remote node.
-			 */
-			if (tle->resname == NULL ||
-				(strcmp(tle->resname, "xc_node_id") != 0 &&
-				strcmp(tle->resname, "ctid") != 0))
-				continue;
-
-			/* Set the clause if necessary */
-			if (!is_where_created)
-			{
-				is_where_created = true;
-				appendStringInfoString(buf, "WHERE ");
-			}
-			else
-				appendStringInfoString(buf, "AND ");
-
-			appendStringInfo(buf, "%s = $%d ",
-							quote_identifier(tle->resname),
-							count - 1);
-		}
-
-		/* Finish by building the plan step */
-		fstep = make_remotequery(NIL, NIL, resultRelationIndex);
-
-		if (mt->returningLists)
-			pgxc_add_returning_clause(fstep, parse,
-									list_nth(mt->returningLists, relcount),
-									buf, resultRelationIndex);
-
-		fstep->is_temp = IsTempTable(ttab->relid);
-		fstep->sql_statement = pstrdup(buf->data);
-		fstep->combine_type = get_plan_combine_type(CMD_DELETE, rel_loc_info->locatorType);
-
-		fstep->read_only = false;
-		/*
-		 * Get the nodes to execute the query on. We will execute this query on
-		 * all nodes. The WHERE condition will take care of updating the columns
-		 * accordingly.
-		 */
-		fstep->exec_nodes = GetRelationNodes(rel_loc_info, 0, true, UNKNOWNOID,
-												RELATION_ACCESS_UPDATE);
-		fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
-		fstep->exec_nodes->en_relid = ttab->relid;
-		fstep->exec_nodes->nodeList = rel_loc_info->nodeList;
-		fstep->exec_nodes->accesstype = RELATION_ACCESS_UPDATE;
-
-		dummy_rte = make_dummy_remote_rte(relname, makeAlias("REMOTE_DML_QUERY", NIL));
-		root->parse->rtable = lappend(root->parse->rtable, dummy_rte);
-		fstep->scan.scanrelid = list_length(root->parse->rtable);
-
-		SetRemoteStatementName((Plan *) fstep, NULL, tot_prepparams, param_types, 0);
-		pfree(buf->data);
-		pfree(buf);
-
-		mt->remote_plans = lappend(mt->remote_plans, fstep);
-
-		relcount++;
-	}
-
-	return (Plan *) mt;
 }
 
 /*

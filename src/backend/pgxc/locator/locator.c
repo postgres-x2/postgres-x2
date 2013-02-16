@@ -424,6 +424,7 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, Datum valueForDistCol,
 
 	exec_nodes = makeNode(ExecNodes);
 	exec_nodes->baselocatortype = rel_loc_info->locatorType;
+	exec_nodes->accesstype = accessType;
 
 	switch (rel_loc_info->locatorType)
 	{

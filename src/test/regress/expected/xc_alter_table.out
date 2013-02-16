@@ -9,7 +9,7 @@ EXPLAIN (VERBOSE true, COSTS false, NODES false) INSERT INTO xc_alter_table_1(na
 -----------------------------------------------------------------------------------------------------------
  Insert on public.xc_alter_table_1
    Node expr: xc_alter_table_1.id
-   Remote query: INSERT INTO public.xc_alter_table_1 (id, name, code) VALUES ($1, $2, $3)
+   Remote query: INSERT INTO xc_alter_table_1 (id, name, code) VALUES ($1, $2, $3)
    ->  Values Scan on "*VALUES*"
          Output: nextval('xc_alter_table_1_id_seq'::regclass), "*VALUES*".column1, NULL::character varying
 (5 rows)
@@ -35,7 +35,7 @@ EXPLAIN (VERBOSE true, COSTS false, NODES false) INSERT INTO xc_alter_table_1(na
 -------------------------------------------------------------------------------------------------
  Insert on public.xc_alter_table_1
    Node expr: xc_alter_table_1.id
-   Remote query: INSERT INTO public.xc_alter_table_1 (id, name) VALUES ($1, $2)
+   Remote query: INSERT INTO xc_alter_table_1 (id, name) VALUES ($1, $2)
    ->  Values Scan on "*VALUES*"
          Output: nextval('xc_alter_table_1_id_seq'::regclass), "*VALUES*".column1, NULL::integer
 (5 rows)
@@ -58,7 +58,7 @@ EXPLAIN (VERBOSE true, COSTS false, NODES false) INSERT INTO xc_alter_table_1(na
 -----------------------------------------------------------------------------------------------------------
  Insert on public.xc_alter_table_1
    Node expr: xc_alter_table_1.id
-   Remote query: INSERT INTO public.xc_alter_table_1 (id, name) VALUES ($1, $2)
+   Remote query: INSERT INTO xc_alter_table_1 (id, name) VALUES ($1, $2)
    ->  Subquery Scan on "*SELECT*"
          Output: nextval('xc_alter_table_1_id_seq'::regclass), 'ggg'::character varying(80), NULL::integer
          ->  Result
@@ -83,7 +83,7 @@ EXPLAIN (VERBOSE true, COSTS false, NODES false) UPDATE xc_alter_table_1 SET nam
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Update on public.xc_alter_table_1
    Node expr: xc_alter_table_1.id
-   Remote query: UPDATE ONLY public.xc_alter_table_1 SET name = $2 WHERE ctid = $5 AND xc_node_id = $6 
+   Remote query: UPDATE ONLY xc_alter_table_1 SET name = $2 WHERE ((xc_alter_table_1.ctid = $5) AND (xc_alter_table_1.xc_node_id = $6))
    ->  Data Node Scan on xc_alter_table_1 "_REMOTE_TABLE_QUERY_"
          Output: xc_alter_table_1.id, 'zzz'::character varying(80), NULL::integer, xc_alter_table_1.id, xc_alter_table_1.ctid, xc_alter_table_1.xc_node_id
          Remote query: SELECT id, ctid, xc_node_id FROM ONLY xc_alter_table_1 WHERE true
@@ -128,7 +128,7 @@ EXPLAIN (VERBOSE true, COSTS false, NODES false) INSERT INTO xc_alter_table_2 VA
                                              QUERY PLAN                                             
 ----------------------------------------------------------------------------------------------------
  Insert on public.xc_alter_table_2
-   Remote query: INSERT INTO public.xc_alter_table_2 (b, c) VALUES ($2, $3)
+   Remote query: INSERT INTO xc_alter_table_2 (b, c) VALUES ($2, $3)
    ->  Result
          Output: NULL::integer, 'Kodek'::character varying(20), false, NULL::integer, NULL::integer
 (4 rows)
@@ -148,7 +148,7 @@ EXPLAIN (VERBOSE true, COSTS false, NODES false) UPDATE xc_alter_table_2 SET b =
                                                                    QUERY PLAN                                                                    
 -------------------------------------------------------------------------------------------------------------------------------------------------
  Update on public.xc_alter_table_2
-   Remote query: UPDATE ONLY public.xc_alter_table_2 SET b = $2, c = $3 WHERE ctid = $7 
+   Remote query: UPDATE ONLY xc_alter_table_2 SET b = $2, c = $3 WHERE (xc_alter_table_2.ctid = $7)
    ->  Data Node Scan on xc_alter_table_2 "_REMOTE_TABLE_QUERY_"
          Output: NULL::integer, 'Morphee'::character varying(20), false, NULL::integer, NULL::integer, xc_alter_table_2.b, xc_alter_table_2.ctid
          Remote query: SELECT b, ctid FROM ONLY xc_alter_table_2 WHERE ((b)::text = 'Neo'::text)
@@ -172,7 +172,7 @@ EXPLAIN (VERBOSE true, COSTS false, NODES false) INSERT INTO xc_alter_table_2 (a
                                                               QUERY PLAN                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------
  Insert on public.xc_alter_table_2
-   Remote query: INSERT INTO public.xc_alter_table_2 (b, c, a, a2) VALUES ($2, $3, $6, $7)
+   Remote query: INSERT INTO xc_alter_table_2 (b, c, a, a2) VALUES ($2, $3, $6, $7)
    ->  Result
          Output: NULL::integer, 'Gordon'::character varying(20), true, NULL::integer, NULL::integer, 100, 'CEO'::character varying(20)
 (4 rows)
@@ -193,7 +193,7 @@ EXPLAIN (VERBOSE true, COSTS false, NODES false) UPDATE xc_alter_table_2 SET a =
                                                                                     QUERY PLAN                                                                                     
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Update on public.xc_alter_table_2
-   Remote query: UPDATE ONLY public.xc_alter_table_2 SET a = $6, a2 = $7 WHERE ctid = $9 
+   Remote query: UPDATE ONLY xc_alter_table_2 SET a = $6, a2 = $7 WHERE (xc_alter_table_2.ctid = $9)
    ->  Data Node Scan on xc_alter_table_2 "_REMOTE_TABLE_QUERY_"
          Output: NULL::integer, xc_alter_table_2.b, xc_alter_table_2.c, NULL::integer, NULL::integer, 200, 'CTO'::character varying(20), xc_alter_table_2.b, xc_alter_table_2.ctid
          Remote query: SELECT b, c, ctid FROM ONLY xc_alter_table_2 WHERE ((b)::text = 'John'::text)

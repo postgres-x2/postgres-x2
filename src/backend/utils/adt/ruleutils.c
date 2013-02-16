@@ -2810,39 +2810,6 @@ deparse_query(Query *query, StringInfo buf, List *parentnamespace,
 	get_query_def(query, buf, parentnamespace, NULL, 0, 0, finalise_aggs,
 					sortgroup_colno);
 }
-
-/*
- * deparse_targetlist
- *
- * This function deparses the passed targetList into the passed buffer.
- * PGXCTODO
- * This function will be used untill we start using
- * Query structure in DML planning
- */
-
-void
-deparse_targetlist(Query *query, List *targetList, StringInfo buf)
-{
-	deparse_context context;
-	deparse_namespace dpns;
-
-	context.buf = buf;
-	context.windowClause = NIL;
-	context.windowTList = NIL;
-	context.varprefix = 0;
-	context.prettyFlags = 0;
-	context.indentLevel = 0;
-
-	context.namespaces = lcons(&dpns, list_copy(NULL));
-
-	memset(&dpns, 0, sizeof(dpns));
-	dpns.rtable = query->rtable;
-	dpns.ctes = query->cteList;
-	dpns.remotequery = false;
-
-	get_target_list(targetList, &context, NULL);
-}
-
 #endif
 /* ----------
  * get_query_def			- Parse back one query parsetree
@@ -3758,8 +3725,32 @@ get_insert_query_def(Query *query, deparse_context *context)
 		appendStringInfo(buf, "%s", query->sql_statement);
 		return;
 	}
-#endif
 
+	/*
+	 * select_rte and values_rte are not required by INSERT queries in XC
+	 * Both these should stay null for INSERT queries to work corretly
+	 * Consider an example
+	 * create table tt as values(1,'One'),(2,'Two');
+	 * This query uses values_rte, but we do not need them in XC
+	 * because it gets broken down into two queries
+	 * CREATE TABLE tt(column1 int4, column2 text)
+	 * and
+	 * INSERT INTO tt (column1, column2) VALUES ($1, $2)
+	 * Note that the insert query does not need values_rte
+	 *
+	 * Now consider another example
+	 * insert into tt select * from tt
+	 * This query uses select_rte, but again that is not required in XC
+	 * Again here the query gets broken down into two queries
+	 * SELECT column1, column2 FROM ONLY tt WHERE true
+	 * and
+	 * INSERT INTO tt (column1, column2) VALUES ($1, $2)
+	 * Note again that the insert query does not need select_rte
+	 * Hence we keep both select_rte and values_rte NULL.
+	 */
+	if (!(IS_PGXC_COORDINATOR && !IsConnFromCoord()))
+	{
+#endif
 	/*
 	 * If it's an INSERT ... SELECT or VALUES (...), (...), ... there will be
 	 * a single RTE for the SELECT or VALUES.
@@ -3782,21 +3773,11 @@ get_insert_query_def(Query *query, deparse_context *context)
 			values_rte = rte;
 		}
 	}
-	if (select_rte && values_rte)
-		elog(ERROR, "both subquery and values RTEs in INSERT");
-
 #ifdef PGXC
-	/*
-	 * If it's an INSERT ... SELECT or VALUES (...), (...), ...
-	 * sql_statement is rewritten and assigned in RewriteQuery.
-	 * Just return it here.
-	 */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && values_rte != NULL)
-	{
-		appendStringInfo(buf, "%s", query->sql_statement);
-		return;
 	}
 #endif
+	if (select_rte && values_rte)
+		elog(ERROR, "both subquery and values RTEs in INSERT");
 	/*
 	 * Start the query with INSERT INTO relname
 	 */

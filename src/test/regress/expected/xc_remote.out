@@ -384,7 +384,7 @@ $$begin return 3;end $$ language plpgsql;
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Update on public.xcrem_employee e
    Node expr: e.empno
-   Remote query: UPDATE ONLY public.xcrem_employee SET salary = $12 WHERE ctid = $17 AND xc_node_id = $18 
+   Remote query: UPDATE ONLY xcrem_employee e SET salary = $12 WHERE ((e.ctid = $17) AND (e.xc_node_id = $18))
    ->  Data Node Scan on xcrem_employee "_REMOTE_TABLE_QUERY_"
          Output: e.empno, e.firstname, e.midinit, e.lastname, e.workdept, e.phoneno, e.hiredate, e.job, e.edlevel, e.sex, e.birthdate, ((e.salary + e.salary) + (0.3 * e.bonus)), e.bonus, e.comm, e.salary, e.workdept, e.ctid, e.xc_node_id
          Remote query: SELECT empno, firstname, midinit, lastname, workdept, phoneno, hiredate, job, edlevel, sex, birthdate, salary, bonus, comm, ctid, xc_node_id FROM ONLY xcrem_employee e WHERE true
@@ -426,7 +426,7 @@ $$begin return 3;end $$ language plpgsql;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Update on public.xcrem_employee e
    Node expr: e.empno
-   Remote query: UPDATE ONLY public.xcrem_employee SET bonus = $13 WHERE ctid = $17 AND xc_node_id = $18 
+   Remote query: UPDATE ONLY xcrem_employee e SET bonus = $13 WHERE ((e.ctid = $17) AND (e.xc_node_id = $18))
    ->  Data Node Scan on xcrem_employee "_REMOTE_TABLE_QUERY_"
          Output: e.empno, e.firstname, e.midinit, e.lastname, e.workdept, e.phoneno, e.hiredate, e.job, e.edlevel, e.sex, e.birthdate, e.salary, (e.bonus + (e.salary * 0.3)), e.comm, e.edlevel, e.workdept, e.ctid, e.xc_node_id
          Remote query: SELECT empno, firstname, midinit, lastname, workdept, phoneno, hiredate, job, edlevel, sex, birthdate, salary, bonus, comm, ctid, xc_node_id FROM ONLY xcrem_employee e WHERE true
@@ -468,7 +468,7 @@ $$begin return 3;end $$ language plpgsql;
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Update on public.xcrem_employee e
    Node expr: e.empno
-   Remote query: UPDATE ONLY public.xcrem_employee SET lastname = $4 WHERE ctid = $16 AND xc_node_id = $17 
+   Remote query: UPDATE ONLY xcrem_employee e SET lastname = $4 WHERE ((e.ctid = $16) AND (e.xc_node_id = $17))
    ->  Data Node Scan on xcrem_employee "_REMOTE_TABLE_QUERY_"
          Output: e.empno, e.firstname, e.midinit, ((e.lastname)::text || 'suf'::text), e.workdept, e.phoneno, e.hiredate, e.job, e.edlevel, e.sex, e.birthdate, e.salary, e.bonus, e.comm, e.edlevel, e.ctid, e.xc_node_id
          Remote query: SELECT empno, firstname, midinit, lastname, workdept, phoneno, hiredate, job, edlevel, sex, birthdate, salary, bonus, comm, ctid, xc_node_id FROM ONLY xcrem_employee e WHERE true
@@ -503,7 +503,7 @@ $$begin return 3;end $$ language plpgsql;
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Update on public.xcrem_employee e
    Node expr: e.empno
-   Remote query: UPDATE ONLY public.xcrem_employee SET lastname = $4, edlevel = $9 WHERE ctid = $16 AND xc_node_id = $17 
+   Remote query: UPDATE ONLY xcrem_employee e SET lastname = $4, edlevel = $9 WHERE ((e.ctid = $16) AND (e.xc_node_id = $17))
    ->  Data Node Scan on xcrem_employee "_REMOTE_TABLE_QUERY_"
          Output: e.empno, e.firstname, e.midinit, ((e.lastname)::text || 'suf'::text), e.workdept, e.phoneno, e.hiredate, e.job, (e.edlevel + 1), e.sex, e.birthdate, e.salary, e.bonus, e.comm, e.edlevel, e.ctid, e.xc_node_id
          Remote query: SELECT empno, firstname, midinit, lastname, workdept, phoneno, hiredate, job, edlevel, sex, birthdate, salary, bonus, comm, ctid, xc_node_id FROM ONLY xcrem_employee e WHERE true
@@ -538,10 +538,10 @@ insert into xcrem_employee select * from xcrem_temptable;
 \set stmt 'DELETE FROM xcrem_employee E WHERE EDLEVEL > volatile_func(2)'
 :stmt;
 :EXP :stmt;
-                                          QUERY PLAN                                          
-----------------------------------------------------------------------------------------------
+                                           QUERY PLAN                                            
+-------------------------------------------------------------------------------------------------
  Delete on public.xcrem_employee e
-   Remote query: DELETE FROM ONLY public.xcrem_employee WHERE ctid = $2 AND xc_node_id = $3 
+   Remote query: DELETE FROM ONLY xcrem_employee e WHERE ((e.ctid = $2) AND (e.xc_node_id = $3))
    ->  Data Node Scan on xcrem_employee "_REMOTE_TABLE_QUERY_"
          Output: e.edlevel, e.ctid, e.xc_node_id
          Remote query: SELECT edlevel, ctid, xc_node_id FROM ONLY xcrem_employee e WHERE true
@@ -561,7 +561,7 @@ insert into xcrem_employee select * from xcrem_temptable;
                                                QUERY PLAN                                               
 --------------------------------------------------------------------------------------------------------
  Delete on public.xcrem_employee e
-   Remote query: DELETE FROM ONLY public.xcrem_employee WHERE ctid = $3 AND xc_node_id = $4 
+   Remote query: DELETE FROM ONLY xcrem_employee e WHERE ((e.ctid = $3) AND (e.xc_node_id = $4))
    ->  Data Node Scan on xcrem_employee "_REMOTE_TABLE_QUERY_"
          Output: e.edlevel, e.workdept, e.ctid, e.xc_node_id
          Remote query: SELECT edlevel, workdept, ctid, xc_node_id FROM ONLY xcrem_employee e WHERE true
@@ -599,7 +599,7 @@ insert into xcrem_employee select * from xcrem_temptable;
                                                               QUERY PLAN                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------
  Delete on public.xcrem_employee e
-   Remote query: DELETE FROM ONLY public.xcrem_employee WHERE ctid = $3 AND xc_node_id = $4 
+   Remote query: DELETE FROM ONLY xcrem_employee e WHERE ((e.ctid = $3) AND (e.xc_node_id = $4))
    ->  Data Node Scan on xcrem_employee "_REMOTE_TABLE_QUERY_"
          Output: e.salary, e.workdept, e.ctid, e.xc_node_id
          Remote query: SELECT salary, workdept, ctid, xc_node_id FROM ONLY xcrem_employee e WHERE true

@@ -1816,18 +1816,18 @@ SELECT * FROM parent ORDER BY id;
 EXPLAIN (VERBOSE, COSTS OFF, NODES OFF, NUM_NODES OFF)
 WITH wcte AS ( INSERT INTO int8_tbl VALUES ( 42, 47 ) RETURNING q2 )
 DELETE FROM a USING wcte WHERE aa = q2;
-                                         QUERY PLAN                                         
---------------------------------------------------------------------------------------------
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
  Delete on public.a
-   Remote query: DELETE FROM ONLY public.a WHERE ctid = $2 AND xc_node_id = $3 
-   Remote query: DELETE FROM ONLY public.b WHERE ctid = $2 AND xc_node_id = $3 
-   Remote query: DELETE FROM ONLY public.c WHERE ctid = $2 AND xc_node_id = $3 
-   Remote query: DELETE FROM ONLY public.d WHERE ctid = $2 AND xc_node_id = $3 
+   Remote query: DELETE FROM ONLY a WHERE ((public.a.ctid = $2) AND (public.a.xc_node_id = $3))
+   Remote query: DELETE FROM ONLY b a WHERE ((a.ctid = $2) AND (a.xc_node_id = $3))
+   Remote query: DELETE FROM ONLY c a WHERE ((a.ctid = $2) AND (a.xc_node_id = $3))
+   Remote query: DELETE FROM ONLY d a WHERE ((a.ctid = $2) AND (a.xc_node_id = $3))
    CTE wcte
      ->  Insert on public.int8_tbl
            Output: int8_tbl.q2
            Node expr: public.a.aa
-           Remote query: INSERT INTO public.int8_tbl (q1, q2) VALUES ($1, $2) RETURNING  q2
+           Remote query: INSERT INTO int8_tbl (q1, q2) VALUES ($1, $2) RETURNING q2
            ->  Result
                  Output: 42::bigint, 47::bigint
    ->  Hash Join
@@ -1841,30 +1841,30 @@ DELETE FROM a USING wcte WHERE aa = q2;
                ->  CTE Scan on wcte
                      Output: wcte.*, wcte.q2
    ->  Hash Join
-         Output: public.a.aa, public.a.ctid, public.a.xc_node_id, wcte.*
-         Hash Cond: (public.a.aa = wcte.q2)
+         Output: a.aa, a.ctid, a.xc_node_id, wcte.*
+         Hash Cond: (a.aa = wcte.q2)
          ->  Data Node Scan on b "_REMOTE_TABLE_QUERY_"
-               Output: public.a.aa, public.a.ctid, public.a.xc_node_id
+               Output: a.aa, a.ctid, a.xc_node_id
                Remote query: SELECT aa, ctid, xc_node_id FROM ONLY b a WHERE true
          ->  Hash
                Output: wcte.*, wcte.q2
                ->  CTE Scan on wcte
                      Output: wcte.*, wcte.q2
    ->  Hash Join
-         Output: public.a.aa, public.a.ctid, public.a.xc_node_id, wcte.*
-         Hash Cond: (public.a.aa = wcte.q2)
+         Output: a.aa, a.ctid, a.xc_node_id, wcte.*
+         Hash Cond: (a.aa = wcte.q2)
          ->  Data Node Scan on c "_REMOTE_TABLE_QUERY_"
-               Output: public.a.aa, public.a.ctid, public.a.xc_node_id
+               Output: a.aa, a.ctid, a.xc_node_id
                Remote query: SELECT aa, ctid, xc_node_id FROM ONLY c a WHERE true
          ->  Hash
                Output: wcte.*, wcte.q2
                ->  CTE Scan on wcte
                      Output: wcte.*, wcte.q2
    ->  Hash Join
-         Output: public.a.aa, public.a.ctid, public.a.xc_node_id, wcte.*
-         Hash Cond: (public.a.aa = wcte.q2)
+         Output: a.aa, a.ctid, a.xc_node_id, wcte.*
+         Hash Cond: (a.aa = wcte.q2)
          ->  Data Node Scan on d "_REMOTE_TABLE_QUERY_"
-               Output: public.a.aa, public.a.ctid, public.a.xc_node_id
+               Output: a.aa, a.ctid, a.xc_node_id
                Remote query: SELECT aa, ctid, xc_node_id FROM ONLY d a WHERE true
          ->  Hash
                Output: wcte.*, wcte.q2
