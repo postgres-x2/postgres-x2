@@ -94,6 +94,7 @@ static void *pg_realloc(void *ptr, size_t size);
 
 static char gtmopts_file[MAXPGPATH];
 static char pid_file[MAXPGPATH];
+static char conf_file[MAXPGPATH];
 static int RunAsDaemon(char *cmd);
 
 /*
@@ -345,7 +346,7 @@ static int RunAsDaemon(char *cmd)
 
 
 /*
- * Find the pgport and try a connection
+ * Find the gtm port and try a connection
  */
 static bool
 test_gtm_connection()
@@ -394,6 +395,54 @@ test_gtm_connection()
 		while (*p && !isspace((unsigned char) *p))
 			p++;
 	}
+
+	/*
+	 * Search config file for a 'port' option.
+	 *
+	 * This parsing code isn't amazingly bright either, but it should be okay
+	 * for valid port settings.
+	 */
+	if (!*portstr)
+	{
+		char      **optlines;
+
+		optlines = readfile(conf_file);
+		if (optlines != NULL)
+		{
+			for (; *optlines != NULL; optlines++)
+			{
+				p = *optlines;
+
+				while (isspace((unsigned char) *p))
+					p++;
+				if (strncmp(p, "port", 4) != 0)
+					continue;
+				p += 4;
+				while (isspace((unsigned char) *p))
+					p++;
+				if (*p != '=')
+					continue;
+				p++;
+				/* advance past any whitespace/quoting */
+				while (isspace((unsigned char) *p) || *p == '\'' || *p == '"')
+					p++;
+				/* find end of value (not including any ending quote/comment!) */
+				q = p;
+				while (*q &&
+					   !(isspace((unsigned char) *q) ||
+						 *q == '\'' || *q == '"' || *q == '#'))
+					q++;
+				/* and save the argument value */
+				strlcpy(portstr, p, Min((q - p) + 1, sizeof(portstr)));
+				/* keep looking, maybe there is another */
+			}
+		}
+	}
+
+	/* Still not found? Use compiled-in default */
+#define GTM_DEFAULT_PORT               6666
+	if (!*portstr)
+		snprintf(portstr, sizeof(portstr), "%d", GTM_DEFAULT_PORT);
 
 	/*
 	 * We need to set a connect timeout otherwise on Windows the SCM will
@@ -1256,16 +1305,19 @@ main(int argc, char **argv)
 	{
 		snprintf(pid_file, MAXPGPATH, "%s/gtm_proxy.pid", gtm_data);
 		snprintf(gtmopts_file, MAXPGPATH, "%s/gtm_proxy.opts", gtm_data);
+		snprintf(conf_file, MAXPGPATH, "%s/gtm_proxy.conf", gtm_data);
 	}
 	else if (strcmp(gtm_app,"gtm") == 0)
 	{
 		snprintf(pid_file, MAXPGPATH, "%s/gtm.pid", gtm_data);
 		snprintf(gtmopts_file, MAXPGPATH, "%s/gtm.opts", gtm_data);
+		snprintf(conf_file, MAXPGPATH, "%s/gtm.conf", gtm_data);
 	}
 	else if (strcmp(gtm_app,"gtm_standby") == 0)
 	{
 		snprintf(pid_file, MAXPGPATH, "%s/gtm.pid", gtm_data);
 		snprintf(gtmopts_file, MAXPGPATH, "%s/gtm.opts", gtm_data);
+		snprintf(conf_file, MAXPGPATH, "%s/gtm.conf", gtm_data);
 	}
 
 	if (ctl_command==STATUS_COMMAND)
