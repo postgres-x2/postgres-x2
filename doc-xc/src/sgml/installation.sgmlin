@@ -2360,7 +2360,7 @@ postgres$ <userinput>/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data</>
     </varlistentry>
 
     <varlistentry>
-     <term><envar>max_Coordinators</envar></term>
+     <term><envar>max_coordinators</envar></term>
      <listitem>
 &xconly;
       <para>
@@ -2372,7 +2372,7 @@ postgres$ <userinput>/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data</>
     </varlistentry>
 
     <varlistentry>
-     <term><envar>max_Datanodes</envar></term>
+     <term><envar>max_datanodes</envar></term>
      <listitem>
 &xconly;
       <para>
