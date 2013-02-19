@@ -6950,10 +6950,10 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
       </listitem>
      </varlistentry>
 
-     <varlistentry id="guc-max-Coordinators" xreflabel="max_Coordinators">
-      <term><varname>max_Coordinators</varname> (<type>integer</type>)</term>
+     <varlistentry id="guc-max-coordinators" xreflabel="max_coordinators">
+      <term><varname>max_coordinators</varname> (<type>integer</type>)</term>
       <indexterm>
-       <primary><varname>max_Coordinators</> configuration parameter</primary>
+       <primary><varname>max_coordinators</> configuration parameter</primary>
       </indexterm>
       <listitem>
        <para>
@@ -6962,10 +6962,10 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
       </listitem>
      </varlistentry>
 
-     <varlistentry id="guc-max-Datanodes" xreflabel="max_Datanodes">
-      <term><varname>max_Datanodes</varname> (<type>integer</type>)</term>
+     <varlistentry id="guc-max-datanodes" xreflabel="max_datanodes">
+      <term><varname>max_datanodes</varname> (<type>integer</type>)</term>
       <indexterm>
-       <primary><varname>max_Datanodes</> configuration parameter</primary>
+       <primary><varname>max_datanodes</> configuration parameter</primary>
       </indexterm>
       <listitem>
        <para>

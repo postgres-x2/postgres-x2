@@ -678,7 +678,7 @@ postgres$ <userinput>initdb -D /usr/local/pgsql/data --nodename foo</userinput>
   </varlistentry>
 
   <varlistentry>
-   <term>max_Coordinators</term>
+   <term>max_coordinators</term>
    <listitem>
     <para>
      This is the maximum number of Coordinators that can be configured in the cluster.
@@ -690,7 +690,7 @@ postgres$ <userinput>initdb -D /usr/local/pgsql/data --nodename foo</userinput>
   </varlistentry>
 
   <varlistentry>
-   <term>max_Datanodes</term>
+   <term>max_datanodes</term>
    <listitem>
     <para>
      This is the maximum number of Datanodes configured in the cluster.

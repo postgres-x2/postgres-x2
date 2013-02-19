@@ -817,11 +817,11 @@
           </para>
          </listitem>
          <listitem>
-          <para><varname>max_Coordinators</></para>
+          <para><varname>max_coordinators</></para>
           <para>Maximum number of Coordinators that can be defined in local node</para>
          </listitem>
          <listitem>
-          <para><varname>max_Datanodes</></para>
+          <para><varname>max_datanodes</></para>
           <para>Maximum number of Datanodes that can be defined in local node</para>
          </listitem>
          <listitem>
