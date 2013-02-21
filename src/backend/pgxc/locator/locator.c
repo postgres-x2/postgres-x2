@@ -417,7 +417,6 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, Datum valueForDistCol,
 	long		hashValue;
 	int		modulo;
 	int		nodeIndex;
-	int		k;
 
 	if (rel_loc_info == NULL)
 		return NULL;
@@ -430,10 +429,18 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, Datum valueForDistCol,
 	{
 		case LOCATOR_TYPE_REPLICATED:
 
+			/*
+			 * When intention is to read from replicated table, return all the
+			 * nodes so that planner can choose one depending upon the rest of
+			 * the JOIN tree. But while reading with update lock, we need to
+			 * read from the primary node (if exists) so as to avoid the
+			 * deadlock.
+			 * For write access set primary node (if exists).
+			 */
+			exec_nodes->nodeList = list_copy(rel_loc_info->nodeList);
 			if (accessType == RELATION_ACCESS_UPDATE || accessType == RELATION_ACCESS_INSERT)
 			{
 				/* we need to write to all synchronously */
-				exec_nodes->nodeList = list_concat(exec_nodes->nodeList, rel_loc_info->nodeList);
 
 				/*
 				 * Write to primary node first, to reduce chance of a deadlock
@@ -443,57 +450,22 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, Datum valueForDistCol,
 						&& exec_nodes->nodeList
 						&& list_length(exec_nodes->nodeList) > 1) /* make sure more than 1 */
 				{
-					exec_nodes->primarynodelist = lappend_int(NULL,
-							  PGXCNodeGetNodeId(primary_data_node, PGXC_NODE_DATANODE));
-					list_delete_int(exec_nodes->nodeList,
-									PGXCNodeGetNodeId(primary_data_node, PGXC_NODE_DATANODE));
+					exec_nodes->primarynodelist = list_make1_int(PGXCNodeGetNodeId(primary_data_node,
+																	PGXC_NODE_DATANODE));
+					exec_nodes->nodeList = list_delete_int(exec_nodes->nodeList,
+															PGXCNodeGetNodeId(primary_data_node,
+															PGXC_NODE_DATANODE));
 				}
 			}
-			else
+			else if (accessType == RELATION_ACCESS_READ_FOR_UPDATE &&
+					IsTableDistOnPrimary(rel_loc_info))
 			{
 				/*
-				 * In case there are nodes defined in location info, initialize node list
-				 * with a default node being the first node in list.
-				 * This node list may be changed if a better one is found afterwards.
+				 * We should ensure row is locked on the primary node to
+				 * avoid distributed deadlock if updating the same row
+				 * concurrently
 				 */
-				if (rel_loc_info->nodeList)
-					exec_nodes->nodeList = lappend_int(NULL,
-													   linitial_int(rel_loc_info->nodeList));
-
-				if (accessType == RELATION_ACCESS_READ_FOR_UPDATE &&
-					IsTableDistOnPrimary(rel_loc_info))
-				{
-					/*
-					 * We should ensure row is locked on the primary node to
-					 * avoid distributed deadlock if updating the same row
-					 * concurrently
-					 */
-					exec_nodes->nodeList = lappend_int(NULL,
-						   PGXCNodeGetNodeId(primary_data_node, PGXC_NODE_DATANODE));
-				}
-				else if (num_preferred_data_nodes > 0)
-				{
-					ListCell *item;
-
-					foreach(item, rel_loc_info->nodeList)
-					{
-						for (k = 0; k < num_preferred_data_nodes; k++)
-						{
-							if (PGXCNodeGetNodeId(preferred_data_node[k],
-												  PGXC_NODE_DATANODE) == lfirst_int(item))
-							{
-								exec_nodes->nodeList = lappend_int(NULL,
-																   lfirst_int(item));
-								break;
-							}
-						}
-					}
-				}
-
-				/* If nothing found just read from one of them. Use round robin mechanism */
-				if (exec_nodes->nodeList == NULL)
-					exec_nodes->nodeList = lappend_int(NULL,
-													   GetRoundRobinNode(rel_loc_info->relid));
+				exec_nodes->nodeList = list_make1_int(PGXCNodeGetNodeId(primary_data_node, PGXC_NODE_DATANODE));
 			}
 			break;
 
@@ -505,37 +477,27 @@ GetRelationNodes(RelationLocInfo *rel_loc_info, Datum valueForDistCol,
 										 rel_loc_info->locatorType);
 				modulo = compute_modulo(abs(hashValue), list_length(rel_loc_info->nodeList));
 				nodeIndex = get_node_from_modulo(modulo, rel_loc_info->nodeList);
-				exec_nodes->nodeList = lappend_int(NULL, nodeIndex);
+				exec_nodes->nodeList = list_make1_int(nodeIndex);
 			}
 			else
 			{
 				if (accessType == RELATION_ACCESS_INSERT)
 					/* Insert NULL to first node*/
-					exec_nodes->nodeList = lappend_int(NULL, linitial_int(rel_loc_info->nodeList));
+					exec_nodes->nodeList = list_make1_int(linitial_int(rel_loc_info->nodeList));
 				else
-					exec_nodes->nodeList = list_concat(exec_nodes->nodeList, rel_loc_info->nodeList);
+					exec_nodes->nodeList = list_copy(rel_loc_info->nodeList);
 			}
-			break;
-
-		case LOCATOR_TYPE_SINGLE:
-			/* just return first (there should only be one) */
-			exec_nodes->nodeList = list_concat(exec_nodes->nodeList,
-											   rel_loc_info->nodeList);
 			break;
 
 		case LOCATOR_TYPE_RROBIN:
-			/* round robin, get next one */
+			/*
+			 * round robin, get next one in case of insert. If not insert, all
+			 * node needed
+			 */
 			if (accessType == RELATION_ACCESS_INSERT)
-			{
-				/* write to just one of them */
-				exec_nodes->nodeList = lappend_int(NULL, GetRoundRobinNode(rel_loc_info->relid));
-			}
+				exec_nodes->nodeList = list_make1_int(GetRoundRobinNode(rel_loc_info->relid));
 			else
-			{
-				/* we need to read from all */
-				exec_nodes->nodeList = list_concat(exec_nodes->nodeList,
-												   rel_loc_info->nodeList);
-			}
+				exec_nodes->nodeList = list_copy(rel_loc_info->nodeList);
 			break;
 
 			/* PGXCTODO case LOCATOR_TYPE_RANGE: */

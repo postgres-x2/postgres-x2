@@ -479,20 +479,8 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 
 	if (!rel_exec_nodes)
 		return NULL;
-	rel_exec_nodes->accesstype = rel_access;
-	/*
-	 * If we are reading a replicated table, pick all the nodes where it
-	 * resides. If the query has JOIN, it helps picking up a matching set of
-	 * Datanodes for that JOIN. FQS planner will ultimately pick up one node if
-	 * the JOIN is replicated.
-	 */
-	if (rel_access == RELATION_ACCESS_READ &&
-		IsRelationReplicated(rel_loc_info))
-	{
-		list_free(rel_exec_nodes->nodeList);
-		rel_exec_nodes->nodeList = list_copy(rel_loc_info->nodeList);
-	}
-	else if (rel_access == RELATION_ACCESS_INSERT &&
+
+	if (rel_access == RELATION_ACCESS_INSERT &&
 			 IsRelationDistributedByValue(rel_loc_info))
 	{
 		ListCell *lc;
@@ -1778,7 +1766,6 @@ pgxc_check_index_shippability(RelationLocInfo *relLocInfo,
 
 			/* Those types are not supported yet */
 			case LOCATOR_TYPE_RANGE:
-			case LOCATOR_TYPE_SINGLE:
 			case LOCATOR_TYPE_NONE:
 			case LOCATOR_TYPE_DISTRIBUTED:
 			case LOCATOR_TYPE_CUSTOM:
@@ -1897,7 +1884,6 @@ pgxc_check_fk_shippability(RelationLocInfo *parentLocInfo,
 			break;
 
 		case LOCATOR_TYPE_RANGE:
-		case LOCATOR_TYPE_SINGLE:
 		case LOCATOR_TYPE_NONE:
 		case LOCATOR_TYPE_DISTRIBUTED:
 		case LOCATOR_TYPE_CUSTOM:

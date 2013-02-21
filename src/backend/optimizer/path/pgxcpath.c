@@ -110,7 +110,6 @@ create_remotequery_path(PlannerInfo *root, RelOptInfo *rel, ExecNodes *exec_node
 extern bool
 create_plainrel_rqpath(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 {
-	RelationLocInfo	*rel_loc_info;
 	List			*quals;
 	ExecNodes		*exec_nodes;
 
@@ -122,26 +121,12 @@ create_plainrel_rqpath(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 	if (!IS_PGXC_COORDINATOR || IsConnFromCoord() || root->parse->is_local)
 		return false;
 
-	rel_loc_info = GetRelationLocInfo(rte->relid);
 	quals = extract_actual_clauses(rel->baserestrictinfo, false);
 	exec_nodes = GetRelationNodesByQuals(rte->relid, rel->relid,
 														(Node *)quals,
 														RELATION_ACCESS_READ);
 	if (!exec_nodes)
 		return false;
-	/*
-	 * If the table is replicated, we need to get all the node, and let the
-	 * JOIN reduction pick up the appropriate.
-	 * PGXC_TODO: This code is duplicated in
-	 * pgxc_FQS_get_relation_nodes(). We need to move it inside
-	 * GetRelationNodes().
-	 * create_remotequery_plan would reduce the number of nodes to 1.
-	 */
-	if (IsRelationReplicated(rel_loc_info))
-	{
-		list_free(exec_nodes->nodeList);
-		exec_nodes->nodeList = list_copy(rel_loc_info->nodeList);
-	}
 
 	/* We don't have subpaths for a plain base relation */
 	add_path(rel, (Path *)create_remotequery_path(root, rel, exec_nodes,
