@@ -98,7 +98,6 @@ static void pgxc_dml_add_qual_to_query(Query *query, int param_num,
 static Param *pgxc_make_param(int param_num, Oid param_type);
 static void pgxc_add_param_as_tle(Query *query, int param_num, Oid param_type,
 									char *resname);
-static bool is_column_dropped(int col_att, Oid rel_id);
 /*
  * pgxc_separate_quals
  * Separate the quals into shippable and unshippable quals. Return the shippable
@@ -836,37 +835,6 @@ pgxc_make_modifytable(PlannerInfo *root, Plan *topplan)
 }
 
 /*
- * is_column_dropped
- *
- * Helper function to check whether the specidied attribute is dropped or not
- */
-static bool
-is_column_dropped(int col_att, Oid rel_id)
-{
-	HeapTuple	tp;
-
-	/* Get the column attribute */
-	tp = SearchSysCache(ATTNUM, ObjectIdGetDatum(rel_id),
-						Int16GetDatum(col_att), 0, 0);
-	if (HeapTupleIsValid(tp))
-	{
-		Form_pg_attribute att_tup = (Form_pg_attribute) GETSTRUCT(tp);
-
-		/* Has it been dropped? */
-		if (att_tup->attisdropped)
-		{
-			ReleaseSysCache(tp);
-			return true;
-		}
-		ReleaseSysCache(tp);
-	}
-	else
-		elog(ERROR, "cache lookup failed for attribute %d of relation %u",
-											col_att, rel_id);
-	return false;
-}
-
-/*
  * pgxc_make_param
  *
  * Helper function to make a parameter
@@ -1099,7 +1067,7 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 		if (cmdtype == CMD_INSERT)
 		{
 			/* Make sure the column has not been dropped */
-			if (is_column_dropped(col_att, res_rel->relid))
+			if (get_rte_attribute_is_dropped(res_rel, col_att))
 				continue;
 
 			/*
