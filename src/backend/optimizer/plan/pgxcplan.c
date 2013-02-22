@@ -830,7 +830,7 @@ pgxc_make_modifytable(PlannerInfo *root, Plan *topplan)
 	 * when there is something to modify.
 	 */
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-		topplan = create_remote_dml_plan(root, topplan, mt->operation);
+		topplan = create_remotedml_plan(root, topplan, mt->operation);
 
 	return topplan;
 }
@@ -1189,13 +1189,13 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 }
 
 /*
- * create_remote_dml_plan()
+ * create_remotedml_plan()
  *
  * For every target relation, add a remote query node to carry out remote
  * operations.
  */
 Plan *
-create_remote_dml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp)
+create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp)
 {
 	ModifyTable			*mt = (ModifyTable *)topplan;
 	ListCell			*rel;

@@ -132,7 +132,7 @@ extern void extract_query_dependencies(Node *query,
 /*
  * prototypes for plan/pgxcplan.c
  */
-extern Plan *create_remote_dml_plan(PlannerInfo *root, Plan *topplan,
+extern Plan *create_remotedml_plan(PlannerInfo *root, Plan *topplan,
 									CmdType cmdtyp);
 extern Plan *create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan);
 extern Plan *create_remotequery_plan(PlannerInfo *root, RemoteQueryPath *best_path);
