@@ -38,10 +38,6 @@ extern Plan *subquery_planner(PlannerGlobal *glob, Query *parse,
 extern bool is_dummy_plan(Plan *plan);
 
 extern Expr *expression_planner(Expr *expr);
-#ifdef PGXC
-extern void GetHashExecNodes(RelationLocInfo *rel_loc_info, 
-							ExecNodes **exec_nodes, const Expr *expr);
-#endif
 
 extern bool plan_cluster_use_sort(Oid tableOid, Oid indexOid);
 
