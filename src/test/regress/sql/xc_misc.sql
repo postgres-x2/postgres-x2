@@ -29,7 +29,7 @@ insert into t1_misc values(1,11),(2,11),(3,11),(4,22),(5,22),(6,33),(7,44),(8,44
 
 select get_unified_node_name(xc_node_id),* from t1_misc order by a;
 
-select get_unified_node_name(xc_node_id),* from t1_misc where xc_node_id > 0 order by a;
+select get_unified_node_name(xc_node_id),* from t1_misc where xc_node_id IS NOT NULL order by a;
 
 create table t2_misc(a int , xc_node_id int) distribute by modulo(a);
 
