@@ -1097,9 +1097,6 @@ ALTER TABLE <replaceable class="PARAMETER">name</replaceable>
       </listitem>
      </varlistentry>
     </variablelist>
-   <para>
-
-   <para>
    </para>
 <!## end>
  </refsect1>
