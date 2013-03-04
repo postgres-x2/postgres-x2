@@ -22,6 +22,12 @@
 #include "settings.h"
 #include "variables.h"
 
+#ifdef PGXC
+#define LOCATOR_TYPE_REPLICATED 'R'
+#define LOCATOR_TYPE_HASH 'H'
+#define LOCATOR_TYPE_RROBIN 'N'
+#define LOCATOR_TYPE_MODULO 'M'
+#endif /* PGXC */
 
 static bool describeOneTableDetails(const char *schemaname,
 						const char *relationname,
@@ -2249,6 +2255,60 @@ describeOneTableDetails(const char *schemaname,
 
 		add_tablespace_footer(&cont, tableinfo.relkind, tableinfo.tablespace,
 							  true);
+#ifdef PGXC
+		/* print distribution information */
+		if (verbose && tableinfo.relkind == 'r')
+		{
+			printfPQExpBuffer(&buf,
+						"SELECT CASE pclocatortype \n"
+							"WHEN '%c' THEN 'ROUND ROBIN' \n"
+							"WHEN '%c' THEN 'REPLICATION' \n"
+							"WHEN '%c' THEN 'HASH' \n"
+							"WHEN '%c' THEN 'MODULO' END || CASE pcattnum WHEN 0 THEN '' ELSE '('|| a.attname ||')' END as distype \n"
+							", CASE array_length(nodeoids, 1) \n"
+								"WHEN nc.dn_cn THEN 'ALL DATANODES' \n"
+								"ELSE array_to_string(ARRAY( \n"
+									"SELECT node_name FROM pg_catalog.pgxc_node \n"
+									"WHERE oid in (SELECT unnest(nodeoids) FROM pg_catalog.pgxc_class WHERE pcrelid = '%s') \n"
+								"), ', ') END as loc_nodes \n"
+						"FROM pg_catalog.pg_attribute a right join pg_catalog.pgxc_class c on a.attrelid = c.pcrelid and a.attnum = c.pcattnum, \n"
+						"(SELECT count(*) AS dn_cn FROM pg_catalog.pgxc_node WHERE node_type = 'D') as nc \n"
+						"WHERE pcrelid = '%s'"
+					, LOCATOR_TYPE_RROBIN
+					, LOCATOR_TYPE_REPLICATED
+					, LOCATOR_TYPE_HASH
+					, LOCATOR_TYPE_MODULO
+					, oid
+					, oid);
+			result = PSQLexec(buf.data, false);
+
+			if (!result)
+				goto error_return;
+			else
+				tuples = PQntuples(result);
+
+			if (tuples > 0)
+			{
+				const char *dist_by = _("Distribute By");
+				const char *loc_nodes = _("Location Nodes");
+
+				/* Only one tuple should be returned */
+				psql_assert(tuples == 1);
+
+				/* Print distribution method */
+				printfPQExpBuffer(&buf, "%s: %s", dist_by,
+									PQgetvalue(result, 0, 0));
+				printTableAddFooter(&cont, buf.data);
+
+				/* Print location nodes info */
+				printfPQExpBuffer(&buf, "%s: %s", loc_nodes,
+									PQgetvalue(result, 0, 1));
+				printTableAddFooter(&cont, buf.data);
+
+				PQclear(result);
+			}
+		}
+#endif /* PGXC */
 	}
 
 	printTable(&cont, pset.queryFout, pset.logfile);

@@ -122,6 +122,8 @@ CREATE TABLE ctlt12_storage (LIKE ctlt1 INCLUDING STORAGE, LIKE ctlt2 INCLUDING 
  b      | text |           | extended |              | 
  c      | text |           | external |              | 
 Has OIDs: no
+Distribute By: HASH(a)
+Location Nodes: ALL DATANODES
 
 CREATE TABLE ctlt12_comments (LIKE ctlt1 INCLUDING COMMENTS, LIKE ctlt2 INCLUDING COMMENTS);
 \d+ ctlt12_comments
@@ -132,6 +134,8 @@ CREATE TABLE ctlt12_comments (LIKE ctlt1 INCLUDING COMMENTS, LIKE ctlt2 INCLUDIN
  b      | text |           | extended |              | B
  c      | text |           | extended |              | C
 Has OIDs: no
+Distribute By: HASH(a)
+Location Nodes: ALL DATANODES
 
 CREATE TABLE ctlt1_inh (LIKE ctlt1 INCLUDING CONSTRAINTS INCLUDING COMMENTS) INHERITS (ctlt1);
 NOTICE:  merging column "a" with inherited definition
@@ -147,6 +151,8 @@ Check constraints:
     "ctlt1_a_check" CHECK (length(a) > 2)
 Inherits: ctlt1
 Has OIDs: no
+Distribute By: HASH(a)
+Location Nodes: ALL DATANODES
 
 SELECT description FROM pg_description, pg_constraint c WHERE classoid = 'pg_constraint'::regclass AND objoid = c.oid AND c.conrelid = 'ctlt1_inh'::regclass;
  description 
@@ -169,6 +175,8 @@ Check constraints:
 Inherits: ctlt1,
           ctlt3
 Has OIDs: no
+Distribute By: HASH(a)
+Location Nodes: ALL DATANODES
 
 CREATE TABLE ctlt13_like (LIKE ctlt3 INCLUDING CONSTRAINTS INCLUDING COMMENTS INCLUDING STORAGE) INHERITS (ctlt1);
 NOTICE:  merging column "a" with inherited definition
@@ -184,6 +192,8 @@ Check constraints:
     "ctlt3_a_check" CHECK (length(a) < 5)
 Inherits: ctlt1
 Has OIDs: no
+Distribute By: HASH(a)
+Location Nodes: ALL DATANODES
 
 SELECT description FROM pg_description, pg_constraint c WHERE classoid = 'pg_constraint'::regclass AND objoid = c.oid AND c.conrelid = 'ctlt13_like'::regclass;
  description 
@@ -206,6 +216,8 @@ Indexes:
 Check constraints:
     "ctlt1_a_check" CHECK (length(a) > 2)
 Has OIDs: no
+Distribute By: HASH(a)
+Location Nodes: ALL DATANODES
 
 SELECT c.relname, objsubid, description FROM pg_description, pg_index i, pg_class c WHERE classoid = 'pg_class'::regclass AND objoid = i.indexrelid AND c.oid = i.indexrelid AND i.indrelid = 'ctlt_all'::regclass ORDER BY c.relname, objsubid;
     relname     | objsubid | description 

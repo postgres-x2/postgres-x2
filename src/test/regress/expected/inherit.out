@@ -1449,6 +1449,8 @@ ALTER TABLE inhts RENAME d TO dd;
 Inherits: inht1,
           inhs1
 Has OIDs: no
+Distribute By: HASH(aa)
+Location Nodes: ALL DATANODES
 
 DROP TABLE inhts;
 -- Test for renaming in diamond inheritance
@@ -1470,6 +1472,8 @@ ALTER TABLE inht1 RENAME aa TO aaa;
 Inherits: inht2,
           inht3
 Has OIDs: no
+Distribute By: HASH(aaa)
+Location Nodes: ALL DATANODES
 
 CREATE TABLE inhts (d int) INHERITS (inht2, inhs1);
 NOTICE:  merging multiple inherited definitions of column "b"
@@ -1488,6 +1492,8 @@ ERROR:  cannot rename inherited column "b"
 Inherits: inht2,
           inhs1
 Has OIDs: no
+Distribute By: HASH(aaaa)
+Location Nodes: ALL DATANODES
 
 WITH RECURSIVE r AS (
   SELECT 'inht1'::regclass AS inhrelid
