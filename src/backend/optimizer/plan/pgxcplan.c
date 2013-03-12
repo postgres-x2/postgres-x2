@@ -62,7 +62,6 @@ static PlannedStmt *pgxc_handle_exec_direct(Query *query, int cursorOptions,
 static RemoteQuery *pgxc_FQS_create_remote_plan(Query *query,
 												ExecNodes *exec_nodes,
 												bool is_exec_direct);
-static void pgxc_set_remote_parameters(PlannedStmt *plan, ParamListInfo boundParams);
 static bool pgxc_locate_grouping_columns(PlannerInfo *root, List *tlist,
 											AttrNumber *grpColIdx);
 static List *pgxc_process_grouping_targetlist(List *local_tlist,
@@ -1198,15 +1197,10 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp)
 		Index			resultRelationIndex = lfirst_int(rel);
 		RangeTblEntry	*res_rel;
 		RelationLocInfo	*rel_loc_info;
-		Oid				*param_types;		/* Types of query parameters */
 		RemoteQuery		*fstep;
 		RangeTblEntry	*dummy_rte;			/* RTE for the remote query node */
 		Plan			*sourceDataPlan;	/* plan producing source data */
-		List			*sourceTargetList = NULL;
-		int				tot_prepparams;
 		char			*relname;
-		int				i;
-		ListCell		*elt;
 
 		relcount++;
 
@@ -1223,33 +1217,14 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp)
 		if (rel_loc_info == NULL)
 			continue;
 
-		/* Get the plan that is supposed to supply source data to this plan */
-		sourceDataPlan = list_nth(mt->plans, relcount);
-		/*
-		 * Get the target list of the plan that is supposed to
-		 * supply source data to this plan
-		 */
-		sourceTargetList = sourceDataPlan->targetlist;
-		tot_prepparams = list_length(sourceTargetList);
-
-		/* Allocate the array for parameter types */
-		param_types = (Oid *) palloc0(sizeof (Oid) * tot_prepparams);
-
-		/*
-		* The parameter types of all the supplied parameters
-		* will be the same as the types of the target list entries
-		* in the source data plan
-		*/
-		i = 0;
-		foreach(elt, sourceTargetList)
-		{
-			TargetEntry *tle = lfirst(elt);
-
-			/* Set up the parameter type */
-			param_types[i++] = exprType((Node *) tle->expr);
-		}
-
 		fstep = make_remotequery(NIL, NIL, resultRelationIndex);
+
+		/*
+		 * DML planning generates its own parameters that refer to the source
+		 * data plan.
+		 */
+		fstep->rq_params_internal = true;
+
 		fstep->is_temp = IsTempTable(res_rel->relid);
 		fstep->read_only = false;
 
@@ -1258,8 +1233,11 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp)
 									list_nth(mt->returningLists, relcount),
 									resultRelationIndex);
 
+		/* Get the plan that is supposed to supply source data to this plan */
+		sourceDataPlan = list_nth(mt->plans, relcount);
+
 		pgxc_build_dml_statement(root, cmdtyp, resultRelationIndex, fstep,
-									sourceTargetList);
+									sourceDataPlan->targetlist);
 
 		fstep->combine_type = get_plan_combine_type(cmdtyp,
 													rel_loc_info->locatorType);
@@ -1283,8 +1261,6 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp)
 			fstep->exec_nodes->en_expr = pgxc_set_en_expr(res_rel->relid,
 														resultRelationIndex);
 
-		SetRemoteStatementName((Plan *) fstep, NULL, tot_prepparams,
-											param_types, 0);
 		dummy_rte = make_dummy_remote_rte(relname,
 										makeAlias("REMOTE_DML_QUERY", NIL));
 		root->parse->rtable = lappend(root->parse->rtable, dummy_rte);
@@ -2213,7 +2189,6 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 
 	/* we need Coordinator for evaluation, invoke standard planner */
 	result = standard_planner(query, cursorOptions, boundParams);
-	pgxc_set_remote_parameters(result, boundParams);
 	return result;
 }
 
@@ -2268,9 +2243,6 @@ pgxc_handle_exec_direct(Query *query, int cursorOptions,
 			result->invalItems = glob->invalItems;
 		}
 	}
-
-	/* Set existing remote parameters */
-	pgxc_set_remote_parameters(result, boundParams);
 
 	return result;
 }
@@ -2395,9 +2367,6 @@ pgxc_FQS_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	 */
 	if (query->utilityStmt && IsA(query->utilityStmt, DeclareCursorStmt))
 		fetch_ctid_of(result->planTree, query);
-
-	/* Set existing remote parameters */
-	pgxc_set_remote_parameters(result, boundParams);
 
 	return result;
 }
@@ -2641,57 +2610,6 @@ pgxc_query_contains_utility(List *queries)
 	return false;
 }
 
-
-/*
- * pgxc_set_remote_parameters
- *
- * Set the list of remote parameters for remote plan
- */
-static void
-pgxc_set_remote_parameters(PlannedStmt *plan, ParamListInfo boundParams)
-{
-	Oid *param_types;
-	int cntParam, i;
-
-	/* Leave if no plan */
-	if (!plan)
-		return;
-
-	/* Leave if no parameters */
-	if (!boundParams)
-		return;
-
-	/*
-	 * Count the number of remote parameters available
-	 * We need to take into account all the parameters
-	 * that are prior to the latest available. This insures
-	 * that remote node will not complain about an incorrect
-	 * number of parameter. In case parameters with no types
-	 * are taken into account, they are considered as NULL entries.
-	 */
-	cntParam = 0;
-	for (i = 0; i < boundParams->numParams; i++)
-	{
-		if (OidIsValid(boundParams->params[i].ptype))
-			cntParam = i + 1;
-	}
-
-	/* If there are no parameters available, simply leave */
-	if (cntParam == 0)
-		return;
-
-	param_types = (Oid *) palloc(sizeof(Oid) * cntParam);
-
-	/* Then fill the array of types */
-	for (i = 0; i < cntParam; i++)
-		param_types[i] = boundParams->params[i].ptype;
-
-	/* Finally save the parameters in plan */
-	SetRemoteStatementName(plan->planTree, NULL,
-						   cntParam, param_types, 0);
-
-	return;
-}
 
 /*
  * create_remotesort_plan

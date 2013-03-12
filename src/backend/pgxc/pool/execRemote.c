@@ -172,6 +172,7 @@ static void pgxc_node_report_error(RemoteQueryState *combiner);
 static TupleTableSlot *getrow_for_tapesort(RemoteQueryState *combiner,
 											TupleTableSlot *scanslot);
 static bool IsReturningDMLOnReplicatedTable(RemoteQuery *rq);
+static void SetDataRowForIntParams(TupleTableSlot *slot, RemoteQueryState *rq_state);
 
 /*
  * Create a structure to store parameters needed to combine responses from
@@ -2554,12 +2555,7 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 	 * If there are parameters supplied, get them into a form to be sent to the
 	 * Datanodes with bind message. We should not have had done this before.
 	 */
-	if (estate->es_param_list_info)
-	{
-		Assert(!remotestate->paramval_data);
-		remotestate->paramval_len = ParamListToDataRow(estate->es_param_list_info,
-												&remotestate->paramval_data);
-	}
+	SetDataRowForExtParams(estate->es_param_list_info, remotestate);
 
 	/*
 	 * Initialize result tuple type and projection info.
@@ -2780,7 +2776,7 @@ pgxc_start_command_on_connection(PGXCNodeHandle *connection,
 
 	if (snapshot && pgxc_node_send_snapshot(connection, snapshot))
 		return false;
-	if (step->statement || step->cursor || step->remote_param_types)
+	if (step->statement || step->cursor || remotestate->rqs_num_params)
 	{
 		/* need to use Extended Query Protocol */
 		int	fetch = 0;
@@ -2808,8 +2804,8 @@ pgxc_start_command_on_connection(PGXCNodeHandle *connection,
 							prepared ? NULL : step->sql_statement,
 							step->statement,
 							step->cursor,
-							step->remote_num_params,
-							step->remote_param_types,
+							remotestate->rqs_num_params,
+							remotestate->rqs_param_types,
 							remotestate->paramval_len,
 							remotestate->paramval_data,
 							send_desc,
@@ -3445,6 +3441,15 @@ ExecEndRemoteQuery(RemoteQueryState *node)
 		node->paramval_len = 0;
 	}
 
+	/* Free the param types if they are newly allocated */
+	if (node->rqs_param_types &&
+	    node->rqs_param_types != ((RemoteQuery*)node->ss.ps.plan)->rq_param_types)
+	{
+		pfree(node->rqs_param_types);
+		node->rqs_param_types = NULL;
+		node->rqs_num_params = 0;
+	}
+
 	if (node->ss.ss_currentRelation)
 		ExecCloseScanRelation(node->ss.ss_currentRelation);
 
@@ -3506,29 +3511,47 @@ close_node_cursors(PGXCNodeHandle **connections, int conn_count, char *cursor)
 /*
  * Encode parameter values to format of DataRow message (the same format is
  * used in Bind) to prepare for sending down to Datanodes.
- * The buffer to store encoded value is palloc'ed and returned as the result
- * parameter. Function returns size of the result
+ * The data row is copied to RemoteQueryState.paramval_data.
  */
-int
-ParamListToDataRow(ParamListInfo params, char** result)
+void
+SetDataRowForExtParams(ParamListInfo paraminfo, RemoteQueryState *rq_state)
 {
 	StringInfoData buf;
 	uint16 n16;
 	int i;
 	int real_num_params = 0;
+	RemoteQuery *node = (RemoteQuery*) rq_state->ss.ps.plan;
+
+	/* If there are no parameters, there is no data to BIND. */
+	if (!paraminfo)
+		return;
+
+	/*
+	 * If this query has been generated internally as a part of two-step DML
+	 * statement, it uses only the internal parameters for input values taken
+	 * from the source data, and it never uses external parameters. So even if
+	 * parameters were being set externally, they won't be present in this
+	 * statement (they might be present in the source data query). In such
+	 * case where parameters refer to the values returned by SELECT query, the
+	 * parameter data and parameter types would be set in SetDataRowForIntParams().
+	 */
+	if (node->rq_params_internal)
+		return;
+
+	Assert(!rq_state->paramval_data);
 
 	/*
 	 * It is necessary to fetch parameters
 	 * before looking at the output value.
 	 */
-	for (i = 0; i < params->numParams; i++)
+	for (i = 0; i < paraminfo->numParams; i++)
 	{
 		ParamExternData *param;
 
-		param = &params->params[i];
+		param = &paraminfo->params[i];
 
-		if (!OidIsValid(param->ptype) && params->paramFetch != NULL)
-			(*params->paramFetch) (params, i + 1);
+		if (!OidIsValid(param->ptype) && paraminfo->paramFetch != NULL)
+			(*paraminfo->paramFetch) (paraminfo, i + 1);
 
 		/*
 		 * This is the last parameter found as useful, so we need
@@ -3547,8 +3570,9 @@ ParamListToDataRow(ParamListInfo params, char** result)
 	 */
 	if (real_num_params == 0)
 	{
-		*result = NULL;
-		return 0;
+		rq_state->paramval_data = NULL;
+		rq_state->paramval_len = 0;
+		return;
 	}
 
 	initStringInfo(&buf);
@@ -3560,7 +3584,7 @@ ParamListToDataRow(ParamListInfo params, char** result)
 	/* Parameter values */
 	for (i = 0; i < real_num_params; i++)
 	{
-		ParamExternData *param = &params->params[i];
+		ParamExternData *param = &paraminfo->params[i];
 		uint32 n32;
 
 		/*
@@ -3603,11 +3627,35 @@ ParamListToDataRow(ParamListInfo params, char** result)
 		}
 	}
 
-	/* Take data from the buffer */
-	*result = palloc(buf.len);
-	memcpy(*result, buf.data, buf.len);
-	pfree(buf.data);
-	return buf.len;
+
+	/*
+	 * If parameter types are not already set, infer them from
+	 * the paraminfo.
+	 */
+	if (node->rq_num_params > 0)
+	{
+		/*
+		 * Use the already known param types for BIND. Parameter types
+		 * can be already known when the same plan is executed multiple
+		 * times.
+		 */
+		if (node->rq_num_params != real_num_params)
+			elog(ERROR, "Number of user-supplied parameters do not match "
+						"the number of remote parameters");
+		rq_state->rqs_num_params = node->rq_num_params;
+		rq_state->rqs_param_types = node->rq_param_types;
+	}
+	else
+	{
+		rq_state->rqs_num_params = real_num_params;
+		rq_state->rqs_param_types = (Oid *) palloc(sizeof(Oid) * real_num_params);
+		for (i = 0; i < real_num_params; i++)
+			rq_state->rqs_param_types[i] = paraminfo->params[i].ptype;
+	}
+
+	/* Assign the newly allocated data row to paramval */
+	rq_state->paramval_data = buf.data;
+	rq_state->paramval_len = buf.len;
 }
 
 
@@ -4112,8 +4160,7 @@ ExecProcNodeDMLInXC(RemoteQueryState *resultRemoteRel,
 	 * Use data row returned by the previous step as parameter for
 	 * the DML to be executed in this step.
 	 */
-	resultRemoteRel->paramval_len = ExecCopySlotDatarow(previousStepSlot,
-											&resultRemoteRel->paramval_data);
+	SetDataRowForIntParams(previousStepSlot, resultRemoteRel);
 
 	/*
 	 * do_query calls get_exec_connections to determine target nodes
@@ -4957,4 +5004,112 @@ getrow_for_tapesort(RemoteQueryState *combiner, TupleTableSlot *scanslot)
 	ereport(ERROR,
 			(errcode(ERRCODE_INTERNAL_ERROR),
 			 errmsg("Did not get response complete message for the connection.")));
+}
+
+
+/* --------------------------------
+ * SetDataRowForIntParams: Form a BIND data row for internal parameters.
+ * This function is called when the data for the parameters of remote
+ * statement resides in some plan slot of an internally generated remote
+ * statement rather than from some extern params supplied by the caller of the
+ * query. Currently DML is the only case where we generate a query with
+ * internal parameters.
+ * The parameter data is constructed from the slot data, and stored in
+ * RemoteQueryState.paramval_data.
+ * At the same time, remote parameter types are inferred from the slot
+ * tuple descriptor, and stored in RemoteQueryState.rqs_param_types.
+ * On subsequent calls, these param types are re-used.
+ * The slot itself is undisturbed.
+ * --------------------------------
+ */
+static void
+SetDataRowForIntParams(TupleTableSlot *slot, RemoteQueryState *rq_state)
+{
+	TupleDesc	tdesc = slot->tts_tupleDescriptor;
+	int			att_index;
+
+	Assert(tdesc != NULL);
+
+	/*
+	 * Infer param types from the tuple desc. But we have to do it only the
+	 * first time: the interal parameters remain the same while processing all
+	 * the source data rows because the data slot tupdesc never changes.
+	 * Even though we can determine the internal param types during planning, we
+	 * want to do it here: we don't want to set the param types and param data
+	 * at two different places. Doing them together here helps us to make sure
+	 * that the order of param types are in line with the order of the param
+	 * data.
+	 */
+	if (rq_state->rqs_num_params == 0)
+	{
+		rq_state->rqs_num_params = tdesc->natts;
+		rq_state->rqs_param_types =
+			(Oid *) palloc(sizeof(Oid) * rq_state->rqs_num_params);
+		for (att_index = 0; att_index < rq_state->rqs_num_params; att_index++)
+			rq_state->rqs_param_types[att_index] = tdesc->attrs[att_index]->atttypid;
+	}
+
+	/* if we already have datarow make a copy */
+	if (slot->tts_dataRow)
+	{
+		rq_state->paramval_data = (char *)palloc(slot->tts_dataLen);
+		memcpy(rq_state->paramval_data, slot->tts_dataRow, slot->tts_dataLen);
+		rq_state->paramval_len = slot->tts_dataLen;
+	}
+	else
+	{
+		StringInfoData	buf;
+		uint16			n16;
+
+		initStringInfo(&buf);
+		/* Number of parameter values */
+		n16 = htons(tdesc->natts);
+		appendBinaryStringInfo(&buf, (char *) &n16, 2);
+
+		/* ensure we have all values */
+		slot_getallattrs(slot);
+		for (att_index = 0; att_index < tdesc->natts; att_index++)
+		{
+			uint32 n32;
+
+			if (slot->tts_isnull[att_index])
+			{
+				n32 = htonl(-1);
+				appendBinaryStringInfo(&buf, (char *) &n32, 4);
+			}
+			else
+			{
+				Form_pg_attribute attr = tdesc->attrs[att_index];
+				Oid		typOutput;
+				bool	typIsVarlena;
+				Datum	pval;
+				char   *pstring;
+				int		len;
+
+				/* Get info needed to output the value */
+				getTypeOutputInfo(attr->atttypid, &typOutput, &typIsVarlena);
+				/*
+				 * If we have a toasted datum, forcibly detoast it here to avoid
+				 * memory leakage inside the type's output routine.
+				 */
+				if (typIsVarlena)
+					pval = PointerGetDatum(PG_DETOAST_DATUM(slot->tts_values[att_index]));
+				else
+					pval = slot->tts_values[att_index];
+
+				/* Convert Datum to string */
+				pstring = OidOutputFunctionCall(typOutput, pval);
+
+				/* copy data to the buffer */
+				len = strlen(pstring);
+				n32 = htonl(len);
+				appendBinaryStringInfo(&buf, (char *) &n32, 4);
+				appendBinaryStringInfo(&buf, pstring, len);
+			}
+		}
+
+		/* Assign the newly allocated data row to paramval */
+		rq_state->paramval_data = buf.data;
+		rq_state->paramval_len = buf.len;
+	}
 }

@@ -88,11 +88,12 @@ typedef struct
 	bool			force_autocommit;	/* some commands like VACUUM require autocommit mode */
 	char			*statement;		/* if specified use it as a PreparedStatement name on Datanodes */
 	char			*cursor;		/* if specified use it as a Portal name on Datanodes */
-	int			remote_num_params;		/* number of parameters specified for Prepared remote statement */
-	Oid			*remote_param_types;		/* parameter types, this pointer is shared
-							 * across all the RemoteQuery nodes in the
-							 * plan. So, don't change this once set.
-							 */
+	int				rq_num_params;		/* number of parameters present in remote statement */
+	Oid				*rq_param_types;	/* parameter types for the remote statement */
+	bool			rq_params_internal;	/* Do the query params refer to the source data
+										 * plan as against user-supplied params ?
+										 */
+
 	RemoteQueryExecType	exec_type;
 	bool			is_temp;		/* determine if this remote node is based
 									 * on a temporary objects (no 2PC) */

@@ -153,3 +153,4 @@ test: xc_notrans_block
 test: xc_limit
 test: xc_sort
 test: xc_returning
+test: xc_params

@@ -491,24 +491,6 @@ init_execution_state(List *queryTree_list,
 					   errmsg("%s is not allowed in a non-volatile function",
 							  CreateCommandTag(stmt))));
 
-#ifdef PGXC
-			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-			{
-				if (queryTree->commandType != CMD_UTILITY)
-				{
-					/*
-					* The parameterised queries in RemoteQuery nodes will be prepared
-					* on the Datanode, and need parameter types for the same. Set the
-					* parameter types and their number in all RemoteQuery nodes in the
-					* plan
-					*/
-					SetRemoteStatementName(((PlannedStmt *)stmt)->planTree, NULL,
-											fcache->pinfo->nargs,
-											fcache->pinfo->argtypes, 0);
-				}
-			}
-#endif /* PGXC */
-
 			/* OK, build the execution_state for this query */
 			newes = (execution_state *) palloc(sizeof(execution_state));
 			if (preves)

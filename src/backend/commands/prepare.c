@@ -503,7 +503,7 @@ SetRemoteStatementName(Plan *plan, const char *stmt_name, int num_params,
 		char name[NAMEDATALEN];
 
 		/* Nothing to do if parameters are already set for this query */
-		if (remotequery->remote_num_params != 0)
+		if (remotequery->rq_num_params != 0)
 			return 0;
 
 		if (stmt_name)
@@ -546,8 +546,8 @@ SetRemoteStatementName(Plan *plan, const char *stmt_name, int num_params,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 					 errmsg("Passing parameters in PREPARE statement is not supported")));
 
-		remotequery->remote_num_params = num_params;
-		remotequery->remote_param_types = param_types;
+		remotequery->rq_num_params = num_params;
+		remotequery->rq_param_types = param_types;
 	}
 	else if (IsA(plan, ModifyTable))
 	{
