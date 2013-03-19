@@ -2977,23 +2977,15 @@ explain (verbose true, costs false, nodes false)
   select p.*, linked from parent p
     left join (select c.*, true as linked from child c) as ss
     on (p.k = ss.k) order by p.k;
-                               QUERY PLAN                                
--------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.k, p.pd, (true)
    Sort Key: p.k
-   ->  Hash Left Join
-         Output: p.k, p.pd, (true)
-         Hash Cond: (p.k = c.k)
-         ->  Data Node Scan on parent "_REMOTE_TABLE_QUERY_"
-               Output: p.k, p.pd
-               Remote query: SELECT k, pd FROM ONLY parent p WHERE true
-         ->  Hash
-               Output: c.k, (true)
-               ->  Data Node Scan on child "_REMOTE_TABLE_QUERY_"
-                     Output: c.k, true
-                     Remote query: SELECT k FROM ONLY child c WHERE true
-(14 rows)
+   ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
+         Output: p.k, p.pd, true
+         Remote query: SELECT l.a_1, l.a_2 FROM ((SELECT p.k, p.pd FROM ONLY parent p WHERE true) l(a_1, a_2) LEFT JOIN (SELECT c.k FROM ONLY child c WHERE true) r(a_1) ON ((l.a_1 = r.a_1))) WHERE true ORDER BY 1
+(6 rows)
 
 -- check for a 9.0rc1 bug: join removal breaks pseudoconstant qual handling
 select p.* from
@@ -3007,15 +2999,12 @@ explain (verbose true, costs false, nodes false)
 select p.* from
   parent p left join child c on (p.k = c.k)
   where p.k = 1 and p.k = 2;
-                                   QUERY PLAN                                    
----------------------------------------------------------------------------------
- Result
+                                                     QUERY PLAN                                                      
+---------------------------------------------------------------------------------------------------------------------
+ Data Node Scan on "__REMOTE_FQS_QUERY__"
    Output: p.k, p.pd
-   One-Time Filter: false
-   ->  Data Node Scan on parent "_REMOTE_TABLE_QUERY_"
-         Output: p.k, p.pd
-         Remote query: SELECT k, pd FROM ONLY parent p WHERE ((k = 1) AND false)
-(6 rows)
+   Remote query: SELECT p.k, p.pd FROM (parent p LEFT JOIN child c ON ((p.k = c.k))) WHERE ((p.k = 1) AND (p.k = 2))
+(3 rows)
 
 select p.* from
   (parent p left join child c on (p.k = c.k)) join parent x on p.k = x.k
@@ -3028,11 +3017,11 @@ explain (verbose true, costs false, nodes false)
 select p.* from
   (parent p left join child c on (p.k = c.k)) join parent x on p.k = x.k
   where p.k = 1 and p.k = 2;
-        QUERY PLAN        
---------------------------
- Result
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Data Node Scan on "__REMOTE_FQS_QUERY__"
    Output: p.k, p.pd
-   One-Time Filter: false
+   Remote query: SELECT p.k, p.pd FROM ((parent p LEFT JOIN child c ON ((p.k = c.k))) JOIN parent x ON ((p.k = x.k))) WHERE ((p.k = 1) AND (p.k = 2))
 (3 rows)
 
 -- bug 5255: this is not optimizable by join removal

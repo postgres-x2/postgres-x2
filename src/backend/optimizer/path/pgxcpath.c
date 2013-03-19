@@ -155,79 +155,6 @@ pgxc_find_remotequery_path(RelOptInfo *rel)
 }
 
 /*
- * See if the nodelists corresponding to the RemoteQuery paths being joined can
- * be merged.
- */
-ExecNodes *
-pgxc_is_join_reducible(ExecNodes *inner_en, ExecNodes *outer_en, Relids in_relids,
-						Relids out_relids, JoinType jointype, List *join_quals,
-						List *rtables)
-{
-	ExecNodes 	*join_exec_nodes;
-	bool		merge_dist_equijoin = false;
-	bool		merge_replicated_only;
-	ListCell	*cell;
-
-	/*
-	 * If either of inner_en or outer_en is NULL, return NULL. We can't ship the
-	 * join when either of the sides do not have datanodes to ship to.
-	 */
-	if (!outer_en || !inner_en)
-		return NULL;
-	/*
-	 * We only support reduction of INNER, LEFT [OUTER] and FULL [OUTER] joins.
-	 * RIGHT [OUTER] join is converted to LEFT [OUTER] join during join tree
-	 * deconstruction.
-	 */
-	if (jointype != JOIN_INNER && jointype != JOIN_LEFT && jointype != JOIN_FULL)
-		return NULL;
-	/*
-	 * When join type is other than INNER, we will get the unmatched rows on
-	 * either side. The result will be correct only in case both the sides of
-	 * join are replicated. In case one of the sides is replicated, and the
-	 * unmatched results are not coming from that side, it might be possible to
-	 * ship such join, but this needs to be validated from correctness
-	 * perspective.
-	 */
-	merge_replicated_only = (jointype != JOIN_INNER);
-
-	/*
-	 * If both the relations are distributed with similar distribution strategy
-	 * walk through the restriction info for this JOIN to find if there is an
-	 * equality condition on the distributed columns of both the relations. In
-	 * such case, we can reduce the JOIN if the distribution nodelist is also
-	 * same.
-	 */
-	if (IsExecNodesDistributedByValue(inner_en) &&
-		inner_en->baselocatortype == outer_en->baselocatortype &&
-		!merge_replicated_only)
-	{
-		foreach(cell, join_quals)
-		{
-			Node	*qual = (Node *)lfirst(cell);
-			if (pgxc_qual_has_dist_equijoin(in_relids,
-											out_relids, InvalidOid,
-											qual, rtables) &&
-				pgxc_is_expr_shippable((Expr *)qual, NULL))
-			{
-				merge_dist_equijoin = true;
-				break;
-			}
-		}
-	}
-	/*
-	 * If the ExecNodes of inner and outer nodes can be merged, the JOIN is
-	 * shippable
-	 * PGXCTODO: Can we take into consideration the JOIN conditions to optimize
-	 * further?
-	 */
-	join_exec_nodes = pgxc_merge_exec_nodes(inner_en, outer_en,
-											merge_dist_equijoin,
-											merge_replicated_only);
-	return join_exec_nodes;
-}
-
-/*
  * pgxc_ship_remotejoin
  * If there are RemoteQuery paths for the rels being joined, check if the join
  * is shippable to the datanodes, and if so, create a remotequery path for this
@@ -296,7 +223,7 @@ create_joinrel_rqpath(PlannerInfo *root, RelOptInfo *joinrel,
 	 * If the nodelists on both the sides of JOIN can be merged, the JOIN is
 	 * shippable.
 	 */
-	join_en = pgxc_is_join_reducible(inner_en, outer_en,
+	join_en = pgxc_is_join_shippable(inner_en, outer_en,
 										innerrel->relids, outerrel->relids,
 										jointype, join_quals, root->parse->rtable);
 	if (join_en)

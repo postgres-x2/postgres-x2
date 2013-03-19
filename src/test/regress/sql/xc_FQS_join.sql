@@ -13,6 +13,11 @@ select create_table_nodes('tab4_rep', '{2, 4}'::int[], 'replication', 'as select
 select create_table_nodes('tab1_mod', '{1, 2, 3}'::int[], 'modulo(val)', 'as select * from tab1_rep');
 select create_table_nodes('tab2_mod', '{2, 4}'::int[], 'modulo(val)', 'as select * from tab1_rep');
 select create_table_nodes('tab3_mod', '{1, 2, 3}'::int[], 'modulo(val)', 'as select * from tab1_rep');
+select create_table_nodes('single_node_rep_tab', '{1}'::int[], 'replication', 'as select * from tab1_rep limit 0');
+select create_table_nodes('single_node_mod_tab', '{1}'::int[], 'modulo(val)', 'as select * from tab1_rep limit 0');
+-- populate single node tables specially
+insert into single_node_rep_tab values (1, 2), (3, 4);
+insert into single_node_mod_tab values (1, 2), (5, 6);
 
 -- Join involving replicated tables only, all of them should be shippable
 select * from tab1_rep, tab2_rep where tab1_rep.val = tab2_rep.val and
@@ -100,6 +105,70 @@ explain (costs off, verbose on, nodes off, num_nodes on) select * from tab1_mod 
 select * from tab1_mod, tab3_mod where tab1_mod.val = tab3_mod.val and tab1_mod.val = 1;
 explain (costs off, verbose on, nodes off) select * from tab1_mod, tab3_mod
 			where tab1_mod.val = tab3_mod.val and tab1_mod.val = 1;
+-- OUTER joins, we insert some data in existing tables for testing OUTER join
+-- OUTER join between two replicated tables is shippable if they have a common
+-- datanode.
+insert into tab1_rep values (100, 200);
+insert into tab2_rep values (3000, 4000);
+select * from tab1_rep left join tab2_rep on (tab1_rep.val = tab2_rep.val and tab1_rep.val2 = tab2_rep.val2)
+			where tab2_rep.val = tab2_rep.val2 or tab2_rep.val is null
+			order by tab1_rep.val, tab1_rep.val2;
+explain (costs off, verbose on, nodes off)
+select * from tab1_rep left join tab2_rep on (tab1_rep.val = tab2_rep.val and tab1_rep.val2 = tab2_rep.val2)
+			where tab1_rep.val = tab1_rep.val2 or tab2_rep.val is null
+			order by tab1_rep.val, tab1_rep.val2;
+-- FULL OUTER join
+select * from tab1_rep full join tab2_rep on (tab1_rep.val < tab2_rep.val and tab1_rep.val2 = tab2_rep.val2) 
+					where tab1_rep.val > 5 or tab2_rep.val > 5
+					order by tab1_rep.val, tab2_rep.val, tab1_rep.val2, tab2_rep.val2;
+explain (costs off, verbose on, nodes off)
+select * from tab1_rep full join tab2_rep on (tab1_rep.val < tab2_rep.val and tab1_rep.val2 = tab2_rep.val2)
+					where tab1_rep.val > 5 or tab2_rep.val > 5
+					order by tab1_rep.val, tab2_rep.val, tab1_rep.val2, tab2_rep.val2;
+-- OUTER join between two distributed tables is shippable if it's an equi-join
+-- on the distribution columns, such that distribution columns are of same type
+-- and the relations are distributed on same set of nodes
+insert into tab1_mod values (100, 200);
+insert into tab3_mod values (3000, 4000);
+select * from tab1_mod left join tab3_mod on (tab1_mod.val = tab3_mod.val and tab1_mod.val2 = tab3_mod.val2)
+			where tab3_mod.val = tab3_mod.val2 or tab3_mod.val is null
+			order by tab1_mod.val, tab1_mod.val2;
+explain (costs off, verbose on, nodes off)
+select * from tab1_mod left join tab3_mod on (tab1_mod.val = tab3_mod.val and tab1_mod.val2 = tab3_mod.val2)
+			where tab3_mod.val = tab3_mod.val2 or tab3_mod.val is null
+			order by  tab1_mod.val, tab1_mod.val2;
+-- JOIN condition is not equi-join on distribution column, join is not shippable
+select * from tab1_mod left join tab3_mod using (val2)
+			where (tab1_mod.val = tab1_mod.val2 and tab3_mod.val = tab3_mod.val2) or tab3_mod.val is null
+			order by tab1_mod.val, tab1_mod.val2, tab3_mod.val2;
+explain (costs off, verbose on, nodes off)
+select * from tab1_mod left join tab3_mod using (val2)
+			where (tab1_mod.val = tab1_mod.val2 and tab3_mod.val = tab3_mod.val2) or tab3_mod.val is null
+			order by  tab1_mod.val, tab1_mod.val2, tab3_mod.val2;
+-- OUTER join between replicated and distributed tables is shippable if the
+-- the replicated table is available on all the datanodes where outer side is
+-- distributed
+select * from tab1_mod left join tab1_rep on (tab1_mod.val < tab1_rep.val and tab1_mod.val2 = tab1_rep.val2)
+			where tab1_mod.val >= 5
+			order by tab1_mod.val, tab1_mod.val2, tab1_rep.val, tab1_rep.val2;
+explain (costs off, verbose on, nodes off)
+select * from tab1_mod left join tab1_rep on (tab1_mod.val < tab1_rep.val and tab1_mod.val2 = tab1_rep.val2)
+			where tab1_mod.val >= 5
+			order by tab1_mod.val, tab1_mod.val2, tab1_rep.val, tab1_rep.val2;
+-- OUTER side is replicated and inner is distributed, join is not shippable
+select * from tab1_mod right join tab1_rep on (tab1_mod.val > tab1_rep.val and tab1_mod.val2 = tab1_rep.val2)
+			where tab1_rep.val >= 5
+			order by tab1_mod.val, tab1_mod.val2, tab1_rep.val, tab1_rep.val2;
+explain (costs off, verbose on, nodes off)
+select * from tab1_mod right join tab1_rep on (tab1_mod.val > tab1_rep.val and tab1_mod.val2 = tab1_rep.val2)
+			where tab1_rep.val >= 5
+			order by tab1_mod.val, tab1_mod.val2, tab1_rep.val, tab1_rep.val2;
+-- Any join involving a distributed and replicated node each located on a single
+-- and same node should be shippable
+select * from single_node_rep_tab natural full outer join single_node_mod_tab order by val, val2;
+explain (costs off, verbose on, nodes off)
+select * from single_node_rep_tab natural full outer join single_node_mod_tab order by val, val2;
+
 -- DMLs involving JOINs are not FQSed
 -- We need to just make sure that FQS is not kicking in. But the JOINs can still
 -- be reduced by JOIN reduction optimization. Turn this optimization off so as
@@ -121,4 +190,7 @@ drop table tab3_rep;
 drop table tab4_rep;
 drop table tab1_mod;
 drop table tab2_mod;
+drop table tab3_mod;
+drop table single_node_mod_tab;
+drop table single_node_rep_tab;
 

@@ -132,7 +132,7 @@ extern bool pgxc_query_contains_utility(List *queries);
 extern void pgxc_rqplan_adjust_tlist(RemoteQuery *rqplan);
 
 extern Plan *pgxc_make_modifytable(PlannerInfo *root, Plan *topplan);
-extern ExecNodes *pgxc_is_join_reducible(ExecNodes *inner_en, ExecNodes *outer_en,
+extern ExecNodes *pgxc_is_join_shippable(ExecNodes *inner_en, ExecNodes *outer_en,
 						Relids in_relids, Relids out_relids, JoinType jointype,
 						List *join_quals, List *rtables);
 

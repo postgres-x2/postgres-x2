@@ -300,7 +300,7 @@ pgxc_FQS_find_datanodes_recurse(Node *node, Query *query, Bitmapset **relids)
 				 * Check whether the JOIN is pushable to the datanodes and
 				 * find the datanodes where the JOIN can be pushed to
 				 */
-				result_en = pgxc_is_join_reducible(result_en, en, from_relids,
+				result_en = pgxc_is_join_shippable(result_en, en, from_relids,
 										fle_relids, JOIN_INNER,
 										make_ands_implicit((Expr *)from_expr->quals),
 										query_rtable);
@@ -349,7 +349,7 @@ pgxc_FQS_find_datanodes_recurse(Node *node, Query *query, Bitmapset **relids)
 			 * Check whether the JOIN is pushable or not, and find the datanodes
 			 * where the JOIN can be pushed to.
 			 */
-			result_en = pgxc_is_join_reducible(ren, len, r_relids, l_relids,
+			result_en = pgxc_is_join_shippable(ren, len, r_relids, l_relids,
 												join_expr->jointype,
 												make_ands_implicit((Expr *)join_expr->quals),
 												query_rtable);
@@ -1074,14 +1074,36 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 			 */
 			if (!pgxc_test_shippability_reason(sc_context, SS_NO_NODES))
 			{
-				sc_context->sc_subquery_en = pgxc_merge_exec_nodes(sublink_en,
-																   sc_context->sc_subquery_en,
-																   false,
-																   true);
+				/*
+				 * If this is the first time we are finding out the nodes for
+				 * SubLink, we don't have anything to merge, just assign.
+				 */
+				if (!sc_context->sc_subquery_en)
+					sc_context->sc_subquery_en = sublink_en;
+				/*
+				 * Merge if only the accumulated SubLink ExecNodes and the
+				 * ExecNodes for this subquery are both replicated.
+				 */
+				else if (sublink_en && IsExecNodesReplicated(sublink_en) &&
+							IsExecNodesReplicated(sc_context->sc_subquery_en))
+				{
+					sc_context->sc_subquery_en = pgxc_merge_exec_nodes(sublink_en,
+																   sc_context->sc_subquery_en);
+				}
+				else
+					sc_context->sc_subquery_en = NULL;
+
+				/*
+				 * If we didn't find a cumulative ExecNodes, set shippability
+				 * reason, so that we don't bother merging future sublinks.
+				 */
 				if (!sc_context->sc_subquery_en)
 					pgxc_set_shippability_reason(sc_context, SS_NO_NODES);
 			}
+			else
+				Assert(!sc_context->sc_subquery_en);
 
+			/* Check if the type of sublink result is shippable */
 			pgxc_set_exprtype_shippability(exprType(node), sc_context);
 
 			/* Wipe out subselect as explained above and walk the copied tree */
@@ -1226,20 +1248,29 @@ pgxc_is_query_shippable(Query *query, int query_level)
 	 * shipped.
 	 */
 	pgxc_shippability_walker((Node *)query, &sc_context);
+
+	exec_nodes = sc_context.sc_exec_nodes;
 	/*
-	 * We have merged the nodelists and distributions of all subqueries seen in
-	 * the query tree, merge it with the same obtained for the relations
-	 * involved in the query.
+	 * The shippability context contains two ExecNodes, one for the subLinks
+	 * involved in the Query and other for the relation involved in FromClause.
+	 * They are computed at different times while scanning the query. Merge both
+	 * of them if they are both replicated. If query doesn't have SubLinks, we
+	 * don't need to consider corresponding ExecNodes.
 	 * PGXC_FQS_TODO:
 	 * Merge the subquery ExecNodes if both of them are replicated.
 	 * The logic to merge node lists with other distribution
 	 * strategy is not clear yet.
 	 */
-	exec_nodes = sc_context.sc_exec_nodes;
-	if (exec_nodes)
-		exec_nodes = pgxc_merge_exec_nodes(exec_nodes,
-										   sc_context.sc_subquery_en, false,
-										   true);
+	if (query->hasSubLinks)
+	{
+		if (exec_nodes && IsExecNodesReplicated(exec_nodes) &&
+			sc_context.sc_subquery_en &&
+			IsExecNodesReplicated(sc_context.sc_subquery_en))
+			exec_nodes = pgxc_merge_exec_nodes(exec_nodes,
+											   sc_context.sc_subquery_en);
+		else
+			exec_nodes = NULL;
+	}
 
 	/*
 	 * Look at the information gathered by the walker in Shippability_context and that
@@ -1366,11 +1397,11 @@ pgxc_is_func_shippable(Oid funcid)
 
 
 /*
- * pgxc_qual_has_dist_equijoin
+ * pgxc_find_dist_equijoin_qual
  * Check equijoin conditions on given relations
  */
-bool
-pgxc_qual_has_dist_equijoin(Relids varnos_1,
+Expr *
+pgxc_find_dist_equijoin_qual(Relids varnos_1,
 		Relids varnos_2, Oid distcol_type, Node *quals, List *rtable)
 {
 	List		*lquals;
@@ -1446,9 +1477,9 @@ pgxc_qual_has_dist_equijoin(Relids varnos_1,
 			!op_hashjoinable(op->opno, exprType((Node *)lvar)))
 			continue;
 		/* Found equi-join condition on distribution columns */
-		return true;
+		return qual_expr;
 	}
-	return false;
+	return NULL;
 }
 
 
@@ -1459,8 +1490,7 @@ pgxc_qual_has_dist_equijoin(Relids varnos_1,
  * If both exec_nodes can not be merged, it returns NULL.
  */
 ExecNodes *
-pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2, bool merge_dist_equijoin,
-					  bool merge_replicated_only)
+pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2)
 {
 	ExecNodes	*merged_en = makeNode(ExecNodes);
 	ExecNodes	*tmp_en;
@@ -1499,19 +1529,8 @@ pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2, bool merge_dist_equijoin,
 		merged_en->nodeList = list_intersection_int(en1->nodeList,
 													en2->nodeList);
 		merged_en->baselocatortype = LOCATOR_TYPE_REPLICATED;
-		/* No intersection, so has to go though standard planner... */
 		if (!merged_en->nodeList)
 			FreeExecNodes(&merged_en);
-		return merged_en;
-	}
-
-	/*
-	 * We are told to merge the nodelists if both the distributions are
-	 * replicated. We checked that above, so bail out
-	 */
-	if (merge_replicated_only)
-	{
-		FreeExecNodes(&merged_en);
 		return merged_en;
 	}
 
@@ -1572,29 +1591,19 @@ pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2, bool merge_dist_equijoin,
 		/*
 		 * Distributed/distributed case
 		 * If the caller has suggested that this is an equi-join between two
-		 * distributed results, check if both are distributed by the same
-		 * distribution strategy, and have the same nodes in the distribution
-		 * node list. The caller should have made sure that distribution column
-		 * type is same.
+		 * distributed results, check that they have the same nodes in the distribution
+		 * node list. The caller is expected to fully decide whether to merge
+		 * the nodes or not.
 		 */
-		if (merge_dist_equijoin &&
-			en1->baselocatortype == en2->baselocatortype &&
-			!list_difference_int(en1->nodeList, en2->nodeList) &&
+		if (!list_difference_int(en1->nodeList, en2->nodeList) &&
 			!list_difference_int(en2->nodeList, en1->nodeList))
 		{
 			merged_en->nodeList = list_copy(en1->nodeList);
-			merged_en->baselocatortype = en1->baselocatortype;
+			if (en1->baselocatortype == en2->baselocatortype)
+				merged_en->baselocatortype = en1->baselocatortype;
+			else
+				merged_en->baselocatortype = LOCATOR_TYPE_DISTRIBUTED;
 		}
-		/*
-		 * If both the relations are distributed but have only one node in the
-		 * node list, the JOIN can be pushed down if the single node is same for
-		 * both the relations.
-		 * PGXCTODO: Should we set the locatortype as REPLICATED for such
-		 * relation/s in first place?
-		 */
-		else if (list_length(en1->nodeList) == 1 && list_length(en2->nodeList) == 1 &&
-				(merged_en->nodeList = list_intersection_int(en1->nodeList, en2->nodeList)))
-			merged_en->baselocatortype = LOCATOR_TYPE_DISTRIBUTED;
 		else
 			FreeExecNodes(&merged_en);
 		return merged_en;
@@ -1893,4 +1902,104 @@ pgxc_check_fk_shippability(RelationLocInfo *parentLocInfo,
 	}
 
 	return result;
+}
+
+/*
+ * pgxc_is_join_reducible
+ * The shippability of JOIN is decided in following steps
+ * 1. Are the JOIN conditions shippable?
+ * 	For INNER JOIN it's possible to apply some of the conditions at the
+ * 	Datanodes and others at coordinator. But for other JOINs, JOIN conditions
+ * 	decide which tuples on the OUTER side are appended with NULL columns from
+ * 	INNER side, we need all the join conditions to be shippable for the join to
+ * 	be shippable.
+ * 2. Do the JOIN conditions have quals that will make it shippable?
+ * 	When both sides of JOIN are replicated, irrespective of the quals the JOIN
+ * 	is shippable.
+ * 	INNER joins between replicated and distributed relation are shippable
+ * 	irrespective of the quals. OUTER join between replicated and distributed
+ * 	relation is shippable if distributed relation is the outer relation.
+ * 	All joins between hash/modulo distributed relations are shippable if they
+ * 	have equi-join on the distributed column, such that distribution columns
+ * 	have same datatype and same distribution strategy.
+ * 3. Are datanodes where the joining relations exist, compatible?
+ * 	Joins between replicated relations are shippable if both relations share a
+ * 	datanode. Joins between distributed relations are shippable if both
+ * 	relations are distributed on same set of Datanodes. Join between replicated
+ * 	and distributed relations is shippable is replicated relation is replicated
+ * 	on all nodes where distributed relation is distributed.
+ *
+ * The first step is to be applied by the caller of this function.
+ */
+ExecNodes *
+pgxc_is_join_shippable(ExecNodes *inner_en, ExecNodes *outer_en, Relids in_relids,
+						Relids out_relids, JoinType jointype, List *join_quals,
+						List *rtables)
+{
+	bool	merge_nodes = false;
+
+	/*
+	 * If either of inner_en or outer_en is NULL, return NULL. We can't ship the
+	 * join when either of the sides do not have datanodes to ship to.
+	 */
+	if (!outer_en || !inner_en)
+		return NULL;
+	/*
+	 * We only support reduction of INNER, LEFT [OUTER] and FULL [OUTER] joins.
+	 * RIGHT [OUTER] join is converted to LEFT [OUTER] join during join tree
+	 * deconstruction.
+	 */
+	if (jointype != JOIN_INNER && jointype != JOIN_LEFT && jointype != JOIN_FULL)
+		return NULL;
+
+	/* If both sides are replicated or have single node each, we ship any kind of JOIN */
+	if ((IsExecNodesReplicated(inner_en) && IsExecNodesReplicated(outer_en)) ||
+		 (list_length(inner_en->nodeList) == 1 &&
+			list_length(outer_en->nodeList) == 1))
+		merge_nodes = true;
+
+	/* If both sides are distributed, ... */
+	else if (IsExecNodesColumnDistributed(inner_en) &&
+				IsExecNodesColumnDistributed(outer_en))
+	{
+		/*
+		 * If two sides are distributed in the same manner by a value, with an
+		 * equi-join on the distribution column and that condition
+		 * is shippable, ship the join if node lists from both sides can be
+		 * merged.
+		 */
+		if (inner_en->baselocatortype == outer_en->baselocatortype &&
+			IsExecNodesDistributedByValue(inner_en))
+		{
+			Expr *equi_join_expr = pgxc_find_dist_equijoin_qual(in_relids,
+													out_relids, InvalidOid,
+													(Node *)join_quals, rtables);
+			if (equi_join_expr && pgxc_is_expr_shippable(equi_join_expr, NULL))
+				merge_nodes = true;
+		}
+	}
+	/*
+	 * If outer side is distributed and inner side is replicated, we can ship
+	 * LEFT OUTER and INNER join.
+	 */
+	else if (IsExecNodesColumnDistributed(outer_en) &&
+				IsExecNodesReplicated(inner_en) &&
+				(jointype == JOIN_INNER || jointype == JOIN_LEFT))
+			merge_nodes = true;
+	/*
+	 * If outer side is replicated and inner side is distributed, we can ship
+	 * only for INNER join.
+	 */
+	else if (IsExecNodesReplicated(outer_en) &&
+				IsExecNodesColumnDistributed(inner_en) &&
+				jointype == JOIN_INNER)
+		merge_nodes = true;
+	/*
+	 * If the ExecNodes of inner and outer nodes can be merged, the JOIN is
+	 * shippable
+	 */
+	if (merge_nodes)
+		return pgxc_merge_exec_nodes(inner_en, outer_en);
+	else
+		return NULL;
 }
