@@ -71,6 +71,12 @@ typedef struct
  * primarynodelist is for replicated table writes, where to execute first.
  * If it succeeds, only then should it be executed on nodelist.
  * primarynodelist should be set to NULL if not doing replicated write operations
+ * Note on dist_vars:
+ * dist_vars is a list of Var nodes indicating the columns by which the
+ * relations (result of query) are distributed. The result of equi-joins between
+ * distributed relations, can be considered to be distributed by distribution
+ * columns of either of relation. Hence a list. dist_vars is ignored in case of
+ * distribution types other than HASH or MODULO.
  */
 typedef struct
 {
@@ -84,6 +90,7 @@ typedef struct
 	Oid		en_relid;				/* Relation to determine execution nodes */
 	RelationAccessType accesstype;	/* Access type to determine execution
 									 * nodes */
+	List	*en_dist_vars;				/* See above for details */
 } ExecNodes;
 
 #define IsExecNodesReplicated(en)			IsLocatorReplicated((en)->baselocatortype)

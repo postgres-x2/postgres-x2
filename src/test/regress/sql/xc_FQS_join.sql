@@ -105,6 +105,41 @@ explain (costs off, verbose on, nodes off, num_nodes on) select * from tab1_mod 
 select * from tab1_mod, tab3_mod where tab1_mod.val = tab3_mod.val and tab1_mod.val = 1;
 explain (costs off, verbose on, nodes off) select * from tab1_mod, tab3_mod
 			where tab1_mod.val = tab3_mod.val and tab1_mod.val = 1;
+
+-- JOIN between relations which are results of subqueries should obey same rules
+-- as normal tables
+-- replicated subqueries 
+select * from (select * from tab1_rep) t1 natural join (select * from tab2_rep) t2
+			where t1.val > 1 and t1.val < 4
+			order by t1.val, t1.val2;
+explain (costs off, verbose on, nodes off, num_nodes on)
+	select * from (select * from tab1_rep) t1 natural join (select * from tab2_rep) t2
+				where t1.val > 1 and t1.val < 4
+				order by t1.val, t1.val2;
+select * from (select avg(val2), val from tab1_rep group by val) t1 natural join
+				(select avg(val2), val from tab2_rep group by val) t2
+			order by 1, 2;
+explain (costs off, verbose on, nodes off, num_nodes on)
+	select * from (select avg(val2), val from tab1_rep group by val) t1 natural join
+					(select avg(val2), val from tab2_rep group by val) t2
+				order by 1, 2;
+-- replicated and distributed subqueries 
+select * from (select avg(val2), val from tab1_mod group by val) t1 natural join
+				(select avg(val2), val from tab1_rep group by val) t2
+			where t1.val = 3;
+explain (costs off, verbose on, nodes off, num_nodes on)
+	select * from (select avg(val2), val from tab1_mod group by val) t1 natural join
+					(select avg(val2), val from tab1_rep group by val) t2
+				where t1.val = 3;
+-- distributed subqueries
+select * from (select avg(val2), val from tab1_mod group by val) t1 natural join
+				(select avg(val2), val from tab3_mod group by val) t2
+			where t1.val = 3;
+explain (costs off, verbose on, nodes off, num_nodes on)
+	select * from (select avg(val2), val from tab1_mod group by val) t1 natural join
+					(select avg(val2), val from tab3_mod group by val) t2
+			where t1.val = 3;
+
 -- OUTER joins, we insert some data in existing tables for testing OUTER join
 -- OUTER join between two replicated tables is shippable if they have a common
 -- datanode.

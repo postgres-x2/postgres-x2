@@ -22,6 +22,7 @@
 #include "catalog/pg_type.h"
 #include "catalog/pgxc_node.h"
 #include "commands/trigger.h"
+#include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "nodes/relation.h"
 #include "optimizer/clauses.h"
@@ -111,14 +112,17 @@ static void pgxc_set_exprtype_shippability(Oid exprtype, Shippability_context *s
 static ExecNodes *pgxc_FQS_get_relation_nodes(RangeTblEntry *rte,
 											  Index varno,
 											  Query *query);
-static ExecNodes *pgxc_FQS_find_datanodes(Query *query);
+static ExecNodes *pgxc_FQS_find_datanodes(Shippability_context *sc_context);
 static bool pgxc_query_needs_coord(Query *query);
 static bool pgxc_query_contains_only_pg_catalog(List *rtable);
 static bool pgxc_is_var_distrib_column(Var *var, List *rtable);
-static bool pgxc_distinct_has_distcol(Query *query);
-static ExecNodes *pgxc_FQS_find_datanodes_recurse(Node *node, Query *query,
-											Bitmapset **relids);
-static ExecNodes *pgxc_FQS_datanodes_for_rtr(Index varno, Query *query);
+static bool pgxc_distinct_has_distcol(Query *query, ExecNodes *exec_nodes);
+static ExecNodes *pgxc_FQS_find_datanodes_recurse(Node *node,
+											Shippability_context *sc_context);
+static ExecNodes *pgxc_FQS_datanodes_for_rtr(Index varno,
+											Shippability_context *sc_context);
+static void pgxc_replace_dist_vars_subquery(Query *query, ExecNodes *exec_nodes,
+												Index varno);
 
 /*
  * Set the given reason in Shippability_context indicating why the query can not be
@@ -177,9 +181,10 @@ pgxc_set_exprtype_shippability(Oid exprtype, Shippability_context *sc_context)
  * located.
  */
 static ExecNodes *
-pgxc_FQS_datanodes_for_rtr(Index varno, Query *query)
+pgxc_FQS_datanodes_for_rtr(Index varno, Shippability_context *sc_context)
 {
-	RangeTblEntry *rte = rt_fetch(varno, query->rtable);
+	Query			*query = sc_context->sc_query;
+	RangeTblEntry	*rte = rt_fetch(varno, query->rtable);
 	switch (rte->rtekind)
 	{
 		case RTE_RELATION:
@@ -206,10 +211,28 @@ pgxc_FQS_datanodes_for_rtr(Index varno, Query *query)
 		}
 		break;
 
+		case RTE_SUBQUERY:
+		{
+			ExecNodes *exec_nodes;
+			/*
+			 * Subquery in RangeTbleEntry is not scanned while scanning the
+			 * parent query, since we don't scan the parent query's rtable.
+			 */
+			exec_nodes = pgxc_is_query_shippable(rte->subquery,
+											sc_context->sc_query_level + 1);
+			/*
+			 * If the query result is distributed by HASH or MODULO, we need to
+			 * map the Vars on which its distributed to the columns in the
+			 * result.
+			 */
+			if (exec_nodes && IsExecNodesDistributedByValue(exec_nodes))
+				pgxc_replace_dist_vars_subquery(rte->subquery, exec_nodes, varno);
+			return exec_nodes;
+		}
+		break;
 		/* For any other type of RTE, we return NULL for now */
 		case RTE_JOIN:
 		case RTE_CTE:
-		case RTE_SUBQUERY:
 		case RTE_FUNCTION:
 		case RTE_VALUES:
 		default:
@@ -223,9 +246,9 @@ pgxc_FQS_datanodes_for_rtr(Index varno, Query *query)
  * pushable and if yes where.
  */
 static ExecNodes *
-pgxc_FQS_find_datanodes_recurse(Node *node, Query *query, Bitmapset **relids)
+pgxc_FQS_find_datanodes_recurse(Node *node, Shippability_context *sc_context)
 {
-	List		*query_rtable = query->rtable;
+	Query	*query = sc_context->sc_query;
 
 	if (!node)
 		return NULL;
@@ -237,7 +260,6 @@ pgxc_FQS_find_datanodes_recurse(Node *node, Query *query, Bitmapset **relids)
 			FromExpr	*from_expr = (FromExpr *)node;
 			ListCell	*lcell;
 			bool		first;
-			Bitmapset	*from_relids;
 			ExecNodes	*result_en;
 
 			/*
@@ -245,11 +267,8 @@ pgxc_FQS_find_datanodes_recurse(Node *node, Query *query, Bitmapset **relids)
 			 * Get the datanodes using the resultRelation index.
 			 */
 			if (query->commandType != CMD_SELECT && !from_expr->fromlist)
-			{
-				*relids = bms_make_singleton(query->resultRelation);
 				return pgxc_FQS_datanodes_for_rtr(query->resultRelation,
-														query);
-			}
+														sc_context);
 
 			/*
 			 * All the entries in the From list are considered to be INNER
@@ -262,14 +281,12 @@ pgxc_FQS_find_datanodes_recurse(Node *node, Query *query, Bitmapset **relids)
 			 */
 			first = true;
 			result_en = NULL;
-			from_relids = NULL;
 			foreach (lcell, from_expr->fromlist)
 			{
 				Node	*fromlist_entry = lfirst(lcell);
-				Bitmapset *fle_relids = NULL;
 				ExecNodes	*tmp_en;
 				ExecNodes *en = pgxc_FQS_find_datanodes_recurse(fromlist_entry,
-																query, &fle_relids);
+																sc_context);
 				/*
 				 * If any entry in fromlist is not shippable, jointree is not
 				 * shippable
@@ -291,7 +308,6 @@ pgxc_FQS_find_datanodes_recurse(Node *node, Query *query, Bitmapset **relids)
 				{
 					first = false;
 					result_en = en;
-					from_relids = fle_relids;
 					continue;
 				}
 
@@ -300,15 +316,11 @@ pgxc_FQS_find_datanodes_recurse(Node *node, Query *query, Bitmapset **relids)
 				 * Check whether the JOIN is pushable to the datanodes and
 				 * find the datanodes where the JOIN can be pushed to
 				 */
-				result_en = pgxc_is_join_shippable(result_en, en, from_relids,
-										fle_relids, JOIN_INNER,
-										make_ands_implicit((Expr *)from_expr->quals),
-										query_rtable);
-				from_relids = bms_join(from_relids, fle_relids);
+				result_en = pgxc_is_join_shippable(result_en, en, JOIN_INNER,
+											from_expr->quals);
 				FreeExecNodes(&tmp_en);
 			}
 
-			*relids = from_relids;
 			return result_en;
 		}
 			break;
@@ -316,16 +328,13 @@ pgxc_FQS_find_datanodes_recurse(Node *node, Query *query, Bitmapset **relids)
 		case T_RangeTblRef:
 		{
 			RangeTblRef *rtr = (RangeTblRef *)node;
-			*relids = bms_make_singleton(rtr->rtindex);
-			return pgxc_FQS_datanodes_for_rtr(rtr->rtindex, query);
+			return pgxc_FQS_datanodes_for_rtr(rtr->rtindex, sc_context);
 		}
 			break;
 
 		case T_JoinExpr:
 		{
 			JoinExpr *join_expr = (JoinExpr *)node;
-			Bitmapset *l_relids = NULL;
-			Bitmapset *r_relids = NULL;
 			ExecNodes *len;
 			ExecNodes *ren;
 			ExecNodes *result_en;
@@ -334,10 +343,8 @@ pgxc_FQS_find_datanodes_recurse(Node *node, Query *query, Bitmapset **relids)
 			if (query->commandType != CMD_SELECT)
 				return NULL;
 
-			len = pgxc_FQS_find_datanodes_recurse(join_expr->larg, query,
-																&l_relids);
-			ren = pgxc_FQS_find_datanodes_recurse(join_expr->rarg, query,
-																&r_relids);
+			len = pgxc_FQS_find_datanodes_recurse(join_expr->larg, sc_context);
+			ren = pgxc_FQS_find_datanodes_recurse(join_expr->rarg, sc_context);
 			/* If either side of JOIN is unshippable, JOIN is unshippable */
 			if (!len || !ren)
 			{
@@ -349,19 +356,15 @@ pgxc_FQS_find_datanodes_recurse(Node *node, Query *query, Bitmapset **relids)
 			 * Check whether the JOIN is pushable or not, and find the datanodes
 			 * where the JOIN can be pushed to.
 			 */
-			result_en = pgxc_is_join_shippable(ren, len, r_relids, l_relids,
-												join_expr->jointype,
-												make_ands_implicit((Expr *)join_expr->quals),
-												query_rtable);
+			result_en = pgxc_is_join_shippable(ren, len, join_expr->jointype,
+												join_expr->quals);
 			FreeExecNodes(&len);
 			FreeExecNodes(&ren);
-			*relids = bms_join(l_relids, r_relids);
 			return result_en;
 		}
 			break;
 
 		default:
-			*relids = NULL;
 			return NULL;
 			break;
 	}
@@ -374,30 +377,31 @@ pgxc_FQS_find_datanodes_recurse(Node *node, Query *query, Bitmapset **relids)
  * Find the list of nodes where to ship query.
  */
 static ExecNodes *
-pgxc_FQS_find_datanodes(Query *query)
+pgxc_FQS_find_datanodes(Shippability_context *sc_context)
 {
-	Bitmapset	*relids = NULL;
 	ExecNodes	*exec_nodes;
+	Query		*query = sc_context->sc_query;
 
 	/*
 	 * For SELECT, the datanodes required to execute the query is obtained from
 	 * the join tree of the query
 	 */
 	exec_nodes = pgxc_FQS_find_datanodes_recurse((Node *)query->jointree,
-														query, &relids);
-	bms_free(relids);
-	relids = NULL;
-
+													sc_context);
 	/* If we found the datanodes to ship, use them */
 	if (exec_nodes && exec_nodes->nodeList)
 	{
 		/*
-		 * If relations involved in the query are such that ultimate JOIN is
-		 * replicated JOIN, choose only one of them. If one of them is a
-		 * preferred node choose that one, otherwise choose the first one.
+		 * If this is the highest level query in the query tree and
+		 * relations involved in the query are such that ultimate JOIN is
+		 * replicated JOIN, choose only one of them.
+		 * If we do this for lower level queries in query tree, we might loose
+		 * chance because common nodes are left out.
 		 */
 		if (IsExecNodesReplicated(exec_nodes) &&
-			exec_nodes->accesstype == RELATION_ACCESS_READ)
+			exec_nodes->accesstype == RELATION_ACCESS_READ &&
+			sc_context->sc_query_level == 0)
+
 		{
 			List *tmp_list = exec_nodes->nodeList;
 			exec_nodes->nodeList = GetPreferredReplicationNode(exec_nodes->nodeList);
@@ -480,6 +484,12 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 	if (!rel_exec_nodes)
 		return NULL;
 
+	if (IsExecNodesDistributedByValue(rel_exec_nodes))
+	{
+		Var	*dist_var = pgxc_get_dist_var(varno, rte, query->targetList);
+		rel_exec_nodes->en_dist_vars = list_make1(dist_var);
+	}
+
 	if (rel_access == RELATION_ACCESS_INSERT &&
 			 IsRelationDistributedByValue(rel_loc_info))
 	{
@@ -519,9 +529,13 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 }
 
 bool
-pgxc_query_has_distcolgrouping(Query *query)
+pgxc_query_has_distcolgrouping(Query *query, ExecNodes *exec_nodes)
 {
 	ListCell	*lcell;
+
+	if (!exec_nodes)
+		return false;
+
 	foreach (lcell, query->groupClause)
 	{
 		SortGroupClause 	*sgc = lfirst(lcell);
@@ -530,16 +544,21 @@ pgxc_query_has_distcolgrouping(Query *query)
 			continue;
 		sgc_expr = get_sortgroupclause_expr(sgc, query->targetList);
 		if (IsA(sgc_expr, Var) &&
-			pgxc_is_var_distrib_column((Var *)sgc_expr, query->rtable))
+			pgxc_is_var_distrib_column((Var *)sgc_expr,
+										exec_nodes->en_dist_vars))
 			return true;
 	}
 	return false;
 }
 
 static bool
-pgxc_distinct_has_distcol(Query *query)
+pgxc_distinct_has_distcol(Query *query, ExecNodes *exec_nodes)
 {
 	ListCell	*lcell;
+
+	if (!exec_nodes)
+		return false;
+
 	foreach (lcell, query->distinctClause)
 	{
 		SortGroupClause 	*sgc = lfirst(lcell);
@@ -548,7 +567,8 @@ pgxc_distinct_has_distcol(Query *query)
 			continue;
 		sgc_expr = get_sortgroupclause_expr(sgc, query->targetList);
 		if (IsA(sgc_expr, Var) &&
-			pgxc_is_var_distrib_column((Var *)sgc_expr, query->rtable))
+			pgxc_is_var_distrib_column((Var *)sgc_expr,
+										exec_nodes->en_dist_vars))
 			return true;
 	}
 	return false;
@@ -899,32 +919,6 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 				pgxc_set_shippability_reason(sc_context, SS_NEED_SINGLENODE);
 
 			/*
-			 * Presence of aggregates or having clause, implies grouping. In
-			 * such cases, the query won't be shippable unless 1. there is only
-			 * a single node involved 2. GROUP BY clause has distribution column
-			 * in it. In the later case aggregates for a given group are entirely
-			 * computable on a single datanode, because all the rows
-			 * participating in particular group reside on that datanode.
-			 * The distribution column can be of any relation
-			 * participating in the query. All the rows of that relation with
-			 * the same value of distribution column reside on same node.
-			 */
-			if ((query->hasAggs || query->havingQual) &&
-				!pgxc_query_has_distcolgrouping(query))
-				pgxc_set_shippability_reason(sc_context, SS_NEED_SINGLENODE);
-
-			/*
-			 * If distribution column of any relation is present in the distinct
-			 * clause, values for that column across nodes will differ, thus two
-			 * nodes won't be able to produce same result row. Hence in such
-			 * case, we can execute the queries on many nodes managing to have
-			 * distinct result.
-			 */
-			if (query->distinctClause && !pgxc_distinct_has_distcol(query))
-				pgxc_set_shippability_reason(sc_context, SS_NEED_SINGLENODE);
-
-
-			/*
 			 * walk the entire query tree to analyse the query. We will walk the
 			 * range table, when examining the FROM clause. No need to do it
 			 * here
@@ -967,7 +961,36 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 			 * Walk the join tree of the query and find the
 			 * Datanodes needed for evaluating this query
 			 */
-			sc_context->sc_exec_nodes = pgxc_FQS_find_datanodes(query);
+			sc_context->sc_exec_nodes = pgxc_FQS_find_datanodes(sc_context);
+
+			/*
+			 * Presence of aggregates or having clause, implies grouping. In
+			 * such cases, the query won't be shippable unless 1. there is only
+			 * a single node involved 2. GROUP BY clause has distribution column
+			 * in it. In the later case aggregates for a given group are entirely
+			 * computable on a single datanode, because all the rows
+			 * participating in particular group reside on that datanode.
+			 * The distribution column can be of any relation
+			 * participating in the query. All the rows of that relation with
+			 * the same value of distribution column reside on same node.
+			 */
+			if ((query->hasAggs || query->havingQual) &&
+				sc_context->sc_exec_nodes &&
+				!pgxc_query_has_distcolgrouping(query, sc_context->sc_exec_nodes))
+				pgxc_set_shippability_reason(sc_context, SS_NEED_SINGLENODE);
+
+			/*
+			 * If distribution column of any relation is present in the distinct
+			 * clause, values for that column across nodes will differ, thus two
+			 * nodes won't be able to produce same result row. Hence in such
+			 * case, we can execute the queries on many nodes managing to have
+			 * distinct result.
+			 */
+			if (query->distinctClause &&
+				sc_context->sc_exec_nodes &&
+				!pgxc_distinct_has_distcol(query, sc_context->sc_exec_nodes))
+				pgxc_set_shippability_reason(sc_context, SS_NEED_SINGLENODE);
+
 		}
 		break;
 
@@ -1167,29 +1190,16 @@ pgxc_query_needs_coord(Query *query)
 	return false;
 }
 
-
 /*
  * pgxc_is_var_distrib_column
- * Check if given var is a distribution key.
+ * If the passed in Var node is in the list of distribution columns passed in,
+ * return true; otherwise return false.
  */
-static
-bool pgxc_is_var_distrib_column(Var *var, List *rtable)
+static bool
+pgxc_is_var_distrib_column(Var *var, List *dist_vars)
 {
-	RangeTblEntry   *rte = rt_fetch(var->varno, rtable);
-	RelationLocInfo	*rel_loc_info;
-
-	/* distribution column only applies to the relations */
-	if (rte->rtekind != RTE_RELATION ||
-		rte->relkind != RELKIND_RELATION)
-		return false;
-	rel_loc_info = GetRelationLocInfo(rte->relid);
-	if (!rel_loc_info)
-		return false;
-	if (var->varattno == rel_loc_info->partAttrNum)
-		return true;
-	return false;
+	return list_member(dist_vars, var);
 }
-
 
 /*
  * Returns whether or not the rtable (and its subqueries)
@@ -1292,7 +1302,7 @@ pgxc_is_query_shippable(Query *query, int query_level)
 	/*
 	 * If the query has an expression which renders the shippability to single
 	 * node, and query needs to be shipped to more than one node, it can not be
-	 * shipped
+	 * shipped.
 	 */
 	if (bms_is_member(SS_NEED_SINGLENODE, shippability))
 	{
@@ -1301,8 +1311,11 @@ pgxc_is_query_shippable(Query *query, int query_level)
 		 * the nodes where to execute like distribution column expression. We
 		 * can't tell how many nodes the query will be executed on, hence treat
 		 * that as multiple nodes.
+		 * If query has result replicated across nodes, it's as good as having a
+		 * single node.
 		 */
-		if (list_length(exec_nodes->nodeList) != 1)
+		if (list_length(exec_nodes->nodeList) != 1 &&
+			!IsExecNodesReplicated(exec_nodes))
 			canShip = false;
 
 		/* We handled the reason here, reset it */
@@ -1401,8 +1414,7 @@ pgxc_is_func_shippable(Oid funcid)
  * Check equijoin conditions on given relations
  */
 Expr *
-pgxc_find_dist_equijoin_qual(Relids varnos_1,
-		Relids varnos_2, Oid distcol_type, Node *quals, List *rtable)
+pgxc_find_dist_equijoin_qual(List *dist_vars1, List *dist_vars2, Node *quals)
 {
 	List		*lquals;
 	ListCell	*qcell;
@@ -1410,12 +1422,6 @@ pgxc_find_dist_equijoin_qual(Relids varnos_1,
 	/* If no quals, no equijoin */
 	if (!quals)
 		return false;
-	/*
-	 * Make a copy of the argument bitmaps, it will be modified by
-	 * bms_first_member().
-	 */
-	varnos_1 = bms_copy(varnos_1);
-	varnos_2 = bms_copy(varnos_2);
 
 	if (!IsA(quals, List))
 		lquals = make_ands_implicit((Expr *)quals);
@@ -1455,16 +1461,13 @@ pgxc_find_dist_equijoin_qual(Relids varnos_1,
 		if (exprType((Node *)lvar) != exprType((Node *)rvar))
 			continue;
 
-		/* if the vars do not correspond to the required varnos, continue. */
-		if ((bms_is_member(lvar->varno, varnos_1) && bms_is_member(rvar->varno, varnos_2)) ||
-			(bms_is_member(lvar->varno, varnos_2) && bms_is_member(rvar->varno, varnos_1)))
-		{
-			if (!pgxc_is_var_distrib_column(lvar, rtable) ||
-				!pgxc_is_var_distrib_column(rvar, rtable))
-				continue;
-		}
-		else
+		/* Do Vars in the equi-join represent distribution columns? */
+		if (!((pgxc_is_var_distrib_column(lvar, dist_vars1) &&
+				pgxc_is_var_distrib_column(rvar, dist_vars2)) ||
+			 (pgxc_is_var_distrib_column(lvar, dist_vars2) &&
+				pgxc_is_var_distrib_column(rvar, dist_vars1))))
 			continue;
+
 		/*
 		 * If the operator is not an assignment operator, check next
 		 * constraint. An operator is an assignment operator if it's
@@ -1481,7 +1484,6 @@ pgxc_find_dist_equijoin_qual(Relids varnos_1,
 	}
 	return NULL;
 }
-
 
 /*
  * pgxc_merge_exec_nodes
@@ -1554,7 +1556,8 @@ pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2)
 		else
 		{
 			merged_en->nodeList = list_copy(en2->nodeList);
-			merged_en->baselocatortype = LOCATOR_TYPE_DISTRIBUTED;
+			merged_en->baselocatortype = en2->baselocatortype;
+			merged_en->en_dist_vars = en2->en_dist_vars;
 		}
 		return merged_en;
 	}
@@ -1580,7 +1583,8 @@ pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2)
 		else
 		{
 			merged_en->nodeList = list_copy(en1->nodeList);
-			merged_en->baselocatortype = LOCATOR_TYPE_DISTRIBUTED;
+			merged_en->baselocatortype = en1->baselocatortype;
+			merged_en->en_dist_vars = en1->en_dist_vars;
 		}
 		return merged_en;
 	}
@@ -1600,7 +1604,11 @@ pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2)
 		{
 			merged_en->nodeList = list_copy(en1->nodeList);
 			if (en1->baselocatortype == en2->baselocatortype)
+			{
 				merged_en->baselocatortype = en1->baselocatortype;
+				merged_en->en_dist_vars = list_concat(list_copy(en1->en_dist_vars),
+												list_copy(en2->en_dist_vars));
+			}
 			else
 				merged_en->baselocatortype = LOCATOR_TYPE_DISTRIBUTED;
 		}
@@ -1905,7 +1913,97 @@ pgxc_check_fk_shippability(RelationLocInfo *parentLocInfo,
 }
 
 /*
- * pgxc_is_join_reducible
+ * pgxc_replace_dist_vars_subquery
+ * The function looks up the members of ExecNodes::en_dist_var in the
+ * query->targetList. If found, they are re-stamped with the given varno and
+ * resno of the TargetEntry found and added to the new distribution var list
+ * being created. This function is useful to re-stamp the distribution columns
+ * of a subquery.
+ */
+static void
+pgxc_replace_dist_vars_subquery(Query *query, ExecNodes *exec_nodes, Index varno)
+{
+	ListCell	*lcell;
+	List		*new_dist_vars = NIL;
+
+	foreach(lcell, exec_nodes->en_dist_vars)
+	{
+		Var *var = lfirst(lcell);
+		TargetEntry *tle;
+
+		Assert(IsA(var, Var));
+
+		tle = tlist_member((Node *)var, query->targetList);
+		if (tle)
+		{
+			Var *new_dist_var = makeVar(varno, tle->resno,
+										exprType((Node *)tle->expr),
+										exprTypmod((Node *)tle->expr),
+										exprCollation((Node *)tle->expr), 0);
+			new_dist_vars = lappend(new_dist_vars, new_dist_var);
+		}
+	}
+	list_free(exec_nodes->en_dist_vars);
+	exec_nodes->en_dist_vars = new_dist_vars;
+}
+
+/*
+ * pgxc_get_dist_var
+ * Given the varno, corresponding range table entry and targetlist, get the Var
+ * node for distribution column, present in the targetlist as the root of
+ * expression if there is one; otherwise return one created.
+ *
+ * If it's a replicated table or table local to the coordinator, or
+ * any relation other than distributed table it returns NULL.
+ *
+ * varno: is the index of the range table entry in the query range table, to be
+ *    		set as Var::varno
+ * rte:   range table entry corresponding to varno. There is no way to verify
+ * 			where the correspondence is true.
+ * tlist: target list or just the list of expression where to find the Var
+ * 			corresponding to the distribution column
+ */
+Var *
+pgxc_get_dist_var(Index varno, RangeTblEntry *rte, List *tlist)
+{
+	RelationLocInfo *rel_loc_info = GetRelationLocInfo(rte->relid);
+	ListCell		*lcell;
+	Var				*dist_var;
+	Oid				dist_var_type;
+	int32			dist_var_typmod;
+	Oid				dist_var_collid;
+
+	if (!rel_loc_info || !IsRelationDistributedByValue(rel_loc_info))
+		return NULL;
+
+	/* find the TLE corresponding to the distribution column it. */
+	foreach (lcell, tlist)
+	{
+		TargetEntry *tle = lfirst(lcell);
+		Var *var;
+		if (tle && IsA(tle, TargetEntry))
+			var = (Var *)tle->expr;
+		else
+			var = (Var *)tle;
+
+		if (var && IsA(var, Var) && (var->varno == varno) &&
+			(var->varattno == rel_loc_info->partAttrNum))
+			return copyObject(var);
+	}
+
+	/*
+	 * Bare distribution column is not found in the targetlist, craft a Var for
+	 * it and return.
+	 */
+	get_rte_attribute_type(rte, rel_loc_info->partAttrNum, &dist_var_type,
+							&dist_var_typmod, &dist_var_collid);
+	dist_var = makeVar(varno, rel_loc_info->partAttrNum, dist_var_type,
+						dist_var_typmod, dist_var_collid, 0);
+	return dist_var;
+}
+
+/*
+ * pgxc_is_join_shippable
  * The shippability of JOIN is decided in following steps
  * 1. Are the JOIN conditions shippable?
  * 	For INNER JOIN it's possible to apply some of the conditions at the
@@ -1932,9 +2030,8 @@ pgxc_check_fk_shippability(RelationLocInfo *parentLocInfo,
  * The first step is to be applied by the caller of this function.
  */
 ExecNodes *
-pgxc_is_join_shippable(ExecNodes *inner_en, ExecNodes *outer_en, Relids in_relids,
-						Relids out_relids, JoinType jointype, List *join_quals,
-						List *rtables)
+pgxc_is_join_shippable(ExecNodes *inner_en, ExecNodes *outer_en,
+						JoinType jointype, Node *join_quals)
 {
 	bool	merge_nodes = false;
 
@@ -1971,9 +2068,9 @@ pgxc_is_join_shippable(ExecNodes *inner_en, ExecNodes *outer_en, Relids in_relid
 		if (inner_en->baselocatortype == outer_en->baselocatortype &&
 			IsExecNodesDistributedByValue(inner_en))
 		{
-			Expr *equi_join_expr = pgxc_find_dist_equijoin_qual(in_relids,
-													out_relids, InvalidOid,
-													(Node *)join_quals, rtables);
+			Expr *equi_join_expr = pgxc_find_dist_equijoin_qual(inner_en->en_dist_vars,
+																outer_en->en_dist_vars,
+																join_quals);
 			if (equi_join_expr && pgxc_is_expr_shippable(equi_join_expr, NULL))
 				merge_nodes = true;
 		}

@@ -504,6 +504,7 @@ _outExecNodes(StringInfo str, const ExecNodes *node)
 	WRITE_NODE_FIELD(en_expr);
 	WRITE_OID_FIELD(en_relid);
 	WRITE_ENUM_FIELD(accesstype, RelationAccessType);
+	WRITE_NODE_FIELD(en_dist_vars);
 }
 #endif
 

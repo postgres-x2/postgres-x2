@@ -13,6 +13,7 @@
  */
 #include "postgres.h"
 #include "commands/tablecmds.h"
+#include "nodes/makefuncs.h"
 #include "optimizer/cost.h"
 #include "optimizer/paths.h"
 #include "optimizer/pathnode.h"
@@ -128,6 +129,12 @@ create_plainrel_rqpath(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 	if (!exec_nodes)
 		return false;
 
+	if (IsExecNodesDistributedByValue(exec_nodes))
+	{
+		Var	*dist_var = pgxc_get_dist_var(rel->relid, rte, rel->reltargetlist);
+		exec_nodes->en_dist_vars = list_make1(dist_var);
+	}
+
 	/* We don't have subpaths for a plain base relation */
 	add_path(rel, (Path *)create_remotequery_path(root, rel, exec_nodes,
 													NULL, NULL, 0, NULL));
@@ -223,9 +230,7 @@ create_joinrel_rqpath(PlannerInfo *root, RelOptInfo *joinrel,
 	 * If the nodelists on both the sides of JOIN can be merged, the JOIN is
 	 * shippable.
 	 */
-	join_en = pgxc_is_join_shippable(inner_en, outer_en,
-										innerrel->relids, outerrel->relids,
-										jointype, join_quals, root->parse->rtable);
+	join_en = pgxc_is_join_shippable(inner_en, outer_en, jointype, (Node *)join_quals);
 	if (join_en)
 		add_path(joinrel, (Path *)create_remotequery_path(root, joinrel, join_en,
 													outerpath, innerpath, jointype,

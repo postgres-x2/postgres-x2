@@ -1062,6 +1062,7 @@ _copyExecNodes(const ExecNodes *from)
 	COPY_NODE_FIELD(en_expr);
 	COPY_SCALAR_FIELD(en_relid);
 	COPY_SCALAR_FIELD(accesstype);
+	COPY_NODE_FIELD(en_dist_vars);
 
 	return newnode;
 }

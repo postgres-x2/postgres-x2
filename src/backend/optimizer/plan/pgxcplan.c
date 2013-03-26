@@ -52,6 +52,12 @@
 #include "utils/fmgroids.h"
 #include "utils/tqual.h"
 
+/* Context for collecting range tables in a Query tree */
+typedef struct
+{
+	List *crte_rtable;
+} collect_RTE_context;
+
 static void validate_part_col_updatable(const Query *query);
 static bool contains_temp_tables(List *rtable);
 static void pgxc_handle_unsupported_stmts(Query *query);
@@ -85,6 +91,9 @@ static List *pgxc_add_to_flat_tlist(List *remote_tlist, Node *expr,
 static void pgxc_rqplan_adjust_vars(RemoteQuery *rqplan, Node *node);
 
 static CombineType get_plan_combine_type(CmdType commandType, char baselocatortype);
+
+static List *pgxc_collect_RTE(Query *query);
+static bool pgxc_collect_RTE_walker(Node *node, collect_RTE_context *crte_context);
 
 static void pgxc_add_returning_list(RemoteQuery *rq, List *ret_list,
 									int rel_index);
@@ -1405,7 +1414,7 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	 * datanode involved, the evaluation of aggregates and grouping involves
 	 * only a single datanode.
 	 */
-	if (pgxc_query_has_distcolgrouping(query) ||
+	if (pgxc_query_has_distcolgrouping(query, remote_scan->exec_nodes) ||
 		list_length(remote_scan->exec_nodes->nodeList) == 1)
 		single_node_grouping = true;
 	else
@@ -2374,9 +2383,10 @@ pgxc_FQS_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 static RemoteQuery *
 pgxc_FQS_create_remote_plan(Query *query, ExecNodes *exec_nodes, bool is_exec_direct)
 {
-	RemoteQuery *query_step;
-	StringInfoData buf;
+	RemoteQuery		*query_step;
+	StringInfoData	buf;
 	RangeTblEntry	*dummy_rte;
+	List			*collected_rtable;
 
 	/* EXECUTE DIRECT statements have their RemoteQuery node already built when analyzing */
 	if (is_exec_direct)
@@ -2443,7 +2453,13 @@ pgxc_FQS_create_remote_plan(Query *query, ExecNodes *exec_nodes, bool is_exec_di
 	 */
 	query_step->combine_type = get_plan_combine_type(
 				query->commandType, query_step->exec_nodes->baselocatortype);
-
+	/*
+	 * Walk the query tree collecting the rtables from the subqueries. We need
+	 * this rtable to construct the rtable to be examined for permissions at
+	 * the time of executing this plan. Collect the RTEs before we append the
+	 * dummy RTE for RemoteQuery plan being built.
+	 */
+	 collected_rtable = pgxc_collect_RTE(query);
 	/*
 	 * Create a dummy RTE for the remote query being created. Append the dummy
 	 * range table entry to the range table. Note that this modifies the master
@@ -2466,6 +2482,20 @@ pgxc_FQS_create_remote_plan(Query *query, ExecNodes *exec_nodes, bool is_exec_di
 	query_step->scan.scanrelid 	= list_length(query->rtable);
 	query_step->scan.plan.targetlist = query->targetList;
 	query_step->base_tlist = query->targetList;
+
+	/*
+	 * Append the range table entries collected from the sub-query-trees to the
+	 * rtable of passed in Query so that it can be added to the PlannerStmt
+	 * later. It's safe to change the rtable of query for
+	 * 1. Any Var in the Query is going to refer only the original range table
+	 * entries
+	 * 2. We have decided to create a plan, so this Query won't be used again
+	 * for planning.
+	 * Do this after we append the dummy RTE for RemoteQuery plan just created,
+	 * so that it remains attached to the passed in Query's range table. The
+	 * walker just appends the range tables without copying it.
+	 */
+	query->rtable = list_concat(query->rtable, collected_rtable);
 
 	return query_step;
 }
@@ -2964,4 +2994,41 @@ create_remotelimit_plan(PlannerInfo *root, Plan *local_plan)
 		pgxc_rqplan_build_statement(remote_scan);
 	}
 	return result_plan;
+}
+
+/*
+ * pgxc_collect_RTE
+ * Collect range tables in all the Query sub-trees in given Query tree. The function
+ * returns all range tables appended one after the other in the order in which
+ * the subqueries are visited. The entries in range table of passed in Query
+ * do not appear in the collectd result.
+ * The walker doesn't create a copy of range tables of sub-trees, but appends
+ * them one after the other as they are. Any change to range table entries or
+ * the linkages would be reflected in the originating Query as well.
+ */
+static List *
+pgxc_collect_RTE(Query *query)
+{
+	collect_RTE_context crte_context;
+	crte_context.crte_rtable = NIL;
+	query_tree_walker(query, pgxc_collect_RTE_walker, &crte_context, 0);
+	return crte_context.crte_rtable;
+}
+
+static bool
+pgxc_collect_RTE_walker(Node *node, collect_RTE_context *crte_context)
+{
+	if (!node)
+		return false;
+
+	if (IsA(node, Query))
+	{
+		Query *query = (Query *)node;
+		crte_context->crte_rtable = list_concat(crte_context->crte_rtable,
+												query->rtable);
+		return query_tree_walker(query, pgxc_collect_RTE_walker, crte_context,
+									0);
+	}
+
+	return expression_tree_walker(node, pgxc_collect_RTE_walker, crte_context);
 }

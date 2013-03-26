@@ -17,6 +17,10 @@ explain (costs off, verbose on, nodes off, num_nodes on) insert into tab1_rr val
 -- should get FQSed
 select val, val2 + 2, case val when val2 then 'val and val2 are same' else 'val and val2 are not same' end from tab1_rr where val2 = 4;
 explain (costs off, verbose on, nodes off) select val, val2 + 2, case val when val2 then 'val and val2 are same' else 'val and val2 are not same' end from tab1_rr where val2 = 4;
+-- should get FQSed even within a subquery
+select * from (select * from tab1_rr where val2 = 4) t1;
+explain (costs off, verbose on, nodes off)
+	select * from (select * from tab1_rr where val2 = 4) t1;
 -- should not get FQSed because of aggregates
 select sum(val), avg(val), count(*) from tab1_rr;
 explain (costs off, verbose on, nodes off) select sum(val), avg(val), count(*) from tab1_rr;
@@ -132,6 +136,10 @@ select val, val2 from tab1_hash where val = 7 order by val2;
 explain (costs off, verbose on, nodes off, num_nodes on) select val, val2 from tab1_hash where val = 7 order by val2;
 select distinct val2 from tab1_hash where val = 7;
 explain (costs off, verbose on, nodes off, num_nodes on) select distinct val2 from tab1_hash where val = 7;
+-- FQS for subqueries
+select * from (select avg(val) from tab1_hash where val = 7) t1;
+explain (costs off, verbose on, nodes off, num_nodes on)
+	select * from (select avg(val) from tab1_hash where val = 7) t1;
 -- DMLs
 update tab1_hash set val2 = 1000 where val = 7; 
 explain (costs off, verbose on, nodes off) update tab1_hash set val2 = 1000 where val = 7; 
@@ -202,6 +210,10 @@ select val, val2 from tab1_modulo where val = 7 order by val2;
 explain (costs off, verbose on, nodes off, num_nodes on) select val, val2 from tab1_modulo where val = 7 order by val2;
 select distinct val2 from tab1_modulo where val = 7;
 explain (costs off, verbose on, nodes off, num_nodes on) select distinct val2 from tab1_modulo where val = 7;
+-- FQS for subqueries
+select * from (select avg(val) from tab1_modulo where val = 7) t1;
+explain (costs off, verbose on, nodes off, num_nodes on)
+	select * from (select avg(val) from tab1_modulo where val = 7) t1;
 -- DMLs
 update tab1_modulo set val2 = 1000 where val = 7; 
 explain (costs off, verbose on, nodes off) update tab1_modulo set val2 = 1000 where val = 7; 
@@ -238,6 +250,10 @@ select val, val2 from tab1_replicated group by val, val2;
 explain (costs off, num_nodes on, verbose on, nodes off) select val, val2 from tab1_replicated group by val, val2;
 select sum(val) from tab1_replicated group by val2 having sum(val) > 1;
 explain (costs off, num_nodes on, verbose on, nodes off) select sum(val) from tab1_replicated group by val2 having sum(val) > 1;
+-- FQS for subqueries
+select * from (select sum(val), val2 from tab1_replicated group by val2 order by val2) t1;
+explain (costs off, verbose on, nodes off, num_nodes on)
+	select * from (select sum(val), val2 from tab1_replicated group by val2 order by val2) t1;
 -- DMLs
 update tab1_replicated set val2 = 1000 where val = 7; 
 explain (costs off, verbose on, nodes off) update tab1_replicated set val2 = 1000 where val = 7; 

@@ -28,12 +28,12 @@ extern bool pgxc_is_expr_shippable(Expr *node, bool *has_aggs);
 /* Determine if given function is shippable */
 extern bool pgxc_is_func_shippable(Oid funcid);
 /* Check equijoin conditions on given relations */
-extern Expr *pgxc_find_dist_equijoin_qual(Relids varnos_1, Relids varnos_2,
-								Oid distcol_type, Node *quals, List *rtable);
+extern Expr *pgxc_find_dist_equijoin_qual(List *dist_vars1, List *dist_vars2,
+											Node *quals);
 /* Merge given execution nodes based on join shippability conditions */
 extern ExecNodes *pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2);
 /* Check if given Query includes distribution column */
-extern bool pgxc_query_has_distcolgrouping(Query *query);
+extern bool pgxc_query_has_distcolgrouping(Query *query, ExecNodes *exec_nodes);
 /* Check the shippability of an index */
 extern bool pgxc_check_index_shippability(RelationLocInfo *relLocInfo,
 									   bool is_primary,
