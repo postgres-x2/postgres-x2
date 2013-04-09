@@ -682,7 +682,7 @@ nextval_internal(Oid relid)
 						RelationGetRelationName(seqrel))));
 
 	/* read-only transactions may only modify temp sequences */
-	if (seqrel->rd_backend != MyBackendId)
+	if (!seqrel->rd_islocaltemp)
 		PreventCommandIfReadOnly("nextval()");
 
 #ifdef PGXC
@@ -1048,7 +1048,7 @@ do_setval(Oid relid, int64 next, bool iscalled)
 						RelationGetRelationName(seqrel))));
 
 	/* read-only transactions may only modify temp sequences */
-	if (seqrel->rd_backend != MyBackendId)
+	if (!seqrel->rd_islocaltemp)
 		PreventCommandIfReadOnly("setval()");
 
 #ifdef PGXC

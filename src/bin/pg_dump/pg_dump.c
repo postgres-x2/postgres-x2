@@ -653,6 +653,40 @@ main(int argc, char **argv)
 		no_security_labels = 1;
 
 	/*
+	 * When running against 9.0 or later, check if we are in recovery mode,
+	 * which means we are on a hot standby.
+	 */
+	if (g_fout->remoteVersion >= 90000)
+	{
+		PGresult *res;
+		const char *query = "SELECT pg_catalog.pg_is_in_recovery()";
+		int ntups;
+
+		res = PQexec(g_conn, query);
+		check_sql_result(res, g_conn, query, PGRES_TUPLES_OK);
+		ntups = PQntuples(res);
+
+		if (ntups != 1)
+		{
+			write_msg(NULL, ngettext("query returned %d row instead of one: %s\n",
+									 "query returned %d rows instead of one: %s\n",
+									 ntups),
+					  ntups, query);
+			exit_nicely();
+		}
+
+		if (strcmp(PQgetvalue(res, 0, 0), "t") == 0)
+		{
+			/*
+			 * On hot standby slaves, never try to dump unlogged table data,
+			 * since it will just throw an error.
+			 */
+			no_unlogged_table_data = true;
+		}
+		PQclear(res);
+	}
+
+	/*
 	 * Start transaction-snapshot mode transaction to dump consistent data.
 	 */
 	do_sql_command(g_conn, "BEGIN");
@@ -4527,6 +4561,7 @@ getIndexes(TableInfo tblinfo[], int numTables)
 							  "i.indexrelid = c.conindid AND "
 							  "c.contype IN ('p','u','x')) "
 							  "WHERE i.indrelid = '%u'::pg_catalog.oid "
+							  "AND i.indisvalid "
 							  "ORDER BY indexname",
 							  tbinfo->dobj.catId.oid);
 		}
@@ -4555,6 +4590,7 @@ getIndexes(TableInfo tblinfo[], int numTables)
 							  "ON (d.refclassid = c.tableoid "
 							  "AND d.refobjid = c.oid) "
 							  "WHERE i.indrelid = '%u'::pg_catalog.oid "
+							  "AND i.indisvalid "
 							  "ORDER BY indexname",
 							  tbinfo->dobj.catId.oid);
 		}
