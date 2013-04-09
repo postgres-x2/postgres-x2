@@ -482,8 +482,10 @@ pgxc_advisory_lock(int64 key64, int32 key1, int32 key2, bool iskeybig,
 	/* Skip everything XC specific if there's only one Coordinator running */
 	if (numcoords <= 1)
 	{
-		(void) LockAcquire(&locktag, lockmode, sessionLock, dontWait);
-		return true;
+		LockAcquireResult res;
+
+		res = LockAcquire(&locktag, lockmode, sessionLock, dontWait);
+		return (res == LOCKACQUIRE_OK);
 	}
 
 	/*
