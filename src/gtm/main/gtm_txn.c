@@ -659,6 +659,8 @@ GTM_BeginTransactionMulti(char *coord_name,
 	 */
 	oldContext = MemoryContextSwitchTo(TopMostMemoryContext);
 
+	GTM_RWLockAcquire(&GTMTransactions.gt_TransArrayLock, GTM_LOCKMODE_WRITE);
+
 	for (kk = 0; kk < txn_count; kk++)
 	{
 		int ii, jj, startslot;
@@ -667,8 +669,6 @@ GTM_BeginTransactionMulti(char *coord_name,
 		 * We had no cached slots. Now find a free slot in the transation array
 		 * and store the transaction info structure there
 		 */
-		GTM_RWLockAcquire(&GTMTransactions.gt_TransArrayLock, GTM_LOCKMODE_WRITE);
-
 		startslot = GTMTransactions.gt_lastslot + 1;
 		if (startslot >= GTM_MAX_GLOBAL_TRANSACTIONS)
 			startslot = 0;
