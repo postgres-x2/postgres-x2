@@ -23,6 +23,7 @@
 #include "rewrite/rewriteHandler.h"
 #include "utils/builtins.h"
 #include "utils/rel.h"
+#include "utils/lsyscache.h"
 
 static void RemoteCopy_QuoteStr(StringInfo query_buf, char *value);
 
@@ -119,8 +120,19 @@ RemoteCopy_BuildStatement(RemoteCopyData *state,
 	 */
 	initStringInfo(&state->query_buf);
 	appendStringInfoString(&state->query_buf, "COPY ");
-	appendStringInfo(&state->query_buf, "%s",
-					 quote_identifier(RelationGetRelationName(rel)));
+
+	/*
+	 * The table name should be qualified, unless if the table is
+	 * a temporary one
+	 */
+	if (rel->rd_backend == MyBackendId)
+		appendStringInfo(&state->query_buf, "%s",
+						 quote_identifier(RelationGetRelationName(rel)));
+	else
+		appendStringInfo(&state->query_buf, "%s",
+						 quote_qualified_identifier(
+							get_namespace_name(RelationGetNamespace(rel)),
+							RelationGetRelationName(rel)));
 
 	if (attnamelist)
 	{
