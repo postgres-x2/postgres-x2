@@ -1229,7 +1229,7 @@ GTM_BkupBeginTransactionGetGXIDMulti(char *coord_name,
 	int ii;
 	MemoryContext oldContext;
 
-	oldContext = MemoryContextSwitchTo(TopMemoryContext);
+	oldContext = MemoryContextSwitchTo(TopMostMemoryContext);
 	GTM_RWLockAcquire(&GTMTransactions.gt_TransArrayLock, GTM_LOCKMODE_WRITE);
 
 	for (ii = 0; ii < txn_count; ii++)
