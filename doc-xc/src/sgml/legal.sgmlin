@@ -1,7 +1,7 @@
 <!-- doc/src/sgml/legal.sgml -->
 
 <copyright>
- <year>1996-2011</year>
+ <year>1996-2013</year>
  <holder>The PostgreSQL Global Development Group</holder>
 </copyright>
 <!## XC>
@@ -16,12 +16,12 @@
 
  <para>
 <!## PG>
-  <productname>PostgreSQL</productname> is Copyright &copy; 1996-2011
+  <productname>PostgreSQL</productname> is Copyright &copy; 1996-2013
   by the PostgreSQL Global Development Group and is distributed under
   the terms of the license of the University of California below.
 <!## end>
 <!## XC>
-  <productname>Postgres-XC</productname> is Copyright &copy; 1996-2011
+  <productname>Postgres-XC</productname> is Copyright &copy; 1996-2013
   by the PostgreSQL Global Development Group and Copyright &copy;
   2010-2013 by Postgres-XC Development Group, and is distributed under 
   the terms of the license of the University of California below.
