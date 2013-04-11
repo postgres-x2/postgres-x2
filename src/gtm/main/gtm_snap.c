@@ -304,7 +304,7 @@ ProcessGetSnapshotCommand(Port *myport, StringInfo message, bool get_gxid)
 					(EPROTO,
 					 errmsg("Message does not contain valid GXID")));
 		memcpy(&gxid, data, sizeof(gxid));
-		elog(LOG, "Received transaction ID %d for snapshot obtention", gxid);
+		elog(DEBUG1, "Received transaction ID %d for snapshot obtention", gxid);
 		txn = GTM_GXIDToHandle(gxid);
 	}
 	else
@@ -459,7 +459,7 @@ ProcessGetSnapshotCommandMulti(Port *myport, StringInfo message)
 		GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
 		int count = 0;
 retry:
-		elog(LOG, "calling snapshot_get_multi() for standby GTM %p.",
+		elog(DEBUG1, "calling snapshot_get_multi() for standby GTM %p.",
 		     GetMyThreadInfo->thr_conn->standby);
 
 		_rc = snapshot_get_multi(GetMyThreadInfo->thr_conn->standby,
@@ -469,7 +469,7 @@ retry:
 		if (gtm_standby_check_communication_error(&count, oldconn))
 			goto retry;
 
-		elog(LOG, "snapshot_get_multi() rc=%d done.", _rc);
+		elog(DEBUG1, "snapshot_get_multi() rc=%d done.", _rc);
 	}
 #endif
 

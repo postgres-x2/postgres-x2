@@ -578,7 +578,7 @@ GTM_GetGlobalTransactionIdMulti(GTM_TransactionHandle handle[], int txn_count)
 		gtm_txninfo = GTM_HandleToTransactionInfo(handle[ii]);
 		Assert(gtm_txninfo);
 
-		elog(LOG, "Assigning new transaction ID = %d", xid);
+		elog(DEBUG1, "Assigning new transaction ID = %d", xid);
 		gtm_txninfo->gti_gxid = xid;
 	}
 
@@ -1169,7 +1169,7 @@ ProcessBeginTransactionGetGXIDCommand(Port *myport, StringInfo message)
 
 	MemoryContextSwitchTo(oldContext);
 
-	elog(LOG, "Sending transaction id %u", gxid);
+	elog(DEBUG1, "Sending transaction id %u", gxid);
 
 	/* Backup first */
 	if (GetMyThreadInfo->thr_conn->standby)
@@ -1177,7 +1177,7 @@ ProcessBeginTransactionGetGXIDCommand(Port *myport, StringInfo message)
 		GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
 		int count = 0;
 
-		elog(LOG, "calling begin_transaction() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
+		elog(DEBUG1, "calling begin_transaction() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
 
 retry:
 		bkup_begin_transaction_gxid(GetMyThreadInfo->thr_conn->standby,
@@ -1327,7 +1327,7 @@ ProcessBeginTransactionGetGXIDAutovacuumCommand(Port *myport, StringInfo message
 	GlobalTransactionId gxid;
 	MemoryContext oldContext;
 
-	elog(LOG, "Inside ProcessBeginTransactionGetGXIDAutovacuumCommand");
+	elog(DEBUG1, "Inside ProcessBeginTransactionGetGXIDAutovacuumCommand");
 
 	txn_isolation_level = pq_getmsgint(message, sizeof (GTM_IsolationLevel));
 	txn_read_only = pq_getmsgbyte(message);
@@ -1356,7 +1356,7 @@ ProcessBeginTransactionGetGXIDAutovacuumCommand(Port *myport, StringInfo message
 
 	MemoryContextSwitchTo(oldContext);
 
-	elog(LOG, "Sending transaction id %d", gxid);
+	elog(DEBUG1, "Sending transaction id %d", gxid);
 
 	/* Backup first */
 	if (GetMyThreadInfo->thr_conn->standby)
@@ -1365,7 +1365,7 @@ ProcessBeginTransactionGetGXIDAutovacuumCommand(Port *myport, StringInfo message
 		GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
 		int count = 0;
 
-		elog(LOG, "calling begin_transaction_autovacuum() for standby GTM %p.",
+		elog(DEBUG1, "calling begin_transaction_autovacuum() for standby GTM %p.",
 			 GetMyThreadInfo->thr_conn->standby);
 
 	retry:
@@ -1379,7 +1379,7 @@ ProcessBeginTransactionGetGXIDAutovacuumCommand(Port *myport, StringInfo message
 		if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
 			gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
 
-		elog(LOG, "begin_transaction_autovacuum() GXID=%d done.", _gxid);
+		elog(DEBUG1, "begin_transaction_autovacuum() GXID=%d done.", _gxid);
 	}
 	/* Respond to the client */
 	pq_beginmessage(&buf, 'S');
@@ -1463,7 +1463,7 @@ ProcessBeginTransactionGetGXIDCommandMulti(Port *myport, StringInfo message)
 	if (end_gxid < start_gxid)
 		end_gxid += FirstNormalGlobalTransactionId;
 
-	elog(LOG, "Sending transaction ids from %u to %u", start_gxid, end_gxid);
+	elog(DEBUG1, "Sending transaction ids from %u to %u", start_gxid, end_gxid);
 
 	/* Backup first */
 	if (GetMyThreadInfo->thr_conn->standby)
@@ -1472,7 +1472,7 @@ ProcessBeginTransactionGetGXIDCommandMulti(Port *myport, StringInfo message)
 		GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
 		int count = 0;
 
-		elog(LOG, "calling begin_transaction_multi() for standby GTM %p.",
+		elog(DEBUG1, "calling begin_transaction_multi() for standby GTM %p.",
 		     GetMyThreadInfo->thr_conn->standby);
 
 retry:
@@ -1491,7 +1491,7 @@ retry:
 		if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
 			gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
 
-		elog(LOG, "begin_transaction_multi() rc=%d done.", _rc);
+		elog(DEBUG1, "begin_transaction_multi() rc=%d done.", _rc);
 	}
 	/* Respond to the client */
 	pq_beginmessage(&buf, 'S');
@@ -1589,7 +1589,7 @@ ProcessCommitTransactionCommand(Port *myport, StringInfo message, bool is_backup
 
 	oldContext = MemoryContextSwitchTo(TopMemoryContext);
 
-	elog(LOG, "Committing transaction id %u", gxid);
+	elog(DEBUG1, "Committing transaction id %u", gxid);
 
 	/*
 	 * Commit the transaction
@@ -1609,7 +1609,7 @@ ProcessCommitTransactionCommand(Port *myport, StringInfo message, bool is_backup
 			GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
 			int count = 0;
 
-			elog(LOG, "calling commit_transaction() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
+			elog(DEBUG1, "calling commit_transaction() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
 
 		retry:
 			_rc = bkup_commit_transaction(GetMyThreadInfo->thr_conn->standby, gxid);
@@ -1621,7 +1621,7 @@ ProcessCommitTransactionCommand(Port *myport, StringInfo message, bool is_backup
 			if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
 				gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
 
-			elog(LOG, "commit_transaction() rc=%d done.", _rc);
+			elog(DEBUG1, "commit_transaction() rc=%d done.", _rc);
 		}
 
 		pq_beginmessage(&buf, 'S');
@@ -1697,7 +1697,7 @@ ProcessCommitPreparedTransactionCommand(Port *myport, StringInfo message, bool i
 
 	oldContext = MemoryContextSwitchTo(TopMemoryContext);
 
-	elog(LOG, "Committing: prepared id %u and commit prepared id %u ", gxid[0], gxid[1]);
+	elog(DEBUG1, "Committing: prepared id %u and commit prepared id %u ", gxid[0], gxid[1]);
 
 	/*
 	 * Commit the prepared transaction.
@@ -1715,7 +1715,7 @@ ProcessCommitPreparedTransactionCommand(Port *myport, StringInfo message, bool i
 			GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
 			int count = 0;
 
-			elog(LOG, "calling commit_prepared_transaction() for standby GTM %p.",
+			elog(DEBUG1, "calling commit_prepared_transaction() for standby GTM %p.",
 				 GetMyThreadInfo->thr_conn->standby);
 
 		retry:
@@ -1729,7 +1729,7 @@ ProcessCommitPreparedTransactionCommand(Port *myport, StringInfo message, bool i
 			if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
 				gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
 
-			elog(LOG, "commit_prepared_transaction() rc=%d done.", _rc);
+			elog(DEBUG1, "commit_prepared_transaction() rc=%d done.", _rc);
 		}
 		/* Respond to the client */
 		pq_beginmessage(&buf, 'S');
@@ -1858,7 +1858,7 @@ ProcessGetGIDDataTransactionCommand(Port *myport, StringInfo message)
 		GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
 		int count = 0;
 
-		elog(LOG, "calling get_gid_data() for standby GTM %p.",
+		elog(DEBUG1, "calling get_gid_data() for standby GTM %p.",
 			GetMyThreadInfo->thr_conn->standby);
 
 retry:
@@ -1872,7 +1872,7 @@ retry:
 		if (gtm_standby_check_communication_error(&count, oldconn))
 			goto retry;
 
-		elog(LOG, "get_gid_data() rc=%d done.", _rc);
+		elog(DEBUG1, "get_gid_data() rc=%d done.", _rc);
 	}
 #endif
 
@@ -1909,7 +1909,7 @@ ProcessGXIDListCommand(Port *myport, StringInfo message)
 
 	actlen = gtm_serialize_transactions(&GTMTransactions, data, estlen);
 
-	elog(LOG, "gtm_serialize_transactions: estlen=%ld, actlen=%ld", estlen, actlen);
+	elog(DEBUG1, "gtm_serialize_transactions: estlen=%ld, actlen=%ld", estlen, actlen);
 
 	GTM_RWLockRelease(&GTMTransactions.gt_XidGenLock);
 
@@ -1935,10 +1935,10 @@ ProcessGXIDListCommand(Port *myport, StringInfo message)
 	if (myport->remote_type != GTM_NODE_GTM_PROXY)
 	{
 		pq_flush(myport);
-		elog(LOG, "pq_flush()");
+		elog(DEBUG1, "pq_flush()");
 	}
 
-	elog(LOG, "ProcessGXIDListCommand() ok. %ld bytes sent. len=%d", actlen, buf.len);
+	elog(DEBUG1, "ProcessGXIDListCommand() ok. %ld bytes sent. len=%d", actlen, buf.len);
 	free(data);
 
 	return;
@@ -1986,7 +1986,7 @@ ProcessRollbackTransactionCommand(Port *myport, StringInfo message, bool is_back
 
 	oldContext = MemoryContextSwitchTo(TopMemoryContext);
 
-	elog(LOG, "Cancelling transaction id %u", gxid);
+	elog(DEBUG1, "Cancelling transaction id %u", gxid);
 
 	/*
 	 * Commit the transaction
@@ -2003,7 +2003,7 @@ ProcessRollbackTransactionCommand(Port *myport, StringInfo message, bool is_back
 			GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
 			int count = 0;
 
-			elog(LOG, "calling abort_transaction() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
+			elog(DEBUG1, "calling abort_transaction() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
 
 		retry:
 			bkup_abort_transaction(GetMyThreadInfo->thr_conn->standby, gxid);
@@ -2015,7 +2015,7 @@ ProcessRollbackTransactionCommand(Port *myport, StringInfo message, bool is_back
 			if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
 				gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
 
-			elog(LOG, "abort_transaction() GXID=%d done.", gxid);
+			elog(DEBUG1, "abort_transaction() GXID=%d done.", gxid);
 		}
 		/* Respond to the client */
 		pq_beginmessage(&buf, 'S');
@@ -2108,7 +2108,7 @@ ProcessCommitTransactionCommandMulti(Port *myport, StringInfo message, bool is_b
 			GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
 			int count = 0;
 
-			elog(LOG, "calling commit_transaction_multi() for standby GTM %p.",
+			elog(DEBUG1, "calling commit_transaction_multi() for standby GTM %p.",
 				 GetMyThreadInfo->thr_conn->standby);
 
 		retry:
@@ -2120,7 +2120,7 @@ ProcessCommitTransactionCommandMulti(Port *myport, StringInfo message, bool is_b
 			if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
 				gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
 
-			elog(LOG, "commit_transaction_multi() rc=%d done.", _rc);
+			elog(DEBUG1, "commit_transaction_multi() rc=%d done.", _rc);
 		}
 		/* Respond to the client */
 		pq_beginmessage(&buf, 'S');
@@ -2211,7 +2211,7 @@ ProcessRollbackTransactionCommandMulti(Port *myport, StringInfo message, bool is
 			GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
 			int count = 0;
 
-			elog(LOG, "calling abort_transaction_multi() for standby GTM %p.",
+			elog(DEBUG1, "calling abort_transaction_multi() for standby GTM %p.",
 				 GetMyThreadInfo->thr_conn->standby);
 
 		retry:
@@ -2224,7 +2224,7 @@ ProcessRollbackTransactionCommandMulti(Port *myport, StringInfo message, bool is
 			if (Backup_synchronously &&(myport->remote_type != GTM_NODE_GTM_PROXY))
 				gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
 
-			elog(LOG, "abort_transaction_multi() rc=%d done.", _rc);
+			elog(DEBUG1, "abort_transaction_multi() rc=%d done.", _rc);
 		}
 		/* Respond to the client */
 		pq_beginmessage(&buf, 'S');
@@ -2325,7 +2325,7 @@ ProcessStartPreparedTransactionCommand(Port *myport, StringInfo message, bool is
 			GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
 			int count = 0;
 
-			elog(LOG, "calling start_prepared_transaction() for standby GTM %p.",
+			elog(DEBUG1, "calling start_prepared_transaction() for standby GTM %p.",
 				 GetMyThreadInfo->thr_conn->standby);
 
 		retry:
@@ -2340,7 +2340,7 @@ ProcessStartPreparedTransactionCommand(Port *myport, StringInfo message, bool is
 			if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
 				gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
 
-			elog(LOG, "start_prepared_transaction() rc=%d done.", _rc);
+			elog(DEBUG1, "start_prepared_transaction() rc=%d done.", _rc);
 		}
 		pq_beginmessage(&buf, 'S');
 		pq_sendint(&buf, TXN_START_PREPARED_RESULT, 4);
@@ -2412,7 +2412,7 @@ ProcessPrepareTransactionCommand(Port *myport, StringInfo message, bool is_backu
 
 	MemoryContextSwitchTo(oldContext);
 
-	elog(LOG, "Preparing transaction id %u", gxid);
+	elog(DEBUG1, "Preparing transaction id %u", gxid);
 
 	if (!is_backup)
 	{
@@ -2422,7 +2422,7 @@ ProcessPrepareTransactionCommand(Port *myport, StringInfo message, bool is_backu
 			GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
 			int count = 0;
 
-			elog(LOG, "calling prepare_transaction() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
+			elog(DEBUG1, "calling prepare_transaction() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
 
 		retry:
 			bkup_prepare_transaction(GetMyThreadInfo->thr_conn->standby, gxid);
@@ -2434,7 +2434,7 @@ ProcessPrepareTransactionCommand(Port *myport, StringInfo message, bool is_backu
 			if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
 				gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
 
-			elog(LOG, "prepare_transaction() GXID=%d done.", gxid);
+			elog(DEBUG1, "prepare_transaction() GXID=%d done.", gxid);
 		}
 		/* Respond to the client */
 		pq_beginmessage(&buf, 'S');
@@ -2596,7 +2596,7 @@ GTM_RestoreTxnInfo(FILE *ctlf, GlobalTransactionId next_gxid)
 	else if (!GlobalTransactionIdIsValid(next_gxid))
 		next_gxid = InitialGXIDValue_Default;
 
-	elog(LOG, "Restoring last GXID to %u\n", next_gxid);
+	elog(DEBUG1, "Restoring last GXID to %u\n", next_gxid);
 
 	if (GlobalTransactionIdIsValid(next_gxid))
 		SetNextGlobalTransactionId(next_gxid);

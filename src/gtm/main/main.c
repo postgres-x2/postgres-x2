@@ -556,7 +556,7 @@ main(int argc, char *argv[])
 		elog(LOG, "Startup connection established with active-GTM.");
 	}
 
-	elog(LOG, "Starting GTM server at (%s:%d) -- control file %s", ListenAddresses, GTMPortNumber, GTMControlFile);
+	elog(DEBUG1, "Starting GTM server at (%s:%d) -- control file %s", ListenAddresses, GTMPortNumber, GTMControlFile);
 
 	/*
 	 * Read the last GXID and start from there
@@ -573,21 +573,21 @@ main(int argc, char *argv[])
 			elog(ERROR, "Failed to restore next/last gxid from the active-GTM.");
 			exit(1);
 		}
-		elog(LOG, "Restoring next/last gxid from the active-GTM succeeded.");
+		elog(DEBUG1, "Restoring next/last gxid from the active-GTM succeeded.");
 
 		if (!gtm_standby_restore_gxid())
 		{
 			elog(ERROR, "Failed to restore all of gxid(s) from the active-GTM.");
 			exit(1);
 		}
-		elog(LOG, "Restoring all of gxid(s) from the active-GTM succeeded.");
+		elog(DEBUG1, "Restoring all of gxid(s) from the active-GTM succeeded.");
 
 		if (!gtm_standby_restore_sequence())
 		{
 			elog(ERROR, "Failed to restore sequences from the active-GTM.");
 			exit(1);
 		}
-		elog(LOG, "Restoring sequences from the active-GTM succeeded.");
+		elog(DEBUG1, "Restoring sequences from the active-GTM succeeded.");
 	}
 	else
 	{
@@ -605,7 +605,7 @@ main(int argc, char *argv[])
 			elog(ERROR, "Failed to register myself on the active-GTM as a GTM node.");
 			exit(1);
 		}
-		elog(LOG, "Registering myself to the active-GTM as a GTM node succeeded.");
+		elog(DEBUG1, "Registering myself to the active-GTM as a GTM node succeeded.");
 	}
 
 	/* Recover Data of Registered nodes. */
@@ -616,7 +616,7 @@ main(int argc, char *argv[])
 			elog(ERROR, "Failed to restore node information from the active-GTM.");
 			exit(1);
 		}
-		elog(LOG, "Restoring node information from the active-GTM succeeded.");
+		elog(DEBUG1, "Restoring node information from the active-GTM succeeded.");
 
 		if (!gtm_standby_end_backup())
 		{
@@ -692,7 +692,7 @@ main(int argc, char *argv[])
 			elog(ERROR, "Failed to update the standby-GTM status as \"CONNECTED\".");
 			exit(1);
 		}
-		elog(LOG, "Updating the standby-GTM status as \"CONNECTED\" succeeded.");
+		elog(DEBUG1, "Updating the standby-GTM status as \"CONNECTED\" succeeded.");
 		if (!gtm_standby_finish_startup())
 		{
 			elog(ERROR, "Failed to close the initial connection to the active-GTM.");
@@ -2044,7 +2044,7 @@ PromoteToActive(void)
 	 * Update the GTM config file for the next restart..
 	 */
 	conf_file = GetConfigOption("config_file", true);
-	elog(LOG, "Config file is %s...", conf_file);
+	elog(DEBUG1, "Config file is %s...", conf_file);
 	if ((fp = fopen(conf_file, PG_BINARY_A)) == NULL)
 	{
 		ereport(FATAL,

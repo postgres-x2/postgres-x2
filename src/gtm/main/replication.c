@@ -53,7 +53,7 @@ ProcessBeginReplicationInitialSyncRequest(Port *myport, StringInfo message)
 	/* Acquire global locks to copy resource data to the standby. */
 	GTM_RWLockAcquire(&GTMTransactions.gt_XidGenLock, GTM_LOCKMODE_WRITE);
 	GTM_RWLockAcquire(&GTMTransactions.gt_TransArrayLock, GTM_LOCKMODE_WRITE);
-	elog(LOG, "Prepared for copying data with holding XidGenLock and TransArrayLock.");
+	elog(DEBUG1, "Prepared for copying data with holding XidGenLock and TransArrayLock.");
 
 	MemoryContextSwitchTo(oldContext);
 
@@ -74,7 +74,7 @@ ProcessBeginReplicationInitialSyncRequest(Port *myport, StringInfo message)
 	if (myport->remote_type != GTM_NODE_GTM_PROXY)
 		pq_flush(myport);
 
-	elog(LOG, "ProcessBeginReplicationInitialSyncRequest() ok.");
+	elog(DEBUG1, "ProcessBeginReplicationInitialSyncRequest() ok.");
 
 	return;
 }
@@ -102,7 +102,7 @@ ProcessEndReplicationInitialSyncRequest(Port *myport, StringInfo message)
 	 */
 	GTM_RWLockRelease(&GTMTransactions.gt_TransArrayLock);
 	GTM_RWLockRelease(&GTMTransactions.gt_XidGenLock);
-	elog(LOG, "XidGenLock and TransArrayLock released.");
+	elog(DEBUG1, "XidGenLock and TransArrayLock released.");
 
 	MemoryContextSwitchTo(oldContext);
 
@@ -123,7 +123,7 @@ ProcessEndReplicationInitialSyncRequest(Port *myport, StringInfo message)
 	if (myport->remote_type != GTM_NODE_GTM_PROXY)
 		pq_flush(myport);
 
-	elog(LOG, "ProcessEndReplicationInitialSyncRequest() ok.");
+	elog(DEBUG1, "ProcessEndReplicationInitialSyncRequest() ok.");
 
 	return;
 }

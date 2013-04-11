@@ -869,7 +869,7 @@ ProcessSequenceInitCommand(Port *myport, StringInfo message, bool is_backup)
 			GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
 			int count = 0;
 
-			elog(LOG, "calling open_sequence() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
+			elog(DEBUG1, "calling open_sequence() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
 
 		retry:
 			rc = bkup_open_sequence(GetMyThreadInfo->thr_conn->standby,
@@ -887,7 +887,7 @@ ProcessSequenceInitCommand(Port *myport, StringInfo message, bool is_backup)
 			if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
 				gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
 
-			elog(LOG, "open_sequence() returns rc %d.", rc);
+			elog(DEBUG1, "open_sequence() returns rc %d.", rc);
 		}
 		/*
 		 * Send a SUCCESS message back to the client
@@ -981,7 +981,7 @@ ProcessSequenceAlterCommand(Port *myport, StringInfo message, bool is_backup)
 			GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
 			int count = 0;
 
-			elog(LOG, "calling alter_sequence() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
+			elog(DEBUG1, "calling alter_sequence() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
 
 		retry:
 			rc = bkup_alter_sequence(GetMyThreadInfo->thr_conn->standby,
@@ -1001,7 +1001,7 @@ ProcessSequenceAlterCommand(Port *myport, StringInfo message, bool is_backup)
 			if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
 				gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
 
-			elog(LOG, "alter_sequence() returns rc %d.", rc);
+			elog(DEBUG1, "alter_sequence() returns rc %d.", rc);
 		}
 		pq_beginmessage(&buf, 'S');
 		pq_sendint(&buf, SEQUENCE_ALTER_RESULT, 4);
@@ -1103,7 +1103,7 @@ ProcessSequenceListCommand(Port *myport, StringInfo message)
 
 		gtm_serialize_sequence(seq_list[i], seq_buf, seq_buflen);
 
-		elog(LOG, "seq_buflen = %ld", seq_buflen);
+		elog(DEBUG1, "seq_buflen = %ld", seq_buflen);
 
 		pq_sendint(&buf, seq_buflen, 4);
 		pq_sendbytes(&buf, seq_buf, seq_buflen);
@@ -1113,7 +1113,7 @@ ProcessSequenceListCommand(Port *myport, StringInfo message)
 
 	pq_endmessage(myport, &buf);
 
-	elog(LOG, "ProcessSequenceListCommand() done.");
+	elog(DEBUG1, "ProcessSequenceListCommand() done.");
 
 	if (myport->remote_type != GTM_NODE_GTM_PROXY)
 		/* Don't flush to the backup because this does not change the internal status */
@@ -1142,7 +1142,7 @@ ProcessSequenceGetNextCommand(Port *myport, StringInfo message, bool is_backup)
 				(ERANGE,
 				 errmsg("Can not get current value of the sequence")));
 
-	elog(LOG, "Getting next value %ld for sequence %s", seqval, seqkey.gsk_key);
+	elog(DEBUG1, "Getting next value %ld for sequence %s", seqval, seqkey.gsk_key);
 
 	if (!is_backup)
 	{
@@ -1153,7 +1153,7 @@ ProcessSequenceGetNextCommand(Port *myport, StringInfo message, bool is_backup)
 			GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
 			int count = 0;
 
-			elog(LOG, "calling get_next() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
+			elog(DEBUG1, "calling get_next() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
 
 		retry:
 			loc_seq = bkup_get_next(GetMyThreadInfo->thr_conn->standby, &seqkey);
@@ -1165,7 +1165,7 @@ ProcessSequenceGetNextCommand(Port *myport, StringInfo message, bool is_backup)
 			if (Backup_synchronously &&(myport->remote_type != GTM_NODE_GTM_PROXY))
 				gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
 
-			elog(LOG, "get_next() returns GTM_Sequence %ld.", loc_seq);
+			elog(DEBUG1, "get_next() returns GTM_Sequence %ld.", loc_seq);
 		}
 		/* Respond to the client */
 		pq_beginmessage(&buf, 'S');
@@ -1227,7 +1227,7 @@ ProcessSequenceSetValCommand(Port *myport, StringInfo message, bool is_backup)
 	 */
 	oldContext = MemoryContextSwitchTo(TopMostMemoryContext);
 
-	elog(LOG, "Setting new value %ld for sequence %s", nextval, seqkey.gsk_key);
+	elog(DEBUG1, "Setting new value %ld for sequence %s", nextval, seqkey.gsk_key);
 
 	if ((errcode = GTM_SeqSetVal(&seqkey, nextval, iscalled)))
 		ereport(ERROR,
@@ -1247,7 +1247,7 @@ ProcessSequenceSetValCommand(Port *myport, StringInfo message, bool is_backup)
 			GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
 			int count = 0;
 
-			elog(LOG, "calling set_val() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
+			elog(DEBUG1, "calling set_val() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
 
 		retry:
 			rc = bkup_set_val(GetMyThreadInfo->thr_conn->standby,
@@ -1262,7 +1262,7 @@ ProcessSequenceSetValCommand(Port *myport, StringInfo message, bool is_backup)
 			if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
 				gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
 
-			elog(LOG, "set_val() returns rc %d.", rc);
+			elog(DEBUG1, "set_val() returns rc %d.", rc);
 		}
 		/* Respond to the client */
 		pq_beginmessage(&buf, 'S');
@@ -1320,7 +1320,7 @@ ProcessSequenceResetCommand(Port *myport, StringInfo message, bool is_backup)
 			GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
 			int count = 0;
 
-			elog(LOG, "calling reset_sequence() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
+			elog(DEBUG1, "calling reset_sequence() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
 
 		retry:
 			rc = bkup_reset_sequence(GetMyThreadInfo->thr_conn->standby, &seqkey);
@@ -1332,7 +1332,7 @@ ProcessSequenceResetCommand(Port *myport, StringInfo message, bool is_backup)
 			if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
 				gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
 
-			elog(LOG, "reset_sequence() returns rc %d.", rc);
+			elog(DEBUG1, "reset_sequence() returns rc %d.", rc);
 		}
 		/* Respond to the client */
 		pq_beginmessage(&buf, 'S');
@@ -1376,7 +1376,7 @@ ProcessSequenceCloseCommand(Port *myport, StringInfo message, bool is_backup)
 	memcpy(&seqkey.gsk_type, pq_getmsgbytes(message, sizeof (GTM_SequenceKeyType)),
 		   sizeof (GTM_SequenceKeyType));
 
-	elog(LOG, "Closing sequence %s", seqkey.gsk_key);
+	elog(DEBUG1, "Closing sequence %s", seqkey.gsk_key);
 
 	if ((errcode = GTM_SeqClose(&seqkey)))
 		ereport(ERROR,
@@ -1392,7 +1392,7 @@ ProcessSequenceCloseCommand(Port *myport, StringInfo message, bool is_backup)
 			GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
 			int count = 0;
 
-			elog(LOG, "calling close_sequence() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
+			elog(DEBUG1, "calling close_sequence() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
 
 		retry:
 			rc = bkup_close_sequence(GetMyThreadInfo->thr_conn->standby, &seqkey);
@@ -1404,7 +1404,7 @@ ProcessSequenceCloseCommand(Port *myport, StringInfo message, bool is_backup)
 			if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
 				gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
 
-			elog(LOG, "close_sequence() returns rc %d.", rc);
+			elog(DEBUG1, "close_sequence() returns rc %d.", rc);
 		}
 		/* Respond to the client */
 		pq_beginmessage(&buf, 'S');
@@ -1479,7 +1479,7 @@ ProcessSequenceRenameCommand(Port *myport, StringInfo message, bool is_backup)
 			GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
 			int count = 0;
 
-			elog(LOG, "calling rename_sequence() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
+			elog(DEBUG1, "calling rename_sequence() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
 
 		retry:
 			rc = bkup_rename_sequence(GetMyThreadInfo->thr_conn->standby, &seqkey, &newseqkey);
@@ -1491,7 +1491,7 @@ ProcessSequenceRenameCommand(Port *myport, StringInfo message, bool is_backup)
 			if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
 				gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
 
-			elog(LOG, "rename_sequence() returns rc %d.", rc);
+			elog(DEBUG1, "rename_sequence() returns rc %d.", rc);
 		}
 		/* Send a SUCCESS message back to the client */
 		pq_beginmessage(&buf, 'S');

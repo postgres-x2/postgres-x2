@@ -34,34 +34,34 @@ dump_transactioninfo_elog(GTM_TransactionInfo *txn)
 {
 	int ii;
 
-	elog(LOG, "  ========= GTM_TransactionInfo =========");
-	elog(LOG, "gti_handle: %d", txn->gti_handle);
-	elog(LOG, "gti_thread_id: %ld", txn->gti_thread_id);
-	elog(LOG, "gti_in_use: %d", txn->gti_in_use);
-	elog(LOG, "gti_gxid: %d", txn->gti_gxid);
-	elog(LOG, "gti_state: %d", txn->gti_state);
-	elog(LOG, "gti_coordname: %s", txn->gti_coordname);
-	elog(LOG, "gti_xmin: %d", txn->gti_xmin);
-	elog(LOG, "gti_isolevel: %d", txn->gti_isolevel);
-	elog(LOG, "gti_readonly: %d", txn->gti_readonly);
-	elog(LOG, "gti_backend_id: %d", txn->gti_backend_id);
-	elog(LOG, "gti_nodestring: %s", txn->nodestring);
-	elog(LOG, "gti_gid: %s", txn->gti_gid);
+	elog(DEBUG1, "  ========= GTM_TransactionInfo =========");
+	elog(DEBUG1, "gti_handle: %d", txn->gti_handle);
+	elog(DEBUG1, "gti_thread_id: %ld", txn->gti_thread_id);
+	elog(DEBUG1, "gti_in_use: %d", txn->gti_in_use);
+	elog(DEBUG1, "gti_gxid: %d", txn->gti_gxid);
+	elog(DEBUG1, "gti_state: %d", txn->gti_state);
+	elog(DEBUG1, "gti_coordname: %s", txn->gti_coordname);
+	elog(DEBUG1, "gti_xmin: %d", txn->gti_xmin);
+	elog(DEBUG1, "gti_isolevel: %d", txn->gti_isolevel);
+	elog(DEBUG1, "gti_readonly: %d", txn->gti_readonly);
+	elog(DEBUG1, "gti_backend_id: %d", txn->gti_backend_id);
+	elog(DEBUG1, "gti_nodestring: %s", txn->nodestring);
+	elog(DEBUG1, "gti_gid: %s", txn->gti_gid);
 
-	elog(LOG, "  sn_xmin: %d", txn->gti_current_snapshot.sn_xmin);
-	elog(LOG, "  sn_xmax: %d", txn->gti_current_snapshot.sn_xmax);
-	elog(LOG, "  sn_recent_global_xmin: %d", txn->gti_current_snapshot.sn_recent_global_xmin);
-	elog(LOG, "  sn_xcnt: %d", txn->gti_current_snapshot.sn_xcnt);
+	elog(DEBUG1, "  sn_xmin: %d", txn->gti_current_snapshot.sn_xmin);
+	elog(DEBUG1, "  sn_xmax: %d", txn->gti_current_snapshot.sn_xmax);
+	elog(DEBUG1, "  sn_recent_global_xmin: %d", txn->gti_current_snapshot.sn_recent_global_xmin);
+	elog(DEBUG1, "  sn_xcnt: %d", txn->gti_current_snapshot.sn_xcnt);
 
 	/* Print all the GXIDs in snapshot */
 	for (ii = 0; ii < txn->gti_current_snapshot.sn_xcnt; ii++)
 	{
-		elog (LOG, "  sn_xip[%d]: %d", ii, txn->gti_current_snapshot.sn_xip[ii]);
+		elog (DEBUG1, "  sn_xip[%d]: %d", ii, txn->gti_current_snapshot.sn_xip[ii]);
 	}
 
-	elog(LOG, "gti_snapshot_set: %d", txn->gti_snapshot_set);
-	elog(LOG, "gti_vacuum: %d", txn->gti_vacuum);
-	elog(LOG, "  ========================================");
+	elog(DEBUG1, "gti_snapshot_set: %d", txn->gti_snapshot_set);
+	elog(DEBUG1, "gti_vacuum: %d", txn->gti_vacuum);
+	elog(DEBUG1, "  ========================================");
 }
 
 void
@@ -69,18 +69,18 @@ dump_transactions_elog(GTM_Transactions *txn, int num_txn)
 {
 	int i;
 
-	elog(LOG, "============ GTM_Transactions ============");
-	elog(LOG, "  gt_txn_count: %d", txn->gt_txn_count);
-	elog(LOG, "  gt_XidGenLock: %p", &txn->gt_XidGenLock);
-	elog(LOG, "  gt_nextXid: %d", txn->gt_nextXid);
-	elog(LOG, "  gt_oldestXid: %d", txn->gt_oldestXid);
-	elog(LOG, "  gt_xidVacLimit: %d", txn->gt_xidVacLimit);
-	elog(LOG, "  gt_xidWarnLimit: %d", txn->gt_xidWarnLimit);
-	elog(LOG, "  gt_xidStopLimit: %d", txn->gt_xidStopLimit);
-	elog(LOG, "  gt_xidWrapLimit: %d", txn->gt_xidWrapLimit);
-	elog(LOG, "  gt_latestCompletedXid: %d", txn->gt_latestCompletedXid);
-	elog(LOG, "  gt_recent_global_xmin: %d", txn->gt_recent_global_xmin);
-	elog(LOG, "  gt_lastslot: %d", txn->gt_lastslot);
+	elog(DEBUG1, "============ GTM_Transactions ============");
+	elog(DEBUG1, "  gt_txn_count: %d", txn->gt_txn_count);
+	elog(DEBUG1, "  gt_XidGenLock: %p", &txn->gt_XidGenLock);
+	elog(DEBUG1, "  gt_nextXid: %d", txn->gt_nextXid);
+	elog(DEBUG1, "  gt_oldestXid: %d", txn->gt_oldestXid);
+	elog(DEBUG1, "  gt_xidVacLimit: %d", txn->gt_xidVacLimit);
+	elog(DEBUG1, "  gt_xidWarnLimit: %d", txn->gt_xidWarnLimit);
+	elog(DEBUG1, "  gt_xidStopLimit: %d", txn->gt_xidStopLimit);
+	elog(DEBUG1, "  gt_xidWrapLimit: %d", txn->gt_xidWrapLimit);
+	elog(DEBUG1, "  gt_latestCompletedXid: %d", txn->gt_latestCompletedXid);
+	elog(DEBUG1, "  gt_recent_global_xmin: %d", txn->gt_recent_global_xmin);
+	elog(DEBUG1, "  gt_lastslot: %d", txn->gt_lastslot);
 
 	for (i = 0; i < num_txn; i++)
 	{
@@ -88,6 +88,6 @@ dump_transactions_elog(GTM_Transactions *txn, int num_txn)
 			dump_transactioninfo_elog(&txn->gt_transactions_array[i]);
 	}
 
-	elog(LOG, "  gt_TransArrayLock: %p", &txn->gt_TransArrayLock);
-	elog(LOG, "==========================================");
+	elog(DEBUG1, "  gt_TransArrayLock: %p", &txn->gt_TransArrayLock);
+	elog(DEBUG1, "==========================================");
 }

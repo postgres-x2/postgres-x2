@@ -120,7 +120,7 @@ pgxcnode_find_by_type(GTM_PGXCNodeType type, GTM_PGXCNodeInfo **data, size_t max
 			if (cur != NULL && cur->type == type)
 			{
 				data[node] = cur;
-				elog(LOG, "pgxcnode_find_by_type: cur=%p, ipaddress=%s", cur, cur->ipaddress);
+				elog(DEBUG1, "pgxcnode_find_by_type: cur=%p, ipaddress=%s", cur, cur->ipaddress);
 				node++;
 			}
 
@@ -394,10 +394,10 @@ Recovery_PGXCNodeRegister(GTM_PGXCNodeType	type,
 	nodeinfo->status = status;
 	nodeinfo->socket = socket;
 
-	elog(LOG, "Recovery_PGXCNodeRegister Request info: type=%d, nodename=%s, port=%d," \
+	elog(DEBUG1, "Recovery_PGXCNodeRegister Request info: type=%d, nodename=%s, port=%d," \
 			  "datafolder=%s, ipaddress=%s, status=%d",
 			  type, nodename, port, datafolder, ipaddress, status);
-	elog(LOG, "Recovery_PGXCNodeRegister Node info: type=%d, nodename=%s, port=%d, "\
+	elog(DEBUG1, "Recovery_PGXCNodeRegister Node info: type=%d, nodename=%s, port=%d, "\
 			  "datafolder=%s, ipaddress=%s, status=%d",
 			  nodeinfo->type, nodeinfo->nodename, nodeinfo->port,
 			  nodeinfo->datafolder, nodeinfo->ipaddress, nodeinfo->status);
@@ -847,7 +847,7 @@ ProcessPGXCNodeBackendDisconnect(Port *myport, StringInfo message)
 		GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
 		int count = 0;
 
-		elog(LOG, "forwarding MSG_BACKEND_DISCONNECT to standby GTM %p.",
+		elog(DEBUG1, "forwarding MSG_BACKEND_DISCONNECT to standby GTM %p.",
 				  GetMyThreadInfo->thr_conn->standby);
 
 retry:
@@ -859,6 +859,6 @@ retry:
 		if (gtm_standby_check_communication_error(&count, oldconn))
 			goto retry;
 
-		elog(LOG, "MSG_BACKEND_DISCONNECT rc=%d done.", _rc);
+		elog(DEBUG1, "MSG_BACKEND_DISCONNECT rc=%d done.", _rc);
 	}
 }
