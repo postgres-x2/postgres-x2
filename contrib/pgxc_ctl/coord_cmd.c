@@ -447,7 +447,7 @@ cmd_t *prepare_configureNode(char *nodeName)
 		}
 		if (is_none(aval(VAR_datanodeNames)[ii]) || is_none(aval(VAR_datanodeMasterServers)[dnIdx]))
 			continue;
-		if (sval(VAR_primaryDatanode) && (strcmp(sval(VAR_primaryDatanode), aval(VAR_datanodeMasterServers)[dnIdx]) == 0))
+		if (sval(VAR_primaryDatanode) && (strcmp(sval(VAR_primaryDatanode), aval(VAR_datanodeNames)[dnIdx]) == 0))
 		{
 			/* Primary Node */
 			if (strcmp(aval(VAR_coordMasterServers)[idx], aval(VAR_datanodeMasterServers)[dnIdx]) == 0)
@@ -457,7 +457,7 @@ cmd_t *prepare_configureNode(char *nodeName)
 						atoi(aval(VAR_datanodePorts)[dnIdx]));
 			else
 				/* Primary but not prefereed node */
-				fprintf(f, "CREATE NODE %s WITH (TYPE='datanode', HOST='%s', PORT=%d, PREFERRED);\n",
+				fprintf(f, "CREATE NODE %s WITH (TYPE='datanode', HOST='%s', PORT=%d, PRIMARY);\n",
 						aval(VAR_datanodeNames)[dnIdx], aval(VAR_datanodeMasterServers)[dnIdx],
 						atoi(aval(VAR_datanodePorts)[dnIdx]));
 		}
@@ -466,7 +466,7 @@ cmd_t *prepare_configureNode(char *nodeName)
 			/* Non-primary node */
 			if (strcmp(aval(VAR_coordMasterServers)[idx], aval(VAR_datanodeMasterServers)[dnIdx]) == 0)
 				/* Preferred node */
-				fprintf(f, "CREATE NODE %s WITH (TYPE='datanode', HOST='%s', PORT=%d, PRIMARY);\n",
+				fprintf(f, "CREATE NODE %s WITH (TYPE='datanode', HOST='%s', PORT=%d, PREFERRED);\n",
 						aval(VAR_datanodeNames)[dnIdx], aval(VAR_datanodeMasterServers)[dnIdx],
 						atoi(aval(VAR_datanodePorts)[dnIdx]));
 			else
