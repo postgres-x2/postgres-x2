@@ -2770,7 +2770,7 @@ GetPGXCSnapshotData(Snapshot snapshot)
 	 * IsNormalProcessingMode() - checks for new connections
 	 * IsAutoVacuumLauncherProcess - checks for autovacuum launcher process
 	 */
-	if (IS_PGXC_DATANODE &&
+	if (IS_PGXC_DATANODE && !isRestoreMode &&
 		snapshot_source == SNAPSHOT_UNDEFINED &&
 		IsPostmasterEnvironment &&
 		IsNormalProcessingMode() &&

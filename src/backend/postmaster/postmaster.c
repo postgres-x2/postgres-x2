@@ -498,6 +498,22 @@ static void ShmemBackendArrayRemove(Backend *bn);
 #ifdef PGXC
 bool isPGXCCoordinator = false;
 bool isPGXCDataNode = false;
+
+/*
+ * While adding a new node to the cluster we need to restore the schema of
+ * an existing database to the new node.
+ * If the new node is a datanode and we connect directly to it,
+ * it does not allow DDL, because it is in read only mode &
+ * If the new node is a coordinator it will send DDLs to all the other
+ * coordinators which we do not want it to do
+ * To provide ability to restore on the new node a new command line
+ * argument is provided called --restoremode
+ * It is to be provided in place of --coordinator OR --datanode.
+ * In restore mode both coordinator and datanode are internally
+ * treated as a datanode.
+ */
+bool isRestoreMode = false;
+
 int remoteConnType = REMOTE_CONN_APP;
 
 /* key pair to be used as object id while using advisory lock for backup */
@@ -744,6 +760,15 @@ PostmasterMain(int argc, char *argv[])
 					else if (strcmp(name, "datanode") == 0 &&
 						!value)
 						isPGXCDataNode = true;
+					else if (strcmp(name, "restoremode") == 0 && !value)
+					{
+						/*
+						 * In restore mode both coordinator and datanode
+						 * are internally treeated as datanodes
+						 */
+						isRestoreMode = true;
+						isPGXCDataNode = true;
+					}
 					else /* default case */
 					{
 #endif

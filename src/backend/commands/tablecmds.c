@@ -672,8 +672,21 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId)
 	/*
 	 * Add to pgxc_class.
 	 * we need to do this after CommandCounterIncrement
+	 * Distribution info is to be added under the following conditions:
+	 * 1. The create table command is being run on a coordinator
+	 * 2. The create table command is being run in restore mode and
+	 *    the statement contains distribute by clause.
+	 *    While adding a new datanode to the cluster an existing dump
+	 *    that was taken from a datanode is used, and
+	 *    While adding a new coordinator to the cluster an exiting dump
+	 *    that was taken from a coordinator is used.
+	 *    The dump taken from a datanode does NOT contain any DISTRIBUTE BY
+	 *    clause. This fact is used here to make sure that when the
+	 *    DISTRIBUTE BY clause is missing in the statemnet the system
+	 *    should not try to find out the node list itself.
 	 */
-	if (IS_PGXC_COORDINATOR && relkind == RELKIND_RELATION)
+	if ((IS_PGXC_COORDINATOR || (isRestoreMode && stmt->distributeby != NULL))
+		&& relkind == RELKIND_RELATION)
 	{
 		AddRelationDistribution(relationId, stmt->distributeby,
 								stmt->subcluster, inheritOids, descriptor);

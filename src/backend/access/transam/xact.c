@@ -5899,9 +5899,9 @@ IsPGXCNodeXactReadOnly(void)
 	 * For the time being a Postgres-XC session is read-only
 	 * under very specific conditions.
 	 * This is the case of an application accessing directly
-	 * a Datanode.
+	 * a Datanode provided the server was not started in restore mode.
 	 */
-	return IsPGXCNodeXactDatanodeDirect();
+	return IsPGXCNodeXactDatanodeDirect() && !isRestoreMode;
 }
 
 /*

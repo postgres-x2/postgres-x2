@@ -328,6 +328,7 @@ help(const char *progname)
 	printf(_("\nNode options:\n"));
 	printf(_("  --coordinator      start as a Coordinator\n"));
 	printf(_("  --datanode         start as a Datanode\n"));
+	printf(_("  --restoremode      start to restore existing schema on the new node to be added\n"));
 #endif
 
 	printf(_("\nPlease read the documentation for the complete list of run-time\n"
