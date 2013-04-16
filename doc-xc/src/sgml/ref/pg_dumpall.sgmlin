@@ -390,6 +390,17 @@ PostgreSQL documentation
      </varlistentry>
 
      <varlistentry>
+      <term><option>--dump-nodes</></term>
+      <listitem>
+       <para>
+        &xconly;
+        Output commands to create nodes and node groups. This option may be used
+		 while adding a new coordinator to an existing <productname>Postgres-XC</> cluster.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
        <term><option>-?</></term>
        <term><option>--help</></term>
        <listitem>
