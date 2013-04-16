@@ -541,6 +541,7 @@ extern Datum void_recv(PG_FUNCTION_ARGS);
 extern Datum void_send(PG_FUNCTION_ARGS);
 #ifdef PGXC
 extern Datum pgxc_node_str (PG_FUNCTION_ARGS);
+extern Datum pgxc_lock_for_backup (PG_FUNCTION_ARGS);
 #endif
 extern Datum trigger_in(PG_FUNCTION_ARGS);
 extern Datum trigger_out(PG_FUNCTION_ARGS);

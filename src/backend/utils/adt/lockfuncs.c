@@ -19,6 +19,8 @@
 #include "pgxc/pgxc.h"
 #include "pgxc/pgxcnode.h"
 #include "pgxc/nodemgr.h"
+#include "executor/spi.h"
+#include "tcop/utility.h"
 #endif
 #include "storage/predicate_internals.h"
 #include "utils/builtins.h"
@@ -1063,3 +1065,128 @@ pg_advisory_unlock_all(PG_FUNCTION_ARGS)
 
 	PG_RETURN_VOID();
 }
+
+#ifdef PGXC
+/*
+ * pgxc_lock_for_backup
+ *
+ * Lock the cluster for taking backup
+ * To lock the cluster, try to acquire a session level advisory lock exclusivly
+ * By lock we mean to disallow any statements that change
+ * the portions of the catalog which are backed up by pg_dump/pg_dumpall
+ * Returns true or fails with an error message.
+ */
+Datum
+pgxc_lock_for_backup(PG_FUNCTION_ARGS)
+{
+	bool lockAcquired = false;
+	int prepared_xact_count = 0;
+
+	if (!superuser())
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+					errmsg("only superuser can lock the cluster for backup")));
+
+	/*
+	 * The system cannot be locked for backup if there is an uncommitted
+	 * prepared transaction, the reason is as follows:
+	 * Utility statements are divided into two groups, one is allowed group
+	 * and the other is disallowed group. A statement is put in allowed group
+	 * if it does not make changes to the catalog or makes such changes which
+	 * are not backed up by pg_dump or pg_dumpall, otherwise it is put in
+	 * disallowed group. Every time a disallowed statement is issued we try to
+	 * hold an advisory lock in shared mode and if the lock can be acquired
+	 * only then the statement is allowed.
+	 * In case of prepared transactions suppose the lock is not released at
+	 * prepare transaction 'txn_id'
+	 * Consider the following scenario:
+	 *
+	 *	begin;
+	 *	create table abc_def(a int, b int);
+	 *	insert into abc_def values(1,2),(3,4);
+	 *	prepare transaction 'abc';
+	 *
+	 * Now assume that the server is restarted for any reason.
+	 * When prepared transactions are saved on disk, session level locks are
+	 * ignored and hence when the prepared transactions are reterieved and all
+	 * the other locks are reclaimed, but session level advisory locks are
+	 * not reclaimed.
+	 * Hence we made the following decisions
+	 * a) Transaction level advisory locks should be used for DDLs which are
+	 *    automatically released at prepare transaction 'txn_id'
+	 * b) If there is any uncomitted prepared transaction, it is assumed
+	 *    that it must be issuing a statement that belongs to disallowed
+	 *    group and hence the request to hold the advisory lock exclusively
+	 *    is denied.
+	 */
+
+	/* Connect to SPI manager to check any prepared transactions */
+	if (SPI_connect() < 0)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_CONNECTION_EXCEPTION),
+					errmsg("internal error while locking the cluster for backup")));
+	}
+
+	/* Are there any prepared transactions that have not yet been committed? */
+	SPI_execute("select gid from pg_catalog.pg_prepared_xacts limit 1", true, 0);
+	prepared_xact_count = SPI_processed;
+	SPI_finish();
+
+	if (prepared_xact_count > 0)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				errmsg("cannot lock cluster for backup in presence of %d uncommitted prepared transactions",
+						prepared_xact_count)));
+	}
+
+	/* try to acquire the advisory lock in exclusive mode */
+	lockAcquired = DatumGetBool(DirectFunctionCall2(
+										pg_try_advisory_lock_int4,
+										xc_lockForBackupKey1,
+										xc_lockForBackupKey2));
+
+	if (!lockAcquired)
+		ereport(ERROR,
+				(errcode(ERRCODE_LOCK_NOT_AVAILABLE),
+				errmsg("cannot lock cluster for backup, lock is already held")));
+
+	/*
+	 * sessin level advisory locks stay for only as long as the session
+	 * that issues them does
+	 */
+	elog(INFO, "please do not close this session until you are done adding the new node");
+
+	/* will be true always */
+	PG_RETURN_BOOL(lockAcquired);
+}
+
+/*
+ * pgxc_lock_for_backup
+ *
+ * Lock the cluster for taking backup
+ * To lock the cluster, try to acquire a session level advisory lock exclusivly
+ * By lock we mean to disallow any statements that change
+ * the portions of the catalog which are backed up by pg_dump/pg_dumpall
+ * Returns true or fails with an error message.
+ */
+bool
+pgxc_lock_for_utility_stmt(Node *parsetree)
+{
+	bool lockAcquired;
+
+	lockAcquired = DatumGetBool(DirectFunctionCall2(
+								pg_try_advisory_xact_lock_shared_int4,
+								xc_lockForBackupKey1,
+								xc_lockForBackupKey2));
+
+	if (!lockAcquired)
+		ereport(ERROR,
+				(errcode(ERRCODE_READ_ONLY_SQL_TRANSACTION),
+				errmsg("cannot execute %s in a locked cluster",
+						CreateCommandTag(parsetree))));
+
+	return lockAcquired;
+}
+#endif

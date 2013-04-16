@@ -15,6 +15,7 @@
 #define PGXC_H
 
 #include "storage/lwlock.h"
+#include "postgres.h"
 
 extern bool isPGXCCoordinator;
 extern bool isPGXCDataNode;
@@ -36,6 +37,9 @@ extern char	*PGXCNodeName;
 extern int	PGXCNodeId;
 extern uint32	PGXCNodeIdentifier;
 
+extern Datum xc_lockForBackupKey1;
+extern Datum xc_lockForBackupKey2;
+
 #define IS_PGXC_COORDINATOR isPGXCCoordinator
 #define IS_PGXC_DATANODE isPGXCDataNode
 #define REMOTE_CONN_TYPE remoteConnType
@@ -45,4 +49,11 @@ extern uint32	PGXCNodeIdentifier;
 #define IsConnFromDatanode() (remoteConnType == REMOTE_CONN_DATANODE)
 #define IsConnFromGtm() (remoteConnType == REMOTE_CONN_GTM)
 #define IsConnFromGtmProxy() (remoteConnType == REMOTE_CONN_GTM_PROXY)
+
+/* key pair to be used as object id while using advisory lock for backup */
+#define XC_LOCK_FOR_BACKUP_KEY_1	0xFFFF
+#define XC_LOCK_FOR_BACKUP_KEY_2	0xFFFF
+
+
+
 #endif   /* PGXC_H */

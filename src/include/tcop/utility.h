@@ -56,4 +56,8 @@ extern bool CommandIsReadOnly(Node *parsetree);
 
 extern void CheckRelationOwnership(RangeVar *rel, bool noCatalogs);
 
+#ifdef PGXC
+extern bool pgxc_lock_for_utility_stmt(Node *parsetree);
+#endif
+
 #endif   /* UTILITY_H */

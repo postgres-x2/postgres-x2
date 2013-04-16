@@ -15297,6 +15297,336 @@ SELECT (pg_stat_file('filename')).modification;
 
 <!## end>
 
+
+
+
+<!## XC>
+&xconly;
+   <para>
+    The functions shown in <xref linkend="functions-pgxc-add-new-node"> manage
+    addition of a new node to Postgres-XC cluster.
+   </para>
+   <table id="functions-pgxc-add-new-node">
+    <title>Postgres-XC functions to manage addition of a new node</title>
+    <tgroup cols="3">
+     <thead>
+      <row><entry>Name</entry> <entry>Return Type</entry> <entry>Description</entry>
+      </row>
+     </thead>
+     <tbody>
+      <row>
+       <entry>
+        <literal><function>pgxc_lock_for_backup()</function></literal>
+       </entry>
+       <entry><type>boolean</type></entry>
+       <entry>Locks the cluster for taking backup that would be restored on the new node to be added.
+       </entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+
+   <indexterm>
+    <primary>pgxc_lock_for_backup</primary>
+   </indexterm>
+   <para>
+    <function>pgxc_lock_for_backup</> locks the cluster for taking backup using <application>pg_dump/pg_dumpall</application>.
+    Locking means that we disallow the statemets that change the portions of the catalog which are
+    backed up by <application>pg_dump/pg_dumpall</application>. When locked only the following utility statemets are allowed.
+    Please note that this function does not impact SELECTs or DMLs.
+   </para>
+
+   <table id="utility-statements-allowed-while-locked">
+    <title>Utility statements allowed while the cluster is locked for backup</title>
+    <tgroup cols="1">
+     <thead>
+      <row><entry>Statement</entry>
+      </row>
+     </thead>
+
+     <tbody>
+
+
+      <row>
+       <entry>
+        <literal><command>EXECUTE</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>CREATE NODE</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>START TRANSACTION</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>BEGIN</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>COMMIT</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>ROLLBACK</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>PREPARE TRANSACTION</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>COMMIT PREPARED</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>ROLLBACK PREPARED</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>DECLARE CURSOR</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>CLOSE CURSOR</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>FETCH</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>TRUNCATE</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>COPY</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>PREPARE</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>DEALLOCATE</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>DO</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>NOTIFY</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>LISTEN</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>UNLISTEN</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>LOAD</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>CLUSTER</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>VACUUM</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>EXPLAIN</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>SET</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>SHOW</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>DISCARD</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>LOCK</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>SET CONSTRAINTS</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>CHECKPOINT</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>CREATE BARRIER</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>REINDEX</command></literal>
+       </entry>
+      </row>
+
+
+      <row>
+       <entry>
+        <literal><command>CLEAN CONNECTION</command></literal>
+       </entry>
+      </row>
+
+
+     </tbody>
+    </tgroup>
+   </table>
+
+   <para>
+   To lock the cluster for backup while adding a new node <productname>Postgres-XC</productname> uses advisroy locks.
+   Every time a disallowed statement is issued the system tries to acquire a transaction
+   level advisory lock in shared mode and the lock is released when
+   the DDL or the transaction issuing the DDL ends. The function <function>pgxc_lock_for_backup</>
+   tries to acquire the same advisory lock in exclusive mode at session level. It is therefore necessary
+   to keep the session issuing <function>pgxc_lock_for_backup</> alive as long as the issuer wants
+   the system to keep the lock.
+   <productname>Postgres-XC</productname> uses the key pair (0xFFFF, 0xFFFF) as object ID while using
+   advisory lock for backup.
+   The function fails to acquire the lock if any one of the following is true:
+
+    <itemizedlist>
+     <listitem>
+      <para>
+       The caller of the funcion is not a superuser.
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+       There are some uncommitted prepared transactions, because they might
+       contain any utility statement belonging to the disallowed group.
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+       The lock is already held by an uncommitted transaction that has issued
+       a utility statement belonging to the disallowed group.
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+       The lock is already held by a previous call to the same function
+       and current request is being issued from a different session.
+      </para>
+     </listitem>
+
+    </itemizedlist>
+
+   </para>
+<!## end>
+
   </sect1>
 
 <!## PG>

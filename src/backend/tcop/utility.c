@@ -76,6 +76,7 @@
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
+#include "utils/builtins.h"
 #include "pgxc/xc_maintenance_mode.h"
 
 static void ExecUtilityStmtOnNodes(const char *queryString, ExecNodes *nodes, bool sentToRemote,
@@ -90,6 +91,9 @@ static RemoteQueryExecType GetNodesForRulesUtility(RangeVar *relation, bool *is_
 static void DropStmtPreTreatment(DropStmt *stmt, const char *queryString, bool sentToRemote,
 								 bool *is_temp, RemoteQueryExecType *exec_type);
 static void ExecUtilityWithMessage(const char *queryString, bool sentToRemote, bool is_temp);
+
+static bool IsStmtAllowedInLockedMode(Node *parsetree,
+											const char *queryString);
 #endif
 
 
@@ -389,6 +393,39 @@ standard_ProcessUtility(Node *parsetree,
 #endif /* PGXC */
 						char *completionTag)
 {
+#ifdef PGXC
+	/*
+	 * For more detail see comments in function pgxc_lock_for_backup.
+	 *
+	 * Cosider the following scenario:
+	 * Imagine a two cordinator cluster CO1, CO2
+	 * Suppose a client connected to CO1 issues select pgxc_lock_for_backup()
+	 * Now assume that a client connected to CO2 issues a create table
+	 * select pgxc_lock_for_backup() would try to acquire the advisory lock
+	 * in exclusive mode, whereas create table would try to acquire the same
+	 * lock in shared mode. Both these requests will always try acquire the
+	 * lock in the same order i.e. they would both direct the request first to
+	 * CO1 and then to CO2. One of the two requests would therefore pass
+	 * and the other would fail.
+	 *
+	 * Consider another scenario:
+	 * Suppose we have a two cooridnator cluster CO1 and CO2
+	 * Assume one client connected to each coordinator
+	 * Further assume one client starts a transaction
+	 * and issues a DDL. This is an unfinished transaction.
+	 * Now assume the second client issues
+	 * select pgxc_lock_for_backup()
+	 * This request would fail because the unfinished transaction
+	 * would already hold the advisory lock.
+	 */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && IsNormalProcessingMode())
+	{
+		/* Is the statement a prohibited one? */
+		if (!IsStmtAllowedInLockedMode(parsetree, queryString))
+			pgxc_lock_for_utility_stmt(parsetree);
+	}
+#endif
+
 	check_xact_readonly(parsetree);
 
 	if (completionTag)
@@ -2022,6 +2059,87 @@ standard_ProcessUtility(Node *parsetree,
 }
 
 #ifdef PGXC
+
+/*
+ * IsStmtAllowedInLockedMode
+ *
+ * Allow/Disallow a utility command while cluster is locked
+ * A statement will be disallowed if it makes such changes
+ * in catalog that are backed up by pg_dump except
+ * CREATE NODE that has to be allowed because
+ * a new node has to be created while the cluster is still
+ * locked for backup
+ */
+static bool
+IsStmtAllowedInLockedMode(Node *parsetree, const char *queryString)
+{
+#define ALLOW		1
+#define DISALLOW	0
+
+	switch (nodeTag(parsetree))
+	{
+		/* To allow creation of temp tables */
+		case T_CreateStmt:					/* CREATE TABLE */
+			{
+				CreateStmt *stmt = (CreateStmt *) parsetree;
+				if (stmt->relation->relpersistence == RELPERSISTENCE_TEMP)
+					return ALLOW;
+				return DISALLOW;
+			}
+			break;
+
+		case T_ExecuteStmt:					/*
+											 * Prepared statememts can only have
+											 * SELECT, INSERT, UPDATE, DELETE,
+											 * or VALUES statement, there is no
+											 * point stopping EXECUTE.
+											 */
+		case T_CreateNodeStmt:				/*
+											 * This has to be allowed so that the new node
+											 * can be created, while the cluster is still
+											 * locked for backup
+											 */
+		case T_TransactionStmt:
+		case T_PlannedStmt:
+		case T_ClosePortalStmt:
+		case T_FetchStmt:
+		case T_TruncateStmt:
+		case T_CopyStmt:
+		case T_PrepareStmt:					/*
+											 * Prepared statememts can only have
+											 * SELECT, INSERT, UPDATE, DELETE,
+											 * or VALUES statement, there is no
+											 * point stopping PREPARE.
+											 */
+		case T_DeallocateStmt:				/*
+											 * If prepare is allowed the deallocate should
+											 * be allowed also
+											 */
+		case T_DoStmt:
+		case T_NotifyStmt:
+		case T_ListenStmt:
+		case T_UnlistenStmt:
+		case T_LoadStmt:
+		case T_ClusterStmt:
+		case T_VacuumStmt:
+		case T_ExplainStmt:
+		case T_VariableSetStmt:
+		case T_VariableShowStmt:
+		case T_DiscardStmt:
+		case T_LockStmt:
+		case T_ConstraintsSetStmt:
+		case T_CheckPointStmt:
+		case T_BarrierStmt:
+		case T_ReindexStmt:
+		case T_RemoteQuery:
+		case T_CleanConnStmt:
+			return ALLOW;
+
+		default:
+			return DISALLOW;
+	}
+	return DISALLOW;
+}
 
 /*
  * ExecUtilityWithMessage:

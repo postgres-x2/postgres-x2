@@ -4670,6 +4670,8 @@ DATA(insert OID = 3202 ( pgxc_node_str		PGNSP PGUID 12 1 0 0 0 f f f f t f s 0 0
 DESCR("get the name of the node");
 DATA(insert OID = 3203 (  pgxc_is_committed	PGNSP PGUID 12 1 1 0 0 f f f f t t s 1 0 16 "28" _null_ _null_ _null_ _null_ pgxc_is_committed _null_ _null_ _null_ ));
 DESCR("is given GXID committed or aborted?");
+DATA(insert OID = 3204 ( pgxc_lock_for_backup	PGNSP PGUID 12 1 0 0 0 f f f f t f v 0 0 16 "" _null_ _null_ _null_ _null_ pgxc_lock_for_backup _null_ _null_ _null_ ));
+DESCR("lock the cluster for taking backup");
 #endif
 
 /*

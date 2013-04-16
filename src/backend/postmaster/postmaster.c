@@ -500,6 +500,10 @@ bool isPGXCCoordinator = false;
 bool isPGXCDataNode = false;
 int remoteConnType = REMOTE_CONN_APP;
 
+/* key pair to be used as object id while using advisory lock for backup */
+Datum xc_lockForBackupKey1;
+Datum xc_lockForBackupKey2;
+
 #define StartPoolManager()		StartChildProcess(PoolerProcess)
 #endif
 
