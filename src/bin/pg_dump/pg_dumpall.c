@@ -85,6 +85,7 @@ static char *filename = NULL;
 
 #ifdef PGXC
 static int	dump_nodes = 0;
+static int include_nodes = 0;
 #endif /* PGXC */
 
 int
@@ -148,6 +149,7 @@ main(int argc, char *argv[])
 		{"no-unlogged-table-data", no_argument, &no_unlogged_table_data, 1},
 #ifdef PGXC
 		{"dump-nodes", no_argument, &dump_nodes, 1},
+		{"include-nodes", no_argument, &include_nodes, 1},
 #endif
 		{NULL, 0, NULL, 0}
 	};
@@ -370,6 +372,11 @@ main(int argc, char *argv[])
 	if (no_unlogged_table_data)
 		appendPQExpBuffer(pgdumpopts, " --no-unlogged-table-data");
 
+#ifdef PGXC
+	if (include_nodes)
+		appendPQExpBuffer(pgdumpopts, " --include-nodes");
+#endif
+
 	/*
 	 * If there was a database specified on the command line, use that,
 	 * otherwise try to connect to database "postgres", and failing that
@@ -585,6 +592,7 @@ help(void)
 			 "                               ALTER OWNER commands to set ownership\n"));
 #ifdef PGXC
 	printf(_("  --dump-nodes                 include nodes and node groups in the dump\n"));
+	printf(_("  --include-nodes              include TO NODE clause in the dumped CREATE TABLE commands\n"));
 #endif
 
 	printf(_("\nConnection options:\n"));

@@ -856,6 +856,19 @@ PostgreSQL documentation
        </para>
       </listitem>
      </varlistentry>
+
+     <varlistentry>
+      <term><option>--include-nodes</></term>
+      <listitem>
+       <para>
+        &xconly;
+        Include <command>TO NODE</> clause in the <command>CREATE TABLE</>
+        command when producing the dump. When used while taking the dump
+        from a datanode, the option does nothing.
+       </para>
+      </listitem>
+     </varlistentry>
+
     </variablelist>
    </para>
  </refsect1>

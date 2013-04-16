@@ -137,7 +137,9 @@ static int	column_inserts = 0;
 static int	no_security_labels = 0;
 static int	no_unlogged_table_data = 0;
 static int	serializable_deferrable = 0;
-
+#ifdef PGXC
+static int	include_nodes = 0;
+#endif
 
 static void help(const char *progname);
 static void setup_connection(Archive *AH, const char *dumpencoding,
@@ -340,6 +342,9 @@ main(int argc, char **argv)
 		{"use-set-session-authorization", no_argument, &use_setsessauth, 1},
 		{"no-security-labels", no_argument, &no_security_labels, 1},
 		{"no-unlogged-table-data", no_argument, &no_unlogged_table_data, 1},
+#ifdef PGXC
+		{"include-nodes", no_argument, &include_nodes, 1},
+#endif
 
 		{NULL, 0, NULL, 0}
 	};
@@ -816,6 +821,9 @@ help(const char *progname)
 	printf(_("  --use-set-session-authorization\n"
 			 "                               use SET SESSION AUTHORIZATION commands instead of\n"
 			 "                               ALTER OWNER commands to set ownership\n"));
+#ifdef PGXC
+	printf(_("  --include-nodes              include TO NODE clause in the dumped CREATE TABLE commands\n"));
+#endif
 
 	printf(_("\nConnection options:\n"));
 	printf(_("  -h, --host=HOSTNAME      database server host or socket directory\n"));
@@ -3832,6 +3840,7 @@ getTables(Archive *fout, int *numTables)
 #ifdef PGXC
 	int			i_pgxclocatortype;
 	int			i_pgxcattnum;
+	int			i_pgxc_node_names;
 #endif
 	int			i_reltablespace;
 	int			i_reloptions;
@@ -3883,6 +3892,7 @@ getTables(Archive *fout, int *numTables)
 #ifdef PGXC
 						  "(SELECT pclocatortype from pgxc_class v where v.pcrelid = c.oid) AS pgxclocatortype,"
 						  "(SELECT pcattnum from pgxc_class v where v.pcrelid = c.oid) AS pgxcattnum,"
+						  "(SELECT string_agg(node_name,',') AS pgxc_node_names from pgxc_node n where n.oid in (select unnest(nodeoids) from pgxc_class v where v.pcrelid=c.oid) ) , "
 #endif
 						"array_to_string(c.reloptions, ', ') AS reloptions, "
 						  "array_to_string(array(SELECT 'toast.' || x FROM unnest(tc.reloptions) x), ', ') AS toast_reloptions "
@@ -4204,6 +4214,7 @@ getTables(Archive *fout, int *numTables)
 #ifdef PGXC
 	i_pgxclocatortype = PQfnumber(res, "pgxclocatortype");
 	i_pgxcattnum = PQfnumber(res, "pgxcattnum");
+	i_pgxc_node_names = PQfnumber(res, "pgxc_node_names");
 #endif
 	i_reltablespace = PQfnumber(res, "reltablespace");
 	i_reloptions = PQfnumber(res, "reloptions");
@@ -4274,6 +4285,7 @@ getTables(Archive *fout, int *numTables)
 			tblinfo[i].pgxclocatortype = *(PQgetvalue(res, i, i_pgxclocatortype));
 			tblinfo[i].pgxcattnum = atoi(PQgetvalue(res, i, i_pgxcattnum));
 		}
+		tblinfo[i].pgxc_node_names = pg_strdup(PQgetvalue(res, i, i_pgxc_node_names));
 #endif
 		tblinfo[i].reltablespace = pg_strdup(PQgetvalue(res, i, i_reltablespace));
 		tblinfo[i].reloptions = pg_strdup(PQgetvalue(res, i, i_reloptions));
@@ -12488,6 +12500,12 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 				appendPQExpBuffer(q, "\nDISTRIBUTE BY MODULO (%s)",
 								  fmtId(tbinfo->attnames[hashkey - 1]));
 			}
+		}
+		if (include_nodes &&
+			tbinfo->pgxc_node_names != NULL &&
+			tbinfo->pgxc_node_names[0] != '\0')
+		{
+			appendPQExpBuffer(q, "\nTO NODE (%s)", tbinfo->pgxc_node_names);
 		}
 #endif
 		/* Dump generic options if any */

@@ -263,6 +263,7 @@ typedef struct _tableInfo
 	/* PGXC table locator Data */
 	char		pgxclocatortype;	/* Type of PGXC table locator */
 	int			pgxcattnum;		/* Number of the attribute the table is partitioned with */
+	char		*pgxc_node_names;	/* List of node names where this table is distributed */
 #endif
 	/*
 	 * These fields are computed only if we decide the table is interesting
