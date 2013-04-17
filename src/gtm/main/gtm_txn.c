@@ -27,6 +27,7 @@
 #include "gtm/libpq.h"
 #include "gtm/libpq-int.h"
 #include "gtm/pqformat.h"
+#include "gtm/gtm_backup.h"
 
 extern bool Backup_synchronously;
 
@@ -511,11 +512,13 @@ GTM_GetGlobalTransactionIdMulti(GTM_TransactionHandle handle[], int txn_count)
 		return InvalidGlobalTransactionId;
 	}
 
+	GTM_RWLockAcquire(&gtm_bkup_lock, GTM_LOCKMODE_WRITE);
 	GTM_RWLockAcquire(&GTMTransactions.gt_XidGenLock, GTM_LOCKMODE_WRITE);
 
 	if (GTMTransactions.gt_gtm_state == GTM_SHUTTING_DOWN)
 	{
 		GTM_RWLockRelease(&GTMTransactions.gt_XidGenLock);
+		GTM_RWLockRelease(&gtm_bkup_lock);
 		ereport(ERROR, (EINVAL, errmsg("GTM shutting down -- can not issue new transaction ids")));
 		return InvalidGlobalTransactionId;
 	}
@@ -540,6 +543,9 @@ GTM_GetGlobalTransactionIdMulti(GTM_TransactionHandle handle[], int txn_count)
 	for (ii = 0; ii < txn_count; ii++)
 	{
 		xid = GTMTransactions.gt_nextXid;
+
+		if (GTM_NeedXidRestoreUpdate())
+			GTM_WriteRestorePoint();
 
 		if (!GlobalTransactionIdIsValid(start_xid))
 			start_xid = xid;
@@ -583,6 +589,7 @@ GTM_GetGlobalTransactionIdMulti(GTM_TransactionHandle handle[], int txn_count)
 	}
 
 	GTM_RWLockRelease(&GTMTransactions.gt_XidGenLock);
+	GTM_RWLockRelease(&gtm_bkup_lock);
 
 	return start_xid;
 }
@@ -621,7 +628,11 @@ ReadNewGlobalTransactionId(void)
  * started. When the GTM is finally shutdown, the next to-be-assigned GXID is
  * stroed in the control file.
  *
- * XXX We don't yet handle any crash recovery. So if the GTM is shutdown
+ * XXX We don't yet handle any crash recovery. So if the GTM is no shutdown normally...
+ *
+ * This is handled by gtm_backup.c.  Anyway, because this function is to be called by
+ * GTM_RestoreTransactionId() and the backup will be performed afterwords,
+ * we don't care the new value of GTMTransactions.gt_nextXid here.
  */
 void
 SetNextGlobalTransactionId(GlobalTransactionId gxid)
@@ -1247,7 +1258,8 @@ GTM_BkupBeginTransactionGetGXIDMulti(char *coord_name,
 		GTMTransactions.gt_lastslot = txn[ii];
 		gtm_txninfo->gti_gxid = gxid[ii];
 		/*
-		 * Advance next gxid
+		 * Advance next gxid -- because this is called at slave only, we don't care the restoration point
+		 * here.  Restoration point will be created at promotion.
 		 */
 		if (GlobalTransactionIdPrecedes(GTMTransactions.gt_nextXid, gxid[ii]))
 			GTMTransactions.gt_nextXid = gxid[ii] + 1;
@@ -2543,9 +2555,15 @@ ProcessGetNextGXIDTransactionCommand(Port *myport, StringInfo message)
 	/*
 	 * Get the next gxid.
 	 */
+	GTM_RWLockAcquire(&gtm_bkup_lock, GTM_LOCKMODE_WRITE);
 	GTM_RWLockAcquire(&GTMTransactions.gt_XidGenLock, GTM_LOCKMODE_WRITE);
 	next_gxid = GTMTransactions.gt_nextXid;
+
+	if (GTM_NeedXidRestoreUpdate())
+		GTM_WriteRestorePoint();
+
 	GTM_RWLockRelease(&GTMTransactions.gt_XidGenLock);
+	GTM_RWLockRelease(&gtm_bkup_lock);
 
 	MemoryContextSwitchTo(oldContext);
 
@@ -2616,6 +2634,23 @@ GTM_SaveTxnInfo(FILE *ctlf)
 
 	fprintf(ctlf, "%u\n", next_gxid);
 }
+
+bool GTM_NeedXidRestoreUpdate(void)
+{
+	return(GlobalTransactionIdPrecedesOrEquals(GTMTransactions.gt_backedUpXid, GTMTransactions.gt_nextXid));
+}
+
+void GTM_WriteRestorePointXid(FILE *f)
+{
+	if ((MaxGlobalTransactionId - GTMTransactions.gt_nextXid) <= RestoreDuration)
+		GTMTransactions.gt_backedUpXid = GTMTransactions.gt_nextXid + RestoreDuration;
+	else
+		GTMTransactions.gt_backedUpXid = FirstNormalGlobalTransactionId + (RestoreDuration - (MaxGlobalTransactionId - GTMTransactions.gt_nextXid));
+	
+	elog(LOG, "Saving transaction restoration info, backed-up gxid: %u", GTMTransactions.gt_backedUpXid);
+	fprintf(f, "%u\n", GTMTransactions.gt_backedUpXid);
+}
+
 /*
  * TODO
  */
@@ -2625,3 +2660,4 @@ int GTM_GetAllTransactions(GTM_TransactionInfo txninfo[], uint32 txncnt);
  * TODO
  */
 uint32 GTM_GetAllPrepared(GlobalTransactionId gxids[], uint32 gxidcnt);
+

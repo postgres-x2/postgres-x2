@@ -84,6 +84,10 @@ extern void SetGlobalTransactionIdLimit(GlobalTransactionId oldest_datfrozenxid)
 extern void SetNextGlobalTransactionId(GlobalTransactionId gxid);
 extern void GTM_SetShuttingDown(void);
 
+/* For restoration point backup */
+extern bool GTM_NeedXidRestoreUpdate(void);
+extern void GTM_WriteRestorePointXid(FILE *f);
+
 typedef enum GTM_States
 {
 	GTM_STARTING,
@@ -145,6 +149,7 @@ typedef struct GTM_Transactions
 	 * These fields are protected by XidGenLock
 	 */
 	GlobalTransactionId gt_nextXid;		/* next XID to assign */
+	GlobalTransactionId gt_backedUpXid;	/* backed up, restoration point */
 
 	GlobalTransactionId gt_oldestXid;	/* cluster-wide minimum datfrozenxid */
 	GlobalTransactionId gt_xidVacLimit;	/* start forcing autovacuums here */

@@ -46,6 +46,7 @@
 #include "gtm/gtm_msg.h"
 #include "gtm/gtm_opt.h"
 #include "gtm/gtm_utils.h"
+#include "gtm/gtm_backup.h"
 
 extern int	optind;
 extern char *optarg;
@@ -128,9 +129,10 @@ MainThreadInit()
 	pthread_key_create(&threadinfo_key, NULL);
 
 	/*
-	 * Initialize the lock protecting the global threads info
+	 * Initialize the lock protecting the global threads info and backup lock info.
 	 */
 	GTM_RWLockInit(&GTMThreads->gt_lock);
+	GTM_RWLockInit(&gtm_bkup_lock);
 
 	/*
 	 * We are called even before memory context management is setup. We must
@@ -195,6 +197,9 @@ BaseInit()
 
 	GTM_InitTxnManager();
 	GTM_InitSeqManager();
+
+	/* Backup the restore point */
+	GTM_WriteRestorePoint();
 
 	/*
 	 * The memory context is now set up.
@@ -1284,7 +1289,6 @@ ProcessCommand(Port *myport, StringInfo input_message)
 
 		case MSG_BACKEND_DISCONNECT:
 			GTM_RemoveAllTransInfos(proxyhdr.ph_conid);
-
 			/* Mark PGXC Node as disconnected if backend disconnected is postmaster */
 			ProcessPGXCNodeBackendDisconnect(myport, input_message);
 			break;
