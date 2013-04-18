@@ -24,5 +24,7 @@ extern GTM_RWLock	gtm_bkup_lock;
 
 void GTM_WriteRestorePoint(void);
 void GTM_MakeBackup(char *path);
+void GTM_SetNeedBackup(void);
+bool GTM_NeedBackup(void);
 
 #endif /* GTM_BACKUP_H */

@@ -1299,6 +1299,8 @@ ProcessCommand(Port *myport, StringInfo input_message)
 					 errmsg("invalid frontend message type %d",
 							mtype)));
 	}
+	if (GTM_NeedBackup())
+		GTM_WriteRestorePoint();
 }
 
 static int
@@ -2066,7 +2068,11 @@ PromoteToActive(void)
 					"%Y-%m-%d %H:%M:%S %Z",
 					localtime(&stamp_time));
 
-		fprintf(fp, "#===================================================\n# Updated due to GTM promote request\n# %s\nstartup = ACT\n#===================================================\n", strfbuf);
+		fprintf(fp, 
+				"#===================================================\n"
+				"# Updated due to GTM promote request\n"
+				"# %s\nstartup = ACT\n"
+				"#===================================================\n", strfbuf);
 		if (fclose(fp))
 			ereport(FATAL,
 					(EINVAL,

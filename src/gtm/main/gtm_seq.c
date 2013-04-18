@@ -48,6 +48,8 @@ static int seq_add_seqinfo(GTM_SeqInfo *seqinfo);
 static int seq_remove_seqinfo(GTM_SeqInfo *seqinfo);
 static GTM_SequenceKey seq_copy_key(GTM_SequenceKey key);
 static int seq_drop_with_dbkey(GTM_SequenceKey nsp);
+static bool GTM_NeedSeqRestoreUpdateInternal(GTM_SeqInfo *seqinfo);
+
 
 /*
  * Get the hash value given the sequence key
@@ -86,7 +88,7 @@ seq_keys_equal(GTM_SequenceKey key1, GTM_SequenceKey key2)
  * reference to the structure when done with it
  */
 static GTM_SeqInfo *
-seq_find_seqinfo2(GTM_SequenceKey seqkey, bool is_locked)
+seq_find_seqinfo(GTM_SequenceKey seqkey)
 {
 	uint32 hash = seq_gethash(seqkey);
 	GTM_SeqInfoHashBucket *bucket;
@@ -95,8 +97,7 @@ seq_find_seqinfo2(GTM_SequenceKey seqkey, bool is_locked)
 
 	bucket = &GTMSequences[hash];
 
-	if (!is_locked)
-		GTM_RWLockAcquire(&bucket->shb_lock, GTM_LOCKMODE_READ);
+	GTM_RWLockAcquire(&bucket->shb_lock, GTM_LOCKMODE_READ);
 
 	gtm_foreach(elem, bucket->shb_list)
 	{
@@ -108,8 +109,7 @@ seq_find_seqinfo2(GTM_SequenceKey seqkey, bool is_locked)
 
 	if (curr_seqinfo != NULL)
 	{
-		if (!is_locked)
-			GTM_RWLockAcquire(&curr_seqinfo->gs_lock, GTM_LOCKMODE_WRITE);
+		GTM_RWLockAcquire(&curr_seqinfo->gs_lock, GTM_LOCKMODE_WRITE);
 		if (curr_seqinfo->gs_state != SEQ_STATE_ACTIVE)
 		{
 			elog(LOG, "Sequence not active");
@@ -118,19 +118,11 @@ seq_find_seqinfo2(GTM_SequenceKey seqkey, bool is_locked)
 		}
 		Assert(curr_seqinfo->gs_ref_count != SEQ_MAX_REFCOUNT);
 		curr_seqinfo->gs_ref_count++;
-		if (!is_locked)
-			GTM_RWLockRelease(&curr_seqinfo->gs_lock);
+		GTM_RWLockRelease(&curr_seqinfo->gs_lock);
 	}
-	if (!is_locked)
-		GTM_RWLockRelease(&bucket->shb_lock);
+	GTM_RWLockRelease(&bucket->shb_lock);
 
 	return curr_seqinfo;
-}
-
-GTM_SeqInfo *
-seq_find_seqinfo(GTM_SequenceKey seqkey)
-{
-	return(seq_find_seqinfo2(seqkey, FALSE));
 }
 
 /*
@@ -170,11 +162,6 @@ seq_add_seqinfo(GTM_SeqInfo *seqinfo)
 
 	bucket = &GTMSequences[hash];
 
-	/* 
-	 * While updating the hash bucket, we don't want restoration
-	 * point backup.
-	 */
-	GTM_RWLockAcquire(&gtm_bkup_lock, GTM_LOCKMODE_READ);
 	GTM_RWLockAcquire(&bucket->shb_lock, GTM_LOCKMODE_WRITE);
 
 	gtm_foreach(elem, bucket->shb_list)
@@ -185,7 +172,6 @@ seq_add_seqinfo(GTM_SeqInfo *seqinfo)
 		if (seq_keys_equal(curr_seqinfo->gs_key, seqinfo->gs_key))
 		{
 			GTM_RWLockRelease(&bucket->shb_lock);
-			GTM_RWLockRelease(&gtm_bkup_lock);
 			ereport(LOG,
 					(EEXIST,
 					 errmsg("Sequence with the given key already exists")));
@@ -198,7 +184,6 @@ seq_add_seqinfo(GTM_SeqInfo *seqinfo)
 	 */
 	bucket->shb_list = gtm_lappend(bucket->shb_list, seqinfo);
 	GTM_RWLockRelease(&bucket->shb_lock);
-	GTM_RWLockRelease(&gtm_bkup_lock);
 
 	return 0;
 }
@@ -216,11 +201,6 @@ seq_remove_seqinfo(GTM_SeqInfo *seqinfo)
 
 	bucket = &GTMSequences[hash];
 
-	/* 
-	 * While updating sequence info, we don't want restoration
-	 * point backup to occur.
-	 */
-	GTM_RWLockAcquire(&gtm_bkup_lock, GTM_LOCKMODE_READ);
 	GTM_RWLockAcquire(&bucket->shb_lock, GTM_LOCKMODE_WRITE);
 	GTM_RWLockAcquire(&seqinfo->gs_lock, GTM_LOCKMODE_WRITE);
 
@@ -229,14 +209,12 @@ seq_remove_seqinfo(GTM_SeqInfo *seqinfo)
 		seqinfo->gs_state = SEQ_STATE_DELETED;
 		GTM_RWLockRelease(&seqinfo->gs_lock);
 		GTM_RWLockRelease(&bucket->shb_lock);
-		GTM_RWLockRelease(&gtm_bkup_lock);
 		return EBUSY;
 	}
 
 	bucket->shb_list = gtm_list_delete(bucket->shb_list, seqinfo);
 	GTM_RWLockRelease(&seqinfo->gs_lock);
 	GTM_RWLockRelease(&bucket->shb_lock);
-	GTM_RWLockRelease(&gtm_bkup_lock);
 
 	return 0;
 }
@@ -359,18 +337,15 @@ GTM_SeqOpen(GTM_SequenceKey seqkey,
 	/* Set the last value in case of a future restart */
 	seqinfo->gs_last_value = seqinfo->gs_init_value;
 
+	seqinfo->gs_backedUpValue = seqinfo->gs_value;
+
 	if ((errcode = seq_add_seqinfo(seqinfo)))
 	{
 		GTM_RWLockDestroy(&seqinfo->gs_lock);
 		pfree(seqinfo->gs_key);
 		pfree(seqinfo);
 	}
-	seqinfo->gs_backedUpValue = seqinfo->gs_value;
-	
-	GTM_RWLockAcquire(&gtm_bkup_lock, GTM_LOCKMODE_WRITE);
-	if (GTM_NeedSeqRestoreUpdate(seqinfo->gs_key))
-		GTM_WriteRestorePoint();
-	GTM_RWLockRelease(&gtm_bkup_lock);
+	GTM_SetNeedBackup();
 
 	return errcode;
 }
@@ -397,7 +372,6 @@ int GTM_SeqAlter(GTM_SequenceKey seqkey,
 		return EINVAL;
 	}
 
-	GTM_RWLockAcquire(&gtm_bkup_lock, GTM_LOCKMODE_READ);
 	GTM_RWLockAcquire(&seqinfo->gs_lock, GTM_LOCKMODE_WRITE);
 
 	/* Modify the data if necessary */
@@ -430,7 +404,6 @@ int GTM_SeqAlter(GTM_SequenceKey seqkey,
 
 	/* Remove the old key with the old name */
 	GTM_RWLockRelease(&seqinfo->gs_lock);
-	GTM_RWLockRelease(&gtm_bkup_lock);
 	seq_release_seqinfo(seqinfo);
 	return 0;
 }
@@ -469,6 +442,7 @@ GTM_SeqRestore(GTM_SequenceKey seqkey,
 
 	seqinfo->gs_init_value = seqinfo->gs_last_value = startval;
 	seqinfo->gs_value = curval;
+	seqinfo->gs_backedUpValue = seqinfo->gs_value;
 
 	/*
 	 * Should we wrap around ?
@@ -559,12 +533,6 @@ seq_drop_with_dbkey(GTM_SequenceKey nsp)
 	int res = 0;
 	bool deleted;
 
-	/*
-	 * We don't want restoration point backup while
-	 * updating sequence info.
-	 */
-	GTM_RWLockAcquire(&gtm_bkup_lock, GTM_LOCKMODE_READ);
-
 	for(ii = 0; ii < SEQ_HASH_TABLE_SIZE; ii++)
 	{
 		bucket = &GTMSequences[ii];
@@ -624,8 +592,6 @@ seq_drop_with_dbkey(GTM_SequenceKey nsp)
 		GTM_RWLockRelease(&bucket->shb_lock);
 	}
 
-	GTM_RWLockRelease(&gtm_bkup_lock);
-
 	return res;
 }
 /*
@@ -650,8 +616,6 @@ GTM_SeqRename(GTM_SequenceKey seqkey, GTM_SequenceKey newseqkey)
 	/* Now create the new sequence info */
 	newseqinfo = (GTM_SeqInfo *) palloc(sizeof (GTM_SeqInfo));
 
-	/* Block restoration point backup here too */
-	GTM_RWLockAcquire(&gtm_bkup_lock, GTM_LOCKMODE_READ);
 	GTM_RWLockAcquire(&seqinfo->gs_lock, GTM_LOCKMODE_WRITE);
 	GTM_RWLockInit(&newseqinfo->gs_lock);
 
@@ -666,6 +630,7 @@ GTM_SeqRename(GTM_SequenceKey seqkey, GTM_SequenceKey newseqkey)
 
 	newseqinfo->gs_init_value = seqinfo->gs_init_value;
 	newseqinfo->gs_value = seqinfo->gs_value;
+	newseqinfo->gs_backedUpValue = seqinfo->gs_backedUpValue;
 	newseqinfo->gs_cycle = seqinfo->gs_cycle;
 
 	newseqinfo->gs_state = seqinfo->gs_state;
@@ -675,7 +640,6 @@ GTM_SeqRename(GTM_SequenceKey seqkey, GTM_SequenceKey newseqkey)
 	if ((errcode = seq_add_seqinfo(newseqinfo))) /* a lock is taken here for the new sequence */
 	{
 		GTM_RWLockDestroy(&newseqinfo->gs_lock);
-		GTM_RWLockRelease(&gtm_bkup_lock);
 		pfree(newseqinfo->gs_key);
 		pfree(newseqinfo);
 		return errcode;
@@ -690,7 +654,6 @@ GTM_SeqRename(GTM_SequenceKey seqkey, GTM_SequenceKey newseqkey)
 	seqkey->gsk_type = GTM_SEQ_FULL_NAME;
 	/* Then close properly the old sequence */
 	GTM_SeqClose(seqkey);
-	GTM_RWLockRelease(&gtm_bkup_lock);
 	return errcode;
 }
 
@@ -712,16 +675,12 @@ GTM_SeqSetVal(GTM_SequenceKey seqkey, GTM_Sequence nextval, bool iscalled)
 		return EINVAL;
 	}
 
-	GTM_RWLockAcquire(&gtm_bkup_lock, GTM_LOCKMODE_WRITE);
 	GTM_RWLockAcquire(&seqinfo->gs_lock, GTM_LOCKMODE_WRITE);
 
 	seqinfo->gs_last_value = seqinfo->gs_value;
 
 	if (seqinfo->gs_value != nextval)
 		seqinfo->gs_value = nextval;
-
-	if (GTM_NeedSeqRestoreUpdate(seqkey))
-		GTM_WriteRestorePoint();
 
 	seqinfo->gs_called = iscalled;
 
@@ -731,7 +690,7 @@ GTM_SeqSetVal(GTM_SequenceKey seqkey, GTM_Sequence nextval, bool iscalled)
 
 	/* Remove the old key with the old name */
 	GTM_RWLockRelease(&seqinfo->gs_lock);
-	GTM_RWLockRelease(&gtm_bkup_lock);
+	GTM_SetNeedBackup();
 	seq_release_seqinfo(seqinfo);
 
 	return 0;
@@ -754,7 +713,6 @@ GTM_SeqGetNext(GTM_SequenceKey seqkey)
 		return InvalidSequenceValue;
 	}
 
-	GTM_RWLockAcquire(&gtm_bkup_lock, GTM_LOCKMODE_WRITE);
 	GTM_RWLockAcquire(&seqinfo->gs_lock, GTM_LOCKMODE_WRITE);
 
 	/*
@@ -763,15 +721,9 @@ GTM_SeqGetNext(GTM_SequenceKey seqkey)
 	 */
 	if (!SEQ_IS_CALLED(seqinfo))
 	{
-		value = seqinfo->gs_last_value = seqinfo->gs_value = seqinfo->gs_backedUpValue = seqinfo->gs_init_value;
+		value = seqinfo->gs_last_value = seqinfo->gs_value = seqinfo->gs_init_value;
 		seqinfo->gs_called = true;
-
-		/* Need to backup the restoration point here */
-		if (GTM_NeedSeqRestoreUpdate(seqkey))
-			GTM_WriteRestorePoint();
-
 		GTM_RWLockRelease(&seqinfo->gs_lock);
-		GTM_RWLockRelease(&gtm_bkup_lock);
 		seq_release_seqinfo(seqinfo);
 		return value;
 	}
@@ -790,7 +742,6 @@ GTM_SeqGetNext(GTM_SequenceKey seqkey)
 		else
 		{
 			GTM_RWLockRelease(&seqinfo->gs_lock);
-			GTM_RWLockRelease(&gtm_bkup_lock);
 			seq_release_seqinfo(seqinfo);
 			ereport(LOG,
 					(ERANGE,
@@ -816,7 +767,6 @@ GTM_SeqGetNext(GTM_SequenceKey seqkey)
 		else
 		{
 			GTM_RWLockRelease(&seqinfo->gs_lock);
-			GTM_RWLockRelease(&gtm_bkup_lock);
 			seq_release_seqinfo(seqinfo);
 			ereport(LOG,
 					(ERANGE,
@@ -825,12 +775,9 @@ GTM_SeqGetNext(GTM_SequenceKey seqkey)
 		}
 
 	}
-
-	if (GTM_NeedSeqRestoreUpdate(seqkey))
-		GTM_WriteRestorePoint();
-	
 	GTM_RWLockRelease(&seqinfo->gs_lock);
-	GTM_RWLockRelease(&gtm_bkup_lock);
+	if (GTM_NeedSeqRestoreUpdateInternal(seqinfo))
+		GTM_SetNeedBackup();
 	seq_release_seqinfo(seqinfo);
 	return value;
 }
@@ -851,19 +798,13 @@ GTM_SeqReset(GTM_SequenceKey seqkey)
 		return EINVAL;
 	}
 
-	GTM_RWLockAcquire(&gtm_bkup_lock, GTM_LOCKMODE_WRITE);
 	GTM_RWLockAcquire(&seqinfo->gs_lock, GTM_LOCKMODE_WRITE);
 	seqinfo->gs_value = seqinfo->gs_last_value = seqinfo->gs_backedUpValue = seqinfo->gs_init_value;
-
-	if (GTM_NeedSeqRestoreUpdate(seqkey))
-	{
-		GTM_WriteRestorePoint();
-	}
-
 	GTM_RWLockRelease(&seqinfo->gs_lock);
-	GTM_RWLockRelease(&gtm_bkup_lock);
 
+	GTM_SetNeedBackup();
 	seq_release_seqinfo(seqinfo);
+
 	return 0;
 }
 
@@ -871,6 +812,7 @@ void
 GTM_InitSeqManager(void)
 {
 	int ii;
+
 	for (ii = 0; ii < SEQ_HASH_TABLE_SIZE; ii++)
 	{
 		GTMSequences[ii].shb_list = gtm_NIL;
@@ -1591,6 +1533,7 @@ ProcessSequenceRenameCommand(Port *myport, StringInfo message, bool is_backup)
 }
 
 
+
 /*
  * Escape whitespace and non-printable characters in the sequence name to
  * store it to the control file.
@@ -1731,11 +1674,16 @@ static GTM_Sequence distanceToBackedUpSeqValue(GTM_SeqInfo *seqinfo)
 
 bool GTM_NeedSeqRestoreUpdate(GTM_SequenceKey seqkey)
 {
-	GTM_SeqInfo *seqinfo = seq_find_seqinfo2(seqkey, TRUE);
-	GTM_Sequence distance;
-
+	GTM_SeqInfo *seqinfo = seq_find_seqinfo(seqkey);
 	if (!seqinfo)
 		return FALSE;
+	return GTM_NeedSeqRestoreUpdateInternal(seqinfo);
+}
+
+static bool GTM_NeedSeqRestoreUpdateInternal(GTM_SeqInfo *seqinfo)
+{
+	GTM_Sequence distance;
+
 	if (!SEQ_IS_CALLED(seqinfo))
 		/* The first call.  Must backup */
 		return TRUE;
@@ -1761,8 +1709,7 @@ GTM_SaveSeqInfo2(FILE *ctlf, bool isBackup)
 	{
 		bucket = &GTMSequences[hash];
 
-		if (!isBackup)
-			GTM_RWLockAcquire(&bucket->shb_lock, GTM_LOCKMODE_READ);
+		GTM_RWLockAcquire(&bucket->shb_lock, GTM_LOCKMODE_READ);
 
 		gtm_foreach(elem, bucket->shb_list)
 		{
@@ -1784,11 +1731,9 @@ GTM_SaveSeqInfo2(FILE *ctlf, bool isBackup)
 					(seqinfo->gs_called ? 't' : 'f'),
 					seqinfo->gs_state);
 
-			if (!isBackup)
 				GTM_RWLockRelease(&seqinfo->gs_lock);
 		}
-		if (!isBackup)
-			GTM_RWLockRelease(&bucket->shb_lock);
+		GTM_RWLockRelease(&bucket->shb_lock);
 	}
 
 }
@@ -1803,10 +1748,6 @@ static void advance_gs_value(GTM_SeqInfo *seqinfo)
 	
 	GTM_Sequence distance;
 
-#if 0
-	if (!SEQ_IS_CALLED(seqinfo))
-		return;
-#endif 
 	distance = seqinfo->gs_increment_by * RestoreDuration;
 	if (SEQ_IS_ASCENDING(seqinfo))
 	{
@@ -1828,6 +1769,8 @@ static void advance_gs_value(GTM_SeqInfo *seqinfo)
 		{
 			if (SEQ_IS_CYCLE(seqinfo))
 				seqinfo->gs_backedUpValue = seqinfo->gs_max_value + (distance - (seqinfo->gs_min_value - seqinfo->gs_value));
+			else
+				seqinfo->gs_backedUpValue = seqinfo->gs_min_value;
 		}
 	}
 }
@@ -1840,7 +1783,6 @@ GTM_UpdateRestorePointSeq(void)
 	gtm_ListCell *elem;
 	GTM_SeqInfo *seqinfo = NULL;
 	int hash;
-	char buffer[1024];
 
 	for (hash = 0; hash < SEQ_HASH_TABLE_SIZE; hash++)
 	{

@@ -6,8 +6,11 @@
 #include "gtm/elog.h"
 
 GTM_RWLock gtm_bkup_lock;
+bool gtm_need_bkup;
 
 extern char GTMControlFile[];
+
+
 
 void GTM_WriteRestorePoint(void)
 {
@@ -20,6 +23,14 @@ void GTM_WriteRestorePoint(void)
 					  errhint("%s", strerror(errno))));
 		return;
 	}
+	GTM_RWLockAcquire(&gtm_bkup_lock, GTM_LOCKMODE_WRITE);
+	if (!gtm_need_bkup)
+	{
+		GTM_RWLockRelease(&gtm_bkup_lock);
+		return;
+	}
+	gtm_need_bkup = FALSE;
+	GTM_RWLockRelease(&gtm_bkup_lock);
 	GTM_WriteRestorePointXid(f);
 	GTM_WriteRestorePointSeq(f);
 	fclose(f);
@@ -41,3 +52,14 @@ void GTM_MakeBackup(char *path)
 	fclose(f);
 }
 
+void GTM_SetNeedBackup(void)
+{
+	GTM_RWLockAcquire(&gtm_bkup_lock, GTM_LOCKMODE_READ);
+	gtm_need_bkup = TRUE;
+	GTM_RWLockRelease(&gtm_bkup_lock);
+}
+
+bool GTM_NeedBackup(void)
+{
+	return gtm_need_bkup;
+}

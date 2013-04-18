@@ -512,13 +512,11 @@ GTM_GetGlobalTransactionIdMulti(GTM_TransactionHandle handle[], int txn_count)
 		return InvalidGlobalTransactionId;
 	}
 
-	GTM_RWLockAcquire(&gtm_bkup_lock, GTM_LOCKMODE_WRITE);
 	GTM_RWLockAcquire(&GTMTransactions.gt_XidGenLock, GTM_LOCKMODE_WRITE);
 
 	if (GTMTransactions.gt_gtm_state == GTM_SHUTTING_DOWN)
 	{
 		GTM_RWLockRelease(&GTMTransactions.gt_XidGenLock);
-		GTM_RWLockRelease(&gtm_bkup_lock);
 		ereport(ERROR, (EINVAL, errmsg("GTM shutting down -- can not issue new transaction ids")));
 		return InvalidGlobalTransactionId;
 	}
@@ -543,9 +541,6 @@ GTM_GetGlobalTransactionIdMulti(GTM_TransactionHandle handle[], int txn_count)
 	for (ii = 0; ii < txn_count; ii++)
 	{
 		xid = GTMTransactions.gt_nextXid;
-
-		if (GTM_NeedXidRestoreUpdate())
-			GTM_WriteRestorePoint();
 
 		if (!GlobalTransactionIdIsValid(start_xid))
 			start_xid = xid;
@@ -588,8 +583,9 @@ GTM_GetGlobalTransactionIdMulti(GTM_TransactionHandle handle[], int txn_count)
 		gtm_txninfo->gti_gxid = xid;
 	}
 
+	if (GTM_NeedXidRestoreUpdate())
+		GTM_SetNeedBackup();
 	GTM_RWLockRelease(&GTMTransactions.gt_XidGenLock);
-	GTM_RWLockRelease(&gtm_bkup_lock);
 
 	return start_xid;
 }
@@ -2555,15 +2551,10 @@ ProcessGetNextGXIDTransactionCommand(Port *myport, StringInfo message)
 	/*
 	 * Get the next gxid.
 	 */
-	GTM_RWLockAcquire(&gtm_bkup_lock, GTM_LOCKMODE_WRITE);
 	GTM_RWLockAcquire(&GTMTransactions.gt_XidGenLock, GTM_LOCKMODE_WRITE);
 	next_gxid = GTMTransactions.gt_nextXid;
 
-	if (GTM_NeedXidRestoreUpdate())
-		GTM_WriteRestorePoint();
-
 	GTM_RWLockRelease(&GTMTransactions.gt_XidGenLock);
-	GTM_RWLockRelease(&gtm_bkup_lock);
 
 	MemoryContextSwitchTo(oldContext);
 
