@@ -487,7 +487,7 @@ pgxc_advisory_lock(int64 key64, int32 key1, int32 key2, bool iskeybig,
 		LockAcquireResult res;
 
 		res = LockAcquire(&locktag, lockmode, sessionLock, dontWait);
-		return (res == LOCKACQUIRE_OK);
+		return (res == LOCKACQUIRE_OK || res == LOCKACQUIRE_ALREADY_HELD);
 	}
 
 	/*
