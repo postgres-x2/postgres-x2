@@ -2079,5 +2079,6 @@ PromoteToActive(void)
 					 errmsg("could not close GTM configuration file \"%s\": %m",
 							conf_file)));
 	}
+	GTM_SetNeedBackup();
 	return;
 }
