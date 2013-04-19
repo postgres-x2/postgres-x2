@@ -38,6 +38,9 @@
 #include "parser/parse_clause.h"
 #include "parser/parsetree.h"
 #include "utils/lsyscache.h"
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#endif /* PGXC */
 
 
 static Plan *create_plan_recurse(PlannerInfo *root, Path *best_path);
@@ -2113,6 +2116,11 @@ create_mergejoin_plan(PlannerInfo *root,
 									outer_plan,
 									best_path->outersortkeys,
 									-1.0);
+#ifdef PGXC
+			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+				outer_plan = (Plan *) create_remotesort_plan(root,
+														outer_plan);
+#endif /* PGXC */
 		outerpathkeys = best_path->outersortkeys;
 	}
 	else
@@ -2126,6 +2134,21 @@ create_mergejoin_plan(PlannerInfo *root,
 									inner_plan,
 									best_path->innersortkeys,
 									-1.0);
+#ifdef PGXC
+			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+			{
+				inner_plan = (Plan *) create_remotesort_plan(root,
+														inner_plan);
+				/* If Sort node is not needed on top of RemoteQuery node, we
+				 * will need to materialize the datanode result so that
+				 * mark/restore on the inner node can be handled.
+				 * We shouldn't be changing the members in path structure while
+				 * creating plan, but changing the one below isn't harmful.
+				 */
+				if (IsA(inner_plan, RemoteQuery))
+					best_path->materialize_inner = true;
+			}
+#endif /* PGXC */
 		innerpathkeys = best_path->innersortkeys;
 	}
 	else
