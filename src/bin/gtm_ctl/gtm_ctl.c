@@ -26,6 +26,8 @@
 
 #include "libpq/pqsignal.h"
 
+#define GTM_CONTROL_FILE		"gtm.control"
+
 /* PID can be negative for standalone backend */
 typedef long pgpid_t;
 
@@ -62,6 +64,8 @@ static char *gtmdata_opt = NULL;
 static char *gtm_opts = NULL;
 static const char *progname;
 static char *log_file = NULL;
+static char *control_file = NULL;
+static char *gtmdata_D = NULL;
 static char *gtm_path = NULL;
 static char *gtm_app = NULL;
 static char *argv0 = NULL;
@@ -1061,6 +1065,27 @@ set_mode(char *modeopt)
 	}
 }
 
+static void
+trim_last_slash(char *buf)
+{
+	char *lastpos = NULL;
+	for (;*buf ; buf++)
+	{
+		if (*buf == '/')
+		{
+			lastpos = buf;
+			continue;
+		}
+		if (lastpos && (*buf != ' ' && *buf != '\t'))
+		{
+			lastpos = NULL;
+			continue;
+		}
+	}
+	if (lastpos)
+		*lastpos = 0;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -1117,13 +1142,12 @@ main(int argc, char **argv)
 	/* process command-line options */
 	while (optind < argc)
 	{
-		while ((c = getopt(argc, argv, "D:i:l:m:o:p:t:wWZ:")) != -1)
+		while ((c = getopt(argc, argv, "D:i:l:m:o:p:t:wWZ:C:")) != -1)
 		{
 			switch (c)
 			{
 				case 'D':
 					{
-						char	   *gtmdata_D;
 						char	   *env_var = pg_malloc(strlen(optarg) + 9);
 
 						gtmdata_D = xstrdup(optarg);
@@ -1161,6 +1185,9 @@ main(int argc, char **argv)
 					break;
 				case 't':
 					wait_seconds = atoi(optarg);
+					break;
+				case 'C':
+					control_file = xstrdup(optarg);
 					break;
 				case 'w':
 					do_wait = true;
@@ -1219,6 +1246,65 @@ main(int argc, char **argv)
 			}
 			optind++;
 		}
+	}
+
+	/*
+	 * Take care of the control file (-C Option)
+	 */
+	if (control_file)
+	{
+		char ctrl_path[MAXPGPATH+1];
+		char C_opt_path[MAXPGPATH+1];
+		char bkup_path[MAXPGPATH+1];
+		FILE *f1, *f2;
+		int c;
+
+		if (!gtmdata_D)
+		{
+			write_stderr(_("No -D option specified.\n"));
+			exit(1);
+		}
+		if ((strcmp(gtm_app, "gtm") != 0) && (strcmp(gtm_app, "gtm_master") != 0))
+		{
+			write_stderr(_("-C option is valid only for gtm.\n"));
+			exit(1);
+		}
+		/* If there's already a control file, backup it to *.bak */
+		trim_last_slash(gtmdata_D);
+		snprintf(ctrl_path, MAXPGPATH, "%s/%s", gtmdata_D, GTM_CONTROL_FILE);
+		if ((f1 = fopen(ctrl_path, "r")))
+		{
+
+			snprintf(bkup_path, MAXPGPATH, "%s/%s.bak", gtmdata_D, GTM_CONTROL_FILE);
+			if (!(f2 = fopen(bkup_path, "w")))
+			{
+				fclose(f1);
+				write_stderr(_("Cannot open backup file, %s/%s.bak, %s\n"),
+							 gtmdata_D, GTM_CONTROL_FILE, strerror(errno));
+				exit(1);
+			}
+			while ((c = getc(f1)) != EOF)
+				putc(c, f2);
+			fclose(f1);
+			fclose(f2);
+		}
+		/* Copy specified control file. */
+		snprintf(C_opt_path, MAXPGPATH, "%s/%s", gtmdata_D, control_file);
+		if (!(f1 = fopen(ctrl_path, "w")))
+		{
+			write_stderr(_("Cannot oopen control file, %s, %s\n"), ctrl_path, strerror(errno));
+			exit(1);
+		}
+		if (!(f2 = fopen(C_opt_path, "r")))
+		{
+			fclose(f1);
+			write_stderr(_("Cannot open -C option file, %s, %s\n"), C_opt_path, strerror(errno));
+			exit(1);
+		}
+		while ((c = getc(f2)) != EOF)
+			putc(c, f1);
+		fclose(f1);
+		fclose(f2);
 	}
 
 	if (ctl_command == NO_COMMAND)
