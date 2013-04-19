@@ -198,8 +198,6 @@ BaseInit()
 	GTM_InitTxnManager();
 	GTM_InitSeqManager();
 
-	/* Backup the restore point */
-	GTM_WriteRestorePoint();
 
 	/*
 	 * The memory context is now set up.
@@ -602,6 +600,11 @@ main(int argc, char *argv[])
 		if (ctlf)
 			fclose(ctlf);
 	}
+
+	/* Backup the restore point */
+
+	GTM_SetNeedBackup();
+	GTM_WriteRestorePoint();
 
 	if (Recovery_IsStandby())
 	{
@@ -2080,5 +2083,6 @@ PromoteToActive(void)
 							conf_file)));
 	}
 	GTM_SetNeedBackup();
+	GTM_WriteRestorePoint();
 	return;
 }
