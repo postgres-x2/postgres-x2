@@ -205,6 +205,10 @@ ExecScan(ScanState *node,
 				 * from this scan tuple, in which case continue scan.
 				 */
 				resultSlot = ExecProject(projInfo, &isDone);
+#ifdef PGXC
+				/* Copy the xcnodeoid if underlying scanned slot has one */
+				resultSlot->tts_xcnodeoid = slot->tts_xcnodeoid;
+#endif /* PGXC */
 				if (isDone != ExprEndResult)
 				{
 					node->ps.ps_TupFromTlist = (isDone == ExprMultipleResult);

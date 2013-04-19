@@ -128,12 +128,6 @@ typedef struct RemoteQueryState
 	bool		eof_underlying; /* reached end of underlying plan? */
 	Tuplestorestate *tuplestorestate;
 	CommandId	rqs_cmd_id;			/* Cmd id to use in some special cases */
-	int			rqs_tapenum;		/* Connection from which to fetch next row,
-									 * in case of Sorting */
-	TupleTableSlot	*rqs_tapedata;	/* Data received from this connection to be
-									 * buffered between getlen and readtup calls
-									 * for sort */
-	bool		rqs_for_sort;	/* The row fetches will be handled by Sort */
 	bool		non_fqs_dml;	/* true if this is a non fast query shipped DML
 								 * For detailed discussion on why this variable
 								 * is required see comments in ExecProcNodeDMLInXC */

@@ -493,6 +493,7 @@ ExecClearTuple(TupleTableSlot *slot)	/* slot in which to store tuple */
 	slot->tts_shouldFreeRow = false;
 	slot->tts_dataRow = NULL;
 	slot->tts_dataLen = -1;
+	slot->tts_xcnodeoid = 0;
 #endif
 
 	slot->tts_tuple = NULL;
@@ -1289,7 +1290,7 @@ end_tup_output(TupOutputState *tstate)
  * --------------------------------
  */
 TupleTableSlot *
-ExecStoreDataRowTuple(char *msg, size_t len, TupleTableSlot *slot,
+ExecStoreDataRowTuple(char *msg, size_t len, Oid msgnode_oid, TupleTableSlot *slot,
 					  bool shouldFree)
 {
 	/*
@@ -1336,7 +1337,7 @@ ExecStoreDataRowTuple(char *msg, size_t len, TupleTableSlot *slot,
 	slot->tts_mintuple = NULL;
 	slot->tts_dataRow = msg;
 	slot->tts_dataLen = len;
-
+	slot->tts_xcnodeoid = msgnode_oid;
 	/* Mark extracted state invalid */
 	slot->tts_nvalid = 0;
 

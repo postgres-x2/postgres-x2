@@ -125,6 +125,7 @@ typedef struct TupleTableSlot
 	int		tts_dataLen;		/* Actual length of the data row */
 	bool		tts_shouldFreeRow;	/* should pfree tts_dataRow? */
 	struct AttInMetadata *tts_attinmeta;	/* store here info to extract values from the DataRow */
+	Oid		tts_xcnodeoid;		/* Oid of node from where the datarow is fetched */
 #endif
 	TupleDesc	tts_tupleDescriptor;	/* slot's tuple descriptor */
 	MemoryContext tts_mcxt;		/* slot itself is in this context */
@@ -162,7 +163,7 @@ extern TupleTableSlot *ExecStoreMinimalTuple(MinimalTuple mtup,
 					  bool shouldFree);
 #ifdef PGXC
 extern TupleTableSlot *ExecStoreDataRowTuple(char *msg,
-					  size_t len,
+					  size_t len, Oid msgnode_oid,
 					  TupleTableSlot *slot,
 					  bool shouldFree);
 #endif
