@@ -348,10 +348,13 @@ PostgreSQL documentation
       <term><option>-Z <replaceable class="parameter">nodeopt</replaceable></option></term>
       <listitem>
        <para>
-        Specifies to run node as a Coordinator or as a Datanode.
+        Specifies to run node as a Coordinator, as a Datanode or in restore mode.
         <replaceable>nodeopt</replaceable> can be respectively
-        <literal>coordinator</literal> or <literal>datanode</literal>.
+        <literal>coordinator</literal>,  <literal>datanode</literal> or <literal>restoremode</literal>.
        </para>
+	   <para>
+	    With restore mode, you can import Postgres-XC's catalog data from other coordinator or datanode
+	   </para>
       </listitem>
      </varlistentry>
 <!## end>

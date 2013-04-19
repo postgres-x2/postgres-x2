@@ -2110,6 +2110,8 @@ main(int argc, char **argv)
 						pgxcCommand = strdup("--coordinator");
 					else if (strcmp(optarg, "datanode") == 0)
 						pgxcCommand = strdup("--datanode");
+					else if (strcmp(optarg, "restoremode") == 0)
+						pgxcCommand = strdup("--restoremode");
 #endif
 				case 's':
 					silent_mode = true;
