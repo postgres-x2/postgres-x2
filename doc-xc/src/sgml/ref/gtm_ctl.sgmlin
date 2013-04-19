@@ -86,6 +86,17 @@ PostgreSQL documentation
     </varlistentry>
 
     <varlistentry>
+     <term><option>C</option></term>
+     <listitem>
+      <para>
+       Specify alternte <literal>gtm.control</literal> file used to setup
+	   the initial status of gtm.  Specify the file name as the value.
+	   File path is relative to the working directory of gtm.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
      <term><option>o</option></term>
      <listitem>
       <para>
