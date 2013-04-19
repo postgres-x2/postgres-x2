@@ -29,6 +29,7 @@
 #include "commands/defrem.h"
 #include "commands/trigger.h"
 #include "executor/executor.h"
+#include "executor/spi.h"
 #include "miscadmin.h"
 #include "nodes/bitmapset.h"
 #include "nodes/makefuncs.h"
@@ -93,6 +94,7 @@ static void AfterTriggerSaveEvent(EState *estate, ResultRelInfo *relinfo,
 #ifdef PGXC
 static bool pgxc_is_trigger_shippable(Trigger *trigger);
 static bool pgxc_is_trigger_firable(Trigger *trigger);
+static HeapTuple pgxc_get_trigger_tuple(HeapTupleHeader tuphead);
 #endif
 
 
@@ -2182,6 +2184,9 @@ ExecASDeleteTriggers(EState *estate, ResultRelInfo *relinfo)
 bool
 ExecBRDeleteTriggers(EState *estate, EPQState *epqstate,
 					 ResultRelInfo *relinfo,
+#ifdef PGXC
+					 HeapTupleHeader datanode_tuphead,
+#endif
 					 ItemPointer tupleid)
 {
 	TriggerDesc *trigdesc = relinfo->ri_TrigDesc;
@@ -2192,8 +2197,27 @@ ExecBRDeleteTriggers(EState *estate, EPQState *epqstate,
 	TupleTableSlot *newSlot;
 	int			i;
 
+	/*
+	 * TODO: GetTupleForTrigger() acquires an exclusive row lock on the tuple.
+	 * So while the trigger function is being executed, no one else writes
+	 * into this row. For PGXC, we need to do similar thing by:
+	 * 1. Either explicitly LOCK the row and fetch the latest value by doing:
+	 *    SELECT * FROM tab WHERE ctid = ctid_value FOR UPDATE
+	 * OR:
+	 * 2. Add FOR UPDATE in the SELECT statement in the subplan itself.
+	 */
+
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR && RelationGetLocInfo(relinfo->ri_RelationDesc))
+		trigtuple = pgxc_get_trigger_tuple(datanode_tuphead);
+	else /* On datanode, do the usual way */
+	{
+#endif
 	trigtuple = GetTupleForTrigger(estate, epqstate, relinfo, tupleid,
 								   &newSlot);
+#ifdef PGXC
+	}
+#endif
 	if (trigtuple == NULL)
 		return false;
 
@@ -2246,13 +2270,23 @@ ExecBRDeleteTriggers(EState *estate, EPQState *epqstate,
 
 void
 ExecARDeleteTriggers(EState *estate, ResultRelInfo *relinfo,
+#ifdef PGXC
+					 HeapTupleHeader	trigtuphead,
+#endif
 					 ItemPointer tupleid)
 {
 	TriggerDesc *trigdesc = relinfo->ri_TrigDesc;
 
 	if (trigdesc && trigdesc->trig_delete_after_row)
 	{
-		HeapTuple	trigtuple = GetTupleForTrigger(estate, NULL, relinfo,
+#ifdef PGXC
+		HeapTuple	trigtuple;
+		if (IS_PGXC_COORDINATOR && RelationGetLocInfo(relinfo->ri_RelationDesc))
+			trigtuple = pgxc_get_trigger_tuple(trigtuphead);
+		else
+			/* Do the usual PG-way for datanode */
+#endif
+			trigtuple = GetTupleForTrigger(estate, NULL, relinfo,
 												   tupleid, NULL);
 
 		AfterTriggerSaveEvent(estate, relinfo, TRIGGER_EVENT_DELETE,
@@ -2385,6 +2419,9 @@ ExecASUpdateTriggers(EState *estate, ResultRelInfo *relinfo)
 TupleTableSlot *
 ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 					 ResultRelInfo *relinfo,
+#ifdef PGXC
+					 HeapTupleHeader datanode_tuphead,
+#endif
 					 ItemPointer tupleid, TupleTableSlot *slot)
 {
 	TriggerDesc *trigdesc = relinfo->ri_TrigDesc;
@@ -2397,6 +2434,22 @@ ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 	int			i;
 	Bitmapset  *modifiedCols;
 
+	/*
+	 * TODO: GetTupleForTrigger() acquires an exclusive row lock on the tuple.
+	 * So while the trigger function is being executed, no one else writes
+	 * into this row. For PGXC, we need to do similar thing by:
+	 * 1. Either explicitly LOCK the row and fetch the latest value by doing:
+	 *    SELECT * FROM tab WHERE ctid = ctid_value FOR UPDATE
+	 * OR:
+	 * 2. Add FOR UPDATE in the SELECT statement in the subplan itself.
+	 */
+
+#ifdef PGXC
+	if (IS_PGXC_COORDINATOR && RelationGetLocInfo(relinfo->ri_RelationDesc))
+		trigtuple = pgxc_get_trigger_tuple(datanode_tuphead);
+	else /* On datanode, do the usual way */
+	{
+#endif
 	/* get a copy of the on-disk tuple we are planning to update */
 	trigtuple = GetTupleForTrigger(estate, epqstate, relinfo, tupleid,
 								   &newSlot);
@@ -2420,6 +2473,9 @@ ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 		slottuple = ExecMaterializeSlot(slot);
 		newtuple = slottuple;
 	}
+#ifdef PGXC
+	}
+#endif
 
 	modifiedCols = GetModifiedColumns(relinfo, estate);
 
@@ -2489,14 +2545,24 @@ ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 void
 ExecARUpdateTriggers(EState *estate, ResultRelInfo *relinfo,
 					 ItemPointer tupleid, HeapTuple newtuple,
+#ifdef PGXC
+					 HeapTupleHeader trigtuphead,
+#endif
 					 List *recheckIndexes)
 {
 	TriggerDesc *trigdesc = relinfo->ri_TrigDesc;
 
 	if (trigdesc && trigdesc->trig_update_after_row)
 	{
-		HeapTuple	trigtuple = GetTupleForTrigger(estate, NULL, relinfo,
-												   tupleid, NULL);
+#ifdef PGXC
+		HeapTuple trigtuple;
+		if (IS_PGXC_COORDINATOR && RelationGetLocInfo(relinfo->ri_RelationDesc))
+			trigtuple = pgxc_get_trigger_tuple(trigtuphead);
+		else
+		/* Do the usual PG-way for datanode */
+#endif
+		trigtuple = GetTupleForTrigger(estate, NULL, relinfo,
+									   tupleid, NULL);
 
 		AfterTriggerSaveEvent(estate, relinfo, TRIGGER_EVENT_UPDATE,
 							  true, trigtuple, newtuple, recheckIndexes,
@@ -2986,10 +3052,98 @@ typedef struct AfterTriggerSharedData
 
 typedef struct AfterTriggerEventData *AfterTriggerEvent;
 
+
+#ifdef PGXC
+
+
+/*
+ * TsOffset:
+ * Used for values representing offset of the OLD/NEW row position in rowstore.
+ * Intentionally not unsigned, to check for invalid values.
+ */
+typedef int32 TsOffset;
+
+/*
+ * ARTupInfo: Wrapper around tuplestore. The only reason we have this wrapper
+ * is because we need to keep track of the position of tuplestore readptr which
+ * is not directly accessible by the tuplestore interface. Hence the field
+ * ti_curpos.
+ */
+typedef struct
+{
+	Tuplestorestate	   *tupstate;
+
+	/*
+	 * ti_curpos: first position is 0. ti_curpos either points to a valid record,
+	 * or one position more than the last record when the tuplestore is at eof.
+	 * So if there are 3 tuples, and currently tuplestore is at eof, its value
+	 * will be 4. If tuplestore is empty, it's value will be 0. If the tupstate
+	 * is not allocated, its value is -1.
+	 */
+	TsOffset			ti_curpos;
+}	ARTupInfo;
+
+
+/* Abstract row store type, that stores OLD and NEW rows. */
+typedef struct
+{
+	/*
+	 * rs_tupinfo[0] contains the trigtuple in case of INSERT/DELETE,
+	 * rs_tupinfo[1] contains the new tuple for UPDATE.
+	*/
+	ARTupInfo	rs_tupinfo[2];
+
+	/* If one or more rows belong to a deferred trigger, this is set to true. */
+	bool		rs_has_deferred;
+
+}	ARRowStore;
+
+/*
+ * For coordinator, we don't use ctids, because the rows do not belong to the
+ * local coordinator. Instead we keep in tuplestore the remotely fetched OLD and
+ * NEW rows, and save their tuplestore position in the event list.
+ * But since both coordinator and datanode would access the same
+ * structure, we device a union that would be used for accessing
+ * rowstore position on coordinator or for accessing ctid1 on datanode.
+ * On coordinator, we leave ctid2 space unused. We can't move it into
+ * the union because datanode needs a ctid1-only part of that structure which
+ * is only possible if we keep ctid2 outside of the union.
+ * The OLD and NEW row have the same rowstore position so we require only one
+ * position value to be stored.
+ */
+
+/*
+ * RowPointerData is like a pointer to the OLD/NEW row position in the rowstore.
+ */
+typedef struct
+{
+	ARRowStore *rp_rsid; /* Pointer to the actual rowstore. */
+	TsOffset rp_posid;		/* Offset of the row in that rowstore */
+}	RowPointerData;
+
+typedef union
+{
+	ItemPointerData cor_ctid;
+	RowPointerData	cor_rpid;
+}	CtidOrRpid;
+
+#define IsRowPointerValid(rp)	((rp)->rp_rsid != NULL && (rp)->rp_posid >= 0)
+#define RowPointerSetInvalid(rp) \
+( \
+	((rp)->rp_rsid = NULL), \
+	((rp)->rp_posid = -1) \
+)
+
+#endif
+
 typedef struct AfterTriggerEventData
 {
 	TriggerFlags ate_flags;		/* status bits and offset to shared data */
+#ifdef PGXC
+	CtidOrRpid		xc_ate_cor;
+#else
 	ItemPointerData ate_ctid1;	/* inserted, deleted, or old updated tuple */
+#endif
 	ItemPointerData ate_ctid2;	/* new updated tuple */
 } AfterTriggerEventData;
 
@@ -2997,8 +3151,19 @@ typedef struct AfterTriggerEventData
 typedef struct AfterTriggerEventDataOneCtid
 {
 	TriggerFlags ate_flags;		/* status bits and offset to shared data */
+#ifdef PGXC
+	CtidOrRpid		xc_ate_cor;
+#else
 	ItemPointerData ate_ctid1;	/* inserted, deleted, or old updated tuple */
+#endif
 }	AfterTriggerEventDataOneCtid;
+
+
+#ifdef PGXC
+#define ate_ctid1 xc_ate_cor.cor_ctid
+#define xc_ate_row xc_ate_cor.cor_rpid
+#endif
+
 
 #define SizeofTriggerEvent(evt) \
 	(((evt)->ate_flags & AFTER_TRIGGER_2CTIDS) ? \
@@ -3107,6 +3272,12 @@ typedef struct AfterTriggersData
 	int			maxquerydepth;	/* allocated len of above array */
 	MemoryContext event_cxt;	/* memory context for events, if any */
 
+#ifdef PGXC
+	MemoryContext	xc_rs_cxt;		/* memory context to store OLD and NEW rows */
+	ARRowStore	  **xc_rowstores;		/* Array of per-query row triggers. */
+	int				xc_max_rowstores;	/* Allocated length of above array */
+#endif
+
 	/* these fields are just for resetting at subtrans abort: */
 
 	SetConstraintState *state_stack;	/* stacked S C states */
@@ -3130,7 +3301,19 @@ static SetConstraintState SetConstraintStateCreate(int numalloc);
 static SetConstraintState SetConstraintStateCopy(SetConstraintState state);
 static SetConstraintState SetConstraintStateAddItem(SetConstraintState state,
 						  Oid tgoid, bool tgisdeferred);
-
+#ifdef PGXC
+static void pgxc_ar_init_rowstore(void);
+static void pgxc_ARFetchRow(Relation rel, RowPointerData *rpid, HeapTuple *rs_tuple1, HeapTuple *rs_tuple2);
+static void pgxc_ar_dofetch(Relation rel, ARTupInfo *rs_tupinfo, int fetchpos, HeapTuple *rs_tuple);
+static  int pgxc_ar_goto_end(ARTupInfo *rs_tupinfo);
+static void pgxc_ARNextNewRowpos(RowPointerData *rpid);
+static void pgxc_ar_doadd(HeapTuple tuple, ARTupInfo *rs_tupinfo);
+static void pgxc_ARAddRow(HeapTuple oldtup, HeapTuple newtup, bool is_deferred);
+static void pgxc_ar_init_tupinfo(ARTupInfo *rs_tupinfo);
+static void pgxc_ARFreeRowStoreForQuery(int query_index);
+static void pgxc_ARMarkAllDeferred(void);
+static ARRowStore *pgxc_ar_alloc_rsentry(void);
+#endif
 
 /* ----------
  * afterTriggerCheckState()
@@ -3389,6 +3572,11 @@ AfterTriggerExecute(AfterTriggerEvent event,
 	Buffer		buffer1 = InvalidBuffer;
 	Buffer		buffer2 = InvalidBuffer;
 	int			tgindx;
+#ifdef PGXC
+	HeapTuple	rs_tuple1 = NULL;
+	HeapTuple	rs_tuple2 = NULL;
+	bool		is_remote_relation = (RelationGetLocInfo(rel) != NULL);
+#endif
 
 	/*
 	 * Locate trigger in trigdesc.
@@ -3411,6 +3599,33 @@ AfterTriggerExecute(AfterTriggerEvent event,
 	 */
 	if (instr)
 		InstrStartNode(instr + tgindx);
+
+#ifdef PGXC
+	/*
+	 * If this table contains locator info, then the events may be having
+	 * tuplestore positions of saved rows instead of ctids. So fetch them.
+	 */
+	if (is_remote_relation)
+	{
+		RowPointerData *rpid = &event->xc_ate_row;
+		if (IsRowPointerValid(rpid))
+		{
+			pgxc_ARFetchRow(rel, &(event->xc_ate_row), &rs_tuple1, &rs_tuple2);
+			LocTriggerData.tg_trigtuple = rs_tuple1;
+			LocTriggerData.tg_newtuple = rs_tuple2;
+		}
+		else
+		{
+			LocTriggerData.tg_trigtuple = NULL;
+			LocTriggerData.tg_newtuple = NULL;
+		}
+		/* Buffers are only meant for local table tuples */
+		LocTriggerData.tg_trigtuplebuf = InvalidBuffer;
+		LocTriggerData.tg_newtuplebuf = InvalidBuffer;
+	}
+	else
+	{
+#endif
 
 	/*
 	 * Fetch the required tuple(s).
@@ -3445,6 +3660,10 @@ AfterTriggerExecute(AfterTriggerEvent event,
 		LocTriggerData.tg_newtuplebuf = InvalidBuffer;
 	}
 
+#ifdef PGXC
+	}
+#endif
+
 	/*
 	 * Setup the remaining trigger information
 	 */
@@ -3464,6 +3683,22 @@ AfterTriggerExecute(AfterTriggerEvent event,
 								   finfo,
 								   NULL,
 								   per_tuple_context);
+#ifdef PGXC
+	/*
+	 * For remote relations, the tuple pointers passed to triggers are
+	 * copies of tuplestore tuples, so we need to free them.
+	 */
+	if (is_remote_relation)
+	{
+		if (rettuple != NULL && rettuple != rs_tuple1 && rettuple != rs_tuple2)
+			heap_freetuple(rettuple);
+		if (rs_tuple1)
+			heap_freetuple(rs_tuple1);
+		if (rs_tuple2)
+			heap_freetuple(rs_tuple2);
+	}
+	else
+#endif
 	if (rettuple != NULL && rettuple != &tuple1 && rettuple != &tuple2)
 		heap_freetuple(rettuple);
 
@@ -3734,6 +3969,16 @@ AfterTriggerBeginXact(void)
 	afterTriggers->depth_stack = NULL;
 	afterTriggers->firing_stack = NULL;
 	afterTriggers->maxtransdepth = 0;
+
+#ifdef PGXC
+	/*
+	 * Even though these are only used on coordinator, better nullify them
+	 * always.
+	 */
+	afterTriggers->xc_rowstores = NULL;
+	afterTriggers->xc_max_rowstores = 0;
+	afterTriggers->xc_rs_cxt = NULL;
+#endif
 }
 
 
@@ -3776,6 +4021,18 @@ AfterTriggerBeginQuery(void)
 	events->head = NULL;
 	events->tail = NULL;
 	events->tailfree = NULL;
+
+#ifdef PGXC
+	/*
+	 * Cleanup the row store if left allocated by some other query at the
+	 * same query level. AfterTriggerEndQuery() should have cleaned it up, but
+	 * an aborted sub-transaction might leave some rowstores belonging to
+	 * queries called from inside the sub-transaction. For such queries,
+	 * possibly AfterTriggerEndQuery() might not have been called.
+	 */
+	if (IS_PGXC_COORDINATOR)
+		pgxc_ARFreeRowStoreForQuery(afterTriggers->query_depth);
+#endif
 }
 
 #ifdef PGXC
@@ -3865,6 +4122,12 @@ AfterTriggerEndQuery(EState *estate)
 	/* Release query-local storage for events */
 	afterTriggerFreeEventList(&afterTriggers->query_stack[afterTriggers->query_depth]);
 
+#ifdef PGXC
+	/* Cleanup the row store if created for this query */
+	if (IS_PGXC_COORDINATOR)
+		pgxc_ARFreeRowStoreForQuery(afterTriggers->query_depth);
+#endif
+
 	afterTriggers->query_depth--;
 }
 
@@ -3953,6 +4216,12 @@ AfterTriggerEndXact(bool isCommit)
 	 */
 	if (afterTriggers && afterTriggers->event_cxt)
 		MemoryContextDelete(afterTriggers->event_cxt);
+
+#ifdef PGXC
+	/* On similar lines, discard the rowstore memory. */
+	if (IS_PGXC_COORDINATOR && afterTriggers && afterTriggers->xc_rs_cxt)
+		MemoryContextDelete(afterTriggers->xc_rs_cxt);
+#endif
 
 	afterTriggers = NULL;
 }
@@ -4222,6 +4491,17 @@ AfterTriggerSetState(ConstraintsSetStmt *stmt)
 	 */
 	if (afterTriggers == NULL)
 		return;
+
+#ifdef PGXC
+	/*
+	 * If there are any row stores allocated for AR triggers, we should mark
+	 * all of them deferred, so they don't get deallocated at the end of query.
+	 * We know that row store is only used for coordinator.
+	 */
+	if (IS_PGXC_COORDINATOR && stmt->deferred)
+		pgxc_ARMarkAllDeferred();
+#endif
+
 
 	/*
 	 * If in a subtransaction, and we didn't save the current state already,
@@ -4582,6 +4862,12 @@ AfterTriggerSaveEvent(EState *estate, ResultRelInfo *relinfo,
 	int			tgtype_event;
 	int			tgtype_level;
 	int			i;
+#ifdef PGXC
+	bool		is_deferred = false;
+	bool		event_added = false;
+	bool		is_remote_relation = (RelationGetLocInfo(rel) != NULL);
+
+#endif
 
 	/*
 	 * Check state.  We use normal tests not Asserts because it is possible to
@@ -4600,6 +4886,16 @@ AfterTriggerSaveEvent(EState *estate, ResultRelInfo *relinfo,
 	 * validation is important to make sure we don't walk off the edge of our
 	 * arrays.
 	 */
+
+#ifdef PGXC
+	/*
+	 * PGXC: For coordinator, oldtup or newtup can have invalid ctid because the
+	 * ctid is not present. But we still keep the ItemPointerCopy() functions
+	 * below as-is so as to keep the code untouched and thus prevent any PG
+	 * merge conflicts. We anyways set the tuplestore row position subsequently.
+	 */
+#endif
+
 	new_event.ate_flags = 0;
 	switch (event)
 	{
@@ -4669,6 +4965,30 @@ AfterTriggerSaveEvent(EState *estate, ResultRelInfo *relinfo,
 	}
 
 	tgtype_level = (row_trigger ? TRIGGER_TYPE_ROW : TRIGGER_TYPE_STATEMENT);
+
+#ifdef PGXC
+		/*
+		 * Just save the position where the row would go *if* it gets inserted.
+		 * We are not sure whether it needs to be inserted because possibly in
+		 * the below loop, none of the trigger events will be inserted, in
+		 * which case we don't want to save the row; so don't yet add the row
+		 * into the rowstore. But we do want to know the row position beforehand
+		 * because the row position needs to be saved in each of the events that
+		 * get inserted below.
+		 */
+		if (is_remote_relation)
+		{
+			if (row_trigger)
+			{
+				pgxc_ARNextNewRowpos(&new_event.xc_ate_row);
+			}
+			else
+				RowPointerSetInvalid(&(new_event.xc_ate_row));
+
+			/* We never use ctid2 field */
+			ItemPointerSetInvalid(&(new_event.ate_ctid2));
+		}
+#endif
 
 	for (i = 0; i < trigdesc->numtriggers; i++)
 	{
@@ -4756,9 +5076,29 @@ AfterTriggerSaveEvent(EState *estate, ResultRelInfo *relinfo,
 		new_shared.ats_relid = RelationGetRelid(rel);
 		new_shared.ats_firing_id = 0;
 
+#ifdef PGXC
+		if (is_remote_relation &&
+			IsRowPointerValid(&new_event.xc_ate_row))
+		{
+			event_added = true;
+			if (trigger->tginitdeferred)
+				is_deferred = true;
+		}
+#endif
+
 		afterTriggerAddEvent(&afterTriggers->query_stack[afterTriggers->query_depth],
 							 &new_event, &new_shared);
+
 	}
+
+#ifdef PGXC
+	/*
+	 * If we have saved at least one row trigger event, save the
+	 * OLD and NEW row into the tuplestore.
+	 */
+	if (is_remote_relation && event_added)
+		pgxc_ARAddRow(oldtup, newtup, is_deferred);
+#endif
 }
 
 Datum
@@ -4769,20 +5109,461 @@ pg_trigger_depth(PG_FUNCTION_ARGS)
 
 
 #ifdef PGXC
+
 /*
- * pgxc_check_triggers_shippability
+ * Allocate a new row store entry in the row store array.
+ */
+static ARRowStore *
+pgxc_ar_alloc_rsentry(void)
+{
+	ARRowStore *rowstore = MemoryContextAllocZero(afterTriggers->xc_rs_cxt,
+									  sizeof(ARRowStore));
+
+	/* When actual tuplestore is not allocated, the current position is -1. */
+	rowstore->rs_tupinfo[0].ti_curpos = -1;
+	rowstore->rs_tupinfo[1].ti_curpos = -1;
+
+	return rowstore;
+}
+
+/*
+ * If rowstore is not yet initialized, allocate the rowstore context and the
+ * rowstore array of size equal to the maxquerydepth. This function is implicitly
+ * called when a row is to be added into the rowstore.
+ */
+static void
+pgxc_ar_init_rowstore(void)
+{
+	int				new_numstores = afterTriggers->maxquerydepth;
+	int				query_index = afterTriggers->query_depth;
+	MemoryContext	oldContext;
+
+	if (afterTriggers->xc_rs_cxt == NULL)
+		afterTriggers->xc_rs_cxt =
+			AllocSetContextCreate(TopTransactionContext,
+								  "XC AR Trigger RowStore",
+								  ALLOCSET_DEFAULT_MINSIZE,
+								  ALLOCSET_DEFAULT_INITSIZE,
+								  ALLOCSET_DEFAULT_MAXSIZE);
+
+	oldContext = MemoryContextSwitchTo(afterTriggers->xc_rs_cxt);
+
+	/*
+	 * Expand the rowstore array upto the maxquerydepth value, so as to ensure
+	 * it can accommodate all the query levels.
+	 */
+	if (new_numstores > afterTriggers->xc_max_rowstores)
+	{
+		if (!afterTriggers->xc_rowstores)
+			afterTriggers->xc_rowstores = palloc0(new_numstores * sizeof(ARRowStore*));
+		else
+		{
+			afterTriggers->xc_rowstores = repalloc(afterTriggers->xc_rowstores,
+										  new_numstores * sizeof(ARRowStore*));
+
+			/* Set the new elements to NULL. */
+			memset(&afterTriggers->xc_rowstores[afterTriggers->xc_max_rowstores],
+			   	   0, (new_numstores - afterTriggers->xc_max_rowstores) * sizeof(ARRowStore*));
+		}
+		afterTriggers->xc_max_rowstores = new_numstores;
+	}
+
+	/* Allocate the rowstore entry for the current query if not already */
+	if (afterTriggers->xc_rowstores[query_index] == NULL)
+		afterTriggers->xc_rowstores[query_index] = pgxc_ar_alloc_rsentry();
+
+	MemoryContextSwitchTo(oldContext);
+}
+
+/*
+ * pgxc_ARFetchRow:
+ * Given a rowstore location rpid, fetch the OLD and NEW row from the row store.
+ */
+static void
+pgxc_ARFetchRow(Relation rel, RowPointerData *rpid, HeapTuple *rs_tuple1, HeapTuple *rs_tuple2)
+{
+	ARRowStore *rs = rpid->rp_rsid;
+
+	pgxc_ar_dofetch(rel, &rs->rs_tupinfo[0], rpid->rp_posid, rs_tuple1);
+	pgxc_ar_dofetch(rel, &rs->rs_tupinfo[1], rpid->rp_posid, rs_tuple2);
+
+	/* At least one out of OLD and NEW row should be present in the rowstore */
+	Assert(*rs_tuple1 || *rs_tuple2);
+}
+
+/*
+ * pgxc_ar_dofetch:
+ * Retrieve the tuple at position fetchpos of the tuplestore.
+ */
+static void
+pgxc_ar_dofetch(Relation rel, ARTupInfo *rs_tupinfo, TsOffset fetchpos, HeapTuple *rs_tuple)
+{
+	TsOffset			abs_pos;
+	TsOffset			relative_pos;
+	TsOffset			advance_by;
+	bool			forward;
+	TupleTableSlot *slot;
+
+	if (!rs_tupinfo->tupstate)
+	{
+		/*
+		 * Empty tuplestore, this must the second tuplestore. Second one is used
+		 * only when both NEW and OLD row are present.
+		 */
+		*rs_tuple = NULL;
+		return;
+	}
+
+	Assert(fetchpos >= 0);
+
+	/*
+	 * Is the position to be fetched closer to the start of the tuplestore, or
+	 * is it closer to the current readptr? Decide from where to scan depending
+	 * upon which one is closer to the fetchpos.
+	 */
+	abs_pos = fetchpos;
+	relative_pos = fetchpos - rs_tupinfo->ti_curpos;
+	if (abs_pos < abs(relative_pos))
+	{
+		/* Search from the tuplestore start */
+		tuplestore_rescan(rs_tupinfo->tupstate);
+		rs_tupinfo->ti_curpos = 0;
+		advance_by = abs_pos;
+		forward = true;
+	}
+	else
+	{
+		/* Search from the current position */
+		advance_by = abs(relative_pos);
+		forward = (relative_pos >= 0);
+	}
+
+	/*
+	 * A backward tuplestore_advance() when at eof does not actually shift back
+	 * the readptr, it only makes the eof status false; so we need to shift it
+	 * back ourselves.
+	 */
+	if (!forward && tuplestore_ateof(rs_tupinfo->tupstate))
+		tuplestore_advance(rs_tupinfo->tupstate, false);
+
+	for (; advance_by > 0; advance_by--)
+	{
+		if (!tuplestore_advance(rs_tupinfo->tupstate, forward))
+		{
+			/* Should not happen */
+			elog(ERROR, "XC: Could not find the required row position %d for "
+						"AFTER ROW trigger", fetchpos);
+		}
+
+		/*
+		 * We need to increment the curpos counter incrementally alongwith
+		 * tuplestore_advance(). Otherwise if we throw an exception above,
+		 * the ti_curpos would be out-of-sync with the actual tupstore readptr.
+		 * If this is a sub-transaction, these global structures might continue
+		 * to be used in the outer transaction.
+		 */
+		rs_tupinfo->ti_curpos += (forward ? 1 : -1);
+	}
+
+	Assert(rs_tupinfo->ti_curpos >= 0);
+
+	/* Build table slot for this relation */
+	slot = MakeSingleTupleTableSlot(RelationGetDescr(rel));
+
+	if (!tuplestore_gettupleslot(rs_tupinfo->tupstate,
+								 true /* forward */, false /* copy */ ,
+								 slot))
+	{
+		/* Should not happen */
+		elog(ERROR, "XC: Could not find the required row position %d for"
+					"AFTER ROW trigger", fetchpos);
+	}
+
+	/* gettuple() implicitly advances to the next position */
+	rs_tupinfo->ti_curpos++;
+
+
+	/* Return a complete tuple. Tuplestore has fetched us a minimal tuple. */
+	*rs_tuple = ExecCopySlotTuple(slot);
+
+	ExecDropSingleTupleTableSlot(slot);
+}
+
+
+/*
+ * pgxc_ar_goto_end:
+ * Advance until tuplestore eof. This is used to retrieve the next new position
+ * of a new tuple being appended. Typically in a series of event inserts, the
+ * tuplestore stays at eof, so this call effectively has negligible cost. But
+ * it is a must-have to ensure we get the correct new position if the current
+ * position happens to be somewhere else in the tuplestore.
+ * If tuplestore is not yet allocated, return -1.
+ */
+static int
+pgxc_ar_goto_end(ARTupInfo *rs_tupinfo)
+{
+	if (!rs_tupinfo || !rs_tupinfo->tupstate)
+		return -1;
+
+	while (tuplestore_advance(rs_tupinfo->tupstate, true /* forward */))
+		rs_tupinfo->ti_curpos++;
+
+	return rs_tupinfo->ti_curpos;
+}
+
+
+/*
+ * Populate rpid with the next new tuple position in the row store.
+ */
+static void
+pgxc_ARNextNewRowpos(RowPointerData *rpid)
+{
+	int					query_index = afterTriggers->query_depth;
+	ARRowStore	   *rowstore;
+	TsOffset				rowpos1;
+	TsOffset				rowpos2;
+
+	/* Initialize the array of rowstores if not already */
+	pgxc_ar_init_rowstore();
+
+	rowstore = afterTriggers->xc_rowstores[query_index];
+	rpid->rp_rsid = rowstore;
+
+	/*
+	 * New tuples always get appended at the end of the tuplestore. So we want
+	 * to go and get the last tuple position.
+	 */
+	rowpos1 = pgxc_ar_goto_end(&rowstore->rs_tupinfo[0]);
+	rowpos2 = pgxc_ar_goto_end(&rowstore->rs_tupinfo[1]);
+
+	if (rowpos1 >= 0) /* At least of the first tuplestore has rows */
+	{
+		rpid->rp_posid = rowpos1;
+		if (rowpos2 >= 0) /* Both OLD and NEW are present */
+		{
+			/*
+			 * Both of them should have the same current row position.
+			 */
+			Assert(rowpos1 == rowpos2);
+		}
+	}
+	else
+	{
+		/* If rs_tupinfo[0] is not valid, it means the tuplestores don't yet
+		 * contain rows. The very first record will always be at position 0.
+		 */
+		rpid->rp_posid = 0;
+
+		/* rs_tupinfo[1] cannot have anything if rs_tupinfo[0] is empty */
+		Assert(rowpos2 < 0);
+	}
+
+}
+
+/* Allocate and initialize the actual tuplestore */
+static void
+pgxc_ar_init_tupinfo(ARTupInfo *rs_tupinfo)
+{
+	if (rs_tupinfo->tupstate == NULL)
+	{
+		MemoryContext oldcxt = MemoryContextSwitchTo(afterTriggers->xc_rs_cxt);
+		rs_tupinfo->tupstate = tuplestore_begin_heap(true, false, work_mem);
+		MemoryContextSwitchTo(oldcxt);
+
+		rs_tupinfo->ti_curpos = 0;
+	}
+}
+
+/*
+ * Append the given tuple into the given tuplestore and if required update the
+ * current position.
+ */
+static void
+pgxc_ar_doadd(HeapTuple tuple, ARTupInfo *rs_tupinfo)
+{
+	if (!rs_tupinfo->tupstate)
+		pgxc_ar_init_tupinfo(rs_tupinfo);
+
+	tuplestore_puttuple(rs_tupinfo->tupstate, tuple);
+
+	/*
+	 * If tuplestore is at eof, the readptr gets implicitly incremented on new
+	 * tuple addition, and thus stays at eof. So we want to accordingly
+	 * increment our curpos.
+	 */
+	if (tuplestore_ateof(rs_tupinfo->tupstate))
+		rs_tupinfo->ti_curpos++;
+
+}
+
+/*
+ * Place the OLD and/or NEW row into the row store.
+ * If is_deferred is true, it means at least one the events using this row
+ * belong to a deferred trigger. If it is true, mark the row store deferred,
+ * so that it won't get cleaned up at query end.
+ */
+static void
+pgxc_ARAddRow(HeapTuple oldtup, HeapTuple newtup, bool is_deferred)
+{
+	int					query_index = afterTriggers->query_depth;
+	ARRowStore	   *rowstore;
+	HeapTuple			firsttup;
+	HeapTuple			secondtup;
+
+	/* Initialize the array of rowstores if not already */
+	pgxc_ar_init_rowstore();
+
+	rowstore = afterTriggers->xc_rowstores[query_index];
+	rowstore->rs_has_deferred |= is_deferred;
+
+	Assert(oldtup || newtup);
+
+	/*
+	 * When only one of the oldtuple and newtuple is present, (INSERT or DELETE)
+	 * add it to the first entry, else if both are present, add the newtup into
+	 * the 2nd entry. This goes in line with PG where LocTriggerData.tg_trigtuple
+	 * is always allocated and LocTriggerData.tg_newtuple is allocated only if
+	 * both the tuples are present (UPDATE).
+	 */
+	if (!oldtup || !newtup)
+	{
+		firsttup = (oldtup ? oldtup : newtup);
+		secondtup = NULL;
+	}
+	else
+	{
+		firsttup = oldtup;
+		secondtup = newtup;
+	}
+
+	if (firsttup)
+		pgxc_ar_doadd(firsttup, &rowstore->rs_tupinfo[0]);
+	if (secondtup)
+		pgxc_ar_doadd(secondtup, &rowstore->rs_tupinfo[1]);
+}
+
+/* pgxc_ARFreeRowStoreForQuery:
+ * Cleanup the row store memory allocated for the given query, unless it is
+ * marked deferred. But always set the row store array entry to NULL so that
+ * subsequent queries at the same query level will be able to allocate their
+ * own tuplestores.
+ */
+static void
+pgxc_ARFreeRowStoreForQuery(int query_index)
+{
+	ARRowStore  **rowstores = afterTriggers->xc_rowstores;
+	Assert(query_index >= 0);
+
+	/*
+	 * If there were no AR triggers queued for this query, we would not have
+	 * any rows stored for this query.
+	 */
+	if (afterTriggers->xc_max_rowstores  < query_index + 1
+		|| rowstores == NULL
+		|| rowstores[query_index] == NULL)
+		return;
+
+	/*
+	 * If the particular row store has one or more rows that are used for
+	 * deferred triggers, we want to retain this row store until the end of
+	 * transaction, so cleanup the tuplestore entry but not the actual
+	 * tuplestore. Since the tuplestore is allocated in afterTrigger context,
+	 * it will automatically go away in AfterTriggerEndXact(). Note that the
+	 * handle to this tuplestore is not lost; it is saved in event->xc_ate_row.
+	 *
+	 * Note: Typically in a given tuplestore, either all rows belong to deferred
+	 * triggers or all rows belong to immediate triggers, except when
+	 * set-constraints-deferred is fired for a specified trigger, in which case
+	 * all tuplestores are marked deferred even though only one trigger is
+	 * deferred. We do not go to the extent of finding the corresponding row
+	 * and moving it from its tuplestore to some deferred-only tuplestore, one of
+	 * the reasons being that the row position would change for such row, so the
+	 * events associated with this row won't be able to access the row.
+	 */
+	if (rowstores[query_index]->rs_has_deferred == false)
+	{
+		int i;
+		/* Free OLD and NEW row tuplestores. */
+		for (i = 0; i < 2; i++)
+		{
+			Tuplestorestate *tupstate =
+							 rowstores[query_index]->rs_tupinfo[i].tupstate;
+			if (tupstate)
+				tuplestore_end(tupstate);
+		}
+		pfree(rowstores[query_index]);
+	}
+	else
+	{
+		/*
+		 * ELSE don't pfree rowstore. The rowstore pointer would be used by deferred
+		 * trigger events. The events already would have the rowstore pointer saved.
+		 */
+	}
+
+	/*
+	 * But in any case, we do want to nullify the rowstore entry so that the next
+	 * query in the transaction would be able to allocate its own rowstore in this
+	 * entry.
+	 */
+	rowstores[query_index] = NULL;
+}
+
+/*
+ * pgxc_ARMarkAllDeferred:
+ * Mark all the row stores as having deferred trigger rows. This ensures that
+ * all of them will stay until the end of transaction so that the deferred
+ * trigger events will be able to access the rows from the rowstore.
+ * This function is called whenever set-constraints-deferred is executed.
+ */
+static void
+pgxc_ARMarkAllDeferred(void)
+{
+	int				rs_index;
+	ARRowStore	*rowstore;
+
+	if (afterTriggers == NULL)
+		return;
+
+	for (rs_index = 0; rs_index < afterTriggers->xc_max_rowstores; rs_index++)
+	{
+		rowstore = afterTriggers->xc_rowstores[rs_index];
+
+		if (rowstore)
+			rowstore->rs_has_deferred = true;
+	}
+}
+
+
+/*
+ * pgxc_check_triggers_shippability_ex
  * Check if given relation can be shipped entirely based on its potential
  * triggers actions. If at least one trigger is not shippable then the given
  * relation cannot be shipped completely to remote nodes for given command
  * type.
+ * Return TRUE if at least one trigger out of the triggers for the given
+ * commandType is not shippable. So for e.g. if the commandType is UPDATE,
+ * it returns TRUE if we find one or more UPDATE triggers that are not
+ * shippable. Once we find such a non-shippable trigger, all the trigger
+ * operations are done on coordinator regardless of the shippability of the
+ * other triggers.
+ *
+ * has_quals: If passed by user, set it it to true if any of the triggers
+ * have a WHEN clause.
+ * ptrigdesc: If passed by user, just populate it with the trigger descriptor.
  */
-bool
-pgxc_check_triggers_shippability(Oid relid, CmdType commandType)
+static bool
+pgxc_check_triggers_shippability_ex(Oid relid, CmdType commandType,
+                                 bool *has_quals,
+								 TriggerDesc *ptrigdesc)
 {
 	Relation	rel = relation_open(relid, AccessShareLock);
 	bool		res = true;
 	int			i;
 	TriggerDesc *trigdesc;
+	
+	if (has_quals)
+		*has_quals = false;
 
 	/* Relation has no triggers, can safely return */
 	if (!rel->rd_rel->relhastriggers)
@@ -4797,6 +5578,9 @@ pgxc_check_triggers_shippability(Oid relid, CmdType commandType)
 		goto finish;
 
 	trigdesc = rel->trigdesc;
+
+	if (ptrigdesc)
+		*ptrigdesc = *trigdesc;
 
 	/*
 	 * Check if there are any triggers related to given command
@@ -4863,7 +5647,7 @@ pgxc_check_triggers_shippability(Oid relid, CmdType commandType)
 					continue;
 				break;
 			case CMD_DELETE:
-				/* Don't mind if trigger is not involved in UPDATE */
+				/* Don't mind if trigger is not involved in DELETE */
 				if (!TRIGGER_FOR_DELETE(tgtype))
 					continue;
 				break;
@@ -4878,6 +5662,10 @@ pgxc_check_triggers_shippability(Oid relid, CmdType commandType)
 				Assert(0); /* Shouldn't come here */
 				continue;
 		}
+		
+		/* Does the trigger have any WHEN quals ? */
+		if (has_quals && trigger->tgqual)
+			*has_quals = true;
 
 		/* Check trigger shippability */
 		res = pgxc_is_trigger_shippable(trigger);
@@ -4902,6 +5690,11 @@ static bool
 pgxc_is_trigger_firable(Trigger *trigger)
 {
 	bool	is_shippable = pgxc_is_trigger_shippable(trigger);
+
+	/* PGXCTODO:
+	 * Either all triggers should be fired on coordinator or all on datanode.
+	 * This function does not handle the same. Fix this.
+	 */
 
 	/*
 	 * If trigger is based on a constraint or is internal, enforce its launch
@@ -4958,5 +5751,92 @@ pgxc_is_trigger_shippable(Trigger *trigger)
 		res = false;
 
 	return res;
+}
+
+
+
+/*
+ * Some helper functions to do some trigger attribute checks.
+ * PGXCTODO: These would change after we implement changes to fix
+ * the issue with shippability of triggers with presence of both
+ * shippabile and non shippable triggers.
+ */
+
+bool
+pgxc_check_triggers_shippability(Oid relid, CmdType commandType)
+{
+	return pgxc_check_triggers_shippability_ex(relid, commandType, NULL, NULL);
+}
+
+/*
+ * Get trigger descriptor but only if there are non-shippable triggers for the
+ * specified commandType. Return true if trigger descriptor is populated.
+ */
+bool
+pgxc_triggers_getdesc(Oid relid, CmdType commandType, TriggerDesc *ptrigdesc)
+{
+	return !pgxc_check_triggers_shippability_ex(relid, commandType, NULL, ptrigdesc);
+}
+
+bool
+pgxc_trig_oldrow_reqd(Oid relid, CmdType commandType)
+{
+	TriggerDesc td;
+	bool        has_quals;
+	bool        ret;
+
+	/*
+	 * If all triggers are shippable, question of fetching OLD row does not
+	 * arise
+	 */
+	if (pgxc_check_triggers_shippability_ex(relid, commandType, &has_quals, &td))
+		return false;
+
+	/* We always need OLD row if WHEN is specified */
+	if (has_quals)
+		return true;
+
+	/*
+	 * OLD row is required for BEOFRE ROW triggers and also for AFTER ROW
+	 * triggers if we decide to store all the rows in coordinator memory beforehand.
+	 */
+	switch (commandType)
+	{
+		case CMD_INSERT:
+			ret = false; /* There is no old row */
+			break;
+		case CMD_UPDATE:
+			ret = (td.trig_update_before_row || td.trig_update_after_row);
+			break;
+		case CMD_DELETE:
+			ret = (td.trig_delete_before_row || td.trig_delete_after_row);
+			break;
+		default:
+			ret = false;
+			break;
+	}
+
+	return ret;
+}
+
+/*
+ * Convenience function to form a heaptuple out of a heaptuple header.
+ * PGXCTO: Though this is a convenience function now, it would possibly serve the
+ * purpose of GetTupleForTrigger() when we fix the GetTupleForTrigger() related
+ * issue. If we don't end up in doing anything trigger specific, we will rename
+ * and move this function to somewhere else.
+ */
+static HeapTuple
+pgxc_get_trigger_tuple(HeapTupleHeader tuphead)
+{
+	HeapTupleData tuple;
+
+	tuple.t_data = tuphead;
+	tuple.t_len = (tuphead ? HeapTupleHeaderGetDatumLength(tuphead) : 0);
+	ItemPointerSetInvalid(&tuple.t_self);
+	tuple.t_tableOid = InvalidOid;
+	tuple.t_xc_node_id = 0;
+
+	return heap_copytuple(&tuple);
 }
 #endif

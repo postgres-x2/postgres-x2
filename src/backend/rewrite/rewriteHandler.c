@@ -1324,29 +1324,47 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 	parsetree->targetList = lappend(parsetree->targetList, tle);
 
 #ifdef PGXC
-	/*
-	 * If relation is non-replicated, we need also to identify the Datanode
-	 * from where tuple is fetched.
-	 */
-	if (IS_PGXC_COORDINATOR &&
-		!IsConnFromCoord() &&
-		!IsLocatorReplicated(GetLocatorType(RelationGetRelid(target_relation))))
+	/* Add further attributes required for Coordinator */
+
+	if (IS_PGXC_COORDINATOR && RelationGetLocInfo(target_relation) != NULL
+		&& target_relation->rd_rel->relkind == RELKIND_RELATION)
 	{
-		var = makeVar(parsetree->resultRelation,
-					  XC_NodeIdAttributeNumber,
-					  INT4OID,
-					  -1,
-					  InvalidOid,
-					  0);
+		/*
+		 * If relation is non-replicated, we need also to identify the Datanode
+		 * from where tuple is fetched.
+		 */
+		if (!IsRelationReplicated(RelationGetLocInfo(target_relation)))
+		{
+			var = makeVar(parsetree->resultRelation,
+						  XC_NodeIdAttributeNumber,
+						  INT4OID,
+						  -1,
+						  InvalidOid,
+						  0);
 
-		attrname = "xc_node_id";
+			tle = makeTargetEntry((Expr *) var,
+								  list_length(parsetree->targetList) + 1,
+								  pstrdup("xc_node_id"),
+								  true);
 
-		tle = makeTargetEntry((Expr *) var,
-							  list_length(parsetree->targetList) + 1,
-							  pstrdup(attrname),
-							  true);
+			parsetree->targetList = lappend(parsetree->targetList, tle);
+		}
 
-		parsetree->targetList = lappend(parsetree->targetList, tle);
+		/* For non-shippable triggers, we need OLD row. */
+		if (pgxc_trig_oldrow_reqd(RelationGetRelid(target_relation),
+								  parsetree->commandType))
+		{
+			var = makeWholeRowVar(target_rte,
+								  parsetree->resultRelation,
+								  0,
+								  false);
+
+			tle = makeTargetEntry((Expr *) var,
+				  list_length(parsetree->targetList) + 1,
+				  pstrdup("wholerow"),
+				  true);
+			parsetree->targetList = lappend(parsetree->targetList, tle);
+		}
 	}
 #endif
 }
@@ -2726,3 +2744,5 @@ QueryRewriteCTAS(Query *parsetree)
 			NULL, 0);
 }
 #endif
+
+

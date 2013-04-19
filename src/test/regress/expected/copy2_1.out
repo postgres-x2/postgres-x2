@@ -22,12 +22,8 @@ CREATE FUNCTION fn_x_after () RETURNS TRIGGER AS '
 ' LANGUAGE plpgsql;
 CREATE TRIGGER trg_x_after AFTER INSERT ON x
 FOR EACH ROW EXECUTE PROCEDURE fn_x_after();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 CREATE TRIGGER trg_x_before BEFORE INSERT ON x
 FOR EACH ROW EXECUTE PROCEDURE fn_x_before();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 COPY x (a, b, c, d, e) from stdin;
 COPY x (b, d) from stdin;
 COPY x (b, d) from stdin;

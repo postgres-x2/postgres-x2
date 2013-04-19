@@ -2,7 +2,7 @@
 -- TRIGGERS
 --
 
-create table pkeys (pkey1 int4 not null, pkey2 text not null);
+create table pkeys (pkey1 int4 not null, pkey2 text not null) distribute by replication;
 create table fkeys (fkey1 int4, fkey2 text, fkey3 int);
 create table fkeys2 (fkey21 int4, fkey22 text, pkey23 int not null);
 
@@ -138,7 +138,7 @@ create table tttest (
 	price_val	int4,
 	price_on	int4,
 	price_off	int4 default 999999
-);
+) distribute by replication;
 
 create trigger ttdummy
 	before delete or update on tttest
@@ -208,7 +208,7 @@ drop sequence ttdummy_seq;
 
 CREATE TABLE log_table (tstamp timestamp default timeofday()::timestamp);
 
-CREATE TABLE main_table (a int, b int);
+CREATE TABLE main_table (a int, b int) distribute by replication;
 
 COPY main_table (a,b) FROM stdin;
 5	10
@@ -312,7 +312,7 @@ UPDATE main_table SET b = 10;
 -- Test case for bug with BEFORE trigger followed by AFTER trigger with WHEN
 --
 
-CREATE TABLE some_t (some_col boolean NOT NULL);
+CREATE TABLE some_t (some_col boolean NOT NULL) distribute by replication;
 CREATE FUNCTION dummy_update_func() RETURNS trigger AS $$
 BEGIN
   RAISE NOTICE 'dummy_update_func(%) called: action = %, old = %, new = %',
@@ -542,7 +542,7 @@ CREATE TABLE serializable_update_tab (
 	id int,
 	filler  text,
 	description text
-);
+) distribute by replication;
 
 CREATE TRIGGER serializable_update_trig BEFORE UPDATE ON serializable_update_tab
 	FOR EACH ROW EXECUTE PROCEDURE serializable_update_trig();
@@ -562,12 +562,12 @@ DROP TABLE serializable_update_tab;
 CREATE TABLE min_updates_test (
 	f1	text,
 	f2 int,
-	f3 int);
+	f3 int) distribute by replication;
 
 CREATE TABLE min_updates_test_oids (
 	f1	text,
 	f2 int,
-	f3 int) WITH OIDS;
+	f3 int) WITH OIDS distribute by replication;
 
 INSERT INTO min_updates_test VALUES ('a',1,2),('b','2',null);
 
@@ -778,7 +778,7 @@ CREATE TABLE country_table (
     country_id        serial primary key,
     country_name    text unique not null,
     continent        text not null
-);
+) distribute by replication;
 
 INSERT INTO country_table (country_name, continent)
     VALUES ('Japan', 'Asia'),

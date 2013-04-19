@@ -202,7 +202,7 @@ CREATE TABLE array_index_op_test (
 CREATE TABLE IF NOT EXISTS test_tsvector(
 	t text,
 	a tsvector
-);
+) distribute by replication;
 CREATE TABLE IF NOT EXISTS test_tsvector(
 	t text
 );

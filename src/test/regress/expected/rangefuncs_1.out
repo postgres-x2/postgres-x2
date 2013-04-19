@@ -689,9 +689,11 @@ begin
 end $$ language plpgsql;
 create trigger tnoticetrigger after insert on tt for each row
 execute procedure noticetrigger();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 select insert_tt2('foolme','barme') limit 1;
+NOTICE:  noticetrigger 11 foolme
+CONTEXT:  SQL function "insert_tt2" statement 1
+NOTICE:  noticetrigger 12 barme
+CONTEXT:  SQL function "insert_tt2" statement 1
  insert_tt2 
 ------------
          11
@@ -719,6 +721,10 @@ create temp table tt_log(f1 int, data text);
 create rule insert_tt_rule as on insert to tt do also
   insert into tt_log values(new.*);
 select insert_tt2('foollog','barlog') limit 1;
+NOTICE:  noticetrigger 13 foollog
+CONTEXT:  SQL function "insert_tt2" statement 1
+NOTICE:  noticetrigger 14 barlog
+CONTEXT:  SQL function "insert_tt2" statement 1
  insert_tt2 
 ------------
          13

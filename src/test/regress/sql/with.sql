@@ -345,7 +345,7 @@ WITH RECURSIVE
 -- Test WITH attached to a data-modifying statement
 --
 
-CREATE TEMPORARY TABLE y (a INTEGER);
+CREATE TEMPORARY TABLE y (a INTEGER) DISTRIBUTE BY REPLICATION;
 INSERT INTO y SELECT generate_series(1, 10);
 
 WITH t AS (
@@ -766,7 +766,7 @@ DROP FUNCTION y_trigger();
 
 -- WITH attached to inherited UPDATE or DELETE
 
-CREATE TEMP TABLE parent ( id int, val text );
+CREATE TEMP TABLE parent ( id int, val text ) DISTRIBUTE BY REPLICATION;
 CREATE TEMP TABLE child1 ( ) INHERITS ( parent );
 CREATE TEMP TABLE child2 ( ) INHERITS ( parent );
 

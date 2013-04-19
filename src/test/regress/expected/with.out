@@ -743,7 +743,7 @@ WITH RECURSIVE
 --
 -- Test WITH attached to a data-modifying statement
 --
-CREATE TEMPORARY TABLE y (a INTEGER);
+CREATE TEMPORARY TABLE y (a INTEGER) DISTRIBUTE BY REPLICATION;
 INSERT INTO y SELECT generate_series(1, 10);
 WITH t AS (
 	SELECT a FROM y
@@ -793,7 +793,20 @@ WITH t AS (
 	SELECT a FROM y
 )
 UPDATE y SET a = y.a-10 FROM t WHERE y.a > 20 AND t.a = y.a RETURNING y.a;
-ERROR:  Partition column can't be updated in current version
+ a  
+----
+ 11
+ 12
+ 13
+ 14
+ 15
+ 16
+ 17
+ 18
+ 19
+ 20
+(10 rows)
+
 SELECT * FROM y order by 1;
  a  
 ----
@@ -807,16 +820,16 @@ SELECT * FROM y order by 1;
   8
   9
  10
- 21
- 22
- 23
- 24
- 25
- 26
- 27
- 28
- 29
- 30
+ 11
+ 12
+ 13
+ 14
+ 15
+ 16
+ 17
+ 18
+ 19
+ 20
 (20 rows)
 
 WITH RECURSIVE t(a) AS (
@@ -825,7 +838,20 @@ WITH RECURSIVE t(a) AS (
 	SELECT a+1 FROM t WHERE a < 50
 )
 DELETE FROM y USING t WHERE t.a = y.a RETURNING y.a;
-ERROR:  input of anonymous composite types is not implemented
+ a  
+----
+ 11
+ 12
+ 13
+ 14
+ 15
+ 16
+ 17
+ 18
+ 19
+ 20
+(10 rows)
+
 SELECT * FROM y order by 1;
  a  
 ----
@@ -839,17 +865,7 @@ SELECT * FROM y order by 1;
   8
   9
  10
- 21
- 22
- 23
- 24
- 25
- 26
- 27
- 28
- 29
- 30
-(20 rows)
+(10 rows)
 
 DROP TABLE y;
 --
@@ -1623,8 +1639,6 @@ end;
 $$ LANGUAGE plpgsql;
 CREATE TRIGGER y_trig BEFORE INSERT ON y FOR EACH ROW
     EXECUTE PROCEDURE y_trigger();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 WITH t AS (
     INSERT INTO y
     VALUES
@@ -1634,6 +1648,9 @@ WITH t AS (
     RETURNING *
 )
 SELECT * FROM t;
+NOTICE:  y_trigger: a = 21
+NOTICE:  y_trigger: a = 22
+NOTICE:  y_trigger: a = 23
  a  
 ----
  21
@@ -1660,11 +1677,8 @@ SELECT * FROM y order by 1;
 (13 rows)
 
 DROP TRIGGER y_trig ON y;
-ERROR:  trigger "y_trig" for table "y" does not exist
 CREATE TRIGGER y_trig AFTER INSERT ON y FOR EACH ROW
     EXECUTE PROCEDURE y_trigger();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 WITH t AS (
     INSERT INTO y
     VALUES
@@ -1674,6 +1688,9 @@ WITH t AS (
     RETURNING *
 )
 SELECT * FROM t LIMIT 1;
+NOTICE:  y_trigger: a = 31
+NOTICE:  y_trigger: a = 32
+NOTICE:  y_trigger: a = 33
  a  
 ----
  31
@@ -1701,7 +1718,6 @@ SELECT * FROM y order by 1;
 (16 rows)
 
 DROP TRIGGER y_trig ON y;
-ERROR:  trigger "y_trig" for table "y" does not exist
 CREATE OR REPLACE FUNCTION y_trigger() RETURNS trigger AS $$
 begin
   raise notice 'y_trigger';
@@ -1754,7 +1770,7 @@ SELECT * FROM y order by 1;
 DROP TRIGGER y_trig ON y;
 DROP FUNCTION y_trigger();
 -- WITH attached to inherited UPDATE or DELETE
-CREATE TEMP TABLE parent ( id int, val text );
+CREATE TEMP TABLE parent ( id int, val text ) DISTRIBUTE BY REPLICATION;
 CREATE TEMP TABLE child1 ( ) INHERITS ( parent );
 CREATE TEMP TABLE child2 ( ) INHERITS ( parent );
 INSERT INTO parent VALUES ( 1, 'p1' );
@@ -1762,54 +1778,51 @@ INSERT INTO child1 VALUES ( 11, 'c11' ),( 12, 'c12' );
 INSERT INTO child2 VALUES ( 23, 'c21' ),( 24, 'c22' );
 WITH rcte AS ( SELECT sum(id) AS totalid FROM parent )
 UPDATE parent SET id = id + totalid FROM rcte;
-ERROR:  Partition column can't be updated in current version
 SELECT * FROM parent ORDER BY id;
  id | val 
 ----+-----
-  1 | p1
- 11 | c11
- 12 | c12
- 23 | c21
- 24 | c22
+ 72 | p1
+ 82 | c11
+ 83 | c12
+ 94 | c21
+ 95 | c22
 (5 rows)
 
 WITH wcte AS ( INSERT INTO child1 VALUES ( 42, 'new' ) RETURNING id AS newid )
 UPDATE parent SET id = id + newid FROM wcte;
-ERROR:  Partition column can't be updated in current version
 SELECT * FROM parent ORDER BY id;
- id | val 
-----+-----
-  1 | p1
- 11 | c11
- 12 | c12
- 23 | c21
- 24 | c22
-(5 rows)
+ id  | val 
+-----+-----
+ 114 | p1
+  42 | new
+ 124 | c11
+ 125 | c12
+ 136 | c21
+ 137 | c22
+(6 rows)
 
 WITH rcte AS ( SELECT max(id) AS maxid FROM parent )
 DELETE FROM parent USING rcte WHERE id = maxid;
-ERROR:  input of anonymous composite types is not implemented
 SELECT * FROM parent ORDER BY id;
- id | val 
-----+-----
-  1 | p1
- 11 | c11
- 12 | c12
- 23 | c21
- 24 | c22
+ id  | val 
+-----+-----
+ 114 | p1
+  42 | new
+ 124 | c11
+ 125 | c12
+ 136 | c21
 (5 rows)
 
 WITH wcte AS ( INSERT INTO child2 VALUES ( 42, 'new2' ) RETURNING id AS newid )
 DELETE FROM parent USING wcte WHERE id = newid;
-ERROR:  input of anonymous composite types is not implemented
 SELECT * FROM parent ORDER BY id;
- id | val 
-----+-----
-  1 | p1
- 11 | c11
- 12 | c12
- 23 | c21
- 24 | c22
+ id  | val  
+-----+------
+ 114 | p1
+ 124 | c11
+ 125 | c12
+ 136 | c21
+  42 | new2
 (5 rows)
 
 -- check EXPLAIN VERBOSE for a wCTE with RETURNING
@@ -1819,10 +1832,10 @@ DELETE FROM a USING wcte WHERE aa = q2;
                                            QUERY PLAN                                           
 ------------------------------------------------------------------------------------------------
  Delete on public.a
-   Remote query: DELETE FROM ONLY a WHERE ((public.a.ctid = $2) AND (public.a.xc_node_id = $3))
-   Remote query: DELETE FROM ONLY b a WHERE ((a.ctid = $2) AND (a.xc_node_id = $3))
-   Remote query: DELETE FROM ONLY c a WHERE ((a.ctid = $2) AND (a.xc_node_id = $3))
-   Remote query: DELETE FROM ONLY d a WHERE ((a.ctid = $2) AND (a.xc_node_id = $3))
+   Remote query: DELETE FROM ONLY a WHERE ((public.a.ctid = $1) AND (public.a.xc_node_id = $2))
+   Remote query: DELETE FROM ONLY b a WHERE ((a.ctid = $1) AND (a.xc_node_id = $2))
+   Remote query: DELETE FROM ONLY c a WHERE ((a.ctid = $1) AND (a.xc_node_id = $2))
+   Remote query: DELETE FROM ONLY d a WHERE ((a.ctid = $1) AND (a.xc_node_id = $2))
    CTE wcte
      ->  Insert on public.int8_tbl
            Output: int8_tbl.q2

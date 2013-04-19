@@ -1769,13 +1769,6 @@ standard_ProcessUtility(Node *parsetree,
 				RemoteQueryExecType exec_type;
 				bool is_temp;
 
-				/* Postgres-XC does not support yet FOR EACH ROW yet */
-				if (stmt->row)
-					ereport(ERROR,
-							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-							 errmsg("Postgres-XC does not support ROW TRIGGER yet"),
-							 errdetail("The feature is not currently supported")));
-
 				exec_type = ExecUtilityFindNodes(OBJECT_TABLE,
 												 RangeVarGetRelid(stmt->relation, NoLock, false),
 												 &is_temp);

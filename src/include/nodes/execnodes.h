@@ -281,6 +281,18 @@ typedef struct JunkFilter
 	AttrNumber *jf_cleanMap;
 	TupleTableSlot *jf_resultSlot;
 	AttrNumber	jf_junkAttNo;
+#ifdef PGXC
+	/*
+	 * Similar to jf_junkAttNo that is used for ctid, we also need xc_node_id
+	 * and wholerow junk attribute numbers to be saved here. In XC, we need
+	 * multiple junk attributes at the same time, so just jf_junkAttNo is not
+	 * enough. In PG, jf_junkAttNo is used either for ctid or for wholerow,
+	 * it does not need both of them at the same time; ctid is used for physical
+	 * relations while wholerow is used for views.
+	 */
+	AttrNumber	jf_xc_node_id;
+	AttrNumber	jf_xc_wholerow;
+#endif
 } JunkFilter;
 
 /* ----------------

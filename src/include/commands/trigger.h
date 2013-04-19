@@ -147,9 +147,15 @@ extern void ExecASDeleteTriggers(EState *estate,
 extern bool ExecBRDeleteTriggers(EState *estate,
 					 EPQState *epqstate,
 					 ResultRelInfo *relinfo,
+#ifdef PGXC
+					 HeapTupleHeader datanode_tuphead,
+#endif
 					 ItemPointer tupleid);
 extern void ExecARDeleteTriggers(EState *estate,
 					 ResultRelInfo *relinfo,
+#ifdef PGXC
+					 HeapTupleHeader trigtuphead,
+#endif
 					 ItemPointer tupleid);
 extern bool ExecIRDeleteTriggers(EState *estate,
 					 ResultRelInfo *relinfo,
@@ -161,12 +167,18 @@ extern void ExecASUpdateTriggers(EState *estate,
 extern TupleTableSlot *ExecBRUpdateTriggers(EState *estate,
 					 EPQState *epqstate,
 					 ResultRelInfo *relinfo,
+#ifdef PGXC
+					 HeapTupleHeader datanode_tuphead,
+#endif
 					 ItemPointer tupleid,
 					 TupleTableSlot *slot);
 extern void ExecARUpdateTriggers(EState *estate,
 					 ResultRelInfo *relinfo,
 					 ItemPointer tupleid,
 					 HeapTuple newtuple,
+#ifdef PGXC
+					 HeapTupleHeader trigtuphead,
+#endif
 					 List *recheckIndexes);
 extern TupleTableSlot *ExecIRUpdateTriggers(EState *estate,
 					 ResultRelInfo *relinfo,
@@ -213,6 +225,10 @@ extern Datum pg_trigger_depth(PG_FUNCTION_ARGS);
 #ifdef PGXC
 /* Postgres-XC related functions for triggers */
 extern bool pgxc_check_triggers_shippability(Oid relid, CmdType commandType);
+extern bool pgxc_check_triggers_shippability(Oid relid, CmdType commandType);
+extern bool pgxc_triggers_getdesc(Oid relid, CmdType commandType, TriggerDesc *ptrigdesc);
+extern bool pgxc_trig_oldrow_reqd(Oid relid, CmdType commandType);
+extern void pgxc_form_trigger_tuple(HeapTuple tuple, HeapTupleHeader tuphead, ItemPointer tid);
 #endif
 
 #endif   /* TRIGGER_H */

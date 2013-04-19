@@ -181,8 +181,8 @@ extern bool FinishRemotePreparedTransaction(char *prepareGID, bool commit);
 /* Flags related to temporary objects included in query */
 extern void ExecSetTempObjectIncluded(void);
 extern bool ExecIsTempObjectIncluded(void);
-extern TupleTableSlot *ExecProcNodeDMLInXC(RemoteQueryState *resultRemoteRel,
-											TupleTableSlot *slot);
+extern TupleTableSlot * ExecProcNodeDMLInXC(EState *estate,
+                        TupleTableSlot *sourceDataSlot, TupleTableSlot *newDataSlot);
 
 extern void pgxc_all_success_nodes(ExecNodes **d_nodes, ExecNodes **c_nodes, char **failednodes_msg);
 extern void AtEOXact_DBCleanup(bool isCommit);

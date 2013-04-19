@@ -72,16 +72,10 @@ CREATE TRIGGER rep_count_truncate_query BEFORE TRUNCATE ON xc_trigger_rep_tab
 	FOR EACH STATEMENT EXECUTE PROCEDURE count_truncate_query();
 CREATE TRIGGER rep_count_insert_row BEFORE INSERT ON xc_trigger_rep_tab
 	FOR EACH ROW EXECUTE PROCEDURE count_insert_row();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 CREATE TRIGGER rep_count_update_row BEFORE UPDATE ON xc_trigger_rep_tab
 	FOR EACH ROW EXECUTE PROCEDURE count_update_row();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 CREATE TRIGGER rep_count_delete_row BEFORE DELETE ON xc_trigger_rep_tab
 	FOR EACH ROW EXECUTE PROCEDURE count_delete_row();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- Renaming of trigger based on a table
 ALTER TRIGGER repcount_update_row ON my_table RENAME TO repcount_update_row2;
 ERROR:  relation "my_table" does not exist
@@ -96,16 +90,10 @@ CREATE TRIGGER hash_count_truncate_query BEFORE TRUNCATE ON xc_trigger_hash_tab
 	FOR EACH STATEMENT EXECUTE PROCEDURE count_truncate_query();
 CREATE TRIGGER hash_count_insert_row BEFORE INSERT ON xc_trigger_hash_tab
 	FOR EACH ROW EXECUTE PROCEDURE count_insert_row();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 CREATE TRIGGER hash_count_update_row BEFORE UPDATE ON xc_trigger_hash_tab
 	FOR EACH ROW EXECUTE PROCEDURE count_update_row();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 CREATE TRIGGER hash_count_delete_row BEFORE DELETE ON xc_trigger_hash_tab
 	FOR EACH ROW EXECUTE PROCEDURE count_delete_row();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- Round robin table
 CREATE TRIGGER rr_count_insert_query AFTER INSERT ON xc_trigger_rr_tab
 	FOR EACH STATEMENT EXECUTE PROCEDURE count_insert_query();
@@ -117,16 +105,10 @@ CREATE TRIGGER rr_count_truncate_query BEFORE TRUNCATE ON xc_trigger_rr_tab
 	FOR EACH STATEMENT EXECUTE PROCEDURE count_truncate_query();
 CREATE TRIGGER rr_count_insert_row BEFORE INSERT ON xc_trigger_rr_tab
 	FOR EACH ROW EXECUTE PROCEDURE count_insert_row();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 CREATE TRIGGER rr_count_update_row BEFORE UPDATE ON xc_trigger_rr_tab
 	FOR EACH ROW EXECUTE PROCEDURE count_update_row();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 CREATE TRIGGER rr_count_delete_row BEFORE DELETE ON xc_trigger_rr_tab
 	FOR EACH ROW EXECUTE PROCEDURE count_delete_row();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- Modulo table
 CREATE TRIGGER modulo_count_insert_query AFTER INSERT ON xc_trigger_modulo_tab
 	FOR EACH STATEMENT EXECUTE PROCEDURE count_insert_query();
@@ -138,16 +120,10 @@ CREATE TRIGGER modulo_count_truncate_query BEFORE TRUNCATE ON xc_trigger_modulo_
 	FOR EACH STATEMENT EXECUTE PROCEDURE count_truncate_query();
 CREATE TRIGGER modulo_count_insert_row BEFORE INSERT ON xc_trigger_modulo_tab
 	FOR EACH ROW EXECUTE PROCEDURE count_insert_row();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 CREATE TRIGGER modulo_count_update_row BEFORE UPDATE ON xc_trigger_modulo_tab
 	FOR EACH ROW EXECUTE PROCEDURE count_update_row();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 CREATE TRIGGER modulo_count_delete_row BEFORE DELETE ON xc_trigger_modulo_tab
 	FOR EACH ROW EXECUTE PROCEDURE count_delete_row();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- Insert some values to test the INSERT triggers
 INSERT INTO xc_trigger_rep_tab VALUES (1,2);
 INSERT INTO xc_trigger_rep_tab VALUES (3,4);
@@ -164,10 +140,10 @@ INSERT INTO xc_trigger_modulo_tab VALUES (5,6),(7,8),(9,10);
 SELECT * FROM table_stats ORDER BY table_name;
       table_name       | num_insert_query | num_update_query | num_delete_query | num_truncate_query | num_insert_row | num_update_row | num_delete_row 
 -----------------------+------------------+------------------+------------------+--------------------+----------------+----------------+----------------
- xc_trigger_hash_tab   |                3 |                0 |                0 |                  0 |              0 |              0 |              0
- xc_trigger_modulo_tab |                3 |                0 |                0 |                  0 |              0 |              0 |              0
- xc_trigger_rep_tab    |                3 |                0 |                0 |                  0 |              0 |              0 |              0
- xc_trigger_rr_tab     |                3 |                0 |                0 |                  0 |              0 |              0 |              0
+ xc_trigger_hash_tab   |                3 |                0 |                0 |                  0 |              5 |              0 |              0
+ xc_trigger_modulo_tab |                3 |                0 |                0 |                  0 |              5 |              0 |              0
+ xc_trigger_rep_tab    |                3 |                0 |                0 |                  0 |              5 |              0 |              0
+ xc_trigger_rr_tab     |                3 |                0 |                0 |                  0 |              5 |              0 |              0
 (4 rows)
 
 -- Update some values to test the UPDATE triggers
@@ -186,10 +162,10 @@ UPDATE xc_trigger_modulo_tab SET b = b+1 WHERE a IN (5,7,9);
 SELECT * FROM table_stats ORDER BY table_name;
       table_name       | num_insert_query | num_update_query | num_delete_query | num_truncate_query | num_insert_row | num_update_row | num_delete_row 
 -----------------------+------------------+------------------+------------------+--------------------+----------------+----------------+----------------
- xc_trigger_hash_tab   |                3 |                3 |                0 |                  0 |              0 |              0 |              0
- xc_trigger_modulo_tab |                3 |                3 |                0 |                  0 |              0 |              0 |              0
- xc_trigger_rep_tab    |                3 |                3 |                0 |                  0 |              0 |              0 |              0
- xc_trigger_rr_tab     |                3 |                3 |                0 |                  0 |              0 |              0 |              0
+ xc_trigger_hash_tab   |                3 |                3 |                0 |                  0 |              5 |              5 |              0
+ xc_trigger_modulo_tab |                3 |                3 |                0 |                  0 |              5 |              5 |              0
+ xc_trigger_rep_tab    |                3 |                3 |                0 |                  0 |              5 |              5 |              0
+ xc_trigger_rr_tab     |                3 |                3 |                0 |                  0 |              5 |              5 |              0
 (4 rows)
 
 -- Delete some values to test the DELETE triggers
@@ -208,10 +184,10 @@ DELETE FROM xc_trigger_modulo_tab WHERE a IN (5,7,9);
 SELECT * FROM table_stats ORDER BY table_name;
       table_name       | num_insert_query | num_update_query | num_delete_query | num_truncate_query | num_insert_row | num_update_row | num_delete_row 
 -----------------------+------------------+------------------+------------------+--------------------+----------------+----------------+----------------
- xc_trigger_hash_tab   |                3 |                3 |                3 |                  0 |              0 |              0 |              0
- xc_trigger_modulo_tab |                3 |                3 |                3 |                  0 |              0 |              0 |              0
- xc_trigger_rep_tab    |                3 |                3 |                3 |                  0 |              0 |              0 |              0
- xc_trigger_rr_tab     |                3 |                3 |                3 |                  0 |              0 |              0 |              0
+ xc_trigger_hash_tab   |                3 |                3 |                3 |                  0 |              5 |              5 |              5
+ xc_trigger_modulo_tab |                3 |                3 |                3 |                  0 |              5 |              5 |              5
+ xc_trigger_rep_tab    |                3 |                3 |                3 |                  0 |              5 |              5 |              5
+ xc_trigger_rr_tab     |                3 |                3 |                3 |                  0 |              5 |              5 |              5
 (4 rows)
 
 -- Truncate the table to test the TRUNCATE triggers
@@ -222,10 +198,10 @@ TRUNCATE xc_trigger_modulo_tab;
 SELECT * FROM table_stats ORDER BY table_name;
       table_name       | num_insert_query | num_update_query | num_delete_query | num_truncate_query | num_insert_row | num_update_row | num_delete_row 
 -----------------------+------------------+------------------+------------------+--------------------+----------------+----------------+----------------
- xc_trigger_hash_tab   |                3 |                3 |                3 |                  1 |              0 |              0 |              0
- xc_trigger_modulo_tab |                3 |                3 |                3 |                  1 |              0 |              0 |              0
- xc_trigger_rep_tab    |                3 |                3 |                3 |                  1 |              0 |              0 |              0
- xc_trigger_rr_tab     |                3 |                3 |                3 |                  1 |              0 |              0 |              0
+ xc_trigger_hash_tab   |                3 |                3 |                3 |                  1 |              5 |              5 |              5
+ xc_trigger_modulo_tab |                3 |                3 |                3 |                  1 |              5 |              5 |              5
+ xc_trigger_rep_tab    |                3 |                3 |                3 |                  1 |              5 |              5 |              5
+ xc_trigger_rr_tab     |                3 |                3 |                3 |                  1 |              5 |              5 |              5
 (4 rows)
 
 -- Clean up everything
@@ -243,7 +219,7 @@ DROP FUNCTION count_update_row();
 DROP FUNCTION count_delete_row();
 -- Tests for INSTEAD OF
 -- Replace operations on a view by operations on a table
-CREATE TABLE real_table (a int, b int);
+CREATE TABLE real_table (a int, b int) distribute by replication;
 CREATE VIEW real_view AS SELECT a,b FROM real_table;
 CREATE FUNCTION insert_real() RETURNS TRIGGER AS $_$
 	BEGIN
@@ -261,37 +237,26 @@ CREATE FUNCTION delete_real() RETURNS TRIGGER AS $_$
 		RETURN OLD;
 	END $_$ LANGUAGE 'plpgsql';
 CREATE TRIGGER insert_real_trig INSTEAD OF INSERT ON real_view FOR EACH ROW EXECUTE PROCEDURE insert_real();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 CREATE TRIGGER update_real_trig INSTEAD OF UPDATE ON real_view FOR EACH ROW EXECUTE PROCEDURE update_real();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 CREATE TRIGGER delete_real_trig INSTEAD OF DELETE ON real_view FOR EACH ROW EXECUTE PROCEDURE delete_real();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- Renaming of trigger based on a view
 ALTER TRIGGER delete_real_trig ON real_view RENAME TO delete_real_trig2;
-ERROR:  trigger "delete_real_trig" for table "real_view" does not exist
 -- Actions
 INSERT INTO real_view VALUES(1,1);
-ERROR:  cannot insert into view "real_view"
-HINT:  You need an unconditional ON INSERT DO INSTEAD rule or an INSTEAD OF INSERT trigger.
 SELECT * FROM real_table;
  a | b 
 ---+---
-(0 rows)
+ 1 | 1
+(1 row)
 
 UPDATE real_view SET b = 4 WHERE a = 1;
-ERROR:  cannot update view "real_view"
-HINT:  You need an unconditional ON UPDATE DO INSTEAD rule or an INSTEAD OF UPDATE trigger.
 SELECT * FROM real_table;
  a | b 
 ---+---
-(0 rows)
+ 1 | 4
+(1 row)
 
 DELETE FROM real_view WHERE a = 1;
-ERROR:  cannot delete from view "real_view"
-HINT:  You need an unconditional ON DELETE DO INSTEAD rule or an INSTEAD OF DELETE trigger.
 SELECT * FROM real_table;
  a | b 
 ---+---

@@ -124,6 +124,7 @@ typedef struct
 #define COPY_BUFFER_SIZE 8192
 #define PRIMARY_NODE_WRITEAHEAD 1024 * 1024
 
+
 /*
  * List of PGXCNodeHandle to track readers and writers involved in the
  * current transaction
@@ -170,7 +171,11 @@ static void init_RemoteXactState(bool preparedLocalNode);
 static void clear_RemoteXactState(void);
 static void pgxc_node_report_error(RemoteQueryState *combiner);
 static bool IsReturningDMLOnReplicatedTable(RemoteQuery *rq);
-static void SetDataRowForIntParams(TupleTableSlot *slot, RemoteQueryState *rq_state);
+static void SetDataRowForIntParams(JunkFilter *junkfilter,
+					   TupleTableSlot *sourceSlot, TupleTableSlot *newSlot,
+					   RemoteQueryState *rq_state);
+static void pgxc_append_param_val(StringInfo buf, Datum val, Oid valtype);
+static void pgxc_append_param_junkval(TupleTableSlot *slot, AttrNumber attno, Oid valtype, StringInfo buf);
 
 /*
  * Create a structure to store parameters needed to combine responses from
@@ -4073,15 +4078,22 @@ ExecIsTempObjectIncluded(void)
  * Parameters:
  * resultRemoteRel:  The RemoteQueryState containing DML statement to be
  *					 executed
- * previousStepSlot: The tuple returned by the first step (described above)
+ * sourceDataSlot: The tuple returned by the first step (described above)
  *					 to be used as parameters in the second step.
+ * newDataSlot: This has all the junk attributes stripped off from
+ *				sourceDataSlot, plus BEFORE triggers may have modified the
+ *				originally fetched data values. In other words, this has
+ *				the final values that are to be sent to datanode through BIND.
  *
  * Returns the result of RETURNING clause if any
  */
 TupleTableSlot *
-ExecProcNodeDMLInXC(RemoteQueryState *resultRemoteRel,
-					TupleTableSlot *previousStepSlot)
+ExecProcNodeDMLInXC(EState *estate,
+	                TupleTableSlot *sourceDataSlot,
+	                TupleTableSlot *newDataSlot)
 {
+	ResultRelInfo *resultRelInfo = estate->es_result_relation_info;
+	RemoteQueryState *resultRemoteRel = (RemoteQueryState *) estate->es_result_remoterel;
 	ExprContext	*econtext = resultRemoteRel->ss.ps.ps_ExprContext;
 	TupleTableSlot	*returningResultSlot = NULL;	/* RETURNING clause result */
 	TupleTableSlot	*temp_slot;
@@ -4092,7 +4104,7 @@ ExecProcNodeDMLInXC(RemoteQueryState *resultRemoteRel,
 	 * If the tuple returned by the previous step was null,
 	 * simply return null tuple, no need to execute the DML
 	 */
-	if (TupIsNull(previousStepSlot))
+	if (TupIsNull(sourceDataSlot))
 		return NULL;
 
 	/*
@@ -4107,7 +4119,8 @@ ExecProcNodeDMLInXC(RemoteQueryState *resultRemoteRel,
 	 * Use data row returned by the previous step as parameter for
 	 * the DML to be executed in this step.
 	 */
-	SetDataRowForIntParams(previousStepSlot, resultRemoteRel);
+	SetDataRowForIntParams(resultRelInfo->ri_junkFilter,
+	                       sourceDataSlot, newDataSlot, resultRemoteRel);
 
 	/*
 	 * do_query calls get_exec_connections to determine target nodes
@@ -4119,8 +4132,13 @@ ExecProcNodeDMLInXC(RemoteQueryState *resultRemoteRel,
 	 * The econtext is set only when en_expr is set for execution time
 	 * determination of the target nodes.
 	 */
+
+	 /*
+	  * TODO : What if the distribution column has changed by trigger ? We should
+	  * check that the corresponding data node has not changed.
+	  */
 	if (econtext)
-		econtext->ecxt_scantuple = previousStepSlot;
+		econtext->ecxt_scantuple = newDataSlot;
 
 	/*
 	 * Consider the case of a non FQSed INSERT for example. The executor keeps
@@ -4833,7 +4851,8 @@ void AtEOXact_DBCleanup(bool isCommit)
 	}
 }
 
-/* --------------------------------
+
+/*
  * SetDataRowForIntParams: Form a BIND data row for internal parameters.
  * This function is called when the data for the parameters of remote
  * statement resides in some plan slot of an internally generated remote
@@ -4845,97 +4864,212 @@ void AtEOXact_DBCleanup(bool isCommit)
  * At the same time, remote parameter types are inferred from the slot
  * tuple descriptor, and stored in RemoteQueryState.rqs_param_types.
  * On subsequent calls, these param types are re-used.
- * The slot itself is undisturbed.
- * --------------------------------
+ * The data to be BOUND consists of table column data to be inserted/updated
+ * and the ctid/nodeid values to be supplied for the WHERE clause of the
+ * query. The data values are present in dataSlot whereas the ctid/nodeid
+ * are available in sourceSlot as junk attributes.
+ * For DELETEs, the dataSlot is NULL.
+ * sourceSlot is used only to retrieve ctid/nodeid, so it does not get
+ * used for INSERTs, although it will never be NULL.
+ * The slots themselves are undisturbed.
  */
 static void
-SetDataRowForIntParams(TupleTableSlot *slot, RemoteQueryState *rq_state)
+SetDataRowForIntParams(JunkFilter *junkfilter,
+					   TupleTableSlot *sourceSlot, TupleTableSlot *dataSlot,
+					   RemoteQueryState *rq_state)
 {
-	TupleDesc	tdesc = slot->tts_tupleDescriptor;
-	int			att_index;
+	StringInfoData	buf;
+	uint16			numparams = 0;
 
-	Assert(tdesc != NULL);
+	Assert(sourceSlot);
+
+	/* Calculate the total number of parameters */
+	if (dataSlot)
+		numparams = dataSlot->tts_tupleDescriptor->natts;
+	/* Add number of junk attributes */
+	if (junkfilter)
+	{
+		if (junkfilter->jf_junkAttNo)
+			numparams++;
+		if (junkfilter->jf_xc_node_id)
+			numparams++;
+	}
 
 	/*
-	 * Infer param types from the tuple desc. But we have to do it only the
-	 * first time: the interal parameters remain the same while processing all
-	 * the source data rows because the data slot tupdesc never changes.
-	 * Even though we can determine the internal param types during planning, we
-	 * want to do it here: we don't want to set the param types and param data
-	 * at two different places. Doing them together here helps us to make sure
-	 * that the order of param types are in line with the order of the param
+	 * Infer param types from the slot tupledesc and junk attributes. But we
+	 * have to do it only the first time: the interal parameters remain the same
+	 * while processing all the source data rows because the data slot tupdesc
+	 * never changes. Even though we can determine the internal param types
+	 * during planning, we want to do it here: we don't want to set the param
+	 * types and param data at two different places. Doing them together here
+	 * helps us to make sure that the param types are in sync with the param
 	 * data.
+	 */
+
+	/*
+	 * We know the numparams, now initialize the param types if not already
+	 * done. Once set, this will be re-used for each source data row.
 	 */
 	if (rq_state->rqs_num_params == 0)
 	{
-		rq_state->rqs_num_params = tdesc->natts;
+		int	attindex = 0;
+
+		rq_state->rqs_num_params = numparams;
 		rq_state->rqs_param_types =
 			(Oid *) palloc(sizeof(Oid) * rq_state->rqs_num_params);
-		for (att_index = 0; att_index < rq_state->rqs_num_params; att_index++)
-			rq_state->rqs_param_types[att_index] = tdesc->attrs[att_index]->atttypid;
-	}
 
-	/* if we already have datarow make a copy */
-	if (slot->tts_dataRow)
-	{
-		rq_state->paramval_data = (char *)palloc(slot->tts_dataLen);
-		memcpy(rq_state->paramval_data, slot->tts_dataRow, slot->tts_dataLen);
-		rq_state->paramval_len = slot->tts_dataLen;
+		if (dataSlot) /* We have table attributes to bind */
+		{
+			TupleDesc tdesc = dataSlot->tts_tupleDescriptor;
+			int numatts = tdesc->natts;
+			for (attindex = 0; attindex < numatts; attindex++)
+			{
+				rq_state->rqs_param_types[attindex] =
+					tdesc->attrs[attindex]->atttypid;
+			}
+		}
+		if (junkfilter) /* Param types for specific junk attributes if present */
+		{
+			/* jf_junkAttNo always contains ctid */
+			if (AttributeNumberIsValid(junkfilter->jf_junkAttNo))
+				rq_state->rqs_param_types[attindex] = TIDOID;
+
+			if (AttributeNumberIsValid(junkfilter->jf_xc_node_id))
+				rq_state->rqs_param_types[attindex + 1] = INT4OID;
+		}
 	}
 	else
 	{
-		StringInfoData	buf;
-		uint16			n16;
+		Assert(rq_state->rqs_num_params == numparams);
+	}
 
-		initStringInfo(&buf);
-		/* Number of parameter values */
-		n16 = htons(tdesc->natts);
-		appendBinaryStringInfo(&buf, (char *) &n16, 2);
+	/*
+	 * If we already have the data row, just copy that, and we are done. One
+	 * scenario where we can have the data row is for INSERT ... SELECT.
+	 * Effectively, in this case, we just re-use the data row from SELECT as-is
+	 * for BIND row of INSERT. But just make sure all of the data required to
+	 * bind is available in the slot. If there are junk attributes to be added
+	 * in the BIND row, we cannot re-use the data row as-is.
+	 */
+	if (!junkfilter && dataSlot && dataSlot->tts_dataRow)
+	{
+		rq_state->paramval_data = (char *)palloc(dataSlot->tts_dataLen);
+		memcpy(rq_state->paramval_data, dataSlot->tts_dataRow, dataSlot->tts_dataLen);
+		rq_state->paramval_len = dataSlot->tts_dataLen;
+		return;
+	}
+
+	initStringInfo(&buf);
+
+	{
+		uint16 params_nbo = htons(numparams); /* Network byte order */
+		appendBinaryStringInfo(&buf, (char *) &params_nbo, sizeof(params_nbo));
+	}
+
+	/*
+	 * The data attributes would not be present for DELETE. In such case,
+	 * dataSlot will be NULL.
+	 */
+	if (dataSlot)
+	{
+		TupleDesc	 	tdesc = dataSlot->tts_tupleDescriptor;
+		int				attindex;
+
+		/* Append the data attributes */
 
 		/* ensure we have all values */
-		slot_getallattrs(slot);
-		for (att_index = 0; att_index < tdesc->natts; att_index++)
+		slot_getallattrs(dataSlot);
+		for (attindex = 0; attindex < tdesc->natts; attindex++)
 		{
 			uint32 n32;
+			Assert(attindex < numparams);
 
-			if (slot->tts_isnull[att_index])
+			if (dataSlot->tts_isnull[attindex])
 			{
 				n32 = htonl(-1);
 				appendBinaryStringInfo(&buf, (char *) &n32, 4);
 			}
 			else
-			{
-				Form_pg_attribute attr = tdesc->attrs[att_index];
-				Oid		typOutput;
-				bool	typIsVarlena;
-				Datum	pval;
-				char   *pstring;
-				int		len;
+				pgxc_append_param_val(&buf, dataSlot->tts_values[attindex], tdesc->attrs[attindex]->atttypid);
 
-				/* Get info needed to output the value */
-				getTypeOutputInfo(attr->atttypid, &typOutput, &typIsVarlena);
-				/*
-				 * If we have a toasted datum, forcibly detoast it here to avoid
-				 * memory leakage inside the type's output routine.
-				 */
-				if (typIsVarlena)
-					pval = PointerGetDatum(PG_DETOAST_DATUM(slot->tts_values[att_index]));
-				else
-					pval = slot->tts_values[att_index];
-
-				/* Convert Datum to string */
-				pstring = OidOutputFunctionCall(typOutput, pval);
-
-				/* copy data to the buffer */
-				len = strlen(pstring);
-				n32 = htonl(len);
-				appendBinaryStringInfo(&buf, (char *) &n32, 4);
-				appendBinaryStringInfo(&buf, pstring, len);
-			}
 		}
+	}
 
-		/* Assign the newly allocated data row to paramval */
-		rq_state->paramval_data = buf.data;
-		rq_state->paramval_len = buf.len;
+	/*
+	 * From the source data, fetch the junk attribute values to be appended in
+	 * the end of the data buffer. The junk attribute vals like ctid and
+	 * xc_node_id are used in the WHERE clause parameters.
+	 * These attributes would not be present for INSERT.
+	 */
+	if (junkfilter)
+	{
+		/* First one - jf_junkAttNo - always reprsents ctid */
+		pgxc_append_param_junkval(sourceSlot, junkfilter->jf_junkAttNo,
+								  TIDOID, &buf);
+		pgxc_append_param_junkval(sourceSlot, junkfilter->jf_xc_node_id,
+								  INT4OID, &buf);
+	}
+
+	/* Assign the newly allocated data row to paramval */
+	rq_state->paramval_data = buf.data;
+	rq_state->paramval_len = buf.len;
+
+}
+
+
+/*
+ * pgxc_append_param_junkval:
+ * Append into the data row the parameter whose value cooresponds to the junk
+ * attributes in the source slot, namely ctid or node_id.
+ */
+static void
+pgxc_append_param_junkval(TupleTableSlot *slot, AttrNumber attno,
+						  Oid valtype, StringInfo buf)
+{
+	bool isNull;
+
+	if (slot && attno != InvalidAttrNumber)
+	{
+		/* Junk attribute positions are saved by ExecFindJunkAttribute() */
+		Datum val = ExecGetJunkAttribute(slot, attno, &isNull);
+		/* shouldn't ever get a null result... */
+		if (isNull)
+			elog(ERROR, "NULL junk attribute");
+
+		pgxc_append_param_val(buf, val, valtype);
 	}
 }
+
+/*
+ * pgxc_append_param_val:
+ * Append the parameter value for the SET clauses of the UPDATE statement.
+ * These values are the table attribute values from the dataSlot.
+ */
+static void
+pgxc_append_param_val(StringInfo buf, Datum val, Oid valtype)
+{
+	/* Convert Datum to string */
+	char *pstring;
+	int len;
+	uint32 n32;
+	Oid		typOutput;
+	bool	typIsVarlena;
+
+	/* Get info needed to output the value */
+	getTypeOutputInfo(valtype, &typOutput, &typIsVarlena);
+	/*
+	 * If we have a toasted datum, forcibly detoast it here to avoid
+	 * memory leakage inside the type's output routine.
+	 */
+	if (typIsVarlena)
+		val = PointerGetDatum(PG_DETOAST_DATUM(val));
+
+	pstring = OidOutputFunctionCall(typOutput, val);
+
+	/* copy data to the buffer */
+	len = strlen(pstring);
+	n32 = htonl(len);
+	appendBinaryStringInfo(buf, (char *) &n32, 4);
+	appendBinaryStringInfo(buf, pstring, len);
+}
+

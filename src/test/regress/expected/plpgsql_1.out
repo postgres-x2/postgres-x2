@@ -103,8 +103,6 @@ end;
 ' language plpgsql;
 create trigger tg_room_au after update
     on Room for each row execute procedure tg_room_au();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- ************************************************************
 -- * AFTER DELETE on Room
 -- *	- delete wall slots in this room
@@ -117,8 +115,6 @@ end;
 ' language plpgsql;
 create trigger tg_room_ad after delete
     on Room for each row execute procedure tg_room_ad();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- ************************************************************
 -- * BEFORE INSERT or UPDATE on WSlot
 -- *	- Check that room exists
@@ -133,8 +129,6 @@ end;
 $$ language plpgsql;
 create trigger tg_wslot_biu before insert or update
     on WSlot for each row execute procedure tg_wslot_biu();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- ************************************************************
 -- * AFTER UPDATE on PField
 -- *	- Let PSlots of this field follow
@@ -149,8 +143,6 @@ end;
 ' language plpgsql;
 create trigger tg_pfield_au after update
     on PField for each row execute procedure tg_pfield_au();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- ************************************************************
 -- * AFTER DELETE on PField
 -- *	- Remove all slots of this patchfield
@@ -163,8 +155,6 @@ end;
 ' language plpgsql;
 create trigger tg_pfield_ad after delete
     on PField for each row execute procedure tg_pfield_ad();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- ************************************************************
 -- * BEFORE INSERT or UPDATE on PSlot
 -- *	- Ensure that our patchfield does exist
@@ -183,8 +173,6 @@ end;
 $proc$ language plpgsql;
 create trigger tg_pslot_biu before insert or update
     on PSlot for each row execute procedure tg_pslot_biu();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- ************************************************************
 -- * AFTER UPDATE on System
 -- *	- If system name changes let interfaces follow
@@ -199,8 +187,6 @@ end;
 ' language plpgsql;
 create trigger tg_system_au after update
     on System for each row execute procedure tg_system_au();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- ************************************************************
 -- * BEFORE INSERT or UPDATE on IFace
 -- *	- set the slotname to IF.sysname.ifname
@@ -226,8 +212,6 @@ end;
 $$ language plpgsql;
 create trigger tg_iface_biu before insert or update
     on IFace for each row execute procedure tg_iface_biu();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- ************************************************************
 -- * AFTER INSERT or UPDATE or DELETE on Hub
 -- *	- insert/delete/rename slots as required
@@ -256,8 +240,6 @@ end;
 ' language plpgsql;
 create trigger tg_hub_a after insert or update or delete
     on Hub for each row execute procedure tg_hub_a();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- ************************************************************
 -- * Support function to add/remove slots of Hub
 -- ************************************************************
@@ -320,8 +302,6 @@ end;
 ' language plpgsql;
 create trigger tg_hslot_biu before insert or update
     on HSlot for each row execute procedure tg_hslot_biu();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- ************************************************************
 -- * BEFORE DELETE on HSlot
 -- *	- prevent from manual manipulation
@@ -342,8 +322,6 @@ end;
 ' language plpgsql;
 create trigger tg_hslot_bd before delete
     on HSlot for each row execute procedure tg_hslot_bd();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- ************************************************************
 -- * BEFORE INSERT on all slots
 -- *	- Check name prefix
@@ -358,24 +336,14 @@ end;
 ' language plpgsql;
 create trigger tg_chkslotname before insert
     on PSlot for each row execute procedure tg_chkslotname('PS');
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 create trigger tg_chkslotname before insert
     on WSlot for each row execute procedure tg_chkslotname('WS');
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 create trigger tg_chkslotname before insert
     on PLine for each row execute procedure tg_chkslotname('PL');
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 create trigger tg_chkslotname before insert
     on IFace for each row execute procedure tg_chkslotname('IF');
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 create trigger tg_chkslotname before insert
     on PHone for each row execute procedure tg_chkslotname('PH');
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- ************************************************************
 -- * BEFORE INSERT or UPDATE on all slots with slotlink
 -- *	- Set slotlink to empty string if NULL value given
@@ -390,24 +358,14 @@ end;
 ' language plpgsql;
 create trigger tg_chkslotlink before insert or update
     on PSlot for each row execute procedure tg_chkslotlink();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 create trigger tg_chkslotlink before insert or update
     on WSlot for each row execute procedure tg_chkslotlink();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 create trigger tg_chkslotlink before insert or update
     on IFace for each row execute procedure tg_chkslotlink();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 create trigger tg_chkslotlink before insert or update
     on HSlot for each row execute procedure tg_chkslotlink();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 create trigger tg_chkslotlink before insert or update
     on PHone for each row execute procedure tg_chkslotlink();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- ************************************************************
 -- * BEFORE INSERT or UPDATE on all slots with backlink
 -- *	- Set backlink to empty string if NULL value given
@@ -422,16 +380,10 @@ end;
 ' language plpgsql;
 create trigger tg_chkbacklink before insert or update
     on PSlot for each row execute procedure tg_chkbacklink();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 create trigger tg_chkbacklink before insert or update
     on WSlot for each row execute procedure tg_chkbacklink();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 create trigger tg_chkbacklink before insert or update
     on PLine for each row execute procedure tg_chkbacklink();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- ************************************************************
 -- * BEFORE UPDATE on PSlot
 -- *	- do delete/insert instead of update if name changes
@@ -458,8 +410,6 @@ end;
 ' language plpgsql;
 create trigger tg_pslot_bu before update
     on PSlot for each row execute procedure tg_pslot_bu();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- ************************************************************
 -- * BEFORE UPDATE on WSlot
 -- *	- do delete/insert instead of update if name changes
@@ -486,8 +436,6 @@ end;
 ' language plpgsql;
 create trigger tg_wslot_bu before update
     on WSlot for each row execute procedure tg_Wslot_bu();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- ************************************************************
 -- * BEFORE UPDATE on PLine
 -- *	- do delete/insert instead of update if name changes
@@ -514,8 +462,6 @@ end;
 ' language plpgsql;
 create trigger tg_pline_bu before update
     on PLine for each row execute procedure tg_pline_bu();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- ************************************************************
 -- * BEFORE UPDATE on IFace
 -- *	- do delete/insert instead of update if name changes
@@ -542,8 +488,6 @@ end;
 ' language plpgsql;
 create trigger tg_iface_bu before update
     on IFace for each row execute procedure tg_iface_bu();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- ************************************************************
 -- * BEFORE UPDATE on HSlot
 -- *	- do delete/insert instead of update if name changes
@@ -570,8 +514,6 @@ end;
 ' language plpgsql;
 create trigger tg_hslot_bu before update
     on HSlot for each row execute procedure tg_hslot_bu();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- ************************************************************
 -- * BEFORE UPDATE on PHone
 -- *	- do delete/insert instead of update if name changes
@@ -596,8 +538,6 @@ end;
 ' language plpgsql;
 create trigger tg_phone_bu before update
     on PHone for each row execute procedure tg_phone_bu();
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- ************************************************************
 -- * AFTER INSERT or UPDATE or DELETE on slot with backlink
 -- *	- Ensure that the opponent correctly points back to us
@@ -637,16 +577,10 @@ end;
 ' language plpgsql;
 create trigger tg_backlink_a after insert or update or delete
     on PSlot for each row execute procedure tg_backlink_a('PS');
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 create trigger tg_backlink_a after insert or update or delete
     on WSlot for each row execute procedure tg_backlink_a('WS');
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 create trigger tg_backlink_a after insert or update or delete
     on PLine for each row execute procedure tg_backlink_a('PL');
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- ************************************************************
 -- * Support function to set the opponents backlink field
 -- * if it does not already point to the requested slot
@@ -785,24 +719,14 @@ end;
 ' language plpgsql;
 create trigger tg_slotlink_a after insert or update or delete
     on PSlot for each row execute procedure tg_slotlink_a('PS');
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 create trigger tg_slotlink_a after insert or update or delete
     on WSlot for each row execute procedure tg_slotlink_a('WS');
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 create trigger tg_slotlink_a after insert or update or delete
     on IFace for each row execute procedure tg_slotlink_a('IF');
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 create trigger tg_slotlink_a after insert or update or delete
     on HSlot for each row execute procedure tg_slotlink_a('HS');
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 create trigger tg_slotlink_a after insert or update or delete
     on PHone for each row execute procedure tg_slotlink_a('PH');
-ERROR:  Postgres-XC does not support ROW TRIGGER yet
-DETAIL:  The feature is not currently supported
 -- ************************************************************
 -- * Support function to set the opponents slotlink field
 -- * if it does not already point to the requested slot
@@ -1222,8 +1146,8 @@ update PSlot set backlink = 'WS.001.1b' where slotname = 'PS.base.a3';
 select * from WSlot where roomno = '001' order by slotname;
        slotname       |  roomno  |       slotlink       |       backlink       
 ----------------------+----------+----------------------+----------------------
- WS.001.1a            | 001      |                      |                     
- WS.001.1b            | 001      |                      |                     
+ WS.001.1a            | 001      |                      | PS.base.a1          
+ WS.001.1b            | 001      |                      | PS.base.a3          
  WS.001.2a            | 001      |                      |                     
  WS.001.2b            | 001      |                      |                     
  WS.001.3a            | 001      |                      |                     
@@ -1245,9 +1169,9 @@ update PSlot set backlink = 'WS.001.2a' where slotname = 'PS.base.a3';
 select * from WSlot where roomno = '001' order by slotname;
        slotname       |  roomno  |       slotlink       |       backlink       
 ----------------------+----------+----------------------+----------------------
- WS.001.1a            | 001      |                      |                     
+ WS.001.1a            | 001      |                      | PS.base.a1          
  WS.001.1b            | 001      |                      |                     
- WS.001.2a            | 001      |                      |                     
+ WS.001.2a            | 001      |                      | PS.base.a3          
  WS.001.2b            | 001      |                      |                     
  WS.001.3a            | 001      |                      |                     
  WS.001.3b            | 001      |                      |                     
@@ -1268,9 +1192,9 @@ update PSlot set backlink = 'WS.001.1b' where slotname = 'PS.base.a2';
 select * from WSlot where roomno = '001' order by slotname;
        slotname       |  roomno  |       slotlink       |       backlink       
 ----------------------+----------+----------------------+----------------------
- WS.001.1a            | 001      |                      |                     
- WS.001.1b            | 001      |                      |                     
- WS.001.2a            | 001      |                      |                     
+ WS.001.1a            | 001      |                      | PS.base.a1          
+ WS.001.1b            | 001      |                      | PS.base.a2          
+ WS.001.2a            | 001      |                      | PS.base.a3          
  WS.001.2b            | 001      |                      |                     
  WS.001.3a            | 001      |                      |                     
  WS.001.3b            | 001      |                      |                     
@@ -1297,9 +1221,9 @@ update WSlot set backlink = 'PS.base.a6' where slotname = 'WS.001.3a';
 select * from WSlot where roomno = '001' order by slotname;
        slotname       |  roomno  |       slotlink       |       backlink       
 ----------------------+----------+----------------------+----------------------
- WS.001.1a            | 001      |                      |                     
- WS.001.1b            | 001      |                      |                     
- WS.001.2a            | 001      |                      |                     
+ WS.001.1a            | 001      |                      | PS.base.a1          
+ WS.001.1b            | 001      |                      | PS.base.a2          
+ WS.001.2a            | 001      |                      | PS.base.a3          
  WS.001.2b            | 001      |                      | PS.base.a4          
  WS.001.3a            | 001      |                      | PS.base.a6          
  WS.001.3b            | 001      |                      |                     
@@ -1311,20 +1235,20 @@ select * from PSlot where slotname ~ 'PS.base.a' order by slotname;
  PS.base.a1           | PF0_1  |                      | WS.001.1a           
  PS.base.a2           | PF0_1  |                      | WS.001.1b           
  PS.base.a3           | PF0_1  |                      | WS.001.2a           
- PS.base.a4           | PF0_1  |                      |                     
+ PS.base.a4           | PF0_1  |                      | WS.001.2b           
  PS.base.a5           | PF0_1  |                      |                     
- PS.base.a6           | PF0_1  |                      |                     
+ PS.base.a6           | PF0_1  |                      | WS.001.3a           
 (6 rows)
 
 update WSlot set backlink = 'PS.base.a6' where slotname = 'WS.001.3b';
 select * from WSlot where roomno = '001' order by slotname;
        slotname       |  roomno  |       slotlink       |       backlink       
 ----------------------+----------+----------------------+----------------------
- WS.001.1a            | 001      |                      |                     
- WS.001.1b            | 001      |                      |                     
- WS.001.2a            | 001      |                      |                     
+ WS.001.1a            | 001      |                      | PS.base.a1          
+ WS.001.1b            | 001      |                      | PS.base.a2          
+ WS.001.2a            | 001      |                      | PS.base.a3          
  WS.001.2b            | 001      |                      | PS.base.a4          
- WS.001.3a            | 001      |                      | PS.base.a6          
+ WS.001.3a            | 001      |                      |                     
  WS.001.3b            | 001      |                      | PS.base.a6          
 (6 rows)
 
@@ -1334,18 +1258,18 @@ select * from PSlot where slotname ~ 'PS.base.a' order by slotname;
  PS.base.a1           | PF0_1  |                      | WS.001.1a           
  PS.base.a2           | PF0_1  |                      | WS.001.1b           
  PS.base.a3           | PF0_1  |                      | WS.001.2a           
- PS.base.a4           | PF0_1  |                      |                     
+ PS.base.a4           | PF0_1  |                      | WS.001.2b           
  PS.base.a5           | PF0_1  |                      |                     
- PS.base.a6           | PF0_1  |                      |                     
+ PS.base.a6           | PF0_1  |                      | WS.001.3b           
 (6 rows)
 
 update WSlot set backlink = 'PS.base.a5' where slotname = 'WS.001.3a';
 select * from WSlot where roomno = '001' order by slotname;
        slotname       |  roomno  |       slotlink       |       backlink       
 ----------------------+----------+----------------------+----------------------
- WS.001.1a            | 001      |                      |                     
- WS.001.1b            | 001      |                      |                     
- WS.001.2a            | 001      |                      |                     
+ WS.001.1a            | 001      |                      | PS.base.a1          
+ WS.001.1b            | 001      |                      | PS.base.a2          
+ WS.001.2a            | 001      |                      | PS.base.a3          
  WS.001.2b            | 001      |                      | PS.base.a4          
  WS.001.3a            | 001      |                      | PS.base.a5          
  WS.001.3b            | 001      |                      | PS.base.a6          
@@ -1357,9 +1281,9 @@ select * from PSlot where slotname ~ 'PS.base.a' order by slotname;
  PS.base.a1           | PF0_1  |                      | WS.001.1a           
  PS.base.a2           | PF0_1  |                      | WS.001.1b           
  PS.base.a3           | PF0_1  |                      | WS.001.2a           
- PS.base.a4           | PF0_1  |                      |                     
- PS.base.a5           | PF0_1  |                      |                     
- PS.base.a6           | PF0_1  |                      |                     
+ PS.base.a4           | PF0_1  |                      | WS.001.2b           
+ PS.base.a5           | PF0_1  |                      | WS.001.3a           
+ PS.base.a6           | PF0_1  |                      | WS.001.3b           
 (6 rows)
 
 insert into PField values ('PF1_2', 'Phonelines first floor');
@@ -1385,9 +1309,9 @@ select * from PSlot order by slotname;
  PS.base.a1           | PF0_1  |                      | WS.001.1a           
  PS.base.a2           | PF0_1  |                      | WS.001.1b           
  PS.base.a3           | PF0_1  |                      | WS.001.2a           
- PS.base.a4           | PF0_1  |                      |                     
- PS.base.a5           | PF0_1  |                      |                     
- PS.base.a6           | PF0_1  |                      |                     
+ PS.base.a4           | PF0_1  |                      | WS.001.2b           
+ PS.base.a5           | PF0_1  |                      | WS.001.3a           
+ PS.base.a6           | PF0_1  |                      | WS.001.3b           
  PS.base.b1           | PF0_1  |                      | WS.002.1a           
  PS.base.b2           | PF0_1  |                      | WS.002.1b           
  PS.base.b3           | PF0_1  |                      | WS.002.2a           
@@ -1400,18 +1324,18 @@ select * from PSlot order by slotname;
  PS.base.c4           | PF0_1  |                      | WS.003.2b           
  PS.base.c5           | PF0_1  |                      | WS.003.3a           
  PS.base.c6           | PF0_1  |                      | WS.003.3b           
- PS.base.ta1          | PF0_X  |                      |                     
- PS.base.ta2          | PF0_X  |                      |                     
- PS.base.ta3          | PF0_X  |                      |                     
- PS.base.ta4          | PF0_X  |                      |                     
- PS.base.ta5          | PF0_X  |                      |                     
- PS.base.ta6          | PF0_X  |                      |                     
- PS.base.tb1          | PF0_X  |                      |                     
- PS.base.tb2          | PF0_X  |                      |                     
- PS.base.tb3          | PF0_X  |                      |                     
- PS.base.tb4          | PF0_X  |                      |                     
- PS.base.tb5          | PF0_X  |                      |                     
- PS.base.tb6          | PF0_X  |                      |                     
+ PS.base.ta1          | PF0_2  |                      |                     
+ PS.base.ta2          | PF0_2  |                      |                     
+ PS.base.ta3          | PF0_2  |                      |                     
+ PS.base.ta4          | PF0_2  |                      |                     
+ PS.base.ta5          | PF0_2  |                      |                     
+ PS.base.ta6          | PF0_2  |                      |                     
+ PS.base.tb1          | PF0_2  |                      |                     
+ PS.base.tb2          | PF0_2  |                      |                     
+ PS.base.tb3          | PF0_2  |                      |                     
+ PS.base.tb4          | PF0_2  |                      |                     
+ PS.base.tb5          | PF0_2  |                      |                     
+ PS.base.tb6          | PF0_2  |                      |                     
  PS.first.a1          | PF1_1  |                      | WS.101.1a           
  PS.first.a2          | PF1_1  |                      | WS.101.1b           
  PS.first.a3          | PF1_1  |                      | WS.101.2a           
@@ -1453,48 +1377,48 @@ select * from PSlot order by slotname;
 select * from WSlot order by slotname;
        slotname       |  roomno  |       slotlink       |       backlink       
 ----------------------+----------+----------------------+----------------------
- WS.001.1a            | 001      |                      |                     
- WS.001.1b            | 001      |                      |                     
- WS.001.2a            | 001      |                      |                     
+ WS.001.1a            | 001      |                      | PS.base.a1          
+ WS.001.1b            | 001      |                      | PS.base.a2          
+ WS.001.2a            | 001      |                      | PS.base.a3          
  WS.001.2b            | 001      |                      | PS.base.a4          
  WS.001.3a            | 001      |                      | PS.base.a5          
  WS.001.3b            | 001      |                      | PS.base.a6          
- WS.002.1a            | 002      |                      |                     
- WS.002.1b            | 002      |                      |                     
- WS.002.2a            | 002      |                      |                     
- WS.002.2b            | 002      |                      |                     
- WS.002.3a            | 002      |                      |                     
- WS.002.3b            | 002      |                      |                     
- WS.003.1a            | 003      |                      |                     
- WS.003.1b            | 003      |                      |                     
- WS.003.2a            | 003      |                      |                     
- WS.003.2b            | 003      |                      |                     
- WS.003.3a            | 003      |                      |                     
- WS.003.3b            | 003      |                      |                     
- WS.101.1a            | 101      |                      |                     
- WS.101.1b            | 101      |                      |                     
- WS.101.2a            | 101      |                      |                     
- WS.101.2b            | 101      |                      |                     
- WS.101.3a            | 101      |                      |                     
- WS.101.3b            | 101      |                      |                     
- WS.102.1a            | 102      |                      |                     
- WS.102.1b            | 102      |                      |                     
- WS.102.2a            | 102      |                      |                     
- WS.102.2b            | 102      |                      |                     
- WS.102.3a            | 102      |                      |                     
- WS.102.3b            | 102      |                      |                     
- WS.105.1a            | 105      |                      |                     
- WS.105.1b            | 105      |                      |                     
- WS.105.2a            | 105      |                      |                     
- WS.105.2b            | 105      |                      |                     
- WS.105.3a            | 105      |                      |                     
- WS.105.3b            | 105      |                      |                     
- WS.106.1a            | 106      |                      |                     
- WS.106.1b            | 106      |                      |                     
- WS.106.2a            | 106      |                      |                     
- WS.106.2b            | 106      |                      |                     
- WS.106.3a            | 106      |                      |                     
- WS.106.3b            | 106      |                      |                     
+ WS.002.1a            | 002      |                      | PS.base.b1          
+ WS.002.1b            | 002      |                      | PS.base.b2          
+ WS.002.2a            | 002      |                      | PS.base.b3          
+ WS.002.2b            | 002      |                      | PS.base.b4          
+ WS.002.3a            | 002      |                      | PS.base.b5          
+ WS.002.3b            | 002      |                      | PS.base.b6          
+ WS.003.1a            | 003      |                      | PS.base.c1          
+ WS.003.1b            | 003      |                      | PS.base.c2          
+ WS.003.2a            | 003      |                      | PS.base.c3          
+ WS.003.2b            | 003      |                      | PS.base.c4          
+ WS.003.3a            | 003      |                      | PS.base.c5          
+ WS.003.3b            | 003      |                      | PS.base.c6          
+ WS.101.1a            | 101      |                      | PS.first.a1         
+ WS.101.1b            | 101      |                      | PS.first.a2         
+ WS.101.2a            | 101      |                      | PS.first.a3         
+ WS.101.2b            | 101      |                      | PS.first.a4         
+ WS.101.3a            | 101      |                      | PS.first.a5         
+ WS.101.3b            | 101      |                      | PS.first.a6         
+ WS.102.1a            | 102      |                      | PS.first.b1         
+ WS.102.1b            | 102      |                      | PS.first.b2         
+ WS.102.2a            | 102      |                      | PS.first.b3         
+ WS.102.2b            | 102      |                      | PS.first.b4         
+ WS.102.3a            | 102      |                      | PS.first.b5         
+ WS.102.3b            | 102      |                      | PS.first.b6         
+ WS.105.1a            | 105      |                      | PS.first.c1         
+ WS.105.1b            | 105      |                      | PS.first.c2         
+ WS.105.2a            | 105      |                      | PS.first.c3         
+ WS.105.2b            | 105      |                      | PS.first.c4         
+ WS.105.3a            | 105      |                      | PS.first.c5         
+ WS.105.3b            | 105      |                      | PS.first.c6         
+ WS.106.1a            | 106      |                      | PS.first.d1         
+ WS.106.1b            | 106      |                      | PS.first.d2         
+ WS.106.2a            | 106      |                      | PS.first.d3         
+ WS.106.2b            | 106      |                      | PS.first.d4         
+ WS.106.3a            | 106      |                      | PS.first.d5         
+ WS.106.3b            | 106      |                      | PS.first.d6         
 (42 rows)
 
 --
@@ -1548,32 +1472,44 @@ update PSlot set slotlink = 'HS.base.hub1.1' where slotname = 'PS.base.b2';
 --
 -- PGXCTODO: This is failing due to issue 3522907, complicated SELECT queries in plpgsql functions
 select * from PField_v1 where pfname = 'PF0_1' order by slotname;
- pfname |       slotname       |          backside          |      patch       
---------+----------------------+----------------------------+------------------
- PF0_1  | PS.base.a1           | WS.001.1a in room 001 -> - | PS.base.ta1 -> -
- PF0_1  | PS.base.a2           | WS.001.1b in room 001 -> - | -
- PF0_1  | PS.base.a3           | WS.001.2a in room 001 -> - | PS.base.ta2 -> -
- PF0_1  | PS.base.a4           | -                          | -
- PF0_1  | PS.base.a5           | -                          | -
- PF0_1  | PS.base.a6           | -                          | -
- PF0_1  | PS.base.b1           | WS.002.1a in room 002 -> - | PS.base.ta5 -> -
- PF0_1  | PS.base.b2           | WS.002.1b in room 002 -> - | 
- PF0_1  | PS.base.b3           | WS.002.2a in room 002 -> - | PS.base.tb2 -> -
- PF0_1  | PS.base.b4           | WS.002.2b in room 002 -> - | -
- PF0_1  | PS.base.b5           | WS.002.3a in room 002 -> - | -
- PF0_1  | PS.base.b6           | WS.002.3b in room 002 -> - | -
- PF0_1  | PS.base.c1           | WS.003.1a in room 003 -> - | -
- PF0_1  | PS.base.c2           | WS.003.1b in room 003 -> - | -
- PF0_1  | PS.base.c3           | WS.003.2a in room 003 -> - | -
- PF0_1  | PS.base.c4           | WS.003.2b in room 003 -> - | -
- PF0_1  | PS.base.c5           | WS.003.3a in room 003 -> - | -
- PF0_1  | PS.base.c6           | WS.003.3b in room 003 -> - | -
+ pfname |       slotname       |                         backside                         |                     patch                     
+--------+----------------------+----------------------------------------------------------+-----------------------------------------------
+ PF0_1  | PS.base.a1           | WS.001.1a in room 001 -> Phone PH.hc001 (Hicom standard) | PS.base.ta1 -> Phone line -0 (Central call)
+ PF0_1  | PS.base.a2           | WS.001.1b in room 001 -> -                               | -
+ PF0_1  | PS.base.a3           | WS.001.2a in room 001 -> Phone PH.fax001 (Canon fax)     | PS.base.ta2 -> Phone line -501 (Fax entrance)
+ PF0_1  | PS.base.a4           | WS.001.2b in room 001 -> -                               | -
+ PF0_1  | PS.base.a5           | WS.001.3a in room 001 -> -                               | -
+ PF0_1  | PS.base.a6           | WS.001.3b in room 001 -> -                               | -
+ PF0_1  | PS.base.b1           | WS.002.1a in room 002 -> Phone PH.hc002 (Hicom standard) | PS.base.ta5 -> Phone line -103
+ PF0_1  | PS.base.b2           | WS.002.1b in room 002 -> orion IF eth0 (PC)              | Patchfield PF0_1 hub slot 1
+ PF0_1  | PS.base.b3           | WS.002.2a in room 002 -> Phone PH.hc003 (Hicom standard) | PS.base.tb2 -> Phone line -106
+ PF0_1  | PS.base.b4           | WS.002.2b in room 002 -> -                               | -
+ PF0_1  | PS.base.b5           | WS.002.3a in room 002 -> -                               | -
+ PF0_1  | PS.base.b6           | WS.002.3b in room 002 -> -                               | -
+ PF0_1  | PS.base.c1           | WS.003.1a in room 003 -> -                               | -
+ PF0_1  | PS.base.c2           | WS.003.1b in room 003 -> -                               | -
+ PF0_1  | PS.base.c3           | WS.003.2a in room 003 -> -                               | -
+ PF0_1  | PS.base.c4           | WS.003.2b in room 003 -> -                               | -
+ PF0_1  | PS.base.c5           | WS.003.3a in room 003 -> -                               | -
+ PF0_1  | PS.base.c6           | WS.003.3b in room 003 -> -                               | -
 (18 rows)
 
 select * from PField_v1 where pfname = 'PF0_2' order by slotname;
- pfname | slotname | backside | patch 
---------+----------+----------+-------
-(0 rows)
+ pfname |       slotname       |            backside            |                                 patch                                  
+--------+----------------------+--------------------------------+------------------------------------------------------------------------
+ PF0_2  | PS.base.ta1          | Phone line -0 (Central call)   | PS.base.a1 -> WS.001.1a in room 001 -> Phone PH.hc001 (Hicom standard)
+ PF0_2  | PS.base.ta2          | Phone line -501 (Fax entrance) | PS.base.a3 -> WS.001.2a in room 001 -> Phone PH.fax001 (Canon fax)
+ PF0_2  | PS.base.ta3          | Phone line -102                | -
+ PF0_2  | PS.base.ta4          | -                              | -
+ PF0_2  | PS.base.ta5          | Phone line -103                | PS.base.b1 -> WS.002.1a in room 002 -> Phone PH.hc002 (Hicom standard)
+ PF0_2  | PS.base.ta6          | Phone line -104                | -
+ PF0_2  | PS.base.tb1          | -                              | -
+ PF0_2  | PS.base.tb2          | Phone line -106                | PS.base.b3 -> WS.002.2a in room 002 -> Phone PH.hc003 (Hicom standard)
+ PF0_2  | PS.base.tb3          | Phone line -108                | -
+ PF0_2  | PS.base.tb4          | Phone line -109                | -
+ PF0_2  | PS.base.tb5          | Phone line -121                | -
+ PF0_2  | PS.base.tb6          | Phone line -122                | -
+(12 rows)
 
 --
 -- Finally we want errors
@@ -1582,20 +1518,28 @@ insert into PField values ('PF1_1', 'should fail due to unique index');
 ERROR:  duplicate key value violates unique constraint "pfield_name"
 DETAIL:  Key (name)=(PF1_1) already exists.
 update PSlot set backlink = 'WS.not.there' where slotname = 'PS.base.a1';
+ERROR:  WS.not.there         does not exist
+CONTEXT:  PL/pgSQL function tg_backlink_a() line 17 at assignment
 update PSlot set backlink = 'XX.illegal' where slotname = 'PS.base.a1';
+ERROR:  illegal backlink beginning with XX
+CONTEXT:  PL/pgSQL function tg_backlink_a() line 17 at assignment
 update PSlot set slotlink = 'PS.not.there' where slotname = 'PS.base.a1';
+ERROR:  PS.not.there         does not exist
+CONTEXT:  PL/pgSQL function tg_slotlink_a() line 17 at assignment
 update PSlot set slotlink = 'XX.illegal' where slotname = 'PS.base.a1';
+ERROR:  illegal slotlink beginning with XX
+CONTEXT:  PL/pgSQL function tg_slotlink_a() line 17 at assignment
 insert into HSlot values ('HS', 'base.hub1', 1, '');
-insert into HSlot values ('HS', 'base.hub1', 20, '');
 ERROR:  duplicate key value violates unique constraint "hslot_name"
-DETAIL:  Key (slotname)=(HS                  ) already exists.
+DETAIL:  Key (slotname)=(HS.base.hub1.1      ) already exists.
+insert into HSlot values ('HS', 'base.hub1', 20, '');
+ERROR:  no manual manipulation of HSlot
 delete from HSlot;
+ERROR:  no manual manipulation of HSlot
 insert into IFace values ('IF', 'notthere', 'eth0', '');
-ERROR:  duplicate key value violates unique constraint "iface_name"
-DETAIL:  Key (slotname)=(IF                  ) already exists.
+ERROR:  system "notthere" does not exist
 insert into IFace values ('IF', 'orion', 'ethernet_interface_name_too_long', '');
-ERROR:  duplicate key value violates unique constraint "iface_name"
-DETAIL:  Key (slotname)=(IF                  ) already exists.
+ERROR:  IFace slotname "IF.orion.ethernet_interface_name_too_long" too long (20 char max)
 --
 -- The following tests are unrelated to the scenario outlined above;
 -- they merely exercise specific parts of PL/pgSQL

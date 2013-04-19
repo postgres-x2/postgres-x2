@@ -23,6 +23,9 @@
 #include "catalog/pgxc_node.h"
 #include "commands/prepare.h"
 #include "commands/tablecmds.h"
+#ifdef PGXC
+#include "commands/trigger.h"
+#endif
 #include "executor/executor.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
@@ -988,9 +991,10 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 	RangeTblRef		*target_table_ref;
 	RangeTblEntry	*res_rel;
 	ListCell		*elt;
-	int				ctid_param_num = -1;
-	int				xc_node_id_param_num = -1;
+	bool			ctid_found = false;
+	bool			node_id_found = false;
 	int				col_att = 0;
+	int				ctid_param_num;
 
 	/* Make sure we are dealing with DMLs */
 	if (cmdtype != CMD_UPDATE &&
@@ -1047,19 +1051,22 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 		/* The position of ctid/xc_node_id is not required for INSERT */
 		if (tle->resjunk && (cmdtype == CMD_UPDATE || cmdtype == CMD_DELETE))
 		{
-			if (xc_node_id_param_num == -1)
-			{
-				Var *v = (Var *)tle->expr;
+			Var *v = (Var *)tle->expr;
 
+			if (v->varno == resultRelationIndex)
+			{
 				if (v->varattno == XC_NodeIdAttributeNumber)
-					xc_node_id_param_num = tle->resno;
-			}
-			if (ctid_param_num == -1)
-			{
-				Var *v = (Var *)tle->expr;
-
-				if (v->varattno == SelfItemPointerAttributeNumber)
-					ctid_param_num = tle->resno;
+				{
+					if (node_id_found)
+						elog(ERROR, "Duplicate node_ids not expected in source target list");
+					node_id_found = true;
+				}
+				else if (v->varattno == SelfItemPointerAttributeNumber)
+				{
+					if (ctid_found)
+						elog(ERROR, "Duplicate ctids not expected in source target list");
+					ctid_found = true;
+				}
 			}
 
 			continue;
@@ -1098,61 +1105,103 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 	 */
 	if (cmdtype == CMD_UPDATE)
 	{
-		foreach(elt, root->parse->targetList)
+		TriggerDesc trigdesc;
+		int natts = get_relnatts(res_rel->relid);
+
+		/*
+		 * If there is a before-update trigger, we need to update *all* the
+		 * table attributes because the trigger execution might have changed any
+		 * of the tuple attributes. So the UPDATE will look like :
+		 * UPDATE ... SET att1 = $1, att1 = $2, .... attn = $n WHERE ctid = $(n+1)
+		 */
+		if (pgxc_triggers_getdesc(res_rel->relid, cmdtype, &trigdesc) == true
+		    && trigdesc.trig_update_before_row)
 		{
-			TargetEntry	*qtle = lfirst(elt);
-			AttrNumber	param_num = -1;
-	
-			/*
-			 * The entries of the SET clause will have resjusk false
-			 * and will have a valid resname
-			 */
-			if (qtle->resjunk || qtle->resname == NULL)
-				continue;
-
-			/*
-			 * Assume all attributes will be there in the source target list
-			 * and in the same order as the attributes exist in the table
-			 * The paramter number for the set caluse would therefore
-			 * be same as its attribute number
-			 */
-			param_num = get_attnum(res_rel->relid, qtle->resname);
-			if (param_num == InvalidAttrNumber)
+			int attnum;
+			for (attnum = 1; attnum <= natts; attnum++)
 			{
-				elog(ERROR, "cache lookup failed for attribute %s of relation %u",
-					qtle->resname, res_rel->relid);
-				return;
+				pgxc_add_param_as_tle(query_to_deparse, attnum,
+			                      get_atttype(res_rel->relid, attnum),
+			                      get_attname(res_rel->relid, attnum));
 			}
-
-			/*
-			 * Create the parameter using the parameter number found earlier
-			 * and add it to the target list of the query to deparse
-			 */
-			pgxc_add_param_as_tle(query_to_deparse, param_num,
-								exprType((Node *) qtle->expr), qtle->resname);
 		}
+		else
+		{
+			foreach(elt, root->parse->targetList)
+			{
+				TargetEntry	*qtle = lfirst(elt);
+				AttrNumber	param_num = -1;
+		
+				/*
+				 * The entries of the SET clause will have resjusk false
+				 * and will have a valid resname
+				 */
+				if (qtle->resjunk || qtle->resname == NULL)
+					continue;
+
+				/*
+				 * Assume all attributes will be there in the source target list
+				 * and in the same order as the attributes exist in the table
+				 * The paramter number for the set caluse would therefore
+				 * be same as its attribute number
+				 */
+				param_num = get_attnum(res_rel->relid, qtle->resname);
+				if (param_num == InvalidAttrNumber)
+				{
+					elog(ERROR, "cache lookup failed for attribute %s of relation %u",
+						qtle->resname, res_rel->relid);
+					return;
+				}
+
+				/*
+				 * Create the parameter using the parameter number found earlier
+				 * and add it to the target list of the query to deparse
+				 */
+				pgxc_add_param_as_tle(query_to_deparse, param_num,
+									exprType((Node *) qtle->expr), qtle->resname);
+			}
+		}
+
+		/*
+		 * The data row generated for BIND has all required values, plus NULL
+		 * values for attributes that are not SET. The first n parameters are
+		 * the n table attributes, followed by ctid and optionally node_id. So
+		 * we know that the ctid has to be n + 1.
+		 */
+		ctid_param_num = natts + 1;
+	} 
+	else if (cmdtype == CMD_DELETE)
+	{
+		/*
+		 * Since there is no data to update, the first param is going to be
+		 * ctid.
+		 */
+		ctid_param_num = 1;
 	}
 
 	/* Add quals like ctid = $4 AND xc_node_id = $6 to the UPDATE/DELETE query */
 	if (cmdtype == CMD_UPDATE || cmdtype == CMD_DELETE)
 	{
-		if (ctid_param_num <= 0 && xc_node_id_param_num <= 0)
+		if (!ctid_found)
+			elog(ERROR, "Source data plan's target list does not contain ctid colum");
+
+		/*
+		 * Beware, the ordering of ctid and node_id is important ! ctid should
+		 * be followed by node_id, not vice-versa, so as to be consistent with
+		 * the data row to be generated while binding the parameters for the
+		 * update statement.
+		 */
+		pgxc_dml_add_qual_to_query(query_to_deparse, ctid_param_num,
+						SelfItemPointerAttributeNumber, resultRelationIndex);
+
+		if (node_id_found)
 		{
-			elog(ERROR, "Source data plan's target list does not contain required system colums");
-			return;
-		}
-
-		if (ctid_param_num > 0)
-			pgxc_dml_add_qual_to_query(query_to_deparse, ctid_param_num,
-							SelfItemPointerAttributeNumber, resultRelationIndex);
-
-		if (xc_node_id_param_num > 0)
-			pgxc_dml_add_qual_to_query(query_to_deparse, xc_node_id_param_num,
+			pgxc_dml_add_qual_to_query(query_to_deparse, ctid_param_num + 1,
 							XC_NodeIdAttributeNumber, resultRelationIndex);
 
-		if (ctid_param_num > 0 && xc_node_id_param_num > 0)
 			query_to_deparse->jointree->quals = (Node *)make_andclause(
-									(List *)query_to_deparse->jointree->quals);
+								(List *)query_to_deparse->jointree->quals);
+		}
 	}
 
 	/* pgxc_add_returning_list copied returning list in base_tlist */

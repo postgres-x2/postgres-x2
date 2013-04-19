@@ -194,7 +194,7 @@ DROP FUNCTION count_delete_row();
 
 -- Tests for INSTEAD OF
 -- Replace operations on a view by operations on a table
-CREATE TABLE real_table (a int, b int);
+CREATE TABLE real_table (a int, b int) distribute by replication;
 CREATE VIEW real_view AS SELECT a,b FROM real_table;
 CREATE FUNCTION insert_real() RETURNS TRIGGER AS $_$
 	BEGIN
