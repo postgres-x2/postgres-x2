@@ -78,7 +78,7 @@
           ./postgres --restoremode -D ../data_cord3 -p 5455
         </programlisting>
 	    <para>
-	     You can use <literal>pg_ctl</litera> with <option>-Z restoremode</option> option.
+	     You can use <literal>pg_ctl</literal> with <option>-Z restoremode</option> option.
 	    </para>
 	    <programlisting>
 	     ./pg_ctl start -Z restoremode -D ../data_coord3 -p 5455
@@ -194,12 +194,11 @@
           ./postgres --restoremode -D ../data3 -p 35432
         </programlisting>
 	    <para>
-	     You can use <literal>pg_ctl</litera> with <option>-Z restoremode</option> option.
+	     You can use <literal>pg_ctl</literal> with <option>-Z restoremode</option> option.
 	    </para>
 	    <programlisting>
 	     ./pg_ctl start -Z restoremode -D ../data3 -p 5455
 	    </programlisting>
-      </listitem>
       </listitem>
 
       <listitem>
