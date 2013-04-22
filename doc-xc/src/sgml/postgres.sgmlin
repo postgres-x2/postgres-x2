@@ -244,6 +244,7 @@
   &wal;
   &regress;
   &add-node;
+  &remove-node;
  </part>
 
  <part id="client-interfaces">
