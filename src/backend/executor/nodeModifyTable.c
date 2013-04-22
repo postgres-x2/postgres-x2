@@ -291,7 +291,8 @@ ExecInsert(TupleTableSlot *slot,
 	if (canSetTag)
 	{
 #ifdef PGXC
-		if (IS_PGXC_COORDINATOR && resultRelInfo->ri_projectReturning)
+		if (IS_PGXC_COORDINATOR && resultRemoteRel &&
+			resultRelInfo->ri_projectReturning)
 		{
 			/*
 			 * Consider this example
@@ -522,7 +523,8 @@ ldelete:;
 	if (canSetTag)
 #ifdef PGXC
 	{
-		if (IS_PGXC_COORDINATOR && resultRelInfo->ri_projectReturning)
+		if (IS_PGXC_COORDINATOR && resultRemoteRel &&
+			resultRelInfo->ri_projectReturning)
 		{
 			/* For reason see comments in ExecInsert */
 			if (!TupIsNull(slot))
@@ -544,8 +546,8 @@ ldelete:;
 
 	/* Process RETURNING if present */
 #ifdef PGXC
-	if (resultRelInfo->ri_projectReturning && resultRemoteRel != NULL &&
-		IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	if (IS_PGXC_COORDINATOR && resultRemoteRel &&
+		resultRelInfo->ri_projectReturning)
 	{
 		if (TupIsNull(slot))
 			return NULL;
@@ -822,7 +824,8 @@ lreplace:;
 	if (canSetTag)
 #ifdef PGXC
 	{
-		if (IS_PGXC_COORDINATOR && resultRelInfo->ri_projectReturning)
+		if (IS_PGXC_COORDINATOR && resultRemoteRel &&
+			resultRelInfo->ri_projectReturning)
 		{
 			/* For reason see comments in ExecInsert */
 			if (!TupIsNull(slot))
