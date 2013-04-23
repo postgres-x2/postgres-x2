@@ -166,6 +166,14 @@ void add_val(pgxc_ctl_var *var, char *val)
 	var->val[var->val_used] = NULL;
 }
 
+void add_val_name(char *name, char *val)
+{
+	pgxc_ctl_var *var;
+	if (!(var = find_var(name)))
+		return;
+	add_val(var, name);
+	return;
+}
 
 
 pgxc_ctl_var *find_var(char *name)
@@ -202,7 +210,7 @@ void reset_value(pgxc_ctl_var *var)
 	int i;
 	for (i = 0; var->val[i]; i++)
 	{
-		free (var->val[i]);
+		Free (var->val[i]);
 		var->val[i] = NULL;
 	}
 	var->val_used = 0;
@@ -352,3 +360,58 @@ char *listValue(char *name)
 	}
 	return buf;
 }
+
+int ifExists(char *name, char *value)
+{
+	pgxc_ctl_var *var = find_var(name);
+	int ii;
+
+	if (!var)
+		return FALSE;
+	for (ii = 0; ii < var->val_used; ii++)
+		if (strcmp((var->val)[ii], value) == 0)
+			return TRUE;
+	return FALSE;
+}
+	
+int IfExists(char *name, char *value)
+{
+	pgxc_ctl_var *var = find_var(name);
+	int ii;
+
+	if (!var)
+		return FALSE;
+	for (ii = 0; ii < var->val_used; ii++)
+		if (strcasecmp((var->val)[ii], value) == 0)
+			return TRUE;
+	return FALSE;
+}
+
+int extendVar(char *name, int newSize, char *def_value)
+{
+	pgxc_ctl_var *target;
+	char **old_val;
+	int old_size;
+	int ii;
+
+	if ((target = find_var(name)) == NULL)
+		return -1;
+	if (target->val_size < newSize)
+	{
+		old_val = target->val;
+		old_size = target->val_size;
+		target->val = Malloc0(sizeof(char *) * (newSize +1));
+		memcpy(target->val, old_val, sizeof(char *) * old_size);
+		target->val_size = newSize;
+		for (ii = target->val_used; ii < newSize; ii++)
+			(target->val)[ii] = Strdup(def_value);
+	}
+	else if (target->val_used < newSize)
+	{
+		for (ii = target->val_used; ii < newSize; ii++)
+			(target->val)[ii] = Strdup(def_value);
+	}
+	return 0;
+}
+
+	

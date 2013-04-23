@@ -39,4 +39,6 @@ int checkDirConflict(char *host, char *dir);
 #define VERBOSE() (strcasecmp(sval(VAR_verbose), "y") == 0)
 #define isVarYes(x) ((sval(x) != NULL) && (strcasecmp(sval(x), "y") == 0))
 
+void handle_no_slaves(void);
+
 #endif /* CONFIG_H */

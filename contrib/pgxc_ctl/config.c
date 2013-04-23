@@ -366,7 +366,7 @@ static void emptyDatanodeSlaves()
  * Similar handling will be done for gtm slave, coordinator slaves
  * and datanode slaves.
  */
-static void handle_no_slaves()
+void handle_no_slaves()
 {
 	int is_empty;
 	int ii;

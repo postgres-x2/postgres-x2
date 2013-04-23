@@ -41,6 +41,7 @@ void init_var_hash(void);
 void add_var_hash(pgxc_ctl_var *var);
 pgxc_ctl_var *new_var(char *name);
 void add_val(pgxc_ctl_var *var, char *val);
+void add_val_name(char *name, char *val);
 pgxc_ctl_var *find_var(char *name);
 char *sval(char *name);
 char **aval(char *name);
@@ -60,10 +61,14 @@ void log_var(char *name);
 char **add_member(char **array, char *val);
 void var_assign(char **dest, char *src);
 char  *listValue(char *name);
+int extendVar(char *name, int newSize, char *def_value);
 
 #define AddMember(a, b) do{if((a) == NULL) (a) = Malloc0(sizeof(char *)); add_member((a), (b));}while(0)
 void clean_array(char **array);
 #define CleanArray(a) do{clean_array(a); (a) = NULL;}while(0)
 #define VAR(a) find_var(a)
+
+int ifExists(char *name, char *value);
+int IfExists(char *name, char *value);
 
 #endif /* VARIABLES _H */

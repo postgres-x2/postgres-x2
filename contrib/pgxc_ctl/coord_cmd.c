@@ -33,7 +33,10 @@
 #include "coord_cmd.h"
 #include "gtm_util.h"
 
+
 static int failover_oneCoordinator(int coordIdx);
+
+static char date[MAXTOKEN+1];
 
 /*
  *======================================================================
@@ -718,6 +721,496 @@ int clean_coordinator_slave_all(void)
 	return(clean_coordinator_slave(aval(VAR_coordNames)));
 }
 
+/*------------------------------------------------------------------------
+ *
+ * Add command
+ *
+ *-----------------------------------------------------------------------*/
+int add_coordinatorMaster(char *name, char *host, int port, int pooler, char *dir)
+{
+	FILE *f, *lockf;
+	int size;
+	char port_s[MAXTOKEN+1];
+	char pooler_s[MAXTOKEN+1];
+	int gtmPxyIdx;
+	char *gtmHost;
+	char *gtmPort;
+	char pgdumpall_out[MAXPATH+1];
+	char **nodelist = NULL;
+	int ii, jj;
+
+	/* Now in debug */
+	elog(MANDATORY, "This feature will come soon.\n");
+	return 0;
+
+	/* Check if all the coordinator masters are running */
+	if (!check_AllCoordRunning())
+	{
+		elog(ERROR, "ERROR: Some of the coordinator masters are not running. Cannot add one.\n");
+		return 1;
+	}
+	/* Check if there's no conflict with the current configuration */
+	if (checkNameConflict(name, FALSE))
+	{
+		elog(ERROR, "ERROR: Node name %s duplicate.\n", name);
+		return 1;
+	}
+	if (checkPortConflict(host, port) || checkPortConflict(host, pooler))
+	{
+		elog(ERROR, "ERROR: port numbrer (%d) or pooler port (%d) at host %s conflicts.\n", port, pooler, host);
+		return 1;
+	}
+	if (checkDirConflict(host, dir))
+	{
+		elog(ERROR, "ERROR: directory \"%s\" conflicts at host %s.\n", dir, host);
+		return 1;
+	}
+	/*
+	 * Check if coordinator masgter configuration is consistent
+	 */
+	size = arraySizeName(VAR_coordNames);
+	if ((arraySizeName(VAR_coordPorts) != size) ||
+		(arraySizeName(VAR_poolerPorts) != size) ||
+		(arraySizeName(VAR_coordMasterServers) != size) ||
+		(arraySizeName(VAR_coordMasterDirs) != size) ||
+		(arraySizeName(VAR_coordMaxWALSenders) != size) ||
+		(arraySizeName(VAR_coordSlaveServers) != size) ||
+		(arraySizeName(VAR_coordSlaveDirs) != size) ||
+		(arraySizeName(VAR_coordArchLogDirs) != size) ||
+		(arraySizeName(VAR_coordSpecificExtraConfig) != size) ||
+		(arraySizeName(VAR_coordSpecificExtraPgHba) != size))
+	{
+		elog(ERROR, "ERROR: sorry found some inconflicts in coordinator master configuration.");
+		return 1;
+	}
+	/*
+	 * Now reconfigure
+	 */
+	/*
+	 * 000 We need another way to configure specific pg_hba.conf and max_wal_senders.
+	 */
+	snprintf(port_s, MAXTOKEN, "%d", port);
+	snprintf(pooler_s, MAXTOKEN, "%d", pooler);
+	add_val_name(VAR_coordNames, name);
+	add_val_name(VAR_coordMasterServers, host);
+	add_val_name(VAR_coordPorts, port_s);
+	add_val_name(VAR_poolerPorts, pooler_s);
+	add_val_name(VAR_coordMasterDirs, dir);
+	add_val_name(VAR_coordMaxWALSenders, aval(VAR_coordMaxWALSenders)[0]);
+	add_val_name(VAR_coordSlaveServers, "none");
+	add_val_name(VAR_coordSlaveDirs, "none");
+	add_val_name(VAR_coordArchLogDirs, "none");
+	add_val_name(VAR_coordSpecificExtraConfig, "none");
+	add_val_name(VAR_coordSpecificExtraPgHba, "none");
+	/*
+	 * Update the configuration file and backup it
+	 */
+	if ((f = fopen(pgxc_ctl_config_path, "a")) == NULL)
+	{
+		/* Should it be panic? */
+		elog(ERROR, "ERROR: cannot open configuration file \"%s\", %s\n", pgxc_ctl_config_path, strerror(errno));
+		return 1;
+	}
+	fprintf(f, 
+			"#===================================================\n"
+			"# pgxc configuration file updated due to GTM slave addition\n"
+			"#        %s\n",
+			timeStampString(date, MAXTOKEN+1));
+	fprintAval(f, VAR_coordNames);
+	fprintAval(f, VAR_coordMasterServers);
+	fprintAval(f, VAR_coordPorts);
+	fprintAval(f, VAR_poolerPorts);
+	fprintAval(f, VAR_coordMasterDirs);
+	fprintAval(f, VAR_coordMaxWALSenders);
+	fprintAval(f, VAR_coordSlaveServers);
+	fprintAval(f, VAR_coordSlaveDirs);
+	fprintAval(f, VAR_coordArchLogDirs);
+	fprintAval(f, VAR_coordSpecificExtraConfig);
+	fprintAval(f, VAR_coordSpecificExtraPgHba);
+	fprintf(f, "%s", "#----End of reconfiguration -------------------------\n");
+	fclose(f);
+	backup_configuration();
+
+	/* Now add the master */
+
+	gtmPxyIdx = getEffectiveGtmProxyIdxFromServerName(host);
+	gtmHost = (gtmPxyIdx > 0) ? aval(VAR_gtmProxyServers)[gtmPxyIdx] : sval(VAR_gtmMasterServer);
+	gtmPort = (gtmPxyIdx > 0) ? aval(VAR_gtmProxyPorts)[gtmPxyIdx] : sval(VAR_gtmMasterPort);
+
+	/* initdb */
+	doImmediate(host, NULL, "initdb -D %s --nodename %s", dir, name);
+
+	/* Edit configurations */
+	if ((f = pgxc_popen_w(host, "cat >> %s/postgresql.conf", dir)))
+	{
+		fprintf(f,
+				"#===========================================\n"
+				"# Added at initialization. %s\n"
+				"port = %d\n"
+				"pooler_port = %d\n"
+				"gtm_host = '%s'\n"
+				"gtm_port = %s\n"
+				"# End of Additon\n",
+				timeStampString(date, MAXTOKEN+1),
+				port, pooler, gtmHost, gtmPort);
+		fclose(f);
+	}
+	jj = coordIdx(name);
+	if ((f = pgxc_popen_w(host, "cat >> %s/pg_hba.conf", dir)))
+	{
+		int kk;
+		for (kk = 0; aval(VAR_coordPgHbaEntries)[kk]; kk++)
+		{
+			fprintf(f,"host all %s %s trust\n",	sval(VAR_pgxcOwner), aval(VAR_coordPgHbaEntries)[kk]);
+			if (isVarYes(VAR_coordSlave))
+				if (!is_none(aval(VAR_coordSlaveServers)[jj]))
+					fprintf(f, "host replication %s %s trust\n",
+							sval(VAR_pgxcOwner), aval(VAR_coordPgHbaEntries)[kk]);
+		}
+		fprintf(f, "# End of addition\n");
+		fclose(f);
+	}
+
+	/* Lock ddl */
+	if ((lockf = pgxc_popen_wRaw("psql -h %s -p %s postgres", aval(VAR_coordMasterServers)[0], aval(VAR_coordPorts)[0])) == NULL)
+	{
+		elog(ERROR, "ERROR: could not open psql command, %s\n", strerror(errno));
+		return 1;
+	}
+	fprintf(lockf, "select pgxc_lock_for_backup();\n");	/* Keep open until the end of the addition. */
+
+	/* pg_dumpall */
+	createLocalFileName(GENERAL, pgdumpall_out, MAXPATH);
+	doImmediateRaw("pg_dumpall -p %s -h %s -s --include-nodes --dump-nodes --file=%s",
+				   aval(VAR_coordPorts)[0], aval(VAR_coordMasterServers)[0], pgdumpall_out);
+
+	/* Start the new coordinator */
+	doImmediate(host, "pg_ctl start -Z restoremode -D %s -p %d", dir, port);
+
+	/* Restore the backup */
+	doImmediateRaw("psql -h %s -p %d -d postgres -f %s", host, port, pgdumpall_out);
+
+	/* Quit the new coordinator */
+	doImmediate(host, NULL, "pg_ctl stop -Z restoremode -D %s", dir);
+
+	/* Start the new coordinator with --coordinator option */
+	AddMember(nodelist, name);
+	start_coordinator_master(nodelist);
+	CleanArray(nodelist);
+
+	/* Issue CREATE NODE */
+	for (ii = 0; aval(VAR_coordNames)[ii]; ii++)
+	{
+		if ((f = pgxc_popen_wRaw("psql -h %s -p %s postgres", aval(VAR_coordMasterServers)[ii], aval(VAR_coordPorts)[ii])) == NULL)
+		{
+			elog(ERROR, "ERROR: cannot connect to the coordinator master %s.\n", aval(VAR_coordNames)[ii]);
+			continue;
+		}
+		if (strcmp(aval(VAR_coordNames)[ii], name) != 0)
+			fprintf(f, "CREATE NODE %s WITH (TYPE = 'coordinator', host='%s', PORT=%d);\n", name, host, port);
+		else
+			fprintf(f, "ALTER NODE %s WITH (host='%s', PORT=%d);\n", name, host, port);
+		fprintf(f, "\\q\n");
+		fclose(f);
+	}
+
+	/* Quit DDL lokkup session */
+	fprintf(lockf, "\\q\n");
+	fclose(lockf);
+	return 0;
+}
+
+int add_coordinatorSlave(char *name, char *host, char *dir, char *archDir)
+{
+	int idx;
+	FILE *f;
+
+	elog(MANDATORY, "This feature will come soon.\n");
+	return 0;
+	/* Check if the name is valid coordinator */
+	if ((idx = coordIdx(name)) < 0)
+	{
+		elog(ERROR, "ERROR: Specified coordiantor %s is not configured.\n", name);
+		return 1;
+	}
+	/* Check if the coordinator slave is not configred */
+	if (isVarYes(VAR_coordSlave) && !is_none(aval(VAR_coordMasterServers)[idx]))
+	{
+		elog(ERROR, "ERROR: Slave for the coordinator %s has already been condigired.\n", name);
+		return 1;
+	}
+	/* Check if the resource does not conflict */
+	if (strcmp(dir, archDir) == 0)
+	{
+		elog(ERROR, "ERROR: working directory is the same as WAL archive directory.\n");
+		return 1;
+	}
+	if (checkNameConflict(name, FALSE))
+	{
+		elog(ERROR, "ERROR: node name %s conflicts with other nodes.\n", name);
+		return 1;
+	}
+	if (checkPortConflict(host, atoi(aval(VAR_coordPorts)[idx])))
+	{
+		elog(ERROR, "ERROR: the port %s has already been used in the host %s.\n",  aval(VAR_coordPorts)[idx], host);
+		return 1;
+	}
+	if (checkDirConflict(host, dir) || checkDirConflict(host, archDir))
+	{
+		elog(ERROR, "ERROR: directory %s or %s has already been used by other node.\n", dir, archDir);
+		return 1;
+	}
+	/* Check if the coordinator master is running */
+	if (pingNode(aval(VAR_coordMasterServers)[idx], aval(VAR_coordPorts)[idx]) != 0)
+	{
+		elog(ERROR, "ERROR: Coordinator master %s is not running.\n", name);
+		return 1;
+	}
+	/* Prepare the resources (directories) */
+	doImmediate(host, "rm -rf %s; mkdir -p %s;chmod 0700 %s", dir, dir, dir);
+	doImmediate(host, "rm -rf %s; mkdir -p %s;chmod 0700 %s", archDir, archDir, archDir);
+	/* Reconfigure the master with WAL archive */
+	/* Update the configuration and backup the configuration file */
+	if ((f = pgxc_popen_w(host, "cat >> %s/posrgresql.conf", aval(VAR_coordMasterDirs)[idx])) == NULL)
+	{
+		elog(ERROR, "ERROR: Cannot open coordnator master's configuration file, %s/postgresql.conf",
+			 aval(VAR_coordMasterDirs)[idx]);
+		return 1;
+	}
+	fprintf(f, 
+			"#========================================\n"
+			"# Addition for log shipping, %s\n"
+			"wal_level = hot_standby\n"
+			"archive_mode = on\n"
+			"archive_command = 'rsync %%p %s@%s:%s/%%f'\n"
+			"max_wal_senders = %s\n"
+			"# End of Addition\n",
+			timeStampString(date, MAXPATH),
+			sval(VAR_pgxcUser), host, archDir,
+			aval(VAR_coordMaxWALSenders)[0]);
+	fclose(f);
+	/* Reconfigure pgxc_ctl configuration with the new slave */
+	/* Need an API to expand the array to desired size */
+	if ((extendVar(VAR_coordSlaveServers, idx, "none") != 0) ||
+		(extendVar(VAR_coordSlaveDirs, idx, "none")  != 0) ||
+		(extendVar(VAR_coordArchLogDirs, idx, "none") != 0))
+	{
+		elog(PANIC, "PANIC: Internal error, inconsitent coordinator information\n");
+		return 1;
+	}
+	var_assign(&aval(VAR_coordSlaveServers)[idx], Strdup(host));
+	var_assign(&aval(VAR_coordSlaveDirs)[idx], Strdup(dir));
+	var_assign(&aval(VAR_coordArchLogDirs)[idx], Strdup(archDir));
+	if (!isVarYes(VAR_coordSlave))
+		assign_sval(VAR_coordSlave, "y");
+	/* Update the configuration file and backup it */
+	if ((f = fopen(pgxc_ctl_config_path, "a")) == NULL)
+	{
+		/* Should it be panic? */
+		elog(ERROR, "ERROR: cannot open configuration file \"%s\", %s\n", pgxc_ctl_config_path, strerror(errno));
+		return 1;
+	}
+	fprintf(f, 
+			"#===================================================\n"
+			"# pgxc configuration file updated due to coordinator slave addition\n"
+			"#        %s\n",
+			timeStampString(date, MAXTOKEN+1));
+	fprintSval(f, VAR_coordSlave);
+	fprintAval(f, VAR_coordSlaveServers);
+	fprintAval(f, VAR_coordArchLogDirs);
+	fprintAval(f, VAR_coordSlaveDirs);
+	fprintf(f, "%s", "#----End of reconfiguration -------------------------\n");
+	fclose(f);
+	backup_configuration();
+
+	/* Restart the master */
+	doImmediate(aval(VAR_coordMasterServers)[idx], NULL, 
+				"pg_ctl restart -Z coordinator -D %s", aval(VAR_coordMasterDirs)[idx]);
+	/* pg_basebackup */
+	doImmediate(host, "pg_basebackup -p %s -h %s -D %s -x",
+				aval(VAR_coordPorts)[idx], aval(VAR_coordMasterServers)[idx], dir);
+	/* Update the slave configuration with hot standby and port */
+	if ((f = pgxc_popen_w(host, "cat >> %s/postgresql.conf", dir)) == NULL)
+	{
+		elog(ERROR, "ERROR: Cannot open the new slave's postgresql.conf, %s\n", strerror(errno));
+		return 1;
+	}
+	fprintf(f,
+			"#==========================================\n"
+			"# Added to initialize the slave, %s\n"
+			"hot_standby = on\n"
+			"port = %s\n",
+			timeStampString(date, MAXTOKEN), aval(VAR_coordPorts)[idx]);
+	fclose(f);
+	/* Start the slave */
+	doImmediate(host, NULL, "pg_ctl start -Z coordinator -D %s", dir);
+	return 0;
+}
+
+
+/*------------------------------------------------------------------------
+ *
+ * Remove command
+ *
+ *-----------------------------------------------------------------------*/
+int remove_coordinatorMaster(char *name, int clean_opt)
+{
+	/*
+
+	Removing an existing coordinator
+	==========================
+
+	Assume a two coordinator cluster, COORD_1 & COORD_2
+	Suppose we want to remove COORD2 for any reason.
+
+	1. Stop the coordinator to be removed.
+	In our example we need to stop COORD_2.
+
+	2. Connect to any of the coordinators except the one to be removed.
+	In our example assuming COORD_1 is running on port 5432,
+	the following command would connect to COORD_1
+
+	psql postgres -p 5432
+
+	3. Drop the coordinator to be removed.
+	For example to drop coordinator COORD_2
+
+	DROP NODE COORD_2;
+
+	4. Update the connection information cached in pool.
+
+	SELECT pgxc_pool_reload();
+
+	COORD_2 is now removed from the cluster & COORD_1 would work as if COORD_2 never existed.
+
+	CAUTION : If COORD_2 is still running and clients are connected to it,  any queries issued would create inconsistencies in the cluster.
+
+	Please note that there is no need to block DDLs because either way DDLs will fail after step 1 and before step 4.
+
+	 */
+
+	int idx;
+	int ii;
+	FILE *f;
+	char **namelist;
+
+	elog(MANDATORY, "This feature will come soon.\n");
+	return 0;
+
+	/* Check if the coordinator is configured */
+	if ((idx = coordIdx(name)) < 0)
+	{
+		elog(ERROR, "ERROR: Coordinator %s is not configured.\n", name);
+		return 1;
+	}
+	/* Check if all the other coordinators are running */
+	for (ii = 0; aval(VAR_coordNames)[ii]; ii++)
+	{
+		if ((ii != idx) && (pingNode(aval(VAR_coordMasterServers)[ii], aval(VAR_coordPorts)[ii]) != 0))
+		{
+			elog(ERROR, "ERROR: Coordinator master %s is not running.\n", aval(VAR_coordNames)[ii]);
+			return 1;
+		}
+	}
+	/* Check if there're slave configured */
+	if (!is_none(aval(VAR_coordSlaveServers)[idx]))
+		remove_coordinatorSlave(name, clean_opt);
+	/* Stop the coordinator master if running */
+	if (pingNode(aval(VAR_coordMasterServers)[idx], aval(VAR_coordPorts)[idx]) == 0)
+	{
+		AddMember(namelist, name);
+		stop_coordinator_master(namelist, "immediate");
+		CleanArray(namelist);
+	}
+	/* Cleanup the coordinator master resource if specified */
+	if (clean_opt)
+		doImmediate(aval(VAR_coordMasterServers)[idx], NULL, "rm -rf %s", aval(VAR_coordMasterDirs)[idx]);
+	/* Issue "drop node" at all the other coordinators */
+	for (ii = 0; aval(VAR_coordNames)[ii]; ii++)
+	{
+		if (ii != idx)
+		{
+			f = pgxc_popen_wRaw("psql -p %d -h %s postgres", atoi(aval(VAR_coordPorts)[ii]), aval(VAR_coordMasterServers)[ii]);
+			if (f == NULL)
+			{
+				elog(ERROR, "ERROR: cannot begin psql for the coordinator master %s\n", aval(VAR_coordNames)[ii]);
+				continue;
+			}
+			fprintf(f, "DROP NODE %s;", aval(VAR_coordNames)[ii]);
+			fprintf(f, "\\q");
+			fclose(f);
+		}
+	}
+	/* Update configuration and backup --> should cleanup "none" entries here */
+	var_assign(&aval(VAR_coordNames)[idx], Strdup("none"));
+	var_assign(&aval(VAR_coordMasterDirs)[idx], Strdup("none"));
+	var_assign(&aval(VAR_coordPorts)[idx], Strdup("-1"));
+	var_assign(&aval(VAR_poolerPorts)[idx], Strdup("-1"));
+	var_assign(&aval(VAR_coordMasterServers)[idx], Strdup("none"));
+	var_assign(&aval(VAR_coordMaxWALSenders)[idx], Strdup("0"));
+	var_assign(&aval(VAR_coordSlaveServers)[idx], Strdup("none"));
+	var_assign(&aval(VAR_coordSlaveDirs)[idx], Strdup("none"));
+	var_assign(&aval(VAR_coordArchLogDirs)[idx], Strdup("none"));
+	var_assign(&aval(VAR_coordSpecificExtraConfig)[idx], Strdup("none"));
+	/*
+	 * Write config files
+	 */
+}
+
+int remove_coordinatorSlave(char *name, int clean_opt)
+{
+	int idx;
+	char **nodelist = NULL;
+
+	elog(MANDATORY, "This feature will come soon.\n");
+	return 0;
+
+	if (!isVarYes(VAR_coordSlave))
+	{
+		elog(ERROR, "ERROR: coordinator slave is not configured.\n");
+		return 1;
+	}
+	idx = coordIdx(name);
+	if (idx < 0)
+	{
+		elog(ERROR, "ERROR: coordinator %s is not configured.\n", name);
+		return 1;
+	}
+	if (is_none(aval(VAR_coordSlaveServers)[idx]))
+	{
+		elog(ERROR, "ERROR: coordinator slave %s is not configured.\n", name);
+		return 1;
+	}
+	AddMember(nodelist, name);
+	if (pingNode(aval(VAR_coordSlaveServers)[idx], aval(VAR_coordPorts)[idx]) == 0)
+		stop_coordinator_slave(nodelist, "immediate");
+	{
+		FILE *f;
+		if ((f = pgxc_popen_w(aval(VAR_coordMasterServers)[idx], "cat >> %s/postgresql.conf", aval(VAR_coordMasterDirs)[idx])) == NULL)
+		{
+			elog(ERROR, "ERROR: cannot open %s/postgresql.conf at %s, %s\n", aval(VAR_coordMasterDirs)[idx], aval(VAR_coordMasterServers)[idx], strerror(errno));
+			return 1;
+		}
+		fprintf(f,
+				"#=======================================\n"
+				"# Updated to remove the slave %s\n"
+				"synchronous_standby_names = ''\n"
+				"archive_command = ''\n"
+				"# End of the update\n",
+				timeStampString(date, MAXTOKEN));
+		fclose(f);
+	}
+	doImmediate(aval(VAR_coordMasterServers)[idx], NULL, "pg_ctl restrat -Z coordinator -D %s", aval(VAR_coordMasterDirs)[idx]);
+
+	if (clean_opt)
+		clean_coordinator_slave(nodelist);
+	CleanArray(nodelist);
+	return 0;
+
+}
+
+
+
 /*
  * Start coordinator master ---------------------------------------------
  */
@@ -1312,4 +1805,20 @@ int show_config_coordSlave(int flag, int idx, char *hostname)
 }
 
 
+/*
+ * Checks if all the coordinators are running
+ *
+ * Returns FALSE if any of them are not running.
+ */
+int check_AllCoordRunning(void)
+{
+	int ii;
 
+	for (ii = 0; aval(VAR_coordMasterServers)[ii]; ii++)
+	{
+		if (!is_none(aval(VAR_coordMasterServers)[ii]))
+			if (pingNode(aval(VAR_coordMasterServers)[ii], aval(VAR_coordPorts)[ii]) != 0)
+				return FALSE;
+	}
+	return TRUE;
+}

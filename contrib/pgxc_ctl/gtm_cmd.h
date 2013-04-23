@@ -11,6 +11,7 @@
 #ifndef GTM_CMD_H
 #define GTM_CMD_H
 
+#include "gtm/gtm_c.h"
 #include "utils.h"
 
 extern int init_gtm_master(void);
@@ -23,6 +24,8 @@ extern cmd_t *prepare_initGtmProxy(char *nodeName);
 
 extern int add_gtmSlave(char *name, char *host, int port, char *dir);
 extern int add_gtmProxy(char *name, char *host, int port, char *dir);
+extern int remove_gtmSlave(bool clean_opt);
+extern int remove_gtmProxy(char *name, bool clean_opt);
 
 extern int kill_gtm_master(void);
 extern int kill_gtm_slave(void);

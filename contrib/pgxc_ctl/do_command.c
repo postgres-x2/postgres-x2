@@ -830,6 +830,253 @@ static void stop_all(char *immediate)
 	stop_gtm_master();
 }
 
+
+#define GetAndSet(var, msg) do{if(!GetToken()){elog(ERROR, msg); return;} var=token;}while(0)
+/*
+ * Add command
+ */
+static void do_add_command(char *line)
+{
+	char *token;
+	char *name;
+	char *host;
+	char *port;
+	char *pooler;
+	char *dir;
+	char *archDir;
+
+	if (!GetToken())
+	{
+		elog(ERROR, "ERROR: Specify options for add command.\n");
+		return;
+	}
+	if (TestToken("gtm"))
+	{
+		/*
+		 * add gtm slave name host port dir
+		 */
+
+		if (!GetToken())
+		{
+			elog(ERROR, "ERROR: Specify option for add gtm command.\n");
+			return;
+		}
+		if (!TestToken("slave"))
+		{
+			elog(ERROR, "ERROR: you can specify only slave to add gtm command. %s is invalid.\n", token);
+			return;
+		}
+		GetAndSet(name, "ERROR: please specify the name of gtm slave\n");
+		GetAndSet(host, "ERROR: please specify the host name for gtm slave\n");
+		GetAndSet(port, "ERROR: please specify the port number for gtm slave\n");
+		GetAndSet(dir, "ERROR: please specify the working director for gtm slave\n");
+		add_gtmSlave(name, host, atoi(port), dir);
+		freeAndReset(name);
+		freeAndReset(host);
+		freeAndReset(port);
+		freeAndReset(dir);
+	}
+	else if (TestToken("gtm_proxy"))
+	{
+		/*
+		 * Add gtm_proxy name host port dir
+		 */
+		GetAndSet(name, "ERROR: please specify the name of gtm_proxy\n");
+		GetAndSet(host, "ERROR: please specify the host name for gtm_proxy\n");
+		GetAndSet(port, "ERROR: please specify the port number for gtm_proxy\n");
+		GetAndSet(dir, "ERROR: please specify the working director for gtm_proxy\n");
+		add_gtmProxy(name, host, atoi(port), dir);
+		freeAndReset(name);
+		freeAndReset(host);
+		freeAndReset(port);
+		freeAndReset(dir);
+	}
+	else if (TestToken("coordinator"))
+	{
+		/*
+		 * Add coordinator master name host port pooler dir
+		 * Add coordinator slave name host dir
+		 */
+		if (!GetToken() || !TestToken("master") || !TestToken("slave"))
+		{
+			elog(ERROR, "ERROR: Please specify master or slave.\n");
+			return;
+		}
+		if (!GetToken() || !TestToken("master") || !TestToken("slave"))
+		{
+			elog(ERROR, "ERROR: please speify master or slave.\n");
+			return;
+		}
+		if (TestToken("master"))
+		{
+			GetAndSet(name, "ERROR: please specify the name of the coordinator master\n");
+			GetAndSet(host, "ERROR: please specify the host for the coordinator masetr\n");
+			GetAndSet(port, "ERROR: please specify the port number for the coordinator master\n");
+			GetAndSet(pooler, "ERROR: please specify the pooler port number for the coordinator master.\n");
+			GetAndSet(dir, "ERROR: please specify the working director for the coordinator master\n");
+			add_coordinatorMaster(name, host, atoi(port), atoi(pooler), dir);
+			freeAndReset(name);
+			freeAndReset(host);
+			freeAndReset(port);
+			freeAndReset(pooler);
+			freeAndReset(dir);
+		}
+		else
+		{
+			GetAndSet(name, "ERROR: please specify the name of the coordinator slave\n");
+			GetAndSet(host, "ERROR: please specify the host for the coordinator slave\n");
+			GetAndSet(dir, "ERROR: please specify the working director for coordinator slave\n");
+			GetAndSet(archDir, "ERROR: please specify WAL archive directory for coordinator slave\n");
+			add_coordinatorSlave(name, host, dir, archDir);
+			freeAndReset(name);
+			freeAndReset(host);
+			freeAndReset(dir);
+		}
+	}
+	else if (TestToken("datanode"))
+	{
+		if (!GetToken() || !TestToken("master") || !TestToken("slave"))
+		{
+			elog(ERROR, "ERROR: please speify master or slave.\n");
+			return;
+		}
+		if (TestToken("master"))
+		{
+			GetAndSet(name, "ERROR: please specify the name of the datanode master\n");
+			GetAndSet(host, "ERROR: please specify the host for the datanode masetr\n");
+			GetAndSet(port, "ERROR: please specify the port number for the datanode master\n");
+			GetAndSet(dir, "ERROR: please specify the working director for the datanode master\n");
+			add_datanodeMaster(name, host, atoi(port), dir);
+			freeAndReset(name);
+			freeAndReset(host);
+			freeAndReset(port);
+			freeAndReset(dir);
+		}
+		else
+		{
+			GetAndSet(name, "ERROR: please specify the name of the datanode slave\n");
+			GetAndSet(host, "ERROR: please specify the host for the datanode slave\n");
+			GetAndSet(dir, "ERROR: please specify the working director for datanode slave\n");
+			GetAndSet(archDir, "ERROR: please specify WAL archive directory for datanode slave\n");
+			add_datanodeSlave(name, host, dir, archDir);
+			freeAndReset(name);
+			freeAndReset(host);
+			freeAndReset(dir);
+		}
+	}
+	return;
+}
+
+static void do_remove_command(char *line)
+{
+	char *token;
+	char *name;
+	bool clean_opt = FALSE;
+
+	if (!GetToken())
+	{
+		elog(ERROR, "ERROR: Please specify gtm, gtm_master, coordinator or datanode after add command.\n");
+		return;
+	}
+	if (TestToken("gtm"))
+	{
+		if (!GetToken() || !TestToken("slave"))
+		{
+			elog(ERROR, "ERROR: Please speciy slave to add gtm command\n");
+			return;
+		}
+		if (GetToken() && TestToken("clean"))
+			clean_opt = TRUE;
+		remove_gtmSlave(clean_opt);
+	}
+	else if (TestToken("gtm_proxy"))
+	{
+		GetAndSet(name, "ERROR: please specify gtm proxy name to remove.\n");
+		if (TestToken("clean"))
+		{
+			clean_opt = TRUE;
+			freeAndReset(name);
+			GetAndSet(name, "ERROR: please specify gtm proxy name to remove.\n");
+		}
+		remove_gtmProxy(name, clean_opt	);
+		freeAndReset(name);
+	}
+	else if (TestToken("coordinator"))
+	{
+		if (!GetToken() || !TestToken("master") || !TestToken("slave"))
+		{
+			elog(ERROR, "ERROR: please speify master or slave.\n");
+			return;
+		}
+		if (TestToken("master"))
+		{
+			GetAndSet(name, "ERROR: please specify the name of the coordinator master\n");
+			if (TestToken("clean"))
+			{
+				clean_opt = TRUE;
+				freeAndReset(name);
+				GetAndSet(name, "ERROR: please specify the name of the coordinator master\n");
+			}
+			remove_coordinatorMaster(name, clean_opt);
+			freeAndReset(name);
+		}
+		else
+		{
+			GetAndSet(name, "ERROR: please specify the name of the coordinator slave\n");
+			if (TestToken("clean"))
+			{
+				clean_opt = TRUE;
+				freeAndReset(name);
+				GetAndSet(name, "ERROR: please specify the name of the coordinator master\n");
+			}
+			remove_coordinatorSlave(name, clean_opt);
+			freeAndReset(name);
+		}
+	}
+	else if (TestToken("datanode"))
+	{
+		if (!GetToken() || !TestToken("master") || !TestToken("slave"))
+		{
+			elog(ERROR, "ERROR: please speify master or slave.\n");
+			return;
+		}
+		if (TestToken("master"))
+		{
+			GetAndSet(name, "ERROR: please specify the name of the datanode master\n");
+			if (TestToken("clean"))
+			{
+				clean_opt = TRUE;
+				freeAndReset(name);
+				GetAndSet(name, "ERROR: please specify the name of the coordinator master\n");
+			}
+			remove_datanodeMaster(name, clean_opt);
+			freeAndReset(name);
+		}
+		else
+		{
+			GetAndSet(name, "ERROR: please specify the name of the datanode slave\n");
+			if (TestToken("clean"))
+			{
+				clean_opt = TRUE;
+				freeAndReset(name);
+				GetAndSet(name, "ERROR: please specify the name of the coordinator master\n");
+			}
+			remove_datanodeSlave(name, clean_opt);
+			freeAndReset(name);
+		}
+	}
+	else
+		elog(ERROR, "ERROR:Add command argument %s is invalid.\n", token);
+	return;
+}
+		
+
+
+
+
+			
+
+
 static char *m_Option;
 
 static char *handle_m_option(char *line, char **m_option)
@@ -1871,6 +2118,16 @@ int do_singleLine(char *buf, char *wkline)
 	else if (TestToken("reconnect"))
 	{
 		do_reconnect_command(line);
+		return 0;
+	}
+	else if (TestToken("add"))
+	{
+		do_add_command(line);
+		return 0;
+	}
+	else if (TestToken("remove"))
+	{
+		do_remove_command(line);
 		return 0;
 	}
 	/*

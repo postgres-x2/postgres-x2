@@ -51,6 +51,11 @@ extern int clean_datanode_slave_all(void);
 extern cmd_t *prepare_cleanDatanodeMaster(char *nodeName);
 extern cmd_t *prepare_cleanDatanodeSlave(char *nodeName);
 
+extern int add_datanodeMaster(char *name, char *host, int port, char *dir);
+extern int add_datanodeSlave(char *name, char *host, char *dir, char *archDir);
+extern int remove_datanodeMaster(char *name, int clean_opt);
+extern int remove_datanodeSlave(char *name, int clean_opt);
+
 extern int show_config_datanodeMasterSlaveMulti(char **nodeList);
 extern int show_config_datanodeMasterMulti(char **nodeList);
 extern int show_config_datanodeSlaveMulti(char **nodeList);

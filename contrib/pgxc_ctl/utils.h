@@ -37,3 +37,11 @@ extern char *getChPidList(char *host, pid_t ppid);
 #define get_gtmProxy_pid(host, dir) get_prog_pid(host, "gtm_proxy", dir)
 #define freeAndReset(x) do{Free(x);(x)=NULL;}while(0)
 #define myWEXITSTATUS(rc) ((rc) & 0x000000FF)
+
+/* Printout variable in bash format */
+#define svalFormat "%s=%s\n"
+#define expandSval(name) name, sval(name)
+#define avalFormat "%s=( %s )\n"
+#define expandAval(name) name, listValue(name)
+#define fprintAval(f, name) do{fprintf(f, avalFormat, expandAval(name));}while(0)
+#define fprintSval(f, name) do{fprintf(f, svalFormat, expandSval(name));}while(0)

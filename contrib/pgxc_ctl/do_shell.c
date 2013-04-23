@@ -172,6 +172,7 @@ FILE *pgxc_popen_wRaw(const char *cmd_fmt, ...)
 
 FILE *pgxc_popen_w(char *host, const char *cmd_fmt, ...)
 {
+	FILE *f;
 	va_list arg;
 	char actualCmd[MAXLINE+1];
 	char sshCmd[MAXLINE+1];
@@ -180,7 +181,9 @@ FILE *pgxc_popen_w(char *host, const char *cmd_fmt, ...)
 	vsnprintf(actualCmd, MAXLINE, cmd_fmt, arg);
 	va_end(arg);
 	snprintf(sshCmd, MAXLINE, "ssh %s@%s \" %s \"", sval(VAR_pgxcUser), host, actualCmd);
-	return(popen(sshCmd, "w"));
+	if ((f = popen(sshCmd, "w")) == NULL)
+		elog(ERROR, "ERROR: could not open the command \"%s\" to write, %s\n", sshCmd, strerror(errno));
+	return f;
 }
 	
 int doImmediate(char *host, char *stdIn, const char *cmd_fmt, ...)

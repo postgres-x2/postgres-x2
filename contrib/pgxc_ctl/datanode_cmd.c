@@ -31,6 +31,9 @@
 #include "utils.h"
 #include "datanode_cmd.h"
 #include "gtm_util.h"
+#include "coord_cmd.h"
+
+static char date[MAXTOKEN+1];
 
 /*
  *======================================================================
@@ -808,6 +811,388 @@ static int failover_oneDatanode(int datanodeIdx)
 	return rc;
 
 #	undef checkRc
+
+}
+
+/*------------------------------------------------------------------------
+ *
+ * Add command
+ *
+ *-----------------------------------------------------------------------*/
+int add_datanodeMaster(char *name, char *host, int port, char *dir)
+{
+	FILE *f, *lockf;
+	int size;
+	char port_s[MAXTOKEN+1];
+	int gtmPxyIdx;
+	char *gtmHost;
+	char *gtmPort;
+	char pgdumpall_out[MAXPATH+1];
+	char **nodelist = NULL;
+	int ii, jj;
+
+	/* Now in debug */
+    elog(MANDATORY, "This feature will come soon.\n");
+    return 0;
+	/* Check if all the coordinators are running */
+	if (!check_AllCoordRunning())
+	{
+		elog(ERROR, "ERROR: Some of the coordinator masters are not running. Cannot add new one.\n");
+		return 1;
+	}
+	/* Check if there's no conflict with the current configuration */
+	if (checkNameConflict(name, FALSE))
+	{
+		elog(ERROR, "ERROR: Node name %s duplicate.\n", name);
+		return 1;
+	}
+	if (checkPortConflict(host, port))
+	{
+		elog(ERROR, "ERROR: port numbrer (%d) at host %s conflicts.\n", port, host);
+		return 1;
+	}
+	if (checkDirConflict(host, dir))
+	{
+		elog(ERROR, "ERROR: directory \"%s\" conflicts at host %s.\n", dir, host);
+		return 1;
+	}
+	/*
+	 * Check if datanode masgter configuration is consistent
+	 */
+	size = arraySizeName(VAR_datanodeNames);
+	if ((arraySizeName(VAR_datanodePorts) != size) ||
+		(arraySizeName(VAR_datanodeMasterServers) != size) ||
+		(arraySizeName(VAR_datanodeMasterDirs) != size) ||
+		(arraySizeName(VAR_datanodeMaxWALSenders) != size) ||
+		(arraySizeName(VAR_datanodeSlaveServers) != size) ||
+		(arraySizeName(VAR_datanodeSlaveDirs) != size) ||
+		(arraySizeName(VAR_datanodeArchLogDirs) != size) ||
+		(arraySizeName(VAR_datanodeSpecificExtraConfig) != size) ||
+		(arraySizeName(VAR_datanodeSpecificExtraPgHba) != size))
+	{
+		elog(ERROR, "ERROR: sorry found some inconflicts in datanode master configuration.");
+		return 1;
+	}
+	/*
+	 * Now reconfigure
+	 */
+	/*
+	 * 000 We need another way to configure specific pg_hba.conf and max_wal_senders.
+	 */
+	snprintf(port_s, MAXTOKEN, "%d", port);
+	add_val_name(VAR_datanodeNames, name);
+	add_val_name(VAR_datanodeMasterServers, host);
+	add_val_name(VAR_datanodePorts, port_s);
+	add_val_name(VAR_datanodeMasterDirs, dir);
+	add_val_name(VAR_datanodeMaxWALSenders, aval(VAR_datanodeMaxWALSenders)[0]);
+	add_val_name(VAR_datanodeSlaveServers, "none");
+	add_val_name(VAR_datanodeSlaveDirs, "none");
+	add_val_name(VAR_datanodeArchLogDirs, "none");
+	add_val_name(VAR_datanodeSpecificExtraConfig, "none");
+	add_val_name(VAR_datanodeSpecificExtraPgHba, "none");
+	/*
+	 * Update the configuration file and backup it
+	 */
+	if ((f = fopen(pgxc_ctl_config_path, "a")) == NULL)
+	{
+		/* Should it be panic? */
+		elog(ERROR, "ERROR: cannot open configuration file \"%s\", %s\n", pgxc_ctl_config_path, strerror(errno));
+		return 1;
+	}
+	fprintf(f, 
+			"#===================================================\n"
+			"# pgxc configuration file updated due to datanode master addition\n"
+			"#        %s\n",
+			timeStampString(date, MAXTOKEN+1));
+	fprintAval(f, VAR_datanodeNames);
+	fprintAval(f, VAR_datanodeMasterServers);
+	fprintAval(f, VAR_datanodePorts);
+	fprintAval(f, VAR_datanodeMasterDirs);
+	fprintAval(f, VAR_datanodeMaxWALSenders);
+	fprintAval(f, VAR_datanodeSlaveServers);
+	fprintAval(f, VAR_datanodeSlaveDirs);
+	fprintAval(f, VAR_datanodeArchLogDirs);
+	fprintAval(f, VAR_datanodeSpecificExtraConfig);
+	fprintAval(f, VAR_datanodeSpecificExtraPgHba);
+	fprintf(f, "%s", "#----End of reconfiguration -------------------------\n");
+	fclose(f);
+	backup_configuration();
+
+	/* Now add the master */
+
+	gtmPxyIdx = getEffectiveGtmProxyIdxFromServerName(name);
+	gtmHost = (gtmPxyIdx > 0) ? aval(VAR_gtmProxyServers)[gtmPxyIdx] : sval(VAR_gtmMasterServer);
+	gtmPort = (gtmPxyIdx > 0) ? aval(VAR_gtmProxyPorts)[gtmPxyIdx] : sval(VAR_gtmMasterPort);
+
+	/* initdb */
+	doImmediate(host, NULL, "initdb -D %s --nodename %s", dir, name);
+
+	/* Edit configurations */
+	if ((f = pgxc_popen_w(host, "cat >> %s/postgresql.conf", dir)))
+	{
+		fprintf(f,
+				"#===========================================\n"
+				"# Added at initialization. %s\n"
+				"port = %d\n"
+				"gtm_host = '%s'\n"
+				"gtm_port = %s\n"
+				"# End of Additon\n",
+				timeStampString(date, MAXTOKEN+1),
+				port, gtmHost, gtmPort);
+		fclose(f);
+	}
+	jj = datanodeIdx(name);
+	{
+		int kk;
+		for (kk = 0; aval(VAR_datanodePgHbaEntries)[kk]; kk++)
+		{
+			fprintf(f,"host all %s %s trust\n",	sval(VAR_pgxcOwner), aval(VAR_datanodePgHbaEntries)[kk]);
+			if (isVarYes(VAR_datanodeSlave))
+				if (!is_none(aval(VAR_datanodeSlaveServers)[jj]))
+					fprintf(f, "host replication %s %s trust\n",
+							sval(VAR_pgxcOwner), aval(VAR_datanodePgHbaEntries)[kk]);
+		}
+		fprintf(f, "# End of addition\n");
+		fclose(f);
+	}
+
+	/* Lock ddl */
+	if ((lockf = pgxc_popen_wRaw("psql -h %s -p %s postgres", aval(VAR_datanodeMasterServers)[0], aval(VAR_datanodePorts)[0])) == NULL)
+	{
+		elog(ERROR, "ERROR: could not open psql command, %s\n", strerror(errno));
+		return 1;
+	}
+	fprintf(lockf, "select pgxc_lock_for_backup();\n");	/* Keep open until the end of the addition. */
+
+	/* pg_dumpall */
+	createLocalFileName(GENERAL, pgdumpall_out, MAXPATH);
+	doImmediateRaw("pg_dumpall -p %s -h %s -s --include-nodes --dump-nodes --file=%s",
+				   aval(VAR_datanodePorts)[0], aval(VAR_datanodeMasterServers)[0], pgdumpall_out);
+
+	/* Start the new datanode */
+	doImmediate(host, "pg_ctl start -Z restoremode -D %s -p %d", dir, port);
+
+	/* Restore the backup */
+	doImmediateRaw("psql -h %s -p %d -d postgres -f %s", host, port, pgdumpall_out);
+
+	/* Quit the new datanode */
+	doImmediate(host, NULL, "pg_ctl stop -Z restoremode -D %s", dir);
+
+	/* Start the new datanode with --datanode option */
+	AddMember(nodelist, name);
+	start_datanode_master(nodelist);
+	CleanArray(nodelist);
+
+	/* Issue CREATE NODE */
+	for (ii = 0; aval(VAR_datanodeNames)[ii]; ii++)
+	{
+		if ((f = pgxc_popen_wRaw("psql -h %s -p %s postgres", aval(VAR_datanodeMasterServers)[ii], aval(VAR_datanodePorts)[ii])) == NULL)
+		{
+			elog(ERROR, "ERROR: cannot connect to the datanode master %s.\n", aval(VAR_datanodeNames)[ii]);
+			continue;
+		}
+		fprintf(f, "CREATE NODE %s WITH (TYPE = 'datanode', host='%s', PORT=%d);\n", name, host, port);
+		fprintf(f, "\\q\n");
+		fclose(f);
+	}
+
+	/* Quit DDL lokkup session */
+	fprintf(lockf, "\\q\n");
+	fclose(lockf);
+	return 0;
+
+}
+
+
+int add_datanodeSlave(char *name, char *host, char *dir, char *archDir)
+{
+	int idx;
+	FILE *f;
+
+    elog(MANDATORY, "This feature will come soon.\n");
+    return 0;
+
+	/* Check if the name is valid datanode */
+	if ((idx = datanodeIdx(name)) < 0)
+	{
+		elog(ERROR, "ERROR: Specified datanodeiantor %s is not configured.\n", name);
+		return 1;
+	}
+	/* Check if the datanode slave is not configred */
+	if (isVarYes(VAR_datanodeSlave) && !is_none(aval(VAR_datanodeMasterServers)[idx]))
+	{
+		elog(ERROR, "ERROR: Slave for the datanode %s has already been condigired.\n", name);
+		return 1;
+	}
+	/* Check if the resource does not conflict */
+	if (strcmp(dir, archDir) == 0)
+	{
+		elog(ERROR, "ERROR: working directory is the same as WAL archive directory.\n");
+		return 1;
+	}
+	if (checkNameConflict(name, FALSE))
+	{
+		elog(ERROR, "ERROR: node name %s conflicts with other nodes.\n", name);
+		return 1;
+	}
+	if (checkPortConflict(host, atoi(aval(VAR_datanodePorts)[idx])))
+	{
+		elog(ERROR, "ERROR: the port %s has already been used in the host %s.\n",  aval(VAR_datanodePorts)[idx], host);
+		return 1;
+	}
+	if (checkDirConflict(host, dir) || checkDirConflict(host, archDir))
+	{
+		elog(ERROR, "ERROR: directory %s or %s has already been used by other node.\n", dir, archDir);
+		return 1;
+	}
+	/* Check if the datanode master is running */
+	if (pingNode(aval(VAR_datanodeMasterServers)[idx], aval(VAR_datanodePorts)[idx]) != 0)
+	{
+		elog(ERROR, "ERROR: Datanode master %s is not running.\n", name);
+		return 1;
+	}
+	/* Prepare the resources (directories) */
+	doImmediate(host, "rm -rf %s; mkdir -p %s;chmod 0700 %s", dir, dir, dir);
+	doImmediate(host, "rm -rf %s; mkdir -p %s;chmod 0700 %s", archDir, archDir, archDir);
+	/* Reconfigure the master with WAL archive */
+	/* Update the configuration and backup the configuration file */
+	if ((f = pgxc_popen_w(host, "cat >> %s/posrgresql.conf", aval(VAR_datanodeMasterDirs)[idx])) == NULL)
+	{
+		elog(ERROR, "ERROR: Cannot open datanodenator master's configuration file, %s/postgresql.conf",
+			 aval(VAR_datanodeMasterDirs)[idx]);
+		return 1;
+	}
+	fprintf(f, 
+			"#========================================\n"
+			"# Addition for log shipping, %s\n"
+			"wal_level = hot_standby\n"
+			"archive_mode = on\n"
+			"archive_command = 'rsync %%p %s@%s:%s/%%f'\n"
+			"max_wal_senders = %s\n"
+			"# End of Addition\n",
+			timeStampString(date, MAXPATH),
+			sval(VAR_pgxcUser), host, archDir,
+			aval(VAR_datanodeMaxWALSenders)[0]);
+	fclose(f);
+	/* Reconfigure pgxc_ctl configuration with the new slave */
+	/* Need an API to expand the array to desired size */
+	if ((extendVar(VAR_datanodeSlaveServers, idx, "none") != 0) ||
+		(extendVar(VAR_datanodeSlaveDirs, idx, "none")  != 0) ||
+		(extendVar(VAR_datanodeArchLogDirs, idx, "none") != 0))
+	{
+		elog(PANIC, "PANIC: Internal error, inconsitent datanode information\n");
+		return 1;
+	}
+	var_assign(&aval(VAR_datanodeSlaveServers)[idx], Strdup(host));
+	var_assign(&aval(VAR_datanodeSlaveDirs)[idx], Strdup(dir));
+	var_assign(&aval(VAR_datanodeArchLogDirs)[idx], Strdup(archDir));
+	if (!isVarYes(VAR_datanodeSlave))
+		assign_sval(VAR_datanodeSlave, "y");
+	/* Update the configuration file and backup it */
+	if ((f = fopen(pgxc_ctl_config_path, "a")) == NULL)
+	{
+		/* Should it be panic? */
+		elog(ERROR, "ERROR: cannot open configuration file \"%s\", %s\n", pgxc_ctl_config_path, strerror(errno));
+		return 1;
+	}
+	fprintf(f, 
+			"#===================================================\n"
+			"# pgxc configuration file updated due to datanode slave addition\n"
+			"#        %s\n",
+			timeStampString(date, MAXTOKEN+1));
+	fprintSval(f, VAR_datanodeSlave);
+	fprintAval(f, VAR_datanodeSlaveServers);
+	fprintAval(f, VAR_datanodeArchLogDirs);
+	fprintAval(f, VAR_datanodeSlaveDirs);
+	fprintf(f, "%s", "#----End of reconfiguration -------------------------\n");
+	fclose(f);
+	backup_configuration();
+
+	/* Restart the master */
+	doImmediate(aval(VAR_datanodeMasterServers)[idx], NULL, 
+				"pg_ctl restart -Z datanode -D %s", aval(VAR_datanodeMasterDirs)[idx]);
+	/* pg_basebackup */
+	doImmediate(host, "pg_basebackup -p %s -h %s -D %s -x",
+				aval(VAR_datanodePorts)[idx], aval(VAR_datanodeMasterServers)[idx], dir);
+	/* Update the slave configuration with hot standby and port */
+	if ((f = pgxc_popen_w(host, "cat >> %s/postgresql.conf", dir)) == NULL)
+	{
+		elog(ERROR, "ERROR: Cannot open the new slave's postgresql.conf, %s\n", strerror(errno));
+		return 1;
+	}
+	fprintf(f,
+			"#==========================================\n"
+			"# Added to initialize the slave, %s\n"
+			"hot_standby = on\n"
+			"port = %s\n",
+			timeStampString(date, MAXTOKEN), aval(VAR_datanodePorts)[idx]);
+	fclose(f);
+	/* Start the slave */
+	doImmediate(host, NULL, "pg_ctl start -Z datanode -D %s", dir);
+	return 0;
+}
+
+
+/*------------------------------------------------------------------------
+ *
+ * Remove command
+ *
+ *-----------------------------------------------------------------------*/
+int remove_datanodeMaster(char *name, int clean_opt)
+{
+    elog(MANDATORY, "This feature will come soon.\n");
+    return 0;
+}
+
+int remove_datanodeSlave(char *name, int clean_opt)
+{
+	int idx;
+	char **nodelist = NULL;
+
+	elog(MANDATORY, "This feature will come soon.\n");
+	return 0;
+
+	if (!isVarYes(VAR_datanodeSlave))
+	{
+		elog(ERROR, "ERROR: datanode slave is not configured.\n");
+		return 1;
+	}
+	idx = datanodeIdx(name);
+	if (idx < 0)
+	{
+		elog(ERROR, "ERROR: datanode %s is not configured.\n", name);
+		return 1;
+	}
+	if (is_none(aval(VAR_datanodeSlaveServers)[idx]))
+	{
+		elog(ERROR, "ERROR: datanode slave %s is not configured.\n", name);
+		return 1;
+	}
+	AddMember(nodelist, name);
+	if (pingNode(aval(VAR_datanodeSlaveServers)[idx], aval(VAR_datanodePorts)[idx]) == 0)
+		stop_datanode_slave(nodelist, "immediate");
+	{
+		FILE *f;
+		if ((f = pgxc_popen_w(aval(VAR_datanodeMasterServers)[idx], "cat >> %s/postgresql.conf", aval(VAR_datanodeMasterDirs)[idx])) == NULL)
+		{
+			elog(ERROR, "ERROR: cannot open %s/postgresql.conf at %s, %s\n", aval(VAR_datanodeMasterDirs)[idx], aval(VAR_datanodeMasterServers)[idx], strerror(errno));
+			return 1;
+		}
+		fprintf(f,
+				"#=======================================\n"
+				"# Updated to remove the slave %s\n"
+				"synchronous_standby_names = ''\n"
+				"archive_command = ''\n"
+				"# End of the update\n",
+				timeStampString(date, MAXTOKEN));
+		fclose(f);
+	}
+	doImmediate(aval(VAR_datanodeMasterServers)[idx], NULL, "pg_ctl restrat -Z datanode -D %s", aval(VAR_datanodeMasterDirs)[idx]);
+
+	if (clean_opt)
+		clean_datanode_slave(nodelist);
+	CleanArray(nodelist);
+	return 0;
 
 }
 
