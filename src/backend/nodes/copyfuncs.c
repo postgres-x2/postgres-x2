@@ -788,6 +788,9 @@ _copyAgg(const Agg *from)
 		COPY_POINTER_FIELD(grpOperators, from->numCols * sizeof(Oid));
 	}
 	COPY_SCALAR_FIELD(numGroups);
+#ifdef PGXC
+	COPY_SCALAR_FIELD(skip_trans);
+#endif /* PGXC */
 
 	return newnode;
 }
