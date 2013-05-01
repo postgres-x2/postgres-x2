@@ -127,6 +127,7 @@ CREATE EXTENSION <replaceable>module_name</> FROM unpackaged;
  &pgupgrade;
 <!## XC>
  &pgxcclean;
+ &pgxcctl;
  &pgxcddl;
  &pgxcmonitor;
 <!## end>

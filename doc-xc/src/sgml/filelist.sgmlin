@@ -142,6 +142,7 @@
 <!ENTITY pgupgrade       SYSTEM "pgupgrade.sgml">
 <!## XC>
 <!ENTITY pgxcclean       SYSTEM "pgxcclean.sgml">
+<!ENTITY pgxcctl         SYSTEM "pgxc_ctl-ref.sgml">
 <!ENTITY pgxcddl         SYSTEM "pgxcddl.sgml">
 <!ENTITY pgxcmonitor	 SYSTEM "pgxcmonitor.sgml">
 <!## end>
