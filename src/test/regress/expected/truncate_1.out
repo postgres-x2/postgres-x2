@@ -32,7 +32,7 @@ SELECT * FROM truncate_a ORDER BY 1;
 
 -- Test foreign-key checks
 CREATE TABLE trunc_b (a int REFERENCES truncate_a);
-CREATE TABLE trunc_c (a serial PRIMARY KEY);
+CREATE TABLE trunc_c (a serial PRIMARY KEY) DISTRIBUTE BY REPLICATION;
 NOTICE:  CREATE TABLE will create implicit sequence "trunc_c_a_seq" for serial column "trunc_c.a"
 NOTICE:  CREATE TABLE / PRIMARY KEY will create implicit index "trunc_c_pkey" for table "trunc_c"
 CREATE TABLE trunc_d (a int REFERENCES trunc_c);
@@ -304,8 +304,6 @@ CREATE TRIGGER t
 BEFORE TRUNCATE ON trunc_trigger_test
 FOR EACH STATEMENT
 EXECUTE PROCEDURE trunctrigger('before trigger truncate');
-ERROR:  Postgres-XC does not support TRIGGER yet
-DETAIL:  The feature is not currently supported
 SELECT count(*) as "Row count in test table" FROM trunc_trigger_test;
  Row count in test table 
 -------------------------
@@ -325,12 +323,12 @@ SELECT count(*) as "Row count in test table" FROM trunc_trigger_test;
 (1 row)
 
 SELECT * FROM trunc_trigger_log;
- tgop | tglevel | tgwhen | tgargv | tgtable | rowcount 
-------+---------+--------+--------+---------+----------
-(0 rows)
+   tgop   |  tglevel  | tgwhen |         tgargv          |      tgtable       | rowcount 
+----------+-----------+--------+-------------------------+--------------------+----------
+ TRUNCATE | STATEMENT | BEFORE | before trigger truncate | trunc_trigger_test |        2
+(1 row)
 
 DROP TRIGGER t ON trunc_trigger_test;
-ERROR:  trigger "t" for table "trunc_trigger_test" does not exist
 truncate trunc_trigger_log;
 -- same test with an after trigger
 INSERT INTO trunc_trigger_test VALUES(1, 'foo', 'bar'), (2, 'baz', 'quux');
@@ -338,8 +336,6 @@ CREATE TRIGGER tt
 AFTER TRUNCATE ON trunc_trigger_test
 FOR EACH STATEMENT
 EXECUTE PROCEDURE trunctrigger('after trigger truncate');
-ERROR:  Postgres-XC does not support TRIGGER yet
-DETAIL:  The feature is not currently supported
 SELECT count(*) as "Row count in test table" FROM trunc_trigger_test;
  Row count in test table 
 -------------------------
@@ -359,9 +355,10 @@ SELECT count(*) as "Row count in test table" FROM trunc_trigger_test;
 (1 row)
 
 SELECT * FROM trunc_trigger_log;
- tgop | tglevel | tgwhen | tgargv | tgtable | rowcount 
-------+---------+--------+--------+---------+----------
-(0 rows)
+   tgop   |  tglevel  | tgwhen |         tgargv         |      tgtable       | rowcount 
+----------+-----------+--------+------------------------+--------------------+----------
+ TRUNCATE | STATEMENT | AFTER  | after trigger truncate | trunc_trigger_test |        0
+(1 row)
 
 DROP TABLE trunc_trigger_test;
 DROP TABLE trunc_trigger_log;

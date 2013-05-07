@@ -16,7 +16,7 @@ SELECT * FROM truncate_a ORDER BY 1;
 
 -- Test foreign-key checks
 CREATE TABLE trunc_b (a int REFERENCES truncate_a);
-CREATE TABLE trunc_c (a serial PRIMARY KEY);
+CREATE TABLE trunc_c (a serial PRIMARY KEY) DISTRIBUTE BY REPLICATION;
 CREATE TABLE trunc_d (a int REFERENCES trunc_c);
 CREATE TABLE trunc_e (a int REFERENCES truncate_a, b int REFERENCES trunc_c);
 
