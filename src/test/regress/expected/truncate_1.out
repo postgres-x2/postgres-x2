@@ -389,25 +389,28 @@ SELECT * FROM truncate_a ORDER BY id;
 (2 rows)
 
 TRUNCATE truncate_a RESTART IDENTITY;
+ERROR:  PGXC does not support RESTART IDENTITY yet
+DETAIL:  The feature is not supported currently
 INSERT INTO truncate_a DEFAULT VALUES;
 INSERT INTO truncate_a DEFAULT VALUES;
 SELECT * FROM truncate_a ORDER BY id;
  id | id1 
 ----+-----
+  3 |  35
+  4 |  36
   5 |  37
   6 |  38
-(2 rows)
+(4 rows)
 
 -- check rollback of a RESTART IDENTITY operation
 BEGIN;
 TRUNCATE truncate_a RESTART IDENTITY;
+ERROR:  PGXC does not support RESTART IDENTITY yet
+DETAIL:  The feature is not supported currently
 INSERT INTO truncate_a DEFAULT VALUES;
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
 SELECT * FROM truncate_a;
- id | id1 
-----+-----
-  7 |  39
-(1 row)
-
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
 ROLLBACK;
 INSERT INTO truncate_a DEFAULT VALUES;
 INSERT INTO truncate_a DEFAULT VALUES;
@@ -417,8 +420,10 @@ SELECT * FROM truncate_a;
   5 |  37
   6 |  38
   8 |  40
-  9 |  41
-(4 rows)
+  3 |  35
+  4 |  36
+  7 |  39
+(6 rows)
 
 DROP TABLE truncate_a;
 SELECT nextval('truncate_a_id1'); -- fail, seq should have been dropped
