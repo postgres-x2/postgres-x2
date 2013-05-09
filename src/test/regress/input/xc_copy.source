@@ -105,7 +105,6 @@ DROP TABLE xc_copy_1;
 CREATE TABLE "Xc_copy_2" (a int, b int);
 COPY "Xc_copy_2" FROM STDIN DELIMITER ',';
 1,2
-3,4
 \.
 COPY "Xc_copy_2" TO STDOUT;
 DROP TABLE "Xc_copy_2";
@@ -115,7 +114,6 @@ DROP TABLE "Xc_copy_2";
 CREATE TABLE xc_copy_3(a int, "user" int);
 COPY xc_copy_3 (a, "user") FROM STDIN (DELIMITER ',');
 1,2
-3,4
 \.
 COPY xc_copy_3 TO STDOUT;
 DROP TABLE xc_copy_3;

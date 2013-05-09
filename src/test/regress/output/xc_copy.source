@@ -106,7 +106,6 @@ CREATE TABLE "Xc_copy_2" (a int, b int);
 COPY "Xc_copy_2" FROM STDIN DELIMITER ',';
 COPY "Xc_copy_2" TO STDOUT;
 1	2
-3	4
 DROP TABLE "Xc_copy_2";
 -- Quoted column name
 -- check for correct remote query generation
@@ -114,7 +113,6 @@ CREATE TABLE xc_copy_3(a int, "user" int);
 COPY xc_copy_3 (a, "user") FROM STDIN (DELIMITER ',');
 COPY xc_copy_3 TO STDOUT;
 1	2
-3	4
 DROP TABLE xc_copy_3;
 -- Table with no locator data
 CREATE TABLE xc_copy_4 (c1 int) DISTRIBUTE BY HASH(c1);
