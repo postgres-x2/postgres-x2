@@ -1,6 +1,9 @@
 
 set client_min_messages=warning;
 
+-- Lets not reuse int4_tbl & int8_tbl
+-- so that this test could be run independently
+
 create table xc_int8_tbl(q1 int8, q2 int8);
 INSERT INTO xc_int8_tbl VALUES('  123   ','  456');
 INSERT INTO xc_int8_tbl VALUES('123   ','4567890123456789');
@@ -15,6 +18,9 @@ INSERT INTO xc_int4_tbl(f1) VALUES ('    -123456');
 INSERT INTO xc_int4_tbl(f1) VALUES ('2147483647');
 INSERT INTO xc_int4_tbl(f1) VALUES ('-2147483647');
 
+-- The tables have to be created on a well defined set of nodes
+-- independent of the nodes available in the cluster
+-- so that ctid returning tests produce predictable tests
 
 select create_table_nodes('rep_foo(a int, b int)', '{1, 2}'::int[], 'replication', NULL);
 
@@ -23,24 +29,25 @@ select create_table_nodes('foo (f1 serial, f2 text, f3 int default 42)', '{1, 2}
 select create_table_nodes('tp (f1 serial, f2 text, f3 int default 42)', '{1}'::int[], 'hash(f1)', NULL);
 select create_table_nodes('tc (fc int) INHERITS (tp)', '{2}'::int[], 'hash(f1)', NULL);
 
-create table parent(a int, b int);
-create table child (c int) INHERITS (parent);
-create table grand_child (d int) INHERITS (child);
+select create_table_nodes('parent(a int, b int)', '{1, 2}'::int[], 'hash(a)', NULL);
+select create_table_nodes('child (c int) INHERITS (parent)', '{1, 2}'::int[], 'hash(a)', NULL);
+select create_table_nodes('grand_child (d int) INHERITS (child)', '{1, 2}'::int[], 'hash(a)', NULL);
 
-create table fp(f1 int, f2 varchar(255), f3 int);
-create table fp_child (fc int) INHERITS (fp);
+select create_table_nodes('fp(f1 int, f2 varchar(255), f3 int)', '{1, 2}'::int[], 'hash(f1)', NULL);
+select create_table_nodes('fp_child (fc int) INHERITS (fp)', '{1, 2}'::int[], 'hash(f1)', NULL);
 
-create table bar(c1 int, c2 int);
+select create_table_nodes('bar(c1 int, c2 int)', '{1, 2}'::int[], 'hash(c1)', NULL);
 
-create table ta1 (v1 int, v2 int);
-create table ta2 (v1 int, v2 int);
+select create_table_nodes('ta1 (v1 int, v2 int)', '{1, 2}'::int[], 'hash(v1)', NULL);
+select create_table_nodes('ta2 (v1 int, v2 int)', '{1, 2}'::int[], 'hash(v1)', NULL);
 
-create table sal_emp (name text, pay_by_quarter integer[], schedule text[][]);
+select create_table_nodes('sal_emp (name text, pay_by_quarter integer[], schedule text[][])', '{1, 2}'::int[], 'hash(name)', NULL);
 
-create table products(product_id serial PRIMARY KEY ,product_name varchar(150),price numeric(10,2) ) ;
+select create_table_nodes('products(product_id serial PRIMARY KEY ,product_name varchar(150),price numeric(10,2) )', '{1, 2}'::int[], 'hash(product_id)', NULL);
 
-create table my_tab(f1 int, f2 text, f3 int);
-create table my_tab2(f1 int, f2 text, f3 int);
+select create_table_nodes('my_tab(f1 int, f2 text, f3 int)', '{1, 2}'::int[], 'hash(f1)', NULL);
+select create_table_nodes('my_tab2(f1 int, f2 text, f3 int)', '{1, 2}'::int[], 'hash(f1)', NULL);
+
 create or replace function fn_immutable(integer) RETURNS integer
     AS 'SELECT f3+$1 from my_tab2 where f1=1;'
     LANGUAGE SQL
@@ -59,7 +66,7 @@ create or replace function fn_stable(integer) RETURNS integer
 
 select create_table_nodes('numbers(a int, b varchar(255), c int)', '{1, 2}'::int[], 'hash(a)', NULL);
 
-create table test_tab(a int, b varchar(255), c varchar(255), d int);
+select create_table_nodes('test_tab(a int, b varchar(255), c varchar(255), d int)', '{1, 2}'::int[], 'hash(a)', NULL);
 
 ------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------
