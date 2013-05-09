@@ -115,9 +115,9 @@ COPY no_oids FROM stdin WITH OIDS;
 COPY no_oids TO stdout WITH OIDS;
 
 -- check copy out
-COPY x TO stdout;
-COPY x (c, e) TO stdout;
-COPY x (b, e) TO stdout WITH NULL 'I''m null';
+COPY (select * from x order by 1,2,3,4,5) TO stdout;
+COPY (select c,e from x order by 1,2) TO stdout;
+COPY (select b,e from x order by 1,2) TO stdout WITH NULL 'I''m null';
 
 CREATE TEMP TABLE y (
 	col1 text,
@@ -165,14 +165,14 @@ c\.d
 "\."
 \.
 
-COPY testeoc TO stdout CSV;
+COPY (select * from testeoc order by 1) TO stdout CSV;
 
 -- test handling of nonstandard null marker that violates escaping rules
 
 CREATE TEMP TABLE testnull(a int, b text);
 INSERT INTO testnull VALUES (1, E'\\0'), (NULL, NULL);
 
-COPY testnull TO stdout WITH NULL AS E'\\0';
+COPY (select * from testnull order by 1,2) TO stdout WITH NULL AS E'\\0';
 
 COPY testnull FROM stdin WITH NULL AS E'\\0';
 42	\\0

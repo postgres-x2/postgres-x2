@@ -96,84 +96,84 @@ ERROR:  table "no_oids" does not have OIDs
 COPY no_oids TO stdout WITH OIDS;
 ERROR:  table "no_oids" does not have OIDs
 -- check copy out
-COPY x TO stdout;
-9999	\N	\\N	NN	\N
+COPY (select * from x order by 1,2,3,4,5) TO stdout;
 1	1	stuff	test_1	\N
 2	2	stuff	test_2	\N
 3	3	stuff	test_3	\N
 4	4	stuff	test_4	\N
 5	5	stuff	test_5	\N
-10001	22	32	42	52
-10002	23	33	43	53
-10004	25	35	45	55
 6	\N	45	80	90
 7	\N	x	\\x	\\x
 8	\N	,	\\,	\\
+3000	\N	c	\N	\N
 4000	\N	C	\N	\N
+4001	1	empty		
 4002	2	null	\N	\N
 4003	3	Backslash	\\	\\
+4004	4	BackslashX	\\X	\\X
 4005	5	N	N	N
+4006	6	BackslashN	\\N	\\N
 4007	7	XX	XX	XX
 4008	8	Delimiter	:	:
+9999	\N	\\N	NN	\N
 10000	21	31	41	51
+10001	22	32	42	52
+10002	23	33	43	53
 10003	24	34	44	54
+10004	25	35	45	55
 10005	26	36	46	56
-3000	\N	c	\N	\N
-4001	1	empty		
-4004	4	BackslashX	\\X	\\X
-4006	6	BackslashN	\\N	\\N
-COPY x (c, e) TO stdout;
-\\N	\N
-stuff	\N
-stuff	\N
-stuff	\N
-stuff	\N
-stuff	\N
+COPY (select c,e from x order by 1,2) TO stdout;
+,	\\
+31	51
 32	52
 33	53
-35	55
-45	90
-x	\\x
-,	\\
-C	\N
-null	\N
-Backslash	\\
-N	N
-XX	XX
-Delimiter	:
-31	51
 34	54
+35	55
 36	56
-c	\N
-empty	
-BackslashX	\\X
+45	90
+Backslash	\\
 BackslashN	\\N
-COPY x (b, e) TO stdout WITH NULL 'I''m null';
-I'm null	I'm null
+BackslashX	\\X
+c	\N
+C	\N
+Delimiter	:
+empty	
+N	N
+\\N	\N
+null	\N
+stuff	\N
+stuff	\N
+stuff	\N
+stuff	\N
+stuff	\N
+x	\\x
+XX	XX
+COPY (select b,e from x order by 1,2) TO stdout WITH NULL 'I''m null';
+1	
 1	I'm null
 2	I'm null
-3	I'm null
-4	I'm null
-5	I'm null
-22	52
-23	53
-25	55
-I'm null	90
-I'm null	\\x
-I'm null	\\
-I'm null	I'm null
 2	I'm null
 3	\\
+3	I'm null
+4	\\X
+4	I'm null
 5	N
+5	I'm null
+6	\\N
 7	XX
 8	:
 21	51
+22	52
+23	53
 24	54
+25	55
 26	56
+I'm null	\\
+I'm null	90
+I'm null	\\x
 I'm null	I'm null
-1	
-4	\\X
-6	\\N
+I'm null	I'm null
+I'm null	I'm null
 CREATE TEMP TABLE y (
 	col1 text,
 	col2 text
@@ -236,7 +236,7 @@ COPY testnl FROM stdin CSV;
 -- test end of copy marker
 CREATE TEMP TABLE testeoc (a text);
 COPY testeoc FROM stdin CSV;
-COPY testeoc TO stdout CSV;
+COPY (select * from testeoc order by 1) TO stdout CSV;
 "\."
 a\.
 \.b
@@ -244,7 +244,7 @@ c\.d
 -- test handling of nonstandard null marker that violates escaping rules
 CREATE TEMP TABLE testnull(a int, b text);
 INSERT INTO testnull VALUES (1, E'\\0'), (NULL, NULL);
-COPY testnull TO stdout WITH NULL AS E'\\0';
+COPY (select * from testnull order by 1,2) TO stdout WITH NULL AS E'\\0';
 1	\\0
 \0	\0
 COPY testnull FROM stdin WITH NULL AS E'\\0';
