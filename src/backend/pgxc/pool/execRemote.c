@@ -2592,6 +2592,14 @@ get_exec_connections(RemoteQueryState *planstate,
 												isnull,
 												exprType((Node *) exec_nodes->en_expr),
 												exec_nodes->accesstype);
+			/*
+			 * en_expr is set by pgxc_set_en_expr only for distributed
+			 * relations while planning DMLs, hence a select for update
+			 * on a replicated table here is an assertion
+			 */
+			Assert(!(exec_nodes->accesstype == RELATION_ACCESS_READ_FOR_UPDATE &&
+						IsRelationReplicated(rel_loc_info)));
+
 			if (nodes)
 			{
 				nodelist = nodes->nodeList;
@@ -2604,6 +2612,13 @@ get_exec_connections(RemoteQueryState *planstate,
 		{
 			RelationLocInfo *rel_loc_info = GetRelationLocInfo(exec_nodes->en_relid);
 			ExecNodes *nodes = GetRelationNodes(rel_loc_info, 0, true, InvalidOid, exec_nodes->accesstype);
+
+			/*
+			 * en_relid is set only for DMLs, hence a select for update on a
+			 * replicated table here is an assertion
+			 */
+			Assert(!(exec_nodes->accesstype == RELATION_ACCESS_READ_FOR_UPDATE &&
+						IsRelationReplicated(rel_loc_info)));
 
 			/* Use the obtained list for given table */
 			if (nodes)

@@ -405,7 +405,8 @@ pgxc_FQS_find_datanodes(Shippability_context *sc_context)
 		 * chance because common nodes are left out.
 		 */
 		if (IsExecNodesReplicated(exec_nodes) &&
-			exec_nodes->accesstype == RELATION_ACCESS_READ &&
+			(exec_nodes->accesstype == RELATION_ACCESS_READ_FOR_UPDATE ||
+			              exec_nodes->accesstype == RELATION_ACCESS_READ) &&
 			sc_context->sc_query_level == 0)
 
 		{
