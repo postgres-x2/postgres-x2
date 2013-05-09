@@ -2977,15 +2977,23 @@ explain (verbose true, costs false, nodes false)
   select p.*, linked from parent p
     left join (select c.*, true as linked from child c) as ss
     on (p.k = ss.k) order by p.k;
-                                                                                                     QUERY PLAN                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
  Sort
    Output: p.k, p.pd, (true)
    Sort Key: p.k
-   ->  Data Node Scan on "__REMOTE_SORT_QUERY__"
-         Output: p.k, p.pd, true
-         Remote query: SELECT l.a_1, l.a_2 FROM ((SELECT p.k, p.pd FROM ONLY parent p WHERE true) l(a_1, a_2) LEFT JOIN (SELECT c.k FROM ONLY child c WHERE true) r(a_1) ON ((l.a_1 = r.a_1))) WHERE true ORDER BY 1
-(6 rows)
+   ->  Hash Left Join
+         Output: p.k, p.pd, (true)
+         Hash Cond: (p.k = c.k)
+         ->  Data Node Scan on parent "_REMOTE_TABLE_QUERY_"
+               Output: p.k, p.pd
+               Remote query: SELECT k, pd FROM ONLY parent p WHERE true
+         ->  Hash
+               Output: c.k, (true)
+               ->  Data Node Scan on child "_REMOTE_TABLE_QUERY_"
+                     Output: c.k, true
+                     Remote query: SELECT k FROM ONLY child c WHERE true
+(14 rows)
 
 -- check for a 9.0rc1 bug: join removal breaks pseudoconstant qual handling
 select p.* from

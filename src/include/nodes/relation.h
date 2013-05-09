@@ -1064,6 +1064,10 @@ typedef struct RemoteQueryPath
 													 * involved in this path is a temporary
 													 * table.
 													 */
+	bool					rqhas_unshippable_tlist;/* TRUE if there is at least one
+													 * targetlist entry which is
+													 * not completely shippable.
+													 */
 } RemoteQueryPath;
 #endif /* PGXC */
 

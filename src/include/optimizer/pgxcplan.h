@@ -134,6 +134,8 @@ extern void pgxc_rqplan_adjust_tlist(RemoteQuery *rqplan);
 extern Plan *pgxc_make_modifytable(PlannerInfo *root, Plan *topplan);
 extern Var *pgxc_get_dist_var(Index varno, RangeTblEntry *rte, List *tlist);
 extern ExecNodes *pgxc_is_join_shippable(ExecNodes *inner_en, ExecNodes *outer_en,
+											bool inner_unshippable_tlist,
+											bool outer_shippable_tlist,
 											JoinType jointype, Node *join_quals);
 
 #endif   /* PGXCPLANNER_H */

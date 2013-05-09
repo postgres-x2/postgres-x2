@@ -314,9 +314,13 @@ pgxc_FQS_find_datanodes_recurse(Node *node, Shippability_context *sc_context)
 				tmp_en = result_en;
 				/*
 				 * Check whether the JOIN is pushable to the datanodes and
-				 * find the datanodes where the JOIN can be pushed to
+				 * find the datanodes where the JOIN can be pushed to. In FQS
+				 * the query is shippable if only all the expressions are
+				 * shippable. Hence assume that the targetlists of the joining
+				 * relations are shippable.
 				 */
 				result_en = pgxc_is_join_shippable(result_en, en, JOIN_INNER,
+													false, false,
 											from_expr->quals);
 				FreeExecNodes(&tmp_en);
 			}
@@ -354,10 +358,12 @@ pgxc_FQS_find_datanodes_recurse(Node *node, Shippability_context *sc_context)
 			}
 			/*
 			 * Check whether the JOIN is pushable or not, and find the datanodes
-			 * where the JOIN can be pushed to.
+			 * where the JOIN can be pushed to. In FQS the query is shippable if
+			 * only all the expressions are shippable. Hence assume that the
+			 * targetlists of the joining relations are shippable.
 			 */
 			result_en = pgxc_is_join_shippable(ren, len, join_expr->jointype,
-												join_expr->quals);
+												false, false, join_expr->quals);
 			FreeExecNodes(&len);
 			FreeExecNodes(&ren);
 			return result_en;
@@ -2026,11 +2032,18 @@ pgxc_get_dist_var(Index varno, RangeTblEntry *rte, List *tlist)
  * 	relations are distributed on same set of Datanodes. Join between replicated
  * 	and distributed relations is shippable is replicated relation is replicated
  * 	on all nodes where distributed relation is distributed.
+ * 4. Are targetlists of both sides shippable?
+ *  For OUTER Joins if there is at least one unshippable entry in the targetlist
+ *  of the relation which contributes NULL columns in the join result, the join
+ *  is not shippable. In such cases, the unshippable expression is projected at
+ *  the coordinator, thus causing a non-NULL value to appear instead of NULL
+ *  value in the result.
  *
  * The first step is to be applied by the caller of this function.
  */
 ExecNodes *
 pgxc_is_join_shippable(ExecNodes *inner_en, ExecNodes *outer_en,
+						bool inner_unshippable_tlist, bool outer_unshippable_tlist,
 						JoinType jointype, Node *join_quals)
 {
 	bool	merge_nodes = false;
@@ -2047,6 +2060,21 @@ pgxc_is_join_shippable(ExecNodes *inner_en, ExecNodes *outer_en,
 	 * deconstruction.
 	 */
 	if (jointype != JOIN_INNER && jointype != JOIN_LEFT && jointype != JOIN_FULL)
+		return NULL;
+
+	/*
+	 * For left outer join, if the inner relation (for which null columns are
+	 * added if there is a row unmatched from outer join), has unshippable
+	 * targetlist entry, we can not ship the join. This is because, the unshippable
+	 * targetlist entry needs to be calculated before it can be added to the
+	 * JOIN result, either as NULL or non-NULL.
+	 * Similarly for FULL OUTER Join, none of the sides should have unshippable
+	 * targetlist expression.
+	 */
+	if (jointype == JOIN_LEFT && inner_unshippable_tlist)
+		return NULL;
+	if (jointype == JOIN_FULL && (inner_unshippable_tlist ||
+									outer_unshippable_tlist))
 		return NULL;
 
 	/* If both sides are replicated or have single node each, we ship any kind of JOIN */

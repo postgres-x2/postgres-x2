@@ -93,6 +93,8 @@ create_remotequery_path(PlannerInfo *root, RelOptInfo *rel, ExecNodes *exec_node
 							rel->reloptkind);
 	}
 	rqpath->rqhas_unshippable_qual = unshippable_quals;
+	rqpath->rqhas_unshippable_tlist = !pgxc_is_expr_shippable((Expr *)rel->reltargetlist,
+																NULL);
 
 	/* PGXCTODO - set cost properly */
 	cost_remotequery(rqpath, root, rel);
@@ -230,7 +232,10 @@ create_joinrel_rqpath(PlannerInfo *root, RelOptInfo *joinrel,
 	 * If the nodelists on both the sides of JOIN can be merged, the JOIN is
 	 * shippable.
 	 */
-	join_en = pgxc_is_join_shippable(inner_en, outer_en, jointype, (Node *)join_quals);
+	join_en = pgxc_is_join_shippable(inner_en, outer_en,
+										innerpath->rqhas_unshippable_tlist,
+										outerpath->rqhas_unshippable_tlist,
+										jointype, (Node *)join_quals);
 	if (join_en)
 		add_path(joinrel, (Path *)create_remotequery_path(root, joinrel, join_en,
 													outerpath, innerpath, jointype,
