@@ -176,3 +176,36 @@ SELECT nextval('xc_sequence_tab1_col2_seq'); -- ok
 (1 row)
 
 DROP SEQUENCE xc_sequence_tab1_col2_seq;
+-- Create a sequence with negative INCREMENT
+CREATE SEQUENCE xc_sequence_neg_set INCREMENT BY -2;
+SELECT nextval('xc_sequence_neg_set'); -- ok
+ nextval 
+---------
+      -1
+(1 row)
+
+SELECT currval('xc_sequence_neg_set'); -- ok
+ currval 
+---------
+      -1
+(1 row)
+
+SELECT setval('xc_sequence_neg_set', -99); -- ok
+ setval 
+--------
+    -99
+(1 row)
+
+SELECT nextval('xc_sequence_neg_set'); -- ok
+ nextval 
+---------
+    -101
+(1 row)
+
+SELECT currval('xc_sequence_neg_set'); -- ok
+ currval 
+---------
+    -101
+(1 row)
+
+DROP SEQUENCE xc_sequence_neg_set;

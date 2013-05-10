@@ -740,10 +740,6 @@ nextval_internal(Oid relid)
 		 * concurrency
 		 */
 		result = (int64) GetNextValGTM(seqname);
-		if (result < 0)
-			ereport(ERROR,
-					(errcode(ERRCODE_CONNECTION_FAILURE),
-					 errmsg("GTM error, could not obtain sequence value")));
 		pfree(seqname);
 
 		/* Update the on-disk data */

@@ -383,16 +383,21 @@ GetNextValGTM(char *seqname)
 {
 	GTM_Sequence ret = -1;
 	GTM_SequenceKeyData seqkey;
+	int	status;
+
 	CheckConnection();
 	seqkey.gsk_keylen = strlen(seqname) + 1;
 	seqkey.gsk_key = seqname;
 
 	if (conn)
-		ret =  get_next(conn, &seqkey);
-	if (ret < 0)
+		status =  get_next(conn, &seqkey, &ret);
+	if (status != GTM_RESULT_OK)
 	{
 		CloseGTM();
 		InitGTM();
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("%s", GTMPQerrorMessage(conn))));
 	}
 	return ret;
 }

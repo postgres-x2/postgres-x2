@@ -51,7 +51,8 @@ static int abort_transaction_multi_internal(GTM_Conn *conn, int txn_count, Globa
 static int open_sequence_internal(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence increment,
 								  GTM_Sequence minval, GTM_Sequence maxval,
 								  GTM_Sequence startval, bool cycle, bool is_backup);
-static GTM_Sequence get_next_internal(GTM_Conn *conn, GTM_SequenceKey key, bool is_backup);
+static int get_next_internal(GTM_Conn *conn, GTM_SequenceKey key,
+									  GTM_Sequence *result, bool is_backup);
 static int set_val_internal(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence nextval, bool iscalled, bool is_backup);
 static int reset_sequence_internal(GTM_Conn *conn, GTM_SequenceKey key, bool is_backup);
 static int commit_transaction_internal(GTM_Conn *conn, GlobalTransactionId gxid, bool is_backup);
@@ -1304,20 +1305,21 @@ send_failed:
 	return -1;
 }
 
-GTM_Sequence
-get_next(GTM_Conn *conn, GTM_SequenceKey key)
+int
+get_next(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence *result)
 {
-	return get_next_internal(conn, key, false);
+	return get_next_internal(conn, key, result, false);
 }
 
-GTM_Sequence
-bkup_get_next(GTM_Conn *conn, GTM_SequenceKey key)
+int
+bkup_get_next(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence *result)
 {
-	return get_next_internal(conn, key, true);
+	return get_next_internal(conn, key, result, true);
 }
 
-static GTM_Sequence
-get_next_internal(GTM_Conn *conn, GTM_SequenceKey key, bool is_backup)
+static int
+get_next_internal(GTM_Conn *conn, GTM_SequenceKey key,
+				  GTM_Sequence *result, bool is_backup)
 {
 	GTM_Result *res = NULL;
 	time_t finish_time;
@@ -1348,9 +1350,8 @@ get_next_internal(GTM_Conn *conn, GTM_SequenceKey key, bool is_backup)
 			goto receive_failed;
 
 		if (res->gr_status == GTM_RESULT_OK)
-			return res->gr_resdata.grd_seq.seqval;
-		else
-			return InvalidSequenceValue;
+			*result = res->gr_resdata.grd_seq.seqval;
+		return res->gr_status;
 	}
 	return GTM_RESULT_OK;
 

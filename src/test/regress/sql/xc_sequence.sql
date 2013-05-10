@@ -84,3 +84,11 @@ COMMIT;
 CREATE SEQUENCE xc_sequence_tab1_col2_seq START 2344;
 SELECT nextval('xc_sequence_tab1_col2_seq'); -- ok
 DROP SEQUENCE xc_sequence_tab1_col2_seq;
+-- Create a sequence with negative INCREMENT
+CREATE SEQUENCE xc_sequence_neg_set INCREMENT BY -2;
+SELECT nextval('xc_sequence_neg_set'); -- ok
+SELECT currval('xc_sequence_neg_set'); -- ok
+SELECT setval('xc_sequence_neg_set', -99); -- ok
+SELECT nextval('xc_sequence_neg_set'); -- ok
+SELECT currval('xc_sequence_neg_set'); -- ok
+DROP SEQUENCE xc_sequence_neg_set;

@@ -1166,11 +1166,12 @@ ProcessSequenceGetNextCommand(Port *myport, StringInfo message, bool is_backup)
 			GTM_Sequence loc_seq;
 			GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
 			int count = 0;
+			int status;
 
 			elog(DEBUG1, "calling get_next() for standby GTM %p.", GetMyThreadInfo->thr_conn->standby);
 
 		retry:
-			loc_seq = bkup_get_next(GetMyThreadInfo->thr_conn->standby, &seqkey);
+			status = bkup_get_next(GetMyThreadInfo->thr_conn->standby, &seqkey, &loc_seq);
 
 			if (gtm_standby_check_communication_error(&count, oldconn))
 				goto retry;
