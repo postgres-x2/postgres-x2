@@ -983,6 +983,7 @@ int add_datanodeMaster(char *name, char *host, int port, char *dir)
 
 	/* Restore the backup */
 	doImmediateRaw("psql -h %s -p %d -d postgres -f %s", host, port, pgdumpall_out);
+	doImmediateRaw("rm -f %s", pgdumpall_out);
 
 	/* Quit the new datanode */
 	doImmediate(host, NULL, "pg_ctl stop -Z restoremode -D %s", dir);
