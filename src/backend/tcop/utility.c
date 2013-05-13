@@ -2092,6 +2092,12 @@ IsStmtAllowedInLockedMode(Node *parsetree, const char *queryString)
 											 * can be created, while the cluster is still
 											 * locked for backup
 											 */
+		case T_DropNodeStmt:				/*
+											 * This has to be allowed so that DROP NODE
+											 * can be issued to drop a node that has crashed.
+											 * Otherwise system would try to acquire a shared
+											 * advisory lock on the crashed node.
+											 */
 		case T_TransactionStmt:
 		case T_PlannedStmt:
 		case T_ClosePortalStmt:
