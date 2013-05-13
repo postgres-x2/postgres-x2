@@ -62,4 +62,6 @@ extern int show_config_datanodeSlaveMulti(char **nodeList);
 extern int show_config_datanodeMaster(int flag, int idx, char *hostname);
 extern int show_config_datanodeSlave(int flag, int idx, char *hostname);
 
+extern int check_AllDatanodeRunning(void);
+
 #endif /* DATANODE_CMD_H */

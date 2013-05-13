@@ -131,6 +131,7 @@ int add_gtmSlave(char *name, char *host, int port, char *dir)
 	char port_s[MAXTOKEN+1];
 	char date[MAXTOKEN+1];
 	FILE *f;
+	int	rc;
 
 	if (isVarYes(VAR_gtmSlave))
 	{
@@ -158,6 +159,7 @@ int add_gtmSlave(char *name, char *host, int port, char *dir)
 	snprintf(port_s, MAXTOKEN, "%d", port);
 	assign_sval(VAR_gtmSlavePort, Strdup(port_s));
 	assign_sval(VAR_gtmSlaveDir, Strdup(dir));
+	makeServerList();
 	if ((f = fopen(pgxc_ctl_config_path, "a")) == NULL)
 	{
 		/* Should it be panic? */
@@ -169,13 +171,16 @@ int add_gtmSlave(char *name, char *host, int port, char *dir)
 			"# pgxc configuration file updated due to GTM slave addition\n"
 			"#        %s\n", 
 			timeStampString(date, MAXTOKEN+1));
+	fprintSval(f, VAR_gtmSlave);
 	fprintSval(f, VAR_gtmSlaveServer);
 	fprintSval(f, VAR_gtmSlavePort);
 	fprintSval(f, VAR_gtmSlaveDir);
 	fprintf(f, "%s","#----End of reconfiguration -------------------------\n");
 	fclose(f);
 	backup_configuration();
-	return 0;
+	if ((rc = init_gtm_slave()) != 0)
+		return rc;
+	return(start_gtm_slave());
 }
 
 int remove_gtmSlave(bool clean_opt)
@@ -194,6 +199,7 @@ int remove_gtmSlave(bool clean_opt)
 		elog(ERROR, "ERROR: GTM slave is now running. Cannot remove it.\n");
 		return 1;
 	}
+	elog(NOTICE, "Removing gtm slave.\n");
 	/* Clean */
 	if (clean_opt)
 		clean_gtm_slave();
@@ -206,7 +212,6 @@ int remove_gtmSlave(bool clean_opt)
 	assign_sval(VAR_gtmSlavePort, Strdup("-1"));
 	reset_var(VAR_gtmSlaveDir);
 	assign_sval(VAR_gtmSlaveDir, Strdup("none"));
-	elog(MANDATORY, "This feature will come soon.\n");
 	/* Write the configuration file and bakup it */
 	if ((f = fopen(pgxc_ctl_config_path, "a")) == NULL)
 	{
@@ -216,15 +221,17 @@ int remove_gtmSlave(bool clean_opt)
 	}
 	fprintf(f, 
 			"#===================================================\n"
-			"# pgxc configuration file updated due to GTM slave addition\n"
+			"# pgxc configuration file updated due to GTM slave removal\n"
 			"#        %s\n",
 			timeStampString(date, MAXTOKEN+1));
+	fprintSval(f, VAR_gtmSlave);
 	fprintSval(f, VAR_gtmSlaveServer);
 	fprintSval(f, VAR_gtmSlavePort);
 	fprintSval(f, VAR_gtmSlaveDir);
 	fprintf(f, "%s", "#----End of reconfiguration -------------------------\n");
 	fclose(f);
 	backup_configuration();
+	elog(NOTICE, "Done.\n");
 	return 0;
 }
 
@@ -284,10 +291,10 @@ cmd_t *prepare_initGtmSlave(void)
 			"nodename = '%s'\n"
 			"startup = STANDBY\n"
 			"active_host = '%s'\n"
-			"active_port = %s\n"
+			"active_port = %d\n"
 			"# End of addition\n",
 			sval(VAR_gtmSlavePort), sval(VAR_gtmName),
-			sval(VAR_gtmMasterServer), sval(VAR_gtmMasterPort));
+			sval(VAR_gtmMasterServer), atoi(sval(VAR_gtmMasterPort)));
 	fclose(f);
 	return (cmdInitGtm);
 }
@@ -720,6 +727,8 @@ int add_gtmProxy(char *name, char *host, int port, char *dir)
 	char port_s[MAXTOKEN+1];
 	char date[MAXTOKEN+1];
 	FILE *f;
+	char **nodelist = NULL;
+	int rc;
 
 	if (is_none(host))
 	{
@@ -747,6 +756,8 @@ int add_gtmProxy(char *name, char *host, int port, char *dir)
 	snprintf(port_s, MAXTOKEN, "%d", port);
 	add_val(find_var(VAR_gtmProxyPorts), Strdup(port_s));
 	add_val(find_var(VAR_gtmProxyDirs), Strdup(dir));
+	add_val(find_var(VAR_gtmPxySpecificExtraConfig), Strdup("none"));
+	makeServerList();
 	if ((f = fopen(pgxc_ctl_config_path, "a")) == NULL)
 	{
 		/* Should it be panic? */
@@ -760,13 +771,18 @@ int add_gtmProxy(char *name, char *host, int port, char *dir)
 			name,
 			timeStampString(date, MAXTOKEN+1));
 	fprintSval(f, VAR_gtmProxy);
-	fprintAval(f, VAR_gtmSlaveServer);
-	fprintAval(f, VAR_gtmSlavePort);
-	fprintAval(f, VAR_gtmSlaveDir);
-	fprintf(f, "^%s", "#----End of reconfiguration -------------------------\n");
+	fprintAval(f, VAR_gtmProxyNames);
+	fprintAval(f, VAR_gtmProxyServers);
+	fprintAval(f, VAR_gtmProxyPorts);
+	fprintAval(f, VAR_gtmProxyDirs);
+	fprintAval(f, VAR_gtmPxySpecificExtraConfig);
+	fprintf(f, "%s", "#----End of reconfiguration -------------------------\n");
 	fclose(f);
-	return 0;
-
+	AddMember(nodelist, name);
+	init_gtm_proxy(nodelist);
+	rc = start_gtm_proxy(nodelist);
+	CleanArray(nodelist);
+	return rc;
 }
 
 int remove_gtmProxy(char *name, bool clean_opt)
@@ -789,20 +805,24 @@ int remove_gtmProxy(char *name, bool clean_opt)
 		elog(ERROR, "ERROR: GTM Proxy %s is in use\n", name);
 		return 1;
 	}
+	elog(NOTICE, "NOTICE: removing gtm_proxy %s\n", name);
 	/* Clean */
 	if (clean_opt)
 	{
 		char **nodelist = NULL;
 
+		elog(NOTICE, "NOTICE: cleaning target resources.\n");
 		AddMember(nodelist, name);
 		clean_gtm_proxy(nodelist);
 		CleanArray(nodelist);
 	}
 	/* Reconfigure */
+	var_assign(&aval(VAR_gtmProxyNames)[idx], Strdup("none"));
 	var_assign(&aval(VAR_gtmProxyServers)[idx], Strdup("none"));
 	var_assign(&aval(VAR_gtmProxyPorts)[idx], Strdup("-1"));
 	var_assign(&aval(VAR_gtmProxyDirs)[idx], Strdup("none"));
 	handle_no_slaves();
+	makeServerList();
 	/* Update configuration file and backup it */
 	if ((f = fopen(pgxc_ctl_config_path, "a")) == NULL)
 	{
@@ -812,7 +832,7 @@ int remove_gtmProxy(char *name, bool clean_opt)
 	}
 	fprintf(f, 
 			"#===================================================\n"
-			"# pgxc configuration file updated due to GTM slave addition\n"
+			"# pgxc configuration file updated due to GTM proxy addition\n"
 			"#        %s\n"
 			"%s=%s\n"					/* gtmProxy */
 			"%s=( %s )\n"				/* gtmProxyNames */
@@ -828,6 +848,7 @@ int remove_gtmProxy(char *name, bool clean_opt)
 			VAR_gtmProxyDirs, listValue(VAR_gtmProxyDirs));
 	fclose(f);
 	backup_configuration();
+	elog(NOTICE, "Done.\n");
 	return 0;
 }
 
@@ -1291,6 +1312,11 @@ int show_config_gtmSlave(int flag, char *hostname)
 	char lineBuf[MAXLINE+1];
 	char editBuf[MAXPATH+1];
 
+	if (isVarYes(VAR_gtmSlave) || is_none(VAR_gtmSlaveServer))
+	{
+		elog(ERROR, "ERROR: gtm slave is not configured.\n");
+		return 0;
+	}
 	lineBuf[0] = 0;
 	if (flag)
 		strncat(lineBuf, "GTM Slave: ", MAXLINE);

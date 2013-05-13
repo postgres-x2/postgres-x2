@@ -18,6 +18,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <time.h>
+#include <stdio.h>
 
 #include "../../src/interfaces/libpq/libpq-fe.h"
 #include "utils.h"
@@ -141,14 +142,17 @@ void appendFiles(FILE *f, char **fileList)
 	if (fileList)
 		for (ii = 0; fileList[ii]; ii++)
 		{
-			if ((src = fopen(fileList[ii], "r")) == 0)
+			if (!is_none(fileList[ii]))
 			{
-				elog(ERROR, "ERROR: could not open file %s for read, %s\n", fileList[ii], strerror(errno));
-				continue;
+				if ((src = fopen(fileList[ii], "r")) == 0)
+				{
+					elog(ERROR, "ERROR: could not open file %s for read, %s\n", fileList[ii], strerror(errno));
+					continue;
+				}
+				while (fgets(buf, MAXLINE, src))
+					fputs(buf, f);
+				fclose(src);
 			}
-			while (fgets(buf, MAXLINE, src))
-				fputs(buf, f);
-			fclose(src);
 		}
 }
 
@@ -173,7 +177,7 @@ char *timeStampString(char *buf, int len)
 	localtime_r(&nowTime, &nowTm);
 
 	snprintf(buf, len, "%04d%02d%02d_%02d:%02d:%02d",
-			 nowTm.tm_year, nowTm.tm_mon, nowTm.tm_mday,
+			 nowTm.tm_year+1900, nowTm.tm_mon+1, nowTm.tm_mday,
 			 nowTm.tm_hour, nowTm.tm_min, nowTm.tm_sec);
 	return(buf);
 }
@@ -216,6 +220,8 @@ int coordIdx(char *coordName)
 {
 	int ii;
 
+	if (is_none(coordName))
+		return -1;
 	for (ii = 0; aval(VAR_coordNames)[ii]; ii++)
 	{
 		if (strcmp(aval(VAR_coordNames)[ii], coordName) == 0)
@@ -228,6 +234,8 @@ int datanodeIdx(char *datanodeName)
 {
 	int ii;
 
+	if (is_none(datanodeName))
+		return -1;
 	for (ii = 0; aval(VAR_datanodeNames)[ii]; ii++)
 	{
 		if (strcmp(aval(VAR_datanodeNames)[ii], datanodeName) == 0)
@@ -350,5 +358,24 @@ char *getChPidList(char *host, pid_t ppid)
 		strncat(rv, " ", MAXLINE);
 	}
 	return rv;
+}
+	
+char *getIpAddress(char *hostName)
+{
+	char command[MAXLINE+1];
+	char *ipAddr;
+	FILE *f;
+
+	snprintf(command, MAXLINE, "ping -c1 %s | head -n 1 | sed 's/^[^(]*(\\([^)]*\\).*$/\\1/'", hostName);
+	if ((f = popen(command, "r")) == NULL)
+	{
+		elog(ERROR, "ERROR: could not open the command, \"%s\", %s\n", command, strerror(errno));
+		return NULL;
+	}
+	ipAddr = Malloc(MAXTOKEN+1);
+	fgets(ipAddr, MAXTOKEN, f);
+	fclose(f);
+	trimNl(ipAddr);
+	return ipAddr;
 }
 	

@@ -31,6 +31,7 @@ extern pid_t get_prog_pid(char *host, char *progname, char *dir);
 extern int pingNode(char *host, char *port);
 extern void trimNl(char *s);
 extern char *getChPidList(char *host, pid_t ppid);
+extern char *getIpAddress(char *hostName);
 
 #define get_postmaster_pid(host, dir) get_prog_pid(host, "postgres", dir)
 #define get_gtm_pid(host, dir) get_prog_pid(host, "gtm", dir)

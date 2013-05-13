@@ -52,6 +52,7 @@ void print_var(char *vname);
 void reset_value(pgxc_ctl_var *var);
 void assign_val(char *dest, char *src);
 void assign_sval(char *name, char *val);
+void assign_arrayEl(char *name, int idx, char *val, char *pad);
 pgxc_ctl_var *confirm_var(char *name);
 void reset_var_val(char *name, char *val);
 void reset_var(char *name);
@@ -62,8 +63,9 @@ char **add_member(char **array, char *val);
 void var_assign(char **dest, char *src);
 char  *listValue(char *name);
 int extendVar(char *name, int newSize, char *def_value);
+int doesExist(char *name, int idx);
 
-#define AddMember(a, b) do{if((a) == NULL) (a) = Malloc0(sizeof(char *)); add_member((a), (b));}while(0)
+#define AddMember(a, b) do{if((a) == NULL) (a) = Malloc0(sizeof(char *)); (a) = add_member((a), (b));}while(0)
 void clean_array(char **array);
 #define CleanArray(a) do{clean_array(a); (a) = NULL;}while(0)
 #define VAR(a) find_var(a)

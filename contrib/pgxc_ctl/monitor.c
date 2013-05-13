@@ -64,7 +64,8 @@ static void monitor_gtm_master(void)
 
 static void monitor_gtm_slave(void)
 {
-	return(printResult(do_gtm_ping(sval(VAR_gtmSlaveServer), atoi(sval(VAR_gtmSlavePort))), "gtm slave", NULL));
+	if (doesExist(VAR_gtmSlaveServer, 0) && doesExist(VAR_gtmSlavePort, 0))
+		return(printResult(do_gtm_ping(sval(VAR_gtmSlaveServer), atoi(sval(VAR_gtmSlavePort))), "gtm slave", NULL));
 }
 
 static void monitor_gtm_proxy(char **nodeList)
@@ -125,8 +126,12 @@ static void monitor_coordinator_slave(char **nodeList)
 			elog(ERROR, "ERROR: %s is not a coordinator\n", actualNodeList[ii]);
 			continue;
 		}
-		printResult(pingNode(aval(VAR_coordSlaveServers)[idx], aval(VAR_coordPorts)[idx]), 
-					"coordinator slave", actualNodeList[ii]);
+		/* Need to check again if the slave is configured */
+		if (!doesExist(VAR_coordSlaveServers, idx) || is_none(aval(VAR_coordSlaveServers)[idx]))
+			elog(ERROR, "ERROR: coordinator slave %s is not configured\n", actualNodeList[ii]);
+		else
+			printResult(pingNode(aval(VAR_coordSlaveServers)[idx], aval(VAR_coordPorts)[idx]), 
+						"coordinator slave", actualNodeList[ii]);
 	}
 }
 
@@ -146,7 +151,7 @@ static void monitor_coordinator(char **nodeList)
 		}
 		printResult(pingNode(aval(VAR_coordMasterServers)[idx], aval(VAR_coordPorts)[idx]), 
 					"coordinator master", actualNodeList[ii]);
-		if (!is_none(aval(VAR_coordSlaveServers)[idx]))
+		if (doesExist(VAR_coordSlaveServers, idx) && !is_none(aval(VAR_coordSlaveServers)[idx]))
 			printResult(pingNode(aval(VAR_coordSlaveServers)[idx], aval(VAR_coordPorts)[idx]),
 						"coordinatr slave", actualNodeList[ii]);
 	}
@@ -189,8 +194,11 @@ static void monitor_datanode_slave(char **nodeList)
 			elog(ERROR, "ERROR: %s is not a datanode\n", actualNodeList[ii]);
 			continue;
 		}
-		printResult(pingNode(aval(VAR_datanodeSlaveServers)[idx], aval(VAR_datanodePorts)[idx]), 
-					"datanode slave", actualNodeList[ii]);
+		if (doesExist(VAR_datanodeSlaveServers, idx) && !is_none(aval(VAR_datanodeSlaveServers)[idx]))
+			printResult(pingNode(aval(VAR_datanodeSlaveServers)[idx], aval(VAR_datanodePorts)[idx]), 
+						"datanode slave", actualNodeList[ii]);
+		else
+			elog(ERROR, "ERROR: datanode slave %s is not configured.\n", actualNodeList[ii]);
 	}
 }
 
@@ -210,7 +218,7 @@ static void monitor_datanode(char **nodeList)
 		}
 		printResult(pingNode(aval(VAR_datanodeMasterServers)[idx], aval(VAR_datanodePorts)[idx]), 
 					"datanode master", actualNodeList[ii]);
-		if (!is_none(aval(VAR_datanodeSlaveServers)[idx]))
+		if (doesExist(VAR_datanodeSlaveServers, idx) && !is_none(aval(VAR_datanodeSlaveServers)[idx]))
 			printResult(pingNode(aval(VAR_datanodeSlaveServers)[idx], aval(VAR_datanodePorts)[idx]),
 						"datanode slave", actualNodeList[ii]);
 	}
@@ -243,16 +251,13 @@ static void monitor_something(char **nodeList)
 		else if (type == NodeType_COORDINATOR)
 		{
 			wkNodeList[0] = actualNodeList[ii];
-			monitor_coordinator_master(wkNodeList);
-			if (isVarYes(VAR_coordSlave))
-				monitor_coordinator_slave(wkNodeList);
+			monitor_coordinator(wkNodeList);
 			continue;
 		}
 		else if (type == NodeType_DATANODE)
 		{
 			wkNodeList[0] = actualNodeList[ii];
-			if (isVarYes(VAR_datanodeSlave))
-				monitor_datanode_slave(wkNodeList);
+			monitor_datanode(wkNodeList);
 			continue;
 		}
 		else
@@ -319,8 +324,9 @@ void do_monitor_command(char *line)
 			monitor_coordinator_master(aval(VAR_coordNames));
 			if (isVarYes(VAR_coordSlave))
 				monitor_coordinator_slave(aval(VAR_coordNames));
+			return;
 		}
-		if (TestToken("master"))
+		else if (TestToken("master"))
 		{
 			if (!GetToken() || TestToken("all"))
 				monitor_coordinator_master(aval(VAR_coordNames));
@@ -369,7 +375,7 @@ void do_monitor_command(char *line)
 			if (isVarYes(VAR_coordSlave))
 				monitor_datanode_slave(aval(VAR_datanodeNames));
 		}
-		if (TestToken("master"))
+		else if (TestToken("master"))
 		{
 			if (!GetToken() || TestToken("all"))
 				monitor_datanode_master(aval(VAR_datanodeNames));
@@ -417,12 +423,8 @@ void do_monitor_command(char *line)
 			monitor_gtm_slave();
 		if (isVarYes(VAR_gtmProxy))
 			monitor_gtm_proxy(aval(VAR_gtmProxyNames));
-		monitor_coordinator_master(aval(VAR_coordNames));
-		if (isVarYes(VAR_coordSlave))
-			monitor_coordinator_slave(aval(VAR_coordNames));
-		monitor_datanode_master(aval(VAR_datanodeNames));
-		if (isVarYes(VAR_datanodeSlave))
-			monitor_datanode_slave(aval(VAR_datanodeNames));
+		monitor_coordinator(aval(VAR_coordNames));
+		monitor_datanode(aval(VAR_datanodeNames));
 	}
 	else
 	{

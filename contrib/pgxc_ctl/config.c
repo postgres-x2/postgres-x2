@@ -254,7 +254,7 @@ static void addServer(char **name)
 /*
  * Test each node and build target server list
  */
-static void makeServerList()
+void makeServerList(void)
 {
 	/* Initialize */
 	reset_var(VAR_allServers);
@@ -322,8 +322,19 @@ static void emptyGtmProxies()
 
 	reset_var_val(VAR_gtmProxy, "n");
 	reset_var(VAR_gtmProxyServers);
+	reset_var(VAR_gtmProxyNames);
+	reset_var(VAR_gtmProxyPorts);
+	reset_var(VAR_gtmProxyDirs);
+	reset_var_val(VAR_gtmPxyExtraConfig, "none");
+	reset_var(VAR_gtmPxySpecificExtraConfig);
 	for (ii = 0; ii < arraySizeName(VAR_allServers); ii++)
+	{
 		add_val(find_var(VAR_gtmProxyServers), "none");
+		add_val(find_var(VAR_gtmProxyNames), "none");
+		add_val(find_var(VAR_gtmProxyPorts), "-1");
+		add_val(find_var(VAR_gtmProxyDirs), "none");
+		add_val(find_var(VAR_gtmPxyExtraConfig), "none");
+	}
 }
 
 /*
@@ -337,8 +348,14 @@ static void emptyCoordSlaves()
 
 	reset_var_val(VAR_coordSlave, "n");
 	reset_var(VAR_coordSlaveServers);
-	for (ii = 0; ii < arraySizeName(VAR_coordSlaveServers); ii++)
+	reset_var(VAR_coordSlaveDirs);
+	reset_var(VAR_coordArchLogDirs);
+	for (ii = 0; ii < arraySizeName(VAR_coordNames); ii++)
+	{
 		add_val(find_var(VAR_coordSlaveServers), "none");
+		add_val(find_var(VAR_coordSlaveDirs), "none");
+		add_val(find_var(VAR_coordArchLogDirs), "none");
+	}
 }
 
 /*
@@ -350,8 +367,14 @@ static void emptyDatanodeSlaves()
 
 	reset_var_val(VAR_datanodeSlave, "n");
 	reset_var(VAR_datanodeSlaveServers);
+	reset_var(VAR_datanodeSlaveDirs);
+	reset_var(VAR_datanodeArchLogDirs);
 	for (ii = 0; ii < arraySizeName(VAR_datanodeSlaveServers); ii++)
+	{
 		add_val(find_var(VAR_datanodeSlaveServers), "none");
+		add_val(find_var(VAR_coordSlaveDirs), "none");
+		add_val(find_var(VAR_coordArchLogDirs), "none");
+	}
 }
 
 /*
@@ -595,7 +618,8 @@ int checkPortConflict(char *host, int port)
 	/* Coordinator Slave */
 	if (isVarYes(VAR_coordSlave))
 		for (ii = 0; aval(VAR_coordNames)[ii]; ii++)
-			if ((strcasecmp(host, aval(VAR_coordSlaveServers)[ii]) == 0) && (atoi(aval(VAR_coordPorts)[ii]) == port))
+			if (doesExist(VAR_coordSlaveServers, ii) && !is_none(aval(VAR_coordSlaveServers)[ii]) && 
+				(strcasecmp(host, aval(VAR_coordSlaveServers)[ii]) == 0) && (atoi(aval(VAR_coordPorts)[ii]) == port))
 				return 1;
 	/* Datanode Master */
 	for (ii = 0; aval(VAR_datanodeNames)[ii]; ii++)
@@ -604,7 +628,8 @@ int checkPortConflict(char *host, int port)
 	/* Datanode Slave */
 	if (isVarYes(VAR_datanodeSlave))
 		for (ii = 0; aval(VAR_datanodeNames)[ii]; ii++)
-			if ((strcasecmp(host, aval(VAR_datanodeSlaveServers)[ii]) == 0) && (atoi(aval(VAR_datanodePorts)[ii]) == port))
+			if (doesExist(VAR_datanodeSlaveServers, ii) && !is_none(aval(VAR_datanodeSlaveServers)[ii]) && 
+				(strcasecmp(host, aval(VAR_datanodeSlaveServers)[ii]) == 0) && (atoi(aval(VAR_datanodePorts)[ii]) == port))
 				return 1;
 	return 0;
 }
@@ -639,7 +664,8 @@ int checkDirConflict(char *host, char *dir)
 			return 1;
 	/* Datanode Slave */
 	if (isVarYes(VAR_datanodeSlave))
-		if ((strcasecmp(host, aval(VAR_datanodeSlaveServers)[ii]) == 0) && (strcmp(dir, aval(VAR_datanodeSlaveDirs)[ii]) == 0))
+		if (doesExist(VAR_datanodeSlaveServers, ii) && doesExist(VAR_datanodeSlaveDirs, ii) &&
+			(strcasecmp(host, aval(VAR_datanodeSlaveServers)[ii]) == 0) && (strcmp(dir, aval(VAR_datanodeSlaveDirs)[ii]) == 0))
 			return 1;
 	return 0;
 }
@@ -671,35 +697,65 @@ static void checkResourceConflict(char *srcNames, char *srcServers, char *srcPor
 		/* Check conflict among the source first */
 		for (ii = 0; aval(srcNames)[ii]; ii++)
 		{
+			if (is_none(aval(srcNames)[ii]))
+				continue;
 			/* Pooler and the port in the same name */
 			if (srcPoolers && (atoi(aval(srcPorts)[ii]) == atoi(aval(srcPoolers)[ii])))
 			{
-				anyConfigErrors = TRUE;
-				elog(ERROR, "ERROR: Conflict in between port and pooler within %s variable.\n", srcNames);
+				if (atoi(aval(srcPorts)[ii]) > 0)
+				{
+					anyConfigErrors = TRUE;
+					elog(ERROR, "ERROR: Conflict in between port and pooler within %s variable.\n", srcNames);
+				}
 			}
+			if (checkName && srcNames && !doesExist(srcNames, ii))
+				assign_arrayEl(srcNames, ii, "none", NULL);
+			if (srcServers && !doesExist(srcServers, ii))
+				assign_arrayEl(srcServers, ii, "none", NULL);
+			if (srcPoolers && !doesExist(srcPoolers, ii))
+				assign_arrayEl(srcPoolers, ii, "-1", "-1");
+			if (srcPorts && !doesExist(srcPorts, ii))
+				assign_arrayEl(srcPorts, ii, "-1", "-1");
+			if (srcDirs && !doesExist(srcDirs, ii))
+				assign_arrayEl(srcDirs, ii, "none", NULL);
 			for (jj = ii+1; aval(srcNames)[jj]; jj++)
 			{
 				/* Name conflict */
-				if (checkName && (strcmp(aval(srcNames)[ii], aval(srcNames)[jj]) == 0))
+				if (checkName && srcNames && !doesExist(srcNames, jj))
+					assign_arrayEl(srcNames, jj, "none", NULL);
+				if (checkName && srcNames && (strcmp(aval(srcNames)[ii], aval(srcNames)[jj]) == 0))
 				{
 					anyConfigErrors = TRUE;
 					elog(ERROR, "ERROR: Conflict in resource name within %s variable.\n", srcNames);
 				}
-				if (strcmp(aval(srcServers)[ii], aval(srcServers)[jj]) == 0)
+				if (srcServers && is_none(aval(srcServers)[ii]))
+					continue;
+				if (srcServers && !doesExist(srcServers, jj))
+					assign_arrayEl(srcServers, jj, "none", NULL);
+				if (srcServers && strcmp(aval(srcServers)[ii], aval(srcServers)[jj]) == 0)
 				{
 					/* Ports and Poolers */
-					if((atoi(aval(srcPorts)[ii]) == atoi(aval(srcPorts)[jj])) ||
-					   (atoi(aval(srcPorts)[ii]) == atoi(aval(srcPoolers)[jj])) ||
-					   (atoi(aval(srcPoolers)[ii]) == atoi(aval(srcPoolers)[jj])))
+					if (srcPorts && !doesExist(srcPorts, jj))
+						assign_arrayEl(srcPorts, jj, "-1", "-1");
+					if (srcPoolers && !doesExist(srcPoolers, jj))
+						assign_arrayEl(srcPoolers, jj, "-1", "-1");
+					if((srcPorts && (atoi(aval(srcPorts)[ii]) > 0) && (atoi(aval(srcPorts)[ii]) == atoi(aval(srcPorts)[jj]))) ||
+					   (srcPorts && srcPoolers && (atoi(aval(srcPorts)[ii]) > 0) && (atoi(aval(srcPorts)[ii]) == atoi(aval(srcPoolers)[jj]))) ||
+					   (srcPoolers && (atoi(aval(srcPoolers)[ii]) > 0) && (atoi(aval(srcPoolers)[ii]) == atoi(aval(srcPoolers)[jj]))))
 					{
 						anyConfigErrors = TRUE;
 						elog(ERROR, "ERROR: Conflict in port and pooler numbers within  %s variable.\n", srcNames);
 					}
 					/* Directories */
-					if (strcmp(aval(srcDirs)[ii], aval(srcDirs)[jj]) == 0)
+					if (srcDirs && !doesExist(srcDirs, jj))
+						assign_arrayEl(srcDirs, jj, "none", NULL);
+					if (srcDirs && strcmp(aval(srcDirs)[ii], aval(srcDirs)[jj]) == 0)
 					{
-						anyConfigErrors = TRUE;
-						elog(ERROR, "ERROR: Conflict in directories within  %s variable.\n", srcNames);
+						if (!is_none(aval(srcDirs)[ii]))
+						{
+							anyConfigErrors = TRUE;
+							elog(ERROR, "ERROR: Conflict in directories within  %s variable.\n", srcNames);
+						}
 					}
 				}
 			}
@@ -710,6 +766,8 @@ static void checkResourceConflict(char *srcNames, char *srcServers, char *srcPor
 	{
 		for (ii = 0; aval(srcNames)[ii]; ii++)
 		{
+			if (is_none(aval(srcNames)[ii]))
+				continue;
 			for (jj = 0; aval(destNames)[jj]; jj++)
 			{
 				/* Resource names */
@@ -718,19 +776,25 @@ static void checkResourceConflict(char *srcNames, char *srcServers, char *srcPor
 					anyConfigErrors = TRUE;
 					elog(ERROR, "ERROR: Conflict in names between  %s and %s variable.\n", srcNames, destNames);
 				}
-				if ((strcmp(aval(srcServers)[ii], aval(destServers)[jj]) == 0))
+				if (destServers && !doesExist(destServers, jj))
+					assign_arrayEl(destServers, jj, "none", NULL);
+				if (srcServers && destServers && (strcmp(aval(srcServers)[ii], aval(destServers)[jj]) == 0) && !is_none(aval(srcServers)[ii]))
 				{
 					/* Ports and poolers */
-					if ((atoi(aval(srcPorts)[ii]) == atoi(aval(destPorts)[jj])) ||
-						(destPoolers && (atoi(aval(srcPorts)[ii]) == atoi(aval(destPoolers)[jj]))) ||
-						(srcPoolers && (atoi(aval(srcPoolers)[ii]) == atoi(aval(destPorts)[jj]))) ||
-						(srcPoolers && destPoolers && (atoi(aval(srcPoolers)[ii]) == atoi(aval(destPoolers)[jj]))))
+					if (destPorts && !doesExist(destPorts, jj))
+						assign_arrayEl(destPorts, jj, "-1", "-1");
+					if (destPoolers && !doesExist(destPoolers, jj))
+						assign_arrayEl(destPoolers, jj, "-1", "-1");
+					if ((srcPorts && destPorts && (atoi(aval(srcPorts)[ii]) == atoi(aval(destPorts)[jj])) && (atoi(aval(srcPorts)[ii]) > 0)) ||
+						(destPoolers && srcPorts && (destPoolers && (atoi(aval(srcPorts)[ii]) == atoi(aval(destPoolers)[jj]))) && (atoi(aval(srcPorts)[ii]) > 0))  ||
+						(srcPoolers && destPorts && (atoi(aval(srcPoolers)[ii]) == atoi(aval(destPorts)[jj])) && (atoi(aval(srcPoolers)[ii]) > 0)) ||
+						(srcPoolers && destPoolers && (atoi(aval(srcPoolers)[ii]) == atoi(aval(destPoolers)[jj])) && (atoi(aval(srcPoolers)[ii]) > 0)))
 					{
 						anyConfigErrors = TRUE;
 						elog(ERROR, "ERROR: Conflict in port/pooler in %s and %s variable.\n", srcNames, destNames);
 					}
 					/* Dir Names */
-					if (strcmp(aval(srcDirs)[ii], aval(destDirs)[jj]) == 0)
+					if (srcDirs && destDirs && !is_none(aval(srcDirs)[ii]) && (strcmp(aval(srcDirs)[ii], aval(destDirs)[jj]) == 0))
 					{
 						anyConfigErrors = TRUE;
 						elog(ERROR, "ERROR: Conflict in directory names in %s and %s variable.\n", srcNames, destNames);
@@ -1035,3 +1099,17 @@ NodeType getNodeType(char *nodeName)
 
 }
 
+int getDefaultWalSender(int isCoord)
+{
+	int ii;
+
+	char *names = isCoord ? VAR_coordNames : VAR_datanodeNames;
+	char *walSender = isCoord ? VAR_coordMaxWALSenders : VAR_datanodeMaxWALSenders;
+	
+	for (ii = 0; aval(names)[ii]; ii++)
+	{
+		if (doesExist(names, ii) && !is_none(aval(names)[ii]) && (atoi(aval(walSender)[ii]) >= 0))
+			return atoi(aval(walSender)[ii]);
+	}
+	return 0;
+}

@@ -249,22 +249,22 @@ PGXC$
 gtmProxyDir=$HOME/pgxc/nodes/gtm_pxy
 
 #---- Overall -------
-gtmProxy=y				# Specify y if you conifugre at least one GTM 
+gtmProxy=y              # Specify y if you conifugre at least one GTM 
                         # proxy.
                         # You may not configure gtm proxies only when
                         # you dont' configure GTM slaves. 
-						# If you specify this value not to y, the
+                        # If you specify this value not to y, the
                         # following parameters will be set to default
                         # empty values.  
-						# If we find there're no valid Proxy server
+                        # If we find there're no valid Proxy server
                         # names (means, every servers are specified 
-						# as none), then gtmProxy value will be set to
+                        # as none), then gtmProxy value will be set to
                         # "n" and all the entries will be set to empty
                         # values. 
-gtmProxyNames=(gtm_pxy1 gtm_pxy2 gtm_pxy3 gtm_pxy4)	# No used if it is not configured
+gtmProxyNames=(gtm_pxy1 gtm_pxy2 gtm_pxy3 gtm_pxy4) # No used if it is not configured
 gtmProxyServers=(node06 node07 node08 node09)       # Specify none if you dont' configure it.
 gtmProxyPorts=(20001 20001 20001 20001)             # Not used if it is not configured.
-gtmProxyDirs=($gtmProxyDir $gtmProxyDir $gtmProxyDir $gtmProxyDir)	# Not used if it is not configured.
+gtmProxyDirs=($gtmProxyDir $gtmProxyDir $gtmProxyDir $gtmProxyDir)  # Not used if it is not configured.
 </programlisting>
    This is a section to specify gtm proxy setups.
    We have four <literal>gtm proxies</literal> in each of the server.
@@ -1602,9 +1602,9 @@ PGXC$ prepare config my_config.conf
     <term><literal>Createuser[ - <replaceable class="parameter">coordinator</replaceable> ] <replaceable class="parameter"> createuser_option ... </replaceable></literal></term>
     <listitem>
      <para>
-   Invokes createuser utulity to create a new user using specified
-   coordinator.   Of coordinator is not specified, <application>pgxc_ctl</application> chooses
-   one of the available ones.
+      Invokes createuser utulity to create a new user using specified
+      coordinator.   Of coordinator is not specified, <application>pgxc_ctl</application> chooses
+      one of the available ones.
      </para>
     </listitem>
    </varlistentry>
@@ -1613,12 +1613,12 @@ PGXC$ prepare config my_config.conf
     <term><literal>deploy [ all | <replaceable class="parameter">host ...</replaceable> ]</literal></term>
     <listitem>
      <para>
-   Deploys postgres-xc binaries and other installtion material to
-   specified hosts.  If "all" is specified, they will be deployed to
-   all the hosts found in the configuration file.  If list of the host
-   is specifies, deployment will be done to all the specified hosts,
-   regardless if they are found in the configuration file or not.
-   Target directory is taken from the variable <option>pgxcInstallDir</option>.
+      Deploys postgres-xc binaries and other installtion material to
+      specified hosts.  If "all" is specified, they will be deployed to
+      all the hosts found in the configuration file.  If list of the host
+      is specifies, deployment will be done to all the specified hosts,
+      regardless if they are found in the configuration file or not.
+      Target directory is taken from the variable <option>pgxcInstallDir</option>.
      </para>
     </listitem>
    </varlistentry>
@@ -1643,16 +1643,16 @@ PGXC$ prepare config my_config.conf
     <term><literal>init datanode [ master | slave ] [ all | <replaceable class="parameter">nodename ...</replaceable> ]</literal></term>
     <listitem>
      <para>
-   Initializes specified nodes.
+      Initializes specified nodes.
      </para>
      <para>
-   At initialization, all the working directories of each component
-   will be created if it does not exist.  If it does, then all the
-   contents under the working directory will be removed.
+      At initialization, all the working directories of each component
+      will be created if it does not exist.  If it does, then all the
+      contents under the working directory will be removed.
      </para>
      <para>
-   When "all" option is specified, then node information at each
-   coordinator will be set up.
+      When "all" option is specified, then node information at each
+      coordinator will be set up.
      </para>
     </listitem>
    </varlistentry>
@@ -1668,11 +1668,17 @@ PGXC$ prepare config my_config.conf
     <term><literal>kill datanode [ master | slave ] [ all | <replaceable class="parameter">nodename ...</replaceable> ]</literal></term>
     <listitem>
      <para>
-   Kills specified node.   If nodename is specified and it has both
-   master and slave, then both master and slave will be chosen.
+      Kills specified node.   If nodename is specified and it has both
+      master and slave, then both master and slave will be chosen.
      </para>
      <para>
-   When killing components, their ports will be cleaned too.
+      When killing components, their ports will be cleaned too.
+     </para>
+     <para>
+      Please be careful that you should not use <literal>kill</literal> command unless you're ready to reinitialize all the component from the scratch.
+      Especially, when your database is in production, you must not kill the component.
+      Stop them using <literal>stop</literal> command with <literal>-m fast</literal> or <literal>-m smart</literal> option.
+      This is for the test use and this command does not guarantee to maintain <application>postgres-xc</application> database cluster consistency.
      </para>
     </listitem>
    </varlistentry>
@@ -1735,7 +1741,7 @@ PGXC$ prepare config my_config.conf
     <term><literal>q | quit | exit</literal></term>
     <listitem>
      <para>
-   Exits pgxc_ctl.  This command has no option.
+      Exits pgxc_ctl.  This command has no option.
      </para>
     </listitem>
    </varlistentry>
@@ -1744,8 +1750,8 @@ PGXC$ prepare config my_config.conf
     <term><literal>reconnect gtm_proxy [ all | <replaceable class="parameter">nodename ...</replaceable> ]</literal></term>
     <listitem>
      <para>
-   Reconnects specified gtm_proxy to new gtm.   This is needed after
-   you failover gtm to its slave.
+      Reconnects specified gtm_proxy to new gtm.   This is needed after
+      you failover gtm to its slave.
      </para>
     </listitem>
    </varlistentry>
@@ -1757,8 +1763,8 @@ PGXC$ prepare config my_config.conf
     <term><literal>remove datanode [ master| slave ] <replaceable class="parameter">nodename</replaceable> [ clean ]</literal></term>
     <listitem>
      <para>
-   Removes the specified node from the cluster.
-   If clean option is specified, then the work directory and listening socket will be cleared.
+      Removes the specified node from the cluster.
+      If clean option is specified, then the work directory and listening socket will be cleared.
      </para>
     </listitem>
    </varlistentry>
@@ -1767,10 +1773,106 @@ PGXC$ prepare config my_config.conf
     <term><literal>set <replaceable class="parameter">varname value ...</replaceable></literal></term>
     <listitem>
      <para>
-   Set variable value.  You can specify multiple values to a
-   variable.   In this case simply specify these values as separated
-   value.
+      Set variable value.  You can specify multiple values to a
+      variable.   In this case simply specify these values as separated
+      value.
      </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>show [ configuration | configure | config ] [ all | basic ]</literal></term>
+    <term><literal>show [ configuration | configure | config ] host <replaceable class="parameter">hostname ... </replaceable></literal></term>
+    <term><literal>show [ configuration | configure | config ] gtm [ all | master | slave ]</literal></term>
+    <term><literal>show [ configuration | configure | config ] gtm_proxy [ all | <replaceable class="parameter">gtm_proxy_name ...</replaceable> ]</literal></term>
+    <term><literal>show [ configuration | configure | config ] [ coordinator | datanode ] [ all | master | slave ] <replaceable class="parameter">nodename ...</replaceable></literal></term>
+    <listitem>
+     <para>
+      Shows <application>postgres-xc</application> configuration.
+     </para>
+     <para>
+      If you specify <literal>all</literal> or <literal>basic</literal>, global configuration information will be given.
+     </para>
+     <para>
+      If you specify <literal>host</literal> with <replaceable>hostname</replaceable> list, configuration for each <replaceable>hostname</replaceable> will be given.
+     </para>
+     <para>
+      If you specify <literal>gtm</literal>, <literal>gtm</literal> information will be given.
+      If you specify any more option, master and slave, if configured, information will be given.
+      <literal>master</literal> and <literal>slave</literal> option will show only specified portion of the component.
+     </para>
+     <para>
+      If you specify <literal>gtm_proxy</literal>, gtm_proxy configuration will be given.
+      <literal>all</literal> option will show all the gtm_proxy configuration.
+      Giving a list of gtm_proxy names will show specified gtm_proxy configuration.
+     </para>
+     <para>
+      If you specify <literal>coordinator</literal> or <literal>datanode</literal> option, coordinator or datanode configuration will be shown respectively.
+      <literal>all</literal> shows bot master and slave information.
+      <literal>master</literal> and <literal>slave</literal> option will show each portion of the configuration.
+      You can specify a list of node name to get configuration information for specific coordinator or datanode.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>show resource datanode <replaceable class="parameter">datanodename</replaceable> [ <replaceable class = "parameter">databasename</replaceable> [ <replaceable class = "parameter">username</replaceable> ] ]</literal></term>
+    <listitem>
+     <para>
+      Shows table names specified datanode is involved.
+      Before removing a datanode, you must be sure that no tables are involved by such a datanode.
+      This command shows what tables a given datanode is involved.
+      If you don't specify the database name, default database (the name of the owner of XC, as specified by <literal>pgxcOwner</literal> variable, will be used.
+      If you don't specify the username, <literal>pgxcOwner</literal> will be used.
+     </para>
+     <para>
+      Please note that this command is not intended to give complete information of the table distribution/replication.
+      For specific users and schemas, you should check if there's nothing left to a datanode when you're removing a datanode master safely.
+      Please also note that this command does not take care of the password.   You might be prompted for the password if it id needed.
+     </para>
+     <para>
+      Typical SQL statement to check if there's any table involved by removing datanode is as follows:
+      <programlisting>
+SELECT pg_class.relname relation,
+           CASE
+             WHEN pclocatortype = 'H' THEN 'Hash'
+             WHEN pclocatortype = 'M' THEN 'Modulo'
+             WHEN pclocatortype = 'N' THEN 'Round Robin'
+             WHEN pclocatortype = 'R' THEN 'Replicate'
+             ELSE 'Unknown'
+           END AS distribution,
+            pg_attribute.attname attname,
+            pgxc_node.node_name nodename
+        FROM pg_class, pgxc_class, pg_attribute, pgxc_node
+        WHERE pg_class.oid = pgxc_class.pcrelid
+              and pg_class.oid = pg_attribute.attrelid
+              and pgxc_class.pcattnum = pg_attribute.attnum
+              and pgxc_node.node_name = 'datanode4'
+              and pgxc_node.oid = ANY (pgxc_class.nodeoids)
+     UNION
+     SELECT pg_class.relname relation,
+           CASE
+             WHEN pclocatortype = 'H' THEN 'Hash'
+             WHEN pclocatortype = 'M' THEN 'Modulo'
+             WHEN pclocatortype = 'N' THEN 'Round Robin'
+             WHEN pclocatortype = 'R' THEN 'Replicate'
+             ELSE 'Unknown'
+           END AS distribution,
+            '- none -' attname,
+            pgxc_node.node_name nodename
+        FROM pg_class, pgxc_class, pg_attribute, pgxc_node
+        WHERE pg_class.oid = pgxc_class.pcrelid
+              and pg_class.oid = pg_attribute.attrelid
+              and pgxc_class.pcattnum = 0
+              and pgxc_node.node_name = 'datanode4'
+              and pgxc_node.oid = ANY (pgxc_class.nodeoids)
+         ;
+      </programlisting>
+     </para>
+     <para>
+      where <literal>'datanode4'</literal> is the datanode name in focus.
+     </para>
+
     </listitem>
    </varlistentry>
 
@@ -1778,7 +1880,7 @@ PGXC$ prepare config my_config.conf
     <term><literal>show [ variable | var ] [ all | <replaceable class="parameter">varname ...</replaceable> ]</literal></term>
     <listitem>
      <para>
-   Displays configuration or variable name and its value.
+      Displays configuration or variable name and its value.
      </para>
     </listitem>
    </varlistentry>
@@ -1794,7 +1896,7 @@ PGXC$ prepare config my_config.conf
     <term><literal>start datanode [ master | slave ] [ all | <replaceable class="parameter">nodename ...</replaceable> ]</literal></term>
     <listitem>
      <para>
-   Starts specified node.
+      Starts specified node.
      </para>
     </listitem>
    </varlistentry>
@@ -1810,12 +1912,18 @@ PGXC$ prepare config my_config.conf
     <term><literal>stop datanode [ master | slave ] [ all | <replaceable class="parameter">nodename ...</replaceable> ] [ -m [ smart | fast | immediate ] </literal></term>
     <listitem>
      <para>
-   Stops specified node.  For datanode and coordinator, you can
-   specify stop mode as in "pg_ctl stop" commnad.
+      Stops specified node.  For datanode and coordinator, you can
+      specify stop mode as in "pg_ctl stop" commnad.
      </para>
      <para>
-   When you stop coordinator or datanode slave, the master will be
-   reconfigurated to remove synchronous replication.
+      When you stop coordinator or datanode slave, the master will be
+      reconfigurated to remove synchronous replication.
+     </para>
+     <para>
+      Please note that stopping coordinator or datanode in <literal>-m immediate</literal> is not safe.   
+      This is a kind of emergency method to stop each component.
+      We have a little chance to make whole <application>postgres-xc</application> database cluster into inconsistent state.
+      Plaese use <literal>-m smart</literal> or <literal>-m fast</literal> option as much as possible.
      </para>
     </listitem>
    </varlistentry>

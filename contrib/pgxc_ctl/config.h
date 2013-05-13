@@ -34,6 +34,8 @@ int checkSpecificResourceConflict(char *name, char *host, int port, char *dir, i
 int checkNameConflict(char *name, int is_gtm);
 int checkPortConflict(char *host, int port);
 int checkDirConflict(char *host, char *dir);
+void makeServerList(void);
+int getDefaultWalSender(int isCoord);
 
 #define DEBUG() (strcasecmp(sval(VAR_debug), "y") == 0)
 #define VERBOSE() (strcasecmp(sval(VAR_verbose), "y") == 0)

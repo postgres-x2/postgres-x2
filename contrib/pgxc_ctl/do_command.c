@@ -59,6 +59,7 @@ static void do_start_command(char *line);
 static void start_all(void);
 static void do_stop_command(char *line);
 static void stop_all(char *immediate);
+static int show_Resource(char *datanodeName, char *databasename, char *username);
 
 static void do_echo_command(char * line)
 {
@@ -105,8 +106,7 @@ static void do_prepareConfFile(char *Path)
 static void do_deploy(char *line)
 {
 	char *token;
-	int ii;
-	char **hostlist;
+	char **hostlist = NULL;
 
 	if (GetToken() == NULL)
 	{
@@ -121,17 +121,17 @@ static void do_deploy(char *line)
 	else
 	{
 		elog(NOTICE, "Deploying Postgres-XC materials.\n");
-		for (ii = 0; aval(VAR_allServers)[ii]; ii++)
-		{
-			if (strcmp(aval(VAR_allServers)[ii], token) == 0)
-			{
-				hostlist = (char **)Malloc0(sizeof(char *)*2);
-				hostlist[0] = aval(VAR_allServers)[ii];
-				deploy_xc(hostlist);
-				freeAndReset(hostlist);
-				break;
-			}
-		}
+		/*
+		 * Please note that the following code does not check if the specified nost
+		 * appears in the configuration file.
+		 * We should deploy xc binary to the target not in the current configuraiton
+		 * to add gtm slave, gtm_proxy, coordinator/datanode master/slave online.
+		 */
+		do {
+			AddMember(hostlist, token);
+		} while(GetToken());
+		deploy_xc(hostlist);
+		CleanArray(hostlist);
 	}
 }
 
@@ -831,7 +831,7 @@ static void stop_all(char *immediate)
 }
 
 
-#define GetAndSet(var, msg) do{if(!GetToken()){elog(ERROR, msg); return;} var=token;}while(0)
+#define GetAndSet(var, msg) do{if(!GetToken()){elog(ERROR, msg); return;} var=Strdup(token);}while(0)
 /*
  * Add command
  */
@@ -897,12 +897,7 @@ static void do_add_command(char *line)
 		 * Add coordinator master name host port pooler dir
 		 * Add coordinator slave name host dir
 		 */
-		if (!GetToken() || !TestToken("master") || !TestToken("slave"))
-		{
-			elog(ERROR, "ERROR: Please specify master or slave.\n");
-			return;
-		}
-		if (!GetToken() || !TestToken("master") || !TestToken("slave"))
+		if (!GetToken() || (!TestToken("master") && !TestToken("slave")))
 		{
 			elog(ERROR, "ERROR: please speify master or slave.\n");
 			return;
@@ -935,7 +930,7 @@ static void do_add_command(char *line)
 	}
 	else if (TestToken("datanode"))
 	{
-		if (!GetToken() || !TestToken("master") || !TestToken("slave"))
+		if (!GetToken() || (!TestToken("master") && !TestToken("slave")))
 		{
 			elog(ERROR, "ERROR: please speify master or slave.\n");
 			return;
@@ -1003,7 +998,7 @@ static void do_remove_command(char *line)
 	}
 	else if (TestToken("coordinator"))
 	{
-		if (!GetToken() || !TestToken("master") || !TestToken("slave"))
+		if (!GetToken() || (!TestToken("master") && !TestToken("slave")))
 		{
 			elog(ERROR, "ERROR: please speify master or slave.\n");
 			return;
@@ -1035,7 +1030,7 @@ static void do_remove_command(char *line)
 	}
 	else if (TestToken("datanode"))
 	{
-		if (!GetToken() || !TestToken("master") || !TestToken("slave"))
+		if (!GetToken() || (!TestToken("master") && !TestToken("slave")))
 		{
 			elog(ERROR, "ERROR: please speify master or slave.\n");
 			return;
@@ -1493,13 +1488,19 @@ static void show_configuration(char *line)
 		{
 			if (isVarYes(VAR_gtmSlave))
 				show_config_gtmSlave(TRUE, sval(VAR_gtmSlaveServer));
+			else
+				elog(NOTICE, "NOTICE: gtm slave is not configured.\n");
 		}
 		else
 			elog(ERROR, "ERROR: invalid option %s for 'show config gtm' command.\n", token);
 	}
 	else if (TestToken("gtm_proxy"))
 	{
-		if ((GetToken() == NULL) || (TestToken("all")))
+		if (!isVarYes(VAR_gtmProxy))
+		{
+			elog(ERROR, "ERROR: gtm proxies are not configured.\n");
+		}
+		else if ((GetToken() == NULL) || (TestToken("all")))
 			show_config_gtmProxies(aval(VAR_gtmProxyNames));
 		else 
 		{
@@ -1592,7 +1593,7 @@ static void show_configuration(char *line)
 	}
 	else
 	{
-		char **nodeList = Malloc0(sizeof(char *));
+		char **nodeList = NULL;
 		do
 			AddMember(nodeList, token);
 		while(GetToken());
@@ -1995,6 +1996,81 @@ static int selectCoordinator(void)
 }
 
 
+static int show_Resource(char *datanodeName, char *databasename, char *username)
+{
+	int cdIdx = selectCoordinator();
+	int dnIdx = datanodeIdx(datanodeName);
+	FILE *f;
+	char queryFname[MAXPATH+1];
+
+	elog(NOTICE, "NOTICE: showing tables in the datanode '%s', database %s, user %s\n",
+		 datanodeName, 
+		 databasename ? databasename : "NULL",
+		 username ? username : "NULL");
+	if (dnIdx < 0)
+	{
+		elog(ERROR, "ERROR: %s is not a datanode.\n", datanodeName);
+		return 1;
+	}
+	createLocalFileName(GENERAL, queryFname, MAXPATH);
+	if ((f = fopen(queryFname, "w")) == NULL)
+	{
+		elog(ERROR, "ERROR: Could not create temporary file %s, %s\n", queryFname, strerror(errno));
+		return 1;
+	}
+	fprintf(f,
+			"SELECT pg_class.relname relation,\n"
+			"           CASE\n"
+			"             WHEN pclocatortype = 'H' THEN 'Hash'\n"
+			"             WHEN pclocatortype = 'M' THEN 'Modulo'\n"
+			"             WHEN pclocatortype = 'N' THEN 'Round Robin'\n"
+			"             WHEN pclocatortype = 'R' THEN 'Replicate'\n"
+			"             ELSE 'Unknown'\n"
+			"           END AS distribution,\n"
+	        "            pg_attribute.attname attname,\n"
+    	    "            pgxc_node.node_name nodename\n"
+			"        FROM pg_class, pgxc_class, pg_attribute, pgxc_node\n"
+			"        WHERE pg_class.oid = pgxc_class.pcrelid\n"
+			"              and pg_class.oid = pg_attribute.attrelid\n"
+			"              and pgxc_class.pcattnum = pg_attribute.attnum\n"
+			"              and pgxc_node.node_name = '%s'\n"
+			"              and pgxc_node.oid = ANY (pgxc_class.nodeoids)\n"
+			"    UNION\n"
+			"    SELECT pg_class.relname relation,\n"
+			"          CASE\n"
+			"            WHEN pclocatortype = 'H' THEN 'Hash'\n"
+			"            WHEN pclocatortype = 'M' THEN 'Modulo'\n"
+			"            WHEN pclocatortype = 'N' THEN 'Round Robin'\n"
+			"            WHEN pclocatortype = 'R' THEN 'Replicate'\n"
+			"            ELSE 'Unknown'\n"
+			"          END AS distribution,\n"
+			"           '- none -' attname,\n"
+	        "           pgxc_node.node_name nodename\n"
+			"       FROM pg_class, pgxc_class, pg_attribute, pgxc_node\n"
+			"       WHERE pg_class.oid = pgxc_class.pcrelid\n"
+			"             and pg_class.oid = pg_attribute.attrelid\n"
+			"             and pgxc_class.pcattnum = 0\n"
+			"             and pgxc_node.node_name = '%s'\n"
+			"             and pgxc_node.oid = ANY (pgxc_class.nodeoids)\n"
+			"             ;\n",
+			datanodeName, datanodeName);
+	fclose(f);
+	if (databasename == NULL)
+		doImmediateRaw("psql -p %d -h %s --quiet -f %s",
+					   atoi(aval(VAR_coordPorts)[cdIdx]), aval(VAR_coordMasterServers)[cdIdx],
+					   queryFname);
+	else if (username == NULL)
+		doImmediateRaw("psql -p %d -h %s --quiet -f %s -d %s",
+					   atoi(aval(VAR_coordPorts)[cdIdx]), aval(VAR_coordMasterServers)[cdIdx],
+					   queryFname, databasename);
+	else
+		doImmediateRaw("psql -p %d -h %s --quiet -f %s -d %s -U %s",
+					   atoi(aval(VAR_coordPorts)[cdIdx]), aval(VAR_coordMasterServers)[cdIdx],
+					   queryFname, databasename, username);
+	doImmediateRaw("rm -f %s", queryFname);
+	return 0;
+}
+
 /*
  * =======================================================================================
  *
@@ -2157,6 +2233,33 @@ int do_singleLine(char *buf, char *wkline)
 			else if (TestToken("configuration") || TestToken("config") || TestToken("configure"))
 				/* Configuration */
 				show_configuration(line);
+			else if (TestToken("resource"))
+			{
+				if ((GetToken() == NULL) || !TestToken("datanode"))
+					elog(ERROR, "ERROR: please specify datanode for show resource command.\n");
+				else
+				{
+					char *datanodeName = NULL;
+					char *dbname = NULL;
+					char *username = NULL;
+					if (GetToken() == NULL)
+						elog(ERROR, "ERROR: please specify datanode name\n");
+					else
+					{
+						datanodeName = Strdup(token);
+						if (GetToken())
+						{
+							dbname = Strdup(token);
+							if (GetToken())
+								username = Strdup(token);
+						}
+						show_Resource(datanodeName, dbname, username);
+						Free(datanodeName);
+						Free(dbname);
+						Free(username);
+					}
+				}
+			}
 			else
 				elog(ERROR, "ERROR: Cannot show %s now, sorry.\n", token);
 		}

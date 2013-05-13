@@ -396,6 +396,8 @@ int extendVar(char *name, int newSize, char *def_value)
 
 	if ((target = find_var(name)) == NULL)
 		return -1;
+	if (def_value == NULL)
+		def_value = "none";
 	if (target->val_size < newSize)
 	{
 		old_val = target->val;
@@ -403,15 +405,49 @@ int extendVar(char *name, int newSize, char *def_value)
 		target->val = Malloc0(sizeof(char *) * (newSize +1));
 		memcpy(target->val, old_val, sizeof(char *) * old_size);
 		target->val_size = newSize;
+		Free(old_val);
 		for (ii = target->val_used; ii < newSize; ii++)
 			(target->val)[ii] = Strdup(def_value);
+		target->val_used = newSize;
 	}
 	else if (target->val_used < newSize)
 	{
 		for (ii = target->val_used; ii < newSize; ii++)
 			(target->val)[ii] = Strdup(def_value);
+		target->val_used = newSize;
 	}
 	return 0;
 }
 
-	
+
+/* 
+ * If pad is NULL, then "none" will be padded.
+ * Returns *val if success, NULL if failed
+ */
+void assign_arrayEl(char *name, int idx, char *val, char *pad)
+{
+	pgxc_ctl_var *var = confirm_var(name);
+
+	if (pad == NULL)
+		pad = "none";
+	/*
+	 * Pad if needed
+	 */
+	extendVar(name, idx+1, pad);
+	Free(var->val[idx]);
+	var->val[idx] = Strdup(val);
+}
+
+
+int doesExist(char *name, int idx)
+{
+	pgxc_ctl_var *var;
+
+	if (name == NULL)
+		return 0;
+	if ((var = find_var(name)) == NULL)
+		return 0;
+	if (var->val_used <= idx)
+		return 0;
+	return 1;
+}
