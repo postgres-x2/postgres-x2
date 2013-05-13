@@ -1492,6 +1492,7 @@ ProcessTransactionCommand(Port *myport, GTM_MessageType mtype, StringInfo messag
 
 		case MSG_BKUP_TXN_BEGIN_GETGXID:
 			ProcessBkupBeginTransactionGetGXIDCommand(myport, message);
+			break;
 
 		case MSG_TXN_BEGIN_GETGXID_AUTOVACUUM:
 			ProcessBeginTransactionGetGXIDAutovacuumCommand(myport, message);

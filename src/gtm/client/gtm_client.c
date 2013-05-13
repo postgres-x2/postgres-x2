@@ -1042,16 +1042,16 @@ open_sequence_internal(GTM_Conn *conn, GTM_SequenceKey key, GTM_Sequence increme
 		gtmpqPutc(cycle, conn))
 		goto send_failed;
 
+	/* Finish the message. */
+	if (gtmpqPutMsgEnd(conn))
+		goto send_failed;
+
+	/* Flush to ensure backend gets it. */
+	if (gtmpqFlush(conn))
+		goto send_failed;
+
 	if (!is_backup)
 	{
-		/* Finish the message. */
-		if (gtmpqPutMsgEnd(conn))
-			goto send_failed;
-
-		/* Flush to ensure backend gets it. */
-		if (gtmpqFlush(conn))
-			goto send_failed;
-
 		finish_time = time(NULL) + CLIENT_GTM_TIMEOUT;
 		if (gtmpqWaitTimed(true, false, conn, finish_time) ||
 			gtmpqReadData(conn) < 0)
