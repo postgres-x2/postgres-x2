@@ -792,9 +792,10 @@ static int failover_oneDatanode(int datanodeIdx)
 				 aval(VAR_coordNames)[jj]);
 			continue;
 		}
-		if ((f = pgxc_popen_wRaw("psql -p %s -h %s postgres %s",
-								 aval(VAR_coordPorts)[jj],
+		if ((f = pgxc_popen_wRaw("psql -p %d -h %s %s %s",
+								 atoi(aval(VAR_coordPorts)[jj]),
 								 aval(VAR_coordMasterServers)[jj],
+								 sval(VAR_defaultDatabase),
 								 sval(VAR_pgxcOwner)))
 			== NULL)
 		{
@@ -965,7 +966,7 @@ int add_datanodeMaster(char *name, char *host, int port, char *dir)
 	}
 
 	/* Lock ddl */
-	if ((lockf = pgxc_popen_wRaw("psql -h %s -p %s postgres", aval(VAR_datanodeMasterServers)[0], aval(VAR_datanodePorts)[0])) == NULL)
+	if ((lockf = pgxc_popen_wRaw("psql -h %s -p %d %s", aval(VAR_datanodeMasterServers)[0], atoi(aval(VAR_datanodePorts)[0]), sval(VAR_defaultDatabase))) == NULL)
 	{
 		elog(ERROR, "ERROR: could not open psql command, %s\n", strerror(errno));
 		return 1;
@@ -982,7 +983,7 @@ int add_datanodeMaster(char *name, char *host, int port, char *dir)
 	doImmediate(host, NULL, "pg_ctl start -Z restoremode -D %s -o -i", dir);
 
 	/* Restore the backup */
-	doImmediateRaw("psql -h %s -p %d -d postgres -f %s", host, port, pgdumpall_out);
+	doImmediateRaw("psql -h %s -p %d -d %s -f %s", host, port, sval(VAR_defaultDatabase), pgdumpall_out);
 	doImmediateRaw("rm -f %s", pgdumpall_out);
 
 	/* Quit the new datanode */
@@ -998,7 +999,7 @@ int add_datanodeMaster(char *name, char *host, int port, char *dir)
 	{
 		if (!is_none(aval(VAR_coordNames)[ii]))
 		{
-			if ((f = pgxc_popen_wRaw("psql -h %s -p %s postgres", aval(VAR_coordMasterServers)[ii], aval(VAR_coordPorts)[ii])) == NULL)
+			if ((f = pgxc_popen_wRaw("psql -h %s -p %s %s", aval(VAR_coordMasterServers)[ii], aval(VAR_coordPorts)[ii], sval(VAR_defaultDatabase))) == NULL)
 			{
 				elog(ERROR, "ERROR: cannot connect to the datanode master %s.\n", aval(VAR_coordNames)[ii]);
 				continue;
@@ -1286,7 +1287,7 @@ int remove_datanodeMaster(char *name, int clean_opt)
 	{
 		if (doesExist(VAR_coordNames, ii) && !is_none(aval(VAR_coordNames)[ii]))
 		{
-			f = pgxc_popen_wRaw("psql -p %d -h %s postgres", atoi(aval(VAR_coordPorts)[ii]), aval(VAR_coordMasterServers)[ii]);
+			f = pgxc_popen_wRaw("psql -p %d -h %s %s", atoi(aval(VAR_coordPorts)[ii]), aval(VAR_coordMasterServers)[ii], sval(VAR_defaultDatabase));
 			if (f == NULL)
 			{
 				elog(ERROR, "ERROR: cannot begin psql for the coordinator master %s\n", aval(VAR_coordNames)[ii]);

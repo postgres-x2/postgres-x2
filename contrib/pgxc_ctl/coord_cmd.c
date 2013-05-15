@@ -405,9 +405,10 @@ cmd_t *prepare_configureNode(char *nodeName)
 		return NULL;
 	cmd = initCmd(NULL);
 	snprintf(newCommand(cmd), MAXLINE,
-			 "psql -p %d -h %s -a postgres %s",
+			 "psql -p %d -h %s -a %s %s",
 			 atoi(aval(VAR_coordPorts)[idx]),
 			 aval(VAR_coordMasterServers)[idx],
+			 sval(VAR_defaultDatabase),
 			 sval(VAR_pgxcOwner));
 	if ((f = prepareLocalStdin(newFilename(cmd->localStdin), MAXPATH, NULL)) == NULL)
 	{
@@ -888,7 +889,7 @@ int add_coordinatorMaster(char *name, char *host, int port, int pooler, char *di
 	}
 
 	/* Lock ddl */
-	if ((lockf = pgxc_popen_wRaw("psql -h %s -p %s postgres", aval(VAR_coordMasterServers)[0], aval(VAR_coordPorts)[0])) == NULL)
+	if ((lockf = pgxc_popen_wRaw("psql -h %s -p %s %s", aval(VAR_coordMasterServers)[0], aval(VAR_coordPorts)[0], sval(VAR_defaultDatabase))) == NULL)
 	{
 		elog(ERROR, "ERROR: could not open psql command, %s\n", strerror(errno));
 		return 1;
@@ -905,7 +906,7 @@ int add_coordinatorMaster(char *name, char *host, int port, int pooler, char *di
 	doImmediate(host, NULL, "pg_ctl start -Z restoremode -D %s -o -i", dir);
 
 	/* Restore the backup */
-	doImmediateRaw("psql -h %s -p %d -d postgres -f %s", host, port, pgdumpall_out);
+	doImmediateRaw("psql -h %s -p %d -d %s -f %s", host, port, sval(VAR_defaultDatabase), pgdumpall_out);
 	doImmediateRaw("rm -f %s", pgdumpall_out);
 
 	/* Quit the new coordinator */
@@ -921,7 +922,7 @@ int add_coordinatorMaster(char *name, char *host, int port, int pooler, char *di
 	{
 		if (!is_none(aval(VAR_coordNames)[ii]) && strcmp(aval(VAR_coordNames)[ii], name) != 0)
 		{
-			if ((f = pgxc_popen_wRaw("psql -h %s -p %d postgres", aval(VAR_coordMasterServers)[ii], atoi(aval(VAR_coordPorts)[ii]))) == NULL)
+			if ((f = pgxc_popen_wRaw("psql -h %s -p %d %s", aval(VAR_coordMasterServers)[ii], atoi(aval(VAR_coordPorts)[ii]), sval(VAR_defaultDatabase))) == NULL)
 			{
 				elog(ERROR, "ERROR: cannot connect to the coordinator master %s.\n", aval(VAR_coordNames)[ii]);
 				continue;
@@ -934,7 +935,7 @@ int add_coordinatorMaster(char *name, char *host, int port, int pooler, char *di
 	/* Quit DDL lokkup session */
 	fprintf(lockf, "\\q\n");
 	fclose(lockf);
-	if ((f = pgxc_popen_wRaw("psql -h %s -p %d postgres", host, port)) == NULL)
+	if ((f = pgxc_popen_wRaw("psql -h %s -p %d %s", host, port, sval(VAR_defaultDatabase))) == NULL)
 		elog(ERROR, "ERROR: cannot connect to the coordinator master %s.\n", name);
 	else
 	{
@@ -1205,7 +1206,7 @@ int remove_coordinatorMaster(char *name, int clean_opt)
 	{
 		if ((ii != idx) && doesExist(VAR_coordNames, ii) && !is_none(aval(VAR_coordNames)[ii]))
 		{
-			f = pgxc_popen_wRaw("psql -p %d -h %s postgres", atoi(aval(VAR_coordPorts)[ii]), aval(VAR_coordMasterServers)[ii]);
+			f = pgxc_popen_wRaw("psql -p %d -h %s %s", atoi(aval(VAR_coordPorts)[ii]), aval(VAR_coordMasterServers)[ii], sval(VAR_defaultDatabase));
 			if (f == NULL)
 			{
 				elog(ERROR, "ERROR: cannot begin psql for the coordinator master %s\n", aval(VAR_coordNames)[ii]);
@@ -1799,9 +1800,10 @@ static int failover_oneCoordinator(int coordIdx)
 				 aval(VAR_coordNames)[jj]);
 			continue;
 		}
-		if ((f = pgxc_popen_wRaw("psql -p %s -h %s postgres %s",
+		if ((f = pgxc_popen_wRaw("psql -p %s -h %s %s %s",
 								 aval(VAR_coordPorts)[jj],
 								 aval(VAR_coordMasterServers)[jj],
+								 sval(VAR_defaultDatabase),
 								 sval(VAR_pgxcOwner)))
 			== NULL)
 		{

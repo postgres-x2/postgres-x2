@@ -67,6 +67,7 @@ char pgxc_ctl_config_path[MAXPATH+1];
 char progname[MAXPATH+1];
 char *myName;
 char *defaultDatabase;
+#define versionString "V1.0 for Postgres-XC 1.1"
 
 FILE *inF;
 FILE *outF;
@@ -74,6 +75,8 @@ FILE *outF;
 static void build_pgxc_ctl_home(char *home);
 static void trim_trailing_slash(char *path);
 static void startLog(char *path, char *logFileNam);
+static void print_version(void);
+static void print_help(void);
 
 static void trim_trailing_slash(char *path)
 {
@@ -411,10 +414,11 @@ int main(int argc, char *argv[])
 	char *infile = NULL;
 	char *outfile = NULL;
 	char *verbose = NULL;
-	char *version = NULL;
+	int version_opt = 0;
 	char *logdir = NULL;
 	char *logfile = NULL;
 	char *home = NULL;
+	int help_opt = 0;
 
 	int c;
 	
@@ -428,6 +432,7 @@ int main(int argc, char *argv[])
 		{"home", required_argument, 0, 2},
 		{"infile", required_argument, 0, 'i'},
 		{"outfile", required_argument, 0, 'o'},
+		{"help", no_argument, 0, 'h'},
 		{0, 0, 0, 0}
 	};
 
@@ -437,7 +442,7 @@ int main(int argc, char *argv[])
 	while(1) {
 		int option_index = 0;
 
-		c = getopt_long(argc, argv, "i:o:c:vVl:L:", long_options, &option_index);
+		c = getopt_long(argc, argv, "i:o:c:vVl:L:h", long_options, &option_index);
 
 		if (c == -1)
 			break;
@@ -465,7 +470,7 @@ int main(int argc, char *argv[])
 				verbose = "y";
 				break;
 			case 'V':
-				version = "y";
+				version_opt = 1;
 				break;
 			case 'l':
 				if (logdir)
@@ -482,10 +487,21 @@ int main(int argc, char *argv[])
 					free(configuration);
 				configuration = strdup(optarg);
 				break;
+			case 'h':
+				help_opt = 1;
+				break;
 			default:
 				fprintf(stderr, "Invalid optin value, received code 0%o\n", c);
 				exit(1);
 		}
+	}
+	if (version_opt || help_opt)
+	{
+		if (version_opt)
+			print_version();
+		if (help_opt)
+			print_help();
+		exit(0);
 	}
 	setup_my_env();		/* Read $HOME/.pgxc_ctl */
 	build_pgxc_ctl_home(home);
@@ -559,4 +575,27 @@ int main(int argc, char *argv[])
 	else
 		do_command(inF, outF);
 	exit(0);
+}
+
+static void print_version(void)
+{
+	printf("Pgxc_ctl %s\n", versionString);
+}
+
+static void print_help(void)
+{
+	printf(
+	"pgxc_ctl [option ...] [command]\n"
+	"option:\n"
+	"   -c or --configuration conf_file: Specify configruration file.\n"
+	"   -v or --verbose: Specify verbose output.\n"
+	"   -V or --version: Print version and exit.\n"
+	"   -l or --logdir log_directory: specifies what directory to write logs.\n"
+	"   -L or --logfile log_file: Specifies log file.\n"
+	"   --home home_direcotry: Specifies pgxc_ctl work director.\n"
+	"   -i or --infile input_file: Specifies inptut file.\n"
+	"   -o or --outfile output_file: Specifies output file.\n"
+	"   -h or --help: Prints this message and exits.\n"
+	"For more deatils, refer to pgxc_ctl reference manual included in\n"
+	"postgres-xc reference manual.\n");
 }
