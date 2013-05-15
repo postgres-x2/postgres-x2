@@ -509,13 +509,13 @@ select * from (select avg(val2), val from tab1_mod group by val) t1 natural join
  3.0000000000000000 |   3
 (1 row)
 
-explain (costs off, verbose on, nodes off, num_nodes on)
+explain (costs off, verbose on, nodes off)
 	select * from (select avg(val2), val from tab1_mod group by val) t1 natural join
 					(select avg(val2), val from tab1_rep group by val) t2
 				where t1.val = 3;
                                                                                                                                                QUERY PLAN                                                                                                                                               
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=3) on "__REMOTE_FQS_QUERY__"
+ Data Node Scan on "__REMOTE_FQS_QUERY__"
    Output: t1.avg, t1.val
    Remote query: SELECT t1.avg, t1.val FROM ((SELECT pg_catalog.int8_avg(avg(tab1_mod.val2)) AS avg, tab1_mod.val FROM tab1_mod GROUP BY tab1_mod.val) t1 NATURAL JOIN (SELECT pg_catalog.int8_avg(avg(tab1_rep.val2)) AS avg, tab1_rep.val FROM tab1_rep GROUP BY tab1_rep.val) t2) WHERE (t1.val = 3)
 (3 rows)
@@ -529,13 +529,13 @@ select * from (select avg(val2), val from tab1_mod group by val) t1 natural join
  3.0000000000000000 |   3
 (1 row)
 
-explain (costs off, verbose on, nodes off, num_nodes on)
+explain (costs off, verbose on, nodes off)
 	select * from (select avg(val2), val from tab1_mod group by val) t1 natural join
 					(select avg(val2), val from tab3_mod group by val) t2
 			where t1.val = 3;
                                                                                                                                                QUERY PLAN                                                                                                                                               
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Data Node Scan (primary node count=0, node count=3) on "__REMOTE_FQS_QUERY__"
+ Data Node Scan on "__REMOTE_FQS_QUERY__"
    Output: t1.avg, t1.val
    Remote query: SELECT t1.avg, t1.val FROM ((SELECT pg_catalog.int8_avg(avg(tab1_mod.val2)) AS avg, tab1_mod.val FROM tab1_mod GROUP BY tab1_mod.val) t1 NATURAL JOIN (SELECT pg_catalog.int8_avg(avg(tab3_mod.val2)) AS avg, tab3_mod.val FROM tab3_mod GROUP BY tab3_mod.val) t2) WHERE (t1.val = 3)
 (3 rows)

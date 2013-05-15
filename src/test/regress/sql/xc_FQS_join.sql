@@ -127,7 +127,7 @@ explain (costs off, verbose on, nodes off, num_nodes on)
 select * from (select avg(val2), val from tab1_mod group by val) t1 natural join
 				(select avg(val2), val from tab1_rep group by val) t2
 			where t1.val = 3;
-explain (costs off, verbose on, nodes off, num_nodes on)
+explain (costs off, verbose on, nodes off)
 	select * from (select avg(val2), val from tab1_mod group by val) t1 natural join
 					(select avg(val2), val from tab1_rep group by val) t2
 				where t1.val = 3;
@@ -135,7 +135,7 @@ explain (costs off, verbose on, nodes off, num_nodes on)
 select * from (select avg(val2), val from tab1_mod group by val) t1 natural join
 				(select avg(val2), val from tab3_mod group by val) t2
 			where t1.val = 3;
-explain (costs off, verbose on, nodes off, num_nodes on)
+explain (costs off, verbose on, nodes off)
 	select * from (select avg(val2), val from tab1_mod group by val) t1 natural join
 					(select avg(val2), val from tab3_mod group by val) t2
 			where t1.val = 3;

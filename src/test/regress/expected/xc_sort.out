@@ -19,7 +19,7 @@ select create_table_nodes('xc_sort2_hash(val int, val2 int)', '{1, 2, 3}'::int[]
  
 (1 row)
 
-select create_table_nodes('xc_sort1_rep(val int, val2 int)', '{1, 2}'::int[], 'replication', NULL);
+select create_table_nodes('xc_sort1_rep(val int, val2 int)', '{1}'::int[], 'replication', NULL);
  create_table_nodes 
 --------------------
  
@@ -113,14 +113,13 @@ select * from xc_sort1_hash where val = 5 order by val2;
    5 |   10
 (2 rows)
 
-explain verbose select * from xc_sort1_hash where val = 5 order by val2;
+explain (costs off, verbose on, nodes off) select * from xc_sort1_hash where val = 5 order by val2;
                                      QUERY PLAN                                      
 -------------------------------------------------------------------------------------
- Data Node Scan on "__REMOTE_SORT_QUERY__"  (cost=0.00..0.00 rows=1000 width=8)
+ Data Node Scan on "__REMOTE_SORT_QUERY__"
    Output: xc_sort1_hash.val, xc_sort1_hash.val2
-   Node/s: datanode_2
    Remote query: SELECT val, val2 FROM ONLY xc_sort1_hash WHERE (val = 5) ORDER BY 2
-(4 rows)
+(3 rows)
 
 -- pushable JOINs
 select * from xc_sort1_hash natural join xc_sort2_hash order by val, val2;
@@ -375,17 +374,16 @@ select * from xc_sort1_hash order by val, val2;
    9 |    2
 (7 rows)
 
-explain verbose select * from xc_sort1_hash order by val, val2;  
-                                            QUERY PLAN                                             
----------------------------------------------------------------------------------------------------
- Sort  (cost=49.83..52.33 rows=1000 width=8)
+explain (costs off, verbose on, nodes off) select * from xc_sort1_hash order by val, val2;  
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Sort
    Output: xc_sort1_hash.val, xc_sort1_hash.val2
    Sort Key: xc_sort1_hash.val, xc_sort1_hash.val2
-   ->  Data Node Scan on xc_sort1_hash "_REMOTE_TABLE_QUERY_"  (cost=0.00..0.00 rows=1000 width=8)
+   ->  Data Node Scan on xc_sort1_hash "_REMOTE_TABLE_QUERY_"
          Output: xc_sort1_hash.val, xc_sort1_hash.val2
-         Node/s: datanode_1, datanode_2, datanode_3
          Remote query: SELECT val, val2 FROM ONLY xc_sort1_hash WHERE true
-(7 rows)
+(6 rows)
 
 drop table xc_sort1_hash;
 drop table xc_sort2_hash;
