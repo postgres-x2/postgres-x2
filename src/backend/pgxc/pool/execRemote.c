@@ -26,6 +26,9 @@
 #include "catalog/pg_type.h"
 #include "catalog/pgxc_node.h"
 #include "commands/prepare.h"
+#ifdef PGXC
+#include "commands/trigger.h"
+#endif
 #include "executor/executor.h"
 #include "gtm/gtm_c.h"
 #include "libpq/libpq.h"
@@ -176,6 +179,8 @@ static void SetDataRowForIntParams(JunkFilter *junkfilter,
 					   RemoteQueryState *rq_state);
 static void pgxc_append_param_val(StringInfo buf, Datum val, Oid valtype);
 static void pgxc_append_param_junkval(TupleTableSlot *slot, AttrNumber attno, Oid valtype, StringInfo buf);
+static void pgxc_rq_fire_bstriggers(RemoteQueryState *node);
+static void pgxc_rq_fire_astriggers(RemoteQueryState *node);
 
 /*
  * Create a structure to store parameters needed to combine responses from
@@ -3178,6 +3183,8 @@ RemoteQueryNext(ScanState *scan_node)
 
 	if (!node->query_Done)
 	{
+		/* Fire BEFORE STATEMENT triggers just before the query execution */
+		pgxc_rq_fire_bstriggers(node);
 		do_query(node);
 		node->query_Done = true;
 	}
@@ -3284,6 +3291,15 @@ RemoteQueryNext(ScanState *scan_node)
 
 	/* report error if any */
 	pgxc_node_report_error(node);
+
+	/*
+	 * Now we know the query is successful. Fire AFTER STATEMENT triggers. Make
+	 * sure this is the last iteration of the query. If an FQS query has
+	 * RETURNING clause, this function can be called multiple times until we
+	 * return NULL.
+	 */
+	if (TupIsNull(scanslot))
+		pgxc_rq_fire_astriggers(node);
 
 	return scanslot;
 }
@@ -5088,3 +5104,79 @@ pgxc_append_param_val(StringInfo buf, Datum val, Oid valtype)
 	appendBinaryStringInfo(buf, pstring, len);
 }
 
+/*
+ * pgxc_rq_fire_bstriggers:
+ * BEFORE STATEMENT triggers to be fired for a user-supplied DML query.
+ * For non-FQS query, we internally generate remote DML query to be executed
+ * for each row to be processed. But we do not want to explicitly fire triggers
+ * for such a query; ExecModifyTable does that for us. It is the FQS DML query
+ * where we need to explicitly fire statement triggers on coordinator. We
+ * cannot run stmt triggers on datanode. While we can fire stmt trigger on
+ * datanode versus coordinator based on the function shippability, we cannot
+ * do the same for FQS query. The datanode has no knowledge that the trigger
+ * being fired is due to a non-FQS query or an FQS query. Even though it can
+ * find that all the triggers are shippable, it won't know whether the stmt
+ * itself has been FQSed. Even though all triggers were shippable, the stmt
+ * might have been planned on coordinator due to some other non-shippable
+ * clauses. So the idea here is to *always* fire stmt triggers on coordinator.
+ * Note that this does not prevent the query itself from being FQSed. This is
+ * because we separately fire stmt triggers on coordinator.
+ */
+static void
+pgxc_rq_fire_bstriggers(RemoteQueryState *node)
+{
+	RemoteQuery *rq = (RemoteQuery*) node->ss.ps.plan;
+	EState *estate = node->ss.ps.state;
+
+	/* If it's not an internally generated query, fire BS triggers */
+	if (!rq->rq_params_internal && estate->es_result_relations)
+	{
+		Assert(rq->remote_query);
+		switch (rq->remote_query->commandType)
+		{
+			case CMD_INSERT:
+				ExecBSInsertTriggers(estate, estate->es_result_relations);
+				break;
+			case CMD_UPDATE:
+				ExecBSUpdateTriggers(estate, estate->es_result_relations);
+				break;
+			case CMD_DELETE:
+				ExecBSDeleteTriggers(estate, estate->es_result_relations);
+				break;
+			default:
+				break;
+		}
+	}
+}
+
+/*
+ * pgxc_rq_fire_astriggers:
+ * AFTER STATEMENT triggers to be fired for a user-supplied DML query.
+ * See comments in pgxc_rq_fire_astriggers()
+ */
+static void
+pgxc_rq_fire_astriggers(RemoteQueryState *node)
+{
+	RemoteQuery *rq = (RemoteQuery*) node->ss.ps.plan;
+	EState *estate = node->ss.ps.state;
+
+	/* If it's not an internally generated query, fire AS triggers */
+	if (!rq->rq_params_internal && estate->es_result_relations)
+	{
+		Assert(rq->remote_query);
+		switch (rq->remote_query->commandType)
+		{
+			case CMD_INSERT:
+				ExecASInsertTriggers(estate, estate->es_result_relations);
+				break;
+			case CMD_UPDATE:
+				ExecASUpdateTriggers(estate, estate->es_result_relations);
+				break;
+			case CMD_DELETE:
+				ExecASDeleteTriggers(estate, estate->es_result_relations);
+				break;
+			default:
+				break;
+		}
+	}
+}

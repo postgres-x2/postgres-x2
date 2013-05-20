@@ -1105,17 +1105,21 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 	 */
 	if (cmdtype == CMD_UPDATE)
 	{
-		TriggerDesc trigdesc;
-		int natts = get_relnatts(res_rel->relid);
+		int			natts = get_relnatts(res_rel->relid);
+		Relation	rel = relation_open(res_rel->relid, AccessShareLock);
+		bool		br_triggers = pgxc_should_exec_br_trigger(rel,
+										pgxc_get_trigevent(cmdtype));
+
+		relation_close(rel, AccessShareLock);
 
 		/*
-		 * If there is a before-update trigger, we need to update *all* the
-		 * table attributes because the trigger execution might have changed any
-		 * of the tuple attributes. So the UPDATE will look like :
+		 * If we are going to execute BR triggers on coordinator, we need to
+		 * update *all* the table attributes because the trigger execution might
+		 * have changed any of the tuple attributes. So the UPDATE will look
+		 * like :
 		 * UPDATE ... SET att1 = $1, att1 = $2, .... attn = $n WHERE ctid = $(n+1)
 		 */
-		if (pgxc_triggers_getdesc(res_rel->relid, cmdtype, &trigdesc) == true
-		    && trigdesc.trig_update_before_row)
+		if (br_triggers)
 		{
 			int attnum;
 			for (attnum = 1; attnum <= natts; attnum++)
@@ -2545,6 +2549,9 @@ pgxc_FQS_create_remote_plan(Query *query, ExecNodes *exec_nodes, bool is_exec_di
 	 * walker just appends the range tables without copying it.
 	 */
 	query->rtable = list_concat(query->rtable, collected_rtable);
+
+	/* Finally save a handle to this Query structure */
+	query_step->remote_query = copyObject(query);
 
 	return query_step;
 }

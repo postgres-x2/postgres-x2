@@ -1351,7 +1351,7 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 		}
 
 		/* For non-shippable triggers, we need OLD row. */
-		if (pgxc_trig_oldrow_reqd(RelationGetRelid(target_relation),
+		if (pgxc_trig_oldrow_reqd(target_relation,
 								  parsetree->commandType))
 		{
 			var = makeWholeRowVar(target_rte,

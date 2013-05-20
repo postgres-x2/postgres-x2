@@ -46,5 +46,7 @@ extern bool pgxc_check_fk_shippability(RelationLocInfo *parentLocInfo,
 									   RelationLocInfo *childLocInfo,
 									   List *parentRefs,
 									   List *childRefs);
-
+extern bool pgxc_check_triggers_shippability(Oid relid, int commandType);
+extern bool pgxc_find_nonshippable_row_trig(Relation rel, int16 tgtype_event,
+									int16 tgtype_timing, bool ignore_timing);
 #endif

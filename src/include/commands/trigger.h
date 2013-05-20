@@ -224,11 +224,11 @@ extern Datum pg_trigger_depth(PG_FUNCTION_ARGS);
 
 #ifdef PGXC
 /* Postgres-XC related functions for triggers */
-extern bool pgxc_check_triggers_shippability(Oid relid, CmdType commandType);
-extern bool pgxc_check_triggers_shippability(Oid relid, CmdType commandType);
-extern bool pgxc_triggers_getdesc(Oid relid, CmdType commandType, TriggerDesc *ptrigdesc);
-extern bool pgxc_trig_oldrow_reqd(Oid relid, CmdType commandType);
-extern void pgxc_form_trigger_tuple(HeapTuple tuple, HeapTupleHeader tuphead, ItemPointer tid);
+extern bool pgxc_trig_oldrow_reqd(Relation rel, CmdType commandType);
+extern int16 pgxc_get_trigevent(CmdType commandType);
+extern bool pgxc_should_exec_br_trigger(Relation rel, int16 trigevent);
+extern bool pgxc_should_exec_ar_trigger(Relation rel, CmdType commandType);
+extern bool pgxc_has_trigger_for_event(int16 tg_event, TriggerDesc *trigdesc);
 #endif
 
 #endif   /* TRIGGER_H */

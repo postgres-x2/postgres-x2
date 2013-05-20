@@ -19,6 +19,9 @@
 #include "catalog/pg_inherits_fn.h"
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_proc.h"
+#ifdef PGXC
+#include "catalog/pg_trigger.h"
+#endif
 #include "catalog/pg_type.h"
 #include "catalog/pgxc_node.h"
 #include "commands/trigger.h"
@@ -123,6 +126,7 @@ static ExecNodes *pgxc_FQS_datanodes_for_rtr(Index varno,
 											Shippability_context *sc_context);
 static void pgxc_replace_dist_vars_subquery(Query *query, ExecNodes *exec_nodes,
 												Index varno);
+static bool pgxc_is_trigger_shippable(Trigger *trigger);
 
 /*
  * Set the given reason in Shippability_context indicating why the query can not be
@@ -943,7 +947,11 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 			if (sc_context->sc_max_varlevelsup != 0)
 				pgxc_set_shippability_reason(sc_context, SS_VARLEVEL);
 
-			/* Check shippability of triggers on this query */
+			/*
+			 * Check shippability of triggers on this query. Don't consider
+			 * TRUNCATE triggers; it's a utility statement and triggers are
+			 * handled explicitly in ExecuteTruncate()
+			 */
 			if (query->commandType == CMD_UPDATE ||
 				query->commandType == CMD_INSERT ||
 				query->commandType == CMD_DELETE)
@@ -2129,3 +2137,158 @@ pgxc_is_join_shippable(ExecNodes *inner_en, ExecNodes *outer_en,
 	else
 		return NULL;
 }
+
+
+/*
+ * pgxc_check_triggers_shippability:
+ * Return true if none of the triggers prevents the query from being FQSed.
+ */
+bool
+pgxc_check_triggers_shippability(Oid relid, int commandType)
+{
+	int16 trigevent = pgxc_get_trigevent(commandType);
+	Relation	rel = relation_open(relid, AccessShareLock);
+	bool		found_nonshippable;
+
+	/*
+	 * If we don't find a non-shippable row trigger, then the statement is
+	 * shippable as far as triggers are concerned. For FQSed query, statement
+	 * triggers are separately invoked on coordinator.
+	 */
+	found_nonshippable = pgxc_find_nonshippable_row_trig(rel, trigevent, 0, true);
+
+	relation_close(rel, AccessShareLock);
+	return !found_nonshippable;
+}
+
+
+
+
+/* pgxc_find_nonshippable_row_trig:
+ * Search for a non-shippable ROW trigger of a particular type.
+ *
+ * If ignore_timing is true, just the event_type is used to find a match, so
+ * once the event matches, the search returns true regardless of whether it is a
+ * before or after row trigger.
+ *
+ * If ignore_timing is false, return true if we find one or more non-shippable
+ * row triggers that match the exact combination of event and timing.
+ *
+ * We have to do this way because the bitmask used for timing does
+ * not have unique bit positions for different values. For e.g. for AFTER timing
+ * type, the bit position 0x2 has value 0, and for BEFORE type the same
+ * bit position has value 1, so it is impossible to use these bits to suggest
+ * ignoring the timing. (ROW and STATEMENT values also share the same 0x1 bit
+ * but we only want ROW triggers so it does not matter here). Hence an extra
+ * flag ignore_timing to indicate that we want to ignore the timing
+ * and only consider event type. The caller may just pass 0 for timing.
+ * NOTE: To indicate that timing is to be ignored, we can device our own
+ * "invalid" timing value in which all of the timing bits are set to 1
+ * (i.e. the exact TRIGGER_TYPE_TIMING_MASK value), but that will make the
+ * function calls unreadable.
+ */
+bool
+pgxc_find_nonshippable_row_trig(Relation rel, int16 tgtype_event,
+							  int16 tgtype_timing, bool ignore_timing)
+{
+	TriggerDesc *trigdesc = rel->trigdesc;
+	int			 i;
+
+	/*
+	 * This function is used for finding matching row triggers only; should not
+	 * be called for TRUNCATE command.
+	 */
+	Assert(!TRIGGER_FOR_TRUNCATE(tgtype_event));
+
+	/* Have triggers in the first place ? */
+	if (!trigdesc)
+		return false;
+
+	/*
+	 * Quick check by just scanning the trigger descriptor, before
+	 * actually peeking into each of the individual triggers.
+	 */
+	if (!pgxc_has_trigger_for_event(tgtype_event, trigdesc))
+		return false;
+
+	for (i = 0; i < trigdesc->numtriggers; i++)
+	{
+		Trigger    *trigger = &trigdesc->triggers[i];
+		int16		tgtype = trigger->tgtype;
+
+		/* We are looking for row triggers only */
+		if (!TRIGGER_FOR_ROW(tgtype))
+			continue;
+
+		/*
+		 * If we are asked to find triggers of *any* level or timing, just match
+		 * the event type to determine whether we should ignore this trigger.
+		 */
+		if (ignore_timing)
+		{
+			if ((TRIGGER_FOR_INSERT(tgtype_event) && !TRIGGER_FOR_INSERT(tgtype)) ||
+				(TRIGGER_FOR_UPDATE(tgtype_event) && !TRIGGER_FOR_UPDATE(tgtype)) ||
+				(TRIGGER_FOR_DELETE(tgtype_event) && !TRIGGER_FOR_DELETE(tgtype)))
+				continue;
+		}
+		else
+		{
+			/*
+			 * Otherwise, do an exact match with the given combination of event
+			 * and timing.
+			 */
+			if (!TRIGGER_TYPE_MATCHES(tgtype, TRIGGER_TYPE_ROW,
+								  tgtype_timing, tgtype_event))
+			continue;
+		}
+
+		/*
+		 * We now know that we cannot ignore this trigger, so check its
+		 * shippability.
+		 */
+		if (!pgxc_is_trigger_shippable(trigger))
+			return true;
+	}
+
+	return false;
+}
+
+
+
+/*
+ * pgxc_is_trigger_shippable:
+ * Check if trigger is shippable to a remote node. This function would be
+ * called both on coordinator as well as datanode. We want this function
+ * to be workable on datanode because we want to skip non-shippable triggers
+ * on datanode.
+ */
+static bool
+pgxc_is_trigger_shippable(Trigger *trigger)
+{
+	bool		res = true;
+
+	/*
+	 * If trigger is based on a constraint or is internal, enforce its launch
+	 * whatever the node type where we are for the time being.
+	 * PGXCTODO: we need to remove this condition once constraints are better
+	 * implemented within Postgres-XC as a constraint can be locally
+	 * evaluated on remote nodes depending on the distribution type of the table
+	 * on which it is defined or on its parent/child distribution types.
+	 */
+	if (trigger->tgisinternal)
+		return true;
+
+	/*
+	 * INSTEAD OF triggers can only be defined on views, which are defined
+	 * only on Coordinators, so they cannot be shipped.
+	 */
+	if (TRIGGER_FOR_INSTEAD(trigger->tgtype))
+		res = false;
+
+	/* Finally check if function called is shippable */
+	if (!pgxc_is_func_shippable(trigger->tgfoid))
+		res = false;
+
+	return res;
+}
+
