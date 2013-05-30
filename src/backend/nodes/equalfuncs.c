@@ -931,7 +931,7 @@ _equalQuery(const Query *a, const Query *b)
 	COMPARE_NODE_FIELD(constraintDeps);
 
 #ifdef PGXC
-	COMPARE_SCALAR_FIELD(is_ins_child_sel_parent);
+	COMPARE_SCALAR_FIELD(has_to_save_cmd_id);
 #endif
 
 	return true;

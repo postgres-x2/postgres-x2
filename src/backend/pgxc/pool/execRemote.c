@@ -2545,9 +2545,9 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 	ExecAssignResultTypeFromTL(&remotestate->ss.ps);
 	ExecAssignScanProjectionInfo(&remotestate->ss);
 
-	if (node->has_ins_child_sel_parent)
+	if (node->rq_save_command_id)
 	{
-		/* Save command id of the insert-select query */
+		/* Save command id to be used in some special cases */
 		remotestate->rqs_cmd_id = GetCurrentCommandId(false);
 	}
 
@@ -2761,8 +2761,12 @@ pgxc_start_command_on_connection(PGXCNodeHandle *connection,
 		 * The select from child should not see the just inserted rows.
 		 * The command id of the select from child is therefore set to
 		 * the command id of the insert-select query saved earlier.
+		 * Similarly a WITH query that updates a table in main query
+		 * and inserts a row in the same table in the WITH query
+		 * needs to make sure that the row inserted by the WITH query does
+		 * not get updated by the main query.
 		 */
-		if (step->exec_nodes->accesstype == RELATION_ACCESS_READ && step->has_ins_child_sel_parent)
+		if (step->exec_nodes->accesstype == RELATION_ACCESS_READ && step->rq_save_command_id)
 			cid = remotestate->rqs_cmd_id;
 		else
 			cid = GetCurrentCommandId(false);

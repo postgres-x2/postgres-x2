@@ -717,7 +717,7 @@ create_remotequery_plan(PlannerInfo *root, RemoteQueryPath *best_path)
 	/* PGXCTODO - get better estimates */
  	result_node->scan.plan.plan_rows = 1000;
 
-	result_node->has_ins_child_sel_parent = root->parse->is_ins_child_sel_parent;
+	result_node->rq_save_command_id = root->parse->has_to_save_cmd_id;
 	/*
 	 * If there is a pseudoconstant, we should create a gating plan on top of
 	 * this node. We must have included the pseudoconstant qual in the remote
@@ -980,7 +980,7 @@ pgxc_dml_add_qual_to_query(Query *query, int param_num,
  * constraintDeps	: Our DML won't contin any so NULL.
  * sql_statement	: Original query is not required for deparsing
  * is_local			: Not required for deparsing, keep 0
- * is_ins_child_sel_parent	: Not required for deparsing, keep 0
+ * has_to_save_cmd_id	: Not required for deparsing, keep 0
  */
 static void
 pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,

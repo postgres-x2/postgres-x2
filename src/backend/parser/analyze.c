@@ -594,7 +594,7 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 			target_rte = rt_fetch(qry->resultRelation, pstate->p_rtable);
 			if (is_relation_child(target_rte, selectQuery->rtable))
 			{
-				qry->is_ins_child_sel_parent = true;
+				qry->has_to_save_cmd_id = true;
 				SetSendCommandId(true);
 			}
 		}

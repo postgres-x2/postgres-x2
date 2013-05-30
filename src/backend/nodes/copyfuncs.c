@@ -1045,7 +1045,7 @@ _copyRemoteQuery(const RemoteQuery *from)
 	COPY_NODE_FIELD(coord_var_tlist);
 	COPY_NODE_FIELD(query_var_tlist);
 	COPY_SCALAR_FIELD(has_row_marks);
-	COPY_SCALAR_FIELD(has_ins_child_sel_parent);
+	COPY_SCALAR_FIELD(rq_save_command_id);
 	COPY_SCALAR_FIELD(rq_params_internal);
 
 	return newnode;
@@ -2559,7 +2559,7 @@ _copyQuery(const Query *from)
 	COPY_NODE_FIELD(constraintDeps);
 #ifdef PGXC
 	COPY_STRING_FIELD(sql_statement);
-	COPY_SCALAR_FIELD(is_ins_child_sel_parent);
+	COPY_SCALAR_FIELD(has_to_save_cmd_id);
 #endif
 
 	return newnode;

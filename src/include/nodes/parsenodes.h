@@ -160,8 +160,11 @@ typedef struct Query
 	char		*sql_statement;		/* original query */
 	bool		is_local;		/* enforce query execution on local node
 						 * this is used by EXECUTE DIRECT especially. */
-	bool		is_ins_child_sel_parent;/* true if the query is such an INSERT SELECT that
-						 * inserts into a child by selecting from its parent */
+	bool		has_to_save_cmd_id;	/* true if the query is such an INSERT SELECT
+									 * that inserts into a child by selecting
+									 * from its parent OR a WITH query that
+									 * updates a table in main query and inserts
+									 * a row to the same table in WITH query*/
 #endif
 } Query;
 
