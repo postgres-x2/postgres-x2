@@ -905,7 +905,7 @@ WITH RECURSIVE x(n) AS (SELECT n FROM x UNION ALL SELECT 1)
 ERROR:  recursive reference to query "x" must not appear within its non-recursive term
 LINE 1: WITH RECURSIVE x(n) AS (SELECT n FROM x UNION ALL SELECT 1)
                                               ^
-CREATE TEMPORARY TABLE y (a INTEGER);
+CREATE TEMPORARY TABLE y (a INTEGER) DISTRIBUTE BY REPLICATION;
 INSERT INTO y SELECT generate_series(1, 10);
 -- LEFT JOIN
 WITH RECURSIVE x(n) AS (SELECT a FROM y WHERE a = 1
@@ -1231,28 +1231,16 @@ SELECT * FROM t order by 1;
  a  
 ----
   2
+  3
   4
-  6
-  9
- 11
- 13
-(6 rows)
-
-SELECT * FROM y order by 1;
- a  
-----
-  2
-  2
-  4
-  4
-  6
+  5
   6
   7
+  8
   9
-  9
+ 10
  11
- 11
- 13
+ 12
  13
  14
  15
@@ -1261,6 +1249,32 @@ SELECT * FROM y order by 1;
  18
  19
  20
+ 21
+(20 rows)
+
+SELECT * FROM y order by 1;
+ a  
+----
+  2
+  3
+  4
+  5
+  6
+  7
+  8
+  9
+ 10
+ 11
+ 12
+ 13
+ 14
+ 15
+ 16
+ 17
+ 18
+ 19
+ 20
+ 21
 (20 rows)
 
 -- DELETE ... RETURNING
@@ -1270,25 +1284,24 @@ WITH t AS (
     RETURNING *
 )
 SELECT * FROM t order by 1;
- a 
----
- 2
- 2
- 4
- 4
- 6
- 6
- 7
- 9
- 9
+ a  
+----
+  2
+  3
+  4
+  5
+  6
+  7
+  8
+  9
+ 10
 (9 rows)
 
 SELECT * FROM y order by 1;
  a  
 ----
  11
- 11
- 13
+ 12
  13
  14
  15
@@ -1297,6 +1310,7 @@ SELECT * FROM y order by 1;
  18
  19
  20
+ 21
 (11 rows)
 
 -- forward reference
@@ -1313,36 +1327,43 @@ SELECT * FROM t2 order by 1;
  a  
 ----
   0
-  0
-  2
+  1
   2
   3
+  4
+  5
   6
   7
   8
+  9
+ 10
  11
  12
  13
-(11 rows)
+ 14
+ 15
+(16 rows)
 
 SELECT * FROM y order by 1;
  a  
 ----
   0
-  0
-  2
+  1
   2
   3
+  4
+  5
   6
   7
   8
+  9
+ 10
  11
  12
  13
+ 14
  15
- 16
- 20
-(14 rows)
+(16 rows)
 
 -- unconditional DO INSTEAD rule
 CREATE RULE y_rule AS ON DELETE TO y DO INSTEAD
@@ -1360,21 +1381,23 @@ SELECT * FROM y order by 1;
  a  
 ----
   0
-  0
-  2
+  1
   2
   3
+  4
+  5
   6
   7
   8
+  9
+ 10
  11
  12
  13
+ 14
  15
- 16
- 20
  42
-(15 rows)
+(17 rows)
 
 DROP RULE y_rule ON y;
 -- check merging of outer CTE with CTE in a rule action
@@ -1430,10 +1453,10 @@ SELECT * FROM t2 JOIN y USING (a) ORDER BY a;
  a 
 ---
  0
- 0
- 2
+ 1
  2
  3
+ 4
 (5 rows)
 
 SELECT * FROM y order by 1;
@@ -1441,25 +1464,27 @@ SELECT * FROM y order by 1;
 ----
   0
   0
-  0
   1
-  2
+  1
   2
   2
   3
   3
   4
+  4
+  5
   6
   7
   8
+  9
+ 10
  11
  12
  13
+ 14
  15
- 16
- 20
  42
-(20 rows)
+(22 rows)
 
 -- data-modifying WITH in a modifying statement
 WITH t AS (
@@ -1468,89 +1493,98 @@ WITH t AS (
     RETURNING *
 )
 INSERT INTO y SELECT -a FROM t ORDER BY 1 RETURNING *;
- a  
-----
- -8
- -7
- -6
- -4
- -3
- -3
- -2
- -2
- -2
- -1
-  0
-  0
-  0
-(13 rows)
+  a  
+-----
+ -10
+  -9
+  -8
+  -7
+  -6
+  -5
+  -4
+  -4
+  -3
+  -3
+  -2
+  -2
+  -1
+  -1
+   0
+   0
+(16 rows)
 
 SELECT * FROM y order by 1;
- a  
-----
- -8
- -7
- -6
- -4
- -3
- -3
- -2
- -2
- -2
- -1
-  0
-  0
-  0
- 11
- 12
- 13
- 15
- 16
- 20
- 42
-(20 rows)
+  a  
+-----
+ -10
+  -9
+  -8
+  -7
+  -6
+  -5
+  -4
+  -4
+  -3
+  -3
+  -2
+  -2
+  -1
+  -1
+   0
+   0
+  11
+  12
+  13
+  14
+  15
+  42
+(22 rows)
 
 -- check that WITH query is run to completion even if outer query isn't
 WITH t AS (
     UPDATE y SET a = a * 100 RETURNING *
 )
 SELECT * FROM t ORDER BY 1 LIMIT 10;
-  a   
-------
- -700
- -600
- -400
- -300
- -300
-    0
-    0
-    0
-(8 rows)
+   a   
+-------
+ -1000
+  -900
+  -800
+  -700
+  -600
+  -500
+  -400
+  -400
+  -300
+  -300
+(10 rows)
 
 SELECT * FROM y order by 1;
-  a   
-------
- -700
- -600
- -400
- -300
- -300
-   -8
-   -2
-   -2
-   -2
-   -1
-    0
-    0
-    0
-   11
-   12
-   13
-   15
-   16
-   20
-   42
-(20 rows)
+   a   
+-------
+ -1000
+  -900
+  -800
+  -700
+  -600
+  -500
+  -400
+  -400
+  -300
+  -300
+  -200
+  -200
+  -100
+  -100
+     0
+     0
+  1100
+  1200
+  1300
+  1400
+  1500
+  4200
+(22 rows)
 
 -- check that run to completion happens in proper ordering
 TRUNCATE TABLE y;
@@ -1771,8 +1805,8 @@ DROP TRIGGER y_trig ON y;
 DROP FUNCTION y_trigger();
 -- WITH attached to inherited UPDATE or DELETE
 CREATE TEMP TABLE parent ( id int, val text ) DISTRIBUTE BY REPLICATION;
-CREATE TEMP TABLE child1 ( ) INHERITS ( parent );
-CREATE TEMP TABLE child2 ( ) INHERITS ( parent );
+CREATE TEMP TABLE child1 ( ) INHERITS ( parent ) DISTRIBUTE BY REPLICATION;
+CREATE TEMP TABLE child2 ( ) INHERITS ( parent ) DISTRIBUTE BY REPLICATION;
 INSERT INTO parent VALUES ( 1, 'p1' );
 INSERT INTO child1 VALUES ( 11, 'c11' ),( 12, 'c12' );
 INSERT INTO child2 VALUES ( 23, 'c21' ),( 24, 'c22' );
@@ -1793,8 +1827,8 @@ UPDATE parent SET id = id + newid FROM wcte;
 SELECT * FROM parent ORDER BY id;
  id  | val 
 -----+-----
- 114 | p1
   42 | new
+ 114 | p1
  124 | c11
  125 | c12
  136 | c21
@@ -1806,8 +1840,8 @@ DELETE FROM parent USING rcte WHERE id = maxid;
 SELECT * FROM parent ORDER BY id;
  id  | val 
 -----+-----
- 114 | p1
   42 | new
+ 114 | p1
  124 | c11
  125 | c12
  136 | c21
@@ -1818,11 +1852,11 @@ DELETE FROM parent USING wcte WHERE id = newid;
 SELECT * FROM parent ORDER BY id;
  id  | val  
 -----+------
+  42 | new2
  114 | p1
  124 | c11
  125 | c12
  136 | c21
-  42 | new2
 (5 rows)
 
 -- check EXPLAIN VERBOSE for a wCTE with RETURNING

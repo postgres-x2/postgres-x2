@@ -387,12 +387,55 @@ transformDeleteStmt(ParseState *pstate, DeleteStmt *stmt)
 {
 	Query	   *qry = makeNode(Query);
 	Node	   *qual;
+#ifdef PGXC
+	ListCell   *tl;
+#endif
 
 	qry->commandType = CMD_DELETE;
 
 	/* process the WITH clause independently of all else */
 	if (stmt->withClause)
 	{
+#ifdef PGXC
+		/*
+		 * For a WITH query that deletes from a parent table in the
+		 * main query & inserts a row in the child table in the WITH query
+		 * we need to use command ID communication to remote nodes in order
+		 * to maintain global data visibility.
+		 * For example
+		 * CREATE TEMP TABLE parent ( id int, val text ) DISTRIBUTE BY REPLICATION;
+		 * CREATE TEMP TABLE child ( ) INHERITS ( parent ) DISTRIBUTE BY REPLICATION;
+		 * INSERT INTO parent VALUES ( 42, 'old' );
+		 * INSERT INTO child VALUES ( 42, 'older' );
+		 * WITH wcte AS ( INSERT INTO child VALUES ( 42, 'new' ) RETURNING id AS newid )
+		 * DELETE FROM parent USING wcte WHERE id = newid;
+		 * The last query gets translated into the following multi-statement
+		 * transaction on the primary datanode
+		 * (a) SELECT id, ctid FROM ONLY parent WHERE true
+		 * (b) START TRANSACTION ISOLATION LEVEL read committed READ WRITE
+		 * (c) INSERT INTO child (id, val) VALUES ($1, $2) RETURNING id -- (42, 'new')
+		 * (d) DELETE FROM ONLY parent parent WHERE (parent.ctid = $1)
+		 * (e) SELECT id, ctid FROM ONLY child parent WHERE true
+		 * (f) DELETE FROM ONLY child parent WHERE (parent.ctid = $1)
+		 * (g) COMMIT TRANSACTION
+		 * The command id of the select in step (e), should be such that
+		 * it does not see the insert of step (c)
+		 */
+		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		{
+			foreach(tl, stmt->withClause->ctes)
+			{
+				CommonTableExpr *cte = (CommonTableExpr *) lfirst(tl);
+				if (IsA(cte->ctequery, InsertStmt))
+				{
+					qry->has_to_save_cmd_id = true;
+					SetSendCommandId(true);
+					break;
+				}
+			}
+		}
+#endif
+
 		qry->hasRecursive = stmt->withClause->recursive;
 		qry->cteList = transformWithClause(pstate, stmt->withClause);
 		qry->hasModifyingCTE = pstate->p_hasModifyingCTE;
@@ -2015,6 +2058,42 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 	/* process the WITH clause independently of all else */
 	if (stmt->withClause)
 	{
+#ifdef PGXC
+		/*
+		 * For a WITH query that updates a table in the main query and
+		 * inserts a row in the same table in the WITH query set flag
+		 * to send command ID communication to remote nodes in order to
+		 * maintain global data visibility.
+		 * For example
+		 * CREATE TEMP TABLE tab (id int,val text) DISTRIBUTE BY REPLICATION;
+		 * INSERT INTO tab VALUES (1,'p1');
+		 * WITH wcte AS (INSERT INTO tab VALUES(42,'new') RETURNING id AS newid)
+		 * UPDATE tab SET id = id + newid FROM wcte;
+		 * The last query gets translated into the following multi-statement
+		 * transaction on the primary datanode
+		 * (a) START TRANSACTION ISOLATION LEVEL read committed READ WRITE
+		 * (b) INSERT INTO tab (id, val) VALUES ($1, $2) RETURNING id -- (42,'new)'
+		 * (c) SELECT id, val, ctid FROM ONLY tab WHERE true
+		 * (d) UPDATE ONLY tab tab SET id = $1 WHERE (tab.ctid = $3) -- (43,(0,1)]
+		 * (e) COMMIT TRANSACTION
+		 * The command id of the select in step (c), should be such that
+		 * it does not see the insert of step (b)
+		 */
+		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		{
+			foreach(tl, stmt->withClause->ctes)
+			{
+				CommonTableExpr *cte = (CommonTableExpr *) lfirst(tl);
+				if (IsA(cte->ctequery, InsertStmt))
+				{
+					qry->has_to_save_cmd_id = true;
+					SetSendCommandId(true);
+					break;
+				}
+			}
+		}
+#endif
+
 		qry->hasRecursive = stmt->withClause->recursive;
 		qry->cteList = transformWithClause(pstate, stmt->withClause);
 		qry->hasModifyingCTE = pstate->p_hasModifyingCTE;

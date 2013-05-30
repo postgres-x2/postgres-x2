@@ -2315,6 +2315,8 @@ pgxc_handle_exec_direct(Query *query, int cursorOptions,
 static void
 pgxc_handle_unsupported_stmts(Query *query)
 {
+	ListCell *lc;
+
 	/*
 	 * PGXCTODO: This validation will not be removed
 	 * until we support moving tuples from one node to another
@@ -2322,6 +2324,15 @@ pgxc_handle_unsupported_stmts(Query *query)
 	 */
 	if (query->commandType == CMD_UPDATE)
 		validate_part_col_updatable(query);
+
+	foreach(lc, query->cteList)
+	{
+		Query *wqry;
+		CommonTableExpr *cte = (CommonTableExpr *) lfirst(lc);
+		wqry = (Query *)cte->ctequery;
+		if (wqry->commandType == CMD_UPDATE)
+			validate_part_col_updatable(wqry);
+	}
 }
 
 /*
