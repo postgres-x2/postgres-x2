@@ -436,7 +436,7 @@ postgres$ <userinput>initdb -D /usr/local/pgsql/data --nodename foo</userinput>
    <para>
     GTM-Proxy is not a mandatory component of Postgres-XC cluster but
     it can be used to group messages between GTM and cluster nodes,
-    reducing worload and the number of packages exchanged through network.
+    reducing workload and the number of packages exchanged through network.
    </para>
 
    <para>

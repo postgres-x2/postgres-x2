@@ -39,7 +39,7 @@ PostgreSQL documentation
 https://github.com/koichi-szk/PGXC-Tools/tree/master/pgxc_ctl
 </programlisting>
    If you would like to use the latest version from pgxc_ctl home repository,
-   get the set of the source code tarball and expand it at cotrib
+   get the set of the source code tarball and expand it at contrib
    directory of your Postgres-XC build environment.  
    If you are using pgxc_ctl in postgres-xc tarball, you don't have to do this.
   </para>
@@ -47,7 +47,7 @@ https://github.com/koichi-szk/PGXC-Tools/tree/master/pgxc_ctl
   <para>
    Before building pgxc_ctl, you should build postgres-xc binary, like
 <programlisting>
-$ cd <replaceable>your postgres-xc bild directory</replaceable>
+$ cd <replaceable>your postgres-xc build directory</replaceable>
 $ ./configure <replaceable>your configuration option</replaceable>
 $ make
 </programlisting>
@@ -67,7 +67,7 @@ $ cd contrib/pgxc_ctl
 $ make
 $ make install
 </programlisting>
-   <application>pgxc_ctl</application> binary wil be installed at the
+   <application>pgxc_ctl</application> binary will be installed at the
    same directory as <application>postgres-xc</application> binaries. 
   </para>
 
@@ -75,7 +75,7 @@ $ make install
    <application>Postgres-XC</application> consists of many components
    (or called "nodes") running in various physical or virtual
    machines.
-   Because pgxc_ctl relys on ssh connection between the machines where
+   Because pgxc_ctl relies on ssh connection between the machines where
    <application>pgxc_ctl</application> and other nodes are running,
    you should setup ssh-agent authentication to avoid typing password
    each time pgcx_ctl issues ssh.
@@ -100,8 +100,8 @@ $ make install
   </para>
 
   <para>
-   You don't have to create this directory manually.   
-   <application>Pgxc_ctl</application> will creqte the directory when
+   You do not have to create this directory manually.   
+   <application>Pgxc_ctl</application> will create the directory when
    it is invoked for the first time. 
    Please note that you need appropriate privilege to create
    <literal>$PGXC_CTL_HOME</literal>. 
@@ -169,7 +169,7 @@ $ make install
 $ pgxc_ctl
 PGXC$ 
 </programlisting>
-   You will get the default promot, which you can modify at any time
+   You will get the default prompt, which you can modify at any time
    through initialization files.
   </para>
 
@@ -186,14 +186,14 @@ PGXC$
    directory, <application>pgxc_ctl</application> will start at this
    directory, after building it if needed.
 <programlisting>
-$ pgxc_ctl --home /hoem/koichi/my_pgxc_ctl
+$ pgxc_ctl --home /home/koichi/my_pgxc_ctl
 PGXC$ pwd
 /home/koichi/my_pgxc_ctl
 PGXC$
 </programlisting>
    You can specify your pgxc_ctl_home as environment variable
    <literal>PGXC_CTL_HOME</literal>, or you can specify this as
-   variable <literal>pgxc_ctl_home<literal> in your initializatin
+   variable <literal>pgxc_ctl_home<literal> in your initialization
    files.
   </para>
 
@@ -207,7 +207,7 @@ PGXC$
    Type prepare or prepare config to get a configuration template file
    <filename>pgxc_ctl.conf</filename> at
    <literal>$PGXC_CTL_HOME</literal>.
-   You may add file name as an option to get configuation template in
+   You may add file name as an option to get configuration template in
    your favorite file.  For example:
 <programlisting>
 PGXC$ prepare
@@ -249,7 +249,7 @@ PGXC$
 gtmProxyDir=$HOME/pgxc/nodes/gtm_pxy
 
 #---- Overall -------
-gtmProxy=y              # Specify y if you conifugre at least one GTM 
+gtmProxy=y              # Specify y if you configure at least one GTM 
                         # proxy.
                         # You may not configure gtm proxies only when
                         # you dont' configure GTM slaves. 
@@ -278,14 +278,14 @@ gtmProxyDirs=($gtmProxyDir $gtmProxyDir $gtmProxyDir $gtmProxyDir)  # Not used i
 
   <para>
    Please note that the working directory of this script is
-   <filename>$PGXC_CTL_HOME</filename>, unless you change it explicity
+   <filename>$PGXC_CTL_HOME</filename>, unless you change it explicitly
    in this configuration file. 
   </para>
 
  </sect2>
 
  <sect2>
-  <title>pgxc_ctl invokation options</title>
+  <title>pgxc_ctl invocation options</title>
 
   <para>
    When you invoke pgxc_cmd from your shell,
@@ -307,7 +307,7 @@ pgxc [options ... ] [pgxc_command]
       <term><option>--configuration <replaceable class="parameter">configuration_file</replaceable></></term>
       <listitem>
       <para>
-       Specifies configurfatio file.
+       Specifies configuration file.
        The default is <filename>pgxc_ctl_conf</filename>, or the value
        of <literal>configFile</literal> option
        found in the initialization file.
@@ -321,7 +321,7 @@ pgxc [options ... ] [pgxc_command]
       <para>
        Specifies <filename>$PGXC_CTL_HOME</filename> directory.
        You can specify this as <literal>pgxc_ctl_home</literal>
-       variable in the initiliazation file.
+       variable in the initialization file.
       </para>
       </listitem>
     </varlistentry>
@@ -332,8 +332,8 @@ pgxc [options ... ] [pgxc_command]
       <listitem>
       <para>
        Specifies where to read pgxc_ctl commands.
-       There's not corresponding variables in the initiliazation file.
-       Default is the stndard input.
+       There's not corresponding variables in the initialization file.
+       Default is the standard input.
       </para>
       </listitem>
     </varlistentry>
@@ -379,12 +379,12 @@ pgxc [options ... ] [pgxc_command]
       <listitem>
       <para>
        Specifies to run <application>pgxc_ctl</application> without
-       printing messges as muc as possible.
+       printing messages as much as possible.
        This value can also be set as variable
        <literal>verbose</literal> in the initialization file.
-       You can setup level of messges <literal>logMessage</literal>
+       You can setup level of messages <literal>logMessage</literal>
        and <literal>printMessage</literal> variables in the
-       intialization file as well.
+       initialization file as well.
       </para>
       </listitem>
     </varlistentry>
@@ -418,7 +418,7 @@ pgxc [options ... ] [pgxc_command]
   <title>pgxc_ctl initialization file</title>
 
   <para>
-   As described in privious sections, pgxc_ctl behavior, as specified
+   As described in previous sections, pgxc_ctl behavior, as specified
    in the command line options, can be specified in advance in the
    initialization file <filename>/etc/pgxc_ctl</filename> or
    <filename>$HOME/.pgxc_ctl</filename>.
@@ -429,7 +429,7 @@ name value [ value ... ] # comment
 </programlisting>
 
   <para>
-   Brank lines or lines beginning with '#' are simply ignored.  If
+   Blank lines or lines beginning with '#' are simply ignored.  If
    you'd like to include space or tab in the variable name, enclose
    the name with <literal>'...'</literal> or <literal>"..."</literal>.
   </para>
@@ -489,7 +489,7 @@ name value [ value ... ] # comment
     <term><option>logMessage <replaceable>msglevel</replaceable></option></term>
      <listitem>
       <para>
-       Specfies the message level to print to the terminal or output
+       Specifies the message level to print to the terminal or output
        file.
        Valid value is <literal>MANDATORY</literal>,
        <literal>PANIC</literal>, <literal>ERROR</literal>,
@@ -507,7 +507,7 @@ name value [ value ... ] # comment
      <listitem>
       <para>
        Specifies <filename>$PGXC_CTL_HOME</filename>.
-       Default is <filename>$HOME/pgxc_ctl</filename> or environmemnt
+       Default is <filename>$HOME/pgxc_ctl</filename> or environment
        variable <literal>$PGXC_CTL_HOME</literal>.
        Can be overriden by <option>--home</option> command line option.
       </para>
@@ -543,7 +543,7 @@ name value [ value ... ] # comment
      <term><option>verbose <replaceable>value</replaceable></option></term>
      <listitem>
       <para>
-       Specifies verbose messge output from
+       Specifies verbose message output from
        <application>pgxc_ctl</application>.
        Value should be <literal>y</literal> or <literal>n</literal>.
        Can be overridedn by <option>-v</option> or
@@ -588,11 +588,11 @@ $
 
    <para>
     Postgres-xc consists of the following components.  Each component may
-    be called <option>node</option>, which may not necessarilly refer
+    be called <option>node</option>, which may not necessarily refer
     to physical or virtual server because you can configure more
-    than one node to one physica/virtual server.  
+    than one node to one physical/virtual server.  
     You should consider how many of them to configure.
-    Hereafter, we call such physica/virtual server as
+    Hereafter, we call such physical/virtual server as
     <option>host</option>.
    <para>
 
@@ -607,7 +607,7 @@ $
        For production, GTM should be configured in a separate server.
        GTM can have a slave which can fail over when GTM fails.
        GTM slave can be installed (hopefully) in a separate server but
-       can be intalled in one of the others where you have gtm_proxy,
+       can be installed in one of the others where you have gtm_proxy,
        coordinators and datanodes.
       </para>
      </listitem>
@@ -645,7 +645,7 @@ $
      <listitem>
       <para>
        Datanode stores the data and run local SQL statement supplied by
-       a coordiantor.  Datanode should also be configured in all the
+       a coordinator.  Datanode should also be configured in all the
        servers except those for GTM (and GTM slave).
       </para>
      </listitem>
@@ -683,8 +683,8 @@ $
    </para>
 
    <para>
-    Also, coordinator needs additioan port for connection pooling to
-    other ndoes.
+    Also, coordinator needs additional port for connection pooling to
+    other nodes.
    </para>
 
    <para>
@@ -731,7 +731,7 @@ $
    </para>
 
    <para>
-    GTM, cooardinators and datanodes can configure their slave.
+    GTM, coordinators and datanodes can configure their slave.
     <application>Pgxc_ctl</application> does not support cascaded
     slave or more than one slave for coordinator and datanode.
     It is not a restriction of <application>postgres-XC</application>,
@@ -743,7 +743,7 @@ $
     synchronous replication in pgxc_ctl.  
     This is not a <application>Posgres-XC</application> restriction
     either.
-    In the future, asynchronous, cascaded and mutiple slave may be
+    In the future, asynchronous, cascaded and multiple slaves may be
     supported.
    </para>
 
@@ -771,10 +771,10 @@ PGXC$
    You have your <filename>pgxc_ctl.conf</filename> file at
    <filename>$HOME/pgxc_ctl</filename>.
    You can edit it to configure your
-   <application>postgres-xc</application> cluseter.
+   <application>postgres-xc</application> cluster.
    When it messes up, you can again create the template with
    <command>prepare config</command> command.
-   If you want to use other file name, specify the nameas
+   If you want to use other file name, specify the names
    <command>prepare config<command> command option like:
 
 <programlisting>
@@ -789,7 +789,7 @@ PGXC$ prepare config my_config.conf
    With template values and comments, it will be easy to understand
    what they mean.
    The following describes each variable in the order you find in the
-   configuraton template. 
+   configuration template. 
   </para>
 
   <sect3>
@@ -840,7 +840,7 @@ PGXC$ prepare config my_config.conf
        This parameter was left here to make it compatible with
        bash-version.
        It is recommended to configure this parameter in
-       initializatino file.
+       initialization file.
       </para>
      </listitem>
     </varlistentry>
@@ -868,7 +868,7 @@ PGXC$ prepare config my_config.conf
        <para>
         Name of the database user who owns whole
         <application>Postgres-XC</application> database.
-        This can be diferrent from $pgxcUser.
+        This can be different from $pgxcUser.
         In the present version, we assume these two should be the same
         though.
        </para>
@@ -898,7 +898,7 @@ PGXC$ prepare config my_config.conf
         This parameter was left here to make it compatible with
         bash-version.
         It is recommended to configure this parameter in
-        initializatino file.
+        initialization file.
        </para>
       </listitem>
      </varlistentry>
@@ -926,7 +926,7 @@ PGXC$ prepare config my_config.conf
       <listitem>
        <para>
         If you'd like to add specific configuration to both GTM master
-        and slave, specify the file which contails such lines for
+        and slave, specify the file which contains such lines for
         gtm.config file.
         Otherwise, specify <literal>none</literal>.
        </para>
@@ -965,7 +965,7 @@ PGXC$ prepare config my_config.conf
       <listitem>
        <para>
         If you'd like to add specific configuration only to GTM
-        master, specify the file which contails such lines for
+        master, specify the file which contains such lines for
         <filename>gtm.config</filename> file.
         Otherwise, specify <literal>none</literal>
        </para>
@@ -1015,7 +1015,7 @@ PGXC$ prepare config my_config.conf
       <listitem>
        <para>
         If you'd like to add specific configuration only to GTM slave,
-        specify the file which contails such lines for
+        specify the file which contains such lines for
         <filename>gtm.config</filename> file.
         Otherwise, specify <literal>none</literal>.
        </para>
@@ -1062,7 +1062,7 @@ PGXC$ prepare config my_config.conf
       <term><option>gtmProxyDirs</option></term>
       <listitem>
        <para>
-        Specify wor directory for each GTM proxy.
+        Specify work directory for each GTM proxy.
        </para>
       </listitem>
      </varlistentry>
@@ -1072,7 +1072,7 @@ PGXC$ prepare config my_config.conf
       <listitem>
        <para>
         If you'd like to add configuration value to all the GTM proxy,
-        specify the file name which contails such lines for
+        specify the file name which contains such lines for
         <filename>gtm_proxy.conf</filename>.
         Otherwise specify <literal>none</literal>.
        </para>
@@ -1193,7 +1193,7 @@ PGXC$ prepare config my_config.conf
       <term><option>coordMasterDirs</option></term>
       <listitem>
        <para>
-        Array of coordiantor master work directory.
+        Array of coordinator master work directory.
        </para>
       </listitem>
      </varlistentry>
@@ -1271,7 +1271,7 @@ PGXC$ prepare config my_config.conf
         slave.
         <literal>n</literal> otherwise.   If you specify
         <literal>n</literal>, then all the other variables for
-        coordiator slave will be ignored.
+        coordinator slave will be ignored.
        </para>
       </listitem>
      </varlistentry>
@@ -1322,8 +1322,8 @@ PGXC$ prepare config my_config.conf
       <term><option>poolerPorts</option></term>
       <listitem>
        <para>
-        Array of the portnumber for each pooler.  Pooler takes
-          care fo the connection between coordinator and datanode and
+        Array of the port number for each pooler.  Pooler takes
+          care of the connection between coordinator and datanode and
           needs separate port.   Please note that a master and its
           slave uses the same pooler port number.
        </para>
@@ -1602,7 +1602,7 @@ PGXC$ prepare config my_config.conf
     <term><literal>Createuser[ - <replaceable class="parameter">coordinator</replaceable> ] <replaceable class="parameter"> createuser_option ... </replaceable></literal></term>
     <listitem>
      <para>
-      Invokes createuser utulity to create a new user using specified
+      Invokes createuser utility to create a new user using specified
       coordinator.   Of coordinator is not specified, <application>pgxc_ctl</application> chooses
       one of the available ones.
      </para>
@@ -1613,7 +1613,7 @@ PGXC$ prepare config my_config.conf
     <term><literal>deploy [ all | <replaceable class="parameter">host ...</replaceable> ]</literal></term>
     <listitem>
      <para>
-      Deploys postgres-xc binaries and other installtion material to
+      Deploys postgres-xc binaries and other installation material to
       specified hosts.  If "all" is specified, they will be deployed to
       all the hosts found in the configuration file.  If list of the host
       is specifies, deployment will be done to all the specified hosts,
@@ -1913,11 +1913,11 @@ SELECT pg_class.relname relation,
     <listitem>
      <para>
       Stops specified node.  For datanode and coordinator, you can
-      specify stop mode as in "pg_ctl stop" commnad.
+      specify stop mode as in "pg_ctl stop" command.
      </para>
      <para>
       When you stop coordinator or datanode slave, the master will be
-      reconfigurated to remove synchronous replication.
+      reconfigured to remove synchronous replication.
      </para>
      <para>
       Please note that stopping coordinator or datanode in <literal>-m immediate</literal> is not safe.   

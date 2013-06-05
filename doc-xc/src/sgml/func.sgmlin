@@ -13748,7 +13748,7 @@ SELECT typlen FROM pg_type WHERE oid = pg_typeof(33);
   <para>
    Please note that OID is valid locally in each Coordinator and
    Datanode.  You should use specific OID value in statements
-   targetted to specific Coordinator or Datanode by <type>EXECUTE
+   targeted to specific Coordinator or Datanode by <type>EXECUTE
    DIRECT</> statement.
   </para>
 <!## end>
@@ -13839,8 +13839,8 @@ SELECT typlen FROM pg_type WHERE oid = pg_typeof(33);
 <!## XC>
 &xconly;
    <para>
-    In <productname>Postgres-XC</>, OID is maitain locally in each Coordinator and Datanode.
-    If you specify specific OID value, you should do it in SQL stataements targetted to specif
+    In <productname>Postgres-XC</>, OID is maintained locally in each Coordinator and Datanode.
+    If you specify specific OID value, you should do it in SQL statements targeted to specif
     Coordinator or Datanode by <type>EXECUTE DIRECT</> statement.
    </para>
 <!## end>
@@ -13889,7 +13889,7 @@ SELECT typlen FROM pg_type WHERE oid = pg_typeof(33);
       <row>
        <entry><literal><function>pgxc_is_committed(transaction_id)</function></literal></entry>
        <entry><type>bool</type></entry>
-       <entry>If given xid (gxid) is commited or aborted.  NULL indicates the status is unknown (running, not yet started, prepared, frozen, etc).</entry>
+       <entry>If given xid (gxid) is committed or aborted.  NULL indicates the status is unknown (running, not yet started, prepared, frozen, etc).</entry>
       </row>
 <!## end>
 
@@ -15583,7 +15583,7 @@ SELECT (pg_stat_file('filename')).modification;
    </table>
 
    <para>
-   To lock the cluster for backup while adding a new node <productname>Postgres-XC</productname> uses advisroy locks.
+   To lock the cluster for backup while adding a new node <productname>Postgres-XC</productname> uses advisory locks.
    Every time a disallowed statement is issued the system tries to acquire a transaction
    level advisory lock in shared mode and the lock is released when
    the DDL or the transaction issuing the DDL ends. The function <function>pgxc_lock_for_backup</>
@@ -15597,7 +15597,7 @@ SELECT (pg_stat_file('filename')).modification;
     <itemizedlist>
      <listitem>
       <para>
-       The caller of the funcion is not a superuser.
+       The caller of the function is not a superuser.
       </para>
      </listitem>
 

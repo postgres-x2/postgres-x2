@@ -36,7 +36,7 @@
 <!## end>
 <!## XC>
   <para>
-   <productname>Postgres-XC</> inherits most of its funcamentals from <productname>PostgreSQL</>.   Like any database software, requires that certain tasks
+   <productname>Postgres-XC</> inherits most of its fundamentals from <productname>PostgreSQL</>.   Like any database software, requires that certain tasks
    be performed regularly to achieve optimum performance. The tasks
    discussed here are <emphasis>required</emphasis>, but they
    are repetitive in nature and can easily be automated using standard

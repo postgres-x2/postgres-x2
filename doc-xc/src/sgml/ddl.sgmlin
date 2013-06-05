@@ -851,7 +851,7 @@ CREATE TABLE orders (
 
 <!## PG>
 <!-- NOTICE:
-     In XC, we cannot ommit column name in REFERENCES clause.
+     In XC, we cannot commit column name in REFERENCES clause.
 -->
    <para>
     You can also shorten the above command to:

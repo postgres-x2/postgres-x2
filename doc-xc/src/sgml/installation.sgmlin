@@ -2336,7 +2336,7 @@ postgres$ <userinput>/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data</>
        care of connection with other Coordinators and Datanodes.  This
        parameter specifies minimum number of connection to pool.
        If you're not configuring <productname>XC</> cluster in
-       unballanced way, you should specify the same value to all the
+       unbalanced way, you should specify the same value to all the
        Coordinators.
       </par>
      </listitem>
@@ -2353,7 +2353,7 @@ postgres$ <userinput>/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data</>
        value, you will see very frequent close and ope connection
        which leads to serious performance problem.
        If you're not configuring <productname>XC</> cluster in
-       unballanced way, you should specify the same value to all the
+       unbalanced way, you should specify the same value to all the
        Coordinators.
       </para>
      </listitem>

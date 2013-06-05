@@ -149,11 +149,11 @@
    </para>
 
    <para>
-    Postgres-XC allow multiple Coordinators which accept statments
+    Postgres-XC allow multiple Coordinators which accept statements
     from applications independently but in an integrated way.  Any
     writes from any Coordinator is available from any other
     Coordinators.  They acts as if they are single database.
-    Coordinator's role is to accept statments, find what Datanodes are
+    Coordinator's role is to accept statements, find what Datanodes are
     involved, Ode-compose incoming statements for each Datanode if
     needed, proxy statements to target Datanode, collect the results
     and write them back to applications.

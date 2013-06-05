@@ -44,7 +44,7 @@ ALTER NODE <replaceable class="parameter">nodename</replaceable> WITH
    cluster node information in catalog pgxc_node.
   </para>
   <para>
-   Node connection that has been modified does not guarranty that connection
+   Node connection that has been modified does not guaranty that connection
    information cached in pooler is updated accordingly.
   </para>
   <para>

@@ -101,7 +101,7 @@
    generate target <literal>sgml</> files.
   </para>
   <para>
-   <literal>Makefile</> has been modified to accomodate these changes.
+   <literal>Makefile</> has been modified to accommodate these changes.
   </para>
 <!## end>
  </sect1>

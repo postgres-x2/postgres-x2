@@ -46,7 +46,7 @@ CREATE [ OR REPLACE ] FUNCTION
   <note>
    <para>
     <productname>Postgres-XC</> currently does not support creation of SQL functions 
-    containing utility statemets. This limitation is however enforced only when the 
+    containing utility statements. This limitation is however enforced only when the 
     GUC <varname>check_function_bodies</varname> is <literal>on</>. 
     If SQL functions are created after setting <varname>check_function_bodies</varname> to <literal>off</>, 
     the behaviour of the function when executed is un-defined. 
