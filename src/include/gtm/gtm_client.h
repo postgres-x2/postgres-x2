@@ -276,6 +276,12 @@ int reset_sequence(GTM_Conn *conn, GTM_SequenceKey key);
 int bkup_reset_sequence(GTM_Conn *conn, GTM_SequenceKey key);
 
 /*
+ * Barrier
+ */
+int report_barrier(GTM_Conn *conn, char *barier_id);
+int bkup_report_barrier(GTM_Conn *conn, char *barrier_id);
+
+/*
  * GTM-Standby
  */
 int set_begin_end_backup(GTM_Conn *conn, bool begin);

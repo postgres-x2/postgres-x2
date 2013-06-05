@@ -116,6 +116,7 @@ static void checkDataDir(void);
 static void DeleteLockFile(const char *filename);
 static void PromoteToActive(void);
 static void ProcessSyncStandbyCommand(Port *myport, GTM_MessageType mtype, StringInfo message);
+static void ProcessBarrierCommand(Port *myport, GTM_MessageType mtype, StringInfo message);
 
 /*
  * One-time initialization. It's called immediately after the main process
@@ -1290,6 +1291,10 @@ ProcessCommand(Port *myport, StringInfo input_message)
 			ProcessQueryCommand(myport, mtype, input_message);
 			break;
 
+		case MSG_BARRIER:
+		case MSG_BKUP_BARRIER:
+			ProcessBarrierCommand(myport, mtype, input_message);
+
 		case MSG_BACKEND_DISCONNECT:
 			GTM_RemoveAllTransInfos(proxyhdr.ph_conid);
 			/* Mark PGXC Node as disconnected if backend disconnected is postmaster */
@@ -2087,3 +2092,56 @@ PromoteToActive(void)
 	GTM_WriteRestorePoint();
 	return;
 }
+
+static void ProcessBarrierCommand(Port *myport, GTM_MessageType mtype, StringInfo message)
+{
+	int barrier_id_len;
+	char *barrier_id;
+	int count = 0;
+	GTM_Conn *oldconn = GetMyThreadInfo->thr_conn->standby;
+	StringInfoData buf;
+
+	barrier_id_len = pq_getmsgint(message, sizeof(int));
+	barrier_id = (char *)pq_getmsgbytes(message, barrier_id_len);
+	pq_getmsgend(message);
+
+	elog(INFO, "Processing BARRIER %s", barrier_id);
+
+	if ((mtype == MSG_BARRIER) && GetMyThreadInfo->thr_conn->standby)
+	{
+	retry:
+		bkup_report_barrier(GetMyThreadInfo->thr_conn->standby, barrier_id);
+		if (gtm_standby_check_communication_error(&count, oldconn))
+			goto retry;
+
+		if (Backup_synchronously && (myport->remote_type != GTM_NODE_GTM_PROXY))
+			gtm_sync_standby(GetMyThreadInfo->thr_conn->standby);
+	}
+
+	GTM_WriteBarrierBackup(barrier_id);
+
+	if (mtype == MSG_BARRIER)
+	{
+		/*
+		 * Send a SUCCESS message back to the client
+		 */
+		pq_beginmessage(&buf, 'S');
+		pq_sendint(&buf, BARRIER_RESULT, 4);
+		if (myport->remote_type == GTM_NODE_GTM_PROXY)
+		{
+			GTM_ProxyMsgHeader proxyhdr;
+			proxyhdr.ph_conid = myport->conn_id;
+			pq_sendbytes(&buf, (char *)&proxyhdr, sizeof (GTM_ProxyMsgHeader));
+		}
+		pq_endmessage(myport, &buf);
+
+		if (myport->remote_type != GTM_NODE_GTM_PROXY)
+		{
+			/* Flush standby first */
+			if (GetMyThreadInfo->thr_conn->standby)
+				gtmpqFlush(GetMyThreadInfo->thr_conn->standby);
+			pq_flush(myport);
+		}
+	}
+}
+	

@@ -83,6 +83,8 @@ typedef enum GTM_MessageType
 	MSG_BKUP_TXN_BEGIN_GETGXID_AUTOVACUUM,	/* Backup of MSG_TXN_BEGIN_GETGXID_AUTOVACUUM */
 	MSG_DATA_FLUSH,					/* flush pending data */
 	MSG_BACKEND_DISCONNECT,			/* tell GTM that the backend diconnected from the proxy */
+	MSG_BARRIER,				/* Tell the barrier was issued */
+	MSG_BKUP_BARRIER,			/* Backup barrier to standby */
 
 	/*
 	 * Must be at the end
@@ -133,6 +135,7 @@ typedef enum GTM_ResultType
 	TXN_GET_STATUS_RESULT,
 	TXN_GET_ALL_PREPARED_RESULT,
 	TXN_BEGIN_GETGXID_AUTOVACUUM_RESULT,
+	BARRIER_RESULT,
 	RESULT_TYPE_COUNT
 } GTM_ResultType;
 

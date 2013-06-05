@@ -595,6 +595,8 @@
 #pgxc_node_name = ''			# Coordinator or Datanode name
 					# (change requires restart)
 
+#gtm_backup_barrier = off		# Specify to backup gtm restart point for each barrier.
+
 ##------------------------------------------------------------------------------
 # OTHER PG-XC OPTIONS
 #------------------------------------------------------------------------------

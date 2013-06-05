@@ -15,6 +15,7 @@
 /* Configuration variables */
 extern char *GtmHost;
 extern int GtmPort;
+extern bool gtm_backup_barrier;
 
 extern GlobalTransactionId currentGxid;
 
@@ -53,4 +54,6 @@ extern int AlterSequenceGTM(char *seqname, GTM_Sequence increment,
 							GTM_Sequence lastval, bool cycle, bool is_restart);
 extern int DropSequenceGTM(char *name, GTM_SequenceKeyType type);
 extern int RenameSequenceGTM(char *seqname, const char *newseqname);
+/* Barrier */
+extern int ReportBarrierGTM(char *barrier_id);
 #endif /* ACCESS_GTM_H */

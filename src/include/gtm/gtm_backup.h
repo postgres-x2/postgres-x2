@@ -22,9 +22,10 @@ extern GTM_RWLock	gtm_bkup_lock;
 
 #define RestoreDuration	2000
 
-void GTM_WriteRestorePoint(void);
-void GTM_MakeBackup(char *path);
-void GTM_SetNeedBackup(void);
-bool GTM_NeedBackup(void);
+extern void GTM_WriteRestorePoint(void);
+extern void GTM_MakeBackup(char *path);
+extern void GTM_SetNeedBackup(void);
+extern bool GTM_NeedBackup(void);
+extern void GTM_WriteBarrierBackup(char *barrier_id);
 
 #endif /* GTM_BACKUP_H */

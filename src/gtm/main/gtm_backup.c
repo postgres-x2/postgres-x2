@@ -36,6 +36,31 @@ void GTM_WriteRestorePoint(void)
 	fclose(f);
 }
 
+void GTM_WriteBarrierBackup(char *barrier_id)
+{
+#define MyMAXPATH 1023
+
+	FILE  *f;
+	char BarrierFilePath[MyMAXPATH+1];
+	extern char *GTMDataDir;
+
+	snprintf(BarrierFilePath, MyMAXPATH, "%s/GTM_%s.control", GTMDataDir, barrier_id);
+	if ((f = fopen(BarrierFilePath, "w")) == NULL)
+	{
+		ereport(LOG, (errno,
+					  errmsg("Cannot open control file"),
+					  errhint("%s", strerror(errno))));
+		return;
+	}
+	GTM_RWLockAcquire(&gtm_bkup_lock, GTM_LOCKMODE_WRITE);
+	gtm_need_bkup = FALSE;
+	GTM_RWLockRelease(&gtm_bkup_lock);
+	GTM_WriteRestorePointXid(f);
+	GTM_WriteRestorePointSeq(f);
+	fclose(f);
+}
+	
+
 void GTM_MakeBackup(char *path)
 {
 	FILE *f = fopen(path, "w");

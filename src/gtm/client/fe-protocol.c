@@ -754,6 +754,8 @@ gtmpqParseSuccess(GTM_Conn *conn, GTM_Result *result)
 
 			break;
 		}
+		case BARRIER_RESULT:
+			break;
 		default:
 			printfGTMPQExpBuffer(&conn->errorMessage,
 							  "unexpected result type from server; result typr was \"%d\"\n",
@@ -824,6 +826,9 @@ gtmpqFreeResultData(GTM_Result *result, GTM_PGXCNodeType remote_type)
 			break;
 
 		case TXN_GET_ALL_PREPARED_RESULT:
+			break;
+
+		case BARRIER_RESULT:
 			break;
 
 		case SNAPSHOT_GET_RESULT:

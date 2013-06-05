@@ -7020,6 +7020,22 @@ Postgres-XC Specific Parameters
       </listitem>
      </varlistentry>
 
+     <varlistentry id="gtm_backup_barrier" xreflabel="backup_barrier">
+      <term><varname>gtm_backup_barrier</varname> (<type>string</type>)</term>
+      <indexterm>
+       <primary><varname>gtm_backup_barrier</> configuration parameter</primary>
+      </indexterm>
+      <listitem>
+       <para>
+        Specify if GTM backs up the restart point for each barrier.
+        Default value is "OFF".
+        Superuser may set this variable by SET command, or this can be set in the file
+        <filename>postgresql.conf</filename> file.
+       </para>
+      </listitem>
+     </varlistentry>
+
+
      <varlistentry id="guc-enforce-two-phase-commit" xreflabel="enforce_two_phase_commit">
       <term><varname>enforce_two_phase_commit</varname> (<type>boolean</type>)</term>
       <indexterm>

@@ -157,6 +157,8 @@ static void ProcessSnapshotCommand(GTMProxy_ConnectionInfo *conninfo,
 		GTM_Conn *gtm_conn, GTM_MessageType mtype, StringInfo message);
 static void ProcessSequenceCommand(GTMProxy_ConnectionInfo *conninfo,
 		GTM_Conn *gtm_conn, GTM_MessageType mtype, StringInfo message);
+static void ProcessBarrierCommand(GTMProxy_ConnectionInfo *conninfo,
+		GTM_Conn *gtm_conn, GTM_MessageType mtype, StringInfo message);
 
 static void GTMProxy_RegisterPGXCNode(GTMProxy_ConnectionInfo *conninfo,
 									  char *node_name,
@@ -1596,6 +1598,8 @@ ProcessCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 		case MSG_SEQUENCE_ALTER:
 			ProcessSequenceCommand(conninfo, gtm_conn, mtype, input_message);
 			break;
+		case MSG_BARRIER:
+			ProcessBarrierCommand(conninfo, gtm_conn, mtype, input_message);
 
 		default:
 			ereport(FATAL,
@@ -2305,6 +2309,21 @@ ProcessSequenceCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
 	 */
 	return GTMProxy_ProxyCommand(conninfo, gtm_conn, mtype, message);
 }
+
+static void
+ProcessBarrierCommand(GTMProxy_ConnectionInfo *conninfo, GTM_Conn *gtm_conn,
+		GTM_MessageType mtype, StringInfo message)
+{
+	/*
+	 * We proxy the Barrier messages as they are. Just add the connection
+	 * identifier to it so that the response can be quickly sent back to the
+	 * right backend.
+	 *
+	 * Write the message, but don't flush it just yet.
+	 */
+	return GTMProxy_ProxyCommand(conninfo, gtm_conn, mtype, message);
+}
+
 
 /*
  * Proxy the incoming message to the GTM server after adding our own identifier

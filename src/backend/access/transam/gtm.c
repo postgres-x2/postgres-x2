@@ -18,10 +18,12 @@
 #include "utils/elog.h"
 #include "miscadmin.h"
 #include "pgxc/pgxc.h"
+#include "postmaster/autovacuum.h"
 
 /* Configuration variables */
 char *GtmHost = "localhost";
 int GtmPort = 6666;
+bool gtm_backup_barrier = false;
 extern bool FirstSnapshotSet;
 
 static GTM_Conn *conn;
@@ -512,3 +514,21 @@ UnregisterGTM(GTM_PGXCNodeType type)
 
 	return ret;
 }
+
+/*
+ * Report BARRIER
+ */
+int
+ReportBarrierGTM(char *barrier_id)
+{
+	if (!gtm_backup_barrier)
+		return;
+
+	CheckConnection();
+
+	if (!conn)
+		return EOF;
+
+	return(report_barrier(conn, barrier_id));
+}
+
