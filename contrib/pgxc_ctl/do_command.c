@@ -142,7 +142,7 @@ static void deploy_xc(char **hostlist)
 	int ii;
 
 	/* Build tarball --> need to do foreground */
-	elog(NOTICE, "Prepare tarball to deplloy ... \n");
+	elog(NOTICE, "Prepare tarball to deploy ... \n");
 	snprintf(tarFile, MAXPATH, "%d.tgz", getpid());
 	doImmediate(NULL, NULL, "tar czCf %s %s/%s bin include lib share",
 				sval(VAR_pgxcInstallDir),

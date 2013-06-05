@@ -894,7 +894,7 @@ cmd_t *prepare_initGtmProxy(char *nodeName)
 			"nodename = '%s'\n"
 			"listen_addresses = '*'\n"
 			"port = %s\n"
-			"gtm_host = %s\n"
+			"gtm_host = '%s'\n"
 			"gtm_port = %s\n"
 			"worker_threads = 1\n"
 			"gtm_connect_retry_interval = 1\n"
