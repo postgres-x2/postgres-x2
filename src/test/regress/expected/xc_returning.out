@@ -1366,6 +1366,51 @@ select * from t order by 1,2,3,4;
 
 truncate table test_tab;
 -------------------------------------------------------------
+-- A few tests to verify # of tuples processed.
+-------------------------------------------------------------
+\set QUIET false
+-------------------------------------------------------------
+-- Number of rows processed for query having RETURNING.
+-- The UPDATE runs twice, but for the second row it does not actually update
+-- the row and hence returns NULL. The UPDATE tag should show UPDATE 1,
+-- as against UPDATE 2.
+-------------------------------------------------------------
+CREATE TABLE xcreturn_foo (c1 int, c2 int);
+CREATE TABLE
+INSERT INTO xcreturn_foo VALUES (1,2), (3,4);
+INSERT 0 2
+CREATE TABLE xcreturn_bar(c3 int, c4 int);
+CREATE TABLE
+INSERT INTO xcreturn_bar VALUES(123,456);
+INSERT 0 1
+INSERT INTO xcreturn_bar VALUES(123,789);
+INSERT 0 1
+update xcreturn_foo set c2=c2*2 from xcreturn_bar b WHERE xcreturn_foo.c1+122 = b.c3 RETURNING *;
+ c1 | c2 | c3  | c4  
+----+----+-----+-----
+  1 |  4 | 123 | 789
+(1 row)
+
+UPDATE 1
+drop table xcreturn_foo, xcreturn_bar;
+DROP TABLE
+-------------------------------------------------------------
+-- Number of rows processed query having WITH and RETURNING.
+-- Following WITH query updates runs so should show UPDATE 2.
+-------------------------------------------------------------
+create table xcreturn_tab1 (id int, v varchar) distribute by replication;
+CREATE TABLE
+create table xcreturn_tab2 (id int, v varchar) distribute by replication;
+CREATE TABLE
+insert into xcreturn_tab1 values (1, 'firstrow'), (2, 'secondrow');
+INSERT 0 2
+WITH wcte AS ( INSERT INTO xcreturn_tab2 VALUES (999, 'opop'), (333, 'sss') , ( 42, 'new' ), (55, 'ppp') RETURNING id AS newid )
+UPDATE xcreturn_tab1 SET id = id + newid FROM wcte;
+UPDATE 2
+drop table xcreturn_tab1, xcreturn_tab2;
+DROP TABLE
+\set QUIET true
+-------------------------------------------------------------
 -- clean up
 -------------------------------------------------------------
 drop table test_tab;

@@ -119,6 +119,7 @@ CREATE TRIGGER brtrig3 BEFORE INSERT OR UPDATE OR DELETE ON xctrigemp1
 CREATE TRIGGER brtrig1 BEFORE INSERT OR UPDATE OR DELETE ON xctrigemp1
 	FOR EACH ROW EXECUTE PROCEDURE xc_brt_func();
 
+\set QUIET false
 
 -- Setup is now ready to test shippability with BR triggers.
 

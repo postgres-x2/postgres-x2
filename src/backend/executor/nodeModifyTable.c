@@ -188,7 +188,7 @@ ExecInsert(TupleTableSlot *slot,
 	Oid			newId;
 	List	   *recheckIndexes = NIL;
 #ifdef PGXC	
-	PlanState  *resultRemoteRel = NULL;
+	RemoteQueryState  *resultRemoteRel = NULL;
 #endif
 
 	/*
@@ -203,7 +203,7 @@ ExecInsert(TupleTableSlot *slot,
 	resultRelInfo = estate->es_result_relation_info;
 	resultRelationDesc = resultRelInfo->ri_RelationDesc;
 #ifdef PGXC	
-	resultRemoteRel = estate->es_result_remoterel;
+	resultRemoteRel = (RemoteQueryState *) estate->es_result_remoterel;
 #endif
 	/*
 	 * If the result relation has OIDs, force the tuple's OID to zero so that
@@ -291,53 +291,8 @@ ExecInsert(TupleTableSlot *slot,
 	if (canSetTag)
 	{
 #ifdef PGXC
-		if (IS_PGXC_COORDINATOR && resultRemoteRel &&
-			resultRelInfo->ri_projectReturning)
-		{
-			/*
-			 * Consider this example
-			 *
-			 * CREATE TABLE bar(c3 int, c4 int);
-			 * INSERT INTO bar VALUES(123,456);
-			 * INSERT INTO bar VALUES(123,789);
-			 *
-			 * CREATE TABLE foo (c1 int, c2 int);
-			 * INSERT INTO foo VALUES (1,2), (3,4);
-			 * Consider this join query
-			 *   select f.ctid, b.ctid, * from foo f, bar b where f.c1+122=b.c3;
-			 * Note it returned TWO rows
-			 *   ctid  | ctid  | c1 | c2 | c3  | c4
-			 *  -------+-------+----+----+-----+-----
-			 *   (0,1) | (0,1) |  1 |  2 | 123 | 456
-			 *   (0,1) | (0,2) |  1 |  2 | 123 | 789
-			 *   (2 rows)
-			 *
-			 * Now consider the update with the same join condition
-			 *
-			 * update foo set c2=c2*2 from bar b
-			 * WHERE foo.c1+122 = b.c3 RETURNING *, foo.ctid;
-			 *
-			 * The update would run twice since we got two rows from the join.
-			 * When the first update runs it will change the ctid of the row
-			 * to be updated and would return the updated row with ctid say (0,3).
-			 * The second update would not update any row since the row with
-			 * ctid (0,1) would no more exist in foo, it would therefore return
-			 * an empty slot.
-			 *
-			 * update foo set c2=c2*2 from bar b
-			 * WHERE foo.c1+122 = b.c3  RETURNING *, foo.ctid;
-			 *  f1 |  f2  | f3 | q1  |        q2        | ctid
-			 * ----+------+----+-----+------------------+-------
-			 *   1 | test | 84 | 123 | 4567890123456789 | (0,3)
-			 * (1 row)
-			 *
-			 * It is therefore possible in ExecInsert/Update/Delete
-			 * to receive an empty slot, and we have to add checks
-			 * before we can update the processed tuple count.
-			 */
-			if (!TupIsNull(slot))
-				(estate->es_processed)++;
-		}
+		if (IS_PGXC_COORDINATOR && resultRemoteRel)
+			estate->es_processed += resultRemoteRel->rqs_processed;
 		else
 #endif
 		(estate->es_processed)++;
@@ -394,7 +349,7 @@ ExecDelete(ItemPointer tupleid,
 	ItemPointerData update_ctid;
 	TransactionId update_xmax;
 #ifdef PGXC
-	PlanState  *resultRemoteRel = NULL;
+	RemoteQueryState  *resultRemoteRel = NULL;
 	TupleTableSlot *slot;
 #endif
 
@@ -404,7 +359,7 @@ ExecDelete(ItemPointer tupleid,
 	resultRelInfo = estate->es_result_relation_info;
 	resultRelationDesc = resultRelInfo->ri_RelationDesc;
 #ifdef PGXC
-	resultRemoteRel = estate->es_result_remoterel;
+	resultRemoteRel = (RemoteQueryState *) estate->es_result_remoterel;
 #endif
 
 	/* BEFORE ROW DELETE Triggers */
@@ -523,13 +478,8 @@ ldelete:;
 	if (canSetTag)
 #ifdef PGXC
 	{
-		if (IS_PGXC_COORDINATOR && resultRemoteRel &&
-			resultRelInfo->ri_projectReturning)
-		{
-			/* For reason see comments in ExecInsert */
-			if (!TupIsNull(slot))
-				(estate->es_processed)++;
-		}
+		if (IS_PGXC_COORDINATOR && resultRemoteRel)
+			estate->es_processed += resultRemoteRel->rqs_processed;
 		else
 #endif
 		(estate->es_processed)++;
@@ -639,7 +589,7 @@ ExecUpdate(ItemPointer tupleid,
 	TransactionId update_xmax;
 	List	   *recheckIndexes = NIL;
 #ifdef PGXC
-	PlanState  *resultRemoteRel = NULL;
+	RemoteQueryState  *resultRemoteRel = NULL;
 #endif
 
 	/*
@@ -649,7 +599,7 @@ ExecUpdate(ItemPointer tupleid,
 		elog(ERROR, "cannot UPDATE during bootstrap");
 
 #ifdef PGXC
-	resultRemoteRel = estate->es_result_remoterel;
+	resultRemoteRel = (RemoteQueryState *) estate->es_result_remoterel;
 
 	/*
 	 * For remote tables, the plan slot does not have all NEW tuple values in
@@ -824,13 +774,8 @@ lreplace:;
 	if (canSetTag)
 #ifdef PGXC
 	{
-		if (IS_PGXC_COORDINATOR && resultRemoteRel &&
-			resultRelInfo->ri_projectReturning)
-		{
-			/* For reason see comments in ExecInsert */
-			if (!TupIsNull(slot))
-				(estate->es_processed)++;
-		}
+		if (IS_PGXC_COORDINATOR && resultRemoteRel)
+			estate->es_processed += resultRemoteRel->rqs_processed;
 		else
 #endif
 		(estate->es_processed)++;

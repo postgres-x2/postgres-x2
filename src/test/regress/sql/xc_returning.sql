@@ -968,6 +968,45 @@ select * from t order by 1,2,3,4;
 
 truncate table test_tab;
 
+
+-------------------------------------------------------------
+-- A few tests to verify # of tuples processed.
+-------------------------------------------------------------
+\set QUIET false
+
+
+-------------------------------------------------------------
+-- Number of rows processed for query having RETURNING.
+-- The UPDATE runs twice, but for the second row it does not actually update
+-- the row and hence returns NULL. The UPDATE tag should show UPDATE 1,
+-- as against UPDATE 2.
+-------------------------------------------------------------
+
+CREATE TABLE xcreturn_foo (c1 int, c2 int);
+INSERT INTO xcreturn_foo VALUES (1,2), (3,4);
+CREATE TABLE xcreturn_bar(c3 int, c4 int);
+INSERT INTO xcreturn_bar VALUES(123,456);
+INSERT INTO xcreturn_bar VALUES(123,789);
+update xcreturn_foo set c2=c2*2 from xcreturn_bar b WHERE xcreturn_foo.c1+122 = b.c3 RETURNING *;
+
+drop table xcreturn_foo, xcreturn_bar;
+
+-------------------------------------------------------------
+-- Number of rows processed query having WITH and RETURNING.
+-- Following WITH query updates runs so should show UPDATE 2.
+-------------------------------------------------------------
+
+create table xcreturn_tab1 (id int, v varchar) distribute by replication;
+create table xcreturn_tab2 (id int, v varchar) distribute by replication;
+insert into xcreturn_tab1 values (1, 'firstrow'), (2, 'secondrow');
+WITH wcte AS ( INSERT INTO xcreturn_tab2 VALUES (999, 'opop'), (333, 'sss') , ( 42, 'new' ), (55, 'ppp') RETURNING id AS newid )
+UPDATE xcreturn_tab1 SET id = id + newid FROM wcte;
+
+drop table xcreturn_tab1, xcreturn_tab2;
+
+\set QUIET true
+
+
 -------------------------------------------------------------
 -- clean up
 -------------------------------------------------------------

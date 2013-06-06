@@ -220,6 +220,7 @@ CreateResponseCombiner(int node_count, CombineType combine_type)
 	combiner->remoteCopyType = REMOTE_COPY_NONE;
 	combiner->copy_file = NULL;
 	combiner->rqs_cmd_id = FirstCommandId;
+	combiner->rqs_processed = 0;
 
 	return combiner;
 }
@@ -339,43 +340,55 @@ static void
 HandleCommandComplete(RemoteQueryState *combiner, char *msg_body, size_t len, PGXCNodeHandle *conn)
 {
 	int 			digits = 0;
-	EState		   *estate = combiner->ss.ps.state;
+	bool			non_fqs_dml;
 
+	/* Is this a DML query that is not FQSed ? */
+	non_fqs_dml = (combiner->ss.ps.plan &&
+					((RemoteQuery*)combiner->ss.ps.plan)->rq_params_internal);
 	/*
 	 * If we did not receive description we are having rowcount or OK response
 	 */
 	if (combiner->request_type == REQUEST_TYPE_NOT_DEFINED)
 		combiner->request_type = REQUEST_TYPE_COMMAND;
 	/* Extract rowcount */
-	if (combiner->combine_type != COMBINE_TYPE_NONE && estate)
+	if (combiner->combine_type != COMBINE_TYPE_NONE)
 	{
 		uint64	rowcount;
 		digits = parse_row_count(msg_body, len, &rowcount);
 		if (digits > 0)
 		{
+			/*
+			 * PGXC TODO: Need to completely remove the dependency on whether
+			 * it's an FQS or non-FQS DML query. For this, command_complete_count
+			 * needs to be better handled. Currently this field is being updated
+			 * for each iteration of FetchTuple by re-using the same combiner
+			 * for each iteration, whereas it seems it should be updated only
+			 * for each node execution, not for each tuple fetched.
+			 */
+
 			/* Replicated write, make sure they are the same */
 			if (combiner->combine_type == COMBINE_TYPE_SAME)
 			{
 				if (combiner->command_complete_count)
 				{
-					/*
-					 * For comments on why non_fqs_dml is required
-					 * see comments in ExecProcNodeDMLInXC
-					 */
-					if (rowcount != estate->es_processed && !combiner->non_fqs_dml)
-						/* There is a consistency issue in the database with the replicated table */
+					/* For FQS, check if there is a consistency issue with replicated table. */
+					if (rowcount != combiner->rqs_processed && !non_fqs_dml)
 						ereport(ERROR,
 								(errcode(ERRCODE_DATA_CORRUPTED),
-								 errmsg("Write to replicated table returned different results from the Datanodes")));
+								 errmsg("Write to replicated table returned"
+										"different results from the Datanodes")));
 				}
-				else
-					/* first result */
-					if (!combiner->non_fqs_dml)
-						estate->es_processed = rowcount;
+				/* Always update the row count. We have initialized it to 0 */
+				combiner->rqs_processed = rowcount;
 			}
 			else
-				if (!combiner->non_fqs_dml)
-					estate->es_processed += rowcount;
+				combiner->rqs_processed += rowcount;
+
+			/*
+			 * This rowcount will be used to increment estate->es_processed
+			 * either in ExecInsert/Update/Delete for non-FQS query, or will
+			 * used in RemoteQueryNext() for FQS query.
+			 */
 		}
 		else
 			combiner->combine_type = COMBINE_TYPE_NONE;
@@ -3184,6 +3197,17 @@ RemoteQueryNext(ScanState *scan_node)
 {
 	RemoteQueryState *node = (RemoteQueryState *)scan_node;
 	TupleTableSlot *scanslot = scan_node->ss_ScanTupleSlot;
+	RemoteQuery *rq = (RemoteQuery*) node->ss.ps.plan;
+	EState *estate = node->ss.ps.state;
+
+	/*
+	 * Initialize tuples processed to 0, to make sure we don't re-use the
+	 * values from the earlier iteration of RemoteQueryNext(). For an FQS'ed
+	 * DML returning query, it may not get updated for subsequent calls.
+	 * because there won't be a HandleCommandComplete() call to update this
+	 * field.
+	 */
+	node->rqs_processed = 0;
 
 	if (!node->query_Done)
 	{
@@ -3304,6 +3328,19 @@ RemoteQueryNext(ScanState *scan_node)
 	 */
 	if (TupIsNull(scanslot))
 		pgxc_rq_fire_astriggers(node);
+
+	/*
+	 * If it's an FQSed DML query for which command tag is to be set,
+	 * then update estate->es_processed. For other queries, the standard
+	 * executer takes care of it; namely, in ExecModifyTable for DML queries
+	 * and ExecutePlan for SELECT queries.
+	 */
+	if (rq->remote_query->canSetTag &&
+		!rq->rq_params_internal &&
+		(rq->remote_query->commandType == CMD_INSERT ||
+		 rq->remote_query->commandType == CMD_UPDATE ||
+		 rq->remote_query->commandType == CMD_DELETE))
+		estate->es_processed += node->rqs_processed;
 
 	return scanslot;
 }
@@ -4175,25 +4212,6 @@ ExecProcNodeDMLInXC(EState *estate,
 	if (econtext)
 		econtext->ecxt_scantuple = newDataSlot;
 
-	/*
-	 * Consider the case of a non FQSed INSERT for example. The executor keeps
-	 * track of # of tuples processed in es_processed member of EState structure.
-	 * When a non-FQSed INSERT completes this member is increased once due to
-	 * estate->es_processed += rowcount
-	 * in HandleCommandComplete and once due to
-	 * (estate->es_processed)++
-	 * in ExecInsert. The result is that although only one row is inserted we
-	 * get message as if two rows got inserted INSERT 0 2. Now consider the
-	 * same INSERT case when it is FQSed. In this case the # of tuples processed
-	 * is increased just once in HandleCommandComplete since ExecInsert is never
-	 * called in this case and hence we get correct output i.e. INSERT 0 1
-	 * To handle this error in processed tuple counting we use a variable
-	 * non_fqs_dml which indicates whether this DML is FQSed or not. To indicate
-	 * that this DML is not FQSed non_fqs_dml is set to true here and then if
-	 * it is found true in HandleCommandComplete we skip handling of
-	 * es_processed there and let ExecInsert do the processed tuple counting.
-	 */
-	resultRemoteRel->non_fqs_dml = true;
 
 	/*
 	 * This loop would be required to reject tuples received from datanodes

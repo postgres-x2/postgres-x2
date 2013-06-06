@@ -102,11 +102,13 @@ CREATE TRIGGER brtrig3 BEFORE INSERT OR UPDATE OR DELETE ON xctrigemp1
 	FOR EACH ROW EXECUTE PROCEDURE xc_brt_func();
 CREATE TRIGGER brtrig1 BEFORE INSERT OR UPDATE OR DELETE ON xctrigemp1
 	FOR EACH ROW EXECUTE PROCEDURE xc_brt_func();
+\set QUIET false
 -- Setup is now ready to test shippability with BR triggers.
 -- All functions are immutable, so all the queries should be shippable or should
 -- invoke all of the row triggers on datanode if the query is not shippable.
 -- Statement triggers are always executed on coordinator.
 :RUN_INSERT;
+INSERT 0 5
 :EXP :RUN_UPDATE;
                                                             QUERY PLAN                                                            
 ----------------------------------------------------------------------------------------------------------------------------------
@@ -116,7 +118,9 @@ CREATE TRIGGER brtrig1 BEFORE INSERT OR UPDATE OR DELETE ON xctrigemp1
 (3 rows)
 
 :RUN_UPDATE;
+UPDATE 4
 :RUN_DELETE;
+DELETE 1
 :CHECK_LOG;
                                               trigdata                                               | node_type 
 -----------------------------------------------------------------------------------------------------+-----------
@@ -167,8 +171,11 @@ CREATE TRIGGER brtrig1 BEFORE INSERT OR UPDATE OR DELETE ON xctrigemp1
 -- should be shippable. Statement triggers are anyway invoked separately for
 -- FQS query.
 alter function xc_stmttrig_func() volatile;
+ALTER FUNCTION
 :TRUNC;
+TRUNCATE TABLE
 :RUN_INSERT;
+INSERT 0 5
 :EXP :RUN_UPDATE;
                                                             QUERY PLAN                                                            
 ----------------------------------------------------------------------------------------------------------------------------------
@@ -178,7 +185,9 @@ alter function xc_stmttrig_func() volatile;
 (3 rows)
 
 :RUN_UPDATE;
+UPDATE 4
 :RUN_DELETE;
+DELETE 1
 :CHECK_LOG;
                                               trigdata                                               | node_type 
 -----------------------------------------------------------------------------------------------------+-----------
@@ -231,11 +240,17 @@ alter function xc_stmttrig_func() volatile;
 -- shippability of DELETEs or UPDATEs. They should still invoke triggers on datanodes.
 -- This is because brtrig2 is defined only for INSERT.
 alter function xc_stmttrig_func() immutable; -- (Turn stmt trigger back to shippable)
+ALTER FUNCTION
 alter function xc_brt_vol_func() volatile;
+ALTER FUNCTION
 :TRUNC;
+TRUNCATE TABLE
 :RUN_INSERT;
+INSERT 0 5
 :RUN_UPDATE;
+UPDATE 4
 :RUN_DELETE;
+DELETE 1
 :CHECK_LOG;
                                               trigdata                                               | node_type 
 -----------------------------------------------------------------------------------------------------+-----------
@@ -286,12 +301,18 @@ alter function xc_brt_vol_func() volatile;
 -- that the UPDATE is now invoking triggers on coordinator. DELETEs should
 -- continue running on datanodes.
 DROP TRIGGER brtrig2 on xctrigemp1;
+DROP TRIGGER
 CREATE TRIGGER brtrig2 BEFORE INSERT OR UPDATE ON xctrigemp1
 	FOR EACH ROW EXECUTE PROCEDURE xc_brt_vol_func();
+CREATE TRIGGER
 :TRUNC;
+TRUNCATE TABLE
 :RUN_INSERT;
+INSERT 0 5
 :RUN_UPDATE;
+UPDATE 4
 :RUN_DELETE;
+DELETE 1
 :CHECK_LOG;
                                                     trigdata                                                    | node_type 
 ----------------------------------------------------------------------------------------------------------------+-----------
@@ -346,26 +367,38 @@ CREATE TRIGGER brtrig2 BEFORE INSERT OR UPDATE ON xctrigemp1
 -- Since there are non-shippable AR triggers, the BR triggers also should be
 -- executed on coordinator even when they are all shippable.
 DROP TRIGGER brtrig1 on xctrigemp1;
+DROP TRIGGER
 DROP TRIGGER brtrig2 on xctrigemp1;
+DROP TRIGGER
 DROP TRIGGER brtrig3 on xctrigemp1;
+DROP TRIGGER
 CREATE TRIGGER brtrig3 BEFORE INSERT OR UPDATE OR DELETE ON xctrigemp1
 	FOR EACH ROW EXECUTE PROCEDURE xc_brt_func();
+CREATE TRIGGER
 CREATE TRIGGER brtrig1 BEFORE INSERT OR UPDATE OR DELETE ON xctrigemp1
 	FOR EACH ROW EXECUTE PROCEDURE xc_brt_func();
+CREATE TRIGGER
 CREATE TRIGGER artrig AFTER INSERT OR UPDATE OR DELETE ON xctrigemp1
 	FOR EACH ROW EXECUTE PROCEDURE xc_brt_vol_func();
+CREATE TRIGGER
 alter function xc_brt_func() immutable;
+ALTER FUNCTION
 alter function xc_brt_vol_func() volatile;
+ALTER FUNCTION
 :TRUNC;
+TRUNCATE TABLE
 :RUN_INSERT;
+INSERT 0 5
 :RUN_INSERT; -- This should invoke the constraint triggers.
 ERROR:  duplicate key value violates unique constraint "xctrigemp1_id_key"
 DETAIL:  Key (id)=(1) already exists.
 :RUN_UPDATE;
+UPDATE 4
 update xctrigemp1 set empname = 'Akash' where empname != $$Dummy$$; -- Constraint triggers
 ERROR:  duplicate key value violates unique constraint "xctrigemp1_empname_key"
 DETAIL:  Key (empname)=(Akash) already exists.
 :RUN_DELETE;
+DELETE 1
 :CHECK_LOG;
                                              trigdata                                              | node_type 
 ---------------------------------------------------------------------------------------------------+-----------
@@ -420,10 +453,15 @@ DETAIL:  Key (empname)=(Akash) already exists.
 -- Make the above AR trigger shippable. This will cause both AR and BR triggers
 -- to run on datanode.
 alter function xc_brt_vol_func() immutable;
+ALTER FUNCTION
 :TRUNC;
+TRUNCATE TABLE
 :RUN_INSERT;
+INSERT 0 5
 :RUN_UPDATE;
+UPDATE 4
 :RUN_DELETE;
+DELETE 1
 :CHECK_LOG;
                                              trigdata                                              | node_type 
 ---------------------------------------------------------------------------------------------------+-----------
@@ -478,10 +516,15 @@ alter function xc_brt_vol_func() immutable;
 -- Make one of the BR triggers non-shippable. This should not affect AR triggers.
 -- They should continue to run on datanode.
 alter function xc_brt_func() volatile;
+ALTER FUNCTION
 :TRUNC;
+TRUNCATE TABLE
 :RUN_INSERT;
+INSERT 0 5
 :RUN_UPDATE;
+UPDATE 4
 :RUN_DELETE;
+DELETE 1
 :CHECK_LOG;
                                              trigdata                                              | node_type 
 ---------------------------------------------------------------------------------------------------+-----------
@@ -535,9 +578,13 @@ alter function xc_brt_func() volatile;
 
 -- Drop all BR triggers. We have only AR triggers and they are shippable. So the query should be FQSed.
 DROP TRIGGER brtrig1 on xctrigemp1;
+DROP TRIGGER
 DROP TRIGGER brtrig3 on xctrigemp1;
+DROP TRIGGER
 :TRUNC;
+TRUNCATE TABLE
 :RUN_INSERT;
+INSERT 0 6
 :EXP :RUN_UPDATE;
                                                             QUERY PLAN                                                            
 ----------------------------------------------------------------------------------------------------------------------------------
@@ -547,7 +594,9 @@ DROP TRIGGER brtrig3 on xctrigemp1;
 (3 rows)
 
 :RUN_UPDATE;
+UPDATE 5
 :RUN_DELETE;
+DELETE 1
 :CHECK_LOG;
                   trigdata                   | node_type 
 ---------------------------------------------+-----------
@@ -588,8 +637,11 @@ DROP TRIGGER brtrig3 on xctrigemp1;
 -- columns.
 -- Make the AR trigger function non-shippable.
 alter function xc_brt_vol_func() volatile;
+ALTER FUNCTION
 :TRUNC;
+TRUNCATE TABLE
 :RUN_INSERT;
+INSERT 0 6
 :EXP :RUN_UPDATE;
                                                                                         QUERY PLAN                                                                                        
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -601,7 +653,9 @@ alter function xc_brt_vol_func() volatile;
 (5 rows)
 
 :RUN_UPDATE;
+UPDATE 5
 :RUN_DELETE;
+DELETE 1
 :CHECK_LOG;
                   trigdata                   | node_type 
 ---------------------------------------------+-----------
@@ -643,3 +697,4 @@ drop cascades to function xc_auditlog_func(name,text,text,text,text,text,name)
 drop cascades to function xc_stmttrig_func()
 drop cascades to function xc_brt_func()
 drop cascades to function xc_brt_vol_func()
+DROP SCHEMA
