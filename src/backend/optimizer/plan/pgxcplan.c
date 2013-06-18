@@ -1377,6 +1377,24 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	if (!enable_remotegroup)
 		return local_plan;
 
+	/* If the query has ungrouped columns which are functionally dependent upon
+	 * grouping columns, we can not push GROUP BY clause and aggregates. The
+	 * reason being two fold
+	 * 1. We generate the query to be pushed down by using a lot of subqueries,
+	 * representing various relations in the JOIN tree. PostreSQL can not handle
+	 * functional dependence involving subqueries. Thus pushing down GROUP BY
+	 * and aggregates results in error, since Datanode/s find ungrouped columns
+	 * in the query which are not part of GROUP BY clause.
+	 * 2. A query with ungrouped columns functionally dependent upon GROUP BY
+	 * columns is likely to produce single row groups (e.g. grouping by primary
+	 * key or unique key etc.). If we push down aggregates in such query, we
+	 * will end up un-necessarily applying combination function at the
+	 * coordinator, thus decreasing the performance. Thus for such queries it's
+	 * unlikely that we will gain performance by pushing down.
+	 */
+	if (query->constraintDeps && list_length(query->constraintDeps) > 0)
+		return local_plan;
+
 	/*
 	 * PGXCTODO: These optimizations do not work in presence of the window functions,
 	 * because of the target list adjustments. The targetlist set for the passed
