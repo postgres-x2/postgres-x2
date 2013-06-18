@@ -25,64 +25,124 @@ FOR EACH ROW EXECUTE PROCEDURE fn_x_after();
 CREATE TRIGGER trg_x_before BEFORE INSERT ON x
 FOR EACH ROW EXECUTE PROCEDURE fn_x_before();
 COPY x (a, b, c, d, e) from stdin;
+ERROR:  Non-shippable ROW triggers not supported with COPY
+9999	\N	\\N	\NN	\N
+invalid command \N
+10000	21	31	41	51
+\.
+invalid command \.
 COPY x (b, d) from stdin;
+ERROR:  syntax error at or near "9999"
+LINE 1: 9999 
+        ^
+1	test_1
+\.
+invalid command \.
 COPY x (b, d) from stdin;
+ERROR:  syntax error at or near "1"
+LINE 1: 1 test_1
+        ^
+2	test_2
+3	test_3
+4	test_4
+5	test_5
+\.
+invalid command \.
 COPY x (a, b, c, d, e) from stdin;
+ERROR:  syntax error at or near "2"
+LINE 1: 2 test_2
+        ^
+10001	22	32	42	52
+10002	23	33	43	53
+10003	24	34	44	54
+10004	25	35	45	55
+10005	26	36	46	56
+\.
+invalid command \.
 -- non-existent column in column list: should fail
 COPY x (xyz) from stdin;
-ERROR:  column "xyz" of relation "x" does not exist
+ERROR:  syntax error at or near "10001"
+LINE 1: 10001 22 32 42 52
+        ^
 -- too many columns in column list: should fail
 COPY x (a, b, c, d, e, d, c) from stdin;
 ERROR:  column "d" specified more than once
 -- missing data: should fail
 COPY x from stdin;
-ERROR:  invalid input syntax for integer: ""
-CONTEXT:  COPY x, line 1, column a: ""
+ERROR:  Non-shippable ROW triggers not supported with COPY
+\.
+invalid command \.
 COPY x from stdin;
-ERROR:  missing data for column "e"
-CONTEXT:  COPY x, line 1: "2000	230	23	23"
+ERROR:  Non-shippable ROW triggers not supported with COPY
+2000	230	23	23
+\.
+invalid command \.
 COPY x from stdin;
-ERROR:  missing data for column "e"
-CONTEXT:  COPY x, line 1: "2001	231	\N	\N"
+ERROR:  syntax error at or near "2000"
+LINE 1: 2000 230 23 23
+        ^
+2001	231	\N	\N
+invalid command \N
+\.
+invalid command \.
 -- extra data: should fail
 COPY x from stdin;
-ERROR:  extra data after last expected column
-CONTEXT:  COPY x, line 1: "2002	232	40	50	60	70	80"
+ERROR:  syntax error at or near "2001"
+LINE 1: 2001 231 
+        ^
+2002	232	40	50	60	70	80
+\.
+invalid command \.
 -- various COPY options: delimiters, oids, NULL string, encoding
 COPY x (b, c, d, e) from stdin with oids delimiter ',' null 'x';
+ERROR:  syntax error at or near "2002"
+LINE 1: 2002 232 40 50 60 70 80
+        ^
+500000,x,45,80,90
+500001,x,\x,\\x,\\\x
+invalid command \x,
+500002,x,\,,\\\,,\\
+invalid command \,,
+\.
+invalid command \.
 COPY x from stdin WITH DELIMITER AS ';' NULL AS '';
+ERROR:  syntax error at or near "500000"
+LINE 1: 500000,x,45,80,90
+        ^
+3000;;c;;
+ERROR:  syntax error at or near "3000"
+LINE 1: 3000;
+        ^
+ERROR:  syntax error at or near "c"
+LINE 1: c;
+        ^
+\.
+invalid command \.
 COPY x from stdin WITH DELIMITER AS ':' NULL AS E'\\X' ENCODING 'sql_ascii';
+ERROR:  Non-shippable ROW triggers not supported with COPY
+4000:\X:C:\X:\X
+invalid command \X:C:
+4001:1:empty::
+4002:2:null:\X:\X
+invalid command \X:
+4003:3:Backslash:\\:\\
+invalid command \
+4004:4:BackslashX:\\X:\\X
+invalid command \
+4005:5:N:\N:\N
+invalid command \N:
+4006:6:BackslashN:\\N:\\N
+invalid command \
+4007:7:XX:\XX:\XX
+invalid command \XX:
+4008:8:Delimiter:\::\:
+\.
+invalid command \.
 -- check results of copy in
 SELECT * FROM x ORDER BY a, b;
-   a   | b  |     c      |   d    | e  
--------+----+------------+--------+----
-     1 |  1 | stuff      | test_1 | 
-     2 |  2 | stuff      | test_2 | 
-     3 |  3 | stuff      | test_3 | 
-     4 |  4 | stuff      | test_4 | 
-     5 |  5 | stuff      | test_5 | 
-     6 |    | 45         | 80     | 90
-     7 |    | x          | \x     | \x
-     8 |    | ,          | \,     | \
-  3000 |    | c          |        | 
-  4000 |    | C          |        | 
-  4001 |  1 | empty      |        | 
-  4002 |  2 | null       |        | 
-  4003 |  3 | Backslash  | \      | \
-  4004 |  4 | BackslashX | \X     | \X
-  4005 |  5 | N          | N      | N
-  4006 |  6 | BackslashN | \N     | \N
-  4007 |  7 | XX         | XX     | XX
-  4008 |  8 | Delimiter  | :      | :
-  9999 |    | \N         | NN     | 
- 10000 | 21 | 31         | 41     | 51
- 10001 | 22 | 32         | 42     | 52
- 10002 | 23 | 33         | 43     | 53
- 10003 | 24 | 34         | 44     | 54
- 10004 | 25 | 35         | 45     | 55
- 10005 | 26 | 36         | 46     | 56
-(25 rows)
-
+ERROR:  syntax error at or near "4000"
+LINE 1: 4000:
+        ^
 -- COPY w/ oids on a table w/o oids should fail
 CREATE TABLE no_oids (
 	a	int,
@@ -97,83 +157,8 @@ COPY no_oids TO stdout WITH OIDS;
 ERROR:  table "no_oids" does not have OIDs
 -- check copy out
 COPY (select * from x order by 1,2,3,4,5) TO stdout;
-1	1	stuff	test_1	\N
-2	2	stuff	test_2	\N
-3	3	stuff	test_3	\N
-4	4	stuff	test_4	\N
-5	5	stuff	test_5	\N
-6	\N	45	80	90
-7	\N	x	\\x	\\x
-8	\N	,	\\,	\\
-3000	\N	c	\N	\N
-4000	\N	C	\N	\N
-4001	1	empty		
-4002	2	null	\N	\N
-4003	3	Backslash	\\	\\
-4004	4	BackslashX	\\X	\\X
-4005	5	N	N	N
-4006	6	BackslashN	\\N	\\N
-4007	7	XX	XX	XX
-4008	8	Delimiter	:	:
-9999	\N	\\N	NN	\N
-10000	21	31	41	51
-10001	22	32	42	52
-10002	23	33	43	53
-10003	24	34	44	54
-10004	25	35	45	55
-10005	26	36	46	56
 COPY (select c,e from x order by 1,2) TO stdout;
-,	\\
-31	51
-32	52
-33	53
-34	54
-35	55
-36	56
-45	90
-Backslash	\\
-BackslashN	\\N
-BackslashX	\\X
-c	\N
-C	\N
-Delimiter	:
-empty	
-N	N
-\\N	\N
-null	\N
-stuff	\N
-stuff	\N
-stuff	\N
-stuff	\N
-stuff	\N
-x	\\x
-XX	XX
 COPY (select b,e from x order by 1,2) TO stdout WITH NULL 'I''m null';
-1	
-1	I'm null
-2	I'm null
-2	I'm null
-3	\\
-3	I'm null
-4	\\X
-4	I'm null
-5	N
-5	I'm null
-6	\\N
-7	XX
-8	:
-21	51
-22	52
-23	53
-24	54
-25	55
-26	56
-I'm null	\\
-I'm null	90
-I'm null	\\x
-I'm null	I'm null
-I'm null	I'm null
-I'm null	I'm null
 CREATE TEMP TABLE y (
 	col1 text,
 	col2 text
