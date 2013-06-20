@@ -193,7 +193,7 @@ PGXC$
 </programlisting>
    You can specify your pgxc_ctl_home as environment variable
    <literal>PGXC_CTL_HOME</literal>, or you can specify this as
-   variable <literal>pgxc_ctl_home<literal> in your initialization
+   variable <literal>pgxc_ctl_home</literal> in your initialization
    files.
   </para>
 
@@ -422,12 +422,13 @@ pgxc [options ... ] [pgxc_command]
    in the command line options, can be specified in advance in the
    initialization file <filename>/etc/pgxc_ctl</filename> or
    <filename>$HOME/.pgxc_ctl</filename>.
+  </para>
   <para>
    The syntax is as follows:
 <programlisting>
 name value [ value ... ] # comment
 </programlisting>
-
+  </para>
   <para>
    Blank lines or lines beginning with '#' are simply ignored.  If
    you'd like to include space or tab in the variable name, enclose
@@ -480,7 +481,7 @@ name value [ value ... ] # comment
       Specifies the log file name, which is relative to
       <filename>$PGXC_CTL_HOME/pgxc_log</filename> or value of
       <literal>logDir</literal> variable.
-      Can be overridden by <option>-L,/option> command line option.
+      Can be overridden by <option>-L,</option> command line option.
      </para>
     </listitem>
    </varlistentry>
@@ -497,7 +498,7 @@ name value [ value ... ] # comment
        <literal>NOTICE2</literal>, <literal>INFO</literal>,
        <literal>DEBUG1</literal>, <literal>DEBUG2</literal>, or
        <literal>DEBUG3</literal>. Default is
-       <literal>NOTICE<literal>.
+       <literal>NOTICE</literal>.
       </para>
      </listitem>
     </varlistentry>
@@ -525,7 +526,7 @@ name value [ value ... ] # comment
        <literal>NOTICE2</literal>, <literal>INFO</literal>,
        <literal>DEBUG1</literal>, <literal>DEBUG2</literal>, or
        <literal>DEBUG3</literal>. Default is
-       <literal>NOTICE<literal>.
+       <literal>NOTICE</literal>.
       </para>
      </listitem>
     </varlistentry>
@@ -594,7 +595,7 @@ $
     You should consider how many of them to configure.
     Hereafter, we call such physical/virtual server as
     <option>host</option>.
-   <para>
+   </para>
 
    <variablelist>
 
@@ -652,7 +653,6 @@ $
     </varlistentry>
 
    </variablelist>
-
   </sect3>
 
   <sect3>
@@ -767,6 +767,7 @@ PGXC$ prepare config
 PGXC$ 
 </programlisting>
   </para>
+
   <para>
    You have your <filename>pgxc_ctl.conf</filename> file at
    <filename>$HOME/pgxc_ctl</filename>.
@@ -775,7 +776,7 @@ PGXC$
    When it messes up, you can again create the template with
    <command>prepare config</command> command.
    If you want to use other file name, specify the names
-   <command>prepare config<command> command option like:
+   <command>prepare config</command> command option like:
 
 <programlisting>
 PGXC$ prepare config my_config.conf
@@ -1245,7 +1246,7 @@ PGXC$ prepare config my_config.conf
       <listitem>
        <para>
         Array of CIDR addresses to be added to
-        <filename>pg_hba.conf<filename>.  
+        <filename>pg_hba.conf</filename>.  
         Will create pg_hba.conf file entry with
         <option>pgxcOwner</option> user.
        </para>
@@ -1952,5 +1953,5 @@ SELECT pg_class.relname relation,
    </varlistentry>
 
    </variablelist>
-
+ </sect2>
 </sect1>
