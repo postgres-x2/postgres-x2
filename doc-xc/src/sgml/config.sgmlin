@@ -7020,7 +7020,7 @@ Postgres-XC Specific Parameters
       </listitem>
      </varlistentry>
 
-     <varlistentry id="gtm_backup_barrier" xreflabel="backup_barrier">
+     <varlistentry id="gtm-backup-barrier" xreflabel="backup_barrier">
       <term><varname>gtm_backup_barrier</varname> (<type>string</type>)</term>
       <indexterm>
        <primary><varname>gtm_backup_barrier</> configuration parameter</primary>
