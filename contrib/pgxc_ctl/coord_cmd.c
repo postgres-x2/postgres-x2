@@ -90,8 +90,8 @@ cmd_t *prepare_initCoordinatorMaster(char *nodeName)
 
 	/* coordSpecificExtraConfig */
 	gtmPxyIdx = getEffectiveGtmProxyIdxFromServerName(aval(VAR_coordMasterServers)[jj]);
-	gtmHost = (gtmPxyIdx > 0) ? aval(VAR_gtmProxyServers)[gtmPxyIdx] : sval(VAR_gtmMasterServer);
-	gtmPort = (gtmPxyIdx > 0) ? aval(VAR_gtmProxyPorts)[gtmPxyIdx] : sval(VAR_gtmMasterPort);
+	gtmHost = (gtmPxyIdx >= 0) ? aval(VAR_gtmProxyServers)[gtmPxyIdx] : sval(VAR_gtmMasterServer);
+	gtmPort = (gtmPxyIdx >= 0) ? aval(VAR_gtmProxyPorts)[gtmPxyIdx] : sval(VAR_gtmMasterPort);
 	appendCmdEl(cmdInitdb, (cmdPgConf = initCmd(aval(VAR_coordMasterServers)[jj])));
 	snprintf(newCommand(cmdPgConf), MAXLINE,
 			 "cat >> %s/postgresql.conf", aval(VAR_coordMasterDirs)[jj]);
