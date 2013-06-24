@@ -2,7 +2,7 @@ create schema xc_trigship;
 set search_path to xc_trigship,public;
 
 \set EXP 'EXPLAIN  (verbose, num_nodes off, nodes off, costs off)'
-\set CHECK_LOG 'select trigdata, node_type from xc_auditlog, pgxc_node where lower(nodename) = lower(node_name) order by trigdata'
+\set CHECK_LOG 'select trigdata, node_type from xc_auditlog, pgxc_node where lower(nodename) = lower(node_name) order by trigdata collate "POSIX"'
 \set CHECK_TABLE 'select * from xctrigemp1 order by id'
 \set RUN_UPDATE 'update xctrigemp1 set empsal = empsal + 1000 where empname != $$Dummy$$';
 \set RUN_DELETE 'delete from xctrigemp1 where empname || now() = $$Dummy$$ || now()';

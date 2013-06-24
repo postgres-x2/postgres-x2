@@ -1,7 +1,7 @@
 create schema xc_trigship;
 set search_path to xc_trigship,public;
 \set EXP 'EXPLAIN  (verbose, num_nodes off, nodes off, costs off)'
-\set CHECK_LOG 'select trigdata, node_type from xc_auditlog, pgxc_node where lower(nodename) = lower(node_name) order by trigdata'
+\set CHECK_LOG 'select trigdata, node_type from xc_auditlog, pgxc_node where lower(nodename) = lower(node_name) order by trigdata collate "POSIX"'
 \set CHECK_TABLE 'select * from xctrigemp1 order by id'
 \set RUN_UPDATE 'update xctrigemp1 set empsal = empsal + 1000 where empname != $$Dummy$$';
 \set RUN_DELETE 'delete from xctrigemp1 where empname || now() = $$Dummy$$ || now()';
@@ -126,19 +126,19 @@ DELETE 1
 -----------------------------------------------------------------------------------------------------+-----------
  RDB brtrig1 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3_DB_brtrig1)               | D
  RDB brtrig3 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3_DB_brtrig3)               | D
- RIB brtrig1 (1,Akash,1000,AkashAddress,_IB_brtrig1)                                                 | D
  RIB brtrig1 (-1,Dummy,9999,DummyAddress,_IB_brtrig1)                                                | D
+ RIB brtrig1 (1,Akash,1000,AkashAddress,_IB_brtrig1)                                                 | D
  RIB brtrig1 (2,Prakash,1500,PrakashAddress,_IB_brtrig1)                                             | D
  RIB brtrig1 (3,Vikas,9999,VikasAddress,_IB_brtrig1)                                                 | D
  RIB brtrig1 (4,Samar,-9999,SamarAddress,_IB_brtrig1)                                                | D
  RIB brtrig1 (5,Sanika,2000,SanikaAddress,_IB_brtrig1)                                               | D
- RIB brtrig2 (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig2)                                      | D
  RIB brtrig2 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig2)                                     | D
+ RIB brtrig2 (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig2)                                      | D
  RIB brtrig2 (2,Prakash,1500,PrakashAddress,_IB_brtrig1_IB_brtrig2)                                  | D
  RIB brtrig2 (3,Vikas,9999,VikasAddress,_IB_brtrig1_IB_brtrig2)                                      | D
  RIB brtrig2 (5,Sanika,2000,SanikaAddress,_IB_brtrig1_IB_brtrig2)                                    | D
- RIB brtrig3 (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3)                           | D
  RIB brtrig3 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3)                          | D
+ RIB brtrig3 (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3)                           | D
  RIB brtrig3 (2,Prakash,1500,PrakashAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3)                       | D
  RIB brtrig3 (3,Vikas,9999,VikasAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3)                           | D
  RIB brtrig3 (5,Sanika,2000,SanikaAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3)                         | D
@@ -193,19 +193,19 @@ DELETE 1
 -----------------------------------------------------------------------------------------------------+-----------
  RDB brtrig1 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3_DB_brtrig1)               | D
  RDB brtrig3 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3_DB_brtrig3)               | D
- RIB brtrig1 (1,Akash,1000,AkashAddress,_IB_brtrig1)                                                 | D
  RIB brtrig1 (-1,Dummy,9999,DummyAddress,_IB_brtrig1)                                                | D
+ RIB brtrig1 (1,Akash,1000,AkashAddress,_IB_brtrig1)                                                 | D
  RIB brtrig1 (2,Prakash,1500,PrakashAddress,_IB_brtrig1)                                             | D
  RIB brtrig1 (3,Vikas,9999,VikasAddress,_IB_brtrig1)                                                 | D
  RIB brtrig1 (4,Samar,-9999,SamarAddress,_IB_brtrig1)                                                | D
  RIB brtrig1 (5,Sanika,2000,SanikaAddress,_IB_brtrig1)                                               | D
- RIB brtrig2 (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig2)                                      | D
  RIB brtrig2 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig2)                                     | D
+ RIB brtrig2 (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig2)                                      | D
  RIB brtrig2 (2,Prakash,1500,PrakashAddress,_IB_brtrig1_IB_brtrig2)                                  | D
  RIB brtrig2 (3,Vikas,9999,VikasAddress,_IB_brtrig1_IB_brtrig2)                                      | D
  RIB brtrig2 (5,Sanika,2000,SanikaAddress,_IB_brtrig1_IB_brtrig2)                                    | D
- RIB brtrig3 (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3)                           | D
  RIB brtrig3 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3)                          | D
+ RIB brtrig3 (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3)                           | D
  RIB brtrig3 (2,Prakash,1500,PrakashAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3)                       | D
  RIB brtrig3 (3,Vikas,9999,VikasAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3)                           | D
  RIB brtrig3 (5,Sanika,2000,SanikaAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3)                         | D
@@ -256,19 +256,19 @@ DELETE 1
 -----------------------------------------------------------------------------------------------------+-----------
  RDB brtrig1 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3_DB_brtrig1)               | D
  RDB brtrig3 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3_DB_brtrig3)               | D
- RIB brtrig1 (1,Akash,1000,AkashAddress,_IB_brtrig1)                                                 | C
  RIB brtrig1 (-1,Dummy,9999,DummyAddress,_IB_brtrig1)                                                | C
+ RIB brtrig1 (1,Akash,1000,AkashAddress,_IB_brtrig1)                                                 | C
  RIB brtrig1 (2,Prakash,1500,PrakashAddress,_IB_brtrig1)                                             | C
  RIB brtrig1 (3,Vikas,9999,VikasAddress,_IB_brtrig1)                                                 | C
  RIB brtrig1 (4,Samar,-9999,SamarAddress,_IB_brtrig1)                                                | C
  RIB brtrig1 (5,Sanika,2000,SanikaAddress,_IB_brtrig1)                                               | C
- RIB brtrig2 (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig2)                                      | C
  RIB brtrig2 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig2)                                     | C
+ RIB brtrig2 (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig2)                                      | C
  RIB brtrig2 (2,Prakash,1500,PrakashAddress,_IB_brtrig1_IB_brtrig2)                                  | C
  RIB brtrig2 (3,Vikas,9999,VikasAddress,_IB_brtrig1_IB_brtrig2)                                      | C
  RIB brtrig2 (5,Sanika,2000,SanikaAddress,_IB_brtrig1_IB_brtrig2)                                    | C
- RIB brtrig3 (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3)                           | C
  RIB brtrig3 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3)                          | C
+ RIB brtrig3 (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3)                           | C
  RIB brtrig3 (2,Prakash,1500,PrakashAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3)                       | C
  RIB brtrig3 (3,Vikas,9999,VikasAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3)                           | C
  RIB brtrig3 (5,Sanika,2000,SanikaAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3)                         | C
@@ -318,19 +318,19 @@ DELETE 1
 ----------------------------------------------------------------------------------------------------------------+-----------
  RDB brtrig1 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3_DB_brtrig1)                          | D
  RDB brtrig3 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3_DB_brtrig3)                          | D
- RIB brtrig1 (1,Akash,1000,AkashAddress,_IB_brtrig1)                                                            | C
  RIB brtrig1 (-1,Dummy,9999,DummyAddress,_IB_brtrig1)                                                           | C
+ RIB brtrig1 (1,Akash,1000,AkashAddress,_IB_brtrig1)                                                            | C
  RIB brtrig1 (2,Prakash,1500,PrakashAddress,_IB_brtrig1)                                                        | C
  RIB brtrig1 (3,Vikas,9999,VikasAddress,_IB_brtrig1)                                                            | C
  RIB brtrig1 (4,Samar,-9999,SamarAddress,_IB_brtrig1)                                                           | C
  RIB brtrig1 (5,Sanika,2000,SanikaAddress,_IB_brtrig1)                                                          | C
- RIB brtrig2 (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig2)                                                 | C
  RIB brtrig2 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig2)                                                | C
+ RIB brtrig2 (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig2)                                                 | C
  RIB brtrig2 (2,Prakash,1500,PrakashAddress,_IB_brtrig1_IB_brtrig2)                                             | C
  RIB brtrig2 (3,Vikas,9999,VikasAddress,_IB_brtrig1_IB_brtrig2)                                                 | C
  RIB brtrig2 (5,Sanika,2000,SanikaAddress,_IB_brtrig1_IB_brtrig2)                                               | C
- RIB brtrig3 (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3)                                      | C
  RIB brtrig3 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3)                                     | C
+ RIB brtrig3 (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3)                                      | C
  RIB brtrig3 (2,Prakash,1500,PrakashAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3)                                  | C
  RIB brtrig3 (3,Vikas,9999,VikasAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3)                                      | C
  RIB brtrig3 (5,Sanika,2000,SanikaAddress,_IB_brtrig1_IB_brtrig2_IB_brtrig3)                                    | C
@@ -405,19 +405,19 @@ DELETE 1
  RDA artrig (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig3_DA_artrig)                          | C
  RDB brtrig1 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig3_DB_brtrig1)                        | C
  RDB brtrig3 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig3_DB_brtrig3)                        | C
- RIA artrig (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig3_IA_artrig)                           | C
  RIA artrig (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig3_IA_artrig)                          | C
+ RIA artrig (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig3_IA_artrig)                           | C
  RIA artrig (2,Prakash,1500,PrakashAddress,_IB_brtrig1_IB_brtrig3_IA_artrig)                       | C
  RIA artrig (3,Vikas,9999,VikasAddress,_IB_brtrig1_IB_brtrig3_IA_artrig)                           | C
  RIA artrig (5,Sanika,2000,SanikaAddress,_IB_brtrig1_IB_brtrig3_IA_artrig)                         | C
- RIB brtrig1 (1,Akash,1000,AkashAddress,_IB_brtrig1)                                               | C
  RIB brtrig1 (-1,Dummy,9999,DummyAddress,_IB_brtrig1)                                              | C
+ RIB brtrig1 (1,Akash,1000,AkashAddress,_IB_brtrig1)                                               | C
  RIB brtrig1 (2,Prakash,1500,PrakashAddress,_IB_brtrig1)                                           | C
  RIB brtrig1 (3,Vikas,9999,VikasAddress,_IB_brtrig1)                                               | C
  RIB brtrig1 (4,Samar,-9999,SamarAddress,_IB_brtrig1)                                              | C
  RIB brtrig1 (5,Sanika,2000,SanikaAddress,_IB_brtrig1)                                             | C
- RIB brtrig3 (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig3)                                    | C
  RIB brtrig3 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig3)                                   | C
+ RIB brtrig3 (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig3)                                    | C
  RIB brtrig3 (2,Prakash,1500,PrakashAddress,_IB_brtrig1_IB_brtrig3)                                | C
  RIB brtrig3 (3,Vikas,9999,VikasAddress,_IB_brtrig1_IB_brtrig3)                                    | C
  RIB brtrig3 (5,Sanika,2000,SanikaAddress,_IB_brtrig1_IB_brtrig3)                                  | C
@@ -468,19 +468,19 @@ DELETE 1
  RDA artrig (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig3_DA_artrig)                          | D
  RDB brtrig1 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig3_DB_brtrig1)                        | D
  RDB brtrig3 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig3_DB_brtrig3)                        | D
- RIA artrig (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig3_IA_artrig)                           | D
  RIA artrig (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig3_IA_artrig)                          | D
+ RIA artrig (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig3_IA_artrig)                           | D
  RIA artrig (2,Prakash,1500,PrakashAddress,_IB_brtrig1_IB_brtrig3_IA_artrig)                       | D
  RIA artrig (3,Vikas,9999,VikasAddress,_IB_brtrig1_IB_brtrig3_IA_artrig)                           | D
  RIA artrig (5,Sanika,2000,SanikaAddress,_IB_brtrig1_IB_brtrig3_IA_artrig)                         | D
- RIB brtrig1 (1,Akash,1000,AkashAddress,_IB_brtrig1)                                               | D
  RIB brtrig1 (-1,Dummy,9999,DummyAddress,_IB_brtrig1)                                              | D
+ RIB brtrig1 (1,Akash,1000,AkashAddress,_IB_brtrig1)                                               | D
  RIB brtrig1 (2,Prakash,1500,PrakashAddress,_IB_brtrig1)                                           | D
  RIB brtrig1 (3,Vikas,9999,VikasAddress,_IB_brtrig1)                                               | D
  RIB brtrig1 (4,Samar,-9999,SamarAddress,_IB_brtrig1)                                              | D
  RIB brtrig1 (5,Sanika,2000,SanikaAddress,_IB_brtrig1)                                             | D
- RIB brtrig3 (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig3)                                    | D
  RIB brtrig3 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig3)                                   | D
+ RIB brtrig3 (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig3)                                    | D
  RIB brtrig3 (2,Prakash,1500,PrakashAddress,_IB_brtrig1_IB_brtrig3)                                | D
  RIB brtrig3 (3,Vikas,9999,VikasAddress,_IB_brtrig1_IB_brtrig3)                                    | D
  RIB brtrig3 (5,Sanika,2000,SanikaAddress,_IB_brtrig1_IB_brtrig3)                                  | D
@@ -531,19 +531,19 @@ DELETE 1
  RDA artrig (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig3_DA_artrig)                          | D
  RDB brtrig1 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig3_DB_brtrig1)                        | C
  RDB brtrig3 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig3_DB_brtrig3)                        | C
- RIA artrig (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig3_IA_artrig)                           | D
  RIA artrig (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig3_IA_artrig)                          | D
+ RIA artrig (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig3_IA_artrig)                           | D
  RIA artrig (2,Prakash,1500,PrakashAddress,_IB_brtrig1_IB_brtrig3_IA_artrig)                       | D
  RIA artrig (3,Vikas,9999,VikasAddress,_IB_brtrig1_IB_brtrig3_IA_artrig)                           | D
  RIA artrig (5,Sanika,2000,SanikaAddress,_IB_brtrig1_IB_brtrig3_IA_artrig)                         | D
- RIB brtrig1 (1,Akash,1000,AkashAddress,_IB_brtrig1)                                               | C
  RIB brtrig1 (-1,Dummy,9999,DummyAddress,_IB_brtrig1)                                              | C
+ RIB brtrig1 (1,Akash,1000,AkashAddress,_IB_brtrig1)                                               | C
  RIB brtrig1 (2,Prakash,1500,PrakashAddress,_IB_brtrig1)                                           | C
  RIB brtrig1 (3,Vikas,9999,VikasAddress,_IB_brtrig1)                                               | C
  RIB brtrig1 (4,Samar,-9999,SamarAddress,_IB_brtrig1)                                              | C
  RIB brtrig1 (5,Sanika,2000,SanikaAddress,_IB_brtrig1)                                             | C
- RIB brtrig3 (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig3)                                    | C
  RIB brtrig3 (-1,Dummy,9999,DummyAddress,_IB_brtrig1_IB_brtrig3)                                   | C
+ RIB brtrig3 (1,Akash,1000,AkashAddress,_IB_brtrig1_IB_brtrig3)                                    | C
  RIB brtrig3 (2,Prakash,1500,PrakashAddress,_IB_brtrig1_IB_brtrig3)                                | C
  RIB brtrig3 (3,Vikas,9999,VikasAddress,_IB_brtrig1_IB_brtrig3)                                    | C
  RIB brtrig3 (5,Sanika,2000,SanikaAddress,_IB_brtrig1_IB_brtrig3)                                  | C
@@ -601,8 +601,8 @@ DELETE 1
                   trigdata                   | node_type 
 ---------------------------------------------+-----------
  RDA artrig (-1,Dummy,9999,DummyAddress,)    | D
- RIA artrig (1,Akash,1000,AkashAddress,)     | D
  RIA artrig (-1,Dummy,9999,DummyAddress,)    | D
+ RIA artrig (1,Akash,1000,AkashAddress,)     | D
  RIA artrig (2,Prakash,1500,PrakashAddress,) | D
  RIA artrig (3,Vikas,,VikasAddress,)         | D
  RIA artrig (4,Samar,-9999,SamarAddress,)    | D
@@ -660,8 +660,8 @@ DELETE 1
                   trigdata                   | node_type 
 ---------------------------------------------+-----------
  RDA artrig (-1,Dummy,9999,DummyAddress,)    | C
- RIA artrig (1,Akash,1000,AkashAddress,)     | C
  RIA artrig (-1,Dummy,9999,DummyAddress,)    | C
+ RIA artrig (1,Akash,1000,AkashAddress,)     | C
  RIA artrig (2,Prakash,1500,PrakashAddress,) | C
  RIA artrig (3,Vikas,,VikasAddress,)         | C
  RIA artrig (4,Samar,-9999,SamarAddress,)    | C
