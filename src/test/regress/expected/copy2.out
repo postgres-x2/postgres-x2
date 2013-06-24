@@ -236,10 +236,10 @@ COPY testnl FROM stdin CSV;
 -- test end of copy marker
 CREATE TEMP TABLE testeoc (a text);
 COPY testeoc FROM stdin CSV;
-COPY (select * from testeoc order by 1) TO stdout CSV;
+COPY (select * from testeoc order by a using ~<~) TO stdout CSV;
 "\."
-a\.
 \.b
+a\.
 c\.d
 -- test handling of nonstandard null marker that violates escaping rules
 CREATE TEMP TABLE testnull(a int, b text);

@@ -165,7 +165,7 @@ c\.d
 "\."
 \.
 
-COPY (select * from testeoc order by 1) TO stdout CSV;
+COPY (select * from testeoc order by a using ~<~) TO stdout CSV;
 
 -- test handling of nonstandard null marker that violates escaping rules
 
