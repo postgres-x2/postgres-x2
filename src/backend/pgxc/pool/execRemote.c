@@ -4205,10 +4205,6 @@ ExecProcNodeDMLInXC(EState *estate,
 	 * determination of the target nodes.
 	 */
 
-	 /*
-	  * TODO : What if the distribution column has changed by trigger ? We should
-	  * check that the corresponding data node has not changed.
-	  */
 	if (econtext)
 		econtext->ecxt_scantuple = newDataSlot;
 

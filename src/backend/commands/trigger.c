@@ -47,6 +47,9 @@
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/bytea.h"
+#ifdef PGXC
+#include "utils/datum.h"
+#endif
 #include "utils/fmgroids.h"
 #include "utils/inval.h"
 #include "utils/lsyscache.h"
@@ -98,6 +101,8 @@ static bool pgxc_is_trigger_firable(Relation rel, Trigger *trigger,
 									bool exec_all_triggers);
 static bool pgxc_is_internal_trig_firable(Relation rel, Trigger *trigger);
 static HeapTuple pgxc_get_trigger_tuple(HeapTupleHeader tuphead);
+static void pgxc_check_distcol_update(HeapTuple tup1, HeapTuple tup2,
+						  TupleDesc tupdesc, RelationLocInfo *rel_locinfo);
 #endif
 
 
@@ -2504,7 +2509,9 @@ ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 	Bitmapset  *modifiedCols;
 
 #ifdef PGXC
-	bool exec_all_triggers;
+	bool			exec_all_triggers;
+	RelationLocInfo	*rel_locinfo = RelationGetLocInfo(relinfo->ri_RelationDesc);
+
 	/*
 	 * Know whether we should fire triggers on this node. But since internal
 	 * triggers are an exception, we cannot bail out here.
@@ -2622,6 +2629,12 @@ ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 			ExecSetSlotDescriptor(newslot, tupdesc);
 		ExecStoreTuple(newtuple, newslot, InvalidBuffer, false);
 		slot = newslot;
+
+#ifdef PGXC
+		/* Make sure trigger did not modify distrib column */
+		if (rel_locinfo && IsRelationDistributedByValue(rel_locinfo))
+			pgxc_check_distcol_update(slottuple, newtuple, tupdesc, rel_locinfo);
+#endif
 	}
 	return slot;
 }
@@ -5954,4 +5967,48 @@ pgxc_get_trigger_tuple(HeapTupleHeader tuphead)
 
 	return heap_copytuple(&tuple);
 }
+
+/*
+ * pgxc_check_distcol_update:
+ * Compare the distribution column value in tup1 and tup2, and error out if it
+ * is different. This is called to make sure triggers have not updated the
+ * distribution column.
+ */
+static void
+pgxc_check_distcol_update(HeapTuple tup1, HeapTuple tup2,
+						  TupleDesc tupdesc, RelationLocInfo *rel_locinfo)
+{
+	Datum	old_distval;
+	Datum	new_distval;
+	bool	old_isnull;
+	bool	new_isnull;
+	Form_pg_attribute partAtt = tupdesc->attrs[rel_locinfo->partAttrNum - 1];
+
+	old_distval = heap_getattr(tup1, rel_locinfo->partAttrNum, tupdesc, &old_isnull);
+	new_distval = heap_getattr(tup2, rel_locinfo->partAttrNum, tupdesc, &new_isnull);
+
+	/*
+	 * On coordinator, the varlena types returned from datanodes should be
+	 * already detoasted, but still to be safe, make sure they are detoasted.
+	 * datumIsEqual() may or may not give correct results with toasted values.
+	 */
+	if (!partAtt->attbyval && partAtt->attlen == -1)
+	{
+		old_distval = PointerGetDatum(PG_DETOAST_DATUM(old_distval));
+		new_distval = PointerGetDatum(PG_DETOAST_DATUM(new_distval));
+	}
+
+	/*
+	 * If only one of them is NULL, that means it has been updated.
+	 * Compare the values if both of them are not-NULL.
+	 */
+	if (old_isnull != new_isnull ||
+		(!old_isnull && !new_isnull &&
+		 !datumIsEqual(old_distval, new_distval, partAtt->attbyval, partAtt->attlen)))
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
+				 errmsg("Partition column cannot be updated"),
+				 errdetail("Trigger function updated the partition column")));
+}
+
 #endif

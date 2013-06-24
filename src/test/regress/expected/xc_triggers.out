@@ -268,3 +268,71 @@ DROP FUNCTION insert_real() cascade;
 DROP FUNCTION update_real() cascade;
 DROP FUNCTION delete_real() cascade;
 DROP TABLE real_table;
+-- Test if distribution column value can be updated by a non-immutable trigger function.
+CREATE TABLE xc_trig_dist(id int, id2 int, id3 int, v varchar) distribute by replication;
+insert into xc_trig_dist values (NULL, 1, 1, 'ppppppppppp'), (2, 2, 2, 'qqqqqqqqqqq'), (3, 3, 3, 'rrrrrrrrrrr');
+CREATE FUNCTION xc_func_dist() RETURNS trigger AS $$
+declare
+    BEGIN
+		NEW.v = regexp_replace(NEW.v , 'pp$', 'xx');
+		if NEW.id is NULL then
+			NEW.id = 999;
+		else
+			NEW.id = NULL;
+		end if;
+
+		return NEW;
+    END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER xc_dist_trigger BEFORE UPDATE ON xc_trig_dist
+    FOR EACH ROW EXECUTE PROCEDURE xc_func_dist();
+--This should pass because the table is replicated.
+UPDATE xc_trig_dist set id3 = id3 * 2 where v like '%pppp%';
+SELECT * from xc_trig_dist order by id2;
+ id  | id2 | id3 |      v      
+-----+-----+-----+-------------
+ 999 |   1 |   2 | pppppppppxx
+   2 |   2 |   2 | qqqqqqqqqqq
+   3 |   3 |   3 | rrrrrrrrrrr
+(3 rows)
+
+-- Reinitialize the rows
+truncate table xc_trig_dist;
+insert into xc_trig_dist values (NULL, 1, 1, 'ppppppppppp'), (2, 2, 2, 'qqqqqqqqqqq'), (3, 3, 3, 'rrrrrrrrrrr');
+-- Now make the table distributed
+ALTER TABLE xc_trig_dist distribute by hash(v);
+--This should fail because v is a distributed col and trigger updates it.
+UPDATE xc_trig_dist set id3 = id3 * 2 where v like '%pppp%';
+ERROR:  Partition column cannot be updated
+DETAIL:  Trigger function updated the partition column
+ALTER TABLE xc_trig_dist distribute by hash(id);
+--This should fail because id is a distributed col and trigger updates it.
+UPDATE xc_trig_dist set id3 = id3 * 2 where v like '%pppp%';
+ERROR:  Partition column cannot be updated
+DETAIL:  Trigger function updated the partition column
+ALTER TABLE xc_trig_dist distribute by hash(id2);
+--This should pass because id2 is not updated.
+UPDATE xc_trig_dist set id3 = id3 * 2 where v like '%pppp%';
+UPDATE xc_trig_dist set id3 = id3 * 2 where v like '%qqq%';
+SELECT * from xc_trig_dist order by id2;
+ id  | id2 | id3 |      v      
+-----+-----+-----+-------------
+ 999 |   1 |   2 | pppppppppxx
+     |   2 |   4 | qqqqqqqqqqq
+   3 |   3 |   3 | rrrrrrrrrrr
+(3 rows)
+
+ALTER TABLE xc_trig_dist distribute by hash(v);
+--This should still pass because v does not get modified by the regexp_replace()
+-- function in the trigger function.
+UPDATE xc_trig_dist set id3 = id3 * 2 where v like '%pppp%';
+SELECT * from xc_trig_dist order by id2;
+ id | id2 | id3 |      v      
+----+-----+-----+-------------
+    |   1 |   4 | pppppppppxx
+    |   2 |   4 | qqqqqqqqqqq
+  3 |   3 |   3 | rrrrrrrrrrr
+(3 rows)
+
+DROP table xc_trig_dist cascade;
+DROP function xc_func_dist() cascade;
