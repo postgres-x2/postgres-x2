@@ -401,6 +401,15 @@ COPY <replaceable class="parameter">count</replaceable>
     constraints on the destination table. However, it will not invoke rules.
    </para>
 
+<!## XC>
+&xconly;
+   <para>
+    <productname>Postgres-XC</> does not support COPY FROM with ROW
+    triggers. COPY FROM will abort with an error if there are ROW INSERT
+    triggers defined for the table.
+   </para>
+<!## end>
+
    <para>
     <command>COPY</command> input and output is affected by
     <varname>DateStyle</varname>. To ensure portability to other
