@@ -119,3 +119,118 @@ CREATE TABLE xc_copy_4 (c1 int) DISTRIBUTE BY HASH(c1);
 COPY (SELECT pclocatortype,pcattnum,pchashalgorithm,pchashbuckets FROM pgxc_class WHERE pgxc_class.pcrelid = 'xc_copy_4'::regclass) TO stdout;
 H	1	1	4096
 DROP TABLE xc_copy_4;
+-- ///////////////////////////
+-- Test COPY TO and FROM from various types of tables
+-- ///////////////////////////
+-- create some tables
+select create_table_nodes('tbl_r_n12(a int, b int)', '{1, 2}'::int[], 'replication', NULL);
+ create_table_nodes 
+--------------------
+ 
+(1 row)
+
+select create_table_nodes('tbl_r_n2(a int, b int)', '{2}'::int[], 'replication', NULL);
+ create_table_nodes 
+--------------------
+ 
+(1 row)
+
+select create_table_nodes('tbl_rr_n12(a int, b int)', '{1, 2}'::int[], 'roundrobin', NULL);
+ create_table_nodes 
+--------------------
+ 
+(1 row)
+
+select create_table_nodes('tbl_rr_n2(a int, b int)', '{2}'::int[], 'roundrobin', NULL);
+ create_table_nodes 
+--------------------
+ 
+(1 row)
+
+select create_table_nodes('tbl_h_n12(a int, b int)', '{1, 2}'::int[], 'hash(a)', NULL);
+ create_table_nodes 
+--------------------
+ 
+(1 row)
+
+select create_table_nodes('tbl_h_n2(a int, b int)', '{2}'::int[], 'hash(a)', NULL);
+ create_table_nodes 
+--------------------
+ 
+(1 row)
+
+-- try copy from replicated table
+copy tbl_r_n12(a,b) from stdin;
+copy tbl_r_n2(a,b) from stdin;
+-- try copy from round robin table
+copy tbl_rr_n12(a,b) from stdin;
+copy tbl_rr_n2(a,b) from stdin;
+-- try copy from hash distributed table
+copy tbl_h_n12(a,b) from stdin;
+copy tbl_h_n2(a,b) from stdin;
+-- confirm copy from
+select * from tbl_r_n12;
+ a | b  
+---+----
+   | 11
+(1 row)
+
+select * from tbl_r_n2;
+ a | b  
+---+----
+   | 11
+(1 row)
+
+select * from tbl_rr_n12;
+ a | b  
+---+----
+   | 11
+(1 row)
+
+select * from tbl_rr_n2;
+ a | b  
+---+----
+   | 11
+(1 row)
+
+select * from tbl_h_n12;
+ a | b  
+---+----
+   | 11
+(1 row)
+
+select * from tbl_h_n2;
+ a | b  
+---+----
+   | 11
+(1 row)
+
+-- change some data
+update tbl_r_n12 set b = 999 where a is null;
+update tbl_r_n2 set b = 999 where a is null;
+update tbl_rr_n12 set b = 999 where a is null;
+update tbl_rr_n2 set b = 999 where a is null;
+update tbl_h_n12 set b = 999 where a is null;
+update tbl_h_n2 set b = 999 where a is null;
+-- try copy to a replicated table
+copy tbl_r_n12 (a,b) to stdout;
+\N	999
+copy tbl_r_n2 (a,b) to stdout;
+\N	999
+-- try copy to a round robin table
+copy tbl_rr_n12 (a,b) to stdout;
+\N	999
+copy tbl_rr_n2 (a,b) to stdout;
+\N	999
+-- try copy to a hash distributed table
+copy tbl_h_n12 (a,b) to stdout;
+\N	999
+copy tbl_h_n2 (a,b) to stdout;
+\N	999
+-- clean up
+drop table if exists tbl_r_n12;
+drop table if exists tbl_r_n2;
+drop table if exists tbl_rr_n12;
+drop table if exists tbl_rr_n2;
+drop table if exists tbl_h_n12;
+drop table if exists tbl_h_n2;
