@@ -190,3 +190,290 @@ SELECT * FROM xc_alter_table_3_v;
 ALTER TABLE xc_alter_table_3 ADD COLUMN b int, DISTRIBUTE BY HASH(a);
 -- Clean up
 DROP TABLE xc_alter_table_3 CASCADE;
+
+-- ////////////////////////////////////////
+-- ///////// Test many variations of alter table
+-- ////////////////////////////////////////
+
+
+select create_table_nodes('tbl_r_n12(a int, b int)', '{1, 2}'::int[], 'replication', NULL);
+select create_table_nodes('tbl_r_n1(a int, b int)', '{1}'::int[], 'replication', NULL);
+select create_table_nodes('tbl_r_n2(a int, b int)', '{2}'::int[], 'replication', NULL);
+
+select create_table_nodes('tbl_rr_n12(a int, b int)', '{1, 2}'::int[], 'roundrobin', NULL);
+select create_table_nodes('tbl_rr_n1(a int, b int)', '{1}'::int[], 'roundrobin', NULL);
+select create_table_nodes('tbl_rr_n2(a int, b int)', '{2}'::int[], 'roundrobin', NULL);
+
+select create_table_nodes('tbl_h_n12(a int, b int)', '{1, 2}'::int[], 'hash(a)', NULL);
+select create_table_nodes('tbl_h_n1(a int, b int)', '{1}'::int[], 'hash(a)', NULL);
+select create_table_nodes('tbl_h_n2(a int, b int)', '{2}'::int[], 'hash(a)', NULL);
+
+
+insert into tbl_r_n12 VALUES(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+insert into tbl_r_n1 VALUES(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+insert into tbl_r_n2 VALUES(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+
+insert into tbl_rr_n12 VALUES(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+insert into tbl_rr_n1 VALUES(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+insert into tbl_rr_n2 VALUES(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+
+insert into tbl_h_n12 VALUES(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+insert into tbl_h_n1 VALUES(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+insert into tbl_h_n2 VALUES(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+
+
+select * from tbl_r_n12 order by 1;
+select * from tbl_r_n1 order by 1;
+select * from tbl_r_n2 order by 1;
+
+select * from tbl_rr_n12 order by 1;
+select * from tbl_rr_n1 order by 1;
+select * from tbl_rr_n2 order by 1;
+
+select * from tbl_h_n12 order by 1;
+select * from tbl_h_n1 order by 1;
+select * from tbl_h_n2 order by 1;
+
+
+-- ////////////////////////////////////////
+-- rep to rep
+ALTER TABLE tbl_r_n12 distribute by replication;
+SELECT * FROM tbl_r_n12 order by 1;
+delete from tbl_r_n12;
+insert into tbl_r_n12 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_r_n12 distribute by replication;
+
+-- rep to rr
+ALTER TABLE tbl_r_n12 distribute by roundrobin;
+SELECT * FROM tbl_r_n12 order by 1;
+delete from tbl_r_n12;
+insert into tbl_r_n12 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_r_n12 distribute by replication;
+
+-- rep to hash
+ALTER TABLE tbl_r_n12 distribute by hash(a);
+SELECT * FROM tbl_r_n12 order by 1;
+delete from tbl_r_n12;
+insert into tbl_r_n12 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_r_n12 distribute by replication;
+
+-- ////////////////////////////////////////
+
+-- rep to rep
+ALTER TABLE tbl_r_n1 distribute by replication;
+SELECT * FROM tbl_r_n1 order by 1;
+delete from tbl_r_n1;
+insert into tbl_r_n1 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_r_n1 distribute by replication;
+
+-- rep to rr
+ALTER TABLE tbl_r_n1 distribute by roundrobin;
+SELECT * FROM tbl_r_n1 order by 1;
+delete from tbl_r_n1;
+insert into tbl_r_n1 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_r_n1 distribute by replication;
+
+-- rep to hash
+ALTER TABLE tbl_r_n1 distribute by hash(a);
+SELECT * FROM tbl_r_n1 order by 1;
+delete from tbl_r_n1;
+insert into tbl_r_n1 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_r_n1 distribute by replication;
+
+-- ////////////////////////////////////////
+
+-- rep to rep
+ALTER TABLE tbl_r_n2 distribute by replication;
+SELECT * FROM tbl_r_n2 order by 1;
+delete from tbl_r_n2;
+insert into tbl_r_n2 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_r_n2 distribute by replication;
+
+-- rep to rr
+ALTER TABLE tbl_r_n2 distribute by roundrobin;
+SELECT * FROM tbl_r_n2 order by 1;
+delete from tbl_r_n2;
+insert into tbl_r_n2 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_r_n2 distribute by replication;
+
+-- rep to hash
+ALTER TABLE tbl_r_n2 distribute by hash(a);
+SELECT * FROM tbl_r_n2 order by 1;
+delete from tbl_r_n2;
+insert into tbl_r_n2 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_r_n2 distribute by replication;
+
+-- ////////////////////////////////////////
+
+-- rr to rep
+ALTER TABLE tbl_rr_n12 distribute by replication;
+SELECT * FROM tbl_rr_n12 order by 1;
+delete from tbl_rr_n12;
+insert into tbl_rr_n12 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_rr_n12 distribute by roundrobin;
+
+-- rr to rr
+ALTER TABLE tbl_rr_n12 distribute by roundrobin;
+SELECT * FROM tbl_rr_n12 order by 1;
+delete from tbl_rr_n12;
+insert into tbl_rr_n12 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_rr_n12 distribute by roundrobin;
+
+-- rr to hash
+ALTER TABLE tbl_rr_n12 distribute by hash(a);
+SELECT * FROM tbl_rr_n12 order by 1;
+delete from tbl_rr_n12;
+insert into tbl_rr_n12 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_rr_n12 distribute by roundrobin;
+
+-- ////////////////////////////////////////
+
+
+-- rr to rep
+ALTER TABLE tbl_rr_n1 distribute by replication;
+SELECT * FROM tbl_rr_n1 order by 1;
+delete from tbl_rr_n1;
+insert into tbl_rr_n1 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_rr_n1 distribute by roundrobin;
+
+-- rr to rr
+ALTER TABLE tbl_rr_n1 distribute by roundrobin;
+SELECT * FROM tbl_rr_n1 order by 1;
+delete from tbl_rr_n1;
+insert into tbl_rr_n1 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_rr_n1 distribute by roundrobin;
+
+-- rr to hash
+ALTER TABLE tbl_rr_n1 distribute by hash(a);
+SELECT * FROM tbl_rr_n1 order by 1;
+delete from tbl_rr_n1;
+insert into tbl_rr_n1 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_rr_n1 distribute by roundrobin;
+
+-- ////////////////////////////////////////
+
+
+-- rr to rep
+ALTER TABLE tbl_rr_n2 distribute by replication;
+SELECT * FROM tbl_rr_n2 order by 1;
+delete from tbl_rr_n2;
+insert into tbl_rr_n2 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_rr_n2 distribute by roundrobin;
+
+-- rr to rr
+ALTER TABLE tbl_rr_n2 distribute by roundrobin;
+SELECT * FROM tbl_rr_n2 order by 1;
+delete from tbl_rr_n2;
+insert into tbl_rr_n2 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_rr_n2 distribute by roundrobin;
+
+-- rr to hash
+ALTER TABLE tbl_rr_n2 distribute by hash(a);
+SELECT * FROM tbl_rr_n2 order by 1;
+delete from tbl_rr_n2;
+insert into tbl_rr_n2 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_rr_n2 distribute by roundrobin;
+
+-- ////////////////////////////////////////
+
+-- hash to rep
+ALTER TABLE tbl_h_n12 distribute by replication;
+SELECT * FROM tbl_h_n12 order by 1;
+delete from tbl_h_n12;
+insert into tbl_h_n12 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_h_n12 distribute by hash(a);
+
+-- hash to rr
+ALTER TABLE tbl_h_n12 distribute by roundrobin;
+SELECT * FROM tbl_h_n12 order by 1;
+delete from tbl_h_n12;
+insert into tbl_h_n12 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_h_n12 distribute by hash(a);
+
+-- hash to hash
+ALTER TABLE tbl_h_n12 distribute by hash(a);
+SELECT * FROM tbl_h_n12 order by 1;
+delete from tbl_h_n12;
+insert into tbl_h_n12 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_h_n12 distribute by hash(a);
+
+ALTER TABLE tbl_h_n12 distribute by hash(b);
+SELECT * FROM tbl_h_n12 order by 1;
+delete from tbl_h_n12;
+insert into tbl_h_n12 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_h_n12 distribute by hash(a);
+
+-- ////////////////////////////////////////
+
+-- hash to rep
+ALTER TABLE tbl_h_n1 distribute by replication;
+SELECT * FROM tbl_h_n1 order by 1;
+delete from tbl_h_n1;
+insert into tbl_h_n1 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_h_n1 distribute by hash(a);
+
+-- hash to rr
+ALTER TABLE tbl_h_n1 distribute by roundrobin;
+SELECT * FROM tbl_h_n1 order by 1;
+delete from tbl_h_n1;
+insert into tbl_h_n1 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_h_n1 distribute by hash(a);
+
+-- hash to hash
+ALTER TABLE tbl_h_n1 distribute by hash(a);
+SELECT * FROM tbl_h_n1 order by 1;
+delete from tbl_h_n1;
+insert into tbl_h_n1 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_h_n1 distribute by hash(a);
+
+ALTER TABLE tbl_h_n1 distribute by hash(b);
+SELECT * FROM tbl_h_n1 order by 1;
+delete from tbl_h_n1;
+insert into tbl_h_n1 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_h_n1 distribute by hash(a);
+
+-- ////////////////////////////////////////
+
+-- hash to rep
+ALTER TABLE tbl_h_n2 distribute by replication;
+SELECT * FROM tbl_h_n2 order by 1;
+delete from tbl_h_n2;
+insert into tbl_h_n2 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_h_n2 distribute by hash(a);
+
+-- hash to rr
+ALTER TABLE tbl_h_n2 distribute by roundrobin;
+SELECT * FROM tbl_h_n2 order by 1;
+delete from tbl_h_n2;
+insert into tbl_h_n2 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_h_n2 distribute by hash(a);
+
+-- hash to hash
+ALTER TABLE tbl_h_n2 distribute by hash(a);
+SELECT * FROM tbl_h_n2 order by 1;
+delete from tbl_h_n2;
+insert into tbl_h_n2 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_h_n2 distribute by hash(a);
+
+ALTER TABLE tbl_h_n2 distribute by hash(b);
+SELECT * FROM tbl_h_n2 order by 1;
+delete from tbl_h_n2;
+insert into tbl_h_n2 values(1,777),(3,4),(5,6),(20,30),(NULL,999), (NULL, 999);
+ALTER TABLE tbl_h_n2 distribute by hash(a);
+
+
+
+
+
+drop table if exists tbl_r_n12;
+drop table if exists tbl_r_n1;
+drop table if exists tbl_r_n2;
+
+drop table if exists tbl_rr_n12;
+drop table if exists tbl_rr_n1;
+drop table if exists tbl_rr_n2;
+
+drop table if exists tbl_h_n12;
+drop table if exists tbl_h_n1;
+drop table if exists tbl_h_n2;
+

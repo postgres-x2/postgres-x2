@@ -753,12 +753,29 @@ distrib_delete_hash(RedistribState *distribState, ExecNodes *exec_nodes)
 		 */
 		buf2 = makeStringInfo();
 		if (hashfuncname)
-			appendStringInfo(buf2, "%s WHERE abs(%s(%s)) %% %d != %d",
-							 buf->data, hashfuncname, colname,
-							 list_length(locinfo->nodeList), nodepos);
+		{
+			/* Lets leave NULLs on the first node and delete from the rest */
+			if (nodepos != 0)
+				appendStringInfo(buf2, "%s WHERE %s IS NULL OR abs(%s(%s)) %% %d != %d",
+								buf->data, colname, hashfuncname, colname,
+								list_length(locinfo->nodeList), nodepos);
+			else
+				appendStringInfo(buf2, "%s WHERE abs(%s(%s)) %% %d != %d",
+								buf->data, hashfuncname, colname,
+								list_length(locinfo->nodeList), nodepos);
+		}
 		else
-			appendStringInfo(buf2, "%s WHERE abs(%s) %% %d != %d", buf->data, colname,
-							 list_length(locinfo->nodeList), nodepos);
+		{
+			/* Lets leave NULLs on the first node and delete from the rest */
+			if (nodepos != 0)
+				appendStringInfo(buf2, "%s WHERE %s IS NULL OR abs(%s) %% %d != %d",
+								buf->data, colname, colname,
+								list_length(locinfo->nodeList), nodepos);
+			else
+				appendStringInfo(buf2, "%s WHERE abs(%s) %% %d != %d",
+								buf->data, colname,
+								list_length(locinfo->nodeList), nodepos);
+		}
 
 		/* Then launch this single query */
 		distrib_execute_query(buf2->data, IsTempTable(relOid), local_exec_nodes);
