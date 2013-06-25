@@ -959,7 +959,7 @@ UPDATE city_view v SET population = 599657
 
 \set QUIET true
 
-SELECT * FROM city_view;
+SELECT * FROM city_view order by 1;
 
 DROP TABLE city_table CASCADE;
 DROP TABLE country_table;

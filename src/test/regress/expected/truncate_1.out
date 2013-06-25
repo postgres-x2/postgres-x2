@@ -414,15 +414,15 @@ ERROR:  current transaction is aborted, commands ignored until end of transactio
 ROLLBACK;
 INSERT INTO truncate_a DEFAULT VALUES;
 INSERT INTO truncate_a DEFAULT VALUES;
-SELECT * FROM truncate_a;
+SELECT * FROM truncate_a order by 1,2;
  id | id1 
 ----+-----
-  5 |  37
-  6 |  38
-  8 |  40
   3 |  35
   4 |  36
+  5 |  37
+  6 |  38
   7 |  39
+  8 |  40
 (6 rows)
 
 DROP TABLE truncate_a;

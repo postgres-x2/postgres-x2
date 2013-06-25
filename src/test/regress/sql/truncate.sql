@@ -210,7 +210,7 @@ SELECT * FROM truncate_a;
 ROLLBACK;
 INSERT INTO truncate_a DEFAULT VALUES;
 INSERT INTO truncate_a DEFAULT VALUES;
-SELECT * FROM truncate_a;
+SELECT * FROM truncate_a order by 1,2;
 
 DROP TABLE truncate_a;
 
