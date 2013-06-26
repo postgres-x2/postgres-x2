@@ -56,10 +56,12 @@ test: create_misc create_operator
 # These depend on the above two
 test: create_index create_view
 
+# Postgres-XC : Removed this test from the parallel group of tests since it used to give inconsistent plan outputs.
+test: inherit
 # ----------
 # Another group of parallel tests
 # ----------
-test: create_aggregate create_function_3 create_cast constraints triggers inherit create_table_like typed_table vacuum drop_if_exists
+test: create_aggregate create_function_3 create_cast constraints triggers create_table_like typed_table vacuum drop_if_exists
 
 # ----------
 # sanity_check does a vacuum, affecting the sort order of SELECT *
