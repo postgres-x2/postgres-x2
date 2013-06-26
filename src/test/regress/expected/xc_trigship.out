@@ -110,11 +110,11 @@ CREATE TRIGGER brtrig1 BEFORE INSERT OR UPDATE OR DELETE ON xctrigemp1
 :RUN_INSERT;
 INSERT 0 5
 :EXP :RUN_UPDATE;
-                                                            QUERY PLAN                                                            
-----------------------------------------------------------------------------------------------------------------------------------
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
  Data Node Scan on "__REMOTE_FQS_QUERY__"
    Output: ((xctrigemp1.empsal + (1000)::double precision)), xctrigemp1.empname, ((xctrigemp1.empsal + (1000)::double precision))
-   Remote query: UPDATE xctrigemp1 SET empsal = (empsal + (1000)::double precision) WHERE ((empname)::text <> 'Dummy'::text)
+   Remote query: UPDATE xc_trigship.xctrigemp1 SET empsal = (empsal + (1000)::double precision) WHERE ((empname)::text <> 'Dummy'::text)
 (3 rows)
 
 :RUN_UPDATE;
@@ -177,11 +177,11 @@ TRUNCATE TABLE
 :RUN_INSERT;
 INSERT 0 5
 :EXP :RUN_UPDATE;
-                                                            QUERY PLAN                                                            
-----------------------------------------------------------------------------------------------------------------------------------
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
  Data Node Scan on "__REMOTE_FQS_QUERY__"
    Output: ((xctrigemp1.empsal + (1000)::double precision)), xctrigemp1.empname, ((xctrigemp1.empsal + (1000)::double precision))
-   Remote query: UPDATE xctrigemp1 SET empsal = (empsal + (1000)::double precision) WHERE ((empname)::text <> 'Dummy'::text)
+   Remote query: UPDATE xc_trigship.xctrigemp1 SET empsal = (empsal + (1000)::double precision) WHERE ((empname)::text <> 'Dummy'::text)
 (3 rows)
 
 :RUN_UPDATE;
@@ -586,11 +586,11 @@ TRUNCATE TABLE
 :RUN_INSERT;
 INSERT 0 6
 :EXP :RUN_UPDATE;
-                                                            QUERY PLAN                                                            
-----------------------------------------------------------------------------------------------------------------------------------
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
  Data Node Scan on "__REMOTE_FQS_QUERY__"
    Output: ((xctrigemp1.empsal + (1000)::double precision)), xctrigemp1.empname, ((xctrigemp1.empsal + (1000)::double precision))
-   Remote query: UPDATE xctrigemp1 SET empsal = (empsal + (1000)::double precision) WHERE ((empname)::text <> 'Dummy'::text)
+   Remote query: UPDATE xc_trigship.xctrigemp1 SET empsal = (empsal + (1000)::double precision) WHERE ((empname)::text <> 'Dummy'::text)
 (3 rows)
 
 :RUN_UPDATE;
@@ -646,10 +646,10 @@ INSERT 0 6
                                                                                         QUERY PLAN                                                                                        
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Update on xc_trigship.xctrigemp1
-   Remote query: UPDATE ONLY xctrigemp1 SET empsal = $3 WHERE (xctrigemp1.ctid = $6)
+   Remote query: UPDATE ONLY xc_trigship.xctrigemp1 SET empsal = $3 WHERE (xctrigemp1.ctid = $6)
    ->  Data Node Scan on xctrigemp1 "_REMOTE_TABLE_QUERY_"
          Output: xctrigemp1.id, xctrigemp1.empname, (xctrigemp1.empsal + 1000::double precision), xctrigemp1.empadd, xctrigemp1.trigop, xctrigemp1.empname, xctrigemp1.ctid, xctrigemp1.*
-         Remote query: SELECT id, empname, empsal, empadd, trigop, ctid, xctrigemp1.*::xctrigemp1 FROM ONLY xctrigemp1 WHERE ((empname)::text <> 'Dummy'::text)
+         Remote query: SELECT id, empname, empsal, empadd, trigop, ctid, xctrigemp1.*::xc_trigship.xctrigemp1 FROM ONLY xc_trigship.xctrigemp1 WHERE ((empname)::text <> 'Dummy'::text)
 (5 rows)
 
 :RUN_UPDATE;

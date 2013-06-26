@@ -2800,15 +2800,62 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
  * deparse_query			- Parse back one query parsetree
  *
  * Purpose of this function is to build up statement for a RemoteQuery
- * It just calls get_query_def without pretty print flags
+ * The query generated has all object names schema-qualified. This is
+ * done by temporarily setting search_path to NIL.
+ * It calls get_query_def without pretty print flags.
  * ----------
  */
 void
 deparse_query(Query *query, StringInfo buf, List *parentnamespace,
 				bool finalise_aggs, bool sortgroup_colno)
 {
+	OverrideSearchPath	*tmp_search_path;
+	List				*schema_list;
+	ListCell			*schema;
+
+	/*
+	 * Before deparsing the query, set the search_patch to NIL so that all the
+	 * object names in the deparsed query are schema qualified. This is required
+	 * so as to not have any dependency on current search_path. For e.g the same
+	 * remote query can be used even if search_path changes between two executes
+	 * of a prepared statement.
+	 * Note: We do not apply the above solution for temp tables for reasons shown
+	 * in the below comment.
+	 */
+	tmp_search_path = GetOverrideSearchPath(CurrentMemoryContext);
+
+	tmp_search_path->addTemp = true;
+	schema_list = tmp_search_path->schemas;
+	foreach(schema, schema_list)
+	{
+		if (isTempNamespace(lfirst_oid(schema)))
+		{
+			 /* Is pg_temp the very first item ? If no, that means temp objects
+			  * should be qualified, otherwise the object name would possibly
+			  * be resolved from some other schema. We force schema
+			  * qualification by making sure the overridden search_path does not
+			  * have pg_temp implicitly added.
+			  * Why do we not *always* let the pg_temp qualification be there ?
+			  * Because the pg_temp schema name always gets deparsed into the
+			  * actual temp schema names like pg_temp_[1-9]*, and not the dummy
+			  * name pg_temp. And we do not want to use these names because
+			  * they are specific to the local node. pg_temp_2.obj1 at node 1
+			  * may be present in pg_temp_3 at node2.
+			  */
+			if (list_head(schema_list) != schema)
+				tmp_search_path->addTemp = false;
+
+			break;
+		}
+	}
+
+	tmp_search_path->schemas = NIL;
+	PushOverrideSearchPath(tmp_search_path);
+
 	get_query_def(query, buf, parentnamespace, NULL, 0, 0, finalise_aggs,
 					sortgroup_colno);
+
+	PopOverrideSearchPath();
 }
 #endif
 /* ----------

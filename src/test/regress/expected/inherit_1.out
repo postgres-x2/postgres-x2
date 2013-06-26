@@ -1324,8 +1324,8 @@ insert into matest3 (name) values ('Test 5');
 insert into matest3 (name) values ('Test 6');
 set enable_indexscan = off;  -- force use of seqscan/sort, so no merge
 explain (verbose, costs off, nodes off) select * from matest0 order by 1-id;
-                                       QUERY PLAN                                       
-----------------------------------------------------------------------------------------
+                                          QUERY PLAN                                           
+-----------------------------------------------------------------------------------------------
  Sort
    Output: public.matest0.id, public.matest0.name, ((1 - public.matest0.id))
    Sort Key: ((1 - public.matest0.id))
@@ -1334,16 +1334,16 @@ explain (verbose, costs off, nodes off) select * from matest0 order by 1-id;
          ->  Append
                ->  Data Node Scan on matest0 "_REMOTE_TABLE_QUERY_"
                      Output: public.matest0.id, public.matest0.name
-                     Remote query: SELECT id, name FROM ONLY matest0 WHERE true
+                     Remote query: SELECT id, name FROM ONLY public.matest0 WHERE true
                ->  Data Node Scan on matest1 "_REMOTE_TABLE_QUERY_"
                      Output: public.matest0.id, public.matest0.name
-                     Remote query: SELECT id, name FROM ONLY matest1 matest0 WHERE true
+                     Remote query: SELECT id, name FROM ONLY public.matest1 matest0 WHERE true
                ->  Data Node Scan on matest2 "_REMOTE_TABLE_QUERY_"
                      Output: public.matest0.id, public.matest0.name
-                     Remote query: SELECT id, name FROM ONLY matest2 matest0 WHERE true
+                     Remote query: SELECT id, name FROM ONLY public.matest2 matest0 WHERE true
                ->  Data Node Scan on matest3 "_REMOTE_TABLE_QUERY_"
                      Output: public.matest0.id, public.matest0.name
-                     Remote query: SELECT id, name FROM ONLY matest3 matest0 WHERE true
+                     Remote query: SELECT id, name FROM ONLY public.matest3 matest0 WHERE true
 (18 rows)
 
 select * from matest0 order by 1-id;
@@ -1360,8 +1360,8 @@ select * from matest0 order by 1-id;
 reset enable_indexscan;
 set enable_seqscan = off;  -- plan with fewest seqscans should be merge
 explain (verbose, costs off, nodes off) select * from matest0 order by 1-id;
-                                       QUERY PLAN                                       
-----------------------------------------------------------------------------------------
+                                          QUERY PLAN                                           
+-----------------------------------------------------------------------------------------------
  Sort
    Output: public.matest0.id, public.matest0.name, ((1 - public.matest0.id))
    Sort Key: ((1 - public.matest0.id))
@@ -1370,16 +1370,16 @@ explain (verbose, costs off, nodes off) select * from matest0 order by 1-id;
          ->  Append
                ->  Data Node Scan on matest0 "_REMOTE_TABLE_QUERY_"
                      Output: public.matest0.id, public.matest0.name
-                     Remote query: SELECT id, name FROM ONLY matest0 WHERE true
+                     Remote query: SELECT id, name FROM ONLY public.matest0 WHERE true
                ->  Data Node Scan on matest1 "_REMOTE_TABLE_QUERY_"
                      Output: public.matest0.id, public.matest0.name
-                     Remote query: SELECT id, name FROM ONLY matest1 matest0 WHERE true
+                     Remote query: SELECT id, name FROM ONLY public.matest1 matest0 WHERE true
                ->  Data Node Scan on matest2 "_REMOTE_TABLE_QUERY_"
                      Output: public.matest0.id, public.matest0.name
-                     Remote query: SELECT id, name FROM ONLY matest2 matest0 WHERE true
+                     Remote query: SELECT id, name FROM ONLY public.matest2 matest0 WHERE true
                ->  Data Node Scan on matest3 "_REMOTE_TABLE_QUERY_"
                      Output: public.matest0.id, public.matest0.name
-                     Remote query: SELECT id, name FROM ONLY matest3 matest0 WHERE true
+                     Remote query: SELECT id, name FROM ONLY public.matest3 matest0 WHERE true
 (18 rows)
 
 select * from matest0 order by 1-id;
