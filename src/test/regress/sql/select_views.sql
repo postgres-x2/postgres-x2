@@ -3,9 +3,9 @@
 -- test the views defined in CREATE_VIEWS
 --
 
-SELECT * FROM street ORDER BY name,cname,thepath::text;
+SELECT * FROM street ORDER BY name using ~<~, cname using ~<~,thepath::text using ~<~ ;
 
-SELECT name, #thepath FROM iexit ORDER BY 1, 2;
+SELECT name, #thepath FROM iexit ORDER BY name using ~<~, 2;
 
 SELECT * FROM toyemp WHERE name = 'sharon';
 
@@ -90,10 +90,10 @@ SET SESSION AUTHORIZATION regress_alice;
 --           prior to the security policy of the view.
 --
 SELECT * FROM my_property_normal WHERE f_leak(passwd);
-EXPLAIN (COSTS OFF) SELECT * FROM my_property_normal WHERE f_leak(passwd);
+EXPLAIN (COSTS OFF, NODES OFF) SELECT * FROM my_property_normal WHERE f_leak(passwd);
 
 SELECT * FROM my_property_secure WHERE f_leak(passwd);
-EXPLAIN (COSTS OFF) SELECT * FROM my_property_secure WHERE f_leak(passwd);
+EXPLAIN (COSTS OFF, NODES OFF) SELECT * FROM my_property_secure WHERE f_leak(passwd);
 
 --
 -- scenario: if a qualifier references only one-side of a particular join-
@@ -101,10 +101,10 @@ EXPLAIN (COSTS OFF) SELECT * FROM my_property_secure WHERE f_leak(passwd);
 --           possible as we can.
 --
 SELECT * FROM my_credit_card_normal WHERE f_leak(cnum);
-EXPLAIN (COSTS OFF) SELECT * FROM my_credit_card_normal WHERE f_leak(cnum);
+EXPLAIN (COSTS OFF, NODES OFF) SELECT * FROM my_credit_card_normal WHERE f_leak(cnum);
 
 SELECT * FROM my_credit_card_secure WHERE f_leak(cnum);
-EXPLAIN (COSTS OFF) SELECT * FROM my_credit_card_secure WHERE f_leak(cnum);
+EXPLAIN (COSTS OFF, NODES OFF) SELECT * FROM my_credit_card_secure WHERE f_leak(cnum);
 
 --
 -- scenario: an external qualifier can be pushed-down by in-front-of the
@@ -113,12 +113,12 @@ EXPLAIN (COSTS OFF) SELECT * FROM my_credit_card_secure WHERE f_leak(cnum);
 --
 SELECT * FROM my_credit_card_usage_normal
        WHERE f_leak(cnum) AND ymd >= '2011-10-01' AND ymd < '2011-11-01';
-EXPLAIN (COSTS OFF) SELECT * FROM my_credit_card_usage_normal
+EXPLAIN (COSTS OFF, NODES OFF) SELECT * FROM my_credit_card_usage_normal
        WHERE f_leak(cnum) AND ymd >= '2011-10-01' AND ymd < '2011-11-01';
 
 SELECT * FROM my_credit_card_usage_secure
        WHERE f_leak(cnum) AND ymd >= '2011-10-01' AND ymd < '2011-11-01';
-EXPLAIN (COSTS OFF) SELECT * FROM my_credit_card_usage_secure
+EXPLAIN (COSTS OFF, NODES OFF) SELECT * FROM my_credit_card_usage_secure
        WHERE f_leak(cnum) AND ymd >= '2011-10-01' AND ymd < '2011-11-01';
 
 --
